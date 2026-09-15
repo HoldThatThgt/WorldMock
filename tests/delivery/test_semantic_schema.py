@@ -90,6 +90,17 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
     assert '语义候选只有 target' in project['verify']['extra_criteria']
 
 
+@pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
+def test_process_prompt_requires_thematic_aggregation_before_output(task):
+    project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+    instruction = project['annotate']['instruction']
+
+    assert '先按活动阶段或因果主题合并证据' in instruction
+    assert '一条 claim 可以引用多个事件' in instruction
+    assert '禁止逐事件、逐目录项、逐终态字段或逐条未变化的起止状态复述' in instruction
+    assert '输出前合并到最多 32 条 claims' in instruction
+
+
 def test_default_output_limit_is_a_cap_for_bounded_semantic_summary():
     config = tomllib.loads((ROOT / 'labelkit-projects/config.toml').read_text())
 

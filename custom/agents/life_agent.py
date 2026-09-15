@@ -362,7 +362,7 @@ class LifeAgent(PersonAgent):
     ) -> str:
         """@brief 在执行任何工具前验证闭集参数和原子动作数量。"""
         if readonly != self._life_readonly:
-            return "LifeAgent readonly decision state is inconsistent"
+            raise RuntimeError("LifeAgent readonly decision state is inconsistent")
         models = _READONLY_TOOL_MODELS if readonly else _TOOL_MODELS
         business = [item for item in decisions if item.action in REQUEST_MODELS]
         if len(business) > 1:

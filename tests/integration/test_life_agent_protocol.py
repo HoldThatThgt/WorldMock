@@ -31,7 +31,12 @@ from custom.agents.life_agent import (
     life_prompt_sha256,
     life_tool_schema_sha256,
 )
-from worldmock.life.models import ActionReceipt, REQUEST_MODELS, StartBasicActivityRequest
+from worldmock.life.models import (
+    ActionReceipt,
+    REQUEST_MODELS,
+    StartBasicActivityRequest,
+    StartTargetedActivityRequest,
+)
 
 
 _MEMORY_TOOL_NAMES = {
@@ -232,7 +237,7 @@ class _ModelResponse:
 
     def __init__(self, call_id: str, name: str, arguments: str) -> None:
         function = SimpleNamespace(name=name, arguments=arguments)
-        tool_call = SimpleNamespace(id=call_id, function=function)
+        tool_call = SimpleNamespace(id=call_id, type="function", function=function)
         message = SimpleNamespace(tool_calls=[tool_call], content="")
         self.choices = [SimpleNamespace(message=message)]
         self._call_id = call_id
@@ -357,6 +362,40 @@ class _PrematureFinishDispatcher:
         """返回协议非法的提前结束调用。"""
         self.requests.append(request)
         return _ModelResponse("call-finish", "finish", json.dumps(_finish_args()))
+
+
+class _GroundedCorrectionDispatcher:
+    """复现记忆查询后捏造旧游戏工具并自行纠正的响应序列。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self, responses: list[_ModelResponse] | None = None) -> None:
+        self.requests = []
+        defaults = [
+            _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
+            _ModelResponse(
+                "call-invalid",
+                "play_game",
+                '{"game_id":"game-visible","planned_duration_seconds":600}',
+            ),
+            _ModelResponse(
+                "call-action",
+                "start_targeted_activity",
+                json.dumps({
+                    "activity_type": "play_game",
+                    "target_id": "game-visible",
+                    "planned_duration_seconds": 600,
+                    "playback_speed": 1,
+                }),
+            ),
+            _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+        ]
+        self.responses = list(responses) if responses is not None else defaults
+
+    async def call(self, **request):
+        """记录真实 wire 并返回下一个协议响应。"""
+        self.requests.append(request)
+        return self.responses.pop(0)
 
 
 class _StepEnvironment(_Environment):
@@ -535,7 +574,7 @@ def test_life_actions_are_removed_after_one_submission() -> None:
 
 @pytest.mark.asyncio
 async def test_native_react_rejects_finish_before_life_action() -> None:
-    """原生请求不开放 finish，模型非法注入时在执行前终止。"""
+    """最后回合的非法 finish 不执行且按既有预算失败。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _PrematureFinishDispatcher()
@@ -552,7 +591,7 @@ async def test_native_react_rejects_finish_before_life_action() -> None:
         SimpleNamespace(attributes={})
     )
 
-    with pytest.raises(RuntimeError, match="unknown native tool calls.*finish"):
+    with pytest.raises(RuntimeError, match="decision budget exhausted"):
         await agent.run_react_loop(
             ReactLoopRequest(0, _context().observed_at, _observations())
         )
@@ -565,6 +604,142 @@ async def test_native_react_rejects_finish_before_life_action() -> None:
     assert environment.calls == []
     assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert "unknown native tool calls" in environment.evidence[-1].error
+
+
+@pytest.mark.asyncio
+async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
+    """真实失败形状在同一有限循环内改用当前目标工具且仅提交一次。"""
+    agent = LifeAgent()
+    environment = _Environment()
+    dispatcher = _GroundedCorrectionDispatcher()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 4
+    agent._memory_runtime = _MemoryRuntime()
+    agent._build_memory_context = _MemoryRuntime().build_context  # type: ignore[method-assign]
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    result = await agent.run_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations())
+    )
+
+    assert "wait" in result
+    assert len(environment.calls) == 1
+    assert isinstance(environment.calls[0].request, StartTargetedActivityRequest)
+    assert environment.calls[0].request.activity_type == "play_game"
+    assert [item.phase for item in environment.evidence] == [
+        "request", "response", "request", "response",
+        "request", "response", "request", "response",
+    ]
+    assert "unknown native tool calls" in environment.evidence[3].error
+    correction = dispatcher.requests[2]
+    assert correction["messages"][-1]["tool_call_id"] == "call-invalid"
+    feedback = json.loads(correction["messages"][-1]["content"])
+    assert feedback["executed"] is False
+    assert correction["messages"][-2]["tool_calls"][0]["function"]["name"] == "play_game"
+    third_names = {item["function"]["name"] for item in correction["tools"]}
+    assert "start_targeted_activity" in third_names
+    assert "play_game" not in third_names
+    fourth_names = {item["function"]["name"] for item in dispatcher.requests[3]["tools"]}
+    assert fourth_names == _MEMORY_TOOL_NAMES | {"finish"}
+
+
+def test_readonly_state_mismatch_is_an_internal_failure() -> None:
+    """宿主只读状态不一致必须抛出，不能作为模型可纠正错误。"""
+    agent = LifeAgent()
+    request = ReactLoopRequest(0, _context().observed_at, _observations())
+    agent.prepare_react_loop(request)
+
+    with pytest.raises(RuntimeError, match="readonly decision state is inconsistent"):
+        agent.validate_react_decisions([], True)
+
+
+@pytest.mark.asyncio
+async def test_life_schema_and_target_errors_are_corrected_before_execution() -> None:
+    """Pydantic参数与目标配对错误各耗一回合且只有最终合法动作执行。"""
+    arguments = {
+        "activity_type": "play_game",
+        "target_id": "game-visible",
+        "planned_duration_seconds": 600,
+        "playback_speed": 1,
+    }
+    missing = dict(arguments)
+    missing.pop("playback_speed")
+    wrong_pair = {**arguments, "activity_type": "watch"}
+    dispatcher = _GroundedCorrectionDispatcher([
+        _ModelResponse("call-schema", "start_targeted_activity", json.dumps(missing)),
+        _ModelResponse("call-pair", "start_targeted_activity", json.dumps(wrong_pair)),
+        _ModelResponse("call-action", "start_targeted_activity", json.dumps(arguments)),
+        _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._decision_context = _context()
+    agent._max_react_turns = 4
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+
+    assert len(environment.calls) == 1
+    assert environment.calls[0].request.activity_type == "play_game"
+    assert "invalid start_targeted_activity arguments" in environment.evidence[1].error
+    assert "not visible for activity_type" in environment.evidence[3].error
+    assert all(json.loads(request["messages"][-1]["content"])["executed"] is False
+               for request in dispatcher.requests[1:3])
+
+
+@pytest.mark.asyncio
+async def test_invalid_finish_is_corrected_with_post_action_tools_only() -> None:
+    """动作完成后非法记忆引用可纠正且后续请求不重新开放生活动作。"""
+    invalid_finish = _finish_args("unknown-event")
+    dispatcher = _GroundedCorrectionDispatcher([
+        _ModelResponse(
+            "call-action",
+            "start_basic_activity",
+            '{"activity_type":"wait","planned_duration_seconds":60}',
+        ),
+        _ModelResponse("call-invalid-finish", "finish", json.dumps(invalid_finish)),
+        _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._decision_context = _context()
+    agent._max_react_turns = 3
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+
+    assert len(environment.calls) == 1
+    assert "unknown memory reference" in environment.evidence[3].error
+    for request in dispatcher.requests[1:]:
+        names = {item["function"]["name"] for item in request["tools"]}
+        assert names == _MEMORY_TOOL_NAMES | {"finish"}
+    feedback = json.loads(dispatcher.requests[2]["messages"][-1]["content"])
+    assert "unknown memory reference" in feedback["error"]
 
 
 @pytest.mark.asyncio

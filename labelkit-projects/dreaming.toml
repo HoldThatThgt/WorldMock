@@ -34,6 +34,8 @@ input.counterfactual.world_kind=observed 时，input.events 只属于原世界�
 claims 的 kind 必须区分事实 fact、推断 inference、假设 hypothesis。
 事实和推断的每个 evidence_event_ids 值必须逐字取自 input.allowed_evidence_event_ids，禁止引用其他标识。
 简洁说明实际内容、行为与因果；保留来源里的重复接触，不以常识补写遗漏的经历。
+先按活动阶段或因果主题合并证据，一条 claim 可以引用多个事件。
+禁止逐事件、逐目录项、逐终态字段或逐条未变化的起止状态复述；输出前合并到最多 32 条 claims。
 input 原事件由工程完整保存；target 是最多 32 条的聚合摘要，不要求逐事实复述。
 claims 最多 32 条；每条 text 最多 512 字符；每条 evidence_event_ids 最多 64 个，单个标识最多 64 字符。
 intent_candidates 最多 8 个且不得重复；uncertainty 最多 1024 字符。

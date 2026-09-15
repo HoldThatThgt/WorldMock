@@ -4,12 +4,12 @@
 
 ## 当前结论
 
-生活、内容、足迹、恢复、数据加工和评估主路径已接入；动态目标目录和精确数量返工反馈已集成。
+生活、内容、足迹、恢复、数据加工和评估主路径已接入；动态目标目录、有限回合协议纠正和完整上下文返工已集成。
 工程尚未完成最终交付：正式十二周、成功的实际多人/恢复/反事实验收、增量 Uncle Bob 和三会话盲评仍待完成，
 不能把短窗口或测试夹具当成这些结果。
 
-当前运行源码冻结为`2a6ea066bddc0524a7ab823f4ec6918138ad15b877eb806ffad41b535c17d59d`。
-规范SHA为`e7f0f537ca7cb2a671e68ad5002eec88153235427ca1df4d144cd310d1bf0e13`。
+当前运行源码冻结为`6190baeb5984bc5e759eaa6d688edb29a8779de4a2ce6bf102aa27db52dd8e81`。
+规范SHA为`57377027061e6f1f55d331715b4edd2bfcbfbd9d978bc1c4f2e38c60f3410794`。
 下表明确标为历史的记录只证明对应版本，不代表本轮全部交付已通过。
 
 ```mermaid
@@ -25,12 +25,14 @@ flowchart LR
 
 | 范围 | 实际结果 | 证据 |
 | --- | --- | --- |
-| 当前集成门禁 | 根测试398 passed/23.02秒，integration 84 passed；59个本项目生产Python文件约束零问题；多人和正式场景validate通过 | `.work/verification/grounded-root-tests.log`保存工具输出的转录及来源说明；`grounded-source-gate.json`、`grounded-multi-validate.json`、`grounded-formal-validate.json` |
-| 当前目录约束真实预检 | 一次DeepSeek HTTP：16个实际工具，空任务目录移除work，目标仅来自当前目录；返回合法出行选择并通过生产解析，共4489 token | `.work/verification/runtime-acceptance/grounded-targets/receipt.json`及完整request/response；不是完整多人验收 |
-| 当前LabelKit推理回归 | 精确maxItems数量反馈相关429项通过，独立Bob两项killed；新一天action与intent各69条通过，dreaming仅1条通过、2条拒绝，无最终清单 | `.work/verification/labelkit-l3/bob-report.json`、`.work/verification/grounded-day-delivery.log` |
+| 当前运行集成门禁 | 根测试409 passed/27.77秒，integration 92 passed，AS2全量405 passed；前后运行源码一致；随后仅三类聚合提示与提示断言变化，delivery79 passed | `.work/verification/react-context-full-gate/receipt.json`、`.work/verification/react-protocol-feedback/receipt.json`；不是完整真实运行验收 |
+| 有限回合协议纠正 | 原响应先落盘，非法调用零执行，完整工具错误进入下一实际请求；基础设施错误仍中止 | `tests/integration/test_grounded_evidence.py`及AS2运行测试；真实多人重新验收中 |
+| 历史目录约束真实预检 | 一次DeepSeek HTTP：16个实际工具，空任务目录移除work，目标仅来自当前目录；返回合法出行选择并通过生产解析，共4489 token | `.work/verification/runtime-acceptance/grounded-targets/receipt.json`及完整request/response；不是完整多人验收 |
+| 当前LabelKit完整上下文回归 | 相关528项通过；普通process实际HTTP返工保留system、input、candidate和错误；独立Bob一项killed仅证明scope选择，完整行为仍须根Bob | `.work/verification/labelkit-complete-evidence/integration-receipt.json`、`bob-report.json` |
+| 历史LabelKit数量反馈回归 | 精确maxItems数量反馈相关429项通过，独立Bob两项killed；一天action与intent各69条通过，dreaming仅1条通过、2条拒绝，无最终清单 | `.work/verification/labelkit-l3/bob-report.json`、`.work/verification/grounded-day-delivery.log` |
 | 记录与身份测试补充 | 新增3项通过：动态完整请求持久化、人物源码进入运行身份、跨目录目标去重 | `.work/verification/grounded-evidence-tests.log`；尚未纳入新的正式Bob |
 | 历史根项目测试 | 历史结果闭集、目标隔离与截断修订后353 passed，23.87秒 | `.work/verification/known-evidence-root-tests.log`；不是本轮最终门禁 |
-| AS2 全量测试 | strict修订后392 passed，两个第三方弃用警告，13.17秒 | `vendor/agentsociety2/packages/agentsociety2/tests`；显式设置WORKSPACE_PATH |
+| 历史 AS2 全量测试 | strict修订后392 passed，两个第三方弃用警告，13.17秒 | `vendor/agentsociety2/packages/agentsociety2/tests`；显式设置WORKSPACE_PATH |
 | Life与运行集成 | strict修订后Life、integration、footprints共236 passed，6.94秒；其中Schema专项33项通过 | `tests/life`、`tests/integration`、`tests/footprints` |
 | 原生工具与失败传播 | 动态引用闭集、完整原生工具历史、零自动重试；写盘错/空记忆返回沿实际 PersonAgent step 中止 Society | `tests/integration/test_life_agent_protocol.py` 与 AS2 专项 |
 | 历史严格请求预检 | 两次真实 HTTP 请求通过：携带17工具的Life请求实际返回合法basic活动；WorkReviewer返回完整3参考与3交付结论，生产解析通过 | `.work/verification/deepseek-strict-no-ref-final-preflight.json`；尚不证明本轮目录绑定后的实际Schema |
@@ -87,9 +89,9 @@ required、thinking disabled、无ref；不修改失败运行原始数据，也�
 
 ## 当前身份与可重复命令
 
-当前运行源码摘要在 `.work/verification/grounded-source-gate.json`；已通过的一小时单独绑定其实际源码与场景摘要，
-后续修复不会改写旧收据。AS2 维护分支本地提交 `0ccc476456ed6192af85ed98e94ec757c8669530`，LabelKit固定
-`5e23ece3f22e65e190ecfd2c901cfd0840f71d9a`。根仓库为本次新建的本地 `main`，以干净提交作为隔离审查基准；准确提交身份见 Git 历史与 Bob 执行收据。
+当前运行源码摘要在 `.work/verification/react-context-full-gate/receipt.json`；已通过的一小时单独绑定其实际源码与场景摘要，
+后续修复不会改写旧收据。AS2 维护分支本地提交 `952e9c90863bf9fc3a4ef76239ded07771d42827`，LabelKit固定
+`7f4e6a208b691806e84c3fe4da1c4f4f499ab900`。根仓库为本次新建的本地 `main`，以干净提交作为隔离审查基准；准确提交身份见 Git 历史与 Bob 执行收据。
 
 ```sh
 .venv/bin/python -m pytest -q tests
@@ -153,11 +155,16 @@ Dreaming修订、跨进程状态修订和该测试补强均不属于旧Bob通过
 新运行`runs/deepseek-multi-grounded-targets`在08:58:36停止，保留231事件、37对模型请求与响应。
 失败请求实际仅提供`start_targeted_activity`，其中活动类型允许`play_game`；DeepSeek却返回未提供的
 `play_game`函数名。协议拒绝执行，未生成动作请求。目录枚举正确不等于服务能保证每次工具调用合法。
-原始运行保持不变；当前正在核验成熟框架对有限ReAct预算内协议错误反馈的处理，不盲目重跑或替换工具名称。
+原始运行保持不变；当前已实现成熟框架使用的有限ReAct回合内协议错误反馈，并以新目录验证真实多人及恢复行为。
 
 `delivery-bounded-summary`中action与intent各69条通过；dreaming三条只有一条通过，另两条拒绝，
-CLI退出1并保留`failure.json`。至少一条仍为claims数量越界，正在核对其实际返工请求；
+CLI退出1并保留`failure.json`。两条失败的结构返工没有保留原始任务和输入上下文；
 规则与训练阶段未执行，没有最终发布清单。
+
+`delivery-complete-context` 已使用完整返工上下文，action69条通过，intent68条通过、旧line52失败。
+该候选三次均为33条claims且逐字相同，后段继续逐项枚举目录、路线和终态字段；不能据此认定服务根因。
+三任务现统一要求按活动阶段或因果主题聚合、禁止逐字段复述，保持32条和64个引用上限不变。
+首先使用该意图及两条历史失败dreaming输入做真实CLI探针；探针通过也不能代替整日最终交付。
 
 ## 正式数据与比较的剩余验收
 

@@ -21,6 +21,7 @@ FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
 
 @pytest.mark.parametrize("review_result", [
     "pass", "repaired", "exhausted", "citation_repaired", "missing_citation_repaired",
+    "max_items_repaired", "max_items_exhausted",
 ])
 def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, monkeypatch, review_result):
     fixture = json.loads(FIXTURE.read_text())
@@ -45,6 +46,13 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         invalid = copy.deepcopy(fixture['annotation'])
         invalid['target']['claims'][0]['evidence_event_ids'] = []
         replies = [invalid, fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
+    if review_result in {'max_items_repaired', 'max_items_exhausted'}:
+        invalid = copy.deepcopy(fixture['annotation'])
+        claim = copy.deepcopy(invalid['target']['claims'][0])
+        invalid['target']['claims'] = [copy.deepcopy(claim) for _ in range(33)]
+        replies = [invalid, fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
+        if review_result == 'max_items_exhausted':
+            replies = [invalid, invalid, invalid]
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -70,7 +78,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
     try:
         workspace = _workspace(tmp_path, record, server.server_port)
-        if review_result == 'exhausted':
+        if review_result in {'exhausted', 'max_items_exhausted'}:
             with pytest.raises(IntegrityError, match='exited with status 1'):
                 run_labelkit('action', workspace, ROOT)
             assert (workspace / 'out/action.jsonl').read_text() == ''
@@ -84,7 +92,8 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         thread.join()
         server.server_close()
     call_counts = {'pass': 2, 'repaired': 4, 'exhausted': 6,
-                   'citation_repaired': 3, 'missing_citation_repaired': 3}
+                   'citation_repaired': 3, 'missing_citation_repaired': 3,
+                   'max_items_repaired': 3, 'max_items_exhausted': 3}
     assert len(calls) == call_counts[review_result]
     target_ids = [record['target']['request']['event_id']]
     target_ids.extend(row['event_id'] for row in record['target']['outcomes'])
@@ -104,17 +113,19 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         ]
     trace = [json.loads(line) for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
     profiles = [row['payload']['profile'] for row in trace if row.get('ev') == 'llm.call']
-    citation_repairs = {'citation_repaired', 'missing_citation_repaired'}
-    expected_profiles = ['default', 'default', 'judge'] if review_result in citation_repairs else [
+    schema_repairs = {'citation_repaired', 'missing_citation_repaired', 'max_items_repaired'}
+    expected_profiles = ['default', 'default', 'judge'] if review_result in schema_repairs else [
         'default', 'judge',
     ] * (len(replies) // 2)
+    if review_result == 'max_items_exhausted':
+        expected_profiles = ['default', 'default', 'default']
     assert profiles == expected_profiles
     sentinel = record['input']['visible_input_sentinel']
     assert serialized_calls[0].count(sentinel) == 1
     for profile, request in zip(profiles, serialized_calls, strict=True):
         if profile == 'judge':
             assert request.count(sentinel) == 1
-    if review_result in {'repaired', 'exhausted'}:
+    if review_result in {'repaired', 'exhausted', 'max_items_repaired', 'max_items_exhausted'}:
         assert all(request.count(sentinel) == 1 for profile, request in zip(profiles, serialized_calls, strict=True)
                    if profile == 'default')
     if review_result in {'repaired', 'exhausted'}:
@@ -138,6 +149,21 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         assert allowed in repair
         repairs = [row for row in trace if row.get('ev') == 'schema.repair']
         assert repairs[-1]['payload']['resolved_at'] == 'l3_1'
+    if review_result in {'max_items_repaired', 'max_items_exhausted'}:
+        initial_messages = calls[0]['messages']
+        repair_messages = calls[1]['messages']
+        assert [message['role'] for message in repair_messages] == ['system', 'user', 'assistant', 'user']
+        assert repair_messages[:2] == initial_messages
+        assert repair_messages.count(initial_messages[0]) == 1
+        assert repair_messages.count(initial_messages[1]) == 1
+        assert json.loads(repair_messages[2]['content']) == invalid
+        assert sum(message['content'] == repair_messages[2]['content'] for message in repair_messages) == 1
+        assert '根据动作发生前的可见历史' in repair_messages[0]['content']
+        assert '"maxItems": 32' in repair_messages[0]['content']
+        assert '/target/claims: expected at most 32 items, received 33' in repair_messages[3]['content']
+        repairs = [row for row in trace if row.get('ev') == 'schema.repair']
+        expected = 'l3_1' if review_result == 'max_items_repaired' else 'rejected'
+        assert repairs[-1]['payload']['resolved_at'] == expected
 
 
 def _workspace(tmp_path, record, port):

@@ -212,8 +212,9 @@ AS2 的环境扫描要求自定义类直接定义在 `custom/envs/*.py`。本项
 
 模型的 `finish` 必须单独返回，不能与购买、游戏或其他工具出现在同一批调用中。
 生活决策开始时只开放生活动作和记忆查询；实际提交一个生活动作后，才开放 `finish`，并撤下生活动作工具。
-结束前仍可查询记忆。显式只读人物查询保持其独立的只读结束合同；非法注入当前未开放的工具仍须失败。
-冲突响应保存原文并作为协议错误终止该轮，不执行其中任何工具；不沿用上游只保留结束调用的行为。
+结束前仍可查询记忆。显式只读人物查询保持其独立的只读结束合同；当前未开放的工具必须拒绝执行。
+冲突响应保存原文和协议错误，整批不执行；在现有 ReAct 剩余回合内把错误反馈给模型自行重新提交。
+每次非法响应消耗一个回合，预算耗尽才终止人物决策；不沿用上游只保留结束调用的行为。
 人物记录的“已提交”必须引用实际登记的动作请求；决定想做、请求已登记与动作已完成分别表达。
 
 ## 消费、生产与需求模型
@@ -511,12 +512,14 @@ run/
 数据库事务不覆盖外部模型调用、游戏进程或文件系统整体，因此外部调用有明确开始与结果事件。
 外部结果不明时记录未知状态，不把重试宣称为只发生过一次。
 
-环境中的业务拒绝是正常行为证据；数据库写失败、来源素材损坏、模型响应无法校验或必要观察缺失是运行故障。
+环境中的业务拒绝是正常行为证据；数据库写失败、来源素材损坏、模型响应无法可靠留证、必要观察缺失，
+或 ReAct 预算耗尽仍未形成合法结束结果，都是运行故障。
 这类故障停止运行并保存已确认部分。AS2 默认仅告警继续的路径必须改正。
 致命运行故障与普通业务拒绝采用不同的错误类型，经过环境工具、人物工具和 batch 返回时仍保留该区别。
 故障路径记录英文错误与关联事件，不允许被通用异常捕获转换成“工具失败后让模型继续猜测”。
 游戏引擎执行后、数据库提交前发生崩溃时，恢复使用完整检查点中的游戏状态，不能继续使用残留进程状态。
-ReAct 用尽预算未完成、最终记忆结构无效、必要记忆归纳或写盘失败，都属于上述运行故障。
+必要记忆归纳或写盘失败属于上述运行故障。模型提供的工具名、参数或结束记忆不符合协议时，
+只能在剩余 ReAct 回合内反馈错误；预算用尽仍无合法结束结果时失败。
 不能由框架补写一个“完成”结果或强制转换错误记忆，再让 runner 报告成功。
 
 ### 共同检查点与恢复
@@ -742,7 +745,7 @@ dreaming 可以对已知经历做归纳，或提出“若未获得报酬是否�
 | 工作生产 | 原始材料、独立语义验收、返工、套餐、计时与计件 | `test_work_review.py`、`test_work_contracts.py` 和真实 DeepSeek 正反工作审阅收据 |
 | 内容知识 | 邮件到达、未来字幕隔离、隐藏参考、游戏恢复 | `test_content_game.py`、`tests/corpora/test_corpora.py` |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints`、`test_life_agent_protocol.py`、AS2 `test_direct_runner_failures.py` |
-| 决策协议 | 预算、原子 finish、非法引用、无文本或重试替代 | `test_life_agent_protocol.py`、AS2 `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` |
+| 决策协议 | 有限回合错误反馈、原子拒绝、合法 finish、非法引用、完整证据、致命异常不返工 | `test_life_agent_protocol.py`、`test_grounded_evidence.py`、AS2 `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` |
 | 共同恢复 | 世界、人物、记忆和游戏一致，坏快照拒绝，父目录不变 | `test_runtime.py`、`test_counterfactual.py`、`test_store.py`、实际 resume/replay |
 | LabelKit 输入 | 前置状态、知识截止、活动和自然日边界 | `tests/delivery/test_windows.py`、`test_replay.py`、`tests/footprints/test_validation.py` |
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `test_labelkit_process.py`、`test_training.py` 和真实模型 trace |
@@ -989,6 +992,10 @@ DatasetDict 的 `input`、`target`、`provenance` 使用 Datasets 原生 `Json(d
 提示必须明确原始事件由工程完整保存；模型的 `target` 是聚合摘要，不要求逐事实复述。
 结构返工必须提供可执行的具体限制。数组超过 `maxItems` 时，错误包含字段路径、允许的最大数量和实际数量；
 候选全文只放在返工提示的原始输出中，错误说明不能再次展开整个数组。
+普通 process 的结构返工使用 LabelKit 现有完整上下文路径，保留首轮 system 任务与 Schema、可见 input、
+assistant 候选和 user 违规反馈；完整 input 与候选各出现一次，未来目标仍不得进入任何请求。
+动作、意图和 dreaming 均按活动阶段或因果主题合并，一个 claim 可以引用多个事件；不能逐事件、逐目录项、逐终态字段
+或逐条未变化的起止状态复述。输出前由模型完成聚合以满足既定上限，工程不得裁剪原始事实或静默截取候选。
 容量依据为 [DeepSeek 模型说明](https://api-docs.deepseek.com/quick_start/pricing/)，核验日期为 2026-09-15。
 活动完成、容量截断和实验结束分别标记。每个产物字段必须追溯到原始事件或明确的语义派生。
 全部数据校验、语义校验、训练加载和规则执行通过后，才发布最后的不可变交付清单。
@@ -1157,7 +1164,7 @@ Pydantic 原生模型直接产生该合同，启动检查只验证 Schema，不�
 原生请求使用内联嵌套结构，Pydantic `WithJsonSchema` 直接引用同一子模型生成的 Schema，
 不手抄第二套字段，不发送 `$ref` 或 `$def/$defs`，不在生成后做兼容转译。
 服务不支持数组数量边界，长度限制继续由本地模型校验器拒绝；不能声称服务端保证了这些长度。
-`finish` 引用只枚举当前真正可见的观察、结果和已经读到的持久记忆，未知引用仍中止当前决策。
+`finish` 引用只枚举当前真正可见的观察、结果和已经读到的持久记忆，未知引用必须拒绝，并受下述有限回合错误反馈合同约束。
 
 `start_targeted_activity` 的活动类型和目标必须绑定本轮首条环境观察的实际目录。`prepare_react_loop`
 严格读取并冻结 `observations[0].data`；缺少目录、目录类型错误或空白身份均为协议错误，不替换为空目录。
@@ -1182,6 +1189,22 @@ Pydantic 原生模型直接产生该合同，启动检查只验证 Schema，不�
 完整保存在 `model_request`。这采用 [DeepSeek 原生 enum](https://api-docs.deepseek.com/guides/tool_calls/)
 和 [PettingZoo 从观察约束可用动作](https://pettingzoo.farama.org/tutorials/custom_environment/3-action-masking/)
 的已验证接口方法；限制当前可见目标不规定人物应选择哪项行动。
+
+模型返回未提供的工具名、无法解析的参数、违反 Pydantic 合同或当前阶段闭集的调用时，先完整保存
+`model_response` 与校验错误，再向现有 ReAct 循环返回零个可执行调用，整批不得产生工具副作用。
+下一回合使用当前阶段的真实工具声明重新请求模型，本轮冻结观察目录不刷新。
+若原调用结构可以形成合法消息且调用身份非空、唯一，下一请求保留原 assistant 调用，并为每个身份附加
+明确 `ok=false`、`executed=false` 的 tool 错误反馈；整批中看似有效的调用也必须注明未执行。
+若响应缺少可配对的合法调用结构，则用宿主 user 消息说明协议错误，不向下一请求加入破损 tool_calls；
+原始完整响应仍保存在事件中，不重复粘贴到错误说明里。
+新请求使用新的 `call_id`，每次 `attempt=1`、`max_retries=0`；不递归调用模型，不新增重试计数或配置。
+唯一总预算沿用 `_max_react_turns`，每次错误同样消耗回合，耗尽后不得再发请求或伪造 finish。
+只有实际下一请求保存的消息才算已经发送的反馈，最后一回合后的本地消息不构成额外模型调用。
+传输、超时、证据写入、环境执行、记忆保存、取消及内部身份不一致等异常立即传播，不进入模型返工。
+不为非法工具建立别名、不补参数、不自动选择行动，也不把业务拒绝改写为协议错误。
+该错误反馈方式参考 [PydanticAI 模型自纠正](https://github.com/pydantic/pydantic-ai/blob/main/docs/retries.md)
+和 [LangGraph 工具错误消息](https://github.com/langchain-ai/langgraph/blob/main/libs/prebuilt/langgraph/prebuilt/tool_node.py)，
+复用 AS2 已有消息历史、模型证据和回合预算，不引入额外 Agent 框架。
 
 记忆范围查询拆成 `memory_step_range(start_step, end_step, limit)`、
 `memory_tick_range(start_tick, end_tick, limit)` 与 `memory_time_range(start_time, end_time, limit)`，
