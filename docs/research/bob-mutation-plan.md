@@ -9,7 +9,7 @@
 执行器必须拒绝开始并重新生成清单。
 
 静态准备快照尚不能开始 Uncle Bob 执行：`git rev-parse --verify HEAD` 返回 `fatal: Needed a single revision`，
-`git status --short` 显示项目文件均为未跟踪文件。准备时没有可供隔离 worktree 固定的基准提交。本任务没有运行基线，
+`git status --short` 显示项目文件均为未跟踪文件。准备时当时没有可供隔离 worktree 固定的基准提交。静态准备没有运行基线，
 也没有改写任何生产源码或测试。父任务提供干净提交后，执行者必须重新核对规范摘要、符号和精确替换文本；
 任何漂移都先更新计划，不能把无法应用的替换记为 survived 或 killed。
 
@@ -88,11 +88,12 @@ bob_restore() {
 }
 ```
 
-声明基线覆盖所有会被改写的本项目入口及三个 AS2 核心入口。基线失败时停止，不执行任何突变。
+声明基线覆盖所有会被改写的本项目入口及三个 AS2 核心入口。两组测试使用独立 pytest 进程，
+避免不同项目的 conftest 模块相互遮蔽。任一组基线失败时停止，不执行任何突变。
 
 ```bash
-bob_case tests/footprints tests/life tests/integration tests/delivery tests/evaluation \
-  vendor/agentsociety2/packages/agentsociety2/tests/test_decision_round.py \
+bob_case tests/footprints tests/life tests/integration tests/delivery tests/evaluation
+bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_decision_round.py \
   vendor/agentsociety2/packages/agentsociety2/tests/test_society_decision_round.py \
   vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py
 ```
@@ -211,3 +212,9 @@ export WORLD_MOCK_BOB_APPROVED="$(shasum -a 256 docs/agentsociety2-design.md | a
 
 survived 表示测试缺口，不能通过改变规范或弱化生产实现来消除；补充最小行为测试后，必须在同一基准提交上
 原样重放该突变并记录第二次结果。
+
+## 基线分进程修正
+
+首个根提交 `15c737392bab2238e17b3dfce497b413f150ca6b` 的隔离 setup 已验证源码与依赖来源。
+将根项目与 AS2 测试放进同一个 pytest 进程导致十二个 conftest 导入错误，原始失败输出保留在该提交的
+Bob results 中；没有运行突变。当前计划保持原测试范围，改为两个独立进程，两个均通过才开始突变。
