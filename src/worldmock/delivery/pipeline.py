@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import time
 from pathlib import Path
+from typing import NoReturn
 
 from dotenv import dotenv_values
 
@@ -112,7 +113,8 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
                         if value is not None and key == "DEEPSEEK_API_KEY"})
     if not environment.get("DEEPSEEK_API_KEY"):
         raise IntegrityError("DEEPSEEK_API_KEY is required for LabelKit delivery")
-    environment["PYTHONPATH"] = str(project_root / "src")
+    source_paths = (project_root / "src", project_root / "vendor/labelkit")
+    environment["PYTHONPATH"] = os.pathsep.join(str(path) for path in source_paths)
     started = time.monotonic()
     with (workspace / f"{task}.log").open("w") as log:
         result = subprocess.run(command, env=environment, stdout=log, stderr=subprocess.STDOUT, check=False)
@@ -124,25 +126,49 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
 
 
 def verify_process(task: str, workspace: Path, inputs: list[dict]) -> list[dict]:
-    """@brief 验证普通 process 的行守恒、独立评审、事实字段和每条来源。"""
+    """@brief 验证 target-only process 的行身份和评审，再组装事实。"""
     output = workspace / "out" / f"{task}.jsonl"
     rows = [json.loads(line) for line in output.read_text().splitlines()]
-    indexed = {record["provenance"]["window_id"]: record for record in inputs}
-    if len(indexed) != len(inputs) or len(rows) != len(inputs):
-        raise IntegrityError("LabelKit process did not preserve every input window")
-    verified, seen = [], set()
+    identities = {record["provenance"]["window_id"] for record in inputs}
+    if len(identities) != len(inputs) or len(rows) != len(inputs):
+        _raise_integrity("LabelKit process did not preserve every input window")
+    verified, seen = {}, set()
     for row in rows:
-        identity = row["provenance"]["window_id"]
-        if identity not in indexed or identity in seen:
-            raise IntegrityError("LabelKit output source is missing or duplicated")
-        seen.add(identity)
+        line_no, original = _source_record(task, row, inputs, seen)
         if row["_meta"]["verification"]["verdict"] != "pass":
-            raise IntegrityError("LabelKit semantic verification did not pass")
-        if validate_annotation(row, indexed[identity]):
-            raise IntegrityError("LabelKit output violated semantic or factual constraints")
-        semantic = {key: row[key] for key in ("task", "input", "target", "provenance")}
-        record = attach_facts(semantic, indexed[identity])
+            _raise_integrity("LabelKit semantic verification did not pass")
+        semantic = {"target": row["target"]}
+        if validate_annotation(semantic, original):
+            _raise_integrity("LabelKit output violated semantic or factual constraints")
+        record = attach_facts(semantic, original)
         record["provenance"]["annotation_model"] = row["_meta"]["annotation"]["model"]
         record["provenance"]["labelkit_record_id"] = row["_meta"]["id"]
-        verified.append(record)
-    return verified
+        verified[line_no] = record
+    return [verified[line_no] for line_no in range(1, len(inputs) + 1)]
+
+
+def _source_record(task: str, row: dict, inputs: list[dict], seen: set[int]) -> tuple[int, dict]:
+    """@brief 用 LabelKit 来源位置和原始行摘要绑定语义候选。"""
+    if set(row) != {"target", "_meta"}:
+        _raise_integrity("LabelKit semantic output must contain only target and _meta")
+    metadata = row.get("_meta")
+    source = metadata.get("source") if isinstance(metadata, dict) else None
+    line_no = source.get("line_no") if isinstance(source, dict) else None
+    if source is None or source.get("file") != f"{task}.jsonl":
+        _raise_integrity("LabelKit output source file does not match the process input")
+    if type(line_no) is not int or line_no < 1 or line_no > len(inputs):
+        _raise_integrity("LabelKit output source line is outside the process input")
+    if line_no in seen:
+        _raise_integrity("LabelKit output source line is duplicated")
+    original = inputs[line_no - 1]
+    expected = hashlib.sha256(canonical_json(original)).hexdigest()[:16]
+    if metadata.get("id") != expected:
+        _raise_integrity("LabelKit output record identity does not match its source line")
+    seen.add(line_no)
+    return line_no, original
+
+
+def _raise_integrity(message: str) -> NoReturn:
+    """@brief 记录交付边界错误并抛出统一完整性异常。"""
+    logging.error("%s", message)
+    raise IntegrityError(message)

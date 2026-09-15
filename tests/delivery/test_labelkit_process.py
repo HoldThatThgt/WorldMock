@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import re
 import shutil
@@ -9,9 +10,9 @@ from pathlib import Path
 import pytest
 
 from worldmock.delivery.pipeline import deliver, run_labelkit, verify_process
-from worldmock.delivery.semantics import complete_annotation
 from worldmock.delivery.windows import _action_windows
 from worldmock.errors import IntegrityError
+from worldmock.footprints.models import canonical_json
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,7 +93,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     assert all(marker not in text for marker in future for text in serialized_calls)
     assert all('target_event_ids' not in text and '"outcomes"' not in text for text in serialized_calls)
     cutoff_values = [int(value) for text in serialized_calls
-                     for value in re.findall(r'\\"cutoff_event_seq\\"\s*:\s*(\d+)', text)]
+                     for value in re.findall(r'\\"knowledge_cutoff_event_seq\\"\s*:\s*(\d+)', text)]
     assert cutoff_values and set(cutoff_values) == {2}
     assert 'allowed_evidence_event_ids' in json.dumps(calls[0], ensure_ascii=False)
     if records:
@@ -108,6 +109,14 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         'default', 'judge',
     ] * (len(replies) // 2)
     assert profiles == expected_profiles
+    sentinel = record['input']['visible_input_sentinel']
+    assert serialized_calls[0].count(sentinel) == 1
+    for profile, request in zip(profiles, serialized_calls, strict=True):
+        if profile == 'judge':
+            assert request.count(sentinel) == 1
+    if review_result in {'repaired', 'exhausted'}:
+        assert all(request.count(sentinel) == 1 for profile, request in zip(profiles, serialized_calls, strict=True)
+                   if profile == 'default')
     if review_result in {'repaired', 'exhausted'}:
         assert fixture['annotation']['target']['claims'][0]['text'] in json.dumps(calls[1], ensure_ascii=False)
         assert 'Clarify evidence scope.' in json.dumps(calls[2], ensure_ascii=False)
@@ -170,15 +179,14 @@ def _current_record(directory):
         {'probe-decision': [observed, requested, accepted, result]},
         (manifest, directory, {row['event_id']: row for row in rows}),
     )
+    record['input']['visible_input_sentinel'] = 'visible-input-sentinel-3f57dd'
     return record
 
 
 def test_failed_independent_semantic_verdict_blocks_process_output(tmp_path):
     fixture = json.loads(FIXTURE.read_text())
     source = _current_record(tmp_path)
-    record = complete_annotation(copy.deepcopy(fixture['annotation']), source)
-    record['_meta'] = {'id': 'failed-review', 'verification': {'verdict': 'fail'},
-                       'annotation': {'model': 'fixture'}}
+    record = _output_row(fixture['annotation'], source, verdict='fail')
     (tmp_path / 'out').mkdir()
     (tmp_path / 'out/action.jsonl').write_text(json.dumps(record) + '\n')
     with pytest.raises(IntegrityError, match='semantic verification did not pass'):
@@ -193,9 +201,7 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
 
     def rejected_process(task, workspace, _root):
         invoked.append(task)
-        row = complete_annotation(copy.deepcopy(fixture['annotation']), source)
-        row['_meta'] = {'id': 'failed-review', 'verification': {'verdict': 'fail'},
-                        'annotation': {'model': 'fixture'}}
+        row = _output_row(fixture['annotation'], source, verdict='fail')
         (workspace / f'out/{task}.jsonl').write_text(json.dumps(row) + '\n')
         return {'exit_code': 0}
 
@@ -207,3 +213,52 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
     assert json.loads((destination / 'failure.json').read_text())['status'] == 'failed'
     assert not (destination / 'manifest.json').exists()
     assert not (destination / 'training.jsonl').exists()
+
+
+def _output_row(annotation, source, verdict='pass', line_no=1, source_file='action.jsonl'):
+    identity = hashlib.sha256(canonical_json(source)).hexdigest()[:16]
+    return {
+        'target': copy.deepcopy(annotation['target']),
+        '_meta': {
+            'id': identity,
+            'source': {'file': source_file, 'line_no': line_no},
+            'verification': {'verdict': verdict},
+            'annotation': {'model': 'fixture'},
+        },
+    }
+
+
+@pytest.mark.parametrize('mutation, message', [
+    ('extra_field', 'only target and _meta'),
+    ('wrong_file', 'source file'),
+    ('wrong_line', 'source line is outside'),
+    ('wrong_id', 'record identity'),
+])
+def test_process_rejects_candidate_source_mismatch(tmp_path, mutation, message):
+    fixture = json.loads(FIXTURE.read_text())
+    source = _current_record(tmp_path)
+    row = _output_row(fixture['annotation'], source)
+    if mutation == 'extra_field':
+        row['input'] = source['input']
+    elif mutation == 'wrong_file':
+        row['_meta']['source']['file'] = 'intent.jsonl'
+    elif mutation == 'wrong_line':
+        row['_meta']['source']['line_no'] = 2
+    else:
+        row['_meta']['id'] = '0' * 16
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'out/action.jsonl').write_text(json.dumps(row) + '\n')
+    with pytest.raises(IntegrityError, match=message):
+        verify_process('action', tmp_path, [source])
+
+
+def test_process_rejects_duplicate_source_line(tmp_path):
+    fixture = json.loads(FIXTURE.read_text())
+    first = _current_record(tmp_path)
+    second = copy.deepcopy(first)
+    second['provenance']['window_id'] = 'second-window'
+    rows = [_output_row(fixture['annotation'], first), _output_row(fixture['annotation'], first)]
+    (tmp_path / 'out').mkdir()
+    (tmp_path / 'out/action.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
+    with pytest.raises(IntegrityError, match='source line is duplicated'):
+        verify_process('action', tmp_path, [first, second])

@@ -160,7 +160,10 @@ def test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_
 ) -> None:
     fixture = make_evaluation_fixture(tmp_path, days=7)
     scenario, left, right, _ = _review_inputs(fixture)
-    left_order = _object_history(left, "order", "left-order")
+    left_order = tuple(
+        replace(item, state="requested" if left.window.localize(item.occurred_at).weekday() < 5 else "delivered")
+        for item in _object_history(left, "order", "left-order")
+    )
     right_static = tuple(replace(item, state="requested") for item in _object_history(right, "order", "right-order"))
     one_sided = create_review_material(
         replace(left, public_evidence=left_order),
@@ -172,6 +175,11 @@ def test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_
         scenario,
     )
     week = next(item for item in one_sided.packets[0]["items"] if item["scope"] == "week")
+    selected_states = {
+        frozenset(row["state"] for row in week[side]["public_evidence"])
+        for side in ("left", "right")
+    }
+    assert selected_states == {frozenset({"requested"}), frozenset({"requested", "delivered"})}
     assert week["judgeability"]["causal_continuity"]["judgeable"] is False
     assert week["judgeability"]["long_term_consequences"]["judgeable"] is False
 

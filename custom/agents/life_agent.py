@@ -207,7 +207,7 @@ _MEMORY_RUNTIME_ACTIONS = {
 
 _TOOL_DESCRIPTIONS = {
     "start_basic_activity": "Start wait or sleep for an explicit duration.",
-    "start_targeted_activity": "Start work, watching, a game, mail reading, or browsing with a target.",
+    "start_targeted_activity": "Start an activity using an exact target from the current observation catalogs.",
     "start_travel": "Start travel to an observed destination using an observed mode and duration.",
     "set_activity_state": "Pause, resume, or cancel the owned active activity.",
     "change_playback_speed": "Change playback speed for the owned active watching activity.",
@@ -227,6 +227,26 @@ _TOOL_DESCRIPTIONS = {
         "an allowed source ID from this schema."
     ),
 }
+
+_TARGET_CATALOG_FIELDS: dict[str, tuple[str, str | None]] = {
+    "work": ("tasks", "task_id"),
+    "watch": ("content_catalog", "item_id"),
+    "play_game": ("game_catalog", "game_id"),
+    "read_mail": ("messages", "message_id"),
+    "browse": ("browse_targets", None),
+}
+
+_TARGET_KIND_DESCRIPTION = (
+    "Choose only a kind with a currently visible target: work uses observations[0].data.tasks[].task_id; "
+    "watch uses content_catalog[].item_id; play_game uses game_catalog[].game_id; read_mail uses "
+    "messages[].message_id; browse uses browse_targets[]."
+)
+
+_TARGET_ID_DESCRIPTION = (
+    "Use the exact visible ID paired with activity_type: work=tasks[].task_id; "
+    "watch=content_catalog[].item_id; play_game=game_catalog[].game_id; "
+    "read_mail=messages[].message_id; browse=browse_targets[]."
+)
 
 _LIFE_INSTRUCTIONS = """
 You are {name}, living as the person described in the profile inside a simulated Shanghai life.
@@ -289,6 +309,10 @@ class LifeAgent(PersonAgent):
         else:
             models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS}
         schemas = [_tool_schema(name, model) for name, model in models.items()]
+        if not readonly and not getattr(self, "_life_action_count", 0):
+            if not hasattr(self, "_life_visible_targets"):
+                raise RuntimeError("LifeAgent visible target catalogs are not prepared")
+            _bind_targeted_activity_catalogs(schemas, self._life_visible_targets)
         if not readonly and "finish" in models:
             _bind_finish_reference_ids(
                 schemas,
@@ -323,9 +347,13 @@ class LifeAgent(PersonAgent):
         super().prepare_react_loop(request)
         self._life_action_count = 0
         self._life_readonly = request.readonly
-        self._life_visible_refs = (
-            set() if request.readonly else _environment_source_ids(request.observations)
-        )
+        if request.readonly:
+            self._life_visible_refs = set()
+            self._life_visible_targets = {}
+            return
+        data = _environment_observation_data(request.observations)
+        self._life_visible_refs = _environment_source_ids(data)
+        self._life_visible_targets = _visible_target_ids(data)
 
     def validate_react_decisions(
         self,
@@ -349,6 +377,10 @@ class LifeAgent(PersonAgent):
                 return f"unknown LifeAgent tool: {decision.action}"
             try:
                 validated = _validate_request(model, decision.args)
+                if decision.action == "start_targeted_activity":
+                    error = _validate_visible_target(validated, self._life_visible_targets)
+                    if error:
+                        return error
                 if decision.action == "finish" and not readonly:
                     error = self._validate_finish(validated)
                     if error:
@@ -430,13 +462,18 @@ def _validate_request(model: type[BaseModel], values: dict[str, Any]) -> BaseMod
     return model.model_validate_json(encoded, strict=True)
 
 
-def _environment_source_ids(observations: list[dict[str, Any]]) -> set[str]:
-    """@brief 从当前结构化观察冻结人物实际看见的环境事件身份。"""
+def _environment_observation_data(observations: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 取得本轮唯一结构化环境观察，拒绝缺失或额外观察。"""
     if len(observations) != 1 or not isinstance(observations[0], dict):
         raise RuntimeError("LifeAgent requires one structured environment observation")
     data = observations[0].get("data")
     if not isinstance(data, dict):
         raise RuntimeError("LifeAgent environment observation data is unavailable")
+    return data
+
+
+def _environment_source_ids(data: dict[str, Any]) -> set[str]:
+    """@brief 从当前结构化观察冻结人物实际看见的环境事件身份。"""
     observation_id = data.get("observation_event_id")
     if not isinstance(observation_id, str) or not observation_id:
         raise RuntimeError("LifeAgent observation event identity is unavailable")
@@ -450,6 +487,43 @@ def _environment_source_ids(observations: list[dict[str, Any]]) -> set[str]:
             raise RuntimeError("LifeAgent action result event identity is invalid")
         result_ids.append(event_id)
     return {observation_id, *result_ids}
+
+
+def _visible_target_ids(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """@brief 从五个公开目录冻结本轮可用活动目标身份。"""
+    result = {}
+    for kind, (field, identity_field) in _TARGET_CATALOG_FIELDS.items():
+        catalog = data.get(field)
+        if not isinstance(catalog, list):
+            raise RuntimeError(f"LifeAgent {field} catalog must be a list")
+        result[kind] = _catalog_identity_values(catalog, field, identity_field)
+    return result
+
+
+def _catalog_identity_values(
+    catalog: list[Any],
+    field: str,
+    identity_field: str | None,
+) -> tuple[str, ...]:
+    """@brief 严格提取一个目录的非空身份并形成排序闭集。"""
+    values = []
+    for item in catalog:
+        if identity_field is not None and not isinstance(item, dict):
+            raise RuntimeError(f"LifeAgent {field} catalog item must be an object")
+        identity = item.get(identity_field) if identity_field is not None else item
+        if not isinstance(identity, str) or not identity.strip():
+            raise RuntimeError(f"LifeAgent {field} catalog identity must be a nonblank string")
+        values.append(identity)
+    return tuple(sorted(set(values)))
+
+
+def _validate_visible_target(request: BaseModel, targets: dict[str, tuple[str, ...]]) -> str:
+    """@brief 要求活动类型与本轮首观察中的目标身份准确配对。"""
+    kind = str(request.activity_type)
+    allowed = targets.get(kind, ())
+    if request.target_id not in allowed:
+        return "start_targeted_activity target_id is not visible for activity_type"
+    return ""
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
@@ -474,6 +548,23 @@ def _bind_finish_reference_ids(
     parameters = finish["function"]["parameters"]
     episode = parameters["properties"]["memories"]["items"]
     episode["properties"]["refs"]["items"]["enum"] = sorted(reference_ids)
+
+
+def _bind_targeted_activity_catalogs(
+    schemas: list[dict[str, Any]],
+    targets: dict[str, tuple[str, ...]],
+) -> None:
+    """@brief 将本轮可见目录绑定到原生目标活动工具 Schema。"""
+    kinds = [kind for kind in _TARGET_CATALOG_FIELDS if targets[kind]]
+    if not kinds:
+        schemas[:] = [item for item in schemas if item["function"]["name"] != "start_targeted_activity"]
+        return
+    targeted = next(item for item in schemas if item["function"]["name"] == "start_targeted_activity")
+    properties = targeted["function"]["parameters"]["properties"]
+    properties["activity_type"]["enum"] = kinds
+    properties["activity_type"]["description"] = _TARGET_KIND_DESCRIPTION
+    properties["target_id"]["enum"] = sorted({value for kind in kinds for value in targets[kind]})
+    properties["target_id"]["description"] = _TARGET_ID_DESCRIPTION
 
 
 def _episode_ids(episodes: Any) -> set[str]:

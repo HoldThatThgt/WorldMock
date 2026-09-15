@@ -1,4 +1,4 @@
-"""@brief LabelKit 纯函数钩子：语义有证据，事实字段逐字节透传。"""
+"""@brief LabelKit 纯函数钩子：语义候选有证据，评审通过后组装事实。"""
 
 from __future__ import annotations
 
@@ -9,38 +9,31 @@ import logging
 from worldmock.errors import IntegrityError
 
 
-def complete_annotation(obj: dict, record: dict | None) -> dict:
-    """@brief 模型只写语义，工程补齐未经模型修改的输入、动作和来源。"""
-    if record is None:
-        logging.error("Semantic postprocessor received no original record")
-        raise ValueError("Semantic postprocessor requires the original record")
-    result = {"task": record["task"], "input": copy.deepcopy(record["input"]),
-              "target": copy.deepcopy(obj["target"]), "provenance": copy.deepcopy(record["provenance"])}
-    return result
-
-
 def validate_annotation(obj: dict, record: dict | None) -> list[str]:
-    """@brief 独立验证来源引用、假设标签和事实透传，不把结构通过等同于语义正确。"""
+    """@brief 独立验证 target 候选的来源引用和假设标签。"""
     errors = []
     if record is None:
         errors.append("Original record is required for semantic validation")
+    elif set(obj) != {"target"}:
+        errors.append("Semantic annotation must contain only target")
+    elif "facts" in obj["target"]:
+        errors.append("Future target facts cannot enter semantic annotation or review")
     else:
-        for key in ("task", "input", "provenance"):
-            if obj[key] != record[key]:
-                errors.append(f"Original {key} was modified")
-        if "facts" in obj["target"]:
-            errors.append("Future target facts cannot enter semantic annotation or review")
-        errors.extend(_validate_claims(obj))
-    for error in errors:
-        logging.error("Semantic validation failed: %s", error)
+        errors.extend(_validate_claims(obj["target"], record["input"]))
     return errors
 
 
 def attach_facts(obj: dict, record: dict) -> dict:
     """@brief 语义评审通过之后才回填原始目标，生成与评审均无法读取未来答案。"""
     if validate_annotation(obj, record):
+        logging.error("Cannot assemble an invalid semantic annotation")
         raise IntegrityError("Cannot attach facts to an invalid semantic annotation")
-    result = copy.deepcopy(obj)
+    result = {
+        "task": record["task"],
+        "input": copy.deepcopy(record["input"]),
+        "target": copy.deepcopy(obj["target"]),
+        "provenance": copy.deepcopy(record["provenance"]),
+    }
     result["target"]["facts"] = copy.deepcopy(record["target"])
     target_ids = _target_event_ids(record["target"])
     if target_ids:
@@ -61,16 +54,16 @@ def _target_event_ids(facts: dict) -> list[str]:
     return [identity for identity in identities if isinstance(identity, str)]
 
 
-def _validate_claims(obj: dict) -> list[str]:
+def _validate_claims(target: dict, input_data: dict) -> list[str]:
     """@brief 事实和推断必须引用实际输入，反事实必须明确存在假设。"""
     errors = []
-    allowed = _visible_evidence_ids(obj["input"])
-    if obj["input"].get("allowed_evidence_event_ids") != allowed:
+    allowed = _visible_evidence_ids(input_data)
+    if input_data.get("allowed_evidence_event_ids") != allowed:
         errors.append("Allowed evidence event IDs disagree with the visible input events")
     known = set(allowed)
     invalid = set()
     missing = False
-    for claim in obj["target"]["claims"]:
+    for claim in target["claims"]:
         citations = set(claim["evidence_event_ids"])
         invalid.update(citations - known)
         if claim["kind"] != "hypothesis" and not citations:
@@ -79,8 +72,8 @@ def _validate_claims(obj: dict) -> list[str]:
         errors.insert(0, _citation_error(invalid, allowed))
     if missing:
         errors.append(_missing_citation_error(allowed))
-    if obj["input"].get("mode") == "counterfactual":
-        if not any(claim["kind"] == "hypothesis" for claim in obj["target"]["claims"]):
+    if input_data.get("mode") == "counterfactual":
+        if not any(claim["kind"] == "hypothesis" for claim in target["claims"]):
             errors.append("Counterfactual output does not declare a hypothesis")
     return errors
 

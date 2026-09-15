@@ -523,6 +523,7 @@ ReAct 用尽预算未完成、最终记忆结构无效、必要记忆归纳或�
 
 在所有本轮人物响应、记忆保存、环境推进和事件写入完成后创建检查点。
 先把人物工作区和游戏状态等必要快照保存成不可变素材，再在数据库事务中提交世界快照、时钟与所有素材引用。
+世界状态中的集合在 JSON 持久化时按元素排序编码；新进程和不同 Python 哈希种子必须产生逐字节相同的状态。
 只有该记录存在且引用可验证，才算完整检查点；`SOCIETY_STEP.json` 单独写成功不构成证明。
 
 中断后原运行标为中断，保留检查点之后已经发生的部分事件。恢复创建新的运行分支，
@@ -619,14 +620,14 @@ JSONL 实际每个对象一行。`input.text_field = "evidence"` 使用 LabelKit
 
 | 内容 | 负责人 |
 | --- | --- |
-| 真实动作名、参数、事件标识、时间、资源变化、状态 | WorldMock 确定性导出；LabelKit 后处理透传和验证 |
+| 真实动作名、参数、事件标识、时间、资源变化、状态 | WorldMock 确定性导出；语义评审通过后组装和验证 |
 | 活动语义、任务类别、意图及证据选择 | LabelKit 模型标注与独立验证 |
 | dreaming 的反思与假设 | LabelKit 相应项目生成，保留来源和分支 |
 | 规则预期结果 | 冻结规范与独立检查器，不能取待测规则引擎自己的结果作为答案 |
-| 最终字段和文件格式 | LabelKit 项目 Schema、后处理与目标加载器合同 |
+| 最终字段和文件格式 | LabelKit 语义候选 Schema、WorldMock 组装与目标加载器合同 |
 
-普通 process 的标注后处理可以读取完整原始行。动作、时间和来源字段用
-`x-labelkit-postprocessor: true` 标记为代码负责，模型只生成语义字段。
+普通 process 的模型只生成含 `target` 的语义候选。LabelKit 以原始 `input` 和该候选
+完成结构、引用与独立语义评审；评审通过后，WorldMock 才组装真实动作、时间和来源字段。
 dreaming 的经验归纳与反思可由 `process + annotate` 输出结构化派生结果；不要求先启用 sequence generation。
 需要机械时间约束和缺失、乱序、超时变体时，才使用独立的 sequence generation 项目。
 
@@ -796,7 +797,7 @@ dreaming 可以对已知经历做归纳，或提出“若未获得报酬是否�
 | 人物共同背景 | 上海张江生活区居住、张江高科技园区工作的白领；与旧数据对齐到可证明的程度 |
 | 未共同定义的属性 | 年龄、工资、初始存款、身体参数单独声明为新实验假设，不能当作旧数据已匹配条件 |
 | 人物生成模型 | DeepSeek 官方 OpenAI-compatible 端点，`deepseek-flash`；保存实际返回模型名、fingerprint、请求参数和 token 使用 |
-| 模型冻结 | 固定端点、角色、提示、工具 Schema 和模型参数；运行中不切换模型、不修改提示、不替人物决定行动 |
+| 模型冻结 | 固定端点、角色、提示、Pydantic 基础工具合同、枚举绑定算法和模型参数；每轮枚举只来自当前观察，运行中不切换模型或代选行动 |
 | AS2 基线 | `vendor/agentsociety2` 的维护分支 `worldmock-life`，基于 `670c94fff7c64c4f79b632125f2ccf968155e746` |
 | AS2 依赖 | 使用该上游提交的锁文件；MCP 1.26.0、LiteLLM 1.89.2、Ray 2.55.1。新增依赖统一进入 WorldMock 锁文件 |
 | 自定义模块 | 项目根目录 `custom/envs/life_env.py`、`custom/agents/life_agent.py`；运行目录位于项目 `runs/` 下 |
@@ -951,7 +952,9 @@ OSRM 只提供道路、距离与时间。启程受理时按可见报价一次预
 ### LabelKit 最终数据合同
 
 动作、意图和 dreaming 使用 LabelKit 普通 process，固定输入文件且关闭去重、重新语义分段和分类。
-动作、时间、来源和资源结果使用 `x-labelkit-postprocessor` 代码透传；模型只能补充语义，不得重写原始动作。
+标注 Schema 的完整候选只包含 `target`；模型与评审者各只读取一次完整可见 `input`。
+候选先通过 LabelKit 结构、本地引用验证和独立评审，随后 WorldMock 一次性组装 `task`、`input`、
+`provenance` 和 `target.facts`。评审前不复制这些字段，也不向模型暴露原始真值。
 动作目标保留在原始行的独立 target 中，不能发送给模型充当动作前的历史。意图允许多个合理标签或无法确定。
 dreaming 覆盖归纳、反思和反事实；每条都标明知识截止和事实、推断、假设的来源，环境重演使用新分支。
 
@@ -979,6 +982,13 @@ DatasetDict 的 `input`、`target`、`provenance` 使用 Datasets 原生 `Json(d
 每个 LabelKit 输入窗口声明起止、知识截止、活动身份、边界类型与必要前置状态；上下文超限明确失败，不自动裁正文。
 生成与独立评审的 `context_window` 固定为官方 `deepseek-flash` 已声明的一百万 token；
 使用 LabelKit 现有输入预算、输出预留和余量检查，不用较小的旧容量人为截断自然日窗口。
+语义候选使用 `131072` token 的输出上限；该值限制最长输出，不要求每次生成达到这一长度。
+候选必须聚合自然日证据，不逐事件复述：`claims` 最多 32 条，单条正文最多 512 字符、引用最多 64 个且
+单个引用最多 64 字符，`intent_candidates` 最多 8 个且不重复，`uncertainty` 最多 1024 字符。
+这些约束限制语义摘要，不删除或裁剪作为评审根据的任何原始事件。
+提示必须明确原始事件由工程完整保存；模型的 `target` 是聚合摘要，不要求逐事实复述。
+结构返工必须提供可执行的具体限制。数组超过 `maxItems` 时，错误包含字段路径、允许的最大数量和实际数量；
+候选全文只放在返工提示的原始输出中，错误说明不能再次展开整个数组。
 容量依据为 [DeepSeek 模型说明](https://api-docs.deepseek.com/quick_start/pricing/)，核验日期为 2026-09-15。
 活动完成、容量截断和实验结束分别标记。每个产物字段必须追溯到原始事件或明确的语义派生。
 全部数据校验、语义校验、训练加载和规则执行通过后，才发布最后的不可变交付清单。
@@ -1126,7 +1136,7 @@ CLI 的退出状态、产物、运行身份和哈希仍由交付程序严格验�
 ### LabelKit 实测端点与规则消费者绑定
 
 官方 DeepSeek 在本次预检中拒绝 `response_format=json_schema`。LabelKit 固定使用其已有文本 JSON 输出与完整 Schema 校验路径，显式配置 `supports_structured_output=false`；不在运行中切换方式或模型。动作和语义仍必须通过代码事实透传与独立 verify 调用。原始目标事实只在 verify 通过后回填最终样本，
-不会出现在 annotate 或 verify 请求中；LabelKit 内的后处理只补齐当前输入与来源，后续交付后处理负责目标事实。该 verify 与生成使用同一模型的不同调用，报告必须披露同源模型偏差。
+不会出现在 annotate 或 verify 请求中。LabelKit 只生成和评审 target 语义候选；WorldMock 在全部校验通过后一次性组装原始输入、目标事实与来源。该 verify 与生成使用同一模型的不同调用，报告必须披露同源模型偏差。
 
 序列规则夹具使用实际生活请求作为来源，另行声明六十秒的请求受理后登记回执规则。确认表示登记完成，不表示睡眠、出行或工作本身已完成。生成交互是合成分支，不能当作原生活环境的处理时限。正向、缺失受理、确认先于受理、超时四个分支的预期由规范固定；实际事件与时钟来自成功生成清单，交由 rule-engine 执行。
 
@@ -1148,6 +1158,30 @@ Pydantic 原生模型直接产生该合同，启动检查只验证 Schema，不�
 不手抄第二套字段，不发送 `$ref` 或 `$def/$defs`，不在生成后做兼容转译。
 服务不支持数组数量边界，长度限制继续由本地模型校验器拒绝；不能声称服务端保证了这些长度。
 `finish` 引用只枚举当前真正可见的观察、结果和已经读到的持久记忆，未知引用仍中止当前决策。
+
+`start_targeted_activity` 的活动类型和目标必须绑定本轮首条环境观察的实际目录。`prepare_react_loop`
+严格读取并冻结 `observations[0].data`；缺少目录、目录类型错误或空白身份均为协议错误，不替换为空目录。
+
+| 活动类型 | 唯一目标来源 |
+| --- | --- |
+| work | `tasks[].task_id` |
+| watch | `content_catalog[].item_id` |
+| play_game | `game_catalog[].game_id` |
+| read_mail | `messages[].message_id` |
+| browse | `browse_targets[]` |
+
+空目录对应的活动类型从 `activity_type.enum` 移除；`target_id.enum` 为其余目录实际身份的排序去重集合，
+参数描述明确活动类型与目录的对应关系。所有目录均为空时撤下整个工具，不发送空枚举。
+记忆查询不改变这份本轮目录；动作提交后沿现有阶段规则撤下生活动作工具。
+本地协议校验还必须核对活动类型与目标的准确配对，错误时不提交请求。
+地点、技能、时长、冲突占用与并发状态仍由 LifeEnv 业务规则校验，连续业务拒绝上限保持不变。
+暂停活动仍可通过现有 `set_activity_state` 恢复，不因启动目录变化失去控制权。
+显式只读查询不要求环境目录，也不开放生活动作工具。
+
+`tool_schema_sha256` 固定 Pydantic 基础合同，`code_sha256` 固定上述绑定算法；每轮最终实际工具 Schema
+完整保存在 `model_request`。这采用 [DeepSeek 原生 enum](https://api-docs.deepseek.com/guides/tool_calls/)
+和 [PettingZoo 从观察约束可用动作](https://pettingzoo.farama.org/tutorials/custom_environment/3-action-masking/)
+的已验证接口方法；限制当前可见目标不规定人物应选择哪项行动。
 
 记忆范围查询拆成 `memory_step_range(start_step, end_step, limit)`、
 `memory_tick_range(start_tick, end_tick, limit)` 与 `memory_time_range(start_time, end_time, limit)`，

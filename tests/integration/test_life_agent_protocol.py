@@ -72,13 +72,22 @@ def _observations(*result_ids: str) -> list[dict]:
     data = {
         "observation_event_id": "observation-current",
         "recent_action_results": [{"event_id": item} for item in result_ids],
+        "tasks": [{"task_id": "task-visible"}],
+        "content_catalog": [{"item_id": "content-visible"}],
+        "game_catalog": [{"game_id": "game-visible"}],
+        "messages": [{"message_id": "message-visible"}],
+        "browse_targets": ["product_catalog"],
     }
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
 
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     """正式动作前 Schema 仅含十个业务和六个记忆工具。"""
-    schemas = LifeAgent().build_react_tool_schemas(readonly=False)
+    agent = LifeAgent()
+    agent.prepare_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations())
+    )
+    schemas = agent.build_react_tool_schemas(readonly=False)
     functions = {item["function"]["name"]: item["function"] for item in schemas}
 
     assert set(functions) == set(REQUEST_MODELS) | _MEMORY_TOOL_NAMES
@@ -89,6 +98,12 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert all(function["strict"] is True for function in functions.values())
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
+
+
+def test_action_schema_requires_prepared_environment_catalogs() -> None:
+    """非只读动作工具在首观察目录冻结前必须明确失败。"""
+    with pytest.raises(RuntimeError, match="visible target catalogs are not prepared"):
+        LifeAgent().build_react_tool_schemas(readonly=False)
 
 
 def test_readonly_schema_uses_its_independent_finish_contract() -> None:
@@ -364,6 +379,11 @@ class _StepEnvironment(_Environment):
         return {
             "observation_event_id": "observation-current",
             "recent_action_results": [],
+            "tasks": [{"task_id": "task-visible"}],
+            "content_catalog": [{"item_id": "content-visible"}],
+            "game_catalog": [{"game_id": "game-visible"}],
+            "messages": [{"message_id": "message-visible"}],
+            "browse_targets": ["product_catalog"],
         }
 
     async def scheduling_state(self) -> SchedulingState:
@@ -475,6 +495,17 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     third_names = {item["function"]["name"] for item in third["tools"]}
     assert first_names == set(REQUEST_MODELS) | _MEMORY_TOOL_NAMES
     assert "finish" not in first_names
+    targeted = next(
+        item["function"]["parameters"]["properties"]
+        for item in first["tools"]
+        if item["function"]["name"] == "start_targeted_activity"
+    )
+    assert targeted["activity_type"]["enum"] == [
+        "work", "watch", "play_game", "read_mail", "browse",
+    ]
+    assert targeted["target_id"]["enum"] == [
+        "content-visible", "game-visible", "message-visible", "product_catalog", "task-visible",
+    ]
     assert second_names == third_names == _MEMORY_TOOL_NAMES | {"finish"}
     assert set(REQUEST_MODELS).isdisjoint(second_names | third_names)
     finish = next(

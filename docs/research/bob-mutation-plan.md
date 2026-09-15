@@ -2,16 +2,19 @@
 
 ## 结论与执行边界
 
-本文把 `docs/agentsociety2-design.md` 的可观察核心合同映射到当前生产入口、现有行为测试和一个最小语义
-突变。计划包含七十八个彼此独立执行的突变，覆盖本次父任务指定的核心范围；它不声称穷尽整份规范。
+本文把 `docs/agentsociety2-design.md` 的可观察核心合同映射到生产入口、行为测试和最小语义突变，
+不声称穷尽整份规范。七十八项历史审计固定在提交
+`712877a9dda35fb6b719669d5374cab7300c0e78`，结果为七十七项 killed、M60 survived；正式报告位于
+`.work/verification/bob-prepared/results/712877a9dda35fb6b719669d5374cab7300c0e78/bob-report.md`。
 
-映射收口复核于 2026-09-15。权威规范 SHA-256 在 Bob 静态准备收据中冻结；执行前若规范继续变化，
-执行器必须拒绝开始并重新生成清单。
+当前生产修订加入 target-only LabelKit 候选、状态集合稳定序列化、M60 测试修复和观察目录约束的目标活动工具。
+根工程增量审查使用独立目录 `.work/verification/bob-target-only/`；`vendor/labelkit` 的结构返工由其独立 Bob
+审查，不混入根执行器。源码身份 `2a6ea066bddc0524a7ab823f4ec6918138ad15b877eb806ffad41b535c17d59d`
+已形成四十项中间静态映射，但真实多人运行随后暴露模型调用未提供的函数，有限 ReAct 纠正合同仍在修订。
+因此当前清单明确暂停，不能作为最终冻结清单或旧报告覆盖当前生产的依据。
 
-最初静态准备快照没有可供隔离 worktree 固定的基准提交。随后两个已关闭的隔离会话只运行了失败基线，
-均未应用突变；失败证据和当前测试组织修正在文末单独记录。父任务提供包含该修正的干净提交后，
-执行者必须重新核对规范摘要、符号和精确替换文本；
-任何漂移都先更新计划，不能把无法应用的替换记为 survived 或 killed。
+映射收口复核于 2026-09-15。权威规范 SHA-256 在 Bob 静态准备收据中冻结；执行前若规范、计划、
+生产源码或测试继续变化，执行器必须拒绝开始并重新生成清单。无法应用的替换不能记为 survived 或 killed。
 
 ## 后续执行合同
 
@@ -88,14 +91,11 @@ bob_restore() {
 }
 ```
 
-声明基线覆盖所有会被改写的本项目入口及三个 AS2 核心入口。两组测试使用独立 pytest 进程，
-避免不同项目的 conftest 模块相互遮蔽。任一组基线失败时停止，不执行任何突变。
+当前声明基线覆盖本项目全部生产入口；integration 测试通过隔离 checkout 内的固定 AS2 gitlink 运行。
+基线失败时停止，不执行任何突变。
 
 ```bash
-bob_case tests/footprints tests/life tests/integration tests/delivery tests/evaluation
-bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_decision_round.py \
-  vendor/agentsociety2/packages/agentsociety2/tests/test_society_decision_round.py \
-  vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py
+bob_case tests
 ```
 
 每次只应用表中的一个替换或插入，先确认旧文本在目标符号中恰好出现一次，再运行该行命令。结果只允许
@@ -108,10 +108,9 @@ bob_restore <目标文件>
 
 随后要求 `git status --porcelain=v1 --untracked-files=all` 为空，才可进入下一项。
 
-## 预声明语义突变
+## 历史七十八项语义突变
 
-表中规范位置均指当前 `docs/agentsociety2-design.md`。Python 入口使用 `文件::符号`，配置语义使用固定文件和字段，
-避免并发编辑造成行号假精确。
+表中规范位置指历史执行时的设计快照。Python 入口使用 `文件::符号`，配置语义使用固定文件和字段。
 
 | 表序号 | 可观察合同与规范位置 | 当前生产入口与唯一突变 | 精确测试命令 | 杀死条件 |
 | --- | --- | --- | --- | --- |
@@ -194,37 +193,95 @@ bob_restore <目标文件>
 | M76 | 公开 action 窗口身份只依赖可见输入；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_attach_evidence`：把隐藏未来目标加入 `window_id` 哈希 | `bob_case tests/delivery/test_windows.py::test_action_public_identity_is_independent_of_the_future_target` | 只替换未来目标就改变公开 provenance，身份稳定断言失败 |
 | M77 | induction、reflection 与 counterfactual 必须具有不同窗口身份；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_window_identity`：从哈希输入删除 dreaming mode | `bob_case tests/delivery/test_windows.py::test_midnight_experiment_end_does_not_create_an_extra_training_day` | 三个 dreaming 模式折叠为同一公开身份，唯一性断言失败 |
 | M78 | 语义验证必须从直接可见事实重建引用闭集；“导出认证与语义评审修正” | `src/worldmock/delivery/semantics.py::_visible_evidence_ids`：直接信任输入自报 allowlist | `bob_case tests/delivery/test_training.py::test_validator_accepts_hydrated_prior_result_and_rejects_allowed_list_tampering` | 伪造 allowlist 不再产生与可见证据不一致错误，篡改反例失败 |
-## 预声明收口状态
 
-M08、M19、M24 和 M31 保留原计划追加时的真实回归节点。M32 至 M46 与 M68 来自
-`.work/verification/bob-strict-contract-additions.json` 的十六项独立严格请求、Schema 与动态工具合同；M47 至 M67
-覆盖公开证据的声明边界、真实状态、共同字段、匿名身份、会话粒度和可判定性；M69 覆盖终点截断原因；
-M70 至 M78 覆盖历史结果权威水合、来源类型、可见性、同人物、知识截止、未来身份盲性、窗口身份与
-引用闭集重建。当前七十八项均已绑定现存生产符号和 pytest 节点，准备器会在干净提交上再次静态校验。
-在父任务提供 clean HEAD 及明确执行放行前，本计划仍是 prepared，不能报告任何 killed 或 survived 结果。
+## 历史审计收口
 
-## 执行记录模板
+历史七十八项在提交 `712877a9dda35fb6b719669d5374cab7300c0e78` 完整执行。七十七项 killed，M60
+survived；最终恢复基线为根测试 347 passed、AS2 测试 26 passed，cleanup 收据确认隔离 worktree 已注销并删除。
+M60 的直接原因是旧 fixture 使用的 `completed` 不在订单因果状态闭集，日期未显式绑定只是独立稳健性缺口。
+报告、摘要、全部尝试和恢复收据继续保存在 `.work/verification/bob-prepared/results/712877a9dda35fb6b719669d5374cab7300c0e78/`。
+
+以源码身份 `2a6ea066…` 复核时，六十二项 killed 对应的生产文件仍与历史准备摘要逐字节相同，可作为未改源码的
+历史证据。M12、M13、M34、M37、M38、M40、M41、M43、M44、M45、M68 与 M78 因目标生产文件变化而重检；
+M20、M21 分别由当前 target-blind `text_field` 与独立 verdict 突变替代。M60 使用修复后的闭集内状态 fixture
+原样复杀。历史 M75 的“提前扩展 provenance”机制已被 target-only 架构删除；当前未来目标泄漏由 fresh
+candidate 顶层闭集和真实 LabelKit `text_field` 请求捕获验证。
+
+## 当前根工程增量突变
+
+以下四十项是源码身份 `2a6ea066…` 的中间映射：十项 target-only、三项状态集合排序、十三项受影响的历史边界、
+十二项目标目录约束，以及模型请求写盘和运行代码身份各一项。精确替换和测试节点证据位于
+`.work/verification/bob-target-only/intermediate-root-manifest-2a6ea066.json`。有限 ReAct 纠正合同尚未冻结，
+所以本节不授权 baseline 或 mutation；最终干净提交产生后必须重新绑定源码、规范、测试和计划摘要。
+
+| 表序号 | 可观察合同 | 当前生产入口与唯一突变 | 精确测试命令 | 杀死条件 |
+| --- | --- | --- | --- | --- |
+| D-TARGET-ONLY-CANDIDATE | 评审前语义候选必须且只能包含 `target` | `src/worldmock/delivery/semantics.py::validate_annotation`：把候选顶层闭集检查替换为 `if False` | `bob_case tests/delivery/test_training.py::test_candidate_cannot_include_future_facts_or_original_fields` | fresh candidate 携带原始 `input` 时不再被拒绝 |
+| D-PROCESS-OUTPUT-CLOSED | LabelKit 评审结果必须且只能包含 `target` 与 `_meta` | `src/worldmock/delivery/pipeline.py::_source_record`：禁用输出顶层闭集检查 | `bob_case 'tests/delivery/test_labelkit_process.py::test_process_rejects_candidate_source_mismatch[extra_field-only target and _meta]'` | 携带复制 `input` 的输出被接受 |
+| D-SOURCE-FILE-BINDING | 输出来源必须绑定当前任务输入文件 | `src/worldmock/delivery/pipeline.py::_source_record`：禁用来源文件匹配 | `bob_case 'tests/delivery/test_labelkit_process.py::test_process_rejects_candidate_source_mismatch[wrong_file-source file]'` | 声称来自其他任务文件的候选被接受 |
+| D-SOURCE-LINE-BOUNDS | 输出来源行必须是存在的一基索引 | `src/worldmock/delivery/pipeline.py::_source_record`：禁用来源行范围检查 | `bob_case 'tests/delivery/test_labelkit_process.py::test_process_rejects_candidate_source_mismatch[wrong_line-source line is outside]'` | 越界来源行越过身份门 |
+| D-SOURCE-RECORD-DIGEST | 输出身份必须等于对应原始行的规范摘要 | `src/worldmock/delivery/pipeline.py::_source_record`：禁用 `_meta.id` 摘要匹配 | `bob_case 'tests/delivery/test_labelkit_process.py::test_process_rejects_candidate_source_mismatch[wrong_id-record identity]'` | 伪造摘要的候选被绑定到原始行 |
+| D-SOURCE-LINE-UNIQUE | 每个来源行最多产生一条评审候选 | `src/worldmock/delivery/pipeline.py::_source_record`：禁用重复来源行检查 | `bob_case tests/delivery/test_labelkit_process.py::test_process_rejects_duplicate_source_line` | 两条候选覆盖同一来源行且遗漏另一输入 |
+| D-INDEPENDENT-VERDICT | 只有独立评审通过的候选才能回填未来事实 | `src/worldmock/delivery/pipeline.py::verify_process`：禁用 verdict 必须为 pass 的检查 | `bob_case tests/delivery/test_labelkit_process.py::test_failed_independent_semantic_verdict_blocks_process_output` | fail 候选被组装为训练记录 |
+| D-TARGET-BLIND-TEXT-FIELD | annotate 与 judge 只能读取可见 `input` | `labelkit-projects/action.toml`：把 `[input].text_field` 从 `input` 改为未来 `target` | `bob_case 'tests/delivery/test_labelkit_process.py::test_real_labelkit_annotate_and_verify_requests_are_target_blind[pass]'` | localhost 捕获的真实 LabelKit 请求出现未来请求或结果身份 |
+| D-SEMANTIC-CLAIMS-MAX | 语义摘要最多包含三十二条 claims | `labelkit-projects/schemas/semantic-target.json`：把 `maxItems` 从 32 改为 33 | `bob_case 'tests/delivery/test_semantic_schema.py::test_target_only_schema_rejects_each_declared_boundary[claims_max-value0-maxItems]'` | 三十三条 claims 变成有效候选 |
+| D-SEMANTIC-OUTPUT-CAP | 语义候选输出上限固定为 131072 token | `labelkit-projects/config.toml`：把上限降回实际发生截断的 8192 | `bob_case tests/delivery/test_semantic_schema.py::test_default_output_limit_is_a_cap_for_bounded_semantic_summary` | 配置上限断言失败 |
+| STATE-SET-AGENT-UNSORTED | 人物持久字符串集合按元素排序编码 | `src/worldmock/life/models.py::AgentState.serialize_agent_sets`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 排序数组断言或跨哈希种子逐字节身份失败 |
+| STATE-SET-ACTIVITY-UNSORTED | 活动资源集合按元素排序编码 | `src/worldmock/life/models.py::ActivityState.serialize_resource_claims`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 资源数组排序或跨进程身份失败 |
+| STATE-SET-WORLD-UNSORTED | 世界付款与验收集合按元素排序编码 | `src/worldmock/life/models.py::WorldState.serialize_world_sets`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 世界集合排序或跨进程身份失败 |
+| M12-CURRENT | `finish` 记忆只能引用当前决策可见来源 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把未解析引用集合改为空集合 | `bob_case tests/integration/test_life_agent_protocol.py::test_finish_accepts_only_current_visible_environment_refs` | 未见过的事件身份被接受 |
+| M13-CURRENT | 普通决策必须先提交恰好一个生活动作再结束 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把动作数不等于一改成永不成立的负数判断 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_rejects_invalid_or_non_atomic_decisions` | 没有动作的结束调用越过协议门 |
+| M34-CURRENT | 每个当轮可用函数必须声明 `strict=true` | `custom/agents/life_agent.py::_tool_schema`：把 strict 改为 false | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 当前工具逐项 strict 断言失败 |
+| M37-CURRENT | 嵌套工作交付 Schema 必须内联 | `src/worldmock/life/models.py::SubmitWorkRequest`：移除 `WithJsonSchema` 内联声明 | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums tests/integration/test_activity_schema.py::test_nested_life_schemas_are_inlined_from_runtime_models` | 生成 Schema 出现引用或不再与运行模型一致 |
+| M38-CURRENT | `finish` 的记忆条目 Schema 必须内联 | `custom/agents/life_agent.py::FinishRequest`：移除记忆数组的内联 `WithJsonSchema` | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums tests/integration/test_activity_schema.py::test_nested_life_schemas_are_inlined_from_runtime_models` | `finish` Schema 重新出现引用或偏离运行模型 |
+| M40-CURRENT | 会议纪要摘要必须拒绝空白 | `src/worldmock/life/models.py::MeetingMinutes`：移除 `summary` 的非空白约束 | `bob_case tests/integration/test_activity_schema.py::test_submit_work_schema_rejects_blank_minutes` | 空白摘要变成有效输入 |
+| M41-CURRENT | 服务不支持的 `finish` 数组数量边界仍由本地拒绝 | `custom/agents/life_agent.py::FinishRequest.validate_memory_count`：禁用一至八条数量判断 | `bob_case tests/integration/test_activity_schema.py::test_provider_array_or_text_limit_gap_remains_a_local_hard_rejection` | 空记忆数组变成有效输入 |
+| M43-CURRENT | 生活工具对象必须拒绝未知字段 | `src/worldmock/life/models.py::FrozenModel`：把 `extra="forbid"` 改为 `extra="ignore"` | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 工具对象不再封闭 |
+| M44-CURRENT | 生活工具字段必须显式必填 | `src/worldmock/life/models.py::StartBasicActivityRequest`：给计划时长增加默认值 | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 计划时长不再必填并出现默认值 |
+| M45-CURRENT | 严格 Schema 必须保留最大活动时长 | `src/worldmock/life/models.py::deepseek_strict_schema`：删除 `planned_duration_seconds.maximum` | `bob_case tests/integration/test_activity_schema.py::test_duration_maximum_is_preserved_in_schema_and_runtime_validation` | 86401 秒不再被 Schema 拒绝 |
+| M68-CURRENT | 动作前不开放 `finish`，动作后只开放记忆与 `finish` | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：动作前恢复包含 `finish` 的全表 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action tests/integration/test_life_agent_protocol.py::test_native_react_rejects_finish_before_life_action` | 首请求重新暴露 `finish` |
+| M60-REKILL | 因果连续性必须由双方都有闭集内真实状态链 | `src/worldmock/evaluation/review.py::_judgeability`：把右侧状态链条件从 `and` 改为 `or` | `bob_case tests/evaluation/test_review.py::test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_objects` | 修复后的 `requested/delivered` 单侧状态集被错误判为可比较 |
+| M78-CURRENT | 引用闭集必须从可见输入重建 | `src/worldmock/delivery/semantics.py::_visible_evidence_ids`：直接返回自报 allowlist | `bob_case tests/delivery/test_training.py::test_validator_accepts_hydrated_prior_result_and_rejects_allowed_list_tampering` | 篡改 allowlist 不再产生错误 |
+| G-PREPARED | 非只读动作工具必须先冻结首观察目录 | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：未准备目录时跳过绑定而不报错 | `bob_case tests/integration/test_life_agent_protocol.py::test_action_schema_requires_prepared_environment_catalogs` | 未绑定的基础目标工具被暴露 |
+| G-WORK-SOURCE | 工作目标只来自 `tasks[].task_id` | `custom/agents/life_agent.py::_TARGET_CATALOG_FIELDS`：把 work 来源改为内容目录 | `bob_case tests/integration/test_grounded_targets.py::test_prepare_binds_current_catalogs_to_native_strict_schema` | 任务身份消失，内容身份被当成工作目标 |
+| G-KIND | 空目录对应的活动类型从本轮枚举移除 | `custom/agents/life_agent.py::_bind_targeted_activity_catalogs`：无条件保留五种活动类型 | `bob_case tests/integration/test_grounded_targets.py::test_failed_run_observation_removes_unreleased_work_and_invented_target` | 空任务目录仍开放 work |
+| G-EMPTY-LEAK | 五个目录全空时撤下目标启动工具 | `custom/agents/life_agent.py::_bind_targeted_activity_catalogs`：全空分支直接返回而不移除工具 | `bob_case tests/integration/test_grounded_targets.py::test_all_empty_catalogs_remove_only_targeted_start_tool` | 未绑定的目标工具仍出现 |
+| G-EMPTY-CONTROLS | 全空目录只撤目标启动，保留基本、出行和活动控制 | `custom/agents/life_agent.py::_bind_targeted_activity_catalogs`：全空时清空全部工具 | `bob_case tests/integration/test_grounded_targets.py::test_all_empty_catalogs_remove_only_targeted_start_tool tests/integration/test_grounded_targets.py::test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty` | 暂停活动恢复工具也消失 |
+| G-MISSING | 缺少必需目录是协议错误 | `custom/agents/life_agent.py::_visible_target_ids`：把缺失目录默认为空列表 | `bob_case 'tests/integration/test_grounded_targets.py::test_prepare_rejects_every_missing_catalog[tasks]'` | 缺少 tasks 被静默当成空目录 |
+| G-BLANK | 目录身份必须是非空白字符串 | `custom/agents/life_agent.py::_catalog_identity_values`：删除空白判断 | `bob_case tests/integration/test_grounded_targets.py::test_prepare_rejects_malformed_catalogs` | 空白内容身份进入模型工具 |
+| G-SORT | 最终 `target_id.enum` 按稳定顺序编码 | `custom/agents/life_agent.py::_bind_targeted_activity_catalogs`：改为反向排序 | `bob_case tests/integration/test_grounded_targets.py::test_prepare_binds_current_catalogs_to_native_strict_schema` | 实际枚举顺序与稳定升序断言不符 |
+| G-DEDUP | 不同目录共享的身份在最终枚举只出现一次 | `custom/agents/life_agent.py::_bind_targeted_activity_catalogs`：把集合推导改成列表推导 | `bob_case tests/integration/test_grounded_evidence.py::test_grounded_tool_deduplicates_target_ids_across_catalogs` | 跨目录 `shared-id` 出现两次 |
+| G-PAIR | 联合枚举之外还要核对活动类型与目标配对 | `custom/agents/life_agent.py::LifeAgent.validate_react_decisions`：禁用目标配对校验 | `bob_case tests/integration/test_grounded_targets.py::test_union_enum_still_requires_exact_kind_and_target_pair` | 内容身份被作为工作任务受理 |
+| G-ROUND-REFRESH | 本轮目录冻结，下一决策重新读取首观察 | `custom/agents/life_agent.py::LifeAgent.prepare_react_loop`：已有目录时不刷新 | `bob_case tests/integration/test_grounded_targets.py::test_memory_observation_does_not_change_frozen_catalog_and_next_round_refreshes` | 下一轮继续使用旧任务身份 |
+| G-READONLY | 只读查询不要求生活目录且不开放生活动作 | `custom/agents/life_agent.py::LifeAgent.prepare_react_loop`：禁用只读提前返回 | `bob_case tests/integration/test_grounded_targets.py::test_readonly_needs_no_environment_catalog_and_opens_no_life_action` | 空观察只读请求被生活目录解析拒绝 |
+| G-MODEL-REQUEST | 落库的 `model_request` 保存实际发送的完整动态工具 | `src/worldmock/life/engine.py::LifeEngine.record_model_exchange`：把 request 写成空对象 | `bob_case tests/integration/test_grounded_evidence.py::test_model_request_persists_exact_grounded_tools` | 重开数据库后请求与 dispatcher wire 不一致 |
+| G-CODE-IDENTITY | `code_sha256` 包含目标枚举绑定算法 | `src/worldmock/runtime.py::runtime_code_sha256`：从代码目录中删除 `custom` | `bob_case tests/integration/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content` | 修改 LifeAgent 内容不再改变运行身份 |
+
+当前请求捕获测试还验证生成和独立评审各读取一次完整 `input`。旧 postprocessor 与完整输出 Schema 已删除；
+用一次单文件文本替换无法诚实重现旧跨文件重复机制，因此本轮保留这一非突变回归，不制造无对应生产路径的 mutant。
+
+## 当前执行记录模板
 
 父任务取得 clean HEAD 后，每个表序号使用一行，不合并多项结果。
 
 | 表序号 | 基准提交 | 突变 diff 摘要 | 测试命令 | 退出码 | 分类 | 关键证据 | 恢复后洁净 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Mxx | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 |
+| 当前表序号 | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 | 待执行 |
 
 完成全部条目后才运行与声明基线相同的相关全门。清理由准备器执行，路径必须解析到
 `/tmp/worldmock-bob.*`，先反初始化子模块，再调用 `git worktree remove` 并从
 `git worktree list --porcelain` 核对登记已消失。只有上述检查全部成功才删除 session；失败时保留 worktree、
-Git 登记和 `.work/verification/bob-prepared/results/<HEAD>/cleanup/` 收据。
+Git 登记和 `.work/verification/bob-target-only/results/<HEAD>/cleanup/` 收据。
 
 ```bash
 export WORLD_MOCK_BOB_APPROVED="$(shasum -a 256 docs/agentsociety2-design.md | awk '{print $1}')"
-.venv/bin/python .work/verification/bob-prepared/bob_executor.py cleanup --execute
+.venv/bin/python .work/verification/bob-target-only/bob_executor.py cleanup --execute
 ```
 
 survived 表示测试缺口，不能通过改变规范或弱化生产实现来消除；补充最小行为测试后，必须在同一基准提交上
 原样重放该突变并记录第二次结果。
 
-## 基线分进程修正
+## 历史基线分进程修正
 
 首个根提交 `15c737392bab2238e17b3dfce497b413f150ca6b` 的隔离 setup 已验证源码与依赖来源。
 将根项目与 AS2 测试放进同一个 pytest 进程时，裸 `from conftest` 被 AS2 的 conftest 遮蔽，产生十二个
@@ -235,4 +292,5 @@ AS2 组通过，但根项目内部 Life 与 Evaluation 仍共享顶层 `conftest
 当前修正给 `tests`、`tests/life`、`tests/evaluation` 明确包身份，并把 Life 与 Evaluation 的夹具导入改成限定路径。
 原先最宽的单进程组合已经以 `351 passed in 18.61s` 通过，原始输出保存在
 `.work/verification/qualified-test-imports.log`；该工作树验证只证明测试组织冲突已消失，不能替代下一 clean HEAD
-上的两个隔离 baseline。执行器继续以两个进程运行同一测试范围，两个均通过后才允许 M01 至 M78。
+上的两个隔离 baseline。历史执行器随后用两个进程通过根与 AS2 基线，才执行 M01 至 M78；当前审计只含
+根项目生产目标，使用上文声明的单独根基线。

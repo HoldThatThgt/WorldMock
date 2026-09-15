@@ -1,53 +1,47 @@
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "task": {
-      "type": "string",
-      "x-labelkit-postprocessor": true
-    },
-    "input": {
-      "type": "object",
-      "x-labelkit-postprocessor": true
-    },
     "target": {
       "type": "object",
       "properties": {
         "claims": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 32,
           "items": {
             "type": "object",
             "properties": {
               "text": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "maxLength": 512
               },
               "kind": {
                 "type": "string",
-                "enum": [
-                  "fact",
-                  "inference",
-                  "hypothesis"
-                ]
+                "enum": ["fact", "inference", "hypothesis"]
               },
               "evidence_event_ids": {
                 "type": "array",
+                "minItems": 0,
+                "maxItems": 64,
+                "uniqueItems": true,
                 "items": {
-                  "type": "string"
-                },
-                "uniqueItems": true
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                }
               }
             },
-            "required": [
-              "text",
-              "kind",
-              "evidence_event_ids"
-            ],
+            "required": ["text", "kind", "evidence_event_ids"],
             "additionalProperties": false
-          },
-          "minItems": 1
+          }
         },
         "intent_candidates": {
           "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
           "items": {
             "type": "object",
             "properties": {
@@ -66,42 +60,22 @@
               },
               "basis": {
                 "type": "string",
-                "enum": [
-                  "stated",
-                  "inferred",
-                  "uncertain"
-                ]
+                "enum": ["stated", "inferred", "uncertain"]
               }
             },
-            "required": [
-              "intent",
-              "basis"
-            ],
+            "required": ["intent", "basis"],
             "additionalProperties": false
-          },
-          "minItems": 1
+          }
         },
         "uncertainty": {
-          "type": "string"
+          "type": "string",
+          "maxLength": 1024
         }
       },
-      "required": [
-        "claims",
-        "intent_candidates",
-        "uncertainty"
-      ],
+      "required": ["claims", "intent_candidates", "uncertainty"],
       "additionalProperties": false
-    },
-    "provenance": {
-      "type": "object",
-      "x-labelkit-postprocessor": true
     }
   },
-  "required": [
-    "task",
-    "input",
-    "target",
-    "provenance"
-  ],
+  "required": ["target"],
   "additionalProperties": false
 }

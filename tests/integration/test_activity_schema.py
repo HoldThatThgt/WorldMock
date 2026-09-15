@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime, timezone
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from custom.agents.life_agent import (
     MemoryReadRequest,
     MemorySearchRequest,
 )
+from agentsociety2.agent.base import ReactLoopRequest
 from worldmock.life.models import (
     GameActionRequest,
     MeetingMinutes,
@@ -32,9 +34,27 @@ from worldmock.life.work_review import WorkReviewResponse
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
 
 
+def _prepared_agent() -> LifeAgent:
+    """按生产顺序用真实五类目录准备一次人物决策。"""
+    data = {
+        "observation_event_id": "observation-current",
+        "recent_action_results": [],
+        "tasks": [{"task_id": "task"}],
+        "content_catalog": [{"item_id": "content"}],
+        "game_catalog": [{"game_id": "game"}],
+        "messages": [{"message_id": "message"}],
+        "browse_targets": ["product_catalog"],
+    }
+    observations = [{"turn": 0, "action": "observe", "ok": True, "data": data}]
+    agent = LifeAgent()
+    request = ReactLoopRequest(0, datetime(2026, 1, 5, tzinfo=timezone.utc), observations)
+    agent.prepare_react_loop(request)
+    return agent
+
+
 def _function(tool_name: str) -> dict[str, Any]:
     """返回模型实际收到的一个 LifeAgent 函数声明。"""
-    agent = LifeAgent()
+    agent = _prepared_agent()
     if tool_name == "finish":
         agent._life_action_count = 1
     schemas = agent.build_react_tool_schemas(readonly=False)
@@ -71,9 +91,9 @@ def _assert_action_case(tool_name: str, payload: dict, accepted: bool) -> None:
         model.model_validate_json(json.dumps(payload), strict=True)
 
 
-def test_all_life_tools_use_unmodified_deepseek_strict_schemas() -> None:
-    """全部正式工具声明 strict，且生成器只核验、不删改 Schema。"""
-    agent = LifeAgent()
+def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums() -> None:
+    """正式工具保持 strict，目标活动仅增加本轮目录闭集。"""
+    agent = _prepared_agent()
     schemas = agent.build_react_tool_schemas(readonly=False)
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
@@ -86,7 +106,17 @@ def test_all_life_tools_use_unmodified_deepseek_strict_schemas() -> None:
         encoded = json.dumps(function["parameters"])
         assert "$ref" not in encoded and "$defs" not in encoded and "$def" not in encoded
     for name, model in REQUEST_MODELS.items():
-        assert _function(name)["parameters"] == model.model_json_schema(mode="validation")
+        parameters = _function(name)["parameters"]
+        if name == "start_targeted_activity":
+            properties = parameters["properties"]
+            assert properties["activity_type"]["enum"] == [
+                "work", "watch", "play_game", "read_mail", "browse",
+            ]
+            assert properties["target_id"]["enum"] == [
+                "content", "game", "message", "product_catalog", "task",
+            ]
+            continue
+        assert parameters == model.model_json_schema(mode="validation")
 
 
 def test_duration_maximum_is_preserved_in_schema_and_runtime_validation() -> None:
@@ -106,7 +136,10 @@ def test_duration_maximum_is_preserved_in_schema_and_runtime_validation() -> Non
 
 def test_old_conditional_tool_names_are_absent() -> None:
     """模型工具闭集删除旧启动、变更与记忆范围名称。"""
-    names = {item["function"]["name"] for item in LifeAgent().build_react_tool_schemas(readonly=False)}
+    names = {
+        item["function"]["name"]
+        for item in _prepared_agent().build_react_tool_schemas(readonly=False)
+    }
     assert {"start_activity", "change_activity", "memory_range"}.isdisjoint(names)
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(
         _function("start_basic_activity")["parameters"]["properties"]

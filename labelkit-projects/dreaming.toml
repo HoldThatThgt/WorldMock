@@ -26,7 +26,6 @@ enabled = false
 [annotate]
 enabled = true
 llm = "default"
-postprocessor = "hooks.py:complete_annotation"
 instruction = """
 按 input.mode 生成经历归纳 induction、反思 reflection 或反事实 counterfactual。归纳和反思引用真实证据；反事实必须明确 hypothesis，想象结果不标为已经重演或事实。
 input.counterfactual.world_kind=observed 时，input.events 只属于原世界；先归纳原世界事实，再提出未执行的明确假设及可能结果，绝不能把原事件称为重演。
@@ -35,6 +34,9 @@ input.counterfactual.world_kind=observed 时，input.events 只属于原世界�
 claims 的 kind 必须区分事实 fact、推断 inference、假设 hypothesis。
 事实和推断的每个 evidence_event_ids 值必须逐字取自 input.allowed_evidence_event_ids，禁止引用其他标识。
 简洁说明实际内容、行为与因果；保留来源里的重复接触，不以常识补写遗漏的经历。
+input 原事件由工程完整保存；target 是最多 32 条的聚合摘要，不要求逐事实复述。
+claims 最多 32 条；每条 text 最多 512 字符；每条 evidence_event_ids 最多 64 个，单个标识最多 64 字符。
+intent_candidates 最多 8 个且不得重复；uncertainty 最多 1024 字符。
 """
 
 [verify]
@@ -42,7 +44,14 @@ enabled = true
 llm = "judge"
 policy = "repair"
 max_repair_rounds = 2
-extra_criteria = "评审只依据 input.events 与 input.prerequisite_state 中、且列于 input.allowed_evidence_event_ids 的证据，评价 target.claims、intent_candidates、uncertainty。事实和推断须有实际来源，hypothesis不能当成已经发生。task、input、provenance是代码字段。未来真实目标尚未回填，不能假设知道下一动作。仅按Schema返回verdict=pass或fail，不能返回unknown。 输出必须是单个JSON对象，禁止先输出自然语言意见或Markdown。顶层必需且仅允许critiques和verdict；critiques为数组，每项必需且仅允许aspect和opinion两个字符串，不能使用issue。verdict必须依据证据取pass或fail，不使用unknown。"
+extra_criteria = """
+评审只依据 input.events 与 input.prerequisite_state 中、且列于 input.allowed_evidence_event_ids 的证据，
+评价 target.claims、intent_candidates、uncertainty。事实和推断须有实际来源，hypothesis不能当成已经发生。
+语义候选只有 target；task、input、provenance 和未来真实目标均在评审通过后由代码组装，不能假设知道下一动作。
+仅按 Schema 返回 verdict=pass 或 fail，不能返回 unknown。输出必须是单个 JSON 对象，禁止先输出自然语言意见或 Markdown。
+顶层必需且仅允许 critiques 和 verdict；critiques 为数组，每项必需且仅允许 aspect 和 opinion 两个字符串，
+不能使用 issue。verdict 必须依据证据取 pass 或 fail，不使用 unknown。
+"""
 
 [trace]
 enabled = true
@@ -50,7 +59,7 @@ channels = ["llm", "verify", "schema"]
 content = "full"
 
 [output]
-schema_path = "schemas/training.json"
+schema_path = "schemas/semantic-target.json"
 validator = "hooks.py:validate_annotation"
 meta_mode = "inline"
 rejects = "refs"

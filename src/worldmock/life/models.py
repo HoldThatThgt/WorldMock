@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer, model_validator
 
 
 class StrictModel(BaseModel):
@@ -215,6 +215,18 @@ class AgentState(StrictModel):
     visible_task_ids: set[str] = Field(default_factory=set)
     visible_product_ids: set[str] = Field(default_factory=set)
 
+    @field_serializer(
+        "active_effects",
+        "read_message_ids",
+        "visible_message_ids",
+        "visible_task_ids",
+        "visible_product_ids",
+        when_used="json",
+    )
+    def serialize_agent_sets(self, value: set[str]) -> list[str]:
+        """@brief 按稳定顺序编码人物集合，使跨进程状态字节一致。"""
+        return sorted(value)
+
 
 class ActivityState(StrictModel):
     """@brief 一个活动实例的权威进度。"""
@@ -244,6 +256,11 @@ class ActivityState(StrictModel):
     boundary_type: str | None = None
     interruption_reason: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
+
+    @field_serializer("resource_claims", when_used="json")
+    def serialize_resource_claims(self, value: set[str]) -> list[str]:
+        """@brief 按稳定顺序编码活动资源集合。"""
+        return sorted(value)
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> "ActivityState":
@@ -344,6 +361,11 @@ class WorldState(StrictModel):
     accepted_submission_ids: set[str] = Field(default_factory=set)
     random_seed: int
     random_state: str = Field(min_length=1)
+
+    @field_serializer("paid_task_ids", "accepted_submission_ids", when_used="json")
+    def serialize_world_sets(self, value: set[str]) -> list[str]:
+        """@brief 按稳定顺序编码世界结算集合。"""
+        return sorted(value)
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
