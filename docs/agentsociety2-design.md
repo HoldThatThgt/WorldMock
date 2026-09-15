@@ -1061,10 +1061,12 @@ trace 必须是有效的 LabelKit JSONL，属于同一次运行并具有完整�
 生成与独立评审的 `context_window` 固定为官方 `deepseek-flash` 已声明的一百万 token；
 使用 LabelKit 现有输入预算、输出预留和余量检查，不用较小的旧容量人为截断自然日窗口。
 语义候选使用 `thinking=disabled` 和 `131072` token 的输出上限；该值限制最长输出，不要求每次生成达到这一长度。
-LabelKit 独立评审使用现有单独 judge 角色，固定 `thinking=enabled`、输出上限 `32768` token，
+LabelKit 独立评审使用现有单独 judge 角色，固定 `thinking=enabled`、输出上限 `65536` token，
 保留零传输重试和既有输入预算检查。输出预算包含推理消耗；不把原来的短输出预算沿用于推理评审。
 这一角色配置不改变 AS2 人物决策与工作验收的原生工具协议。配置依据为
 [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/) 及本项目相同完整输入的实际对照调用。
+输出上限由 `32768` 上调为 `65536` 的依据为截断请求原样重放探针
+（`.work/verification/delivery-validated-contracts/judge-cap-probe.json`，`max_tokens=65536` 时返回 `finish=stop`）。
 候选必须聚合自然日证据，不逐事件复述：`claims` 最多 32 条，单条正文最多 512 字符、引用最多 64 个且
 单个引用最多 64 字符，`intent_candidates` 最多 8 个且不重复，`uncertainty` 最多 1024 字符。
 这些约束限制语义摘要，不删除或裁剪作为评审根据的任何原始事件。

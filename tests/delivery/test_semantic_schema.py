@@ -161,6 +161,6 @@ def test_default_output_limit_is_a_cap_for_bounded_semantic_summary():
 
     assert config['llm']['default']['max_output_tokens'] == 131072
     assert config['llm']['default']['thinking'] == 'disabled'
-    assert config['llm']['judge']['max_output_tokens'] == 32768
+    assert config['llm']['judge']['max_output_tokens'] == 65536
     assert config['llm']['judge']['thinking'] == 'enabled'
     assert not (ROOT / 'labelkit-projects/schemas/training.json').exists()

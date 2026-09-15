@@ -45,6 +45,15 @@ flowchart LR
 | 增量源码突变审查 | 31 项：26 killed、5 survived（全部为纵深防御层缺口）、0 invalid；5 个缺口已补针对性测试并经独立复验 5/5 killed | `.work/verification/bob-target-only/incremental-35b321e-mutations.json` |
 | 缺口修复后回归 | 522 passed（517 + 5 新测试）；修复仅新增测试，生产代码零改动；独立复测确认五条防线均为唯一防线命中 | 同目录复验记录；`tests/delivery/test_evidence_encoding.py`、`tests/delivery/test_labelkit_process.py` |
 
+## Dreaming 评审截断修复（judge 输出上限上调）
+
+dreaming 第五次失败定性为评审 thinking 模式下隐藏推理耗尽 `32768` 输出预算（一次恰好截断、可见输出为空）；
+该机制与此前 action/语义失败机制相互独立。截断请求原样重放探针返回 200、`finish=stop`、
+completion 25504（reasoning 24790）、耗时 109.5 秒，收据 `.work/verification/delivery-validated-contracts/judge-cap-probe.json`。
+据此调整 `labelkit-projects/config.toml` 的 `[llm.judge]`：`max_output_tokens` 32768→65536、`timeout_s` 180→360；
+`[llm.default]` 与零传输重试规范不动。修复方向 D（上调 `max_repair_rounds`）搁置：
+生成器对点名修复项三轮均不执行，加轮无效；失败集逐轮漂移表明方差主导。
+
 ## 最近完成的冻结基线
 
 以下证据属于提交 `aafbcf9ce431f29a21a9bec2a19a549b6b474040`，运行源码摘要为

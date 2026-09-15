@@ -226,7 +226,7 @@ def _assert_model_wire_contract(profiles, calls):
         assert messages.count('必须指出共享主体、关系与尚未概括的重复内容') == 1
         if profile == 'judge':
             assert request['thinking'] == {'type': 'enabled'}
-            assert request['max_tokens'] == 32768
+            assert request['max_tokens'] == 65536
             assert '每轮独立完整审查当前候选' in messages
             assert '一次列出发现的全部实质问题' in messages
             assert '身份字段是不透明标识' in messages
