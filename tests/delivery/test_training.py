@@ -6,7 +6,6 @@ import pytest
 from worldmock.delivery.semantics import attach_facts, validate_annotation
 from worldmock.delivery.training import assign_splits, load_training
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -21,6 +20,15 @@ def sample(group='parent', event='observation'):
 
 def test_real_dataset_loading_preserves_all_facts_and_separates_answer(tmp_path):
     record = sample()
+    record['provenance']['model_input'] = {
+        'decoded_input_sha256': 'a' * 64,
+        'model_input_sha256': 'b' * 64,
+        'model_record_sha256': 'c' * 64,
+        'labelkit_record_id': 'c' * 16,
+        'source_line': 1,
+        'trace_path': 'labelkit/out/action.trace.jsonl',
+        'trace_sha256': 'd' * 64,
+    }
     record['target']['facts'] = {'action': 'sleep', 'duration': 3600, 'efficiency': 0.3,
                                  'nested': [{'value': 0.1}, {'missing_is_distinct': None}]}
     record['input']['efficiency'] = 0.3
@@ -37,6 +45,7 @@ def test_real_dataset_loading_preserves_all_facts_and_separates_answer(tmp_path)
     assert receipt['json_columns']['verified_decoder'] == 'json.loads'
     assert '3600' not in actual['prompt'][0]['content']
     assert '3600' in actual['completion'][0]['content']
+    assert 'observation_value_encoding' not in actual['prompt'][0]['content']
 
 
 @pytest.mark.parametrize('shared_kind', ['event', 'asset'])

@@ -9,21 +9,35 @@ import os
 import shutil
 import subprocess
 import time
+import tomllib
 from pathlib import Path
 from typing import NoReturn
 
 from dotenv import dotenv_values
 
-from worldmock.delivery.generation import EXPRESSIONS, create_catalog, generation_fixtures, verify_generation
+from worldmock.delivery.evidence_encoding import (
+    ENCODING_FIELD,
+    decode_model_record,
+    encode_model_record,
+)
+from worldmock.delivery.generation import (
+    EXPRESSIONS,
+    create_catalog,
+    generation_fixtures,
+    verify_generation,
+)
 from worldmock.delivery.replay import replay_windows
 from worldmock.delivery.rules import execute_fixture
 from worldmock.delivery.semantics import attach_facts, validate_annotation
+from worldmock.delivery.trace_validation import completed_trace_sha256
 from worldmock.delivery.training import load_training
-from worldmock.delivery.windows import prepare_windows
+from worldmock.delivery.windows import _window_identity, prepare_windows
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.export import write_jsonl
 from worldmock.footprints.models import canonical_json
+
+SEMANTIC_TASKS = frozenset({"action", "intent", "dreaming"})
 
 
 def deliver(export_dir: Path, destination: Path, project_root: Path, replay_exports: tuple[Path, ...] = ()) -> dict:
@@ -68,8 +82,8 @@ def _execute_delivery(windows: dict, destination: Path, project_root: Path) -> d
     (workspace / "out").mkdir()
     receipts, records = {}, []
     for task, rows in windows.items():
-        write_jsonl(workspace / "data" / f"{task}.jsonl", rows)
-        receipts[task] = run_labelkit(task, workspace, project_root)
+        write_model_inputs(task, rows, workspace)
+        receipts[task] = run_labelkit(task, workspace, project_root, rows)
         records.extend(verify_process(task, workspace, rows))
     catalog = create_catalog(windows["action"][0])
     write_jsonl(workspace / "data" / "rules-catalog.jsonl", [catalog])
@@ -102,8 +116,15 @@ def _file_inventory(directory: Path) -> dict:
     return files
 
 
-def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
+def run_labelkit(task: str, workspace: Path, project_root: Path, inputs: list[dict] | None = None) -> dict:
     """@brief 独立依赖环境调用固定 CLI，凭据只通过进程环境传递。"""
+    if task in SEMANTIC_TASKS:
+        if inputs is None:
+            _raise_integrity("Semantic LabelKit execution requires its complete logical inputs")
+        encoded, _ = _load_source_bundle(task, workspace, trace_required=False)
+        _verify_decoded_sources(encoded, inputs)
+    elif inputs is not None:
+        _raise_integrity("Non-semantic LabelKit execution cannot receive semantic model inputs")
     binary = project_root / "vendor/labelkit/.venv/bin/labelkit"
     command = [str(binary), "run", "--config", str(workspace / "config.toml"),
                "--project", str(workspace / f"{task}.toml"), "--strict", "--console", "plain"]
@@ -120,21 +141,38 @@ def run_labelkit(task: str, workspace: Path, project_root: Path) -> dict:
         result = subprocess.run(command, env=environment, stdout=log, stderr=subprocess.STDOUT, check=False)
     if result.returncode != 0:
         raise IntegrityError(f"LabelKit {task} exited with status {result.returncode}")
-    return {"exit_code": result.returncode, "wall_seconds": round(time.monotonic() - started, 3),
-            "project_sha256": hashlib.sha256((workspace / f"{task}.toml").read_bytes()).hexdigest(),
-            "config_sha256": hashlib.sha256((workspace / "config.toml").read_bytes()).hexdigest()}
+    trace_sha256 = _bind_source_trace(task, workspace) if task in SEMANTIC_TASKS else None
+    receipt = {"exit_code": result.returncode, "wall_seconds": round(time.monotonic() - started, 3),
+               "project_sha256": hashlib.sha256((workspace / f"{task}.toml").read_bytes()).hexdigest(),
+               "config_sha256": hashlib.sha256((workspace / "config.toml").read_bytes()).hexdigest()}
+    if trace_sha256 is not None:
+        receipt["trace_sha256"] = trace_sha256
+    return receipt
+
+
+def write_model_inputs(task: str, inputs: list[dict], workspace: Path) -> dict:
+    """@brief 以唯一字段字典格式写入 LabelKit 行和可核验来源索引。"""
+    if task not in SEMANTIC_TASKS or not inputs:
+        _raise_integrity("Semantic model inputs require a supported task and non-empty records")
+    encoded = [encode_model_record(record) for record in inputs]
+    sources = [_model_source(task, line_no, row) for line_no, row in enumerate(encoded, 1)]
+    data_receipt = write_jsonl(workspace / "data" / f"{task}.jsonl", encoded)
+    index_receipt = write_jsonl(workspace / "data" / f"{task}.source-index.jsonl", sources)
+    return {"model_inputs": data_receipt, "source_index": index_receipt}
 
 
 def verify_process(task: str, workspace: Path, inputs: list[dict]) -> list[dict]:
     """@brief 验证 target-only process 的行身份和评审，再组装事实。"""
     output = workspace / "out" / f"{task}.jsonl"
     rows = [json.loads(line) for line in output.read_text().splitlines()]
+    encoded, sources = _load_source_bundle(task, workspace, trace_required=True)
+    _verify_decoded_sources(encoded, inputs)
     identities = {record["provenance"]["window_id"] for record in inputs}
     if len(identities) != len(inputs) or len(rows) != len(inputs):
         _raise_integrity("LabelKit process did not preserve every input window")
     verified, seen = {}, set()
     for row in rows:
-        line_no, original = _source_record(task, row, inputs, seen)
+        line_no, original, source = _source_record(task, row, inputs, sources, seen)
         if row["_meta"]["verification"]["verdict"] != "pass":
             _raise_integrity("LabelKit semantic verification did not pass")
         semantic = {"target": row["target"]}
@@ -143,11 +181,13 @@ def verify_process(task: str, workspace: Path, inputs: list[dict]) -> list[dict]
         record = attach_facts(semantic, original)
         record["provenance"]["annotation_model"] = row["_meta"]["annotation"]["model"]
         record["provenance"]["labelkit_record_id"] = row["_meta"]["id"]
+        record["provenance"]["model_input"] = _published_model_source(source)
         verified[line_no] = record
     return [verified[line_no] for line_no in range(1, len(inputs) + 1)]
 
 
-def _source_record(task: str, row: dict, inputs: list[dict], seen: set[int]) -> tuple[int, dict]:
+def _source_record(task: str, row: dict, inputs: list[dict], sources: list[dict],
+                   seen: set[int]) -> tuple[int, dict, dict]:
     """@brief 用 LabelKit 来源位置和原始行摘要绑定语义候选。"""
     if set(row) != {"target", "_meta"}:
         _raise_integrity("LabelKit semantic output must contain only target and _meta")
@@ -161,11 +201,121 @@ def _source_record(task: str, row: dict, inputs: list[dict], seen: set[int]) -> 
     if line_no in seen:
         _raise_integrity("LabelKit output source line is duplicated")
     original = inputs[line_no - 1]
-    expected = hashlib.sha256(canonical_json(original)).hexdigest()[:16]
-    if metadata.get("id") != expected:
+    source = sources[line_no - 1]
+    if metadata.get("id") != source["labelkit_record_id"]:
         _raise_integrity("LabelKit output record identity does not match its source line")
     seen.add(line_no)
-    return line_no, original
+    return line_no, original, source
+
+
+def _model_source(task: str, line_no: int, encoded: dict) -> dict:
+    """@brief 从实际编码行重建逻辑窗口、模型摘要和 LabelKit 行身份。"""
+    decoded = decode_model_record(encoded)
+    if decoded.get("task") != task:
+        _raise_integrity("Encoded model record task does not match its source file")
+    window_id = decoded.get("provenance", {}).get("window_id")
+    if window_id != _window_identity(task, decoded["input"]):
+        _raise_integrity("Encoded model record has an invalid logical window identity")
+    model_record_sha256 = hashlib.sha256(canonical_json(encoded)).hexdigest()
+    return {"schema_version": 1, "task": task, "source_line": line_no,
+            "window_id": window_id,
+            "decoded_input_sha256": encoded["input"][ENCODING_FIELD]["decoded_input_sha256"],
+            "model_input_sha256": hashlib.sha256(canonical_json(encoded["input"])).hexdigest(),
+            "model_record_sha256": model_record_sha256,
+            "labelkit_record_id": model_record_sha256[:16],
+            "trace_path": f"out/{task}.trace.jsonl"}
+
+
+def _load_source_bundle(task: str, workspace: Path, trace_required: bool) -> tuple[list[dict], list[dict]]:
+    """@brief 读取并重算实际编码行来源索引，按生命周期校验 trace 绑定。"""
+    encoded = _read_jsonl(workspace / "data" / f"{task}.jsonl")
+    sources = _read_jsonl(workspace / "data" / f"{task}.source-index.jsonl")
+    if not encoded or len(encoded) != len(sources):
+        _raise_integrity("Model input source index does not preserve every encoded line")
+    trace_sha256 = None
+    if trace_required:
+        trace_sha256 = _completed_trace_digest(task, workspace, encoded)
+    for line_no, (row, source) in enumerate(zip(encoded, sources, strict=True), 1):
+        expected = _model_source(task, line_no, row)
+        if trace_required:
+            expected["trace_sha256"] = trace_sha256
+        if source != expected:
+            _raise_integrity("Model input source index disagrees with its encoded line or trace")
+    return encoded, sources
+
+
+def _bind_source_trace(task: str, workspace: Path) -> str:
+    """@brief 成功运行后把全部输入行绑定到同一实际完整 trace 摘要。"""
+    encoded, sources = _load_source_bundle(task, workspace, trace_required=False)
+    digest = _completed_trace_digest(task, workspace, encoded)
+    completed = [dict(source, trace_sha256=digest) for source in sources]
+    write_jsonl(workspace / "data" / f"{task}.source-index.jsonl", completed)
+    return digest
+
+
+def _completed_trace_digest(task: str, workspace: Path, encoded: list[dict]) -> str:
+    """@brief 将完整 trace 绑定到实际配置、项目与全部模型输入。"""
+    try:
+        config_raw = (workspace / "config.toml").read_bytes()
+        project_raw = (workspace / f"{task}.toml").read_bytes()
+    except OSError as error:
+        _raise_integrity(f"Cannot read LabelKit trace identity files: {error}")
+    return completed_trace_sha256(
+        workspace / f"out/{task}.trace.jsonl", _trace_model_inputs(encoded),
+        "sha256:" + hashlib.sha256(config_raw).hexdigest(),
+        "sha256:" + hashlib.sha256(project_raw).hexdigest(), _trace_models(config_raw),
+    )
+
+
+def _trace_models(raw: bytes) -> dict[str, str]:
+    """@brief 从已绑定配置读取生成与独立评审的固定模型名称。"""
+    try:
+        config = tomllib.loads(raw.decode("utf-8"))
+        models = {profile: config["llm"][profile]["model"] for profile in ("default", "judge")}
+    except (UnicodeDecodeError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
+        _raise_integrity(f"Cannot read LabelKit model identities: {error}")
+    if not all(isinstance(model, str) and model for model in models.values()):
+        _raise_integrity("LabelKit model identities are invalid")
+    return models
+
+
+def _trace_model_inputs(encoded: list[dict]) -> dict[str, str]:
+    """@brief 将实际编码行身份绑定到模型可见 input 的 canonical 摘要。"""
+    result = {}
+    for row in encoded:
+        record_sha256 = hashlib.sha256(canonical_json(row)).hexdigest()
+        input_sha256 = hashlib.sha256(canonical_json(row["input"])).hexdigest()
+        result[record_sha256[:16]] = input_sha256
+    if len(result) != len(encoded):
+        _raise_integrity("Encoded model record identities are duplicated")
+    return result
+
+
+def _verify_decoded_sources(encoded: list[dict], inputs: list[dict]) -> None:
+    """@brief 证明实际模型行逐条恢复为本次内存中的完整 canonical 窗口。"""
+    if len(encoded) != len(inputs):
+        _raise_integrity("Encoded model inputs do not preserve every logical window")
+    for wire, original in zip(encoded, inputs, strict=True):
+        if canonical_json(decode_model_record(wire)) != canonical_json(original):
+            _raise_integrity("Decoded model input differs from its complete logical window")
+
+
+def _published_model_source(source: dict) -> dict:
+    """@brief 将模型输入、实际行和 trace 绑定写入最终训练来源。"""
+    result = {key: source[key] for key in (
+        "decoded_input_sha256", "model_input_sha256", "model_record_sha256",
+        "labelkit_record_id", "source_line", "trace_path", "trace_sha256",
+    )}
+    result["trace_path"] = f"labelkit/{source['trace_path']}"
+    return result
+
+
+def _read_jsonl(path: Path) -> list[dict]:
+    """@brief 读取 canonical JSONL，缺失或无效行明确终止交付。"""
+    try:
+        return [json.loads(line) for line in path.read_text().splitlines()]
+    except (OSError, json.JSONDecodeError) as error:
+        _raise_integrity(f"Cannot read model source file {path.name}: {error}")
 
 
 def _raise_integrity(message: str) -> NoReturn:

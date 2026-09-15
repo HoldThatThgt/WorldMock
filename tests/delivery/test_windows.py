@@ -1,7 +1,16 @@
 import pytest
 
-from worldmock.delivery.windows import _action_windows, _dream_windows, _expand_observed_results, _window_identity
+from worldmock.delivery.windows import (
+    _action_windows,
+    _dream_windows,
+    _expand_observed_results,
+    _window_identity,
+    prepare_windows,
+)
 from worldmock.errors import IntegrityError
+from worldmock.footprints.export import export_run
+from worldmock.footprints.models import EventDraft
+from worldmock.footprints.store import FootprintStore
 
 
 def event(identity, sequence, kind, data, visibility='agent'):
@@ -95,6 +104,77 @@ def test_action_public_identity_is_independent_of_the_future_target(tmp_path):
     assert first_window['input'] == second_window['input']
     assert first_window['provenance'] == second_window['provenance']
     assert first_window['target'] != second_window['target']
+
+
+@pytest.mark.parametrize('collision', ['decision', 'action', 'visible_unowned'])
+def test_authenticated_export_rejects_cross_agent_action_group(tmp_path, collision):
+    export = _completed_multi_agent_export(tmp_path, collision)
+
+    with pytest.raises(IntegrityError, match='crosses agent boundaries'):
+        prepare_windows(export)
+
+
+def test_authenticated_export_accepts_distinct_agent_groups_and_system_facts(tmp_path):
+    export = _completed_multi_agent_export(tmp_path, 'none', include_system=True)
+
+    windows = prepare_windows(export)
+
+    assert len(windows['action']) == len(windows['intent']) == 2
+    assert len(windows['dreaming']) == 6
+    assert all(len({row['agent_id'] for row in record['input']['events']}) == 1
+               for record in windows['action'])
+    first = next(record for record in windows['action'] if record['target']['request']['agent_id'] == 1)
+    assert any(row['agent_id'] is None for row in first['target']['outcomes'])
+    assert all(row['agent_id'] == 1 for row in first['input']['events'])
+
+
+def _completed_multi_agent_export(tmp_path, collision, include_system=False):
+    """创建可通过正式导出认证的两人物动作证据。"""
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'agent_ids': [1, 2],
+                'model_identity': {'name': 'fixture'},
+                'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
+    state = {'version': 0, 'current_time': 100}
+    store = FootprintStore.create(tmp_path / 'run', manifest, state)
+    drafts = _multi_agent_drafts(collision, include_system)
+    store.commit(state, drafts)
+    store.commit({'version': 1, 'current_time': 200},
+                 [EventDraft(event_type='run_ended', occurred_at=200, visibility='system')])
+    snapshot = store.assets.put_json({'saved': True}, {'kind': 'fixture'})
+    checkpoint = store.checkpoint(store.state, {'agent:1': snapshot, 'agent:2': snapshot, 'life': snapshot})
+    destination = tmp_path / 'export'
+    export_run(store, checkpoint.last_event_seq, destination)
+    store.close()
+    return destination
+
+
+def _multi_agent_drafts(collision, include_system):
+    """构造正常分组或单一明确跨人物碰撞。"""
+    decision_two = 'decision-1' if collision == 'decision' else 'decision-2'
+    action_two = 'action-1' if collision == 'action' else 'action-2'
+    drafts = []
+    for agent_id, decision_id, action_id in ((1, 'decision-1', 'action-1'),
+                                              (2, decision_two, action_two)):
+        drafts.extend(_agent_action_drafts(agent_id, decision_id, action_id))
+    if include_system:
+        drafts.append(EventDraft(event_type='environment_event', occurred_at=100, visibility='system',
+                                 decision_id='decision-1', action_id='action-1', data={'kind': 'system_fact'}))
+    if collision == 'visible_unowned':
+        drafts.append(EventDraft(event_type='environment_event', occurred_at=100, visibility='agent',
+                                 decision_id='decision-1', action_id='action-1', data={'kind': 'unowned'}))
+    return drafts
+
+
+def _agent_action_drafts(agent_id, decision_id, action_id):
+    """构造一个人物同决策内的观察、请求和结果。"""
+    return [
+        EventDraft(event_type='observation', occurred_at=100, agent_id=agent_id, decision_id=decision_id,
+                   data={'location_id': f'location-{agent_id}'}),
+        EventDraft(event_type='action_requested', occurred_at=100, agent_id=agent_id,
+                   decision_id=decision_id, action_id=action_id,
+                   data={'tool_name': 'start_basic_activity', 'request': {'kind': 'wait'}}),
+        EventDraft(event_type='action_result', occurred_at=100, agent_id=agent_id,
+                   decision_id=decision_id, action_id=action_id, data={'status': 'completed'}),
+    ]
 
 
 @pytest.mark.parametrize('invalid', ['missing', 'future', 'other_agent', 'private', 'wrong_type', 'mismatch'])

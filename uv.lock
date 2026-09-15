@@ -941,6 +941,15 @@ wheels = [
 ]
 
 [[package]]
+name = "jsonpointer"
+version = "3.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6a/0a/eebeb1fa92507ea94016a2a790b93c2ae41a7e18778f85471dc54475ed25/jsonpointer-3.0.0.tar.gz", hash = "sha256:2b2d729f2091522d61c3b31f82e11870f60b68f43fbc705cb76bf4b832af59ef", size = 9114, upload-time = "2024-06-10T19:24:42.462Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/71/92/5e77f98553e9e75130c78900d000368476aed74276eb8ae8796f65f00918/jsonpointer-3.0.0-py2.py3-none-any.whl", hash = "sha256:13e088adc14fca8b6aa8177c044e12701e6ad4b28ff10e65f2267a90109c9942", size = 7595, upload-time = "2024-06-10T19:24:40.698Z" },
+]
+
+[[package]]
 name = "jsonschema"
 version = "4.26.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2405,6 +2414,7 @@ source = { editable = "." }
 dependencies = [
     { name = "agentsociety2" },
     { name = "datasets" },
+    { name = "jsonpointer" },
     { name = "jsonschema" },
     { name = "krippendorff" },
     { name = "litellm" },
@@ -2433,6 +2443,7 @@ dev = [
 requires-dist = [
     { name = "agentsociety2", editable = "vendor/agentsociety2/packages/agentsociety2" },
     { name = "datasets", specifier = "==5.0.1" },
+    { name = "jsonpointer", specifier = "==3.0.0" },
     { name = "jsonschema", specifier = "==4.26.0" },
     { name = "krippendorff", specifier = "==0.8.2" },
     { name = "litellm", specifier = "==1.89.2" },

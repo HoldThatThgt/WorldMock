@@ -9,6 +9,13 @@ from worldmock.life.models import ActivityKind, BodyState, CurvePoint
 from worldmock.life.scenario import BodyConfig
 
 
+ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset({
+    ActivityKind.SLEEP,
+    ActivityKind.WAIT,
+    ActivityKind.CONSUME,
+})
+
+
 @dataclass(frozen=True, slots=True)
 class BodySettlement:
     """@brief 一段活动的身体变化证据。"""
@@ -57,9 +64,9 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
     basal = config.basal_kcal_per_hour * hours
     met = factors.met if factors else config.activity_met[kind.value]
     extra = max(met - 1, 0) * config.mass_kg * hours
-    energy = body.energy_kcal - basal - extra
-    recovery = {ActivityKind.SLEEP, ActivityKind.WAIT, ActivityKind.CONSUME}
-    if energy < 0 and kind not in recovery:
+    energy = body.energy_kcal - minimum_energy_cost(kind, seconds, config, met)
+    close_to_zero = math.isclose(energy, 0, rel_tol=0, abs_tol=1e-9)
+    if energy < 0 and not close_to_zero and kind not in ENERGY_RECOVERY_ACTIVITY_KINDS:
         raise ValueError("activity would exhaust available energy")
     energy = max(0, energy)
     debt = _settle_sleep_debt(body.sleep_debt_hours, kind, hours, config)
@@ -88,6 +95,30 @@ def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
     hours = seconds / 3600
     activity_met = config.activity_met[kind.value] if met is None else met
     return (config.basal_kcal_per_hour + max(activity_met - 1, 0) * config.mass_kg) * hours
+
+
+def maximum_energy_duration_seconds(
+    kind: ActivityKind,
+    energy_kcal: float,
+    config: BodyConfig,
+    met: float | None = None,
+    limit_seconds: int = 86_400,
+) -> int:
+    """@brief 以同一完整成本函数求当前能量能够受理的最大整数墙钟秒数。"""
+    if energy_kcal < 0:
+        raise ValueError("available energy cannot be negative")
+    if limit_seconds < 0:
+        raise ValueError("energy duration limit cannot be negative")
+    if kind in ENERGY_RECOVERY_ACTIVITY_KINDS:
+        return limit_seconds
+    low, high = 0, limit_seconds
+    while low < high:
+        middle = (low + high + 1) // 2
+        if minimum_energy_cost(kind, middle, config, met) <= energy_kcal:
+            low = middle
+        else:
+            high = middle - 1
+    return low
 
 
 def body_observation(body: BodyState, config: BodyConfig) -> dict:

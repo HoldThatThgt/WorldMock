@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / 'labelkit-projects/schemas/semantic-target.json'
 
@@ -88,16 +87,32 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
     assert 'target 是最多 32 条的聚合摘要，不要求逐事实复述' in project['annotate']['instruction']
     assert '不删除或裁剪原始事件' not in project['annotate']['instruction']
     assert '语义候选只有 target' in project['verify']['extra_criteria']
-    assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in project['verify']['extra_criteria']
-    assert '不能借用该 claim 未列出的其他 input.events 补全证据' in project['verify']['extra_criteria']
+    instruction = project['annotate']['instruction']
+    assert '事实中的每个独立断言都须由该 claim 所列来源直接支持' in instruction
+    assert '不能借用未列出的 input.events 补证' in instruction
+    assert '命名布尔字段的 false 只否定该字段表达的命题' in instruction
+    assert 'intent=unknown、basis=uncertain 是合法组合' in instruction
+    assert '没有历史进度不能由当前目录推出“从未开始”' in instruction
+    assert '数值接近零本身不等同于高低或需求等级分类' in instruction
     criteria = project['verify']['extra_criteria']
     assert '每轮独立完整审查当前候选' in criteria
     assert '一次列出发现的全部实质问题' in criteria
-    assert '主题聚合、逐条引用对全部事实/数量/时间/因果的支持' in criteria
-    assert 'kind 分类及 intent/uncertainty 一致性' in criteria
-    assert '身份字段是不透明标识' in criteria
-    assert '当前目录不能证明历史上从未开始' in criteria
-    assert '没有可见阈值时不得把数值分为高低' in criteria
+    assert '主题聚合、逐条引用支持' in criteria
+    assert 'fact/inference/hypothesis 分类及 intent/uncertainty 一致性' in criteria
+    assert '事实中的每个独立断言都须由该 claim 所列来源直接支持' not in criteria
+    assert '身份字段是不透明标识' not in criteria
+
+
+def test_all_process_roles_share_one_identical_semantic_and_pointer_contract():
+    instructions = []
+    for task in ('action', 'intent', 'dreaming'):
+        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        common = project['annotate']['instruction'].split('仅输出 target 中的', 1)[1]
+        instructions.append(common)
+        assert 'input.observation_value_encoding 声明字段字典版本和解码后摘要' in common
+        assert '按 RFC 6901 从当前 input 单跳取得完整字段值' in common
+        assert '禁止引用字典指针、摘要或其他标识' in common
+    assert instructions[0] == instructions[1] == instructions[2]
 
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
@@ -107,6 +122,11 @@ def test_process_prompt_requires_thematic_aggregation_before_output(task):
 
     assert '先按活动阶段或因果主题合并证据' in instruction
     assert '一条 claim 可以引用多个事件' in instruction
+    assert '聚合用于消除同一主题的重复，不要求合并不同因果主题' in instruction
+    assert '有意义的阶段变化或因果差异应保留' in instruction
+    assert '三十二条是上限而非目标数量' in instruction
+    assert '必须指出共享主体、关系与尚未概括的重复内容' in instruction
+    assert '不能只因条目数量或多个条目来自同一 observation 判失败' in instruction
     assert '摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异' in instruction
     assert '不逐次建立同文 claim' in instruction
     assert '不为完整保存原始材料穷举 ID' in instruction

@@ -35,6 +35,8 @@ _FAILED_OBSERVATION_CATALOGS = {
     "browse_targets": ["product_catalog"],
 }
 
+_TARGET_CATALOG_FIELDS_FOR_TEST = ("work", "watch", "play_game", "read_mail", "browse")
+
 
 def _context() -> DecisionContext:
     """构造一个带时区的真实宿主决策上下文。"""
@@ -59,6 +61,13 @@ def _catalogs() -> dict:
     }
 
 
+def _energy_limits(**overrides: int) -> dict:
+    """形成环境权威投影的五类活动墙钟上限。"""
+    values = {kind: 86_400 for kind in ("work", "watch", "play_game", "read_mail", "browse")}
+    values.update(overrides)
+    return {"maximum_duration_seconds_by_kind": values}
+
+
 def _observations(
     catalogs: dict,
     *,
@@ -72,6 +81,7 @@ def _observations(
         "recent_action_results": [],
         "active_activity": active_activity,
         "paused_activities": paused_activities or [],
+        "energy_feasibility": _energy_limits(),
         "content_progress": {},
         "products": [{"product_id": "product-visible", "price_version": "price-v1",
                       "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
@@ -79,7 +89,8 @@ def _observations(
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216}],
+        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
         **catalogs,
     }
@@ -374,6 +385,22 @@ def test_prepare_rejects_malformed_business_identity_sources(overrides, message)
         _prepare(_catalogs(), overrides=overrides)
 
 
+@pytest.mark.parametrize(
+    ("projection", "message"),
+    [
+        (None, "energy feasibility kinds"),
+        ({"maximum_duration_seconds_by_kind": {"work": 60}}, "energy feasibility kinds"),
+        ({"maximum_duration_seconds_by_kind": {
+            "work": True, "watch": 60, "play_game": 60, "read_mail": 60, "browse": 60,
+        }}, "work energy duration limit"),
+    ],
+)
+def test_prepare_rejects_missing_or_malformed_energy_projection(projection, message) -> None:
+    """能量可行性缺失或类型损坏时不得重新暴露宽松动作。"""
+    with pytest.raises(RuntimeError, match=message):
+        _prepare(_catalogs(), overrides={"energy_feasibility": projection})
+
+
 def test_prepare_rejects_terminal_game_as_active_control() -> None:
     """已经终结的游戏进度不能作为当前命令会话重新开放。"""
     games = {"session-visible": {
@@ -434,7 +461,9 @@ def test_readonly_needs_no_environment_catalog_and_opens_no_life_action() -> Non
 def test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty() -> None:
     """目标启动工具撤下时暂停活动仍保留显式恢复控制。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused"}]
+    paused = [{"activity_id": "activity-paused", "status": "paused",
+               "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
+               "resume_energy_feasible": True}]
     agent = _prepare(empty, paused_activities=paused)
     functions = _functions(agent)
     decision = ReactDecision(
@@ -474,7 +503,9 @@ async def test_valid_grounded_target_dispatches_same_typed_request() -> None:
 async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs() -> None:
     """暂停活动恢复动作不依赖目标启动目录并保持原请求类型。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused"}]
+    paused = [{"activity_id": "activity-paused", "status": "paused",
+               "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
+               "resume_energy_feasible": True}]
     agent = _prepare(empty, paused_activities=paused)
     environment = _Environment()
     agent._env = environment
@@ -487,3 +518,116 @@ async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs(
 
     assert isinstance(environment.calls[0].request, SetActivityStateRequest)
     assert environment.calls[0].request.operation == "resume"
+
+
+@pytest.mark.asyncio
+async def test_energy_limit_binds_schema_and_rejects_sixty_one_seconds_before_dispatch() -> None:
+    """本轮每类能量上限同时约束实际 Schema 与分派前的精确配对。"""
+    maximums = {kind: 0 for kind in _TARGET_CATALOG_FIELDS_FOR_TEST}
+    maximums["work"] = 60
+    maximums["watch"] = 120
+    agent = _prepare(_catalogs(), overrides={
+        "energy_feasibility": _energy_limits(**maximums),
+        "routes": [],
+    })
+    environment = _Environment()
+    agent._env = environment
+    agent._decision_context = _context()
+    parameters = _targeted_parameters(agent)
+    allowed = {"activity_type": "work", "planned_duration_seconds": 60,
+               "target_id": "task-a", "playback_speed": 1}
+    excessive = {**allowed, "planned_duration_seconds": 61}
+    above_global = {"activity_type": "watch", "planned_duration_seconds": 121,
+                    "target_id": "content-visible", "playback_speed": 1}
+
+    assert parameters["properties"]["planned_duration_seconds"]["maximum"] == 120
+    assert list(Draft202012Validator(parameters).iter_errors(allowed)) == []
+    assert list(Draft202012Validator(parameters).iter_errors(excessive)) == []
+    assert list(Draft202012Validator(parameters).iter_errors(above_global))
+    error = agent.validate_react_decisions(
+        [ReactDecision("", "start_targeted_activity", excessive, "")], False)
+    assert "current energy limit" in error
+    with pytest.raises(RuntimeError, match="current energy limit"):
+        await agent.dispatch_react_tool("start_targeted_activity", excessive)
+    assert environment.calls == [] and agent._life_action_count == 0
+
+
+def test_route_schema_keeps_feasible_driving_and_removes_infeasible_walking() -> None:
+    """相同起点的路线按各自方式代谢成本独立形成可见闭集。"""
+    routes = [
+        {"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+         "minimum_energy_cost_kcal": 6.0, "energy_feasible": True},
+        {"destination_id": "office", "mode": "walking", "duration_seconds": 900,
+         "minimum_energy_cost_kcal": 50.0, "energy_feasible": False},
+    ]
+    agent = _prepare(_catalogs(), overrides={"routes": routes})
+    parameters = _functions(agent)["start_travel"]["parameters"]
+    walking = {"destination_id": "office", "travel_mode": "walking",
+               "planned_duration_seconds": 900}
+
+    assert parameters["properties"]["travel_mode"]["enum"] == ["driving"]
+    assert list(Draft202012Validator(parameters).iter_errors(walking))
+    assert "not a visible route" in agent.validate_react_decisions(
+        [ReactDecision("", "start_travel", walking, "")], False)
+
+
+def test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets() -> None:
+    """零能量撤下耗能目标，但保留恢复与购买；新观察恢复能量后目标重新出现。"""
+    zero = {kind: 0 for kind in _TARGET_CATALOG_FIELDS_FOR_TEST}
+    agent = _prepare(_catalogs(), overrides={
+        "energy_feasibility": _energy_limits(**zero),
+        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": False}],
+    })
+    names = set(_functions(agent))
+
+    assert "start_targeted_activity" not in names and "start_travel" not in names
+    assert {"start_basic_activity", "consume", "purchase"} <= names
+
+    agent.prepare_react_loop(ReactLoopRequest(
+        0,
+        _context().observed_at,
+        _observations(_catalogs(), overrides={"energy_feasibility": _energy_limits(work=60)}),
+    ))
+    refreshed = _functions(agent)
+    assert "start_targeted_activity" in refreshed and "work" in (
+        refreshed["start_targeted_activity"]["parameters"]["properties"]["activity_type"]["enum"])
+
+
+def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
+    """当前能量不足时暂停活动仍可取消，但 Schema 和本地校验都拒绝恢复。"""
+    paused = [{"activity_id": "activity-paused", "status": "paused",
+               "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
+               "resume_energy_feasible": False}]
+    agent = _prepare(_catalogs(), paused_activities=paused)
+    function = _functions(agent)["set_activity_state"]
+    resume = ReactDecision(
+        "", "set_activity_state", {"activity_id": "activity-paused", "operation": "resume"}, "")
+    cancel = ReactDecision(
+        "", "set_activity_state", {"activity_id": "activity-paused", "operation": "cancel"}, "")
+
+    assert function["parameters"]["properties"]["operation"]["enum"] == ["cancel"]
+    assert "exceeds current energy" in agent.validate_react_decisions([resume], False)
+    assert agent.validate_react_decisions([cancel], False) == ""
+
+
+def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
+    """联合活动身份与操作枚举仍由本地校验保持每个暂停活动的能量配对。"""
+    paused = [
+        {"activity_id": "activity-feasible", "status": "paused",
+         "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
+         "resume_energy_feasible": True},
+        {"activity_id": "activity-infeasible", "status": "paused",
+         "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
+         "resume_energy_feasible": False},
+    ]
+    agent = _prepare(_catalogs(), paused_activities=paused)
+    operations = _functions(agent)["set_activity_state"]["parameters"]["properties"]["operation"]["enum"]
+    invalid = ReactDecision(
+        "", "set_activity_state", {"activity_id": "activity-infeasible", "operation": "resume"}, "")
+    valid = ReactDecision(
+        "", "set_activity_state", {"activity_id": "activity-feasible", "operation": "resume"}, "")
+
+    assert operations == ["resume", "cancel"]
+    assert "exceeds current energy" in agent.validate_react_decisions([invalid], False)
+    assert agent.validate_react_decisions([valid], False) == ""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import math
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -323,7 +324,11 @@ class LifeAgent(PersonAgent):
         if not readonly and not getattr(self, "_life_action_count", 0):
             if not hasattr(self, "_life_visible_targets"):
                 raise RuntimeError("LifeAgent visible target catalogs are not prepared")
-            _bind_targeted_activity_catalogs(schemas, self._life_visible_targets)
+            _bind_targeted_activity_catalogs(
+                schemas,
+                self._life_visible_targets,
+                self._life_activity_controls["maximum_duration_seconds_by_kind"],
+            )
             _bind_activity_control_schemas(schemas, self._life_activity_controls)
             _bind_visible_action_schemas(schemas, self._life_action_contracts)
         if not readonly and "finish" in models:
@@ -421,9 +426,10 @@ class LifeAgent(PersonAgent):
                 True, budget["memory_tools_available"])
             return
         data = _environment_observation_data(request.observations)
+        energy_limits = _visible_energy_limits(data)
         self._life_visible_refs = _environment_source_ids(data)
-        self._life_visible_targets = _visible_target_ids(data)
-        self._life_activity_controls = _visible_activity_controls(data)
+        self._life_visible_targets = _visible_target_ids(data, energy_limits)
+        self._life_activity_controls = _visible_activity_controls(data, energy_limits)
         self._life_action_contracts = _visible_action_contracts(data)
         self._life_action_models = _available_action_models(
             self._life_visible_targets, self._life_activity_controls, self._life_action_contracts)
@@ -585,7 +591,23 @@ def _environment_source_ids(data: dict[str, Any]) -> set[str]:
     return {observation_id, *result_ids}
 
 
-def _visible_target_ids(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+def _visible_energy_limits(data: dict[str, Any]) -> dict[str, int]:
+    """@brief 严格读取环境以权威成本函数计算的五类活动墙钟上限。"""
+    projection = data.get("energy_feasibility")
+    maximums = projection.get("maximum_duration_seconds_by_kind") if isinstance(projection, dict) else None
+    expected = set(_TARGET_CATALOG_FIELDS)
+    if not isinstance(maximums, dict) or set(maximums) != expected:
+        raise RuntimeError("LifeAgent energy feasibility kinds are invalid")
+    for kind, value in maximums.items():
+        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 86_400:
+            raise RuntimeError(f"LifeAgent {kind} energy duration limit is invalid")
+    return dict(maximums)
+
+
+def _visible_target_ids(
+    data: dict[str, Any],
+    energy_limits: dict[str, int],
+) -> dict[str, tuple[str, ...]]:
     """@brief 从五个公开目录冻结本轮可用活动目标身份。"""
     result = {}
     for kind, (field, identity_field) in _TARGET_CATALOG_FIELDS.items():
@@ -595,6 +617,9 @@ def _visible_target_ids(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
         result[kind] = _catalog_identity_values(catalog, field, identity_field)
     result["work"] = _visible_work_target_ids(data, result["work"])
     result["watch"] = _visible_watch_target_ids(data, result["watch"])
+    for kind, maximum in energy_limits.items():
+        if maximum < 60:
+            result[kind] = ()
     return result
 
 
@@ -659,13 +684,17 @@ def _visible_content_available(progress: Any, durations: dict[str, int]) -> dict
     return available
 
 
-def _visible_activity_controls(data: dict[str, Any]) -> dict[str, Any]:
+def _visible_activity_controls(
+    data: dict[str, Any],
+    energy_limits: dict[str, int],
+) -> dict[str, Any]:
     """@brief 从当前活动、暂停活动与游戏局面冻结本轮控制合同。"""
     active = _visible_active_activity(data)
-    paused_ids = _visible_paused_activity_ids(data)
+    paused_ids, resumable_ids = _visible_paused_activity_ids(data)
     if active is not None and active["activity_id"] in paused_ids:
         raise RuntimeError("LifeAgent active activity is also listed as paused")
-    controls = {"active": active, "paused_ids": paused_ids,
+    controls = {"active": active, "paused_ids": paused_ids, "resumable_paused_ids": resumable_ids,
+                "maximum_duration_seconds_by_kind": energy_limits,
                 "game_session_id": None, "game_commands": ()}
     if active is not None and active["kind"] == "play_game":
         session_id, commands = _visible_game_control(data)
@@ -693,22 +722,32 @@ def _visible_active_activity(data: dict[str, Any]) -> dict[str, str] | None:
     return {"activity_id": activity_id, "kind": kind}
 
 
-def _visible_paused_activity_ids(data: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 校验并排序人物本人暂停活动的可控制身份。"""
+def _visible_paused_activity_ids(data: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """@brief 校验暂停活动身份，并区分当前能量允许恢复的闭集。"""
     activities = data.get("paused_activities")
     if not isinstance(activities, list):
         raise RuntimeError("LifeAgent paused_activities must be a list")
     identities = []
+    resumable = []
     for activity in activities:
         if not isinstance(activity, dict) or activity.get("status") != "paused":
             raise RuntimeError("LifeAgent paused activity state is invalid")
         activity_id = activity.get("activity_id")
         if not isinstance(activity_id, str) or not activity_id.strip():
             raise RuntimeError("LifeAgent paused activity identity is invalid")
+        remaining = activity.get("remaining_duration_seconds")
+        cost = activity.get("minimum_energy_cost_kcal")
+        feasible = activity.get("resume_energy_feasible")
+        if (isinstance(remaining, bool) or not isinstance(remaining, int) or remaining < 0
+                or isinstance(cost, bool) or not isinstance(cost, (int, float))
+                or not math.isfinite(cost) or cost < 0 or not isinstance(feasible, bool)):
+            raise RuntimeError("LifeAgent paused activity energy feasibility is invalid")
         identities.append(activity_id)
+        if feasible:
+            resumable.append(activity_id)
     if len(identities) != len(set(identities)):
         raise RuntimeError("LifeAgent paused activity identities are duplicated")
-    return tuple(sorted(identities))
+    return tuple(sorted(identities)), tuple(sorted(resumable))
 
 
 def _visible_game_control(data: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
@@ -851,11 +890,15 @@ def _visible_routes(data: dict[str, Any]) -> tuple[tuple[str, str, int], ...]:
         destination = route.get("destination_id") if isinstance(route, dict) else None
         mode = route.get("mode") if isinstance(route, dict) else None
         duration = route.get("duration_seconds") if isinstance(route, dict) else None
+        cost = route.get("minimum_energy_cost_kcal") if isinstance(route, dict) else None
+        feasible = route.get("energy_feasible") if isinstance(route, dict) else None
         if (not isinstance(destination, str) or not destination.strip()
                 or mode not in {"driving", "walking"}
-                or isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0):
+                or isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0
+                or isinstance(cost, bool) or not isinstance(cost, (int, float))
+                or not math.isfinite(cost) or cost < 0 or not isinstance(feasible, bool)):
             raise RuntimeError("LifeAgent route contract is invalid")
-        if duration >= 60:
+        if duration >= 60 and feasible:
             values.append((destination, mode, duration))
     if len(values) != len(set(values)):
         raise RuntimeError("LifeAgent route contracts are duplicated")
@@ -904,12 +947,18 @@ def _catalog_identity_values(
     return tuple(sorted(set(values)))
 
 
-def _validate_visible_target(request: BaseModel, targets: dict[str, tuple[str, ...]]) -> str:
+def _validate_visible_target(
+    request: BaseModel,
+    targets: dict[str, tuple[str, ...]],
+    maximums: dict[str, int],
+) -> str:
     """@brief 要求活动类型与本轮首观察中的目标身份准确配对。"""
     kind = str(request.activity_type)
     allowed = targets.get(kind, ())
     if request.target_id not in allowed:
         return "start_targeted_activity target_id is not visible for activity_type"
+    if request.planned_duration_seconds > maximums[kind]:
+        return "start_targeted_activity duration exceeds the current energy limit for activity_type"
     return ""
 
 
@@ -922,7 +971,7 @@ def _validate_prepared_action(
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
     if action == "start_targeted_activity":
-        return _validate_visible_target(request, targets)
+        return _validate_visible_target(request, targets, controls["maximum_duration_seconds_by_kind"])
     if action in _ACTIVITY_CONTROL_TOOLS:
         return _validate_activity_control(action, request, controls)
     if action in contracts:
@@ -957,6 +1006,7 @@ def _bind_finish_reference_ids(
 def _bind_targeted_activity_catalogs(
     schemas: list[dict[str, Any]],
     targets: dict[str, tuple[str, ...]],
+    maximums: dict[str, int],
 ) -> None:
     """@brief 将本轮可见目录绑定到原生目标活动工具 Schema。"""
     targeted = next(
@@ -971,9 +1021,16 @@ def _bind_targeted_activity_catalogs(
         return
     properties = targeted["function"]["parameters"]["properties"]
     properties["activity_type"]["enum"] = kinds
-    properties["activity_type"]["description"] = _TARGET_KIND_DESCRIPTION
+    properties["activity_type"]["description"] = _energy_limit_description(kinds, maximums)
     properties["target_id"]["enum"] = sorted({value for kind in kinds for value in targets[kind]})
     properties["target_id"]["description"] = _TARGET_ID_DESCRIPTION
+    properties["planned_duration_seconds"]["maximum"] = max(maximums[kind] for kind in kinds)
+
+
+def _energy_limit_description(kinds: list[str], maximums: dict[str, int]) -> str:
+    """@brief 将每类当前最大墙钟时长写入实际模型工具说明。"""
+    values = ", ".join(f"{kind}={maximums[kind]}" for kind in kinds)
+    return f"{_TARGET_KIND_DESCRIPTION} Current maximum wall-clock seconds by kind: {values}."
 
 
 def _bind_activity_control_schemas(
@@ -987,7 +1044,13 @@ def _bind_activity_control_schemas(
         identifiers = [active["activity_id"]] if active is not None else list(controls["paused_ids"])
         properties = functions["set_activity_state"]["parameters"]["properties"]
         properties["activity_id"]["enum"] = identifiers
-        properties["operation"]["enum"] = ["pause", "cancel"] if active is not None else ["resume", "cancel"]
+        if active is not None:
+            properties["operation"]["enum"] = ["pause", "cancel"]
+        else:
+            operations = ["cancel"]
+            if controls["resumable_paused_ids"]:
+                operations.insert(0, "resume")
+            properties["operation"]["enum"] = operations
     for name in ("continue_activity", "change_playback_speed"):
         if name in functions:
             properties = functions[name]["parameters"]["properties"]
@@ -1041,6 +1104,9 @@ def _validate_activity_control(
         operations = {"pause", "cancel"} if active is not None else {"resume", "cancel"}
         if request.activity_id not in identifiers or request.operation not in operations:
             return "set_activity_state is not valid for the visible activity state"
+        if (active is None and request.operation == "resume"
+                and request.activity_id not in controls["resumable_paused_ids"]):
+            return "set_activity_state resume exceeds current energy for the visible paused activity"
     elif action in {"continue_activity", "change_playback_speed"}:
         if active is None or request.activity_id != active["activity_id"]:
             return f"{action} activity_id is not the current visible activity"

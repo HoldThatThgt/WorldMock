@@ -1,8 +1,11 @@
 import copy
 import hashlib
+import json
 
 import pytest
 
+from worldmock.delivery.evidence_encoding import decode_model_record
+from worldmock.delivery.pipeline import write_model_inputs
 from worldmock.delivery.replay import replay_windows
 from worldmock.delivery.windows import _window_identity
 from worldmock.errors import IntegrityError
@@ -75,6 +78,19 @@ def test_completed_actual_branch_binds_hypothesis_checkpoint_and_results(pair):
     changed = copy.deepcopy(record['input'])
     changed['counterfactual']['hypothesis'] = 'A different visible counterfactual condition.'
     assert record['provenance']['window_id'] != _window_identity(record['task'], changed)
+
+
+def test_actual_replay_uses_the_same_versioned_model_input_entry(pair, tmp_path):
+    source, replay, _origin_id, _digest = pair
+    record = replay_windows(source, replay)[0]
+    workspace = tmp_path / 'labelkit'
+    (workspace / 'data').mkdir(parents=True)
+    write_model_inputs('dreaming', [record], workspace)
+    wire = json.loads((workspace / 'data/dreaming.jsonl').read_text())
+
+    assert wire['input']['observation_value_encoding']['schema_version'] == 1
+    assert 'observation_value_dictionary' in wire['input']
+    assert decode_model_record(wire) == record
 
 
 def test_original_world_cannot_be_mislabeled_as_an_actual_replay(pair):

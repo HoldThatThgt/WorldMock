@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import logging
 import random
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +27,14 @@ from worldmock.life.activities import (
     start_activity,
     truncate_activity,
 )
-from worldmock.life.body import body_observation, interpolate, next_body_boundary_seconds
+from worldmock.life.body import (
+    ENERGY_RECOVERY_ACTIVITY_KINDS,
+    body_observation,
+    interpolate,
+    maximum_energy_duration_seconds,
+    minimum_energy_cost,
+    next_body_boundary_seconds,
+)
 from worldmock.life.commerce import apply_product_progress, deliver_order, held_quantity, purchase
 from worldmock.life.content import mail_headers, reveal_mail, reveal_watch
 from worldmock.life.game import (
@@ -39,6 +48,7 @@ from worldmock.life.models import (
     ActionReceipt,
     ActionResult,
     ActionStatus,
+    ActivityChange,
     ActivityKind,
     ActivityStatus,
     ChangePlaybackSpeedRequest,
@@ -77,10 +87,13 @@ from worldmock.life.work import (
     work_totals,
 )
 from worldmock.life.work_review import (
+    WORK_REVIEW_MAX_MODEL_CALLS,
     WorkReviewDecision,
+    WorkReviewOutputError,
     WorkReviewer,
     parse_work_review,
     prepare_work_review,
+    prepare_work_review_correction,
     public_work_review,
     review_matches,
 )
@@ -183,7 +196,7 @@ class LifeEngine:
         return self._queue_action(call, request_sha, reused=False)
 
     async def prepare_pending_work_review(self, action_id: str) -> None:
-        """@brief 为通过确定性前置条件的工作提交执行一次独立语义验收。"""
+        """@brief 为通过前置条件的工作提交执行有限次独立语义验收。"""
         pending = next((item for item in self._round.pending_actions if item.action_id == action_id), None)
         if pending is None:
             raise ProtocolError("Pending work review action does not exist")
@@ -191,6 +204,10 @@ class LifeEngine:
             return
         if self.state.agents[pending.agent_id].current_activity_id is not None:
             return
+        existing = [event for event in self.store.read_agent_events("model_request", pending.agent_id)
+                    if event.action_id == pending.action_id and event.data.get("purpose") == "work_review"]
+        if existing:
+            raise ProtocolError("Pending work review cannot restart after model evidence was recorded")
         request = SubmitWorkRequest.model_validate(pending.request)
         try:
             submission = prepare_work_submission(
@@ -198,42 +215,65 @@ class LifeEngine:
         except BusinessRuleError:
             return
         model_name = self.store.manifest["model_identity"]["requested_model"]
-        prepared = prepare_work_review(submission, model_name)
-        call_id = f"{pending.decision_id}:work-review:{pending.action_id}:attempt:1"
-        request_event = self.store.commit(
-            self.state.model_dump(mode="json"),
-            [_work_review_request_draft(self.state.current_time, pending, call_id, prepared.request)],
-        )[0]
-        link = (call_id, request_event.event_id)
-        raw = await self._call_work_reviewer(prepared, pending, link)
-        decision = self._parse_work_reviewer(raw, prepared, pending, link)
-        response = _work_review_response_draft(
-            self.state.current_time, pending, link, (raw, decision, None))
-        event = self.store.commit(self.state.model_dump(mode="json"), [response])[0]
-        pending.work_review = decision.model_dump(mode="json")
-        pending.work_review_event_id = event.event_id
+        original = prepare_work_review(submission, model_name)
+        prepared = original
+        previous_event_id = None
+        for attempt in range(1, WORK_REVIEW_MAX_MODEL_CALLS + 1):
+            call_id = f"{pending.decision_id}:work-review:{pending.action_id}:attempt:{attempt}"
+            request_link = (call_id, attempt, previous_event_id)
+            request_event = self.store.commit(
+                self.state.model_dump(mode="json"),
+                [_work_review_request_draft(self.state.current_time, pending, request_link, prepared.request)],
+            )[0]
+            link = (call_id, request_event.event_id, attempt)
+            raw = await self._call_work_reviewer(prepared, pending, link)
+            decision, error, response_event_id = self._parse_work_reviewer(raw, original, pending, link)
+            if decision is not None:
+                pending.work_review = decision.model_dump(mode="json")
+                pending.work_review_event_id = response_event_id
+                return
+            if attempt == WORK_REVIEW_MAX_MODEL_CALLS:
+                raise ProtocolError("Work review response remained invalid after three protocol attempts") from error
+            previous_event_id = response_event_id
+            prepared = prepare_work_review_correction(original, raw, error)
 
-    async def _call_work_reviewer(self, prepared, pending, link: tuple[str, str]) -> dict:
+    async def _call_work_reviewer(self, prepared, pending, link: tuple[str, str, int]) -> dict:
         """@brief 调用固定客户端；任意配置或传输失败均留证并终止。"""
         try:
             reviewer = self._work_reviewer or WorkReviewer(self.store.manifest["model_identity"])
             self._work_reviewer = reviewer
             return await reviewer.call(prepared)
-        except Exception as error:
+        except asyncio.CancelledError as error:
+            logging.error("Work review model request was cancelled")
             draft = _work_review_failure_draft(
                 self.state.current_time, pending, link, error)
             self.store.commit(self.state.model_dump(mode="json"), [draft])
-            raise ProtocolError("Work review model request failed") from error
-
-    def _parse_work_reviewer(self, raw, prepared, pending, link: tuple[str, str]):
-        """@brief 解析真实响应；Schema 故障记录原始响应并终止。"""
-        try:
-            return parse_work_review(raw, prepared)
+            raise
         except Exception as error:
-            draft = _work_review_response_draft(
-                self.state.current_time, pending, link, (raw, None, error))
+            logging.exception("Work review model request failed")
+            draft = _work_review_failure_draft(
+                self.state.current_time, pending, link, error)
             self.store.commit(self.state.model_dump(mode="json"), [draft])
             raise
+
+    def _parse_work_reviewer(self, raw, prepared, pending, link: tuple[str, str, int]):
+        """@brief 保存原始响应，并区分可纠正输出与内部解析故障。"""
+        error = None
+        try:
+            decision = parse_work_review(raw, prepared)
+        except WorkReviewOutputError as caught:
+            logging.warning("Work review protocol output is invalid: %s", caught)
+            decision, error = None, caught
+        except Exception as caught:
+            logging.exception("Work review response parsing failed")
+            draft = _work_review_response_draft(
+                self.state.current_time, pending, link, (raw, None, caught))
+            self.store.commit(self.state.model_dump(mode="json"), [draft])
+            raise
+        draft = _work_review_response_draft(
+            self.state.current_time, pending, link, (raw, decision, error))
+        event = self.store.commit(self.state.model_dump(mode="json"), [draft])[0]
+        return decision, error, event.event_id
 
     def _queue_action(self, call: "DirectToolCall", request_sha: str, reused: bool) -> ActionReceipt:
         """@brief 追加请求证据并加入当前轮，重放动作仍不再次执行。"""
@@ -490,7 +530,7 @@ class LifeEngine:
     def _observation_data(self, agent) -> dict:
         """@brief 投影当前人物可知内容，不暴露工作 oracle 或未来消息。"""
         active = self.state.activities.get(agent.current_activity_id) if agent.current_activity_id else None
-        paused = [item.model_dump(mode="json") for item in sorted(
+        paused = [_paused_activity_observation(item, agent, self.scenario) for item in sorted(
             self.state.activities.values(), key=lambda value: value.activity_id)
             if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
         tasks = [self._visible_task(item, agent.agent_id) for item in sorted(agent.visible_task_ids)
@@ -508,7 +548,8 @@ class LifeEngine:
                 "messages": mail_headers(agent, self.rules.messages), "tasks": tasks, "products": products,
                 "calendar_context": _calendar_context(self.scenario, self.state.current_time),
                 "locations": _location_catalog(self.scenario),
-                "routes": _route_catalog(self.scenario, agent.location_id),
+                "routes": _route_catalog(self.scenario, agent.location_id, agent.body.energy_kcal),
+                "energy_feasibility": _activity_energy_feasibility(agent, self.scenario),
                 "content_catalog": _content_catalog(self.scenario),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
@@ -851,6 +892,10 @@ class LifeEngine:
                 raise BusinessRuleError("CONTENT_END_EXCEEDED")
         agent, activity = change_activity(agent, current, request, state.current_time,
                                           self.scenario.activity_feedback_seconds)
+        if request.operation == ActivityChange.RESUME:
+            feasibility = _remaining_activity_energy(current, agent, self.scenario)
+            if not feasibility["resume_energy_feasible"]:
+                raise BusinessRuleError("INSUFFICIENT_ENERGY")
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
@@ -1384,33 +1429,38 @@ def _pending_causes(pending: PendingAction) -> list[str]:
     return causes
 
 
-def _work_review_request_draft(now: int, pending: PendingAction, call_id: str,
+def _work_review_request_draft(now: int, pending: PendingAction, link: tuple[str, int, str | None],
                                request: dict) -> EventDraft:
     """@brief 形成系统私有的完整工作验收模型请求证据。"""
+    call_id, attempt, previous_event_id = link
+    causes = [pending.requested_event_id]
+    if previous_event_id:
+        causes.append(previous_event_id)
     data = {"phase": "request", "purpose": "work_review", "call_id": call_id,
-            "attempt": 1, "request": request, "response": None, "error": None}
+            "attempt": attempt, "request": request, "response": None, "error": None}
     return EventDraft(event_type="model_request", occurred_at=now, agent_id=pending.agent_id,
                       decision_id=pending.decision_id, action_id=pending.action_id,
-                      caused_by=[pending.requested_event_id], visibility="system",
+                      caused_by=causes, visibility="system",
                       source_kind="model", data=data)
 
 
 def _work_review_failure_draft(now: int, pending: PendingAction,
-                               link: tuple[str, str], error: Exception) -> EventDraft:
+                               link: tuple[str, str, int], error: BaseException) -> EventDraft:
     """@brief 形成工作验收配置或传输失败证据。"""
-    call_id, request_event_id = link
+    call_id, request_event_id, attempt = link
     data = {"phase": "failure", "purpose": "work_review", "call_id": call_id,
-            "attempt": 1, "request": None, "response": None, "error": repr(error)}
+            "attempt": attempt, "request": None, "response": None, "error": repr(error)}
     return _work_review_terminal_draft(now, pending, request_event_id, data)
 
 
 def _work_review_response_draft(now: int, pending: PendingAction,
-                                link: tuple[str, str], outcome: tuple) -> EventDraft:
+                                link: tuple[str, str, int], outcome: tuple) -> EventDraft:
     """@brief 形成带原始响应、用量和本地验收结论的工作评审证据。"""
-    call_id, request_event_id = link
+    call_id, request_event_id, attempt = link
     raw, decision, error = outcome
     data = {"phase": "response", "purpose": "work_review", "call_id": call_id,
-            "attempt": 1, "request": None, "response": raw, "usage": raw.get("usage"),
+            "attempt": attempt, "request": None, "response": raw,
+            "usage": raw.get("usage") if isinstance(raw, dict) else None,
             "review_decision": decision.model_dump(mode="json") if decision else None,
             "error": repr(error) if error else None}
     return _work_review_terminal_draft(now, pending, request_event_id, data)
@@ -1504,12 +1554,47 @@ def _location_catalog(scenario: LifeScenario) -> list[dict]:
     return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
 
 
-def _route_catalog(scenario: LifeScenario, origin_id: str) -> list[dict]:
+def _route_catalog(scenario: LifeScenario, origin_id: str, energy_kcal: float) -> list[dict]:
     """@brief 返回人物当前位置出发的冻结路线身份和实际成本。"""
     fields = {"route_id", "origin_id", "destination_id", "mode", "distance_meters", "duration_seconds",
               "fare_fen", "fare_source_kind"}
     routes = [item for item in scenario.routes if item.origin_id == origin_id]
-    return [item.model_dump(mode="json", include=fields) for item in routes]
+    result = []
+    for item in routes:
+        data = item.model_dump(mode="json", include=fields)
+        met = scenario.body.activity_met[f"travel:{item.mode.value}"]
+        cost = minimum_energy_cost(ActivityKind.TRAVEL, item.duration_seconds, scenario.body, met)
+        data.update(minimum_energy_cost_kcal=cost, energy_feasible=cost <= energy_kcal)
+        result.append(data)
+    return result
+
+
+def _activity_energy_feasibility(agent, scenario: LifeScenario) -> dict:
+    """@brief 返回五类目标活动按当前能量可受理的最大整数墙钟秒数。"""
+    kinds = (ActivityKind.WORK, ActivityKind.WATCH, ActivityKind.PLAY_GAME,
+             ActivityKind.READ_MAIL, ActivityKind.BROWSE)
+    maximums = {
+        kind.value: maximum_energy_duration_seconds(kind, agent.body.energy_kcal, scenario.body)
+        for kind in kinds
+    }
+    return {"maximum_duration_seconds_by_kind": maximums}
+
+
+def _remaining_activity_energy(activity, agent, scenario: LifeScenario) -> dict:
+    """@brief 以暂停活动剩余墙钟时长计算当前恢复能量合同。"""
+    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
+    factors = activity_factors(activity, agent, scenario.body)
+    cost = minimum_energy_cost(activity.kind, remaining, scenario.body, factors.met)
+    feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
+    return {"remaining_duration_seconds": remaining, "minimum_energy_cost_kcal": cost,
+            "resume_energy_feasible": feasible}
+
+
+def _paused_activity_observation(activity, agent, scenario: LifeScenario) -> dict:
+    """@brief 公开暂停活动本身及当前剩余时长的恢复能量可行性。"""
+    data = activity.model_dump(mode="json")
+    data.update(_remaining_activity_energy(activity, agent, scenario))
+    return data
 
 
 def _content_catalog(scenario: LifeScenario) -> list[dict]:

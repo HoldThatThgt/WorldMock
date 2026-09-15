@@ -64,8 +64,9 @@ class StaticReviewer:
                      "delivery_assessments": delivery_rows, "accepted": self.reported_accepted}
         return {"id": "review-response", "model": "deepseek-flash", "usage": {
                     "prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-                "choices": [{"message": {"tool_calls": [{"function": {
-                    "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
+                "choices": [{"message": {"tool_calls": [{
+                    "id": f"review-tool-{self.calls}", "type": "function", "function": {
+                        "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
 
 
 def _at_task_start(engine) -> None:
@@ -266,8 +267,8 @@ async def test_incomplete_work_skips_model_review_and_is_business_rejection(engi
 
 
 @pytest.mark.asyncio
-async def test_review_schema_failure_is_fatal_and_preserves_raw_response(engine_factory) -> None:
-    """模型漏掉必需事实属于致命 Schema 故障，原始响应仍留为系统证据。"""
+async def test_review_identity_failure_exhausts_three_calls_and_preserves_responses(engine_factory) -> None:
+    """身份遗漏连续三次时留存全部响应并终止，不执行工作结算。"""
     engine = engine_factory()
     _at_task_start(engine)
     _complete_required_work(engine)
@@ -277,12 +278,15 @@ async def test_review_schema_failure_is_fatal_and_preserves_raw_response(engine_
     engine.begin_decision_round([ctx])
     call = DirectToolCall(ctx, "bad-schema", "submit_work", _paraphrased_submission())
     engine.submit_action(call)
-    with pytest.raises(ProtocolError, match="incomplete or duplicated"):
+    balance = dict(engine.state.accounts)
+    with pytest.raises(ProtocolError, match="remained invalid after three"):
         await engine.prepare_pending_work_review(call.action_id)
     responses = [event for event in engine.store.read_events(engine.store.last_event_seq)
                  if event.event_type == "model_response" and event.data.get("purpose") == "work_review"]
-    assert responses[-1].data["response"]["id"] == "review-response"
-    assert "incomplete or duplicated" in responses[-1].data["error"]
+    assert len(responses) == 3 and reviewer.calls == 3
+    assert all(event.data["response"]["id"] == "review-response" for event in responses)
+    assert all("reference_assessments.reference_id" in event.data["error"] for event in responses)
+    assert engine.state.accounts == balance and not engine.state.paid_task_ids
     engine.abort_decision_round("bad-schema", "expected schema failure")
 
 

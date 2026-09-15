@@ -41,6 +41,10 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         "recent_action_results": [],
         "active_activity": None,
         "paused_activities": [],
+        "energy_feasibility": {"maximum_duration_seconds_by_kind": {
+            "work": 86_400, "watch": 86_400, "play_game": 86_400,
+            "read_mail": 86_400, "browse": 86_400,
+        }},
         "tasks": [{"task_id": "task", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "content_catalog": [{"item_id": "content", "duration_seconds": 630}],
@@ -54,7 +58,8 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product": 1.0},
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216}],
+        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
     }
     _set_activity_boundary(data, tool_name)

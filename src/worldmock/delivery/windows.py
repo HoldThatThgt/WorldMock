@@ -43,12 +43,13 @@ def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
 def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) -> tuple[dict, dict]:
     """@brief 动作答案与动作前输入分开；意图可以读取已经发生的实际结果。"""
     manifest, directory, indexed = source
-    previous = [row for row in decisions[event["decision_id"]]
+    decision_rows, action_rows = _validated_action_groups(event, actions, decisions)
+    previous = [row for row in decision_rows
                 if row["event_seq"] < event["event_seq"] and row["visibility"] == "agent"
                 and row["event_type"] not in PRIVATE_EVENTS | {"action_requested"}]
     if not previous:
         raise IntegrityError("Action training requires a preceding visible observation")
-    outcomes = [row for row in actions[event["action_id"]] if row["event_type"] != "action_requested"]
+    outcomes = [row for row in action_rows if row["event_type"] != "action_requested"]
     facts = {"request": event, "outcomes": outcomes}
     prerequisite = _prerequisite_state(previous, previous)
     action = _record("action", previous, facts, manifest, prerequisite)
@@ -58,6 +59,32 @@ def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) 
     intent = _record("intent", observed, facts, manifest, prerequisite)
     _attach_evidence(intent, observed, indexed, directory)
     return action, intent
+
+
+def _validated_action_groups(event: dict, actions: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
+    """@brief 拒绝跨人物复用动作或决策身份形成的证据分组。"""
+    agent_id = event["agent_id"]
+    if agent_id is None:
+        _invalid_action_group("Action request must identify its agent")
+    decision_rows = decisions[event["decision_id"]]
+    action_rows = actions[event["action_id"]]
+    _validate_action_group_agent(agent_id, decision_rows, "decision")
+    _validate_action_group_agent(agent_id, action_rows, "action")
+    return decision_rows, action_rows
+
+
+def _validate_action_group_agent(agent_id: int, rows: list[dict], group: str) -> None:
+    """@brief 允许无人物系统事实，但人物可见事实只属于请求人物。"""
+    foreign = any(row["agent_id"] not in {agent_id, None} for row in rows)
+    unowned_visible = any(row["visibility"] == "agent" and row["agent_id"] != agent_id for row in rows)
+    if foreign or unowned_visible:
+        _invalid_action_group(f"Action training {group} identity crosses agent boundaries")
+
+
+def _invalid_action_group(message: str) -> None:
+    """@brief 记录并拒绝跨人物动作训练来源。"""
+    logging.error("%s", message)
+    raise IntegrityError(message)
 
 
 def _record(task: str, events: list[dict], facts: dict, manifest: dict, prerequisite: dict) -> dict:

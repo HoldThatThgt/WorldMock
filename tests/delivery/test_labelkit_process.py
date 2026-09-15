@@ -4,16 +4,23 @@ import json
 import re
 import shutil
 import threading
+import tomllib
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 import pytest
 
-from worldmock.delivery.pipeline import deliver, run_labelkit, verify_process
-from worldmock.delivery.windows import _action_windows
+from worldmock.delivery.evidence_encoding import POINTER_RULE, encode_model_record
+from worldmock.delivery.pipeline import (
+    _bind_source_trace,
+    deliver,
+    run_labelkit,
+    verify_process,
+    write_model_inputs,
+)
+from worldmock.delivery.windows import _action_windows, _window_identity
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
-
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
@@ -100,11 +107,11 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         workspace = _workspace(tmp_path, record, server.server_port)
         if review_result in {'exhausted', 'max_items_exhausted', 'history_exhausted'}:
             with pytest.raises(IntegrityError, match='exited with status 1'):
-                run_labelkit('action', workspace, ROOT)
+                run_labelkit('action', workspace, ROOT, [record])
             assert (workspace / 'out/action.jsonl').read_text() == ''
             records = []
         else:
-            receipt = run_labelkit('action', workspace, ROOT)
+            receipt = run_labelkit('action', workspace, ROOT, [record])
             assert receipt['exit_code'] == 0
             records = verify_process('action', workspace, [record])
     finally:
@@ -126,12 +133,21 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
                      for value in re.findall(r'\\"knowledge_cutoff_event_seq\\"\s*:\s*(\d+)', text)]
     assert cutoff_values and set(cutoff_values) == {2}
     assert 'allowed_evidence_event_ids' in json.dumps(calls[0], ensure_ascii=False)
+    assert all(text.count(POINTER_RULE) == 1 for text in serialized_calls)
+    assert all('observation_value_encoding' in text for text in serialized_calls)
+    assert all('observation_value_dictionary' in text for text in serialized_calls)
     if records:
+        assert records[0]['input'] == record['input']
+        assert 'observation_value_encoding' not in records[0]['input']
         assert records[0]['target']['facts'] == record['target']
         assert records[0]['provenance']['target_event_ids'] == target_ids
         assert records[0]['provenance']['source_event_ids'] == [
             'probe-prior-result', 'probe-observation', *target_ids,
         ]
+        model_input = records[0]['provenance']['model_input']
+        assert model_input['labelkit_record_id'] == records[0]['provenance']['labelkit_record_id']
+        assert model_input['source_line'] == 1
+        assert model_input['trace_path'] == 'labelkit/out/action.trace.jsonl'
     trace = [json.loads(line) for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
     profiles = [row['payload']['profile'] for row in trace if row.get('ev') == 'llm.call']
     schema_repairs = {'citation_repaired', 'missing_citation_repaired', 'max_items_repaired'}
@@ -196,16 +212,23 @@ def _assert_model_wire_contract(profiles, calls):
     """确认生成与独立评审配置实际进入 LabelKit HTTP 请求。"""
     for profile, request in zip(profiles, calls, strict=True):
         messages = json.dumps(request['messages'], ensure_ascii=False)
+        common = '事实中的每个独立断言都须由该 claim 所列来源直接支持'
+        assert messages.count(common) == 1
+        assert messages.count('不能借用未列出的 input.events 补证') == 1
+        assert messages.count('命名布尔字段的 false 只否定该字段表达的命题') == 1
+        assert messages.count('没有历史进度不能由当前目录推出“从未开始”') == 1
+        assert messages.count('数值接近零本身不等同于高低或需求等级分类') == 1
+        assert messages.count('按 RFC 6901 从当前 input 单跳取得完整字段值') == 1
+        assert messages.count('证据仅限 input.events 与 input.prerequisite_state 中') == 1
+        assert messages.count('聚合用于消除同一主题的重复，不要求合并不同因果主题') == 1
+        assert messages.count('三十二条是上限而非目标数量') == 1
+        assert messages.count('必须指出共享主体、关系与尚未概括的重复内容') == 1
         if profile == 'judge':
             assert request['thinking'] == {'type': 'enabled'}
             assert request['max_tokens'] == 32768
-            assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in messages
-            assert '不能借用该 claim 未列出的其他 input.events 补全证据' in messages
             assert '每轮独立完整审查当前候选' in messages
             assert '一次列出发现的全部实质问题' in messages
             assert '身份字段是不透明标识' in messages
-            assert '当前目录不能证明历史上从未开始' in messages
-            assert '没有可见阈值时不得把数值分为高低' in messages
             continue
         assert request['thinking'] == {'type': 'disabled'}
         assert request['max_tokens'] == 131072
@@ -242,7 +265,7 @@ def _workspace(tmp_path, record, port):
     shutil.copytree(ROOT / 'labelkit-projects', workspace, ignore=shutil.ignore_patterns('data', 'out', '__pycache__'))
     (workspace / 'data').mkdir()
     (workspace / 'out').mkdir()
-    (workspace / 'data/action.jsonl').write_text(json.dumps(record, ensure_ascii=False) + '\n')
+    write_model_inputs('action', [record], workspace)
     config = workspace / 'config.toml'
     config.write_text(config.read_text().replace('https://api.deepseek.com', f'http://127.0.0.1:{port}/v1'))
     return workspace
@@ -277,6 +300,7 @@ def _current_record(directory):
         (manifest, directory, {row['event_id']: row for row in rows}),
     )
     record['input']['visible_input_sentinel'] = 'visible-input-sentinel-3f57dd'
+    record['provenance']['window_id'] = _window_identity(record['task'], record['input'])
     return record
 
 
@@ -284,7 +308,7 @@ def test_failed_independent_semantic_verdict_blocks_process_output(tmp_path):
     fixture = json.loads(FIXTURE.read_text())
     source = _current_record(tmp_path)
     record = _output_row(fixture['annotation'], source, verdict='fail')
-    (tmp_path / 'out').mkdir()
+    _prepare_verified_sources(tmp_path, [source])
     (tmp_path / 'out/action.jsonl').write_text(json.dumps(record) + '\n')
     with pytest.raises(IntegrityError, match='semantic verification did not pass'):
         verify_process('action', tmp_path, [source])
@@ -296,10 +320,13 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
     invoked = []
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', lambda _path: {'action': [source]})
 
-    def rejected_process(task, workspace, _root):
+    def rejected_process(task, workspace, _root, inputs):
         invoked.append(task)
+        assert inputs == [source]
         row = _output_row(fixture['annotation'], source, verdict='fail')
         (workspace / f'out/{task}.jsonl').write_text(json.dumps(row) + '\n')
+        _write_successful_trace(task, workspace, inputs)
+        _bind_source_trace(task, workspace)
         return {'exit_code': 0}
 
     monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', rejected_process)
@@ -313,7 +340,8 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
 
 
 def _output_row(annotation, source, verdict='pass', line_no=1, source_file='action.jsonl'):
-    identity = hashlib.sha256(canonical_json(source)).hexdigest()[:16]
+    encoded = encode_model_record(source)
+    identity = hashlib.sha256(canonical_json(encoded)).hexdigest()[:16]
     return {
         'target': copy.deepcopy(annotation['target']),
         '_meta': {
@@ -343,7 +371,7 @@ def test_process_rejects_candidate_source_mismatch(tmp_path, mutation, message):
         row['_meta']['source']['line_no'] = 2
     else:
         row['_meta']['id'] = '0' * 16
-    (tmp_path / 'out').mkdir()
+    _prepare_verified_sources(tmp_path, [source])
     (tmp_path / 'out/action.jsonl').write_text(json.dumps(row) + '\n')
     with pytest.raises(IntegrityError, match=message):
         verify_process('action', tmp_path, [source])
@@ -353,9 +381,186 @@ def test_process_rejects_duplicate_source_line(tmp_path):
     fixture = json.loads(FIXTURE.read_text())
     first = _current_record(tmp_path)
     second = copy.deepcopy(first)
-    second['provenance']['window_id'] = 'second-window'
+    second['input']['boundary_type'] = 'second-decision'
+    second['provenance']['window_id'] = _window_identity(second['task'], second['input'])
     rows = [_output_row(fixture['annotation'], first), _output_row(fixture['annotation'], first)]
-    (tmp_path / 'out').mkdir()
+    _prepare_verified_sources(tmp_path, [first, second])
     (tmp_path / 'out/action.jsonl').write_text(''.join(json.dumps(row) + '\n' for row in rows))
     with pytest.raises(IntegrityError, match='source line is duplicated'):
         verify_process('action', tmp_path, [first, second])
+
+
+@pytest.mark.parametrize('target', ['model_input', 'source_index'])
+def test_process_rejects_model_source_tampering_before_cli(tmp_path, monkeypatch, target):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    path = tmp_path / f'data/action.{"source-index." if target == "source_index" else ""}jsonl'
+    row = json.loads(path.read_text())
+    if target == 'model_input':
+        row['input']['boundary_type'] = 'tampered'
+    else:
+        row['model_input_sha256'] = '0' * 64
+    path.write_bytes(canonical_json(row) + b'\n')
+    monkeypatch.setattr('worldmock.delivery.pipeline.subprocess.run',
+                        lambda *_args, **_kwargs: pytest.fail('Tampered source invoked LabelKit'))
+
+    with pytest.raises(IntegrityError):
+        run_labelkit('action', tmp_path, ROOT, [source])
+
+
+def test_process_rejects_trace_changed_after_source_binding(tmp_path):
+    fixture = json.loads(FIXTURE.read_text())
+    source = _current_record(tmp_path)
+    _prepare_verified_sources(tmp_path, [source])
+    row = _output_row(fixture['annotation'], source)
+    (tmp_path / 'out/action.jsonl').write_text(json.dumps(row) + '\n')
+    (tmp_path / 'out/action.trace.jsonl').write_text('changed-after-binding\n')
+
+    with pytest.raises(IntegrityError, match='Cannot parse LabelKit trace'):
+        verify_process('action', tmp_path, [source])
+
+
+@pytest.mark.parametrize('mutation, message', [
+    ('not_json', 'Cannot parse LabelKit trace'),
+    ('mixed_run', 'one valid run_id'),
+    ('missing_end', 'one run.end'),
+    ('failed_end', 'successful run end'),
+    ('missing_verdict', 'final passing verdict'),
+    ('failed_verdict', 'final passing verdict'),
+    ('unknown_verdict', 'invalid source record'),
+    ('missing_judge', 'lacks generation or review'),
+    ('unmapped_call', 'model call is not bound'),
+    ('missing_repair_cycle', 'lacks generation or review before a verdict'),
+    ('missing_output', 'unsuccessful model call'),
+    ('wrong_model', 'unsuccessful model call'),
+    ('nonzero_retry', 'unsuccessful model call'),
+    ('wrong_config', 'run identity'),
+    ('wrong_counts', 'counts do not preserve'),
+])
+def test_trace_binding_requires_successful_lifecycle_and_final_verdicts(tmp_path, mutation, message):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    _ensure_trace_files('action', tmp_path)
+    rows = _successful_trace_rows('action', tmp_path, [source])
+    if mutation == 'not_json':
+        (tmp_path / 'out/action.trace.jsonl').write_text('not-json\n')
+    else:
+        if mutation == 'mixed_run':
+            rows[1]['run_id'] = 'b' * 12
+        elif mutation == 'missing_end':
+            rows.pop()
+        elif mutation == 'failed_end':
+            rows[-1]['payload']['exit_code'] = 1
+        elif mutation == 'missing_verdict':
+            rows = [row for row in rows if row['ev'] != 'verify.verdict']
+        elif mutation == 'failed_verdict':
+            next(row for row in rows if row['ev'] == 'verify.verdict')['payload']['verdict'] = 'fail'
+        elif mutation == 'unknown_verdict':
+            next(row for row in rows if row['ev'] == 'verify.verdict')['record_ids'] = ['0' * 16]
+        elif mutation == 'missing_judge':
+            rows = [row for row in rows if row['payload'].get('profile') != 'judge']
+        elif mutation == 'unmapped_call':
+            call = next(row for row in rows if row['ev'] == 'llm.call')
+            call['payload']['gen_ai.input.messages'][1]['content'][0]['text'] = '[待标注数据] {}'
+        elif mutation == 'missing_repair_cycle':
+            verdict = next(row for row in rows if row['ev'] == 'verify.verdict')
+            verdict['payload']['verdict'] = 'fail'
+            final = copy.deepcopy(verdict)
+            final['payload'] = {'round': 2, 'verdict': 'pass'}
+            rows.insert(-1, final)
+        elif mutation == 'missing_output':
+            next(row for row in rows if row['ev'] == 'llm.call')['payload'].pop('gen_ai.output.messages')
+        elif mutation == 'wrong_model':
+            next(row for row in rows if row['ev'] == 'llm.call')['payload']['gen_ai.request.model'] = 'other'
+        elif mutation == 'nonzero_retry':
+            next(row for row in rows if row['ev'] == 'llm.call')['payload']['retries'] = 1
+        elif mutation == 'wrong_config':
+            rows[0]['payload']['config_digest'] = 'sha256:' + '0' * 64
+        else:
+            rows[-1]['payload']['counts']['emitted'] = 0
+        _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
+    with pytest.raises(IntegrityError, match=message):
+        _bind_source_trace('action', tmp_path)
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    assert 'trace_sha256' not in source_index
+
+
+def _prepare_verified_sources(workspace, inputs):
+    """为纯验收测试写入真实编码行、来源索引和 trace 绑定。"""
+    (workspace / 'data').mkdir(exist_ok=True)
+    (workspace / 'out').mkdir(exist_ok=True)
+    write_model_inputs('action', inputs, workspace)
+    _write_successful_trace('action', workspace, inputs)
+    _bind_source_trace('action', workspace)
+
+
+def _write_successful_trace(task, workspace, inputs):
+    """写入符合真实 LabelKit 生命周期结构的最小成功 trace。"""
+    _ensure_trace_files(task, workspace)
+    _write_trace(workspace / f'out/{task}.trace.jsonl', _successful_trace_rows(task, workspace, inputs))
+
+
+def _successful_trace_rows(task, workspace, inputs):
+    """按实际编码行身份构造成功运行、逐记录裁决与终局计数。"""
+    run_id = 'a' * 12
+    config_raw = (workspace / 'config.toml').read_bytes()
+    project_raw = (workspace / f'{task}.toml').read_bytes()
+    config = tomllib.loads(config_raw.decode())
+    start = {'tool_version': 'labelkit/1.0.0', 'trace_schema_version': 1,
+             'config_digest': 'sha256:' + hashlib.sha256(config_raw).hexdigest(),
+             'project_digest': 'sha256:' + hashlib.sha256(project_raw).hexdigest()}
+    rows = [_trace_event(run_id, 'run', 'run.start', [], start)]
+    for source in inputs:
+        encoded = encode_model_record(source)
+        identity = hashlib.sha256(canonical_json(encoded)).hexdigest()[:16]
+        model_input = canonical_json(encoded['input']).decode()
+        rows.append(_model_call(run_id, 'default', config['llm']['default']['model'],
+                                f'[待标注数据] {model_input}'))
+        rows.append(_model_call(run_id, 'judge', config['llm']['judge']['model'],
+                                f'[原始数据] {model_input}\n[标注结果] {{}}'))
+        rows.append(_trace_event(run_id, 'verify', 'verify.verdict', [identity],
+                                 {'round': 1, 'verdict': 'pass'}))
+    count = len(inputs)
+    counts = {'scanned': count, 'ingested': count, 'bad_input': 0, 'dropped_dup': 0,
+              'dropped_lowq': 0, 'dropped_verify': 0, 'failed': 0, 'generated': 0, 'emitted': count}
+    rows.append(_trace_event(run_id, 'run', 'run.end', [], {'counts': counts, 'exit_code': 0}))
+    return rows
+
+
+def _trace_event(run_id, stage, event, record_ids, payload):
+    """构造与 LabelKit EventLog 相同字段的测试事件。"""
+    return {'ts': '2026-09-16T00:00:00.000+08:00', 'run_id': run_id, 'batch_no': 0,
+            'stage': stage, 'ev': event, 'record_ids': record_ids, 'payload': payload}
+
+
+def _model_call(run_id, profile, model, text):
+    """构造携带完整实际模型输入的成功 LLM trace 事件。"""
+    messages = [
+        {'role': 'system', 'content': [{'type': 'text', 'text': 'fixture schema and instruction'}]},
+        {'role': 'user', 'content': [{'type': 'text', 'text': text}]},
+    ]
+    output = [{'role': 'assistant', 'content': '{}'}]
+    payload = {'profile': profile, 'gen_ai.request.model': model, 'latency_ms': 1,
+               'gen_ai.usage.input_tokens': 1, 'gen_ai.usage.output_tokens': 1,
+               'retries': 0, 'status': 'ok', 'gen_ai.input.messages': messages,
+               'gen_ai.output.messages': output}
+    return _trace_event(run_id, 'llm', 'llm.call', [], payload)
+
+
+def _ensure_trace_files(task, workspace):
+    """为纯边界测试补齐 trace 身份所绑定的最小配置文件。"""
+    config = workspace / 'config.toml'
+    project = workspace / f'{task}.toml'
+    if not config.exists():
+        config.write_text('[llm.default]\nmodel="deepseek-flash"\n[llm.judge]\nmodel="deepseek-flash"\n')
+    if not project.exists():
+        project.write_text('schema_version=1\n')
+
+
+def _write_trace(path, rows):
+    """以 JSONL 写入测试 trace。"""
+    path.write_bytes(b''.join(canonical_json(row) + b'\n' for row in rows))

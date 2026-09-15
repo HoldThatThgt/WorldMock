@@ -47,8 +47,9 @@ class AcceptingReviewer:
                      "delivery_assessments": deliveries, "accepted": True}
         return {"id": f"review-{self.calls}", "model": "deepseek-flash",
                 "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
-                "choices": [{"message": {"tool_calls": [{"function": {
-                    "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
+                "choices": [{"message": {"tool_calls": [{
+                    "id": f"review-tool-{self.calls}", "type": "function", "function": {
+                        "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
 
 
 def _submission(task) -> SubmitWorkRequest:

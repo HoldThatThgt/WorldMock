@@ -5,7 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.body import ActivityFactors, BodySettlement, minimum_energy_cost, settle_body
+from worldmock.life.body import (
+    ENERGY_RECOVERY_ACTIVITY_KINDS,
+    ActivityFactors,
+    BodySettlement,
+    minimum_energy_cost,
+    settle_body,
+)
 from worldmock.life.models import (
     ActivityChange,
     ActivityKind,
@@ -58,8 +64,7 @@ def start_activity(agent: AgentState, request: StartActivityRequest, now: int, o
         raise BusinessRuleError("RESOURCE_CONFLICT")
     met = _activity_met(request.activity_type, request.travel_mode, config)
     cost = minimum_energy_cost(request.activity_type, request.planned_duration_seconds, config, met)
-    recover = {ActivityKind.SLEEP, ActivityKind.CONSUME, ActivityKind.WAIT}
-    if cost > agent.body.energy_kcal and request.activity_type not in recover:
+    if cost > agent.body.energy_kcal and request.activity_type not in ENERGY_RECOVERY_ACTIVITY_KINDS:
         raise BusinessRuleError("INSUFFICIENT_ENERGY")
     activity_id = f"activity-{origin.action_id}"
     activity = ActivityState(
