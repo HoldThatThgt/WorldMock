@@ -30,6 +30,7 @@ instruction = """
 按 input.mode 生成经历归纳 induction、反思 reflection 或反事实 counterfactual。归纳和反思引用真实证据；反事实必须明确 hypothesis，想象结果不标为已经重演或事实。
 input.counterfactual.world_kind=observed 时，input.events 只属于原世界；先归纳原世界事实，再提出未执行的明确假设及可能结果，绝不能把原事件称为重演。
 仅当 input.counterfactual.world_kind=resimulated 时，input.events 是实际重演分支的已发生结果，可引用为分支内事实；明确假设条件与分支身份，禁止称为原世界已经发生的经历。
+反事实 hypothesis 是明示合格的形态：hypothesis claim 的 evidence_event_ids 只须支持假设条件（未执行的动作与可见触发情境，含触发时刻的可见数值），可能结果用推测措辞陈述且不得标为 fact；评审不得对假设结果本身索要事件级证据，也不得因 hypothesis claim 未证实假设结果判失败。uncertainty 只保留“假设结果未在观察世界发生、无法验证”的一般性声明，不复述 hypothesis claim 已回答的具体反事实问题；hypothesis claim 已含的假设条件不再写入 uncertainty。假设条件中的数值界限只能使用所列事件中可见的数值或其近似表述，不得自行设定未出现的整数阈值，评审也不得以近似数值判失败。
 仅输出 target 中的 claims、intent_candidates 和 uncertainty。
 input.observation_value_encoding 声明字段字典版本和解码后摘要，input.observation_value_dictionary 始终存在。
 若 observation 的 data 直接字段值是仅含 value_pointer 的对象，按 RFC 6901 从当前 input 单跳取得完整字段值；该完整值属于原事件证据。

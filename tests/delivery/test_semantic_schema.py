@@ -131,6 +131,22 @@ def test_all_process_roles_share_one_identical_verify_contract():
     assert criteria[0] == criteria[1] == criteria[2]
 
 
+def test_dreaming_specific_counterfactual_hypothesis_canon_is_present():
+    dreaming = tomllib.loads((ROOT / 'labelkit-projects/dreaming.toml').read_text())
+    instruction = dreaming['annotate']['instruction']
+    assert '反事实 hypothesis 是明示合格的形态' in instruction
+    assert 'evidence_event_ids 只须支持假设条件' in instruction
+    assert '评审不得对假设结果本身索要事件级证据' in instruction
+    assert '也不得因 hypothesis claim 未证实假设结果判失败' in instruction
+    assert '不复述 hypothesis claim 已回答的具体反事实问题' in instruction
+    assert 'hypothesis claim 已含的假设条件不再写入 uncertainty' in instruction
+    assert '不得自行设定未出现的整数阈值' in instruction
+    assert '评审也不得以近似数值判失败' in instruction
+    for task in ('action', 'intent'):
+        other = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        assert '反事实 hypothesis 是明示合格的形态' not in other['annotate']['instruction']
+
+
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
 def test_process_prompt_requires_thematic_aggregation_before_output(task):
     project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
