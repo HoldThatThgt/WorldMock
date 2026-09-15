@@ -191,11 +191,6 @@ _TOOL_MODELS: dict[str, type[BaseModel]] = {
     "finish": FinishRequest,
 }
 
-_READONLY_TOOL_MODELS: dict[str, type[BaseModel]] = {
-    **_MEMORY_TOOL_MODELS,
-    "finish": ReadonlyFinishRequest,
-}
-
 _MEMORY_RUNTIME_ACTIONS = {
     "memory_recent": "memory_recent",
     "memory_search": "memory_search",
@@ -290,6 +285,8 @@ non-empty answer. No life action, skill, workspace, task-list, environment-query
 exist. Never emit the answer as free text instead of a native finish tool call.
 """.strip()
 
+_REACT_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
 
 class LifeAgent(PersonAgent):
     """@brief 保留 PersonAgent 记忆与 ReAct 循环的生活人物实现。"""
@@ -319,14 +316,9 @@ class LifeAgent(PersonAgent):
 
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
         """@brief 按只读、动作前和动作后阶段生成当前闭集工具 Schema。"""
-        if readonly:
-            models = _READONLY_TOOL_MODELS
-        elif getattr(self, "_life_action_count", 0):
-            models = {**_MEMORY_TOOL_MODELS, "finish": FinishRequest}
-        else:
-            if not hasattr(self, "_life_action_models"):
-                raise RuntimeError("LifeAgent activity controls are not prepared")
-            models = {**self._life_action_models, **_MEMORY_TOOL_MODELS}
+        budget = self._react_budget(readonly)
+        models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
+        self._life_request_models = models
         schemas = [_tool_schema(name, model) for name, model in models.items()]
         if not readonly and not getattr(self, "_life_action_count", 0):
             if not hasattr(self, "_life_visible_targets"):
@@ -340,6 +332,55 @@ class LifeAgent(PersonAgent):
                 getattr(self, "_life_visible_refs", set()),
             )
         return schemas
+
+    def _model_request(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """@brief 把当前实际模型回合预算写入最终请求消息。"""
+        budget = self._react_budget(self._life_readonly)
+        first = dict(messages[0])
+        first["content"] += _REACT_BUDGET_MARKER + json.dumps(
+            budget, ensure_ascii=False, sort_keys=True)
+        return super()._model_request([first, *messages[1:]], tools)
+
+    def _react_budget(self, readonly: bool) -> dict[str, Any]:
+        """@brief 从本决策实际模型调用序号取得当前请求预算。"""
+        phase = "readonly" if readonly else (
+            "after_action" if getattr(self, "_life_action_count", 0) else "before_action")
+        required = 1 if phase in {"readonly", "after_action"} else 2
+        remaining = self._max_react_turns - self._model_call_sequence
+        if remaining < required:
+            message = (
+                f"ReAct phase {phase} requires {required} model turns but only "
+                f"{remaining} remain"
+            )
+            self._logger.error("LifeAgent %s %s", getattr(self, "_id", None), message)
+            raise RuntimeError(message)
+        return {
+            "phase": phase,
+            "max_model_turns": self._max_react_turns,
+            "used_model_turns": self._model_call_sequence,
+            "remaining_model_turns_including_current": remaining,
+            "required_model_turns_including_current": required,
+            "memory_tools_available": remaining > required,
+        }
+
+    def _budgeted_tool_models(
+        self,
+        readonly: bool,
+        memory_tools_available: bool,
+    ) -> dict[str, type[BaseModel]]:
+        """@brief 按阶段与预留边界形成当前请求唯一工具模型。"""
+        memory = _MEMORY_TOOL_MODELS if memory_tools_available else {}
+        if readonly:
+            return {**memory, "finish": ReadonlyFinishRequest}
+        if getattr(self, "_life_action_count", 0):
+            return {**memory, "finish": FinishRequest}
+        if not hasattr(self, "_life_action_models"):
+            raise RuntimeError("LifeAgent activity controls are not prepared")
+        return {**self._life_action_models, **memory}
 
     def build_react_messages(self, request: ReactLoopRequest) -> list[dict[str, Any]]:
         """@brief 构造只描述实际闭集工具的生活人物提示。"""
@@ -368,12 +409,16 @@ class LifeAgent(PersonAgent):
         super().prepare_react_loop(request)
         self._life_action_count = 0
         self._life_readonly = request.readonly
+        self._life_request_models = None
         if request.readonly:
             self._life_visible_refs = set()
             self._life_visible_targets = {}
             self._life_activity_controls = {}
             self._life_action_contracts = {}
             self._life_action_models = {}
+            budget = self._react_budget(True)
+            self._life_request_models = self._budgeted_tool_models(
+                True, budget["memory_tools_available"])
             return
         data = _environment_observation_data(request.observations)
         self._life_visible_refs = _environment_source_ids(data)
@@ -382,6 +427,9 @@ class LifeAgent(PersonAgent):
         self._life_action_contracts = _visible_action_contracts(data)
         self._life_action_models = _available_action_models(
             self._life_visible_targets, self._life_activity_controls, self._life_action_contracts)
+        budget = self._react_budget(False)
+        self._life_request_models = self._budgeted_tool_models(
+            False, budget["memory_tools_available"])
 
     def validate_react_decisions(
         self,
@@ -391,12 +439,9 @@ class LifeAgent(PersonAgent):
         """@brief 在执行任何工具前验证闭集参数和原子动作数量。"""
         if readonly != self._life_readonly:
             raise RuntimeError("LifeAgent readonly decision state is inconsistent")
-        if readonly:
-            models = _READONLY_TOOL_MODELS
-        elif self._life_action_count:
-            models = {**_MEMORY_TOOL_MODELS, "finish": FinishRequest}
-        else:
-            models = {**self._life_action_models, **_MEMORY_TOOL_MODELS}
+        models = self._life_request_models
+        if models is None:
+            raise RuntimeError("LifeAgent request tool schemas are not prepared")
         business = [item for item in decisions if item.action in REQUEST_MODELS]
         if len(business) > 1:
             return "one model response cannot contain multiple life actions"

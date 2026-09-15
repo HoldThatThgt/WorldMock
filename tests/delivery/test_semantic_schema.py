@@ -90,6 +90,14 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
     assert '语义候选只有 target' in project['verify']['extra_criteria']
     assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in project['verify']['extra_criteria']
     assert '不能借用该 claim 未列出的其他 input.events 补全证据' in project['verify']['extra_criteria']
+    criteria = project['verify']['extra_criteria']
+    assert '每轮独立完整审查当前候选' in criteria
+    assert '一次列出发现的全部实质问题' in criteria
+    assert '主题聚合、逐条引用对全部事实/数量/时间/因果的支持' in criteria
+    assert 'kind 分类及 intent/uncertainty 一致性' in criteria
+    assert '身份字段是不透明标识' in criteria
+    assert '当前目录不能证明历史上从未开始' in criteria
+    assert '没有可见阈值时不得把数值分为高低' in criteria
 
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])

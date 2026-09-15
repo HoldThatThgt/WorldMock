@@ -57,6 +57,8 @@ _BASE_ACTION_NAMES = {
     "submit_work",
 }
 
+_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
 
 def _context() -> DecisionContext:
     """构造稳定测试决策上下文。"""
@@ -79,6 +81,12 @@ def _finish_args(ref: str = "observation-current") -> dict:
             }
         ]
     }
+
+
+def _request_budget(request: dict) -> dict:
+    """读取实际模型请求携带的权威回合预算。"""
+    system = request["messages"][0]["content"]
+    return json.loads(system.split(_BUDGET_MARKER, 1)[1])
 
 
 def _observations(*result_ids: str) -> list[dict]:
@@ -175,6 +183,7 @@ def test_finish_accepts_only_current_visible_environment_refs() -> None:
         ReactLoopRequest(0, _context().observed_at, _observations("result-prior"))
     )
     agent._life_action_count = 1
+    agent.build_react_tool_schemas(readonly=False)
 
     visible = ReactDecision("", "finish", _finish_args("result-prior"), "")
     unknown = ReactDecision("", "finish", _finish_args("unseen-event"), "")
@@ -275,6 +284,37 @@ class _ModelResponse:
         }]}}]}
 
 
+class _MultipleModelResponse:
+    """提供同一模型响应中的多个原生工具调用。"""
+
+    def __init__(self, calls: list[tuple[str, str, str]]) -> None:
+        self._calls = calls
+        tool_calls = [
+            SimpleNamespace(
+                id=call_id,
+                type="function",
+                function=SimpleNamespace(name=name, arguments=arguments),
+            )
+            for call_id, name, arguments in calls
+        ]
+        self.choices = [SimpleNamespace(
+            message=SimpleNamespace(tool_calls=tool_calls, content="")
+        )]
+
+    def model_dump(self, *, mode: str) -> dict:
+        """返回含多个工具调用的最小 JSON 模型响应。"""
+        assert mode == "json"
+        tool_calls = [
+            {
+                "id": call_id,
+                "type": "function",
+                "function": {"name": name, "arguments": arguments},
+            }
+            for call_id, name, arguments in self._calls
+        ]
+        return {"choices": [{"message": {"tool_calls": tool_calls}}]}
+
+
 class _Dispatcher:
     """按顺序返回生活动作、动作后记忆读取和结束调用。"""
 
@@ -310,6 +350,9 @@ class _MemoryRuntime:
 
     store = None
 
+    def __init__(self) -> None:
+        self.calls = []
+
     def build_context(self):
         """返回稳定长期记忆提示上下文。"""
         return {"memory_md": "# Memory", "recent_episodes": []}
@@ -318,6 +361,7 @@ class _MemoryRuntime:
         """返回模型可见的实际记忆工具结果。"""
         assert action == "memory_recent"
         assert args == {"limit": 1}
+        self.calls.append((action, args))
         data = {"episodes": [{"id": "m_prior", "text": "I waited yesterday."}]}
         return True, json.dumps(data), data
 
@@ -539,8 +583,8 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     assert third["messages"][-1]["tool_call_id"] == "call-memory"
     assert "decision:action:0001" in second["messages"][-1]["content"]
     assert "m_prior" in third["messages"][-1]["content"]
-    assert second["messages"][:2] == first["messages"]
-    assert third["messages"][:2] == first["messages"]
+    assert second["messages"][1] == first["messages"][1]
+    assert third["messages"][1] == first["messages"][1]
     assert "observation-current" in first["messages"][1]["content"]
     first_names = {item["function"]["name"] for item in first["tools"]}
     second_names = {item["function"]["name"] for item in second["tools"]}
@@ -558,8 +602,13 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     assert targeted["target_id"]["enum"] == [
         "content-visible", "game-visible", "message-visible", "product_catalog", "task-visible",
     ]
-    assert second_names == third_names == _MEMORY_TOOL_NAMES | {"finish"}
+    assert second_names == _MEMORY_TOOL_NAMES | {"finish"}
+    assert third_names == {"finish"}
     assert set(REQUEST_MODELS).isdisjoint(second_names | third_names)
+    assert [_request_budget(item)["remaining_model_turns_including_current"]
+            for item in dispatcher.requests] == [3, 2, 1]
+    assert [_request_budget(item)["phase"] for item in dispatcher.requests] == [
+        "before_action", "after_action", "after_action"]
     finish = next(
         item["function"]["parameters"]
         for item in third["tools"]
@@ -569,6 +618,191 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     assert refs["items"]["enum"] == [
         "m_prior", "observation-current", "result-prior",
     ]
+
+
+@pytest.mark.asyncio
+async def test_budgeted_memory_search_preserves_action_and_finish_turns() -> None:
+    """有限记忆读取后保留一个自主生活动作和一个独立结束回合。"""
+    dispatcher = _GroundedCorrectionDispatcher([
+        _ModelResponse("call-memory-1", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
+        _ModelResponse(
+            "call-action",
+            "start_basic_activity",
+            '{"activity_type":"wait","planned_duration_seconds":60}',
+        ),
+        _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 4
+    agent._memory_runtime = _MemoryRuntime()
+    agent._build_memory_context = _MemoryRuntime().build_context  # type: ignore[method-assign]
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    result = await agent.run_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations())
+    )
+
+    assert "wait" in result
+    assert len(environment.calls) == 1
+    names = [
+        {item["function"]["name"] for item in request["tools"]}
+        for request in dispatcher.requests
+    ]
+    assert names[0] == names[1] == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
+    assert names[2] == _BASE_ACTION_NAMES
+    assert names[3] == {"finish"}
+    assert [_request_budget(item)["remaining_model_turns_including_current"]
+            for item in dispatcher.requests] == [4, 3, 2, 1]
+    assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
+            for item in environment.evidence[::2]] == ["0001", "0002", "0003", "0004"]
+
+
+@pytest.mark.asyncio
+async def test_multiple_memory_calls_share_one_model_turn() -> None:
+    """同一响应的多个记忆调用只消耗一个模型回合。"""
+    dispatcher = _GroundedCorrectionDispatcher([
+        _MultipleModelResponse([
+            ("call-memory-1", "memory_recent", '{"limit":1}'),
+            ("call-memory-2", "memory_recent", '{"limit":1}'),
+        ]),
+        _ModelResponse(
+            "call-action",
+            "start_basic_activity",
+            '{"activity_type":"wait","planned_duration_seconds":60}',
+        ),
+        _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 3
+    memory_runtime = _MemoryRuntime()
+    agent._memory_runtime = memory_runtime
+    agent._build_memory_context = memory_runtime.build_context  # type: ignore[method-assign]
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    result = await agent.run_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations())
+    )
+
+    assert "wait" in result
+    assert len(environment.calls) == 1
+    assert len(memory_runtime.calls) == 2
+    names = [
+        {item["function"]["name"] for item in request["tools"]}
+        for request in dispatcher.requests
+    ]
+    assert names == [
+        _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES,
+        _BASE_ACTION_NAMES,
+        {"finish"},
+    ]
+    assert [_request_budget(item)["remaining_model_turns_including_current"]
+            for item in dispatcher.requests] == [3, 2, 1]
+    assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
+            for item in environment.evidence[::2]] == ["0001", "0002", "0003"]
+
+
+@pytest.mark.asyncio
+async def test_reserved_action_boundary_rejects_memory_without_extra_request() -> None:
+    """只剩动作与结束回合时非法记忆调用零执行并在下次请求前失败。"""
+    dispatcher = _GroundedCorrectionDispatcher([
+        _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 2
+    agent._memory_runtime = _MemoryRuntime()
+    agent._build_memory_context = _MemoryRuntime().build_context  # type: ignore[method-assign]
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+
+    with pytest.raises(RuntimeError, match="requires 2 model turns but only 1 remain"):
+        await agent.run_react_loop(
+            ReactLoopRequest(0, _context().observed_at, _observations())
+        )
+
+    assert len(dispatcher.requests) == 1
+    assert {item["function"]["name"] for item in dispatcher.requests[0]["tools"]} == _BASE_ACTION_NAMES
+    assert environment.calls == []
+    assert agent._memory_runtime.calls == []
+    assert [item.phase for item in environment.evidence] == ["request", "response"]
+    assert "unknown native tool calls: ['memory_recent']" == environment.evidence[-1].error
+
+
+@pytest.mark.asyncio
+async def test_readonly_budget_reserves_finish_and_resets_between_loops() -> None:
+    """只读循环末回合仅开放结束，并在下一次循环重置实际调用序号。"""
+    dispatcher = _GroundedCorrectionDispatcher([
+        _ModelResponse("call-memory-1", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-finish-1", "finish", '{"answer":"first"}'),
+        _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-finish-2", "finish", '{"answer":"second"}'),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 2
+    agent._memory_runtime = _MemoryRuntime()
+    agent._build_memory_context = _MemoryRuntime().build_context  # type: ignore[method-assign]
+    agent.trace_span = lambda *args, **kwargs: nullcontext(  # type: ignore[method-assign]
+        SimpleNamespace(attributes={})
+    )
+    request = ReactLoopRequest(0, _context().observed_at, [], "What happened?", True)
+
+    assert await agent.run_react_loop(request) == "first"
+    assert await agent.run_react_loop(request) == "second"
+
+    names = [
+        {item["function"]["name"] for item in current["tools"]}
+        for current in dispatcher.requests
+    ]
+    assert names == [
+        _MEMORY_TOOL_NAMES | {"finish"}, {"finish"},
+        _MEMORY_TOOL_NAMES | {"finish"}, {"finish"},
+    ]
+    assert [_request_budget(item)["remaining_model_turns_including_current"]
+            for item in dispatcher.requests] == [2, 1, 2, 1]
+    assert [_request_budget(item)["phase"] for item in dispatcher.requests] == ["readonly"] * 4
+    assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
+            for item in environment.evidence[::2]] == ["0001", "0002", "0001", "0002"]
 
 
 def test_life_actions_are_removed_after_one_submission() -> None:
@@ -586,8 +820,8 @@ def test_life_actions_are_removed_after_one_submission() -> None:
 
 
 @pytest.mark.asyncio
-async def test_native_react_rejects_finish_before_life_action() -> None:
-    """最后回合的非法 finish 不执行且按既有预算失败。"""
+async def test_native_react_rejects_impossible_one_turn_life_decision() -> None:
+    """动作前不足动作加结束两个回合时不发送注定失败的请求。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _PrematureFinishDispatcher()
@@ -604,19 +838,14 @@ async def test_native_react_rejects_finish_before_life_action() -> None:
         SimpleNamespace(attributes={})
     )
 
-    with pytest.raises(RuntimeError, match="decision budget exhausted"):
+    with pytest.raises(RuntimeError, match="requires 2 model turns but only 1 remain"):
         await agent.run_react_loop(
             ReactLoopRequest(0, _context().observed_at, _observations())
         )
 
-    names = {
-        item["function"]["name"]
-        for item in dispatcher.requests[0]["tools"]
-    }
-    assert names == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
+    assert dispatcher.requests == []
     assert environment.calls == []
-    assert [item.phase for item in environment.evidence] == ["request", "response"]
-    assert "unknown native tool calls" in environment.evidence[-1].error
+    assert environment.evidence == []
 
 
 @pytest.mark.asyncio
@@ -662,7 +891,7 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert "start_targeted_activity" in third_names
     assert "play_game" not in third_names
     fourth_names = {item["function"]["name"] for item in dispatcher.requests[3]["tools"]}
-    assert fourth_names == _MEMORY_TOOL_NAMES | {"finish"}
+    assert fourth_names == {"finish"}
 
 
 def test_readonly_state_mismatch_is_an_internal_failure() -> None:
@@ -748,9 +977,10 @@ async def test_invalid_finish_is_corrected_with_post_action_tools_only() -> None
 
     assert len(environment.calls) == 1
     assert "unknown memory reference" in environment.evidence[3].error
-    for request in dispatcher.requests[1:]:
-        names = {item["function"]["name"] for item in request["tools"]}
-        assert names == _MEMORY_TOOL_NAMES | {"finish"}
+    second_names = {item["function"]["name"] for item in dispatcher.requests[1]["tools"]}
+    third_names = {item["function"]["name"] for item in dispatcher.requests[2]["tools"]}
+    assert second_names == _MEMORY_TOOL_NAMES | {"finish"}
+    assert third_names == {"finish"}
     feedback = json.loads(dispatcher.requests[2]["messages"][-1]["content"])
     assert "unknown memory reference" in feedback["error"]
 

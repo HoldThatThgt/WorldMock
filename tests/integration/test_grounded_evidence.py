@@ -19,6 +19,14 @@ from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.runtime import runtime_code_sha256
 
+_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
+
+def _request_budget(request: dict[str, Any]) -> dict[str, Any]:
+    """读取已持久化模型请求的权威回合预算。"""
+    content = request["messages"][0]["content"]
+    return json.loads(content.split(_BUDGET_MARKER, 1)[1])
+
 
 class _PersistentResponse:
     """提供可由真实模型证据路径持久化的原生工具响应。"""
@@ -103,6 +111,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
         assert len(requests) == 1
         assert canonical_json(requests[0].data["request"]) == expected
         assert requests[0].data["request"]["tools"] == tools
+        assert _request_budget(requests[0].data["request"])["phase"] == "before_action"
     finally:
         reopened.close()
 
@@ -151,7 +160,12 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         feedback = json.loads(messages[-1]["content"])
         assert feedback["executed"] is False
         assert "unknown native tool calls" in feedback["error"]
-        assert events[0].data["request"]["tools"] == events[2].data["request"]["tools"]
+        first_names = {item["function"]["name"] for item in events[0].data["request"]["tools"]}
+        second_names = {item["function"]["name"] for item in events[2].data["request"]["tools"]}
+        assert "memory_recent" in first_names
+        assert second_names == {"finish"}
+        assert [_request_budget(event.data["request"])["remaining_model_turns_including_current"]
+                for event in (events[0], events[2])] == [2, 1]
     finally:
         reopened.close()
 

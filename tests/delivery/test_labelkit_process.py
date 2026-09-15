@@ -21,7 +21,7 @@ FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
 
 @pytest.mark.parametrize("review_result", [
     "pass", "repaired", "exhausted", "citation_repaired", "missing_citation_repaired",
-    "max_items_repaired", "max_items_exhausted",
+    "max_items_repaired", "max_items_exhausted", "history_repaired", "history_exhausted",
 ])
 def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, monkeypatch, review_result):
     fixture = json.loads(FIXTURE.read_text())
@@ -53,6 +53,26 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         replies = [invalid, fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
         if review_result == 'max_items_exhausted':
             replies = [invalid, invalid, invalid]
+    history_first = copy.deepcopy(fixture['annotation'])
+    history_second = copy.deepcopy(fixture['annotation'])
+    first_history = {'critiques': [
+        {'aspect': 'aggregation', 'opinion': 'first-history-critique-sentinel'},
+    ], 'verdict': 'fail'}
+    second_history = {'critiques': [
+        {'aspect': 'citation', 'opinion': 'second-history-critique-sentinel'},
+    ], 'verdict': 'fail'}
+    if review_result in {'history_repaired', 'history_exhausted'}:
+        history_first['target']['claims'][0]['text'] = 'first-repair-candidate-sentinel'
+        history_second['target']['claims'][0]['text'] = 'second-repair-candidate-sentinel'
+        final_verdict = {'critiques': [], 'verdict': 'pass'}
+        if review_result == 'history_exhausted':
+            final_verdict = {'critiques': [
+                {'aspect': 'kind', 'opinion': 'final-history-critique-sentinel'},
+            ], 'verdict': 'fail'}
+        replies = [
+            fixture['annotation'], first_history, history_first,
+            second_history, history_second, final_verdict,
+        ]
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -78,7 +98,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
     try:
         workspace = _workspace(tmp_path, record, server.server_port)
-        if review_result in {'exhausted', 'max_items_exhausted'}:
+        if review_result in {'exhausted', 'max_items_exhausted', 'history_exhausted'}:
             with pytest.raises(IntegrityError, match='exited with status 1'):
                 run_labelkit('action', workspace, ROOT)
             assert (workspace / 'out/action.jsonl').read_text() == ''
@@ -93,7 +113,8 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         server.server_close()
     call_counts = {'pass': 2, 'repaired': 4, 'exhausted': 6,
                    'citation_repaired': 3, 'missing_citation_repaired': 3,
-                   'max_items_repaired': 3, 'max_items_exhausted': 3}
+                   'max_items_repaired': 3, 'max_items_exhausted': 3,
+                   'history_repaired': 6, 'history_exhausted': 6}
     assert len(calls) == call_counts[review_result]
     target_ids = [record['target']['request']['event_id']]
     target_ids.extend(row['event_id'] for row in record['target']['outcomes'])
@@ -135,6 +156,10 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         assert fixed['target']['claims'][0]['text'] in json.dumps(calls[3], ensure_ascii=False)
         if records:
             assert records[0]['target']['claims'] == fixed['target']['claims']
+    if review_result in {'history_repaired', 'history_exhausted'}:
+        _assert_cumulative_history_requests(calls, fixture['annotation'])
+        if records:
+            assert records[0]['target']['claims'] == history_second['target']['claims']
     if review_result == 'citation_repaired':
         repair = json.dumps(calls[1], ensure_ascii=False)
         assert 'invalid_evidence_event_ids=[\\"forged-event\\"]' in repair
@@ -176,11 +201,40 @@ def _assert_model_wire_contract(profiles, calls):
             assert request['max_tokens'] == 32768
             assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in messages
             assert '不能借用该 claim 未列出的其他 input.events 补全证据' in messages
+            assert '每轮独立完整审查当前候选' in messages
+            assert '一次列出发现的全部实质问题' in messages
+            assert '身份字段是不透明标识' in messages
+            assert '当前目录不能证明历史上从未开始' in messages
+            assert '没有可见阈值时不得把数值分为高低' in messages
             continue
         assert request['thinking'] == {'type': 'disabled'}
         assert request['max_tokens'] == 131072
         assert '摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异' in messages
         assert '不为完整保存原始材料穷举 ID' in messages
+
+
+def _assert_cumulative_history_requests(calls, initial):
+    """确认返工累计历史要求，同时保持当前候选与独立复评边界。"""
+    serialized = [json.dumps(call, ensure_ascii=False) for call in calls]
+    first_critique = 'first-history-critique-sentinel'
+    second_critique = 'second-history-critique-sentinel'
+    initial_text = initial['target']['claims'][0]['text']
+
+    assert serialized[2].count(first_critique) == 1
+    assert second_critique not in serialized[2]
+    assert serialized[4].count(first_critique) == 1
+    assert serialized[4].count(second_critique) == 1
+    assert serialized[2].count(initial_text) == 1
+    assert serialized[4].count('first-repair-candidate-sentinel') == 1
+    assert initial_text not in serialized[4]
+    assert 'second-repair-candidate-sentinel' not in serialized[4]
+    assert serialized[1].count(initial_text) == 1
+    assert serialized[3].count('first-repair-candidate-sentinel') == 1
+    assert serialized[5].count('second-repair-candidate-sentinel') == 1
+    assert all(first_critique not in serialized[index] for index in (1, 3, 5))
+    assert all(second_critique not in serialized[index] for index in (1, 3, 5))
+    assert '逐项重新核验全部审核意见' in serialized[4]
+    assert '不得使旧缺陷复现' in serialized[4]
 
 
 def _workspace(tmp_path, record, port):

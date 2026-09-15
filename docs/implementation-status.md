@@ -8,10 +8,13 @@
 工程尚未完成最终交付：正式十二周、成功的实际多人/恢复/反事实验收、增量 Uncle Bob 和三会话盲评仍待完成，
 不能把短窗口或测试夹具当成这些结果。
 
-当前冻结运行源码为`000811d9c0fe3efc6b1ec397f51cbfb65620f6ac63523ee812fa5a841b4efbc6`，
-当前集成门绑定规范SHA为`97e90c7c4426d46861a04c12d2180f246b2605c2c6b0fc57c6f7e5e42037616c`。
-活动控制、当前库存与进度、公开工作提交和返工反馈已修复；真实工作组件通过，多人一天正在执行。
-LabelKit推理评审、聚合与逐项引用约束已集成，完整真实day交付正在执行；最终根门430项通过，前后快照一致。
+当前冻结源码为`5697d00f26a942222fe3eed6c99ccf49efb7a106396f6ad932d5c1706f05e660`，
+集成门规范SHA为`9984fd77c757b103ad5c6b6679fe2c56a541adcce5954cdc57a1e715477de77a`。
+剩余回合内的记忆工具边界、累计评审意见和LiteLLM回调清理已集成；根门436项、AS2全量417项通过。
+旧源码000811的多人一天在18:19因连续十轮只查记忆失败；此前完整day加工action为68/69，无最终清单。
+该失败记录在当前配置下经一轮修复获得模型pass，但独立核验仍发现日历概括与游戏媒介类型缺少来源支持；
+语义验收仍为未通过，当前正在固定完整输入与候选，对照评审模型的实际识别能力，未修改生产模型配置。
+实际多人、恢复、反事实和新源码突变审查将基于当前干净提交执行，旧运行不补写成功状态。
 下表明确标为历史的记录只证明对应版本，不代表本轮全部交付已通过。
 
 ```mermaid
@@ -27,7 +30,13 @@ flowchart LR
 
 | 范围 | 实际结果 | 证据 |
 | --- | --- | --- |
-| 当前运行集成门禁 | 最终根测试430 passed/29.18秒，源码、规范、测试和配置前后快照一致；公开观察到实际结算专项85 passed，父任务独立5项通过；正式和多人场景各49份语料、11份Schema校验通过 | `.work/verification/configured-native-integration-gate/receipt.json`、`.work/verification/life-grounded-tools/freeze-receipt.json`；完整真实运行和新Bob仍待完成 |
+| 当前集成门 | 根项目436 passed/35.15秒，前后源码、规范、测试和配置字节一致；AS2全量417 passed；正式及多人场景均通过49语料/11Schema校验 | `.work/verification/final-budget-history-lifecycle-gate/receipt.json`、`.work/verification/litellm-callback-lifecycle/implementation-receipt.json` |
+| 当前记忆预算边界 | 动作前预留两回合、动作后及只读预留一回合；临界工具撤下、非法查询零执行、实际请求持久化与循环重置均通过；父任务独立四项通过 | `.work/verification/memory-only-budget-failure/receipt.json`；父任务增加了实际零记忆读取断言 |
+| 当前累计意见边界 | root delivery81项通过；真实localhost两轮成功/耗尽分支均验证累计意见、完整输入和当前候选单份、独立judge无历史判决、未来目标隔离；父任务独立两项通过 | `.work/verification/annotation-critique-history-design/receipt.json` |
+| 当前任务资源清理 | 105轮实际LiteLLM Router创建和关闭，回调不积累、旧实例可回收、无上限警告；正常/异常/取消及三个角色均覆盖；父任务独立两项通过 | `.work/verification/litellm-callback-lifecycle/implementation-receipt.json`；实际Ray长期表现待验证 |
+| 最新多人失败 | 2126事件、419次模型响应、137次动作提交；18:19的最后决策十轮共11次合法记忆查询，无动作或finish；非传输故障 | `.work/verification/runtime-acceptance/public-interfaces/multi-failure-audit.json`；失败原件保留，不能作为恢复与反事实验收父运行 |
+| 最新完整day加工失败 | action扫描69条、68条通过；256次调用全部传输成功，0重试、0结构拒绝；第5条仍有语义错误，intent/dreaming/规则/训练未启动 | `.work/verification/day-reasoned-citations/failure-receipt.json`、`.work/verification/day-reasoned-citations-line5-audit/report.md`；无最终交付清单 |
+| 历史公开接口集成门 | 当时根测试430 passed/29.18秒，源码、规范、测试和配置前后快照一致；公开观察到实际结算专项85 passed，父任务独立5项通过 | `.work/verification/configured-native-integration-gate/receipt.json`、`.work/verification/life-grounded-tools/freeze-receipt.json`；不是当前最终门 |
 | LabelKit评审配置 | judge实际请求为thinking enabled/32768，生成与修复仍disabled/131072；三类聚合与逐项引用规则进入请求，未来目标保持不可见；delivery79项通过，三个项目配置校验通过 | `.work/verification/labelkit-judge-contract-integration.json`；未把单项引用校准的整条fail改判通过，完整语义质量另行验收 |
 | 公共接口修复 | 工具按当前活动及实际目录开放，撤下终态活动和售罄商品；工作只由公开task_id绑定来源，返工反馈进入下一人物请求；历史provider响应原字节保留 | `tests/life/test_grounded_observation.py`、`test_work_review.py`、`tests/integration/test_grounded_targets.py` |
 | 真实公开工作组件 | 2次生成、2次独立评审，22事件；首次评审的一段来源引文不合格，公开反馈后新提交通过；唯一付款人物+60000分、雇主-60000分，实际余额一致 | `.work/verification/public-work-interface/real-check/sqlite-verification-receipt.json`；显式已完成工作夹具，不是自主工作整天 |
