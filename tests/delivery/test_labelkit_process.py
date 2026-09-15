@@ -521,7 +521,11 @@ def test_trace_rejects_model_calls_after_the_final_passing_verdict(tmp_path):
     assert 'trace_sha256' not in source_index
 
 
-def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_path):
+@pytest.mark.parametrize('payload', [
+    pytest.param('{"critiques": [], "verdict": "fail"}', id='object'),
+    pytest.param('[{"aspect": "wording", "opinion": "Clarify evidence scope."}]', id='array'),
+])
+def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_path, payload):
     source = _current_record(tmp_path)
     (tmp_path / 'data').mkdir()
     (tmp_path / 'out').mkdir()
@@ -531,8 +535,7 @@ def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_pa
     config = tomllib.loads((tmp_path / 'config.toml').read_text())
     verdict_index = next(index for index, row in enumerate(rows) if row['ev'] == 'verify.verdict')
     identity = rows[verdict_index]['record_ids'][0]
-    repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'],
-                                 '{"critiques": [], "verdict": "fail"}')
+    repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
     schema_repair = _trace_event('a' * 12, 'schema', 'schema.repair', [identity],
                                  {'resolved_at': 'l3_1', 'violations': [': required']})
     rows[verdict_index:verdict_index] = [repair, schema_repair]
@@ -548,7 +551,7 @@ def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_pa
     ('nonzero_retry', 'unsuccessful model call'),
     ('after_final_verdict', 'schema repair call after its final verdict'),
     ('invalid_payload', 'source input is invalid JSON'),
-    ('non_object_payload', 'source input must be a JSON object'),
+    ('empty_payload', 'source input is invalid JSON'),
 ])
 def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, message):
     source = _current_record(tmp_path)
@@ -561,8 +564,8 @@ def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, mess
     payload = '{"critiques": [], "verdict": "fail"}'
     if mutation == 'invalid_payload':
         payload = 'not-json'
-    elif mutation == 'non_object_payload':
-        payload = '[1, 2]'
+    elif mutation == 'empty_payload':
+        payload = ''
     repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
     if mutation == 'wrong_model':
         repair['payload']['gen_ai.request.model'] = 'other-model'

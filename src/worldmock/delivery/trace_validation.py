@@ -171,7 +171,7 @@ def _validate_repair_call(row: dict, expected_models: dict[str, str]) -> None:
         _raise_integrity("LabelKit trace contains an unsuccessful model call")
     for text in _message_texts(payload["gen_ai.input.messages"]):
         if "[原始输出]" in text:
-            _marked_json_digest(text, "[原始输出]")
+            _marked_json_digest(text, "[原始输出]", require_object=False)
 
 
 def _safe_message_texts(messages: object) -> list[str]:
@@ -270,14 +270,14 @@ def _model_input_digest(payload: dict) -> str:
     return candidates[0]
 
 
-def _marked_json_digest(text: str, marker: str) -> str:
-    """@brief 解析提示标记后的首个完整 JSON 对象并计算 canonical 摘要。"""
+def _marked_json_digest(text: str, marker: str, *, require_object: bool = True) -> str:
+    """@brief 解析提示标记后的首个完整 JSON 值并计算 canonical 摘要，可选要求为对象。"""
     raw = text.split(marker, 1)[1].lstrip()
     try:
         value, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError as error:
         _raise_integrity(f"LabelKit trace source input is invalid JSON: {error}")
-    if not isinstance(value, dict):
+    if require_object and not isinstance(value, dict):
         _raise_integrity("LabelKit trace source input must be a JSON object")
     canonical = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
