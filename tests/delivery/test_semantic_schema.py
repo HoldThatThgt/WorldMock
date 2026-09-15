@@ -94,11 +94,17 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
     assert 'intent=unknown、basis=uncertain 是合法组合' in instruction
     assert '没有历史进度不能由当前目录推出“从未开始”' in instruction
     assert '数值接近零本身不等同于高低或需求等级分类' in instruction
+    assert '位置断言只写在 observation 事件支持的 claim 内' in instruction
+    assert '不从动作结果推断动作的执行地点' in instruction
+    assert '不写跨事件元断言' in instruction
+    assert '不得同时在 claim 与 uncertainty 双重安置' in instruction
     criteria = project['verify']['extra_criteria']
     assert '每轮独立完整审查当前候选' in criteria
     assert '一次列出发现的全部实质问题' in criteria
     assert '主题聚合、逐条引用支持' in criteria
     assert 'fact/inference/hypothesis 分类及 intent/uncertainty 一致性' in criteria
+    assert '意见对应的要求在任务指令中无明示依据' in criteria
+    assert '不得作为 fail 的依据' in criteria
     assert '事实中的每个独立断言都须由该 claim 所列来源直接支持' not in criteria
     assert '身份字段是不透明标识' not in criteria
 
@@ -115,6 +121,16 @@ def test_all_process_roles_share_one_identical_semantic_and_pointer_contract():
     assert instructions[0] == instructions[1] == instructions[2]
 
 
+def test_all_process_roles_share_one_identical_verify_contract():
+    criteria = []
+    for task in ('action', 'intent', 'dreaming'):
+        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        criteria.append(project['verify']['extra_criteria'])
+        assert '意见对应的要求在任务指令中无明示依据' in project['verify']['extra_criteria']
+        assert '该意见不得作为 fail 的依据' in project['verify']['extra_criteria']
+    assert criteria[0] == criteria[1] == criteria[2]
+
+
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
 def test_process_prompt_requires_thematic_aggregation_before_output(task):
     project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
@@ -124,9 +140,14 @@ def test_process_prompt_requires_thematic_aggregation_before_output(task):
     assert '一条 claim 可以引用多个事件' in instruction
     assert '聚合用于消除同一主题的重复，不要求合并不同因果主题' in instruction
     assert '有意义的阶段变化或因果差异应保留' in instruction
+    assert '按主体分组是明示合格的聚合形态' in instruction
+    assert '动作结果、人物终态、可用任务、消息、出行选项、可选内容与娱乐、日历各自成一条 claim' in instruction
+    assert '该形态不因涵盖条目多或信息集中而构成缺陷' in instruction
     assert '三十二条是上限而非目标数量' in instruction
     assert '必须指出共享主体、关系与尚未概括的重复内容' in instruction
     assert '不能只因条目数量或多个条目来自同一 observation 判失败' in instruction
+    assert '必须指明具体哪几条 claim 共享同一主体且内容重复' in instruction
+    assert '不得以“复述目录”一类笼统说法定缺陷' in instruction
     assert '摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异' in instruction
     assert '不逐次建立同文 claim' in instruction
     assert '不为完整保存原始材料穷举 ID' in instruction
