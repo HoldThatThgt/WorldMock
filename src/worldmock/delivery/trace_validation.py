@@ -122,26 +122,73 @@ def _run_event(row: dict) -> bool:
 
 def _validate_processing(rows: list[dict], expected_model_inputs: dict[str, str],
                          expected_models: dict[str, str]) -> None:
-    """@brief 按事件顺序绑定每轮生成、独立评审与终态裁决。"""
+    """@brief 按事件顺序绑定每轮生成、独立评审、终态裁决与非绑定修复调用。"""
     by_digest = {digest: record_id for record_id, digest in expected_model_inputs.items()}
     if not expected_model_inputs or len(by_digest) != len(expected_model_inputs):
         _raise_integrity("LabelKit model inputs are not uniquely traceable")
     profiles = {record_id: set() for record_id in expected_model_inputs}
     rounds = {record_id: 0 for record_id in expected_model_inputs}
     verdicts = {}
-    for row in rows:
+    last_repair_at = -1
+    last_verdict_at = -1
+    for position, row in enumerate(rows):
         if row["ev"] == "llm.call":
-            record_id, profile = _model_call_identity(row, by_digest, expected_models)
-            if verdicts.get(record_id) == "pass":
-                _raise_integrity("LabelKit trace has a model call after a passing verdict")
-            profiles[record_id].add(profile)
+            if _is_output_repair_call(row):
+                _validate_repair_call(row, expected_models)
+                last_repair_at = position
+            else:
+                record_id, profile = _model_call_identity(row, by_digest, expected_models)
+                if verdicts.get(record_id) == "pass":
+                    _raise_integrity("LabelKit trace has a model call after a passing verdict")
+                profiles[record_id].add(profile)
         elif row["ev"] == "verify.verdict":
             record_id, verdict = _accept_verdict(row, rounds, profiles)
             verdicts[record_id] = verdict
+            last_verdict_at = position
     if set(verdicts) != set(expected_model_inputs) or any(value != "pass" for value in verdicts.values()):
         _raise_integrity("LabelKit trace has no final passing verdict for every source record")
     if any(value for value in profiles.values()):
         _raise_integrity("LabelKit trace has unreviewed model calls after its final verdict")
+    if last_repair_at > last_verdict_at:
+        _raise_integrity("LabelKit trace has a schema repair call after its final verdict")
+
+
+def _is_output_repair_call(row: dict) -> bool:
+    """@brief 判断模型调用是否为不含源数据的模型输出 schema 修复请求。"""
+    texts = _safe_message_texts(row["payload"].get("gen_ai.input.messages"))
+    if not texts:
+        return False
+    if any("[待标注数据] " in text or "[原始数据] " in text for text in texts):
+        return False
+    return any("[原始输出]" in text for text in texts)
+
+
+def _validate_repair_call(row: dict, expected_models: dict[str, str]) -> None:
+    """@brief 校验非绑定修复调用的传输证据、模型身份与被修复载荷。"""
+    payload = row["payload"]
+    expected_model = expected_models.get(payload.get("profile"))
+    if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"user"}):
+        _raise_integrity("LabelKit trace contains an unsuccessful model call")
+    for text in _message_texts(payload["gen_ai.input.messages"]):
+        if "[原始输出]" in text:
+            _marked_json_digest(text, "[原始输出]")
+
+
+def _safe_message_texts(messages: object) -> list[str]:
+    """@brief 展开可安全解析的消息文本，遇到无效外形时返回空列表。"""
+    texts: list[str] = []
+    if not isinstance(messages, list):
+        return texts
+    for message in messages:
+        if not isinstance(message, dict):
+            return []
+        content = message.get("content")
+        if isinstance(content, str):
+            texts.append(content)
+        elif isinstance(content, list):
+            texts.extend(part["text"] for part in content
+                         if isinstance(part, dict) and isinstance(part.get("text"), str))
+    return texts
 
 
 def _model_call_identity(row: dict, by_digest: dict[str, str],
@@ -151,14 +198,15 @@ def _model_call_identity(row: dict, by_digest: dict[str, str],
     profile = payload.get("profile")
     digest = _model_input_digest(payload)
     expected_model = expected_models.get(profile)
-    if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model):
+    if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"system", "user"}):
         _raise_integrity("LabelKit trace contains an unsuccessful model call")
     if profile not in {"default", "judge"} or digest not in by_digest:
         _raise_integrity("LabelKit trace model call is not bound to a source record")
     return by_digest[digest], profile
 
 
-def _valid_model_evidence(payload: dict, expected_model: str | None) -> bool:
+def _valid_model_evidence(payload: dict, expected_model: str | None,
+                          required_input_roles: set[str]) -> bool:
     """@brief 判断 full trace 是否保留零重试请求、响应与用量证据。"""
     model = payload.get("gen_ai.request.model")
     latency = payload.get("latency_ms")
@@ -176,7 +224,7 @@ def _valid_model_evidence(payload: dict, expected_model: str | None) -> bool:
     )
     return bool(
         scalars
-        and _valid_messages(input_messages, {"system", "user"})
+        and _valid_messages(input_messages, required_input_roles)
         and _valid_messages(output_messages, {"assistant"})
     )
 

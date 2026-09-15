@@ -510,6 +510,66 @@ def test_trace_rejects_model_calls_after_the_final_passing_verdict(tmp_path):
     assert 'trace_sha256' not in source_index
 
 
+def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_path):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    _ensure_trace_files('action', tmp_path)
+    rows = _successful_trace_rows('action', tmp_path, [source])
+    config = tomllib.loads((tmp_path / 'config.toml').read_text())
+    verdict_index = next(index for index, row in enumerate(rows) if row['ev'] == 'verify.verdict')
+    identity = rows[verdict_index]['record_ids'][0]
+    repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'],
+                                 '{"critiques": [], "verdict": "fail"}')
+    schema_repair = _trace_event('a' * 12, 'schema', 'schema.repair', [identity],
+                                 {'resolved_at': 'l3_1', 'violations': [': required']})
+    rows[verdict_index:verdict_index] = [repair, schema_repair]
+    _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
+
+    digest = _bind_source_trace('action', tmp_path)
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    assert source_index['trace_sha256'] == digest
+
+
+@pytest.mark.parametrize('mutation, message', [
+    ('wrong_model', 'unsuccessful model call'),
+    ('nonzero_retry', 'unsuccessful model call'),
+    ('after_final_verdict', 'schema repair call after its final verdict'),
+    ('invalid_payload', 'source input is invalid JSON'),
+    ('non_object_payload', 'source input must be a JSON object'),
+])
+def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, message):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    _ensure_trace_files('action', tmp_path)
+    rows = _successful_trace_rows('action', tmp_path, [source])
+    config = tomllib.loads((tmp_path / 'config.toml').read_text())
+    payload = '{"critiques": [], "verdict": "fail"}'
+    if mutation == 'invalid_payload':
+        payload = 'not-json'
+    elif mutation == 'non_object_payload':
+        payload = '[1, 2]'
+    repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
+    if mutation == 'wrong_model':
+        repair['payload']['gen_ai.request.model'] = 'other-model'
+    elif mutation == 'nonzero_retry':
+        repair['payload']['retries'] = 1
+    verdict_index = next(index for index, row in enumerate(rows) if row['ev'] == 'verify.verdict')
+    if mutation == 'after_final_verdict':
+        rows[verdict_index + 1:verdict_index + 1] = [repair]
+    else:
+        rows[verdict_index:verdict_index] = [repair]
+    _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
+
+    with pytest.raises(IntegrityError, match=message):
+        _bind_source_trace('action', tmp_path)
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    assert 'trace_sha256' not in source_index
+
+
 def test_process_rejects_consistently_rewritten_model_source_before_cli(tmp_path, monkeypatch):
     source = _current_record(tmp_path)
     (tmp_path / 'data').mkdir()
@@ -604,6 +664,19 @@ def _model_call(run_id, profile, model, text):
                'retries': 0, 'status': 'ok', 'gen_ai.input.messages': messages,
                'gen_ai.output.messages': output}
     return _trace_event(run_id, 'llm', 'llm.call', [], payload)
+
+
+def _schema_repair_call(run_id, profile, model, payload):
+    """构造评审模型修复自身输出的非绑定 schema 修复 LLM trace 事件。"""
+    messages = [
+        {'role': 'user', 'content': [{'type': 'text', 'text': f'[原始输出]\n{payload}'}]},
+    ]
+    output = [{'role': 'assistant', 'content': '{"critiques": [], "verdict": "fail"}'}]
+    body = {'profile': profile, 'gen_ai.request.model': model, 'latency_ms': 1,
+            'gen_ai.usage.input_tokens': 1, 'gen_ai.usage.output_tokens': 1,
+            'retries': 0, 'status': 'ok', 'gen_ai.input.messages': messages,
+            'gen_ai.output.messages': output}
+    return _trace_event(run_id, 'llm', 'llm.call', [], body)
 
 
 def _ensure_trace_files(task, workspace):
