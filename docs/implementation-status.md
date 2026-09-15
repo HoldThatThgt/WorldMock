@@ -54,6 +54,16 @@ completion 25504（reasoning 24790）、耗时 109.5 秒，收据 `.work/verific
 `[llm.default]` 与零传输重试规范不动。修复方向 D（上调 `max_repair_rounds`）搁置：
 生成器对点名修复项三轮均不执行，加轮无效；失败集逐轮漂移表明方差主导。
 
+## 修复预算上调（语义返工轮与 L3 schema 修复）
+
+第六次 intent 失败含两条机制：一条 verify_fail 为两轮语义返工耗尽后仍未通过评审；
+另一条 schema_violation 为 `/target/claims` 33/32 超限，L3 有界 LLM 修复环默认 `max_repair_attempts=2` 耗尽。
+完整日加工已三次因一至两条记录失败，每次失败集与其他次零交集且全部记录都曾在别次通过，属纯方差而非不可满足。
+据此上调两个预算：三份项目 toml 的 `[verify].max_repair_rounds` 2→3（action/intent/dreaming 一致）；
+`max_repair_attempts` 2→4 显式写入三份项目 toml 的 `[output]` 节（vendor 只从 project.toml `[output]` 读取该键）。
+本节以第六次失败的新证据取代上一节"方向 D 搁置"的结论；`docs/agentsociety2-design.md` 的返工轮数同步改为三轮。
+边界：只增加失败记录可用的修复轮数，不放宽 claims 上限、证据引用或任何合同条款。
+
 ## 最近完成的冻结基线
 
 以下证据属于提交 `aafbcf9ce431f29a21a9bec2a19a549b6b474040`，运行源码摘要为

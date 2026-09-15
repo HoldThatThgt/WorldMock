@@ -42,7 +42,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     if review_result == 'repaired':
         replies = [fixture['annotation'], critique, fixed, {'critiques': [], 'verdict': 'pass'}]
     if review_result == 'exhausted':
-        replies = [fixture['annotation'], critique, fixed, critique, fixed, critique]
+        replies = [fixture['annotation'], critique, fixed, critique, fixed, critique, fixed, critique]
     if review_result == 'citation_repaired':
         invalid = copy.deepcopy(fixture['annotation'])
         invalid['target']['claims'][0]['evidence_event_ids'] = ['forged-event']
@@ -60,7 +60,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         invalid['target']['claims'] = [copy.deepcopy(claim) for _ in range(33)]
         replies = [invalid, fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
         if review_result == 'max_items_exhausted':
-            replies = [invalid, invalid, invalid]
+            replies = [invalid, invalid, invalid, invalid, invalid]
     history_first = copy.deepcopy(fixture['annotation'])
     history_second = copy.deepcopy(fixture['annotation'])
     first_history = {'critiques': [
@@ -74,13 +74,24 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         history_second['target']['claims'][0]['text'] = 'second-repair-candidate-sentinel'
         final_verdict = {'critiques': [], 'verdict': 'pass'}
         if review_result == 'history_exhausted':
+            history_third = copy.deepcopy(fixture['annotation'])
+            history_third['target']['claims'][0]['text'] = 'third-repair-candidate-sentinel'
             final_verdict = {'critiques': [
                 {'aspect': 'kind', 'opinion': 'final-history-critique-sentinel'},
             ], 'verdict': 'fail'}
-        replies = [
-            fixture['annotation'], first_history, history_first,
-            second_history, history_second, final_verdict,
-        ]
+            replies = [
+                fixture['annotation'], first_history, history_first,
+                second_history, history_second,
+                {'critiques': [
+                    {'aspect': 'coverage', 'opinion': 'third-history-critique-sentinel'},
+                ], 'verdict': 'fail'},
+                history_third, final_verdict,
+            ]
+        else:
+            replies = [
+                fixture['annotation'], first_history, history_first,
+                second_history, history_second, final_verdict,
+            ]
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -119,10 +130,10 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         server.shutdown()
         thread.join()
         server.server_close()
-    call_counts = {'pass': 2, 'repaired': 4, 'exhausted': 6,
+    call_counts = {'pass': 2, 'repaired': 4, 'exhausted': 8,
                    'citation_repaired': 3, 'missing_citation_repaired': 3,
-                   'max_items_repaired': 3, 'max_items_exhausted': 3,
-                   'history_repaired': 6, 'history_exhausted': 6}
+                   'max_items_repaired': 3, 'max_items_exhausted': 5,
+                   'history_repaired': 6, 'history_exhausted': 8}
     assert len(calls) == call_counts[review_result]
     target_ids = [record['target']['request']['event_id']]
     target_ids.extend(row['event_id'] for row in record['target']['outcomes'])
@@ -156,7 +167,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         'default', 'judge',
     ] * (len(replies) // 2)
     if review_result == 'max_items_exhausted':
-        expected_profiles = ['default', 'default', 'default']
+        expected_profiles = ['default', 'default', 'default', 'default', 'default']
     assert profiles == expected_profiles
     _assert_model_wire_contract(profiles, calls)
     sentinel = record['input']['visible_input_sentinel']

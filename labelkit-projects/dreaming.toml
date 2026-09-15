@@ -62,7 +62,7 @@ intent_candidates 最多 8 个且不得重复；uncertainty 最多 1024 字符�
 enabled = true
 llm = "judge"
 policy = "repair"
-max_repair_rounds = 2
+max_repair_rounds = 3
 extra_criteria = """
 每轮独立完整审查当前候选，一次列出发现的全部实质问题，不能发现一项后推定其他项合格。
 固定清单包括主题聚合、逐条引用支持、fact/inference/hypothesis 分类及 intent/uncertainty 一致性。
@@ -82,5 +82,6 @@ content = "full"
 [output]
 schema_path = "schemas/semantic-target.json"
 validator = "hooks.py:validate_annotation"
+max_repair_attempts = 4
 meta_mode = "inline"
 rejects = "refs"
