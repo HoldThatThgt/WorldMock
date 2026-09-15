@@ -5,7 +5,7 @@
 ## 当前结论
 
 生活、内容、足迹、共同恢复、LabelKit 加工及真实性评估均已有实际实现。
-最终交付尚未完成：本轮修正的统一门与源码突变审查、完整反事实分支、完整自然日加工、
+最终交付尚未完成：完整反事实分支、完整自然日加工、
 正式 DeepSeek 十二周及三次实际隔离盲评仍需通过。短窗口、测试夹具和单条语义通过不能替代这些结果。
 
 ```mermaid
@@ -33,6 +33,17 @@ flowchart LR
 生产容量测量的最大初稿为633215 estimated tokens，最大合法候选及最大实见累计意见的返工为676930，
 均低于生成输入预算768928；评审为675882，低于867232。每次实际调用仍执行完整预算检查。
 这些值不是任意未来意见长度的数学保证，也不证明模型已经正确理解全部单跳引用。
+
+## 本轮冻结基线（35b321e）
+
+提交 `35b321ef8e7ee55458a5378ddead2debe1c190406`，运行源码摘要
+`ddf2c12544393b0071d7cf07e5d369bcfc328f1c8c87d50d78e70a863c213428`。本轮统一门与突变审查已通过。
+
+| 门禁 | 实际结果 | 收据 |
+| --- | --- | --- |
+| 统一根门 | 517 passed；formal 与 multi 场景校验通过；依赖与代码约束全部匹配；前后快照一致 | `.work/verification/energy-review-delivery-gate/receipt.json` |
+| 增量源码突变审查 | 31 项：26 killed、5 survived（全部为纵深防御层缺口）、0 invalid；5 个缺口已补针对性测试并经独立复验 5/5 killed | `.work/verification/bob-target-only/incremental-35b321e-mutations.json` |
+| 缺口修复后回归 | 522 passed（517 + 5 新测试）；修复仅新增测试，生产代码零改动；独立复测确认五条防线均为唯一防线命中 | 同目录复验记录；`tests/delivery/test_evidence_encoding.py`、`tests/delivery/test_labelkit_process.py` |
 
 ## 最近完成的冻结基线
 

@@ -13,6 +13,7 @@ import pytest
 from worldmock.delivery.evidence_encoding import POINTER_RULE, encode_model_record
 from worldmock.delivery.pipeline import (
     _bind_source_trace,
+    _model_source,
     deliver,
     run_labelkit,
     verify_process,
@@ -487,6 +488,60 @@ def test_trace_binding_requires_successful_lifecycle_and_final_verdicts(tmp_path
         _bind_source_trace('action', tmp_path)
     source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
     assert 'trace_sha256' not in source_index
+
+
+def test_trace_rejects_model_calls_after_the_final_passing_verdict(tmp_path):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    _ensure_trace_files('action', tmp_path)
+    rows = _successful_trace_rows('action', tmp_path, [source])
+    verdict = next(row for row in rows if row['ev'] == 'verify.verdict')
+    replayed_calls = [copy.deepcopy(row) for row in rows if row['ev'] == 'llm.call']
+    second_round = _trace_event(verdict['run_id'], 'verify', 'verify.verdict', verdict['record_ids'],
+                                {'round': 2, 'verdict': 'pass'})
+    rows[-1:-1] = [*replayed_calls, second_round]
+    _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
+
+    with pytest.raises(IntegrityError, match='after a passing verdict'):
+        _bind_source_trace('action', tmp_path)
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    assert 'trace_sha256' not in source_index
+
+
+def test_process_rejects_consistently_rewritten_model_source_before_cli(tmp_path, monkeypatch):
+    source = _current_record(tmp_path)
+    (tmp_path / 'data').mkdir()
+    (tmp_path / 'out').mkdir()
+    write_model_inputs('action', [source], tmp_path)
+    rewritten = copy.deepcopy(source)
+    rewritten['input']['boundary_type'] = 'tampered-decision-boundary'
+    rewritten['provenance']['window_id'] = _window_identity(rewritten['task'], rewritten['input'])
+    encoded = encode_model_record(rewritten)
+    index = _model_source('action', 1, encoded)
+    (tmp_path / 'data/action.jsonl').write_bytes(canonical_json(encoded) + b'\n')
+    (tmp_path / 'data/action.source-index.jsonl').write_bytes(canonical_json(index) + b'\n')
+    monkeypatch.setattr('worldmock.delivery.pipeline.subprocess.run',
+                        lambda *_args, **_kwargs: pytest.fail('Rewritten model source invoked LabelKit'))
+
+    with pytest.raises(IntegrityError, match='Decoded model input differs'):
+        run_labelkit('action', tmp_path, ROOT, [source])
+
+
+def test_process_rejects_another_valid_trace_after_source_binding(tmp_path):
+    fixture = json.loads(FIXTURE.read_text())
+    source = _current_record(tmp_path)
+    _prepare_verified_sources(tmp_path, [source])
+    row = _output_row(fixture['annotation'], source)
+    (tmp_path / 'out/action.jsonl').write_text(json.dumps(row) + '\n')
+    rows = _successful_trace_rows('action', tmp_path, [source])
+    for item in rows:
+        item['run_id'] = 'b' * 12
+    _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
+
+    with pytest.raises(IntegrityError, match='source index disagrees with its encoded line or trace'):
+        verify_process('action', tmp_path, [source])
 
 
 def _prepare_verified_sources(workspace, inputs):
