@@ -48,6 +48,15 @@ _MEMORY_TOOL_NAMES = {
     "memory_read",
 }
 
+_BASE_ACTION_NAMES = {
+    "start_basic_activity",
+    "start_targeted_activity",
+    "start_travel",
+    "purchase",
+    "consume",
+    "submit_work",
+}
+
 
 def _context() -> DecisionContext:
     """构造稳定测试决策上下文。"""
@@ -77,17 +86,29 @@ def _observations(*result_ids: str) -> list[dict]:
     data = {
         "observation_event_id": "observation-current",
         "recent_action_results": [{"event_id": item} for item in result_ids],
-        "tasks": [{"task_id": "task-visible"}],
-        "content_catalog": [{"item_id": "content-visible"}],
+        "active_activity": None,
+        "paused_activities": [],
+        "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
+                   "material": {"end_char": 10, "total_chars": 10}}],
+        "content_catalog": [{"item_id": "content-visible", "duration_seconds": 630}],
+        "content_progress": {},
         "game_catalog": [{"game_id": "game-visible"}],
         "messages": [{"message_id": "message-visible"}],
         "browse_targets": ["product_catalog"],
+        "products": [{"product_id": "product-visible", "price_version": "price-v1",
+                      "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
+                      "merchant_location_id": "home", "required_location_id": None}],
+        "locations": [{"location_id": "home"}, {"location_id": "office"}],
+        "location_id": "home",
+        "available_inventory": {"product-visible": 1.0},
+        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216}],
+        "games": {},
     }
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
 
 
 def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
-    """正式动作前 Schema 仅含十个业务和六个记忆工具。"""
+    """正式动作前 Schema 只含本轮可构造业务动作和六个记忆工具。"""
     agent = LifeAgent()
     agent.prepare_react_loop(
         ReactLoopRequest(0, _context().observed_at, _observations())
@@ -95,7 +116,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     schemas = agent.build_react_tool_schemas(readonly=False)
     functions = {item["function"]["name"]: item["function"] for item in schemas}
 
-    assert set(functions) == set(REQUEST_MODELS) | _MEMORY_TOOL_NAMES
+    assert set(functions) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     assert "finish" not in functions
     start_fields = functions["start_basic_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
@@ -107,7 +128,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
 def test_action_schema_requires_prepared_environment_catalogs() -> None:
     """非只读动作工具在首观察目录冻结前必须明确失败。"""
-    with pytest.raises(RuntimeError, match="visible target catalogs are not prepared"):
+    with pytest.raises(RuntimeError, match="activity controls are not prepared"):
         LifeAgent().build_react_tool_schemas(readonly=False)
 
 
@@ -144,7 +165,7 @@ def test_life_agent_rejects_invalid_or_non_atomic_decisions() -> None:
     }, "")
     assert "invalid" in agent.validate_react_decisions([invalid], False)
     finish = ReactDecision("", "finish", _finish_args(), "")
-    assert "submitted life action" in agent.validate_react_decisions([finish], False)
+    assert "unknown LifeAgent tool: finish" == agent.validate_react_decisions([finish], False)
 
 
 def test_finish_accepts_only_current_visible_environment_refs() -> None:
@@ -415,15 +436,7 @@ class _StepEnvironment(_Environment):
     async def observe(self, context: DecisionContext) -> dict:
         """返回带稳定来源事件身份的当前人物观察。"""
         assert context.agent_id == 7
-        return {
-            "observation_event_id": "observation-current",
-            "recent_action_results": [],
-            "tasks": [{"task_id": "task-visible"}],
-            "content_catalog": [{"item_id": "content-visible"}],
-            "game_catalog": [{"game_id": "game-visible"}],
-            "messages": [{"message_id": "message-visible"}],
-            "browse_targets": ["product_catalog"],
-        }
+        return dict(_observations()[0]["data"])
 
     async def scheduling_state(self) -> SchedulingState:
         """返回当前共同决策边界。"""
@@ -532,7 +545,7 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     first_names = {item["function"]["name"] for item in first["tools"]}
     second_names = {item["function"]["name"] for item in second["tools"]}
     third_names = {item["function"]["name"] for item in third["tools"]}
-    assert first_names == set(REQUEST_MODELS) | _MEMORY_TOOL_NAMES
+    assert first_names == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     assert "finish" not in first_names
     targeted = next(
         item["function"]["parameters"]["properties"]
@@ -600,7 +613,7 @@ async def test_native_react_rejects_finish_before_life_action() -> None:
         item["function"]["name"]
         for item in dispatcher.requests[0]["tools"]
     }
-    assert names == set(REQUEST_MODELS) | _MEMORY_TOOL_NAMES
+    assert names == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     assert environment.calls == []
     assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert "unknown native tool calls" in environment.evidence[-1].error

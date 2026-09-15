@@ -68,17 +68,20 @@ from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import LifeScenario, load_scenario
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
 from worldmock.life.work import (
+    load_work_input,
     prepare_work_submission,
     reveal_work_progress,
     settle_work,
     validate_work_duration,
     visible_work_material,
+    work_totals,
 )
 from worldmock.life.work_review import (
     WorkReviewDecision,
     WorkReviewer,
     parse_work_review,
     prepare_work_review,
+    public_work_review,
     review_matches,
 )
 
@@ -487,11 +490,13 @@ class LifeEngine:
     def _observation_data(self, agent) -> dict:
         """@brief 投影当前人物可知内容，不暴露工作 oracle 或未来消息。"""
         active = self.state.activities.get(agent.current_activity_id) if agent.current_activity_id else None
+        paused = [item.model_dump(mode="json") for item in sorted(
+            self.state.activities.values(), key=lambda value: value.activity_id)
+            if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
         tasks = [self._visible_task(item, agent.agent_id) for item in sorted(agent.visible_task_ids)
                  if item not in self.state.paid_task_ids
                  and self.state.current_time <= int(self.rules.tasks[item].due_at.timestamp())]
-        products = [self.rules.products[item].model_dump(mode="json")
-                    for item in sorted(agent.visible_product_ids)]
+        products = [self._visible_product(item) for item in sorted(agent.visible_product_ids)]
         deliveries = [item.model_dump(mode="json") for item in self.state.deliveries.values()
                       if item.agent_id == agent.agent_id and item.status == "pending"]
         return {"world_state_version": self.state.version, "current_time": self.state.current_time,
@@ -499,11 +504,13 @@ class LifeEngine:
                 "balance_fen": self.state.accounts[agent.balance_account_id],
                 "body": body_observation(agent.body, self.scenario.body),
                 "active_activity": active.model_dump(mode="json") if active else None,
+                "paused_activities": paused,
                 "messages": mail_headers(agent, self.rules.messages), "tasks": tasks, "products": products,
                 "calendar_context": _calendar_context(self.scenario, self.state.current_time),
                 "locations": _location_catalog(self.scenario),
                 "routes": _route_catalog(self.scenario, agent.location_id),
                 "content_catalog": _content_catalog(self.scenario),
+                "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
                 "browse_targets": ["product_catalog"],
                 "inventory": agent.inventory,
@@ -529,9 +536,29 @@ class LifeEngine:
         """@brief 返回公开合同、交付 Schema 和仅按实际工作揭示的正文。"""
         task = self.rules.tasks[task_id]
         data = task.model_dump(mode="json", exclude={"oracle_path", "oracle_sha256", "input_path"})
+        worked, effective = work_totals(self.state, agent_id, task_id)
         data["deliverable_schema"] = MeetingMinutes.model_json_schema()
         data["material"] = visible_work_material(self.state, self.corpus_root, task, agent_id)
+        data["worked_seconds"] = worked
+        data["effective_seconds"] = effective
+        data["remaining_contract_seconds"] = max(0, task.maximum_duration_seconds - worked)
         return data
+
+    def _visible_product(self, product_id: str) -> dict:
+        """@brief 返回商品公开合同和权威当前库存，不暴露初始库存。"""
+        data = self.rules.products[product_id].model_dump(mode="json", exclude={"initial_stock"})
+        data["current_stock"] = self.state.merchant_stock[product_id]
+        return data
+
+    def _content_progress(self, agent) -> dict[str, dict]:
+        """@brief 返回人物已观看位置、接触次数和当前媒体剩余时长。"""
+        result = {}
+        for item_id, progress in sorted(agent.content_progress.items()):
+            item = self.rules.content(item_id)
+            data = progress.model_dump(mode="json")
+            data["remaining_media_seconds"] = max(0.0, item.duration_seconds - progress.position_seconds)
+            result[item_id] = data
+        return result
 
     def _validate_context(self, context: "DecisionContext") -> None:
         """@brief 拒绝运行、时刻、人物或世界版本过期的宿主上下文。"""
@@ -605,8 +632,7 @@ class LifeEngine:
             changed, result = self._after_rejection(state, pending, error)
             agent = changed.agents[pending.agent_id]
             activity = changed.activities.get(agent.current_activity_id or "")
-            data = {"error_code": str(error),
-                    "consecutive_rejections": agent.consecutive_rejections}
+            data = {"error_code": str(error), **result.data}
             if activity is not None:
                 data["activity"] = activity.model_dump(mode="json")
             rejected = EventDraft(event_type="action_rejected", occurred_at=state.current_time,
@@ -651,12 +677,27 @@ class LifeEngine:
         changed = _put_agent_and_defer_feedback(state, changed_agent)
         status = ActionStatus.FAILED if failed else ActionStatus.REJECTED
         message = "Agent decision failed after consecutive rejections" if failed else "Action rejected"
+        data = {"consecutive_rejections": count,
+                "maximum_rejections": self.scenario.max_consecutive_rejections}
+        if str(error) == "WORK_REQUIRES_REWORK":
+            data["work_review"] = self._public_work_review(pending)
+            if not failed:
+                message = "Work submission requires rework"
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=status, occurred_at=state.current_time,
                               error_code=str(error), message=message,
-                              data={"consecutive_rejections": count,
-                                    "maximum_rejections": self.scenario.max_consecutive_rejections})
+                              data=data)
         return changed, result
+
+    def _public_work_review(self, pending: PendingAction) -> dict:
+        """@brief 从本次系统评审生成可随动作结果公开的人物反馈。"""
+        if pending.work_review is None:
+            raise ProtocolError("Rejected work submission has no recorded semantic review")
+        request = SubmitWorkRequest.model_validate(pending.request)
+        task = self.rules.task(request.task_id)
+        source = load_work_input(self.corpus_root, task)
+        review = WorkReviewDecision.model_validate(pending.work_review)
+        return public_work_review(review, source)
 
     def _after_unknown(self, state: WorldState, agent_id: int) -> WorldState:
         """@brief 未知游戏结果保留拒绝计数并设置下一秒重试边界。"""
@@ -890,10 +931,10 @@ class LifeEngine:
         if not review_matches(review, prepared):
             raise ProtocolError("Work review identity disagrees with the current submission")
         outcome = settle_work(state, submission, review.accepted)
-        data = {"task_id": request.task_id, "submission_id": request.submission_id,
-                "payment_fen": outcome.payment_fen, "worked_seconds": outcome.worked_seconds,
-                "effective_seconds": outcome.effective_seconds, "oracle_sha256": outcome.oracle_sha256,
-                "work_review": review.model_dump(mode="json"),
+        feedback = public_work_review(review, submission.source)
+        data = {"task_id": request.task_id, "payment_fen": outcome.payment_fen,
+                "worked_seconds": outcome.worked_seconds,
+                "effective_seconds": outcome.effective_seconds, "work_review": feedback,
                 "resource_changes": {
                     f"account:{self.rules.task(request.task_id).employer_account_id}": -outcome.payment_fen,
                     f"account:{state.agents[pending.agent_id].balance_account_id}": outcome.payment_fen}}

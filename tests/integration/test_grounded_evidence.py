@@ -176,8 +176,9 @@ def test_grounded_tool_deduplicates_target_ids_across_catalogs(_engine_factory):
     ctx = context(engine, "cross-catalog-id")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    observation["tasks"] = [{"task_id": "shared-id"}]
-    observation["content_catalog"] = [{"item_id": "shared-id"}]
+    observation["tasks"] = [{"task_id": "shared-id", "remaining_contract_seconds": 3600,
+                             "material": {"end_char": 10, "total_chars": 10}}]
+    observation["content_catalog"] = [{"item_id": "shared-id", "duration_seconds": 630}]
     _, tools = _prepared_tools(observation, ctx.observed_at)
     targeted = next(item for item in tools if item["function"]["name"] == "start_targeted_activity")
     ids = targeted["function"]["parameters"]["properties"]["target_id"]["enum"]

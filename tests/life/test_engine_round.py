@@ -44,10 +44,11 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     """业务拒绝仍进入同轮结果，但不建立活动。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_basic_activity", StartBasicActivityRequest(
-            activity_type="wait", planned_duration_seconds=59))}, "short")
+        engine, {1: ("start_targeted_activity", StartTargetedActivityRequest(
+            activity_type="watch", target_id="missing-content",
+            planned_duration_seconds=60, playback_speed=1))}, "missing-content")
     assert results[0].status == "rejected"
-    assert results[0].error_code == "ACTIVITY_TOO_SHORT"
+    assert results[0].error_code == "CONTENT_NOT_FOUND"
     assert engine.state.activities == {}
     types = [event.event_type for event in engine.store.read_events(engine.store.last_event_seq)]
     assert "action_rejected" in types and "action_result" in types

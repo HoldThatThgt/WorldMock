@@ -33,7 +33,7 @@ input.counterfactual.world_kind=observed 时，input.events 只属于原世界�
 仅输出 target 中的 claims、intent_candidates 和 uncertainty。
 claims 的 kind 必须区分事实 fact、推断 inference、假设 hypothesis。
 事实和推断的每个 evidence_event_ids 值必须逐字取自 input.allowed_evidence_event_ids，禁止引用其他标识。
-简洁说明实际内容、行为与因果；保留来源里的重复接触，不以常识补写遗漏的经历。
+简洁说明实际内容、行为与因果；摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异，不逐次建立同文 claim；完整逐次事件由工程保存；每项只引用直接支持正文所必需的实际事件，不为完整保存原始材料穷举 ID；不以常识补写遗漏的经历。
 先按活动阶段或因果主题合并证据，一条 claim 可以引用多个事件。
 禁止逐事件、逐目录项、逐终态字段或逐条未变化的起止状态复述；输出前合并到最多 32 条 claims。
 input 原事件由工程完整保存；target 是最多 32 条的聚合摘要，不要求逐事实复述。
@@ -50,6 +50,8 @@ extra_criteria = """
 评审只依据 input.events 与 input.prerequisite_state 中、且列于 input.allowed_evidence_event_ids 的证据，
 评价 target.claims、intent_candidates、uncertainty。事实和推断须有实际来源，hypothesis不能当成已经发生。
 语义候选只有 target；task、input、provenance 和未来真实目标均在评审通过后由代码组装，不能假设知道下一动作。
+逐条审查 target.claims。每条 claim 的 evidence_event_ids 所列事件必须独立支持该 claim 正文中的全部事实、数量、时间关系与因果描述；不能借用该 claim 未列出的其他 input.events 补全证据。
+正文能从完整 input 推知但所列引用不足时仍判 fail，并明确要求修正引用或收窄结论。
 仅按 Schema 返回 verdict=pass 或 fail，不能返回 unknown。输出必须是单个 JSON 对象，禁止先输出自然语言意见或 Markdown。
 顶层必需且仅允许 critiques 和 verdict；critiques 为数组，每项必需且仅允许 aspect 和 opinion 两个字符串，
 不能使用 issue。verdict 必须依据证据取 pass 或 fail，不使用 unknown。

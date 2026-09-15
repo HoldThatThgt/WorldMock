@@ -20,7 +20,6 @@ from worldmock.life.models import (
     SubmitWorkRequest,
 )
 from worldmock.life.work import (
-    load_work_oracle,
     prepare_work_submission,
     settle_work,
     validate_work_duration,
@@ -52,12 +51,11 @@ class AcceptingReviewer:
                     "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
 
 
-def _submission(engine, task, identity: str) -> SubmitWorkRequest:
-    """按真实隐藏参考的公开 meeting_id 构造有类型纪要交付。"""
-    oracle = load_work_oracle(engine.corpus_root, task)
-    minutes = MeetingMinutes(meeting_id=oracle["expected"]["meeting_id"], summary="Supported summary.",
-                             decisions=("Supported decision.",), action_items=("Supported action.",))
-    return SubmitWorkRequest(task_id=task.task_id, submission_id=identity, deliverable=minutes)
+def _submission(task) -> SubmitWorkRequest:
+    """只用公开任务身份和公开交付 Schema 构造有类型纪要。"""
+    minutes = MeetingMinutes(summary="Supported summary.", decisions=("Supported decision.",),
+                             action_items=("Supported action.",))
+    return SubmitWorkRequest(task_id=task.task_id, deliverable=minutes)
 
 
 def _completed_work_state(engine, task, worked: int, effective: float, agent_id: int = 1):
@@ -94,7 +92,7 @@ def test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count(
     task = next(item for item in engine.scenario.tasks if item.task_id == task_id)
     state = _completed_work_state(engine, task, worked, task.required_effective_seconds)
     submission = prepare_work_submission(
-        state, engine.scenario, engine.corpus_root, 1, _submission(engine, task, task_id))
+        state, engine.scenario, engine.corpus_root, 1, _submission(task))
     outcome = settle_work(state, submission, True)
     assert submission.metrics.worked_seconds == worked
     assert outcome.payment_fen == expected_payment
@@ -136,7 +134,7 @@ def test_late_duplicate_and_unfunded_work_stop_before_semantic_payment(engine_fa
     """迟交、重复身份和雇主无资金都在付款前拒绝且不改变输入状态。"""
     engine = engine_factory("multi-person.json")
     task = engine.scenario.tasks[0]
-    request = _submission(engine, task, "contract-boundary")
+    request = _submission(task)
     state = _completed_work_state(engine, task, task.maximum_duration_seconds,
                                   task.required_effective_seconds)
     late = state.model_copy(update={"current_time": int(task.due_at.timestamp()) + 1}, deep=True)
@@ -217,7 +215,7 @@ async def test_same_task_competition_pays_only_seeded_first_settlement(engine_fa
     _complete_shared_work(engine, task)
     reviewer = AcceptingReviewer()
     engine._work_reviewer = reviewer
-    requests = {agent_id: ("submit_work", _submission(engine, task, f"submission-{agent_id}"))
+    requests = {agent_id: ("submit_work", _submission(task))
                 for agent_id in engine.state.agents}
     ready = _shared_round(engine, "shared-submit", requests)
     for agent_id in ready:

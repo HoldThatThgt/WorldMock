@@ -88,6 +88,8 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
     assert 'target 是最多 32 条的聚合摘要，不要求逐事实复述' in project['annotate']['instruction']
     assert '不删除或裁剪原始事件' not in project['annotate']['instruction']
     assert '语义候选只有 target' in project['verify']['extra_criteria']
+    assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in project['verify']['extra_criteria']
+    assert '不能借用该 claim 未列出的其他 input.events 补全证据' in project['verify']['extra_criteria']
 
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
@@ -97,6 +99,10 @@ def test_process_prompt_requires_thematic_aggregation_before_output(task):
 
     assert '先按活动阶段或因果主题合并证据' in instruction
     assert '一条 claim 可以引用多个事件' in instruction
+    assert '摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异' in instruction
+    assert '不逐次建立同文 claim' in instruction
+    assert '不为完整保存原始材料穷举 ID' in instruction
+    assert '保留来源里的重复接触' not in instruction
     assert '禁止逐事件、逐目录项、逐终态字段或逐条未变化的起止状态复述' in instruction
     assert '输出前合并到最多 32 条 claims' in instruction
 
@@ -105,5 +111,7 @@ def test_default_output_limit_is_a_cap_for_bounded_semantic_summary():
     config = tomllib.loads((ROOT / 'labelkit-projects/config.toml').read_text())
 
     assert config['llm']['default']['max_output_tokens'] == 131072
-    assert config['llm']['judge']['max_output_tokens'] == 4096
+    assert config['llm']['default']['thinking'] == 'disabled'
+    assert config['llm']['judge']['max_output_tokens'] == 32768
+    assert config['llm']['judge']['thinking'] == 'enabled'
     assert not (ROOT / 'labelkit-projects/schemas/training.json').exists()

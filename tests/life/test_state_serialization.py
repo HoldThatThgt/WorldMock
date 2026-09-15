@@ -56,7 +56,6 @@ def _world_state() -> WorldState:
         merchant_stock={},
         activities={activity.activity_id: activity},
         paid_task_ids={"paid-z", "paid-a"},
-        accepted_submission_ids={"submission-z", "submission-a"},
         random_seed=1,
         random_state="random-state",
     )
@@ -74,7 +73,6 @@ def _set_arrays(payload: dict) -> list[list[str]]:
         agent["visible_product_ids"],
         activity["resource_claims"],
         payload["paid_task_ids"],
-        payload["accepted_submission_ids"],
     ]
 
 
@@ -120,7 +118,7 @@ store.close()
 
 
 def test_json_mode_sorts_every_persisted_string_set() -> None:
-    """全部八个持久集合保留数组形状并按元素排序。"""
+    """全部七个持久集合保留数组形状并按元素排序。"""
     state = _world_state()
     payload = state.model_dump(mode="json")
 

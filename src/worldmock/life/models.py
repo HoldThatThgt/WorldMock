@@ -358,11 +358,10 @@ class WorldState(StrictModel):
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     paid_task_ids: set[str] = Field(default_factory=set)
-    accepted_submission_ids: set[str] = Field(default_factory=set)
     random_seed: int
     random_state: str = Field(min_length=1)
 
-    @field_serializer("paid_task_ids", "accepted_submission_ids", when_used="json")
+    @field_serializer("paid_task_ids", when_used="json")
     def serialize_world_sets(self, value: set[str]) -> list[str]:
         """@brief 按稳定顺序编码世界结算集合。"""
         return sorted(value)
@@ -450,14 +449,14 @@ class StartBasicActivityRequest(FrozenModel):
     """@brief 由模型显式启动等待或睡眠。"""
 
     activity_type: Literal["wait", "sleep"]
-    planned_duration_seconds: int = Field(gt=0, le=86_400)
+    planned_duration_seconds: int = Field(ge=60, le=86_400)
 
 
 class StartTargetedActivityRequest(FrozenModel):
     """@brief 由模型显式启动需要目标的生活活动。"""
 
     activity_type: Literal["work", "watch", "play_game", "read_mail", "browse"]
-    planned_duration_seconds: int = Field(gt=0, le=86_400)
+    planned_duration_seconds: int = Field(ge=60, le=86_400)
     target_id: str = Field(pattern=r"\S")
     playback_speed: float = Field(ge=0.5, le=2)
 
@@ -465,7 +464,7 @@ class StartTargetedActivityRequest(FrozenModel):
 class StartTravelRequest(FrozenModel):
     """@brief 由模型显式启动一次有目的地的出行。"""
 
-    planned_duration_seconds: int = Field(gt=0, le=86_400)
+    planned_duration_seconds: int = Field(ge=60, le=86_400)
     destination_id: str = Field(pattern=r"\S")
     travel_mode: Literal["driving", "walking"]
 
@@ -506,13 +505,12 @@ class ConsumeRequest(FrozenModel):
     product_id: str = Field(pattern=r"\S")
     quantity: float = Field(gt=0, le=100)
     use_mode: Literal["eat", "use"]
-    duration_seconds: int = Field(gt=0, le=14_400)
+    duration_seconds: int = Field(ge=60, le=14_400)
 
 
 class MeetingMinutes(FrozenModel):
     """@brief AMI 会议整理任务公开要求的结构化成果。"""
 
-    meeting_id: str = Field(pattern=r"\S")
     summary: str = Field(pattern=r"\S")
     decisions: tuple[Annotated[str, Field(pattern=r"\S")], ...]
     action_items: tuple[Annotated[str, Field(pattern=r"\S")], ...]
@@ -530,7 +528,6 @@ class SubmitWorkRequest(FrozenModel):
     """@brief 提交符合当前 AMI 合同公开 Schema 的会议纪要。"""
 
     task_id: str = Field(pattern=r"\S")
-    submission_id: str = Field(pattern=r"\S")
     deliverable: Annotated[
         MeetingMinutes,
         WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation")),

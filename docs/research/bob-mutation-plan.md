@@ -7,11 +7,18 @@
 `712877a9dda35fb6b719669d5374cab7300c0e78`，结果为七十七项 killed、M60 survived；正式报告位于
 `.work/verification/bob-prepared/results/712877a9dda35fb6b719669d5374cab7300c0e78/bob-report.md`。
 
-当前生产修订加入 target-only LabelKit 候选、状态集合稳定序列化、M60 测试修复和观察目录约束的目标活动工具。
-根工程增量审查使用独立目录 `.work/verification/bob-target-only/`；`vendor/labelkit` 的结构返工由其独立 Bob
-审查，不混入根执行器。源码身份 `2a6ea066bddc0524a7ab823f4ec6918138ad15b877eb806ffad41b535c17d59d`
-已形成四十项中间静态映射，但真实多人运行随后暴露模型调用未提供的函数，有限 ReAct 纠正合同仍在修订。
-因此当前清单明确暂停，不能作为最终冻结清单或旧报告覆盖当前生产的依据。
+此前生产修订加入 target-only LabelKit 候选、状态集合稳定序列化、M60 测试修复、观察目录约束的目标活动
+工具、有限 ReAct 协议纠正和三类数据的主题聚合提示。源码身份
+`6190baeb5984bc5e759eaa6d688edb29a8779de4a2ce6bf102aa27db52dd8e81` 对应六十一项增量突变。
+根工程增量审查使用独立目录 `.work/verification/bob-target-only/`，并在同一个隔离执行器中对白名单
+`vendor/agentsociety2` 与 `vendor/labelkit` 分别完成源码 diff 和恢复。LabelKit 自身的结构审计保留为历史证据；
+普通 process 的完整 L3 上下文由根工程真实 localhost HTTP 请求行为测试独立复核。
+
+上述六十一项清单已在执行前作废，未执行 baseline 或 mutation，不能作为当前版本的执行清单。
+当前运行源码为 `000811d9c0fe3efc6b1ec397f51cbfb65620f6ac63523ee812fa5a841b4efbc6`，新增完整可见状态工具约束、
+公开工作提交与反馈、LabelKit推理评审和逐项引用合同。干净提交后必须一次性重建最终清单，加入最新增量，
+并重新评估共享测试辅助函数和生产调用链变化对历史突变证据的影响；仅目标函数文本未变不足以复用旧结果。
+执行器必须重新核对提交、两个 gitlink、规范、计划、生产源码、测试节点和隔离导入来源，所有门通过才可开始实际 Bob。
 
 映射收口复核于 2026-09-15。权威规范 SHA-256 在 Bob 静态准备收据中冻结；执行前若规范、计划、
 生产源码或测试继续变化，执行器必须拒绝开始并重新生成清单。无法应用的替换不能记为 survived 或 killed。
@@ -81,6 +88,9 @@ bob_restore() {
     vendor/agentsociety2/*)
       git -C "$BOB_AS2" restore --source=HEAD -- "${1#vendor/agentsociety2/}"
       ;;
+    vendor/labelkit/*)
+      git -C "$BOB_LABELKIT" restore --source=HEAD -- "${1#vendor/labelkit/}"
+      ;;
     *)
       git -C "$BOB_WORKTREE" restore --source="$BOB_HEAD" -- "$1"
       ;;
@@ -91,11 +101,12 @@ bob_restore() {
 }
 ```
 
-当前声明基线覆盖本项目全部生产入口；integration 测试通过隔离 checkout 内的固定 AS2 gitlink 运行。
-基线失败时停止，不执行任何突变。
+当前声明基线分两个进程覆盖根工程全部测试和固定 AS2 gitlink 全套测试。根测试通过隔离 checkout 下的
+LabelKit CLI 执行真实 localhost HTTP 用例。任一基线失败时停止，不执行任何突变。
 
 ```bash
 bob_case tests
+bob_case vendor/agentsociety2/packages/agentsociety2/tests
 ```
 
 每次只应用表中的一个替换或插入，先确认旧文本在目标符号中恰好出现一次，再运行该行命令。结果只允许
@@ -201,18 +212,23 @@ survived；最终恢复基线为根测试 347 passed、AS2 测试 26 passed，cl
 M60 的直接原因是旧 fixture 使用的 `completed` 不在订单因果状态闭集，日期未显式绑定只是独立稳健性缺口。
 报告、摘要、全部尝试和恢复收据继续保存在 `.work/verification/bob-prepared/results/712877a9dda35fb6b719669d5374cab7300c0e78/`。
 
-以源码身份 `2a6ea066…` 复核时，六十二项 killed 对应的生产文件仍与历史准备摘要逐字节相同，可作为未改源码的
-历史证据。M12、M13、M34、M37、M38、M40、M41、M43、M44、M45、M68 与 M78 因目标生产文件变化而重检；
-M20、M21 分别由当前 target-blind `text_field` 与独立 verdict 突变替代。M60 使用修复后的闭集内状态 fixture
-原样复杀。历史 M75 的“提前扩展 provenance”机制已被 target-only 架构删除；当前未来目标泄漏由 fresh
-candidate 顶层闭集和真实 LabelKit `text_field` 请求捕获验证。
+当前源码身份复核把每项历史突变限定到生产符号或配置节，并把每个 pytest 节点连同参数化装饰器单独取摘要。
+其中五十八项 killed 的生产范围与测试节点都和历史执行快照逐字相同，规范中的对应行为合同也未改变，因此复用
+原始 diff、失败断言和恢复收据。M12、M13、M14、M33、M34、M37、M38、M40、M41、M43、M44、M45、
+M61、M64、M68 与 M78 受当前协议、Schema 或测试观察面影响，必须在新提交重跑。逐项旧值、当前值和摘要见
+`.work/verification/bob-target-only/scope-drift-analysis.json`。
+
+M20、M21 分别由当前 target-blind `text_field` 与独立 verdict 突变替代。M60 使用修复后的闭集内
+`requested/delivered` 状态 fixture 原样复杀。历史 M75 的“提前扩展 provenance”机制已被 target-only 架构
+删除；当前未来目标泄漏由 fresh candidate 顶层闭集和真实 LabelKit 请求捕获验证。五十八项复用、十六项重跑、
+两项替代、一项复杀和一项退役恰好核清历史七十八项，不把旧结果整体冒充当前源码审计。
 
 ## 当前根工程增量突变
 
-以下四十项是源码身份 `2a6ea066…` 的中间映射：十项 target-only、三项状态集合排序、十三项受影响的历史边界、
-十二项目标目录约束，以及模型请求写盘和运行代码身份各一项。精确替换和测试节点证据位于
-`.work/verification/bob-target-only/intermediate-root-manifest-2a6ea066.json`。有限 ReAct 纠正合同尚未冻结，
-所以本节不授权 baseline 或 mutation；最终干净提交产生后必须重新绑定源码、规范、测试和计划摘要。
+以下六十一项对应当前源码身份：十项 target-only、三项状态集合排序、十七项历史边界重检、十四项目标目录与
+证据约束、十项有限 ReAct 协议边界、六项主题聚合提示和一项 LabelKit 完整 L3 上下文。精确替换、替换前后
+计数、解析结果和测试节点摘要位于 `.work/verification/bob-target-only/mutations.json` 与
+`preparation-receipt.json`。本节只预声明实验；实际 baseline 和 mutation 必须等父任务给出包含本计划的干净提交。
 
 | 表序号 | 可观察合同 | 当前生产入口与唯一突变 | 精确测试命令 | 杀死条件 |
 | --- | --- | --- | --- | --- |
@@ -229,8 +245,8 @@ candidate 顶层闭集和真实 LabelKit `text_field` 请求捕获验证。
 | STATE-SET-AGENT-UNSORTED | 人物持久字符串集合按元素排序编码 | `src/worldmock/life/models.py::AgentState.serialize_agent_sets`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 排序数组断言或跨哈希种子逐字节身份失败 |
 | STATE-SET-ACTIVITY-UNSORTED | 活动资源集合按元素排序编码 | `src/worldmock/life/models.py::ActivityState.serialize_resource_claims`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 资源数组排序或跨进程身份失败 |
 | STATE-SET-WORLD-UNSORTED | 世界付款与验收集合按元素排序编码 | `src/worldmock/life/models.py::WorldState.serialize_world_sets`：把 `sorted(value)` 改为 `list(value)` | `bob_case tests/life/test_state_serialization.py::test_json_mode_sorts_every_persisted_string_set tests/life/test_state_serialization.py::test_readonly_commit_is_identical_across_python_hash_seeds` | 世界集合排序或跨进程身份失败 |
-| M12-CURRENT | `finish` 记忆只能引用当前决策可见来源 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把未解析引用集合改为空集合 | `bob_case tests/integration/test_life_agent_protocol.py::test_finish_accepts_only_current_visible_environment_refs` | 未见过的事件身份被接受 |
-| M13-CURRENT | 普通决策必须先提交恰好一个生活动作再结束 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把动作数不等于一改成永不成立的负数判断 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_rejects_invalid_or_non_atomic_decisions` | 没有动作的结束调用越过协议门 |
+| M12-CURRENT | `finish` 记忆只能引用当前决策可见来源 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把未解析引用集合改为空集合 | `bob_case tests/integration/test_life_agent_protocol.py::test_finish_accepts_only_current_visible_environment_refs tests/integration/test_life_agent_protocol.py::test_invalid_finish_is_corrected_with_post_action_tools_only` | 未见过的事件身份被接受，真实纠正路径提前结束而不记录错误反馈 |
+| M13-CURRENT | 普通决策必须先提交恰好一个生活动作再结束 | `custom/agents/life_agent.py::LifeAgent._validate_finish`：把动作数不等于一改成永不成立的负数判断 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_rejects_invalid_or_non_atomic_decisions tests/integration/test_life_agent_protocol.py::test_native_react_rejects_finish_before_life_action` | 没有动作的结束调用越过协议门，首轮非法 `finish` 不再纠正 |
 | M34-CURRENT | 每个当轮可用函数必须声明 `strict=true` | `custom/agents/life_agent.py::_tool_schema`：把 strict 改为 false | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 当前工具逐项 strict 断言失败 |
 | M37-CURRENT | 嵌套工作交付 Schema 必须内联 | `src/worldmock/life/models.py::SubmitWorkRequest`：移除 `WithJsonSchema` 内联声明 | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums tests/integration/test_activity_schema.py::test_nested_life_schemas_are_inlined_from_runtime_models` | 生成 Schema 出现引用或不再与运行模型一致 |
 | M38-CURRENT | `finish` 的记忆条目 Schema 必须内联 | `custom/agents/life_agent.py::FinishRequest`：移除记忆数组的内联 `WithJsonSchema` | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums tests/integration/test_activity_schema.py::test_nested_life_schemas_are_inlined_from_runtime_models` | `finish` Schema 重新出现引用或偏离运行模型 |
@@ -239,7 +255,7 @@ candidate 顶层闭集和真实 LabelKit `text_field` 请求捕获验证。
 | M43-CURRENT | 生活工具对象必须拒绝未知字段 | `src/worldmock/life/models.py::FrozenModel`：把 `extra="forbid"` 改为 `extra="ignore"` | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 工具对象不再封闭 |
 | M44-CURRENT | 生活工具字段必须显式必填 | `src/worldmock/life/models.py::StartBasicActivityRequest`：给计划时长增加默认值 | `bob_case tests/integration/test_activity_schema.py::test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums` | 计划时长不再必填并出现默认值 |
 | M45-CURRENT | 严格 Schema 必须保留最大活动时长 | `src/worldmock/life/models.py::deepseek_strict_schema`：删除 `planned_duration_seconds.maximum` | `bob_case tests/integration/test_activity_schema.py::test_duration_maximum_is_preserved_in_schema_and_runtime_validation` | 86401 秒不再被 Schema 拒绝 |
-| M68-CURRENT | 动作前不开放 `finish`，动作后只开放记忆与 `finish` | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：动作前恢复包含 `finish` 的全表 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action tests/integration/test_life_agent_protocol.py::test_native_react_rejects_finish_before_life_action` | 首请求重新暴露 `finish` |
+| M68-CURRENT | 动作前不开放 `finish`，动作后只开放记忆与 `finish` | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：动作前恢复包含 `finish` 的全表 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action tests/integration/test_life_agent_protocol.py::test_native_react_rejects_finish_before_life_action tests/integration/test_life_agent_protocol.py::test_grounded_unknown_game_tool_is_corrected_without_alias` | 首请求重新暴露 `finish`，纠错后工具阶段不再保持闭集 |
 | M60-REKILL | 因果连续性必须由双方都有闭集内真实状态链 | `src/worldmock/evaluation/review.py::_judgeability`：把右侧状态链条件从 `and` 改为 `or` | `bob_case tests/evaluation/test_review.py::test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_objects` | 修复后的 `requested/delivered` 单侧状态集被错误判为可比较 |
 | M78-CURRENT | 引用闭集必须从可见输入重建 | `src/worldmock/delivery/semantics.py::_visible_evidence_ids`：直接返回自报 allowlist | `bob_case tests/delivery/test_training.py::test_validator_accepts_hydrated_prior_result_and_rejects_allowed_list_tampering` | 篡改 allowlist 不再产生错误 |
 | G-PREPARED | 非只读动作工具必须先冻结首观察目录 | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：未准备目录时跳过绑定而不报错 | `bob_case tests/integration/test_life_agent_protocol.py::test_action_schema_requires_prepared_environment_catalogs` | 未绑定的基础目标工具被暴露 |
@@ -256,6 +272,27 @@ candidate 顶层闭集和真实 LabelKit `text_field` 请求捕获验证。
 | G-READONLY | 只读查询不要求生活目录且不开放生活动作 | `custom/agents/life_agent.py::LifeAgent.prepare_react_loop`：禁用只读提前返回 | `bob_case tests/integration/test_grounded_targets.py::test_readonly_needs_no_environment_catalog_and_opens_no_life_action` | 空观察只读请求被生活目录解析拒绝 |
 | G-MODEL-REQUEST | 落库的 `model_request` 保存实际发送的完整动态工具 | `src/worldmock/life/engine.py::LifeEngine.record_model_exchange`：把 request 写成空对象 | `bob_case tests/integration/test_grounded_evidence.py::test_model_request_persists_exact_grounded_tools` | 重开数据库后请求与 dispatcher wire 不一致 |
 | G-CODE-IDENTITY | `code_sha256` 包含目标枚举绑定算法 | `src/worldmock/runtime.py::runtime_code_sha256`：从代码目录中删除 `custom` | `bob_case tests/integration/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content` | 修改 LifeAgent 内容不再改变运行身份 |
+| M14-CURRENT | `finish` 在一个响应中保持独占，混合批次整体纠正且零执行 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._build_react_decisions`：禁用混合调用保护 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_finish_mixed_with_action_is_rejected_atomically vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_mixed_batch_is_rejected_without_partial_execution` | 混合批次被当成合法结束，无法进入纠正回合 |
+| M33-CURRENT | 每个模型请求都强制返回原生工具调用 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._model_request`：把 `tool_choice` 从 `required` 改为 `auto` | `bob_case tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action` | 实际 dispatcher 请求不再强制工具调用 |
+| M61-CURRENT | 长期因果只接受具有持续结果语义的对象 | `src/worldmock/evaluation/review.py::_has_state_chain`：允许路线等重复观察充当长期对象 | `bob_case tests/evaluation/test_review.py::test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_objects` | 跨日重复路线被误判为长期结果链 |
+| M64-CURRENT | 持续对象必须有两个以上不同真实状态才形成状态链 | `src/worldmock/evaluation/review.py::_has_state_chain`：把状态数量条件从大于一放宽为大于零 | `bob_case tests/evaluation/test_review.py::test_judgeability_requires_two_sided_state_changes_and_persistent_long_term_objects` | 跨日重复同状态被误判为因果变化 |
+| REACT-FEEDBACK-EVIDENCE | 协议无效的原始响应先留证，再进入下一回合 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：只在无错误时保存响应 | `bob_case tests/integration/test_grounded_evidence.py::test_protocol_feedback_is_persisted_in_next_model_request` | SQLite 缺少错误响应，事件顺序断言失败 |
+| REACT-FEEDBACK-WIRE | 协议错误通过下一次真实请求中的明确反馈交回模型 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：删除协议反馈装配 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_unknown_tool_gets_bounded_feedback_and_self_correction tests/integration/test_grounded_evidence.py::test_protocol_feedback_is_persisted_in_next_model_request` | 第二次 wire 缺少 assistant/tool 或宿主 user 错误反馈 |
+| REACT-FEEDBACK-NO-EXECUTION | 任何协议错误批次都返回零个可执行调用 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：错误分支返回已经解析的调用 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_unknown_tool_gets_bounded_feedback_and_self_correction vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_mixed_batch_is_rejected_without_partial_execution` | 未知调用产生副作用或错误结束 |
+| REACT-FEEDBACK-BUDGET | 协议错误消耗既有全局 ReAct 回合，耗尽后不再请求 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin.run_react_loop`：把上界增加一个回合 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_protocol_errors_consume_exact_global_turn_budget` | 两回合预算发出第三次请求 |
+| REACT-FATAL-TRANSPORT | 提供商传输失败立即传播 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：把 `TimeoutError` 转成协议反馈 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_transport_failure_is_fatal_without_protocol_feedback` | 超时被吞掉并尝试下一回合 |
+| REACT-FATAL-CANCELLATION | 任务取消立即传播 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：把取消转成协议反馈 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_cancellation_is_fatal_without_protocol_feedback` | 取消被吞掉并尝试下一回合 |
+| REACT-FATAL-EVIDENCE | 响应证据写盘失败立即传播 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._call_react_llm`：把证据 `OSError` 转成协议反馈 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_response_evidence_failure_is_fatal_without_new_model_call` | 写盘失败被吞掉并生成新请求 |
+| REACT-FATAL-ENVIRONMENT | 已验证工具的环境执行故障立即传播 | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._run_react_turn`：把执行 `OSError` 包装成普通工具结果 | `bob_case vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_tool_execution_failure_is_fatal_without_new_model_call` | 环境故障进入模型可见结果并继续请求 |
+| REACT-FEEDBACK-PAIRABILITY | 结构不完整的原生工具调用不进入下一次 Chat wire | `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py::AgentRuntimeMixin._feedback_tool_calls`：禁用工具类型检查 | `bob_case 'vendor/agentsociety2/packages/agentsociety2/tests/test_agent_react_validation.py::test_unpairable_tool_calls_use_host_user_feedback[type]'` | 非 function 调用进入 assistant `tool_calls` |
+| REACT-FATAL-READONLY-STATE | 宿主只读状态不一致属于内部故障 | `custom/agents/life_agent.py::LifeAgent.validate_react_decisions`：把异常改成模型协议错误字符串 | `bob_case tests/integration/test_life_agent_protocol.py::test_readonly_state_mismatch_is_an_internal_failure` | 内部不一致不再抛出 `RuntimeError` |
+| THEMATIC-ACTION | 动作摘要先按活动阶段或因果主题聚合，并允许一条 claim 引用多个事件 | `labelkit-projects/action.toml::annotate`：改成按事件逐条复述 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[action]'` | 动作提示缺失主题聚合约束 |
+| NO-ENUM-ACTION | 动作摘要禁止逐事件、目录项、终态字段和未变化边界复述 | `labelkit-projects/action.toml::annotate`：反转为允许逐条枚举 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[action]'` | 动作提示允许枚举式摘要 |
+| THEMATIC-INTENT | 意图摘要先按活动阶段或因果主题聚合，并允许一条 claim 引用多个事件 | `labelkit-projects/intent.toml::annotate`：改成按事件逐条复述 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[intent]'` | 意图提示缺失主题聚合约束 |
+| NO-ENUM-INTENT | 意图摘要禁止逐事件、目录项、终态字段和未变化边界复述 | `labelkit-projects/intent.toml::annotate`：反转为允许逐条枚举 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[intent]'` | 意图提示允许枚举式摘要 |
+| THEMATIC-DREAMING | dreaming 摘要先按活动阶段或因果主题聚合，并允许一条 claim 引用多个事件 | `labelkit-projects/dreaming.toml::annotate`：改成按事件逐条复述 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[dreaming]'` | dreaming 提示缺失主题聚合约束 |
+| NO-ENUM-DREAMING | dreaming 摘要禁止逐事件、目录项、终态字段和未变化边界复述 | `labelkit-projects/dreaming.toml::annotate`：反转为允许逐条枚举 | `bob_case 'tests/delivery/test_semantic_schema.py::test_process_prompt_requires_thematic_aggregation_before_output[dreaming]'` | dreaming 提示允许枚举式摘要 |
+| LABELKIT-COMPLETE-EVIDENCE-OFF | 普通 process 的 L3 修复保留原始完整证据上下文且只出现一次 | `vendor/labelkit/labelkit/operators/annotate.py::_complete_annotation`：只给 session attempt 开启 `complete_evidence` | `bob_case 'tests/delivery/test_labelkit_process.py::test_real_labelkit_annotate_and_verify_requests_are_target_blind[max_items_repaired]' 'tests/delivery/test_labelkit_process.py::test_real_labelkit_annotate_and_verify_requests_are_target_blind[max_items_exhausted]'` | 真实 localhost L3 请求丢失冻结 system 与原始 input 上下文；独立 vendor flag 测试不作为行为杀死证据 |
 
 当前请求捕获测试还验证生成和独立评审各读取一次完整 `input`。旧 postprocessor 与完整输出 Schema 已删除；
 用一次单文件文本替换无法诚实重现旧跨文件重复机制，因此本轮保留这一非突变回归，不制造无对应生产路径的 mutant。

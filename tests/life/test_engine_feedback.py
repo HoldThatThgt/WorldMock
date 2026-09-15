@@ -118,9 +118,11 @@ def test_rejection_waits_one_second_and_next_observation_reports_once(engine_fac
     engine = engine_factory()
     now = engine.state.current_time
     _, rejected = _observed_action(
-        engine, "too-short", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=59))
-    assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_TOO_SHORT"
+        engine, "missing-content", "start_targeted_activity",
+        StartTargetedActivityRequest(
+            activity_type="watch", target_id="missing-content",
+            planned_duration_seconds=60, playback_speed=1))
+    assert rejected.status == "rejected" and rejected.error_code == "CONTENT_NOT_FOUND"
     assert engine.state.agents[1].next_decision_at == now + 1
     assert engine.scheduling_state().ready_agent_ids == ()
     advance_next(engine)
@@ -130,7 +132,7 @@ def test_rejection_waits_one_second_and_next_observation_reports_once(engine_fac
     first = engine.observe(ctx)
     assert first["observation_event_id"]
     assert [(item["action_id"], item["error_code"]) for item in first["recent_action_results"]] == [
-        ("action-too-short", "ACTIVITY_TOO_SHORT")]
+        ("action-missing-content", "CONTENT_NOT_FOUND")]
     assert engine.observe(ctx)["recent_action_results"] == []
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "recovered", "start_basic_activity", request))
@@ -144,8 +146,10 @@ def test_tenth_consecutive_rejection_fails_agent_and_run(engine_factory) -> None
     result = None
     for index in range(10):
         _, result = _observed_action(
-            engine, f"reject-{index}", "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=59))
+            engine, f"reject-{index}", "start_targeted_activity",
+            StartTargetedActivityRequest(
+                activity_type="watch", target_id="missing-content",
+                planned_duration_seconds=60, playback_speed=1))
         if index < 9:
             assert result.status == "rejected"
             advance_next(engine)

@@ -34,17 +34,30 @@ from worldmock.life.work_review import WorkReviewResponse
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
 
 
-def _prepared_agent() -> LifeAgent:
+def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
     """按生产顺序用真实五类目录准备一次人物决策。"""
     data = {
         "observation_event_id": "observation-current",
         "recent_action_results": [],
-        "tasks": [{"task_id": "task"}],
-        "content_catalog": [{"item_id": "content"}],
+        "active_activity": None,
+        "paused_activities": [],
+        "tasks": [{"task_id": "task", "remaining_contract_seconds": 3600,
+                   "material": {"end_char": 10, "total_chars": 10}}],
+        "content_catalog": [{"item_id": "content", "duration_seconds": 630}],
+        "content_progress": {},
         "game_catalog": [{"game_id": "game"}],
         "messages": [{"message_id": "message"}],
         "browse_targets": ["product_catalog"],
+        "products": [{"product_id": "product", "price_version": "price-v1", "current_stock": 2,
+                      "use_modes": ["eat"], "use_duration_seconds": 300,
+                      "merchant_location_id": "home", "required_location_id": None}],
+        "locations": [{"location_id": "home"}, {"location_id": "office"}],
+        "location_id": "home",
+        "available_inventory": {"product": 1.0},
+        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216}],
+        "games": {},
     }
+    _set_activity_boundary(data, tool_name)
     observations = [{"turn": 0, "action": "observe", "ok": True, "data": data}]
     agent = LifeAgent()
     request = ReactLoopRequest(0, datetime(2026, 1, 5, tzinfo=timezone.utc), observations)
@@ -54,11 +67,27 @@ def _prepared_agent() -> LifeAgent:
 
 def _function(tool_name: str) -> dict[str, Any]:
     """返回模型实际收到的一个 LifeAgent 函数声明。"""
-    agent = _prepared_agent()
+    agent = _prepared_agent(tool_name)
     if tool_name == "finish":
         agent._life_action_count = 1
     schemas = agent.build_react_tool_schemas(readonly=False)
     return next(item["function"] for item in schemas if item["function"]["name"] == tool_name)
+
+
+def _set_activity_boundary(data: dict, tool_name: str | None) -> None:
+    """为活动控制工具提供与生产观察一致的当前边界。"""
+    kinds = {"set_activity_state": "wait", "continue_activity": "wait",
+             "change_playback_speed": "watch", "game_action": "play_game"}
+    if tool_name not in kinds:
+        return
+    activity = {"activity_id": "activity", "status": "active", "kind": kinds[tool_name], "data": {}}
+    if tool_name == "game_action":
+        activity["data"] = {"game_session_id": "game"}
+        data["games"] = {"game": {
+            "session_id": "game", "admissible_commands": ["look", "x" * 201],
+            "won": False, "lost": False,
+        }}
+    data["active_activity"] = activity
 
 
 def _assert_closed_objects(value: Any) -> None:
@@ -94,7 +123,10 @@ def _assert_action_case(tool_name: str, payload: dict, accepted: bool) -> None:
 def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums() -> None:
     """正式工具保持 strict，目标活动仅增加本轮目录闭集。"""
     agent = _prepared_agent()
-    schemas = agent.build_react_tool_schemas(readonly=False)
+    schemas = [
+        {"function": _function(name)}
+        for name in REQUEST_MODELS
+    ]
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
     functions = {item["function"]["name"]: item["function"] for item in schemas}
@@ -116,22 +148,39 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
                 "content", "game", "message", "product_catalog", "task",
             ]
             continue
-        assert parameters == model.model_json_schema(mode="validation")
+        base = model.model_json_schema(mode="validation")
+        assert set(parameters["properties"]) == set(base["properties"])
+        assert parameters["required"] == base["required"]
+        if name == "start_basic_activity":
+            assert parameters == base
 
 
-def test_duration_maximum_is_preserved_in_schema_and_runtime_validation() -> None:
-    """计划时长最大值由原始 Schema 与本地模型分别接受和拒绝。"""
+def test_duration_bounds_are_preserved_in_schema_and_runtime_validation() -> None:
+    """计划时长上下界由原始 Schema 与本地模型分别接受和拒绝。"""
     model = REQUEST_MODELS["start_basic_activity"]
     schema = _function("start_basic_activity")["parameters"]
     valid = {"activity_type": "wait", "planned_duration_seconds": 86_400}
-    invalid = {"activity_type": "wait", "planned_duration_seconds": 86_401}
+    too_long = {"activity_type": "wait", "planned_duration_seconds": 86_401}
+    too_short = {"activity_type": "wait", "planned_duration_seconds": 59}
 
     assert schema == model.model_json_schema(mode="validation")
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     model.model_validate_json(json.dumps(valid), strict=True)
-    assert list(Draft202012Validator(schema).iter_errors(invalid))
+    for invalid in (too_short, too_long):
+        assert list(Draft202012Validator(schema).iter_errors(invalid))
+        with pytest.raises(ValidationError):
+            model.model_validate_json(json.dumps(invalid), strict=True)
+
+    consume = REQUEST_MODELS["consume"]
+    invalid_consume = {
+        "product_id": "product",
+        "quantity": 1,
+        "use_mode": "eat",
+        "duration_seconds": 59,
+    }
+    assert list(Draft202012Validator(consume.model_json_schema()).iter_errors(invalid_consume))
     with pytest.raises(ValidationError):
-        model.model_validate_json(json.dumps(invalid), strict=True)
+        consume.model_validate_json(json.dumps(invalid_consume), strict=True)
 
 
 def test_old_conditional_tool_names_are_absent() -> None:
@@ -211,21 +260,21 @@ def test_split_activity_schema_matches_runtime_model(
 @pytest.mark.parametrize(
     ("deliverable", "accepted"),
     [
-        ({"meeting_id": "m1", "summary": "Summary", "decisions": [], "action_items": []}, True),
-        ({"meeting_id": "m1", "summary": " ", "decisions": [], "action_items": []}, False),
+        ({"summary": "Summary", "decisions": [], "action_items": []}, True),
+        ({"summary": " ", "decisions": [], "action_items": []}, False),
         ({
-            "meeting_id": "m1", "summary": "Summary",
+            "summary": "Summary",
             "decisions": [" "], "action_items": [],
         }, False),
         ({
-            "meeting_id": "m1", "summary": "Summary",
+            "summary": "Summary",
             "decisions": [], "action_items": [" "],
         }, False),
     ],
 )
 def test_submit_work_schema_rejects_blank_minutes(deliverable: dict, accepted: bool) -> None:
     """工作成果的嵌套文本约束在服务 Schema 与本地验证中一致。"""
-    payload = {"task_id": "task", "submission_id": "submission", "deliverable": deliverable}
+    payload = {"task_id": "task", "deliverable": deliverable}
     _assert_action_case("submit_work", payload, accepted)
 
 

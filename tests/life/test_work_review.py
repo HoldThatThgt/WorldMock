@@ -9,7 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 import agentsociety2.config as agentsociety_config
+from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
+from custom.agents.life_agent import LifeAgent
 
 from tests.life.conftest import advance_next, context, submit_round
 from worldmock.errors import ProtocolError
@@ -104,10 +106,9 @@ def _complete_required_work(engine) -> None:
         submit_round(engine, {1: ("continue_activity", request)}, f"work-feedback-{feedback_index}")
 
 
-def _paraphrased_submission() -> SubmitWorkRequest:
+def _paraphrased_submission(task_id: str = "task-2026-01-05") -> SubmitWorkRequest:
     """形成不逐字复制官方参考的语义正确纪要。"""
     minutes = MeetingMinutes(
-        meeting_id="ES2002a",
         summary="The team launched a remote-control project and discussed price, cost, and possible features.",
         decisions=("The retail price is 25 euros.", "The product is intended for international sale.",
                    "Manufacturing must stay at or below 12.50 euros."),
@@ -115,16 +116,31 @@ def _paraphrased_submission() -> SubmitWorkRequest:
                       "The interface designer owns technical functions.",
                       "Marketing will define the product requirements."),
     )
-    return SubmitWorkRequest(task_id="task-2026-01-05", submission_id="submission-one",
-                             deliverable=minutes)
+    return SubmitWorkRequest(task_id=task_id, deliverable=minutes)
 
 
-async def _submit_with_review(engine, reviewer: StaticReviewer, round_id: str):
+def _fixture_minutes(case: dict) -> MeetingMinutes:
+    """从历史原始收据仅投影当前公开纪要字段。"""
+    historical = case["deliverable"]
+    return MeetingMinutes(
+        summary=historical["summary"],
+        decisions=tuple(historical["decisions"]),
+        action_items=tuple(historical["action_items"]),
+    )
+
+
+async def _submit_with_review(
+    engine,
+    reviewer: StaticReviewer,
+    round_id: str,
+    request: SubmitWorkRequest | None = None,
+):
     """走完整提交、模型验收准备和原子结算路径。"""
     engine._work_reviewer = reviewer
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _paraphrased_submission())
+    work = request or _paraphrased_submission()
+    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", work)
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
     return engine.commit_decision_round(round_id)[0]
@@ -138,14 +154,18 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     before = engine.observe(context(engine, "before-work"))["tasks"][0]
     assert before["material"]["text"] == ""
     assert set(before["deliverable_schema"]["properties"]) == {
-        "meeting_id", "summary", "decisions", "action_items"}
+        "summary", "decisions", "action_items"}
     _complete_required_work(engine)
     after = engine.observe(context(engine, "after-work"))["tasks"][0]
     assert after["material"]["end_char"] == after["material"]["total_chars"]
+    request = _paraphrased_submission(after["task_id"])
+    assert set(request.model_dump(mode="json")) == {"task_id", "deliverable"}
     balance = engine.state.accounts[engine.state.agents[1].balance_account_id]
     reviewer = StaticReviewer()
-    result = await _submit_with_review(engine, reviewer, "accepted-work")
+    result = await _submit_with_review(engine, reviewer, "accepted-work", request)
     assert result.status == "completed" and result.data["payment_fen"] == 60_000
+    assert result.data["work_review"]["accepted"] is True
+    assert "oracle_sha256" not in result.data
     assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance + 60_000
     reviews = [event for event in engine.store.read_events(engine.store.last_event_seq)
                if event.data.get("purpose") == "work_review"]
@@ -171,7 +191,9 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     conflict_context = context(engine, "accepted-work-conflict")
     engine.begin_decision_round([conflict_context])
     engine.observe(conflict_context)
-    changed = _paraphrased_submission().model_copy(update={"submission_id": "different-submission"})
+    request = _paraphrased_submission()
+    changed_minutes = request.deliverable.model_copy(update={"summary": "Different summary."})
+    changed = request.model_copy(update={"deliverable": changed_minutes})
     with pytest.raises(ProtocolError, match="reused with different parameters"):
         engine.submit_action(DirectToolCall(
             conflict_context, "action-accepted-work", "submit_work", changed))
@@ -190,6 +212,46 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert result.status == "rejected" and result.error_code == "WORK_REQUIRES_REWORK"
     assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
     assert "task-2026-01-05" not in engine.state.paid_task_ids
+    feedback = result.data["work_review"]
+    assert feedback["accepted"] is False and feedback["required_fact_missing"] > 0
+    assert feedback["missing_content_categories"] == ["action_items", "decisions", "summary"]
+    assert feedback["required_fact_assessments"][0]["source_excerpt"] == "Hi , I'm David"
+    assert "reference_id" not in json.dumps(feedback)
+    assert "oracle_sha256" not in json.dumps(feedback)
+
+    advance_next(engine)
+    ctx = context(engine, "rework-feedback")
+    observation = engine.observe(ctx)
+    visible_result = next(
+        item for item in observation["recent_action_results"]
+        if item["action_id"] == "action-rework"
+    )
+    visible = visible_result["result"]["data"]["work_review"]
+    agent = LifeAgent()
+    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
+    request = ReactLoopRequest(0, ctx.observed_at, wrapped)
+    agent.prepare_react_loop(request)
+    messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
+    assert visible == feedback and "Supported by the transcript." in messages
+    assert "reference_id" not in messages and engine.scenario.tasks[0].oracle_path not in messages
+
+    replay = context(engine, "rework-replay")
+    engine.begin_decision_round([replay])
+    engine.observe(replay)
+    engine.submit_action(DirectToolCall(
+        replay, "action-rework", "submit_work", _paraphrased_submission()))
+    repeated = engine.commit_decision_round("rework-replay")[0]
+    assert repeated == result and reviewer.calls == 1
+    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
+
+    advance_next(engine)
+    revised_minutes = _paraphrased_submission().deliverable.model_copy(
+        update={"summary": "The source supports the remote-control project, price, cost, and ownership."})
+    revised = _paraphrased_submission().model_copy(update={"deliverable": revised_minutes})
+    accepting = StaticReviewer()
+    accepted = await _submit_with_review(engine, accepting, "rework-accepted", revised)
+    assert accepted.status == "completed" and accepting.calls == 1
+    assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance + 60_000
 
 
 @pytest.mark.asyncio
@@ -233,9 +295,7 @@ def test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucinati
     oracle = load_work_oracle(Path("corpora"), task)
     observed = []
     for case in fixture["cases"]:
-        minutes = MeetingMinutes.model_validate(case["deliverable"])
-        request = SubmitWorkRequest(task_id=task.task_id, submission_id=case["label"],
-                                    deliverable=minutes)
+        request = SubmitWorkRequest(task_id=task.task_id, deliverable=_fixture_minutes(case))
         submission = WorkSubmission(task, None, request, WorkMetrics(60_000, 14_400, 14_400),
                                     oracle, source)
         prepared = prepare_work_review(submission, fixture["model"])
@@ -254,8 +314,7 @@ def test_work_review_request_uses_required_strict_contract() -> None:
     case = fixture["cases"][0]
     request = SubmitWorkRequest(
         task_id=task.task_id,
-        submission_id="strict-contract",
-        deliverable=MeetingMinutes.model_validate(case["deliverable"]),
+        deliverable=_fixture_minutes(case),
     )
     submission = WorkSubmission(
         task,

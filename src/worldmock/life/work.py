@@ -22,7 +22,6 @@ class WorkOutcome:
     payment_fen: int
     effective_seconds: float
     worked_seconds: int
-    oracle_sha256: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +60,7 @@ def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int) -> No
 def validate_work_duration(state: WorldState, task: WorkTaskConfig, agent_id: int,
                            requested_seconds: int) -> None:
     """@brief 拒绝通过重复启动累计超过合同最大工时。"""
-    worked, _ = _work_totals(state, agent_id, task.task_id)
+    worked, _ = work_totals(state, agent_id, task.task_id)
     if worked + requested_seconds > task.maximum_duration_seconds:
         raise BusinessRuleError("WORK_DURATION_EXCEEDS_CONTRACT")
 
@@ -78,7 +77,7 @@ def load_work_input(root: Path, task: WorkTaskConfig) -> str:
 def visible_work_material(state: WorldState, root: Path, task: WorkTaskConfig, agent_id: int) -> dict:
     """@brief 按人物已经结算的有效工作量返回可见正文前缀。"""
     source = load_work_input(root, task)
-    _, effective = _work_totals(state, agent_id, task.task_id)
+    _, effective = work_totals(state, agent_id, task.task_id)
     ratio = min(1.0, effective / task.required_effective_seconds)
     end = min(len(source), int(len(source) * ratio))
     return {"input_sha256": task.input_sha256, "start_char": 0, "end_char": end,
@@ -105,8 +104,8 @@ def prepare_work_submission(state: WorldState, scenario: LifeScenario, corpus_ro
     """@brief 校验提交时序、进度、公开身份和付款能力，供一次语义验收。"""
     task = _task(scenario, request.task_id)
     agent = state.agents[agent_id]
-    _validate_submission_identity(state, agent, task, request)
-    worked, effective = _work_totals(state, agent_id, task.task_id)
+    _validate_submission_contract(state, agent, task)
+    worked, effective = work_totals(state, agent_id, task.task_id)
     if effective < task.required_effective_seconds:
         raise BusinessRuleError("WORK_INCOMPLETE")
     source = load_work_input(corpus_root, task)
@@ -114,8 +113,6 @@ def prepare_work_submission(state: WorldState, scenario: LifeScenario, corpus_ro
     if material["end_char"] != material["total_chars"]:
         raise BusinessRuleError("WORK_MATERIAL_INCOMPLETE")
     oracle = load_work_oracle(corpus_root, task)
-    if request.deliverable.meeting_id != oracle["expected"]["meeting_id"]:
-        raise BusinessRuleError("WORK_REQUIRES_REWORK")
     payment = _payment(task, worked, oracle)
     if state.accounts[task.employer_account_id] < payment:
         raise BusinessRuleError("EMPLOYER_FUNDS_INSUFFICIENT")
@@ -126,7 +123,7 @@ def settle_work(state: WorldState, submission: WorkSubmission, accepted: bool) -
     """@brief 只为已经通过独立语义验收的提交执行一次合同付款。"""
     if not accepted:
         raise BusinessRuleError("WORK_REQUIRES_REWORK")
-    return _pay(state, submission.agent, submission.task, submission.request, submission.metrics)
+    return _pay(state, submission.agent, submission.task, submission.metrics)
 
 
 def load_work_oracle(root: Path, task: WorkTaskConfig) -> dict[str, Any]:
@@ -142,13 +139,14 @@ def load_work_oracle(root: Path, task: WorkTaskConfig) -> dict[str, Any]:
     return value
 
 
-def _validate_submission_identity(state: WorldState, agent: AgentState, task: WorkTaskConfig,
-                                  request: SubmitWorkRequest) -> None:
-    """@brief 拒绝重复付款、不可见任务、迟交和重复提交身份。"""
+def _validate_submission_contract(
+    state: WorldState,
+    agent: AgentState,
+    task: WorkTaskConfig,
+) -> None:
+    """@brief 拒绝已付款、不可见或迟交的任务。"""
     if task.task_id in state.paid_task_ids:
         raise BusinessRuleError("WORK_TASK_ALREADY_PAID")
-    if request.submission_id in state.accepted_submission_ids:
-        raise BusinessRuleError("WORK_SUBMISSION_ALREADY_ACCEPTED")
     if task.task_id not in agent.visible_task_ids:
         raise BusinessRuleError("WORK_TASK_NOT_VISIBLE")
     if state.current_time > int(task.due_at.timestamp()):
@@ -168,7 +166,7 @@ def _within(task: WorkTaskConfig, now: int) -> bool:
     return int(task.available_at.timestamp()) <= now <= int(task.due_at.timestamp())
 
 
-def _work_totals(state: WorldState, agent_id: int, task_id: str) -> tuple[int, float]:
+def work_totals(state: WorldState, agent_id: int, task_id: str) -> tuple[int, float]:
     """@brief 汇总真实结算且未失败的工作活动。"""
     activities = [item for item in state.activities.values() if item.agent_id == agent_id
                   and item.kind == ActivityKind.WORK and item.target_id == task_id
@@ -208,20 +206,21 @@ def _payment(task: WorkTaskConfig, worked: int, oracle: dict) -> int:
     return task.pay_fen * pieces
 
 
-def _pay(state: WorldState, agent: AgentState, task: WorkTaskConfig, request: SubmitWorkRequest,
-         metrics: WorkMetrics) -> WorkOutcome:
-    """@brief 原子投影雇主扣款、人物收款和防重复身份。"""
+def _pay(
+    state: WorldState,
+    agent: AgentState,
+    task: WorkTaskConfig,
+    metrics: WorkMetrics,
+) -> WorkOutcome:
+    """@brief 原子投影雇主扣款、人物收款和一次任务付款。"""
     accounts = dict(state.accounts)
     accounts[task.employer_account_id] -= metrics.payment_fen
     accounts[agent.balance_account_id] += metrics.payment_fen
     paid = set(state.paid_task_ids)
     paid.add(task.task_id)
-    submissions = set(state.accepted_submission_ids)
-    submissions.add(request.submission_id)
-    changed = state.model_copy(update={"accounts": accounts, "paid_task_ids": paid,
-                                       "accepted_submission_ids": submissions}, deep=True)
+    changed = state.model_copy(update={"accounts": accounts, "paid_task_ids": paid}, deep=True)
     return WorkOutcome(changed, metrics.payment_fen, metrics.effective_seconds,
-                       metrics.worked_seconds, task.oracle_sha256)
+                       metrics.worked_seconds)
 
 
 def _read_hashed_file(root: Path, relative: str, digest: str, label: str) -> bytes:

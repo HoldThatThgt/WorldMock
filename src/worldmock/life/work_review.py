@@ -183,6 +183,57 @@ def review_matches(decision: WorkReviewDecision, prepared: PreparedWorkReview) -
             and decision.schema_sha256 == prepared.schema_sha256)
 
 
+def public_work_review(decision: WorkReviewDecision, source: str) -> dict[str, Any]:
+    """@brief 从已留证评审形成不含隐藏身份与哈希的人物事后反馈。"""
+    references = [_public_reference(item, source) for item in decision.reference_assessments]
+    deliveries = [_public_delivery(item, source) for item in decision.delivery_assessments]
+    passed = sum(bool(item["passed"]) for item in references)
+    missing = sorted({item["content_category"] for item in references if not item["passed"]})
+    return {
+        "accepted": decision.accepted,
+        "required_fact_total": len(references),
+        "required_fact_passed": passed,
+        "required_fact_missing": len(references) - passed,
+        "missing_content_categories": missing,
+        "required_fact_assessments": references,
+        "delivery_assessments": deliveries,
+    }
+
+
+def _public_reference(item: ReferenceAssessment, source: str) -> dict[str, Any]:
+    """@brief 投影一个必需事实判断而不公开内部参考身份或答案对象。"""
+    return {
+        "content_category": _reference_category(item.reference_id),
+        "covered": item.required_fact_covered,
+        "source_supported": item.source_supported,
+        "contradiction": item.contradiction,
+        "source_excerpt": item.source_excerpt if _excerpt_in_source(item.source_excerpt, source) else None,
+        "rationale": item.rationale,
+        "passed": _reference_passes(item, source),
+    }
+
+
+def _public_delivery(item: DeliveryAssessment, source: str) -> dict[str, Any]:
+    """@brief 投影人物自己提交字段的来源支持与矛盾判断。"""
+    return {
+        "delivery_path": item.delivery_path,
+        "source_supported": item.source_supported,
+        "contradiction": item.contradiction,
+        "source_excerpt": item.source_excerpt if _excerpt_in_source(item.source_excerpt, source) else None,
+        "rationale": item.rationale,
+        "passed": _delivery_passes(item, source),
+    }
+
+
+def _reference_category(reference_id: str) -> str:
+    """@brief 将内部参考身份仅转换为公开的交付内容类别。"""
+    prefix = reference_id.rsplit(":", 1)[0]
+    categories = {"summary": "summary", "decision": "decisions", "action_item": "action_items"}
+    if prefix not in categories:
+        raise ProtocolError("Work review reference category is invalid")
+    return categories[prefix]
+
+
 def _tool_arguments(raw: dict[str, Any]) -> str:
     """@brief 取得唯一指定函数调用的 JSON 参数。"""
     try:

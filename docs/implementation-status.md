@@ -8,8 +8,10 @@
 工程尚未完成最终交付：正式十二周、成功的实际多人/恢复/反事实验收、增量 Uncle Bob 和三会话盲评仍待完成，
 不能把短窗口或测试夹具当成这些结果。
 
-当前运行源码冻结为`6190baeb5984bc5e759eaa6d688edb29a8779de4a2ce6bf102aa27db52dd8e81`。
-规范SHA为`57377027061e6f1f55d331715b4edd2bfcbfbd9d978bc1c4f2e38c60f3410794`。
+当前冻结运行源码为`000811d9c0fe3efc6b1ec397f51cbfb65620f6ac63523ee812fa5a841b4efbc6`，
+当前集成门绑定规范SHA为`97e90c7c4426d46861a04c12d2180f246b2605c2c6b0fc57c6f7e5e42037616c`。
+活动控制、当前库存与进度、公开工作提交和返工反馈已修复；真实工作组件通过，多人一天正在执行。
+LabelKit推理评审、聚合与逐项引用约束已集成，完整真实day交付正在执行；最终根门430项通过，前后快照一致。
 下表明确标为历史的记录只证明对应版本，不代表本轮全部交付已通过。
 
 ```mermaid
@@ -25,7 +27,11 @@ flowchart LR
 
 | 范围 | 实际结果 | 证据 |
 | --- | --- | --- |
-| 当前运行集成门禁 | 根测试409 passed/27.77秒，integration 92 passed，AS2全量405 passed；前后运行源码一致；随后仅三类聚合提示与提示断言变化，delivery79 passed | `.work/verification/react-context-full-gate/receipt.json`、`.work/verification/react-protocol-feedback/receipt.json`；不是完整真实运行验收 |
+| 当前运行集成门禁 | 最终根测试430 passed/29.18秒，源码、规范、测试和配置前后快照一致；公开观察到实际结算专项85 passed，父任务独立5项通过；正式和多人场景各49份语料、11份Schema校验通过 | `.work/verification/configured-native-integration-gate/receipt.json`、`.work/verification/life-grounded-tools/freeze-receipt.json`；完整真实运行和新Bob仍待完成 |
+| LabelKit评审配置 | judge实际请求为thinking enabled/32768，生成与修复仍disabled/131072；三类聚合与逐项引用规则进入请求，未来目标保持不可见；delivery79项通过，三个项目配置校验通过 | `.work/verification/labelkit-judge-contract-integration.json`；未把单项引用校准的整条fail改判通过，完整语义质量另行验收 |
+| 公共接口修复 | 工具按当前活动及实际目录开放，撤下终态活动和售罄商品；工作只由公开task_id绑定来源，返工反馈进入下一人物请求；历史provider响应原字节保留 | `tests/life/test_grounded_observation.py`、`test_work_review.py`、`tests/integration/test_grounded_targets.py` |
+| 真实公开工作组件 | 2次生成、2次独立评审，22事件；首次评审的一段来源引文不合格，公开反馈后新提交通过；唯一付款人物+60000分、雇主-60000分，实际余额一致 | `.work/verification/public-work-interface/real-check/sqlite-verification-receipt.json`；显式已完成工作夹具，不是自主工作整天 |
+| 原六类接口缺陷复查 | 当前冻结源码下11项实际边界测试通过，六类已确认缺陷全部闭合 | `.work/verification/public-work-interface/life-six-class-reaudit.json`；完整多人/恢复/反事实另行验收 |
 | 有限回合协议纠正 | 原响应先落盘，非法调用零执行，完整工具错误进入下一实际请求；基础设施错误仍中止 | `tests/integration/test_grounded_evidence.py`及AS2运行测试；真实多人重新验收中 |
 | 历史目录约束真实预检 | 一次DeepSeek HTTP：16个实际工具，空任务目录移除work，目标仅来自当前目录；返回合法出行选择并通过生产解析，共4489 token | `.work/verification/runtime-acceptance/grounded-targets/receipt.json`及完整request/response；不是完整多人验收 |
 | 当前LabelKit完整上下文回归 | 相关528项通过；普通process实际HTTP返工保留system、input、candidate和错误；独立Bob一项killed仅证明scope选择，完整行为仍须根Bob | `.work/verification/labelkit-complete-evidence/integration-receipt.json`、`bob-report.json` |
@@ -167,6 +173,17 @@ CLI退出1并保留`failure.json`。两条失败的结构返工没有保留原�
 首先使用该意图及两条历史失败dreaming输入做真实CLI探针；探针通过也不能代替整日最终交付。
 
 ## 正式数据与比较的剩余验收
+
+`runs/deepseek-multi-protocol-feedback` 在12:33:51以连续十次业务拒绝失败，保留1124事件和204对模型请求/响应。
+最后一次真实活动已完成，随后无当前活动，但工具仍允许任意活动身份的继续请求；九次把公开任务身份当活动身份。
+该运行另有五次工作提交被隐藏会议编号等值校验拒绝，人物没有公开途径取得正确值，未进入语义工作验收。
+两次真实协议错误已在有限回合内纠正，不能用这一局部成功代替完整多人验收。
+原始审计为`.work/verification/runtime-acceptance/protocol-feedback/multi-failure-audit.json`。
+
+Dreaming的临时措辞对照消除了重复复述后，两条输入均通过CLI和模型verify，人工复核仍发现三项语义问题：
+累计有效工时错误、会话时长概括错误、所谓连续拒绝引用了不相邻的事件。引用身份存在不代表引用支持正文。
+该结果只证明数量与消费者路径通过，未被批准为合格交付；收据明确为`quantity_and_pipeline_passed_with_semantic_findings`，
+位于`.work/verification/semantic-aggregation-dreaming-contrast-20260915/acceptance-receipt.json`。
 
 旧数据的84天、16320事件和4380活动只作为比较对象。新DeepSeek运行必须到达84天精确终点，
 通过`experiment_completed=true`的正式导出认证，并完成action、intent、dreaming、规则和训练加载的原子交付。

@@ -120,6 +120,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     if review_result == 'max_items_exhausted':
         expected_profiles = ['default', 'default', 'default']
     assert profiles == expected_profiles
+    _assert_model_wire_contract(profiles, calls)
     sentinel = record['input']['visible_input_sentinel']
     assert serialized_calls[0].count(sentinel) == 1
     for profile, request in zip(profiles, serialized_calls, strict=True):
@@ -164,6 +165,22 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         repairs = [row for row in trace if row.get('ev') == 'schema.repair']
         expected = 'l3_1' if review_result == 'max_items_repaired' else 'rejected'
         assert repairs[-1]['payload']['resolved_at'] == expected
+
+
+def _assert_model_wire_contract(profiles, calls):
+    """确认生成与独立评审配置实际进入 LabelKit HTTP 请求。"""
+    for profile, request in zip(profiles, calls, strict=True):
+        messages = json.dumps(request['messages'], ensure_ascii=False)
+        if profile == 'judge':
+            assert request['thinking'] == {'type': 'enabled'}
+            assert request['max_tokens'] == 32768
+            assert '每条 claim 的 evidence_event_ids 所列事件必须独立支持' in messages
+            assert '不能借用该 claim 未列出的其他 input.events 补全证据' in messages
+            continue
+        assert request['thinking'] == {'type': 'disabled'}
+        assert request['max_tokens'] == 131072
+        assert '摘要用共同阶段或同一活动的概括保留重复发生及有意义的差异' in messages
+        assert '不为完整保存原始材料穷举 ID' in messages
 
 
 def _workspace(tmp_path, record, port):
