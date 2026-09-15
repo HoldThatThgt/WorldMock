@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
-from conftest import advance_next, context
+from tests.life.conftest import advance_next, context
 from worldmock.life.engine import LifeEngine
 from worldmock.life.game import GameOutcomeUnknown
 from worldmock.life.models import (

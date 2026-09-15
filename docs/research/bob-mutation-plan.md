@@ -3,14 +3,14 @@
 ## 结论与执行边界
 
 本文把 `docs/agentsociety2-design.md` 的可观察核心合同映射到当前生产入口、现有行为测试和一个最小语义
-突变。计划包含六十八个彼此独立执行的突变，覆盖本次父任务指定的核心范围；它不声称穷尽整份规范。
+突变。计划包含七十八个彼此独立执行的突变，覆盖本次父任务指定的核心范围；它不声称穷尽整份规范。
 
 映射收口复核于 2026-09-15。权威规范 SHA-256 在 Bob 静态准备收据中冻结；执行前若规范继续变化，
 执行器必须拒绝开始并重新生成清单。
 
-静态准备快照尚不能开始 Uncle Bob 执行：`git rev-parse --verify HEAD` 返回 `fatal: Needed a single revision`，
-`git status --short` 显示项目文件均为未跟踪文件。准备时当时没有可供隔离 worktree 固定的基准提交。静态准备没有运行基线，
-也没有改写任何生产源码或测试。父任务提供干净提交后，执行者必须重新核对规范摘要、符号和精确替换文本；
+最初静态准备快照没有可供隔离 worktree 固定的基准提交。随后两个已关闭的隔离会话只运行了失败基线，
+均未应用突变；失败证据和当前测试组织修正在文末单独记录。父任务提供包含该修正的干净提交后，
+执行者必须重新核对规范摘要、符号和精确替换文本；
 任何漂移都先更新计划，不能把无法应用的替换记为 survived 或 killed。
 
 ## 后续执行合同
@@ -184,12 +184,23 @@ bob_restore <目标文件>
 | M66 | 共享画像只允许已核验的单人、白领和时区；“真实性评估及结论边界” | `src/worldmock/evaluation/scenario.py::_load_shared_profile`：禁用人数和职业闭集校验 | `bob_case 'tests/evaluation/test_evaluation_scenario.py::test_shared_profile_rejects_unverified_or_mismatched_claims'` | 多人或非白领画像被场景接受，参数化拒绝断言失败 |
 | M67 | 共享画像不能携带偏好等私有推测字段；“真实性评估及结论边界” | `src/worldmock/evaluation/scenario.py::_load_shared_profile`：在字段闭集校验前静默删除 `preference` | `bob_case tests/evaluation/test_evaluation_scenario.py::test_shared_profile_rejects_additional_private_fields` | 带私有偏好的场景不再被拒绝，异常断言失败 |
 | M68 | 生活动作提交前不能向模型开放 `finish`，提交后只能开放记忆与 `finish`；“人物工具与管理接口、动作结果” | `custom/agents/life_agent.py::LifeAgent.build_react_tool_schemas`：把 pre-action 工具闭集恢复为包含 `finish` 的旧全表 | `bob_case tests/integration/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden tests/integration/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action tests/integration/test_life_agent_protocol.py::test_native_react_rejects_finish_before_life_action` | 首个原生请求再次暴露 `finish`，模型可在零生活动作时结束，动态工具与拒绝断言失败 |
+| M69 | 实验终点截断必须保留结构化 `interruption_reason=experiment_end`；“活动持续时间与边界、最终交付格式” | `src/worldmock/life/activities.py::truncate_activity`：只删除截断活动的 `interruption_reason`，保留 truncated 状态、边界和终态事件 | `bob_case tests/life/test_activities.py::test_completion_and_experiment_truncation_set_ended_at tests/life/test_activity_effects.py::test_paused_activity_is_truncated_at_experiment_end tests/life/test_engine_feedback.py::test_paused_activity_is_truncated_at_end_with_original_action_identity tests/life/test_export_integration.py::test_truncated_activity_exports_experiment_end_reason` | 活动仍能结束但内存状态或导出丢失实验终点原因，结构化原因断言失败 |
+| M70 | 当前观察明确引用的历史动作结果必须作为权威原始事件进入输入；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_expand_observed_results`：把解析出的历史结果替换为当前观察本身 | `bob_case tests/delivery/test_windows.py::test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cutoff` | 历史结果从 `input.events` 与引用闭集消失，原始事件水合断言失败 |
+| M71 | 嵌套结果身份必须解析到 `action_result`；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_validated_observed_result`：禁用权威事件类型检查 | `bob_case 'tests/delivery/test_windows.py::test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event[wrong_type]'` | `model_response` 被接纳为动作结果证据，类型反例失败 |
+| M72 | 历史结果必须是人物可见事件；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_validated_observed_result`：禁用结果可见性检查 | `bob_case 'tests/delivery/test_windows.py::test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event[private]'` | 系统私有事件进入证据窗口，可见性反例失败 |
+| M73 | 历史结果必须属于当前观察人物；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_validated_observed_result`：禁用同人物检查 | `bob_case 'tests/delivery/test_windows.py::test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event[other_agent]'` | 其他人物的结果进入证据窗口，同人物反例失败 |
+| M74 | 历史结果必须早于观察且位于知识截止内；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_validated_observed_result`：禁用时序与截止检查 | `bob_case 'tests/delivery/test_windows.py::test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event[future]'` | 未来结果被接纳为当前知识，截止反例失败 |
+| M75 | 真实未来请求身份只能在语义审核通过后回填；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_attach_evidence`：用新列表把 future request ID 提前加入 action provenance，不改 allowed list | `bob_case 'tests/delivery/test_labelkit_process.py::test_real_labelkit_annotate_and_verify_requests_are_target_blind[pass]'` | 真实 LabelKit judge 请求出现未来请求 ID，实际请求盲性断言失败 |
+| M76 | 公开 action 窗口身份只依赖可见输入；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_attach_evidence`：把隐藏未来目标加入 `window_id` 哈希 | `bob_case tests/delivery/test_windows.py::test_action_public_identity_is_independent_of_the_future_target` | 只替换未来目标就改变公开 provenance，身份稳定断言失败 |
+| M77 | induction、reflection 与 counterfactual 必须具有不同窗口身份；“导出认证与语义评审修正” | `src/worldmock/delivery/windows.py::_window_identity`：从哈希输入删除 dreaming mode | `bob_case tests/delivery/test_windows.py::test_midnight_experiment_end_does_not_create_an_extra_training_day` | 三个 dreaming 模式折叠为同一公开身份，唯一性断言失败 |
+| M78 | 语义验证必须从直接可见事实重建引用闭集；“导出认证与语义评审修正” | `src/worldmock/delivery/semantics.py::_visible_evidence_ids`：直接信任输入自报 allowlist | `bob_case tests/delivery/test_training.py::test_validator_accepts_hydrated_prior_result_and_rejects_allowed_list_tampering` | 伪造 allowlist 不再产生与可见证据不一致错误，篡改反例失败 |
 ## 预声明收口状态
 
 M08、M19、M24 和 M31 保留原计划追加时的真实回归节点。M32 至 M46 与 M68 来自
 `.work/verification/bob-strict-contract-additions.json` 的十六项独立严格请求、Schema 与动态工具合同；M47 至 M67
-覆盖公开证据的声明边界、真实状态、共同字段、匿名身份、会话粒度和可判定性。当前六十八项均已绑定现存
-生产符号和 pytest 节点；准备器还要在最终规范与 preaction/postaction 工具可用时机修复冻结后重新执行静态校验。
+覆盖公开证据的声明边界、真实状态、共同字段、匿名身份、会话粒度和可判定性；M69 覆盖终点截断原因；
+M70 至 M78 覆盖历史结果权威水合、来源类型、可见性、同人物、知识截止、未来身份盲性、窗口身份与
+引用闭集重建。当前七十八项均已绑定现存生产符号和 pytest 节点，准备器会在干净提交上再次静态校验。
 在父任务提供 clean HEAD 及明确执行放行前，本计划仍是 prepared，不能报告任何 killed 或 survived 结果。
 
 ## 执行记录模板
@@ -216,5 +227,12 @@ survived 表示测试缺口，不能通过改变规范或弱化生产实现来�
 ## 基线分进程修正
 
 首个根提交 `15c737392bab2238e17b3dfce497b413f150ca6b` 的隔离 setup 已验证源码与依赖来源。
-将根项目与 AS2 测试放进同一个 pytest 进程导致十二个 conftest 导入错误，原始失败输出保留在该提交的
-Bob results 中；没有运行突变。当前计划保持原测试范围，改为两个独立进程，两个均通过才开始突变。
+将根项目与 AS2 测试放进同一个 pytest 进程时，裸 `from conftest` 被 AS2 的 conftest 遮蔽，产生十二个
+collection error。第二个提交 `f287633563d14bb7518861e7c44c1f9546289170` 已把根项目和 AS2 分成两个进程；
+AS2 组通过，但根项目内部 Life 与 Evaluation 仍共享顶层 `conftest` 名称，产生九个 collection error。
+两个失败会话都在基线门停止，未创建任何 mutation attempt，且 cleanup 收据确认 worktree 登记和目录已删除。
+
+当前修正给 `tests`、`tests/life`、`tests/evaluation` 明确包身份，并把 Life 与 Evaluation 的夹具导入改成限定路径。
+原先最宽的单进程组合已经以 `351 passed in 18.61s` 通过，原始输出保存在
+`.work/verification/qualified-test-imports.log`；该工作树验证只证明测试组织冲突已消失，不能替代下一 clean HEAD
+上的两个隔离 baseline。执行器继续以两个进程运行同一测试范围，两个均通过后才允许 M01 至 M78。

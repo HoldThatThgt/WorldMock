@@ -1,5 +1,6 @@
 import copy
 import json
+import re
 import shutil
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -9,6 +10,7 @@ import pytest
 
 from worldmock.delivery.pipeline import deliver, run_labelkit, verify_process
 from worldmock.delivery.semantics import complete_annotation
+from worldmock.delivery.windows import _action_windows
 from worldmock.errors import IntegrityError
 
 
@@ -16,18 +18,32 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
 
 
-@pytest.mark.parametrize("review_result", ["pass", "repaired", "exhausted"])
+@pytest.mark.parametrize("review_result", [
+    "pass", "repaired", "exhausted", "citation_repaired", "missing_citation_repaired",
+])
 def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, monkeypatch, review_result):
-    needs_repair = review_result != "pass"
     fixture = json.loads(FIXTURE.read_text())
+    record = _current_record(tmp_path)
     calls = []
     fixed = copy.deepcopy(fixture['annotation'])
     fixed['target']['claims'][0]['text'] += ' Revision after independent review.'
     critique = {'critiques': [{'aspect': 'wording', 'opinion': 'Clarify evidence scope.'}], 'verdict': 'fail'}
-    replies = ([fixture['annotation'], critique, fixed, {'critiques': [], 'verdict': 'pass'}]
-               if needs_repair else [fixture['annotation'], {'critiques': [], 'verdict': 'pass'}])
+    replies = [fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
+    if review_result == 'repaired':
+        replies = [fixture['annotation'], critique, fixed, {'critiques': [], 'verdict': 'pass'}]
     if review_result == 'exhausted':
         replies = [fixture['annotation'], critique, fixed, critique, fixed, critique]
+    if review_result == 'citation_repaired':
+        invalid = copy.deepcopy(fixture['annotation'])
+        invalid['target']['claims'][0]['evidence_event_ids'] = ['forged-event']
+        valid = copy.deepcopy(fixture['annotation'])
+        valid['target']['claims'][0] = {'text': 'A prior action completed.', 'kind': 'fact',
+                                        'evidence_event_ids': ['probe-prior-result']}
+        replies = [invalid, valid, {'critiques': [], 'verdict': 'pass'}]
+    if review_result == 'missing_citation_repaired':
+        invalid = copy.deepcopy(fixture['annotation'])
+        invalid['target']['claims'][0]['evidence_event_ids'] = []
+        replies = [invalid, fixture['annotation'], {'critiques': [], 'verdict': 'pass'}]
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
@@ -52,7 +68,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     thread.start()
     monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
     try:
-        workspace = _workspace(tmp_path, fixture['input'], server.server_port)
+        workspace = _workspace(tmp_path, record, server.server_port)
         if review_result == 'exhausted':
             with pytest.raises(IntegrityError, match='exited with status 1'):
                 run_labelkit('action', workspace, ROOT)
@@ -61,25 +77,58 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         else:
             receipt = run_labelkit('action', workspace, ROOT)
             assert receipt['exit_code'] == 0
-            records = verify_process('action', workspace, [fixture['input']])
+            records = verify_process('action', workspace, [record])
     finally:
         server.shutdown()
         thread.join()
         server.server_close()
-    assert len(calls) == {'pass': 2, 'repaired': 4, 'exhausted': 6}[review_result]
-    canary = fixture['input']['target']['future_canary']
-    assert all(canary not in json.dumps(call, ensure_ascii=False) for call in calls)
-    assert fixture['annotation']['target']['claims'][0]['text'] in json.dumps(calls[1], ensure_ascii=False)
+    call_counts = {'pass': 2, 'repaired': 4, 'exhausted': 6,
+                   'citation_repaired': 3, 'missing_citation_repaired': 3}
+    assert len(calls) == call_counts[review_result]
+    target_ids = [record['target']['request']['event_id']]
+    target_ids.extend(row['event_id'] for row in record['target']['outcomes'])
+    future = target_ids + ['probe-action', 'future-request-canary', 'future-accepted-canary', 'future-result-canary']
+    serialized_calls = [json.dumps(call, ensure_ascii=False) for call in calls]
+    assert all(marker not in text for marker in future for text in serialized_calls)
+    assert all('target_event_ids' not in text and '"outcomes"' not in text for text in serialized_calls)
+    cutoff_values = [int(value) for text in serialized_calls
+                     for value in re.findall(r'\\"cutoff_event_seq\\"\s*:\s*(\d+)', text)]
+    assert cutoff_values and set(cutoff_values) == {2}
+    assert 'allowed_evidence_event_ids' in json.dumps(calls[0], ensure_ascii=False)
     if records:
-        assert records[0]['target']['facts'] == fixture['input']['target']
+        assert records[0]['target']['facts'] == record['target']
+        assert records[0]['provenance']['target_event_ids'] == target_ids
+        assert records[0]['provenance']['source_event_ids'] == [
+            'probe-prior-result', 'probe-observation', *target_ids,
+        ]
     trace = [json.loads(line) for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
     profiles = [row['payload']['profile'] for row in trace if row.get('ev') == 'llm.call']
-    assert profiles == ['default', 'judge'] * (len(replies) // 2)
-    if needs_repair:
+    citation_repairs = {'citation_repaired', 'missing_citation_repaired'}
+    expected_profiles = ['default', 'default', 'judge'] if review_result in citation_repairs else [
+        'default', 'judge',
+    ] * (len(replies) // 2)
+    assert profiles == expected_profiles
+    if review_result in {'repaired', 'exhausted'}:
+        assert fixture['annotation']['target']['claims'][0]['text'] in json.dumps(calls[1], ensure_ascii=False)
         assert 'Clarify evidence scope.' in json.dumps(calls[2], ensure_ascii=False)
         assert fixed['target']['claims'][0]['text'] in json.dumps(calls[3], ensure_ascii=False)
         if records:
             assert records[0]['target']['claims'] == fixed['target']['claims']
+    if review_result == 'citation_repaired':
+        repair = json.dumps(calls[1], ensure_ascii=False)
+        assert 'invalid_evidence_event_ids=[\\"forged-event\\"]' in repair
+        allowed = 'allowed_evidence_event_ids=[\\"probe-prior-result\\",\\"probe-observation\\"]'
+        assert allowed in repair
+        assert 'A prior action completed.' in json.dumps(calls[2], ensure_ascii=False)
+        repairs = [row for row in trace if row.get('ev') == 'schema.repair']
+        assert repairs[-1]['payload']['resolved_at'] == 'l3_1'
+    if review_result == 'missing_citation_repaired':
+        repair = json.dumps(calls[1], ensure_ascii=False)
+        assert 'Fact or inference has no supporting event' in repair
+        allowed = 'allowed_evidence_event_ids=[\\"probe-prior-result\\",\\"probe-observation\\"]'
+        assert allowed in repair
+        repairs = [row for row in trace if row.get('ev') == 'schema.repair']
+        assert repairs[-1]['payload']['resolved_at'] == 'l3_1'
 
 
 def _workspace(tmp_path, record, port):
@@ -93,25 +142,58 @@ def _workspace(tmp_path, record, port):
     return workspace
 
 
+def _event(identity, sequence, kind, data, action_id=None):
+    return {'event_id': identity, 'event_seq': sequence, 'event_type': kind, 'occurred_at': 80 + sequence,
+            'decision_id': 'probe-decision', 'action_id': action_id, 'activity_id': None, 'agent_id': 1,
+            'data': data, 'visibility': 'agent', 'artifact_refs': []}
+
+
+def _current_record(directory):
+    prior_data = {'status': 'completed', 'message': 'Previous activity completed'}
+    prior = _event('probe-prior-result', 1, 'action_result', prior_data, 'probe-prior-action')
+    prior['decision_id'] = 'probe-prior-decision'
+    summary = {'event_id': prior['event_id'], 'action_id': prior['action_id'],
+               'decision_id': prior['decision_id'], 'occurred_at': prior['occurred_at'],
+               'status': 'completed', 'error_code': None, 'message': prior_data['message'], 'result': prior_data}
+    observed = _event('probe-observation', 2, 'observation', {'recent_action_results': [summary]})
+    requested = _event('probe-future-request', 3, 'action_requested',
+                       {'tool_name': 'start_basic_activity', 'secret': 'future-request-canary'}, 'probe-action')
+    accepted = _event('probe-future-accepted', 4, 'action_accepted',
+                      {'status': 'submitted', 'secret': 'future-accepted-canary'}, 'probe-action')
+    result = _event('probe-future-result', 5, 'action_result',
+                    {'status': 'completed', 'secret': 'future-result-canary'}, 'probe-action')
+    rows = (prior, observed, requested, accepted, result)
+    manifest = {'run_id': 'probe-run', 'source_group_id': 'probe-run', 'cutoff_event_seq': 5,
+                'frozen_run_manifest': {'model_identity': {'requested_model': 'fixture'}}}
+    record, _ = _action_windows(
+        requested, {'probe-action': [requested, accepted, result]},
+        {'probe-decision': [observed, requested, accepted, result]},
+        (manifest, directory, {row['event_id']: row for row in rows}),
+    )
+    return record
+
+
 def test_failed_independent_semantic_verdict_blocks_process_output(tmp_path):
     fixture = json.loads(FIXTURE.read_text())
-    record = complete_annotation(copy.deepcopy(fixture['annotation']), fixture['input'])
+    source = _current_record(tmp_path)
+    record = complete_annotation(copy.deepcopy(fixture['annotation']), source)
     record['_meta'] = {'id': 'failed-review', 'verification': {'verdict': 'fail'},
                        'annotation': {'model': 'fixture'}}
     (tmp_path / 'out').mkdir()
     (tmp_path / 'out/action.jsonl').write_text(json.dumps(record) + '\n')
     with pytest.raises(IntegrityError, match='semantic verification did not pass'):
-        verify_process('action', tmp_path, [fixture['input']])
+        verify_process('action', tmp_path, [source])
 
 
 def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
     fixture = json.loads(FIXTURE.read_text())
+    source = _current_record(tmp_path)
     invoked = []
-    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', lambda _path: {'action': [fixture['input']]})
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', lambda _path: {'action': [source]})
 
     def rejected_process(task, workspace, _root):
         invoked.append(task)
-        row = complete_annotation(copy.deepcopy(fixture['annotation']), fixture['input'])
+        row = complete_annotation(copy.deepcopy(fixture['annotation']), source)
         row['_meta'] = {'id': 'failed-review', 'verification': {'verdict': 'fail'},
                         'annotation': {'model': 'fixture'}}
         (workspace / f'out/{task}.jsonl').write_text(json.dumps(row) + '\n')

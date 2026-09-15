@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
-from conftest import advance_next, context
+from tests.life.conftest import advance_next, context
 from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
@@ -75,3 +76,37 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
                for item in outcomes)
     assert observation["observation_event_id"] in action["provenance"]["source_event_ids"]
     assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
+
+
+def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_path: Path) -> None:
+    """实验终点截断原因进入权威状态、终态事件和认证导出质量。"""
+    engine = engine_factory()
+    _stage_final_interval(engine, 60)
+    ctx = context(engine, "truncated-wait")
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    action_id = "action-truncated-wait"
+    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    engine.submit_action(DirectToolCall(ctx, action_id, "start_basic_activity", request))
+    started = engine.commit_decision_round("truncated-wait")[0]
+    activity_id = started.activity_id
+
+    advance_next(engine)
+    activity = engine.state.activities[activity_id]
+    assert activity.status == "truncated"
+    assert activity.interruption_reason == "experiment_end"
+    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
+                if event.action_id == action_id][-1]
+    assert terminal.data["activity"]["interruption_reason"] == "experiment_end"
+
+    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "truncated_export_test"})
+    checkpoint = engine.checkpoint({"agent:1": agent_ref})
+    export_dir = tmp_path / "truncated-export"
+    export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    _, _, activities = validate_export(export_dir)
+    quality = json.loads((export_dir / "quality.json").read_text())
+
+    exported = next(item for item in activities if item["activity_id"] == activity_id)
+    assert exported["interruption_reason"] == "experiment_end"
+    assert quality["activities"]["interruptions_missing_reason"] == 0
+    assert quality["activities"]["interruption_reason_counts"] == {"experiment_end": 1}

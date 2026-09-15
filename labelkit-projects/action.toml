@@ -31,7 +31,7 @@ instruction = """
 根据动作发生前的可见历史，归纳此时的需求与不确定性。不能知道尚未发生的下一动作，不猜测隐藏结果。代码负责真实下一动作和参数。
 仅输出 target 中的 claims、intent_candidates 和 uncertainty。
 claims 的 kind 必须区分事实 fact、推断 inference、假设 hypothesis。
-事实和推断引用 input.events 中存在的 event_id 或 prerequisite_state.event_id，禁止引用未来事件或自行编造证据。
+事实和推断的每个 evidence_event_ids 值必须逐字取自 input.allowed_evidence_event_ids，禁止引用其他标识。
 简洁说明实际内容、行为与因果；保留来源里的重复接触，不以常识补写遗漏的经历。
 """
 
@@ -40,7 +40,7 @@ enabled = true
 llm = "judge"
 policy = "repair"
 max_repair_rounds = 2
-extra_criteria = "评审只依据当前 input.events 中已接触的证据，评价 target.claims、intent_candidates、uncertainty。事实和推断须有实际来源，hypothesis不能当成已经发生。task、input、provenance是代码字段。未来真实目标尚未回填，不能假设知道下一动作。仅按Schema返回verdict=pass或fail，不能返回unknown。 输出必须是单个JSON对象，禁止先输出自然语言意见或Markdown。顶层必需且仅允许critiques和verdict；critiques为数组，每项必需且仅允许aspect和opinion两个字符串，不能使用issue。verdict必须依据证据取pass或fail，不使用unknown。"
+extra_criteria = "评审只依据 input.events 与 input.prerequisite_state 中、且列于 input.allowed_evidence_event_ids 的证据，评价 target.claims、intent_candidates、uncertainty。事实和推断须有实际来源，hypothesis不能当成已经发生。task、input、provenance是代码字段。未来真实目标尚未回填，不能假设知道下一动作。仅按Schema返回verdict=pass或fail，不能返回unknown。 输出必须是单个JSON对象，禁止先输出自然语言意见或Markdown。顶层必需且仅允许critiques和verdict；critiques为数组，每项必需且仅允许aspect和opinion两个字符串，不能使用issue。verdict必须依据证据取pass或fail，不使用unknown。"
 
 [trace]
 enabled = true

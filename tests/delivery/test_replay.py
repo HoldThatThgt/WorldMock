@@ -1,8 +1,10 @@
+import copy
 import hashlib
 
 import pytest
 
 from worldmock.delivery.replay import replay_windows
+from worldmock.delivery.windows import _window_identity
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft, canonical_json
@@ -64,7 +66,15 @@ def test_completed_actual_branch_binds_hypothesis_checkpoint_and_results(pair):
     assert binding['source_event_ids'] == [origin_id]
     assert binding['result_event_ids'] == [event['event_id'] for event in record['input']['events']]
     assert origin_id in record['provenance']['source_event_ids']
+    expected = list(dict.fromkeys([event['event_id'] for event in record['input']['events']] +
+                                  [record['input']['prerequisite_state']['event_id']]))
+    assert record['input']['allowed_evidence_event_ids'] == expected
+    assert set(expected) <= set(record['provenance']['source_event_ids'])
     assert binding['run_id'] != binding['parent_run_id']
+    assert record['provenance']['window_id'] == _window_identity(record['task'], record['input'])
+    changed = copy.deepcopy(record['input'])
+    changed['counterfactual']['hypothesis'] = 'A different visible counterfactual condition.'
+    assert record['provenance']['window_id'] != _window_identity(record['task'], changed)
 
 
 def test_original_world_cannot_be_mislabeled_as_an_actual_replay(pair):

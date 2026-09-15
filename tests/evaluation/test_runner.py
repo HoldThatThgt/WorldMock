@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import _write_canonical, make_review_records
+from tests.evaluation.conftest import _write_canonical, make_review_records
 from worldmock.delivery import rules
 from worldmock.evaluation.adapters import adapt_worldmock
 from worldmock.evaluation.causality import evaluate_causality

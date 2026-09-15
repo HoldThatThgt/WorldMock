@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from conftest import _world_activity, _write_canonical
+from tests.evaluation.conftest import _world_activity, _write_canonical
 from worldmock.evaluation.adapters import _adapt_world_activity, adapt_labelkit, adapt_worldmock
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.public_evidence import (

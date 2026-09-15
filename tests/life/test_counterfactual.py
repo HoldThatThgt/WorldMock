@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import context
+from tests.life.conftest import context
 from worldmock.errors import ProtocolError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.models import canonical_json

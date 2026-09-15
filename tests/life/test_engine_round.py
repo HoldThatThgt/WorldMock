@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from conftest import advance_next, context, submit_round
+from tests.life.conftest import advance_next, context, submit_round
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     StartBasicActivityRequest,

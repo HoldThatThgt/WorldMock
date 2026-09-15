@@ -9,7 +9,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from conftest import advance_next, context
+from tests.life.conftest import advance_next, context
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (

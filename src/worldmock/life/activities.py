@@ -149,6 +149,7 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
         return activity, agent
     changed = activity.model_copy(update={"status": ActivityStatus.TRUNCATED, "ended_at": now,
                                           "boundary_type": "experiment_end",
+                                          "interruption_reason": "experiment_end",
                                           "next_interaction_at": None}, deep=True)
     changed_agent = agent.model_copy(update={"current_activity_id": None}, deep=True)
     return changed, changed_agent

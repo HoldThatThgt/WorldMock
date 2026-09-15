@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +19,7 @@ PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision
 def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
     """@brief 逐次行为保留重复记录，并给不同训练目标设定真实知识截止。"""
     manifest, events, _ = validate_export(export_dir)
+    indexed = {event["event_id"]: event for event in events}
     by_action = defaultdict(list)
     by_decision = defaultdict(list)
     for event in events:
@@ -28,10 +30,11 @@ def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
     records = {"action": [], "intent": [], "dreaming": []}
     for event in events:
         if event["event_type"] == "action_requested":
-            action, intent = _action_windows(event, by_action, by_decision, (manifest, export_dir))
+            source = (manifest, export_dir, indexed)
+            action, intent = _action_windows(event, by_action, by_decision, source)
             records["action"].append(action)
             records["intent"].append(intent)
-    records["dreaming"] = _dream_windows(events, manifest, export_dir)
+    records["dreaming"] = _dream_windows(events, manifest, export_dir, indexed)
     if any(not rows for rows in records.values()):
         raise IntegrityError("Export has no complete evidence windows for a required training task")
     return records
@@ -39,7 +42,7 @@ def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
 
 def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) -> tuple[dict, dict]:
     """@brief 动作答案与动作前输入分开；意图可以读取已经发生的实际结果。"""
-    manifest, directory = source
+    manifest, directory, indexed = source
     previous = [row for row in decisions[event["decision_id"]]
                 if row["event_seq"] < event["event_seq"] and row["visibility"] == "agent"
                 and row["event_type"] not in PRIVATE_EVENTS | {"action_requested"}]
@@ -49,17 +52,11 @@ def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) 
     facts = {"request": event, "outcomes": outcomes}
     prerequisite = _prerequisite_state(previous, previous)
     action = _record("action", previous, facts, manifest, prerequisite)
-    target_ids = [event["event_id"]] + [row["event_id"] for row in outcomes]
-    action["provenance"]["source_event_ids"] = list(dict.fromkeys(
-        action["provenance"]["source_event_ids"] + target_ids))
-    action["provenance"]["target_event_ids"] = target_ids
-    action["input"]["events"] = [_visible_event(row, directory) for row in previous]
+    _attach_evidence(action, previous, indexed, directory)
     observed = sorted(previous + [event] + [row for row in outcomes if row["visibility"] == "agent"],
                       key=lambda row: row["event_seq"])
     intent = _record("intent", observed, facts, manifest, prerequisite)
-    intent["provenance"]["source_event_ids"] = list(dict.fromkeys(
-        intent["provenance"]["source_event_ids"] + target_ids))
-    intent["input"]["events"] = [_visible_event(row, directory) for row in observed]
+    _attach_evidence(intent, observed, indexed, directory)
     return action, intent
 
 
@@ -68,17 +65,19 @@ def _record(task: str, events: list[dict], facts: dict, manifest: dict, prerequi
     identities = [event["event_id"] for event in events]
     sources = list(dict.fromkeys(identities + ([prerequisite["event_id"]] if prerequisite["event_id"] else [])))
     cutoff = events[-1]
-    return {"task": task,
-            "input": {"events": [], "window_start": events[0]["occurred_at"],
-                      "window_end": cutoff["occurred_at"], "knowledge_cutoff_event_seq": cutoff["event_seq"],
-                      "activity_ids": sorted({event["activity_id"] for event in events if event["activity_id"]}),
-                      "prerequisite_state": prerequisite, "activity_boundaries": _activity_boundaries(events),
-                      "boundary_type": "decision" if task != "dreaming" else "natural_day"},
-            "target": facts,
-            "provenance": {"run_id": manifest["run_id"], "source_group_id": manifest["source_group_id"],
-                           "source_event_ids": sources, "cutoff_event_seq": manifest["cutoff_event_seq"],
-                           "model_identity": manifest["frozen_run_manifest"]["model_identity"],
-                           "window_id": hashlib.sha256(canonical_json([task, identities, facts])).hexdigest()}}
+    input_data = {"events": [], "window_start": events[0]["occurred_at"],
+                  "window_end": cutoff["occurred_at"], "knowledge_cutoff_event_seq": cutoff["event_seq"],
+                  "activity_ids": sorted({event["activity_id"] for event in events if event["activity_id"]}),
+                  "prerequisite_state": prerequisite, "activity_boundaries": _activity_boundaries(events),
+                  "allowed_evidence_event_ids": sources,
+                  "boundary_type": "decision" if task != "dreaming" else "natural_day"}
+    if task == "dreaming":
+        input_data["mode"] = facts["mode"]
+    provenance = {"run_id": manifest["run_id"], "source_group_id": manifest["source_group_id"],
+                  "source_event_ids": sources, "cutoff_event_seq": cutoff["event_seq"],
+                  "model_identity": manifest["frozen_run_manifest"]["model_identity"],
+                  "window_id": _window_identity(task, input_data)}
+    return {"task": task, "input": input_data, "target": facts, "provenance": provenance}
 
 
 def _visible_event(event: dict, directory: Path) -> dict:
@@ -96,7 +95,77 @@ def _visible_event(event: dict, directory: Path) -> dict:
     return result
 
 
-def _dream_windows(events: list[dict], manifest: dict, directory: Path) -> list[dict]:
+def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory: Path) -> None:
+    """@brief 将观察已暴露的真实结果并入输入、引用闭集和来源。"""
+    cutoff = record["input"]["knowledge_cutoff_event_seq"]
+    expanded = _expand_observed_results(events, indexed, cutoff)
+    identities = [event["event_id"] for event in expanded]
+    prerequisite = record["input"]["prerequisite_state"]
+    if prerequisite["event_id"]:
+        identities.append(prerequisite["event_id"])
+    allowed = list(dict.fromkeys(identities))
+    record["input"]["events"] = [_visible_event(event, directory) for event in expanded]
+    record["input"]["allowed_evidence_event_ids"] = allowed
+    record["input"]["activity_ids"] = sorted(
+        {event["activity_id"] for event in expanded if event["activity_id"]}
+    )
+    record["input"]["activity_boundaries"] = _activity_boundaries(expanded)
+    record["provenance"]["source_event_ids"] = allowed
+    record["provenance"]["window_id"] = _window_identity(record["task"], record["input"])
+
+
+def _window_identity(task: str, input_data: dict) -> str:
+    """@brief 仅由模型可见输入生成公开窗口身份，避免承诺未来目标。"""
+    return hashlib.sha256(canonical_json([task, input_data])).hexdigest()
+
+
+def _expand_observed_results(events: list[dict], indexed: dict, cutoff: int) -> list[dict]:
+    """@brief 只解析当前可见观察明示暴露的先前动作结果。"""
+    expanded = {event["event_id"]: event for event in events}
+    for observation in events:
+        if observation["event_type"] != "observation":
+            continue
+        references = observation["data"].get("recent_action_results", [])
+        if not isinstance(references, list):
+            _invalid_observed_result("Observed action result references must be a list")
+        for reference in references:
+            source = _validated_observed_result(observation, reference, indexed, cutoff)
+            expanded[source["event_id"]] = source
+    return sorted(expanded.values(), key=lambda event: event["event_seq"])
+
+
+def _validated_observed_result(observation: dict, reference: object, indexed: dict, cutoff: int) -> dict:
+    """@brief 核对观察摘要与截止前同人物可见的权威结果。"""
+    if observation["visibility"] != "agent" or observation["agent_id"] is None:
+        _invalid_observed_result("Observed action result source must be an agent-visible observation")
+    if not isinstance(reference, dict) or not isinstance(reference.get("event_id"), str):
+        _invalid_observed_result("Observed action result reference has no event identity")
+    source = indexed.get(reference["event_id"])
+    if (source is None or source["event_type"] != "action_result" or source["visibility"] != "agent"
+            or source["agent_id"] != observation["agent_id"]):
+        _invalid_observed_result("Observed action result does not resolve to a visible same-agent result")
+    if source["event_seq"] >= observation["event_seq"] or source["event_seq"] > cutoff:
+        _invalid_observed_result("Observed action result is outside the current knowledge cutoff")
+    if reference != _result_summary(source):
+        _invalid_observed_result("Observed action result summary disagrees with its canonical event")
+    return source
+
+
+def _result_summary(event: dict) -> dict:
+    """@brief 从权威动作结果重建人物观察中的精确摘要。"""
+    return {"event_id": event["event_id"], "action_id": event["action_id"],
+            "decision_id": event["decision_id"], "occurred_at": event["occurred_at"],
+            "status": event["data"].get("status"), "error_code": event["data"].get("error_code"),
+            "message": event["data"].get("message"), "result": event["data"]}
+
+
+def _invalid_observed_result(message: str) -> None:
+    """@brief 记录且拒绝无法证明属于当前知识窗口的结果。"""
+    logging.error("%s", message)
+    raise IntegrityError(message)
+
+
+def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
     """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。"""
     zone = ZoneInfo(manifest["window"]["timezone"])
     days = defaultdict(list)
@@ -111,10 +180,10 @@ def _dream_windows(events: list[dict], manifest: dict, directory: Path) -> list[
         prerequisite = _prerequisite_state(rows, history)
         for mode in ("induction", "reflection", "counterfactual"):
             result = _record("dreaming", rows, {"mode": mode, "environment_replay": None}, manifest, prerequisite)
-            result["input"].update(mode=mode, person_id=key[0], date=key[1],
-                                   events=[_visible_event(row, directory) for row in rows])
+            result["input"].update(person_id=key[0], date=key[1])
             if mode == "counterfactual":
                 result["input"]["counterfactual"] = {"world_kind": "observed", "environment_replay": None}
+            _attach_evidence(result, rows, indexed, directory)
             records.append(result)
     return records
 

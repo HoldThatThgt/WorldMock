@@ -7,7 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from worldmock.delivery.windows import PRIVATE_EVENTS, _prerequisite_state, _record, _visible_event, event_day
+from worldmock.delivery.windows import PRIVATE_EVENTS, _attach_evidence, _prerequisite_state, _record, event_day
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
@@ -17,6 +17,7 @@ def replay_windows(source_dir: Path, replay_dir: Path) -> list[dict]:
     """@brief 认证父子完整导出、共同前缀和一次实际干预，再逐自然日建立重演证据。"""
     source, parent_events, _ = validate_export(source_dir)
     branch, events, _ = validate_export(replay_dir)
+    indexed = {event["event_id"]: event for event in events}
     checkpoint = _validate_parent(source, parent_events, branch, events)
     intervention = _validate_intervention(branch, events, checkpoint)
     history = [event for event in events if event["agent_id"] == intervention["agent_id"]
@@ -30,7 +31,7 @@ def replay_windows(source_dir: Path, replay_dir: Path) -> list[dict]:
             date = event_day(event, branch, zone)
             days[date].append(event)
     for date, rows in days.items():
-        record = _replay_record(rows, intervention, (branch, replay_dir, checkpoint), date,
+        record = _replay_record(rows, intervention, (branch, replay_dir, checkpoint, indexed), date,
                                 _prerequisite_state(rows, history))
         records.append(record)
     if not records:
@@ -80,7 +81,7 @@ def _validate_intervention(branch: dict, events: list[dict], checkpoint: dict) -
 
 def _replay_record(rows: list[dict], intervention: dict, source: tuple, date: str, prerequisite: dict) -> dict:
     """@brief 真实分支结果可标为分支内事实，原世界从未发生的结果仍不可冒充原事实。"""
-    manifest, directory, checkpoint = source
+    manifest, directory, checkpoint, indexed = source
     data = intervention["data"]
     result_ids = [row["event_id"] for row in rows]
     binding = {"run_id": manifest["run_id"], "parent_run_id": manifest["frozen_run_manifest"]["parent_run_id"],
@@ -95,8 +96,8 @@ def _replay_record(rows: list[dict], intervention: dict, source: tuple, date: st
                             boundary_type="counterfactual_replay",
                             counterfactual={"hypothesis": data["hypothesis"], "world_kind": "resimulated",
                                             "branch_run_id": manifest["run_id"],
-                                            "balance_fen": data["after_balance_fen"]},
-                            events=[_visible_event(row, directory) for row in rows])
+                                            "balance_fen": data["after_balance_fen"]})
+    _attach_evidence(record, rows, indexed, directory)
     record["provenance"]["source_event_ids"] = list(dict.fromkeys(
         record["provenance"]["source_event_ids"] + data["source_event_ids"] + [intervention["event_id"]]))
     return record

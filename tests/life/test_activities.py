@@ -99,6 +99,7 @@ def test_completion_and_experiment_truncation_set_ended_at() -> None:
     activity, person = truncate_activity(activity, person, 100)
     assert activity.status == ActivityStatus.TRUNCATED
     assert activity.boundary_type == "experiment_end" and activity.ended_at == 100
+    assert activity.interruption_reason == "experiment_end"
 
 
 def test_continue_activity_moves_feedback_strictly_forward_without_releasing_slot() -> None:

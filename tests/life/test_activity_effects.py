@@ -24,7 +24,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import load_scenario
 
-from conftest import advance_next, submit_round
+from tests.life.conftest import advance_next, submit_round
 
 
 @pytest.fixture(scope="module")
@@ -120,6 +120,7 @@ def test_paused_activity_is_truncated_at_experiment_end(body_config) -> None:
     assert activity.ended_at == 300
     assert activity.elapsed_seconds == 0
     assert activity.boundary_type == "experiment_end"
+    assert activity.interruption_reason == "experiment_end"
     assert person.current_activity_id is None
 
 

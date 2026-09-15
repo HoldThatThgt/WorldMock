@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import make_evaluation_fixture, make_review_records
+from tests.evaluation.conftest import make_evaluation_fixture, make_review_records
 import worldmock.evaluation.review as review_module
 from worldmock.evaluation.adapters import adapt_labelkit, adapt_worldmock
 from worldmock.evaluation.errors import EvaluationError

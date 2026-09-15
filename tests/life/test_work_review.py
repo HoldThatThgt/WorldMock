@@ -11,7 +11,7 @@ import pytest
 import agentsociety2.config as agentsociety_config
 from agentsociety2.society import DirectToolCall
 
-from conftest import advance_next, context, submit_round
+from tests.life.conftest import advance_next, context, submit_round
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (

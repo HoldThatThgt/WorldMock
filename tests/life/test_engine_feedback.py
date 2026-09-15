@@ -9,7 +9,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from conftest import advance_next, context
+from tests.life.conftest import advance_next, context
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
@@ -224,11 +224,15 @@ def test_paused_activity_is_truncated_at_end_with_original_action_identity(engin
     advance_next(engine)
     activity = engine.state.activities[activity_id]
     assert activity.status == "truncated" and activity.ended_at == end
+    assert activity.interruption_reason == "experiment_end"
     assert activity.elapsed_seconds == 900
-    assert engine.state.processed_actions["action-end-wait"].result["status"] == "cancelled"
+    stored = engine.state.processed_actions["action-end-wait"].result
+    assert stored["status"] == "cancelled"
+    assert stored["data"]["activity"]["interruption_reason"] == "experiment_end"
     terminal = [event for event in engine.store.read_agent_events("action_result", 1)
                 if event.action_id == "action-end-wait"][-1]
     assert terminal.occurred_at == end and terminal.activity_id == activity_id
+    assert terminal.data["activity"]["interruption_reason"] == "experiment_end"
 
 
 def test_contexts_must_follow_seeded_scheduling_order(engine_factory) -> None:
