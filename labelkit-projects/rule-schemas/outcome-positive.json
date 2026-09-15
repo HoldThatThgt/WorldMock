@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "completed"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "required": [
+    "request"
+  ],
+  "examples": [
+    {
+      "request": {
+        "status": "completed"
+      }
+    }
+  ]
+}

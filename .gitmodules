@@ -1,0 +1,6 @@
+[submodule "vendor/agentsociety2"]
+	path = vendor/agentsociety2
+	url = git@github.com:tsinghua-fib-lab/AgentSociety.git
+[submodule "vendor/labelkit"]
+	path = vendor/labelkit
+	url = git@github.com:HoldThatThgt/LabelKit.git

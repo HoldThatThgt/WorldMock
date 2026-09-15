@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "new"
+        }
+      },
+      "required": [
+        "status"
+      ]
+    }
+  },
+  "required": [
+    "request"
+  ]
+}

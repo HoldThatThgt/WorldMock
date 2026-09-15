@@ -1,0 +1,12 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1202,
+  "nb_rooms": 2,
+  "nb_objects": 3,
+  "quest_length": 3,
+  "walkthrough": [
+    "go south",
+    "take insect from bookshelf",
+    "put insect on shelf"
+  ]
+}

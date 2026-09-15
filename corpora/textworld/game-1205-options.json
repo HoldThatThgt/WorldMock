@@ -1,0 +1,14 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1205,
+  "nb_rooms": 3,
+  "nb_objects": 5,
+  "quest_length": 5,
+  "walkthrough": [
+    "go north",
+    "take teacup from platter",
+    "go south",
+    "go east",
+    "insert teacup into coffer"
+  ]
+}

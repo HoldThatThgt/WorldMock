@@ -1,0 +1,96 @@
+{
+  "source_kind": "actual_deepseek_preflight_input_and_response",
+  "input": {
+    "input": {
+      "boundary_type": "decision",
+      "events": [
+        {
+          "agent_id": 1,
+          "data": {
+            "visible": "It is 22:00. You feel sleepy and are at home."
+          },
+          "event_id": "probe-observation",
+          "event_type": "observation",
+          "materials": [],
+          "occurred_at": 100
+        }
+      ],
+      "knowledge_cutoff_event_seq": 1,
+      "window_end": 100,
+      "window_start": 100
+    },
+    "provenance": {
+      "cutoff_event_seq": 2,
+      "model": {
+        "name": "fixture"
+      },
+      "run_id": "preflight-fixture",
+      "source_event_ids": [
+        "probe-observation"
+      ],
+      "source_group_id": "preflight-fixture",
+      "window_id": "probe-window"
+    },
+    "target": {
+      "outcomes": [],
+      "request": {
+        "action_id": "probe-action",
+        "data": {
+          "request": {
+            "activity_type": "sleep",
+            "planned_duration_seconds": 3600
+          },
+          "tool": "start_activity"
+        },
+        "event_id": "probe-action"
+      },
+      "future_canary": "future-answer-must-not-enter-judge-8caf47"
+    },
+    "task": "action"
+  },
+  "annotation": {
+    "target": {
+      "claims": [
+        {
+          "text": "当前时间为22:00。",
+          "kind": "fact",
+          "evidence_event_ids": [
+            "probe-observation"
+          ]
+        },
+        {
+          "text": "agent 1 在家中。",
+          "kind": "fact",
+          "evidence_event_ids": [
+            "probe-observation"
+          ]
+        },
+        {
+          "text": "agent 1 感到困倦。",
+          "kind": "fact",
+          "evidence_event_ids": [
+            "probe-observation"
+          ]
+        },
+        {
+          "text": "agent 1 可能因困倦而考虑休息。",
+          "kind": "inference",
+          "evidence_event_ids": [
+            "probe-observation"
+          ]
+        }
+      ],
+      "intent_candidates": [
+        {
+          "intent": "rest",
+          "basis": "inferred"
+        },
+        {
+          "intent": "unknown",
+          "basis": "uncertain"
+        }
+      ],
+      "uncertainty": "仅知 agent 1 在22:00于家中感到困倦，无法确定其下一步具体动作（如是否立即休息、继续其他活动等）。"
+    }
+  }
+}

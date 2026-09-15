@@ -1,0 +1,58 @@
+"""身体曲线和资源结算的独立数值测试。"""
+
+from __future__ import annotations
+
+import pytest
+
+from worldmock.life.body import ActivityFactors, apply_food, interpolate, settle_body
+from worldmock.life.models import ActivityKind, BodyState
+from worldmock.life.scenario import load_scenario
+
+
+@pytest.fixture(scope="module")
+def body_config():
+    """读取正式冻结身体参数。"""
+    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+
+
+def test_piecewise_curves_clamp_and_interpolate(body_config) -> None:
+    """曲线在节点、区间和两端均遵守冻结值。"""
+    curve = body_config.work_efficiency_curve
+    assert interpolate(curve, 0) == 1
+    assert interpolate(curve, 12) == pytest.approx(0.925)
+    assert interpolate(curve, 40) == 0.65
+
+
+def test_awake_and_sleep_settle_independent_resources(body_config) -> None:
+    """清醒增加睡眠不足，睡眠恢复不足且两者都消耗基础能量。"""
+    initial = BodyState(energy_kcal=1600, sleep_debt_hours=4, entertainment_need=0.2)
+    awake = settle_body(initial, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    assert awake.after.energy_kcal == pytest.approx(1502.5)
+    assert awake.after.sleep_debt_hours == 5
+    assert awake.after.entertainment_need == pytest.approx(0.28)
+    asleep = settle_body(awake.after, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
+    assert asleep.after.energy_kcal == pytest.approx(1437.5)
+    assert asleep.after.sleep_debt_hours == 3
+    assert asleep.after.entertainment_need == pytest.approx(0.28)
+
+
+def test_entertainment_uses_person_preference_factor(body_config) -> None:
+    """相同观看时长按人物偏好乘数降低娱乐需要。"""
+    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0.8)
+    result = settle_body(body, ActivityKind.WATCH, 3600, body_config, ActivityFactors(1, 0.21))
+    assert result.after.entertainment_need == pytest.approx(0.59)
+
+
+def test_food_uses_sleep_debt_curve_and_energy_cap(body_config) -> None:
+    """食物按进食时睡眠不足折算并遵守最大能量。"""
+    body = BodyState(energy_kcal=2300, sleep_debt_hours=12, entertainment_need=0)
+    result = apply_food(body, 200, body_config)
+    assert result.food_efficiency == pytest.approx(0.875)
+    assert result.after.energy_kcal == 2400
+
+
+def test_non_recovery_activity_rejects_negative_energy(body_config) -> None:
+    """普通活动不能把可用能量投影到负数。"""
+    body = BodyState(energy_kcal=10, sleep_debt_hours=0, entertainment_need=0)
+    with pytest.raises(ValueError, match="exhaust"):
+        settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))

@@ -1,0 +1,152 @@
+{
+  "scenario_id": "white-collar-12-weeks-evaluation",
+  "schema_version": "life-full-2026-09-15",
+  "window": {
+    "start": "2026-01-05T00:00:00+08:00",
+    "end": "2026-03-30T00:00:00+08:00",
+    "timezone": "Asia/Shanghai"
+  },
+  "bootstrap": {
+    "seed": 20260915,
+    "repetitions": 10000,
+    "block_days": 7
+  },
+  "review": {
+    "seed": "worldmock-evaluation-2026-09-15",
+    "reviewer_count": 3,
+    "dimensions": [
+      "temporal_plausibility",
+      "causal_continuity",
+      "persona_consistency",
+      "long_term_consequences",
+      "routine_and_variation",
+      "missing_expected_activity"
+    ]
+  },
+  "shared_profile": {
+    "person_count": 1,
+    "occupation_class": "white_collar",
+    "timezone": "Asia/Shanghai"
+  },
+  "special_dates": {
+    "2026-01-24": "weekend_overtime",
+    "2026-02-14": "make_up_workday",
+    "2026-02-15": "spring_festival",
+    "2026-02-16": "spring_festival",
+    "2026-02-17": "spring_festival",
+    "2026-02-18": "spring_festival",
+    "2026-02-19": "spring_festival",
+    "2026-02-20": "spring_festival",
+    "2026-02-21": "spring_festival",
+    "2026-02-22": "spring_festival",
+    "2026-02-23": "spring_festival",
+    "2026-02-28": "make_up_workday",
+    "2026-03-03": "social_dinner_opportunity",
+    "2026-03-12": "sick_leave",
+    "2026-03-18": "personal_leave",
+    "2026-03-28": "weekend_overtime"
+  },
+  "category_mappings": {
+    "labelkit_sequence_class": {
+      "food_order": "purchase",
+      "navigation": "travel",
+      "check_in": "work",
+      "weak_no_intent": "browsing",
+      "coffee_order": "purchase",
+      "grocery_purchase": "purchase"
+    },
+    "labelkit_pattern": {
+      "fitness_habit": "fitness",
+      "social_habit": "social",
+      "entertainment_habit": "entertainment"
+    },
+    "worldmock_activity": {
+      "sleep": "sleep",
+      "work": "work",
+      "eat": "eat",
+      "purchase": "purchase",
+      "watch": "entertainment",
+      "play_game": "entertainment",
+      "travel": "travel",
+      "browse": "browsing",
+      "read_mail": "work",
+      "consume": "product_use",
+      "wait": "waiting"
+    }
+  },
+  "official_domain_map": {
+    "sleep": ["personal_essential"],
+    "eat": ["personal_essential"],
+    "work": ["paid_work"],
+    "fitness": ["discretionary"],
+    "social": ["discretionary"],
+    "entertainment": ["discretionary"],
+    "travel": ["transportation"]
+  },
+  "official_reference": {
+    "source": {
+      "publisher": "National Bureau of Statistics of China",
+      "survey": "Third National Time Use Survey",
+      "published": "2024-10-31",
+      "collection_period": "2024-05-11/2024-05-31",
+      "interval_minutes": 15,
+      "url": "https://www.stats.gov.cn/zt_18555/zthd/lhfw/2025/2025_qgsjlydc/202501/t20250127_1958534.html"
+    },
+    "domains": {
+      "personal_essential": {
+        "label_zh": "个人生理必需",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 746, "participation_rate": 1.0},
+        "working_age": {"participant_minutes": 732, "participation_rate": 1.0}
+      },
+      "paid_work": {
+        "label_zh": "有酬劳动",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 383, "participation_rate": 0.521},
+        "working_age": {"participant_minutes": 392, "participation_rate": 0.756}
+      },
+      "unpaid_work": {
+        "label_zh": "无酬劳动",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 164, "participation_rate": 0.760},
+        "working_age": {"participant_minutes": 162, "participation_rate": 0.827}
+      },
+      "discretionary": {
+        "label_zh": "个人自由支配",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 214, "participation_rate": 0.972},
+        "working_age": {"participant_minutes": 188, "participation_rate": 0.971}
+      },
+      "training": {
+        "label_zh": "学习培训",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 424, "participation_rate": 0.253},
+        "working_age": {"participant_minutes": 302, "participation_rate": 0.128}
+      },
+      "transportation": {
+        "label_zh": "交通",
+        "supported_duration_kinds": ["world_activity"],
+        "urban": {"participant_minutes": 64, "participation_rate": 0.840},
+        "working_age": {"participant_minutes": 66, "participation_rate": 0.849}
+      },
+      "internet_use": {
+        "label_zh": "互联网使用",
+        "supported_duration_kinds": ["observed_digital_session", "world_internet_session"],
+        "urban": {"participant_minutes": 402, "participation_rate": 0.943},
+        "working_age": {"participant_minutes": 439, "participation_rate": 0.987}
+      }
+    }
+  },
+  "expected_labelkit": {
+    "run_id": "ec5742eff472d320dac4f98c6d1fd478",
+    "delivery_digest": "69ad20d2838e39ece6e420cdabfffa2f6d948d986e7f877c543a5302bd2a1eff",
+    "main_rows": 4380,
+    "stream_rows": 16320,
+    "raw_main_sha256": "4367ccb47d1e04c7b6a0d6c7a885332c690a1e3e96bae22ba21efc513aebb059",
+    "raw_stream_sha256": "40b3a8ab16e0e31191297d5eb57485aeb1bffdc7cb6f9c5b8681fd941b49ffb7",
+    "repaired_main_sha256": "ba0f5261d19aa53630851f390bb63b42665a60cdbb1fa3d6bb2782d9424a657f",
+    "repaired_stream_sha256": "835eae012007f0841e0c831ed696aa3caea4cd77fb552032917cc6a834a58009",
+    "repair_report_sha256": "e671f457a1631b76cea1f8a4421d0aeadbe5ad6ac777616e7b054bd22a69d8ae",
+    "final_audit_sha256": "4cc494f512c77d1998063cc5d254b9ae6b2e26648e02cbda24eeb958a8b860e0"
+  }
+}

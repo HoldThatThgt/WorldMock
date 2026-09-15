@@ -1,0 +1,208 @@
+import json
+import hashlib
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from worldmock.errors import IntegrityError
+from worldmock.footprints.assets import AssetStore
+from worldmock.footprints.checkpoint import restore_branch, restore_directory, snapshot_directory
+from worldmock.footprints.models import EventDraft, canonical_json
+from worldmock.footprints.store import FootprintStore
+
+
+@pytest.fixture
+def store(tmp_path):
+    value = FootprintStore.create(tmp_path / 'parent', {'run_id': 'parent', 'agent_ids': [1], 'code': 'frozen'},
+                                  {'version': 0, 'current_time': 100, 'balance': 50})
+    yield value
+    value.close()
+
+
+def test_state_and_events_commit_together_and_reject_same_version_mutation(store):
+    event = EventDraft(event_type='action_result', occurred_at=110, data={'paid': 5})
+    state = {'version': 1, 'current_time': 110, 'balance': 45}
+    saved = store.commit(state, [event])
+    assert store.state == state
+    assert saved[0].event_seq == 1
+    assert (saved[0].state_version_before, saved[0].state_version_after) == (0, 1)
+    with pytest.raises(IntegrityError):
+        store.commit({**state, 'balance': 900}, [])
+    assert store.state == state
+    assert store.last_event_seq == 1
+
+
+def test_same_world_observations_share_version_and_preserve_duplicate_behavior(store):
+    drafts = [EventDraft(event_type='observation', occurred_at=100, data={'title': 'same'}) for _ in range(2)]
+    result = store.commit(store.state, drafts)
+    assert [event.event_seq for event in result] == [1, 2]
+    assert result[0].event_id != result[1].event_id
+    assert {event.state_version_after for event in result} == {0}
+
+
+def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
+    drafts = [EventDraft(event_type=kind, occurred_at=100, agent_id=agent)
+              for kind, agent in [('action_result', 1), ('observation', 1), ('action_result', 2),
+                                  ('model_response', 1), ('action_result', 1), ('action_result', 1)]]
+    store.commit(store.state, drafts)
+    boundary = store.last_agent_event_seq('observation', 1)
+    assert boundary == 2
+    assert store.last_agent_event_seq('observation', 2) == 0
+    assert [event.event_seq for event in store.read_agent_events('action_result', 1, boundary)] == [5, 6]
+    query = """EXPLAIN QUERY PLAN SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
+               AND json_extract(body,'$.event_type')=? AND event_seq>? ORDER BY event_seq"""
+    plan = list(store.connection.execute(query, (1, 'action_result', boundary)))
+    assert any('events_agent_type' in row[-1] for row in plan)
+
+
+def test_world_change_without_any_event_cannot_be_committed(store):
+    with pytest.raises(IntegrityError):
+        store.commit({'version': 1, 'current_time': 200, 'balance': 900}, [])
+    assert store.state == {'version': 0, 'current_time': 100, 'balance': 50}
+    assert store.last_event_seq == 0
+
+
+@pytest.mark.parametrize('activity_id', [None, 'other'])
+def test_inconsistent_activity_identity_fails_before_world_commit(store, activity_id):
+    draft = EventDraft(event_type='action_accepted', occurred_at=110, activity_id=activity_id,
+                       data={'activity': {'activity_id': 'actual'}})
+    with pytest.raises(IntegrityError):
+        store.commit({'version': 1, 'current_time': 110, 'balance': 45}, [draft])
+    assert store.state['version'] == 0 and store.state['balance'] == 50
+    assert store.last_event_seq == 0
+
+
+def test_sql_failure_rolls_back_money_and_all_events(store, monkeypatch):
+    original = store._insert_event
+    calls = []
+    def fail_second(event):
+        calls.append(event)
+        original(event)
+        if len(calls) == 2:
+            raise sqlite3.OperationalError('Injected disk failure')
+    monkeypatch.setattr(store, '_insert_event', fail_second)
+    events = [EventDraft(event_type='action_result', occurred_at=110) for _ in range(2)]
+    with pytest.raises(sqlite3.OperationalError):
+        store.commit({'version': 1, 'current_time': 110, 'balance': 30}, events)
+    assert store.state['balance'] == 50
+    assert store.last_event_seq == 0
+
+
+@pytest.mark.parametrize('change', ['future', 'backwards', 'cause', 'observed_future'])
+def test_invalid_time_and_causal_references_fail_without_state_change(store, change):
+    fields = {'event_type': 'observation', 'occurred_at': 100}
+    if change == 'future': fields['occurred_at'] = 101
+    if change == 'backwards': fields['occurred_at'] = 99
+    if change == 'cause': fields['caused_by'] = ['absent']
+    if change == 'observed_future': fields['observed_at'] = 101
+    with pytest.raises(IntegrityError):
+        store.commit(store.state, [EventDraft(**fields)])
+    assert store.last_event_seq == 0
+
+
+def test_cause_in_same_transaction_and_immutable_database(store):
+    first = EventDraft(event_type='action_requested', occurred_at=100)
+    second = EventDraft(event_type='action_accepted', occurred_at=100, caused_by=[first.event_id])
+    store.commit(store.state, [first, second])
+    assert store.read_events(2)[1].caused_by == [first.event_id]
+    with pytest.raises(sqlite3.IntegrityError):
+        store.connection.execute('DELETE FROM events')
+    with pytest.raises(IntegrityError):
+        store.commit(store.state, [first])
+
+
+def test_missing_or_damaged_asset_prevents_commit_and_checkpoint(store):
+    reference = store.assets.put(b'evidence', {'media_type': 'text/plain', 'source': {'kind': 'fixture'}})
+    (store.assets.root / reference.sha256).write_bytes(b'corrupt')
+    event = EventDraft(event_type='model_response', occurred_at=100, artifact_refs=[reference])
+    with pytest.raises(IntegrityError): store.commit(store.state, [event])
+    with pytest.raises(IntegrityError): store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    assert store.last_event_seq == 0
+    assert store.connection.execute('SELECT COUNT(*) FROM checkpoints').fetchone()[0] == 0
+
+
+def test_complete_checkpoint_branch_preserves_parent_and_exact_workspace(store, tmp_path):
+    workspace = tmp_path / 'workspace'
+    workspace.mkdir()
+    (workspace / 'MEMORY.md').write_text('earlier memory')
+    reference = snapshot_directory(workspace, store.assets)
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    (workspace / 'MEMORY.md').write_text('later uncommitted memory')
+    store.commit({'version': 1, 'current_time': 200, 'balance': 10},
+                 [EventDraft(event_type='action_result', occurred_at=200)])
+    before = {str(p.relative_to(store.run_dir)): p.read_bytes() for p in store.run_dir.rglob('*') if p.is_file()}
+    child = restore_branch(store, point.checkpoint_id, tmp_path / 'child')
+    try:
+        assert child.state == {'version': 1, 'current_time': 100, 'balance': 50,
+                               'run_id': child.manifest['run_id']}
+        assert child.manifest['parent_run_id'] == 'parent'
+        assert child.manifest['run_id'] != 'parent'
+        assert child.last_event_seq == point.last_event_seq + 1
+        restore_directory(reference, child.assets, tmp_path / 'restored-agent')
+        assert (tmp_path / 'restored-agent' / 'MEMORY.md').read_text() == 'earlier memory'
+        after = {str(p.relative_to(store.run_dir)): p.read_bytes() for p in store.run_dir.rglob('*') if p.is_file()}
+        assert before == after
+    finally:
+        child.close()
+
+
+def test_incomplete_checkpoint_never_creates_child(store, tmp_path):
+    reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    (store.assets.root / reference.sha256).unlink()
+    with pytest.raises(IntegrityError):
+        restore_branch(store, point.checkpoint_id, tmp_path / 'must-not-exist')
+    assert not (tmp_path / 'must-not-exist').exists()
+
+
+def test_failed_checkpoint_transaction_does_not_publish_record(store, monkeypatch):
+    reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
+    def fail(event): raise sqlite3.OperationalError('Injected checkpoint failure')
+    monkeypatch.setattr(store, '_insert_event', fail)
+    with pytest.raises(sqlite3.OperationalError):
+        store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    assert store.connection.execute('SELECT COUNT(*) FROM checkpoints').fetchone()[0] == 0
+    assert store.last_event_seq == 0
+
+
+@pytest.mark.parametrize('field,value', [('run_id', 'another-run'), ('current_time', 999), ('state_version', 10)])
+def test_rehashed_checkpoint_with_inconsistent_world_is_rejected(store, tmp_path, field, value):
+    reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    payload = point.model_dump(exclude={'record_sha256'})
+    payload[field] = value
+    raw = canonical_json(payload)
+    store.connection.execute('DROP TRIGGER checkpoints_no_update')
+    with store.connection:
+        store.connection.execute('UPDATE checkpoints SET body=?,record_sha256=?',
+                                 (raw.decode(), hashlib.sha256(raw).hexdigest()))
+    with pytest.raises(IntegrityError):
+        store.restore(point.checkpoint_id, tmp_path / 'child')
+    assert not (tmp_path / 'child').exists()
+
+
+@pytest.mark.parametrize('field,value', [('event_type', 'observation'), ('occurred_at', 99),
+                                       ('state_version_after', 1), ('run_id', 'another-run')])
+def test_checkpoint_event_must_match_committed_identity_and_clock(store, field, value):
+    reference = store.assets.put_json({'memory': 'saved'}, {'kind': 'agent'})
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    event = store.read_events(point.last_event_seq)[-1].model_dump()
+    event[field] = value
+    store.connection.execute('DROP TRIGGER events_no_update')
+    with store.connection:
+        store.connection.execute('UPDATE events SET body=?', (canonical_json(event).decode(),))
+    with pytest.raises(IntegrityError):
+        store.get_checkpoint(point.checkpoint_id)
+
+
+def test_credentials_are_redacted_without_losing_model_task(monkeypatch):
+    from worldmock.footprints.evidence import redact_evidence
+    monkeypatch.setenv('DEEPSEEK_API_KEY', 'private-credential-value')
+    original = {'headers': {'Authorization': 'Bearer private-credential-value'},
+                'messages': [{'role': 'user', 'content': 'Read the actual meeting transcript'}],
+                'failure': 'Request private-credential-value failed'}
+    result = redact_evidence(original)
+    assert 'private-credential-value' not in json.dumps(result)
+    assert result['messages'] == original['messages']
+    assert original['headers']['Authorization'] == 'Bearer private-credential-value'

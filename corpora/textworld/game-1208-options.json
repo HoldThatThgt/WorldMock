@@ -1,0 +1,14 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1208,
+  "nb_rooms": 3,
+  "nb_objects": 5,
+  "quest_length": 5,
+  "walkthrough": [
+    "go south",
+    "go west",
+    "take insect",
+    "go east",
+    "put insect on counter"
+  ]
+}

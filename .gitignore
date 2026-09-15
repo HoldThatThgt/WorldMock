@@ -1,0 +1,12 @@
+.venv/
+.work/
+.ray/
+runs/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+*.pyc
+.DS_Store
+labelkit-projects/out/
+labelkit-projects/data/

@@ -1,0 +1,107 @@
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "x-labelkit-postprocessor": true
+    },
+    "input": {
+      "type": "object",
+      "x-labelkit-postprocessor": true
+    },
+    "target": {
+      "type": "object",
+      "properties": {
+        "claims": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fact",
+                  "inference",
+                  "hypothesis"
+                ]
+              },
+              "evidence_event_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "text",
+              "kind",
+              "evidence_event_ids"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "intent_candidates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "intent": {
+                "type": "string",
+                "enum": [
+                  "hunger",
+                  "rest",
+                  "work",
+                  "entertainment",
+                  "travel",
+                  "purchase",
+                  "communication",
+                  "unknown"
+                ]
+              },
+              "basis": {
+                "type": "string",
+                "enum": [
+                  "stated",
+                  "inferred",
+                  "uncertain"
+                ]
+              }
+            },
+            "required": [
+              "intent",
+              "basis"
+            ],
+            "additionalProperties": false
+          },
+          "minItems": 1
+        },
+        "uncertainty": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "claims",
+        "intent_candidates",
+        "uncertainty"
+      ],
+      "additionalProperties": false
+    },
+    "provenance": {
+      "type": "object",
+      "x-labelkit-postprocessor": true
+    }
+  },
+  "required": [
+    "task",
+    "input",
+    "target",
+    "provenance"
+  ],
+  "additionalProperties": false
+}

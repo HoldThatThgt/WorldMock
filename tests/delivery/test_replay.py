@@ -1,0 +1,86 @@
+import hashlib
+
+import pytest
+
+from worldmock.delivery.replay import replay_windows
+from worldmock.errors import IntegrityError
+from worldmock.footprints.export import export_run
+from worldmock.footprints.models import EventDraft, canonical_json
+from worldmock.footprints.store import FootprintStore
+
+
+def finish_export(store, directory):
+    store.commit({'version': store.state['version'] + 1, 'current_time': 200},
+                 [EventDraft(event_type='run_ended', occurred_at=200)])
+    reference = store.assets.put_json({'complete': True}, {'kind': 'fixture'})
+    point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
+    export_run(store, point.last_event_seq, directory)
+
+
+@pytest.fixture
+def pair(tmp_path):
+    manifest = {'run_id': 'parent', 'source_group_id': 'parent', 'agent_ids': [1],
+                'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
+    parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
+    observed = parent.commit(parent.state, [EventDraft(event_type='observation', occurred_at=100,
+                                                       agent_id=1, data={'balance_fen': 800})])[0]
+    ref = parent.assets.put_json({'state': 'parent'}, {'kind': 'fixture'})
+    checkpoint = parent.checkpoint(parent.state, {'agent:1': ref, 'life': ref})
+    request = {'kind': 'set_balance_fen', 'agent_id': 1, 'balance_fen': 50,
+               'hypothesis': 'Less liquidity may reduce purchases.', 'source_event_ids': [observed.event_id]}
+    digest = hashlib.sha256(canonical_json({'tool_name': 'counterfactual_intervention', 'request': request})).hexdigest()
+    child = parent.restore(checkpoint.checkpoint_id, tmp_path / 'child',
+                            {'branch_kind': 'counterfactual', 'intervention_sha256': digest})
+    child.commit({'version': child.state['version'] + 1, 'current_time': 100}, [EventDraft(
+        event_type='environment_event', occurred_at=100, agent_id=1, visibility='evaluation',
+        caused_by=[observed.event_id], data={'kind': 'counterfactual_intervention',
+                                           'intervention_kind': 'set_balance_fen', 'hypothesis': request['hypothesis'],
+                                           'source_event_ids': request['source_event_ids'],
+                                           'intervention_sha256': digest, 'before_balance_fen': 800,
+                                           'after_balance_fen': 50})])
+    child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
+                                          data={'balance_fen': 50}),
+                               EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
+                                          action_id='wait', data={'tool_name': 'start_basic_activity', 'kind': 'wait'})])
+    source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
+    finish_export(parent, source_dir)
+    finish_export(child, replay_dir)
+    parent.close()
+    child.close()
+    return source_dir, replay_dir, observed.event_id, digest
+
+
+def test_completed_actual_branch_binds_hypothesis_checkpoint_and_results(pair):
+    source, replay, origin_id, digest = pair
+    records = replay_windows(source, replay)
+    assert len(records) == 1
+    record = records[0]
+    assert record['input']['counterfactual']['world_kind'] == 'resimulated'
+    assert record['input']['counterfactual']['balance_fen'] == 50
+    assert record['input']['prerequisite_state']['state'] == {'balance_fen': 50}
+    binding = record['target']['environment_replay']
+    assert binding['parent_run_id'] == 'parent'
+    assert binding['intervention_sha256'] == digest
+    assert binding['source_event_ids'] == [origin_id]
+    assert binding['result_event_ids'] == [event['event_id'] for event in record['input']['events']]
+    assert origin_id in record['provenance']['source_event_ids']
+    assert binding['run_id'] != binding['parent_run_id']
+
+
+def test_original_world_cannot_be_mislabeled_as_an_actual_replay(pair):
+    source, _replay, _origin, _digest = pair
+    with pytest.raises(IntegrityError, match='does not belong'):
+        replay_windows(source, source)
+
+
+def test_actual_branch_rejects_unrelated_parent(pair, tmp_path):
+    source, replay, _origin, _digest = pair
+    parent = FootprintStore.create(tmp_path / 'unrelated', {
+        'run_id': 'unrelated', 'source_group_id': 'unrelated', 'agent_ids': [1],
+        'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}
+    }, {'version': 0, 'current_time': 100})
+    other = tmp_path / 'other-export'
+    finish_export(parent, other)
+    parent.close()
+    with pytest.raises(IntegrityError, match='does not belong'):
+        replay_windows(other, replay)

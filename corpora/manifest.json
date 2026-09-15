@@ -1,0 +1,792 @@
+{
+  "schema_version": 1,
+  "corpus_id": "life-full-2026-09-15",
+  "created_at": "2026-09-15T12:00:00+08:00",
+  "transformer_version": "worldmock-life-corpus-1",
+  "entries": [
+    {
+      "entry_id": "LICENSES.md",
+      "path": "LICENSES.md",
+      "sha256": "61e8a22c54e7cd7532d5ac7fb25487764bd1b163b03d35238ae9ba5db22747ee",
+      "size_bytes": 511,
+      "media_type": "text/markdown",
+      "purpose": "LICENSES.md",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "complete frozen file",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:ami_public_manual_1.6.2.zip",
+      "path": "ami-es2002/ami_public_manual_1.6.2.zip",
+      "sha256": "b56e5babb2496b8795deeeda7e71178d7fbc9963f94276cf2a3f4b56ebbc9f9d",
+      "size_bytes": 22887865,
+      "media_type": "application/zip",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:inputs:ES2002a.txt",
+      "path": "ami-es2002/inputs/ES2002a.txt",
+      "sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
+      "size_bytes": 14232,
+      "media_type": "text/plain",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:inputs:ES2002b.txt",
+      "path": "ami-es2002/inputs/ES2002b.txt",
+      "sha256": "965b736c24c48c85d356eb1a34350642be18a46749c549723660f83747211be4",
+      "size_bytes": 37474,
+      "media_type": "text/plain",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:inputs:ES2002c.txt",
+      "path": "ami-es2002/inputs/ES2002c.txt",
+      "sha256": "2c9d12f026199852e65f01cb95b332110b4544f81e33565a26f05354a60c5cff",
+      "size_bytes": 40754,
+      "media_type": "text/plain",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:inputs:ES2002d.txt",
+      "path": "ami-es2002/inputs/ES2002d.txt",
+      "sha256": "8f805f3bf42291d60f57b28e7435c5ecf82bf173c8851fce4c4ba6a16e38d2b4",
+      "size_bytes": 41442,
+      "media_type": "text/plain",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002a.abssumm.xml",
+      "path": "ami-es2002/references/ES2002a.abssumm.xml",
+      "sha256": "13551d1be5c5a3d72345b18b840d033534a4ee80d50e648dfcaad646f1ba6d91",
+      "size_bytes": 1691,
+      "media_type": "application/xml",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002a.oracle.json",
+      "path": "ami-es2002/references/ES2002a.oracle.json",
+      "sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
+      "size_bytes": 599,
+      "media_type": "application/json",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002b.abssumm.xml",
+      "path": "ami-es2002/references/ES2002b.abssumm.xml",
+      "sha256": "a4a1b9aaed89a5488a5f4c8b3d3dd87e94bdd69b60b31c2b592665d71956eb1f",
+      "size_bytes": 3358,
+      "media_type": "application/xml",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002b.oracle.json",
+      "path": "ami-es2002/references/ES2002b.oracle.json",
+      "sha256": "eaaa27ba3c1bd7c98ca66c34272057fc1dee0196cd95cd11a33afeab42e35225",
+      "size_bytes": 945,
+      "media_type": "application/json",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002c.abssumm.xml",
+      "path": "ami-es2002/references/ES2002c.abssumm.xml",
+      "sha256": "6de6e03d8e7e098fb2c53caf8c18b5b588b736ba7ae61c82a2c186ffca693fa3",
+      "size_bytes": 3335,
+      "media_type": "application/xml",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002c.oracle.json",
+      "path": "ami-es2002/references/ES2002c.oracle.json",
+      "sha256": "51fa0db1bafdfd54ea2c2340f5df0ffd3a8c023cba07ed03c9170975d68d4ee1",
+      "size_bytes": 689,
+      "media_type": "application/json",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002d.abssumm.xml",
+      "path": "ami-es2002/references/ES2002d.abssumm.xml",
+      "sha256": "a600126fffb1891f1b9ef0891332fd4e47995c83cd8eb31c852b2eba7074f50e",
+      "size_bytes": 2559,
+      "media_type": "application/xml",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "ami-es2002:references:ES2002d.oracle.json",
+      "path": "ami-es2002/references/ES2002d.oracle.json",
+      "sha256": "29af3ec08114121c74c72ce14ea37d11fc3f651f43c1922b2a6d43aec155d9b8",
+      "size_bytes": 599,
+      "media_type": "application/json",
+      "purpose": "ami-es2002",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://groups.inf.ed.ac.uk/ami/download/",
+        "retrieved_at": "2026-09-15T10:20:00+08:00",
+        "license": "CC-BY-4.0",
+        "selector": "manual 1.6.2 ES2002a-d",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "open-food-facts:china-100.json",
+      "path": "open-food-facts/china-100.json",
+      "sha256": "b8be4d5320e150ac084b6459df8f629bff94bc376619f44ab18936c592074512",
+      "size_bytes": 87662,
+      "media_type": "application/json",
+      "purpose": "open-food-facts",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://world.openfoodfacts.org/api/v2/search?countries_tags_en=china",
+        "retrieved_at": "2026-09-15T10:00:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "eight-barcode-allowlist",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "open-food-facts:products.json",
+      "path": "open-food-facts/products.json",
+      "sha256": "e0356d5852e3ce08da32d9e13ef5fd2968d5bbb7734fc3ac94ea2b3adc59dd6d",
+      "size_bytes": 1379,
+      "media_type": "application/json",
+      "purpose": "open-food-facts",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://world.openfoodfacts.org/api/v2/search?countries_tags_en=china",
+        "retrieved_at": "2026-09-15T10:00:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "eight-barcode-allowlist",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "scenario-catalog:catalog.json",
+      "path": "scenario-catalog/catalog.json",
+      "sha256": "63f8e976fd977055e54864418a4bf3c5e515b1934d24ee0965380b7df1e55411",
+      "size_bytes": 9255,
+      "media_type": "application/json",
+      "purpose": "scenario-catalog",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "complete frozen file",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "scenario-mail:threads.json",
+      "path": "scenario-mail/threads.json",
+      "sha256": "12e206d7fc87179b5554f128f0c582c483e45a14a442f8a7ae55a475d9514249",
+      "size_bytes": 62698,
+      "media_type": "application/json",
+      "purpose": "scenario-mail",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "complete frozen file",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "sintel:media-identity.json",
+      "path": "sintel/media-identity.json",
+      "sha256": "f2ec1ad002a3e45f41ef279578a67ed57432580f74b5025aaaa07db2c6951aac",
+      "size_bytes": 266,
+      "media_type": "application/json",
+      "purpose": "sintel",
+      "source": {
+        "kind": "external_media",
+        "url": "https://durian.blender.org/download/",
+        "retrieved_at": "2026-09-15T10:10:00+08:00",
+        "license": "CC-BY-3.0",
+        "selector": "official English SRT and movie identity",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "sintel:sintel_en.srt",
+      "path": "sintel/sintel_en.srt",
+      "sha256": "4ed7e1f1bc5ff69fe33606960e4c048ba6766237bf33b132fef76e1a92cb64b2",
+      "size_bytes": 1514,
+      "media_type": "application/x-subrip",
+      "purpose": "sintel",
+      "source": {
+        "kind": "external_media",
+        "url": "https://durian.blender.org/download/",
+        "retrieved_at": "2026-09-15T10:10:00+08:00",
+        "license": "CC-BY-3.0",
+        "selector": "official English SRT and movie identity",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1201-options.json",
+      "path": "textworld/game-1201-options.json",
+      "sha256": "9723e12ab812969c1ff44de8d22d43244e8d3cf8dabf83758c8190cf989b69de",
+      "size_bytes": 196,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1201.json",
+      "path": "textworld/game-1201.json",
+      "sha256": "4e0fc25651a001168e3c20f1b618f7c168a4cfb17e86fce82f40dcb6688cef43",
+      "size_bytes": 19140,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1202-options.json",
+      "path": "textworld/game-1202-options.json",
+      "sha256": "be96490a88668bcb264fa9eb692662df1b3fb6eb89dff4921da13bb4cf36f39c",
+      "size_bytes": 208,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1202.json",
+      "path": "textworld/game-1202.json",
+      "sha256": "8650fc541935de21f5ce578e8e873c6b43923a607e90ece51f5c2deb52245d40",
+      "size_bytes": 20082,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1203-options.json",
+      "path": "textworld/game-1203-options.json",
+      "sha256": "0634d5dbff195645ccbc5cd88f4ac0e26ec3a4a1489de75c3a2981153fe4d120",
+      "size_bytes": 166,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1203.json",
+      "path": "textworld/game-1203.json",
+      "sha256": "63812574e4af1941dc19bc22e4caf34a66864488d3861b2b54530b1ee5a6fe3d",
+      "size_bytes": 18409,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1204-options.json",
+      "path": "textworld/game-1204-options.json",
+      "sha256": "ec6e8abc230bbddcb1a51555de112d7e2475e73f2c209293cf69144a3c32ddd2",
+      "size_bytes": 206,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1204.json",
+      "path": "textworld/game-1204.json",
+      "sha256": "5c5908ed48b4984637ad007e12ddaec2cb69eba87a02bc3a7913f68296e90962",
+      "size_bytes": 20237,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1205-options.json",
+      "path": "textworld/game-1205-options.json",
+      "sha256": "4f799a5971cda6bb5fc3d2e2bc8b9674e43757ad032d741abb5be31a849b852c",
+      "size_bytes": 243,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1205.json",
+      "path": "textworld/game-1205.json",
+      "sha256": "3999ce32364b320af4bb9a2ab4cd50947395692a3e4bcbd2700a08c472ddce88",
+      "size_bytes": 24042,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1206-options.json",
+      "path": "textworld/game-1206-options.json",
+      "sha256": "9c0b5436d16511e58b86ad9fa39193721cfe4f9ed1245e92f8931c0b195a98a3",
+      "size_bytes": 225,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1206.json",
+      "path": "textworld/game-1206.json",
+      "sha256": "4038985596035ef215c36b114a9c8cd02c64bf3e2e4e43df78c4f342f57ef1f2",
+      "size_bytes": 23635,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1207-options.json",
+      "path": "textworld/game-1207-options.json",
+      "sha256": "1817a24935998d27f8218b62223dcc47de522da06aa07d93a138a4770968a237",
+      "size_bytes": 242,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1207.json",
+      "path": "textworld/game-1207.json",
+      "sha256": "f38a969de4c083a4e97962d0c05a601dd9fe7edd64cd92ca125a35fabb243857",
+      "size_bytes": 24313,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1208-options.json",
+      "path": "textworld/game-1208-options.json",
+      "sha256": "fdc37626991092ecfbc99f7c8d0ee641d2fef367029eb4b3181a9a079a12855b",
+      "size_bytes": 225,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "textworld:game-1208.json",
+      "path": "textworld/game-1208.json",
+      "sha256": "bbee5ade614b284e132608e46cd138a4daa1b23bb8b49d8d586800c7411ef321",
+      "size_bytes": 23297,
+      "media_type": "application/json",
+      "purpose": "textworld",
+      "source": {
+        "kind": "generated_with_textworld",
+        "url": "https://github.com/microsoft/TextWorld",
+        "retrieved_at": "2026-09-15T11:00:00+08:00",
+        "license": "MIT",
+        "selector": "seed 1201 through 1208",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:home-market-driving.json",
+      "path": "zhangjiang-map/routes/home-market-driving.json",
+      "sha256": "3b14e50d4c036a9d767458305bafda0dd9dcc30dc3187d3e816c109172cf1608",
+      "size_bytes": 5063,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route home-market-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:home-market-walking.json",
+      "path": "zhangjiang-map/routes/home-market-walking.json",
+      "sha256": "fd6e7bc15cfbd783b2b43e287cef93ff61d823580cff5f722c7ddf27467b1634",
+      "size_bytes": 6503,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route home-market-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:home-office-driving.json",
+      "path": "zhangjiang-map/routes/home-office-driving.json",
+      "sha256": "70ed8ab3ae54485d20d560e4530c6d5044ec34f6b81154ce4fc90d7a41021f58",
+      "size_bytes": 9288,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route home-office-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:home-office-walking.json",
+      "path": "zhangjiang-map/routes/home-office-walking.json",
+      "sha256": "0107f162ec4625e4801ff3052b221a32f5d6cd67aa197d0fe6dfdc4c92c38b33",
+      "size_bytes": 8485,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route home-office-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:market-home-driving.json",
+      "path": "zhangjiang-map/routes/market-home-driving.json",
+      "sha256": "9a3393fadeafa8670be5abf89421a7b8fdda3a77f51323f402ba20797efd5dd2",
+      "size_bytes": 6054,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route market-home-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:market-home-walking.json",
+      "path": "zhangjiang-map/routes/market-home-walking.json",
+      "sha256": "8c6aad1a0d845016265263ae9a291c85e5ac1f2f4b35248c33a124af54588b34",
+      "size_bytes": 6511,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route market-home-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:market-office-driving.json",
+      "path": "zhangjiang-map/routes/market-office-driving.json",
+      "sha256": "d190d37117b23914881dc916a7db78d70730c743ba5b41dd79d4d9efaf65cf62",
+      "size_bytes": 5555,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route market-office-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:market-office-walking.json",
+      "path": "zhangjiang-map/routes/market-office-walking.json",
+      "sha256": "f487e1cfb2c3547ee99fa7e9e53bc5cc0b31fb9939dcc8918576b2af4aab8edc",
+      "size_bytes": 4277,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route market-office-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:office-home-driving.json",
+      "path": "zhangjiang-map/routes/office-home-driving.json",
+      "sha256": "63b53df2f8c1817dc9aff0f0a30c7ae44d290d8c0b997ba33ad276cf7826e9cd",
+      "size_bytes": 6793,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route office-home-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:office-home-walking.json",
+      "path": "zhangjiang-map/routes/office-home-walking.json",
+      "sha256": "4e19fb8eae0191a852dbd2569f337994c637fa61e92fbd67001b6527d2e045d5",
+      "size_bytes": 8487,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route office-home-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:office-market-driving.json",
+      "path": "zhangjiang-map/routes/office-market-driving.json",
+      "sha256": "68cca9d893339444daf564c689c25f8149eb0bfdf2b948ee42cc945660408e26",
+      "size_bytes": 4260,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://router.project-osrm.org/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route office-market-driving",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:routes:office-market-walking.json",
+      "path": "zhangjiang-map/routes/office-market-walking.json",
+      "sha256": "cd7f9893c0244e0a7067425a9489b4648627ef9dd05f2212aa0a0837487786e1",
+      "size_bytes": 4276,
+      "media_type": "application/json",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://routing.openstreetmap.de/routed-foot/",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "frozen Zhangjiang route office-market-walking",
+        "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:zhangjiang-probe.osm",
+      "path": "zhangjiang-map/zhangjiang-probe.osm",
+      "sha256": "06c196b17cf83f5a3e4814b2f06d8c753c6b6823c1d157d69fd6c2a191d9def9",
+      "size_bytes": 3728327,
+      "media_type": "application/octet-stream",
+      "purpose": "zhangjiang-map",
+      "source": {
+        "kind": "external_geodata",
+        "url": "https://api.openstreetmap.org/api/0.6/map?bbox=121.6000,31.1950,121.6400,31.2250",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "bbox 121.6000,31.1950,121.6400,31.2250",
+        "fact_cutoff": "2026-09-15"
+      }
+    }
+  ]
+}

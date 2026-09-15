@@ -1,0 +1,35 @@
+schema_version = 1
+
+[tool]
+log_level = "info"
+log_format = "text"
+
+[llm.default]
+provider = "openai_compatible"
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+max_concurrency = 12
+timeout_s = 180
+max_retries = 0
+supports_structured_output = false
+supports_vision = false
+max_output_tokens = 8192
+context_window = 1000000
+temperature = 0.0
+thinking = "disabled"
+
+[llm.judge]
+provider = "openai_compatible"
+base_url = "https://api.deepseek.com"
+model = "deepseek-flash"
+api_key_env = "DEEPSEEK_API_KEY"
+max_concurrency = 12
+timeout_s = 180
+max_retries = 0
+supports_structured_output = false
+supports_vision = false
+max_output_tokens = 4096
+context_window = 1000000
+temperature = 0.0
+thinking = "disabled"
