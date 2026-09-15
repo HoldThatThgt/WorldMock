@@ -524,6 +524,7 @@ def test_trace_rejects_model_calls_after_the_final_passing_verdict(tmp_path):
 @pytest.mark.parametrize('payload', [
     pytest.param('{"critiques": [], "verdict": "fail"}', id='object'),
     pytest.param('[{"aspect": "wording", "opinion": "Clarify evidence scope."}]', id='array'),
+    pytest.param('修复前的原始输出不是 JSON：含控制字符 \x01\x02 与未闭合括号 {', id='arbitrary_text'),
 ])
 def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_path, payload):
     source = _current_record(tmp_path)
@@ -550,8 +551,6 @@ def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_pa
     ('wrong_model', 'unsuccessful model call'),
     ('nonzero_retry', 'unsuccessful model call'),
     ('after_final_verdict', 'schema repair call after its final verdict'),
-    ('invalid_payload', 'source input is invalid JSON'),
-    ('empty_payload', 'source input is invalid JSON'),
 ])
 def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, message):
     source = _current_record(tmp_path)
@@ -562,10 +561,6 @@ def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, mess
     rows = _successful_trace_rows('action', tmp_path, [source])
     config = tomllib.loads((tmp_path / 'config.toml').read_text())
     payload = '{"critiques": [], "verdict": "fail"}'
-    if mutation == 'invalid_payload':
-        payload = 'not-json'
-    elif mutation == 'empty_payload':
-        payload = ''
     repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
     if mutation == 'wrong_model':
         repair['payload']['gen_ai.request.model'] = 'other-model'

@@ -164,14 +164,11 @@ def _is_output_repair_call(row: dict) -> bool:
 
 
 def _validate_repair_call(row: dict, expected_models: dict[str, str]) -> None:
-    """@brief 校验非绑定修复调用的传输证据、模型身份与被修复载荷。"""
+    """@brief 校验非绑定修复调用的传输证据与模型身份；被修复载荷可为任意文本，不做解析。"""
     payload = row["payload"]
     expected_model = expected_models.get(payload.get("profile"))
     if row["stage"] != "llm" or row["record_ids"] or not _valid_model_evidence(payload, expected_model, {"user"}):
         _raise_integrity("LabelKit trace contains an unsuccessful model call")
-    for text in _message_texts(payload["gen_ai.input.messages"]):
-        if "[原始输出]" in text:
-            _marked_json_digest(text, "[原始输出]", require_object=False)
 
 
 def _safe_message_texts(messages: object) -> list[str]:
@@ -270,14 +267,14 @@ def _model_input_digest(payload: dict) -> str:
     return candidates[0]
 
 
-def _marked_json_digest(text: str, marker: str, *, require_object: bool = True) -> str:
-    """@brief 解析提示标记后的首个完整 JSON 值并计算 canonical 摘要，可选要求为对象。"""
+def _marked_json_digest(text: str, marker: str) -> str:
+    """@brief 解析提示标记后的首个完整 JSON 对象并计算 canonical 摘要。"""
     raw = text.split(marker, 1)[1].lstrip()
     try:
         value, _ = json.JSONDecoder().raw_decode(raw)
     except json.JSONDecodeError as error:
         _raise_integrity(f"LabelKit trace source input is invalid JSON: {error}")
-    if require_object and not isinstance(value, dict):
+    if not isinstance(value, dict):
         _raise_integrity("LabelKit trace source input must be a JSON object")
     canonical = json.dumps(value, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
