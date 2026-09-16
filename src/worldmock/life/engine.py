@@ -97,10 +97,14 @@ from worldmock.life.work_review import (
     public_work_review,
     review_matches,
 )
+from worldmock.opslog import OpsLogger
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
     from worldmock.footprints.models import Checkpoint
+
+#: 生活动作工具到操作日志组件的映射，未列出的工具归属 engine。
+_OPS_COMPONENTS = {"purchase": "commerce", "start_travel": "travel", "submit_work": "review"}
 
 
 class LifeEngine:
@@ -118,6 +122,7 @@ class LifeEngine:
         self._round: DecisionRoundState | None = None
         self._model_request_events: dict[tuple[str, str], str] = {}
         self._work_reviewer: WorkReviewer | None = None
+        self.ops = OpsLogger(store.run_dir, scenario.timezone)
         self._validate_runtime()
 
     @classmethod
@@ -181,6 +186,8 @@ class LifeEngine:
                                    "world_state_version": self.state.version})
                   for order, item in enumerate(contexts)]
         self.store.commit(self.state.model_dump(mode="json"), drafts)
+        self.ops.log(self.state.current_time, "engine", "info", "DECISION_ROUND_BEGAN",
+                     f"Decision round opened for {len(agent_ids)} agents", round_id=round_id)
 
     def submit_action(self, call: "DirectToolCall") -> ActionReceipt:
         """@brief 严格登记宿主绑定的有类型工具调用，尚不改变生活状态。"""
@@ -306,15 +313,42 @@ class LifeEngine:
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
             staged, result, action_drafts = self._resolve(staged, pending)
+            self._ops_action(pending, result)
             results.append(result)
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
         staged.version = self.state.version + 1
-        self.store.commit(staged.model_dump(mode="json"), drafts)
+        events = self.store.commit(staged.model_dump(mode="json"), drafts)
         self.state = staged
         self._round = None
+        self._ops_committed(round_id, results, events)
         return results
+
+    def _ops_committed(self, round_id: str, results: list[ActionResult], events: list) -> None:
+        """@brief 写决策轮结算操作日志，事件区间用于与足迹库互相跳转。"""
+        self.ops.log(self.state.current_time, "engine", "info", "DECISION_ROUND_COMMITTED",
+                     f"Decision round committed {len(results)} actions", round_id=round_id,
+                     event_seq_first=events[0].event_seq if events else None,
+                     event_seq_last=events[-1].event_seq if events else None)
+
+    def _ops_action(self, pending: PendingAction, result: ActionResult) -> None:
+        """@brief 写动作受理或拒绝与资金变动操作日志；重放动作不重复记资金。"""
+        component = _OPS_COMPONENTS.get(pending.tool_name, "engine")
+        accepted = result.status in {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS,
+                                     ActionStatus.COMPLETED}
+        keys = {"agent_id": pending.agent_id, "decision_id": pending.decision_id,
+                "round_id": pending.round_id, "action_id": pending.action_id,
+                "tool_name": pending.tool_name, "error_code": result.error_code,
+                "reused": pending.reused}
+        self.ops.log(result.occurred_at, component, "info" if accepted else "warn",
+                     "ACTION_ACCEPTED" if accepted else "ACTION_REJECTED",
+                     f"Action {pending.tool_name} resulted in {result.status.value}", **keys)
+        changes = result.data.get("resource_changes")
+        if changes and not pending.reused:
+            self.ops.log(result.occurred_at, component, "info", "FUNDS_CHANGED",
+                         f"Action {pending.tool_name} moved account funds",
+                         account_changes=changes, **keys)
 
     def abort_decision_round(self, round_id: str, error: Exception | str) -> None:
         """@brief 保存失败结果和幂等身份，不执行本轮生活动作。"""
@@ -336,6 +370,9 @@ class LifeEngine:
         self.store.commit(staged.model_dump(mode="json"), drafts)
         self.state = staged
         self._round = None
+        self.ops.log(self.state.current_time, "engine", "error", "DECISION_ROUND_ABORTED",
+                     f"Decision round aborted after {len(current.pending_actions)} actions: {error}",
+                     round_id=round_id)
 
     def scheduling_state(self) -> "SchedulingState":
         """@brief 返回 AS2 使用的带时区当前时刻、就绪人物和下一边界。"""
@@ -383,6 +420,18 @@ class LifeEngine:
             self._model_request_events[key] = event.event_id
         else:
             self._model_request_events.pop(key)
+        self._ops_exchange(context, exchange)
+
+    def _ops_exchange(self, context: "DecisionContext", exchange: Any) -> None:
+        """@brief 写模型交换操作日志，带响应中可用的模型名与 token 用量。"""
+        response = exchange.response if isinstance(exchange.response, dict) else {}
+        usage = response.get("usage") or {}
+        self.ops.log(self.state.current_time, "agent_runtime",
+                     "error" if exchange.phase == "failure" else "info", "MODEL_EXCHANGE",
+                     f"Model {exchange.phase} recorded for call {exchange.call_id}",
+                     agent_id=context.agent_id, decision_id=context.decision_id,
+                     model=response.get("model"), tokens_in=usage.get("prompt_tokens"),
+                     tokens_out=usage.get("completion_tokens"))
 
     def record_memory_update(self, evidence: Any) -> None:
         """@brief 保存人物已落盘记忆的枚举操作和内容身份。"""
@@ -400,6 +449,10 @@ class LifeEngine:
                            decision_id=evidence.context.decision_id,
                            visibility="system", source_kind="environment", data=data)
         self.store.commit(self.state.model_dump(mode="json"), [draft])
+        self.ops.log(self.state.current_time, "memory", "info", "MEMORY_UPDATED",
+                     f"Memory update appended {len(evidence.episode_ids)} episodes",
+                     agent_id=evidence.context.agent_id,
+                     decision_id=evidence.context.decision_id)
 
     def advance(self, tick: int, target: datetime) -> list[ActionResult]:
         """@brief 精确推进到下一事件边界并结算连续活动和后台事件。"""
@@ -438,6 +491,8 @@ class LifeEngine:
             return
         self.store.commit(self.state.model_dump(mode="json"),
                           [_failure_draft(self.state.current_time, error, None)])
+        self.ops.log(self.state.current_time, "engine", "error", "RUN_FAILED",
+                     f"Run failed: {error}")
 
     def apply_counterfactual(self, intervention: CounterfactualIntervention) -> CounterfactualReceipt:
         """@brief 在新反事实分支首次决策前提交一次对等余额干预。"""
@@ -506,11 +561,16 @@ class LifeEngine:
         reference = self.store.assets.put_json(receipt, {"kind": "life_checkpoint"})
         snapshots = dict(agent_snapshots)
         snapshots["life"] = reference
-        return self.store.checkpoint(self.state.model_dump(mode="json"), snapshots)
+        committed = self.store.checkpoint(self.state.model_dump(mode="json"), snapshots)
+        self.ops.log(self.state.current_time, "checkpoint", "info", "CHECKPOINT_COMMITTED",
+                     f"Checkpoint {committed.checkpoint_id} committed",
+                     event_seq_last=committed.last_event_seq)
+        return committed
 
     def close(self) -> None:
         """@brief 关闭当前运行的唯一存储连接。"""
         self.store.close()
+        self.ops.close()
 
     def _validate_runtime(self) -> None:
         """@brief 在运行前全量核对场景、内容、路线、游戏和状态身份。"""
@@ -1105,6 +1165,9 @@ class LifeEngine:
         drafts = []
         for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
             state, data = self._scheduled_effect(state, item)
+            self.ops.log(target, "engine", "info", "SCHEDULED_EVENT_DISPATCHED",
+                         f"Scheduled event {item.kind.value} dispatched", agent_id=item.agent_id,
+                         event_kind=item.kind.value, scheduled_id=item.scheduled_id)
             drafts.append(EventDraft(event_type="environment_event", occurred_at=target,
                                      agent_id=item.agent_id, source_kind="scenario",
                                      data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **data}))

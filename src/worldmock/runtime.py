@@ -26,6 +26,7 @@ from worldmock.life.models import (
     RunIdentity,
 )
 from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
 
@@ -229,7 +230,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     if not request.run_id.strip() or request.source_group_id != request.run_id:
         raise ValueError("A fresh run requires matching run_id and source_group_id")
     scenario_path = Path(request.scenario_path).resolve()
-    scenario, _ = load_scenario(scenario_path)
+    scenario, digest = load_scenario(scenario_path)
     identity = _run_identity(request, scenario)
     kwargs = {
         "scenario_path": str(scenario_path),
@@ -237,6 +238,8 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
         "run_identity": identity.model_dump(mode="json"),
         "open_existing": False,
     }
+    _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
+             run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest)
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
         scenario, scenario.start_at, kwargs, "create",
@@ -297,6 +300,9 @@ def _prepare_resume(
         parent.close()
     start = datetime.fromtimestamp(state["current_time"], ZoneInfo(scenario.timezone))
     kwargs = {"scenario_path": str(scenario_path), "run_dir": str(destination), "open_existing": True}
+    _ops_log(destination, scenario.timezone, start, "RUN_RESUMED", "Run resumed from checkpoint",
+             run_id=manifest["run_id"], code_sha256=manifest.get("code_sha256"),
+             scenario_sha256=manifest.get("scenario_sha256"), checkpoint_id=request.checkpoint_id)
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, destination, manifest["run_id"],
         scenario, start, kwargs, "restored", intervention, digest,
@@ -339,6 +345,27 @@ def runtime_code_sha256(project_root: Path) -> str:
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
+
+
+def _ops_log(run_dir: Path, timezone_name: str, sim_time: int | datetime | None,
+             code: str, detail: str, level: str = "info", **keys: Any) -> None:
+    """@brief 运行进程侧写一条 runtime 操作日志，随写随关不驻留句柄。"""
+    writer = OpsLogger(run_dir, timezone_name)
+    try:
+        writer.log(sim_time, "runtime", level, code, detail, **keys)
+    finally:
+        writer.close()
+
+
+def _ops_crash_log(prepared: _PreparedRun, society: Any, error: BaseException) -> None:
+    """@brief 崩溃路径操作日志；自身任何故障只记日志，不得掩盖原始异常。"""
+    try:
+        sim_time = society.current_time if society is not None else prepared.start_time
+        _ops_log(prepared.run_dir, prepared.scenario.timezone, sim_time, "RUN_CRASHED",
+                 f"Run crashed: {type(error).__name__}: {error}",
+                 level="error", run_id=prepared.run_id)
+    except Exception:
+        logger.exception("Run crash operations log failed")
 
 
 def _require_run_shell(run_dir: Path) -> None:
@@ -454,12 +481,15 @@ async def _execute(prepared: _PreparedRun) -> RunResult:
                 prepared.intervention_sha256,
             )
         await society.run()
+        _ops_log(prepared.run_dir, prepared.scenario.timezone, society.current_time,
+                 "RUN_ENDED", "Run finished", run_id=prepared.run_id, steps=society.step_count)
         return RunResult(
             prepared.run_id, prepared.run_dir, society.current_time,
             society.step_count, society.token_stats,
         )
     except BaseException as error:
         failure = error
+        _ops_crash_log(prepared, society, error)
         raise
     finally:
         errors = await _cleanup_runtime(society, actor, owned_ray)

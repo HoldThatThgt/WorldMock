@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import hashlib
 import os
+from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -215,7 +217,8 @@ async def test_execute_applies_counterfactual_before_running(monkeypatch, tmp_pa
     digest = _intervention_sha256(intervention)
     prepared = SimpleNamespace(
         run_id="child", run_dir=tmp_path, intervention=intervention,
-        intervention_sha256=digest,
+        intervention_sha256=digest, scenario=SimpleNamespace(timezone="UTC"),
+        start_time=datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC")),
     )
 
     await _execute(prepared)

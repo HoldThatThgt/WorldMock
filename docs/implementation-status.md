@@ -135,3 +135,11 @@ LabelKit全量operators的历史尝试有缺失示例夹具错误，不能称为
 旧Android、Concordia、手机实验代码、配置、测试与入口均已删除；受版本控制路径中，
 相关旧工程仅保留 `docs/history/mobile-prototype-lessons.md` 经验档案。
 当前文件职责和新增模块清单见权威规范“文件职责”章节；运行产物、测试探针与环境目录不进入版本控制。
+
+## 结构化操作日志
+
+运行目录 `logs/ops-<模拟日YYYYMMDD>.jsonl` 追加 JSON-lines 定位日志（非审计证据，写入失败只记 stderr）。
+每条字段：`at`、`sim_time`、`component`、`level`、`code`、`detail` 加关联键
+（`agent_id`、`decision_id`、`round_id`、`action_id`、`event_seq_first/last`、`tokens_in/out` 等）。
+写入器 `src/worldmock/opslog.py`；埋点在 LifeEngine（决策轮、模型交换、记忆、动作、资金、检查点、失败）
+与 runtime（启动/恢复/结束/崩溃）；`event_seq_*` 可与 footprints.sqlite 事件序号互相跳转。
