@@ -42,7 +42,7 @@ from worldmock.life.body import (
     minimum_energy_cost,
     next_body_boundary_seconds,
 )
-from worldmock.life.commerce import apply_product_progress, deliver_order, held_quantity, purchase
+from worldmock.life.commerce import apply_product_progress, held_quantity, purchase
 from worldmock.life.content import mail_headers, reveal_mail, reveal_watch
 from worldmock.life.game import (
     GameOutcomeUnknown,
@@ -71,7 +71,6 @@ from worldmock.life.models import (
     PurchaseRequest,
     REQUEST_MODELS,
     RunIdentity,
-    ScheduledKind,
     SetActivityStateRequest,
     StartBasicActivityRequest,
     StartActivityRequest,
@@ -107,6 +106,8 @@ from worldmock.life.work_review import (
     review_matches,
 )
 from worldmock.opslog import OpsLogger
+from worldmock.scheduling.compile import compile_schedule
+from worldmock.scheduling.effects import apply_scheduled_effect
 
 if TYPE_CHECKING:
     from agentsociety2.society import DecisionContext, DirectToolCall, SchedulingState
@@ -1179,40 +1180,30 @@ class LifeEngine:
         return evidence
 
     def _process_scheduled(self, state: WorldState, target: int) -> tuple[WorldState, list[EventDraft]]:
-        """@brief 处理同秒稳定排序的邮件、工作机会和配送。"""
+        """@brief 处理同秒稳定排序的邮件、工作机会、配送与预排段事件。"""
         due = [item for item in state.pending_events if item.due_at == target]
         state.pending_events = [item for item in state.pending_events if item.due_at != target]
         drafts = []
         for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
-            state, data = self._scheduled_effect(state, item)
+            outcome = apply_scheduled_effect(state, item, self.semantics)
+            if outcome.semantics is not None:
+                self._adopt_semantics(outcome.semantics)
+            state = outcome.state
             self.ops.log(target, "engine", "info", "SCHEDULED_EVENT_DISPATCHED",
                          f"Scheduled event {item.kind.value} dispatched", agent_id=item.agent_id,
                          event_kind=item.kind.value, scheduled_id=item.scheduled_id)
             drafts.append(EventDraft(event_type="environment_event", occurred_at=target,
                                      agent_id=item.agent_id, source_kind="scenario",
-                                     data={"kind": item.kind.value, "scheduled_id": item.scheduled_id, **data}))
+                                     data={"kind": item.kind.value, "scheduled_id": item.scheduled_id,
+                                           **outcome.data}))
         return state, drafts
 
-    def _scheduled_effect(self, state: WorldState, event) -> tuple[WorldState, dict]:
-        """@brief 将一个后台事件投影到对应人物或订单。"""
-        if event.kind == ScheduledKind.DELIVERY_ARRIVAL:
-            state, order = deliver_order(state, event.data["order_id"])
-            change = {"location_id": order.destination_id, "product_id": order.product_id,
-                      "quantity": order.quantity}
-            return state, {"order": order.model_dump(mode="json"), "inventory_change": change}
-        if event.kind == ScheduledKind.TASK_EXPIRED:
-            return state, {"task_id": event.data["task_id"]}
-        agent = state.agents[event.agent_id]
-        if event.kind == ScheduledKind.MAIL_ARRIVAL:
-            visible = set(agent.visible_message_ids)
-            visible.add(event.data["message_id"])
-            agent = agent.model_copy(update={"visible_message_ids": visible}, deep=True)
-        elif event.kind == ScheduledKind.WORK_AVAILABLE:
-            visible = set(agent.visible_task_ids)
-            visible.add(event.data["task_id"])
-            agent = agent.model_copy(update={"visible_task_ids": visible}, deep=True)
-        state.agents[agent.agent_id] = agent
-        return state, dict(event.data)
+    def _adopt_semantics(self, semantics: ScenarioSemantics) -> None:
+        """@brief PRICE_CHANGE 到点换持新语义并同步场景与规则的商品索引。"""
+        self.semantics = semantics
+        self.scenario = semantics.scenario
+        self.rules.scenario = semantics.scenario
+        self.rules.products = {item.product_id: item for item in semantics.scenario.products}
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
         """@brief 在实验终点标记所有仍活动的会话并保留实际进度。"""
@@ -1298,7 +1289,7 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
     for config in scenario.agents:
         account_id = f"agent:{config.agent_id}"
         agents[config.agent_id] = _initial_agent(config, scenario, account_id, start)
-    pending = _initial_events(scenario, start, end)
+    pending = compile_schedule(scenario, start, end)
     random_state = hashlib.sha256(f"random:{scenario.random_seed}".encode()).hexdigest()
     return WorldState(version=0, current_time=start, end_time=end, run_id=run_id,
                       timezone=scenario.timezone, scenario_sha256=scenario_sha256,
@@ -1322,31 +1313,6 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
                       entertainment_preferences=config.entertainment_preferences,
                       body=body, visible_task_ids=visible_tasks,
                       visible_message_ids=visible_mail, next_decision_at=start)
-
-
-def _initial_events(scenario: RuntimeScenario, start: int, end: int):
-    """@brief 将未来邮件和工作机会转换为稳定排序后台事件。"""
-    from worldmock.life.models import ScheduledEvent
-
-    rows = []
-    for message in scenario.messages:
-        due = int(message.sent_at.timestamp())
-        if start < due < end:
-            rows.append((due, message.recipient_agent_id, ScheduledKind.MAIL_ARRIVAL,
-                         {"message_id": message.message_id}, f"mail-{message.message_id}"))
-    for task in scenario.tasks:
-        due = int(task.available_at.timestamp())
-        if start < due < end:
-            for agent in scenario.agents:
-                rows.append((due, agent.agent_id, ScheduledKind.WORK_AVAILABLE,
-                             {"task_id": task.task_id}, f"work-{task.task_id}-{agent.agent_id}"))
-        deadline = int(task.due_at.timestamp())
-        if start < deadline <= end:
-            rows.append((deadline, None, ScheduledKind.TASK_EXPIRED,
-                         {"task_id": task.task_id}, f"expired-{task.task_id}"))
-    rows.sort(key=lambda row: (row[0], row[4]))
-    return [ScheduledEvent(scheduled_id=row[4], kind=row[2], due_at=row[0], sequence=index,
-                           agent_id=row[1], data=row[3]) for index, row in enumerate(rows, start=1)]
 
 
 def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity) -> dict:

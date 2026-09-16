@@ -258,6 +258,46 @@ class CatalogVersionPin(FrozenModel):
     minor: int = Field(ge=0)
 
 
+class BillConfig(FrozenModel):
+    """@brief 一条到点从付款账户向收款账户扣款的账单（房租/水电类）。"""
+
+    bill_id: str = Field(min_length=1)
+    account_id: str = Field(min_length=1)
+    payee_account_id: str = Field(min_length=1)
+    amount_fen: int = Field(gt=0)
+    due_at: datetime
+
+
+class PayrollConfig(FrozenModel):
+    """@brief 一条到点从雇主账户向人物账户入账的固定金额工资。"""
+
+    payroll_id: str = Field(min_length=1)
+    employer_account_id: str = Field(min_length=1)
+    agent_id: int = Field(gt=0)
+    amount_fen: int = Field(gt=0)
+    due_at: datetime
+
+
+class PriceChangeConfig(FrozenModel):
+    """@brief 一次到点把目录对象的 purchase 转账边金额替换为给定值的调价。"""
+
+    change_id: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    object_version: int = Field(ge=1)
+    amount_fen: int = Field(gt=0)
+    due_at: datetime
+
+
+class ProductReleaseConfig(FrozenModel):
+    """@brief 一次到点把商家某对象库存置为给定值的上架。"""
+
+    release_id: str = Field(min_length=1)
+    object_id: str = Field(min_length=1)
+    merchant: str = Field(min_length=1)
+    stock: int = Field(ge=0)
+    due_at: datetime
+
+
 class AccountInstanceConfig(FrozenModel):
     """@brief 服务侧账户实例：账户身份、初始金额与其扮演的目录角色。
 
@@ -313,6 +353,10 @@ class LifeScenario(FrozenModel):
     contents: tuple[ContentItemConfig, ...]
     games: tuple[GameConfig, ...]
     calendar: CalendarConfig
+    bills: tuple[BillConfig, ...] = ()
+    payrolls: tuple[PayrollConfig, ...] = ()
+    price_changes: tuple[PriceChangeConfig, ...] = ()
+    product_releases: tuple[ProductReleaseConfig, ...] = ()
 
     @model_validator(mode="after")
     def validate_document(self) -> "LifeScenario":
@@ -339,7 +383,46 @@ class LifeScenario(FrozenModel):
         self._validate_merchant_bindings()
         self._validate_route_keys()
         _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
+        self._validate_schedule_sections(zone)
         return self
+
+    def _validate_schedule_sections(self, zone: ZoneInfo) -> None:
+        """@brief 四个可选预排段的身份、时区、窗口与文档内跨引用校验。"""
+        _unique(self.bills, "bill_id")
+        _unique(self.payrolls, "payroll_id")
+        _unique(self.price_changes, "change_id")
+        _unique(self.product_releases, "release_id")
+        declared = {item.account_id for item in self.accounts}
+        people = {f"agent:{item.agent_id}" for item in self.agents}
+        product_merchants = {item.product_id: item.merchant for item in self.products}
+        for section, items in (("bill", self.bills), ("payroll", self.payrolls),
+                               ("price change", self.price_changes),
+                               ("product release", self.product_releases)):
+            for item in items:
+                _aware(item.due_at, f"{section} due_at")
+                if not _matches_zone(item.due_at, zone):
+                    raise ValueError(f"{section} timestamps do not match the declared timezone")
+                if not self.start_at < item.due_at < self.end_at:
+                    raise ValueError(f"{section} is outside the scenario interval")
+        for bill in self.bills:
+            if bill.account_id == bill.payee_account_id:
+                raise ValueError("bill payer and payee accounts must differ")
+            for account in (bill.account_id, bill.payee_account_id):
+                if account not in declared | people:
+                    raise ValueError("bill references an undeclared account")
+        for payroll in self.payrolls:
+            if payroll.employer_account_id not in declared | people:
+                raise ValueError("payroll references an undeclared employer account")
+            if f"agent:{payroll.agent_id}" not in people:
+                raise ValueError("payroll references an unknown agent")
+        for change in self.price_changes:
+            if change.object_id not in product_merchants:
+                raise ValueError("price change references an unknown product")
+        for release in self.product_releases:
+            if release.object_id not in product_merchants:
+                raise ValueError("product release references an unknown product")
+            if release.merchant != product_merchants[release.object_id]:
+                raise ValueError("product release merchant disagrees with the product binding")
 
     def _validate_merchant_bindings(self) -> None:
         """@brief 商品商家必须是已声明服务账户且不得占用人物账户身份。"""
@@ -389,6 +472,10 @@ class RuntimeScenario(FrozenModel):
     employer_account_id: str = Field(min_length=1)
     transport_account_id: str = Field(min_length=1)
     calendar: CalendarConfig
+    bills: tuple[BillConfig, ...] = ()
+    payrolls: tuple[PayrollConfig, ...] = ()
+    price_changes: tuple[PriceChangeConfig, ...] = ()
+    product_releases: tuple[ProductReleaseConfig, ...] = ()
 
     @model_validator(mode="after")
     def validate_scenario(self) -> "RuntimeScenario":

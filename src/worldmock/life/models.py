@@ -7,6 +7,9 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer, model_validator
 
+# 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
+from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+
 
 class StrictModel(BaseModel):
     """@brief 拒绝未知字段的领域模型基类。"""
@@ -145,16 +148,6 @@ class ContractKind(StrEnum):
     PIECE = "piece"
 
 
-class ScheduledKind(StrEnum):
-    """@brief 环境自主到期事件的封闭类型。"""
-
-    MAIL_ARRIVAL = "mail_arrival"
-    DELIVERY_READY = "delivery_ready"
-    DELIVERY_ARRIVAL = "delivery_arrival"
-    WORK_AVAILABLE = "work_available"
-    TASK_EXPIRED = "task_expired"
-
-
 class CurvePoint(FrozenModel):
     """@brief 分段线性曲线的一个输入输出节点。"""
 
@@ -287,17 +280,6 @@ class DeliveryState(StrictModel):
     expected_at: int = Field(gt=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
     total_price_fen: int = Field(gt=0)
-
-
-class ScheduledEvent(StrictModel):
-    """@brief 模拟时间到期时由环境处理的事件。"""
-
-    scheduled_id: str = Field(min_length=1)
-    kind: ScheduledKind
-    due_at: int = Field(ge=0)
-    sequence: int = Field(ge=0)
-    agent_id: int | None = Field(default=None, gt=0)
-    data: dict[str, Any] = Field(default_factory=dict)
 
 
 class StoredAction(StrictModel):

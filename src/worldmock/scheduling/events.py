@@ -1,0 +1,45 @@
+"""@brief 预排事件的封闭类型与载荷模型（设计文档 §7）。
+
+本模块是 ScheduledKind/ScheduledEvent 的权威定义处；life.models 再导出以维持
+既有导入路径。为保持导入方向（life.models → 本模块），此处不得依赖任何
+worldmock.life 模块，模型基类按 life.models.StrictModel 的语义本地声明。
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class _StrictScheduledModel(BaseModel):
+    """@brief 与 life.models.StrictModel 同语义的封闭模型基类。"""
+
+    model_config = ConfigDict(extra="forbid", frozen=False)
+
+
+class ScheduledKind(StrEnum):
+    """@brief 环境自主到期事件的封闭类型（现状五种 + §7.2 新增五种）。"""
+
+    MAIL_ARRIVAL = "mail_arrival"
+    DELIVERY_READY = "delivery_ready"
+    DELIVERY_ARRIVAL = "delivery_arrival"
+    WORK_AVAILABLE = "work_available"
+    TASK_EXPIRED = "task_expired"
+    CALENDAR_FLAG = "calendar_flag"
+    BILL_DUE = "bill_due"
+    PAYROLL = "payroll"
+    PRICE_CHANGE = "price_change"
+    PRODUCT_RELEASE = "product_release"
+
+
+class ScheduledEvent(_StrictScheduledModel):
+    """@brief 模拟时间到期时由环境处理的事件。"""
+
+    scheduled_id: str = Field(min_length=1)
+    kind: ScheduledKind
+    due_at: int = Field(ge=0)
+    sequence: int = Field(ge=0)
+    agent_id: int | None = Field(default=None, gt=0)
+    data: dict[str, Any] = Field(default_factory=dict)

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Mapping
 
@@ -26,6 +26,8 @@ from worldmock.catalog import (
     ScenarioCatalogRefs,
     ScenarioObjectRef,
     ScenarioResourceRef,
+    ScenarioScheduleRef,
+    ScheduleRefKind,
     SourceEdge,
     TransferEdge,
     load_catalog,
@@ -41,6 +43,8 @@ from worldmock.life.scenario import (
     RuntimeScenario,
     parse_scenario_document,
 )
+from worldmock.scheduling.compile import compile_schedule
+from worldmock.scheduling.events import ScheduledKind
 
 #: 目录内固定身份：四类资源、出行服务与三种合同模板。
 MONEY_RESOURCE = "money_fen"
@@ -92,6 +96,22 @@ class ScenarioSemantics:
         if isinstance(amount, int):
             return amount
         return evaluate_int_expression(amount, {"m": distance_meters})
+
+    def with_price(self, product_id: str, amount_fen: int, price_version: str) -> "ScenarioSemantics":
+        """@brief 受控价格替换：返回单个商品 transfer 边金额更新后的新语义。
+
+        PRICE_CHANGE 到点由引擎换持返回值；price_version 必须同步变化，否则
+        购买侧 PRICE_VERSION_MISMATCH 守卫无法区分新旧报价观察。
+        """
+        if product_id not in {item.product_id for item in self.scenario.products}:
+            raise IntegrityError(f"price change references unknown product {product_id}")
+        if amount_fen <= 0:
+            raise IntegrityError("price change amount must be positive")
+        products = tuple(
+            item if item.product_id != product_id else
+            item.model_copy(update={"price_fen": amount_fen, "price_version": price_version})
+            for item in self.scenario.products)
+        return replace(self, scenario=self.scenario.model_copy(update={"products": products}, deep=True))
 
     def contract_payment(self, task, worked_seconds: int, piece_count: int | None) -> int:
         """@brief 按合同模板 convert 公式求值整数分付款。"""
@@ -157,7 +177,8 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog) -> ScenarioSema
     scenario = _build_runtime(document, body, products, employer_id, transport_id)
     semantics = ScenarioSemantics(
         document=document, catalog=catalog, scenario=scenario, body=body,
-        refs=_catalog_refs(document, catalog), accounts=_ledger_accounts(document, services),
+        refs=_catalog_refs(document, catalog, scenario),
+        accounts=_ledger_accounts(document, services),
         alert_codes={rule.code: rule.code.lower()
                      for resource in (catalog.resources[ENERGY_RESOURCE],)
                      for rule in resource.alert_rules},
@@ -295,11 +316,16 @@ def _runtime_payload(
         "employer_account_id": employer_id,
         "transport_account_id": transport_id,
         "calendar": document.calendar.model_dump(mode="python"),
+        "bills": [item.model_dump(mode="python") for item in document.bills],
+        "payrolls": [item.model_dump(mode="python") for item in document.payrolls],
+        "price_changes": [item.model_dump(mode="python") for item in document.price_changes],
+        "product_releases": [item.model_dump(mode="python") for item in document.product_releases],
     })
 
 
-def _catalog_refs(document: LifeScenario, catalog: Catalog) -> ScenarioCatalogRefs:
-    """@brief 组装目录准入引用闭集：资源初值、账户实例与对象引用。"""
+def _catalog_refs(document: LifeScenario, catalog: Catalog,
+                  scenario: RuntimeScenario) -> ScenarioCatalogRefs:
+    """@brief 组装目录准入引用闭集：资源初值、账户实例、对象与预排表引用。"""
     money = _resource(catalog, MONEY_RESOURCE)
     unit_index = {name: _resource(catalog, name).unit
                   for name in (ENERGY_RESOURCE, SLEEP_RESOURCE, ENTERTAINMENT_RESOURCE)}
@@ -334,7 +360,41 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog) -> ScenarioCatalogRe
         resources=tuple(admitted),
         accounts=tuple(accounts),
         objects=tuple(objects),
+        schedule=_schedule_refs(scenario, catalog),
     )
+
+
+#: 预排表引用只覆盖 §7.2 五种新事件：邮件/任务/配送由场景文档校验器负责。
+_SCHEDULE_REF_KINDS = frozenset({
+    ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
+    ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE})
+
+
+def _schedule_refs(scenario: RuntimeScenario, catalog: Catalog) -> tuple[ScenarioScheduleRef, ...]:
+    """@brief 从编译后的预排表提取新事件的准入引用（账户与对象版本钉扎）。"""
+    start = int(scenario.start_at.timestamp())
+    end = int(scenario.end_at.timestamp())
+    refs = []
+    for item in compile_schedule(scenario, start, end):
+        if item.kind not in _SCHEDULE_REF_KINDS:
+            continue
+        account_id = object_id = object_version = None
+        if item.kind == ScheduledKind.BILL_DUE:
+            account_id = item.data["account_id"]
+        elif item.kind == ScheduledKind.PAYROLL:
+            account_id = item.data["employer_account_id"]
+        elif item.kind == ScheduledKind.PRICE_CHANGE:
+            object_id = item.data["object_id"]
+            object_version = item.data["object_version"]
+        elif item.kind == ScheduledKind.PRODUCT_RELEASE:
+            object_id = item.data["object_id"]
+            entry = catalog.objects.get(object_id)
+            object_version = entry.version if entry is not None else None
+        refs.append(ScenarioScheduleRef(kind=ScheduleRefKind(item.kind.value),
+                                        due_at=item.due_at, sequence=item.sequence,
+                                        object_id=object_id, object_version=object_version,
+                                        account_id=account_id))
+    return tuple(refs)
 
 
 def _ledger_accounts(
