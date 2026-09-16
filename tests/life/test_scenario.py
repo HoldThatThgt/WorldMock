@@ -1,4 +1,4 @@
-"""生活场景闭集字段、数值边界和跨引用测试。"""
+"""生活场景文档闭集字段、数值边界、跨引用与目录组装测试。"""
 
 from __future__ import annotations
 
@@ -8,10 +8,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from worldmock.catalog import load_catalog
+from worldmock.errors import IntegrityError
 from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.life.semantics import assemble_semantics
 
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
+_CATALOG = Path("catalog")
 
 
 def _payload() -> dict:
@@ -30,17 +34,25 @@ def _replace(path: tuple[str | int, ...], value: object) -> dict:
 
 
 def _assert_invalid(payload: dict, message: str) -> None:
-    """确认场景在启动前以预期原因失败。"""
+    """确认场景文档在启动前以预期原因失败。"""
     with pytest.raises(ValidationError, match=message):
         LifeScenario.model_validate(payload)
 
 
+def _assert_assembly_invalid(payload: dict, message: str) -> None:
+    """确认目录组装阶段以稳定英文原因拒绝。"""
+    document = LifeScenario.model_validate(payload)
+    with pytest.raises(IntegrityError, match=message):
+        assemble_semantics(document, load_catalog(_CATALOG))
+
+
 def test_formal_and_multi_person_scenarios_are_valid() -> None:
-    """正式与多人场景携带完整冻结参数并通过真实加载入口。"""
+    """正式与多人场景完整加载：文档校验、目录组装与准入全部通过。"""
     for path in (_FORMAL, Path("scenarios/multi-person.json")):
         scenario, digest = load_scenario(path)
         assert len(digest) == 64
         assert scenario.body.work_notes_multiplier == 1.1
+        assert scenario.body.basal_kcal_per_hour == 65
         assert scenario.max_consecutive_rejections == 10
         assert scenario.transport_account_id == "transport:service"
         assert all(route.fare_source_kind == "scenario" for route in scenario.routes)
@@ -49,30 +61,32 @@ def test_formal_and_multi_person_scenarios_are_valid() -> None:
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     [
-        (("body", "work_efficiency_curve", 0, "output_value"), 1.01, "curve outputs"),
-        (("body", "food_efficiency_curve", 0, "output_value"), 1.01, "curve outputs"),
-        (("body", "activity_met", "work"), 0, "MET values must be positive"),
-        (("body", "entertainment_relief_per_hour", "watch"), 1.01, "relief values"),
-        (("body", "work_notes_multiplier"), 0.99, "greater than or equal to 1"),
-        (("body", "hunger_threshold_kcal"), 2500, "body thresholds"),
+        (("body", "mass_kg"), 0, "greater than 0"),
+        (("body", "initial_entertainment_need"), 1.5, "less than or equal to 1"),
+        (("body", "initial_energy_kcal"), -1, "greater than or equal to 0"),
         (("max_consecutive_rejections",), 0, "greater than 0"),
+        (("catalog_version", "minor"), -1, "greater than or equal to 0"),
+        (("products", 0, "stock"), -1, "greater than or equal to 0"),
     ],
 )
-def test_body_and_rejection_ranges_are_enforced(
+def test_body_instance_and_rejection_ranges_are_enforced(
     path: tuple[str | int, ...], value: object, message: str
 ) -> None:
-    """效率、代谢、工具倍率、阈值与拒绝预算都有明确范围。"""
+    """身体实例初值、目录钉扎、库存覆盖与拒绝预算都有明确范围。"""
     _assert_invalid(_replace(path, value), message)
 
 
-def test_body_mappings_are_closed_and_complete() -> None:
-    """活动数值映射不接受漏项或运行时不会读取的未知键。"""
-    missing = _payload()["body"]["activity_met"]
-    missing.pop("work")
-    _assert_invalid(_replace(("body", "activity_met"), missing), "MET keys")
-    extra = _payload()["body"]["entertainment_relief_per_hour"]
-    extra["wait"] = 0.1
-    _assert_invalid(_replace(("body", "entertainment_relief_per_hour"), extra), "relief keys")
+def test_accounts_and_roles_stay_unique_and_non_blank() -> None:
+    """账户实例身份与角色在文档内唯一且不得为空白。"""
+    duplicated = _payload()
+    duplicated["accounts"].append(dict(duplicated["accounts"][0]))
+    _assert_invalid(duplicated, "account_id values must be unique")
+    duplicated_role = _payload()
+    entry = dict(duplicated_role["accounts"][0])
+    entry["account_id"] = "merchant:other"
+    duplicated_role["accounts"].append(entry)
+    _assert_invalid(duplicated_role, "role values must be unique")
+    _assert_invalid(_replace(("accounts", 0, "account_id"), " "), "account ids and roles must not be blank")
 
 
 @pytest.mark.parametrize(
@@ -104,15 +118,23 @@ def test_task_skill_and_preference_targets_must_be_declared() -> None:
     ("path", "message"),
     [
         (("tasks", 0, "required_location_id"), "work task references an unknown location"),
-        (("products", 0, "merchant_location_id"), "product references an unknown"),
-        (("products", 11, "required_location_id"), "product references an unknown"),
+        (("products", 0, "merchant_location_id"), "product references an unknown merchant location"),
+        (("products", 0, "merchant"), "product merchant account is not declared"),
     ],
 )
-def test_all_declared_location_references_are_resolved(
+def test_all_declared_location_and_merchant_references_are_resolved(
     path: tuple[str | int, ...], message: str
 ) -> None:
-    """工作、商家和商品使用地点都必须指向地点目录。"""
+    """工作地点、商品商家地点与商家账户都必须指向场景内声明。"""
     _assert_invalid(_replace(path, "missing-location"), message)
+
+
+def test_product_merchant_cannot_bind_an_agent_account() -> None:
+    """服务账户不得复用人物账户身份。"""
+    _assert_invalid(
+        _replace(("products", 0, "merchant"), "agent:1"),
+        "product merchant account is not declared",
+    )
 
 
 def test_route_ids_and_lookup_keys_are_unique() -> None:
@@ -127,17 +149,18 @@ def test_route_ids_and_lookup_keys_are_unique() -> None:
 
 
 @pytest.mark.parametrize(
-    ("route_index", "fare", "message"),
+    ("route_index", "fare"),
     [
-        (0, 0, "route fare"),
-        (1, 1, "route fare"),
+        (0, 0),
+        (1, 1),
     ],
 )
-def test_route_fares_follow_mode_and_frozen_formula(
-    route_index: int, fare: int, message: str
-) -> None:
-    """驾驶按距离公式收费，步行报价固定为零。"""
-    _assert_invalid(_replace(("routes", route_index, "fare_fen"), fare), message)
+def test_route_fares_follow_the_catalog_formula(route_index: int, fare: int) -> None:
+    """路线报价偏离目录公式求值时在组装阶段拒绝。"""
+    _assert_assembly_invalid(
+        _replace(("routes", route_index, "fare_fen"), fare),
+        "disagrees with the catalog formula",
+    )
 
 
 def test_route_fare_source_is_closed() -> None:
@@ -148,20 +171,20 @@ def test_route_fare_source_is_closed() -> None:
     )
 
 
-@pytest.mark.parametrize(
-    ("path", "value", "message"),
-    [
-        (("tasks", 0, "employer_account_id"), "missing-account", "unknown employer"),
-        (("transport_account_id",), "employer:zhangjiang", "account roles"),
-        (("transport_account_id",), " ", "account ids must not be blank"),
-        (("products", 0, "merchant_account_id"), "agent:1", "account roles"),
-    ],
-)
-def test_account_roles_and_references_cannot_collide(
-    path: tuple[str | int, ...], value: str, message: str
-) -> None:
-    """人物、商家、雇主和交通服务账户保持可对账的独立身份。"""
-    _assert_invalid(_replace(path, value), message)
+def test_catalog_pin_and_reference_admission_are_enforced() -> None:
+    """目录版本钉扎与对象引用完整性在组装准入层拒绝。"""
+    _assert_assembly_invalid(
+        _replace(("catalog_version", "major"), 2),
+        "pins catalog",
+    )
+    _assert_assembly_invalid(
+        _replace(("products", 0, "product_id"), "food-0000000000000"),
+        "is not in the catalog",
+    )
+    _assert_assembly_invalid(
+        _replace(("products", 0, "merchant"), "merchant:general"),
+        "does not bind catalog role",
+    )
 
 
 def test_work_and_message_references_stay_inside_scenario() -> None:
@@ -173,6 +196,10 @@ def test_work_and_message_references_stay_inside_scenario() -> None:
     _assert_invalid(
         _replace(("messages", 0, "related_task_id"), "missing-task"),
         "message references an unknown task",
+    )
+    _assert_assembly_invalid(
+        _replace(("tasks", 0, "employer_account_id"), "missing-account"),
+        "unknown employer",
     )
 
 
@@ -193,9 +220,19 @@ def test_scheduled_records_use_scenario_timezone_and_window() -> None:
     _assert_invalid(_replace(("timezone",), "Missing/Zone"), "timezone is unknown")
 
 
-def test_product_modes_hours_content_kind_and_calendar_are_closed() -> None:
-    """当前运行时使用的产品、营业、内容和日历集合在启动前闭合。"""
-    _assert_invalid(_replace(("products", 0, "use_modes"), ["eat", "eat"]), "use modes")
+def test_location_hours_content_kind_and_calendar_are_closed() -> None:
+    """当前运行时使用的营业、内容和日历集合在启动前闭合。"""
     _assert_invalid(_replace(("locations", 1, "close_hour"), 8), "closing hour")
     _assert_invalid(_replace(("contents", 0, "kind"), "video"), "subtitle_experience")
     _assert_invalid(_replace(("calendar", "sick_leave_date"), "2026-02-30"), "ISO format")
+
+
+def test_stock_override_replaces_the_catalog_default() -> None:
+    """库存覆盖优先生效，缺省回退目录对象库存。"""
+    payload = _replace(("products", 0, "stock"), 7)
+    document = LifeScenario.model_validate(payload)
+    semantics = assemble_semantics(document, load_catalog(_CATALOG))
+    product = semantics.scenario.products[0]
+    assert product.initial_stock == 7
+    default = next(item for item in semantics.scenario.products if item.product_id != product.product_id)
+    assert default.initial_stock in (120, 80)

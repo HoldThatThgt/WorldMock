@@ -7,7 +7,8 @@ from worldmock.life.travel import pay_travel_fare
 
 def payment_state(engine):
     accounts = dict(engine.state.accounts)
-    accounts[engine.scenario.transport_account_id] = engine.scenario.transport_initial_balance_fen
+    accounts[engine.scenario.transport_account_id] = engine.semantics.accounts[
+        engine.scenario.transport_account_id]
     return engine.state.model_copy(update={'accounts': accounts}, deep=True)
 
 

@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 import random
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,7 +15,12 @@ from zoneinfo import ZoneInfo
 
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
-from worldmock.footprints.models import AssetRef, EventDraft
+from worldmock.footprints.models import (
+    RESOURCE_FLOWS_FIELD,
+    AssetRef,
+    EventDraft,
+    validate_resource_flows,
+)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.activities import (
     ActivityAdvance,
@@ -31,6 +37,7 @@ from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
     body_observation,
     interpolate,
+    last_flows,
     maximum_energy_duration_seconds,
     minimum_energy_cost,
     next_body_boundary_seconds,
@@ -75,7 +82,9 @@ from worldmock.life.models import (
     WorldState,
 )
 from worldmock.life.rules import LifeRuleEngine
-from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.life.scenario import RuntimeScenario
+from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
+from worldmock.life.settlement import inject_initial_funds
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
 from worldmock.life.work import (
     load_work_input,
@@ -110,29 +119,31 @@ _OPS_COMPONENTS = {"purchase": "commerce", "start_travel": "travel", "submit_wor
 class LifeEngine:
     """@brief LifeEnv 的单写入领域服务和状态权威。"""
 
-    def __init__(self, scenario: LifeScenario, scenario_sha256: str, corpus_root: Path,
+    def __init__(self, semantics: ScenarioSemantics, scenario_sha256: str, corpus_root: Path,
                  store: FootprintStore):
-        """@brief 绑定经验证的场景、内容与持久化运行。"""
-        self.scenario = scenario
+        """@brief 绑定经组装准入的场景语义、内容与持久化运行。"""
+        self.semantics = semantics
+        self.scenario = semantics.scenario
         self.scenario_sha256 = scenario_sha256
         self.corpus_root = Path(corpus_root).resolve()
         self.store = store
-        self.rules = LifeRuleEngine(scenario, self.corpus_root)
+        self.rules = LifeRuleEngine(self.scenario, self.corpus_root)
         self.state = WorldState.model_validate(store.state)
         self._round: DecisionRoundState | None = None
         self._model_request_events: dict[tuple[str, str], str] = {}
         self._work_reviewer: WorkReviewer | None = None
-        self.ops = OpsLogger(store.run_dir, scenario.timezone)
+        self.ops = OpsLogger(store.run_dir, self.scenario.timezone)
         self._validate_runtime()
 
     @classmethod
     def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity) -> "LifeEngine":
         """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件。"""
-        scenario, digest = load_scenario(scenario_path)
+        semantics, digest = load_runtime_scenario(scenario_path)
+        scenario = semantics.scenario
         corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
-        state = _initial_state(scenario, digest, run_identity.run_id)
+        state = _initial_state(semantics, digest, run_identity.run_id)
         manifest = _run_manifest(scenario, digest, run_identity)
         store = FootprintStore.create(Path(run_dir), manifest, state.model_dump(mode="json"))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
@@ -141,15 +152,16 @@ class LifeEngine:
                                visibility="evaluation", source_kind="scenario",
                                data={"kind": "initial_funds_injected", "resource_changes": changes})
         store.commit(state.model_dump(mode="json"), [injection])
-        return cls(scenario, digest, corpus_root, store)
+        return cls(semantics, digest, corpus_root, store)
 
     @classmethod
     def open(cls, scenario_path: Path, run_dir: Path) -> "LifeEngine":
         """@brief 只打开已有运行并校验场景和内容身份。"""
-        scenario, digest = load_scenario(scenario_path)
-        corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
-        load_manifest(corpus_root, scenario.corpus_manifest_sha256)
-        return cls(scenario, digest, corpus_root, FootprintStore(Path(run_dir)))
+        semantics, digest = load_runtime_scenario(scenario_path)
+        corpus_root = (Path(scenario_path).resolve().parent
+                       / semantics.scenario.corpus_root).resolve()
+        load_manifest(corpus_root, semantics.scenario.corpus_manifest_sha256)
+        return cls(semantics, digest, corpus_root, FootprintStore(Path(run_dir)))
 
     def observe(self, context: "DecisionContext") -> dict:
         """@brief 返回人物当下可见事实，并以同版本追加观察事件。"""
@@ -590,7 +602,7 @@ class LifeEngine:
     def _observation_data(self, agent) -> dict:
         """@brief 投影当前人物可知内容，不暴露工作 oracle 或未来消息。"""
         active = self.state.activities.get(agent.current_activity_id) if agent.current_activity_id else None
-        paused = [_paused_activity_observation(item, agent, self.scenario) for item in sorted(
+        paused = [_paused_activity_observation(item, agent, self.semantics.body) for item in sorted(
             self.state.activities.values(), key=lambda value: value.activity_id)
             if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
         tasks = [self._visible_task(item, agent.agent_id) for item in sorted(agent.visible_task_ids)
@@ -602,14 +614,15 @@ class LifeEngine:
         return {"world_state_version": self.state.version, "current_time": self.state.current_time,
                 "end_time": self.state.end_time, "agent_id": agent.agent_id, "location_id": agent.location_id,
                 "balance_fen": self.state.accounts[agent.balance_account_id],
-                "body": body_observation(agent.body, self.scenario.body),
+                "body": body_observation(agent.body, self.semantics.body),
                 "active_activity": active.model_dump(mode="json") if active else None,
                 "paused_activities": paused,
                 "messages": mail_headers(agent, self.rules.messages), "tasks": tasks, "products": products,
                 "calendar_context": _calendar_context(self.scenario, self.state.current_time),
                 "locations": _location_catalog(self.scenario),
-                "routes": _route_catalog(self.scenario, agent.location_id, agent.body.energy_kcal),
-                "energy_feasibility": _activity_energy_feasibility(agent, self.scenario),
+                "routes": _route_catalog(self.scenario.routes, self.semantics.body,
+                                      agent.location_id, agent.body.energy_kcal),
+                "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
                 "content_catalog": _content_catalog(self.scenario),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
@@ -909,7 +922,8 @@ class LifeEngine:
                 state, self.rules.task(request.target_id), pending.agent_id,
                 request.planned_duration_seconds)
         origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
-        agent, activity = start_activity(agent, request, state.current_time, origin, self.scenario.body)
+        agent, activity = start_activity(agent, request, state.current_time, origin,
+                                         self.semantics.body)
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
         changed_state = state
         payment = None
@@ -953,7 +967,7 @@ class LifeEngine:
         agent, activity = change_activity(agent, current, request, state.current_time,
                                           self.scenario.activity_feedback_seconds)
         if request.operation == ActivityChange.RESUME:
-            feasibility = _remaining_activity_energy(current, agent, self.scenario)
+            feasibility = _remaining_activity_energy(current, agent, self.semantics.body)
             if not feasibility["resume_energy_feasible"]:
                 raise BusinessRuleError("INSUFFICIENT_ENERGY")
         changed = _put_activity(state, agent, activity)
@@ -1009,9 +1023,11 @@ class LifeEngine:
                                      planned_duration_seconds=request.duration_seconds,
                                      target_id=request.product_id)
         origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
-        agent, activity = start_activity(agent, start, state.current_time, origin, self.scenario.body)
+        agent, activity = start_activity(agent, start, state.current_time, origin,
+                                         self.semantics.body)
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
-        efficiency = interpolate(self.scenario.body.food_efficiency_curve, agent.body.sleep_debt_hours)
+        efficiency = interpolate(self.semantics.body.food_efficiency_curve,
+                                  agent.body.sleep_debt_hours)
         raw_energy = product.energy_kcal_per_unit * request.quantity
         food_rate = raw_energy * efficiency * 3600 / request.duration_seconds
         activity.data.update(request=request.model_dump(mode="json"), consumed_quantity=0.0,
@@ -1093,7 +1109,8 @@ class LifeEngine:
                 continue
             interval_start = activity.last_settled_at
             body_boundary = self._body_boundary_at(activity, state.agents[activity.agent_id])
-            advanced = advance_activity(activity, state.agents[activity.agent_id], target, self.scenario.body)
+            advanced = advance_activity(activity, state.agents[activity.agent_id], target,
+                                        self.semantics.body)
             if body_boundary == target and not advanced.completed:
                 activity_update = {"next_interaction_at": target, "boundary_type": "feedback"}
                 changed_activity = advanced.activity.model_copy(update=activity_update, deep=True)
@@ -1112,6 +1129,9 @@ class LifeEngine:
             data = {"interval_start": interval_start, "interval_end": advanced.activity.last_settled_at,
                     "activity": state.activities[activity_id].model_dump(mode="json"),
                     "body_settlement": _body_settlement_data(advanced.settlement), **effects}
+            flows = _resource_flows_data(activity.agent_id, target)
+            if flows:
+                data[RESOURCE_FLOWS_FIELD] = flows
             drafts.append(EventDraft(event_type="activity_progress", occurred_at=target,
                                      agent_id=activity.agent_id,
                                      decision_id=activity.origin_decision_id,
@@ -1143,7 +1163,7 @@ class LifeEngine:
                 activity.agent_id, activity.activity_id)
         if activity.kind == ActivityKind.CONSUME:
             outcome = apply_product_progress(agent, self.rules.product(activity.target_id),
-                                             activity, self.scenario.body)
+                                             activity, self.semantics.body)
             state.agents[agent.agent_id] = outcome.agent
             activity.data["consumed_quantity"] = outcome.consumed_quantity
             evidence["consumption"] = _consumption_data(activity, agent, outcome)
@@ -1250,8 +1270,9 @@ class LifeEngine:
         """@brief 计算需要人物重新观察的首个身体阈值时刻。"""
         if activity.kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME}:
             return None
-        factors = activity_factors(activity, agent, self.scenario.body)
-        seconds = next_body_boundary_seconds(agent.body, activity.kind, self.scenario.body, factors)
+        factors = activity_factors(activity, agent, self.semantics.body)
+        seconds = next_body_boundary_seconds(agent.body, activity.kind,
+                                            self.semantics.body, factors)
         if seconds is None:
             return None
         candidate = (self.state.current_time if now is None else now) + seconds
@@ -1267,19 +1288,16 @@ class LifeEngine:
                 "corpus_manifest_sha256": self.scenario.corpus_manifest_sha256, "games": games}
 
 
-def _initial_state(scenario: LifeScenario, scenario_sha256: str, run_id: str) -> WorldState:
-    """@brief 从场景形成无隐藏动作的完整初始世界。"""
+def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: str) -> WorldState:
+    """@brief 从组装语义形成无隐藏动作的完整初始世界。"""
+    scenario = semantics.scenario
     start = int(scenario.start_at.timestamp())
     end = int(scenario.end_at.timestamp())
     agents = {}
-    accounts = {scenario.employer_account_id: scenario.employer_initial_balance_fen,
-                scenario.transport_account_id: scenario.transport_initial_balance_fen}
+    accounts = inject_initial_funds(dict(semantics.accounts), start)
     for config in scenario.agents:
         account_id = f"agent:{config.agent_id}"
-        accounts[account_id] = config.initial_balance_fen
         agents[config.agent_id] = _initial_agent(config, scenario, account_id, start)
-    for product in scenario.products:
-        accounts.setdefault(product.merchant_account_id, scenario.merchant_initial_balance_fen)
     pending = _initial_events(scenario, start, end)
     random_state = hashlib.sha256(f"random:{scenario.random_seed}".encode()).hexdigest()
     return WorldState(version=0, current_time=start, end_time=end, run_id=run_id,
@@ -1290,7 +1308,7 @@ def _initial_state(scenario: LifeScenario, scenario_sha256: str, run_id: str) ->
                       pending_events=pending, random_seed=scenario.random_seed, random_state=random_state)
 
 
-def _initial_agent(config, scenario: LifeScenario, account_id: str, start: int):
+def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int):
     """@brief 构造人物身体、可见日历和空进度。"""
     from worldmock.life.models import AgentState, BodyState
 
@@ -1306,7 +1324,7 @@ def _initial_agent(config, scenario: LifeScenario, account_id: str, start: int):
                       visible_message_ids=visible_mail, next_decision_at=start)
 
 
-def _initial_events(scenario: LifeScenario, start: int, end: int):
+def _initial_events(scenario: RuntimeScenario, start: int, end: int):
     """@brief 将未来邮件和工作机会转换为稳定排序后台事件。"""
     from worldmock.life.models import ScheduledEvent
 
@@ -1331,7 +1349,7 @@ def _initial_events(scenario: LifeScenario, start: int, end: int):
                            agent_id=row[1], data=row[3]) for index, row in enumerate(rows, start=1)]
 
 
-def _run_manifest(scenario: LifeScenario, scenario_sha256: str, identity: RunIdentity) -> dict:
+def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity) -> dict:
     """@brief 绑定新运行的场景、内容和参与人物身份。"""
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id,
@@ -1342,7 +1360,7 @@ def _run_manifest(scenario: LifeScenario, scenario_sha256: str, identity: RunIde
                        "timezone": scenario.timezone}}
 
 
-def _validate_run_identity(scenario: LifeScenario, identity: RunIdentity) -> None:
+def _validate_run_identity(scenario: RuntimeScenario, identity: RunIdentity) -> None:
     """@brief 拒绝 runtime 身份与冻结场景窗口或人物不一致。"""
     expected_agents = tuple(sorted(item.agent_id for item in scenario.agents))
     if tuple(sorted(identity.agent_ids)) != expected_agents:
@@ -1562,6 +1580,22 @@ def _body_settlement_data(settlement) -> dict:
             "work_efficiency": settlement.work_efficiency}
 
 
+def _resource_flows_data(agent_id: int, occurred_at: int) -> list[dict[str, Any]]:
+    """@brief 取走本区间身体结算分录并重盖主体与时间后校验序列化（§9）。
+
+    body 结算函数以占位 owner 与零时间戳缓冲分录；引擎按事件归属重盖为
+    agent:{id} 与事件模拟时间，序列化为 {resource, owner, direction, amount,
+    cause}[] 经 validate_resource_flows fail-closed 校验。无分录的结算点
+    返回空列表（事件不携带该字段）。
+    """
+    payload = [{"resource": stamped.resource, "owner": stamped.owner,
+                "direction": stamped.direction, "amount": stamped.amount,
+                "cause": stamped.cause}
+               for stamped in (replace(entry, owner=f"agent:{agent_id}", occurred_at=occurred_at)
+                               for entry in last_flows())]
+    return validate_resource_flows(payload) if payload else []
+
+
 def _consumption_data(activity, before_agent, outcome) -> dict:
     """@brief 记录本区间实际使用、地点持有量与食品身体结算。"""
     request = ConsumeRequest.model_validate(activity.data["request"])
@@ -1591,7 +1625,7 @@ def _current_branch_event(events: list, manifest: dict):
     return matches[0] if len(matches) == 1 else None
 
 
-def _calendar_context(scenario: LifeScenario, epoch: int) -> dict:
+def _calendar_context(scenario: RuntimeScenario, epoch: int) -> dict:
     """@brief 返回当前本地日期已声明的日历机会与约束。"""
     current_date = _datetime(epoch, scenario.timezone).date().isoformat()
     calendar = scenario.calendar
@@ -1611,61 +1645,62 @@ def _failure_draft(occurred_at: int, error: Exception | str, round_id: str | Non
                       data={"error_type": error_type, "error": str(error), "round_id": round_id})
 
 
-def _location_catalog(scenario: LifeScenario) -> list[dict]:
+def _location_catalog(scenario: RuntimeScenario) -> list[dict]:
     """@brief 返回人物能够规划到达和营业条件的地点目录。"""
     fields = {"location_id", "name", "kind", "longitude", "latitude", "open_hour", "close_hour"}
     return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
 
 
-def _route_catalog(scenario: LifeScenario, origin_id: str, energy_kcal: float) -> list[dict]:
+def _route_catalog(routes: tuple, body, origin_id: str, energy_kcal: float) -> list[dict]:
     """@brief 返回人物当前位置出发的冻结路线身份和实际成本。"""
     fields = {"route_id", "origin_id", "destination_id", "mode", "distance_meters", "duration_seconds",
               "fare_fen", "fare_source_kind"}
-    routes = [item for item in scenario.routes if item.origin_id == origin_id]
     result = []
     for item in routes:
+        if item.origin_id != origin_id:
+            continue
         data = item.model_dump(mode="json", include=fields)
-        met = scenario.body.activity_met[f"travel:{item.mode.value}"]
-        cost = minimum_energy_cost(ActivityKind.TRAVEL, item.duration_seconds, scenario.body, met)
+        met = body.activity_met[f"travel:{item.mode.value}"]
+        cost = minimum_energy_cost(ActivityKind.TRAVEL, item.duration_seconds, body, met)
         data.update(minimum_energy_cost_kcal=cost, energy_feasible=cost <= energy_kcal)
         result.append(data)
     return result
 
 
-def _activity_energy_feasibility(agent, scenario: LifeScenario) -> dict:
+def _activity_energy_feasibility(agent, body) -> dict:
     """@brief 返回五类目标活动按当前能量可受理的最大整数墙钟秒数。"""
     kinds = (ActivityKind.WORK, ActivityKind.WATCH, ActivityKind.PLAY_GAME,
              ActivityKind.READ_MAIL, ActivityKind.BROWSE)
     maximums = {
-        kind.value: maximum_energy_duration_seconds(kind, agent.body.energy_kcal, scenario.body)
+        kind.value: maximum_energy_duration_seconds(kind, agent.body.energy_kcal, body)
         for kind in kinds
     }
     return {"maximum_duration_seconds_by_kind": maximums}
 
 
-def _remaining_activity_energy(activity, agent, scenario: LifeScenario) -> dict:
+def _remaining_activity_energy(activity, agent, body) -> dict:
     """@brief 以暂停活动剩余墙钟时长计算当前恢复能量合同。"""
     remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    factors = activity_factors(activity, agent, scenario.body)
-    cost = minimum_energy_cost(activity.kind, remaining, scenario.body, factors.met)
+    factors = activity_factors(activity, agent, body)
+    cost = minimum_energy_cost(activity.kind, remaining, body, factors.met)
     feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
     return {"remaining_duration_seconds": remaining, "minimum_energy_cost_kcal": cost,
             "resume_energy_feasible": feasible}
 
 
-def _paused_activity_observation(activity, agent, scenario: LifeScenario) -> dict:
+def _paused_activity_observation(activity, agent, body) -> dict:
     """@brief 公开暂停活动本身及当前剩余时长的恢复能量可行性。"""
     data = activity.model_dump(mode="json")
-    data.update(_remaining_activity_energy(activity, agent, scenario))
+    data.update(_remaining_activity_energy(activity, agent, body))
     return data
 
 
-def _content_catalog(scenario: LifeScenario) -> list[dict]:
+def _content_catalog(scenario: RuntimeScenario) -> list[dict]:
     """@brief 返回人物可选择内容，不暴露本地路径和哈希。"""
     fields = {"item_id", "kind", "duration_seconds", "entertainment_relief_per_hour", "experience_label"}
     return [item.model_dump(mode="json", include=fields) for item in scenario.contents]
 
 
-def _game_catalog(scenario: LifeScenario) -> list[dict]:
+def _game_catalog(scenario: RuntimeScenario) -> list[dict]:
     """@brief 返回可新建 TextWorld 会话的稳定游戏身份。"""
     return [{"game_id": item.game_id, "seed": item.seed} for item in scenario.games]

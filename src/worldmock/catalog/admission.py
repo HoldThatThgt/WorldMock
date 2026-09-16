@@ -489,18 +489,21 @@ def _check_initial_bounds(
     catalog: Catalog,
     violations: list[AdmissionViolation],
 ) -> None:
-    """@brief 第四条：静态初值必须落在资源 bounds 内。"""
+    """@brief 第四条：静态初值必须落在资源 bounds 内（上界为 null 时只查下界）。"""
     for resource_ref in refs.resources:
         resource = catalog.resources.get(resource_ref.resource_id)
         if resource is None or resource.bounds is None:
             continue
-        if not resource.bounds.min <= resource_ref.initial_value <= resource.bounds.max:
+        bounds = resource.bounds
+        below_min = resource_ref.initial_value < bounds.min
+        above_max = bounds.max is not None and resource_ref.initial_value > bounds.max
+        if below_min or above_max:
             violations.append(
                 AdmissionViolation(
                     INITIAL_VALUE_OUT_OF_BOUNDS,
                     f"resource {resource_ref.resource_id} initial"
-                    f" {resource_ref.initial_value} outside [{resource.bounds.min},"
-                    f" {resource.bounds.max}]",
+                    f" {resource_ref.initial_value} outside [{bounds.min},"
+                    f" {bounds.max}]",
                 )
             )
 

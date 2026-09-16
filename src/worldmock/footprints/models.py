@@ -3,10 +3,46 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from worldmock.resources.models import DRAIN_DIRECTION, SOURCE_DIRECTION
+
+#: 活动/结算事件 data 内登记资源流水的保留字段名（设计文档 §9 统一证据格式）。
+#: 取值为分录字典列表：{resource, owner, direction, amount, cause}——direction 取
+#: source/drain，amount 为有限正数，cause 引用触发动作/规则；时间戳与主体身份
+#: 由所在足迹事件自身（occurred_at/agent_id）承载，不在流水字典内重复。
+RESOURCE_FLOWS_FIELD = "resource_flows"
+
+_FLOW_DICT_KEYS = frozenset({"resource", "owner", "direction", "amount", "cause"})
+
+
+def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
+    """@brief 校验 data[resource_flows] 的分录字典约定，合法则原样返回。
+
+    :param payload: 事件 data 中 resource_flows 字段的取值。
+    :returns: 通过校验的分录字典列表。
+    :raises ValueError: 结构、词表或数值违反约定时 fail-closed。
+    """
+    if not isinstance(payload, list):
+        raise ValueError("resource_flows must be a list of flow dicts")
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict) or set(item) != _FLOW_DICT_KEYS:
+            raise ValueError(f"resource_flows[{index}] must contain exactly {sorted(_FLOW_DICT_KEYS)}")
+        for field in ("resource", "owner", "cause"):
+            if not isinstance(item[field], str) or not item[field]:
+                raise ValueError(f"resource_flows[{index}].{field} must be a non-empty string")
+        if item["direction"] not in (SOURCE_DIRECTION, DRAIN_DIRECTION):
+            raise ValueError(f"resource_flows[{index}].direction must be source or drain")
+        amount = item["amount"]
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)) \
+                or not math.isfinite(amount) or amount <= 0:
+            raise ValueError(f"resource_flows[{index}].amount must be a finite positive number")
+    return payload
+
 
 EventType = Literal[
     "observation", "decision_started", "model_request", "model_response", "action_requested",
@@ -26,7 +62,12 @@ class AssetRef(BaseModel):
 
 
 class EventDraft(BaseModel):
-    """@brief 环境提供事实，存储分配持久序号和状态版本。"""
+    """@brief 环境提供事实，存储分配持久序号和状态版本。
+
+    活动/结算事件的 data 可携带 RESOURCE_FLOWS_FIELD 字段登记本次结算的资源
+    分录（{resource, owner, direction, amount, cause} 字典列表），写入前可用
+    validate_resource_flows 校验；其余事件的 data 结构由各自领域自行约定。
+    """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     event_id: str = Field(default_factory=lambda: uuid4().hex)

@@ -12,6 +12,7 @@ from typing import Any
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, SubmitWorkRequest, WorldState
 from worldmock.life.scenario import ContractKind, LifeScenario, WorkTaskConfig
+from worldmock.life.settlement import settle_money_transfer
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,12 +214,11 @@ def _pay(
     metrics: WorkMetrics,
 ) -> WorkOutcome:
     """@brief 原子投影雇主扣款、人物收款和一次任务付款。"""
-    accounts = dict(state.accounts)
-    accounts[task.employer_account_id] -= metrics.payment_fen
-    accounts[agent.balance_account_id] += metrics.payment_fen
     paid = set(state.paid_task_ids)
     paid.add(task.task_id)
-    changed = state.model_copy(update={"accounts": accounts, "paid_task_ids": paid}, deep=True)
+    settled = settle_money_transfer(state, task.employer_account_id, agent.balance_account_id,
+                                    metrics.payment_fen, f"work:settle:{task.task_id}")
+    changed = settled.model_copy(update={"paid_task_ids": paid}, deep=True)
     return WorkOutcome(changed, metrics.payment_fen, metrics.effective_seconds,
                        metrics.worked_seconds)
 

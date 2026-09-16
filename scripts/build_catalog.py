@@ -1,15 +1,22 @@
 """Build catalog data files (resources/objects JSONL + manifest + empty tombstones).
 
-Reads scenarios/white-collar-12-weeks.json (+ multi-person.json as cross-check)
-and corpora/open-food-facts/{products,china-100}.json (+ corpora/manifest.json)
-and emits the v1 static catalog per docs/resource-registry-design.md (§3/§4.2/§5/§13):
-catalog/resources.jsonl, catalog/objects.jsonl, catalog/manifest.json (1.0) and
-an empty catalog/overrides/tombstones.jsonl.
+Self-contained regeneration: the generator consumes the frozen legacy-scenario
+snapshot scripts/catalog-snapshot-legacy-scenario.json (semantic fields of
+scenarios/white-collar-12-weeks.json as of git cd2586b, kept verbatim when the
+scenarios were slimmed to schema 2) plus corpora/open-food-facts/{products,
+china-100}.json (+ corpora/manifest.json) and emits the v1 static catalog per
+docs/resource-registry-design.md (§3/§4.2/§5/§13): catalog/resources.jsonl,
+catalog/objects.jsonl, catalog/manifest.json (1.0) and an empty
+catalog/overrides/tombstones.jsonl.
+
+It no longer reads scenarios/ — scenario ↔ catalog equivalence is owned by
+scripts/migrate_scenarios.py parity assertions. The --check gate therefore
+proves "catalog matches the generator" (snapshot + rules + corpora), not
+"catalog matches the scenarios".
 
 Hand-written files NOT touched by this generator (per §13, rules are human-authored):
   catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
-  catalog/README.md — the generator only asserts the rules files exist and that
-  the travel fare formula reproduces every frozen route fare.
+  catalog/README.md — the generator only asserts the rules files exist.
 
 Usage:
   python3 scripts/build_catalog.py           # write catalog data files
@@ -20,13 +27,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCENARIO_PRIMARY = ROOT / "scenarios/white-collar-12-weeks.json"
-SCENARIO_SECONDARY = ROOT / "scenarios/multi-person.json"
+SNAPSHOT = ROOT / "scripts/catalog-snapshot-legacy-scenario.json"
 OFF_DIR = ROOT / "corpora/open-food-facts"
 OFF_FROZEN = OFF_DIR / "products.json"
 OFF_RAW = OFF_DIR / "china-100.json"
@@ -281,7 +286,7 @@ def product_object(product: dict, off_index: dict, off_sha: str) -> dict:
     return entry
 
 
-def travel_object(routes: list[dict], transport_account_id: str) -> dict:
+def travel_object(transport_account_id: str) -> dict:
     return {
         "object_id": "travel-service",
         "name": "Travel service",
@@ -360,11 +365,11 @@ def contract_objects(body: dict, employer_account_id: str) -> list[dict]:
 # input verification
 # ---------------------------------------------------------------------------
 
-def verify_inputs(scenario: dict, other: dict, off_frozen: list, off_raw: dict,
+def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
                   manifest: dict) -> tuple[dict, str]:
-    assert other["products"] == scenario["products"], "scenario products diverge"
-    assert other["body"] == scenario["body"], "scenario body diverge"
-    products = scenario["products"]
+    assert "scenarios/white-collar-12-weeks.json @ cd2586b" in snapshot["source"], \
+        "frozen snapshot provenance marker drifted"
+    products = snapshot["products"]
     assert len(products) == 16, f"expected 16 products, got {len(products)}"
     foods = [p for p in products if p["product_id"].startswith("food-")]
     items = [p for p in products if p["product_id"].startswith("item-")]
@@ -378,7 +383,7 @@ def verify_inputs(scenario: dict, other: dict, off_frozen: list, off_raw: dict,
         barcode = product["product_id"].removeprefix("food-")
         frozen_kcal = frozen_by_barcode[barcode]["energy_kcal_serving"]
         assert product["energy_kcal_per_unit"] == frozen_kcal, \
-            f"{barcode}: scenario kcal {product['energy_kcal_per_unit']} != frozen {frozen_kcal}"
+            f"{barcode}: snapshot kcal {product['energy_kcal_per_unit']} != frozen {frozen_kcal}"
         raw_kcal = raw_by_code[barcode].get("nutriments", {}).get("energy-kcal_serving")
         assert frozen_kcal == raw_kcal, \
             f"{barcode}: frozen kcal {frozen_kcal} != raw OFF {raw_kcal}"
@@ -387,30 +392,14 @@ def verify_inputs(scenario: dict, other: dict, off_frozen: list, off_raw: dict,
         actual = sha256_of(OFF_DIR / name)
         assert actual == entry["sha256"], f"{name}: sha256 mismatch vs corpus manifest"
 
-    # travel formula reproduces every frozen route fare
-    for route in scenario["routes"]:
-        if route["mode"] == "walking":
-            expected = 0
-        elif route["mode"] == "driving":
-            expected = max(500, math.ceil(route["distance_meters"] * 0.2))
-        else:
-            raise AssertionError(f"unknown mode {route['mode']}")
-        assert route["fare_fen"] == expected, \
-            f"{route['route_id']}: fare {route['fare_fen']} != formula {expected}"
-
-    # contract templates cover every contract kind present in scenarios
-    kinds = {t["contract_kind"] for t in scenario["tasks"]} | \
-            {t["contract_kind"] for t in other["tasks"]}
-    assert kinds <= set(CONTRACT_FORMULAS), f"unknown contract kinds {kinds - set(CONTRACT_FORMULAS)}"
-    task_fields = {f for t in scenario["tasks"] + other["tasks"] for f in t}
-    assert {"required_effective_seconds", "input_sha256", "oracle_sha256",
-            "pay_fen", "maximum_duration_seconds"} <= task_fields, "task field names drifted"
+    # contract templates cover every legacy contract kind
+    assert set(CONTRACT_FORMULAS) == {"hourly", "piece", "package"}
 
     assert (RULES_DIR / "off-foods.mapping.toml").is_file(), "missing catalog/rules/off-foods.mapping.toml"
     assert (RULES_DIR / "travel-fare.toml").is_file(), "missing catalog/rules/travel-fare.toml"
 
     off_sha = sha256_of(OFF_FROZEN)
-    body = scenario["body"]
+    body = snapshot["body"]
     for key in ("maximum_energy_kcal", "hunger_threshold_kcal", "emergency_threshold_kcal",
                 "basal_kcal_per_hour", "activity_met", "food_efficiency_curve",
                 "awake_sleep_debt_per_hour", "sleep_recovery_per_hour",
@@ -425,20 +414,19 @@ def verify_inputs(scenario: dict, other: dict, off_frozen: list, off_raw: dict,
 # ---------------------------------------------------------------------------
 
 def build() -> dict[str, str]:
-    scenario = load_json(SCENARIO_PRIMARY)
-    other = load_json(SCENARIO_SECONDARY)
+    snapshot = load_json(SNAPSHOT)
     off_frozen = load_json(OFF_FROZEN)
     off_raw = load_json(OFF_RAW)
     manifest = load_json(CORPUS_MANIFEST)
-    parts, off_sha = verify_inputs(scenario, other, off_frozen, off_raw, manifest)
+    parts, off_sha = verify_inputs(snapshot, off_frozen, off_raw, manifest)
 
-    body = scenario["body"]
+    body = snapshot["body"]
     resources = build_resources(body)
     objects = ([product_object(p, {e["barcode"]: e for e in off_frozen}, off_sha)
                 for p in parts["foods"]]
                + [product_object(p, {}, off_sha) for p in parts["items"]]
-               + [travel_object(scenario["routes"], scenario["transport_account_id"])]
-               + contract_objects(body, scenario["employer_account_id"]))
+               + [travel_object(snapshot["transport_account_id"])]
+               + contract_objects(body, snapshot["employer_account_id"]))
 
     assert len(resources) == 4, f"expected 4 resources, got {len(resources)}"
     assert len(objects) == 20, f"expected 20 objects (16+1+3), got {len(objects)}"

@@ -299,6 +299,26 @@ def test_initial_value_at_boundary_accepted(tmp_path: Path) -> None:
     assert result.ok
 
 
+def test_null_upper_bound_skips_max_comparison(tmp_path: Path) -> None:
+    """@brief bounds.max 为 null 的资源任意大初值放行（只受下界约束）。"""
+    refs = valid_refs()
+    unbounded = (ScenarioResourceRef(resource_id="sleep_debt_hours",
+                                     initial_value=1e9, unit="hours"),)
+    refs = refs.model_copy(update={"resources": unbounded})
+    result = validate_scenario_against_catalog(refs, _catalog(tmp_path))
+    assert result.ok
+
+
+def test_null_upper_bound_still_enforces_minimum(tmp_path: Path) -> None:
+    """@brief bounds.max 为 null 的资源初值低于下界仍被拒。"""
+    refs = valid_refs()
+    below = (ScenarioResourceRef(resource_id="sleep_debt_hours",
+                                 initial_value=-1, unit="hours"),)
+    refs = refs.model_copy(update={"resources": below})
+    result = validate_scenario_against_catalog(refs, _catalog(tmp_path))
+    assert _codes(result) == {INITIAL_VALUE_OUT_OF_BOUNDS}
+
+
 # 第五条：无墓碑引用。
 
 

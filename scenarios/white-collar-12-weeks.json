@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenario_id": "zhangjiang-white-collar-12-weeks",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
@@ -9,72 +9,70 @@
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
   "corpus_manifest_sha256": "487f769808b6859bf1e430c8a93320a444b9afaf54339989699d5c57e7acd55b",
+  "catalog_version": {
+    "major": 1,
+    "minor": 0
+  },
+  "accounts": [
+    {
+      "account_id": "merchant:general",
+      "money_fen": 10000000,
+      "role": "merchant:general"
+    },
+    {
+      "account_id": "merchant:grocery",
+      "money_fen": 10000000,
+      "role": "merchant:grocery"
+    },
+    {
+      "account_id": "employer:zhangjiang",
+      "money_fen": 4000000,
+      "role": "employer:zhangjiang"
+    },
+    {
+      "account_id": "transport:service",
+      "money_fen": 10000000,
+      "role": "transport:service"
+    },
+    {
+      "account_id": "external:scenario",
+      "money_fen": 0,
+      "role": "external:scenario"
+    }
+  ],
   "body": {
     "mass_kg": 65,
     "initial_energy_kcal": 1600,
-    "maximum_energy_kcal": 2400,
     "initial_sleep_debt_hours": 0,
-    "basal_kcal_per_hour": 65,
-    "awake_sleep_debt_per_hour": 1,
-    "sleep_recovery_per_hour": 2,
-    "entertainment_need_per_awake_hour": 0.08,
-    "work_notes_multiplier": 1.1,
-    "hunger_threshold_kcal": 800,
-    "emergency_threshold_kcal": 400,
-    "work_efficiency_curve": [
-      {
-        "input_value": 0,
-        "output_value": 1.0
-      },
-      {
-        "input_value": 8,
-        "output_value": 1.0
-      },
-      {
-        "input_value": 16,
-        "output_value": 0.85
-      },
-      {
-        "input_value": 24,
-        "output_value": 0.65
-      }
-    ],
-    "food_efficiency_curve": [
-      {
-        "input_value": 0,
-        "output_value": 0.9
-      },
-      {
-        "input_value": 8,
-        "output_value": 0.9
-      },
-      {
-        "input_value": 16,
-        "output_value": 0.85
-      },
-      {
-        "input_value": 24,
-        "output_value": 0.8
-      }
-    ],
-    "activity_met": {
-      "wait": 1.3,
-      "sleep": 0.95,
-      "work": 1.5,
-      "watch": 1.0,
-      "play_game": 1.3,
-      "read_mail": 1.3,
-      "browse": 1.3,
-      "consume": 1.5,
-      "travel:driving": 1.5,
-      "travel:walking": 3.5
-    },
-    "entertainment_relief_per_hour": {
-      "watch": 0.3,
-      "play_game": 0.4
-    },
-    "source_kind": "experiment_assumption"
+    "initial_entertainment_need": 0
   },
+  "agents": [
+    {
+      "agent_id": 1,
+      "name": "Zhangjiang white-collar worker",
+      "home_location_id": "home",
+      "initial_balance_fen": 800000,
+      "skill_levels": {
+        "meeting_analysis": 0.8
+      },
+      "entertainment_preferences": {
+        "sintel-en-subtitles": 0.7,
+        "textworld-1201": 0.6,
+        "textworld-1202": 0.6,
+        "textworld-1203": 0.6,
+        "textworld-1204": 0.6,
+        "textworld-1205": 0.6,
+        "textworld-1206": 0.6,
+        "textworld-1207": 0.6,
+        "textworld-1208": 0.6
+      },
+      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
+      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
+      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
+      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
+      "trait_source_kind": "experiment_assumption"
+    }
+  ],
   "locations": [
     {
       "location_id": "home",
@@ -263,339 +261,83 @@
   "products": [
     {
       "product_id": "food-6923644266066",
-      "name": "纯牛奶",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 680,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "250ml",
-      "energy_kcal_per_unit": 185,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6928804010114",
-      "name": "zero cocacola",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 350,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "500ml",
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6917878044729",
-      "name": "Nescafé",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 1200,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "10g",
-      "energy_kcal_per_unit": 46,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6924743919211",
-      "name": "经典原味薯片",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 990,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "1.4 bag (100 g)",
-      "energy_kcal_per_unit": 546,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6920152460061",
-      "name": "红烧牛肉面",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 650,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "105g",
-      "energy_kcal_per_unit": 538,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6920459902387",
-      "name": "冰红茶",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 450,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "250ml",
-      "energy_kcal_per_unit": 97.5,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-6901209212215",
-      "name": "纯净发酵乳 原味",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 580,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "135.0g",
-      "energy_kcal_per_unit": 107,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "food-8935090914864",
-      "name": "烘烤混合坚果仁",
-      "merchant_account_id": "merchant:grocery",
-      "merchant_location_id": "market",
-      "price_fen": 1680,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 120,
-      "serving_quantity": 1,
-      "serving_unit": "2 tablespoons (30 g)",
-      "energy_kcal_per_unit": 188,
-      "use_duration_seconds": 900,
-      "use_modes": [
-        "eat"
-      ],
-      "consumable": true,
-      "effect": "nutrition",
-      "required_location_id": null,
-      "delivery_delay_seconds": 1800,
-      "source_kind": "open_food_facts_and_scenario_price"
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-umbrella",
-      "name": "Umbrella",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 3990,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": false,
-      "effect": "weather_protection",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-notebook",
-      "name": "Notebook",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 1290,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": true,
-      "effect": "work_notes",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-charger",
-      "name": "Phone charger",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 5990,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": false,
-      "effect": "device_power",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-detergent",
-      "name": "Laundry detergent",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 2590,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": true,
-      "effect": "clean_clothes",
-      "required_location_id": "home",
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-tissues",
-      "name": "Pocket tissues",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 690,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": true,
-      "effect": "hygiene",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-toothbrush",
-      "name": "Toothbrush",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 1590,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": true,
-      "effect": "oral_hygiene",
-      "required_location_id": "home",
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-headphones",
-      "name": "Headphones",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 12900,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": false,
-      "effect": "private_audio",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     },
     {
       "product_id": "item-metro-card",
-      "name": "Metro card",
-      "merchant_account_id": "merchant:general",
-      "merchant_location_id": "market",
-      "price_fen": 5000,
-      "price_version": "zhangjiang-2026-q1",
-      "initial_stock": 80,
-      "serving_quantity": null,
-      "serving_unit": null,
-      "energy_kcal_per_unit": 0,
-      "use_duration_seconds": 300,
-      "use_modes": [
-        "use"
-      ],
-      "consumable": false,
-      "effect": "transit_access",
-      "required_location_id": null,
-      "delivery_delay_seconds": 2400,
-      "source_kind": "scenario"
+      "merchant": "merchant:general",
+      "merchant_location_id": "market"
     }
   ],
   "tasks": [
@@ -3063,9 +2805,6 @@
       "walkthrough_sha256": "6f5d86f66a7738f0fae78746f12e947c5b55fb6ef2e9a72cf13afc0b47a993b1"
     }
   ],
-  "employer_account_id": "employer:zhangjiang",
-  "employer_initial_balance_fen": 4000000,
-  "merchant_initial_balance_fen": 10000000,
   "calendar": {
     "spring_festival_dates": [
       "2026-02-15",
@@ -3089,34 +2828,5 @@
     "sick_leave_date": "2026-03-12",
     "personal_leave_date": "2026-03-18",
     "social_dinner_date": "2026-03-03"
-  },
-  "agents": [
-    {
-      "agent_id": 1,
-      "name": "Zhangjiang white-collar worker",
-      "home_location_id": "home",
-      "initial_balance_fen": 800000,
-      "skill_levels": {
-        "meeting_analysis": 0.8
-      },
-      "entertainment_preferences": {
-        "sintel-en-subtitles": 0.7,
-        "textworld-1201": 0.6,
-        "textworld-1202": 0.6,
-        "textworld-1203": 0.6,
-        "textworld-1204": 0.6,
-        "textworld-1205": 0.6,
-        "textworld-1206": 0.6,
-        "textworld-1207": 0.6,
-        "textworld-1208": 0.6
-      },
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "trait_source_kind": "experiment_assumption"
-    }
-  ],
-  "transport_account_id": "transport:service",
-  "transport_initial_balance_fen": 10000000
+  }
 }

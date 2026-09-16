@@ -9,6 +9,7 @@ from pathlib import Path
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ActivityState, AgentState, StartActivityRequest, WorldState
 from worldmock.life.scenario import LifeScenario, RouteConfig
+from worldmock.life.settlement import settle_money_transfer
 
 
 def route_for(scenario: LifeScenario, origin_id: str, request: StartActivityRequest) -> RouteConfig:
@@ -31,15 +32,14 @@ def pay_travel_fare(state: WorldState, scenario: LifeScenario, agent_id: int,
     fare = route.fare_fen
     if state.accounts[payer] < fare:
         raise BusinessRuleError("INSUFFICIENT_TRAVEL_FUNDS")
-    accounts = dict(state.accounts)
-    accounts[payer] -= fare
-    accounts[payee] += fare
+    changed = settle_money_transfer(state, payer, payee, fare,
+                                   f"travel:depart:{route.route_id}")
     receipt = {"route_id": route.route_id, "fare_fen": fare, "currency": "CNY",
                "payer_account_id": payer, "payee_account_id": payee,
                "fare_source_kind": route.fare_source_kind, "payment_timing": "accepted_departure",
                "cancellation_refund_fen": 0,
                "resource_changes": {f"account:{payer}": -fare, f"account:{payee}": fare}}
-    return state.model_copy(update={"accounts": accounts}, deep=True), receipt
+    return changed, receipt
 
 
 def validate_routes(scenario: LifeScenario, corpus_root: Path) -> None:

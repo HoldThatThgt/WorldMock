@@ -25,7 +25,9 @@ from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
 )
-from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.catalog import validate_scenario_against_catalog
+from worldmock.life.scenario import RuntimeScenario
+from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
@@ -115,7 +117,7 @@ class _PreparedRun:
     scenario_path: Path
     run_dir: Path
     run_id: str
-    scenario: LifeScenario
+    scenario: RuntimeScenario
     start_time: datetime
     env_kwargs: dict[str, Any]
     workspace_mode: str
@@ -230,7 +232,9 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     if not request.run_id.strip() or request.source_group_id != request.run_id:
         raise ValueError("A fresh run requires matching run_id and source_group_id")
     scenario_path = Path(request.scenario_path).resolve()
-    scenario, digest = load_scenario(scenario_path)
+    semantics, digest = load_runtime_scenario(scenario_path)
+    _admit_scenario(semantics)
+    scenario = semantics.scenario
     identity = _run_identity(request, scenario)
     kwargs = {
         "scenario_path": str(scenario_path),
@@ -246,7 +250,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     )
 
 
-def _run_identity(request: RunRequest, scenario: LifeScenario) -> RunIdentity:
+def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity:
     """@brief 形成与场景和当前 LifeAgent 合同绑定的运行身份。"""
     return RunIdentity(
         run_id=request.run_id,
@@ -258,6 +262,14 @@ def _run_identity(request: RunRequest, scenario: LifeScenario) -> RunIdentity:
         model_identity=_model_identity(),
         code_sha256=runtime_code_sha256(Path(request.project_root)),
     )
+
+
+def _admit_scenario(semantics: ScenarioSemantics) -> None:
+    """@brief 目录准入七条规则任一违例即拒绝启动（fail-closed，英文错误）。"""
+    result = validate_scenario_against_catalog(semantics.refs, semantics.catalog)
+    if not result.ok:
+        detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
+        raise IntegrityError(f"Scenario admission rejected by catalog: {detail}")
 
 
 def _model_identity() -> ModelIdentity:
@@ -284,7 +296,9 @@ def _prepare_resume(
     destination = Path(request.run_dir).resolve()
     _require_run_shell(destination)
     scenario_path = Path(request.scenario_path).resolve()
-    scenario, _ = load_scenario(scenario_path)
+    semantics, _ = load_runtime_scenario(scenario_path)
+    _admit_scenario(semantics)
+    scenario = semantics.scenario
     digest = _intervention_sha256(intervention) if intervention is not None else None
     metadata = (
         {"branch_kind": "counterfactual", "intervention_sha256": digest}
@@ -582,7 +596,7 @@ def _require_custom_modules(project_root: Path) -> None:
         raise RuntimeError("LifeAgent or LifeEnv custom module registration failed")
 
 
-def _agent_specs(scenario: LifeScenario) -> tuple[dict[str, Any], ...]:
+def _agent_specs(scenario: RuntimeScenario) -> tuple[dict[str, Any], ...]:
     """@brief 从冻结生活人物形成原生 runner 工作区输入。"""
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):

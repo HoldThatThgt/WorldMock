@@ -21,6 +21,7 @@ from worldmock.life.models import (
     WorldState,
 )
 from worldmock.life.scenario import BodyConfig, LifeScenario, ProductConfig
+from worldmock.life.settlement import settle_money_transfer
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,19 +52,19 @@ def purchase(state: WorldState, scenario: LifeScenario, agent_id: int,
     agent = state.agents[agent_id]
     _validate_purchase(state, scenario, agent, product, request)
     total = product.price_fen * request.quantity
-    accounts = dict(state.accounts)
-    accounts[agent.balance_account_id] -= total
-    accounts[product.merchant_account_id] += total
-    stock = dict(state.merchant_stock)
+    settled = settle_money_transfer(state, agent.balance_account_id,
+                                    product.merchant_account_id, total,
+                                    f"purchase:{product.product_id}")
+    stock = dict(settled.merchant_stock)
     stock[product.product_id] -= request.quantity
     delivery, scheduled = _fulfillment(state, scenario, agent, product, request)
-    deliveries = dict(state.deliveries)
+    deliveries = dict(settled.deliveries)
     deliveries[delivery.order_id] = delivery
-    agents = dict(state.agents)
+    agents = dict(settled.agents)
     if delivery.status == "delivered":
         agents[agent_id] = _add_inventory(agent, request.destination_id, product.product_id, request.quantity)
-    changed = state.model_copy(update={"accounts": accounts, "merchant_stock": stock,
-                                       "deliveries": deliveries, "agents": agents}, deep=True)
+    changed = settled.model_copy(update={"merchant_stock": stock,
+                                         "deliveries": deliveries, "agents": agents}, deep=True)
     if scheduled:
         changed.pending_events.append(scheduled)
         changed.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))

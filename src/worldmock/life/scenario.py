@@ -1,4 +1,4 @@
-"""@brief 读取并严格验证生活场景与冻结内容身份。"""
+"""@brief 读取并严格验证瘦身场景文档与组装后的运行时场景。"""
 
 from __future__ import annotations
 
@@ -15,24 +15,19 @@ from pydantic import Field, model_validator
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ContractKind, CurvePoint, FrozenModel, TravelMode
 
-
-_ACTIVITY_MET_KEYS = frozenset({
-    "wait", "sleep", "work", "watch", "play_game", "travel:driving", "travel:walking",
-    "read_mail", "browse", "consume",
-})
-_ENTERTAINMENT_ACTIVITY_KEYS = frozenset({"watch", "play_game"})
+#: 商品使用方式的封闭集合（eat=食品进食，use=耐用品使用）。
 _PRODUCT_USE_MODES = frozenset({"eat", "use"})
 
 
 class BodyConfig(FrozenModel):
-    """@brief 身体转换参数，全部数值具有明确单位。"""
+    """@brief 组装后的身体运行参数：实例初值加上目录解析的全部静态语义。"""
 
     mass_kg: float = Field(gt=0, le=300)
     initial_energy_kcal: float = Field(ge=0)
     maximum_energy_kcal: float = Field(gt=0)
     initial_sleep_debt_hours: float = Field(ge=0)
     basal_kcal_per_hour: float = Field(gt=0)
-    awake_sleep_debt_per_hour: float = Field(ge=0)
+    awake_sleep_debt_per_hour: float = Field(gt=0)
     sleep_recovery_per_hour: float = Field(gt=0)
     entertainment_need_per_awake_hour: float = Field(ge=0, le=1)
     hunger_threshold_kcal: float = Field(ge=0)
@@ -53,13 +48,6 @@ class BodyConfig(FrozenModel):
             raise ValueError("body thresholds must be ordered within maximum energy")
         for curve in (self.work_efficiency_curve, self.food_efficiency_curve):
             _validate_curve(curve)
-        _validate_closed_map(self.activity_met, _ACTIVITY_MET_KEYS, "activity MET", positive=True)
-        _validate_closed_map(
-            self.entertainment_relief_per_hour,
-            _ENTERTAINMENT_ACTIVITY_KEYS,
-            "entertainment relief",
-            unit_interval=True,
-        )
         if not math.isfinite(self.work_notes_multiplier):
             raise ValueError("work notes multiplier must be finite")
         return self
@@ -111,7 +99,11 @@ class LocationConfig(FrozenModel):
 
 
 class RouteConfig(FrozenModel):
-    """@brief 一条 prepare 阶段冻结的真实 OSRM 路由。"""
+    """@brief 一条 prepare 阶段冻结的真实 OSRM 路由及其实例报价。
+
+    报价公式本身是目录语义（rules/travel-fare.toml），由 ScenarioSemantics
+    在组装时对每条路线的 fare_fen 做交叉核验，本模型不再内嵌公式。
+    """
 
     route_id: str = Field(min_length=1)
     origin_id: str = Field(min_length=1)
@@ -125,17 +117,9 @@ class RouteConfig(FrozenModel):
     response_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     source_url: str = Field(min_length=1)
 
-    @model_validator(mode="after")
-    def validate_fare(self) -> "RouteConfig":
-        """@brief 步行免费，驾驶按冻结的场景公式形成正数报价。"""
-        expected = 0 if self.mode == TravelMode.WALKING else max(500, math.ceil(self.distance_meters * 0.2))
-        if self.fare_fen != expected:
-            raise ValueError("route fare does not match the frozen scenario formula")
-        return self
-
 
 class ProductConfig(FrozenModel):
-    """@brief 冻结产品事实与场景报价。"""
+    """@brief 组装后的商品运行事实：实例绑定加上目录解析的静态语义。"""
 
     product_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
@@ -267,8 +251,121 @@ class CalendarConfig(FrozenModel):
         return self
 
 
+class CatalogVersionPin(FrozenModel):
+    """@brief 场景对目录版本的钉扎声明。"""
+
+    major: int = Field(ge=1)
+    minor: int = Field(ge=0)
+
+
+class AccountInstanceConfig(FrozenModel):
+    """@brief 服务侧账户实例：账户身份、初始金额与其扮演的目录角色。
+
+    人物账户（buyer/traveler/worker 三个能力角色）由 agents[] 隐式声明，
+    不在 accounts[] 中重复；外部锚点账户用 external: 前缀角色声明。
+    """
+
+    account_id: str = Field(min_length=1)
+    money_fen: int = Field(ge=0)
+    role: str = Field(min_length=1)
+
+
+class ProductReference(FrozenModel):
+    """@brief 场景对一个目录商品的实例引用与商家绑定。"""
+
+    product_id: str = Field(min_length=1)
+    merchant: str = Field(min_length=1)
+    merchant_location_id: str = Field(min_length=1)
+    stock: int | None = Field(default=None, ge=0)
+
+
+class BodyInstanceConfig(FrozenModel):
+    """@brief 身体三类 level 资源的实例初值。"""
+
+    mass_kg: float = Field(gt=0, le=300)
+    initial_energy_kcal: float = Field(ge=0)
+    initial_sleep_debt_hours: float = Field(ge=0)
+    initial_entertainment_need: float = Field(default=0, ge=0, le=1)
+
+
 class LifeScenario(FrozenModel):
-    """@brief LifeEnv 启动所需的完整冻结场景。"""
+    """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
+
+    schema_version: int = Field(ge=2)
+    scenario_id: str = Field(min_length=1)
+    timezone: str = Field(min_length=1)
+    start_at: datetime
+    end_at: datetime
+    random_seed: int
+    activity_feedback_seconds: int = Field(gt=0, le=86_400)
+    max_consecutive_rejections: int = Field(gt=0)
+    corpus_root: str = Field(min_length=1)
+    corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    catalog_version: CatalogVersionPin
+    accounts: tuple[AccountInstanceConfig, ...] = Field(min_length=1)
+    body: BodyInstanceConfig
+    agents: tuple[AgentConfig, ...]
+    locations: tuple[LocationConfig, ...]
+    routes: tuple[RouteConfig, ...]
+    products: tuple[ProductReference, ...]
+    tasks: tuple[WorkTaskConfig, ...]
+    messages: tuple[MessageConfig, ...]
+    contents: tuple[ContentItemConfig, ...]
+    games: tuple[GameConfig, ...]
+    calendar: CalendarConfig
+
+    @model_validator(mode="after")
+    def validate_document(self) -> "LifeScenario":
+        """@brief 核对时区、身份唯一性、账户声明和全部跨引用。"""
+        _aware(self.start_at, "start_at")
+        _aware(self.end_at, "end_at")
+        zone = _zone(self.timezone)
+        if self.end_at <= self.start_at or str(zone) != self.timezone:
+            raise ValueError("scenario time interval or timezone is invalid")
+        _unique(self.agents, "agent_id")
+        _unique(self.locations, "location_id")
+        _unique(self.routes, "route_id")
+        _unique(self.products, "product_id")
+        _unique(self.tasks, "task_id")
+        _unique(self.messages, "message_id")
+        _unique(self.contents, "item_id")
+        _unique(self.games, "game_id")
+        _unique(self.accounts, "account_id")
+        _unique(self.accounts, "role")
+        places = [(item.merchant_location_id, None) for item in self.products]
+        _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
+        targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
+        _check_catalog_references(self.agents, self.tasks, self.messages, targets)
+        self._validate_merchant_bindings()
+        self._validate_route_keys()
+        _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
+        return self
+
+    def _validate_merchant_bindings(self) -> None:
+        """@brief 商品商家必须是已声明服务账户且不得占用人物账户身份。"""
+        declared = {item.account_id for item in self.accounts}
+        people = {f"agent:{item.agent_id}" for item in self.agents}
+        if any(not item.account_id.strip() or not item.role.strip() for item in self.accounts):
+            raise ValueError("account ids and roles must not be blank")
+        for reference in self.products:
+            if reference.merchant not in declared:
+                raise ValueError("product merchant account is not declared by the scenario")
+        if any(account.account_id in people for account in self.accounts):
+            raise ValueError("service accounts must not reuse agent account ids")
+
+    def _validate_route_keys(self) -> None:
+        """@brief 每个起点、终点与方式只允许一条冻结路线。"""
+        keys = [(route.origin_id, route.destination_id, route.mode) for route in self.routes]
+        if len(keys) != len(set(keys)) or any(origin == destination for origin, destination, _ in keys):
+            raise ValueError("route lookup keys must be unique and connect different locations")
+
+
+class RuntimeScenario(FrozenModel):
+    """@brief 组装后的运行时场景：实例数据加上经目录解析的全部静态语义。
+
+    由 ScenarioSemantics 从瘦身文档与冻结目录组装，不可从 JSON 直接构造；
+    领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
+    """
 
     schema_version: int = Field(ge=1)
     scenario_id: str = Field(min_length=1)
@@ -290,14 +387,11 @@ class LifeScenario(FrozenModel):
     contents: tuple[ContentItemConfig, ...]
     games: tuple[GameConfig, ...]
     employer_account_id: str = Field(min_length=1)
-    employer_initial_balance_fen: int = Field(ge=0)
-    merchant_initial_balance_fen: int = Field(ge=0)
     transport_account_id: str = Field(min_length=1)
-    transport_initial_balance_fen: int = Field(ge=0)
     calendar: CalendarConfig
 
     @model_validator(mode="after")
-    def validate_scenario(self) -> "LifeScenario":
+    def validate_scenario(self) -> "RuntimeScenario":
         """@brief 核对时区、身份唯一性和全部跨引用。"""
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
@@ -312,40 +406,14 @@ class LifeScenario(FrozenModel):
         _unique(self.messages, "message_id")
         _unique(self.contents, "item_id")
         _unique(self.games, "game_id")
-        self._validate_references()
+        places = [(item.merchant_location_id, item.required_location_id) for item in self.products]
+        _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
+        targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
+        _check_catalog_references(self.agents, self.tasks, self.messages, targets)
         self._validate_route_keys()
         self._validate_accounts()
-        self._validate_times()
+        _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
         return self
-
-    def _validate_references(self) -> None:
-        """@brief 确保引用只指向场景内明示实体。"""
-        locations = {item.location_id for item in self.locations}
-        agents = {item.agent_id for item in self.agents}
-        tasks = {item.task_id for item in self.tasks}
-        if any(agent.home_location_id not in locations for agent in self.agents):
-            raise ValueError("agent home is not a declared location")
-        if any(route.origin_id not in locations or route.destination_id not in locations for route in self.routes):
-            raise ValueError("route references an unknown location")
-        product_locations = (
-            product.merchant_location_id not in locations
-            or product.required_location_id is not None and product.required_location_id not in locations
-            for product in self.products
-        )
-        if any(product_locations):
-            raise ValueError("product references an unknown merchant location")
-        if any(task.required_location_id not in locations for task in self.tasks):
-            raise ValueError("work task references an unknown location")
-        skills = {key for agent in self.agents for key in agent.skill_levels}
-        if any(task.required_skill not in skills for task in self.tasks):
-            raise ValueError("work task references an unknown skill")
-        if any(message.recipient_agent_id not in agents for message in self.messages):
-            raise ValueError("message references an unknown agent")
-        if any(message.related_task_id not in tasks for message in self.messages if message.related_task_id):
-            raise ValueError("message references an unknown task")
-        targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
-        if any(key not in targets for agent in self.agents for key in agent.entertainment_preferences):
-            raise ValueError("entertainment preference references an unknown item")
 
     def _validate_route_keys(self) -> None:
         """@brief 每个起点、终点与方式只允许一条冻结路线。"""
@@ -365,20 +433,49 @@ class LifeScenario(FrozenModel):
         if len(services) != 2 or services & people or services & merchants or people & merchants:
             raise ValueError("account roles must use distinct account ids")
 
-    def _validate_times(self) -> None:
-        """@brief 场景事件时刻必须属于声明时区和有效运行窗口。"""
-        zone = ZoneInfo(self.timezone)
-        values = (self.start_at, self.end_at)
-        if any(not _matches_zone(value, zone) for value in values):
-            raise ValueError("scenario timestamps do not match the declared timezone")
-        for task in self.tasks:
-            if not (_matches_zone(task.available_at, zone) and _matches_zone(task.due_at, zone)):
-                raise ValueError("work task timestamps do not match the declared timezone")
-            if not self.start_at <= task.available_at < task.due_at <= self.end_at:
-                raise ValueError("work task is outside the scenario interval")
-        for message in self.messages:
-            if not _matches_zone(message.sent_at, zone) or message.sent_at >= self.end_at:
-                raise ValueError("message timestamp is invalid for the scenario")
+
+def _check_location_references(agents, routes, product_places, tasks, locations) -> None:
+    """@brief 确保住处、路线、商品商家与任务地点引用已声明地点。"""
+    known = {item.location_id for item in locations}
+    if any(agent.home_location_id not in known for agent in agents):
+        raise ValueError("agent home is not a declared location")
+    if any(route.origin_id not in known or route.destination_id not in known for route in routes):
+        raise ValueError("route references an unknown location")
+    for merchant_location, required_location in product_places:
+        if merchant_location not in known or required_location is not None and required_location not in known:
+            raise ValueError("product references an unknown merchant location")
+    if any(task.required_location_id not in known for task in tasks):
+        raise ValueError("work task references an unknown location")
+
+
+def _check_catalog_references(agents, tasks, messages, targets) -> None:
+    """@brief 确保任务技能、邮件收件人和娱乐偏好引用场景内实体。"""
+    agents_by_id = {item.agent_id for item in agents}
+    task_ids = {item.task_id for item in tasks}
+    skills = {key for agent in agents for key in agent.skill_levels}
+    if any(task.required_skill not in skills for task in tasks):
+        raise ValueError("work task references an unknown skill")
+    if any(message.recipient_agent_id not in agents_by_id for message in messages):
+        raise ValueError("message references an unknown agent")
+    if any(message.related_task_id not in task_ids for message in messages if message.related_task_id):
+        raise ValueError("message references an unknown task")
+    if any(key not in targets for agent in agents for key in agent.entertainment_preferences):
+        raise ValueError("entertainment preference references an unknown item")
+
+
+def _check_times(zone, start_at, end_at, tasks, messages) -> None:
+    """@brief 场景事件时刻必须属于声明时区和有效运行窗口。"""
+    values = (start_at, end_at)
+    if any(not _matches_zone(value, zone) for value in values):
+        raise ValueError("scenario timestamps do not match the declared timezone")
+    for task in tasks:
+        if not (_matches_zone(task.available_at, zone) and _matches_zone(task.due_at, zone)):
+            raise ValueError("work task timestamps do not match the declared timezone")
+        if not start_at <= task.available_at < task.due_at <= end_at:
+            raise ValueError("work task is outside the scenario interval")
+    for message in messages:
+        if not _matches_zone(message.sent_at, zone) or message.sent_at >= end_at:
+            raise ValueError("message timestamp is invalid for the scenario")
 
 
 def _aware(value: datetime, field_name: str) -> None:
@@ -394,19 +491,6 @@ def _validate_curve(curve: tuple[CurvePoint, ...]) -> None:
         raise ValueError("curve inputs must be strictly increasing")
     if any(not math.isfinite(point.output_value) or point.output_value > 1 for point in curve):
         raise ValueError("curve outputs must be between zero and one")
-
-
-def _validate_closed_map(values: dict[str, float], expected: frozenset[str], label: str,
-                         positive: bool = False, unit_interval: bool = False) -> None:
-    """@brief 校验封闭数值映射的键集合、有限值和允许范围。"""
-    if set(values) != expected:
-        raise ValueError(f"{label} keys must match the supported set")
-    if any(not math.isfinite(value) for value in values.values()):
-        raise ValueError(f"{label} values must be finite")
-    if positive and any(value <= 0 for value in values.values()):
-        raise ValueError(f"{label} values must be positive")
-    if unit_interval and any(value < 0 or value > 1 for value in values.values()):
-        raise ValueError(f"{label} values must be between zero and one")
 
 
 def _validate_unit_mapping(values: dict[str, float], label: str) -> None:
@@ -452,8 +536,8 @@ def sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def load_scenario(path: Path) -> tuple[LifeScenario, str]:
-    """@brief 读取唯一 JSON 场景并返回其内容身份。"""
+def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
+    """@brief 读取唯一 JSON 场景文档并返回其内容身份。"""
     candidate = Path(path)
     if candidate.is_symlink():
         raise IntegrityError("Scenario file is missing or is a symbolic link")
@@ -470,3 +554,11 @@ def load_scenario(path: Path) -> tuple[LifeScenario, str]:
     if not manifest.is_file() or sha256_file(manifest) != scenario.corpus_manifest_sha256:
         raise IntegrityError("Scenario corpus manifest identity is invalid")
     return scenario, hashlib.sha256(content).hexdigest()
+
+
+def load_scenario(path: Path) -> tuple[RuntimeScenario, str]:
+    """@brief 完整加载场景：文档校验、目录组装与准入通过后返回运行时场景。"""
+    from worldmock.life.semantics import load_runtime_scenario
+
+    semantics, digest = load_runtime_scenario(path)
+    return semantics.scenario, digest

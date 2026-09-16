@@ -1,4 +1,12 @@
-"""@brief 按实际活动区间结算能量、睡眠不足和娱乐需要。"""
+"""@brief 按实际活动区间经资源分录结算能量、睡眠不足和娱乐需要。
+
+身体三参数即三个 open level 资源（设计文档 §3.2）：所有数值变动构造
+FlowEntry 经 ResourceLedger.apply 纯函数结算（§9 结算通道统一），分录
+方向按资源余额语义取 source（流入）/drain（流出）。外部行为与直接赋值
+实现逐位等价：非钳制路径的分录金额就是原算式操作数（同一浮点运算），
+触界路径按"先算后钳"落地——分录金额先钳到可用余量，期末再钉到现行
+clamp 语义的边界值（进食截断到最大能量、睡眠债/娱乐下限 0、娱乐上限 1）。
+"""
 
 from __future__ import annotations
 
@@ -7,6 +15,13 @@ from dataclasses import dataclass
 
 from worldmock.life.models import ActivityKind, BodyState, CurvePoint
 from worldmock.life.scenario import BodyConfig
+from worldmock.resources import FlowEntry, ResourceLedger, ResourceMeta
+from worldmock.resources.models import (
+    DRAIN_DIRECTION,
+    LEVEL_KIND,
+    OPEN_CONSERVATION,
+    SOURCE_DIRECTION,
+)
 
 
 ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset({
@@ -14,6 +29,54 @@ ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset({
     ActivityKind.WAIT,
     ActivityKind.CONSUME,
 })
+
+#: 身体域三个 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
+ENERGY_RESOURCE = "energy_kcal"
+SLEEP_DEBT_RESOURCE = "sleep_debt_hours"
+ENTERTAINMENT_RESOURCE = "entertainment_need"
+#: 结算函数不携带人物身份与墙钟：分录以固定 owner 与占位时间戳落地，
+#: wave 2 引擎接线时以真实 agent 与 occurred_at 重盖（resource_flows 字典不含时间戳）。
+BODY_FLOW_OWNER = "body"
+BODY_FLOW_OCCURRED_AT = 0
+
+#: 自上次 last_flows() 调用以来结算产生的分录证据流（§9）。
+_flow_buffer: list[FlowEntry] = []
+
+
+def last_flows() -> tuple[FlowEntry, ...]:
+    """@brief 取回并清空自上次调用以来结算产生的分录序列。
+
+    结算函数把本区间分录追加进证据流；引擎接线（wave 2）在每次结算后
+    调用本函数取走增量，写入足迹事件的 resource_flows 字段。
+    """
+    pending = tuple(_flow_buffer)
+    _flow_buffer.clear()
+    return pending
+
+
+def body_resource_metas(config: BodyConfig) -> tuple[ResourceMeta, ...]:
+    """@brief 从身体参数组装三个 level 资源元信息（bounds 与现行 clamp 语义一致）。"""
+    return (
+        ResourceMeta(ENERGY_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
+                     config.maximum_energy_kcal),
+        ResourceMeta(SLEEP_DEBT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, None),
+        ResourceMeta(ENTERTAINMENT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, 1),
+    )
+
+
+def _settle_via_ledger(config: BodyConfig, before: BodyState,
+                       entries: list[FlowEntry]) -> tuple[float, float, float]:
+    """@brief 经 ResourceLedger 纯函数结算分录，返回能量、睡眠债、娱乐期末余额。"""
+    ledger = ResourceLedger(body_resource_metas(config))
+    balances = {
+        (ENERGY_RESOURCE, BODY_FLOW_OWNER): before.energy_kcal,
+        (SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER): before.sleep_debt_hours,
+        (ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER): before.entertainment_need,
+    }
+    final = ledger.apply(entries, balances)
+    return (final[(ENERGY_RESOURCE, BODY_FLOW_OWNER)],
+            final[(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER)],
+            final[(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER)])
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,15 +127,24 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
     basal = config.basal_kcal_per_hour * hours
     met = factors.met if factors else config.activity_met[kind.value]
     extra = max(met - 1, 0) * config.mass_kg * hours
-    energy = body.energy_kcal - minimum_energy_cost(kind, seconds, config, met)
-    close_to_zero = math.isclose(energy, 0, rel_tol=0, abs_tol=1e-9)
-    if energy < 0 and not close_to_zero and kind not in ENERGY_RECOVERY_ACTIVITY_KINDS:
+    cost = minimum_energy_cost(kind, seconds, config, met)
+    projected = body.energy_kcal - cost
+    close_to_zero = math.isclose(projected, 0, rel_tol=0, abs_tol=1e-9)
+    if projected < 0 and not close_to_zero and kind not in ENERGY_RECOVERY_ACTIVITY_KINDS:
         raise ValueError("activity would exhaust available energy")
-    energy = max(0, energy)
-    debt = _settle_sleep_debt(body.sleep_debt_hours, kind, hours, config)
     relief = factors.entertainment_relief_per_hour if factors else 0
-    entertainment = _settle_entertainment(body.entertainment_need, kind, hours, config, relief)
+    entertainment_entries, entertainment_capped = _entertainment_entries(
+        kind, body.entertainment_need, hours, config, relief)
+    entries = [entry for entry in (
+        _energy_cost_entry(kind, min(cost, body.energy_kcal)),
+        _sleep_debt_entry(kind, body.sleep_debt_hours, hours, config),
+        *entertainment_entries,
+    ) if entry is not None]
+    energy, debt, entertainment = _settle_via_ledger(config, body, entries)
+    if entertainment_capped:
+        entertainment = 1.0
     after = BodyState(energy_kcal=energy, sleep_debt_hours=debt, entertainment_need=entertainment)
+    _flow_buffer.extend(entries)
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None,
                           _work_efficiency(body.sleep_debt_hours, debt, kind, config, factors))
 
@@ -83,8 +155,18 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
         raise ValueError("food calories cannot be negative")
     efficiency = interpolate(config.food_efficiency_curve, body.sleep_debt_hours)
     gained = calories * efficiency
-    energy = min(config.maximum_energy_kcal, body.energy_kcal + gained)
+    projected = body.energy_kcal + gained
+    capped = projected > config.maximum_energy_kcal
+    amount = min(gained, config.maximum_energy_kcal - body.energy_kcal) if capped else gained
+    entries = []
+    if amount > 0:
+        entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
+                                 "food:intake", BODY_FLOW_OCCURRED_AT))
+    energy, _debt, _entertainment = _settle_via_ledger(config, body, entries)
+    if capped:
+        energy = config.maximum_energy_kcal
     after = body.model_copy(update={"energy_kcal": energy}, deep=True)
+    _flow_buffer.extend(entries)
     return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency,
                           interpolate(config.work_efficiency_curve, body.sleep_debt_hours))
 
@@ -177,22 +259,59 @@ def _curve_boundaries(value: float, rate_per_hour: float,
             for target in targets]
 
 
-def _settle_sleep_debt(debt: float, kind: ActivityKind, hours: float, config: BodyConfig) -> float:
-    """@brief 睡眠恢复与清醒积累互不混用。"""
-    if kind == ActivityKind.SLEEP:
-        return max(0, debt - config.sleep_recovery_per_hour * hours)
-    return debt + config.awake_sleep_debt_per_hour * hours
+def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:
+    """@brief 活动能量成本是一笔合并 drain（基础代谢+活动 MET 增量，保持逐位等价）。"""
+    if amount > 0:
+        return FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
+                         f"settle:{kind.value}:energy_cost", BODY_FLOW_OCCURRED_AT)
+    return None
 
 
-def _settle_entertainment(value: float, kind: ActivityKind, hours: float, config: BodyConfig,
-                          relief_per_hour: float) -> float:
-    """@brief 娱乐按实际接触减少需要，其余清醒活动增加需要。"""
+def _sleep_debt_entry(kind: ActivityKind, debt: float, hours: float,
+                      config: BodyConfig) -> FlowEntry | None:
+    """@brief 清醒累积睡眠债计 source，睡眠恢复降低睡眠债计 drain。"""
     if kind == ActivityKind.SLEEP:
-        return value
+        amount = min(config.sleep_recovery_per_hour * hours, debt)
+        if amount > 0:
+            return FlowEntry(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
+                             "settle:sleep:recovery", BODY_FLOW_OCCURRED_AT)
+    else:
+        amount = config.awake_sleep_debt_per_hour * hours
+        if amount > 0:
+            return FlowEntry(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
+                             f"settle:{kind.value}:awake_sleep_debt", BODY_FLOW_OCCURRED_AT)
+    return None
+
+
+def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config: BodyConfig,
+                           relief_per_hour: float) -> tuple[list[FlowEntry], bool]:
+    """@brief 娱乐需要分录：实际接触计 drain，其余清醒活动计 source。
+
+    :returns: (分录列表, 累积是否触及上限 1 需要钳制)。
+    """
+    if kind == ActivityKind.SLEEP:
+        return [], False
     if relief_per_hour:
-        relief = relief_per_hour * hours
-        return max(0, value - relief)
-    return min(1, value + config.entertainment_need_per_awake_hour * hours)
+        amount = min(relief_per_hour * hours, need)
+        if amount > 0:
+            return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
+                              f"settle:{kind.value}:entertainment_relief",
+                              BODY_FLOW_OCCURRED_AT)], False
+        return [], False
+    accrual = config.entertainment_need_per_awake_hour * hours
+    projected = need + accrual
+    if projected <= 1:
+        if accrual > 0:
+            return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, accrual,
+                              f"settle:{kind.value}:awake_entertainment_need",
+                              BODY_FLOW_OCCURRED_AT)], False
+        return [], False
+    capped = min(accrual, 1 - need)
+    if capped > 0:
+        return [FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, capped,
+                          f"settle:{kind.value}:awake_entertainment_need",
+                          BODY_FLOW_OCCURRED_AT)], True
+    return [], True
 
 
 def _work_efficiency(start: float, end: float, kind: ActivityKind, config: BodyConfig,
