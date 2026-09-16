@@ -80,6 +80,10 @@ from worldmock.life.models import (
     SubmitWorkRequest,
     WorldState,
 )
+from worldmock.life.motivation import (
+    MotivationContext,
+    evaluate_motivation,
+)
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
@@ -612,7 +616,7 @@ class LifeEngine:
         products = [self._visible_product(item) for item in sorted(agent.visible_product_ids)]
         deliveries = [item.model_dump(mode="json") for item in self.state.deliveries.values()
                       if item.agent_id == agent.agent_id and item.status == "pending"]
-        return {"world_state_version": self.state.version, "current_time": self.state.current_time,
+        data = {"world_state_version": self.state.version, "current_time": self.state.current_time,
                 "end_time": self.state.end_time, "agent_id": agent.agent_id, "location_id": agent.location_id,
                 "balance_fen": self.state.accounts[agent.balance_account_id],
                 "body": body_observation(agent.body, self.semantics.body),
@@ -635,6 +639,71 @@ class LifeEngine:
                 "recent_action_results": self._recent_action_results(agent.agent_id),
                 "active_effects": sorted(agent.active_effects),
                 "games": {key: value.model_dump(mode="json") for key, value in agent.game_sessions.items()}}
+        hints = self._motivation_hints(agent)
+        if hints is not None:
+            data["motivation_hints"] = hints
+        return data
+
+    def _motivation_hints(self, agent) -> dict | None:
+        """@brief 计算动机提示；无档案、无变换参数或求值失败一律不注入。
+
+        提示是建议不是账：本方法只读生活状态，任何求值异常都吞掉并记日志
+        （fail-open 于 hints），结算路径不感知其存在（fail-closed 于结算）。
+        """
+        profile = next((item.motivation for item in self.scenario.agents
+                        if item.agent_id == agent.agent_id and item.motivation is not None), None)
+        transforms = self.semantics.motivation_transforms
+        if profile is None or transforms is None:
+            return None
+        try:
+            context = self._motivation_context(agent)
+            scored = evaluate_motivation(context, profile, transforms)
+            if not scored:
+                return None
+            return {"schema_version": 1, "generated_at": self.state.current_time,
+                    "candidates": [item.to_hint() for item in scored]}
+        except Exception:
+            logging.warning("Motivation hints evaluation failed", exc_info=True)
+            return None
+
+    def _motivation_context(self, agent) -> MotivationContext:
+        """@brief 从当前世界装配求值输入切片（全部只读）。"""
+        now = self.state.current_time
+        tasks = [self.rules.tasks[item] for item in sorted(agent.visible_task_ids)
+                 if item not in self.state.paid_task_ids
+                 and now <= int(self.rules.tasks[item].due_at.timestamp())]
+        habit = tuple((event.data.get("tool_name"),
+                       event.data.get("request") if isinstance(event.data.get("request"), dict) else {})
+                      for event in self.store.read_agent_events("action_requested", agent.agent_id))
+        effective_total = sum(item.effective_work_seconds for item in self.state.activities.values()
+                              if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
+                              and item.status != ActivityStatus.FAILED)
+        return MotivationContext(
+            agent=agent,
+            balance_fen=self.state.accounts[agent.balance_account_id],
+            body=self.semantics.body,
+            home_location_id=next(item.home_location_id for item in self.scenario.agents
+                                  if item.agent_id == agent.agent_id),
+            products=tuple(self.rules.products[item] for item in sorted(agent.visible_product_ids)),
+            merchant_stock=self.state.merchant_stock,
+            locations={item.location_id: item for item in self.scenario.locations},
+            routes=self.scenario.routes,
+            tasks=tuple(tasks),
+            task_totals={task.task_id: work_totals(self.state, agent.agent_id, task.task_id)
+                         for task in tasks},
+            contents=self.scenario.contents,
+            content_progress=agent.content_progress,
+            active_activity=(self.state.activities.get(agent.current_activity_id)
+                             if agent.current_activity_id else None),
+            habit_events=habit,
+            consecutive_rejections=agent.consecutive_rejections,
+            max_consecutive_rejections=self.scenario.max_consecutive_rejections,
+            total_effective_seconds=effective_total,
+            current_time=now,
+            end_time=self.state.end_time,
+            timezone=self.scenario.timezone,
+            planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(
+                mode, base, now))
 
     def _recent_action_results(self, agent_id: int) -> list[dict]:
         """@brief 返回该人物上次观察后新产生的动作结算事实。"""

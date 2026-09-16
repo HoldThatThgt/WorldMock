@@ -36,8 +36,10 @@ from worldmock.catalog import (
     load_catalog,
     validate_scenario_against_catalog,
 )
+from worldmock.catalog.loader import RULES_DIR
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
+from worldmock.life.motivation import MotivationTransforms, load_motivation_transforms
 from worldmock.life.scenario import (
     AccountInstanceConfig,
     BodyConfig,
@@ -92,6 +94,7 @@ class ScenarioSemantics:
     refs: ScenarioCatalogRefs
     accounts: Mapping[str, int]
     alert_codes: Mapping[str, str] = field(default_factory=dict)
+    motivation_transforms: MotivationTransforms | None = None
 
     def travel_fare(self, mode: str, distance_meters: float) -> int:
         """@brief 按 travel-fare 公式分支求值出行费率（分）。"""
@@ -194,9 +197,10 @@ def load_runtime_scenario(
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
     try:
         catalog = load_catalog(directory)
+        motivation_transforms = load_motivation_transforms(directory / RULES_DIR)
     except CatalogError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
-    return assemble_semantics(document, catalog), digest
+    return assemble_semantics(document, catalog, motivation_transforms), digest
 
 
 def resolve_catalog_dir(scenario_path: Path) -> Path:
@@ -204,7 +208,9 @@ def resolve_catalog_dir(scenario_path: Path) -> Path:
     return Path(scenario_path).resolve().parent.parent / "catalog"
 
 
-def assemble_semantics(document: LifeScenario, catalog: Catalog) -> ScenarioSemantics:
+def assemble_semantics(document: LifeScenario, catalog: Catalog,
+                       motivation_transforms: MotivationTransforms | None = None,
+                       ) -> ScenarioSemantics:
     """@brief 组装运行时场景并执行目录准入（七条规则 fail-closed）。"""
     pinned = (document.catalog_version.major, document.catalog_version.minor)
     loaded = (catalog.version_major, catalog.version_minor)
@@ -224,6 +230,7 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog) -> ScenarioSema
         alert_codes={rule.code: rule.code.lower()
                      for resource in (catalog.resources[ENERGY_RESOURCE],)
                      for rule in resource.alert_rules},
+        motivation_transforms=motivation_transforms,
     )
     _check_route_fares(semantics)
     _check_travel_time_formula(semantics)

@@ -7,6 +7,7 @@ import asyncio
 import dataclasses
 import json
 import logging
+import sys
 from pathlib import Path
 from uuid import uuid4
 
@@ -44,6 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
     deliver.add_argument("--export", type=Path, required=True)
     deliver.add_argument("--output", type=Path, required=True)
     deliver.add_argument("--replay-export", type=Path, action="append", default=[])
+    _profile_arguments(commands)
     _evaluation_arguments(commands)
     return parser
 
@@ -57,6 +59,24 @@ def _evaluation_arguments(commands) -> None:
     evaluate.add_argument("--output", type=Path, required=True)
     evaluate.add_argument("--reviews", type=Path, nargs="*")
     evaluate.add_argument("--human-reference", type=Path)
+
+
+def _profile_arguments(commands) -> None:
+    """@brief 画像编译器：NL→大五→动机档案 与编译一致性自检。"""
+    profile = commands.add_parser("profile", help="compile persona text into a motivation profile")
+    profile_commands = profile.add_subparsers(dest="profile_command", required=True)
+    compile_command = profile_commands.add_parser(
+        "compile", help="persona text -> big five -> motivation profile + canonical text")
+    compile_command.add_argument("--text", required=True,
+                                 help="persona text file path, or - to read stdin")
+    compile_command.add_argument("--runs", type=int, default=5,
+                                 help="independent LLM extraction runs for consensus")
+    compile_command.add_argument("--out", type=Path, help="write result JSON here instead of stdout")
+    check = profile_commands.add_parser(
+        "check", help="compile 3x and assert lattice consistency + big-five mode stability")
+    check.add_argument("--text", required=True, help="persona text file path, or - to read stdin")
+    check.add_argument("--runs", type=int, default=3,
+                       help="independent LLM extraction runs per compile (cost control)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -93,7 +113,111 @@ def _dispatch(arguments) -> dict:
     if command == "prepare-corpora":
         from worldmock.corpora.fetch import prepare_corpora
         return prepare_corpora(arguments.output).model_dump(mode="json")
+    if command == "profile":
+        return _profile_command(arguments)
     return _evaluate_command(arguments)
+
+
+def _profile_command(arguments) -> dict:
+    """@brief 画像编译：真实提取 → 确定性映射 → 同源规范文本；check 断言一致性。"""
+    from worldmock.profile.extractor import extract_big_five
+    from worldmock.profile.mapper import map_profile
+    from worldmock.profile.models import BIG_FIVE_DIMENSIONS
+    from worldmock.profile.textgen import render_persona_text
+
+    persona_text = _read_persona_text(arguments.text)
+    if arguments.profile_command == "compile":
+        extraction = extract_big_five(persona_text, n_runs=arguments.runs)
+        profile = map_profile(
+            extraction.profile, persona_text=persona_text,
+            source_model=extraction.model,
+            consensus_runs=extraction.runs, consensus_agreement=extraction.agreement)
+        result = {
+            "profile": json.loads(profile.model_dump_json()),
+            "canonical_persona_text": render_persona_text(profile),
+            "warnings": (["big_five_agreement_below_0.6"]
+                         if extraction.warning else []),
+            "per_dimension": extraction.per_dimension,
+        }
+        if arguments.out is not None:
+            atomic_write(arguments.out, (json.dumps(result, ensure_ascii=False, indent=2)
+                                         + "\n").encode("utf-8"))
+            return {"written": str(arguments.out), "warnings": result["warnings"]}
+        return result
+
+    compiles = [
+        _compile_once(persona_text, arguments.runs, extract_big_five, map_profile)
+        for _ in range(3)
+    ]
+    from worldmock.profile.models import (
+        BETA_PRESENT_BIAS_RANGE, BETA_PRESENT_BIAS_STEP, EMOTION_SENSITIVITY_RANGE,
+        EMOTION_SENSITIVITY_STEP, LOSS_AVERSION_RANGE, LOSS_AVERSION_STEP,
+        MotivationProfile, TAU_GRID, WEIGHT_GRID_STEP, iterate_lattice, value_on_grid)
+
+    grid_total = grid_hits = 0
+    for profile, _ in compiles:
+        # 独立重推导：从序列化 JSON 重新解析数值并复核格点（不信任模型实例内部）。
+        MotivationProfile.model_validate_json(profile.model_dump_json())
+        emitted = json.loads(profile.model_dump_json())
+        for name, value in iterate_lattice(profile):
+            grid_total += 1
+            raw = emitted
+            for part in name.split("."):
+                raw = raw[part]
+            if name == "tau":
+                ok = any(abs(raw - grid) <= 1e-6 for grid in TAU_GRID)
+            elif name == "beta_present_bias":
+                ok = value_on_grid(raw, *BETA_PRESENT_BIAS_RANGE, BETA_PRESENT_BIAS_STEP)
+            elif name == "emotion_sensitivity":
+                ok = value_on_grid(raw, *EMOTION_SENSITIVITY_RANGE, EMOTION_SENSITIVITY_STEP)
+            elif name.startswith("loss_aversion."):
+                ok = value_on_grid(raw, *LOSS_AVERSION_RANGE, LOSS_AVERSION_STEP)
+            else:
+                ok = value_on_grid(raw, 0.0, 1.0, WEIGHT_GRID_STEP)
+            grid_hits += int(ok)
+    mode_hits: dict[str, float] = {}
+    for dimension in BIG_FIVE_DIMENSIONS:
+        scores = [profile.big_five.model_dump()[dimension] for profile, _ in compiles]
+        counts: dict[int, int] = {}
+        for score in scores:
+            counts[score] = counts.get(score, 0) + 1
+        mode_hits[dimension] = max(counts.values()) / len(scores)
+    failed = [dimension for dimension, rate in mode_hits.items() if rate < 2 / 3]
+    report = {
+        "grid_consistency": (grid_hits / grid_total if grid_total else 0.0),
+        "big_five_mode_hit": mode_hits,
+        "profiles": [json.loads(profile.model_dump_json()) for profile, _ in compiles],
+        "canonical_texts": [text for _, text in compiles],
+    }
+    if report["grid_consistency"] != 1.0 or failed:
+        raise IntegrityError(
+            f"PROFILE_CHECK_FAILED: grid_consistency={report['grid_consistency']}, "
+            f"dimensions below 2/3 mode hit: {failed}. Summary: "
+            + json.dumps({k: report[k] for k in ("grid_consistency", "big_five_mode_hit")},
+                         ensure_ascii=False))
+    return report
+
+
+def _compile_once(persona_text: str, runs: int, extract, mapping):
+    """@brief 单次编译：提取 → 映射 → 规范文本（check 命令复用）。"""
+    from worldmock.profile.textgen import render_persona_text
+
+    extraction = extract(persona_text, n_runs=runs)
+    profile = mapping(
+        extraction.profile, persona_text=persona_text,
+        source_model=extraction.model,
+        consensus_runs=extraction.runs, consensus_agreement=extraction.agreement)
+    return profile, render_persona_text(profile)
+
+
+def _read_persona_text(source: str) -> str:
+    """@brief 读取画像文本：文件路径或 -（stdin）。"""
+    if source == "-":
+        return sys.stdin.read()
+    path = Path(source)
+    if not path.is_file():
+        raise IntegrityError(f"persona text file not found: {source}")
+    return path.read_text(encoding="utf-8")
 
 
 def _run_command(arguments) -> dict:

@@ -60,8 +60,81 @@ class BodyConfig(FrozenModel):
         return self
 
 
+#: 动机档案四个 level 资源名（weights/loss_aversion 的合法键闭集）。
+_MOTIVATION_LEVEL_RESOURCES = frozenset({
+    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"})
+
+#: 大五特质与权重的固定键集合（与画像编译器输出合同一致）。
+_BIG_FIVE_TRAITS = frozenset({
+    "openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"})
+_MOTIVATION_WEIGHTS = frozenset({
+    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need", "goal_task"})
+
+
+class MotivationProfileSource(FrozenModel):
+    """@brief 档案编译溯源：输入文本哈希、模型、提示版本与共识统计。"""
+
+    persona_text_sha256: str = Field(min_length=8)
+    model: str = Field(min_length=1)
+    prompt_version: str = Field(min_length=1)
+    consensus: dict[str, float | int]
+
+
+class MotivationProfile(FrozenModel):
+    """@brief 人物动机档案：动机评分层求值所需的全部个体参数。
+
+    形状与画像编译器的 agents[].motivation 输出合同钉死一致；缺该字段的
+    人物不注入动机提示，行为与档案引入前完全一致（向后兼容）。
+    """
+
+    schema_version: Literal[1] = 1
+    big_five: dict[str, int]
+    weights: dict[str, float]
+    tau: float = Field(gt=0)
+    beta_present_bias: float = Field(gt=0, le=1)
+    loss_aversion: dict[str, float]
+    comfort: dict[str, float]
+    aspiration: dict[str, int]
+    emotion_sensitivity: float = Field(ge=0, le=1)
+    attention_prior: dict[str, float] = Field(default_factory=dict)
+    source: MotivationProfileSource | None = None
+
+    @model_validator(mode="after")
+    def validate_profile(self) -> "MotivationProfile":
+        """@brief 核对封闭键集、取值区间与权重归一。"""
+        if set(self.big_five) != _BIG_FIVE_TRAITS:
+            raise ValueError("motivation big_five must use exactly the five trait keys")
+        # 钉死合同样例含 conscientiousness=6（超出经典 5 点 Likert），上界放宽到 10。
+        if any(not isinstance(value, int) or not 1 <= value <= 10 for value in self.big_five.values()):
+            raise ValueError("motivation big_five values must be integers between 1 and 10")
+        if set(self.weights) != _MOTIVATION_WEIGHTS:
+            raise ValueError("motivation weights must use exactly the five resource keys")
+        if any(not math.isfinite(value) or value < 0 for value in self.weights.values()):
+            raise ValueError("motivation weights must be non-negative finite numbers")
+        if abs(sum(self.weights.values()) - 1) > 1e-6:
+            raise ValueError("motivation weights must sum to one")
+        if not self.loss_aversion or not set(self.loss_aversion) <= _MOTIVATION_LEVEL_RESOURCES:
+            raise ValueError("motivation loss_aversion keys must be a non-empty level resource subset")
+        if any(not math.isfinite(value) or value < 1 for value in self.loss_aversion.values()):
+            raise ValueError("motivation loss_aversion values must be at least one")
+        if set(self.comfort) != {"balance_fen", "energy_kcal"}:
+            raise ValueError("motivation comfort must use exactly balance_fen and energy_kcal")
+        if any(not math.isfinite(value) or value < 0 for value in self.comfort.values()):
+            raise ValueError("motivation comfort values must be non-negative finite numbers")
+        if set(self.aspiration) != {"daily_effective_work_seconds"}:
+            raise ValueError("motivation aspiration must use exactly daily_effective_work_seconds")
+        if any(value < 0 for value in self.aspiration.values()):
+            raise ValueError("motivation aspiration must be non-negative")
+        if any(not key.strip() for key in self.attention_prior):
+            raise ValueError("motivation attention_prior keys must not be blank")
+        if any(not math.isfinite(value) or not 0 <= value <= 1
+               for value in self.attention_prior.values()):
+            raise ValueError("motivation attention_prior values must be within the unit interval")
+        return self
+
+
 class AgentConfig(FrozenModel):
-    """@brief 人物的职业、明确实验倾向、初态、技能和内容偏好。"""
+    """@brief 人物的职业、明确实验倾向、初态、技能、内容偏好与动机档案。"""
 
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1)
@@ -74,6 +147,7 @@ class AgentConfig(FrozenModel):
     initial_balance_fen: int = Field(ge=0)
     skill_levels: dict[str, float]
     entertainment_preferences: dict[str, float]
+    motivation: MotivationProfile | None = None
 
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":

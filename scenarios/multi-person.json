@@ -171,7 +171,54 @@
       "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
       "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
       "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "trait_source_kind": "experiment_assumption"
+      "trait_source_kind": "experiment_assumption",
+      "motivation": {
+        "schema_version": 1,
+        "big_five": {
+          "openness": 4,
+          "conscientiousness": 4,
+          "extraversion": 4,
+          "agreeableness": 4,
+          "neuroticism": 4
+        },
+        "weights": {
+          "money_fen": 0.2,
+          "energy_kcal": 0.2,
+          "sleep_debt_hours": 0.2,
+          "entertainment_need": 0.2,
+          "goal_task": 0.2
+        },
+        "tau": 2.0,
+        "beta_present_bias": 0.75,
+        "loss_aversion": {
+          "money_fen": 2.0,
+          "energy_kcal": 1.5
+        },
+        "comfort": {
+          "balance_fen": 15000,
+          "energy_kcal": 1000
+        },
+        "aspiration": {
+          "daily_effective_work_seconds": 18000
+        },
+        "emotion_sensitivity": 0.5,
+        "attention_prior": {
+          "feature_film": 0.2,
+          "news_feed": 0.2,
+          "joke_feed": 0.2,
+          "webnovel_excerpt": 0.2,
+          "drama_series": 0.2
+        },
+        "source": {
+          "persona_text_sha256": "250cecb3380152f31dfe50c7af0769c64e6d310380143d76ff79a751e4a28cac",
+          "model": "deepseek-chat",
+          "prompt_version": "v1",
+          "consensus": {
+            "runs": 3,
+            "agreement": 0.9333
+          }
+        }
+      }
     },
     {
       "agent_id": 2,
@@ -297,7 +344,54 @@
       "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
       "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
       "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "trait_source_kind": "experiment_assumption"
+      "trait_source_kind": "experiment_assumption",
+      "motivation": {
+        "schema_version": 1,
+        "big_five": {
+          "openness": 4,
+          "conscientiousness": 4,
+          "extraversion": 4,
+          "agreeableness": 4,
+          "neuroticism": 4
+        },
+        "weights": {
+          "money_fen": 0.2,
+          "energy_kcal": 0.2,
+          "sleep_debt_hours": 0.2,
+          "entertainment_need": 0.2,
+          "goal_task": 0.2
+        },
+        "tau": 2.0,
+        "beta_present_bias": 0.75,
+        "loss_aversion": {
+          "money_fen": 2.0,
+          "energy_kcal": 1.5
+        },
+        "comfort": {
+          "balance_fen": 15000,
+          "energy_kcal": 1000
+        },
+        "aspiration": {
+          "daily_effective_work_seconds": 18000
+        },
+        "emotion_sensitivity": 0.5,
+        "attention_prior": {
+          "feature_film": 0.2,
+          "news_feed": 0.2,
+          "joke_feed": 0.2,
+          "webnovel_excerpt": 0.2,
+          "drama_series": 0.2
+        },
+        "source": {
+          "persona_text_sha256": "5c742cdbf2abb620ba81b1da91b6ec255770d8ac89915d158036948d0b6d42c0",
+          "model": "deepseek-chat",
+          "prompt_version": "v1",
+          "consensus": {
+            "runs": 3,
+            "agreement": 1.0
+          }
+        }
+      }
     }
   ],
   "locations": [
