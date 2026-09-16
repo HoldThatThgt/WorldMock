@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "scenario_id": "zhangjiang-multi-person-half-day",
+  "scenario_id": "zhangjiang-multi-person-half-day-idle",
   "timezone": "Asia/Shanghai",
   "start_at": "2026-01-05T00:00:00+08:00",
   "end_at": "2026-01-05T12:00:00+08:00",
@@ -661,91 +661,8 @@
       "merchant_location_id": "market"
     }
   ],
-  "tasks": [
-    {
-      "task_id": "task-2026-01-05",
-      "contract_kind": "package",
-      "available_at": "2026-01-05T09:00:00+08:00",
-      "due_at": "2026-01-05T20:00:00+08:00",
-      "maximum_duration_seconds": 28800,
-      "pay_fen": 60000,
-      "employer_account_id": "employer:zhangjiang",
-      "required_skill": "meeting_analysis",
-      "minimum_skill": 0.5,
-      "required_effective_seconds": 14400,
-      "input_path": "ami-es2002/inputs/ES2002a.txt",
-      "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
-      "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
-      "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
-    },
-    {
-      "task_id": "hourly-2026-01-05",
-      "contract_kind": "hourly",
-      "available_at": "2026-01-05T09:00:00+08:00",
-      "due_at": "2026-01-05T20:00:00+08:00",
-      "maximum_duration_seconds": 7200,
-      "pay_fen": 10000,
-      "employer_account_id": "employer:zhangjiang",
-      "required_skill": "meeting_analysis",
-      "minimum_skill": 0.5,
-      "required_effective_seconds": 60,
-      "input_path": "ami-es2002/inputs/ES2002a.txt",
-      "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
-      "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
-      "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
-    },
-    {
-      "task_id": "piece-2026-01-05",
-      "contract_kind": "piece",
-      "available_at": "2026-01-05T09:00:00+08:00",
-      "due_at": "2026-01-05T20:00:00+08:00",
-      "maximum_duration_seconds": 7200,
-      "pay_fen": 5000,
-      "employer_account_id": "employer:zhangjiang",
-      "required_skill": "meeting_analysis",
-      "minimum_skill": 0.5,
-      "required_effective_seconds": 60,
-      "input_path": "ami-es2002/inputs/ES2002a.txt",
-      "input_sha256": "c1ec24b5f334f88fafad0cc3444a5f5f967ac0a0ab210a3491fb9263e5925ccc",
-      "oracle_path": "ami-es2002/references/ES2002a.oracle.json",
-      "oracle_sha256": "99353701c9bae73e5863b2b84a7c22f819bb7d1a671858713e1f67e0d56f725f",
-      "required_location_id": "office"
-    }
-  ],
-  "messages": [
-    {
-      "message_id": "week-01-work-plan-1",
-      "thread_id": "week-01-work-plan",
-      "recipient_agent_id": 1,
-      "sent_at": "2026-01-05T08:00:00+08:00",
-      "subject": "Work planning",
-      "body": "Please review the available meeting task before its deadline.",
-      "related_task_id": "task-2026-01-05",
-      "attachment_sha256": null
-    },
-    {
-      "message_id": "week-01-work-plan-2",
-      "thread_id": "week-01-work-plan",
-      "recipient_agent_id": 1,
-      "sent_at": "2026-01-05T13:00:00+08:00",
-      "subject": "Re: Work planning",
-      "body": "This is the scheduled follow-up with no assumed response.",
-      "related_task_id": "task-2026-01-05",
-      "attachment_sha256": null
-    },
-    {
-      "message_id": "week-01-work-plan-3",
-      "thread_id": "week-01-work-plan",
-      "recipient_agent_id": 1,
-      "sent_at": "2026-01-05T19:00:00+08:00",
-      "subject": "Re: Work planning",
-      "body": "The thread closes without claiming that the recipient acted.",
-      "related_task_id": "task-2026-01-05",
-      "attachment_sha256": null
-    }
-  ],
+  "tasks": [],
+  "messages": [],
   "contents": [
     {
       "item_id": "sintel-en-subtitles",
