@@ -1,0 +1,18 @@
+# 出行计费公式声明（travel-service 对象引用此声明，formula_ref = "travel-fare"）。
+# v1 沿用现值：walking=0、driving=max(500, ceil(m*0.2))，m = 路线 distance_meters（米）。
+# 该公式逐条复现场景内全部 12 条冻结路线的 fare_fen（scripts/build_catalog.py 断言）。
+# 设计依据：docs/resource-registry-design.md §4.2/§8（计费公式引用准入）。
+
+[formula.walking]
+amount_fen = 0
+
+[formula.driving]
+amount_fen = "max(500, ceil(m * 0.2))"
+
+[params]
+m = "route.distance_meters"
+mode = "route.mode"
+
+[provenance]
+# 公式数值溯源（§5）：v1 沿用场景现值，属 scenario 型。
+fare = { type = "scenario", source = "legacy-scenario-routes" }
