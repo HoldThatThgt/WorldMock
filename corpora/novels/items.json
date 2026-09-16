@@ -1,0 +1,68 @@
+[
+  {
+    "item_id": "novel-0001",
+    "title": "(种田文系列)无尽相思风",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 169,
+    "chapters_available_in_source_head": 169,
+    "total_chars": 424162,
+    "duration_seconds": 84837,
+    "timeline_path": "novels/novel-0001.srt"
+  },
+  {
+    "item_id": "novel-0002",
+    "title": "015.双子座历险记(美)迈克尔·斯科特",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 32,
+    "chapters_available_in_source_head": 32,
+    "total_chars": 74857,
+    "duration_seconds": 14971,
+    "timeline_path": "novels/novel-0002.srt"
+  },
+  {
+    "item_id": "novel-0003",
+    "title": "017.太空烽火(美)斯蒂文·莱哈德",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 116,
+    "chapters_available_in_source_head": 164,
+    "total_chars": 441633,
+    "duration_seconds": 88324,
+    "timeline_path": "novels/novel-0003.srt"
+  },
+  {
+    "item_id": "novel-0004",
+    "title": "026.快乐制造者(美)詹姆斯·冈恩",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 38,
+    "chapters_available_in_source_head": 38,
+    "total_chars": 140089,
+    "duration_seconds": 28017,
+    "timeline_path": "novels/novel-0004.srt"
+  },
+  {
+    "item_id": "novel-0005",
+    "title": "02一怒拔剑",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 47,
+    "chapters_available_in_source_head": 47,
+    "total_chars": 178305,
+    "duration_seconds": 35663,
+    "timeline_path": "novels/novel-0005.srt"
+  },
+  {
+    "item_id": "novel-0006",
+    "title": "038.献给阿尔吉侬的花束(美)凯斯",
+    "excerpt": true,
+    "note": "节选：shard 头部 80MB 范围内该书前 N 章",
+    "chapters_selected": 50,
+    "chapters_available_in_source_head": 50,
+    "total_chars": 154703,
+    "duration_seconds": 30941,
+    "timeline_path": "novels/novel-0006.srt"
+  }
+]

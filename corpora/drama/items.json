@@ -1,0 +1,38 @@
+[
+  {
+    "item_id": "drama-0001",
+    "title": "KARAKARA 2",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3604,
+    "lines_available_in_source": 3604,
+    "total_chars": 227597,
+    "duration_seconds": 15155,
+    "timeline_path": "drama/drama-0001.srt"
+  },
+  {
+    "item_id": "drama-0002",
+    "title": "Sakura Succubus 6",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3451,
+    "lines_available_in_source": 3451,
+    "total_chars": 278634,
+    "duration_seconds": 18566,
+    "timeline_path": "drama/drama-0002.srt"
+  },
+  {
+    "item_id": "drama-0003",
+    "title": "Saya no Uta",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3332,
+    "lines_available_in_source": 3332,
+    "total_chars": 344018,
+    "duration_seconds": 22971,
+    "timeline_path": "drama/drama-0003.srt"
+  }
+]

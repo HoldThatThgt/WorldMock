@@ -22,7 +22,7 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     manifest = load_manifest(Path("corpora"))
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     assert manifest.corpus_id == "life-full-2026-09-15"
-    assert len(manifest.entries) == 51
+    assert len(manifest.entries) == 155
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
     assert len(products) == 8

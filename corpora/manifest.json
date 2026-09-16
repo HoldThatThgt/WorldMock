@@ -7,8 +7,8 @@
     {
       "entry_id": "LICENSES.md",
       "path": "LICENSES.md",
-      "sha256": "6d2b6ba216f2e75313f0edb352b521cce91a3d2c6273f952c3f2030fb9b6b6ab",
-      "size_bytes": 700,
+      "sha256": "9e43260b9e46ecb97302e848f4d20cfe3b11d4764b70ddccdc3578f733f06bed",
+      "size_bytes": 1214,
       "media_type": "text/markdown",
       "purpose": "LICENSES.md",
       "source": {
@@ -817,6 +817,1670 @@
         "retrieved_at": "2026-09-16T17:40:00+08:00",
         "license": "Apache-2.0",
         "selector": "train.json 16924 records; parse output JSON; keep title>=8 and summary>=30 chars and 150<=len(title)+len(summary)<=300 and class!=爬取失败; dedup by exact title/body; category round-robin sample of 1000 with Random(20260916); estimated_read_seconds=round(chars/5); timeline cue per item; AI-written summaries of RSS news, license per dataset card",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:items.json",
+      "path": "movies/items.json",
+      "sha256": "d7756acca56d56898854186a795340d2b98a7592746a18d612c08b023ab67fa1",
+      "size_bytes": 31456,
+      "media_type": "application/json",
+      "purpose": "movie library index",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0001",
+      "path": "movies/movie-0001.srt",
+      "sha256": "1c9326963b78f7d91c2eda0c2a97182a9938845d1e563975524dee2a71afd2a3",
+      "size_bytes": 1055,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0002",
+      "path": "movies/movie-0002.srt",
+      "sha256": "47b43088f4d1160ac55f3eec8bfd1d94f54eb037826b4eb877e0f147b782a362",
+      "size_bytes": 681,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0003",
+      "path": "movies/movie-0003.srt",
+      "sha256": "a0142e42f26279cae1e171d02e0bd561805e9be7a9f91784a8f5f34387c2278e",
+      "size_bytes": 468,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0004",
+      "path": "movies/movie-0004.srt",
+      "sha256": "07aa5230a0c0372214bbbf78704024bc4cf2effe8785e44c6d311c504a53dfbc",
+      "size_bytes": 958,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0005",
+      "path": "movies/movie-0005.srt",
+      "sha256": "83ecc379877bf6f452da0bd0d2692b0eeaa849c10aad567da6243a0ad49c3a48",
+      "size_bytes": 985,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0006",
+      "path": "movies/movie-0006.srt",
+      "sha256": "4d59a5dbe6e0094c4ac2a8704e50c528ce77a733cf48941dcf41344e3fe62070",
+      "size_bytes": 1024,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0007",
+      "path": "movies/movie-0007.srt",
+      "sha256": "4da136598f9ec92f1dc49df1082389779d09bc7187093a52fb32caef35b878dc",
+      "size_bytes": 371,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0008",
+      "path": "movies/movie-0008.srt",
+      "sha256": "6d556ff3fb4e884965761f115e9ddb3685bf3de97c0693e67095534df2ed8c44",
+      "size_bytes": 411,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0009",
+      "path": "movies/movie-0009.srt",
+      "sha256": "750ccf0374af60ea5be79f439f708a867050ff2238ed2fbb2fcae0bfb33d2335",
+      "size_bytes": 1124,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0010",
+      "path": "movies/movie-0010.srt",
+      "sha256": "5517081b8f0b9d3f0fe922fa52c7707f3bc34846b179d8760f25aa208a65256d",
+      "size_bytes": 605,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0011",
+      "path": "movies/movie-0011.srt",
+      "sha256": "3d5515b38562b710721dd22d0d5539dd81092ba5db8b1194a6c7d2e41a922627",
+      "size_bytes": 1099,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0012",
+      "path": "movies/movie-0012.srt",
+      "sha256": "2f7cf82ed9f208f99f9473814befcbbe618e6039ba86e3a9f29d8fd14949f0e1",
+      "size_bytes": 929,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0013",
+      "path": "movies/movie-0013.srt",
+      "sha256": "b64907fe9e7482b55739bd03ae50af5ce9fd0f17b0a70bc7a2e4b5e793092098",
+      "size_bytes": 773,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0014",
+      "path": "movies/movie-0014.srt",
+      "sha256": "73f3770226a13bd6547f3fd850cd53707544e40b7d2e0dfbc77453f3aaf60d75",
+      "size_bytes": 1140,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0015",
+      "path": "movies/movie-0015.srt",
+      "sha256": "e02deaa45de5e42974514215065dee5c7dba658f88ee66f9b0169767bf3cc0ce",
+      "size_bytes": 1076,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0016",
+      "path": "movies/movie-0016.srt",
+      "sha256": "ddaf0cc9e8d71c6b2f2777b3100564a121984e3d50fcd2f32d2d87f7cf5f3fa5",
+      "size_bytes": 616,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0017",
+      "path": "movies/movie-0017.srt",
+      "sha256": "7e7ea776eaf525643c02d94d02cd8f9068a1c8e9d50cec42cc7decfb4a26fdfc",
+      "size_bytes": 1156,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0018",
+      "path": "movies/movie-0018.srt",
+      "sha256": "ff77c0730c0d1dc1d1842cde58f136ff8088c9d9e5765b922fbcfda3d8388ee0",
+      "size_bytes": 1057,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0019",
+      "path": "movies/movie-0019.srt",
+      "sha256": "7f197e6a84b827f7b7cdbb927016789a824fd568088827f895f3c6cbdad8fb13",
+      "size_bytes": 818,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0020",
+      "path": "movies/movie-0020.srt",
+      "sha256": "f465f733f7c96b5700cb1abfca3012319d4339cf1318c0093da98563b4e2ffa3",
+      "size_bytes": 1007,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0021",
+      "path": "movies/movie-0021.srt",
+      "sha256": "f082dc5e2c3b254d58511374dd6456c4e002909787a900e3eeb2b532782ae425",
+      "size_bytes": 956,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0022",
+      "path": "movies/movie-0022.srt",
+      "sha256": "49d92da9fc9841c15a1de0bf746d4ce36d1c8572aead8fc777d0e52f8f341eba",
+      "size_bytes": 904,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0023",
+      "path": "movies/movie-0023.srt",
+      "sha256": "cc6e10f35d639c6db19b6ec938276b4d627bb503ce50c45ed5cc2f0006fbb991",
+      "size_bytes": 1193,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0024",
+      "path": "movies/movie-0024.srt",
+      "sha256": "cfc64999f058c39334a0497af0a5809fceacc0b88aa1896da95c98bb33905a06",
+      "size_bytes": 1059,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0025",
+      "path": "movies/movie-0025.srt",
+      "sha256": "210dece1f8fb2d0c3aeeaeb855d838673204739903487fb538411989800f5829",
+      "size_bytes": 1047,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0026",
+      "path": "movies/movie-0026.srt",
+      "sha256": "05d42d5fa2293e4b46ae7760301550e88caa2bc76bf0015c42aad3c13013ecdd",
+      "size_bytes": 1180,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0027",
+      "path": "movies/movie-0027.srt",
+      "sha256": "9997a536c34b10670b73ed361b7eb7d518305dddcdfbe37a62c924a5da4850bc",
+      "size_bytes": 1327,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0028",
+      "path": "movies/movie-0028.srt",
+      "sha256": "fc649eb94634fccb04d65bf3e3607c8b1ed576b469ee81184d46e90ed8186b53",
+      "size_bytes": 1023,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0029",
+      "path": "movies/movie-0029.srt",
+      "sha256": "487b41906471805921d657daed577d2809e6f53b6da4b3193bc98aacb65ec4f3",
+      "size_bytes": 930,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0030",
+      "path": "movies/movie-0030.srt",
+      "sha256": "33eb37ec1c754b0b1c51c6b715b33947a8beee42539ec554f783b66157978f82",
+      "size_bytes": 1076,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0031",
+      "path": "movies/movie-0031.srt",
+      "sha256": "659ffb85b41b80eb8f31b6052b9f3259567ef8428542692f61ff722dc821de2a",
+      "size_bytes": 598,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0032",
+      "path": "movies/movie-0032.srt",
+      "sha256": "08823139d395438c9abb8b91562b693e1e4bb11f8e81c3d032d4647fa1b93511",
+      "size_bytes": 978,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0033",
+      "path": "movies/movie-0033.srt",
+      "sha256": "bccc43af1def069c04be657ec10a17606d60fe8dcbc96ad20dc67fab329a4320",
+      "size_bytes": 939,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0034",
+      "path": "movies/movie-0034.srt",
+      "sha256": "94374304a615ccaab460327c8b45079b3450ae392f3dbee5e1e522daa4855e80",
+      "size_bytes": 859,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0035",
+      "path": "movies/movie-0035.srt",
+      "sha256": "192750c27eee5711a080d65eacd6030b04aa962314ac5f7d6b91a231edf360da",
+      "size_bytes": 440,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0036",
+      "path": "movies/movie-0036.srt",
+      "sha256": "ee7facbb636849a6fecd38f68192d63ba8cd0e75ed85a5925f1779adb5187977",
+      "size_bytes": 1151,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0037",
+      "path": "movies/movie-0037.srt",
+      "sha256": "a03291b454504385bb5ab5f18383c2f5846f217cc0df465ed23d300814556efc",
+      "size_bytes": 1051,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0038",
+      "path": "movies/movie-0038.srt",
+      "sha256": "cdf57c4796e9b042cc12e4c6e7a5d0c7420e0b8b0452b3c9f6b7e0f653ebd899",
+      "size_bytes": 852,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0039",
+      "path": "movies/movie-0039.srt",
+      "sha256": "0a569fb0db916162f70557317c569d33dcac5b8ece80f9fee92986640c790f9d",
+      "size_bytes": 924,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0040",
+      "path": "movies/movie-0040.srt",
+      "sha256": "e8466dc2770c1f02372f8ad86fc2b068e324a3b4cb453a597ecb09a6e9d12e44",
+      "size_bytes": 929,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0041",
+      "path": "movies/movie-0041.srt",
+      "sha256": "8c26d03bc181cbc1fd4e11bd77414a24da10e98d3a7224879bb02ce0dee1d60f",
+      "size_bytes": 1175,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0042",
+      "path": "movies/movie-0042.srt",
+      "sha256": "d0078c1fd66ab2f18b0b887b75129746609f1a7a8ce7e5a8fa15131b6212877a",
+      "size_bytes": 978,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0043",
+      "path": "movies/movie-0043.srt",
+      "sha256": "9b2b7e0055ec0b0b79c85588e648fd91c8631944d5252ff522772fb666dd60b3",
+      "size_bytes": 554,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0044",
+      "path": "movies/movie-0044.srt",
+      "sha256": "b187b39a44cf5f0d6f63ad7cd0d3fe0a90b4ca09045471c533bea9e0f5067512",
+      "size_bytes": 905,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0045",
+      "path": "movies/movie-0045.srt",
+      "sha256": "c873c2ba087d38ccfcf0a5259202be5e7ceefe6f0ef9cec022805c48915346cc",
+      "size_bytes": 1222,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0046",
+      "path": "movies/movie-0046.srt",
+      "sha256": "a604488ad1283d9cce64fec507e53f0191e960a7a868d729cebee596f1084afb",
+      "size_bytes": 1360,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0047",
+      "path": "movies/movie-0047.srt",
+      "sha256": "502ca23c3b86b5a36ca30a78ba6c2d792fea9638a9a38de4faca1e242d786926",
+      "size_bytes": 390,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0048",
+      "path": "movies/movie-0048.srt",
+      "sha256": "0a43efa8afdad31e16d4ef48968862c5a2a36d0f93da03984d7e69ca10869811",
+      "size_bytes": 1138,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0049",
+      "path": "movies/movie-0049.srt",
+      "sha256": "fcab74131ef36f7a4c8b8e1c0ff59147911531096fbeb579fe388b839b5b8fee",
+      "size_bytes": 926,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0050",
+      "path": "movies/movie-0050.srt",
+      "sha256": "101bab4aa3334170b649ed267aae8b0a13c2332c95ed0445a4a06b425e03d981",
+      "size_bytes": 1016,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0051",
+      "path": "movies/movie-0051.srt",
+      "sha256": "bfafc06fc533e982e9e9597385bb70b44c4fc6c1a64083a09326531a95c323b3",
+      "size_bytes": 972,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0052",
+      "path": "movies/movie-0052.srt",
+      "sha256": "3d6d3908cc2cf96f42ccb7358d23f2427c9a4488ac7e99f103be0e8ce048cd1a",
+      "size_bytes": 1234,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0053",
+      "path": "movies/movie-0053.srt",
+      "sha256": "acf687406421fdeaed5ed610f11356e73d05c07e7ff904f4c453a8f4dd863e1f",
+      "size_bytes": 984,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0054",
+      "path": "movies/movie-0054.srt",
+      "sha256": "1d4308acf848cc42e581e50641b5a948af9d7faa57de0f18b4c2f66b78c7a1a0",
+      "size_bytes": 947,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0055",
+      "path": "movies/movie-0055.srt",
+      "sha256": "4442d1aa5741d67174ef4e91eebba91e035810976eb277d90a249d20434c371d",
+      "size_bytes": 1104,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0056",
+      "path": "movies/movie-0056.srt",
+      "sha256": "43667643253b6a3353bf6b734d09959808405d5a3077a1f06bceac091b60e663",
+      "size_bytes": 841,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0057",
+      "path": "movies/movie-0057.srt",
+      "sha256": "c6f704409983df247bccdac5b41f9b1319991113f2ce6be879ef1c11bea4ff84",
+      "size_bytes": 882,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0058",
+      "path": "movies/movie-0058.srt",
+      "sha256": "184f58cb52e48a664ac58b574b34339762f33dc6f8178adb044705f1682446ea",
+      "size_bytes": 1092,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0059",
+      "path": "movies/movie-0059.srt",
+      "sha256": "89f46112383b1b3bd64d2f43225f652af4e8f025d404f4d73b8dfa3423ad430d",
+      "size_bytes": 1167,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0060",
+      "path": "movies/movie-0060.srt",
+      "sha256": "1808b09caeb98ab4446de76737bb09ad4a4f1e42192712c5290e0f17c792acb5",
+      "size_bytes": 824,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0061",
+      "path": "movies/movie-0061.srt",
+      "sha256": "09e2226ebf0375e1e7da55ab2aaada560fd23d941c000624e1a16a8d41b8c26c",
+      "size_bytes": 699,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0062",
+      "path": "movies/movie-0062.srt",
+      "sha256": "db6f8e8db3fb1605de7cea77589be6353119e44de7353e65fa1779f8291bd1bc",
+      "size_bytes": 447,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0063",
+      "path": "movies/movie-0063.srt",
+      "sha256": "f0aaea42c897515e3871632166e1a98cfd60cc649c5a2dcb480a7172bdf00917",
+      "size_bytes": 1167,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0064",
+      "path": "movies/movie-0064.srt",
+      "sha256": "fb2dfe2253fc839f6694a901c944e452ef9b92156f2c11853a8cb684b0890c59",
+      "size_bytes": 1066,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0065",
+      "path": "movies/movie-0065.srt",
+      "sha256": "81b5c29dc8c07102286a1619e65f126bdddbd68069b1f598715d80022526fe55",
+      "size_bytes": 1023,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0066",
+      "path": "movies/movie-0066.srt",
+      "sha256": "82a56c8d23c7ce5a93999ee4239b17c8afdab5e5ee8e68591edc87bad5b5a276",
+      "size_bytes": 963,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0067",
+      "path": "movies/movie-0067.srt",
+      "sha256": "95fe21bbd32b114ef469fcf589dca1be210bcaadc0790ba7589e27ac485bf829",
+      "size_bytes": 637,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0068",
+      "path": "movies/movie-0068.srt",
+      "sha256": "975d41cee6d45fede8b00b5057b3b2e177bcec1000f3a8a99262fa2ebc6a9493",
+      "size_bytes": 1024,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0069",
+      "path": "movies/movie-0069.srt",
+      "sha256": "42a03bdbc1b3141f30171a8d100f842c22e0806981a32eb2c4c59610740ff608",
+      "size_bytes": 985,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0070",
+      "path": "movies/movie-0070.srt",
+      "sha256": "257f674df1213ff10195ab8e0f61d718db2ae47291b99e86b31d94c62f5cfef7",
+      "size_bytes": 1062,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0071",
+      "path": "movies/movie-0071.srt",
+      "sha256": "95fff48aa05e1c09ab4fdd3238cb8c7138dc86456e151c55c6da7e68b22c465e",
+      "size_bytes": 640,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0072",
+      "path": "movies/movie-0072.srt",
+      "sha256": "a977803726b7fe096157807f6c88abfbef41711926a991b04b722356a57d73aa",
+      "size_bytes": 1131,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0073",
+      "path": "movies/movie-0073.srt",
+      "sha256": "3be5f669fc96a6f462e8beb5ee692a1922905b386477a0d8417df4c1473300ab",
+      "size_bytes": 999,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0074",
+      "path": "movies/movie-0074.srt",
+      "sha256": "742f848a7d127a872e600f4e92fea6802b7c2f515634cf3f76fea7f7f9344412",
+      "size_bytes": 1373,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0075",
+      "path": "movies/movie-0075.srt",
+      "sha256": "6d1e5c9db2530b32d5cc77948b760a63664687074208839c944b6acc5d7a3af6",
+      "size_bytes": 1166,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0076",
+      "path": "movies/movie-0076.srt",
+      "sha256": "b196b53fd76a8359da0610cde9f9836ed30fe63b462709f7ab2b8dcd1a66c598",
+      "size_bytes": 663,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0077",
+      "path": "movies/movie-0077.srt",
+      "sha256": "7d2edcb9eefb4360e17d7ee0da4286f755a5e2d0a901ba648dcc8b25af26f1df",
+      "size_bytes": 941,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0078",
+      "path": "movies/movie-0078.srt",
+      "sha256": "e510e48ce57da83cf08ac757603310646e328245f8720121f1466b245f8245da",
+      "size_bytes": 446,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0079",
+      "path": "movies/movie-0079.srt",
+      "sha256": "9bcdaa78d238e5d98ac15aa6ce0aa62f35810df83a50aa828684b008e6e3aecd",
+      "size_bytes": 1019,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0080",
+      "path": "movies/movie-0080.srt",
+      "sha256": "6cb16c150a772bfc02df7d23cd15d076d6afa8bd79f723d038bf4097d0bc7a32",
+      "size_bytes": 585,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0081",
+      "path": "movies/movie-0081.srt",
+      "sha256": "69666fb74d1ceeee8f0e9caaf5feeb887e71889719484e8a7f078149206062c7",
+      "size_bytes": 839,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0082",
+      "path": "movies/movie-0082.srt",
+      "sha256": "380937eb22e525a569fe26508d2848c3a7b8aadd7df26692dfbbfded42a51f4d",
+      "size_bytes": 1151,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0083",
+      "path": "movies/movie-0083.srt",
+      "sha256": "bf44e5a79df31e46011763529c059743067289073ad262a88eb4bca0756c4f09",
+      "size_bytes": 1124,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0084",
+      "path": "movies/movie-0084.srt",
+      "sha256": "14ab6b930f0aed962207f902a8b4dc33a2a802530d25183235405d4973603cd5",
+      "size_bytes": 1276,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0085",
+      "path": "movies/movie-0085.srt",
+      "sha256": "31855e24b786c312007e7e1457323a7cb3326e6f7cec56942538d33e9a34eae9",
+      "size_bytes": 757,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0086",
+      "path": "movies/movie-0086.srt",
+      "sha256": "f4e3ddcc1392fe24991d1de47d9ad3cfc3248d4fc8626600f225f5619fd7b2dc",
+      "size_bytes": 1096,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0087",
+      "path": "movies/movie-0087.srt",
+      "sha256": "a91baf0329aef01c5c8b556f685db14c20917b99cf7050ae4369fc0e68706459",
+      "size_bytes": 973,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0088",
+      "path": "movies/movie-0088.srt",
+      "sha256": "e103cc1503af94557744b9132bbd347245f148cd13a2d9576865797d7384b911",
+      "size_bytes": 971,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0089",
+      "path": "movies/movie-0089.srt",
+      "sha256": "baeb5a45ddc97943ba107359ab09fb6fc930db5a5549d2ddb9e29a1e74f3ee11",
+      "size_bytes": 1031,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "movies:movie-0090",
+      "path": "movies/movie-0090.srt",
+      "sha256": "1145ec26424d2444b07a59dea25bd3df94c2e8d82de550e7b95bdf06f99a501f",
+      "size_bytes": 765,
+      "media_type": "text/plain",
+      "purpose": "movie library card",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "research-use, no license stated (douban.com crawl)",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:items.json",
+      "path": "novels/items.json",
+      "sha256": "7a4b2a996c3bbbb321d5752cb6bada8ff6c66f97012c7894cb4bf5f94754231d",
+      "size_bytes": 2143,
+      "media_type": "application/json",
+      "purpose": "webnovel excerpt index",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0001",
+      "path": "novels/novel-0001.srt",
+      "sha256": "8a589eae78b431a7f57a7c5fdafb44c08a7b5bf6b631fb8eb589e12b3c29d8c6",
+      "size_bytes": 1292318,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0002",
+      "path": "novels/novel-0002.srt",
+      "sha256": "b8a6cce1652b3fe6de02f6ac1e7e06fc47a13e698e89ae30fafff4e0d4b196eb",
+      "size_bytes": 228478,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0003",
+      "path": "novels/novel-0003.srt",
+      "sha256": "fd50a81647dd00ae8bc420d6f0335a4df4e6f74c6d2543ddae448be1797ff58c",
+      "size_bytes": 1342224,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0004",
+      "path": "novels/novel-0004.srt",
+      "sha256": "c6cd3818c2611a0e56fe335160e66299c5417a2ed7cbfeba118fbb27c1bc869d",
+      "size_bytes": 424235,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0005",
+      "path": "novels/novel-0005.srt",
+      "sha256": "cafa2446d1b180d8808028a3f2fd03aa1cdb015a8df76a5dcfedb9b0487bdb11",
+      "size_bytes": 542690,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "novels:novel-0006",
+      "path": "novels/novel-0006.srt",
+      "sha256": "f653c208edca9978186cc4e4f6c938aa75096be921925ee9f6917d1f7a5371cf",
+      "size_bytes": 470337,
+      "media_type": "text/plain",
+      "purpose": "webnovel excerpt timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "drama:items.json",
+      "path": "drama/items.json",
+      "sha256": "577c1fbf6b6a620fd4b8b4cba69161864f80201cc3e9123f715a3c325b300a64",
+      "size_bytes": 1052,
+      "media_type": "application/json",
+      "purpose": "drama dialogue index",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "drama:drama-0001",
+      "path": "drama/drama-0001.srt",
+      "sha256": "a13ab23c859b4248a5bd0c59c23c80e95e86f4c803f47ddc7a8992da356b8784",
+      "size_bytes": 359837,
+      "media_type": "text/plain",
+      "purpose": "drama dialogue timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "drama:drama-0002",
+      "path": "drama/drama-0002.srt",
+      "sha256": "4c96081201ebe00731af4b15931b8335b830e8502c99d5754d6aa1fe34d2a43e",
+      "size_bytes": 405239,
+      "media_type": "text/plain",
+      "purpose": "drama dialogue timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "drama:drama-0003",
+      "path": "drama/drama-0003.srt",
+      "sha256": "3fa4c869979eab9461a60b84a403462401d91719459f82a62aa216341ed969c6",
+      "size_bytes": 466194,
+      "media_type": "text/plain",
+      "purpose": "drama dialogue timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "jokes:items.json",
+      "path": "jokes/items.json",
+      "sha256": "d6a06bf2083c666d94e84ee26025275e98004ea4e65fdb79b5ff472ea9a4b55f",
+      "size_bytes": 3477344,
+      "media_type": "application/json",
+      "purpose": "joke feed index",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/notsobad9527/chinese-joke",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "jokes.csv strip 13 NUL-byte prefix; 16055 csv rows (6 cols); dedup by body; keep 75<=len(body)<=200 chars (15-40s at 5 chars/s; 10318 in range); Random(20260919) shuffle take first 6000; one cue per joke, seconds=round(chars/5)",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "jokes:jokes.srt",
+      "path": "jokes/jokes.srt",
+      "sha256": "83e376df64b10d166dc5cd012bd9ebe75ae9e14145e6923bc9486d8ecef9cb81",
+      "size_bytes": 2197295,
+      "media_type": "text/plain",
+      "purpose": "joke feed timeline",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/notsobad9527/chinese-joke",
+        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "jokes.csv strip 13 NUL-byte prefix; 16055 csv rows (6 cols); dedup by body; keep 75<=len(body)<=200 chars (15-40s at 5 chars/s; 10318 in range); Random(20260919) shuffle take first 6000; one cue per joke, seconds=round(chars/5)",
         "fact_cutoff": "2026-09-16"
       }
     }

@@ -8,7 +8,7 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "2056bd2d6258cda601ce288d497164cee5a0a22f4f0b28c14337facc4a8c9c8b",
+  "corpus_manifest_sha256": "925a3021c383b7cea138c0c3b20fa8a6b461cf4c0ae53e1bc8143618f34c2a5b",
   "catalog_version": {
     "major": 1,
     "minor": 0
@@ -65,7 +65,107 @@
         "textworld-1205": 0.6,
         "textworld-1206": 0.6,
         "textworld-1207": 0.6,
-        "textworld-1208": 0.6
+        "textworld-1208": 0.6,
+        "movie-0001": 0.75,
+        "movie-0002": 0.41,
+        "movie-0003": 0.43,
+        "movie-0004": 0.42,
+        "movie-0005": 0.69,
+        "movie-0006": 0.55,
+        "movie-0007": 0.48,
+        "movie-0008": 0.53,
+        "movie-0009": 0.43,
+        "movie-0010": 0.76,
+        "movie-0011": 0.68,
+        "movie-0012": 0.56,
+        "movie-0013": 0.63,
+        "movie-0014": 0.75,
+        "movie-0015": 0.41,
+        "movie-0016": 0.74,
+        "movie-0017": 0.6,
+        "movie-0018": 0.66,
+        "movie-0019": 0.57,
+        "movie-0020": 0.51,
+        "movie-0021": 0.79,
+        "movie-0022": 0.61,
+        "movie-0023": 0.63,
+        "movie-0024": 0.6,
+        "movie-0025": 0.45,
+        "movie-0026": 0.74,
+        "movie-0027": 0.64,
+        "movie-0028": 0.42,
+        "movie-0029": 0.48,
+        "movie-0030": 0.63,
+        "movie-0031": 0.7,
+        "movie-0032": 0.63,
+        "movie-0033": 0.6,
+        "movie-0034": 0.47,
+        "movie-0035": 0.69,
+        "movie-0036": 0.68,
+        "movie-0037": 0.67,
+        "movie-0038": 0.61,
+        "movie-0039": 0.56,
+        "movie-0040": 0.55,
+        "movie-0041": 0.48,
+        "movie-0042": 0.75,
+        "movie-0043": 0.69,
+        "movie-0044": 0.58,
+        "movie-0045": 0.69,
+        "movie-0046": 0.72,
+        "movie-0047": 0.65,
+        "movie-0048": 0.65,
+        "movie-0049": 0.51,
+        "movie-0050": 0.48,
+        "movie-0051": 0.45,
+        "movie-0052": 0.47,
+        "movie-0053": 0.55,
+        "movie-0054": 0.4,
+        "movie-0055": 0.58,
+        "movie-0056": 0.71,
+        "movie-0057": 0.49,
+        "movie-0058": 0.78,
+        "movie-0059": 0.45,
+        "movie-0060": 0.78,
+        "movie-0061": 0.54,
+        "movie-0062": 0.46,
+        "movie-0063": 0.55,
+        "movie-0064": 0.51,
+        "movie-0065": 0.51,
+        "movie-0066": 0.46,
+        "movie-0067": 0.41,
+        "movie-0068": 0.47,
+        "movie-0069": 0.8,
+        "movie-0070": 0.4,
+        "movie-0071": 0.7,
+        "movie-0072": 0.72,
+        "movie-0073": 0.63,
+        "movie-0074": 0.66,
+        "movie-0075": 0.54,
+        "movie-0076": 0.69,
+        "movie-0077": 0.53,
+        "movie-0078": 0.58,
+        "movie-0079": 0.73,
+        "movie-0080": 0.62,
+        "movie-0081": 0.65,
+        "movie-0082": 0.73,
+        "movie-0083": 0.48,
+        "movie-0084": 0.77,
+        "movie-0085": 0.58,
+        "movie-0086": 0.63,
+        "movie-0087": 0.59,
+        "movie-0088": 0.67,
+        "movie-0089": 0.7,
+        "movie-0090": 0.74,
+        "novel-0001": 0.51,
+        "novel-0002": 0.48,
+        "novel-0003": 0.43,
+        "novel-0004": 0.79,
+        "novel-0005": 0.66,
+        "novel-0006": 0.42,
+        "drama-0001": 0.58,
+        "drama-0002": 0.79,
+        "drama-0003": 0.51,
+        "jokes-feed": 0.78
       },
       "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
       "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
@@ -2755,6 +2855,906 @@
       "timeline_sha256": "2d35a56b9caffdeca72279807388390d313692ab3870bcab5b21d0dacb3b81b5",
       "entertainment_relief_per_hour": 0.25,
       "experience_label": "casual_news_feed_scroll"
+    },
+    {
+      "item_id": "movie-0001",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6780,
+      "timeline_path": "movies/movie-0001.srt",
+      "timeline_sha256": "1c9326963b78f7d91c2eda0c2a97182a9938845d1e563975524dee2a71afd2a3",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0002",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8220,
+      "timeline_path": "movies/movie-0002.srt",
+      "timeline_sha256": "47b43088f4d1160ac55f3eec8bfd1d94f54eb037826b4eb877e0f147b782a362",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0003",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6180,
+      "timeline_path": "movies/movie-0003.srt",
+      "timeline_sha256": "a0142e42f26279cae1e171d02e0bd561805e9be7a9f91784a8f5f34387c2278e",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0004",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8280,
+      "timeline_path": "movies/movie-0004.srt",
+      "timeline_sha256": "07aa5230a0c0372214bbbf78704024bc4cf2effe8785e44c6d311c504a53dfbc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0005",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6240,
+      "timeline_path": "movies/movie-0005.srt",
+      "timeline_sha256": "83ecc379877bf6f452da0bd0d2692b0eeaa849c10aad567da6243a0ad49c3a48",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0006",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8520,
+      "timeline_path": "movies/movie-0006.srt",
+      "timeline_sha256": "4d59a5dbe6e0094c4ac2a8704e50c528ce77a733cf48941dcf41344e3fe62070",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0007",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6120,
+      "timeline_path": "movies/movie-0007.srt",
+      "timeline_sha256": "4da136598f9ec92f1dc49df1082389779d09bc7187093a52fb32caef35b878dc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0008",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5760,
+      "timeline_path": "movies/movie-0008.srt",
+      "timeline_sha256": "6d556ff3fb4e884965761f115e9ddb3685bf3de97c0693e67095534df2ed8c44",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0009",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6660,
+      "timeline_path": "movies/movie-0009.srt",
+      "timeline_sha256": "750ccf0374af60ea5be79f439f708a867050ff2238ed2fbb2fcae0bfb33d2335",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0010",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6300,
+      "timeline_path": "movies/movie-0010.srt",
+      "timeline_sha256": "5517081b8f0b9d3f0fe922fa52c7707f3bc34846b179d8760f25aa208a65256d",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0011",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6960,
+      "timeline_path": "movies/movie-0011.srt",
+      "timeline_sha256": "3d5515b38562b710721dd22d0d5539dd81092ba5db8b1194a6c7d2e41a922627",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0012",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7380,
+      "timeline_path": "movies/movie-0012.srt",
+      "timeline_sha256": "2f7cf82ed9f208f99f9473814befcbbe618e6039ba86e3a9f29d8fd14949f0e1",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0013",
+      "kind": "subtitle_experience",
+      "duration_seconds": 12180,
+      "timeline_path": "movies/movie-0013.srt",
+      "timeline_sha256": "b64907fe9e7482b55739bd03ae50af5ce9fd0f17b0a70bc7a2e4b5e793092098",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0014",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6060,
+      "timeline_path": "movies/movie-0014.srt",
+      "timeline_sha256": "73f3770226a13bd6547f3fd850cd53707544e40b7d2e0dfbc77453f3aaf60d75",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0015",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5940,
+      "timeline_path": "movies/movie-0015.srt",
+      "timeline_sha256": "e02deaa45de5e42974514215065dee5c7dba658f88ee66f9b0169767bf3cc0ce",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0016",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5280,
+      "timeline_path": "movies/movie-0016.srt",
+      "timeline_sha256": "ddaf0cc9e8d71c6b2f2777b3100564a121984e3d50fcd2f32d2d87f7cf5f3fa5",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0017",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5400,
+      "timeline_path": "movies/movie-0017.srt",
+      "timeline_sha256": "7e7ea776eaf525643c02d94d02cd8f9068a1c8e9d50cec42cc7decfb4a26fdfc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0018",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6000,
+      "timeline_path": "movies/movie-0018.srt",
+      "timeline_sha256": "ff77c0730c0d1dc1d1842cde58f136ff8088c9d9e5765b922fbcfda3d8388ee0",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0019",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6840,
+      "timeline_path": "movies/movie-0019.srt",
+      "timeline_sha256": "7f197e6a84b827f7b7cdbb927016789a824fd568088827f895f3c6cbdad8fb13",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0020",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7380,
+      "timeline_path": "movies/movie-0020.srt",
+      "timeline_sha256": "f465f733f7c96b5700cb1abfca3012319d4339cf1318c0093da98563b4e2ffa3",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0021",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6960,
+      "timeline_path": "movies/movie-0021.srt",
+      "timeline_sha256": "f082dc5e2c3b254d58511374dd6456c4e002909787a900e3eeb2b532782ae425",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0022",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5400,
+      "timeline_path": "movies/movie-0022.srt",
+      "timeline_sha256": "49d92da9fc9841c15a1de0bf746d4ce36d1c8572aead8fc777d0e52f8f341eba",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0023",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8880,
+      "timeline_path": "movies/movie-0023.srt",
+      "timeline_sha256": "cc6e10f35d639c6db19b6ec938276b4d627bb503ce50c45ed5cc2f0006fbb991",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0024",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5820,
+      "timeline_path": "movies/movie-0024.srt",
+      "timeline_sha256": "cfc64999f058c39334a0497af0a5809fceacc0b88aa1896da95c98bb33905a06",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0025",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7200,
+      "timeline_path": "movies/movie-0025.srt",
+      "timeline_sha256": "210dece1f8fb2d0c3aeeaeb855d838673204739903487fb538411989800f5829",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0026",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6780,
+      "timeline_path": "movies/movie-0026.srt",
+      "timeline_sha256": "05d42d5fa2293e4b46ae7760301550e88caa2bc76bf0015c42aad3c13013ecdd",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0027",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5760,
+      "timeline_path": "movies/movie-0027.srt",
+      "timeline_sha256": "9997a536c34b10670b73ed361b7eb7d518305dddcdfbe37a62c924a5da4850bc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0028",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7800,
+      "timeline_path": "movies/movie-0028.srt",
+      "timeline_sha256": "fc649eb94634fccb04d65bf3e3607c8b1ed576b469ee81184d46e90ed8186b53",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0029",
+      "kind": "subtitle_experience",
+      "duration_seconds": 4860,
+      "timeline_path": "movies/movie-0029.srt",
+      "timeline_sha256": "487b41906471805921d657daed577d2809e6f53b6da4b3193bc98aacb65ec4f3",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0030",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7740,
+      "timeline_path": "movies/movie-0030.srt",
+      "timeline_sha256": "33eb37ec1c754b0b1c51c6b715b33947a8beee42539ec554f783b66157978f82",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0031",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5580,
+      "timeline_path": "movies/movie-0031.srt",
+      "timeline_sha256": "659ffb85b41b80eb8f31b6052b9f3259567ef8428542692f61ff722dc821de2a",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0032",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6000,
+      "timeline_path": "movies/movie-0032.srt",
+      "timeline_sha256": "08823139d395438c9abb8b91562b693e1e4bb11f8e81c3d032d4647fa1b93511",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0033",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6840,
+      "timeline_path": "movies/movie-0033.srt",
+      "timeline_sha256": "bccc43af1def069c04be657ec10a17606d60fe8dcbc96ad20dc67fab329a4320",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0034",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8040,
+      "timeline_path": "movies/movie-0034.srt",
+      "timeline_sha256": "94374304a615ccaab460327c8b45079b3450ae392f3dbee5e1e522daa4855e80",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0035",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6120,
+      "timeline_path": "movies/movie-0035.srt",
+      "timeline_sha256": "192750c27eee5711a080d65eacd6030b04aa962314ac5f7d6b91a231edf360da",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0036",
+      "kind": "subtitle_experience",
+      "duration_seconds": 4500,
+      "timeline_path": "movies/movie-0036.srt",
+      "timeline_sha256": "ee7facbb636849a6fecd38f68192d63ba8cd0e75ed85a5925f1779adb5187977",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0037",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7020,
+      "timeline_path": "movies/movie-0037.srt",
+      "timeline_sha256": "a03291b454504385bb5ab5f18383c2f5846f217cc0df465ed23d300814556efc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0038",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5640,
+      "timeline_path": "movies/movie-0038.srt",
+      "timeline_sha256": "cdf57c4796e9b042cc12e4c6e7a5d0c7420e0b8b0452b3c9f6b7e0f653ebd899",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0039",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5640,
+      "timeline_path": "movies/movie-0039.srt",
+      "timeline_sha256": "0a569fb0db916162f70557317c569d33dcac5b8ece80f9fee92986640c790f9d",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0040",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5820,
+      "timeline_path": "movies/movie-0040.srt",
+      "timeline_sha256": "e8466dc2770c1f02372f8ad86fc2b068e324a3b4cb453a597ecb09a6e9d12e44",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0041",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7020,
+      "timeline_path": "movies/movie-0041.srt",
+      "timeline_sha256": "8c26d03bc181cbc1fd4e11bd77414a24da10e98d3a7224879bb02ce0dee1d60f",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0042",
+      "kind": "subtitle_experience",
+      "duration_seconds": 3600,
+      "timeline_path": "movies/movie-0042.srt",
+      "timeline_sha256": "d0078c1fd66ab2f18b0b887b75129746609f1a7a8ce7e5a8fa15131b6212877a",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0043",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6300,
+      "timeline_path": "movies/movie-0043.srt",
+      "timeline_sha256": "9b2b7e0055ec0b0b79c85588e648fd91c8631944d5252ff522772fb666dd60b3",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0044",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7920,
+      "timeline_path": "movies/movie-0044.srt",
+      "timeline_sha256": "b187b39a44cf5f0d6f63ad7cd0d3fe0a90b4ca09045471c533bea9e0f5067512",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0045",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6840,
+      "timeline_path": "movies/movie-0045.srt",
+      "timeline_sha256": "c873c2ba087d38ccfcf0a5259202be5e7ceefe6f0ef9cec022805c48915346cc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0046",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5280,
+      "timeline_path": "movies/movie-0046.srt",
+      "timeline_sha256": "a604488ad1283d9cce64fec507e53f0191e960a7a868d729cebee596f1084afb",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0047",
+      "kind": "subtitle_experience",
+      "duration_seconds": 2820,
+      "timeline_path": "movies/movie-0047.srt",
+      "timeline_sha256": "502ca23c3b86b5a36ca30a78ba6c2d792fea9638a9a38de4faca1e242d786926",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0048",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6720,
+      "timeline_path": "movies/movie-0048.srt",
+      "timeline_sha256": "0a43efa8afdad31e16d4ef48968862c5a2a36d0f93da03984d7e69ca10869811",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0049",
+      "kind": "subtitle_experience",
+      "duration_seconds": 3120,
+      "timeline_path": "movies/movie-0049.srt",
+      "timeline_sha256": "fcab74131ef36f7a4c8b8e1c0ff59147911531096fbeb579fe388b839b5b8fee",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0050",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6780,
+      "timeline_path": "movies/movie-0050.srt",
+      "timeline_sha256": "101bab4aa3334170b649ed267aae8b0a13c2332c95ed0445a4a06b425e03d981",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0051",
+      "kind": "subtitle_experience",
+      "duration_seconds": 9660,
+      "timeline_path": "movies/movie-0051.srt",
+      "timeline_sha256": "bfafc06fc533e982e9e9597385bb70b44c4fc6c1a64083a09326531a95c323b3",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0052",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6240,
+      "timeline_path": "movies/movie-0052.srt",
+      "timeline_sha256": "3d6d3908cc2cf96f42ccb7358d23f2427c9a4488ac7e99f103be0e8ce048cd1a",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0053",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5820,
+      "timeline_path": "movies/movie-0053.srt",
+      "timeline_sha256": "acf687406421fdeaed5ed610f11356e73d05c07e7ff904f4c453a8f4dd863e1f",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0054",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5220,
+      "timeline_path": "movies/movie-0054.srt",
+      "timeline_sha256": "1d4308acf848cc42e581e50641b5a948af9d7faa57de0f18b4c2f66b78c7a1a0",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0055",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5100,
+      "timeline_path": "movies/movie-0055.srt",
+      "timeline_sha256": "4442d1aa5741d67174ef4e91eebba91e035810976eb277d90a249d20434c371d",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0056",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6420,
+      "timeline_path": "movies/movie-0056.srt",
+      "timeline_sha256": "43667643253b6a3353bf6b734d09959808405d5a3077a1f06bceac091b60e663",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0057",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7620,
+      "timeline_path": "movies/movie-0057.srt",
+      "timeline_sha256": "c6f704409983df247bccdac5b41f9b1319991113f2ce6be879ef1c11bea4ff84",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0058",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5880,
+      "timeline_path": "movies/movie-0058.srt",
+      "timeline_sha256": "184f58cb52e48a664ac58b574b34339762f33dc6f8178adb044705f1682446ea",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0059",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5580,
+      "timeline_path": "movies/movie-0059.srt",
+      "timeline_sha256": "89f46112383b1b3bd64d2f43225f652af4e8f025d404f4d73b8dfa3423ad430d",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0060",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7620,
+      "timeline_path": "movies/movie-0060.srt",
+      "timeline_sha256": "1808b09caeb98ab4446de76737bb09ad4a4f1e42192712c5290e0f17c792acb5",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0061",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6000,
+      "timeline_path": "movies/movie-0061.srt",
+      "timeline_sha256": "09e2226ebf0375e1e7da55ab2aaada560fd23d941c000624e1a16a8d41b8c26c",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0062",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6900,
+      "timeline_path": "movies/movie-0062.srt",
+      "timeline_sha256": "db6f8e8db3fb1605de7cea77589be6353119e44de7353e65fa1779f8291bd1bc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0063",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5640,
+      "timeline_path": "movies/movie-0063.srt",
+      "timeline_sha256": "f0aaea42c897515e3871632166e1a98cfd60cc649c5a2dcb480a7172bdf00917",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0064",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6240,
+      "timeline_path": "movies/movie-0064.srt",
+      "timeline_sha256": "fb2dfe2253fc839f6694a901c944e452ef9b92156f2c11853a8cb684b0890c59",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0065",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7140,
+      "timeline_path": "movies/movie-0065.srt",
+      "timeline_sha256": "81b5c29dc8c07102286a1619e65f126bdddbd68069b1f598715d80022526fe55",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0066",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6840,
+      "timeline_path": "movies/movie-0066.srt",
+      "timeline_sha256": "82a56c8d23c7ce5a93999ee4239b17c8afdab5e5ee8e68591edc87bad5b5a276",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0067",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6360,
+      "timeline_path": "movies/movie-0067.srt",
+      "timeline_sha256": "95fe21bbd32b114ef469fcf589dca1be210bcaadc0790ba7589e27ac485bf829",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0068",
+      "kind": "subtitle_experience",
+      "duration_seconds": 8820,
+      "timeline_path": "movies/movie-0068.srt",
+      "timeline_sha256": "975d41cee6d45fede8b00b5057b3b2e177bcec1000f3a8a99262fa2ebc6a9493",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0069",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5760,
+      "timeline_path": "movies/movie-0069.srt",
+      "timeline_sha256": "42a03bdbc1b3141f30171a8d100f842c22e0806981a32eb2c4c59610740ff608",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0070",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7140,
+      "timeline_path": "movies/movie-0070.srt",
+      "timeline_sha256": "257f674df1213ff10195ab8e0f61d718db2ae47291b99e86b31d94c62f5cfef7",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0071",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5700,
+      "timeline_path": "movies/movie-0071.srt",
+      "timeline_sha256": "95fff48aa05e1c09ab4fdd3238cb8c7138dc86456e151c55c6da7e68b22c465e",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0072",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7560,
+      "timeline_path": "movies/movie-0072.srt",
+      "timeline_sha256": "a977803726b7fe096157807f6c88abfbef41711926a991b04b722356a57d73aa",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0073",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6240,
+      "timeline_path": "movies/movie-0073.srt",
+      "timeline_sha256": "3be5f669fc96a6f462e8beb5ee692a1922905b386477a0d8417df4c1473300ab",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0074",
+      "kind": "subtitle_experience",
+      "duration_seconds": 4800,
+      "timeline_path": "movies/movie-0074.srt",
+      "timeline_sha256": "742f848a7d127a872e600f4e92fea6802b7c2f515634cf3f76fea7f7f9344412",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0075",
+      "kind": "subtitle_experience",
+      "duration_seconds": 11040,
+      "timeline_path": "movies/movie-0075.srt",
+      "timeline_sha256": "6d1e5c9db2530b32d5cc77948b760a63664687074208839c944b6acc5d7a3af6",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0076",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7080,
+      "timeline_path": "movies/movie-0076.srt",
+      "timeline_sha256": "b196b53fd76a8359da0610cde9f9836ed30fe63b462709f7ab2b8dcd1a66c598",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0077",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7680,
+      "timeline_path": "movies/movie-0077.srt",
+      "timeline_sha256": "7d2edcb9eefb4360e17d7ee0da4286f755a5e2d0a901ba648dcc8b25af26f1df",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0078",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6480,
+      "timeline_path": "movies/movie-0078.srt",
+      "timeline_sha256": "e510e48ce57da83cf08ac757603310646e328245f8720121f1466b245f8245da",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0079",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6300,
+      "timeline_path": "movies/movie-0079.srt",
+      "timeline_sha256": "9bcdaa78d238e5d98ac15aa6ce0aa62f35810df83a50aa828684b008e6e3aecd",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0080",
+      "kind": "subtitle_experience",
+      "duration_seconds": 9960,
+      "timeline_path": "movies/movie-0080.srt",
+      "timeline_sha256": "6cb16c150a772bfc02df7d23cd15d076d6afa8bd79f723d038bf4097d0bc7a32",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0081",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6720,
+      "timeline_path": "movies/movie-0081.srt",
+      "timeline_sha256": "69666fb74d1ceeee8f0e9caaf5feeb887e71889719484e8a7f078149206062c7",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0082",
+      "kind": "subtitle_experience",
+      "duration_seconds": 4920,
+      "timeline_path": "movies/movie-0082.srt",
+      "timeline_sha256": "380937eb22e525a569fe26508d2848c3a7b8aadd7df26692dfbbfded42a51f4d",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0083",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6360,
+      "timeline_path": "movies/movie-0083.srt",
+      "timeline_sha256": "bf44e5a79df31e46011763529c059743067289073ad262a88eb4bca0756c4f09",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0084",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5880,
+      "timeline_path": "movies/movie-0084.srt",
+      "timeline_sha256": "14ab6b930f0aed962207f902a8b4dc33a2a802530d25183235405d4973603cd5",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0085",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5400,
+      "timeline_path": "movies/movie-0085.srt",
+      "timeline_sha256": "31855e24b786c312007e7e1457323a7cb3326e6f7cec56942538d33e9a34eae9",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0086",
+      "kind": "subtitle_experience",
+      "duration_seconds": 5700,
+      "timeline_path": "movies/movie-0086.srt",
+      "timeline_sha256": "f4e3ddcc1392fe24991d1de47d9ad3cfc3248d4fc8626600f225f5619fd7b2dc",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0087",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6060,
+      "timeline_path": "movies/movie-0087.srt",
+      "timeline_sha256": "a91baf0329aef01c5c8b556f685db14c20917b99cf7050ae4369fc0e68706459",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0088",
+      "kind": "subtitle_experience",
+      "duration_seconds": 6180,
+      "timeline_path": "movies/movie-0088.srt",
+      "timeline_sha256": "e103cc1503af94557744b9132bbd347245f148cd13a2d9576865797d7384b911",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0089",
+      "kind": "subtitle_experience",
+      "duration_seconds": 7260,
+      "timeline_path": "movies/movie-0089.srt",
+      "timeline_sha256": "baeb5a45ddc97943ba107359ab09fb6fc930db5a5549d2ddb9e29a1e74f3ee11",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "movie-0090",
+      "kind": "subtitle_experience",
+      "duration_seconds": 2700,
+      "timeline_path": "movies/movie-0090.srt",
+      "timeline_sha256": "1145ec26424d2444b07a59dea25bd3df94c2e8d82de550e7b95bdf06f99a501f",
+      "entertainment_relief_per_hour": 0.35,
+      "experience_label": "feature_film_watch"
+    },
+    {
+      "item_id": "novel-0001",
+      "kind": "subtitle_experience",
+      "duration_seconds": 84837,
+      "timeline_path": "novels/novel-0001.srt",
+      "timeline_sha256": "8a589eae78b431a7f57a7c5fdafb44c08a7b5bf6b631fb8eb589e12b3c29d8c6",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "novel-0002",
+      "kind": "subtitle_experience",
+      "duration_seconds": 14971,
+      "timeline_path": "novels/novel-0002.srt",
+      "timeline_sha256": "b8a6cce1652b3fe6de02f6ac1e7e06fc47a13e698e89ae30fafff4e0d4b196eb",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "novel-0003",
+      "kind": "subtitle_experience",
+      "duration_seconds": 88324,
+      "timeline_path": "novels/novel-0003.srt",
+      "timeline_sha256": "fd50a81647dd00ae8bc420d6f0335a4df4e6f74c6d2543ddae448be1797ff58c",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "novel-0004",
+      "kind": "subtitle_experience",
+      "duration_seconds": 28017,
+      "timeline_path": "novels/novel-0004.srt",
+      "timeline_sha256": "c6cd3818c2611a0e56fe335160e66299c5417a2ed7cbfeba118fbb27c1bc869d",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "novel-0005",
+      "kind": "subtitle_experience",
+      "duration_seconds": 35663,
+      "timeline_path": "novels/novel-0005.srt",
+      "timeline_sha256": "cafa2446d1b180d8808028a3f2fd03aa1cdb015a8df76a5dcfedb9b0487bdb11",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "novel-0006",
+      "kind": "subtitle_experience",
+      "duration_seconds": 30941,
+      "timeline_path": "novels/novel-0006.srt",
+      "timeline_sha256": "f653c208edca9978186cc4e4f6c938aa75096be921925ee9f6917d1f7a5371cf",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "webnovel_excerpt_reading"
+    },
+    {
+      "item_id": "drama-0001",
+      "kind": "subtitle_experience",
+      "duration_seconds": 15155,
+      "timeline_path": "drama/drama-0001.srt",
+      "timeline_sha256": "a13ab23c859b4248a5bd0c59c23c80e95e86f4c803f47ddc7a8992da356b8784",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "drama_series_watch"
+    },
+    {
+      "item_id": "drama-0002",
+      "kind": "subtitle_experience",
+      "duration_seconds": 18566,
+      "timeline_path": "drama/drama-0002.srt",
+      "timeline_sha256": "4c96081201ebe00731af4b15931b8335b830e8502c99d5754d6aa1fe34d2a43e",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "drama_series_watch"
+    },
+    {
+      "item_id": "drama-0003",
+      "kind": "subtitle_experience",
+      "duration_seconds": 22971,
+      "timeline_path": "drama/drama-0003.srt",
+      "timeline_sha256": "3fa4c869979eab9461a60b84a403462401d91719459f82a62aa216341ed969c6",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "drama_series_watch"
+    },
+    {
+      "item_id": "jokes-feed",
+      "kind": "subtitle_experience",
+      "duration_seconds": 138264,
+      "timeline_path": "jokes/jokes.srt",
+      "timeline_sha256": "83e376df64b10d166dc5cd012bd9ebe75ae9e14145e6923bc9486d8ecef9cb81",
+      "entertainment_relief_per_hour": 0.2,
+      "experience_label": "casual_joke_feed_scroll"
     }
   ],
   "games": [
