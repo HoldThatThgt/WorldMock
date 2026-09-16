@@ -37,8 +37,8 @@ def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
     identity = _model_identity().model_dump(mode="json")
 
     assert identity["base_url"] == "https://api.deepseek.com/beta"
-    assert identity["tool_choice"] == "required"
-    assert identity["thinking"] == "disabled"
+    assert identity["tool_choice"] == "auto"
+    assert identity["thinking"] == "enabled"
     assert identity["max_retries"] == 0
     assert "base_url_host" not in identity
 

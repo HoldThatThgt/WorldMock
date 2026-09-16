@@ -130,7 +130,8 @@ def test_manifest_uses_single_window_shape(engine_factory) -> None:
     assert manifest["code_sha256"] == "2" * 64
     identity = manifest["model_identity"]
     assert identity["base_url"] == "https://api.deepseek.com/beta"
-    assert identity["tool_choice"] == "required" and identity["max_retries"] == 0
+    assert identity["tool_choice"] == "auto" and identity["max_retries"] == 0
+    assert identity["thinking"] == "enabled"
     assert "base_url_host" not in identity
 
 

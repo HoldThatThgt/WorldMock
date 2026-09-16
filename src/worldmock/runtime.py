@@ -186,6 +186,7 @@ def _configure_process(project_root: Path) -> None:
         "AGENTSOCIETY_CODER_LLM_MODEL": _DEEPSEEK_MODEL,
         "AGENTSOCIETY_EMBEDDING_MODEL": "",
         "LITELLM_LOCAL_MODEL_COST_MAP": "True",
+        "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "300",
         "MEM0_TELEMETRY": "False",
         "ANONYMIZED_TELEMETRY": "False",
     }
@@ -280,8 +281,8 @@ def _model_identity() -> ModelIdentity:
         provider="deepseek",
         base_url=_DEEPSEEK_BASE_URL,
         requested_model=_DEEPSEEK_MODEL,
-        thinking="disabled",
-        tool_choice="required",
+        thinking="enabled",
+        tool_choice="auto",
         max_retries=0,
         prompt_sha256=life_prompt_sha256(),
         tool_schema_sha256=life_tool_schema_sha256(),

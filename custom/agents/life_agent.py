@@ -343,12 +343,21 @@ class LifeAgent(PersonAgent):
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """@brief 把当前实际模型回合预算写入最终请求消息。"""
+        """@brief 注入思考开启的 ReAct 请求并写入当前实际模型回合预算。
+
+        DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400：
+        "Thinking mode does not support this tool_choice"），因此与思考
+        开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由
+        ReAct 协议纠错回合兜底（"native tool_calls are required"）。
+        """
         budget = self._react_budget(self._life_readonly)
         first = dict(messages[0])
         first["content"] += _REACT_BUDGET_MARKER + json.dumps(
             budget, ensure_ascii=False, sort_keys=True)
-        return super()._model_request([first, *messages[1:]], tools)
+        request = super()._model_request([first, *messages[1:]], tools)
+        request["tool_choice"] = "auto"
+        request["extra_body"] = {"thinking": {"type": "enabled"}}
+        return request
 
     def _react_budget(self, readonly: bool) -> dict[str, Any]:
         """@brief 从本决策实际模型调用序号取得当前请求预算。"""

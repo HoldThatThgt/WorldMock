@@ -29,8 +29,8 @@ class ModelIdentity(FrozenModel):
     provider: Literal["deepseek"]
     base_url: Literal["https://api.deepseek.com/beta"]
     requested_model: Literal["deepseek-flash"]
-    thinking: Literal["disabled"]
-    tool_choice: Literal["required"]
+    thinking: Literal["disabled", "enabled"]
+    tool_choice: Literal["required", "auto"]
     max_retries: Literal[0]
     prompt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     tool_schema_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")

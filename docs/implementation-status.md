@@ -143,3 +143,10 @@ LabelKit全量operators的历史尝试有缺失示例夹具错误，不能称为
 （`agent_id`、`decision_id`、`round_id`、`action_id`、`event_seq_first/last`、`tokens_in/out` 等）。
 写入器 `src/worldmock/opslog.py`；埋点在 LifeEngine（决策轮、模型交换、记忆、动作、资金、检查点、失败）
 与 runtime（启动/恢复/结束/崩溃）；`event_seq_*` 可与 footprints.sqlite 事件序号互相跳转。
+
+## 人物思考与内容类型
+
+- 人物模型开启 DeepSeek thinking（`life_agent._model_request` 覆写 `extra_body.thinking=enabled`）；thinking 拒收 `tool_choice=required`（真实探针 400），放宽为 `auto`，空工具调用由 ReAct 协议纠错兜底。
+- 推理原文经既有 `model_response` 足迹事件 `data.response.choices[0].message.reasoning_content` 落库（litellm 1.89.2 model_dump 原生保留；探针 200/2.5s/432 字符/reasoning_tokens 92）。
+- `AGENTSOCIETY_LLM_REQUEST_TIMEOUT` 60→300 秒；ReAct 每轮预算机制不变。
+- contents `kind` 枚举化 feature_film/drama_series/webnovel_excerpt/news_feed/joke_feed/subtitle_experience，两场景各迁移 102 条（`scripts/migrate_content_kinds.py --check` 复核）；`experience_label` 保留为结算与目录的可读标签。

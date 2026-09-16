@@ -25,7 +25,7 @@ class LifeRuleEngine:
         self.contents = {item.item_id: item for item in scenario.contents}
         self.games = {item.game_id: item for item in scenario.games}
         self.subtitles = {item.item_id: load_subtitles(item, self.corpus_root)
-                          for item in scenario.contents if item.kind == "subtitle_experience"}
+                          for item in scenario.contents}
 
     def validate_start(self, agent: AgentState, request: StartActivityRequest, now: int) -> dict:
         """@brief 校验活动目标并返回结算所需的冻结身份。"""

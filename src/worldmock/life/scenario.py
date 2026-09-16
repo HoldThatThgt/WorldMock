@@ -212,11 +212,21 @@ class MessageConfig(FrozenModel):
         return self
 
 
+CONTENT_KINDS = Literal[
+    "feature_film",
+    "drama_series",
+    "webnovel_excerpt",
+    "news_feed",
+    "joke_feed",
+    "subtitle_experience",
+]
+
+
 class ContentItemConfig(FrozenModel):
     """@brief 可接触内容及其真实时间轴。"""
 
     item_id: str = Field(min_length=1)
-    kind: Literal["subtitle_experience"]
+    kind: CONTENT_KINDS
     duration_seconds: int = Field(gt=0)
     timeline_path: str = Field(min_length=1)
     timeline_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")

@@ -270,23 +270,26 @@ def test_life_prompt_does_not_advertise_hidden_person_tools() -> None:
 class _ModelResponse:
     """提供原生工具属性及可持久化响应。"""
 
-    def __init__(self, call_id: str, name: str, arguments: str) -> None:
+    def __init__(self, call_id: str, name: str, arguments: str,
+                 reasoning_content: str | None = None) -> None:
         function = SimpleNamespace(name=name, arguments=arguments)
         tool_call = SimpleNamespace(id=call_id, type="function", function=function)
-        message = SimpleNamespace(tool_calls=[tool_call], content="")
+        message = SimpleNamespace(
+            tool_calls=[tool_call], content="", reasoning_content=reasoning_content)
         self.choices = [SimpleNamespace(message=message)]
         self._call_id = call_id
         self._name = name
         self._arguments = arguments
+        self._reasoning_content = reasoning_content
 
     def model_dump(self, *, mode: str) -> dict:
-        """返回最小 JSON 模型响应。"""
+        """返回最小 JSON 模型响应（reasoning_content 恒在，缺省为 None）。"""
         assert mode == "json"
         return {"choices": [{"message": {"tool_calls": [{
             "id": self._call_id,
             "type": "function",
             "function": {"name": self._name, "arguments": self._arguments},
-        }]}}]}
+        }], "reasoning_content": self._reasoning_content}}]}
 
 
 class _MultipleModelResponse:
@@ -332,6 +335,7 @@ class _Dispatcher:
                 "call-action",
                 "start_basic_activity",
                 '{"activity_type":"wait","planned_duration_seconds":60}',
+                reasoning_content="Tired person needs a short rest before work.",
             ),
             _ModelResponse(
                 "call-memory", "memory_recent", '{"limit":1}'
@@ -342,10 +346,10 @@ class _Dispatcher:
     async def call(self, **request):
         """返回下一个原生工具响应。"""
         self.requests.append(request)
-        assert request["tool_choice"] == "required"
+        assert request["tool_choice"] == "auto"
         assert request["max_retries"] == 0
         assert "reasoning_effort" not in request
-        assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+        assert request["extra_body"] == {"thinking": {"type": "enabled"}}
         assert all(item["function"]["strict"] is True for item in request["tools"])
         return self.responses.pop(0)
 
@@ -623,6 +627,46 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     assert refs["items"]["enum"] == [
         "m_prior", "observation-current", "result-prior",
     ]
+
+
+@pytest.mark.asyncio
+async def test_reasoning_content_is_persisted_in_model_response_evidence() -> None:
+    """思考开启后模型推理随现有序列化进入 model_response 足迹证据。"""
+    agent = LifeAgent()
+    environment = _Environment()
+    dispatcher = _Dispatcher()
+    agent._env = environment
+    agent._dispatcher = dispatcher
+    agent._model_name = "deepseek-flash"
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice", "occupation": "engineer"}
+    agent._enable_memory = True
+    agent._decision_context = _context()
+    agent._max_react_turns = 3
+    agent._memory_runtime = _MemoryRuntime()
+    agent._build_memory_context = _MemoryRuntime().build_context  # type: ignore[method-assign]
+    span = SimpleNamespace(attributes={})
+    agent.trace_span = lambda *args, **kwargs: nullcontext(span)  # type: ignore[method-assign]
+
+    await agent.run_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations("result-prior"))
+    )
+
+    requests = [item for item in environment.evidence if item.phase == "request"]
+    responses = [item for item in environment.evidence if item.phase == "response"]
+    # 请求证据钉死思考开启与 DeepSeek thinking 兼容的 tool_choice。
+    for item in requests:
+        assert item.request["extra_body"] == {"thinking": {"type": "enabled"}}
+        assert item.request["tool_choice"] == "auto"
+    # 正例：带 reasoning_content 的响应按原样进入足迹事件 data.response。
+    first_message = responses[0].response["choices"][0]["message"]
+    assert first_message["reasoning_content"] == (
+        "Tired person needs a short rest before work."
+    )
+    assert first_message["tool_calls"][0]["function"]["name"] == "start_basic_activity"
+    # 反例：不带推理的响应序列化后 reasoning_content 为 None，不伪造内容。
+    assert responses[1].response["choices"][0]["message"]["reasoning_content"] is None
 
 
 @pytest.mark.asyncio

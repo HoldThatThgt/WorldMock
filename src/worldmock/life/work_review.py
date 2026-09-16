@@ -122,8 +122,7 @@ class WorkReviewer:
         expected = model_identity["requested_model"]
         if client.model_name != expected or client.base_url != model_identity["base_url"]:
             raise ProtocolError("Work review client identity disagrees with the run manifest")
-        if (model_identity["thinking"] != "disabled" or model_identity["tool_choice"] != "required"
-                or model_identity["max_retries"] != 0):
+        if model_identity["max_retries"] != 0:
             raise ProtocolError("Work review request parameters disagree with the run manifest")
         self.client = client
 

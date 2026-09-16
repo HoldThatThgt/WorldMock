@@ -79,7 +79,7 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
     for name in SCENARIOS:
         scenario, _ = load_scenario(f"scenarios/{name}")
         feed = next(item for item in scenario.contents if item.item_id == FEED_ID)
-        assert feed.kind == "subtitle_experience"
+        assert feed.kind == "news_feed"
         assert feed.timeline_path == "feed/news-feed.srt"
         assert feed.entertainment_relief_per_hour == FEED_RATE
         assert feed.experience_label == "casual_news_feed_scroll"
@@ -91,7 +91,7 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
         {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
          "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
          "experience_label": "subtitle_experience"},
-        {"item_id": FEED_ID, "kind": "subtitle_experience",
+        {"item_id": FEED_ID, "kind": "news_feed",
          "duration_seconds": 38032, "entertainment_relief_per_hour": FEED_RATE,
          "experience_label": "casual_news_feed_scroll"},
     ]
