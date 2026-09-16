@@ -155,6 +155,13 @@ class CurvePoint(FrozenModel):
     output_value: float = Field(ge=0)
 
 
+class EfficiencyFactor(FrozenModel):
+    """@brief 声明式效率因子：输入资源名 + 输出乘数曲线（引擎侧配置）。"""
+
+    input_resource: str = Field(min_length=1)
+    curve: tuple[CurvePoint, ...] = Field(min_length=1)
+
+
 class BodyState(StrictModel):
     """@brief 人物的可结算身体资源。"""
 

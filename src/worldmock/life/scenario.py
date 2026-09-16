@@ -13,7 +13,13 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import Field, model_validator
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ContractKind, CurvePoint, FrozenModel, TravelMode
+from worldmock.life.models import (
+    ContractKind,
+    CurvePoint,
+    EfficiencyFactor,
+    FrozenModel,
+    TravelMode,
+)
 
 #: 商品使用方式的封闭集合（eat=食品进食，use=耐用品使用）。
 _PRODUCT_USE_MODES = frozenset({"eat", "use"})
@@ -32,7 +38,7 @@ class BodyConfig(FrozenModel):
     entertainment_need_per_awake_hour: float = Field(ge=0, le=1)
     hunger_threshold_kcal: float = Field(ge=0)
     emergency_threshold_kcal: float = Field(ge=0)
-    work_efficiency_curve: tuple[CurvePoint, ...]
+    work_efficiency_factors: tuple[EfficiencyFactor, ...] = Field(min_length=1)
     food_efficiency_curve: tuple[CurvePoint, ...]
     activity_met: dict[str, float]
     entertainment_relief_per_hour: dict[str, float]
@@ -46,8 +52,9 @@ class BodyConfig(FrozenModel):
             raise ValueError("initial energy exceeds maximum energy")
         if not self.emergency_threshold_kcal < self.hunger_threshold_kcal <= self.maximum_energy_kcal:
             raise ValueError("body thresholds must be ordered within maximum energy")
-        for curve in (self.work_efficiency_curve, self.food_efficiency_curve):
-            _validate_curve(curve)
+        _validate_curve(self.food_efficiency_curve)
+        for factor in self.work_efficiency_factors:
+            _validate_curve(factor.curve)
         if not math.isfinite(self.work_notes_multiplier):
             raise ValueError("work notes multiplier must be finite")
         return self

@@ -1,0 +1,91 @@
+# 出行时长系数公式声明（引擎 start_travel 按出发时刻查表；travel-fare 同款结构）。
+# v1：工作日 24 小时分时系数 factor = 拥堵出行时长 / 冻结自由流时长（高德拥堵延时指数口径，≥1）。
+# walking 不受系数影响（自由流步行已合理，恒 1.0）；driving_HH 分支按场景时区出发小时查表。
+# 数值溯源：anchored——高德《中国主要城市交通分析报告》公开数字人工取点 + 线性插值，
+# 锚点与方法见 catalog/snapshots/traffic/（scripts/calibrate_traffic.py 可重跑，字节一致由测试断言）。
+
+version = 1
+
+[formula.walking]
+factor = "1.0"
+
+[formula.driving_00]
+factor = "1.05"
+
+[formula.driving_01]
+factor = "1.03"
+
+[formula.driving_02]
+factor = "1.00"
+
+[formula.driving_03]
+factor = "1.00"
+
+[formula.driving_04]
+factor = "1.00"
+
+[formula.driving_05]
+factor = "1.00"
+
+[formula.driving_06]
+factor = "1.12"
+
+[formula.driving_07]
+factor = "1.45"
+
+[formula.driving_08]
+factor = "1.85"
+
+[formula.driving_09]
+factor = "1.55"
+
+[formula.driving_10]
+factor = "1.45"
+
+[formula.driving_11]
+factor = "1.35"
+
+[formula.driving_12]
+factor = "1.25"
+
+[formula.driving_13]
+factor = "1.22"
+
+[formula.driving_14]
+factor = "1.18"
+
+[formula.driving_15]
+factor = "1.28"
+
+[formula.driving_16]
+factor = "1.38"
+
+[formula.driving_17]
+factor = "1.64"
+
+[formula.driving_18]
+factor = "1.90"
+
+[formula.driving_19]
+factor = "1.62"
+
+[formula.driving_20]
+factor = "1.41"
+
+[formula.driving_21]
+factor = "1.20"
+
+[formula.driving_22]
+factor = "1.14"
+
+[formula.driving_23]
+factor = "1.07"
+
+[params]
+base_seconds = "route.duration_seconds"
+departure_second = "world.current_time"
+hour = "wallclock_hour(departure_second, scenario.timezone)"
+factor = "lookup(formula, mode + hour)"
+
+[provenance]
+factor = { type = "anchored", source = "Amap China major city traffic analysis report series (public quarterly reports); manual anchor points from Shanghai peak delay index range plus free-flow night baseline", artifact = "catalog/snapshots/traffic/amap-report-excerpt.md", method = "scripts/calibrate_traffic.py (linear interpolation, ROUND_HALF_UP 2dp)", paths = ["formula"] }

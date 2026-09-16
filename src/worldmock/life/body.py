@@ -146,7 +146,7 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
     after = BodyState(energy_kcal=energy, sleep_debt_hours=debt, entertainment_need=entertainment)
     _flow_buffer.extend(entries)
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None,
-                          _work_efficiency(body.sleep_debt_hours, debt, kind, config, factors))
+                          _work_efficiency(body, after, kind, config, factors))
 
 
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
@@ -168,7 +168,7 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
     after = body.model_copy(update={"energy_kcal": energy}, deep=True)
     _flow_buffer.extend(entries)
     return BodySettlement(body.model_copy(deep=True), after, 0, 0, 0, gained, efficiency,
-                          interpolate(config.work_efficiency_curve, body.sleep_debt_hours))
+                          _factor_snapshot(config, body))
 
 
 def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
@@ -239,9 +239,13 @@ def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) 
 
 
 def _active_efficiency_curve(kind: ActivityKind, config: BodyConfig) -> tuple[CurvePoint, ...]:
-    """@brief 返回当前活动实际使用的身体效率曲线。"""
+    """@brief 返回当前活动用于边界预测的身体效率曲线（work 取睡眠债因子）。
+
+    因子求值本身按区间梯形平均，与边界切分无关；能量因子的 400/800 节点
+    与 hungry/emergency 阈值同值，已由能量阈值边界覆盖，此处无需重复预测。
+    """
     if kind == ActivityKind.WORK:
-        return config.work_efficiency_curve
+        return _factor_curve(config, SLEEP_DEBT_RESOURCE)
     if kind == ActivityKind.CONSUME:
         return config.food_efficiency_curve
     return ()
@@ -314,20 +318,69 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
     return [], True
 
 
-def _work_efficiency(start: float, end: float, kind: ActivityKind, config: BodyConfig,
-                     factors: ActivityFactors | None) -> float:
-    """@brief 对工作区间中的睡眠不足曲线做分段线性平均。"""
-    if kind != ActivityKind.WORK or end <= start:
-        base = interpolate(config.work_efficiency_curve, start)
-        return _apply_work_factors(base, kind, factors)
-    cuts = [start] + [point.input_value for point in config.work_efficiency_curve if start < point.input_value < end]
-    cuts.append(end)
+def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,
+                     config: BodyConfig, factors: ActivityFactors | None) -> float:
+    """@brief 按目录因子列表通用合成工作效率：各因子在输入资源区间上取值连乘。
+
+    引擎不感知任何具体因子（因果耦合以目录数据表达）。work 区间对各因子
+    的输入资源区间做分段线性梯形平均（与迁移前的睡眠债分段处理同款，
+    方向无关）；区间退化或非 work 观察值取区间起点插值快照。最后乘入
+    冻结人物技能与实际工具因子（沿用既有行为）。
+    """
+    if kind != ActivityKind.WORK:
+        return _apply_work_factors(_factor_snapshot(config, before), kind, factors)
+    product = 1.0
+    for factor in config.work_efficiency_factors:
+        product *= _curve_average(factor.curve,
+                                  _resource_value(before, factor.input_resource),
+                                  _resource_value(after, factor.input_resource))
+    return _apply_work_factors(product, kind, factors)
+
+
+def _factor_snapshot(config: BodyConfig, body: BodyState) -> float:
+    """@brief 以给定身体状态对各效率因子取起点插值连乘。"""
+    product = 1.0
+    for factor in config.work_efficiency_factors:
+        product *= interpolate(factor.curve, _resource_value(body, factor.input_resource))
+    return product
+
+
+def _factor_curve(config: BodyConfig, resource: str) -> tuple[CurvePoint, ...]:
+    """@brief 取声明在指定输入资源上的效率因子曲线（未声明则空曲线）。"""
+    for factor in config.work_efficiency_factors:
+        if factor.input_resource == resource:
+            return factor.curve
+    return ()
+
+
+def _resource_value(body: BodyState, resource: str) -> float:
+    """@brief 读取身体资源余额；因子引用未知资源名属目录错误，fail-closed。"""
+    if resource == SLEEP_DEBT_RESOURCE:
+        return body.sleep_debt_hours
+    if resource == ENERGY_RESOURCE:
+        return body.energy_kcal
+    if resource == ENTERTAINMENT_RESOURCE:
+        return body.entertainment_need
+    raise ValueError(f"work efficiency factor references unknown resource {resource!r}")
+
+
+def _curve_average(points: tuple[CurvePoint, ...], start: float, end: float) -> float:
+    """@brief 对区间起止输入值在分段线性曲线上做梯形面积平均（方向无关）。
+
+    区间退化时取起点插值；否则对起止值构成的输入带按曲线节点切分，逐段
+    梯形积分后按带宽平均——跨节点区间的效率由带内线性插值精确积分。
+    """
+    low, high = (start, end) if start <= end else (end, start)
+    if high <= low:
+        return interpolate(points, start)
+    cuts = [low] + [point.input_value for point in points if low < point.input_value < high]
+    cuts.append(high)
     area = 0.0
     for left, right in zip(cuts, cuts[1:]):
-        a = interpolate(config.work_efficiency_curve, left)
-        b = interpolate(config.work_efficiency_curve, right)
+        a = interpolate(points, left)
+        b = interpolate(points, right)
         area += (a + b) * (right - left) / 2
-    return _apply_work_factors(area / (end - start), kind, factors)
+    return area / (high - low)
 
 
 def _apply_work_factors(value: float, kind: ActivityKind,

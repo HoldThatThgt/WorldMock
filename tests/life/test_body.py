@@ -26,7 +26,8 @@ def body_config():
 
 def test_piecewise_curves_clamp_and_interpolate(body_config) -> None:
     """曲线在节点、区间和两端均遵守冻结值。"""
-    curve = body_config.work_efficiency_curve
+    curve = next(factor.curve for factor in body_config.work_efficiency_factors
+                 if factor.input_resource == "sleep_debt_hours")
     assert interpolate(curve, 0) == 1
     assert interpolate(curve, 12) == pytest.approx(0.925)
     assert interpolate(curve, 40) == 0.65

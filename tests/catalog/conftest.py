@@ -270,10 +270,15 @@ WORK_OBJECT = {
         "review_pass_required": True,
     },
     "efficiency": {
-        "work_efficiency_curve": [
-            {"input_value": 0, "output_value": 1.0},
-            {"input_value": 8, "output_value": 1.0},
-            {"input_value": 16, "output_value": 0.85},
+        "work_efficiency_factors": [
+            {
+                "input_resource": "sleep_debt_hours",
+                "curve": [
+                    {"input_value": 0, "output_value": 1.0},
+                    {"input_value": 8, "output_value": 1.0},
+                    {"input_value": 16, "output_value": 0.85},
+                ],
+            },
         ],
         "work_notes_multiplier": 1.1,
     },

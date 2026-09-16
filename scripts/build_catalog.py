@@ -16,7 +16,8 @@ proves "catalog matches the generator" (snapshot + rules + corpora), not
 
 Hand-written files NOT touched by this generator (per §13, rules are human-authored):
   catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
-  catalog/README.md — the generator only asserts the rules files exist.
+  catalog/rules/travel-time.toml, catalog/README.md, catalog/snapshots/ —
+  the generator only asserts these files exist.
 
 Usage:
   python3 scripts/build_catalog.py           # write catalog data files
@@ -97,6 +98,36 @@ FACT_SOURCES = {
 }
 FACT_ARTIFACT = "docs/resource-registry-design.md §5"
 ENGINE_CLAMP = "legacy-engine-body clamp (src/worldmock/life/body.py:71,86,183,195)"
+
+
+#: 能量-工作效率耦合因子的输出乘数曲线：emergency 以下 0.5、hungry 段下限 0.8、
+#: hungry 阈值以上满效 1.0。阈值不新设，直接复用 body 的 hungry/emergency
+#: 阈值（与 alert_rules 的 800/400 同源）；emergency 处的阶跃以 0.1 kcal
+#: 过渡带编码——分段线性曲线无法表达严格跳变，带宽远小于任何分镜能耗。
+ENERGY_EFFICIENCY_EMERGENCY_OUTPUT = 0.5
+ENERGY_EFFICIENCY_HUNGRY_OUTPUT = 0.8
+ENERGY_EFFICIENCY_STEP_BAND_KCAL = 0.1
+
+
+def energy_efficiency_factor_curve(body: dict) -> list[dict]:
+    """@brief 由 alert_rules 同源阈值构造能量-工作效率因子曲线点。"""
+    hunger = body["hunger_threshold_kcal"]
+    emergency = body["emergency_threshold_kcal"]
+    return [
+        {"input_value": 0, "output_value": ENERGY_EFFICIENCY_EMERGENCY_OUTPUT},
+        {"input_value": emergency - ENERGY_EFFICIENCY_STEP_BAND_KCAL,
+         "output_value": ENERGY_EFFICIENCY_EMERGENCY_OUTPUT},
+        {"input_value": emergency, "output_value": ENERGY_EFFICIENCY_HUNGRY_OUTPUT},
+        {"input_value": hunger, "output_value": 1.0},
+    ]
+
+
+def work_efficiency_factors(body: dict) -> list[dict]:
+    """@brief 声明式工作效率因子列表：睡眠债因子（沿用冻结曲线）+ 能量因子。"""
+    return [
+        {"input_resource": "sleep_debt_hours", "curve": body["work_efficiency_curve"]},
+        {"input_resource": "energy_kcal", "curve": energy_efficiency_factor_curve(body)},
+    ]
 
 
 def build_resources(body: dict) -> list[dict]:
@@ -340,7 +371,7 @@ def contract_objects(body: dict, employer_account_id: str) -> list[dict]:
                 "review_pass_required": True,
             },
             "efficiency": {
-                "work_efficiency_curve": body["work_efficiency_curve"],
+                "work_efficiency_factors": work_efficiency_factors(body),
                 "work_notes_multiplier": body["work_notes_multiplier"],
             },
             "provenance": [
@@ -354,7 +385,10 @@ def contract_objects(body: dict, employer_account_id: str) -> list[dict]:
                  "source": "legacy-scenario-tasks required_effective_seconds/input_sha256/oracle_sha256"},
                 {"part": "efficiency params", "paths": ["efficiency"],
                  "type": "assumption",
-                 "source": "legacy-scenario-body work_efficiency_curve/work_notes_multiplier"},
+                 "source": "legacy-scenario-body work_efficiency_curve/work_notes_multiplier; "
+                           "energy factor = hunger-productivity coupling for survival-economy "
+                           "feedback (hungry/emergency thresholds reused from alert_rules; "
+                           "no external data, sensitivity-checked by evaluation layer)"},
             ],
             "version": 1,
         })
@@ -397,6 +431,12 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
 
     assert (RULES_DIR / "off-foods.mapping.toml").is_file(), "missing catalog/rules/off-foods.mapping.toml"
     assert (RULES_DIR / "travel-fare.toml").is_file(), "missing catalog/rules/travel-fare.toml"
+    assert (RULES_DIR / "travel-time.toml").is_file(), "missing catalog/rules/travel-time.toml"
+    traffic_dir = ROOT / "catalog/snapshots/traffic"
+    assert (traffic_dir / "amap-report-excerpt.md").is_file(), \
+        "missing catalog/snapshots/traffic/amap-report-excerpt.md"
+    assert (traffic_dir / "weekday-hour-factors.json").is_file(), \
+        "missing catalog/snapshots/traffic/weekday-hour-factors.json"
 
     off_sha = sha256_of(OFF_FROZEN)
     body = snapshot["body"]

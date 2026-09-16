@@ -65,6 +65,12 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
                            agent_id, observed, engine.state.version)
 
 
+def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
+    """当前出发时刻的出行受理口径计划时长（travel-time 分时系数折算）。"""
+    return engine.semantics.travel_planned_seconds(
+        mode, base_seconds, engine.state.current_time)
+
+
 def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], round_id: str):
     """按全部就绪人物创建并提交一个真实决策轮。"""
     ready = engine.scheduling_state().ready_agent_ids

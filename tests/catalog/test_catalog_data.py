@@ -122,7 +122,7 @@ def test_real_catalog_loads_through_package():
     assert set(catalog.resources) == {
         "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"}
     assert len(catalog.objects) == 20
-    assert set(catalog.formulas) == {"travel-fare"}
+    assert set(catalog.formulas) == {"travel-fare", "travel-time"}
     fare = catalog.formulas["travel-fare"]
     assert fare.branches["walking"].amount == 0
     assert fare.branches["driving"].amount == "max(500, ceil(m * 0.2))"

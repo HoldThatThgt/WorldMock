@@ -109,25 +109,27 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
 
 
 def _stage_progress_limits(engine) -> None:
-    """形成工作合同剩余五十九秒和媒体剩余九秒的真实状态。"""
+    """形成工作合同剩余五十九秒和全部内容媒体剩余九秒的真实状态。"""
     task = engine.scenario.tasks[0]
-    content = engine.scenario.contents[0]
     now = int(task.available_at.timestamp())
     worked = task.maximum_duration_seconds - 59
     state = engine.state.model_copy(deep=True)
     state.current_time = now
     state.pending_events = [item for item in state.pending_events if item.due_at > now]
     agent = state.agents[1]
-    progress = ContentProgress(
-        item_id=content.item_id,
-        position_seconds=content.duration_seconds - 9,
-        exposure_count=1,
-    )
+    drained = {
+        content.item_id: ContentProgress(
+            item_id=content.item_id,
+            position_seconds=content.duration_seconds - 9,
+            exposure_count=1,
+        )
+        for content in engine.scenario.contents
+    }
     visible = set(agent.visible_task_ids)
     visible.add(task.task_id)
     state.agents[1] = agent.model_copy(
         update={"location_id": task.required_location_id, "visible_task_ids": visible,
-                "content_progress": {content.item_id: progress}, "next_decision_at": now},
+                "content_progress": drained, "next_decision_at": now},
         deep=True,
     )
     activity = ActivityState(

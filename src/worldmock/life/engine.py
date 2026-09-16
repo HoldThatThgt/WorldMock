@@ -622,7 +622,8 @@ class LifeEngine:
                 "calendar_context": _calendar_context(self.scenario, self.state.current_time),
                 "locations": _location_catalog(self.scenario),
                 "routes": _route_catalog(self.scenario.routes, self.semantics.body,
-                                      agent.location_id, agent.body.energy_kcal),
+                                      agent.location_id, agent.body.energy_kcal,
+                                      self.state.current_time, self.semantics),
                 "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
                 "content_catalog": _content_catalog(self.scenario),
                 "content_progress": self._content_progress(agent),
@@ -930,6 +931,10 @@ class LifeEngine:
         payment = None
         if request.activity_type == ActivityKind.TRAVEL:
             route = route_for(self.scenario, agent.location_id, request)
+            expected = self.semantics.travel_planned_seconds(
+                route.mode.value, route.duration_seconds, state.current_time)
+            if request.planned_duration_seconds != expected:
+                raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
             changed_state, payment = pay_travel_fare(state, self.scenario, pending.agent_id, route)
             data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         if request.activity_type == ActivityKind.PLAY_GAME:
@@ -1617,17 +1622,30 @@ def _location_catalog(scenario: RuntimeScenario) -> list[dict]:
     return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
 
 
-def _route_catalog(routes: tuple, body, origin_id: str, energy_kcal: float) -> list[dict]:
-    """@brief 返回人物当前位置出发的冻结路线身份和实际成本。"""
+def _route_catalog(routes: tuple, body, origin_id: str, energy_kcal: float,
+                   departure_second: int, semantics) -> list[dict]:
+    """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价。
+
+    duration_seconds 为按当前出发时刻 travel-time 系数折算的计划时长
+    （引擎受理口径，人物照此提交 planned_duration_seconds）；
+    free_flow_duration_seconds 保留冻结自由流时长，travel_time_factor
+    公开本次折算系数；能量预算按折算后时长计算。
+    """
     fields = {"route_id", "origin_id", "destination_id", "mode", "distance_meters", "duration_seconds",
               "fare_fen", "fare_source_kind"}
     result = []
     for item in routes:
         if item.origin_id != origin_id:
             continue
+        planned = semantics.travel_planned_seconds(
+            item.mode.value, item.duration_seconds, departure_second)
         data = item.model_dump(mode="json", include=fields)
+        data.update(duration_seconds=planned,
+                    free_flow_duration_seconds=item.duration_seconds,
+                    travel_time_factor=semantics.travel_time_factor(
+                        item.mode.value, departure_second))
         met = body.activity_met[f"travel:{item.mode.value}"]
-        cost = minimum_energy_cost(ActivityKind.TRAVEL, item.duration_seconds, body, met)
+        cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, body, met)
         data.update(minimum_energy_cost_kcal=cost, energy_feasible=cost <= energy_kcal)
         result.append(data)
     return result

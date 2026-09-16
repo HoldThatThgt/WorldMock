@@ -8,7 +8,7 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "487f769808b6859bf1e430c8a93320a444b9afaf54339989699d5c57e7acd55b",
+  "corpus_manifest_sha256": "2056bd2d6258cda601ce288d497164cee5a0a22f4f0b28c14337facc4a8c9c8b",
   "catalog_version": {
     "major": 1,
     "minor": 0
@@ -57,6 +57,7 @@
       },
       "entertainment_preferences": {
         "sintel-en-subtitles": 0.7,
+        "news-feed": 0.6,
         "textworld-1201": 0.6,
         "textworld-1202": 0.6,
         "textworld-1203": 0.6,
@@ -2745,6 +2746,15 @@
       "timeline_sha256": "4ed7e1f1bc5ff69fe33606960e4c048ba6766237bf33b132fef76e1a92cb64b2",
       "entertainment_relief_per_hour": 0.3,
       "experience_label": "subtitle_experience"
+    },
+    {
+      "item_id": "news-feed",
+      "kind": "subtitle_experience",
+      "duration_seconds": 38032,
+      "timeline_path": "feed/news-feed.srt",
+      "timeline_sha256": "2d35a56b9caffdeca72279807388390d313692ab3870bcab5b21d0dacb3b81b5",
+      "entertainment_relief_per_hour": 0.25,
+      "experience_label": "casual_news_feed_scroll"
     }
   ],
   "games": [

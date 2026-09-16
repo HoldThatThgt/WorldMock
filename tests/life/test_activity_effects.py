@@ -24,7 +24,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import load_scenario
 
-from tests.life.conftest import advance_next, submit_round
+from tests.life.conftest import advance_next, submit_round, travel_quote
 
 
 @pytest.fixture(scope="module")
@@ -195,7 +195,7 @@ def test_engine_work_progress_uses_frozen_skill_without_unused_tool(engine_facto
     while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
     travel = StartTravelRequest(
-        planned_duration_seconds=216,
+        planned_duration_seconds=travel_quote(engine, "driving", 216),
         destination_id="office",
         travel_mode=TravelMode.DRIVING,
     )

@@ -141,6 +141,17 @@ class DrainRules(CatalogModel):
     entertainment_relief_per_hour: Mapping[str, float] | None = None
 
 
+class EfficiencyFactor(CatalogModel):
+    """@brief 声明式效率因子：一个输入资源名与其分段线性输出乘数曲线。
+
+    引擎不感知任何具体因子：效率 = 各因子按其 ``input_resource`` 当前区间
+    取值后的连乘。新增因果边（如"能量饥饿拖累效率"）只是目录里多一行因子。
+    """
+
+    input_resource: str = Field(pattern=r"\S")
+    curve: tuple[CurvePoint, ...] = Field(min_length=1)
+
+
 class ResourceDefinition(CatalogModel):
     """@brief 资源注册表中一条类型级资源的完整定义。"""
 
@@ -288,9 +299,9 @@ class Acceptance(CatalogModel):
 
 
 class Efficiency(CatalogModel):
-    """@brief 合同对象的工作效率参数。"""
+    """@brief 合同对象的工作效率参数：声明式因子连乘加笔记倍率。"""
 
-    work_efficiency_curve: tuple[CurvePoint, ...] = Field(min_length=1)
+    work_efficiency_factors: tuple[EfficiencyFactor, ...] = Field(min_length=1)
     work_notes_multiplier: float = Field(gt=0)
 
 

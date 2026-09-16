@@ -13,15 +13,17 @@ from worldmock.life.settlement import settle_money_transfer
 
 
 def route_for(scenario: LifeScenario, origin_id: str, request: StartActivityRequest) -> RouteConfig:
-    """@brief 按起点、终点和方式选择唯一冻结路线。"""
+    """@brief 按起点、终点和方式选择唯一冻结路线。
+
+    时长合同（计划时长 = 冻结自由流时长 × travel-time 分时系数）由引擎
+    start 路径执行：route_for 只做身份选择，_start 在拿到出发时刻与目录
+    语义后校验 ROUTE_DURATION_MISMATCH（rules 层无目录语义，不做该校验）。
+    """
     matches = [route for route in scenario.routes if route.origin_id == origin_id
                and route.destination_id == request.destination_id and route.mode == request.travel_mode]
     if len(matches) != 1:
         raise BusinessRuleError("FROZEN_ROUTE_NOT_FOUND")
-    route = matches[0]
-    if request.planned_duration_seconds != route.duration_seconds:
-        raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
-    return route
+    return matches[0]
 
 
 def pay_travel_fare(state: WorldState, scenario: LifeScenario, agent_id: int,

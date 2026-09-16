@@ -37,9 +37,14 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
     """字幕只按播放位置揭示，暂停空档不越界，重复观看从头开始并递减效果。"""
     engine = engine_factory()
     catalog = engine.observe(context(engine, "catalog"))["content_catalog"]
-    assert catalog == [{"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
-                        "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
-                        "experience_label": "subtitle_experience"}]
+    assert catalog == [
+        {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
+         "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
+         "experience_label": "subtitle_experience"},
+        {"item_id": "news-feed", "kind": "subtitle_experience",
+         "duration_seconds": 38032, "entertainment_relief_per_hour": 0.25,
+         "experience_label": "casual_news_feed_scroll"},
+    ]
     request = StartTargetedActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=1260, playback_speed=0.5)

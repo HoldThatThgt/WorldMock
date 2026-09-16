@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, context, submit_round
+from tests.life.conftest import advance_next, context, submit_round, travel_quote
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     StartBasicActivityRequest,
@@ -180,6 +180,10 @@ def test_first_round_accepts_discovered_content_game_and_route(
 ) -> None:
     """首轮目录中的三类身份可以直接进入对应真实领域边界。"""
     engine = engine_factory()
+    if label == "travel":
+        # 出行时长按出发时刻分时系数折算（首轮 = 场景起点，夜间小时）。
+        action_request = action_request.model_copy(update={
+            "planned_duration_seconds": travel_quote(engine, "driving", 216)})
     ctx = context(engine, f"first-{label}")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)

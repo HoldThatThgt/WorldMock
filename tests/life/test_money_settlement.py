@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_next, submit_round
+from tests.life.conftest import advance_next, submit_round, travel_quote
 from worldmock.footprints.models import (
     RESOURCE_FLOWS_FIELD,
     EventDraft,
@@ -99,7 +99,7 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     submit_round(engine, {
         1: ("start_travel", StartTravelRequest(
             destination_id="office", travel_mode=TravelMode.DRIVING,
-            planned_duration_seconds=216)),
+            planned_duration_seconds=travel_quote(engine, "driving", 216))),
     }, "to-office")
 
     accounts = dict(engine.state.accounts)

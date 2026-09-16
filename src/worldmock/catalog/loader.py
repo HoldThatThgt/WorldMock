@@ -29,6 +29,9 @@ RULES_DIR = "rules"
 TOMBSTONE_FILE = "overrides/tombstones.jsonl"
 MANIFEST_FILE = "manifest.json"
 FORMULA_AMOUNT_KEY = "amount_fen"
+FORMULA_FACTOR_KEY = "factor"
+#: 公式分支表允许的取值键：金额公式用 amount_fen、系数公式用 factor。
+FORMULA_VALUE_KEYS = (FORMULA_AMOUNT_KEY, FORMULA_FACTOR_KEY)
 
 _Entry = TypeVar("_Entry", bound=CatalogModel)
 
@@ -140,9 +143,11 @@ def _load_formulas(rules_dir: Path) -> dict[str, FormulaDeclaration]:
 def _formula_from_toml(path: Path, payload: dict) -> FormulaDeclaration:
     """@brief 把 travel-fare 结构的 TOML 载荷解析成公式声明。
 
-    结构约定：[formula.<分支>] 表内唯一键 amount_fen（整数为字面值、字符串为
-    表达式）；[params] 参数名→输入路径；[provenance] part 名→溯源字段；
-    顶层 version 可缺省为 1。输出单位取 amount_fen 键的后缀（fen）。
+    结构约定：[formula.<分支>] 表内唯一取值键 amount_fen（金额公式）或
+    factor（系数公式），一个文件内各分支必须同键（整数为字面值、字符串为
+    表达式或字面系数字符串）；[params] 参数名→输入路径；[provenance]
+    part 名→溯源字段；顶层 version 可缺省为 1。输出单位取取值键的后缀
+    （amount_fen→fen、factor→factor）。
     """
     raw_branches = payload["formula"]
     if not isinstance(raw_branches, dict) or not raw_branches:
@@ -151,13 +156,25 @@ def _formula_from_toml(path: Path, payload: dict) -> FormulaDeclaration:
             f"{path}: [formula] must contain at least one branch table",
         )
     branches: dict[str, FormulaBranch] = {}
+    value_key: str | None = None
     for branch_name, table in raw_branches.items():
-        if not isinstance(table, dict) or set(table) != {FORMULA_AMOUNT_KEY}:
+        if (not isinstance(table, dict) or len(table) != 1
+                or next(iter(table)) not in FORMULA_VALUE_KEYS):
             raise CatalogError(
                 "CATALOG_MALFORMED_TOML",
-                f"{path}: [formula.{branch_name}] must declare exactly '{FORMULA_AMOUNT_KEY}'",
+                f"{path}: [formula.{branch_name}] must declare exactly one of"
+                f" {list(FORMULA_VALUE_KEYS)}",
             )
-        branches[branch_name] = FormulaBranch(amount=table[FORMULA_AMOUNT_KEY])
+        key = next(iter(table))
+        if value_key is None:
+            value_key = key
+        elif key != value_key:
+            raise CatalogError(
+                "CATALOG_MALFORMED_TOML",
+                f"{path}: [formula.{branch_name}] declares '{key}' but earlier"
+                f" branches declare '{value_key}'",
+            )
+        branches[branch_name] = FormulaBranch(amount=table[key])
     raw_provenance = payload.get("provenance", {})
     if not isinstance(raw_provenance, dict):
         raise CatalogError(
@@ -171,7 +188,7 @@ def _formula_from_toml(path: Path, payload: dict) -> FormulaDeclaration:
         )
         declaration = FormulaDeclaration(
             formula_id=path.stem,
-            unit=FORMULA_AMOUNT_KEY.removeprefix("amount_"),
+            unit=value_key.removeprefix("amount_") if value_key is not None else "fen",
             branches=branches,
             params=payload.get("params", {}),
             provenance=provenance,

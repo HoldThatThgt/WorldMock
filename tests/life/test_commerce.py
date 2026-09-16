@@ -9,7 +9,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, travel_quote
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import apply_product_progress, deliver_order, purchase
@@ -106,7 +106,7 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
     route = next(item for item in engine.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office" and item.mode == "driving")
     travel = StartTravelRequest(destination_id="office", travel_mode="driving",
-                                planned_duration_seconds=route.duration_seconds)
+                                planned_duration_seconds=travel_quote(engine, "driving", route.duration_seconds))
     travel_observation, _ = _observed_action(engine, "to-office", "start_travel", travel)
     assert len(travel_observation["pending_deliveries"]) == 1
     advance_next(engine)

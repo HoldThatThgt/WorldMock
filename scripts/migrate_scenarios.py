@@ -92,7 +92,9 @@ def check_body_parity(body: dict, catalog) -> None:
     assert fun.drain_rules.entertainment_need_per_awake_hour == body["entertainment_need_per_awake_hour"]
     assert dict(fun.drain_rules.entertainment_relief_per_hour) == body["entertainment_relief_per_hour"]
     contract = catalog.objects["contract-hourly"].efficiency
-    assert [p.model_dump() for p in contract.work_efficiency_curve] == body["work_efficiency_curve"]
+    factor_curves = {factor.input_resource: [p.model_dump() for p in factor.curve]
+                     for factor in contract.work_efficiency_factors}
+    assert factor_curves["sleep_debt_hours"] == body["work_efficiency_curve"]
     assert contract.work_notes_multiplier == body["work_notes_multiplier"]
 
 

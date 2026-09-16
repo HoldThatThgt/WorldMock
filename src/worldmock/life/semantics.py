@@ -11,8 +11,11 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass, field, replace
+from datetime import datetime
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 from typing import Mapping
+from zoneinfo import ZoneInfo
 
 from worldmock.catalog import (
     Catalog,
@@ -34,7 +37,7 @@ from worldmock.catalog import (
     validate_scenario_against_catalog,
 )
 from worldmock.errors import IntegrityError
-from worldmock.life.models import ContractKind, CurvePoint
+from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
 from worldmock.life.scenario import (
     AccountInstanceConfig,
     BodyConfig,
@@ -52,6 +55,9 @@ ENERGY_RESOURCE = "energy_kcal"
 SLEEP_RESOURCE = "sleep_debt_hours"
 ENTERTAINMENT_RESOURCE = "entertainment_need"
 TRAVEL_OBJECT = "travel-service"
+TRAVEL_TIME_FORMULA = "travel-time"
+#: travel-time 系数的合法区间：自由流为下界 1.0，上界防止坏数据放大时长。
+TRAVEL_TIME_FACTOR_BOUNDS = (1.0, 5.0)
 CONTRACT_OBJECTS = {
     ContractKind.HOURLY: "contract-hourly",
     ContractKind.PIECE: "contract-piece",
@@ -96,6 +102,42 @@ class ScenarioSemantics:
         if isinstance(amount, int):
             return amount
         return evaluate_int_expression(amount, {"m": distance_meters})
+
+    def travel_time_factor(self, mode: str, departure_second: int) -> float:
+        """@brief 按 travel-time 公式分支查出发时刻的分时系数。
+
+        查表键为场景时区的出发小时：walking 固定 1.0（自由流步行已合理），
+        driving 走 driving_HH 分支（HH 为两位小时，00-23 工作日 profile）。
+        """
+        formula = self.catalog.formulas.get(TRAVEL_TIME_FORMULA)
+        if formula is None:
+            raise IntegrityError(
+                f"{TRAVEL_TIME_FORMULA} formula is not declared in the catalog")
+        hour = datetime.fromtimestamp(
+            departure_second, ZoneInfo(self.document.timezone)).hour
+        branch = "walking" if mode == "walking" else f"{mode}_{hour:02d}"
+        if branch not in formula.branches:
+            raise IntegrityError(f"travel-time formula has no branch for {branch}")
+        amount = formula.branches[branch].amount
+        try:
+            factor = float(amount)
+        except (TypeError, ValueError) as error:
+            raise IntegrityError(f"travel-time branch {branch} is not numeric") from error
+        low, high = TRAVEL_TIME_FACTOR_BOUNDS
+        if not low <= factor <= high:
+            raise IntegrityError(
+                f"travel-time branch {branch} factor {factor} is outside [{low}, {high}]")
+        return factor
+
+    def travel_planned_seconds(self, mode: str, base_seconds: int,
+                               departure_second: int) -> int:
+        """@brief 计划时长 = 冻结自由流时长 × factor(出发时刻)，向上取整。
+
+        用 Decimal 精确乘法后 ROUND_CEILING，避免浮点误差让可复现的
+        报价在边界值上抖动。
+        """
+        factor = Decimal(str(self.travel_time_factor(mode, departure_second)))
+        return int((factor * int(base_seconds)).to_integral_value(rounding=ROUND_CEILING))
 
     def with_price(self, product_id: str, amount_fen: int, price_version: str) -> "ScenarioSemantics":
         """@brief 受控价格替换：返回单个商品 transfer 边金额更新后的新语义。
@@ -184,6 +226,7 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog) -> ScenarioSema
                      for rule in resource.alert_rules},
     )
     _check_route_fares(semantics)
+    _check_travel_time_formula(semantics)
     result = validate_scenario_against_catalog(semantics.refs, catalog)
     if not result.ok:
         detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
@@ -218,7 +261,7 @@ def _assemble_body(document: LifeScenario, catalog: Catalog) -> BodyConfig:
             fun_rules.entertainment_need_per_awake_hour, "entertainment_need_per_awake_hour"),
         "hunger_threshold_kcal": thresholds["hunger_threshold_kcal"],
         "emergency_threshold_kcal": thresholds["emergency_threshold_kcal"],
-        "work_efficiency_curve": _contract_efficiency(catalog, "work_efficiency_curve"),
+        "work_efficiency_factors": _contract_work_efficiency_factors(catalog),
         "food_efficiency_curve": _curve(energy_rules.food_efficiency_curve, "food_efficiency_curve"),
         "activity_met": _closed_map(energy_rules.activity_met, ENGINE_ACTIVITY_MET_KEYS, "activity MET"),
         "entertainment_relief_per_hour": _closed_map(
@@ -418,6 +461,30 @@ def _check_route_fares(semantics: ScenarioSemantics) -> None:
                 f" catalog formula value {expected}")
 
 
+def _check_travel_time_formula(semantics: ScenarioSemantics) -> None:
+    """@brief travel-time 公式必须在场且形状完整（存在性准入，缺公式即拒绝）。
+
+    形状合同：walking 分支恒为 1.0；driving 覆盖 00-23 全部 24 个小时分支，
+    每个分支都是区间内的数值。场景时区取文档声明。
+    """
+    formula = semantics.catalog.formulas.get(TRAVEL_TIME_FORMULA)
+    if formula is None:
+        raise IntegrityError(
+            f"{TRAVEL_TIME_FORMULA} formula is not declared in the catalog")
+    if "walking" not in formula.branches:
+        raise IntegrityError("travel-time formula has no walking branch")
+    probe = datetime.fromtimestamp(
+        0, ZoneInfo(semantics.document.timezone)).replace(hour=12)
+    if semantics.travel_time_factor("walking", int(probe.timestamp())) != 1.0:
+        raise IntegrityError("travel-time walking branch must be the constant 1.0")
+    for hour in range(24):
+        branch = f"driving_{hour:02d}"
+        if branch not in formula.branches:
+            raise IntegrityError(f"travel-time formula has no branch for {branch}")
+        semantics.travel_time_factor("driving", int(
+            probe.replace(hour=hour).timestamp()))
+
+
 def _service_accounts(document: LifeScenario) -> dict[str, AccountInstanceConfig]:
     """@brief 以账户 id 为键索引场景声明的服务侧账户实例。"""
     return {item.account_id: item for item in document.accounts}
@@ -455,7 +522,7 @@ def _contract_role(catalog: Catalog, direction: str) -> str:
 
 
 def _contract_efficiency(catalog: Catalog, attribute: str):
-    """@brief 从三种合同模板读取一致的效率参数（曲线或倍率）。"""
+    """@brief 从三种合同模板读取一致的标量效率参数（如笔记倍率）。"""
     values = []
     for object_id in CONTRACT_OBJECTS.values():
         obj = catalog.objects.get(object_id)
@@ -464,9 +531,24 @@ def _contract_efficiency(catalog: Catalog, attribute: str):
         values.append(getattr(obj.efficiency, attribute))
     if any(value != values[0] for value in values):
         raise IntegrityError(f"contract templates disagree on {attribute}")
-    if attribute == "work_efficiency_curve":
-        return _curve(values[0], attribute)
     return values[0]
+
+
+def _contract_work_efficiency_factors(catalog: Catalog) -> tuple[EfficiencyFactor, ...]:
+    """@brief 从三种合同模板读取一致的工作效率因子列表并转为引擎配置。"""
+    values = []
+    for object_id in CONTRACT_OBJECTS.values():
+        obj = catalog.objects.get(object_id)
+        if obj is None or obj.efficiency is None:
+            raise IntegrityError(f"contract template {object_id} has no efficiency params")
+        values.append(obj.efficiency.work_efficiency_factors)
+    if any(value != values[0] for value in values):
+        raise IntegrityError("contract templates disagree on work_efficiency_factors")
+    return tuple(
+        EfficiencyFactor(
+            input_resource=factor.input_resource,
+            curve=_curve(factor.curve, f"work_efficiency_factors[{factor.input_resource}]"))
+        for factor in values[0])
 
 
 def _purchase_edge(obj: ExchangeObject) -> TransferEdge:

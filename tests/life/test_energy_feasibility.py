@@ -7,7 +7,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, travel_quote
 from worldmock.footprints.models import EventDraft
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.models import (
@@ -89,10 +89,11 @@ def test_real_route_projection_uses_mode_specific_met_cost(engine_factory) -> No
     engine = engine_factory()
     routes = [route for route in engine.scenario.routes
               if route.origin_id == "home" and route.destination_id == "office"]
+    # 路线能量预算按出发时刻受理口径时长（travel-time 分时系数折算）计算。
     costs = {
         route.mode.value: minimum_energy_cost(
             ActivityKind.TRAVEL,
-            route.duration_seconds,
+            travel_quote(engine, route.mode.value, route.duration_seconds),
             engine.scenario.body,
             engine.scenario.body.activity_met[f"travel:{route.mode.value}"],
         )

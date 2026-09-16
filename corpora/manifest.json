@@ -7,8 +7,8 @@
     {
       "entry_id": "LICENSES.md",
       "path": "LICENSES.md",
-      "sha256": "61e8a22c54e7cd7532d5ac7fb25487764bd1b163b03d35238ae9ba5db22747ee",
-      "size_bytes": 511,
+      "sha256": "6d2b6ba216f2e75313f0edb352b521cce91a3d2c6273f952c3f2030fb9b6b6ab",
+      "size_bytes": 700,
       "media_type": "text/markdown",
       "purpose": "LICENSES.md",
       "source": {
@@ -786,6 +786,38 @@
         "license": "ODbL-1.0",
         "selector": "bbox 121.6000,31.1950,121.6400,31.2250",
         "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "feed:items.json",
+      "path": "feed/items.json",
+      "sha256": "e721bc5ea4233ea9edda375c082bb38fdfeb30030730face8116f0ea6b6443fc",
+      "size_bytes": 659065,
+      "media_type": "application/json",
+      "purpose": "feed",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/feilongfl/ChineseNewsSummary",
+        "retrieved_at": "2026-09-16T17:40:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "train.json 16924 records; parse output JSON; keep title>=8 and summary>=30 chars and 150<=len(title)+len(summary)<=300 and class!=爬取失败; dedup by exact title/body; category round-robin sample of 1000 with Random(20260916); estimated_read_seconds=round(chars/5); timeline cue per item; AI-written summaries of RSS news, license per dataset card",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "feed:news-feed.srt",
+      "path": "feed/news-feed.srt",
+      "sha256": "2d35a56b9caffdeca72279807388390d313692ab3870bcab5b21d0dacb3b81b5",
+      "size_bytes": 566903,
+      "media_type": "application/x-subrip",
+      "purpose": "feed",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/feilongfl/ChineseNewsSummary",
+        "retrieved_at": "2026-09-16T17:40:00+08:00",
+        "license": "Apache-2.0",
+        "selector": "train.json 16924 records; parse output JSON; keep title>=8 and summary>=30 chars and 150<=len(title)+len(summary)<=300 and class!=爬取失败; dedup by exact title/body; category round-robin sample of 1000 with Random(20260916); estimated_read_seconds=round(chars/5); timeline cue per item; AI-written summaries of RSS news, license per dataset card",
+        "fact_cutoff": "2026-09-16"
       }
     }
   ]
