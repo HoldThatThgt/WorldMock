@@ -642,7 +642,28 @@ class LifeEngine:
         hints = self._motivation_hints(agent)
         if hints is not None:
             data["motivation_hints"] = hints
+        market_summary = self._market_summary()
+        if market_summary is not None:
+            data["market_summary"] = market_summary
         return data
+
+    def _market_summary(self) -> dict | None:
+        """@brief 商店存在性常识：无需浏览即知道的营业状态、在售数与价格区间。
+
+        存在性是常识（楼下有店、大概什么价位），商品明细才由 browse 门控
+        （products 键）。无商品目录的场景缺省不写该键。
+        """
+        products = self.rules.products
+        if not products:
+            return None
+        hour = _datetime(self.state.current_time, self.scenario.timezone).hour
+        open_now = any(
+            location.open_hour <= hour < location.close_hour
+            for location in self.scenario.locations
+            if location.location_id in {item.merchant_location_id for item in products.values()})
+        prices = [item.price_fen for item in products.values()]
+        return {"open": open_now, "product_count": len(products),
+                "price_range_fen": [min(prices), max(prices)]}
 
     def _motivation_hints(self, agent) -> dict | None:
         """@brief 计算动机提示；无档案、无变换参数或求值失败一律不注入。
@@ -703,7 +724,8 @@ class LifeEngine:
             end_time=self.state.end_time,
             timezone=self.scenario.timezone,
             planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(
-                mode, base, now))
+                mode, base, now),
+            catalog_products=tuple(self.rules.products[item] for item in sorted(self.rules.products)))
 
     def _recent_action_results(self, agent_id: int) -> list[dict]:
         """@brief 返回该人物上次观察后新产生的动作结算事实。"""

@@ -1,9 +1,10 @@
 """@brief 动机评分层：为决策时刻枚举有界候选行为并按四分量打分。
 
 求值器按"内稳态 + 习惯 + 情绪 − 成本"四分量给每个候选行为打分，softmax(V/tau)
-只作排序参考，top-k 连同分数与英文理由注入观察（motivation_hints）。提示是
-建议不是账：求值只读状态，任何失败都在引擎侧 fail-open（不注入、不崩），
-结算路径完全不感知本模块。
+只作排序参考，top-k 连同相对呈现（rank、softmax 概率、四分量权衡）与英文
+理由注入观察（motivation_hints）——不暴露绝对总分，负分会被模型误读成
+"不值得做"。提示是建议不是账：求值只读状态，任何失败都在引擎侧
+fail-open（不注入、不崩），结算路径完全不感知本模块。
 
 通用变换形状（前景指数、归一尺度、时间价值、习惯权重）来自
 catalog/rules/motivation.toml；个体参数（weights/tau/beta/loss_aversion/
@@ -49,15 +50,16 @@ FAMILY_CONTINUE = "continue"
 FAMILY_SLEEP = "sleep"
 FAMILY_EAT = "eat"
 FAMILY_TRAVEL = "travel"
+FAMILY_BROWSE = "browse"
 FAMILY_ENTERTAINMENT = "entertainment"
 FAMILY_WORK = "work"
 FAMILIES = frozenset({
     FAMILY_CONTINUE, FAMILY_SLEEP, FAMILY_EAT, FAMILY_TRAVEL,
-    FAMILY_ENTERTAINMENT, FAMILY_WORK,
+    FAMILY_BROWSE, FAMILY_ENTERTAINMENT, FAMILY_WORK,
 })
 
-#: v1 每次决策枚举的候选上限与注入条数。
-MAX_CANDIDATES = 8
+#: v1 每次决策枚举的候选上限与注入条数（browse 加入后 8→9）。
+MAX_CANDIDATES = 9
 DEFAULT_TOP_K = 5
 
 #: 候选时长/观察窗口的工程上限（秒）：防止整部电影/整段合同把候选坐标推到极端。
@@ -167,6 +169,8 @@ def classify_action_event(tool_name: str, request: Mapping) -> str | None:
             return FAMILY_ENTERTAINMENT
         if activity_type == "work":
             return FAMILY_WORK
+        if activity_type == "browse":
+            return FAMILY_BROWSE
         return None
     if tool_name == "submit_work":
         return FAMILY_WORK
@@ -222,6 +226,8 @@ class MotivationContext:
     end_time: int
     timezone: str
     planned_travel_seconds: Callable[[str, int], int]
+    #: 全量商品目录（不经 browse 可见性门控）：browse 候选的存在性依据。
+    catalog_products: tuple[ProductConfig, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -251,14 +257,19 @@ class ScoredCandidate:
     score: float
     components: dict[str, float] = field(default_factory=dict)
     softmax_probability: float = 0.0
+    rank: int = 0
 
     def to_hint(self) -> dict:
-        """@brief 生成注入观察的 JSON 载荷。"""
-        return {"family": self.candidate.family,
+        """@brief 生成注入观察的 JSON 载荷（相对分呈现，不暴露绝对总分）。
+
+        模型会把负的绝对分读成"不值得做"（动机验证轮 a2 08:00 实证），
+        因此只给 rank（1 起）、softmax 概率与四分量权衡（tradeoff）。
+        """
+        return {"rank": self.rank,
+                "family": self.candidate.family,
                 "action_summary": self.candidate.summary,
-                "score": round(self.score, 4),
                 "softmax_probability": round(self.softmax_probability, 4),
-                "components": {key: round(value, 4) for key, value in self.components.items()},
+                "tradeoff": {key: round(value, 4) for key, value in self.components.items()},
                 "reason_text": self.candidate.reason}
 
 
@@ -277,12 +288,11 @@ def evaluate_motivation(context: MotivationContext, profile: MotivationProfile,
         _score_candidate(candidate, context, profile, transforms, shares, emotion_base)
         for candidate in candidates
     ]
-    probabilities = _softmax([item.score for item in scored], profile.tau)
-    ranked = sorted(
-        (ScoredCandidate(item.candidate, item.score, item.components, probability)
-         for item, probability in zip(scored, probabilities)),
-        key=lambda item: (-item.score, item.candidate.summary))
-    return ranked[:max(0, top_k)]
+    ordered = sorted(scored, key=lambda item: (-item.score, item.candidate.summary))
+    probabilities = _softmax([item.score for item in ordered], profile.tau)
+    return [ScoredCandidate(item.candidate, item.score, item.components, probability, rank)
+            for rank, (item, probability) in enumerate(zip(ordered, probabilities), start=1)
+            ][:max(0, top_k)]
 
 
 # ---------------------------------------------------------------------------
@@ -402,7 +412,8 @@ def _enumerate_candidates(context: MotivationContext,
     """@brief 按固定优先级枚举候选并截断到 MAX_CANDIDATES。
 
     优先级：进食 > 睡眠 > 继续当前活动 > 去工作地点 > 工作任务(至多2) >
-    回家 > 娱乐(至多3)。生存与目标导向优先于消遣；截断从队尾开始，
+    回家 > 浏览商品目录 > 娱乐(至多3)。生存与目标导向优先于消遣，浏览
+    （工具性：解锁进食候选的枚举）排在纯消遣之前；截断从队尾开始，
     保证任何决策点的候选数不超过 MAX_CANDIDATES。
     """
     pool: list[_Candidate] = []
@@ -411,11 +422,41 @@ def _enumerate_candidates(context: MotivationContext,
     keep = _continue_candidate(context)
     work_travel, work = _work_candidates(context)
     home_travel = _travel_candidate(context, "home", context.home_location_id)
+    browse = _browse_candidate(context)
     entertainment = _entertainment_candidates(context, profile)
-    for candidate in (eat, sleep, keep, work_travel, *work, home_travel, *entertainment):
+    for candidate in (eat, sleep, keep, work_travel, *work, home_travel, browse,
+                      *entertainment):
         if candidate is not None:
             pool.append(candidate)
     return pool[:MAX_CANDIDATES]
+
+
+def _browse_candidate(context: MotivationContext) -> _Candidate | None:
+    """@brief 浏览候选：目录中尚有未见过商品时给出（10 分钟目录速览）。
+
+    浏览是工具性动作：browse 之后商品目录对人物可见，进食候选才可
+    枚举——因此只要还有没见过的商品就保持此候选在场。
+    """
+    seen = {product.product_id for product in context.products}
+    if not any(product.product_id not in seen for product in context.catalog_products):
+        return None
+    duration = min(600, MAX_CANDIDATE_SECONDS,
+                   context.end_time - context.current_time)
+    if duration < 60:
+        return None
+    burn = minimum_energy_cost(ActivityKind.BROWSE, duration, context.body)
+    if burn > context.agent.body.energy_kcal:
+        return None
+    hours = duration / 3600
+    return _Candidate(
+        family=FAMILY_BROWSE,
+        summary=f"Browse product catalog for {duration / 60:.0f} min",
+        reason=("Browsing the product catalog shows what nearby markets have on sale; "
+                "food choices become enumerable only after browsing"),
+        duration_seconds=duration,
+        energy_delta=-burn,
+        sleep_debt_delta=context.body.awake_sleep_debt_per_hour * hours,
+        entertainment_delta=_entertainment_accrual(context, hours))
 
 
 def _sleep_candidate(context: MotivationContext) -> _Candidate:

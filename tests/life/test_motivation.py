@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from tests.life.conftest import advance_next
 from tests.life.conftest import context as round_context
 from tests.life.conftest import submit_round
 
@@ -297,7 +298,7 @@ class TestHabit:
                                      {"activity_type": "work"}) == "work"
         assert classify_action_event("submit_work", {}) == "work"
         assert classify_action_event("start_targeted_activity",
-                                     {"activity_type": "browse"}) is None
+                                     {"activity_type": "browse"}) == "browse"
 
     def test_shares_normalize_and_recency(self):
         events = [("start_targeted_activity", {"activity_type": "watch"})] * 3
@@ -413,11 +414,13 @@ class TestSoftmaxAndShape:
             sum(item.softmax_probability for item in scored))
         for item in scored:
             hint = item.to_hint()
-            assert set(hint["components"]) == {"homeostatic", "habit", "emotion", "cost"}
+            assert set(hint["tradeoff"]) == {"homeostatic", "habit", "emotion", "cost"}
             assert isinstance(hint["reason_text"], str) and hint["reason_text"]
             assert hint["softmax_probability"] >= 0
+            assert "score" not in hint  # 相对分呈现：不暴露绝对总分
+        assert [item.rank for item in scored] == list(range(1, len(scored) + 1))
 
-    def test_enumeration_capped_at_eight(self, transforms):
+    def test_enumeration_capped_at_nine(self, transforms):
         contents = tuple(_content(f"movie-{index:04d}", "feature_film", 3600, 0.2)
                          for index in range(1, 11))
         tasks = tuple(_task(f"task-{index}", pay=50_000 - index) for index in range(1, 5))
@@ -430,6 +433,7 @@ class TestSoftmaxAndShape:
             data={"entertainment_relief_per_hour": 0.2, "exposure_count": 1})
         context = _context(agent=_agent(energy=1500.0, location="office"),
                            products=(_food(),), merchant_stock={"food-1": 5},
+                           catalog_products=(_food(), _food("food-2", price=600)),
                            locations={"market": _location()},
                            routes=(_route("rd", "market", "office"),
                                    _route("rh", "office", "home")),
@@ -438,7 +442,7 @@ class TestSoftmaxAndShape:
         scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
         assert len(scored) <= MAX_CANDIDATES
         families = {item.candidate.family for item in scored}
-        assert {"eat", "sleep", "continue", "work", "entertainment"} <= families
+        assert {"eat", "sleep", "continue", "work", "browse", "entertainment"} <= families
 
 
 # ---------------------------------------------------------------------------
@@ -483,6 +487,37 @@ class TestEnumerationBoundaries:
         keep = next(item for item in scored if item.candidate.family == "continue")
         assert keep.candidate.duration_seconds == 1200
         assert keep.candidate.entertainment_delta < 0
+
+
+class TestBrowseCandidate:
+    """@brief browse 候选：目录有未见商品时在场，全可见时退场。"""
+
+    def test_browse_offered_when_catalog_has_unseen_products(self, transforms):
+        # 目录 2 件、可见 0 件：无 eat 候选（链路断），browse 候选在场（打通链路）。
+        context = _context(agent=_agent(energy=455.0), products=(),
+                           catalog_products=(_food(), _food("food-2", price=600)),
+                           merchant_stock={"food-1": 5, "food-2": 5},
+                           locations={"market": _location()})
+        scored = evaluate_motivation(context, _profile(), transforms)
+        families = {item.candidate.family for item in scored}
+        assert "browse" in families
+        assert "eat" not in families
+        browse = next(item for item in scored if item.candidate.family == "browse")
+        assert "nearby markets" in browse.candidate.reason
+        assert browse.candidate.duration_seconds == 600
+
+    def test_browse_absent_when_catalog_fully_visible(self, transforms):
+        context = _context(agent=_agent(energy=455.0), products=(_food(),),
+                           catalog_products=(_food(),), merchant_stock={"food-1": 5},
+                           locations={"market": _location()},
+                           routes=(_route("r1", "market", "home"),))
+        scored = evaluate_motivation(context, _profile(), transforms)
+        assert all(item.candidate.family != "browse" for item in scored)
+
+    def test_browse_absent_without_catalog(self, transforms):
+        context = _context(agent=_agent(energy=455.0))
+        scored = evaluate_motivation(context, _profile(), transforms)
+        assert all(item.candidate.family != "browse" for item in scored)
 
 
 # ---------------------------------------------------------------------------
@@ -565,9 +600,20 @@ class TestEngineInjection:
         assert hints["schema_version"] == 1
         assert 0 < len(hints["candidates"]) <= 5
         for candidate in hints["candidates"]:
-            assert set(candidate) >= {"family", "action_summary", "score",
-                                      "softmax_probability", "components", "reason_text"}
-            assert set(candidate["components"]) == {"homeostatic", "habit", "emotion", "cost"}
+            assert set(candidate) == {"rank", "family", "action_summary",
+                                      "softmax_probability", "tradeoff", "reason_text"}
+            assert set(candidate["tradeoff"]) == {"homeostatic", "habit", "emotion", "cost"}
+            assert "score" not in candidate  # 相对分呈现：绝对总分不入观察
+        ranks = [candidate["rank"] for candidate in hints["candidates"]]
+        assert ranks == list(range(1, len(ranks) + 1))  # rank 从 1 起单调
+
+    def test_hints_rank_orders_by_relative_preference(self, engine_factory):
+        """@brief rank 1 的 softmax 概率不低于后续候选（相对排序自洽）。"""
+        engine = _profiled_engine(engine_factory)
+        data = engine.observe(round_context(engine, "r-rank", agent_id=1))
+        candidates = data["motivation_hints"]["candidates"]
+        probabilities = [candidate["softmax_probability"] for candidate in candidates]
+        assert probabilities == sorted(probabilities, reverse=True)
 
     def test_unprofiled_scenario_never_injects(self, engine_factory):
         engine = engine_factory()
@@ -619,3 +665,33 @@ class TestEngineInjection:
         engine.semantics = replace(engine.semantics, motivation_transforms=None)
         data = engine.observe(round_context(engine, "r-off", agent_id=1))
         assert "motivation_hints" not in data
+
+
+class TestMarketSummary:
+    """@brief 商店存在性常识：不浏览也可见的营业状态/在售数/价格区间。"""
+
+    def test_summary_common_knowledge_without_browse(self, engine_factory):
+        engine = engine_factory()
+        data = engine.observe(round_context(engine, "r-mkt", agent_id=1))
+        assert data["products"] == []  # 商品明细仍由 browse 门控
+        summary = data["market_summary"]
+        prices = sorted(item.price_fen for item in engine.rules.products.values())
+        assert summary == {"open": False,  # 场景 00:00 起，市场 7-23 营业
+                           "product_count": len(engine.rules.products),
+                           "price_range_fen": [prices[0], prices[-1]]}
+
+    def test_summary_open_flips_when_market_opens(self, engine_factory):
+        engine = engine_factory()
+        request = ("start_basic_activity",
+                   StartBasicActivityRequest(activity_type="sleep",
+                                             planned_duration_seconds=8 * 3600))
+        submit_round(engine, {1: request}, "r-mkt-open")
+        advance_next(engine)  # 轮提交不推时钟：显式推进到 08:00 边界
+        data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))
+        assert data["market_summary"]["open"] is True  # 08:00 市场已开
+
+    def test_no_store_scenario_omits_summary(self, engine_factory):
+        engine = engine_factory()
+        engine.rules.products = {}
+        data = engine.observe(round_context(engine, "r-mkt-none", agent_id=1))
+        assert "market_summary" not in data
