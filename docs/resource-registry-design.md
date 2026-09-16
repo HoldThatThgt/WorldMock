@@ -161,6 +161,29 @@ flowchart LR
 
 无数据集支撑的数值（如"每分钟社交精力增益"）不逐对象拍脑袋：用参数化模型（三五个 assumption 参数）从对象客观属性算出，配合 §5 的敏感性检验与矩匹配校准。
 
+### 4.4 目录检视：查询与可视化
+
+原则：权威存储保持冻结文件；查询与可视化均为**无状态衍生视图**（每次从文件现读），不建长驻服务/Web UI，不画百万对象图（任何视图先聚合或过滤，图形工具只接触十位数节点）。
+
+**存储格式**：目录存 JSONL（一行一条目：资源定义/对象/映射规则/墓碑），SQLite `json_extract` 直接扫——与本项目足迹分析的既有习惯一致，零新依赖。
+
+**查询命令族**（只读）：
+
+| 命令 | 回答 |
+| --- | --- |
+| `catalog edges-of <resource>` | 谁在给某池注水/放水（聚合） |
+| `catalog objects-affecting <resource>` | 影响某资源的全部对象 |
+| `catalog lineage <object>` | 溯源链：每个数值来自哪个数据集哪个字段 |
+| `catalog imputed` | 代填清单：哪些对象用了声明式默认值 |
+| `catalog impact --dataset <id>` | 上游数据集出问题/下线时受影响的边清单 |
+| `catalog diff <v1> <v2>` | 版本增量审阅 |
+
+**可视化三层**（全部机器生成）：
+
+1. **资源流全景图**：节点=注册表全部池（十来个），边=聚合后的流，随目录版本重新生成存入 docs——世界经济的"一页纸总览"。
+2. **单池下钻图**：某池的全部进出边（几十条，mermaid/Graphviz 渲染）。
+3. **目录健康报表**：各资源边数分布、fact/anchored/assumption 占比、代填率、无主数值清单（应为空，非空即报警）、每数据集供给量——数据治理仪表盘。
+
 ---
 
 ## 五、溯源三分类（每个静态数值必选其一）
@@ -300,3 +323,44 @@ P2+P3 完成即具备"房租/月薪/餐食节律"全部挂载能力；建议 P2 
 3. **守恒是分域的**——货币域严格零和（继承现有银行级账本），身体域界内流水平衡；不发明全局守恒。
 4. **人治理 schema，流水线生产数据**——百万对象的边来自映射规则，不来自人工。
 5. **假设必须显式**——没有来源的参数标 assumption 并进敏感性检验，禁止伪装成 fact。
+
+---
+
+## 十三、路径架构（重构施工图）
+
+数据流决定目录流：`datasets →(翻译规则)→ catalog →(意图展开)→ scenarios →(run)→ runs →(evaluation)→ 报告`。
+
+```text
+WorldMock/
+├── src/worldmock/                # 代码：common / 静态 / 动态 / CLI 四层
+│   ├── common/                   #   横切设施：opslog、errors、llm 薄层
+│   ├── catalog/                  #   静态层·代码：registry/objects 加载、importer、admission、inspect、builder
+│   ├── scheduling/               #   预排·代码：intent 解析、expand 展开器、events 效果处理器
+│   ├── resources/                #   动态层·资源结算通道：多资源分录（transfer/source/drain/convert）
+│   ├── life/                     #   动态层·领域规则（engine/body/activities/work/travel/content/game 瘦身）
+│   ├── footprints/               #   审计层（原样）
+│   ├── evaluation/               #   评估层（+敏感性检验）
+│   ├── delivery/                 #   标注加工（已降级冷冻）
+│   └── cli.py / runtime.py / status.py
+├── catalog/                      # 静态层·数据（冻结 JSONL，git 管）
+│   ├── resources.jsonl · objects.jsonl
+│   ├── rules/                    #   映射规则（每数据集家族一份，人写）
+│   ├── overrides/                #   例外覆盖 + 墓碑
+│   └── snapshots/                #   anchored 取值快照
+├── datasets/                     # 外部原始数据集（gitignore，只留 manifest）
+├── corpora/                      # 冻结语料证据（承载 fact 证据件）
+├── intents/                      # 预排意图（人写 TOML，schedule build 输入）
+├── scenarios/                    # 冻结场景（展开形）
+├── custom/ · vendor/ · labelkit-projects/ · docs/ · tests/
+└── runs/ · .work/                # 永不进 git
+```
+
+数据四分工：**原料不进库（datasets）、字典进库（catalog）、证据进库（corpora）、快照进库（scenarios）**。
+
+## 十四、一天验证计划（重构验收）
+
+1. **数据**：catalog/ 由现有场景与语料生成——资源 4 类（money_fen + 三个 level）、对象 = 现有 16 商品 + 出行服务 + 三种合同，全部带溯源标注；画像沿用场景现有 agents 配置不改。
+2. **行为等价性**：重构后引擎对同一经济的结算结果可对账——货币域守恒不变量原样保留；一天运行结束做守恒审计（期末六账户合计 = 初始注入）。
+3. **运行**：真实 DeepSeek 跑 multi-person 一天场景完整到零点，导出认证通过，结构化操作日志全程落盘，记忆系统正常工作。
+4. **对比**：与重构前的一天运行（如 runs/deepseek-multi-47931e06）并排对比：事件数、动作接受/拒绝、经济流量、体力轨迹、二人存活状态——量级一致、无系统性异常即为验证通过。
+5. **数据补充边界**：对象数据全部沿用现有开源语料；仅当发现必要字段缺失时才从 HuggingFace 补充（hfmirror 镜像、关代理直连），任何拉取留快照与 manifest 记录。
