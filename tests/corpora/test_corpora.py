@@ -22,7 +22,7 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     manifest = load_manifest(Path("corpora"))
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     assert manifest.corpus_id == "life-full-2026-09-15"
-    assert len(manifest.entries) == 155
+    assert len(manifest.entries) == 543
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
     assert len(products) == 8
@@ -83,7 +83,7 @@ def test_routes_are_frozen_real_responses_for_all_declared_pairs() -> None:
 
 
 def test_all_textworld_games_use_real_reset_step_and_replay() -> None:
-    """八个固定游戏均通过 TextWorld 1.7 环境执行完整 walkthrough 并可重放。"""
+    """三十个固定游戏（单元 W 扩种子 8→30）均通过 TextWorld 1.7 环境执行完整 walkthrough 并可重放。"""
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     for game in scenario.games:
         validate_game(game, Path("corpora"))

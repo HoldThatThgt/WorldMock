@@ -8,7 +8,7 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "925a3021c383b7cea138c0c3b20fa8a6b461cf4c0ae53e1bc8143618f34c2a5b",
+  "corpus_manifest_sha256": "be84219e086de812991cbc3e03eae4644838b0fc245c17f69cf1caab63f7cda3",
   "catalog_version": {
     "major": 1,
     "minor": 0

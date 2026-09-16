@@ -83,9 +83,9 @@ def test_webnovel_excerpts_are_bounded_and_annotated() -> None:
 
 
 def test_drama_dialogue_streams_parse() -> None:
-    """视觉小说对白流 2-3 部，SRT 可解析且 experience_label 传达剧集。"""
+    """视觉小说对白流 3-12 部（单元 W 扩至 10），SRT 可解析且 label 传达剧集。"""
     dramas = _items("drama")
-    assert 2 <= len(dramas) <= 3
+    assert 3 <= len(dramas) <= 12
     scenario = load_scenario(SCENARIOS[0])[0]
     for drama in dramas:
         item = _scenario_item(scenario, drama["item_id"])

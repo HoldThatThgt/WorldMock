@@ -1,0 +1,14 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1224,
+  "nb_rooms": 3,
+  "nb_objects": 5,
+  "quest_length": 5,
+  "walkthrough": [
+    "go east",
+    "go north",
+    "take Quote of the Day Calendar",
+    "go south",
+    "insert Quote of the Day Calendar into cabinet"
+  ]
+}

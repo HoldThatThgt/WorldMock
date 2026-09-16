@@ -87,13 +87,16 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
     engine = engine_factory()
     catalog = engine.observe(context(engine, "catalog"))["content_catalog"]
     # 娱乐语料扩容后目录还含片库/网文/剧集/段子条目；这里锁定两个基线条目的完整字段身份
+    # （含分段结构：sintel 26 cue、信息流 1000 条；未开始所以没有 progress 键）
     expected_entries = [
         {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
          "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
-         "experience_label": "subtitle_experience"},
+         "experience_label": "subtitle_experience",
+         "segments_total": 26, "typical_segment_seconds": 24.2},
         {"item_id": FEED_ID, "kind": "news_feed",
          "duration_seconds": 38032, "entertainment_relief_per_hour": FEED_RATE,
-         "experience_label": "casual_news_feed_scroll"},
+         "experience_label": "casual_news_feed_scroll",
+         "segments_total": 1000, "typical_segment_seconds": 38.0},
     ]
     for expected in expected_entries:
         assert expected in catalog

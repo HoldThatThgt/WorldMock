@@ -1,0 +1,12 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1226,
+  "nb_rooms": 2,
+  "nb_objects": 3,
+  "quest_length": 3,
+  "walkthrough": [
+    "go south",
+    "close type 4 locker",
+    "lock type 4 locker with type 4 passkey"
+  ]
+}

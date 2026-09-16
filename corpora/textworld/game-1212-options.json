@@ -1,0 +1,12 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1212,
+  "nb_rooms": 2,
+  "nb_objects": 3,
+  "quest_length": 3,
+  "walkthrough": [
+    "take key",
+    "unlock safe with key",
+    "open safe"
+  ]
+}

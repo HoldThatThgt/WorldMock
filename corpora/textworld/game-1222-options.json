@@ -1,0 +1,14 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1222,
+  "nb_rooms": 3,
+  "nb_objects": 5,
+  "quest_length": 5,
+  "walkthrough": [
+    "go north",
+    "take rectangular latchkey from armchair",
+    "go south",
+    "go east",
+    "lock rectangular box with rectangular latchkey"
+  ]
+}

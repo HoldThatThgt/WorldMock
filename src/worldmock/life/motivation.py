@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import tomllib
+from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -228,6 +229,8 @@ class MotivationContext:
     planned_travel_seconds: Callable[[str, int], int]
     #: 全量商品目录（不经 browse 可见性门控）：browse 候选的存在性依据。
     catalog_products: tuple[ProductConfig, ...] = ()
+    #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
+    content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -752,8 +755,11 @@ def _entertainment_candidates(context: MotivationContext,
                               profile: MotivationProfile) -> list[_Candidate]:
     """@brief 娱乐候选：attention_prior x 内容偏好加权后取 top-3 的可观看内容。
 
-    时长槽 = 剩余媒体时长（看完/未看过按整段计），受能量可行上限与
-    MAX_CANDIDATE_SECONDS 截断；缓解速率与引擎口径一致（偏好/接触次数）。
+    时长槽按分段语义给：一次约两段典型时长（typical_segment_seconds x 2），
+    让长内容以"读一章/看一段"的小步会话入场而不是一整天的整块承诺；槽长
+    受剩余媒体时长、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间
+    截断，短段内容（剧集/信息流）保底一次十分钟会话避免候选被裁光。看完
+    的内容从头再来；缓解速率与引擎口径一致（偏好/接触次数）。
     """
     agent = context.agent
     ranked = sorted(
@@ -768,14 +774,36 @@ def _entertainment_candidates(context: MotivationContext,
         progress = context.content_progress.get(item.item_id)
         position = progress.position_seconds if progress else 0.0
         exposures = progress.exposure_count if progress else 0
+        boundaries = context.content_segments.get(item.item_id) or ()
+        segments_total = len(boundaries) or 1
+        typical = item.duration_seconds / segments_total
         remaining = item.duration_seconds - position
-        slot = remaining if remaining > 0 else item.duration_seconds
-        slot = min(slot,
-                   maximum_energy_duration_seconds(ActivityKind.WATCH,
-                                                   agent.body.energy_kcal, context.body),
-                   MAX_CANDIDATE_SECONDS, context.end_time - context.current_time)
+        if remaining <= 0:  # 看完的内容重复观看从头开始
+            position = 0.0
+            remaining = item.duration_seconds
+        outer_cap = min(remaining,
+                        maximum_energy_duration_seconds(ActivityKind.WATCH,
+                                                        agent.body.energy_kcal, context.body),
+                        MAX_CANDIDATE_SECONDS, context.end_time - context.current_time)
+        slot = min(typical * 2, outer_cap)
+        slot = max(slot, min(600.0, outer_cap))
         if slot < 60:
             continue
+        verb, noun = ("Read", "chapter") if item.kind == "webnovel_excerpt" else ("Watch", "segment")
+        started = progress is not None and position > 0 and remaining > 0
+        each = (f"~{typical:.0f} sec each" if typical < 120 else f"~{typical / 60:.0f} min each")
+        if segments_total > 1:
+            segment_index = min(bisect_right(boundaries, position) + 1, segments_total)
+            summary = f"{verb} {noun} {segment_index} of {item.item_id} (~{slot / 60:.0f} min)"
+            lead = (f"Continuing {item.item_id} at {noun} {segment_index}/{segments_total}"
+                    if started else
+                    f"{verb}ing one {noun} of {item.item_id} ({each})")
+        elif started:
+            summary = f"Continue {item.item_id} from minute {position / 60:.0f} (~{slot / 60:.0f} min)"
+            lead = f"Continuing {item.item_id} from minute {position / 60:.0f}"
+        else:
+            summary = f"{verb} {item.item_id} (~{slot / 60:.0f} min)"
+            lead = f"{verb}ing {item.item_id}"
         hours = slot / 3600
         preference = agent.entertainment_preferences.get(item.item_id, 0.5)
         relief_rate = item.entertainment_relief_per_hour * preference / (exposures + 1)
@@ -784,8 +812,8 @@ def _entertainment_candidates(context: MotivationContext,
         burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)
         candidates.append(_Candidate(
             family=FAMILY_ENTERTAINMENT,
-            summary=f"Watch {item.item_id} for {slot / 60:.0f} min",
-            reason=(f"Watching {item.item_id} relieves entertainment need "
+            summary=summary,
+            reason=(f"{lead} relieves entertainment need "
                     f"{agent.body.entertainment_need:.2f}->{fun_after:.2f}"),
             duration_seconds=slot,
             energy_delta=-burn,

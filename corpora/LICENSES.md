@@ -11,3 +11,4 @@
 - Chinese webnovel excerpts: Apache-2.0; https://huggingface.co/datasets/wdndev/webnovel-chinese
 - Visual novel dialogue excerpts (drama series): Apache-2.0; https://huggingface.co/datasets/alpindale/visual-novels (PygmalionAI parsed scripts)
 - Chinese joke feed: Apache-2.0; https://huggingface.co/datasets/notsobad9527/chinese-joke
+- Video game library cards (game sessions): curated public catalog facts, descriptions project-authored; CC-BY-4.0; no upstream dataset within the 100MB budget carried usable metadata (see corpora/games selector note)

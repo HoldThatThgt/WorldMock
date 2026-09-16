@@ -38,9 +38,11 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
     engine = engine_factory()
     catalog = engine.observe(context(engine, "catalog"))["content_catalog"]
     # 娱乐语料扩容后目录还含片库/网文/剧集/段子条目；这里锁定 sintel 基线条目的完整字段身份
+    # （含分段结构：26 个字幕 cue，未开始所以没有 progress 键）
     assert {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
             "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
-            "experience_label": "subtitle_experience"} in catalog
+            "experience_label": "subtitle_experience",
+            "segments_total": 26, "typical_segment_seconds": 24.2} in catalog
     request = StartTargetedActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=1260, playback_speed=0.5)

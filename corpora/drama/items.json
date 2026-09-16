@@ -34,5 +34,89 @@
     "total_chars": 344018,
     "duration_seconds": 22971,
     "timeline_path": "drama/drama-0003.srt"
+  },
+  {
+    "item_id": "drama-0004",
+    "title": "9-nine- Episode 1",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 4787,
+    "lines_available_in_source": 4787,
+    "total_chars": 277841,
+    "duration_seconds": 18624,
+    "timeline_path": "drama/drama-0004.srt"
+  },
+  {
+    "item_id": "drama-0005",
+    "title": "Cross Worlds",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 2749,
+    "lines_available_in_source": 2749,
+    "total_chars": 180342,
+    "duration_seconds": 12116,
+    "timeline_path": "drama/drama-0005.srt"
+  },
+  {
+    "item_id": "drama-0006",
+    "title": "Neko Para Vol.1",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 4872,
+    "lines_available_in_source": 4872,
+    "total_chars": 293484,
+    "duration_seconds": 19550,
+    "timeline_path": "drama/drama-0006.srt"
+  },
+  {
+    "item_id": "drama-0007",
+    "title": "Sakura Alien",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3918,
+    "lines_available_in_source": 3918,
+    "total_chars": 295879,
+    "duration_seconds": 19720,
+    "timeline_path": "drama/drama-0007.srt"
+  },
+  {
+    "item_id": "drama-0008",
+    "title": "Sakura Succubus",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3496,
+    "lines_available_in_source": 3496,
+    "total_chars": 275443,
+    "duration_seconds": 18345,
+    "timeline_path": "drama/drama-0008.srt"
+  },
+  {
+    "item_id": "drama-0009",
+    "title": "Sakura Succubus 3",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 5745,
+    "lines_available_in_source": 5745,
+    "total_chars": 386158,
+    "duration_seconds": 25716,
+    "timeline_path": "drama/drama-0009.srt"
+  },
+  {
+    "item_id": "drama-0010",
+    "title": "Wolf Tails",
+    "source_work": "alpindale/visual-novels parsed script",
+    "excerpt": false,
+    "note": "完整对白流",
+    "lines_selected": 3681,
+    "lines_available_in_source": 3681,
+    "total_chars": 247786,
+    "duration_seconds": 16530,
+    "timeline_path": "drama/drama-0010.srt"
   }
 ]

@@ -293,6 +293,7 @@ CONTENT_KINDS = Literal[
     "news_feed",
     "joke_feed",
     "subtitle_experience",
+    "game_session",
 ]
 
 

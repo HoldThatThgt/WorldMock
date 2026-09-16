@@ -43,7 +43,7 @@ from worldmock.life.body import (
     next_body_boundary_seconds,
 )
 from worldmock.life.commerce import apply_product_progress, held_quantity, purchase
-from worldmock.life.content import mail_headers, reveal_mail, reveal_watch
+from worldmock.life.content import SubtitleCue, mail_headers, reveal_mail, reveal_watch
 from worldmock.life.game import (
     GameOutcomeUnknown,
     new_game_session,
@@ -61,6 +61,7 @@ from worldmock.life.models import (
     ChangePlaybackSpeedRequest,
     ChangeActivityRequest,
     ContinueActivityRequest,
+    ContentProgress,
     ConsumeRequest,
     CounterfactualIntervention,
     CounterfactualReceipt,
@@ -629,7 +630,8 @@ class LifeEngine:
                                       agent.location_id, agent.body.energy_kcal,
                                       self.state.current_time, self.semantics),
                 "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
-                "content_catalog": _content_catalog(self.scenario),
+                "content_catalog": _content_catalog(
+                    self.scenario, self.rules.subtitles, agent.content_progress),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
                 "browse_targets": ["product_catalog"],
@@ -725,7 +727,9 @@ class LifeEngine:
             timezone=self.scenario.timezone,
             planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(
                 mode, base, now),
-            catalog_products=tuple(self.rules.products[item] for item in sorted(self.rules.products)))
+            catalog_products=tuple(self.rules.products[item] for item in sorted(self.rules.products)),
+            content_segments={item_id: tuple(cue.end_seconds for cue in cues)
+                              for item_id, cues in self.rules.subtitles.items()})
 
     def _recent_action_results(self, agent_id: int) -> list[dict]:
         """@brief 返回该人物上次观察后新产生的动作结算事实。"""
@@ -1770,10 +1774,37 @@ def _paused_activity_observation(activity, agent, body) -> dict:
     return data
 
 
-def _content_catalog(scenario: RuntimeScenario) -> list[dict]:
-    """@brief 返回人物可选择内容，不暴露本地路径和哈希。"""
+def _content_catalog(scenario: RuntimeScenario, subtitles: dict[str, tuple[SubtitleCue, ...]],
+                     progress: dict[str, ContentProgress]) -> list[dict]:
+    """@brief 返回人物可选择内容及其分段结构，不暴露本地路径和哈希。
+
+    目录不再把内容呈现为一个整块时长：每条目带 segments_total 与
+    typical_segment_seconds（网文=章、信息流=条、剧集=字幕行），已开始的
+    条目并入 progress（位置、剩余、已完成段数），让模型看见"读一章/看
+    一段"是合法的小步消费而非一整天的整块承诺。
+    """
     fields = {"item_id", "kind", "duration_seconds", "entertainment_relief_per_hour", "experience_label"}
-    return [item.model_dump(mode="json", include=fields) for item in scenario.contents]
+    result = []
+    for item in scenario.contents:
+        data = item.model_dump(mode="json", include=fields)
+        cues = subtitles.get(item.item_id, ())
+        total = len(cues)
+        data["segments_total"] = total
+        data["typical_segment_seconds"] = (
+            round(item.duration_seconds / total, 1) if total else float(item.duration_seconds))
+        record = progress.get(item.item_id)
+        if record is not None:
+            completed = sum(1 for cue in cues if cue.end_seconds <= record.position_seconds)
+            data["progress"] = {
+                "position_seconds": record.position_seconds,
+                "remaining_seconds": max(0.0, item.duration_seconds - record.position_seconds),
+                "segments_total": total,
+                "segments_completed": completed,
+                "segments_remaining": max(0, total - completed),
+                "current_segment": min(completed + 1, total),
+            }
+        result.append(data)
+    return result
 
 
 def _game_catalog(scenario: RuntimeScenario) -> list[dict]:

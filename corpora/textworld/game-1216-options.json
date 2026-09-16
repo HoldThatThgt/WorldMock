@@ -1,0 +1,14 @@
+{
+  "textworld_version": "1.7.0",
+  "seed": 1216,
+  "nb_rooms": 3,
+  "nb_objects": 5,
+  "quest_length": 5,
+  "walkthrough": [
+    "take key from stand",
+    "unlock locker with key",
+    "open locker",
+    "take non-euclidean passkey from locker",
+    "unlock non-euclidean safe with non-euclidean passkey"
+  ]
+}

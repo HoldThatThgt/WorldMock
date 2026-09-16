@@ -20,6 +20,7 @@ from worldmock.life.models import (
     ActivityStatus,
     AgentState,
     BodyState,
+    ContentProgress,
     StartBasicActivityRequest,
 )
 from worldmock.life.motivation import (
@@ -487,6 +488,92 @@ class TestEnumerationBoundaries:
         keep = next(item for item in scored if item.candidate.family == "continue")
         assert keep.candidate.duration_seconds == 1200
         assert keep.candidate.entertainment_delta < 0
+
+
+class TestEntertainmentSegmentSlots:
+    """@brief 娱乐候选的分段时长槽：长内容以约两段典型时长入场，不再整块承诺。"""
+
+    NOVEL_SECONDS = 84_780
+    NOVEL_SEGMENTS = 169
+
+    def _novel_boundaries(self) -> tuple[float, ...]:
+        return tuple(self.NOVEL_SECONDS / self.NOVEL_SEGMENTS * (index + 1)
+                     for index in range(self.NOVEL_SEGMENTS))
+
+    def _entertainment(self, context, transforms):
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
+        return next(item for item in scored if item.candidate.family == "entertainment")
+
+    def test_unstarted_novel_offers_two_chapters_not_whole_book(self, transforms):
+        typical = self.NOVEL_SECONDS / self.NOVEL_SEGMENTS
+        context = _context(
+            agent=_agent(preferences={"novel-0001": 0.8}),
+            contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
+            content_segments={"novel-0001": self._novel_boundaries()})
+        keep = self._entertainment(context, transforms)
+        # 一次约两章（~17 分钟）而不是整本 24 小时的整块承诺
+        assert keep.candidate.duration_seconds == pytest.approx(typical * 2)
+        assert keep.candidate.summary == f"Read chapter 1 of novel-0001 (~{typical * 2 / 60:.0f} min)"
+        assert keep.candidate.reason.startswith("Reading one chapter of novel-0001")
+
+    def test_started_novel_continues_at_next_chapter(self, transforms):
+        typical = self.NOVEL_SECONDS / self.NOVEL_SEGMENTS
+        context = _context(
+            agent=_agent(preferences={"novel-0001": 0.8}),
+            contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
+            content_segments={"novel-0001": self._novel_boundaries()},
+            content_progress={"novel-0001": ContentProgress(
+                item_id="novel-0001", position_seconds=typical * 5, exposure_count=1)})
+        keep = self._entertainment(context, transforms)
+        # 已读 5 章后从第 6 章继续，槽长仍是约两章而非剩余 91 章整块
+        assert keep.candidate.summary == f"Read chapter 6 of novel-0001 (~{typical * 2 / 60:.0f} min)"
+        assert "Continuing novel-0001 at chapter 6/169" in keep.candidate.reason
+        assert keep.candidate.duration_seconds == pytest.approx(typical * 2)
+
+    def test_started_movie_proposes_resume_not_restart(self, transforms):
+        context = _context(
+            agent=_agent(preferences={"movie-0001": 0.8}),
+            contents=(_content("movie-0001", "feature_film", 6780, 0.35),),
+            content_progress={"movie-0001": ContentProgress(
+                item_id="movie-0001", position_seconds=1800, exposure_count=1)})
+        keep = self._entertainment(context, transforms)
+        # 看到第 30 分钟的电影显示"从第 30 分钟继续"，槽长为剩余 83 分钟
+        assert keep.candidate.summary == "Continue movie-0001 from minute 30 (~83 min)"
+        assert keep.candidate.duration_seconds == pytest.approx(6780 - 1800)
+        assert keep.candidate.reason.startswith("Continuing movie-0001 from minute 30")
+
+    def test_unsegmented_movie_still_offers_full_watch(self, transforms):
+        context = _context(
+            agent=_agent(preferences={"movie-0001": 0.8}),
+            contents=(_content("movie-0001", "feature_film", 6780, 0.35),))
+        keep = self._entertainment(context, transforms)
+        # 电影单 cue：整段观看不受分段槽影响
+        assert keep.candidate.summary == "Watch movie-0001 (~113 min)"
+        assert keep.candidate.duration_seconds == pytest.approx(6780)
+
+    def test_short_segment_feed_floors_at_ten_minute_session(self, transforms):
+        boundaries = tuple(38_032 / 1000 * (index + 1) for index in range(1000))
+        context = _context(
+            agent=_agent(preferences={"news-feed": 0.6}),
+            contents=(_content("news-feed", "news_feed", 38_032, 0.25),),
+            content_segments={"news-feed": boundaries})
+        keep = self._entertainment(context, transforms)
+        # 两段典型时长只有 ~1 分钟：保底一次 10 分钟会话，避免候选被裁光
+        assert keep.candidate.duration_seconds == pytest.approx(600.0)
+        assert keep.candidate.summary == "Watch segment 1 of news-feed (~10 min)"
+
+    def test_finished_novel_restarts_from_chapter_one(self, transforms):
+        typical = self.NOVEL_SECONDS / self.NOVEL_SEGMENTS
+        context = _context(
+            agent=_agent(preferences={"novel-0001": 0.8}),
+            contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
+            content_segments={"novel-0001": self._novel_boundaries()},
+            content_progress={"novel-0001": ContentProgress(
+                item_id="novel-0001", position_seconds=self.NOVEL_SECONDS, exposure_count=2)})
+        keep = self._entertainment(context, transforms)
+        # 看完的内容重复观看从头开始，段落索引回到第 1 章
+        assert keep.candidate.summary == f"Read chapter 1 of novel-0001 (~{typical * 2 / 60:.0f} min)"
+        assert keep.candidate.duration_seconds == pytest.approx(typical * 2)
 
 
 class TestBrowseCandidate:
