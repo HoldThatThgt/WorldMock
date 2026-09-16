@@ -142,6 +142,9 @@ class AgentConfig(FrozenModel):
     routine_preference: str = Field(min_length=1)
     consumption_preference: str = Field(min_length=1)
     risk_preference: str = Field(min_length=1)
+    background_story: str | None = None
+    health_habits: str | None = None
+    social_style: str | None = None
     trait_source_kind: Literal["experiment_assumption"]
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
@@ -157,6 +160,8 @@ class AgentConfig(FrozenModel):
         traits = (self.occupation, self.routine_preference, self.consumption_preference, self.risk_preference)
         if any(not value.strip() for value in traits):
             raise ValueError("persona traits must not be blank")
+        if self.background_story is not None and len(self.background_story.strip()) < 100:
+            raise ValueError("background_story must contain at least 100 characters")
         return self
 
 

@@ -49,7 +49,15 @@
   "agents": [
     {
       "agent_id": 1,
-      "name": "Zhangjiang white-collar worker",
+      "name": "陈曦",
+      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
+      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
+      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
+      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
+      "background_story": "陈曦，32岁，某互联网公司产品经理，住在上海张江。性格外向开朗，做事有条理，注重工作与生活的平衡。每天早上7点起床，先喝一杯温水再出门，通勤时听播客。工作再忙也会按时吃午饭和晚饭，常去楼下便利店买牛奶和坚果当加餐，认为\"饿着肚子干活是低效的\"。午休时间喜欢看一集短剧或刷几分钟微博放松，下班后偶尔约同事吃饭。周末打 Switch 或看 Netflix，对电影口味偏科幻和悬疑。压力来临时会做深呼吸而不是硬扛，认为健康是长期资本，不会为了赶 deadline 连续加班到深夜。消费理性但有品质追求，愿意为好的体验付费。社交活跃，微信好友多，喜欢在知乎分享产品心得。",
+      "health_habits": "按时吃午饭和晚饭，饿了会加餐，认为饿着肚子干活低效；压力时做深呼吸，不为赶 deadline 连续加班到深夜，把健康当长期资本。",
+      "social_style": "外向开朗，社交活跃，微信好友多，下班后偶尔约同事吃饭，喜欢在知乎分享产品心得。",
+      "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "initial_balance_fen": 800000,
       "skill_levels": {
@@ -279,50 +287,45 @@
         "game-0079": 0.8,
         "game-0080": 0.5
       },
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "trait_source_kind": "experiment_assumption",
       "motivation": {
         "schema_version": 1,
         "big_five": {
-          "openness": 4,
-          "conscientiousness": 4,
-          "extraversion": 4,
+          "openness": 5,
+          "conscientiousness": 6,
+          "extraversion": 6,
           "agreeableness": 4,
-          "neuroticism": 4
+          "neuroticism": 3
         },
         "weights": {
-          "money_fen": 0.2,
-          "energy_kcal": 0.2,
-          "sleep_debt_hours": 0.2,
-          "entertainment_need": 0.2,
-          "goal_task": 0.2
+          "money_fen": 0.22,
+          "energy_kcal": 0.15,
+          "sleep_debt_hours": 0.14,
+          "entertainment_need": 0.24,
+          "goal_task": 0.25
         },
-        "tau": 2.0,
-        "beta_present_bias": 0.75,
+        "tau": 0.5,
+        "beta_present_bias": 0.65,
         "loss_aversion": {
-          "money_fen": 2.0,
-          "energy_kcal": 1.5
+          "money_fen": 1.75,
+          "energy_kcal": 1.25
         },
         "comfort": {
-          "balance_fen": 15000,
-          "energy_kcal": 1000
+          "balance_fen": 16000,
+          "energy_kcal": 900
         },
         "aspiration": {
-          "daily_effective_work_seconds": 18000
+          "daily_effective_work_seconds": 21000
         },
-        "emotion_sensitivity": 0.5,
+        "emotion_sensitivity": 0.4,
         "attention_prior": {
           "feature_film": 0.2,
-          "news_feed": 0.2,
-          "joke_feed": 0.2,
+          "news_feed": 0.19,
+          "joke_feed": 0.21,
           "webnovel_excerpt": 0.2,
           "drama_series": 0.2
         },
         "source": {
-          "persona_text_sha256": "250cecb3380152f31dfe50c7af0769c64e6d310380143d76ff79a751e4a28cac",
+          "persona_text_sha256": "1bad26b3057612820732d96b1b519efe84260e272b683e6388d3da6db7286d08",
           "model": "deepseek-chat",
           "prompt_version": "v1",
           "consensus": {
@@ -334,7 +337,15 @@
     },
     {
       "agent_id": 2,
-      "name": "Second Zhangjiang worker",
+      "name": "李凡",
+      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
+      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
+      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
+      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
+      "background_story": "李凡，28岁，后端开发工程师，住在上海张江合租房。性格内向偏焦虑，写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛。习惯点外卖解决三餐，最喜欢红烧牛肉面和冰红茶，觉得\"吃饭是刚需不是享受\"。压力大或 bug 解不掉时会刷知乎和段子解压，偶尔深夜打游戏（Steam 库里囤了一堆没时间玩的）。睡眠偏晚，经常凌晨一点才睡，但知道这样不好，正在努力改善。对新技术有好奇心，会关注 indie 游戏和动漫。消费偏节俭，比价后才买，但对游戏和电子设备舍得花钱。朋友不多但关系深，压力大时会找老友倾诉而不是憋着。",
+      "health_habits": "饿了就一定要吃东西，不会硬扛；三餐习惯点外卖；睡眠偏晚（经常凌晨一点），知道不健康正在改善；压力大时找老友倾诉。",
+      "social_style": "内向，朋友不多但关系深，压力大时会找老友倾诉而不是憋着，线上偏好知乎和段子社区。",
+      "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "initial_balance_fen": 800000,
       "skill_levels": {
@@ -564,55 +575,50 @@
         "game-0079": 0.55,
         "game-0080": 0.47
       },
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "trait_source_kind": "experiment_assumption",
       "motivation": {
         "schema_version": 1,
         "big_five": {
-          "openness": 4,
-          "conscientiousness": 4,
-          "extraversion": 4,
-          "agreeableness": 4,
-          "neuroticism": 4
+          "openness": 5,
+          "conscientiousness": 3,
+          "extraversion": 2,
+          "agreeableness": 5,
+          "neuroticism": 5
         },
         "weights": {
-          "money_fen": 0.2,
-          "energy_kcal": 0.2,
-          "sleep_debt_hours": 0.2,
-          "entertainment_need": 0.2,
-          "goal_task": 0.2
+          "money_fen": 0.18,
+          "energy_kcal": 0.24,
+          "sleep_debt_hours": 0.25,
+          "entertainment_need": 0.17,
+          "goal_task": 0.16
         },
         "tau": 2.0,
-        "beta_present_bias": 0.75,
+        "beta_present_bias": 0.8,
         "loss_aversion": {
-          "money_fen": 2.0,
-          "energy_kcal": 1.5
+          "money_fen": 2.25,
+          "energy_kcal": 1.75
         },
         "comfort": {
-          "balance_fen": 15000,
-          "energy_kcal": 1000
+          "balance_fen": 16000,
+          "energy_kcal": 1100
         },
         "aspiration": {
-          "daily_effective_work_seconds": 18000
+          "daily_effective_work_seconds": 16200
         },
-        "emotion_sensitivity": 0.5,
+        "emotion_sensitivity": 0.6,
         "attention_prior": {
-          "feature_film": 0.2,
-          "news_feed": 0.2,
-          "joke_feed": 0.2,
-          "webnovel_excerpt": 0.2,
-          "drama_series": 0.2
+          "feature_film": 0.21,
+          "news_feed": 0.21,
+          "joke_feed": 0.17,
+          "webnovel_excerpt": 0.22,
+          "drama_series": 0.19
         },
         "source": {
-          "persona_text_sha256": "5c742cdbf2abb620ba81b1da91b6ec255770d8ac89915d158036948d0b6d42c0",
+          "persona_text_sha256": "ceacf54ba6dee48667420b83067b3e53ee322c03d8bc81853d18d8e8c3950bc9",
           "model": "deepseek-chat",
           "prompt_version": "v1",
           "consensus": {
             "runs": 3,
-            "agreement": 1.0
+            "agreement": 0.9333
           }
         }
       }
