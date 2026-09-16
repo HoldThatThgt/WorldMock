@@ -73,6 +73,16 @@ completion 25504（reasoning 24790）、耗时 109.5 秒，收据 `.work/verific
 hypothesis 证据只须支持假设条件、可能结果用推测措辞、uncertainty 只保留一般性声明、数值界限仅用可见数值或近似表述。
 65536 评审上限具载荷性：该失败记录 R2/R3/R4 评审输出 41656/55640/35645，在旧上限 32768 下全部截断。
 
+## 第十次日加工与生成温度上调
+
+第十次完整日加工：action ✓、intent ✓、dreaming 2 条亡。`154b0ea7`（reflection）8 次生成调用输出
+逐字相同（out_tok 均 4596），L3 schema 修复在 temp=0 下同提示词复得同一超长 claim，修复 8 次等于
+修 1 次，终因 claim text 超 512 上限 schema_violation；`da9b5767`（counterfactual）四轮语义修复仍
+fail，"数值起点无证据"（800000 起始、969 kcal 起点）与 uncertainty 越界两类缺陷跨轮冻结。跨次失败集
+每次不同且失败记录都曾在别次通过：方差内可过。据此 `[llm.default]` temperature 0.0→0.3，把跨次方差
+引入轮内；`[llm.judge]` 保持 0.0（thinking 模式已有自然方差）。后手：若下次日加工仍冻结在证据
+卫生类缺陷，`[llm.default]` 模型升级至 Pro。
+
 ## 最近完成的冻结基线
 
 以下证据属于提交 `aafbcf9ce431f29a21a9bec2a19a549b6b474040`，运行源码摘要为
