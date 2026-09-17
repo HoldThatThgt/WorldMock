@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import hashlib
 import os
@@ -22,14 +23,18 @@ from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
 from worldmock.runtime import (
+    _agent_specs,
     _build_society,
     _execute,
     _intervention_sha256,
     _model_identity,
+    _no_persona_compilation,
     _require_run_shell,
     _restore_branch,
     runtime_code_sha256,
+    two_stage_model_identity,
 )
+from worldmock.validation import validate_two_stage_model_identity
 
 
 def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
@@ -41,6 +46,81 @@ def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
     assert identity["thinking"] == "enabled"
     assert identity["max_retries"] == 0
     assert "base_url_host" not in identity
+
+
+def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
+    """顶层 thinking/tool_choice 与 B2 导出的行动阶段常量同源。"""
+    from custom.agents.life_agent import ACTION_THINKING, ACTION_TOOL_CHOICE
+
+    identity = _model_identity()
+
+    assert identity.thinking == ACTION_THINKING["thinking"]["type"]
+    assert identity.tool_choice == ACTION_TOOL_CHOICE
+
+
+def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
+    """两阶段身份：独白/行动/工作验收参数与 LifeAgent 常量单一事实源一致。"""
+    from custom.agents.life_agent import (
+        ACTION_THINKING,
+        ACTION_TOOL_CHOICE,
+        MONOLOGUE_MAX_TOKENS,
+        MONOLOGUE_TEMPERATURE,
+    )
+
+    identity = two_stage_model_identity()
+    stages = identity["stages"]
+
+    assert stages["monologue"] == {"thinking": "disabled", "temperature": MONOLOGUE_TEMPERATURE,
+                                   "max_tokens": MONOLOGUE_MAX_TOKENS, "tools": None,
+                                   "tool_choice": None}
+    assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
+                                "tool_choice": ACTION_TOOL_CHOICE}
+    assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
+    assert identity["base_url"].endswith("/beta")
+    assert identity["max_retries"] == 0 and identity["strict"] is True
+    assert identity["reasoning_effort"] is None
+
+
+def test_two_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
+    """两阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
+    identity = two_stage_model_identity()
+
+    assert two_stage_model_identity() == identity
+    validate_two_stage_model_identity(identity)
+
+    tampered = copy.deepcopy(identity)
+    tampered["stages"]["monologue"]["temperature"] = 0.7
+    with pytest.raises(IntegrityError, match="monologue"):
+        validate_two_stage_model_identity(tampered)
+
+    no_beta = copy.deepcopy(identity)
+    no_beta["base_url"] = "https://api.deepseek.com"
+    with pytest.raises(IntegrityError, match="beta"):
+        validate_two_stage_model_identity(no_beta)
+
+    reasoning = copy.deepcopy(identity)
+    reasoning["reasoning_effort"] = "high"
+    with pytest.raises(IntegrityError, match="reasoning_effort"):
+        validate_two_stage_model_identity(reasoning)
+
+
+def test_agent_specs_inject_compiled_persona_card_text() -> None:
+    """新建运行注入 PersonaCard 渲染文本；恢复模式不重新编译。"""
+    from worldmock.life.scenario import load_scenario
+
+    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    compiled: list[int] = []
+
+    def fake_compiler(agent):
+        compiled.append(agent.agent_id)
+        return "卡片文本" if agent.background_story else None
+
+    specs = _agent_specs(scenario, persona_compiler=fake_compiler)
+
+    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert compiled == [1]
+    restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
+    assert "persona_card" not in restored[0]["profile"]
 
 
 def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> None:

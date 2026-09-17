@@ -38,11 +38,53 @@ _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", 
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
 _AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
+_OBSERVED_AT = datetime(2026, 1, 5, tzinfo=timezone.utc)
+_NOW_EPOCH = int(_OBSERVED_AT.timestamp())
+
+#: 两层观察投影的 facts 段与 scene 段（新提示合同的最小观察输入）。
+_FACTS = {
+    "current_time": "2026-01-05T00:00:00+00:00",
+    "location_id": "home",
+    "people_here": [],
+    "inbox": [],
+    "tasks": [
+        {"task_id": "task", "title": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
+         "remaining_contract_seconds": 3600, "new_material_ranges": []},
+    ],
+    "routes": [{"destination": "office", "mode": "driving", "minutes": 4,
+                "fare": 800, "feasible": True}],
+    "products": [],
+    "inventory": {},
+    "day_plan": None,
+    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
+    "drive_summary": "你有点困。",
+    "recent_action_results": [],
+}
+
+_SCENE = {
+    "current_time": "2026-01-05T00:00:00+00:00",
+    "location": "自己家",
+    "people_here": [],
+    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
+    "current_activity": {},
+    "paused_activities": [],
+    "day_plan": None,
+    "inbox_head": [],
+    "todos_summary": "",
+    "reachable_places": [],
+    "inventory": [],
+    "recent_action_results": [],
+}
+
 
 def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
     """按生产顺序用真实五类目录准备一次人物决策。"""
     data = {
         "observation_event_id": "observation-current",
+        "current_time": _NOW_EPOCH,
+        "wake_reasons": [],
+        "scene": dict(_SCENE),
+        "facts": dict(_FACTS),
         "recent_action_results": [],
         "active_activity": None,
         "paused_activities": [],
@@ -74,7 +116,7 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
     _set_activity_boundary(data, tool_name)
     observations = [{"turn": 0, "action": "observe", "ok": True, "data": data}]
     agent = LifeAgent()
-    request = ReactLoopRequest(0, datetime(2026, 1, 5, tzinfo=timezone.utc), observations)
+    request = ReactLoopRequest(0, _OBSERVED_AT, observations)
     agent.prepare_react_loop(request)
     return agent
 
@@ -93,6 +135,7 @@ def _set_activity_boundary(data: dict, tool_name: str | None) -> None:
     kinds = {"set_activity_state": "wait", "continue_activity": "wait",
              "change_playback_speed": "watch", "game_action": "play_game"}
     if tool_name not in kinds:
+        _set_new_tool_visibility(data, tool_name)
         return
     activity = {"activity_id": "activity", "status": "active", "kind": kinds[tool_name], "data": {}}
     if tool_name == "game_action":
@@ -102,6 +145,20 @@ def _set_activity_boundary(data: dict, tool_name: str | None) -> None:
             "won": False, "lost": False,
         }}
     data["active_activity"] = activity
+
+
+def _set_new_tool_visibility(data: dict, tool_name: str | None) -> None:
+    """为修订合同四件新工具提供与生产观察一致的可见身份。"""
+    if tool_name == "plan_day":
+        data["wake_reasons"] = ["run_start"]
+    elif tool_name == "revise_day_plan":
+        data["facts"] = {**data["facts"], "day_plan": {"segments": [
+            {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
+             "intent_kind": "工作", "note": ""}]}}
+    elif tool_name in ("send_message", "start_social_activity"):
+        data["facts"] = {**data["facts"], "inbox": [
+            {"id": "m-1", "kind": "direct", "sender_id": "agent:9",
+             "head": "在吗", "read": False, "created_at": _NOW_EPOCH - 60}]}
 
 
 def _assert_closed_objects(value: Any) -> None:
@@ -144,7 +201,7 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
     functions = {item["function"]["name"]: item["function"] for item in schemas}
-    assert len(functions) == 18  # 11 生活动作（含 browse_activities）+ 6 记忆 + finish
+    assert len(functions) == 22  # 15 生活动作（含 browse_activities）+ 6 记忆 + finish
     for function in functions.values():
         assert function["strict"] is True
         Draft202012Validator.check_schema(function["parameters"])
@@ -187,8 +244,7 @@ def test_duration_bounds_are_preserved_in_schema_and_runtime_validation() -> Non
 
     consume = REQUEST_MODELS["consume"]
     invalid_consume = {
-        "product_id": "product",
-        "quantity": 1,
+        "items": [{"product_id": "product", "quantity": 1}],
         "use_mode": "eat",
         "duration_seconds": 59,
     }
@@ -217,6 +273,32 @@ def test_nested_life_schemas_are_inlined_from_runtime_models() -> None:
     assert deliverable == MeetingMinutes.model_json_schema(mode="validation")
     assert finish["properties"]["text"]["pattern"] == r"\S"
     assert set(finish["required"]) == set(finish["properties"])
+
+
+def test_tuple_request_models_inline_subschemas_without_adapter() -> None:
+    """四件含元组字段的请求模型在模型层内联子 Schema（strict 合同，L1307-1309）。
+
+    purchase.items/consume.items/plan_day.segments/revise_day_plan.segments
+    的子模型约束以 WithJsonSchema 注解进 life.models 字段定义，生成的
+    strict Schema 不含嵌套引用键，agent 侧适配层已删除。
+    """
+    import custom.agents.life_agent as life_agent_module
+    from worldmock.life.models import ConsumeItem, PlanSegmentInput, PurchaseItem
+
+    subs = {"purchase": PurchaseItem, "consume": ConsumeItem,
+            "plan_day": PlanSegmentInput, "revise_day_plan": PlanSegmentInput}
+    fields = {"purchase": "items", "consume": "items",
+              "plan_day": "segments", "revise_day_plan": "segments"}
+    for name, field in fields.items():
+        schema = deepseek_strict_schema(REQUEST_MODELS[name])
+        encoded = json.dumps(schema)
+        assert "$ref" not in encoded and "$defs" not in encoded, name
+        node = schema["properties"][field]
+        assert node["type"] == "array", name
+        assert node["items"] == subs[name].model_json_schema(mode="validation"), name
+        assert set(node["items"]["required"]) == set(node["items"]["properties"]), name
+    # 反例：agent 侧的 _request_tool_model 适配层不再存在（单一事实源）。
+    assert not hasattr(life_agent_module, "_request_tool_model")
 
 
 @pytest.mark.parametrize(
@@ -298,7 +380,6 @@ def test_submit_work_schema_rejects_blank_minutes(deliverable: dict, accepted: b
         (MemoryReadRequest, "memory_read", {"ids": []}),
         (MemoryReadRequest, "memory_read", {"ids": [f"memory-{index}" for index in range(21)]}),
         (MemorySearchRequest, "memory_search", {"query": "q" * 201, "limit": 1}),
-        (FinishRequest, "finish", {"memories": []}),
         (GameActionRequest, "game_action", {"game_session_id": "game", "command": "x" * 201}),
     ],
 )
@@ -312,6 +393,46 @@ def test_provider_array_or_text_limit_gap_remains_a_local_hard_rejection(
     assert list(Draft202012Validator(schema).iter_errors(payload)) == []
     with pytest.raises(ValidationError):
         model.model_validate_json(json.dumps(payload), strict=True)
+
+
+def test_finish_accepts_empty_memories_list_in_schema_and_runtime() -> None:
+    """记忆合同：finish 空记忆列表合法（无新事件时允许零条）。"""
+    from agentsociety2.agent.base import ReactDecision
+
+    schema = _function("finish")["parameters"]
+    assert list(Draft202012Validator(schema).iter_errors({"memories": []})) == []
+    FinishRequest.model_validate_json('{"memories": []}', strict=True)
+
+    agent = _prepared_agent()
+    agent._life_action_count = 1
+    agent.build_react_tool_schemas(readonly=False)
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "finish", {"memories": []}, "")], False) == ""
+
+
+def test_memory_text_rejects_hexadecimal_identities() -> None:
+    """记忆 text 使用人物语言：事件标识/请求哈希/十六进制身份本地拒绝。"""
+    episode = {
+        "type": "event",
+        "importance": 0.5,
+        "keywords": ["meeting"],
+        "text": "We met at the usual place and talked about the weekend plans.",
+        "source": "decision_observation",
+        "refs": ["observation-current"],
+    }
+    FinishRequest.model_validate_json(
+        json.dumps({"memories": [episode]}), strict=True)
+
+    for poisoned in (
+        "事件 d41d8cd98f00b204e9800998ecf8427e 已经发生",
+        "request 88f3ab17 hash",
+    ):
+        invalid = {**episode, "text": poisoned}
+        assert list(Draft202012Validator(
+            _function("finish")["parameters"]).iter_errors({"memories": [invalid]})) == []
+        with pytest.raises(ValidationError):
+            FinishRequest.model_validate_json(
+                json.dumps({"memories": [invalid]}), strict=True)
 
 
 def test_finish_nested_schema_and_runtime_reject_the_same_expressible_error() -> None:

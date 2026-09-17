@@ -12,8 +12,12 @@ from agentsociety2.society import SocietyCheckpointRequest
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention, RunIdentity
+from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
 from worldmock.status import write_status
+
+#: 修订合同（L1606/L1624-1626）要求环境侧可受理的四件新生活工具。
+_REVISION_CONTRACT_TOOLS = frozenset({
+    "plan_day", "revise_day_plan", "send_message", "start_social_activity"})
 
 
 class LifeEnv(EnvBase):
@@ -53,7 +57,26 @@ class LifeEnv(EnvBase):
             self.engine.close()
             self.engine = None
             raise ProtocolError("LifeEnv start time disagrees with the scenario")
+        self._validate_registered_tool_surface()
         self._workspace_root = self.run_dir
+
+    def _validate_registered_tool_surface(self) -> None:
+        """@brief 核对环境与人物两侧登记的完整新工具 Schema 闭集。
+
+        LifeEnv 的工具登记 = 领域 REQUEST_MODELS（引擎 _dispatch 的唯一
+        受理闭集）。四件修订合同工具缺失说明领域模型未迁移完成；人物侧
+        开放集合与登记闭集不一致说明 agent/env 工具面漂移——两者都在
+        init 时 fail-closed，而不是运行中 KeyError。
+        """
+        from custom.agents.life_agent import life_action_tool_names
+
+        missing = _REVISION_CONTRACT_TOOLS - set(REQUEST_MODELS)
+        if missing:
+            raise ProtocolError(
+                f"LifeEnv registered tool surface is missing revision tools: {sorted(missing)}")
+        if life_action_tool_names() != frozenset(REQUEST_MODELS):
+            raise ProtocolError(
+                "LifeEnv tool surface disagrees with the LifeAgent action tool set")
 
     async def begin_decision_round(self, contexts: tuple[Any, ...]) -> str:
         """@brief 登记共同版本和实际结算顺序。"""

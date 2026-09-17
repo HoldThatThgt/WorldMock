@@ -41,11 +41,49 @@ _TARGET_CATALOG_FIELDS_FOR_TEST = ("work", "watch", "play_game", "read_mail", "b
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
 _AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
+_OBSERVED_AT = datetime(2026, 1, 5, 0, 3, 45, tzinfo=timezone.utc)
+_NOW_EPOCH = int(_OBSERVED_AT.timestamp())
+
+#: 两层观察投影的 facts 段（新工具身份来源：day_plan / inbox / people_here）。
+_FACTS = {
+    "current_time": "2026-01-05T00:03:45+00:00",
+    "location_id": "home",
+    "people_here": [],
+    "inbox": [],
+    "tasks": [
+        {"task_id": "task-a", "title": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
+         "remaining_contract_seconds": 3600, "new_material_ranges": []},
+    ],
+    "routes": [{"destination": "office", "mode": "driving", "minutes": 4,
+                "fare": 800, "feasible": True}],
+    "products": [],
+    "inventory": {},
+    "day_plan": None,
+    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
+    "drive_summary": "你有点困。",
+    "recent_action_results": [],
+}
+
+_SCENE = {
+    "current_time": "2026-01-05T00:03:45+00:00",
+    "location": "自己家",
+    "people_here": [],
+    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
+    "current_activity": {},
+    "paused_activities": [],
+    "day_plan": None,
+    "inbox_head": [],
+    "todos_summary": "",
+    "reachable_places": [],
+    "inventory": [],
+    "recent_action_results": [],
+}
+
 
 def _context() -> DecisionContext:
     """构造一个带时区的真实宿主决策上下文。"""
     return DecisionContext(
-        "run", "round", "decision", 2, datetime(2026, 1, 5, 0, 3, 45, tzinfo=timezone.utc), 50
+        "run", "round", "decision", 2, _OBSERVED_AT, 50
     )
 
 
@@ -101,6 +139,10 @@ def _observations(
     """把目录包装为 PersonAgent 实际传给 ReAct 的首观察。"""
     data = {
         "observation_event_id": "observation-current",
+        "current_time": _NOW_EPOCH,
+        "wake_reasons": [],
+        "scene": dict(_SCENE),
+        "facts": dict(_FACTS),
         "recent_action_results": (
             [_browse_entry()] if browse_results is None else browse_results),
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -288,9 +330,10 @@ def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear
     agent = _prepare(_catalogs())
     functions = _functions(agent)
     invalid = [
-        ("purchase", {"product_id": "product-visible", "quantity": 1, "fulfillment": "delivery",
-                      "destination_id": "home", "price_version": "wrong"}),
-        ("consume", {"product_id": "product-visible", "quantity": 1,
+        ("purchase", {"items": [{"product_id": "product-visible", "quantity": 1,
+                                 "price_version": "wrong"}],
+                      "fulfillment": "delivery", "destination_id": "home"}),
+        ("consume", {"items": [{"product_id": "product-visible", "quantity": 1}],
                      "use_mode": "use", "duration_seconds": 300}),
         ("start_travel", {"destination_id": "office", "travel_mode": "driving",
                           "planned_duration_seconds": 217}),
@@ -353,8 +396,9 @@ async def test_invalid_visible_pair_cannot_bypass_validation_through_dispatch() 
     agent._env = environment
     agent._decision_context = _context()
     payload = {
-        "product_id": "product-visible", "quantity": 1, "fulfillment": "delivery",
-        "destination_id": "home", "price_version": "wrong",
+        "items": [{"product_id": "product-visible", "quantity": 1,
+                   "price_version": "wrong"}],
+        "fulfillment": "delivery", "destination_id": "home",
     }
 
     with pytest.raises(RuntimeError, match="not a visible pair"):
@@ -682,3 +726,212 @@ def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
     assert operations == ["resume", "cancel"]
     assert "exceeds current energy" in agent.validate_react_decisions([invalid], False)
     assert agent.validate_react_decisions([valid], False) == ""
+
+
+def test_plan_day_offered_only_at_day_start_with_closed_intent_enum() -> None:
+    """plan_day 只在当天首次醒来且无计划时开放，意图枚举与 INTENT_KINDS 一致。"""
+    from worldmock.life.schedule import INTENT_KINDS
+
+    ordinary = _functions(_prepare(_catalogs()))
+    assert "plan_day" not in ordinary
+
+    day_start = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]}))
+    assert "plan_day" in day_start
+    properties = day_start["plan_day"]["parameters"]["properties"]
+    assert properties["segments"]["items"]["properties"]["intent_kind"]["enum"] == list(
+        INTENT_KINDS)
+
+    woke = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["wake_from_sleep"]}))
+    assert "plan_day" in woke
+
+    planned = _prepare(_catalogs(), overrides={
+        "wake_reasons": ["run_start"],
+        "facts": {**_FACTS, "day_plan": {
+            "segments": [{"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
+                          "intent_kind": "工作", "note": ""}]}}})
+    assert "plan_day" not in _functions(planned)
+    assert "revise_day_plan" in _functions(planned)
+
+
+def test_plan_day_validates_segment_count_intent_and_start_boundary() -> None:
+    """plan_day 本地拒绝越界段数、闭集外意图与已经开始的段。"""
+    agent = _prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]})
+    legal = {"segments": [
+        {"start": _NOW_EPOCH + 600, "end": _NOW_EPOCH + 3600,
+         "intent_kind": "晨间例程", "note": ""},
+        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
+         "intent_kind": "通勤", "note": ""},
+        {"start": _NOW_EPOCH + 7200, "end": _NOW_EPOCH + 10800,
+         "intent_kind": "工作", "note": ""},
+        {"start": _NOW_EPOCH + 10800, "end": _NOW_EPOCH + 14400,
+         "intent_kind": "用餐", "note": ""},
+        {"start": _NOW_EPOCH + 14400, "end": _NOW_EPOCH + 18000,
+         "intent_kind": "睡眠", "note": ""},
+    ]}
+    too_few = {"segments": legal["segments"][:3]}
+    past = {"segments": [
+        {**segment, "start": _NOW_EPOCH - 60} for segment in legal["segments"]]}
+    bad_intent = {"segments": [
+        {**segment, "intent_kind": "摸鱼"} for segment in legal["segments"]]}
+
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "plan_day", legal, "")], False) == ""
+    assert "requires 5 to 8 segments" in agent.validate_react_decisions(
+        [ReactDecision("", "plan_day", too_few, "")], False)
+    assert "starts earlier" in agent.validate_react_decisions(
+        [ReactDecision("", "plan_day", past, "")], False)
+    assert "closed intent set" in agent.validate_react_decisions(
+        [ReactDecision("", "plan_day", bad_intent, "")], False)
+
+
+def test_revise_day_plan_only_rewrites_future_segments() -> None:
+    """revise_day_plan 只改尚未开始的段，已经开始的段本地拒绝。"""
+    plan = {"day_plan": {"segments": [
+        {"start": _NOW_EPOCH - 3600, "end": _NOW_EPOCH + 60,
+         "intent_kind": "睡眠", "note": ""},
+        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
+         "intent_kind": "工作", "note": ""},
+    ]}}
+    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, **plan}})
+    future = {"segments": [
+        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 5400,
+         "intent_kind": "工作", "note": "下午先写纪要"},
+    ]}
+    started = {"segments": [
+        {"start": _NOW_EPOCH - 3600, "end": _NOW_EPOCH + 60,
+         "intent_kind": "睡眠", "note": ""},
+    ]}
+
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "revise_day_plan", future, "")], False) == ""
+    assert "starts earlier" in agent.validate_react_decisions(
+        [ReactDecision("", "revise_day_plan", started, "")], False)
+
+
+def test_send_message_binds_visible_inbox_senders_and_local_text_limit() -> None:
+    """send_message 收件人闭集来自本轮 inbox 投影，超长文本本地拒绝。"""
+    empty = _functions(_prepare(_catalogs()))
+    assert "send_message" not in empty
+
+    inbox = [{"id": "m-1", "kind": "direct", "sender_id": "agent:9",
+              "head": "在吗", "read": False, "created_at": _NOW_EPOCH - 60},
+             {"id": "m-2", "kind": "chat_invite", "sender_id": "agent:11",
+              "head": "邀请你交谈", "read": True, "created_at": _NOW_EPOCH - 30}]
+    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "inbox": inbox}})
+    functions = _functions(agent)
+    properties = functions["send_message"]["parameters"]["properties"]
+
+    assert properties["recipient_id"]["enum"] == ["agent:11", "agent:9"]
+    assert agent.validate_react_decisions([ReactDecision("", "send_message", {
+        "recipient_id": "agent:9", "text": "晚上一起吃饭吗"}, "")], False) == ""
+    assert "not visible" in agent.validate_react_decisions([ReactDecision(
+        "", "send_message", {"recipient_id": "agent:42", "text": "在吗"}, "")], False)
+    assert "exceeds 300" in agent.validate_react_decisions([ReactDecision(
+        "", "send_message", {"recipient_id": "agent:9", "text": "饭" * 301}, "")], False)
+    assert "start_social_activity" in functions
+
+
+def test_start_social_activity_binds_partner_closed_set() -> None:
+    """start_social_activity 的伙伴身份只来自本轮可见身份，空集时撤下工具。"""
+    inbox = [{"id": "m-1", "kind": "direct", "sender_id": "agent:9",
+              "head": "在吗", "read": False, "created_at": _NOW_EPOCH - 60}]
+    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "inbox": inbox}})
+    properties = _functions(agent)["start_social_activity"]["parameters"]["properties"]
+
+    assert properties["kind"]["enum"] == ["chat"]
+    assert properties["partner_id"]["enum"] == ["agent:9"]
+    assert agent.validate_react_decisions([ReactDecision("", "start_social_activity", {
+        "kind": "chat", "partner_id": "agent:9", "duration_minutes": 15}, "")], False) == ""
+    assert "not visible" in agent.validate_react_decisions([ReactDecision(
+        "", "start_social_activity", {
+            "kind": "chat", "partner_id": "agent:42", "duration_minutes": 15}, "")], False)
+
+
+def test_purchase_binds_multi_item_enums_and_validates_order_bounds() -> None:
+    """purchase 多件绑定商品/报价/目的地枚举并本地核对件数、库存与同商家。"""
+    agent = _prepare(_catalogs())
+    properties = _functions(agent)["purchase"]["parameters"]["properties"]
+    item_properties = properties["items"]["items"]["properties"]
+
+    assert item_properties["product_id"]["enum"] == ["product-visible"]
+    assert item_properties["price_version"]["enum"] == ["price-v1"]
+    assert properties["destination_id"]["enum"] == ["home", "office"]
+    legal = {"items": [{"product_id": "product-visible", "quantity": 2,
+                        "price_version": "price-v1"}],
+             "fulfillment": "delivery", "destination_id": "home"}
+    over_stock = {"items": [{"product_id": "product-visible", "quantity": 3,
+                             "price_version": "price-v1"}],
+                  "fulfillment": "delivery", "destination_id": "home"}
+    six_items = {"items": [
+        {"product_id": "product-visible", "quantity": 1, "price_version": "price-v1"}
+        for _ in range(6)],
+        "fulfillment": "delivery", "destination_id": "home"}
+
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "purchase", legal, "")], False) == ""
+    assert "visible current stock" in agent.validate_react_decisions(
+        [ReactDecision("", "purchase", over_stock, "")], False)
+    assert "one to five items" in agent.validate_react_decisions(
+        [ReactDecision("", "purchase", six_items, "")], False)
+
+
+def test_purchase_rejects_mixed_merchants_before_dispatch() -> None:
+    """跨商家订单在提交环境前被本地拒绝（整单同一商家合同）。"""
+    products = [
+        {"product_id": "product-home", "price_version": "price-v1", "current_stock": 2,
+         "use_modes": ["eat"], "use_duration_seconds": 300,
+         "merchant_location_id": "home", "required_location_id": None},
+        {"product_id": "product-office", "price_version": "price-v2", "current_stock": 2,
+         "use_modes": ["eat"], "use_duration_seconds": 300,
+         "merchant_location_id": "office", "required_location_id": None},
+    ]
+    agent = _prepare(_catalogs(), overrides={"products": products,
+                                             "available_inventory": {}})
+    mixed = {"items": [
+        {"product_id": "product-home", "quantity": 1, "price_version": "price-v1"},
+        {"product_id": "product-office", "quantity": 1, "price_version": "price-v2"}],
+        "fulfillment": "delivery", "destination_id": "home"}
+
+    assert "one merchant" in agent.validate_react_decisions(
+        [ReactDecision("", "purchase", mixed, "")], False)
+
+
+def test_consume_multi_item_meal_duration_and_held_quantity() -> None:
+    """多件进食时长取最长者，件数与持有量本地拒绝越界。"""
+    products = [
+        {"product_id": "food-rice", "price_version": "price-v1", "current_stock": 2,
+         "use_modes": ["eat"], "use_duration_seconds": 1200,
+         "merchant_location_id": "home", "required_location_id": None},
+        {"product_id": "food-tea", "price_version": "price-v2", "current_stock": 2,
+         "use_modes": ["eat"], "use_duration_seconds": 300,
+         "merchant_location_id": "home", "required_location_id": None},
+    ]
+    agent = _prepare(_catalogs(), overrides={
+        "products": products,
+        "available_inventory": {"food-rice": 2.0, "food-tea": 1.0}})
+    properties = _functions(agent)["consume"]["parameters"]["properties"]
+
+    assert properties["items"]["items"]["properties"]["product_id"]["enum"] == [
+        "food-rice", "food-tea"]
+    assert properties["duration_seconds"]["enum"] == [300, 1200]
+    legal = {"items": [{"product_id": "food-rice", "quantity": 1},
+                       {"product_id": "food-tea", "quantity": 1}],
+             "use_mode": "eat", "duration_seconds": 1200}
+    wrong_duration = {**legal, "duration_seconds": 300}
+    over_held = {"items": [{"product_id": "food-tea", "quantity": 2}],
+                 "use_mode": "eat", "duration_seconds": 300}
+    four_items = {"items": [
+        {"product_id": "food-rice", "quantity": 1},
+        {"product_id": "food-tea", "quantity": 1},
+        {"product_id": "food-rice", "quantity": 1},
+        {"product_id": "food-tea", "quantity": 1}],
+        "use_mode": "eat", "duration_seconds": 1200}
+
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "consume", legal, "")], False) == ""
+    assert "does not match" in agent.validate_react_decisions(
+        [ReactDecision("", "consume", wrong_duration, "")], False)
+    assert "current local inventory" in agent.validate_react_decisions(
+        [ReactDecision("", "consume", over_held, "")], False)
+    assert "one to three items" in agent.validate_react_decisions(
+        [ReactDecision("", "consume", four_items, "")], False)

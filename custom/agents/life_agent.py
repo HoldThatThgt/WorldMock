@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal, Mapping
@@ -12,9 +13,45 @@ from typing import Annotated, Any, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
 from agentsociety2.agent import PersonAgent
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest, ReactToolResult
+from agentsociety2.agent.base import (
+    ModelCallEvidence,
+    ReactDecision,
+    ReactLoopRequest,
+    ReactToolResult,
+)
 from agentsociety2.society import DirectToolCall
 from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.narration import (
+    MonologueValidationError,
+    compose_user_message,
+    enforce_budgets,
+    render_facts,
+    render_scene,
+    validate_monologue,
+)
+from worldmock.life.schedule import INTENT_KINDS
+
+
+#: 独白阶段采样参数（DeepSeek 一般对话推荐温度 1.3，两阶段决策合同）。
+MONOLOGUE_TEMPERATURE = 1.3
+#: 独白阶段输出上限（两阶段决策合同：一到三句、≤200 汉字）。
+MONOLOGUE_MAX_TOKENS = 400
+#: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
+ACTION_THINKING = {"thinking": {"type": "enabled"}}
+ACTION_TOOL_CHOICE = "auto"
+
+#: 一笔订单的件数闭区间（修订合同 L1672：1-5 件，服务端不表达 minItems）。
+_ORDER_ITEM_BOUNDS = (1, 5)
+#: 一次进食的件数闭区间（修订合同 L1673：1-3 件）。
+_MEAL_ITEM_BOUNDS = (1, 3)
+#: 瞬时消息文本上限（修订合同 L1624：不超过 300 汉字，域内同口径）。
+_MESSAGE_TEXT_MAX_CHARS = 300
+#: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
+_HEX_IDENTITY_MIN_CHARS = 8
+#: plan_day 只在当天首次醒来决策开放（修订合同 L1606）。
+_DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
+
+_HEX_IDENTITY_PATTERN = re.compile(r"[0-9a-fA-F]{%d,}" % _HEX_IDENTITY_MIN_CHARS)
 
 
 class _ToolRequest(BaseModel):
@@ -67,7 +104,7 @@ class MemoryTickRangeRequest(_ToolRequest):
 
     @model_validator(mode="after")
     def validate_interval(self) -> "MemoryTickRangeRequest":
-        """@brief 拒绝反向人物决策持续秒数闭区间。"""
+        """@brief 拒绝反向决策持续秒数闭区间。"""
         if self.start_tick > self.end_tick:
             raise ValueError("memory tick range is reversed")
         return self
@@ -116,6 +153,7 @@ class LifeMemoryEpisode(_ToolRequest):
         "identity",
         "observation",
         "routine",
+        "event",
     ]
     importance: float = Field(ge=0, le=1)
     keywords: list[Annotated[str, Field(pattern=r"\S")]]
@@ -125,18 +163,25 @@ class LifeMemoryEpisode(_ToolRequest):
 
     @model_validator(mode="after")
     def validate_local_limits(self) -> "LifeMemoryEpisode":
-        """@brief 保留服务端不支持表达的记忆文本和数组数量约束。"""
+        """@brief 保留服务端不支持表达的文本、身份与数组数量约束。"""
         if len(self.keywords) > 12:
             raise ValueError("memory episode has more than twelve keywords")
         if len(self.text) > 1000:
             raise ValueError("memory episode text exceeds 1000 characters")
+        if _HEX_IDENTITY_PATTERN.search(self.text):
+            raise ValueError("memory episode text contains a hexadecimal identifier")
         if not 1 <= len(self.refs) <= 8:
             raise ValueError("memory episode requires one to eight refs")
         return self
 
 
 class FinishRequest(_ToolRequest):
-    """@brief 在一个生活动作后结束当前人物决策并保存记忆。"""
+    """@brief 在一个生活动作后结束当前人物决策并保存记忆。
+
+    记忆合同（修订合同 L1580-1583）：memories 为 0-8 条，没有值得记录的
+    新事件时允许空列表；每条 text 使用人物语言，不得含事件标识或十六进制
+    身份（LifeMemoryEpisode 本地校验拒绝）。
+    """
 
     memories: Annotated[
         list[LifeMemoryEpisode],
@@ -148,9 +193,9 @@ class FinishRequest(_ToolRequest):
 
     @model_validator(mode="after")
     def validate_memory_count(self) -> "FinishRequest":
-        """@brief 保留服务端不支持表达的记忆条目数量约束。"""
-        if not 1 <= len(self.memories) <= 8:
-            raise ValueError("finish requires one to eight memories")
+        """@brief 保留服务端不支持表达的记忆条目数量约束（允许空列表）。"""
+        if not 0 <= len(self.memories) <= 8:
+            raise ValueError("finish requires zero to eight memories")
         return self
 
 
@@ -202,21 +247,73 @@ _MEMORY_RUNTIME_ACTIONS = {
     "memory_read": "memory_read",
 }
 
+#: 需要内联嵌套子模型 Schema 的四个工具字段已在 life.models 的字段定义
+#: 以 WithJsonSchema 内联（strict 合同禁嵌套引用键，规格 L1307-1309）；
+#: 本侧直接使用 REQUEST_MODELS 的原始模型，无第二套适配层。
+
+
+def life_action_tool_names() -> frozenset[str]:
+    """@brief 返回 LifeAgent 实际开放的全部生活动作工具名（env 侧核对用）。"""
+    return frozenset(_TOOL_MODELS) - frozenset(_MEMORY_TOOL_MODELS) - {"finish"}
+
+
+#: 阶段规则前缀：一次决策恰好一个生活动作，且必须是响应中唯一调用。
+_ACTION_PROTOCOL = (
+    "During one decision submit exactly one life action, and it must be the only "
+    "tool call in its model response.")
+
 #: 与可供性家族无关的工具文案（静态）；家族相关的三个工具描述
 #: （start_basic_activity / start_targeted_activity / browse_activities）的
-#: kind 清单自观察合同拼装，见 _life_tool_descriptions。
+#: kind 清单自观察合同拼装，见 _life_tool_descriptions。工具协议、引用规则
+#: 与阶段规则按提示合同（L1542）移入各工具 description。
 _TOOL_DESCRIPTIONS = {
     "start_travel": (
-        "Start travel to an observed destination using an observed mode and duration. At a "
-        "feedback boundary this switches directly: the current activity pauses automatically "
-        "with its progress preserved."),
-    "set_activity_state": "Pause, resume, or cancel an activity exposed by the current observation.",
-    "change_playback_speed": "Change playback speed for the owned active watching activity.",
-    "continue_activity": "Continue the current activity when its visible feedback boundary is due.",
-    "purchase": "Purchase a visible catalog product with an explicit fulfillment method.",
-    "consume": "Consume or use a product already present in personal inventory.",
-    "submit_work": "Submit one actual work deliverable for an available task.",
-    "game_action": "Send one admissible command to an active TextWorld game session.",
+        _ACTION_PROTOCOL
+        + " Start travel to an observed destination using an observed mode and duration. "
+        "At a feedback boundary this switches directly: the current activity pauses "
+        "automatically with its progress preserved."),
+    "set_activity_state": (
+        _ACTION_PROTOCOL
+        + " Pause, resume, or cancel an activity exposed by the current observation."),
+    "change_playback_speed": (
+        _ACTION_PROTOCOL
+        + " Change playback speed for the owned active watching activity."),
+    "continue_activity": (
+        _ACTION_PROTOCOL
+        + " Continue the current activity when its visible feedback boundary is due."),
+    "purchase": (
+        _ACTION_PROTOCOL
+        + " Buy one to five visible products from one merchant in a single paid order "
+        "with one shared fulfillment; every product_id must pair with its visible "
+        "price_version and each quantity must not exceed the visible current stock."),
+    "consume": (
+        _ACTION_PROTOCOL
+        + " Eat one to three held foods in one sitting (the duration equals the longest "
+        "item duration) or use exactly one held product with its catalog duration."),
+    "submit_work": (
+        _ACTION_PROTOCOL
+        + " Submit one actual work deliverable for an available task."),
+    "game_action": (
+        _ACTION_PROTOCOL
+        + " Send one admissible command to an active TextWorld game session."),
+    "plan_day": (
+        _ACTION_PROTOCOL
+        + " At the first decision after waking, submit today's skeleton of five to "
+        "eight non-overlapping segments covering up to bedtime; every intent_kind "
+        "must come from the closed enum in this schema and no segment may start "
+        "earlier than the current time."),
+    "revise_day_plan": (
+        _ACTION_PROTOCOL
+        + " Rewrite only the not-yet-started segments of today's submitted plan; a "
+        "segment that already started cannot be rewritten."),
+    "send_message": (
+        _ACTION_PROTOCOL
+        + " Send one short message (at most 300 characters) to a recipient identity "
+        "visible in this decision's inbox projection; never invent a recipient."),
+    "start_social_activity": (
+        _ACTION_PROTOCOL
+        + " Start a chat with a visible conversation partner as a foreground social "
+        "activity; the partner identity must come from this decision's observation."),
     "memory_recent": "Read the person's most recent durable memory episodes.",
     "memory_search": "Search the person's durable memory episodes by keyword.",
     "memory_step_range": "Read durable memory episodes within an inclusive decision-step range.",
@@ -224,9 +321,14 @@ _TOOL_DESCRIPTIONS = {
     "memory_time_range": "Read durable memory episodes within an inclusive ISO time range.",
     "memory_read": "Read durable memory episodes by exact stable identifiers.",
     "finish": (
-        "Finish after exactly one submitted life action; every memory ref must use "
-        "an allowed source ID from this schema."
-    ),
+        "Finish after exactly one submitted life action; finish must be the only tool "
+        "call in its response. memories holds zero to eight episodes written in the "
+        "person's own words; never put event identifiers, request hashes, or any "
+        "hexadecimal identifier inside memory text. Every ref must use an allowed "
+        "source ID from this schema: the current observation_event_id, current "
+        "recent_action_results[].event_id, or a durable episode ID actually shown in "
+        "this decision. Never use action_id, decision_id, round_id, request hashes, "
+        "tool_call_id, product IDs, activity IDs, or any other identifier as a ref."),
 }
 
 
@@ -247,7 +349,7 @@ def _life_tool_descriptions(
     工具面拆分（targeted/game surface 的进 start_targeted_activity，
     basic surface 的进 start_basic_activity）。
     """
-    descriptions = dict(_TOOL_DESCRIPTIONS)
+    descriptions = {name: text for name, text in _TOOL_DESCRIPTIONS.items()}
     basic_direct = [kind for kind, entry in contract.items()
                     if entry["surface"] == "basic" and entry["target_discovery"] == "none"]
     browse_targeted = [kind for kind, entry in contract.items()
@@ -257,15 +359,17 @@ def _life_tool_descriptions(
                     if entry["target_discovery"] == "browse_result"
                     and entry["surface"] == "basic"]
     descriptions["start_basic_activity"] = (
-        f"Start {_join_kinds(basic_direct)} for an explicit duration. At a feedback boundary "
-        "this switches directly: the current activity pauses automatically with its "
-        "progress preserved.")
+        f"{_ACTION_PROTOCOL} Start {_join_kinds(basic_direct)} for an explicit duration. "
+        "At a feedback boundary this switches directly: the current activity pauses "
+        "automatically with its progress preserved.")
     descriptions["start_targeted_activity"] = (
-        f"Start one of {_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
-        "target from the current observation catalogs. At a feedback boundary this switches "
-        "directly: the current activity pauses automatically with its progress preserved. "
-        "Consider your location: at the office, prefer brief phone-friendly content "
-        "(feeds, short clips); save movies and long drama episodes for home.")
+        f"{_ACTION_PROTOCOL} Start one of "
+        f"{_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
+        "target from the current observation catalogs. At a feedback boundary this "
+        "switches directly: the current activity pauses automatically with its "
+        "progress preserved. Consider your location: at the office, prefer brief "
+        "phone-friendly content (feeds, short clips); save movies and long drama "
+        "episodes for home.")
     descriptions["browse_activities"] = (
         "Drill into one activity category from activity_summary and read its item list. "
         "Pure query: it starts nothing and consumes nothing; the returned items arrive "
@@ -273,6 +377,7 @@ def _life_tool_descriptions(
         f"for start_targeted_activity, {_join_kinds(browse_basic)} items for "
         "start_basic_activity).")
     return descriptions
+
 
 #: 观察合同（affordance_contract）条目的七键闭集：每个 kind 的
 #: {surface, target_discovery, target_field, energy_projection,
@@ -364,39 +469,33 @@ _ACTIVITY_CONTROL_TOOLS = frozenset({
     "game_action",
 })
 
+#: 身份前言（提示合同 L1541-1544）：以人物与情境为主，工具协议、引用规则
+#: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
+#: 地点礼仪由场景段落表达，不在此出现禁令句；回合预算只在剩余回合 ≤2 时
+#: 由 _model_request 附加一句话。
 _LIFE_INSTRUCTIONS = """
-You are {name}, living as the person described in the profile inside a simulated Shanghai life.
-Use only the current observation and durable memory. Never invent products, tasks, messages,
-locations, inventory, game commands, or completed results. Use only the native tools supplied with
-this request; no skill, workspace, task-list, environment-query, or script tools exist. Memory tools
-may retrieve relevant past episodes. The observation shows activity_summary with one count per
-activity category instead of full catalogs; call browse_activities with one category key to read
-its concrete items before choosing a specific watch or lifestyle target. During
-this decision, submit exactly one life action. A
-submitted receipt only proves submission. After that receipt, call finish as the only tool call in a
-later response and record at least one truthful memory. Every ref in every memory must be one of the
-allowed source IDs in the current finish tool schema: current observation_event_id, current
-recent_action_results[].event_id, or a durable episode ID actually shown in initial durable memory or
-returned by a memory tool. Never use action_id, decision_id, round_id, request hashes, tool_call_id,
-product IDs, activity IDs, or any other identifier as a ref. The current submitted action has not
-been settled yet, so describe it only as a choice or submission. Never emit free text instead of a
-native tool call. At a visible activity feedback boundary, use
-continue_activity to keep going, use set_activity_state to pause or cancel it, use
-change_playback_speed for active watching, or directly submit start_basic_activity,
-start_targeted_activity, or start_travel to switch right now; the engine then pauses the
-current activity automatically and keeps its progress for a later resume. Act with social
-awareness of your location: watching long entertainment openly at the office is
-inappropriate; do it at home or discreetly on a phone.
+你不是AI助手，也不是在等待指令的程序。你是{name}，一个有自己性格、需要和处境的人，
+正过着自己的日子：会饿、会困、会心烦，也会在意身边的人和没做完的事。
+人物卡片写的就是你这个人：你是谁、日子过得怎么样、身边有谁、
+平时喜欢什么、压力大了靠什么缓一缓。
+场景段落是你此刻的真实处境：什么时间、在哪儿、身边有谁、身体感觉如何、
+手头正有什么事。
+事实清单是此刻对你有用的信息。
+凭你自己的性子和眼下的处境拿主意，像一个真实的人那样过日子。
 """.strip()
 
 _READONLY_INSTRUCTIONS = """
-You are {name}, answering one explicit read-only question as the person described in the profile.
-Use only the profile and durable memory. Use only the supplied memory tools, then call finish with a
-non-empty answer. No life action, skill, workspace, task-list, environment-query, or script tools
-exist. Never emit the answer as free text instead of a native finish tool call.
+你是{name}，正在以本人身份回答一个外部只读问题。凭你的卡片与持久记忆作答：
+先按需要使用提供的记忆查询工具，再单独调用一次 finish 给出答案；
+不要把答案写在正文里。
 """.strip()
 
 _REACT_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
+#: 低预算提示（提示合同 L1546）：剩余回合 ≤2 时以一句话出现（先于预算 JSON，
+#: 保证预算 JSON 始终是消息尾部可解析块）。
+_LOW_BUDGET_SENTENCE = (
+    "\n\n剩余回合已经不多：当前阶段是{phase}，请尽快提交本阶段需要的动作或结束。")
 
 
 class LifeAgent(PersonAgent):
@@ -431,7 +530,14 @@ class LifeAgent(PersonAgent):
         models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
         self._life_request_models = models
         descriptions = _life_tool_descriptions(getattr(self, "_life_contract", None) or {})
-        schemas = [_tool_schema(name, model, descriptions) for name, model in models.items()]
+        schemas = [
+            _tool_schema(
+                name,
+                model,
+                descriptions,
+            )
+            for name, model in models.items()
+        ]
         if not readonly and not getattr(self, "_life_action_count", 0):
             if not hasattr(self, "_life_visible_targets"):
                 raise RuntimeError("LifeAgent visible target catalogs are not prepared")
@@ -458,6 +564,8 @@ class LifeAgent(PersonAgent):
     ) -> dict[str, Any]:
         """@brief 注入思考开启的 ReAct 请求并写入当前实际模型回合预算。
 
+        每次请求在实际消息中明确当前剩余回合与决策阶段（L1355-1356）；
+        剩余回合 ≤2 时按提示合同（L1546）先附一句话低预算提示。
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400：
         "Thinking mode does not support this tool_choice"），因此与思考
         开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由
@@ -465,18 +573,17 @@ class LifeAgent(PersonAgent):
         """
         budget = self._react_budget(self._life_readonly)
         first = dict(messages[0])
+        if budget["remaining_model_turns_including_current"] <= 2:
+            first["content"] += _LOW_BUDGET_SENTENCE.format(phase=budget["phase"])
         first["content"] += _REACT_BUDGET_MARKER + json.dumps(
             budget, ensure_ascii=False, sort_keys=True)
         request = super()._model_request([first, *messages[1:]], tools)
-        request["tool_choice"] = "auto"
-        request["extra_body"] = {"thinking": {"type": "enabled"}}
+        request["tool_choice"] = ACTION_TOOL_CHOICE
+        request["extra_body"] = dict(ACTION_THINKING)
         return request
 
-    def _react_budget(self, readonly: bool) -> dict[str, Any]:
-        """@brief 从本决策实际模型调用序号取得当前请求预算。"""
-        phase = "readonly" if readonly else (
-            "after_action" if getattr(self, "_life_action_count", 0) else "before_action")
-        required = 1 if phase in {"readonly", "after_action"} else 2
+    def _life_require_turns(self, phase: str, required: int) -> None:
+        """@brief 剩余回合不足时明确终止本次决策，不发注定失败的请求。"""
         remaining = self._max_react_turns - self._model_call_sequence
         if remaining < required:
             message = (
@@ -485,6 +592,14 @@ class LifeAgent(PersonAgent):
             )
             self._logger.error("LifeAgent %s %s", getattr(self, "_id", None), message)
             raise RuntimeError(message)
+
+    def _react_budget(self, readonly: bool) -> dict[str, Any]:
+        """@brief 从本决策实际模型调用序号取得当前请求预算。"""
+        phase = "readonly" if readonly else (
+            "after_action" if getattr(self, "_life_action_count", 0) else "before_action")
+        required = 1 if phase in {"readonly", "after_action"} else 2
+        self._life_require_turns(phase, required)
+        remaining = self._max_react_turns - self._model_call_sequence
         return {
             "phase": phase,
             "max_model_turns": self._max_react_turns,
@@ -509,27 +624,180 @@ class LifeAgent(PersonAgent):
             raise RuntimeError("LifeAgent activity controls are not prepared")
         return {**self._life_action_models, **memory}
 
+    def _persona_card_text(self) -> str:
+        """@brief 从人物档案确定性渲染提示用人物卡片文本（≤600 汉字）。
+
+        档案若携带画像编译产出的 persona_card 文本则直接使用；否则由
+        background_story / health_habits / social_style 等安全字段组装。
+        黑名单字段（motivation、entertainment_preferences）不会进入。
+        """
+        profile = self.get_profile()
+        card = profile.get("persona_card")
+        if isinstance(card, str) and card.strip():
+            return card.strip()
+        lines = [f"你是{self.name or '这个人'}。"]
+        for key, lead in (
+            ("background_story", "你的经历："),
+            ("health_habits", "你的健康习惯："),
+            ("social_style", "你的社交风格："),
+        ):
+            value = profile.get(key)
+            if isinstance(value, str) and value.strip():
+                lines.append(f"{lead}{value.strip()}")
+        return "\n".join(lines)
+
+    def _memory_prompt_section(self) -> str:
+        """@brief 渲染持久记忆摘要段并冻结其可见记忆身份。"""
+        if not self._enable_memory:
+            return ""
+        memory = self._build_memory_context()
+        self._life_visible_refs.update(
+            _episode_ids(memory.get("recent_episodes", []))
+        )
+        parts = []
+        summary = memory.get("memory_md")
+        if isinstance(summary, str) and summary.strip():
+            parts.append(summary.strip())
+        episodes = memory.get("recent_episodes") or []
+        lines = [f"- {item.get('text', '')}".rstrip()
+                 for item in episodes if isinstance(item, dict)]
+        if lines:
+            parts.append("最近的记忆：\n" + "\n".join(lines))
+        return "\n\n".join(parts)
+
+    def _life_user_sections(self, request: ReactLoopRequest, *, with_facts: bool) -> str:
+        """@brief 组装三段 user 消息文本（persona + scene + 记忆 [+ facts + 独白]）。
+
+        独白阶段只取 persona + scene + 记忆摘要；行动阶段再追加 facts 与
+        "你刚才心里想的是"（两阶段决策合同 L1551-1566）。scene/facts 由
+        narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本。
+        """
+        data = _environment_observation_data(request.observations)
+        persona = self._persona_card_text()
+        scene = render_scene(_scene_projection(data))
+        memory = self._memory_prompt_section()
+        core = compose_user_message(persona, scene, memory)
+        if not with_facts:
+            return core
+        facts = render_facts(_facts_projection(data))
+        parts = [core, facts]
+        monologue = getattr(self, "_life_monologue", None)
+        if monologue:
+            parts.append(f"你刚才心里想的是：{monologue}")
+        user = "\n\n".join(parts)
+        enforce_budgets(len(user), 0)
+        return user
+
     def build_react_messages(self, request: ReactLoopRequest) -> list[dict[str, Any]]:
-        """@brief 构造只描述实际闭集工具的生活人物提示。"""
+        """@brief 构造只描述实际闭集工具的生活人物提示（三段消息）。"""
         template = _READONLY_INSTRUCTIONS if request.readonly else _LIFE_INSTRUCTIONS
         system = template.format(name=self.name or "this person")
-        context = {
-            "profile": self.get_profile(),
-            "current_time": request.t.isoformat(),
-            "observations": request.observations,
-        }
-        if self._enable_memory:
-            memory = self._build_memory_context()
-            self._life_visible_refs.update(
-                _episode_ids(memory.get("recent_episodes", []))
-            )
-            context["durable_memory"] = memory
-        if request.question is not None:
-            context["question"] = request.question
+        if request.readonly:
+            sections = [self._persona_card_text(), self._memory_prompt_section()]
+            if request.question is not None:
+                sections.append(f"外部只读问题：{request.question}")
+            user = "\n\n".join(section for section in sections if section)
+        else:
+            user = self._life_user_sections(request, with_facts=True)
+        enforce_budgets(len(user), len(system))
         return [
             {"role": "system", "content": system},
-            {"role": "user", "content": json.dumps(context, ensure_ascii=False, default=str)},
+            {"role": "user", "content": user},
         ]
+
+    def prelude_monologue_request(self, request: ReactLoopRequest) -> dict[str, Any] | None:
+        """@brief 两阶段决策的独白请求参数；只读决策不启用独白。
+
+        独白 = system 身份前言 + persona_card + scene + 记忆摘要，不带
+        tools；thinking=disabled、temperature=1.3、max_tokens=400。
+        """
+        if request.readonly:
+            return None
+        if self._model_name is None:
+            raise RuntimeError("LLM is not initialized")
+        system = _LIFE_INSTRUCTIONS.format(name=self.name or "this person")
+        user = self._life_user_sections(request, with_facts=False)
+        enforce_budgets(len(user), len(system))
+        return {
+            "model": self._model_name,
+            "messages": [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user},
+            ],
+            "stream": False,
+            "temperature": MONOLOGUE_TEMPERATURE,
+            "max_tokens": MONOLOGUE_MAX_TOKENS,
+            "max_retries": 0,
+            "extra_body": {"thinking": {"type": "disabled"}},
+        }
+
+    def receive_prelude_monologue(self, request: ReactLoopRequest, monologue: str) -> None:
+        """@brief 接收已通过协议校验的独白文本，供行动阶段消息引用。"""
+        del request
+        self._life_monologue = monologue
+
+    async def _run_prelude_monologue(self, request: ReactLoopRequest) -> None:
+        """@brief 执行单次无工具独白；超长或空消耗一个回合后重试一次。
+
+        两次失败即本次决策失败（两阶段决策合同 L1572）。独白经完整
+        model_request/model_response 证据路径保存；传输异常立即传播。
+        """
+        params = self.prelude_monologue_request(request)
+        if not params:
+            return
+        if params.get("tools"):
+            raise RuntimeError("Prelude monologue request must not expose tools")
+        self._life_require_turns("monologue", 3)
+        last_error: MonologueValidationError | None = None
+        for _attempt in (1, 2):
+            monologue, last_error = await self._monologue_once(params)
+            if monologue is not None:
+                self.receive_prelude_monologue(request, monologue)
+                return
+        raise RuntimeError(
+            f"Prelude monologue failed the protocol twice: {last_error}")
+
+    async def _monologue_once(
+        self, params: dict[str, Any]) -> tuple[str | None, MonologueValidationError | None]:
+        """@brief 调用一次独白模型并保存带校验结果的完整证据。
+
+        :returns: (通过校验的独白文本或空值, 协议错误或空值)。
+        """
+        if self._dispatcher is None:
+            raise RuntimeError("LLM is not initialized")
+        context = getattr(self, "_decision_context", None)
+        call_id = self._next_model_call_id(1)
+        await self._record_model_evidence(
+            ModelCallEvidence(context, call_id, "request", 1, params))
+        try:
+            response = await self._dispatcher.call(**params)
+        except Exception as exc:
+            await self._record_model_evidence(
+                ModelCallEvidence(context, call_id, "failure", 1, params, error=repr(exc)))
+            raise
+        text = _monologue_content(response)
+        try:
+            monologue = validate_monologue(text)
+        except MonologueValidationError as error:
+            monologue, validated_error = None, error
+        else:
+            validated_error = None
+        await self._record_model_evidence(
+            ModelCallEvidence(
+                context, call_id, "response", 1, params,
+                response=self._serialize_model_response(response),
+                error=None if validated_error is None else str(validated_error),
+            )
+        )
+        return monologue, validated_error
+
+    def memory_sleep_boundary(self) -> bool:
+        """@brief 报告本步骤是否为人物进入睡眠后的第一个边界。
+
+        引擎在观察 data.wake_reasons 提供唤醒原因（B1）；就寝后第一个
+        边界以 wake_from_sleep 标记，驱动就寝后的记忆巩固与反思。
+        """
+        return "wake_from_sleep" in getattr(self, "_life_wake_reasons", frozenset())
 
     def prepare_react_loop(self, request: ReactLoopRequest) -> None:
         """@brief 重置当前决策动作计数并冻结可见来源事件。"""
@@ -537,6 +805,7 @@ class LifeAgent(PersonAgent):
         self._life_action_count = 0
         self._life_readonly = request.readonly
         self._life_request_models = None
+        self._life_monologue = None
         if request.readonly:
             self._life_visible_refs = set()
             self._life_visible_targets = {}
@@ -546,6 +815,7 @@ class LifeAgent(PersonAgent):
             self._life_browse_categories = frozenset()
             self._life_contract = {}
             self._life_targeted_kinds = ()
+            self._life_wake_reasons = frozenset()
             budget = self._react_budget(True)
             self._life_request_models = self._budgeted_tool_models(
                 True, budget["memory_tools_available"])
@@ -554,6 +824,7 @@ class LifeAgent(PersonAgent):
         self._life_contract = contract = _affordance_contract(data)
         self._life_targeted_kinds = _targeted_activity_kinds(contract)
         energy_limits = _visible_energy_limits(data, contract)
+        self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
         self._life_visible_refs = _environment_source_ids(data)
         self._life_browse_categories = _visible_browse_categories(data)
         self._life_visible_targets = _visible_target_ids(data, contract, energy_limits)
@@ -689,6 +960,13 @@ class LifeAgent(PersonAgent):
         return ReactToolResult(True, observation, data)
 
 
+def _monologue_content(response: Any) -> str:
+    """@brief 严格提取独白响应正文（空白视同空文本，交由协议校验拒绝）。"""
+    choices = getattr(response, "choices", None)
+    message = getattr(choices[0], "message", None) if choices else None
+    return str(getattr(message, "content", "") or "").strip()
+
+
 def _validate_request(model: type[BaseModel], values: dict[str, Any]) -> BaseModel:
     """@brief 用严格 JSON 模式验证模型产生的工具参数。"""
     encoded = json.dumps(values, ensure_ascii=False, separators=(",", ":"))
@@ -703,6 +981,39 @@ def _environment_observation_data(observations: list[dict[str, Any]]) -> dict[st
     if not isinstance(data, dict):
         raise RuntimeError("LifeAgent environment observation data is unavailable")
     return data
+
+
+def _scene_projection(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief 严格读取两层观察投影的 scene 段（提示渲染输入）。"""
+    scene = data.get("scene")
+    if not isinstance(scene, dict):
+        raise RuntimeError("LifeAgent environment observation scene projection is unavailable")
+    return scene
+
+
+def _facts_projection(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief 严格读取两层观察投影的 facts 段（提示与工具身份来源）。"""
+    facts = data.get("facts")
+    if not isinstance(facts, dict):
+        raise RuntimeError("LifeAgent environment observation facts projection is unavailable")
+    return facts
+
+
+def _observation_now(data: dict[str, Any]) -> int:
+    """@brief 读取观察顶层的模拟时钟（UTC epoch 秒，计划工具的本地基准）。"""
+    now = data.get("current_time")
+    if isinstance(now, bool) or not isinstance(now, int) or now < 0:
+        raise RuntimeError("LifeAgent observation current time is invalid")
+    return now
+
+
+def _visible_wake_reasons(data: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 冻结本轮观察携带的唤醒原因闭集（引擎 schedule 信号）。"""
+    reasons = data.get("wake_reasons")
+    if not isinstance(reasons, list) or any(
+            not isinstance(item, str) or not item.strip() for item in reasons):
+        raise RuntimeError("LifeAgent wake reasons are invalid")
+    return tuple(reasons)
 
 
 def _environment_source_ids(data: dict[str, Any]) -> set[str]:
@@ -947,7 +1258,7 @@ def _visible_game_control(data: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
 
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结购买、使用、提交与出行工具所需的公开身份配对。"""
+    """@brief 冻结瞬时动作工具所需的公开身份配对（含修订合同四件新工具）。"""
     products = _visible_products(data)
     locations = _visible_location_ids(data)
     available = _visible_available_inventory(data, products)
@@ -963,7 +1274,114 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
         "consume": available,
         "submit_work": _visible_submittable_tasks(data),
         "start_travel": _visible_routes(data),
+        "plan_day": _visible_plan_day_contract(data),
+        "revise_day_plan": _visible_revise_plan_contract(data),
+        "send_message": _visible_message_recipients(data),
+        "start_social_activity": _visible_social_partners(data),
     }
+
+
+def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief plan_day 只在当天首次醒来且尚无计划时开放（L1606）。"""
+    if _facts_projection(data).get("day_plan") is not None:
+        return {}
+    if not _DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data)):
+        return {}
+    return {"now": _observation_now(data)}
+
+
+def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief revise_day_plan 只在存在尚未开始的计划段时开放（L1611）。"""
+    plan = _facts_projection(data).get("day_plan")
+    if plan is None:
+        return {}
+    if not isinstance(plan, dict) or not isinstance(plan.get("segments"), list):
+        raise RuntimeError("LifeAgent day plan segments are invalid")
+    now = _observation_now(data)
+    for segment in plan["segments"]:
+        start = segment.get("start") if isinstance(segment, dict) else None
+        if isinstance(start, bool) or not isinstance(start, int) or start < 0:
+            raise RuntimeError("LifeAgent day plan segment start is invalid")
+    future = [item for item in plan["segments"] if item["start"] > now]
+    return {"now": now} if future else {}
+
+
+def _visible_people_ids(facts: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 冻结本轮在场人物的不透明身份闭集（facts.people_here 的 person_id）。"""
+    people = facts.get("people_here")
+    if not isinstance(people, list):
+        raise RuntimeError("LifeAgent people projection is invalid")
+    identities = []
+    for row in people:
+        if not isinstance(row, dict):
+            raise RuntimeError("LifeAgent people projection row must be an object")
+        person_id = row.get("person_id")
+        if not isinstance(person_id, str) or not person_id.strip():
+            raise RuntimeError("LifeAgent person identity is invalid")
+        identities.append(person_id)
+    return tuple(sorted(set(identities)))
+
+
+def _visible_contact_ids(facts: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 冻结本轮场景联系人的不透明身份闭集（facts.contacts 的 contact_id）。"""
+    contacts = facts.get("contacts", [])
+    if contacts is None:
+        contacts = []
+    if not isinstance(contacts, list):
+        raise RuntimeError("LifeAgent contacts projection is invalid")
+    identities = []
+    for row in contacts:
+        if not isinstance(row, dict):
+            raise RuntimeError("LifeAgent contacts projection row must be an object")
+        contact_id = row.get("contact_id")
+        if not isinstance(contact_id, str) or not contact_id.strip():
+            raise RuntimeError("LifeAgent contact identity is invalid")
+        identities.append(contact_id)
+    return tuple(sorted(set(identities)))
+
+
+def _visible_inbox_senders(facts: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 冻结本轮收件箱投影的发送者身份闭集。"""
+    inbox = facts.get("inbox")
+    if not isinstance(inbox, list):
+        raise RuntimeError("LifeAgent inbox projection is invalid")
+    senders = set()
+    for row in inbox:
+        if not isinstance(row, dict):
+            raise RuntimeError("LifeAgent inbox row must be an object")
+        sender = row.get("sender_id")
+        if sender is None:
+            continue
+        if not isinstance(sender, str) or not sender.strip():
+            raise RuntimeError("LifeAgent inbox sender identity is invalid")
+        senders.add(sender)
+    return tuple(sorted(senders))
+
+
+def _visible_message_recipients(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief 冻结本轮可见的消息收件人身份闭集（L1005-1007 身份枚举用本轮观察）。
+
+    收件人 = 在场人物（people_here 的不透明 person_id）∪ 场景联系人
+    （contacts 的 contact_id）∪ 已向你发过消息的人（inbox 发送者）；
+    三者都是本轮观察实际可见的身份，无可见收件人时撤下工具。
+    """
+    facts = _facts_projection(data)
+    recipients = (set(_visible_people_ids(facts)) | set(_visible_contact_ids(facts))
+                  | set(_visible_inbox_senders(facts)))
+    return {"recipients": tuple(sorted(recipients))} if recipients else {}
+
+
+def _visible_social_partners(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief 冻结本轮可见的交谈与通话对象身份闭集（修订合同 L1625-1626）。
+
+    chat 对象 = 在场人物 ∪ 收件箱发送者（共同在场与可交谈由环境结算
+    边界校验）；call 对象 = 场景联系人。两个闭集都为空时撤下工具。
+    """
+    facts = _facts_projection(data)
+    chat = tuple(sorted(set(_visible_people_ids(facts))
+                        | set(_visible_inbox_senders(facts))))
+    call = _visible_contact_ids(facts)
+    return {"chat_partners": chat, "call_partners": call} if chat or call else {}
 
 
 def _visible_products(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -1013,7 +1431,7 @@ def _visible_available_inventory(
     data: dict[str, Any],
     products: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """@brief 仅保留人物当前位置数量为正且地点要求满足的商品。"""
+    """@brief 仅保留人物当前位置数量为正且地点要求满足的商品（含持有量）。"""
     inventory = data.get("available_inventory")
     location_id = data.get("location_id")
     if not isinstance(inventory, dict) or not isinstance(location_id, str):
@@ -1032,7 +1450,8 @@ def _visible_available_inventory(
         if product["duration_seconds"] < 60:
             continue
         result[product_id] = {"use_modes": product["use_modes"],
-                              "duration_seconds": product["duration_seconds"]}
+                              "duration_seconds": product["duration_seconds"],
+                              "held_quantity": quantity}
     return result
 
 
@@ -1087,7 +1506,13 @@ def _available_action_models(
     contracts: dict[str, Any],
     browse_categories: frozenset[str] = frozenset(),
 ) -> dict[str, type[BaseModel]]:
-    """@brief 依据当前活动状态过滤预注册生活动作工具。"""
+    """@brief 依据当前活动状态过滤预注册生活动作工具。
+
+    修订合同四件新工具（plan_day/revise_day_plan/send_message/
+    start_social_activity）与购买、进食、提交一样属于瞬时或独立动作，
+    只在无当前活动的自由决策点开放；活动反馈边界只提供该活动允许的
+    控制、调速或直接切换工具（L998-1003）。
+    """
     active = controls["active"]
     if active is None:
         names = {"start_basic_activity"}
@@ -1110,7 +1535,7 @@ def _available_action_models(
             names.add("start_travel")
         if active["kind"] == "watch":
             names.add("change_playback_speed")
-    return {name: model for name, model in REQUEST_MODELS.items() if name in names}
+    return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
 
 
 def _catalog_identity_values(
@@ -1287,23 +1712,25 @@ def _bind_activity_control_schemas(
 
 
 def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 将公开商品、持有物、任务和路线身份写入实际工具 Schema。"""
+    """@brief 将公开身份闭集写入瞬时动作工具的实际 Schema。"""
     functions = {item["function"]["name"]: item["function"] for item in schemas}
     if "purchase" in functions:
         products = contracts["purchase"]
         properties = functions["purchase"]["parameters"]["properties"]
-        properties["product_id"]["enum"] = sorted(products)
-        properties["price_version"]["enum"] = sorted({item["price_version"] for item in products.values()})
-        properties["destination_id"]["enum"] = sorted({identity for item in products.values()
-                                                          for identity in item["destination_ids"]})
+        item_properties = properties["items"]["items"]["properties"]
+        item_properties["product_id"]["enum"] = sorted(products)
+        item_properties["price_version"]["enum"] = sorted(
+            {item["price_version"] for item in products.values()})
+        properties["destination_id"]["enum"] = sorted(
+            {identity for item in products.values() for identity in item["destination_ids"]})
         if not any(item["pickup_allowed"] for item in products.values()):
             properties["fulfillment"]["enum"] = ["delivery"]
     if "consume" in functions:
         products = contracts["consume"]
         properties = functions["consume"]["parameters"]["properties"]
-        properties["product_id"]["enum"] = sorted(products)
+        properties["items"]["items"]["properties"]["product_id"]["enum"] = sorted(products)
         properties["use_mode"]["enum"] = sorted({mode for item in products.values()
-                                                    for mode in item["use_modes"]})
+                                                 for mode in item["use_modes"]})
         properties["duration_seconds"]["enum"] = sorted(
             {item["duration_seconds"] for item in products.values()})
     if "submit_work" in functions:
@@ -1315,6 +1742,20 @@ def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[
         properties["destination_id"]["enum"] = sorted({item[0] for item in routes})
         properties["travel_mode"]["enum"] = sorted({item[1] for item in routes})
         properties["planned_duration_seconds"]["enum"] = sorted({item[2] for item in routes})
+    for name in ("plan_day", "revise_day_plan"):
+        if name in functions:
+            properties = functions[name]["parameters"]["properties"]
+            properties["segments"]["items"]["properties"]["intent_kind"]["enum"] = list(INTENT_KINDS)
+    if "send_message" in functions:
+        properties = functions["send_message"]["parameters"]["properties"]
+        properties["recipient_id"]["enum"] = list(contracts["send_message"]["recipients"])
+    if "start_social_activity" in functions:
+        contract = contracts["start_social_activity"]
+        properties = functions["start_social_activity"]["parameters"]["properties"]
+        properties["kind"]["enum"] = [kind for kind in ("chat", "call")
+                                      if contract[f"{kind}_partners"]]
+        properties["partner_id"]["enum"] = sorted(
+            set(contract["chat_partners"]) | set(contract["call_partners"]))
 
 
 def _validate_activity_control(
@@ -1343,27 +1784,94 @@ def _validate_activity_control(
 
 
 def _validate_visible_action(action: str, request: BaseModel, contracts: dict[str, Any]) -> str:
-    """@brief 本地核对商品报价、使用方式、任务身份和路线三元组。"""
+    """@brief 本地核对商品报价、使用方式、任务身份、路线与计划配对。"""
     if action == "purchase":
-        product = contracts[action].get(request.product_id)
-        if product is None or request.price_version != product["price_version"]:
-            return "purchase product_id and price_version are not a visible pair"
-        if request.destination_id not in product["destination_ids"]:
-            return "purchase destination_id is not visible"
-        if request.fulfillment == "pickup" and (
-                not product["pickup_allowed"] or request.destination_id != product["merchant_location_id"]):
-            return "purchase pickup is not valid for the visible product and location"
-    elif action == "consume":
-        product = contracts[action].get(request.product_id)
-        if (product is None or request.use_mode not in product["use_modes"]
-                or request.duration_seconds != product["duration_seconds"]):
-            return "consume request is not valid for current local inventory"
-    elif action == "submit_work" and request.task_id not in contracts[action]:
+        return _validate_purchase_order(request, contracts[action])
+    if action == "consume":
+        return _validate_meal_request(request, contracts[action])
+    if action == "submit_work" and request.task_id not in contracts[action]:
         return "submit_work task_id has no fully revealed visible material"
-    elif action == "start_travel":
+    if action == "start_travel":
         route = (request.destination_id, request.travel_mode, request.planned_duration_seconds)
         if route not in contracts[action]:
             return "start_travel destination, mode, and duration are not a visible route"
+    if action == "plan_day":
+        return _validate_plan_segments(request.segments, contracts[action]["now"], 5, 8,
+                                       "plan_day")
+    if action == "revise_day_plan":
+        return _validate_plan_segments(request.segments, contracts[action]["now"], 1, 8,
+                                       "revise_day_plan")
+    if action == "send_message":
+        if request.recipient_id not in contracts[action]["recipients"]:
+            return "send_message recipient_id is not visible"
+        if len(request.text) > _MESSAGE_TEXT_MAX_CHARS:
+            return "send_message text exceeds 300 characters"
+    if action == "start_social_activity":
+        partners = contracts[action][f"{request.kind}_partners"]
+        if request.partner_id not in partners:
+            return "start_social_activity partner_id is not visible"
+    return ""
+
+
+def _validate_purchase_order(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
+    """@brief 本地核对多件购买：件数、可见配对、库存、同商家与自提边界。"""
+    if not _ORDER_ITEM_BOUNDS[0] <= len(request.items) <= _ORDER_ITEM_BOUNDS[1]:
+        return "purchase requires one to five items"
+    merchants = set()
+    for item in request.items:
+        product = catalog.get(item.product_id)
+        if product is None or item.price_version != product["price_version"]:
+            return "purchase product_id and price_version are not a visible pair"
+        if item.quantity > product["current_stock"]:
+            return "purchase quantity exceeds the visible current stock"
+        merchants.add(product["merchant_location_id"])
+    if len(merchants) != 1:
+        return "purchase items must share one merchant"
+    destinations = {identity for product in catalog.values()
+                    for identity in product["destination_ids"]}
+    if request.destination_id not in destinations:
+        return "purchase destination_id is not visible"
+    if (request.fulfillment == "pickup"
+            and (request.destination_id not in merchants
+                 or not any(product["pickup_allowed"] for product in catalog.values()))):
+        return "purchase pickup is not valid for the visible products and location"
+    return ""
+
+
+def _validate_meal_request(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
+    """@brief 本地核对多件进食：件数、持有量、使用方式与时长口径。"""
+    if not _MEAL_ITEM_BOUNDS[0] <= len(request.items) <= _MEAL_ITEM_BOUNDS[1]:
+        return "consume requires one to three items"
+    if request.use_mode == "use" and len(request.items) != 1:
+        return "consume use mode accepts exactly one item"
+    durations = []
+    for item in request.items:
+        product = catalog.get(item.product_id)
+        if (product is None or request.use_mode not in product["use_modes"]
+                or item.quantity > product["held_quantity"]):
+            return "consume request is not valid for current local inventory"
+        durations.append(product["duration_seconds"])
+    expected = max(durations) if request.use_mode == "eat" else durations[0]
+    if request.duration_seconds != expected:
+        return "consume duration does not match the selected products"
+    return ""
+
+
+def _validate_plan_segments(
+    segments: Any,
+    now: int,
+    minimum: int,
+    maximum: int,
+    action: str,
+) -> str:
+    """@brief 本地核对计划段数量、意图闭集与"尚未开始"边界。"""
+    if not minimum <= len(segments) <= maximum:
+        return f"{action} requires {minimum} to {maximum} segments"
+    for segment in segments:
+        if segment.intent_kind not in INTENT_KINDS:
+            return f"{action} intent_kind is outside the closed intent set"
+        if segment.start < now:
+            return f"{action} segment starts earlier than the current time"
     return ""
 
 
@@ -1405,8 +1913,8 @@ def life_tool_schema_sha256() -> str:
 
     descriptions = _life_tool_descriptions(
         affordance_contract(default_affordances()))
-    schemas = [_tool_schema(name, model, descriptions)
-               for name, model in _TOOL_MODELS.items()]
+    schemas = [_tool_schema(name, _TOOL_MODELS[name], descriptions)
+               for name in _TOOL_MODELS]
     encoded = json.dumps(
         {"tool_schemas": schemas,
          "affordance_registry_sha256": affordance_registry_sha256()},
