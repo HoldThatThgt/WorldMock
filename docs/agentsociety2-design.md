@@ -1,6 +1,8 @@
 # 基于 AgentSociety 2 的数字人生活模拟与数据生产特性规范
 
-日期：2026-09-15。规格版本：life-full-2026-09-15。状态：全量开发合同；实现与验收证据单独记录。
+日期：2026-09-15；修订：2026-09-18。规格版本：life-realism-2026-09-18（取代 life-full-2026-09-15）。
+状态：全量开发合同；实现与验收证据单独记录。本次修订新增文末《人物真实性修订合同（2026-09-18）》，
+并就地修改与之冲突的原条款；原条款与修订合同不一致处以修订合同为准。
 
 本设计整合从 AgentSociety 2 选型开始的讨论。用户已经明确最终目标：数字人在需求驱动下与环境交互，
 留下完整数字足迹，供 LabelKit 生成动作序列、意图和 dreaming 语料，最终交付模型训练数据与规则引擎测试数据。
@@ -35,6 +37,7 @@ LabelKit 使用固定版本的经历文件完成标注和数据生产。
 | 个体差异 | 职业、技能、工作机会和合同影响产出或报酬；睡眠状态影响明确配置的转换效率 |
 | 需求驱动 | 饥饿、疲劳、娱乐需要及工作义务进入人物观察和决策，不由脚本替人物排序选择 |
 | 内容丰富 | 覆盖饮食、节目、游戏、工作记录、邮件、导航和购物 |
+| 日常与社交 | 人物能看见同处一地的他人、与他人和联系人通讯、在家完成晨间例程与用餐、按自己生成的当日计划安排活动；机会由世界提供，不由脚本安排 |
 | 可控场景 | 可定义地点、日历、天气、交通条件和模拟速度 |
 | 真实反馈依据 | 明确区分来源数据、规则算出的结果、模型生成的文本和实际外部服务返回 |
 | 完整数字足迹 | 保存观察、决策、执行、状态变化、结果、记忆和相互关系 |
@@ -120,6 +123,9 @@ flowchart TB
 | `config/llm_dispatcher.py`、`agent/service_proxy.py`、`agent/runner.py` | 使用 LiteLLM 官方 `Router.discard()` 结束任务内模型客户端的回调生命周期 | 连续 worker 任务与事件循环不积累已结束 Router，正常及异常出口均清理 |
 | 社会与人物工作区保存路径 | 在一个完整推进边界形成共同检查点；恢复校验世界、人物和时钟 | 不把较新的世界状态与较旧的记忆混合恢复 |
 | Society 恢复入口与 Router 初始化链 | 接收父运行检查点与新的目标目录；全部恢复成功才启动；删除恢复失败后新建环境继续的路径 | 缺少快照或校验失败立即终止，不写父运行目录 |
+| `agent/person.py` 的观察记录 | 观察记录只保留结构化 `data`，不再同时写入 JSON 字符串副本 | 一次决策的 user 消息中同一观察只出现一次 |
+| `agent/agent_runtime.py` 的 ReAct 入口与响应接收 | 增加决策前的独白钩子（单次无工具调用）；后续请求保留 assistant 消息的 `reasoning_content` | 独白落库并进入行动请求；带 `tools` 的后续请求不因缺少 `reasoning_content` 被拒 |
+| `agent/memory_runtime.py`、`agent/memory.py` | 允许 finish 提交空记忆列表；巩固触发改为重要性累计、就寝与待巩固数量；巩固提示传入人物卡片、使用人物语言、删除示例身份；写入前按相似度合并 | 同一偏好不重复写入；MEMORY.md 不含示例身份残留 |
 
 这些改动应作为一个可维护的 AS2 分支或上游补丁管理，锁定提交版本。
 禁止用运行时 monkey patch、复制整个 AS2 调度器或保持两套人物决策循环完成接入。
@@ -139,7 +145,8 @@ flowchart TB
 | 内容接触 | 可见目录、已读邮件、已播放片段、游戏状态及素材区间 | 实际接触行为与内容提供过程 |
 | 记忆 | AS2 人物记忆及其版本、来源事件和检索结果 | 人物记忆流程；环境不代写“人物应当喜欢什么” |
 
-人物身体和余额的准确数值属于世界事实。人物可以收到对应数值或主观描述，由实验观察约定决定。
+人物身体和余额的准确数值属于世界事实。正式观察约定为：人物收到由确定性规则算出的体感分级与自然语言场景描述，
+准确数值只进入足迹与评估（见《人物真实性修订合同》观察投影一节）。
 训练数据导出再次按实际目标系统的信息范围裁剪，不能默认线上设备能够读到环境隐藏状态。
 
 ### 生命周期
@@ -168,10 +175,14 @@ AS2 的环境扫描要求自定义类直接定义在 `custom/envs/*.py`。本项
 | `set_activity_state` | 模型原生工具，经 `submit_action` 登记 | 显式暂停、恢复或退出指定活动 |
 | `change_playback_speed` | 模型原生工具，经 `submit_action` 登记 | 显式改变指定活动的播放速度 |
 | `continue_activity` | 模型原生工具，经 `submit_action` 登记 | 在已到达的反馈边界继续当前活动，只安排后续反馈，不额外推进世界时间 |
-| `purchase` | 模型原生工具，经 `submit_action` 登记 | 提交购买请求；本轮结算时校验余额、商品、地点与营业条件，扣款并安排交付 |
-| `consume` | 模型原生工具，经 `submit_action` 登记 | 登记使用请求；结算时验证持有物，安排使用时间和效果 |
+| `purchase` | 模型原生工具，经 `submit_action` 登记 | 提交购买请求，一单可含多件商品；本轮结算时校验余额、商品、地点与营业条件，扣款并安排交付 |
+| `consume` | 模型原生工具，经 `submit_action` 登记 | 登记使用请求，一餐可含至多三件持有食品；结算时验证持有物，安排使用时间和效果 |
 | `submit_work` | 模型原生工具，经 `submit_action` 登记 | 登记真实交付物引用；结算时触发验收和合同处理 |
 | `game_action` | 模型原生工具，经 `submit_action` 登记 | 登记游戏动作；结算时安排引擎执行，在规定反馈时刻交付实际局面 |
+| `plan_day` | 模型原生工具，经 `submit_action` 登记 | 醒来后提交当日 5–8 段计划；只登记为人物自我承诺，环境不代为执行 |
+| `revise_day_plan` | 模型原生工具，经 `submit_action` 登记 | 改写当日尚未开始的计划段 |
+| `send_message` | 模型原生工具，经 `submit_action` 登记 | 向同一世界的人物或场景联系人发送文本；结算时登记，收件方下一次观察送达 |
+| `start_social_activity` | 模型原生工具，经 `submit_action` 登记 | 与在场人物交谈或与联系人通话，明确对象与计划持续时间 |
 | `scheduling_state()` | 管理接口，不作为人物工具 | 返回可决策人物与下一个相关事件时间 |
 | `commit_decision_round(round_id)` | 管理接口，不作为人物工具 | 在本轮全部人物决策完成后按预先确定的顺序结算请求 |
 | `checkpoint(request)`、CLI `export` | 宿主管理入口，不作为人物工具 | LifeEnv 保存共同检查点，CLI 从 FootprintStore 导出确定状态 |
@@ -323,11 +334,14 @@ sequenceDiagram
 ### 可决策时刻
 
 观看、工作和睡眠由长期活动表示，不需要每秒运行模型。
-看节目可以在内容片段结束或约定的观察间隔提供继续、暂停或退出机会；身体需求变化也可以触发重新评估。
+结算边界是身体与进度的结算粒度，不是必然的决策时刻：只有到达计划结束、体感等级变化、通知到达、
+当日计划段边界或定期重估间隔等唤醒条件时才向人物提供决策机会，其余边界由环境按人物已提交的计划续行，
+并在进度事件中记录未提供决策及原因（见《人物真实性修订合同》决策节律一节）。
 睡眠不会为每次时间推进自动写一条模型记忆；只有实际形成的观察和记忆进入人物流程。
-约定的决策机会是模拟粒度，应作为参数记录，不能声称未观察的间隔里发生了逐秒选择。
+唤醒条件与重估间隔是模拟粒度，应作为参数记录，不能声称未观察的间隔里发生了逐秒选择。
 
-同一人物的一次决策只提交一个需要生活时间的主要行动；记忆检索不改变世界。
+同一人物的一次决策只提交一个需要生活时间的主要行动；一单购买可含多件商品、一餐可含多件持有食品，
+它们仍分别是一个购买或一个进食行动；记忆检索不改变世界。
 已接受后不能在同一时刻继续免费浏览、工作和进食。后续行为等待活动反馈或合法中断。
 拒绝后的重新选择有有限决策预算，耗尽后记为人物决策失败；不能自动替它选一个行动。
 
@@ -552,13 +566,14 @@ AS2 现有直接复用父目录的恢复入口需要改造；环境恢复返回�
 
 ## LifeAgent 的人格、记忆与 dreaming 边界
 
-人格档案包含职业与技能、生活作息倾向、内容偏好、消费习惯、风险倾向和可解释的初始状态。
-职业由 `occupation` 保存，作息、消费与风险倾向分别使用 `routine_preference`、`consumption_preference`、
-`risk_preference` 的明文描述，并随完整人物档案进入实际模型请求。正式人物偏好夜间睡眠、白天持续活动，
-购买前比较可见价格与当下需要、避免无需求囤积，偏好成本与履约明确的选择；这些是 `experiment_assumption`，
-不宣称来自旧数据中未提供的个体特征，也不规定行动时刻、数量或必须完成的日程。
+人格档案由 `background_story` 与编译产生的人物卡片 `PersonaCard` 构成：身份、关系、当下处境、时间锚点、时型、
+习惯签名、口味与应对方式（见《人物真实性修订合同》画像编译 v2）。卡片以不超过 600 汉字的中文文本进入实际模型请求；
+旧的 `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 模板字段与随机内容偏好浮点删除。
+正式人物的作息、消费与风险倾向都写在各自的 `background_story` 里并由卡片承载；这些是 `experiment_assumption`，
+不宣称来自旧数据中未提供的个体特征，也不规定行动时刻、数量或必须完成的日程；人物自己生成的当日计划不是日程脚本。
 人物收到自己可见的需求、资产、任务和内容，模型做出选择；不给固定的“先吃饭再工作”行为脚本。
 模型选择和提示使用 AS2 现有配置，正式运行固定端点、模型版本与参数；具体可用模型通过真实预检确认。
+大五参数只进入世界层动力学，不进入模型提示。
 
 沿用 AS2 记忆检索和归纳能力，补充每条记忆的来源事件与形成时刻。
 保存每次决策实际检索到的记忆，不仅保存最后一份 `MEMORY.md`。
@@ -759,6 +774,13 @@ dreaming 可以对已知经历做归纳，或提出“若未获得报酬是否�
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `test_labelkit_process.py`、`test_training.py` 和真实模型 trace |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `test_training.py`、`test_generation.py`、`test_rules.py` 和完整真实 deliver |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation`、`test_quality.py`、实际十二周 export/quality 与评估报告 |
+| 决策节律 | 无唤醒条件的边界不调用模型且留痕、每类唤醒条件各触发一次、重估间隔、计划段边界、睡眠不被打断 | `tests/life/test_wake_reasons.py`、`test_engine_feedback.py` |
+| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减 | `tests/life/test_sleep_two_process.py`、`test_felt_states.py`、`test_body.py` |
+| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` |
+| 两阶段决策 | 独白阶段无工具且落库、行动阶段回传 `reasoning_content`、独白进入行动请求、finish 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 分支 `test_agent_react_validation.py` |
+| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、交谈需共同在场、社交需要结算 | `tests/life/test_social.py` |
+| 画像编译 | 卡片字段完备、关系与时间锚点、覆盖率不足拒绝、大五与随机浮点不进提示 | `tests/profile/`、`tests/integration/test_persona_profile.py` |
+| 行为指标 | 指标可复现、按代码摘要分组、协议门禁阈值、行为分布只报告不裁定 | `tests/evaluation/test_behavior_metrics.py` |
 
 这些入口规定验收方式；实际通过的源码身份、命令与收据集中记录在 `docs/implementation-status.md`。
 短窗口、测试夹具、语义评审和完整十二周交付各自记录，不能相互替代。
@@ -881,9 +903,10 @@ AS2 的宿主调用上下文包含 agent_id、decision_id、action_id、观察�
 不能自动退出旧活动或自动挑选替代行动。配送、消息到达与其他人物活动独立推进。
 身体与活动进度按实际推进区间结算，暂停不计算活动产出，退出保留已完成部分，实验结束保留截断标识。
 
-普通清醒活动的反馈间隔以场景 `activity_feedback_seconds=900` 秒冻结。到达反馈边界时活动仍连续存在，
-人物根据实际进度选择继续、暂停或退出；继续请求不能造成零时间循环或把同一区间重复计入产出。
-游戏沿用明确的回合反馈边界；睡眠只在计划结束或可唤醒事件到达时提供决策机会，不每十五分钟强行唤醒。
+普通清醒活动的结算间隔以场景 `activity_feedback_seconds=900` 秒冻结；到达结算边界时活动仍连续存在。
+是否向人物提供决策机会由《人物真实性修订合同》的唤醒条件决定：无唤醒条件时环境按人物计划续行并留痕，
+有唤醒条件时人物根据实际进度选择继续、暂停或退出；继续请求不能造成零时间循环或把同一区间重复计入产出。
+游戏沿用明确的回合反馈边界；睡眠只在计划结束或可唤醒事件到达时提供决策机会。
 
 ### 文件职责
 
@@ -896,6 +919,10 @@ AS2 的宿主调用上下文包含 agent_id、decision_id、action_id、观察�
 | `src/worldmock/life/models.py`、`scenario.py`、`body.py` | 封闭请求和状态类型、场景校验、身体转换规则 |
 | `src/worldmock/life/activities.py`、`commerce.py`、`work.py`、`content.py`、`travel.py`、`game.py`、`rules.py`、`engine.py` | 全部生活活动、合同与验收、消费、内容揭示、道路与游戏引擎、统一环境执行 |
 | `src/worldmock/life/work_review.py` | 固定工作语义验收请求、有限输出协议纠正、结构化逐项结论与完整模型证据；不直接修改世界或付款 |
+| `src/worldmock/life/sleep.py`、`felt.py`、`schedule.py`、`narration.py`、`social.py` | 两过程睡眠与睡眠不足账、体感分级与滞回、唤醒条件与当日计划、自然语言场景投影、在场人物与消息（见修订合同） |
+| `src/worldmock/profile/` | 人物卡片抽取、大五到世界层动力学映射、卡片渲染与覆盖率校验；不再产生随机偏好浮点 |
+| `src/worldmock/evaluation/behavior_metrics.py` | 行为指标：自主决策率、唤醒原因、等待、就寝、进食多样性、活动分布距离、人格可区分性、记忆重复率 |
+| `scripts/render_day.py` | 从足迹确定性投影人物一天的时间线与叙事，供导出与审阅 |
 | `src/worldmock/corpora/`、`corpora/` | 成熟数据读取程序、规范化材料、来源和许可清单；原文与参考答案分开 |
 | `src/worldmock/delivery/`、`labelkit-projects/` | LabelKit 项目、事实透传、语义校验、训练加载、规则夹具与交付清单 |
 | `src/worldmock/delivery/replay.py` | 认证实际反事实分支、父检查点及干预，并构造按日来源窗口 |
@@ -939,11 +966,14 @@ AS2 维护分支的精确路径以本文 AS2 核心改动清单为基础；新�
 以及超出该精度的真实不足仍失败。近零绝对比较依据为
 [Python 3.12 math.isclose](https://docs.python.org/3.12/library/math.html#math.isclose)；
 `1e-9 kcal` 是本项目明确选定的数值精度，并非生理模型精度。
-清醒每小时积累一小时睡眠不足，睡眠每小时恢复两小时，下限为零。
-工作效率曲线节点为 `(0, 1.0)、(8, 1.0)、(16, 0.85)、(24, 0.65)`，食品利用效率节点为
-`(0, 0.90)、(8, 0.90)、(16, 0.85)、(24, 0.80)`；节点之间线性插值，两端取边界值。
-低于 800 kcal 和 400 kcal 分别给出饥饿及紧急提示，提示不替人物选择动作。
-娱乐需要取零到一，清醒每小时增长 0.08，娱乐时按偏好和实际接触时长减少；重复接触次数与效果全部留痕。
+睡眠状态按《人物真实性修订合同》身体语义一节的两过程模型与睡眠不足账计算：`sleep_pressure` 清醒时以
+18.2 小时的时间常数趋近 1、睡眠时以 4.2 小时衰减，入睡与醒来阈值 0.67 与 0.17 按昼夜相位振幅 0.12 摆动；
+`sleep_deficit_hours` 清醒每小时累积 `sleep_need_hours / (24 − sleep_need_hours)` 小时（默认需要量 7.5 小时，即约 0.45），
+睡眠每小时恢复一小时，下限为零、上限 24。工作效率曲线节点为 `(0, 1.0)、(8, 1.0)、(16, 0.85)、(24, 0.65)`，
+食品利用效率节点为 `(0, 0.90)、(8, 0.90)、(16, 0.85)、(24, 0.80)`，输入均为 `sleep_deficit_hours`；
+节点之间线性插值，两端取边界值。低于 800 kcal 和 400 kcal 分别记录饥饿及紧急事实；人物收到的是体感分级
+而非数值，分级不替人物选择动作。娱乐需要取零到一，清醒每小时增长 0.08，娱乐时按偏好和实际接触时长减少；
+社交需要取零到一，清醒每小时增长 0.04，交谈、通话与共同用餐按明确规则减少；重复接触次数与效果全部留痕。
 全部系数作为实验假设记录；真实人类生理有效性不是既得结论。
 
 币种 CNY；人物初始余额 800000 分、雇主预算 4000000 分、两商家各 10000000 分。
@@ -1209,6 +1239,7 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | Uncle Bob | 干净本地提交的隔离 worktree，基线通过后进行源码语义突变，逐条记录 killed/survived；修复测试缺口后原样复测 |
 | 十二周 | DeepSeek 真实选择，已确认时钟达到结束边界、足迹与模型证据完整、正式输出和完整窗口交付通过 |
 | 比较 | 两套真实输入认证、全部必需指标、外部参照限制、实际盲评与报告完成 |
+| 行为节律 | 正式十二周启动前，同一代码摘要的双人 24 小时验证运行至少三次，全部通过《人物真实性修订合同》的协议门禁；行为分布指标如实报告，不作为放行条件 |
 | 路径清理 | 旧手机生产文件、测试、配置、依赖、experiments、旧.runtime及旧环境删除；只保留经验档案和新工程 |
 
 所有新增或修改的生产代码遵循中文 Doxygen 注释、英文代码/日志/报错、每行至多 120 字符、
@@ -1221,6 +1252,8 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 - [AS2 核心和成熟方案](research/as2-feasibility.md)：固定源码、Ray 次序、事件调度和故障传播。
 - [生活、内容与数据交付](research/life-data-feasibility.md)：实际依赖、来源选择和真实消费者。
 - [旧数据与评估合同](research/realism-evaluation.md)：现场哈希、修复链、共同观察范围和统计方法。
+- [人物真实性根因分析](research/realism-root-cause-2026-09-17.md)：七视角审计、跨运行定量、呈现对照实验与业界对照；
+  其建议经文末《人物真实性修订合同（2026-09-18）》裁决后成为规范。
 
 上述报告中的建议经本文裁决后才成为规范。共同检查点仍以 SQLite 完整记录为唯一提交权威：
 人物、游戏及必要文件先落为不可变素材，随后事务提交世界快照与全部引用；独立 JSON 只能作为可核验收据，
@@ -1267,10 +1300,13 @@ CLI 的退出状态、产物、运行身份和哈希仍由交付程序严格验�
 
 ### 真实模型请求与工作验收补充
 
-AS2 人物原生决策和独立工作验收固定官方 DeepSeek `https://api.deepseek.com/beta`、`deepseek-flash`、
-`thinking=disabled`、`tool_choice=required`、`max_retries=0`，每个函数声明 `strict=true`，不发送 `reasoning_effort`。
-运行身份冻结完整 `base_url`，包含 `/beta`，不再仅保存 hostname。相同 AS2 Dispatcher 的严格工具调用已实际通过；
-关闭思考是正式实验配置选择，运行中不变更参数。模型身份和实际响应版本分别记录。
+AS2 人物原生决策和独立工作验收固定官方 DeepSeek `https://api.deepseek.com/beta`、`deepseek-flash`、`max_retries=0`，
+每个函数声明 `strict=true`，不发送 `reasoning_effort`。人物决策分两阶段（见《人物真实性修订合同》两阶段决策一节）：
+内心独白阶段 `thinking=disabled`、不带 `tools`、`temperature=1.3`；行动阶段 `thinking=enabled`、`tool_choice=auto`
+（思考模式拒收 `required`，真实探针见 `docs/implementation-status.md`），并按 DeepSeek 文档在同一决策的后续请求中
+完整回传 `reasoning_content`。独立工作验收保持 `thinking=disabled`、`tool_choice=required`。
+运行身份冻结完整 `base_url`，包含 `/beta`，不再仅保存 hostname；两阶段各自的参数进入 `model_identity`，运行中不变更。
+相同 AS2 Dispatcher 的严格工具调用已实际通过；模型身份和实际响应版本分别记录。
 
 严格工具使用 [DeepSeek 官方工具合同](https://api-docs.deepseek.com/guides/tool_calls/) 支持的 Schema 子集：
 全部对象列出所有必填字段并禁止额外字段；文本约束使用 `pattern`，数值保留范围，身份使用明确枚举。
@@ -1369,3 +1405,364 @@ LabelKit输入、输出、trace、report、规则表达式与结果、训练收�
 模式仍具有不同身份。未来目标及其来源只在语义评审通过后的 `attach_facts` 阶段加入最终成品。
 `activity_boundaries` 保留当前知识截止内已看到的完成、取消、失败或截断及其原始原因，
 不能为了标注活动结束而把未来真实目标泄漏到动作前窗口。窗口本身仍明确为决策或自然日范围。
+
+## 人物真实性修订合同（2026-09-18）
+
+本合同依据 [人物真实性根因分析](research/realism-root-cause-2026-09-17.md) 的裁决结果修订人物与环境之间的交换规则、
+身体语义、观察投影、记忆、社交、日程与画像编译，并规定验收指标与文件修改清单。
+根因分析的结论是：四个假设不是并列的，而是一条因果链——交换规则（H2）是主因也是放大器，给模型看的呈现（H3a）
+是最便宜的杠杆，数据缺的是品类而不是条数（H1），画像文本本身有效而编译层是死通道（H4）。
+本合同按这条链排定条款；每一节先给冻结条款，再给依据。全部数值参数属于 `experiment_assumption`，
+除明确引用文献的常数外不宣称已测量的人类参数。
+
+本合同改变提示词、观察合同、工具 Schema 与世界状态结构，`prompt_sha256`、`tool_schema_sha256`、`code_sha256`
+随之改变，`WorldState` 新增 `schema_version=2`（旧状态无此字段，加载即拒绝）；此前运行的模型请求记录与新运行不再跨版本可比，
+这是有意为之，不为旧记录保留兼容读取路径，也不维护旧观察格式的别名。
+
+```mermaid
+flowchart LR
+    W[世界：物件、他人、日历] --> P[确定性投影：场景段落 + 精简事实 + 体感分级]
+    K[人物卡片：身份、关系、时间锚点、习惯签名] --> P
+    P --> M1[独白阶段：无工具，一两句第一人称]
+    M1 --> M2[行动阶段：原生工具，恰好一个主要行动]
+    M2 --> E[LifeEnv 结算：900 秒边界，只在唤醒条件时再次询问]
+    E --> F[足迹：数值、唤醒原因、独白、记忆]
+    F --> B[行为指标与门禁]
+```
+
+### 修订依据与裁决
+
+| 已核实症状 | 直接机制 | 本合同条款 |
+| --- | --- | --- |
+| 53.9% 的决策是 `continue_activity`，吃掉 53–62% 的 token；记忆一半是边界簿记 | 900 秒边界每次都唤醒模型并强制写记忆 | 决策节律：结算边界与唤醒条件分离；记忆可为空 |
+| 19:53 / 21:44 就寝，计划睡 11 小时；李凡三次运行均早于画像的凌晨一点 | `sleep_debt_hours` 等于醒着小时数，无饱和无昼夜门控，原值直接进提示 | 身体语义：两过程模型 + 睡眠不足账 + 体感分级 |
+| 07:00 开车去 08:00 才开门的公司并空等近两小时，21 个代码版本未改善 | 家中无早晨可供性；任务 09:00 才可见；模型按动机权重推翻直觉；无日程骨架 | 日程骨架；世界素材品类；动机层不进提示 |
+| 三次同一碗面，冰红茶三次放弃 | 正餐只有 7 碗方便面；活动进行中隐藏购买/进食工具；一轮一件；首购写成偏好回灌；最廉候选恒为西柚汁 | 商务与进食；观察投影；记忆合同；世界素材品类 |
+| 两人同办公室清醒共处 10.86 小时互不可见，Relationships 恒空 | 观察无在场人物字段；无通讯工具；画像无关系字段 | 社交最小可行版；画像编译 v2 |
+| 21 项生活活动 40 个运行零命中 | relief 为空、成本随时长线性、采样自全库而非启用集、工具描述未列出 | 动机层修正；世界素材品类；工具面一致性 |
+| 每次请求 4.5 万 token，观察被序列化两遍，商品全表常驻，画像只占 0.25%，system prompt 86% 是协议 | vendor 观察记录双写；商品无遗忘；画像 JSON 整体注入；协议文本替换了身份前言 | 观察投影与提示合同 |
+| 两条时间线分不出人格（同代码同人/异人 JS 距离差 0.02；最近邻 59%，p=0.22） | 大五→9 参数只作用于无人采纳的 hints，却以 JSON 进提示被当 reward；222 个随机偏好浮点与文本反向 | 画像编译 v2；动机层不进提示 |
+| 李凡的 MEMORY.md 第一条是 "Marketing analyst" | 巩固提示不传画像且带示例身份；约半数运行残留 | 记忆合同 |
+
+### 决策节律：结算边界与唤醒条件
+
+结算边界与决策机会分离。`activity_feedback_seconds=900` 继续作为身体、进度与内容的结算粒度；
+每个结算边界照常产生 `activity_progress` 事件并结算资源。是否在该边界向人物提供决策机会，只由下列唤醒条件决定：
+
+| `wake_reason` | 触发条件 |
+| --- | --- |
+| `planned_end` | 当前活动到达人物提交的计划持续时间 |
+| `felt_band_change` | 任一体感分级与上一次实际提供决策时的分级不同（见身体语义） |
+| `message_arrival`、`delivery_arrival` | 新消息或配送到达本人 |
+| `task_available`、`task_due_soon`、`work_review_result` | 新任务可见、任务截止前 30 分钟、工作验收结果返回 |
+| `plan_block_boundary` | 到达人物自己当日计划的某一段起点（见日程骨架） |
+| `reconsideration_interval` | 距上一次实际决策已满 `reconsideration_interval_seconds=5400` |
+| `location_hours_change` | 当前地点即将闭店（提前 15 分钟）或已开门 |
+| `person_arrived`、`person_left` | 同一地点的在场人物集合变化 |
+| `activity_infeasible` | 能量或位置条件已不允许当前活动继续 |
+| `rejection_feedback`、`wake_from_sleep`、`run_start` | 沿用现有语义 |
+
+没有任何唤醒条件的边界称为静默边界：环境按人物已提交的计划续行，不调用模型，不产生 `decision_started`、
+`observation`、`model_request`、`memory_updated` 事件；`activity_progress.data` 增加 `decision_offered=false`
+与 `wake_reasons=[]`。提供决策的边界记录 `decision_offered=true` 与实际命中的全部唤醒原因。
+续行不是环境替人物选择：人物的选择是它提交的计划持续时间，静默边界只是不打断这一选择。
+
+`reconsideration_interval_seconds` 是场景参数，默认 5400 秒；睡眠不受该间隔影响，只在计划结束或唤醒事件时提供决策。
+游戏保持逐回合反馈。下一次决策时刻为下列各项的最小值：计划结束、体感分级预计跨越时刻（复用现有
+`next_body_boundary_seconds` 预测，不另写能耗或压力公式）、已排定的通知与配送、计划段起点、重估间隔到期、
+地点营业变化。连续业务拒绝上限、动作结算与幂等规则不变。
+
+依据：Humanoid Agents 每十五分钟只在情绪非中性或某项需要 ≤3/10 时才提示模型；Generative Agents 按计划执行，
+只在感知到需要反应的事件时重新规划；GOAP 只在计划失效或更相关目标出现时重规划；人类注意的基本休息—活动周期约 90 分钟
+（Kleitman 的 BRAC），是重估间隔取值的依据。
+
+### 身体语义：两过程睡眠、睡眠不足账、体感分级
+
+`BodyState` 新增 `sleep_pressure`、`sleep_deficit_hours`、`social_need`、`mood_valence`，删除 `sleep_debt_hours`；
+不保留旧字段别名，旧检查点不可加载即为预期。
+
+两过程睡眠（Daan、Beersma 与 Borbély 1984；参数取 npj Biological Timing and Sleep 2025 综述给出的标准值）：
+
+```text
+清醒：S(t+dt) = 1 − (1 − S(t)) · exp(−dt / 18.2h)
+睡眠：S(t+dt) = S(t) · exp(−dt / 4.2h)
+入睡阈值 H(t) = 0.67 − 0.12 · cos(2π (t − t_min) / 24h)
+醒来阈值 L(t) = 0.17 − 0.12 · cos(2π (t − t_min) / 24h)
+困意 = (S − L(t)) / (H(t) − L(t))，截断到 [0, 1.2]
+```
+
+`t_min` 为两条阈值的最低点时刻，取人物卡片的 `chronotype_midsleep`（自由日睡眠中点，MCTQ 口径），默认 04:00；
+晚型人物中点每晚一小时，阈值曲线整体后移一小时。
+困意分级：`< 0.5` 清醒、`0.5–0.75` 有点乏、`0.75–0.9` 困、`0.9–1.0` 很困、`≥ 1.0` 撑不住。
+按默认参数，07:00 起床的人物在 20:00 为“有点乏”、21:00 为“困”、22:00 为“很困”、约 22:45 起“撑不住”；
+睡眠中点 05:00 的晚型人物整体后移一小时。初始 `sleep_pressure` 由场景起点时刻按已睡时长反推，不再假定零。
+
+睡眠不足账与效率曲线：`sleep_deficit_hours` 清醒每小时累积 `sleep_need_hours / (24 − sleep_need_hours)`，
+睡眠每小时恢复一小时，下限零、上限 24；`sleep_need_hours` 来自人物卡片，允许 7–9 小时，默认 7.5。
+工作效率与食品利用效率曲线的输入改为 `sleep_deficit_hours`，节点值不变。
+这两个量分工明确：`sleep_pressure` 决定人物此刻困不困，`sleep_deficit_hours` 决定连续缺觉对效率的累积影响。
+
+饥饿体感：`appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal − 400), 0, 1) · (1 + 0.17 · cos(2π (t − 20h) / 24h)) + 餐时项`，
+`appetite_anchor_kcal` 为场景参数，默认 1200；由此 800 kcal 对应“饿”、400 kcal 对应“饿得难受”，与既有阈值一致。
+昼夜项依据 Scheer、Morris 与 Shea 2013 的内源饥饿节律（08:00 低谷、20:00 峰值、峰谷差 17%）；
+餐时项在人物卡片声明的午餐、晚餐窗口内加 0.15，窗口外为零，属实验假设。
+分级：`< 0.15` 不饿、`0.15–0.35` 有点想吃、`0.35–0.6` 饿、`0.6–0.85` 很饿、`≥ 0.85` 饿得难受；
+800 kcal 与 400 kcal 仍作为世界事实记录饥饿与紧急，只是不再作为提示文本出现。
+
+娱乐需要分级：`< 0.3` 不闷、`0.3–0.6` 有点想放松、`≥ 0.6` 很想放松。
+社交需要 `social_need` 取零到一：清醒每小时增长 0.04；与在场人物交谈每小时减少 0.5、与联系人通话每小时减少 0.4、
+收到并阅读一条来自人物或联系人的消息减少 0.05、共同用餐每小时减少 0.3；分级 `< 0.3` 不想找人、`0.3–0.6` 想和人说说话、
+`≥ 0.6` 有点孤单。数值为实验假设；Humanoid Agents 的 social 需要与 The Sims 的 Social motive 是结构依据。
+
+情绪：`mood_valence` 取 −1 到 1，按事件加脉冲并以半衰期衰减。脉冲表：工作验收通过 +0.3、被退回 −0.3、
+任务到期未交 −0.4、收到人物或联系人的消息 +0.1、连续两小时以上饿或困 −0.1/小时、完成计划段 +0.05、
+业务拒绝 −0.05。半衰期 45 分钟乘以 `(1 + 0.3 · N_norm)`，脉冲幅度乘以 `(1 + 0.5 · N_norm)`，`N_norm` 为神经质
+归一到 [−1, 1] 的值。分级：`< −0.4` 很烦、`−0.4 – −0.15` 有点烦、`−0.15 – 0.15` 平静、`0.15 – 0.4` 挺好、`≥ 0.4` 很开心。
+情绪只影响体感呈现与记忆重要度加权，不直接改变任何动作可行性。OCC 评价理论与 PAD 心境模型是结构依据；
+脉冲与半衰期是实验假设。
+
+滞回规则：分级在每个结算边界重算，但只有与“上一次实际提供决策时的分级”不同才构成唤醒条件；
+这以决策而非结算为参照，天然抑制在分级边界附近的抖动，不另设阈值参数。
+
+所有数值继续写入 `activity_progress` 与 `observation` 事件的 `body` 字段供评估与导出；给模型的提示只含分级文本。
+
+### 观察投影与提示合同
+
+给模型的 user 消息由三部分组成，全部由确定性代码渲染，不调用模型：
+
+| 部分 | 内容 | 上限 |
+| --- | --- | --- |
+| `persona_card` | 人物卡片渲染文本（见画像编译 v2） | 600 汉字 |
+| `scene` | 中文自然语言场景段落：时间与星期、所在地点与在场的人、体感分级、当前与暂停活动的进度、今天的计划与当前段、收件箱头、待办任务一句话、可达地点与营业状态、手边持有物、最近一次动作结果的一句话 | 800 汉字 |
+| `facts` | 工具需要的精简结构：`current_time`、`location_id`、`people_here`、`inbox`、`tasks`（`task_id`、标题、截止、剩余合同工时、本轮新揭示的材料区间）、`routes`（目的地、方式、分钟、票价、是否可行）、`products`（仅店内或浏览后 30 分钟内，每件只含 `product_id`、名称、价格、热量、用餐时长）、`inventory`、`day_plan`、`felt`、`drive_summary`、`recent_action_results` 摘要 | 见字符预算 |
+
+以下字段不得进入提示：`world_state_version`、`end_time`、`affordance_contract`、`energy_feasibility`、
+`observation_event_id`、`motivation_hints`、`profile.motivation`、`profile.entertainment_preferences`、
+`game_catalog` 全表（只在人物在家且询问娱乐时以名称列表出现）、完整活动快照、路线坐标与几何。
+能量可行性上限继续约束工具 Schema，只出现在工具参数描述中。
+
+观察不得重复序列化：AS2 观察记录只保留结构化 `data`，`build_react_messages` 不再同时写入 JSON 字符串副本。
+商品可见期：`visible_product_ids` 在离开商家地点或距浏览 1800 秒后清空；配送浏览同样适用。
+工作材料只揭示自上次决策以来新读到的区间，单次至多 2000 字符；完整材料进度仍由结算记录。
+字幕与内容片段只交付本次结算新跨过的区间；横跨边界的同一条字幕不重复交付。
+`recent_action_results` 只含状态、一句话消息与必要身份，不含完整活动快照。
+
+系统提示以身份为主：恢复 AS2 `person_prompt` 的身份前言语义（“你不是 AI 助手，你是一个有自己性格、需要与处境的人”），
+按词数计人物与情境部分不少于 50%；工具协议、引用规则与阶段规则移入各工具的 `description`；
+回合预算只在剩余回合 ≤ 2 时以一句话出现。提示中不得出现“评审”“评分”“引擎期望”等把人物置于被评价位置的措辞；
+地点礼仪以场景描述表达（工位、茶水间、午休时段），不以禁令句出现。
+
+字符预算：单次决策的 user 消息不超过 40000 字符，system 消息不超过 3000 字符；超限是运行故障，不截断、不删字段。
+`quality.json` 报告每次决策的 prompt token 分布；正式运行的中位数目标为不超过 15000 token，该目标只报告不放行。
+提示与场景文本使用场景 `language=zh-CN`。
+
+依据：Liu 等 2023 的中段信息利用率下降；Humanoid Agents 把内部状态翻译为 modifier + adjective 的自然语言；
+Generative Agents 用自然语言句子而不是结构表描述观察；角色卡实践中示例言行比形容词与数值更有效。
+
+### 两阶段决策
+
+每次提供决策机会时，人物模型调用分两阶段，两次调用都留完整证据：
+
+| 阶段 | 请求 | 输出 | 参数 |
+| --- | --- | --- | --- |
+| 独白 | system 身份前言 + `persona_card` + `scene` + 记忆摘要；不带 `tools` | 一到三句第一人称中文，说出此刻的感受与打算，不超过 200 汉字 | `thinking=disabled`、`temperature=1.3`、`max_tokens=400` |
+| 行动 | 现有 ReAct：上述内容 + `facts` + “你刚才心里想的是：<独白>” + 原生工具 | 恰好一个生活动作，再 `finish` | `thinking=enabled`、`tool_choice=auto`；后续请求完整回传 `reasoning_content` |
+
+独白文本写入 `decision_started.data.inner_monologue` 并作为该决策的 `model_request`/`model_response` 事件保存；
+独白阶段超长或为空是协议错误，消耗一个回合后重试一次，再失败则本次决策失败。独白不是动作，不改变世界。
+行动阶段的 ReAct 预算、非法响应反馈与 finish 合同沿用现有条款；`finish.memories` 允许空列表（见记忆合同）。
+
+依据：Tam 等 2024 表明格式约束越严推理越差，而先自然语言再转格式与自由文本几乎无损；
+DeepSeek 文档规定思考模式下采样参数无效、带 `tools` 的后续请求必须回传 `reasoning_content`、
+一般对话的推荐温度为 1.3；Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入。
+信息范围：独白是人物私有内容，只允许 dreaming 任务读取，不进入动作与意图任务的可见输入。
+
+### 记忆合同
+
+`finish.memories` 为 0–8 条；无新事件时允许空列表，AS2 运行时不再以空列表为错误。
+每条记忆的 `text` 使用人物语言，不得包含事件标识、请求哈希或任意十六进制身份；引用只放 `refs`。
+记忆类型枚举增加 `event`（具体情节：谁、哪里、发生了什么、感受如何），`routine` 与 `observation` 保留。
+写入前按 bigram Jaccard ≥ 0.6 与最近 24 小时同类型记忆合并：合并只增加计数与最近时刻，不重复追加文本。
+
+MEMORY.md 巩固触发改为三选一：自上次巩固以来 `importance` 累计 ≥ 3.0、待巩固记忆 ≥ 10 条、人物进入睡眠后的第一个边界。
+不再因单条 preference 类型触发全文重写。巩固请求传入 `persona_card`，使用人物语言，章节固定为：
+关于我、关系与常联系的人、近期在意的事、最近发生的重要事情（允许日期与具体情节，保留 3–5 条）、
+稳定的习惯与偏好、约束。巩固提示不含任何示例身份或示例地点编号；进入巩固的候选包含 `event` 与 `observation`
+（`importance ≥ 0.6`），不再只放行规则类记忆。就寝后的巩固同时执行一次反思：由三个问题引导生成不超过五条洞见，
+每条引用支持它的记忆身份，这是 Generative Agents 反思机制的直接借用。
+
+### 动机层：内部仪表，不进提示
+
+动机评分器继续计算并写入 `observation.data.motivation_internal`（供评估与研究），但不再向模型展示候选、名次与概率。
+模型收到的是 `drive_summary`：由体感分级、今日工作缺口与待办拼成的一句中文（例如“你有点饿，今天的工作还差两小时，
+晚上想放松一下”），不含数字权重。评分器修正为：成本按候选时长归一（单位小时效用），价格只在成本项计一次；
+进食候选只接受热量不低于 300 kcal 或最接近缺口的正餐类食品并返回前三名；同一娱乐家族至多两条候选，
+娱乐需要低于 0.3 时不生成娱乐候选；生活活动只从人物启用集采样，并具备 relief 通道；
+近 24 小时内已食用的商品在进食候选中按 `1 / (1 + 次数)` 降权（Rolls 1981 的感官特异性饱足）。
+Dill 的双效用（先按类别排序再在类内加权随机）是评分器修正的结构依据；本合同只修正内部仪表，不据此替人物选择。
+
+### 日程骨架
+
+人物在每天第一次醒来的决策中（`wake_from_sleep` 或 `run_start`）必须先提交 `plan_day`：5–8 段
+`{start, end, intent_kind, note}`，覆盖到当日就寝，段不重叠、不越过当日结束；`intent_kind` 取活动家族闭集
+（睡眠、晨间例程、通勤、工作、用餐、休息、娱乐、社交、家务、运动、外出）。计划是人物的自我承诺，
+以 `action_result` 登记，进入观察的 `day_plan`，并在场景段落中以“今天的打算”出现。
+环境不执行计划步：到达某段起点只构成 `plan_block_boundary` 唤醒条件，由人物当场决定是否照做。
+`revise_day_plan` 可改写尚未开始的段；计划与实际的偏离由 `behavior_metrics` 统计并报告。
+计划段的时间锚点来自人物卡片（起床、出门、午餐、晚餐、就寝窗口），场景日历只提供机会与约束。
+依据：Generative Agents 的 5–8 段日计划递归分解；Stardew Valley 与 Skyrim 的日程表说明像人的日常八成来自骨架。
+本合同刻意不做递归分解到 5–15 分钟：细粒度由唤醒条件与人物即时决策承担，避免让计划变成脚本。
+
+### 社交最小可行版
+
+社交在 `LifeEnv` 内实现，复用现有消息通道与事件类型；不装配 AS2 `SimpleSocialSpace`，因为其状态不进入本项目的足迹事务，
+且本设计规定 `LifeEnv` 是唯一的生活规则与足迹环境。
+
+| 能力 | 合同 |
+| --- | --- |
+| 在场可见 | 观察 `people_here` 列出同一地点的其他人物：姓名、当前活动家族、是否可交谈（清醒且非主动游戏）；变化构成唤醒条件 |
+| 消息 | `send_message(recipient_id, text)` 为瞬时动作；收件方在下一次观察的 `inbox` 看到，送达记录为 `environment_event kind=message_arrival`；文本不超过 300 汉字 |
+| 交谈 | `start_social_activity(kind=chat, partner_id, duration)` 要求共同在场且对方可交谈；作为发起方的前台活动结算，对方收到一条 `chat_invite` 消息，对方若在其下一次决策开始与发起方的交谈则双方各按 0.5/小时减少社交需要，否则发起方按 0.2/小时 |
+| 通话 | `start_social_activity(kind=call, partner_id, duration)` 面向场景联系人，10–60 分钟，占用注意力，按 0.4/小时减少社交需要 |
+| 联系人 | 场景 `contacts[]` 按人物声明：`contact_id`、称谓、关系、亲密度 0–30、可用渠道、`reply_policy ∈ {none, template, model}` |
+| 联系人回复 | `model` 策略对每条收到的消息最多生成一次回复：独立 DeepSeek 调用、`thinking=disabled`、不超过 200 汉字、保存完整请求响应，来源标记 `source_kind=model_npc`；回复只进入收件箱，不改变任何资源或任务 |
+
+其他人物在观察中只暴露姓名、活动家族与可交谈状态，不暴露其身体数值、余额、任务或记忆。
+盲评包与导出的活动记录增加地点与同伴两列；同伴只用匿名对象引用。
+依据：Generative Agents 的感知与对话触发、Humanoid Agents 的 closeness 0–30、Concordia 以 Game Master 生成带来源的 NPC 反应。
+
+### 世界素材品类要求
+
+数据扩容按可供性品类而不是按条目数量验收；准入检查对下列要求逐条执行，不满足即拒绝启动。
+
+| 品类 | 要求 |
+| --- | --- |
+| 地点 | 至少覆盖家、办公室、食堂或餐馆（≥2）、便利店、超市或菜场、公园或健身场所；从已取得的张江 OSM 探针选真实兴趣点，路线由 OSRM 冻结 |
+| 家的可供性 | 晨间例程（洗漱 15 分钟）与家中储备食品：场景初始储备 7 份早餐类食品，进食扣减，超市购买补充；储备为场景假设并留痕 |
+| 办公室的可供性 | 茶水间饮水（免费、5 分钟、微量娱乐缓解）、会议室（会议任务）、同事在场 |
+| 正餐 | 至少 30 个正餐类商品（热食、餐馆菜、外卖套餐），热量来源为中国食物成分表或 USDA FNDDS 并标注来源，价格 15–45 元为场景假设，用餐时长 20–40 分钟，可堂食或配送 |
+| 内容 | 每个观看条目必须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换 |
+| 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配 |
+| 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（娱乐、社交、健康）；启用集由画像编译产生 |
+| 联系人 | 每个人物至少两名联系人（同事映射到其他人物、老友或家人为场景联系人） |
+
+当前场景目录只用了 192 条内容中的 10 条、129 种食品中的 5 种；因此本合同不要求增加同类条目数量，
+只要求补齐上表缺失的品类。语料获取仍走 `prepare-corpora`，来源、许可与哈希进入 `corpora/manifest.json`。
+
+### 画像编译 v2
+
+画像编译从 `background_story` 产出结构化人物卡片 `PersonaCard`，字段：身份（年龄、职业、居住方式）、
+关系（姓名或称谓、角色、亲密度、渠道）、当下处境（本周在忙什么、在意什么）、时间锚点（起床、出门、午餐、晚餐、就寝窗口）、
+`chronotype_midsleep`、`sleep_need_hours`、习惯签名 `{trigger, response, time_window}`、口味（内容题材、饮食喜好、常用媒介）、
+应对方式（压力时做什么）。抽取沿用三次一致性口径；卡片经确定性渲染成不超过 600 汉字的中文文本进入提示。
+
+大五仍抽取，但只进入世界层动力学：神经质决定情绪脉冲幅度与半衰期、外向性决定社交需要增长率与交谈缓解量、
+开放性决定内部评分器的多样性权重、宜人性决定接受邀约与回复消息的倾向、尽责性决定内部评分器的现时偏好。
+大五分数、九参数与任何权重不得进入提示。`entertainment_preferences` 随机浮点删除；
+内容偏好由卡片口味与内容 `genre[]` 确定性匹配得到 `taste_weights`，只供内部评分器与浏览排序使用。
+`occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 四个模板字段删除，其内容并入卡片。
+
+`validate` 输出 `persona_coverage.json`：每条习惯签名的 `response` 与每个口味条目是否映射到世界中至少一个可执行目标或条目；
+可执行比例低于 80% 时校验失败，并列出缺失项。这一校验防止画像写了播客而世界里没有播客。
+依据：Fleeson 2001 与 Mischel–Shoda CAPS 说明单日行为由情境与 if-then 签名决定，特质只解释小部分方差；
+Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
+
+### 商务与进食
+
+`purchase.items` 为 1–5 件商品与数量，同一商家、同一履约方式、一次付款、一次配送；结算时任一件不可购则整单拒绝，不自动删件。
+`consume.items` 为 1–3 件已持有的食品，同一地点一次进食，用餐时长取最长者，热量与效果累加；
+非食品使用仍为单件。家中储备与超市补货按世界素材品类要求执行。
+
+### 呈现与导出
+
+`scripts/inspect_run.py` 读取 `tool_name`；`export` 增加确定性投影 `timeline/<agent>-<date>.md`
+（合并静默边界与同一活动、显示名称而非标识），由新增 `scripts/render_day.py` 生成，`tools/run-viewer.html` 增加同一投影的“一天”视图。
+盲评活动记录增加地点与同伴列。dreaming 任务的窗口输入可包含 `inner_monologue` 与 `scene`；动作与意图任务的可见输入不变。
+训练目标是否改为叙事化 completion 属于交付合同的后续修订，本合同不改变 LabelKit 最终数据合同的字段。
+
+### 验收指标与门禁
+
+`worldmock.evaluation.behavior_metrics` 从冻结足迹确定性计算下列指标，按 `code_sha256` 分组写入 `quality.json`：
+
+| 指标 | 定义 | 门禁 |
+| --- | --- | --- |
+| 观察重复率 | user 消息中同一观察出现次数 | 协议门禁：必须为 1 |
+| 静默边界占比 | 未提供决策的结算边界 / 全部结算边界 | 协议门禁：清醒活动 ≥ 0.5 |
+| 决策 token 中位数 | `model_request` 的 prompt token | 报告；目标 ≤ 15000 |
+| 有效自主决策率 | 最终动作既非 continue 也非 wait 的决策占比 | 报告 |
+| 唤醒原因分布 | 各 `wake_reason` 计数 | 报告 |
+| 等待分钟与早到分钟 | wait 活动总分钟；到达办公室早于开门的分钟 | 报告 |
+| 就寝与起床时刻、睡眠时长 | 由 sleep 活动区间计算 | 报告，与人物卡片就寝窗口比较 |
+| 进食多样性 | consume 商品的 Simpson 集中度与 24 小时重复率 | 报告 |
+| 活动分布距离 | 十类活动日时间分布与 2018 年全国时间利用调查城镇工作日口径的 JS 距离 | 报告 |
+| 人格可区分性 | 同代码 ≥3 次运行中两人物活动分布的留一最近邻准确率 | 报告 |
+| 社交分钟与消息数 | 交谈、通话分钟；发送与收到的消息 | 报告 |
+| 记忆重复率 | 同类型记忆两两 bigram Jaccard ≥ 0.6 的比例 | 协议门禁：≤ 0.2 |
+| MEMORY.md 身份残留 | 含示例身份或示例编号 | 协议门禁：0 |
+
+协议门禁用于放行；行为分布指标只报告，不作为放行条件，也不反馈成行动脚本。
+外部参照仅为 2018 年全国时间利用调查公报，且各项口径不同、均为居民均值：工作日睡觉休息 9 小时 13 分钟、
+个人卫生护理 50 分钟、用餐 1 小时 44 分钟、就业参与者工作日 7 小时 40 分钟、城镇交通 44 分钟、工作日社会交往 21 分钟、
+城镇健身锻炼 41 分钟、看电视 100 分钟、休闲娱乐 65 分钟；比较时逐项注明口径，只作方向对照，不当作目标人物真值。
+
+### 文件修改清单
+
+| 路径 | 修改 | 对应测试 |
+| --- | --- | --- |
+| `custom/agents/life_agent.py` | `build_react_messages` 改为卡片 + 场景 + 事实三段，删除观察副本与画像 JSON；`_LIFE_INSTRUCTIONS` 重写为身份前言；`_life_tool_descriptions` 列出启用生活活动并与 Schema 一致；`_available_action_models` 在商家或可配送时开放购买与进食；新增 `plan_day`、`revise_day_plan`、`send_message`、`start_social_activity` 请求模型；`FinishRequest.memories` 允许空；独白阶段调用与 `reasoning_content` 回传 | `tests/integration/test_life_agent_protocol.py`、`test_grounded_targets.py`、`tests/life/test_activity_menu.py` |
+| `custom/envs/life_env.py` | 注册新工具与观察字段 | `tests/integration/test_runtime.py` |
+| `src/worldmock/life/engine.py` | `_observation_data` 改为两层投影并删除引擎字段；商品可见期；材料增量；结果摘要；`people_here`、`inbox`、`day_plan`、`felt`、`drive_summary`；`_advance_activities` 与 `_activity_decision_at` 按唤醒条件设定 `next_decision_at` 并写 `decision_offered`/`wake_reasons`；社交与计划动作结算 | `tests/life/test_engine_feedback.py`、`test_engine_round.py`、`test_grounded_observation.py`、新增 `test_wake_reasons.py`、`test_social.py`、`test_day_plan.py` |
+| `src/worldmock/life/body.py`、新增 `sleep.py`、`felt.py` | 两过程睡眠、睡眠不足账、社交需要、情绪；分级与滞回；`body_observation` 返回分级与数值两组 | `tests/life/test_body.py`、`test_body_flows.py`、新增 `test_sleep_two_process.py`、`test_felt_states.py` |
+| 新增 `src/worldmock/life/schedule.py`、`narration.py`、`social.py` | 唤醒条件与下一决策时刻、`DayPlan` 校验；场景段落渲染与字符预算；在场人物、消息送达、联系人回复策略 | 新增 `test_narration.py`、`test_wake_reasons.py`、`test_social.py` |
+| `src/worldmock/life/models.py`、`scenario.py` | `BodyState`、`ActivityState.wake_reasons`、`DayPlan`、`Message`、`Contact`、多件购买与多件进食请求、内容元数据、生活活动 Schema、`tasks[].assignee_agent_id`、`reconsideration_interval_seconds`、准入检查（分级、覆盖率、品类） | `tests/life/test_scenario.py`、`test_state_serialization.py`、`test_activity_schema.py`、`tests/catalog/test_admission.py` |
+| `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、启用集采样、relief 通道、重复进食降权、`drive_summary` 渲染、结果写入 `motivation_internal` | `tests/life/test_motivation.py`、`test_lifestyle.py`、`tests/catalog/test_affordance_shadow.py` |
+| `src/worldmock/life/activities.py`、`commerce.py`、`content.py`、`work.py` | 重估间隔与静默续行；多件购买、商品可见期、家中储备补货；字幕增量交付、题材与分级元数据；材料增量揭示、合同按人分配 | `tests/life/test_activities.py`、`test_commerce.py`、`test_content_progress_presentation.py`、`test_work_contracts.py` |
+| `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`catalog/rules/persona-mapping.toml` | `PersonaCard` 抽取、大五到动力学映射、卡片渲染、覆盖率校验、`taste_weights` | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` |
+| `src/worldmock/runtime.py`、`validation.py`、`cli.py` | 两阶段 `model_identity`；`validate` 输出 `persona_coverage.json`；`export` 生成时间线投影 | `tests/integration/test_runtime.py`、`tests/footprints/test_validation.py` |
+| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `activity_progress` 新字段、`decision_started.inner_monologue`、`message_arrival` 种类、时间线导出、指标接入 | `tests/footprints/test_export.py`、`test_quality.py` |
+| 新增 `src/worldmock/evaluation/behavior_metrics.py`；`evaluation/review.py`、`public_evidence.py` | 指标与门禁；盲评地点与同伴列 | 新增 `tests/evaluation/test_behavior_metrics.py`、`test_review.py` |
+| `src/worldmock/delivery/windows.py` | dreaming 窗口可含独白与场景 | `tests/delivery/test_windows.py` |
+| `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`；`scripts/build_catalog.py`、`build_lifestyle_corpus.py`；`src/worldmock/corpora/fetch.py`、`corpora/` | 睡眠与社交资源规则；正餐、地点、内容元数据、生活活动 Schema、联系人；替换 drama 语料；工作材料 | `tests/catalog/`、`tests/corpora/` |
+| `scenarios/multi-person.json`、`white-collar-12-weeks.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 | `tests/life/test_scenario.py`、`worldmock validate` |
+| `scripts/inspect_run.py`、新增 `scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正；时间线与叙事投影；“一天”视图 | 手工核对与 `test_export.py` |
+| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | 观察记录单写；独白钩子与 `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并 | AS2 分支 `test_agent_react_validation.py`、记忆测试 |
+| `docs/implementation-status.md` | 记录本合同各项的实际门禁结果 | — |
+
+### 实施顺序
+
+1. 观察投影与提示合同、两阶段决策、记忆合同、动机层不进提示、`inspect_run.py` 修正——只改提示、投影与 AS2 分支，
+   先在双人 24 小时场景上完成三次同代码运行并通过协议门禁；
+2. 决策节律、身体语义、商务与进食、日程骨架——改引擎与状态结构，为 `WorldState` 增加 `schema_version=2`；
+3. 画像编译 v2、社交最小可行版、世界素材品类——改场景 Schema、语料与目录，重新生成两个场景；
+4. 行为指标与门禁接入 `quality.json` 与 `evaluate`，随后才允许正式十二周运行。
+每一阶段都必须保留可运行路径并通过全部现有测试；不允许为后一阶段拆除前一阶段已验证的链路。
+
+### 默认裁决与备选
+
+| 条款 | 默认 | 备选（需新规格版本） |
+| --- | --- | --- |
+| 独白阶段 | 采纳；每次决策一次短调用 | 只恢复身份前言，不加独白 |
+| 重估间隔 | 5400 秒 | 3600 或 7200 秒 |
+| 社交需要 | 作为第四项需要进入身体模型 | 不加资源，只靠画像签名与消息驱动 |
+| 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物 | 全部 `template` |
+| 动机评分器 | 保留为内部仪表并落库 | 整体删除 |
+| 独白的信息范围 | 仅 dreaming 可读 | 动作任务也可读（需修改信息范围条款） |
+| 覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
+| 提示字符预算 | 40000 字符硬失败 | 60000 字符 |
+
+### 本节依据
+
+- [Daan、Beersma 与 Borbély 1984，Timing of human sleep](https://doi.org/10.1152/ajpregu.1984.246.2.r161)；
+  [两过程模型数学综述（npj Biological Timing and Sleep 2025）](https://www.nature.com/articles/s44323-025-00039-z)：
+  `χw=18.2h`、`χs=4.2h`、`H₀⁺=0.67`、`H₀⁻=0.17`、振幅 `0.12`。
+- [Scheer、Morris 与 Shea 2013，Obesity](https://doi.org/10.1002/oby.20351)：内源饥饿节律 08:00 低谷、20:00 峰值、峰谷差 17%。
+- [Rolls 等 1981，Sensory specific satiety in man](https://doi.org/10.1016/0031-9384(81)90310-3)：重复进食的愉悦度下降。
+- [Roenneberg 等，MCTQ 与时型](https://doi.org/10.3390/biology8030054)：自由日睡眠中点度量时型。
+- [Humanoid Agents（EMNLP 2023 Demo）](https://aclanthology.org/2023.emnlp-demo.15.pdf)：需要 ≤3 才提示模型，状态译为自然语言，closeness 0–30。
+- [Generative Agents（UIST 2023）](https://doi.org/10.1145/3586183.3606763)：5–8 段日计划、反思阈值 150。
+- [Tam 等 2024，Let Me Speak Freely?](https://doi.org/10.18653/v1/2024.emnlp-industry.91)：格式约束与 NL-to-Format。
+- [DeepSeek Thinking Mode](https://api-docs.deepseek.com/guides/thinking_mode/)、[温度建议](https://api-docs.deepseek.com/quick_start/parameter_settings)：
+  思考模式采样参数无效、带 `tools` 的后续请求必须回传 `reasoning_content`、一般对话温度 1.3。
+- [Dill，Dual-Utility Reasoning（Game AI Pro 2）](https://www.gameaipro.com/GameAIPro2/GameAIPro2_Chapter03_Dual-Utility_Reasoning.pdf)。
+- [国家统计局 2018 年全国时间利用调查公报](https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1900224.html)。
+- 以上核验日期均为 2026-09-18。
