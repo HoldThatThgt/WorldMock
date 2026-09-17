@@ -1,9 +1,10 @@
-# 大五刻度 → 九参数动机档案的映射系数表（画像编译器 mapper 的唯一数值来源）。
-# 结构三段式的第二段：确定性代码、零 LLM——同（大五, 本表）输入必同输出。
+# 画像编译 v2 映射规则表（worldmock.profile.mapper 的唯一数值来源，规格 L1652-1669）。
+# v1 的九参数动机映射（weights/tau/beta_present_bias/loss_aversion/comfort/aspiration/
+# emotion_sensitivity/attention_prior）已整体删除，不保留别名。
+# 大五只进世界层动力学；大五分数与任何权重不得进入提示。
 # 每个 section 标注 basis：anchored=心理学常识/量表惯例锚定，assumption=工程取值假设。
-# 大五归一：normalized = (score - center) / span ∈ [-1,1]；线性组合 intercept + Σ slope×normalized。
 
-version = 1
+version = 2
 
 [big_five_center]
 # 1-7 刻度中心 4、半跨 3：7→+1.0、4→0.0、1→-1.0。
@@ -11,189 +12,97 @@ center = 4.0
 span = 3.0
 
 # ---------------------------------------------------------------------------
-# weights：资源动机权重 = base + Σ slope×normalized，钳制后 0.01 格点归一（总和 1.00）。
-# basis=anchored：尽责性→金钱/目标导向（成就自律）、外向性+开放性→娱乐需求（趋新/社交寻求）、
-# 神经质→睡眠与能量敏感（负性情绪放大躯体信号）。basis=assumption：斜率幅度。
+# world_dynamics：大五 → 世界层动力学参数 = intercept + slope×normalized，
+# 钳制到 [min, max] 后吸附 step 格点（规格 L1659-1660 的五条映射）。
 # ---------------------------------------------------------------------------
 
-[weights.base]
-money_fen = 0.20
-energy_kcal = 0.20
-sleep_debt_hours = 0.20
-entertainment_need = 0.20
-goal_task = 0.20
+# 神经质 → 情绪脉冲幅度 [0.2, 1.0] 步进 0.05（基础脉冲表的整体缩放系数）。
+# basis=anchored：神经质即负性情绪易感性，放大事件脉冲（OCC 评价理论）；
+# 幅度为 experiment_assumption。
+[world_dynamics.mood_pulse_amplitude]
+intercept = 0.6
+slope_neuroticism = 0.4
+min = 0.2
+max = 1.0
+step = 0.05
 
-[weights.slope.money_fen]
-conscientiousness = 0.08   # anchored: 尽责性高→积累/工作报酬优先
-openness = -0.02           # assumption: 轻微负向
+# 神经质 → 情绪半衰期（分钟）[20, 90] 步进 5：高神经质情绪回落更快但幅度更大。
+# basis=anchored：高神经质的情绪动态性（affective instability）表现为快起快落；
+# 幅度为 experiment_assumption。
+[world_dynamics.mood_halflife_minutes]
+intercept = 55.0
+slope_neuroticism = -25.0
+min = 20.0
+max = 90.0
+step = 5.0
 
-[weights.slope.energy_kcal]
-neuroticism = 0.05         # anchored: 神经质→躯体能量信号敏感
-conscientiousness = -0.03  # assumption: 自律者能量管理内化、显式权重略低
+# 外向性 → 社交需要增长率（每小时）[0.02, 0.10] 步进 0.01。
+# basis=anchored：外向性→社交寻求；幅度为 experiment_assumption。
+[world_dynamics.social_need_growth_per_hour]
+intercept = 0.06
+slope_extraversion = 0.04
+min = 0.02
+max = 0.10
+step = 0.01
 
-[weights.slope.sleep_debt_hours]
-neuroticism = 0.06         # anchored: 神经质→睡眠困扰易感
-conscientiousness = -0.03  # assumption
+# 外向性 → 交谈缓解量（每小时）[0.3, 0.7] 步进 0.05。
+# basis=anchored：外向者从交谈获得更多社交满足；幅度为 experiment_assumption。
+[world_dynamics.conversation_relief_per_hour]
+intercept = 0.5
+slope_extraversion = 0.2
+min = 0.3
+max = 0.7
+step = 0.05
 
-[weights.slope.entertainment_need]
-extraversion = 0.08        # anchored: 外向性→刺激/社交娱乐寻求
-openness = 0.04            # anchored: 开放性→新鲜体验
+# 开放性 → 内部评分器多样性权重 [0.0, 1.0] 步进 0.05：越高越偏向探索非惯常选项。
+# basis=anchored：开放性→求新求异（novelty seeking）；幅度为 experiment_assumption。
+[world_dynamics.diversity_weight]
+intercept = 0.5
+slope_openness = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
 
-[weights.slope.goal_task]
-conscientiousness = 0.10   # anchored: 尽责性→目标承诺
-neuroticism = -0.05        # assumption: 高神经质→目标卷入降低
+# 宜人性 → 接受邀约倾向 [0.0, 1.0] 步进 0.05。
+# basis=anchored：宜人性→合作与顺应；幅度为 experiment_assumption。
+[world_dynamics.invitation_acceptance]
+intercept = 0.5
+slope_agreeableness = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
 
-[weights.clamp]
-min = 0.05                 # assumption: 归一前每键下限，防零权重
-max = 0.60                 # assumption: 归一前每键上限，防单资源垄断
+# 宜人性 → 回复消息倾向 [0.0, 1.0] 步进 0.05。
+# basis=anchored：宜人性→体贴回应；幅度为 experiment_assumption。
+[world_dynamics.reply_tendency]
+intercept = 0.5
+slope_agreeableness = 0.5
+min = 0.0
+max = 1.0
+step = 0.05
 
-# ---------------------------------------------------------------------------
-# tau：决策噪声温度 ∈ {0.5,1.0,2.0,3.0}，按尽责性分段查表（anchored: 尽责性→tau 负向，
-# 低自律=行为更受随机扰动；分段而非连续——四档格点即行为学档位，避免伪精度）。
-# ---------------------------------------------------------------------------
-
-[tau.by_conscientiousness]
-"1" = 3.0
-"2" = 3.0
-"3" = 2.0
-"4" = 2.0
-"5" = 1.0
-"6" = 0.5
-"7" = 0.5
-
-# ---------------------------------------------------------------------------
-# beta_present_bias：现时偏好 [0.5,1.0] 步进 0.05。
-# basis=anchored：尽责性→延迟满足/自我控制强（斜率负）；神经质→冲动性轻度抬升（斜率正）。
-# ---------------------------------------------------------------------------
-
-[beta_present_bias]
-intercept = 0.75
-
-[beta_present_bias.slope]
-conscientiousness = -0.12
-neuroticism = 0.04
-
-# ---------------------------------------------------------------------------
-# loss_aversion：损失厌恶系数 [1.0,3.0] 步进 0.25。
-# basis=anchored：神经质（负性情感）放大损失敏感（前景理论 λ 与焦虑特质相关）；
-# 金钱 λ 基线 2.0（Kahneman-Tversky 经典中值量级），能量 λ 基线较低（可再生资源）。
-# ---------------------------------------------------------------------------
-
-[loss_aversion.money_fen]
-intercept = 2.0
-
-[loss_aversion.money_fen.slope]
-neuroticism = 0.60
-
-[loss_aversion.energy_kcal]
-intercept = 1.50
-
-[loss_aversion.energy_kcal.slope]
-neuroticism = 0.75
-
-# ---------------------------------------------------------------------------
-# comfort：舒适缓冲阈值（正整数）。balance_fen：现金安全感缓冲——尽责性（计划性储蓄）
-# 与神经质（预防性动机）抬升、外向性（即时消费）压低；energy_kcal：能量不适缓冲，
-# 神经质抬升。round_to 取整粒度，min 保正下限。basis=assumption（幅度）+anchored（方向）。
-# ---------------------------------------------------------------------------
-
-[comfort.balance_fen]
-intercept = 15000
-round_to = 1000
-min = 1000
-
-[comfort.balance_fen.slope]
-conscientiousness = 5000
-extraversion = -2000
-neuroticism = 3000
-
-[comfort.energy_kcal]
-intercept = 1000
-round_to = 50
-min = 200
-
-[comfort.energy_kcal.slope]
-neuroticism = 300
+# 尽责性 → 内部评分器现时偏好 [0.0, 1.0] 步进 0.05：高尽责更重延迟回报（斜率负）。
+# basis=anchored：尽责性→延迟满足/自我控制；幅度为 experiment_assumption。
+[world_dynamics.present_preference]
+intercept = 0.7
+slope_conscientiousness = -0.4
+min = 0.0
+max = 1.0
+step = 0.05
 
 # ---------------------------------------------------------------------------
-# aspiration：每日期望有效工作秒数（正整数）。basis=anchored：尽责性→成就动机抬升、
-# 神经质→损耗/回避压低；基线 5 小时有效工作（白领全职折算）。round_to=600（10 分钟粒度）。
+# defaults：background_story 未提及时的确定性缺省（规格 L1656-1657）。
+# sleep_need_hours 默认 7.5（人群众数量级，experiment_assumption）；
+# chronotype_midsleep 默认 04:00（Roenneberg MCTQ 典型自由日睡眠中点，
+# experiment_assumption）；时间锚点为都市白领典型窗口（experiment_assumption）。
 # ---------------------------------------------------------------------------
+[defaults]
+sleep_need_hours = 7.5
+chronotype_midsleep = "04:00"
 
-[aspiration.daily_effective_work_seconds]
-intercept = 18000
-round_to = 600
-min = 3600
-
-[aspiration.daily_effective_work_seconds.slope]
-conscientiousness = 3600
-neuroticism = -1800
-
-# ---------------------------------------------------------------------------
-# emotion_sensitivity：情绪敏感度 [0.0,1.0] 步进 0.1。
-# basis=anchored：神经质即负性情绪易感性特质（斜率正，跨度 ±0.4 覆盖近全量程）。
-# ---------------------------------------------------------------------------
-
-[emotion_sensitivity]
-intercept = 0.50
-
-[emotion_sensitivity.slope]
-neuroticism = 0.40
-
-# ---------------------------------------------------------------------------
-# attention_prior：内容注意先验 = base + Σ slope×normalized（anchored：开放性→影视/
-# 小说等叙事想象类、尽责性→新闻信息类、外向性→段子等轻社交类、宜人性→剧集关系类），
-# 钳制后与均匀分布做混合（balance）：外向性越高分布越均衡（anchored: 外向性→广谱刺激寻求），
-# 最终 0.01 格点归一（总和 1.00）。basis=assumption：斜率幅度与混合系数。
-# 键集来源：catalog/affordances.toml 中 attention_required = true 的内容品类（M4 激活
-# lifestyle 后为 14 键：娱乐 5 + 生活 9；game_session/subtitle_experience 显式 false
-# 不在键集内）。[attention.base] 必须精确覆盖该键集——多键/少键在 mapper 加载期断言
-# 失败；slope 段可省（省略 = 只有 base），但键必须在键集内。注册表新增品类时在此
-# 补一行 base（可选拆 slope）即自动出题。
-# 生活品类 base（basis=assumption，锚定活跃度/普及度排序）：sport 0.10 > hobby 0.08 >
-# outdoor = learning = social 0.06 > wellness 0.05 > household 0.04 > pet 0.03 >
-# volunteer 0.02（合计 0.50）；娱乐 5 键同步 0.20→0.10（合计 0.50），总和恰为 1.00。
-# ---------------------------------------------------------------------------
-
-[attention.base]
-feature_film = 0.10
-news_feed = 0.10
-joke_feed = 0.10
-webnovel_excerpt = 0.10
-drama_series = 0.10
-sport = 0.10
-hobby = 0.08
-outdoor = 0.06
-wellness = 0.05
-household = 0.04
-learning = 0.06
-pet = 0.03
-social = 0.06
-volunteer = 0.02
-
-[attention.slope.feature_film]
-openness = 0.05
-extraversion = 0.02
-
-[attention.slope.news_feed]
-conscientiousness = 0.05
-extraversion = -0.03
-
-[attention.slope.joke_feed]
-extraversion = 0.06
-
-[attention.slope.webnovel_excerpt]
-openness = 0.06
-
-[attention.slope.drama_series]
-extraversion = 0.04
-agreeableness = 0.03
-
-[attention.clamp]
-min = 0.03
-max = 0.55
-
-[attention.balance]
-# 与均匀分布的混合系数 = intercept + slope×extraversion（外向→均衡）。
-intercept = 0.15
-extraversion = 0.15
+[defaults.time_anchors]
+wake = "07:00-07:30"
+leave_home = "08:00-08:30"
+lunch = "12:00-13:00"
+dinner = "18:30-19:30"
+bedtime = "23:00-24:00"

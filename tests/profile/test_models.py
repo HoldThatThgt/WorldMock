@@ -1,4 +1,4 @@
-"""@brief 模型层格点合同正反例：格点外即拒绝，格点内即通过。"""
+"""@brief 卡片模型合同正反例：字段完备、格点与边界、旧合同拒绝。"""
 
 from __future__ import annotations
 
@@ -6,152 +6,147 @@ import pytest
 from pydantic import ValidationError
 
 from worldmock.profile.models import (
-    TAU_GRID,
-    AttentionPrior,
+    BIG_FIVE_DIMENSIONS,
+    LEGACY_TEMPLATE_FIELDS,
+    SCHEMA_VERSION,
     BigFiveProfile,
-    LossAversion,
-    MotivationProfile,
-    Weights,
-    attention_keys,
-    normalize_to_grid,
-    persona_text_sha256,
+    PersonaCard,
+    Relationship,
+    Tastes,
+    TimeAnchors,
+    TimeWindow,
+    parse_clock,
     quantize,
-    quantize_tau,
 )
-from tests.profile.test_mapper import make_profile
+from tests.profile.conftest import make_card, make_window
 
 
-def test_big_five_accepts_bounds_and_rejects_out_of_scale():
+def test_card_field_completeness():
+    """@brief 卡片字段完备性：十大块齐全，schema v2。"""
+    card = make_card()
+    payload = card.model_dump()
+    assert set(payload) == {"identity", "relationships", "situation", "time_anchors",
+                            "chronotype_midsleep", "sleep_need_hours", "habits",
+                            "tastes", "coping"}
+    assert set(payload["identity"]) == {"age", "occupation", "living_arrangement"}
+    assert set(payload["situation"]) == {"busy_this_week", "cares_about"}
+    assert set(payload["time_anchors"]) == {"wake", "leave_home", "lunch", "dinner", "bedtime"}
+    assert set(payload["tastes"]) == {"content_genres", "food_preferences", "media"}
+    assert all(set(item) == {"trigger", "response", "time_window"} for item in payload["habits"])
+    assert all(set(item) == {"name_or_appellation", "role", "intimacy", "channels"}
+               for item in payload["relationships"])
+
+
+def test_card_round_trips_through_json():
+    card = make_card()
+    assert PersonaCard.model_validate_json(card.model_dump_json()) == card
+
+
+def test_time_window_grid_and_span():
+    with pytest.raises(ValidationError, match="off the 0.5-hour grid"):
+        TimeWindow(start_hour=7.1, end_hour=8.0)
+    with pytest.raises(ValidationError, match="start < end"):
+        TimeWindow(start_hour=8.0, end_hour=8.0)
+    with pytest.raises(ValidationError, match="exceeds 12h"):
+        TimeWindow(start_hour=6.0, end_hour=20.0)
+    with pytest.raises(ValidationError):
+        TimeWindow(start_hour=24.0, end_hour=25.0)
+
+
+def test_time_window_cross_midnight():
+    """@brief 就寝窗口可跨午夜："23:00-01:00" -> 23.0-25.0。"""
+    window = TimeWindow.from_clock_range("23:00-01:00")
+    assert (window.start_hour, window.end_hour) == (23.0, 25.0)
+    with pytest.raises(ValueError, match="HH:MM-HH:MM"):
+        TimeWindow.from_clock_range("23:00")
+    with pytest.raises(ValueError):
+        TimeWindow.from_clock_range("25:00-26:00")
+
+
+def test_parse_clock():
+    assert parse_clock("07:30") == 7.5
+    assert parse_clock("00:00") == 0.0
+    with pytest.raises(ValueError):
+        parse_clock("7点")
+    with pytest.raises(ValueError):
+        parse_clock("07:70")
+
+
+def test_time_anchors_must_be_ordered():
+    """@brief 锚点起点不倒挂：起床 < 出门 < 午餐 < 晚餐 < 就寝。"""
+    with pytest.raises(ValidationError, match="out of order"):
+        TimeAnchors(wake=make_window(10.0, 10.5), leave_home=make_window(8.0, 8.5),
+                    lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
+                    bedtime=make_window(23.0, 24.0))
+
+
+def test_sleep_need_and_chronotype_bounds():
+    assert make_card().sleep_need_hours == 7.5
+    for bad in (6.5, 9.25, 8.3):
+        with pytest.raises(ValidationError):
+            make_card(sleep_need_hours=bad)
+    with pytest.raises(ValidationError):
+        make_card(chronotype_midsleep=4.1)  # off the 0.25 grid
+    assert quantize(8.3, 7.0, 9.0, 0.25) == 8.25
+
+
+def test_intimacy_scale_and_relationship_caps():
+    with pytest.raises(ValidationError):
+        Relationship(name_or_appellation="母亲", role="家人", intimacy=31, channels=("电话",))
+    too_many = tuple(
+        Relationship(name_or_appellation=f"朋友{index}", role="老友", intimacy=10,
+                     channels=("微信",)) for index in range(5))
+    with pytest.raises(ValidationError):
+        make_card(relationships=too_many)
+
+
+def test_list_caps_enforced():
+    habits = make_card().habits + make_card().habits + make_card().habits
+    with pytest.raises(ValidationError):
+        make_card(habits=habits)
+    with pytest.raises(ValidationError):
+        make_card(tastes=Tastes(content_genres=tuple(f"题材{index}" for index in range(7)),
+                                food_preferences=(), media=()))
+
+
+def test_tastes_dedup_keeps_first_occurrence():
+    tastes = Tastes(content_genres=("悬疑", "悬疑"), food_preferences=(), media=())
+    assert tastes.content_genres == ("悬疑",)
+
+
+def test_big_five_bounds():
     assert BigFiveProfile(openness=1, conscientiousness=7, extraversion=4,
                           agreeableness=4, neuroticism=4)
-    for bad in (0, 8, -1):
-        with pytest.raises(ValidationError):
-            BigFiveProfile(openness=bad, conscientiousness=4, extraversion=4,
-                           agreeableness=4, neuroticism=4)
-
-
-def test_big_five_rejects_float_scores():
     with pytest.raises(ValidationError):
-        BigFiveProfile(openness=4.5, conscientiousness=4, extraversion=4,
+        BigFiveProfile(openness=8, conscientiousness=4, extraversion=4,
                        agreeableness=4, neuroticism=4)
 
 
-def test_quantize_clamps_and_snaps():
-    assert quantize(0.63, 0.5, 1.0, 0.05) == 0.65
-    assert quantize(0.61, 0.5, 1.0, 0.05) == 0.6
-    assert quantize(0.1, 0.5, 1.0, 0.05) == 0.5
-    assert quantize(9.9, 0.5, 1.0, 0.05) == 1.0
-    assert quantize(2.14, 1.0, 3.0, 0.25) == 2.25
+def test_legacy_contract_constants():
+    """@brief 旧合同明确删除：四个模板字段、schema v1。"""
+    assert LEGACY_TEMPLATE_FIELDS == frozenset({
+        "occupation", "routine_preference", "consumption_preference", "risk_preference"})
+    assert SCHEMA_VERSION == 2
+    assert BIG_FIVE_DIMENSIONS == ("openness", "conscientiousness", "extraversion",
+                                   "agreeableness", "neuroticism")
 
 
-def test_quantize_tau_nearest_and_tie_to_smaller():
-    assert quantize_tau(0.4) == 0.5
-    assert quantize_tau(0.75) == 0.5  # 0.75 到 0.5/1.0 等距，平手取更小
-    assert quantize_tau(1.4) == 1.0
-    assert quantize_tau(1.6) == 2.0
-    assert quantize_tau(2.9) == 3.0
-    assert TAU_GRID == (0.5, 1.0, 2.0, 3.0)
-
-
-def test_normalize_to_grid_sums_exactly_one():
-    result = normalize_to_grid({"a": 1.0, "b": 2.0, "c": 3.0, "d": 0.5, "e": 0.5})
-    assert round(sum(result.values()), 10) == 1.0
-    assert all(round(value / 0.01) * 0.01 == pytest.approx(value, abs=1e-9)
-               for value in result.values())
-
-
-def test_normalize_to_grid_deterministic_tiebreak():
-    first = normalize_to_grid({"x": 1.0, "y": 1.0, "z": 1.0})
-    second = normalize_to_grid({"x": 1.0, "y": 1.0, "z": 1.0})
-    assert first == second == {"x": 0.34, "y": 0.33, "z": 0.33}
-
-
-def test_normalize_to_grid_clamps_negatives_and_rejects_empty_total():
-    assert normalize_to_grid({"a": -5.0, "b": 1.0}) == {"a": 0.0, "b": 1.0}
-    with pytest.raises(ValueError):
-        normalize_to_grid({"a": 0.0})
-    with pytest.raises(ValueError):
-        normalize_to_grid({})
-
-
-def test_weights_reject_off_grid_and_unnormalized():
-    with pytest.raises(ValidationError, match="off the 0.01 grid"):
-        Weights(money_fen=0.3333, energy_kcal=0.17, sleep_debt_hours=0.17,
-                entertainment_need=0.17, goal_task=0.17)
-    with pytest.raises(ValidationError, match="not normalized"):
-        Weights(money_fen=0.30, energy_kcal=0.30, sleep_debt_hours=0.20,
-                entertainment_need=0.10, goal_task=0.05)
-
-
-def test_attention_prior_accepts_registry_key_set():
-    """@brief 正例：键集 == 注册表 attention_required 品类、格点内、总和 1.00。"""
-    keys = attention_keys()
-    assert len(keys) >= 1
-    values = normalize_to_grid({key: 1.0 for key in keys})
-    assert AttentionPrior.model_validate(values).model_dump() == values
-
-
-def test_attention_prior_rejects_key_set_violations():
-    """@brief 多键/少键/未知键均拒绝：键集必须精确等于注册表键集。"""
-    keys = attention_keys()
-    values = normalize_to_grid({key: 1.0 for key in keys})
-    missing = dict(values)
-    del missing[keys[0]]
-    extra = {**values, keys[0]: round(values[keys[0]] - 0.01, 2), "game_session": 0.01}
-    unknown = {**{key: value for key, value in list(values.items())[1:]}, "podcast": values[keys[0]]}
-    for bad, label in ((missing, "missing"), (extra, "extra"), (unknown, "unknown")):
-        with pytest.raises(ValidationError, match="must equal the registry"):
-            AttentionPrior.model_validate(bad)
-
-
-def test_attention_prior_rejects_off_grid_and_unnormalized():
-    keys = attention_keys()
-    values = {key: 0.01 for key in keys}
-    values[keys[0]] = round(1.0 - 0.01 * (len(keys) - 1), 2)
-    with pytest.raises(ValidationError, match="off the 0.01 grid"):
-        AttentionPrior.model_validate({**values, keys[0]: round(values[keys[0]] + 0.0077, 4)})
-    with pytest.raises(ValidationError, match="not normalized"):
-        AttentionPrior.model_validate({**values, keys[0]: 0.5})
-
-
-def test_loss_aversion_grid():
-    assert LossAversion(money_fen=2.25, energy_kcal=1.0)
-    with pytest.raises(ValidationError, match="off the 0.25 grid"):
-        LossAversion(money_fen=2.3, energy_kcal=1.0)
-    with pytest.raises(ValidationError):
-        LossAversion(money_fen=2.25, energy_kcal=3.25)
-
-
-def _profile_with(**overrides):
-    """@brief 构造档案变体：走 model_validate 保证格点校验真正执行。"""
-    profile = make_profile()
-    return MotivationProfile.model_validate({**profile.model_dump(), **overrides})
-
-
-def test_motivation_profile_rejects_off_lattice_values():
-    with pytest.raises(ValidationError, match="tau"):
-        _profile_with(tau=1.5)
-    with pytest.raises(ValidationError, match="off the 0.05 grid"):
-        _profile_with(beta_present_bias=0.63)
-    with pytest.raises(ValidationError, match="off the 0.1 grid"):
-        _profile_with(emotion_sensitivity=0.55)
-    with pytest.raises(ValidationError):
-        _profile_with(beta_present_bias=0.45)
-
-
-def test_motivation_profile_round_trips_through_json():
-    profile = make_profile()
-    parsed = MotivationProfile.model_validate_json(profile.model_dump_json())
-    assert parsed == profile
-    payload = profile.model_dump()
-    assert payload["schema_version"] == 1
-    assert set(payload) == {"schema_version", "big_five", "weights", "tau",
-                            "beta_present_bias", "loss_aversion", "comfort",
-                            "aspiration", "emotion_sensitivity", "attention_prior",
-                            "source"}
-
-
-def test_persona_text_sha256_is_stable_sha256():
-    digest = persona_text_sha256("hello")
-    assert len(digest) == 64 and digest == persona_text_sha256("hello")
-    assert digest != persona_text_sha256("hellp")
+def test_old_v1_profile_payload_is_rejected():
+    """@brief 旧九参数档案（schema_version=1）编译明确报错，不静默兼容。"""
+    from worldmock.profile.models import CompiledPersona
+    old_payload = {
+        "schema_version": 1,
+        "big_five": {"openness": 4, "conscientiousness": 4, "extraversion": 4,
+                     "agreeableness": 4, "neuroticism": 4},
+        "weights": {"money_fen": 0.2, "energy_kcal": 0.2, "sleep_debt_hours": 0.2,
+                    "entertainment_need": 0.2, "goal_task": 0.2},
+        "tau": 2.0, "beta_present_bias": 0.75,
+        "loss_aversion": {"money_fen": 2.0, "energy_kcal": 1.5},
+        "comfort": {"balance_fen": 15000, "energy_kcal": 1000},
+        "aspiration": {"daily_effective_work_seconds": 18000},
+        "emotion_sensitivity": 0.5,
+        "attention_prior": {},
+        "source": None,
+    }
+    with pytest.raises(ValidationError, match="schema_version"):
+        CompiledPersona.model_validate(old_payload)

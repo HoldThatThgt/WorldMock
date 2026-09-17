@@ -1,99 +1,108 @@
-"""@brief 规范文本文本生成：数值↔文本一致、确定性、带全覆盖。"""
+"""@brief 卡片渲染：确定性、≤600 汉字、黑名单（大五与随机浮点不出现）。"""
 
 from __future__ import annotations
 
 import re
 
-from worldmock.profile.textgen import render_persona_text
-from tests.profile.test_mapper import make_profile
+import pytest
+
+from worldmock.profile.models import (
+    PERSONA_CARD_HANZI_BUDGET,
+    HabitSignature,
+    Relationship,
+    Situation,
+    Tastes,
+    TimeAnchors,
+)
+from worldmock.profile.textgen import (
+    RenderBudgetExceededError,
+    count_hanzi,
+    render_card,
+)
+from tests.profile.conftest import make_card, make_window
+
+#: 黑名单：大五标签、旧九参数名、百分比与多小数随机浮点不得出现在渲染文本。
+BLACKLIST_TERMS = ("开放性", "尽责性", "外向性", "宜人性", "神经质",
+                   "big_five", "tau", "beta", "λ", "权重", "%", "weights")
 
 
 def test_render_is_deterministic():
-    profile = make_profile(openness=6, conscientiousness=2, extraversion=7,
-                           agreeableness=5, neuroticism=3)
-    assert render_persona_text(profile) == render_persona_text(profile)
+    card = make_card()
+    assert render_card(card) == render_card(card)
 
 
-def test_aspiration_text_matches_seconds():
-    profile = make_profile(conscientiousness=5, neuroticism=4)
-    text = render_persona_text(profile)
-    seconds = profile.aspiration.daily_effective_work_seconds
-    hours = seconds / 3600
-    assert f"{hours:g} 小时" in text and f"{seconds} 秒" in text
+def test_render_within_hanzi_budget():
+    text = render_card(make_card())
+    assert 0 < count_hanzi(text) <= PERSONA_CARD_HANZI_BUDGET
 
 
-def test_comfort_text_matches_fen_and_kcal():
-    profile = make_profile()
-    text = render_persona_text(profile)
-    yuan = profile.comfort.balance_fen / 100
-    assert f"{yuan:g} 元" in text
-    assert f"{profile.comfort.energy_kcal:g} kcal" in text
+def test_maxed_out_card_still_within_budget():
+    """@brief 满配卡片（4 关系/5 习惯/6 题材/6 饮食/4 媒介）仍不超 600 汉字。"""
+    card = make_card(
+        relationships=tuple(
+            Relationship(name_or_appellation=f"朋友{index}", role="老友",
+                         intimacy=10 + index, channels=("微信", "电话"))
+            for index in range(4)),
+        habits=tuple(
+            HabitSignature(trigger=f"情境{index}", response=f"做一件较长但常规的事情{index}",
+                           time_window=make_window(19.0, 20.0))
+            for index in range(5)),
+        tastes=Tastes(content_genres=tuple(f"题材{index}" for index in range(6)),
+                      food_preferences=tuple(f"食物{index}" for index in range(6)),
+                      media=tuple(f"媒介{index}" for index in range(4))),
+        situation=Situation(
+            busy_this_week="推进一个跨团队项目的收尾阶段并准备评审材料",
+            cares_about="家里长辈的身体检查结果与自己的睡眠质量"))
+    assert count_hanzi(render_card(card)) <= PERSONA_CARD_HANZI_BUDGET
 
 
-def test_weight_percentages_match_profile_and_ranking():
-    profile = make_profile(extraversion=6, conscientiousness=2)
-    text = render_persona_text(profile)
-    weights = profile.weights.model_dump()
-    ranked = sorted(weights.items(), key=lambda item: (-item[1], item[0]))
-    # 文本中的 top3 顺序与数值排序一致；提及的四个权重（top3+最弱）百分比=数值×100
-    positions = [text.index(f"（{value:.0%}）") for _, value in ranked[:3]]
-    assert positions == sorted(positions)
-    for _, value in list(ranked[:3]) + [ranked[-1]]:
-        assert f"{value:.0%}" in text
+def test_render_blacklist_excludes_big_five_and_random_floats():
+    """@brief 黑名单断言：大五术语/旧参数名/百分比/多小数浮点不出现。"""
+    text = render_card(make_card())
+    for term in BLACKLIST_TERMS:
+        assert term not in text, f"blacklisted term {term!r} leaked into card render"
+    assert not re.search(r"\d+\.\d{2,}", text), "multi-decimal float leaked into render"
 
 
-def test_attention_percentages_match_profile():
-    profile = make_profile(openness=7)
-    text = render_persona_text(profile)
-    attention = profile.attention_prior.model_dump()
-    ranked = sorted(attention.items(), key=lambda item: (-item[1], item[0]))
-    for _, value in list(ranked[:3]) + [ranked[-1]]:
-        assert f"{value:.0%}" in text
+def test_render_carries_card_content():
+    """@brief 渲染承载卡片内容：身份、关系、锚点、习惯、口味、应对逐块出现。"""
+    card = make_card()
+    text = render_card(card)
+    assert "产品经理" in text and "32岁" in text
+    assert "母亲" in text and "很亲近" in text
+    assert "7点" in text and "12点到13点" in text and "23点到24点" in text
+    assert "下班到家→公园慢跑半小时" in text
+    assert "悬疑" in text and "川菜" in text
+    assert "压力时拼高达模型" in text
 
 
-def test_attention_line_covers_registry_key_set_with_label_fallback():
-    """@brief 排序提示随注册表键集动态生成：被提及的品类（top3+末位）用
-    _attention_label 渲染——已知品类中文标签、注册表新增品类回退键名本身。"""
-    from worldmock.profile.models import attention_keys
-    from worldmock.profile.textgen import _attention_label
-    profile = make_profile(openness=6, extraversion=2)
-    text = render_persona_text(profile)
-    attention = profile.attention_prior.model_dump()
-    assert tuple(attention) == attention_keys()
-    ranked = sorted(attention.items(), key=lambda item: (-item[1], item[0]))
-    for key, _ in list(ranked[:3]) + [ranked[-1]]:
-        assert _attention_label(key) in text
-    assert _attention_label("feature_film") == "电影"
-    assert _attention_label("podcast_episode") == "podcast_episode"
+def test_over_budget_card_raises_honestly():
+    """@brief 超预算是输入侧问题：如实抛错，不静默截断。"""
+    from worldmock.profile import textgen
+    original = textgen.PERSONA_CARD_HANZI_BUDGET
+    textgen.PERSONA_CARD_HANZI_BUDGET = 10
+    try:
+        with pytest.raises(RenderBudgetExceededError, match="exceeds budget"):
+            render_card(make_card())
+    finally:
+        textgen.PERSONA_CARD_HANZI_BUDGET = original
 
 
-def test_decision_text_carries_tau_and_beta():
-    profile = make_profile(conscientiousness=7)
-    text = render_persona_text(profile)
-    assert f"tau={profile.tau:g}" in text
-    assert f"beta={profile.beta_present_bias:g}" in text
+def test_cross_midnight_bedtime_renders_as_next_day():
+    card = make_card(
+        time_anchors=TimeAnchors(
+            wake=make_window(7.0, 7.5), leave_home=make_window(8.0, 8.5),
+            lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
+            bedtime=make_window(23.5, 25.0)))
+    assert "23点半到1点" in render_card(card)
 
 
-def test_all_dimension_bands_appear():
-    low = make_profile(openness=1)
-    high = make_profile(openness=7)
-    assert "保守务实，偏好熟悉确定的事物" in render_persona_text(low)
-    assert "好奇心强，乐于尝试新鲜体验" in render_persona_text(high)
-    assert "对新事物态度适中" in render_persona_text(make_profile())
+def test_intimacy_bands_render():
+    assert "很亲近" in render_card(make_card())
+    assert "疏远" in render_card(make_card(relationships=(
+        Relationship(name_or_appellation="点头之交", role="邻居", intimacy=2,
+                     channels=("见面",)),)))
 
 
-def test_loss_aversion_strength_bands():
-    weak = make_profile(neuroticism=1)
-    strong = make_profile(neuroticism=7)
-    assert "较钝" in render_persona_text(weak)
-    assert "强烈" in render_persona_text(strong)
-    text = render_persona_text(make_profile(neuroticism=4))
-    assert f"λ={make_profile(neuroticism=4).loss_aversion.money_fen:g}" in text
-
-
-def test_text_has_all_canonical_sections():
-    """@brief 规范文本是 canonical 附注：包含全部八个小节标题。"""
-    text = render_persona_text(make_profile())
-    sections = re.findall(r"^## ([^：]+)：", text, flags=re.MULTILINE)
-    assert sections == ["大五特质", "动机结构", "决策特性", "损失厌恶",
-                        "舒适缓冲", "志向", "情绪敏感度", "注意力偏好"]
+def test_count_hanzi_counts_only_cjk():
+    assert count_hanzi("中文abc123，。") == 2

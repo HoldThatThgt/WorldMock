@@ -1,163 +1,131 @@
-"""@brief 动机档案 → 规范文本人格（模板化生成，零 LLM，数值↔文本一致）。
+"""@brief PersonaCard → 提示用中文卡片文本（确定性组装，零 LLM，≤600 汉字）。
 
-架构三段式的第三段：与数值档案同源生成——每句陈述都由档案字段直接推导，
-不引入新的自由文本。输出是 canonical 附注，不替代用户原始画像。
+渲染只做确定性文本组装，不调用模型。黑名单保障：大五分数、旧九参数与
+任何权重不出现在渲染文本（规格 L1660）——卡片本身不承载这些字段，渲染器
+也不引入数字权重。超出 600 汉字是输入侧问题：如实抛错，不静默截断。
 """
 
 from __future__ import annotations
 
 from worldmock.profile.models import (
-    BIG_FIVE_DIMENSIONS,
-    MotivationProfile,
+    PERSONA_CARD_HANZI_BUDGET,
+    HabitSignature,
+    PersonaCard,
+    Relationship,
+    TimeWindow,
 )
 
-#: 大五形容词表：分数带 1-2 低 / 3-5 中 / 6-7 高（anchored: 量表两端语义）。
-_BIG_FIVE_TERMS = {
-    "openness": {"low": "保守务实，偏好熟悉确定的事物", "mid": "对新事物态度适中",
-                 "high": "好奇心强，乐于尝试新鲜体验"},
-    "conscientiousness": {"low": "随性冲动，计划性弱", "mid": "做事有一定的条理",
-                          "high": "自律有条理，目标导向强"},
-    "extraversion": {"low": "安静内敛，偏好独处", "mid": "社交需求适中",
-                     "high": "热情外向，主动社交"},
-    "agreeableness": {"low": "直接竞争，不易妥协", "mid": "与人合作但不失立场",
-                      "high": "随和体贴，重视合作"},
-    "neuroticism": {"low": "情绪平稳，抗压", "mid": "情绪有波动但可控",
-                    "high": "敏感易焦虑，情绪波动大"},
-}
-_DIMENSION_LABELS = {
-    "openness": "开放性", "conscientiousness": "尽责性", "extraversion": "外向性",
-    "agreeableness": "宜人性", "neuroticism": "神经质",
-}
-_WEIGHT_LABELS = {
-    "money_fen": "金钱积累", "energy_kcal": "体能精力", "sleep_debt_hours": "睡眠恢复",
-    "entertainment_need": "娱乐放松", "goal_task": "任务目标达成",
-}
-#: 已知内容品类的中文标签；注册表新增品类（无标签）回退为键名本身，
-#: 排序提示随 attention 键集动态生成。
-_ATTENTION_LABELS = {
-    "feature_film": "电影", "news_feed": "新闻资讯", "joke_feed": "段子笑料",
-    "webnovel_excerpt": "网文小说", "drama_series": "剧集",
-}
+
+class RenderBudgetExceededError(ValueError):
+    """@brief 卡片渲染超出 600 汉字预算：输入侧问题，不截断。"""
 
 
-def _attention_label(key: str) -> str:
-    """@brief 内容品类标签：已知品类用中文标签，未知品类用键名。"""
-    return _ATTENTION_LABELS.get(key, key)
+def count_hanzi(text: str) -> int:
+    """@brief 统一汉字计数口径：只计 CJK 基本区字符（与 life/narration.py 同法）。"""
+    return sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
 
 
-def _band(score: int) -> str:
-    """@brief 1-2 低带、3-5 中带、6-7 高带。"""
-    if score <= 2:
-        return "low"
-    if score >= 6:
-        return "high"
-    return "mid"
+def render_card(card: PersonaCard) -> str:
+    """@brief 卡片 → 中文文本（同卡片同文本；超 600 汉字如实抛错）。
 
-
-def _ranked(weights: dict[str, float]) -> list[tuple[str, float]]:
-    """@brief 按权重降序排序（平手按键名稳定排序），供文本排序一致。"""
-    return sorted(weights.items(), key=lambda item: (-item[1], item[0]))
-
-
-def render_persona_text(profile: MotivationProfile) -> str:
-    """@brief 从数值档案生成规范文本人格（确定性：同档案同文本）。"""
-    big_five = profile.big_five
-    scores = big_five.model_dump()
-    traits = "，".join(
-        f"{_DIMENSION_LABELS[dimension]}{_band_score_text(scores[dimension])}"
-        f"（{scores[dimension]}/7，{_BIG_FIVE_TERMS[dimension][_band(scores[dimension])]}）"
-        for dimension in BIG_FIVE_DIMENSIONS)
+    @param card 结构化人物卡片
+    @return 不超过 600 汉字的中文卡片文本
+    @exception RenderBudgetExceededError 渲染结果超汉字预算
+    """
     lines = [
-        "# 规范文本人格（由动机档案同源生成）",
-        "",
-        f"## 大五特质：{traits}。",
-        _weights_line(profile),
-        _decision_line(profile),
-        _loss_line(profile),
-        _comfort_line(profile),
-        _aspiration_line(profile),
-        _emotion_line(profile),
-        _attention_line(profile),
+        _identity_line(card),
+        _situation_line(card),
+        _relationship_line(card),
+        _rhythm_line(card),
+        _habit_line(card),
+        _taste_line(card),
+        f"压力时{card.coping}。",
     ]
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines)
+    hanzi = count_hanzi(text)
+    if hanzi > PERSONA_CARD_HANZI_BUDGET:
+        raise RenderBudgetExceededError(
+            f"persona card render exceeds budget: {hanzi} hanzi > "
+            f"{PERSONA_CARD_HANZI_BUDGET} (input-side problem, not truncated)")
+    return text
 
 
-def _band_score_text(score: int) -> str:
-    """@brief 分数带文字：低/中等/高。"""
-    return {"low": "低", "mid": "中等", "high": "高"}[_band(score)]
+def _hour_text(hour: float) -> str:
+    """@brief 小时数 → 中文时刻：7.0→"7点"、7.5→"7点半"（0.5 格点保证确定性）。"""
+    whole = int(hour)
+    return f"{whole}点半" if abs(hour - whole - 0.5) < 1e-9 else f"{whole}点"
 
 
-def _weights_line(profile: MotivationProfile) -> str:
-    """@brief 动机权重排序描述（百分比由 0.01 格点值×100 精确推导）。"""
-    ranked = _ranked(profile.weights.model_dump())
-    top = "、".join(f"{_WEIGHT_LABELS[key]}（{value:.0%}）" for key, value in ranked[:3])
-    weakest_key, weakest_value = ranked[-1]
-    return (f"## 动机结构：最看重的三项依次是{top}；"
-            f"最弱的是{_WEIGHT_LABELS[weakest_key]}（{weakest_value:.0%}）。")
+def _window_text(window: TimeWindow) -> str:
+    """@brief 窗口 → "7点到7点半"；跨午夜终点（>24）按次日小时表述。"""
+    end = window.end_hour - 24.0 if window.end_hour > 24.0 else window.end_hour
+    return f"{_hour_text(window.start_hour)}到{_hour_text(end)}"
 
 
-def _decision_line(profile: MotivationProfile) -> str:
-    """@brief tau（决策噪声）与现时偏好的行为语义。"""
-    tau_text = {
-        0.5: "行动与评分排序高度一致，极少被随机性带偏",
-        1.0: "行为总体跟随评分排序，偶有偏离",
-        2.0: "选择带有明显随机波动，排序只是倾向",
-        3.0: "行为受随机扰动强烈，常偏离评分排序",
-    }[profile.tau]
-    if profile.beta_present_bias <= 0.65:
-        bias_text = "显著偏好延迟的大回报"
-    elif profile.beta_present_bias < 0.85:
-        bias_text = "在即时与延迟回报间权衡"
-    else:
-        bias_text = "强烈偏好即时回报"
-    return (f"## 决策特性：{tau_text}（tau={profile.tau:g}）；"
-            f"现时偏好 beta={profile.beta_present_bias:g}，{bias_text}。")
+def _identity_line(card: PersonaCard) -> str:
+    """@brief 身份行：职业、年龄、居住方式。"""
+    identity = card.identity
+    return f"{identity.occupation}，{identity.age}岁，{identity.living_arrangement}。"
 
 
-def _loss_line(profile: MotivationProfile) -> str:
-    """@brief 损失厌恶语义（1=中性，3=损失感受极强）。"""
-    money = profile.loss_aversion.money_fen
-    energy = profile.loss_aversion.energy_kcal
-    def _strength(value: float) -> str:
-        if value <= 1.5:
-            return "较钝"
-        if value <= 2.25:
-            return "中等"
-        return "强烈"
-    return (f"## 损失厌恶：对金钱损失{_strength(money)}"
-            f"（λ={money:g}），对精力耗损{_strength(energy)}（λ={energy:g}）。")
+def _situation_line(card: PersonaCard) -> str:
+    """@brief 当下处境行：本周在忙什么、在意什么。"""
+    return f"本周在忙{card.situation.busy_this_week}；在意{card.situation.cares_about}。"
 
 
-def _comfort_line(profile: MotivationProfile) -> str:
-    """@brief 舒适缓冲：现金（分→元）与能量阈值。"""
-    yuan = profile.comfort.balance_fen / 100
-    return (f"## 舒适缓冲：现金余额低于 {yuan:g} 元、可用精力低于 "
-            f"{profile.comfort.energy_kcal:g} kcal 时会明显感到不安并寻求恢复。")
+def _intimacy_text(intimacy: int) -> str:
+    """@brief 亲密度 0-30 → 四档中文（≥22 很亲近 / ≥14 较亲近 / ≥7 一般 / 疏远）。"""
+    if intimacy >= 22:
+        return "很亲近"
+    if intimacy >= 14:
+        return "较亲近"
+    if intimacy >= 7:
+        return "一般"
+    return "疏远"
 
 
-def _aspiration_line(profile: MotivationProfile) -> str:
-    """@brief 志向：每日有效工作秒数 → 小时（整除/半档对齐 600s 粒度）。"""
-    seconds = profile.aspiration.daily_effective_work_seconds
-    hours = seconds / 3600
-    return f"## 志向：期望每天完成约 {hours:g} 小时有效工作（{seconds} 秒）。"
+def _relationship_item(relationship: Relationship) -> str:
+    """@brief 单条关系：称谓（角色，亲密度档，渠道）。"""
+    channels = "、".join(relationship.channels)
+    return (f"{relationship.name_or_appellation}（{relationship.role}，"
+            f"{_intimacy_text(relationship.intimacy)}，{channels}联系）")
 
 
-def _emotion_line(profile: MotivationProfile) -> str:
-    """@brief 情绪敏感度语义。"""
-    sensitivity = profile.emotion_sensitivity
-    if sensitivity <= 0.3:
-        text = "事件对情绪影响小，恢复快"
-    elif sensitivity <= 0.7:
-        text = "事件会明显影响情绪，但能恢复"
-    else:
-        text = "事件强烈牵动情绪，恢复慢"
-    return f"## 情绪敏感度：{sensitivity:g}——{text}。"
+def _relationship_line(card: PersonaCard) -> str:
+    """@brief 关系行：亲近的人列表。"""
+    items = "、".join(_relationship_item(item) for item in card.relationships)
+    return f"亲近的人：{items}。"
 
 
-def _attention_line(profile: MotivationProfile) -> str:
-    """@brief 注意先验排序描述（top3 + 末位，随注册表键集动态生成）。"""
-    ranked = _ranked(profile.attention_prior.model_dump())
-    top = "、".join(f"{_attention_label(key)}（{value:.0%}）" for key, value in ranked[:3])
-    weakest_key, weakest_value = ranked[-1]
-    return (f"## 注意力偏好：空闲时最可能选择{top}；"
-            f"最少选{_attention_label(weakest_key)}（{weakest_value:.0%}）。")
+def _rhythm_line(card: PersonaCard) -> str:
+    """@brief 作息行：时间锚点、睡眠中点与睡眠需要。"""
+    anchors = card.time_anchors
+    return (f"约{_window_text(anchors.wake)}起床、{_window_text(anchors.leave_home)}出门；"
+            f"午餐{_window_text(anchors.lunch)}、晚餐{_window_text(anchors.dinner)}；"
+            f"就寝{_window_text(anchors.bedtime)}，睡眠中点约{_hour_text(card.chronotype_midsleep)}，"
+            f"需睡{card.sleep_need_hours:g}小时。")
+
+
+def _habit_item(habit: HabitSignature) -> str:
+    """@brief 单条习惯签名：trigger→response（窗口）。"""
+    return f"{habit.trigger}→{habit.response}（{_window_text(habit.time_window)}）"
+
+
+def _habit_line(card: PersonaCard) -> str:
+    """@brief 习惯行：if-then 签名列表。"""
+    if not card.habits:
+        return "习惯：无明确习惯签名。"
+    items = "；".join(_habit_item(habit) for habit in card.habits)
+    return f"习惯：{items}。"
+
+
+def _taste_line(card: PersonaCard) -> str:
+    """@brief 口味行：内容题材、饮食喜好、常用媒介（空条目跳过）。"""
+    parts = []
+    if card.tastes.content_genres:
+        parts.append(f"爱看{'、'.join(card.tastes.content_genres)}")
+    if card.tastes.food_preferences:
+        parts.append(f"喜欢吃{'、'.join(card.tastes.food_preferences)}")
+    if card.tastes.media:
+        parts.append(f"常用{'、'.join(card.tastes.media)}")
+    return f"口味：{'；'.join(parts)}。" if parts else "口味：无特别偏好。"

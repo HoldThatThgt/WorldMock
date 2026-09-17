@@ -1,151 +1,118 @@
-"""@brief 映射层：确定性（同输入 1000 次逐字节同输出）、方向锚定与配置校验。"""
+"""@brief 世界层动力学映射：确定性（同输入两次逐字节相同）、方向锚定与配置校验。"""
 
 from __future__ import annotations
 
-import re
-
 import pytest
 
-from worldmock.profile.mapper import DETERMINISTIC_SOURCE_MODEL, load_mapping_config, map_profile
-from worldmock.profile.models import (
-    WEIGHT_KEYS,
-    BigFiveProfile,
-    MotivationProfile,
-    attention_keys,
+from worldmock.profile.mapper import (
+    load_mapping_config,
+    map_world_dynamics,
 )
+from worldmock.profile.models import BigFiveProfile
 
 
-def make_profile(**scores) -> MotivationProfile:
-    """@brief 测试档案工厂：默认全 4（刻度中心），可覆盖任意维度。"""
+def make_big_five(**scores) -> BigFiveProfile:
+    """@brief 大五工厂：默认全 4（刻度中心）。"""
     defaults = {"openness": 4, "conscientiousness": 4, "extraversion": 4,
                 "agreeableness": 4, "neuroticism": 4}
-    return map_profile(
-        BigFiveProfile(**{**defaults, **scores}),
-        config=load_mapping_config(),
-        persona_text="测试画像",
-        source_model="test-extractor",
-        consensus_runs=3,
-        consensus_agreement=1.0,
-    )
+    return BigFiveProfile(**{**defaults, **scores})
 
 
-def test_mapper_is_deterministic_across_1000_runs():
-    """@brief 纯函数+格点：同输入 1000 次逐字节相同（零 LLM）。"""
-    big_five = BigFiveProfile(openness=6, conscientiousness=2, extraversion=5,
-                              agreeableness=3, neuroticism=6)
+def test_mapping_is_deterministic_two_runs_byte_identical():
+    """@brief 纯函数+格点：同输入两次编译逐字节相同（零 LLM、零随机）。"""
+    big_five = make_big_five(openness=6, conscientiousness=2, extraversion=5,
+                             agreeableness=3, neuroticism=6)
     config = load_mapping_config()
-    reference = None
-    for _ in range(1000):
-        profile = map_profile(big_five, config=config)
-        if reference is None:
-            reference = profile.model_dump_json()
-        assert profile.model_dump_json() == reference
+    first = map_world_dynamics(big_five, config).model_dump_json()
+    second = map_world_dynamics(big_five, config).model_dump_json()
+    assert first == second
 
 
-def test_mapper_extremes_stay_on_lattice():
-    """@brief 全 1 / 全 4 / 全 7 / 混合四角全部构造合法（格点由模型层兜底）。"""
+def test_dynamics_fields_cover_the_five_trait_routes():
+    """@brief 五条大五路由齐全：神经质/外向性/开放性/宜人性/尽责性各就其位。"""
+    dynamics = map_world_dynamics(make_big_five()).model_dump()
+    assert set(dynamics) == {
+        "mood_pulse_amplitude", "mood_halflife_minutes",
+        "social_need_growth_per_hour", "conversation_relief_per_hour",
+        "diversity_weight", "invitation_acceptance", "reply_tendency",
+        "present_preference"}
+
+
+def test_direction_anchors():
+    """@brief 方向锚定：神经质->脉冲幅度升/半衰期降；外向->社交升；开放->多样性；
+    宜人->邀约与回复升；尽责->现时偏好降。"""
+    config = load_mapping_config()
+    high_n = map_world_dynamics(make_big_five(neuroticism=7), config)
+    low_n = map_world_dynamics(make_big_five(neuroticism=1), config)
+    assert high_n.mood_pulse_amplitude > low_n.mood_pulse_amplitude
+    assert high_n.mood_halflife_minutes < low_n.mood_halflife_minutes
+    high_e = map_world_dynamics(make_big_five(extraversion=7), config)
+    low_e = map_world_dynamics(make_big_five(extraversion=1), config)
+    assert high_e.social_need_growth_per_hour > low_e.social_need_growth_per_hour
+    assert high_e.conversation_relief_per_hour > low_e.conversation_relief_per_hour
+    assert map_world_dynamics(make_big_five(openness=7), config).diversity_weight > \
+        map_world_dynamics(make_big_five(openness=1), config).diversity_weight
+    high_a = map_world_dynamics(make_big_five(agreeableness=7), config)
+    low_a = map_world_dynamics(make_big_five(agreeableness=1), config)
+    assert high_a.invitation_acceptance > low_a.invitation_acceptance
+    assert high_a.reply_tendency > low_a.reply_tendency
+    assert map_world_dynamics(make_big_five(conscientiousness=7), config).present_preference < \
+        map_world_dynamics(make_big_five(conscientiousness=1), config).present_preference
+
+
+def test_extremes_stay_in_bounds():
+    """@brief 全 1 / 全 4 / 全 7 / 四角混合全部落在模型区间（格点由模型层兜底）。"""
+    config = load_mapping_config()
     for scores in (
         {"openness": 1, "conscientiousness": 1, "extraversion": 1, "agreeableness": 1, "neuroticism": 1},
         {"openness": 4, "conscientiousness": 4, "extraversion": 4, "agreeableness": 4, "neuroticism": 4},
         {"openness": 7, "conscientiousness": 7, "extraversion": 7, "agreeableness": 7, "neuroticism": 7},
         {"openness": 7, "conscientiousness": 1, "extraversion": 1, "agreeableness": 7, "neuroticism": 7},
     ):
-        profile = make_profile(**scores)
-        assert round(sum(profile.weights.model_dump().values()), 2) == 1.0
-        assert round(sum(profile.attention_prior.model_dump().values()), 2) == 1.0
-        assert profile.tau in (0.5, 1.0, 2.0, 3.0)
-
-
-def test_direction_anchors():
-    """@brief 方向锚定：尽责性→tau 负向；神经质→情绪敏感/损失厌恶正向；外向→娱乐权重。"""
-    assert make_profile(conscientiousness=7).tau == 0.5
-    assert make_profile(conscientiousness=1).tau == 3.0
-    assert make_profile(neuroticism=7).emotion_sensitivity == 0.9
-    assert make_profile(neuroticism=1).emotion_sensitivity == 0.1
-    assert make_profile(neuroticism=7).loss_aversion.money_fen > \
-        make_profile(neuroticism=1).loss_aversion.money_fen
-    assert make_profile(extraversion=7).weights.entertainment_need > \
-        make_profile(extraversion=1).weights.entertainment_need
-
-
-def test_aspiration_monotonic_in_conscientiousness():
-    values = [make_profile(conscientiousness=score).aspiration.daily_effective_work_seconds
-              for score in (1, 4, 7)]
-    assert values == sorted(values) and values[0] < values[-1]
-
-
-def test_attention_balances_with_extraversion():
-    """@brief 外向性→注意力均衡：高外向的先验分布比低外向更平（熵更大）。"""
-    import math
-    def entropy(profile):
-        return -sum(p * math.log(p) for p in profile.attention_prior.model_dump().values()
-                    if p > 0)
-    assert entropy(make_profile(extraversion=7)) > entropy(make_profile(extraversion=1))
-
-
-def test_weights_and_attention_cover_contract_keys():
-    profile = make_profile()
-    assert tuple(profile.weights.model_dump()) == WEIGHT_KEYS
-    assert tuple(profile.attention_prior.model_dump()) == attention_keys()
-
-
-def test_attention_round_trips_registry_key_set():
-    """@brief round-trip：注册表键集 → mapper 编译 → 输出键集恰好匹配且归一。"""
-    keys = attention_keys()
-    for scores in ({"openness": 6, "extraversion": 2}, {"openness": 1, "extraversion": 7}):
-        prior = make_profile(**scores).attention_prior.model_dump()
-        assert tuple(prior) == keys
-        assert round(sum(prior.values()), 2) == 1.0
-    config = load_mapping_config()
-    assert set(config["attention"]["base"]) == set(keys)
-
-
-def test_source_fields_carry_provenance():
-    profile = make_profile()
-    assert profile.source.model == "test-extractor"
-    assert profile.source.prompt_version == "v2"
-    assert profile.source.consensus.runs == 3
-    assert len(profile.source.persona_text_sha256) == 64
-    default = map_profile(BigFiveProfile(openness=4, conscientiousness=4, extraversion=4,
-                                         agreeableness=4, neuroticism=4))
-    assert default.source.model == DETERMINISTIC_SOURCE_MODEL
+        map_world_dynamics(make_big_five(**scores), config).model_validate(
+            map_world_dynamics(make_big_five(**scores), config).model_dump())
 
 
 def test_default_config_resolves_repo_rules_file():
     from worldmock.profile.mapper import default_mapping_path
     path = default_mapping_path()
     assert path.name == "persona-mapping.toml" and path.is_file()
+    config = load_mapping_config()
+    assert config["version"] == 2
+    assert {"sleep_need_hours", "chronotype_midsleep"} <= set(config["defaults"])
 
 
-def test_config_validation_rejects_missing_sections(tmp_path):
-    from worldmock.profile.mapper import default_mapping_path
-    bad_path = tmp_path / "bad.toml"
-    bad_path.write_text("version = 1\n", encoding="utf-8")
+def test_config_validation_rejects_missing_or_wrong_sections(tmp_path):
+    bad = tmp_path / "bad.toml"
+    bad.write_text("version = 2\n", encoding="utf-8")
     with pytest.raises(AssertionError, match="missing sections"):
-        load_mapping_config(bad_path)
-    with pytest.raises(AssertionError, match="attention"):
-        # 真实配置文本截去 [attention 起的全部段落 → 缺 attention section。
-        full_text = default_mapping_path().read_text(encoding="utf-8")
-        partial = tmp_path / "partial.toml"
-        partial.write_text(full_text.split("[attention")[0], encoding="utf-8")
+        load_mapping_config(bad)
+    stale = tmp_path / "stale.toml"
+    stale.write_text("version = 1\n", encoding="utf-8")
+    with pytest.raises(AssertionError, match="version = 2"):
+        load_mapping_config(stale)
+
+
+def test_config_rejects_wrong_dynamics_field_set(tmp_path):
+    """@brief [world_dynamics] 键集必须精确等于八参数清单：少 section 即断言失败。"""
+    import re
+    from worldmock.profile.mapper import default_mapping_path
+    full = default_mapping_path().read_text(encoding="utf-8")
+    partial = tmp_path / "partial.toml"
+    partial.write_text(
+        re.sub(r"\[world_dynamics\.present_preference\][^\[]*", "", full),
+        encoding="utf-8")
+    with pytest.raises(AssertionError, match="world_dynamics must exactly cover"):
         load_mapping_config(partial)
 
 
-def test_config_rejects_attention_key_set_mismatch(tmp_path):
-    """@brief [attention.base] 键集必须精确等于注册表键集：少键/多键都断言失败。"""
+def test_config_rejects_unknown_dimension_slope(tmp_path):
+    """@brief slope 键必须命名大五维度：拼错维度名加载期失败。"""
     from worldmock.profile.mapper import default_mapping_path
-    full_text = default_mapping_path().read_text(encoding="utf-8")
-    first_key = attention_keys()[0]
-    # 少键：删掉 [attention.base] 里的一个键（值不定，按行首键名定位该赋值行）。
-    assignment = re.search(rf"^{first_key} = [0-9.]+\n", full_text, re.MULTILINE)
-    assert assignment is not None, f"attention.base row for {first_key} not found"
-    missing = tmp_path / "missing.toml"
-    missing.write_text(full_text.replace(assignment.group(0), "", 1), encoding="utf-8")
-    with pytest.raises(AssertionError, match="attention.base must exactly cover"):
-        load_mapping_config(missing)
-    # 多键：base 里塞一个注册表外（attention_required=false）的键。
-    extra = tmp_path / "extra.toml"
-    extra.write_text(full_text.replace(
-        "[attention.slope", 'game_session = 0.01\n\n[attention.slope', 1), encoding="utf-8")
-    with pytest.raises(AssertionError, match="attention.base must exactly cover"):
-        load_mapping_config(extra)
+    full = default_mapping_path().read_text(encoding="utf-8")
+    tampered = tmp_path / "tampered.toml"
+    tampered.write_text(full.replace("slope_neuroticism = 0.4",
+                                     "slope_neuroticism = 0.4\nslope_greed = 0.1", 1),
+                        encoding="utf-8")
+    with pytest.raises(AssertionError, match="must name big-five dimensions"):
+        load_mapping_config(tampered)

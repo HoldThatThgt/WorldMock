@@ -1,70 +1,64 @@
-"""@brief 画像编译器的数值合同：大五刻度、九参数动机档案与格点量化。
+"""@brief 画像编译 v2 结构合同：PersonaCard、大五与世界层动力学（规格 L1652-1669）。
 
-MotivationProfile 与场景 agents[].motivation 字段形状一一对应（schema v1，
-消费端 life/motivation 层按此校验）。所有连续参数在模型层强制吸附格点：
-tau ∈ {0.5,1.0,2.0,3.0}、beta_present_bias 步进 0.05、loss_aversion 步进
-0.25、emotion_sensitivity 步进 0.1、weights/attention_prior 步进 0.01 且
-规范化总和恰为 1.00——同输入必同输出（配合 mapper 纯函数）。
+PersonaCard 从 background_story 抽取（三次一致性口径），承载身份、关系、当下
+处境、时间锚点、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 600
+汉字的中文文本进入提示。大五仍抽取，但只进入 WorldDynamics（世界层动力学）：
+神经质→情绪脉冲幅度与半衰期、外向性→社交需要增长率与交谈缓解量、开放性→
+内部评分器多样性权重、宜人性→接受邀约与回复消息倾向、尽责性→内部评分器
+现时偏好。大五分数、旧九参数与任何权重不得进入提示（渲染层黑名单保障）。
+旧模板字段 occupation/routine_preference/consumption_preference/risk_preference
+删除不保留别名（其内容并入卡片），编译旧档案明确报错。
 """
 
 from __future__ import annotations
 
+import hashlib
 import math
-from typing import Iterable, Literal, Mapping
+from typing import Literal
 
-from pydantic import (BaseModel, ConfigDict, Field, RootModel, field_validator,
+from pydantic import (BaseModel, ConfigDict, Field, field_validator,
                       model_validator)
 
-SCHEMA_VERSION = 1
-#: v2：attention 键集从固定 5 键改为注册表 attention_required 内容品类驱动，
-# 排序提示随键集动态生成（v1 是固定五键时代的提示版本）。
-PROMPT_VERSION = "v2"
+#: 卡片合同 schema 版本；v1（九参数动机档案）已删除，不保留兼容。
+SCHEMA_VERSION = 2
+#: 卡片抽取提示版本（换提示词必须换版本号）。
+PROMPT_VERSION = "card-v1"
+#: 卡片渲染汉字上限（规格 L1531，与 life/narration.py 同源常数；不互相 import，
+#: 两处同时钉死同一规格行）。
+PERSONA_CARD_HANZI_BUDGET = 600
 
 BIG_FIVE_DIMENSIONS = ("openness", "conscientiousness", "extraversion",
                        "agreeableness", "neuroticism")
-WEIGHT_KEYS = ("money_fen", "energy_kcal", "sleep_debt_hours",
-               "entertainment_need", "goal_task")
+#: 已删除的旧模板字段（规格 L1661）：出现在输入档案即明确报错，不静默兼容。
+LEGACY_TEMPLATE_FIELDS = frozenset({
+    "occupation", "routine_preference", "consumption_preference", "risk_preference"})
 
+#: 睡眠需要小时数区间（规格 L1656，合同常数；与 life/sleep.py 同口径）。
+SLEEP_NEED_MIN_H = 7.0
+SLEEP_NEED_MAX_H = 9.0
+DEFAULT_SLEEP_NEED_H = 7.5
+#: 时型（自由日睡眠中点）默认 04:00（Roenneberg MCTQ 典型中点，experiment_assumption）。
+DEFAULT_CHRONOTYPE_MIDSLEEP_H = 4.0
+#: 亲密度 0-30 整数刻度（Humanoid Agents closeness 0-30，规格 L1621 联系人同刻度）。
+INTIMACY_MIN = 0
+INTIMACY_MAX = 30
 
-def attention_keys() -> tuple[str, ...]:
-    """@brief 注意先验键集：注册表 attention_required=true 内容品类（稳定排序）。
+#: 列表字段上限：约束抽取规模，配合渲染 600 汉字预算（合同常数）。
+MAX_RELATIONSHIPS = 4
+MAX_HABITS = 5
+MAX_CONTENT_GENRES = 6
+MAX_FOOD_PREFERENCES = 6
+MAX_MEDIA = 4
 
-    键集来自 AffordanceView（catalog/affordances.toml 的
-    families.*.content_kinds.*.attention_required），新增品类自动扩展；
-    attention_required=false 的品类（game_session/subtitle_experience）合法地不在键集内。
-    """
-    from worldmock.catalog.affordances import default_affordances
-    return tuple(sorted(default_affordances().attention_required_kinds))
-
-TAU_GRID = (0.5, 1.0, 2.0, 3.0)
-BETA_PRESENT_BIAS_RANGE = (0.5, 1.0)
-BETA_PRESENT_BIAS_STEP = 0.05
-LOSS_AVERSION_RANGE = (1.0, 3.0)
-LOSS_AVERSION_STEP = 0.25
-EMOTION_SENSITIVITY_RANGE = (0.0, 1.0)
-EMOTION_SENSITIVITY_STEP = 0.1
-#: weights/attention_prior 的公共格点：每个键吸附 0.01，总和规范化为 1.00。
-WEIGHT_GRID_STEP = 0.01
 _GRID_TOLERANCE = 1e-6
 
 
-class _Frozen(BaseModel):
-    """@brief 拒绝未知字段且不可变，序列化即合同。"""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-def _on_grid(value: float, low: float, high: float, step: float) -> bool:
-    """@brief 判断值是否落在 [low, high] 内步进 step 的格点上。"""
+def value_on_grid(value: float, low: float, high: float, step: float) -> bool:
+    """@brief 公共格点判定：值是否落在 [low, high] 内步进 step 的格点上。"""
     if not math.isfinite(value) or value < low - _GRID_TOLERANCE or value > high + _GRID_TOLERANCE:
         return False
     units = (value - low) / step
     return abs(units - round(units)) <= _GRID_TOLERANCE
-
-
-def value_on_grid(value: float, low: float, high: float, step: float) -> bool:
-    """@brief 公共格点判定（check 命令对序列化数值独立复核用）。"""
-    return _on_grid(value, low, high, step)
 
 
 def quantize(value: float, low: float, high: float, step: float) -> float:
@@ -74,36 +68,140 @@ def quantize(value: float, low: float, high: float, step: float) -> float:
     return round(low + units * step, 10)
 
 
-def quantize_tau(value: float) -> float:
-    """@brief 吸附到 tau 离散格点 {0.5,1.0,2.0,3.0}（最近邻，平手取更小值）。"""
-    return min(TAU_GRID, key=lambda grid: (abs(grid - float(value)), grid))
+def parse_clock(value: str) -> float:
+    """@brief "HH:MM" → 自午夜起的小时数（"23:30" → 23.5）；格式错误即 ValueError。"""
+    parts = value.strip().split(":")
+    if len(parts) != 2:
+        raise ValueError(f"invalid clock value {value!r}, expected HH:MM")
+    hour, minute = int(parts[0]), int(parts[1])
+    if not (0 <= hour <= 24 and 0 <= minute <= 59):
+        raise ValueError(f"invalid clock value {value!r}")
+    return hour + minute / 60.0
 
 
-def normalize_to_grid(values: Mapping[str, float], step: float = WEIGHT_GRID_STEP) -> dict[str, float]:
-    """@brief 最大余数法：正值缩放至总和 1 后吸附 0.01 格点，总和恰为 1.00。
+class _Frozen(BaseModel):
+    """@brief 拒绝未知字段且不可变，序列化即合同。"""
 
-    钳制负值为 0；平手按键序稳定裁决——纯确定性，同输入同输出。
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class TimeWindow(_Frozen):
+    """@brief 时间窗口：自午夜起的小时数，半开区间 [start, end)。
+
+    就寝窗口允许跨午夜（end 可大于 24，如 23–25 表示到次日 01:00）；其余
+    锚点天然落在 [0, 24] 内。窗口跨度上限 12 小时防止病态区间。
     """
-    keys = tuple(values)
-    if not keys:
-        raise ValueError("normalize_to_grid requires at least one value")
-    raw = [max(float(values[key]), 0.0) for key in keys]
-    total = sum(raw)
-    if total <= 0:
-        raise ValueError("normalize_to_grid requires a positive total")
-    scaled_units = [value / total / step for value in raw]
-    unit_total = round(1.0 / step)
-    floors = [math.floor(units) for units in scaled_units]
-    remainder = unit_total - sum(floors)
-    order = sorted(range(len(keys)),
-                   key=lambda index: (-(scaled_units[index] - floors[index]), index))
-    for index in order[:remainder]:
-        floors[index] += 1
-    return {key: round(count * step, 10) for key, count in zip(keys, floors)}
+
+    start_hour: float = Field(ge=0.0, lt=24.0)
+    end_hour: float = Field(gt=0.0, le=30.0)
+
+    @model_validator(mode="after")
+    def validate_window(self) -> "TimeWindow":
+        """@brief 0 ≤ start < 24、跨度 (0, 12]；小时吸附 0.5 格点保证确定性渲染。"""
+        for name, value in (("start_hour", self.start_hour), ("end_hour", self.end_hour)):
+            if not value_on_grid(value, 0.0, 30.0, 0.5):
+                raise ValueError(f"TimeWindow.{name}={value} is off the 0.5-hour grid")
+        if not self.start_hour < self.end_hour:
+            raise ValueError(f"window must satisfy start < end, got {self.start_hour}..{self.end_hour}")
+        if self.end_hour - self.start_hour > 12.0:
+            raise ValueError(f"window span {self.end_hour - self.start_hour}h exceeds 12h")
+        return self
+
+    @classmethod
+    def from_clock_range(cls, value: str) -> "TimeWindow":
+        """@brief "HH:MM-HH:MM" → TimeWindow；跨午夜（end < start）自动 +24。"""
+        parts = value.strip().split("-")
+        if len(parts) != 2:
+            raise ValueError(f"invalid time range {value!r}, expected HH:MM-HH:MM")
+        start = parse_clock(parts[0])
+        end = parse_clock(parts[1])
+        if end <= start:
+            end += 24.0
+        return cls(start_hour=quantize(start, 0.0, 24.0, 0.5),
+                   end_hour=quantize(end, 0.0, 30.0, 0.5))
+
+
+class Identity(_Frozen):
+    """@brief 身份：年龄、职业、居住方式。"""
+
+    age: int = Field(ge=16, le=100)
+    occupation: str = Field(min_length=1, max_length=20)
+    living_arrangement: str = Field(min_length=1, max_length=30)
+
+
+class Relationship(_Frozen):
+    """@brief 关系：姓名或称谓、角色、亲密度（0-30）、可用渠道。"""
+
+    name_or_appellation: str = Field(min_length=1, max_length=12)
+    role: str = Field(min_length=1, max_length=12)
+    intimacy: int = Field(ge=INTIMACY_MIN, le=INTIMACY_MAX)
+    channels: tuple[str, ...] = Field(min_length=1, max_length=3)
+
+    @field_validator("channels")
+    @classmethod
+    def validate_channels(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """@brief 渠道非空字符串。"""
+        if any(not channel.strip() for channel in value):
+            raise ValueError("relationship channels must not be blank")
+        return value
+
+
+class Situation(_Frozen):
+    """@brief 当下处境：本周在忙什么、在意什么。"""
+
+    busy_this_week: str = Field(min_length=1, max_length=60)
+    cares_about: str = Field(min_length=1, max_length=60)
+
+
+class TimeAnchors(_Frozen):
+    """@brief 时间锚点：起床、出门、午餐、晚餐、就寝窗口。"""
+
+    wake: TimeWindow
+    leave_home: TimeWindow
+    lunch: TimeWindow
+    dinner: TimeWindow
+    bedtime: TimeWindow
+
+    @model_validator(mode="after")
+    def validate_order(self) -> "TimeAnchors":
+        """@brief 日内顺序锚点不倒挂：起床 < 出门 < 午餐 < 晚餐 < 就寝（按起点）。"""
+        ordered = (self.wake, self.leave_home, self.lunch, self.dinner, self.bedtime)
+        starts = [window.start_hour for window in ordered]
+        if starts != sorted(starts):
+            raise ValueError(f"time anchors out of order: {starts}")
+        return self
+
+
+class HabitSignature(_Frozen):
+    """@brief 习惯签名 {trigger, response, time_window}（Mischel–Shoda if-then 签名）。"""
+
+    trigger: str = Field(min_length=1, max_length=30)
+    response: str = Field(min_length=1, max_length=40)
+    time_window: TimeWindow
+
+
+class Tastes(_Frozen):
+    """@brief 口味：内容题材、饮食喜好、常用媒介。"""
+
+    content_genres: tuple[str, ...] = Field(max_length=MAX_CONTENT_GENRES)
+    food_preferences: tuple[str, ...] = Field(max_length=MAX_FOOD_PREFERENCES)
+    media: tuple[str, ...] = Field(max_length=MAX_MEDIA)
+
+    @field_validator("content_genres", "food_preferences", "media")
+    @classmethod
+    def validate_entries(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """@brief 条目非空字符串且去重（确定性：保持首次出现顺序）。"""
+        seen: list[str] = []
+        for entry in value:
+            if not entry.strip():
+                raise ValueError("taste entries must not be blank")
+            if entry not in seen:
+                seen.append(entry)
+        return tuple(seen)
 
 
 class BigFiveProfile(_Frozen):
-    """@brief 大五人格 1-7 整数刻度（extractor 共识的中位数输出）。"""
+    """@brief 大五人格 1-7 整数刻度（只进世界层动力学，不进提示）。"""
 
     openness: int = Field(ge=1, le=7)
     conscientiousness: int = Field(ge=1, le=7)
@@ -112,153 +210,82 @@ class BigFiveProfile(_Frozen):
     neuroticism: int = Field(ge=1, le=7)
 
 
-class Weights(_Frozen):
-    """@brief 五资源动机权重：各键 [0,1] 吸附 0.01，总和规范化为 1.00。"""
+class PersonaCard(_Frozen):
+    """@brief 结构化人物卡片（画像编译 v2 核心合同，规格 L1653-1657）。"""
 
-    money_fen: float = Field(ge=0.0, le=1.0)
-    energy_kcal: float = Field(ge=0.0, le=1.0)
-    sleep_debt_hours: float = Field(ge=0.0, le=1.0)
-    entertainment_need: float = Field(ge=0.0, le=1.0)
-    goal_task: float = Field(ge=0.0, le=1.0)
+    identity: Identity
+    relationships: tuple[Relationship, ...] = Field(min_length=1, max_length=MAX_RELATIONSHIPS)
+    situation: Situation
+    time_anchors: TimeAnchors
+    chronotype_midsleep: float = Field(ge=0.0, lt=24.0)
+    sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H,
+                                    ge=SLEEP_NEED_MIN_H, le=SLEEP_NEED_MAX_H)
+    habits: tuple[HabitSignature, ...] = Field(max_length=MAX_HABITS)
+    tastes: Tastes
+    coping: str = Field(min_length=1, max_length=60)
 
-    @model_validator(mode="after")
-    def validate_grid(self) -> "Weights":
-        """@brief 逐键格点校验 + 总和恰为 1.00。"""
-        for key, value in self.model_dump().items():
-            if not _on_grid(value, 0.0, 1.0, WEIGHT_GRID_STEP):
-                raise ValueError(f"weights.{key}={value} is off the 0.01 grid")
-        if round(sum(self.model_dump().values()), 2) != 1.0:
-            raise ValueError(f"weights sum {sum(self.model_dump().values()):.4f} is not normalized to 1.00")
-        return self
-
-
-class LossAversion(_Frozen):
-    """@brief 损失厌恶系数：各资源 [1.0,3.0] 步进 0.25。"""
-
-    money_fen: float = Field(ge=1.0, le=3.0)
-    energy_kcal: float = Field(ge=1.0, le=3.0)
-
-    @field_validator("money_fen", "energy_kcal")
+    @field_validator("chronotype_midsleep", "sleep_need_hours")
     @classmethod
-    def validate_grid(cls, value: float) -> float:
-        """@brief 强制 0.25 格点。"""
-        if not _on_grid(value, *LOSS_AVERSION_RANGE, LOSS_AVERSION_STEP):
-            raise ValueError(f"loss_aversion value {value} is off the 0.25 grid")
+    def validate_hour_grid(cls, value: float) -> float:
+        """@brief 时型 0.25 小时格点、睡眠需要 0.25 小时格点（确定性）。"""
+        if not value_on_grid(value, 0.0, 24.0, 0.25):
+            raise ValueError(f"hour value {value} is off the 0.25-hour grid")
         return value
 
 
-class Comfort(_Frozen):
-    """@brief 舒适缓冲阈值（低于即产生不适压力）。"""
+class WorldDynamics(_Frozen):
+    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，规格 L1659-1660）。
 
-    balance_fen: int = Field(gt=0)
-    energy_kcal: int = Field(gt=0)
+    神经质→mood_pulse_amplitude/mood_halflife_minutes；外向性→
+    social_need_growth_per_hour/conversation_relief_per_hour；开放性→
+    diversity_weight；宜人性→invitation_acceptance/reply_tendency；
+    尽责性→present_preference。数值映射规则集中声明在
+    catalog/rules/persona-mapping.toml [world_dynamics.*]（experiment_assumption）。
+    """
 
-
-class Aspiration(_Frozen):
-    """@brief 志向：期望的每日有效工作秒数。"""
-
-    daily_effective_work_seconds: int = Field(gt=0)
-
-
-class AttentionPrior(RootModel[dict[str, float]]):
-    """@brief 内容注意先验：键集 = 注册表 attention_required=true 内容品类
-    （动态注入，attention_keys()），各键 [0,1] 吸附 0.01，总和规范化为 1.00。"""
-
-    model_config = ConfigDict(frozen=True)
-
-    @model_validator(mode="after")
-    def validate_grid(self) -> "AttentionPrior":
-        """@brief 键集 == 注册表键集（多键/少键均拒）+ 逐键格点 + 总和恰为 1.00。"""
-        values = self.root
-        expected = attention_keys()
-        if not values or set(values) != set(expected):
-            raise ValueError(
-                f"attention_prior keys {sorted(values)} must equal the registry "
-                f"attention_required kinds {list(expected)}")
-        for key, value in values.items():
-            if not _on_grid(value, 0.0, 1.0, WEIGHT_GRID_STEP):
-                raise ValueError(f"attention_prior.{key}={value} is off the 0.01 grid")
-        if round(sum(values.values()), 2) != 1.0:
-            raise ValueError("attention_prior sum is not normalized to 1.00")
-        return self
+    mood_pulse_amplitude: float = Field(ge=0.0, le=1.0)
+    mood_halflife_minutes: float = Field(ge=10.0, le=180.0)
+    social_need_growth_per_hour: float = Field(gt=0.0, le=0.5)
+    conversation_relief_per_hour: float = Field(ge=0.0, le=1.0)
+    diversity_weight: float = Field(ge=0.0, le=1.0)
+    invitation_acceptance: float = Field(ge=0.0, le=1.0)
+    reply_tendency: float = Field(ge=0.0, le=1.0)
+    present_preference: float = Field(ge=0.0, le=1.0)
 
 
 class Consensus(_Frozen):
-    """@brief 提取共识：运行次数与平均众数占比。"""
+    """@brief 三次一致性共识统计：运行次数与逐字段平均众数占比。"""
 
     runs: int = Field(ge=1)
     agreement: float = Field(ge=0.0, le=1.0)
 
 
-class ProfileSource(_Frozen):
-    """@brief 档案溯源：画像文本指纹、提取模型、提示词版本与共识。"""
+class PersonaSource(_Frozen):
+    """@brief 档案溯源：background_story 指纹、提取模型、提示版本与共识。"""
 
-    persona_text_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    background_story_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model: str = Field(min_length=1)
     prompt_version: str = Field(min_length=1)
     consensus: Consensus
 
 
-class MotivationProfile(_Frozen):
-    """@brief 九参数动机档案（schema v1，格点全强制，冻结不可变）。"""
+class CompiledPersona(_Frozen):
+    """@brief 编译产物：卡片 + 大五 + 世界层动力学（schema v2；v1 明确拒绝）。"""
 
-    schema_version: Literal[1] = SCHEMA_VERSION
+    schema_version: Literal[SCHEMA_VERSION] = SCHEMA_VERSION
+    card: PersonaCard
     big_five: BigFiveProfile
-    weights: Weights
-    tau: float
-    beta_present_bias: float = Field(ge=0.5, le=1.0)
-    loss_aversion: LossAversion
-    comfort: Comfort
-    aspiration: Aspiration
-    emotion_sensitivity: float = Field(ge=0.0, le=1.0)
-    attention_prior: AttentionPrior
-    source: ProfileSource
+    world_dynamics: WorldDynamics
+    source: PersonaSource
+    warnings: tuple[str, ...] = ()
 
-    @field_validator("tau")
-    @classmethod
-    def validate_tau(cls, value: float) -> float:
-        """@brief tau 只允许离散格点 {0.5,1.0,2.0,3.0}。"""
-        if not any(abs(value - grid) <= _GRID_TOLERANCE for grid in TAU_GRID):
-            raise ValueError(f"tau={value} is off the grid {TAU_GRID}")
-        return value
 
-    @field_validator("beta_present_bias")
-    @classmethod
-    def validate_beta(cls, value: float) -> float:
-        """@brief 强制 [0.5,1.0] 内 0.05 格点。"""
-        if not _on_grid(value, *BETA_PRESENT_BIAS_RANGE, BETA_PRESENT_BIAS_STEP):
-            raise ValueError(f"beta_present_bias={value} is off the 0.05 grid")
-        return value
-
-    @field_validator("emotion_sensitivity")
-    @classmethod
-    def validate_emotion(cls, value: float) -> float:
-        """@brief 强制 [0.0,1.0] 内 0.1 格点。"""
-        if not _on_grid(value, *EMOTION_SENSITIVITY_RANGE, EMOTION_SENSITIVITY_STEP):
-            raise ValueError(f"emotion_sensitivity={value} is off the 0.1 grid")
-        return value
+def background_story_sha256(background_story: str) -> str:
+    """@brief background_story 的 sha256 指纹（source.background_story_sha256）。"""
+    return hashlib.sha256(background_story.encode("utf-8")).hexdigest()
 
 
 def normalized_scores(big_five: BigFiveProfile, center: float, span: float) -> dict[str, float]:
     """@brief (score-center)/span 把 1-7 刻度归一到 [-1,1]，供映射层线性组合。"""
     return {dimension: (getattr(big_five, dimension) - center) / span
             for dimension in BIG_FIVE_DIMENSIONS}
-
-
-def persona_text_sha256(persona_text: str) -> str:
-    """@brief 画像文本的 sha256 指纹（source.persona_text_sha256）。"""
-    import hashlib
-    return hashlib.sha256(persona_text.encode("utf-8")).hexdigest()
-
-
-def iterate_lattice(profile: MotivationProfile) -> Iterable[tuple[str, float]]:
-    """@brief 展开档案的全部格点数值（check 命令的一致性清单用）。"""
-    yield "tau", profile.tau
-    yield "beta_present_bias", profile.beta_present_bias
-    yield "emotion_sensitivity", profile.emotion_sensitivity
-    for key, value in profile.loss_aversion.model_dump().items():
-        yield f"loss_aversion.{key}", value
-    for key, value in profile.weights.model_dump().items():
-        yield f"weights.{key}", value
-    for key, value in profile.attention_prior.model_dump().items():
-        yield f"attention_prior.{key}", value

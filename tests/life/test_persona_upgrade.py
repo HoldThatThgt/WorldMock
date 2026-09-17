@@ -130,3 +130,114 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
     sent_profile = json.loads(messages[1]["content"])["profile"]
     for field in _NEW_PERSONA_FIELDS:
         assert sent_profile[field] == getattr(scenario.agents[0], field)
+
+
+# ---------------------------------------------------------------------------
+# 画像编译 v2（PersonaCard 合同，规格 L1652-1669）：以下用例自包含（打桩提取层，
+# 直接读场景 JSON 取 background_story，不经 load_scenario 的语料清单完整性门禁）。
+# ---------------------------------------------------------------------------
+
+class _FakeResponse:
+    """@brief 固定 200 响应，包装脚本化载荷文本。"""
+
+    def __init__(self, content):
+        self.status_code = 200
+        self._content = content
+        self.text = content
+
+    def json(self):
+        return {"choices": [{"message": {"content": self._content}}]}
+
+
+class _CyclingSession:
+    """@brief 循环弹出脚本化响应（三次一致性提取打桩，不真实调 API）。"""
+
+    def __init__(self, content):
+        self._response = _FakeResponse(content)
+        self.calls = 0
+
+    def post(self, url, json=None, headers=None, timeout=None):
+        self.calls += 1
+        return self._response
+
+
+def _compiled_from_story(story: str):
+    """@brief 以打桩会话编译真实 background_story（零真实 API 调用）。"""
+    from worldmock.profile.compile import compile_persona
+    from worldmock.profile.extractor import extract_persona
+    from tests.profile.conftest import make_payload
+    session = _CyclingSession(make_payload())
+
+    def fake_extract(text, n_runs=3, **kwargs):
+        return extract_persona(text, n_runs=n_runs, session=session, **kwargs)
+
+    import worldmock.profile.compile as compile_module
+    original = compile_module.extract_persona
+    compile_module.extract_persona = fake_extract
+    try:
+        return compile_persona(story)
+    finally:
+        compile_module.extract_persona = original
+
+
+def test_v2_compile_rejects_old_template_agent_document() -> None:
+    """旧字段删除后编译旧档案明确报错（不静默兼容）。"""
+    from worldmock.profile.compile import LegacyTemplateFieldError, compile_persona
+    story = _payload()["agents"][0]["background_story"]
+    legacy = {"background_story": story, "occupation": "产品经理",
+              "routine_preference": "早睡早起", "consumption_preference": "精打细算",
+              "risk_preference": "稳健"}
+    with pytest.raises(LegacyTemplateFieldError, match="legacy template fields"):
+        compile_persona(legacy)
+
+
+def test_v2_contract_rejects_old_nine_parameter_profile() -> None:
+    """旧 v1 九参数动机档案 JSON 被 schema v2 明确拒绝。"""
+    from worldmock.profile.models import CompiledPersona
+    old_payload = {
+        "schema_version": 1,
+        "big_five": {"openness": 4, "conscientiousness": 4, "extraversion": 4,
+                     "agreeableness": 4, "neuroticism": 4},
+        "weights": {"money_fen": 0.2, "energy_kcal": 0.2, "sleep_debt_hours": 0.2,
+                    "entertainment_need": 0.2, "goal_task": 0.2},
+        "tau": 2.0, "beta_present_bias": 0.75,
+        "loss_aversion": {"money_fen": 2.0, "energy_kcal": 1.5},
+        "comfort": {"balance_fen": 15000, "energy_kcal": 1000},
+        "aspiration": {"daily_effective_work_seconds": 18000},
+        "emotion_sensitivity": 0.5, "attention_prior": {}, "source": None,
+    }
+    with pytest.raises(ValidationError, match="schema_version"):
+        CompiledPersona.model_validate(old_payload)
+
+
+def test_real_background_story_compiles_to_v2_card() -> None:
+    """真实场景 background_story 走 v2 编译：卡片 + 大五 + 世界层动力学齐全。"""
+    compiled = _compiled_from_story(_payload()["agents"][0]["background_story"])
+    assert compiled.schema_version == 2
+    assert compiled.card.identity.age > 0
+    assert compiled.card.relationships and compiled.card.time_anchors.wake
+    assert 7.0 <= compiled.card.sleep_need_hours <= 9.0
+    assert compiled.card.habits and compiled.card.tastes
+    assert compiled.world_dynamics.mood_pulse_amplitude > 0
+    assert compiled.source.prompt_version == "card-v1"
+
+
+def test_v2_compilation_is_deterministic_for_real_story() -> None:
+    """同输入两次编译逐字节相同（确定性映射）。"""
+    story = _payload()["agents"][0]["background_story"]
+    assert _compiled_from_story(story).model_dump_json() == \
+        _compiled_from_story(story).model_dump_json()
+
+
+def test_card_render_never_leaks_big_five_or_random_floats() -> None:
+    """大五与随机浮点不出现在渲染文本（黑名单断言）。"""
+    import re
+
+    from worldmock.profile.textgen import count_hanzi, render_card
+    compiled = _compiled_from_story(_payload()["agents"][0]["background_story"])
+    text = render_card(compiled.card)
+    for term in ("开放性", "尽责性", "外向性", "宜人性", "神经质", "tau", "beta",
+                 "λ", "权重", "%", "weights"):
+        assert term not in text
+    assert not re.search(r"\d+\.\d{2,}", text)
+    assert count_hanzi(text) <= 600
