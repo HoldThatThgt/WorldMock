@@ -142,6 +142,13 @@ target_discovery = "none"
 met_key = "lifestyle:{item_id}"
 energy_floor_exempt = false
 sleep_channel = "awake"
+# 修订合同 L1600：生活活动具备 relief 通道——缓解量按条目 effects 声明
+# （lifestyle/items.json 的 effects.entertainment/social/health，activities.
+# py 结算侧折算）。注册表通道保持 none：本表的通道四值语义是"目录活动费率
+# 表"（semantics 对 resources.jsonl entertainment_relief_per_hour 的封闭键
+# 映射），条目级 effects 不在活动费率表内；通道改走 preference_rate 需先在
+# resources.jsonl 增加 lifestyle 费率键（目录数据属 A10 波次），届时 effects
+# 分支让位注册表通道（activities._entertainment_relief 的分支序）。
 relief = { channel = "none" }
 resource_claims = []
 feedback_boundary = false
@@ -272,12 +279,10 @@ title_source = "self_label"
 
 [families.lifestyle]
 # M4 激活：从纯声明面迁入动机参与——content_menu 原型复用（开放命名空间分支：
-# 候选目录来自 lifestyle 语料 + 场景 MET 身份核对），每生活品类采 top-1、
-# 全局配额 4（183 条涌入不挤掉生存位；枚举序在 browse 之后、娱乐之前）。
-# 注意：relief 仍为 none——content_rate 通道在结算侧要求条目级费率证据
-# （activity.data 的 entertainment_relief_per_hour/exposure_count），lifestyle
-# 活动的受理数据不含这些字段且语料无费率列，迁移该通道需先扩结算面（见
-# M4 交付报告的 M2 缺口清单）。
+# 候选目录来自 lifestyle 语料 + 场景 MET 身份核对 + 人物启用集过滤），每生活
+# 品类采 top-1、全局配额 4（183 条涌入不挤掉生存位；枚举序在 browse 之后、
+# 娱乐之前）。缓解：条目 effects 经 activities.lifestyle_relief_rates 折算
+# （修订合同 L1600），候选侧预演同式——见 kinds.lifestyle 的 relief 注释。
 kinds = ["lifestyle"]
 attention = { kind = "content_kind", sampling = "per_kind_top_n", per_kind = 1, pool_cap = 4 }
 # 习惯归并：lifestyle:* 前缀自 continue 家族迁入（前缀路由按声明序命中，

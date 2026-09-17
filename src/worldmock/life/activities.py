@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
+from typing import Mapping
 
 from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError
+from worldmock.life import felt
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
     ActivityFactors,
@@ -52,6 +57,45 @@ FEEDBACK_ACTIVITY_KINDS = frozenset(
 
 #: 可供性注册表视图（冻结文件加载一次；资源锁/缓解通道/MET 模板查表用）。
 _AFFORDANCES = default_affordances()
+
+#: 生活活动 effects 娱乐缓解的每小时尺度（experiment_assumption：锚定目录既有
+#: 娱乐缓解费率 watch 0.3 / play_game 0.4，effects 权重 1.0 的生活活动对标
+#: 0.5/小时；规格 L1600 要求生活活动具备 relief 通道）。
+LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR = 0.5
+#: 生活活动 effects 社交缓解的每小时尺度（experiment_assumption：锚定 felt
+#: 账本交谈 0.5/小时上限，effects.social=1.0 的社交型活动对标半场交谈）。
+LIFESTYLE_SOCIAL_SCALE_PER_HOUR = 0.5
+#: 生活活动 effects 健康效应的每小时情绪脉冲幅度（experiment_assumption：
+#: 锚定 felt.MOOD_PULSES 的 message_received +0.1；健康无独立需要池，落
+#: 情绪通道——规格 L1521 情绪不改变动作可行性）。
+LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
+
+
+@lru_cache(maxsize=1)
+def lifestyle_effects() -> Mapping[str, Mapping[str, float]]:
+    """@brief 生活活动目录的 effects 表（activity_id -> 各需要池效应权重）。
+
+    读取 corpora/lifestyle/items.json 的 v2 字段（A10：location_kinds/
+    time_window/needs_partner/effects）；目录条目由准入检查保证逐条携带
+    effects，此处只做形状防御（缺 effects 的行按全零处理）。
+    """
+    root = Path(__file__).resolve().parents[3] / "corpora"
+    payload = json.loads((root / "lifestyle/items.json").read_text(encoding="utf-8"))
+    return {row["activity_id"]: {key: float(value) for key, value in
+                             (row.get("effects") or {}).items()}
+            for row in payload["items"]}
+
+
+def lifestyle_relief_rates(activity_id: str) -> tuple[float, float, float]:
+    """@brief 条目 effects 折算的 (娱乐缓解/小时, 社交缓解/小时, 健康情绪幅度/小时)。
+
+    娱乐缓解走既有结算分录通道（settle_body 的 relief 因子）；社交与健康在
+    活动推进时直接作用于身体（与 chat/call 的账本外直接落账同构）。
+    """
+    effects = lifestyle_effects().get(activity_id, {})
+    return (effects.get("entertainment", 0.0) * LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR,
+            effects.get("social", 0.0) * LIFESTYLE_SOCIAL_SCALE_PER_HOUR,
+            effects.get("health", 0.0) * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
 
 
 def start_activity(agent: AgentState, request: StartActivityRequest, now: int, origin: ActivityOrigin,
@@ -144,7 +188,31 @@ def advance_activity(activity: ActivityState, agent: AgentState, now: int,
     updated_activity = _advanced_activity(activity, stop, elapsed, settlement, completed)
     current = None if completed else agent.current_activity_id
     updated_agent = agent.model_copy(update={"body": settlement.after, "current_activity_id": current}, deep=True)
+    updated_agent = _apply_lifestyle_felt_relief(updated_agent, activity, seconds)
     return ActivityAdvance(updated_activity, updated_agent, settlement, completed)
+
+
+def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
+                                 seconds: int) -> AgentState:
+    """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（L1600）。
+
+    娱乐缓解在 _entertainment_relief 走既有分录通道（有事件留痕）；社交
+    需要不是分录资源（与 chat/call 同口径直接落账），健康无需要池、以正向
+    情绪脉冲承载。幅度按实际推进小时数线性累积。
+    """
+    if activity.kind != ActivityKind.LIFESTYLE or seconds <= 0:
+        return agent
+    _entertainment_rate, social_rate, health_rate = lifestyle_relief_rates(
+        activity.target_id or "")
+    if social_rate <= 0 and health_rate <= 0:
+        return agent
+    hours = seconds / 3600
+    body = agent.body
+    social = max(0.0, body.social_need - social_rate * hours)
+    valence = felt.apply_mood_pulse(body.mood_valence, health_rate * hours,
+                                    body.neuroticism_norm)
+    return agent.model_copy(update={"body": body.model_copy(
+        update={"social_need": social, "mood_valence": valence})}, deep=True)
 
 
 def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> tuple[ActivityState, AgentState]:
@@ -184,8 +252,13 @@ def _entertainment_relief(activity: ActivityState, preference: float, config: Bo
     body.py 的 wait 分支直接按目录费率结算，不走偏好 gating 的 factors
     通道，避免与内容偏好相乘归零或双重计入。content_rate：watch 按条目
     费率/偏好/接触次数。preference_rate/none：偏好 x 目录费率（无费率
-    键的活动得 0）。
+    键的活动得 0）。lifestyle 在通道为 none 时按条目 effects 折算缓解
+    （修订合同 L1600：生活活动的 effects 真正缓解需要池；注册表通道仍为
+    none——effects 是条目级数据，不在目录活动费率表内）。
     """
+    if (activity.kind == ActivityKind.LIFESTYLE
+            and _AFFORDANCES.relief_channel(activity.kind.value) == "none"):
+        return lifestyle_relief_rates(activity.target_id or "")[0]
     channel = _AFFORDANCES.relief_channel(activity.kind.value)
     if channel == "intrinsic":
         return 0
