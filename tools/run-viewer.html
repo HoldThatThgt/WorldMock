@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WorldMock 运行数据查看器</title>
+<style>
+:root{
+  --bg:#0f1115; --bg2:#161a22; --bg3:#1d232e; --line:#2a3140;
+  --fg:#d7dde6; --fg-dim:#8b949e; --fg-faint:#5b636e;
+  --accent:#58a6ff; --ok:#3fb950; --warn:#d29922; --err:#f85149;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--fg);font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;overflow:hidden}
+button{font:inherit;color:inherit;background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:4px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:#1f6feb;border-color:#1f6feb;color:#fff}
+input,select,textarea{font:inherit;color:var(--fg);background:var(--bg3);border:1px solid var(--line);border-radius:4px;padding:4px 8px}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+table{border-collapse:collapse;width:100%}
+th,td{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--fg-dim);font-weight:600;position:sticky;top:0;background:var(--bg2);white-space:nowrap}
+td.num,th.num{text-align:right;font-family:var(--mono)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#333c4d;border-radius:5px}
+::-webkit-scrollbar-track{background:transparent}
+
+/* ---------- 拖放区 ---------- */
+#drop-zone{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:var(--bg);z-index:100;padding:24px}
+#drop-zone.hidden{display:none}
+#drop-box{border:2px dashed #3d4657;border-radius:12px;padding:60px 80px;text-align:center;cursor:pointer}
+#drop-box.dragover{border-color:var(--accent);background:rgba(88,166,255,.06)}
+#drop-box h1{font-size:20px;font-weight:600;margin-bottom:10px}
+#drop-box p{color:var(--fg-dim);max-width:560px;line-height:1.8}
+#drop-log{font-family:var(--mono);font-size:12px;color:var(--fg-dim);min-height:120px;width:560px;max-width:92vw;background:var(--bg2);border:1px solid var(--line);border-radius:6px;padding:8px 12px;white-space:pre-wrap;display:none;overflow:auto}
+#drop-err{color:var(--err);max-width:560px;text-align:center;display:none;white-space:pre-wrap}
+#file-input{display:none}
+
+/* ---------- 主布局 ---------- */
+#app{display:none;height:100%;flex-direction:column}
+#app.on{display:flex}
+#topbar{display:flex;align-items:center;gap:14px;padding:8px 16px;background:var(--bg2);border-bottom:1px solid var(--line);flex:none;flex-wrap:wrap}
+#topbar .title{font-weight:600;font-size:14px}
+#topbar .meta{color:var(--fg-dim);font-size:12px;font-family:var(--mono)}
+#topbar label{color:var(--fg-dim);font-size:12px;display:flex;align-items:center;gap:6px}
+#layout{flex:1;display:flex;min-height:0}
+#sidebar{width:168px;flex:none;background:var(--bg2);border-right:1px solid var(--line);padding:8px 0;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:0;padding:8px 16px;color:var(--fg-dim);border-left:2px solid transparent}
+.nav-item:hover{color:var(--fg);background:var(--bg3)}
+.nav-item.on{color:var(--fg);background:var(--bg3);border-left-color:var(--accent)}
+#main{flex:1;overflow:auto;padding:16px 20px;min-width:0}
+.view{display:none}
+.view.on{display:block}
+.view h2{font-size:16px;font-weight:600;margin-bottom:12px}
+.view h3{font-size:13px;font-weight:600;color:var(--fg-dim);margin:16px 0 8px}
+.card{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:1fr 1fr}
+@media(max-width:1100px){.g2{grid-template-columns:1fr}}
+.kv{display:flex;gap:8px;padding:3px 0;font-size:13px}
+.kv .k{color:var(--fg-dim);width:150px;flex:none}
+.kv .v{font-family:var(--mono);word-break:break-all}
+.bar-row{display:flex;align-items:center;gap:8px;padding:2px 0}
+.bar-row .lbl{width:150px;flex:none;color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-row .bar-bg{flex:1;height:16px;background:var(--bg3);border-radius:3px;overflow:hidden}
+.bar-row .bar{height:100%;border-radius:3px}
+.bar-row .n{width:60px;flex:none;text-align:right;font-family:var(--mono);color:var(--fg-dim);font-size:12px}
+
+/* ---------- 过滤条 ---------- */
+.filter-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;padding:10px 12px;background:var(--bg2);border:1px solid var(--line);border-radius:8px}
+.filter-bar label{color:var(--fg-dim);font-size:12px;display:flex;align-items:center;gap:6px}
+.chips{display:flex;flex-wrap:wrap;gap:4px}
+.chip{font-size:11px;padding:2px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg3);cursor:pointer;color:var(--fg-dim);user-select:none}
+.chip[data-t].on{color:#0b0d11;border-color:transparent;background:var(--c,#3d4657);font-weight:600}
+.range-wrap{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--fg-dim)}
+.range-wrap input[type=range]{width:130px;accent-color:var(--accent);padding:0}
+
+/* ---------- 时间线 ---------- */
+.tl-row{display:flex;gap:10px;padding:5px 10px;border-bottom:1px solid var(--line);cursor:pointer;align-items:baseline}
+.tl-row:hover{background:var(--bg3)}
+.tl-time{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:152px;flex:none}
+.tl-agent{flex:none;width:56px;font-size:11px;text-align:center;border-radius:3px;padding:1px 0}
+.tl-type{flex:none;width:118px;font-size:11px;text-align:center;border-radius:3px;padding:1px 0}
+.tl-sum{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--fg)}
+.tl-detail{display:none;background:var(--bg);border-bottom:1px solid var(--line)}
+.tl-detail.on{display:block;padding:10px 12px}
+.tl-detail pre{max-height:480px;overflow:auto;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-all;color:#a8d4ff}
+.tl-sentinel{height:40px;display:flex;align-items:center;justify-content:center;color:var(--fg-faint)}
+.badge-a1{background:rgba(88,166,255,.18);color:#79b8ff}
+.badge-a2{background:rgba(63,185,80,.16);color:#7ee787}
+.badge-a0{background:var(--bg3);color:var(--fg-dim)}
+
+/* ---------- 活动表格 ---------- */
+.act-table th{cursor:pointer;user-select:none;white-space:nowrap}
+.act-table th:hover{color:var(--fg)}
+.act-table th .arrow{font-size:10px;margin-left:3px;color:var(--accent)}
+.act-kind{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
+.pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:8px 2px;color:var(--fg-dim);font-size:12px}
+.pager button:disabled{opacity:.4;cursor:default}
+
+/* ---------- 图表 ---------- */
+.chart-block{margin-bottom:14px}
+.chart-block .chart-title{color:var(--fg-dim);font-size:12px;margin-bottom:6px;display:flex;justify-content:space-between;gap:10px}
+.chart-block canvas{width:100%;height:120px;display:block;background:var(--bg2);border:1px solid var(--line);border-radius:6px;cursor:crosshair}
+#eco-canvas{width:100%;height:220px;display:block;background:var(--bg2);border:1px solid var(--line);border-radius:6px;cursor:crosshair}
+.legend{display:flex;gap:14px;flex-wrap:wrap;margin:6px 0 2px;font-size:12px;color:var(--fg-dim)}
+.legend .sw{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+
+/* ---------- 记忆 / 思考 ---------- */
+.mem-file{background:var(--bg2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin-bottom:12px}
+.mem-file h4{font-size:13px;margin-bottom:8px;color:var(--accent);font-family:var(--mono)}
+.mem-file pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--fg);max-height:420px;overflow:auto}
+.rs-item{border-bottom:1px solid var(--line);padding:8px 10px;cursor:pointer}
+.rs-item:hover{background:var(--bg3)}
+.rs-head{display:flex;gap:10px;align-items:baseline}
+.rs-head .t{font-family:var(--mono);font-size:12px;color:var(--fg-dim);width:150px;flex:none}
+.rs-head .a{flex:none;width:56px;font-size:11px;text-align:center;border-radius:3px}
+.rs-head .x{color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.rs-body{display:none;background:var(--bg);padding:10px 12px;border-bottom:1px solid var(--line)}
+.rs-body.on{display:block}
+.rs-body pre{white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.6;color:#c8d8f0;max-height:420px;overflow:auto}
+.hint{color:var(--fg-dim);background:var(--bg2);border:1px dashed var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px;line-height:1.8}
+
+/* ---------- SQL 控制台 ---------- */
+#sql-input{width:100%;height:90px;font-family:var(--mono);font-size:12px;resize:vertical;margin-bottom:8px}
+#sql-out{overflow:auto;max-height:60vh;background:var(--bg2);border:1px solid var(--line);border-radius:6px;margin-top:8px}
+#sql-msg{font-family:var(--mono);font-size:12px;color:var(--fg-dim);margin-top:6px}
+#sql-msg.err{color:var(--err)}
+.empty{color:var(--fg-faint);padding:24px;text-align:center}
+</style>
+</head>
+<body>
+
+<!-- ============ 拖放区 ============ -->
+<div id="drop-zone">
+  <div id="drop-box" role="button" tabindex="0">
+    <h1>拖入 footprints.sqlite</h1>
+    <p>将运行产生的 SQLite 足迹文件拖到此处，或点击选择文件。<br>
+       也可以把 sqlite 文件与整个 run 目录一起拖入（目录含 <code>as2/agents/*/MEMORY.md</code>）以加载记忆文件；<br>
+       若一并拖入含 <code>items.json</code>（电影/剧集/小说条目）的目录，活动目标会显示片名。<br>
+       所有数据只在本地浏览器内解析，不会上传。</p>
+  </div>
+  <input type="file" id="file-input" accept=".sqlite,.db,.sqlite3">
+  <div id="drop-err"></div>
+  <div id="drop-log"></div>
+</div>
+
+<!-- ============ 主界面 ============ -->
+<div id="app">
+  <div id="topbar">
+    <span class="title">WorldMock 运行查看器</span>
+    <span class="meta" id="run-meta"></span>
+    <span style="flex:1"></span>
+    <label>Agent
+      <select id="agent-filter"><option value="">全部</option></select>
+    </label>
+    <button id="btn-reload" title="重新选择文件">换一个文件</button>
+  </div>
+  <div id="layout">
+    <nav id="sidebar"></nav>
+    <div id="main">
+      <section class="view" data-view="overview"><h2>总览</h2><div id="ov-body"></div></section>
+      <section class="view" data-view="timeline"><h2>时间线</h2><div id="tl-body"></div></section>
+      <section class="view" data-view="activities"><h2>活动表格</h2><div id="act-body"></div></section>
+      <section class="view" data-view="body"><h2>身体曲线</h2><div id="bd-body"></div></section>
+      <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
+      <section class="view" data-view="memory"><h2>记忆</h2><div id="mem-body"></div></section>
+      <section class="view" data-view="reasoning"><h2>思考记录</h2><div id="rs-body"></div></section>
+      <section class="view" data-view="sql"><h2>SQL 查询</h2><div id="sql-body"></div></section>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ================================================================
+ * WorldMock 运行数据查看器 —— 纯前端单文件，sql.js 读取 footprints.sqlite
+ * 两级数据策略：SQL 投影建立轻量索引（json_extract 在 SQLite C 层完成，
+ * 不把 140MB+ 的事件 body 拉进 JS），行内全文按 event_seq 懒加载缓存。
+ * ================================================================ */
+
+/* ---------- sql.js 加载（多 CDN 回退，均经 verify 200） ---------- */
+const SQLJS_VERSION = '1.10.3';
+const SQLJS_CDNS = [
+  { js: `https://cdn.jsdelivr.net/npm/sql.js@${SQLJS_VERSION}/dist/sql-wasm.js`,
+    wasm: `https://cdn.jsdelivr.net/npm/sql.js@${SQLJS_VERSION}/dist/sql-wasm.wasm` },
+  { js: `https://unpkg.com/sql.js@${SQLJS_VERSION}/dist/sql-wasm.js`,
+    wasm: `https://unpkg.com/sql.js@${SQLJS_VERSION}/dist/sql-wasm.wasm` },
+];
+function loadScript(src){
+  return new Promise((res, rej)=>{
+    if (window.initSqlJs) return res();
+    const s = document.createElement('script');
+    s.src = src; s.onload = res; s.onerror = ()=>rej(new Error('script load fail: '+src));
+    document.head.appendChild(s);
+  });
+}
+async function loadSqlJs(){
+  const errs = [];
+  for (const c of SQLJS_CDNS){
+    try {
+      await loadScript(c.js);
+      const SQL = await window.initSqlJs({ locateFile: ()=>c.wasm });
+      return SQL;
+    } catch(e){ errs.push(e.message); }
+  }
+  throw new Error('无法加载 sql.js 引擎（需联网访问 jsDelivr 或 unpkg 之一）。\n' + errs.join('\n'));
+}
+
+/* ---------- 全局状态 ---------- */
+const S = {
+  SQL: null, db: null, fileName: '',
+  events: [],            // {seq,t,agent,type,sum} 按 seq 升序
+  summaries: new Map(),  // seq -> 摘要字段对象
+  typeCounts: {},
+  agents: {}, agentIds: [],
+  t0: 0, t1: 0, runId: '', tz: 'Asia/Shanghai',
+  world: null,
+  obs: [],               // {seq,t,agent,bal,en,sl,et}
+  acts: [],              // 合并后的活动段
+  memFiles: {},          // agentId -> {memoryMd, episodes:[]}
+  itemNames: {},         // item_id -> 标题（拖入 items.json 后可用）
+  nameIdx: null,         // {products:Map, messages:Map, catalog:Map} 来自 observation
+  fmt: null, tzOff: 28800,
+  view: 'overview',
+  bodyCache: new Map(),  // seq -> body 文本（FIFO 上限）
+};
+const BODY_CACHE_MAX = 40;
+
+/* ---------- 工具函数 ---------- */
+const $ = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const esc = s => String(s??'').replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nf = n => (n==null||isNaN(n))?'—':Number(n).toLocaleString('zh-CN');
+function makeFmt(tz){
+  /* 注意：新版 V8 中 Intl.DateTimeFormat 实例本身不可调用，必须走 .format() */
+  const mk = extra => { const f = new Intl.DateTimeFormat('zh-CN',{timeZone:tz,hour12:false,...extra}); return d => f.format(d); };
+  return {
+    full: mk({year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'}),
+    mdhm: mk({month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}),
+    md:   mk({month:'2-digit',day:'2-digit'}),
+    date: mk({year:'numeric',month:'2-digit',day:'2-digit'}),
+  };
+}
+/* 模拟时区在 t 时刻的 UTC 偏移（秒），用于画当地日分界线 */
+function tzOffsetSec(tz, t){
+  const p = new Intl.DateTimeFormat('en-US',{timeZone:tz,hourCycle:'h23',year:'numeric',month:'2-digit',
+    day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'})
+    .formatToParts(new Date(t*1000)).reduce((a,x)=>(a[x.type]=x.value,a),{});
+  return Math.round((Date.UTC(+p.year,+p.month-1,+p.day,+p.hour,+p.minute,+p.second) - t*1000)/1000);
+}
+const fmtT = t => t==null?'—':S.fmt.full(new Date(t*1000));
+const fmtHM = t => t==null?'—':S.fmt.mdhm(new Date(t*1000));
+const fmtDur = sec => {
+  if (sec==null||isNaN(sec)) return '—';
+  sec = Math.round(sec);
+  const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60);
+  return h? `${h}小时${m?m+'分':''}` : (m? `${m}分` : `${sec}秒`);
+};
+const fmtFen = f => f==null?'—':(f/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
+const agentName = id => id==null?'系统':(S.agents[id]||('agent '+id));
+const agentCls = id => id==null?'badge-a0':(id===1?'badge-a1':'badge-a2');
+
+const TYPE_COLORS = {
+  decision_started:'#8957e5', observation:'#58a6ff', model_request:'#d29922',
+  model_response:'#e3b341', action_requested:'#f0883e', action_accepted:'#3fb950',
+  action_rejected:'#f85149', action_result:'#7ee787', activity_progress:'#79c0ff',
+  memory_updated:'#d2a8ff', checkpoint_created:'#768390', environment_event:'#ff7b72',
+  run_ended:'#ffa657',
+};
+const KIND_COLORS = {
+  work:'#4f83cc', sleep:'#8a7fd8', travel:'#d0a03f', watch:'#3fae8c',
+  play_game:'#c46a9a', consume:'#b0703c', browse:'#6a9ab0', wait:'#6e7681',
+  read_mail:'#9a8f5a',
+};
+const typeColor = t => TYPE_COLORS[t]||'#768390';
+const kindColor = k => KIND_COLORS[k]||'#768390';
+
+/* ---------- 中文可读标签 ---------- */
+const TYPE_LABELS = {
+  decision_started:'决策', observation:'观察', model_request:'模型调用',
+  model_response:'模型响应', action_requested:'动作请求', action_accepted:'✓受理',
+  action_rejected:'✗拒绝', action_result:'结果', activity_progress:'活动段',
+  memory_updated:'记忆', checkpoint_created:'存档', environment_event:'世界事件',
+  run_ended:'结束', run_failed:'运行失败',
+};
+const KIND_LABELS = {
+  wait:'等待', sleep:'睡眠', work:'工作', watch:'观看', consume:'进食',
+  purchase:'购买', travel:'出行', read_mail:'读邮件', browse:'浏览', play_game:'玩游戏',
+};
+const TOOL_LABELS = {
+  start_basic_activity:'开始基础活动', start_travel:'开始出行',
+  start_targeted_activity:'开始定向活动', continue_activity:'继续活动',
+  purchase:'购买', consume:'进食', set_activity_state:'调整活动状态',
+  submit_work:'提交工作', game_action:'游戏操作',
+};
+const FEED_LABELS = {
+  'jokes-feed':'段子', 'weibo-feed':'微博', 'zhihu-feed':'知乎',
+  'movie-reviews-feed':'影评', 'news-feed':'新闻', 'product_catalog':'商品目录',
+};
+const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
+const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈' };
+const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
+  delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期' };
+const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
+const ERR_LABELS = { WORK_REQUIRES_REWORK:'工作需返工' };
+const LOC_LABELS = { home:'家', office:'公司', market:'市场' };
+const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'商家·通用',
+  'merchant:grocery':'商家·杂货', 'transport:service':'交通服务' };
+const TRAVEL_MODES = { driving:'驾车', walking:'步行', transit:'公交', bicycle:'骑行' };
+const typeLabel = t => TYPE_LABELS[t]||t;
+const kindLabel = k => k==null?'':(KIND_LABELS[k]||k);
+const toolLabel = t => t==null?'—':(TOOL_LABELS[t]||t);
+const statusLabel = s => s==null?'—':(STATUS_LABELS[s]||s);
+const locLabel = id => id==null?'':(LOC_LABELS[id]||id);
+const acctLabel = a => {
+  if (a==null) return '—';
+  const m = String(a).match(/^agent:(\d+)$/);
+  if (m) return agentName(+m[1]);
+  return ACCT_LABELS[a]||a;
+};
+/* 活动类型的情景化标签（活动表格用）：看电影/看剧/刷段子/看小说… */
+function actTypeLabel(kind, target){
+  const t = String(target||'');
+  if (kind==='watch'){
+    if (/^movie-/.test(t)) return '看电影';
+    if (/^drama-/.test(t)) return '看剧';
+    if (/^sintel/.test(t)) return '看字幕影片';
+  }
+  if (kind==='browse'){
+    if (/^novel-/.test(t)) return '看小说';
+    if (t==='jokes-feed') return '刷段子';
+    if (t==='weibo-feed') return '刷微博';
+    if (t==='zhihu-feed') return '刷知乎';
+    if (t==='movie-reviews-feed') return '刷影评';
+    if (t==='news-feed') return '刷新闻';
+  }
+  if (kind==='consume') return '吃';
+  if (kind==='purchase') return '买';
+  return kindLabel(kind);
+}
+/* target_id → 可读目标名 */
+function targetLabel(t){
+  if (t==null || t==='') return '';
+  const s = String(t);
+  const idx = S.nameIdx;
+  if (/^food-/.test(s)) return (idx && idx.products.get(s)) || `食品 #${s.slice(5)}`;
+  if (/^movie-\d+$/.test(s)) return S.itemNames[s] || `电影 #${s.slice(6)}`;
+  if (/^drama-\d+$/.test(s)) return S.itemNames[s] || `剧集 #${s.slice(6)}`;
+  if (/^novel-\d+$/.test(s)) return S.itemNames[s] || `小说 #${s.slice(6)}`;
+  if (/^textworld-\d+$/.test(s)) return `游戏 #${s.slice(10)}`;
+  if (/^game-\d+$/.test(s)) return `游戏 #${s.slice(5)}`;
+  if (/^task-\d{4}-\d{2}-\d{2}$/.test(s)) return '包工任务';
+  if (/^hourly-\d{4}-\d{2}-\d{2}$/.test(s)) return '计时工';
+  if (/^piece-\d{4}-\d{2}-\d{2}$/.test(s)) return '计件工';
+  if (FEED_LABELS[s]) return FEED_LABELS[s];
+  if (s==='sintel-en-subtitles') return 'Sintel 字幕体验';
+  if (idx && idx.messages.has(s)) return `邮件「${idx.messages.get(s)}」`;
+  if (LOC_LABELS[s]) return LOC_LABELS[s];
+  return s;
+}
+
+/* ---------- 查询封装 ---------- */
+function q(sqlText, params){
+  const stmt = S.db.prepare(sqlText);
+  try{
+    stmt.bind(params||[]);
+    const rows=[];
+    while(stmt.step()) rows.push(stmt.getAsObject());
+    return rows;
+  } finally { stmt.free(); }
+}
+const parseJArr = text => { try{ return JSON.parse(text); }catch(e){ return []; } };
+
+/* ================================================================
+ * 索引构建
+ * ================================================================ */
+function buildIndex(){
+  const log = m => { const el=$('#drop-log'); el.textContent += m+'\n'; el.scrollTop = el.scrollHeight; };
+  S.fmt = makeFmt(S.tz); /* 先建默认格式器：makeSummary 会格式化 run_ended 时间 */
+
+  log('· 读取事件索引 …');
+  const evRows = q(`SELECT event_seq AS seq, json_extract(body,'$.event_type','$.agent_id','$.occurred_at') AS k
+                    FROM events ORDER BY event_seq`);
+  for (const r of evRows){
+    const [type, agent, t] = parseJArr(r.k);
+    S.events.push({ seq:r.seq, type, agent, t, sum:'' });
+    S.typeCounts[type] = (S.typeCounts[type]||0)+1;
+  }
+  S.t0 = S.events.length? S.events[0].t : 0;
+  S.t1 = S.events.length? S.events[S.events.length-1].t : 0;
+
+  /* 按类型投影摘要字段（重路径只跑在相关行上；列名用双引号别名取路径写法） */
+  const P = paths => paths.map(p=>`json_extract(body,'${p}') AS "${p}"`).join(',');
+  const typeQuery = (type, paths, fn) => {
+    const rows = q(`SELECT event_seq AS seq, ${P(paths)} FROM events
+                    WHERE json_extract(body,'$.event_type')='${type}' ORDER BY event_seq`);
+    for (const r of rows) fn(r);
+  };
+
+  typeQuery('decision_started', ['$.data.round_order'], r=>{
+    S.summaries.set(r.seq,{round:r['$.data.round_order']});
+  });
+  typeQuery('observation', ['$.data.balance_fen','$.data.body.energy_kcal','$.data.body.sleep_debt_hours',
+                            '$.data.body.entertainment_need','$.data.active_activity.kind','$.data.calendar_context.date'],
+  r=>{
+    S.summaries.set(r.seq,{bal:r['$.data.balance_fen'],en:r['$.data.body.energy_kcal'],
+      sl:r['$.data.body.sleep_debt_hours'],et:r['$.data.body.entertainment_need'],
+      act:r['$.data.active_activity.kind'],date:r['$.data.calendar_context.date']});
+    S.obs.push({seq:r.seq, t:null, agent:null, bal:r['$.data.balance_fen'],
+      en:r['$.data.body.energy_kcal'], sl:r['$.data.body.sleep_debt_hours'], et:r['$.data.body.entertainment_need']});
+  });
+  typeQuery('action_requested', ['$.data.tool_name','$.data.request'], r=>{
+    S.summaries.set(r.seq,{tool:r['$.data.tool_name'], req:r['$.data.request']});
+  });
+  typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
+                                '$.data.activity.target_id','$.data.activity.destination_id'], r=>{
+    S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
+      tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id']});
+  });
+  typeQuery('action_rejected', ['$.data.error_code','$.data.consecutive_rejections'], r=>{
+    S.summaries.set(r.seq,{err:r['$.data.error_code'],nrej:r['$.data.consecutive_rejections']});
+  });
+  typeQuery('action_result', ['$.data.status','$.data.message','$.data.error_code','$.data.order'], r=>{
+    S.summaries.set(r.seq,{status:r['$.data.status'],msg:r['$.data.message'],err:r['$.data.error_code'],order:r['$.data.order']});
+  });
+  typeQuery('activity_progress', ['$.activity_id','$.data.activity.kind','$.data.activity.status','$.data.activity.started_at',
+                                  '$.data.activity.ended_at','$.data.activity.planned_end_at','$.data.activity.elapsed_seconds',
+                                  '$.data.activity.boundary_type','$.data.activity.target_id','$.data.activity.destination_id',
+                                  '$.data.activity.media_position_seconds'],
+  r=>{
+    S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
+      start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
+      pend:r['$.data.activity.planned_end_at'],elapsed:r['$.data.activity.elapsed_seconds'],
+      bnd:r['$.data.activity.boundary_type'],tg:r['$.data.activity.target_id'],
+      dest:r['$.data.activity.destination_id'],mpos:r['$.data.activity.media_position_seconds']});
+  });
+  typeQuery('model_request', ['$.data.request.model','$.data.attempt'], r=>{
+    S.summaries.set(r.seq,{model:r['$.data.request.model'],attempt:r['$.data.attempt']});
+  });
+  typeQuery('model_response', ['$.data.response.model','$.data.response.usage.prompt_tokens',
+                               '$.data.response.usage.completion_tokens','$.data.response.usage.total_tokens'],
+  r=>{
+    S.summaries.set(r.seq,{model:r['$.data.response.model'],pt:r['$.data.response.usage.prompt_tokens'],
+      ct:r['$.data.response.usage.completion_tokens'],tt:r['$.data.response.usage.total_tokens']});
+  });
+  typeQuery('memory_updated', ['$.data.operation','$.data.episode_ids','$.data.consolidated'], r=>{
+    S.summaries.set(r.seq,{op:r['$.data.operation'],ep:r['$.data.episode_ids'],cons:r['$.data.consolidated']});
+  });
+  typeQuery('checkpoint_created', ['$.data.checkpoint_id'], r=>{
+    S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
+  });
+  typeQuery('environment_event', ['$.data.kind','$.data.resource_changes'], r=>{
+    S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes']});
+  });
+  typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
+    S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
+  });
+
+  /* 观测的 agent/时间补全（从事件索引查，不重复解析 body） */
+  const bySeq = new Map(S.events.map(e=>[e.seq,e]));
+  for (const o of S.obs){ const e=bySeq.get(o.seq); if(e){ o.t=e.t; o.agent=e.agent; } }
+  S.obs = S.obs.filter(o=>o.t!=null);
+
+  /* 名称索引：从最后一条 observation 提取商品名 / 邮件主题 / 内容目录（段长）。
+   * 必须在 makeSummary 之前构建 —— 摘要里的目标名依赖它。 */
+  try{
+    const r = q(`SELECT body FROM events WHERE json_extract(body,'$.event_type')='observation' ORDER BY event_seq DESC LIMIT 1`)[0];
+    if (r){
+      const d = JSON.parse(r.body).data||{};
+      S.nameIdx = {
+        products: new Map((d.products||[]).filter(p=>p.product_id).map(p=>[p.product_id,p.name||p.product_id])),
+        messages: new Map((d.messages||[]).filter(m=>m.message_id).map(m=>[m.message_id,m.subject||''])),
+        catalog: new Map((d.content_catalog||[]).filter(c=>c.item_id).map(c=>[c.item_id,c])),
+      };
+    }
+  }catch(e){ /* 无 observation 时 targetLabel 走回退标签 */ }
+
+  for (const e of S.events) e.sum = makeSummary(e);
+
+  const rid = q(`SELECT json_extract(body,'$.run_id') AS r FROM events LIMIT 1`)[0];
+  S.runId = rid?.r || '';
+
+  try{
+    const w = q('SELECT body FROM world_state LIMIT 1')[0];
+    if (w) S.world = JSON.parse(w.body);
+  }catch(e){ /* 无 world_state 时基础视图仍可用 */ }
+  if (S.world){
+    if (S.world.timezone){ S.tz = S.world.timezone; }
+    S.agents = {};
+    for (const [id,a] of Object.entries(S.world.agents||{})) S.agents[id]=a.name||('agent '+id);
+  }
+  S.agentIds = [...new Set(S.events.map(e=>e.agent).filter(a=>a!=null))].sort((a,b)=>a-b);
+  if (!Object.keys(S.agents).length) S.agentIds.forEach(id=>S.agents[id]='agent '+id);
+  S.fmt = makeFmt(S.tz);
+  try{ S.tzOff = tzOffsetSec(S.tz, S.t0||Math.floor(Date.now()/1000)); }catch(e){ S.tzOff = 28800; }
+
+  buildActivities();
+  log(`· 索引完成：${S.events.length} 事件 / ${S.agentIds.length} agent / ${S.obs.length} 观测 / ${S.acts.length} 活动段`);
+}
+
+/* 把 action_requested 的 request 参数渲染成可读中文（隐藏技术编号） */
+function readableReq(tool, reqRaw){
+  let req = null;
+  try{ req = typeof reqRaw==='string'? JSON.parse(reqRaw) : reqRaw; }catch(_){}
+  if (!req || typeof req!=='object') return '';
+  switch (tool){
+    case 'start_basic_activity':
+      return `${kindLabel(req.activity_type)} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
+    case 'start_travel':
+      return `${locLabel(req.destination_id)} · ${TRAVEL_MODES[req.travel_mode]||req.travel_mode||''} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
+    case 'start_targeted_activity':
+      return `${actTypeLabel(req.activity_type, req.target_id)} ${targetLabel(req.target_id)} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
+    case 'continue_activity':
+      return '继续当前活动';
+    case 'purchase':
+      return `${targetLabel(req.product_id)} ×${req.quantity??1} · ${req.fulfillment==='pickup'?'到店自提':'外送'} · 送往${locLabel(req.destination_id)}`;
+    case 'consume':
+      return `${targetLabel(req.product_id)} ×${req.quantity??1}`;
+    case 'set_activity_state':
+      return req.operation==='resume'?'恢复活动':(req.operation==='pause'?'暂停活动':(req.operation||''));
+    case 'submit_work': {
+      const d = req.deliverable;
+      if (d && typeof d==='object'){
+        const nA = Array.isArray(d.action_items)? d.action_items.length : 0;
+        const nD = Array.isArray(d.decisions)? d.decisions.length : 0;
+        return `交付物：${nD} 项决议 · ${nA} 项行动`;
+      }
+      return '提交工作交付物';
+    }
+    case 'game_action':
+      return `游戏指令「${req.command||''}」`;
+    default: {
+      const HIDE = new Set(['activity_id','game_session_id','price_version']);
+      return Object.entries(req).filter(([k])=>!HIDE.has(k))
+        .map(([k,v])=>`${k}=${typeof v==='object'?JSON.stringify(v).slice(0,60):v}`).join(' ').slice(0,120);
+    }
+  }
+}
+function makeSummary(e){
+  const s = S.summaries.get(e.seq)||{};
+  switch(e.type){
+    case 'decision_started': return `决策开始 · 第 ${s.round??'?'} 轮`;
+    case 'observation': return `余额 ¥${fmtFen(s.bal)} · 能量 ${s.en==null?'—':Math.round(s.en)}kcal · 睡眠债 ${s.sl==null?'—':(+s.sl).toFixed(1)}h · 娱乐需求 ${s.et==null?'—':(+s.et).toFixed(2)}${s.act?' · 进行中：'+kindLabel(s.act):''}`;
+    case 'model_request': return `模型请求 ${s.model||''} · 第${s.attempt??'?'}次尝试`;
+    case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
+    case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}`;
+    case 'action_accepted': return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+(s.tg?targetLabel(s.tg):locLabel(s.dest)):''} · 计划 ${fmtDur(s.dur)}`;
+    case 'action_rejected': return `被拒绝 · ${ERR_LABELS[s.err]||s.err||'—'} · 连续拒绝 ${s.nrej??'?'} 次`;
+    case 'action_result': {
+      let ord='';
+      if (s.order && typeof s.order==='string'){ try{ const o=JSON.parse(s.order);
+        if (o && o.total_price_fen!=null) ord=` · 订单 ${targetLabel(o.product_id)} ¥${fmtFen(o.total_price_fen)}`; }catch(_){}}
+      return `结果 ${statusLabel(s.status)}${s.msg?' · '+s.msg:''}${s.err?' · '+(ERR_LABELS[s.err]||s.err):''}${ord}`;
+    }
+    case 'activity_progress': return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg? ' '+targetLabel(s.tg) : (s.dest? ' → '+locLabel(s.dest):'')} · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+BND_LABELS[s.bnd]:''}`;
+    case 'memory_updated': {
+      let n = 0; try{ n = Array.isArray(s.ep)? s.ep.length : (s.ep?JSON.parse(s.ep).length:0); }catch(_){}
+      return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆${s.cons?' · 已巩固':''}`;
+    }
+    case 'checkpoint_created': return '存档';
+    case 'environment_event': return `世界事件 · ${ENVK_LABELS[s.ekind]||s.ekind||'—'}`;
+    case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
+    default: return '';
+  }
+}
+
+/* 活动段合并：同一 activity_id 取最新状态（受理与进展按真实 activity_id 归并） */
+function buildActivities(){
+  const map = new Map();
+  for (const e of S.events){
+    if (e.type!=='activity_progress' && e.type!=='action_accepted') continue;
+    const s = S.summaries.get(e.seq);
+    if (!s || !s.kind) continue;   /* 无 data.activity 的受理（如购买）不构成活动段 */
+    const aid = s.aid || `(accepted@${e.seq})`;
+    let a = map.get(aid);
+    if (!a){ a = {aid, agent:e.agent, kind:s.kind||'?', start:s.start??e.t, end:null, pend:s.pend??null,
+                   status:s.status||'active', elapsed:0, tg:null, dest:null, mpos:null};
+             map.set(aid,a); }
+    if (s.kind) a.kind = s.kind;
+    if (s.start!=null && s.start < a.start) a.start = s.start;
+    if (s.end!=null) a.end = Math.max(a.end??0, s.end);
+    if (s.pend!=null) a.pend = s.pend;
+    if (s.status) a.status = s.status;
+    if (s.elapsed!=null) a.elapsed = Math.max(a.elapsed, s.elapsed);
+    if (a.tg==null && s.tg!=null && s.tg!=='') a.tg = s.tg;
+    if (a.dest==null && s.dest!=null && s.dest!=='') a.dest = s.dest;
+    if (a.mpos==null && s.mpos!=null) a.mpos = s.mpos;
+  }
+  for (const a of map.values()){
+    if (a.end==null) a.end = a.pend!=null? Math.min(a.pend,S.t1) : Math.min(a.start+a.elapsed,S.t1);
+    if (a.end < a.start) a.end = a.start;
+  }
+  S.acts = [...map.values()].sort((x,y)=> x.agent-y.agent || x.start-y.start);
+}
+
+/* 懒加载事件全文（FIFO 缓存） */
+function fetchBody(seq){
+  if (S.bodyCache.has(seq)) return S.bodyCache.get(seq);
+  const r = q('SELECT body FROM events WHERE event_seq=?',[seq]);
+  const text = r[0]?.body || '';
+  if (S.bodyCache.size >= BODY_CACHE_MAX){
+    const first = S.bodyCache.keys().next().value;
+    S.bodyCache.delete(first);
+  }
+  S.bodyCache.set(seq, text);
+  return text;
+}
+function prettyBody(seq){
+  const text = fetchBody(seq);
+  try{
+    let pretty = JSON.stringify(JSON.parse(text),null,2);
+    if (pretty.length > 400000) pretty = pretty.slice(0,400000)+`\n…（已截断，全文 ${pretty.length} 字符）`;
+    return pretty;
+  }catch(_){ return text.slice(0,400000); }
+}
+
+/* ================================================================
+ * 视图
+ * ================================================================ */
+const VIEWS = [
+  {id:'overview', name:'总览'},
+  {id:'timeline', name:'时间线'},
+  {id:'activities', name:'活动表格'},
+  {id:'body', name:'身体曲线'},
+  {id:'economy', name:'经济流水'},
+  {id:'memory', name:'记忆'},
+  {id:'reasoning', name:'思考记录'},
+  {id:'sql', name:'SQL 查询'},
+];
+function buildNav(){
+  const nav = $('#sidebar');
+  nav.innerHTML = '';
+  for (const v of VIEWS){
+    const b = document.createElement('button');
+    b.className='nav-item'; b.dataset.view=v.id; b.textContent=v.name;
+    b.onclick = ()=>switchView(v.id);
+    nav.appendChild(b);
+  }
+}
+function switchView(id){
+  S.view = id;
+  $$('.nav-item').forEach(b=>b.classList.toggle('on', b.dataset.view===id));
+  $$('.view').forEach(v=>v.classList.toggle('on', v.dataset.view===id));
+  ({overview:renderOverview, timeline:renderTimeline, activities:renderActivities,
+    body:renderBodyCurves, economy:renderEconomy, memory:renderMemory,
+    reasoning:renderReasoning, sql:renderSqlConsole}[id])();
+}
+const agentFilterVal = () => $('#agent-filter').value;
+
+/* ---------- 总览 ---------- */
+function renderOverview(){
+  const el = $('#ov-body');
+  const agent = agentFilterVal();
+  const evs = agent? S.events.filter(e=>String(e.agent)===agent) : S.events;
+  const typeCounts = {};
+  for (const e of evs) typeCounts[e.type] = (typeCounts[e.type]||0)+1;
+  const types = Object.entries(typeCounts).sort((a,b)=>b[1]-a[1]);
+  const maxN = types[0]?.[1]||1;
+
+  let modelRows=[], modelTot={n:0,p:0,c:0,t:0};
+  try{
+    modelRows = q(`SELECT json_extract(body,'$.agent_id') AS agent, COUNT(*) AS n,
+      SUM(json_extract(body,'$.data.response.usage.prompt_tokens')) AS p,
+      SUM(json_extract(body,'$.data.response.usage.completion_tokens')) AS c,
+      SUM(json_extract(body,'$.data.response.usage.total_tokens')) AS t
+      FROM events WHERE json_extract(body,'$.event_type')='model_response' GROUP BY 1 ORDER BY 1`);
+    if (agent) modelRows = modelRows.filter(r=>String(r.agent)===agent);
+    for (const r of modelRows){ modelTot.n+=r.n; modelTot.p+=r.p||0; modelTot.c+=r.c||0; modelTot.t+=r.t||0; }
+  }catch(e){}
+  const nReq = typeCounts['action_requested']||0;
+  const nAcc = typeCounts['action_accepted']||0;
+  const nRej = typeCounts['action_rejected']||0;
+  const accRate = nReq? (nAcc/nReq*100).toFixed(1) : '—';
+
+  let accounts = '';
+  if (S.world && S.world.accounts){
+    accounts = Object.entries(S.world.accounts).sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+      `<div class="kv"><span class="k">${esc(acctLabel(k))}</span><span class="v">¥ ${fmtFen(v)}</span></div>`).join('');
+  }
+  const runEnded = S.events.find(e=>e.type==='run_ended');
+  const wall = runEnded? (S.summaries.get(runEnded.seq)?.wall||0) : 0;
+
+  el.innerHTML = `
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">运行信息</h3>
+      <div class="kv"><span class="k">run_id</span><span class="v">${esc(S.runId)||'—'}</span></div>
+      <div class="kv"><span class="k">数据文件</span><span class="v">${esc(S.fileName)}</span></div>
+      <div class="kv"><span class="k">模拟时间范围</span><span class="v">${fmtT(S.t0)} ~ ${fmtT(S.t1)}</span></div>
+      <div class="kv"><span class="k">时区</span><span class="v">${esc(S.tz)}</span></div>
+      <div class="kv"><span class="k">事件总数${agent?'（当前筛选）':''}</span><span class="v">${nf(evs.length)}</span></div>
+      <div class="kv"><span class="k">世界状态版本</span><span class="v">${S.world?.version??'—'}</span></div>
+      <div class="kv"><span class="k">墙钟耗时</span><span class="v">${wall?fmtDur(Math.round(wall/1000)):'—'}</span></div>
+      <div class="kv"><span class="k">Agent</span><span class="v">${S.agentIds.map(id=>esc(agentName(id))).join('、')}</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">模型调用</h3>
+      <div class="kv"><span class="k">响应次数</span><span class="v">${nf(modelTot.n)}</span></div>
+      <div class="kv"><span class="k">prompt tokens</span><span class="v">${nf(modelTot.p)}</span></div>
+      <div class="kv"><span class="k">completion tokens</span><span class="v">${nf(modelTot.c)}</span></div>
+      <div class="kv"><span class="k">总 tokens</span><span class="v">${nf(modelTot.t)}</span></div>
+      <table style="margin-top:8px"><tr><th>Agent</th><th class="num">次数</th><th class="num">prompt</th><th class="num">completion</th><th class="num">合计</th></tr>
+      ${modelRows.map(r=>`<tr><td>${esc(agentName(r.agent))}</td><td class="num">${nf(r.n)}</td><td class="num">${nf(r.p)}</td><td class="num">${nf(r.c)}</td><td class="num">${nf(r.t)}</td></tr>`).join('')}
+      </table>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">行动统计</h3>
+      <div class="kv"><span class="k">请求</span><span class="v">${nf(nReq)}</span></div>
+      <div class="kv"><span class="k">接受</span><span class="v" style="color:var(--ok)">${nf(nAcc)}</span></div>
+      <div class="kv"><span class="k">拒绝</span><span class="v" style="color:var(--err)">${nf(nRej)}</span></div>
+      <div class="kv"><span class="k">接受率</span><span class="v">${accRate}%</span></div>
+      <div class="bar-row" style="margin-top:8px"><span class="lbl">接受 / 拒绝</span>
+        <div class="bar-bg"><div class="bar" style="width:${nReq?nAcc/nReq*100:0}%;background:var(--ok)"></div></div>
+        <span class="n">${nAcc}:${nRej}</span></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">期末账户余额</h3>
+      ${accounts || '<div class="empty">无 world_state</div>'}
+    </div>
+  </div>
+  <div class="card">
+    <h3 style="margin-top:0">事件类型分布</h3>
+    ${types.map(([t,n])=>`
+      <div class="bar-row"><span class="lbl" title="${esc(t)}">${esc(typeLabel(t))}</span>
+        <div class="bar-bg"><div class="bar" style="width:${n/maxN*100}%;background:${typeColor(t)}"></div></div>
+        <span class="n">${nf(n)}</span></div>`).join('')}
+  </div>`;
+}
+
+/* ---------- 时间线 ---------- */
+const TL = { chunk:150, rendered:0, filtered:[], types:new Set(), kw:'', tmin:0, tmax:0, observer:null };
+function renderTimeline(){
+  const el = $('#tl-body');
+  if (!TL.inited){
+    TL.inited = true;
+    TL.types = new Set(Object.keys(S.typeCounts));
+    TL.tmin = S.t0; TL.tmax = S.t1;
+  }
+  el.innerHTML = `
+  <div class="filter-bar">
+    <label>类型
+      <span class="chips" id="tl-chips">
+        ${Object.entries(S.typeCounts).sort((a,b)=>b[1]-a[1]).map(([t,n])=>
+          `<span class="chip on" data-t="${esc(t)}" style="--c:${typeColor(t)}" title="${esc(t)}">${esc(typeLabel(t))} ${n}</span>`).join('')}
+        <span class="chip" id="tl-all">全选</span><span class="chip" id="tl-none">全不选</span>
+      </span>
+    </label>
+    <label>时间
+      <span class="range-wrap">
+        <input type="range" id="tl-r0" min="${S.t0}" max="${S.t1}" step="600" value="${TL.tmin}">
+        <span id="tl-r0v" style="width:104px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmin)}</span>
+        ~ <input type="range" id="tl-r1" min="${S.t0}" max="${S.t1}" step="600" value="${TL.tmax}">
+        <span id="tl-r1v" style="width:104px;font-family:var(--mono);font-size:11px">${fmtHM(TL.tmax)}</span>
+      </span>
+    </label>
+    <label>搜索 <input type="search" id="tl-kw" placeholder="摘要关键词或 #seq" value="${esc(TL.kw)}" style="width:150px"></label>
+    <span style="flex:1"></span>
+    <span id="tl-count" style="color:var(--fg-dim);font-size:12px"></span>
+  </div>
+  <div id="tl-list"></div>
+  <div class="tl-sentinel" id="tl-sentinel">下拉加载更多 …</div>`;
+
+  $('#tl-chips').addEventListener('click', ev=>{
+    const c = ev.target.closest('.chip'); if(!c) return;
+    if (c.id==='tl-all') TL.types = new Set(Object.keys(S.typeCounts));
+    else if (c.id==='tl-none') TL.types.clear();
+    else { const t=c.dataset.t; TL.types.has(t)? TL.types.delete(t) : TL.types.add(t); }
+    $$('#tl-chips .chip[data-t]').forEach(x=>x.classList.toggle('on', TL.types.has(x.dataset.t)));
+    refreshTimeline();
+  });
+  $('#tl-r0').oninput = ev=>{ TL.tmin=Math.min(+ev.target.value,TL.tmax-600); ev.target.value=TL.tmin;
+    $('#tl-r0v').textContent=fmtHM(TL.tmin); refreshTimeline(); };
+  $('#tl-r1').oninput = ev=>{ TL.tmax=Math.max(+ev.target.value,TL.tmin+600); ev.target.value=TL.tmax;
+    $('#tl-r1v').textContent=fmtHM(TL.tmax); refreshTimeline(); };
+  let kwTimer=null;
+  $('#tl-kw').oninput = ev=>{ clearTimeout(kwTimer); kwTimer=setTimeout(()=>{ TL.kw=ev.target.value.trim(); refreshTimeline(); },250); };
+
+  if (TL.observer) TL.observer.disconnect();
+  TL.observer = new IntersectionObserver(entries=>{
+    if (entries[0].isIntersecting) renderMoreTimeline();
+  }, {root:$('#main'), rootMargin:'400px'});
+  TL.observer.observe($('#tl-sentinel'));
+  refreshTimeline();
+}
+function refreshTimeline(){
+  const agent = agentFilterVal();
+  const kw = TL.kw.toLowerCase();
+  TL.filtered = S.events.filter(e=>
+    TL.types.has(e.type) &&
+    (!agent || String(e.agent)===agent) &&
+    e.t>=TL.tmin && e.t<=TL.tmax &&
+    (!kw || e.sum.toLowerCase().includes(kw) || String(e.seq).includes(TL.kw))
+  );
+  TL.rendered = 0;
+  $('#tl-list').innerHTML = '';
+  $('#tl-count').textContent = `${nf(TL.filtered.length)} / ${nf(S.events.length)} 条`;
+  renderMoreTimeline();
+}
+function renderMoreTimeline(){
+  if (TL.rendered >= TL.filtered.length){
+    $('#tl-sentinel').textContent = TL.filtered.length? '—— 到底了 ——':'（无匹配事件）';
+    return;
+  }
+  $('#tl-sentinel').textContent = '下拉加载更多 …';
+  const frag = document.createDocumentFragment();
+  const end = Math.min(TL.rendered+TL.chunk, TL.filtered.length);
+  for (let i=TL.rendered;i<end;i++) frag.appendChild(tlRow(TL.filtered[i]));
+  TL.rendered = end;
+  $('#tl-list').appendChild(frag);
+}
+function tlRow(e){
+  const row = document.createElement('div');
+  row.className='tl-row'; row.dataset.seq=e.seq;
+  row.innerHTML = `
+    <span class="tl-time">${fmtT(e.t)}</span>
+    <span class="tl-agent ${agentCls(e.agent)}">${e.agent==null?'系统':esc(agentName(e.agent))}</span>
+    <span class="tl-type" style="background:${typeColor(e.type)}33;color:${typeColor(e.type)}" title="${esc(e.type)}">${esc(typeLabel(e.type))}</span>
+    <span class="tl-sum" title="${esc(e.sum)}">${esc(e.sum)}</span>`;
+  row.onclick = ()=>toggleDetail(row, e.seq);
+  return row;
+}
+function toggleDetail(row, seq){
+  let det = row.nextElementSibling;
+  if (det && det.classList.contains('tl-detail')){
+    det.classList.toggle('on');
+    return;
+  }
+  det = document.createElement('div');
+  det.className='tl-detail on';
+  const pre = document.createElement('pre');
+  pre.textContent = prettyBody(seq);
+  det.appendChild(pre);
+  row.after(det);
+}
+
+/* ---------- 活动表格（替代甘特图） ---------- */
+const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
+function dramaSegLabel(a){
+  if (!a.tg || !S.nameIdx) return '';
+  const cc = S.nameIdx.catalog.get(a.tg);
+  if (!cc || !cc.typical_segment_seconds || a.mpos==null) return '';
+  return ` 第${Math.floor(a.mpos/cc.typical_segment_seconds)+1}段`;
+}
+function actTargetText(a){
+  if (a.tg) return targetLabel(a.tg) + dramaSegLabel(a);
+  if (a.dest) return `→ ${locLabel(a.dest)}`;
+  return '—';
+}
+function renderActivities(){
+  const el = $('#act-body');
+  const agent = agentFilterVal();
+  AT.filtered = S.acts.filter(a=>!agent || String(a.agent)===agent);
+  if (!AT.filtered.length){ el.innerHTML='<div class="empty">无活动数据</div>'; return; }
+  if (AT.page >= Math.ceil(AT.filtered.length/AT.pageSize)) AT.page = 0;
+  const kinds = [...new Set(AT.filtered.map(a=>a.kind))];
+
+  const sorters = {
+    start: (x,y)=> x.start-y.start,
+    agent: (x,y)=> x.agent-y.agent || x.start-y.start,
+    kind:  (x,y)=> actTypeLabel(x.kind,x.tg).localeCompare(actTypeLabel(y.kind,y.tg),'zh') || x.start-y.start,
+  };
+  AT.filtered.sort(sorters[AT.sortKey]||sorters.start);
+  if (AT.sortDir<0) AT.filtered.reverse();
+
+  const pages = Math.ceil(AT.filtered.length/AT.pageSize);
+  const view = AT.filtered.slice(AT.page*AT.pageSize, (AT.page+1)*AT.pageSize);
+  const arrow = k => AT.sortKey===k? `<span class="arrow">${AT.sortDir>0?'▲':'▼'}</span>`:'';
+  const th = (k,label,extra) =>
+    `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
+
+  el.innerHTML = `
+  <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
+    <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
+  <div class="card" style="padding:0 0 0 0">
+    <table class="act-table">
+      <thead><tr>${th('start','时刻')}${th('agent','人物')}${th('kind','活动类型')}<th>目标</th><th class="num">持续时长</th></tr></thead>
+      <tbody>
+      ${view.map(a=>`<tr>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.start)}</td>
+        <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
+        <td><span class="act-kind" style="background:${kindColor(a.kind)}33;color:${kindColor(a.kind)}">${esc(actTypeLabel(a.kind,a.tg))}</span></td>
+        <td>${esc(actTargetText(a))}</td>
+        <td class="num">${fmtDur(a.end-a.start)}</td></tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="pager">
+      <span style="margin-right:auto">第 ${AT.page+1} / ${pages} 页 · 每页 ${AT.pageSize} 条</span>
+      <button id="at-prev" ${AT.page===0?'disabled':''}>上一页</button>
+      <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
+    </div>
+  </div>`;
+
+  $$('#act-body th[data-sk]').forEach(h=>{
+    h.onclick = ()=>{
+      const k = h.dataset.sk;
+      if (AT.sortKey===k) AT.sortDir = -AT.sortDir;
+      else { AT.sortKey = k; AT.sortDir = 1; }
+      AT.page = 0;
+      renderActivities();
+    };
+  });
+  $('#at-prev').onclick = ()=>{ if (AT.page>0){ AT.page--; renderActivities(); } };
+  $('#at-next').onclick = ()=>{ if (AT.page<pages-1){ AT.page++; renderActivities(); } };
+}
+
+/* ---------- 折线图（Canvas 手绘 + 悬停读数） ---------- */
+function drawLineChart(canvas, series, opts){
+  opts = opts||{};
+  const dpr = devicePixelRatio||1;
+  const W = canvas.clientWidth||600, H = canvas.clientHeight||120;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,W,H);
+  const padL=56, padR=10, padT=8, padB=16;
+  const pts = series.flatMap(s=>s.points);
+  if (!pts.length){ ctx.fillStyle='#5b636e'; ctx.font='11px system-ui'; ctx.fillText('无数据',W/2,H/2); return; }
+  let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
+  for (const [t,v] of pts){ if(v==null) continue; x0=Math.min(x0,t);x1=Math.max(x1,t);y0=Math.min(y0,v);y1=Math.max(y1,v); }
+  if (opts.xdomain){ x0=opts.xdomain[0]; x1=opts.xdomain[1]; }
+  if (y1===y0) y1=y0+1;
+  const pad=(y1-y0)*.08; y0-=pad; y1+=pad;
+  const X = t => padL+(t-x0)/((x1-x0)||1)*(W-padL-padR);
+  const Y = v => padT+(1-(v-y0)/((y1-y0)||1))*(H-padT-padB);
+  ctx.font='10px system-ui';
+  ctx.strokeStyle='#232a36'; ctx.fillStyle='#5b636e'; ctx.textAlign='right';
+  for (let i=0;i<=3;i++){
+    const v = y0+(y1-y0)*i/3, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(padL,y); ctx.lineTo(W-padR,y); ctx.stroke();
+    ctx.fillText(opts.yfmt? opts.yfmt(v): (+v.toFixed(2)), padL-6, y+3);
+  }
+  ctx.textAlign='center';
+  if (x1>x0){
+    const off = S.tzOff;
+    for (let t=Math.ceil((x0+off)/86400)*86400-off; t<=x1; t+=86400){
+      const xx=X(t); ctx.strokeStyle='#39424f';
+      ctx.beginPath(); ctx.moveTo(xx,padT); ctx.lineTo(xx,H-padB); ctx.stroke();
+      ctx.fillStyle='#5b636e'; ctx.fillText(S.fmt.md(new Date(t*1000)), xx, H-4);
+    }
+  }
+  for (const s of series){
+    ctx.strokeStyle=s.color; ctx.lineWidth=1.5; ctx.beginPath();
+    let started=false;
+    for (const [t,v] of s.points){ if(v==null) continue;
+      if (started) ctx.lineTo(X(t),Y(v)); else { ctx.moveTo(X(t),Y(v)); started=true; } }
+    ctx.stroke();
+  }
+  canvas._chart = {series, x0,x1,y0,y1, X};
+}
+function attachHover(canvas, readoutEl){
+  if (!readoutEl) return;
+  canvas.onmousemove = ev=>{
+    const c = canvas._chart; if (!c) return;
+    const rect = canvas.getBoundingClientRect();
+    const px = ev.clientX-rect.left;
+    let best=null, bd=Infinity;
+    for (const s of c.series) for (const [t,v] of s.points){
+      const d = Math.abs(c.X(t)-px); if (d<bd){bd=d;best=t;}
+    }
+    if (best==null){ readoutEl.textContent=''; return; }
+    const parts = [S.fmt.full(new Date(best*1000))];
+    for (const s of c.series){
+      let bb=null,bdd=Infinity;
+      for (const [t,v] of s.points){ if(v==null) continue; const d=Math.abs(t-best); if(d<bdd){bdd=d;bb=v;} }
+      parts.push(`${s.name}: ${bb==null?'—':(+bb.toFixed(3))}`);
+    }
+    readoutEl.textContent = parts.join('   |   ');
+  };
+  canvas.onmouseleave = ()=>readoutEl.textContent='';
+}
+function chartSeries(obs, key){
+  const byAgent = new Map();
+  for (const o of obs){ if(!byAgent.has(o.agent)) byAgent.set(o.agent,[]); byAgent.get(o.agent).push(o); }
+  const palette = ['#58a6ff','#3fb950','#d29922','#f85149','#d2a8ff'];
+  return [...byAgent.entries()].map(([a,list],i)=>({
+    name:`${agentName(a)}`, color:palette[i%palette.length], points:list.map(o=>[o.t,o[key]])
+  }));
+}
+
+/* ---------- 身体曲线 ---------- */
+function renderBodyCurves(){
+  const el = $('#bd-body');
+  const agent = agentFilterVal();
+  const obs = S.obs.filter(o=>!agent || String(o.agent)===agent);
+  const seriesEn = chartSeries(obs,'en'), seriesSl = chartSeries(obs,'sl'), seriesEt = chartSeries(obs,'et');
+  const agents = [...new Set(obs.map(o=>o.agent))];
+  const palette = ['#58a6ff','#3fb950','#d29922','#f85149','#d2a8ff'];
+  el.innerHTML = `
+  <div class="card">
+    <div class="legend">${agents.map((a,i)=>`<span><span class="sw" style="background:${palette[i%palette.length]}"></span>${esc(agentName(a))}</span>`).join('')}
+      <span style="margin-left:auto;color:var(--fg-faint)">共 ${obs.length} 个观测点 · 悬停读取数值</span></div>
+    <div class="chart-block"><div class="chart-title"><span>能量 energy_kcal</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-en"></canvas></div>
+    <div class="chart-block"><div class="chart-title"><span>睡眠债 sleep_debt_hours</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-sl"></canvas></div>
+    <div class="chart-block"><div class="chart-title"><span>娱乐需求 entertainment_need</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-et"></canvas></div>
+  </div>`;
+  requestAnimationFrame(()=>{
+    const defs = [['cv-en',seriesEn,v=>Math.round(v)], ['cv-sl',seriesSl,v=>(+v.toFixed(1))+'h'], ['cv-et',seriesEt,v=>(+v.toFixed(2))]];
+    for (const [id,series,yfmt] of defs){
+      const cv = document.getElementById(id);
+      drawLineChart(cv, series, {yfmt});
+      attachHover(cv, cv.closest('.chart-block').querySelector('.hover-readout'));
+    }
+  });
+}
+
+/* ---------- 经济流水 ---------- */
+function renderEconomy(){
+  const el = $('#eco-body');
+  const agent = agentFilterVal();
+  const obs = S.obs.filter(o=>!agent || String(o.agent)===agent);
+  const series = chartSeries(obs,'bal');
+
+  /* 流水：环境事件账户注入 + 订单 + 余额变动（全局 Agent 筛选只保留所选 agent 的行） */
+  const flowsAll = [];
+  for (const e of S.events){
+    if (e.type==='environment_event'){
+      const s = S.summaries.get(e.seq)||{};
+      let rc = s.rc; if (typeof rc==='string'){ try{rc=JSON.parse(rc);}catch(_){rc=null;} }
+      if (rc && typeof rc==='object')
+        for (const [acct,amt] of Object.entries(rc))
+          flowsAll.push({t:e.t, who:acct, delta:amt, after:null, note:ENVK_LABELS[s.ekind]||s.ekind||''});
+    }
+    if (e.type==='action_result'){
+      const s = S.summaries.get(e.seq)||{};
+      if (s.order && typeof s.order==='string'){
+        try{ const o=JSON.parse(s.order);
+          if (o && o.total_price_fen!=null)
+            flowsAll.push({t:e.t, who:`agent:${e.agent}`, delta:-o.total_price_fen, after:null,
+                        note:`购买 ${targetLabel(o.product_id)}${s.msg?' · '+s.msg:''}`});
+        }catch(_){}
+      }
+    }
+  }
+  const byAgent = new Map();
+  for (const o of obs){ if(!byAgent.has(o.agent)) byAgent.set(o.agent,[]); byAgent.get(o.agent).push(o); }
+  for (const [a,list] of byAgent){
+    let prev=null;
+    for (const o of list){
+      if (prev!=null && o.bal!==prev.bal)
+        flowsAll.push({t:o.t, who:`agent:${o.agent}`, delta:o.bal-prev.bal, after:o.bal, note:'余额变动'});
+      prev=o;
+    }
+  }
+  const flows = agent? flowsAll.filter(f=>f.who===`agent:${agent}`) : flowsAll;
+  flows.sort((x,y)=>y.t-x.t);
+  const shown = flows.slice(0,800);
+
+  let accounts='';
+  if (S.world && S.world.accounts){
+    accounts = Object.entries(S.world.accounts)
+      .filter(([k])=>!agent || k===`agent:${agent}`)
+      .sort((a,b)=>b[1]-a[1]).map(([k,v])=>
+      `<tr><td>${esc(acctLabel(k))}</td><td class="num">¥ ${fmtFen(v)}</td></tr>`).join('');
+  }
+  el.innerHTML = `
+  <div class="card">
+    <div class="legend">${series.map(s=>`<span><span class="sw" style="background:${s.color}"></span>${esc(s.name)}</span>`).join('')}
+      <span style="margin-left:auto;color:var(--fg-faint)">按观测事件采样 · 单位：分</span></div>
+    <canvas id="eco-canvas"></canvas>
+    <div class="chart-title" style="margin-top:4px"><span></span><span class="hover-readout" style="font-family:var(--mono);color:var(--fg-dim)"></span></div>
+  </div>
+  <div class="grid g2">
+    <div class="card">
+      <h3 style="margin-top:0">流水明细（新→旧${flows.length>800?'，前 800 / 共 '+flows.length+' 条':'，共 '+flows.length+' 条'}）</h3>
+      <div style="max-height:420px;overflow:auto">
+      <table><tr><th>时间</th><th>对象</th><th class="num">变动（分）</th><th class="num">余额（元）</th><th>备注</th></tr>
+      ${shown.map(f=>`<tr><td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtT(f.t)}</td>
+        <td style="font-size:12px">${esc(acctLabel(f.who))}</td>
+        <td class="num" style="color:${f.delta>=0?'var(--ok)':'var(--err)'}">${f.delta>=0?'+':''}${nf(f.delta)}</td>
+        <td class="num">${f.after!=null?fmtFen(f.after):'—'}</td>
+        <td style="color:var(--fg-dim)">${esc(f.note)}</td></tr>`).join('') || '<tr><td colspan="5" class="empty">无</td></tr>'}
+      </table></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">期末账户（world_state）</h3>
+      <table>${accounts || '<tr><td class="empty">无 world_state</td></tr>'}</table>
+    </div>
+  </div>`;
+  requestAnimationFrame(()=>{
+    const cv = $('#eco-canvas');
+    drawLineChart(cv, series, {yfmt:v=>nf(Math.round(v))});
+    attachHover(cv, cv.closest('.card').querySelector('.hover-readout'));
+  });
+}
+
+/* ---------- 记忆 ---------- */
+function renderMemory(){
+  const el = $('#mem-body');
+  const agent = agentFilterVal();
+  const mus = S.events.filter(e=>e.type==='memory_updated' && (!agent || String(e.agent)===agent));
+  let filesHtml='';
+  for (const [aid,m] of Object.entries(S.memFiles)){
+    if (agent && aid!==agent) continue;
+    filesHtml += `<div class="mem-file"><h4>${esc(agentName(aid))} · MEMORY.md</h4>
+      <pre>${esc(m.memoryMd||'（空）')}</pre></div>`;
+    if (m.episodes && m.episodes.length){
+      filesHtml += `<div class="mem-file"><h4>${esc(agentName(aid))} · episodes（${m.episodes.length} 条）</h4>
+        <table><tr><th>时间</th><th>类型</th><th class="num">重要度</th><th>关键词</th><th>内容</th></tr>
+        ${m.episodes.map(ep=>`<tr>
+          <td style="white-space:nowrap;font-size:12px">${esc(ep.time||'')}</td>
+          <td>${esc(ep.type||'')}</td><td class="num">${ep.importance??''}</td>
+          <td style="color:var(--fg-dim)">${esc((ep.keywords||[]).join('、'))}</td>
+          <td style="max-width:420px"><details><summary style="cursor:pointer;color:var(--accent)">展开</summary>
+            <div style="white-space:pre-wrap;font-size:12px;color:var(--fg-dim);padding-top:4px">${esc(ep.text||'')}</div></details></td></tr>`).join('')}
+        </table></div>`;
+    }
+  }
+  const hint = Object.keys(S.memFiles).length? '' :
+    `<div class="hint">这里展示事件流中的记忆更新记录。<br>若把 sqlite 文件与整个 run 目录一起拖入（目录含 <code>as2/agents/*/MEMORY.md</code> 与 <code>memory/episodes.jsonl</code>），还会在此渲染完整记忆文件与 episode 列表。</div>`;
+  el.innerHTML = `
+  ${hint}
+  ${filesHtml}
+  <div class="card">
+    <h3 style="margin-top:0">记忆更新事件（${mus.length} 条）</h3>
+    <div style="max-height:460px;overflow:auto">
+    <table><tr><th>时间</th><th>人物</th><th>操作</th><th class="num">记忆段数</th><th>巩固</th><th>原始数据</th></tr>
+    ${mus.map(e=>{ const s=S.summaries.get(e.seq)||{};
+      let eps=[]; try{ eps = Array.isArray(s.ep)? s.ep : JSON.parse(s.ep||'[]'); }catch(_){}
+      return `<tr><td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtT(e.t)}</td>
+        <td><span class="tl-agent ${agentCls(e.agent)}">${e.agent==null?'系统':esc(agentName(e.agent))}</span></td>
+        <td>${esc(MEMOP_LABELS[s.op]||s.op||'—')}</td><td class="num">${eps.length}</td>
+        <td>${s.cons?'是':'—'}</td>
+        <td><details>${eps.length?`<summary style="cursor:pointer;color:var(--accent)">展开 episode ID</summary>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--fg-dim);white-space:pre-wrap">${esc(eps.join('\n'))}</div>`:'—'}</details></td></tr>`;
+    }).join('')}
+    </table></div>
+  </div>`;
+}
+
+/* ---------- 思考记录 ---------- */
+const RS = { loaded:false, items:[], filtered:[], rendered:0, kw:'' };
+const RS_PATH = `json_extract(body,'$.data.response.choices[0].message.provider_specific_fields.reasoning_content')`;
+function rsQuery(kw){
+  let sqlText = `SELECT event_seq AS seq, json_extract(body,'$.agent_id') AS agent,
+    json_extract(body,'$.occurred_at') AS t, ${RS_PATH} AS rc
+    FROM events WHERE json_extract(body,'$.event_type')='model_response' AND ${RS_PATH} IS NOT NULL`;
+  const params=[];
+  if (kw){
+    sqlText += ` AND ${RS_PATH} LIKE ? ESCAPE '\\'`;
+    params.push('%'+kw.replace(/[\\%_]/g,m=>'\\'+m)+'%');
+  }
+  return q(sqlText+' ORDER BY event_seq', params);
+}
+function renderReasoning(){
+  const el = $('#rs-body');
+  if (!RS.loaded){ RS.loaded = true; RS.items = rsQuery(''); }
+  el.innerHTML = `
+  <div class="filter-bar">
+    <label>关键词 <input type="search" id="rs-kw" placeholder="搜索 reasoning_content（SQL LIKE，支持中文）" value="${esc(RS.kw)}" style="width:280px"></label>
+    <span style="flex:1"></span>
+    <span id="rs-count" style="color:var(--fg-dim);font-size:12px"></span>
+  </div>
+  <div class="card" style="padding:0">
+    <div id="rs-list"></div>
+    <div class="tl-sentinel" id="rs-sentinel">下拉加载更多 …</div>
+  </div>`;
+  let timer=null;
+  $('#rs-kw').oninput = ev=>{ clearTimeout(timer); timer=setTimeout(()=>{
+    RS.kw = ev.target.value.trim();
+    RS.items = rsQuery(RS.kw);
+    refreshRs();
+  },300); };
+  if (RS.io) RS.io.disconnect();
+  RS.io = new IntersectionObserver(es=>{ if(es[0].isIntersecting) renderMoreRs(); },
+    {root:$('#main'), rootMargin:'400px'});
+  RS.io.observe($('#rs-sentinel'));
+  refreshRs();
+}
+function refreshRs(){
+  const agent = agentFilterVal();
+  RS.filtered = RS.items.filter(x=>!agent || String(x.agent)===agent);
+  RS.rendered = 0;
+  $('#rs-list').innerHTML='';
+  $('#rs-count').textContent = `${RS.filtered.length} 条思考记录`;
+  renderMoreRs();
+}
+function renderMoreRs(){
+  if (RS.rendered >= RS.filtered.length){
+    $('#rs-sentinel').textContent = RS.filtered.length? '—— 到底了 ——':'（无匹配）';
+    return;
+  }
+  const end = Math.min(RS.rendered+50, RS.filtered.length);
+  const frag = document.createDocumentFragment();
+  for (let i=RS.rendered;i<end;i++){
+    const it = RS.filtered[i];
+    const div = document.createElement('div');
+    div.className='rs-item';
+    div.innerHTML = `<div class="rs-head">
+      <span class="t">${fmtT(it.t)}</span>
+      <span class="a ${agentCls(it.agent)}">${it.agent==null?'系统':esc(agentName(it.agent))}</span>
+      <span class="x">${esc((it.rc||'').slice(0,160).replace(/\s+/g,' '))}</span></div>
+      <div class="rs-body"><pre>${esc(it.rc||'')}</pre></div>`;
+    div.onclick = ()=>div.querySelector('.rs-body').classList.toggle('on');
+    frag.appendChild(div);
+  }
+  RS.rendered = end;
+  $('#rs-list').appendChild(frag);
+}
+
+/* ---------- SQL 控制台 ---------- */
+function renderSqlConsole(){
+  const el = $('#sql-body');
+  if (el.dataset.inited) return;
+  el.dataset.inited='1';
+  el.innerHTML = `
+  <div class="card">
+    <p style="color:var(--fg-dim);margin-bottom:8px;line-height:1.8">只读查询（仅允许 SELECT / WITH / PRAGMA / EXPLAIN），最多返回 200 行。<br>
+    表：<code>events(event_seq, event_id, body)</code> · <code>world_state(singleton, version, body)</code> · <code>artifacts(sha256, body)</code> · <code>checkpoints(checkpoint_id, body, record_sha256)</code>。body 为 JSON，可用 <code>json_extract</code> 取字段。</p>
+    <textarea id="sql-input" spellcheck="false">SELECT event_seq, json_extract(body,'$.event_type') AS type, json_extract(body,'$.occurred_at') AS t
+FROM events ORDER BY event_seq DESC LIMIT 20</textarea>
+    <button class="primary" id="sql-run">运行 (Ctrl+Enter)</button>
+    <div id="sql-msg"></div>
+    <div id="sql-out"></div>
+  </div>`;
+  const run = ()=>{
+    const sqlText = $('#sql-input').value.trim().replace(/;+\s*$/,'');
+    const msg = $('#sql-msg'), out = $('#sql-out');
+    msg.className=''; msg.textContent='';
+    if (!/^(select|with|pragma|explain)\b/i.test(sqlText)){
+      msg.className='err'; msg.textContent='拒绝：仅允许 SELECT / WITH / PRAGMA / EXPLAIN 语句。'; return;
+    }
+    const finalSql = /^(pragma|explain)\b/i.test(sqlText)? sqlText : `SELECT * FROM (${sqlText}) LIMIT 200`;
+    const tA = performance.now();
+    try{
+      const rows = q(finalSql);
+      const cols = rows.length? Object.keys(rows[0]) : [];
+      const ms = (performance.now()-tA).toFixed(1);
+      out.innerHTML = rows.length
+        ? `<table><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr>
+           ${rows.map(r=>`<tr>${cols.map(c=>`<td style="font-family:var(--mono);font-size:12px;max-width:480px;word-break:break-all">${esc(typeof r[c]==='string'? r[c].slice(0,300) : r[c])}</td>`).join('')}</tr>`).join('')}</table>`
+        : '<div class="empty">（0 行）</div>';
+      msg.textContent = `${rows.length}${rows.length===200?'（达到上限）':''} 行 · ${ms} ms`;
+    }catch(e){ msg.className='err'; msg.textContent = 'SQL 错误：'+e.message; }
+  };
+  $('#sql-run').onclick = run;
+  $('#sql-input').addEventListener('keydown', ev=>{
+    if ((ev.ctrlKey||ev.metaKey) && ev.key==='Enter'){ ev.preventDefault(); run(); }
+  });
+}
+
+/* ================================================================
+ * 文件加载与入口
+ * file-input 同时承担点击选择与自动化测试（set_input_files）入口。
+ * ================================================================ */
+async function handleFiles(fileList, dirEntries){
+  const logEl = $('#drop-log'); logEl.style.display='block'; logEl.textContent='';
+  const log = m => { logEl.textContent += m+'\n'; logEl.scrollTop = logEl.scrollHeight; };
+  const errEl = $('#drop-err'); errEl.style.display='none';
+  try{
+    log('· 加载 sql.js 引擎（CDN）…');
+    if (!S.SQL) S.SQL = await loadSqlJs();
+    log('· 引擎就绪');
+
+    const files = Array.from(fileList||[]);
+    let file = null;
+    for (const f of files) if (/\.(sqlite3?|db)$/i.test(f.name)){ file = f; break; }
+    if (!file && files.length===1) file = files[0];
+    if (!file) throw new Error('未找到 .sqlite 文件 —— 请拖入 footprints.sqlite（可与 run 目录一起拖入）');
+    S.fileName = file.name;
+    log(`· 读取 ${file.name}（${(file.size/1048576).toFixed(1)} MB）…`);
+    const buf = new Uint8Array(await file.arrayBuffer());
+    log('· 打开数据库（大文件约需数秒）…');
+    await new Promise(r=>setTimeout(r,30));
+    S.db = new S.SQL.Database(buf);
+    log('· 数据库已打开');
+
+    buildIndex();
+
+    if (dirEntries && dirEntries.length){
+      log('· 读取记忆文件 …');
+      await loadMemFiles(dirEntries);
+      log(`· 记忆文件：${Object.keys(S.memFiles).length} 个 agent`);
+    }
+
+    $('#run-meta').textContent = `${S.runId.slice(0,8)} · ${fmtT(S.t0)} ~ ${fmtT(S.t1)} · ${nf(S.events.length)} 事件`;
+    const sel = $('#agent-filter');
+    sel.innerHTML = '<option value="">全部</option>' +
+      S.agentIds.map(id=>`<option value="${id}">${esc(agentName(id))}</option>`).join('');
+    /* 全局 Agent 筛选联动所有视图（SQL 控制台为原始数据视图，不联动） */
+    sel.onchange = ()=>{ if (S.view!=='sql') switchView(S.view); };
+    buildNav();
+    $('#drop-zone').classList.add('hidden');
+    $('#app').classList.add('on');
+    switchView('overview');
+  }catch(e){
+    errEl.style.display='block';
+    errEl.textContent = '加载失败：'+e.message;
+    log('× 失败');
+  }
+}
+
+/* 目录拖入 → MEMORY.md / episodes.jsonl */
+async function loadMemFiles(entries){
+  const walk = async (entry, path='')=>{
+    if (entry.isFile){
+      if (entry.name==='items.json'){
+        /* 条目目录（电影/剧集/小说等）：item_id → 标题 */
+        try{
+          const file = await new Promise((res,rej)=>entry.file(res,rej));
+          const arr = JSON.parse(await file.text());
+          if (Array.isArray(arr))
+            for (const it of arr) if (it && it.item_id) S.itemNames[it.item_id] = it.title||'';
+        }catch(_){}
+        return;
+      }
+      if (entry.name==='MEMORY.md' || entry.name==='episodes.jsonl'){
+        const m = (path+'/'+entry.name).match(/agent_?0*(\d+)/i);
+        const aid = m? String(+m[1]) : String(Object.keys(S.memFiles).length+1);
+        const file = await new Promise((res,rej)=>entry.file(res,rej));
+        const text = await file.text();
+        S.memFiles[aid] = S.memFiles[aid] || {};
+        if (entry.name==='MEMORY.md') S.memFiles[aid].memoryMd = text;
+        else S.memFiles[aid].episodes = text.split('\n').filter(Boolean)
+          .map(l=>{ try{return JSON.parse(l);}catch(_){return null;} }).filter(Boolean);
+      }
+      return;
+    }
+    if (entry.isDirectory){
+      const reader = entry.createReader();
+      let batch;
+      do {
+        batch = await new Promise((res,rej)=>reader.readEntries(res,rej));
+        for (const c of batch) await walk(c, path+'/'+entry.name);
+      } while (batch.length);
+    }
+  };
+  for (const e of entries) await walk(e);
+}
+
+/* 拖放与入口绑定 */
+function bindDnd(){
+  const zone = $('#drop-zone'), box = $('#drop-box'), input = $('#file-input');
+  box.onclick = ()=>input.click();
+  box.onkeydown = ev=>{ if(ev.key==='Enter'||ev.key===' ') input.click(); };
+  ['dragenter','dragover'].forEach(t=>zone.addEventListener(t,ev=>{
+    ev.preventDefault(); box.classList.add('dragover');
+  }));
+  zone.addEventListener('dragleave', ev=>{
+    ev.preventDefault();
+    if (!zone.contains(ev.relatedTarget)) box.classList.remove('dragover');
+  });
+  zone.addEventListener('drop', ev=>{
+    ev.preventDefault();
+    box.classList.remove('dragover');
+    const dirEntries = [];
+    if (ev.dataTransfer.items)
+      for (const it of ev.dataTransfer.items){
+        const entry = it.webkitGetAsEntry && it.webkitGetAsEntry();
+        if (entry && entry.isDirectory) dirEntries.push(entry);
+      }
+    handleFiles(ev.dataTransfer.files, dirEntries);
+  });
+  input.onchange = ()=>{ if (input.files.length) handleFiles(input.files, null); };
+  $('#btn-reload').onclick = ()=>{
+    if (S.db) S.db.close();
+    S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
+    S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
+    S.itemNames={}; S.nameIdx=null;
+    AT.page=0; AT.sortKey='start'; AT.sortDir=1;
+    TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
+    RS.loaded=false; RS.items=[]; RS.kw='';
+    const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';
+    $('#app').classList.remove('on');
+    $('#drop-zone').classList.remove('hidden');
+    input.value='';
+  };
+}
+window.addEventListener('resize', ()=>{
+  if (!$('#app').classList.contains('on')) return;
+  if (S.view==='body') renderBodyCurves();
+  else if (S.view==='economy') renderEconomy();
+});
+bindDnd();
+</script>
+</body>
+</html>
