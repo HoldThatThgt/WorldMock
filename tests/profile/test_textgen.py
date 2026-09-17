@@ -51,6 +51,22 @@ def test_attention_percentages_match_profile():
         assert f"{value:.0%}" in text
 
 
+def test_attention_line_covers_registry_key_set_with_label_fallback():
+    """@brief 排序提示随注册表键集动态生成：被提及的品类（top3+末位）用
+    _attention_label 渲染——已知品类中文标签、注册表新增品类回退键名本身。"""
+    from worldmock.profile.models import attention_keys
+    from worldmock.profile.textgen import _attention_label
+    profile = make_profile(openness=6, extraversion=2)
+    text = render_persona_text(profile)
+    attention = profile.attention_prior.model_dump()
+    assert tuple(attention) == attention_keys()
+    ranked = sorted(attention.items(), key=lambda item: (-item[1], item[0]))
+    for key, _ in list(ranked[:3]) + [ranked[-1]]:
+        assert _attention_label(key) in text
+    assert _attention_label("feature_film") == "电影"
+    assert _attention_label("podcast_episode") == "podcast_episode"
+
+
 def test_decision_text_carries_tau_and_beta():
     profile = make_profile(conscientiousness=7)
     text = render_persona_text(profile)

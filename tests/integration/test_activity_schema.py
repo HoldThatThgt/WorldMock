@@ -22,6 +22,8 @@ from custom.agents.life_agent import (
     MemorySearchRequest,
 )
 from agentsociety2.agent.base import ReactLoopRequest
+from worldmock.catalog.affordances import default_affordances
+from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
     GameActionRequest,
     MeetingMinutes,
@@ -32,6 +34,9 @@ from worldmock.life.work_review import WorkReviewResponse
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
+
+#: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
+_AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
 
 def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
@@ -45,6 +50,7 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
             "work": 86_400, "watch": 86_400, "play_game": 86_400,
             "read_mail": 86_400, "browse": 86_400,
         }},
+        "affordance_contract": _AFFORDANCE_CONTRACT,
         "tasks": [{"task_id": "task", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},

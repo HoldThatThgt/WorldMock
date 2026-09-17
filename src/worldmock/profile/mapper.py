@@ -13,10 +13,10 @@ from pathlib import Path
 from typing import Mapping
 
 from worldmock.profile.models import (
-    ATTENTION_KEYS,
     BIG_FIVE_DIMENSIONS,
     PROMPT_VERSION,
     WEIGHT_KEYS,
+    attention_keys,
     AttentionPrior,
     BigFiveProfile,
     Comfort,
@@ -79,10 +79,13 @@ def _validate_config(config: Mapping) -> None:
     assert {str(score) for score in range(1, 8)} <= set(tau_table), \
         "tau.by_conscientiousness must cover scores 1-7"
     attention = config["attention"]
-    assert set(attention["base"]) == set(ATTENTION_KEYS), \
-        "attention.base must cover all five content kinds"
-    for slope_key in ("feature_film", "news_feed", "joke_feed", "webnovel_excerpt", "drama_series"):
-        assert slope_key in attention["slope"], f"attention.slope.{slope_key} missing"
+    expected = attention_keys()
+    assert set(attention["base"]) == set(expected), (
+        f"attention.base must exactly cover the registry attention_required "
+        f"kinds {list(expected)}")
+    assert set(attention["slope"]) <= set(expected), (
+        f"attention.slope keys must stay within the registry attention_required "
+        f"kinds {list(expected)}")
     for loss_key in ("money_fen", "energy_kcal"):
         assert loss_key in config["loss_aversion"], f"loss_aversion.{loss_key} missing"
 
@@ -192,7 +195,9 @@ def _rounded_int(section: Mapping, scores: Mapping[str, float]) -> int:
 
 
 def _attention(scores: Mapping[str, float], section: Mapping) -> AttentionPrior:
-    """@brief 注意先验：base+slope、钳制、与均匀分布按外向性混合系数均衡后归一。"""
+    """@brief 注意先验：注册表键集上 base+slope（slope 可省）、钳制、与均匀
+    分布按外向性混合系数均衡后归一。"""
+    keys = attention_keys()
     clamp_min = float(section["clamp"]["min"])
     clamp_max = float(section["clamp"]["max"])
     balance = section["balance"]
@@ -200,10 +205,10 @@ def _attention(scores: Mapping[str, float], section: Mapping) -> AttentionPrior:
                   + float(balance["extraversion"]) * scores["extraversion"], 0.0), 1.0)
     slopes = section["slope"]
     raw = {}
-    for key in ATTENTION_KEYS:
+    for key in keys:
         value = float(section["base"][key])
-        for dimension, slope in slopes[key].items():
+        for dimension, slope in slopes.get(key, {}).items():
             value += float(slope) * scores[dimension]
         value = min(max(value, clamp_min), clamp_max)
-        raw[key] = (1.0 - mix) * value + mix / len(ATTENTION_KEYS)
+        raw[key] = (1.0 - mix) * value + mix / len(keys)
     return AttentionPrior.model_validate(normalize_to_grid(raw))

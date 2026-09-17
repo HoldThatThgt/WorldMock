@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 from worldmock.profile.models import (
-    ATTENTION_KEYS,
     BIG_FIVE_DIMENSIONS,
-    WEIGHT_KEYS,
     MotivationProfile,
 )
 
@@ -34,10 +32,17 @@ _WEIGHT_LABELS = {
     "money_fen": "金钱积累", "energy_kcal": "体能精力", "sleep_debt_hours": "睡眠恢复",
     "entertainment_need": "娱乐放松", "goal_task": "任务目标达成",
 }
+#: 已知内容品类的中文标签；注册表新增品类（无标签）回退为键名本身，
+#: 排序提示随 attention 键集动态生成。
 _ATTENTION_LABELS = {
     "feature_film": "电影", "news_feed": "新闻资讯", "joke_feed": "段子笑料",
     "webnovel_excerpt": "网文小说", "drama_series": "剧集",
 }
+
+
+def _attention_label(key: str) -> str:
+    """@brief 内容品类标签：已知品类用中文标签，未知品类用键名。"""
+    return _ATTENTION_LABELS.get(key, key)
 
 
 def _band(score: int) -> str:
@@ -150,9 +155,9 @@ def _emotion_line(profile: MotivationProfile) -> str:
 
 
 def _attention_line(profile: MotivationProfile) -> str:
-    """@brief 注意先验排序描述（top3 + 末位）。"""
+    """@brief 注意先验排序描述（top3 + 末位，随注册表键集动态生成）。"""
     ranked = _ranked(profile.attention_prior.model_dump())
-    top = "、".join(f"{_ATTENTION_LABELS[key]}（{value:.0%}）" for key, value in ranked[:3])
+    top = "、".join(f"{_attention_label(key)}（{value:.0%}）" for key, value in ranked[:3])
     weakest_key, weakest_value = ranked[-1]
     return (f"## 注意力偏好：空闲时最可能选择{top}；"
-            f"最少选{_ATTENTION_LABELS[weakest_key]}（{weakest_value:.0%}）。")
+            f"最少选{_attention_label(weakest_key)}（{weakest_value:.0%}）。")

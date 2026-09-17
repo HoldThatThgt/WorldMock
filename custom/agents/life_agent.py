@@ -6,7 +6,8 @@ import json
 import hashlib
 import math
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
 
@@ -201,18 +202,10 @@ _MEMORY_RUNTIME_ACTIONS = {
     "memory_read": "memory_read",
 }
 
+#: 与可供性家族无关的工具文案（静态）；家族相关的三个工具描述
+#: （start_basic_activity / start_targeted_activity / browse_activities）的
+#: kind 清单自观察合同拼装，见 _life_tool_descriptions。
 _TOOL_DESCRIPTIONS = {
-    "start_basic_activity": (
-        "Start wait (waiting while casually browsing phone, provides small passive "
-        "entertainment relief) or sleep for an explicit duration. At a feedback boundary "
-        "this switches directly: the current activity pauses automatically with its "
-        "progress preserved."),
-    "start_targeted_activity": (
-        "Start an activity using an exact target from the current observation catalogs. At a "
-        "feedback boundary this switches directly: the current activity pauses automatically "
-        "with its progress preserved. Consider your location: at the office, prefer brief "
-        "phone-friendly content (feeds, short clips); save movies and long drama episodes "
-        "for home."),
     "start_travel": (
         "Start travel to an observed destination using an observed mode and duration. At a "
         "feedback boundary this switches directly: the current activity pauses automatically "
@@ -224,11 +217,6 @@ _TOOL_DESCRIPTIONS = {
     "consume": "Consume or use a product already present in personal inventory.",
     "submit_work": "Submit one actual work deliverable for an available task.",
     "game_action": "Send one admissible command to an active TextWorld game session.",
-    "browse_activities": (
-        "Drill into one activity category from activity_summary and read its item list. "
-        "Pure query: it starts nothing and consumes nothing; the returned items arrive "
-        "as action results and become usable targets (watch items for "
-        "start_targeted_activity, lifestyle items for start_basic_activity)."),
     "memory_recent": "Read the person's most recent durable memory episodes.",
     "memory_search": "Search the person's durable memory episodes by keyword.",
     "memory_step_range": "Read durable memory episodes within an inclusive decision-step range.",
@@ -241,20 +229,120 @@ _TOOL_DESCRIPTIONS = {
     ),
 }
 
-#: 观察目录直读的四类活动目标；watch 目标由 browse_activities 结果与观看
-#: 进度单独冻结（观察不再携带全量 content_catalog）。
-_TARGET_CATALOG_FIELDS: dict[str, tuple[str, str | None]] = {
-    "work": ("tasks", "task_id"),
-    "play_game": ("game_catalog", "game_id"),
-    "read_mail": ("messages", "message_id"),
-    "browse": ("browse_targets", None),
-}
 
-#: 能量可行性投影覆盖的活动类型闭集（watch 仍在能量表中）。
-_ENERGY_LIMIT_KINDS = frozenset({"work", "watch", "play_game", "read_mail", "browse"})
+def _join_kinds(kinds: list[str]) -> str:
+    """@brief 以自然英文枚举拼出 kind 清单（两个用 or，三个以上用牛津逗号）。"""
+    if len(kinds) <= 1:
+        return ", ".join(kinds)
+    if len(kinds) == 2:
+        return f"{kinds[0]} or {kinds[1]}"
+    return ", ".join(kinds[:-1]) + f", or {kinds[-1]}"
 
-#: start_targeted_activity 的 activity_type 枚举序（watch 目标来自 browse/进度）。
-_TARGETED_ACTIVITY_KINDS = ("work", "watch", "play_game", "read_mail", "browse")
+
+def _life_tool_descriptions(
+        contract: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
+    """@brief 模板 + 合同品类拼装家族相关工具描述（kind 清单不硬编码）。
+
+    直名基础活动 = surface basic 且目标不由 browse 揭示；下钻揭示目标按
+    工具面拆分（targeted/game surface 的进 start_targeted_activity，
+    basic surface 的进 start_basic_activity）。
+    """
+    descriptions = dict(_TOOL_DESCRIPTIONS)
+    basic_direct = [kind for kind, entry in contract.items()
+                    if entry["surface"] == "basic" and entry["target_discovery"] == "none"]
+    browse_targeted = [kind for kind, entry in contract.items()
+                       if entry["target_discovery"] == "browse_result"
+                       and entry["surface"] in ("targeted", "game")]
+    browse_basic = [kind for kind, entry in contract.items()
+                    if entry["target_discovery"] == "browse_result"
+                    and entry["surface"] == "basic"]
+    descriptions["start_basic_activity"] = (
+        f"Start {_join_kinds(basic_direct)} for an explicit duration. At a feedback boundary "
+        "this switches directly: the current activity pauses automatically with its "
+        "progress preserved.")
+    descriptions["start_targeted_activity"] = (
+        f"Start one of {_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
+        "target from the current observation catalogs. At a feedback boundary this switches "
+        "directly: the current activity pauses automatically with its progress preserved. "
+        "Consider your location: at the office, prefer brief phone-friendly content "
+        "(feeds, short clips); save movies and long drama episodes for home.")
+    descriptions["browse_activities"] = (
+        "Drill into one activity category from activity_summary and read its item list. "
+        "Pure query: it starts nothing and consumes nothing; the returned items arrive "
+        f"as action results and become usable targets ({_join_kinds(browse_targeted)} items "
+        f"for start_targeted_activity, {_join_kinds(browse_basic)} items for "
+        "start_basic_activity).")
+    return descriptions
+
+#: 观察合同（affordance_contract）条目的七键闭集：每个 kind 的
+#: {surface, target_discovery, target_field, energy_projection,
+#: feedback_eligible, continuable, game_boundary} 冻结形状（引擎随场景组装
+#: 一次性生成；本侧严格校验同一形状）。
+_CONTRACT_KEYS = frozenset({
+    "surface", "target_discovery", "target_field", "energy_projection",
+    "feedback_eligible", "continuable", "game_boundary"})
+
+
+def _affordance_contract(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """@brief 严格读取环境观察中的冻结可供性合同（L4 工具面单一事实源）。"""
+    contract = data.get("affordance_contract")
+    if not isinstance(contract, dict) or not contract:
+        raise RuntimeError("LifeAgent affordance contract is unavailable")
+    for kind, entry in contract.items():
+        if not isinstance(kind, str) or not kind.strip() or not isinstance(entry, dict):
+            raise RuntimeError("LifeAgent affordance contract entry is invalid")
+        if set(entry) != _CONTRACT_KEYS:
+            raise RuntimeError("LifeAgent affordance contract keys are invalid")
+        if not isinstance(entry["surface"], str) or not entry["surface"].strip():
+            raise RuntimeError("LifeAgent affordance contract surface is invalid")
+        if not isinstance(entry["target_discovery"], str):
+            raise RuntimeError("LifeAgent affordance contract target discovery is invalid")
+        target_field = entry["target_field"]
+        if target_field is not None and (
+                not isinstance(target_field, list) or len(target_field) != 2
+                or not isinstance(target_field[0], str) or not target_field[0].strip()
+                or not (target_field[1] is None or (
+                    isinstance(target_field[1], str) and target_field[1].strip()))):
+            raise RuntimeError("LifeAgent affordance contract target field is invalid")
+        for key in ("energy_projection", "feedback_eligible", "continuable", "game_boundary"):
+            if not isinstance(entry[key], bool):
+                raise RuntimeError(f"LifeAgent affordance contract {key} is invalid")
+    return contract
+
+
+def _targeted_activity_kinds(
+        contract: Mapping[str, Mapping[str, Any]]) -> tuple[str, ...]:
+    """@brief start_targeted_activity 的 activity_type 枚举序（合同声明序）。"""
+    return tuple(kind for kind, entry in contract.items()
+                 if entry["surface"] in ("targeted", "game"))
+
+
+def _target_catalog_fields(
+        contract: Mapping[str, Mapping[str, Any]]) -> dict[str, tuple[str, str | None]]:
+    """@brief 观察目录直读字段映射（合同 target_discovery = catalog_field）。"""
+    return {kind: (entry["target_field"][0], entry["target_field"][1])
+            for kind, entry in contract.items()
+            if entry["target_discovery"] == "catalog_field"}
+
+
+def _energy_limit_kinds(
+        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
+    """@brief 能量可行性投影闭集（合同 energy_projection = true）。"""
+    return frozenset(kind for kind, entry in contract.items()
+                     if entry["energy_projection"])
+
+
+def _continuable_activity_kinds(
+        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
+    """@brief continue_activity 资格闭集（合同 continuable 键）。"""
+    return frozenset(kind for kind, entry in contract.items() if entry["continuable"])
+
+
+def _game_boundary_kinds(
+        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
+    """@brief 游戏反馈边界闭集（合同 game_boundary；走 game_action 继续交互）。"""
+    return frozenset(kind for kind, entry in contract.items() if entry["game_boundary"])
+
 
 _TARGET_KIND_DESCRIPTION = (
     "Choose only a kind with a currently visible target: work uses observations[0].data.tasks[].task_id; "
@@ -274,16 +362,6 @@ _ACTIVITY_CONTROL_TOOLS = frozenset({
     "change_playback_speed",
     "continue_activity",
     "game_action",
-})
-
-_CONTINUABLE_ACTIVITY_KINDS = frozenset({
-    "wait",
-    "work",
-    "watch",
-    "travel",
-    "read_mail",
-    "browse",
-    "consume",
 })
 
 _LIFE_INSTRUCTIONS = """
@@ -352,12 +430,14 @@ class LifeAgent(PersonAgent):
         budget = self._react_budget(readonly)
         models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
         self._life_request_models = models
-        schemas = [_tool_schema(name, model) for name, model in models.items()]
+        descriptions = _life_tool_descriptions(getattr(self, "_life_contract", None) or {})
+        schemas = [_tool_schema(name, model, descriptions) for name, model in models.items()]
         if not readonly and not getattr(self, "_life_action_count", 0):
             if not hasattr(self, "_life_visible_targets"):
                 raise RuntimeError("LifeAgent visible target catalogs are not prepared")
             _bind_targeted_activity_catalogs(
                 schemas,
+                self._life_targeted_kinds,
                 self._life_visible_targets,
                 self._life_activity_controls["maximum_duration_seconds_by_kind"],
             )
@@ -464,16 +544,20 @@ class LifeAgent(PersonAgent):
             self._life_action_contracts = {}
             self._life_action_models = {}
             self._life_browse_categories = frozenset()
+            self._life_contract = {}
+            self._life_targeted_kinds = ()
             budget = self._react_budget(True)
             self._life_request_models = self._budgeted_tool_models(
                 True, budget["memory_tools_available"])
             return
         data = _environment_observation_data(request.observations)
-        energy_limits = _visible_energy_limits(data)
+        self._life_contract = contract = _affordance_contract(data)
+        self._life_targeted_kinds = _targeted_activity_kinds(contract)
+        energy_limits = _visible_energy_limits(data, contract)
         self._life_visible_refs = _environment_source_ids(data)
         self._life_browse_categories = _visible_browse_categories(data)
-        self._life_visible_targets = _visible_target_ids(data, energy_limits)
-        self._life_activity_controls = _visible_activity_controls(data, energy_limits)
+        self._life_visible_targets = _visible_target_ids(data, contract, energy_limits)
+        self._life_activity_controls = _visible_activity_controls(data, contract, energy_limits)
         self._life_action_contracts = _visible_action_contracts(data)
         self._life_action_models = _available_action_models(
             self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
@@ -638,11 +722,18 @@ def _environment_source_ids(data: dict[str, Any]) -> set[str]:
     return {observation_id, *result_ids}
 
 
-def _visible_energy_limits(data: dict[str, Any]) -> dict[str, int]:
-    """@brief 严格读取环境以权威成本函数计算的五类活动墙钟上限。"""
+def _visible_energy_limits(
+    data: dict[str, Any],
+    contract: Mapping[str, Mapping[str, Any]],
+) -> dict[str, int]:
+    """@brief 严格读取环境以权威成本函数计算的能量投影活动墙钟上限。
+
+    键集对照观察合同的 energy_projection 闭集（与引擎投影器同一份合同，
+    生产者与校验者共享单一事实源）。
+    """
     projection = data.get("energy_feasibility")
     maximums = projection.get("maximum_duration_seconds_by_kind") if isinstance(projection, dict) else None
-    if not isinstance(maximums, dict) or set(maximums) != _ENERGY_LIMIT_KINDS:
+    if not isinstance(maximums, dict) or set(maximums) != _energy_limit_kinds(contract):
         raise RuntimeError("LifeAgent energy feasibility kinds are invalid")
     for kind, value in maximums.items():
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 86_400:
@@ -652,11 +743,16 @@ def _visible_energy_limits(data: dict[str, Any]) -> dict[str, int]:
 
 def _visible_target_ids(
     data: dict[str, Any],
+    contract: Mapping[str, Mapping[str, Any]],
     energy_limits: dict[str, int],
 ) -> dict[str, tuple[str, ...]]:
-    """@brief 从公开目录、browse 结果与进度冻结本轮可用活动目标身份。"""
+    """@brief 从公开目录、browse 结果与进度冻结本轮可用活动目标身份。
+
+    观察目录直读的字段映射自合同派生（target_discovery = catalog_field 的
+    kinds；watch 目标由 browse_activities 结果与观看进度单独冻结）。
+    """
     result = {}
-    for kind, (field, identity_field) in _TARGET_CATALOG_FIELDS.items():
+    for kind, (field, identity_field) in _target_catalog_fields(contract).items():
         catalog = data.get(field)
         if not isinstance(catalog, list):
             raise RuntimeError(f"LifeAgent {field} catalog must be a list")
@@ -762,10 +858,11 @@ def _visible_content_available(progress: dict[str, dict[str, Any]],
 
 def _visible_activity_controls(
     data: dict[str, Any],
+    contract: Mapping[str, Mapping[str, Any]],
     energy_limits: dict[str, int],
 ) -> dict[str, Any]:
     """@brief 从当前活动、暂停活动与游戏局面冻结本轮控制合同。"""
-    active = _visible_active_activity(data)
+    active = _visible_active_activity(data, contract)
     paused_ids, resumable_ids = _visible_paused_activity_ids(data)
     if active is not None and active["activity_id"] in paused_ids:
         raise RuntimeError("LifeAgent active activity is also listed as paused")
@@ -778,7 +875,10 @@ def _visible_activity_controls(
     return controls
 
 
-def _visible_active_activity(data: dict[str, Any]) -> dict[str, str] | None:
+def _visible_active_activity(
+    data: dict[str, Any],
+    contract: Mapping[str, Mapping[str, Any]],
+) -> dict[str, str] | None:
     """@brief 校验环境提供的当前活动身份、类型和活动状态。"""
     if "active_activity" not in data:
         raise RuntimeError("LifeAgent active_activity is unavailable")
@@ -793,7 +893,7 @@ def _visible_active_activity(data: dict[str, Any]) -> dict[str, str] | None:
         raise RuntimeError("LifeAgent active activity identity is invalid")
     if activity.get("status") != "active" or not isinstance(kind, str):
         raise RuntimeError("LifeAgent active activity state is invalid")
-    if kind not in _CONTINUABLE_ACTIVITY_KINDS | {"play_game"}:
+    if kind not in _continuable_activity_kinds(contract) | _game_boundary_kinds(contract):
         raise RuntimeError("LifeAgent active activity kind has no decision boundary controls")
     return {"activity_id": activity_id, "kind": kind}
 
@@ -1096,13 +1196,17 @@ def _bind_browse_categories(
     properties["category"]["enum"] = sorted(categories)
 
 
-def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
-    """@brief 从唯一请求模型形成 OpenAI 原生 function Schema。"""
+def _tool_schema(
+    name: str,
+    model: type[BaseModel],
+    descriptions: Mapping[str, str],
+) -> dict[str, Any]:
+    """@brief 从唯一请求模型与合同拼装描述形成 OpenAI 原生 function Schema。"""
     return {
         "type": "function",
         "function": {
             "name": name,
-            "description": _TOOL_DESCRIPTIONS[name],
+            "description": descriptions[name],
             "parameters": deepseek_strict_schema(model),
             "strict": True,
         },
@@ -1122,17 +1226,21 @@ def _bind_finish_reference_ids(
 
 def _bind_targeted_activity_catalogs(
     schemas: list[dict[str, Any]],
+    targeted_kinds: tuple[str, ...],
     targets: dict[str, tuple[str, ...]],
     maximums: dict[str, int],
 ) -> None:
-    """@brief 将本轮可见目录绑定到原生目标活动工具 Schema。"""
+    """@brief 将本轮可见目录绑定到原生目标活动工具 Schema。
+
+    枚举序取合同声明序（targeted_kinds 自观察合同派生，本侧零硬编码）。
+    """
     targeted = next(
         (item for item in schemas if item["function"]["name"] == "start_targeted_activity"),
         None,
     )
     if targeted is None:
         return
-    kinds = [kind for kind in _TARGETED_ACTIVITY_KINDS if targets[kind]]
+    kinds = [kind for kind in targeted_kinds if targets[kind]]
     if not kinds:
         schemas[:] = [item for item in schemas if item["function"]["name"] != "start_targeted_activity"]
         return
@@ -1277,8 +1385,30 @@ def life_prompt_sha256() -> str:
     return hashlib.sha256(_LIFE_INSTRUCTIONS.encode()).hexdigest()
 
 
+def affordance_registry_sha256() -> str:
+    """@brief 返回仓库默认可供性注册表文件的 SHA-256（工具面审计指纹输入）。"""
+    from worldmock.catalog.affordances import AFFORDANCES_FILE
+
+    root = Path(__file__).resolve().parents[2]
+    return hashlib.sha256(
+        (root / "catalog" / AFFORDANCES_FILE).read_bytes()).hexdigest()
+
+
 def life_tool_schema_sha256() -> str:
-    """@brief 返回正式生活决策闭集工具 Schema 的稳定 SHA-256。"""
-    schemas = [_tool_schema(name, model) for name, model in _TOOL_MODELS.items()]
-    encoded = json.dumps(schemas, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """@brief 返回正式生活决策闭集工具 Schema + 注册表摘要的稳定 SHA-256。
+
+    家族相关工具描述自注册表合同拼装、指纹输入再并入 affordances.toml 的
+    字节摘要——注册表变则工具面变则指纹变，审计链闭合。
+    """
+    from worldmock.catalog.affordances import default_affordances
+    from worldmock.life.engine import affordance_contract
+
+    descriptions = _life_tool_descriptions(
+        affordance_contract(default_affordances()))
+    schemas = [_tool_schema(name, model, descriptions)
+               for name, model in _TOOL_MODELS.items()]
+    encoded = json.dumps(
+        {"tool_schemas": schemas,
+         "affordance_registry_sha256": affordance_registry_sha256()},
+        ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()

@@ -6,10 +6,10 @@ import pytest
 
 from worldmock.profile.mapper import DETERMINISTIC_SOURCE_MODEL, load_mapping_config, map_profile
 from worldmock.profile.models import (
-    ATTENTION_KEYS,
     WEIGHT_KEYS,
     BigFiveProfile,
     MotivationProfile,
+    attention_keys,
 )
 
 
@@ -84,13 +84,24 @@ def test_attention_balances_with_extraversion():
 def test_weights_and_attention_cover_contract_keys():
     profile = make_profile()
     assert tuple(profile.weights.model_dump()) == WEIGHT_KEYS
-    assert tuple(profile.attention_prior.model_dump()) == ATTENTION_KEYS
+    assert tuple(profile.attention_prior.model_dump()) == attention_keys()
+
+
+def test_attention_round_trips_registry_key_set():
+    """@brief round-trip：注册表键集 → mapper 编译 → 输出键集恰好匹配且归一。"""
+    keys = attention_keys()
+    for scores in ({"openness": 6, "extraversion": 2}, {"openness": 1, "extraversion": 7}):
+        prior = make_profile(**scores).attention_prior.model_dump()
+        assert tuple(prior) == keys
+        assert round(sum(prior.values()), 2) == 1.0
+    config = load_mapping_config()
+    assert set(config["attention"]["base"]) == set(keys)
 
 
 def test_source_fields_carry_provenance():
     profile = make_profile()
     assert profile.source.model == "test-extractor"
-    assert profile.source.prompt_version == "v1"
+    assert profile.source.prompt_version == "v2"
     assert profile.source.consensus.runs == 3
     assert len(profile.source.persona_text_sha256) == 64
     default = map_profile(BigFiveProfile(openness=4, conscientiousness=4, extraversion=4,
@@ -116,3 +127,21 @@ def test_config_validation_rejects_missing_sections(tmp_path):
         partial = tmp_path / "partial.toml"
         partial.write_text(full_text.split("[attention")[0], encoding="utf-8")
         load_mapping_config(partial)
+
+
+def test_config_rejects_attention_key_set_mismatch(tmp_path):
+    """@brief [attention.base] 键集必须精确等于注册表键集：少键/多键都断言失败。"""
+    from worldmock.profile.mapper import default_mapping_path
+    full_text = default_mapping_path().read_text(encoding="utf-8")
+    first_key = attention_keys()[0]
+    # 少键：删掉 [attention.base] 里的一个键（该赋值行全文唯一）。
+    missing = tmp_path / "missing.toml"
+    missing.write_text(full_text.replace(f"{first_key} = 0.20\n", "", 1), encoding="utf-8")
+    with pytest.raises(AssertionError, match="attention.base must exactly cover"):
+        load_mapping_config(missing)
+    # 多键：base 里塞一个注册表外（attention_required=false）的键。
+    extra = tmp_path / "extra.toml"
+    extra.write_text(full_text.replace(
+        "[attention.slope", f'game_session = 0.01\n\n[attention.slope', 1), encoding="utf-8")
+    with pytest.raises(AssertionError, match="attention.base must exactly cover"):
+        load_mapping_config(extra)

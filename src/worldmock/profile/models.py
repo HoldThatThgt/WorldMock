@@ -12,17 +12,29 @@ from __future__ import annotations
 import math
 from typing import Iterable, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, RootModel, field_validator,
+                      model_validator)
 
 SCHEMA_VERSION = 1
-PROMPT_VERSION = "v1"
+#: v2：attention 键集从固定 5 键改为注册表 attention_required 内容品类驱动，
+# 排序提示随键集动态生成（v1 是固定五键时代的提示版本）。
+PROMPT_VERSION = "v2"
 
 BIG_FIVE_DIMENSIONS = ("openness", "conscientiousness", "extraversion",
                        "agreeableness", "neuroticism")
 WEIGHT_KEYS = ("money_fen", "energy_kcal", "sleep_debt_hours",
                "entertainment_need", "goal_task")
-ATTENTION_KEYS = ("feature_film", "news_feed", "joke_feed",
-                  "webnovel_excerpt", "drama_series")
+
+
+def attention_keys() -> tuple[str, ...]:
+    """@brief 注意先验键集：注册表 attention_required=true 内容品类（稳定排序）。
+
+    键集来自 AffordanceView（catalog/affordances.toml 的
+    families.*.content_kinds.*.attention_required），新增品类自动扩展；
+    attention_required=false 的品类（game_session/subtitle_experience）合法地不在键集内。
+    """
+    from worldmock.catalog.affordances import default_affordances
+    return tuple(sorted(default_affordances().attention_required_kinds))
 
 TAU_GRID = (0.5, 1.0, 2.0, 3.0)
 BETA_PRESENT_BIAS_RANGE = (0.5, 1.0)
@@ -148,22 +160,25 @@ class Aspiration(_Frozen):
     daily_effective_work_seconds: int = Field(gt=0)
 
 
-class AttentionPrior(_Frozen):
-    """@brief 五类内容注意先验：各键 [0,1] 吸附 0.01，总和规范化为 1.00。"""
+class AttentionPrior(RootModel[dict[str, float]]):
+    """@brief 内容注意先验：键集 = 注册表 attention_required=true 内容品类
+    （动态注入，attention_keys()），各键 [0,1] 吸附 0.01，总和规范化为 1.00。"""
 
-    feature_film: float = Field(ge=0.0, le=1.0)
-    news_feed: float = Field(ge=0.0, le=1.0)
-    joke_feed: float = Field(ge=0.0, le=1.0)
-    webnovel_excerpt: float = Field(ge=0.0, le=1.0)
-    drama_series: float = Field(ge=0.0, le=1.0)
+    model_config = ConfigDict(frozen=True)
 
     @model_validator(mode="after")
     def validate_grid(self) -> "AttentionPrior":
-        """@brief 逐键格点校验 + 总和恰为 1.00。"""
-        for key, value in self.model_dump().items():
+        """@brief 键集 == 注册表键集（多键/少键均拒）+ 逐键格点 + 总和恰为 1.00。"""
+        values = self.root
+        expected = attention_keys()
+        if not values or set(values) != set(expected):
+            raise ValueError(
+                f"attention_prior keys {sorted(values)} must equal the registry "
+                f"attention_required kinds {list(expected)}")
+        for key, value in values.items():
             if not _on_grid(value, 0.0, 1.0, WEIGHT_GRID_STEP):
                 raise ValueError(f"attention_prior.{key}={value} is off the 0.01 grid")
-        if round(sum(self.model_dump().values()), 2) != 1.0:
+        if round(sum(values.values()), 2) != 1.0:
             raise ValueError("attention_prior sum is not normalized to 1.00")
         return self
 

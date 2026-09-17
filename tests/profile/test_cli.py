@@ -11,7 +11,7 @@ import pytest
 from worldmock import cli
 from worldmock.errors import IntegrityError
 from worldmock.profile.extractor import BigFiveExtraction
-from worldmock.profile.models import BigFiveProfile
+from worldmock.profile.models import BigFiveProfile, attention_keys
 
 
 def fake_extraction(**scores):
@@ -25,7 +25,7 @@ def fake_extraction(**scores):
                      for dimension in defaults}
     return BigFiveExtraction(profile=profile, runs=3, agreement=1.0,
                              per_dimension=per_dimension, warning=False,
-                             model="fake-model", prompt_version="v1")
+                             model="fake-model", prompt_version="v2")
 
 
 def run_cli(argv):
@@ -47,8 +47,10 @@ def test_compile_outputs_contract_shape(tmp_path, monkeypatch):
     assert profile["big_five"]["openness"] == 6
     assert set(profile["weights"]) == {"money_fen", "energy_kcal", "sleep_debt_hours",
                                        "entertainment_need", "goal_task"}
+    assert tuple(profile["attention_prior"]) == attention_keys()
+    assert round(sum(profile["attention_prior"].values()), 2) == 1.0
     assert profile["source"]["consensus"] == {"runs": 3, "agreement": 1.0}
-    assert profile["source"]["prompt_version"] == "v1"
+    assert profile["source"]["prompt_version"] == "v2"
     assert profile["source"]["model"] == "fake-model"
     assert payload["canonical_persona_text"].startswith("# 规范文本人格")
     assert payload["warnings"] == []

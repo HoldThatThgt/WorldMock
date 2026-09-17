@@ -31,6 +31,8 @@ from custom.agents.life_agent import (
     life_prompt_sha256,
     life_tool_schema_sha256,
 )
+from worldmock.catalog.affordances import default_affordances
+from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
     ActionReceipt,
     REQUEST_MODELS,
@@ -59,6 +61,9 @@ _BASE_ACTION_NAMES = {
 }
 
 _BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
+#: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
+_AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
 
 def _context() -> DecisionContext:
@@ -101,6 +106,7 @@ def _observations(*result_ids: str) -> list[dict]:
             "work": 86_400, "watch": 86_400, "play_game": 86_400,
             "read_mail": 86_400, "browse": 86_400,
         }},
+        "affordance_contract": _AFFORDANCE_CONTRACT,
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -141,6 +147,20 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert all(function["strict"] is True for function in functions.values())
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
+
+
+#: M2 钉住的新指纹：家族工具描述自注册表合同拼装 + 输入并入注册表字节摘要。
+_PINNED_TOOL_SCHEMA_SHA256 = "b15a31244a6318f2355151a22f78ca1b4ad7abe6f2e2b0266a08225e651e5c3e"
+
+
+def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
+    """@brief 指纹输入并入注册表摘要：注册表变则工具面变则指纹变（审计链闭合）。"""
+    import custom.agents.life_agent as life_agent_module
+
+    assert life_tool_schema_sha256() == _PINNED_TOOL_SCHEMA_SHA256
+    monkeypatch.setattr(life_agent_module, "affordance_registry_sha256",
+                        lambda: "0" * 64)
+    assert life_tool_schema_sha256() != _PINNED_TOOL_SCHEMA_SHA256
 
 
 def test_location_norm_guides_tool_description_and_instructions() -> None:

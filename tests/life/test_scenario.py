@@ -58,6 +58,21 @@ def test_formal_and_multi_person_scenarios_are_valid() -> None:
         assert all(route.fare_source_kind == "scenario" for route in scenario.routes)
 
 
+def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
+    """注册表规则 6：画像注意力键集 == attention_required=true 键集，多键/少键均拒绝。"""
+    index = next(position for position, agent in enumerate(_payload()["agents"])
+                 if agent.get("motivation"))
+    # 少键：删掉一个注意力键（数值区间不受影响，键集检查单独拒绝）。
+    payload = _payload()
+    prior = payload["agents"][index]["motivation"]["attention_prior"]
+    del prior[next(iter(prior))]
+    _assert_invalid(payload, "attention_required kinds")
+    # 多键：塞一个 attention_required=false 的显式排除品类（game_session）。
+    payload = _payload()
+    payload["agents"][index]["motivation"]["attention_prior"]["game_session"] = 0.0
+    _assert_invalid(payload, "attention_required kinds")
+
+
 @pytest.mark.parametrize(
     ("path", "value", "message"),
     [

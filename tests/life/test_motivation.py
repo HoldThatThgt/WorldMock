@@ -650,6 +650,12 @@ class TestContractModels:
                       "agreeableness": 4}},
         {"attention_prior": {"": 0.5}},
         {"attention_prior": {"feature_film": 1.5}},
+        # 注册表规则 6：键集必须精确等于 attention_required=true 键集——
+        # 缺键（少 drama_series，总和仍 1.0）与多键（多的 game_session 是
+        # attention_required=false 的显式排除面）都拒绝。
+        {"attention_prior": {"feature_film": 0.25, "news_feed": 0.25,
+                             "joke_feed": 0.25, "webnovel_excerpt": 0.25}},
+        {"attention_prior": {**CONTRACT_PROFILE["attention_prior"], "game_session": 0.0}},
         {"schema_version": 2},
         {"extra_field": 1},
     ])
@@ -658,6 +664,13 @@ class TestContractModels:
         payload.update(mutation)
         with pytest.raises(Exception):
             MotivationProfile.model_validate(payload)
+
+    def test_contract_attention_keys_equal_registry_attention_required_kinds(self):
+        """@brief 影子钉死：合同档案注意力键集 == 注册表 attention_required=true 键集
+        （老画像 5 键在新注册表下仍合法——键集恰好相等）。"""
+        from worldmock.catalog.affordances import default_affordances
+        assert set(CONTRACT_PROFILE["attention_prior"]) == \
+            default_affordances().attention_required_kinds
 
     def test_transforms_missing_dir_is_none(self, tmp_path):
         assert load_motivation_transforms(tmp_path) is None

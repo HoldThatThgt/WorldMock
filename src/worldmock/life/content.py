@@ -7,7 +7,9 @@ import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Mapping
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ActivityState, AgentState, ContentProgress
 from worldmock.life.scenario import ContentItemConfig, MessageConfig
@@ -80,28 +82,31 @@ def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> t
 
 
 
-#: 内容条目标题的语料来源：内容类别 → (语料相对路径, 条目身份键)。
-#: 身份键为空串表示单记录身份文件（其 title 字段直接适用）；未列出的类别
-#: （news_feed/joke_feed/game_session）以 experience_label / game_id 自带身份。
-TITLE_SOURCES: dict[str, tuple[str, str]] = {
-    "feature_film": ("movies/items.json", "item_id"),
-    "drama_series": ("drama/items.json", "item_id"),
-    "webnovel_excerpt": ("novels/items.json", "item_id"),
-    "subtitle_experience": ("sintel/media-identity.json", ""),
-}
+#: 内容条目标题的语料来源（内容类别 → (语料相对路径, 条目身份键)）由可供性
+#: 注册表派生（families.*.content_kinds.*.title_source，M0 影子等价已证与原
+#: 字面字典一致）；身份键为空串表示单记录身份文件（其 title 字段直接适用），
+#: 未列出的类别（news_feed/joke_feed/game_session）以 experience_label /
+#: game_id 自带身份。
 
 
-def load_content_titles(items: tuple[ContentItemConfig, ...],
-                        corpus_root: Path) -> dict[str, str]:
+def load_content_titles(
+    items: tuple[ContentItemConfig, ...],
+    corpus_root: Path,
+    title_sources: Mapping[str, tuple[str, str]] | None = None,
+) -> dict[str, str]:
     """@brief 按内容类别从语料 items.json 读取展示标题。
 
     标题是观察展示元数据：身份文件缺失/越界仍按 IntegrityError 失败，
     单条目在 items.json 中缺行或无标题时只是不注入 title（部分元数据合法）。
+    来源映射缺省取仓库默认注册表的 title_sources（M2：字面字典已删，注册表
+    即事实；显式传入时以传入映射为准）。
     """
+    sources = (default_affordances().title_sources
+               if title_sources is None else title_sources)
     titles: dict[str, str] = {}
     payloads: dict[str, object] = {}
     for item in items:
-        source = TITLE_SOURCES.get(item.kind)
+        source = sources.get(item.kind)
         if source is None:
             continue
         relative, id_key = source

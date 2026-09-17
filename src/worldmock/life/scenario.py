@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, model_validator
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import IntegrityError
 from worldmock.life.models import (
     ContractKind,
@@ -130,6 +131,13 @@ class MotivationProfile(FrozenModel):
         if any(not math.isfinite(value) or not 0 <= value <= 1
                for value in self.attention_prior.values()):
             raise ValueError("motivation attention_prior values must be within the unit interval")
+        # 注册表规则 6：画像注意力键集 == attention_required=true 键集，多键/少键
+        # 均拒绝（取代动机采样侧 .get(kind, 0) 的静默缺省）；attention_required=false
+        # 的品类（game_session/subtitle_experience）合法地不在键集内。
+        if set(self.attention_prior) != default_affordances().attention_required_kinds:
+            raise ValueError(
+                "motivation attention_prior keys must equal the registry "
+                "attention_required kinds")
         return self
 
 

@@ -12,6 +12,7 @@ from worldmock.profile.models import (
     LossAversion,
     MotivationProfile,
     Weights,
+    attention_keys,
     normalize_to_grid,
     persona_text_sha256,
     quantize,
@@ -82,13 +83,35 @@ def test_weights_reject_off_grid_and_unnormalized():
                 entertainment_need=0.10, goal_task=0.05)
 
 
+def test_attention_prior_accepts_registry_key_set():
+    """@brief 正例：键集 == 注册表 attention_required 品类、格点内、总和 1.00。"""
+    keys = attention_keys()
+    assert len(keys) >= 1
+    values = normalize_to_grid({key: 1.0 for key in keys})
+    assert AttentionPrior.model_validate(values).model_dump() == values
+
+
+def test_attention_prior_rejects_key_set_violations():
+    """@brief 多键/少键/未知键均拒绝：键集必须精确等于注册表键集。"""
+    keys = attention_keys()
+    values = normalize_to_grid({key: 1.0 for key in keys})
+    missing = dict(values)
+    del missing[keys[0]]
+    extra = {**values, keys[0]: round(values[keys[0]] - 0.01, 2), "game_session": 0.01}
+    unknown = {**{key: value for key, value in list(values.items())[1:]}, "podcast": values[keys[0]]}
+    for bad, label in ((missing, "missing"), (extra, "extra"), (unknown, "unknown")):
+        with pytest.raises(ValidationError, match="must equal the registry"):
+            AttentionPrior.model_validate(bad)
+
+
 def test_attention_prior_rejects_off_grid_and_unnormalized():
+    keys = attention_keys()
+    values = {key: 0.2 for key in keys[:4]}
+    values[keys[4]] = round(1.0 - 0.2 * 4, 2)
     with pytest.raises(ValidationError, match="off the 0.01 grid"):
-        AttentionPrior(feature_film=0.2077, news_feed=0.2, joke_feed=0.2,
-                       webnovel_excerpt=0.2, drama_series=0.2)
+        AttentionPrior.model_validate({**values, keys[0]: 0.2077})
     with pytest.raises(ValidationError, match="not normalized"):
-        AttentionPrior(feature_film=0.5, news_feed=0.2, joke_feed=0.1,
-                       webnovel_excerpt=0.1, drama_series=0.05)
+        AttentionPrior.model_validate({**values, keys[0]: 0.5})
 
 
 def test_loss_aversion_grid():

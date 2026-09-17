@@ -141,10 +141,14 @@ intercept = 0.50
 neuroticism = 0.40
 
 # ---------------------------------------------------------------------------
-# attention_prior：五类内容注意先验 = base + Σ slope×normalized（anchored：开放性→影视/
+# attention_prior：内容注意先验 = base + Σ slope×normalized（anchored：开放性→影视/
 # 小说等叙事想象类、尽责性→新闻信息类、外向性→段子等轻社交类、宜人性→剧集关系类），
 # 钳制后与均匀分布做混合（balance）：外向性越高分布越均衡（anchored: 外向性→广谱刺激寻求），
 # 最终 0.01 格点归一（总和 1.00）。basis=assumption：斜率幅度与混合系数。
+# 键集来源：catalog/affordances.toml 中 attention_required = true 的内容品类（当前五键，
+# game_session/subtitle_experience 显式 false 不在键集内）。[attention.base] 必须精确
+# 覆盖该键集——多键/少键在 mapper 加载期断言失败；slope 段可省（省略 = 只有 base），
+# 但键必须在键集内。注册表新增品类时在此补一行 base（可选拆 slope）即自动出题。
 # ---------------------------------------------------------------------------
 
 [attention.base]

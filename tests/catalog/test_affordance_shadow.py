@@ -4,9 +4,11 @@ M0 影子阶段：注册表派生集逐一 == 引擎现行硬编码常量（moti
 semantics.ENGINE_*、activities.FEEDBACK、body.ENERGY_RECOVERY、agent 侧四常量、
 content.TITLE_SOURCES、习惯归并路由、采样常量）——失败即影子不等价。
 
-M1 之后引擎常量本身从注册表派生，"常量侧"断言退化为接线检查；每个断言
-同时携带行为期望字面值（EXPECTED_*），把现行引擎行为钉死——注册表或派生
-接线任一侧漂移都会在这里红。
+M1 之后引擎常量本身从注册表派生，"常量侧"断言退化为接线检查；M2 之后
+agent 侧四个字面常量与 content.TITLE_SOURCES 字面字典删除，闭集经观察合同
+（affordance_contract）派生，断言改为"注册表 → 合同 → agent 派生"链条；
+每个断言同时携带行为期望字面值（EXPECTED_*），把现行引擎行为钉死——注册
+表或派生接线任一侧漂移都会在这里红。
 """
 
 from __future__ import annotations
@@ -35,7 +37,6 @@ from worldmock.life.activities import (
     resource_claims,
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
-from worldmock.life.content import TITLE_SOURCES
 from worldmock.life.models import ActivityKind, TravelMode
 from worldmock.life.motivation import (
     ENTERTAINMENT_PER_KIND,
@@ -155,41 +156,57 @@ def test_feedback_kinds_match_activities(view) -> None:
     assert view.continuable_kinds == EXPECTED_FEEDBACK_KINDS
 
 
-def test_continuable_matches_agent_constant(view) -> None:
-    """@brief L4：continue_activity 资格闭集 == agent 侧 _CONTINUABLE_ACTIVITY_KINDS。"""
-    from custom.agents.life_agent import _CONTINUABLE_ACTIVITY_KINDS
+def test_continuable_matches_agent_derivation(view) -> None:
+    """@brief L4：continue 资格闭集 == agent 侧合同派生（M2：字面常量已删，合同即事实）。"""
+    from custom.agents import life_agent
+    from worldmock.life.engine import affordance_contract
 
-    assert view.continuable_kinds == frozenset(_CONTINUABLE_ACTIVITY_KINDS)
+    contract = affordance_contract(view)
+    assert life_agent._continuable_activity_kinds(contract) == EXPECTED_CONTINUABLE_KINDS
+    assert view.continuable_kinds == EXPECTED_CONTINUABLE_KINDS
+    assert not hasattr(life_agent, "_CONTINUABLE_ACTIVITY_KINDS")
 
 
-def test_targeted_order_matches_agent_constant(view) -> None:
-    """@brief L4：start_targeted_activity 枚举序 == agent 侧 _TARGETED_ACTIVITY_KINDS。"""
-    from custom.agents.life_agent import _TARGETED_ACTIVITY_KINDS
+def test_targeted_order_matches_agent_derivation(view) -> None:
+    """@brief L4：start_targeted_activity 枚举序 == agent 侧合同派生（声明序）。"""
+    from custom.agents import life_agent
+    from worldmock.life.engine import affordance_contract
 
-    assert view.targeted_activity_kinds == tuple(_TARGETED_ACTIVITY_KINDS)
+    contract = affordance_contract(view)
+    assert life_agent._targeted_activity_kinds(contract) == EXPECTED_TARGETED_ORDER
     assert view.targeted_activity_kinds == EXPECTED_TARGETED_ORDER
+    assert not hasattr(life_agent, "_TARGETED_ACTIVITY_KINDS")
 
 
-def test_target_catalog_fields_match_agent_constant(view) -> None:
-    """@brief L4：观察目录直读字段映射 == agent 侧 _TARGET_CATALOG_FIELDS。"""
-    from custom.agents.life_agent import _TARGET_CATALOG_FIELDS
+def test_target_catalog_fields_match_agent_derivation(view) -> None:
+    """@brief L4：观察目录直读字段映射 == agent 侧合同派生。"""
+    from custom.agents import life_agent
+    from worldmock.life.engine import affordance_contract
 
-    assert view.target_catalog_fields == dict(_TARGET_CATALOG_FIELDS)
+    contract = affordance_contract(view)
+    assert life_agent._target_catalog_fields(contract) == EXPECTED_CATALOG_FIELDS
     assert view.target_catalog_fields == EXPECTED_CATALOG_FIELDS
+    assert not hasattr(life_agent, "_TARGET_CATALOG_FIELDS")
 
 
-def test_energy_limit_matches_agent_constant(view) -> None:
-    """@brief L4：能量投影闭集 == agent 侧 _ENERGY_LIMIT_KINDS == 行为期望。"""
-    from custom.agents.life_agent import _ENERGY_LIMIT_KINDS
+def test_energy_limit_matches_agent_derivation(view) -> None:
+    """@brief L4：能量投影闭集 == agent 侧合同派生 == 行为期望。"""
+    from custom.agents import life_agent
+    from worldmock.life.engine import affordance_contract
 
-    assert view.energy_limit_kinds == frozenset(_ENERGY_LIMIT_KINDS)
+    contract = affordance_contract(view)
+    assert life_agent._energy_limit_kinds(contract) == EXPECTED_ENERGY_LIMIT_KINDS
     assert view.energy_limit_kinds == EXPECTED_ENERGY_LIMIT_KINDS
+    assert not hasattr(life_agent, "_ENERGY_LIMIT_KINDS")
 
 
 def test_title_sources_match_content(view) -> None:
-    """@brief L2：标题来源映射 == content.TITLE_SOURCES == 行为期望。"""
-    assert view.title_sources == TITLE_SOURCES
+    """@brief L2：标题来源映射 == 注册表派生（M2：字面字典已删，注册表即事实）。"""
+    import worldmock.life.content as content
+
     assert view.title_sources == EXPECTED_TITLE_SOURCES
+    assert not hasattr(content, "TITLE_SOURCES")
+    assert content.default_affordances().title_sources == view.title_sources
 
 
 def test_attention_sampling_constants(view) -> None:

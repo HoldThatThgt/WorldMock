@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.footprints.models import (
@@ -134,6 +135,38 @@ _OPS_COMPONENTS = {"purchase": "commerce", "start_travel": "travel", "submit_wor
 _SWITCH_TOOL_NAMES = frozenset({
     "start_basic_activity", "start_targeted_activity", "start_travel"})
 
+#: 观察合同条目的七键闭集（LifeAgent 侧严格校验同一形状）。
+AFFORDANCE_CONTRACT_KEYS = frozenset({
+    "surface", "target_discovery", "target_field", "energy_projection",
+    "feedback_eligible", "continuable", "game_boundary"})
+
+
+def affordance_contract(view: AffordanceView) -> dict[str, dict]:
+    """@brief 从可供性派生视图构造观察合同冻结块（设计文档 §三 L4）。
+
+    合同随场景组装一次性生成、运行期不变：每个 kind 携带
+    {surface, target_discovery, target_field, energy_projection,
+    feedback_eligible, continuable, game_boundary} 七键；target_field 仅在
+    catalog_field 直读时为 [观察字段, 身份键]，否则为 None。continuable 采用
+    M01 裁决口径（= feedback 闭集；play_game 的继续交互走 game_boundary）。
+    """
+    feedback = view.feedback_kinds
+    continuable = view.continuable_kinds
+    game = view.game_boundary_kinds
+    contract: dict[str, dict] = {}
+    for name, spec in view.kinds.items():
+        contract[name] = {
+            "surface": spec.surface,
+            "target_discovery": spec.target_discovery,
+            "target_field": ([spec.target_field, spec.target_id_key]
+                             if spec.target_discovery == "catalog_field" else None),
+            "energy_projection": spec.energy_projection,
+            "feedback_eligible": name in feedback,
+            "continuable": name in continuable,
+            "game_boundary": name in game,
+        }
+    return contract
+
 
 class LifeEngine:
     """@brief LifeEnv 的单写入领域服务和状态权威。"""
@@ -147,6 +180,7 @@ class LifeEngine:
         self.corpus_root = Path(corpus_root).resolve()
         self.store = store
         self.rules = LifeRuleEngine(self.scenario, self.corpus_root)
+        self._affordance_contract = affordance_contract(semantics.affordances)
         self.lifestyle_items = load_lifestyle_items(
             self.corpus_root, self.scenario.body.activity_met)
         self.state = WorldState.model_validate(store.state)
@@ -644,7 +678,9 @@ class LifeEngine:
                 "routes": _route_catalog(self.scenario.routes, self.semantics.body,
                                       agent.location_id, agent.body.energy_kcal,
                                       self.state.current_time, self.semantics),
-                "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
+                "energy_feasibility": _activity_energy_feasibility(
+                    agent, self.semantics.body, self._affordance_contract),
+                "affordance_contract": self._affordance_contract,
                 "activity_summary": self._activity_summary(agent),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
@@ -1882,13 +1918,17 @@ def _route_catalog(routes: tuple, body, origin_id: str, energy_kcal: float,
     return result
 
 
-def _activity_energy_feasibility(agent, body) -> dict:
-    """@brief 返回五类目标活动按当前能量可受理的最大整数墙钟秒数。"""
-    kinds = (ActivityKind.WORK, ActivityKind.WATCH, ActivityKind.PLAY_GAME,
-             ActivityKind.READ_MAIL, ActivityKind.BROWSE)
+def _activity_energy_feasibility(agent, body, contract: dict) -> dict:
+    """@brief 返回能量投影活动按当前能量可受理的最大整数墙钟秒数。
+
+    键集与观察合同共享单一事实源：生产者（本投影器）与校验者（agent 侧
+    _visible_energy_limits）都从同一份 affordance_contract 的
+    energy_projection 键取值——注册表变则两侧同步变。
+    """
     maximums = {
-        kind.value: maximum_energy_duration_seconds(kind, agent.body.energy_kcal, body)
-        for kind in kinds
+        kind: maximum_energy_duration_seconds(
+            ActivityKind(kind), agent.body.energy_kcal, body)
+        for kind, entry in contract.items() if entry["energy_projection"]
     }
     return {"maximum_duration_seconds_by_kind": maximums}
 

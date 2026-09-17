@@ -15,6 +15,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent
+from worldmock.catalog.affordances import default_affordances
+from worldmock.life.engine import affordance_contract
 from worldmock.life.models import ActionReceipt, SetActivityStateRequest, StartTargetedActivityRequest
 
 
@@ -35,6 +37,9 @@ _FAILED_OBSERVATION_CATALOGS = {
 }
 
 _TARGET_CATALOG_FIELDS_FOR_TEST = ("work", "watch", "play_game", "read_mail", "browse")
+
+#: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
+_AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
 
 def _context() -> DecisionContext:
@@ -102,6 +107,7 @@ def _observations(
         "active_activity": active_activity,
         "paused_activities": paused_activities or [],
         "energy_feasibility": _energy_limits(),
+        "affordance_contract": _AFFORDANCE_CONTRACT,
         "content_progress": {},
         "products": [{"product_id": "product-visible", "price_version": "price-v1",
                       "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
