@@ -24,13 +24,17 @@ from worldmock.life.models import (
     StartBasicActivityRequest,
 )
 from worldmock.life.motivation import (
+    ENTERTAINMENT_FAMILY_CAP,
     FAMILIES,
     MAX_CANDIDATES,
     MotivationContext,
+    _awake_deficit_delta,
+    _eat_candidates,
     classify_action_event,
     evaluate_motivation,
     habit_shares,
     load_motivation_transforms,
+    meal_repeat_weight,
     prospect_value,
 )
 from worldmock.life.scenario import (
@@ -110,7 +114,7 @@ def _agent(energy=1600.0, sleep_debt=4.0, need=0.5, location="home",
            inventory=None, preferences=None, skills=None) -> AgentState:
     return AgentState(agent_id=1, name="Lin", location_id=location,
                       balance_account_id="agent:1", next_decision_at=0,
-                      body=BodyState(energy_kcal=energy, sleep_debt_hours=sleep_debt,
+                      body=BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=sleep_debt,
                                      entertainment_need=need),
                       skill_levels=skills if skills is not None else {"ami": 0.8},
                       entertainment_preferences=preferences if preferences is not None
@@ -140,7 +144,7 @@ def _route(route_id, origin, destination, mode="driving", seconds=600, fare=600)
 def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> WorkTaskConfig:
     zone = ZoneInfo(TIMEZONE)
     return WorkTaskConfig.model_validate({
-        "task_id": task_id, "contract_kind": "package",
+        "task_id": task_id, "assignee_agent_id": "agent:1", "contract_kind": "package",
         "available_at": datetime(2023, 11, 13, tzinfo=zone),
         "due_at": datetime(2023, 11, 16, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": pay,
@@ -233,15 +237,26 @@ class TestHomeostatic:
         assert eat.components["homeostatic"] > 0
         assert "restores energy 100->" in eat.candidate.reason
 
-    def test_money_at_comfort_makes_spending_loom_large(self, transforms):
-        # 余额恰在参考点（最陡损失段）时，价格损失压过能量恢复：TK 形状的既定行为。
-        context = _context(agent=_agent(energy=455.0), balance_fen=20_000,
-                           products=(_food(),), merchant_stock={"food-1": 5},
-                           locations={"market": _location()},
-                           routes=(_route("r1", "market", "home"),))
-        scored = evaluate_motivation(context, _profile(), transforms)
-        eat = next(item for item in scored if item.candidate.family == "eat")
-        assert eat.components["homeostatic"] < 0
+    def test_money_at_comfort_keeps_price_out_of_homeostatic(self, transforms):
+        # 修订合同 L1598：价格只在成本项计一次——购餐与持餐候选的 homeostatic
+        # 完全一致（钱坐标不含价格流），价格损失全量落在成本项。
+        base = dict(products=(_food(price=800),), merchant_stock={"food-1": 5},
+                    locations={"market": _location()})
+        held = evaluate_motivation(
+            _context(agent=_agent(energy=455.0, location="market",
+                                  inventory={"market": {"food-1": 2}}), **base),
+            _profile(), transforms)
+        buy = evaluate_motivation(
+            _context(agent=_agent(energy=455.0, location="market"), **base),
+            _profile(), transforms)
+        held_eat = next(item for item in held
+                        if item.candidate.summary.startswith("Eat held"))
+        buy_eat = next(item for item in buy if item.candidate.family == "eat")
+        assert held_eat.components["homeostatic"] == pytest.approx(
+            buy_eat.components["homeostatic"])
+        hours = buy_eat.candidate.duration_seconds / 3600
+        assert buy_eat.components["cost"] - held_eat.components["cost"] == pytest.approx(
+            800 / transforms.money_scale_fen / hours, rel=1e-6)
 
     def test_reference_recomputation_matches_component(self, transforms):
         """@brief 独立重算公式逐项对上 homeostatic 分量（测试内另写一遍公式）。"""
@@ -253,9 +268,10 @@ class TestHomeostatic:
         scored = evaluate_motivation(context, profile, transforms)
         candidate = next(item for item in scored
                          if item.candidate.family == "eat").candidate
-        money_after = context.balance_fen + candidate.money_now_fen
+        # L1598：价格只进成本项——内稳态钱坐标只含折现的延期钱流。
+        money_after = context.balance_fen
         energy_after = agent.body.energy_kcal + candidate.energy_delta
-        debt_after = agent.body.sleep_debt_hours + candidate.sleep_debt_delta
+        deficit_after = agent.body.sleep_deficit_hours + candidate.sleep_deficit_delta
         fun_after = agent.body.entertainment_need + candidate.entertainment_delta
 
         def term(weight, resource, now, after, lam):
@@ -270,8 +286,8 @@ class TestHomeostatic:
                    (agent.body.energy_kcal - profile.comfort["energy_kcal"]) / transforms.energy_scale_kcal,
                    (energy_after - profile.comfort["energy_kcal"]) / transforms.energy_scale_kcal, 1.5)
             + term(profile.weights["sleep_debt_hours"], "sleep_debt_hours",
-                   -agent.body.sleep_debt_hours / transforms.sleep_scale_hours,
-                   -debt_after / transforms.sleep_scale_hours, 1.0)
+                   -agent.body.sleep_deficit_hours / transforms.sleep_scale_hours,
+                   -deficit_after / transforms.sleep_scale_hours, 1.0)
             + term(profile.weights["entertainment_need"], "entertainment_need",
                    -agent.body.entertainment_need / transforms.entertainment_scale,
                    -fun_after / transforms.entertainment_scale, 1.0)
@@ -390,8 +406,9 @@ class TestCost:
             _profile(), transforms)
         held_eat = next(item for item in held if item.candidate.family == "eat")
         buy_eat = next(item for item in buy if item.candidate.family == "eat")
+        hours = buy_eat.candidate.duration_seconds / 3600
         assert buy_eat.components["cost"] - held_eat.components["cost"] == pytest.approx(
-            800 / transforms.money_scale_fen, rel=1e-6)
+            800 / transforms.money_scale_fen / hours, rel=1e-6)
 
     def test_travel_cost_includes_fare(self, transforms):
         context = _context(agent=_agent(location="office"),
@@ -399,8 +416,31 @@ class TestCost:
         scored = evaluate_motivation(context, _profile(), transforms)
         travel = next(item for item in scored if item.candidate.family == "travel")
         hours = travel.candidate.duration_seconds / 3600
-        expected = (600 + hours * transforms.time_value_fen_per_hour) / transforms.money_scale_fen
+        # L1598：价格单计 + 时间机会成本，整体按候选时长归一到单位小时口径。
+        expected = (600 + hours * transforms.time_value_fen_per_hour) \
+            / transforms.money_scale_fen / hours
         assert travel.components["cost"] == pytest.approx(expected, rel=1e-6)
+
+    def test_cost_normalized_per_hour_across_durations(self, transforms):
+        """@brief L1598 单位小时效用：10 分钟与 120 分钟零价格候选的时间成本可比。"""
+        short = _context(agent=_agent(need=0.5), contents=(_content("movie-a",
+                                                                    seconds=600),),
+                         taste_weights={"movie-a": 0.8})
+        long = _context(agent=_agent(need=0.5), contents=(_content("movie-b",
+                                                                   seconds=7200),),
+                        taste_weights={"movie-b": 0.8})
+        short_eat = next(item for item in evaluate_motivation(short, _profile(), transforms,
+                                                              top_k=10)
+                         if item.candidate.family == "entertainment")
+        long_eat = next(item for item in evaluate_motivation(long, _profile(), transforms,
+                                                             top_k=10)
+                        if item.candidate.family == "entertainment")
+        # 无价格、无延迟：单位小时时间成本 = time_value / money_scale，与时长无关。
+        expected = transforms.time_value_fen_per_hour / transforms.money_scale_fen
+        assert short_eat.components["cost"] == pytest.approx(expected, rel=1e-6)
+        assert long_eat.components["cost"] == pytest.approx(expected, rel=1e-6)
+        assert short_eat.candidate.duration_seconds * 12 == \
+            pytest.approx(long_eat.candidate.duration_seconds)
 
 
 class TestSoftmaxAndShape:
@@ -443,6 +483,7 @@ class TestSoftmaxAndShape:
                            routes=(_route("rd", "market", "office"),
                                    _route("rh", "office", "home")),
                            contents=contents, tasks=tasks, active_activity=activity,
+                           taste_weights={item.item_id: 0.8 for item in contents},
                            task_totals={item.task_id: (0, 0.0) for item in tasks})
         scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
         assert len(scored) <= MAX_CANDIDATES
@@ -487,7 +528,8 @@ class TestEnumerationBoundaries:
             planned_duration_seconds=1800, target_id="movie-0001", origin_action_id="a",
             origin_decision_id="d", origin_request_event_id="e",
             data={"entertainment_relief_per_hour": 0.2, "exposure_count": 1})
-        context = _context(active_activity=activity, contents=(_content(),))
+        context = _context(active_activity=activity, contents=(_content(),),
+                           taste_weights={"movie-0001": 0.8})
         scored = evaluate_motivation(context, _profile(), transforms)
         keep = next(item for item in scored if item.candidate.family == "continue")
         assert keep.candidate.duration_seconds == 1200
@@ -536,7 +578,8 @@ class TestEntertainmentSegmentSlots:
         context = _context(
             agent=_agent(preferences={"novel-0001": 0.8}),
             contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
-            content_segments={"novel-0001": self._novel_boundaries()})
+            content_segments={"novel-0001": self._novel_boundaries()},
+            taste_weights={"novel-0001": 0.8})
         keep = self._entertainment(context, transforms)
         # 一次约两章（~17 分钟）而不是整本 24 小时的整块承诺
         assert keep.candidate.duration_seconds == pytest.approx(typical * 2)
@@ -549,6 +592,7 @@ class TestEntertainmentSegmentSlots:
             agent=_agent(preferences={"novel-0001": 0.8}),
             contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
             content_segments={"novel-0001": self._novel_boundaries()},
+            taste_weights={"novel-0001": 0.8},
             content_progress={"novel-0001": ContentProgress(
                 item_id="novel-0001", position_seconds=typical * 5, exposure_count=1)})
         keep = self._entertainment(context, transforms)
@@ -561,6 +605,7 @@ class TestEntertainmentSegmentSlots:
         context = _context(
             agent=_agent(preferences={"movie-0001": 0.8}),
             contents=(_content("movie-0001", "feature_film", 6780, 0.35),),
+            taste_weights={"movie-0001": 0.8},
             content_progress={"movie-0001": ContentProgress(
                 item_id="movie-0001", position_seconds=1800, exposure_count=1)})
         keep = self._entertainment(context, transforms)
@@ -572,7 +617,8 @@ class TestEntertainmentSegmentSlots:
     def test_unsegmented_movie_still_offers_full_watch(self, transforms):
         context = _context(
             agent=_agent(preferences={"movie-0001": 0.8}),
-            contents=(_content("movie-0001", "feature_film", 6780, 0.35),))
+            contents=(_content("movie-0001", "feature_film", 6780, 0.35),),
+            taste_weights={"movie-0001": 0.8})
         keep = self._entertainment(context, transforms)
         # 电影单 cue：整段观看不受分段槽影响
         assert keep.candidate.summary == "Watch movie-0001 (~113 min)"
@@ -583,7 +629,8 @@ class TestEntertainmentSegmentSlots:
         context = _context(
             agent=_agent(preferences={"news-feed": 0.6}),
             contents=(_content("news-feed", "news_feed", 38_032, 0.25),),
-            content_segments={"news-feed": boundaries})
+            content_segments={"news-feed": boundaries},
+            taste_weights={"news-feed": 0.6})
         keep = self._entertainment(context, transforms)
         # 两段典型时长只有 ~1 分钟：保底一次 10 分钟会话，避免候选被裁光
         assert keep.candidate.duration_seconds == pytest.approx(600.0)
@@ -595,6 +642,7 @@ class TestEntertainmentSegmentSlots:
             agent=_agent(preferences={"novel-0001": 0.8}),
             contents=(_content("novel-0001", "webnovel_excerpt", self.NOVEL_SECONDS, 0.35),),
             content_segments={"novel-0001": self._novel_boundaries()},
+            taste_weights={"novel-0001": 0.8},
             content_progress={"novel-0001": ContentProgress(
                 item_id="novel-0001", position_seconds=self.NOVEL_SECONDS, exposure_count=2)})
         keep = self._entertainment(context, transforms)
@@ -633,10 +681,11 @@ class TestLifestyleCandidates:
             "sport": 0.3, "hobby": 0.2, "outdoor": 0.15, "wellness": 0.15,
             "household": 0.1, "learning": 0.05, "pet": 0.03, "social": 0.01,
             "volunteer": 0.01})
-        defaults = dict(agent=_agent(preferences={
-            "jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
-            "meditation-improve-focus": 0.7, "journaling": 0.4,
-            "housework-cleaning": 0.5}), body=self._lifestyle_body())
+        taste = {"jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
+                 "meditation-improve-focus": 0.7, "journaling": 0.4,
+                 "housework-cleaning": 0.5}
+        defaults = dict(agent=_agent(preferences=taste), body=self._lifestyle_body(),
+                        taste_weights=taste)
         defaults.update(overrides)
         context = _context(**defaults)
         return context, profile
@@ -657,16 +706,17 @@ class TestLifestyleCandidates:
 
     def test_pool_cap_truncates_from_weakest_category(self, transforms):
         # 第 5 个品类（sport 之外再给 outdoor/hobby/social 高权条目）挤不进配额 4。
+        taste = {"jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
+                 "meditation-improve-focus": 0.7, "journaling": 0.4,
+                 "housework-cleaning": 0.5, "backpacking-trek": 0.9,
+                 "3d-printing": 0.9, "board-games": 0.9}
         context, profile = self._lifestyle_only_context(
-            agent=_agent(preferences={
-                "jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
-                "meditation-improve-focus": 0.7, "journaling": 0.4,
-                "housework-cleaning": 0.5, "backpacking-trek": 0.9,
-                "3d-printing": 0.9, "board-games": 0.9}),
+            agent=_agent(preferences=taste),
+            taste_weights=taste,
             body=self._lifestyle_body(**{
                 "lifestyle:backpacking-trek": 6.0,   # outdoor
-                "lifestyle:3d-printing": 1.8,         # hobby
-                "lifestyle:board-games": 1.5}))       # social
+                "lifestyle:3d-printing": 1.8,        # hobby
+                "lifestyle:board-games": 1.5}))      # social
         scored = evaluate_motivation(context, profile, transforms, top_k=30)
         lifestyle = [item for item in scored if item.candidate.family == "lifestyle"]
         # 6 个品类各有 top-1，配额 4：household（0.1×0.5）与 social（0.01）出局，
@@ -713,6 +763,116 @@ class TestLifestyleCandidates:
         shares = habit_shares(events, transforms.habit_discount)
         assert shares.get("lifestyle") == pytest.approx(1.0)
         assert shares.get("continue", 0.0) == 0.0
+
+
+# ---------------------------------------------------------------------------
+# 修订合同 L1596-1601 评分器修正
+# ---------------------------------------------------------------------------
+
+class TestScorerContract:
+    """@brief 修订合同的评分器口径：门槛、配额、降权与标度。"""
+
+    FULL_ATTENTION = {**CONTRACT_PROFILE["attention_prior"]}
+
+    def test_meal_floor_and_top_three(self, transforms):
+        # 热量 >=300 的食品进入候选并按缺口接近度取前三；<300 的零食出局。
+        foods = (_food("food-big", kcal=800, price=700),
+                 _food("food-mid", kcal=600, price=500),
+                 _food("food-ok", kcal=400, price=300),
+                 _food("food-snack", kcal=120, price=100),
+                 _food("food-tiny", kcal=90, price=80))
+        context = _context(agent=_agent(energy=1000.0, location="market"),
+                           products=foods,
+                           merchant_stock={item.product_id: 5 for item in foods},
+                           locations={"market": _location()})
+        menu = [item.summary for item in _eat_candidates(context)]
+        # 缺口 = 2400-1000 = 1400：|800-gap| < |600-gap| < |400-gap| 定前三名。
+        assert menu == ["Buy and eat food-big", "Buy and eat food-mid",
+                        "Buy and eat food-ok"]
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
+        eats = [item for item in scored if item.candidate.family == "eat"]
+        assert {item.candidate.summary for item in eats} == set(menu)
+        assert not any("food-snack" in summary or "food-tiny" in summary
+                       for summary in menu)
+
+    def test_sub_floor_foods_fall_back_to_closest_meal(self, transforms):
+        # 全部低于 300 kcal 时按"最接近缺口的正餐类食品"兜底取一条。
+        foods = (_food("food-a", kcal=120, price=100), _food("food-b", kcal=200, price=150))
+        context = _context(agent=_agent(energy=2100.0, location="market"),
+                           products=foods,
+                           merchant_stock={item.product_id: 5 for item in foods},
+                           locations={"market": _location()})
+        # 缺口 = 300：200 比 120 更接近缺口（兜底只取一条）。
+        assert [item.summary for item in _eat_candidates(context)] == ["Buy and eat food-b"]
+
+    def test_same_entertainment_family_capped_at_two(self, transforms):
+        # 同一娱乐家族（内容品类）至多两条候选（L1599）。
+        contents = tuple(_content(f"movie-{index:04d}", "feature_film", 3600, 0.2)
+                         for index in range(1, 6))
+        context = _context(contents=contents,
+                           taste_weights={item.item_id: 0.8 for item in contents})
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
+        entertainment = [item for item in scored
+                         if item.candidate.family == "entertainment"]
+        assert 0 < len(entertainment) <= ENTERTAINMENT_FAMILY_CAP == 2
+
+    def test_need_below_floor_suppresses_entertainment(self, transforms):
+        # 娱乐需要低于 0.3 时不生成娱乐候选；恰在 0.3 时恢复生成（L1599）。
+        contents = (_content(),)
+        taste = {"movie-0001": 0.8}
+        low = _context(agent=_agent(need=0.29), contents=contents, taste_weights=taste)
+        high = _context(agent=_agent(need=0.30), contents=contents, taste_weights=taste)
+        low_scored = evaluate_motivation(low, _profile(), transforms, top_k=20)
+        high_scored = evaluate_motivation(high, _profile(), transforms, top_k=20)
+        assert all(item.candidate.family != "entertainment" for item in low_scored)
+        assert any(item.candidate.family == "entertainment" for item in high_scored)
+
+    def test_lifestyle_enabled_set_scopes_sampling(self, transforms):
+        # 生活活动只从人物启用集采样：启用集外的目录内条目不进候选（L1600）。
+        met = {"lifestyle:jogging": 7.0, "lifestyle:archery": 4.3, "lifestyle:yoga": 3.0}
+        body = _body().model_copy(update={"activity_met": dict(_body().activity_met, **met)})
+        context = _context(body=body, lifestyle_enabled=("yoga",))
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=30)
+        summaries = [item.candidate.summary for item in scored
+                     if item.candidate.family == "lifestyle"]
+        assert len(summaries) == 1
+        assert "lifestyle:yoga" in summaries[0]
+        assert not any("lifestyle:jogging" in summary or "lifestyle:archery" in summary
+                       for summary in summaries)
+
+    def test_repeated_food_downweighted_by_sensory_satiety(self, transforms):
+        # Rolls 1981 感官特异性饱足：吃过 2 次的商品按 1/3 降权，排在等距新鲜食物后。
+        assert meal_repeat_weight(0) == pytest.approx(1.0)
+        assert meal_repeat_weight(2) == pytest.approx(1.0 / 3.0)
+        foods = (_food("food-fresh", kcal=600, price=500),
+                 _food("food-old", kcal=600, price=500))
+        context = _context(agent=_agent(energy=1000.0, location="market"),
+                           products=foods,
+                           merchant_stock={item.product_id: 5 for item in foods},
+                           locations={"market": _location()},
+                           recent_meal_counts={"food-old": 2})
+        assert [item.summary for item in _eat_candidates(context)] == [
+            "Buy and eat food-fresh", "Buy and eat food-old"]
+
+    def test_zero_taste_weights_do_not_lift_entertainment(self, transforms):
+        # taste_weights 全 0（未接线或无口味）：不做 0.5 缺省抬升，娱乐候选为空。
+        context = _context(contents=(_content(), _content("news-1", "news_feed", 600, 0.1)))
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
+        assert all(item.candidate.family != "entertainment" for item in scored)
+
+    def test_sleep_candidate_clears_deficit_at_one_hour_per_hour(self, transforms):
+        # 新标度：睡眠每小时恢复 1h 不足账——4h 账给出 4.0h 睡眠候选并清零。
+        context = _context(agent=_agent(sleep_debt=4.0))
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=10)
+        sleeper = next(item for item in scored if item.candidate.family == "sleep")
+        assert sleeper.candidate.duration_seconds == 4 * 3600
+        assert sleeper.candidate.sleep_deficit_delta == pytest.approx(-4.0)
+        assert "clears sleep deficit 4.0h -> 0.0h" in sleeper.candidate.reason
+
+    def test_awake_deficit_delta_uses_need_ratio_scale(self):
+        # 新累积标度 need/(24-need)（7.5h -> 约 0.4545 h/h），与结算同式。
+        body = _agent().body
+        assert _awake_deficit_delta(body, 2.0) == pytest.approx(7.5 / 16.5 * 2.0)
 
 
 class TestBrowseCandidate:
@@ -834,8 +994,8 @@ class TestEngineInjection:
         engine = _profiled_engine(engine_factory)
         first = round_context(engine, "r-hints", agent_id=1)
         data = engine.observe(first)
-        assert "motivation_hints" in data
-        hints = data["motivation_hints"]
+        assert "motivation_internal" in data
+        hints = data["motivation_internal"]
         assert hints["schema_version"] == 1
         assert 0 < len(hints["candidates"]) <= 5
         for candidate in hints["candidates"]:
@@ -850,7 +1010,7 @@ class TestEngineInjection:
         """@brief rank 1 的 softmax 概率不低于后续候选（相对排序自洽）。"""
         engine = _profiled_engine(engine_factory)
         data = engine.observe(round_context(engine, "r-rank", agent_id=1))
-        candidates = data["motivation_hints"]["candidates"]
+        candidates = data["motivation_internal"]["candidates"]
         probabilities = [candidate["softmax_probability"] for candidate in candidates]
         assert probabilities == sorted(probabilities, reverse=True)
 
@@ -880,7 +1040,7 @@ class TestEngineInjection:
                        for item in engine.scenario.agents)
         engine.scenario = engine.scenario.model_copy(update={"agents": agents}, deep=True)
         data = engine.observe(round_context(engine, "r-plain", agent_id=1))
-        assert "motivation_hints" not in data
+        assert "motivation_internal" not in data
 
     def test_hints_do_not_enter_settlement(self, engine_factory):
         """@brief 有无提示的两个同源运行走同一决策轮，结果与终态逐字节一致。"""
@@ -914,15 +1074,15 @@ class TestEngineInjection:
         def explode(context, profile, transforms, top_k=5):
             raise RuntimeError("boom")
 
-        monkeypatch.setattr("worldmock.life.engine.evaluate_motivation", explode)
+        monkeypatch.setattr("worldmock.life.observe.evaluate_motivation", explode)
         data = engine.observe(round_context(engine, "r-boom", agent_id=1))
-        assert "motivation_hints" not in data
+        assert "motivation_internal" not in data
 
     def test_missing_transforms_disable_hints(self, engine_factory):
         engine = _profiled_engine(engine_factory)
         engine.semantics = replace(engine.semantics, motivation_transforms=None)
         data = engine.observe(round_context(engine, "r-off", agent_id=1))
-        assert "motivation_hints" not in data
+        assert "motivation_internal" not in data
 
 
 class TestMarketSummary:
@@ -931,7 +1091,7 @@ class TestMarketSummary:
     def test_summary_common_knowledge_without_browse(self, engine_factory):
         engine = engine_factory()
         data = engine.observe(round_context(engine, "r-mkt", agent_id=1))
-        assert data["products"] == []  # 商品明细仍由 browse 门控
+        assert data["facts"]["products"] == []  # 商品明细仍由 browse 门控（facts 投影）
         summary = data["market_summary"]
         prices = sorted(item.price_fen for item in engine.rules.products.values())
         assert summary == {"open": False,  # 场景 00:00 起，市场 7-23 营业

@@ -1,11 +1,15 @@
-"""@brief 按实际活动区间经资源分录结算能量、睡眠不足和娱乐需要。
+"""@brief 按实际活动区间结算能量、两过程睡眠、睡眠不足账与娱乐需要。
 
-身体三参数即三个 open level 资源（设计文档 §3.2）：所有数值变动构造
-FlowEntry 经 ResourceLedger.apply 纯函数结算（§9 结算通道统一），分录
-方向按资源余额语义取 source（流入）/drain（流出）。外部行为与直接赋值
-实现逐位等价：非钳制路径的分录金额就是原算式操作数（同一浮点运算），
-触界路径按"先算后钳"落地——分录金额先钳到可用余量，期末再钉到现行
-clamp 语义的边界值（进食截断到最大能量、睡眠债/娱乐下限 0、娱乐上限 1）。
+身体语义按《人物真实性修订合同》（docs/agentsociety2-design.md L1479-1527）
+重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
+纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
+曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
+能量与娱乐需要沿用 ResourceLedger 分录通道（§9）；社交需要账本（felt.apply_
+social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
+valence）由引擎在结算边界调用本模块的包装函数驱动。
+
+body_observation 返回分级与数值两组：数值只进事件供评估与导出，分级才进
+提示（规格 L1527）。
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from worldmock.catalog.affordances import default_affordances
+from worldmock.life import felt, sleep
 from worldmock.life.models import ActivityKind, BodyState, CurvePoint
 from worldmock.life.scenario import BodyConfig
 from worldmock.resources import FlowEntry, ResourceLedger, ResourceMeta
@@ -30,12 +35,17 @@ from worldmock.resources.models import (
 ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
     ActivityKind(name) for name in default_affordances().energy_recovery_kinds)
 
-#: 身体域三个 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
+#: 身体域 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
+#: 修订合同删除 sleep_debt_hours 资源：睡眠侧分录改为 sleep_deficit_hours。
 ENERGY_RESOURCE = "energy_kcal"
-SLEEP_DEBT_RESOURCE = "sleep_debt_hours"
+SLEEP_DEFICIT_RESOURCE = "sleep_deficit_hours"
 ENTERTAINMENT_RESOURCE = "entertainment_need"
+#: 目录侧（catalog/objects.jsonl，冻结数据不可改）效率因子仍以资源标识
+#: "sleep_debt_hours" 声明睡眠轴输入；这是目录数据身份而非状态字段别名——
+#: 求值侧把该目录标识映射到后继状态字段 sleep_deficit_hours（节点值一致）。
+CATALOG_SLEEP_RESOURCE = "sleep_debt_hours"
 #: 结算函数不携带人物身份与墙钟：分录以固定 owner 与占位时间戳落地，
-#: wave 2 引擎接线时以真实 agent 与 occurred_at 重盖（resource_flows 字典不含时间戳）。
+#: 引擎接线时以真实 agent 与 occurred_at 重盖（resource_flows 字典不含时间戳）。
 BODY_FLOW_OWNER = "body"
 BODY_FLOW_OCCURRED_AT = 0
 
@@ -44,11 +54,7 @@ _flow_buffer: list[FlowEntry] = []
 
 
 def last_flows() -> tuple[FlowEntry, ...]:
-    """@brief 取回并清空自上次调用以来结算产生的分录序列。
-
-    结算函数把本区间分录追加进证据流；引擎接线（wave 2）在每次结算后
-    调用本函数取走增量，写入足迹事件的 resource_flows 字段。
-    """
+    """@brief 取回并清空自上次调用以来结算产生的分录序列。"""
     pending = tuple(_flow_buffer)
     _flow_buffer.clear()
     return pending
@@ -59,23 +65,24 @@ def body_resource_metas(config: BodyConfig) -> tuple[ResourceMeta, ...]:
     return (
         ResourceMeta(ENERGY_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
                      config.maximum_energy_kcal),
-        ResourceMeta(SLEEP_DEBT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, None),
+        ResourceMeta(SLEEP_DEFICIT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0,
+                     sleep.SLEEP_DEFICIT_MAX_H),
         ResourceMeta(ENTERTAINMENT_RESOURCE, LEVEL_KIND, OPEN_CONSERVATION, 0, 1),
     )
 
 
 def _settle_via_ledger(config: BodyConfig, before: BodyState,
                        entries: list[FlowEntry]) -> tuple[float, float, float]:
-    """@brief 经 ResourceLedger 纯函数结算分录，返回能量、睡眠债、娱乐期末余额。"""
+    """@brief 经 ResourceLedger 纯函数结算分录，返回能量、不足账、娱乐期末余额。"""
     ledger = ResourceLedger(body_resource_metas(config))
     balances = {
         (ENERGY_RESOURCE, BODY_FLOW_OWNER): before.energy_kcal,
-        (SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER): before.sleep_debt_hours,
+        (SLEEP_DEFICIT_RESOURCE, BODY_FLOW_OWNER): before.sleep_deficit_hours,
         (ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER): before.entertainment_need,
     }
     final = ledger.apply(entries, balances)
     return (final[(ENERGY_RESOURCE, BODY_FLOW_OWNER)],
-            final[(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER)],
+            final[(SLEEP_DEFICIT_RESOURCE, BODY_FLOW_OWNER)],
             final[(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER)])
 
 
@@ -120,7 +127,13 @@ def interpolate(points: tuple[CurvePoint, ...], value: float) -> float:
 
 def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyConfig,
                 factors: ActivityFactors | None = None) -> BodySettlement:
-    """@brief 结算连续活动，不允许活动把能量静默降到零以下。"""
+    """@brief 结算连续活动：能量分录 + 两过程睡眠演化 + 不足账 + 娱乐分录。
+
+    sleep_pressure 与 sleep_deficit_hours 按 life.sleep 的纯函数直接演化
+    （不进 ResourceLedger——两者不是 open level 资源，钳制语义由纯函数承载）；
+    能量与娱乐需要维持分录证据流。社交需要与情绪由引擎侧 apply_social_ledger
+    与 apply_mood_* 在同一结算边界另行推进。
+    """
     if seconds < 0:
         raise ValueError("settlement duration cannot be negative")
     hours = seconds / 3600
@@ -137,23 +150,33 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
         kind, body.entertainment_need, hours, config, relief)
     entries = [entry for entry in (
         _energy_cost_entry(kind, min(cost, body.energy_kcal)),
-        _sleep_debt_entry(kind, body.sleep_debt_hours, hours, config),
         *entertainment_entries,
     ) if entry is not None]
-    energy, debt, entertainment = _settle_via_ledger(config, body, entries)
+    energy, deficit, entertainment = _settle_via_ledger(config, body, entries)
     if entertainment_capped:
         entertainment = 1.0
-    after = BodyState(energy_kcal=energy, sleep_debt_hours=debt, entertainment_need=entertainment)
+    if kind == ActivityKind.SLEEP:
+        pressure = sleep.pressure_after_sleep(body.sleep_pressure, hours)
+        deficit = sleep.deficit_after_sleep(deficit, hours)
+    else:
+        pressure = sleep.pressure_after_awake(body.sleep_pressure, hours)
+        deficit = sleep.deficit_after_awake(deficit, hours, body.sleep_need_hours)
+    after = BodyState(energy_kcal=energy, sleep_pressure=pressure,
+                      sleep_deficit_hours=deficit, sleep_need_hours=body.sleep_need_hours,
+                      chronotype_midsleep=body.chronotype_midsleep,
+                      social_need=body.social_need, mood_valence=body.mood_valence,
+                      neuroticism_norm=body.neuroticism_norm,
+                      entertainment_need=entertainment)
     _flow_buffer.extend(entries)
     return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None,
                           _work_efficiency(body, after, kind, config, factors))
 
 
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
-    """@brief 使用进食开始时睡眠不足计算食品利用效率。"""
+    """@brief 以进食开始时睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
     if calories < 0:
         raise ValueError("food calories cannot be negative")
-    efficiency = interpolate(config.food_efficiency_curve, body.sleep_debt_hours)
+    efficiency = sleep.food_utilization_efficiency(body.sleep_deficit_hours)
     gained = calories * efficiency
     projected = body.energy_kcal + gained
     capped = projected > config.maximum_energy_kcal
@@ -162,7 +185,7 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
     if amount > 0:
         entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
                                  "food:intake", BODY_FLOW_OCCURRED_AT))
-    energy, _debt, _entertainment = _settle_via_ledger(config, body, entries)
+    energy, _deficit, _entertainment = _settle_via_ledger(config, body, entries)
     if capped:
         energy = config.maximum_energy_kcal
     after = body.model_copy(update={"energy_kcal": energy}, deep=True)
@@ -203,30 +226,155 @@ def maximum_energy_duration_seconds(
     return low
 
 
-def body_observation(body: BodyState, config: BodyConfig) -> dict:
-    """@brief 生成不替人物做决定的身体提示。"""
+def felt_values(body: BodyState, hour_of_day: float,
+                meal_windows: felt.MealWindows | None = None) -> dict[str, float]:
+    """@brief 计算五个体感信号数值（appetite 含昼夜与餐时项，规格 L1505-1514）。"""
+    appetite = felt.compute_appetite(body.energy_kcal, hour_of_day, meal_windows)
+    sleepiness = sleep.sleepiness(body.sleep_pressure, hour_of_day,
+                                   body.chronotype_midsleep)
+    return {"appetite": appetite, "sleepiness": sleepiness,
+            "entertainment_need": body.entertainment_need, "social_need": body.social_need,
+            "mood_valence": body.mood_valence}
+
+
+def felt_levels(body: BodyState, hour_of_day: float,
+                meal_windows: felt.MealWindows | None = None) -> dict[str, str]:
+    """@brief 计算五个体感分级文本（滞回判定与提示渲染的输入，规格 L1509-1520）。"""
+    values = felt_values(body, hour_of_day, meal_windows)
+    return felt.summarize_felt_levels(**values)
+
+
+def body_observation(body: BodyState, config: BodyConfig, hour_of_day: float = 12.0,
+                     meal_windows: felt.MealWindows | None = None) -> dict:
+    """@brief 生成不替人物做决定的身体投影：分级与数值两组（规格 L1527）。
+
+    数值（values）只进观察事件供评估与导出；分级（levels）才进提示。
+    hour_of_day 缺省正午仅供结构稳定调用方（引擎始终传场景本地时刻）。
+    """
     if body.energy_kcal < config.emergency_threshold_kcal:
         alert = "emergency_energy"
     elif body.energy_kcal < config.hunger_threshold_kcal:
         alert = "hungry"
     else:
         alert = None
-    return {"energy_kcal": body.energy_kcal, "sleep_debt_hours": body.sleep_debt_hours,
-            "entertainment_need": body.entertainment_need, "alert": alert}
+    return {"levels": felt_levels(body, hour_of_day, meal_windows),
+            "values": {"energy_kcal": body.energy_kcal,
+                       "sleep_pressure": body.sleep_pressure,
+                       "sleepiness": sleep.sleepiness(body.sleep_pressure, hour_of_day,
+                                                      body.chronotype_midsleep),
+                       "sleep_deficit_hours": body.sleep_deficit_hours,
+                       "entertainment_need": body.entertainment_need,
+                       "social_need": body.social_need,
+                       "mood_valence": body.mood_valence},
+            "alert": alert}
+
+
+def apply_social_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyState:
+    """@brief 按 felt 账本速率推进社交需要（规格 L1513-1515），返回新身体状态。"""
+    need = felt.apply_social_need_ledger(body.social_need, exposure)
+    return body.model_copy(update={"social_need": need}, deep=True)
+
+
+def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
+    """@brief 按事件脉冲表叠加一次情绪脉冲（规格 L1517-1519）。"""
+    amplitude = felt.MOOD_PULSES[pulse_key]
+    valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
+    return body.model_copy(update={"mood_valence": valence}, deep=True)
+
+
+def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyState:
+    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，规格 L1518）。"""
+    amplitude = felt.discomfort_pulse(continuous_hours)
+    if amplitude == 0:
+        return body
+    valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
+    return body.model_copy(update={"mood_valence": valence}, deep=True)
+
+
+def decay_mood(body: BodyState, elapsed_minutes: float) -> BodyState:
+    """@brief 按半衰期衰减情绪（规格 L1519），返回新身体状态。"""
+    valence = felt.decay_mood_valence(body.mood_valence, elapsed_minutes,
+                                      body.neuroticism_norm)
+    return body.model_copy(update={"mood_valence": valence}, deep=True)
+
+
+def initial_body(config: BodyConfig, hour_of_day: float,
+                 sleep_need_hours: float = sleep.DEFAULT_SLEEP_NEED_H,
+                 chronotype_midsleep: float = sleep.DEFAULT_CHRONOTYPE_MIDSLEEP_H,
+                 neuroticism_norm: float = 0.0) -> BodyState:
+    """@brief 构造场景起点身体：初始睡眠不足账与反推的初始 sleep_pressure。
+
+    初始 sleep_pressure 由场景起点时刻按已睡时长反推（规格 L1498）：experiment_
+    assumption——缺省假设人物起点前刚睡满一个睡眠需要量（已睡 = sleep_need_hours，
+    即正常睡醒），起点落在夜间时该假设同样确定性适用。
+    """
+    pressure = sleep.initial_sleep_pressure(hour_of_day, sleep_need_hours,
+                                            chronotype_midsleep)
+    return BodyState(energy_kcal=config.initial_energy_kcal, sleep_pressure=pressure,
+                     sleep_deficit_hours=config.initial_sleep_debt_hours,
+                     sleep_need_hours=sleep_need_hours,
+                     chronotype_midsleep=chronotype_midsleep,
+                     social_need=0.0, mood_valence=0.0,
+                     neuroticism_norm=neuroticism_norm, entertainment_need=0.0)
 
 
 def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: BodyConfig,
-                               factors: ActivityFactors | None = None) -> int | None:
-    """@brief 预测能量阈值或当前活动效率曲线的首个未来整秒边界。"""
+                               factors: ActivityFactors | None = None,
+                               hour_of_day: float | None = None) -> int | None:
+    """@brief 预测能量阈值、体感分级或效率曲线的首个未来整秒边界。
+
+    体感分级跨越候选覆盖困意（以当前时刻的昼夜阈值近似解 S(t') 跨越下一档，
+    experiment_assumption 的确定性近似）与娱乐/社交分级边界；效率曲线沿用
+    sleep_deficit_hours 轴上的节点。hour_of_day 为 None 时跳过昼夜相关候选。
+    """
     actual = factors or ActivityFactors(config.activity_met[kind.value])
     burn = config.basal_kcal_per_hour + max(actual.met - 1, 0) * config.mass_kg
     net_burn = burn - actual.food_energy_kcal_per_hour
     candidates = _energy_boundaries(body.energy_kcal, net_burn, config)
-    curve = _active_efficiency_curve(kind, config)
-    debt_rate = (-config.sleep_recovery_per_hour if kind == ActivityKind.SLEEP
-                 else config.awake_sleep_debt_per_hour)
-    candidates.extend(_curve_boundaries(body.sleep_debt_hours, debt_rate, curve))
+    deficit_rate = (-1.0 if kind == ActivityKind.SLEEP
+                    else body.sleep_need_hours / (24.0 - body.sleep_need_hours))
+    candidates.extend(_curve_boundaries(body.sleep_deficit_hours, deficit_rate,
+                                         _deficit_curve_points(kind)))
+    candidates.extend(_felt_band_boundaries(body, kind, hour_of_day, config))
     return min(candidates) if candidates else None
+
+
+def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
+    """@brief 返回当前活动用于边界预测的效率曲线节点（输入 sleep_deficit_hours）。"""
+    if kind == ActivityKind.WORK:
+        return tuple(CurvePoint(input_value=p.input_hours, output_value=p.output_factor)
+                     for p in sleep.WORK_EFFICIENCY_CURVE)
+    if kind == ActivityKind.CONSUME:
+        return tuple(CurvePoint(input_value=p.input_hours, output_value=p.output_factor)
+                     for p in sleep.FOOD_UTILIZATION_CURVE)
+    return ()
+
+
+def _felt_band_boundaries(body: BodyState, kind: ActivityKind,
+                          hour_of_day: float | None, config: BodyConfig) -> list[int]:
+    """@brief 体感分级预计跨越时刻：困意/娱乐/社交（awake 活动才有意义）。"""
+    if kind == ActivityKind.SLEEP or hour_of_day is None:
+        return []
+    candidates: list[int] = []
+    low = sleep.wake_threshold(hour_of_day, body.chronotype_midsleep)
+    span = sleep.sleep_onset_threshold(hour_of_day, body.chronotype_midsleep) - low
+    for edge in (sleep.GRADE_TIRED_MIN, sleep.GRADE_SLEEPY_MIN,
+                 sleep.GRADE_VERY_SLEEPY_MIN, sleep.GRADE_CANNOT_STAY_AWAKE_MIN):
+        pressure = min(max(edge, 0.0), sleep.SLEEPINESS_CLIP_MAX) * span + low
+        hours = -math.log(1.0 - pressure) * sleep.AWAKE_TIME_CONSTANT_H \
+            if 0.0 <= pressure < 1.0 else None
+        if hours is not None and hours > 0:
+            candidates.append(max(1, math.ceil(hours * 3600)))
+    rates = ((body.entertainment_need, felt.ENTERTAINMENT_BANDS,
+              config.entertainment_need_per_awake_hour),
+             (body.social_need, felt.SOCIAL_BANDS, felt.SOCIAL_NEED_AWAKE_RATE))
+    for value, bands, rate in rates:
+        if rate <= 0:
+            continue
+        for bound, _level in bands:
+            if bound > value:
+                candidates.append(max(1, math.ceil((bound - value) / rate * 3600)))
+    return candidates
 
 
 def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) -> list[int]:
@@ -236,19 +384,6 @@ def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) 
     thresholds = (config.hunger_threshold_kcal, config.emergency_threshold_kcal)
     return [math.floor((energy - threshold) * 3600 / burn_per_hour) + 1
             for threshold in thresholds if energy >= threshold]
-
-
-def _active_efficiency_curve(kind: ActivityKind, config: BodyConfig) -> tuple[CurvePoint, ...]:
-    """@brief 返回当前活动用于边界预测的身体效率曲线（work 取睡眠债因子）。
-
-    因子求值本身按区间梯形平均，与边界切分无关；能量因子的 400/800 节点
-    与 hungry/emergency 阈值同值，已由能量阈值边界覆盖，此处无需重复预测。
-    """
-    if kind == ActivityKind.WORK:
-        return _factor_curve(config, SLEEP_DEBT_RESOURCE)
-    if kind == ActivityKind.CONSUME:
-        return config.food_efficiency_curve
-    return ()
 
 
 def _curve_boundaries(value: float, rate_per_hour: float,
@@ -268,22 +403,6 @@ def _energy_cost_entry(kind: ActivityKind, amount: float) -> FlowEntry | None:
     if amount > 0:
         return FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
                          f"settle:{kind.value}:energy_cost", BODY_FLOW_OCCURRED_AT)
-    return None
-
-
-def _sleep_debt_entry(kind: ActivityKind, debt: float, hours: float,
-                      config: BodyConfig) -> FlowEntry | None:
-    """@brief 清醒累积睡眠债计 source，睡眠恢复降低睡眠债计 drain。"""
-    if kind == ActivityKind.SLEEP:
-        amount = min(config.sleep_recovery_per_hour * hours, debt)
-        if amount > 0:
-            return FlowEntry(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION, amount,
-                             "settle:sleep:recovery", BODY_FLOW_OCCURRED_AT)
-    else:
-        amount = config.awake_sleep_debt_per_hour * hours
-        if amount > 0:
-            return FlowEntry(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION, amount,
-                             f"settle:{kind.value}:awake_sleep_debt", BODY_FLOW_OCCURRED_AT)
     return None
 
 
@@ -326,9 +445,7 @@ def _wait_entertainment_entries(need: float, hours: float,
 
     被动缓解是 wait 的活动类内在语义（等待时刷的是随手内容，无目标、不
     gating 于内容偏好），费率直接读目录 entertainment_relief_per_hour 的
-    wait 键（被动刷手机 ≈ 主动观看的 15%，远低于主动但仍不为零）。净效果
-    是缓慢正累积：等依然有点无聊，只是没那么无聊，主动娱乐的边际收益随
-    被动缓解自然下降。累积触顶后被动 drain 依旧生效，期末不再钉 1。
+    wait 键。净效果是缓慢正累积。
 
     :returns: (分录列表, 累积是否在无被动抵消下触及上限需要钳制)。
     """
@@ -358,9 +475,9 @@ def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,
                      config: BodyConfig, factors: ActivityFactors | None) -> float:
     """@brief 按目录因子列表通用合成工作效率：各因子在输入资源区间上取值连乘。
 
-    引擎不感知任何具体因子（因果耦合以目录数据表达）。work 区间对各因子
-    的输入资源区间做分段线性梯形平均（与迁移前的睡眠债分段处理同款，
-    方向无关）；区间退化或非 work 观察值取区间起点插值快照。最后乘入
+    sleep_deficit_hours 轴上的因子由 sleep.work_efficiency 曲线求值（修订合同
+    L1502：效率曲线输入改为不足账，节点值不变）；其余输入资源沿用目录声明。
+    区间取值按梯形平均（方向无关）；非 work 观察值取区间起点插值快照。最后乘入
     冻结人物技能与实际工具因子（沿用既有行为）。
     """
     if kind != ActivityKind.WORK:
@@ -381,18 +498,10 @@ def _factor_snapshot(config: BodyConfig, body: BodyState) -> float:
     return product
 
 
-def _factor_curve(config: BodyConfig, resource: str) -> tuple[CurvePoint, ...]:
-    """@brief 取声明在指定输入资源上的效率因子曲线（未声明则空曲线）。"""
-    for factor in config.work_efficiency_factors:
-        if factor.input_resource == resource:
-            return factor.curve
-    return ()
-
-
 def _resource_value(body: BodyState, resource: str) -> float:
     """@brief 读取身体资源余额；因子引用未知资源名属目录错误，fail-closed。"""
-    if resource == SLEEP_DEBT_RESOURCE:
-        return body.sleep_debt_hours
+    if resource in (SLEEP_DEFICIT_RESOURCE, CATALOG_SLEEP_RESOURCE):
+        return body.sleep_deficit_hours
     if resource == ENERGY_RESOURCE:
         return body.energy_kcal
     if resource == ENTERTAINMENT_RESOURCE:
@@ -401,11 +510,7 @@ def _resource_value(body: BodyState, resource: str) -> float:
 
 
 def _curve_average(points: tuple[CurvePoint, ...], start: float, end: float) -> float:
-    """@brief 对区间起止输入值在分段线性曲线上做梯形面积平均（方向无关）。
-
-    区间退化时取起点插值；否则对起止值构成的输入带按曲线节点切分，逐段
-    梯形积分后按带宽平均——跨节点区间的效率由带内线性插值精确积分。
-    """
+    """@brief 对区间起止输入值在分段线性曲线上做梯形面积平均（方向无关）。"""
     low, high = (start, end) if start <= end else (end, start)
     if high <= low:
         return interpolate(points, start)

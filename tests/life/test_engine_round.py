@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, context, submit_round, travel_quote
+from tests.life.conftest import advance_next, advance_until_ready, context, submit_round, travel_quote
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     StartBasicActivityRequest,
@@ -29,9 +29,12 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     receipt = engine.submit_action(DirectToolCall(ctx, "wait-one", "start_basic_activity", request))
     result = engine.commit_decision_round("one")[0]
-    advance_next(engine)
+    while engine.scheduling_state().next_event_at is not None:
+        if engine.scheduling_state().ready_agent_ids:
+            break
+        advance_next(engine)
     activity = engine.state.activities[result.activity_id]
-    assert observed["world_state_version"] == 0
+    assert "world_state_version" not in observed  # 黑名单字段不再进入观察（L1539）
     assert receipt.status == "submitted" and result.status == "in_progress"
     assert activity.status == "completed" and activity.ended_at == activity.started_at + 60
     progress = [event for event in engine.store.read_events(engine.store.last_event_seq)
@@ -62,14 +65,14 @@ def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) 
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(ctx, "stable-action", "start_basic_activity", request))
     engine.commit_decision_round("first")
-    advance_next(engine)
+    advance_until_ready(engine)  # 计划结束唤醒后重放
     ctx = context(engine, "replay")
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(ctx, "stable-action", "start_basic_activity", request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
     assert list(engine.state.activities) == ["activity-stable-action"]
-    advance_next(engine)
+    advance_until_ready(engine)
     ctx = context(engine, "conflict")
     engine.begin_decision_round([ctx])
     changed = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
@@ -155,12 +158,21 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
     assert observed["activity_summary"]["foods"] == len(engine.scenario.products)
-    assert observed["game_catalog"][0]["game_id"] == "textworld-1201"
-    assert {item["location_id"] for item in observed["locations"]} == {"home", "office", "market"}
-    routes = {(item["destination_id"], item["mode"]) for item in observed["routes"]}
-    assert routes == {("office", "driving"), ("office", "walking"),
-                      ("market", "driving"), ("market", "walking")}
-    assert observed["browse_targets"] == ["product_catalog"]
+    # 修订合同：game_catalog 全表与完整路线不再进入观察（黑名单/坐标几何）；
+    # 游戏身份经 data["games"]（本人会话）与 browse 下钻揭示，地点经 scene 可达集。
+    assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
+    assert "game_catalog" not in observed["scene"]
+    destinations = {item["destination"] for item in observed["facts"]["routes"]}
+    assert destinations == {"office", "market"}
+    # 可达集按冻结路线推导（observe._reachable_places 只列当前地点的路线终点）。
+    # v2 品类补入的 8 个 POI 尚无 OSRM 冻结路由（corpora 只含 home/office/market
+    # 三点路由响应），故只断言路线连通地点全部以展示名暴露。
+    routed = {route.destination_id for route in engine.scenario.routes
+              if route.origin_id == "home"}
+    names = {item.name for item in engine.scenario.locations
+             if item.location_id in routed}
+    reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
+    assert reachable == names  # scene 用展示名（规格 L1536）
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_basic_activity", request))
     engine.commit_decision_round("discover")

@@ -21,9 +21,19 @@ from worldmock.life.models import (
     FrozenModel,
     TravelMode,
 )
+from worldmock.life.social import Contact
+from worldmock.life.sleep import (
+    DEFAULT_CHRONOTYPE_MIDSLEEP_H,
+    DEFAULT_SLEEP_NEED_H,
+    SLEEP_NEED_MAX_H,
+    SLEEP_NEED_MIN_H,
+)
 
 #: 商品使用方式的封闭集合（eat=食品进食，use=耐用品使用）。
 _PRODUCT_USE_MODES = frozenset({"eat", "use"})
+
+#: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90 分钟（修订合同 L1459）。
+RECONSIDERATION_INTERVAL_SECONDS = 5400
 
 
 class BodyConfig(FrozenModel):
@@ -142,14 +152,18 @@ class MotivationProfile(FrozenModel):
 
 
 class AgentConfig(FrozenModel):
-    """@brief 人物的职业、明确实验倾向、初态、技能、内容偏好与动机档案。"""
+    """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
+
+    修订合同（L1661-1663）删除 occupation/routine_preference/consumption_
+    preference/risk_preference 四个模板字段与 entertainment_preferences 的
+    单位区间校验（随机偏好浮点的生产者已随画像编译 v2 删除）；其内容并入
+    画像编译产出的 PersonaCard。人物档案字段（chronotype_midsleep、
+    sleep_need_hours、时间锚点窗口、contacts）为可选声明，缺省走规格默认
+    （04:00、7.5h；experiment_assumption），不是兼容层。
+    """
 
     agent_id: int = Field(gt=0)
     name: str = Field(min_length=1)
-    occupation: str = Field(min_length=1)
-    routine_preference: str = Field(min_length=1)
-    consumption_preference: str = Field(min_length=1)
-    risk_preference: str = Field(min_length=1)
     background_story: str | None = None
     health_habits: str | None = None
     social_style: str | None = None
@@ -157,20 +171,26 @@ class AgentConfig(FrozenModel):
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
     skill_levels: dict[str, float]
-    entertainment_preferences: dict[str, float]
+    entertainment_preferences: dict[str, float] = Field(default_factory=dict)
     motivation: MotivationProfile | None = None
     # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
     # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
     lifestyle_activities: tuple[str, ...] | None = None
+    # 人物档案字段（修订合同 L1494-1501/L1656）：时型与睡眠需要可按人声明。
+    chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
+    sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
+                                    le=SLEEP_NEED_MAX_H)
+    # 时间锚点窗口（自午夜起的小时数，半开区间 [start, end)）：午餐/晚餐窗口
+    # 驱动饥饿体感餐时项（规格 L1508）；None=未声明（无餐时项）。
+    lunch_window: tuple[float, float] | None = None
+    dinner_window: tuple[float, float] | None = None
+    # 场景联系人（修订合同 L1627/L1647）：按人物声明，schema 复用 life.social.Contact。
+    contacts: tuple[Contact, ...] = ()
 
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":
-        """@brief 技能和内容偏好使用非空身份与零到一闭区间。"""
+        """@brief 技能使用非空身份与零到一闭区间；档案窗口与联系人声明合法。"""
         _validate_unit_mapping(self.skill_levels, "skill")
-        _validate_unit_mapping(self.entertainment_preferences, "entertainment preference")
-        traits = (self.occupation, self.routine_preference, self.consumption_preference, self.risk_preference)
-        if any(not value.strip() for value in traits):
-            raise ValueError("persona traits must not be blank")
         if self.background_story is not None and len(self.background_story.strip()) < 100:
             raise ValueError("background_story must contain at least 100 characters")
         if self.lifestyle_activities is not None:
@@ -180,6 +200,17 @@ class AgentConfig(FrozenModel):
                 raise ValueError("lifestyle_activities ids must be unique")
             if any(not item.strip() for item in self.lifestyle_activities):
                 raise ValueError("lifestyle_activities ids must not be blank")
+        for name, window in (("lunch_window", self.lunch_window),
+                             ("dinner_window", self.dinner_window)):
+            if window is not None and not 0 <= window[0] < window[1] <= 24:
+                raise ValueError(f"{name} must satisfy 0 <= start < end <= 24")
+        if self.lunch_window is not None and self.dinner_window is not None:
+            if (self.lunch_window[1] > self.dinner_window[0]
+                    and self.dinner_window[1] > self.lunch_window[0]):
+                raise ValueError("dinner window must not overlap lunch window")
+        ids = [item.contact_id for item in self.contacts]
+        if len(ids) != len(set(ids)):
+            raise ValueError("agent contact ids must be unique")
         return self
 
 
@@ -262,9 +293,14 @@ class ProductConfig(FrozenModel):
 
 
 class WorkTaskConfig(FrozenModel):
-    """@brief 一个可见后才能执行和提交的独立工作合同。"""
+    """@brief 一个可见后才能执行和提交的独立工作合同（按人物分配）。
+
+    assignee_agent_id 必填（修订合同 L1645：合同按人分配），引用场景内已声明
+    人物（"agent:<id>" 或裸数字 id 两种规范写法，与 A10 ScenarioTaskRef 同名同义）。
+    """
 
     task_id: str = Field(min_length=1)
+    assignee_agent_id: str = Field(pattern=r"\S")
     contract_kind: ContractKind
     available_at: datetime
     due_at: datetime
@@ -453,6 +489,9 @@ class LifeScenario(FrozenModel):
     end_at: datetime
     random_seed: int
     activity_feedback_seconds: int = Field(gt=0, le=86_400)
+    # 决策节律（修订合同 L1459/L1470）：距上一次实际决策满该秒数触发重估唤醒。
+    reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
+                                                  gt=0, le=86_400)
     max_consecutive_rejections: int = Field(gt=0)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
@@ -651,18 +690,24 @@ def _check_location_references(agents, routes, product_places, tasks, locations)
 
 
 def _check_catalog_references(agents, tasks, messages, targets) -> None:
-    """@brief 确保任务技能、邮件收件人和娱乐偏好引用场景内实体。"""
+    """@brief 确保任务技能、任务受理人、邮件收件人引用场景内实体。
+
+    entertainment_preferences 的条目引用校验已随随机偏好浮点合同删除
+    （修订合同 L1661）；targets 参数保留供调用方组装内容目录。
+    """
     agents_by_id = {item.agent_id for item in agents}
     task_ids = {item.task_id for item in tasks}
     skills = {key for agent in agents for key in agent.skill_levels}
+    assignees = {f"agent:{item.agent_id}" for item in agents} | {
+        str(item.agent_id) for item in agents}
     if any(task.required_skill not in skills for task in tasks):
         raise ValueError("work task references an unknown skill")
+    if any(task.assignee_agent_id not in assignees for task in tasks):
+        raise ValueError("work task references an unknown assignee agent")
     if any(message.recipient_agent_id not in agents_by_id for message in messages):
         raise ValueError("message references an unknown agent")
     if any(message.related_task_id not in task_ids for message in messages if message.related_task_id):
         raise ValueError("message references an unknown task")
-    if any(key not in targets for agent in agents for key in agent.entertainment_preferences):
-        raise ValueError("entertainment preference references an unknown item")
 
 
 def _check_times(zone, start_at, end_at, tasks, messages) -> None:

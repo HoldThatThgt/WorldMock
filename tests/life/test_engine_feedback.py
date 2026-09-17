@@ -9,7 +9,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, advance_until_ready, context
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
@@ -17,10 +17,21 @@ from worldmock.life.models import (
     ActivityStatus,
     ContinueActivityRequest,
     GameActionRequest,
+    PlanDayRequest,
+    PlanSegmentInput,
     SetActivityStateRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
 )
+
+
+def _plan(engine, offsets: tuple[int, ...], span: int = 100) -> PlanDayRequest:
+    """以受控段起点构造当日计划：段起点即 plan_block_boundary 唤醒时刻。"""
+    base = engine.state.current_time
+    return PlanDayRequest(segments=tuple(
+        PlanSegmentInput(start=base + offset, end=base + offset + span,
+                         intent_kind="休息", note="")
+        for offset in offsets))
 
 
 def _observed_action(engine, round_id: str, tool_name: str, request):
@@ -48,18 +59,24 @@ def _stage_time(engine, epoch: int, pending_events=None) -> None:
 
 
 def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_factory) -> None:
-    """长活动在每个反馈点显式继续，最终结果回链最初动作且区间不重复。"""
+    """长活动在唤醒点显式继续，最终结果回链最初动作且区间不重复。
+
+    修订决策节律：静默反馈边界不再自动提供决策；段起点唤醒（plan_block_
+    boundary）提供继续决策的机会。
+    """
     engine = engine_factory()
     started = engine.state.current_time
+    _observed_action(engine, "plan", "plan_day",
+                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+    advance_next(engine)
+    assert engine.state.current_time == started + 900
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2000)
     _, result = _observed_action(engine, "long-wait", "start_basic_activity", request)
     activity_id = result.activity_id
-    assert engine.state.agents[1].next_decision_at == started + 900
+    assert engine.state.agents[1].next_decision_at == started + 1800
 
     advance_next(engine)
     assert engine.state.activities[activity_id].elapsed_seconds == 900
-    with pytest.raises(ProtocolError, match="decision is due"):
-        advance_next(engine)
     first = ContinueActivityRequest(activity_id=activity_id)
     before = engine.state.current_time
     observation, result = _observed_action(engine, "continue-one", "continue_activity", first)
@@ -67,11 +84,9 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
     assert engine.state.current_time == before
     assert result.status == "completed"
     assert engine.state.agents[1].current_activity_id == activity_id
-    assert engine.state.agents[1].next_decision_at == started + 1800
 
     advance_next(engine)
     _observed_action(engine, "continue-two", "continue_activity", first)
-    assert engine.state.agents[1].next_decision_at == started + 2000
     advance_next(engine)
     activity = engine.state.activities[activity_id]
     assert activity.status == "completed" and activity.elapsed_seconds == 2000
@@ -88,8 +103,11 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
 def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     engine_factory,
 ) -> None:
-    """反馈边界直接提交 watch 切换时旧 wait 自动暂停保留进度，恢复后进度接续。"""
+    """唤醒边界直接提交 watch 切换时旧 wait 自动暂停保留进度，恢复后进度接续。"""
     engine = engine_factory()
+    _observed_action(engine, "plan", "plan_day",
+                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+    advance_next(engine)
     _, started = _observed_action(
         engine, "switch-wait", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
@@ -114,7 +132,7 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     assert watch.kind.value == "watch" and watch.status == ActivityStatus.ACTIVE
 
     while engine.state.activities[watch_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
+        advance_until_ready(engine)
     finished_watch = engine.state.activities[watch_id]
     assert finished_watch.status == ActivityStatus.COMPLETED
     assert finished_watch.elapsed_seconds == 600
@@ -130,7 +148,7 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     assert engine.state.agents[1].current_activity_id == wait_id
 
     while engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
+        advance_until_ready(engine)
         if engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
             _observed_action(
                 engine, f"switch-continue-{engine.state.current_time}",
@@ -159,8 +177,14 @@ def test_game_feedback_boundary_still_rejects_direct_switch(engine_factory) -> N
 
 
 def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_factory) -> None:
-    """暂停不结算未来区间，恢复后继续，取消终结最初动作并保留已完成进度。"""
+    """暂停不结算未来区间，恢复后继续，取消终结最初动作并保留已完成进度。
+
+    修订决策节律：暂停/恢复/取消都发生在唤醒边界（段起点唤醒）。
+    """
     engine = engine_factory()
+    _observed_action(engine, "plan", "plan_day",
+                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+    advance_next(engine)
     _, started = _observed_action(
         engine, "pausable", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
@@ -171,10 +195,10 @@ def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_fact
     assert engine.state.activities[activity_id].status == "paused"
     assert engine.state.activities[activity_id].elapsed_seconds == 900
 
-    advance_next(engine)
+    advance_until_ready(engine)
     resume = SetActivityStateRequest(activity_id=activity_id, operation="resume")
     _observed_action(engine, "resume", "set_activity_state", resume)
-    advance_next(engine)
+    advance_until_ready(engine)
     cancel = SetActivityStateRequest(activity_id=activity_id, operation="cancel")
     _observed_action(engine, "cancel", "set_activity_state", cancel)
     activity = engine.state.activities[activity_id]
@@ -285,25 +309,29 @@ def test_paused_activity_is_truncated_at_end_with_original_action_identity(engin
     """实验终点截断暂停活动，并把终态写回最初动作而非暂停控制动作。"""
     engine = engine_factory()
     end = engine.state.end_time
-    _stage_time(engine, end - 1000, [])
+    _stage_time(engine, end - 2000, [])
+    _observed_action(engine, "end-plan", "plan_day",
+                     _plan(engine, (1000, 1200, 1400, 1450, 1550), span=40))
+    advance_next(engine)
     _, started = _observed_action(
         engine, "end-wait", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=1800))
     activity_id = started.activity_id
-    advance_next(engine)
+    advance_until_ready(engine)
     _observed_action(
         engine, "end-pause", "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="pause"))
-    advance_next(engine)
+    advance_until_ready(engine)
     remaining = end - engine.state.current_time
     _observed_action(
         engine, "end-sleep", "start_basic_activity",
         StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=remaining))
-    advance_next(engine)
+    while engine.scheduling_state().next_event_at is not None:
+        advance_next(engine)  # 睡眠期间的静默 tick 一路推进到实验终点
     activity = engine.state.activities[activity_id]
     assert activity.status == "truncated" and activity.ended_at == end
     assert activity.interruption_reason == "experiment_end"
-    assert activity.elapsed_seconds == 900
+    assert activity.elapsed_seconds == 200
     stored = engine.state.processed_actions["action-end-wait"].result
     assert stored["status"] == "cancelled"
     assert stored["data"]["activity"]["interruption_reason"] == "experiment_end"

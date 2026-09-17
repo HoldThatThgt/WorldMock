@@ -7,8 +7,14 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer, model_validator
 
+from worldmock.life.schedule import DayPlan
+from worldmock.life.social import Message
+
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+
+#: 世界状态结构版本（修订合同 L1418-1420）：旧检查点缺该字段即拒绝加载。
+WORLD_SCHEMA_VERSION = 2
 
 
 class StrictModel(BaseModel):
@@ -94,6 +100,11 @@ class ActivityKind(StrEnum):
     # 生活活动（corpora/lifestyle/）经 lifestyle:<activity_id> 子类型机制提交：
     # kind 统一为 LIFESTYLE，具体条目放在 target_id，MET 按 lifestyle 键查表。
     LIFESTYLE = "lifestyle"
+    # 社交前台活动（修订合同社交最小可行版）：交谈（共同在场）与通话（联系人）。
+    # 这两种 kind 不在可供性注册表内，受理/推进走 life.social_actions 专属通道，
+    # 不经 activities.start_activity 的注册表 MET 查表。
+    CHAT = "chat"
+    CALL = "call"
 
 
 #: start_basic_activity 的 activity_type 文本合同：wait/sleep 或 lifestyle:<id>。
@@ -171,10 +182,25 @@ class EfficiencyFactor(FrozenModel):
 
 
 class BodyState(StrictModel):
-    """@brief 人物的可结算身体资源。"""
+    """@brief 人物的可结算身体资源与体感状态（修订合同身体语义，2026-09-18）。
+
+    两过程睡眠（Daan/Beersma/Borbély 1984）：sleep_pressure 清醒时以 18.2h
+    时间常数趋近 1、睡眠时以 4.2h 衰减，决定人物此刻困不困；sleep_deficit_hours
+    为独立不足账（清醒累积、睡眠恢复，钳制 [0, 24]），驱动效率曲线。旧字段
+    旧睡眠债字段已删除，不保留别名。sleep_need_hours 与 chronotype_midsleep
+    为人物档案常量（默认 7.5h 与 04:00，experiment_assumption），随状态持久化
+    使结算纯函数自包含。mood_valence 只影响体感呈现与记忆重要度加权，不直接
+    改变任何动作可行性（规格 L1521）。
+    """
 
     energy_kcal: float = Field(ge=0)
-    sleep_debt_hours: float = Field(ge=0)
+    sleep_pressure: float = Field(default=0.0, ge=0, le=1.2)
+    sleep_deficit_hours: float = Field(default=0.0, ge=0, le=24)
+    sleep_need_hours: float = Field(default=7.5, ge=7.0, le=9.0)
+    chronotype_midsleep: float = Field(default=4.0, ge=0.0, lt=24.0)
+    social_need: float = Field(default=0.0, ge=0, le=1)
+    mood_valence: float = Field(default=0.0, ge=-1, le=1)
+    neuroticism_norm: float = Field(default=0.0, ge=-1.0, le=1.0)
     entertainment_need: float = Field(ge=0, le=1)
 
 
@@ -222,6 +248,27 @@ class AgentState(StrictModel):
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
     visible_product_ids: set[str] = Field(default_factory=set)
+    # 决策节律簿记（修订合同 L1447-1477）：滞回参照=上次实际提供决策时的分级。
+    last_decision_time: int | None = Field(default=None, ge=0)
+    felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
+    people_at_last_decision: frozenset[str] = frozenset()
+    known_task_ids: set[str] = Field(default_factory=set)
+    pending_wake_reasons: list[str] = Field(default_factory=list)
+    # 日程骨架（L1604-1614）：计划是人物的自我承诺，环境不执行计划步。
+    day_plan: DayPlan | None = None
+    plan_submitted_dates: set[str] = Field(default_factory=set)
+    # 社交最小可行版（L1616-1633）：收件箱与已读消息。
+    inbox: dict[str, Message] = Field(default_factory=dict)
+    read_inbox_ids: set[str] = Field(default_factory=set)
+    # 情绪与不适脉冲簿记（L1517-1519）。
+    mood_updated_at: int | None = Field(default=None, ge=0)
+    discomfort_started_at: int | None = Field(default=None, ge=0)
+    discomfort_pulse_hours: float = Field(default=0.0, ge=0)
+    # 商品可见期（L1545）：浏览时刻与浏览所在商家地点，离开或 1800 秒清空。
+    product_browsed_at: int | None = Field(default=None, ge=0)
+    product_browsed_location: str | None = None
+    # 工作材料增量揭示账（L1546）：自上次决策以来新读到的区间，单次 ≤2000 字符。
+    material_reveals: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_serializer(
         "active_effects",
@@ -229,9 +276,13 @@ class AgentState(StrictModel):
         "visible_message_ids",
         "visible_task_ids",
         "visible_product_ids",
+        "known_task_ids",
+        "plan_submitted_dates",
+        "read_inbox_ids",
+        "people_at_last_decision",
         when_used="json",
     )
-    def serialize_agent_sets(self, value: set[str]) -> list[str]:
+    def serialize_agent_sets(self, value) -> list[str]:
         """@brief 按稳定顺序编码人物集合，使跨进程状态字节一致。"""
         return sorted(value)
 
@@ -340,6 +391,8 @@ class DecisionRoundState(StrictModel):
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
+    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（修订合同 L1418-1420）。
+    schema_version: Literal[WORLD_SCHEMA_VERSION]
     version: int = Field(ge=0)
     current_time: int = Field(ge=0)
     end_time: int = Field(gt=0)
@@ -503,7 +556,7 @@ class ContinueActivityRequest(FrozenModel):
 
 
 class PurchaseRequest(FrozenModel):
-    """@brief 购买一个冻结目录中的商品。"""
+    """@brief 购买一个冻结目录中的商品（域内部单件形状，供 commerce.purchase 消费）。"""
 
     product_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
@@ -512,13 +565,125 @@ class PurchaseRequest(FrozenModel):
     price_version: str = Field(pattern=r"\S")
 
 
-class ConsumeRequest(FrozenModel):
-    """@brief 使用已经交付并持有的商品。"""
+class PurchaseItem(FrozenModel):
+    """@brief 一笔订单中的一件商品与数量（修订合同 L1672：1-5 件）。"""
+
+    product_id: str = Field(pattern=r"\S")
+    quantity: int = Field(gt=0, le=100)
+    price_version: str = Field(pattern=r"\S")
+
+
+class PurchaseOrderRequest(FrozenModel):
+    """@brief 购买 1-5 件同一商家、同一履约方式的商品，一次付款一次配送。
+
+    结算时任一件不可购则整单拒绝，不自动删件（修订合同商务与进食 L1672）。
+    items 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止嵌套引用
+    键，规格 L1307-1309 认可的唯一内联机制）；1-5 件由结算域校验
+    （DeepSeek strict 禁 minItems）。
+    """
+
+    items: Annotated[
+        tuple[PurchaseItem, ...],
+        WithJsonSchema({
+            "type": "array",
+            "items": PurchaseItem.model_json_schema(mode="validation"),
+        }),
+    ]
+    fulfillment: Literal["delivery", "pickup"]
+    destination_id: str = Field(pattern=r"\S")
+
+
+class ConsumeItem(FrozenModel):
+    """@brief 一次进食中的一件已持有食品与数量（修订合同 L1673：1-3 件）。"""
 
     product_id: str = Field(pattern=r"\S")
     quantity: float = Field(gt=0, le=100)
+
+
+class ConsumeRequest(FrozenModel):
+    """@brief 使用已经交付并持有的商品。
+
+    多件（1-3）仅限食品同地点一次进食：用餐时长取最长者、热量与效果累加；
+    非食品使用仍为单件（修订合同 L1673）。单件路径沿用域内时长合同
+    （duration_seconds 必须等于商品目录时长）。items 以 WithJsonSchema
+    内联子模型 Schema（strict 合同禁止嵌套引用键）；1-3 件由结算域校验
+    （DeepSeek strict 禁 minItems）。
+    """
+
+    items: Annotated[
+        tuple[ConsumeItem, ...],
+        WithJsonSchema({
+            "type": "array",
+            "items": ConsumeItem.model_json_schema(mode="validation"),
+        }),
+    ]
     use_mode: Literal["eat", "use"]
     duration_seconds: int = Field(ge=60, le=14_400)
+
+
+class PlanSegmentInput(FrozenModel):
+    """@brief plan_day 提交的单段计划：{start, end, intent_kind, note}。"""
+
+    start: int = Field(gt=0)
+    end: int = Field(gt=0)
+    intent_kind: str = Field(pattern=r"\S")
+    note: str
+
+    @model_validator(mode="after")
+    def validate_span(self) -> "PlanSegmentInput":
+        """@brief 段跨度必须为正。"""
+        if self.start >= self.end:
+            raise ValueError("plan segment start must be earlier than end")
+        return self
+
+
+class PlanDayRequest(FrozenModel):
+    """@brief 提交当日日程骨架：5-8 段，覆盖到当日就寝（修订合同 L1606-1609）。
+
+    计划是人物的自我承诺，以 action_result 登记；环境不执行计划步，到达段
+    起点只构成 plan_block_boundary 唤醒条件。segments 以 WithJsonSchema
+    内联子模型 Schema（strict 合同禁止嵌套引用键）；5-8 段由 DayPlan
+    骨架校验承载。
+    """
+
+    segments: Annotated[
+        tuple[PlanSegmentInput, ...],
+        WithJsonSchema({
+            "type": "array",
+            "items": PlanSegmentInput.model_json_schema(mode="validation"),
+        }),
+    ]
+
+
+class ReviseDayPlanRequest(FrozenModel):
+    """@brief 改写尚未开始的当日计划段（修订合同 L1611）。
+
+    segments 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止
+    嵌套引用键）；上限由 revise_day_plan 骨架校验承载。
+    """
+
+    segments: Annotated[
+        tuple[PlanSegmentInput, ...],
+        WithJsonSchema({
+            "type": "array",
+            "items": PlanSegmentInput.model_json_schema(mode="validation"),
+        }),
+    ]
+
+
+class SendMessageRequest(FrozenModel):
+    """@brief 向同世界人物或场景联系人发送瞬时消息（修订合同 L1624）。"""
+
+    recipient_id: str = Field(pattern=r"\S")
+    text: str
+
+
+class StartSocialActivityRequest(FrozenModel):
+    """@brief 发起交谈（共同在场）或通话（联系人，10-60 分钟，修订合同 L1625-1626）。"""
+
+    kind: Literal["chat", "call"]
+    partner_id: str = Field(pattern=r"\S")
+    duration_minutes: int = Field(gt=0, le=120)
 
 
 class MeetingMinutes(FrozenModel):
@@ -564,8 +729,9 @@ class GameActionRequest(FrozenModel):
 ActionRequest = Annotated[
     StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
     SetActivityStateRequest | ChangePlaybackSpeedRequest | ContinueActivityRequest |
-    PurchaseRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
-    BrowseActivitiesRequest,
+    PurchaseOrderRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
+    BrowseActivitiesRequest | PlanDayRequest | ReviseDayPlanRequest |
+    SendMessageRequest | StartSocialActivityRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -600,11 +766,15 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "set_activity_state": SetActivityStateRequest,
     "change_playback_speed": ChangePlaybackSpeedRequest,
     "continue_activity": ContinueActivityRequest,
-    "purchase": PurchaseRequest,
+    "purchase": PurchaseOrderRequest,
     "consume": ConsumeRequest,
     "submit_work": SubmitWorkRequest,
     "game_action": GameActionRequest,
     "browse_activities": BrowseActivitiesRequest,
+    "plan_day": PlanDayRequest,
+    "revise_day_plan": ReviseDayPlanRequest,
+    "send_message": SendMessageRequest,
+    "start_social_activity": StartSocialActivityRequest,
 }
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import browse_activities, advance_next, context
+from tests.life.conftest import wake_by_mail, browse_activities, advance_next, context
 from worldmock.life.engine import LifeEngine
 from worldmock.life.game import GameOutcomeUnknown
 from worldmock.life.models import (
@@ -50,6 +50,7 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
     _, started = _observed_action(engine, "watch", "start_targeted_activity", request)
     activity_id = started.activity_id
 
+    wake_by_mail(engine)  # 首个 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
     first = _progress_events(engine, "action-watch")[-1]
     revealed = first.data["activity"]["data"]["revealed"]
@@ -61,8 +62,9 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
         engine, "pause-watch", "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="pause"))
     paused_at = engine.state.current_time
+    wake_by_mail(engine, offset=900)
     advance_next(engine)
-    assert engine.state.current_time == paused_at + 1
+    assert engine.state.current_time == paused_at + 900
     _observed_action(
         engine, "resume-watch", "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="resume"))

@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, browse_activities, context
+from tests.life.conftest import wake_by_mail, advance_next, browse_activities, context
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
 from worldmock.life.models import (
@@ -184,13 +184,15 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
          StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
                                       planned_duration_seconds=950, playback_speed=1))
     activity_id = engine.state.agents[1].current_activity_id
+    wake_by_mail(engine)  # 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
     assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
     _act(engine, "pause-scroll", "set_activity_state",
          SetActivityStateRequest(activity_id=activity_id, operation="pause"))
     paused_at = engine.state.current_time
+    wake_by_mail(engine)
     advance_next(engine)
-    assert engine.state.current_time == paused_at + 1
+    assert engine.state.current_time == paused_at + 900
     _act(engine, "resume-scroll", "set_activity_state",
          SetActivityStateRequest(activity_id=activity_id, operation="resume"))
     advance_next(engine)

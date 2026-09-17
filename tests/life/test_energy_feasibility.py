@@ -7,10 +7,11 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context, travel_quote
+from tests.life.conftest import advance_until_ready, advance_next, context, travel_quote
 from worldmock.footprints.models import EventDraft
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.models import (
+    ConsumeItem,
     ActivityKind,
     ConsumeRequest,
     ContinueActivityRequest,
@@ -184,7 +185,7 @@ def test_exact_energy_activity_completes_across_real_feedback(engine_factory, du
     activity_id = result.activity_id
 
     while engine.state.activities[activity_id].status == "active":
-        advance_next(engine)
+        advance_until_ready(engine)  # 重估唤醒点继续；静默边界照常结算
         if engine.state.activities[activity_id].status == "active":
             _observed_action(
                 engine,
@@ -226,14 +227,13 @@ def test_zero_energy_consume_restores_targeted_actions_next_observation(engine_f
     )
     _commit_test_state(engine, state, "test_zero_energy_food")
     request = ConsumeRequest(
-        product_id=product.product_id,
-        quantity=1,
+        items=(ConsumeItem(product_id=product.product_id, quantity=1),),
         use_mode="eat",
         duration_seconds=product.use_duration_seconds,
     )
     before, started = _observed_action(engine, "consume-zero", "consume", request)
     assert started.status == "in_progress"
-    assert before["body"]["energy_kcal"] == 0
+    assert before["body"]["values"]["energy_kcal"] == 0  # 数值组进事件（分级进提示）
     advance_next(engine)
     assert engine.state.agents[1].body.energy_kcal > 0
 
@@ -254,20 +254,20 @@ def test_paused_non_recovery_resume_rejects_but_cancel_succeeds(engine_factory) 
         "start_targeted_activity",
         StartTargetedActivityRequest(
             activity_type="browse",
-            planned_duration_seconds=1800,
+            planned_duration_seconds=7200,
             target_id="product_catalog",
             playback_speed=1,
         ),
     )
     activity_id = started.activity_id
-    advance_next(engine)
+    advance_until_ready(engine)  # 重估唤醒边界暂停（静默边界不再提供决策）
     _observed_action(
         engine,
         "pause-browse",
         "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="pause"),
     )
-    advance_next(engine)
+    advance_until_ready(engine)
     _set_energy(engine, 0)
 
     observation, rejected = _observed_action(
@@ -277,12 +277,12 @@ def test_paused_non_recovery_resume_rejects_but_cancel_succeeds(engine_factory) 
         SetActivityStateRequest(activity_id=activity_id, operation="resume"),
     )
     paused = observation["paused_activities"][0]
-    assert paused["remaining_duration_seconds"] == 900
+    assert paused["remaining_duration_seconds"] == 7200 - 5400
     assert paused["resume_energy_feasible"] is False
     assert rejected.status == "rejected" and rejected.error_code == "INSUFFICIENT_ENERGY"
     assert engine.state.activities[activity_id].status == "paused"
 
-    advance_next(engine)
+    advance_until_ready(engine)
     _, cancelled = _observed_action(
         engine,
         "cancel-browse",
@@ -302,20 +302,20 @@ def test_resume_checks_terminal_status_before_energy(engine_factory) -> None:
         "start_targeted_activity",
         StartTargetedActivityRequest(
             activity_type="browse",
-            planned_duration_seconds=1800,
+            planned_duration_seconds=7200,
             target_id="product_catalog",
             playback_speed=1,
         ),
     )
     activity_id = started.activity_id
-    advance_next(engine)
+    advance_until_ready(engine)
     _observed_action(
         engine,
         "cancel-active-browse",
         "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="cancel"),
     )
-    advance_next(engine)
+    advance_until_ready(engine)
     _set_energy(engine, 0)
 
     _, rejected = _observed_action(
@@ -328,7 +328,7 @@ def test_resume_checks_terminal_status_before_energy(engine_factory) -> None:
     assert rejected.status == "rejected"
     assert rejected.error_code == "ACTIVITY_NOT_PAUSED"
     assert engine.state.activities[activity_id].status == "cancelled"
-    assert engine.state.activities[activity_id].elapsed_seconds == 900
+    assert engine.state.activities[activity_id].elapsed_seconds == 5400
 
 
 def test_paused_recovery_activity_can_resume_at_zero_energy(engine_factory) -> None:
@@ -338,17 +338,17 @@ def test_paused_recovery_activity_can_resume_at_zero_energy(engine_factory) -> N
         engine,
         "start-wait",
         "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=1800),
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=7200),
     )
     activity_id = started.activity_id
-    advance_next(engine)
+    advance_until_ready(engine)
     _observed_action(
         engine,
         "pause-wait",
         "set_activity_state",
         SetActivityStateRequest(activity_id=activity_id, operation="pause"),
     )
-    advance_next(engine)
+    advance_until_ready(engine)
     _set_energy(engine, 0)
     observation, resumed = _observed_action(
         engine,

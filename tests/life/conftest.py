@@ -91,6 +91,47 @@ def advance_next(engine: LifeEngine) -> None:
     engine.advance(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
 
 
+def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:
+    """推进穿过静默结算边界，直到某个人物获得决策机会（修订决策节律）。
+
+    静默边界不调用模型、不产生决策事件；唤醒条件（计划结束、体感分级
+    变化、重估间隔等）命中的边界才使人物就绪。返回是否在限次内就绪。
+    """
+    for _ in range(limit):
+        state = engine.scheduling_state()
+        if state.ready_agent_ids:
+            return True
+        if state.next_event_at is None:
+            return False  # 运行已到终点，不会再有决策机会
+        advance_next(engine)
+    return False
+
+
+def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> int:
+    """在 current+offset 注入一封到达邮件，使该边界成为 message_arrival 唤醒。
+
+    修订决策节律下静默边界不提供决策；用受控的邮件到达把决策机会钉在
+    指定边界，供需要在中途边界控制活动（暂停/继续/切换）的用例使用。
+    """
+    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+
+    staged = engine.state.model_copy(deep=True)
+    at = staged.current_time + offset
+    message_id = engine.scenario.messages[0].message_id
+    sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
+    staged.pending_events.append(ScheduledEvent(
+        scheduled_id=f"test-wake-mail-{sequence}", kind=ScheduledKind.MAIL_ARRIVAL,
+        due_at=at, sequence=sequence, agent_id=agent_id, data={"message_id": message_id}))
+    staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
+    staged.version += 1
+    from worldmock.footprints.models import EventDraft
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_wake_mail_scheduled"})])
+    engine.state = staged
+    return at
+
+
 def browse_activities(engine: LifeEngine, round_id: str, category: str,
                       agent_id: int = 1) -> list[dict]:
     """按真实轮次下钻一个活动品类并返回结算条目（browse 是纯查询动作）。"""

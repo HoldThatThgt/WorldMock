@@ -127,9 +127,23 @@ def _environment_events(engine: LifeEngine, kind: str) -> list:
 
 
 def _bare_world(engine: LifeEngine) -> dict:
-    """剔除时钟与版本后的可比世界快照。"""
-    return engine.state.model_dump(mode="json", exclude={"version", "current_time",
-                                                         "pending_events"})
+    """剔除时钟、版本与决策节律簿记后的可比世界快照。
+
+    修订合同新增的节律/情绪/账本簿记（next_decision_at、mood、discomfort、
+    felt 参照等）在结算边界自然演化，不属于预排事件语义。
+    """
+    payload = engine.state.model_dump(mode="json", exclude={"version", "current_time",
+                                                            "pending_events"})
+    volatile = {"next_decision_at", "pending_wake_reasons", "mood_updated_at",
+                "discomfort_started_at", "discomfort_pulse_hours",
+                "last_decision_time", "felt_bands_at_last_decision",
+                "people_at_last_decision", "known_task_ids"}
+    for agent in payload["agents"].values():
+        for key in volatile:
+            agent.pop(key, None)
+        agent["body"].pop("mood_valence", None)
+        agent["body"].pop("social_need", None)
+    return payload
 
 
 def _midnight_epoch(date_text: str, timezone: str) -> int:
@@ -144,7 +158,14 @@ def _midnight_epoch(date_text: str, timezone: str) -> int:
 
 
 def test_default_scenario_compilation_matches_legacy_algorithm() -> None:
-    """缺省场景（无可选段）编译结果与提取前算法逐条一致。"""
+    """缺省场景（无可选段）编译结果与提取前算法逐条一致。
+
+    v2 正式场景补入发薪/房租预排段（修订合同 L1726）：§7.2 五种新事件不参与
+    与提取前算法（HEAD b5e2d4b）的等价对照，先剔除再比对；邮件/任务/日历旗标
+    行为不变。
+    """
+    optional_kinds = {ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
+                      ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE}
     for name, calendar_flags in (("multi-person.json", 0), ("white-collar-12-weeks.json", 16)):
         semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios" / name)
         scenario = semantics.scenario
@@ -153,8 +174,10 @@ def test_default_scenario_compilation_matches_legacy_algorithm() -> None:
         legacy = _legacy_initial_events(scenario, start, end)
         compiled = compile_schedule(scenario, start, end)
         non_calendar = [item for item in compiled
-                        if item.kind != ScheduledKind.CALENDAR_FLAG]
-        assert len(compiled) - len(non_calendar) == calendar_flags
+                        if item.kind != ScheduledKind.CALENDAR_FLAG
+                        and item.kind not in optional_kinds]
+        assert len(compiled) - len(non_calendar) == calendar_flags + sum(
+            1 for item in compiled if item.kind in optional_kinds)
         assert [item.model_dump(exclude={"sequence"}) for item in non_calendar] == \
             [item.model_dump(exclude={"sequence"}) for item in legacy]
         if calendar_flags == 0:

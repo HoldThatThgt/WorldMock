@@ -30,7 +30,7 @@ from worldmock.life.scenario import load_scenario
 def agent() -> AgentState:
     """建立足够能量的测试人物。"""
     return AgentState(agent_id=1, name="worker", location_id="home", balance_account_id="agent:1",
-                      body=BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0),
+                      body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                       next_decision_at=0)
 
 
@@ -78,7 +78,7 @@ def test_conflict_short_activity_and_exhaustion_are_rejected() -> None:
         start_activity(person, StartActivityRequest(activity_type="sleep", planned_duration_seconds=60),
                        0, origin("y"), config)
     weak = agent().model_copy(update={"body": BodyState(
-        energy_kcal=1, sleep_debt_hours=0, entertainment_need=0)})
+        energy_kcal=1, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)})
     with pytest.raises(BusinessRuleError, match="INSUFFICIENT_ENERGY"):
         start_activity(weak, StartActivityRequest(activity_type="work", planned_duration_seconds=3600,
                                                   target_id="task"), 0, origin("z"), config)

@@ -20,7 +20,7 @@ def _world_state() -> WorldState:
         name="Alice",
         location_id="home",
         balance_account_id="agent:1",
-        body=BodyState(energy_kcal=500, sleep_debt_hours=1, entertainment_need=0.5),
+        body=BodyState(energy_kcal=500, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.5),
         active_effects={"work_notes", "coffee"},
         next_decision_at=1,
         read_message_ids={"mail-z", "mail-a"},
@@ -44,6 +44,7 @@ def _world_state() -> WorldState:
         origin_request_event_id="request-1",
     )
     return WorldState(
+        schema_version=2,
         version=1,
         current_time=1,
         end_time=10,

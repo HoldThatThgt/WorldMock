@@ -60,15 +60,18 @@ def _incoming() -> IncomingMessage:
 
 
 def test_people_here_filters_location_and_exposes_closed_fields() -> None:
-    """同地点者可见、异地者过滤；可见字段闭集不含余额与任务键。"""
+    """同地点者可见、异地者过滤；facts 层含不透明身份，隐私闭集不含身体/余额/任务/记忆。"""
     here = _presence(name="李雷", location="共享办公-茶水间")
     away = _presence(name="韩梅梅", location="家", agent_id="a3")
     views = people_here("共享办公-茶水间", [here, away])
     assert [view.name for view in views] == ["李雷"]
-    assert set(PersonView.model_fields) == {"name", "activity_family", "can_talk"}
+    # 身份锚点闭集（L1005-1007 工具身份枚举）+ 隐私闭集（L1630）。
+    assert set(PersonView.model_fields) == {"person_id", "name", "activity_family", "can_talk"}
     dumped = views[0].model_dump()
-    assert set(dumped) == {"name", "activity_family", "can_talk"}
-    assert "balance" not in dumped and "tasks" not in dumped
+    assert dumped["person_id"] == "a2"
+    assert set(dumped) == {"person_id", "name", "activity_family", "can_talk"}
+    for forbidden in ("balance", "tasks", "energy_kcal", "memory", "sleep_pressure"):
+        assert forbidden not in dumped
 
 
 def test_can_talk_requires_awake_and_not_active_gaming() -> None:
@@ -198,3 +201,65 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
     assert len(reply.message.text) == 200
     with pytest.raises(ValueError, match="200"):
         finalize_model_reply(request, "好" * 201, "r-3", 1600)
+
+
+def _identity_facts() -> dict:
+    """构造携带不透明身份锚点的 facts 投影（people_here + contacts + inbox）。"""
+    return {
+        "people_here": [{"person_id": "agent:2", "name": "李凡",
+                         "activity_family": "idle", "can_talk": True}],
+        "contacts": [{"contact_id": "contact-mother", "salutation": "妈妈",
+                      "relation": "家人"}],
+        "inbox": [{"id": "m-1", "kind": "direct", "sender_id": "agent:3",
+                   "head": "在吗", "read": False, "created_at": 1000}],
+    }
+
+
+def test_message_recipients_come_from_current_observation_identities() -> None:
+    """send_message 收件人闭集 = 在场人物 ∪ 联系人 ∪ 收件箱发送者（L1005-1007）。"""
+    from custom.agents.life_agent import (
+        _visible_message_recipients,
+        _validate_visible_action,
+    )
+    from worldmock.life.models import SendMessageRequest
+
+    recipients = _visible_message_recipients({"facts": _identity_facts()})["recipients"]
+    assert recipients == ("agent:2", "agent:3", "contact-mother")
+    visible = {"send_message": {"recipients": recipients}}
+    ok = SendMessageRequest(recipient_id="contact-mother", text="周末回家吃饭吗")
+    assert _validate_visible_action("send_message", ok, visible) == ""
+    for ghost in ("agent:9", "stranger"):
+        rejected = SendMessageRequest(recipient_id=ghost, text="在吗")
+        assert _validate_visible_action("send_message", rejected, visible) != ""
+    # 反例：三类身份源都为空时撤下工具（不提供不存在合法身份的工具）。
+    empty = {"facts": {"people_here": [], "contacts": [], "inbox": []}}
+    assert _visible_message_recipients(empty) == {}
+
+
+def test_social_partners_pair_kind_with_identity_source() -> None:
+    """chat 绑在场/发件人身份、call 绑联系人身份；kind 与对象集配对校验。"""
+    from custom.agents.life_agent import (
+        _visible_social_partners,
+        _validate_visible_action,
+    )
+    from worldmock.life.models import StartSocialActivityRequest
+
+    contract = _visible_social_partners({"facts": _identity_facts()})
+    assert contract["chat_partners"] == ("agent:2", "agent:3")
+    assert contract["call_partners"] == ("contact-mother",)
+    contracts = {"start_social_activity": contract}
+    chat = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=15)
+    call = StartSocialActivityRequest(kind="call", partner_id="contact-mother",
+                                      duration_minutes=30)
+    assert _validate_visible_action("start_social_activity", chat, contracts) == ""
+    assert _validate_visible_action("start_social_activity", call, contracts) == ""
+    for mismatch in (
+        StartSocialActivityRequest(kind="chat", partner_id="contact-mother",
+                                   duration_minutes=15),
+        StartSocialActivityRequest(kind="call", partner_id="agent:2", duration_minutes=30),
+        StartSocialActivityRequest(kind="chat", partner_id="agent:9", duration_minutes=15),
+    ):
+        assert _validate_visible_action("start_social_activity", mismatch, contracts) != ""
+    # 反例：无在场人物且无联系人时撤下工具。
+    empty = {"facts": {"people_here": [], "contacts": [], "inbox": []}}
+    assert _visible_social_partners(empty) == {}

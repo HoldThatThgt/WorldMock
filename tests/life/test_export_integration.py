@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from datetime import date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
+import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context
@@ -12,7 +16,38 @@ from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import StartBasicActivityRequest
+from worldmock.life.models import SendMessageRequest, StartBasicActivityRequest
+from worldmock.runtime import settle_pending_model_replies
+
+
+class _StubReplyClient:
+    """联系人回复模型客户端桩：记录请求并返回脚本化响应。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self, texts=None, error=None):
+        self.calls = []
+        self.texts = list(texts or [])
+        self.error = error
+
+    async def call(self, request):
+        self.calls.append(request)
+        if self.error is not None:
+            raise self.error
+        text = self.texts.pop(0) if self.texts else "好啊，老地方见。"
+        return {"model": self.model_name,
+                "choices": [{"message": {"content": text}}],
+                "usage": {"prompt_tokens": 21, "completion_tokens": 7}}
+
+
+def _send_message_to_model_contact(engine, round_id: str) -> None:
+    """真实决策轮：人物 1 向 model 策略老友联系人发送一条消息。"""
+    ctx = context(engine, round_id)
+    engine.begin_decision_round([ctx])
+    engine.submit_action(DirectToolCall(
+        ctx, f"action-{round_id}", "send_message",
+        SendMessageRequest(recipient_id="contact-chenxi-oldfriend", text="周五晚上一起吃饭？")))
+    engine.commit_decision_round(round_id)
 
 
 def _stage_final_interval(engine, seconds: int) -> None:
@@ -78,6 +113,43 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
 
 
+def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_path: Path) -> None:
+    """导出为每个覆盖日生成 timeline/<agent>-<date>.md 投影并哈希绑定清单。"""
+    import importlib.util
+
+    engine = engine_factory()
+    _stage_final_interval(engine, 120)
+    ctx = context(engine, "timeline-wait")
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    engine.submit_action(DirectToolCall(ctx, "action-timeline-wait", "start_basic_activity", request))
+    engine.commit_decision_round("timeline-wait")
+    advance_next(engine)
+
+    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "timeline_export_test"})
+    checkpoint = engine.checkpoint({"agent:1": agent_ref})
+    export_dir = tmp_path / "timeline-export"
+    manifest = export_run(engine.store, checkpoint.last_event_seq, export_dir)
+
+    zone = ZoneInfo(engine.scenario.timezone)
+    # 覆盖窗口为 [start, end)：终点整点当日不在清单，取最后一个被覆盖时刻。
+    day = datetime.fromtimestamp(engine.state.current_time - 1, zone).date()
+    relative = f"timeline/1-{day.isoformat()}.md"
+    record = next(item for item in manifest["timeline"] if item["path"] == relative)
+    payload = (export_dir / relative).read_bytes()
+    assert record["size_bytes"] == len(payload)
+    assert record["sha256"] == hashlib.sha256(payload).hexdigest()
+    # 与 scripts/render_day.py 的投影函数逐字节一致（单一实现）。
+    spec = importlib.util.spec_from_file_location(
+        "render_day_check", Path(__file__).resolve().parents[2] / "scripts" / "render_day.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert payload.decode("utf-8") == module.render_day_markdown(
+        engine.store.connection, 1, day)
+    assert "wait" in payload.decode("utf-8") or "空档" in payload.decode("utf-8")
+
+
 def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_path: Path) -> None:
     """实验终点截断原因进入权威状态、终态事件和认证导出质量。"""
     engine = engine_factory()
@@ -110,3 +182,74 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
     assert exported["interruption_reason"] == "experiment_end"
     assert quality["activities"]["interruptions_missing_reason"] == 0
     assert quality["activities"]["interruption_reason_counts"] == {"experiment_end": 1}
+
+
+@pytest.mark.asyncio
+async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_factory) -> None:
+    """成功回复：独立调用参数正确、证据事件齐全、只进收件箱不改资源。"""
+    engine = engine_factory()
+    _send_message_to_model_contact(engine, "npc-reply")
+
+    client = _StubReplyClient(texts=["好啊，老地方见。"])
+    settled = await settle_pending_model_replies(engine, client=client)
+
+    assert len(settled) == 1 and settled[0]["source_kind"] == "model_npc"
+    assert len(client.calls) == 1
+    request_payload = client.calls[0]
+    assert request_payload["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert request_payload["max_retries"] == 0
+    assert "tools" not in request_payload and "tool_choice" not in request_payload
+    assert "周五晚上一起吃饭" in request_payload["messages"][1]["content"]
+
+    reply_id = settled[0]["reply_message_id"]
+    inbox = engine.state.agents[1].inbox
+    assert reply_id in inbox
+    assert inbox[reply_id].text == "好啊，老地方见。"
+    assert inbox[reply_id].sender_id == "contact-chenxi-oldfriend"
+    assert len(inbox[reply_id].text) <= 200
+
+    events = engine.store.read_events(engine.store.last_event_seq)
+    evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
+    assert len(evidence) == 1
+    assert evidence[0].data["source_kind"] == "model_npc"
+    assert evidence[0].data["request"] == request_payload
+    assert evidence[0].data["usage"]["prompt_tokens"] == 21
+    assert evidence[0].data["response"]["model"] == "deepseek-flash"
+    pending = [item for item in events if item.data.get("kind") == "model_npc_reply_pending"]
+    assert len(pending) == 1 and evidence[0].caused_by == [pending[0].event_id]
+    arrivals = [item for item in events if item.data.get("kind") == "message_arrival"
+                and item.data.get("message_id") == reply_id]
+    assert len(arrivals) == 1 and arrivals[0].agent_id == 1
+    # 只进收件箱：回复证据与送达事件不携带任何资源分录。
+    assert not [item for item in [*evidence, *arrivals] if item.data.get("resource_changes")]
+
+
+@pytest.mark.asyncio
+async def test_model_npc_reply_transport_failure_propagates(engine_factory) -> None:
+    """传输异常按运行故障传播：不吞异常、不留半写状态。"""
+    engine = engine_factory()
+    _send_message_to_model_contact(engine, "npc-reply-fail")
+
+    client = _StubReplyClient(error=OSError("connection reset by peer"))
+    with pytest.raises(OSError, match="connection reset"):
+        await settle_pending_model_replies(engine, client=client)
+
+    assert engine.state.agents[1].inbox == {}
+    events = engine.store.read_events(engine.store.last_event_seq)
+    assert not [item for item in events if item.data.get("kind") == "model_npc_reply"]
+
+
+@pytest.mark.asyncio
+async def test_model_npc_reply_at_most_once_per_message(engine_factory) -> None:
+    """同一消息最多一次回复：二次结算零调用、零重复收件。"""
+    engine = engine_factory()
+    _send_message_to_model_contact(engine, "npc-reply-once")
+
+    client = _StubReplyClient()
+    first = await settle_pending_model_replies(engine, client=client)
+    second = await settle_pending_model_replies(engine, client=client)
+
+    assert len(first) == 1 and second == []
+    assert len(client.calls) == 1
+    inbox_ids = list(engine.state.agents[1].inbox)
+    assert len(inbox_ids) == len(set(inbox_ids)) == 1

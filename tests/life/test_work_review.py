@@ -13,7 +13,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 
-from tests.life.conftest import advance_next, context, submit_round
+from tests.life.conftest import advance_until_ready, advance_next, context, submit_round
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
@@ -188,7 +188,7 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     assert len(canonical) == 1 and sum(canonical[0].data["resource_changes"].values()) == 0
     assert reviewer.calls == 1
 
-    advance_next(engine)
+    advance_until_ready(engine)
     conflict_context = context(engine, "accepted-work-conflict")
     engine.begin_decision_round([conflict_context])
     engine.observe(conflict_context)
@@ -233,7 +233,18 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     request = ReactLoopRequest(0, ctx.observed_at, wrapped)
     agent.prepare_react_loop(request)
     messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
-    assert visible == feedback and "Supported by the transcript." in messages
+    # 事件证据保留评审全文（JSON 往返后元组序列化为列表）；提示侧新合同
+    # （L1548）只含状态 + 一句话 + 身份，评审全文不进提示。
+    assert visible == json.loads(json.dumps(feedback))
+    # facts 摘要行只含状态 + 一句话 + 身份（L1548），且是最近 5 条的裁剪。
+    summaries = observation["facts"]["recent_action_results"]
+    assert 1 <= len(summaries) <= 5
+    assert all(set(row) == {"action_id", "status", "message"} for row in summaries)
+    assert {row["action_id"] for row in summaries} <= {
+        row["action_id"] for row in observation["recent_action_results"]}
+    assert summaries[-1]["message"] in messages
+    assert json.dumps(visible["required_fact_assessments"], ensure_ascii=False) not in messages
+    assert "Supported by the transcript." not in messages
     assert "reference_id" not in messages and engine.scenario.tasks[0].oracle_path not in messages
 
     replay = context(engine, "rework-replay")

@@ -8,8 +8,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
+from worldmock.life.activities import advance_activity, lifestyle_relief_rates
+from worldmock.life.body import last_flows
 from worldmock.life.models import (
     ActivityKind,
+    ActivityState,
+    ActivityStatus,
+    AgentState,
+    BodyState,
     StartActivityRequest,
     StartBasicActivityRequest,
     deepseek_strict_schema,
@@ -173,6 +179,70 @@ def test_agent_config_lifestyle_validation() -> None:
         revived(())
     with pytest.raises(ValidationError):
         revived(("yoga", "yoga"))
+
+
+# ---------------------------------------------------------------------------
+# 修订合同 L1600：生活活动 effects 的 relief 通道（结算真正缓解需要池）
+# ---------------------------------------------------------------------------
+
+class TestLifestyleRelief:
+    """@brief lifestyle effects 结算：娱乐走分录（事件留痕），社交/健康直接落账。"""
+
+    def _relief_fixture(self):
+        scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
+        agent = AgentState(agent_id=1, name="T", location_id="home",
+                           balance_account_id="agent:1", next_decision_at=0,
+                           body=BodyState(energy_kcal=1800.0, sleep_pressure=0.3,
+                                          sleep_deficit_hours=1.0,
+                                          entertainment_need=0.5, social_need=0.6))
+        activity = ActivityState(
+            activity_id="a-jog", agent_id=1, kind=ActivityKind.LIFESTYLE,
+            status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
+            last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
+            target_id="jogging", origin_action_id="a", origin_decision_id="d",
+            origin_request_event_id="e")
+        return scenario.body, agent, activity
+
+    def test_jogging_fills_entertainment_pool_with_flow_entries(self):
+        # 跑步（effects.entertainment=0.2）结算 30 分钟：娱乐需要按费率下降，
+        # 且缓解走 ResourceLedger 分录（settle:lifestyle:entertainment_relief）。
+        body, agent, activity = self._relief_fixture()
+        advance = advance_activity(activity, agent, 1800, body)
+        _fun_rate, _social_rate, _health_rate = lifestyle_relief_rates("jogging")
+        assert _fun_rate > 0
+        assert advance.settlement.after.entertainment_need == pytest.approx(
+            0.5 - _fun_rate * 0.5)
+        flows = [entry for entry in last_flows() if "entertainment_relief" in entry.cause]
+        assert flows and all(entry.resource == "entertainment_need" for entry in flows)
+        assert sum(entry.amount for entry in flows) == pytest.approx(_fun_rate * 0.5)
+
+    def test_jogging_relieves_social_need_and_lifts_mood(self):
+        # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（L1600）。
+        body, agent, activity = self._relief_fixture()
+        advance = advance_activity(activity, agent, 1800, body)
+        _fun_rate, social_rate, health_rate = lifestyle_relief_rates("jogging")
+        assert social_rate > 0 and health_rate > 0
+        assert advance.agent.body.social_need == pytest.approx(max(0.0, 0.6 - social_rate * 0.5))
+        assert advance.agent.body.mood_valence > 0.0
+
+    def test_engine_activity_factors_wire_lifestyle_relief(self, engine_factory):
+        # 引擎接线正例：真实场景装配的 BodyConfig 下，jogging 的结算系数携带
+        # effects 折算的娱乐缓解费率（advance_activity → settle_body 的分录
+        # 由此产生，事件留痕走既有 resource_flows 通道）。
+        from worldmock.life.activities import activity_factors
+
+        engine = engine_factory()
+        scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
+        assert engine.semantics.body == scenario.body  # 引擎语义体即场景身体配置
+        activity = ActivityState(
+            activity_id="a-jog", agent_id=1, kind=ActivityKind.LIFESTYLE,
+            status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
+            last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
+            target_id="jogging", origin_action_id="a", origin_decision_id="d",
+            origin_request_event_id="e")
+        factors = activity_factors(activity, engine.state.agents[1], engine.semantics.body)
+        assert factors.entertainment_relief_per_hour == pytest.approx(
+            lifestyle_relief_rates("jogging")[0])
 
 
 def test_scenario_files_load_with_lifestyle_wiring() -> None:

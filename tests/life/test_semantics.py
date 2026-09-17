@@ -86,8 +86,11 @@ def test_ledger_accounts_exclude_the_external_anchor(semantics) -> None:
     assert "external:scenario" not in semantics.accounts
     assert semantics.accounts["agent:1"] == 800000
     assert semantics.accounts["employer:zhangjiang"] == 4000000
+    # 修订合同正餐品类：meal-* 对象购买边绑定 merchant:restaurant 角色，
+    # 场景必须声明该商家账户（初始额度沿用每商家冻结口径 10000000 分）。
+    assert semantics.accounts["merchant:restaurant"] == 10000000
     assert set(semantics.accounts) == {
-        "agent:1", "merchant:grocery", "merchant:general",
+        "agent:1", "merchant:grocery", "merchant:general", "merchant:restaurant",
         "employer:zhangjiang", "transport:service"}
 
 

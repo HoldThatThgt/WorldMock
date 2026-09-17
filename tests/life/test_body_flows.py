@@ -9,7 +9,7 @@ from worldmock.life.body import (
     BODY_FLOW_OWNER,
     ENTERTAINMENT_RESOURCE,
     ENERGY_RESOURCE,
-    SLEEP_DEBT_RESOURCE,
+    SLEEP_DEFICIT_RESOURCE,
     ActivityFactors,
     apply_food,
     body_resource_metas,
@@ -38,14 +38,14 @@ def _clean_flow_buffer():
 
 
 def test_resource_metas_declare_three_open_level_domains(body_config) -> None:
-    """三个身体资源都是 open level 域，界与现行 clamp 语义一致。"""
+    """能量与娱乐走 open level 分录域；不足账界为 [0, 24]（纯函数钳制）。"""
     metas = {meta.resource_id: meta for meta in body_resource_metas(body_config)}
 
-    assert set(metas) == {ENERGY_RESOURCE, SLEEP_DEBT_RESOURCE, ENTERTAINMENT_RESOURCE}
+    assert set(metas) == {ENERGY_RESOURCE, SLEEP_DEFICIT_RESOURCE, ENTERTAINMENT_RESOURCE}
     assert metas[ENTERTAINMENT_RESOURCE].bounds_max == 1
     assert metas[ENTERTAINMENT_RESOURCE].bounds_min == 0
     assert metas[ENERGY_RESOURCE].bounds_max == body_config.maximum_energy_kcal
-    assert metas[SLEEP_DEBT_RESOURCE].bounds_max is None
+    assert metas[SLEEP_DEFICIT_RESOURCE].bounds_max == 24.0
     for meta in metas.values():
         assert meta.kind == "level"
         assert meta.conservation == "open"
@@ -53,7 +53,7 @@ def test_resource_metas_declare_three_open_level_domains(body_config) -> None:
 
 def test_food_intake_records_single_energy_source(body_config) -> None:
     """进食供能是能量资源的一笔 source，金额等于未截断的吸收热量。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     result = apply_food(body, 200, body_config)
     flows = last_flows()
 
@@ -68,7 +68,7 @@ def test_food_intake_records_single_energy_source(body_config) -> None:
 
 def test_activity_energy_cost_records_combined_drain(body_config) -> None:
     """活动能量成本是一笔合并 drain，金额与领域成本函数完全一致。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
     energy_flows = [flow for flow in last_flows() if flow.resource == ENERGY_RESOURCE]
 
@@ -79,33 +79,34 @@ def test_activity_energy_cost_records_combined_drain(body_config) -> None:
     assert "work" in energy_flows[0].cause
 
 
-def test_awake_activity_accrues_sleep_debt_as_source(body_config) -> None:
-    """清醒累积睡眠债是对睡眠债资源的 source 流入。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=4, entertainment_need=0)
-    settle_body(body, ActivityKind.WORK, 1800, body_config, ActivityFactors(1.5))
-    debt_flows = [flow for flow in last_flows() if flow.resource == SLEEP_DEBT_RESOURCE]
+def test_awake_activity_accrues_deficit_via_two_process(body_config) -> None:
+    """清醒按 need/(24-need) 累积睡眠不足账（纯函数演化，不分录）。"""
+    from worldmock.life import sleep as sleep_module
 
-    assert len(debt_flows) == 1
-    assert debt_flows[0].direction == "source"
-    assert debt_flows[0].amount == pytest.approx(body_config.awake_sleep_debt_per_hour * 0.5)
-    assert debt_flows[0].cause
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=4, entertainment_need=0)
+    result = settle_body(body, ActivityKind.WORK, 1800, body_config, ActivityFactors(1.5))
+
+    expected = sleep_module.deficit_after_awake(4, 0.5, body.sleep_need_hours)
+    assert result.after.sleep_deficit_hours == pytest.approx(expected)
+    assert [flow for flow in last_flows() if flow.resource == SLEEP_DEFICIT_RESOURCE] == []
 
 
-def test_sleep_recovers_debt_as_drain(body_config) -> None:
-    """睡眠恢复降低睡眠债，是对睡眠债资源的 drain 流出。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=5, entertainment_need=0)
+def test_sleep_recovers_deficit_and_decays_pressure(body_config) -> None:
+    """睡眠恢复不足账 1h/h 并衰减两过程压力（纯函数演化，不分录）。"""
+    from worldmock.life import sleep as sleep_module
+
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.4, sleep_deficit_hours=5, entertainment_need=0)
     result = settle_body(body, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
-    debt_flows = [flow for flow in last_flows() if flow.resource == SLEEP_DEBT_RESOURCE]
 
-    assert len(debt_flows) == 1
-    assert debt_flows[0].direction == "drain"
-    assert debt_flows[0].amount == pytest.approx(body_config.sleep_recovery_per_hour)
-    assert result.after.sleep_debt_hours == pytest.approx(3)
+    assert result.after.sleep_deficit_hours == pytest.approx(4)
+    assert result.after.sleep_pressure == pytest.approx(
+        sleep_module.pressure_after_sleep(0.4, 1.0))
+    assert [flow for flow in last_flows() if flow.resource == SLEEP_DEFICIT_RESOURCE] == []
 
 
 def test_sleep_emits_no_entertainment_flow(body_config) -> None:
     """睡眠期间娱乐需要保持不变，不产生娱乐分录。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=1, entertainment_need=0.4)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.4)
     result = settle_body(body, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
 
     assert result.after.entertainment_need == 0.4
@@ -114,7 +115,7 @@ def test_sleep_emits_no_entertainment_flow(body_config) -> None:
 
 def test_relief_activity_drains_entertainment_need(body_config) -> None:
     """实际接触按人物偏好系数降低娱乐需要，是一笔 drain。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0.8)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.8)
     settle_body(body, ActivityKind.WATCH, 3600, body_config, ActivityFactors(1, 0.21))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
@@ -125,7 +126,7 @@ def test_relief_activity_drains_entertainment_need(body_config) -> None:
 
 def test_plain_awake_activity_accrues_entertainment_source(body_config) -> None:
     """无实际接触的清醒活动按清醒速率累积娱乐需要，是一笔 source。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0.2)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.2)
     result = settle_body(body, ActivityKind.BROWSE, 3600, body_config)
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
@@ -140,7 +141,7 @@ def test_food_energy_cap_limits_source_amount_to_headroom(body_config) -> None:
     headroom = 50
     body = BodyState(
         energy_kcal=body_config.maximum_energy_kcal - headroom,
-        sleep_debt_hours=0,
+        sleep_pressure=0.0, sleep_deficit_hours=0,
         entertainment_need=0,
     )
     result = apply_food(body, 200, body_config)
@@ -152,20 +153,17 @@ def test_food_energy_cap_limits_source_amount_to_headroom(body_config) -> None:
     assert flows[0].amount == headroom
 
 
-def test_sleep_recovery_beyond_debt_drains_only_the_debt(body_config) -> None:
-    """恢复量超过现有睡眠债时 drain 金额截断到债务本身，期末为零。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0.5, entertainment_need=0)
+def test_sleep_recovery_beyond_deficit_clamps_at_zero(body_config) -> None:
+    """恢复量超过现有不足账时期末钳制为零（下限零，规格 L1501）。"""
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0.5, entertainment_need=0)
     result = settle_body(body, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
-    debt_flows = [flow for flow in last_flows() if flow.resource == SLEEP_DEBT_RESOURCE]
 
-    assert result.after.sleep_debt_hours == 0
-    assert len(debt_flows) == 1
-    assert debt_flows[0].amount == 0.5
+    assert result.after.sleep_deficit_hours == 0
 
 
 def test_entertainment_relief_beyond_need_drains_only_the_need(body_config) -> None:
     """缓解量超过现有娱乐需要时 drain 金额截断到需要本身，期末为零。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0.05)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.05)
     result = settle_body(body, ActivityKind.WATCH, 3600, body_config, ActivityFactors(1, 0.21))
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
@@ -176,7 +174,7 @@ def test_entertainment_relief_beyond_need_drains_only_the_need(body_config) -> N
 
 def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
     """累积越过娱乐上限时 source 金额截断到余量，期末钉在 1。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0.95)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.95)
     result = settle_body(body, ActivityKind.BROWSE, 3600, body_config)
     flows = [flow for flow in last_flows() if flow.resource == ENTERTAINMENT_RESOURCE]
 
@@ -196,7 +194,7 @@ def test_entertainment_accrual_beyond_one_clamps_at_one(body_config) -> None:
 ])
 def test_every_flow_carries_cause_owner_and_stamp(body_config, kind, relief) -> None:
     """每条分录都带非空 cause、固定 owner 与占位时间戳。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=2, entertainment_need=0.3)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=2, entertainment_need=0.3)
     settle_body(body, kind, 1800, body_config, ActivityFactors(1.2, relief))
     flows = last_flows()
 
@@ -205,30 +203,30 @@ def test_every_flow_carries_cause_owner_and_stamp(body_config, kind, relief) -> 
         assert isinstance(flow.cause, str) and flow.cause
         assert flow.owner == BODY_FLOW_OWNER
         assert flow.occurred_at == BODY_FLOW_OCCURRED_AT
-        assert flow.resource in {ENERGY_RESOURCE, SLEEP_DEBT_RESOURCE, ENTERTAINMENT_RESOURCE}
+        assert flow.resource in {ENERGY_RESOURCE, SLEEP_DEFICIT_RESOURCE, ENTERTAINMENT_RESOURCE}
 
 
 def test_last_flows_returns_each_settlement_exactly_once(body_config) -> None:
     """last_flows 取走增量后再次调用为空，结算后重新产生新分录。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
     first = last_flows()
 
     assert first
     assert all(isinstance(flow, FlowEntry) for flow in first)
     assert last_flows() == ()
-    settle_body(BodyState(energy_kcal=1500, sleep_debt_hours=1, entertainment_need=0),
+    settle_body(BodyState(energy_kcal=1500, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0),
                 ActivityKind.SLEEP, 1800, body_config, ActivityFactors(0.95))
     second = last_flows()
 
     assert second
     assert {flow.resource for flow in second} <= {
-        ENERGY_RESOURCE, SLEEP_DEBT_RESOURCE, ENTERTAINMENT_RESOURCE}
+        ENERGY_RESOURCE, SLEEP_DEFICIT_RESOURCE, ENTERTAINMENT_RESOURCE}
 
 
 def test_rejected_energy_settlement_emits_no_flows(body_config) -> None:
     """能量不足被拒绝的结算不留下任何分录。"""
-    body = BodyState(energy_kcal=10, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     with pytest.raises(ValueError, match="exhaust"):
         settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
 
@@ -237,11 +235,11 @@ def test_rejected_energy_settlement_emits_no_flows(body_config) -> None:
 
 def test_zero_duration_settlement_emits_no_flows(body_config) -> None:
     """零时长结算不产生分录，身体状态保持不变。"""
-    body = BodyState(energy_kcal=1600, sleep_debt_hours=1, entertainment_need=0.2)
+    body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.2)
     result = settle_body(body, ActivityKind.WORK, 0, body_config, ActivityFactors(1.5))
 
     assert result.after.energy_kcal == 1600
-    assert result.after.sleep_debt_hours == 1
+    assert result.after.sleep_deficit_hours == 1
     assert result.after.entertainment_need == 0.2
     assert last_flows() == ()
 
@@ -249,7 +247,7 @@ def test_zero_duration_settlement_emits_no_flows(body_config) -> None:
 def test_full_history_replay_matches_incremental_settlement(body_config) -> None:
     """全历史重放期末与逐次直接结算一致（1e-9 容差），并通过域级流水对账。"""
     ledger = ResourceLedger(body_resource_metas(body_config))
-    states = [BodyState(energy_kcal=2350, sleep_debt_hours=0.5, entertainment_need=0.95)]
+    states = [BodyState(energy_kcal=2350, sleep_pressure=0.0, sleep_deficit_hours=0.5, entertainment_need=0.95)]
     entries: list[FlowEntry] = []
     steps = [
         (ActivityKind.BROWSE, 3600, None),
@@ -264,21 +262,17 @@ def test_full_history_replay_matches_incremental_settlement(body_config) -> None
 
     initial = {
         (ENERGY_RESOURCE, BODY_FLOW_OWNER): states[0].energy_kcal,
-        (SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER): states[0].sleep_debt_hours,
         (ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER): states[0].entertainment_need,
     }
     replayed = ledger.validate_history(initial, entries)
     final = states[-1]
     assert replayed[(ENERGY_RESOURCE, BODY_FLOW_OWNER)] == pytest.approx(
         final.energy_kcal, abs=1e-9)
-    assert replayed[(SLEEP_DEBT_RESOURCE, BODY_FLOW_OWNER)] == pytest.approx(
-        final.sleep_debt_hours, abs=1e-9)
     assert replayed[(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER)] == pytest.approx(
         final.entertainment_need, abs=1e-9)
 
     for resource, value in (
         (ENERGY_RESOURCE, final.energy_kcal),
-        (SLEEP_DEBT_RESOURCE, final.sleep_debt_hours),
         (ENTERTAINMENT_RESOURCE, final.entertainment_need),
     ):
         rows = audit_level_flows(ledger, resource, initial, entries,

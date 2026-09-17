@@ -76,7 +76,7 @@ def test_factors_assembled_from_catalog(body_config) -> None:
 
 def test_hungry_band_interval_average_with_skill(body_config) -> None:
     """hungry 段无节点区间按端点均值梯形平均，技能因子照常相乘。"""
-    body = BodyState(energy_kcal=610, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=610, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     result = settle_body(body, ActivityKind.WORK, 600, body_config,
                          ActivityFactors(1.5, work_skill_factor=0.8))
     end = result.after.energy_kcal
@@ -96,12 +96,12 @@ def test_full_energy_migration_is_bit_identical(
     body_config, debt: float, hours: int, skill: float, tool: float,
 ) -> None:
     """满能量工作区间的效率与迁移前单曲线引擎逐位一致（==，非 approx）。"""
-    body = BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=debt, entertainment_need=0)
+    body = BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=debt, entertainment_need=0)
     result = settle_body(body, ActivityKind.WORK, hours * 3600, body_config,
                          ActivityFactors(1.5, work_skill_factor=skill, work_tool_factor=tool))
     assert result.after.energy_kcal >= 800  # 前提：区间不进入能量因子影响段
     legacy = _legacy_sleep_efficiency(
-        body_config, body.sleep_debt_hours, result.after.sleep_debt_hours)
+        body_config, body.sleep_deficit_hours, result.after.sleep_deficit_hours)
     assert result.work_efficiency == legacy * skill * tool
 
 
@@ -109,7 +109,7 @@ def test_full_energy_equals_sleep_only_engine_bit_identically(
     body_config, sleep_only_config,
 ) -> None:
     """同一满能量区间，含能量因子的新引擎 == 只含睡眠因子的引擎。"""
-    body = BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     full = settle_body(body, ActivityKind.WORK, 12 * 3600, body_config, ActivityFactors(1.5))
     single = settle_body(body, ActivityKind.WORK, 12 * 3600, sleep_only_config,
                          ActivityFactors(1.5))
@@ -118,15 +118,15 @@ def test_full_energy_equals_sleep_only_engine_bit_identically(
 
 def test_migration_snapshot_paths_bit_identical(body_config) -> None:
     """零时长区间与非 work 观察值在满能量下同样与迁移前逐位一致。"""
-    zero = settle_body(BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=9,
+    zero = settle_body(BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=9,
                                  entertainment_need=0),
                        ActivityKind.WORK, 0, body_config)
     assert zero.work_efficiency == _legacy_sleep_efficiency(body_config, 9, 9)
-    watch = settle_body(BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=10,
+    watch = settle_body(BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=10,
                                   entertainment_need=0),
                         ActivityKind.WATCH, 3600, body_config, ActivityFactors(1))
     assert watch.work_efficiency == _legacy_sleep_efficiency(body_config, 10, 10)
-    food = apply_food(BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=12,
+    food = apply_food(BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=12,
                                 entertainment_need=0), 0, body_config)
     assert food.work_efficiency == _legacy_sleep_efficiency(body_config, 12, 12)
 
@@ -143,7 +143,7 @@ def test_migration_snapshot_paths_bit_identical(body_config) -> None:
 ])
 def test_energy_factor_threshold_outputs(body_config, energy: float, expected: float) -> None:
     """能量因子按 alert_rules 同源阈值输出乘数（睡眠债为零、快照取值）。"""
-    body = BodyState(energy_kcal=energy, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     assert apply_food(body, 0, body_config).work_efficiency == pytest.approx(expected)
 
 
@@ -154,7 +154,7 @@ def test_work_interval_integrates_across_energy_thresholds(body_config) -> None:
     config = body_config.model_copy(update={"work_efficiency_factors": (energy_factor,)})
     seconds = 22200  # met=1 时每小时净耗 basal 65 kcal：600 → 198.75
     start, end = 600.0, 600.0 - 65 * seconds / 3600
-    body = BodyState(energy_kcal=start, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=start, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
     result = settle_body(body, ActivityKind.WORK, seconds, config, ActivityFactors(1))
     expected = (0.5 * (399.9 - end)                 # emergency 段平顶
                 + (0.5 + 0.8) * (400 - 399.9) / 2   # 阶跃过渡带
@@ -167,25 +167,25 @@ def test_work_interval_integrates_across_energy_thresholds(body_config) -> None:
 def test_food_efficiency_and_non_work_physics_stay_independent(body_config) -> None:
     """食品利用效率不吃能量因子；非 work 结算物理量与能量水平无关。"""
     for energy in (2400, 600, 300):
-        body = BodyState(energy_kcal=energy, sleep_debt_hours=12, entertainment_need=0)
+        body = BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=12, entertainment_need=0)
         assert apply_food(body, 200, body_config).food_efficiency == pytest.approx(0.875)
-    low = settle_body(BodyState(energy_kcal=600, sleep_debt_hours=0, entertainment_need=0),
+    low = settle_body(BodyState(energy_kcal=600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                       ActivityKind.WATCH, 3600, body_config, ActivityFactors(1))
-    high = settle_body(BodyState(energy_kcal=2400, sleep_debt_hours=0, entertainment_need=0),
+    high = settle_body(BodyState(energy_kcal=2400, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                        ActivityKind.WATCH, 3600, body_config, ActivityFactors(1))
-    assert low.after.sleep_debt_hours == high.after.sleep_debt_hours
+    assert low.after.sleep_deficit_hours == high.after.sleep_deficit_hours
     assert low.after.entertainment_need == high.after.entertainment_need
     assert low.after.energy_kcal - 600 == pytest.approx(high.after.energy_kcal - 2400)
     # 非 work 结算的 work_efficiency 是观察快照，统一含全部因子（与进食快照一致）；
     # 它不参与任何非 work 结算物理量或工作产出累计（仅 work 活动累计产出）。
-    waited = settle_body(BodyState(energy_kcal=300, sleep_debt_hours=0, entertainment_need=0),
+    waited = settle_body(BodyState(energy_kcal=300, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                          ActivityKind.WAIT, 600, body_config, ActivityFactors(1.3))
     assert waited.work_efficiency == pytest.approx(0.5)
 
 
 def test_new_causal_edge_is_pure_catalog_data(body_config) -> None:
     """架构性质：不改 src，仅在因子列表追加数据行即新增因果边。"""
-    body = BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=0, entertainment_need=0.5)
+    body = BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0.5)
     base = apply_food(body, 0, body_config).work_efficiency
     fake_entertainment = EfficiencyFactor(
         input_resource="entertainment_need",
@@ -195,7 +195,7 @@ def test_new_causal_edge_is_pure_catalog_data(body_config) -> None:
         *body_config.work_efficiency_factors, fake_entertainment)})
     assert apply_food(body, 0, with_entertainment).work_efficiency == pytest.approx(base * 0.75)
 
-    debt_body = BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=12, entertainment_need=0)
+    debt_body = BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=12, entertainment_need=0)
     base_debt = apply_food(debt_body, 0, body_config).work_efficiency
     second_sleep = EfficiencyFactor(
         input_resource="sleep_debt_hours",
@@ -213,5 +213,5 @@ def test_unknown_factor_resource_fails_closed(body_config) -> None:
                              curve=(CurvePoint(input_value=0, output_value=1.0),))
     config = body_config.model_copy(update={"work_efficiency_factors": (bogus,)})
     with pytest.raises(ValueError, match="unknown resource"):
-        apply_food(BodyState(energy_kcal=FULL_ENERGY, sleep_debt_hours=0,
+        apply_food(BodyState(energy_kcal=FULL_ENERGY, sleep_pressure=0.0, sleep_deficit_hours=0,
                              entertainment_need=0), 0, config)

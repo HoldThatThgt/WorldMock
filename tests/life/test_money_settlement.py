@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_next, submit_round, travel_quote
+from tests.life.conftest import advance_until_ready, advance_next, submit_round, travel_quote
 from worldmock.footprints.models import (
     RESOURCE_FLOWS_FIELD,
     EventDraft,
@@ -22,7 +22,8 @@ from worldmock.footprints.models import (
 from worldmock.life.models import (
     ContinueActivityRequest,
     FulfillmentKind,
-    PurchaseRequest,
+    PurchaseItem,
+    PurchaseOrderRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
     StartTravelRequest,
@@ -88,14 +89,21 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     advance_next(engine)
     product = engine.scenario.products[0]
     submit_round(engine, {
-        1: ("purchase", PurchaseRequest(
-            product_id=product.product_id, quantity=1,
-            fulfillment=FulfillmentKind.DELIVERY, destination_id="home",
-            price_version=product.price_version)),
+        1: ("purchase", PurchaseOrderRequest(
+            items=(PurchaseItem(product_id=product.product_id, quantity=1,
+                                price_version=product.price_version),),
+            fulfillment=FulfillmentKind.DELIVERY, destination_id="home")),
         2: ("start_basic_activity", _wait()),
     }, "buy")
-    advance_next(engine)
-    assert engine.scheduling_state().ready_agent_ids == (1,)
+    # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
+    from tests.life.conftest import advance_until_ready, advance_until_ready
+    while 1 not in engine.scheduling_state().ready_agent_ids:
+        ready_now = engine.scheduling_state().ready_agent_ids
+        if ready_now:
+            submit_round(engine, {
+                agent_id: ("start_basic_activity", _wait(3600)) for agent_id in ready_now
+            }, f"hold-{engine.state.current_time}")
+        assert advance_until_ready(engine), "agent 1 never regained a decision"
     submit_round(engine, {
         1: ("start_travel", StartTravelRequest(
             destination_id="office", travel_mode=TravelMode.DRIVING,
@@ -103,7 +111,9 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     }, "to-office")
 
     accounts = dict(engine.state.accounts)
-    assert len(accounts) == 6, f"expected six ledger accounts, got {sorted(accounts)}"
+    # 修订合同正餐品类新增 merchant:restaurant 商家账户（v2 场景 7 个账本账户）。
+    assert len(accounts) == 7, f"expected seven ledger accounts, got {sorted(accounts)}"
+    assert "merchant:restaurant" in accounts
     entries = _transfer_entries(engine)
     assert len(entries) >= 1 + 1 + 1, "expected injection + purchase + fare transfers"
 
@@ -146,7 +156,7 @@ def test_activity_progress_carries_validated_body_flows(engine_factory) -> None:
     assert progresses, "activity progress settlement must leave body flow evidence"
     flows = validate_resource_flows(progresses[0].data[RESOURCE_FLOWS_FIELD])
     assert {flow["resource"] for flow in flows} == {
-        "energy_kcal", "sleep_debt_hours", "entertainment_need"}
+        "energy_kcal", "entertainment_need"}  # 不足账由 sleep 纯函数演化，不分录
     assert {flow["owner"] for flow in flows} == {"agent:1"}
     assert all(flow["direction"] in ("source", "drain") and flow["amount"] > 0 for flow in flows)
     assert all(flow["cause"].startswith("settle:") for flow in flows)
@@ -173,7 +183,8 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
     engine = engine_factory("multi-person.json")
     submit_round(engine, {1: ("start_basic_activity", _wait(7200)),
                           2: ("start_basic_activity", _wait(7200))}, "wait")
-    advance_next(engine)
+    # 重估唤醒（+5400s）后继续，静默边界照常结算
+    assert advance_until_ready(engine)
     submit_round(engine, {
         1: ("continue_activity", ContinueActivityRequest(activity_id="activity-action-wait-1")),
         2: ("continue_activity", ContinueActivityRequest(activity_id="activity-action-wait-2")),
@@ -184,13 +195,13 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
          if event.event_type == "activity_progress" and event.agent_id == 1
          and RESOURCE_FLOWS_FIELD in event.data),
         key=lambda event: event.data["interval_end"])
-    assert len(progresses) == 2
+    assert len(progresses) >= 2
     for event in progresses:
         drained = sum(flow["amount"] for flow in event.data[RESOURCE_FLOWS_FIELD]
                       if flow["resource"] == "energy_kcal" and flow["direction"] == "drain")
         settlement = event.data["body_settlement"]
         assert drained == settlement["before"]["energy_kcal"] - settlement["after"]["energy_kcal"]
-    first, second = progresses
+    first, second = progresses[0], progresses[1]
     assert first.data["interval_end"] == second.data["interval_start"]
 
 

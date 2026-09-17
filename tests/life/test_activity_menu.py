@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from worldmock.life.models import BrowseActivitiesRequest
 
-from .conftest import advance_next, browse_activities, context, submit_round
+from .conftest import advance_next, browse_activities, context, submit_round, wake_by_mail
 
 
 def _browse_result(engine_factory, category: str, round_id: str = "menu"):
@@ -130,17 +130,18 @@ def test_browse_while_active_activity_is_boundary_gated(engine_factory) -> None:
                                                   playback_speed=1))},
         "menu-watch")
     assert watch_results[0].status.value == "in_progress"
-    advance_next(engine)  # watch 的首个反馈边界
+    wake_by_mail(engine)  # 首个 900 边界经 message_arrival 提供决策（节律合同）
+    advance_next(engine)
     _, browse_results = submit_round(
         engine, {1: ("browse_activities", BrowseActivitiesRequest(category="sport"))}, "menu-active")
     assert browse_results[0].status.value == "rejected"
     assert browse_results[0].error_code == "ACTIVITY_FEEDBACK_ACTION_REQUIRED"
 
 
-def test_motivation_hints_remain_top5_under_layered_menu(engine_factory) -> None:
+def test_motivation_internal_remain_top5_under_layered_menu(engine_factory) -> None:
     """分层菜单架构下动机提示仍产出 top-5 娱乐建议（采样上下文）。"""
     engine = engine_factory()
-    hints = engine._motivation_hints(engine.state.agents[1])
+    hints = engine._motivation_internal(engine.state.agents[1])
     assert hints is not None
     candidates = hints["candidates"]
     assert len(candidates) == 5

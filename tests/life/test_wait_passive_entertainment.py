@@ -30,7 +30,7 @@ def _clean_flow_buffer():
 
 
 def _body(need: float = 0.4) -> BodyState:
-    return BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=need)
+    return BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=need)
 
 
 def test_wait_settles_passive_relief_flow_entries(body_config) -> None:

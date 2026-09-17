@@ -45,7 +45,7 @@ def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> Age
         entertainment_preferences={"content": 0.7},
         active_effects=effects,
         next_decision_at=0,
-        body=BodyState(energy_kcal=1600, sleep_debt_hours=0, entertainment_need=need),
+        body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=need),
     )
 
 
@@ -126,7 +126,7 @@ def test_paused_activity_is_truncated_at_experiment_end(body_config) -> None:
 
 def test_body_boundary_predicts_first_energy_threshold_second(body_config) -> None:
     """能量从401下降时在首个严格低于400的整秒产生边界。"""
-    body = BodyState(energy_kcal=401, sleep_debt_hours=0, entertainment_need=0)
+    body = BodyState(energy_kcal=401, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
 
     seconds = next_body_boundary_seconds(
         body,
@@ -140,8 +140,8 @@ def test_body_boundary_predicts_first_energy_threshold_second(body_config) -> No
 
 def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
     """工作效率节点精确分段，进食净增能量不会伪造紧急下降边界。"""
-    near_curve = BodyState(energy_kcal=1600, sleep_debt_hours=7.9, entertainment_need=0)
-    near_emergency = BodyState(energy_kcal=401, sleep_debt_hours=0, entertainment_need=0)
+    near_curve = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=7.9, entertainment_need=0)
+    near_emergency = BodyState(energy_kcal=401, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
 
     curve_seconds = next_body_boundary_seconds(
         near_curve,
@@ -154,10 +154,15 @@ def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
         ActivityKind.CONSUME,
         body_config,
         ActivityFactors(met=1.5, food_energy_kcal_per_hour=500),
+        hour_of_day=12.0,
     )
 
-    assert curve_seconds == 360
-    assert consume_seconds == 28_800
+    # 修订合同：不足账累积率 = need/(24-need)（7.5h 需要量即 7.5/16.5/h），
+    # 体感分级跨越候选（娱乐 0→0.3 档按 0.08/h）参与下一边界预测。
+    deficit_rate = 7.5 / 16.5
+    assert curve_seconds == round((8 - 7.9) / deficit_rate * 3600)
+    entertainment_crossing = round(0.3 / 0.08 * 3600)
+    assert consume_seconds == entertainment_crossing
 
 
 def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) -> None:

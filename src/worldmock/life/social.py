@@ -75,8 +75,15 @@ class AgentPresence(_SocialModel):
 
 
 class PersonView(_SocialModel):
-    """@brief 他人观察的可见投影闭集：仅姓名、活动家族、可交谈（L1630）。"""
+    """@brief 他人观察的可见投影：不透明身份 + 姓名、活动家族、可交谈。
 
+    隐私闭集（L1630）限定他人只暴露姓名、活动家族与可交谈状态，不暴露
+    身体数值、余额、任务或记忆；person_id 是工具身份锚点（send_message/
+    start_social_activity 的身份枚举用本轮观察，L1005-1007），不是隐私
+    泄漏——scene 渲染仍只用姓名（含活动家族短语），身份只进 facts 层。
+    """
+
+    person_id: str
     name: str
     activity_family: str
     can_talk: bool
@@ -189,13 +196,15 @@ def can_talk(presence: AgentPresence) -> bool:
 
 def people_here(agent_location: str,
                 other_agents: list[AgentPresence]) -> list[PersonView]:
-    """@brief 同一地点他人的可见投影（闭集字段，L1623/L1630）。
+    """@brief 同一地点他人的可见投影（隐私闭集 + 身份锚点，L1623/L1630）。
 
-    只暴露姓名、当前活动家族与可交谈状态；不暴露身体数值、余额、
-    任务或记忆。列表保持输入顺序。
+    只暴露不透明身份、姓名、当前活动家族与可交谈状态；不暴露身体数值、
+    余额、任务或记忆。身份（agent:<id> 不透明形式）供工具身份枚举与配对
+    校验使用（L1005-1007），scene 渲染仍只用姓名。列表保持输入顺序。
     """
     return [
         PersonView(
+            person_id=item.agent_id,
             name=item.name,
             activity_family=item.activity_family,
             can_talk=can_talk(item),

@@ -41,17 +41,20 @@ def test_whitespace_padded_background_story_cannot_pass_the_floor() -> None:
         LifeScenario.model_validate(padded)
 
 
-def test_new_persona_fields_are_optional_for_backward_compatibility() -> None:
-    """缺省新字段的人物文档仍然合法（既有四字段合同不破）。"""
+def test_new_persona_fields_are_optional_and_template_fields_are_gone() -> None:
+    """缺省新字段的人物文档合法；修订合同删除的四个模板字段不再存在。"""
     legacy = _payload()
     for field in _NEW_PERSONA_FIELDS:
         del legacy["agents"][0][field]
+    for field in ("occupation", "routine_preference", "consumption_preference",
+                  "risk_preference"):
+        legacy["agents"][0].pop(field, None)  # 场景文件已随合同清理
     document = LifeScenario.model_validate(legacy)
     agent = document.agents[0]
     assert agent.background_story is None
     assert agent.health_habits is None
     assert agent.social_style is None
-    assert agent.occupation  # 既有四字段继续存在
+    assert not hasattr(agent, "occupation")  # 模板字段已删除（L1663）
 
 
 @pytest.mark.parametrize("path", [_FORMAL, _MULTI])
@@ -112,24 +115,45 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
 
 
 def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
-    """新字段随 profile 整包进入 LifeAgent 的 ReAct 用户消息。"""
+    """新画像字段以 persona_card 渲染文本进入三段 ReAct 用户消息（L1529-1535）。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
     from worldmock.runtime import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
-    specification = _agent_specs(scenario)[0]
+    # 卡片路径：编译产出 persona_card 渲染文本原样进入消息首段。
+    specification = _agent_specs(
+        scenario, persona_compiler=lambda agent: "画像卡片：立体人格文本。")[0]
     agent = LifeAgent()
     agent._id = specification["id"]
     agent._name = specification["profile"]["name"]
     agent._profile = specification["profile"]
     agent._enable_memory = False
+    current_time = scenario.start_at.isoformat()
+    observation = {
+        "scene": {"current_time": current_time, "location": "办公室"},
+        "facts": {"current_time": current_time, "location_id": "office",
+                  "people_here": [], "contacts": [], "inbox": [], "tasks": []},
+    }
+    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
     messages = agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, {"LifeEnv": {}}))
-    sent_profile = json.loads(messages[1]["content"])["profile"]
+        ReactLoopRequest(0, scenario.start_at, wrapped))
+    user = messages[1]["content"]
+    assert "画像卡片：立体人格文本。" in user
+    # 无卡片回退路径：background_story/健康习惯/社交风格以安全字段组装。
+    plain = _agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"]
+    fallback_agent = LifeAgent()
+    fallback_agent._id = specification["id"]
+    fallback_agent._name = specification["profile"]["name"]
+    fallback_agent._profile = plain
+    fallback_agent._enable_memory = False
+    fallback = fallback_agent.build_react_messages(
+        ReactLoopRequest(0, scenario.start_at, wrapped))[1]["content"]
     for field in _NEW_PERSONA_FIELDS:
-        assert sent_profile[field] == getattr(scenario.agents[0], field)
+        assert getattr(scenario.agents[0], field) in fallback
+    assert "你的经历：" in fallback and "你的健康习惯：" in fallback and "你的社交风格：" in fallback
+    assert '"profile"' not in user and '"profile"' not in fallback
 
 
 # ---------------------------------------------------------------------------
@@ -198,7 +222,7 @@ def test_v2_contract_rejects_old_nine_parameter_profile() -> None:
         "schema_version": 1,
         "big_five": {"openness": 4, "conscientiousness": 4, "extraversion": 4,
                      "agreeableness": 4, "neuroticism": 4},
-        "weights": {"money_fen": 0.2, "energy_kcal": 0.2, "sleep_debt_hours": 0.2,
+        "weights": {"money_fen": 0.2, "energy_kcal": 0.2, "sleep_deficit_hours": 0.2,
                     "entertainment_need": 0.2, "goal_task": 0.2},
         "tau": 2.0, "beta_present_bias": 0.75,
         "loss_aversion": {"money_fen": 2.0, "energy_kcal": 1.5},

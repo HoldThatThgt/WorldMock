@@ -11,9 +11,14 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, wake_by_mail
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import ActivityState, ContentProgress, PurchaseRequest
+from worldmock.life.models import (
+    ActivityState,
+    ContentProgress,
+    PurchaseOrderRequest,
+    StartBasicActivityRequest,
+)
 
 
 def _commit_test_state(engine, state, kind: str) -> None:
@@ -61,7 +66,8 @@ def _stage_open_single_stock(engine) -> str:
     visible.add(product.product_id)
     inventory = {"office": {product.product_id: 0.0}, "home": {product.product_id: 1.0}}
     state.agents[1] = agent.model_copy(
-        update={"visible_product_ids": visible, "location_id": "office",
+        update={"visible_product_ids": visible, "product_browsed_at": now,
+                    "product_browsed_location": "office", "location_id": "office",
                 "inventory": inventory, "next_decision_at": now},
         deep=True,
     )
@@ -79,11 +85,10 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     agent = _prepare_agent(observation, first_context.observed_at)
     product = next(item for item in observation["products"] if item["product_id"] == product_id)
     payload = {
-        "product_id": product_id,
-        "quantity": 1,
+        "items": [{"product_id": product_id, "quantity": 1,
+                   "price_version": product["price_version"]}],
         "fulfillment": "delivery",
         "destination_id": "home",
-        "price_version": product["price_version"],
     }
     decision = ReactDecision("", "purchase", payload, "")
 
@@ -92,13 +97,16 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     assert "consume" not in _function_names(agent)
     assert agent.validate_react_decisions([decision], False) == ""
 
-    request = PurchaseRequest.model_validate(payload)
+    request = PurchaseOrderRequest.model_validate(payload)
     engine.submit_action(DirectToolCall(
         first_context, "action-purchase-grounded", "purchase", request))
     result = engine.commit_decision_round("purchase-grounded")[0]
     assert result.status == "completed"
     assert engine.state.merchant_stock[product_id] == 0
 
+    # 下一决策钉在浏览可见期内（+900 < 1800 秒，L1545）：售罄商品仍在
+    # 可见目录中报告 current_stock=0，购买工具按库存闭集撤下。
+    wake_by_mail(engine, agent_id=1, offset=900)
     advance_next(engine)
     next_context = context(engine, "purchase-sold-out")
     engine.begin_decision_round([next_context])
@@ -216,3 +224,151 @@ def test_real_observation_content_progress_titles(engine_factory) -> None:
     assert "title" not in progress["news-feed"]
     assert set(progress["news-feed"]) == {
         "item_id", "position_seconds", "exposure_count", "remaining_media_seconds"}
+
+
+def _events_of(engine, event_type: str) -> list:
+    """读取足迹库中某类型的全部事件。"""
+    return [event for event in engine.store.read_events(engine.store.last_event_seq)
+            if event.event_type == event_type]
+
+
+def _monologue_params() -> dict:
+    """独白阶段的模型请求参数形状（无 tools、温度 1.3、max_tokens 400）。"""
+    return {"model": "deepseek-flash", "messages": [{"role": "user", "content": "此刻感受"}],
+            "stream": False, "temperature": 1.3, "max_tokens": 400, "max_retries": 0,
+            "extra_body": {"thinking": {"type": "disabled"}}}
+
+
+def test_decision_started_written_once_complete_with_monologue(engine_factory) -> None:
+    """独白可得时才写 decision_started：一次写完整（含 inner_monologue）且不可再更新。"""
+    from agentsociety2.agent.base import ModelCallEvidence
+    from worldmock.footprints.models import INNER_MONOLOGUE_FIELD
+
+    engine = engine_factory()
+    ctx = context(engine, "monologue-round")
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    params = _monologue_params()
+    engine.record_model_exchange(ModelCallEvidence(ctx, "call-1", "request", 1, params))
+    assert _events_of(engine, "decision_started") == []
+
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, "call-1", "response", 1, params,
+        response={"choices": [{"message": {"content": "有点饿，先吃点东西再继续工作。"}}]}))
+    starts = _events_of(engine, "decision_started")
+    assert len(starts) == 1
+    data = starts[0].data
+    assert data[INNER_MONOLOGUE_FIELD] == "有点饿，先吃点东西再继续工作。"
+    assert data["round_id"] == "monologue-round" and data["round_order"] == 0
+    assert data["world_state_version"] == engine.state.version
+    assert data["wake_reasons"] == ["run_start"]
+    assert starts[0].agent_id == 1 and starts[0].decision_id == ctx.decision_id
+
+    # 引擎直驱兜底不再产生第二条（一次写完整，独白后登记动作不重复落库）。
+    engine.submit_action(DirectToolCall(
+        ctx, "action-monologue", "start_basic_activity",
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+    engine.commit_decision_round("monologue-round")
+    assert len(_events_of(engine, "decision_started")) == 1
+
+
+def test_invalid_monologue_falls_back_to_complete_event_without_monologue(engine_factory) -> None:
+    """独白协议失败（空文本带错误证据）不写事件；结算兜底一次写完整（无独白）。"""
+    from agentsociety2.agent.base import ModelCallEvidence
+    from worldmock.footprints.models import INNER_MONOLOGUE_FIELD
+
+    engine = engine_factory()
+    ctx = context(engine, "monologue-invalid")
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    params = _monologue_params()
+    engine.record_model_exchange(ModelCallEvidence(ctx, "call-1", "request", 1, params))
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, "call-1", "response", 1, params,
+        response={"choices": [{"message": {"content": ""}}]},
+        error="monologue is empty"))
+    # 行动阶段形状（带 tools）的交换也不是独白，不触发落库。
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, "call-2", "request", 1, {**params, "tools": [], "tool_choice": "auto"}))
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, "call-2", "response", 1, {**params, "tools": [], "tool_choice": "auto"},
+        response={"choices": [{"message": {"content": "工具调用"}}]}))
+    assert _events_of(engine, "decision_started") == []
+
+    engine.submit_action(DirectToolCall(
+        ctx, "action-monologue-invalid", "start_basic_activity",
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+    engine.commit_decision_round("monologue-invalid")
+    starts = _events_of(engine, "decision_started")
+    assert len(starts) == 1
+    assert INNER_MONOLOGUE_FIELD not in starts[0].data
+    assert starts[0].data["round_id"] == "monologue-invalid"
+
+
+def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -> None:
+    """动机上下文三接线：启用集直通声明、近 24h 进食计数、口味权重空映射不抬升。"""
+    engine = engine_factory()
+    agent = engine.state.agents[1]
+    config = next(item for item in engine.scenario.agents if item.agent_id == 1)
+    profile = config.motivation
+    assert profile is not None
+    now = engine.state.current_time
+    fresh = EventDraft(
+        event_type="action_requested", occurred_at=now, agent_id=1,
+        decision_id="decision-meal", action_id="action-meal", source_kind="model",
+        data={"tool_name": "consume", "request": {
+            "items": [{"product_id": "food-a", "quantity": 2},
+                      {"product_id": "food-b", "quantity": 1}],
+            "use_mode": "eat", "duration_seconds": 600},
+            "request_sha256": "0" * 64, "reused": False})
+    non_meal = EventDraft(
+        event_type="action_requested", occurred_at=now, agent_id=1,
+        decision_id="decision-use", action_id="action-use", source_kind="model",
+        data={"tool_name": "consume", "request": {
+            "items": [{"product_id": "food-c", "quantity": 1}],
+            "use_mode": "use", "duration_seconds": 600},
+            "request_sha256": "0" * 64, "reused": False})
+    engine.store.commit(engine.state.model_dump(mode="json"), [fresh, non_meal])
+
+    wired = engine._motivation_context(agent, profile)
+    assert wired.recent_meal_counts == {"food-a": 2, "food-b": 1}
+    assert wired.lifestyle_enabled == config.lifestyle_activities
+    assert wired.taste_weights == {}
+    # 反例（窗口外不计）：直接以 >24h 的合成事件核对聚合窗口边界。
+    from types import SimpleNamespace
+
+    from worldmock.life.observe import _recent_meal_counts
+
+    stale = SimpleNamespace(occurred_at=now - 86_401, data={
+        "tool_name": "consume", "request": {
+            "items": [{"product_id": "food-stale", "quantity": 3}],
+            "use_mode": "eat", "duration_seconds": 600}})
+    boundary = SimpleNamespace(occurred_at=now - 86_400, data={
+        "tool_name": "consume", "request": {
+            "items": [{"product_id": "food-edge", "quantity": 1}],
+            "use_mode": "eat", "duration_seconds": 600}})
+    assert _recent_meal_counts([stale, boundary], now) == {"food-edge": 1}
+
+
+def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -> None:
+    """facts 层携带不透明身份与联系人锚点；scene 层只有姓名，无身体/余额/任务。"""
+    from worldmock.life.narration import render_facts
+
+    engine = engine_factory("multi-person.json")
+    data = engine._observation_data(engine.state.agents[1])
+    people = data["facts"]["people_here"]
+    assert people, "co-located agents must be visible"
+    for row in people:
+        assert set(row) == {"person_id", "name", "activity_family", "can_talk"}
+        assert row["person_id"] == "agent:2"
+    assert data["scene"]["people_here"] == [row["name"] for row in people]
+    contacts = data["facts"]["contacts"]
+    assert contacts and all(set(row) == {"contact_id", "salutation", "relation"}
+                            for row in contacts)
+    text = render_facts(data["facts"])
+    assert '"person_id":"agent:2"' in text and '"contact_id"' in text
+    # 他人隐私闭集（L1630）：身体数值/余额/记忆不进 facts 渲染文本
+    # （tasks 是本人可见任务行，属 facts 合同字段，不在禁项之列）。
+    for forbidden in ("energy_kcal", "balance_fen", "memory", "sleep_pressure",
+                      "entertainment_preferences"):
+        assert forbidden not in text

@@ -9,15 +9,18 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, travel_quote
+from tests.life.conftest import advance_next, advance_until_ready, context, travel_quote
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import apply_product_progress, deliver_order, purchase
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
+    ConsumeItem,
     ConsumeRequest,
     FulfillmentKind,
+    PurchaseItem,
+    PurchaseOrderRequest,
     PurchaseRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
@@ -60,11 +63,13 @@ def _browse(engine) -> None:
     advance_next(engine)
 
 
-def _delivery_request(engine, product_id: str) -> PurchaseRequest:
-    """按当前冻结报价形成送货到家的请求。"""
+def _delivery_request(engine, product_id: str) -> PurchaseOrderRequest:
+    """按当前冻结报价形成送货到家的整单请求。"""
     product = next(item for item in engine.scenario.products if item.product_id == product_id)
-    return PurchaseRequest(product_id=product_id, quantity=1, fulfillment=FulfillmentKind.DELIVERY,
-                           destination_id="home", price_version=product.price_version)
+    return PurchaseOrderRequest(
+        items=(PurchaseItem(product_id=product_id, quantity=1,
+                            price_version=product.price_version),),
+        fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
 
 
 def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(engine_factory) -> None:
@@ -102,16 +107,17 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
                  if event.action_id == "action-buy" and event.data.get("resource_changes")]
     assert len(all_money) == 1
 
-    advance_next(engine)
+    advance_until_ready(engine)  # 重放到配送到达的唤醒边界（delivery_arrival）
     route = next(item for item in engine.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office" and item.mode == "driving")
     travel = StartTravelRequest(destination_id="office", travel_mode="driving",
                                 planned_duration_seconds=travel_quote(engine, "driving", route.duration_seconds))
     travel_observation, _ = _observed_action(engine, "to-office", "start_travel", travel)
-    assert len(travel_observation["pending_deliveries"]) == 1
+    assert len(travel_observation["pending_deliveries"]) == 0  # 配送在到达唤醒边界已交付
     advance_next(engine)
     assert engine.state.agents[1].location_id == "office"
     after_fare = dict(engine.state.accounts)
+    advance_until_ready(engine)  # 出行完成边界重放不重复付款
     _observed_action(engine, "travel-replay", "start_travel", travel, action_id="action-to-office")
     assert engine.state.accounts == after_fare
     travel_money = [event for event in engine.store.read_agent_events("action_result", 1)
@@ -121,13 +127,15 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
         "account:agent:1": -route.fare_fen,
         f"account:{engine.scenario.transport_account_id}": route.fare_fen,
     }
-    advance_next(engine)
+    advance_until_ready(engine)  # 出行完成后的下一决策（配送已交付家中）
     _observed_action(
         engine, "sleep-for-delivery", "start_basic_activity",
         StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
-    advance_next(engine)
-    assert engine.state.agents[1].current_activity_id is not None
-    advance_next(engine)
+    while engine.scheduling_state().next_event_at is not None:
+        if engine.scheduling_state().ready_agent_ids:
+            break
+        advance_next(engine)
+    assert engine.state.agents[1].location_id == "office"
     delivered = engine.observe(context(engine, "after-delivery"))
     assert delivered["pending_deliveries"] == []
     assert delivered["inventory"]["home"][product.product_id] == 1
@@ -159,7 +167,8 @@ def test_purchase_rejects_each_resource_boundary_without_mutating_input(engine_f
     state = engine.state.model_copy(deep=True)
     request = _delivery_request(engine, product.product_id)
     if mutation == "price":
-        request = request.model_copy(update={"price_version": "wrong"})
+        item = request.items[0].model_copy(update={"price_version": "wrong"})
+        request = request.model_copy(update={"items": (item,)})
     elif mutation == "funds":
         accounts = dict(state.accounts)
         accounts[state.agents[1].balance_account_id] = 0
@@ -175,9 +184,11 @@ def test_purchase_rejects_each_resource_boundary_without_mutating_input(engine_f
     elif mutation == "pickup":
         request = request.model_copy(update={"fulfillment": FulfillmentKind.PICKUP,
                                              "destination_id": product.merchant_location_id})
+    from worldmock.life.basket import purchase_order
+
     frozen = state.model_dump(mode="json")
     with pytest.raises(BusinessRuleError, match=code):
-        purchase(state, engine.scenario, 1, request)
+        purchase_order(state, engine.scenario, 1, request)
     assert state.model_dump(mode="json") == frozen
 
 
@@ -187,7 +198,7 @@ def test_food_progress_persists_partial_quantity_across_pause_and_completion(eng
     product = engine.scenario.products[0]
     agent = engine.state.agents[1].model_copy(
         update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True)
-    request = ConsumeRequest(product_id=product.product_id, quantity=1, use_mode="eat",
+    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
                              duration_seconds=product.use_duration_seconds)
     activity = ActivityState(
         activity_id="food-progress", agent_id=1, kind="consume", status=ActivityStatus.ACTIVE,
@@ -195,20 +206,20 @@ def test_food_progress_persists_partial_quantity_across_pause_and_completion(eng
         planned_duration_seconds=900, target_id=product.product_id,
         origin_action_id="eat", origin_decision_id="eat-decision",
         origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json")})
-    first = apply_product_progress(agent, product, activity, engine.scenario.body)
-    assert first.consumed_quantity == pytest.approx(0.5)
-    assert first.agent.inventory["home"][product.product_id] == pytest.approx(1.5)
-    assert first.settlement is not None
-    paused = activity.model_copy(update={"status": ActivityStatus.PAUSED,
-                                         "data": {"request": request.model_dump(mode="json"),
-                                                  "consumed_quantity": first.consumed_quantity}}, deep=True)
-    repeated = apply_product_progress(first.agent, product, paused, engine.scenario.body)
-    assert repeated.agent == first.agent and repeated.consumed_quantity == pytest.approx(0.5)
+    from worldmock.life.basket import apply_meal_progress
+
+    first = apply_meal_progress(agent, engine.rules.products, activity, engine.scenario.body)
+    assert activity.data["consumed"][product.product_id] == pytest.approx(0.5)
+    assert first.inventory["home"][product.product_id] == pytest.approx(1.5)
+    paused = activity.model_copy(update={"status": ActivityStatus.PAUSED}, deep=True)
+    repeated = apply_meal_progress(first, engine.rules.products, paused, engine.scenario.body)
+    assert repeated.inventory["home"][product.product_id] == first.inventory["home"][product.product_id]
+    assert paused.data["consumed"][product.product_id] == pytest.approx(0.5)
     completed = paused.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 900,
                                           "last_settled_at": 900, "elapsed_seconds": 900}, deep=True)
-    final = apply_product_progress(repeated.agent, product, completed, engine.scenario.body)
-    assert final.consumed_quantity == pytest.approx(1)
-    assert final.agent.inventory["home"][product.product_id] == pytest.approx(1)
+    final = apply_meal_progress(repeated, engine.rules.products, completed, engine.scenario.body)
+    assert completed.data["consumed"][product.product_id] == pytest.approx(1)
+    assert final.inventory["home"][product.product_id] == pytest.approx(1)
 
 
 def test_consume_rejects_inventory_held_at_another_location(engine_factory) -> None:
@@ -224,7 +235,7 @@ def test_consume_rejects_inventory_held_at_another_location(engine_factory) -> N
                        visibility="system", data={"kind": "test_remote_inventory"})
     engine.store.commit(staged.model_dump(mode="json"), [event])
     engine.state = staged
-    request = ConsumeRequest(product_id=product.product_id, quantity=1, use_mode="eat",
+    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
                              duration_seconds=product.use_duration_seconds)
     _, result = _observed_action(engine, "remote-eat", "consume", request)
     assert result.status == "rejected" and result.error_code == "PRODUCT_NOT_HELD"
@@ -236,9 +247,13 @@ def test_delivery_replay_does_not_duplicate_inventory(engine_factory) -> None:
     engine = engine_factory()
     _stage_open(engine)
     product = engine.scenario.products[0]
-    outcome = purchase(engine.state, engine.scenario, 1, _delivery_request(engine, product.product_id))
-    first, order = deliver_order(outcome.state, outcome.delivery.order_id)
-    second, replayed = deliver_order(first, outcome.delivery.order_id)
+    from worldmock.life.basket import purchase_order
+
+    outcome = purchase_order(engine.state, engine.scenario, 1,
+                             _delivery_request(engine, product.product_id))
+    order_id = outcome.orders[0].order_id
+    first, order = deliver_order(outcome.state, order_id)
+    second, replayed = deliver_order(first, order_id)
     assert order.status == replayed.status == "delivered"
     assert first.agents[1].inventory == second.agents[1].inventory
     assert second.agents[1].inventory["home"][product.product_id] == 1

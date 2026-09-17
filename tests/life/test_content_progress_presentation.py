@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, browse_activities, context
+from tests.life.conftest import wake_by_mail, advance_next, browse_activities, context
 from worldmock.life.content import load_subtitles
 from worldmock.life.models import SetActivityStateRequest, StartTargetedActivityRequest
 from worldmock.life.scenario import load_scenario
@@ -72,11 +72,13 @@ def test_started_entry_merges_progress_aligned_with_real_timeline(engine_factory
         StartTargetedActivityRequest(activity_type="watch", target_id=NOVEL_ID,
                                      planned_duration_seconds=1800, playback_speed=1))
     assert started.status.value == "in_progress"
-    advance_next(engine)  # 首个反馈边界：t0+900，媒体位置 0->900
     activity_id = started.activity_id
+    wake_by_mail(engine)  # t0+900 边界经 message_arrival 提供决策：媒体位置 0->900
+    advance_next(engine)
     _observed_action(engine, "pause", "set_activity_state",
                      SetActivityStateRequest(activity_id=activity_id, operation="pause"))
-    advance_next(engine)  # 暂停后下一决策边界
+    wake_by_mail(engine)  # 暂停后的下一决策边界（邮件唤醒）
+    advance_next(engine)
 
     novel = _browsed_entry(engine, "webnovel_excerpt", NOVEL_ID, "browse-novel-started")
     completed = sum(1 for cue in cues if cue.end_seconds <= 900)
@@ -87,8 +89,8 @@ def test_started_entry_merges_progress_aligned_with_real_timeline(engine_factory
     assert novel["progress"]["segments_completed"] == completed
     assert novel["progress"]["segments_remaining"] == NOVEL_SEGMENTS - completed
     assert novel["progress"]["current_segment"] == completed + 1
+    wake_by_mail(engine)  # 下一次决策再下钻相邻品类
     advance_next(engine)
-    # 未开始的相邻品类条目仍无 progress 键
     assert "progress" not in _browsed_entry(engine, "feature_film", "movie-0001", "browse-movie-unstarted")
 
 
@@ -100,18 +102,16 @@ def test_pause_resume_keeps_content_position(engine_factory) -> None:
         StartTargetedActivityRequest(activity_type="watch", target_id=NOVEL_ID,
                                      planned_duration_seconds=1800, playback_speed=1)
     ).activity_id
-    advance_next(engine)  # t0+900：位置 0->900
-
+    wake_by_mail(engine)  # t0+900：位置 0->900（邮件唤醒提供决策）
+    advance_next(engine)
     _observed_action(engine, "pause", "set_activity_state",
                      SetActivityStateRequest(activity_id=activity_id, operation="pause"))
-    paused_at = engine.state.current_time
+    wake_by_mail(engine)  # 暂停期间下钻：位置冻结在 900，不丢失也不前进
     advance_next(engine)
-    assert engine.state.current_time == paused_at + 1
-    # 暂停期间下钻：位置冻结在 900，不丢失也不前进
     paused_entry = _browsed_entry(engine, "webnovel_excerpt", NOVEL_ID, "browse-novel-paused")
     assert paused_entry["progress"]["position_seconds"] == 900
+    wake_by_mail(engine)  # 恢复决策边界
     advance_next(engine)
-
     _observed_action(engine, "resume", "set_activity_state",
                      SetActivityStateRequest(activity_id=activity_id, operation="resume"))
     advance_next(engine)  # 恢复后推进到新结束边界：位置 900->1800
@@ -124,3 +124,4 @@ def test_pause_resume_keeps_content_position(engine_factory) -> None:
     assert final_entry["progress"]["position_seconds"] == 1800
     assert final_entry["progress"]["segments_completed"] == completed
     assert final_entry["progress"]["current_segment"] == completed + 1
+
