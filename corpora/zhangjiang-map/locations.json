@@ -1,0 +1,309 @@
+{
+  "schema_version": 1,
+  "corpus_id": "zhangjiang-locations-2026-09-18",
+  "description": "地点品类语料：从冻结张江 OSM 探针选取的真实兴趣点（含冻结场景锚点），带营业时间与可供性声明。",
+  "source": {
+    "osm_probe": "corpora/zhangjiang-map/zhangjiang-probe.osm",
+    "retrieved_at_probe": "2026-09-15",
+    "selection_note": "按品类就近选取真实 POI；营业时间在探针无 opening_hours 标签时为 scenario 假设"
+  },
+  "required_kinds": [
+    "home",
+    "office",
+    "canteen_or_restaurant",
+    "convenience_store",
+    "supermarket_or_wet_market",
+    "park_or_fitness"
+  ],
+  "min_per_kind": {
+    "canteen_or_restaurant": 2
+  },
+  "count": 10,
+  "locations": [
+    {
+      "location_id": "home",
+      "name": "张江居所（冻结场景锚点）",
+      "kind": "home",
+      "covers": [
+        "home"
+      ],
+      "latitude": 31.2025,
+      "longitude": 121.6142,
+      "coordinate_source": {
+        "type": "frozen-scenario-anchor",
+        "note": "scenarios/white-collar-12-weeks.json locations[home]，非新造坐标"
+      },
+      "opening_hours": {
+        "opens": "00:00",
+        "closes": "24:00",
+        "basis": "住所无营业时间概念（scenario）"
+      },
+      "affordances": {
+        "morning_routine": {
+          "activity_id": "wellness-morning-wash",
+          "duration_minutes": 15,
+          "corpus": "lifestyle/items.json"
+        },
+        "home_pantry": {
+          "corpus": "scene-stock/home-pantry.json",
+          "initial_breakfast_servings": 7,
+          "consumption_decrements": true,
+          "replenish_via": "supermarket purchase",
+          "basis": "scenario assumption（储备与扣减规则为场景假设并留痕）"
+        },
+        "sleep": true
+      }
+    },
+    {
+      "location_id": "office",
+      "name": "张江高科技园区办公室（冻结场景锚点）",
+      "kind": "office",
+      "covers": [
+        "office"
+      ],
+      "latitude": 31.2108,
+      "longitude": 121.6278,
+      "coordinate_source": {
+        "type": "frozen-scenario-anchor",
+        "note": "scenarios/white-collar-12-weeks.json locations[office]，非新造坐标"
+      },
+      "opening_hours": {
+        "opens": "08:00",
+        "closes": "22:00",
+        "basis": "冻结场景 office open_hour/close_hour"
+      },
+      "affordances": {
+        "pantry_water": {
+          "cost_fen": 0,
+          "duration_minutes": 5,
+          "entertainment_relief_per_hour": 0.05,
+          "basis": "scenario assumption（免费茶水间饮水，微量娱乐缓解=接水间隙刷手机）"
+        },
+        "meeting_room": {
+          "supports": "meeting tasks（会议任务，AMI/中文会议材料）"
+        },
+        "colleagues_present": true
+      }
+    },
+    {
+      "location_id": "poi-3538660453",
+      "name": "菜饭骨头汤",
+      "kind": "restaurant",
+      "covers": [
+        "canteen_or_restaurant"
+      ],
+      "latitude": 31.2048913,
+      "longitude": 121.6166504,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538660453
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "10:00",
+        "closes": "21:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "dine_in": true,
+        "takeaway": true,
+        "meal_objects": "catalog meal-*（堂食）"
+      }
+    },
+    {
+      "location_id": "poi-3538682404",
+      "name": "鼎盛川菜",
+      "kind": "restaurant",
+      "covers": [
+        "canteen_or_restaurant"
+      ],
+      "latitude": 31.2057286,
+      "longitude": 121.6169261,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538682404
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "10:30",
+        "closes": "21:30",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "dine_in": true,
+        "takeaway": true,
+        "meal_objects": "catalog meal-*（堂食）"
+      }
+    },
+    {
+      "location_id": "poi-3538682408",
+      "name": "三十六道金牌煲仔饭",
+      "kind": "restaurant",
+      "covers": [
+        "canteen_or_restaurant"
+      ],
+      "latitude": 31.2061927,
+      "longitude": 121.6170379,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538682408
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "10:00",
+        "closes": "21:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "dine_in": true,
+        "takeaway": true,
+        "meal_objects": "catalog meal-*（堂食）"
+      }
+    },
+    {
+      "location_id": "poi-3538682402",
+      "name": "好德",
+      "kind": "convenience_store",
+      "covers": [
+        "convenience_store"
+      ],
+      "latitude": 31.2055062,
+      "longitude": 121.6167248,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538682402
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "07:00",
+        "closes": "23:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "quick_purchase": "catalog food-*（便利店即食品）"
+      }
+    },
+    {
+      "location_id": "poi-3538763552",
+      "name": "农工商超市",
+      "kind": "supermarket",
+      "covers": [
+        "supermarket_or_wet_market"
+      ],
+      "latitude": 31.2061428,
+      "longitude": 121.6127158,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538763552
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "07:30",
+        "closes": "22:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "grocery_purchase": true,
+        "replenishes": "home pantry（早餐储备补充）"
+      }
+    },
+    {
+      "location_id": "poi-3538684972",
+      "name": "紫薇菜市场",
+      "kind": "wet_market",
+      "covers": [
+        "supermarket_or_wet_market"
+      ],
+      "latitude": 31.2071006,
+      "longitude": 121.6162677,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 3538684972
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "06:30",
+        "closes": "19:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "fresh_purchase": true
+      }
+    },
+    {
+      "location_id": "poi-1868478037",
+      "name": "篮球场",
+      "kind": "fitness",
+      "covers": [
+        "park_or_fitness"
+      ],
+      "latitude": 31.2020801,
+      "longitude": 121.6183492,
+      "coordinate_source": {
+        "type": "osm-probe-node",
+        "osm": {
+          "type": "node",
+          "id": 1868478037
+        },
+        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
+      },
+      "opening_hours": {
+        "opens": "06:00",
+        "closes": "22:00",
+        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      },
+      "affordances": {
+        "sport_activities": [
+          "lifestyle:sport-basketball"
+        ]
+      }
+    },
+    {
+      "location_id": "poi-337936012",
+      "name": "紫薇公园",
+      "kind": "park",
+      "covers": [
+        "park_or_fitness"
+      ],
+      "latitude": 31.2023337,
+      "longitude": 121.6105584,
+      "coordinate_source": {
+        "type": "osm-probe-way-centroid",
+        "osm": {
+          "type": "way",
+          "id": 337936012
+        },
+        "note": "way 成员节点均值质心（13/13 个带坐标节点）"
+      },
+      "opening_hours": {
+        "opens": "00:00",
+        "closes": "24:00",
+        "basis": "市政公园全天开放（scenario 假设）"
+      },
+      "affordances": {
+        "outdoor_activities": [
+          "lifestyle:outdoor-park-walk",
+          "lifestyle:jogging"
+        ]
+      }
+    }
+  ]
+}

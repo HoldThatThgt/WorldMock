@@ -4,5 +4,12 @@
   "visual_experience": false,
   "movie_url": "https://download.blender.org/durian/movies/Sintel.2010.720p.mkv.zip",
   "reported_content_length_bytes": 681285470,
-  "license": "CC-BY-3.0"
+  "license": "CC-BY-3.0",
+  "genre": [
+    "动画",
+    "奇幻"
+  ],
+  "language": "en",
+  "age_rating": 13,
+  "age_rating_basis": "scenario assumption：Blender 开源短片含打斗与角色死亡情节，参照级 13+"
 }

@@ -71,11 +71,13 @@ def test_resources_catalog_shape():
 def test_objects_catalog_shape():
     objects = _load(ROOT / "catalog/objects.jsonl")
     kinds = Counter(o["object_kind"] for o in objects)
-    assert kinds == Counter({"product": 129, "service": 1, "contract": 3})
+    assert kinds == Counter({"product": 159, "service": 1, "contract": 3})
     foods = [o for o in objects if o["object_id"].startswith("food-")]
+    meals = [o for o in objects if o["object_id"].startswith("meal-")]
     durables = [o for o in objects if o["object_id"].startswith("item-")]
     assert len(foods) == 121 and len(durables) == 8
     assert len(foods) >= 100, "food catalog must hold >=100 entries"
+    assert len(meals) == 30, "meal catalog must hold the 30 contract meals"
     for food in foods:
         consume = [e for e in food["edges"] if e["on"] == "consume"]
         assert len(consume) == 1 and consume[0]["type"] == "source"
@@ -186,7 +188,16 @@ def test_food_catalog_kcal_per_fen_spectrum():
 
 def test_manifest_and_overrides_layout():
     manifest = json.loads((ROOT / "catalog/manifest.json").read_text(encoding="utf-8"))
-    assert manifest == {"version_major": 1, "version_minor": 2}
+    assert manifest["version_major"] == 2 and manifest["version_minor"] == 0
+    requirements = manifest["category_requirements"]
+    assert requirements["meals"]["min_count"] == 30
+    assert requirements["location_min_per_kind"] == {"canteen_or_restaurant": 2}
+    assert requirements["home_pantry"]["breakfast_servings_min"] == 7
+    assert requirements["content_metadata"]["max_age_rating"] == 17
+    assert requirements["work_materials"]["min_distinct"] == 20
+    assert requirements["lifestyle_fields"] == [
+        "location_kinds", "time_window", "needs_partner", "effects"]
+    assert requirements["contacts"]["min_per_persona"] == 2
     tombstones = ROOT / "catalog/overrides/tombstones.jsonl"
     assert tombstones.is_file()
     assert tombstones.read_text(encoding="utf-8") == ""
@@ -207,10 +218,11 @@ def test_every_numeric_value_has_exactly_one_provenance_part():
 
 def test_real_catalog_loads_through_package():
     catalog = load_catalog(ROOT / "catalog")
-    assert (catalog.version_major, catalog.version_minor) == (1, 2)
+    assert (catalog.version_major, catalog.version_minor) == (2, 0)
     assert set(catalog.resources) == {
         "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"}
-    assert len(catalog.objects) == 133
+    assert len(catalog.objects) == 163
+    assert sum(1 for key in catalog.objects if key.startswith("meal-")) == 30
     assert set(catalog.formulas) == {"travel-fare", "travel-time"}
     fare = catalog.formulas["travel-fare"]
     assert fare.branches["walking"].amount == 0

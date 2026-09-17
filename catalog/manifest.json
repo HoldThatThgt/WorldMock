@@ -1,4 +1,64 @@
 {
-  "version_major": 1,
-  "version_minor": 2
+  "version_major": 2,
+  "version_minor": 0,
+  "category_requirements": {
+    "declared_at": "2026-09-18",
+    "spec": "docs/agentsociety2-design.md world-material category table (L1635-1650)",
+    "meals": {
+      "min_count": 30,
+      "price_fen_min": 1500,
+      "price_fen_max": 4500,
+      "duration_minutes_min": 20,
+      "duration_minutes_max": 40,
+      "energy_databases": [
+        "USDA FNDDS",
+        "中国食物成分表"
+      ]
+    },
+    "location_required_kinds": [
+      "home",
+      "office",
+      "canteen_or_restaurant",
+      "convenience_store",
+      "supermarket_or_wet_market",
+      "park_or_fitness"
+    ],
+    "location_min_per_kind": {
+      "canteen_or_restaurant": 2
+    },
+    "home_pantry": {
+      "breakfast_servings_min": 7,
+      "morning_wash_minutes": 15
+    },
+    "office_affordances": [
+      "pantry_water",
+      "meeting_room",
+      "colleagues_present"
+    ],
+    "content_metadata": {
+      "fields": [
+        "title",
+        "genre",
+        "language",
+        "age_rating"
+      ],
+      "max_age_rating": 17
+    },
+    "work_materials": {
+      "min_distinct": 20,
+      "language": "zh",
+      "horizon_days": 84
+    },
+    "lifestyle_fields": [
+      "location_kinds",
+      "time_window",
+      "needs_partner",
+      "effects"
+    ],
+    "contacts": {
+      "min_per_persona": 2,
+      "colleague_reply_policy": "persona",
+      "other_reply_policy": "model"
+    }
+  }
 }

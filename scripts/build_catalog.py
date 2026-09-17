@@ -10,9 +10,12 @@ corpora/foods/expansion2.json (>=70 barcodes derived from the larger
 china-pool.json raw pool; same off-foods mapping fallback; per-category
 credible kcal density windows enforced at generation time; prices anchored to
 frozen baseline foods +/-30% with fixed seeds per wave) and
-corpora/manifest.json, then emits the v1 static catalog per
+corpora/manifest.json, plus corpora/meals/items.json (30 contract meals with
+USDA FNDDS calorie provenance), then emits the static catalog per
 docs/resource-registry-design.md (§3/§4.2/§5/§13): catalog/resources.jsonl,
-catalog/objects.jsonl, catalog/manifest.json (1.2) and an empty
+catalog/objects.jsonl (121 foods + 30 meals + 8 durables + travel + contracts),
+catalog/manifest.json (2.0, carrying the versioned world-material
+category_requirements declaration) and an empty
 catalog/overrides/tombstones.jsonl.
 
 It no longer reads scenarios/ — scenario ↔ catalog equivalence is owned by
@@ -51,8 +54,43 @@ LIFESTYLE_ITEMS = ROOT / "corpora/lifestyle/items.json"
 FOOD_EXPANSION = FOODS_DIR / "expansion.json"
 FOOD_EXPANSION2 = FOODS_DIR / "expansion2.json"
 CORPUS_MANIFEST = ROOT / "corpora/manifest.json"
+MEALS_CORPUS = ROOT / "corpora/meals/items.json"
 RULES_DIR = ROOT / "catalog/rules"
 HEAD = "cd2586b"
+
+#: 修订合同《世界素材品类要求》的版本化声明：随 catalog/manifest.json 冻结，
+#: 场景启动准入（admission.validate_world_categories）逐条执行，不满足即拒绝启动。
+#: 阈值即合同原文（docs/agentsociety2-design.md §世界素材品类要求）。
+CATEGORY_REQUIREMENTS = {
+    "declared_at": "2026-09-18",
+    "spec": "docs/agentsociety2-design.md world-material category table (L1635-1650)",
+    "meals": {
+        "min_count": 30,
+        "price_fen_min": 1500,
+        "price_fen_max": 4500,
+        "duration_minutes_min": 20,
+        "duration_minutes_max": 40,
+        "energy_databases": ["USDA FNDDS", "\u4e2d\u56fd\u98df\u7269\u6210\u5206\u8868"],
+    },
+    "location_required_kinds": [
+        "home", "office", "canteen_or_restaurant", "convenience_store",
+        "supermarket_or_wet_market", "park_or_fitness",
+    ],
+    "location_min_per_kind": {"canteen_or_restaurant": 2},
+    "home_pantry": {"breakfast_servings_min": 7, "morning_wash_minutes": 15},
+    "office_affordances": ["pantry_water", "meeting_room", "colleagues_present"],
+    "content_metadata": {
+        "fields": ["title", "genre", "language", "age_rating"],
+        "max_age_rating": 17,
+    },
+    "work_materials": {"min_distinct": 20, "language": "zh", "horizon_days": 84},
+    "lifestyle_fields": ["location_kinds", "time_window", "needs_partner", "effects"],
+    "contacts": {
+        "min_per_persona": 2,
+        "colleague_reply_policy": "persona",
+        "other_reply_policy": "model",
+    },
+}
 
 #: 食品扩容的价格锚定表（条码 → 品类标签 + 锚定对象）。锚定对象必须是
 #: 冻结基线 8 条食品之一，价格按锚 ±30% 以固定种子采样（anchored 溯源）。
@@ -577,6 +615,75 @@ def expansion2_prices(entries: list[dict], frozen_foods: list[dict]) -> dict[str
     return prices
 
 
+def load_meals() -> list[dict]:
+    """@brief 读取正餐语料并做合同窗口校验（数量/价格/时长/来源逐条）。"""
+    document = load_json(MEALS_CORPUS)
+    meals = document["items"]
+    assert len(meals) >= CATEGORY_REQUIREMENTS["meals"]["min_count"], \
+        f"meals corpus holds {len(meals)} below contract minimum"
+    for meal in meals:
+        window = CATEGORY_REQUIREMENTS["meals"]
+        assert window["price_fen_min"] <= meal["price_fen"] <= window["price_fen_max"], \
+            f"{meal['meal_id']}: price outside 15-45 yuan window"
+        assert window["duration_minutes_min"] <= meal["meal_duration_minutes"] \
+            <= window["duration_minutes_max"], f"{meal['meal_id']}: duration outside window"
+        assert meal["dine_in"] or meal["delivery"], f"{meal['meal_id']}: no dine-in nor delivery"
+        source = meal["energy_source"]
+        assert source["energy_kcal_per_100g"] > 0 and source["source_url"] \
+            and source["retrieved_at"] and source["unit_conversion"], \
+            f"{meal['meal_id']}: energy source incomplete"
+        derived = round(source["energy_kcal_per_100g"] * meal["serving"]["quantity"] / 100.0)
+        assert derived == meal["energy_kcal_per_serving"], \
+            f"{meal['meal_id']}: kcal {meal['energy_kcal_per_serving']} != derived {derived}"
+    return meals
+
+
+def meal_object(meal: dict, meals_sha: str) -> dict:
+    """@brief 由正餐语料条目构造目录对象（consume 事实边 + purchase 场景价边）。"""
+    source = meal["energy_source"]
+    duration_seconds = meal["meal_duration_minutes"] * 60
+    return {
+        "object_id": meal["meal_id"],
+        "name": meal["name_zh"],
+        "object_kind": "product",
+        "effect": "nutrition",
+        "consumable": True,
+        "use_modes": ["eat"],
+        "edges": [
+            {"on": "purchase", "type": "transfer", "from": "{buyer}", "to": "{merchant}",
+             "amount_fen": meal["price_fen"],
+             "account_roles": {"from": "buyer", "to": "merchant:restaurant"}},
+            {"on": "consume", "type": "source", "resource": "energy_kcal",
+             "amount": meal["energy_kcal_per_serving"], "duration_s": duration_seconds},
+        ],
+        "stock": {"initial": 40, "restock": "none"},
+        "use_duration_seconds": duration_seconds,
+        "delivery_delay_seconds": meal["delivery_delay_seconds"] or 1800,
+        "serving": {"quantity": meal["serving"]["quantity"], "unit": meal["serving"]["unit"]},
+        "required_location_id": None,
+        "provenance": [
+            {"part": "consume energy edge", "paths": ["edges[1].amount"],
+             "type": "fact",
+             "source": f"USDA FNDDS fdc:{source['fdc_id']} ({source['food_description']})",
+             "artifact": f"corpora/meals/items.json (sha256 {meals_sha})",
+             "note": (f"kcal = {source['energy_kcal_per_100g']} kcal/100g x"
+                      f" {meal['serving']['quantity']} g / 100; no ml-to-g conversion;"
+                      " FNDDS recorded values not adjusted")},
+            {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
+             "type": "scenario", "source": meal["price_assumption"],
+             "note": "price_version zhangjiang-2026-q1-meals"},
+            {"part": "stock", "paths": ["stock.initial"],
+             "type": "scenario", "source": "legacy-scenario-product"},
+            {"part": "meal timing/serving fields",
+             "paths": ["edges[1].duration_s", "use_duration_seconds",
+                       "delivery_delay_seconds", "serving.quantity"],
+             "type": "scenario",
+             "source": "meal corpus scenario assumptions (duration 20-40 min per contract)"},
+        ],
+        "version": 1,
+    }
+
+
 def travel_object(transport_account_id: str) -> dict:
     return {
         "object_id": "travel-service",
@@ -689,6 +796,9 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
         foods_entry = next(e for e in manifest["entries"] if e["path"] == f"foods/{name}")
         assert sha256_of(FOODS_DIR / name) == foods_entry["sha256"], \
             f"foods/{name}: sha256 mismatch vs corpus manifest"
+    meals_entry = next(e for e in manifest["entries"] if e["path"] == "meals/items.json")
+    assert sha256_of(MEALS_CORPUS) == meals_entry["sha256"], \
+        "meals/items.json: sha256 mismatch vs corpus manifest"
 
     # contract templates cover every legacy contract kind
     assert set(CONTRACT_FORMULAS) == {"hourly", "piece", "package"}
@@ -751,6 +861,9 @@ def build() -> dict[str, str]:
     expansion2_sha = sha256_of(FOOD_EXPANSION2)
     prices2 = expansion2_prices(expansion2_entries, parts["foods"])
 
+    meals = load_meals()
+    meals_sha = sha256_of(MEALS_CORPUS)
+
     # 基础活动 MET 来自冻结快照；生活活动 MET 来自语料目录（引擎按
     # lifestyle:<id> 查表，语义层校验基础键封闭 + lifestyle 键开放）。
     body = dict(snapshot["body"])
@@ -772,14 +885,18 @@ def build() -> dict[str, str]:
                               artifact="corpora/foods/expansion2.json",
                               price_seed=FOOD2_PRICE_SEED)
         for entry in sorted(expansion2_entries, key=lambda item: item["barcode"])]
+    meal_objects = [meal_object(meal, meals_sha) for meal in sorted(meals, key=lambda m: m["meal_id"])]
     objects = (frozen_food_objects + expansion_food_objects + expansion2_food_objects
+               + meal_objects
                + [product_object(p, {}, off_sha) for p in parts["items"]]
                + [travel_object(snapshot["transport_account_id"])]
                + contract_objects(body, snapshot["employer_account_id"]))
 
     assert len(resources) == 4, f"expected 4 resources, got {len(resources)}"
-    assert len(objects) == 45 + len(expansion2_entries), \
-        f"expected {45 + len(expansion2_entries)} objects (16+25+{len(expansion2_entries)}+1+3), got {len(objects)}"
+    expected_objects = 45 + len(expansion2_entries) + len(meal_objects)
+    assert len(objects) == expected_objects, (
+        f"expected {expected_objects} objects (16+25+{len(expansion2_entries)}"
+        f"+{len(meal_objects)} meals+1+3), got {len(objects)}")
     for entry in resources + objects:
         assert_full_coverage(entry["resource_id"] if "resource_id" in entry
                              else entry["object_id"], entry)
@@ -790,7 +907,9 @@ def build() -> dict[str, str]:
         "catalog/objects.jsonl": "".join(
             json.dumps(e, ensure_ascii=False) + "\n" for e in objects),
         "catalog/manifest.json": json.dumps(
-            {"version_major": 1, "version_minor": 2}, indent=2) + "\n",
+            {"version_major": 2, "version_minor": 0,
+             "category_requirements": CATEGORY_REQUIREMENTS},
+            ensure_ascii=False, indent=2) + "\n",
         "catalog/overrides/tombstones.jsonl": "",
     }
 

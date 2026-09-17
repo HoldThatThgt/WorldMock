@@ -372,11 +372,69 @@ class Tombstone(CatalogModel):
     superseded_by: str | None = Field(default=None, pattern=r"\S")
 
 
+class MealRequirements(CatalogModel):
+    """@brief 正餐品类的版本化要求：数量、价格与时长窗口、允许的热量数据库。"""
+
+    min_count: int = Field(ge=1)
+    price_fen_min: int = Field(ge=0)
+    price_fen_max: int = Field(ge=1)
+    duration_minutes_min: int = Field(ge=1)
+    duration_minutes_max: int = Field(ge=1)
+    energy_databases: tuple[str, ...] = Field(min_length=1)
+
+
+class ContentMetadataRequirements(CatalogModel):
+    """@brief 内容元数据品类的版本化要求：必备字段与白领场景年龄上限。"""
+
+    fields: tuple[str, ...] = Field(min_length=1)
+    max_age_rating: int = Field(ge=0)
+
+
+class WorkMaterialRequirements(CatalogModel):
+    """@brief 工作材料品类的版本化要求：去重下限、语言与模拟时域。"""
+
+    min_distinct: int = Field(ge=1)
+    language: str = Field(pattern=r"\S")
+    horizon_days: int = Field(ge=1)
+
+
+class ContactRequirements(CatalogModel):
+    """@brief 联系人品类的版本化要求：每人物下限与两类回复策略。"""
+
+    min_per_persona: int = Field(ge=1)
+    colleague_reply_policy: str = Field(pattern=r"\S")
+    other_reply_policy: str = Field(pattern=r"\S")
+
+
+class PantryRequirements(CatalogModel):
+    """@brief 家的可供性版本化要求：早餐储备份数与晨间洗漱时长。"""
+
+    breakfast_servings_min: int = Field(ge=1)
+    morning_wash_minutes: int = Field(ge=1)
+
+
+class CategoryRequirements(CatalogModel):
+    """@brief 修订合同《世界素材品类要求》的版本化声明（随目录版本冻结）。"""
+
+    declared_at: str = Field(pattern=r"\S")
+    spec: str = Field(pattern=r"\S")
+    meals: MealRequirements
+    location_required_kinds: tuple[str, ...] = Field(min_length=1)
+    location_min_per_kind: Mapping[str, int] = Field(default_factory=dict)
+    home_pantry: PantryRequirements
+    office_affordances: tuple[str, ...] = Field(min_length=1)
+    content_metadata: ContentMetadataRequirements
+    work_materials: WorkMaterialRequirements
+    lifestyle_fields: tuple[str, ...] = Field(min_length=1)
+    contacts: ContactRequirements
+
+
 class CatalogManifest(CatalogModel):
-    """@brief 目录版本清单：major 语义变更，minor 纯增量。"""
+    """@brief 目录版本清单：major 语义变更，minor 纯增量；可携带品类要求声明。"""
 
     version_major: int = Field(ge=1)
     version_minor: int = Field(ge=0)
+    category_requirements: CategoryRequirements | None = None
 
 
 @dataclass(frozen=True)
@@ -389,6 +447,7 @@ class Catalog:
     objects: Mapping[str, ExchangeObject]
     formulas: Mapping[str, FormulaDeclaration]
     tombstones: Mapping[str, Tombstone]
+    category_requirements: CategoryRequirements | None = None
 
     @staticmethod
     def build(
@@ -414,6 +473,7 @@ class Catalog:
             objects=MappingProxyType(objects),
             formulas=MappingProxyType(formulas),
             tombstones=MappingProxyType(tombstones),
+            category_requirements=manifest.category_requirements,
         )
 
     def tombstoned_ids(self) -> frozenset[str]:

@@ -234,13 +234,33 @@ def test_attention_sampling_constants(view) -> None:
 
 def test_attention_required_keys(view) -> None:
     """@brief M4：attention_required=true 键集 = 娱乐 5 + 生活 9 = 14 键
-    （画像编译器与场景准入按此键集出题/核对）。"""
+    （画像键集由注册表驱动：MotivationProfile 动态键按此键集核对）。"""
     expected = {"feature_film", "drama_series", "webnovel_excerpt", "news_feed",
                 "joke_feed", "sport", "hobby", "outdoor", "wellness", "household",
                 "learning", "pet", "social", "volunteer"}
     assert view.attention_required_kinds == frozenset(expected)
-    from worldmock.profile.models import attention_keys
-    assert attention_keys() == tuple(sorted(expected))
+    # 画像旧 API（attention_keys/九参数模型）已删除：键集唯一事实源是注册表；
+    # 场景侧 MotivationProfile 的动态键合同 = 键集精确等于注册表键集
+    # （注册表规则 6；拒绝面由 test_scenario.py 的 attention 用例钉死）。
+    import worldmock.profile.models as profile_models
+    from worldmock.life.scenario import MotivationProfile
+
+    assert not hasattr(profile_models, "attention_keys")
+    profile = MotivationProfile.model_validate({
+        "schema_version": 1,
+        "big_five": {"openness": 4, "conscientiousness": 6, "extraversion": 3,
+                     "agreeableness": 4, "neuroticism": 5},
+        "weights": {"money_fen": 0.45, "energy_kcal": 0.15, "sleep_debt_hours": 0.15,
+                    "entertainment_need": 0.20, "goal_task": 0.05},
+        "tau": 1.0,
+        "beta_present_bias": 0.80,
+        "loss_aversion": {"money_fen": 2.25, "energy_kcal": 1.50},
+        "comfort": {"balance_fen": 20000, "energy_kcal": 1200},
+        "aspiration": {"daily_effective_work_seconds": 14400},
+        "emotion_sensitivity": 0.3,
+        "attention_prior": {kind: 0.5 for kind in sorted(view.attention_required_kinds)},
+    })
+    assert set(profile.attention_prior) == view.attention_required_kinds
 
 
 @pytest.mark.parametrize("tool,activity_type,expected", EXPECTED_HABIT_ROUTES)

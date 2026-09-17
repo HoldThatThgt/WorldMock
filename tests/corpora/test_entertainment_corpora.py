@@ -92,7 +92,9 @@ def test_drama_dialogue_streams_parse() -> None:
         assert item.experience_label == "drama_series_watch"
         cues = load_subtitles(item, Path("corpora"))
         assert len(cues) == drama["lines_selected"]
-        assert cues[-1].end_seconds == item.duration_seconds
+        # 新 drama 语料（zh 整体替换）时长规则 = round(末 cue 结束秒)，
+        # 毫秒尾差合法（10/10 条目按此核对）。
+        assert round(cues[-1].end_seconds) == item.duration_seconds
         assert all(cue.text for cue in cues)
 
 

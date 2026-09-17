@@ -295,8 +295,8 @@
     {
       "entry_id": "sintel:media-identity.json",
       "path": "sintel/media-identity.json",
-      "sha256": "f2ec1ad002a3e45f41ef279578a67ed57432580f74b5025aaaa07db2c6951aac",
-      "size_bytes": 266,
+      "sha256": "cdcf3ac7388e6414f4cce6072a0a5319b88971c495ef8227dae998edf41317b2",
+      "size_bytes": 465,
       "media_type": "application/json",
       "purpose": "sintel",
       "source": {
@@ -791,8 +791,8 @@
     {
       "entry_id": "feed:items.json",
       "path": "feed/items.json",
-      "sha256": "e721bc5ea4233ea9edda375c082bb38fdfeb30030730face8116f0ea6b6443fc",
-      "size_bytes": 659065,
+      "sha256": "fe31baf20bc227e5771c8cf31f10900acf971c6120e4e0f9d5c56e7fa0f0baed",
+      "size_bytes": 739104,
       "media_type": "application/json",
       "purpose": "feed",
       "source": {
@@ -800,7 +800,7 @@
         "url": "https://huggingface.co/datasets/feilongfl/ChineseNewsSummary",
         "retrieved_at": "2026-09-16T17:40:00+08:00",
         "license": "Apache-2.0",
-        "selector": "train.json 16924 records; parse output JSON; keep title>=8 and summary>=30 chars and 150<=len(title)+len(summary)<=300 and class!=爬取失败; dedup by exact title/body; category round-robin sample of 1000 with Random(20260916); estimated_read_seconds=round(chars/5); timeline cue per item; AI-written summaries of RSS news, license per dataset card",
+        "selector": "train.json 16924 records; parse output JSON; keep title>=8 and summary>=30 chars and 150<=len(title)+len(summary)<=300 and class!=爬取失败; dedup by exact title/body; category round-robin sample of 1000 with Random(20260916); estimated_read_seconds=round(chars/5); timeline cue per item; AI-written summaries of RSS news, license per dataset card；同源；v2 增加 genre（category 映射）/language/age_rating（assumption）",
         "fact_cutoff": "2026-09-16"
       }
     },
@@ -823,8 +823,8 @@
     {
       "entry_id": "movies:items.json",
       "path": "movies/items.json",
-      "sha256": "d7756acca56d56898854186a795340d2b98a7592746a18d612c08b023ab67fa1",
-      "size_bytes": 31456,
+      "sha256": "52e76eb02a588b68e3949565fba60177b507b46dda4d17c5f8e96fb5ee0389c1",
+      "size_bytes": 40456,
       "media_type": "application/json",
       "purpose": "movie library index",
       "source": {
@@ -832,7 +832,7 @@
         "url": "https://huggingface.co/datasets/MangoGoes/douban_movie_info",
         "retrieved_at": "2026-09-16T19:00:00+08:00",
         "license": "research-use, no license stated (douban.com crawl)",
-        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60",
+        "selector": "douban_movie_info.csv 30870 rows; dedup by movie_name keep first; keep runtime 40-240min, synopsis>=60 chars, douban score>=6.5, parseable 4-digit year; sort by title; Random(20260916).sample 90; card cue spans full runtime; duration=minutes*60；同源；v2 增加 genre[]/language（地区推断 assumption）与 age_rating=0（全年龄假设，豆瓣源无分级）",
         "fact_cutoff": "2026-09-16"
       }
     },
@@ -2279,8 +2279,8 @@
     {
       "entry_id": "novels:items.json",
       "path": "novels/items.json",
-      "sha256": "7a4b2a996c3bbbb321d5752cb6bada8ff6c66f97012c7894cb4bf5f94754231d",
-      "size_bytes": 2143,
+      "sha256": "767b2ebd1369be87933385f3b96987ab0af7ffc1b621d1e8a3af3e0e6e1f6eef",
+      "size_bytes": 2719,
       "media_type": "application/json",
       "purpose": "webnovel excerpt index",
       "source": {
@@ -2288,7 +2288,7 @@
         "url": "https://huggingface.co/datasets/wdndev/webnovel-chinese",
         "retrieved_at": "2026-09-16T19:00:00+08:00",
         "license": "Apache-2.0",
-        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)",
+        "selector": "webnovel_0.jsonl range-download bytes 0-79999999 (shard is 4183415364 bytes); parse complete records, stop at truncated tail, drop last book; eligible: >=30 chapters in head and mean chapter 800-9000 chars (37 eligible); Random(20260917).sample 6; per book first chapters with cumulative <= 450000 chars (excerpt); cue seconds=max(1,round(chars/5)); duration=round(total_chars/5)；同源；v2 增加 genre/language/age_rating（assumption）",
         "fact_cutoff": "2026-09-16"
       }
     },
@@ -2391,72 +2391,72 @@
     {
       "entry_id": "drama:items.json",
       "path": "drama/items.json",
-      "sha256": "8a85f4dbaa1cc68d45a28e12e598e1e3f35fc901febfd1371260eddcc4aa60d2",
-      "size_bytes": 3509,
+      "sha256": "f547effcaa9fa87a8c8e35affe09e69aecd283f5ac57b27e9bed78ea68596ad3",
+      "size_bytes": 7858,
       "media_type": "application/json",
-      "purpose": "drama dialogue index",
+      "purpose": "drama dialogue index (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）；条目 schema 与 movies/novels 同构（纯列表）；年龄分级逐条 keyword 筛查（scenario 假设）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0001",
       "path": "drama/drama-0001.srt",
-      "sha256": "a13ab23c859b4248a5bd0c59c23c80e95e86f4c803f47ddc7a8992da356b8784",
-      "size_bytes": 359837,
+      "sha256": "f750932496bd45f6f9115fe79009a3f2a58140e9fbfedc8cb7247ca0ed78c08d",
+      "size_bytes": 74068,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0002",
       "path": "drama/drama-0002.srt",
-      "sha256": "4c96081201ebe00731af4b15931b8335b830e8502c99d5754d6aa1fe34d2a43e",
-      "size_bytes": 405239,
+      "sha256": "c39dd464a2725b74f8c7d2a4db535d7f8791dc9b0cc1214c409b00571483894f",
+      "size_bytes": 68834,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0003",
       "path": "drama/drama-0003.srt",
-      "sha256": "3fa4c869979eab9461a60b84a403462401d91719459f82a62aa216341ed969c6",
-      "size_bytes": 466194,
+      "sha256": "177706cde95e9496c8a07ac155e5ff719019423b0810384055c7889be502acd1",
+      "size_bytes": 62272,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T19:00:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, Parsed/*.txt per-script dialogue streams; note the 343MB visual-novels-parsed.tar.zst holds raw engine scripts); eligible: 500-6000 non-empty lines after dropping ====script-file banner==== separators, 20000-2000000 chars, >=95% ascii lines in first 200; sort by title; Random(20260918).sample 3; per work first lines <= 700000 chars (excerpt); cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "jokes:items.json",
       "path": "jokes/items.json",
-      "sha256": "d6a06bf2083c666d94e84ee26025275e98004ea4e65fdb79b5ff472ea9a4b55f",
-      "size_bytes": 3477344,
+      "sha256": "83857540c76e97dec1ea6a72faea6d8d1b6607a32a6623f8acf53a432c802b51",
+      "size_bytes": 4467163,
       "media_type": "application/json",
       "purpose": "joke feed index",
       "source": {
@@ -2464,7 +2464,7 @@
         "url": "https://huggingface.co/datasets/notsobad9527/chinese-joke",
         "retrieved_at": "2026-09-16T19:00:00+08:00",
         "license": "Apache-2.0",
-        "selector": "jokes.csv strip 13 NUL-byte prefix; 16055 csv rows (6 cols); dedup by body; keep 75<=len(body)<=200 chars (15-40s at 5 chars/s; 10318 in range); Random(20260919) shuffle take first 6000; one cue per joke, seconds=round(chars/5)",
+        "selector": "jokes.csv strip 13 NUL-byte prefix; 16055 csv rows (6 cols); dedup by body; keep 75<=len(body)<=200 chars (15-40s at 5 chars/s; 10318 in range); Random(20260919) shuffle take first 6000; one cue per joke, seconds=round(chars/5)；同源；v2 增加 genre/language/age_rating（关键词筛查 assumption）；title 为正文首句截断的场景标注（assumption）",
         "fact_cutoff": "2026-09-16"
       }
     },
@@ -8583,113 +8583,113 @@
     {
       "entry_id": "drama:drama-0004",
       "path": "drama/drama-0004.srt",
-      "sha256": "f9dc77000275add1d7b2d3b79bbbf3a916b7dc479edf1269736cadca1b09326b",
-      "size_bytes": 453978,
+      "sha256": "965437995c254f541aaae08b208e471b3bc6cefac183aa8ec225eb52c36f8aa8",
+      "size_bytes": 61873,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0005",
       "path": "drama/drama-0005.srt",
-      "sha256": "92c1a8e9d6bbe6f02abd640e10930d5f3d8d639c512f09340dc4f2e5b47c9a7b",
-      "size_bytes": 281375,
+      "sha256": "d7b688f25d8bbef92a787c1aba605f8ec0ad5bca19a555591c56fb8336d1213b",
+      "size_bytes": 58904,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0006",
       "path": "drama/drama-0006.srt",
-      "sha256": "bbdcb1c7fe4ed357892e902ce6370e78467bba4f4111781d1373f22e3f07b104",
-      "size_bytes": 473608,
+      "sha256": "b2e5b50c3803f2dc53dc03141f7ad44d17693270556aaa969759a056ac831f75",
+      "size_bytes": 61660,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0007",
       "path": "drama/drama-0007.srt",
-      "sha256": "37bd42bdba80383ed09a373399d1907cad018a62597807c7ebd1153a19aad10a",
-      "size_bytes": 439743,
+      "sha256": "ee11783d4027e65afff57cc011d2edd398227fb6797b2f91b7795f421ecc668f",
+      "size_bytes": 56008,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0008",
       "path": "drama/drama-0008.srt",
-      "sha256": "4c5699e75d3323c6e35413ce0abf0681d45d14f9dfffb8218598430044d31591",
-      "size_bytes": 403716,
+      "sha256": "8c0760034f687468d106647fff72a6006b0e80f2f6a01f2c18ce898deb7fa933",
+      "size_bytes": 56780,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0009",
       "path": "drama/drama-0009.srt",
-      "sha256": "5761dd7dd8a30380541cf421b8be096a81a59aaea97c1d38045d4f172c508e56",
-      "size_bytes": 597632,
+      "sha256": "55d507bdcbdc3ea6e6d9ded093ce9e85cfa5e58b6e7fc3d18ae7978c15607756",
+      "size_bytes": 56309,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
       "entry_id": "drama:drama-0010",
       "path": "drama/drama-0010.srt",
-      "sha256": "c3dccdc21338ad418fc654834ab21d615dbf4a821b0f6c6a2f7b00355bca5e5b",
-      "size_bytes": 382927,
+      "sha256": "7392f4e09df61362056bbec3afff503b84ebfd10b6a2cafe926986edac349b09",
+      "size_bytes": 59694,
       "media_type": "text/plain",
-      "purpose": "drama dialogue timeline",
+      "purpose": "drama subtitle timeline (zh replacement)",
       "source": {
         "kind": "external_dataset",
-        "url": "https://huggingface.co/datasets/alpindale/visual-novels",
-        "retrieved_at": "2026-09-16T22:38:00+08:00",
+        "url": "https://huggingface.co/datasets/benozz/Chinese_drama_audio",
+        "retrieved_at": "2026-09-18T00:50:00+08:00",
         "license": "Apache-2.0",
-        "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
-        "fact_cutoff": "2026-09-16"
+        "selector": "prompt.csv 按 drama root id 分组行数前十的台词流（替换旧 alpindale/visual-novels 英文语料，整体替换不留别名）",
+        "fact_cutoff": "2026-09-18"
       }
     },
     {
@@ -8711,8 +8711,8 @@
     {
       "entry_id": "lifestyle:items.json",
       "path": "lifestyle/items.json",
-      "sha256": "1cf5eee86881e3df7099a728374769de8d8749e6b63254e2097ba3104e06e8a9",
-      "size_bytes": 87974,
+      "sha256": "c3ef8a3621ab626d62472aebbc2cdfacc07d8b070ccd9dc5263c075146ce8bee",
+      "size_bytes": 138752,
       "media_type": "application/json",
       "purpose": "lifestyle",
       "source": {
@@ -8754,6 +8754,102 @@
         "license": "ODbL-1.0",
         "selector": "88-barcode wave-2 expansion allowlist derived in-place from open-food-facts/china-pool.json",
         "fact_cutoff": "2026-09-17"
+      }
+    },
+    {
+      "entry_id": "meals:items.json",
+      "path": "meals/items.json",
+      "sha256": "557f5eff3d1eeaea34d400e17b949388f9d9b560d5614a1163abf4b289ee94a2",
+      "size_bytes": 34870,
+      "media_type": "application/json",
+      "purpose": "contract meals corpus (USDA FNDDS calories)",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18T00:47:00+08:00",
+        "license": "USDA FNDDS (U.S. government work, public domain)",
+        "selector": "30 条正餐（热食/餐馆菜/外卖套餐）；kcal/100g 逐条取自 FNDDS（fact），份量/价格/时长为 scenario 假设",
+        "fact_cutoff": "2026-09-18"
+      }
+    },
+    {
+      "entry_id": "zhangjiang-map:locations.json",
+      "path": "zhangjiang-map/locations.json",
+      "sha256": "49a519b43541d7f85aefb7ff878fc5cb9e98e346959dc838280342256042982f",
+      "size_bytes": 8796,
+      "media_type": "application/json",
+      "purpose": "location category corpus (real OSM POIs)",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "张江 OSM 探针真实兴趣点选取（含冻结场景锚点）；营业时间与可供性声明为 scenario 假设",
+        "fact_cutoff": "2026-09-18"
+      }
+    },
+    {
+      "entry_id": "scene-stock:home-pantry.json",
+      "path": "scene-stock/home-pantry.json",
+      "sha256": "4e98b4e5f7aa6643d7291738fd17433a83711383c55914d958350798bd43e8e5",
+      "size_bytes": 1390,
+      "media_type": "application/json",
+      "purpose": "home pantry initial breakfast stock",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "7 份早餐储备，进食扣减、超市购买补充；scenario 假设留痕",
+        "fact_cutoff": "2026-09-18"
+      }
+    },
+    {
+      "entry_id": "scenario-contacts:contacts.json",
+      "path": "scenario-contacts/contacts.json",
+      "sha256": "a08941e7601f9ec2b7b60117387689e284d0ea907b90f8d678d5087f799bbfc1",
+      "size_bytes": 2245,
+      "media_type": "application/json",
+      "purpose": "persona contact entries",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "两人物各 ≥2 联系人；同事映射真实人物（reply_policy=persona），老友/家人 reply_policy=model",
+        "fact_cutoff": "2026-09-18"
+      }
+    },
+    {
+      "entry_id": "scenario-work:materials.json",
+      "path": "scenario-work/materials.json",
+      "sha256": "3c3a2783556bceb938b71d75caba01ac4785a535787c564c2d53fb9ba907ee99",
+      "size_bytes": 13618,
+      "media_type": "application/json",
+      "purpose": "chinese work input materials (scenario)",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "20 份互不相同中文工作材料（产品经理/后端工程师各 10），type=scenario 场景创作不冒充来源事实；AMI ES2002a–d 仍保留为语料元数据",
+        "fact_cutoff": "2026-09-18"
+      }
+    },
+    {
+      "entry_id": "lifestyle:enrichment.json",
+      "path": "lifestyle/enrichment.json",
+      "sha256": "9770454a51119f1b2b6af68e596d8a519b0ebe1e0423167cba5ba79e1c89dbb4",
+      "size_bytes": 56854,
+      "media_type": "application/json",
+      "purpose": "lifestyle v2 field enrichment table",
+      "source": {
+        "kind": "scenario",
+        "url": null,
+        "retrieved_at": null,
+        "license": "WorldMock-project",
+        "selector": "location_kinds/time_window/needs_partner/effects 补齐表（scenario 假设），由 build_lifestyle_corpus.py 合并",
+        "fact_cutoff": "2026-09-18"
       }
     }
   ]

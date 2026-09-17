@@ -28,15 +28,17 @@ def _scenario_docs() -> dict[str, dict]:
     return {path: json.loads(Path(path).read_text(encoding="utf-8")) for path in SCENARIOS}
 
 
-def _parse_srt(path: Path) -> list[tuple[int, int, str]]:
+def _parse_srt(path: Path) -> list[tuple[float, float, str]]:
     text = path.read_bytes().decode("utf-8")
     cues = []
     for block in re.split(r"\r?\n\r?\n", text.strip()):
         lines = block.split("\n")
         match = re.match(r"(\d+):(\d+):(\d+),(\d+) --> (\d+):(\d+):(\d+),(\d+)", lines[1])
         values = [int(part) for part in match.groups()]
-        start = values[0] * 3600 + values[1] * 60 + values[2]
-        end = values[4] * 3600 + values[5] * 60 + values[6]
+        # 起止秒均含毫秒（与生产 load_subtitles 同精度；新 drama 语料时长 =
+        # round(末 cue 结束秒)，毫秒是判定输入）。
+        start = values[0] * 3600 + values[1] * 60 + values[2] + values[3] / 1000
+        end = values[4] * 3600 + values[5] * 60 + values[6] + values[7] / 1000
         cues.append((start, end, "\n".join(lines[2:])))
     return cues
 
@@ -140,7 +142,7 @@ def test_drama_library_grew_to_ten_with_parseable_streams() -> None:
         path = Path(f"corpora/{drama['timeline_path']}")
         cues = _parse_srt(path)
         assert len(cues) == drama["lines_selected"]
-        assert cues[-1][1] == drama["duration_seconds"]
+        assert round(cues[-1][1]) == drama["duration_seconds"]
         assert all(left[1] <= right[0] for left, right in zip(cues, cues[1:]))
         assert all(cue[0] < cue[1] for cue in cues)
         assert index[drama["timeline_path"]]["sha256"] == hashlib.sha256(

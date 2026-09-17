@@ -1,0 +1,788 @@
+{
+  "schema_version": 1,
+  "corpus_id": "meals-2026-09-18",
+  "description": "正餐类商品语料：热食/餐馆菜/外卖套餐。热量密度逐条取自 USDA FNDDS（fact），份量/价格/时长为 scenario 假设。",
+  "count": 30,
+  "items": [
+    {
+      "meal_id": "meal-0001",
+      "name_zh": "牛肉炒面",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 400,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 516,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706607,
+        "food_description": "Beef chow mein or chop suey with noodles",
+        "energy_kcal_per_100g": 129,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706607",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (129) x portion_g (400) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0002",
+      "name_zh": "猪肉叉烧炒面",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 400,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 572,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706648,
+        "food_description": "Pork chow mein or chop suey with noodles",
+        "energy_kcal_per_100g": 143,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706648",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (143) x portion_g (400) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0003",
+      "name_zh": "虾仁什锦炒面",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 400,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 468,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706712,
+        "food_description": "Shrimp chow mein or chop suey with noodles",
+        "energy_kcal_per_100g": 117,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706712",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (117) x portion_g (400) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0004",
+      "name_zh": "素什锦炒面",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 350,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 410,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2710069,
+        "food_description": "Chow mein or chop suey, meatless, with noodles",
+        "energy_kcal_per_100g": 117,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2710069",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (117) x portion_g (350) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 22,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0005",
+      "name_zh": "鲜肉蒸饺（水饺）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 339,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708708,
+        "food_description": "Wonton, dumpling or pot sticker, steamed",
+        "energy_kcal_per_100g": 113,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708708",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (113) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0006",
+      "name_zh": "锅贴煎饺",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 250,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 480,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708705,
+        "food_description": "Wonton, dumpling or pot sticker, fried",
+        "energy_kcal_per_100g": 192,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708705",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (192) x portion_g (250) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0007",
+      "name_zh": "素馅煎饺",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 250,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 480,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708706,
+        "food_description": "Wonton, dumpling or pot sticker, fried, no meat",
+        "energy_kcal_per_100g": 192,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708706",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (192) x portion_g (250) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0008",
+      "name_zh": "素蒸饺",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 375,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708344,
+        "food_description": "Dumpling, no meat",
+        "energy_kcal_per_100g": 125,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708344",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (125) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0009",
+      "name_zh": "鸡肉烩饺子（堂食）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 450,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 648,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706543,
+        "food_description": "Chicken or turkey with dumplings",
+        "energy_kcal_per_100g": 144,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706543",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (144) x portion_g (450) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": false,
+      "delivery_delay_seconds": null
+    },
+    {
+      "meal_id": "meal-0010",
+      "name_zh": "牛肉烩饺盖浇",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 450,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 585,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706632,
+        "food_description": "Beef, dumplings, and vegetables excluding carrots, broccoli, and dark-green leafy; gravy",
+        "energy_kcal_per_100g": 130,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706632",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (130) x portion_g (450) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0011",
+      "name_zh": "胡萝卜牛肉烩饺",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 450,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 572,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706631,
+        "food_description": "Beef, dumplings, and vegetables including carrots, broccoli, and/or dark-green leafy; gravy",
+        "energy_kcal_per_100g": 127,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706631",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (127) x portion_g (450) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0012",
+      "name_zh": "鸡肉蔬菜烩饺",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 450,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 576,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706709,
+        "food_description": "Chicken or turkey, dumplings, and vegetables excluding carrots, broccoli, and dark green leafy; gravy",
+        "energy_kcal_per_100g": 128,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706709",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (128) x portion_g (450) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0013",
+      "name_zh": "素春卷套餐",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 200,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 540,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708700,
+        "food_description": "Egg roll, meatless",
+        "energy_kcal_per_100g": 270,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708700",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (270) x portion_g (200) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1500,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0014",
+      "name_zh": "虾仁春卷",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 200,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 516,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708701,
+        "food_description": "Egg roll, with shrimp",
+        "energy_kcal_per_100g": 258,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708701",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (258) x portion_g (200) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0015",
+      "name_zh": "猪肉春卷",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 200,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 544,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708702,
+        "food_description": "Egg roll, with beef and/or pork",
+        "energy_kcal_per_100g": 272,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708702",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (272) x portion_g (200) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0016",
+      "name_zh": "鸡肉春卷",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 200,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 532,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708703,
+        "food_description": "Egg roll, with chicken or turkey",
+        "energy_kcal_per_100g": 266,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708703",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (266) x portion_g (200) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0017",
+      "name_zh": "葱油煎饼套餐",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 250,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 518,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2708343,
+        "food_description": "Chinese pancake",
+        "energy_kcal_per_100g": 207,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2708343",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (207) x portion_g (250) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1500,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0018",
+      "name_zh": "鸡汤面",
+      "meal_class": "hot_meal",
+      "serving": {
+        "quantity": 500,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 265,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2709149,
+        "food_description": "Soup, chicken noodle",
+        "energy_kcal_per_100g": 53,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2709149",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (53) x portion_g (500) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0019",
+      "name_zh": "什锦汤面",
+      "meal_class": "hot_meal",
+      "serving": {
+        "quantity": 500,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 450,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2709145,
+        "food_description": "Soup, noodle, NFS",
+        "energy_kcal_per_100g": 90,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2709145",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (90) x portion_g (500) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0020",
+      "name_zh": "牛肉拉面",
+      "meal_class": "hot_meal",
+      "serving": {
+        "quantity": 550,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 363,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2709152,
+        "food_description": "Soup, ramen noodles, water added",
+        "energy_kcal_per_100g": 66,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2709152",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (66) x portion_g (550) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 25,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0021",
+      "name_zh": "鲜肉小馄饨",
+      "meal_class": "hot_meal",
+      "serving": {
+        "quantity": 500,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 165,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2709160,
+        "food_description": "Soup, wonton",
+        "energy_kcal_per_100g": 33,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2709160",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (33) x portion_g (500) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0022",
+      "name_zh": "糖醋里脊（堂食）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 780,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706401,
+        "food_description": "Sweet and sour pork",
+        "energy_kcal_per_100g": 260,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706401",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (260) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 35,
+      "dine_in": true,
+      "delivery": false,
+      "delivery_delay_seconds": null
+    },
+    {
+      "meal_id": "meal-0023",
+      "name_zh": "糖醋虾仁（堂食）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 516,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706456,
+        "food_description": "Sweet and sour shrimp",
+        "energy_kcal_per_100g": 172,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706456",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (172) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 4200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 35,
+      "dine_in": true,
+      "delivery": false,
+      "delivery_delay_seconds": null
+    },
+    {
+      "meal_id": "meal-0024",
+      "name_zh": "糖醋鸡块",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 750,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706435,
+        "food_description": "Sweet and sour chicken or turkey",
+        "energy_kcal_per_100g": 250,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706435",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (250) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3200,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0025",
+      "name_zh": "糖醋牛肉",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 633,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706392,
+        "food_description": "Beef with sweet and sour sauce",
+        "energy_kcal_per_100g": 211,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706392",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (211) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0026",
+      "name_zh": "糖醋肉盖饭",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 450,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 842,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706655,
+        "food_description": "Sweet and sour pork with rice",
+        "energy_kcal_per_100g": 187,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706655",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (187) x portion_g (450) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0027",
+      "name_zh": "糖醋鸡块（无蔬菜）",
+      "meal_class": "takeout_combo",
+      "serving": {
+        "quantity": 300,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 750,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706436,
+        "food_description": "Sweet and sour chicken or turkey, without vegetables",
+        "energy_kcal_per_100g": 250,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706436",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (250) x portion_g (300) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3000,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 30,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    },
+    {
+      "meal_id": "meal-0028",
+      "name_zh": "芥兰炒牛肉（堂食）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 350,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 287,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706742,
+        "food_description": "Beef chow mein or chop suey, no noodles",
+        "energy_kcal_per_100g": 82,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706742",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (82) x portion_g (350) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 3500,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 35,
+      "dine_in": true,
+      "delivery": false,
+      "delivery_delay_seconds": null
+    },
+    {
+      "meal_id": "meal-0029",
+      "name_zh": "猪肉炒时蔬（堂食）",
+      "meal_class": "restaurant_dish",
+      "serving": {
+        "quantity": 350,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 343,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2706771,
+        "food_description": "Pork chow mein or chop suey, no noodles",
+        "energy_kcal_per_100g": 98,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2706771",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (98) x portion_g (350) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 2800,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 35,
+      "dine_in": true,
+      "delivery": false,
+      "delivery_delay_seconds": null
+    },
+    {
+      "meal_id": "meal-0030",
+      "name_zh": "素炒什锦",
+      "meal_class": "hot_meal",
+      "serving": {
+        "quantity": 400,
+        "unit": "g"
+      },
+      "energy_kcal_per_serving": 172,
+      "energy_source": {
+        "database": "USDA FNDDS (FoodData Central, dataType=Survey (FNDDS))",
+        "fdc_id": 2710064,
+        "food_description": "Chow mein or chop suey, meatless, no noodles",
+        "energy_kcal_per_100g": 43,
+        "source_url": "https://api.nal.usda.gov/fdc/v1/food/2710064",
+        "search_url": "https://api.nal.usda.gov/fdc/v1/foods/search?dataType=Survey%20(FNDDS)",
+        "retrieved_at": "2026-09-18",
+        "unit_conversion": "energy_kcal_per_serving = energy_kcal_per_100g (43) x portion_g (400) / 100；份量一律以质量 g 声明（液体汤类按整碗称重假设），不执行 ml→g 换算；FNDDS 记录值异常时不修正"
+      },
+      "price_fen": 1600,
+      "price_assumption": "scenario assumption (张江 2026 白领午餐/外卖价位段)",
+      "meal_duration_minutes": 20,
+      "dine_in": true,
+      "delivery": true,
+      "delivery_delay_seconds": 1800
+    }
+  ]
+}

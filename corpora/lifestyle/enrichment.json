@@ -1,0 +1,2896 @@
+{
+  "schema_version": 1,
+  "corpus_id": "lifestyle-enrichment-2026-09-18",
+  "description": "生活活动条目 v2 字段补齐表：location_kinds（封闭集 home/office/outdoor/fitness/venue/anywhere）、time_window、needs_partner、effects（娱乐/社交/健康 0-1 权重）。按品类默认 + 逐条覆盖生成，全部为 scenario 假设；由 build_lifestyle_corpus.py 合并进 items.json。",
+  "location_kind_closed_set": [
+    "home",
+    "office",
+    "outdoor",
+    "fitness",
+    "venue",
+    "anywhere"
+  ],
+  "count": 183,
+  "entries": {
+    "3d-printing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "amateur-radio": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "amateur-theater": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "astrophotography": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "baking": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "calligraphy": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "car-restoration": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "chess": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "coin-collecting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "cooking-research": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "crossword-puzzles": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "digital-art": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "djing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "drawing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "drone-flying": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "embroidery": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "flower-arranging": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "fly-tying": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "glassblowing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hand-lettering": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hobby-bookstore": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hobby-jigsaw-puzzle": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hobby-photo-organizing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hobby-pour-over": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "hobby-rubiks-cube": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "home-brewing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "jewelry-making": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "juggling": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "knitting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "leatherworking": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "model-building": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "model-railroading": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "motorcycle-restoration": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "origami": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "painting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "photography": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "podcasting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "pottery": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "quilting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "racing-drones": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "rc-car-racing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "reading": {
+      "location_kinds": [
+        "home",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "rock-collecting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "scrabble": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "scrapbooking": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "sculpting": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "singing-practice": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "sketching": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "soap-making": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "standup-comedy-performing": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "ukulele-practice": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "violin-practice": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "vr-gaming": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "wood-carving": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "woodworking": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "writing-short-stories": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.7,
+        "social": 0.1,
+        "health": 0.1
+      }
+    },
+    "home-improvement-diy": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-change-sheets": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-cleaning": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-cooking": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-dishes": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-grocery": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-laundry": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-parcel": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-repair": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-tidying": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-trash": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-wardrobe": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-waste-sorting": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-watering": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "housework-windows": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.1,
+        "social": 0.0,
+        "health": 0.2
+      }
+    },
+    "genealogy": {
+      "location_kinds": [
+        "home",
+        "office"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-coding": {
+      "location_kinds": [
+        "home",
+        "office"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-language": {
+      "location_kinds": [
+        "home",
+        "anywhere",
+        "office"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-library": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 9,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-notes": {
+      "location_kinds": [
+        "home",
+        "office"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-online-course": {
+      "location_kinds": [
+        "home",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 7,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-professional-book": {
+      "location_kinds": [
+        "home",
+        "office"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "learning-ted-talks": {
+      "location_kinds": [
+        "home",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 7,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.3,
+        "social": 0.0,
+        "health": 0.0
+      }
+    },
+    "amateur-astronomy": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "backpacking-trek": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "beekeeping": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "birdwatching": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-cinema": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 10,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-comedy": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 16,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-concert": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 14,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-exhibition": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 9,
+        "end_hour": 18
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-karaoke": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 12,
+        "end_hour": 24
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-market": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 9,
+        "end_hour": 20
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-music-festival": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 10,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-pub-quiz": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 17,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-theatre": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 13,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "event-workshop": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 9,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "fishing": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "gardening": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "geocaching": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "hiking": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "kite-flying": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "metal-detecting": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 19
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "outdoor-camping": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 12,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "outdoor-park-walk": {
+      "location_kinds": [
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.2,
+        "health": 0.8
+      }
+    },
+    "pet-bath": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-feed-cat": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-grooming": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-litter-box": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-play": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-vet": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "pet-walk-dog": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.5,
+        "social": 0.3,
+        "health": 0.2
+      }
+    },
+    "board-games": {
+      "location_kinds": [
+        "anywhere",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-date": {
+      "location_kinds": [
+        "venue",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 10,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-dinner-friends": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 17,
+        "end_hour": 22
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-family-dinner": {
+      "location_kinds": [
+        "home",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 11,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-neighbor-chat": {
+      "location_kinds": [
+        "home",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 7,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-party": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 17,
+        "end_hour": 24
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-phone-call": {
+      "location_kinds": [
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-video-call": {
+      "location_kinds": [
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-visit-parents": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 9,
+        "end_hour": 20
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "social-wechat-chat": {
+      "location_kinds": [
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 7,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "wine-tasting": {
+      "location_kinds": [
+        "anywhere",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 23
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.4,
+        "social": 0.9,
+        "health": 0.1
+      }
+    },
+    "acroyoga": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "archery": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "bowling": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-core": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-explosive": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-legs": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-mobility": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-pull": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-push": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "calisthenics-skill": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "crossfit": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "cycling": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "dancing": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "fencing": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "fitness-gaming": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "golf": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "gym-weightlifting": {
+      "location_kinds": [
+        "fitness"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "jogging": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "kayaking": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "martial-arts": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "mountain-biking": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "parkour": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "rock-climbing": {
+      "location_kinds": [
+        "fitness"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "rope-climbing": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "running-training": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sailing": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "scuba-diving": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "skateboarding": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "skydiving": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "slacklining": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-aerobics-class": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-badminton": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-basketball": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-brisk-walking": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-jump-rope": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-soccer": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "sport-stretching": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "surfing": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "swimming": {
+      "location_kinds": [
+        "fitness"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "table-tennis": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "tennis": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "ultimate-frisbee": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": true,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "vr-fitness": {
+      "location_kinds": [
+        "fitness",
+        "outdoor"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "yoga": {
+      "location_kinds": [
+        "home",
+        "fitness"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 21
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.2,
+        "health": 0.9
+      }
+    },
+    "community-volunteering": {
+      "location_kinds": [
+        "outdoor",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 18
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.6,
+        "health": 0.3
+      }
+    },
+    "volunteer-donation": {
+      "location_kinds": [
+        "outdoor",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 18
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.6,
+        "health": 0.3
+      }
+    },
+    "volunteer-elder-care": {
+      "location_kinds": [
+        "outdoor",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 18
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.6,
+        "health": 0.3
+      }
+    },
+    "volunteer-environmental": {
+      "location_kinds": [
+        "outdoor",
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 18
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.6,
+        "health": 0.3
+      }
+    },
+    "journaling": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 21,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-compassion": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-gratitude": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-improve-focus": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-improve-sleep": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 21,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-manage-anxiety": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-mindfulness": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-reduce-stress": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "meditation-resilience": {
+      "location_kinds": [
+        "home",
+        "office",
+        "anywhere"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-foot-soak": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 20,
+        "end_hour": 24
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-grooming": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 10
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-hot-spring": {
+      "location_kinds": [
+        "venue"
+      ],
+      "time_window": {
+        "start_hour": 10,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-morning-stretch": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 10
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-morning-wash": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 5,
+        "end_hour": 10
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-skincare": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 6,
+        "end_hour": 23
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    },
+    "wellness-tea": {
+      "location_kinds": [
+        "home"
+      ],
+      "time_window": {
+        "start_hour": 8,
+        "end_hour": 22
+      },
+      "needs_partner": false,
+      "effects": {
+        "entertainment": 0.2,
+        "social": 0.0,
+        "health": 0.7
+      }
+    }
+  }
+}

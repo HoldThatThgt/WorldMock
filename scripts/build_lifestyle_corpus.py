@@ -27,6 +27,10 @@ HF raw files are NOT frozen into the repo (spec: frozen artifact ≤5MB excludin
 HF downloads). This generator validates grounding against raw files in --hf-dir
 (default /tmp/la_hf) and fails closed when they are missing or drifted.
 
+v2 schema: every item additionally carries location_kinds (closed set),
+time_window, needs_partner and effects (entertainment/social/health weights),
+merged fail-closed from corpora/lifestyle/enrichment.json.
+
 Usage:
   python3 scripts/build_lifestyle_corpus.py            # write items.json
   python3 scripts/build_lifestyle_corpus.py --check    # regenerate, compare bytes
@@ -42,7 +46,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "corpora/lifestyle/items.json"
+ENRICHMENT = ROOT / "corpora/lifestyle/enrichment.json"
 HF_DIR = Path("/tmp/la_hf")
+
+#: location_kinds 封闭集（与 enrichment.json 的声明保持一致，双端断言防漂移）。
+LOCATION_KINDS = ("home", "office", "outdoor", "fitness", "venue", "anywhere")
 
 CATEGORIES = ("sport", "hobby", "learning", "household", "social",
               "wellness", "pet", "volunteer", "outdoor")
@@ -300,6 +308,32 @@ def sha256_of(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def load_enrichment() -> dict:
+    """@brief 读取 v2 字段补齐表并校验形状与封闭集。"""
+    document = load_json_file(ENRICHMENT)
+    entries = document["entries"]
+    assert tuple(document["location_kind_closed_set"]) == LOCATION_KINDS, \
+        "enrichment closed set drifted from generator constant"
+    for activity_id, record in entries.items():
+        assert record["location_kinds"] and set(record["location_kinds"]) <= set(LOCATION_KINDS), \
+            f"{activity_id}: bad location_kinds"
+        window = record["time_window"]
+        assert 0 <= window["start_hour"] < window["end_hour"] <= 24, \
+            f"{activity_id}: bad time_window"
+        assert isinstance(record["needs_partner"], bool), f"{activity_id}: bad needs_partner"
+        effects = record["effects"]
+        assert set(effects) == {"entertainment", "social", "health"}, \
+            f"{activity_id}: bad effects keys"
+        assert all(0.0 <= float(v) <= 1.0 for v in effects.values()), \
+            f"{activity_id}: effects out of [0,1]"
+    return entries
+
+
+def load_json_file(path: Path):
+    """@brief 读取 UTF-8 JSON 文件。"""
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
 def verify_grounding() -> dict[str, str]:
     """@brief 校验 HF 原始文件在场且表格与真实数据吻合，返回文件哈希。"""
     paths = {
@@ -346,6 +380,20 @@ def verify_grounding() -> dict[str, str]:
     return {key: sha256_of(path) for key, path in paths.items()}
 
 
+def apply_enrichment(records: list[dict]) -> None:
+    """@brief 把 v2 补齐字段就地合并进条目（覆盖集漂移即失败）。"""
+    enrichment = load_enrichment()
+    record_ids = {record["activity_id"] for record in records}
+    assert record_ids == set(enrichment), \
+        f"enrichment coverage drift: {sorted(record_ids ^ set(enrichment))[:8]}"
+    for record in records:
+        extra = enrichment[record["activity_id"]]
+        record["location_kinds"] = extra["location_kinds"]
+        record["time_window"] = extra["time_window"]
+        record["needs_partner"] = extra["needs_partner"]
+        record["effects"] = extra["effects"]
+
+
 def build_items() -> list[dict]:
     """@brief 组装全部生活活动条目并做封闭校验。"""
     items: list[dict] = []
@@ -373,6 +421,8 @@ def build_items() -> list[dict]:
                     met_value=met, source=source)
                for slug, name, category, minutes, met, source, desc in items]
 
+    apply_enrichment(records)
+
     ids = [r["activity_id"] for r in records]
     if len(ids) != len(set(ids)):
         dupes = sorted({i for i in ids if ids.count(i) > 1})
@@ -398,7 +448,7 @@ def build_items() -> list[dict]:
 
 def render(records: list[dict]) -> str:
     header = {
-        "schema_version": 1,
+        "schema_version": 2,
         "corpus_id": "lifestyle-activities-2026-09-16",
         "description": "WorldMock 生活活动目录：基础活动类型语料（不进 content_catalog，"
                        "由 start_basic_activity(activity_type='lifestyle:<activity_id>') 提交）。",

@@ -8,7 +8,13 @@
     "chapters_available_in_source_head": 169,
     "total_chars": 424162,
     "duration_seconds": 84837,
-    "timeline_path": "novels/novel-0001.srt"
+    "timeline_path": "novels/novel-0001.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   },
   {
     "item_id": "novel-0002",
@@ -19,7 +25,13 @@
     "chapters_available_in_source_head": 32,
     "total_chars": 74857,
     "duration_seconds": 14971,
-    "timeline_path": "novels/novel-0002.srt"
+    "timeline_path": "novels/novel-0002.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   },
   {
     "item_id": "novel-0003",
@@ -30,7 +42,13 @@
     "chapters_available_in_source_head": 164,
     "total_chars": 441633,
     "duration_seconds": 88324,
-    "timeline_path": "novels/novel-0003.srt"
+    "timeline_path": "novels/novel-0003.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   },
   {
     "item_id": "novel-0004",
@@ -41,7 +59,13 @@
     "chapters_available_in_source_head": 38,
     "total_chars": 140089,
     "duration_seconds": 28017,
-    "timeline_path": "novels/novel-0004.srt"
+    "timeline_path": "novels/novel-0004.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   },
   {
     "item_id": "novel-0005",
@@ -52,7 +76,13 @@
     "chapters_available_in_source_head": 47,
     "total_chars": 178305,
     "duration_seconds": 35663,
-    "timeline_path": "novels/novel-0005.srt"
+    "timeline_path": "novels/novel-0005.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   },
   {
     "item_id": "novel-0006",
@@ -63,6 +93,12 @@
     "chapters_available_in_source_head": 50,
     "total_chars": 154703,
     "duration_seconds": 30941,
-    "timeline_path": "novels/novel-0006.srt"
+    "timeline_path": "novels/novel-0006.srt",
+    "genre": [
+      "言情",
+      "种田"
+    ],
+    "language": "zh",
+    "age_rating": 0
   }
 ]
