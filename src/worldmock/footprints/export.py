@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import logging
 import shutil
 import tempfile
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -72,7 +73,41 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
     atomic_write(stage / "quality.json", quality)
     manifest["quality_report"] = {"path": "quality.json", "size_bytes": len(quality),
                                   "sha256": hashlib.sha256(quality).hexdigest()}
+    manifest["timeline"] = _write_timeline_projections(store, stage, manifest["daily_coverage"])
     return manifest
+
+
+def _write_timeline_projections(store: FootprintStore, stage: Path,
+                                days: list[str]) -> list[dict]:
+    """@brief 生成确定性时间线投影 timeline/<agent>-<date>.md 并哈希绑定。
+
+    投影调用 scripts/render_day.py 的渲染函数（单一实现，不重复）；
+    每个人物每个覆盖日一个文件，列入导出清单（sha256 + 字节数）。
+    """
+    module = _load_render_day()
+    records = []
+    for agent_id in sorted(int(item) for item in store.manifest["agent_ids"]):
+        for day in days:
+            markdown = module.render_day_markdown(
+                store.connection, agent_id, date.fromisoformat(day))
+            payload = markdown.encode("utf-8")
+            relative = f"timeline/{agent_id}-{day}.md"
+            atomic_write(stage / relative, payload)
+            records.append({"agent_id": agent_id, "date": day, "path": relative,
+                            "size_bytes": len(payload),
+                            "sha256": hashlib.sha256(payload).hexdigest()})
+    return records
+
+
+def _load_render_day():
+    """@brief 按文件路径加载 scripts/render_day.py（scripts 不是包，单一事实源）。"""
+    path = Path(__file__).resolve().parents[3] / "scripts" / "render_day.py"
+    if not path.is_file() or path.is_symlink():
+        raise IntegrityError("The timeline projection script is missing or unsafe")
+    spec = importlib.util.spec_from_file_location("worldmock_export_render_day", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _export_identity(run: dict, events: list[Event]) -> dict:

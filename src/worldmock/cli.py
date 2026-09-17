@@ -26,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     prepare.add_argument("--output", type=Path, required=True)
     validate = commands.add_parser("validate", help="validate scenario, corpus, dependencies, and delivery contracts")
     validate.add_argument("--scenario", type=Path, required=True)
+    validate.add_argument("--coverage-out", type=Path,
+                          help="write persona_coverage.json here (default: beside the scenario)")
     for name in ("run", "resume", "replay"):
         command = commands.add_parser(name, help="run a new world" if name == "run" else "restore into a new branch")
         command.add_argument("--scenario", type=Path, required=True)
@@ -62,21 +64,26 @@ def _evaluation_arguments(commands) -> None:
 
 
 def _profile_arguments(commands) -> None:
-    """@brief 画像编译器：NL→大五→动机档案 与编译一致性自检。"""
-    profile = commands.add_parser("profile", help="compile persona text into a motivation profile")
+    """@brief 画像编译 v2：background_story -> PersonaCard + 大五 + 世界层动力学。"""
+    profile = commands.add_parser("profile", help="compile persona cards (profile v2)")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
     compile_command = profile_commands.add_parser(
-        "compile", help="persona text -> big five -> motivation profile + canonical text")
+        "compile", help="background story -> persona card + big five + world dynamics")
     compile_command.add_argument("--text", required=True,
                                  help="persona text file path, or - to read stdin")
-    compile_command.add_argument("--runs", type=int, default=5,
-                                 help="independent LLM extraction runs for consensus")
+    compile_command.add_argument("--runs", type=int, default=3,
+                                 help="independent LLM extraction runs for the consensus")
     compile_command.add_argument("--out", type=Path, help="write result JSON here instead of stdout")
     check = profile_commands.add_parser(
-        "check", help="compile 3x and assert lattice consistency + big-five mode stability")
+        "check", help="compile 3x and assert card consistency + big-five mode stability")
     check.add_argument("--text", required=True, help="persona text file path, or - to read stdin")
     check.add_argument("--runs", type=int, default=3,
                        help="independent LLM extraction runs per compile (cost control)")
+    validate_command = profile_commands.add_parser(
+        "validate", help="validate scenario persona coverage (writes persona_coverage.json)")
+    validate_command.add_argument("--scenario", type=Path, required=True)
+    validate_command.add_argument("--coverage-out", type=Path,
+                                  help="write persona_coverage.json here (default: beside the scenario)")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -109,7 +116,8 @@ def _dispatch(arguments) -> dict:
         return deliver(arguments.export, arguments.output, arguments.project_root, tuple(arguments.replay_export))
     if command == "validate":
         from worldmock.validation import validate_project
-        return validate_project(arguments.project_root, arguments.scenario)
+        return validate_project(arguments.project_root, arguments.scenario,
+                                coverage_out=arguments.coverage_out)
     if command == "prepare-corpora":
         from worldmock.corpora.fetch import prepare_corpora
         return prepare_corpora(arguments.output).model_dump(mode="json")
@@ -119,95 +127,83 @@ def _dispatch(arguments) -> dict:
 
 
 def _profile_command(arguments) -> dict:
-    """@brief 画像编译：真实提取 → 确定性映射 → 同源规范文本；check 断言一致性。"""
-    from worldmock.profile.extractor import extract_big_five
-    from worldmock.profile.mapper import map_profile
-    from worldmock.profile.models import BIG_FIVE_DIMENSIONS
-    from worldmock.profile.textgen import render_persona_text
+    """@brief 画像编译 v2：compile/check=三次一致性口径、validate=覆盖率输出。"""
+    from worldmock.profile.extractor import extract_persona
+    from worldmock.profile.textgen import render_card
+
+    if arguments.profile_command == "validate":
+        from worldmock.validation import validate_persona_coverage
+        document = validate_persona_coverage(
+            arguments.scenario, coverage_out=arguments.coverage_out)
+        return {"scenario_id": document["scenario_id"],
+                "coverage_path": str(arguments.coverage_out
+                                     or arguments.scenario.resolve().parent / "persona_coverage.json"),
+                "agents": document["agents"]}
 
     persona_text = _read_persona_text(arguments.text)
     if arguments.profile_command == "compile":
-        extraction = extract_big_five(persona_text, n_runs=arguments.runs)
-        profile = map_profile(
-            extraction.profile, persona_text=persona_text,
-            source_model=extraction.model,
-            consensus_runs=extraction.runs, consensus_agreement=extraction.agreement)
+        compiled = _compile_once(persona_text, arguments.runs, extract_persona)
         result = {
-            "profile": json.loads(profile.model_dump_json()),
-            "canonical_persona_text": render_persona_text(profile),
-            "warnings": (["big_five_agreement_below_0.6"]
-                         if extraction.warning else []),
-            "per_dimension": extraction.per_dimension,
+            "schema_version": json.loads(compiled.model_dump_json())["schema_version"],
+            "card": json.loads(compiled.card.model_dump_json()),
+            "big_five": json.loads(compiled.big_five.model_dump_json()),
+            "world_dynamics": json.loads(compiled.world_dynamics.model_dump_json()),
+            "source": json.loads(compiled.source.model_dump_json()),
+            "warnings": list(compiled.warnings),
+            "persona_card_text": render_card(compiled.card),
         }
         if arguments.out is not None:
             atomic_write(arguments.out, (json.dumps(result, ensure_ascii=False, indent=2)
                                          + "\n").encode("utf-8"))
             return {"written": str(arguments.out), "warnings": result["warnings"]}
         return result
+    return _profile_check_report(persona_text, arguments.runs, extract_persona)
 
-    compiles = [
-        _compile_once(persona_text, arguments.runs, extract_big_five, map_profile)
-        for _ in range(3)
-    ]
-    from worldmock.profile.models import (
-        BETA_PRESENT_BIAS_RANGE, BETA_PRESENT_BIAS_STEP, EMOTION_SENSITIVITY_RANGE,
-        EMOTION_SENSITIVITY_STEP, LOSS_AVERSION_RANGE, LOSS_AVERSION_STEP,
-        MotivationProfile, TAU_GRID, WEIGHT_GRID_STEP, iterate_lattice, value_on_grid)
 
-    grid_total = grid_hits = 0
-    for profile, _ in compiles:
-        # 独立重推导：从序列化 JSON 重新解析数值并复核格点（不信任模型实例内部）。
-        MotivationProfile.model_validate_json(profile.model_dump_json())
-        emitted = json.loads(profile.model_dump_json())
-        for name, value in iterate_lattice(profile):
-            grid_total += 1
-            raw = emitted
-            for part in name.split("."):
-                raw = raw[part]
-            if name == "tau":
-                ok = any(abs(raw - grid) <= 1e-6 for grid in TAU_GRID)
-            elif name == "beta_present_bias":
-                ok = value_on_grid(raw, *BETA_PRESENT_BIAS_RANGE, BETA_PRESENT_BIAS_STEP)
-            elif name == "emotion_sensitivity":
-                ok = value_on_grid(raw, *EMOTION_SENSITIVITY_RANGE, EMOTION_SENSITIVITY_STEP)
-            elif name.startswith("loss_aversion."):
-                ok = value_on_grid(raw, *LOSS_AVERSION_RANGE, LOSS_AVERSION_STEP)
-            else:
-                ok = value_on_grid(raw, 0.0, 1.0, WEIGHT_GRID_STEP)
-            grid_hits += int(ok)
+def _profile_check_report(persona_text: str, runs: int, extract) -> dict:
+    """@brief check：三次独立编译，卡片与大五众数占比均需 ≥2/3。"""
+    from worldmock.profile.models import BIG_FIVE_DIMENSIONS
+    from worldmock.profile.textgen import render_card
+
+    compiles = [_compile_once(persona_text, runs, extract) for _ in range(3)]
+    card_hits = _mode_share([json.dumps(json.loads(compiled.card.model_dump_json()),
+                                        ensure_ascii=False, sort_keys=True)
+                             for compiled in compiles])
     mode_hits: dict[str, float] = {}
     for dimension in BIG_FIVE_DIMENSIONS:
-        scores = [profile.big_five.model_dump()[dimension] for profile, _ in compiles]
-        counts: dict[int, int] = {}
-        for score in scores:
-            counts[score] = counts.get(score, 0) + 1
-        mode_hits[dimension] = max(counts.values()) / len(scores)
+        scores = [compiled.big_five.model_dump()[dimension] for compiled in compiles]
+        mode_hits[dimension] = _mode_share(scores)
     failed = [dimension for dimension, rate in mode_hits.items() if rate < 2 / 3]
     report = {
-        "grid_consistency": (grid_hits / grid_total if grid_total else 0.0),
+        "card_mode_hit": card_hits,
         "big_five_mode_hit": mode_hits,
-        "profiles": [json.loads(profile.model_dump_json()) for profile, _ in compiles],
-        "canonical_texts": [text for _, text in compiles],
+        "cards": [json.loads(compiled.card.model_dump_json()) for compiled in compiles],
+        "persona_card_texts": [render_card(compiled.card) for compiled in compiles],
     }
-    if report["grid_consistency"] != 1.0 or failed:
+    if card_hits < 2 / 3 or failed:
         raise IntegrityError(
-            f"PROFILE_CHECK_FAILED: grid_consistency={report['grid_consistency']}, "
+            f"PROFILE_CHECK_FAILED: card_mode_hit={card_hits}, "
             f"dimensions below 2/3 mode hit: {failed}. Summary: "
-            + json.dumps({k: report[k] for k in ("grid_consistency", "big_five_mode_hit")},
+            + json.dumps({key: report[key] for key in ("card_mode_hit", "big_five_mode_hit")},
                          ensure_ascii=False))
     return report
 
 
-def _compile_once(persona_text: str, runs: int, extract, mapping):
-    """@brief 单次编译：提取 → 映射 → 规范文本（check 命令复用）。"""
-    from worldmock.profile.textgen import render_persona_text
+def _mode_share(values: list) -> float:
+    """@brief 众数占比 = 最频繁值次数 / 样本数（确定性）。"""
+    counts: dict[str, int] = {}
+    for value in values:
+        key = value if isinstance(value, str) else json.dumps(value, sort_keys=True)
+        counts[key] = counts.get(key, 0) + 1
+    return max(counts.values()) / len(values)
+
+
+def _compile_once(persona_text: str, runs: int, extract):
+    """@brief 单次编译：三次一致性抽取 -> compile_persona（卡片+大五+动力学）。"""
+    from worldmock.profile.compile import compile_persona
 
     extraction = extract(persona_text, n_runs=runs)
-    profile = mapping(
-        extraction.profile, persona_text=persona_text,
-        source_model=extraction.model,
-        consensus_runs=extraction.runs, consensus_agreement=extraction.agreement)
-    return profile, render_persona_text(profile)
+    return compile_persona(persona_text, extraction=extraction)
 
 
 def _read_persona_text(source: str) -> str:

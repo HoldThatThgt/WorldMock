@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -16,9 +17,9 @@ from zoneinfo import ZoneInfo
 
 from dotenv import dotenv_values
 
-from worldmock.errors import IntegrityError
+from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import restore_directory
-from worldmock.footprints.models import canonical_json
+from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import (
     CounterfactualIntervention,
@@ -34,6 +35,16 @@ logger = logging.getLogger(__name__)
 
 _DEEPSEEK_BASE_URL = "https://api.deepseek.com/beta"
 _DEEPSEEK_MODEL = "deepseek-flash"
+#: 工作验收阶段参数（规格 L1307：独立工作验收保持 disabled/required）。
+_WORK_REVIEW_THINKING = "disabled"
+_WORK_REVIEW_TOOL_CHOICE = "required"
+#: 联系人回复生成的 max_tokens 上限（200 汉字 ≈ 300+ token，留冗余；experiment_assumption）。
+CONTACT_REPLY_MAX_TOKENS = 512
+#: 联系人回复的 system 提示（L1628：独立调用、中文、不超过 200 汉字）。
+_CONTACT_REPLY_PROMPT = (
+    "你是消息收件人通讯录里的一名联系人。根据你的联系人档案与收到的消息，"
+    "以你本人的口吻写一条自然、简短的中文回复。只输出回复正文，不超过 200 个汉字，"
+    "不要解释、不要客套开场。")
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,7 +255,8 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
         "open_existing": False,
     }
     _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
-             run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest)
+             run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest,
+             two_stage_model_identity=two_stage_model_identity())
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
         scenario, scenario.start_at, kwargs, "create",
@@ -274,19 +286,68 @@ def _admit_scenario(semantics: ScenarioSemantics) -> None:
 
 
 def _model_identity() -> ModelIdentity:
-    """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。"""
-    from custom.agents.life_agent import life_prompt_sha256, life_tool_schema_sha256
+    """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。
+
+    顶层 thinking/tool_choice 取行动阶段参数并直接来自 B2 导出常量
+    （单一事实源）；两阶段完整形状见 two_stage_model_identity()。
+    """
+    from custom.agents.life_agent import (
+        ACTION_THINKING,
+        ACTION_TOOL_CHOICE,
+        life_prompt_sha256,
+        life_tool_schema_sha256,
+    )
 
     return ModelIdentity(
         provider="deepseek",
         base_url=_DEEPSEEK_BASE_URL,
         requested_model=_DEEPSEEK_MODEL,
-        thinking="enabled",
-        tool_choice="auto",
+        thinking=ACTION_THINKING["thinking"]["type"],
+        tool_choice=ACTION_TOOL_CHOICE,
         max_retries=0,
         prompt_sha256=life_prompt_sha256(),
         tool_schema_sha256=life_tool_schema_sha256(),
     )
+
+
+def two_stage_model_identity() -> dict[str, Any]:
+    """@brief 两阶段决策与工作验收的完整冻结请求身份（规格 L1301-1308）。
+
+    独白/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
+    运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
+    """
+    from custom.agents.life_agent import (
+        ACTION_THINKING,
+        ACTION_TOOL_CHOICE,
+        MONOLOGUE_MAX_TOKENS,
+        MONOLOGUE_TEMPERATURE,
+    )
+
+    return {
+        "provider": "deepseek",
+        "base_url": _DEEPSEEK_BASE_URL,
+        "requested_model": _DEEPSEEK_MODEL,
+        "max_retries": 0,
+        "strict": True,
+        "reasoning_effort": None,
+        "stages": {
+            "monologue": {
+                "thinking": "disabled",
+                "temperature": MONOLOGUE_TEMPERATURE,
+                "max_tokens": MONOLOGUE_MAX_TOKENS,
+                "tools": None,
+                "tool_choice": None,
+            },
+            "action": {
+                "thinking": ACTION_THINKING["thinking"]["type"],
+                "tool_choice": ACTION_TOOL_CHOICE,
+            },
+            "work_review": {
+                "thinking": _WORK_REVIEW_THINKING,
+                "tool_choice": _WORK_REVIEW_TOOL_CHOICE,
+            },
+        },
+    }
 
 
 def _prepare_resume(
@@ -561,7 +622,11 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
         service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)
         config = AgentSocietyConfig(
-            prepared.run_id, _agent_specs(prepared.scenario), "LifeAgent", env, service,
+            prepared.run_id, _agent_specs(
+                prepared.scenario,
+                persona_compiler=(_compile_persona_card if prepared.workspace_mode == "create"
+                                  else _no_persona_compilation),
+            ), "LifeAgent", env, service,
             prepared.start_time, prepared.scenario.end_at, prepared.run_dir,
             prepared.project_root, prepared.workspace_mode,
         )
@@ -585,6 +650,160 @@ def _terminate_failed_actor(actor: Any, cause: BaseException) -> None:
         ) from cause
 
 
+class ContactReplyClient:
+    """@brief 联系人 model 回复的独立 DeepSeek 客户端（工作验收同模式）。
+
+    复用 AS2 已维护的单次 LiteLLM 客户端，身份必须与运行 manifest 一致；
+    不执行内部重试（max_retries=0），传输异常原样传播为运行故障。
+    """
+
+    def __init__(self, model_identity: dict[str, Any]):
+        """@brief 建立与运行 manifest 完全相同的 DeepSeek 客户端。"""
+        from agentsociety2.config import build_client_for_role
+
+        client = build_client_for_role("default")
+        if (client.model_name != model_identity["requested_model"]
+                or client.base_url != model_identity["base_url"]):
+            raise ProtocolError("Contact reply client identity disagrees with the run manifest")
+        if model_identity["max_retries"] != 0:
+            raise ProtocolError("Contact reply request parameters disagree with the run manifest")
+        self._client = client
+        self.model_name = model_identity["requested_model"]
+
+    async def call(self, request: dict[str, Any]) -> dict[str, Any]:
+        """@brief 发出一次无内部重试的实际请求并返回可持久化原始响应。"""
+        response = await self._client.call(**copy.deepcopy(request))
+        if hasattr(response, "model_dump"):
+            payload = response.model_dump(mode="json")
+        elif isinstance(response, dict):
+            payload = dict(response)
+        else:
+            raise ProtocolError("Contact reply model response is not serializable")
+        if not isinstance(payload, dict):
+            raise ProtocolError("Contact reply model response is not a serialized object")
+        return payload
+
+
+def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
+                          model_name: str) -> dict[str, Any]:
+    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试）。"""
+    payload = {"contact": contact if contact is not None
+               else {"contact_id": request.contact_id},
+               "incoming_message": request.incoming_text,
+               "reply_char_limit": request.max_chars}
+    messages = [
+        {"role": "system", "content": _CONTACT_REPLY_PROMPT},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False, sort_keys=True)},
+    ]
+    return {"model": model_name, "messages": messages, "stream": False,
+            "max_tokens": CONTACT_REPLY_MAX_TOKENS, "max_retries": 0,
+            "extra_body": {"thinking": {"type": "disabled"}}}
+
+
+def parse_contact_reply(raw: dict[str, Any]) -> str:
+    """@brief 从原始响应提取唯一回复文本（结构异常按运行故障传播）。"""
+    choices = raw.get("choices")
+    if not isinstance(choices, list) or len(choices) != 1 or not isinstance(choices[0], dict):
+        raise ProtocolError("Contact reply response must contain exactly one choice")
+    message = choices[0].get("message")
+    content = message.get("content") if isinstance(message, dict) else None
+    if not isinstance(content, str) or not content.strip():
+        raise ProtocolError("Contact reply response has no reply text")
+    return content.strip()
+
+
+async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
+    """@brief 执行引擎登记的联系人 model 回复并送达收件箱（L1628）。
+
+    每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
+    独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
+    事件证据，回复经 social.finalize_model_reply 只进入收件箱（不改资源或
+    任务）。传输与结构异常按运行故障传播（与工作验收同边界）；同一消息
+    最多回复一次（幂等键 reply_to_message_id）。
+    """
+    from worldmock.life import social as social_domain
+
+    pending = _pending_reply_requests(engine)
+    if not pending:
+        return []
+    caller = client if client is not None else ContactReplyClient(
+        engine.store.manifest["model_identity"])
+    settled = []
+    for event, request in pending:
+        model_request = prepare_contact_reply(
+            request, _contact_profile(engine, request), caller.model_name)
+        raw = await caller.call(model_request)
+        text = parse_contact_reply(raw)
+        reply = social_domain.finalize_model_reply(
+            request, text, f"reply-{request.reply_to_message_id}", engine.state.current_time)
+        settled.append(_commit_contact_reply(engine, event, model_request, raw, reply))
+    return settled
+
+
+def _pending_reply_requests(engine: Any) -> list[tuple[Any, Any]]:
+    """@brief 取尚未回复的 pending 请求（事件序升序，幂等去重）。"""
+    from worldmock.life.social import ModelReplyRequest
+
+    events = engine.store.read_events(engine.store.last_event_seq)
+    replied = {event.data.get("reply_to_message_id") for event in events
+               if event.event_type == "environment_event"
+               and event.data.get("kind") == "model_npc_reply"}
+    pending = []
+    for event in events:
+        if (event.event_type != "environment_event"
+                or event.data.get("kind") != "model_npc_reply_pending"):
+            continue
+        request = ModelReplyRequest.model_validate(event.data["request"])
+        if request.reply_to_message_id not in replied:
+            pending.append((event, request))
+    return pending
+
+
+def _contact_profile(engine: Any, request: Any) -> dict[str, Any] | None:
+    """@brief 从场景声明查找联系人公开档案（找不到返回 None）。"""
+    for agent in engine.semantics.scenario.agents:
+        for contact in agent.contacts:
+            if contact.contact_id == request.contact_id:
+                return {"contact_id": contact.contact_id,
+                        "salutation": contact.salutation,
+                        "relation": contact.relation,
+                        "closeness": contact.closeness,
+                        "channels": list(contact.channels)}
+    return None
+
+
+def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
+                          raw: dict, reply: Any) -> dict:
+    """@brief 一次事务提交回复证据与收件箱送达（版本 +1，资源零变动）。"""
+    recipient = int(reply.message.recipient_id.split(":", 1)[1])
+    staged = engine.state.model_copy(deep=True)
+    agent = staged.agents[recipient]
+    inbox = dict(agent.inbox)
+    inbox[reply.message.message_id] = reply.message
+    staged.agents[recipient] = agent.model_copy(update={"inbox": inbox}, deep=True)
+    staged.version = engine.state.version + 1
+    drafts = [
+        EventDraft(event_type="environment_event", occurred_at=staged.current_time,
+                   agent_id=recipient, source_kind="model", visibility="system",
+                   caused_by=[pending_event.event_id],
+                   data={"kind": "model_npc_reply", "source_kind": reply.source_kind,
+                         "reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
+                         "request": model_request, "response": raw,
+                         "usage": raw.get("usage"),
+                         "reply": reply.message.model_dump(mode="json")}),
+        EventDraft(event_type="environment_event", occurred_at=staged.current_time,
+                   agent_id=recipient, source_kind="environment",
+                   data={"kind": "message_arrival", "message_id": reply.message.message_id,
+                         "recipient_id": reply.message.recipient_id,
+                         "occurred_at": staged.current_time}),
+    ]
+    engine.store.commit(staged.model_dump(mode="json"), drafts)
+    engine.state = staged
+    return {"reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
+            "reply_message_id": reply.message.message_id,
+            "source_kind": reply.source_kind}
+
+
 def _require_custom_modules(project_root: Path) -> None:
     """@brief 经实际 AS2 scanner 核对 LifeAgent 与 LifeEnv 均被接受。"""
     from agentsociety2.registry import scan_and_register_custom_modules
@@ -597,12 +816,23 @@ def _require_custom_modules(project_root: Path) -> None:
         raise RuntimeError("LifeAgent or LifeEnv custom module registration failed")
 
 
-def _agent_specs(scenario: RuntimeScenario) -> tuple[dict[str, Any], ...]:
-    """@brief 从冻结生活人物形成原生 runner 工作区输入。"""
+def _agent_specs(scenario: RuntimeScenario, *,
+                 persona_compiler=None) -> tuple[dict[str, Any], ...]:
+    """@brief 从冻结生活人物形成原生 runner 工作区输入。
+
+    新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
+    （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]）；
+    恢复运行不重新编译——人物 profile 由检查点工作区原样恢复，分支人物身份
+    与父运行保持一致。persona_compiler 供测试注入确定性编译桩。
+    """
+    compile_card = persona_compiler or _compile_persona_card
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         profile = agent.model_dump(mode="json")
         profile["id"] = agent.agent_id
+        card_text = compile_card(agent)
+        if card_text is not None:
+            profile["persona_card"] = card_text
         config = {
             "enable_memory": True,
             "enable_todo_list": False,
@@ -612,3 +842,18 @@ def _agent_specs(scenario: RuntimeScenario) -> tuple[dict[str, Any], ...]:
         }
         specs.append({"id": agent.agent_id, "profile": profile, "config": config})
     return tuple(specs)
+
+
+def _compile_persona_card(agent: Any) -> str | None:
+    """@brief 场景 background_story -> PersonaCard 渲染文本（无声明返回 None）。"""
+    if agent.background_story is None:
+        return None
+    from worldmock.profile.compile import compile_persona
+    from worldmock.profile.textgen import render_card
+
+    return render_card(compile_persona(agent.background_story).card)
+
+
+def _no_persona_compilation(agent: Any) -> None:
+    """@brief 恢复运行不重新编译：人物卡片随检查点工作区原样恢复。"""
+    return None
