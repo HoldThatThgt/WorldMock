@@ -183,6 +183,7 @@ class LifeEngine:
         self._affordance_contract = affordance_contract(semantics.affordances)
         self.lifestyle_items = load_lifestyle_items(
             self.corpus_root, self.scenario.body.activity_met)
+        self._lifestyle_names = {item.activity_id: item.name for item in self.lifestyle_items}
         self.state = WorldState.model_validate(store.state)
         self._round: DecisionRoundState | None = None
         self._model_request_events: dict[tuple[str, str], str] = {}
@@ -965,14 +966,17 @@ class LifeEngine:
         try:
             changed, result = self._dispatch(state, pending)
             changed = self._after_success(changed, pending.agent_id)
-            changed = _remember_terminal_activity(changed, result)
+            resolved = changed.activities.get(result.activity_id) if result.activity_id else None
+            resolved_title = self._activity_title(resolved) if resolved is not None else None
+            changed = _remember_terminal_activity(changed, result, resolved_title)
             accepted = EventDraft(event_type="action_accepted", occurred_at=state.current_time,
                                   agent_id=pending.agent_id, decision_id=pending.decision_id,
                                   action_id=pending.action_id, activity_id=result.activity_id,
                                   caused_by=_pending_causes(pending),
-                                  data=_result_event_data(result, changed))
+                                  data=_result_event_data(result, changed, resolved_title))
             drafts = [accepted, _result_draft(pending, result, "action_result")]
-            terminal = _terminal_after_action(changed, result, pending.requested_event_id)
+            terminal = _terminal_after_action(changed, result, pending.requested_event_id,
+                                              resolved_title)
             if terminal is not None:
                 drafts.append(terminal)
             return changed, result, drafts
@@ -982,7 +986,7 @@ class LifeEngine:
             activity = changed.activities.get(agent.current_activity_id or "")
             data = {"error_code": str(error), **result.data}
             if activity is not None:
-                data["activity"] = activity.model_dump(mode="json")
+                data["activity"] = self._activity_snapshot(activity)
             rejected = EventDraft(event_type="action_rejected", occurred_at=state.current_time,
                                   agent_id=pending.agent_id, decision_id=pending.decision_id,
                                   action_id=pending.action_id,
@@ -1175,6 +1179,24 @@ class LifeEngine:
                                         self.scenario.activity_feedback_seconds)
         return _put_activity(state, agent, paused), paused
 
+    def _activity_title(self, activity) -> str | None:
+        """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
+        if activity.target_id is None:
+            return None
+        if activity.kind == ActivityKind.LIFESTYLE:
+            return self._lifestyle_names.get(activity.target_id)
+        if activity.kind in (ActivityKind.WATCH, ActivityKind.PLAY_GAME):
+            return self.rules.content_titles.get(activity.target_id)
+        return None
+
+    def _activity_snapshot(self, activity) -> dict:
+        """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""
+        payload = activity.model_dump(mode="json")
+        title = self._activity_title(activity)
+        if title is not None:
+            payload["title"] = title
+        return payload
+
     def _start(self, state: WorldState, pending: PendingAction,
                request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
@@ -1215,9 +1237,9 @@ class LifeEngine:
         if request.activity_type == ActivityKind.WATCH:
             activity.media_position_seconds = data["start_position_seconds"]
         changed = _put_activity(changed_state, agent, activity)
-        result_data = {"activity": activity.model_dump(mode="json")}
+        result_data = {"activity": self._activity_snapshot(activity)}
         if paused_activity is not None:
-            result_data["auto_paused_activity"] = paused_activity.model_dump(mode="json")
+            result_data["auto_paused_activity"] = self._activity_snapshot(paused_activity)
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
@@ -1247,7 +1269,7 @@ class LifeEngine:
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Activity changed",
-                              data={"activity": activity.model_dump(mode="json")})
+                              data={"activity": self._activity_snapshot(activity)})
         return changed, result
 
     def _continue(self, state: WorldState, pending: PendingAction,
@@ -1263,7 +1285,7 @@ class LifeEngine:
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Activity continued",
-                              data={"activity": activity.model_dump(mode="json")})
+                              data={"activity": self._activity_snapshot(activity)})
         return changed, result
 
     def _purchase(self, state: WorldState, pending: PendingAction,
@@ -1309,7 +1331,7 @@ class LifeEngine:
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Product use started",
-                              data={"activity": activity.model_dump(mode="json")})
+                              data={"activity": self._activity_snapshot(activity)})
         return changed, result
 
     def _submit_work(self, state: WorldState, pending: PendingAction,
@@ -1356,7 +1378,7 @@ class LifeEngine:
                               activity_id=activity.activity_id, message="Game command executed",
                               data={"reward": outcome.reward, "done": outcome.done,
                                     "game": outcome.progress.model_dump(mode="json"),
-                                    "activity": activity.model_dump(mode="json")})
+                                    "activity": self._activity_snapshot(activity)})
         return changed, result
 
     def _store_game_outcome(self, state, agent, activity, outcome):
@@ -1400,7 +1422,7 @@ class LifeEngine:
                 state.agents[activity.agent_id] = current.model_copy(
                     update={"next_decision_at": next_at}, deep=True)
             data = {"interval_start": interval_start, "interval_end": advanced.activity.last_settled_at,
-                    "activity": state.activities[activity_id].model_dump(mode="json"),
+                    "activity": self._activity_snapshot(state.activities[activity_id]),
                     "body_settlement": _body_settlement_data(advanced.settlement), **effects}
             flows = _resource_flows_data(activity.agent_id, target)
             if flows:
@@ -1411,10 +1433,13 @@ class LifeEngine:
                                      action_id=activity.origin_action_id, activity_id=activity_id,
                                      caused_by=[activity.origin_request_event_id], data=data))
             if advanced.completed:
-                result = _activity_terminal_result(state.activities[activity_id], target)
+                final_activity = state.activities[activity_id]
+                result = _activity_terminal_result(final_activity, target,
+                                                   self._activity_title(final_activity))
                 state.processed_actions = _terminal_action_records(state, result)
                 results.append(result)
-                drafts.append(_activity_terminal_draft(state.activities[activity_id], target, []))
+                drafts.append(_activity_terminal_draft(final_activity, target, [],
+                                                       self._activity_title(final_activity)))
         return drafts, results
 
     def _apply_activity_effect(self, state: WorldState, activity, completed: bool) -> dict:
@@ -1486,9 +1511,9 @@ class LifeEngine:
             activity, agent = truncate_activity(activity, state.agents[activity.agent_id], now)
             state.activities[activity_id] = activity
             state.agents[agent.agent_id] = agent
-            result = _activity_terminal_result(activity, now)
+            result = _activity_terminal_result(activity, now, self._activity_title(activity))
             state.processed_actions = _terminal_action_records(state, result)
-            drafts.append(_activity_terminal_draft(activity, now, []))
+            drafts.append(_activity_terminal_draft(activity, now, [], self._activity_title(activity)))
         return drafts
 
     def _ready(self, agent_id: int) -> bool:
@@ -1649,7 +1674,8 @@ def _remember_action(state: WorldState, pending: PendingAction, result: ActionRe
     return state.model_copy(update={"processed_actions": actions}, deep=True)
 
 
-def _remember_terminal_activity(state: WorldState, result: ActionResult) -> WorldState:
+def _remember_terminal_activity(state: WorldState, result: ActionResult,
+                                title: str | None = None) -> WorldState:
     """@brief 控制动作终结活动时同步更新最初动作的幂等终态。"""
     if result.activity_id is None or result.activity_id not in state.activities:
         return state
@@ -1658,7 +1684,7 @@ def _remember_terminal_activity(state: WorldState, result: ActionResult) -> Worl
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal:
         return state
-    final = _activity_terminal_result(activity, result.occurred_at)
+    final = _activity_terminal_result(activity, result.occurred_at, title)
     return state.model_copy(update={"processed_actions": _terminal_action_records(state, final)}, deep=True)
 
 
@@ -1684,7 +1710,7 @@ def _result_draft(pending: PendingAction, result: ActionResult, event_type: str)
 
 
 def _terminal_after_action(state: WorldState, result: ActionResult,
-                           request_event_id: str) -> EventDraft | None:
+                           request_event_id: str, title: str | None = None) -> EventDraft | None:
     """@brief 在控制动作终结另一原始活动时补齐原动作最终结果。"""
     if result.activity_id is None or result.activity_id not in state.activities:
         return None
@@ -1693,10 +1719,11 @@ def _terminal_after_action(state: WorldState, result: ActionResult,
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal or activity.origin_action_id == result.action_id:
         return None
-    return _activity_terminal_draft(activity, result.occurred_at, [request_event_id])
+    return _activity_terminal_draft(activity, result.occurred_at, [request_event_id], title)
 
 
-def _activity_terminal_result(activity, occurred_at: int) -> ActionResult:
+def _activity_terminal_result(activity, occurred_at: int,
+                              title: str | None = None) -> ActionResult:
     """@brief 将活动生命周期终态编码为最初动作的最终结果。"""
     statuses = {ActivityStatus.COMPLETED: ActionStatus.COMPLETED,
                 ActivityStatus.CANCELLED: ActionStatus.CANCELLED,
@@ -1706,18 +1733,22 @@ def _activity_terminal_result(activity, occurred_at: int) -> ActionResult:
                 ActivityStatus.CANCELLED: "Activity cancelled",
                 ActivityStatus.FAILED: "Activity failed",
                 ActivityStatus.TRUNCATED: "Activity truncated at experiment end"}
+    snapshot = activity.model_dump(mode="json")
+    if title is not None:
+        snapshot["title"] = title
     return ActionResult(action_id=activity.origin_action_id, agent_id=activity.agent_id,
                         status=statuses[activity.status], occurred_at=occurred_at,
                         activity_id=activity.activity_id, message=messages[activity.status],
-                        data={"activity": activity.model_dump(mode="json")})
+                        data={"activity": snapshot})
 
 
 def _activity_terminal_draft(activity, occurred_at: int,
-                             additional_causes: list[str]) -> EventDraft:
+                             additional_causes: list[str],
+                             title: str | None = None) -> EventDraft:
     """@brief 形成回链原请求且携带权威活动快照的生命周期终态。"""
-    result = _activity_terminal_result(activity, occurred_at)
+    result = _activity_terminal_result(activity, occurred_at, title)
     data = result.model_dump(mode="json")
-    data["activity"] = activity.model_dump(mode="json")
+    data["activity"] = data["data"]["activity"]
     causes = list(dict.fromkeys([activity.origin_request_event_id, *additional_causes]))
     return EventDraft(event_type="action_result", occurred_at=occurred_at,
                       agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
@@ -1793,11 +1824,15 @@ def _work_review_terminal_draft(now: int, pending: PendingAction,
                       caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
 
 
-def _result_event_data(result: ActionResult, state: WorldState) -> dict:
+def _result_event_data(result: ActionResult, state: WorldState,
+                       title: str | None = None) -> dict:
     """@brief 确保活动受理事件携带固定 cutoff 可重建的权威状态。"""
     data = result.model_dump(mode="json")
     if result.activity_id and result.activity_id in state.activities:
-        data["activity"] = state.activities[result.activity_id].model_dump(mode="json")
+        snapshot = state.activities[result.activity_id].model_dump(mode="json")
+        if title is not None:
+            snapshot["title"] = title
+        data["activity"] = snapshot
     return data
 
 
