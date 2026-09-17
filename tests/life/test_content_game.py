@@ -6,7 +6,7 @@ from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import browse_activities, advance_next, context
 from worldmock.life.engine import LifeEngine
 from worldmock.life.game import GameOutcomeUnknown
 from worldmock.life.models import (
@@ -36,13 +36,14 @@ def _progress_events(engine, action_id: str) -> list:
 def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_factory) -> None:
     """字幕只按播放位置揭示，暂停空档不越界，重复观看从头开始并递减效果。"""
     engine = engine_factory()
-    catalog = engine.observe(context(engine, "catalog"))["content_catalog"]
+    catalog = browse_activities(engine, "browse-sintel", "subtitle_experience")
     # 娱乐语料扩容后目录还含片库/网文/剧集/段子条目；这里锁定 sintel 基线条目的完整字段身份
     # （含分段结构：26 个字幕 cue，未开始所以没有 progress 键）
     assert {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
             "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
             "experience_label": "subtitle_experience", "title": "Sintel",
             "segments_total": 26, "typical_segment_seconds": 24.2} in catalog
+    advance_next(engine)  # browse 消耗了 t0 决策位：下钻后推进到下一决策边界
     request = StartTargetedActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=1260, playback_speed=0.5)

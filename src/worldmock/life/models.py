@@ -464,6 +464,16 @@ class StartTargetedActivityRequest(FrozenModel):
     playback_speed: float = Field(ge=0.5, le=2)
 
 
+class BrowseActivitiesRequest(FrozenModel):
+    """@brief 由模型下钻读取一个活动品类目录（activity_summary 的键）。
+
+    纯查询：不启动活动、不消耗内容、不进 content_progress，条目清单只
+    作为动作反馈（action_result）返回，供下一决策选取具体目标。
+    """
+
+    category: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+
+
 class StartTravelRequest(FrozenModel):
     """@brief 由模型显式启动一次有目的地的出行。"""
 
@@ -554,7 +564,8 @@ class GameActionRequest(FrozenModel):
 ActionRequest = Annotated[
     StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
     SetActivityStateRequest | ChangePlaybackSpeedRequest | ContinueActivityRequest |
-    PurchaseRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest,
+    PurchaseRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
+    BrowseActivitiesRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -593,6 +604,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "consume": ConsumeRequest,
     "submit_work": SubmitWorkRequest,
     "game_action": GameActionRequest,
+    "browse_activities": BrowseActivitiesRequest,
 }
 
 

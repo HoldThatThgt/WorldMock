@@ -43,7 +43,14 @@ from worldmock.life.body import (
     next_body_boundary_seconds,
 )
 from worldmock.life.commerce import apply_product_progress, held_quantity, purchase
-from worldmock.life.content import SubtitleCue, mail_headers, reveal_mail, reveal_watch
+from worldmock.life.content import (
+    LifestyleItem,
+    SubtitleCue,
+    load_lifestyle_items,
+    mail_headers,
+    reveal_mail,
+    reveal_watch,
+)
 from worldmock.life.game import (
     GameOutcomeUnknown,
     new_game_session,
@@ -58,6 +65,7 @@ from worldmock.life.models import (
     ActivityChange,
     ActivityKind,
     ActivityStatus,
+    BrowseActivitiesRequest,
     ChangePlaybackSpeedRequest,
     ChangeActivityRequest,
     ContinueActivityRequest,
@@ -139,6 +147,8 @@ class LifeEngine:
         self.corpus_root = Path(corpus_root).resolve()
         self.store = store
         self.rules = LifeRuleEngine(self.scenario, self.corpus_root)
+        self.lifestyle_items = load_lifestyle_items(
+            self.corpus_root, self.scenario.body.activity_met)
         self.state = WorldState.model_validate(store.state)
         self._round: DecisionRoundState | None = None
         self._model_request_events: dict[tuple[str, str], str] = {}
@@ -635,9 +645,7 @@ class LifeEngine:
                                       agent.location_id, agent.body.energy_kcal,
                                       self.state.current_time, self.semantics),
                 "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
-                "content_catalog": _content_catalog(
-                    self.scenario, self.rules.subtitles, self.rules.content_titles,
-                    agent.content_progress),
+                "activity_summary": self._activity_summary(agent),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
                 "browse_targets": ["product_catalog"],
@@ -673,6 +681,78 @@ class LifeEngine:
         return {"open": open_now, "product_count": len(products),
                 "price_range_fen": [min(prices), max(prices)]}
 
+    def _activity_summary(self, agent) -> dict[str, int]:
+        """@brief 一行品类计数：观察只报各活动品类的在场数量，明细由下钻读取。
+
+        全量 content_catalog 逐条展开（192+ 项）被本摘要取代（Stanford 环境
+        树/Sims 智能对象广告的分层菜单模式）：键即 browse_activities 的合法
+        品类闭集——内容 kind、人物启用的生活活动品类与 foods，值是条目数。
+        TextWorld 游戏目录仍由 game_catalog 独立暴露，不并入本摘要。
+        """
+        summary: dict[str, int] = {}
+        for item in self.scenario.contents:
+            summary[item.kind] = summary.get(item.kind, 0) + 1
+        for entry in self._enabled_lifestyle_items(agent):
+            summary[entry.category] = summary.get(entry.category, 0) + 1
+        if self.scenario.products:
+            summary["foods"] = len(self.scenario.products)
+        return dict(sorted(summary.items()))
+
+    def _enabled_lifestyle_items(self, agent) -> tuple[LifestyleItem, ...]:
+        """@brief 返回人物启用声明过滤后的生活活动目录条目（None=全局启用）。"""
+        config = next(item for item in self.scenario.agents if item.agent_id == agent.agent_id)
+        enabled = config.lifestyle_activities
+        if enabled is None:
+            return self.lifestyle_items
+        allowed = set(enabled)
+        return tuple(item for item in self.lifestyle_items if item.activity_id in allowed)
+
+    def _browse_activities(self, state: WorldState, pending: PendingAction,
+                           request: BrowseActivitiesRequest) -> tuple[WorldState, ActionResult]:
+        """@brief 下钻读取一个活动品类目录：纯查询，不启动活动、不消耗内容。
+
+        合法品类从 activity_summary 的键派生；内容品类返回与观看受理一致的
+        条目形状（含分段与进度），生活活动品类返回名称/时长/MET/描述，
+        foods 返回菜单级商品行（购买合同仍走 product_catalog 的限时 browse）。
+        结果只作为动作反馈返回，不写入 content_progress。
+        """
+        agent = state.agents[pending.agent_id]
+        category = request.category
+        if category not in self._activity_summary(agent):
+            raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
+        content_kinds = {item.kind for item in self.scenario.contents}
+        if category in content_kinds:
+            items = [row for row in _content_catalog(
+                        self.scenario, self.rules.subtitles, self.rules.content_titles,
+                        agent.content_progress)
+                     if row["kind"] == category]
+            note = "watch items accept start_targeted_activity with activity_type watch"
+        elif category == "foods":
+            items = [{"product_id": product.product_id,
+                      "price_fen": product.price_fen,
+                      "use_modes": list(product.use_modes),
+                      "use_duration_seconds": product.use_duration_seconds,
+                      "merchant_location_id": product.merchant_location_id}
+                     for product in sorted(self.scenario.products,
+                                           key=lambda item: item.product_id)]
+            note = "menu-level view only; purchase contracts need the timed product catalog browse"
+        else:
+            items = [{"activity_id": entry.activity_id,
+                      "activity_type": f"{LIFESTYLE_TYPE_PREFIX}{entry.activity_id}",
+                      "name": entry.name, "category": entry.category,
+                      "typical_duration_minutes": entry.typical_duration_minutes,
+                      "description": entry.description, "met_value": entry.met_value}
+                     for entry in sorted(self._enabled_lifestyle_items(agent),
+                                         key=lambda item: item.activity_id)
+                     if entry.category == category]
+            note = "lifestyle items accept start_basic_activity with activity_type lifestyle:<activity_id>"
+        result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
+                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+                              message="Activity menu browsed",
+                              data={"tool": "browse_activities", "category": category,
+                                    "count": len(items), "note": note, "items": items})
+        return state, result
+
     def _motivation_hints(self, agent) -> dict | None:
         """@brief 计算动机提示；无档案、无变换参数或求值失败一律不注入。
 
@@ -685,7 +765,7 @@ class LifeEngine:
         if profile is None or transforms is None:
             return None
         try:
-            context = self._motivation_context(agent)
+            context = self._motivation_context(agent, profile)
             scored = evaluate_motivation(context, profile, transforms)
             if not scored:
                 return None
@@ -695,8 +775,13 @@ class LifeEngine:
             logging.warning("Motivation hints evaluation failed", exc_info=True)
             return None
 
-    def _motivation_context(self, agent) -> MotivationContext:
-        """@brief 从当前世界装配求值输入切片（全部只读）。"""
+    def _motivation_context(self, agent, profile) -> MotivationContext:
+        """@brief 从当前世界装配求值输入切片（全部只读）。
+
+        contents 不再传全量目录：按品类摘要 + 每品类 top-2 采样（权 =
+        attention_prior[kind] × 内容偏好）传入，观察分层化后评分器仍能
+        产生高质量推荐而不需要全量列表。
+        """
         now = self.state.current_time
         tasks = [self.rules.tasks[item] for item in sorted(agent.visible_task_ids)
                  if item not in self.state.paid_task_ids
@@ -720,7 +805,10 @@ class LifeEngine:
             tasks=tuple(tasks),
             task_totals={task.task_id: work_totals(self.state, agent.agent_id, task.task_id)
                          for task in tasks},
-            contents=self.scenario.contents,
+            contents=_sample_contents(self.scenario.contents, profile, agent),
+            content_category_counts={
+                kind: sum(1 for item in self.scenario.contents if item.kind == kind)
+                for kind in {item.kind for item in self.scenario.contents}},
             content_progress=agent.content_progress,
             active_activity=(self.state.activities.get(agent.current_activity_id)
                              if agent.current_activity_id else None),
@@ -956,7 +1044,8 @@ class LifeEngine:
                     "change_playback_speed": self._change_playback_speed,
                     "continue_activity": self._continue,
                     "purchase": self._purchase, "consume": self._consume,
-                    "submit_work": self._submit_work, "game_action": self._game_action}
+                    "submit_work": self._submit_work, "game_action": self._game_action,
+                    "browse_activities": self._browse_activities}
         return handlers[pending.tool_name](state, pending, request)
 
     def _require_boundary_action(self, state: WorldState, pending: PendingAction, request) -> None:
@@ -1812,6 +1901,28 @@ def _paused_activity_observation(activity, agent, body) -> dict:
     data = activity.model_dump(mode="json")
     data.update(_remaining_activity_energy(activity, agent, body))
     return data
+
+
+def _sample_contents(contents, profile, agent) -> tuple:
+    """@brief 每内容品类按 attention_prior x 偏好采 top-2，采样全局按权排序。
+
+    分层菜单模式下动机求值不再接收全量目录（192 项）：采样保持品类覆盖
+    （每 kind 至多 2 条、总量 ≤14），排序保证进入候选池截断的是最强候选。
+    """
+    def weight(item) -> float:
+        return (profile.attention_prior.get(item.kind, 0)
+                * agent.entertainment_preferences.get(item.item_id, 0.5))
+
+    ranked = sorted(contents, key=lambda item: (-weight(item), item.item_id))
+    per_kind: dict[str, int] = {}
+    sample = []
+    for item in ranked:
+        taken = per_kind.get(item.kind, 0)
+        if taken >= 2:
+            continue
+        per_kind[item.kind] = taken + 1
+        sample.append(item)
+    return tuple(sample)
 
 
 def _content_catalog(scenario: RuntimeScenario, subtitles: dict[str, tuple[SubtitleCue, ...]],

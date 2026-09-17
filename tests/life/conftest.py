@@ -89,3 +89,17 @@ def advance_next(engine: LifeEngine) -> None:
     state = engine.scheduling_state()
     assert state.next_event_at is not None
     engine.advance(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
+
+
+def browse_activities(engine: LifeEngine, round_id: str, category: str,
+                      agent_id: int = 1) -> list[dict]:
+    """按真实轮次下钻一个活动品类并返回结算条目（browse 是纯查询动作）。"""
+    from worldmock.life.models import BrowseActivitiesRequest
+
+    ready = list(engine.scheduling_state().ready_agent_ids)
+    requests = {item: ("browse_activities", BrowseActivitiesRequest(category=category))
+                for item in ready}
+    _, results = submit_round(engine, requests, round_id)
+    result = next(item for item in results if item.agent_id == agent_id)
+    assert result.status.value == "completed", result.error_code
+    return result.data["items"]

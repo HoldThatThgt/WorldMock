@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, browse_activities, context
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
 from worldmock.life.models import (
@@ -85,7 +85,10 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
         assert feed.experience_label == "casual_news_feed_scroll"
         assert all(0 < agent.entertainment_preferences[FEED_ID] <= 1 for agent in scenario.agents)
     engine = engine_factory()
-    catalog = engine.observe(context(engine, "catalog"))["content_catalog"]
+    # 分层目录：两个基线条目分属两个品类，各自下钻可见完整字段身份
+    feed_catalog = browse_activities(engine, "browse-feeds", "news_feed")
+    advance_next(engine)
+    sintel_catalog = browse_activities(engine, "browse-sintel", "subtitle_experience")
     # 娱乐语料扩容后目录还含片库/网文/剧集/段子条目；这里锁定两个基线条目的完整字段身份
     # （含分段结构：sintel 26 cue、信息流 1000 条；未开始所以没有 progress 键）
     expected_entries = [
@@ -98,8 +101,8 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
          "experience_label": "casual_news_feed_scroll",
          "segments_total": 1000, "typical_segment_seconds": 38.0},
     ]
-    for expected in expected_entries:
-        assert expected in catalog
+    assert expected_entries[1] in feed_catalog
+    assert expected_entries[0] in sintel_catalog
 
 
 def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_factory) -> None:

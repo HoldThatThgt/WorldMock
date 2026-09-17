@@ -1,7 +1,7 @@
 # catalog/ — 静态资源与交换对象字典（冻结 JSONL，version 1）
 
 - `resources.jsonl` — 4 条资源定义（money_fen 账户 + energy/sleep_debt/entertainment 三个 level）
-- `objects.jsonl` — 20 条交换对象（8 食品 + 8 耐用品 + travel-service + 3 合同模板）
+- `objects.jsonl` — 133 条交换对象（121 食品 = 8 冻结基线 + 25 第一波扩容（foods/expansion.json）+ 88 第二波扩容（foods/expansion2.json，源自 open-food-facts/china-pool.json 548 条含能量池）+ 8 耐用品 + travel-service + 3 合同模板）
 - `rules/` — 人写的映射/公式声明（off-foods.mapping.toml、travel-fare.toml）
 - `overrides/`、`snapshots/` — 预留（例外覆盖/墓碑、anchored 取值快照），v1 尚无内容
 

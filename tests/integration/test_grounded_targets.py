@@ -29,7 +29,6 @@ _MEMORY_TOOLS = {
 
 _FAILED_OBSERVATION_CATALOGS = {
     "tasks": [],
-    "content_catalog": [{"item_id": "sintel-en-subtitles", "duration_seconds": 630}],
     "game_catalog": [{"game_id": f"textworld-{seed}"} for seed in range(1201, 1209)],
     "messages": [],
     "browse_targets": ["product_catalog"],
@@ -54,7 +53,6 @@ def _catalogs() -> dict:
             {"task_id": "task-a", "remaining_contract_seconds": 3600,
              "material": {"end_char": 10, "total_chars": 10}},
         ],
-        "content_catalog": [{"item_id": "content-visible", "duration_seconds": 630}],
         "game_catalog": [{"game_id": "game-visible"}],
         "messages": [{"message_id": "message-visible"}],
         "browse_targets": ["product_catalog"],
@@ -68,17 +66,39 @@ def _energy_limits(**overrides: int) -> dict:
     return {"maximum_duration_seconds_by_kind": values}
 
 
+def _browse_entry(item_id: str = "content-visible", duration: int = 630,
+                  event_id: str = "event-browse-current") -> dict:
+    """构造一条 browse_activities 动作结果（引擎 ActionResult 转储形状）。"""
+    data = {"tool": "browse_activities", "category": "feature_film", "count": 1,
+            "note": "watch items accept start_targeted_activity with activity_type watch",
+            "items": [{"item_id": item_id, "kind": "feature_film",
+                       "duration_seconds": duration,
+                       "entertainment_relief_per_hour": 0.2,
+                       "experience_label": "feature_film",
+                       "segments_total": 1,
+                       "typical_segment_seconds": float(duration)}]}
+    return {"event_id": event_id, "action_id": "action-browse-current",
+            "decision_id": "decision", "occurred_at": 0, "status": "completed",
+            "error_code": None, "message": "Activity menu browsed",
+            "result": {"status": "completed", "activity_id": None,
+                       "error_code": None, "message": "Activity menu browsed",
+                       "data": data}}
+
+
 def _observations(
     catalogs: dict,
     *,
     active_activity: dict | None = None,
     paused_activities: list[dict] | None = None,
     overrides: dict | None = None,
+    browse_results: list[dict] | None = None,
 ) -> list[dict]:
     """把目录包装为 PersonAgent 实际传给 ReAct 的首观察。"""
     data = {
         "observation_event_id": "observation-current",
-        "recent_action_results": [],
+        "recent_action_results": (
+            [_browse_entry()] if browse_results is None else browse_results),
+        "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
         "active_activity": active_activity,
         "paused_activities": paused_activities or [],
         "energy_feasibility": _energy_limits(),
@@ -160,7 +180,8 @@ def test_prepare_binds_current_catalogs_to_native_strict_schema() -> None:
 
 def test_failed_run_observation_removes_unreleased_work_and_invented_target() -> None:
     """真实失败观察的空任务目录不再允许 work 或虚构 office 目标。"""
-    agent = _prepare(_FAILED_OBSERVATION_CATALOGS)
+    agent = _prepare(_FAILED_OBSERVATION_CATALOGS,
+                     browse_results=[_browse_entry("sintel-en-subtitles")])
     parameters = _targeted_parameters(agent)
     properties = parameters["properties"]
     payload = {
@@ -183,10 +204,10 @@ def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
     """全部公开身份为空时仅保留无需目标的基础活动。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
     overrides = {"products": [], "locations": [], "available_inventory": {}, "routes": []}
-    functions = _functions(_prepare(empty, overrides=overrides))
+    functions = _functions(_prepare(empty, overrides=overrides, browse_results=[]))
 
     assert "start_targeted_activity" not in functions
-    assert set(functions) == _MEMORY_TOOLS | {"start_basic_activity"}
+    assert set(functions) == _MEMORY_TOOLS | {"start_basic_activity", "browse_activities"}
 
 
 @pytest.mark.parametrize(
@@ -335,7 +356,7 @@ async def test_invalid_visible_pair_cannot_bypass_validation_through_dispatch() 
     assert environment.calls == [] and agent._life_action_count == 0
 
 
-@pytest.mark.parametrize("missing", ["tasks", "content_catalog", "game_catalog", "messages", "browse_targets"])
+@pytest.mark.parametrize("missing", ["tasks", "game_catalog", "messages", "browse_targets"])
 def test_prepare_rejects_every_missing_catalog(missing: str) -> None:
     """任何公开目录缺失都作为协议错误而非空目录处理。"""
     catalogs = _catalogs()
@@ -351,8 +372,10 @@ def test_prepare_rejects_every_missing_catalog(missing: str) -> None:
         ("tasks", {}, "tasks catalog must be a list"),
         ("tasks", ["task"], "tasks catalog item must be an object"),
         ("tasks", [{"task_id": "task"}], "task remaining contract time"),
-        ("content_catalog", [{"item_id": " "}], "content_catalog catalog identity"),
-        ("content_catalog", [{"item_id": "content"}], "content duration"),
+        ("activity_summary", None, "activity summary is unavailable"),
+        ("activity_summary", {}, "activity summary is unavailable"),
+        ("activity_summary", {"feature_film": -1}, "activity summary entry"),
+        ("activity_summary", {" ": 1}, "activity summary entry"),
         ("game_catalog", [{"game_id": 7}], "game_catalog catalog identity"),
         ("messages", [{"subject": "missing identity"}], "messages catalog identity"),
         ("browse_targets", [{"target": "product_catalog"}], "browse_targets catalog identity"),
@@ -377,10 +400,14 @@ def test_prepare_rejects_malformed_catalogs(field: str, value, message: str) -> 
         ({"available_inventory": {"unknown-product": 1}}, "held product contract"),
         ({"routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 0}]},
          "route contract"),
-        ({"content_progress": {"unknown-content": {
-            "item_id": "unknown-content", "position_seconds": 1,
+        ({"content_progress": {"mismatched": {
+            "item_id": "other", "position_seconds": 1,
             "remaining_media_seconds": 1, "exposure_count": 1,
         }}}, "content progress identity"),
+        ({"content_progress": {"content-visible": {
+            "item_id": "content-visible", "position_seconds": 100,
+            "remaining_media_seconds": 999, "exposure_count": 1,
+        }}}, "content remaining time"),
     ],
 )
 def test_prepare_rejects_malformed_business_identity_sources(overrides, message) -> None:
@@ -415,6 +442,20 @@ def test_prepare_rejects_terminal_game_as_active_control() -> None:
         _prepare(
             _catalogs(), active_activity=_active("play_game", session_id="session-visible"),
             overrides={"games": games})
+
+
+def test_browse_activities_binds_summary_keys_and_rejects_unknown_category() -> None:
+    """菜单查询工具的品类枚举来自 activity_summary 键，未知品类本地拒绝。"""
+    agent = _prepare(_catalogs())
+    functions = _functions(agent)
+    schema = functions["browse_activities"]["parameters"]["properties"]
+
+    assert schema["category"]["enum"] == ["feature_film", "foods", "sport"]
+    valid = ReactDecision("", "browse_activities", {"category": "sport"}, "")
+    invalid = ReactDecision("", "browse_activities", {"category": "casino"}, "")
+    assert agent.validate_react_decisions([valid], False) == ""
+    assert agent.validate_react_decisions([invalid], False) == (
+        "browse_activities category is not a key of the visible activity_summary")
 
 
 def test_union_enum_still_requires_exact_kind_and_target_pair() -> None:
@@ -468,7 +509,7 @@ def test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty() -
     paused = [{"activity_id": "activity-paused", "status": "paused",
                "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
                "resume_energy_feasible": True}]
-    agent = _prepare(empty, paused_activities=paused)
+    agent = _prepare(empty, paused_activities=paused, browse_results=[])
     functions = _functions(agent)
     decision = ReactDecision(
         "", "set_activity_state", {"activity_id": "activity-paused", "operation": "resume"}, ""
@@ -510,7 +551,7 @@ async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs(
     paused = [{"activity_id": "activity-paused", "status": "paused",
                "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
                "resume_energy_feasible": True}]
-    agent = _prepare(empty, paused_activities=paused)
+    agent = _prepare(empty, paused_activities=paused, browse_results=[])
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()

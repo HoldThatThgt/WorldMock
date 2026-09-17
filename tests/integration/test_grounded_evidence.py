@@ -192,7 +192,17 @@ def test_grounded_tool_deduplicates_target_ids_across_catalogs(_engine_factory):
     observation = engine.observe(ctx)
     observation["tasks"] = [{"task_id": "shared-id", "remaining_contract_seconds": 3600,
                              "material": {"end_char": 10, "total_chars": 10}}]
-    observation["content_catalog"] = [{"item_id": "shared-id", "duration_seconds": 630}]
+    observation["recent_action_results"] = [{
+        "event_id": "event-browse-shared", "action_id": "action-browse-shared",
+        "decision_id": "decision", "occurred_at": 0, "status": "completed",
+        "error_code": None, "message": "Activity menu browsed",
+        "result": {"status": "completed", "activity_id": None, "error_code": None,
+                   "message": "Activity menu browsed",
+                   "data": {"tool": "browse_activities", "category": "feature_film",
+                            "count": 1, "note": "watch items",
+                            "items": [{"item_id": "shared-id", "kind": "feature_film",
+                                       "duration_seconds": 630}]}},
+    }]
     _, tools = _prepared_tools(observation, ctx.observed_at)
     targeted = next(item for item in tools if item["function"]["name"] == "start_targeted_activity")
     ids = targeted["function"]["parameters"]["properties"]["target_id"]["enum"]

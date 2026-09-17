@@ -59,9 +59,12 @@ FAMILIES = frozenset({
     FAMILY_BROWSE, FAMILY_ENTERTAINMENT, FAMILY_WORK,
 })
 
-#: v1 每次决策枚举的候选上限与注入条数（browse 加入后 8→9）。
-MAX_CANDIDATES = 9
+#: v1 每次决策枚举的候选上限与注入条数（分层菜单采样后 8 生存位 + 14 娱乐 = 22）。
+MAX_CANDIDATES = 22
 DEFAULT_TOP_K = 5
+
+#: 娱乐候选按品类采样的每品类上限：7 内容品类 x 2 = 14 条娱乐候选。
+ENTERTAINMENT_PER_KIND = 2
 
 #: 候选时长/观察窗口的工程上限（秒）：防止整部电影/整段合同把候选坐标推到极端。
 MAX_CANDIDATE_SECONDS = 4 * 3600
@@ -216,6 +219,8 @@ class MotivationContext:
     routes: tuple[RouteConfig, ...]
     tasks: tuple[WorkTaskConfig, ...]
     task_totals: Mapping[str, tuple[int, float]]
+    #: 内容候选是品类摘要 + 每品类 top-2 采样（引擎侧 _sample_contents 装配），
+    #: 不是全量目录；评分器对传入列表仍按品类重采样，直接构造全量亦安全。
     contents: tuple[ContentItemConfig, ...]
     content_progress: Mapping[str, ContentProgress]
     active_activity: ActivityState | None
@@ -231,6 +236,8 @@ class MotivationContext:
     catalog_products: tuple[ProductConfig, ...] = ()
     #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
     content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
+    #: 品类摘要（kind -> 条目数）：观察 activity_summary 的内容段同源。
+    content_category_counts: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -415,9 +422,10 @@ def _enumerate_candidates(context: MotivationContext,
     """@brief 按固定优先级枚举候选并截断到 MAX_CANDIDATES。
 
     优先级：进食 > 睡眠 > 继续当前活动 > 去工作地点 > 工作任务(至多2) >
-    回家 > 浏览商品目录 > 娱乐(至多3)。生存与目标导向优先于消遣，浏览
-    （工具性：解锁进食候选的枚举）排在纯消遣之前；截断从队尾开始，
-    保证任何决策点的候选数不超过 MAX_CANDIDATES。
+    回家 > 浏览商品目录 > 娱乐(每品类 top-2 采样，≤14)。生存与目标导向
+    优先于消遣，浏览（工具性：解锁进食候选的枚举）排在纯消遣之前；
+    娱乐候选在池尾按采样权重排序，截断从队尾开始，保证任何决策点的
+    候选数不超过 MAX_CANDIDATES 且存活的是最强候选。
     """
     pool: list[_Candidate] = []
     eat = _eat_candidate(context)
@@ -770,13 +778,16 @@ def _work_candidates(context: MotivationContext) -> tuple[_Candidate | None, lis
 
 def _entertainment_candidates(context: MotivationContext,
                               profile: MotivationProfile) -> list[_Candidate]:
-    """@brief 娱乐候选：attention_prior x 内容偏好加权后取 top-3 的可观看内容。
+    """@brief 娱乐候选：每内容品类采 top-2（attention_prior x 偏好加权）。
 
-    时长槽按分段语义给：一次约两段典型时长（typical_segment_seconds x 2），
-    让长内容以"读一章/看一段"的小步会话入场而不是一整天的整块承诺；槽长
-    受剩余媒体时长、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间
-    截断，短段内容（剧集/信息流）保底一次十分钟会话避免候选被裁光。看完
-    的内容从头再来；缓解速率与引擎口径一致（偏好/接触次数）。
+    分层菜单模式：评分器不依赖全量目录——即使上下文直接构造传入全量列表，
+    也按品类重采样（每 kind 至多 ENTERTAINMENT_PER_KIND 条，7 品类 ≤14），
+    采样后全局按权排序，保证候选池截断保留的是最强候选。时长槽按分段语义
+    给：一次约两段典型时长（typical_segment_seconds x 2），让长内容以
+    "读一章/看一段"的小步会话入场而不是一整天的整块承诺；槽长受剩余媒体
+    时长、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间截断，短段
+    内容（剧集/信息流）保底一次十分钟会话避免候选被裁光。看完的内容从头
+    再来；缓解速率与引擎口径一致（偏好/接触次数）。
     """
     agent = context.agent
     ranked = sorted(
@@ -786,8 +797,16 @@ def _entertainment_candidates(context: MotivationContext,
         key=lambda item: (-profile.attention_prior.get(item.kind, 0)
                           * agent.entertainment_preferences.get(item.item_id, 0.5),
                           item.item_id))
+    sampled: list = []
+    taken_per_kind: dict[str, int] = {}
+    for item in ranked:
+        taken = taken_per_kind.get(item.kind, 0)
+        if taken >= ENTERTAINMENT_PER_KIND:
+            continue
+        taken_per_kind[item.kind] = taken + 1
+        sampled.append(item)
     candidates = []
-    for item in ranked[:3]:
+    for item in sampled:
         progress = context.content_progress.get(item.item_id)
         position = progress.position_seconds if progress else 0.0
         exposures = progress.exposure_count if progress else 0

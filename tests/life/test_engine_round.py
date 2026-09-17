@@ -145,12 +145,16 @@ def test_context_with_wrong_time_is_rejected(engine_factory) -> None:
 
 
 def test_first_observation_exposes_every_action_target(engine_factory) -> None:
-    """首轮无需猜内部 ID 即可发现内容、游戏、地点、路线和目录目标。"""
+    """首轮无需猜内部 ID 即可发现品类摘要、游戏、地点、路线和目录目标。"""
     engine = engine_factory()
     ctx = context(engine, "discover")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    assert observed["content_catalog"][0]["item_id"] == "sintel-en-subtitles"
+    # 分层目录：观察只带品类计数，内容明细由 browse_activities 下钻揭示
+    assert "content_catalog" not in observed
+    assert observed["activity_summary"]["subtitle_experience"] == 1
+    assert observed["activity_summary"]["feature_film"] == 90
+    assert observed["activity_summary"]["foods"] == len(engine.scenario.products)
     assert observed["game_catalog"][0]["game_id"] == "textworld-1201"
     assert {item["location_id"] for item in observed["locations"]} == {"home", "office", "market"}
     routes = {(item["destination_id"], item["mode"]) for item in observed["routes"]}

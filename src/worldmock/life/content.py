@@ -23,6 +23,63 @@ class SubtitleCue:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class LifestyleItem:
+    """@brief 生活活动目录（corpora/lifestyle/items.json）的一条公开条目。"""
+
+    activity_id: str
+    name: str
+    category: str
+    typical_duration_minutes: int
+    description: str
+    met_value: float
+
+
+#: 生活活动目录语料路径（相对 corpus root）。
+LIFESTYLE_ITEMS_PATH = "lifestyle/items.json"
+
+
+def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> tuple[LifestyleItem, ...]:
+    """@brief 装载生活活动目录并对照身体 MET 表核对身份闭集（fail-closed）。
+
+    观察不再逐条展开生活活动：目录按品类计数进 activity_summary，明细由
+    browse_activities 下钻揭示。items.json 与 activity_met 的 lifestyle 键
+    必须一一对应（多、少、重复都按 IntegrityError 终止），保证 browse 结果
+    与 start_basic_activity("lifestyle:<id>") 的受理闭集一致。
+    """
+    payload = json.loads(_safe_file(corpus_root, LIFESTYLE_ITEMS_PATH).read_text(encoding="utf-8"))
+    items = payload.get("items") if isinstance(payload, dict) else None
+    if not isinstance(items, list):
+        raise IntegrityError("Lifestyle catalog items are missing")
+    result: list[LifestyleItem] = []
+    seen: set[str] = set()
+    for row in items:
+        if not isinstance(row, dict):
+            raise IntegrityError("Lifestyle catalog row must be an object")
+        try:
+            item = LifestyleItem(
+                activity_id=str(row["activity_id"]),
+                name=str(row["name_zh"]),
+                category=str(row["category"]),
+                typical_duration_minutes=int(row["typical_duration_minutes"]),
+                description=str(row["description_zh"]),
+                met_value=float(row["met_value"]))
+        except (KeyError, TypeError, ValueError) as error:
+            raise IntegrityError(f"Lifestyle catalog row is invalid: {error}") from error
+        if item.activity_id in seen:
+            raise IntegrityError(f"Lifestyle catalog id {item.activity_id!r} is duplicated")
+        seen.add(item.activity_id)
+        result.append(item)
+    expected = {key.removeprefix("lifestyle:") for key in activity_met
+                if key.startswith("lifestyle:")}
+    if seen != expected:
+        raise IntegrityError(
+            f"Lifestyle catalog ids do not match activity_met lifestyle keys: "
+            f"{sorted(expected - seen)} missing, {sorted(seen - expected)} unknown")
+    return tuple(result)
+
+
+
 #: 内容条目标题的语料来源：内容类别 → (语料相对路径, 条目身份键)。
 #: 身份键为空串表示单记录身份文件（其 title 字段直接适用）；未列出的类别
 #: （news_feed/joke_feed/game_session）以 experience_label / game_id 自带身份。

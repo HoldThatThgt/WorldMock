@@ -222,6 +222,11 @@ _TOOL_DESCRIPTIONS = {
     "consume": "Consume or use a product already present in personal inventory.",
     "submit_work": "Submit one actual work deliverable for an available task.",
     "game_action": "Send one admissible command to an active TextWorld game session.",
+    "browse_activities": (
+        "Drill into one activity category from activity_summary and read its item list. "
+        "Pure query: it starts nothing and consumes nothing; the returned items arrive "
+        "as action results and become usable targets (watch items for "
+        "start_targeted_activity, lifestyle items for start_basic_activity)."),
     "memory_recent": "Read the person's most recent durable memory episodes.",
     "memory_search": "Search the person's durable memory episodes by keyword.",
     "memory_step_range": "Read durable memory episodes within an inclusive decision-step range.",
@@ -234,24 +239,32 @@ _TOOL_DESCRIPTIONS = {
     ),
 }
 
+#: 观察目录直读的四类活动目标；watch 目标由 browse_activities 结果与观看
+#: 进度单独冻结（观察不再携带全量 content_catalog）。
 _TARGET_CATALOG_FIELDS: dict[str, tuple[str, str | None]] = {
     "work": ("tasks", "task_id"),
-    "watch": ("content_catalog", "item_id"),
     "play_game": ("game_catalog", "game_id"),
     "read_mail": ("messages", "message_id"),
     "browse": ("browse_targets", None),
 }
 
+#: 能量可行性投影覆盖的活动类型闭集（watch 仍在能量表中）。
+_ENERGY_LIMIT_KINDS = frozenset({"work", "watch", "play_game", "read_mail", "browse"})
+
+#: start_targeted_activity 的 activity_type 枚举序（watch 目标来自 browse/进度）。
+_TARGETED_ACTIVITY_KINDS = ("work", "watch", "play_game", "read_mail", "browse")
+
 _TARGET_KIND_DESCRIPTION = (
     "Choose only a kind with a currently visible target: work uses observations[0].data.tasks[].task_id; "
-    "watch uses content_catalog[].item_id; play_game uses game_catalog[].game_id; read_mail uses "
+    "watch uses item_id values revealed by a recent browse_activities result or listed in "
+    "content_progress; play_game uses game_catalog[].game_id; read_mail uses "
     "messages[].message_id; browse uses browse_targets[]."
 )
 
 _TARGET_ID_DESCRIPTION = (
     "Use the exact visible ID paired with activity_type: work=tasks[].task_id; "
-    "watch=content_catalog[].item_id; play_game=game_catalog[].game_id; "
-    "read_mail=messages[].message_id; browse=browse_targets[]."
+    "watch=item_id from recent browse_activities results or content_progress; "
+    "play_game=game_catalog[].game_id; read_mail=messages[].message_id; browse=browse_targets[]."
 )
 
 _ACTIVITY_CONTROL_TOOLS = frozenset({
@@ -276,7 +289,10 @@ You are {name}, living as the person described in the profile inside a simulated
 Use only the current observation and durable memory. Never invent products, tasks, messages,
 locations, inventory, game commands, or completed results. Use only the native tools supplied with
 this request; no skill, workspace, task-list, environment-query, or script tools exist. Memory tools
-may retrieve relevant past episodes. During this decision, submit exactly one life action. A
+may retrieve relevant past episodes. The observation shows activity_summary with one count per
+activity category instead of full catalogs; call browse_activities with one category key to read
+its concrete items before choosing a specific watch or lifestyle target. During
+this decision, submit exactly one life action. A
 submitted receipt only proves submission. After that receipt, call finish as the only tool call in a
 later response and record at least one truthful memory. Every ref in every memory must be one of the
 allowed source IDs in the current finish tool schema: current observation_event_id, current
@@ -341,6 +357,7 @@ class LifeAgent(PersonAgent):
                 self._life_visible_targets,
                 self._life_activity_controls["maximum_duration_seconds_by_kind"],
             )
+            _bind_browse_categories(schemas, self._life_browse_categories)
             _bind_activity_control_schemas(schemas, self._life_activity_controls)
             _bind_visible_action_schemas(schemas, self._life_action_contracts)
         if not readonly and "finish" in models:
@@ -442,6 +459,7 @@ class LifeAgent(PersonAgent):
             self._life_activity_controls = {}
             self._life_action_contracts = {}
             self._life_action_models = {}
+            self._life_browse_categories = frozenset()
             budget = self._react_budget(True)
             self._life_request_models = self._budgeted_tool_models(
                 True, budget["memory_tools_available"])
@@ -449,11 +467,13 @@ class LifeAgent(PersonAgent):
         data = _environment_observation_data(request.observations)
         energy_limits = _visible_energy_limits(data)
         self._life_visible_refs = _environment_source_ids(data)
+        self._life_browse_categories = _visible_browse_categories(data)
         self._life_visible_targets = _visible_target_ids(data, energy_limits)
         self._life_activity_controls = _visible_activity_controls(data, energy_limits)
         self._life_action_contracts = _visible_action_contracts(data)
         self._life_action_models = _available_action_models(
-            self._life_visible_targets, self._life_activity_controls, self._life_action_contracts)
+            self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
+            self._life_browse_categories)
         budget = self._react_budget(False)
         self._life_request_models = self._budgeted_tool_models(
             False, budget["memory_tools_available"])
@@ -490,6 +510,7 @@ class LifeAgent(PersonAgent):
                     self._life_visible_targets,
                     self._life_activity_controls,
                     self._life_action_contracts,
+                    self._life_browse_categories,
                 )
                 if error:
                     return error
@@ -543,6 +564,7 @@ class LifeAgent(PersonAgent):
             self._life_visible_targets,
             self._life_activity_controls,
             self._life_action_contracts,
+            self._life_browse_categories,
         )
         if error:
             raise RuntimeError(error)
@@ -616,8 +638,7 @@ def _visible_energy_limits(data: dict[str, Any]) -> dict[str, int]:
     """@brief 严格读取环境以权威成本函数计算的五类活动墙钟上限。"""
     projection = data.get("energy_feasibility")
     maximums = projection.get("maximum_duration_seconds_by_kind") if isinstance(projection, dict) else None
-    expected = set(_TARGET_CATALOG_FIELDS)
-    if not isinstance(maximums, dict) or set(maximums) != expected:
+    if not isinstance(maximums, dict) or set(maximums) != _ENERGY_LIMIT_KINDS:
         raise RuntimeError("LifeAgent energy feasibility kinds are invalid")
     for kind, value in maximums.items():
         if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 86_400:
@@ -629,7 +650,7 @@ def _visible_target_ids(
     data: dict[str, Any],
     energy_limits: dict[str, int],
 ) -> dict[str, tuple[str, ...]]:
-    """@brief 从五个公开目录冻结本轮可用活动目标身份。"""
+    """@brief 从公开目录、browse 结果与进度冻结本轮可用活动目标身份。"""
     result = {}
     for kind, (field, identity_field) in _TARGET_CATALOG_FIELDS.items():
         catalog = data.get(field)
@@ -637,7 +658,7 @@ def _visible_target_ids(
             raise RuntimeError(f"LifeAgent {field} catalog must be a list")
         result[kind] = _catalog_identity_values(catalog, field, identity_field)
     result["work"] = _visible_work_target_ids(data, result["work"])
-    result["watch"] = _visible_watch_target_ids(data, result["watch"])
+    result["watch"] = _visible_watch_target_ids(data)
     for kind, maximum in energy_limits.items():
         if maximum < 60:
             result[kind] = ()
@@ -658,38 +679,55 @@ def _visible_work_target_ids(data: dict[str, Any], visible_ids: tuple[str, ...])
     return tuple(sorted(set(allowed)))
 
 
-def _visible_watch_target_ids(data: dict[str, Any], visible_ids: tuple[str, ...]) -> tuple[str, ...]:
-    """@brief 只保留可按最低倍速播放至少六十秒的内容目标。"""
-    durations = _visible_content_durations(data["content_catalog"], visible_ids)
-    available = _visible_content_available(data.get("content_progress"), durations)
+def _visible_watch_target_ids(data: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 只保留 browse 结果或观看进度中可播放至少三十秒的内容目标。
+
+    观察不再携带全量 content_catalog：观看目标闭集来自（一）上次观察后的
+    browse_activities 内容品类结果（action_result），（二）content_progress
+    中已开始的条目（时长 = 位置 + 剩余，保证跨轮续看不需要重新下钻）。
+    """
+    durations = _browsed_content_durations(data.get("recent_action_results"))
+    progress = _visible_content_progress(data.get("content_progress"), durations)
+    available = _visible_content_available(progress, durations)
     return tuple(sorted(item_id for item_id, seconds in available.items() if seconds >= 30))
 
 
-def _visible_content_durations(
-    catalog: list[Any],
-    visible_ids: tuple[str, ...],
-) -> dict[str, int]:
-    """@brief 校验公开内容目录中的稳定身份与总媒体时长。"""
-    result = {}
-    for item in catalog:
-        item_id = item.get("item_id") if isinstance(item, dict) else None
-        duration = item.get("duration_seconds") if isinstance(item, dict) else None
-        if (item_id not in visible_ids or isinstance(duration, bool)
-                or not isinstance(duration, int) or duration <= 0):
-            raise RuntimeError("LifeAgent content duration is invalid")
-        if item_id in result and result[item_id] != duration:
-            raise RuntimeError("LifeAgent content duration is ambiguous")
-        result[item_id] = duration
+def _browsed_content_durations(results: Any) -> dict[str, int]:
+    """@brief 从近期 browse_activities 动作结果提取内容身份与总时长。"""
+    if not isinstance(results, list):
+        raise RuntimeError("LifeAgent recent action results are invalid")
+    result: dict[str, int] = {}
+    for entry in results:
+        payload = entry.get("result") if isinstance(entry, dict) else None
+        if not isinstance(payload, dict) or payload.get("status") != "completed":
+            continue
+        data = payload.get("data")
+        if not isinstance(data, dict) or data.get("tool") != "browse_activities":
+            continue
+        items = data.get("items")
+        if not isinstance(items, list):
+            raise RuntimeError("LifeAgent browsed activity items must be a list")
+        for item in items:
+            if not isinstance(item, dict) or "item_id" not in item:
+                continue  # 生活活动/食品条目不是观看目标
+            item_id = item.get("item_id")
+            duration = item.get("duration_seconds")
+            if (not isinstance(item_id, str) or not item_id.strip()
+                    or isinstance(duration, bool) or not isinstance(duration, int)
+                    or duration <= 0):
+                raise RuntimeError("LifeAgent browsed content duration is invalid")
+            if item_id in result and result[item_id] != duration:
+                raise RuntimeError("LifeAgent browsed content duration is ambiguous")
+            result[item_id] = duration
     return result
 
 
-def _visible_content_available(progress: Any, durations: dict[str, int]) -> dict[str, float]:
-    """@brief 校验人物观看进度并返回下次播放可用媒体秒数。"""
+def _visible_content_progress(progress: Any, durations: dict[str, int]) -> dict[str, dict[str, Any]]:
+    """@brief 校验人物观看进度，并为无 browse 结果的条目推导总时长。"""
     if not isinstance(progress, dict):
         raise RuntimeError("LifeAgent content_progress must be an object")
-    available = {item_id: float(duration) for item_id, duration in durations.items()}
     for item_id, item in progress.items():
-        if item_id not in durations or not isinstance(item, dict) or item.get("item_id") != item_id:
+        if not isinstance(item, dict) or item.get("item_id") != item_id:
             raise RuntimeError("LifeAgent content progress identity is invalid")
         position = item.get("position_seconds")
         remaining = item.get("remaining_media_seconds")
@@ -698,8 +736,21 @@ def _visible_content_available(progress: Any, durations: dict[str, int]) -> dict
         if (any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values)
                 or not isinstance(exposure, int) or isinstance(exposure, bool) or exposure < 0):
             raise RuntimeError("LifeAgent content progress value is invalid")
-        expected = durations[item_id] - float(position)
-        if position < 0 or expected < 0 or abs(float(remaining) - expected) > 1e-6:
+        if position < 0 or remaining < 0:
+            raise RuntimeError("LifeAgent content progress time is invalid")
+        if item_id not in durations:
+            durations[item_id] = int(float(position) + float(remaining))
+    return progress
+
+
+def _visible_content_available(progress: dict[str, dict[str, Any]],
+                               durations: dict[str, int]) -> dict[str, float]:
+    """@brief 返回每个已知内容目标的下次播放可用媒体秒数。"""
+    available = {item_id: float(duration) for item_id, duration in durations.items()}
+    for item_id, item in progress.items():
+        position = float(item["position_seconds"])
+        expected = durations[item_id] - position
+        if expected < 0 or abs(float(item["remaining_media_seconds"]) - expected) > 1e-6:
             raise RuntimeError("LifeAgent content remaining time is invalid")
         available[item_id] = float(durations[item_id]) if expected == 0 else expected
     return available
@@ -930,6 +981,7 @@ def _available_action_models(
     targets: dict[str, tuple[str, ...]],
     controls: dict[str, Any],
     contracts: dict[str, Any],
+    browse_categories: frozenset[str] = frozenset(),
 ) -> dict[str, type[BaseModel]]:
     """@brief 依据当前活动状态过滤预注册生活动作工具。"""
     active = controls["active"]
@@ -937,6 +989,8 @@ def _available_action_models(
         names = {"start_basic_activity"}
         if any(targets.values()):
             names.add("start_targeted_activity")
+        if browse_categories:
+            names.add("browse_activities")
         if controls["paused_ids"]:
             names.add("set_activity_state")
         names.update(name for name, contract in contracts.items() if contract)
@@ -993,15 +1047,49 @@ def _validate_prepared_action(
     targets: dict[str, tuple[str, ...]],
     controls: dict[str, Any],
     contracts: dict[str, Any],
+    browse_categories: frozenset[str] = frozenset(),
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
     if action == "start_targeted_activity":
         return _validate_visible_target(request, targets, controls["maximum_duration_seconds_by_kind"])
     if action in _ACTIVITY_CONTROL_TOOLS:
         return _validate_activity_control(action, request, controls)
+    if action == "browse_activities":
+        if request.category not in browse_categories:
+            return "browse_activities category is not a key of the visible activity_summary"
+        return ""
     if action in contracts:
         return _validate_visible_action(action, request, contracts)
     return ""
+
+
+def _visible_browse_categories(data: dict[str, Any]) -> frozenset[str]:
+    """@brief 从 activity_summary 冻结本轮可下钻的活动品类闭集。"""
+    summary = data.get("activity_summary")
+    if not isinstance(summary, dict) or not summary:
+        raise RuntimeError("LifeAgent activity summary is unavailable")
+    categories = []
+    for key, count in summary.items():
+        if (not isinstance(key, str) or not key.strip()
+                or isinstance(count, bool) or not isinstance(count, int) or count < 0):
+            raise RuntimeError("LifeAgent activity summary entry is invalid")
+        categories.append(key)
+    return frozenset(categories)
+
+
+def _bind_browse_categories(
+    schemas: list[dict[str, Any]],
+    categories: frozenset[str],
+) -> None:
+    """@brief 将 activity_summary 键绑定到 browse_activities 原生 Schema。"""
+    browse = next(
+        (item for item in schemas if item["function"]["name"] == "browse_activities"),
+        None,
+    )
+    if browse is None:
+        return
+    properties = browse["function"]["parameters"]["properties"]
+    properties["category"]["enum"] = sorted(categories)
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
@@ -1040,7 +1128,7 @@ def _bind_targeted_activity_catalogs(
     )
     if targeted is None:
         return
-    kinds = [kind for kind in _TARGET_CATALOG_FIELDS if targets[kind]]
+    kinds = [kind for kind in _TARGETED_ACTIVITY_KINDS if targets[kind]]
     if not kinds:
         schemas[:] = [item for item in schemas if item["function"]["name"] != "start_targeted_activity"]
         return

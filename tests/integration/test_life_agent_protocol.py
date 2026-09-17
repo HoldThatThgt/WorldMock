@@ -49,6 +49,7 @@ _MEMORY_TOOL_NAMES = {
 }
 
 _BASE_ACTION_NAMES = {
+    "browse_activities",
     "start_basic_activity",
     "start_targeted_activity",
     "start_travel",
@@ -102,8 +103,11 @@ def _observations(*result_ids: str) -> list[dict]:
         }},
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
-        "content_catalog": [{"item_id": "content-visible", "duration_seconds": 630}],
-        "content_progress": {},
+        "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
+        "content_progress": {"content-visible": {
+            "item_id": "content-visible", "position_seconds": 0.0,
+            "remaining_media_seconds": 630.0, "exposure_count": 0,
+        }},
         "game_catalog": [{"game_id": "game-visible"}],
         "messages": [{"message_id": "message-visible"}],
         "browse_targets": ["product_catalog"],

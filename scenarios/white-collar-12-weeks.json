@@ -8,10 +8,10 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "2ad792566a97d1a495fbfa3002f72b27a9ebea5791d6ba1acdebd3beff4b97fe",
+  "corpus_manifest_sha256": "1f4cd53f1593bd015974ed873fe0714b1c2514afd6885c220114b38669a9a7de",
   "catalog_version": {
     "major": 1,
-    "minor": 1
+    "minor": 2
   },
   "accounts": [
     {
@@ -684,6 +684,446 @@
     },
     {
       "product_id": "food-6974800253352",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-0012256091053",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-0077330337335",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-0140141789706",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-0654954240991",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-0690352170508",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-20917906",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-2100315223861",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-4045317058593",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-4100290005320",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-4891028705949",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-4897043061138",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-5400141055900",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-5410522513257",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-5411188132110",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6900082020153",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6900082020177",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6900100204060",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6900873056781",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6901668005946",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6901668008176",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902083814045",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902083891329",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902083897765",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902083922658",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902890235590",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6906839701016",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6907992102764",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6907992513560",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6911988018779",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6911988033413",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6917486003286",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920152497029",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920202888883",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920458835617",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920907810707",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920912360402",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6920934800863",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6921355221411",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6921555506035",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6922507005019",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6922577704188",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6923404800974",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6923555239845",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6924743915084",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6924743922570",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6924769700497",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6927770903437",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6932009600742",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6934158356785",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6934665095511",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6937962103293",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6937973100212",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6938536200103",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6938866510453",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6938866514680",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6938866540726",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6940471604106",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6941734101356",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6942656601269",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6944839902385",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6944839956548",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6951444610017",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6953367200078",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6954767400785",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6954767420363",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6954767430461",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6955150411456",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6956367338666",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6956511907885",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6959090900971",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6970561120155",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6970717330896",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6971196385162",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6971858720102",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6972146801022",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6972316600028",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6972333776270",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6972507871909",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6973989610468",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6974348720972",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-7610900081738",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-7798085680165",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-8719132831179",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-8850025001023",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-8850987101021",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-8885013130058",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-9300639999005",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-9556771007584",
       "merchant": "merchant:grocery",
       "merchant_location_id": "market"
     },

@@ -8723,6 +8723,38 @@
         "selector": "183 lifestyle activities: alperugurcan/Hobbies backbone (deduped) + Martjn/calisthenics_exercises category aggregation + berdaniera/meditation themes + verdantdavid/gsv3_upcoming_events types + self-authored vacuum categories",
         "fact_cutoff": "2026-09-16"
       }
+    },
+    {
+      "entry_id": "open-food-facts:china-pool.json",
+      "path": "open-food-facts/china-pool.json",
+      "sha256": "9fb4024e86b70274f37b96802430ee7a8cad88b453a205f806aa230ed7000a20",
+      "size_bytes": 954730,
+      "media_type": "application/json",
+      "purpose": "open-food-facts",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://world.openfoodfacts.org/api/v2/search?countries_tags_en=china",
+        "retrieved_at": "2026-09-17T15:00:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "kcal-bearing china-tagged products, pages 1-10 of 17, unique by barcode, sorted by code (548)",
+        "fact_cutoff": "2026-09-17"
+      }
+    },
+    {
+      "entry_id": "foods:expansion2.json",
+      "path": "foods/expansion2.json",
+      "sha256": "b474f514f05ee4818a9a4f920418283442cfa41d859170d963c0056caee30ec0",
+      "size_bytes": 27585,
+      "media_type": "application/json",
+      "purpose": "foods",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://world.openfoodfacts.org/api/v2/search?countries_tags_en=china",
+        "retrieved_at": "2026-09-17T15:30:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "88-barcode wave-2 expansion allowlist derived in-place from open-food-facts/china-pool.json",
+        "fact_cutoff": "2026-09-17"
+      }
     }
   ]
 }

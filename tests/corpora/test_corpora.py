@@ -22,13 +22,13 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     manifest = load_manifest(Path("corpora"))
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     assert manifest.corpus_id == "life-full-2026-09-15"
-    assert len(manifest.entries) == 545
+    assert len(manifest.entries) == 547
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
     assert len(products) == 8
     assert len(threads) == 48
     assert all(2 <= len(thread["messages"]) <= 5 for thread in threads)
-    assert len(scenario.products) == 41
+    assert len(scenario.products) == 129
 
 
 def test_manifest_rejects_in_root_symbolic_link_before_resolve(tmp_path: Path) -> None:

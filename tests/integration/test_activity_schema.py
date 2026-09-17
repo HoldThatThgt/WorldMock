@@ -47,8 +47,11 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         }},
         "tasks": [{"task_id": "task", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
-        "content_catalog": [{"item_id": "content", "duration_seconds": 630}],
-        "content_progress": {},
+        "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
+        "content_progress": {"content": {
+            "item_id": "content", "position_seconds": 0.0,
+            "remaining_media_seconds": 630.0, "exposure_count": 0,
+        }},
         "game_catalog": [{"game_id": "game"}],
         "messages": [{"message_id": "message"}],
         "browse_targets": ["product_catalog"],
@@ -135,7 +138,7 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
     functions = {item["function"]["name"]: item["function"] for item in schemas}
-    assert len(functions) == 17
+    assert len(functions) == 18  # 11 生活动作（含 browse_activities）+ 6 记忆 + finish
     for function in functions.values():
         assert function["strict"] is True
         Draft202012Validator.check_schema(function["parameters"])

@@ -71,10 +71,11 @@ def test_resources_catalog_shape():
 def test_objects_catalog_shape():
     objects = _load(ROOT / "catalog/objects.jsonl")
     kinds = Counter(o["object_kind"] for o in objects)
-    assert kinds == Counter({"product": 41, "service": 1, "contract": 3})
+    assert kinds == Counter({"product": 129, "service": 1, "contract": 3})
     foods = [o for o in objects if o["object_id"].startswith("food-")]
     durables = [o for o in objects if o["object_id"].startswith("item-")]
-    assert len(foods) == 33 and len(durables) == 8
+    assert len(foods) == 121 and len(durables) == 8
+    assert len(foods) >= 100, "food catalog must hold >=100 entries"
     for food in foods:
         consume = [e for e in food["edges"] if e["on"] == "consume"]
         assert len(consume) == 1 and consume[0]["type"] == "source"
@@ -130,9 +131,62 @@ def test_food_expansion_whitelist_and_spectrum():
         assert price_part["type"] == "anchored"
 
 
+def test_food_expansion2_whitelist_against_pool():
+    """第二波扩容 88 条：条码/名称/kcal/份量逐条对照 china-pool.json，品类锚齐备。"""
+    expansion2 = json.loads((ROOT / "corpora/foods/expansion2.json").read_text(encoding="utf-8"))
+    entries = expansion2["entries"]
+    assert len(entries) >= 70
+    assert expansion2["derived_from"] == "corpora/open-food-facts/china-pool.json"
+    pool = {str(p["code"]): p for p in json.loads(
+        (ROOT / "corpora/open-food-facts/china-pool.json").read_text())["products"]}
+    assert len(pool) >= 300
+    wave1 = {e["barcode"] for e in json.loads(
+        (ROOT / "corpora/foods/expansion.json").read_text())["entries"]}
+    barcodes = [e["barcode"] for e in entries]
+    assert len(set(barcodes)) == len(barcodes)
+    assert not set(barcodes) & wave1
+    for entry in entries:
+        raw = pool[entry["barcode"]]
+        assert entry["name"] == (raw.get("product_name_zh") or raw.get("product_name"))
+        nut = raw.get("nutriments", {})
+        kcal100 = (nut["energy-kcal_100g"] if entry["kcal_rule"].startswith("nutriments.energy-kcal_100g")
+                   else nut["energy-kj_100g"] / 4.184)
+        assert abs(kcal100 * entry["serving_quantity"] / 100 - entry["energy_kcal_serving"]) <= 0.05
+        assert entry["energy_kcal_serving"] <= 800
+        assert abs(float(raw["serving_quantity"]) - entry["serving_quantity"]) <= 0.01
+    objects = _load(ROOT / "catalog/objects.jsonl")
+    foods = {o["object_id"]: o for o in objects if o["object_id"].startswith("food-")}
+    for entry in entries:
+        obj = foods[f"food-{entry['barcode']}"]
+        assert obj["edges"][1]["amount"] == entry["energy_kcal_serving"]
+        assert obj["serving"]["unit"] == entry["serving_size"]
+        consume_part = next(p for p in obj["provenance"] if p["part"] == "consume energy edge")
+        assert consume_part["type"] == "fact"
+        assert consume_part["source"] == f"openfoodfacts:product/{entry['barcode']}"
+        price_part = next(p for p in obj["provenance"] if p["part"] == "purchase price edge")
+        assert price_part["type"] == "anchored"
+        assert entry["category"] in price_part["source"]
+
+
+def test_food_catalog_kcal_per_fen_spectrum():
+    """全目录 kcal/fen 谱系：[0.2,1.0] 每个 0.1 带至少 2 项，最高比 ≥0.9 且无单一致胜。"""
+    objects = _load(ROOT / "catalog/objects.jsonl")
+    foods = [o for o in objects if o["object_id"].startswith("food-")]
+    assert len(foods) >= 100
+    ratios = {o["object_id"]: o["edges"][1]["amount"] / o["edges"][0]["amount_fen"] for o in foods}
+    top = max(ratios.values())
+    assert top >= 0.9, f"max kcal/fen {top:.3f} below 0.9"
+    band_counts = Counter(
+        min(int(min(r, 0.99) * 10), 9) for r in ratios.values() if r >= 0.2)
+    for band in range(2, 10):
+        assert band_counts.get(band, 0) >= 2, f"band 0.{band} holds {band_counts.get(band, 0)} foods"
+    near_top = [oid for oid, r in ratios.items() if r >= top * 0.8]
+    assert len(near_top) >= 2, "best kcal/fen must not be a single unique winner"
+
+
 def test_manifest_and_overrides_layout():
     manifest = json.loads((ROOT / "catalog/manifest.json").read_text(encoding="utf-8"))
-    assert manifest == {"version_major": 1, "version_minor": 1}
+    assert manifest == {"version_major": 1, "version_minor": 2}
     tombstones = ROOT / "catalog/overrides/tombstones.jsonl"
     assert tombstones.is_file()
     assert tombstones.read_text(encoding="utf-8") == ""
@@ -153,10 +207,10 @@ def test_every_numeric_value_has_exactly_one_provenance_part():
 
 def test_real_catalog_loads_through_package():
     catalog = load_catalog(ROOT / "catalog")
-    assert (catalog.version_major, catalog.version_minor) == (1, 1)
+    assert (catalog.version_major, catalog.version_minor) == (1, 2)
     assert set(catalog.resources) == {
         "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"}
-    assert len(catalog.objects) == 45
+    assert len(catalog.objects) == 133
     assert set(catalog.formulas) == {"travel-fare", "travel-time"}
     fare = catalog.formulas["travel-fare"]
     assert fare.branches["walking"].amount == 0

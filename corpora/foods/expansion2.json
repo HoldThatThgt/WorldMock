@@ -1,0 +1,888 @@
+{
+  "schema_version": 1,
+  "description": "食品目录扩容第二波白名单（88 条新增；冻结基线 8 条见 open-food-facts/products.json，第一波 25 条见 foods/expansion.json）。从 open-food-facts/china-pool.json（548 条含能量数据的中国产品池）按既有标准筛选：名称非空 + 份量 30-500g/ml + 品类可信 kcal 密度窗 + 单份 ≤800 kcal，价格为品类锚 ±30% 固定种子采样（anchored 溯源）。kcal 按 off-foods.mapping.toml 回退条款推导：kcal_per_100 × serving_quantity / 100。",
+  "derived_from": "corpora/open-food-facts/china-pool.json",
+  "price_seed": 20260917,
+  "entries": [
+    {
+      "barcode": "0012256091053",
+      "name": "Nouilles Larges Aux Oeufs Wingman 454G",
+      "category": "方便面",
+      "serving_size": "45g",
+      "serving_quantity": 45,
+      "energy_kcal_serving": 171.9,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "0077330337335",
+      "name": "Beatrix Potter Butter Cookies",
+      "category": "零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 501.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "0140141789706",
+      "name": "臻浓牛奶",
+      "category": "乳制品",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 74.3,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "0654954240991",
+      "name": "Chocolate Fusion Dark Chocolate Covered Biscuits",
+      "category": "零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 494.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "0690352170508",
+      "name": "Dark Chocolate Cherry Cashew",
+      "category": "坚果肉零食",
+      "serving_size": "40g",
+      "serving_quantity": 40,
+      "energy_kcal_serving": 170.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "20917906",
+      "name": "Joghurt mild",
+      "category": "酸奶",
+      "serving_size": "150g",
+      "serving_quantity": 150,
+      "energy_kcal_serving": 105.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "2100315223861",
+      "name": "nouilles instantanés",
+      "category": "方便面",
+      "serving_size": "85g",
+      "serving_quantity": 85,
+      "energy_kcal_serving": 418.2,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "4045317058593",
+      "name": "Frische Milch 3,8% Fett",
+      "category": "乳制品",
+      "serving_size": "200ml",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 134.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "4100290005320",
+      "name": "Muh H-Vollmilch",
+      "category": "乳制品",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 65.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "4891028705949",
+      "name": "柠檬茶",
+      "category": "茶饮果汁",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 264.1,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "4897043061138",
+      "name": "U100牌石头型糖果（巧克力味）",
+      "category": "零食",
+      "serving_size": "70g",
+      "serving_quantity": 70,
+      "energy_kcal_serving": 230.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "5400141055900",
+      "name": "Saucisses cocktail",
+      "category": "坚果肉零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 191.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "5410522513257",
+      "name": "Dark Callets 811",
+      "category": "零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 551.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "5411188132110",
+      "name": "Barista gluten free oat",
+      "category": "茶饮果汁",
+      "serving_size": "150ml",
+      "serving_quantity": 150,
+      "energy_kcal_serving": 91.5,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6900082020153",
+      "name": "点點心麵 Dim Sum Noodle 海鲜味 Seafood Flavour - DOLL",
+      "category": "方便面",
+      "serving_size": "34g",
+      "serving_quantity": 34,
+      "energy_kcal_serving": 145.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6900082020177",
+      "name": "Dim Sum Noodle JPN Soya Sauce Flavour",
+      "category": "方便面",
+      "serving_size": "33g",
+      "serving_quantity": 33,
+      "energy_kcal_serving": 150.8,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6900100204060",
+      "name": "Simply Sea Salted Slow-Cooked Crisps",
+      "category": "零食",
+      "serving_size": "150g",
+      "serving_quantity": 150,
+      "energy_kcal_serving": 714.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6900873056781",
+      "name": "Braised Pork ribs noodles",
+      "category": "方便面",
+      "serving_size": "108g",
+      "serving_quantity": 108,
+      "energy_kcal_serving": 518.4,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6901668005946",
+      "name": "奥利奥生日蛋糕味",
+      "category": "零食",
+      "serving_size": "97g",
+      "serving_quantity": 97,
+      "energy_kcal_serving": 485.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6901668008176",
+      "name": "奥利奥夹心饼干",
+      "category": "零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 486.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6902083814045",
+      "name": "Ad cqlcium milk drink (peach flavour)",
+      "category": "乳制品",
+      "serving_size": "450g",
+      "serving_quantity": 450,
+      "energy_kcal_serving": 156.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6902083891329",
+      "name": "娃哈哈 营养快线 香草冰淇淋味",
+      "category": "茶饮果汁",
+      "serving_size": "500g",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 225.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6902083897765",
+      "name": "营养快线 草莓味",
+      "category": "茶饮果汁",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 45.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6902083922658",
+      "name": "娃哈哈 AD钙 AD钙奶饮料",
+      "category": "乳制品",
+      "serving_size": "450ml",
+      "serving_quantity": 450,
+      "energy_kcal_serving": 154.3,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6902890235590",
+      "name": "双汇火腿肠",
+      "category": "坚果肉零食",
+      "serving_size": "70g",
+      "serving_quantity": 70,
+      "energy_kcal_serving": 148.2,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6906839701016",
+      "name": "旺仔奶类饮品",
+      "category": "乳制品",
+      "serving_size": "245g",
+      "serving_quantity": 245,
+      "energy_kcal_serving": 154.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6907992102764",
+      "name": "Yogurt",
+      "category": "酸奶",
+      "serving_size": "30g",
+      "serving_quantity": 30,
+      "energy_kcal_serving": 29.1,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6907992513560",
+      "name": "Ambpoeial Greek Flavored  Yoghurt",
+      "category": "酸奶",
+      "serving_size": "200g",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 98.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6911988018779",
+      "name": "和其正",
+      "category": "茶饮果汁",
+      "serving_size": "480ml",
+      "serving_quantity": 480,
+      "energy_kcal_serving": 151.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6911988033413",
+      "name": "大葡町",
+      "category": "零食",
+      "serving_size": "115g",
+      "serving_quantity": 115,
+      "energy_kcal_serving": 453.5,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6917486003286",
+      "name": "高纤维全麦切片面包",
+      "category": "面包烘焙",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 266.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920152497029",
+      "name": "藤椒牛肉面",
+      "category": "方便面",
+      "serving_size": "104g",
+      "serving_quantity": 104,
+      "energy_kcal_serving": 490.2,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920202888883",
+      "name": "红牛",
+      "category": "茶饮果汁",
+      "serving_size": "250ml",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 139.2,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920458835617",
+      "name": "菊花茶",
+      "category": "茶饮果汁",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 19.6,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920907810707",
+      "name": "呀！土豆 膨化休闲零食",
+      "category": "零食",
+      "serving_size": "70g",
+      "serving_quantity": 70,
+      "energy_kcal_serving": 370.9,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920912360402",
+      "name": "艾比利薯片（田园番茄味）",
+      "category": "零食",
+      "serving_size": "63g",
+      "serving_quantity": 63,
+      "energy_kcal_serving": 345.9,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6920934800863",
+      "name": "吕梁野山坡生榨沙棘",
+      "category": "茶饮果汁",
+      "serving_size": "300ml",
+      "serving_quantity": 300,
+      "energy_kcal_serving": 124.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6921355221411",
+      "name": "Milk, whole",
+      "category": "乳制品",
+      "serving_size": "200ml",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 132.4,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6921555506035",
+      "name": "香菇炖鸡面",
+      "category": "方便面",
+      "serving_size": "109g",
+      "serving_quantity": 109,
+      "energy_kcal_serving": 540.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6922507005019",
+      "name": "康师傅 冰红茶",
+      "category": "茶饮果汁",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 195.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6922577704188",
+      "name": "老酸奶",
+      "category": "酸奶",
+      "serving_size": "139g",
+      "serving_quantity": 139,
+      "energy_kcal_serving": 117.7,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6923404800974",
+      "name": "就是桃 水蜜桃风味饮料",
+      "category": "茶饮果汁",
+      "serving_size": "250g",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 39.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6923555239845",
+      "name": "桃汁饮料",
+      "category": "茶饮果汁",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 17.9,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6924743915084",
+      "name": "意大利香浓红烩味薯片",
+      "category": "零食",
+      "serving_size": "40g",
+      "serving_quantity": 40,
+      "energy_kcal_serving": 214.6,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6924743922570",
+      "name": "青柠味薯片",
+      "category": "零食",
+      "serving_size": "30g",
+      "serving_quantity": 30,
+      "energy_kcal_serving": 162.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6924769700497",
+      "name": "金枪鱼罐头",
+      "category": "坚果肉零食",
+      "serving_size": "175g",
+      "serving_quantity": 175,
+      "energy_kcal_serving": 396.5,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6927770903437",
+      "name": "花都牧场有机纯牛奶",
+      "category": "乳制品",
+      "serving_size": "220g",
+      "serving_quantity": 220,
+      "energy_kcal_serving": 166.7,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6932009600742",
+      "name": "炭烧奶茶",
+      "category": "乳制品",
+      "serving_size": "300g",
+      "serving_quantity": 300,
+      "energy_kcal_serving": 102.1,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6934158356785",
+      "name": "康师傅红烧排骨面",
+      "category": "方便面",
+      "serving_size": "105g",
+      "serving_quantity": 105,
+      "energy_kcal_serving": 418.1,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6934665095511",
+      "name": "双拼果粒 莓莓满满",
+      "category": "酸奶",
+      "serving_size": "90g",
+      "serving_quantity": 90,
+      "energy_kcal_serving": 71.5,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6937962103293",
+      "name": "劲爽拉面",
+      "category": "方便面",
+      "serving_size": "98g",
+      "serving_quantity": 98,
+      "energy_kcal_serving": 458.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6937973100212",
+      "name": "大雄鹰苏打水饮料",
+      "category": "汽水",
+      "serving_size": "350ml",
+      "serving_quantity": 350,
+      "energy_kcal_serving": 0.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6938536200103",
+      "name": "肉松面包",
+      "category": "面包烘焙",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 317.6,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6938866510453",
+      "name": "天原生态纯牛奶",
+      "category": "乳制品",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 65.5,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6938866514680",
+      "name": "高钙牛奶",
+      "category": "乳制品",
+      "serving_size": "250ml",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 168.5,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6938866540726",
+      "name": "麦香牛奶",
+      "category": "乳制品",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 69.3,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6940471604106",
+      "name": "草本·植萃饮",
+      "category": "茶饮果汁",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 19.8,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6941734101356",
+      "name": "酷美苹果醋",
+      "category": "茶饮果汁",
+      "serving_size": "480ml",
+      "serving_quantity": 480,
+      "energy_kcal_serving": 29.8,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6942656601269",
+      "name": "青梅绿茶",
+      "category": "茶饮果汁",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 161.3,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6944839902385",
+      "name": "康师傅冰红茶",
+      "category": "茶饮果汁",
+      "serving_size": "250ml",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 98.6,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6944839956548",
+      "name": "康师傅鲜果橙",
+      "category": "茶饮果汁",
+      "serving_size": "250ml",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 114.1,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6951444610017",
+      "name": "金卡能量6小时",
+      "category": "茶饮果汁",
+      "serving_size": "450ml",
+      "serving_quantity": 450,
+      "energy_kcal_serving": 138.7,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6953367200078",
+      "name": "椰子汁饮料",
+      "category": "茶饮果汁",
+      "serving_size": "310g",
+      "serving_quantity": 310,
+      "energy_kcal_serving": 93.4,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6954767400785",
+      "name": "阳光 柠檬味茶饮料",
+      "category": "茶饮果汁",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 0.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6954767420363",
+      "name": "可口可乐零度",
+      "category": "汽水",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 0.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6954767430461",
+      "name": "雪碧纤维+",
+      "category": "汽水",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 0.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6955150411456",
+      "name": "有机纯牛奶",
+      "category": "乳制品",
+      "serving_size": "100ml",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 68.1,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6956367338666",
+      "name": "王老吉凉茶",
+      "category": "茶饮果汁",
+      "serving_size": "500ml",
+      "serving_quantity": 500,
+      "energy_kcal_serving": 185.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6956511907885",
+      "name": "手剥巴旦木",
+      "category": "坚果肉零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 605.2,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6959090900971",
+      "name": "泡翅（鲍汁味）",
+      "category": "坚果肉零食",
+      "serving_size": "40g",
+      "serving_quantity": 40,
+      "energy_kcal_serving": 154.6,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6970561120155",
+      "name": "坚果拿破仑",
+      "category": "零食",
+      "serving_size": "130g",
+      "serving_quantity": 130,
+      "energy_kcal_serving": 545.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6970717330896",
+      "name": "李子面包",
+      "category": "面包烘焙",
+      "serving_size": "120g",
+      "serving_quantity": 120,
+      "energy_kcal_serving": 419.6,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6971196385162",
+      "name": "奈雪果茶 青提香乌龙茶 果汁茶饮料",
+      "category": "茶饮果汁",
+      "serving_size": "450ml",
+      "serving_quantity": 450,
+      "energy_kcal_serving": 88.2,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6971858720102",
+      "name": "纯牛乳",
+      "category": "乳制品",
+      "serving_size": "200g",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 126.2,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6972146801022",
+      "name": "精制刺梨汁",
+      "category": "茶饮果汁",
+      "serving_size": "50g",
+      "serving_quantity": 50,
+      "energy_kcal_serving": 19.7,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6972316600028",
+      "name": "鸡胸肉黑椒味",
+      "category": "坚果肉零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 113.3,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6972333776270",
+      "name": "花式面包",
+      "category": "面包烘焙",
+      "serving_size": "70g",
+      "serving_quantity": 70,
+      "energy_kcal_serving": 237.9,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6972507871909",
+      "name": "拌饭海苔（原味）",
+      "category": "零食",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 544.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6973989610468",
+      "name": "三好明畅酱香大鸡腿",
+      "category": "坚果肉零食",
+      "serving_size": "140g",
+      "serving_quantity": 140,
+      "energy_kcal_serving": 147.5,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "6974348720972",
+      "name": "轻果茶·葡萄黑加仑乌龙茶",
+      "category": "茶饮果汁",
+      "serving_size": "360ml",
+      "serving_quantity": 360,
+      "energy_kcal_serving": 60.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "7610900081738",
+      "name": "Blueberry Yogurt",
+      "category": "酸奶",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 94.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "7798085680165",
+      "name": "Jugo de pomelo con pulpa",
+      "category": "茶饮果汁",
+      "serving_size": "200ml",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 59.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "8719132831179",
+      "name": "yoghurt Griekse stijl",
+      "category": "酸奶",
+      "serving_size": "150g",
+      "serving_quantity": 150,
+      "energy_kcal_serving": 180.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "8850025001023",
+      "name": "COCONUT WATER",
+      "category": "茶饮果汁",
+      "serving_size": "200ml",
+      "serving_quantity": 200,
+      "energy_kcal_serving": 45.2,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "8850987101021",
+      "name": "酸辣蝦味麵",
+      "category": "方便面",
+      "serving_size": "55g",
+      "serving_quantity": 55,
+      "energy_kcal_serving": 260.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "8885013130058",
+      "name": "Chocolate Crispy",
+      "category": "零食",
+      "serving_size": "60g",
+      "serving_quantity": 60,
+      "energy_kcal_serving": 103.2,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "9300639999005",
+      "name": "Skim Milk Powder",
+      "category": "乳制品",
+      "serving_size": "250ml",
+      "serving_quantity": 250,
+      "energy_kcal_serving": 92.0,
+      "kcal_rule": "nutriments.energy-kcal_100g",
+      "source_kind": "open_food_facts"
+    },
+    {
+      "barcode": "9556771007584",
+      "name": "榴莲速溶咖啡四合一固体饮料",
+      "category": "咖啡",
+      "serving_size": "100g",
+      "serving_quantity": 100,
+      "energy_kcal_serving": 501.0,
+      "kcal_rule": "nutriments.energy-kj_100g / 4.184",
+      "source_kind": "open_food_facts"
+    }
+  ]
+}
