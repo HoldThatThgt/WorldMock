@@ -80,7 +80,8 @@ ENGINE_ACTIVITY_MET_KEYS = frozenset({
     "wait", "sleep", "work", "watch", "play_game", "travel:driving", "travel:walking",
     "read_mail", "browse", "consume",
 })
-ENGINE_RELIEF_KEYS = frozenset({"watch", "play_game"})
+#: wait 走被动缓解：边等边刷手机/听点什么，结算在 body.py 的 wait 分支。
+ENGINE_RELIEF_KEYS = frozenset({"watch", "play_game", "wait"})
 
 
 @dataclass(frozen=True)

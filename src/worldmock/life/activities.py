@@ -185,6 +185,11 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
 
 def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
     """@brief 按内容自身效果、偏好和接触次数计算娱乐缓解速率。"""
+    if activity.kind == ActivityKind.WAIT:
+        # wait 的被动缓解（边等边刷）是活动类内在语义：settle 阶段在
+        # body.py 的 wait 分支直接按目录费率结算，不走偏好 gating 的
+        # factors 通道，避免与内容偏好相乘归零或双重计入。
+        return 0
     if activity.kind == ActivityKind.WATCH:
         rate = activity.data.get("entertainment_relief_per_hour")
         count = activity.data.get("exposure_count")

@@ -110,6 +110,10 @@ ENERGY_EFFICIENCY_EMERGENCY_OUTPUT = 0.5
 ENERGY_EFFICIENCY_HUNGRY_OUTPUT = 0.8
 ENERGY_EFFICIENCY_STEP_BAND_KCAL = 0.1
 
+#: wait 的被动娱乐缓解费率：wait 语义为"边等边刷手机/听点什么"，被动消费
+#: 远低于主动观看/游戏（约为 watch 0.30 的 15%），不 gating 于内容偏好。
+WAIT_PASSIVE_ENTERTAINMENT_RELIEF_PER_HOUR = 0.05
+
 
 def energy_efficiency_factor_curve(body: dict) -> list[dict]:
     """@brief 由 alert_rules 同源阈值构造能量-工作效率因子曲线点。"""
@@ -202,7 +206,10 @@ def build_resources(body: dict) -> list[dict]:
         "conservation": "open",
         "drain_rules": {
             "entertainment_need_per_awake_hour": body["entertainment_need_per_awake_hour"],
-            "entertainment_relief_per_hour": body["entertainment_relief_per_hour"],
+            "entertainment_relief_per_hour": {
+                **body["entertainment_relief_per_hour"],
+                "wait": WAIT_PASSIVE_ENTERTAINMENT_RELIEF_PER_HOUR,
+            },
         },
         "provenance": [
             {"part": "bounds", "paths": ["bounds.min", "bounds.max"],
@@ -212,9 +219,15 @@ def build_resources(body: dict) -> list[dict]:
              "type": "assumption",
              "source": "legacy-scenario-body entertainment_need_per_awake_hour"},
             {"part": "drain_rules.entertainment_relief_per_hour",
-             "paths": ["drain_rules.entertainment_relief_per_hour"],
+             "paths": ["drain_rules.entertainment_relief_per_hour.watch",
+                       "drain_rules.entertainment_relief_per_hour.play_game"],
              "type": "assumption",
              "source": "legacy-scenario-body entertainment_relief_per_hour"},
+            {"part": "drain_rules.entertainment_relief_per_hour.wait",
+             "paths": ["drain_rules.entertainment_relief_per_hour.wait"],
+             "type": "assumption",
+             "source": "passive scrolling baseline: wait = waiting while casually "
+                       "browsing phone / listening to something"},
         ],
         "version": 1,
     }

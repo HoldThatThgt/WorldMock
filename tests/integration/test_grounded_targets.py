@@ -192,8 +192,10 @@ def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
 @pytest.mark.parametrize(
     ("kind", "expected", "overrides"),
     [
-        ("wait", {"continue_activity", "set_activity_state"}, {}),
-        ("watch", {"continue_activity", "set_activity_state", "change_playback_speed"}, {}),
+        ("wait", {"continue_activity", "set_activity_state",
+                  "start_basic_activity", "start_targeted_activity", "start_travel"}, {}),
+        ("watch", {"continue_activity", "set_activity_state", "change_playback_speed",
+                   "start_basic_activity", "start_targeted_activity", "start_travel"}, {}),
         ("play_game", {"set_activity_state", "game_action"}, {
             "games": {"session-visible": {
                 "session_id": "session-visible", "admissible_commands": ["look", "inventory"],
@@ -202,8 +204,10 @@ def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
         }),
     ],
 )
-def test_active_boundary_exposes_only_current_activity_controls(kind, expected, overrides) -> None:
-    """当前反馈边界只提供该活动的严格控制，不提供冲突生活动作。"""
+def test_active_boundary_keeps_activity_controls_and_direct_switch_tools(
+    kind, expected, overrides,
+) -> None:
+    """反馈边界保留当前活动控制并暴露直接切换工具；游戏边界维持闭集协议。"""
     session_id = "session-visible" if kind == "play_game" else None
     agent = _prepare(_catalogs(), active_activity=_active(kind, session_id=session_id), overrides=overrides)
 

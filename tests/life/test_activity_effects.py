@@ -163,7 +163,10 @@ def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
 def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) -> None:
     """真实 LifeEngine 结算路径使用内容效果、人物偏好和实际接触时长。"""
     engine = engine_factory()
-    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=300)
+    # wait 前导 900s：边等边刷后娱乐需要 ≈0.0075（0.08−0.05 每小时净累积
+    # ×0.25h），高于 60s 观看的未钳制缓解量 0.3×0.7×(60/3600)=0.0035，
+    # 保证断言观测的是内容费率×偏好的未触底 drain 而非钳到 0 的退化值。
+    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)
     submit_round(engine, {1: ("start_basic_activity", wait)}, "watch-need")
     advance_next(engine)
     agent = engine.state.agents[1]

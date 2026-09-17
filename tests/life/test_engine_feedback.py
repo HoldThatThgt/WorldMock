@@ -14,6 +14,7 @@ from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
+    ActivityStatus,
     ContinueActivityRequest,
     GameActionRequest,
     SetActivityStateRequest,
@@ -82,6 +83,79 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
     assert terminal.activity_id == activity_id
     assert terminal.decision_id == "decision-long-wait-1"
     assert requested.event_id in terminal.caused_by
+
+
+def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
+    engine_factory,
+) -> None:
+    """反馈边界直接提交 watch 切换时旧 wait 自动暂停保留进度，恢复后进度接续。"""
+    engine = engine_factory()
+    _, started = _observed_action(
+        engine, "switch-wait", "start_basic_activity",
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
+    wait_id = started.activity_id
+    advance_next(engine)
+
+    observation, switched = _observed_action(
+        engine, "switch-watch", "start_targeted_activity",
+        StartTargetedActivityRequest(
+            activity_type="watch", target_id="sintel-en-subtitles",
+            planned_duration_seconds=600, playback_speed=1))
+    watch_id = switched.activity_id
+    assert switched.status == "in_progress"
+    assert observation["active_activity"]["activity_id"] == wait_id
+    paused_wait = engine.state.activities[wait_id]
+    assert paused_wait.status == "paused" and paused_wait.elapsed_seconds == 900
+    assert paused_wait.boundary_type == "paused"
+    assert switched.data["auto_paused_activity"]["activity_id"] == wait_id
+    assert switched.data["auto_paused_activity"]["elapsed_seconds"] == 900
+    assert engine.state.agents[1].current_activity_id == watch_id
+    watch = engine.state.activities[watch_id]
+    assert watch.kind.value == "watch" and watch.status == ActivityStatus.ACTIVE
+
+    while engine.state.activities[watch_id].status == ActivityStatus.ACTIVE:
+        advance_next(engine)
+    finished_watch = engine.state.activities[watch_id]
+    assert finished_watch.status == ActivityStatus.COMPLETED
+    assert finished_watch.elapsed_seconds == 600
+    assert finished_watch.media_position_seconds == 600
+    assert engine.state.activities[wait_id].status == "paused"
+
+    _, resumed = _observed_action(
+        engine, "switch-resume", "set_activity_state",
+        SetActivityStateRequest(activity_id=wait_id, operation="resume"))
+    assert resumed.status == "completed"
+    assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
+    assert engine.state.activities[wait_id].elapsed_seconds == 900
+    assert engine.state.agents[1].current_activity_id == wait_id
+
+    while engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
+        advance_next(engine)
+        if engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
+            _observed_action(
+                engine, f"switch-continue-{engine.state.current_time}",
+                "continue_activity", ContinueActivityRequest(activity_id=wait_id))
+    final_wait = engine.state.activities[wait_id]
+    assert final_wait.status == ActivityStatus.COMPLETED
+    assert final_wait.elapsed_seconds == 2700
+
+
+def test_game_feedback_boundary_still_rejects_direct_switch(engine_factory) -> None:
+    """游戏交互边界仍保持闭集协议，直接提交新活动被业务拒绝。"""
+    engine = engine_factory()
+    _, started = _observed_action(
+        engine, "game-start", "start_targeted_activity",
+        StartTargetedActivityRequest(
+            activity_type="play_game", target_id="textworld-1201",
+            planned_duration_seconds=3600, playback_speed=1))
+    assert started.status == "in_progress"
+    advance_next(engine)
+    _, rejected = _observed_action(
+        engine, "game-switch", "start_basic_activity",
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    assert rejected.status == "rejected"
+    assert rejected.error_code == "ACTIVITY_FEEDBACK_ACTION_REQUIRED"
+    assert engine.state.agents[1].current_activity_id == started.activity_id
 
 
 def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_factory) -> None:

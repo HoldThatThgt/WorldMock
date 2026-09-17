@@ -202,9 +202,19 @@ _MEMORY_RUNTIME_ACTIONS = {
 }
 
 _TOOL_DESCRIPTIONS = {
-    "start_basic_activity": "Start wait or sleep for an explicit duration.",
-    "start_targeted_activity": "Start an activity using an exact target from the current observation catalogs.",
-    "start_travel": "Start travel to an observed destination using an observed mode and duration.",
+    "start_basic_activity": (
+        "Start wait (waiting while casually browsing phone, provides small passive "
+        "entertainment relief) or sleep for an explicit duration. At a feedback boundary "
+        "this switches directly: the current activity pauses automatically with its "
+        "progress preserved."),
+    "start_targeted_activity": (
+        "Start an activity using an exact target from the current observation catalogs. At a "
+        "feedback boundary this switches directly: the current activity pauses automatically "
+        "with its progress preserved."),
+    "start_travel": (
+        "Start travel to an observed destination using an observed mode and duration. At a "
+        "feedback boundary this switches directly: the current activity pauses automatically "
+        "with its progress preserved."),
     "set_activity_state": "Pause, resume, or cancel an activity exposed by the current observation.",
     "change_playback_speed": "Change playback speed for the owned active watching activity.",
     "continue_activity": "Continue the current activity when its visible feedback boundary is due.",
@@ -275,8 +285,10 @@ returned by a memory tool. Never use action_id, decision_id, round_id, request h
 product IDs, activity IDs, or any other identifier as a ref. The current submitted action has not
 been settled yet, so describe it only as a choice or submission. Never emit free text instead of a
 native tool call. At a visible activity feedback boundary, use
-continue_activity to keep going, use set_activity_state to pause or cancel it, or use
-change_playback_speed for active watching. Do not start another activity over an active one.
+continue_activity to keep going, use set_activity_state to pause or cancel it, use
+change_playback_speed for active watching, or directly submit start_basic_activity,
+start_targeted_activity, or start_travel to switch right now; the engine then pauses the
+current activity automatically and keeps its progress for a later resume.
 """.strip()
 
 _READONLY_INSTRUCTIONS = """
@@ -933,7 +945,11 @@ def _available_action_models(
         if controls["game_commands"]:
             names.add("game_action")
     else:
-        names = {"continue_activity", "set_activity_state"}
+        names = {"continue_activity", "set_activity_state", "start_basic_activity"}
+        if any(targets.values()):
+            names.add("start_targeted_activity")
+        if contracts["start_travel"]:
+            names.add("start_travel")
         if active["kind"] == "watch":
             names.add("change_playback_speed")
     return {name: model for name, model in REQUEST_MODELS.items() if name in names}

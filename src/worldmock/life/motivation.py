@@ -614,11 +614,19 @@ def _continue_candidate(context: MotivationContext) -> _Candidate | None:
         goal_seconds = remaining * efficiency * skill
     minutes = remaining / 60
     summary = f"Continue {activity.kind.value} for {minutes:.0f} min"
+    reason = (f"Continuing current {activity.kind.value} activity for {minutes:.0f} min"
+              f" keeps committed progress")
+    if activity.kind == ActivityKind.WAIT:
+        # wait 的语义是"边等边刷"而非干坐：候选理由呈现被动缓解，让模型
+        # 理解等待自带微量娱乐满足，无需为比较而虚构"正经等"的价值。
+        rate = context.body.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
+        summary = f"Keep waiting while casually browsing for {minutes:.0f} min"
+        reason = (f"Waiting while casually browsing for {minutes:.0f} min "
+                  f"(passive relief ~{rate:.2f}/h)")
     return _Candidate(
         family=FAMILY_CONTINUE,
         summary=summary,
-        reason=f"Continuing current {activity.kind.value} activity for {minutes:.0f} min"
-               f" keeps committed progress",
+        reason=reason,
         duration_seconds=remaining,
         energy_delta=energy_delta,
         sleep_debt_delta=debt_delta,
@@ -657,6 +665,13 @@ def _entertainment_delta(context: MotivationContext, activity: ActivityState,
         base = context.body.entertainment_relief_per_hour.get(ActivityKind.PLAY_GAME.value, 0)
         relief = min(preference * base * hours, context.agent.body.entertainment_need)
         return -relief
+    if activity.kind == ActivityKind.WAIT:
+        # wait=边等边刷：被动缓解抵消部分清醒累积（净效果仍为缓慢正累积），
+        # 与 body.py 结算分支的速率语义一致，不额外降权候选。
+        rate = context.body.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
+        accrual = _entertainment_accrual(context, hours)
+        relief = min(rate * hours, context.agent.body.entertainment_need + max(accrual, 0))
+        return accrual - relief
     return _entertainment_accrual(context, hours)
 
 

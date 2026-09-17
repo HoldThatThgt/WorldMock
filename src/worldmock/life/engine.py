@@ -121,6 +121,10 @@ if TYPE_CHECKING:
 #: 生活动作工具到操作日志组件的映射，未列出的工具归属 engine。
 _OPS_COMPONENTS = {"purchase": "commerce", "start_travel": "travel", "submit_work": "review"}
 
+#: 反馈边界上可直接提交并自动暂停当前活动的切换工具闭集。
+_SWITCH_TOOL_NAMES = frozenset({
+    "start_basic_activity", "start_targeted_activity", "start_travel"})
+
 
 class LifeEngine:
     """@brief LifeEnv 的单写入领域服务和状态权威。"""
@@ -954,13 +958,16 @@ class LifeEngine:
         return handlers[pending.tool_name](state, pending, request)
 
     def _require_boundary_action(self, state: WorldState, pending: PendingAction, request) -> None:
-        """@brief 活动反馈到期时只接受针对当前活动的显式边界动作。"""
+        """@brief 活动反馈到期时只接受显式边界动作或直接切换新活动。"""
         agent = state.agents[pending.agent_id]
         if agent.current_activity_id is None:
             return
         activity = state.activities[agent.current_activity_id]
         if activity.next_interaction_at != state.current_time:
             raise BusinessRuleError("RESOURCE_CONFLICT")
+        if (pending.tool_name in _SWITCH_TOOL_NAMES
+                and activity.boundary_type == "feedback"):
+            return
         expected_id = getattr(request, "activity_id", None)
         if activity.kind == ActivityKind.PLAY_GAME:
             allowed = {"game_action", "set_activity_state"}
@@ -1009,6 +1016,16 @@ class LifeEngine:
                                        playback_speed=request.playback_speed)
         return self._change(state, pending, change)
 
+    def _auto_pause_for_switch(self, state: WorldState,
+                               agent) -> tuple[WorldState, Any]:
+        """@brief 反馈边界上直接切换时自动暂停当前活动并保留进度。"""
+        current = state.activities[agent.current_activity_id]
+        change = ChangeActivityRequest(activity_id=current.activity_id,
+                                       operation=ActivityChange.PAUSE)
+        agent, paused = change_activity(agent, current, change, state.current_time,
+                                        self.scenario.activity_feedback_seconds)
+        return _put_activity(state, agent, paused), paused
+
     def _start(self, state: WorldState, pending: PendingAction,
                request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
@@ -1018,6 +1035,10 @@ class LifeEngine:
             validate_work_duration(
                 state, self.rules.task(request.target_id), pending.agent_id,
                 request.planned_duration_seconds)
+        paused_activity = None
+        if agent.current_activity_id is not None:
+            state, paused_activity = self._auto_pause_for_switch(state, agent)
+            agent = state.agents[pending.agent_id]
         origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
         agent, activity = start_activity(agent, request, state.current_time, origin,
                                          self.semantics.body)
@@ -1046,6 +1067,8 @@ class LifeEngine:
             activity.media_position_seconds = data["start_position_seconds"]
         changed = _put_activity(changed_state, agent, activity)
         result_data = {"activity": activity.model_dump(mode="json")}
+        if paused_activity is not None:
+            result_data["auto_paused_activity"] = paused_activity.model_dump(mode="json")
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,

@@ -145,6 +145,44 @@ def test_action_schema_requires_prepared_environment_catalogs() -> None:
         LifeAgent().build_react_tool_schemas(readonly=False)
 
 
+def test_feedback_boundary_exposes_direct_switch_tools() -> None:
+    """活动反馈边界除继续与暂停外，同时暴露直接切换的启动工具。"""
+    agent = LifeAgent()
+    observation = dict(_observations()[0]["data"])
+    observation["active_activity"] = {
+        "activity_id": "activity-current", "kind": "wait", "status": "active"}
+    agent.prepare_react_loop(
+        ReactLoopRequest(0, _context().observed_at,
+                         [{"turn": 0, "action": "observe", "ok": True,
+                           "data": observation}])
+    )
+    schemas = agent.build_react_tool_schemas(readonly=False)
+    functions = {item["function"]["name"]: item["function"] for item in schemas}
+
+    assert set(functions) == (
+        {"continue_activity", "set_activity_state",
+         "start_basic_activity", "start_targeted_activity", "start_travel"}
+        | _MEMORY_TOOL_NAMES
+    )
+    state = functions["set_activity_state"]["parameters"]["properties"]
+    assert state["activity_id"]["enum"] == ["activity-current"]
+    assert state["operation"]["enum"] == ["pause", "cancel"]
+    assert functions["continue_activity"]["parameters"]["properties"]["activity_id"][
+        "enum"] == ["activity-current"]
+
+    switch = ReactDecision("", "start_targeted_activity", {
+        "activity_type": "watch", "target_id": "content-visible",
+        "planned_duration_seconds": 300, "playback_speed": 1,
+    }, "")
+    assert agent.validate_react_decisions([switch], False) == ""
+    blocked = ReactDecision("", "purchase", {
+        "product_id": "product-visible", "price_version": "price-v1",
+        "quantity": 1, "fulfillment": "delivery", "destination_id": "home",
+    }, "")
+    assert "is not available in the current activity state" in agent.validate_react_decisions(
+        [blocked], False)
+
+
 def test_readonly_schema_uses_its_independent_finish_contract() -> None:
     """只读问答始终提供记忆查询和无需生活动作的结束工具。"""
     agent = LifeAgent()

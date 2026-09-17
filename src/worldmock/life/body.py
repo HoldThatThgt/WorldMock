@@ -295,6 +295,8 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
     """
     if kind == ActivityKind.SLEEP:
         return [], False
+    if kind == ActivityKind.WAIT:
+        return _wait_entertainment_entries(need, hours, config)
     if relief_per_hour:
         amount = min(relief_per_hour * hours, need)
         if amount > 0:
@@ -316,6 +318,40 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
                           f"settle:{kind.value}:awake_entertainment_need",
                           BODY_FLOW_OCCURRED_AT)], True
     return [], True
+
+
+def _wait_entertainment_entries(need: float, hours: float,
+                                config: BodyConfig) -> tuple[list[FlowEntry], bool]:
+    """@brief wait=边等边刷：清醒累积继续，被动消费按目录费率小额 drain 抵消。
+
+    被动缓解是 wait 的活动类内在语义（等待时刷的是随手内容，无目标、不
+    gating 于内容偏好），费率直接读目录 entertainment_relief_per_hour 的
+    wait 键（被动刷手机 ≈ 主动观看的 15%，远低于主动但仍不为零）。净效果
+    是缓慢正累积：等依然有点无聊，只是没那么无聊，主动娱乐的边际收益随
+    被动缓解自然下降。累积触顶后被动 drain 依旧生效，期末不再钉 1。
+
+    :returns: (分录列表, 累积是否在无被动抵消下触及上限需要钳制)。
+    """
+    accrual = config.entertainment_need_per_awake_hour * hours
+    entries: list[FlowEntry] = []
+    accrual_capped = False
+    if accrual > 0:
+        amount = min(accrual, 1 - need)
+        if amount > 0:
+            entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION,
+                                     amount, "settle:wait:awake_entertainment_need",
+                                     BODY_FLOW_OCCURRED_AT))
+        else:
+            accrual_capped = True
+    balance = min(need + max(min(accrual, 1 - need), 0), 1)
+    rate = config.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
+    relief = min(rate * hours, balance)
+    if relief > 0:
+        entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
+                                 relief, "settle:wait:passive_entertainment",
+                                 BODY_FLOW_OCCURRED_AT))
+        return entries, False
+    return entries, accrual_capped
 
 
 def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,

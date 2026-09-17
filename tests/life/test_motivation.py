@@ -489,6 +489,29 @@ class TestEnumerationBoundaries:
         assert keep.candidate.duration_seconds == 1200
         assert keep.candidate.entertainment_delta < 0
 
+    def test_continue_wait_reason_presents_passive_browsing(self, transforms):
+        """wait=边等边刷：继续等待的候选理由呈现被动缓解而非干坐。"""
+        activity = ActivityState(
+            activity_id="activity-w1", agent_id=1, kind=ActivityKind.WAIT,
+            status=ActivityStatus.ACTIVE, started_at=CURRENT - 600,
+            planned_end_at=CURRENT + 1200, last_settled_at=CURRENT - 600, elapsed_seconds=600,
+            planned_duration_seconds=1800, origin_action_id="a",
+            origin_decision_id="d", origin_request_event_id="e")
+        body = _body().model_copy(update={"entertainment_relief_per_hour": {
+            **_body().entertainment_relief_per_hour, "wait": 0.01}})
+        context = _context(active_activity=activity, body=body)
+        scored = evaluate_motivation(context, _profile(), transforms)
+        keep = next(item for item in scored if item.candidate.family == "continue")
+
+        assert keep.candidate.summary == "Keep waiting while casually browsing for 20 min"
+        assert keep.candidate.reason == ("Waiting while casually browsing for 20 min "
+                                         "(passive relief ~0.01/h)")
+        # 净值为正的缓慢累积（夹具累积率 0.02 > 被动缓解 0.01，与正式目录
+        # 0.08 > 0.05 同构）：被动缓解只抵消部分清醒累积，不额外降权候选。
+        accrual = body.entertainment_need_per_awake_hour * 1200 / 3600
+        assert keep.candidate.entertainment_delta == pytest.approx(accrual - 0.01 * 1200 / 3600)
+        assert 0 < keep.candidate.entertainment_delta < accrual
+
 
 class TestEntertainmentSegmentSlots:
     """@brief 娱乐候选的分段时长槽：长内容以约两段典型时长入场，不再整块承诺。"""
