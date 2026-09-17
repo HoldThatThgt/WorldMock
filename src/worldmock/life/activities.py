@@ -62,7 +62,7 @@ def start_activity(agent: AgentState, request: StartActivityRequest, now: int, o
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     if agent.current_activity_id is not None:
         raise BusinessRuleError("RESOURCE_CONFLICT")
-    met = _activity_met(request.activity_type, request.travel_mode, config)
+    met = _activity_met(request.activity_type, request.travel_mode, config, request.target_id)
     cost = minimum_energy_cost(request.activity_type, request.planned_duration_seconds, config, met)
     if cost > agent.body.energy_kcal and request.activity_type not in ENERGY_RECOVERY_ACTIVITY_KINDS:
         raise BusinessRuleError("INSUFFICIENT_ENERGY")
@@ -175,7 +175,7 @@ def resource_claims(request: StartActivityRequest) -> set[str]:
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
     """@brief 从方式和人物内容偏好形成活动结算系数。"""
-    met = _activity_met(activity.kind, activity.travel_mode, config)
+    met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
     preference = agent.entertainment_preferences.get(activity.target_id or "", 0)
     relief = _entertainment_relief(activity, preference, config)
     skill, tool = _work_factors(activity, agent, config)
@@ -228,10 +228,15 @@ def _food_energy_rate(activity: ActivityState) -> float:
     return float(value)
 
 
-def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig) -> float:
-    """@brief 出行按 driving 或 walking 分别使用冻结代谢当量。"""
+def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig,
+                  target_id: str | None = None) -> float:
+    """@brief 出行按方式、生活活动按条目 id 查冻结代谢当量。"""
     if kind == ActivityKind.TRAVEL and travel_mode is not None:
         return config.activity_met[f"travel:{travel_mode.value}"]
+    if kind == ActivityKind.LIFESTYLE:
+        if not target_id:
+            raise ValueError("lifestyle activity requires its catalog item id")
+        return config.activity_met[f"lifestyle:{target_id}"]
     return config.activity_met[kind.value]
 
 

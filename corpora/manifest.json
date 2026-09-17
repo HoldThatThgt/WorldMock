@@ -7,8 +7,8 @@
     {
       "entry_id": "LICENSES.md",
       "path": "LICENSES.md",
-      "sha256": "5186399d2cb5d69188bcc06c6c6bef7d2c2d4d2ea3d728b39d15efbc595c619c",
-      "size_bytes": 1432,
+      "sha256": "806ac38bc8668b0f79ff373d859e69e285820739538c3d91b012f4d3576d113f",
+      "size_bytes": 2193,
       "media_type": "text/markdown",
       "purpose": "LICENSES.md",
       "source": {
@@ -8689,6 +8689,38 @@
         "retrieved_at": "2026-09-16T22:38:00+08:00",
         "license": "Apache-2.0",
         "selector": "visual-novels.tar.zst (66788576 bytes, sha256 a79c5390100e7f95e0133d6fab1aed1987bd1aabde08526b8d4fffd2a40f38ea, re-downloaded); same eligibility as drama-0001..0003 (31 eligible works; unit-h Random(20260918).sample 3 reproduced exactly); Random(20260922).sample 7 of remaining 28; per work first lines <= 700000 chars; cue seconds=max(1,round(chars/15))",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "foods:expansion.json",
+      "path": "foods/expansion.json",
+      "sha256": "478980bf254055786adc48a7dec80ff33020dc4fdbad46240ebc044b71f1dce4",
+      "size_bytes": 7218,
+      "media_type": "application/json",
+      "purpose": "foods",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://world.openfoodfacts.org/api/v2/search?countries_tags_en=china",
+        "retrieved_at": "2026-09-16T12:00:00+08:00",
+        "license": "ODbL-1.0",
+        "selector": "25-barcode-expansion allowlist derived in-place from open-food-facts/china-100.json",
+        "fact_cutoff": "2026-09-16"
+      }
+    },
+    {
+      "entry_id": "lifestyle:items.json",
+      "path": "lifestyle/items.json",
+      "sha256": "1cf5eee86881e3df7099a728374769de8d8749e6b63254e2097ba3104e06e8a9",
+      "size_bytes": 87974,
+      "media_type": "application/json",
+      "purpose": "lifestyle",
+      "source": {
+        "kind": "external_dataset",
+        "url": "https://huggingface.co/datasets/alperugurcan/Hobbies",
+        "retrieved_at": "2026-09-16T13:56:00+08:00",
+        "license": "MIT (Hobbies); Apache-2.0 (calisthenics_exercises); CC-BY-4.0 (meditation); gsv3_upcoming_events types; Compendium of Physical Activities 2011 MET citations",
+        "selector": "183 lifestyle activities: alperugurcan/Hobbies backbone (deduped) + Martjn/calisthenics_exercises category aggregation + berdaniera/meditation themes + verdantdavid/gsv3_upcoming_events types + self-authored vacuum categories",
         "fact_cutoff": "2026-09-16"
       }
     }

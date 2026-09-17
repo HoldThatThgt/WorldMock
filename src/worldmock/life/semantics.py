@@ -219,6 +219,7 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
         raise IntegrityError(
             f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
     body = _assemble_body(document, catalog)
+    _check_lifestyle_declarations(document, body)
     products = _assemble_products(document, catalog)
     services = _service_accounts(document)
     employer_id = _role_account(services, _contract_role(catalog, "from"))
@@ -271,7 +272,7 @@ def _assemble_body(document: LifeScenario, catalog: Catalog) -> BodyConfig:
         "emergency_threshold_kcal": thresholds["emergency_threshold_kcal"],
         "work_efficiency_factors": _contract_work_efficiency_factors(catalog),
         "food_efficiency_curve": _curve(energy_rules.food_efficiency_curve, "food_efficiency_curve"),
-        "activity_met": _closed_map(energy_rules.activity_met, ENGINE_ACTIVITY_MET_KEYS, "activity MET"),
+        "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET"),
         "entertainment_relief_per_hour": _closed_map(
             fun_rules.entertainment_relief_per_hour, ENGINE_RELIEF_KEYS, "entertainment relief"),
         "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
@@ -630,6 +631,41 @@ def _closed_map(values, expected: frozenset[str], label: str) -> dict[str, float
     if any(not isinstance(value, (int, float)) or value <= 0 for value in values.values()):
         raise IntegrityError(f"catalog {label} values must be positive")
     return dict(values)
+
+
+#: 生活活动 MET 键前缀（corpora/lifestyle/items.json 的 activity_id 查表键）。
+_LIFESTYLE_MET_PREFIX = "lifestyle:"
+
+
+def _activity_met_map(values, label: str) -> dict[str, float]:
+    """@brief 校验活动 MET 表：基础键封闭 + lifestyle:<id> 开放键且数值为正。"""
+    if values is None:
+        raise IntegrityError(f"catalog {label} table is missing")
+    base = {key for key in values if not key.startswith(_LIFESTYLE_MET_PREFIX)}
+    if base != ENGINE_ACTIVITY_MET_KEYS:
+        raise IntegrityError(f"catalog {label} base keys must match the engine activity set")
+    for key in values:
+        if not key.startswith(_LIFESTYLE_MET_PREFIX):
+            continue
+        activity_id = key[len(_LIFESTYLE_MET_PREFIX):]
+        if not activity_id or any(not (c.isalnum() and c.isascii()) and c != "-" for c in activity_id):
+            raise IntegrityError(f"catalog {label} lifestyle key {key!r} is malformed")
+    if any(not isinstance(value, (int, float)) or value <= 0 for value in values.values()):
+        raise IntegrityError(f"catalog {label} values must be positive")
+    return dict(values)
+
+
+def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig) -> None:
+    """@brief 人物声明启用的生活活动必须存在于目录 MET 表（fail-closed）。"""
+    known = {key.removeprefix(_LIFESTYLE_MET_PREFIX)
+             for key in body.activity_met if key.startswith(_LIFESTYLE_MET_PREFIX)}
+    for agent in document.agents:
+        if agent.lifestyle_activities is None:
+            continue
+        unknown = sorted(set(agent.lifestyle_activities) - known)
+        if unknown:
+            raise IntegrityError(
+                f"agent {agent.agent_id} declares unknown lifestyle activities: {unknown}")
 
 
 def _curve(points, label: str) -> tuple[CurvePoint, ...]:

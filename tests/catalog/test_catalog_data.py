@@ -54,7 +54,11 @@ def test_resources_catalog_shape():
     assert by_id["sleep_debt_hours"]["bounds"] == {"min": 0, "max": None}
     assert by_id["entertainment_need"]["bounds"] == {"min": 0, "max": 1}
     assert by_id["energy_kcal"]["drain_rules"]["basal_kcal_per_hour"] == 65
-    assert len(by_id["energy_kcal"]["drain_rules"]["activity_met"]) == 10
+    lifestyle = json.loads(
+        (ROOT / "corpora/lifestyle/items.json").read_text(encoding="utf-8"))["items"]
+    lifestyle_met = {f"lifestyle:{item['activity_id']}": item["met_value"] for item in lifestyle}
+    assert by_id["energy_kcal"]["drain_rules"]["activity_met"].items() >= lifestyle_met.items()
+    assert len(by_id["energy_kcal"]["drain_rules"]["activity_met"]) == 10 + len(lifestyle_met)
     assert len(by_id["energy_kcal"]["drain_rules"]["food_efficiency_curve"]) == 4
     assert by_id["sleep_debt_hours"]["drain_rules"] == {
         "awake_sleep_debt_per_hour": 1, "sleep_recovery_per_hour": 2}
@@ -67,10 +71,10 @@ def test_resources_catalog_shape():
 def test_objects_catalog_shape():
     objects = _load(ROOT / "catalog/objects.jsonl")
     kinds = Counter(o["object_kind"] for o in objects)
-    assert kinds == Counter({"product": 16, "service": 1, "contract": 3})
+    assert kinds == Counter({"product": 41, "service": 1, "contract": 3})
     foods = [o for o in objects if o["object_id"].startswith("food-")]
     durables = [o for o in objects if o["object_id"].startswith("item-")]
-    assert len(foods) == 8 and len(durables) == 8
+    assert len(foods) == 33 and len(durables) == 8
     for food in foods:
         consume = [e for e in food["edges"] if e["on"] == "consume"]
         assert len(consume) == 1 and consume[0]["type"] == "source"
@@ -95,9 +99,40 @@ def test_objects_catalog_shape():
     assert (ROOT / "catalog/rules/off-foods.mapping.toml").is_file()
 
 
+def test_food_expansion_whitelist_and_spectrum():
+    """扩容 25 条：条码/kcal/份量逐条对照 china-100.json，kcal/fen 谱系去单点。"""
+    expansion = json.loads((ROOT / "corpora/foods/expansion.json").read_text(encoding="utf-8"))
+    entries = expansion["entries"]
+    assert len(entries) == 25
+    raw = {str(p["code"]): p for p in
+           json.loads((ROOT / "corpora/open-food-facts/china-100.json").read_text())["products"]}
+    for entry in entries:
+        assert entry["barcode"] in raw
+        assert entry["name"] == (raw[entry["barcode"]].get("product_name_zh")
+                                 or raw[entry["barcode"]].get("product_name"))
+    objects = _load(ROOT / "catalog/objects.jsonl")
+    foods = {o["object_id"]: o for o in objects if o["object_id"].startswith("food-")}
+    ratios = {}
+    for object_id, obj in foods.items():
+        price = obj["edges"][0]["amount_fen"]
+        kcal = obj["edges"][1]["amount"]
+        ratios[object_id] = kcal / price
+    band = {oid for oid, ratio in ratios.items() if 0.3 <= ratio <= 1.0}
+    assert len(band) >= 6, "0.3-1.0 kcal/fen band must hold multiple options"
+    top = max(ratios, key=ratios.get)
+    near_top = [oid for oid, ratio in ratios.items() if ratio >= ratios[top] * 0.8]
+    assert len(near_top) >= 2, "best kcal/fen must not be a single unique winner"
+    for entry in entries:
+        obj = foods[f"food-{entry['barcode']}"]
+        assert obj["edges"][1]["amount"] == entry["energy_kcal_serving"]
+        assert obj["serving"]["unit"] == entry["serving_size"]
+        price_part = next(p for p in obj["provenance"] if p["part"] == "purchase price edge")
+        assert price_part["type"] == "anchored"
+
+
 def test_manifest_and_overrides_layout():
     manifest = json.loads((ROOT / "catalog/manifest.json").read_text(encoding="utf-8"))
-    assert manifest == {"version_major": 1, "version_minor": 0}
+    assert manifest == {"version_major": 1, "version_minor": 1}
     tombstones = ROOT / "catalog/overrides/tombstones.jsonl"
     assert tombstones.is_file()
     assert tombstones.read_text(encoding="utf-8") == ""
@@ -110,7 +145,7 @@ def test_every_numeric_value_has_exactly_one_provenance_part():
         parts = entry["provenance"]
         assert parts, f"{entry_id}: no provenance"
         for part in parts:
-            assert part["type"] in ("fact", "assumption", "scenario")
+            assert part["type"] in ("fact", "anchored", "assumption", "scenario")
         for leaf in _numeric_leaves(entry):
             hits = [p for p in parts if any(_covers(leaf, d) for d in p["paths"])]
             assert len(hits) == 1, f"{entry_id}.{leaf}: covered by {len(hits)} parts (need exactly 1)"
@@ -118,10 +153,10 @@ def test_every_numeric_value_has_exactly_one_provenance_part():
 
 def test_real_catalog_loads_through_package():
     catalog = load_catalog(ROOT / "catalog")
-    assert (catalog.version_major, catalog.version_minor) == (1, 0)
+    assert (catalog.version_major, catalog.version_minor) == (1, 1)
     assert set(catalog.resources) == {
         "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"}
-    assert len(catalog.objects) == 20
+    assert len(catalog.objects) == 45
     assert set(catalog.formulas) == {"travel-fare", "travel-time"}
     fare = catalog.formulas["travel-fare"]
     assert fare.branches["walking"].amount == 0

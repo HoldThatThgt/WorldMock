@@ -67,6 +67,7 @@ from worldmock.life.models import (
     CounterfactualReceipt,
     DecisionRoundState,
     GameActionRequest,
+    LIFESTYLE_TYPE_PREFIX,
     MeetingMinutes,
     PendingAction,
     PurchaseRequest,
@@ -635,7 +636,8 @@ class LifeEngine:
                                       self.state.current_time, self.semantics),
                 "energy_feasibility": _activity_energy_feasibility(agent, self.semantics.body),
                 "content_catalog": _content_catalog(
-                    self.scenario, self.rules.subtitles, agent.content_progress),
+                    self.scenario, self.rules.subtitles, self.rules.content_titles,
+                    agent.content_progress),
                 "content_progress": self._content_progress(agent),
                 "game_catalog": _game_catalog(self.scenario),
                 "browse_targets": ["product_catalog"],
@@ -983,9 +985,24 @@ class LifeEngine:
     def _start_basic(self, state: WorldState, pending: PendingAction,
                      request: StartBasicActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 将显式基础启动请求转换为统一领域活动。"""
-        activity = StartActivityRequest(activity_type=request.activity_type,
-                                        planned_duration_seconds=request.planned_duration_seconds)
+        kind, target_id = self._lifestyle_request(pending.agent_id, request.activity_type)
+        activity = StartActivityRequest(activity_type=kind,
+                                        planned_duration_seconds=request.planned_duration_seconds,
+                                        target_id=target_id)
         return self._start(state, pending, activity)
+
+    def _lifestyle_request(self, agent_id: int, activity_type: str):
+        """@brief 解析 lifestyle:<id> 子类型并对照人物启用声明核对。"""
+        if not activity_type.startswith(LIFESTYLE_TYPE_PREFIX):
+            return ActivityKind(activity_type), None
+        activity_id = activity_type[len(LIFESTYLE_TYPE_PREFIX):]
+        if f"{LIFESTYLE_TYPE_PREFIX}{activity_id}" not in self.scenario.body.activity_met:
+            raise BusinessRuleError("UNKNOWN_LIFESTYLE_ACTIVITY")
+        config = next(item for item in self.scenario.agents if item.agent_id == agent_id)
+        enabled = config.lifestyle_activities
+        if enabled is not None and activity_id not in enabled:
+            raise BusinessRuleError("UNKNOWN_LIFESTYLE_ACTIVITY")
+        return ActivityKind.LIFESTYLE, activity_id
 
     def _start_targeted(self, state: WorldState, pending: PendingAction,
                         request: StartTargetedActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -1798,13 +1815,16 @@ def _paused_activity_observation(activity, agent, body) -> dict:
 
 
 def _content_catalog(scenario: RuntimeScenario, subtitles: dict[str, tuple[SubtitleCue, ...]],
+                     titles: dict[str, str],
                      progress: dict[str, ContentProgress]) -> list[dict]:
     """@brief 返回人物可选择内容及其分段结构，不暴露本地路径和哈希。
 
     目录不再把内容呈现为一个整块时长：每条目带 segments_total 与
     typical_segment_seconds（网文=章、信息流=条、剧集=字幕行），已开始的
     条目并入 progress（位置、剩余、已完成段数），让模型看见"读一章/看
-    一段"是合法的小步消费而非一整天的整块承诺。
+    一段"是合法的小步消费而非一整天的整块承诺。电影/剧集/网文/单片体验
+    附带语料标题（titles），信息流与游戏条目以 experience_label/game_id
+    自带身份、不注入标题。
     """
     fields = {"item_id", "kind", "duration_seconds", "entertainment_relief_per_hour", "experience_label"}
     result = []
@@ -1815,6 +1835,8 @@ def _content_catalog(scenario: RuntimeScenario, subtitles: dict[str, tuple[Subti
         data["segments_total"] = total
         data["typical_segment_seconds"] = (
             round(item.duration_seconds / total, 1) if total else float(item.duration_seconds))
+        if item.item_id in titles:
+            data["title"] = titles[item.item_id]
         record = progress.get(item.item_id)
         if record is not None:
             completed = sum(1 for cue in cues if cue.end_seconds <= record.position_seconds)

@@ -91,7 +91,7 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
     expected_entries = [
         {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
          "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
-         "experience_label": "subtitle_experience",
+         "experience_label": "subtitle_experience", "title": "Sintel",
          "segments_total": 26, "typical_segment_seconds": 24.2},
         {"item_id": FEED_ID, "kind": "news_feed",
          "duration_seconds": 38032, "entertainment_relief_per_hour": FEED_RATE,

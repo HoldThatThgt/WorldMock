@@ -591,6 +591,8 @@ def _continue_candidate(context: MotivationContext) -> _Candidate | None:
         return None
     if activity.kind == ActivityKind.TRAVEL and activity.travel_mode is not None:
         met = context.body.activity_met[f"travel:{activity.travel_mode.value}"]
+    elif activity.kind == ActivityKind.LIFESTYLE:
+        met = context.body.activity_met[f"lifestyle:{activity.target_id}"]
     else:
         met = context.body.activity_met[activity.kind.value]
     burn = minimum_energy_cost(activity.kind, remaining, context.body, met)

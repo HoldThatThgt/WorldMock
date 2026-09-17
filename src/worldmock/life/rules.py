@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.content import SubtitleCue, load_subtitles
+from worldmock.life.content import SubtitleCue, load_content_titles, load_subtitles
 from worldmock.life.models import ActivityKind, AgentState, StartActivityRequest
 from worldmock.life.scenario import ContentItemConfig, GameConfig, LifeScenario, ProductConfig, WorkTaskConfig
 from worldmock.life.travel import route_for
@@ -26,6 +26,7 @@ class LifeRuleEngine:
         self.games = {item.game_id: item for item in scenario.games}
         self.subtitles = {item.item_id: load_subtitles(item, self.corpus_root)
                           for item in scenario.contents}
+        self.content_titles = load_content_titles(scenario.contents, self.corpus_root)
 
     def validate_start(self, agent: AgentState, request: StartActivityRequest, now: int) -> dict:
         """@brief 校验活动目标并返回结算所需的冻结身份。"""

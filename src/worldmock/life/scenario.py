@@ -151,6 +151,9 @@ class AgentConfig(FrozenModel):
     skill_levels: dict[str, float]
     entertainment_preferences: dict[str, float]
     motivation: MotivationProfile | None = None
+    # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
+    # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
+    lifestyle_activities: tuple[str, ...] | None = None
 
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":
@@ -162,6 +165,13 @@ class AgentConfig(FrozenModel):
             raise ValueError("persona traits must not be blank")
         if self.background_story is not None and len(self.background_story.strip()) < 100:
             raise ValueError("background_story must contain at least 100 characters")
+        if self.lifestyle_activities is not None:
+            if not self.lifestyle_activities:
+                raise ValueError("lifestyle_activities must list ids or stay null to enable all")
+            if len(set(self.lifestyle_activities)) != len(self.lifestyle_activities):
+                raise ValueError("lifestyle_activities ids must be unique")
+            if any(not item.strip() for item in self.lifestyle_activities):
+                raise ValueError("lifestyle_activities ids must not be blank")
         return self
 
 

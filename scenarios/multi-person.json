@@ -8,10 +8,10 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "be84219e086de812991cbc3e03eae4644838b0fc245c17f69cf1caab63f7cda3",
+  "corpus_manifest_sha256": "2ad792566a97d1a495fbfa3002f72b27a9ebea5791d6ba1acdebd3beff4b97fe",
   "catalog_version": {
     "major": 1,
-    "minor": 0
+    "minor": 1
   },
   "accounts": [
     {
@@ -49,6 +49,7 @@
   "agents": [
     {
       "agent_id": 1,
+      "lifestyle_activities": ["cooking-research", "event-cinema", "gardening", "housework-cleaning", "jogging", "pet-walk-dog", "social-phone-call", "yoga"],
       "name": "陈曦",
       "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
       "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
@@ -337,12 +338,13 @@
     },
     {
       "agent_id": 2,
+      "lifestyle_activities": ["cooking-research", "event-cinema", "gardening", "hobby-jigsaw-puzzle", "housework-cleaning", "jogging", "meditation-reduce-stress", "pet-walk-dog", "social-phone-call", "sport-badminton", "yoga"],
       "name": "李凡",
       "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
       "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
       "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
       "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
-      "background_story": "李凡，28岁，后端开发工程师，住在上海张江合租房。性格内向偏焦虑，写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛。习惯点外卖解决三餐，最喜欢红烧牛肉面和冰红茶，觉得\"吃饭是刚需不是享受\"。压力大或 bug 解不掉时会刷知乎和段子解压，偶尔深夜打游戏（Steam 库里囤了一堆没时间玩的）。睡眠偏晚，经常凌晨一点才睡，但知道这样不好，正在努力改善。对新技术有好奇心，会关注 indie 游戏和动漫。消费偏节俭，比价后才买，但对游戏和电子设备舍得花钱。朋友不多但关系深，压力大时会找老友倾诉而不是憋着。",
+      "background_story": "李凡，28岁，后端开发工程师，住在上海张江合租房。性格内向偏焦虑，写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛。习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面；喜欢喝冰红茶，觉得\"吃饭是刚需不是享受\"。压力大或 bug 解不掉时会刷知乎和段子解压，偶尔深夜打游戏（Steam 库里囤了一堆没时间玩的）。睡眠偏晚，经常凌晨一点才睡，但知道这样不好，正在努力改善。对新技术有好奇心，会关注 indie 游戏和动漫。消费偏节俭，比价后才买，但对游戏和电子设备舍得花钱。朋友不多但关系深，压力大时会找老友倾诉而不是憋着。",
       "health_habits": "饿了就一定要吃东西，不会硬扛；三餐习惯点外卖；睡眠偏晚（经常凌晨一点），知道不健康正在改善；压力大时找老友倾诉。",
       "social_style": "内向，朋友不多但关系深，压力大时会找老友倾诉而不是憋着，线上偏好知乎和段子社区。",
       "trait_source_kind": "experiment_assumption",
@@ -613,7 +615,7 @@
           "drama_series": 0.19
         },
         "source": {
-          "persona_text_sha256": "ceacf54ba6dee48667420b83067b3e53ee322c03d8bc81853d18d8e8c3950bc9",
+          "persona_text_sha256": "0d9301956e27931d784938411b5143324d6538454c37cdecb716e48e7a9781c0",
           "model": "deepseek-chat",
           "prompt_version": "v1",
           "consensus": {
@@ -847,6 +849,131 @@
     },
     {
       "product_id": "food-8935090914864",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6901939621738",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902083881085",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6902538006575",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6907992100272",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6907992500942",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6907992507095",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6909548098880",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6914973603394",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6916196410414",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6921168593569",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6921351120305",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6922577790068",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6923167524186",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6923644223458",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6924743919242",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6924773540416",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6937003704014",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6937962112714",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6938360357264",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6943949415174",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6948939681928",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6948939696106",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6950955909610",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6972020770130",
+      "merchant": "merchant:grocery",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "food-6974800253352",
       "merchant": "merchant:grocery",
       "merchant_location_id": "market"
     },

@@ -108,8 +108,18 @@ def test_assembly_rejects_catalog_met_drift(semantics) -> None:
     def drop_work_met(resources):
         resources["energy_kcal"]["drain_rules"]["activity_met"].pop("work")
 
-    with pytest.raises(IntegrityError, match="activity MET keys"):
+    with pytest.raises(IntegrityError, match="activity MET"):
         assemble_semantics(semantics.document, _drifted_catalog(semantics, drop_work_met))
+
+
+def test_assembly_rejects_malformed_lifestyle_met_key(semantics) -> None:
+    """lifestyle MET 键形状非法（空 id/非 slug 字符）时组装 fail-closed。"""
+
+    def inject_bad_lifestyle_key(resources):
+        resources["energy_kcal"]["drain_rules"]["activity_met"]["lifestyle:Bad_Id"] = 2.0
+
+    with pytest.raises(IntegrityError, match="malformed"):
+        assemble_semantics(semantics.document, _drifted_catalog(semantics, inject_bad_lifestyle_key))
 
 
 def test_assembly_rejects_unbounded_initial_below_minimum(semantics) -> None:
@@ -148,7 +158,7 @@ def test_expression_evaluator_is_closed_and_safe() -> None:
 def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
     """准入引用包含对象闭集与角色账户绑定。"""
     refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (1, 0)
+    assert (refs.catalog_major, refs.catalog_minor) == (1, 1)
     roles = {account.role for account in refs.accounts}
     assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
             "employer:zhangjiang", "transport:service", "external:scenario"} <= roles

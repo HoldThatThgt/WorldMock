@@ -91,6 +91,14 @@ class ActivityKind(StrEnum):
     READ_MAIL = "read_mail"
     BROWSE = "browse"
     CONSUME = "consume"
+    # 生活活动（corpora/lifestyle/）经 lifestyle:<activity_id> 子类型机制提交：
+    # kind 统一为 LIFESTYLE，具体条目放在 target_id，MET 按 lifestyle 键查表。
+    LIFESTYLE = "lifestyle"
+
+
+#: start_basic_activity 的 activity_type 文本合同：wait/sleep 或 lifestyle:<id>。
+LIFESTYLE_TYPE_PREFIX = "lifestyle:"
+BASIC_ACTIVITY_TYPE_PATTERN = r"^(?:wait|sleep|lifestyle:[a-z0-9][a-z0-9-]*)$"
 
 
 class ActivityStatus(StrEnum):
@@ -380,6 +388,7 @@ _TARGETED_ACTIVITY_KINDS = frozenset({
     ActivityKind.PLAY_GAME,
     ActivityKind.READ_MAIL,
     ActivityKind.BROWSE,
+    ActivityKind.LIFESTYLE,
 })
 
 
@@ -390,7 +399,7 @@ class StartActivityRequest(FrozenModel):
     planned_duration_seconds: int = Field(gt=0, le=86_400)
     target_id: str | None = Field(
         default=None,
-        description="Required for work, watch, play_game, read_mail, and browse.",
+        description="Required for work, watch, play_game, read_mail, browse, and lifestyle.",
     )
     destination_id: str | None = Field(
         default=None,
@@ -435,9 +444,14 @@ class ChangeActivityRequest(FrozenModel):
 
 
 class StartBasicActivityRequest(FrozenModel):
-    """@brief 由模型显式启动等待或睡眠。"""
+    """@brief 由模型显式启动等待、睡眠或一种生活活动。
 
-    activity_type: Literal["wait", "sleep"]
+    activity_type 为 "wait"、"sleep" 或 "lifestyle:<activity_id>"（id 取自
+    当前观察暴露的生活活动目录条目）；lifestyle 子类型在引擎层解析为
+    ActivityKind.LIFESTYLE + target_id，MET 走 body 的 lifestyle 键。
+    """
+
+    activity_type: str = Field(pattern=BASIC_ACTIVITY_TYPE_PATTERN)
     planned_duration_seconds: int = Field(ge=60, le=86_400)
 
 

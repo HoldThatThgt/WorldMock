@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,46 @@ class SubtitleCue:
     start_seconds: float
     end_seconds: float
     text: str
+
+
+#: 内容条目标题的语料来源：内容类别 → (语料相对路径, 条目身份键)。
+#: 身份键为空串表示单记录身份文件（其 title 字段直接适用）；未列出的类别
+#: （news_feed/joke_feed/game_session）以 experience_label / game_id 自带身份。
+TITLE_SOURCES: dict[str, tuple[str, str]] = {
+    "feature_film": ("movies/items.json", "item_id"),
+    "drama_series": ("drama/items.json", "item_id"),
+    "webnovel_excerpt": ("novels/items.json", "item_id"),
+    "subtitle_experience": ("sintel/media-identity.json", ""),
+}
+
+
+def load_content_titles(items: tuple[ContentItemConfig, ...],
+                        corpus_root: Path) -> dict[str, str]:
+    """@brief 按内容类别从语料 items.json 读取展示标题。
+
+    标题是观察展示元数据：身份文件缺失/越界仍按 IntegrityError 失败，
+    单条目在 items.json 中缺行或无标题时只是不注入 title（部分元数据合法）。
+    """
+    titles: dict[str, str] = {}
+    payloads: dict[str, object] = {}
+    for item in items:
+        source = TITLE_SOURCES.get(item.kind)
+        if source is None:
+            continue
+        relative, id_key = source
+        if relative not in payloads:
+            payloads[relative] = json.loads(
+                _safe_file(corpus_root, relative).read_text(encoding="utf-8"))
+        payload = payloads[relative]
+        if id_key:
+            entry = next((row for row in payload
+                          if isinstance(row, dict) and row.get(id_key) == item.item_id), None)
+            title = entry.get("title") if entry else None
+        else:
+            title = payload.get("title") if isinstance(payload, dict) else None
+        if isinstance(title, str) and title.strip():
+            titles[item.item_id] = title
+    return titles
 
 
 def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:
