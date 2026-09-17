@@ -23,8 +23,8 @@ proves "catalog matches the generator" (snapshot + rules + corpora), not
 Hand-written files NOT touched by this generator (per §13, rules are human-authored):
   catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
   catalog/rules/travel-time.toml, catalog/rules/motivation.toml,
-  catalog/rules/persona-mapping.toml, catalog/README.md,
-  catalog/snapshots/ —
+  catalog/rules/persona-mapping.toml, catalog/affordances.toml,
+  catalog/README.md, catalog/snapshots/ —
   the generator only asserts these files exist.
 
 Usage:
@@ -698,6 +698,7 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
     assert (RULES_DIR / "travel-time.toml").is_file(), "missing catalog/rules/travel-time.toml"
     assert (RULES_DIR / "motivation.toml").is_file(), "missing catalog/rules/motivation.toml"
     assert (RULES_DIR / "persona-mapping.toml").is_file(), "missing catalog/rules/persona-mapping.toml"
+    assert (ROOT / "catalog/affordances.toml").is_file(), "missing catalog/affordances.toml"
     traffic_dir = ROOT / "catalog/snapshots/traffic"
     assert (traffic_dir / "amap-report-excerpt.md").is_file(), \
         "missing catalog/snapshots/traffic/amap-report-excerpt.md"

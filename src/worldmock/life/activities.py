@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
@@ -44,15 +45,13 @@ class ActivityOrigin:
     request_event_id: str
 
 
-FEEDBACK_ACTIVITY_KINDS = frozenset({
-    ActivityKind.WAIT,
-    ActivityKind.WORK,
-    ActivityKind.WATCH,
-    ActivityKind.TRAVEL,
-    ActivityKind.READ_MAIL,
-    ActivityKind.BROWSE,
-    ActivityKind.CONSUME,
-})
+#: 到期反馈边界闭集（7 活动）——自可供性注册表 kinds.*.feedback_boundary 派生
+#: （M1：字面常量已删，注册表即事实）。
+FEEDBACK_ACTIVITY_KINDS = frozenset(
+    ActivityKind(name) for name in default_affordances().feedback_kinds)
+
+#: 可供性注册表视图（冻结文件加载一次；资源锁/缓解通道/MET 模板查表用）。
+_AFFORDANCES = default_affordances()
 
 
 def start_activity(agent: AgentState, request: StartActivityRequest, now: int, origin: ActivityOrigin,
@@ -161,16 +160,11 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
 
 
 def resource_claims(request: StartActivityRequest) -> set[str]:
-    """@brief 返回活动的明确资源锁集合。"""
-    claims = {"position"}
-    if request.activity_type in {ActivityKind.WORK, ActivityKind.WATCH, ActivityKind.PLAY_GAME,
-                                  ActivityKind.READ_MAIL, ActivityKind.BROWSE}:
-        claims.update({"attention", "device"})
-    if request.activity_type in {ActivityKind.WORK, ActivityKind.PLAY_GAME, ActivityKind.CONSUME}:
-        claims.add("hands")
-    if request.activity_type == ActivityKind.TRAVEL and request.travel_mode.value == "driving":
-        claims.update({"attention", "hands", "vehicle"})
-    return claims
+    """@brief 返回活动的明确资源锁集合（注册表 kinds.*.resource_claims 派生查表；
+    position 恒占，travel 的 driving 条件锁由 conditional 声明表达）。"""
+    return set(_AFFORDANCES.resource_claims(
+        request.activity_type.value,
+        travel_mode=request.travel_mode.value if request.travel_mode is not None else None))
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
@@ -184,13 +178,18 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
 
 
 def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
-    """@brief 按内容自身效果、偏好和接触次数计算娱乐缓解速率。"""
-    if activity.kind == ActivityKind.WAIT:
-        # wait 的被动缓解（边等边刷）是活动类内在语义：settle 阶段在
-        # body.py 的 wait 分支直接按目录费率结算，不走偏好 gating 的
-        # factors 通道，避免与内容偏好相乘归零或双重计入。
+    """@brief 按注册表缓解通道（kinds.*.relief.channel 四值）计算娱乐缓解速率。
+
+    intrinsic：wait 的被动缓解（边等边刷）是活动类内在语义：settle 阶段在
+    body.py 的 wait 分支直接按目录费率结算，不走偏好 gating 的 factors
+    通道，避免与内容偏好相乘归零或双重计入。content_rate：watch 按条目
+    费率/偏好/接触次数。preference_rate/none：偏好 x 目录费率（无费率
+    键的活动得 0）。
+    """
+    channel = _AFFORDANCES.relief_channel(activity.kind.value)
+    if channel == "intrinsic":
         return 0
-    if activity.kind == ActivityKind.WATCH:
+    if channel == "content_rate":
         rate = activity.data.get("entertainment_relief_per_hour")
         count = activity.data.get("exposure_count")
         if not isinstance(rate, (int, float)) or not isinstance(count, int) or count < 1:
@@ -230,14 +229,9 @@ def _food_energy_rate(activity: ActivityState) -> float:
 
 def _activity_met(kind: ActivityKind, travel_mode, config: BodyConfig,
                   target_id: str | None = None) -> float:
-    """@brief 出行按方式、生活活动按条目 id 查冻结代谢当量。"""
-    if kind == ActivityKind.TRAVEL and travel_mode is not None:
-        return config.activity_met[f"travel:{travel_mode.value}"]
-    if kind == ActivityKind.LIFESTYLE:
-        if not target_id:
-            raise ValueError("lifestyle activity requires its catalog item id")
-        return config.activity_met[f"lifestyle:{target_id}"]
-    return config.activity_met[kind.value]
+    """@brief 按注册表 met_key 模板查冻结代谢当量（travel:{mode} / lifestyle:{item_id}）。"""
+    return config.activity_met[
+        _AFFORDANCES.met_lookup_key(kind.value, travel_mode=travel_mode, target_id=target_id)]
 
 
 def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,

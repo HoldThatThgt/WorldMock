@@ -22,6 +22,10 @@ from pathlib import Path
 
 from pydantic import Field
 
+from worldmock.catalog.affordances import (
+    PROTOTYPE_GENERATORS,
+    default_affordances,
+)
 from worldmock.errors import IntegrityError
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
@@ -46,7 +50,11 @@ from worldmock.life.scenario import (
     WorkTaskConfig,
 )
 
-#: 候选家族闭集（习惯项的归一键）。
+#: 可供性注册表视图（冻结文件加载一次；家族闭集、习惯归并路由、枚举序、
+#: 候选生成器原型与采样参数全部经它派生——M1 起注册表即事实）。
+_AFFORDANCES = default_affordances()
+
+#: 候选家族名（习惯项的归一键）。
 FAMILY_CONTINUE = "continue"
 FAMILY_SLEEP = "sleep"
 FAMILY_EAT = "eat"
@@ -54,17 +62,17 @@ FAMILY_TRAVEL = "travel"
 FAMILY_BROWSE = "browse"
 FAMILY_ENTERTAINMENT = "entertainment"
 FAMILY_WORK = "work"
-FAMILIES = frozenset({
-    FAMILY_CONTINUE, FAMILY_SLEEP, FAMILY_EAT, FAMILY_TRAVEL,
-    FAMILY_BROWSE, FAMILY_ENTERTAINMENT, FAMILY_WORK,
-})
+#: 候选家族闭集（习惯项的归一键）——自注册表 families 表派生
+#: （generator ≠ none 的 7 个动机家族；lifestyle 家族是纯声明面，不进闭集）。
+FAMILIES = _AFFORDANCES.motivation_families
 
 #: v1 每次决策枚举的候选上限与注入条数（分层菜单采样后 8 生存位 + 14 娱乐 = 22）。
 MAX_CANDIDATES = 22
 DEFAULT_TOP_K = 5
 
-#: 娱乐候选按品类采样的每品类上限：7 内容品类 x 2 = 14 条娱乐候选。
-ENTERTAINMENT_PER_KIND = 2
+#: 娱乐候选按品类采样的每品类上限（7 内容品类 x 2 = 14 条娱乐候选）——
+#: 自注册表 families.entertainment.attention.per_kind 派生。
+ENTERTAINMENT_PER_KIND = _AFFORDANCES.attention_params(FAMILY_ENTERTAINMENT)["per_kind"]
 
 #: 候选时长/观察窗口的工程上限（秒）：防止整部电影/整段合同把候选坐标推到极端。
 MAX_CANDIDATE_SECONDS = 4 * 3600
@@ -158,27 +166,14 @@ def prospect_value(z: float, transforms: MotivationTransforms, loss_aversion: fl
 # ---------------------------------------------------------------------------
 
 def classify_action_event(tool_name: str, request: Mapping) -> str | None:
-    """@brief 把一次动作请求归入候选家族；不可判定的动作返回 None。"""
+    """@brief 把一次动作请求归入候选家族；不可判定的动作返回 None。
+
+    归并路由自注册表 families.*.habit_members 展开的查找表取得（精确 >
+    前缀 lifestyle:* > 通配；start_basic_activity 非 sleep 一律归 continue
+    的现行决定已显式写进 continue 家族的通配成员）。
+    """
     activity_type = request.get("activity_type") if isinstance(request, Mapping) else None
-    if tool_name == "continue_activity":
-        return FAMILY_CONTINUE
-    if tool_name == "start_basic_activity":
-        return FAMILY_SLEEP if activity_type == "sleep" else FAMILY_CONTINUE
-    if tool_name in {"purchase", "consume"}:
-        return FAMILY_EAT
-    if tool_name == "start_travel":
-        return FAMILY_TRAVEL
-    if tool_name == "start_targeted_activity":
-        if activity_type in {"watch", "play_game"}:
-            return FAMILY_ENTERTAINMENT
-        if activity_type == "work":
-            return FAMILY_WORK
-        if activity_type == "browse":
-            return FAMILY_BROWSE
-        return None
-    if tool_name == "submit_work":
-        return FAMILY_WORK
-    return None
+    return _AFFORDANCES.classify_habit_event(tool_name, activity_type)
 
 
 def habit_shares(events: Sequence[tuple[str, Mapping]], discount: float) -> dict[str, float]:
@@ -419,31 +414,27 @@ def _softmax(values: list[float], tau: float) -> list[float]:
 
 def _enumerate_candidates(context: MotivationContext,
                           profile: MotivationProfile) -> list[_Candidate]:
-    """@brief 按固定优先级枚举候选并截断到 MAX_CANDIDATES。
+    """@brief 按注册表 enumeration_rank 排序遍历家族枚举候选并截断到 MAX_CANDIDATES。
 
-    优先级：进食 > 睡眠 > 继续当前活动 > 去工作地点 > 工作任务(至多2) >
-    回家 > 浏览商品目录 > 娱乐(每品类 top-2 采样，≤14)。生存与目标导向
-    优先于消遣，浏览（工具性：解锁进食候选的枚举）排在纯消遣之前；
-    娱乐候选在池尾按采样权重排序，截断从队尾开始，保证任何决策点的
-    候选数不超过 MAX_CANDIDATES 且存活的是最强候选。
+    现行优先级（注册表枚举序）：进食(10) > 睡眠(20) > 继续当前活动(30) >
+    去工作地点+工作任务至多2(40) > 回家(50) > 浏览商品目录(60) >
+    娱乐(70，每品类 top-2 采样 ≤14)。生存与目标导向优先于消遣，浏览
+    （工具性：解锁进食候选的枚举）排在纯消遣之前；娱乐候选在池尾按采样
+    权重排序，截断从队尾开始，保证任何决策点的候选数不超过
+    MAX_CANDIDATES 且存活的是最强候选。
     """
     pool: list[_Candidate] = []
-    eat = _eat_candidate(context)
-    sleep = _sleep_candidate(context)
-    keep = _continue_candidate(context)
-    work_travel, work = _work_candidates(context)
-    home_travel = _travel_candidate(context, "home", context.home_location_id)
-    browse = _browse_candidate(context)
-    entertainment = _entertainment_candidates(context, profile)
-    for candidate in (eat, sleep, keep, work_travel, *work, home_travel, browse,
-                      *entertainment):
-        if candidate is not None:
-            pool.append(candidate)
+    for family in _AFFORDANCES.families_by_rank():
+        generator = PROTOTYPE_GENERATORS.get(family.generator)
+        if generator is None:
+            raise IntegrityError(
+                f"candidate generator {family.generator!r} has no registered prototype")
+        pool.extend(generator(context, profile, family.generator_params))
     return pool[:MAX_CANDIDATES]
 
 
-def _browse_candidate(context: MotivationContext) -> _Candidate | None:
-    """@brief 浏览候选：目录中尚有未见过商品时给出（10 分钟目录速览）。
+def _browse_candidate(context: MotivationContext, params: Mapping) -> _Candidate | None:
+    """@brief 浏览候选：目录中尚有未见过商品时给出（probe_duration_seconds 速览）。
 
     浏览是工具性动作：browse 之后商品目录对人物可见，进食候选才可
     枚举——因此只要还有没见过的商品就保持此候选在场。
@@ -451,7 +442,7 @@ def _browse_candidate(context: MotivationContext) -> _Candidate | None:
     seen = {product.product_id for product in context.products}
     if not any(product.product_id not in seen for product in context.catalog_products):
         return None
-    duration = min(600, MAX_CANDIDATE_SECONDS,
+    duration = min(params["probe_duration_seconds"], MAX_CANDIDATE_SECONDS,
                    context.end_time - context.current_time)
     if duration < 60:
         return None
@@ -470,16 +461,16 @@ def _browse_candidate(context: MotivationContext) -> _Candidate | None:
         entertainment_delta=_entertainment_accrual(context, hours))
 
 
-def _sleep_candidate(context: MotivationContext) -> _Candidate:
-    """@brief 睡眠候选：清债所需时长（上限 8 小时），无债时 1 小时小睡。"""
+def _sleep_candidate(context: MotivationContext, params: Mapping) -> _Candidate:
+    """@brief 睡眠候选：清债所需时长（cap_seconds 上限），无债时 fallback 小睡。"""
     agent = context.agent
     debt = agent.body.sleep_debt_hours
     if debt > 0:
         seconds = math.ceil(debt / context.body.sleep_recovery_per_hour * 3600)
     else:
-        seconds = 3600
-    duration = min(max(60, seconds), 8 * 3600, MAX_CANDIDATE_SECONDS,
-                   context.end_time - context.current_time)
+        seconds = params["fallback_seconds"]
+    duration = min(max(params["min_session_seconds"], seconds), params["cap_seconds"],
+                   MAX_CANDIDATE_SECONDS, context.end_time - context.current_time)
     if duration < 60:
         return None
     hours = duration / 3600
@@ -718,8 +709,9 @@ def _travel_candidate(context: MotivationContext, label: str,
         entertainment_delta=_entertainment_accrual(context, hours))
 
 
-def _work_candidates(context: MotivationContext) -> tuple[_Candidate | None, list[_Candidate]]:
-    """@brief 工作候选：至多两个报酬最高的可用任务，外加去工作地点的出行候选。
+def _work_candidates(context: MotivationContext,
+                     params: Mapping) -> tuple[_Candidate | None, list[_Candidate]]:
+    """@brief 工作候选：至多 max_tasks 个报酬最高的可用任务，外加去工作地点的出行腿。
 
     可用口径与 validate_work_start 一致（可见、有效期内、技能达标）；工作
     候选只在人物已位于任务地点时给出，否则给出去该地点的出行候选。
@@ -738,7 +730,7 @@ def _work_candidates(context: MotivationContext) -> tuple[_Candidate | None, lis
         return None, []
     travel = None
     work: list[_Candidate] = []
-    for task in available[:2]:
+    for task in available[:params["max_tasks"]]:
         if agent.location_id != task.required_location_id:
             if travel is None:
                 travel = _travel_candidate(context, f"work ({task.task_id})",
@@ -777,7 +769,8 @@ def _work_candidates(context: MotivationContext) -> tuple[_Candidate | None, lis
 
 
 def _entertainment_candidates(context: MotivationContext,
-                              profile: MotivationProfile) -> list[_Candidate]:
+                              profile: MotivationProfile,
+                              params: Mapping) -> list[_Candidate]:
     """@brief 娱乐候选：每内容品类采 top-2（attention_prior x 偏好加权）。
 
     分层菜单模式：评分器不依赖全量目录——即使上下文直接构造传入全量列表，
@@ -822,7 +815,7 @@ def _entertainment_candidates(context: MotivationContext,
                                                         agent.body.energy_kcal, context.body),
                         MAX_CANDIDATE_SECONDS, context.end_time - context.current_time)
         slot = min(typical * 2, outer_cap)
-        slot = max(slot, min(600.0, outer_cap))
+        slot = max(slot, min(float(params["min_session_seconds"]), outer_cap))
         if slot < 60:
             continue
         verb, noun = ("Read", "chapter") if item.kind == "webnovel_excerpt" else ("Watch", "segment")
@@ -857,3 +850,71 @@ def _entertainment_candidates(context: MotivationContext,
             entertainment_delta=-relief,
             comfort_type=True))
     return candidates
+
+
+# ---------------------------------------------------------------------------
+# 候选生成器原型登记（规范 §2.3：原型库是唯一的代码扩展点——原型函数保持
+# Python 实现，登记名进 PROTOTYPE_GENERATORS；_enumerate_candidates 按注册表
+# families.*.candidate.generator 从此表取函数，枚举序按 enumeration_rank）。
+# ---------------------------------------------------------------------------
+
+def _clear_backlog_adapter(context: MotivationContext, profile: MotivationProfile,
+                           params: Mapping) -> list[_Candidate]:
+    """@brief clear_backlog 原型：清债睡眠候选（sleep 家族）。"""
+    candidate = _sleep_candidate(context, params)
+    return [candidate] if candidate is not None else []
+
+
+def _cheapest_feasible_meal_adapter(context: MotivationContext, profile: MotivationProfile,
+                                    params: Mapping) -> list[_Candidate]:
+    """@brief cheapest_feasible_meal 原型：最廉可行餐（eat 家族；可行性口径内建）。"""
+    candidate = _eat_candidate(context)
+    return [candidate] if candidate is not None else []
+
+
+def _continue_current_adapter(context: MotivationContext, profile: MotivationProfile,
+                              params: Mapping) -> list[_Candidate]:
+    """@brief continue_current 原型：继续当前活动（continue 家族）。"""
+    candidate = _continue_candidate(context)
+    return [candidate] if candidate is not None else []
+
+
+def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfile,
+                            params: Mapping) -> list[_Candidate]:
+    """@brief cheapest_route 原型：可负担最低票价出行腿（travel 家族；
+    destination=home；task_location 腿内建在 task_slot 原型里）。"""
+    label = params.get("destination", "home")
+    candidate = _travel_candidate(context, label, context.home_location_id)
+    return [candidate] if candidate is not None else []
+
+
+def _catalog_visibility_adapter(context: MotivationContext, profile: MotivationProfile,
+                                params: Mapping) -> list[_Candidate]:
+    """@brief catalog_visibility 原型：目录速览候选（browse 家族）。"""
+    candidate = _browse_candidate(context, params)
+    return [candidate] if candidate is not None else []
+
+
+def _content_menu_adapter(context: MotivationContext, profile: MotivationProfile,
+                          params: Mapping) -> list[_Candidate]:
+    """@brief content_menu 原型：分层菜单娱乐候选（entertainment 家族）。"""
+    return _entertainment_candidates(context, profile, params)
+
+
+def _task_slot_adapter(context: MotivationContext, profile: MotivationProfile,
+                       params: Mapping) -> list[_Candidate]:
+    """@brief task_slot 原型：去工作地点出行腿 + 至多 max_tasks 个任务候选
+    （work 家族；出行腿排在任务前，与现行枚举序一致）。"""
+    travel, work = _work_candidates(context, params)
+    return [candidate for candidate in (travel, *work) if candidate is not None]
+
+
+PROTOTYPE_GENERATORS.update(
+    clear_backlog=_clear_backlog_adapter,
+    cheapest_feasible_meal=_cheapest_feasible_meal_adapter,
+    continue_current=_continue_current_adapter,
+    cheapest_route=_cheapest_route_adapter,
+    catalog_visibility=_catalog_visibility_adapter,
+    content_menu=_content_menu_adapter,
+    task_slot=_task_slot_adapter,
+)

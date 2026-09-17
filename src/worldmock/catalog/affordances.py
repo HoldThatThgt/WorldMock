@@ -1,0 +1,730 @@
+"""@brief 可供性注册表：affordances.toml 的解析、fail-closed 校验与不可变派生视图。
+
+注册表把散落五层的手写行为闭集（动机家族、习惯归并路由、MET 键、缓解通道、
+反馈边界、资源锁、采样上限……）收编为同一份数据的声明式投影（设计文档
+docs/affordance-registry-design.md §二 Schema、§三 五层派生、§五 校验）。
+
+本模块只做加载期解析与校验（§五 规则 1-5）和派生视图查询，运行期零 IO；
+候选生成器原型保持 Python 函数，由 life/motivation.py 导入时登记进
+PROTOTYPE_GENERATORS（§2.3 原型库是唯一的代码扩展点）。
+"""
+
+from __future__ import annotations
+
+import tomllib
+from dataclasses import dataclass, field
+from functools import lru_cache
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Callable, Mapping
+
+from worldmock.errors import IntegrityError
+
+#: 注册表文件名（位于目录顶层，与 resources.jsonl/objects.jsonl 平级）。
+AFFORDANCES_FILE = "affordances.toml"
+
+TOOL_SURFACES = frozenset({"basic", "targeted", "travel", "commerce", "game", "none"})
+RELIEF_CHANNELS = frozenset({"none", "intrinsic", "preference_rate", "content_rate"})
+SLEEP_CHANNELS = frozenset({"recovery", "awake"})
+TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
+ATTENTION_KINDS = frozenset({"none", "content_kind"})
+#: 资源锁槽位闭集（position 由引擎恒占，不在注册表中声明）。
+RESOURCE_CLAIM_SLOTS = frozenset({"attention", "device", "hands", "vehicle"})
+#: 习惯归并路由认识的工具名闭集（classify_action_event 的工具面）。
+HABIT_TOOLS = frozenset({
+    "continue_activity", "start_basic_activity", "purchase", "consume",
+    "start_travel", "start_targeted_activity", "submit_work",
+})
+#: 工具面 → 工具名的派生（surface = none 的 kind 不占任何工具）。
+SURFACE_TOOLS: Mapping[str, tuple[str, ...]] = MappingProxyType({
+    "basic": ("start_basic_activity",),
+    "targeted": ("start_targeted_activity",),
+    "travel": ("start_travel",),
+    "commerce": ("purchase", "consume"),
+    "game": ("start_targeted_activity",),
+    "none": (),
+})
+#: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
+TRAVEL_MODES = frozenset({"driving", "walking"})
+#: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。
+REFERENCEABLE_RESOURCES = frozenset({
+    "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need",
+})
+#: 候选生成器原型的合法参数键（§2.3；引用未知原型名或未知参数键都拒绝）。
+GENERATOR_PARAM_KEYS: Mapping[str, frozenset[str]] = MappingProxyType({
+    "clear_backlog": frozenset({"resource", "cap_seconds", "fallback_seconds",
+                                "min_session_seconds"}),
+    "cheapest_feasible_meal": frozenset(),
+    "continue_current": frozenset(),
+    "cheapest_route": frozenset({"destination"}),
+    "catalog_visibility": frozenset({"probe_duration_seconds"}),
+    "content_menu": frozenset({"min_session_seconds", "cap_seconds", "slot_policy"}),
+    "task_slot": frozenset({"max_tasks"}),
+    "none": frozenset(),
+})
+#: 原型名 → Python 实现的运行期登记表（life/motivation.py 导入时填充；
+#: 签名统一 (context, profile, params) -> list[candidate]）。
+PROTOTYPE_GENERATORS: dict[str, Callable[..., list]] = {}
+
+#: kinds 层允许的字段键（未知键拒绝，防拼写静默失效）。
+_KIND_KEYS = frozenset({
+    "met_key", "met_key_modes", "energy_floor_exempt", "sleep_channel", "relief",
+    "resource_claims", "feedback_boundary", "game_boundary", "energy_projection",
+    "unclassified", "tool", "target_discovery", "target_corpus",
+})
+#: families 层允许的字段键。
+_FAMILY_KEYS = frozenset({
+    "kinds", "attention", "habit_members", "candidate", "comfort",
+    "enumeration_rank", "unclassified", "content_kinds",
+})
+_MET_PLACEHOLDERS = frozenset({"{mode}", "{item_id}"})
+
+
+# ---------------------------------------------------------------------------
+# 冻结规格模型
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class KindSpec:
+    """@brief 一个活动类型的注册表声明（引擎侧投影的唯一来源）。"""
+
+    name: str
+    met_key: str
+    met_key_modes: tuple[str, ...] = ()
+    energy_floor_exempt: bool = False
+    sleep_channel: str = "awake"
+    relief_channel: str = "none"
+    resource_claims: tuple[str, ...] = ()
+    conditional_claims: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    feedback_boundary: bool = False
+    game_boundary: bool = False
+    energy_projection: bool = False
+    unclassified: bool = False
+    surface: str = "none"
+    activity_type: str | None = None
+    type_pattern: str | None = None
+    target_discovery: str = "none"
+    target_field: str | None = None
+    target_id_key: str | None = None
+    target_corpus: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ContentKindSpec:
+    """@brief 一个内容品类的注意力与标题来源声明。"""
+
+    name: str
+    attention_required: bool
+    title_source: str | None
+    corpus_path: str | None
+    id_key: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class FamilySpec:
+    """@brief 一个动机家族的注册表声明（动机侧投影的唯一来源）。"""
+
+    name: str
+    kinds: tuple[str, ...]
+    attention_kind: str
+    attention_params: Mapping[str, Any]
+    habit_members: tuple[tuple[str, str], ...]
+    generator: str
+    generator_params: Mapping[str, Any]
+    comfort: bool = False
+    enumeration_rank: int | None = None
+    unclassified: bool = False
+    content_kinds: tuple[ContentKindSpec, ...] = ()
+
+
+@dataclass(frozen=True)
+class AffordanceView:
+    """@brief 校验后的不可变派生视图：各层闭集的唯一派生来源（§三）。"""
+
+    kinds: Mapping[str, KindSpec]
+    families: Mapping[str, FamilySpec]
+    #: 习惯归并路由（精确键）：(tool, activity_type) -> family。
+    _exact_routes: Mapping[tuple[str, str], str] = field(default_factory=dict)
+    #: 前缀路由（"lifestyle:*" 之类）：(tool, 前缀) 按声明序。
+    _prefix_routes: tuple[tuple[str, str, str], ...] = ()
+    #: 通配路由：tool -> family（该工具任意 activity_type 兜底）。
+    _wildcard_routes: Mapping[str, str] = field(default_factory=dict)
+
+    # ----- L3 动机层 -----
+
+    @property
+    def family_names(self) -> frozenset[str]:
+        """@brief 家族表全键集（含 generator=none 的纯声明面家族，如 lifestyle）。"""
+        return frozenset(self.families)
+
+    @property
+    def motivation_families(self) -> frozenset[str]:
+        """@brief 动机家族闭集（习惯项归一键）：参与动机投影的家族 =
+        generator ≠ none（lifestyle 家族是纯声明面，不生成候选、不收习惯
+        份额——与现行 motivation.FAMILIES 的 7 家族一致）。"""
+        return frozenset(name for name, family in self.families.items()
+                         if family.generator != "none")
+
+    def families_by_rank(self) -> tuple[FamilySpec, ...]:
+        """@brief 参与候选枚举的家族（enumeration_rank 升序，generator=none 除外）。"""
+        ranked = [family for family in self.families.values()
+                  if family.enumeration_rank is not None and family.generator != "none"]
+        return tuple(sorted(ranked, key=lambda item: (item.enumeration_rank, item.name)))
+
+    def attention_params(self, family_name: str) -> Mapping[str, Any]:
+        """@brief 取一个家族的注意力采样参数（attention.kind=content_kind 必有）。"""
+        family = self.families.get(family_name)
+        if family is None or family.attention_kind != "content_kind":
+            raise IntegrityError(
+                f"affordance family {family_name!r} declares no content attention")
+        return family.attention_params
+
+    def classify_habit_event(self, tool_name: str, activity_type: str | None) -> str | None:
+        """@brief 把一次动作请求归入习惯家族；未命中（含显式 unclassified）返回 None。
+
+        匹配优先级：精确 > 前缀 > 通配——sleep 精确键优先于 continue 的
+        start_basic_activity 通配，与原 if 链语义一致。
+        """
+        if activity_type is not None:
+            family = self._exact_routes.get((tool_name, activity_type))
+            if family is not None:
+                return family
+            for tool, prefix, family in self._prefix_routes:
+                if tool == tool_name and activity_type.startswith(prefix):
+                    return family
+        return self._wildcard_routes.get(tool_name)
+
+    # ----- L5 结算层 -----
+
+    @property
+    def met_closed_keys(self) -> frozenset[str]:
+        """@brief MET 表封闭基键集：无占位符键 + "{mode}" 模板展开域。"""
+        keys: set[str] = set()
+        for spec in self.kinds.values():
+            if "{mode}" in spec.met_key:
+                keys.update(spec.met_key.replace("{mode}", mode)
+                            for mode in spec.met_key_modes)
+            elif "{item_id}" not in spec.met_key:
+                keys.add(spec.met_key)
+        return frozenset(keys)
+
+    @property
+    def met_open_prefixes(self) -> tuple[str, ...]:
+        """@brief MET 表开放命名空间前缀（"{item_id}" 模板的键前缀，如 "lifestyle:"）。"""
+        return tuple(dict.fromkeys(
+            spec.met_key.split("{")[0]
+            for spec in self.kinds.values() if "{item_id}" in spec.met_key))
+
+    def met_lookup_key(self, kind_value: str, travel_mode: Any = None,
+                       target_id: str | None = None) -> str:
+        """@brief 按 met_key 模板求运行期查表键（travel:{mode} / lifestyle:{item_id}）。
+
+        travel 未携带方式时回退基键名（表内无此键，由调用方 KeyError——
+        与原 _activity_met 的 fall-through 行为一致）；lifestyle 缺 target_id
+        保持原 ValueError 文案。
+        """
+        spec = self.kinds[kind_value]
+        if "{mode}" in spec.met_key:
+            if travel_mode is None:
+                return kind_value
+            mode = getattr(travel_mode, "value", travel_mode)
+            return spec.met_key.replace("{mode}", str(mode))
+        if "{item_id}" in spec.met_key:
+            if not target_id:
+                raise ValueError("lifestyle activity requires its catalog item id")
+            return spec.met_key.replace("{item_id}", target_id)
+        return spec.met_key
+
+    @property
+    def relief_keys(self) -> frozenset[str]:
+        """@brief 娱乐缓解表键集：relief.channel ≠ none 的活动类型。"""
+        return frozenset(name for name, spec in self.kinds.items()
+                         if spec.relief_channel != "none")
+
+    def relief_channel(self, kind_value: str) -> str:
+        """@brief 取一个活动类型的缓解通道（四值之一）。"""
+        return self.kinds[kind_value].relief_channel
+
+    @property
+    def energy_recovery_kinds(self) -> frozenset[str]:
+        """@brief 能量投影可穿透下界的活动类型（energy_floor_exempt）。"""
+        return frozenset(name for name, spec in self.kinds.items()
+                         if spec.energy_floor_exempt)
+
+    def resource_claims(self, kind_value: str, travel_mode: Any = None) -> frozenset[str]:
+        """@brief 活动类型的资源锁集合（position 恒占 + 声明锁 + 条件锁）。"""
+        spec = self.kinds[kind_value]
+        claims = {"position", *spec.resource_claims}
+        mode = getattr(travel_mode, "value", travel_mode) if travel_mode is not None else None
+        for condition, extra in spec.conditional_claims:
+            dimension, _, value = condition.partition(":")
+            if dimension == "mode" and mode == value:
+                claims.update(extra)
+        return frozenset(claims)
+
+    # ----- L5.5 反馈层 / L4 工具面 -----
+
+    @property
+    def feedback_kinds(self) -> frozenset[str]:
+        """@brief 到期反馈边界闭集（feedback_boundary = true）。"""
+        return frozenset(name for name, spec in self.kinds.items()
+                         if spec.feedback_boundary)
+
+    @property
+    def game_boundary_kinds(self) -> frozenset[str]:
+        """@brief 游戏反馈边界闭集（game_boundary = true；与 feedback 互斥）。"""
+        return frozenset(name for name, spec in self.kinds.items()
+                         if spec.game_boundary)
+
+    @property
+    def continuable_kinds(self) -> frozenset[str]:
+        """@brief continue_activity 资格闭集（= feedback_boundary；play_game 的
+        继续交互走 game_action 的 game_feedback 边界，不经 continue_activity——
+        与现行 agent 行为一致）。"""
+        return self.feedback_kinds
+
+    @property
+    def targeted_activity_kinds(self) -> tuple[str, ...]:
+        """@brief start_targeted_activity 的 activity_type 枚举序（声明序）。"""
+        return tuple(name for name, spec in self.kinds.items()
+                     if spec.surface in ("targeted", "game"))
+
+    @property
+    def target_catalog_fields(self) -> dict[str, tuple[str, str | None]]:
+        """@brief 观察目录直读字段映射（target_discovery = catalog_field）。"""
+        return {name: (spec.target_field, spec.target_id_key)
+                for name, spec in self.kinds.items()
+                if spec.target_discovery == "catalog_field"}
+
+    @property
+    def energy_limit_kinds(self) -> frozenset[str]:
+        """@brief 能量可行性投影覆盖的活动闭集（energy_projection = true）。"""
+        return frozenset(name for name, spec in self.kinds.items()
+                         if spec.energy_projection)
+
+    # ----- L2 观察层 -----
+
+    @property
+    def title_sources(self) -> dict[str, tuple[str, str]]:
+        """@brief 内容条目标题的语料来源（corpus 形态品类；id_key 空串=单记录身份文件）。"""
+        sources: dict[str, tuple[str, str]] = {}
+        for family in self.families.values():
+            for kind in family.content_kinds:
+                if kind.corpus_path is not None:
+                    sources[kind.name] = (kind.corpus_path, kind.id_key or "")
+        return sources
+
+    @property
+    def attention_required_kinds(self) -> frozenset[str]:
+        """@brief 画像必须声明的注意力键集（attention_required = true）。"""
+        return frozenset(kind.name for family in self.families.values()
+                         for kind in family.content_kinds if kind.attention_required)
+
+
+# ---------------------------------------------------------------------------
+# 解析与校验（§五 规则 1-5，全部 IntegrityError fail-closed）
+# ---------------------------------------------------------------------------
+
+def load_affordances(path: Path, corpora_root: Path | None = None) -> AffordanceView:
+    """@brief 解析注册表并执行加载期校验（规则 1-5），返回不可变派生视图。
+
+    :param path: affordances.toml 路径。
+    :param corpora_root: 语料根；提供时核对 target_corpus / title_source 语料
+        文件存在（规则 2 的语料存在性半边；字节哈希归语料 manifest 管）。
+    :raises IntegrityError: 解析失败或任一规则被违反。
+    """
+    path = Path(path)
+    if not path.is_file():
+        raise IntegrityError(f"Affordance registry {path} does not exist")
+    try:
+        payload = tomllib.loads(path.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as error:
+        raise IntegrityError(f"Affordance registry TOML is malformed: {error}") from error
+    if payload.get("version") != 1:
+        raise IntegrityError("Affordance registry version must be 1")
+    unknown_top = set(payload) - {"version", "kinds", "families"}
+    if unknown_top:
+        raise IntegrityError(f"Affordance registry declares unknown tables: {sorted(unknown_top)}")
+    kinds_raw = payload.get("kinds")
+    families_raw = payload.get("families")
+    if not isinstance(kinds_raw, dict) or not kinds_raw:
+        raise IntegrityError("Affordance registry declares no kinds")
+    if not isinstance(families_raw, dict) or not families_raw:
+        raise IntegrityError("Affordance registry declares no families")
+    kinds = MappingProxyType({name: _parse_kind(name, body)
+                              for name, body in kinds_raw.items()})
+    families = MappingProxyType({name: _parse_family(name, body, kinds)
+                                 for name, body in families_raw.items()})
+    view = _build_view(kinds, families)
+    _check_habit_coverage(view)
+    if corpora_root is not None:
+        _check_corpus_references(view, Path(corpora_root))
+    return view
+
+
+@lru_cache(maxsize=1)
+def default_affordances() -> AffordanceView:
+    """@brief 仓库默认注册表的缓存视图（catalog/affordances.toml + corpora/ 语料核对）。"""
+    root = Path(__file__).resolve().parents[3]
+    return load_affordances(root / "catalog" / AFFORDANCES_FILE,
+                            corpora_root=root / "corpora")
+
+
+def _reject_unknown(entry_id: str, body: Mapping, allowed: frozenset[str],
+                    section: str) -> None:
+    """@brief 拒绝条目中的未知键（防拼写静默失效）。"""
+    unknown = set(body) - allowed
+    if unknown:
+        raise IntegrityError(
+            f"Affordance {section} {entry_id!r} declares unknown keys: {sorted(unknown)}")
+
+
+def _require_bool(entry_id: str, body: Mapping, key: str, default: bool = False) -> bool:
+    value = body.get(key, default)
+    if not isinstance(value, bool):
+        raise IntegrityError(f"Affordance kind {entry_id!r} field {key} must be a boolean")
+    return value
+
+
+def _parse_kind(name: str, body: Mapping) -> KindSpec:
+    """@brief 解析并校验单个活动类型条目（规则 1 + 规则 4 的 kind 侧）。"""
+    if not isinstance(body, dict):
+        raise IntegrityError(f"Affordance kind {name!r} must be a table")
+    _reject_unknown(name, body, _KIND_KEYS, "kind")
+    met_key = body.get("met_key", name)
+    if not isinstance(met_key, str) or not met_key:
+        raise IntegrityError(f"Affordance kind {name!r} met_key must be a non-empty string")
+    # 占位符检查：模板只允许 {mode} / {item_id}，且至多一个、处于键尾。
+    for placeholder in _MET_PLACEHOLDERS:
+        if placeholder in met_key:
+            if met_key.count(placeholder) != 1 or not met_key.endswith(placeholder):
+                raise IntegrityError(
+                    f"Affordance kind {name!r} met_key {met_key!r} misuses {placeholder}")
+            if any(other in met_key for other in _MET_PLACEHOLDERS - {placeholder}):
+                raise IntegrityError(
+                    f"Affordance kind {name!r} met_key {met_key!r} mixes placeholders")
+    modes = body.get("met_key_modes", [])
+    if "{mode}" in met_key:
+        if not isinstance(modes, list) or not modes:
+            raise IntegrityError(
+                f"Affordance kind {name!r} met_key {{mode}} requires met_key_modes")
+        if any(mode not in TRAVEL_MODES for mode in modes):
+            raise IntegrityError(
+                f"Affordance kind {name!r} met_key_modes must be within {sorted(TRAVEL_MODES)}")
+    elif modes:
+        raise IntegrityError(
+            f"Affordance kind {name!r} declares met_key_modes without a {{mode}} template")
+    sleep_channel = body.get("sleep_channel", "awake")
+    if sleep_channel not in SLEEP_CHANNELS:
+        raise IntegrityError(f"Affordance kind {name!r} sleep_channel is invalid")
+    relief = body.get("relief", {})
+    if not isinstance(relief, dict) or relief.get("channel", "none") not in RELIEF_CHANNELS:
+        raise IntegrityError(f"Affordance kind {name!r} relief channel is invalid")
+    claims, conditional = _parse_resource_claims(name, body.get("resource_claims", []))
+    tool = body.get("tool", {})
+    if not isinstance(tool, dict) or tool.get("surface", "none") not in TOOL_SURFACES:
+        raise IntegrityError(f"Affordance kind {name!r} tool surface is invalid")
+    surface = tool.get("surface", "none")
+    activity_type = tool.get("activity_type")
+    type_pattern = tool.get("type_pattern")
+    if surface in ("targeted", "game"):
+        if activity_type != name:
+            raise IntegrityError(
+                f"Affordance kind {name!r} targeted tool activity_type must equal the kind name")
+    if surface == "basic" and activity_type is not None and activity_type != name:
+        raise IntegrityError(
+            f"Affordance kind {name!r} basic tool activity_type must equal the kind name")
+    discovery_source, target_field, target_id_key = _parse_target_discovery(name, body)
+    if relief.get("channel", "none") == "content_rate" and discovery_source not in (
+            "browse_result", "catalog_field"):
+        raise IntegrityError(
+            f"Affordance kind {name!r} relief content_rate requires entry-level target discovery")
+    feedback = _require_bool(name, body, "feedback_boundary")
+    game = _require_bool(name, body, "game_boundary")
+    if feedback and game:
+        raise IntegrityError(
+            f"Affordance kind {name!r} game_boundary and feedback_boundary are mutually exclusive")
+    return KindSpec(
+        name=name,
+        met_key=met_key,
+        met_key_modes=tuple(modes),
+        energy_floor_exempt=_require_bool(name, body, "energy_floor_exempt"),
+        sleep_channel=sleep_channel,
+        relief_channel=relief.get("channel", "none"),
+        resource_claims=claims,
+        conditional_claims=conditional,
+        feedback_boundary=feedback,
+        game_boundary=game,
+        energy_projection=_require_bool(name, body, "energy_projection"),
+        unclassified=_require_bool(name, body, "unclassified"),
+        surface=surface,
+        activity_type=activity_type,
+        type_pattern=type_pattern,
+        target_discovery=discovery_source,
+        target_field=target_field,
+        target_id_key=target_id_key,
+        target_corpus=body.get("target_corpus"),
+    )
+
+
+def _parse_resource_claims(
+        name: str, raw: Any) -> tuple[tuple[str, ...], tuple[tuple[str, tuple[str, ...]], ...]]:
+    """@brief 解析资源锁声明：槽位列表或 {base, conditional} 表。"""
+    if isinstance(raw, list):
+        if any(slot not in RESOURCE_CLAIM_SLOTS for slot in raw):
+            raise IntegrityError(
+                f"Affordance kind {name!r} resource_claims must be within "
+                f"{sorted(RESOURCE_CLAIM_SLOTS)}")
+        return tuple(raw), ()
+    if not isinstance(raw, dict):
+        raise IntegrityError(f"Affordance kind {name!r} resource_claims is malformed")
+    unknown = set(raw) - {"base", "conditional"}
+    if unknown:
+        raise IntegrityError(
+            f"Affordance kind {name!r} resource_claims declares unknown keys: {sorted(unknown)}")
+    base = raw.get("base", [])
+    if any(slot not in RESOURCE_CLAIM_SLOTS for slot in base):
+        raise IntegrityError(
+            f"Affordance kind {name!r} resource_claims base must be within "
+            f"{sorted(RESOURCE_CLAIM_SLOTS)}")
+    conditional = raw.get("conditional", [])
+    parsed: list[tuple[str, tuple[str, ...]]] = []
+    if not isinstance(conditional, list):
+        raise IntegrityError(
+            f"Affordance kind {name!r} resource_claims conditional must be a list")
+    for clause in conditional:
+        if not isinstance(clause, dict) or set(clause) != {"when", "add"}:
+            raise IntegrityError(
+                f"Affordance kind {name!r} conditional clause needs exactly when/add")
+        when = clause["when"]
+        dimension, _, value = when.partition(":")
+        if dimension != "mode" or value not in TRAVEL_MODES:
+            raise IntegrityError(
+                f"Affordance kind {name!r} conditional when {when!r} is invalid")
+        if any(slot not in RESOURCE_CLAIM_SLOTS for slot in clause["add"]):
+            raise IntegrityError(
+                f"Affordance kind {name!r} conditional add must be within "
+                f"{sorted(RESOURCE_CLAIM_SLOTS)}")
+        parsed.append((when, tuple(clause["add"])))
+    return tuple(base), tuple(parsed)
+
+
+def _parse_target_discovery(name: str, body: Mapping) -> tuple[str, str | None, str | None]:
+    """@brief 解析目标发现声明：字符串 none/browse_result 或 catalog_field 表。"""
+    raw = body.get("target_discovery", "none")
+    if isinstance(raw, str):
+        if raw not in ("none", "browse_result"):
+            raise IntegrityError(
+                f"Affordance kind {name!r} target_discovery {raw!r} is invalid")
+        return raw, None, None
+    if not isinstance(raw, dict) or set(raw) - {"source", "field", "id_key"}:
+        raise IntegrityError(f"Affordance kind {name!r} target_discovery is malformed")
+    if raw.get("source") != "catalog_field" or not isinstance(raw.get("field"), str):
+        raise IntegrityError(
+            f"Affordance kind {name!r} catalog_field discovery requires a field")
+    id_key = raw.get("id_key")
+    if id_key is not None and not isinstance(id_key, str):
+        raise IntegrityError(f"Affordance kind {name!r} target_discovery id_key is invalid")
+    return "catalog_field", raw["field"], id_key
+
+
+def _parse_family(name: str, body: Mapping,
+                  kinds: Mapping[str, KindSpec]) -> FamilySpec:
+    """@brief 解析并校验单个家族条目（规则 1-4 的家族侧）。"""
+    if not isinstance(body, dict):
+        raise IntegrityError(f"Affordance family {name!r} must be a table")
+    _reject_unknown(name, body, _FAMILY_KEYS, "family")
+    family_kinds = body.get("kinds")
+    if (not isinstance(family_kinds, list) or not family_kinds
+            or any(kind not in kinds for kind in family_kinds)):
+        raise IntegrityError(
+            f"Affordance family {name!r} kinds must reference declared kinds")
+    attention = body.get("attention")
+    if not isinstance(attention, dict) or attention.get("kind") not in ATTENTION_KINDS:
+        raise IntegrityError(f"Affordance family {name!r} attention is invalid")
+    attention_params = {key: value for key, value in attention.items() if key != "kind"}
+    content_raw = body.get("content_kinds", {})
+    if attention["kind"] == "content_kind":
+        if attention_params.get("sampling") != "per_kind_top_n":
+            raise IntegrityError(
+                f"Affordance family {name!r} attention sampling must be per_kind_top_n")
+        for key in ("per_kind", "pool_cap"):
+            value = attention_params.get(key)
+            if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+                raise IntegrityError(
+                    f"Affordance family {name!r} attention {key} must be a positive integer")
+        if not isinstance(content_raw, dict) or not content_raw:
+            raise IntegrityError(
+                f"Affordance family {name!r} content attention requires content_kinds")
+    elif content_raw:
+        raise IntegrityError(
+            f"Affordance family {name!r} declares content_kinds without content attention")
+    content_kinds = tuple(
+        _parse_content_kind(kind_name, kind_body)
+        for kind_name, kind_body in content_raw.items())
+    members = _parse_habit_members(name, body.get("habit_members", []))
+    candidate = body.get("candidate")
+    if not isinstance(candidate, dict) or "generator" not in candidate:
+        raise IntegrityError(f"Affordance family {name!r} candidate generator is missing")
+    generator = candidate["generator"]
+    if generator not in GENERATOR_PARAM_KEYS:
+        raise IntegrityError(
+            f"Affordance family {name!r} references unregistered generator {generator!r}")
+    params = {key: value for key, value in candidate.items() if key != "generator"}
+    unknown_params = set(params) - GENERATOR_PARAM_KEYS[generator]
+    if unknown_params:
+        raise IntegrityError(
+            f"Affordance family {name!r} generator {generator!r} rejects params "
+            f"{sorted(unknown_params)}")
+    _check_generator_values(name, generator, params)
+    rank = body.get("enumeration_rank")
+    if rank is not None and (not isinstance(rank, int) or isinstance(rank, bool) or rank < 0):
+        raise IntegrityError(f"Affordance family {name!r} enumeration_rank is invalid")
+    return FamilySpec(
+        name=name,
+        kinds=tuple(family_kinds),
+        attention_kind=attention["kind"],
+        attention_params=MappingProxyType(attention_params),
+        habit_members=members,
+        generator=generator,
+        generator_params=MappingProxyType(params),
+        comfort=bool(body.get("comfort", False)),
+        enumeration_rank=rank,
+        unclassified=bool(body.get("unclassified", False)),
+        content_kinds=content_kinds,
+    )
+
+
+def _parse_habit_members(name: str, raw: Any) -> tuple[tuple[str, str], ...]:
+    """@brief 解析习惯归并成员：省略 activity_type 等价通配 "*"。"""
+    if not isinstance(raw, list):
+        raise IntegrityError(f"Affordance family {name!r} habit_members must be a list")
+    members: list[tuple[str, str]] = []
+    for member in raw:
+        if not isinstance(member, dict) or set(member) - {"tool", "activity_type"}:
+            raise IntegrityError(f"Affordance family {name!r} habit member is malformed")
+        tool = member.get("tool")
+        if tool not in HABIT_TOOLS:
+            raise IntegrityError(
+                f"Affordance family {name!r} habit member tool {tool!r} is unknown")
+        members.append((tool, member.get("activity_type", "*")))
+    return tuple(members)
+
+
+def _check_generator_values(name: str, generator: str, params: Mapping[str, Any]) -> None:
+    """@brief 校验原型参数取值（正数秒/份数、合法枚举、引用资源存在）。"""
+    for key in ("cap_seconds", "fallback_seconds", "min_session_seconds",
+                "probe_duration_seconds", "max_tasks"):
+        if key in params and (not isinstance(params[key], int)
+                              or isinstance(params[key], bool) or params[key] <= 0):
+            raise IntegrityError(
+                f"Affordance family {name!r} generator param {key} must be a positive integer")
+    if generator == "clear_backlog" and params.get("resource") not in REFERENCEABLE_RESOURCES:
+        raise IntegrityError(
+            f"Affordance family {name!r} clear_backlog resource must reference the "
+            f"resource registry")
+    if params.get("destination") is not None and params["destination"] not in (
+            "home", "task_location"):
+        raise IntegrityError(f"Affordance family {name!r} cheapest_route destination is invalid")
+    if params.get("slot_policy") is not None and params["slot_policy"] != "two_segments":
+        raise IntegrityError(f"Affordance family {name!r} slot_policy is invalid")
+
+
+def _parse_content_kind(name: str, body: Mapping) -> ContentKindSpec:
+    """@brief 解析内容品类子条目：注意力要求 + 标题来源。"""
+    if not isinstance(body, dict):
+        raise IntegrityError(f"Affordance content kind {name!r} must be a table")
+    _reject_unknown(name, body, frozenset({"attention_required", "title_source"}),
+                    "content kind")
+    if not isinstance(body.get("attention_required"), bool):
+        raise IntegrityError(
+            f"Affordance content kind {name!r} attention_required must be a boolean")
+    source = body.get("title_source")
+    if source is None:
+        raise IntegrityError(f"Affordance content kind {name!r} title_source is missing")
+    if isinstance(source, str):
+        if source != "self_label":
+            raise IntegrityError(
+                f"Affordance content kind {name!r} title_source {source!r} is invalid")
+        return ContentKindSpec(name, body["attention_required"], source, None, None)
+    if not isinstance(source, dict) or set(source) - {"corpus_path", "id_key"}:
+        raise IntegrityError(
+            f"Affordance content kind {name!r} title_source is malformed")
+    corpus_path = source.get("corpus_path")
+    if not isinstance(corpus_path, str) or not corpus_path:
+        raise IntegrityError(
+            f"Affordance content kind {name!r} title_source corpus_path is missing")
+    id_key = source.get("id_key")
+    if id_key is not None and not isinstance(id_key, str):
+        raise IntegrityError(
+            f"Affordance content kind {name!r} title_source id_key is invalid")
+    return ContentKindSpec(name, body["attention_required"], None, corpus_path, id_key)
+
+
+def _build_view(kinds: Mapping[str, KindSpec],
+                families: Mapping[str, FamilySpec]) -> AffordanceView:
+    """@brief 组装视图并展开习惯归并路由表（精确/前缀/通配三层）。"""
+    exact: dict[tuple[str, str], str] = {}
+    prefix: list[tuple[str, str, str]] = []
+    wildcard: dict[str, str] = {}
+    for family_name, family in families.items():
+        for tool, pattern in family.habit_members:
+            if pattern == "*":
+                if tool in wildcard:
+                    raise IntegrityError(
+                        f"Affordance habit route for tool {tool!r} is declared twice")
+                wildcard[tool] = family_name
+            elif pattern.endswith("*"):
+                prefix.append((tool, pattern[:-1], family_name))
+            else:
+                key = (tool, pattern)
+                if key in exact:
+                    raise IntegrityError(
+                        f"Affordance habit route {key} is declared twice")
+                exact[key] = family_name
+    return AffordanceView(
+        kinds=kinds, families=families,
+        _exact_routes=MappingProxyType(exact),
+        _prefix_routes=tuple(prefix),
+        _wildcard_routes=MappingProxyType(wildcard),
+    )
+
+
+def _check_habit_coverage(view: AffordanceView) -> None:
+    """@brief 规则 5：习惯覆盖完备——每个已声明 kind 的工具 × activity_type
+    空间必须被 habit_members 或 unclassified 声明覆盖，没有默认桶。"""
+    def covered(tool: str, kind_name: str) -> bool:
+        if (tool, kind_name) in view._exact_routes:
+            return True
+        if any(entry_tool == tool and kind_name.startswith(entry_prefix)
+               for entry_tool, entry_prefix, _ in view._prefix_routes):
+            return True
+        return tool in view._wildcard_routes
+
+    exempt: set[str] = {name for name, spec in view.kinds.items() if spec.unclassified}
+    for family in view.families.values():
+        if family.unclassified:
+            exempt.update(family.kinds)
+    for name, spec in view.kinds.items():
+        if name in exempt:
+            continue
+        for tool in SURFACE_TOOLS[spec.surface]:
+            if not covered(tool, name):
+                raise IntegrityError(
+                    f"Affordance kind {name!r} ({tool}) is covered by no habit_members "
+                    f"and declares no unclassified flag")
+
+
+def _check_corpus_references(view: AffordanceView, corpora_root: Path) -> None:
+    """@brief 规则 2（语料半边）：target_corpus 与标题语料文件必须存在。"""
+    for spec in view.kinds.values():
+        if spec.target_corpus is not None and not (corpora_root / spec.target_corpus).is_file():
+            raise IntegrityError(
+                f"Affordance kind {spec.name!r} target_corpus {spec.target_corpus!r} "
+                f"is missing under {corpora_root}")
+    for family in view.families.values():
+        for kind in family.content_kinds:
+            if kind.corpus_path is not None and not (corpora_root / kind.corpus_path).is_file():
+                raise IntegrityError(
+                    f"Affordance content kind {kind.name!r} corpus {kind.corpus_path!r} "
+                    f"is missing under {corpora_root}")

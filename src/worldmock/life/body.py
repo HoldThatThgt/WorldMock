@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.life.models import ActivityKind, BodyState, CurvePoint
 from worldmock.life.scenario import BodyConfig
 from worldmock.resources import FlowEntry, ResourceLedger, ResourceMeta
@@ -24,11 +25,10 @@ from worldmock.resources.models import (
 )
 
 
-ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset({
-    ActivityKind.SLEEP,
-    ActivityKind.WAIT,
-    ActivityKind.CONSUME,
-})
+#: 能量投影可穿透下界的活动闭集（sleep/wait/consume）——自可供性注册表
+#: kinds.*.energy_floor_exempt 派生（M1：字面常量已删，注册表即事实）。
+ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
+    ActivityKind(name) for name in default_affordances().energy_recovery_kinds)
 
 #: 身体域三个 level 资源的分录标识（与 BodyState 字段及 tests/resources 夹具同名）。
 ENERGY_RESOURCE = "energy_kcal"

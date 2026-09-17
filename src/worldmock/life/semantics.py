@@ -36,6 +36,12 @@ from worldmock.catalog import (
     load_catalog,
     validate_scenario_against_catalog,
 )
+from worldmock.catalog.affordances import (
+    AFFORDANCES_FILE,
+    AffordanceView,
+    default_affordances,
+    load_affordances,
+)
 from worldmock.catalog.loader import RULES_DIR
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
@@ -75,13 +81,14 @@ CONTEXTUAL_AGENT_ROLES = ("buyer", "traveler", "worker")
 #: 外部锚点账户角色前缀：不参与运行账本，只吸收注入与销毁。
 EXTERNAL_ROLE_PREFIX = "external:"
 
-#: 引擎会按键读取的封闭 MET 键集合（body 结算按活动名查表）。
-ENGINE_ACTIVITY_MET_KEYS = frozenset({
-    "wait", "sleep", "work", "watch", "play_game", "travel:driving", "travel:walking",
-    "read_mail", "browse", "consume",
-})
-#: wait 走被动缓解：边等边刷手机/听点什么，结算在 body.py 的 wait 分支。
-ENGINE_RELIEF_KEYS = frozenset({"watch", "play_game", "wait"})
+#: 引擎会按键读取的封闭 MET 键集合（body 结算按活动名查表）——自可供性
+#: 注册表 kinds.*.met_key 派生（M1：字面常量已删，注册表即事实；含
+#: travel:{mode} 模板的封闭展开域 travel:driving/travel:walking）。
+_AFFORDANCES = default_affordances()
+ENGINE_ACTIVITY_MET_KEYS = _AFFORDANCES.met_closed_keys
+#: 娱乐缓解表键集（wait 走被动缓解：边等边刷手机/听点什么，结算在 body.py
+#: 的 wait 分支）——自注册表 relief.channel ≠ none 的活动类型派生。
+ENGINE_RELIEF_KEYS = _AFFORDANCES.relief_keys
 
 
 @dataclass(frozen=True)
@@ -96,6 +103,9 @@ class ScenarioSemantics:
     accounts: Mapping[str, int]
     alert_codes: Mapping[str, str] = field(default_factory=dict)
     motivation_transforms: MotivationTransforms | None = None
+    #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
+    #: 下游各层经 semantics 访问，不直接读注册表文件）。
+    affordances: AffordanceView = field(default_factory=default_affordances)
 
     def travel_fare(self, mode: str, distance_meters: float) -> int:
         """@brief 按 travel-fare 公式分支求值出行费率（分）。"""
@@ -201,7 +211,8 @@ def load_runtime_scenario(
         motivation_transforms = load_motivation_transforms(directory / RULES_DIR)
     except CatalogError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
-    return assemble_semantics(document, catalog, motivation_transforms), digest
+    affordances = load_affordances(directory / AFFORDANCES_FILE)
+    return assemble_semantics(document, catalog, motivation_transforms, affordances), digest
 
 
 def resolve_catalog_dir(scenario_path: Path) -> Path:
@@ -211,15 +222,22 @@ def resolve_catalog_dir(scenario_path: Path) -> Path:
 
 def assemble_semantics(document: LifeScenario, catalog: Catalog,
                        motivation_transforms: MotivationTransforms | None = None,
+                       affordances: AffordanceView | None = None,
                        ) -> ScenarioSemantics:
-    """@brief 组装运行时场景并执行目录准入（七条规则 fail-closed）。"""
+    """@brief 组装运行时场景并执行目录准入（七条规则 fail-closed）。
+
+    可供性注册表视图缺省取仓库默认注册表（引擎闭集的派生源）；
+    load_runtime_scenario 按场景目录加载后显式传入，使目录表键集
+    （MET/缓解）对照该场景钉定版本的注册表派生集校验。
+    """
+    view = default_affordances() if affordances is None else affordances
     pinned = (document.catalog_version.major, document.catalog_version.minor)
     loaded = (catalog.version_major, catalog.version_minor)
     if pinned != loaded:
         raise IntegrityError(
             f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
-    body = _assemble_body(document, catalog)
-    _check_lifestyle_declarations(document, body)
+    body = _assemble_body(document, catalog, view)
+    _check_lifestyle_declarations(document, body, view)
     products = _assemble_products(document, catalog)
     services = _service_accounts(document)
     employer_id = _role_account(services, _contract_role(catalog, "from"))
@@ -233,6 +251,7 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
                      for resource in (catalog.resources[ENERGY_RESOURCE],)
                      for rule in resource.alert_rules},
         motivation_transforms=motivation_transforms,
+        affordances=view,
     )
     _check_route_fares(semantics)
     _check_travel_time_formula(semantics)
@@ -243,8 +262,10 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
     return semantics
 
 
-def _assemble_body(document: LifeScenario, catalog: Catalog) -> BodyConfig:
-    """@brief 从三个 level 资源与合同效率参数组装身体运行配置。"""
+def _assemble_body(document: LifeScenario, catalog: Catalog,
+                   view: AffordanceView) -> BodyConfig:
+    """@brief 从三个 level 资源与合同效率参数组装身体运行配置（封闭键集
+    对照可供性注册表派生集校验）。"""
     energy = _resource(catalog, ENERGY_RESOURCE)
     sleep = _resource(catalog, SLEEP_RESOURCE)
     entertainment = _resource(catalog, ENTERTAINMENT_RESOURCE)
@@ -272,9 +293,9 @@ def _assemble_body(document: LifeScenario, catalog: Catalog) -> BodyConfig:
         "emergency_threshold_kcal": thresholds["emergency_threshold_kcal"],
         "work_efficiency_factors": _contract_work_efficiency_factors(catalog),
         "food_efficiency_curve": _curve(energy_rules.food_efficiency_curve, "food_efficiency_curve"),
-        "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET"),
+        "activity_met": _activity_met_map(energy_rules.activity_met, "activity MET", view),
         "entertainment_relief_per_hour": _closed_map(
-            fun_rules.entertainment_relief_per_hour, ENGINE_RELIEF_KEYS, "entertainment relief"),
+            fun_rules.entertainment_relief_per_hour, view.relief_keys, "entertainment relief"),
         "work_notes_multiplier": _contract_efficiency(catalog, "work_notes_multiplier"),
         "source_kind": f"catalog:{catalog.version_major}.{catalog.version_minor}",
     })
@@ -633,21 +654,26 @@ def _closed_map(values, expected: frozenset[str], label: str) -> dict[str, float
     return dict(values)
 
 
-#: 生活活动 MET 键前缀（corpora/lifestyle/items.json 的 activity_id 查表键）。
-_LIFESTYLE_MET_PREFIX = "lifestyle:"
+#: 生活活动 MET 键前缀（corpora/lifestyle/items.json 的 activity_id 查表键）——
+#: 自注册表 met_key 的 "{item_id}" 开放命名空间模板派生。
+_LIFESTYLE_MET_PREFIX = _AFFORDANCES.met_open_prefixes[0]
 
 
-def _activity_met_map(values, label: str) -> dict[str, float]:
-    """@brief 校验活动 MET 表：基础键封闭 + lifestyle:<id> 开放键且数值为正。"""
+def _activity_met_map(values, label: str, view: AffordanceView) -> dict[str, float]:
+    """@brief 校验活动 MET 表：封闭基键集（注册表 met_key 派生）+ 开放
+    命名空间前缀键（lifestyle:<id>）且数值为正。"""
     if values is None:
         raise IntegrityError(f"catalog {label} table is missing")
-    base = {key for key in values if not key.startswith(_LIFESTYLE_MET_PREFIX)}
-    if base != ENGINE_ACTIVITY_MET_KEYS:
+    prefixes = view.met_open_prefixes
+    base = {key for key in values
+            if not any(key.startswith(prefix) for prefix in prefixes)}
+    if base != view.met_closed_keys:
         raise IntegrityError(f"catalog {label} base keys must match the engine activity set")
     for key in values:
-        if not key.startswith(_LIFESTYLE_MET_PREFIX):
+        prefix = next((p for p in prefixes if key.startswith(p)), None)
+        if prefix is None:
             continue
-        activity_id = key[len(_LIFESTYLE_MET_PREFIX):]
+        activity_id = key[len(prefix):]
         if not activity_id or any(not (c.isalnum() and c.isascii()) and c != "-" for c in activity_id):
             raise IntegrityError(f"catalog {label} lifestyle key {key!r} is malformed")
     if any(not isinstance(value, (int, float)) or value <= 0 for value in values.values()):
@@ -655,10 +681,11 @@ def _activity_met_map(values, label: str) -> dict[str, float]:
     return dict(values)
 
 
-def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig) -> None:
+def _check_lifestyle_declarations(document: LifeScenario, body: BodyConfig,
+                                  view: AffordanceView | None = None) -> None:
     """@brief 人物声明启用的生活活动必须存在于目录 MET 表（fail-closed）。"""
-    known = {key.removeprefix(_LIFESTYLE_MET_PREFIX)
-             for key in body.activity_met if key.startswith(_LIFESTYLE_MET_PREFIX)}
+    prefix = (default_affordances() if view is None else view).met_open_prefixes[0]
+    known = {key[len(prefix):] for key in body.activity_met if key.startswith(prefix)}
     for agent in document.agents:
         if agent.lifestyle_activities is None:
             continue
