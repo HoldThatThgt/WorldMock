@@ -106,10 +106,10 @@ def test_attention_prior_rejects_key_set_violations():
 
 def test_attention_prior_rejects_off_grid_and_unnormalized():
     keys = attention_keys()
-    values = {key: 0.2 for key in keys[:4]}
-    values[keys[4]] = round(1.0 - 0.2 * 4, 2)
+    values = {key: 0.01 for key in keys}
+    values[keys[0]] = round(1.0 - 0.01 * (len(keys) - 1), 2)
     with pytest.raises(ValidationError, match="off the 0.01 grid"):
-        AttentionPrior.model_validate({**values, keys[0]: 0.2077})
+        AttentionPrior.model_validate({**values, keys[0]: round(values[keys[0]] + 0.0077, 4)})
     with pytest.raises(ValidationError, match="not normalized"):
         AttentionPrior.model_validate({**values, keys[0]: 0.5})
 

@@ -46,9 +46,11 @@ from worldmock.life.motivation import (
 )
 from worldmock.life.semantics import ENGINE_ACTIVITY_MET_KEYS, ENGINE_RELIEF_KEYS
 
-#: 现行引擎行为期望（字面值钉住；与 M0 前的硬编码常量逐字一致）。
+#: 现行引擎行为期望（字面值钉住；与 M0 前的硬编码常量逐字一致；M4 起
+#: lifestyle 家族激活参与动机，闭集 7→8）。
 EXPECTED_FAMILIES = frozenset({
-    "continue", "sleep", "eat", "travel", "browse", "entertainment", "work"})
+    "continue", "sleep", "eat", "travel", "browse", "entertainment", "work",
+    "lifestyle"})
 EXPECTED_MET_KEYS = frozenset({
     "wait", "sleep", "work", "watch", "play_game", "travel:driving", "travel:walking",
     "read_mail", "browse", "consume"})
@@ -71,13 +73,18 @@ EXPECTED_TITLE_SOURCES = {
     "drama_series": ("drama/items.json", "item_id"),
     "webnovel_excerpt": ("novels/items.json", "item_id"),
     "subtitle_experience": ("sintel/media-identity.json", ""),
+    # M4：lifestyle 9 品类（条目名是 name_zh，标题注入按合同缺省不写）。
+    **{kind: ("lifestyle/items.json", "activity_id") for kind in (
+        "sport", "hobby", "outdoor", "wellness", "household", "learning",
+        "pet", "social", "volunteer")},
 }
-#: 现行习惯归并路由（classify_action_event if 链的逐行快照）。
+#: 现行习惯归并路由（classify_action_event if 链的逐行快照；M4 起
+#: lifestyle:* 前缀自 continue 迁入 lifestyle 家族）。
 EXPECTED_HABIT_ROUTES = [
     ("continue_activity", None, "continue"),
     ("start_basic_activity", "sleep", "sleep"),
     ("start_basic_activity", "wait", "continue"),
-    ("start_basic_activity", "lifestyle:yingyong", "continue"),
+    ("start_basic_activity", "lifestyle:yingyong", "lifestyle"),
     ("start_basic_activity", "anything-else", "continue"),
     ("purchase", None, "eat"),
     ("consume", None, "eat"),
@@ -114,19 +121,21 @@ def view():
 
 
 def test_registry_entry_counts(view) -> None:
-    """@brief 注册表覆盖度：10 kinds + 8 families + 7 内容品类。"""
+    """@brief 注册表覆盖度：10 kinds + 8 families + 16 内容品类（7 娱乐 + 9 生活）。"""
     assert len(view.kinds) == 10
     assert len(view.families) == 8
     entertainment = view.families["entertainment"]
     assert len(entertainment.content_kinds) == 7
+    lifestyle = view.families["lifestyle"]
+    assert len(lifestyle.content_kinds) == 9
 
 
 def test_family_set_matches_engine(view) -> None:
-    """@brief L3：动机家族闭集 == motivation.FAMILIES == 行为期望（7 家族；
-    lifestyle 家族是 generator=none 的纯声明面，不进闭集）。"""
+    """@brief L3：动机家族闭集 == motivation.FAMILIES == 行为期望（M4 起 8 家族；
+    lifestyle 家族激活 content_menu 生成器与 lifestyle:* 习惯路由）。"""
     assert view.motivation_families == EXPECTED_FAMILIES
     assert FAMILIES == EXPECTED_FAMILIES
-    assert view.family_names == EXPECTED_FAMILIES | {"lifestyle"}
+    assert view.family_names == EXPECTED_FAMILIES
 
 
 def test_met_closed_keys_match_engine(view) -> None:
@@ -211,12 +220,27 @@ def test_title_sources_match_content(view) -> None:
 
 def test_attention_sampling_constants(view) -> None:
     """@brief L3：娱乐采样上限 == motivation.ENTERTAINMENT_PER_KIND == 2/14；
-    生存位 8 + 娱乐配额 14 == MAX_CANDIDATES 22 的现行账目。"""
+    生活采样 1/4；生存位 8 + 生活 4 + 娱乐 14 == MAX_CANDIDATES 26 的现行账目。"""
     attention = view.attention_params("entertainment")
     assert attention["per_kind"] == ENTERTAINMENT_PER_KIND == 2
     assert attention["pool_cap"] == 14
+    lifestyle = view.attention_params("lifestyle")
+    assert lifestyle["per_kind"] == 1
+    assert lifestyle["pool_cap"] == 4
     survival_slots = 1 + 1 + 1 + 1 + 2 + 1 + 1  # eat/sleep/continue/work腿+2任务/home/browse
-    assert survival_slots + attention["pool_cap"] == MAX_CANDIDATES == 22
+    assert survival_slots + lifestyle["pool_cap"] + attention["pool_cap"] \
+        == MAX_CANDIDATES == 26
+
+
+def test_attention_required_keys(view) -> None:
+    """@brief M4：attention_required=true 键集 = 娱乐 5 + 生活 9 = 14 键
+    （画像编译器与场景准入按此键集出题/核对）。"""
+    expected = {"feature_film", "drama_series", "webnovel_excerpt", "news_feed",
+                "joke_feed", "sport", "hobby", "outdoor", "wellness", "household",
+                "learning", "pet", "social", "volunteer"}
+    assert view.attention_required_kinds == frozenset(expected)
+    from worldmock.profile.models import attention_keys
+    assert attention_keys() == tuple(sorted(expected))
 
 
 @pytest.mark.parametrize("tool,activity_type,expected", EXPECTED_HABIT_ROUTES)
@@ -269,9 +293,11 @@ def test_relief_channels_match_activities(view) -> None:
 
 
 def test_enumeration_order(view) -> None:
-    """@brief L3：枚举序 == 现行固定优先级（eat>sleep>continue>work>travel>browse>娱乐）。"""
+    """@brief L3：枚举序 == 现行固定优先级（eat>sleep>continue>work>travel>browse>
+    lifestyle（同秩按名声后于 browse）>娱乐）。"""
     ranked = [family.name for family in view.families_by_rank()]
-    assert ranked == ["eat", "sleep", "continue", "work", "travel", "browse", "entertainment"]
+    assert ranked == ["eat", "sleep", "continue", "work", "travel", "browse",
+                      "lifestyle", "entertainment"]
 
 
 def test_prototype_functions_registered(view) -> None:

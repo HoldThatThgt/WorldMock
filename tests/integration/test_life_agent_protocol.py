@@ -150,7 +150,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
 
 #: M2 钉住的新指纹：家族工具描述自注册表合同拼装 + 输入并入注册表字节摘要。
-_PINNED_TOOL_SCHEMA_SHA256 = "b15a31244a6318f2355151a22f78ca1b4ad7abe6f2e2b0266a08225e651e5c3e"
+#: M4 重钉：lifestyle 家族激活（attention content_kind + content_menu + 习惯路由
+#: 迁移）改变注册表字节摘要 → 指纹随之变化（注册表变则工具面变则指纹变）。
+_PINNED_TOOL_SCHEMA_SHA256 = "cb98f4ba551739c947199e070538f370c782c46a52a7cbe57b3fb41e5b6473e4"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:

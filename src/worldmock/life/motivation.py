@@ -13,16 +13,19 @@ comfort/emotion_sensitivity/attention_prior）来自场景 agents[].motivation �
 
 from __future__ import annotations
 
+import json
 import math
 import tomllib
 from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
 
 from worldmock.catalog.affordances import (
+    FamilySpec,
     PROTOTYPE_GENERATORS,
     default_affordances,
 )
@@ -32,6 +35,11 @@ from worldmock.life.body import (
     interpolate,
     maximum_energy_duration_seconds,
     minimum_energy_cost,
+)
+from worldmock.life.content import (
+    LIFESTYLE_ITEMS_PATH,
+    LifestyleItem,
+    load_lifestyle_items,
 )
 from worldmock.life.models import (
     ActivityKind,
@@ -62,17 +70,37 @@ FAMILY_TRAVEL = "travel"
 FAMILY_BROWSE = "browse"
 FAMILY_ENTERTAINMENT = "entertainment"
 FAMILY_WORK = "work"
+FAMILY_LIFESTYLE = "lifestyle"
 #: 候选家族闭集（习惯项的归一键）——自注册表 families 表派生
-#: （generator ≠ none 的 7 个动机家族；lifestyle 家族是纯声明面，不进闭集）。
+#: （generator ≠ none 的 8 个动机家族；M4 起 lifestyle 家族参与动机，
+#: 其 lifestyle:* 前缀习惯路由自 continue 家族迁入）。
 FAMILIES = _AFFORDANCES.motivation_families
 
-#: v1 每次决策枚举的候选上限与注入条数（分层菜单采样后 8 生存位 + 14 娱乐 = 22）。
-MAX_CANDIDATES = 22
+#: v1 每次决策枚举的候选上限与注入条数（分层菜单采样后 8 生存位 + 4 生活
+#: + 14 娱乐 = 26；家族 pool_cap 为各自在全局上限内的配额）。
+MAX_CANDIDATES = 26
 DEFAULT_TOP_K = 5
 
 #: 娱乐候选按品类采样的每品类上限（7 内容品类 x 2 = 14 条娱乐候选）——
 #: 自注册表 families.entertainment.attention.per_kind 派生。
 ENTERTAINMENT_PER_KIND = _AFFORDANCES.attention_params(FAMILY_ENTERTAINMENT)["per_kind"]
+
+
+@lru_cache(maxsize=1)
+def _repo_lifestyle_items() -> tuple[LifestyleItem, ...]:
+    """@brief 仓库默认语料的生活活动目录（lifestyle 候选枚举的品类/时长来源）。
+
+    动机上下文只携带场景 MET 表（body.activity_met 的 lifestyle:<id> 键），
+    不携带目录条目本身；候选生成按 MET 键与目录求交界定场景身份——键不在
+    场景 MET 表内的条目不枚举。解析复用 content.load_lifestyle_items 的
+    fail-closed 行（重复 id/坏字段拒绝），身份核对表从语料自身的 met_value
+    合成（引擎侧另有 语料↔场景 MET 的一一核对，两道闸口互为冗余）。
+    """
+    root = Path(__file__).resolve().parents[3] / "corpora"
+    payload = json.loads((root / LIFESTYLE_ITEMS_PATH).read_text(encoding="utf-8"))
+    met = {f"lifestyle:{row['activity_id']}": float(row["met_value"])
+           for row in payload["items"]}
+    return load_lifestyle_items(root, met)
 
 #: 候选时长/观察窗口的工程上限（秒）：防止整部电影/整段合同把候选坐标推到极端。
 MAX_CANDIDATE_SECONDS = 4 * 3600
@@ -418,8 +446,9 @@ def _enumerate_candidates(context: MotivationContext,
 
     现行优先级（注册表枚举序）：进食(10) > 睡眠(20) > 继续当前活动(30) >
     去工作地点+工作任务至多2(40) > 回家(50) > 浏览商品目录(60) >
+    生活活动(60，同秩按名排在 browse 后；每品类 top-1 采样 ≤4) >
     娱乐(70，每品类 top-2 采样 ≤14)。生存与目标导向优先于消遣，浏览
-    （工具性：解锁进食候选的枚举）排在纯消遣之前；娱乐候选在池尾按采样
+    （工具性：解锁进食候选的枚举）排在纯消遣之前；内容类候选在池尾按采样
     权重排序，截断从队尾开始，保证任何决策点的候选数不超过
     MAX_CANDIDATES 且存活的是最强候选。
     """
@@ -429,7 +458,7 @@ def _enumerate_candidates(context: MotivationContext,
         if generator is None:
             raise IntegrityError(
                 f"candidate generator {family.generator!r} has no registered prototype")
-        pool.extend(generator(context, profile, family.generator_params))
+        pool.extend(generator(context, profile, family))
     return pool[:MAX_CANDIDATES]
 
 
@@ -770,19 +799,22 @@ def _work_candidates(context: MotivationContext,
 
 def _entertainment_candidates(context: MotivationContext,
                               profile: MotivationProfile,
-                              params: Mapping) -> list[_Candidate]:
-    """@brief 娱乐候选：每内容品类采 top-2（attention_prior x 偏好加权）。
+                              family: FamilySpec) -> list[_Candidate]:
+    """@brief 娱乐候选：每内容品类采 top-N（attention_prior x 偏好加权）。
 
     分层菜单模式：评分器不依赖全量目录——即使上下文直接构造传入全量列表，
-    也按品类重采样（每 kind 至多 ENTERTAINMENT_PER_KIND 条，7 品类 ≤14），
-    采样后全局按权排序，保证候选池截断保留的是最强候选。时长槽按分段语义
-    给：一次约两段典型时长（typical_segment_seconds x 2），让长内容以
-    "读一章/看一段"的小步会话入场而不是一整天的整块承诺；槽长受剩余媒体
-    时长、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间截断，短段
-    内容（剧集/信息流）保底一次十分钟会话避免候选被裁光。看完的内容从头
-    再来；缓解速率与引擎口径一致（偏好/接触次数）。
+    也按品类重采样（每 kind 至多调用家族 attention.per_kind 条，采样后截断
+    到家族 pool_cap），采样后全局按权排序，保证候选池截断保留的是最强候选。
+    时长槽按分段语义给：一次约两段典型时长（typical_segment_seconds x 2），
+    让长内容以"读一章/看一段"的小步会话入场而不是一整天的整块承诺；槽长受
+    剩余媒体时长、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间截断，
+    短段内容（剧集/信息流）保底一次十分钟会话避免候选被裁光。看完的内容
+    从头再来；缓解速率与引擎口径一致（偏好/接触次数）。
     """
     agent = context.agent
+    params = family.generator_params
+    per_kind = family.attention_params["per_kind"]
+    pool_cap = family.attention_params["pool_cap"]
     ranked = sorted(
         (item for item in context.contents
          if profile.attention_prior.get(item.kind, 0)
@@ -794,10 +826,11 @@ def _entertainment_candidates(context: MotivationContext,
     taken_per_kind: dict[str, int] = {}
     for item in ranked:
         taken = taken_per_kind.get(item.kind, 0)
-        if taken >= ENTERTAINMENT_PER_KIND:
+        if taken >= per_kind:
             continue
         taken_per_kind[item.kind] = taken + 1
         sampled.append(item)
+    sampled = sampled[:pool_cap]
     candidates = []
     for item in sampled:
         progress = context.content_progress.get(item.item_id)
@@ -840,7 +873,7 @@ def _entertainment_candidates(context: MotivationContext,
         fun_after = agent.body.entertainment_need - relief
         burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)
         candidates.append(_Candidate(
-            family=FAMILY_ENTERTAINMENT,
+            family=family.name,
             summary=summary,
             reason=(f"{lead} relieves entertainment need "
                     f"{agent.body.entertainment_need:.2f}->{fun_after:.2f}"),
@@ -852,60 +885,138 @@ def _entertainment_candidates(context: MotivationContext,
     return candidates
 
 
+def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile,
+                          family: FamilySpec) -> list[_Candidate]:
+    """@brief 生活活动候选：每品类采 top-1（attention_prior[品类] x 偏好加权）。
+
+    开放命名空间的分层菜单：条目目录来自仓库默认语料（183 条、9 品类），
+    场景身份按 body.activity_met 的 lifestyle:<id> 键求交（引擎侧另有
+    语料↔MET 的一一核对）。时长槽取目录典型时长（typical_duration_minutes），
+    受 cap_seconds、能量可行上限、MAX_CANDIDATE_SECONDS 与剩余世界时间
+    截断；缓解通道为 none（v1），清醒娱乐需要照常累积。人物启用声明
+    （agents[].lifestyle_activities）不在动机上下文内——提示可能含未启用
+    条目，动作受理侧仍按启用闭集拒绝（提示是建议不是账，见模块 docstring；
+    已知缺口见 M4 交付报告）。
+    """
+    agent = context.agent
+    params = family.generator_params
+    per_kind = family.attention_params["per_kind"]
+    pool_cap = family.attention_params["pool_cap"]
+    met_table = context.body.activity_met
+    items = [item for item in _repo_lifestyle_items()
+             if f"lifestyle:{item.activity_id}" in met_table]
+    ranked = sorted(
+        (item for item in items
+         if profile.attention_prior.get(item.category, 0)
+         * agent.entertainment_preferences.get(item.activity_id, 0.5) > 0),
+        key=lambda item: (-profile.attention_prior.get(item.category, 0)
+                          * agent.entertainment_preferences.get(item.activity_id, 0.5),
+                          item.activity_id))
+    sampled: list[LifestyleItem] = []
+    taken_per_kind: dict[str, int] = {}
+    for item in ranked:
+        taken = taken_per_kind.get(item.category, 0)
+        if taken >= per_kind:
+            continue
+        taken_per_kind[item.category] = taken + 1
+        sampled.append(item)
+    sampled = sampled[:pool_cap]
+    candidates = []
+    for item in sampled:
+        typical = float(item.typical_duration_minutes * 60)
+        met = met_table[f"lifestyle:{item.activity_id}"]
+        outer_cap = min(
+            maximum_energy_duration_seconds(ActivityKind.LIFESTYLE,
+                                            agent.body.energy_kcal, context.body, met),
+            float(params["cap_seconds"]), MAX_CANDIDATE_SECONDS,
+            float(context.end_time - context.current_time))
+        slot = min(typical, outer_cap)
+        slot = max(slot, min(float(params["min_session_seconds"]), outer_cap))
+        if slot < 60:
+            continue
+        burn = minimum_energy_cost(ActivityKind.LIFESTYLE, slot, context.body, met)
+        if burn > agent.body.energy_kcal:
+            continue
+        hours = slot / 3600
+        candidates.append(_Candidate(
+            family=family.name,
+            summary=(f"Do {item.name} (lifestyle:{item.activity_id}) "
+                     f"for {slot / 60:.0f} min"),
+            reason=(f"{item.name} is a {item.category} activity in the browsed "
+                    f"lifestyle catalog; a {slot / 60:.0f} min session burns about "
+                    f"{burn:.0f} kcal (start via start_basic_activity "
+                    f"activity_type lifestyle:{item.activity_id})"),
+            duration_seconds=slot,
+            energy_delta=-burn,
+            sleep_debt_delta=context.body.awake_sleep_debt_per_hour * hours,
+            entertainment_delta=_entertainment_accrual(context, hours)))
+    return candidates
+
+
 # ---------------------------------------------------------------------------
 # 候选生成器原型登记（规范 §2.3：原型库是唯一的代码扩展点——原型函数保持
 # Python 实现，登记名进 PROTOTYPE_GENERATORS；_enumerate_candidates 按注册表
 # families.*.candidate.generator 从此表取函数，枚举序按 enumeration_rank）。
+# 原型统一接收 FamilySpec：candidate 参数经 generator_params、注意力采样参数
+# 经 attention_params 各取各的（content_menu 家族两者都用）。
 # ---------------------------------------------------------------------------
 
 def _clear_backlog_adapter(context: MotivationContext, profile: MotivationProfile,
-                           params: Mapping) -> list[_Candidate]:
+                           family: FamilySpec) -> list[_Candidate]:
     """@brief clear_backlog 原型：清债睡眠候选（sleep 家族）。"""
-    candidate = _sleep_candidate(context, params)
+    candidate = _sleep_candidate(context, family.generator_params)
     return [candidate] if candidate is not None else []
 
 
 def _cheapest_feasible_meal_adapter(context: MotivationContext, profile: MotivationProfile,
-                                    params: Mapping) -> list[_Candidate]:
+                                    family: FamilySpec) -> list[_Candidate]:
     """@brief cheapest_feasible_meal 原型：最廉可行餐（eat 家族；可行性口径内建）。"""
     candidate = _eat_candidate(context)
     return [candidate] if candidate is not None else []
 
 
 def _continue_current_adapter(context: MotivationContext, profile: MotivationProfile,
-                              params: Mapping) -> list[_Candidate]:
+                              family: FamilySpec) -> list[_Candidate]:
     """@brief continue_current 原型：继续当前活动（continue 家族）。"""
     candidate = _continue_candidate(context)
     return [candidate] if candidate is not None else []
 
 
 def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfile,
-                            params: Mapping) -> list[_Candidate]:
+                            family: FamilySpec) -> list[_Candidate]:
     """@brief cheapest_route 原型：可负担最低票价出行腿（travel 家族；
     destination=home；task_location 腿内建在 task_slot 原型里）。"""
-    label = params.get("destination", "home")
+    label = family.generator_params.get("destination", "home")
     candidate = _travel_candidate(context, label, context.home_location_id)
     return [candidate] if candidate is not None else []
 
 
 def _catalog_visibility_adapter(context: MotivationContext, profile: MotivationProfile,
-                                params: Mapping) -> list[_Candidate]:
+                                family: FamilySpec) -> list[_Candidate]:
     """@brief catalog_visibility 原型：目录速览候选（browse 家族）。"""
-    candidate = _browse_candidate(context, params)
+    candidate = _browse_candidate(context, family.generator_params)
     return [candidate] if candidate is not None else []
 
 
 def _content_menu_adapter(context: MotivationContext, profile: MotivationProfile,
-                          params: Mapping) -> list[_Candidate]:
-    """@brief content_menu 原型：分层菜单娱乐候选（entertainment 家族）。"""
-    return _entertainment_candidates(context, profile, params)
+                          family: FamilySpec) -> list[_Candidate]:
+    """@brief content_menu 原型：分层菜单内容候选（entertainment/lifestyle 家族）。
+
+    两种条目来源形态：封闭内容条目（场景 contents，如 watch 品类）走娱乐
+    分支；开放命名空间条目（met_key 含 "{item_id}" 的 kind，目录来自语料、
+    身份来自场景 MET 表）走生活活动分支。采样参数（per_kind/pool_cap）与
+    候选参数（min_session_seconds/cap_seconds）都按调用家族自取。
+    """
+    if any("{item_id}" in _AFFORDANCES.kinds[kind].met_key for kind in family.kinds):
+        return _lifestyle_candidates(context, profile, family)
+    return _entertainment_candidates(context, profile, family)
 
 
 def _task_slot_adapter(context: MotivationContext, profile: MotivationProfile,
-                       params: Mapping) -> list[_Candidate]:
+                       family: FamilySpec) -> list[_Candidate]:
     """@brief task_slot 原型：去工作地点出行腿 + 至多 max_tasks 个任务候选
     （work 家族；出行腿排在任务前，与现行枚举序一致）。"""
-    travel, work = _work_candidates(context, params)
+    travel, work = _work_candidates(context, family.generator_params)
     return [candidate for candidate in (travel, *work) if candidate is not None]
 
 

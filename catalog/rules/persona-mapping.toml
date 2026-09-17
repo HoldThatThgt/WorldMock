@@ -145,18 +145,31 @@ neuroticism = 0.40
 # 小说等叙事想象类、尽责性→新闻信息类、外向性→段子等轻社交类、宜人性→剧集关系类），
 # 钳制后与均匀分布做混合（balance）：外向性越高分布越均衡（anchored: 外向性→广谱刺激寻求），
 # 最终 0.01 格点归一（总和 1.00）。basis=assumption：斜率幅度与混合系数。
-# 键集来源：catalog/affordances.toml 中 attention_required = true 的内容品类（当前五键，
-# game_session/subtitle_experience 显式 false 不在键集内）。[attention.base] 必须精确
-# 覆盖该键集——多键/少键在 mapper 加载期断言失败；slope 段可省（省略 = 只有 base），
-# 但键必须在键集内。注册表新增品类时在此补一行 base（可选拆 slope）即自动出题。
+# 键集来源：catalog/affordances.toml 中 attention_required = true 的内容品类（M4 激活
+# lifestyle 后为 14 键：娱乐 5 + 生活 9；game_session/subtitle_experience 显式 false
+# 不在键集内）。[attention.base] 必须精确覆盖该键集——多键/少键在 mapper 加载期断言
+# 失败；slope 段可省（省略 = 只有 base），但键必须在键集内。注册表新增品类时在此
+# 补一行 base（可选拆 slope）即自动出题。
+# 生活品类 base（basis=assumption，锚定活跃度/普及度排序）：sport 0.10 > hobby 0.08 >
+# outdoor = learning = social 0.06 > wellness 0.05 > household 0.04 > pet 0.03 >
+# volunteer 0.02（合计 0.50）；娱乐 5 键同步 0.20→0.10（合计 0.50），总和恰为 1.00。
 # ---------------------------------------------------------------------------
 
 [attention.base]
-feature_film = 0.20
-news_feed = 0.20
-joke_feed = 0.20
-webnovel_excerpt = 0.20
-drama_series = 0.20
+feature_film = 0.10
+news_feed = 0.10
+joke_feed = 0.10
+webnovel_excerpt = 0.10
+drama_series = 0.10
+sport = 0.10
+hobby = 0.08
+outdoor = 0.06
+wellness = 0.05
+household = 0.04
+learning = 0.06
+pet = 0.03
+social = 0.06
+volunteer = 0.02
 
 [attention.slope.feature_film]
 openness = 0.05

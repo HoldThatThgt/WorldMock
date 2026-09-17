@@ -60,8 +60,12 @@ CONTRACT_PROFILE = {
     "comfort": {"balance_fen": 20000, "energy_kcal": 1200},
     "aspiration": {"daily_effective_work_seconds": 14400},
     "emotion_sensitivity": 0.3,
-    "attention_prior": {"feature_film": 0.5, "news_feed": 0.3, "joke_feed": 0.1,
-                        "webnovel_excerpt": 0.05, "drama_series": 0.05},
+    # M4：attention 键集 = 注册表 attention_required（娱乐 5 + 生活 9 = 14 键）。
+    "attention_prior": {"feature_film": 0.3, "news_feed": 0.2, "joke_feed": 0.1,
+                        "webnovel_excerpt": 0.05, "drama_series": 0.05,
+                        "sport": 0.05, "hobby": 0.04, "outdoor": 0.03,
+                        "wellness": 0.03, "household": 0.03, "learning": 0.03,
+                        "pet": 0.03, "social": 0.03, "volunteer": 0.03},
 }
 
 
@@ -599,6 +603,118 @@ class TestEntertainmentSegmentSlots:
         assert keep.candidate.duration_seconds == pytest.approx(typical * 2)
 
 
+class TestLifestyleCandidates:
+    """@brief M4 lifestyle 激活：开放命名空间的分层菜单候选（每品类 top-1、配额 4）。
+
+    候选目录来自仓库默认语料（183 条、9 品类），场景身份按 body.activity_met
+    的 lifestyle:<id> 键求交；排序权 = attention_prior[品类] × 偏好（缺省 0.5）。
+    """
+
+    #: 覆盖 5 品类的样例条目（id 取自真实语料；MET 值自拟）。
+    SAMPLE_MET = {
+        "lifestyle:jogging": 7.0,                 # sport
+        "lifestyle:archery": 4.3,                 # sport（同品类竞争者）
+        "lifestyle:pet-walk-dog": 3.0,            # pet
+        "lifestyle:meditation-improve-focus": 1.0,  # wellness
+        "lifestyle:housework-cleaning": 3.3,      # household
+        "lifestyle:journaling": 1.3,              # wellness（同品类竞争者）
+    }
+
+    def _lifestyle_body(self, **extra_met) -> BodyConfig:
+        return _body().model_copy(update={
+            "activity_met": dict(_body().activity_met,
+                                 **self.SAMPLE_MET, **extra_met)})
+
+    def _lifestyle_only_context(self, **overrides) -> MotivationContext:
+        # 注意力压在生活品类上、清空 contents：只观察 lifestyle 家族的枚举。
+        profile = _profile(attention_prior={
+            "feature_film": 0.0, "news_feed": 0.0, "joke_feed": 0.0,
+            "webnovel_excerpt": 0.0, "drama_series": 0.0,
+            "sport": 0.3, "hobby": 0.2, "outdoor": 0.15, "wellness": 0.15,
+            "household": 0.1, "learning": 0.05, "pet": 0.03, "social": 0.01,
+            "volunteer": 0.01})
+        defaults = dict(agent=_agent(preferences={
+            "jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
+            "meditation-improve-focus": 0.7, "journaling": 0.4,
+            "housework-cleaning": 0.5}), body=self._lifestyle_body())
+        defaults.update(overrides)
+        context = _context(**defaults)
+        return context, profile
+
+    def test_per_kind_top_one_and_pool_cap(self, transforms):
+        context, profile = self._lifestyle_only_context()
+        scored = evaluate_motivation(context, profile, transforms, top_k=30)
+        lifestyle = [item for item in scored if item.candidate.family == "lifestyle"]
+        # 每品类 top-1：jogging 胜 archery（0.3×0.9 > 0.3×0.6）、
+        # meditation 胜 journaling（0.15×0.7 > 0.15×0.4）；品类 4 个、配额 4。
+        ids = {item.candidate.summary for item in lifestyle}
+        assert len(lifestyle) == 4
+        assert all("lifestyle:" in summary for summary in ids)
+        assert any("lifestyle:jogging" in summary for summary in ids)
+        assert not any("lifestyle:archery" in summary for summary in ids)
+        assert any("lifestyle:meditation-improve-focus" in summary for summary in ids)
+        assert not any("lifestyle:journaling" in summary for summary in ids)
+
+    def test_pool_cap_truncates_from_weakest_category(self, transforms):
+        # 第 5 个品类（sport 之外再给 outdoor/hobby/social 高权条目）挤不进配额 4。
+        context, profile = self._lifestyle_only_context(
+            agent=_agent(preferences={
+                "jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
+                "meditation-improve-focus": 0.7, "journaling": 0.4,
+                "housework-cleaning": 0.5, "backpacking-trek": 0.9,
+                "3d-printing": 0.9, "board-games": 0.9}),
+            body=self._lifestyle_body(**{
+                "lifestyle:backpacking-trek": 6.0,   # outdoor
+                "lifestyle:3d-printing": 1.8,         # hobby
+                "lifestyle:board-games": 1.5}))       # social
+        scored = evaluate_motivation(context, profile, transforms, top_k=30)
+        lifestyle = [item for item in scored if item.candidate.family == "lifestyle"]
+        # 6 个品类各有 top-1，配额 4：household（0.1×0.5）与 social（0.01）出局，
+        # 高权 outdoor/hobby/sport/wellness 在场。
+        assert len(lifestyle) == 4
+        summaries = " | ".join(item.candidate.summary for item in lifestyle)
+        assert "lifestyle:backpacking-trek" in summaries
+        assert "lifestyle:3d-printing" in summaries
+        assert "lifestyle:housework-cleaning" not in summaries
+
+    def test_scenario_met_table_scopes_identity(self, transforms):
+        # archery 不在场景 MET 表 → 即使注意与偏好全高也不枚举。
+        met = {key: value for key, value in self.SAMPLE_MET.items()
+               if key != "lifestyle:archery"}
+        body = _body().model_copy(update={"activity_met": dict(_body().activity_met, **met)})
+        context, profile = self._lifestyle_only_context(body=body)
+        scored = evaluate_motivation(context, profile, transforms, top_k=30)
+        summaries = " | ".join(item.candidate.summary for item in scored
+                               if item.candidate.family == "lifestyle")
+        assert "lifestyle:archery" not in summaries
+        assert "lifestyle:jogging" in summaries
+
+    def test_energy_infeasible_item_skipped(self, transforms):
+        # 低能量 + 高 MET：能量可行上限把时长槽压到 60 秒以下 → 该条目出局；
+        # 低 MET 条目（冥想）不受影响。时长槽先收缩、收缩后仍 <60s 才跳过。
+        met = dict(self.SAMPLE_MET)
+        met["lifestyle:jogging"] = 60.0  # (65 + 59*65) kcal/h：50 kcal 只够 ~46s
+        body = _body().model_copy(update={"activity_met": dict(_body().activity_met, **met)})
+        context, profile = self._lifestyle_only_context(
+            agent=_agent(energy=50.0, preferences={
+                "jogging": 0.9, "archery": 0.6, "pet-walk-dog": 0.8,
+                "meditation-improve-focus": 0.7, "journaling": 0.4,
+                "housework-cleaning": 0.5}), body=body)
+        scored = evaluate_motivation(context, profile, transforms, top_k=30)
+        summaries = " | ".join(item.candidate.summary for item in scored
+                               if item.candidate.family == "lifestyle")
+        assert "lifestyle:jogging" not in summaries
+        assert "lifestyle:meditation-improve-focus" in summaries
+
+    def test_lifestyle_events_accumulate_own_habit_share(self, transforms):
+        # M4：lifestyle:* 前缀自 continue 迁入 lifestyle 家族——生活活动事件
+        # 累计进自己的习惯份额，不再被 continue 通配吸收。
+        events = (("start_basic_activity", {"activity_type": "lifestyle:jogging"}),)
+        shares = habit_shares(events, transforms.habit_discount)
+        assert shares.get("lifestyle") == pytest.approx(1.0)
+        assert shares.get("continue", 0.0) == 0.0
+
+
 class TestBrowseCandidate:
     """@brief browse 候选：目录有未见商品时在场，全可见时退场。"""
 
@@ -737,6 +853,25 @@ class TestEngineInjection:
         candidates = data["motivation_hints"]["candidates"]
         probabilities = [candidate["softmax_probability"] for candidate in candidates]
         assert probabilities == sorted(probabilities, reverse=True)
+
+    def test_hints_include_lifestyle_recommendations(self, engine_factory):
+        """@brief M4 激活后：真实场景（183 条全启用）的候选池出现生活活动推荐——
+        family=lifestyle、动作摘要携带可执行的 lifestyle:<id> 目标、配额 ≤4。
+        激活前（generator=none）lifestyle 家族不进枚举序，此类候选不可能出现。
+        初态的 top-5 提示通常被 watch 候选占据（relief=none 使生活候选的内稳态
+        分量天然靠后），故断言打在完整枚举池上。"""
+        engine = _profiled_engine(engine_factory)
+        agent = engine.state.agents[1]
+        profile = next(a.motivation for a in engine.scenario.agents
+                       if a.agent_id == 1 and a.motivation is not None)
+        scored = evaluate_motivation(
+            engine._motivation_context(agent, profile), profile,
+            engine.semantics.motivation_transforms, top_k=MAX_CANDIDATES)
+        lifestyle = [item for item in scored if item.candidate.family == "lifestyle"]
+        assert 0 < len(lifestyle) <= 4
+        for item in lifestyle:
+            assert "lifestyle:" in item.candidate.summary
+            assert item.candidate.summary.startswith("Do ")
 
     def test_unprofiled_scenario_never_injects(self, engine_factory):
         engine = engine_factory()

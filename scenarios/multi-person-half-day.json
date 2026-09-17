@@ -203,11 +203,20 @@
         },
         "emotion_sensitivity": 0.5,
         "attention_prior": {
-          "feature_film": 0.2,
-          "news_feed": 0.2,
-          "joke_feed": 0.2,
-          "webnovel_excerpt": 0.2,
-          "drama_series": 0.2
+          "feature_film": 0.1,
+          "news_feed": 0.09,
+          "joke_feed": 0.1,
+          "webnovel_excerpt": 0.09,
+          "drama_series": 0.1,
+          "sport": 0.09,
+          "hobby": 0.08,
+          "outdoor": 0.06,
+          "wellness": 0.05,
+          "household": 0.04,
+          "learning": 0.06,
+          "pet": 0.04,
+          "social": 0.06,
+          "volunteer": 0.04
         },
         "source": {
           "persona_text_sha256": "250cecb3380152f31dfe50c7af0769c64e6d310380143d76ff79a751e4a28cac",
@@ -376,11 +385,20 @@
         },
         "emotion_sensitivity": 0.5,
         "attention_prior": {
-          "feature_film": 0.2,
-          "news_feed": 0.2,
-          "joke_feed": 0.2,
-          "webnovel_excerpt": 0.2,
-          "drama_series": 0.2
+          "feature_film": 0.1,
+          "news_feed": 0.09,
+          "joke_feed": 0.1,
+          "webnovel_excerpt": 0.09,
+          "drama_series": 0.1,
+          "sport": 0.09,
+          "hobby": 0.08,
+          "outdoor": 0.06,
+          "wellness": 0.05,
+          "household": 0.04,
+          "learning": 0.06,
+          "pet": 0.04,
+          "social": 0.06,
+          "volunteer": 0.04
         },
         "source": {
           "persona_text_sha256": "5c742cdbf2abb620ba81b1da91b6ec255770d8ac89915d158036948d0b6d42c0",

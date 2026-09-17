@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from worldmock.profile.mapper import DETERMINISTIC_SOURCE_MODEL, load_mapping_config, map_profile
@@ -134,14 +136,16 @@ def test_config_rejects_attention_key_set_mismatch(tmp_path):
     from worldmock.profile.mapper import default_mapping_path
     full_text = default_mapping_path().read_text(encoding="utf-8")
     first_key = attention_keys()[0]
-    # 少键：删掉 [attention.base] 里的一个键（该赋值行全文唯一）。
+    # 少键：删掉 [attention.base] 里的一个键（值不定，按行首键名定位该赋值行）。
+    assignment = re.search(rf"^{first_key} = [0-9.]+\n", full_text, re.MULTILINE)
+    assert assignment is not None, f"attention.base row for {first_key} not found"
     missing = tmp_path / "missing.toml"
-    missing.write_text(full_text.replace(f"{first_key} = 0.20\n", "", 1), encoding="utf-8")
+    missing.write_text(full_text.replace(assignment.group(0), "", 1), encoding="utf-8")
     with pytest.raises(AssertionError, match="attention.base must exactly cover"):
         load_mapping_config(missing)
     # 多键：base 里塞一个注册表外（attention_required=false）的键。
     extra = tmp_path / "extra.toml"
     extra.write_text(full_text.replace(
-        "[attention.slope", f'game_session = 0.01\n\n[attention.slope', 1), encoding="utf-8")
+        "[attention.slope", 'game_session = 0.01\n\n[attention.slope', 1), encoding="utf-8")
     with pytest.raises(AssertionError, match="attention.base must exactly cover"):
         load_mapping_config(extra)
