@@ -30,7 +30,11 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0"]
+dev = [
+    "coverage==7.15.4",
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
 
 [project.scripts]
 worldmock = "worldmock.cli:main"
@@ -45,3 +49,25 @@ where = ["src"]
 pythonpath = ["src", "."]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+[tool.coverage.run]
+branch = true
+# 注意：coverage 枚举未执行文件时会剪枝无 __init__.py 的子目录，custom/agents
+# 与 custom/envs 均非包，必须显式列为 source 叶子目录才能计入测量。
+source = ["src/worldmock", "custom/agents", "custom/envs"]
+omit = [
+    "*/tests/*",
+    "*/scripts/*",
+    "*/vendor/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 2
+# 显式替换默认排除表：保留 pragma 与 TYPE_CHECKING，去掉对纯 `...` stub 行的
+# 豁免，使未调用的占位实现出现在 missing_lines，被接口覆盖率门禁捕获。
+exclude_lines = [
+    "#\\s*(pragma|PRAGMA)[:\\s]?\\s*(no|NO)\\s*(cover|COVER)",
+    "if (typing\\.)?TYPE_CHECKING:",
+]
