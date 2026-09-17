@@ -57,7 +57,9 @@ def test_feed_corpus_freeze_matches_manifest_and_timeline() -> None:
     assert [item["item_id"] for item in items] == [f"feed-{n:04d}" for n in range(1, 1001)]
     for item in items:
         chars = len(item["title"]) + len(item["body"])
-        assert set(item) == {"item_id", "title", "body", "category", "estimated_read_seconds"}
+        # 信息流纳入内容品类准入（CONTENT_CORPORA）后逐条补齐元数据三字段。
+        assert set(item) == {"item_id", "title", "body", "category",
+                             "estimated_read_seconds", "genre", "language", "age_rating"}
         assert len(item["title"]) >= 8
         assert len(item["body"]) >= 30
         assert 150 <= chars <= 300

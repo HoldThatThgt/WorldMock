@@ -8,10 +8,10 @@
   "activity_feedback_seconds": 900,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "1f4cd53f1593bd015974ed873fe0714b1c2514afd6885c220114b38669a9a7de",
+  "corpus_manifest_sha256": "c8a86a96bf2ea483f12a3eef26646894244e539e8513140c29039eddef0d33d8",
   "catalog_version": {
-    "major": 1,
-    "minor": 2
+    "major": 2,
+    "minor": 0
   },
   "accounts": [
     {
@@ -2132,27 +2132,27 @@
     {
       "item_id": "drama-0001",
       "kind": "drama_series",
-      "duration_seconds": 15155,
+      "duration_seconds": 2569,
       "timeline_path": "drama/drama-0001.srt",
-      "timeline_sha256": "a13ab23c859b4248a5bd0c59c23c80e95e86f4c803f47ddc7a8992da356b8784",
+      "timeline_sha256": "f750932496bd45f6f9115fe79009a3f2a58140e9fbfedc8cb7247ca0ed78c08d",
       "entertainment_relief_per_hour": 0.3,
       "experience_label": "drama_series_watch"
     },
     {
       "item_id": "drama-0002",
       "kind": "drama_series",
-      "duration_seconds": 18566,
+      "duration_seconds": 2226,
       "timeline_path": "drama/drama-0002.srt",
-      "timeline_sha256": "4c96081201ebe00731af4b15931b8335b830e8502c99d5754d6aa1fe34d2a43e",
+      "timeline_sha256": "c39dd464a2725b74f8c7d2a4db535d7f8791dc9b0cc1214c409b00571483894f",
       "entertainment_relief_per_hour": 0.3,
       "experience_label": "drama_series_watch"
     },
     {
       "item_id": "drama-0003",
       "kind": "drama_series",
-      "duration_seconds": 22971,
+      "duration_seconds": 2154,
       "timeline_path": "drama/drama-0003.srt",
-      "timeline_sha256": "3fa4c869979eab9461a60b84a403462401d91719459f82a62aa216341ed969c6",
+      "timeline_sha256": "177706cde95e9496c8a07ac155e5ff719019423b0810384055c7889be502acd1",
       "entertainment_relief_per_hour": 0.3,
       "experience_label": "drama_series_watch"
     },

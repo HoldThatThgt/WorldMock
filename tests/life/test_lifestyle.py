@@ -37,9 +37,12 @@ def test_lifestyle_catalog_integrity() -> None:
     assert len(set(ids)) == len(ids)
     assert len(set(names)) == len(names)
     for item in items:
+        # 目录 v2 富化：time_window/location_kinds/needs_partner/effects 四字段
+        # （admission._check_lifestyle 的 v2 口径）。
         assert set(item) == {"activity_id", "name_zh", "category",
                              "typical_duration_minutes", "description_zh",
-                             "met_value", "source"}
+                             "met_value", "source", "time_window",
+                             "location_kinds", "needs_partner", "effects"}
         assert item["category"] in CATEGORIES
         assert item["name_zh"].strip() and item["description_zh"].strip()
         assert 5 <= item["typical_duration_minutes"] <= 1440

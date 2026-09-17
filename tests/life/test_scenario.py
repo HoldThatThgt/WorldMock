@@ -189,7 +189,7 @@ def test_route_fare_source_is_closed() -> None:
 def test_catalog_pin_and_reference_admission_are_enforced() -> None:
     """目录版本钉扎与对象引用完整性在组装准入层拒绝。"""
     _assert_assembly_invalid(
-        _replace(("catalog_version", "major"), 2),
+        _replace(("catalog_version", "major"), 3),
         "pins catalog",
     )
     _assert_assembly_invalid(
