@@ -6,6 +6,7 @@
   "end_at": "2026-01-05T12:00:00+08:00",
   "random_seed": 20260106,
   "activity_feedback_seconds": 900,
+  "reconsideration_interval_seconds": 5400,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
   "corpus_manifest_sha256": "c8a86a96bf2ea483f12a3eef26646894244e539e8513140c29039eddef0d33d8",
@@ -38,6 +39,11 @@
       "account_id": "external:scenario",
       "money_fen": 0,
       "role": "external:scenario"
+    },
+    {
+      "account_id": "merchant:restaurant",
+      "money_fen": 10000000,
+      "role": "merchant:restaurant"
     }
   ],
   "body": {
@@ -49,7 +55,52 @@
   "agents": [
     {
       "agent_id": 1,
-      "name": "Zhangjiang white-collar worker",
+      "name": "陈曦",
+      "background_story": "陈曦，32岁，某互联网公司产品经理，住在上海张江。性格外向开朗，做事有条理，注重工作与生活的平衡。每天早上7点起床，先喝一杯温水再出门，通勤时听播客。工作再忙也会按时吃午饭和晚饭，常去楼下便利店买牛奶和坚果当加餐，认为\"饿着肚子干活是低效的\"。午休时间喜欢看一集短剧或刷几分钟微博放松，下班后偶尔约同事吃饭。周末打 Switch 或看 Netflix，对电影口味偏科幻和悬疑。压力来临时会做深呼吸而不是硬扛，认为健康是长期资本，不会为了赶 deadline 连续加班到深夜。消费理性但有品质追求，愿意为好的体验付费。社交活跃，微信好友多，喜欢在知乎分享产品心得。",
+      "health_habits": "按时吃午饭和晚饭，饿了会加餐，认为饿着肚子干活低效；压力时做深呼吸，不为赶 deadline 连续加班到深夜，把健康当长期资本。",
+      "social_style": "外向开朗，社交活跃，微信好友多，下班后偶尔约同事吃饭，喜欢在知乎分享产品心得。",
+      "chronotype_midsleep": 3.25,
+      "sleep_need_hours": 7.5,
+      "lunch_window": [
+        12.0,
+        13.5
+      ],
+      "dinner_window": [
+        18.5,
+        20.0
+      ],
+      "contacts": [
+        {
+          "contact_id": "contact-chenxi-colleague",
+          "salutation": "李凡",
+          "relation": "同事",
+          "closeness": 18,
+          "channels": [
+            "workplace-IM"
+          ],
+          "reply_policy": "none"
+        },
+        {
+          "contact_id": "contact-chenxi-oldfriend",
+          "salutation": "沈昊",
+          "relation": "老友",
+          "closeness": 26,
+          "channels": [
+            "wechat"
+          ],
+          "reply_policy": "model"
+        },
+        {
+          "contact_id": "contact-chenxi-mother",
+          "salutation": "陈母",
+          "relation": "家人",
+          "closeness": 28,
+          "channels": [
+            "phone"
+          ],
+          "reply_policy": "model"
+        }
+      ],
       "home_location_id": "home",
       "initial_balance_fen": 800000,
       "skill_levels": {
@@ -167,10 +218,6 @@
         "drama-0003": 0.51,
         "jokes-feed": 0.78
       },
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
       "trait_source_kind": "experiment_assumption",
       "motivation": {
         "schema_version": 1,
@@ -231,7 +278,52 @@
     },
     {
       "agent_id": 2,
-      "name": "Second Zhangjiang worker",
+      "name": "李凡",
+      "background_story": "李凡，28岁，后端开发工程师，住在上海张江合租房。性格内向偏焦虑，写代码时容易进入心流忘记时间，但身体会诚实地发出信号——饿了就一定要吃东西，不会硬扛。习惯点外卖解决三餐，偏爱面食和牛肉类食品，常选方便面或牛肉面；喜欢喝冰红茶，觉得\"吃饭是刚需不是享受\"。压力大或 bug 解不掉时会刷知乎和段子解压，偶尔深夜打游戏（Steam 库里囤了一堆没时间玩的）。睡眠偏晚，经常凌晨一点才睡，但知道这样不好，正在努力改善。对新技术有好奇心，会关注 indie 游戏和动漫。消费偏节俭，比价后才买，但对游戏和电子设备舍得花钱。朋友不多但关系深，压力大时会找老友倾诉而不是憋着。",
+      "health_habits": "饿了就一定要吃东西，不会硬扛；三餐习惯点外卖；睡眠偏晚（经常凌晨一点），知道不健康正在改善；压力大时找老友倾诉。",
+      "social_style": "内向，朋友不多但关系深，压力大时会找老友倾诉而不是憋着，线上偏好知乎和段子社区。",
+      "chronotype_midsleep": 5.0,
+      "sleep_need_hours": 7.0,
+      "lunch_window": [
+        12.5,
+        14.0
+      ],
+      "dinner_window": [
+        19.0,
+        21.0
+      ],
+      "contacts": [
+        {
+          "contact_id": "contact-lifan-colleague",
+          "salutation": "陈曦",
+          "relation": "同事",
+          "closeness": 18,
+          "channels": [
+            "workplace-IM"
+          ],
+          "reply_policy": "none"
+        },
+        {
+          "contact_id": "contact-lifan-oldfriend",
+          "salutation": "陆斌",
+          "relation": "老友",
+          "closeness": 25,
+          "channels": [
+            "wechat"
+          ],
+          "reply_policy": "model"
+        },
+        {
+          "contact_id": "contact-lifan-family",
+          "salutation": "李父",
+          "relation": "家人",
+          "closeness": 27,
+          "channels": [
+            "phone"
+          ],
+          "reply_policy": "model"
+        }
+      ],
       "home_location_id": "home",
       "initial_balance_fen": 800000,
       "skill_levels": {
@@ -349,10 +441,6 @@
         "drama-0003": 0.45,
         "jokes-feed": 0.44
       },
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
       "trait_source_kind": "experiment_assumption",
       "motivation": {
         "schema_version": 1,
@@ -437,6 +525,78 @@
       "latitude": 31.206,
       "open_hour": 7,
       "close_hour": 23
+    },
+    {
+      "location_id": "poi-3538660453",
+      "name": "菜饭骨头汤",
+      "kind": "restaurant",
+      "longitude": 121.6166504,
+      "latitude": 31.2048913,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682404",
+      "name": "鼎盛川菜",
+      "kind": "restaurant",
+      "longitude": 121.6169261,
+      "latitude": 31.2057286,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682408",
+      "name": "三十六道金牌煲仔饭",
+      "kind": "restaurant",
+      "longitude": 121.6170379,
+      "latitude": 31.2061927,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682402",
+      "name": "好德",
+      "kind": "convenience_store",
+      "longitude": 121.6167248,
+      "latitude": 31.2055062,
+      "open_hour": 7,
+      "close_hour": 23
+    },
+    {
+      "location_id": "poi-3538763552",
+      "name": "农工商超市",
+      "kind": "supermarket",
+      "longitude": 121.6127158,
+      "latitude": 31.2061428,
+      "open_hour": 7,
+      "close_hour": 22
+    },
+    {
+      "location_id": "poi-3538684972",
+      "name": "紫薇菜市场",
+      "kind": "wet_market",
+      "longitude": 121.6162677,
+      "latitude": 31.2071006,
+      "open_hour": 6,
+      "close_hour": 19
+    },
+    {
+      "location_id": "poi-1868478037",
+      "name": "篮球场",
+      "kind": "fitness",
+      "longitude": 121.6183492,
+      "latitude": 31.2020801,
+      "open_hour": 6,
+      "close_hour": 22
+    },
+    {
+      "location_id": "poi-337936012",
+      "name": "紫薇公园",
+      "kind": "park",
+      "longitude": 121.6105584,
+      "latitude": 31.2023337,
+      "open_hour": 0,
+      "close_hour": 24
     }
   ],
   "routes": [
@@ -1241,6 +1401,156 @@
     {
       "product_id": "item-metro-card",
       "merchant": "merchant:general",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0001",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0002",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0003",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0004",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0005",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0006",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0007",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0008",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0009",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0010",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0011",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0012",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0013",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0014",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0015",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0016",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0017",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0018",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0019",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0020",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0021",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0022",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0023",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0024",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0025",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0026",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0027",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0028",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0029",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0030",
+      "merchant": "merchant:restaurant",
       "merchant_location_id": "market"
     }
   ],

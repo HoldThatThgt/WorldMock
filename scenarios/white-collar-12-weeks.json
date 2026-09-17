@@ -6,6 +6,7 @@
   "end_at": "2026-03-30T00:00:00+08:00",
   "random_seed": 20260105,
   "activity_feedback_seconds": 900,
+  "reconsideration_interval_seconds": 5400,
   "max_consecutive_rejections": 10,
   "corpus_root": "../corpora",
   "corpus_manifest_sha256": "c8a86a96bf2ea483f12a3eef26646894244e539e8513140c29039eddef0d33d8",
@@ -38,6 +39,11 @@
       "account_id": "external:scenario",
       "money_fen": 0,
       "role": "external:scenario"
+    },
+    {
+      "account_id": "merchant:restaurant",
+      "money_fen": 10000000,
+      "role": "merchant:restaurant"
     }
   ],
   "body": {
@@ -50,13 +56,41 @@
     {
       "agent_id": 1,
       "name": "陈曦",
-      "occupation": "White-collar worker in Zhangjiang Hi-Tech Park",
-      "routine_preference": "Prefer sleeping at night and sustained daytime activities; adjust plans to current needs and opportunities.",
-      "consumption_preference": "Usually compare visible prices and current need before buying; avoid unnecessary stockpiling.",
-      "risk_preference": "Prefer outcomes with clear costs and fulfillment; reconsider plans when new evidence arrives.",
       "background_story": "陈曦，32岁，某互联网公司产品经理，住在上海张江。性格外向开朗，做事有条理，注重工作与生活的平衡。每天早上7点起床，先喝一杯温水再出门，通勤时听播客。工作再忙也会按时吃午饭和晚饭，常去楼下便利店买牛奶和坚果当加餐，认为\"饿着肚子干活是低效的\"。午休时间喜欢看一集短剧或刷几分钟微博放松，下班后偶尔约同事吃饭。周末打 Switch 或看 Netflix，对电影口味偏科幻和悬疑。压力来临时会做深呼吸而不是硬扛，认为健康是长期资本，不会为了赶 deadline 连续加班到深夜。消费理性但有品质追求，愿意为好的体验付费。社交活跃，微信好友多，喜欢在知乎分享产品心得。",
       "health_habits": "按时吃午饭和晚饭，饿了会加餐，认为饿着肚子干活低效；压力时做深呼吸，不为赶 deadline 连续加班到深夜，把健康当长期资本。",
       "social_style": "外向开朗，社交活跃，微信好友多，下班后偶尔约同事吃饭，喜欢在知乎分享产品心得。",
+      "chronotype_midsleep": 3.25,
+      "sleep_need_hours": 7.5,
+      "lunch_window": [
+        12.0,
+        13.5
+      ],
+      "dinner_window": [
+        18.5,
+        20.0
+      ],
+      "contacts": [
+        {
+          "contact_id": "contact-chenxi-oldfriend",
+          "salutation": "沈昊",
+          "relation": "老友",
+          "closeness": 26,
+          "channels": [
+            "wechat"
+          ],
+          "reply_policy": "model"
+        },
+        {
+          "contact_id": "contact-chenxi-mother",
+          "salutation": "陈母",
+          "relation": "家人",
+          "closeness": 28,
+          "channels": [
+            "phone"
+          ],
+          "reply_policy": "model"
+        }
+      ],
       "trait_source_kind": "experiment_assumption",
       "home_location_id": "home",
       "initial_balance_fen": 800000,
@@ -370,6 +404,78 @@
       "latitude": 31.206,
       "open_hour": 7,
       "close_hour": 23
+    },
+    {
+      "location_id": "poi-3538660453",
+      "name": "菜饭骨头汤",
+      "kind": "restaurant",
+      "longitude": 121.6166504,
+      "latitude": 31.2048913,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682404",
+      "name": "鼎盛川菜",
+      "kind": "restaurant",
+      "longitude": 121.6169261,
+      "latitude": 31.2057286,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682408",
+      "name": "三十六道金牌煲仔饭",
+      "kind": "restaurant",
+      "longitude": 121.6170379,
+      "latitude": 31.2061927,
+      "open_hour": 10,
+      "close_hour": 21
+    },
+    {
+      "location_id": "poi-3538682402",
+      "name": "好德",
+      "kind": "convenience_store",
+      "longitude": 121.6167248,
+      "latitude": 31.2055062,
+      "open_hour": 7,
+      "close_hour": 23
+    },
+    {
+      "location_id": "poi-3538763552",
+      "name": "农工商超市",
+      "kind": "supermarket",
+      "longitude": 121.6127158,
+      "latitude": 31.2061428,
+      "open_hour": 7,
+      "close_hour": 22
+    },
+    {
+      "location_id": "poi-3538684972",
+      "name": "紫薇菜市场",
+      "kind": "wet_market",
+      "longitude": 121.6162677,
+      "latitude": 31.2071006,
+      "open_hour": 6,
+      "close_hour": 19
+    },
+    {
+      "location_id": "poi-1868478037",
+      "name": "篮球场",
+      "kind": "fitness",
+      "longitude": 121.6183492,
+      "latitude": 31.2020801,
+      "open_hour": 6,
+      "close_hour": 22
+    },
+    {
+      "location_id": "poi-337936012",
+      "name": "紫薇公园",
+      "kind": "park",
+      "longitude": 121.6105584,
+      "latitude": 31.2023337,
+      "open_hour": 0,
+      "close_hour": 24
     }
   ],
   "routes": [
@@ -1175,11 +1281,162 @@
       "product_id": "item-metro-card",
       "merchant": "merchant:general",
       "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0001",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0002",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0003",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0004",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0005",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0006",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0007",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0008",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0009",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0010",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0011",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0012",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0013",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0014",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0015",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0016",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0017",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0018",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0019",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0020",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0021",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0022",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0023",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0024",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0025",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0026",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0027",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0028",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0029",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
+    },
+    {
+      "product_id": "meal-0030",
+      "merchant": "merchant:restaurant",
+      "merchant_location_id": "market"
     }
   ],
   "tasks": [
     {
       "task_id": "task-2026-01-05",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-05T09:00:00+08:00",
       "due_at": "2026-01-05T20:00:00+08:00",
@@ -1197,6 +1454,7 @@
     },
     {
       "task_id": "task-2026-01-06",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-06T09:00:00+08:00",
       "due_at": "2026-01-06T20:00:00+08:00",
@@ -1214,6 +1472,7 @@
     },
     {
       "task_id": "task-2026-01-07",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-07T09:00:00+08:00",
       "due_at": "2026-01-07T20:00:00+08:00",
@@ -1231,6 +1490,7 @@
     },
     {
       "task_id": "task-2026-01-08",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-08T09:00:00+08:00",
       "due_at": "2026-01-08T20:00:00+08:00",
@@ -1248,6 +1508,7 @@
     },
     {
       "task_id": "task-2026-01-09",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-09T09:00:00+08:00",
       "due_at": "2026-01-09T20:00:00+08:00",
@@ -1265,6 +1526,7 @@
     },
     {
       "task_id": "task-2026-01-12",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-12T09:00:00+08:00",
       "due_at": "2026-01-12T20:00:00+08:00",
@@ -1282,6 +1544,7 @@
     },
     {
       "task_id": "task-2026-01-13",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-13T09:00:00+08:00",
       "due_at": "2026-01-13T20:00:00+08:00",
@@ -1299,6 +1562,7 @@
     },
     {
       "task_id": "task-2026-01-14",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-14T09:00:00+08:00",
       "due_at": "2026-01-14T20:00:00+08:00",
@@ -1316,6 +1580,7 @@
     },
     {
       "task_id": "task-2026-01-15",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-15T09:00:00+08:00",
       "due_at": "2026-01-15T20:00:00+08:00",
@@ -1333,6 +1598,7 @@
     },
     {
       "task_id": "task-2026-01-16",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-16T09:00:00+08:00",
       "due_at": "2026-01-16T20:00:00+08:00",
@@ -1350,6 +1616,7 @@
     },
     {
       "task_id": "task-2026-01-19",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-19T09:00:00+08:00",
       "due_at": "2026-01-19T20:00:00+08:00",
@@ -1367,6 +1634,7 @@
     },
     {
       "task_id": "task-2026-01-20",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-20T09:00:00+08:00",
       "due_at": "2026-01-20T20:00:00+08:00",
@@ -1384,6 +1652,7 @@
     },
     {
       "task_id": "task-2026-01-21",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-21T09:00:00+08:00",
       "due_at": "2026-01-21T20:00:00+08:00",
@@ -1401,6 +1670,7 @@
     },
     {
       "task_id": "task-2026-01-22",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-22T09:00:00+08:00",
       "due_at": "2026-01-22T20:00:00+08:00",
@@ -1418,6 +1688,7 @@
     },
     {
       "task_id": "task-2026-01-23",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-23T09:00:00+08:00",
       "due_at": "2026-01-23T20:00:00+08:00",
@@ -1435,6 +1706,7 @@
     },
     {
       "task_id": "task-2026-01-24",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-24T09:00:00+08:00",
       "due_at": "2026-01-24T20:00:00+08:00",
@@ -1452,6 +1724,7 @@
     },
     {
       "task_id": "task-2026-01-26",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-26T09:00:00+08:00",
       "due_at": "2026-01-26T20:00:00+08:00",
@@ -1469,6 +1742,7 @@
     },
     {
       "task_id": "task-2026-01-27",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-27T09:00:00+08:00",
       "due_at": "2026-01-27T20:00:00+08:00",
@@ -1486,6 +1760,7 @@
     },
     {
       "task_id": "task-2026-01-28",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-28T09:00:00+08:00",
       "due_at": "2026-01-28T20:00:00+08:00",
@@ -1503,6 +1778,7 @@
     },
     {
       "task_id": "task-2026-01-29",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-29T09:00:00+08:00",
       "due_at": "2026-01-29T20:00:00+08:00",
@@ -1520,6 +1796,7 @@
     },
     {
       "task_id": "task-2026-01-30",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-30T09:00:00+08:00",
       "due_at": "2026-01-30T20:00:00+08:00",
@@ -1537,6 +1814,7 @@
     },
     {
       "task_id": "task-2026-02-02",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-02T09:00:00+08:00",
       "due_at": "2026-02-02T20:00:00+08:00",
@@ -1554,6 +1832,7 @@
     },
     {
       "task_id": "task-2026-02-03",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-03T09:00:00+08:00",
       "due_at": "2026-02-03T20:00:00+08:00",
@@ -1571,6 +1850,7 @@
     },
     {
       "task_id": "task-2026-02-04",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-04T09:00:00+08:00",
       "due_at": "2026-02-04T20:00:00+08:00",
@@ -1588,6 +1868,7 @@
     },
     {
       "task_id": "task-2026-02-05",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-05T09:00:00+08:00",
       "due_at": "2026-02-05T20:00:00+08:00",
@@ -1605,6 +1886,7 @@
     },
     {
       "task_id": "task-2026-02-06",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-06T09:00:00+08:00",
       "due_at": "2026-02-06T20:00:00+08:00",
@@ -1622,6 +1904,7 @@
     },
     {
       "task_id": "task-2026-02-09",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-09T09:00:00+08:00",
       "due_at": "2026-02-09T20:00:00+08:00",
@@ -1639,6 +1922,7 @@
     },
     {
       "task_id": "task-2026-02-10",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-10T09:00:00+08:00",
       "due_at": "2026-02-10T20:00:00+08:00",
@@ -1656,6 +1940,7 @@
     },
     {
       "task_id": "task-2026-02-11",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-11T09:00:00+08:00",
       "due_at": "2026-02-11T20:00:00+08:00",
@@ -1673,6 +1958,7 @@
     },
     {
       "task_id": "task-2026-02-12",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-12T09:00:00+08:00",
       "due_at": "2026-02-12T20:00:00+08:00",
@@ -1690,6 +1976,7 @@
     },
     {
       "task_id": "task-2026-02-13",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-13T09:00:00+08:00",
       "due_at": "2026-02-13T20:00:00+08:00",
@@ -1707,6 +1994,7 @@
     },
     {
       "task_id": "task-2026-02-14",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-14T09:00:00+08:00",
       "due_at": "2026-02-14T20:00:00+08:00",
@@ -1724,6 +2012,7 @@
     },
     {
       "task_id": "task-2026-02-24",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-24T09:00:00+08:00",
       "due_at": "2026-02-24T20:00:00+08:00",
@@ -1741,6 +2030,7 @@
     },
     {
       "task_id": "task-2026-02-25",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-25T09:00:00+08:00",
       "due_at": "2026-02-25T20:00:00+08:00",
@@ -1758,6 +2048,7 @@
     },
     {
       "task_id": "task-2026-02-26",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-26T09:00:00+08:00",
       "due_at": "2026-02-26T20:00:00+08:00",
@@ -1775,6 +2066,7 @@
     },
     {
       "task_id": "task-2026-02-27",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-27T09:00:00+08:00",
       "due_at": "2026-02-27T20:00:00+08:00",
@@ -1792,6 +2084,7 @@
     },
     {
       "task_id": "task-2026-02-28",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-02-28T09:00:00+08:00",
       "due_at": "2026-02-28T20:00:00+08:00",
@@ -1809,6 +2102,7 @@
     },
     {
       "task_id": "task-2026-03-02",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-02T09:00:00+08:00",
       "due_at": "2026-03-02T20:00:00+08:00",
@@ -1826,6 +2120,7 @@
     },
     {
       "task_id": "task-2026-03-03",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-03T09:00:00+08:00",
       "due_at": "2026-03-03T20:00:00+08:00",
@@ -1843,6 +2138,7 @@
     },
     {
       "task_id": "task-2026-03-04",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-04T09:00:00+08:00",
       "due_at": "2026-03-04T20:00:00+08:00",
@@ -1860,6 +2156,7 @@
     },
     {
       "task_id": "task-2026-03-05",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-05T09:00:00+08:00",
       "due_at": "2026-03-05T20:00:00+08:00",
@@ -1877,6 +2174,7 @@
     },
     {
       "task_id": "task-2026-03-06",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-06T09:00:00+08:00",
       "due_at": "2026-03-06T20:00:00+08:00",
@@ -1894,6 +2192,7 @@
     },
     {
       "task_id": "task-2026-03-09",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-09T09:00:00+08:00",
       "due_at": "2026-03-09T20:00:00+08:00",
@@ -1911,6 +2210,7 @@
     },
     {
       "task_id": "task-2026-03-10",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-10T09:00:00+08:00",
       "due_at": "2026-03-10T20:00:00+08:00",
@@ -1928,6 +2228,7 @@
     },
     {
       "task_id": "task-2026-03-11",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-11T09:00:00+08:00",
       "due_at": "2026-03-11T20:00:00+08:00",
@@ -1945,6 +2246,7 @@
     },
     {
       "task_id": "task-2026-03-13",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-13T09:00:00+08:00",
       "due_at": "2026-03-13T20:00:00+08:00",
@@ -1962,6 +2264,7 @@
     },
     {
       "task_id": "task-2026-03-16",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-16T09:00:00+08:00",
       "due_at": "2026-03-16T20:00:00+08:00",
@@ -1979,6 +2282,7 @@
     },
     {
       "task_id": "task-2026-03-17",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-17T09:00:00+08:00",
       "due_at": "2026-03-17T20:00:00+08:00",
@@ -1996,6 +2300,7 @@
     },
     {
       "task_id": "task-2026-03-19",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-19T09:00:00+08:00",
       "due_at": "2026-03-19T20:00:00+08:00",
@@ -2013,6 +2318,7 @@
     },
     {
       "task_id": "task-2026-03-20",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-20T09:00:00+08:00",
       "due_at": "2026-03-20T20:00:00+08:00",
@@ -2030,6 +2336,7 @@
     },
     {
       "task_id": "task-2026-03-23",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-23T09:00:00+08:00",
       "due_at": "2026-03-23T20:00:00+08:00",
@@ -2047,6 +2354,7 @@
     },
     {
       "task_id": "task-2026-03-24",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-24T09:00:00+08:00",
       "due_at": "2026-03-24T20:00:00+08:00",
@@ -2064,6 +2372,7 @@
     },
     {
       "task_id": "task-2026-03-25",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-25T09:00:00+08:00",
       "due_at": "2026-03-25T20:00:00+08:00",
@@ -2081,6 +2390,7 @@
     },
     {
       "task_id": "task-2026-03-26",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-26T09:00:00+08:00",
       "due_at": "2026-03-26T20:00:00+08:00",
@@ -2098,6 +2408,7 @@
     },
     {
       "task_id": "task-2026-03-27",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-27T09:00:00+08:00",
       "due_at": "2026-03-27T20:00:00+08:00",
@@ -2115,6 +2426,7 @@
     },
     {
       "task_id": "task-2026-03-28",
+      "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-03-28T09:00:00+08:00",
       "due_at": "2026-03-28T20:00:00+08:00",
@@ -5538,5 +5850,51 @@
     "sick_leave_date": "2026-03-12",
     "personal_leave_date": "2026-03-18",
     "social_dinner_date": "2026-03-03"
-  }
+  },
+  "payrolls": [
+    {
+      "payroll_id": "salary-2026-01",
+      "employer_account_id": "employer:zhangjiang",
+      "agent_id": 1,
+      "amount_fen": 500000,
+      "due_at": "2026-01-10T09:00:00+08:00"
+    },
+    {
+      "payroll_id": "salary-2026-02",
+      "employer_account_id": "employer:zhangjiang",
+      "agent_id": 1,
+      "amount_fen": 500000,
+      "due_at": "2026-02-10T09:00:00+08:00"
+    },
+    {
+      "payroll_id": "salary-2026-03",
+      "employer_account_id": "employer:zhangjiang",
+      "agent_id": 1,
+      "amount_fen": 500000,
+      "due_at": "2026-03-10T09:00:00+08:00"
+    }
+  ],
+  "bills": [
+    {
+      "bill_id": "rent-2026-01",
+      "account_id": "agent:1",
+      "payee_account_id": "external:scenario",
+      "amount_fen": 450000,
+      "due_at": "2026-01-05T09:00:00+08:00"
+    },
+    {
+      "bill_id": "rent-2026-02",
+      "account_id": "agent:1",
+      "payee_account_id": "external:scenario",
+      "amount_fen": 450000,
+      "due_at": "2026-02-05T09:00:00+08:00"
+    },
+    {
+      "bill_id": "rent-2026-03",
+      "account_id": "agent:1",
+      "payee_account_id": "external:scenario",
+      "amount_fen": 450000,
+      "due_at": "2026-03-05T09:00:00+08:00"
+    }
+  ]
 }
