@@ -1,0 +1,197 @@
+"""@brief render_day 投影与 inspect_run._brief 工具名修正的单元测试。"""
+import importlib.util
+from datetime import date, datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from worldmock.footprints.models import EventDraft
+from worldmock.footprints.store import FootprintStore
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TZ = ZoneInfo("Asia/Shanghai")
+DAY = date(2026, 1, 5)
+DAY0 = int(datetime(2026, 1, 5, 0, 0, tzinfo=TZ).timestamp())
+
+
+def _load_script(name):
+    spec = importlib.util.spec_from_file_location(name, REPO_ROOT / "scripts" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _at(hour, minute, day_offset=0):
+    return int(datetime(2026, 1, 5 + day_offset, hour, minute, tzinfo=TZ).timestamp())
+
+
+def _snapshot(activity_id, kind, **fields):
+    payload = {"activity_id": activity_id, "kind": kind, "status": "active"}
+    payload.update(fields)
+    return payload
+
+
+def _progress(activity_id, snapshot, start, end, agent=1):
+    return EventDraft(event_type="activity_progress", occurred_at=end, agent_id=agent,
+                      activity_id=activity_id,
+                      data={"interval_start": start, "interval_end": end, "activity": snapshot})
+
+
+def _observation(data, occurred_at=DAY0, agent=1):
+    return EventDraft(event_type="observation", occurred_at=occurred_at, agent_id=agent, data=data)
+
+
+def _build_store(tmp_path, events, agent_ids=(1, 2)):
+    store = FootprintStore.create(tmp_path / "run", {
+        "run_id": "run", "agent_ids": list(agent_ids),
+        "window": {"start": DAY0, "end": DAY0 + 86400, "timezone": "Asia/Shanghai"},
+    }, {"version": 0, "current_time": DAY0})
+    store.commit({"version": 1,
+                  "current_time": max((item.occurred_at for item in events), default=DAY0)}, events)
+    store.close()
+    return tmp_path / "run" / "footprints.sqlite"
+
+
+def _render(sqlite_path, agent, day=DAY):
+    module = _load_script("render_day")
+    conn = module._connect(sqlite_path)
+    try:
+        return module.render_day_markdown(conn, agent, day)
+    finally:
+        conn.close()
+
+
+def test_merges_consecutive_progress_of_same_activity(tmp_path):
+    """同一活动的连续 progress（含静默边界续行）合并为一行：起止、总时长、段数。"""
+    sleep = _snapshot("act-sleep", "sleep")
+    wait = _snapshot("act-wait", "wait")
+    events = [
+        _progress("act-sleep", sleep, _at(0, 0), _at(2, 0)),
+        _progress("act-sleep", sleep, _at(2, 0), _at(4, 0)),
+        _progress("act-sleep", sleep, _at(4, 0), _at(7, 0)),
+        _progress("act-wait", wait, _at(7, 5), _at(7, 20)),
+        _progress("act-wait", wait, _at(7, 20), _at(7, 35)),
+        _progress("act-wait", wait, _at(7, 35), _at(7, 50)),
+        _progress("act-wait", wait, _at(7, 50), _at(8, 5)),
+    ]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert "| 00:00–07:00 | 睡觉 | 7 小时 | 3 |" in markdown
+    assert "| 07:05–08:05 | 空档 | 1 小时 | 4 |" in markdown
+    assert markdown.splitlines()[0] == "# 人物 1 · 2026-01-05 周一"
+
+
+def test_interleaved_activities_keep_separate_rows(tmp_path):
+    """跨活动穿插时同一活动的非连续段不跨断点合并。"""
+    wait = _snapshot("act-wait", "wait")
+    browse = _snapshot("act-browse", "browse", target_id="product_catalog")
+    events = [
+        _progress("act-wait", wait, _at(7, 5), _at(7, 20)),
+        _progress("act-browse", browse, _at(7, 20), _at(7, 35)),
+        _progress("act-wait", wait, _at(7, 35), _at(8, 0)),
+    ]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert "| 07:05–07:20 | 空档 | 15 分钟 | 1 |" in markdown
+    assert "| 07:20–07:35 | 浏览商品目录 | 15 分钟 | 1 |" in markdown
+    assert "| 07:35–08:00 | 空档 | 25 分钟 | 1 |" in markdown
+    assert markdown.index("07:05–07:20") < markdown.index("07:20–07:35") < markdown.index("07:35–08:00")
+
+
+def test_resolves_names_instead_of_identifiers(tmp_path):
+    """目标解析为标题/品名/地名/邮件主题：观察事件建名称索引。"""
+    observation = _observation({
+        "products": [{"product_id": "noodle-01", "name": "红烧牛肉面", "use_modes": ["eat"]}],
+        "locations": [{"location_id": "office", "name": "公司"}, {"location_id": "home", "name": "家"}],
+        "messages": [{"message_id": "mail-1", "subject": "Work planning"}],
+    })
+    travel = _snapshot("act-go", "travel", destination_id="office", travel_mode="driving")
+    consume = _snapshot("act-eat", "consume", target_id="noodle-01")
+    read = _snapshot("act-mail", "read_mail", target_id="mail-1")
+    watch = _snapshot("act-watch", "watch", target_id="drama-0002", title="测试剧集")
+    events = [
+        observation,
+        _progress("act-go", travel, _at(7, 0), _at(7, 5)),
+        _progress("act-mail", read, _at(8, 0), _at(8, 5)),
+        _progress("act-eat", consume, _at(12, 13), _at(12, 28)),
+        _progress("act-watch", watch, _at(19, 13), _at(19, 53)),
+    ]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert "驾车去公司" in markdown
+    assert "吃 红烧牛肉面" in markdown
+    assert "读邮件「Work planning」" in markdown
+    assert "看《测试剧集》" in markdown
+
+
+def test_unresolvable_target_uses_readable_short_label(tmp_path):
+    """标题缺失时回退可读短标签，不输出裸 hex 标识。"""
+    hex_id = "a1b2c3d4" * 4
+    watch = _snapshot("act-watch", "watch", target_id=hex_id)
+    events = [_observation({}), _progress("act-watch", watch, _at(19, 13), _at(19, 53))]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert f"看（#{hex_id[-6:]}）" in markdown
+    assert hex_id not in markdown
+
+
+def test_output_is_byte_identical_for_same_inputs(tmp_path):
+    """确定性：同库同参数两次渲染逐字节相同。"""
+    sleep = _snapshot("act-sleep", "sleep")
+    events = [_progress("act-sleep", sleep, _at(0, 0), _at(7, 0))]
+    sqlite_path = _build_store(tmp_path, events)
+    assert _render(sqlite_path, 1) == _render(sqlite_path, 1)
+
+
+def test_date_filter_and_midnight_clip(tmp_path):
+    """按 Asia/Shanghai 日期过滤：跨零点裁剪，别的日期与别的人物不出现。"""
+    sleep = _snapshot("act-sleep", "sleep")
+    wait = _snapshot("act-other", "wait")
+    events = [
+        _progress("act-sleep", sleep, _at(23, 0, day_offset=-1), _at(0, 0)),
+        _progress("act-other", wait, _at(9, 0), _at(10, 0), agent=2),
+        _progress("act-sleep", sleep, _at(19, 53), _at(7, 0, day_offset=1)),
+    ]
+    sqlite_path = _build_store(tmp_path, events)
+    day_markdown = _render(sqlite_path, 1)
+    assert "| 19:53–00:00 | 睡觉 | 4 小时 7 分钟 | 1 |" in day_markdown
+    assert "23:00–00:00" not in day_markdown
+    assert "| 09:00–10:00" not in day_markdown
+    assert _render(sqlite_path, 1, date(2026, 1, 4)).count("|") >= 8
+    assert "| 23:00–00:00 | 睡觉 | 1 小时 | 1 |" in _render(sqlite_path, 1, date(2026, 1, 4))
+    assert "| 00:00–07:00 | 睡觉 | 7 小时 | 1 |" in _render(sqlite_path, 1, date(2026, 1, 6))
+    assert "| 09:00–10:00 | 空档 | 1 小时 | 1 |" in _render(sqlite_path, 2)
+
+
+def test_empty_day_renders_marker(tmp_path):
+    """当日无活动时仍产出确定性的空标记文件。"""
+    wait = _snapshot("act-other", "wait")
+    events = [_progress("act-other", wait, _at(9, 0), _at(10, 0), agent=2)]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert markdown.splitlines()[0] == "# 人物 1 · 2026-01-05 周一"
+    assert "当日无活动记录。" in markdown
+
+
+def test_cli_writes_timeline_file(tmp_path, capsys):
+    """CLI 入参（sqlite、agent、date、输出目录）落盘 timeline/<agent>-<date>.md。"""
+    sleep = _snapshot("act-sleep", "sleep")
+    events = [_progress("act-sleep", sleep, _at(0, 0), _at(7, 0))]
+    sqlite_path = _build_store(tmp_path, events)
+    module = _load_script("render_day")
+    module.main([str(sqlite_path), "--agent", "1", "--date", "2026-01-05",
+                 "--out", str(tmp_path / "out")])
+    out_path = tmp_path / "out" / "timeline" / "1-2026-01-05.md"
+    assert out_path.is_file()
+    content = out_path.read_text(encoding="utf-8")
+    assert content.startswith("# 人物 1 · 2026-01-05 周一")
+    assert "| 00:00–07:00 | 睡觉 | 7 小时 | 1 |" in content
+    assert capsys.readouterr().out.startswith("wrote ")
+
+
+def test_inspect_run_brief_reads_tool_name():
+    """inspect_run._brief 从 tool_name 键读取动作名，不再全部显示 ?。"""
+    module = _load_script("inspect_run")
+    requested = module._brief({"event_type": "action_requested",
+                               "data": {"tool_name": "start_basic_activity",
+                                        "request": {"x": 1}}})
+    assert requested.startswith("start_basic_activity ")
+    accepted = module._brief({"event_type": "action_accepted", "data": {"tool_name": "wait"}})
+    assert accepted == "wait"
+    rejected = module._brief({"event_type": "action_rejected",
+                              "data": {"tool_name": "purchase", "error_code": "SHOP_CLOSED"}})
+    assert rejected == "purchase → SHOP_CLOSED"

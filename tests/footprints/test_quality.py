@@ -3,7 +3,12 @@ import json
 import pytest
 
 from worldmock.errors import IntegrityError
-from worldmock.footprints.models import Event
+from worldmock.footprints.models import (
+    DECISION_OFFERED_FIELD,
+    INNER_MONOLOGUE_FIELD,
+    WAKE_REASONS_FIELD,
+    Event,
+)
 from worldmock.footprints.quality import build_quality_report
 
 
@@ -232,6 +237,55 @@ def test_environment_event_cannot_be_used_as_a_memory_read_episode():
               _event(2, 'model_response', agent_id=1, decision_id='current', data=response)]
     memory = build_quality_report(events, [], _manifest())['memory_references']
     assert [item['code'] for item in memory['problems']] == ['unknown_memory_reference']
+
+
+def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_monologues():
+    events = [
+        _event(1, "activity_progress", data={DECISION_OFFERED_FIELD: False,
+                                             WAKE_REASONS_FIELD: []}),
+        _event(2, "activity_progress", data={DECISION_OFFERED_FIELD: True,
+                                             WAKE_REASONS_FIELD: ["planned_end", "person_arrived"]}),
+        _event(3, "activity_progress", data={DECISION_OFFERED_FIELD: True,
+                                             WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
+        _event(4, "activity_progress", data={"activity": {"kind": "work"}}),
+        _event(5, "decision_started", agent_id=1, decision_id="decision-1",
+               data={INNER_MONOLOGUE_FIELD: "今天想早点到办公室。"}),
+        _event(6, "decision_started", agent_id=1, decision_id="decision-2",
+               data={"phase": "monologue"}),
+        _event(7, "run_ended", occurred_at=1100),
+    ]
+
+    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+
+    assert rhythm["activity_progress_events"] == 4
+    assert rhythm["boundaries_with_decision_field"] == 3
+    assert rhythm["boundaries_missing_decision_field"] == 1
+    assert rhythm["silent_boundaries"] == 1
+    assert rhythm["offered_boundaries"] == 2
+    assert rhythm["wake_reason_events"] == 3
+    assert rhythm["wake_reason_counts"] == {"person_arrived": 1, "planned_end": 2}
+    assert rhythm["unrecognized_wake_reason_counts"] == {"mystery": 1}
+    assert rhythm["decision_started_events"] == 2
+    assert rhythm["decision_started_with_monologue"] == 1
+    assert rhythm["decision_started_missing_monologue"] == 1
+
+
+def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
+    events = [_event(1, "activity_progress", data={"activity": {"kind": "work"}}),
+              _event(2, "decision_started", agent_id=1, decision_id="decision-1", data={}),
+              _event(3, "run_ended", occurred_at=1100)]
+
+    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+
+    assert rhythm["silent_boundaries"] == 0
+    assert rhythm["offered_boundaries"] == 0
+    assert rhythm["boundaries_missing_decision_field"] == 1
+    assert rhythm["wake_reason_events"] == 0
+    assert rhythm["wake_reason_counts"] == {}
+    assert rhythm["unrecognized_wake_reason_counts"] == {}
+    assert rhythm["decision_started_events"] == 1
+    assert rhythm["decision_started_with_monologue"] == 0
+    assert rhythm["decision_started_missing_monologue"] == 1
 
 
 def test_acceleration_sums_observed_wall_time_across_restore_branches():

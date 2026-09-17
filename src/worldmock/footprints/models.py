@@ -19,6 +19,33 @@ RESOURCE_FLOWS_FIELD = "resource_flows"
 
 _FLOW_DICT_KEYS = frozenset({"resource", "owner", "direction", "amount", "cause"})
 
+#: 决策节律增量字段（规格 L1465-1467）：activity_progress.data 声明该结算边界是否
+#: 向人物提供了决策机会。静默边界（decision_offered=false）不调用模型、不产生
+#: decision_started 等决策事件；旧事件缺省该字段，读取方不得拒收。
+DECISION_OFFERED_FIELD = "decision_offered"
+
+#: 决策节律增量字段（规格 L1465-1467）：提供决策的边界记录实际命中的全部唤醒原因。
+WAKE_REASONS_FIELD = "wake_reasons"
+
+#: 唤醒原因冻结词表（规格 L1452-1463 表格的枚举名闭集，成员不可增删）。与
+#: life.schedule.WakeReason 同源；footprints 是存储合同层、不依赖 life 层，
+#: 故在此登记足迹侧词表，两侧由测试互锁防漂移。
+WAKE_REASON_NAMES = frozenset({
+    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
+    "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
+    "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
+    "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
+})
+
+#: 两阶段决策增量字段（规格 L1571）：独白文本写入 decision_started.data；
+#: 独白是人物私有内容，只允许 dreaming 任务读取。旧事件缺省该字段。
+INNER_MONOLOGUE_FIELD = "inner_monologue"
+
+#: 消息送达记录种类（规格 L1624）：send_message 的送达记录为
+#: environment_event kind=message_arrival；交谈邀约以 chat_invite 消息送达（规格 L1625）。
+MESSAGE_ARRIVAL_KIND = "message_arrival"
+CHAT_INVITE_KIND = "chat_invite"
+
 
 def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
     """@brief 校验 data[resource_flows] 的分录字典约定，合法则原样返回。
@@ -44,6 +71,36 @@ def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
     return payload
 
 
+def validate_decision_rhythm(data: dict[str, Any]) -> None:
+    """@brief 校验 activity_progress.data 的决策节律增量字段，缺省视为旧事件不拒收。
+
+    :param data: activity_progress 事件的 data 字典。
+    :raises ValueError: decision_offered 非布尔或 wake_reasons 违反冻结词表时 fail-closed。
+    """
+    if DECISION_OFFERED_FIELD in data and not isinstance(data[DECISION_OFFERED_FIELD], bool):
+        raise ValueError(f"{DECISION_OFFERED_FIELD} must be a boolean")
+    if WAKE_REASONS_FIELD in data:
+        reasons = data[WAKE_REASONS_FIELD]
+        if not isinstance(reasons, list):
+            raise ValueError(f"{WAKE_REASONS_FIELD} must be a list of wake reason names")
+        for index, reason in enumerate(reasons):
+            if not isinstance(reason, str) or reason not in WAKE_REASON_NAMES:
+                raise ValueError(f"{WAKE_REASONS_FIELD}[{index}] must be one of the frozen wake reasons")
+
+
+def validate_inner_monologue(data: dict[str, Any]) -> None:
+    """@brief 校验 decision_started.data 的独白增量字段，缺省视为旧事件不拒收。
+
+    只做类型合同校验；独白为空或超长的协议错误由两阶段决策协议在生成侧裁决
+    （规格 L1572），不属于存储层结构校验。
+
+    :param data: decision_started 事件的 data 字典。
+    :raises ValueError: inner_monologue 存在且不是字符串时 fail-closed。
+    """
+    if INNER_MONOLOGUE_FIELD in data and not isinstance(data[INNER_MONOLOGUE_FIELD], str):
+        raise ValueError(f"{INNER_MONOLOGUE_FIELD} must be a string")
+
+
 EventType = Literal[
     "observation", "decision_started", "model_request", "model_response", "action_requested",
     "action_accepted", "action_rejected", "activity_progress", "action_result", "environment_event",
@@ -66,7 +123,10 @@ class EventDraft(BaseModel):
 
     活动/结算事件的 data 可携带 RESOURCE_FLOWS_FIELD 字段登记本次结算的资源
     分录（{resource, owner, direction, amount, cause} 字典列表），写入前可用
-    validate_resource_flows 校验；其余事件的 data 结构由各自领域自行约定。
+    validate_resource_flows 校验；activity_progress 可另携 DECISION_OFFERED_FIELD
+    与 WAKE_REASONS_FIELD（validate_decision_rhythm 校验），decision_started 可携
+    INNER_MONOLOGUE_FIELD（validate_inner_monologue 校验）——三者均为增量字段，
+    旧事件缺省不拒收；其余事件的 data 结构由各自领域自行约定。
     """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)

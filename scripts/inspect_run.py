@@ -82,11 +82,12 @@ def _brief(r: dict) -> str:
     d = r.get("data", {})
     t = r["event_type"]
     if t == "action_requested":
-        return f"{d.get('tool') or d.get('kind','?')} {json.dumps(d.get('request', d.get('arguments','')), ensure_ascii=False)[:80]}"
+        payload = d.get("request", d.get("arguments", ""))
+        return f"{d.get('tool_name') or d.get('kind','?')} {json.dumps(payload, ensure_ascii=False)[:80]}"
     if t == "action_accepted":
-        return f"{d.get('tool') or d.get('kind','?')}"
+        return f"{d.get('tool_name') or d.get('kind','?')}"
     if t == "action_rejected":
-        return f"{d.get('tool','?')} → {d.get('error_code','?')}"
+        return f"{d.get('tool_name','?')} → {d.get('error_code','?')}"
     if t == "environment_event":
         return f"{d.get('kind')} {d.get('scheduled_id','')}"
     if t == "activity_progress":

@@ -129,6 +129,11 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 #sql-msg{font-family:var(--mono);font-size:12px;color:var(--fg-dim);margin-top:6px}
 #sql-msg.err{color:var(--err)}
 .empty{color:var(--fg-faint);padding:24px;text-align:center}
+/* ---------- 一天视图（timeline markdown） ---------- */
+#day-drop{border:1px dashed var(--line);border-radius:8px;padding:18px;text-align:center;cursor:pointer;margin-bottom:10px}
+#day-drop.dragover{border-color:var(--accent)}
+#day-drop p{color:var(--fg-dim)}
+#day-paste{width:100%;font-family:var(--mono);font-size:12px;resize:vertical;margin-bottom:8px;background:var(--bg2);color:var(--fg);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
 </style>
 </head>
 <body>
@@ -163,6 +168,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
     <div id="main">
       <section class="view" data-view="overview"><h2>总览</h2><div id="ov-body"></div></section>
       <section class="view" data-view="timeline"><h2>时间线</h2><div id="tl-body"></div></section>
+      <section class="view" data-view="day"><h2>一天</h2><div id="day-body"></div></section>
       <section class="view" data-view="activities"><h2>活动表格</h2><div id="act-body"></div></section>
       <section class="view" data-view="body"><h2>身体曲线</h2><div id="bd-body"></div></section>
       <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
@@ -225,6 +231,7 @@ const S = {
   nameIdx: null,         // {products:Map, messages:Map, catalog:Map} 来自 observation
   fmt: null, tzOff: 28800,
   view: 'overview',
+  day: null,             // {title, rows[], source} 解析后的 render_day timeline markdown
   bodyCache: new Map(),  // seq -> body 文本（FIFO 上限）
 };
 const BODY_CACHE_MAX = 40;
@@ -623,6 +630,7 @@ function prettyBody(seq){
 const VIEWS = [
   {id:'overview', name:'总览'},
   {id:'timeline', name:'时间线'},
+  {id:'day', name:'一天'},
   {id:'activities', name:'活动表格'},
   {id:'body', name:'身体曲线'},
   {id:'economy', name:'经济流水'},
@@ -644,7 +652,7 @@ function switchView(id){
   S.view = id;
   $$('.nav-item').forEach(b=>b.classList.toggle('on', b.dataset.view===id));
   $$('.view').forEach(v=>v.classList.toggle('on', v.dataset.view===id));
-  ({overview:renderOverview, timeline:renderTimeline, activities:renderActivities,
+  ({overview:renderOverview, timeline:renderTimeline, day:renderDay, activities:renderActivities,
     body:renderBodyCurves, economy:renderEconomy, memory:renderMemory,
     reasoning:renderReasoning, sql:renderSqlConsole}[id])();
 }
@@ -1241,6 +1249,90 @@ FROM events ORDER BY event_seq DESC LIMIT 20</textarea>
 }
 
 /* ================================================================
+ * 一天视图 —— 读取 render_day.py 产出的 timeline markdown
+ * （文件拖入/选择或粘贴，纯前端解析，不依赖已加载的 sqlite）
+ * ================================================================ */
+function parseDayMarkdown(text){
+  const rows = [];
+  let title = '';
+  for (const line of String(text||'').split(/\r?\n/)){
+    const t = line.trim();
+    if (!title && t.startsWith('# ')){ title = t.slice(2).trim(); continue; }
+    if (!t.startsWith('|')) continue;
+    const cells = t.replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+    if (cells.length < 4) continue;
+    const m = cells[0].match(/^(\d{1,2}:\d{2})\s*[–-]\s*(\d{1,2}:\d{2})$/);
+    if (!m) continue;
+    rows.push({start:m[1], end:m[2], label:cells[1], duration:cells[2], segments:cells[3]});
+  }
+  rows.sort((a,b)=> (a.start<b.start?-1:a.start>b.start?1:0) || (a.end<b.end?-1:a.end>b.end?1:0));
+  return {title, rows};
+}
+function renderDay(){
+  const el = $('#day-body');
+  if (!S.day){
+    el.innerHTML = `
+      <div class="hint">读取 <code>scripts/render_day.py</code> 产出的 <code>timeline/&lt;agent&gt;-&lt;date&gt;.md</code>：
+        把 markdown 文件拖入下面虚线框（或点击选择文件），也可以把内容粘贴到文本框后点"解析粘贴内容"。
+        本视图纯前端解析，不依赖 sqlite，可与任何一份时间线投影单独使用。</div>
+      <div id="day-drop" role="button" tabindex="0">
+        <p><b>拖入 .md 文件</b>（或点击选择）</p>
+        <input type="file" id="day-file" accept=".md,.markdown,.txt">
+      </div>
+      <textarea id="day-paste" rows="8" placeholder="或把 timeline markdown 粘贴到这里…" spellcheck="false"></textarea>
+      <div style="margin:8px 0"><button id="day-load">解析粘贴内容</button> <span id="day-err" style="color:var(--err)"></span></div>`;
+    bindDayInput();
+    return;
+  }
+  const d = S.day;
+  const rowsHtml = d.rows.map(r=>`<tr>
+      <td style="white-space:nowrap;font-family:var(--mono)">${esc(r.start)}–${esc(r.end)}</td>
+      <td>${esc(r.label)}</td>
+      <td style="white-space:nowrap">${esc(r.duration)}</td>
+      <td class="num">${esc(r.segments)}</td></tr>`).join('');
+  el.innerHTML = `
+    <div class="kv"><span class="k">来源</span><span class="v">${esc(d.source)}</span></div>
+    <div class="kv"><span class="k">标题</span><span class="v">${esc(d.title || '—')}</span></div>
+    <div class="kv"><span class="k">条目</span><span class="v">${nf(d.rows.length)} 行（按开始时间排序）</span></div>
+    <button id="day-clear" style="margin:8px 0">清除，换一份</button>
+    ${ d.rows.length
+      ? `<table><tr><th>起止</th><th>活动</th><th>总时长</th><th class="num">段数</th></tr>${rowsHtml}</table>`
+      : `<div class="empty">该日无活动记录</div>` }`;
+  $('#day-clear').onclick = ()=>{ S.day = null; renderDay(); };
+}
+function loadDayText(text, source){
+  const parsed = parseDayMarkdown(text);
+  if (!parsed.rows.length && !parsed.title){
+    const err = $('#day-err');
+    if (err) err.textContent = '未解析到时间线行：需要 render_day.py 的 markdown（# 标题 + "| 起止 | 活动 | 总时长 | 段数 |" 表格）';
+    return;
+  }
+  S.day = {title: parsed.title, rows: parsed.rows, source};
+  renderDay();
+}
+function bindDayInput(){
+  const drop = $('#day-drop'), input = $('#day-file');
+  const readFile = f => f.text().then(t => loadDayText(t, f.name));
+  drop.onclick = ()=>input.click();
+  drop.onkeydown = ev=>{ if(ev.key==='Enter'||ev.key===' ') input.click(); };
+  ['dragenter','dragover'].forEach(t=>drop.addEventListener(t, ev=>{
+    ev.preventDefault(); drop.classList.add('dragover');
+  }));
+  drop.addEventListener('dragleave', ()=>drop.classList.remove('dragover'));
+  drop.addEventListener('drop', ev=>{
+    ev.preventDefault(); drop.classList.remove('dragover');
+    const f = ev.dataTransfer.files && ev.dataTransfer.files[0];
+    if (f) readFile(f);
+  });
+  input.onchange = ()=>{ if (input.files.length) readFile(input.files[0]); };
+  $('#day-load').onclick = ()=>{
+    const text = $('#day-paste').value;
+    if (!text.trim()){ $('#day-err').textContent = '粘贴内容为空'; return; }
+    loadDayText(text, '粘贴内容');
+  };
+}
+
+/* ================================================================
  * 文件加载与入口
  * file-input 同时承担点击选择与自动化测试（set_input_files）入口。
  * ================================================================ */
@@ -1357,7 +1449,7 @@ function bindDnd(){
     if (S.db) S.db.close();
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
-    S.itemNames={}; S.nameIdx=null;
+    S.itemNames={}; S.nameIdx=null; S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
     RS.loaded=false; RS.items=[]; RS.kw='';
