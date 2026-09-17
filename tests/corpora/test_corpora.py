@@ -28,7 +28,8 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     assert len(products) == 8
     assert len(threads) == 48
     assert all(2 <= len(thread["messages"]) <= 5 for thread in threads)
-    assert len(scenario.products) == 129
+    # 修订合同正餐品类：129 种既有食品 + 30 条 meal-* 正餐引用。
+    assert len(scenario.products) == 159
 
 
 def test_manifest_rejects_in_root_symbolic_link_before_resolve(tmp_path: Path) -> None:

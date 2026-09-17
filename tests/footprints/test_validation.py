@@ -1,14 +1,42 @@
 import hashlib
 import json
+import os
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
+os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
+from tests.profile.conftest import make_card, make_window
 from worldmock.delivery.windows import prepare_windows
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
+from worldmock.profile.coverage import PersonaCoverageError
+from worldmock.profile.models import HabitSignature, Tastes
+from worldmock.validation import build_coverage_targets, validate_project
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
+
+
+def _compiler(card):
+    """确定性画像编译桩：同一卡片响应任意 background_story。"""
+    return lambda story: SimpleNamespace(card=card)
+
+
+def _covered_card():
+    """全部命中真实目录目标的卡片（紫薇公园/悬疑/牛肉炒面/电影）。"""
+    return make_card(
+        habits=(HabitSignature(trigger="下班到家", response="去紫薇公园散步",
+                               time_window=make_window(19.0, 20.0)),),
+        tastes=Tastes(content_genres=("悬疑",), food_preferences=("牛肉炒面",),
+                      media=("电影",)))
 
 
 @pytest.fixture
@@ -72,3 +100,148 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
                                            sha256=hashlib.sha256(path.read_bytes()).hexdigest())
         manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(IntegrityError): validate_export(complete_export)
+
+
+def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
+    """validate 全链路通过：品类准入+任务受理+两阶段身份+persona_coverage.json。"""
+    coverage_out = tmp_path / "persona_coverage.json"
+    result = validate_project(PROJECT_ROOT, SCENARIO,
+                              persona_compiler=_compiler(_covered_card()),
+                              coverage_out=coverage_out)
+
+    assert result["valid"] is True
+    assert result["model_identity"] == {"stages": ["action", "monologue", "work_review"],
+                                        "consistent": True}
+    report = result["persona_coverage"][0]
+    assert report["agent_id"] == 1 and report["passed"] is True
+    assert report["executable_ratio"] >= 0.8
+    document = json.loads(coverage_out.read_text(encoding="utf-8"))
+    assert document["schema_version"] == 1 and document["threshold"] == 0.8
+    assert document["agents"][0]["covered_items"] == report["covered_items"]
+
+
+def test_validate_project_rejects_coverage_below_threshold(tmp_path):
+    """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
+    uncovered = make_card(
+        habits=(HabitSignature(trigger="通勤", response="听播客两集",
+                               time_window=make_window(8.0, 9.0)),),
+        tastes=Tastes(content_genres=("西部片", "太空歌剧"), food_preferences=("分子料理",),
+                      media=("播客", "全息投影")))
+
+    with pytest.raises(PersonaCoverageError, match="PERSONA_COVERAGE_FAILED") as caught:
+        validate_project(PROJECT_ROOT, SCENARIO,
+                         persona_compiler=_compiler(uncovered),
+                         coverage_out=tmp_path / "persona_coverage.json")
+    assert "播客" in str(caught.value)
+
+
+def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
+    """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
+    import worldmock.validation as validation_module
+
+    class _Violation:
+        code = "CATEGORY_MEALS_MISSING"
+        detail = "meals corpus is absent"
+
+    original = validation_module.validate_world_categories
+    monkeypatch.setattr(validation_module, "validate_world_categories",
+                        lambda catalog, root: SimpleNamespace(ok=False,
+                                                              violations=(_Violation(),)))
+    try:
+        with pytest.raises(IntegrityError, match="World category admission rejected"):
+            validate_project(PROJECT_ROOT, SCENARIO,
+                             persona_compiler=_compiler(_covered_card()),
+                             coverage_out=tmp_path / "persona_coverage.json")
+    finally:
+        monkeypatch.setattr(validation_module, "validate_world_categories", original)
+
+
+def test_build_coverage_targets_derives_from_catalog_and_corpora():
+    """覆盖率目标集从 catalog 品类/目录条目确定性派生。"""
+    from worldmock.catalog.loader import load_catalog
+    from worldmock.life.scenario import load_scenario
+
+    scenario = load_scenario(SCENARIO)[0]
+    targets = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),
+                                     PROJECT_ROOT / "corpora")
+
+    assert "紫薇公园" in targets.habit_response_keywords
+    assert "悬疑" in targets.content_genres
+    assert "牛肉炒面" in targets.food_kinds
+    assert targets.media_kinds and set(targets.media_kinds) <= {
+        "电影", "剧集", "网文", "新闻", "段子", "字幕体验", "游戏"}
+    again = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),
+                                   PROJECT_ROOT / "corpora")
+    assert again == targets
+
+
+def _fake_extraction(card):
+    """构造走完整 compile_persona 路径的确定性抽取结果。"""
+    from worldmock.profile.extractor import PersonaExtraction
+    from worldmock.profile.models import BigFiveProfile
+
+    return PersonaExtraction(
+        card=card,
+        big_five=BigFiveProfile(openness=5, conscientiousness=4, extraversion=6,
+                                agreeableness=4, neuroticism=3),
+        runs=3, agreement=1.0, per_field={},
+        warning=False, model="deepseek-chat", prompt_version="card-v1")
+
+
+def test_profile_cli_compile_outputs_card_and_rendered_text(tmp_path, monkeypatch, capsys):
+    """profile compile（v2）：卡片+大五+世界层动力学+渲染文本。"""
+    from worldmock.cli import main
+    from worldmock.profile import extractor
+
+    story = tmp_path / "story.txt"
+    story.write_text("陈曦，32岁，产品经理，住在上海张江。", encoding="utf-8")
+    monkeypatch.setattr(extractor, "extract_persona",
+                        lambda text, n_runs: _fake_extraction(make_card()))
+
+    code = main(["profile", "compile", "--text", str(story), "--runs", "3"])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["schema_version"] == 2
+    assert result["card"]["identity"]["occupation"] == "产品经理"
+    assert result["persona_card_text"].startswith("产品经理，32岁")
+    assert "big_five" in result and "world_dynamics" in result and "source" in result
+
+
+def test_profile_cli_check_asserts_three_compile_consistency(tmp_path, monkeypatch, capsys):
+    """profile check：三次编译卡片一致即通过，漂移即失败（非零退出）。"""
+    from worldmock.cli import main
+    from worldmock.profile import extractor
+
+    story = tmp_path / "story.txt"
+    story.write_text("陈曦，32岁，产品经理，住在上海张江。", encoding="utf-8")
+    monkeypatch.setattr(extractor, "extract_persona",
+                        lambda text, n_runs: _fake_extraction(make_card()))
+    assert main(["profile", "check", "--text", str(story)]) == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["card_mode_hit"] == 1.0
+    assert all(rate == 1.0 for rate in report["big_five_mode_hit"].values())
+
+    drifted = iter([make_card(coping="跑步解压"), make_card(coping="找朋友聊天"),
+                     make_card()])
+    monkeypatch.setattr(extractor, "extract_persona",
+                        lambda text, n_runs: _fake_extraction(next(drifted)))
+    assert main(["profile", "check", "--text", str(story)]) == 1
+
+
+def test_profile_cli_validate_writes_coverage(tmp_path, monkeypatch, capsys):
+    """profile validate：输出 persona_coverage.json（与 validate 同一覆盖门禁）。"""
+    import worldmock.validation as validation_module
+    from worldmock.cli import main
+
+    coverage_out = tmp_path / "persona_coverage.json"
+    monkeypatch.setattr(validation_module, "_compile_persona",
+                        lambda story: SimpleNamespace(card=_covered_card()))
+    code = main(["profile", "validate", "--scenario", str(SCENARIO),
+                 "--coverage-out", str(coverage_out)])
+
+    assert code == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["scenario_id"]
+    document = json.loads(coverage_out.read_text(encoding="utf-8"))
+    assert document["agents"][0]["passed"] is True

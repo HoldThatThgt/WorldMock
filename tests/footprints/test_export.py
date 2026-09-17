@@ -1,4 +1,6 @@
+import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -85,4 +87,57 @@ def test_checkpoint_requires_every_participant(tmp_path):
         store.checkpoint(store.state, {'agent:1': ref, 'life': ref})
     assert store.last_event_seq == 0
     assert store.connection.execute('SELECT count(*) FROM checkpoints').fetchone()[0] == 0
+    store.close()
+
+
+def test_export_writes_hash_bound_timeline_projections(tmp_path):
+    """导出生成 timeline/<agent>-<date>.md 投影并列入清单（哈希绑定）。"""
+    store = FootprintStore.create(tmp_path / 'run', {
+        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+    }, {'version': 0, 'current_time': 100})
+    activity = {'activity_id': 'work', 'agent_id': 1, 'kind': 'work', 'started_at': 100,
+                'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
+    store.commit({'version': 1, 'current_time': 110}, [EventDraft(
+        event_type='activity_progress', occurred_at=110, agent_id=1, activity_id='work',
+        data={'activity': activity, 'interval_start': 100, 'interval_end': 110})])
+    manifest = export_run(store, 1, tmp_path / 'export')
+
+    records = manifest['timeline']
+    assert [item['path'] for item in records] == ['timeline/1-1970-01-01.md']
+    record = records[0]
+    assert record['agent_id'] == 1 and record['date'] == '1970-01-01'
+    payload = (tmp_path / 'export' / record['path']).read_bytes()
+    assert record['size_bytes'] == len(payload)
+    assert record['sha256'] == hashlib.sha256(payload).hexdigest()
+    assert '工作' in payload.decode('utf-8')
+
+    tampered = b'# forged timeline\n'
+    (tmp_path / 'export' / record['path']).write_bytes(tampered)
+    assert hashlib.sha256(tampered).hexdigest() != record['sha256']
+    store.close()
+
+
+def test_export_timeline_projection_matches_render_day_output(tmp_path):
+    """timeline 投影与 scripts/render_day.py 的渲染函数逐字节一致。"""
+    import importlib.util
+
+    store = FootprintStore.create(tmp_path / 'run', {
+        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+    }, {'version': 0, 'current_time': 100})
+    activity = {'activity_id': 'wait', 'agent_id': 1, 'kind': 'wait', 'started_at': 100,
+                'elapsed_seconds': 10, 'ended_at': None, 'status': 'active'}
+    store.commit({'version': 1, 'current_time': 110}, [EventDraft(
+        event_type='activity_progress', occurred_at=110, agent_id=1, activity_id='wait',
+        data={'activity': activity, 'interval_start': 100, 'interval_end': 110})])
+    export_run(store, 1, tmp_path / 'export')
+
+    spec = importlib.util.spec_from_file_location(
+        'render_day_export_check', Path(__file__).resolve().parents[2] / 'scripts' / 'render_day.py')
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    from datetime import date
+    expected = module.render_day_markdown(store.connection, 1, date(1970, 1, 1))
+    actual = (tmp_path / 'export' / 'timeline' / '1-1970-01-01.md').read_text(encoding='utf-8')
+    assert actual == expected
+    assert '空档' in actual
     store.close()
