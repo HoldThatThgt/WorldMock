@@ -856,12 +856,19 @@ class LifeEngine:
         return data
 
     def _content_progress(self, agent) -> dict[str, dict]:
-        """@brief 返回人物已观看位置、接触次数和当前媒体剩余时长。"""
+        """@brief 返回人物已观看位置、接触次数、展示标题和当前媒体剩余时长。
+
+        标题来自语料 items.json：无展示标题的条目（feed 类、game_session）
+        不写 title 键，观察方以条目身份键区分展示方式。
+        """
         result = {}
         for item_id, progress in sorted(agent.content_progress.items()):
             item = self.rules.content(item_id)
             data = progress.model_dump(mode="json")
             data["remaining_media_seconds"] = max(0.0, item.duration_seconds - progress.position_seconds)
+            title = self.rules.content_titles.get(item_id)
+            if title is not None:
+                data["title"] = title
             result[item_id] = data
         return result
 

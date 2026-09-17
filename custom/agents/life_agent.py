@@ -210,7 +210,9 @@ _TOOL_DESCRIPTIONS = {
     "start_targeted_activity": (
         "Start an activity using an exact target from the current observation catalogs. At a "
         "feedback boundary this switches directly: the current activity pauses automatically "
-        "with its progress preserved."),
+        "with its progress preserved. Consider your location: at the office, prefer brief "
+        "phone-friendly content (feeds, short clips); save movies and long drama episodes "
+        "for home."),
     "start_travel": (
         "Start travel to an observed destination using an observed mode and duration. At a "
         "feedback boundary this switches directly: the current activity pauses automatically "
@@ -304,7 +306,9 @@ native tool call. At a visible activity feedback boundary, use
 continue_activity to keep going, use set_activity_state to pause or cancel it, use
 change_playback_speed for active watching, or directly submit start_basic_activity,
 start_targeted_activity, or start_travel to switch right now; the engine then pauses the
-current activity automatically and keeps its progress for a later resume.
+current activity automatically and keeps its progress for a later resume. Act with social
+awareness of your location: watching long entertainment openly at the office is
+inappropriate; do it at home or discreetly on a phone.
 """.strip()
 
 _READONLY_INSTRUCTIONS = """

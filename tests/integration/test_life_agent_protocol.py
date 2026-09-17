@@ -143,6 +143,27 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
 
 
+def test_location_norm_guides_tool_description_and_instructions() -> None:
+    """办公室场景的位置行为规范同时落在工具描述与系统指令里。"""
+    agent = LifeAgent()
+    agent.prepare_react_loop(
+        ReactLoopRequest(0, _context().observed_at, _observations())
+    )
+    schemas = {
+        item["function"]["name"]: item["function"]["description"]
+        for item in agent.build_react_tool_schemas(readonly=False)
+    }
+    system_prompt = next(
+        message["content"] for message in agent.build_react_messages(
+            ReactLoopRequest(0, _context().observed_at, _observations()))
+        if message.get("role") == "system")
+
+    assert "at the office, prefer brief phone-friendly content" in schemas["start_targeted_activity"]
+    assert "save movies and long drama episodes" in schemas["start_targeted_activity"]
+    assert ("watching long entertainment openly at the office is inappropriate"
+            in " ".join(system_prompt.split()))
+
+
 def test_action_schema_requires_prepared_environment_catalogs() -> None:
     """非只读动作工具在首观察目录冻结前必须明确失败。"""
     with pytest.raises(RuntimeError, match="activity controls are not prepared"):

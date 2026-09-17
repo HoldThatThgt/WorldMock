@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -178,3 +180,39 @@ def test_real_observation_hides_impossible_media_and_work_tail_starts(engine_fac
     assert "work" not in kinds and "watch" not in kinds
     assert "submit_work" in schemas
     assert set(schemas["submit_work"]["parameters"]["properties"]) == {"task_id", "deliverable"}
+
+
+def _stage_titled_progress(engine) -> None:
+    """形成电影、字幕体验与新闻流三条已开始内容的真实进度状态。"""
+    state = engine.state.model_copy(deep=True)
+    agent = state.agents[1]
+    staged = {
+        "movie-0001": ContentProgress(item_id="movie-0001", position_seconds=600, exposure_count=1),
+        "sintel-en-subtitles": ContentProgress(
+            item_id="sintel-en-subtitles", position_seconds=300, exposure_count=1),
+        "news-feed": ContentProgress(item_id="news-feed", position_seconds=120, exposure_count=2),
+    }
+    state.agents[1] = agent.model_copy(update={"content_progress": staged}, deep=True)
+    _commit_test_state(engine, state, "test_content_progress_titles")
+
+
+def test_real_observation_content_progress_titles(engine_factory) -> None:
+    """已开始内容条目携带语料展示标题；feed 条目不写 title 键。"""
+    engine = engine_factory()
+    _stage_titled_progress(engine)
+    observed_context = context(engine, "content-progress-titles")
+    engine.begin_decision_round([observed_context])
+    observation = engine.observe(observed_context)
+    progress = observation["content_progress"]
+    movies = json.loads(Path("corpora/movies/items.json").read_text(encoding="utf-8"))
+    movie_title = next(row["title"] for row in movies if row["item_id"] == "movie-0001")
+    identity = json.loads(Path("corpora/sintel/media-identity.json").read_text(encoding="utf-8"))
+
+    assert progress["movie-0001"]["title"] == movie_title
+    assert progress["sintel-en-subtitles"]["title"] == identity["title"]
+    assert set(progress["movie-0001"]) == {
+        "item_id", "position_seconds", "exposure_count",
+        "remaining_media_seconds", "title"}
+    assert "title" not in progress["news-feed"]
+    assert set(progress["news-feed"]) == {
+        "item_id", "position_seconds", "exposure_count", "remaining_media_seconds"}
