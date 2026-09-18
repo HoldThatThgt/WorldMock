@@ -1,11 +1,11 @@
-<!-- worldmock-doc: {"authority":"governance","canonical_path":"docs/dev/SPEC-document-governance.md","implementation_state":"NOT-COMPLETE","kind":"SPEC","owner":"WorldMock maintainers","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18"} -->
+<!-- worldmock-doc: {"authority":"governance","canonical_path":"docs/dev/SPEC-document-governance.md","implementation_state":"NOT-COMPLETE","kind":"SPEC","owner":"WorldMock maintainers","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18-revision-1"} -->
 
 # WorldMock 文档治理规格
 
 **Status: FROZEN**
 **Implementation state: NOT-COMPLETE**
 **Scope: 文档目录、权威关系、状态元数据、迁移、证据身份、验收门禁**
-**Non-goals: 不扩大运行时范围；不修改运行时代码、数据格式或业务行为；不在本规格中实现可供性注册表或资源注册表；不删除历史文件；不建立旧路径重定向、转发文件或兼容适配层**
+**Non-goals: 不扩大运行时范围；不修改运行时代码、数据格式或业务行为；不在本规格中新增 registry runtime 依赖、不回退既有 affordance registry 实现、不冻结两个 registry 提案；不删除历史文件；不建立旧路径重定向、转发文件或兼容适配层**
 **Authority: 本文件是 WorldMock 文档治理的唯一规范；接口签名和字段合同仍只在 FROZEN `docs/CONTRACTS.md` 定义**
 **Owner: WorldMock maintainers**
 
@@ -14,10 +14,11 @@
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | `2026-09-18` | 2026-09-18 | 冻结文档职责、目录、迁移、状态、快照身份、四项协议门禁、机器验收和后续文件所有权。 |
+| `2026-09-18-revision-1` | 2026-09-18 | 修订活动文档平铺路径、原子迁移边界、registry pre-existing 依赖、状态 marker 目标、覆盖基线纳入范围和快照树身份；重新冻结本治理口径。 |
 
 ## 结论与裁决
 
-WorldMock 采用按职责拆分的文档集，不再把架构、接口、实验、验收和真实性合同继续放在一个权威单体中。现有 `docs/agentsociety2-design.md` 是迁移完成前的过渡权威，迁移完成后只保留在 `docs/history/` 作为不可引用的历史快照；迁移后的规范权威由根目录文档和 `docs/dev/SPEC/` 中的 FROZEN 特性规格组成。
+WorldMock 采用按职责拆分的文档集，不再把架构、接口、实验、验收和真实性合同继续放在一个权威单体中。现有 `docs/agentsociety2-design.md` 是迁移完成前的过渡权威，迁移完成后只保留在 `docs/history/` 作为不可引用的历史快照；迁移后的规范权威由根目录文档和 `docs/dev/SPEC-*.md` 中的特性规格组成。
 
 以下裁决立即生效，并且不得被后续实现代理重新解释：
 
@@ -25,12 +26,12 @@ WorldMock 采用按职责拆分的文档集，不再把架构、接口、实验�
 - `docs/ARCHITECTURE.md` 记录系统 WHY、职责边界、算法选择和数据流；它不重新定义接口字段。
 - `docs/EXPERIMENT.md` 记录实验身份、依赖、场景、时间窗、样本和外部参照；它不把实验结果写成行为合同。
 - `docs/VERIFICATION.md` 记录验收条款、协议门禁、报告项、测试矩阵和证据要求；行为分布指标不得被写成放行条件，除非本 SPEC 明确将其列为协议门禁。
-- `docs/dev/SPEC/` 记录已经裁决的特性行为和算法；`docs/dev/PROPOSAL/` 记录尚未冻结的提案；`docs/dev/ANALYSIS/` 记录分析，不拥有规范权威。
+- 活动特性规格必须使用 `docs/dev/SPEC-*.md`；活动提案必须使用 `docs/dev/PROPOSAL-*.md`；活动分析必须使用 `docs/dev/ANALYSIS-*.md`，且分析不拥有规范权威。`docs/dev/SPEC-document-governance.md` 是治理 SPEC 的唯一固定路径例外。
 - `docs/history/` 和 `docs/history/research/` 只保存历史事实、失败原件、调研和被替代文档，不拥有当前规范权威。
 - 当前实现状态仍为 `NOT-COMPLETE`。确定性代码和测试层已经完成，不等同于真实 DeepSeek 十二周运行、三次隔离盲评和完整自然日 LabelKit 交付完成。
 - `behavior_metrics` 的协议门禁固定为四项。`plan_actual_deviation` 及所有未列入四项的行为指标均为 report-only，不参与放行，不反馈成行动脚本。
 - `coverage-report.json` 是生成物，会被覆盖写入；每份报告必须携带并校验同一 `snapshot_id` 和 evidence manifest 身份，禁止把不同快照的 JSON、Markdown 或测试结果拼成一个结论。
-- 两个注册表文档只在迁移后作为 `PROPOSAL` 索引项存在；本 SPEC 不冻结其 schema，不实现其运行时，不为其创建代码入口。
+- 两个注册表文档只在迁移后作为 `PROPOSAL` 索引项存在；本 SPEC 不冻结其 schema，不为治理特性新增 registry runtime 依赖，不回退既有 affordance registry 实现，也不为 registry 提案创建新的代码入口。既有代码对 affordance registry 的依赖登记为 `pre-existing`，未来 registry 扩展必须由独立 SPEC 单独裁决；resource registry 仍为未冻结提案。
 
 ## 文档流与迁移流
 
@@ -42,7 +43,7 @@ flowchart LR
     INDEX --> CONTRACTS[docs/CONTRACTS.md]
     INDEX --> EXP[docs/EXPERIMENT.md]
     INDEX --> VER[docs/VERIFICATION.md]
-    ARCH --> SPEC[docs/dev/SPEC/*.md]
+    ARCH --> SPEC[docs/dev/SPEC-*.md]
     CONTRACTS --> SPEC
     EXP --> VER
     SPEC --> VER
@@ -57,7 +58,7 @@ flowchart LR
 flowchart TD
     MONO[docs/agentsociety2-design.md] --> SPLIT[按职责拆分并逐项核证]
     SPLIT --> ROOT[ARCHITECTURE / CONTRACTS / EXPERIMENT / VERIFICATION]
-    SPLIT --> FEATURE[docs/dev/SPEC/*]
+    SPLIT --> FEATURE[docs/dev/SPEC-*.md]
     MONO --> HIST[docs/history/agentsociety2-design.md\nstatus=SUPERSEDED]
     V2[docs/agentsociety2-design-v2.md] --> V2H[docs/history/agentsociety2-design-v2.md]
     GUIDE[docs/design-improvement-guide.md] --> GUIDEH[docs/history/design-improvement-guide.md]
@@ -75,7 +76,7 @@ flowchart TD
 | --- | --- | --- | --- |
 | 治理 | 本文件 | 目录、状态、迁移、快照身份、治理门禁 | 定义运行时接口或业务算法 |
 | 接口 | `docs/CONTRACTS.md` | 函数签名、类型、字段、枚举、文件格式、提示词模板 | 解释 WHY；在其他文件复制接口定义 |
-| 架构与算法 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC/*.md` | WHY、职责边界、算法和当前特性行为 | 另造接口版本；把实验结果当合同 |
+| 架构与算法 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC-*.md` | WHY、职责边界、算法和当前特性行为 | 另造接口版本；把实验结果当合同 |
 | 实验 | `docs/EXPERIMENT.md` | 依赖、场景、时间窗、采样、外部参照、实验身份 | 宣称未完成真实验收已经完成 |
 | 验收 | `docs/VERIFICATION.md` | 测试矩阵、门禁、报告项、证据和结论边界 | 把 report-only 项变成放行条件 |
 | 状态与证据 | `docs/implementation-status.md`、`docs/evidence-manifest.json`、生成的报告 | 当前实现状态、快照、原始证据索引 | 改写 FROZEN 合同或省略未完成真实验收 |
@@ -110,7 +111,7 @@ flowchart TD
 <!-- worldmock-doc: {"authority":"...","canonical_path":"...","implementation_state":"...","kind":"...","owner":"...","replaces":[],"schema":"worldmock.document.metadata.v1","status":"...","superseded_by":null,"version":"..."} -->
 ```
 
-`canonical_path` 必须是仓库相对 POSIX 路径；`superseded_by` 在 `SUPERSEDED` 或 `DEPRECATED` 时必须是相对路径，在其他状态为 `null`；`replaces` 必须是相对路径数组。文件名不得携带 `v1`、`v2` 或其他版本后缀，版本演进只写入版本表和 marker 的 `version`。
+`canonical_path` 必须是仓库相对 POSIX 路径；`superseded_by` 在 `SUPERSEDED` 或 `DEPRECATED` 时必须存在且为相对路径或相对路径数组，在其他状态为 `null`；`replaces` 必须是相对路径数组。文件名不得携带 `v1`、`v2` 或其他版本后缀，版本演进只写入版本表和 marker 的 `version`。
 
 ## 目标目录与职责
 
@@ -123,19 +124,22 @@ docs/
 ├── CONTRACTS.md
 ├── EXPERIMENT.md
 ├── VERIFICATION.md
+├── implementation-status.md
+├── coverage-baseline.md
+├── spec-coverage.md
 ├── evidence-manifest.json
-├── coverage-report.json
+├── coverage-report.json          # GENERATED
 ├── dev/
 │   ├── SPEC-document-governance.md
-│   ├── SPEC/
-│   ├── PROPOSAL/
-│   └── ANALYSIS/
+│   ├── SPEC-*.md
+│   ├── PROPOSAL-*.md
+│   └── ANALYSIS-*.md
 └── history/
     ├── research/
     └── ...
 ```
 
-`docs/specs/`、`docs/spec/` 和任何平行特性规格目录均不是目标目录。`docs/dev/SPEC-document-governance.md` 是治理规格的固定路径例外；其他特性规格必须位于 `docs/dev/SPEC/`。
+`docs/dev/SPEC-document-governance.md` 是治理 SPEC 的唯一固定路径例外。活动特性规格、提案和分析必须分别平铺为 `docs/dev/SPEC-*.md`、`docs/dev/PROPOSAL-*.md` 和 `docs/dev/ANALYSIS-*.md`；不得创建或使用 `docs/dev/SPEC/`、`docs/dev/PROPOSAL/`、`docs/dev/ANALYSIS/` 子目录。`docs/specs/`、`docs/spec/` 和任何其他平行特性规格目录也不是目标目录。
 
 | 目标 | 职责 | 状态要求 |
 | --- | --- | --- |
@@ -144,9 +148,9 @@ docs/
 | `docs/CONTRACTS.md` | 所有接口和数据合同的唯一来源 | `FROZEN` |
 | `docs/EXPERIMENT.md` | 实验、依赖、场景、时间窗、快照输入和外部参照 | `FROZEN` |
 | `docs/VERIFICATION.md` | 验收、四项协议门禁、report-only 边界、测试和证据规则 | `FROZEN` |
-| `docs/dev/SPEC/*.md` | 已裁决的特性 WHY、算法和行为规格 | `FROZEN` 或 `DRAFT` |
-| `docs/dev/PROPOSAL/*.md` | 未冻结的方案和待裁决问题 | `PROPOSAL` |
-| `docs/dev/ANALYSIS/*.md` | 技术分析、审查和推导，不拥有规范权威 | `DRAFT` 或 `SUPERSEDED` |
+| `docs/dev/SPEC-*.md` | 已裁决的特性 WHY、算法和行为规格 | `FROZEN` 或 `DRAFT` |
+| `docs/dev/PROPOSAL-*.md` | 未冻结的方案和待裁决问题 | `PROPOSAL` |
+| `docs/dev/ANALYSIS-*.md` | 技术分析、审查和推导，不拥有规范权威 | `DRAFT` 或 `SUPERSEDED` |
 | `docs/history/research/*` | 调研、失败原件、外部依据和历史验收材料 | `SUPERSEDED` 或 `DEPRECATED` |
 | `docs/evidence-manifest.json` | 单次运行的规范、代码、依赖、场景和测试身份及证据索引 | 生成身份文件 |
 | `docs/coverage-report.json` | 绑定快照身份的覆盖率生成物，每次覆盖写入 | 生成物，不是规范 |
@@ -160,23 +164,23 @@ docs/
 | 来源职责 | 当前权威来源 | 唯一目标 | 迁移规则 |
 | --- | --- | --- | --- |
 | 设计结论、目标、范围、整体数据流 | `docs/agentsociety2-design.md` | `docs/ARCHITECTURE.md` | 保留 WHY、边界和总流程；接口字段转交 CONTRACTS。 |
-| AS2 选型、LifeEnv/LifeAgent 分层和改动理由 | 主设计单体 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC/as2-integration.md` | WHY 进入 ARCHITECTURE；确定性行为和算法进入特性 SPEC。 |
-| LifeEnv 状态归属、生命周期、工具和动作结果 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC/life-runtime.md` | 类型、签名、枚举和结果字段只进 CONTRACTS；行为规则进 life-runtime。 |
-| 资源、需求、活动结算、共享时钟、并发和加速 | 主设计单体 | `docs/dev/SPEC/life-runtime.md` | 只保留已裁决算法；接口引用 CONTRACTS，不复制字段定义。 |
-| 语料进入环境、内容目录、工作反馈、导航和配送 | 主设计单体 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC/life-runtime.md` | 数据流和选择理由进 ARCHITECTURE；准入和结算行为进 life-runtime。 |
-| 数字足迹保存边界、事件结构、持久化、事务、检查点和恢复 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC/footprints.md` | 事件/文件/恢复字段只进 CONTRACTS；一致性和算法进 footprints。 |
-| LifeAgent 人格、记忆和 dreaming 边界 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC/life-realism.md` | 可见字段和窗口格式进 CONTRACTS；边界和决策逻辑进 life-realism。 |
-| LabelKit 输入范围、加工责任、来源关联、标签和交付格式 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC/labelkit-delivery.md` | 数据合同唯一落 CONTRACTS；加工流程和验收行为落 labelkit-delivery。 |
+| AS2 选型、LifeEnv/LifeAgent 分层和改动理由 | 主设计单体 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC-as2-integration.md` | WHY 进入 ARCHITECTURE；确定性行为和算法进入特性 SPEC。 |
+| LifeEnv 状态归属、生命周期、工具和动作结果 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC-life-runtime.md` | 类型、签名、枚举和结果字段只进 CONTRACTS；行为规则进 life-runtime。 |
+| 资源、需求、活动结算、共享时钟、并发和加速 | 主设计单体 | `docs/dev/SPEC-life-runtime.md` | 只保留已裁决算法；接口引用 CONTRACTS，不复制字段定义。 |
+| 语料进入环境、内容目录、工作反馈、导航和配送 | 主设计单体 | `docs/ARCHITECTURE.md`、`docs/dev/SPEC-life-runtime.md` | 数据流和选择理由进 ARCHITECTURE；准入和结算行为进 life-runtime。 |
+| 数字足迹保存边界、事件结构、持久化、事务、检查点和恢复 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC-footprints.md` | 事件/文件/恢复字段只进 CONTRACTS；一致性和算法进 footprints。 |
+| LifeAgent 人格、记忆和 dreaming 边界 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC-life-realism.md` | 可见字段和窗口格式进 CONTRACTS；边界和决策逻辑进 life-realism。 |
+| LabelKit 输入范围、加工责任、来源关联、标签和交付格式 | 主设计单体 | `docs/CONTRACTS.md`、`docs/dev/SPEC-labelkit-delivery.md` | 数据合同唯一落 CONTRACTS；加工流程和验收行为落 labelkit-delivery。 |
 | 一条完整生活经历的数据流 | 主设计单体 | `docs/ARCHITECTURE.md` | 只保留从人物决策到足迹、LabelKit 和交付的系统流。 |
 | 实现组织和交付顺序 | 主设计单体 | `docs/INDEX.md`、`docs/VERIFICATION.md` | 文件 owner 进 INDEX；可验证顺序和门禁进 VERIFICATION。 |
 | 验证矩阵、测试入口和覆盖口径 | 主设计单体 | `docs/VERIFICATION.md` | 转成机器可执行 TEST-MATRIX；不得只保留表格描述。 |
 | 实验边界、依赖和外部参照 | 主设计单体 | `docs/EXPERIMENT.md` | 实验身份与样本绑定 evidence manifest。 |
 | 依据、核对记录、独立审查依据 | 主设计单体 | `docs/history/research/*` | 作为历史来源保存；不作为当前合同。 |
 | 实验与依赖、运行数据接口、场景绑定 | 主设计单体的开发合同部分 | `docs/EXPERIMENT.md`、`docs/CONTRACTS.md` | 实验设置进 EXPERIMENT；接口定义进 CONTRACTS。 |
-| 场景与身体规则、内容与消费生产绑定 | 主设计单体的开发合同部分 | `docs/dev/SPEC/life-runtime.md`、`docs/dev/SPEC/life-realism.md` | 行为算法进入特性 SPEC；场景身份进入 EXPERIMENT。 |
-| LabelKit 最终数据合同 | 主设计单体的开发合同部分 | `docs/CONTRACTS.md`、`docs/dev/SPEC/labelkit-delivery.md` | 字段和格式只在 CONTRACTS；生产和验证步骤在特性 SPEC。 |
+| 场景与身体规则、内容与消费生产绑定 | 主设计单体的开发合同部分 | `docs/dev/SPEC-life-runtime.md`、`docs/dev/SPEC-life-realism.md` | 行为算法进入特性 SPEC；场景身份进入 EXPERIMENT。 |
+| LabelKit 最终数据合同 | 主设计单体的开发合同部分 | `docs/CONTRACTS.md`、`docs/dev/SPEC-labelkit-delivery.md` | 字段和格式只在 CONTRACTS；生产和验证步骤在特性 SPEC。 |
 | 真实性评估、结论边界和最终门禁 | 主设计单体的开发合同部分 | `docs/VERIFICATION.md` | 四项协议门禁和 report-only 集合在此唯一维护。 |
-| 人物真实性修订合同的决策节律、身体语义、观察投影、两阶段决策、记忆、动机、日程、社交、素材、画像、商务进食和导出 | 主设计单体末尾修订合同 | `docs/dev/SPEC/life-realism.md`、`docs/CONTRACTS.md` | 行为和算法进 life-realism；字段、工具和投影格式进 CONTRACTS。 |
+| 人物真实性修订合同的决策节律、身体语义、观察投影、两阶段决策、记忆、动机、日程、社交、素材、画像、商务进食和导出 | 主设计单体末尾修订合同 | `docs/dev/SPEC-life-realism.md`、`docs/CONTRACTS.md` | 行为和算法进 life-realism；字段、工具和投影格式进 CONTRACTS。 |
 | 人物真实性修订合同的验收指标与门禁 | 主设计单体末尾修订合同 | `docs/VERIFICATION.md` | 精确保留四个协议门禁和 report-only 边界。 |
 | 文件修改清单、实施顺序和已选裁决 | 主设计单体末尾修订合同 | `docs/INDEX.md`、`docs/VERIFICATION.md`、对应特性 SPEC | 文件归属进 INDEX；实施顺序进 VERIFICATION；备选方案不进入当前合同，历史理由进 research。 |
 | 修订合同依据 | 主设计单体末尾修订合同 | `docs/history/research/*` | 仅保留来源和审查证据，不重定义当前行为。 |
@@ -288,7 +292,7 @@ manifest 顶层必须包含 `snapshot_id`、`identity`、`evidence` 和 `schema`
 
 ### `GOV-MUST-01` 文档 marker 可解析且路径自洽
 
-- **目标文件**：`docs/dev/SPEC-document-governance.md`、`docs/INDEX.md`、`docs/ARCHITECTURE.md`、`docs/CONTRACTS.md`、`docs/EXPERIMENT.md`、`docs/VERIFICATION.md`、`docs/dev/SPEC/*.md`、`docs/dev/PROPOSAL/*.md`、`docs/dev/ANALYSIS/*.md`、`docs/history/**/*.md`。
+- **目标文件**：`docs/dev/SPEC-document-governance.md`、`docs/INDEX.md`、`docs/ARCHITECTURE.md`、`docs/CONTRACTS.md`、`docs/EXPERIMENT.md`、`docs/VERIFICATION.md`、`docs/dev/SPEC-*.md`、`docs/dev/PROPOSAL-*.md`、`docs/dev/ANALYSIS-*.md`、`docs/history/**/*.md`。
 - **检查命令/测试**：`uv run pytest -q tests/documentation/test_governance.py -k metadata_markers`。
 - **失败条件**：首行缺少 `worldmock-doc` marker、JSON 无法解析、必需键缺失、`canonical_path` 与实际路径不一致、hash/path 使用绝对路径或状态值不在集合内。
 - **验收标准**：所有目标文档各有且仅有一个可解析 marker，marker 的 canonical path、状态和实现状态全部通过 schema 校验。
@@ -297,7 +301,7 @@ manifest 顶层必须包含 `snapshot_id`、`identity`、`evidence` 和 `schema`
 
 - **目标文件**：`docs/INDEX.md`、`docs/dev/`、`docs/history/`。
 - **检查命令/测试**：`uv run pytest -q tests/documentation/test_governance.py -k directory_and_status_rules`。
-- **失败条件**：存在 `docs/specs/` 或 `docs/spec/`、PROPOSAL 文件不在 `docs/dev/PROPOSAL/`、SUPERSEDED 文件不在 `docs/history/`、DRAFT 文件没有所属 ANALYSIS/SPEC 工作目录。
+- **失败条件**：存在 `docs/specs/`、`docs/spec/`、`docs/dev/SPEC/`、`docs/dev/PROPOSAL/` 或 `docs/dev/ANALYSIS/` 子目录；PROPOSAL 文件不在 `docs/dev/` 或不以 `PROPOSAL-` 前缀命名；SUPERSEDED 文件不在 `docs/history/`；DRAFT 文件不在 `docs/dev/`。
 - **验收标准**：目标目录只出现本 SPEC 定义的集合；目录与 marker status 双向一致。
 
 ### `GOV-MUST-03` 接口定义唯一归属 CONTRACTS
@@ -309,17 +313,17 @@ manifest 顶层必须包含 `snapshot_id`、`identity`、`evidence` 和 `schema`
 
 ### `GOV-MUST-04` 主单体迁移映射完整且无旧路径转发
 
-- **目标文件**：`docs/INDEX.md` 的 `worldmock-migration` JSON marker、`docs/history/`、`docs/ARCHITECTURE.md`、`docs/CONTRACTS.md`、`docs/EXPERIMENT.md`、`docs/VERIFICATION.md`、`docs/dev/SPEC/`。
+- **目标文件**：`docs/INDEX.md` 的 `worldmock-migration` JSON marker、`docs/history/`、`docs/ARCHITECTURE.md`、`docs/CONTRACTS.md`、`docs/EXPERIMENT.md`、`docs/VERIFICATION.md`、`docs/dev/SPEC-*.md`。
 - **检查命令/测试**：`uv run pytest -q tests/documentation/test_governance.py -k migration_map_and_no_redirects`。
 - **失败条件**：任一主设计职责没有唯一目标、同一职责有两个当前权威目标、历史化文件仍被当前文档作为规范链接、旧文件路径存在 redirect/front matter 转发内容。
 - **验收标准**：迁移 marker 覆盖主设计全部职责、v2/guide/组织分析和 research；每个职责只有一个规范目标；旧文件只作为历史快照存在，不提供重定向。
 
-### `GOV-MUST-05` 注册表提案保持未冻结且不进入运行时
+### `GOV-MUST-05` 注册表提案保持未冻结且本 SPEC 不新增 registry 依赖
 
 - **目标文件**：`docs/dev/PROPOSAL-affordance-registry.md`、`docs/dev/PROPOSAL-resource-registry.md`、`docs/INDEX.md`、`docs/CONTRACTS.md`、`src/`、`custom/`、`tests/`。
 - **检查命令/测试**：`uv run pytest -q tests/documentation/test_governance.py -k registry_proposal_scope`。
-- **失败条件**：提案 marker 不是 `PROPOSAL`、提案被 CONTRACTS 当作冻结接口引用、出现 registry runtime import/entrypoint、提案内容声称 schema 已冻结。
-- **验收标准**：两个提案均有唯一索引记录和 Non-goals；代码与测试没有由本 SPEC 新增的 registry 运行时依赖。
+- **失败条件**：提案 marker 不是 `PROPOSAL`；本治理 SPEC 新增 registry runtime import/entrypoint（pre-existing 既有依赖除外）；提案被 CONTRACTS 当作当前接口权威或声称 schema 已冻结。
+- **验收标准**：两个提案均有唯一索引记录和 Non-goals；既有 affordance registry 依赖（`affordances.py`、`semantics.py`、`affordances.toml`）登记为 pre-existing；本 SPEC 没有新增 registry 运行时依赖；未来扩展仍需独立 SPEC。
 
 ### `GOV-MUST-06` snapshot_id 使用固定 canonical JSON
 
@@ -375,7 +379,7 @@ manifest 顶层必须包含 `snapshot_id`、`identity`、`evidence` 和 `schema`
 文档治理实施只有同时满足下列条件才可把治理交付登记为 `COMPLETE`：
 
 - `docs/INDEX.md`、`ARCHITECTURE.md`、`CONTRACTS.md`、`EXPERIMENT.md`、`VERIFICATION.md` 和所有目标开发文档均有合法 marker，且 marker 与目录、状态和 owner 一致。
-- 主设计单体的每项来源职责都在 migration marker 中有唯一目标；v2、指南、组织分析和 research 均已历史化；两个 registry 文件位于 `docs/dev/PROPOSAL/` 且保持 `PROPOSAL`。
+- 主设计单体的每项来源职责都在 migration marker 中有唯一目标；v2、指南、组织分析和 research 均已历史化；两个 registry 文件位于 `docs/dev/` 且以 `PROPOSAL-` 前缀命名并保持 `PROPOSAL` 状态。
 - `docs/CONTRACTS.md` 成为接口定义的唯一来源；任何历史文件、提案和分析文件都不再被当前文档当作接口权威。
 - evidence manifest 以固定 canonical JSON 生成 `snapshot_id`，同时携带代码、规范、依赖、场景、测试和 real-acceptance claim 身份；每项证据有可追溯原件。
 - coverage report 的 `snapshot_id`、manifest 路径和 manifest SHA-256 通过绑定门禁；覆盖写入不会丢失身份。
@@ -390,9 +394,9 @@ manifest 顶层必须包含 `snapshot_id`、`identity`、`evidence` 和 `schema`
 | Owner | 唯一文件集合 | 责任 |
 | --- | --- | --- |
 | `root-governance` | `docs/INDEX.md`、`docs/ARCHITECTURE.md`、`docs/CONTRACTS.md`、`docs/EXPERIMENT.md`、`docs/VERIFICATION.md` | 根文档和导航 marker；不编辑 feature SPEC、提案或历史文件。 |
-| `feature-specs` | `docs/dev/SPEC/*.md`（不含 `docs/dev/SPEC-document-governance.md`） | 已裁决特性规格；不编辑根文档或提案。 |
-| `proposals` | `docs/dev/PROPOSAL/*.md` | 两个 registry 提案及后续提案；不编辑 FROZEN CONTRACTS 或运行时。 |
-| `analysis` | `docs/dev/ANALYSIS/*.md` | 分析和审查；不将分析 marker 写成 FROZEN。 |
+| `feature-specs` | `docs/dev/SPEC-*.md`（不含 `docs/dev/SPEC-document-governance.md`） | 已裁决特性规格；不编辑根文档或提案。 |
+| `proposals` | `docs/dev/PROPOSAL-*.md` | 两个 registry 提案及后续提案；不编辑 FROZEN CONTRACTS 或运行时。 |
+| `analysis` | `docs/dev/ANALYSIS-*.md` | 分析和审查；不将分析 marker 写成 FROZEN。 |
 | `history` | `docs/history/**` | 迁移后的历史快照和 research；不改写为当前合同。 |
 | `evidence` | `docs/evidence-manifest.json`、`docs/coverage-report.json` | 快照和生成报告；不编辑规范正文。 |
 | `governance-tests` | `tests/documentation/**` | 文档、marker、迁移和快照门禁测试；不编辑生产代码。 |

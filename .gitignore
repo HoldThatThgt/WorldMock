@@ -11,6 +11,9 @@ __pycache__/
 labelkit-projects/out/
 labelkit-projects/data/
 
+# agent instructions
+CLAUDE.md
+
 # generated artifacts
 .coverage
 argv.json
