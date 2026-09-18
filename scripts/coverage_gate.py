@@ -354,7 +354,15 @@ def main() -> int:
     branch = compute_branch_summary(cov_data)
     gaps = find_uncovered_interfaces(REPO_ROOT, PRODUCTION_ROOTS, cov_data)
     passed = test_rc == 0 and judge_gate(branch.percent, len(gaps))
-    report = build_report(branch, gaps, passed, " ".join(TEST_COMMAND))
+    
+    # 生成证据 manifest 绑定
+    snapshot_id = str(uuid4())
+    manifest_hash = compute_manifest_hash(cov_data)
+    source_identity = get_git_commit_hash()
+    
+    report = build_report(
+        branch, gaps, passed, " ".join(TEST_COMMAND), snapshot_id, manifest_hash, source_identity
+    )
     write_report(report, REPORT_PATH)
     print_gate_summary(branch, gaps, passed)
     if test_rc != 0:

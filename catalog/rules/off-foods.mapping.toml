@@ -2,7 +2,7 @@
 # 本文件是对既有白名单冻结结果的追认描述：corpora/open-food-facts/products.json
 # （八条码白名单，corpus manifest entry open-food-facts:products.json）已按本规则
 # 从 corpora/open-food-facts/china-100.json 冻结取值；本文件描述该冻结所依据的
-# 翻译规则，不重新触发导入。设计依据：docs/resource-registry-design.md §4.3/§4.3.1/§5。
+# 翻译规则，不重新触发导入。设计依据：docs/dev/PROPOSAL-resource-registry.md §4.3/§4.3.1/§5。
 
 [dataset]
 family = "open-food-facts"

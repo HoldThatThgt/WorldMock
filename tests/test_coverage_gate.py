@@ -197,15 +197,23 @@ def test_empty_file_and_unmeasured_file_handling(tmp_path):
 
 
 def test_build_report_structure():
-    """@brief 报告含生成命令、整体与分文件分支数据、缺口清单与判定位。"""
+    """@brief 报告含生成命令、证据 manifest、整体与分文件分支数据、缺口清单与判定位。"""
     branch = gate.compute_branch_summary(
         make_cov_data({"src/worldmock/a.py": make_file_entry(90, 10, [])})
     )
     gaps = [gate.InterfaceGap("src/worldmock/a.py", 3, "foo", "function")]
     command = "uv run coverage run -m pytest -q"
-    report = gate.build_report(branch, gaps, False, command)
+    snapshot_id = "test-snapshot-001"
+    manifest_hash = "abc123def456"
+    source_identity = "commit-hash-789"
+    report = gate.build_report(
+        branch, gaps, False, command, snapshot_id, manifest_hash, source_identity
+    )
     assert report["command"] == command
     assert report["generated_at"]
+    assert report["evidence_manifest"]["snapshot_id"] == snapshot_id
+    assert report["evidence_manifest"]["manifest_hash"] == manifest_hash
+    assert report["evidence_manifest"]["source_identity"] == source_identity
     assert report["branch_coverage"]["percent"] == 90.0
     assert report["branch_coverage"]["passed"] is True
     assert report["per_file_branch"][0]["file"] == "src/worldmock/a.py"
