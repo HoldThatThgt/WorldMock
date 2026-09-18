@@ -12,7 +12,7 @@ credible kcal density windows enforced at generation time; prices anchored to
 frozen baseline foods +/-30% with fixed seeds per wave) and
 corpora/manifest.json, plus corpora/meals/items.json (30 contract meals with
 USDA FNDDS calorie provenance), then emits the static catalog per
-docs/resource-registry-design.md (§3/§4.2/§5/§13): catalog/resources.jsonl,
+docs/dev/PROPOSAL-resource-registry.md (§3/§4.2/§5/§13): catalog/resources.jsonl,
 catalog/objects.jsonl (121 foods + 30 meals + 8 durables + travel + contracts),
 catalog/manifest.json (2.0, carrying the versioned world-material
 category_requirements declaration) and an empty
@@ -210,7 +210,7 @@ FACT_SOURCES = {
     "met": "Compendium of Physical Activities 2011",
     "dri": "中国居民膳食营养素参考摄入量",
 }
-FACT_ARTIFACT = "docs/resource-registry-design.md §5"
+FACT_ARTIFACT = "docs/dev/PROPOSAL-resource-registry.md §5"
 ENGINE_CLAMP = "legacy-engine-body clamp (src/worldmock/life/body.py:71,86,183,195)"
 
 
@@ -283,7 +283,7 @@ def build_resources(body: dict) -> list[dict]:
             {"part": "alert_rules", "paths": ["alert_rules"],
              "type": "scenario",
              "source": "legacy-scenario-body hunger/emergency thresholds; codes per "
-                       "docs/resource-registry-design.md §3.1 (engine currently emits "
+                       "docs/dev/PROPOSAL-resource-registry.md §3.1 (engine currently emits "
                        "lowercase hungry/emergency_energy, src/worldmock/life/body.py:126-129)"},
         ],
         "version": 1,

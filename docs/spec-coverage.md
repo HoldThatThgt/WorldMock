@@ -1,3 +1,4 @@
+<!-- worldmock-doc status=CURRENT authority=spec_coverage -->
 # 规格—测试用例覆盖率追溯矩阵
 
 审计单元：C5（只读审计，2026-09-18）。权威规格：`docs/agentsociety2-design.md`（实测 1768 行，版本

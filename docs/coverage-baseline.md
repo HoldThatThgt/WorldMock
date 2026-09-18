@@ -1,3 +1,4 @@
+<!-- worldmock-doc status=CURRENT authority=coverage_baseline -->
 # 覆盖率门禁口径与基线
 
 ## 门禁口径

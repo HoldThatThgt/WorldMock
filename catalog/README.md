@@ -15,7 +15,7 @@ python3 scripts/build_catalog.py           # 生成 resources.jsonl + objects.js
 python3 scripts/build_catalog.py --check   # 校验在库文件与重生成结果一致（CI 门禁）
 ```
 
-rules/ 与本文件为人写，生成器只校验不覆写。设计依据：docs/resource-registry-design.md。
+rules/ 与本文件为人写，生成器只校验不覆写。设计依据：docs/dev/PROPOSAL-resource-registry.md。
 
 再生成：`python3 scripts/build_catalog.py`（`--check` 校验字节一致）。
 产物共四件：resources.jsonl、objects.jsonl、manifest.json（版本锚）、overrides/tombstones.jsonl（可空）。

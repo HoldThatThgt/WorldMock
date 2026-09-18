@@ -1,3 +1,5 @@
+**Status: PROPOSAL**
+
 # 静态资源与交换对象管理设计（提案）
 
 状态：提案，未冻结。本文不修改 `docs/agentsociety2-design.md` 的权威性；裁决后逐节并入。

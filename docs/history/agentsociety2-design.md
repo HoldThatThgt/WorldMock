@@ -1,3 +1,5 @@
+**Status: SUPERSEDED** — superseded_by: docs/INDEX.md
+
 # 基于 AgentSociety 2 的数字人生活模拟与数据生产特性规范
 
 日期：2026-09-15；修订：2026-09-18。规格版本：life-realism-2026-09-18（取代 life-full-2026-09-15）。

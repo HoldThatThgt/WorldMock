@@ -1,6 +1,8 @@
+**Status: PROPOSAL**
+
 # 可供性注册表设计（提案）
 
-状态：提案，未冻结。与 `docs/resource-registry-design.md`（资源注册表）是同一哲学的两个实例；裁决后逐节并入总设计。
+状态：提案，未冻结。与 `docs/dev/PROPOSAL-resource-registry.md`（资源注册表）是同一哲学的两个实例；裁决后逐节并入总设计。
 日期：2026-09-16。作者：ZCode 规范起草代理（自代码现状独立起草，基线 HEAD=7909826、全量 968 passed；业界方案调研另行合并）。
 
 ---

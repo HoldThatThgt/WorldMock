@@ -2,7 +2,7 @@
 
 注册表把散落五层的手写行为闭集（动机家族、习惯归并路由、MET 键、缓解通道、
 反馈边界、资源锁、采样上限……）收编为同一份数据的声明式投影（设计文档
-docs/affordance-registry-design.md §二 Schema、§三 五层派生、§五 校验）。
+docs/dev/PROPOSAL-affordance-registry.md §二 Schema、§三 五层派生、§五 校验）。
 
 本模块只做加载期解析与校验（§五 规则 1-5）和派生视图查询，运行期零 IO；
 候选生成器原型保持 Python 函数，由 life/motivation.py 导入时登记进

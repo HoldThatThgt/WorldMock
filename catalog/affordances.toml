@@ -1,6 +1,6 @@
 # 可供性注册表（affordance registry）——行为闭集的单一声明源。
 #
-# 设计文档：docs/affordance-registry-design.md（§二 Schema、§三 五层派生、§五 fail-closed 校验）。
+# 设计文档：docs/dev/PROPOSAL-affordance-registry.md（§二 Schema、§三 五层派生、§五 fail-closed 校验）。
 # 两级结构：kinds（引擎活动类型，结算与受理的最小单元）× families（动机家族，习惯归并键
 # + 候选生成器 + 注意力）。一个家族可跨多个 kind（entertainment = watch + play_game）；
 # 一个 kind 可以不属于任何动机候选家族（read_mail：unclassified 显式声明）。

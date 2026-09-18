@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import json
 import subprocess
 import sys
@@ -17,6 +18,7 @@ import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRANCH_THRESHOLD = 85.0
@@ -243,11 +245,29 @@ def export_coverage_json() -> dict:
         return json.loads(json_path.read_text(encoding="utf-8"))
 
 
-def build_report(branch: BranchSummary, gaps: list[InterfaceGap], passed: bool, command: str) -> dict:
-    """@brief 组装写往 docs/coverage-report.json 的门禁报告字典。"""
+def build_report(
+    branch: BranchSummary,
+    gaps: list[InterfaceGap],
+    passed: bool,
+    command: str,
+    snapshot_id: str,
+    manifest_hash: str,
+    source_identity: str,
+) -> dict:
+    """@brief 组装写往 docs/coverage-report.json 的门禁报告字典。
+    
+    @param snapshot_id      本次测试运行的唯一标识符。
+    @param manifest_hash    manifest 文件或覆盖数据的 SHA-256 哈希。
+    @param source_identity  被测源代码的标识（如 Git commit hash）。
+    """
     return {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "command": command,
+        "evidence_manifest": {
+            "snapshot_id": snapshot_id,
+            "manifest_hash": manifest_hash,
+            "source_identity": source_identity,
+        },
         "thresholds": {"branch_coverage_percent_min": BRANCH_THRESHOLD},
         "branch_coverage": {
             "covered_branches": branch.covered,
@@ -278,6 +298,29 @@ def write_report(report: dict, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(f"[coverage-gate] report written: {path}")
+
+
+def get_git_commit_hash() -> str:
+    """@brief 获取当前 Git commit hash；失败时返回 'unknown'。"""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return "unknown"
+
+
+def compute_manifest_hash(cov_data: dict) -> str:
+    """@brief 计算覆盖数据 manifest 的 SHA-256 哈希（用于绑定证据）。"""
+    canonical = json.dumps(cov_data, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def print_gate_summary(branch: BranchSummary, gaps: list[InterfaceGap], passed: bool) -> None:

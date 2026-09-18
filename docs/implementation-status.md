@@ -1,3 +1,4 @@
+<!-- worldmock-doc status=CURRENT authority=status -->
 # AS2 生活仿真开发验收记录
 
 更新时间：2026-09-18。权威合同为 `docs/agentsociety2-design.md`（含文末《人物真实性修订合同》）。
@@ -52,7 +53,7 @@ flowchart LR
   `schedule`（正式日历/工资结算）、`narration`（user 三段组装与字符预算）、`social`（people_here/消息/交谈/通话）、
   `rhythm`（唤醒原因与静默边界）、`projection`（观察投影/禁入字段/商品可见期）、`observe`、`social_actions`、
   `basket`（多件购买与同席进食）、`decision_start`（两阶段决策与独白）、`state_commit`（引擎提交路径）；
-- `src/worldmock/evaluation/behavior_metrics.py`：13 项行为指标 + 3 项协议门禁，按 code_sha256 分组只报告不裁定；
+- `src/worldmock/evaluation/behavior_metrics.py`：13 项行为指标 + 4 项协议门禁，按 code_sha256 分组只报告不裁定；
 - profile v2：PersonaCard 构成、三次一致性抽取、确定性渲染 ≤600 汉字、大五只进世界层动力学；
 - catalog 2.0 品类：地点品类（真实 OSM 坐标）、正餐/生活活动/工作材料/联系人准入合同；
 - `scripts/render_day.py`（timeline 投影渲染）与 `scripts/coverage_gate.py`（分支+公共接口门禁）。
