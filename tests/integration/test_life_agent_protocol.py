@@ -143,7 +143,7 @@ def _observations(*result_ids: str) -> list[dict]:
     data = {
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
-        "wake_reasons": ["run_start"],
+        "wake_reasons": [],  # 非日首决策：不触发 plan_day 工具面强制
         "scene": dict(_SCENE),
         "facts": dict(_FACTS),
         "recent_action_results": [{"event_id": item} for item in result_ids],

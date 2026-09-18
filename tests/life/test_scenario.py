@@ -309,6 +309,11 @@ def test_persona_declarations_are_complete_and_story_consistent() -> None:
             assert 0 <= lunch[0] < lunch[1] <= 24
             assert 0 <= dinner[0] < dinner[1] <= 24
             assert lunch[1] <= dinner[0], "午餐与晚餐窗口不得重叠"
+            bedtime = agent["bedtime_window"]
+            assert 0 <= bedtime[0] < 24 and bedtime[0] < bedtime[1] <= 30, (
+                "就寝窗口与画像层 TimeWindow 同口径（跨午夜末端 ≤ 30）")
+            assert bedtime[1] - bedtime[0] <= 12, "就寝窗口跨度不得超 12 小时"
+            assert dinner[1] <= bedtime[0], "晚餐与就寝窗口不得重叠"
     for path in _MULTI_SCENARIOS:
         document = _document(path)
         chenxi, lifan = _agent_of(document, 1), _agent_of(document, 2)
@@ -321,6 +326,12 @@ def test_persona_declarations_are_complete_and_story_consistent() -> None:
         # 陈曦“按时吃午饭和晚饭”，李凡偏晚的加班餐时。
         assert chenxi["lunch_window"][0] < lifan["lunch_window"][0]
         assert chenxi["dinner_window"][0] < lifan["dinner_window"][0]
+        # 陈曦“不会为赶 deadline 加班到深夜”→ 当日就寝（末端 23:30，7.5h 睡
+        # 眠到 7 点起床）；李凡“经常凌晨一点才睡”→ 跨午夜就寝窗口（末端
+        # 25.0=次日 01:00，引擎侧锚点钳制 ≤ 当日结束，声明保持故事真值）。
+        assert chenxi["bedtime_window"] == [22.5, 23.5]
+        assert lifan["bedtime_window"] == [23.5, 25.0]
+        assert chenxi["bedtime_window"][1] < 24 <= lifan["bedtime_window"][1]
 
 
 def test_contacts_declare_mapping_and_reply_policies() -> None:
@@ -486,7 +497,8 @@ def test_three_scenarios_share_the_v2_schema() -> None:
         manifests.add(document["corpus_manifest_sha256"])
         for agent in document["agents"]:
             for field in ("chronotype_midsleep", "sleep_need_hours",
-                          "lunch_window", "dinner_window", "contacts"):
+                          "lunch_window", "dinner_window", "bedtime_window",
+                          "contacts"):
                 assert field in agent
         scenario, digest = load_scenario(path)
         assert len(digest) == 64

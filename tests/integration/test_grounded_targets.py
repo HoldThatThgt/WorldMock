@@ -249,13 +249,14 @@ def test_failed_run_observation_removes_unreleased_work_and_invented_target() ->
 
 
 def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
-    """全部公开身份为空时仅保留无需目标的基础活动。"""
+    """全部公开身份为空时仅保留无需目标的基础活动与当日计划工具。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
     overrides = {"products": [], "locations": [], "available_inventory": {}, "routes": []}
     functions = _functions(_prepare(empty, overrides=overrides, browse_results=[]))
 
     assert "start_targeted_activity" not in functions
-    assert set(functions) == _MEMORY_TOOLS | {"start_basic_activity", "browse_activities"}
+    assert set(functions) == _MEMORY_TOOLS | {
+        "start_basic_activity", "browse_activities", "plan_day"}
 
 
 @pytest.mark.parametrize(
@@ -728,21 +729,30 @@ def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
     assert agent.validate_react_decisions([valid], False) == ""
 
 
-def test_plan_day_offered_only_at_day_start_with_closed_intent_enum() -> None:
-    """plan_day 只在当天首次醒来且无计划时开放，意图枚举与 INTENT_KINDS 一致。"""
+def test_plan_day_open_without_plan_and_restricted_at_day_start() -> None:
+    """plan_day 在当日尚无计划时开放（补交不限唤醒原因）；日首无计划撤其他动作工具。
+
+    D6 缺口 6：(a) 跳过首醒的人在当天后续决策仍可补交计划；(b) 日首唤醒
+    （run_start/wake_from_sleep）且当日无计划时只保留 plan_day 动作面
+    （记忆查询与 finish 阶段门不变）——"必须先提交"的工具面强制。
+    """
     from worldmock.life.schedule import INTENT_KINDS
 
-    ordinary = _functions(_prepare(_catalogs()))
-    assert "plan_day" not in ordinary
+    ordinary = _functions(_prepare(_catalogs()))  # 非日首、当日无计划
+    assert "plan_day" in ordinary, "当日无计划时 plan_day 必须开放（补交）"
+    assert "start_basic_activity" in ordinary
 
     day_start = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]}))
     assert "plan_day" in day_start
     properties = day_start["plan_day"]["parameters"]["properties"]
     assert properties["segments"]["items"]["properties"]["intent_kind"]["enum"] == list(
         INTENT_KINDS)
+    action_tools = set(day_start) - _MEMORY_TOOLS
+    assert action_tools == {"plan_day"}, (
+        f"日首唤醒且当日无计划时动作面只留 plan_day，实际={sorted(action_tools)}")
 
     woke = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["wake_from_sleep"]}))
-    assert "plan_day" in woke
+    assert set(woke) - _MEMORY_TOOLS == {"plan_day"}
 
     planned = _prepare(_catalogs(), overrides={
         "wake_reasons": ["run_start"],
@@ -751,6 +761,8 @@ def test_plan_day_offered_only_at_day_start_with_closed_intent_enum() -> None:
                           "intent_kind": "工作", "note": ""}]}}})
     assert "plan_day" not in _functions(planned)
     assert "revise_day_plan" in _functions(planned)
+    assert "start_basic_activity" in _functions(planned), (
+        "已有计划的日首唤醒不撤其他动作工具")
 
 
 def test_plan_day_validates_segment_count_intent_and_start_boundary() -> None:

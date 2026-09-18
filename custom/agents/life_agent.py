@@ -48,7 +48,9 @@ _MEAL_ITEM_BOUNDS = (1, 3)
 _MESSAGE_TEXT_MAX_CHARS = 300
 #: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
 _HEX_IDENTITY_MIN_CHARS = 8
-#: plan_day 只在当天首次醒来决策开放（修订合同 L1606）。
+#: 日首唤醒原因闭集（修订合同 L1606）：run_start/wake_from_sleep。当天首次
+#: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
+#: 拒绝重试边界的唤醒原因是 rejection_feedback，不属日首，不触发强制。
 _DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
 
 _HEX_IDENTITY_PATTERN = re.compile(r"[0-9a-fA-F]{%d,}" % _HEX_IDENTITY_MIN_CHARS)
@@ -833,6 +835,12 @@ class LifeAgent(PersonAgent):
         self._life_action_models = _available_action_models(
             self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
             self._life_browse_categories)
+        if _plan_required_before_other_actions(data, self._life_action_models):
+            # 日首唤醒且当日无计划：撤下其他生活动作工具，只留 plan_day
+            # （L1606"必须先提交"的工具面强制；记忆查询与 finish 阶段门不变）。
+            self._life_action_models = {
+                name: model for name, model in self._life_action_models.items()
+                if name == "plan_day"}
         budget = self._react_budget(False)
         self._life_request_models = self._budgeted_tool_models(
             False, budget["memory_tools_available"])
@@ -1281,11 +1289,29 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _plan_required_before_other_actions(
+    data: dict[str, Any], action_models: dict[str, type[BaseModel]]
+) -> bool:
+    """@brief 日首唤醒（run_start/wake_from_sleep）且当日无计划时要求先提交计划。
+
+    判据 = plan_day 在本轮动作面开放（即 facts.day_plan 为空）且唤醒原因含
+    日首闭集。这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才
+    合法"的顺序（与"提交动作后才开放 finish"的阶段门同构，L1004 工具集合
+    不替人物选择指的是不代选内容）；人物仍可提交计划后 finish 跳过当天，
+    或被拒绝后在一秒重试边界拿回其他动作工具。
+    """
+    return ("plan_day" in action_models
+            and bool(_DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data))))
+
+
 def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief plan_day 只在当天首次醒来且尚无计划时开放（L1606）。"""
+    """@brief plan_day 在当日尚无计划时开放（L1606；跳过首醒者当天可补交）。
+
+    可见性判据只有"当日尚无计划"（facts.day_plan 为空，观察与跨日归零/就寝
+    隐藏同口径）；不限唤醒原因——被引擎拒绝后的一秒重试边界与当天中途的
+    补交决策同样开放。日首无计划时的动作面强制见 prepare_react_loop。
+    """
     if _facts_projection(data).get("day_plan") is not None:
-        return {}
-    if not _DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data)):
         return {}
     return {"now": _observation_now(data)}
 

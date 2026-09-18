@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+from zoneinfo import ZoneInfo
+
 import pytest
 from pydantic import ValidationError
 
 from worldmock.life.schedule import (
+    INTENT_ACTIVITY_FAMILIES,
+    INTENT_KINDS,
     DayPlan,
     PlanSegment,
+    bedtime_anchor,
     current_segment,
+    day_end_seconds,
+    day_plan_expired,
+    default_bedtime_end_hour,
+    expired_plan_agent_ids,
     initial_day_plan,
     is_plan_block_boundary,
     next_segment_start,
     revise_day_plan,
+    segment_followed,
 )
 
 DAY_START = 25200  # 07:00
@@ -58,7 +68,7 @@ def test_too_few_segments_rejected() -> None:
     尾段修订后剩余段数可少于 5——该状态必须可通过加载口径重校验。
     """
     with pytest.raises(ValueError, match="at least 5 segments"):
-        initial_day_plan(make_segments(4), DAY_END)
+        initial_day_plan(make_segments(4), DAY_END, BEDTIME)
     assert len(make_plan(4).segments) == 4  # 修订形态的短骨架在模型层合法
 
 
@@ -254,3 +264,98 @@ def test_revise_result_supports_segment_queries() -> None:
     assert current_segment(revised, now) is revised.segments[2]
     assert next_segment_start(revised, now) == 50400
     assert is_plan_block_boundary(revised, 50400) is True
+
+
+def test_day_plan_expired_boundary_at_day_end() -> None:
+    """@brief day_plan_expired：day_end 前未过期，恰在 day_end（跨日零点）起过期。
+
+    引擎用该判定在跨日边界把 day_plan 归零，使规格 L1606"每天第一次醒来
+    必须先提交 plan_day"在第二天重新成立（边界值：now == day_end 即过期）。
+    """
+    plan = make_plan(5)
+    assert day_plan_expired(plan, DAY_START) is False
+    assert day_plan_expired(plan, BEDTIME) is False
+    assert day_plan_expired(plan, DAY_END - 1) is False
+    assert day_plan_expired(plan, DAY_END) is True
+    assert day_plan_expired(plan, DAY_END + 3600) is True
+
+
+def test_expired_plan_agent_ids_lists_only_stale_plans() -> None:
+    """@brief 跨日归零名单只含残留计划；当日计划与无计划人物不在名单。"""
+    from types import SimpleNamespace
+
+    state = SimpleNamespace(current_time=DAY_END - 300, agents={
+        1: SimpleNamespace(day_plan=make_plan(5, day_end=DAY_END - 600)),  # 已跨日残留
+        2: SimpleNamespace(day_plan=make_plan(5)),                         # 仍是当日计划
+        3: SimpleNamespace(day_plan=None),
+    })
+    assert expired_plan_agent_ids(state) == (1,)
+
+
+# ---------------------------------------------------------------------------
+# D6 缺口 3：就寝锚点取值链与真实骨架约束
+# ---------------------------------------------------------------------------
+
+_TZ = "Asia/Shanghai"
+
+
+def test_initial_plan_bedtime_is_real_constraint() -> None:
+    """@brief 首次骨架的 bedtime 来自传入锚点：末段早于锚点拒绝、恰好到达通过。"""
+    segments = make_segments(5)  # 覆盖到 BEDTIME（21:00）
+    with pytest.raises(ValidationError, match="cover until bedtime"):
+        initial_day_plan(segments, DAY_END, BEDTIME + 3600)
+    anchored = initial_day_plan(segments, DAY_END, BEDTIME)
+    assert anchored.bedtime == BEDTIME, "锚点必须原样留痕在 DayPlan.bedtime"
+
+
+def test_bedtime_anchor_prefers_declaration_then_persona_mapping_default() -> None:
+    """@brief 取值链：人物声明末端优先；缺省=persona-mapping 默认窗口末端（非时钟常量）。"""
+    from datetime import datetime
+
+    base = int(datetime(2026, 1, 5, 8, 0, tzinfo=ZoneInfo(_TZ)).timestamp())
+    declared = bedtime_anchor(base, _TZ, 23.0)
+    assert declared == int(datetime(2026, 1, 5, 23, 0, tzinfo=ZoneInfo(_TZ)).timestamp())
+    # 缺省：persona-mapping [defaults.time_anchors].bedtime 窗口末端（当前 24:00）
+    assert default_bedtime_end_hour() == 24.0
+    assert bedtime_anchor(base, _TZ, None) == day_end_seconds(base, _TZ)
+
+
+def test_bedtime_anchor_cross_midnight_declaration_clamps_to_day_end() -> None:
+    """@brief 跨午夜声明（末端 >24h）钳制到当日结束，锚点不可越过 day_end。"""
+    from datetime import datetime
+
+    base = int(datetime(2026, 1, 5, 8, 0, tzinfo=ZoneInfo(_TZ)).timestamp())
+    assert bedtime_anchor(base, _TZ, 25.0) == day_end_seconds(base, _TZ)
+    assert bedtime_anchor(base, _TZ, 30.0) == day_end_seconds(base, _TZ)
+
+
+# ---------------------------------------------------------------------------
+# D6 缺口 8：照做判定（时间加权主导活动家族）
+# ---------------------------------------------------------------------------
+
+def test_intent_activity_families_cover_closed_intent_set() -> None:
+    """@brief 家族映射恰好覆盖 11 类意图闭集（不遗漏、不多出）。"""
+    assert set(INTENT_ACTIVITY_FAMILIES) == set(INTENT_KINDS)
+    assert all(family for family in INTENT_ACTIVITY_FAMILIES.values())
+
+
+def test_segment_followed_dominant_family_decides() -> None:
+    """@brief 照做两态：主导家族匹配发放判定通过；不匹配或空闲主导则不通过。"""
+    window = 3600
+    assert segment_followed("工作", [("work", 3600)], window) is True
+    assert segment_followed("工作", [("wait", 3600)], window) is False
+    # 时间加权：工作 2000s + 等待 1600s → 主导工作 → 照做
+    assert segment_followed("工作", [("work", 2000), ("wait", 1600)], window) is True
+    # 空闲主导：段大部分无活动 → 未照做（idle 不属于任何意图家族）
+    assert segment_followed("工作", [("work", 1000)], window) is False
+    # 生活活动按品类令牌匹配
+    assert segment_followed("家务", [("lifestyle:household", 3600)], window) is True
+    assert segment_followed("家务", [("lifestyle:hobby", 3600)], window) is False
+    assert segment_followed("娱乐", [("lifestyle:hobby", 3600)], window) is True
+    # 目录缺失的生活活动解析为 unknown：不匹配任何家族（fail-closed）
+    assert segment_followed("运动", [("lifestyle:unknown", 3600)], window) is False
+    # 非正覆盖秒数跳过（不贡献权重）：零长覆盖 + 满窗等待 → 等待主导
+    assert segment_followed("工作", [("work", 0), ("wait", 3600)], window) is False
+    # 未知意图或非正窗口 fail-closed
+    assert segment_followed("钓鱼", [("work", 3600)], window) is False
+    assert segment_followed("工作", [("work", 0)], 0) is False

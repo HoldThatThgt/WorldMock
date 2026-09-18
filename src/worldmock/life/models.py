@@ -761,6 +761,23 @@ class ActionResult(FrozenModel):
     data: dict[str, Any] = Field(default_factory=dict)
 
 
+def rejection_reason_text(error: Exception) -> str:
+    """@brief 拒绝原因文本：业务错误码加链式底层原因（去十六进制身份并截断）。
+
+    拒绝消息经 recent_action_results 摘要进入 facts/scene（L1548），模型据此
+    修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
+    等），不含任何十六进制事件/请求身份。
+    """
+    import re
+
+    reason = str(error)
+    cause = error.__cause__
+    if cause is not None:
+        detail = re.sub(r"[0-9a-fA-F]{8,}", "-", " ".join(str(cause).split()))
+        reason = f"{reason}: {detail[:160]}"
+    return reason
+
+
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_basic_activity": StartBasicActivityRequest,
     "start_targeted_activity": StartTargetedActivityRequest,

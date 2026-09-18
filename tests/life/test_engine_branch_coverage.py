@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -1236,7 +1236,8 @@ def test_rework_rejection_at_limit_fails_decision_with_review_feedback(engine_fa
     assert result.status.value == "failed"
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
-    assert result.message == "Agent decision failed after consecutive rejections"
+    assert result.message == ("Agent decision failed after consecutive "
+                             "rejections: WORK_REQUIRES_REWORK")
     assert engine.state.agents[1].decision_failed is True
 
 
@@ -1303,12 +1304,19 @@ def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None
 
 
 def _plan_request(engine, offsets: tuple[int, ...], span: int = 600) -> PlanDayRequest:
-    """构造覆盖若干偏移时刻的当日计划。"""
+    """构造覆盖若干偏移时刻的当日计划（末段延伸到缺省就寝锚点，L1607）。"""
+    from zoneinfo import ZoneInfo
+
     base = engine.state.current_time
-    return PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=base + offset, end=base + offset + span,
-                         intent_kind="休息", note="")
-        for offset in offsets))
+    local = datetime.fromtimestamp(base, ZoneInfo(engine.scenario.timezone))
+    anchor = int((local + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp())
+    segments = [PlanSegmentInput(start=base + offset, end=base + offset + span,
+                                 intent_kind="休息", note="")
+                for offset in offsets[:-1]]
+    segments.append(PlanSegmentInput(start=base + offsets[-1], end=anchor,
+                                     intent_kind="休息", note=""))
+    return PlanDayRequest(segments=tuple(segments))
 
 
 def test_game_action_guards_activity_session_and_timing(engine_factory) -> None:

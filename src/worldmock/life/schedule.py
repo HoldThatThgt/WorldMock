@@ -29,8 +29,10 @@ plan_block_boundary 唤醒，由人物当场决定是否照做。revise_day_plan
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import datetime, timedelta
 from enum import Enum
-from typing import Literal
+from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, model_validator
 
@@ -106,6 +108,110 @@ IntentKind = Literal[
     "运动",
     "外出",
 ]
+
+
+INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
+    "睡眠": frozenset({"sleep"}),
+    "晨间例程": frozenset({"lifestyle:wellness", "wait"}),
+    "通勤": frozenset({"travel"}),
+    "工作": frozenset({"work"}),
+    "用餐": frozenset({"consume"}),
+    "休息": frozenset({"wait", "lifestyle:wellness"}),
+    "娱乐": frozenset({"watch", "play_game", "browse", "lifestyle:hobby"}),
+    "社交": frozenset({"chat", "call", "lifestyle:social"}),
+    "家务": frozenset({"lifestyle:household", "lifestyle:pet"}),
+    "运动": frozenset({"lifestyle:sport"}),
+    "外出": frozenset({"travel", "lifestyle:outdoor"}),
+}
+"""意图闭集 → 实际活动家族闭集（照做判定口径，L1518"完成计划段"）。
+
+家族令牌 = ActivityKind 文本（sleep/work/travel/consume/chat/call/play_game/
+watch/browse/wait）加生活活动品类令牌 "lifestyle:{category}"（category 取
+corpora/lifestyle/items.json 的 category 闭集）。映射为实验假设：通勤与外出
+共享 travel、休息与晨间例程共享 wait 属家族天然重叠，不另设优先级。
+"""
+
+
+def segment_followed(
+    intent_kind: str, spans: Sequence[tuple[str, int]], window_seconds: int
+) -> bool:
+    """@brief 照做判定：段区间内时间加权主导活动家族与段意图家族匹配（L1518）。
+
+    spans 为段区间内各活动的 (家族令牌, 覆盖秒数)；未覆盖秒数计入 idle
+    （idle 不属于任何意图家族，段大部分空闲即未照做）。主导家族取加权秒数
+    最大者（并列取字典序最大，保证确定性）。
+
+    @param intent_kind 段意图（INTENT_KINDS 闭集成员）
+    @param spans 段区间内活动家族覆盖表
+    @param window_seconds 段区间总秒数
+    @return 主导家族属于该意图的活动家族闭集时为 True
+    """
+    families = INTENT_ACTIVITY_FAMILIES.get(intent_kind)
+    if not families or window_seconds <= 0:
+        return False
+    weights: dict[str, int] = {}
+    covered = 0
+    for token, seconds in spans:
+        if seconds <= 0:
+            continue
+        weights[token] = weights.get(token, 0) + seconds
+        covered += seconds
+    weights["idle"] = weights.get("idle", 0) + max(0, window_seconds - covered)
+    dominant = max(sorted(weights), key=lambda token: weights[token])
+    return dominant in families
+
+
+def default_bedtime_end_hour() -> float:
+    """@brief 缺省就寝窗口末端：persona-mapping 默认锚点（非时钟常量，L1612）。
+
+    读取 catalog/rules/persona-mapping.toml [defaults.time_anchors].bedtime
+    的窗口末端（与 profile/textgen 渲染人物卡片的缺省口径同源）；模块级
+    缓存保证一次运行只读一次。
+
+    @return 缺省就寝窗口末端小时数（自午夜起）
+    """
+    global _DEFAULT_BEDTIME_END_HOUR
+    if _DEFAULT_BEDTIME_END_HOUR is None:
+        from worldmock.profile.mapper import load_mapping_config
+        from worldmock.profile.models import TimeWindow
+
+        window = TimeWindow.from_clock_range(
+            load_mapping_config()["defaults"]["time_anchors"]["bedtime"])
+        _DEFAULT_BEDTIME_END_HOUR = window.end_hour
+    return _DEFAULT_BEDTIME_END_HOUR
+
+
+_DEFAULT_BEDTIME_END_HOUR: float | None = None
+
+
+def bedtime_anchor(
+    now: int, timezone_name: str, declared_end_hour: float | None
+) -> int:
+    """@brief 当日就寝锚点：人物声明末端优先，缺省走 persona-mapping 默认锚点。
+
+    取值链（L1612 计划锚点来自人物卡片声明）：① 场景人物的就寝窗口声明
+    （AgentConfig.bedtime_window 的末端小时）；② 声明缺失时 persona-mapping
+    默认锚点 [defaults.time_anchors].bedtime 的窗口末端。跨午夜声明（末端
+    >24h）落在次日，锚点钳制不超过当日结束（次日零点）。
+
+    @param now 查询时刻（UTC epoch 秒）
+    @param timezone_name 场景时区名
+    @param declared_end_hour 人物声明的就寝窗口末端小时；None=未声明
+    @return 当日就寝锚点时刻（UTC epoch 秒，≤ 当日结束）
+    """
+    end_hour = (declared_end_hour if declared_end_hour is not None
+                else default_bedtime_end_hour())
+    midnight = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    anchor = int((midnight + timedelta(hours=end_hour)).timestamp())
+    return min(anchor, day_end_seconds(now, timezone_name))
+
+
+def day_end_seconds(now: int, timezone_name: str) -> int:
+    """@brief 当日结束时刻：场景时区次日零点（计划段不得越过，L1607）。"""
+    midnight = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).replace(
+        hour=0, minute=0, second=0, microsecond=0)
+    return int((midnight + timedelta(days=1)).timestamp())
 
 
 class WakeSnapshot(BaseModel):
@@ -226,16 +332,21 @@ def _validate_skeleton(
         raise ValueError("plan does not cover until bedtime")
 
 
-def initial_day_plan(segments: Sequence[PlanSegment], day_end: int) -> DayPlan:
+def initial_day_plan(
+    segments: Sequence[PlanSegment], day_end: int, bedtime: int
+) -> DayPlan:
     """@brief 构造首次 plan_day 的当日骨架：执行 5 段下限后交模型校验（规格 L1606-1607）。
 
     段数下限只在此处约束：一天尾段只剩少量待改段时，下限会让修订无法成立，
     故 revise_day_plan 的合并结果不受 5 段下限限制（修订合同 L1611），
-    下限由本构造函数在首次提交时唯一承载。
+    下限由本构造函数在首次提交时唯一承载。bedtime 为就寝锚点（人物声明或
+    persona-mapping 缺省，见 bedtime_anchor），由调用方显式传入——骨架的
+    "覆盖到就寝"约束因此是真实约束，而非最末段末端自证。
 
     @param segments 按起点升序排列的完整段序列（至少 5 段）
     @param day_end 当日结束时刻（UTC epoch 秒）
-    @return 已通过骨架校验的新 DayPlan（bedtime 取最末段结束时刻）
+    @param bedtime 当日就寝锚点时刻（UTC epoch 秒，≤ day_end）
+    @return 已通过骨架校验的新 DayPlan（bedtime 为传入锚点）
     @raises ValueError 段数不足下限或骨架约束不满足时抛出英文错误
     """
     if len(segments) < MIN_PLAN_SEGMENTS:
@@ -243,7 +354,7 @@ def initial_day_plan(segments: Sequence[PlanSegment], day_end: int) -> DayPlan:
             f"initial plan must contain at least {MIN_PLAN_SEGMENTS} "
             f"segments, got {len(segments)}"
         )
-    return DayPlan(bedtime=segments[-1].end, day_end=day_end, segments=segments)
+    return DayPlan(bedtime=bedtime, day_end=day_end, segments=segments)
 
 
 def _task_due_soon(now: int, due_at: int | None) -> bool:
@@ -404,3 +515,29 @@ def revise_day_plan(
     if len(merged) > MAX_PLAN_SEGMENTS:
         raise ValueError(f"revised plan exceeds {MAX_PLAN_SEGMENTS} segments")
     return DayPlan(bedtime=plan.bedtime, day_end=plan.day_end, segments=merged)
+
+
+def day_plan_expired(plan: DayPlan, now: int) -> bool:
+    """@brief 判定骨架是否跨日残留：now 越过计划自带的 day_end 即属前一天（L1606）。
+
+    引擎在跨日边界据此把 day_plan 归零，使"每天第一次醒来的决策必须先提交
+    plan_day"在第二天重新成立；判定不做时区换算，day_end 即提交日的次日
+    本地零点（修订沿用原计划的 day_end，判定对修订结果稳定）。
+
+    @param plan 当日日程骨架
+    @param now 查询时刻（UTC epoch 秒）
+    @return now >= plan.day_end 时为 True
+    """
+    return now >= plan.day_end
+
+
+def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，L1606）。
+
+    @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
+                 与人物状态模型的环依赖）
+    @return day_plan 残留的人物编号元组（按人物表插入序）
+    """
+    return tuple(agent_id for agent_id, agent in state.agents.items()
+                 if agent.day_plan is not None
+                 and day_plan_expired(agent.day_plan, state.current_time))

@@ -26,12 +26,23 @@ from worldmock.life.models import (
 
 
 def _plan(engine, offsets: tuple[int, ...], span: int = 100) -> PlanDayRequest:
-    """以受控段起点构造当日计划：段起点即 plan_block_boundary 唤醒时刻。"""
+    """以受控段起点构造当日计划：段起点即 plan_block_boundary 唤醒时刻。
+
+    末段延伸到缺省就寝锚点（当日结束）——"覆盖到就寝"是真实骨架约束（L1607）。
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
     base = engine.state.current_time
-    return PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=base + offset, end=base + offset + span,
-                         intent_kind="休息", note="")
-        for offset in offsets))
+    local = datetime.fromtimestamp(base, ZoneInfo(engine.scenario.timezone))
+    anchor = int((local + timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0).timestamp())
+    segments = [PlanSegmentInput(start=base + offset, end=base + offset + span,
+                                 intent_kind="休息", note="")
+                for offset in offsets[:-1]]
+    segments.append(PlanSegmentInput(start=base + offsets[-1], end=anchor,
+                                     intent_kind="休息", note=""))
+    return PlanDayRequest(segments=tuple(segments))
 
 
 def _observed_action(engine, round_id: str, tool_name: str, request):

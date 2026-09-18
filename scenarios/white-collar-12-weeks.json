@@ -69,6 +69,10 @@
         18.5,
         20.0
       ],
+      "bedtime_window": [
+        22.5,
+        23.5
+      ],
       "contacts": [
         {
           "contact_id": "contact-chenxi-oldfriend",

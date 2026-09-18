@@ -183,6 +183,11 @@ class AgentConfig(FrozenModel):
     # 驱动饥饿体感餐时项（规格 L1508）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
+    # 就寝窗口（规格 L1612 计划锚点来自人物卡片）：末端为当日计划骨架的
+    # 就寝锚点（engine 侧 bedtime_anchor 取声明末端）；末端允许跨午夜
+    # （>24，如 25.0=次日 01:00，与画像层 TimeWindow 同口径），引擎侧
+    # 锚点钳制不超过当日结束；None=未声明走 persona-mapping 缺省锚点。
+    bedtime_window: tuple[float, float] | None = None
     # 场景联系人（修订合同 L1627/L1647）：按人物声明，schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
 
@@ -207,6 +212,17 @@ class AgentConfig(FrozenModel):
             if (self.lunch_window[1] > self.dinner_window[0]
                     and self.dinner_window[1] > self.lunch_window[0]):
                 raise ValueError("dinner window must not overlap lunch window")
+        if self.bedtime_window is not None:
+            bedtime_start, bedtime_end = self.bedtime_window
+            # 跨午夜口径与画像层 TimeWindow 一致：start < 24、end ≤ 30（次日
+            # 06:00）、跨度 ≤ 12h（防病态区间）；引擎侧另钳制锚点 ≤ 当日结束。
+            if not 0 <= bedtime_start < 24 or not bedtime_start < bedtime_end <= 30:
+                raise ValueError(
+                    "bedtime_window must satisfy 0 <= start < 24 and start < end <= 30")
+            if bedtime_end - bedtime_start > 12:
+                raise ValueError("bedtime_window span must not exceed 12 hours")
+            if self.dinner_window is not None and bedtime_start < self.dinner_window[1]:
+                raise ValueError("bedtime window must not overlap dinner window")
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
             raise ValueError("agent contact ids must be unique")

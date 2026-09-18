@@ -13,7 +13,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 
-from tests.life.conftest import advance_until_ready, advance_next, context, submit_round
+from tests.life.conftest import advance_until_ready, advance_next, context, submit_round, stage_day_plan
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
@@ -205,6 +205,7 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
 async def test_negated_or_unsupported_minutes_require_rework_without_payment(engine_factory) -> None:
     """即使模型自报不接受，代码也依据逐项矛盾拒绝并保持余额。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     _at_task_start(engine)
     _complete_required_work(engine)
     balance = engine.state.accounts[engine.state.agents[1].balance_account_id]

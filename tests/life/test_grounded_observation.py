@@ -11,7 +11,7 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context, wake_by_mail
+from tests.life.conftest import advance_next, context, wake_by_mail, stage_day_plan
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
@@ -78,6 +78,7 @@ def _stage_open_single_stock(engine) -> str:
 def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -> None:
     """真实观察形成可购买闭集，结算最后库存后下一轮撤下购买工具。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     product_id = _stage_open_single_stock(engine)
     first_context = context(engine, "purchase-grounded")
     engine.begin_decision_round([first_context])
@@ -166,6 +167,7 @@ def _stage_progress_limits(engine) -> None:
 def test_real_observation_hides_impossible_media_and_work_tail_starts(engine_factory) -> None:
     """环境公开同一结算进度，Schema 撤下尾段启动但保留已完成工作提交。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     _stage_progress_limits(engine)
     observed_context = context(engine, "progress-limits")
     engine.begin_decision_round([observed_context])

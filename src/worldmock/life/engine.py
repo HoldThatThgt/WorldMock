@@ -100,6 +100,7 @@ from worldmock.life.models import (
     PlanSegmentInput,
     PurchaseOrderRequest,
     REQUEST_MODELS,
+    rejection_reason_text,
     ReviseDayPlanRequest,
     RunIdentity,
     SendMessageRequest,
@@ -122,7 +123,9 @@ from worldmock.life.rhythm import (
 )
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
-from worldmock.life.schedule import PlanSegment, WakeReason, initial_day_plan, revise_day_plan
+from worldmock.life.schedule import (PlanSegment, WakeReason, bedtime_anchor,
+                                     day_end_seconds, day_plan_expired, expired_plan_agent_ids,
+                                     initial_day_plan, revise_day_plan)
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.settlement import inject_initial_funds
 from worldmock.life.state_commit import commit_state, validated_payload
@@ -576,6 +579,8 @@ class LifeEngine(ObservationMixin):
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
         staged.current_time = target_epoch
+        for agent_id in expired_plan_agent_ids(staged):  # 跨日归零：观察只反映当日计划（L1606）
+            staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         staged = apply_engine_rhythm(self, staged, target_epoch, interval, arrivals, drafts)
         if not drafts:
             drafts.append(EventDraft(event_type="environment_event", occurred_at=target_epoch,
@@ -845,13 +850,14 @@ class LifeEngine(ObservationMixin):
                                                   "body": body}, deep=True)
         changed = _put_agent_and_defer_feedback(state, changed_agent)
         status = ActionStatus.FAILED if failed else ActionStatus.REJECTED
-        message = "Agent decision failed after consecutive rejections" if failed else "Action rejected"
+        message = ("Agent decision failed after consecutive rejections: " if failed
+                   else "Action rejected: ") + rejection_reason_text(error)
         data = {"consecutive_rejections": count,
                 "maximum_rejections": self.scenario.max_consecutive_rejections}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
             if not failed:
-                message = "Work submission requires rework"
+                message = f"Work submission requires rework: {rejection_reason_text(error)}"
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=status, occurred_at=state.current_time,
                               error_code=str(error), message=message,
@@ -1233,24 +1239,26 @@ class LifeEngine(ObservationMixin):
 
     def _plan_day(self, state: WorldState, pending: PendingAction,
                   request: PlanDayRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 登记当日日程骨架：人物自我承诺，环境不执行计划步（L1606-1609）。"""
+        """@brief 登记当日骨架为自我承诺（L1606-1609）；日首判据=当日尚无计划（跨日归零+台账），拒绝重试边界仍可提交。"""
         agent = state.agents[pending.agent_id]
         now = state.current_time
-        first_awake = ({"run_start", "wake_from_sleep"} & set(agent.pending_wake_reasons)
-                       or agent.last_decision_time is None)
-        if not first_awake:
-            raise BusinessRuleError("PLAN_DAY_ONLY_AT_DAY_START")
         date = _datetime(now, self.scenario.timezone).date().isoformat()
-        if date in agent.plan_submitted_dates:
+        planned_today = agent.day_plan is not None and not day_plan_expired(agent.day_plan, now)
+        if date in agent.plan_submitted_dates or planned_today:
             raise BusinessRuleError("PLAN_ALREADY_SUBMITTED")
-        day_end = _day_end(now, self.scenario.timezone)
+        day_end = day_end_seconds(now, self.scenario.timezone)
+        declared = getattr(self._agent_config(agent.agent_id), "bedtime_window", None)
+        bedtime = bedtime_anchor(now, self.scenario.timezone, declared[1] if declared else None)
         try:
             segments = tuple(PlanSegment(**segment.model_dump()) for segment in request.segments)
-            plan = initial_day_plan(segments, day_end)
         except ValueError as error:
             raise BusinessRuleError("PLAN_SEGMENTS_INVALID") from error
-        if plan.segments[0].start < now:
+        if segments and segments[0].start < now:
             raise BusinessRuleError("PLAN_SEGMENT_ALREADY_STARTED")
+        try:
+            plan = initial_day_plan(segments, day_end, bedtime)
+        except ValueError as error:
+            raise BusinessRuleError("PLAN_SEGMENTS_INVALID") from error
         changed_agent = agent.model_copy(
             update={"day_plan": plan, "plan_submitted_dates": set(agent.plan_submitted_dates) | {date}},
             deep=True)
@@ -1664,15 +1672,6 @@ def _put_agent(state: WorldState, agent) -> WorldState:
     agents = dict(state.agents)
     agents[agent.agent_id] = agent
     return state.model_copy(update={"agents": agents}, deep=True)
-
-
-def _day_end(now: int, timezone_name: str) -> int:
-    """@brief 当日结束时刻：场景时区次日零点（计划段不得越过，L1607）。"""
-    from datetime import timedelta
-
-    moment = _datetime(now, timezone_name)
-    return int((moment + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0).timestamp())
 
 
 def _put_agent_and_defer_feedback(state: WorldState, agent) -> WorldState:

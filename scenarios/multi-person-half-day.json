@@ -69,6 +69,10 @@
         18.5,
         20.0
       ],
+      "bedtime_window": [
+        22.5,
+        23.5
+      ],
       "contacts": [
         {
           "contact_id": "contact-chenxi-colleague",
@@ -179,6 +183,10 @@
       "dinner_window": [
         19.0,
         21.0
+      ],
+      "bedtime_window": [
+        23.5,
+        25.0
       ],
       "contacts": [
         {

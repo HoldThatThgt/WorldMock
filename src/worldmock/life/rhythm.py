@@ -61,6 +61,8 @@ class RhythmInputs:
     arrival_flags: dict[int, set[str]] = field(default_factory=dict)
     #: 待注解的 activity_progress 草稿数据（agent_id -> draft.data）。
     progress_data: dict[int, dict[str, Any]] = field(default_factory=dict)
+    #: 生活活动目录闭集（activity_id -> category；照做判定的家族令牌解析）。
+    lifestyle_categories: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,12 +235,17 @@ def _shared_meal(agent: AgentState, inputs: RhythmInputs) -> bool:
 
 
 def _plan_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 完成计划段 +0.05；任务到期未交 −0.4（L1517-1518）。"""
+    """@brief 完成计划段（照做才计）+0.05；任务到期未交 −0.4（L1517-1518）。"""
     now = inputs.state.current_time
     body = agent.body
-    if agent.day_plan is not None and any(
-            segment.end == now for segment in agent.day_plan.segments):
-        body = apply_mood_pulse(body, "plan_segment_completed")
+    if agent.day_plan is not None:
+        for segment in agent.day_plan.segments:
+            if segment.end != now:
+                continue
+            spans = _segment_activity_spans(inputs, agent, segment)
+            if rhythm_schedule.segment_followed(
+                    segment.intent_kind, spans, segment.end - segment.start):
+                body = apply_mood_pulse(body, "plan_segment_completed")
     window_start = now - inputs.interval_seconds
     for task_id in sorted(agent.visible_task_ids):
         due = inputs.task_due.get(task_id)
@@ -246,6 +253,40 @@ def _plan_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentS
                 and window_start < due <= now):
             body = apply_mood_pulse(body, "task_deadline_missed")
     return agent.model_copy(update={"body": body}, deep=True)
+
+
+def _segment_activity_spans(
+    inputs: RhythmInputs, agent: AgentState, segment
+) -> list[tuple[str, int]]:
+    """@brief 段区间内该人物实际活动的家族覆盖表（时间加权照做判定输入）。
+
+    活动区间 = [started_at, ended_at 或当前边界]；暂停活动的有效区间按
+    started_at + elapsed_seconds 收口（elapsed 是权威活动秒数，暂停后不再
+    占用墙钟）。家族令牌：普通活动取 kind 文本，生活活动解析为
+    "lifestyle:{category}"（目录缺失的条目解析为 lifestyle:unknown，不匹配
+    任何意图家族——fail-closed 不发脉冲）。
+    """
+    from worldmock.life.models import ActivityKind, ActivityStatus
+
+    now = inputs.state.current_time
+    excluded = {ActivityStatus.CANCELLED, ActivityStatus.FAILED}
+    spans: list[tuple[str, int]] = []
+    for activity in inputs.state.activities.values():
+        if activity.agent_id != agent.agent_id or activity.status in excluded:
+            continue
+        stop = activity.ended_at
+        if stop is None:
+            elapsed_stop = activity.started_at + activity.elapsed_seconds
+            stop = elapsed_stop if activity.status == ActivityStatus.PAUSED else now
+        overlap = max(0, min(stop, segment.end) - max(activity.started_at, segment.start))
+        if overlap <= 0:
+            continue
+        token = activity.kind.value
+        if activity.kind == ActivityKind.LIFESTYLE:
+            item_id = (activity.target_id or "").removeprefix("lifestyle:")
+            token = f"lifestyle:{inputs.lifestyle_categories.get(item_id, 'unknown')}"
+        spans.append((token, overlap))
+    return spans
 
 
 def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.WakeSnapshot:
@@ -417,7 +458,9 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
         recovery_kinds=engine.recovery_kinds,
         meal_windows_by_agent=engine.meal_windows_by_agent(),
         arrival_flags=arrival_flags or {},
-        progress_data=progress_data or {})
+        progress_data=progress_data or {},
+        lifestyle_categories={item.activity_id: item.category
+                              for item in engine.lifestyle_items})
 
 
 def apply_engine_rhythm(engine, staged, target: int, interval: int,

@@ -14,7 +14,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import context, engine_factory as _engine_factory  # noqa: F401
+from tests.life.conftest import (context, engine_factory as _engine_factory,  # noqa: F401
+                       stage_day_plan)
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.runtime import runtime_code_sha256
@@ -91,6 +92,7 @@ def _prepared_tools(data, observed_at):
 def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: F811
     """真实环境观察生成的完整工具请求经关闭重开数据库后保持原值。"""
     engine = _engine_factory()
+    stage_day_plan(engine)
     ctx = context(engine, "grounded-wire")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
@@ -138,6 +140,7 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
     import asyncio
 
     engine = _engine_factory()
+    stage_day_plan(engine)
     ctx = context(engine, "protocol-feedback")
     engine.begin_decision_round([ctx])
     directory = asyncio.run(_run_persisted_protocol_correction(engine, ctx))
@@ -187,6 +190,7 @@ def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path):
 def test_grounded_tool_deduplicates_target_ids_across_catalogs(_engine_factory):  # noqa: F811
     """不同目录中的相同身份在最终目标枚举中只出现一次。"""
     engine = _engine_factory()
+    stage_day_plan(engine)
     ctx = context(engine, "cross-catalog-id")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)

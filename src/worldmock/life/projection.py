@@ -299,11 +299,11 @@ def _plan_row(agent: AgentState, now: int, local: datetime) -> dict[str, Any] | 
 
 
 def _plan_fact(agent: AgentState, now: int, local: datetime) -> dict[str, Any] | None:
-    """@brief facts 的今日计划行：段列表与当前段身份。"""
+    """@brief facts 的今日计划行：段列表与当前段身份；就寝后与 scene 同口径隐藏。"""
     from worldmock.life import schedule as schedule_module
 
     plan = agent.day_plan
-    if plan is None:
+    if plan is None or plan.bedtime <= now:
         return None
     current = schedule_module.current_segment(plan, now)
     return {"segments": [{"start": segment.start, "end": segment.end,

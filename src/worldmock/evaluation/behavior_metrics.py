@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Any, Mapping
 from zoneinfo import ZoneInfo
 
@@ -87,6 +87,14 @@ UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 各协议门禁缺失证据时的统一说明前缀。
 _NOT_PROVIDED = "未提供"
 
+#: 计划-实际偏离报告口径（规格 L1611：统计并报告，报告项非门禁）。
+_PLAN_DEVIATION_CONVENTIONS = [
+    "计划的生效口径取当日最后一次完成的 plan_day/revise_day_plan action_result 携带的段（修订覆盖初版）",
+    "实际分钟由 activity_progress 结算区间按本地零点切分累加（时间加权）",
+    "intent_kind 经活动家族别名映射对齐实际侧；未知意图或未知家族计 unclassified",
+    "偏离=实际-计划（分钟，负值即实际少于计划）；本项为报告项，不作门禁",
+]
+
 
 def behavior_metrics_report(
     events: list[dict[str, Any]],
@@ -143,6 +151,7 @@ def _group_report(
         "activity_distribution": distribution,
         "persona_distinguishability": _persona_distinguishability(events),
         "social": _social(events, notes),
+        "plan_actual_deviation": _plan_actual_deviation(events, timezone, notes),
     }
     return {"schema_version": "behavior-metrics-1", "gates": gates, "reports": reports, "notes": notes}
 
@@ -440,6 +449,137 @@ def _sleep_summary(valid: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any
     duration = statistics.mean((item["end"] - item["start"]) / 3600.0 for item in valid)
     return {"median_bed_minutes_of_day": bed, "median_rise_minutes_of_day": rise,
             "mean_duration_hours": round(duration, 4), "session_count": len(valid)}
+
+
+def _plan_result_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """取携带当日骨架的完成 action_result 事件（plan_day/revise_day_plan 登记）。"""
+    results = []
+    for event in events:
+        if event.get("event_type") != "action_result":
+            continue
+        data = event.get("data", {})
+        payload = data.get("data")
+        if (data.get("status") == "completed" and isinstance(payload, Mapping)
+                and isinstance(payload.get("day_plan"), list)):
+            results.append(event)
+    return results
+
+
+def _effective_daily_plans(
+    events: list[dict[str, Any]], zone: ZoneInfo
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    """按（人物，本地日）取最后一次登记/修订的生效段列表（修订覆盖初版）。"""
+    ordered = sorted(_plan_result_events(events),
+                     key=lambda item: (item.get("occurred_at", 0), item.get("event_seq", 0),
+                                       str(item.get("event_id"))))
+    plans: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for event in ordered:
+        key = (str(event.get("agent_id")),
+               datetime.fromtimestamp(event["occurred_at"], zone).date().isoformat())
+        plans[key] = [segment for segment in event["data"]["data"]["day_plan"]
+                      if isinstance(segment, Mapping)]
+    return plans
+
+
+def _midnight_minute_chunks(start: int, end: int, zone: ZoneInfo):
+    """把结算区间 [start, end) 按本地零点切分为（本地日, 分钟）片段。"""
+    cursor = start
+    while cursor < end:
+        day = datetime.fromtimestamp(cursor, zone).date()
+        boundary = int(datetime.combine(day + timedelta(days=1), time.min,
+                                        tzinfo=zone).timestamp())
+        stop = min(end, boundary)
+        yield day.isoformat(), (stop - cursor) / 60.0
+        cursor = stop
+
+
+def _daily_family_minutes(
+    events: list[dict[str, Any]], zone: ZoneInfo
+) -> dict[tuple[str, str], dict[str, float]]:
+    """按（人物，本地日）累计实际活动各家族分钟（跨日区间在本地零点切分）。"""
+    totals: dict[tuple[str, str], dict[str, float]] = {}
+    for event in _activity_progress_events(events):
+        data = event.get("data", {})
+        start, end = data.get("interval_start"), data.get("interval_end")
+        if not (isinstance(start, (int, float)) and isinstance(end, (int, float)) and end > start):
+            continue
+        family = _family_of(_snapshot(event)) or "unclassified"
+        agent = str(event.get("agent_id"))
+        for day_key, minutes in _midnight_minute_chunks(start, end, zone):
+            bucket = totals.setdefault((agent, day_key), {})
+            bucket[family] = bucket.get(family, 0.0) + minutes
+    return totals
+
+
+def _segment_minutes(segment: Mapping[str, Any]) -> float:
+    """取单个计划段的分钟数（end-start）；非数值或非正跨度记 0。"""
+    start, end = segment.get("start"), segment.get("end")
+    numeric = (isinstance(start, (int, float)) and not isinstance(start, bool)
+               and isinstance(end, (int, float)) and not isinstance(end, bool))
+    return (end - start) / 60.0 if numeric and end > start else 0.0
+
+
+def _plan_family(segment: Mapping[str, Any]) -> str:
+    """把计划段 intent_kind 映射到活动家族；闭集外意图计 unclassified。"""
+    kind = str(segment.get("intent_kind", "")).lower()
+    return _FAMILY_ALIASES.get(kind, "unclassified")
+
+
+def _plan_day_entry(
+    segments: list[dict[str, Any]], planned: Mapping[str, float], act: Mapping[str, float]
+) -> dict[str, Any]:
+    """构造单人物单日的偏离条目：段级对照、家族矩阵与三个总量（分钟）。"""
+    families = sorted(set(planned) | set(act))
+    matrix = {family: {
+        "planned_minutes": round(planned.get(family, 0.0), 6),
+        "actual_minutes": round(act.get(family, 0.0), 6),
+        "deviation_minutes": round(act.get(family, 0.0) - planned.get(family, 0.0), 6),
+    } for family in families}
+    return {
+        "plan_segments": [{"intent_kind": str(segment.get("intent_kind", "")),
+                           "family": _plan_family(segment),
+                           "planned_minutes": round(_segment_minutes(segment), 6),
+                           "actual_same_family_minutes": round(
+                               act.get(_plan_family(segment), 0.0), 6)}
+                          for segment in segments],
+        "family_deviation": matrix,
+        "planned_total_minutes": round(sum(planned.values()), 6),
+        "actual_total_minutes": round(sum(act.values()), 6),
+        "absolute_deviation_minutes": round(
+            sum(abs(item["deviation_minutes"]) for item in matrix.values()), 6),
+    }
+
+
+def _plan_actual_deviation(
+    events: list[dict[str, Any]], timezone: str, notes: list[str]
+) -> dict[str, Any]:
+    """按日对比 day_plan 段（intent_kind+时长）与实际活动家族分钟（报告项，L1611）。"""
+    zone = ZoneInfo(timezone)
+    plans = _effective_daily_plans(events, zone)
+    if not plans:
+        notes.append("无完成的 plan_day/revise_day_plan action_result，计划-实际偏离无法计算")
+        return {"per_agent_day": {}, "summary": None,
+                "conventions": list(_PLAN_DEVIATION_CONVENTIONS)}
+    actual = _daily_family_minutes(events, zone)
+    per_agent_day: dict[str, Any] = {}
+    planned_total = actual_total = deviation_total = 0.0
+    for (agent, day_key), segments in sorted(plans.items()):
+        planned: dict[str, float] = {}
+        for segment in segments:
+            family = _plan_family(segment)
+            planned[family] = planned.get(family, 0.0) + _segment_minutes(segment)
+        entry = _plan_day_entry(segments, planned, actual.get((agent, day_key), {}))
+        per_agent_day[f"{agent}:{day_key}"] = entry
+        planned_total += entry["planned_total_minutes"]
+        actual_total += entry["actual_total_minutes"]
+        deviation_total += entry["absolute_deviation_minutes"]
+    summary = {"agent_day_count": len(plans),
+               "planned_total_minutes": round(planned_total, 6),
+               "actual_total_minutes": round(actual_total, 6),
+               "absolute_deviation_minutes": round(deviation_total, 6),
+               "mean_absolute_deviation_minutes": round(deviation_total / len(plans), 6)}
+    return {"per_agent_day": per_agent_day, "summary": summary,
+            "conventions": list(_PLAN_DEVIATION_CONVENTIONS)}
 
 
 def _consume_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

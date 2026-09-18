@@ -7,7 +7,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_until_ready, advance_next, context, travel_quote
+from tests.life.conftest import advance_until_ready, advance_next, context, travel_quote, stage_day_plan
 from worldmock.footprints.models import EventDraft
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.models import (
@@ -71,6 +71,7 @@ def _tool_names(agent: LifeAgent) -> set[str]:
 def test_zero_energy_real_observation_removes_non_recovery_actions(engine_factory) -> None:
     """真实零能量世界投影撤下全部耗能目标和路线，同时保留基础恢复动作。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     _set_energy(engine, 0)
     decision = context(engine, "zero-energy-observation")
     engine.begin_decision_round([decision])
