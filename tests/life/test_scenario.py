@@ -487,6 +487,35 @@ def test_work_materials_are_distinct_and_persona_matched() -> None:
         assert set(per_persona) <= agents
 
 
+@pytest.mark.parametrize(
+    ("bedtime", "message"),
+    [
+        # 起点越界：负起点与 ≥24 起点（跨午夜口径只放宽末端，不放宽起点）。
+        ((-1.0, 6.0), "0 <= start < 24"),
+        ((24.0, 25.5), "0 <= start < 24"),
+        # 末端越界：end ≤ start 的退化区间与 end > 30（次日 06:00 上限）。
+        ((22.5, 22.5), "start < end <= 30"),
+        ((23.0, 30.5), "start < end <= 30"),
+        # 跨度病态区间：12.5h 超过 12h 上限（范围检查本身合法）。
+        ((10.0, 22.5), "span must not exceed 12 hours"),
+        # 压到晚餐窗口：陈曦晚餐 [18.5, 20.0]，就寝起点 19.5 < 20.0。
+        ((19.5, 28.0), "must not overlap dinner window"),
+    ],
+)
+def test_bedtime_window_bounds_and_overlap_are_rejected(
+    bedtime: tuple[float, float], message: str
+) -> None:
+    """就寝窗口起点/末端越界、跨度超限与压到晚餐窗口均在文档校验层拒绝。"""
+    _assert_invalid(_replace(("agents", 0, "bedtime_window"), list(bedtime)), message)
+
+
+def test_cross_midnight_bedtime_window_is_accepted() -> None:
+    """正例：合法跨午夜就寝窗口（23:30 入睡、末端 25.5=次日 01:30）通过校验。"""
+    document = LifeScenario.model_validate(
+        _replace(("agents", 0, "bedtime_window"), [23.5, 25.5]))
+    assert document.agents[0].bedtime_window == (23.5, 25.5)
+
+
 def test_three_scenarios_share_the_v2_schema() -> None:
     """三场景同 Schema：版本、重估间隔、钉扎哈希与人物卡片字段一致齐备。"""
     manifests = set()
