@@ -1,3 +1,5 @@
+**Status: SUPERSEDED** — superseded_by: docs/INDEX.md
+
 # WorldMock 设计文档组织方案
 
 ## LabelKit 文档结构分析
