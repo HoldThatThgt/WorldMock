@@ -226,10 +226,15 @@ def test_build_report_structure():
 def test_write_report_roundtrip(tmp_path):
     """@brief 报告可写入磁盘并原样读回，父目录自动创建。"""
     branch = gate.compute_branch_summary(make_cov_data({}))
-    report = gate.build_report(branch, [], True, "cmd")
+    report = gate.build_report(
+        branch, [], True, "cmd", "snap-id", "hash-abc", "source-xyz"
+    )
     target = tmp_path / "nested" / "coverage-report.json"
     gate.write_report(report, target)
     loaded = json.loads(target.read_text(encoding="utf-8"))
     assert loaded == report
     assert loaded["passed"] is True
     assert loaded["branch_coverage"]["percent"] == 0.0
+    assert loaded["evidence_manifest"]["snapshot_id"] == "snap-id"
+    assert loaded["evidence_manifest"]["manifest_hash"] == "hash-abc"
+    assert loaded["evidence_manifest"]["source_identity"] == "source-xyz"
