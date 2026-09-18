@@ -1,0 +1,50 @@
+{
+  "schema": "worldmock.snapshot.identity.v1",
+  "snapshot_id": "pending",
+  "identity": {
+    "code": {
+      "git_commit": "31ba7ad185a519e37f3c69016de04b324fcfbeb2",
+      "tree_sha256": "pending"
+    },
+    "spec": {
+      "path": "docs/dev/SPEC-document-governance.md",
+      "sha256": "pending"
+    },
+    "dependencies": {
+      "lockfiles": [
+        {
+          "path": "uv.lock",
+          "sha256": "pending"
+        }
+      ],
+      "environment": "Python 3.14.5 on Darwin arm64"
+    },
+    "scenario": {
+      "path": "pending",
+      "sha256": "pending"
+    },
+    "tests": {
+      "command": "pending",
+      "selection": "pending",
+      "runner": "pending"
+    },
+    "real_acceptance_claim": {
+      "deepseek_twelve_weeks": {
+        "status": "NOT-COMPLETE",
+        "scope": "DeepSeek 十二周真实验收",
+        "evidence_ids": []
+      },
+      "three_blind_evaluations": {
+        "status": "NOT-COMPLETE",
+        "scope": "三次隔离盲评",
+        "evidence_ids": []
+      },
+      "full_natural_day_labelkit": {
+        "status": "NOT-COMPLETE",
+        "scope": "完整自然日 LabelKit 交付",
+        "evidence_ids": []
+      }
+    }
+  },
+  "evidence": []
+}
