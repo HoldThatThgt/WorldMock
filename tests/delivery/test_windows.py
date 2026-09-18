@@ -199,6 +199,34 @@ def test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event(in
         _expand_observed_results([observed], indexed, cutoff=2)
 
 
+@pytest.mark.parametrize('ordering', ['after', 'equal'])
+def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself(ordering):
+    """引用排序守卫（规格 L677、L1396-1407）：未来事件不得进入引用集合。
+
+    观察的 recent_action_results 引用的结果事件序号 >= 观察自身序号时，
+    导出管道必须经 `source["event_seq"] >= observation["event_seq"]` 拒绝。
+    本用例把 knowledge cutoff 放宽到引用之后（cutoff=5 > 引用序号），
+    确保拒绝只来自排序半句——同行的 `> cutoff` 半句是窗口成员资格已蕴含
+    的冗余防御，'future' 既有用例（序号 3、cutoff=2）恰好只测到它。
+    """
+    sequence = 3 if ordering == 'after' else 2
+    source = event('forward-result', sequence, 'action_result', {'status': 'completed', 'message': 'Done'})
+    source.update(action_id='forward-action', decision_id='forward-decision')
+    observed = event('visible', 2, 'observation', {'recent_action_results': [result_summary(source)]})
+    indexed = {row['event_id']: row for row in (source, observed)}
+
+    with pytest.raises(IntegrityError, match='knowledge cutoff'):
+        _expand_observed_results([observed], indexed, cutoff=5)
+
+    prior = event('prior-result', 1, 'action_result', {'status': 'completed', 'message': 'Done'})
+    prior.update(action_id='prior-action', decision_id='prior-decision')
+    earlier_observed = event('visible', 2, 'observation',
+                             {'recent_action_results': [result_summary(prior)]})
+    expanded = _expand_observed_results(
+        [earlier_observed], {row['event_id']: row for row in (prior, earlier_observed)}, cutoff=2)
+    assert [row['event_id'] for row in expanded] == ['prior-result', 'visible']
+
+
 def test_midnight_experiment_end_does_not_create_an_extra_training_day(tmp_path):
     start, end = 1767542400, 1767628800
     observed = event('observed', 1, 'observation', {'balance_fen': 800})

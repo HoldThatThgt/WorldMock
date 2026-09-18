@@ -796,6 +796,21 @@ def test_account_transition_rejects_unbalanced_changes_and_bad_types():
         validate_account_transition({"accounts": {"a": -1}}, {"accounts": {"a": -1}}, [], False)
 
 
+def test_account_transition_rejects_nonzero_sum_counterparty_event():
+    """资金零和守恒（规格 L883-886）：每笔转账必须指名双方且合计为零。
+
+    双边金额不抵消的事件（{a:-5, b:+4}，合计 -1）即使账户差额与事件逐项
+    一致，也必须被 `sum(money.values()) != 0` 子句拒绝——`len(money) < 2`
+    单边用例测不到它。正例：等额对倒的零和事件通过。
+    """
+    before = {"accounts": {"a": 10, "b": 0}}
+    leak = _money_event({"resource_changes": {"account:a": -5, "account:b": 4}})
+    with pytest.raises(IntegrityError, match="does not balance across its counterparties"):
+        validate_account_transition(before, {"accounts": {"a": 5, "b": 4}}, [leak], False)
+    balanced = _money_event({"resource_changes": {"account:a": -5, "account:b": 5}})
+    validate_account_transition(before, {"accounts": {"a": 5, "b": 5}}, [balanced], False)
+
+
 def test_account_history_rejects_missing_initial_negative_and_drift():
     funding = _money_event({"kind": "initial_funds_injected",
                             "resource_changes": {"account:a": 10, "account:external:scenario": -10}})

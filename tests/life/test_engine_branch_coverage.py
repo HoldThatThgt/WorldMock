@@ -1037,6 +1037,33 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
         engine.advance(601, datetime.fromtimestamp(engine.state.current_time + 600, zone))
 
 
+def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engine_factory) -> None:
+    """时钟边界跳跃守卫（规格 L115、L322-331；Uncle Bob 条款 L788-790）。
+
+    推进必须同时满足三条：tick 严格为正、t = 上次确认时刻 + tick、且命中
+    下一调度边界；不得跨过新开始活动更早的结束边界。本用例瞄准
+    `target_epoch != self._next_epoch()` 子句：tick 算术正确（t = now+tick）
+    但目标距离是真实边界的两倍——只有该子句会拒绝（601/600 的 tick 失配
+    用例测不到它）。正例：精确推进到边界被接受。
+    """
+    engine = engine_factory()
+    zone = ZoneInfo(engine.scenario.timezone)
+    ctx = context(engine, "boundary-jump")
+    engine.begin_decision_round([ctx])
+    engine.submit_action(DirectToolCall(
+        ctx, "action-boundary-jump", "start_basic_activity",
+        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)))
+    engine.commit_decision_round("boundary-jump")
+    now = engine.state.current_time
+    next_epoch = engine._next_epoch()
+    assert next_epoch > now
+    with pytest.raises(ProtocolError, match="next scheduling boundary"):
+        engine.advance(2 * (next_epoch - now),
+                       datetime.fromtimestamp(now + 2 * (next_epoch - now), zone))
+    engine.advance(next_epoch - now, datetime.fromtimestamp(next_epoch, zone))
+    assert engine.state.current_time == next_epoch
+
+
 def test_fail_run_rejects_empty_error(engine_factory) -> None:
     """空错误串的失败通知协议拒绝。"""
     engine = engine_factory()
