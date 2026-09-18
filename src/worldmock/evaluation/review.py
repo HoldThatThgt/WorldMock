@@ -36,10 +36,11 @@ _PUBLIC_VALUES = {
     "interaction": {
         "order", "travel", "check_in", "check_out", "open", "close", "view", "copy",
         "notify", "arrive", "leave", "visit", "read", "work", "submit", "pay", "deliver",
-        "play", "browse", "consume", "pause", "resume", "cancel", "continue", "change", "deadline",
+        "play", "browse", "consume", "pause", "resume", "cancel", "continue", "change",
+        "deadline", "chat", "call",
     },
     "object_type": {"order", "route", "workplace", "application", "content", "message", "task", "game",
-                    "product", "activity"},
+                    "product", "activity", "person"},
     "state": {
         "declared", "requested", "started", "completed", "received", "read", "pending", "ready",
         "paid", "delivered", "available", "expired", "rejected", "cancelled", "failed", "unknown",
@@ -317,15 +318,15 @@ def _candidate_timeline(
         context.support.get("public_fields_by_category", {}),
     )
     return {
-        "activities": _timeline(view, dates, context.support),
+        "activities": _timeline(view, dates, context.support, mask),
         "public_evidence": _public_evidence_rows(view, dates, mask),
     }
 
 
 def _timeline(
-    view: DatasetView, dates: Sequence[date], support: Mapping[str, Any]
+    view: DatasetView, dates: Sequence[date], support: Mapping[str, Any], mask: _EvidenceMask
 ) -> list[JsonObject]:
-    """@brief 输出类别、起止时间和规范化状态，不输出来源或内部身份。"""
+    """@brief 输出类别、起止时间、地点、同伴与规范化状态，不输出来源或内部身份。"""
     categories = set(support["shared_categories"])
     channels = set(support["shared_channels"])
     selected = set(dates)
@@ -333,12 +334,12 @@ def _timeline(
     for activity in view.activities:
         if activity.category not in categories or not set(activity.channels) & channels:
             continue
-        rows.extend(_timeline_segments(view, activity, selected))
+        rows.extend(_timeline_segments(view, activity, selected, mask))
     return sorted(rows, key=lambda item: (item["start"], item["end"], item["category"]))
 
 
 def _timeline_segments(
-    view: DatasetView, activity: ActivitySession, selected: set[date]
+    view: DatasetView, activity: ActivitySession, selected: set[date], mask: _EvidenceMask
 ) -> list[JsonObject]:
     """@brief 将一个会话的真实运行区间裁到评审日期。"""
     zone = ZoneInfo(view.window.timezone)
@@ -354,20 +355,34 @@ def _timeline_segments(
         for start, end in segments:
             clipped_start, clipped_end = max(start, day_start), min(end, day_end)
             if clipped_end > clipped_start:
-                rows.append(_timeline_row(activity, clipped_start, clipped_end, zone))
+                rows.append(_timeline_row(activity, clipped_start, clipped_end, zone, mask))
     return rows
 
 
 def _timeline_row(
-    activity: ActivitySession, start: datetime, end: datetime, zone: ZoneInfo
+    activity: ActivitySession, start: datetime, end: datetime, zone: ZoneInfo,
+    mask: _EvidenceMask,
 ) -> JsonObject:
-    """@brief 规范化一个可见活动区间。"""
+    """@brief 规范化一个可见活动区间，同伴以 keyed HMAC 匿名对象引用输出。
+
+    地点与同伴两列为修订合同 L1632/L1680 新增：location_id 适配层尚未
+    填充时为 null；partner_id 只以评审槽+候选命名空间隔离的匿名引用出现，
+    原始人物身份不进盲评包。
+    """
     return {
         "category": activity.category,
         "start": start.astimezone(zone).isoformat(),
         "end": end.astimezone(zone).isoformat(),
         "status": _public_status(activity.status),
+        "location": getattr(activity, "location_id", None),
+        "companion": _companion_ref(activity, mask),
     }
+
+
+def _companion_ref(activity: ActivitySession, mask: _EvidenceMask) -> str | None:
+    """@brief 同伴匿名引用：无同伴为 null，有则与对象引用同一 HMAC 机制。"""
+    partner = getattr(activity, "partner_id", None)
+    return _masked_ref(mask, "person", partner) if partner else None
 
 
 def _public_evidence_rows(
@@ -421,11 +436,16 @@ def _public_evidence_row(
     return row
 
 
+def _masked_ref(mask: _EvidenceMask, object_type: str, object_key: str) -> str:
+    """@brief keyed HMAC 匿名引用：候选与评审槽隔离、同侧跨日稳定。"""
+    key = hmac.new(mask.seed.encode(), f"reviewer:{mask.reviewer_slot}".encode(), hashlib.sha256).digest()
+    message = "\0".join((mask.candidate_namespace, object_type, object_key))
+    return "object-" + hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+
+
 def _object_ref(evidence: PublicEvidence, mask: _EvidenceMask) -> str:
     """@brief 生成候选和评审会话隔离、同侧跨日稳定的对象引用。"""
-    key = hmac.new(mask.seed.encode(), f"reviewer:{mask.reviewer_slot}".encode(), hashlib.sha256).digest()
-    message = "\0".join((mask.candidate_namespace, evidence.object_type, evidence.object_key or ""))
-    return "object-" + hmac.new(key, message.encode(), hashlib.sha256).hexdigest()
+    return _masked_ref(mask, evidence.object_type, evidence.object_key or "")
 
 
 def _judgeability(item: JsonObject, dimensions: Sequence[str]) -> JsonObject:
@@ -640,7 +660,10 @@ def _validate_candidate_timeline(value: Any, public_fields: Mapping[str, Any]) -
     if not isinstance(value["activities"], list) or not isinstance(value["public_evidence"], list):
         raise EvaluationError("invalid_review", "blind review candidate collections must be arrays")
     for row in value["activities"]:
-        if not isinstance(row, dict) or set(row) != {"category", "start", "end", "status"}:
+        if (not isinstance(row, dict)
+                or set(row) != {"category", "start", "end", "status", "location", "companion"}
+                or not _valid_location(row["location"])
+                or not _valid_anonymous_ref(row["companion"])):
             raise EvaluationError("invalid_review", "blind review activity timeline schema is invalid")
     for row in value["public_evidence"]:
         _validate_public_row(row, public_fields)
@@ -667,6 +690,17 @@ def _validate_public_row(value: Any, public_fields: Mapping[str, Any]) -> None:
         raise EvaluationError("invalid_review", "blind review public evidence time is invalid")
     for field in fields:
         _validate_public_value(field, value.get(field))
+
+
+def _valid_location(value: Any) -> bool:
+    """@brief 活动地点列为显式缺失或非空字符串（场景地名不是闭集）。"""
+    return value is None or (isinstance(value, str) and bool(value))
+
+
+def _valid_anonymous_ref(value: Any) -> bool:
+    """@brief 同伴列只允许缺失或匿名对象引用形态，拒绝原始人物身份。"""
+    return value is None or (isinstance(value, str)
+                             and re.fullmatch(r"object-[0-9a-f]{64}", value) is not None)
 
 
 def _validate_public_value(field: str, value: Any) -> None:

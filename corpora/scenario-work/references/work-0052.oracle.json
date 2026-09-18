@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0052",
+  "source_reference": "references/work-0052.reference.json",
+  "expected": {
+    "material_id": "work-0052",
+    "decisions": [
+      "改价与发券操作二次确认。",
+      "突发限流时一键下播并自动公告。",
+      "中控操作限主播管理员与运营两种角色。"
+    ],
+    "action_items": [
+      "操作日志留痕。",
+      "工期八周，先支撑单品直播。"
+    ]
+  },
+  "piece_count": 3
+}

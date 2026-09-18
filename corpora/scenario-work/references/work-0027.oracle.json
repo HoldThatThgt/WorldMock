@@ -1,0 +1,19 @@
+{
+  "type": "scenario",
+  "material_id": "work-0027",
+  "source_reference": "references/work-0027.reference.json",
+  "expected": {
+    "material_id": "work-0027",
+    "decisions": [
+      "默认好评不计入商家质量分。",
+      "评价标签闭集先定 12 个，不允许商家自定义。",
+      "差评申诉期定为 48 小时。"
+    ],
+    "action_items": [
+      "图片评价先过机审再展示。",
+      "标签闭集每月复核一次。",
+      "阻塞项修改后复审。"
+    ]
+  },
+  "piece_count": 3
+}

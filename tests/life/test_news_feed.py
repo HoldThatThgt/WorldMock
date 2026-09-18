@@ -85,7 +85,9 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
         assert feed.timeline_path == "feed/news-feed.srt"
         assert feed.entertainment_relief_per_hour == FEED_RATE
         assert feed.experience_label == "casual_news_feed_scroll"
-        assert all(0 < agent.entertainment_preferences[FEED_ID] <= 1 for agent in scenario.agents)
+        # 修订合同 L1661：随机偏好浮点删除——场景人物不再携带任何偏好浮点键。
+        doc = json.loads(Path(f"scenarios/{name}").read_text(encoding="utf-8"))
+        assert all("entertainment_preferences" not in agent for agent in doc["agents"])
     engine = engine_factory()
     # 分层目录：两个基线条目分属两个品类，各自下钻可见完整字段身份
     feed_catalog = browse_activities(engine, "browse-feeds", "news_feed")
@@ -107,11 +109,29 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
     assert expected_entries[0] in sintel_catalog
 
 
+def _seed_feed_taste(engine) -> None:
+    """注入确定性口味权重（L1661：结算偏好源=taste_weights，卡片入库前测试注入）。
+
+    经 staged 深拷贝 + 版本 +1 + 事件留痕提交，保持足迹库状态连续性。
+    """
+    from worldmock.footprints.models import EventDraft
+
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[1] = staged.agents[1].model_copy(
+        update={"taste_weights": {FEED_ID: FEED_PREFERENCE}}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_seed_feed_taste"})])
+    engine.state = staged
+
+
 def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_factory) -> None:
     """一次短 watch 只揭示跨过的条目，能量按实际接触秒数结算。"""
     ests = [item["estimated_read_seconds"] for item in _items()]
     planned = ests[0] + ests[1]
     engine = engine_factory()
+    _seed_feed_taste(engine)
     _wait_awake(engine)
     body = engine.semantics.body
     energy_before = engine.state.agents[1].body.energy_kcal
@@ -148,6 +168,7 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
     ests = [item["estimated_read_seconds"] for item in _items()]
     durations = [ests[0] + ests[1], ests[2] + ests[3], ests[4] + ests[5]]
     engine = engine_factory()
+    _seed_feed_taste(engine)
     _wait_awake(engine)
     need_before = engine.state.agents[1].body.entertainment_need
     relief = 0.0
@@ -173,6 +194,7 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     engine = engine_factory()
     # 6 轮 wait（5400s）净累积 0.045，高于 950s 刷屏的未钳制缓解量
     # 0.25×0.6×950/3600≈0.0396——保证断言观测的是未触底的总接触费率结算。
+    _seed_feed_taste(engine)
     _wait_awake(engine, rounds=6)
     need_before = engine.state.agents[1].body.entertainment_need
     body = engine.semantics.body

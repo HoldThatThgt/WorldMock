@@ -182,10 +182,12 @@ class PlanSegment(BaseModel):
 
 
 class DayPlan(BaseModel):
-    """@brief 当日日程骨架：5-8 段、覆盖到就寝、不越过当日结束（规格 L1606-1607）。
+    """@brief 当日日程骨架：上限 8 段、覆盖到就寝、不越过当日结束（规格 L1606-1607）。
 
     bedtime 为当日就寝时刻，day_end 为当日结束时刻；段间允许留空（未计划的自由
-    时间），但不得重叠、不得乱序，最末段必须覆盖到 bedtime。
+    时间），但不得重叠、不得乱序，最末段必须覆盖到 bedtime。5 段下限只约束首次
+    plan_day（由 initial_day_plan 构造期校验承载）：修订合同 L1611 允许尾段修订
+    后剩余段数少于 5，模型层不设下限，保证合法修订态可通过加载口径重校验。
     """
 
     bedtime: int
@@ -194,11 +196,11 @@ class DayPlan(BaseModel):
 
     @model_validator(mode="after")
     def _check_plan(self) -> "DayPlan":
-        """@brief 校验段数与骨架约束。"""
-        if not (MIN_PLAN_SEGMENTS <= len(self.segments) <= MAX_PLAN_SEGMENTS):
+        """@brief 校验段数上限与骨架约束。"""
+        if len(self.segments) > MAX_PLAN_SEGMENTS:
             raise ValueError(
-                f"plan must contain {MIN_PLAN_SEGMENTS} to "
-                f"{MAX_PLAN_SEGMENTS} segments, got {len(self.segments)}"
+                f"plan must contain at most {MAX_PLAN_SEGMENTS} "
+                f"segments, got {len(self.segments)}"
             )
         _validate_skeleton(self.segments, self.bedtime, self.day_end)
         return self
@@ -222,6 +224,26 @@ def _validate_skeleton(
             raise ValueError("segments overlap or are out of order")
     if segments and segments[-1].end < bedtime:
         raise ValueError("plan does not cover until bedtime")
+
+
+def initial_day_plan(segments: Sequence[PlanSegment], day_end: int) -> DayPlan:
+    """@brief 构造首次 plan_day 的当日骨架：执行 5 段下限后交模型校验（规格 L1606-1607）。
+
+    段数下限只在此处约束：一天尾段只剩少量待改段时，下限会让修订无法成立，
+    故 revise_day_plan 的合并结果不受 5 段下限限制（修订合同 L1611），
+    下限由本构造函数在首次提交时唯一承载。
+
+    @param segments 按起点升序排列的完整段序列（至少 5 段）
+    @param day_end 当日结束时刻（UTC epoch 秒）
+    @return 已通过骨架校验的新 DayPlan（bedtime 取最末段结束时刻）
+    @raises ValueError 段数不足下限或骨架约束不满足时抛出英文错误
+    """
+    if len(segments) < MIN_PLAN_SEGMENTS:
+        raise ValueError(
+            f"initial plan must contain at least {MIN_PLAN_SEGMENTS} "
+            f"segments, got {len(segments)}"
+        )
+    return DayPlan(bedtime=segments[-1].end, day_end=day_end, segments=segments)
 
 
 def _task_due_soon(now: int, due_at: int | None) -> bool:
@@ -371,7 +393,7 @@ def revise_day_plan(
     @param plan 被修订的当日日程骨架
     @param now 修订时刻（UTC epoch 秒）
     @param new_segments 替换全部未开始段的新段序列（按起点升序）
-    @return 修订后的新 DayPlan（原对象不变）
+    @return 修订后的新 DayPlan（原对象不变；正常构造，保证加载口径可重校验）
     @raises ValueError 试图改写已开始的段或替换后违反骨架约束时抛出
     """
     kept = tuple(segment for segment in plan.segments if segment.start <= now)
@@ -381,7 +403,4 @@ def revise_day_plan(
     merged = kept + tuple(new_segments)
     if len(merged) > MAX_PLAN_SEGMENTS:
         raise ValueError(f"revised plan exceeds {MAX_PLAN_SEGMENTS} segments")
-    _validate_skeleton(merged, plan.bedtime, plan.day_end)
-    return DayPlan.model_construct(
-        bedtime=plan.bedtime, day_end=plan.day_end, segments=merged
-    )
+    return DayPlan(bedtime=plan.bedtime, day_end=plan.day_end, segments=merged)

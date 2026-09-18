@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0023",
+  "source_reference": "references/work-0023.reference.json",
+  "expected": {
+    "material_id": "work-0023",
+    "decisions": [
+      "取消入口提到订单详情首屏。",
+      "退款进度以已取消、退款中、已到账三节点时间轴展示。"
+    ],
+    "action_items": [
+      "到账时间按支付渠道给出区间估计。",
+      "退款时间承诺与财务对齐后再上线。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -1,0 +1,10 @@
+{
+  "type": "scenario",
+  "material_id": "work-0036",
+  "language": "zh",
+  "summary_sentences": [
+    "标签体系 v2 按 Lifecycle、价值、兴趣三域组织，共 42 个标签。",
+    "价值域依据近九十天付费的分位数划分成五档。",
+    "标签产出统一由特征平台每日更新，端侧消费只读快照。"
+  ]
+}

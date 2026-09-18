@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0019",
+  "source_reference": "references/work-0019.reference.json",
+  "expected": {
+    "material_id": "work-0019",
+    "decisions": [
+      "网关层做分流决策，规则存配置中心。",
+      "同一用户请求粘滞固定分组，分组写 cookie 并落库。",
+      "切分比例上限 50%，越权改配置需双人审批。"
+    ],
+    "action_items": [
+      "分组维度的成功率、延迟、业务指标看板自动生成。",
+      "工期六周，先支撑订单与支付两个域。"
+    ]
+  },
+  "piece_count": 3
+}

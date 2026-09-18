@@ -25,7 +25,9 @@ def load_training(records: list[dict], destination: Path) -> tuple[DatasetDict, 
         if set(record) != {"task", "input", "target", "provenance"}:
             raise IntegrityError("Training record has fields outside the canonical contract")
         groups.setdefault(split, []).append(record)
-    descriptors = {split: write_jsonl(destination / f"{split}.jsonl", rows) for split, rows in groups.items()}
+    text_rows = {split: [_json_text_row(row) for row in rows] for split, rows in groups.items()}
+    descriptors = {split: write_jsonl(destination / f"{split}.jsonl", rows)
+                   for split, rows in text_rows.items()}
     features = Features({"task": Value("string"), "input": Json(decode=False),
                          "target": Json(decode=False), "provenance": Json(decode=False)})
     files = {split: str(destination / descriptor["path"]) for split, descriptor in descriptors.items()}
@@ -52,6 +54,13 @@ def _conversation(record: dict) -> dict:
     """@brief 训练时使用允许看到的输入与独立目标，不把答案放入提示。"""
     return {"prompt": [{"role": "user", "content": record["input"]}],
             "completion": [{"role": "assistant", "content": record["target"]}]}
+
+
+def _json_text_row(record: dict) -> dict:
+    """@brief 三个 JSON 列以文本落盘，避免加载器对对象列按 15 位有效数字重写浮点。"""
+    return {"task": record["task"], "input": canonical_json(record["input"]).decode(),
+            "target": canonical_json(record["target"]).decode(),
+            "provenance": canonical_json(record["provenance"]).decode()}
 
 
 def _decode_json_record(record: dict) -> dict:

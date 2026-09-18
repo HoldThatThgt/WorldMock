@@ -122,9 +122,10 @@ from worldmock.life.rhythm import (
 )
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
-from worldmock.life.schedule import DayPlan, PlanSegment, WakeReason, revise_day_plan
+from worldmock.life.schedule import PlanSegment, WakeReason, initial_day_plan, revise_day_plan
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.settlement import inject_initial_funds
+from worldmock.life.state_commit import commit_state, validated_payload
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
 from worldmock.life.work import (
     load_work_input,
@@ -228,22 +229,23 @@ class LifeEngine(ObservationMixin):
         self._validate_runtime()
 
     @classmethod
-    def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity) -> "LifeEngine":
-        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件。"""
+    def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity,
+               two_stage_identity: dict | None = None, agent_taste_weights: dict | None = None) -> "LifeEngine":
+        """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；口味权重按注入值入态。"""
         semantics, digest = load_runtime_scenario(scenario_path)
         scenario = semantics.scenario
         corpus_root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
-        state = _initial_state(semantics, digest, run_identity.run_id)
-        manifest = _run_manifest(scenario, digest, run_identity)
-        store = FootprintStore.create(Path(run_dir), manifest, state.model_dump(mode="json"))
+        state = _initial_state(semantics, digest, run_identity.run_id, agent_taste_weights or {})
+        manifest = _run_manifest(scenario, digest, run_identity, two_stage_identity)
+        store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
         changes["account:external:scenario"] = -sum(state.accounts.values())
         injection = EventDraft(event_type="environment_event", occurred_at=state.current_time,
                                visibility="evaluation", source_kind="scenario",
                                data={"kind": "initial_funds_injected", "resource_changes": changes})
-        store.commit(state.model_dump(mode="json"), [injection])
+        commit_state(store, state, [injection])
         return cls(semantics, digest, corpus_root, store)
 
     @classmethod
@@ -263,12 +265,12 @@ class LifeEngine(ObservationMixin):
         draft = EventDraft(event_type="observation", occurred_at=self.state.current_time,
                            agent_id=agent.agent_id, decision_id=context.decision_id,
                            observed_at=self.state.current_time, data=data)
-        event = self.store.commit(self.state.model_dump(mode="json"), [draft])[0]
+        event = commit_state(self.store, self.state, [draft])[0]
         data["observation_event_id"] = event.event_id
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
-        """@brief 持久化共同观察顺序；decision_started 延迟到独白可得时一次写完整（L1562-1573）。"""
+        """@brief 持久化观察顺序；decision_started 延迟到独白可得时写（L1562-1573）。"""
         if self._round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -326,8 +328,8 @@ class LifeEngine(ObservationMixin):
         for attempt in range(1, WORK_REVIEW_MAX_MODEL_CALLS + 1):
             call_id = f"{pending.decision_id}:work-review:{pending.action_id}:attempt:{attempt}"
             request_link = (call_id, attempt, previous_event_id)
-            request_event = self.store.commit(
-                self.state.model_dump(mode="json"),
+            request_event = commit_state(
+                self.store, self.state,
                 [_work_review_request_draft(self.state.current_time, pending, request_link, prepared.request)],
             )[0]
             link = (call_id, request_event.event_id, attempt)
@@ -352,13 +354,13 @@ class LifeEngine(ObservationMixin):
             logging.error("Work review model request was cancelled")
             draft = _work_review_failure_draft(
                 self.state.current_time, pending, link, error)
-            self.store.commit(self.state.model_dump(mode="json"), [draft])
+            commit_state(self.store, self.state, [draft])
             raise
         except Exception as error:
             logging.exception("Work review model request failed")
             draft = _work_review_failure_draft(
                 self.state.current_time, pending, link, error)
-            self.store.commit(self.state.model_dump(mode="json"), [draft])
+            commit_state(self.store, self.state, [draft])
             raise
 
     def _parse_work_reviewer(self, raw, prepared, pending, link: tuple[str, str, int]):
@@ -373,11 +375,11 @@ class LifeEngine(ObservationMixin):
             logging.exception("Work review response parsing failed")
             draft = _work_review_response_draft(
                 self.state.current_time, pending, link, (raw, None, caught))
-            self.store.commit(self.state.model_dump(mode="json"), [draft])
+            commit_state(self.store, self.state, [draft])
             raise
         draft = _work_review_response_draft(
             self.state.current_time, pending, link, (raw, decision, error))
-        event = self.store.commit(self.state.model_dump(mode="json"), [draft])[0]
+        event = commit_state(self.store, self.state, [draft])[0]
         return decision, error, event.event_id
 
     def _queue_action(self, call: "DirectToolCall", request_sha: str, reused: bool) -> ActionReceipt:
@@ -390,7 +392,7 @@ class LifeEngine(ObservationMixin):
                            action_id=call.action_id, source_kind="model",
                            data={"tool_name": call.tool_name, "request": call.request.model_dump(mode="json"),
                                  "request_sha256": request_sha, "reused": reused})
-        event = self.store.commit(self.state.model_dump(mode="json"), [
+        event = commit_state(self.store, self.state, [
             item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(run_id=call.context.run_id, round_id=call.context.round_id,
                                 decision_id=call.context.decision_id, action_id=call.action_id,
@@ -420,7 +422,7 @@ class LifeEngine(ObservationMixin):
                 staged = _remember_action(staged, pending, result)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.state.version + 1
-        events = self.store.commit(staged.model_dump(mode="json"), drafts)
+        events = commit_state(self.store, staged, drafts)
         self.state = staged
         self._round = None
         self._ops_committed(round_id, results, events)
@@ -468,7 +470,7 @@ class LifeEngine(ObservationMixin):
                                  visibility="system", data={"kind": "decision_round_aborted",
                                                              "round_id": round_id, "error": str(error)}))
         drafts.append(_failure_draft(self.state.current_time, error, round_id))
-        self.store.commit(staged.model_dump(mode="json"), drafts)
+        commit_state(self.store, staged, drafts)
         self.state = staged
         self._round = None
         self.ops.log(self.state.current_time, "engine", "error", "DECISION_ROUND_ABORTED",
@@ -516,7 +518,7 @@ class LifeEngine(ObservationMixin):
                            occurred_at=self.state.current_time, agent_id=context.agent_id,
                            decision_id=context.decision_id, caused_by=cause, visibility="system",
                            source_kind="model", data=data)
-        event = self.store.commit(self.state.model_dump(mode="json"), [draft])[0]
+        event = commit_state(self.store, self.state, [draft])[0]
         if exchange.phase == "request":
             self._model_request_events[key] = event.event_id
         else:
@@ -525,7 +527,7 @@ class LifeEngine(ObservationMixin):
         start = maybe_monologue_start(self._pending_decision_starts, context.agent_id,
                                       self.state.current_time, exchange)
         if start is not None:
-            self.store.commit(self.state.model_dump(mode="json"), [start])
+            commit_state(self.store, self.state, [start])
 
     def _ops_exchange(self, context: "DecisionContext", exchange: Any) -> None:
         """@brief 写模型交换操作日志，带响应中可用的模型名与 token 用量。"""
@@ -553,7 +555,7 @@ class LifeEngine(ObservationMixin):
                            agent_id=evidence.context.agent_id,
                            decision_id=evidence.context.decision_id,
                            visibility="system", source_kind="environment", data=data)
-        self.store.commit(self.state.model_dump(mode="json"), [draft])
+        commit_state(self.store, self.state, [draft])
         self.ops.log(self.state.current_time, "memory", "info", "MEMORY_UPDATED",
                      f"Memory update appended {len(evidence.episode_ids)} episodes",
                      agent_id=evidence.context.agent_id,
@@ -585,7 +587,7 @@ class LifeEngine(ObservationMixin):
             drafts.append(EventDraft(event_type="run_ended", occurred_at=target_epoch,
                                      visibility="system", data={"end_time": target_epoch}))
         staged.version = self.state.version + 1
-        self.store.commit(staged.model_dump(mode="json"), drafts)
+        commit_state(self.store, staged, drafts)
         self.state = staged
         return results
 
@@ -596,8 +598,8 @@ class LifeEngine(ObservationMixin):
         events = self.store.read_events(self.store.last_event_seq)
         if any(event.event_type == "run_failed" for event in events):
             return
-        self.store.commit(self.state.model_dump(mode="json"),
-                          [_failure_draft(self.state.current_time, error, None)])
+        commit_state(self.store, self.state,
+                     [_failure_draft(self.state.current_time, error, None)])
         self.ops.log(self.state.current_time, "engine", "error", "RUN_FAILED",
                      f"Run failed: {error}")
 
@@ -622,7 +624,7 @@ class LifeEngine(ObservationMixin):
         draft = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                            agent_id=intervention.agent_id, caused_by=list(intervention.source_event_ids),
                            visibility="evaluation", source_kind="scenario", data=data)
-        event = self.store.commit(staged.model_dump(mode="json"), [draft])[0]
+        event = commit_state(self.store, staged, [draft])[0]
         self.state = staged
         return CounterfactualReceipt(intervention_sha256=digest, event_id=event.event_id,
                                      agent_id=intervention.agent_id, before_balance_fen=before,
@@ -669,7 +671,7 @@ class LifeEngine(ObservationMixin):
         reference = self.store.assets.put_json(receipt, {"kind": "life_checkpoint"})
         snapshots = dict(agent_snapshots)
         snapshots["life"] = reference
-        committed = self.store.checkpoint(self.state.model_dump(mode="json"), snapshots)
+        committed = self.store.checkpoint(validated_payload(self.state), snapshots)
         self.ops.log(self.state.current_time, "checkpoint", "info", "CHECKPOINT_COMMITTED",
                      f"Checkpoint {committed.checkpoint_id} committed",
                      event_seq_last=committed.last_event_seq)
@@ -1244,7 +1246,7 @@ class LifeEngine(ObservationMixin):
         day_end = _day_end(now, self.scenario.timezone)
         try:
             segments = tuple(PlanSegment(**segment.model_dump()) for segment in request.segments)
-            plan = DayPlan(bedtime=segments[-1].end, day_end=day_end, segments=segments)
+            plan = initial_day_plan(segments, day_end)
         except ValueError as error:
             raise BusinessRuleError("PLAN_SEGMENTS_INVALID") from error
         if plan.segments[0].start < now:
@@ -1407,9 +1409,9 @@ class LifeEngine(ObservationMixin):
                 advanced = advance_activity(activity, state.agents[activity.agent_id], target,
                                             self.semantics.body)
             if body_boundary == target and not advanced.completed:
-                activity_update = {"next_interaction_at": target, "boundary_type": "feedback"}
-                changed_activity = advanced.activity.model_copy(update=activity_update, deep=True)
-                advanced = ActivityAdvance(changed_activity, advanced.agent, advanced.settlement, False)
+                update = {"next_interaction_at": target, "boundary_type": "feedback"}
+                advanced = ActivityAdvance(advanced.activity.model_copy(update=update, deep=True),
+                                           advanced.agent, advanced.settlement, False)
             if advanced.completed:
                 agent = advanced.agent.model_copy(update={"next_decision_at": target}, deep=True)
                 advanced = ActivityAdvance(advanced.activity, agent, advanced.settlement, True)
@@ -1419,8 +1421,8 @@ class LifeEngine(ObservationMixin):
             if not advanced.completed:
                 current = state.agents[activity.agent_id]
                 next_at = self._activity_decision_at(state.activities[activity_id], current, target)
-                state.agents[activity.agent_id] = current.model_copy(
-                    update={"next_decision_at": next_at}, deep=True)
+                state.agents[activity.agent_id] = current.model_copy(update={"next_decision_at": next_at},
+                                                                     deep=True)
             data = {"interval_start": interval_start, "interval_end": advanced.activity.last_settled_at,
                     "activity": self._activity_snapshot(state.activities[activity_id]),
                     "body_settlement": _body_settlement_data(advanced.settlement), **effects}
@@ -1428,14 +1430,12 @@ class LifeEngine(ObservationMixin):
             if flows:
                 data[RESOURCE_FLOWS_FIELD] = flows
             drafts.append(EventDraft(event_type="activity_progress", occurred_at=target,
-                                     agent_id=activity.agent_id,
-                                     decision_id=activity.origin_decision_id,
+                                     agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
                                      action_id=activity.origin_action_id, activity_id=activity_id,
                                      caused_by=[activity.origin_request_event_id], data=data))
             if advanced.completed:
                 final_activity = state.activities[activity_id]
-                result = _activity_terminal_result(final_activity, target,
-                                                   self._activity_title(final_activity))
+                result = _activity_terminal_result(final_activity, target, self._activity_title(final_activity))
                 state.processed_actions = _terminal_action_records(state, result)
                 results.append(result)
                 drafts.append(_activity_terminal_draft(final_activity, target, [],
@@ -1588,8 +1588,8 @@ class LifeEngine(ObservationMixin):
                 "corpus_manifest_sha256": self.scenario.corpus_manifest_sha256, "games": games}
 
 
-def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: str) -> WorldState:
-    """@brief 从组装语义形成无隐藏动作的完整初始世界。"""
+def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: str, taste_weights: dict) -> WorldState:
+    """@brief 从组装语义形成无隐藏动作的完整初始世界；口味权重按人物注入。"""
     scenario = semantics.scenario
     start = int(scenario.start_at.timestamp())
     end = int(scenario.end_at.timestamp())
@@ -1597,7 +1597,7 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
     accounts = inject_initial_funds(dict(semantics.accounts), start)
     for config in scenario.agents:
         account_id = f"agent:{config.agent_id}"
-        agents[config.agent_id] = _initial_agent(config, scenario, account_id, start)
+        agents[config.agent_id] = _initial_agent(config, scenario, account_id, start, taste_weights)
     pending = compile_schedule(scenario, start, end)
     random_state = hashlib.sha256(f"random:{scenario.random_seed}".encode()).hexdigest()
     return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
@@ -1609,33 +1609,32 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
                       pending_events=pending, random_seed=scenario.random_seed, random_state=random_state)
 
 
-def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int):
-    """@brief 构造人物身体（两过程睡眠反推初值）、可见日历和空进度。"""
+def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int, taste_weights: dict):
+    """@brief 构造人物身体（两过程睡眠反推初值）、可见日历、空进度和注入口味。"""
     from worldmock.life.models import AgentState
 
     visible_tasks = {item.task_id for item in scenario.tasks if int(item.available_at.timestamp()) <= start}
     visible_mail = {item.message_id for item in scenario.messages if int(item.sent_at.timestamp()) <= start
                     and item.recipient_agent_id == config.agent_id}
-    start_hour = _datetime(start, scenario.timezone).hour + _datetime(
-        start, scenario.timezone).minute / 60
+    start_hour = _datetime(start, scenario.timezone).hour + _datetime(start, scenario.timezone).minute / 60
     body = initial_body(scenario.body, start_hour, config.sleep_need_hours,
                         config.chronotype_midsleep)
     return AgentState(agent_id=config.agent_id, name=config.name, location_id=config.home_location_id,
                       balance_account_id=account_id, skill_levels=config.skill_levels,
-                      entertainment_preferences=config.entertainment_preferences,
-                      body=body, visible_task_ids=visible_tasks,
-                      known_task_ids=set(visible_tasks),
+                      body=body, visible_task_ids=visible_tasks, known_task_ids=set(visible_tasks),
                       visible_message_ids=visible_mail, next_decision_at=start,
-                      pending_wake_reasons=["run_start"])
+                      pending_wake_reasons=["run_start"], taste_weights=taste_weights.get(config.agent_id) or {})
 
 
-def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity) -> dict:
-    """@brief 绑定新运行的场景、内容和参与人物身份。"""
+def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity,
+                  two_stage_identity: dict | None = None) -> dict:
+    """@brief 绑定新运行的场景、内容、人物身份与两阶段请求形状。"""
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id,
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
             "model_identity": identity.model_identity.model_dump(mode="json"),
+            "two_stage_model_identity": two_stage_identity,
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
                        "timezone": scenario.timezone}}
 

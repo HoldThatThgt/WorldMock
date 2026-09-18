@@ -124,9 +124,9 @@ def test_task_skill_targets_must_be_declared() -> None:
         _replace(("tasks", 0, "required_skill"), "missing-skill"),
         "unknown skill",
     )
-    # 修订合同 L1661：entertainment_preferences 的目录条目校验删除（不再校验引用目标）
+    # 修订合同 L1661：随机偏好浮点字段整体删除——场景再携带该键按未知字段拒绝。
     payload = _replace(("agents", 0, "entertainment_preferences"), {"missing-content": 0.5})
-    LifeScenario.model_validate(payload)
+    _assert_invalid(payload, "Extra inputs are not permitted")
 
 
 @pytest.mark.parametrize(

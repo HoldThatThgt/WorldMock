@@ -1,8 +1,10 @@
 import pytest
+from typing import get_args
 
 from worldmock.footprints.models import (
     CHAT_INVITE_KIND,
     DECISION_OFFERED_FIELD,
+    EventType,
     INNER_MONOLOGUE_FIELD,
     MESSAGE_ARRIVAL_KIND,
     WAKE_REASON_NAMES,
@@ -11,12 +13,35 @@ from worldmock.footprints.models import (
     validate_inner_monologue,
 )
 
+#: 事件类型冻结枚举（footprints/models.py EventType Literal 的运行时视图）。
+EVENT_TYPES = get_args(EventType)
+
 _SPEC_WAKE_REASONS = frozenset({
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
     "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
 })
+
+#: 规格事件类型冻结枚举 14 类（docs/agentsociety2-design.md L864-866 逐字）。
+_SPEC_EVENT_TYPES = (
+    "observation", "decision_started", "model_request", "model_response", "action_requested",
+    "action_accepted", "action_rejected", "activity_progress", "action_result",
+    "environment_event", "memory_updated", "checkpoint_created", "run_ended", "run_failed",
+)
+
+
+def test_event_type_vocabulary_is_the_frozen_spec_set():
+    """GAP-2：事件类型冻结集合逐字等于规格 14 类（含顺序与拼写）。"""
+    assert tuple(EVENT_TYPES) == _SPEC_EVENT_TYPES
+    assert len(EVENT_TYPES) == len(set(EVENT_TYPES)) == 14
+
+
+def test_event_type_rejects_anything_outside_the_frozen_set():
+    from worldmock.footprints.models import EventDraft
+
+    with pytest.raises(ValueError):
+        EventDraft(event_type="agent_thought", occurred_at=1)
 
 
 def test_wake_reason_vocabulary_is_the_frozen_spec_set():

@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0025",
+  "source_reference": "references/work-0025.reference.json",
+  "expected": {
+    "material_id": "work-0025",
+    "decisions": [
+      "高价值商品按积分余额分层定向补货。",
+      "新增小额高频的早餐券品类。",
+      "兑换流程从四步压缩到两步。"
+    ],
+    "action_items": [
+      "数据口径以自然月为准，下月复盘。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0059",
+  "source_reference": "references/work-0059.reference.json",
+  "expected": {
+    "material_id": "work-0059",
+    "decisions": [
+      "拦截页明示原因分类与申诉入口。",
+      "高风险外转人工快速通道。",
+      "误拦成立发体验补偿券。"
+    ],
+    "action_items": [
+      "风控特征回流接口两周内排期。",
+      "客服侧确认快速通道排班。"
+    ]
+  },
+  "piece_count": 3
+}

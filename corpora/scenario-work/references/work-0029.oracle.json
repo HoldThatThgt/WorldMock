@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0029",
+  "source_reference": "references/work-0029.reference.json",
+  "expected": {
+    "material_id": "work-0029",
+    "decisions": [
+      "全量上线组合优惠召回。",
+      "召回频控为每用户每周最多两次。",
+      "降价提醒保留给价格敏感人群分层使用。"
+    ],
+    "action_items": [
+      "按每组约四万样本、显著性水平 0.05 归档实验报告。"
+    ]
+  },
+  "piece_count": 3
+}

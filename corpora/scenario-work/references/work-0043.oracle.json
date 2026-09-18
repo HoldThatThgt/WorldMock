@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0043",
+  "source_reference": "references/work-0043.reference.json",
+  "expected": {
+    "material_id": "work-0043",
+    "decisions": [
+      "大促前三十天价格快照入库存证。",
+      "划线价需有三十天内真实成交依据。",
+      "处罚按首次警告、二次流量降权、三次下架执行。"
+    ],
+    "action_items": [
+      "商家侧上线自查工具。",
+      "回补历史快照数据（需一周）。"
+    ]
+  },
+  "piece_count": 3
+}

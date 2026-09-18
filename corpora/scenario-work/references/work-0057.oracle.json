@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0057",
+  "source_reference": "references/work-0057.reference.json",
+  "expected": {
+    "material_id": "work-0057",
+    "decisions": [
+      "换货改版以周期 5 天为目标。",
+      "先绘制全链路时间消耗分布再定方案。"
+    ],
+    "action_items": [
+      "梳理换货库存占用规则。",
+      "专项周期三周，输出评审稿。"
+    ]
+  },
+  "piece_count": 3
+}

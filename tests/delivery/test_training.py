@@ -166,3 +166,37 @@ def copy_target(record, event_id):
     target = json.loads(json.dumps(record['target']))
     target['claims'][0]['evidence_event_ids'] = [event_id]
     return target
+
+
+def test_high_precision_floats_round_trip_through_real_dataset_loader(tmp_path):
+    """先红后绿回归：训练门浮点被下游重写（code-refute-2026-09-17 P0）。
+
+    机制论证（为什么是缺陷不是特征）：input/target/provenance 以嵌套 JSON 对象落盘时，
+    datasets 的 Json(decode=False) 对对象形态列走 json_encode_field → pandas ujson，
+    双精度被量化到 15 位有效数字且没有无损档位——1139.1499999999999 被改写成 1139.15，
+    守恒检查随即 IntegrityError，唯一交付路径对真实记录必然失败。规格
+    （docs/agentsociety2-design.md L1060-1064）要求三列以 JSON 文本保存、以标准 json.loads
+    逐记录核对原值并保留浮点数；文本形态的列被加载器短路原样返回，浮点逐位守恒。
+    本测试用 16-17 位有效数字的浮点钉住该行为：修复前必然 IntegrityError，
+    修复后逐位相等。
+    """
+    record = sample()
+    record['input']['efficiency'] = 1139.1499999999999
+    record['input']['ratio'] = 0.30000000000000004
+    record['target']['facts'] = {'value': 1234567890.1234567, 'nested': [{'x': 5.000000000000001}]}
+    record['provenance']['weight'] = 2.0000000000000004
+
+    loaded, receipt = load_training([record], tmp_path / 'training')
+
+    assert receipt['rows'] == 1
+    split = next(iter(loaded))
+    row = loaded[split][0]
+    assert json.loads(row['input']) == record['input']
+    assert json.loads(row['input'])['efficiency'] == 1139.1499999999999
+    assert json.loads(row['target']) == record['target']
+    assert json.loads(row['target'])['facts']['nested'][0]['x'] == 5.000000000000001
+    assert json.loads(row['provenance']) == record['provenance']
+    line = json.loads((tmp_path / 'training' / f'{split}.jsonl').read_text().splitlines()[0])
+    assert isinstance(line['input'], str) and isinstance(line['target'], str)
+    assert isinstance(line['provenance'], str)
+    assert json.loads(line['input']) == record['input']

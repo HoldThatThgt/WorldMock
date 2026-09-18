@@ -238,7 +238,7 @@ def resource_claims(request: StartActivityRequest) -> set[str]:
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
     """@brief 从方式和人物内容偏好形成活动结算系数。"""
     met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
-    preference = agent.entertainment_preferences.get(activity.target_id or "", 0)
+    preference = agent.taste_weights.get(activity.target_id or "", 0)
     relief = _entertainment_relief(activity, preference, config)
     skill, tool = _work_factors(activity, agent, config)
     food = _food_energy_rate(activity)

@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0012",
+  "source_reference": "references/work-0012.reference.json",
+  "expected": {
+    "material_id": "work-0012",
+    "decisions": [
+      "回调消费失败按 1m/5m/30m/2h/6h 五档重试，共最多十次。",
+      "幂等以渠道流水号加订单号为键。",
+      "延迟队列堆积上限 50 万条，超限触发降级。"
+    ],
+    "action_items": [
+      "十次仍失败落死信表并告警。",
+      "对账任务每小时跑一次，发现单边账自动补单并记录痕迹。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -97,11 +97,11 @@ def test_both_scenarios_wire_game_sessions_and_preferences() -> None:
                 Path(f"corpora/{game['timeline_path']}").read_bytes()).hexdigest()
             assert entry["experience_label"] == "game_session_play"
             assert entry["entertainment_relief_per_hour"] == 0.35
+        # 修订合同 L1661：随机偏好浮点删除——逐游戏 0.4-0.8 断言随合同移除，
+        # 改为负向断言：场景人物不再携带随机偏好浮点键。
         for agent in doc["agents"]:
-            for game in GAMES:
-                value = agent["entertainment_preferences"].get(game["game_id"])
-                assert value is not None and 0.4 <= value <= 0.8, (
-                    f"{path} agent {agent['agent_id']} {game['game_id']}={value}")
+            assert "entertainment_preferences" not in agent, (
+                f"{path} agent {agent['agent_id']} still carries random preference floats")
 
 
 def test_textworld_library_has_30_seeds_wired_into_scenarios() -> None:
@@ -128,9 +128,8 @@ def test_textworld_library_has_30_seeds_wired_into_scenarios() -> None:
             encoded = json.dumps(walkthrough, ensure_ascii=False, separators=(",", ":")).encode()
             assert entry["game_sha256"] == hashlib.sha256(data).hexdigest()
             assert entry["walkthrough_sha256"] == hashlib.sha256(encoded).hexdigest()
-            for agent in doc["agents"]:
-                value = agent["entertainment_preferences"].get(f"textworld-{seed}")
-                assert value is not None and 0.4 <= value <= 0.8
+        for agent in doc["agents"]:
+            assert "entertainment_preferences" not in agent
 
 
 def test_drama_library_grew_to_ten_with_parseable_streams() -> None:

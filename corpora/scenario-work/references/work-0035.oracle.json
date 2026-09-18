@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0035",
+  "source_reference": "references/work-0035.reference.json",
+  "expected": {
+    "material_id": "work-0035",
+    "decisions": [
+      "下单页展示分区间预计送达窗口。",
+      "超时订单自动触发补偿券。",
+      "商家接单超时十五分钟提醒、三十分钟未接单可退款。"
+    ],
+    "action_items": [
+      "履约分位数按城市与品类双维日更。",
+      "文案侧给出窗口宽度的说明话术。"
+    ]
+  },
+  "piece_count": 3
+}

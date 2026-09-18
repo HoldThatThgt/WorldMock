@@ -206,3 +206,21 @@ def test_credentials_are_redacted_without_losing_model_task(monkeypatch):
     assert 'private-credential-value' not in json.dumps(result)
     assert result['messages'] == original['messages']
     assert original['headers']['Authorization'] == 'Bearer private-credential-value'
+
+
+@pytest.mark.parametrize('bad_state', [
+    {'version': 0, 'current_time': 'soon'},
+    {'version': True, 'current_time': 100},
+    {'version': 0, 'current_time': 100.5},
+])
+def test_create_rejects_non_integer_initial_clock_or_version(tmp_path, bad_state):
+    """先红后绿回归（refute P0：写入路径不校验）——create 是检查点恢复分支的落盘入口。
+
+    机制论证（为什么是缺陷不是特征）：commit 的 _validate_state 已要求 version 与
+    current_time 为整数（store.py 结构合同），而 create 对同两个字段只查 version>=0 与
+    current_time 键存在，非整数初始状态被静默持久化，直到下次加载才暴露——与
+    FootprintStore 合同（agentsociety2-design.md L878-884）的写入路径校验口径不一致。
+    """
+    manifest = {'run_id': 'bad-shape', 'agent_ids': [1], 'code': 'frozen'}
+    with pytest.raises(IntegrityError):
+        FootprintStore.create(tmp_path / 'bad-run', manifest, bad_state)

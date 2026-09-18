@@ -400,10 +400,206 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
     monkeypatch.setattr(direct_env_actor, "get_direct_env_actor_class", lambda: ActorClass)
     monkeypatch.setattr(env_router_proxy, "EnvRouterProxy", reject_router)
     monkeypatch.setattr(ray, "kill", lambda target, no_restart: calls.append(("kill", target, no_restart)))
-    prepared = SimpleNamespace(project_root=tmp_path, run_dir=tmp_path / "run", env_kwargs={})
+    from worldmock.life.scenario import load_scenario
+
+    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario, _ = load_scenario(scenario_path)
+    prepared = SimpleNamespace(project_root=tmp_path, run_dir=tmp_path / "run", env_kwargs={},
+                               scenario_path=scenario_path, scenario=scenario,
+                               workspace_mode="restore", start_time=scenario.start_at)
 
     with pytest.raises(RuntimeError, match="router construction failed"):
         _build_society(prepared)
 
     assert calls[0][0] == "remote"
     assert calls[1] == ("kill", actor, True)
+
+
+class _StubContactReplyClient:
+    """NPC 送达集成测试的联系人回复客户端桩（记录请求、返回脚本化响应）。"""
+
+    model_name = "deepseek-flash"
+
+    def __init__(self, model_identity):
+        self.calls = []
+
+    async def call(self, request):
+        self.calls.append(request)
+        return {"model": self.model_name,
+                "choices": [{"message": {"content": "好啊，老地方见。"}}],
+                "usage": {"prompt_tokens": 21, "completion_tokens": 7}}
+
+
+def _npc_delivery_engine(tmp_path: Path):
+    """建立隔离运行的 LifeEngine 与裸 LifeEnv 包装（采纳点=commit 后结算）。"""
+    from agentsociety2.society import DecisionContext, DirectToolCall
+    from tests.life.conftest import context
+    from worldmock.life.engine import LifeEngine
+
+    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    from worldmock.life.scenario import load_scenario
+
+    scenario, _ = load_scenario(scenario_path)
+    run_id = "npc-delivery-test"
+    from worldmock.life.models import RunIdentity
+
+    identity = RunIdentity(
+        run_id=run_id, source_group_id=f"group-{run_id}",
+        agent_ids=tuple(item.agent_id for item in scenario.agents),
+        start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
+        timezone=scenario.timezone, code_sha256="4" * 64,
+        model_identity=_model_identity())
+    engine = LifeEngine.create(scenario_path, tmp_path / "run", identity)
+    return engine, context, DecisionContext, DirectToolCall
+
+
+@pytest.mark.asyncio
+async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypatch) -> None:
+    """生产采纳点（C1 接缝二）：model 联系人消息在下一轮 commit 后送达收件箱。"""
+    from worldmock.life.models import SendMessageRequest
+
+    engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
+    try:
+        from custom.envs.life_env import LifeEnv
+
+        env = LifeEnv()
+        env.engine = engine
+        ctx = context(engine, "npc-deliver")
+        await env.begin_decision_round((ctx,))
+        await env.submit_action(DirectToolCall(
+            ctx, "action-npc-deliver", "send_message",
+            SendMessageRequest(recipient_id="contact-chenxi-oldfriend",
+                               text="周五晚上一起吃饭？")))
+
+        import worldmock.runtime as runtime_module
+
+        monkeypatch.setattr(runtime_module, "ContactReplyClient", _StubContactReplyClient)
+        results = await env.commit_decision_round("npc-deliver")
+
+        assert results[0].status == "completed"
+        inbox = engine.state.agents[1].inbox
+        replies = [item for item in inbox.values()
+                   if item.sender_id == "contact-chenxi-oldfriend"]
+        assert len(replies) == 1 and replies[0].text == "好啊，老地方见。"
+        events = engine.store.read_events(engine.store.last_event_seq)
+        arrivals = [item for item in events if item.data.get("kind") == "message_arrival"
+                    and item.data.get("message_id") == replies[0].message_id]
+        assert len(arrivals) == 1 and arrivals[0].agent_id == 1
+        evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
+        assert len(evidence) == 1
+    finally:
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_life_env_commit_without_pending_never_builds_reply_client(
+        tmp_path, monkeypatch) -> None:
+    """反例：无待回复消息时 commit 不构造回复客户端（结算循环零副作用）。"""
+    from worldmock.life.models import StartBasicActivityRequest
+
+    engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
+    try:
+        from custom.envs.life_env import LifeEnv
+
+        env = LifeEnv()
+        env.engine = engine
+        ctx = context(engine, "npc-noop")
+        await env.begin_decision_round((ctx,))
+        await env.submit_action(DirectToolCall(
+            ctx, "action-npc-noop", "start_basic_activity",
+            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+
+        import worldmock.runtime as runtime_module
+
+        def _forbidden(model_identity):
+            raise AssertionError("reply client must not be built without pending replies")
+
+        monkeypatch.setattr(runtime_module, "ContactReplyClient", _forbidden)
+        results = await env.commit_decision_round("npc-noop")
+
+        assert results[0].status == "in_progress"
+        assert engine.state.agents[1].inbox == {}
+    finally:
+        engine.close()
+
+
+def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
+    """装配侧由同一次编译的卡片口味计算确定性权重（修订合同 L1661-1662）。"""
+    import worldmock.runtime as runtime_module
+    from worldmock.life.scenario import load_scenario
+    from worldmock.profile.taste import compute_taste_weights
+
+    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=("剧情", "科幻")))
+    compiled: list[int] = []
+
+    def fake_payload(agent):
+        compiled.append(agent.agent_id)
+        return "卡片文本", card
+
+    monkeypatch.setattr(runtime_module, "_persona_payload", fake_payload)
+    genres = {item.item_id: ("剧情",) for item in scenario.contents}
+    full, half, empty = (item.item_id for item in scenario.contents[:3])
+    genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
+
+    specs = _agent_specs(scenario, content_genres=genres)
+
+    weights = specs[0]["profile"]["taste_weights"]
+    expected = compute_taste_weights(
+        ("剧情", "科幻"),
+        [{"item_id": item.item_id, "genre": genres[item.item_id]}
+         for item in scenario.contents])
+    assert compiled == [1]
+    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert weights == expected
+    assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
+
+
+def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) -> None:
+    """无口味卡片：全内容目录权重为 0（无缺省抬升），键集覆盖全部条目。"""
+    import worldmock.runtime as runtime_module
+    from worldmock.life.scenario import load_scenario
+
+    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=()))
+    monkeypatch.setattr(runtime_module, "_persona_payload", lambda agent: ("卡片文本", card))
+
+    specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
+                                                   for item in scenario.contents})
+
+    weights = specs[0]["profile"]["taste_weights"]
+    assert set(weights) == {item.item_id for item in scenario.contents}
+    assert weights and all(value == 0.0 for value in weights.values())
+
+
+def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
+    """恢复模式不重算口味权重：人物档案随检查点工作区原样恢复。"""
+    import worldmock.runtime as runtime_module
+    from worldmock.life.scenario import load_scenario
+
+    def forbidden(agent):
+        raise AssertionError("restore path must not compile personas or tastes")
+
+    monkeypatch.setattr(runtime_module, "_persona_payload", forbidden)
+    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+
+    specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
+
+    assert "persona_card" not in specs[0]["profile"]
+    assert "taste_weights" not in specs[0]["profile"]
+
+
+def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
+    """装配侧 genre 表：场景内容经 item_id 连接语料条目 genre（无 id 条目缺省空）。"""
+    from worldmock.runtime import _content_genre_catalog
+    from worldmock.life.scenario import load_scenario
+
+    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario, _ = load_scenario(scenario_path)
+
+    genres = _content_genre_catalog(scenario_path, scenario)
+
+    assert genres["movie-0001"] == ("剧情", "历史")
+    assert "sintel-en-subtitles" not in genres
+    joined = {item.item_id for item in scenario.contents} & set(genres)
+    assert joined

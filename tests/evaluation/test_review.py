@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -36,7 +37,8 @@ def test_blind_packets_are_deterministic_and_hide_source_identity(evaluation_fix
         "timezone": "Asia/Shanghai",
     }
     activities = packet["items"][0]["left"]["activities"]
-    assert all(set(row) == {"category", "start", "end", "status"} for row in activities)
+    assert all(set(row) == {"category", "start", "end", "status", "location", "companion"}
+               for row in activities)
     assert packet["items"][0]["left"]["public_evidence"] == []
 
 
@@ -267,6 +269,63 @@ def _review_inputs(evaluation_fixture):
     left = adapt_labelkit(evaluation_fixture.labelkit_root, scenario)
     right = adapt_worldmock(evaluation_fixture.worldmock_root, scenario)
     return scenario, left, right, shared_support(left, right)
+
+
+def _located_partner_session(view: DatasetView):
+    """构造带地点与同伴的活动会话（模拟适配层扩展的 location_id/partner_id 载体）。"""
+    from types import SimpleNamespace
+
+    existing = view.activities[0]
+    return SimpleNamespace(
+        activity_id="session-with-partner", person_id=existing.person_id,
+        category=existing.category, started_at=view.window.start,
+        ended_at=view.window.start + timedelta(minutes=30), status="completed",
+        channels=existing.channels, segments=None,
+        location_id="office-west", partner_id="agent:2")
+
+
+def test_activity_rows_carry_location_and_anonymous_companion(evaluation_fixture) -> None:
+    """GAP-4：活动记录增加地点与同伴两列；同伴只用匿名对象引用（L1632/L1680）。"""
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    session = _located_partner_session(left)
+    left = replace(left, activities=(*left.activities, session))
+
+    material = create_review_material(left, right, support, scenario)
+
+    rows = [row for row in material.packets[0]["items"][0]["left"]["activities"]
+            if row["category"] == session.category and row["location"] == "office-west"]
+    assert rows, "located session must appear in the timeline"
+    serialized = json.dumps(material.packets, ensure_ascii=False)
+    assert "agent:2" not in serialized
+    for row in rows:
+        assert row["location"] == "office-west"
+        assert re.fullmatch(r"object-[0-9a-f]{64}", row["companion"])
+    companions = {row["companion"] for row in rows}
+    assert len(companions) == 1
+
+
+def test_companion_reference_is_slot_isolated_and_day_stable(evaluation_fixture) -> None:
+    """同伴匿名引用跨评审槽不同（keyed by slot），同侧同对象跨日稳定。"""
+    scenario, left, right, support = _review_inputs(evaluation_fixture)
+    session = _located_partner_session(left)
+    # 两个相隔一日的分段：同一会话跨日出现，同伴引用必须一致。
+    from datetime import datetime as _dt
+
+    session.segments = ((left.window.start, left.window.start + timedelta(minutes=30)),
+                        (left.window.start + timedelta(days=1),
+                         left.window.start + timedelta(days=1, minutes=30)))
+    left = replace(left, activities=(*left.activities, session))
+
+    material = create_review_material(left, right, support, scenario)
+
+    def companions(reviewer_index: int) -> list[str]:
+        rows = material.packets[reviewer_index]["items"][0]["left"]["activities"]
+        return [row["companion"] for row in rows if row["location"] == "office-west"]
+
+    first, second = companions(0), companions(1)
+    assert first and second
+    assert len(set(first)) == 1 and len(set(second)) == 1
+    assert set(first) != set(second), "different reviewer slots must use different HMAC keys"
 
 
 def _object_history(view: DatasetView, object_type: str, object_key: str) -> tuple[PublicEvidence, ...]:

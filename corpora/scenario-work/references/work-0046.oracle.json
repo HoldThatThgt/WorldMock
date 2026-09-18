@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0046",
+  "source_reference": "references/work-0046.reference.json",
+  "expected": {
+    "material_id": "work-0046",
+    "decisions": [
+      "红色（低于两天销量）自动生成补货工单。",
+      "黄色（五天）只通知，蓝色（十天）进周报。",
+      "商家可按品类微调预警线，幅度不超过 30%。"
+    ],
+    "action_items": [
+      "上线预警触发量、工单响应时长、缺货损失估算三个日更看板卡片。"
+    ]
+  },
+  "piece_count": 3
+}

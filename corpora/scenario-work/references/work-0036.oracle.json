@@ -1,0 +1,19 @@
+{
+  "type": "scenario",
+  "material_id": "work-0036",
+  "source_reference": "references/work-0036.reference.json",
+  "expected": {
+    "material_id": "work-0036",
+    "decisions": [
+      "标签体系按 Lifecycle、价值、兴趣三域组织。",
+      "禁止各业务线私建重复标签。",
+      "灰度先给推送与商城两个消费方。"
+    ],
+    "action_items": [
+      "陈曦整理标签字典并归档评审结论。",
+      "特征平台排日更任务。",
+      "消费方两周内完成接入改造。"
+    ]
+  },
+  "piece_count": 3
+}

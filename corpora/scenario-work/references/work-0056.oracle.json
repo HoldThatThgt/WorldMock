@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0056",
+  "source_reference": "references/work-0056.reference.json",
+  "expected": {
+    "material_id": "work-0056",
+    "decisions": [
+      "隐私政策修订也触发同意弹窗。",
+      "推荐关闭入口提到设置第一层。",
+      "未申报共享先停用再补申报。"
+    ],
+    "action_items": [
+      "账号数据导出交付目标压到三天内。",
+      "整改月底前完成并留痕，同步法务复核。"
+    ]
+  },
+  "piece_count": 3
+}

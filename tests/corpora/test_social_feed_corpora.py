@@ -113,17 +113,18 @@ def test_social_timelines_are_day_batches_in_order() -> None:
 
 
 def test_both_scenarios_admit_social_feeds_with_full_preferences() -> None:
-    """两场景准入三个社媒流条目，且每个 agent 对三条流都有 0.4-0.8 偏好。"""
+    """两场景准入三个社媒流条目；随机偏好浮点已随修订合同 L1661 删除。"""
     for path in SCENARIOS:
         scenario = load_scenario(path)[0]
         for item_id, spec in PLATFORMS.items():
             item = _scenario_item(scenario, item_id)
             assert item.experience_label == spec["experience_label"]
             assert 0.2 <= item.entertainment_relief_per_hour <= 0.3
-        for agent in scenario.agents:
-            for item_id in PLATFORMS:
-                value = agent.entertainment_preferences[item_id]
-                assert 0.4 <= value <= 0.8, f"{path} {agent.agent_id} {item_id}"
+        # 修订合同 L1661：人物不再携带逐流偏好浮点（0.4-0.8 断言随合同移除）。
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        for agent in doc["agents"]:
+            assert "entertainment_preferences" not in agent, (
+                f"{path} agent {agent['agent_id']} still carries random preference floats")
 
 
 def test_manifest_registers_every_social_file_with_exact_identity() -> None:

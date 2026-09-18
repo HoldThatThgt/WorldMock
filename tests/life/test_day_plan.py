@@ -9,6 +9,7 @@ from worldmock.life.schedule import (
     DayPlan,
     PlanSegment,
     current_segment,
+    initial_day_plan,
     is_plan_block_boundary,
     next_segment_start,
     revise_day_plan,
@@ -51,14 +52,19 @@ def test_valid_plan_segment_counts(count: int) -> None:
 
 
 def test_too_few_segments_rejected() -> None:
-    """@brief <5 段非法。"""
-    with pytest.raises(ValidationError, match="5 to 8 segments"):
-        make_plan(4)
+    """@brief <5 段在首次 plan_day 构造处非法；模型本身接受修订后的短尾骨架。
+
+    修订合同 L1611：下限只约束首次 plan_day（initial_day_plan 承载），
+    尾段修订后剩余段数可少于 5——该状态必须可通过加载口径重校验。
+    """
+    with pytest.raises(ValueError, match="at least 5 segments"):
+        initial_day_plan(make_segments(4), DAY_END)
+    assert len(make_plan(4).segments) == 4  # 修订形态的短骨架在模型层合法
 
 
 def test_too_many_segments_rejected() -> None:
-    """@brief >8 段非法。"""
-    with pytest.raises(ValidationError, match="5 to 8 segments"):
+    """@brief >8 段非法（首次与修订同一上限）。"""
+    with pytest.raises(ValidationError, match="at most 8 segments"):
         make_plan(9)
 
 

@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0014",
+  "source_reference": "references/work-0014.reference.json",
+  "expected": {
+    "material_id": "work-0014",
+    "decisions": [
+      "本地只放分钟级配置类数据，业务数据全部走集中缓存。",
+      "热点键逻辑过期加互斥重建作为雪崩防护。",
+      "跨机房一致性接受最终一致，窗口五秒内。"
+    ],
+    "action_items": [
+      "监控命中率、大 key、慢命令三项日报。",
+      "上线分三批，先读后写。"
+    ]
+  },
+  "piece_count": 3
+}

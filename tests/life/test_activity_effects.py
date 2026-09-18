@@ -42,7 +42,7 @@ def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> Age
         location_id="office",
         balance_account_id="agent:1",
         skill_levels={"meeting_analysis": skill},
-        entertainment_preferences={"content": 0.7},
+        taste_weights={"content": 0.7},
         active_effects=effects,
         next_decision_at=0,
         body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=need),
@@ -166,7 +166,7 @@ def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
 
 
 def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) -> None:
-    """真实 LifeEngine 结算路径使用内容效果、人物偏好和实际接触时长。"""
+    """真实 LifeEngine 结算路径使用内容效果、口味权重和实际接触时长。"""
     engine = engine_factory()
     # wait 前导 900s：边等边刷后娱乐需要 ≈0.0075（0.08−0.05 每小时净累积
     # ×0.25h），高于 60s 观看的未钳制缓解量 0.3×0.7×(60/3600)=0.0035，
@@ -177,7 +177,19 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
     agent = engine.state.agents[1]
     before = agent.body.entertainment_need
     item = engine.rules.content("sintel-en-subtitles")
-    preference = agent.entertainment_preferences[item.item_id]
+    # 修订合同 L1661：结算偏好源=taste_weights（卡片口味 x genre 确定性权重）；
+    # 引擎路径在 PersonaCard 入库前为空映射，经 staged 提交注入权重验证结算链路。
+    from worldmock.footprints.models import EventDraft
+
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[1] = staged.agents[1].model_copy(
+        update={"taste_weights": {item.item_id: 0.7}}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_seed_watch_taste"})])
+    engine.state = staged
+    preference = engine.state.agents[1].taste_weights[item.item_id]
     request = StartTargetedActivityRequest(
         activity_type="watch",
         planned_duration_seconds=60,

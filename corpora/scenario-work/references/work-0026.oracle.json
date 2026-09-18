@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0026",
+  "source_reference": "references/work-0026.reference.json",
+  "expected": {
+    "material_id": "work-0026",
+    "decisions": [
+      "引导步骤由五步减到三步，首步直接呈现核心动作。",
+      "权限申请后置到使用时触发。",
+      "未完成引导的用户次日推送一条场景化召回文案。"
+    ],
+    "action_items": [
+      "埋点补各步曝光、完成、跳过三类事件。",
+      "灰度四周按显著性水平 0.05 验收留存差值。"
+    ]
+  },
+  "piece_count": 3
+}

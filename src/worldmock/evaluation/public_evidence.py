@@ -254,9 +254,24 @@ def _world_request_shape(
     if tool_name == "consume":
         category = _consume_category(request.get("use_mode"))
         return _Shape(category, "consume", "product", _string(request.get("product_id")), {})
+    if tool_name == "start_social_activity":
+        return _social_shape(request)
     if tool_name in {"set_activity_state", "continue_activity", "change_playback_speed"}:
         return _control_shape(tool_name, request, activities, activity_map)
     return None
+
+
+def _social_shape(request: Mapping[str, Any]) -> _Shape | None:
+    """@brief 交谈/通话以 person 对象进入公开证据；同伴身份由盲评层 HMAC 匿名化。
+
+    修订合同 L1632/L1680：活动记录的同伴只用匿名对象引用——此处保留
+    object_key=partner_id，渲染端（review._masked_ref）统一转 keyed HMAC。
+    """
+    kind = _string(request.get("kind"))
+    interaction = {"chat": "chat", "call": "call"}.get(kind or "")
+    if interaction is None:
+        return None
+    return _Shape("social", interaction, "person", _string(request.get("partner_id")), {})
 
 
 def _targeted_shape(request: Mapping[str, Any], related: Sequence[Event]) -> _Shape | None:

@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
@@ -19,7 +21,10 @@ from worldmock.life.models import (
     StartTargetedActivityRequest,
     SubmitWorkRequest,
 )
+from worldmock.life.scenario import load_scenario
 from worldmock.life.work import (
+    load_work_input,
+    load_work_oracle,
     prepare_work_submission,
     settle_work,
     validate_work_duration,
@@ -116,6 +121,73 @@ def test_work_start_rejects_skill_location_and_deadline_boundaries(engine_factor
         validate_work_start(unskilled, task, now)
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_AVAILABLE"):
         validate_work_start(at_office, task, int((task.due_at + timedelta(seconds=1)).timestamp()))
+
+
+def test_scenario_material_oracles_load_explicit_json_references() -> None:
+    """scenario 材料走显式 JSON 参考装载：摘要句注入 expected，输入/参考分离。"""
+    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    task = next(item for item in scenario.tasks
+                if item.oracle_path == "scenario-work/references/work-0021.oracle.json")
+    source = load_work_input(Path("corpora"), task)
+    oracle = load_work_oracle(Path("corpora"), task)
+    reference = json.loads(Path("corpora/scenario-work/references/work-0021.reference.json").read_text())
+    assert oracle["type"] == "scenario"
+    assert oracle["expected"]["summary"] == reference["summary_sentences"]
+    assert oracle["expected"]["decisions"] and oracle["expected"]["action_items"]
+    for sentence in reference["summary_sentences"]:
+        assert sentence not in source  # 参考对评估端可见，不进人物输入
+
+
+def test_scenario_material_reference_missing_sentences_fail_closed(tmp_path) -> None:
+    """参考 JSON 缺摘要句、损坏 JSON 与悬空 source_reference 都 fail-closed。"""
+    root = tmp_path / "corpora"
+    references = root / "scenario-work/references"
+    references.mkdir(parents=True)
+    oracle_path = references / "broken.oracle.json"
+
+    def shell(payload: dict):
+        """写入 oracle 并构造身份匹配的极简任务壳。"""
+        oracle_path.write_text(json.dumps(payload))
+        return type("Shell", (), {
+            "oracle_path": "scenario-work/references/broken.oracle.json",
+            "oracle_sha256": hashlib.sha256(oracle_path.read_bytes()).hexdigest(),
+        })()
+
+    (references / "broken.reference.json").write_text(
+        json.dumps({"type": "scenario", "summary_sentences": []}))
+    with pytest.raises(IntegrityError, match="Work reference summary sentences are missing"):
+        load_work_oracle(root, shell(
+            {"source_reference": "references/broken.reference.json", "expected": {}}))
+    (references / "broken.reference.json").write_text("{not json")
+    with pytest.raises(IntegrityError, match="Work reference is invalid JSON"):
+        load_work_oracle(root, shell(
+            {"source_reference": "references/broken.reference.json", "expected": {}}))
+    with pytest.raises(IntegrityError, match="Work reference path is invalid"):
+        load_work_oracle(root, shell(
+            {"source_reference": "references/absent.reference.json", "expected": {}}))
+
+
+@pytest.mark.parametrize(
+    ("task_id", "worked", "expected_payment"),
+    (("backend-hourly-2026-01-05", 3600, 10_000), ("backend-piece-2026-01-05", 3600, 15_000)),
+)
+def test_li_fan_backend_contracts_settle_with_scenario_materials(
+    engine_factory, task_id, worked, expected_payment,
+) -> None:
+    """李凡的后端材料合同按计时实际秒数与冻结件数结算。"""
+    engine = engine_factory("multi-person.json")
+    task = next(item for item in engine.scenario.tasks if item.task_id == task_id)
+    assert task.assignee_agent_id == "agent:2"
+    assert task.required_skill == "backend_engineering"
+    assert task.input_path.startswith("scenario-work/inputs/")
+    state = _completed_work_state(engine, task, worked, task.required_effective_seconds, agent_id=2)
+    submission = prepare_work_submission(
+        state, engine.scenario, engine.corpus_root, 2, _submission(task))
+    outcome = settle_work(state, submission, True)
+    assert outcome.payment_fen == expected_payment
+    assert outcome.state.accounts["agent:2"] == state.accounts["agent:2"] + expected_payment
+    assert outcome.state.accounts[task.employer_account_id] == (
+        state.accounts[task.employer_account_id] - expected_payment)
 
 
 def test_cumulative_work_limit_counts_cancelled_progress_across_restarts(engine_factory) -> None:

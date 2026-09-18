@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0013",
+  "source_reference": "references/work-0013.reference.json",
+  "expected": {
+    "material_id": "work-0013",
+    "decisions": [
+      "模糊匹配改为前缀匹配并加索引。",
+      "分页改为游标方式。",
+      "子查询拆为两次查询在服务层聚合。"
+    ],
+    "action_items": [
+      "先加索引观察一天，再发布应用改动。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -1,0 +1,10 @@
+{
+  "type": "scenario",
+  "material_id": "work-0046",
+  "language": "zh",
+  "summary_sentences": [
+    "缺货导致的下架损失每月约八十万元。",
+    "按 SKU 近三十天销量分位数设红黄蓝三级预警线。",
+    "红色预警自动生成补货工单并通知商家。"
+  ]
+}

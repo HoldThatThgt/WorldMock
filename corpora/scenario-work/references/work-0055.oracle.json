@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0055",
+  "source_reference": "references/work-0055.reference.json",
+  "expected": {
+    "material_id": "work-0055",
+    "decisions": [
+      "执行类目树调整。",
+      "历史类目路径保留映射，避免老链接失效。",
+      "映射表双写两周。"
+    ],
+    "action_items": [
+      "推荐与搜索特征按新类目重算（一周内）。",
+      "配套挂类目校验提示。"
+    ]
+  },
+  "piece_count": 3
+}

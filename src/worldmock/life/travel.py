@@ -1,15 +1,26 @@
-"""@brief 校验并消费 prepare 阶段冻结的 OSRM 路由。"""
+"""@brief 校验并消费 prepare 阶段冻结的 OSRM 路由；沿路线投影定位轨迹。"""
 
 from __future__ import annotations
 
 import hashlib
 import json
+import math
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from worldmock.errors import BusinessRuleError, IntegrityError
+from worldmock.footprints.models import EventDraft
 from worldmock.life.models import ActivityState, AgentState, StartActivityRequest, WorldState
 from worldmock.life.scenario import LifeScenario, RouteConfig
 from worldmock.life.settlement import settle_money_transfer
+
+#: environment_event kind=location_track（规格 L454 定位轨迹；沿用 environment_event kind 机制）。
+LOCATION_TRACK_KIND = "location_track"
+#: 采样方法冻结名：匀速沿冻结路线几何折线插值（非人物决策，不产生 decision_started）。
+TRACK_SAMPLING_METHOD = "constant_speed_polyline_interpolation"
+#: 球面距离采用地球平均半径（米），与投影公式一并写入采样规则留痕。
+TRACK_EARTH_RADIUS_METERS = 6371008.8
 
 
 def route_for(scenario: LifeScenario, origin_id: str, request: StartActivityRequest) -> RouteConfig:
@@ -72,6 +83,124 @@ def update_travel(activity: ActivityState, route: RouteConfig, agent: AgentState
         return changed, agent
     arrived = agent.model_copy(update={"location_id": route.destination_id}, deep=True)
     return changed, arrived
+
+
+@dataclass(frozen=True, slots=True)
+class LocationTrackRequest:
+    """@brief 一次定位轨迹投影的完整输入：人物、冻结路线、时间窗与采样间隔。"""
+
+    agent_id: int
+    route: RouteConfig
+    departure_epoch: int
+    arrival_epoch: int
+    sample_interval_seconds: int
+
+
+def sample_location_track(request: LocationTrackRequest, corpus_root: Path) -> list[EventDraft]:
+    """@brief 沿冻结路线几何按固定间隔生成模拟时间戳的定位轨迹事件。
+
+    定位采样不是人物的一次决策（规格 L454）：本函数只产出
+    environment_event(kind=location_track)，不产生 decision_started 或
+    observation；每个事件携带采样规则与路线引用，同输入确定性可重放。
+    """
+    geometry = _route_geometry(corpus_root, request.route)
+    cumulative, total = _cumulative_distances(geometry)
+    interval = request.sample_interval_seconds
+    span = request.arrival_epoch - request.departure_epoch
+    if interval < 1 or span <= 0:
+        raise BusinessRuleError("LOCATION_TRACK_WINDOW_INVALID")
+    count = (span - 1) // interval
+    events: list[EventDraft] = []
+    for index in range(1, count + 1):
+        moment = request.departure_epoch + index * interval
+        fraction = (moment - request.departure_epoch) / span
+        lon, lat, distance = _interpolate(geometry, cumulative, total, fraction)
+        events.append(EventDraft(
+            event_id=_track_event_id(request, index), occurred_at=moment,
+            event_type="environment_event", agent_id=request.agent_id,
+            source_kind="environment", visibility="agent", data={
+                "kind": LOCATION_TRACK_KIND,
+                "route_id": request.route.route_id,
+                "route_response_path": request.route.response_path,
+                "route_response_sha256": request.route.response_sha256,
+                "sample_index": index,
+                "sample_count": count,
+                "position_lonlat": [lon, lat],
+                "distance_along_route_meters": distance,
+                "sampling_rule": _sampling_rule(request, count),
+            }))
+    return events
+
+
+def _sampling_rule(request: LocationTrackRequest, count: int) -> dict[str, Any]:
+    """@brief 形成随事件留痕的采样规则（方法、间隔、时间窗与路线语义）。"""
+    return {
+        "method": TRACK_SAMPLING_METHOD,
+        "sample_interval_seconds": request.sample_interval_seconds,
+        "departure_epoch": request.departure_epoch,
+        "arrival_epoch": request.arrival_epoch,
+        "origin_id": request.route.origin_id,
+        "destination_id": request.route.destination_id,
+        "mode": request.route.mode.value,
+        "sample_count": count,
+    }
+
+
+def _track_event_id(request: LocationTrackRequest, index: int) -> str:
+    """@brief 由投影输入派生稳定事件身份，使同输入轨迹逐字节可重放。"""
+    seed = (f"location_track:{request.agent_id}:{request.route.route_id}:"
+            f"{request.departure_epoch}:{request.arrival_epoch}:"
+            f"{request.sample_interval_seconds}:{index}")
+    return hashlib.sha256(seed.encode()).hexdigest()
+
+
+def _route_geometry(corpus_root: Path, route: RouteConfig) -> list[tuple[float, float]]:
+    """@brief 读取并核验冻结路线响应，返回 GeoJSON LineString 坐标序列。"""
+    content = _safe_file(corpus_root, route.response_path).read_bytes()
+    if hashlib.sha256(content).hexdigest() != route.response_sha256:
+        raise IntegrityError("Frozen route response hash mismatch")
+    try:
+        response = json.loads(content)
+        geometry = response["routes"][0]["geometry"]
+        coordinates = geometry["coordinates"] if geometry["type"] == "LineString" else None
+    except Exception as error:
+        raise IntegrityError("Frozen route response is invalid") from error
+    if response.get("code") != "Ok" or not isinstance(coordinates, list) or len(coordinates) < 2:
+        raise IntegrityError("Frozen route response geometry is missing")
+    return [(float(lon), float(lat)) for lon, lat in coordinates]
+
+
+def _haversine_meters(first: tuple[float, float], second: tuple[float, float]) -> float:
+    """@brief 按地球平均半径计算两经纬度点的球面距离（米）。"""
+    lon1, lat1 = math.radians(first[0]), math.radians(first[1])
+    lon2, lat2 = math.radians(second[0]), math.radians(second[1])
+    half = math.sin((lat2 - lat1) / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(
+        (lon2 - lon1) / 2) ** 2
+    return 2 * TRACK_EARTH_RADIUS_METERS * math.asin(math.sqrt(half))
+
+
+def _cumulative_distances(geometry: list[tuple[float, float]]) -> tuple[list[float], float]:
+    """@brief 计算折线各顶点的累计球面距离与总长（米）。"""
+    cumulative = [0.0]
+    for index in range(1, len(geometry)):
+        cumulative.append(cumulative[-1] + _haversine_meters(geometry[index - 1], geometry[index]))
+    return cumulative, cumulative[-1]
+
+
+def _interpolate(geometry: list[tuple[float, float]], cumulative: list[float],
+                 total: float, fraction: float) -> tuple[float, float, float]:
+    """@brief 按距离比例在折线段内线性插值，返回经纬度与沿线距离。"""
+    target = min(max(fraction, 0.0), 1.0) * total
+    for index in range(1, len(geometry)):
+        if target <= cumulative[index] or index == len(geometry) - 1:
+            span = cumulative[index] - cumulative[index - 1]
+            local = 0.0 if span <= 0 else (target - cumulative[index - 1]) / span
+            local = min(max(local, 0.0), 1.0)
+            lon1, lat1 = geometry[index - 1]
+            lon2, lat2 = geometry[index]
+            return (round(lon1 + (lon2 - lon1) * local, 7), round(lat1 + (lat2 - lat1) * local, 7),
+                    round(target, 3))
+    raise IntegrityError("Frozen route geometry interpolation is out of range")
 
 
 def _safe_file(root: Path, relative: str) -> Path:

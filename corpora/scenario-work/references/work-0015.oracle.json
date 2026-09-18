@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0015",
+  "source_reference": "references/work-0015.reference.json",
+  "expected": {
+    "material_id": "work-0015",
+    "decisions": [
+      "扣减改为数据库原子自增带条件更新。",
+      "缓存改为删除而非更新。"
+    ],
+    "action_items": [
+      "补并发压测用例进回归集。",
+      "超卖 37 单全部人工拦截并补偿券。"
+    ]
+  },
+  "piece_count": 3
+}

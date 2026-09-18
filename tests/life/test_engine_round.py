@@ -163,10 +163,12 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
     assert "game_catalog" not in observed["scene"]
     destinations = {item["destination"] for item in observed["facts"]["routes"]}
-    assert destinations == {"office", "market"}
+    # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
+    # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
+    expected_destinations = {route.destination_id for route in engine.scenario.routes
+                             if route.origin_id == "home"}
+    assert destinations == expected_destinations
     # 可达集按冻结路线推导（observe._reachable_places 只列当前地点的路线终点）。
-    # v2 品类补入的 8 个 POI 尚无 OSRM 冻结路由（corpora 只含 home/office/market
-    # 三点路由响应），故只断言路线连通地点全部以展示名暴露。
     routed = {route.destination_id for route in engine.scenario.routes
               if route.origin_id == "home"}
     names = {item.name for item in engine.scenario.locations

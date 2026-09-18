@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0054",
+  "source_reference": "references/work-0054.reference.json",
+  "expected": {
+    "material_id": "work-0054",
+    "decisions": [
+      "按历史分时曲线预测人力排班。",
+      "建立跨技能组的共享机动池。"
+    ],
+    "action_items": [
+      "简单咨询先行自助分流。",
+      "下个小促试点，按响应时长与解决率双指标验证。"
+    ]
+  },
+  "piece_count": 3
+}

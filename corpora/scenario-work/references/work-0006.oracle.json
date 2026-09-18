@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0006",
+  "source_reference": "references/work-0006.reference.json",
+  "expected": {
+    "material_id": "work-0006",
+    "decisions": [
+      "无结果页展示纠错建议、热门搜索、关联类目三类兜底。",
+      "纠错词库由运营维护，同义词表接入现有 NLP 服务。"
+    ],
+    "action_items": [
+      "埋点补兜底曝光、兜底点击、二次搜索成功率。",
+      "先小流量验证纠错策略，工期一周。"
+    ]
+  },
+  "piece_count": 3
+}

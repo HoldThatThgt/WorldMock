@@ -234,7 +234,9 @@ class AgentState(StrictModel):
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
     skill_levels: dict[str, float] = Field(default_factory=dict)
-    entertainment_preferences: dict[str, float] = Field(default_factory=dict)
+    # 内容口味权重（修订合同 L1661-1662）：卡片口味 x 条目 genre[] 的确定性匹配，
+    # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
+    taste_weights: dict[str, float] = Field(default_factory=dict)
     body: BodyState
     inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)

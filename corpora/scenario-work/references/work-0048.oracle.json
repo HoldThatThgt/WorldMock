@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0048",
+  "source_reference": "references/work-0048.reference.json",
+  "expected": {
+    "material_id": "work-0048",
+    "decisions": [
+      "三人成团可设阶梯价，第三人参团额外减五元。",
+      "未成团自动退款并推送挽回券。",
+      "虚拟号参团直接拦截。"
+    ],
+    "action_items": [
+      "出成团率、参团转化、挽回券核销日报。",
+      "工期按后端十五人日、前端十人日、测试六人日排期。"
+    ]
+  },
+  "piece_count": 3
+}

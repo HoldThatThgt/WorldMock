@@ -1,0 +1,10 @@
+{
+  "type": "scenario",
+  "material_id": "work-0060",
+  "language": "zh",
+  "summary_sentences": [
+    "跨店满减三层叠加导致优惠计算可解释性差。",
+    "可叠加优惠上限两层。",
+    "规则冲突以用户有利原则取最优解并留计算日志。"
+  ]
+}

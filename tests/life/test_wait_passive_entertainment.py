@@ -121,7 +121,7 @@ def _agent(need: float) -> AgentState:
     return AgentState(agent_id=1, name="Lin", location_id="home",
                       balance_account_id="agent:1", next_decision_at=0,
                       body=_body(need), skill_levels={"ami": 0.8},
-                      entertainment_preferences={}, inventory={})
+                      inventory={})
 
 
 def test_engine_path_wait_activity_advances_with_passive_relief(body_config) -> None:

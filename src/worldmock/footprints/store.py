@@ -60,9 +60,11 @@ class FootprintStore:
         root.mkdir(parents=True, exist_ok=True)
         if any((root / name).exists() for name in ("footprints.sqlite", "manifest.json")):
             raise IntegrityError("Run artifacts already exist")
-        if not manifest.get("run_id") or initial_state["version"] < 0:
+        if (not manifest.get("run_id") or type(initial_state["version"]) is not int
+                or initial_state["version"] < 0):
             raise IntegrityError("Run identity or initial state version is invalid")
-        initial_state["current_time"]
+        if type(initial_state["current_time"]) is not int:
+            raise IntegrityError("Initial world clock must be an integer")
         connection = sqlite3.connect(root / "footprints.sqlite")
         try:
             connection.executescript(SCHEMA)

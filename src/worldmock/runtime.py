@@ -28,6 +28,7 @@ from worldmock.life.models import (
 )
 from worldmock.catalog import validate_scenario_against_catalog
 from worldmock.life.scenario import RuntimeScenario
+from worldmock.life.state_commit import commit_state
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.opslog import OpsLogger
 
@@ -613,6 +614,17 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
 
     _require_custom_modules(prepared.project_root)
     clients = {role: build_client_for_role(role) for role in ("coder", "default")}
+    create_mode = prepared.workspace_mode == "create"
+    specs = _agent_specs(
+        prepared.scenario,
+        persona_compiler=(None if create_mode else _no_persona_compilation),
+        content_genres=(_content_genre_catalog(prepared.scenario_path, prepared.scenario)
+                        if create_mode else None),
+    )
+    if create_mode:
+        prepared.env_kwargs["agent_taste_weights"] = {
+            spec_id: profile.get("taste_weights", {})
+            for spec_id, profile in ((item["id"], item["profile"]) for item in specs)}
     spec = DirectEnvActorSpec(
         ("LifeEnv",), {"LifeEnv": prepared.env_kwargs}, str(prepared.run_dir),
         str(prepared.project_root), clients,
@@ -622,11 +634,7 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         env = EnvRouterProxy(actor, run_dir=prepared.run_dir, env_module_types=["LifeEnv"])
         service = build_service_proxy(env, run_dir=prepared.run_dir, trace=False, replay=False)
         config = AgentSocietyConfig(
-            prepared.run_id, _agent_specs(
-                prepared.scenario,
-                persona_compiler=(_compile_persona_card if prepared.workspace_mode == "create"
-                                  else _no_persona_compilation),
-            ), "LifeAgent", env, service,
+            prepared.run_id, specs, "LifeAgent", env, service,
             prepared.start_time, prepared.scenario.end_at, prepared.run_dir,
             prepared.project_root, prepared.workspace_mode,
         )
@@ -797,7 +805,7 @@ def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
                          "recipient_id": reply.message.recipient_id,
                          "occurred_at": staged.current_time}),
     ]
-    engine.store.commit(staged.model_dump(mode="json"), drafts)
+    commit_state(engine.store, staged, drafts)
     engine.state = staged
     return {"reply_to_message_id": reply.message.message_id.removeprefix("reply-"),
             "reply_message_id": reply.message.message_id,
@@ -817,22 +825,33 @@ def _require_custom_modules(project_root: Path) -> None:
 
 
 def _agent_specs(scenario: RuntimeScenario, *,
-                 persona_compiler=None) -> tuple[dict[str, Any], ...]:
+                 persona_compiler=None, content_genres=None) -> tuple[dict[str, Any], ...]:
     """@brief 从冻结生活人物形成原生 runner 工作区输入。
 
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
-    （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]）；
-    恢复运行不重新编译——人物 profile 由检查点工作区原样恢复，分支人物身份
-    与父运行保持一致。persona_compiler 供测试注入确定性编译桩。
+    （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]），
+    并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
+    L1661-1662：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
+    匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
+    人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
+    persona_compiler/content_genres 供测试注入确定性桩（注入文本桩时只影响
+    卡片文本，不触发真实模型调用与口味计算）。
     """
-    compile_card = persona_compiler or _compile_persona_card
+    contents = tuple({"item_id": item.item_id,
+                      "genre": tuple((content_genres or {}).get(item.item_id) or ())}
+                     for item in scenario.contents)
     specs = []
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         profile = agent.model_dump(mode="json")
         profile["id"] = agent.agent_id
-        card_text = compile_card(agent)
+        if persona_compiler is not None:
+            card_text, card = persona_compiler(agent), None
+        else:
+            card_text, card = _persona_payload(agent)
         if card_text is not None:
             profile["persona_card"] = card_text
+        if card is not None:
+            profile["taste_weights"] = _card_taste_weights(card, contents)
         config = {
             "enable_memory": True,
             "enable_todo_list": False,
@@ -844,14 +863,56 @@ def _agent_specs(scenario: RuntimeScenario, *,
     return tuple(specs)
 
 
-def _compile_persona_card(agent: Any) -> str | None:
-    """@brief 场景 background_story -> PersonaCard 渲染文本（无声明返回 None）。"""
+def _persona_payload(agent: Any) -> tuple[str | None, Any]:
+    """@brief 一次 background_story 编译同时产出渲染文本与结构化卡片。
+
+    @param agent 场景人物配置（无 background_story 声明时返回 (None, None)）
+    @return (PersonaCard 渲染文本, 结构化 PersonaCard) 二元组
+    """
+    card = _compile_persona(agent)
+    if card is None:
+        return None, None
+    from worldmock.profile.textgen import render_card
+
+    return render_card(card), card
+
+
+def _compile_persona(agent: Any) -> Any:
+    """@brief 场景 background_story -> 结构化 PersonaCard（真实调用走三次一致性抽取）。"""
     if agent.background_story is None:
         return None
     from worldmock.profile.compile import compile_persona
-    from worldmock.profile.textgen import render_card
 
-    return render_card(compile_persona(agent.background_story).card)
+    return compile_persona(agent.background_story).card
+
+
+def _card_taste_weights(card: Any, contents: tuple[dict, ...]) -> dict[str, float]:
+    """@brief 卡片口味 x 场景内容目录 -> 确定性权重（compute_taste_weights 生产接线）。"""
+    from worldmock.profile.taste import compute_taste_weights
+
+    return compute_taste_weights(card.tastes.content_genres, contents)
+
+
+def _content_genre_catalog(scenario_path: Path,
+                           scenario: RuntimeScenario) -> dict[str, tuple[str, ...]]:
+    """@brief 从内容语料条目收集 genre 表（item_id -> genre 元组，缺失即失败）。
+
+    @param scenario_path 冻结场景路径（用于解析相对 corpus_root）
+    @param scenario 组装后的运行时场景
+    @return 场景内容目录的 genre 查找表（条目缺失 genre 视为空口味）
+    """
+    from worldmock.catalog.admission import CONTENT_CORPORA
+
+    root = (Path(scenario_path).resolve().parent / scenario.corpus_root).resolve()
+    genres: dict[str, tuple[str, ...]] = {}
+    for relative, mode in CONTENT_CORPORA:
+        document = json.loads((root / relative).read_text(encoding="utf-8"))
+        items = [document] if mode == "single" else (
+            document if isinstance(document, list) else [])
+        for item in items:
+            if isinstance(item, dict) and isinstance(item.get("item_id"), str):
+                genres[item["item_id"]] = tuple(item.get("genre") or [])
+    return genres
 
 
 def _no_persona_compilation(agent: Any) -> None:

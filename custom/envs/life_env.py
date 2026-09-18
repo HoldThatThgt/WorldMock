@@ -24,13 +24,15 @@ class LifeEnv(EnvBase):
     """@brief 为 DirectRouter 提供严格决策轮、事件调度和共同检查点。"""
 
     def __init__(self, scenario_path: str | None = None, run_dir: str | None = None,
-                 run_identity: dict | None = None, open_existing: bool = False):
+                 run_identity: dict | None = None, open_existing: bool = False,
+                 agent_taste_weights: dict | None = None):
         """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。"""
         super().__init__()
         self.scenario_path = Path(scenario_path).resolve() if scenario_path else None
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.run_identity = RunIdentity.model_validate(run_identity) if run_identity else None
         self.open_existing = open_existing
+        self.agent_taste_weights = agent_taste_weights
         self.engine: LifeEngine | None = None
 
     @classmethod
@@ -52,7 +54,9 @@ class LifeEnv(EnvBase):
         else:
             if self.run_identity is None:
                 raise ProtocolError("New LifeEnv run requires explicit run_identity")
-            self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity)
+            from worldmock.runtime import two_stage_model_identity
+            self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity,
+                                            two_stage_model_identity(), self.agent_taste_weights)
         if int(start_datetime.timestamp()) != self.engine.state.current_time:
             self.engine.close()
             self.engine = None
@@ -97,10 +101,13 @@ class LifeEnv(EnvBase):
         return receipt
 
     async def commit_decision_round(self, round_id: str):
-        """@brief 原子结算一个完整人物批次。"""
+        """@brief 原子结算人物批次，随后送达待发的联系人 model 回复（L1628）。"""
         engine = self._require_engine()
         write_status(engine.store.run_dir, "running", "resolving")
-        return engine.commit_decision_round(round_id)
+        results = engine.commit_decision_round(round_id)
+        from worldmock.runtime import settle_pending_model_replies
+        await settle_pending_model_replies(engine)
+        return results
 
     async def abort_decision_round(self, round_id: str, error: str) -> None:
         """@brief 保存失败证据且不执行尚未结算的生活动作。"""

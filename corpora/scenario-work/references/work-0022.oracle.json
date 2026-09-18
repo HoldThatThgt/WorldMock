@@ -1,0 +1,19 @@
+{
+  "type": "scenario",
+  "material_id": "work-0022",
+  "source_reference": "references/work-0022.reference.json",
+  "expected": {
+    "material_id": "work-0022",
+    "decisions": [
+      "采用会话分页预拉取加本地缓存差量更新。",
+      "未读数改为服务端聚合一次下发。",
+      "会话排序逻辑下沉到服务端。"
+    ],
+    "action_items": [
+      "后端出聚合接口设计稿。",
+      "测试补弱网下的首屏用例。",
+      "陈曦同步监控看板口径。"
+    ]
+  },
+  "piece_count": 3
+}

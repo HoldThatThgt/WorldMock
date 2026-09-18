@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0064",
+  "source_reference": "references/work-0064.reference.json",
+  "expected": {
+    "material_id": "work-0064",
+    "decisions": [
+      "加载异常率独立告警。",
+      "CDN 带宽 70% 预警并自动扩容。"
+    ],
+    "action_items": [
+      "值班手册补处置步骤与升级路径。",
+      "复盘归档并在例会宣讲，两周内完成改进。"
+    ]
+  },
+  "piece_count": 3
+}

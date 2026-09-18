@@ -117,7 +117,7 @@ def _agent(energy=1600.0, sleep_debt=4.0, need=0.5, location="home",
                       body=BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=sleep_debt,
                                      entertainment_need=need),
                       skill_levels=skills if skills is not None else {"ami": 0.8},
-                      entertainment_preferences=preferences if preferences is not None
+                      taste_weights=preferences if preferences is not None
                       else {"movie-0001": 0.8, "news-1": 0.6},
                       inventory=inventory or {})
 

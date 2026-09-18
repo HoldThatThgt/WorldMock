@@ -1,0 +1,19 @@
+{
+  "type": "scenario",
+  "material_id": "work-0011",
+  "source_reference": "references/work-0011.reference.json",
+  "expected": {
+    "material_id": "work-0011",
+    "decisions": [
+      "金额字段一律用分为单位的整数，禁止浮点。",
+      "创建接口幂等键由客户端生成，服务端按两小时窗口去重。",
+      "库存扣减失败必须回滚已生成的订单号。"
+    ],
+    "action_items": [
+      "补库存扣减失败的回滚分支。",
+      "响应体里的敏感字段脱敏。",
+      "四条阻塞项修改后需复审，错误码文档补充示例。"
+    ]
+  },
+  "piece_count": 3
+}

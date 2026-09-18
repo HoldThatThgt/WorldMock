@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0058",
+  "source_reference": "references/work-0058.reference.json",
+  "expected": {
+    "material_id": "work-0058",
+    "decisions": [
+      "未订阅用户只收交易类消息。",
+      "营销类每用户每周上限三条。",
+      "退订即时生效并同步全端。"
+    ],
+    "action_items": [
+      "上线商家触达健康度评分，低于阈值限流。"
+    ]
+  },
+  "piece_count": 3
+}

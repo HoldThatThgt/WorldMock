@@ -53,16 +53,15 @@ def test_movie_library_size_fields_and_manifest_agreement() -> None:
     assert len(ids) == len(movies)
 
 
-def test_every_agent_in_both_scenarios_has_preference_for_every_movie() -> None:
-    """偏好键全覆盖：两场景每个 agent 对每部影片都有 0.4-0.8 的偏好。"""
+def test_no_random_preference_floats_survive_in_both_scenarios() -> None:
+    """修订合同 L1661：随机偏好浮点删除——两场景人物不再携带偏好浮点键。"""
     movies = {movie["item_id"] for movie in _items("movies")}
+    assert movies, "movie corpus must not be empty for the negative guard to bite"
     for path in SCENARIOS:
-        scenario = load_scenario(path)[0]
-        for agent in scenario.agents:
-            missing = movies - set(agent.entertainment_preferences)
-            assert not missing, f"{path} agent {agent.agent_id} missing {sorted(missing)[:3]}"
-            for item_id in movies:
-                assert 0.4 <= agent.entertainment_preferences[item_id] <= 0.8
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+        for agent in doc["agents"]:
+            assert "entertainment_preferences" not in agent, (
+                f"{path} agent {agent['agent_id']} still carries random preference floats")
 
 
 def test_webnovel_excerpts_are_bounded_and_annotated() -> None:
@@ -115,7 +114,7 @@ def test_joke_feed_entries_fit_short_read_window() -> None:
 
 
 def test_both_scenarios_admit_all_entertainment_contents() -> None:
-    """两场景准入：validate 全链路通过，且全部新内容与偏好键可交叉引用。"""
+    """两场景准入：validate 全链路通过，全部新内容条目可交叉引用。"""
     movie_ids = {movie["item_id"] for movie in _items("movies")}
     novel_ids = {novel["item_id"] for novel in _items("novels")}
     drama_ids = {drama["item_id"] for drama in _items("drama")}
@@ -124,5 +123,3 @@ def test_both_scenarios_admit_all_entertainment_contents() -> None:
         scenario = load_scenario(path)[0]
         item_ids = {item.item_id for item in scenario.contents}
         assert movie_ids | extra_ids <= item_ids
-        for agent in scenario.agents:
-            assert extra_ids <= set(agent.entertainment_preferences)

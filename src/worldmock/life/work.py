@@ -176,12 +176,32 @@ def work_totals(state: WorldState, agent_id: int, task_id: str) -> tuple[int, fl
 
 
 def _load_reference_summary(root: Path, task: WorkTaskConfig, oracle: dict) -> list[str]:
-    """@brief 从 oracle 指向的官方 AMI XML 提取抽象摘要句。"""
+    """@brief 按 oracle 指向装载参考摘要句：AMI XML 或 scenario JSON。"""
     source = oracle.get("source_reference")
     if not isinstance(source, str) or not source:
         raise IntegrityError("Work oracle source reference is missing")
     collection = Path(task.oracle_path).parts[0]
     content = _read_regular_file(root, str(Path(collection) / source), "Work reference")
+    if source.endswith(".json"):
+        return _load_scenario_reference_summary(content)
+    return _load_ami_reference_summary(content)
+
+
+def _load_scenario_reference_summary(content: bytes) -> list[str]:
+    """@brief 从 scenario 材料的 JSON 参考读取显式声明的摘要句。"""
+    try:
+        document = json.loads(content)
+    except Exception as error:
+        raise IntegrityError("Work reference is invalid JSON") from error
+    sentences = document.get("summary_sentences") if isinstance(document, dict) else None
+    if not isinstance(sentences, list) or not sentences or any(
+            not isinstance(sentence, str) or not sentence.strip() for sentence in sentences):
+        raise IntegrityError("Work reference summary sentences are missing")
+    return sentences
+
+
+def _load_ami_reference_summary(content: bytes) -> list[str]:
+    """@brief 从官方 AMI XML 提取抽象摘要句（既有语料路径，保留原样）。"""
     try:
         document = ET.fromstring(content)
     except ET.ParseError as error:

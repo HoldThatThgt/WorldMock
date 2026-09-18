@@ -155,8 +155,8 @@ class AgentConfig(FrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
     修订合同（L1661-1663）删除 occupation/routine_preference/consumption_
-    preference/risk_preference 四个模板字段与 entertainment_preferences 的
-    单位区间校验（随机偏好浮点的生产者已随画像编译 v2 删除）；其内容并入
+    preference/risk_preference 四个模板字段与随机偏好浮点字段（其生产者已随
+    画像编译 v2 删除，单位区间校验一并移除）；其内容并入
     画像编译产出的 PersonaCard。人物档案字段（chronotype_midsleep、
     sleep_need_hours、时间锚点窗口、contacts）为可选声明，缺省走规格默认
     （04:00、7.5h；experiment_assumption），不是兼容层。
@@ -171,7 +171,6 @@ class AgentConfig(FrozenModel):
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
     skill_levels: dict[str, float]
-    entertainment_preferences: dict[str, float] = Field(default_factory=dict)
     motivation: MotivationProfile | None = None
     # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
     # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
@@ -692,8 +691,8 @@ def _check_location_references(agents, routes, product_places, tasks, locations)
 def _check_catalog_references(agents, tasks, messages, targets) -> None:
     """@brief 确保任务技能、任务受理人、邮件收件人引用场景内实体。
 
-    entertainment_preferences 的条目引用校验已随随机偏好浮点合同删除
-    （修订合同 L1661）；targets 参数保留供调用方组装内容目录。
+    随机偏好浮点字段及其条目引用校验已随修订合同 L1661 整体删除；
+    targets 参数保留供调用方组装内容目录。
     """
     agents_by_id = {item.agent_id for item in agents}
     task_ids = {item.task_id for item in tasks}

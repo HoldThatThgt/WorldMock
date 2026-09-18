@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0049",
+  "source_reference": "references/work-0049.reference.json",
+  "expected": {
+    "material_id": "work-0049",
+    "decisions": [
+      "启动任务按依赖拓扑重排，非必要任务延后。",
+      "首页数据预拉取。"
+    ],
+    "action_items": [
+      "修复的 23 处内存泄漏纳入回归。",
+      "低端机型裁剪启动期动画与首屏组件。",
+      "专项延期两周收尾。"
+    ]
+  },
+  "piece_count": 3
+}

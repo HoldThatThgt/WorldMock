@@ -28,7 +28,6 @@ class ObservationMixin:
         黑名单字段不进 scene/facts 提示路径；事件级工具支持行（完整任务/路线/
         商品、能量可行性、可供性合同、游戏目录）供宿主工具 Schema 使用。
         """
-        hour = projection.hour_of_day(self.state.current_time, self.scenario.timezone)
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
         recent = self._recent_action_results(agent.agent_id)
@@ -52,8 +51,15 @@ class ObservationMixin:
             if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
         data["wake_reasons"] = list(agent.pending_wake_reasons)
         data["location_id"] = agent.location_id
-        data["hour_of_day"] = hour
-        # 事件级工具支持与既有目录投影（不进 scene/facts 提示路径，L1019/L1542）。
+        data["hour_of_day"] = projection.hour_of_day(
+            self.state.current_time, self.scenario.timezone)
+        data.update(self._event_tool_support(agent, recent))
+        return data
+
+    def _event_tool_support(self, agent, recent: list) -> dict:
+        """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
+        # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（L1019/L1542）。
+        data: dict[str, Any] = {}
         data["content_progress"] = self._content_progress(agent)
         data["games"] = {key: value.model_dump(mode="json")
                          for key, value in agent.game_sessions.items()}
@@ -80,8 +86,7 @@ class ObservationMixin:
                          and self.state.current_time <= int(
                              self.rules.tasks[item].due_at.timestamp())]
         data["routes"] = _route_catalog(self.scenario.routes, self.semantics.body,
-                                        agent.location_id, agent.body.energy_kcal,
-                                        self.state.current_time, self.semantics)
+                                        agent, self.state.current_time, self.semantics)
         data["game_catalog"] = _game_catalog(self.scenario)
         data["browse_targets"] = ["product_catalog"]
         data["calendar_context"] = _calendar_context(self.scenario, self.state.current_time)
@@ -274,34 +279,24 @@ class ObservationMixin:
         """@brief 从当前世界装配动机求值输入切片（全部只读）。
 
         修订合同三接线（L1598-1599/L1646）：taste_weights 为确定性口味权重
-        唯一源——场景合同尚未持久化 PersonaCard（只存 MotivationProfile），
-        引擎路径暂为空映射（motivation.py 文档口径：空=不抬升）；卡片入库后
-        改为 compute_taste_weights(card.tastes.content_genres, contents)。
+        唯一源，引擎侧读人物持久化权重（AgentState.taste_weights——由
+        profile.taste.compute_taste_weights(card.tastes.content_genres, contents)
+        在画像编译/运行装配时产出；life→profile import 方向合法，profile 不
+        import life）。空映射=不抬升（motivation.py 口径）。
         lifestyle_enabled 直通人物启用集声明；recent_meal_counts 按足迹
         action_requested 的进食请求聚合近 24 小时各商品次数。
         """
-        from worldmock.life.models import ActivityKind, ActivityStatus
         from worldmock.life.work import work_totals as totals
-        from worldmock.life.engine import _datetime
 
         now = self.state.current_time
         config = self._agent_config(agent.agent_id)
-        tasks = [self.rules.tasks[item] for item in sorted(agent.visible_task_ids)
-                 if item not in self.state.paid_task_ids
-                 and now <= int(self.rules.tasks[item].due_at.timestamp())]
-        requested = self.store.read_agent_events("action_requested", agent.agent_id)
-        habit = tuple((event.data.get("tool_name"),
-                       event.data.get("request") if isinstance(event.data.get("request"), dict) else {})
-                      for event in requested)
-        effective_total = sum(item.effective_work_seconds for item in self.state.activities.values()
-                              if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
-                              and item.status != ActivityStatus.FAILED)
+        tasks, habit, effective_total, requested = self._motivation_evidence(agent, now)
+        weights = dict(agent.taste_weights)
         return MotivationContext(
             agent=agent,
             balance_fen=self.state.accounts[agent.balance_account_id],
             body=self.semantics.body,
-            home_location_id=next(item.home_location_id for item in self.scenario.agents
-                                  if item.agent_id == agent.agent_id),
+            home_location_id=config.home_location_id,
             products=tuple(self.rules.products[item] for item in sorted(agent.visible_product_ids)),
             merchant_stock=self.state.merchant_stock,
             locations={item.location_id: item for item in self.scenario.locations},
@@ -309,7 +304,7 @@ class ObservationMixin:
             tasks=tuple(tasks),
             task_totals={task.task_id: totals(self.state, agent.agent_id, task.task_id)
                          for task in tasks},
-            contents=_sample_contents(self.scenario.contents, profile, {}),
+            contents=_sample_contents(self.scenario.contents, profile, weights),
             content_category_counts={
                 kind: sum(1 for item in self.scenario.contents if item.kind == kind)
                 for kind in {item.kind for item in self.scenario.contents}},
@@ -323,14 +318,29 @@ class ObservationMixin:
             current_time=now,
             end_time=self.state.end_time,
             timezone=self.scenario.timezone,
-            planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(
-                mode, base, now),
+            planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(mode, base, now),
             catalog_products=tuple(self.rules.products[item] for item in sorted(self.rules.products)),
             content_segments={item_id: tuple(cue.end_seconds for cue in cues)
                               for item_id, cues in self.rules.subtitles.items()},
-            taste_weights={},
+            taste_weights=weights,
             lifestyle_enabled=config.lifestyle_activities,
             recent_meal_counts=_recent_meal_counts(requested, now))
+
+    def _motivation_evidence(self, agent, now: int) -> tuple:
+        """@brief 汇聚可见任务、习惯事件、请求足迹与有效工时总量（动机输入）。"""
+        from worldmock.life.models import ActivityKind, ActivityStatus
+
+        tasks = [self.rules.tasks[item] for item in sorted(agent.visible_task_ids)
+                 if item not in self.state.paid_task_ids
+                 and now <= int(self.rules.tasks[item].due_at.timestamp())]
+        requested = self.store.read_agent_events("action_requested", agent.agent_id)
+        habit = tuple((event.data.get("tool_name"),
+                       event.data.get("request") if isinstance(event.data.get("request"), dict) else {})
+                      for event in requested)
+        effective_total = sum(item.effective_work_seconds for item in self.state.activities.values()
+                              if item.agent_id == agent.agent_id and item.kind == ActivityKind.WORK
+                              and item.status != ActivityStatus.FAILED)
+        return tasks, habit, effective_total, requested
 
     def _activity_summary(self, agent) -> dict[str, int]:
         """@brief 一行品类计数：观察只报各活动品类的在场数量，明细由下钻读取。"""
@@ -432,25 +442,25 @@ def _mail_headers(agent, messages) -> list[dict]:
     return result
 
 
-def _route_catalog(routes: tuple, body, origin_id: str, energy_kcal: float,
-                   departure_second: int, semantics) -> list[dict]:
+def _route_catalog(routes: tuple, body, agent, now: int, semantics) -> list[dict]:
     """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级）。"""
     fields = {"route_id", "origin_id", "destination_id", "mode", "distance_meters", "duration_seconds",
               "fare_fen", "fare_source_kind"}
     result = []
     for item in routes:
-        if item.origin_id != origin_id:
+        if item.origin_id != agent.location_id:
             continue
         planned = semantics.travel_planned_seconds(
-            item.mode.value, item.duration_seconds, departure_second)
+            item.mode.value, item.duration_seconds, now)
         data = item.model_dump(mode="json", include=fields)
         data.update(duration_seconds=planned,
                     free_flow_duration_seconds=item.duration_seconds,
                     travel_time_factor=semantics.travel_time_factor(
-                        item.mode.value, departure_second))
+                        item.mode.value, now))
         met = body.activity_met[f"travel:{item.mode.value}"]
         cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, body, met)
-        data.update(minimum_energy_cost_kcal=cost, energy_feasible=cost <= energy_kcal)
+        data.update(minimum_energy_cost_kcal=cost,
+                    energy_feasible=cost <= agent.body.energy_kcal)
         result.append(data)
     return result
 
@@ -577,6 +587,7 @@ def _sample_contents(contents, profile, taste_weights) -> tuple:
     """
 
     def weight(item) -> float:
+        """@brief 品类注意力与确定性口味权重的乘积排序键。"""
         return (profile.attention_prior.get(item.kind, 0)
                 * taste_weights.get(item.item_id, 0.0))
 

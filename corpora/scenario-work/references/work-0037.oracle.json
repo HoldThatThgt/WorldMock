@@ -1,0 +1,17 @@
+{
+  "type": "scenario",
+  "material_id": "work-0037",
+  "source_reference": "references/work-0037.reference.json",
+  "expected": {
+    "material_id": "work-0037",
+    "decisions": [
+      "对比度问题统一改为规范里的夜间次级色。",
+      "图片压暗采用全局滤镜方案。"
+    ],
+    "action_items": [
+      "状态色硬编码随组件库版本收敛修复。",
+      "版本发布后复检。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -13,7 +13,10 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
 
+#: 动作/意图窗口永不进入的私有事件：独白仅 dreaming 任务可读（规格 L1578/L1680）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
+#: dreaming 专属可读的私有载体：当日 decision_started.data.inner_monologue 与观察 scene。
+DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS - {"decision_started"}
 
 
 def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
@@ -193,12 +196,17 @@ def _invalid_observed_result(message: str) -> None:
 
 
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
-    """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。"""
+    """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。
+
+    独白载体例外进入：dreaming 窗口可含当日 decision_started.data.
+    inner_monologue 与观察 scene（规格 L1578/L1680）；model_request/
+    model_response/memory_updated 仍排除，动作与意图窗口输入不变。
+    """
     zone = ZoneInfo(manifest["window"]["timezone"])
     days = defaultdict(list)
     for event in events:
         if (event["visibility"] == "agent" and event["agent_id"] is not None
-                and event["event_type"] not in PRIVATE_EVENTS):
+                and event["event_type"] not in DREAMING_PRIVATE_EVENTS):
             date = event_day(event, manifest, zone)
             days[(event["agent_id"], date)].append(event)
     records = []

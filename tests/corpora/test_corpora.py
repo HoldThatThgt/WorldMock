@@ -22,7 +22,8 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     manifest = load_manifest(Path("corpora"))
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     assert manifest.corpus_id == "life-full-2026-09-15"
-    assert len(manifest.entries) == 553
+    # C23 扩容：材料三件套 195 份（65 材料 × 输入/参考/oracle）+ POI 路由 208 份。
+    assert len(manifest.entries) == 956
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
     assert len(products) == 8
@@ -73,10 +74,13 @@ def test_sintel_is_subtitle_experience_with_complete_timeline() -> None:
 
 
 def test_routes_are_frozen_real_responses_for_all_declared_pairs() -> None:
-    """十二条 driving/walking 路由的响应身份和语义均匹配场景。"""
+    """220 条 driving/walking 路由（锚点 12 + POI 扩容 208）的响应身份和语义均匹配场景。"""
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     validate_routes(scenario, Path("corpora"))
-    assert len(scenario.routes) == 12
+    assert len(scenario.routes) == 220
+    poi_routes = [route for route in scenario.routes if route.origin_id.startswith("poi-")
+                  or route.destination_id.startswith("poi-")]
+    assert len(poi_routes) == 208
     forward = next(route for route in scenario.routes if route.route_id == "home-office-driving")
     foot = next(route for route in scenario.routes if route.route_id == "home-office-walking")
     assert forward.distance_meters == 2774.4

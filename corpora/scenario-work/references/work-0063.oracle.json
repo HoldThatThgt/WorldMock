@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0063",
+  "source_reference": "references/work-0063.reference.json",
+  "expected": {
+    "material_id": "work-0063",
+    "decisions": [
+      "扣款失败重试两次后转人工跟进。",
+      "库存不足按登记顺序分配并公示补货时间。",
+      "退订随时生效。"
+    ],
+    "action_items": [
+      "出扣款成功率、履约准时率、退订率周报。",
+      "自动续费提示合规参照会员既有口径。"
+    ]
+  },
+  "piece_count": 3
+}

@@ -1,0 +1,18 @@
+{
+  "type": "scenario",
+  "material_id": "work-0005",
+  "source_reference": "references/work-0005.reference.json",
+  "expected": {
+    "material_id": "work-0005",
+    "decisions": [
+      "新增专属客服、生日礼券、积分加速三项权益。",
+      "等级由三级扩到四级，新增铂金档。"
+    ],
+    "action_items": [
+      "规则引擎支持按等级配置权益包。",
+      "后台管理页新增等级配置与批量发放。",
+      "积分加速的防刷规则需与风控对齐。"
+    ]
+  },
+  "piece_count": 3
+}
