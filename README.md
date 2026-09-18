@@ -1,7 +1,14 @@
 # WorldMock
 
 WorldMock 通过 AgentSociety 2 和 DeepSeek 驱动人物生活，保存可追溯的数字足迹，再使用 LabelKit 生产训练数据和规则测试数据。
-当前开发范围与验收依据见 [特性规范](docs/agentsociety2-design.md)，实际进度见 [实现与验收记录](docs/implementation-status.md)。
+
+## 文档导航
+
+- **特性规范** → [docs/INDEX.md](docs/INDEX.md) - 当前实施规格与接口合同入口
+- **实施进度** → [实现与验收记录](docs/implementation-status.md) - 实际完成情况与覆盖率
+- **提案文档** → `docs/dev/PROPOSAL-*.md` - 待裁决方案与多方案对比
+- **历史经验** → [docs/history/](docs/history/) - 已移除原型的经验总结
+- **调研证据** → `docs/dev/research/` - 技术分析与行业调研
 
 ```mermaid
 flowchart LR
