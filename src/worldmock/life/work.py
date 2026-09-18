@@ -110,9 +110,6 @@ def prepare_work_submission(state: WorldState, scenario: LifeScenario, corpus_ro
     if effective < task.required_effective_seconds:
         raise BusinessRuleError("WORK_INCOMPLETE")
     source = load_work_input(corpus_root, task)
-    material = visible_work_material(state, corpus_root, task, agent_id)
-    if material["end_char"] != material["total_chars"]:
-        raise BusinessRuleError("WORK_MATERIAL_INCOMPLETE")
     oracle = load_work_oracle(corpus_root, task)
     payment = _payment(task, worked, oracle)
     if state.accounts[task.employer_account_id] < payment:

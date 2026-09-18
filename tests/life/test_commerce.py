@@ -12,7 +12,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import advance_next, advance_until_ready, context, travel_quote
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.commerce import apply_product_progress, deliver_order, purchase
+from worldmock.life.commerce import deliver_order, purchase
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,

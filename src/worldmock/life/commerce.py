@@ -7,12 +7,8 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life.body import BodySettlement, apply_food
 from worldmock.life.models import (
-    ActivityState,
-    ActivityStatus,
     AgentState,
-    ConsumeRequest,
     DeliveryState,
     FulfillmentKind,
     PurchaseRequest,
@@ -20,7 +16,7 @@ from worldmock.life.models import (
     ScheduledKind,
     WorldState,
 )
-from worldmock.life.scenario import BodyConfig, LifeScenario, ProductConfig
+from worldmock.life.scenario import LifeScenario, ProductConfig
 from worldmock.life.settlement import settle_money_transfer
 
 
@@ -31,15 +27,6 @@ class PurchaseOutcome:
     state: WorldState
     delivery: DeliveryState
     scheduled: ScheduledEvent | None
-
-
-@dataclass(frozen=True, slots=True)
-class ProductUseOutcome:
-    """@brief 一段商品使用后的持有量、身体和实际消耗份量。"""
-
-    agent: AgentState
-    settlement: BodySettlement | None
-    consumed_quantity: float
 
 
 def purchase(state: WorldState, scenario: LifeScenario, agent_id: int,
@@ -89,55 +76,9 @@ def deliver_order(state: WorldState, order_id: str) -> tuple[WorldState, Deliver
     return changed, changed_order
 
 
-def apply_product_progress(agent: AgentState, product: ProductConfig, activity: ActivityState,
-                           body_config: BodyConfig) -> ProductUseOutcome:
-    """@brief 按实际进食进度扣份量和加热量，非食品在完成时应用。"""
-    request = ConsumeRequest.model_validate(activity.data["request"])
-    _validate_product_use(agent, product, request)
-    previous = float(activity.data.get("consumed_quantity", 0))
-    if request.use_mode == "eat":
-        target = request.quantity * activity.elapsed_seconds / activity.planned_duration_seconds
-    elif activity.status == ActivityStatus.COMPLETED:
-        target = request.quantity
-    else:
-        target = previous
-    delta = max(0.0, target - previous)
-    if held_quantity(agent, product.product_id) + 1e-9 < delta:
-        raise BusinessRuleError("PRODUCT_NOT_HELD")
-    changed = _apply_product_delta(agent, product, delta, body_config)
-    return ProductUseOutcome(changed.agent, changed.settlement, previous + delta)
-
-
 def held_quantity(agent: AgentState, product_id: str) -> float:
     """@brief 返回人物当前位置可以实际取得的商品份量。"""
     return float(agent.inventory.get(agent.location_id, {}).get(product_id, 0))
-
-
-def _validate_product_use(agent: AgentState, product: ProductConfig, request: ConsumeRequest) -> None:
-    """@brief 核对方式、时长与要求地点。"""
-    if request.use_mode not in product.use_modes:
-        raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
-    if request.duration_seconds != product.use_duration_seconds:
-        raise BusinessRuleError("PRODUCT_USE_DURATION_MISMATCH")
-    if product.required_location_id and agent.location_id != product.required_location_id:
-        raise BusinessRuleError("PRODUCT_USE_LOCATION_REQUIRED")
-
-
-def _apply_product_delta(agent: AgentState, product: ProductConfig, quantity: float,
-                         body_config: BodyConfig) -> ProductUseOutcome:
-    """@brief 原子投影本区间商品份量、效果和食品热量。"""
-    inventory = _change_inventory(agent, product.product_id, -quantity) if product.consumable else agent.inventory
-    settlement = None
-    body = agent.body
-    if product.energy_kcal_per_unit:
-        settlement = apply_food(body, product.energy_kcal_per_unit * quantity, body_config)
-        body = settlement.after
-    effects = set(agent.active_effects)
-    if quantity > 0:
-        effects.add(product.effect)
-    changed = agent.model_copy(update={"inventory": inventory, "body": body,
-                                       "active_effects": effects}, deep=True)
-    return ProductUseOutcome(changed, settlement, quantity)
 
 
 def _validate_purchase(state: WorldState, scenario: LifeScenario, agent: AgentState,

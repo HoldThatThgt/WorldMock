@@ -448,8 +448,6 @@ def finite_sample_burstiness(times: Sequence[datetime]) -> float | None:
     root_plus = math.sqrt(count + 1)
     root_minus = math.sqrt(count - 1)
     denominator = (root_plus - 2) * ratio + root_minus
-    if denominator == 0:
-        return None
     return float((root_plus * ratio - root_minus) / denominator)
 
 

@@ -43,12 +43,13 @@ uv run coverage html            # HTML 明细
 - 门禁报告：`docs/coverage-report.json`（含生成时间、执行命令、整体与分文件分支覆盖、未覆盖接口清单 `文件:行:函数名`、最终判定位），每次运行覆盖重写。
 - 阈值：`scripts/coverage_gate.py` 中 `BRANCH_THRESHOLD = 85.0`。
 
-## 当前基线（留空）
+## 当前基线（C10 终收口实测，2026-09-18）
 
-> 以下数字待并行波合并后由编排者实测填入，本文件不预填任何数字。
+> 由覆盖率达标终收口单元 C10 在六路覆盖单元合并后的稳定树上实测：
+> `uv run python scripts/coverage_gate.py` exit 0；全量 pytest 2525 passed / 0 failed。
 
 | 指标 | 数值 |
 | --- | --- |
-| 整体分支覆盖率 | 待波次合并后由编排者实测 |
-| 未覆盖公共接口数 | 待波次合并后由编排者实测 |
-| 门禁判定 | 待波次合并后由编排者实测 |
+| 整体分支覆盖率 | 99.03%（covered=5526，missing=54，total=5580，阈值 85.00） |
+| 未覆盖公共接口数 | 0 |
+| 门禁判定 | PASSED（`scripts/coverage_gate.py` 退出码 0） |
