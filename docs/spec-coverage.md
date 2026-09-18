@@ -5,6 +5,8 @@ life-realism-2026-09-18；文末《人物真实性修订合同》与旧条款冲
 扫描范围：`tests/`（9 个子目录 + 根）与
 `vendor/agentsociety2/packages/agentsociety2/tests/`（含 worldmock hooks）。
 测试函数总数实测 **1584**（同步 1458 + 异步 126；全部函数名索引建立后逐条映射）。
+终态复核：D1（2026-09-18）——五个 GAP 已由 C7/C7b/C23 修复波落地，本次逐个亲读测试函数断言核实后
+将矩阵行改记 covered，统计更新为 gap=0、覆盖率 100%；核实证据与命令输出见文末 GAP 清单复核记录。
 
 统计口径：
 - **条款** = 规格中一条可独立验证的功能要求（排除纯叙述、依据引用、管理性声明）。同一要求在规格
@@ -22,10 +24,10 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | 指标 | 数值 |
 | --- | --- |
 | 条款总数 | 391 |
-| covered | 369（94.4%） |
-| gap | 8 行 / **5 个唯一缺口**（GAP-1…GAP-5；GAP-2/3/4 各占 2 行——同一要求在规格多处重述，GAP-1/5 各占 1 行） |
+| covered | 377（96.4%） |
+| gap | **0**（原 5 个唯一缺口 GAP-1…GAP-5 已全部由后续修复波落地，逐个亲读测试函数核实后改记 covered；复核证据见文末 GAP 清单） |
 | exempt | 14（3.6%） |
-| 覆盖率（covered+exempt） | **98.0%**（383/391） |
+| 覆盖率（covered+exempt） | **100.0%**（391/391） |
 
 抽样自验：20 条映射逐个打开测试函数体核对，20/20 吻合，0 错配（见文末）。
 
@@ -225,7 +227,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | ID | 行号 | 条款 | 测试映射 | 状态 |
 | --- | --- | --- | --- | --- |
 | N1 | 453 | 经纬度只给球面距离；驾驶耗时用道路路由 | CO/test_corpora.py::test_routes_are_frozen_real_responses_for_all_declared_pairs；L/test_travel_time.py | covered |
-| N2 | 454 | 可沿路线+模拟时间生成定位轨迹；保存路线与采样规则；采样非决策 | 无（src/worldmock/life/travel.py 无轨迹采样；tests 无命中） | **gap** |
+| N2 | 454 | 可沿路线+模拟时间生成定位轨迹；保存路线与采样规则；采样非决策 | L/test_travel_trajectory.py（7 测：确定性逐字节重放、采样点落冻结路线几何<1m、时间戳严格递增于窗口内、environment_event kind=location_track 且 decision_id/action_id 为 None、sampling_rule+路线 id/路径/哈希引用、非法窗口与哈希漂移 fail-closed、稀疏间隔边界） | covered |
 | N3 | 455 | 总耗时含路由引擎转弯成本（OSRM 总时长） | CO/test_corpora.py::test_routes_are_frozen_real_responses_for_all_declared_pairs（保存 total duration/distance/geometry） | covered |
 | N4 | 457-458 | 配送预计时间=准备+运输组成、非固定时长；无数据用标记参数 | src/worldmock/life/commerce.py:167-168（delivery_delay_seconds+route_seconds 组成式）；L/test_commerce.py::test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment | covered |
 | N5 | 459 | 人物只看当时报价/预计，不见隐藏到达安排 | L/test_travel_time.py::test_observation_quotes_the_factored_duration；L/test_commerce.py::test_pending_delivery_is_private_to_its_owner | covered |
@@ -245,7 +247,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | F8 | 497 | 结果组（反馈/资源变化/交付物/对方账户/验收/失败原因） | L/test_money_settlement.py、F/test_ledger.py | covered |
 | F9 | 498 | state_version_before/after；可从检查点+事件重建 | F/test_store.py::test_world_change_without_any_event_cannot_be_committed；R/test_resource_ledger.py::test_validate_history_replays_full_history_to_same_final_state | covered |
 | F10 | 499 | 来源与可见性组（人物可见 vs 仅评估端） | D/test_windows.py（PRIVATE_EVENTS）；E/test_adapters.py | covered |
-| F11 | 501-502,864-866 | 事件类型冻结枚举（14 类）全集 | 无专测（各类型散布于多测试使用；test_event_fields.py 只钉 wake_reasons 与 arrival 种类，未钉 14 类事件类型全集==规格） | **gap** |
+| F11 | 501-502,864-866 | 事件类型冻结枚举（14 类）全集 | F/test_event_fields.py::test_event_type_vocabulary_is_the_frozen_spec_set（tuple(EVENT_TYPES) 逐字==_SPEC_EVENT_TYPES 14 类且无重复）、test_event_type_rejects_anything_outside_the_frozen_set（"agent_thought" 拒绝） | covered |
 | F12 | 503 | 重试沿用动作标识；真实重复观看/再购买新标识 | L/test_engine_round.py::test_same_action_reuses_result_and_parameter_conflict_fails；I/test_grounded_targets.py::test_completed_content_remains_available_for_explicit_repeat | covered |
 | F13 | 505-506 | 世界事实/自述/推断来源区别；不删重复行为；哈希非事件标识 | E/test_adapters.py::test_legacy_action_declarations_never_claim_completion_or_object_identity；F/test_store.py::test_same_world_observations_share_version_and_preserve_duplicate_behavior | covered |
 
@@ -352,7 +354,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | DEV17 | 858 | evaluate 两套数据身份核对、机器报告/图表/中文结论 | E/test_runner.py（6 测）；E/test_report 相关 | covered |
 | DEV18 | 860 | 运行目录必含 manifest/sqlite/assets/as2/exports/labelkit/日志 | D/test_publication.py::test_manifest_inventory_binds_every_gate_and_consumer_file；L/test_opslog.py（运行日志） | covered |
 | DEV19 | 861-862 | 运行状态/阶段枚举（5 状态 5 阶段；睡眠属活动状态） | src/worldmock/status.py:20（阶段闭集校验）+F/test_status.py::test_status_reads_confirmed_state_without_modifying_any_run_file；L/test_opslog.py RUN_CRASHED | covered |
-| DEV20 | 864-866 | 事件类型冻结枚举 14 类 | 并入 GAP-2（F11） | gap |
+| DEV20 | 864-866 | 事件类型冻结枚举 14 类 | F/test_event_fields.py::test_event_type_vocabulary_is_the_frozen_spec_set（与 F11 同一测试，14 类逐字==规格 L864-866） | covered |
 | DEV21 | 867 | 动作状态枚举 8 类 | L/test_engine_round.py:38、L/test_content_game.py::test_unknown_game_outcome_is_explicit_and_preserves_session 等散布断言（无全集专测，弱注记） | covered |
 | DEV22 | 868 | 已提交请求序号不是完成/支付证明 | F/test_ledger.py::test_reused_receipt_cannot_record_a_second_payment | covered |
 | DEV23 | 870-872 | 存储边界：生活模型验证封闭请求；人物 worker 不改 footprints.sqlite | L/test_engine_round.py::test_first_round_accepts_discovered_content_game_and_route（typed request）；F/test_store.py 单写入 | covered |
@@ -373,7 +375,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | DEV38 | 907-908 | 唤醒条件决定决策机会；继续请求不零时间循环/不重复计入 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events；L/test_activities.py::test_continue_activity_moves_feedback_strictly_forward_without_releasing_slot | covered |
 | DEV39 | 909 | 游戏回合反馈边界；睡眠只在计划结束或唤醒事件提供决策 | L/test_engine_feedback.py::test_game_feedback_boundary_still_rejects_direct_switch；L/test_wake_reasons.py::test_sleep_allows_planned_end_and_wake_events_only | covered |
 | DEV40 | 915-937 | 文件职责表（各路径职责） | 结构性：各文件行为由本矩阵各条测试承载（见对应行） | covered |
-| DEV41 | 946-955 | 内容绑定表（食品白名单/Sintel/TextWorld 种子/AMI/邮件 48 线程/商品/地图/交通/训练加载/规则消费） | CAT/test_catalog_data.py::test_food_expansion_whitelist_and_spectrum；CO/test_corpora.py（Sintel/threads==48）；CO/test_game_corpora.py::test_textworld_library_has_30_seeds_wired_into_scenarios；D/test_training.py；D/test_rules.py（种子数分歧见未解决问题 1） | covered |
+| DEV41 | 946-955 | 内容绑定表（食品白名单/Sintel/TextWorld 种子/AMI/邮件 48 线程/商品/地图/交通/训练加载/规则消费） | CAT/test_catalog_data.py::test_food_expansion_whitelist_and_spectrum；CO/test_corpora.py（Sintel/threads==48）；CO/test_game_corpora.py::test_textworld_library_has_30_seeds_wired_into_scenarios；D/test_training.py；D/test_rules.py（种子数分歧已解决：规格 L948 注记固定 30 个种子 1201–1230，2026-09-18 由原八种子经用户裁决扩容，与 corpora/manifest.json 冻结集一致） | covered |
 | DEV42 | 957-959 | 内容不足/格式/哈希错误明确失败；manifest 全量核验；缺失不启动 | CAT/test_admission.py；F/test_validation.py::test_production_windows_require_and_accept_complete_authenticated_export | covered |
 | DEV43 | 961-968 | 身体参数冻结值（65kg/1600/2400/65kcal/h/MET 扣基础/1e-9 近零归零/超精度不足仍失败） | L/test_body.py::test_non_recovery_activity_clamps_only_fixed_near_zero_precision、test_exact_total_energy_survives_feedback_partition_rounding、test_energy_duration_uses_same_cost_at_sixty_second_boundary | covered |
 | DEV44 | 969-977 | 两过程参数与睡眠不足账、效率曲线节点、800/400 世界事实、娱乐 0.08、社交 0.04 | L/test_sleep_two_process.py（57 测，含 frozen_curve_constants）；L/test_felt_states.py（48 测） | covered |
@@ -447,7 +449,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | GT6 | 1240 | 十二周真实运行（时钟达终点/足迹与证据完整/输出交付通过） | 锚：F/test_export.py::test_clock_end_without_successful_final_checkpoint_is_not_complete、F/test_validation.py（真实运行见 EX-2） | exempt |
 | GT7 | 1241 | 比较：两套真实输入认证/指标/参照限制/盲评/报告 | 锚：E/test_adapters.py（真实旧数据文件认证）、E/test_metrics.py（真实盲评见 EX-5） | exempt |
 | GT8 | 1242 | 行为节律：双人 24h×3 同代码运行过协议门禁；分布只报告 | 锚：E/test_behavior_metrics.py::test_observation_repetition_gate_pass_and_fail、test_silent_boundary_ratio_exact_values、test_memory_repetition_gate_values、test_memory_md_identity_residue_gate（真实运行见 EX-7） | exempt |
-| GT9 | 1245-1248 | 生产代码硬规范（中文 Doxygen/英文日志/≤120 字符/函数≤50 行≤5 参/文件≤2000 行） | 无自动化测试（scripts/coverage_gate.py 不含风格检查；grep 全 tests/ 无命中） | **gap** |
+| GT9 | 1245-1248 | 生产代码硬规范（中文 Doxygen/英文日志/≤120 字符/函数≤50 行≤5 参/文件≤2000 行） | tests/test_style_gate.py::test_style_gate_admits_no_new_violations（常驻棘轮门禁：扫 src/worldmock+custom 全部生产 .py，行宽≤120、函数≤50 行≤5 参（self/cls 不计）、文件≤2000 行、生产函数 docstring 含中文；存量违规以 _OUTSTANDING 按文件×种类冻结，新增即红、修复后清单必须同步缩减） | covered |
 
 ## S21 人物真实性修订合同（L1409-1768）
 
@@ -482,7 +484,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC26 | 1564-1569 | 两阶段参数（独白 disabled/1.3/400 无 tools；行动 enabled/auto 回传 reasoning_content） | I/test_runtime.py::test_two_stage_model_identity_shape_matches_life_agent_constants、test_two_stage_model_identity_is_frozen_and_tamper_rejected；V/test_worldmock_life_hooks.py::test_prelude_monologue_rejects_tools_and_empty_content | covered |
 | RC27 | 1571-1572 | 独白写 decision_started.data.inner_monologue+模型证据；超长/空重试一次再失败；独白不改世界 | L/test_grounded_observation.py::test_decision_started_written_once_complete_with_monologue、test_invalid_monologue_falls_back_to_complete_event_without_monologue；I/test_life_agent_protocol.py::test_two_stage_monologue_evidence_and_single_retry、test_monologue_failing_twice_fails_the_whole_decision | covered |
 | RC28 | 1573 | finish.memories 允许空列表 | V/test_agent_react_validation.py::test_native_finish_accepts_empty_memory_list；I/test_activity_schema.py::test_finish_accepts_empty_memories_list_in_schema_and_runtime | covered |
-| RC29 | 1578,1680 | 独白仅 dreaming 任务可读；dreaming 窗口可含 inner_monologue 与 scene（动作/意图输入不变） | 并入 GAP-3（src/worldmock/delivery/windows.py:16 PRIVATE_EVENTS 排除 decision_started，dreaming 窗口无独白/场景字段，tests/delivery/test_windows.py 无对应测试） | gap |
+| RC29 | 1578,1680 | 独白仅 dreaming 任务可读；dreaming 窗口可含 inner_monologue 与 scene（动作/意图输入不变） | src/worldmock/delivery/windows.py:19 DREAMING_PRIVATE_EVENTS=PRIVATE_EVENTS−{decision_started}；D/test_windows.py::test_dreaming_window_reads_inner_monologue_and_scene（dreaming 窗口含当日 decision_started.data.inner_monologue 与 observation scene）、test_action_and_intent_windows_still_exclude_the_monologue_carrier（动作/意图窗口无 decision_started、无 inner_monologue） | covered |
 | RC30 | 1582-1584 | memories 0-8 条空合法；text 人物语言无标识/哈希；引用放 refs；event 类型枚举 | V/test_person_tools.py::test_validate_finish_memories_bounds；I/test_activity_schema.py::test_memory_text_rejects_hexadecimal_identities；V/test_worldmock_life_hooks.py::test_event_type_registered_and_candidate_rules | covered |
 | RC31 | 1585 | bigram Jaccard≥0.6 与 24h 同类型合并（只增计数与最近时刻） | V/test_worldmock_life_hooks.py::test_similar_same_type_memory_merges_within_window、test_similar_memory_outside_window_or_type_is_kept、test_bigram_jaccard_bounds | covered |
 | RC32 | 1587-1590 | 巩固触发三选一（importance≥3.0/待巩固≥10/就寝首边界）；单条 preference 不触发；提示传 persona_card 无示例身份、固定章节；候选含 event/observation（importance≥0.6） | V/test_worldmock_life_hooks.py::test_consolidation_triggers_importance_accumulation、test_consolidation_triggers_pending_threshold、test_consolidation_triggers_sleep_boundary、test_single_preference_does_not_trigger_consolidation、test_consolidation_prompt_carries_persona_card_without_example_identity；V/framework/test_memory.py | covered |
@@ -500,7 +502,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC44 | 1627 | contacts[]（id/称谓/关系/亲密度 0-30/渠道/reply_policy 闭集） | L/test_social.py::test_contact_closeness_bounds_and_policy_closed_set；L/test_scenario.py::test_contacts_declare_mapping_and_reply_policies | covered |
 | RC45 | 1628 | model 策略每消息至多一次回复（独立调用、disabled、≤200 汉字、完整证据、source_kind=model_npc、只进收件箱不改资源任务） | L/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence、test_model_npc_reply_at_most_once_per_message、test_model_npc_reply_transport_failure_propagates；L/test_social.py::test_reply_policy_branches_with_at_most_once_idempotency、test_model_reply_request_and_finalize_validate_200_chars | covered |
 | RC46 | 1630 | 他人只暴露姓名/家族/可交谈，不暴露身体数值/余额/任务/记忆 | L/test_social.py::test_people_here_filters_location_and_exposes_closed_fields（closed fields 断言） | covered |
-| RC47 | 1632,1680 | 盲评包与导出活动记录增加地点与同伴两列（同伴匿名引用） | 无（src/worldmock/evaluation/review.py 与 public_evidence.py 无 location/companion 字段；tests/evaluation/test_review.py:39 断言行集恰为 {category,start,end,status}，与合同相反）→ GAP-4 | **gap** |
+| RC47 | 1632,1680 | 盲评包与导出活动记录增加地点与同伴两列（同伴匿名引用） | src/worldmock/evaluation/review.py:362 _timeline_row 增加 location+companion 列（:382 _companion_ref 匿名 HMAC 引用）；E/test_review.py::test_activity_rows_carry_location_and_anonymous_companion（行带 location=office-west、companion 匹配 object-[0-9a-f]{64}、原文 agent:2 不入序列化）、test_companion_reference_is_slot_isolated_and_day_stable（评审槽隔离、同槽跨日稳定）；:40 行集断言更新为 {category,start,end,status,location,companion} | covered |
 | RC48 | 1640 | 地点品类（家/办公室/食堂餐馆≥2/便利店/超市菜场/公园健身；真实 OSM+OSRM 冻结） | CO/test_category_corpora.py::test_locations_cover_all_required_kinds_with_real_osm_coordinates；CAT/test_category_admission.py::test_location_required_kind_missing、test_location_restaurant_floor_of_two | covered |
 | RC49 | 1641 | 家的可供性（洗漱 15 分钟、7 份早餐储备、进食扣减超市补充、留痕） | CAT/test_category_admission.py::test_home_pantry_below_seven_servings、test_home_morning_wash_not_fifteen_minutes；CO/test_category_corpora.py::test_home_pantry_seven_breakfast_servings_reference_catalog_foods、test_morning_wash_activity_declared_at_fifteen_minutes | covered |
 | RC50 | 1642 | 办公室可供性（茶水间免费饮水 5 分钟微量娱乐、会议室、同事在场） | CAT/test_category_admission.py::test_office_affordance_missing、test_office_pantry_water_not_free | covered |
@@ -519,8 +521,8 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC63 | 1678 | inspect_run 读取 tool_name | F/test_render_day.py::test_inspect_run_brief_reads_tool_name | covered |
 | RC64 | 1678-1679 | export 增加确定性投影 timeline/<agent>-<date>.md（合并静默边界与同活动、名称非标识）；render_day 生成 | F/test_export.py::test_export_writes_hash_bound_timeline_projections、test_export_timeline_projection_matches_render_day_output；F/test_render_day.py（9 测） | covered |
 | RC65 | 1679 | tools/run-viewer.html 增加"一天"视图 | 规格自身指定"手工核对"（修订合同文件清单行）；确定性锚 F/test_export.py::test_export_timeline_projection_matches_render_day_output → EX-8 | exempt |
-| RC66 | 1680 | 盲评活动记录地点与同伴列 | 并入 GAP-4（RC47） | gap |
-| RC67 | 1680 | dreaming 窗口输入可含 inner_monologue 与 scene；动作/意图可见输入不变 | 并入 GAP-3（RC29） | gap |
+| RC66 | 1680 | 盲评活动记录地点与同伴列 | E/test_review.py::test_activity_rows_carry_location_and_anonymous_companion、test_companion_reference_is_slot_isolated_and_day_stable（与 RC47 同组测试） | covered |
+| RC67 | 1680 | dreaming 窗口输入可含 inner_monologue 与 scene；动作/意图可见输入不变 | D/test_windows.py::test_dreaming_window_reads_inner_monologue_and_scene、test_action_and_intent_windows_still_exclude_the_monologue_carrier（与 RC29 同组测试） | covered |
 | RC68 | 1685-1702 | 13 项行为指标+3 项协议门禁+code_sha256 分组+只报告不裁定 | E/test_behavior_metrics.py（19 测逐指标：observation_repetition_gate、silent_boundary_ratio、decision_token_median、autonomous_decision_rate、wake_reason_distribution、wait_minutes_and_early_arrival、sleep_schedule、meal_diversity、js_distance、activity_distribution、persona_distinguishability、social_minutes、memory_repetition_gate、memory_md_identity_residue、report_groups_by_code_sha256） | covered |
 | RC69 | 1704-1706 | 外部参照 2018 时间利用调查、逐项注明口径、只作方向对照 | E/test_behavior_metrics.py::test_reference_minutes_match_spec_constants、test_activity_distribution_matches_reference_exactly、test_js_distance_hand_anchor | covered |
 | RC70 | 1712-1728 | 文件清单各行指定测试存在并执行 | 逐行核对：除 delivery/windows.py 行（GAP-3）外全部存在（I/test_life_agent_protocol、test_grounded_targets、L/test_activity_menu、I/test_runtime、L/test_engine_feedback、test_engine_round、test_grounded_observation、test_wake_reasons、test_social、test_day_plan、test_body、test_body_flows、test_sleep_two_process、test_felt_states、test_narration、test_scenario、test_state_serialization、I/test_activity_schema、CAT/test_admission、L/test_motivation、test_lifestyle、CAT/test_affordance_shadow、L/test_activities、test_commerce、test_content_progress_presentation、test_work_contracts、P/、I/test_persona_profile、L/test_persona_upgrade、F/test_validation、F/test_export、test_quality、E/test_behavior_metrics、test_review、V 分支记忆测试） | covered |
@@ -528,17 +530,22 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 （修订合同"实施顺序/默认裁决与备选/本节依据"为管理性与备选条款，按口径排除；文件清单中
 docs/implementation-status.md 行为管理性记录，排除。）
 
-## GAP 清单（5 条）
+## GAP 清单（5 条，已全部修复并经 D1 终态复核）
 
-| GAP | 规格行号 | 条款摘要 | 现状证据 | 建议测试落点 |
+复核方式：逐个亲读修复后测试函数体（不凭修复报告转述），核对断言真实验证条款；五个文件
+`uv run pytest -q tests/life/test_travel_trajectory.py tests/footprints/test_event_fields.py
+tests/delivery/test_windows.py tests/evaluation/test_review.py tests/test_style_gate.py`
+= **55 passed**（2026-09-18 实跑）。
+
+| GAP | 规格行号 | 条款摘要 | 修复后核实证据（亲读断言） | 命中测试 |
 | --- | --- | --- | --- | --- |
-| GAP-1 | L454 | 导航：可沿实际路线+模拟时间生成定位轨迹，保存路线与采样规则；定位采样不是人物决策 | grep 定位轨迹/location_track/trajectory 无命中；src/worldmock/life/travel.py 无采样逻辑 | 新增 tests/life/test_travel_trajectory.py：给冻结路线断言确定性采样点序列、采样事件为 environment_event 且不产生 decision_started |
-| GAP-2 | L501-502, L864-866 | 事件类型冻结枚举（14 类）全集无专测 | tests/footprints/test_event_fields.py 只钉 wake_reasons 与 arrival 种类；14 类类型散布使用无全集断言 | 扩展 tests/footprints/test_event_fields.py：断言 src/worldmock/footprints 的 EVENT_TYPES 冻结集合逐字等于规格 14 类（observation…run_failed） |
-| GAP-3 | L1578, L1680 | dreaming 窗口可含 inner_monologue 与 scene（独白仅 dreaming 可读） | src/worldmock/delivery/windows.py:16 `PRIVATE_EVENTS` 排除 decision_started，dreaming 窗口无独白/场景字段；tests/delivery/test_windows.py 无 inner_monologue/scene 命中 | 先实现（windows.py dreaming 分支引入独白/场景），再在 tests/delivery/test_windows.py 增断言：dreaming 窗口含当日 decision_started.data.inner_monologue、action/intent 窗口不含 |
-| GAP-4 | L1632, L1680 | 盲评包与导出的活动记录增加地点与同伴两列（同伴匿名引用） | src/worldmock/evaluation/review.py、public_evidence.py 无 location/companion 字段；tests/evaluation/test_review.py:39 断言行集恰为 {category,start,end,status}（与合同相反） | 先实现（review/public_evidence 行结构加列+同伴 HMAC 引用），再在 test_review.py 更新行集断言并加匿名性测试 |
-| GAP-5 | L1245-1248 | 生产代码硬规范（中文 Doxygen、英文日志、≤120 字符、函数≤50 行≤5 参、文件≤2000 行）无自动化门禁 | scripts/coverage_gate.py 与全部 tests/ 无风格检查；engine.py 实测恰 2000 行（贴线） | 新增 tests/test_style_gate.py：扫 src/worldmock+custom 断言行宽/函数长/参数数/文件行数/生产函数 Doxygen 存在 |
+| GAP-1 | L454 | 导航：可沿实际路线+模拟时间生成定位轨迹，保存路线与采样规则；定位采样不是人物决策 | C23 落地 src/worldmock/life/travel.py sample_location_track；断言同一输入两次投影逐字节相同、采样点到冻结 LineString 几何球面距离<1m、时间戳严格递增且落出发/到达之间、事件为 environment_event(kind=location_track) 且 decision_id/action_id 均为 None 与 source_kind=environment、data.sampling_rule（方法/间隔/时间窗/起讫点）与 route_id/response_path/response_sha256 引用齐备、非正时间窗抛 LOCATION_TRACK_INVALID 与哈希漂移抛 IntegrityError、间隔覆盖整段行程时零事件 | tests/life/test_travel_trajectory.py（7 测，test_track_projection_is_not_a_person_decision 等） |
+| GAP-2 | L501-502, L864-866 | 事件类型冻结枚举（14 类）全集无专测 | C7 落地；_SPEC_EVENT_TYPES 为规格 L864-866 逐字 14 类元组（observation…run_failed），断言 tuple(EVENT_TYPES)==_SPEC_EVENT_TYPES 且 len==去重==14；反例 "agent_thought" 构造 EventDraft 即 ValueError | tests/footprints/test_event_fields.py::test_event_type_vocabulary_is_the_frozen_spec_set、test_event_type_rejects_anything_outside_the_frozen_set |
+| GAP-3 | L1578, L1680 | dreaming 窗口可含 inner_monologue 与 scene（独白仅 dreaming 可读） | C7/C7b 落地 src/worldmock/delivery/windows.py:19 DREAMING_PRIVATE_EVENTS=PRIVATE_EVENTS−{decision_started}；正例：dreaming 窗口 rows 含 decision_started.data.inner_monologue 逐字与 observation scene 文本；反例：动作/意图窗口全部 rows 无 decision_started 事件、序列化字符串不含 inner_monologue，且断言 'decision_started' in PRIVATE_EVENTS 维持动作侧排除 | tests/delivery/test_windows.py::test_dreaming_window_reads_inner_monologue_and_scene、test_action_and_intent_windows_still_exclude_the_monologue_carrier |
+| GAP-4 | L1632, L1680 | 盲评包与导出的活动记录增加地点与同伴两列（同伴匿名引用） | C7/C7b 落地 review.py:362 _timeline_row（location 列 + companion 列经 :382 _companion_ref 匿名化）；断言携带 location 的会话出现在盲评 timeline、行 location==office-west、companion 匹配 object-[0-9a-f]{64} 且原文 "agent:2" 不出现在整个序列化包中；评审槽间 HMAC 键不同（slot 隔离）、同槽同对象跨日稳定；:40 行集断言恰为 {category,start,end,status,location,companion} | tests/evaluation/test_review.py::test_activity_rows_carry_location_and_anonymous_companion、test_companion_reference_is_slot_isolated_and_day_stable |
+| GAP-5 | L1245-1248 | 生产代码硬规范（中文 Doxygen、英文日志、≤120 字符、函数≤50 行≤5 参、文件≤2000 行）无自动化门禁 | C7/C7b 落地常驻棘轮门禁：ast 扫 src/worldmock+custom 全部生产 .py，行宽>120、函数>50 行、入参>5（self/cls 不计）、文件>2000 行、docstring 无中文各记违规；实际违规必须逐文件×种类等于 _OUTSTANDING 冻结清单——新增即红、修复后未缩减清单同样红（防腐化） | tests/test_style_gate.py::test_style_gate_admits_no_new_violations |
 
-## 已知豁免（14 行，均为规格验证矩阵"实际验证入口"为真实运行/真实外部服务的条款）
+## 已知豁免（14 行，均为规格验证矩阵"实际验证入口"为真实模型调用/真实外部服务/长墙钟真实运行验收的条款——确定性部分各附锚测试，豁免不算缺口）
 
 | EX | 对应行 | 豁免内容 | 确定性锚测试 |
 | --- | --- | --- | --- |

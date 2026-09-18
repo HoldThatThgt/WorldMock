@@ -10,3 +10,8 @@ __pycache__/
 .DS_Store
 labelkit-projects/out/
 labelkit-projects/data/
+
+# generated artifacts
+.coverage
+argv.json
+docs/coverage-report.json

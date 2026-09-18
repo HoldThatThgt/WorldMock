@@ -1,12 +1,15 @@
 # AS2 生活仿真开发验收记录
 
-更新时间：2026-09-16。权威合同为 `docs/agentsociety2-design.md`。
+更新时间：2026-09-18。权威合同为 `docs/agentsociety2-design.md`（含文末《人物真实性修订合同》）。
 
 ## 当前结论
 
-生活、内容、足迹、共同恢复、LabelKit 加工及真实性评估均已有实际实现。
-最终交付尚未完成：完整反事实分支、完整自然日加工、
-正式 DeepSeek 十二周及三次实际隔离盲评仍需通过。短窗口、测试夹具和单条语义通过不能替代这些结果。
+人物真实性修订合同已在代码层全量落地：生活、内容、足迹、共同恢复、LabelKit 加工及真实性评估
+均为修订后合同的实现，`uv run pytest -q` 2525 passed / 0 failed，分支覆盖率门禁 PASSED，
+规格追溯矩阵覆盖率 100%（见下节）。
+最终交付尚未完成：正式 DeepSeek 十二周运行、三次实际隔离盲评与 LabelKit 完整自然日交付
+仍需真实运行通过。本记录只覆盖代码与确定性测试层，短窗口、测试夹具和单条语义通过不能替代这些
+真实运行结果。
 
 ```mermaid
 flowchart LR
@@ -18,6 +21,34 @@ flowchart LR
     E --> F[正式数据加工及三次隔离盲评]
     F --> G[真实性报告与最终交付]
 ```
+
+## 人物真实性修订合同实现（2026-09-18）
+
+修订合同（`docs/agentsociety2-design.md` 文末）经 A/B/C 三个实现波（约 40 个实现单元）全量落地。
+本节是代码与确定性测试层的验收记录；真实模型十二周运行、真实盲评、LabelKit 完整自然日交付
+仍为待办，本节不冒充真实运行证据。
+
+| 项目 | 实际结果 | 证据 |
+| --- | --- | --- |
+| 测试基线 | `uv run pytest -q` = 2525 passed / 0 failed（修订开工时基线 1053 passed） | 命令实跑输出（本日复核） |
+| 覆盖率门禁 | `uv run python scripts/coverage_gate.py` verdict PASSED：分支覆盖 99.03%（5526/5580，阈值 ≥85）；未覆盖公共接口 0 | 命令实跑输出（本日复核） |
+| 规格追溯 | `docs/spec-coverage.md` 终态：391 条款 = 377 covered + 14 exempt + 0 gap，覆盖率 100%（covered+exempt 口径；豁免均为真实模型/外部服务/长墙钟验收条款，各附确定性锚测试） | 本仓库 `docs/spec-coverage.md`（D1 终态复核） |
+| AS2 vendor 分支 | commit `849bac78`：观察单写（结构化 data 不写 JSON 副本）、决策前独白钩子、reasoning_content 回传、记忆合同（校验/巩固/相似合并失败传播） | `vendor/agentsociety2` 分支提交 |
+
+关键新模块（职责以权威规范"文件职责"章节为准）：
+
+- `src/worldmock/life/`：`sleep`（两过程睡眠模型与睡眠不足账）、`felt`（饥饿/困意/社交/情绪体感分级与滞回）、
+  `schedule`（正式日历/工资结算）、`narration`（user 三段组装与字符预算）、`social`（people_here/消息/交谈/通话）、
+  `rhythm`（唤醒原因与静默边界）、`projection`（观察投影/禁入字段/商品可见期）、`observe`、`social_actions`、
+  `basket`（多件购买与同席进食）、`decision_start`（两阶段决策与独白）、`state_commit`（引擎提交路径）；
+- `src/worldmock/evaluation/behavior_metrics.py`：13 项行为指标 + 3 项协议门禁，按 code_sha256 分组只报告不裁定；
+- profile v2：PersonaCard 构成、三次一致性抽取、确定性渲染 ≤600 汉字、大五只进世界层动力学；
+- catalog 2.0 品类：地点品类（真实 OSM 坐标）、正餐/生活活动/工作材料/联系人准入合同；
+- `scripts/render_day.py`（timeline 投影渲染）与 `scripts/coverage_gate.py`（分支+公共接口门禁）。
+
+数据扩容：正餐 30 条（能量逐条标注 USDA FNDDS 来源与换算）、POI 路由 220 条（OSRM 冻结响应）、
+工作材料输入 65 份（含补足 PM 材料）、drama 语料替换为中文短剧、场景联系人语料就位；
+全部进入 `corpora/manifest.json` 哈希冻结清单。
 
 ## 本轮修正
 
