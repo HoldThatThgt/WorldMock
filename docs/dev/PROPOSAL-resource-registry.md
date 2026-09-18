@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"proposal","canonical_path":"docs/dev/PROPOSAL-resource-registry.md","implementation_state":"NOT-COMPLETE","kind":"PROPOSAL","owner":"WorldMock maintainers","replaces":[],"schema":"worldmock.document.metadata.v1","status":"PROPOSAL","superseded_by":null,"version":"2026-09-16"} -->
 **Status: PROPOSAL**
 
 # 静态资源与交换对象管理设计（提案）

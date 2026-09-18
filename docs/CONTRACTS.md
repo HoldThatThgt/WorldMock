@@ -1,4 +1,4 @@
-<!-- worldmock-doc -->
+<!-- worldmock-doc: {"authority":"interface","canonical_path":"docs/CONTRACTS.md","implementation_state":"NOT-COMPLETE","kind":"contracts","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18"} -->
 **Status: FROZEN** | **Owner: worldmock-core**
 
 # WorldMock 接口合同

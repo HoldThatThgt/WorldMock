@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/realism-root-cause-2026-09-17.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/ARCHITECTURE.md","version":"2026-09-17"} -->
 **Status: SUPERSEDED** — 历史根因分析，建议已由后续设计修订裁决。
 
 # WorldMock 人物行为"不像人"根因分析 —— 七视角综合报告

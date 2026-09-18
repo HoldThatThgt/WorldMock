@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/delivery-final-audit.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/VERIFICATION.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — 历史审计快照，原缺口已由后续修复闭环。
 
 # 足迹与数据交付最终独立审查

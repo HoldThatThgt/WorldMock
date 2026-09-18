@@ -1,4 +1,4 @@
-<!-- worldmock-doc -->
+<!-- worldmock-doc: {"authority":"index","canonical_path":"docs/INDEX.md","implementation_state":"NOT-COMPLETE","kind":"index","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18"} -->
 **Status: FROZEN** | **Owner: worldmock-core**
 
 # WorldMock 文档索引与职责分配

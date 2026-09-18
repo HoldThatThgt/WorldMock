@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/life-final-audit.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/VERIFICATION.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — 历史审计快照，已由后续实现修复并测试覆盖。
 
 # LifeEnv 最终规格审计

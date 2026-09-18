@@ -1,4 +1,4 @@
-<!-- worldmock-doc -->
+<!-- worldmock-doc: {"authority":"verification","canonical_path":"docs/VERIFICATION.md","implementation_state":"NOT-COMPLETE","kind":"verification","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18"} -->
 **Status: FROZEN** | **Owner: worldmock-core**
 
 # WorldMock 验证标准

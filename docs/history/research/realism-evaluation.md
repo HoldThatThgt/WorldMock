@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/realism-evaluation.md","implementation_state":"NOT-COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/VERIFICATION.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — 评估合同已由后续设计修订更新。
 
 # 十二周数字足迹真实性评估合同

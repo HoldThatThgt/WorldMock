@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/as2-feasibility.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/ARCHITECTURE.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — 接入方案已实施，后续以实际接入代码与运行证据为准。
 
 # AgentSociety 2 接入可行性与核心改动独立审查

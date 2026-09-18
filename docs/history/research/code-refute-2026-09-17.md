@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/code-refute-2026-09-17.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/VERIFICATION.md","version":"2026-09-17"} -->
 **Status: SUPERSEDED** — 历史对抗审计报告，发现的缺陷已由后续修复闭环。
 
 # WorldMock 编码模块全面 refute（对抗审计报告）

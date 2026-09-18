@@ -1,4 +1,4 @@
-<!-- worldmock-doc -->
+<!-- worldmock-doc: {"authority":"experiment","canonical_path":"docs/EXPERIMENT.md","implementation_state":"NOT-COMPLETE","kind":"experiment","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"FROZEN","superseded_by":null,"version":"2026-09-18"} -->
 **Status: FROZEN** | **Owner: worldmock-core**
 
 # WorldMock 实验设置

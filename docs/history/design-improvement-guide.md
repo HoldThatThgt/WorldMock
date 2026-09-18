@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"history","canonical_path":"docs/history/design-improvement-guide.md","implementation_state":"NOT-COMPLETE","kind":"guide","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/INDEX.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — superseded_by: docs/INDEX.md
 
 # AgentSociety2 设计文档改进指南

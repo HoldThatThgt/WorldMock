@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"history","canonical_path":"docs/history/DESIGN-ORGANIZATION-ANALYSIS.md","implementation_state":"NOT-COMPLETE","kind":"analysis","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/INDEX.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — superseded_by: docs/INDEX.md
 
 # WorldMock 设计文档组织方案

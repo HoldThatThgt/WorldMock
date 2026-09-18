@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"research","canonical_path":"docs/history/research/life-data-feasibility.md","implementation_state":"COMPLETE","kind":"research","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/EXPERIMENT.md","version":"2026-09-15"} -->
 **Status: SUPERSEDED** — 可行性审查已完成，后续以实际实现与运行证据为准。
 
 # LifeEnv、真实内容与 LabelKit 交付可行性审查

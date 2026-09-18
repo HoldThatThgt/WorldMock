@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"history","canonical_path":"docs/history/mobile-prototype-lessons.md","implementation_state":"COMPLETE","kind":"lessons","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/ARCHITECTURE.md","version":"2026-09-15"} -->
 # 手机交互穿刺经验归档
 
 归档日期：2026-09-15。手机实验已经停止，本记录只保留方法、失败机制与证据结论，不维护其代码或运行入口。

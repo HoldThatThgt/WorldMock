@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"proposal","canonical_path":"docs/dev/PROPOSAL-affordance-registry.md","implementation_state":"NOT-COMPLETE","kind":"PROPOSAL","owner":"WorldMock maintainers","replaces":[],"schema":"worldmock.document.metadata.v1","status":"PROPOSAL","superseded_by":null,"version":"2026-09-16"} -->
 **Status: PROPOSAL**
 
 # 可供性注册表设计（提案）

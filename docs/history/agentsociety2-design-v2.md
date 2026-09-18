@@ -1,3 +1,4 @@
+<!-- worldmock-doc: {"authority":"history","canonical_path":"docs/history/agentsociety2-design-v2.md","implementation_state":"NOT-COMPLETE","kind":"design","owner":"worldmock-core","replaces":[],"schema":"worldmock.document.metadata.v1","status":"SUPERSEDED","superseded_by":"docs/INDEX.md","version":"2026-09-18"} -->
 **Status: SUPERSEDED** — superseded_by: docs/INDEX.md
 
 # 基于 AgentSociety 2 的数字人生活模拟与数据生产特性规范
