@@ -1,3 +1,5 @@
+**Status: SUPERSEDED** — 历史审计计划，已由后续执行完成并产生审计报告。
+
 # WorldMock 核心合同 Uncle Bob 语义突变计划
 
 ## 结论与执行边界

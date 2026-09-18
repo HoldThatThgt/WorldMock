@@ -1,3 +1,5 @@
+**Status: SUPERSEDED** — 历史根因分析，建议已由后续设计修订裁决。
+
 # WorldMock 人物行为"不像人"根因分析 —— 七视角综合报告
 
 日期：2026-09-17。对象：`runs/` 下 40 个运行（重点 `runs/deepseek-day-affordance`，唯一由当前代码 `9b1125d7…` 产出的运行；2026-01-05 周一；陈曦 agent 1 / 李凡 agent 2）。

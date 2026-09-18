@@ -1,7 +1,9 @@
+**Status: SUPERSEDED** — 可行性审查已完成，后续以实际实现与运行证据为准。
+
 # LifeEnv、真实内容与 LabelKit 交付可行性审查
 
 > 审查日期：2026-09-15  
-> 权威规格：[`agentsociety2-design.md`](../agentsociety2-design.md)  
+> 权威规格：[`agentsociety2-design.md`](../../agentsociety2-design.md)  
 > 审查范围：Life 领域、正式语料、足迹进入 LabelKit、训练 loader 与规则消费者边界。
 
 ## 审查结论
