@@ -431,22 +431,40 @@ def check_registry_pre_existing() -> list[Finding]:
                 )
             )
     
-    # 检查是否有新增的 registry runtime 依赖（简化检查：查看导入语句）
-    # 这里仅作示意性检查，完整检查需要更复杂的静态分析
-    governance_spec = PROJECT_ROOT / "docs/dev/SPEC-document-governance.md"
-    if governance_spec.exists():
-        content = governance_spec.read_text(encoding="utf-8")
-        # 检查是否提到新增 registry 运行时依赖
-        if "新增 registry runtime" in content or "new registry runtime" in content.lower():
-            findings.append(
-                Finding(
-                    rule="GOV-MUST-05",
-                    file="docs/dev/SPEC-document-governance.md",
-                    line=0,
-                    severity="error",
-                    message="SPEC should not add new registry runtime dependencies",
-                )
-            )
+    # 检查 src/custom/tests 中是否有新增的 registry runtime 导入
+    # 只检测实际的 import 语句，不检查 SPEC 文档内容
+    tests_dir = PROJECT_ROOT / "src" / "custom" / "tests"
+    if tests_dir.exists():
+        py_files = list(tests_dir.rglob("*.py"))
+        registry_import_pattern = re.compile(
+            r'^\s*(?:from\s+worldmock\.catalog|import\s+worldmock\.catalog)',
+            re.MULTILINE
+        )
+        
+        for py_file in py_files:
+            try:
+                content = py_file.read_text(encoding="utf-8")
+                # 移除注释行
+                lines = []
+                for line in content.splitlines():
+                    stripped = line.strip()
+                    if not stripped.startswith('#'):
+                        lines.append(line)
+                code_without_comments = '\n'.join(lines)
+                
+                if registry_import_pattern.search(code_without_comments):
+                    relative = py_file.relative_to(PROJECT_ROOT)
+                    findings.append(
+                        Finding(
+                            rule="GOV-MUST-05",
+                            file=str(relative),
+                            line=0,
+                            severity="error",
+                            message="Test file imports worldmock.catalog registry runtime (forbidden)",
+                        )
+                    )
+            except Exception:
+                continue
     
     return findings
 
@@ -471,33 +489,61 @@ def check_real_acceptance_not_complete() -> list[Finding]:
     
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        real_claim = manifest.get("identity", {}).get("real_acceptance_claim", {})
-        status = real_claim.get("status")
+        real_claims = manifest.get("identity", {}).get("real_acceptance_claim", {})
         
-        # 检查三项真实验收的状态
-        if status == "COMPLETE":
-            # 需要验证是否真的有完整证据
-            evidence_ids = real_claim.get("evidence_ids", [])
-            if not evidence_ids:
-                findings.append(
-                    Finding(
-                        rule="GOV-MUST-11",
-                        file="docs/evidence-manifest.json",
-                        line=0,
-                        severity="error",
-                        message="real_acceptance_claim marked COMPLETE but has no evidence_ids",
-                    )
-                )
-        elif status not in ["NOT-COMPLETE", "UNVERIFIABLE"]:
+        # real_acceptance_claim 是字典，键为 claim 名称，值为状态对象
+        if not isinstance(real_claims, dict):
             findings.append(
                 Finding(
                     rule="GOV-MUST-11",
                     file="docs/evidence-manifest.json",
                     line=0,
                     severity="error",
-                    message=f"real_acceptance_claim status must be NOT-COMPLETE or UNVERIFIABLE, got '{status}'",
+                    message=f"real_acceptance_claim must be a dict, got {type(real_claims).__name__}",
                 )
             )
+            return findings
+        
+        # 检查每个 claim 的状态
+        for claim_name, claim_data in real_claims.items():
+            if not isinstance(claim_data, dict):
+                findings.append(
+                    Finding(
+                        rule="GOV-MUST-11",
+                        file="docs/evidence-manifest.json",
+                        line=0,
+                        severity="error",
+                        message=f"Claim '{claim_name}' must be a dict with status field",
+                    )
+                )
+                continue
+                
+            status = claim_data.get("status")
+            
+            # 检查真实验收的状态
+            if status == "COMPLETE":
+                # 需要验证是否真的有完整证据
+                evidence_ids = claim_data.get("evidence_ids", [])
+                if not evidence_ids:
+                    findings.append(
+                        Finding(
+                            rule="GOV-MUST-11",
+                            file="docs/evidence-manifest.json",
+                            line=0,
+                            severity="error",
+                            message=f"Claim '{claim_name}' marked COMPLETE but has no evidence_ids",
+                        )
+                    )
+            elif status not in ["NOT-COMPLETE", "UNVERIFIABLE"]:
+                findings.append(
+                    Finding(
+                        rule="GOV-MUST-11",
+                        file="docs/evidence-manifest.json",
+                        line=0,
+                        severity="error",
+                        message=f"Claim '{claim_name}' status must be NOT-COMPLETE or UNVERIFIABLE, got '{status}'",
+                    )
+                )
     except (json.JSONDecodeError, KeyError) as e:
         findings.append(
             Finding(
