@@ -3,4 +3,4 @@
 	url = git@github.com:HoldThatThgt/WorldMock-AgentSociety.git
 [submodule "vendor/labelkit"]
 	path = vendor/labelkit
-	url = git@github.com:HoldThatThgt/WorldMock-LabelKit.git
+	url = git@github.com:HoldThatThgt/LabelKit.git

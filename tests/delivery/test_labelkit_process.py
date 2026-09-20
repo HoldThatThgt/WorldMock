@@ -268,8 +268,8 @@ def _assert_cumulative_history_requests(calls, initial):
     assert serialized[5].count('second-repair-candidate-sentinel') == 1
     assert all(first_critique not in serialized[index] for index in (1, 3, 5))
     assert all(second_critique not in serialized[index] for index in (1, 3, 5))
-    assert '逐项重新核验全部审核意见' in serialized[4]
-    assert '不得使旧缺陷复现' in serialized[4]
+    assert '核验全部历史批评' in serialized[4]
+    assert '保留已正确内容，只修正仍成立的问题' in serialized[4]
 
 
 def _workspace(tmp_path, record, port):
