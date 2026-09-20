@@ -1,4 +1,4 @@
-"""@brief 目录加载器的结构校验正反例测试。"""
+"""@brief 目录加载、追加版本与内容快照测试。"""
 
 from __future__ import annotations
 
@@ -7,160 +7,181 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.catalog.loader import load_catalog
-from worldmock.catalog.models import CatalogError
-
-from .conftest import (
-    default_objects,
-    default_resources,
-    default_rules,
-    default_tombstones,
-    write_catalog,
-)
+from tests.categories.conftest import raw_object
+from worldmock.categories import compute_catalog_identity, refresh_manifest_identity
+from worldmock.catalog import CatalogError, load_catalog, load_object_declarations
 
 
-def test_loads_default_fixture(tmp_path: Path) -> None:
-    """@brief 默认夹具加载出完整的冻结视图（公式来自 rules TOML）。"""
-    root = write_catalog(
-        tmp_path / "catalog",
-        default_resources(),
-        default_objects(),
-        default_tombstones(),
-    )
-    catalog = load_catalog(root)
-    assert len(catalog.resources) == 3
-    assert len(catalog.objects) == 4
-    assert set(catalog.formulas) == {"fare"}
-    formula = catalog.formulas["fare"]
-    assert formula.unit == "fen"
-    assert formula.branches["walking"].amount == 0
-    assert formula.branches["driving"].amount == "max(500, ceil(m * 0.2))"
-    assert formula.params == {"m": "route.distance_meters", "mode": "route.mode"}
-    assert catalog.tombstoned_ids() == frozenset({"food-soda"})
-    assert (catalog.version_major, catalog.version_minor) == (1, 0)
+def test_load_catalog_returns_raw_and_compiled_views(catalog_dir: Path) -> None:
+    """同一目录同时暴露严格 raw 声明与只读编译视图。"""
+    catalog = load_catalog(catalog_dir)
+    assert set(catalog.raw_objects) == {"milk"}
+    assert set(catalog.objects) == {"milk"}
+    assert catalog.objects["milk"].category_id == "food"
+    assert catalog.category_contract.contract_version == 1
+    assert set(catalog.exchange_rules.rules) == {"buy-product", "eat-food"}
 
 
-def test_missing_entry_files_load_empty(tmp_path: Path) -> None:
-    """@brief 只有清单的目录加载为空视图（构建器从零起步的形态）。"""
-    root = write_catalog(tmp_path / "catalog", [], [], [], rules={})
-    catalog = load_catalog(root)
-    assert len(catalog.resources) == 0
-    assert len(catalog.objects) == 0
-    assert len(catalog.formulas) == 0
-    assert catalog.version_minor == 0
+def test_load_object_declarations_retains_append_history(catalog_dir: Path) -> None:
+    """公开 raw loader 保留完整追加历史并验证版本。"""
+    second = raw_object()
+    second["version"] = 2
+    path = catalog_dir / "objects.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(second) + "\n")
+    history = load_object_declarations(path)
+    assert [item.version for item in history] == [1, 2]
 
 
-def test_malformed_json_line_rejected(tmp_path: Path) -> None:
-    """@brief JSONL 必须逐行可解析。"""
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [])
-    resource_file = root / "resources.jsonl"
-    resource_file.write_text(resource_file.read_text(encoding="utf-8") + "{not json\n", encoding="utf-8")
+def test_load_object_declarations_requires_existing_file(tmp_path: Path) -> None:
+    """公开 raw loader 不能把缺失文件解释为空目录。"""
     with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_MALFORMED_JSON"
+        load_object_declarations(tmp_path / "missing.jsonl")
+    assert excinfo.value.code == "CATALOG_OBJECTS_MISSING"
 
 
-def test_schema_invalid_line_rejected(tmp_path: Path) -> None:
-    """@brief 缺溯源的资源行过不了模型 Schema。"""
-    resources = default_resources()
-    del resources[1]["provenance"]
-    root = write_catalog(tmp_path / "catalog", resources, default_objects(), [])
+def test_non_monotonic_object_history_rejected(catalog_dir: Path) -> None:
+    """同身份追加版本未递增时拒绝。"""
+    path = catalog_dir / "objects.jsonl"
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(raw_object()) + "\n")
     with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_SCHEMA_INVALID"
-
-
-def test_version_must_be_strictly_monotonic(tmp_path: Path) -> None:
-    """@brief 同一 id 重复落盘同一 version 被拒绝。"""
-    resources = default_resources()
-    resources.append(dict(resources[1]))
-    root = write_catalog(tmp_path / "catalog", resources, default_objects(), [])
-    with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
+        load_object_declarations(path)
     assert excinfo.value.code == "CATALOG_VERSION_NOT_MONOTONIC"
 
 
-def test_last_line_wins(tmp_path: Path) -> None:
-    """@brief 追加式目录里同 id 的末行是当前版本。"""
-    resources = default_resources()
-    bumped = json.loads(json.dumps(resources[1]))
-    bumped["bounds"]["max"] = 2500
-    bumped["version"] = 2
-    resources.append(bumped)
-    root = write_catalog(tmp_path / "catalog", resources, default_objects(), [])
-    catalog = load_catalog(root)
-    assert catalog.resources["energy_kcal"].version == 2
-    assert catalog.resources["energy_kcal"].bounds is not None
-    assert catalog.resources["energy_kcal"].bounds.max == 2500
-
-
-def test_tombstone_conflict_rejected(tmp_path: Path) -> None:
-    """@brief 墓碑之后不允许出现更高 version 的活条目。"""
-    objects = default_objects()
-    bumped = json.loads(json.dumps(objects[1]))
-    bumped["version"] = 2
-    objects.append(bumped)
-    root = write_catalog(tmp_path / "catalog", default_resources(), objects, default_tombstones())
+def test_old_edges_raw_schema_rejected_after_identity_refresh(catalog_dir: Path) -> None:
+    """即使摘要合法，旧 raw edges 字段仍由对象 Schema 拒绝。"""
+    path = catalog_dir / "objects.jsonl"
+    payload = raw_object()
+    payload["edges"] = []
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
     with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_TOMBSTONE_CONFLICT"
+        load_catalog(catalog_dir)
+    assert excinfo.value.code == "CATALOG_SCHEMA_INVALID"
 
 
-def test_manifest_missing_rejected(tmp_path: Path) -> None:
-    """@brief 目录版本清单不可缺。"""
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [])
-    (root / "manifest.json").unlink()
+def test_manifest_missing_and_malformed_rejected(catalog_dir: Path) -> None:
+    """清单缺失或不是严格模型时拒绝加载。"""
+    path = catalog_dir / "manifest.json"
+    path.unlink()
+    with pytest.raises(CatalogError) as missing:
+        load_catalog(catalog_dir)
+    assert missing.value.code == "CATALOG_MANIFEST_MISSING"
+    path.write_text("{}", encoding="utf-8")
+    with pytest.raises(CatalogError) as malformed:
+        load_catalog(catalog_dir)
+    assert malformed.value.code == "CATALOG_MALFORMED_MANIFEST"
+
+
+def test_travel_time_bytes_are_captured_at_load(catalog_dir: Path) -> None:
+    """运行依赖的出行时间映射以加载时字节快照交给运行层。"""
+    path = catalog_dir / "rules/travel-time.toml"
+    path.parent.mkdir()
+    path.write_text("[formula.walking]\nfactor = 1\n", encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
+    catalog = load_catalog(catalog_dir)
+    snapshot = catalog.travel_time_rules_bytes
+    path.write_text("changed", encoding="utf-8")
+    assert snapshot == b"[formula.walking]\nfactor = 1\n"
+
+
+def test_any_rule_toml_changes_catalog_content_identity(catalog_dir: Path) -> None:
+    """运行读取的 rules 下任意 TOML 字节都属于目录内容身份。"""
+    path = catalog_dir / "rules/motivation.toml"
+    path.parent.mkdir()
+    path.write_text("[weights]\nneed = 1\n", encoding="utf-8")
+    first = refresh_manifest_identity(catalog_dir)
+    path.write_text("[weights]\nneed = 2\n", encoding="utf-8")
+    second = refresh_manifest_identity(catalog_dir)
+    assert first.catalog_content_sha256 != second.catalog_content_sha256
+
+
+def test_affordances_changes_catalog_content_identity(catalog_dir: Path) -> None:
+    """运行直接读取的根 affordances TOML 字节属于目录内容身份。"""
+    path = catalog_dir / "affordances.toml"
+    path.write_text("[affordance]\nversion = 1\n", encoding="utf-8")
+    first = refresh_manifest_identity(catalog_dir)
+    path.write_text("[affordance]\nversion = 2\n", encoding="utf-8")
+    second = refresh_manifest_identity(catalog_dir)
+    assert first.catalog_content_sha256 != second.catalog_content_sha256
+
+
+def _prepare_identity_dependencies(catalog_dir: Path) -> None:
+    """@brief 用真实时长规则和完整素材要求建立当前算法可加载的身份基线。"""
+    travel_path = catalog_dir / "rules/travel-time.toml"
+    travel_path.parent.mkdir(exist_ok=True)
+    travel_path.write_bytes(Path("catalog/rules/travel-time.toml").read_bytes())
+    manifest_path = catalog_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["category_requirements"] = json.loads(Path("catalog/manifest.json").read_text())["category_requirements"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
+
+
+def _tamper_identity_dependency(catalog_dir: Path, dependency: str) -> None:
+    """@brief 只改一种合法依赖内容，保留所有版本与旧清单摘要。"""
+    path = catalog_dir / dependency
+    if dependency == "objects.jsonl":
+        payload = json.loads(path.read_text())
+        payload["values"]["absolute"]["price_fen"] = 700
+    elif dependency == "resources.jsonl":
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        next(row for row in rows if row["resource_id"] == "energy_kcal")["bounds"]["max"] = 3000
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        return
+    elif dependency == "overrides/tombstones.jsonl":
+        path.parent.mkdir(exist_ok=True)
+        payload = {"target_id": "milk", "kind": "object", "at_version": 1, "reason": "retired"}
+    elif dependency == "rules/travel-time.toml":
+        content = path.read_text()
+        assert "walking = 1.0" in content
+        path.write_text(content.replace("walking = 1.0", "walking = 1.1", 1), encoding="utf-8")
+        return
+    else:
+        assert dependency == "manifest.json"
+        payload = json.loads(path.read_text())
+        payload["category_requirements"]["declared_at"] = "2099-01-01"
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("dependency", [
+    "objects.jsonl", "resources.jsonl", "overrides/tombstones.jsonl", "rules/travel-time.toml", "manifest.json",
+])
+def test_same_version_dependency_tamper_changes_digest_and_is_rejected_by_loader(
+    catalog_dir: Path, dependency: str,
+) -> None:
+    """每种结算依赖都进入完整摘要，同版本篡改只因内容身份不匹配而拒绝。"""
+    _prepare_identity_dependencies(catalog_dir)
+    original = load_catalog(catalog_dir)
+    before = compute_catalog_identity(catalog_dir)
+    manifest_before = json.loads((catalog_dir / "manifest.json").read_text())
+
+    _tamper_identity_dependency(catalog_dir, dependency)
+
+    after = compute_catalog_identity(catalog_dir)
+    manifest_after = json.loads((catalog_dir / "manifest.json").read_text())
+    assert after.catalog_content_sha256 != before.catalog_content_sha256
+    assert after.category_contract_version == before.category_contract_version
+    assert after.category_contract_sha256 == before.category_contract_sha256
+    assert after.exchange_rules_sha256 == before.exchange_rules_sha256
+    for field in ("version_major", "version_minor", "category_contract_version", "catalog_content_sha256"):
+        assert manifest_after[field] == manifest_before[field]
+    assert original.catalog_content_sha256 == before.catalog_content_sha256
     with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_MANIFEST_MISSING"
+        load_catalog(catalog_dir)
+    assert excinfo.value.code == "CATALOG_CONTENT_IDENTITY_MISMATCH"
+    assert excinfo.value.message == "catalog identity fields mismatch: ['catalog_content_sha256']"
 
 
-def test_malformed_manifest_rejected(tmp_path: Path) -> None:
-    """@brief 清单本身必须是合法版本对象。"""
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [])
-    (root / "manifest.json").write_text("not-json", encoding="utf-8")
+def test_unknown_rule_resource_rejected(catalog_dir: Path) -> None:
+    """规则引用未声明资源域时目录拒绝加载。"""
+    path = catalog_dir / "exchange-rules.json"
+    payload = json.loads(path.read_text())
+    payload["rules"][0]["resource_id"] = "unknown"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
     with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_MALFORMED_MANIFEST"
-
-
-def test_malformed_formula_toml_rejected(tmp_path: Path) -> None:
-    """@brief rules/ 下公式 TOML 语法坏掉时以稳定错误码失败。"""
-    rules = default_rules()
-    rules["fare.toml"] = "[formula.walking\namount_fen = "
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [], rules=rules)
-    with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_MALFORMED_TOML"
-
-
-def test_formula_branch_with_foreign_key_rejected(tmp_path: Path) -> None:
-    """@brief 公式分支表内只许 amount_fen 一个键。"""
-    rules = default_rules()
-    rules["fare.toml"] = '[formula.walking]\namount_fen = 0\nextra = 1\n'
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [], rules=rules)
-    with pytest.raises(CatalogError) as excinfo:
-        load_catalog(root)
-    assert excinfo.value.code == "CATALOG_MALFORMED_TOML"
-
-
-def test_mapping_rule_toml_skipped_not_parsed(tmp_path: Path) -> None:
-    """@brief 无 [formula] 表的映射规则文件不进公式表也不报错。"""
-    rules = default_rules()
-    rules["off-foods.mapping.toml"] = (
-        '[dataset]\nfamily = "open-food-facts"\n\n[energy_edge]\n'
-        'on = "consume"\ntype = "source"\nresource_id = "energy_kcal"\n'
-    )
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [], rules=rules)
-    catalog = load_catalog(root)
-    assert set(catalog.formulas) == {"fare"}
-
-
-def test_loaded_view_is_frozen(tmp_path: Path) -> None:
-    """@brief 加载视图的映射不可变更。"""
-    root = write_catalog(tmp_path / "catalog", default_resources(), default_objects(), [])
-    catalog = load_catalog(root)
-    with pytest.raises(TypeError):
-        catalog.resources["energy_kcal"] = None  # type: ignore[index]
-    with pytest.raises(TypeError):
-        catalog.objects["new"] = None  # type: ignore[index]
+        load_catalog(catalog_dir)
+    assert excinfo.value.code == "EXCHANGE_RESOURCE_UNKNOWN"

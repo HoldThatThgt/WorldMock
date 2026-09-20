@@ -1,7 +1,7 @@
 # 覆盖率门禁口径与基线
 
-> 状态：本文口径与 `scripts/coverage_gate.py` 实现逐项一致；最近一次门禁记录两项机器口径达标（整体分支覆盖率 99.01% ≥ 85.00，未覆盖公共接口 0），顶层判定为不通过——该次运行的测试套件退出码非 0
-> 日期：2026-09-18
+> 状态：最近一次完整门禁通过：3166 passed、0 skipped，整体分支覆盖率 96.67% ≥ 85.00，未覆盖公共接口 0。
+> 日期：2026-09-20
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
@@ -61,18 +61,22 @@ uv run coverage html            # HTML 明细
 
 ## 基线记录
 
-基线取自磁盘上的最近一次门禁产物 `docs/dev/coverage-report.json`（观察时间 2026-09-18T12:24:15+00:00，`source_identity` 为 `8991a1047764e279392967fa832ad48210558cdc`）：
+基线取自 `docs/dev/coverage-report.json`，生成于 2026-09-20T10:04:47+00:00，
+被测源代码提交为 `35c1dfa9789010ff2845435900871cda616ded52`。
 
 | 指标 | 数值 |
 | --- | --- |
-| 整体分支覆盖率 | 99.01%（covered=5580，missing=56，total=5636；阈值 85.00） |
+| 全量 pytest | 3166 passed、0 failed、0 skipped |
+| 整体分支覆盖率 | 96.67%（covered=6193，missing=213，total=6406；阈值 85.00） |
 | 未覆盖公共接口数 | 0 |
-| 两项机器口径 | 分支覆盖率达标、接口覆盖率达标 |
-| 顶层判定 `passed` | false（未通过） |
+| 顶层判定 `passed` | true（通过） |
 
-顶层判定为 false 的成因是合取判定：该次运行的测试套件退出码非 0，两项机器口径本身均达标（报告内 `branch_coverage.passed` 为 true、`uncovered_public_interfaces` 为空）。测试套件是否全绿取决于 `tests/` 全量结果，不在本文的判定口径内。
-
-更早记录的一次基线为整体分支覆盖率 99.03%（covered=5526，missing=54，total=5580）、未覆盖公共接口 0、全量 pytest 2525 passed / 0 failed、门禁判定 PASSED。该组数字未出现在本文核对所依据的任何门禁产物中，故基线以上表为准。
+历史资金锚定测试读取本机已有运行的只读数据库，未创建替代数据或跳过测试。
+该工程门禁验证离线测试，不代表正式十二周模型运行或真实交付整体验收。
+本次执行的完整命令与原始输出归档在 `docs/dev/evidence/category-contract/main-merge.json.gz`。
+为保持并发 Bob 调用方干净，门禁只临时改变报告输出路径；报告原字节归位，判定逻辑没有改变。
+品类契约原分支逐项证据记录在 `docs/dev/category-contract-verification.md`；
+主分支合并与模型库存补修的当前结果见 `docs/dev/category-contract-main-verification.md`。
 
 ## 版本表
 
@@ -81,3 +85,5 @@ uv run coverage html            # HTML 明细
 | `2026-09-18` | 2026-09-18 | 覆盖率门禁口径与基线记录：两项机器口径、一项映射义务；失败关闭约定；测量范围与排除。 |
 | `2026-09-18-revision-1` | 2026-09-18 | 行文与结构改造：状态头改为 LabelKit 形态；章节标题改为概念命名；口径与阈值逐项对照 `scripts/coverage_gate.py` 与 `pyproject.toml` 重写；基线改以 `docs/dev/coverage-report.json` 实产物为准并标注观察时间。 |
 | `2026-09-18-revision-2` | 2026-09-18 | 失败关闭约定按 `scripts/coverage_gate.py` 的 `parse_production_source` 原文纠正：语法错误抛出的 `RuntimeError` 只携带文件名与行号。 |
+| `2026-09-20` | 2026-09-20 | 更新为品类契约固定提交上的完整通过基线；保留离线门禁与真实实验的证据边界。 |
+| `2026-09-20-main-merge` | 2026-09-20 | 更新为合并决策上下文并补修模型库存路径后的完整门禁，保留原分支历史快照。 |

@@ -113,6 +113,8 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product": 1.0},
+        "inventory_items": [{"product_id": "product", "name": "现有食品", "use_modes": ["eat"],
+                             "use_duration_seconds": 300, "required_location_id": None}],
         "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},

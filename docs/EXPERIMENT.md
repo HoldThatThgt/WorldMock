@@ -190,10 +190,10 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md`「LabelK
 - 工作机会每个工作日发放一次，单个机会的上限是八小时。
 - 补充场景的覆盖面要求：计时与计件两种合同类型、不同技能、内容独立验收，以及无资金、延期与返工三种边界。
 
-交通报价（driving）：
-
-- 公式：`max(500, ceil(distance_meters * 0.2))` 分；walking 为 0 分。
-- 来源标记：`fare_source_kind=scenario`。
+场景冻结路线实例的 `fare_fen` 与 `fare_source_kind=scenario`，准入要求金额与
+`catalog/exchange-rules.json` 的 `travel_fare` 闭集算子求值一致。
+当前 driving 最低 500 分、每米 0.2 分；walking 费率为零。数值来源、系数与取整规则统一归
+[品类契约规格](dev/SPEC-category-contract.md)和[接口合同](CONTRACTS.md#品类契约与目录字段)。
 
 ### 工作参数
 
@@ -236,7 +236,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md`「LabelK
 | 游戏 | TextWorld 1.7.0，固定 30 个种子 1201–1230 |
 | 工作 | AMI ES2002a–d 连续会议材料 |
 | 邮件 | 48 个冻结场景线程，明确标为场景创作 |
-| 商品 | 食品事实来自来源目录；报价、库存、耐用品效果和使用条件为有版本的场景规则 |
+| 商品 | 食品事实与来源、基础报价、共享库存参数、效果和使用条件归冻结目录与品类契约；账户、商户地点与显式库存覆盖归场景实例 |
 | 地图与路线 | 准备阶段调用 OSRM 获取冻结地点、方式之间的真实道路路线响应；正式运行只读冻结路线 |
 | 交通与天气 | 静态道路条件和明确标为场景假设的天气、准备、排队参数 |
 

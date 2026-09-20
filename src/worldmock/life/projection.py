@@ -349,7 +349,8 @@ def _task_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 def _inventory_names(agent: AgentState, scenario: RuntimeScenario) -> list[str]:
     """@brief 手边持有物展示名（scene 合同）：目录名称，缺名时回退标识。"""
-    names = {item.product_id: item.name for item in scenario.products}
+    names = {item.product_id: item.name
+             for item in (*scenario.products, *scenario.inventory_items)}
     holding_ids = {product_id for holding in agent.inventory.values()
                    for product_id, quantity in holding.items() if quantity > 0}
     return sorted({names.get(product_id, product_id) for product_id in holding_ids})

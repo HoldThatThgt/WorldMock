@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
     deliver.add_argument("--replay-export", type=Path, action="append", default=[])
     _profile_arguments(commands)
     _evaluation_arguments(commands)
+    from worldmock.categories.cli import add_category_arguments
+    add_category_arguments(commands)
     return parser
 
 
@@ -123,6 +125,9 @@ def _dispatch(arguments) -> dict:
         return prepare_corpora(arguments.output).model_dump(mode="json")
     if command == "profile":
         return _profile_command(arguments)
+    if command == "category":
+        from worldmock.categories.cli import run_category_command
+        return run_category_command(arguments)
     return _evaluate_command(arguments)
 
 

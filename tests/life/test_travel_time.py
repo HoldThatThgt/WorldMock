@@ -52,12 +52,11 @@ def semantics():
 
 def test_factor_lookup_matches_the_snapshot_table_for_every_hour(semantics, table) -> None:
     """driving 全 24 小时与快照系数表逐点一致；walking 恒为 1.0。"""
-    formula = semantics.catalog.formulas["travel-time"]
-    assert formula.unit == "factor"
+    factors = semantics.travel_time_profile.factors
     for hour in range(24):
         expected = float(table["hours"][f"{hour:02d}"])
         assert semantics.travel_time_factor("driving", _epoch(hour)) == expected
-        assert float(formula.branches[f"driving_{hour:02d}"].amount) == expected
+        assert factors[f"driving_{hour:02d}"] == expected
         assert semantics.travel_time_factor("walking", _epoch(hour)) == 1.0
 
 
@@ -183,20 +182,20 @@ def test_calibrate_rerun_is_byte_identical() -> None:
 
 def test_rule_branches_agree_with_the_snapshot_table(table) -> None:
     """规则文件 24+1 分支与系数表 JSON 数值一致（规则与快照不脱钩）。"""
-    formula = load_catalog(CATALOG).formulas["travel-time"]
-    assert set(formula.branches) == {"walking"} | {f"driving_{hour:02d}" for hour in range(24)}
-    assert float(formula.branches["walking"].amount) == 1.0
+    document, _ = parse_scenario_document(SCENARIO)
+    factors = assemble_semantics(document, load_catalog(CATALOG)).travel_time_profile.factors
+    assert set(factors) == {"walking"} | {f"driving_{hour:02d}" for hour in range(24)}
+    assert factors["walking"] == 1.0
     for hour in range(24):
-        assert float(formula.branches[f"driving_{hour:02d}"].amount) == \
-            float(table["hours"][f"{hour:02d}"])
+        assert factors[f"driving_{hour:02d}"] == float(table["hours"][f"{hour:02d}"])
 
 
-def test_admission_rejects_a_catalog_without_the_travel_time_formula(tmp_path) -> None:
-    """存在性准入：目录缺少 travel-time 公式时组装直接拒绝（fail-closed）。"""
+def test_admission_rejects_a_catalog_without_the_travel_time_profile(tmp_path) -> None:
+    """存在性准入：目录缺少 travel-time 数值表时组装直接拒绝。"""
     from worldmock.errors import IntegrityError
 
     copied = tmp_path / "catalog"
     shutil.copytree(CATALOG, copied)
     (copied / "rules/travel-time.toml").unlink()
-    with pytest.raises(IntegrityError, match="travel-time"):
+    with pytest.raises(IntegrityError, match="Catalog load failed"):
         load_runtime_scenario(SCENARIO, copied)

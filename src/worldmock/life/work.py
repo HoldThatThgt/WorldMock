@@ -7,12 +7,15 @@ import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, SubmitWorkRequest, WorldState
-from worldmock.life.scenario import ContractKind, LifeScenario, WorkTaskConfig
+from worldmock.life.scenario import RuntimeScenario, WorkTaskConfig
 from worldmock.life.settlement import settle_money_transfer
+
+if TYPE_CHECKING:
+    from worldmock.life.semantics import ScenarioSemantics
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,18 +103,20 @@ def reveal_work_progress(state: WorldState, root: Path, task: WorkTaskConfig,
     return {**material, "start_char": start, "text": source[start:end]}
 
 
-def prepare_work_submission(state: WorldState, scenario: LifeScenario, corpus_root: Path,
+def prepare_work_submission(state: WorldState, semantics: "ScenarioSemantics", corpus_root: Path,
                             agent_id: int, request: SubmitWorkRequest) -> WorkSubmission:
     """@brief 校验提交时序、进度、公开身份和付款能力，供一次语义验收。"""
-    task = _task(scenario, request.task_id)
+    task = _task(semantics.scenario, request.task_id)
     agent = state.agents[agent_id]
     _validate_submission_contract(state, agent, task)
     worked, effective = work_totals(state, agent_id, task.task_id)
     if effective < task.required_effective_seconds:
         raise BusinessRuleError("WORK_INCOMPLETE")
+    semantics.contract_match(task)
     source = load_work_input(corpus_root, task)
     oracle = load_work_oracle(corpus_root, task)
-    payment = _payment(task, worked, oracle)
+    pieces = oracle.get("piece_count")
+    payment = semantics.contract_payment(task, worked, pieces)
     if state.accounts[task.employer_account_id] < payment:
         raise BusinessRuleError("EMPLOYER_FUNDS_INSUFFICIENT")
     return WorkSubmission(task, agent, request, WorkMetrics(payment, effective, worked), oracle, source)
@@ -151,7 +156,7 @@ def _validate_submission_contract(
         raise BusinessRuleError("WORK_SUBMISSION_LATE")
 
 
-def _task(scenario: LifeScenario, task_id: str) -> WorkTaskConfig:
+def _task(scenario: RuntimeScenario, task_id: str) -> WorkTaskConfig:
     """@brief 从封闭任务目录取得唯一合同。"""
     matches = [item for item in scenario.tasks if item.task_id == task_id]
     if len(matches) != 1:
@@ -210,18 +215,6 @@ def _load_ami_reference_summary(content: bytes) -> list[str]:
     if not sentences or any(not sentence for sentence in sentences):
         raise IntegrityError("Work reference abstract is missing")
     return sentences
-
-
-def _payment(task: WorkTaskConfig, worked: int, oracle: dict) -> int:
-    """@brief 根据合同类型计算整数分付款。"""
-    if task.contract_kind == ContractKind.PACKAGE:
-        return task.pay_fen
-    if task.contract_kind == ContractKind.HOURLY:
-        return min(task.pay_fen * worked // 3600, task.pay_fen * task.maximum_duration_seconds // 3600)
-    pieces = oracle.get("piece_count")
-    if not isinstance(pieces, int) or pieces <= 0:
-        raise IntegrityError("Piece contract oracle has no positive piece count")
-    return task.pay_fen * pieces
 
 
 def _pay(

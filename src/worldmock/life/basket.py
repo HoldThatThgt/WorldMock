@@ -30,7 +30,7 @@ from worldmock.life.models import (
     ScheduledEvent,
     WorldState,
 )
-from worldmock.life.scenario import BodyConfig, ProductConfig, RuntimeScenario
+from worldmock.life.scenario import BodyConfig, InventoryItemConfig, ProductConfig, RuntimeScenario
 from worldmock.life.settlement import settle_money_transfer
 from worldmock.scheduling.events import ScheduledKind
 
@@ -174,7 +174,7 @@ def held_quantity(agent: AgentState, product_id: str) -> float:
     return commerce_held(agent, product_id)
 
 
-def meal_duration(products: dict[str, ProductConfig], request: ConsumeRequest) -> int:
+def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> int:
     """@brief 多件进食时长取最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md「商务与进食」）。"""
     durations = []
     for item in request.items:
@@ -189,9 +189,9 @@ def meal_duration(products: dict[str, ProductConfig], request: ConsumeRequest) -
     return max(durations)
 
 
-def validate_meal(agent: AgentState, products: dict[str, ProductConfig],
-                  request: ConsumeRequest) -> None:
-    """@brief 校验一次进食/使用：持有量、使用方式、食品多件与非食品单件。"""
+def validate_meal_use(agent: AgentState, products: dict[str, InventoryItemConfig],
+                      request: ConsumeRequest) -> None:
+    """@brief 校验配方与普通使用共享的件数、使用方式和地点条件。"""
     if not 1 <= len(request.items) <= 3:
         raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件
     if request.use_mode == "use" and len(request.items) != 1:
@@ -202,13 +202,18 @@ def validate_meal(agent: AgentState, products: dict[str, ProductConfig],
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
         if request.use_mode not in product.use_modes:
             raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
-        if held_quantity(agent, product.product_id) + 1e-9 < item.quantity:
-            raise BusinessRuleError("PRODUCT_NOT_HELD")
         if product.required_location_id and agent.location_id != product.required_location_id:
             raise BusinessRuleError("PRODUCT_USE_LOCATION_REQUIRED")
 
 
-def meal_food_rate(products: dict[str, ProductConfig], request: ConsumeRequest) -> float:
+def validate_meal_inventory(agent: AgentState, request: ConsumeRequest) -> None:
+    """@brief 普通使用按请求份数核对库存，配方数量由配方计划核对。"""
+    for item in request.items:
+        if held_quantity(agent, item.product_id) + 1e-9 < item.quantity:
+            raise BusinessRuleError("PRODUCT_NOT_HELD")
+
+
+def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> float:
     """@brief 进食活动按目录热量合计形成的每小时净可用热量（进度结算输入）。"""
     if request.use_mode != "eat":
         return 0.0
@@ -217,7 +222,7 @@ def meal_food_rate(products: dict[str, ProductConfig], request: ConsumeRequest) 
     return total * 3600 / request.duration_seconds
 
 
-def apply_meal_progress(agent: AgentState, products: dict[str, ProductConfig],
+def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConfig],
                         activity: ActivityState, config: BodyConfig) -> AgentState:
     """@brief 按实际进食进度逐件扣份量、累加热量与效果（镜像 commerce 口径）。"""
     request = ConsumeRequest.model_validate(activity.data["request"])
@@ -239,7 +244,7 @@ def apply_meal_progress(agent: AgentState, products: dict[str, ProductConfig],
     return agent
 
 
-def _apply_item_delta(agent: AgentState, product: ProductConfig, quantity: float,
+def _apply_item_delta(agent: AgentState, product: InventoryItemConfig, quantity: float,
                       config: BodyConfig) -> AgentState:
     """@brief 原子投影单件商品份量、效果和食品热量（效果与热量累加）。"""
     inventory = (change_inventory(agent, product.product_id, -quantity)

@@ -64,23 +64,21 @@ def test_meals_registered_in_corpus_manifest_with_fndds_license():
 
 
 def test_meals_energy_matches_catalog_objects():
-    objects = {}
-    for line in (ROOT / "catalog/objects.jsonl").read_text(encoding="utf-8").splitlines():
-        entry = json.loads(line)
-        if entry["object_id"].startswith("meal-"):
-            objects[entry["object_id"]] = entry
+    from worldmock.catalog import load_catalog
+
+    catalog = load_catalog(ROOT / "catalog")
+    objects = {identity: obj for identity, obj in catalog.objects.items() if identity.startswith("meal-")}
     meals = _load("meals/items.json")["items"]
     assert len(objects) == 30
     for meal in meals:
         obj = objects[meal["meal_id"]]
-        consume = next(edge for edge in obj["edges"] if edge["on"] == "consume")
-        assert consume["amount"] == meal["energy_kcal_per_serving"]
-        assert consume["duration_s"] == meal["meal_duration_minutes"] * 60
-        purchase = next(edge for edge in obj["edges"] if edge["on"] == "purchase")
-        assert purchase["amount_fen"] == meal["price_fen"]
-        fact_part = next(p for p in obj["provenance"] if p["part"] == "consume energy edge")
-        assert fact_part["type"] == "fact"
-        assert str(meal["energy_source"]["fdc_id"]) in fact_part["source"]
+        consume = next(edge for edge in obj.edges if edge.on == "consume")
+        assert consume.amount == meal["energy_kcal_per_serving"]
+        assert consume.duration_s == meal["meal_duration_minutes"] * 60
+        purchase = next(edge for edge in obj.edges if edge.on == "purchase")
+        assert purchase.amount_fen == meal["price_fen"]
+        facts = [source for source in obj.provenance if source.type == "fact"]
+        assert any(str(meal["energy_source"]["fdc_id"]) in source.source for source in facts)
 
 
 # ---------------------------------------------------------------------------

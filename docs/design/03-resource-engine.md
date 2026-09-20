@@ -9,7 +9,8 @@
 它接收明确的版本、查询条件和内容范围，返回定义、条目、内容片段及来源。
 
 接口字段引用[接口合同](../CONTRACTS.md)，行为引用
-[运行时规格](../dev/SPEC-life-runtime.md)与[生活真实性规格](../dev/SPEC-life-realism.md)。
+[运行时规格](../dev/SPEC-life-runtime.md)、[生活真实性规格](../dev/SPEC-life-realism.md)与
+[品类契约规格](../dev/SPEC-category-contract.md)。
 本文只定义资源数据的准备、发布、校验、查询和读取职责。
 
 ## 1. 职责与边界
@@ -180,8 +181,9 @@ flowchart LR
 
 ### 交换对象与内容条目
 
-商品、服务和合同由 [ExchangeObject](../../src/worldmock/catalog/models.py) 声明身份、类型、
-版本和来源，并引用其资源变化规则。交换条件与投入产出见[交换引擎](02-exchange-engine.md)。
+商品、服务和合同由 [ObjectDeclaration](../../src/worldmock/catalog/models.py) 声明身份、品类、
+属性、版本和来源；`ExchangeObject` 是合并品类属性与交换规则后的编译运行视图。
+交换条件与投入产出见[交换引擎](02-exchange-engine.md)。
 资源引擎负责这些条目的加载、属性查询与来源追踪。交换条件和资源变化声明作为关联规则提供，
 其计算语义由交换引擎维护。
 
@@ -219,15 +221,17 @@ flowchart LR
 
 | 文件或目录 | 保存内容 | 维护入口 |
 | --- | --- | --- |
-| [catalog/manifest.json](../../catalog/manifest.json) | `version_major`、`version_minor` 与 `category_requirements` | 目录生成器 |
+| [catalog/manifest.json](../../catalog/manifest.json) | 主次版本、`category_requirements`、契约版本及契约、规则、目录内容摘要 | 目录生成器与受验证的发布入口 |
 | [catalog/resources.jsonl](../../catalog/resources.jsonl) | 可计量资源定义 | 目录生成器 |
-| [catalog/objects.jsonl](../../catalog/objects.jsonl) | 商品、服务和合同定义 | 目录生成器；交换条件与投入产出规则见交换引擎 |
+| [catalog/objects.jsonl](../../catalog/objects.jsonl) | 身份、品类、属性增量、来源与对象版本；不含内联交换规则 | 目录生成器与构建原语 |
+| [catalog/category-contract.json](../../catalog/category-contract.json) | 品类树、槽位、共享值与配对状态 | 品类维护与审核发布 |
+| [catalog/exchange-rules.json](../../catalog/exchange-rules.json) | 引用品类的闭集交换规则 | 交换引擎维护与审核发布 |
 | [catalog/rules/off-foods.mapping.toml](../../catalog/rules/off-foods.mapping.toml) | 食品来源字段映射 | 人工维护 |
 | [corpora/manifest.json](../../corpora/manifest.json) 与 [corpora](../../corpora) | 文件身份、元数据、正文、时间轴及来源证据 | 离线整理与固化 |
 | [catalog/overrides/tombstones.jsonl](../../catalog/overrides/tombstones.jsonl) | 目录条目的退役记录 | 当前生成器输出空文件；构建原语支持追加 |
 
 `catalog/manifest.json` 不保存语料文件清单，也没有通用 `defaults` 对象。
-`corpora/manifest.json` 不负责定义资源单位、活动规则或交换公式。
+`corpora/manifest.json` 不负责定义资源单位、活动规则或闭集交换规则。
 资源引擎按调用方指定的两份清单加载数据，不混用版本字段。
 内容加载所需的来源映射目前也存放在 [affordances.toml](../../catalog/affordances.toml) 中；
 资源引擎只消费相关映射，活动和工具声明的设计仍由交换引擎承载。
@@ -241,25 +245,26 @@ flowchart LR
 .venv/bin/python scripts/build_catalog.py --check
 ```
 
-该检查只证明生成结果与在库目录逐字节相同，不证明场景行为、素材质量或全部运行结果正确。
-生成器、[目录构建原语](../../src/worldmock/catalog/builder.py)和
-[目录检视函数](../../src/worldmock/catalog/inspect.py)目前是独立入口，不能把提案中的目录管理命令
-当作已实现的 CLI。
+该检查验证资源和对象数目、静态数值来源覆盖，以及生成结果与在库目录逐字节相同；
+不证明场景行为、素材质量或全部运行结果正确。
+生成器负责正式数据再现，[目录构建原语](../../src/worldmock/catalog/builder.py)负责对象追加与退役；
+`worldmock category check/refine/publish` 提供品类检查、细化影响分析和新目录原子发布。
+命令输入和输出见[接口合同](../CONTRACTS.md#cli-命令接口)。
 
 调用方以 `catalog_version.major/minor` 指定目录；条目使用自己的整数 `version`。
 加载器拒绝同一标识的非递增条目版本，也拒绝新引用使用已退役条目。
-已加载的目录视图保持固定。发布物应提供可核验的版本与内容身份，供调用方核对；
-当前版本标签与内容身份的差距见下文“目录发布的实现与验收”。
+已加载的目录视图保持固定。发布物同时绑定版本与内容摘要，加载和运行恢复会核对文件内容；
+同版本异内容明确拒绝。
 条目退役保留历史定义可查询性。
 
 ### 目录发布的实现与验收
 
 | 事项 | 当前承载与要求 |
 | --- | --- |
-| 生成与检视 | [build_catalog.py](../../scripts/build_catalog.py)、[catalog/builder.py](../../src/worldmock/catalog/builder.py)与 [catalog/inspect.py](../../src/worldmock/catalog/inspect.py)分别承载生成、构建原语和检视；尚无完整目录管理 CLI 或可视化编辑器 |
-| 增量发布差距 | `builder._bump_minor()` 当前重写清单时只保留版本号，丢失 `category_requirements` 后会触发品类准入拒绝，尚不能完成可用的完整发布流程 |
-| 内容身份差距 | 当前目录清单声明主次版本，但缺少目录内容摘要；版本标签本身无法让消费者核验同版本文件是否被原地修改 |
-| 验收 | 生成器检查证明在库目录与输入逐字节一致；发布还需验证版本引用、品类要求保留和内容身份可核验 |
+| 生成与检视 | 生成器、构建原语、检视函数与 `worldmock category` 命令分别承载确定性生成、对象维护和品类发布 |
+| 增量发布 | 构建原语保留世界素材品类要求与所有清单字段，失败恢复原文件；品类发布在独立暂存目录校验并原子公开新路径 |
+| 内容身份 | 绑定资源、对象、契约、交换规则、活动声明与规则文件，身份贯通运行清单、检查点和导出 |
+| 验收 | [专项台账](../dev/category-contract-verification.md)记录再生成、版本保留、身份篡改、发布失败与真实场景准入测试 |
 
 目录身份与实际素材位置分离的组织方式参考
 [Unity 运行时资源管理](https://docs.unity.com/en-us/engine/6000.7/manual/assets-and-media/assets-managing-runtime/introduction)。

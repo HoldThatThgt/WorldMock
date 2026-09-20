@@ -125,7 +125,8 @@ def _agent(energy=1600.0, sleep_debt=4.0, need=0.5, location="home",
 def _food(product_id="food-1", price=800, kcal=600, location="market",
           duration=900, stock=10) -> ProductConfig:
     return ProductConfig.model_validate({
-        "product_id": product_id, "name": "Test meal", "merchant_account_id": "merchant:g",
+        "product_id": product_id, "name": "Test meal", "category_id": "food",
+        "merchant_account_id": "merchant:g",
         "merchant_location_id": location, "price_fen": price, "price_version": "v1",
         "initial_stock": stock, "serving_quantity": 1.0, "serving_unit": "serving",
         "energy_kcal_per_unit": kcal, "use_duration_seconds": duration,

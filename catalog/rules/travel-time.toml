@@ -1,91 +1,39 @@
-# 出行时长系数公式声明（引擎 start_travel 按出发时刻查表；travel-fare 同款结构）。
-# v1：工作日 24 小时分时系数 factor = 拥堵出行时长 / 冻结自由流时长（高德拥堵延时指数口径，≥1）。
-# walking 不受系数影响（自由流步行已合理，恒 1.0）；driving_HH 分支按场景时区出发小时查表。
-# 数值溯源：anchored——高德《中国主要城市交通分析报告》公开数字人工取点 + 线性插值，
-# 锚点与方法见 catalog/snapshots/traffic/（scripts/calibrate_traffic.py 可重跑，字节一致由测试断言）。
+# 出行时长闭集数值表。LifeEngine 只接受 walking 与 driving_00..driving_23，
+# 不解析表达式、输入路径或动态公式。
 
 version = 1
 
-[formula.walking]
-factor = "1.0"
+[factors]
+walking = 1.0
+driving_00 = 1.05
+driving_01 = 1.03
+driving_02 = 1.00
+driving_03 = 1.00
+driving_04 = 1.00
+driving_05 = 1.00
+driving_06 = 1.12
+driving_07 = 1.45
+driving_08 = 1.85
+driving_09 = 1.55
+driving_10 = 1.45
+driving_11 = 1.35
+driving_12 = 1.25
+driving_13 = 1.22
+driving_14 = 1.18
+driving_15 = 1.28
+driving_16 = 1.38
+driving_17 = 1.64
+driving_18 = 1.90
+driving_19 = 1.62
+driving_20 = 1.41
+driving_21 = 1.20
+driving_22 = 1.14
+driving_23 = 1.07
 
-[formula.driving_00]
-factor = "1.05"
-
-[formula.driving_01]
-factor = "1.03"
-
-[formula.driving_02]
-factor = "1.00"
-
-[formula.driving_03]
-factor = "1.00"
-
-[formula.driving_04]
-factor = "1.00"
-
-[formula.driving_05]
-factor = "1.00"
-
-[formula.driving_06]
-factor = "1.12"
-
-[formula.driving_07]
-factor = "1.45"
-
-[formula.driving_08]
-factor = "1.85"
-
-[formula.driving_09]
-factor = "1.55"
-
-[formula.driving_10]
-factor = "1.45"
-
-[formula.driving_11]
-factor = "1.35"
-
-[formula.driving_12]
-factor = "1.25"
-
-[formula.driving_13]
-factor = "1.22"
-
-[formula.driving_14]
-factor = "1.18"
-
-[formula.driving_15]
-factor = "1.28"
-
-[formula.driving_16]
-factor = "1.38"
-
-[formula.driving_17]
-factor = "1.64"
-
-[formula.driving_18]
-factor = "1.90"
-
-[formula.driving_19]
-factor = "1.62"
-
-[formula.driving_20]
-factor = "1.41"
-
-[formula.driving_21]
-factor = "1.20"
-
-[formula.driving_22]
-factor = "1.14"
-
-[formula.driving_23]
-factor = "1.07"
-
-[params]
-base_seconds = "route.duration_seconds"
-departure_second = "world.current_time"
-hour = "wallclock_hour(departure_second, scenario.timezone)"
-factor = "lookup(formula, mode + hour)"
-
-[provenance]
-factor = { type = "anchored", source = "Amap China major city traffic analysis report series (public quarterly reports); manual anchor points from Shanghai peak delay index range plus free-flow night baseline", artifact = "catalog/snapshots/traffic/amap-report-excerpt.md", method = "scripts/calibrate_traffic.py (linear interpolation, ROUND_HALF_UP 2dp)", paths = ["formula"] }
+[provenance.factors]
+type = "anchored"
+producer = "data_source"
+source = "Amap China major city traffic analysis report series; Shanghai peak delay anchors"
+artifact = "catalog/snapshots/traffic/amap-report-excerpt.md"
+method = "scripts/calibrate_traffic.py linear interpolation with ROUND_HALF_UP to two decimals"
+paths = ["/factors"]

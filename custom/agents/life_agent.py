@@ -23,6 +23,7 @@ from agentsociety2.agent.base import (
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
+from custom.agents.life_inventory import bind_consume_schema, visible_inventory_contract
 from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.narration import (
     DecisionStatementValidationError,
@@ -1311,7 +1312,7 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     """@brief 冻结瞬时动作工具所需的公开身份配对（含修订合同四件新工具）。"""
     products = _visible_products(data)
     locations = _visible_location_ids(data)
-    available = _visible_available_inventory(data, products)
+    available = visible_inventory_contract(data)
     location_id = data.get("location_id")
     if not isinstance(location_id, str) or not location_id:
         raise RuntimeError("LifeAgent current location is invalid")
@@ -1493,34 +1494,6 @@ def _visible_location_ids(data: dict[str, Any]) -> tuple[str, ...]:
     if not isinstance(locations, list):
         raise RuntimeError("LifeAgent locations catalog must be a list")
     return _catalog_identity_values(locations, "locations", "location_id")
-
-
-def _visible_available_inventory(
-    data: dict[str, Any],
-    products: dict[str, dict[str, Any]],
-) -> dict[str, dict[str, Any]]:
-    """@brief 仅保留人物当前位置数量为正且地点要求满足的商品（含持有量）。"""
-    inventory = data.get("available_inventory")
-    location_id = data.get("location_id")
-    if not isinstance(inventory, dict) or not isinstance(location_id, str):
-        raise RuntimeError("LifeAgent available inventory or location is invalid")
-    result = {}
-    for product_id, quantity in inventory.items():
-        if not isinstance(product_id, str) or isinstance(quantity, bool) or not isinstance(quantity, (int, float)):
-            raise RuntimeError("LifeAgent available inventory entry is invalid")
-        if quantity <= 0:
-            continue
-        product = products.get(product_id)
-        if product is None:
-            raise RuntimeError("LifeAgent held product contract is unavailable")
-        if product["required_location_id"] not in {None, location_id}:
-            continue
-        if product["duration_seconds"] < 60:
-            continue
-        result[product_id] = {"use_modes": product["use_modes"],
-                              "duration_seconds": product["duration_seconds"],
-                              "held_quantity": quantity}
-    return result
 
 
 def _visible_submittable_tasks(data: dict[str, Any]) -> tuple[str, ...]:
@@ -1794,13 +1767,7 @@ def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[
         if not any(item["pickup_allowed"] for item in products.values()):
             properties["fulfillment"]["enum"] = ["delivery"]
     if "consume" in functions:
-        products = contracts["consume"]
-        properties = functions["consume"]["parameters"]["properties"]
-        properties["items"]["items"]["properties"]["product_id"]["enum"] = sorted(products)
-        properties["use_mode"]["enum"] = sorted({mode for item in products.values()
-                                                 for mode in item["use_modes"]})
-        properties["duration_seconds"]["enum"] = sorted(
-            {item["duration_seconds"] for item in products.values()})
+        bind_consume_schema(functions["consume"], contracts["consume"])
     if "submit_work" in functions:
         properties = functions["submit_work"]["parameters"]["properties"]
         properties["task_id"]["enum"] = list(contracts["submit_work"])
@@ -1907,7 +1874,7 @@ def _validate_purchase_order(request: BaseModel, catalog: dict[str, dict[str, An
 
 
 def _validate_meal_request(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
-    """@brief 本地核对多件进食：件数、持有量、使用方式与时长口径。"""
+    """@brief 本地核对件数、身份、使用方式与时长；实际数量按环境配方结算。"""
     if not _MEAL_ITEM_BOUNDS[0] <= len(request.items) <= _MEAL_ITEM_BOUNDS[1]:
         return "consume requires one to three items"
     if request.use_mode == "use" and len(request.items) != 1:
@@ -1915,8 +1882,7 @@ def _validate_meal_request(request: BaseModel, catalog: dict[str, dict[str, Any]
     durations = []
     for item in request.items:
         product = catalog.get(item.product_id)
-        if (product is None or request.use_mode not in product["use_modes"]
-                or item.quantity > product["held_quantity"]):
+        if product is None or request.use_mode not in product["use_modes"]:
             return "consume request is not valid for current local inventory"
         durations.append(product["duration_seconds"])
     expected = max(durations) if request.use_mode == "eat" else durations[0]

@@ -1,39 +1,17 @@
-"""Build catalog data files (resources/objects JSONL + manifest + empty tombstones).
+"""@brief 从冻结来源生成资源、原生对象、目录清单与空墓碑。
 
-Self-contained regeneration: the generator consumes the frozen legacy-scenario
-snapshot scripts/catalog-snapshot-legacy-scenario.json (semantic fields of
-scenarios/white-collar-12-weeks.json as of git cd2586b, kept verbatim when the
-scenarios were slimmed to schema 2) plus corpora/open-food-facts/{products,
-china-100,china-pool}.json, the food-catalog expansion whitelists
-corpora/foods/expansion.json (25 barcodes derived from china-100.json) and
-corpora/foods/expansion2.json (>=70 barcodes derived from the larger
-china-pool.json raw pool; same off-foods mapping fallback; per-category
-credible kcal density windows enforced at generation time; prices anchored to
-frozen baseline foods +/-30% with fixed seeds per wave) and
-corpora/manifest.json, plus corpora/meals/items.json (30 contract meals with
-USDA FNDDS calorie provenance), then emits the static catalog per
-docs/design/03-resource-engine.md (「可计量资源定义」「来源分类」「构建与版本」)
-and docs/design/02-exchange-engine.md (「交换对象与资源变化声明」): catalog/resources.jsonl,
-catalog/objects.jsonl (121 foods + 30 meals + 8 durables + travel + contracts),
-catalog/manifest.json (2.0, carrying the versioned world-material
-category_requirements declaration) and an empty
-catalog/overrides/tombstones.jsonl.
+@file build_catalog.py
+@note 输入为已冻结的场景快照、食品白名单、原始食品记录及语料；不读取 scenarios/。
+      正式输出为 5 个资源、163 个对象（121 食品、30 正餐、8 耐用品、1 服务、3 合同）
+      与绑定品类契约、闭集交换规则和世界素材品类要求的 3.0 目录清单。
+      数值来源必须逐项覆盖；生成器不执行任意文本公式。
 
-It no longer reads scenarios/ — scenario ↔ catalog equivalence is owned by
-scripts/migrate_scenarios.py parity assertions. The --check gate therefore
-proves "catalog matches the generator" (snapshot + rules + corpora), not
-"catalog matches the scenarios".
+品类契约、交换规则、数值出行时长、其他规则与可供性声明由审核后的维护流程管理。
+生成器不覆写这些文件，但读取其原始字节计算目录内容摘要。
+来源快照、来源映射和说明文档保持原样；运行时场景准入独立检查实际实例绑定。
 
-Hand-written files NOT touched by this generator (per 「交换规则的加载与准入」, rules are human-authored):
-  catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
-  catalog/rules/travel-time.toml, catalog/rules/motivation.toml,
-  catalog/rules/persona-mapping.toml, catalog/affordances.toml,
-  catalog/README.md, catalog/snapshots/ —
-  the generator only asserts these files exist.
-
-Usage:
-  python3 scripts/build_catalog.py           # write catalog data files
-  python3 scripts/build_catalog.py --check   # regenerate in memory, compare bytes, exit 1 on drift
+直接运行本脚本生成目录；增加 --check 时在内存重建、执行数据检查并逐字节比较，
+发现不一致返回非零退出码。设计依据见 docs/dev/SPEC-category-contract.md。
 """
 
 from __future__ import annotations
@@ -41,10 +19,16 @@ from __future__ import annotations
 import hashlib
 import json
 import random
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from worldmock.categories.identity import refresh_manifest_identity  # noqa: E402
+
 SNAPSHOT = ROOT / "scripts/catalog-snapshot-legacy-scenario.json"
 OFF_DIR = ROOT / "corpora/open-food-facts"
 OFF_FROZEN = OFF_DIR / "products.json"
@@ -56,7 +40,12 @@ FOOD_EXPANSION = FOODS_DIR / "expansion.json"
 FOOD_EXPANSION2 = FOODS_DIR / "expansion2.json"
 CORPUS_MANIFEST = ROOT / "corpora/manifest.json"
 MEALS_CORPUS = ROOT / "corpora/meals/items.json"
-RULES_DIR = ROOT / "catalog/rules"
+CATALOG_DIR = ROOT / "catalog"
+RULES_DIR = CATALOG_DIR / "rules"
+CATEGORY_CONTRACT = CATALOG_DIR / "category-contract.json"
+EXCHANGE_RULES = CATALOG_DIR / "exchange-rules.json"
+AFFORDANCES = CATALOG_DIR / "affordances.toml"
+TOMBSTONES = CATALOG_DIR / "overrides/tombstones.jsonl"
 HEAD = "cd2586b"
 
 #: 修订合同《世界素材品类要求》的版本化声明：随 catalog/manifest.json 冻结，
@@ -141,18 +130,34 @@ FOOD2_CATEGORY_ANCHORS: dict[str, str] = {
     "咖啡": "food-6917878044729",
 }
 
-#: 品类可信 kcal 密度窗（kcal/100g 或 /100ml，闭区间）。筛选期执行，
-#: 生成器按原始数据逐条复核——密度越窗的记录视为 OFF 数据缺陷，不得入选。
-FOOD2_CATEGORY_DENSITY_WINDOWS: dict[str, tuple[float, float]] = {
-    "汽水": (0, 15),
-    "茶饮果汁": (0, 70),
-    "乳制品": (30, 120),
-    "酸奶": (40, 120),
-    "零食": (150, 600),
-    "方便面": (250, 550),
-    "面包烘焙": (200, 450),
-    "坚果肉零食": (100, 650),
-    "咖啡": (200, 600),
+CATEGORY_ID_BY_LABEL = {
+    "汽水": "food-soda",
+    "无糖汽水": "food-soda",
+    "乳制品": "food-dairy",
+    "酸奶": "food-yogurt",
+    "茶饮果汁": "food-tea-juice",
+    "零食": "food-snack",
+    "方便面": "food-instant-noodle",
+    "面包烘焙": "food-bakery",
+    "坚果肉零食": "food-nut-meat-snack",
+    "咖啡": "food-coffee",
+}
+
+BASELINE_FOOD_CATEGORIES = {
+    "6923644266066": "food-dairy",
+    "6928804010114": "food-soda",
+    "6917878044729": "food-coffee",
+    "6924743919211": "food-snack",
+    "6920152460061": "food-instant-noodle",
+    "6920459902387": "food-tea-juice",
+    "6901209212215": "food-yogurt",
+    "8935090914864": "food-nut-meat-snack",
+}
+
+FOOD_CATEGORY_OVERRIDES = {
+    "6943949415174": "food-light-snack",
+    "6948939681928": "food-high-density-nut-snack",
+    "6948939696106": "food-high-density-nut-snack",
 }
 
 
@@ -166,7 +171,7 @@ def sha256_of(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# provenance coverage walker (「来源分类」: every static numeric value must be covered)
+# 数值来源遍历：每个静态数值都必须被来源覆盖
 # ---------------------------------------------------------------------------
 
 SKIP_KEYS = {"version", "provenance"}
@@ -200,6 +205,42 @@ def assert_full_coverage(entry_id: str, entry: dict) -> None:
                 if any(covers(leaf_path, p) for p in part.get("paths", []))]
         assert hits, f"{entry_id}: numeric value {leaf_path} has no provenance"
         assert len(hits) == 1, f"{entry_id}: {leaf_path} covered by {len(hits)} parts (must be exactly 1)"
+
+
+def numeric_pointer_leaves(node, prefix=""):
+    """@brief 收集原生增量对象中的数值叶 JSON Pointer。"""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            if not prefix and key in {"version", "provenance"}:
+                continue
+            escaped = key.replace("~", "~0").replace("/", "~1")
+            yield from numeric_pointer_leaves(value, f"{prefix}/{escaped}")
+    elif isinstance(node, list):
+        for index, value in enumerate(node):
+            yield from numeric_pointer_leaves(value, f"{prefix}/{index}")
+    elif not isinstance(node, bool) and isinstance(node, (int, float)):
+        yield prefix
+
+
+def assert_raw_object_coverage(entry: dict) -> None:
+    """@brief 要求对象的每个非版本数值由且只由一条来源覆盖。"""
+    coverage: dict[str, list[str]] = {}
+    for source in entry["provenance"]:
+        for pointer in source["paths"]:
+            for leaf in numeric_pointer_leaves(_resolve_pointer(entry, pointer), pointer):
+                coverage.setdefault(leaf, []).append(source["source_id"])
+    for leaf in numeric_pointer_leaves(entry):
+        assert len(coverage.get(leaf, [])) == 1, (
+            f"{entry['object_id']}: {leaf} coverage is {coverage.get(leaf, [])}")
+
+
+def _resolve_pointer(document: dict, pointer: str):
+    """@brief 解析生成器内部使用的简单 RFC 6901 指针。"""
+    value = document
+    for raw in pointer.split("/")[1:]:
+        token = raw.replace("~1", "/").replace("~0", "~")
+        value = value[int(token)] if isinstance(value, list) else value[token]
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -249,8 +290,9 @@ def work_efficiency_factors(body: dict) -> list[dict]:
     ]
 
 
-def build_resources(body: dict) -> list[dict]:
-    energy = {
+def build_energy_resource(body: dict) -> dict:
+    """@brief 构造能量资源及其来源记录。"""
+    return {
         "resource_id": "energy_kcal",
         "kind": "level",
         "unit": "kcal",
@@ -289,7 +331,11 @@ def build_resources(body: dict) -> list[dict]:
         ],
         "version": 1,
     }
-    sleep = {
+
+
+def build_sleep_resource(body: dict) -> dict:
+    """@brief 构造睡眠债资源及其来源记录。"""
+    return {
         "resource_id": "sleep_debt_hours",
         "kind": "level",
         "unit": "hours",
@@ -310,7 +356,11 @@ def build_resources(body: dict) -> list[dict]:
         ],
         "version": 1,
     }
-    entertainment = {
+
+
+def build_entertainment_resource(body: dict) -> dict:
+    """@brief 构造娱乐需求资源及其来源记录。"""
+    return {
         "resource_id": "entertainment_need",
         "kind": "level",
         "unit": "ratio",
@@ -344,7 +394,11 @@ def build_resources(body: dict) -> list[dict]:
         ],
         "version": 1,
     }
-    money = {
+
+
+def build_money_resource() -> dict:
+    """@brief 构造全局货币资源。"""
+    return {
         "resource_id": "money_fen",
         "kind": "account",
         "unit": "fen",
@@ -360,139 +414,193 @@ def build_resources(body: dict) -> list[dict]:
         ],
         "version": 1,
     }
-    return [money, energy, sleep, entertainment]
+
+
+def build_inventory_resource() -> dict:
+    """@brief 构造位置库存数量域；正式目录允许开系统增减。"""
+    return {
+        "resource_id": "inventory",
+        "kind": "level",
+        "unit": "item",
+        "owner": "agent_location",
+        "bounds": {"min": 0, "max": None},
+        "conservation": "open",
+        "alert_rules": [],
+        "provenance": [{
+            "part": "inventory non-negative lower bound",
+            "paths": ["bounds.min"],
+            "type": "scenario",
+            "source": "LifeEngine agent-location inventory quantity domain; durable use is an open drain",
+        }],
+        "version": 1,
+    }
+
+
+def build_resources(body: dict) -> list[dict]:
+    """@brief 以稳定顺序构造全部正式资源。"""
+    return [
+        build_money_resource(),
+        build_energy_resource(body),
+        build_sleep_resource(body),
+        build_entertainment_resource(body),
+        build_inventory_resource(),
+    ]
 
 
 # ---------------------------------------------------------------------------
 # objects.jsonl
 # ---------------------------------------------------------------------------
 
-def product_object(product: dict, off_index: dict, off_sha: str) -> dict:
-    is_food = product["product_id"].startswith("food-")
-    barcode = product["product_id"].removeprefix("food-")
-    edges = [{
-        "on": "purchase",
-        "type": "transfer",
-        "from": "{buyer}",
-        "to": "{merchant}",
-        "amount_fen": product["price_fen"],
-        "account_roles": {"from": "buyer", "to": product["merchant_account_id"]},
-    }]
-    provenance = [
-        {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-         "type": "scenario", "source": "legacy-scenario-price",
-         "note": f"price_version {product['price_version']}"},
-        {"part": "stock", "paths": ["stock.initial"],
-         "type": "scenario", "source": "legacy-scenario-product"},
-    ]
-    if is_food:
-        edges.append({
-            "on": "consume",
-            "type": "source",
-            "resource": "energy_kcal",
-            "amount": product["energy_kcal_per_unit"],
-            "duration_s": product["use_duration_seconds"],
-        })
-        provenance.insert(0, {
-            "part": "consume energy edge", "paths": ["edges[1].amount"],
-            "type": "fact", "source": f"openfoodfacts:product/{barcode}",
-            "artifact": f"corpora/open-food-facts/products.json (sha256 {off_sha})",
-        })
-        provenance.append({
-            "part": "legacy timing/serving fields",
-            "paths": ["edges[1].duration_s", "use_duration_seconds",
-                      "delivery_delay_seconds", "serving.quantity"],
-            "type": "scenario", "source": "legacy-scenario-product",
-        })
-        entry = {
-            "object_id": product["product_id"],
-            "name": product["name"],
-            "object_kind": "product",
-            "effect": product["effect"],
-            "consumable": product["consumable"],
-            "use_modes": product["use_modes"],
-            "edges": edges,
-            "stock": {"initial": product["initial_stock"], "restock": "none"},
-            "use_duration_seconds": product["use_duration_seconds"],
-            "delivery_delay_seconds": product["delivery_delay_seconds"],
-            "serving": {"quantity": product["serving_quantity"], "unit": product["serving_unit"]},
-            "required_location_id": product["required_location_id"],
-            "provenance": provenance,
-            "version": 1,
-        }
-    else:
-        provenance.append({
-            "part": "legacy timing fields",
-            "paths": ["use_duration_seconds", "delivery_delay_seconds"],
-            "type": "scenario", "source": "legacy-scenario-product",
-        })
-        entry = {
-            "object_id": product["product_id"],
-            "name": product["name"],
-            "object_kind": "product",
-            "effect": "durable",
-            "legacy_effect": product["effect"],
-            "consumable": product["consumable"],
-            "use_modes": product["use_modes"],
-            "edges": edges,
-            "stock": {"initial": product["initial_stock"], "restock": "none"},
-            "use_duration_seconds": product["use_duration_seconds"],
-            "delivery_delay_seconds": product["delivery_delay_seconds"],
-            "required_location_id": product["required_location_id"],
-            "provenance": provenance,
-            "version": 1,
-        }
-    return entry
+def source_record(source_id: str, source_type: str, source: str,
+                  paths: list[str], **details) -> dict:
+    """@brief 构造严格来源记录；调用方必须提供真实生产者。"""
+    record = {
+        "source_id": source_id,
+        "type": source_type,
+        "producer": details.pop("producer", "data_source"),
+        "source": source,
+        "paths": paths,
+    }
+    record.update({key: value for key, value in details.items() if value is not None})
+    return record
 
 
-def expansion_food_object(entry: dict, price_fen: int, anchor_label: str,
-                          anchor_object_id: str, expansion_sha: str,
-                          artifact: str = "corpora/foods/expansion.json",
-                          price_seed: int = FOOD_PRICE_SEED) -> dict:
-    """@brief 由扩容白名单条目构造食品目录对象（consume 事实边 + purchase 锚定价边）。"""
-    barcode = entry["barcode"]
+def raw_object(object_id: str, name: str, category_id: str,
+               absolute: dict, provenance: list[dict]) -> dict:
+    """@brief 构造无边、无公式、无品类结构的原生对象增量。"""
     return {
-        "object_id": f"food-{barcode}",
-        "name": entry["name"],
-        "object_kind": "product",
-        "effect": "nutrition",
-        "consumable": True,
-        "use_modes": ["eat"],
-        "edges": [
-            {"on": "purchase", "type": "transfer", "from": "{buyer}", "to": "{merchant}",
-             "amount_fen": price_fen,
-             "account_roles": {"from": "buyer", "to": "merchant:grocery"}},
-            {"on": "consume", "type": "source", "resource": "energy_kcal",
-             "amount": entry["energy_kcal_serving"], "duration_s": 900},
-        ],
-        "stock": {"initial": 120, "restock": "none"},
-        "use_duration_seconds": 900,
-        "delivery_delay_seconds": 1800,
-        "serving": {"quantity": 1, "unit": entry["serving_size"]},
-        "required_location_id": None,
-        "provenance": [
-            {"part": "consume energy edge", "paths": ["edges[1].amount"],
-             "type": "fact", "source": f"openfoodfacts:product/{barcode}",
-             "artifact": f"{artifact} (sha256 {expansion_sha})",
-             "note": f"derived via {entry['kcal_rule']} x serving {entry['serving_quantity']}"
-                     " per catalog/rules/off-foods.mapping.toml fallback"},
-            {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-             "type": "anchored", "source": f"category anchor {anchor_object_id} ({anchor_label})",
-             "artifact": "catalog/objects.jsonl @ 1.0",
-             "method": f"anchor_fen * uniform(1-{FOOD_PRICE_SPREAD}, 1+{FOOD_PRICE_SPREAD}),"
-                       f" seed {price_seed}, barcode-sorted order",
-             "note": "price_version catalog-food-expansion-2"
-                     if artifact.endswith("expansion2.json") else
-                     "price_version catalog-food-expansion-1"},
-            {"part": "stock", "paths": ["stock.initial"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-            {"part": "legacy timing/serving fields",
-             "paths": ["edges[1].duration_s", "use_duration_seconds",
-                       "delivery_delay_seconds", "serving.quantity"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-        ],
+        "object_id": object_id,
+        "name": name,
+        "category_id": category_id,
+        "values": {"absolute": absolute, "relative": {}, "proportional": {}},
+        "provenance": provenance,
         "version": 1,
     }
+
+
+def merchant_role_source(role: str, artifact: str) -> dict:
+    """@brief 记录对象购买时使用的场景账户角色。"""
+    return source_record(
+        "scenario-merchant-role", "scenario", f"frozen purchase merchant role {role}",
+        ["/values/absolute/merchant_role"], artifact=artifact,
+    )
+
+
+def energy_density(raw: dict) -> float:
+    """@brief 从 OFF 原始记录读取 kcal/100g 或 kcal/100ml。"""
+    nutrients = raw.get("nutriments", {})
+    kcal = nutrients.get("energy-kcal_100g")
+    if kcal is not None:
+        return float(kcal)
+    kilojoules = nutrients.get("energy-kj_100g")
+    assert kilojoules is not None, f"{raw.get('code')}: missing energy density"
+    return float(kilojoules) / 4.184
+
+
+def category_density_bounds(contract: dict) -> dict[str, tuple[float, float]]:
+    """@brief 从冻结品类槽位解析每个食品叶的密度交集。"""
+    nodes = {node["category_id"]: node for node in contract["categories"]}
+    bounds: dict[str, tuple[float, float]] = {}
+    category_ids = (set(CATEGORY_ID_BY_LABEL.values()) | set(BASELINE_FOOD_CATEGORIES.values())
+                    | set(FOOD_CATEGORY_OVERRIDES.values()) | {"food", "prepared-meal"})
+    for category_id in category_ids:
+        minimum, maximum = 0.0, float("inf")
+        current = nodes[category_id]
+        while current is not None:
+            slot = current.get("slots", {}).get("energy_density_kcal_per_100")
+            if slot is not None:
+                schema = slot["schema"]
+                minimum = max(minimum, float(schema.get("minimum", minimum)))
+                maximum = min(maximum, float(schema.get("maximum", maximum)))
+            current = nodes.get(current["parent_id"])
+        bounds[category_id] = (minimum, maximum)
+    return bounds
+
+
+def validate_density(object_id: str, category_id: str, density: float,
+                     bounds: dict[str, tuple[float, float]]) -> None:
+    """@brief 用品类槽位而非生成器常量校验食品密度。"""
+    minimum, maximum = bounds[category_id]
+    assert minimum <= density <= maximum, (
+        f"{object_id}: density {density:.3f} outside category slot [{minimum}, {maximum}]")
+
+
+def frozen_food_object(product: dict, raw: dict, off_sha: str,
+                       bounds: dict[str, tuple[float, float]]) -> dict:
+    """@brief 构造八条冻结基线食品的原生增量。"""
+    barcode = product["product_id"].removeprefix("food-")
+    category_id = BASELINE_FOOD_CATEGORIES[barcode]
+    density = energy_density(raw)
+    validate_density(product["product_id"], category_id, density, bounds)
+    values = {
+        "price_fen": product["price_fen"],
+        "merchant_role": product["merchant_account_id"],
+        "energy_kcal_per_serving": product["energy_kcal_per_unit"],
+        "energy_density_kcal_per_100": density,
+        "serving_unit": product["serving_unit"],
+    }
+    sources = [
+        source_record(
+            "off-energy", "fact", f"openfoodfacts:product/{barcode}",
+            ["/values/absolute/energy_kcal_per_serving",
+             "/values/absolute/energy_density_kcal_per_100"],
+            artifact=f"corpora/open-food-facts/products.json (sha256 {off_sha})"),
+        source_record(
+            "scenario-price", "scenario", "legacy-scenario-price",
+            ["/values/absolute/price_fen"], note=f"price_version {product['price_version']}"),
+        merchant_role_source(
+            product["merchant_account_id"], "scripts/catalog-snapshot-legacy-scenario.json"),
+    ]
+    return raw_object(product["product_id"], product["name"], category_id, values, sources)
+
+
+def durable_object(product: dict) -> dict:
+    """@brief 构造八条耐用品的原生差异；共享库存和时长由品类继承。"""
+    values = {
+        "price_fen": product["price_fen"],
+        "merchant_role": product["merchant_account_id"],
+        "effect": product["effect"],
+        "consumable": product["consumable"],
+    }
+    if product["required_location_id"] is not None:
+        values["required_location_id"] = product["required_location_id"]
+    sources = [source_record(
+        "legacy-scenario-product", "scenario", "frozen legacy scenario product declaration",
+        ["/values/absolute"], artifact="scripts/catalog-snapshot-legacy-scenario.json",
+        note=f"price_version {product['price_version']}")]
+    return raw_object(product["product_id"], product["name"], "durable", values, sources)
+
+
+def expansion_food_object(entry: dict, price_fen: int, context: dict,
+                          bounds: dict[str, tuple[float, float]]) -> dict:
+    """@brief 由扩容白名单直接构造原生食品增量。"""
+    barcode = entry["barcode"]
+    category_id = FOOD_CATEGORY_OVERRIDES.get(barcode, CATEGORY_ID_BY_LABEL[context["label"]])
+    density = context["density"]
+    validate_density(f"food-{barcode}", category_id, density, bounds)
+    values = {
+        "price_fen": price_fen,
+        "merchant_role": "merchant:grocery",
+        "energy_kcal_per_serving": entry["energy_kcal_serving"],
+        "energy_density_kcal_per_100": density,
+        "serving_unit": entry["serving_size"],
+    }
+    energy = source_record(
+        "off-energy", "fact", f"openfoodfacts:product/{barcode}",
+        ["/values/absolute/energy_kcal_per_serving",
+         "/values/absolute/energy_density_kcal_per_100"],
+        artifact=f"{context['artifact']} (sha256 {context['sha256']})",
+        note=f"derived via {entry['kcal_rule']} x serving {entry['serving_quantity']}")
+    price = source_record(
+        "anchored-price", "anchored",
+        f"category anchor {context['anchor_id']} ({context['label']})",
+        ["/values/absolute/price_fen"], artifact="catalog/objects.jsonl @ 1.0",
+        method=(f"anchor_fen * uniform(1-{FOOD_PRICE_SPREAD}, 1+{FOOD_PRICE_SPREAD}), "
+                f"seed {context['seed']}, barcode-sorted order"))
+    merchant = merchant_role_source(
+        "merchant:grocery", "scripts/build_catalog.py at baseline commit 426af3b")
+    return raw_object(
+        f"food-{barcode}", entry["name"], category_id, values, [energy, price, merchant])
 
 
 def load_expansion_entries() -> list[dict]:
@@ -558,9 +666,9 @@ def load_expansion2_entries() -> list[dict]:
     return entries
 
 
-def verify_expansion2(entries: list[dict], off_pool: dict, off_frozen: list[dict],
-                      wave1_barcodes: set[str], snapshot_foods: list[dict]) -> None:
-    """@brief 核对第二波白名单与原始池、既有白名单的一致性（kcal/份量/密度窗逐条复核）。"""
+def verify_expansion2(entries: list[dict], off_pool: dict, forbidden: set[str],
+                      bounds: dict[str, tuple[float, float]]) -> None:
+    """@brief 核对第二波白名单与原始池、既有白名单、密度槽位的一致性。"""
     pool_by_code = {str(x.get("code")): x for x in off_pool["products"]}
     assert len(pool_by_code) >= 300, \
         f"raw pool must hold >=300 unique products, got {len(pool_by_code)}"
@@ -569,13 +677,9 @@ def verify_expansion2(entries: list[dict], off_pool: dict, off_frozen: list[dict
                      or x.get("nutriments", {}).get("energy-kj_100g") is not None)]
     assert len(kcal_pool) >= 300, \
         f"raw pool must hold >=300 kcal-bearing products, got {len(kcal_pool)}"
-    frozen_barcodes = {entry["barcode"] for entry in off_frozen}
-    snapshot_ids = {product["product_id"] for product in snapshot_foods}
     for entry in entries:
         barcode = entry["barcode"]
-        assert barcode not in frozen_barcodes, f"{barcode}: duplicates frozen baseline"
-        assert barcode not in wave1_barcodes, f"{barcode}: duplicates wave-1 expansion"
-        assert f"food-{barcode}" not in snapshot_ids, f"{barcode}: duplicates snapshot food"
+        assert barcode not in forbidden, f"{barcode}: duplicates an existing food"
         raw = pool_by_code.get(barcode)
         assert raw is not None, f"{barcode}: not in china-pool.json"
         nut = raw.get("nutriments", {})
@@ -584,9 +688,8 @@ def verify_expansion2(entries: list[dict], off_pool: dict, off_frozen: list[dict
         else:
             assert "energy-kj_100g" in nut, f"{barcode}: rule/data mismatch"
             kcal100 = nut["energy-kj_100g"] / 4.184
-        window = FOOD2_CATEGORY_DENSITY_WINDOWS[entry["category"]]
-        assert window[0] <= kcal100 <= window[1], \
-            f"{barcode}: density {kcal100:.1f} outside credible window {window} for {entry['category']}"
+        category_id = CATEGORY_ID_BY_LABEL[entry["category"]]
+        validate_density(f"food-{barcode}", category_id, kcal100, bounds)
         derived = kcal100 * entry["serving_quantity"] / 100.0
         assert abs(derived - entry["energy_kcal_serving"]) <= 0.05, \
             f"{barcode}: kcal {entry['energy_kcal_serving']} != derived {derived:.2f}"
@@ -639,136 +742,69 @@ def load_meals() -> list[dict]:
     return meals
 
 
-def meal_object(meal: dict, meals_sha: str) -> dict:
-    """@brief 由正餐语料条目构造目录对象（consume 事实边 + purchase 场景价边）。"""
+def meal_object(meal: dict, meals_sha: str,
+                bounds: dict[str, tuple[float, float]]) -> dict:
+    """@brief 由正餐语料直接构造原生对象增量。"""
     source = meal["energy_source"]
     duration_seconds = meal["meal_duration_minutes"] * 60
-    return {
-        "object_id": meal["meal_id"],
-        "name": meal["name_zh"],
-        "object_kind": "product",
-        "effect": "nutrition",
-        "consumable": True,
-        "use_modes": ["eat"],
-        "edges": [
-            {"on": "purchase", "type": "transfer", "from": "{buyer}", "to": "{merchant}",
-             "amount_fen": meal["price_fen"],
-             "account_roles": {"from": "buyer", "to": "merchant:restaurant"}},
-            {"on": "consume", "type": "source", "resource": "energy_kcal",
-             "amount": meal["energy_kcal_per_serving"], "duration_s": duration_seconds},
-        ],
-        "stock": {"initial": 40, "restock": "none"},
+    density = float(source["energy_kcal_per_100g"])
+    validate_density(meal["meal_id"], "prepared-meal", density, bounds)
+    values = {
+        "price_fen": meal["price_fen"],
+        "merchant_role": "merchant:restaurant",
+        "energy_kcal_per_serving": meal["energy_kcal_per_serving"],
+        "energy_density_kcal_per_100": density,
         "use_duration_seconds": duration_seconds,
-        "delivery_delay_seconds": meal["delivery_delay_seconds"] or 1800,
-        "serving": {"quantity": meal["serving"]["quantity"], "unit": meal["serving"]["unit"]},
-        "required_location_id": None,
-        "provenance": [
-            {"part": "consume energy edge", "paths": ["edges[1].amount"],
-             "type": "fact",
-             "source": f"USDA FNDDS fdc:{source['fdc_id']} ({source['food_description']})",
-             "artifact": f"corpora/meals/items.json (sha256 {meals_sha})",
-             "note": (f"kcal = {source['energy_kcal_per_100g']} kcal/100g x"
-                      f" {meal['serving']['quantity']} g / 100; no ml-to-g conversion;"
-                      " FNDDS recorded values not adjusted")},
-            {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-             "type": "scenario", "source": meal["price_assumption"],
-             "note": "price_version zhangjiang-2026-q1-meals"},
-            {"part": "stock", "paths": ["stock.initial"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-            {"part": "meal timing/serving fields",
-             "paths": ["edges[1].duration_s", "use_duration_seconds",
-                       "delivery_delay_seconds", "serving.quantity"],
-             "type": "scenario",
-             "source": "meal corpus scenario assumptions (duration 20-40 min per contract)"},
-        ],
-        "version": 1,
+        "serving_quantity": meal["serving"]["quantity"],
     }
+    energy = source_record(
+        "fndds-energy", "fact",
+        f"USDA FNDDS fdc:{source['fdc_id']} ({source['food_description']})",
+        ["/values/absolute/energy_kcal_per_serving",
+         "/values/absolute/energy_density_kcal_per_100"],
+        artifact=f"corpora/meals/items.json (sha256 {meals_sha})",
+        note=(f"kcal = {density} kcal/100g x {meal['serving']['quantity']} g / 100; "
+              "FNDDS recorded values not adjusted"))
+    price = source_record(
+        "scenario-price", "scenario", meal["price_assumption"],
+        ["/values/absolute/price_fen"], note="price_version zhangjiang-2026-q1-meals")
+    timing = source_record(
+        "meal-shape", "scenario", "meal corpus serving and duration assumptions",
+        ["/values/absolute/use_duration_seconds", "/values/absolute/serving_quantity"],
+        artifact="corpora/meals/items.json")
+    merchant = merchant_role_source(
+        "merchant:restaurant", "scripts/build_catalog.py at baseline commit 426af3b")
+    return raw_object(meal["meal_id"], meal["name_zh"], "prepared-meal",
+                      values, [energy, price, timing, merchant])
 
 
-def travel_object(transport_account_id: str) -> dict:
-    return {
-        "object_id": "travel-service",
-        "name": "Travel service",
-        "object_kind": "service",
-        "edges": [{
-            "on": "depart",
-            "type": "transfer",
-            "from": "{traveler}",
-            "to": "{transport_operator}",
-            "amount_fen": {"formula_ref": "travel-fare",
-                           "params": {"m": "route.distance_meters", "mode": "route.mode"}},
-            "account_roles": {"from": "traveler", "to": transport_account_id},
-        }],
-        "formula_ref": "travel-fare",
-        "provenance": [
-            {"part": "fare formula (declared in catalog/rules/travel-fare.toml)",
-             "paths": [],
-             "type": "scenario",
-             "source": "legacy-scenario-routes; formula reproduces every frozen route "
-                       "fare_fen (asserted by scripts/build_catalog.py)"},
-        ],
-        "version": 1,
-    }
+def travel_object() -> dict:
+    """@brief 出行对象只声明身份；费率完整位于闭集规则。"""
+    provenance = [source_record(
+        "legacy-travel-service", "scenario", "frozen travel service identity",
+        ["/category_id"], artifact="scripts/catalog-snapshot-legacy-scenario.json")]
+    return raw_object("travel-service", "Travel service", "travel-service", {}, provenance)
 
 
-CONTRACT_FORMULAS = {
-    "hourly": "min(pay_fen * worked_seconds // 3600, pay_fen * maximum_duration_seconds // 3600)",
-    "piece": "pay_fen * piece_count (oracle piece_count)",
-    "package": "pay_fen (fixed, paid on acceptance)",
-}
-
-
-def contract_objects(body: dict, employer_account_id: str) -> list[dict]:
+def contract_objects() -> list[dict]:
+    """@brief 三种合同对象只声明归属；共享效率与验收值由品类继承。"""
     objects = []
     for kind in ("hourly", "piece", "package"):
-        objects.append({
-            "object_id": f"contract-{kind}",
-            "name": f"{kind.capitalize()} work contract",
-            "object_kind": "contract",
-            "edges": [{
-                "on": "settle",
-                "type": "convert",
-                "from": "{employer}",
-                "to": "{worker}",
-                "formula": CONTRACT_FORMULAS[kind],
-                "account_roles": {"from": employer_account_id, "to": "worker"},
-            }],
-            "acceptance": {
-                "required_effective_seconds": None,
-                "materials_fully_revealed": True,
-                "review_pass_required": True,
-            },
-            "efficiency": {
-                "work_efficiency_factors": work_efficiency_factors(body),
-                "work_notes_multiplier": body["work_notes_multiplier"],
-            },
-            "provenance": [
-                {"part": "settlement formula (src semantics, values are per task instance)",
-                 "paths": [],
-                 "type": "scenario",
-                 "source": f"src/worldmock/life/work.py:198-211 _payment @ {HEAD}"},
-                {"part": "acceptance gates (field semantics; numbers live in scenario task instances)",
-                 "paths": [],
-                 "type": "scenario",
-                 "source": "legacy-scenario-tasks required_effective_seconds/input_sha256/oracle_sha256"},
-                {"part": "efficiency params", "paths": ["efficiency"],
-                 "type": "assumption",
-                 "source": "legacy-scenario-body work_efficiency_curve/work_notes_multiplier; "
-                           "energy factor = hunger-productivity coupling for survival-economy "
-                           "feedback (hungry/emergency thresholds reused from alert_rules; "
-                           "no external data, sensitivity-checked by evaluation layer)"},
-            ],
-            "version": 1,
-        })
+        provenance = [source_record(
+            "legacy-contract-kind", "scenario", f"frozen {kind} contract identity",
+            ["/category_id"], artifact="scripts/catalog-snapshot-legacy-scenario.json")]
+        objects.append(raw_object(
+            f"contract-{kind}", f"{kind.capitalize()} work contract",
+            f"contract-{kind}", {}, provenance))
     return objects
 
 
 # ---------------------------------------------------------------------------
-# input verification
+# 冻结输入校验
 # ---------------------------------------------------------------------------
 
-def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
-                  manifest: dict) -> tuple[dict, str]:
+def verify_snapshot_inputs(snapshot: dict, off_frozen: list, off_raw: dict) -> dict:
+    """@brief 核对冻结场景快照、OFF 白名单与原始记录。"""
     assert "scenarios/white-collar-12-weeks.json @ cd2586b" in snapshot["source"], \
         "frozen snapshot provenance marker drifted"
     products = snapshot["products"]
@@ -789,6 +825,11 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
         raw_kcal = raw_by_code[barcode].get("nutriments", {}).get("energy-kcal_serving")
         assert frozen_kcal == raw_kcal, \
             f"{barcode}: frozen kcal {frozen_kcal} != raw OFF {raw_kcal}"
+    return {"foods": foods, "items": items}
+
+
+def verify_corpus_hashes(manifest: dict) -> str:
+    """@brief 核对生成器输入语料与语料清单。"""
     for name in ("products.json", "china-100.json", "china-pool.json"):
         entry = next(e for e in manifest["entries"] if e["path"] == f"open-food-facts/{name}")
         actual = sha256_of(OFF_DIR / name)
@@ -800,23 +841,28 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
     meals_entry = next(e for e in manifest["entries"] if e["path"] == "meals/items.json")
     assert sha256_of(MEALS_CORPUS) == meals_entry["sha256"], \
         "meals/items.json: sha256 mismatch vs corpus manifest"
+    return sha256_of(OFF_FROZEN)
 
-    # contract templates cover every legacy contract kind
-    assert set(CONTRACT_FORMULAS) == {"hourly", "piece", "package"}
 
+def verify_handwritten_catalog_files() -> None:
+    """@brief 确认手工维护的闭集规则与契约输入完整。"""
     assert (RULES_DIR / "off-foods.mapping.toml").is_file(), "missing catalog/rules/off-foods.mapping.toml"
-    assert (RULES_DIR / "travel-fare.toml").is_file(), "missing catalog/rules/travel-fare.toml"
+    assert not (RULES_DIR / "travel-fare.toml").exists(), "legacy travel-fare formula must be deleted"
     assert (RULES_DIR / "travel-time.toml").is_file(), "missing catalog/rules/travel-time.toml"
     assert (RULES_DIR / "motivation.toml").is_file(), "missing catalog/rules/motivation.toml"
     assert (RULES_DIR / "persona-mapping.toml").is_file(), "missing catalog/rules/persona-mapping.toml"
-    assert (ROOT / "catalog/affordances.toml").is_file(), "missing catalog/affordances.toml"
+    assert AFFORDANCES.is_file(), "missing catalog/affordances.toml"
+    assert CATEGORY_CONTRACT.is_file(), "missing catalog/category-contract.json"
+    assert EXCHANGE_RULES.is_file(), "missing catalog/exchange-rules.json"
     traffic_dir = ROOT / "catalog/snapshots/traffic"
     assert (traffic_dir / "amap-report-excerpt.md").is_file(), \
         "missing catalog/snapshots/traffic/amap-report-excerpt.md"
     assert (traffic_dir / "weekday-hour-factors.json").is_file(), \
         "missing catalog/snapshots/traffic/weekday-hour-factors.json"
 
-    off_sha = sha256_of(OFF_FROZEN)
+
+def verify_body_and_lifestyle(snapshot: dict) -> None:
+    """@brief 核对身体参数和生活活动目录的冻结输入。"""
     body = snapshot["body"]
     for key in ("maximum_energy_kcal", "hunger_threshold_kcal", "emergency_threshold_kcal",
                 "basal_kcal_per_hour", "activity_met", "food_efficiency_curve",
@@ -828,11 +874,20 @@ def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
     assert 180 <= len(lifestyle) <= 200, f"lifestyle catalog size {len(lifestyle)} out of range"
     assert all("Compendium 2011" in item["source"] for item in lifestyle), \
         "lifestyle item missing Compendium MET provenance"
-    return {"foods": foods, "items": items}, off_sha
+
+
+def verify_inputs(snapshot: dict, off_frozen: list, off_raw: dict,
+                  manifest: dict) -> tuple[dict, str]:
+    """@brief 聚合所有冻结输入准入检查。"""
+    parts = verify_snapshot_inputs(snapshot, off_frozen, off_raw)
+    off_sha = verify_corpus_hashes(manifest)
+    verify_handwritten_catalog_files()
+    verify_body_and_lifestyle(snapshot)
+    return parts, off_sha
 
 
 # ---------------------------------------------------------------------------
-# main
+# 生成入口
 # ---------------------------------------------------------------------------
 
 def lifestyle_met_map() -> dict[str, float]:
@@ -843,76 +898,158 @@ def lifestyle_met_map() -> dict[str, float]:
     return dict(sorted(merged.items()))
 
 
-def build() -> dict[str, str]:
-    snapshot = load_json(SNAPSHOT)
-    off_frozen = load_json(OFF_FROZEN)
-    off_raw = load_json(OFF_RAW)
-    off_pool = load_json(OFF_POOL)
-    manifest = load_json(CORPUS_MANIFEST)
-    parts, off_sha = verify_inputs(snapshot, off_frozen, off_raw, manifest)
+def expansion_context(entry: dict, raw: dict, checksum: str, wave: int) -> dict:
+    """@brief 汇集一条扩容食品的品类、锚定与原始密度上下文。"""
+    barcode = entry["barcode"]
+    if wave == 1:
+        label, anchor_id = FOOD_EXPANSION_PRICE_ANCHORS[barcode]
+        artifact, seed = "corpora/foods/expansion.json", FOOD_PRICE_SEED
+    else:
+        label = entry["category"]
+        anchor_id = FOOD2_CATEGORY_ANCHORS[label]
+        artifact, seed = "corpora/foods/expansion2.json", FOOD2_PRICE_SEED
+    return {
+        "label": label,
+        "anchor_id": anchor_id,
+        "artifact": artifact,
+        "sha256": checksum,
+        "seed": seed,
+        "density": energy_density(raw),
+    }
 
+
+def build_objects(data: dict) -> list[dict]:
+    """@brief 从冻结语料直接生成 163 条原生对象增量。"""
+    frozen = [
+        frozen_food_object(item, data["raw100"][item["product_id"].removeprefix("food-")],
+                           data["off_sha"], data["bounds"])
+        for item in data["parts"]["foods"]
+    ]
+    wave1 = [
+        expansion_food_object(item, data["prices1"][item["barcode"]],
+                              expansion_context(item, data["raw100"][item["barcode"]],
+                                                data["sha1"], 1), data["bounds"])
+        for item in sorted(data["entries1"], key=lambda row: row["barcode"])
+    ]
+    wave2 = [
+        expansion_food_object(item, data["prices2"][item["barcode"]],
+                              expansion_context(item, data["raw2"][item["barcode"]],
+                                                data["sha2"], 2), data["bounds"])
+        for item in sorted(data["entries2"], key=lambda row: row["barcode"])
+    ]
+    meals = [meal_object(item, data["meals_sha"], data["bounds"])
+             for item in sorted(data["meals"], key=lambda row: row["meal_id"])]
+    durables = [durable_object(item) for item in data["parts"]["items"]]
+    return frozen + wave1 + wave2 + meals + durables + [travel_object()] + contract_objects()
+
+
+def manifest_base() -> dict:
+    """@brief 构造不含内容摘要的 3.0 清单声明。"""
+    return {
+        "version_major": 3,
+        "version_minor": 0,
+        "category_requirements": CATEGORY_REQUIREMENTS,
+    }
+
+
+def staged_manifest(outputs: dict[str, str]) -> str:
+    """@brief 通过运行时唯一身份 helper 生成目录清单。"""
+    with tempfile.TemporaryDirectory(prefix="worldmock-catalog-build-") as temporary:
+        staged = Path(temporary) / "catalog"
+        staged.mkdir()
+        shutil.copy2(CATEGORY_CONTRACT, staged / CATEGORY_CONTRACT.name)
+        shutil.copy2(EXCHANGE_RULES, staged / EXCHANGE_RULES.name)
+        shutil.copy2(AFFORDANCES, staged / AFFORDANCES.name)
+        shutil.copytree(RULES_DIR, staged / "rules")
+        for relative, content in outputs.items():
+            target = staged / relative.removeprefix("catalog/")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(content, encoding="utf-8")
+        manifest = staged / "manifest.json"
+        manifest.write_text(
+            json.dumps(manifest_base(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        refresh_manifest_identity(staged)
+        return manifest.read_text(encoding="utf-8")
+
+
+def build_manifest(outputs: dict[str, str]) -> str:
+    """@brief 生成与运行时身份算法一致的清单文本。"""
+    return staged_manifest(outputs)
+
+
+def load_build_inputs() -> dict:
+    """@brief 一次读取生成器的全部冻结输入。"""
+    return {
+        "snapshot": load_json(SNAPSHOT),
+        "off_frozen": load_json(OFF_FROZEN),
+        "off_raw": load_json(OFF_RAW),
+        "off_pool": load_json(OFF_POOL),
+        "corpus_manifest": load_json(CORPUS_MANIFEST),
+        "contract": load_json(CATEGORY_CONTRACT),
+    }
+
+
+def prepare_object_data(inputs: dict, parts: dict, off_sha: str,
+                        bounds: dict[str, tuple[float, float]]) -> dict:
+    """@brief 校验扩容语料并组装原生对象生成上下文。"""
     expansion_entries = load_expansion_entries()
-    verify_expansion(expansion_entries, off_frozen, off_raw, parts["foods"])
+    verify_expansion(expansion_entries, inputs["off_frozen"], inputs["off_raw"], parts["foods"])
     expansion_sha = sha256_of(FOOD_EXPANSION)
     prices = expansion_prices(expansion_entries, parts["foods"])
 
     expansion2_entries = load_expansion2_entries()
-    verify_expansion2(expansion2_entries, off_pool, off_frozen,
-                      {entry["barcode"] for entry in expansion_entries}, parts["foods"])
+    forbidden = {entry["barcode"] for entry in inputs["off_frozen"] + expansion_entries}
+    verify_expansion2(expansion2_entries, inputs["off_pool"], forbidden, bounds)
     expansion2_sha = sha256_of(FOOD_EXPANSION2)
     prices2 = expansion2_prices(expansion2_entries, parts["foods"])
 
     meals = load_meals()
     meals_sha = sha256_of(MEALS_CORPUS)
+    return {
+        "parts": parts, "off_sha": off_sha, "bounds": bounds,
+        "entries1": expansion_entries, "entries2": expansion2_entries,
+        "prices1": prices, "prices2": prices2,
+        "sha1": expansion_sha, "sha2": expansion2_sha,
+        "raw100": {str(row["code"]): row for row in inputs["off_raw"]["products"]},
+        "raw2": {str(row["code"]): row for row in inputs["off_pool"]["products"]},
+        "meals": meals, "meals_sha": meals_sha,
+    }
+
+
+def build() -> dict[str, str]:
+    """@brief 生成资源、原生对象、墓碑与内容身份清单。"""
+    inputs = load_build_inputs()
+    bounds = category_density_bounds(inputs["contract"])
+    parts, off_sha = verify_inputs(
+        inputs["snapshot"], inputs["off_frozen"], inputs["off_raw"], inputs["corpus_manifest"])
 
     # 基础活动 MET 来自冻结快照；生活活动 MET 来自语料目录（引擎按
     # lifestyle:<id> 查表，语义层校验基础键封闭 + lifestyle 键开放）。
-    body = dict(snapshot["body"])
-    body["activity_met"] = {**snapshot["body"]["activity_met"], **lifestyle_met_map()}
+    body = dict(inputs["snapshot"]["body"])
+    body["activity_met"] = {**body["activity_met"], **lifestyle_met_map()}
     resources = build_resources(body)
-    frozen_food_objects = [product_object(p, {e["barcode"]: e for e in off_frozen}, off_sha)
-                           for p in parts["foods"]]
-    expansion_food_objects = [
-        expansion_food_object(entry, prices[entry["barcode"]],
-                              FOOD_EXPANSION_PRICE_ANCHORS[entry["barcode"]][0],
-                              FOOD_EXPANSION_PRICE_ANCHORS[entry["barcode"]][1],
-                              expansion_sha)
-        for entry in sorted(expansion_entries, key=lambda item: item["barcode"])]
-    expansion2_food_objects = [
-        expansion_food_object(entry, prices2[entry["barcode"]],
-                              entry["category"],
-                              FOOD2_CATEGORY_ANCHORS[entry["category"]],
-                              expansion2_sha,
-                              artifact="corpora/foods/expansion2.json",
-                              price_seed=FOOD2_PRICE_SEED)
-        for entry in sorted(expansion2_entries, key=lambda item: item["barcode"])]
-    meal_objects = [meal_object(meal, meals_sha) for meal in sorted(meals, key=lambda m: m["meal_id"])]
-    objects = (frozen_food_objects + expansion_food_objects + expansion2_food_objects
-               + meal_objects
-               + [product_object(p, {}, off_sha) for p in parts["items"]]
-               + [travel_object(snapshot["transport_account_id"])]
-               + contract_objects(body, snapshot["employer_account_id"]))
+    object_data = prepare_object_data(inputs, parts, off_sha, bounds)
+    objects = build_objects(object_data)
 
-    assert len(resources) == 4, f"expected 4 resources, got {len(resources)}"
-    expected_objects = 45 + len(expansion2_entries) + len(meal_objects)
+    assert len(resources) == 5, f"expected 5 resources, got {len(resources)}"
+    expected_objects = 45 + len(object_data["entries2"]) + len(object_data["meals"])
     assert len(objects) == expected_objects, (
-        f"expected {expected_objects} objects (16+25+{len(expansion2_entries)}"
-        f"+{len(meal_objects)} meals+1+3), got {len(objects)}")
-    for entry in resources + objects:
-        assert_full_coverage(entry["resource_id"] if "resource_id" in entry
-                             else entry["object_id"], entry)
+        f"expected {expected_objects} objects (16+25+{len(object_data['entries2'])}"
+        f"+{len(object_data['meals'])} meals+1+3), got {len(objects)}")
+    for entry in resources:
+        assert_full_coverage(entry["resource_id"], entry)
+    for entry in objects:
+        assert_raw_object_coverage(entry)
 
-    return {
+    outputs = {
         "catalog/resources.jsonl": "".join(
             json.dumps(e, ensure_ascii=False) + "\n" for e in resources),
         "catalog/objects.jsonl": "".join(
             json.dumps(e, ensure_ascii=False) + "\n" for e in objects),
-        "catalog/manifest.json": json.dumps(
-            {"version_major": 2, "version_minor": 0,
-             "category_requirements": CATEGORY_REQUIREMENTS},
-            ensure_ascii=False, indent=2) + "\n",
         "catalog/overrides/tombstones.jsonl": "",
     }
+    outputs["catalog/manifest.json"] = build_manifest(outputs)
+    return outputs
 
 
 def main(argv: list[str]) -> int:

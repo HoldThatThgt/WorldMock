@@ -548,9 +548,18 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 `motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，
-路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、可供性合同、
-游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举，
-不随提示下发。
+路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、库存物品使用合同、
+可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具
+身份枚举与公开名称说明，不随提示下发。
+
+事件级 `inventory_items` 为当前地点正数持有物的使用合同，覆盖在售商品和独立库存物品；
+每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
+持有数量仍以 `available_inventory` 和人物可见的 `facts.inventory` 为准，不复制到使用合同。
+宿主据此约束 `consume` 的身份、使用方式、时长和地点，并在动态工具说明中关联物品身份与公开名称。
+`purchase` 仍只读取在售 `products` 的报价与商家库存；不能为持有物虚构商家、报价或可购买性。
+`consume.items[].quantity` 是请求份数，配方实际输入还要按冻结规则与配对系数缩放。
+人物侧保持请求模型的数量范围与数组边界校验，不直接把份数与物品持有量比较；
+实际库存是否足够由环境结算路径检查，拒绝结果在下一次观察返回。
 
 结果投影同样递归禁止内部评审字段（`reference_id`、`reference_assessments`、`oracle`、`oracle_path`、
 `input_path`、`expected`）、摘要字段、完整 `activity`、账户及资源变化字段，以及数值身体状态、
@@ -647,6 +656,60 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 ### 持久化结构
 
 见[运行目录与数据表](design/05-recording-engine.md#持久化结构)。
+
+## 品类契约与目录字段
+
+行为规则由 [品类契约规格](dev/SPEC-category-contract.md) 定义；本节固定文件字段与命令输入。
+原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
+
+| 文件 | 顶层字段 |
+| --- | --- |
+| `category-contract.json` | `format_version: 1`、正整数 `contract_version`、`categories`、`pairings`、`sources`、`review` |
+| `exchange-rules.json` | `format_version: 1`、相同 `contract_version`、`rules`、`sources`、`review` |
+| `objects.jsonl` 每行 | `object_id`、`name`、`category_id`、`values`、`provenance`、正整数 `version` |
+| `manifest.json` | `version_major`、`version_minor`、`category_requirements` 和下方四个内容身份字段 |
+
+| 声明 | 字段与闭集 |
+| --- | --- |
+| 品类节点 | `category_id`、`name`、`parent_id`、`kind`、`slots`、`values`；形态为 `entity`、`person`、`product`、`service`、`contract` |
+| 属性槽 | 槽名映射到 `schema`（JSON Schema）、`required`、`unit`；子类与祖先约束同时成立 |
+| 属性值 | `absolute`、`relative`、`proportional` 三个槽名映射；同层同槽只选一种 |
+| 有向配对 | `actor_category_id`、`target_category_id`、`action`、`state`、`rule_id`、`coefficient`、`review` |
+| 配对状态 | `defined` 必须有规则和显式系数；`no_effect` 必须有审核；`undefined` 表示未定义。后二者不携带生效规则或系数 |
+| 来源 | `source_id`、`type`、`producer`、`source`、`artifact`、`method`、`paths`、`note`；`paths` 为绝对 JSON Pointer 数组 |
+| 来源种类 | `fact`、`anchored`、`assumption`、`scenario`；生产者为 `human`、`data_source`、`model` |
+| 审核 | `reviewer`、`reviewer_type`、`evidence`、`reason`、`authorization`；人工为 `human`，委托审查为 `delegated_agent`，两种身份都必须记录非空授权来源 |
+
+动作闭集为 `purchase`、`consume:eat`、`consume:use`、`work:settle`、`travel:walking`、`travel:driving`。
+规则共同字段为 `rule_id`、`category_id`、`action`、`operator`、`resource_id`、`unit`、`conservation`。
+`conservation` 只取 `open` 或 `closed`，必须与资源定义一致。
+
+| `operator` | 专属字段 |
+| --- | --- |
+| `purchase_transfer` | `price_slot`、`from_role`、`to_role` |
+| `food_energy_source` | `energy_slot`、`duration_slot` |
+| `durable_use` | 可选 `effect_slot` |
+| `travel_fare` | `minimum_fen`、`fen_per_meter` |
+| `work_hourly` | `rate_slot`、`maximum_duration_slot` |
+| `work_piece` | `rate_slot` |
+| `work_package` | `amount_slot` |
+| `inventory_transform` | `input_category_id`、`output_category_id`、`input_quantity`、`output_quantity`、`inventory_unit` |
+
+购买规则的 `from_role` 必须为 `buyer`，不允许声明另一付款人而仍从人物账户扣款。
+`merchant` 是购买规则的商户角色；对象有效属性 `merchant_role` 将它绑定到场景的具体账户角色，
+例如 `merchant:grocery`。库存仍使用 `kind=level` 的资源定义，不增加第三种资源形态。
+场景 `recipe_output_bindings` 为输出品类身份到输出对象身份的映射；没有配方的场景使用空对象。
+库存配方按实际缩放数量检查库存，保留可表示的微量变化，不固定保留小数位，也不以库存容差放行不足输入。
+正数量若下溢为零、超出有限数值范围或无法形成实际库存变化，以
+`INVENTORY_RECIPE_QUANTITY_UNREPRESENTABLE` 拒绝，不扣加库存或推进配方活动；
+受理拒绝仍正常记录 `action_rejected` 与 `action_result`。配方完成提交失败时，
+库存、活动进度和该次足迹事务保持原值。
+原始对象不得写 `edges`、公式或旧的 `object_kind` 字段。
+
+目录和运行清单共享 `category_contract_version`、`category_contract_sha256`、
+`exchange_rules_sha256`、`catalog_content_sha256`。前三者绑定契约版本及两个原始文件的字节；
+最后一项绑定对象、资源、墓碑、契约、交换规则、可供性与规则文件，以及排除该摘要自身的规范化清单。
+检查点与导出继续保存原始运行清单，字段的持久化责任见 [记录引擎](design/05-recording-engine.md)。
 
 ## 语料内容目录字段
 
@@ -928,6 +991,13 @@ JSONL 实际每个对象一行；`input.text_field = "evidence"` 使用 LabelKit
 | `profile compile` | `text`, `runs`, `out` | 编译指定文本的人物卡片、大五与世界层动力学，输出卡片、渲染文本与溯源 |
 | `profile check` | `text`, `runs` | 重复编译并断言卡片一致性与大五众数稳定 |
 | `profile validate` | `scenario_path`, `coverage_out` | 校验场景人物卡片的世界可执行覆盖并写 `persona_coverage.json` |
+| `category check` | `--catalog`，可选 `--queries`、`--run-dir` | 严格加载目录，报告三态配对查询与真实规则触达次数 |
+| `category refine` | `--catalog`、`--candidate`、`--parent-category`，可选 `--run-dir` | 列出对象归属建议、规则与配对变化；不改旧目录 |
+| `category publish` | `--catalog`、`--candidate`、`--output`、`--assignments`、可重复的 `--scenario` | 检查完整候选与场景，将递增版本原子发布到新路径 |
+
+`category check --queries` 读取 JSON 数组，每项恰含 `actor_category_id`、`target_category_id`、`action`。
+`category publish --assignments` 读取对象身份到品类身份的 JSON 映射；没有改挂时显式传空对象。
+维护命令成功向标准输出写一个 JSON 对象，发布命令至少要求一份真实场景。
 
 ### 运行状态枚举
 
@@ -988,3 +1058,4 @@ RunPhase = Literal[
 | 2026-09-20-boundaries | 2026-09-20 | 运行状态与公共日志合同由运行宿主管理，记录引擎仅提供已保存事实的查询与完整性诊断 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
 | `2026-09-20-interaction-menu` | 2026-09-20 | 冻结地点类与人物交互菜单声明、观察证据、模型与宿主共同门控及环境拒绝合同 |
+| 2026-09-20-category | 2026-09-20 | 冻结品类、对象增量、来源审核、闭集交换算子、库存输出绑定、维护命令与内容身份字段 |

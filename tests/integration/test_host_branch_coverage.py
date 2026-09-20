@@ -24,6 +24,8 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention
+from worldmock.life.run_identity import category_identity
+from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import (
     CounterfactualRequest,
     ResumeRequest,
@@ -322,13 +324,14 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
     from worldmock.runtime import two_stage_model_identity
-    from worldmock.life.scenario import load_scenario
 
+    semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
                 "model_identity": _model_identity().model_dump(mode="json"),
                 "two_stage_model_identity": two_stage_model_identity(),
                 "code_sha256": runtime_code_sha256(ROOT),
-                "scenario_sha256": load_scenario(SCENARIO)[1]}
+                "scenario_sha256": scenario_sha256,
+                **category_identity(semantics)}
     state = {"version": 0, "current_time": 1767225600}
     parent = FootprintStore.create(tmp_path / "parent", manifest, state)
     workspace = (workspace_builder or _agent_workspace)(tmp_path)

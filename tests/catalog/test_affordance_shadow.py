@@ -232,6 +232,14 @@ def test_attention_sampling_constants(view) -> None:
         == MAX_CANDIDATES == 26
 
 
+def test_attention_params_rejects_a_family_without_content_attention(view) -> None:
+    """@brief 非内容注意力家族不能伪造采样参数。"""
+    from worldmock.errors import IntegrityError
+
+    with pytest.raises(IntegrityError, match="declares no content attention"):
+        view.attention_params("continue")
+
+
 def test_attention_required_keys(view) -> None:
     """@brief M4：attention_required=true 键集 = 娱乐 5 + 生活 9 = 14 键
     （画像键集由注册表驱动：MotivationProfile 动态键按此键集核对）。"""
@@ -287,6 +295,7 @@ def test_met_lookup_keys_match_activities(view) -> None:
     config = SimpleNamespace(activity_met={
         "sleep": 1.0, "travel:driving": 2.0, "travel:walking": 3.0, "lifestyle:jianshen": 4.0})
     assert view.met_lookup_key("sleep") == "sleep"
+    assert view.met_lookup_key("travel") == "travel"
     assert _activity_met(ActivityKind.SLEEP, None, config) == 1.0
     assert view.met_lookup_key("travel", travel_mode=TravelMode.DRIVING) == "travel:driving"
     assert _activity_met(ActivityKind.TRAVEL, TravelMode.DRIVING, config) == 2.0
@@ -388,6 +397,27 @@ def test_malformed_toml_rejected(tmp_path) -> None:
 def test_wrong_version_rejected(tmp_path) -> None:
     """@brief 版本：version != 1 即拒绝。"""
     _load_rejects(tmp_path, MINIMAL_TOML.replace("version = 1", "version = 2"), "version")
+
+
+def test_unknown_top_level_table_rejected(tmp_path) -> None:
+    """@brief 根级多余表不能被静默忽略。"""
+    _load_rejects(tmp_path, MINIMAL_TOML + "\n[extra]\nvalue = 1\n", "unknown tables")
+
+
+def test_registry_requires_kinds_and_families(tmp_path) -> None:
+    """@brief 注册表的 kinds 与 families 两个核心表都必须非空。"""
+    without_kinds = """\
+version = 1
+[families.continue]
+kinds = ["wait"]
+attention = { kind = "none" }
+habit_members = [{ tool = "start_basic_activity", activity_type = "*" }]
+candidate = { generator = "continue_current" }
+enumeration_rank = 30
+"""
+    without_families = MINIMAL_TOML.split("[families.continue]", 1)[0]
+    _load_rejects(tmp_path, without_kinds, "declares no kinds")
+    _load_rejects(tmp_path, without_families, "declares no families")
 
 
 def test_unknown_generator_rejected(tmp_path) -> None:

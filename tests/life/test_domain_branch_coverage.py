@@ -10,6 +10,7 @@ rules/content/work/work_review/game/travel/semantics/motivation/narration/social
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import hashlib
 import json
 import os
@@ -17,16 +18,14 @@ from dataclasses import replace
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
 from worldmock.catalog import (
     Catalog,
-    CatalogManifest,
     ExchangeObject,
-    FormulaDeclaration,
     ResourceDefinition,
     load_catalog,
 )
@@ -46,7 +45,7 @@ from worldmock.life.basket import (
     meal_duration,
     meal_food_rate,
     purchase_order,
-    validate_meal,
+    validate_meal_use,
 )
 from worldmock.life.commerce import deliver_order, purchase
 from worldmock.life.content import (
@@ -204,12 +203,14 @@ def _product(product_id="food-1", price=800, kcal=600, location="market",
     serving = {"serving_quantity": 1.0, "serving_unit": "serving"} if "eat" in use_modes else {}
     return ProductConfig.model_validate({
         "product_id": product_id, "name": "Test food", "merchant_account_id": "merchant:g",
+        "category_id": "food" if "eat" in use_modes else "durable",
         "merchant_location_id": location, "price_fen": price, "price_version": "v1",
         "initial_stock": 5, "energy_kcal_per_unit": kcal if "eat" in use_modes else 0,
         "use_duration_seconds": duration, "use_modes": list(use_modes),
         "consumable": consumable, "effect": effect,
         "required_location_id": required_location,
-        "delivery_delay_seconds": 600, "source_kind": "test", **serving})
+        "delivery_delay_seconds": 600, "source_kind": "test", "inventory_unit": "item",
+        **serving})
 
 
 def _route(route_id="r1", origin="market", destination="home", mode="driving",
@@ -463,25 +464,25 @@ def test_basket_validate_meal_item_count_and_non_food_single(meal_request, code)
     """进食 1-3 件、非食品单件（`docs/dev/SPEC-life-realism.md`「商务与进食」）。"""
     products = {"food-1": _product()}
     with pytest.raises(BusinessRuleError, match=code):
-        validate_meal(_agent(), products, meal_request)
+        validate_meal_use(_agent(), products, meal_request)
 
 
 def test_basket_validate_meal_rejects_unknown_product() -> None:
     """进食校验对目录外商品拒绝。"""
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
-        validate_meal(_agent(), {}, _consume())
+        validate_meal_use(_agent(), {}, _consume())
 
 
 def test_basket_validate_meal_rejects_mode_and_location_violations() -> None:
     """使用方式不符与要求地点不符分别拒绝。"""
     mode_product = _product(use_modes=("eat",))
     with pytest.raises(BusinessRuleError, match="PRODUCT_USE_MODE_NOT_ALLOWED"):
-        validate_meal(_agent(), {"food-1": mode_product},
+        validate_meal_use(_agent(), {"food-1": mode_product},
                       _consume(use_mode="use"))
     bound = _product(product_id="food-k", required_location="kitchen")
     holder = _agent(inventory={"home": {"food-k": 1.0}})
     with pytest.raises(BusinessRuleError, match="PRODUCT_USE_LOCATION_REQUIRED"):
-        validate_meal(holder, {"food-k": bound},
+        validate_meal_use(holder, {"food-k": bound},
                       _consume(product_id="food-k"))
 
 
@@ -1177,9 +1178,9 @@ def test_load_work_oracle_rejects_broken_payloads(tmp_path) -> None:
                         "source_reference": "ref.xml"}).encode()))
 
 
-def test_prepare_work_submission_rejects_piece_oracle_without_positive_count(
+def test_prepare_work_submission_rejects_piece_oracle_without_count(
         tmp_path) -> None:
-    """计件合同 oracle 缺正件数时付款换算拒绝。"""
+    """计件合同 oracle 缺件数时付款换算拒绝。"""
     from worldmock.life.models import SubmitWorkRequest
     raw = "材料正文" * 20
     _write(tmp_path, "work/in.txt", raw.encode())
@@ -1187,8 +1188,7 @@ def test_prepare_work_submission_rejects_piece_oracle_without_positive_count(
     _write(tmp_path, "work/ref.json", reference)
     oracle = json.dumps({"expected": {"summary": ["s1"], "decisions": [],
                                       "action_items": []},
-                         "source_reference": "ref.json",
-                         "piece_count": 0}).encode()
+                         "source_reference": "ref.json"}).encode()
     _write(tmp_path, "work/oracle.json", oracle)
     zone = ZoneInfo(TIMEZONE)
     task = WorkTaskConfig.model_validate({
@@ -1211,11 +1211,12 @@ def test_prepare_work_submission_rejects_piece_oracle_without_positive_count(
     state = _world(agent, accounts={"employer:1": 10 ** 9})
     state.activities["w1"] = done
     scenario = _life_scenario().model_copy(update={"tasks": (task,)})
+    semantics = replace(_semantics(), scenario=scenario)
     request = SubmitWorkRequest.model_construct(
         task_id="task-piece",
         deliverable=SimpleNamespace(model_dump=lambda **_k: {}))
-    with pytest.raises(IntegrityError, match="no positive piece count"):
-        prepare_work_submission(state, scenario, tmp_path, 1, request)
+    with pytest.raises(IntegrityError, match="EXCHANGE_PIECE_COUNT_MISSING"):
+        prepare_work_submission(state, semantics, tmp_path, 1, request)
 
 
 def test_load_work_input_rejects_symlinked_files(tmp_path) -> None:
@@ -1236,16 +1237,17 @@ def test_prepare_work_submission_rejects_unknown_or_invisible_task(tmp_path) -> 
     task = _work_task()
     scenario = _life_scenario()
     scenario = scenario.model_copy(update={"tasks": (task,)})
+    semantics = replace(_semantics(), scenario=scenario)
     agent = _agent(visible_task_ids=set())
     state = _world(agent)
     request = SubmitWorkRequest.model_construct(task_id="missing",
                                                 deliverable=SimpleNamespace())
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_FOUND"):
-        prepare_work_submission(state, scenario, tmp_path, 1, request)
+        prepare_work_submission(state, semantics, tmp_path, 1, request)
     request = SubmitWorkRequest.model_construct(task_id="task-1",
                                                 deliverable=SimpleNamespace())
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_VISIBLE"):
-        prepare_work_submission(state, scenario, tmp_path, 1, request)
+        prepare_work_submission(state, semantics, tmp_path, 1, request)
 
 
 # ---------------------------------------------------------------------------
@@ -1742,45 +1744,33 @@ def test_load_runtime_scenario_wraps_catalog_load_failures(tmp_path) -> None:
                               catalog_dir=tmp_path / "missing-catalog")
 
 
-def _manifest(sem: ScenarioSemantics) -> CatalogManifest:
-    return CatalogManifest(version_major=sem.catalog.version_major,
-                           version_minor=sem.catalog.version_minor)
-
-
 def _resources_catalog(sem, mutate) -> Catalog:
     data = {key: value.model_dump() for key, value in sem.catalog.resources.items()}
     mutate(data)
     rebuilt = {key: ResourceDefinition.model_validate(value) for key, value in data.items()}
-    return Catalog.build(_manifest(sem), rebuilt, dict(sem.catalog.objects),
-                         dict(sem.catalog.formulas), dict(sem.catalog.tombstones))
+    return replace(sem.catalog, resources=MappingProxyType(rebuilt))
 
 
-def _formulas_catalog(sem, mutate) -> Catalog:
-    data = {key: value.model_dump() for key, value in sem.catalog.formulas.items()}
-    mutate(data)
-    rebuilt = {key: FormulaDeclaration.model_validate(value) for key, value in data.items()}
-    return Catalog.build(_manifest(sem), dict(sem.catalog.resources),
-                         dict(sem.catalog.objects), rebuilt,
-                         dict(sem.catalog.tombstones))
+def _travel_time_catalog(sem, mutate) -> Catalog:
+    content = mutate(sem.catalog.travel_time_rules_bytes)
+    return replace(sem.catalog, travel_time_rules_bytes=content)
 
 
 def _objects_catalog(sem, mutate) -> Catalog:
-    data = {key: value.model_dump() for key, value in sem.catalog.objects.items()}
+    data = {key: _thaw(value.model_dump()) for key, value in sem.catalog.objects.items()}
     mutate(data)
     rebuilt = {key: ExchangeObject.model_validate(value) for key, value in data.items()}
-    return Catalog.build(_manifest(sem), dict(sem.catalog.resources), rebuilt,
-                         dict(sem.catalog.formulas), dict(sem.catalog.tombstones))
+    return replace(sem.catalog, objects=MappingProxyType(rebuilt))
 
 
 MILK = "food-6923644266066"
 
 
-def test_travel_fare_rejects_missing_formula_or_mode_branch() -> None:
-    """出行费率公式缺席或无该方式分支时求值拒绝。"""
+def test_travel_fare_rejects_an_unknown_mode() -> None:
+    """出行费率只接受冻结动作集合中的出行方式。"""
     sem = _semantics()
-    no_formula = _formulas_catalog(sem, lambda data: data.pop("travel-fare"))
-    with pytest.raises(IntegrityError, match="no branch for mode"):
-        replace(sem, catalog=no_formula).travel_fare("driving", 100)
+    with pytest.raises(IntegrityError, match="has no category action"):
+        sem.travel_fare("biking", 100)
 
 
 def _at_hour(hour: int) -> int:
@@ -1788,41 +1778,35 @@ def _at_hour(hour: int) -> int:
 
 
 @pytest.mark.parametrize(
-    ("mutate", "hour", "match"),
+    ("mutate", "match"),
     (
-        (lambda data: data.pop("travel-time"), 12, "not declared"),
-        (lambda data: data["travel-time"]["branches"].pop("driving_05"), 5,
-         "no branch for driving_05"),
-        (lambda data: data["travel-time"]["branches"].__setitem__(
-            "driving_05", {"amount": "fast"}), 5, "not numeric"),
-        (lambda data: data["travel-time"]["branches"].__setitem__(
-            "driving_05", {"amount": "9"}), 5, "outside"),
+        (lambda data: b"", "unsupported shape"),
+        (lambda data: data.replace(b"driving_05 = 1.00\n", b""), "closed branch set"),
+        (lambda data: data.replace(b"driving_05 = 1.00", b'driving_05 = "fast"'), "not numeric"),
+        (lambda data: data.replace(b"driving_05 = 1.00", b"driving_05 = 9.0"), "outside"),
     ),
 )
-def test_travel_time_factor_rejects_missing_nonnumeric_or_out_of_bounds(
-        mutate, hour, match) -> None:
-    """分时系数公式：缺席/缺分支/非数值/越界逐项拒绝。"""
+def test_travel_time_profile_rejects_missing_nonnumeric_or_out_of_bounds(
+        mutate, match) -> None:
+    """分时数值表缺席、缺分支、非数值与越界逐项拒绝。"""
     sem = _semantics()
-    drifted = _formulas_catalog(sem, mutate)
     with pytest.raises(IntegrityError, match=match):
-        replace(sem, catalog=drifted).travel_time_factor("driving", _at_hour(hour))
+        assemble_semantics(sem.document, _travel_time_catalog(sem, mutate))
 
 
 @pytest.mark.parametrize(
     ("mutate", "match"),
     (
-        (lambda data: data["travel-time"]["branches"].pop("walking"), "walking branch"),
-        (lambda data: data["travel-time"]["branches"].__setitem__(
-            "walking", {"amount": "2"}), "constant 1.0"),
-        (lambda data: data["travel-time"]["branches"].pop("driving_13"), "driving_13"),
+        (lambda data: data.replace(b"walking = 1.0\n", b""), "closed branch set"),
+        (lambda data: data.replace(b"walking = 1.0", b"walking = 2.0"), "must be 1.0"),
+        (lambda data: data.replace(b"driving_13 = 1.22\n", b""), "closed branch set"),
     ),
 )
 def test_assembly_rejects_travel_time_shape_drift(mutate, match) -> None:
-    """组装准入：分时公式形状漂移逐项拒绝。"""
+    """组装准入：分时数值表形状漂移逐项拒绝。"""
     sem = _semantics()
-    drifted = _formulas_catalog(sem, mutate)
     with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, drifted)
+        assemble_semantics(sem.document, _travel_time_catalog(sem, mutate))
 
 
 @pytest.mark.parametrize(
@@ -1856,41 +1840,39 @@ def test_assembly_rejects_resource_drift(mutate, match) -> None:
 
 
 def _objects_drifted(sem: ScenarioSemantics, mutate) -> Catalog:
-    data = {key: value.model_dump() for key, value in sem.catalog.objects.items()}
+    data = {key: _thaw(value.model_dump()) for key, value in sem.catalog.objects.items()}
     mutate(data)
     rebuilt = {key: ExchangeObject.model_validate(value) for key, value in data.items()}
-    return Catalog.build(_manifest(sem), dict(sem.catalog.resources), rebuilt,
-                         dict(sem.catalog.formulas), dict(sem.catalog.tombstones))
+    return replace(sem.catalog, objects=MappingProxyType(rebuilt))
 
 
 def _duplicate_edge(data: dict, object_id: str, on: str) -> None:
-    """复制某对象一条边并补一条唯一溯源（使该 on 的边不唯一）。"""
+    """复制某对象一条边，使该 on 的编译边不唯一。"""
     matches = tuple(edge for edge in data[object_id]["edges"] if edge.get("on") == on)
-    data[object_id]["edges"] = data[object_id]["edges"] + (dict(matches[0]),)
-    provenance = dict(data[object_id]["provenance"][0])
-    provenance["part"] = provenance["part"] + "-dup"
-    data[object_id]["provenance"] = data[object_id]["provenance"] + (provenance,)
+    data[object_id]["edges"] = data[object_id]["edges"] + [dict(matches[0])]
+
+
+def _thaw(value):
+    """@brief 把只读目录嵌套值复制成测试可变结构。"""
+    if isinstance(value, Mapping):
+        return {key: _thaw(item) for key, item in value.items()}
+    if isinstance(value, tuple | list):
+        return [_thaw(item) for item in value]
+    return value
 
 
 @pytest.mark.parametrize(
     ("mutate", "match"),
     (
         (lambda data: data.pop("travel-service"), "travel-service"),
-        (lambda data: _duplicate_edge(data, "travel-service", "depart"),
-         "depart edge"),
         (lambda data: data.pop("contract-package"), "contract-package"),
-        (lambda data: _duplicate_edge(data, "contract-package", "settle"),
-         "settle edge"),
-        (lambda data: data["contract-hourly"].__setitem__("efficiency", None),
-         "efficiency params"),
-        (lambda data: data["contract-hourly"]["efficiency"].__setitem__(
+        (lambda data: data["contract-hourly"]["attributes"].__setitem__(
             "work_notes_multiplier", 5.0), "disagree on work_notes_multiplier"),
-        (lambda data: data["contract-hourly"]["efficiency"][
+        (lambda data: data["contract-hourly"]["attributes"][
             "work_efficiency_factors"][0].__setitem__("input_resource", "zzz"),
          "disagree on work_efficiency_factors"),
-        (lambda data: data[MILK].__setitem__(
-            "edges", [edge for edge in data[MILK]["edges"]
-                      if edge.get("on") != "purchase"]), "purchase edge"),
+        (lambda data: data[MILK]["attributes"].__setitem__("price_fen", True),
+         "price exchange failed"),
     ),
 )
 def test_assembly_rejects_object_drift(mutate, match) -> None:
@@ -1911,20 +1893,6 @@ def test_assembly_rejects_duplicate_consume_edges() -> None:
         assemble_semantics(sem.document, _objects_drifted(sem, mutate))
 
 
-def test_assembly_rejects_formula_priced_product() -> None:
-    """静态价格目录不接受公式定价商品。"""
-    sem = _semantics()
-
-    def mutate(data):
-        for edge in data[MILK]["edges"]:
-            if edge.get("on") == "purchase":
-                edge["amount_fen"] = {"formula_ref": "travel-fare", "params": {}}
-
-    drifted = _objects_catalog(sem, mutate)
-    with pytest.raises(IntegrityError, match="dynamic price formula"):
-        assemble_semantics(sem.document, drifted)
-
-
 def test_assembly_rejects_unknown_or_mistyped_product_references() -> None:
     """商品引用：目录外对象与非商品对象都拒绝。"""
     sem = _semantics()
@@ -1934,7 +1902,7 @@ def test_assembly_rejects_unknown_or_mistyped_product_references() -> None:
         assemble_semantics(sem.document.model_copy(update={"products": (unknown,)}),
                            load_catalog(Path("catalog")))
     mistyped = base.model_copy(update={"product_id": "travel-service"})
-    with pytest.raises(IntegrityError, match="not a product"):
+    with pytest.raises(IntegrityError, match="undefined purchase"):
         assemble_semantics(sem.document.model_copy(update={"products": (mistyped,)}),
                            load_catalog(Path("catalog")))
 
@@ -1954,36 +1922,15 @@ def test_assembly_rejects_stockless_product_reference() -> None:
                            drifted)
 
 
-def test_contract_payment_rejects_missing_template_or_settle_formula() -> None:
-    """合同付款查表：模板缺席或结算边无公式即拒绝。"""
+def test_contract_payment_rejects_a_missing_template() -> None:
+    """合同付款必须能取得对应的冻结模板对象。"""
     from worldmock.life.models import ContractKind
     sem = _semantics()
     shell = WorkTaskConfig.model_construct(
         contract_kind=ContractKind.HOURLY, pay_fen=60000, maximum_duration_seconds=28800)
     missing = _objects_drifted(sem, lambda data: data.pop("contract-hourly"))
-    with pytest.raises(IntegrityError, match="is not in the catalog"):
+    with pytest.raises(IntegrityError, match="is missing"):
         replace(sem, catalog=missing).contract_payment(shell, 0, None)
-
-    def strip_formula(data):
-        for edge in data["contract-hourly"]["edges"]:
-            if edge.get("on") == "settle":
-                edge["formula"] = None
-                edge["amount"] = edge.get("amount") or 100
-
-    with pytest.raises(IntegrityError, match="settle formula"):
-        replace(sem, catalog=_objects_drifted(sem, strip_formula)).contract_payment(
-            shell, 0, None)
-
-
-def test_expression_evaluator_covers_parentheses_unary_and_malformed_forms() -> None:
-    """公式求值闭集：括号、一元负号、拖尾记号与残缺表达式。"""
-    from worldmock.life.semantics import evaluate_int_expression
-    assert evaluate_int_expression("(1 + 2) * 3", {}) == 9
-    assert evaluate_int_expression("0 - -3", {}) == 3
-    with pytest.raises(IntegrityError, match="trailing tokens"):
-        evaluate_int_expression("1 2", {})
-    with pytest.raises(IntegrityError, match="malformed"):
-        evaluate_int_expression("(1 + 2", {})
 
 
 def test_assembly_requires_unique_role_account_binding() -> None:
@@ -1992,7 +1939,7 @@ def test_assembly_requires_unique_role_account_binding() -> None:
     employer_role = next(item.role for item in sem.document.accounts
                          if item.role.startswith("employer"))
     trimmed = tuple(item for item in sem.document.accounts if item.role != employer_role)
-    with pytest.raises(IntegrityError, match="exactly one scenario account"):
+    with pytest.raises(IntegrityError, match="not declared"):
         assemble_semantics(sem.document.model_copy(update={"accounts": trimmed}),
                            load_catalog(Path("catalog")))
 

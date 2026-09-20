@@ -16,7 +16,7 @@
   "corpus_root": "../corpora",
   "corpus_manifest_sha256": "f7a9f5f738f3924c5ec1b4189b14d626bc05253909dba9f7d28f0740b1f720b2",
   "catalog_version": {
-    "major": 2,
+    "major": 3,
     "minor": 0
   },
   "interaction_menus_by_location_kind": {
@@ -57,6 +57,7 @@
       "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
     }
   },
+  "recipe_output_bindings": {},
   "accounts": [
     {
       "account_id": "merchant:general",

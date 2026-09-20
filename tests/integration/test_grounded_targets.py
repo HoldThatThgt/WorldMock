@@ -166,6 +166,8 @@ def _observations(
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
+        "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
+                             "use_duration_seconds": 300, "required_location_id": None}],
         "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
@@ -260,7 +262,7 @@ def test_failed_run_observation_removes_unreleased_work_and_invented_target() ->
 def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
     """全部公开身份为空时仅保留无需目标的基础活动与当日计划工具。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    overrides = {"products": [], "locations": [], "available_inventory": {}, "routes": []}
+    overrides = {"products": [], "locations": [], "available_inventory": {}, "inventory_items": [], "routes": []}
     functions = _functions(_prepare(empty, overrides=overrides, browse_results=[]))
 
     assert "start_targeted_activity" not in functions
@@ -360,6 +362,7 @@ def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear
                       "current_stock": 0, "use_modes": ["eat"], "use_duration_seconds": 300,
                       "merchant_location_id": "home", "required_location_id": None}],
         "available_inventory": {"product-visible": 0.0},
+        "inventory_items": [],
         "routes": [],
     }))
     assert {"purchase", "consume", "submit_work", "start_travel", "game_action"}.isdisjoint(removed)
@@ -908,7 +911,7 @@ def test_purchase_rejects_mixed_merchants_before_dispatch() -> None:
          "merchant_location_id": "office", "required_location_id": None},
     ]
     agent = _prepare(_catalogs(), overrides={"products": products,
-                                             "available_inventory": {}})
+                                             "available_inventory": {}, "inventory_items": []})
     mixed = {"items": [
         {"product_id": "product-home", "quantity": 1, "price_version": "price-v1"},
         {"product_id": "product-office", "quantity": 1, "price_version": "price-v2"}],
@@ -918,8 +921,8 @@ def test_purchase_rejects_mixed_merchants_before_dispatch() -> None:
         [ReactDecision("", "purchase", mixed, "")], False)
 
 
-def test_consume_multi_item_meal_duration_and_held_quantity() -> None:
-    """多件进食时长取最长者，件数与持有量本地拒绝越界。"""
+def test_consume_multi_item_meal_duration_and_quantity_authority() -> None:
+    """多件进食时长取最长者，件数在本地校验，份数的实际扣量交给环境。"""
     products = [
         {"product_id": "food-rice", "price_version": "price-v1", "current_stock": 2,
          "use_modes": ["eat"], "use_duration_seconds": 1200,
@@ -930,6 +933,11 @@ def test_consume_multi_item_meal_duration_and_held_quantity() -> None:
     ]
     agent = _prepare(_catalogs(), overrides={
         "products": products,
+        "inventory_items": [
+            {"product_id": "food-rice", "name": "米饭", "use_modes": ["eat"],
+             "use_duration_seconds": 1200, "required_location_id": None},
+            {"product_id": "food-tea", "name": "茶", "use_modes": ["eat"],
+             "use_duration_seconds": 300, "required_location_id": None}],
         "available_inventory": {"food-rice": 2.0, "food-tea": 1.0}})
     properties = _functions(agent)["consume"]["parameters"]["properties"]
 
@@ -953,7 +961,7 @@ def test_consume_multi_item_meal_duration_and_held_quantity() -> None:
         [ReactDecision("", "consume", legal, "")], False) == ""
     assert "does not match" in agent.validate_react_decisions(
         [ReactDecision("", "consume", wrong_duration, "")], False)
-    assert "current local inventory" in agent.validate_react_decisions(
-        [ReactDecision("", "consume", over_held, "")], False)
+    assert agent.validate_react_decisions(
+        [ReactDecision("", "consume", over_held, "")], False) == ""
     assert "one to three items" in agent.validate_react_decisions(
         [ReactDecision("", "consume", four_items, "")], False)

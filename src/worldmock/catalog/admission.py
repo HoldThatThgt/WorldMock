@@ -17,16 +17,13 @@ from pydantic import ConfigDict, Field, ValidationError, model_validator
 from worldmock.catalog.models import (
     Catalog,
     CatalogModel,
+    CompiledEdge,
     Conservation,
-    ConvertEdge,
     DrainEdge,
-    Edge,
-    ExchangeObject,
-    FormulaBinding,
     ResourceKind,
+    RuleEdge,
     SourceEdge,
     TransferEdge,
-    is_role_placeholder,
 )
 from worldmock.life.retrieval import entry_from_content, feasible_kinds
 
@@ -36,7 +33,7 @@ CONSERVATION_DOMAIN_VIOLATION = "CONSERVATION_DOMAIN_VIOLATION"
 INITIAL_VALUE_OUT_OF_BOUNDS = "INITIAL_VALUE_OUT_OF_BOUNDS"
 TOMBSTONED_REFERENCE = "TOMBSTONED_REFERENCE"
 SCHEDULE_INVALID = "SCHEDULE_INVALID"
-FORMULA_REF_UNKNOWN = "FORMULA_REF_UNKNOWN"
+RULE_REF_UNKNOWN = "RULE_REF_UNKNOWN"
 CATALOG_VERSION_PIN_MISMATCH = "CATALOG_VERSION_PIN_MISMATCH"
 
 
@@ -146,11 +143,11 @@ def validate_scenario_against_catalog(
     _check_initial_bounds(refs, catalog, violations)
     _check_tombstones(refs, catalog, violations)
     _check_schedule(refs, catalog, violations)
-    _check_formula_refs(refs, catalog, violations)
+    _check_rule_refs(refs, catalog, violations)
     return AdmissionResult(ok=not violations, violations=tuple(violations))
 
 
-def _referenced_edges(refs: ScenarioCatalogRefs, catalog: Catalog) -> Iterator[Edge]:
+def _referenced_edges(refs: ScenarioCatalogRefs, catalog: Catalog) -> Iterator[CompiledEdge]:
     """@brief 产出场景引用对象的全部边。"""
     for object_ref in refs.objects:
         obj = catalog.objects.get(object_ref.object_id)
@@ -214,30 +211,26 @@ def _check_reference_integrity(
                 )
             )
     for edge in _referenced_edges(refs, catalog):
-        for endpoint in _edge_resource_ids(edge):
-            if endpoint not in catalog.resources:
+        for resource_id in _edge_resource_ids(edge, catalog):
+            if resource_id not in catalog.resources:
                 violations.append(
                     AdmissionViolation(
                         CATALOG_REF_INTEGRITY,
-                        f"edge references resource {endpoint} not in catalog",
+                        f"edge references resource {resource_id} not in catalog",
                     )
                 )
 
 
-def _edge_resource_ids(edge: Edge) -> tuple[str, ...]:
-    """@brief 返回一条边以字面资源 id 触及的全部端点（占位端点除外）。"""
+def _edge_resource_ids(edge: CompiledEdge, catalog: Catalog) -> tuple[str, ...]:
+    """@brief 返回一条编译边声明触及的资源域。"""
     if isinstance(edge, TransferEdge):
-        return _literal_endpoints((edge.from_account, edge.to_account))
+        return (edge.resource,)
     if isinstance(edge, SourceEdge | DrainEdge):
         return (edge.resource,)
-    if isinstance(edge, ConvertEdge):
-        return _literal_endpoints((edge.from_endpoint, edge.to_endpoint))
+    if isinstance(edge, RuleEdge):
+        rule = catalog.exchange_rules.rules.get(edge.rule_id)
+        return (rule.resource_id,) if rule is not None else ()
     return ()
-
-
-def _literal_endpoints(endpoints: tuple[str, str]) -> tuple[str, ...]:
-    """@brief 过滤掉角色占位端点，只留字面资源 id。"""
-    return tuple(endpoint for endpoint in endpoints if not is_role_placeholder(endpoint))
 
 
 def _check_units(
@@ -271,110 +264,50 @@ def _check_units(
 
 
 def _check_edge_units(
-    edge: Edge,
+    edge: CompiledEdge,
     refs: ScenarioCatalogRefs,
     catalog: Catalog,
     violations: list[AdmissionViolation],
 ) -> None:
-    """@brief 校验单条边的显式单位、两端单位一致与公式输出单位。"""
+    """@brief 校验单条编译边的显式单位及转账角色资源。"""
     if isinstance(edge, TransferEdge):
-        target_unit = _resolved_unit(
-            (edge.from_account, edge.to_account), edge.account_roles, refs, catalog,
-            violations, compare=True,
-        )
-    elif isinstance(edge, ConvertEdge):
-        target_unit = _resolved_unit(
-            (edge.from_endpoint, edge.to_endpoint), edge.account_roles, refs, catalog,
-            violations, compare=False,
-        )
+        _check_transfer_roles(edge, refs, violations)
+        resource_id = edge.resource
+    elif isinstance(edge, RuleEdge):
+        rule = catalog.exchange_rules.rules.get(edge.rule_id)
+        resource_id = rule.resource_id if rule is not None else None
     else:
-        target = edge.resource
-        resource = catalog.resources.get(target)
-        target_unit = resource.unit if resource is not None else None
-    if target_unit is None:
+        resource_id = edge.resource
+    resource = catalog.resources.get(resource_id) if resource_id is not None else None
+    if resource is None or isinstance(edge, RuleEdge):
         return
-    if edge.unit is not None and edge.unit != target_unit:
+    if edge.unit is not None and edge.unit != resource.unit:
         violations.append(
             AdmissionViolation(
                 UNIT_MISMATCH,
-                f"edge unit {edge.unit} != resource unit {target_unit}",
+                f"edge unit {edge.unit} != resource unit {resource.unit}",
             )
         )
-    for binding in _edge_formula_bindings(edge):
-        formula = catalog.formulas.get(binding.formula_ref)
-        if formula is not None and formula.unit != target_unit:
+
+
+def _check_transfer_roles(
+    edge: TransferEdge,
+    refs: ScenarioCatalogRefs,
+    violations: list[AdmissionViolation],
+) -> None:
+    """@brief 要求转账两端角色均绑定到规则声明的同一资源域。"""
+    if edge.account_roles is None:
+        return
+    accounts = _accounts_by_role(refs)
+    for role in (edge.account_roles.from_role, edge.account_roles.to_role):
+        account = accounts.get(role)
+        if account is None or account.resource_id != edge.resource:
             violations.append(
                 AdmissionViolation(
                     UNIT_MISMATCH,
-                    f"formula {binding.formula_ref} unit {formula.unit}"
-                    f" != resource unit {target_unit}",
+                    f"transfer role {role} does not bind resource {edge.resource}",
                 )
             )
-
-
-def _resolved_unit(
-    endpoints: tuple[str, str],
-    account_roles,
-    refs: ScenarioCatalogRefs,
-    catalog: Catalog,
-    violations: list[AdmissionViolation],
-    compare: bool,
-) -> str | None:
-    """@brief 解析 transfer/convert 两端的目标单位。
-
-    字面端点查注册表；占位端点经 account_roles 绑定到场景账户的类型级资源。
-    compare 为 True（transfer）时两端必须同单位；convert 只取产出端。
-    """
-    roles = _accounts_by_role(refs)
-    resolved = [
-        _resolved_resource_id(endpoint, direction, account_roles, roles)
-        for endpoint, direction in zip(endpoints, ("from", "to"))
-    ]
-    if not compare:
-        target = resolved[1]
-        resource = catalog.resources.get(target) if target is not None else None
-        return resource.unit if resource is not None else None
-    units = [
-        catalog.resources[target].unit
-        for target in resolved
-        if target is not None and target in catalog.resources
-    ]
-    if len(units) == 2 and units[0] != units[1]:
-        violations.append(
-            AdmissionViolation(
-                UNIT_MISMATCH,
-                f"edge endpoints use units {units[0]} and {units[1]}",
-            )
-        )
-        return None
-    target = next((candidate for candidate in resolved if candidate is not None), None)
-    resource = catalog.resources.get(target) if target is not None else None
-    return resource.unit if resource is not None else None
-
-
-def _resolved_resource_id(
-    endpoint: str,
-    direction: str,
-    account_roles,
-    roles: Mapping[str, ScenarioAccountRef],
-) -> str | None:
-    """@brief 把单个端点解析为资源 id：字面端点原样，占位端点走角色绑定。"""
-    if not is_role_placeholder(endpoint):
-        return endpoint
-    if account_roles is None:
-        return None
-    role_name = account_roles.from_role if direction == "from" else account_roles.to_role
-    account = roles.get(role_name)
-    return account.resource_id if account is not None else None
-
-
-def _edge_formula_bindings(edge: Edge) -> tuple[FormulaBinding, ...]:
-    """@brief 返回一条边携带的全部公式引用绑定。"""
-    if isinstance(edge, TransferEdge) and isinstance(edge.amount_fen, FormulaBinding):
-        return (edge.amount_fen,)
-    if isinstance(edge, SourceEdge | DrainEdge) and isinstance(edge.amount, FormulaBinding):
-        return (edge.amount,)
-    return ()
 
 
 def _check_conservation_domains(
@@ -382,12 +315,7 @@ def _check_conservation_domains(
     catalog: Catalog,
     violations: list[AdmissionViolation],
 ) -> None:
-    """@brief 第三条：transfer 限于同封闭域账户，source/drain 限于开放域。
-
-    账户实例由场景声明：场景账户的类型资源必须是 closed 账户；transfer/
-    convert 的占位端点必须携带 account_roles 标注、角色已被场景绑定，且绑定
-    类型是 closed 账户；transfer 的字面端点仍按注册表 closed 账户校验。
-    """
+    """@brief 第三条：transfer 限于封闭账户域，source/drain 限于开放域。"""
     for account in refs.accounts:
         resource = catalog.resources.get(account.resource_id)
         if resource is not None and not _is_closed_account(resource):
@@ -398,26 +326,14 @@ def _check_conservation_domains(
                     " which is not a closed account",
                 )
             )
-    roles = _accounts_by_role(refs)
     for edge in _referenced_edges(refs, catalog):
         if isinstance(edge, TransferEdge):
-            _check_transferlike_domains(
-                (edge.from_account, edge.to_account),
-                edge.account_roles,
-                roles,
-                catalog,
-                violations,
-                require_closed_literals=True,
-            )
-        elif isinstance(edge, ConvertEdge):
-            _check_transferlike_domains(
-                (edge.from_endpoint, edge.to_endpoint),
-                edge.account_roles,
-                roles,
-                catalog,
-                violations,
-                require_closed_literals=False,
-            )
+            resource = catalog.resources.get(edge.resource)
+            if resource is not None and not _is_closed_account(resource):
+                violations.append(AdmissionViolation(
+                    CONSERVATION_DOMAIN_VIOLATION,
+                    f"transfer resource {edge.resource} is not a closed account",
+                ))
         elif isinstance(edge, SourceEdge | DrainEdge):
             resource = catalog.resources.get(edge.resource)
             if resource is not None and resource.conservation != Conservation.OPEN:
@@ -427,62 +343,6 @@ def _check_conservation_domains(
                         f"{edge.type} target {edge.resource} is not in an open domain",
                     )
                 )
-
-
-def _check_transferlike_domains(
-    endpoints: tuple[str, str],
-    account_roles,
-    roles: Mapping[str, ScenarioAccountRef],
-    catalog: Catalog,
-    violations: list[AdmissionViolation],
-    require_closed_literals: bool,
-) -> None:
-    """@brief 校验 transfer/convert 端点的守恒域一致性。
-
-    占位端点：account_roles 对应方向必须声明（模型层已强制 account_roles
-    存在，此处解析角色）、角色必须被场景账户绑定、绑定类型必须是 closed
-    账户。字面端点：transfer 要求注册表内 closed 账户；convert 的字面端点
-    是资源折算（如能量→货币），不做 closed 限制。
-    """
-    resolved_domains: list[str] = []
-    for endpoint, direction in zip(endpoints, ("from", "to")):
-        if is_role_placeholder(endpoint):
-            if account_roles is None:
-                continue
-            role_name = account_roles.from_role if direction == "from" else account_roles.to_role
-            account = roles.get(role_name)
-            if account is None:
-                violations.append(
-                    AdmissionViolation(
-                        CONSERVATION_DOMAIN_VIOLATION,
-                        f"edge endpoint {endpoint} binds role {role_name}"
-                        " not declared by scenario accounts",
-                    )
-                )
-                continue
-            resolved_domains.append(account.resource_id)
-        else:
-            resource = catalog.resources.get(endpoint)
-            if resource is None:
-                continue
-            if require_closed_literals and not _is_closed_account(resource):
-                violations.append(
-                    AdmissionViolation(
-                        CONSERVATION_DOMAIN_VIOLATION,
-                        f"transfer endpoint {endpoint} is not a closed account",
-                    )
-                )
-            resolved_domains.append(endpoint)
-    if len(resolved_domains) == 2 and resolved_domains[0] != resolved_domains[1]:
-        violations.append(
-            AdmissionViolation(
-                CONSERVATION_DOMAIN_VIOLATION,
-                f"edge endpoints span closed domains {resolved_domains[0]}"
-                f" and {resolved_domains[1]}",
-            )
-        )
-
-
 def _is_closed_account(resource: object) -> bool:
     """@brief 判断资源是否为封闭守恒域的账户。"""
     return (
@@ -599,30 +459,22 @@ def _check_schedule_entry(
             )
 
 
-def _check_formula_refs(
+def _check_rule_refs(
     refs: ScenarioCatalogRefs,
     catalog: Catalog,
     violations: list[AdmissionViolation],
 ) -> None:
-    """@brief 第八条：对象引用的计费公式必须在注册表中声明。
-
-    覆盖对象顶层 formula_ref 与边金额的公式绑定（travel 类对象的费率公式）。
-    """
+    """@brief 第八条：编译对象的动态边只能引用冻结 typed rule。"""
     for object_ref in refs.objects:
         obj = catalog.objects.get(object_ref.object_id)
         if obj is None:
             continue
-        referenced = [obj.formula_ref] if obj.formula_ref is not None else []
-        referenced.extend(
-            binding.formula_ref for edge in obj.edges for binding in _edge_formula_bindings(edge)
-        )
-        for formula_ref in referenced:
-            if formula_ref not in catalog.formulas:
+        for edge in obj.edges:
+            if isinstance(edge, RuleEdge) and edge.rule_id not in catalog.exchange_rules.rules:
                 violations.append(
                     AdmissionViolation(
-                        FORMULA_REF_UNKNOWN,
-                        f"object {obj.object_id} references formula"
-                        f" {formula_ref} not declared in catalog",
+                        RULE_REF_UNKNOWN,
+                        f"object {obj.object_id} references unknown typed rule {edge.rule_id}",
                     )
                 )
 
