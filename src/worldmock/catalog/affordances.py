@@ -34,7 +34,7 @@ RESOURCE_CLAIM_SLOTS = frozenset({"attention", "device", "hands", "vehicle"})
 #: 习惯归并路由认识的工具名闭集（classify_action_event 的工具面）。
 HABIT_TOOLS = frozenset({
     "continue_activity", "start_basic_activity", "purchase", "consume",
-    "start_travel", "start_targeted_activity", "submit_work",
+    "start_travel", "start_targeted_activity", "submit_work", "discover_places",
 })
 #: 工具面 → 工具名的派生（surface = none 的 kind 不占任何工具）。
 SURFACE_TOOLS: Mapping[str, tuple[str, ...]] = MappingProxyType({

@@ -84,9 +84,9 @@ def test_observe_uses_candidate_contract_and_records_presentation(engine_factory
     """观察投影经候选契约产出商品行，并把本次呈现的留痕写进 presentation_state。"""
     engine = engine_factory()
     merchant = next(item for item in engine.scenario.locations
-                    if item.location_id == engine.scenario.products[0].merchant_location_id)
+                    if item.location_id == engine.scenario.supplies[0].location_id)
     state = engine.state.model_copy(deep=True)
-    state.current_time = _at_hour(engine, merchant.open_hour)
+    state.current_time = _at_hour(engine, 12)
     state.pending_events = [item for item in state.pending_events
                             if item.due_at > state.current_time]
     state.agents[1] = state.agents[1].model_copy(
@@ -107,10 +107,9 @@ def test_observe_uses_candidate_contract_and_records_presentation(engine_factory
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     rows = observed["facts"]["products"]
-    assert [row["product_id"] for row in rows] == list(expected.presented)
-    assert all(set(row) == {"product_id", "name", "price_fen",
-                            "energy_kcal_per_unit", "use_duration_seconds"}
-               for row in rows)
+    assert [row["supply_id"] for row in rows] == list(expected.presented)
+    assert all({"supply_id", "product_id", "location_id", "seller_account_id", "price_fen",
+                "price_version", "current_stock", "opening_status", "source"} <= set(row) for row in rows)
     # 观察边界只暂存留痕：同版本不允许改状态，留痕随下一个提交落盘
     assert engine.state.presentation_state == {}
     engine.submit_action(DirectToolCall(
@@ -121,16 +120,16 @@ def test_observe_uses_candidate_contract_and_records_presentation(engine_factory
     assert set(recorded) == set(expected.presented)
     assert all(value == state.current_time for value in recorded.values())
     # 轮转只改顺序：留痕的条目仍在对象层，不产生下架事件
-    assert set(recorded) <= set(engine.state.merchant_stock)
+    assert set(recorded) <= set(engine.state.supply_stock)
 
 
 def test_next_presentation_rotates_when_the_pool_is_fully_recent(engine_factory) -> None:
     """全部对象刚呈现过时换新名额为空：候选集不变，只是顺序回到排序键口径。"""
     engine = engine_factory()
     merchant = next(item for item in engine.scenario.locations
-                    if item.location_id == engine.scenario.products[0].merchant_location_id)
+                    if item.location_id == engine.scenario.supplies[0].location_id)
     state = engine.state.model_copy(deep=True)
-    state.current_time = _at_hour(engine, merchant.open_hour)
+    state.current_time = _at_hour(engine, 12)
     state.pending_events = [item for item in state.pending_events
                             if item.due_at > state.current_time]
     agent = state.agents[1]
@@ -197,6 +196,25 @@ def test_unknown_cursor_payload_is_rejected_not_silently_restarted() -> None:
     with pytest.raises(ValueError):
         presentation.cursor_offset(json.dumps({"key": [1]}))
     assert presentation.cursor_offset(None) == 0
+
+
+def test_current_moment_candidate_inputs_use_location_timezone_and_opening_calendar(engine_factory) -> None:
+    """当下可行性按地图时区解释分钟秒并保留严格地点门，不能套用 UTC 本地小时。"""
+    from dataclasses import replace
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    import pytest
+
+    engine = engine_factory()
+    now = int(datetime(2026, 1, 5, 12, 34, 30, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
+    context_value = engine._presentation_context(engine.state.agents[1])
+    context_value = replace(context_value, state=engine.state.model_copy(update={"current_time": now}, deep=True))
+    inputs = presentation.candidate_inputs(context_value, presentation.entry_sources(()), moment=True)
+    assert inputs.local_hour == pytest.approx(12 + 34 / 60 + 30 / 3600)
+    assert inputs.current_time == now
+    assert inputs.require_location_instance is True
+    assert inputs.location.opening_status == "open"
 
 
 def test_five_kinds_share_one_three_stage_pipeline(engine_factory) -> None:

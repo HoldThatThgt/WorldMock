@@ -1,0 +1,39 @@
+{
+  "schema_version": 1,
+  "dataset_id": "zhangjiang-map",
+  "version": 1,
+  "coordinate_system": "WGS84",
+  "timezone": "Asia/Shanghai",
+  "bounds": [
+    121.6,
+    31.195,
+    121.64,
+    31.225
+  ],
+  "prepared_at": "2026-09-20T19:08:40.228191+08:00",
+  "source": {
+    "kind": "fact",
+    "url": "https://api.openstreetmap.org/api/0.6/map?bbox=121.6000,31.1950,121.6400,31.2250",
+    "retrieved_at": "2026-09-15T10:30:00+08:00",
+    "license": "ODbL-1.0",
+    "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+    "fact_cutoff": "2026-09-15",
+    "applicability": "September 2026 map and route snapshots support the January-March 2026 simulation geometry; offers, stock, and calendars are explicitly labeled simulation assumptions."
+  },
+  "route_modes": [
+    "walking",
+    "driving"
+  ],
+  "locations_file": {
+    "path": "zhangjiang-map/locations.json",
+    "sha256": "42c9a5967356ba5fd4a548f32891621dbea217f9bf469de61c52df0971017ea5"
+  },
+  "supplies_file": {
+    "path": "zhangjiang-map/supplies.json",
+    "sha256": "c7a0d785015a496321c7cd636b612b735038d91c221b1d417869316ef998726a"
+  },
+  "routes_file": {
+    "path": "zhangjiang-map/routes.json",
+    "sha256": "258c74ed3638a97b9cc607299ff908985362b4d2c541201a45ac5b8bcf1488a3"
+  }
+}

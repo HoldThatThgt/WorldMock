@@ -1,5 +1,5 @@
 {
-  "version_major": 3,
+  "version_major": 4,
   "version_minor": 0,
   "category_requirements": {
     "declared_at": "2026-09-18",
@@ -18,13 +18,15 @@
     "location_required_kinds": [
       "home",
       "office",
-      "canteen_or_restaurant",
+      "restaurant",
       "convenience_store",
-      "supermarket_or_wet_market",
-      "park_or_fitness"
+      "supermarket",
+      "wet_market",
+      "park",
+      "fitness"
     ],
     "location_min_per_kind": {
-      "canteen_or_restaurant": 2
+      "restaurant": 2
     },
     "home_pantry": {
       "breakfast_servings_min": 7,
@@ -61,8 +63,8 @@
       "other_reply_policy": "model"
     }
   },
-  "category_contract_version": 1,
-  "category_contract_sha256": "ef3a88cc58fdcd766804099dd39b29351c02629cf471fcb8f2124b317153b436",
-  "exchange_rules_sha256": "62fd0b28e72161cfa5c8fc3ef6078e43ba3e25d868a73a767d4e2ead20b09275",
-  "catalog_content_sha256": "0636b644c5411fc7b70dc7ba73fa67da78a6d2061a7deb722fe975f936835321"
+  "category_contract_version": 2,
+  "category_contract_sha256": "950861c93f129c51958ddd5b35595e96c54ccd7cfa07e513b25a3764c4ff08b1",
+  "exchange_rules_sha256": "3b5f99743a52c97c1acf65e45ba085d9c84707c00fe530ef4fe3ef9541a8b3ac",
+  "catalog_content_sha256": "1d17a340694150c9021060427b8a412de170cb06f613d8af1dd2a83cd912c0b2"
 }

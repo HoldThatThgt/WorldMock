@@ -52,7 +52,6 @@ class PurchaseTransferRule(RuleBase):
     """@brief 购买时从买方账户向商家账户转移整数货币。"""
 
     operator: Literal[RuleOperator.PURCHASE_TRANSFER]
-    price_slot: str = Field(pattern=r"\S")
     from_role: str = Field(pattern=r"\S")
     to_role: str = Field(pattern=r"\S")
 

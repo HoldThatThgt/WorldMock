@@ -1,14 +1,14 @@
 """@brief 场景语义组装器：引擎与冻结目录之间的唯一通道。
 
 从 load_catalog(catalog_dir) 的目录视图与瘦身场景文档（LifeScenario）组装出
-引擎运行所需的一切静态语义：商品（价格/热量/交付延迟/使用时长/耐用品效果）、
+引擎运行所需的一切静态语义：商品使用定义、持有与配方对象、地图门店供给、
 身体参数（阈值→告警码、MET、基础代谢、效率曲线）、闭集出行费率与三种
 合同付款算子。引擎不直接接触目录，也不从场景文档读取静态语义。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
@@ -28,13 +28,14 @@ from worldmock.catalog import (
     ScenarioScheduleRef,
     ScheduleRefKind,
     SourceEdge,
-    TransferEdge,
     load_catalog,
     validate_scenario_against_catalog,
 )
 from worldmock.categories import (
     Action,
     CategoryError,
+    PurchaseTransferRule,
+    PairingResolution,
     TravelFareRule,
     WorkHourlyRule,
     WorkPackageRule,
@@ -52,6 +53,8 @@ from worldmock.catalog.affordances import (
     load_affordances,
 )
 from worldmock.errors import IntegrityError
+from worldmock.life.map_data import load_map_dataset, select_map
+from worldmock.life.map_models import MapDataset
 from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
 from worldmock.life.category_contract import (
     RuntimeCategoryRule,
@@ -191,27 +194,26 @@ class ScenarioSemantics:
         factor = Decimal(str(self.travel_time_factor(mode, departure_second)))
         return int((factor * int(base_seconds)).to_integral_value(rounding=ROUND_CEILING))
 
-    def with_price(self, product_id: str, amount_fen: int, price_version: str) -> "ScenarioSemantics":
-        """@brief 受控价格替换：按当前冻结配对系数返回新商品语义。
+    def purchase_pairing(self, product_id: str) -> PairingResolution:
+        """@brief 查询购买配对的完整三态，供只读观察说明不可购买原因。"""
+        return self.catalog.pairing("person", self._object(product_id).category_id, Action.PURCHASE)
 
-        PRICE_CHANGE 到点由引擎换持返回值；price_version 必须同步变化，否则
-        购买侧 PRICE_VERSION_MISMATCH 守卫无法区分新旧报价观察。
-        """
-        if product_id not in {item.product_id for item in self.scenario.products}:
-            raise IntegrityError(f"price change references unknown product {product_id}")
-        if amount_fen <= 0:
-            raise IntegrityError("price change amount must be positive")
-        product = self._object(product_id)
-        match = require_runtime_rule(self.catalog, product.category_id, Action.PURCHASE)
+    def purchase_coefficient(self, product_id: str) -> int | float:
+        """@brief 复查商品购买配对并返回当前冻结系数，供呈现与结算共同使用。"""
+        match = require_runtime_rule(self.catalog, self._object(product_id).category_id, Action.PURCHASE)
+        if not isinstance(match.rule, PurchaseTransferRule):
+            raise IntegrityError("Purchase category resolved to an incompatible exchange rule")
+        if match.rule.from_role != "buyer" or match.rule.to_role != "merchant":
+            raise IntegrityError("Purchase transfer roles must be buyer and merchant")
+        return match.coefficient
+
+    def purchase_amount(self, product_id: str, unit_price_fen: int, quantity: int) -> int:
+        """@brief 供给报价经当前冻结购买配对统一计价，最终金额向上取整分。"""
+        coefficient = self.purchase_coefficient(product_id)
         try:
-            price = evaluate_purchase(amount_fen, 1, match.coefficient)
+            return evaluate_purchase(unit_price_fen, quantity, coefficient)
         except CategoryError as error:
-            raise IntegrityError(f"Price change exchange failed: {error.code}") from error
-        products = tuple(
-            item if item.product_id != product_id else
-            item.model_copy(update={"price_fen": price, "price_version": price_version})
-            for item in self.scenario.products)
-        return replace(self, scenario=self.scenario.model_copy(update={"products": products}, deep=True))
+            raise IntegrityError(f"Purchase exchange failed: {error.code}") from error
 
     def contract_payment(self, task, worked_seconds: int, piece_count: int | None) -> int:
         """@brief 按合同类型唯一对应的闭集算子计算整数分付款。"""
@@ -280,7 +282,9 @@ def load_runtime_scenario(
     except CatalogError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
     affordances = load_affordances(directory / AFFORDANCES_FILE)
-    return assemble_semantics(document, catalog, motivation_transforms, affordances), digest
+    root = (Path(scenario_path).resolve().parent / document.corpus_root).resolve()
+    dataset = load_map_dataset(root, document.map_dataset)
+    return assemble_semantics(document, catalog, dataset, motivation_transforms, affordances), digest
 
 
 def resolve_catalog_dir(scenario_path: Path) -> Path:
@@ -288,7 +292,7 @@ def resolve_catalog_dir(scenario_path: Path) -> Path:
     return Path(scenario_path).resolve().parent.parent / "catalog"
 
 
-def assemble_semantics(document: LifeScenario, catalog: Catalog,
+def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: MapDataset,
                        motivation_transforms: MotivationTransforms | None = None,
                        affordances: AffordanceView | None = None,
                        ) -> ScenarioSemantics:
@@ -306,12 +310,12 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
             f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
     body = _assemble_body(document, catalog, view)
     _check_lifestyle_declarations(document, body, view)
-    admit_reachable_categories(document, catalog)
     items = _assemble_items(document, catalog)
     services = _service_accounts(document)
     employer_id = _employer_account(document, services)
     transport_id = _role_account(services, "transport:service")
-    scenario = _build_runtime(document, body, items, employer_id, transport_id)
+    scenario = _build_runtime(document, body, items, (employer_id, transport_id), map_dataset)
+    admit_reachable_categories(scenario, catalog)
     semantics = ScenarioSemantics(
         document=document, catalog=catalog, scenario=scenario, body=body,
         refs=_catalog_refs(document, catalog, scenario),
@@ -408,7 +412,6 @@ def _assemble_body(document: LifeScenario, catalog: Catalog,
 
 def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
     """@brief 解析可购买商品和初始持有、配方输出所需的对象。"""
-    role_index = {item.role: item for item in document.accounts}
     products = []
     for reference in document.products:
         obj = catalog.objects.get(reference.product_id)
@@ -416,38 +419,12 @@ def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
             raise IntegrityError(f"scenario product {reference.product_id} is not in the catalog")
         if obj.object_kind != ObjectKind.PRODUCT:
             raise IntegrityError(f"catalog object {obj.object_id} is not a product")
-        products.append(_product_payload(reference, obj, role_index, catalog))
+        products.append(ProductConfig.model_validate(_inventory_values(obj, _consume_edge(obj))))
     product_ids = {item.product_id for item in products}
     inventory_ids = _inventory_object_ids(document) - product_ids
     inventory = tuple(_inventory_payload(_product_object(catalog, object_id))
                       for object_id in sorted(inventory_ids))
     return RuntimeItems(tuple(products), inventory)
-
-
-def _product_payload(
-    reference, obj: ExchangeObject, role_index: Mapping[str, AccountInstanceConfig],
-    catalog: Catalog,
-) -> ProductConfig:
-    """@brief 从对象边与字段解析单个商品的全部静态语义。"""
-    consume = _consume_edge(obj)
-    binding = next((item for item in role_index.values()
-                    if item.account_id == reference.merchant), None)
-    if binding is None:
-        raise IntegrityError(f"Product {reference.product_id} merchant account is not declared")
-    expected_role = _purchase_merchant_role(catalog, obj)
-    if binding.role != expected_role:
-        raise IntegrityError(
-            f"Product {reference.product_id} merchant does not bind catalog role {expected_role}")
-    if obj.stock is None and reference.stock is None:
-        raise IntegrityError(f"product {reference.product_id} has no stock source")
-    payload = {**_inventory_values(obj, consume),
-        "merchant_account_id": reference.merchant,
-        "merchant_location_id": reference.merchant_location_id,
-        "price_fen": _purchase_price(catalog, obj),
-        "price_version": f"catalog:{obj.object_id}:v{obj.version}",
-        "initial_stock": reference.stock if reference.stock is not None else obj.stock.initial,
-    }
-    return ProductConfig.model_validate(payload)
 
 
 def _inventory_payload(obj: ExchangeObject) -> InventoryItemConfig:
@@ -465,7 +442,6 @@ def _inventory_values(obj: ExchangeObject, consume: SourceEdge | None) -> dict:
         "use_modes": obj.use_modes, "consumable": obj.consumable,
         "effect": obj.effect,
         "required_location_id": obj.required_location_id,
-        "delivery_delay_seconds": _positive(obj.delivery_delay_seconds, "delivery_delay_seconds"),
         "source_kind": f"catalog:{obj.object_id}:v{obj.version}",
     }
     if obj.serving is not None:
@@ -490,22 +466,24 @@ def _product_object(catalog: Catalog, object_id: str) -> ExchangeObject:
 
 def _build_runtime(
     document: LifeScenario, body: BodyConfig, items: RuntimeItems,
-    employer_id: str, transport_id: str,
+    accounts: tuple[str, str], dataset: MapDataset,
 ) -> RuntimeScenario:
     """@brief 用组装好的语义构造运行时场景并触发其全部跨引用校验。"""
     try:
-        return _runtime_payload(document, body, items, employer_id, transport_id)
+        return _runtime_payload(document, body, items, accounts, dataset)
     except Exception as error:
         raise IntegrityError(f"Scenario assembly failed: {error}") from error
 
 
 def _runtime_payload(
     document: LifeScenario, body: BodyConfig, items: RuntimeItems,
-    employer_id: str, transport_id: str,
+    accounts: tuple[str, str], dataset: MapDataset,
 ) -> RuntimeScenario:
     """@brief 构造运行时场景的载荷字典并执行模型校验。"""
+    locations, routes, supplies = select_map(dataset, document)
     return RuntimeScenario.model_validate({
-        "schema_version": 1,
+        "schema_version": 3,
+        "map_dataset": dataset,
         "scenario_id": document.scenario_id,
         "timezone": document.timezone,
         "start_at": document.start_at,
@@ -522,20 +500,21 @@ def _runtime_payload(
         "corpus_manifest_sha256": document.corpus_manifest_sha256,
         "body": body.model_dump(mode="python"),
         "agents": [item.model_dump(mode="python") for item in document.agents],
-        "locations": [item.model_dump(mode="python") for item in document.locations],
+        "locations": locations,
         "interaction_menus_by_location_kind": {
             kind: menu.model_dump(mode="python")
             for kind, menu in document.interaction_menus_by_location_kind.items()
         },
-        "routes": [item.model_dump(mode="python") for item in document.routes],
+        "routes": routes,
+        "supplies": supplies,
         "products": [item.model_dump(mode="python") for item in items.products],
         "inventory_items": [item.model_dump(mode="python") for item in items.inventory],
         "tasks": [item.model_dump(mode="python") for item in document.tasks],
         "messages": [item.model_dump(mode="python") for item in document.messages],
         "contents": [item.model_dump(mode="python") for item in document.contents],
         "games": [item.model_dump(mode="python") for item in document.games],
-        "employer_account_id": employer_id,
-        "transport_account_id": transport_id,
+        "employer_account_id": accounts[0],
+        "transport_account_id": accounts[1],
         "calendar": document.calendar.model_dump(mode="python"),
         "bills": [item.model_dump(mode="python") for item in document.bills],
         "payrolls": [item.model_dump(mode="python") for item in document.payrolls],
@@ -586,10 +565,9 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog,
     )
 
 
-#: 预排表引用只覆盖 docs/design/04-simulation-engine.md「预排事件」五种新事件：邮件/任务/配送由场景文档校验器负责。
+#: 目录预排引用覆盖日历与账户事件；供给调价、补货、邮件、任务和配送由场景或运行时校验。
 _SCHEDULE_REF_KINDS = frozenset({
-    ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
-    ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE})
+    ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL})
 
 
 def _schedule_refs(scenario: RuntimeScenario, catalog: Catalog) -> tuple[ScenarioScheduleRef, ...]:
@@ -605,13 +583,6 @@ def _schedule_refs(scenario: RuntimeScenario, catalog: Catalog) -> tuple[Scenari
             account_id = item.data["account_id"]
         elif item.kind == ScheduledKind.PAYROLL:
             account_id = item.data["employer_account_id"]
-        elif item.kind == ScheduledKind.PRICE_CHANGE:
-            object_id = item.data["object_id"]
-            object_version = item.data["object_version"]
-        elif item.kind == ScheduledKind.PRODUCT_RELEASE:
-            object_id = item.data["object_id"]
-            entry = catalog.objects.get(object_id)
-            object_version = entry.version if entry is not None else None
         refs.append(ScenarioScheduleRef(kind=ScheduleRefKind(item.kind.value),
                                         due_at=item.due_at, sequence=item.sequence,
                                         object_id=object_id, object_version=object_version,
@@ -631,11 +602,13 @@ def _ledger_accounts(
 
 
 def _check_route_fares(semantics: ScenarioSemantics) -> None:
-    """@brief defined 路线报价必须与闭集规则一致；no_effect 留给运行拒绝。"""
+    """@brief 可达路线的 defined 报价必须与闭集规则一致；no_effect 留给运行拒绝。"""
     target = semantics.catalog.objects.get(TRAVEL_OBJECT)
     if target is None:
         raise IntegrityError(f"Catalog object {TRAVEL_OBJECT} is missing")
-    for route in semantics.document.routes:
+    for route in semantics.scenario.routes:
+        if route.status != "reachable":
+            continue
         action = Action(f"travel:{route.mode.value}")
         match = optional_defined_rule(semantics.catalog, target.category_id, action)
         if match is None:
@@ -705,45 +678,12 @@ def _contract_work_efficiency_factors(catalog: Catalog) -> tuple[EfficiencyFacto
     return tuple(EfficiencyFactor.model_validate(dict(factor)) for factor in values[0])
 
 
-def _purchase_price(catalog: Catalog, obj: ExchangeObject) -> int:
-    """@brief defined 购买按系数编译单价，no_effect 保留只读展示值。"""
-    match = optional_defined_rule(catalog, obj.category_id, Action.PURCHASE)
-    if match is None:
-        price = obj.attribute("price_fen")
-        if isinstance(price, bool) or not isinstance(price, int) or price < 0:
-            raise IntegrityError(f"Product {obj.object_id} has an invalid price")
-        return price
-    price_slot = getattr(match.rule, "price_slot", None)
-    if price_slot is None:
-        raise IntegrityError(f"Product {obj.object_id} resolved to an incompatible purchase rule")
-    try:
-        return evaluate_purchase(obj.attribute(price_slot), 1, match.coefficient)
-    except CategoryError as error:
-        raise IntegrityError(f"Product price exchange failed: {error.code}") from error
-
-
 def _consume_edge(obj: ExchangeObject) -> SourceEdge | None:
     """@brief 取得商品对象的 consume 能量边（耐用品没有）。"""
     edges = [edge for edge in obj.edges if isinstance(edge, SourceEdge) and edge.on == "consume"]
     if len(edges) > 1:
         raise IntegrityError(f"product {obj.object_id} has multiple consume edges")
     return edges[0] if edges else None
-
-
-def _purchase_merchant_role(catalog: Catalog, obj: ExchangeObject) -> str:
-    """@brief 从 defined 购买边或显式 no_effect 对象槽取得具体商家角色。"""
-    if optional_defined_rule(catalog, obj.category_id, Action.PURCHASE) is None:
-        role = obj.attribute("merchant_role")
-        if not isinstance(role, str) or not role:
-            raise IntegrityError(f"product {obj.object_id} has no merchant role")
-        return role
-    edges = [edge for edge in obj.edges if isinstance(edge, TransferEdge) and edge.on == "purchase"]
-    if len(edges) != 1 or edges[0].account_roles is None:
-        raise IntegrityError(f"product {obj.object_id} needs one purchase transfer edge")
-    if edges[0].account_roles.from_role != "buyer":
-        raise IntegrityError(
-            f"Product {obj.object_id} purchase transfer from_role must be buyer")
-    return edges[0].account_roles.to_role
 
 
 def _resource(catalog: Catalog, resource_id: str) -> ResourceDefinition:

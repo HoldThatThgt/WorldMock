@@ -1,4 +1,4 @@
-"""正式 3.0 目录数据、原生对象增量与可复现身份的验收。"""
+"""正式 4.0 目录数据、原生对象增量与可复现身份的验收。"""
 
 import hashlib
 import json
@@ -72,11 +72,8 @@ def test_raw_objects_are_native_deltas_and_preserve_population() -> None:
         "travel-service", "contract-hourly", "contract-piece", "contract-package",
     }]
     assert len(product_rows) == 159
-    assert Counter(row["values"]["absolute"]["merchant_role"] for row in product_rows) == {
-        "merchant:grocery": 121,
-        "merchant:restaurant": 30,
-        "merchant:general": 8,
-    }
+    forbidden = {"price_fen", "price_version", "merchant_role", "stock_initial", "delivery_delay_seconds"}
+    assert all(not forbidden & set(row["values"]["absolute"]) for row in product_rows)
     assert {object_id for object_id in ids if object_id.startswith("contract-")} == {
         "contract-hourly", "contract-piece", "contract-package",
     }
@@ -85,8 +82,8 @@ def test_raw_objects_are_native_deltas_and_preserve_population() -> None:
 
 def test_real_catalog_compiles_all_objects_and_rules() -> None:
     catalog = load_catalog(CATALOG)
-    assert (catalog.version_major, catalog.version_minor) == (3, 0)
-    assert catalog.category_contract_version == 1
+    assert (catalog.version_major, catalog.version_minor) == (4, 0)
+    assert catalog.category_contract_version == 2
     assert len(catalog.raw_objects) == len(catalog.objects) == 163
     assert len(catalog.category_contract.categories) == 23
     assert set(catalog.exchange_rules.rules) == {
@@ -107,15 +104,11 @@ def test_frozen_product_values_survive_category_compilation() -> None:
     )
     for expected in snapshot["products"]:
         actual = catalog.objects[expected["product_id"]].attributes
-        assert actual["price_fen"] == expected["price_fen"]
+        assert not {"price_fen", "merchant_role", "stock_initial", "delivery_delay_seconds"} & set(actual)
         assert actual["effect"] == expected["effect"]
-        assert actual["merchant_role"] == expected["merchant_account_id"]
         assert actual["consumable"] is expected["consumable"]
         assert actual["use_modes"] == tuple(expected["use_modes"])
-        assert actual["stock_initial"] == expected["initial_stock"]
-        assert actual["stock_restock"] == "none"
         assert actual["use_duration_seconds"] == expected["use_duration_seconds"]
-        assert actual["delivery_delay_seconds"] == expected["delivery_delay_seconds"]
         assert actual["required_location_id"] == expected["required_location_id"]
         if expected["product_id"].startswith("food-"):
             assert actual["energy_kcal_per_serving"] == expected["energy_kcal_per_unit"]
@@ -133,11 +126,7 @@ def test_compiled_objects_preserve_all_scenario_product_bindings() -> None:
     for expected in scenario["products"]:
         obj = catalog.objects[expected["product_id"]]
         values = obj.attributes
-        assert values["price_fen"] >= 0
-        assert values["stock_initial"] > 0
         assert values["use_duration_seconds"] > 0
-        assert values["delivery_delay_seconds"] > 0
-        assert values["merchant_role"] == expected["merchant"]
         assert isinstance(values["consumable"], bool)
         if expected["product_id"].startswith(("food-", "meal-")):
             assert values["energy_kcal_per_serving"] >= 0
@@ -150,10 +139,11 @@ def test_compiled_objects_preserve_all_scenario_product_bindings() -> None:
 
 def test_food_value_spectrum_survives_native_generation() -> None:
     catalog = load_catalog(CATALOG)
-    foods = [obj for key, obj in catalog.objects.items() if key.startswith("food-")]
+    supplies = json.loads((ROOT / "corpora/zhangjiang-map/supplies.json").read_text())["supplies"]
     ratios = {
-        obj.object_id: obj.attributes["energy_kcal_per_serving"] / obj.attributes["price_fen"]
-        for obj in foods
+        row["supply_id"]: catalog.objects[row["product_id"]].attributes["energy_kcal_per_serving"]
+        / row["quotes"][0]["price_fen"]
+        for row in supplies if row["product_id"].startswith("food-") and row["location_id"] == "market"
     }
     top = max(ratios.values())
     assert top >= 0.9
@@ -196,7 +186,7 @@ def test_travel_rules_are_closed_data_without_formula_text() -> None:
 def test_manifest_binds_contract_rules_and_full_content() -> None:
     manifest = json.loads((CATALOG / "manifest.json").read_text(encoding="utf-8"))
     identity = compute_catalog_identity(CATALOG, manifest)
-    assert identity.category_contract_version == manifest["category_contract_version"] == 1
+    assert identity.category_contract_version == manifest["category_contract_version"] == 2
     assert identity.category_contract_sha256 == manifest["category_contract_sha256"]
     assert identity.exchange_rules_sha256 == manifest["exchange_rules_sha256"]
     assert identity.catalog_content_sha256 == manifest["catalog_content_sha256"]
@@ -204,12 +194,12 @@ def test_manifest_binds_contract_rules_and_full_content() -> None:
     assert manifest["exchange_rules_sha256"] == _sha256(CATALOG / "exchange-rules.json")
 
 
-def test_life_scenarios_bind_catalog_three_and_explicit_empty_recipes() -> None:
+def test_life_scenarios_bind_catalog_four_and_explicit_empty_recipes() -> None:
     for path in sorted((ROOT / "scenarios").glob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
-        if payload.get("schema_version") != 2:
+        if payload.get("schema_version") != 3:
             continue
-        assert payload["catalog_version"] == {"major": 3, "minor": 0}
+        assert payload["catalog_version"] == {"major": 4, "minor": 0}
         assert payload["recipe_output_bindings"] == {}
 
 

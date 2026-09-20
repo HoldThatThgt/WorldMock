@@ -10,17 +10,20 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from typing import Any
 
-from worldmock.life import felt, presentation, projection
-from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, ContentProgress
+from worldmock.life import discovery, felt, presentation, projection
+from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, ContentProgress, DiscoverPlacesRequest
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_energy_duration_seconds, minimum_energy_cost
 from worldmock.life.models import ActivityKind
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
+from worldmock.life.candidates import Exclusion
 from worldmock.life.work import work_totals
+from worldmock.life.result_projection import public_supply_row
 
 
 class ObservationMixin:
@@ -36,9 +39,11 @@ class ObservationMixin:
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
         recent = self._recent_action_results(agent.agent_id)
-        rows = self._window_rows(agent)
+        rows = self._window_rows(agent, recent)
+        rows["products"] = _current_supply_facts(rows["products"], recent)
         self._pending_presentation = _presentation_stamps(
             self.state, agent.agent_id, rows["window"])
+        self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
             recent_results=tuple(recent),
@@ -61,23 +66,23 @@ class ObservationMixin:
         data["location_id"] = agent.location_id
         data["hour_of_day"] = projection.hour_of_day(
             self.state.current_time, self.scenario.timezone)
-        data.update(self._event_tool_support(agent, recent))
+        data.update(self._event_tool_support(agent, recent, rows["window"].presented))
         return data
 
-    def _window_rows(self, agent) -> dict:
+    def _window_rows(self, agent, recent: list[dict]) -> dict:
         """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）。"""
         context = self._presentation_context(agent)
         entries = self._product_pool(agent)
-        sources = presentation.entry_sources(entries, on_site=_on_site_products(self, agent),
-                                            carried=_carried_products(agent))
+        sources = presentation.entry_sources(entries, on_site=_on_site_supplies(self, agent))
         inputs = presentation.candidate_inputs(
-            context, sources, rotation_offset=self._rotation_offset(agent.agent_id),
+            context, sources, moment=False, rotation_offset=self._rotation_offset(agent.agent_id),
             last_presented_at=self._last_presented(agent.agent_id))
         window = presentation.present(entries, inputs, "product", None)
-        products = [{key: row[key] for key in _PRODUCT_ROW_KEYS} for row in window.items]
+        window = _shared_supply_window(self._discovery_context(agent), window, recent)
+        products = [public_supply_row(row) for row in window.items]
         return {"products": products, "window": window}
 
-    def _event_tool_support(self, agent, recent: list) -> dict:
+    def _event_tool_support(self, agent, recent: list, presented: tuple[str, ...]) -> dict:
         """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
         # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
         data: dict[str, Any] = {}
@@ -91,8 +96,17 @@ class ObservationMixin:
         data["energy_feasibility"] = _activity_energy_feasibility(
             agent, self.semantics.body, self._affordance_contract)
         data["affordance_contract"] = self._affordance_contract
-        data["products"] = [self._visible_product(item) for item in sorted(
-            projection.visible_products(self.state, agent, self.scenario))]
+        visible = set(projection.visible_supplies(self.state, agent, self.scenario)) | set(presented)
+        context = self._discovery_context(agent)
+        data["supplies"] = [discovery.supply_row(context, supply) for supply in sorted(
+            self.scenario.supplies, key=lambda item: item.supply_id) if supply.supply_id in visible]
+        product_ids = {row["product_id"] for row in data["supplies"]}
+        product_ids.update(product_id for holding in agent.inventory.values()
+                           for product_id, count in holding.items() if count > 0)
+        data["products"] = [self._visible_product(item) for item in sorted(product_ids)]
+        data["discovery_catalog"] = {
+            "product_ids": sorted(item.product_id for item in self.scenario.products),
+            "business_kinds": sorted({item.business_kind for item in self.scenario.locations})}
         market_summary = self._market_summary()
         if market_summary is not None:
             data["market_summary"] = market_summary
@@ -152,41 +166,26 @@ class ObservationMixin:
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief facts 路线行：目的地/方式/分钟/票价/可行（五键白名单）。"""
-        rows = []
-        for route in self.scenario.routes:
-            if route.origin_id != agent.location_id:
-                continue
-            planned = self.semantics.travel_planned_seconds(
-                route.mode.value, route.duration_seconds, self.state.current_time)
-            met = self.semantics.body.activity_met[f"travel:{route.mode.value}"]
-            cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, self.semantics.body, met)
-            rows.append({"destination": route.destination_id, "mode": route.mode.value,
-                         "minutes": round(planned / 60), "fare": route.fare_fen,
-                         "feasible": cost <= agent.body.energy_kcal})
-        return rows
+        """@brief 路线事实保留未知与不可达，只有已核实路线计算时长和能量。"""
+        rows = _route_catalog(self.scenario.routes, self.semantics.body,
+                              agent, self.state.current_time, self.semantics)
+        return [{"destination": row["destination_id"], "mode": row["mode"],
+                 "minutes": round(row["duration_seconds"] / 60) if row["status"] == "reachable" else None,
+                 "fare": row["fare_fen"], "feasible": row["energy_feasible"],
+                 "status": row["status"], "reason": row["reason"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
-        """@brief scene 可达地点行只含名称与营业状态，分钟数留在事实与工具行。"""
-        open_hour = projection.hour_of_day(self.state.current_time, self.scenario.timezone)
-        rows = []
-        for route in self.scenario.routes:
-            if route.origin_id != agent.location_id:
-                continue
-            location = next(item for item in self.scenario.locations
-                            if item.location_id == route.destination_id)
-            rows.append({"name": location.name,
-                         "open": location.open_hour <= open_hour < location.close_hour})
-        return rows
+        """@brief 场景句只列实际可达地点，营业未知保持为未知。"""
+        destination_ids = {route.destination_id for route in self.scenario.routes
+                           if route.origin_id == agent.location_id and route.status == "reachable"}
+        context = self._discovery_context(agent)
+        rows = [discovery.place_row(context, location) for location in self.scenario.locations
+                if location.location_id in destination_ids]
+        return [{"name": row["name"], "opening_status": row["opening_status"]} for row in rows]
 
     def _product_rows(self, agent) -> list[dict]:
-        """@brief facts 商品行：经统一候选契约产出的有效可见集，每件五键
-        （docs/dev/SPEC-life-runtime.md「观察投影三部分」「观察投影行为规则」）。
-
-        可见集是生成段的输入（在场 ∪ 浏览时效内），资格段施加库存与地点事实，排序后
-        受单次呈现上限约束；行形状与下钻的商品行同源，不再另起一条枚举路径。
-        """
-        return self._window_rows(agent)["products"]
+        """@brief facts 供给行与下钻共用实际呈现窗口，保留商品引用及完整购买比较事实。"""
+        return self._window_rows(agent, self._recent_action_results(agent.agent_id))["products"]
 
     def _activity_rows(self, agent) -> dict:
         """@brief scene 活动进度行与 facts 控制身份（不含完整活动快照）。"""
@@ -209,20 +208,8 @@ class ObservationMixin:
                             "progress": _activity_progress_phrase(item)} for item in paused]}
 
     def _market_summary(self) -> dict | None:
-        """@brief 商店存在性常识（事件级，不进 scene/facts 提示）：营业/在售数/价格区间。"""
-        from worldmock.life.engine import _datetime
-
-        products = self.rules.products
-        if not products:
-            return None
-        hour = _datetime(self.state.current_time, self.scenario.timezone).hour
-        open_now = any(
-            location.open_hour <= hour < location.close_hour
-            for location in self.scenario.locations
-            if location.location_id in {item.merchant_location_id for item in products.values()})
-        prices = [item.price_fen for item in products.values()]
-        return {"open": open_now, "product_count": len(products),
-                "price_range_fen": [min(prices), max(prices)]}
+        """@brief 仅报告市场存在性，不从未呈现供给泄露报价或购买凭据。"""
+        return {"supply_count": len(self.scenario.supplies)} if self.scenario.supplies else None
 
     def _visible_task(self, task_id: str, agent_id: int) -> dict:
         """@brief 返回公开合同、交付 Schema 和仅按实际工作揭示的正文。"""
@@ -240,10 +227,12 @@ class ObservationMixin:
         return data
 
     def _visible_product(self, product_id: str) -> dict:
-        """@brief 返回商品公开合同和权威当前库存，不暴露初始库存。"""
-        data = self.rules.products[product_id].model_dump(mode="json", exclude={"initial_stock"})
-        data["current_stock"] = self.state.merchant_stock[product_id]
-        return data
+        """@brief 商品只保留使用合同，报价和卖方只能从供给行取得。"""
+        return self.rules.product(product_id).model_dump(mode="json")
+
+    def _discovery_context(self, agent) -> discovery.DiscoveryContext:
+        """@brief 装配当前观察的地图事实与分时解释入口。"""
+        return discovery.DiscoveryContext(self.state, self.scenario, self.semantics, agent)
 
     def _inventory_item_contracts(self, agent) -> list[dict]:
         """@brief 投影当前地点正库存的使用合同，数量仍由现有库存字段唯一提供。"""
@@ -302,16 +291,7 @@ class ObservationMixin:
             return None
 
     def _motivation_context(self, agent, profile) -> MotivationContext:
-        """@brief 从当前世界装配动机求值输入切片（全部只读）。
-
-        修订合同三接线（docs/dev/SPEC-life-realism.md「动机层」「世界素材品类要求」）：taste_weights 为确定性口味权重
-        唯一源，引擎侧读人物持久化权重（AgentState.taste_weights——由
-        profile.taste.compute_taste_weights(card.tastes.content_genres, contents)
-        在画像编译/运行装配时产出；life→profile import 方向合法，profile 不
-        import life）。空映射=不抬升（motivation.py 口径）。
-        lifestyle_enabled 直通人物启用集声明；recent_meal_counts 按足迹
-        action_requested 的进食请求聚合近 24 小时各商品次数。
-        """
+        """@brief 从当前世界装配只读动机事实，商品口味与供给报价分别传入。"""
         from worldmock.life.work import work_totals as totals
 
         now = self.state.current_time
@@ -323,8 +303,12 @@ class ObservationMixin:
             balance_fen=self.state.accounts[agent.balance_account_id],
             body=self.semantics.body,
             home_location_id=config.home_location_id,
-            products=tuple(self.rules.products[item] for item in sorted(agent.visible_product_ids)),
-            merchant_stock=self.state.merchant_stock,
+            products=tuple(self.rules.items.values()),
+            supplies=tuple(item for item in self.scenario.supplies if item.supply_id in
+                           projection.visible_supplies(self.state, agent, self.scenario)),
+            supply_stock=self.state.supply_stock,
+            supply_quotes=self.state.supply_quotes,
+            opening_exceptions=self.state.opening_exceptions,
             locations={item.location_id: item for item in self.scenario.locations},
             routes=self.scenario.routes,
             tasks=tuple(tasks),
@@ -344,8 +328,12 @@ class ObservationMixin:
             current_time=now,
             end_time=self.state.end_time,
             timezone=self.scenario.timezone,
-            planned_travel_seconds=lambda mode, base: self.semantics.travel_planned_seconds(mode, base, now),
-            catalog_products=tuple(self.rules.products[item] for item in sorted(self.rules.products)),
+            planned_travel_seconds=self.semantics.travel_planned_seconds,
+            purchase_amount=self.semantics.purchase_amount,
+            purchase_pairing_states={item.product_id: self.semantics.purchase_pairing(item.product_id).state.value
+                                     for item in self.scenario.products},
+            catalog_supplies=self.scenario.supplies,
+            lifestyle_items=self.lifestyle_items, activity_location_kinds=self.rules.activity_location_kinds,
             content_segments={item_id: tuple(cue.end_seconds for cue in cues)
                               for item_id, cues in self.rules.subtitles.items()},
             taste_weights=weights,
@@ -392,6 +380,37 @@ class ObservationMixin:
         allowed = set(enabled)
         return tuple(item for item in self.lifestyle_items if item.activity_id in allowed)
 
+    def _discover_places(self, state, pending, request: DiscoverPlacesRequest):
+        """@brief 地点查询经生活动作结算，只把实际返回供给授予下一轮可见凭据。"""
+        from worldmock.life.models import ActionStatus, ActionResult
+
+        require_interaction_menu(self.scenario, state, pending, request)
+        agent = state.agents[pending.agent_id]
+        data = discovery.discover_places(state, self.scenario, self.semantics, agent, request)
+        visible = {supply["supply_id"] for place in data["places"] for supply in place["supplies"]}
+        staged = discovery.stage_visible_supplies(state, agent.agent_id, visible, self.scenario)
+        result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
+                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+                              message="Places discovered", data=data)
+        return staged, result
+
+    def _complete_product_browse(self, state, agent) -> tuple:
+        """@brief 有时长目录浏览完成后仍只呈现一个窗口，并为该窗口保存真实凭据。"""
+        context = PresentationContext(state, self.scenario, self.semantics, agent)
+        discovery_context = discovery.DiscoveryContext(state, self.scenario, self.semantics, agent)
+        entries = _supply_entries(discovery_context, {item.supply_id for item in self.scenario.supplies})
+        previous = state.presentation_state.get(agent.agent_id, {})
+        inputs = presentation.candidate_inputs(context, presentation.entry_sources(entries), moment=False,
+                                               rotation_offset=len(previous), last_presented_at=dict(previous))
+        window = presentation.present(entries, inputs, "product", None)
+        staged = _stage_presentation(state, agent.agent_id, window)
+        staged = discovery.stage_visible_supplies(staged, agent.agent_id, set(window.presented), self.scenario)
+        data = {"tool": "browse_activities", "category": presentation.FOOD_CATEGORY,
+                "returned": len(window.items), "total": window.total, "next_cursor": window.next_cursor,
+                "note": _browse_note(presentation.FOOD_CATEGORY), "items": list(window.items),
+                "excluded": [item.as_row() for item in window.excluded]}
+        return staged, data
+
     def _browse_activities(self, state, pending, request: BrowseActivitiesRequest):
         """@brief 下钻读取一个活动品类目录：纯查询，不启动活动、不消耗内容。
 
@@ -405,6 +424,7 @@ class ObservationMixin:
         agent = state.agents[pending.agent_id]
         category = request.category
         if category not in self._activity_summary(agent):
+            logging.error("Browse category is not declared: %s", category)
             raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
         require_interaction_menu(self.scenario, state, pending, request)
         window = self._candidate_window(agent, category, request.cursor)
@@ -417,7 +437,9 @@ class ObservationMixin:
                   "next_cursor": window.next_cursor, "note": _browse_note(category),
                   "items": list(window.items),
                   "excluded": [item.as_row() for item in window.excluded]})
-        return _stage_presentation(state, agent.agent_id, window), result
+        staged = _stage_presentation(state, agent.agent_id, window)
+        visible = {row["supply_id"] for row in window.items if "supply_id" in row}
+        return discovery.stage_visible_supplies(staged, agent.agent_id, visible, self.scenario), result
 
     def _candidate_window(self, agent, category: str,
                           cursor: str | None) -> PresentationWindow:
@@ -457,9 +479,8 @@ class ObservationMixin:
                       category: str) -> tuple[PoolEntry, ...]:
         """@brief 按候选类别装配该分区的池条目（五类对象共用同一形状）。
 
-        商品分区的池随观察面变化：图鉴下钻是菜单级视角（全目录在售条目），观察投影是
-        「此刻能拿到的」（有效可见集：商家地点常驻 ∪ 浏览时效内）。两者走同一张行形状
-        与同一套三段式，差别只在生成段的输入。
+        商品分区在图鉴下钻时读取全供给目录；观察投影读取在场与凭据有效的供给。
+        两者共用供给行与候选管线，只有实际进入窗口的身份才更新呈现凭据。
         """
         if kind == "product":
             return self._product_pool(agent, menu=bool(category))
@@ -474,33 +495,11 @@ class ObservationMixin:
                      if category in ("", entry.category))
 
     def _product_pool(self, agent, menu: bool = False) -> tuple[PoolEntry, ...]:
-        """@brief 商品池：观察面取有效可见集，菜单面取全目录（在售条目都进候选）。
-
-        @param agent 人物状态。
-        @param menu 是否菜单级视角（下钻）；False 表示观察投影的有效可见集。
-        """
-        from worldmock.life import projection as projection_module
-
-        visible = ({item.product_id for item in self.scenario.products}
-                   if menu else set(projection_module.visible_products(
-                       self.state, agent, self.scenario)))
-        entries = []
-        for product_id in sorted(visible):
-            product = self.rules.products.get(product_id)
-            if product is None:  # 有效可见集只保留仍在冻结目录里的商品
-                continue
-            entries.append(PoolEntry(
-                object_id=product_id, kind="product",
-                bucket=product_id, stock=self.state.merchant_stock[product_id],
-                required_location_id=product.merchant_location_id,
-                minimum_seconds=0, maximum_seconds=product.use_duration_seconds,
-                row={"product_id": product.product_id, "name": product.name,
-                     "price_fen": product.price_fen,
-                     "energy_kcal_per_unit": product.energy_kcal_per_unit,
-                     "use_duration_seconds": product.use_duration_seconds,
-                     "category": presentation.FOOD_CATEGORY},
-                category=presentation.FOOD_CATEGORY))
-        return tuple(entries)
+        """@brief 购买候选以供给为身份，口味按商品读取，窗口外供给不授予购买资格。"""
+        visible = (set(item.supply_id for item in self.scenario.supplies) if menu else
+                   set(projection.visible_supplies(self.state, agent, self.scenario))
+                   | set(_on_site_supplies(self, agent)))
+        return _supply_entries(self._discovery_context(agent), visible)
 
     def _content_pool(self, agent) -> tuple[PoolEntry, ...]:
         """@brief 内容池：目录全量条目自带题材标签（排序键原料，不参与资格判定）。
@@ -526,6 +525,7 @@ class ObservationMixin:
             object_id=entry.activity_id, kind="lifestyle",
             bucket=entry.activity_id, minimum_seconds=60,
             maximum_seconds=entry.typical_duration_minutes * 60,
+            location_kinds=self.rules.activity_location_kinds[entry.activity_id], met=entry.met_value,
             row={"activity_id": entry.activity_id,
                  "activity_type": f"{LIFESTYLE_TYPE_PREFIX}{entry.activity_id}",
                  "name": entry.name, "category": entry.category,
@@ -614,23 +614,22 @@ def _mail_headers(agent, messages) -> list[dict]:
 
 def _route_catalog(routes: tuple, body, agent, now: int, semantics) -> list[dict]:
     """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级）。"""
-    fields = {"route_id", "origin_id", "destination_id", "mode", "distance_meters", "duration_seconds",
-              "fare_fen", "fare_source_kind"}
+    fields = {"route_id", "origin_id", "destination_id", "mode", "status", "reason",
+              "distance_meters", "duration_seconds", "fare_fen", "fare_source_kind"}
     result = []
     for item in routes:
         if item.origin_id != agent.location_id:
             continue
-        planned = semantics.travel_planned_seconds(
-            item.mode.value, item.duration_seconds, now)
         data = item.model_dump(mode="json", include=fields)
-        data.update(duration_seconds=planned,
-                    free_flow_duration_seconds=item.duration_seconds,
-                    travel_time_factor=semantics.travel_time_factor(
-                        item.mode.value, now))
-        met = body.activity_met[f"travel:{item.mode.value}"]
-        cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, body, met)
-        data.update(minimum_energy_cost_kcal=cost,
-                    energy_feasible=cost <= agent.body.energy_kcal)
+        data.update(free_flow_duration_seconds=item.duration_seconds,
+                    minimum_energy_cost_kcal=None, energy_feasible=False)
+        if item.status == "reachable":
+            planned = semantics.travel_planned_seconds(item.mode.value, item.duration_seconds, now)
+            met = body.activity_met[f"travel:{item.mode.value}"]
+            cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, body, met)
+            data.update(duration_seconds=planned, minimum_energy_cost_kcal=cost,
+                        travel_time_factor=semantics.travel_time_factor(item.mode.value, now),
+                        energy_feasible=cost <= agent.body.energy_kcal)
         result.append(data)
     return result
 
@@ -679,7 +678,7 @@ def _calendar_context(scenario, epoch: int) -> dict:
 
 def _location_catalog(scenario) -> list[dict]:
     """@brief 返回人物能够规划到达和营业条件的地点目录（事件级）。"""
-    fields = {"location_id", "name", "kind", "longitude", "latitude", "open_hour", "close_hour"}
+    fields = {"location_id", "name", "kind", "business_kind", "location_kinds", "longitude", "latitude"}
     return [item.model_dump(mode="json", include=fields) for item in scenario.locations]
 
 
@@ -773,13 +772,10 @@ def _sample_contents(contents, profile, taste_weights) -> tuple:
     return tuple(sample)
 
 
-#: facts 商品行的五键白名单（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
-_PRODUCT_ROW_KEYS = ("product_id", "name", "price_fen",
-                     "energy_kcal_per_unit", "use_duration_seconds")
 #: 品类下钻的提示句（按分区给出可用动作，不描述内部口径）。
 _BROWSE_NOTES = {
     presentation.FOOD_CATEGORY:
-        "menu-level view only; purchase contracts need the timed product catalog browse",
+        "compare supply_id and current price_version; purchase rechecks stock, access, opening and fulfillment",
     presentation.GAME_CATEGORY: "game ids accept start_targeted_activity with activity_type play_game",
     presentation.TASK_CATEGORY: "work contracts accept start_targeted_activity with activity_type work",
     "content": "watch items accept start_targeted_activity with activity_type watch",
@@ -813,16 +809,77 @@ _CONTENT_NOTE_KINDS = frozenset({"feature_film", "drama_series", "webnovel_excer
                                  "news_feed", "joke_feed", "subtitle_experience"})
 
 
-def _on_site_products(engine, agent) -> frozenset[str]:
-    """@brief 当前地点常驻在场的商品标识（商家地点等于人物所在地点）。"""
-    return frozenset(item.product_id for item in engine.scenario.products
-                     if item.merchant_location_id == agent.location_id)
+def _reported_supply_rows(recent: list[dict]) -> list[dict]:
+    """@brief 读取本次发现与两种浏览回灌真正包含的供给行，不枚举未呈现目录。"""
+    reported = []
+    for result in recent:
+        data = result["result"]["data"]
+        if data.get("tool") == "discover_places":
+            reported.extend(supply for place in data["places"] for supply in place["supplies"])
+        if data.get("tool") == "browse_activities":
+            reported.extend(item for item in data["items"] if "supply_id" in item)
+        if "browse_result" in data:
+            reported.extend(item for item in data["browse_result"]["items"] if "supply_id" in item)
+    return reported
 
 
-def _carried_products(agent) -> frozenset[str]:
-    """@brief 当前位置手边持有的商品标识（库存量大于零）。"""
-    holding = agent.inventory.get(agent.location_id, {})
-    return frozenset(product_id for product_id, quantity in holding.items() if quantity > 0)
+def _shared_supply_window(context: discovery.DiscoveryContext, window: PresentationWindow,
+                          recent: list[dict]) -> PresentationWindow:
+    """@brief 回灌与当前事实共用供给窗口，只有实际呈现身份更新凭据及轮转时间。"""
+    identities = tuple(dict.fromkeys(row["supply_id"] for row in _reported_supply_rows(recent)))
+    if not identities:
+        return window
+    current = {entry.object_id: entry.row for entry in _supply_entries(context, set(identities))}
+    items = [current[identity] for identity in identities]
+    remaining = max(0, context.semantics.candidate_constants.presentation_limit - len(items))
+    items.extend([row for row in window.items if row["supply_id"] not in current][:remaining])
+    shown = tuple(row["supply_id"] for row in items)
+    excluded = [item for item in window.excluded if item.object_id not in shown]
+    excluded.extend(Exclusion(row["supply_id"], "product", "ROTATION_DEFERRED")
+                    for row in window.items if row["supply_id"] not in shown)
+    excluded.sort(key=lambda item: (item.kind, item.object_id))
+    return replace(window, items=tuple(items), presented=shown, excluded=tuple(excluded),
+                   deferred=tuple(item.object_id for item in excluded if item.reason == "ROTATION_DEFERRED"))
+
+
+def _current_supply_facts(current: list[dict], recent: list[dict]) -> list[dict]:
+    """@brief 当前供给用完整行或引用本次回灌的差异事实表达，空值按值替换。"""
+    historical = {}
+    for result in recent:
+        for row in _reported_supply_rows([result]):
+            historical[row["supply_id"]] = (result["action_id"], public_supply_row(row))
+    facts = []
+    for row in current:
+        if row["supply_id"] not in historical:
+            facts.append(row)
+            continue
+        action_id, previous = historical[row["supply_id"]]
+        changes = {key: value for key, value in row.items() if key not in previous or value != previous[key]}
+        if changes:
+            facts.append({"supply_id": row["supply_id"], "based_on_action_id": action_id, "changes": changes})
+    return facts
+
+
+def _supply_entries(context: discovery.DiscoveryContext, visible: set[str]) -> tuple[PoolEntry, ...]:
+    """@brief 把供给比较事实装成统一候选，供观察、下钻和有时长浏览复用。"""
+    entries = []
+    for supply in sorted(context.scenario.supplies, key=lambda item: item.supply_id):
+        if supply.supply_id not in visible:
+            continue
+        row = discovery.supply_row(context, supply)
+        row["category"] = presentation.FOOD_CATEGORY
+        entries.append(PoolEntry(object_id=supply.supply_id, kind="product", bucket=supply.product_id,
+                                  stock=context.state.supply_stock[supply.supply_id],
+                                  required_location_id=supply.location_id, minimum_seconds=0,
+                                  maximum_seconds=row["use_duration_seconds"], row=row,
+                                  category=presentation.FOOD_CATEGORY))
+    return tuple(entries)
+
+
+def _on_site_supplies(engine, agent) -> frozenset[str]:
+    """@brief 当前地点供给只作为生成候选；实际窗口决定购买凭据。"""
+    return frozenset(item.supply_id for item in engine.scenario.supplies
+                     if item.location_id == agent.location_id)
 
 
 def _presentation_stamps(state, agent_id: int, window: PresentationWindow) -> dict:

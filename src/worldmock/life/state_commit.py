@@ -57,3 +57,16 @@ def flush_presentation(state: WorldState, stamps: dict | None) -> WorldState:
     if not stamps:
         return state
     return state.model_copy(update={"presentation_state": stamps}, deep=True)
+
+
+def flush_supply_visibility(state: WorldState, presented: dict[int, set[str]]) -> WorldState:
+    """@brief 只把实际观察呈现的门店供给凭据随下一次世界提交落盘。"""
+    agents = dict(state.agents)
+    for agent_id, identifiers in presented.items():
+        agent = agents[agent_id]
+        moments = {**agent.supply_browsed_at, **dict.fromkeys(identifiers, state.current_time)}
+        locations = {**agent.supply_browsed_location, **dict.fromkeys(identifiers, agent.location_id)}
+        agents[agent_id] = agent.model_copy(update={
+            "visible_supply_ids": agent.visible_supply_ids | set(identifiers), "supply_browsed_at": moments,
+            "supply_browsed_location": locations}, deep=True)
+    return state.model_copy(update={"agents": agents}, deep=True)

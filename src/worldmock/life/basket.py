@@ -1,24 +1,14 @@
-"""@brief 商务与进食的多件结算（docs/dev/SPEC-life-realism.md「商务与进食」）：整单购买与一次多件进食。
-
-purchase.items 为 1-5 件商品与数量，同一商家、同一履约方式、一次付款、一次
-配送：任一件不可购则整单拒绝，不自动删件。consume.items 为 1-3 件已持有食品，
-同一地点一次进食：用餐时长取最长者、热量与效果累加；非食品使用仍为单件。
-
-commerce.py 是冻结模块（本单元无所有权），其单件 purchase/apply_product_
-progress 的请求形状与单配送合同无法承载多件语义，故本模块以 settlement 资金
-通道与 body 食品结算为基元实现整单结算；与 commerce 的单件路径并存，引擎按
-请求件数路由。批次内的各件共享同一配送时刻（一次配送），付款合并为单笔分录
-（一次付款）。
-"""
+"""@brief 按门店供给执行整单购买，并按持有商品执行多件进食结算。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
+from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError
 from worldmock.life.body import apply_food
+from worldmock.life.category_contract import RuntimeCategoryRule, match_rows, require_runtime_rule
+from worldmock.life.map_models import RouteConfig, SupplyConfig
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
@@ -28,10 +18,14 @@ from worldmock.life.models import (
     FulfillmentKind,
     PurchaseOrderRequest,
     ScheduledEvent,
+    SupplyQuoteState,
     WorldState,
 )
-from worldmock.life.scenario import BodyConfig, InventoryItemConfig, ProductConfig, RuntimeScenario
+from worldmock.life.opening_hours import opening_status
+from worldmock.life.scenario import BodyConfig, InventoryItemConfig, RuntimeScenario
+from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
+from worldmock.life.storefront_state import current_quote
 from worldmock.scheduling.events import ScheduledKind
 
 
@@ -43,109 +37,184 @@ class OrderOutcome:
     orders: tuple[DeliveryState, ...]
     scheduled: tuple[ScheduledEvent, ...]
     total_price_fen: int
+    inventory_changes: tuple[dict, ...]
+    category_matches: tuple[dict[str, str], ...]
 
 
-def purchase_order(state: WorldState, scenario: RuntimeScenario, agent_id: int,
+@dataclass(frozen=True, slots=True)
+class _OrderRow:
+    """@brief 一项已经通过报价、库存和资格检查的门店供给。"""
+
+    supply: SupplyConfig
+    quote: SupplyQuoteState
+    quantity: int
+    total_price_fen: int
+    category_match: RuntimeCategoryRule
+
+
+@dataclass(frozen=True, slots=True)
+class _Fulfillment:
+    """@brief 整单共用的创建时刻、交付时刻和运输路线。"""
+
+    created_at: int
+    expected_at: int
+    route: RouteConfig | None
+
+
+def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
                    request: PurchaseOrderRequest) -> OrderOutcome:
-    """@brief 结算 1-5 件整单购买：一次付款、同一配送时刻、任一件失败整单拒绝。"""
-    products = {item.product_id: item for item in scenario.products}
+    """@brief 逐供给校验后一次付款；任意失败不改变任何世界状态。"""
     agent = state.agents[agent_id]
-    rows = _order_rows(state, scenario, agent, request, products)
-    total = sum(product.price_fen * row.quantity for product, row in rows)
-    settled = settle_money_transfer(state, agent.balance_account_id,
-                                    rows[0][0].merchant_account_id, total, "purchase:order")
-    stock = dict(settled.merchant_stock)
-    orders: list[DeliveryState] = []
-    events: list[ScheduledEvent] = []
-    expected_at = _order_arrival(state, scenario, rows[0][0], request)
-    sequence = max((item.sequence for item in settled.pending_events), default=0)
-    changed_agents = dict(settled.agents)
-    for index, (product, row) in enumerate(rows):
-        stock[product.product_id] -= row.quantity
-        identity = f"{agent.agent_id}-{state.current_time}-{len(settled.deliveries) + index + 1}"
-        status = "delivered" if request.fulfillment == FulfillmentKind.PICKUP else "pending"
-        order = DeliveryState(
-            order_id=f"order-{identity}", agent_id=agent.agent_id, product_id=product.product_id,
-            quantity=row.quantity, destination_id=request.destination_id,
-            fulfillment=request.fulfillment, created_at=state.current_time,
-            expected_at=expected_at, status=status,
-            total_price_fen=product.price_fen * row.quantity)
-        orders.append(order)
-        if status == "delivered":
-            changed_agents[agent.agent_id] = _add_inventory(
-                changed_agents[agent.agent_id], request.destination_id,
-                product.product_id, row.quantity)
-        else:
-            sequence += 1
-            events.append(ScheduledEvent(
-                scheduled_id=f"delivery-{identity}", kind=ScheduledKind.DELIVERY_ARRIVAL,
-                due_at=expected_at, sequence=sequence, agent_id=agent.agent_id,
-                data={"order_id": order.order_id}))
-    deliveries = dict(settled.deliveries)
-    deliveries.update({order.order_id: order for order in orders})
-    pending = sorted(list(settled.pending_events) + list(events),
-                     key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    changed = settled.model_copy(update={"merchant_stock": stock, "deliveries": deliveries,
-                                         "agents": changed_agents,
-                                         "pending_events": list(pending)}, deep=True)
-    return OrderOutcome(changed, tuple(orders), tuple(events), total)
-
-
-def _order_rows(state: WorldState, scenario: RuntimeScenario, agent: AgentState,
-                request: PurchaseOrderRequest, products: dict[str, ProductConfig]):
-    """@brief 校验整单：每件可见、同商家、报价一致、资金与库存充足、商家营业。"""
-    if not 1 <= len(request.items) <= 5:
-        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件
-    rows = []
-    for item in request.items:
-        if item.product_id not in products:
-            raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        product = products[item.product_id]  # 可见性由引擎观察门控（PRODUCT_NOT_VISIBLE）
-        if item.price_version != product.price_version:
-            raise BusinessRuleError("PRICE_VERSION_MISMATCH")
-        rows.append((product, item))
-    merchants = {product.merchant_account_id for product, _ in rows}
-    if len(merchants) != 1:
-        raise BusinessRuleError("ORDER_MERCHANT_MISMATCH")
-    total = sum(product.price_fen * row.quantity for product, row in rows)
+    rows = _order_rows(state, semantics, agent, request)
+    fulfillment = _order_fulfillment(state, semantics, request, rows)
+    total = sum(row.total_price_fen for row in rows)
     if state.accounts[agent.balance_account_id] < total:
         raise BusinessRuleError("INSUFFICIENT_FUNDS")
-    for product, row in rows:
-        if state.merchant_stock[product.product_id] < row.quantity:
+    orders = _build_orders(state, rows, request, fulfillment, agent_id)
+    settled = settle_money_transfer(state, agent.balance_account_id,
+                                    rows[0].supply.seller_account_id, total, "purchase:order")
+    stock = dict(settled.supply_stock)
+    agents = dict(settled.agents)
+    inventory_changes = []
+    for order in orders:
+        stock[order.supply_id] -= order.quantity
+        if order.status == "delivered":
+            agents[agent_id] = _add_inventory(
+                agents[agent_id], order.destination_id, order.product_id, order.quantity)
+            inventory_changes.append({"order_id": order.order_id, "supply_id": order.supply_id,
+                                      "location_id": order.destination_id, "product_id": order.product_id,
+                                      "quantity": order.quantity})
+    events = _delivery_events(state, orders)
+    deliveries = dict(settled.deliveries)
+    deliveries.update({order.order_id: order for order in orders})
+    pending = sorted([*settled.pending_events, *events],
+                     key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
+    changed = settled.model_copy(update={"supply_stock": stock, "deliveries": deliveries,
+                                         "agents": agents, "pending_events": pending}, deep=True)
+    return OrderOutcome(changed, orders, events, total, tuple(inventory_changes),
+                        tuple(match_rows(row.category_match for row in rows)))
+
+
+def _order_rows(state: WorldState, semantics: ScenarioSemantics, agent: AgentState,
+                request: PurchaseOrderRequest) -> tuple[_OrderRow, ...]:
+    """@brief 拒绝重复项与跨店整单，使用世界中的当前报价检查每项供给。"""
+    if not 1 <= len(request.items) <= 5:
+        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")
+    if len({item.supply_id for item in request.items}) != len(request.items):
+        raise BusinessRuleError("ORDER_DUPLICATE_SUPPLY")
+    scenario = semantics.scenario
+    supplies = {item.supply_id: item for item in scenario.supplies}
+    rows = []
+    for item in request.items:
+        if item.supply_id not in supplies:
+            raise BusinessRuleError("SUPPLY_NOT_FOUND")
+        supply = supplies[item.supply_id]
+        quote = current_quote(state, supply.supply_id)
+        if quote is None:
+            raise BusinessRuleError("SUPPLY_QUOTE_UNKNOWN")
+        if item.price_version != quote.price_version:
+            raise BusinessRuleError("PRICE_VERSION_MISMATCH")
+        if state.supply_stock[supply.supply_id] < item.quantity:
             raise BusinessRuleError("OUT_OF_STOCK")
-    if not _merchant_open(state, scenario, rows[0][0]):
+        if not set(supply.required_qualifications) <= set(agent.qualifications):
+            raise BusinessRuleError("SUPPLY_QUALIFICATION_REQUIRED")
+        if request.fulfillment not in supply.fulfillment_modes:
+            raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
+        match = require_runtime_rule(semantics.catalog,
+                                     semantics.catalog.objects[supply.product_id].category_id, Action.PURCHASE)
+        amount = semantics.purchase_amount(supply.product_id, quote.price_fen, item.quantity)
+        rows.append(_OrderRow(supply, quote, item.quantity, amount, match))
+    if len({row.supply.seller_account_id for row in rows}) != 1:
+        raise BusinessRuleError("ORDER_SELLER_MISMATCH")
+    if len({row.supply.location_id for row in rows}) != 1:
+        raise BusinessRuleError("ORDER_LOCATION_MISMATCH")
+    _validate_storefront(state, scenario, agent, rows[0].supply.location_id)
+    return tuple(rows)
+
+
+def _validate_storefront(state: WorldState, scenario: RuntimeScenario,
+                         agent: AgentState, location_id: str) -> None:
+    """@brief 购买时重新检查地点资格与分钟级营业事实，未知不等同闭店。"""
+    location = next(item for item in scenario.locations if item.location_id == location_id)
+    if not set(location.required_qualifications) <= set(agent.qualifications):
+        raise BusinessRuleError("LOCATION_ACCESS_DENIED")
+    status = opening_status(location, state.current_time, scenario.timezone,
+                            state.opening_exceptions[location_id])
+    if status == "unknown":
+        raise BusinessRuleError("MERCHANT_OPENING_UNKNOWN")
+    if status == "closed":
         raise BusinessRuleError("MERCHANT_CLOSED")
-    locations = {item.location_id for item in scenario.locations}
-    if request.destination_id not in locations:
+
+
+def _order_fulfillment(state: WorldState, semantics: ScenarioSemantics,
+                       request: PurchaseOrderRequest, rows: tuple[_OrderRow, ...]) -> _Fulfillment:
+    """@brief 自提即时交付；配送按最慢备货和真实出发时刻的道路时长安排一次到达。"""
+    scenario = semantics.scenario
+    origin = rows[0].supply.location_id
+    if request.destination_id not in {item.location_id for item in scenario.locations}:
         raise BusinessRuleError("DESTINATION_NOT_FOUND")
     if request.fulfillment == FulfillmentKind.PICKUP:
-        if (request.destination_id != rows[0][0].merchant_location_id
-                or agent.location_id != request.destination_id):
+        return _Fulfillment(state.current_time, state.current_time, None)
+    if any(request.destination_id not in row.supply.delivery_destination_ids for row in rows):
+        raise BusinessRuleError("DELIVERY_DESTINATION_NOT_SUPPORTED")
+    departure = state.current_time + max(row.supply.delivery_delay_seconds for row in rows)
+    route = _delivery_route(scenario, origin, request.destination_id)
+    duration = (semantics.travel_planned_seconds("driving", route.duration_seconds, departure)
+                if route is not None else 0)
+    return _Fulfillment(state.current_time, departure + duration, route)
+
+
+def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) -> RouteConfig | None:
+    """@brief 同地点无道路行程，其余配送只允许明确可达的冻结驾车路线。"""
+    if origin == destination:
+        return None
+    matches = [route for route in scenario.routes if route.origin_id == origin
+               and route.destination_id == destination and route.mode.value == "driving"]
+    if len(matches) != 1:
+        raise BusinessRuleError("DELIVERY_ROUTE_NOT_FOUND")
+    route = matches[0]
+    if route.status == "unreachable":
+        raise BusinessRuleError("DELIVERY_ROUTE_UNREACHABLE")
+    if route.status == "unknown":
+        raise BusinessRuleError("DELIVERY_ROUTE_INFORMATION_UNKNOWN")
+    return route
+
+
+def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: PurchaseOrderRequest,
+                  fulfillment: _Fulfillment, agent_id: int) -> tuple[DeliveryState, ...]:
+    """@brief 每个订单保存实际供给、报价和来源，整单共享交付时刻与路线。"""
+    if request.fulfillment == FulfillmentKind.PICKUP:
+        origin = rows[0].supply.location_id
+        if request.destination_id != origin or state.agents[agent_id].location_id != origin:
             raise BusinessRuleError("PICKUP_LOCATION_REQUIRED")
-    return rows
+    orders = []
+    for index, row in enumerate(rows, start=1):
+        supply = row.supply
+        identity = f"{agent_id}-{state.current_time}-{len(state.deliveries) + index}"
+        route = fulfillment.route
+        orders.append(DeliveryState(
+            order_id=f"order-{identity}", agent_id=agent_id, product_id=supply.product_id,
+            supply_id=supply.supply_id, location_id=supply.location_id,
+            seller_account_id=supply.seller_account_id, price_version=row.quote.price_version,
+            route_id=route.route_id if route is not None else None,
+            source={"supply": supply.source.model_dump(mode="json"), "quote": row.quote.source,
+                    "route": route.source.model_dump(mode="json") if route is not None else None},
+            quantity=row.quantity, destination_id=request.destination_id, fulfillment=request.fulfillment,
+            created_at=fulfillment.created_at, expected_at=fulfillment.expected_at,
+            status="delivered" if fulfillment.expected_at == fulfillment.created_at else "pending",
+            total_price_fen=row.total_price_fen))
+    return tuple(orders)
 
 
-def _order_arrival(state: WorldState, scenario: RuntimeScenario, product: ProductConfig,
-                   request: PurchaseOrderRequest) -> int:
-    """@brief 整单共享的配送到达时刻：商品延迟 + 冻结 driving 路线时长。"""
-    route_seconds = 0
-    if product.merchant_location_id != request.destination_id:
-        routes = [item for item in scenario.routes
-                  if item.origin_id == product.merchant_location_id
-                  and item.destination_id == request.destination_id
-                  and item.mode.value == "driving"]
-        if len(routes) != 1:
-            raise BusinessRuleError("DELIVERY_ROUTE_NOT_FOUND")
-        route_seconds = routes[0].duration_seconds
-    return state.current_time + product.delivery_delay_seconds + route_seconds
-
-
-def _merchant_open(state: WorldState, scenario: RuntimeScenario, product: ProductConfig) -> bool:
-    """@brief 以场景本地小时执行商家冻结营业时间（与 commerce 口径一致）。"""
-    location = next(item for item in scenario.locations
-                    if item.location_id == product.merchant_location_id)
-    hour = datetime.fromtimestamp(state.current_time, ZoneInfo(scenario.timezone)).hour
-    return location.open_hour <= hour < location.close_hour
+def _delivery_events(state: WorldState, orders: tuple[DeliveryState, ...]) -> tuple[ScheduledEvent, ...]:
+    """@brief 整单只登记一个携带全部订单身份的配送事件。"""
+    if orders[0].status == "delivered":
+        return ()
+    sequence = max((item.sequence for item in state.pending_events), default=0) + 1
+    return (ScheduledEvent(
+        scheduled_id=f"delivery-{orders[0].order_id}", kind=ScheduledKind.DELIVERY_ARRIVAL,
+        due_at=orders[0].expected_at, sequence=sequence, agent_id=orders[0].agent_id,
+        data={"order_ids": [order.order_id for order in orders]}),)
 
 
 def _add_inventory(agent: AgentState, location_id: str, product_id: str,

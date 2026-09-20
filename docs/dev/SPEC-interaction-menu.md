@@ -30,7 +30,7 @@ flowchart LR
 
 ## 权威来源与范围裁决
 
-工具名只引用 `worldmock.life.models.REQUEST_MODELS`；当前有十五个生活动作工具。
+工具名只引用 `worldmock.life.models.REQUEST_MODELS`；地图特性新增 `discover_places` 后共同维护注册闭集，不在文档固定旧数量。
 活动类型只引用可供性注册表的 `kinds`。注册表的 `surface` 不是全部工具名的来源。
 不新增动词、别名、策略语言、第三方依赖、迁移、兼容读取或缺省放行。
 [接口合同](../CONTRACTS.md)、[运行规格](SPEC-life-runtime.md)、[人物规格](SPEC-life-realism.md)
@@ -50,7 +50,7 @@ flowchart LR
 ## 声明与准入
 
 场景文档与运行时场景都必须具有 `interaction_menus_by_location_kind`。
-它是地点类字符串到 `InteractionMenu` 的映射，键集合必须恰好等于 `locations[].kind` 的不同值集合。
+它是地点类字符串到 `InteractionMenu` 的映射，键集合必须恰好等于解析后地点的 `kind` 的不同值集合。
 这里的单值地点类不是候选资格合同的 `location_kinds` 能力集合，不复用或扩展其词表。
 每个地点类必须显式声明，无通配键，无额外地点类，无 `null` 地点菜单。
 每个 `agents[]` 必须显式具有 `interaction_menu`，取 `InteractionMenu` 或 `null`，字段不能缺失。
@@ -77,6 +77,14 @@ flowchart LR
 不会让空闲人物调用游戏指令，也不会让非观看活动调速。`finish` 与记忆查询不属于生活动作菜单。
 其他工具与活动类型独立声明；目标尚未发现或当前不可行时，声明允许不等于本轮开放。
 更新所有在版本控制内的正式场景及相应测试输入；旧缺字段场景拒绝，不写迁移脚本。
+
+## 地图地点与发现工具
+
+地图与门店供给特性中，场景只选择地点身份，菜单地点类来自冻结地图中被选地点的 `kind`。
+`business_kind` 表示经营业态，`location_kinds` 表示活动环境，均不能替代菜单分类。
+`discover_places` 加入请求注册闭集，正式场景和人物菜单按声明允许或限制；不属于保护工具。
+它遵循冻结菜单、实际模型 Schema、本地校验、环境重验和 `INTERACTION_MENU_DENIED` 的原合同。
+禁止发现不得删除已存在地图事实，允许发现也不授权未返回供给；它消耗一次生活动作，结果后轮回灌。
 
 ## 观察与人物工具
 

@@ -2,7 +2,7 @@
 
 品类契约新增要求的逐行映射统一见 `docs/dev/category-contract-verification.md`，对应规范为
 `docs/dev/SPEC-category-contract.md`。本文下述 435 条及历史覆盖率仅描述原统计快照，不包含该新增特性；
-未完成新增台账前不得把历史比例当作当前全规格覆盖率。
+新增特性各有独立完整台账，仍不得把历史比例当作当前全规格覆盖率。
 
 > 状态：分析文档，不拥有规范权威——本文件只回答「每条规格要求是否有测试覆盖、缺口在哪」，不定义、不裁决规格；条款的内容与判定以现行文档树为准
 > 日期：2026-09-20（增量修订；原基线 2026-09-18）
@@ -26,9 +26,46 @@
 与品类契约主线组合后的源码身份和全仓门禁见
 [交互菜单主线合并验收](research/interaction-menu-main-verification.md)，各独立审查保留原快照边界。
 
-2026-09-20 核查发现，候选 `location_kinds` 算法有测试，但 `LocationConfig` 与正式输入没有该能力集合。
+
+## 地图与门店供给增量映射
+
+完整行为合同为 [开发规格](SPEC-map-and-storefront.md)，命名要求与设计/测试影响见
+[文档一致性审查](research/map-and-storefront-document-impact.md)。以下为独立地图分支已验收的具体断言映射，不能纳入旧覆盖百分比或直接宣称本次主线组合通过，
+完整门禁与独立突变的初次发现、补测和复验见 [本特性验收记录](research/map-and-storefront-verification.md)。
+
+| 命名要求 | 实际测试入口与可观察断言 | 当前证据边界 |
+| --- | --- | --- |
+| 地图唯一来源与路线状态 | `tests/life/test_map_dataset.py` 的 `test_selected_map_preserves_unknown_route_and_instance_stock`、`test_missing_route_record_cannot_mean_unreachable`、`test_reachable_routes_require_actual_geometry_mode_and_metrics`；`tests/life/test_scenario.py` 校验正式引用与关系 | 生产准入反例和最终完整门禁均通过 |
+| 地点分类与资格 | `tests/life/test_activity_location_kinds.py` 的实际启动门；`tests/life/test_storefront_arrival.py` 的到达拒绝和真实暂停后跨地点恢复；`tests/integration/test_storefront_tools.py::test_menu_denies_discovery_in_schema_local_validation_and_environment` | 真实暂停、跨地点恢复、到达与工具门全部通过 |
+| 多门店供给与时态 | `test_storefront_commerce.py::test_single_supply_changes_only_selected_shop_and_preserves_sources`；`test_opening_hours.py` 的半开、跨夜、例外和时区；`test_storefront_schedule.py` 的声明切换、真实调价来源和补货 | 商务、预排事件及完整门禁通过 |
+| 来源日期与报价身份 | `test_map_dataset.py::test_review_cannot_claim_facts_after_the_source_cutoff`；报价与营业不能晚于各自来源可信截止日；`test_scenario.py` 的供给报价版本不重复 | 来源日期与报价身份通过最终固定源码复验 |
+| 发现与可见凭据 | `test_storefront_discovery.py::test_real_discovery_round_reinjects_only_returned_supplies_and_fits_model_budget`、`test_every_real_discovery_page_is_usable_after_world_advances`、`test_presenting_another_supply_does_not_renew_old_supply_visibility` | 真实跨轮结果、分页与逐供给有效期断言已经落盘 |
+| 直接及有时长浏览 | `test_storefront_discovery.py::test_real_product_browse_returns_only_its_window_and_fits_model_budget`、`test_public_browse_exclusion_groups_restore_every_original_fact` | 两种浏览路径均以实际窗口授权，公开排除组可还原原始事实 |
+| 共同窗口与变化事实 | `test_storefront_discovery.py::test_shared_observation_window_keeps_changed_returned_supply_and_only_fills_remaining_slots`、`test_changed_supply_fact_can_restore_null_nested_source_price_opening_and_stock` | 回灌优先、不更新窗口外凭据，差异按键还原包括空值与嵌套对象 |
+| 整单与履约 | `test_storefront_commerce.py::test_whole_order_rejections_are_atomic`、`test_fulfillment_rejections_are_atomic`、`test_delivery_is_due_atomic_and_idempotent_with_truthful_evidence`、`test_zero_duration_delivery_at_same_location_is_immediate_with_delivery_evidence` | 同地点同卖方、重复拒绝、全部副作用原子、一次交付与即时配送定向通过 |
+| 旅行后条件重验 | `test_storefront_arrival.py::test_purchase_rechecks_changed_conditions_after_real_travel_without_reversing_it`、`test_arrival_rechecks_access_and_records_denial_without_undoing_real_travel` | 真实道路、交通费、位置与旅行证据保留，拒绝原因与下一决策可见 |
+| 恢复与完整流程 | `test_storefront_recovery.py::test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidence`、`test_reopening_rejects_corrupted_storefront_facts`、`test_reopening_rejects_map_identity_substitution` | 真实发现、出行、自提/配送、消费、关库重开与共同检查点分支；严格来源和可见凭据反例 |
+| 测试有效性 | 固定源码全量测试、分支与公共接口覆盖、风格与文档门、独立语义突变及临时修改恢复 | 全部通过；两项初次变异漏检经补测复验关闭 |
+
+## 品类主线与门店供给组合验证边界
+
+组合合同保留品类配对和库存使用/转换，以供给报价、数量和系数求每行付款，卖方取供给账户；
+目录 `4.0`、品类契约与规则绑定版本 `2` 区别于两条分支的旧身份。组合验收必须覆盖以下实际交接，
+现阶段不改写上方独立特性计数，也不提前将新组合标记通过。
+
+| 交接要求 | 必须断言的行为 | 当前证据边界 |
+| --- | --- | --- |
+| 供给与品类购买 | 选择同商品的不同供给时保持独立原价、报价版本与卖方；非作用供给保留报价但不可购买，已定义零系数正常零额履约；非整数系数和多份数量按整行向上取整，整单合计原子结算 | 等待本次合并固定源码验收 |
+| 比较与动机共享计价 | 公开原始报价、配对状态、系数、一份实际金额；非定义配对的系数与实际金额为空且动机跳过，已持有物仍可使用；未知报价为空；余额判断、价格排序与交易均用 `purchase_amount`，不得用已取整单价计算多份总价 | 等待本次合并固定源码验收 |
+| 地图准备和出行 | 准备与运行均解析 `TravelFareRule` 并调用 `evaluate_travel_fare`，不恢复旧文本公式 | 等待本次合并固定源码验收 |
+| 商品使用与发布身份 | 纯商品共享 `InventoryItemConfig`；持有而未售卖的物品仍按使用/转换合同运行；目录、契约、规则与场景地图身份完整校验和恢复 | 等待本次合并固定源码验收 |
+
+## 历史基线说明
+
+
+2026-09-20 审查基线发现，候选 `location_kinds` 算法有测试，但当时 `LocationConfig` 与正式输入没有该能力集合。
 下述历史条款计数只说明当时映射判断，不能解释为当前全项目端到端规格全部完成。
-交互菜单使用已有单值 `locations[].kind`，不会补齐或掩盖这项独立的输入缺口。
+当时交互菜单使用已有单值地点 `kind`，并未补齐活动环境输入；后续地图特性已显式提供 `location_kinds`，不改写上述历史计数。
 
 2026-09-18 历史基线的测试函数总数为 **1789**（同步 1718 + 异步 71；全部函数名索引建立后逐条映射；计数口径与两种独立计数方法见文末覆盖边界）。
 终态独立复核（2026-09-18）逐个亲读测试函数断言（不凭修复报告转述）核实五个 GAP 均已落地并如实覆盖；
@@ -289,7 +326,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | N1 | 经纬度只给球面距离；驾驶耗时用道路路由 | CO/test_corpora.py::test_routes_are_frozen_real_responses_for_all_declared_pairs；L/test_travel_time.py | covered |
 | N2 | 可沿路线+模拟时间生成定位轨迹；保存路线与采样规则；采样非决策 | L/test_travel_trajectory.py（7 测：确定性逐字节重放、采样点落冻结路线几何<1m、时间戳严格递增于窗口内、environment_event kind=location_track 且 decision_id/action_id 为 None、sampling_rule+路线 id/路径/哈希引用、非法窗口与哈希漂移 fail-closed、稀疏间隔边界） | covered |
 | N3 | 总耗时含路由引擎转弯成本（OSRM 总时长） | CO/test_corpora.py::test_routes_are_frozen_real_responses_for_all_declared_pairs（保存 total duration/distance/geometry） | covered |
-| N4 | 配送预计时间=准备+运输组成、非固定时长；无数据用标记参数 | src/worldmock/life/commerce.py（delivery_delay_seconds 与 route_seconds 组成式）；L/test_commerce.py::test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment | covered |
+| N4 | 配送预计时间为同单最大准备时长加实际发车时刻的分时道路时长；未知路线拒绝 | L/test_storefront_commerce.py::test_whole_basket_uses_maximum_preparation_and_departure_traffic_once、test_fulfillment_rejections_are_atomic；统一入口为 src/worldmock/life/basket.py | 定向通过，最终整合验收独立 |
 | N5 | 人物只看当时报价/预计，不见隐藏到达安排 | L/test_travel_time.py::test_observation_quotes_the_factored_duration；L/test_commerce.py::test_pending_delivery_is_private_to_its_owner | covered |
 | N6 | 交通数据对应模拟日期；静态场景；不冒充实测路况 | L/test_travel_time.py::test_factor_lookup_matches_the_snapshot_table_for_every_hour、test_calibrate_rerun_is_byte_identical（在线取数见 EX-1） | covered |
 
@@ -541,7 +578,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 
 | ID | 条款 | 测试映射 | 状态 |
 | --- | --- | --- | --- |
-| RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_three_rejects_old_checkpoints（该测试名已由 `..._two_...` 随本轮 `WORLD_SCHEMA_VERSION` 2 → 3 更名为 `..._three_...`）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
+| RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_four_rejects_old_checkpoints（当前世界结构为 4，旧检查点直接拒绝）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
 | RC1 | wake_reason 表 12 类触发条件 | L/test_wake_reasons.py::test_positive_each_member、test_wake_reason_frozen_member_set；L/test_revision_contract.py::test_engine_wake_reasons_cover_each_trigger_class；F/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set | covered |
 | RC2 | 静默边界无决策四事件；activity_progress 带 decision_offered/wake_reasons；提供决策记录全部命中原因 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events、test_offered_boundary_records_actual_wake_reasons | covered |
 | RC3 | reconsideration_interval_seconds 场景参数默认 5400；睡眠不受间隔；游戏逐回合 | L/test_wake_reasons.py::test_next_decision_custom_interval_is_scenario_parameter、test_sleep_ignores_reconsideration_interval；L/test_engine_feedback.py::test_game_feedback_boundary_still_rejects_direct_switch | covered |
@@ -560,7 +597,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC16 | user 消息三部分（persona_card/scene/facts）与内容清单 | I/test_life_agent_protocol.py::test_react_messages_are_three_parts_and_observation_written_once；L/test_narration.py::test_scene_contains_key_content、test_parts_in_contract_order | covered |
 | RC17 | 禁入字段清单（world_state_version/end_time/affordance_contract/energy_feasibility/observation_event_id/motivation_hints/profile.*/game_catalog 全表/完整快照/路线几何） | I/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages；L/test_narration.py::test_each_forbidden_key_alone_raises、test_route_geometry_fields_raise | covered |
 | RC18 | 观察不重复序列化 | I/test_life_agent_protocol.py::test_react_messages_are_three_parts_and_observation_written_once；V/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message | covered |
-| RC19 | 商品可见期 1800 秒清空（含配送浏览） | L/test_revision_contract.py::test_observation_projection_blacklist_and_product_ttl | covered |
+| RC19 | 门店供给超过 1800 秒或离开呈现地点失效，呈现其他供给不续期 | L/test_revision_contract.py::test_observation_projection_blacklist_and_product_ttl；L/test_storefront_discovery.py::test_presenting_another_supply_does_not_renew_old_supply_visibility | 逐供给行为已通过本特性完整验收 |
 | RC20 | 工作材料增量揭示单次≤2000 字符 | L/test_revision_contract.py::test_work_material_reveal_capped_at_2000_chars_per_decision | covered |
 | RC21 | 字幕只交付新跨过区间、跨边界同条不重复 | L/test_revision_contract.py::test_subtitle_does_not_repeat_across_boundary；L/test_content_game.py::test_subtitles_reveal_only_played_intervals_across_pause_and_repeat | covered |
 | RC22 | recent_action_results 保留全部新结果、状态、错误原因与工作公开反馈；内部证据不进入提示 | L/test_decision_context_projection.py；I/test_decision_context_roundtrip.py | covered |
@@ -630,7 +667,7 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
 - **运行期接线与持久化已落地**：`src/worldmock/life/presentation.py` 是运行期装配层（装候选输入、取候选、
   定呈现窗口），`src/worldmock/life/observe.py` 的观察投影与 `browse_activities` 下推均经它产出；
   `src/worldmock/life/engine.py` 经 `state_commit.flush_presentation` 把留痕并入世界状态；
-  `WorldState.schema_version` 由 2 递增为 3，`presentation_state` 字段承载轮转判据「上次呈现时刻」。
+  `WorldState.schema_version` 当前为 4，`presentation_state` 继续承载轮转时刻；逐供给可见记录、库存和报价随世界状态保存。
   `tests/life/test_candidate_wiring.py`（9 测）逐条覆盖该层的端到端观察：
   下推返回体形状、轮转名额真的决定呈现顺序、观察投影经候选契约产出且留痕落盘、全池刚呈现过时的顺序退化、
   排除项带闭集原因码、游标下推无重无漏、非法游标载荷报错、五类共用一个三段式、返回体行可读。
@@ -642,7 +679,7 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
   `tests/life/test_activity_location_kinds.py`（9 测）覆盖。
 - 因此本节 44 行**全部 `covered`**（逐条附测试路径），不存在 `gap`，也不存在 `exempt`。
   其中 `CC43`（随身持有的地点嵌套）与 `CC44`（远程订购的取货/配送在场语义分野）在第二轮复判中由 `gap`
-  改判 `covered`，映射到 `tests/life/test_commerce.py::test_delivery_ignores_presence_while_pickup_requires_it`。
+  改判 `covered`；原单件测试现由整单和位置库存测试替代，当前入口见对应映射行。
 - **第三次增量补测（2026-09-19）**：余下的七行 `CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`
   逐行补入真实性测试后改判 `covered`，**未改动任何生产代码**。补测的判据边界如下：
   - `CC7` 跨运行分支一致性：经生产接口（`LifeEngine.checkpoint` → `FootprintStore.restore` → `LifeEngine.open`）
@@ -663,7 +700,8 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
     的通路、也没有「删除条目」「下架事件」这类事件名。
   - `CC35` 声明含 `anywhere` 恒可行：在 `candidates.py::_location_reason` 侧补测，同一用例内区分
     「条目侧或地点侧声明 `anywhere`」「两侧都无声明」「两侧都有声明且交集为空」三形，
-    并逐形核对该原因码的排除计数。
+    并逐形核对该原因码的排除计数。这是当时的历史判据；地图特性已删除地点侧 `anywhere` 与缺声明放行，
+    当前规则和测试以本节对应映射行及地图增量矩阵为准。
   - `CC40` 禁止向量检索与近似最近邻：新增常驻断言——逐文件扫描 `src/worldmock` 与 `custom` 的导入图，
     禁止 ANN 库；断言检索链路四模块无浮点距离调用、也不导入 `random`/`numpy`/`scipy`/`sklearn`/`torch`/`math`；
     断言本项目自己的依赖声明里无该词表，并如实记录 vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu`
@@ -700,12 +738,12 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
 | CC27 | 有效可达率计入：按有效决策点 `D × 可达率` 计算最坏等待，不按理论决策点 | L/test_rotation.py::test_reachability_discount_scales_worst_case_wait_proportionally、test_wait_bound_finding_reports_effective_decision_points | covered |
 | CC28 | 轮转单位是检索分区而不是整个语料池，也不是地点分区 | L/test_rotation.py::test_subclass_cap_in_top_window、test_multi_subtype_pool_keeps_cap_and_fills_window、test_rotation_indices_wrap_forward_without_revisiting | covered |
 | CC29 | 分区池规模 `N`、换新名额 `k`、每天决策点 `D` 的取值来源；`D` 取实测区间而非单一估计值 | `D` 的实测区间取 `docs/EXPERIMENT.md`「决策点节奏」节（中位 71、范围 9–112.5、保守取值 60）；断言 L/test_rotation.py::test_wait_bound_uses_the_measured_decision_point_interval（区间端点与保守取值都可用作 `D`，且上界恒等于 `⌈N ÷ k⌉ ÷ D`）、test_changing_the_decision_point_count_changes_the_wait_in_proportion（改 `D` 即改等待，多个 `D` 下最坏等待单调——不硬编码天数）、test_wait_bound_default_is_inside_the_measured_interval（缺省入参落在实测区间内，换端点结论随之改变）；`N` 与 `k` 的取值来源沿用 L/test_rotation.py::test_quota_slots_derive_from_scenario_constants_never_hardcoded、test_quota_inversion_from_target_wait_round_trips | covered |
-| CC30 | 轮转状态「上次呈现时刻」是派生量，字段面与写入方式按合同 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（`WorldState.presentation_state` 承载「上次呈现时刻」，观察边界只暂存、随下一个状态提交落盘，键为参与本次呈现的对象标识）；实现见 `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 3`、`presentation_state` 字段）与 `src/worldmock/life/state_commit.py::flush_presentation`（提交路径上的唯一写状态处）；`src/worldmock/life/rotation.py` 只读输入不回写 | covered |
+| CC30 | 轮转状态「上次呈现时刻」是派生量，字段面与写入方式按合同 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（`WorldState.presentation_state` 承载「上次呈现时刻」，观察边界只暂存、随下一个状态提交落盘，键为参与本次呈现的对象标识）；实现见 `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 4`、`presentation_state` 字段）与 `src/worldmock/life/state_commit.py::flush_presentation`（提交路径上的唯一写状态处）；`src/worldmock/life/rotation.py` 只读输入不回写 | covered |
 | CC31 | 禁止按互动统计永久移除对象；任何以互动次数或被选择次数为判据移出对象层的机制不得实现 | L/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count | covered |
 | CC32 | 目录条目退役只允许走墓碑语义（保留可读、拒绝新场景引用），不删除条目、不改既有足迹解释 | 拒绝新场景引用一侧：CAT/test_admission.py::test_tombstoned_object_reference_rejected（`TOMBSTONED_REFERENCE` 拒绝码，实现见 `src/worldmock/catalog/admission.py::_check_tombstones`）、CAT/test_builder.py::test_append_to_tombstoned_entry_rejected（墓碑条目禁止复活追加，换新 id 才合法）；「保留可读」一侧：CAT/test_builder.py::test_deprecate_writes_tombstone_and_keeps_entry_readable（打墓碑后条目行逐字节不变、条目仍在 `catalog.objects` 里）；两侧在候选契约里的合流断言 L/test_candidates.py::TestTombstoneSemantics::test_delisted_entry_is_excluded_from_candidates_and_still_readable（带墓碑的目录里，下架条目在候选里以 `ELIGIBILITY_DELISTED` 出局、同一时刻仍在目录里可读，保留项+排除项=候选全集）与 test_runtime_has_no_path_that_deletes_a_catalog_entry（AST 与文本扫描：契约层与生活层无 `unlink`/`rmtree`/`remove` 调用，也无「删除条目」「下架事件」这类事件名） | covered |
-| CC33 | 轮转、候选裁剪与淘汰统计都不改对象层条目数量；条目数变化只由目录版本变更产生 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（端到端：写入呈现留痕后，被留痕的条目仍全部在 `WorldState.merchant_stock` 内，轮转只改顺序）、test_rotation_quota_actually_decides_presentation_order（轮转不改候选集身份）；L/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting（输入池逐字节不变） | covered |
-| CC34 | 地点是可行性门：地点声明「满足哪些地点类」∩ 条目声明「需要哪些地点类」非空即可行 | L/test_retrieval.py::test_feasible_kinds_follows_anywhere_and_intersection（交集非空才可行、交集为空不可行）；L/test_candidates.py::TestExclusionDiscipline::test_world_fact_exclusions_carry_their_code（`location_kinds={"fitness"}` 对 `{"outdoor","venue"}` → `ELIGIBILITY_LOCATION_KIND_MISMATCH`）、test_missing_location_excludes_everything_with_a_stable_code；运行期强制 L/test_activity_location_kinds.py::test_location_kind_mismatch_is_rejected_with_stable_reason_code、test_matching_location_kind_is_accepted | covered |
-| CC35 | 声明含 `anywhere` 表示恒可行 | `src/worldmock/life/candidates.py::_location_reason` 侧：L/test_candidates.py::TestExclusionDiscipline::test_anywhere_declaration_is_always_feasible（同一用例内区分三形——条目侧声明 `anywhere` 与地点侧声明 `anywhere` 各自恒可行且不产生任何排除项；「两侧都无声明」同样恒可行；只有「两侧都有声明且交集为空」才给 `ELIGIBILITY_LOCATION_KIND_MISMATCH`，并逐形核对该原因码计数）；检索侧 L/test_retrieval.py::test_feasible_kinds_follows_anywhere_and_intersection；运行期强制侧 L/test_activity_location_kinds.py（`require_location_kinds`） | covered |
+| CC33 | 轮转、候选裁剪与淘汰统计都不改对象层条目数量；条目数变化只由目录版本变更产生 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（历史基线写入呈现留痕后仍保留库存；现行供给身份需由本次 `supply_stock` 行为断言重新验收）、test_rotation_quota_actually_decides_presentation_order（轮转不改候选集身份）；L/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting（输入池逐字节不变） | covered |
+| CC34 | 地点是可行性门：地点声明「满足哪些地点类」∩ 条目声明「需要哪些地点类」非空即可行 | L/test_retrieval.py::test_feasible_kinds_follows_anywhere_and_intersection（交集非空才可行、交集为空不可行）；L/test_candidates.py::TestExclusionDiscipline::test_world_fact_exclusions_carry_their_code（`location_kinds={"fitness"}` 对 `{"outdoor","venue"}` → `ELIGIBILITY_LOCATION_KIND_MISMATCH`）、test_missing_location_excludes_everything_with_a_stable_code；运行期强制 L/test_activity_location_kinds.py::test_authoritative_start_gate_uses_current_map_location、test_explicit_matching_activity_environment_is_accepted；恢复接线见 L/test_storefront_arrival.py::test_paused_lifestyle_cannot_resume_after_real_travel_to_incompatible_environment | covered |
+| CC35 | 活动侧 `anywhere` 表示无地点限制；地点必须显式声明实际环境，不能使用 `anywhere` | L/test_candidates.py::TestExclusionDiscipline::test_anywhere_declaration_is_always_feasible；L/test_retrieval.py::test_feasible_kinds_follows_anywhere_and_intersection；L/test_activity_location_kinds.py::test_missing_or_mismatched_environment_is_not_an_anywhere_default；正式地图字段准入见 L/test_map_dataset.py::test_locations_reject_old_or_inferred_activity_environments | 新合同已通过地图特性完整验收 |
 | CC36 | 检索分区键取条目属性（题材、语言、时长段），不取地点 | L/test_retrieval.py::test_build_index_postings_are_sorted_plain_text、test_search_filters_each_dimension_independently、test_facet_counts_reflect_current_filters（索引与 facet 的维度恰为题材、语言、时长段，地点类单独作为可行性维度而不进分区键）；CAT/test_reachability_admission.py::test_content_item_missing_partition_dimension_is_unreachable、test_content_item_missing_duration_dimension_is_unreachable、test_read_corpus_duration_falls_back_to_read_seconds（准入侧逐条列出分区键缺省条目并阻断启动） | covered |
 | CC37 | `required_location_id` 与地点类判定并列，取交集即可行 | L/test_candidates.py::TestExclusionDiscipline::test_world_fact_exclusions_carry_their_code（`required_location_id="office"` → `ELIGIBILITY_LOCATION_ABSENT`）、test_business_hours_are_judged_at_the_entry_own_place（地点实例与营业时段并列判定） | covered |
 | CC38 | 地点类词表逐值一致（目录、语料、准入三处不得漂移） | L/test_candidate_constants.py::test_candidate_constants_are_declared_in_every_life_scenario、test_candidate_constants_are_reachable_from_assembled_semantics | covered |
@@ -713,8 +751,8 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
 | CC40 | 禁止向量检索与近似最近邻 | 常驻断言：L/test_retrieval.py::test_production_code_imports_no_vector_search_or_ann_library（逐文件扫描 `src/worldmock` 与 `custom`，导入图里不得出现 `faiss`/`chromadb`/`annoy`/`hnswlib`/`usearch`/`sentence_transformers` 等 ANN 库）、test_retrieval_structures_compare_no_float_distances（检索链路四模块不得出现 `cosine`/`euclidean`/`sqrt`/`softmax` 一类浮点距离调用，也不得导入 `random`/`numpy`/`scipy`/`sklearn`/`torch`/`math`；并逐字段核对索引只有纯文本倒排与整数计数）、test_worldmock_dependencies_declare_no_vector_search_library（本项目自己的依赖声明里无该词表；同时如实写明 vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu` 只由上游 `env/router_codegen.py` 导入、本项目运行路径不经它检索，不把上游事实当作不存在）；纯文本距离侧沿用 L/test_retrieval.py::test_index_holds_no_float_distance_field | covered |
 | CC41 | 反塌缩保证：任一对象在有限次查询组合下至少有一条到达路径（静态可检查，非覆盖率承诺） | L/test_retrieval.py::test_reachable_requires_partition_and_feasible_place、test_reachability_report_lists_unreachable_entries_and_partitions、test_partition_stays_feasible_when_one_member_is_feasible、test_reachability_does_not_promise_exposure、test_real_corpus_partitions_are_reachable；准入侧 CAT/test_reachability_admission.py::test_partition_with_no_feasible_place_is_unreachable、test_anywhere_partition_is_always_feasible；静态守卫 `scripts/check_reachability.py`（无 `--scenario` 时实测 `all 7106 entries reachable across 101 partition(s)`、退出码 0）；另见 L/test_rotation.py::test_rotation_indices_wrap_forward_without_revisiting（分区内不重访） | covered |
 | CC42 | 触发条件：单一品类池规模超过场景阈值时才建倒排与 facet；未超过时按品类下推但查询入口与分区键先固定 | L/test_retrieval.py::test_build_index_path_follows_threshold（池未达阈值走 `SCANNED`、严格超过才走 `INDEXED`）、test_indexed_ids_is_none_when_scanned_and_narrows_when_indexed、test_search_returns_same_result_with_and_without_index（两条路径查询入口与分区键相同）；阈值常量由 L/test_candidate_constants.py::test_count_constants_have_an_upper_bound 守住 | covered |
-| CC43 | 随身持有语义是「在当前位置的手边」，按地点嵌套；出门后不在手边；不引入随身背包、不新增「带出门」动作 | `tests/life/test_commerce.py::test_delivery_ignores_presence_while_pickup_requires_it`（持有面按地点嵌套：`AgentState.inventory` 外层键即地点标识，写入 `basket._add_inventory`、读取 `commerce.held_quantity` 均以当前位置取用；在家 2.0、到办公室 0.0）；未新增背包状态 | covered |
-| CC44 | 远程订购复用既有交付语义，不新增渠道对象；取货必须到商家地点、配送不校验在场，且须在工具 `description` 点明 | 同 CC43 的测试（取货不在场抛 `PICKUP_LOCATION_REQUIRED`、配送同样条件受理）；`custom/agents/life_agent.py` 的 `purchase` 描述已按规格点明该分野 | covered |
+| CC43 | 随身持有语义是「在当前位置的手边」，按地点嵌套；出门后不在手边；不引入随身背包、不新增「带出门」动作 | `tests/life/test_commerce.py::test_consume_rejects_inventory_held_at_another_location` 与 `test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment`（人物库存按地点嵌套，办公室不能消费留在家中的商品）；未新增背包状态 | covered |
+| CC44 | 远程订购复用既有交付语义，不新增渠道对象；取货必须到商家地点、配送不校验在场，且须在工具 `description` 点明 | `tests/life/test_storefront_commerce.py::test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`（取货不在场拒绝、配送按范围与道路条件受理）；`custom/agents/life_agent.py` 的 `purchase` 描述已按规格点明该分野 | covered |
 
 脚注（复判时刻的实测命令与输出）：
 
@@ -771,7 +809,7 @@ python3 scripts/documentation_gate.py
 `src/worldmock/life/engine.py:131` 的 `state_commit.flush_presentation` 写入留痕；
 `life.retrieval` 的调用点是 `src/worldmock/catalog/admission.py:31`、`src/worldmock/life/activities.py:31`
 与 `scripts/check_reachability.py:23`；
-`src/worldmock/life/models.py` 的 `WORLD_SCHEMA_VERSION = 3` 与 `WorldState.presentation_state` 字段存在。
+当时 `src/worldmock/life/models.py` 的版本为 3；当前世界版本为 4，`WorldState.presentation_state` 仍持久化，新增供给状态见增量矩阵。
 
 本节不含 `exempt` 行：新增章的验证入口全部是离线确定性测试，无真实模型调用或长墙钟运行。
 **未解决的另一类缺陷（如实记录，不随本节 `covered` 变化）**：`scripts/check_reachability.py --scenario`
@@ -888,14 +926,14 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
   `MAX_CANDIDATES` 不作用于呈现（无非作用断言）、`CC18` 下推层数上限两层（形状有测、层数上限本身无断言）、
   `CC29` `D` 取值的实测区间在主文档集内无解析来源、`CC32` 退役条目「保留可读」一侧无断言、
   `CC35` `anywhere` 恒可行（三处实现均有该分支，但无测试把 `anywhere` 侧与另两侧区分开，
-  且地点语料今天 `location_kinds` 声明为空，运行期恒走未声明缺省）、`CC40` 禁止向量检索（零实现但未写成常驻断言）、
+  且当时地点语料的 `location_kinds` 声明为空，运行期恒走未声明缺省）、`CC40` 禁止向量检索（零实现但未写成常驻断言）、
   `CC43` 随身持有的地点嵌套（`AgentState.inventory` 仍按人持有）、`CC44` 远程订购的取货/配送在场语义分野
   （既有 `PICKUP_LOCATION_REQUIRED` 不覆盖「配送不校验在场」一侧）。这些行的验证入口都是仓库内确定性断言，
   因此当时**按 `gap` 处理而非按豁免处理**；`CC43`、`CC44` 在第二轮复判改判 `covered`，
   其余七行在 2026-09-19 第三次增量补测后改判 `covered`（逐行判据见上）。
 - **本轮的独立缺陷记录（不计入本矩阵覆盖判定）**：`scripts/check_reachability.py --scenario` 对正式场景
   实测退出码 1，86 条场景内容条目落不进任何分区（80 条 `game_session`），详见该章脚注。
-  这是规格自己记的另一类独立缺陷，未解决。
+  这是当时记录的另一类独立缺陷；地图分支修复与实测见前述增量映射，本段不描述当前状态。
 
 ## 版本表
 

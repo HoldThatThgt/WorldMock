@@ -71,14 +71,15 @@ def test_resume_rejects_menu_changes_before_copying_a_branch(tmp_path, person_me
     assert not destination.exists()
 
 
-def test_static_prompt_stays_and_old_tool_template_cannot_resume():
-    """删固定办公室偏好改变工具模板而非 system，旧模型合同被恢复入口拒绝。"""
+def test_supply_fact_prompt_and_tools_reject_old_model_identity():
+    """供给差异事实解释与工具 Schema 均冻结身份，旧提示或工具合同不能恢复。"""
     from custom.agents.life_agent import life_prompt_sha256, life_tool_schema_sha256
     from worldmock.runtime import (
         _model_identity, _require_runtime_identity, runtime_code_sha256, two_stage_model_identity,
     )
 
-    assert life_prompt_sha256() == "59f22d2f8aece81545169f2234446420ca8a0f5e4454e03b3f432816cea1ba5a"
+    assert life_prompt_sha256() == "dc43b5418e28e61709e48af2fad251189c518e2f39e6bf8df295339558451b65"
+    old_prompt = "59f22d2f8aece81545169f2234446420ca8a0f5e4454e03b3f432816cea1ba5a"
     old_schema = "dd2c1490f5ad9306e95fe23828665b9f0338164cdeb2477fb009d3073a9b639e"
     assert life_tool_schema_sha256() != old_schema
     root = Path.cwd()
@@ -86,6 +87,7 @@ def test_static_prompt_stays_and_old_tool_template_cannot_resume():
                 "two_stage_model_identity": two_stage_model_identity(),
                 "code_sha256": runtime_code_sha256(root)}
     _require_runtime_identity(manifest, root)
-    manifest["model_identity"]["tool_schema_sha256"] = old_schema
-    with pytest.raises(IntegrityError, match="model identity differs"):
-        _require_runtime_identity(manifest, root)
+    for field, old_value in (("tool_schema_sha256", old_schema), ("prompt_sha256", old_prompt)):
+        outdated = {**manifest, "model_identity": {**manifest["model_identity"], field: old_value}}
+        with pytest.raises(IntegrityError, match="model identity differs"):
+            _require_runtime_identity(outdated, root)

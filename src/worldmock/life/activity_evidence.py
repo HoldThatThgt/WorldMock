@@ -52,10 +52,3 @@ def record_material_reveal(agent, task_id, material, occurred_at):
     }
     reveals = list(agent.material_reveals)[-63:] + [entry]
     return agent.model_copy(update={"material_reveals": reveals}, deep=True)
-
-
-def browse_visibility(agent, products, now):
-    """@brief 浏览完成后登记目录全部商品的可见身份和地点。"""
-    return agent.model_copy(
-        update={"visible_product_ids": set(products), "product_browsed_at": now,
-                "product_browsed_location": agent.location_id}, deep=True)

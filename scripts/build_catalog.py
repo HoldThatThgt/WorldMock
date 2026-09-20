@@ -3,7 +3,7 @@
 @file build_catalog.py
 @note 输入为已冻结的场景快照、食品白名单、原始食品记录及语料；不读取 scenarios/。
       正式输出为 5 个资源、163 个对象（121 食品、30 正餐、8 耐用品、1 服务、3 合同）
-      与绑定品类契约、闭集交换规则和世界素材品类要求的 3.0 目录清单。
+      与绑定品类契约、闭集交换规则和世界素材品类要求的 4.0 目录清单。
       数值来源必须逐项覆盖；生成器不执行任意文本公式。
 
 品类契约、交换规则、数值出行时长、其他规则与可供性声明由审核后的维护流程管理。
@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import random
 import shutil
 import sys
 import tempfile
@@ -51,84 +50,73 @@ HEAD = "cd2586b"
 #: 修订合同《世界素材品类要求》的版本化声明：随 catalog/manifest.json 冻结，
 #: 场景启动准入（admission.validate_world_categories）逐条执行，不满足即拒绝启动。
 #: 阈值即合同原文（`docs/dev/SPEC-life-realism.md`「世界素材品类要求」）。
-CATEGORY_REQUIREMENTS = {
-    "declared_at": "2026-09-18",
-    "spec": "docs/dev/SPEC-life-realism.md 世界素材品类要求",
-    "meals": {
-        "min_count": 30,
-        "price_fen_min": 1500,
-        "price_fen_max": 4500,
-        "duration_minutes_min": 20,
-        "duration_minutes_max": 40,
-        "energy_databases": ["USDA FNDDS", "\u4e2d\u56fd\u98df\u7269\u6210\u5206\u8868"],
-    },
-    "location_required_kinds": [
-        "home", "office", "canteen_or_restaurant", "convenience_store",
-        "supermarket_or_wet_market", "park_or_fitness",
-    ],
-    "location_min_per_kind": {"canteen_or_restaurant": 2},
-    "home_pantry": {"breakfast_servings_min": 7, "morning_wash_minutes": 15},
-    "office_affordances": ["pantry_water", "meeting_room", "colleagues_present"],
-    "content_metadata": {
-        "fields": ["title", "genre", "language", "age_rating"],
-        "max_age_rating": 17,
-    },
-    "work_materials": {"min_distinct": 20, "language": "zh", "horizon_days": 84},
-    "lifestyle_fields": ["location_kinds", "time_window", "needs_partner", "effects"],
-    "contacts": {
-        "min_per_persona": 2,
-        "colleague_reply_policy": "persona",
-        "other_reply_policy": "model",
-    },
+CATEGORY_REQUIREMENTS = {'declared_at': '2026-09-18',
+ 'spec': 'docs/dev/SPEC-life-realism.md 世界素材品类要求',
+ 'meals': {'min_count': 30,
+           'price_fen_min': 1500,
+           'price_fen_max': 4500,
+           'duration_minutes_min': 20,
+           'duration_minutes_max': 40,
+           'energy_databases': ['USDA FNDDS', '中国食物成分表']},
+ 'location_required_kinds': ['home',
+                             'office',
+                             'restaurant',
+                             'convenience_store',
+                             'supermarket',
+                             'wet_market',
+                             'park',
+                             'fitness'],
+ 'location_min_per_kind': {'restaurant': 2},
+ 'home_pantry': {'breakfast_servings_min': 7, 'morning_wash_minutes': 15},
+ 'office_affordances': ['pantry_water', 'meeting_room', 'colleagues_present'],
+ 'content_metadata': {'fields': ['title', 'genre', 'language', 'age_rating'], 'max_age_rating': 17},
+ 'work_materials': {'min_distinct': 20, 'language': 'zh', 'horizon_days': 84},
+ 'lifestyle_fields': ['location_kinds', 'time_window', 'needs_partner', 'effects'],
+ 'contacts': {'min_per_persona': 2,
+              'colleague_reply_policy': 'persona',
+              'other_reply_policy': 'model'}}
+
+#: 食品扩容的冻结分类表（条码 → 品类标签），只用于选择继承的营养属性约束。
+FOOD_CATEGORIES_BY_BARCODE = {
+    '6901939621738': '无糖汽水',
+    '6937003704014': '无糖汽水',
+    '6974800253352': '无糖汽水',
+    '6902083881085': '乳制品',
+    '6907992100272': '乳制品',
+    '6907992500942': '乳制品',
+    '6907992507095': '乳制品',
+    '6916196410414': '乳制品',
+    '6923644223458': '乳制品',
+    '6922577790068': '酸奶',
+    '6902538006575': '茶饮果汁',
+    '6909548098880': '茶饮果汁',
+    '6921168593569': '茶饮果汁',
+    '6972020770130': '茶饮果汁',
+    '6914973603394': '零食',
+    '6921351120305': '零食',
+    '6924743919242': '零食',
+    '6943949415174': '零食',
+    '6950955909610': '零食',
+    '6937962112714': '方便面',
+    '6923167524186': '坚果肉零食',
+    '6924773540416': '坚果肉零食',
+    '6938360357264': '坚果肉零食',
+    '6948939681928': '坚果肉零食',
+    '6948939696106': '坚果肉零食',
 }
 
-#: 食品扩容的价格锚定表（条码 → 品类标签 + 锚定对象）。锚定对象必须是
-#: 冻结基线 8 条食品之一，价格按锚 ±30% 以固定种子采样（anchored 溯源）。
-FOOD_EXPANSION_PRICE_ANCHORS: dict[str, tuple[str, str]] = {
-    "6901939621738": ("无糖汽水", "food-6928804010114"),
-    "6937003704014": ("无糖汽水", "food-6928804010114"),
-    "6974800253352": ("无糖汽水", "food-6928804010114"),
-    "6902083881085": ("乳制品", "food-6923644266066"),
-    "6907992100272": ("乳制品", "food-6923644266066"),
-    "6907992500942": ("乳制品", "food-6923644266066"),
-    "6907992507095": ("乳制品", "food-6923644266066"),
-    "6916196410414": ("乳制品", "food-6923644266066"),
-    "6923644223458": ("乳制品", "food-6923644266066"),
-    "6922577790068": ("酸奶", "food-6901209212215"),
-    "6902538006575": ("茶饮果汁", "food-6920459902387"),
-    "6909548098880": ("茶饮果汁", "food-6920459902387"),
-    "6921168593569": ("茶饮果汁", "food-6920459902387"),
-    "6972020770130": ("茶饮果汁", "food-6920459902387"),
-    "6914973603394": ("零食", "food-6924743919211"),
-    "6921351120305": ("零食", "food-6924743919211"),
-    "6924743919242": ("零食", "food-6924743919211"),
-    "6943949415174": ("零食", "food-6924743919211"),
-    "6950955909610": ("零食", "food-6924743919211"),
-    "6937962112714": ("方便面", "food-6920152460061"),
-    "6923167524186": ("坚果肉零食", "food-8935090914864"),
-    "6924773540416": ("坚果肉零食", "food-8935090914864"),
-    "6938360357264": ("坚果肉零食", "food-8935090914864"),
-    "6948939681928": ("坚果肉零食", "food-8935090914864"),
-    "6948939696106": ("坚果肉零食", "food-8935090914864"),
-}
-FOOD_PRICE_SEED = 20260916
-FOOD_PRICE_SPREAD = 0.3
-FOOD2_PRICE_SEED = 20260917
-
-#: 第二波食品扩容的价格品类表（品类标签 → 锚定对象）。锚定对象仍必须是冻结
-#: 基线 8 条食品之一，价格按锚 ±30% 以固定种子采样（anchored 溯源）。
-#: 面包烘焙无冻结同类，锚定到最接近的价格量级（红烧牛肉面 650 fen）。
-FOOD2_CATEGORY_ANCHORS: dict[str, str] = {
-    "汽水": "food-6928804010114",
-    "乳制品": "food-6923644266066",
-    "酸奶": "food-6901209212215",
-    "茶饮果汁": "food-6920459902387",
-    "零食": "food-6924743919211",
-    "方便面": "food-6920152460061",
-    "面包烘焙": "food-6920152460061",
-    "坚果肉零食": "food-8935090914864",
-    "咖啡": "food-6917878044729",
-}
+#: 第二波食品扩容允许的品类标签闭集；门店价格不由商品生成器生成。
+FOOD_CATEGORIES = frozenset({
+    '汽水',
+    '乳制品',
+    '酸奶',
+    '茶饮果汁',
+    '零食',
+    '方便面',
+    '面包烘焙',
+    '坚果肉零食',
+    '咖啡',
+})
 
 CATEGORY_ID_BY_LABEL = {
     "汽水": "food-soda",
@@ -478,12 +466,6 @@ def raw_object(object_id: str, name: str, category_id: str,
     }
 
 
-def merchant_role_source(role: str, artifact: str) -> dict:
-    """@brief 记录对象购买时使用的场景账户角色。"""
-    return source_record(
-        "scenario-merchant-role", "scenario", f"frozen purchase merchant role {role}",
-        ["/values/absolute/merchant_role"], artifact=artifact,
-    )
 
 
 def energy_density(raw: dict) -> float:
@@ -533,8 +515,6 @@ def frozen_food_object(product: dict, raw: dict, off_sha: str,
     density = energy_density(raw)
     validate_density(product["product_id"], category_id, density, bounds)
     values = {
-        "price_fen": product["price_fen"],
-        "merchant_role": product["merchant_account_id"],
         "energy_kcal_per_serving": product["energy_kcal_per_unit"],
         "energy_density_kcal_per_100": density,
         "serving_unit": product["serving_unit"],
@@ -545,20 +525,13 @@ def frozen_food_object(product: dict, raw: dict, off_sha: str,
             ["/values/absolute/energy_kcal_per_serving",
              "/values/absolute/energy_density_kcal_per_100"],
             artifact=f"corpora/open-food-facts/products.json (sha256 {off_sha})"),
-        source_record(
-            "scenario-price", "scenario", "legacy-scenario-price",
-            ["/values/absolute/price_fen"], note=f"price_version {product['price_version']}"),
-        merchant_role_source(
-            product["merchant_account_id"], "scripts/catalog-snapshot-legacy-scenario.json"),
     ]
     return raw_object(product["product_id"], product["name"], category_id, values, sources)
 
 
 def durable_object(product: dict) -> dict:
-    """@brief 构造八条耐用品的原生差异；共享库存和时长由品类继承。"""
+    """@brief 构造八条耐用品的原生差异；共享时长由品类继承。"""
     values = {
-        "price_fen": product["price_fen"],
-        "merchant_role": product["merchant_account_id"],
         "effect": product["effect"],
         "consumable": product["consumable"],
     }
@@ -567,11 +540,11 @@ def durable_object(product: dict) -> dict:
     sources = [source_record(
         "legacy-scenario-product", "scenario", "frozen legacy scenario product declaration",
         ["/values/absolute"], artifact="scripts/catalog-snapshot-legacy-scenario.json",
-        note=f"price_version {product['price_version']}")]
+        note="Only use attributes are retained; storefront facts are declared separately")]
     return raw_object(product["product_id"], product["name"], "durable", values, sources)
 
 
-def expansion_food_object(entry: dict, price_fen: int, context: dict,
+def expansion_food_object(entry: dict, context: dict,
                           bounds: dict[str, tuple[float, float]]) -> dict:
     """@brief 由扩容白名单直接构造原生食品增量。"""
     barcode = entry["barcode"]
@@ -579,8 +552,6 @@ def expansion_food_object(entry: dict, price_fen: int, context: dict,
     density = context["density"]
     validate_density(f"food-{barcode}", category_id, density, bounds)
     values = {
-        "price_fen": price_fen,
-        "merchant_role": "merchant:grocery",
         "energy_kcal_per_serving": entry["energy_kcal_serving"],
         "energy_density_kcal_per_100": density,
         "serving_unit": entry["serving_size"],
@@ -591,39 +562,20 @@ def expansion_food_object(entry: dict, price_fen: int, context: dict,
          "/values/absolute/energy_density_kcal_per_100"],
         artifact=f"{context['artifact']} (sha256 {context['sha256']})",
         note=f"derived via {entry['kcal_rule']} x serving {entry['serving_quantity']}")
-    price = source_record(
-        "anchored-price", "anchored",
-        f"category anchor {context['anchor_id']} ({context['label']})",
-        ["/values/absolute/price_fen"], artifact="catalog/objects.jsonl @ 1.0",
-        method=(f"anchor_fen * uniform(1-{FOOD_PRICE_SPREAD}, 1+{FOOD_PRICE_SPREAD}), "
-                f"seed {context['seed']}, barcode-sorted order"))
-    merchant = merchant_role_source(
-        "merchant:grocery", "scripts/build_catalog.py at baseline commit 426af3b")
-    return raw_object(
-        f"food-{barcode}", entry["name"], category_id, values, [energy, price, merchant])
+    return raw_object(f"food-{barcode}", entry["name"], category_id, values, [energy])
 
 
 def load_expansion_entries() -> list[dict]:
-    """@brief 读取并相互校验扩容白名单与价格锚定表。"""
+    """@brief 读取并相互校验扩容白名单与品类表。"""
     document = load_json(FOOD_EXPANSION)
     entries = document["entries"]
     by_barcode = {entry["barcode"]: entry for entry in entries}
     assert len(by_barcode) == len(entries) == 25, "expansion whitelist must hold 25 unique entries"
-    assert set(by_barcode) == set(FOOD_EXPANSION_PRICE_ANCHORS), \
-        "expansion whitelist and price anchor table disagree"
+    assert set(by_barcode) == set(FOOD_CATEGORIES_BY_BARCODE), \
+        "expansion whitelist and category table disagree"
     return entries
 
 
-def expansion_prices(entries: list[dict], frozen_foods: list[dict]) -> dict[str, int]:
-    """@brief 以固定种子按品类锚定价 ±30% 采样每条扩容食品价格（条码序稳定）。"""
-    anchors = {product["product_id"]: product["price_fen"] for product in frozen_foods}
-    rng = random.Random(FOOD_PRICE_SEED)
-    prices = {}
-    for barcode in sorted(entry["barcode"] for entry in entries):
-        _, anchor_object_id = FOOD_EXPANSION_PRICE_ANCHORS[barcode]
-        factor = rng.uniform(1 - FOOD_PRICE_SPREAD, 1 + FOOD_PRICE_SPREAD)
-        prices[barcode] = max(1, round(anchors[anchor_object_id] * factor))
-    return prices
 
 
 def verify_expansion(entries: list[dict], off_frozen: list[dict], off_raw: dict,
@@ -661,8 +613,8 @@ def load_expansion2_entries() -> list[dict]:
     assert len(set(barcodes)) == len(barcodes), "wave-2 barcodes must be unique"
     assert len(entries) >= 70, f"wave-2 expansion must hold >=70 entries, got {len(entries)}"
     for entry in entries:
-        assert entry["category"] in FOOD2_CATEGORY_ANCHORS, \
-            f"{entry['barcode']}: price category {entry['category']!r} has no anchor"
+        assert entry["category"] in FOOD_CATEGORIES, \
+            f"{entry['barcode']}: food category {entry['category']!r} is not declared"
     return entries
 
 
@@ -706,17 +658,6 @@ def verify_expansion2(entries: list[dict], off_pool: dict, forbidden: set[str],
             f"{barcode}: serving unit disagrees with raw serving_size"
 
 
-def expansion2_prices(entries: list[dict], frozen_foods: list[dict]) -> dict[str, int]:
-    """@brief 以固定种子按品类锚定价 ±30% 采样第二波食品价格（条码序稳定）。"""
-    anchors = {product["product_id"]: product["price_fen"] for product in frozen_foods}
-    by_barcode = {entry["barcode"]: entry for entry in entries}
-    rng = random.Random(FOOD2_PRICE_SEED)
-    prices = {}
-    for barcode in sorted(by_barcode):
-        category = by_barcode[barcode]["category"]
-        factor = rng.uniform(1 - FOOD_PRICE_SPREAD, 1 + FOOD_PRICE_SPREAD)
-        prices[barcode] = max(1, round(anchors[FOOD2_CATEGORY_ANCHORS[category]] * factor))
-    return prices
 
 
 def load_meals() -> list[dict]:
@@ -750,8 +691,6 @@ def meal_object(meal: dict, meals_sha: str,
     density = float(source["energy_kcal_per_100g"])
     validate_density(meal["meal_id"], "prepared-meal", density, bounds)
     values = {
-        "price_fen": meal["price_fen"],
-        "merchant_role": "merchant:restaurant",
         "energy_kcal_per_serving": meal["energy_kcal_per_serving"],
         "energy_density_kcal_per_100": density,
         "use_duration_seconds": duration_seconds,
@@ -765,17 +704,11 @@ def meal_object(meal: dict, meals_sha: str,
         artifact=f"corpora/meals/items.json (sha256 {meals_sha})",
         note=(f"kcal = {density} kcal/100g x {meal['serving']['quantity']} g / 100; "
               "FNDDS recorded values not adjusted"))
-    price = source_record(
-        "scenario-price", "scenario", meal["price_assumption"],
-        ["/values/absolute/price_fen"], note="price_version zhangjiang-2026-q1-meals")
     timing = source_record(
         "meal-shape", "scenario", "meal corpus serving and duration assumptions",
         ["/values/absolute/use_duration_seconds", "/values/absolute/serving_quantity"],
         artifact="corpora/meals/items.json")
-    merchant = merchant_role_source(
-        "merchant:restaurant", "scripts/build_catalog.py at baseline commit 426af3b")
-    return raw_object(meal["meal_id"], meal["name_zh"], "prepared-meal",
-                      values, [energy, price, timing, merchant])
+    return raw_object(meal["meal_id"], meal["name_zh"], "prepared-meal", values, [energy, timing])
 
 
 def travel_object() -> dict:
@@ -899,23 +832,11 @@ def lifestyle_met_map() -> dict[str, float]:
 
 
 def expansion_context(entry: dict, raw: dict, checksum: str, wave: int) -> dict:
-    """@brief 汇集一条扩容食品的品类、锚定与原始密度上下文。"""
+    """@brief 汇集一条扩容食品的品类与原始密度上下文。"""
     barcode = entry["barcode"]
-    if wave == 1:
-        label, anchor_id = FOOD_EXPANSION_PRICE_ANCHORS[barcode]
-        artifact, seed = "corpora/foods/expansion.json", FOOD_PRICE_SEED
-    else:
-        label = entry["category"]
-        anchor_id = FOOD2_CATEGORY_ANCHORS[label]
-        artifact, seed = "corpora/foods/expansion2.json", FOOD2_PRICE_SEED
-    return {
-        "label": label,
-        "anchor_id": anchor_id,
-        "artifact": artifact,
-        "sha256": checksum,
-        "seed": seed,
-        "density": energy_density(raw),
-    }
+    label = FOOD_CATEGORIES_BY_BARCODE[barcode] if wave == 1 else entry["category"]
+    return {"label": label, "artifact": f"corpora/foods/expansion{'2' if wave == 2 else ''}.json",
+            "sha256": checksum, "density": energy_density(raw)}
 
 
 def build_objects(data: dict) -> list[dict]:
@@ -926,13 +847,13 @@ def build_objects(data: dict) -> list[dict]:
         for item in data["parts"]["foods"]
     ]
     wave1 = [
-        expansion_food_object(item, data["prices1"][item["barcode"]],
+        expansion_food_object(item,
                               expansion_context(item, data["raw100"][item["barcode"]],
                                                 data["sha1"], 1), data["bounds"])
         for item in sorted(data["entries1"], key=lambda row: row["barcode"])
     ]
     wave2 = [
-        expansion_food_object(item, data["prices2"][item["barcode"]],
+        expansion_food_object(item,
                               expansion_context(item, data["raw2"][item["barcode"]],
                                                 data["sha2"], 2), data["bounds"])
         for item in sorted(data["entries2"], key=lambda row: row["barcode"])
@@ -944,9 +865,9 @@ def build_objects(data: dict) -> list[dict]:
 
 
 def manifest_base() -> dict:
-    """@brief 构造不含内容摘要的 3.0 清单声明。"""
+    """@brief 构造不含内容摘要的 4.0 清单声明。"""
     return {
-        "version_major": 3,
+        "version_major": 4,
         "version_minor": 0,
         "category_requirements": CATEGORY_REQUIREMENTS,
     }
@@ -995,20 +916,17 @@ def prepare_object_data(inputs: dict, parts: dict, off_sha: str,
     expansion_entries = load_expansion_entries()
     verify_expansion(expansion_entries, inputs["off_frozen"], inputs["off_raw"], parts["foods"])
     expansion_sha = sha256_of(FOOD_EXPANSION)
-    prices = expansion_prices(expansion_entries, parts["foods"])
 
     expansion2_entries = load_expansion2_entries()
     forbidden = {entry["barcode"] for entry in inputs["off_frozen"] + expansion_entries}
     verify_expansion2(expansion2_entries, inputs["off_pool"], forbidden, bounds)
     expansion2_sha = sha256_of(FOOD_EXPANSION2)
-    prices2 = expansion2_prices(expansion2_entries, parts["foods"])
 
     meals = load_meals()
     meals_sha = sha256_of(MEALS_CORPUS)
     return {
         "parts": parts, "off_sha": off_sha, "bounds": bounds,
         "entries1": expansion_entries, "entries2": expansion2_entries,
-        "prices1": prices, "prices2": prices2,
         "sha1": expansion_sha, "sha2": expansion2_sha,
         "raw100": {str(row["code"]): row for row in inputs["off_raw"]["products"]},
         "raw2": {str(row["code"]): row for row in inputs["off_pool"]["products"]},

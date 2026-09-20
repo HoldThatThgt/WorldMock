@@ -1,0 +1,254 @@
+........................................................................ [  2%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+........................................................................ [  8%]
+........................................................................ [ 11%]
+........................................................................ [ 13%]
+........................................................................ [ 15%]
+........................................................................ [ 17%]
+........................................................................ [ 19%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 37%]
+........................................................................ [ 39%]
+........................................................................ [ 42%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 51%]
+........................................................................ [ 53%]
+........................................................................ [ 55%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 64%]
+........................................................................ [ 66%]
+........................................................................ [ 68%]
+........................................................................ [ 71%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 77%]
+........................................................................ [ 79%]
+........................................................................ [ 82%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 90%]
+........................................................................ [ 93%]
+........................................................................ [ 95%]
+.....................................................ssss............... [ 97%]
+........................................................................ [ 99%]
+....                                                                     [100%]
+=============================== warnings summary ===============================
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 27809 (\N{CJK UNIFIED IDEOGRAPH-6CA1}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 26377 (\N{CJK UNIFIED IDEOGRAPH-6709}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 21452 (\N{CJK UNIFIED IDEOGRAPH-53CC}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 26041 (\N{CJK UNIFIED IDEOGRAPH-65B9}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 20849 (\N{CJK UNIFIED IDEOGRAPH-5171}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 21516 (\N{CJK UNIFIED IDEOGRAPH-540C}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 25903 (\N{CJK UNIFIED IDEOGRAPH-652F}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 25345 (\N{CJK UNIFIED IDEOGRAPH-6301}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 30340 (\N{CJK UNIFIED IDEOGRAPH-7684}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 23448 (\N{CJK UNIFIED IDEOGRAPH-5B98}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 27963 (\N{CJK UNIFIED IDEOGRAPH-6D3B}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 21160 (\N{CJK UNIFIED IDEOGRAPH-52A8}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 39046 (\N{CJK UNIFIED IDEOGRAPH-9886}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/evaluation/test_branch_coverage.py::test_official_chart_renders_placeholder_without_supported_domains
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/src/worldmock/evaluation/reporting.py:239: UserWarning: Glyph 22495 (\N{CJK UNIFIED IDEOGRAPH-57DF}) missing from font(s) DejaVu Sans.
+    figure.savefig(path, dpi=140, metadata={"Software": "WorldMock"})
+
+tests/life/test_state_write_recheck.py::test_commit_choke_point_rejects_every_domain_invariant_before_persisting[agent_identity_mismatch]
+tests/life/test_state_write_recheck.py::test_create_initial_persist_rejects_every_domain_invariant[agent_identity_mismatch]
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `AgentState` - serialized value may not be as expected [field_name='agents', input_value={'agent_id': 2, 'name': '... 'material_reveals': []}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `ActivityState` - serialized value may not be as expected [field_name='activities', input_value={'activity_id': 'activity...ason': None, 'data': {}}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='presentation_state', input_value='1', input_type=str])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_state_write_recheck.py::test_commit_choke_point_rejects_every_domain_invariant_before_persisting[negative_account]
+tests/life/test_state_write_recheck.py::test_commit_choke_point_rejects_every_domain_invariant_before_persisting[negative_supply_stock]
+tests/life/test_state_write_recheck.py::test_commit_choke_point_rejects_every_domain_invariant_before_persisting[time_exceeds_end]
+tests/life/test_state_write_recheck.py::test_create_initial_persist_rejects_every_domain_invariant[negative_account]
+tests/life/test_state_write_recheck.py::test_create_initial_persist_rejects_every_domain_invariant[negative_supply_stock]
+tests/life/test_state_write_recheck.py::test_create_initial_persist_rejects_every_domain_invariant[time_exceeds_end]
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='agents', input_value='1', input_type=str])
+    PydanticSerializationUnexpectedValue(Expected `AgentState` - serialized value may not be as expected [field_name='agents', input_value={'agent_id': 1, 'name': '... 'material_reveals': []}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `ActivityState` - serialized value may not be as expected [field_name='activities', input_value={'activity_id': 'activity...ason': None, 'data': {}}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='presentation_state', input_value='1', input_type=str])
+    return self.__pydantic_serializer__.to_python(
+
+tests/life/test_state_write_recheck.py::test_commit_choke_point_rejects_every_domain_invariant_before_persisting[negative_inventory]
+tests/life/test_state_write_recheck.py::test_create_initial_persist_rejects_every_domain_invariant[negative_inventory]
+  /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/.venv/lib/python3.12/site-packages/pydantic/main.py:464: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `AgentState` - serialized value may not be as expected [field_name='agents', input_value={'agent_id': 1, 'name': '... 'material_reveals': []}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `ActivityState` - serialized value may not be as expected [field_name='activities', input_value={'activity_id': 'activity...ason': None, 'data': {}}, input_type=dict])
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='presentation_state', input_value='1', input_type=str])
+    return self.__pydantic_serializer__.to_python(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+3240 passed, 4 skipped, 24 warnings in 345.69s (0:05:45)
+[coverage-gate] running: uv run coverage run -m pytest -q
+[coverage-gate] report written: /Users/atishoo/.codex/worktrees/map-and-storefront/WorldMock/docs/coverage-report.json
+[coverage-gate] branch coverage: 98.49% (covered=6341, missing=97, threshold=85.00)
+[coverage-gate]   custom/agents/life_agent.py: 99.58% (covered=478, missing=2)
+[coverage-gate]   custom/agents/life_context.py: 100.00% (covered=6, missing=0)
+[coverage-gate]   custom/agents/life_menu.py: 99.29% (covered=139, missing=1)
+[coverage-gate]   custom/envs/life_env.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/catalog/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/catalog/admission.py: 96.69% (covered=263, missing=9)
+[coverage-gate]   src/worldmock/catalog/affordances.py: 100.00% (covered=214, missing=0)
+[coverage-gate]   src/worldmock/catalog/builder.py: 100.00% (covered=6, missing=0)
+[coverage-gate]   src/worldmock/catalog/inspect.py: 94.44% (covered=17, missing=1)
+[coverage-gate]   src/worldmock/catalog/loader.py: 100.00% (covered=40, missing=0)
+[coverage-gate]   src/worldmock/catalog/models.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/cli.py: 98.00% (covered=49, missing=1)
+[coverage-gate]   src/worldmock/corpora/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/corpora/fetch.py: 98.48% (covered=65, missing=1)
+[coverage-gate]   src/worldmock/corpora/manifest.py: 100.00% (covered=18, missing=0)
+[coverage-gate]   src/worldmock/corpora/map_prepare.py: 86.36% (covered=19, missing=3)
+[coverage-gate]   src/worldmock/delivery/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/delivery/evidence_encoding.py: 100.00% (covered=92, missing=0)
+[coverage-gate]   src/worldmock/delivery/generation.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/delivery/pipeline.py: 100.00% (covered=72, missing=0)
+[coverage-gate]   src/worldmock/delivery/replay.py: 100.00% (covered=22, missing=0)
+[coverage-gate]   src/worldmock/delivery/rules.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/delivery/semantics.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/delivery/trace_validation.py: 98.00% (covered=98, missing=2)
+[coverage-gate]   src/worldmock/delivery/training.py: 100.00% (covered=24, missing=0)
+[coverage-gate]   src/worldmock/delivery/windows.py: 100.00% (covered=64, missing=0)
+[coverage-gate]   src/worldmock/errors.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/evaluation/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/evaluation/adapters.py: 99.38% (covered=159, missing=1)
+[coverage-gate]   src/worldmock/evaluation/aggregate_reference.py: 100.00% (covered=32, missing=0)
+[coverage-gate]   src/worldmock/evaluation/behavior_metrics.py: 92.38% (covered=194, missing=16)
+[coverage-gate]   src/worldmock/evaluation/causality.py: 100.00% (covered=14, missing=0)
+[coverage-gate]   src/worldmock/evaluation/decision.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/evaluation/errors.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/evaluation/io.py: 100.00% (covered=24, missing=0)
+[coverage-gate]   src/worldmock/evaluation/metrics.py: 100.00% (covered=74, missing=0)
+[coverage-gate]   src/worldmock/evaluation/models.py: 100.00% (covered=16, missing=0)
+[coverage-gate]   src/worldmock/evaluation/public_evidence.py: 100.00% (covered=152, missing=0)
+[coverage-gate]   src/worldmock/evaluation/reporting.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/evaluation/review.py: 98.26% (covered=226, missing=4)
+[coverage-gate]   src/worldmock/evaluation/runner.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/evaluation/scenario.py: 100.00% (covered=54, missing=0)
+[coverage-gate]   src/worldmock/evaluation/validation.py: 100.00% (covered=94, missing=0)
+[coverage-gate]   src/worldmock/footprints/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/footprints/assets.py: 100.00% (covered=8, missing=0)
+[coverage-gate]   src/worldmock/footprints/checkpoint.py: 100.00% (covered=36, missing=0)
+[coverage-gate]   src/worldmock/footprints/evidence.py: 100.00% (covered=8, missing=0)
+[coverage-gate]   src/worldmock/footprints/export.py: 100.00% (covered=38, missing=0)
+[coverage-gate]   src/worldmock/footprints/ledger.py: 100.00% (covered=40, missing=0)
+[coverage-gate]   src/worldmock/footprints/models.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/footprints/quality.py: 100.00% (covered=174, missing=0)
+[coverage-gate]   src/worldmock/footprints/store.py: 100.00% (covered=60, missing=0)
+[coverage-gate]   src/worldmock/footprints/validation.py: 100.00% (covered=70, missing=0)
+[coverage-gate]   src/worldmock/life/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/life/activities.py: 98.68% (covered=75, missing=1)
+[coverage-gate]   src/worldmock/life/basket.py: 100.00% (covered=94, missing=0)
+[coverage-gate]   src/worldmock/life/body.py: 98.04% (covered=100, missing=2)
+[coverage-gate]   src/worldmock/life/candidates.py: 93.10% (covered=54, missing=4)
+[coverage-gate]   src/worldmock/life/commerce.py: 87.50% (covered=7, missing=1)
+[coverage-gate]   src/worldmock/life/content.py: 100.00% (covered=38, missing=0)
+[coverage-gate]   src/worldmock/life/decision_start.py: 100.00% (covered=12, missing=0)
+[coverage-gate]   src/worldmock/life/discovery.py: 100.00% (covered=28, missing=0)
+[coverage-gate]   src/worldmock/life/engine.py: 97.66% (covered=334, missing=8)
+[coverage-gate]   src/worldmock/life/felt.py: 100.00% (covered=32, missing=0)
+[coverage-gate]   src/worldmock/life/game.py: 100.00% (covered=24, missing=0)
+[coverage-gate]   src/worldmock/life/interaction_menu.py: 94.44% (covered=51, missing=3)
+[coverage-gate]   src/worldmock/life/map_data.py: 91.67% (covered=77, missing=7)
+[coverage-gate]   src/worldmock/life/map_models.py: 100.00% (covered=60, missing=0)
+[coverage-gate]   src/worldmock/life/menu_execution.py: 100.00% (covered=2, missing=0)
+[coverage-gate]   src/worldmock/life/models.py: 98.53% (covered=67, missing=1)
+[coverage-gate]   src/worldmock/life/motivation.py: 98.73% (covered=156, missing=2)
+[coverage-gate]   src/worldmock/life/narration.py: 100.00% (covered=68, missing=0)
+[coverage-gate]   src/worldmock/life/observe.py: 98.31% (covered=116, missing=2)
+[coverage-gate]   src/worldmock/life/opening_hours.py: 100.00% (covered=24, missing=0)
+[coverage-gate]   src/worldmock/life/presentation.py: 100.00% (covered=18, missing=0)
+[coverage-gate]   src/worldmock/life/projection.py: 100.00% (covered=34, missing=0)
+[coverage-gate]   src/worldmock/life/result_projection.py: 95.45% (covered=21, missing=1)
+[coverage-gate]   src/worldmock/life/retrieval.py: 98.89% (covered=89, missing=1)
+[coverage-gate]   src/worldmock/life/rhythm.py: 96.94% (covered=95, missing=3)
+[coverage-gate]   src/worldmock/life/rotation.py: 97.73% (covered=43, missing=1)
+[coverage-gate]   src/worldmock/life/rules.py: 100.00% (covered=36, missing=0)
+[coverage-gate]   src/worldmock/life/scenario.py: 97.40% (covered=187, missing=5)
+[coverage-gate]   src/worldmock/life/schedule.py: 100.00% (covered=76, missing=0)
+[coverage-gate]   src/worldmock/life/semantics.py: 96.67% (covered=145, missing=5)
+[coverage-gate]   src/worldmock/life/settlement.py: 100.00% (covered=2, missing=0)
+[coverage-gate]   src/worldmock/life/sleep.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/life/social.py: 100.00% (covered=18, missing=0)
+[coverage-gate]   src/worldmock/life/social_actions.py: 96.67% (covered=29, missing=1)
+[coverage-gate]   src/worldmock/life/state_commit.py: 100.00% (covered=4, missing=0)
+[coverage-gate]   src/worldmock/life/storefront_runtime.py: 100.00% (covered=6, missing=0)
+[coverage-gate]   src/worldmock/life/storefront_state.py: 97.06% (covered=33, missing=1)
+[coverage-gate]   src/worldmock/life/travel.py: 97.83% (covered=45, missing=1)
+[coverage-gate]   src/worldmock/life/work.py: 100.00% (covered=48, missing=0)
+[coverage-gate]   src/worldmock/life/work_review.py: 100.00% (covered=48, missing=0)
+[coverage-gate]   src/worldmock/opslog.py: 100.00% (covered=8, missing=0)
+[coverage-gate]   src/worldmock/profile/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/profile/compile.py: 100.00% (covered=16, missing=0)
+[coverage-gate]   src/worldmock/profile/coverage.py: 100.00% (covered=10, missing=0)
+[coverage-gate]   src/worldmock/profile/extractor.py: 96.67% (covered=29, missing=1)
+[coverage-gate]   src/worldmock/profile/mapper.py: 100.00% (covered=14, missing=0)
+[coverage-gate]   src/worldmock/profile/models.py: 100.00% (covered=30, missing=0)
+[coverage-gate]   src/worldmock/profile/taste.py: 100.00% (covered=2, missing=0)
+[coverage-gate]   src/worldmock/profile/textgen.py: 100.00% (covered=16, missing=0)
+[coverage-gate]   src/worldmock/resources/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/resources/audit.py: 100.00% (covered=32, missing=0)
+[coverage-gate]   src/worldmock/resources/ledger.py: 100.00% (covered=54, missing=0)
+[coverage-gate]   src/worldmock/resources/models.py: 100.00% (covered=52, missing=0)
+[coverage-gate]   src/worldmock/runtime.py: 99.15% (covered=117, missing=1)
+[coverage-gate]   src/worldmock/scheduling/__init__.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/scheduling/compile.py: 100.00% (covered=26, missing=0)
+[coverage-gate]   src/worldmock/scheduling/effects.py: 94.44% (covered=34, missing=2)
+[coverage-gate]   src/worldmock/scheduling/events.py: n/a (covered=0, missing=0)
+[coverage-gate]   src/worldmock/status.py: 100.00% (covered=14, missing=0)
+[coverage-gate]   src/worldmock/validation.py: 95.45% (covered=42, missing=2)
+[coverage-gate] uncovered public interfaces: 0
+[coverage-gate] gate verdict: PASSED

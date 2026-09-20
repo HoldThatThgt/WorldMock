@@ -103,9 +103,9 @@ class ScenarioCatalogRefs(CatalogModel):
         """
         if (self.catalog_major is None) != (self.catalog_minor is None):
             raise ValueError("catalog version pin requires both major and minor")
-        roles = [account.role for account in self.accounts]
+        roles = [account.role for account in self.accounts if not account.role.startswith("merchant:")]
         if len(set(roles)) != len(roles):
-            raise ValueError("scenario account roles must be unique")
+            raise ValueError("non-merchant scenario account roles must be unique")
         return self
 
 
@@ -673,7 +673,12 @@ def _check_locations(root, requirements, violations) -> None:
         return
     counts: dict[str, int] = {}
     for location in document.get("locations", []):
-        for kind in location.get("covers", []):
+        kind = location.get("business_kind")
+        declared = location.get("location_kinds")
+        if not declared or not set(declared) <= (LIFESTYLE_LOCATION_KINDS - {"anywhere"}):
+            violations.append(AdmissionViolation(
+                CATEGORY_LOCATION_KIND_MISSING, "location activity environment declaration is invalid"))
+        if isinstance(kind, str):
             counts[kind] = counts.get(kind, 0) + 1
     for kind in requirements.location_required_kinds:
         floor = requirements.location_min_per_kind.get(kind, 1)
@@ -886,9 +891,7 @@ def _partitions_of(entries):
 def _place_kinds(root) -> tuple[frozenset[str], ...]:
     """@brief 地点语料里全部地点的地点类集合。
 
-    地点未声明 `location_kinds` 时按 `anywhere` 处理：未声明不是「哪里都去不了」，
-    而是「没有声明限制」，与 `life.presentation` 的运行期缺省同口径。声明了却为空
-    不是缺省——那是「哪里都去不了」，按空集投影。
+    地点侧缺失活动环境声明属于资料错误；空集合不提供任何活动环境。
     """
     document = _load_corpus(root, LOCATIONS_CORPUS)
     if document is None:
@@ -899,7 +902,7 @@ def _place_kinds(root) -> tuple[frozenset[str], ...]:
         if isinstance(declared, list) and declared:
             places.append(frozenset(str(kind) for kind in declared))
         else:
-            places.append(frozenset({"anywhere"}))
+            places.append(frozenset())
     return tuple(places)
 
 

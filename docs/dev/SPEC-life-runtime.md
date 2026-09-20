@@ -1,8 +1,8 @@
 # 特性规格：LifeEnv 运行时行为与结算规则
 
 > 状态：FROZEN——条款已裁决并冻结；「候选契约与呈现规则」章九行中八行已有代码层证据，
-> 地点侧 `location_kinds` 尚未进入 `LocationConfig` 与正式场景，因此地点语义一行保留为既有实现缺口。
-> 全章其余条款代码层行为已落地并通过确定性测试，真实 DeepSeek 端点与完整活动结算的集成验证待正式运行。
+> 审查基线的地点侧 `location_kinds` 输入缺口由地图特性完整处理，最终通过状态以新规格的生产入口证据为准。
+> 其余既有条款的历史代码层证据保留原身份；本次受影响行为须重新验收，不能沿用旧结论。真实 DeepSeek 完整实验仍待正式运行。
 > 日期：2026-09-18
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
@@ -97,7 +97,7 @@ WakeReason = Literal[
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
     "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
-    "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
+    "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
 ]
 ```
 
@@ -116,6 +116,7 @@ WakeReason = Literal[
 | `location_hours_change` | 当前地点即将闭店（提前 15 分钟）或已开门 |
 | `person_arrived`、`person_left` | 同一地点的在场人物集合变化 |
 | `activity_infeasible` | 能量或位置条件已不允许当前活动继续 |
+| `discovery_result` | 发现门店结果已提交，下一秒进入合法决策轮并回灌比较事实 |
 | `rejection_feedback`、`wake_from_sleep`、`run_start` | 沿用现有语义 |
 
 **唤醒条件是判定规则，唤醒原因是本次命中的成员**：上表列出全部唤醒条件；某次结算边界实际命中的成员构成该次边界的唤醒原因。只有命中的边界才提供决策机会并记录这些原因。
@@ -596,6 +597,10 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 有唤醒条件时人物根据实际进度选择继续、暂停或退出
 - 继续请求不能造成零时间循环或把同一区间重复计入产出
 
+生活活动的目录声明 `feedback_boundary=true`，沿用同一反馈、暂停、继续与恢复路径。
+暂停后可以选择真实出行；恢复前必须按新位置重新验证原活动的环境要求，失败保留暂停进度。
+地点恢复门必须由真实“启动—暂停—换地点—恢复”的生产入口测试证明，不能只调用辅助校验函数。
+
 **游戏与睡眠**：
 - 游戏沿用明确的回合反馈边界
 - 睡眠期只在计划结束或有唤醒事件到达时提供决策机会
@@ -641,7 +646,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **观察不得重复序列化**：一次决策的输入里，同一条观察不得被序列化两遍。观察记录的写入形态以 `docs/design/05-recording-engine.md`「数字足迹事件结构」章的「事件字段」节为准，AS2 侧把该形态落到代码的改动见 `docs/dev/SPEC-as2-integration.md`「观察记录单写」。
 
-**商品可见期**：`visible_product_ids` 在离开商家地点或距浏览 1800 秒后清空；配送浏览同样适用。本条判定的是浏览时效这一生成来源的过期，取代此前只按时间判定的旧口径：离开商家地点即产生一条可区分的 `ELIGIBILITY_LOCATION_ABSENT` 排除，不得只按浏览时刻放行（依据：`REPORT.md` 第三章 G14「`product_browsed_location`：一条活合同条款的整半缺失」）。
+**门店供给可见期**：实际呈现的购买候选按 `supply_id` 分别记录可见身份、浏览时刻与浏览地点；距该供给实际呈现超过 1800 秒或离开呈现地点后失效，配送发现仍按其可见凭据和履约条件判定。不得把全商品目录设为可见，也不能让同商品另一门店继承凭据。已持有商品的使用可见性仍按当前地点库存。字段合同见 [地图与门店供给合同](../CONTRACTS.md#地图与门店供给合同)。
 
 **工作材料增量**：只揭示自上次决策以来新读到的区间，单次至多 2000 字符；完整材料进度仍由结算记录。
 
@@ -702,7 +707,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 ### 统一候选契约：生成、资格、排序三段
 
-**判定规则**：商品、生活活动、内容、游戏与任务五类可选对象都走同一套三段式，任何一类不得另起一条独立链路。
+**判定规则**：购买供给与持有商品、生活活动、内容、游戏和任务都走同一套三段式，任何一类不得另起一条独立链路。
 
 | 段 | 输入 | 输出 |
 | --- | --- | --- |
@@ -722,7 +727,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 ### 两条排除纪律
 
-**只有世界事实可以排除。** 可排除的来源只有三类：地点不可用（人不在、地点未营业、地点类交集为空）、库存为零或已下架、身体与资源条件不允许（能量不足、资源占用冲突、时长越界）。每一类排除携带一个稳定原因码，原因码的闭集只在 `docs/CONTRACTS.md`「候选与呈现合同」定义。
+**只有世界事实可以排除。** 可排除的是地点或访问不可用（人不在、营业关闭或未知、地点类交集为空、资格不足）、供给无有效报价、库存为零或已下架，以及身体与资源条件不允许（能量不足、资源占用冲突、时长越界）。每一类排除携带一个稳定原因码，原因码的闭集只在 `docs/CONTRACTS.md`「候选与呈现合同」定义。
 
 **软偏好只允许改序，不允许出局。** 画像口味、注意力先验、画像激活集只参与排序键，不得作为候选的入选条件。**修订既有实现**：`compute_taste_weights` 给出权重零的条目必须仍然进入候选并按最低档排序，`motivation` 里以 `attention_prior × preference > 0` 作为入场条件的写法作废（依据：`REPORT.md`「被裁掉的对象怎么办：裁剪不可保证，但必须可审计、可区分、可逆」的「当前实现已经踩了第三类」与 `REPORT.md`「现状与 elevate 后模型的 gap」的「画像偏好被当成排除条件（软偏好硬用）」）。
 
@@ -791,7 +796,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **地点是可行性门，条目属性是检索分区键，两件事必须分开。**
 
-- **可行性门**回答「此刻此地能不能做」：地点声明「我满足哪些地点类」，条目声明「我需要哪些地点类」，交集非空即可行，声明含 `anywhere` 表示恒可行。地点词表取生活活动地点类的单一封闭集，各处对齐后运行期强制（现行词表的对齐要求与语境见 `LOCATION-GRANULARITY.md`「核实现状」与 `docs/dev/SPEC-life-realism.md`「世界素材品类要求」；字段与闭集见 `docs/CONTRACTS.md`「候选与呈现合同」）。
+- **可行性门**回答「此刻此地能不能做」：地点声明「我满足哪些地点类」，条目声明「我需要哪些地点类」，交集非空即可行；只有活动侧 `anywhere` 表示无地点限制，地点必须声明实际环境，不能含 `anywhere`。地点词表取生活活动地点类的单一封闭集，各处对齐后运行期强制（现行词表的对齐要求与语境见 `LOCATION-GRANULARITY.md`「核实现状」与 `docs/dev/SPEC-life-realism.md`「世界素材品类要求」；字段与闭集见 `docs/CONTRACTS.md`「候选与呈现合同」）。
 - **检索分区键**回答「从哪个池里选」，取条目属性（题材、语言、时长段），不取地点。地点粒度不足以当分区键：一个人的生活里场所类别是十的量级，纯地点方案的分区数上限约 24 个，与十万级池所需的千级分区差两个数量级。
 
 `required_location_id` 与地点类判定并列：前者指定具体地点实例，后者指定地点类别，取交集即可行。
@@ -804,7 +809,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **索引必须确定性**：倒排索引（标签 → 对象标识）与 facet 计数都是纯文本、可 diff、可进溯源的结构。
 
-**禁止向量检索与近似最近邻**。三条各自独立地破坏「同输入逐字节相同输出」：近似最近邻的结果不确定、聚类初始化带随机、浮点距离比较不稳定。稀疏词项检索可用，因为它是可枚举、可 diff 的。
+**禁止向量检索与近似最近邻**。内容检索不得依赖随机初始化或不稳定距离比较；稀疏词项检索可枚举、可审查。地点发现使用冻结道路结果与稳定身份排序；空间粗筛不能代替道路可达性，不能把直线距离写作道路分钟。
 
 **反塌缩保证**：任一对象必须在有限次查询组合下存在至少一条到达路径。这是静态可检查的性质，**不是覆盖率承诺**——不得把它读成「每个对象都会被曝光」。
 
@@ -812,7 +817,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **读到什么算通过**：同一查询在同一（冻结目录、世界状态版本）下返回同一有序结果；静态可达性检查对任意对象都给出至少一条路径。
 
-**读到什么算失败**：索引结构含浮点距离或随机初始化；查询结果依赖进程内缓存或哈希种子。
+**读到什么算失败**：内容索引依赖浮点距离或随机初始化；查询结果依赖进程内缓存或哈希种子；地点发现用直线距离替代道路可达时间。
 
 ### 随身持有与远程订购
 
@@ -825,6 +830,33 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 **远程订购复用既有交付语义**，不新增渠道对象。远程提交的履约方式不受在场约束：取货必须在商家地点，配送不校验在场；这一点必须在对应工具的 `description` 里点明（依据：`REPORT.md`「三个获取来源 → 保留三分，但统一到一个生成器」的手机远程行为一条）。
 
 **读到什么算通过**：以配送方式提交的购买请求在人物不在商家地点时被受理；以取货方式提交的同一请求在人物不在商家地点时被拒，且原因码为地点不可行。
+
+## 地图与门店供给行为
+
+本次要求按 [地图与门店供给开发规格](SPEC-map-and-storefront.md) 完整实现并验收地图、地点发现与交易；下文是行为合同，不是通过记录。
+场景选择固定地图中的地点；活动环境必填且非空，候选、启动和恢复使用同一显式声明，缺失不得放行。
+活动侧 `anywhere` 表示无地点限制，地点侧不能声明 `anywhere`。生活活动使用目录已启用的反馈边界，
+实际暂停后跨地点恢复仍须重验环境；不能保留永远无法进入的恢复分支。
+交互菜单继续使用解析地点的 `kind`，与经营业态和活动环境分别判断。
+
+```mermaid
+flowchart LR
+    Q[登记发现动作] --> S[环境结算查询]
+    S --> O[下轮实际返回供给与道路事实]
+    O --> A[人物决定出行或配送]
+    A --> R[到达与购买分别重验]
+    R --> P[供给库存与卖方结算]
+    P --> D[取得后按商品使用]
+```
+
+营业支持分段、跨午夜和日期例外，全部读取方共享 `open/closed/unknown` 解释；边界按事件推进。
+供给报价和库存是持久化世界事实，调价与补货不能修改商品定义，恢复不能回到初始价。
+购买继续验证品类配对，当前供给报价与数量经统一 `purchase_amount` 求得实际付款；
+一份的比较金额、余额判断和动机价格排序共用该入口，多份订单按整行乘积取整而非乘已取整单价。
+订单一至五个不同供给，必须同地点同卖方；先完整校验再一次结算。到店自提和配送分开验证，
+同单配送等待最迟备货时刻，交付前不增加人物库存，重复交付不重复增加。
+实际返回的供给才产生可见凭据；购买候选保留商品类型，但身份、轮转、游标和排除统计按供给区分。
+本特性的逐条证据须在最终验收后登记，不沿用历史商品库存测试数字宣称通过。
 
 ## 社交最小可行版
 
@@ -867,23 +899,23 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 工作与验收 | 计时与计件合同按实际合格工时与冻结件数结算；过期、重复与无资金在语义付款前停止；评审协议纠正、耗尽与零重试 | `tests/life/test_work_contracts.py`、`tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py` | 代码层已验证 |
 | 语料准入 | 场景目录逐条通过引用完整性、单位与守恒检查；正式清单逐文件校验与选定条数；AMI 输入与隐藏参考分离；TextWorld 使用真实重置与步进 | `tests/catalog/test_admission.py`、`tests/corpora/test_corpora.py` | 代码层已验证 |
 | 导航与配送 | 路线报价一次预付且不可负担时不改动任何账户；walking 记录零车费不虚构付款；定位轨迹确定且不构成人物决策；交通时间因子随日期时段变化 | `tests/life/test_travel_cost.py`、`tests/life/test_travel_trajectory.py`、`tests/life/test_travel_time.py` | 代码层已验证 |
-| 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户与角色唯一；出行报价符合目录闭集规则；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
-| 观察投影 | 黑名单字段不进入提示；商品可见期离开商家地点或到 1800 秒即清空；工作材料单次至多 2000 字符；跨边界字幕不重复；场景不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py` | 代码层已验证 |
-| 交互菜单 | 有效菜单随观察冻结；模型、本地与宿主使用同一资格；环境重验不可绕过；拒绝无领域副作用；候选、事实与排除统计不变 | [交互菜单验收记录](research/interaction-menu-verification.md)所列对应测试 | 本次离线验收待执行 |
+| 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户身份唯一，经营角色允许多个卖方账户；出行报价符合目录闭集规则；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
+| 观察投影 | 黑名单字段不进入提示；门店供给可见期按实际呈现身份和地点判断，超过 1800 秒失效；工作材料单次至多 2000 字符；跨边界字幕不重复；场景不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py`；新增逐供给断言见 `tests/life/test_storefront_discovery.py` | 既有行为已验证，新增行为整合验收中 |
+| 交互菜单 | 有效菜单随观察冻结；模型、本地与宿主使用同一资格；环境重验不可绕过；拒绝无领域副作用；候选、事实与排除统计不变 | [交互菜单验收记录](research/interaction-menu-verification.md)所列对应测试 | 独立特性已有验收；当前主线组合待重验 |
 | 统一候选契约 | 五类对象的候选区分生成、资格与排序三段且返回体形状一致；同输入两次取候选逐字节相同；候选不依赖时间戳、缓存或模型输出 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两条排除纪律 | 画像未声明的题材其条目仍在候选内且排序靠后；每个被排除项带闭集内的原因码；保留项计数与排除项计数之和等于候选全集规模 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两级上限 | 单次呈现条数不超过场景声明的呈现上限；池上限只进 `total` 计数，不当作呈现上限截短返回体 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py`、`tests/life/test_candidate_constants.py` | 代码层已验证 |
 | 下推 | 层数不超过两层；以游标下推得到全量有序候选的无重无漏子序列；返回体含本次条数、总数与下一页游标 | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py` | 代码层已验证 |
 | 曝光轮转 | 连续 `⌈N ÷ k⌉` 次呈现后分区内每个对象至少出现一次；轮转不改目录、不改对象状态、不产生下架事件；轮转判据是上次呈现时刻（`last_presented_at`）而非互动次数 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 禁止永久退役 | 轮转、裁剪与淘汰统计都不改变对象层条目数；无运行期通路按互动统计移出条目 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
-| 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | 显式地点集合的单元证据见 `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py`；`LocationConfig` 与正式场景缺少地点侧 `location_kinds` | 既有实现缺口 |
+| 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | 显式地点集合的单元证据见 `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py`；正式地图声明与场景引用由地图特性重新验收 | 独立特性已有验收；当前主线组合待重验 |
 | 检索与反塌缩 | 同一查询在同一（冻结目录、世界状态版本）下返回同一有序结果；静态可达性检查对任意对象给出至少一条到达路径；索引不含浮点距离或随机初始化 | `tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py` | 代码层已验证 |
-| 随身持有与远程订购 | 持有物只在其所在地点可见；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分 | `tests/life/test_commerce.py` 的 `test_delivery_ignores_presence_while_pickup_requires_it`（行为两分句）；`purchase` 的 `description` 已点明该分野 | 代码层已验证 |
+| 随身持有与远程订购 | 持有物只在其所在地点可见；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分 | `tests/life/test_storefront_commerce.py` 的 `test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`；`tests/life/test_commerce.py::test_consume_rejects_inventory_held_at_another_location` | 定向通过，整合验收中 |
 | 提示字符预算 | user 消息 40000 字符与 system 消息 3000 字符的边界通过；超限报错且不截断、不删字段 | `tests/life/test_narration.py` | 代码层已验证 |
 | 社交 | 在场可见字段闭合且交谈要求清醒非游戏；消息汉字上限边界；交谈与通话费率与时长边界；联系人策略为闭集且回复至多一次 | `tests/life/test_social.py` | 代码层已验证 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md` | 待真实运行 |
 
-「候选契约与呈现规则」章的复判说明（逐行核对，含未达成的分句）：
+「候选契约与呈现规则」历史基线的复判说明（保留当时证据，不描述地图特性整合后状态）：
 
 - 该章九行中有八行具备代码层证据，每一行的证据位置见上表；地点语义一行的算法分支虽有显式
   地点集合的单元测试，正式输入仍未提供地点侧 `location_kinds`，所以不以单元测试替代端到端落地。

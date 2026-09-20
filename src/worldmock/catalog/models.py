@@ -261,12 +261,6 @@ CompiledEdge = Annotated[
     Field(discriminator="type"),
 ]
 
-class Stock(CatalogModel):
-    """@brief 交换对象的库存初值与补货策略。"""
-
-    initial: float = Field(ge=0)
-    restock: str = Field(default="none", pattern=r"\S")
-
 
 class Serving(CatalogModel):
     """@brief 一份交换对象份量的数量与单位。"""
@@ -313,15 +307,22 @@ class ExchangeObject(CatalogModel):
     consumable: bool | None = None
     use_modes: tuple[str, ...] = ()
     edges: tuple[CompiledEdge, ...] = ()
-    stock: Stock | None = None
     use_duration_seconds: int | None = Field(default=None, ge=1)
-    delivery_delay_seconds: int | None = Field(default=None, ge=1)
     serving: Serving | None = None
     required_location_id: str | None = Field(default=None, pattern=r"\S")
     acceptance: Acceptance | None = None
     efficiency: Efficiency | None = None
     provenance: tuple[SourceRecord, ...] = Field(min_length=1)
     version: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def validate_purchase_edges(self) -> "ExchangeObject":
+        """@brief 商品购买仅保留动态品类规则，不允许嵌入门店购买金额。"""
+        if self.object_kind == ObjectKind.PRODUCT and any(
+                edge.on == "purchase" and not isinstance(edge, RuleEdge) for edge in self.edges):
+            LOGGER.error("Product definitions must not contain purchase price edges")
+            raise ValueError("Product definitions must not contain purchase price edges")
+        return self
 
     def attribute(self, name: str) -> Any:
         """@brief 返回一个已解析属性，不存在时明确失败。

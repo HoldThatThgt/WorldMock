@@ -8,11 +8,11 @@ from worldmock.catalog import CatalogError
 from worldmock.catalog.inspect import edges_of, lineage, objects_affecting
 
 
-def test_edges_of_includes_literal_money_and_energy_edges(loaded_catalog) -> None:
+def test_edges_of_includes_purchase_rule_and_energy_edges(loaded_catalog) -> None:
     """购买与食品能量边分别归入明确资源域。"""
     money = edges_of(loaded_catalog, "money_fen")
     energy = edges_of(loaded_catalog, "energy_kcal")
-    assert [(hit.object_id, hit.relation) for hit in money] == [("milk", "transfer")]
+    assert [(hit.object_id, hit.relation) for hit in money] == [("milk", "rule")]
     assert [(hit.object_id, hit.relation) for hit in energy] == [("milk", "source")]
 
 

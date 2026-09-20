@@ -70,6 +70,7 @@ class WakeReason(str, Enum):
     PERSON_LEFT = "person_left"
     ACTIVITY_INFEASIBLE = "activity_infeasible"
     REJECTION_FEEDBACK = "rejection_feedback"
+    DISCOVERY_RESULT = "discovery_result"
     WAKE_FROM_SLEEP = "wake_from_sleep"
     RUN_START = "run_start"
 
@@ -240,6 +241,7 @@ class WakeSnapshot(BaseModel):
     people_present_before: frozenset[str] = frozenset()
     activity_infeasible: bool = False
     consecutive_rejections: int = 0
+    discovery_result_ready: bool = False
     wake_from_sleep: bool = False
     run_start: bool = False
     is_asleep: bool = False
@@ -422,6 +424,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.ACTIVITY_INFEASIBLE)
     if snap.consecutive_rejections > 0:
         reasons.append(WakeReason.REJECTION_FEEDBACK)
+    if snap.discovery_result_ready:
+        reasons.append(WakeReason.DISCOVERY_RESULT)
     if snap.wake_from_sleep:
         reasons.append(WakeReason.WAKE_FROM_SLEEP)
     if snap.run_start:

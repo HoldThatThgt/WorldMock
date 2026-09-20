@@ -20,13 +20,11 @@ from worldmock.categories import (
     WorkPackageRule,
     WorkPieceRule,
     evaluate_food_energy,
-    evaluate_purchase,
     resolve_object_values,
     resolve_pairing,
 )
 from worldmock.catalog.models import (
     Acceptance,
-    AccountRoles,
     CatalogError,
     CompiledEdge,
     Efficiency,
@@ -36,8 +34,6 @@ from worldmock.catalog.models import (
     RuleEdge,
     Serving,
     SourceEdge,
-    Stock,
-    TransferEdge,
 )
 
 
@@ -67,9 +63,7 @@ def compile_exchange_object(
         consumable=attributes.get("consumable"),
         use_modes=tuple(attributes.get("use_modes", ())),
         edges=edges,
-        stock=_stock(attributes),
         use_duration_seconds=_effective_duration(edges, attributes),
-        delivery_delay_seconds=attributes.get("delivery_delay_seconds"),
         serving=_serving(attributes),
         required_location_id=attributes.get("required_location_id"),
         acceptance=_acceptance(attributes, resolved.kind),
@@ -133,16 +127,7 @@ def _edge_for_rule(
 ) -> CompiledEdge:
     """@brief 将一条 typed rule 投影为字面边或动态规则引用边。"""
     if isinstance(rule, PurchaseTransferRule):
-        price = _integer_attribute(obj, rule.price_slot)
-        merchant_role = _string_attribute(obj, "merchant_role")
-        to_role = merchant_role if rule.to_role == "merchant" else rule.to_role
-        return TransferEdge(
-            on="purchase", type="transfer", **{"from": "{buyer}", "to": "{merchant}"},
-            resource=rule.resource_id,
-            amount_fen=evaluate_purchase(price, 1, coefficient),
-            account_roles=AccountRoles(**{"from": rule.from_role, "to": to_role}),
-            unit=rule.unit,
-        )
+        return RuleEdge(on=rule.action.value, type="rule", rule_id=rule.rule_id, coefficient=coefficient)
     if isinstance(rule, FoodEnergyRule):
         energy = _number_attribute(obj, rule.energy_slot)
         duration = _positive_integer_attribute(obj, rule.duration_slot)
@@ -196,13 +181,6 @@ def _require_declared_slots(
         raise CatalogError(
             "CATALOG_RULE_SLOT_UNDECLARED", f"category {category_id} lacks rule slots {missing}",
         )
-
-
-def _stock(attributes: Mapping[str, Any]) -> Stock | None:
-    """@brief 从有效属性构造旧运行边界需要的库存视图。"""
-    if "stock_initial" not in attributes:
-        return None
-    return Stock(initial=attributes["stock_initial"], restock=attributes["stock_restock"])
 
 
 def _serving(attributes: Mapping[str, Any]) -> Serving | None:

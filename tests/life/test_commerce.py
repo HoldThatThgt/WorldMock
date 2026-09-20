@@ -12,7 +12,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import advance_next, advance_until_ready, context, travel_quote
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.commerce import deliver_order, purchase
+from worldmock.life.commerce import deliver_order
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
@@ -21,7 +21,7 @@ from worldmock.life.models import (
     FulfillmentKind,
     PurchaseItem,
     PurchaseOrderRequest,
-    PurchaseRequest,
+    DiscoverPlacesRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
     StartTravelRequest,
@@ -55,20 +55,26 @@ def _observed_action(engine, round_id: str, tool_name: str, request, action_id: 
 
 
 def _browse(engine) -> None:
-    """实际花费一分钟浏览并取得冻结商品目录。"""
-    _observed_action(
-        engine, "browse", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
-                                     planned_duration_seconds=60, playback_speed=1))
+    """通过真实发现动作取得第一种商品的具体门店供给。"""
+    product_id = engine.scenario.products[0].product_id
+    _, result = _observed_action(engine, "browse", "discover_places", DiscoverPlacesRequest(
+        product_id=product_id, business_kind=None, travel_mode="walking", max_travel_seconds=None, cursor=None))
+    assert result.status == "completed", result.error_code
     advance_next(engine)
 
 
+def _selected_supply(engine, product_id: str):
+    """明确选择测试使用的集市供给；商品本身不携带商家或报价。"""
+    return next(item for item in engine.scenario.supplies
+                if item.product_id == product_id and item.location_id == "market")
+
+
 def _delivery_request(engine, product_id: str) -> PurchaseOrderRequest:
-    """按当前冻结报价形成送货到家的整单请求。"""
-    product = next(item for item in engine.scenario.products if item.product_id == product_id)
+    """按所选供给的当前世界报价形成送货到家的整单请求。"""
+    supply = _selected_supply(engine, product_id)
+    quote = engine.state.supply_quotes[supply.supply_id]
     return PurchaseOrderRequest(
-        items=(PurchaseItem(product_id=product_id, quantity=1,
-                            price_version=product.price_version),),
+        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version),),
         fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
 
 
@@ -77,19 +83,22 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
     engine = engine_factory()
     _stage_open(engine)
     before = engine.observe(context(engine, "before-browse"))
-    assert before["products"] == []
+    assert before["supplies"] == []
     _browse(engine)
     product = engine.scenario.products[0]
     request = _delivery_request(engine, product.product_id)
     balances = dict(engine.state.accounts)
-    stock = engine.state.merchant_stock[product.product_id]
+    supply = _selected_supply(engine, product.product_id)
+    price = engine.state.supply_quotes[supply.supply_id].price_fen
+    stock = engine.state.supply_stock[supply.supply_id]
     observation, result = _observed_action(engine, "buy", "purchase", request)
-    assert len(observation["products"]) == len(engine.scenario.products)
+    assert supply.supply_id in {row["supply_id"] for row in observation["supplies"]}
+    assert {row["supply_id"] for row in observation["supplies"]} <= engine.state.agents[1].visible_supply_ids
     assert result.status == "completed"
-    assert engine.state.accounts["agent:1"] == balances["agent:1"] - product.price_fen
-    assert engine.state.accounts[product.merchant_account_id] == (
-        balances[product.merchant_account_id] + product.price_fen)
-    assert engine.state.merchant_stock[product.product_id] == stock - 1
+    assert engine.state.accounts["agent:1"] == balances["agent:1"] - price
+    assert engine.state.accounts[supply.seller_account_id] == (
+        balances[supply.seller_account_id] + price)
+    assert engine.state.supply_stock[supply.supply_id] == stock - 1
     assert len(engine.state.deliveries) == 1
     money_events = [event for event in engine.store.read_agent_events("action_result", 1)
                     if event.action_id == "action-buy" and event.data.get("resource_changes")]
@@ -99,9 +108,9 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
                for event in engine.store.read_agent_events("action_accepted", 1))
 
     advance_next(engine)
-    snapshot = (dict(engine.state.accounts), dict(engine.state.merchant_stock), dict(engine.state.deliveries))
+    snapshot = (dict(engine.state.accounts), dict(engine.state.supply_stock), dict(engine.state.deliveries))
     _observed_action(engine, "buy-replay", "purchase", request, action_id="action-buy")
-    assert (engine.state.accounts, engine.state.merchant_stock, engine.state.deliveries) == snapshot
+    assert (engine.state.accounts, engine.state.supply_stock, engine.state.deliveries) == snapshot
     assert engine.state.agents[1].next_decision_at == engine.state.current_time + 1
     all_money = [event for event in engine.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-buy" and event.data.get("resource_changes")]
@@ -146,91 +155,6 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
     changed = travel.model_copy(update={"planned_duration_seconds": route.duration_seconds + 60})
     with pytest.raises(ProtocolError, match="reused with different parameters"):
         engine.submit_action(DirectToolCall(conflict, "action-to-office", "start_travel", changed))
-
-
-@pytest.mark.parametrize(
-    ("mutation", "code"),
-    (
-        ("price", "PRICE_VERSION_MISMATCH"),
-        ("funds", "INSUFFICIENT_FUNDS"),
-        ("stock", "OUT_OF_STOCK"),
-        ("closed", "MERCHANT_CLOSED"),
-        ("destination", "DESTINATION_NOT_FOUND"),
-        ("pickup", "PICKUP_LOCATION_REQUIRED"),
-    ),
-)
-def test_purchase_rejects_each_resource_boundary_without_mutating_input(engine_factory, mutation, code) -> None:
-    """报价、资金、库存、营业、目的地与取货位置逐项失败且输入状态不变。"""
-    engine = engine_factory()
-    _stage_open(engine)
-    product = engine.scenario.products[0]
-    state = engine.state.model_copy(deep=True)
-    request = _delivery_request(engine, product.product_id)
-    if mutation == "price":
-        item = request.items[0].model_copy(update={"price_version": "wrong"})
-        request = request.model_copy(update={"items": (item,)})
-    elif mutation == "funds":
-        accounts = dict(state.accounts)
-        accounts[state.agents[1].balance_account_id] = 0
-        state = state.model_copy(update={"accounts": accounts}, deep=True)
-    elif mutation == "stock":
-        stock = dict(state.merchant_stock)
-        stock[product.product_id] = 0
-        state = state.model_copy(update={"merchant_stock": stock}, deep=True)
-    elif mutation == "closed":
-        state = state.model_copy(update={"current_time": int(engine.scenario.start_at.timestamp())}, deep=True)
-    elif mutation == "destination":
-        request = request.model_copy(update={"destination_id": "missing"})
-    elif mutation == "pickup":
-        request = request.model_copy(update={"fulfillment": FulfillmentKind.PICKUP,
-                                             "destination_id": product.merchant_location_id})
-    from worldmock.life.basket import purchase_order
-
-    frozen = state.model_dump(mode="json")
-    with pytest.raises(BusinessRuleError, match=code):
-        purchase_order(state, engine.scenario, 1, request)
-    assert state.model_dump(mode="json") == frozen
-
-
-def test_delivery_ignores_presence_while_pickup_requires_it(engine_factory) -> None:
-    """配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分。
-
-    docs/dev/SPEC-life-runtime.md「随身持有与远程订购」：持有物只在其所在地点可见；
-    配送与取货的差别是「人是否在商家地点」，取货不在场时给 PICKUP_LOCATION_REQUIRED，
-    配送在同样条件下正常受理且不给该码。
-    """
-    from worldmock.life.basket import purchase_order
-
-    engine = engine_factory()
-    _stage_open(engine)
-    product = engine.scenario.products[0]
-    state = engine.state.model_copy(deep=True)
-    # 人物在场景起点位于家，不是商家地点——这正是两支分野的前提。
-    assert state.agents[1].location_id != product.merchant_location_id
-
-    # 取货：不在场即拒绝，原因码为 PICKUP_LOCATION_REQUIRED。
-    pickup = _delivery_request(engine, product.product_id).model_copy(
-        update={"fulfillment": FulfillmentKind.PICKUP,
-                "destination_id": product.merchant_location_id})
-    frozen = state.model_dump(mode="json")
-    with pytest.raises(BusinessRuleError, match="PICKUP_LOCATION_REQUIRED"):
-        purchase_order(state, engine.scenario, 1, pickup)
-    assert state.model_dump(mode="json") == frozen  # 拒绝不改动输入状态
-
-    # 配送：同样不在场，正常受理，且不抛取货那个码。
-    delivery = _delivery_request(engine, product.product_id)
-    outcome = purchase_order(state, engine.scenario, 1, delivery)
-    assert outcome.total_price_fen == product.price_fen
-    assert outcome.orders[0].status == "pending"
-
-    # 持有物按其所在地点可见：送达目的地的持有量可取得，当前位置不可取得。
-    from worldmock.life.commerce import held_quantity
-
-    stocked = state.agents[1].model_copy(
-        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True)
-    assert held_quantity(stocked, product.product_id) == 2.0  # 在家
-    away = stocked.model_copy(update={"location_id": "office"}, deep=True)
-    assert held_quantity(away, product.product_id) == 0.0  # 出门后不在手边
 
 
 def test_food_progress_persists_partial_quantity_across_pause_and_completion(engine_factory) -> None:
@@ -290,9 +214,10 @@ def test_delivery_replay_does_not_duplicate_inventory(engine_factory) -> None:
     product = engine.scenario.products[0]
     from worldmock.life.basket import purchase_order
 
-    outcome = purchase_order(engine.state, engine.scenario, 1,
+    outcome = purchase_order(engine.state, engine.semantics, 1,
                              _delivery_request(engine, product.product_id))
     order_id = outcome.orders[0].order_id
+    outcome.state.current_time = outcome.orders[0].expected_at
     first, order = deliver_order(outcome.state, order_id)
     second, replayed = deliver_order(first, order_id)
     assert order.status == replayed.status == "delivered"
@@ -301,18 +226,18 @@ def test_delivery_replay_does_not_duplicate_inventory(engine_factory) -> None:
 
 
 def _multi_browse(engine) -> None:
-    """让两个就绪人物在同轮真实取得商品目录。"""
+    """让同轮人物真实发现同一商品的具体供给。"""
     ready = engine.scheduling_state().ready_agent_ids
     contexts = {agent_id: context(engine, "multi-browse", agent_id) for agent_id in ready}
     engine.begin_decision_round([contexts[agent_id] for agent_id in ready])
     for ctx in contexts.values():
         engine.observe(ctx)
-    request = StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
-                                           planned_duration_seconds=60, playback_speed=1)
+    request = DiscoverPlacesRequest(product_id=engine.scenario.products[0].product_id,
+                                    business_kind=None, travel_mode="walking", max_travel_seconds=None, cursor=None)
     for agent_id in reversed(ready):
-        engine.submit_action(DirectToolCall(contexts[agent_id], f"browse-{agent_id}",
-                                            "start_targeted_activity", request))
-    engine.commit_decision_round("multi-browse")
+        engine.submit_action(DirectToolCall(contexts[agent_id], f"browse-{agent_id}", "discover_places", request))
+    results = engine.commit_decision_round("multi-browse")
+    assert all(result.status == "completed" for result in results)
     advance_next(engine)
 
 
@@ -320,7 +245,8 @@ def _compete_for_last_item(engine, arrival_order: tuple[int, int]) -> tuple[int,
     """通过真实多人轮结算最后一件库存并返回胜者和逐人物结果。"""
     product = engine.scenario.products[0]
     staged = engine.state.model_copy(deep=True)
-    staged.merchant_stock[product.product_id] = 1
+    supply = _selected_supply(engine, product.product_id)
+    staged.supply_stock[supply.supply_id] = 1
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                        visibility="system", data={"kind": "test_last_stock"})

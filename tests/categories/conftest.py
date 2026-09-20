@@ -68,7 +68,6 @@ def rules_document() -> dict:
                 "resource_id": "money_fen",
                 "unit": "fen",
                 "conservation": "closed",
-                "price_slot": "price_fen",
                 "from_role": "buyer",
                 "to_role": "merchant",
             },

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,6 +24,10 @@ from worldmock.life.models import (
     ContentProgress,
     StartBasicActivityRequest,
 )
+from worldmock.life.map_models import SupplyConfig
+from worldmock.life.content import load_lifestyle_items
+from worldmock.life.retrieval import item_kinds
+from worldmock.life.storefront_state import quote_state
 from worldmock.life.motivation import (
     ENTERTAINMENT_FAMILY_CAP,
     FAMILIES,
@@ -122,24 +127,46 @@ def _agent(energy=1600.0, sleep_debt=4.0, need=0.5, location="home",
                       inventory=inventory or {})
 
 
-def _food(product_id="food-1", price=800, kcal=600, location="market",
-          duration=900, stock=10) -> ProductConfig:
-    return ProductConfig.model_validate({
-        "product_id": product_id, "name": "Test meal", "category_id": "food",
-        "merchant_account_id": "merchant:g",
-        "merchant_location_id": location, "price_fen": price, "price_version": "v1",
-        "initial_stock": stock, "serving_quantity": 1.0, "serving_unit": "serving",
+SOURCE = {
+    "kind": "scenario", "url": "https://example.com/test-fixture", "retrieved_at": "2023-11-01T00:00:00+08:00",
+    "license": "test", "notice": "Synthetic test declarations", "fact_cutoff": "2023-11-01",
+    "applicability": "Synthetic motivation test only",
+}
+DECLARATION = {
+    "effective_from": "2023-11-01T00:00:00+08:00", "effective_to": None,
+    "reviewed_on": "2023-11-01", "still_valid_on": "2023-11-01", "source": SOURCE,
+}
+
+
+@dataclass(frozen=True)
+class FoodOffer:
+    """独立商品与具体门店供给组成的显式测试样例。"""
+    product: ProductConfig
+    supply: SupplyConfig
+
+
+def _food_offer(product_id="food-1", price=800, kcal=600, location="market", duration=900, stock=10):
+    product = ProductConfig.model_validate({
+        "product_id": product_id, "name": "Test meal", "category_id": "food", "serving_quantity": 1.0, "serving_unit": "serving",
         "energy_kcal_per_unit": kcal, "use_duration_seconds": duration,
-        "use_modes": ["eat"], "consumable": True, "effect": "fed",
-        "delivery_delay_seconds": 600, "source_kind": "test"})
+        "use_modes": ["eat"], "consumable": True, "effect": "fed", "source_kind": "test"})
+    supply = SupplyConfig.model_validate({
+        "supply_id": f"supply-{product_id}", "location_id": location, "product_id": product_id,
+        "seller_account_id": "merchant:g", "quotes": [{**DECLARATION, "price_version": "v1", "price_fen": price}],
+        "initial_stock": stock, "fulfillment_modes": ["pickup", "delivery"],
+        "delivery_destination_ids": ["home", "office"], "delivery_delay_seconds": 600,
+        "required_qualifications": [], "source": SOURCE})
+    return FoodOffer(product, supply)
 
 
 def _route(route_id, origin, destination, mode="driving", seconds=600, fare=600) -> RouteConfig:
     return RouteConfig.model_validate({
-        "route_id": route_id, "origin_id": origin, "destination_id": destination,
+        "route_id": route_id, "origin_id": origin, "destination_id": destination, "status": "reachable",
         "mode": mode, "distance_meters": 3000, "duration_seconds": seconds,
         "fare_fen": fare, "fare_source_kind": "scenario", "response_path": "routes/x.json",
-        "response_sha256": "a" * 64, "source_url": "https://example.com"})
+        "response_sha256": "a" * 64, "source_url": "https://example.com/route",
+        "routing_instance": "https://example.com", "routing_profile": "foot" if mode == "walking" else "car",
+        "source": SOURCE})
 
 
 def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> WorkTaskConfig:
@@ -165,20 +192,39 @@ def _content(item_id="movie-0001", kind="feature_film", seconds=3600, relief=0.2
 
 def _location(location_id="market", open_hour=0, close_hour=24) -> LocationConfig:
     return LocationConfig.model_validate({
-        "location_id": location_id, "name": location_id, "kind": "shop",
-        "longitude": 121.4, "latitude": 31.2,
-        "open_hour": open_hour, "close_hour": close_hour})
+        "location_id": location_id, "name": location_id, "kind": "shop", "business_kind": "grocery",
+        "longitude": 121.4, "latitude": 31.2, "location_kinds": ["venue"], "required_qualifications": [],
+        "brand": None, "affordances": {}, "source": SOURCE,
+        "opening_calendars": [{**DECLARATION, "exceptions": {}, "weekly": {
+            str(day): [{"opens": open_hour * 60, "closes": close_hour * 60}] for day in range(7)}}]})
+
+
+@lru_cache(maxsize=1)
+def _lifestyle_fixture():
+    payload = json.loads((PROJECT_ROOT / "corpora/lifestyle/items.json").read_text())
+    met = {f"lifestyle:{row['activity_id']}": row["met_value"] for row in payload["items"]}
+    return load_lifestyle_items(PROJECT_ROOT / "corpora", met)
 
 
 def _context(**overrides) -> MotivationContext:
+    food_offers = overrides.pop("food_offers", ())
+    catalog_food_offers = overrides.pop("catalog_food_offers", ())
     defaults = dict(
         agent=_agent(), balance_fen=20_000, body=_body(), home_location_id="home",
-        products=(), merchant_stock={}, locations={}, routes=(), tasks=(),
+        lifestyle_items=_lifestyle_fixture(), activity_location_kinds=item_kinds(PROJECT_ROOT / "corpora"),
+        purchase_pairing_states={item.product.product_id: "defined" for item in food_offers},
+        products=tuple(item.product for item in food_offers), supplies=tuple(item.supply for item in food_offers),
+        catalog_supplies=tuple(item.supply for item in catalog_food_offers),
+        supply_stock={item.supply.supply_id: item.supply.initial_stock for item in food_offers},
+        supply_quotes={item.supply.supply_id: quote_state(item.supply.quotes[0]) for item in food_offers},
+        opening_exceptions={key: {} for key in overrides.get("locations", {})}, locations={"home": _location("home").model_copy(
+            update={"location_kinds": ("home", "office", "outdoor", "fitness", "venue")})}, routes=(), tasks=(),
         task_totals={}, contents=(), content_progress={}, active_activity=None,
         habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
-        planned_travel_seconds=lambda mode, base: base)
+        planned_travel_seconds=lambda mode, base, departure: base,
+        purchase_amount=lambda product, price, quantity: price * quantity)
     defaults.update(overrides)
     return MotivationContext(**defaults)
 
@@ -230,8 +276,8 @@ class TestHomeostatic:
     def test_hungry_eat_scores_positive_energy_term(self, transforms):
         # 应急能量 + 廉价高热量食物 + 余额充裕（平缓损失段）→ 内稳态净收益为正。
         context = _context(agent=_agent(energy=100.0), balance_fen=50_000,
-                           products=(_food(price=200, kcal=800),),
-                           merchant_stock={"food-1": 5}, locations={"market": _location()},
+                           food_offers=(_food_offer(price=200, kcal=800),),
+                           supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),))
         scored = evaluate_motivation(context, _profile(), transforms)
         eat = next(item for item in scored if item.candidate.family == "eat")
@@ -241,7 +287,7 @@ class TestHomeostatic:
     def test_money_at_comfort_keeps_price_out_of_homeostatic(self, transforms):
         # docs/dev/SPEC-life-realism.md「动机层」：价格只在成本项计一次——购餐与持餐候选的 homeostatic
         # 完全一致（钱坐标不含价格流），价格损失全量落在成本项。
-        base = dict(products=(_food(price=800),), merchant_stock={"food-1": 5},
+        base = dict(food_offers=(_food_offer(price=800),), supply_stock={"supply-food-1": 5},
                     locations={"market": _location()})
         held = evaluate_motivation(
             _context(agent=_agent(energy=455.0, location="market",
@@ -263,7 +309,7 @@ class TestHomeostatic:
         """@brief 独立重算公式逐项对上 homeostatic 分量（测试内另写一遍公式）。"""
         profile = _profile()
         agent = _agent(energy=900.0)
-        context = _context(agent=agent, products=(_food(),), merchant_stock={"food-1": 5},
+        context = _context(agent=agent, food_offers=(_food_offer(),), supply_stock={"supply-food-1": 5},
                            locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),))
         scored = evaluate_motivation(context, profile, transforms)
@@ -298,8 +344,8 @@ class TestHomeostatic:
         assert actual == pytest.approx(expected, rel=1e-9)
 
     def test_sated_agent_gain_capped(self, transforms):
-        near_max = _context(agent=_agent(energy=2300.0), products=(_food(),),
-                            merchant_stock={"food-1": 5}, locations={"market": _location()},
+        near_max = _context(agent=_agent(energy=2300.0), food_offers=(_food_offer(),),
+                            supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                             routes=(_route("r1", "market", "home"),))
         scored = evaluate_motivation(near_max, _profile(), transforms)
         eat = next(item for item in scored if item.candidate.family == "eat")
@@ -336,15 +382,15 @@ class TestHabit:
         assert shares["entertainment"] == pytest.approx(1.5 / 1.75)
 
     def test_empty_footprint_gives_zero_habit(self, transforms):
-        context = _context(agent=_agent(energy=455.0), products=(_food(),),
-                           merchant_stock={"food-1": 5}, locations={"market": _location()},
+        context = _context(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                           supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),))
         scored = evaluate_motivation(context, _profile(), transforms)
         assert all(item.components["habit"] == 0.0 for item in scored)
 
     def test_habit_lifts_frequent_family(self, transforms):
-        base = dict(agent=_agent(energy=455.0), products=(_food(),),
-                    merchant_stock={"food-1": 5}, locations={"market": _location()},
+        base = dict(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                    supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                     routes=(_route("r1", "market", "home"),))
         cold = evaluate_motivation(_context(**base), _profile(), transforms)
         warm = evaluate_motivation(
@@ -356,16 +402,16 @@ class TestHabit:
 
 class TestEmotion:
     def test_zero_state_gives_zero_emotion(self, transforms):
-        context = _context(agent=_agent(energy=455.0), products=(_food(),),
-                           merchant_stock={"food-1": 5}, locations={"market": _location()},
+        context = _context(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                           supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),),
                            total_effective_seconds=14_400.0)
         scored = evaluate_motivation(context, _profile(), transforms)
         assert all(item.components["emotion"] == 0.0 for item in scored)
 
     def test_frustration_lifts_comfort_candidates(self, transforms):
-        base = dict(agent=_agent(energy=455.0), products=(_food(),),
-                    merchant_stock={"food-1": 5}, locations={"market": _location()},
+        base = dict(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                    supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                     routes=(_route("r1", "market", "home"),))
         calm = evaluate_motivation(_context(**base), _profile(), transforms)
         frustrated = evaluate_motivation(
@@ -388,7 +434,7 @@ class TestCost:
     def test_held_food_cost_excludes_price(self, transforms):
         held = _context(agent=_agent(energy=455.0, location="market",
                                      inventory={"market": {"food-1": 2}}),
-                        products=(_food(price=800),), merchant_stock={"food-1": 5},
+                        food_offers=(_food_offer(price=800),), supply_stock={"supply-food-1": 5},
                         locations={"market": _location()})
         scored = evaluate_motivation(held, _profile(), transforms)
         eat = next(item for item in scored if item.candidate.family == "eat")
@@ -396,7 +442,7 @@ class TestCost:
         assert eat.candidate.money_now_fen == 0.0
 
     def test_price_enters_cost(self, transforms):
-        base = dict(products=(_food(price=800),), merchant_stock={"food-1": 5},
+        base = dict(food_offers=(_food_offer(price=800),), supply_stock={"supply-food-1": 5},
                     locations={"market": _location()})
         held = evaluate_motivation(
             _context(agent=_agent(energy=455.0, location="market",
@@ -446,8 +492,8 @@ class TestCost:
 
 class TestSoftmaxAndShape:
     def test_ranked_topk_with_normalized_probabilities(self, transforms):
-        context = _context(agent=_agent(energy=455.0), products=(_food(),),
-                           merchant_stock={"food-1": 5}, locations={"market": _location()},
+        context = _context(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                           supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),),
                            contents=(_content(), _content("news-1", "news_feed", 600, 0.1),
                                      _content("drama-1", "drama_series", 1800, 0.15)),
@@ -478,8 +524,8 @@ class TestSoftmaxAndShape:
             origin_decision_id="d", origin_request_event_id="e",
             data={"entertainment_relief_per_hour": 0.2, "exposure_count": 1})
         context = _context(agent=_agent(energy=1500.0, location="office"),
-                           products=(_food(),), merchant_stock={"food-1": 5},
-                           catalog_products=(_food(), _food("food-2", price=600)),
+                           food_offers=(_food_offer(),), supply_stock={"supply-food-1": 5},
+                           catalog_food_offers=(_food_offer(), _food_offer("food-2", price=600)),
                            locations={"market": _location()},
                            routes=(_route("rd", "market", "office"),
                                    _route("rh", "office", "home")),
@@ -504,14 +550,14 @@ class TestEnumerationBoundaries:
 
     def test_no_money_and_no_hold_excludes_eat(self, transforms):
         context = _context(agent=_agent(energy=455.0), balance_fen=0,
-                           products=(_food(price=800),), merchant_stock={"food-1": 5},
+                           food_offers=(_food_offer(price=800),), supply_stock={"supply-food-1": 5},
                            locations={"market": _location()})
         scored = evaluate_motivation(context, _profile(), transforms)
         assert all(item.candidate.family != "eat" for item in scored)
 
     def test_zero_energy_keeps_only_recovery_candidates(self, transforms):
-        context = _context(agent=_agent(energy=1.0), products=(_food(),),
-                           merchant_stock={"food-1": 5}, locations={"market": _location()},
+        context = _context(agent=_agent(energy=1.0), food_offers=(_food_offer(),),
+                           supply_stock={"supply-food-1": 5}, locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),),
                            contents=(_content(),), tasks=(_task(),),
                            task_totals={"task-1": (0, 0.0)})
@@ -777,19 +823,19 @@ class TestScorerContract:
 
     def test_meal_floor_and_top_three(self, transforms):
         # 热量 >=300 的食品进入候选并按缺口接近度取前三；<300 的零食出局。
-        foods = (_food("food-big", kcal=800, price=700),
-                 _food("food-mid", kcal=600, price=500),
-                 _food("food-ok", kcal=400, price=300),
-                 _food("food-snack", kcal=120, price=100),
-                 _food("food-tiny", kcal=90, price=80))
+        foods = (_food_offer("food-big", kcal=800, price=700),
+                 _food_offer("food-mid", kcal=600, price=500),
+                 _food_offer("food-ok", kcal=400, price=300),
+                 _food_offer("food-snack", kcal=120, price=100),
+                 _food_offer("food-tiny", kcal=90, price=80))
         context = _context(agent=_agent(energy=1000.0, location="market"),
-                           products=foods,
-                           merchant_stock={item.product_id: 5 for item in foods},
+                           food_offers=foods,
+                           supply_stock={item.supply.supply_id: 5 for item in foods},
                            locations={"market": _location()})
         menu = [item.summary for item in _eat_candidates(context)]
         # 缺口 = 2400-1000 = 1400：|800-gap| < |600-gap| < |400-gap| 定前三名。
-        assert menu == ["Buy and eat food-big", "Buy and eat food-mid",
-                        "Buy and eat food-ok"]
+        assert menu == ["Buy and eat food-big (supply-food-big)", "Buy and eat food-mid (supply-food-mid)",
+                        "Buy and eat food-ok (supply-food-ok)"]
         scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
         eats = [item for item in scored if item.candidate.family == "eat"]
         assert {item.candidate.summary for item in eats} == set(menu)
@@ -798,13 +844,13 @@ class TestScorerContract:
 
     def test_sub_floor_foods_fall_back_to_closest_meal(self, transforms):
         # 全部低于 300 kcal 时按"最接近缺口的正餐类食品"兜底取一条。
-        foods = (_food("food-a", kcal=120, price=100), _food("food-b", kcal=200, price=150))
+        foods = (_food_offer("food-a", kcal=120, price=100), _food_offer("food-b", kcal=200, price=150))
         context = _context(agent=_agent(energy=2100.0, location="market"),
-                           products=foods,
-                           merchant_stock={item.product_id: 5 for item in foods},
+                           food_offers=foods,
+                           supply_stock={item.supply.supply_id: 5 for item in foods},
                            locations={"market": _location()})
         # 缺口 = 300：200 比 120 更接近缺口（兜底只取一条）。
-        assert [item.summary for item in _eat_candidates(context)] == ["Buy and eat food-b"]
+        assert [item.summary for item in _eat_candidates(context)] == ["Buy and eat food-b (supply-food-b)"]
 
     def test_same_entertainment_family_capped_at_two(self, transforms):
         # 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md「动机层」）。
@@ -845,15 +891,15 @@ class TestScorerContract:
         # Rolls 1981 感官特异性饱足：吃过 2 次的商品按 1/3 降权，排在等距新鲜食物后。
         assert meal_repeat_weight(0) == pytest.approx(1.0)
         assert meal_repeat_weight(2) == pytest.approx(1.0 / 3.0)
-        foods = (_food("food-fresh", kcal=600, price=500),
-                 _food("food-old", kcal=600, price=500))
+        foods = (_food_offer("food-fresh", kcal=600, price=500),
+                 _food_offer("food-old", kcal=600, price=500))
         context = _context(agent=_agent(energy=1000.0, location="market"),
-                           products=foods,
-                           merchant_stock={item.product_id: 5 for item in foods},
+                           food_offers=foods,
+                           supply_stock={item.supply.supply_id: 5 for item in foods},
                            locations={"market": _location()},
                            recent_meal_counts={"food-old": 2})
         assert [item.summary for item in _eat_candidates(context)] == [
-            "Buy and eat food-fresh", "Buy and eat food-old"]
+            "Buy and eat food-fresh (supply-food-fresh)", "Buy and eat food-old (supply-food-old)"]
 
     def test_zero_taste_weights_keep_entertainment_ranked_last(self, transforms):
         # docs/dev/SPEC-life-realism.md「画像编译」：口味权重是排序信号不是准入条件。
@@ -896,9 +942,9 @@ class TestBrowseCandidate:
 
     def test_browse_offered_when_catalog_has_unseen_products(self, transforms):
         # 目录 2 件、可见 0 件：无 eat 候选（链路断），browse 候选在场（打通链路）。
-        context = _context(agent=_agent(energy=455.0), products=(),
-                           catalog_products=(_food(), _food("food-2", price=600)),
-                           merchant_stock={"food-1": 5, "food-2": 5},
+        context = _context(agent=_agent(energy=455.0), food_offers=(),
+                           catalog_food_offers=(_food_offer(), _food_offer("food-2", price=600)),
+                           supply_stock={"supply-food-1": 5, "supply-food-2": 5},
                            locations={"market": _location()})
         scored = evaluate_motivation(context, _profile(), transforms)
         families = {item.candidate.family for item in scored}
@@ -909,8 +955,8 @@ class TestBrowseCandidate:
         assert browse.candidate.duration_seconds == 600
 
     def test_browse_absent_when_catalog_fully_visible(self, transforms):
-        context = _context(agent=_agent(energy=455.0), products=(_food(),),
-                           catalog_products=(_food(),), merchant_stock={"food-1": 5},
+        context = _context(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
+                           catalog_food_offers=(_food_offer(),), supply_stock={"supply-food-1": 5},
                            locations={"market": _location()},
                            routes=(_route("r1", "market", "home"),))
         scored = evaluate_motivation(context, _profile(), transforms)
@@ -1102,30 +1148,57 @@ class TestEngineInjection:
 
 
 class TestMarketSummary:
-    """@brief 商店存在性常识：不浏览也可见的营业状态/在售数/价格区间。"""
+    """商店存在性摘要不泄露尚未实际呈现的门店报价。"""
 
     def test_summary_common_knowledge_without_browse(self, engine_factory):
         engine = engine_factory()
         data = engine.observe(round_context(engine, "r-mkt", agent_id=1))
-        assert data["facts"]["products"] == []  # 商品明细仍由 browse 门控（facts 投影）
-        summary = data["market_summary"]
-        prices = sorted(item.price_fen for item in engine.rules.products.values())
-        assert summary == {"open": False,  # 场景 00:00 起，市场 7-23 营业
-                           "product_count": len(engine.rules.products),
-                           "price_range_fen": [prices[0], prices[-1]]}
+        assert data["facts"]["products"] == []
+        assert data["market_summary"] == {"supply_count": len(engine.scenario.supplies)}
+        assert not {"open", "price_range_fen", "price_version"} & data["market_summary"].keys()
 
-    def test_summary_open_flips_when_market_opens(self, engine_factory):
+    def test_summary_stays_public_when_market_opens(self, engine_factory):
         engine = engine_factory()
-        request = ("start_basic_activity",
-                   StartBasicActivityRequest(activity_type="sleep",
-                                             planned_duration_seconds=8 * 3600))
+        request = ("start_basic_activity", StartBasicActivityRequest(
+            activity_type="sleep", planned_duration_seconds=8 * 3600))
         submit_round(engine, {1: request}, "r-mkt-open")
-        advance_next(engine)  # 轮提交不推时钟：显式推进到 08:00 边界
+        advance_next(engine)
         data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))
-        assert data["market_summary"]["open"] is True  # 08:00 市场已开
+        assert data["market_summary"] == {"supply_count": len(engine.scenario.supplies)}
+        assert data["supplies"] == []
 
     def test_no_store_scenario_omits_summary(self, engine_factory):
         engine = engine_factory()
-        engine.rules.products = {}
+        engine.scenario = engine.scenario.model_copy(update={"supplies": ()})
         data = engine.observe(round_context(engine, "r-mkt-none", agent_id=1))
         assert "market_summary" not in data
+
+
+def test_food_affordability_uses_category_amount_instead_of_raw_quote():
+    """同一供给报价在品类系数改变后按实际付款判断余额与记录成本。"""
+    from dataclasses import replace
+    from worldmock.categories import evaluate_purchase
+
+    offer = _food_offer("meal", price=100, kcal=600)
+    context = _context(agent=_agent(energy=1000.0, location="market"), food_offers=(offer,),
+                       balance_fen=34, locations={"market": _location()},
+                       purchase_amount=lambda product, price, quantity: evaluate_purchase(price, quantity, 0.335))
+    candidates = _eat_candidates(context)
+    assert len(candidates) == 1
+    assert candidates[0].money_now_fen == -34
+    assert _eat_candidates(replace(context, balance_fen=33)) == []
+    expensive = replace(context, balance_fen=100,
+                        purchase_amount=lambda product, price, quantity: evaluate_purchase(price, quantity, 2))
+    assert _eat_candidates(expensive) == []
+
+
+def test_no_effect_purchase_does_not_hide_held_food():
+    """无作用的购买没有供给进食候选，但人物已持有食品仍然可用。"""
+    offer = _food_offer("meal", price=100, kcal=600)
+    context = _context(agent=_agent(energy=1000.0, location="market"), food_offers=(offer,),
+                       locations={"market": _location()}, purchase_pairing_states={"meal": "no_effect"},
+                       purchase_amount=lambda *args: pytest.fail("Inactive purchase must not be evaluated"))
+    assert _eat_candidates(context) == []
+    held = context.agent.model_copy(update={"inventory": {"market": {"meal": 1}}}, deep=True)
+    candidates = _eat_candidates(replace(context, agent=held))
+    assert len(candidates) == 1 and candidates[0].money_now_fen == 0

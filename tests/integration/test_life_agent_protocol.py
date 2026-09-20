@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.integration.storefront_fixtures import supply_row, discovery_catalog
+
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -54,6 +56,7 @@ _MEMORY_TOOL_NAMES = {
 }
 
 _BASE_ACTION_NAMES = {
+    "discover_places",
     "browse_activities",
     "plan_day",
     "start_basic_activity",
@@ -168,15 +171,16 @@ def _observations(*result_ids: str) -> list[dict]:
         "game_catalog": [{"game_id": "game-visible"}],
         "messages": [{"message_id": "message-visible"}],
         "browse_targets": ["product_catalog"],
-        "products": [{"product_id": "product-visible", "price_version": "price-v1",
-                      "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
-                      "merchant_location_id": "home", "required_location_id": None}],
+        "products": [{"product_id": "product-visible", "use_modes": ["eat"],
+                      "use_duration_seconds": 300, "required_location_id": None}],
+        "supplies": [supply_row(supply_id="supply-visible", product_id="product-visible")],
+        "discovery_catalog": discovery_catalog("product-visible"),
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
         "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
                              "use_duration_seconds": 300, "required_location_id": None}],
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
     }
@@ -218,7 +222,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
 #: 决策上下文重钉：基线已包含注册表注释与模型描述的字节变动；本次将
 #: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
-_PINNED_TOOL_SCHEMA_SHA256 = "6bc60d84d4fefbd6fc8aaa81d2be97caf5ad8e6b1da12b30aecb2c73728d609a"
+#: 门店供给重钉：购买引用供给；地点发现含明确分页工具与业务筛选。
+#: 地点资格恢复重钉：生活活动具有反馈控制边界，实际工具描述随注册表合同冻结。
+_PINNED_TOOL_SCHEMA_SHA256 = "97b04c6021d1f905ae02fff2f7a880bb6413c19bf517542af5296c767cf88b19"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -290,7 +296,7 @@ def test_feedback_boundary_exposes_direct_switch_tools() -> None:
     }, "")
     assert agent.validate_react_decisions([switch], False) == ""
     blocked = ReactDecision("", "purchase", {
-        "items": [{"product_id": "product-visible", "quantity": 1,
+        "items": [{"supply_id": 'supply-visible', "quantity": 1,
                    "price_version": "price-v1"}],
         "fulfillment": "delivery", "destination_id": "home",
     }, "")

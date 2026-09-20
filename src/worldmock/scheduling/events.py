@@ -20,10 +20,9 @@ class _StrictScheduledModel(BaseModel):
 
 
 class ScheduledKind(StrEnum):
-    """@brief 环境自主到期事件的封闭类型（现状五种 + docs/design/04-simulation-engine.md「预排事件」新增五种）。"""
+    """@brief 环境自主到期事件的封闭类型。"""
 
     MAIL_ARRIVAL = "mail_arrival"
-    DELIVERY_READY = "delivery_ready"
     DELIVERY_ARRIVAL = "delivery_arrival"
     WORK_AVAILABLE = "work_available"
     TASK_EXPIRED = "task_expired"
@@ -31,6 +30,7 @@ class ScheduledKind(StrEnum):
     BILL_DUE = "bill_due"
     PAYROLL = "payroll"
     PRICE_CHANGE = "price_change"
+    SUPPLY_QUOTE_CHANGE = "supply_quote_change"
     PRODUCT_RELEASE = "product_release"
 
 

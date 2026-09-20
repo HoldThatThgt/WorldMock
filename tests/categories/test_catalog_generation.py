@@ -68,12 +68,13 @@ def test_per_object_numeric_differences_and_source_types_are_preserved() -> None
     rows = _raw_rows()
     foods = [row for row in rows if row["object_id"].startswith(("food-", "meal-"))]
     assert len(foods) == 151
-    assert len({row["values"]["absolute"]["price_fen"] for row in foods}) > 30
+    assert all("price_fen" not in row["values"]["absolute"] for row in foods)
     assert len({row["values"]["absolute"]["energy_kcal_per_serving"] for row in foods}) > 60
     for row in foods:
         types = Counter(source["type"] for source in row["provenance"])
         assert types["fact"] == 1
-        assert types["scenario"] + types["anchored"] >= 1
+        if row["object_id"].startswith("meal-"):
+            assert types["scenario"] == 1
         fact = next(source for source in row["provenance"] if source["type"] == "fact")
         assert fact["producer"] == "data_source"
 

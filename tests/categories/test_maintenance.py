@@ -248,7 +248,7 @@ def test_publish_runs_actual_scenario_admission_and_preserves_source(tmp_path):
     before = _snapshot(source)
     result = publish_catalog(source, candidate, tmp_path / "published", {}, (scenario_path,))
     published = load_catalog(tmp_path / "published")
-    assert published.category_contract_version == 2
+    assert published.category_contract_version == 3
     assert len(published.objects) == 163
     assert published.category_requirements == load_catalog(source).category_requirements
     assert result["identity"]["catalog_content_sha256"] == published.catalog_content_sha256

@@ -3,11 +3,12 @@
 > 规范：`docs/dev/SPEC-category-contract.md`。本台账记录事实，不变更规范。
 > 实施前基线：`426af3bfe3d7e507b749f286e08857e697c2ac2f`；2746 passed、1 failed。
 > 失败：`tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest`。
-> 当前状态：全部必需验收项已闭合，功能实现、独立语义突变复验、工程门禁及文档一致性通过；无延期项。
+> 历史特性状态：下述固定源码的全部必需验收项已闭合，功能实现、独立语义突变复验、工程门禁及文档一致性通过；无延期项。本台账不证明后续地图主线组合已通过。
 
 下述 3008 项门禁与 136 项语义突变是合入主分支前的独立特性快照。
 合并审查发现并修复了人物模型侧的库存使用合同与份数比较缺口；
-当前完整结果以[合并验证记录](category-contract-main-verification.md)的 3166 项门禁及新增独立复验为准。
+该次完整结果以[合并验证记录](category-contract-main-verification.md)的 3166 项门禁及新增独立复验为准；
+后续供给组合的新增合同见现行规格，不能沿用这里的历史计数。
 
 | 要求 | 实现位置 | 可执行反例入口 | 状态 |
 | --- | --- | --- | --- |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -28,7 +29,7 @@ from worldmock.life.models import (
     ContinueActivityRequest,
     StartActivityRequest,
 )
-from worldmock.life.retrieval import feasible_kinds, item_kinds, place_kinds
+from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import BodyConfig
 
 
@@ -51,7 +52,7 @@ class ActivityOrigin:
     request_event_id: str
 
 
-#: 到期反馈边界闭集（7 活动）——自可供性注册表 kinds.*.feedback_boundary 派生
+#: 到期反馈边界闭集（含生活活动）——自可供性注册表 kinds.*.feedback_boundary 派生
 #: （M1：字面常量已删，注册表即事实）。
 FEEDBACK_ACTIVITY_KINDS = frozenset(
     ActivityKind(name) for name in default_affordances().feedback_kinds)
@@ -76,8 +77,6 @@ LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
 _CORPORA_ROOT = Path(__file__).resolve().parents[3] / "corpora"
 #: 生活活动语料相对路径（effects 与地点类声明同源）。
 LIFESTYLE_ITEMS_RELATIVE = "lifestyle/items.json"
-#: 生活活动条目的地点类声明表（活动标识 -> 所需地点类；冻结语料加载一次）。
-_LIFESTYLE_LOCATION_KINDS = item_kinds(_CORPORA_ROOT)
 
 
 @lru_cache(maxsize=1)
@@ -106,42 +105,11 @@ def lifestyle_relief_rates(activity_id: str) -> tuple[float, float, float]:
             effects.get("health", 0.0) * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
 
 
-def required_location_kinds(request: StartActivityRequest) -> frozenset[str]:
-    """@brief 该次受理所需的地点类集合；无声明即空集（不构成地点要求）。
-
-    地点类声明只在生活活动条目的 v2 字段上存在（`location_kinds`）；其余活动
-    类型没有条目级地点类声明，因此不构成地点要求，与
-    `life.candidates.CandidateEntry.location_kinds` 的缺省语义一致。
-    """
-    if request.activity_type != ActivityKind.LIFESTYLE or not request.target_id:
-        return frozenset()
-    return _LIFESTYLE_LOCATION_KINDS.get(request.target_id, frozenset())
-
-
-def require_location_kinds(location_id: str, request: StartActivityRequest,
-                           place_location_kinds: frozenset[str] | None = None) -> None:
-    """@brief 地点门：条目所需地点类与所在地点满足的地点类交集为空即拒绝。
-
-    这是世界事实排除（「此刻此地能不能做」），不是偏好排除：原因码取排除原因码
-    闭集的成员 `ELIGIBILITY_LOCATION_KIND_MISMATCH`（docs/CONTRACTS.md「排除原因码」），
-    与 `life.candidates` 的地点类判定同一口径，且与资源冲突的 `RESOURCE_CONFLICT`
-    是两个可区分的原因码，不归为同一个（docs/dev/SPEC-life-realism.md
-    「`location_kinds` 的运行期强制语义」）。
-
-    :param location_id: 人物当前所在地点标识。
-    :param request: 待受理的活动请求。
-    :param place_location_kinds: 该地点满足的地点类集合；缺省时按地点语料解析
-        （未声明地点类的地点按 `anywhere` 处理，即不构成地点限制）。
-    :raises BusinessRuleError: 交集为空时携带稳定原因码
-        ELIGIBILITY_LOCATION_KIND_MISMATCH。
-    """
-    needed = required_location_kinds(request)
-    if not needed:
+def require_location_kinds(place_location_kinds: frozenset[str], needed: frozenset[str]) -> None:
+    """@brief 仅使用当前冻结地图和活动的显式声明判断活动环境资格。"""
+    if place_location_kinds and needed and feasible_kinds(place_location_kinds, needed):
         return
-    if place_location_kinds is None:
-        place_location_kinds = place_kinds(_CORPORA_ROOT).get(location_id)
-    if place_location_kinds is None or feasible_kinds(place_location_kinds, needed):
-        return
+    logging.getLogger(__name__).error("Activity location kinds do not satisfy the declared requirement")
     raise BusinessRuleError("ELIGIBILITY_LOCATION_KIND_MISMATCH")
 
 
@@ -152,7 +120,6 @@ def start_activity(agent: AgentState, request: StartActivityRequest, now: int, o
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     if agent.current_activity_id is not None:
         raise BusinessRuleError("RESOURCE_CONFLICT")
-    require_location_kinds(agent.location_id, request)
     met = _activity_met(request.activity_type, request.travel_mode, config, request.target_id)
     cost = minimum_energy_cost(request.activity_type, request.planned_duration_seconds, config, met)
     if cost > agent.body.energy_kcal and request.activity_type not in ENERGY_RECOVERY_ACTIVITY_KINDS:

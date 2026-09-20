@@ -11,16 +11,16 @@ import pytest
 
 from worldmock.catalog import load_catalog
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life.commerce import purchase
+from worldmock.life.basket import purchase_order
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     ModelIdentity,
-    PurchaseRequest,
+    PurchaseOrderRequest,
     RunIdentity,
     ScheduledEvent,
     ScheduledKind,
 )
-from worldmock.life.scenario import LifeScenario, RuntimeScenario
+from worldmock.life.scenario import LifeScenario, PriceChangeConfig, RuntimeScenario
 from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
 from worldmock.scheduling.compile import compile_schedule
 from tests.life.conftest import advance_next
@@ -165,7 +165,7 @@ def test_default_scenario_compilation_matches_legacy_algorithm() -> None:
     行为不变。
     """
     optional_kinds = {ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
-                      ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE}
+                      ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE, ScheduledKind.SUPPLY_QUOTE_CHANGE}
     for name, calendar_flags in (("multi-person.json", 0), ("white-collar-12-weeks.json", 16)):
         semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios" / name)
         scenario = semantics.scenario
@@ -331,76 +331,87 @@ def test_payroll_insufficient_employer_refuses_without_crash(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_price_change_updates_semantics_and_purchase_uses_new_price(tmp_path: Path) -> None:
-    """调价到点换持语义；此后购买按新价结算，旧报价版本被拒。"""
+def _supply_for(product_id: str):
+    """从正式地图取得具体集市供给，商品对象只提供规格。"""
+    semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")
+    return next(item for item in semantics.scenario.supplies
+                if item.product_id == product_id and item.location_id == "market")
+
+
+def _scheduled_source() -> dict:
+    """定时价格与库存拥有独立场景假设来源。"""
+    return _supply_for("food-6923644266066").source.model_copy(update={
+        "url": "scenario://scheduled-tests", "applicability": "Explicit scheduled test change"}).model_dump(mode="json")
+
+
+def _supply_request(engine, supply) -> PurchaseOrderRequest:
+    """购买引用供给身份及当前世界报价。"""
+    return PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1,
+                                        "price_version": engine.state.supply_quotes[supply.supply_id].price_version},),
+                                fulfillment="delivery", destination_id="home")
+
+
+def test_price_change_updates_persisted_quote_and_purchase_uses_new_price(tmp_path: Path) -> None:
+    """调价只替换世界供给报价；此后购买按新价结算，旧报价被拒。"""
+    supply = _supply_for("food-6923644266066")
 
     def mutate(document: dict) -> None:
-        document["price_changes"] = [{"change_id": "grocery-promo", "object_id": "food-6923644266066",
-                                      "object_version": 1, "amount_fen": 1_990, "due_at": _DUE_TEXT}]
+        document["price_changes"] = [{"change_id": "grocery-promo", "supply_id": supply.supply_id,
+                                      "price_version": "promo-v1", "amount_fen": 1_990,
+                                      "due_at": _DUE_TEXT, "source": _scheduled_source()}]
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
-    old = engine.rules.products["food-6923644266066"]
-    old_version = old.price_version
+    old_product = engine.rules.products[supply.product_id]
+    old_quote = engine.state.supply_quotes[supply.supply_id].model_copy(deep=True)
     _fire(engine, "price-grocery-promo")
-    updated = engine.rules.products["food-6923644266066"]
-    assert updated is not old
-    assert updated.price_fen == 1_990
-    assert updated.price_version == "catalog:food-6923644266066:v1@price-grocery-promo"
-    assert engine.scenario is engine.semantics.scenario
-    assert engine.semantics.scenario.products[0].price_fen == 1_990
+    updated = engine.state.supply_quotes[supply.supply_id]
+    assert engine.rules.products[supply.product_id] is old_product
+    assert updated.price_fen == 1_990 and updated.price_version == "promo-v1"
+    assert updated.source == _scheduled_source()
     events = _environment_events(engine, "price_change")
     assert events[0].data["amount_fen"] == 1_990
-    request = {"product_id": "food-6923644266066", "quantity": 1,
-               "fulfillment": "delivery", "destination_id": "home",
-               "price_version": updated.price_version}
-    outcome = purchase(engine.state, engine.semantics.scenario, 1, PurchaseRequest(**request))
+    assert events[0].data["quote_before"] == old_quote.model_dump(mode="json")
+    request = _supply_request(engine, supply)
+    outcome = purchase_order(engine.state, engine.semantics, 1, request)
     assert engine.state.accounts["agent:1"] - outcome.state.accounts["agent:1"] == 1_990
-    stale = {**request, "price_version": old_version}
+    stale = request.model_copy(update={"items": (request.items[0].model_copy(
+        update={"price_version": old_quote.price_version}),)})
     with pytest.raises(BusinessRuleError, match="PRICE_VERSION_MISMATCH"):
-        purchase(engine.state, engine.semantics.scenario, 1, PurchaseRequest(**stale))
+        purchase_order(engine.state, engine.semantics, 1, stale)
 
 
 def test_product_release_restocks_and_enables_purchase(tmp_path: Path) -> None:
-    """上架把商家该对象库存置为给定值；零库存商品上架后可购买。"""
+    """补货设置目标供给库存；零库存供给到期后可购买。"""
+    supply = _supply_for("item-umbrella")
 
     def mutate(document: dict) -> None:
-        for item in document["products"]:
-            if item["product_id"] == "item-umbrella":
-                item["stock"] = 0
-        document["product_releases"] = [{"release_id": "umbrella-launch", "object_id": "item-umbrella",
-                                         "merchant": "merchant:general", "stock": 3,
-                                         "due_at": _DUE_TEXT}]
+        for item in document["supplies"]:
+            if item["supply_id"] == supply.supply_id:
+                item["initial_stock"] = 0
+        document["product_releases"] = [{"release_id": "umbrella-launch", "supply_id": supply.supply_id,
+                                         "stock": 3, "due_at": _DUE_TEXT, "source": _scheduled_source()}]
 
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
-    assert engine.state.merchant_stock["item-umbrella"] == 0
-    request = PurchaseRequest(product_id="item-umbrella", quantity=1, fulfillment="delivery",
-                              destination_id="home",
-                              price_version=engine.rules.products["item-umbrella"].price_version)
+    assert engine.state.supply_stock[supply.supply_id] == 0
+    request = _supply_request(engine, supply)
     with pytest.raises(BusinessRuleError, match="OUT_OF_STOCK"):
-        purchase(engine.state, engine.semantics.scenario, 1, request)
+        purchase_order(engine.state, engine.semantics, 1, request)
     _fire(engine, "release-umbrella-launch")
-    assert engine.state.merchant_stock["item-umbrella"] == 3
+    assert engine.state.supply_stock[supply.supply_id] == 3
     events = _environment_events(engine, "product_release")
-    assert events[0].data["stock_before"] == 0
-    assert events[0].data["stock"] == 3
-    outcome = purchase(engine.state, engine.semantics.scenario, 1, request)
-    assert outcome.state.merchant_stock["item-umbrella"] == 2
+    assert events[0].data["stock_before"] == 0 and events[0].data["stock_after"] == 3
+    outcome = purchase_order(engine.state, engine.semantics, 1, request)
+    assert outcome.state.supply_stock[supply.supply_id] == 2
 
 
-# ---------------------------------------------------------------------------
-# 准入联动与语义方法
-# ---------------------------------------------------------------------------
-
-
-def test_admission_rejects_wrong_object_version_pin() -> None:
-    """PRICE_CHANGE 版本钉扎与目录不符时准入以 SCHEDULE_INVALID 拒绝。"""
+def test_document_rejects_price_change_for_undeclared_supply() -> None:
+    """调价只能引用场景实际选入的门店供给。"""
     document = _document("multi-person.json")
-    document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
-    document["price_changes"] = [{"change_id": "bad-pin", "object_id": "food-6923644266066",
-                                  "object_version": 2, "amount_fen": 1_000, "due_at": _DUE_TEXT}]
-    parsed = LifeScenario.model_validate(document)
-    with pytest.raises(IntegrityError, match="SCHEDULE_INVALID"):
-        assemble_semantics(parsed, load_catalog(_PROJECT_ROOT / "catalog"))
+    document["price_changes"] = [{"change_id": "bad-pin", "supply_id": "missing-supply",
+                                  "price_version": "v2", "amount_fen": 1_000,
+                                  "due_at": _DUE_TEXT, "source": _scheduled_source()}]
+    with pytest.raises(ValueError, match="unknown supply"):
+        LifeScenario.model_validate(document)
 
 
 def test_document_rejects_bill_with_undeclared_account() -> None:
@@ -414,18 +425,20 @@ def test_document_rejects_bill_with_undeclared_account() -> None:
         LifeScenario.model_validate(document)
 
 
-def test_with_price_rejects_unknown_product_and_non_positive_amount() -> None:
-    """语义受控价格替换对未知对象与非正金额 fail-closed。"""
-    semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")
-    with pytest.raises(IntegrityError, match="unknown product"):
-        semantics.with_price("item-unknown", 100, "v")
-    product = semantics.scenario.products[0]
-    with pytest.raises(IntegrityError, match="positive"):
-        semantics.with_price(product.product_id, 0, "v")
+def test_price_change_requires_positive_amount_and_explicit_assumption_source() -> None:
+    """调价金额必须为正且不能把新假定价格标成原门店事实。"""
+    payload = {"change_id": "invalid", "supply_id": _supply_for("item-umbrella").supply_id,
+               "price_version": "v2", "amount_fen": 0, "due_at": _DUE_TEXT, "source": _scheduled_source()}
+    with pytest.raises(ValueError, match="greater than 0"):
+        PriceChangeConfig.model_validate(payload)
+    payload["amount_fen"] = 100
+    payload["source"]["kind"] = "fact"
+    with pytest.raises(ValueError, match="explicit scenario source"):
+        PriceChangeConfig.model_validate(payload)
 
 
 def test_schedule_refs_cover_new_kinds_in_order() -> None:
-    """refs.schedule 与编译表同序，携带账户与对象版本钉扎。"""
+    """目录准入引用只保留资金账户，供给调价独立接受地图关系准入。"""
     document = _document("multi-person.json")
     document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
     document["bills"] = [{"bill_id": "b1", "account_id": "agent:1",
@@ -433,17 +446,22 @@ def test_schedule_refs_cover_new_kinds_in_order() -> None:
                           "due_at": "2026-01-05T09:30:00+08:00"}]
     document["payrolls"] = [{"payroll_id": "p1", "employer_account_id": "employer:zhangjiang",
                              "agent_id": 1, "amount_fen": 7, "due_at": "2026-01-05T09:40:00+08:00"}]
-    document["price_changes"] = [{"change_id": "c1", "object_id": "item-umbrella",
-                                  "object_version": 1, "amount_fen": 9,
+    supply = _supply_for("item-umbrella")
+    document["price_changes"] = [{"change_id": "c1", "supply_id": supply.supply_id,
+                                  "price_version": "v2", "amount_fen": 9, "source": _scheduled_source(),
                                   "due_at": "2026-01-05T09:50:00+08:00"}]
     parsed = LifeScenario.model_validate(document)
-    semantics = assemble_semantics(parsed, load_catalog(_PROJECT_ROOT / "catalog"))
+    baseline, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios/multi-person.json")
+    semantics = assemble_semantics(parsed, load_catalog(_PROJECT_ROOT / "catalog"), baseline.scenario.map_dataset)
     refs = semantics.refs.schedule
     assert [(item.kind.value, item.account_id, item.object_id) for item in refs] == [
         ("bill_due", "agent:1", None),
         ("payroll", "employer:zhangjiang", None),
-        ("price_change", None, "item-umbrella"),
     ]
-    assert refs[2].object_version == 1
+    event = next(item for item in compile_schedule(semantics.scenario,
+        int(semantics.scenario.start_at.timestamp()), int(semantics.scenario.end_at.timestamp()))
+        if item.kind == ScheduledKind.PRICE_CHANGE)
+    assert event.data["supply_id"] == supply.supply_id
+    assert event.data["price_version"] == "v2"
     ordered = [(item.due_at, item.sequence) for item in refs]
     assert ordered == sorted(ordered) and len(set(ordered)) == len(ordered)

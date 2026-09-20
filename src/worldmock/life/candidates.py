@@ -53,6 +53,7 @@ ExclusionReason = Literal[
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
     "ELIGIBILITY_CLOSED_HOURS",
+    "ELIGIBILITY_OPENING_UNKNOWN",
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
@@ -71,6 +72,7 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
     "ELIGIBILITY_CLOSED_HOURS",
+    "ELIGIBILITY_OPENING_UNKNOWN",
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
@@ -116,21 +118,17 @@ class LocationView:
 
     location_id: str
     location_kinds: frozenset[str]
-    open_hour: int = 0
-    close_hour: int = 24
+    opening_status: str = "unknown"
     #: 启动活动所需的最短时长（秒）：短于该值的候选无法受理。
     minimum_seconds: int = 0
     #: 启动活动允许的最长时长（秒）：长于该值的候选无法受理。
     maximum_seconds: int = 86_400
 
     @classmethod
-    def from_config(cls, config: LocationConfig, location_kinds: Sequence[str],
-                    minimum_seconds: int = 0, maximum_seconds: int = 86_400) -> "LocationView":
-        """@brief 由场景地点声明与地点类声明组装可行性门视图。"""
+    def from_config(cls, config: LocationConfig, status: str) -> "LocationView":
+        """@brief 地点活动环境取显式声明，营业状态取统一日历解释结果。"""
         return cls(location_id=config.location_id,
-                   location_kinds=frozenset(location_kinds),
-                   open_hour=config.open_hour, close_hour=config.close_hour,
-                   minimum_seconds=minimum_seconds, maximum_seconds=maximum_seconds)
+                   location_kinds=frozenset(config.location_kinds), opening_status=status)
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,9 +379,8 @@ def _bucket(entry: CandidateEntry) -> str:
 
 def _taste_weight(entry: CandidateEntry, inputs: CandidateInputs) -> int:
     """@brief 口味权重（定点整数）：缺项一律 0，不做缺省抬升。"""
-    raw = inputs.taste_weights.get(entry.object_id)
-    if raw is None:
-        raw = inputs.taste_weights.get(_bucket(entry), 0)
+    key = _bucket(entry) if entry.kind == "product" else entry.object_id
+    raw = inputs.taste_weights.get(key, inputs.taste_weights.get(_bucket(entry), 0))
     return fixed_point(raw)
 
 
@@ -410,14 +407,18 @@ def _exclusion_reason(item: GeneratedCandidate,
 
 def _location_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
     """@brief 地点不可用：人不在指定地点实例，或地点类交集为空。"""
+    if inputs.local_hour is None and not inputs.require_location_instance:
+        return None
     place = inputs.location
     if place is None:
         return "ELIGIBILITY_LOCATION_ABSENT"
     if (inputs.require_location_instance and entry.required_location_id is not None
             and entry.required_location_id != place.location_id):
         return "ELIGIBILITY_LOCATION_ABSENT"
+    if not place.location_kinds or "anywhere" in place.location_kinds:
+        return "ELIGIBILITY_LOCATION_KIND_MISMATCH"
     needed = entry.location_kinds
-    if not needed or "anywhere" in needed or "anywhere" in place.location_kinds:
+    if not needed or "anywhere" in needed:
         return None
     if needed & place.location_kinds:
         return None
@@ -432,19 +433,15 @@ def _entry_location(entry: CandidateEntry, inputs: CandidateInputs) -> LocationV
 
 
 def _hours_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 不在营业时段：条目所在地点的营业窗口不覆盖当前本地时刻。
-
-    地点未声明营业窗口（视图缺席）时不判定，缺省视为全时开放。
-    """
+    """@brief 统一营业三态判定，未知资料不能解释为全天开放。"""
     if inputs.local_hour is None:
         return None
     place = _entry_location(entry, inputs)
     if place is None:
-        return None
-    hour = float(inputs.local_hour)
-    if place.open_hour <= hour < place.close_hour:
-        return None
-    return "ELIGIBILITY_CLOSED_HOURS"
+        return "ELIGIBILITY_LOCATION_ABSENT"
+    if place.opening_status == "unknown":
+        return "ELIGIBILITY_OPENING_UNKNOWN"
+    return None if place.opening_status == "open" else "ELIGIBILITY_CLOSED_HOURS"
 
 
 def _stock_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:

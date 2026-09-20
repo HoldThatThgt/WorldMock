@@ -51,8 +51,8 @@ def scene_observation() -> dict:
         "inbox_has_older_unread": True,
         "todos_summary": "还有两件待办：提交周报和预约体检",
         "reachable_places": [
-            {"name": "公司食堂", "open": True},
-            {"name": "楼下便利店", "open": False},
+            {"name": "公司食堂", "opening_status": "open"},
+            {"name": "楼下便利店", "opening_status": "closed"},
         ],
         "inventory": ["手机", "工卡", "钱包"],
         "recent_action_results": ["你完成了通勤，准时到达公司。"],
@@ -124,7 +124,7 @@ class TestRenderScene:
 
     def test_reachable_places_do_not_render_route_minutes(self) -> None:
         """场景保留地点名和营业状态，不重复事实清单中的路线分钟数。"""
-        scene = render_scene({"reachable_places": [{"name": "书店", "open": True, "minutes": 13}]})
+        scene = render_scene({"reachable_places": [{"name": "书店", "opening_status": "open", "minutes": 13}]})
         assert scene == "可达地点有书店（营业中）。"
 
     def test_older_unread_hint_only_follows_the_explicit_flag(self) -> None:

@@ -1,10 +1,15 @@
 # 覆盖率门禁口径与基线
 
-> 状态：最近一次完整门禁通过：3280 passed、0 skipped，整体分支覆盖率 96.69% ≥ 85.00，未覆盖公共接口 0。
+> 状态：保留交互菜单与品类主线、地图与门店供给的独立历史门禁；当前组合尚待本轮完整验收，不复用旧数字作为新结论
 > 日期：2026-09-20
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
+
+地图与门店供给的最终验收提交 `017d49c4a246c0c524e541571220e1a07b16ce87` 已通过门禁：
+3240 passed、4 个历史运行锚定用例因原产物缺失而 skipped，分支覆盖率 98.49%，未覆盖公共接口为零。
+本特性新增用例无跳过；原始机器报告、完整输出和独立审查见 [本特性验收记录](research/map-and-storefront-verification.md)。
+下文保留的旧基线仅用于解释历史判据，不代表上述提交的当前结果。
 
 ## 门禁流程
 
@@ -61,6 +66,7 @@ uv run coverage html            # HTML 明细
 
 ## 基线记录
 
+以下为交互菜单与品类主线的固定历史基线，不能代表加入地图后的当前组合：
 基线取自 `docs/dev/coverage-report.json`，生成于 2026-09-20T11:01:47+00:00，
 被测源代码提交为 `a651dc5db539d38be113f494eaf3580e387c3cf2`。
 
@@ -75,8 +81,9 @@ uv run coverage html            # HTML 明细
 该工程门禁验证离线测试，不代表正式十二周模型运行或真实交付整体验收。
 本次执行的完整命令与原始输出归档在 `docs/dev/evidence/interaction-menu/main-merge.json.gz`。
 门禁运行于固定合并提交的隔离工作区，覆盖率数据独立保存，脚本及判定逻辑没有改变。
-交互菜单与品类、库存和决策上下文的当前合并结果见
+交互菜单与品类、库存和决策上下文在该固定提交的合并结果见
 [主线合并验收](research/interaction-menu-main-verification.md)。
+地图与门店供给的独立历史门禁保存在 [地图特性验收](research/map-and-storefront-verification.md)，不覆盖上表记录；当前组合等待新完整门禁。
 品类契约原分支逐项证据记录在 `docs/dev/category-contract-verification.md`；
 其先前 3166 项测试与模型库存补修结果继续保留在 `docs/dev/category-contract-main-verification.md`。
 
@@ -90,3 +97,4 @@ uv run coverage html            # HTML 明细
 | `2026-09-20` | 2026-09-20 | 更新为品类契约固定提交上的完整通过基线；保留离线门禁与真实实验的证据边界。 |
 | `2026-09-20-main-merge` | 2026-09-20 | 更新为合并决策上下文并补修模型库存路径后的完整门禁，保留原分支历史快照。 |
 | `2026-09-20-interaction-menu-merge` | 2026-09-20 | 更新为交互菜单与已有品类、库存和决策上下文合并后的完整门禁。 |
+| `2026-09-20-map-path` | 2026-09-20 | 地图分支曾将输出路径记录为 `docs/coverage-report.json`；当前组合以 main 脚本实际 `docs/dev/coverage-report.json` 为准；历史基线保留原始路径、数值与源码身份。 |

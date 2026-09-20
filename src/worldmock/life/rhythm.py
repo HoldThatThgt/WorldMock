@@ -15,6 +15,7 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD
 from worldmock.life import felt
 from worldmock.life import schedule as rhythm_schedule
@@ -296,7 +297,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
     activity = state.activities.get(agent.current_activity_id or "")
     active = activity is not None and activity.status == ActivityStatus.ACTIVE
     completed_now = any(item.agent_id == agent.agent_id
-                        and item.status == ActivityStatus.COMPLETED
+                        and item.status in {ActivityStatus.COMPLETED, ActivityStatus.FAILED}
                         and item.ended_at == now for item in state.activities.values())
     levels = felt.summarize_felt_levels(
         **felt_values(agent, local_hour(now, inputs.scenario.timezone),
@@ -332,6 +333,8 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
         people_present_before=agent.people_at_last_decision,
         activity_infeasible=_activity_infeasible(agent, inputs),
         consecutive_rejections=agent.consecutive_rejections,
+        discovery_result_ready=("discovery_result" in agent.pending_wake_reasons
+                                and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),
         run_start=agent.last_decision_time is None,
         is_asleep=active and activity.kind == ActivityKind.SLEEP,
@@ -351,22 +354,28 @@ def _band_index(level: str) -> int:
 
 
 def _closing_at(agent: AgentState, inputs: RhythmInputs) -> int | None:
-    """@brief 当前地点的最近未来闭店时刻（构成 15 分钟预警窗口的输入）。"""
+    """@brief 以统一营业日历查找当前营业区间的下一次变化。"""
     location = _current_location(agent, inputs)
     if location is None:
         return None
-    close = _today_epoch(inputs, location.close_hour % 24)
-    return close if close > inputs.state.current_time else None
+    now = inputs.state.current_time
+    overrides = inputs.state.opening_exceptions[location.location_id]
+    if opening_status(location, now, inputs.scenario.timezone, overrides) != "open":
+        return None
+    return next_opening_change(location, now, inputs.scenario.timezone, overrides)
 
 
 def _just_opened(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 当前地点在最近一个结算间隔内刚开门。"""
+    """@brief 用上一决策至本边界的真实营业变化判断刚开门，不按固定小时推断。"""
     location = _current_location(agent, inputs)
     if location is None:
         return False
-    opened = _today_epoch(inputs, location.open_hour)
     now = inputs.state.current_time
-    return now - inputs.interval_seconds < opened <= now
+    before = agent.last_decision_time if agent.last_decision_time is not None else now - 1
+    overrides = inputs.state.opening_exceptions[location.location_id]
+    changed = next_opening_change(location, before, inputs.scenario.timezone, overrides)
+    return (changed is not None and changed <= now
+            and opening_status(location, now, inputs.scenario.timezone, overrides) == "open")
 
 
 def _current_location(agent: AgentState, inputs: RhythmInputs):
@@ -377,29 +386,14 @@ def _current_location(agent: AgentState, inputs: RhythmInputs):
     return None
 
 
-def _today_epoch(inputs: RhythmInputs, hour: int) -> int:
-    """@brief 场景时区当日某整点的 epoch 秒。"""
-    local = datetime.fromtimestamp(inputs.state.current_time,
-                                   ZoneInfo(inputs.scenario.timezone))
-    return int(local.replace(hour=hour, minute=0, second=0, microsecond=0).timestamp())
-
-
 def _location_change_times(agent: AgentState, inputs: RhythmInputs) -> list[int]:
-    """@brief 当前地点未来 24 小时内的开门/闭店时刻（下一决策候选）。"""
-    now = inputs.state.current_time
-    result: list[int] = []
-    local = datetime.fromtimestamp(now, ZoneInfo(inputs.scenario.timezone))
-    for location in inputs.scenario.locations:
-        if location.location_id != agent.location_id:
-            continue
-        for hour in (location.open_hour % 24, location.close_hour % 24):
-            moment = int(local.replace(hour=hour, minute=0, second=0,
-                                       microsecond=0).timestamp())
-            if moment > now:
-                result.append(moment)
-            else:
-                result.append(moment + 86_400)
-    return sorted(set(result))
+    """@brief 下一决策直接调度营业状态变化，包括分钟边界、跨日和日期例外。"""
+    location = _current_location(agent, inputs)
+    if location is None:
+        return []
+    change = next_opening_change(location, inputs.state.current_time, inputs.scenario.timezone,
+                                 inputs.state.opening_exceptions[location.location_id])
+    return [change] if change is not None else []
 
 
 def _activity_infeasible(agent: AgentState, inputs: RhythmInputs) -> bool:
@@ -413,9 +407,11 @@ def _activity_infeasible(agent: AgentState, inputs: RhythmInputs) -> bool:
     remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
     if remaining < 60:
         return False
+    from worldmock.life.activities import activity_factors
     from worldmock.life.body import minimum_energy_cost
 
-    cost = minimum_energy_cost(activity.kind, remaining, inputs.body_config)
+    factors = activity_factors(activity, agent, inputs.body_config)
+    cost = minimum_energy_cost(activity.kind, remaining, inputs.body_config, factors.met)
     return cost > agent.body.energy_kcal
 
 

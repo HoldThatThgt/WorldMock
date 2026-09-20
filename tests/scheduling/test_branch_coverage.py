@@ -11,9 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.life.commerce import purchase
+from worldmock.life.basket import purchase_order
+from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ModelIdentity, PurchaseRequest, RunIdentity
+from worldmock.life.models import ModelIdentity, PurchaseOrderRequest, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.scheduling.compile import compile_schedule
 from worldmock.scheduling.effects import apply_scheduled_effect
@@ -88,16 +89,18 @@ def test_delivery_arrival_projects_order_and_inventory(engine):
     staged = engine.state.model_copy(deep=True)
     staged.current_time = staged.current_time + 10 * 3600
     engine.state = staged
-    request = PurchaseRequest(product_id=product_id, quantity=1, fulfillment="delivery",
-                              destination_id="home",
-                              price_version=engine.rules.products[product_id].price_version)
-    outcome = purchase(engine.state, engine.semantics.scenario, 1, request)
-    event = next(item for item in outcome.state.pending_events
-                 if item.kind == ScheduledKind.DELIVERY_ARRIVAL)
+    supply = next(item for item in engine.scenario.supplies
+                  if item.location_id == "market" and item.product_id == product_id)
+    request = PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1,
+                                           "price_version": engine.state.supply_quotes[supply.supply_id].price_version},),
+                                    fulfillment="delivery", destination_id="home")
+    outcome = purchase_order(engine.state, engine.semantics, 1, request)
+    event = outcome.scheduled[0]
+    outcome.state.current_time = event.due_at
     result = apply_scheduled_effect(outcome.state, event, engine.semantics)
-    assert result.data["order"]["product_id"] == product_id
-    assert result.data["inventory_change"]["location_id"] == "home"
-    assert result.data["inventory_change"]["quantity"] == 1
+    assert result.data["orders"][0]["product_id"] == product_id
+    assert result.data["inventory_changes"][0]["location_id"] == "home"
+    assert result.data["inventory_changes"][0]["quantity"] == 1
 
 
 def test_task_expired_and_calendar_flag_are_zero_state_passthroughs(engine):
@@ -112,7 +115,7 @@ def test_task_expired_and_calendar_flag_are_zero_state_passthroughs(engine):
                                                       "flags": ["makeup_workday"]})
     result = apply_scheduled_effect(engine.state, flag, engine.semantics)
     assert result.data["flags"] == ["makeup_workday"]
-    assert result.semantics is None
+    assert result.state is engine.state
 
 
 def test_mail_and_work_events_extend_agent_visibility(engine):
@@ -128,16 +131,13 @@ def test_mail_and_work_events_extend_agent_visibility(engine):
     result = apply_scheduled_effect(engine.state, work, engine.semantics)
     assert set(result.state.agents[1].visible_task_ids) == before_tasks | {"t-new"}
 
-def test_delivery_ready_falls_through_as_plain_agent_evidence(engine):
-    before_mail = set(engine.state.agents[1].visible_message_ids)
-    before_tasks = set(engine.state.agents[1].visible_task_ids)
-    ready = ScheduledEvent(scheduled_id="ready-x", kind=ScheduledKind.DELIVERY_READY,
-                           due_at=1, sequence=1, agent_id=1,
-                           data={"order_id": "order-1", "state": "ready"})
-    result = apply_scheduled_effect(engine.state, ready, engine.semantics)
-    assert result.data == {"order_id": "order-1", "state": "ready"}
-    assert set(result.state.agents[1].visible_message_ids) == before_mail
-    assert set(result.state.agents[1].visible_task_ids) == before_tasks
+def test_unrecognized_scheduled_kind_rejects_instead_of_emitting_success(engine):
+    before = engine.state.model_dump(mode="json")
+    unknown = ScheduledEvent.model_construct(scheduled_id="unknown", kind="unsupported",
+                                              due_at=1, sequence=1, agent_id=1, data={})
+    with pytest.raises(IntegrityError, match="Unsupported scheduled event kind"):
+        apply_scheduled_effect(engine.state, unknown, engine.semantics)
+    assert engine.state.model_dump(mode="json") == before
 
 
 def test_bill_due_settles_and_refuses_without_crashing(engine):
@@ -178,25 +178,24 @@ def test_payroll_settles_and_refuses_without_crashing(engine):
     assert refused.state is engine.state
 
 
-def test_price_change_swaps_semantics_and_product_release_restocks(engine):
-    product_id = "food-6923644266066"
-    old_version = engine.rules.products[product_id].price_version
+def test_price_change_persists_world_quote_and_product_release_restocks(engine):
+    supply = next(item for item in engine.scenario.supplies
+                  if item.location_id == "market" and item.product_id == "food-6923644266066")
+    old_version = engine.state.supply_quotes[supply.supply_id].price_version
+    source = supply.source.model_dump(mode="json")
     change = ScheduledEvent(scheduled_id="price-promo", kind=ScheduledKind.PRICE_CHANGE,
-                            due_at=1, sequence=1,
-                            data={"object_id": product_id, "object_version": 1,
-                                  "amount_fen": 1_990})
+                            due_at=engine.state.current_time, sequence=1,
+                            data={"supply_id": supply.supply_id, "price_version": "promo-v1",
+                                  "amount_fen": 1_990, "source": source})
     result = apply_scheduled_effect(engine.state, change, engine.semantics)
-    assert result.semantics is not None
-    assert result.semantics is not engine.semantics
-    assert result.data["price_version"] == f"catalog:{product_id}:v1@price-promo"
-    assert result.semantics.scenario.products[0].price_fen == 1_990
-    assert old_version
-
+    assert result.state.supply_quotes[supply.supply_id].price_fen == 1_990
+    assert result.state.supply_quotes[supply.supply_id].price_version == "promo-v1"
+    assert engine.state.supply_quotes[supply.supply_id].price_version == old_version
+    assert result.data["quote_before"]["price_version"] == old_version
     release = ScheduledEvent(scheduled_id="release-x", kind=ScheduledKind.PRODUCT_RELEASE,
-                             due_at=1, sequence=1,
-                             data={"object_id": product_id, "merchant": "merchant:grocery",
-                                   "stock": 3})
-    before = engine.state.merchant_stock[product_id]
+                             due_at=engine.state.current_time, sequence=1,
+                             data={"supply_id": supply.supply_id, "stock": 3, "source": source})
+    before = engine.state.supply_stock[supply.supply_id]
     result = apply_scheduled_effect(engine.state, release, engine.semantics)
-    assert result.state.merchant_stock[product_id] == 3
+    assert result.state.supply_stock[supply.supply_id] == 3
     assert result.data["stock_before"] == before

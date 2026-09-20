@@ -9,8 +9,8 @@ feasibility、observation_event_id、motivation_hints、game_catalog 全表、�
 活动快照、路线坐标与几何）在本层就不再产生——narration 的 enforce_field_
 blacklist 是第二道防线，不是第一道。
 
-商品可见期（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：仅店内，或未离开商家地点且浏览后未超 1800 秒；每件只含 product_id/名称/
-价格/热量/用餐时长。工作材料只揭示自上次决策以来新读区间、单次至多 2000
+供给可见期：仅实际呈现的供给具有购买凭据，位置未变且呈现后未超 1800 秒；
+供给身份与商品身份分别保留。工作材料只揭示自上次决策以来新读区间、单次至多 2000
 字符（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 """
 
@@ -26,8 +26,8 @@ from worldmock.life.result_projection import public_action_result
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
-#: 商品浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
-PRODUCT_VISIBILITY_TTL_SECONDS = 1800
+#: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
+SUPPLY_VISIBILITY_TTL_SECONDS = 1800
 #: 工作材料单次揭示上限（字符，docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 MATERIAL_REVEAL_CHAR_CAP = 2000
 #: 收件箱头在 scene 中展示的条数上限（收件箱头合同，防溢出）。
@@ -54,7 +54,7 @@ class ProjectionInputs:
 
 def hour_of_day(epoch: int, timezone_name: str) -> float:
     """@brief 场景时区自午夜起的小时数（含小数）。"""
-    moment = datetime.fromtimestamp(epoch)
+    moment = local_datetime(epoch, timezone_name)
     return moment.hour + moment.minute / 60 + moment.second / 3600
 
 
@@ -65,29 +65,13 @@ def local_datetime(epoch: int, timezone_name: str) -> datetime:
     return datetime.fromtimestamp(epoch, ZoneInfo(timezone_name))
 
 
-def visible_products(state: WorldState, agent: AgentState, scenario: RuntimeScenario) -> list[str]:
-    """@brief 计算有效商品可见集：店内常驻 ∪ 未离开商家地点且未超时的浏览（docs/dev/SPEC-life-runtime.md
-    「观察投影三部分」「观察投影行为规则」）。
-
-    店内（人物当前地点的商家）商品常驻可见；浏览（BROWSE 完成或配送浏览）
-    把目录商品加入可见集，离开商家地点或距浏览 1800 秒后清空——配送浏览
-    同样适用这两支。
-    """
-    effective = {item.product_id for item in scenario.products
-                 if item.merchant_location_id == agent.location_id}
-    if _browsed_products_visible(state, agent):
-        effective |= set(agent.visible_product_ids)
-    return sorted(effective)
-
-
-def _browsed_products_visible(state: WorldState, agent: AgentState) -> bool:
-    """@brief 浏览产生的可见期是否仍在：位置未变且未超 1800 秒（两者缺一即清空）。"""
-    browsed = agent.product_browsed_at
-    if browsed is None:
-        return False
-    if agent.product_browsed_location != agent.location_id:
-        return False
-    return state.current_time - browsed <= PRODUCT_VISIBILITY_TTL_SECONDS
+def visible_supplies(state: WorldState, agent: AgentState, scenario) -> list[str]:
+    """@brief 仅返回实际呈现、位置未变且未超过可见期的供给凭据。"""
+    declared = {supply.supply_id for supply in scenario.supplies}
+    return sorted(supply_id for supply_id in agent.visible_supply_ids & declared
+                  if agent.supply_browsed_location[supply_id] == agent.location_id
+                  and 0 <= state.current_time - agent.supply_browsed_at[supply_id]
+                  <= SUPPLY_VISIBILITY_TTL_SECONDS)
 
 
 def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPresence]:

@@ -1,15 +1,39 @@
 # WorldMock 实现状态
 
-> 状态：NOT-COMPLETE——各特性按独立验收记录判断；候选地点能力输入仍有既有缺口，三项真实验收均未完成
+> 状态：各特性与既有主线按固定验收记录分别成立；地图与品类主线组合正在验收，三项项目级真实验收状态不变
 > 日期：2026-09-20（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
-> 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；本文件只写当前状态，变更过程由 Git 承载
+> 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
+
+## 地图与门店供给开发状态
+
+地图独立分支的完整范围由 [开发规格](SPEC-map-and-storefront.md) 冻结，已实现并通过该分支离线验收，无特性延期项。
+该分支最终被测提交 `017d49c4a246c0c524e541571220e1a07b16ce87`：3240 passed、4 个缺历史运行产物的旧用例跳过，
+分支覆盖率 98.49%，未覆盖公共接口为零；本特性新增用例无跳过。
+三组独立变异审查及两组补测复验全部收束，初次两处测试漏检已关闭；完整证据见 [验收记录](research/map-and-storefront-verification.md)。
+
+| 独立地图分支验收范围 | 该快照状态 | 已记录的实际证据 |
+| --- | --- | --- |
+| 地图、供给与活动环境 | 通过 | 正式场景引用解析、严格准入、实际活动门及全部路线方式核验 |
+| 发现、比较与交易 | 通过 | 实际呈现供给、动态工具、跨轮发现结果、原子订单与履约 |
+| 时态与恢复 | 通过 | 营业例外、调价补货、世界版本 4、报价库存和可见供给完整恢复、父目录逐文件保护 |
+| 工程和独立验收 | 通过 | 逐项行为映射、最终完整门禁、独立源码变异、补测复验和清理证据 |
+
+原始路线基线的二百二十份响应中，一百零四份步行/驾车复用已修复；全部一百一十条步行响应的步骤方式及全部路线哈希已核验。
+地点活动环境缺口与其缺字段测试漏检均已闭合，真实到达和跨地点恢复有生产入口断言。
+下文各特性的通过数字保留原源码身份；地图分支与 main 品类主线的组合必须重新验收，不将任一侧旧数字作为本次结果。
+
 
 ## 当前结论
 
-交互菜单与品类契约主线已整合。被测合并提交 `a651dc5db539d38be113f494eaf3580e387c3cf2`
+当前合并保留品类契约、库存转换和交互菜单，并接入独立地图与门店供给。
+购买保留品类配对及闭集算子，但改以当前供给报价、数量与系数计算整行 `total_price_fen`；卖方来自供给。
+组合目录为 `4.0`，品类及交换规则绑定版本为 `2`；场景结构 `3`、地图结构 `1`、世界结构 `4`。
+本轮代码与文档组合验收尚未完成，不提前填写新测试数或覆盖率。以下均为带固定源码身份的历史结论。
+
+合并地图前的交互菜单与品类契约主线已整合。该次被测提交 `a651dc5db539d38be113f494eaf3580e387c3cf2`
 完整门禁为 **3280 passed、零跳过**，分支覆盖率 **96.69%**，未覆盖公共接口 **0**。
-当前组合的源码身份、冲突裁决及完整输出见
+该次组合的源码身份、冲突裁决及完整输出见
 [交互菜单主线合并验收](research/interaction-menu-main-verification.md)。下列各特性数字保留原快照边界。
 
 交互菜单以 [冻结规格](SPEC-interaction-menu.md) 为本次完整开发范围，覆盖声明、有效菜单、
@@ -25,7 +49,7 @@
 该次被测源码 `35c1dfa9789010ff2845435900871cda616ded52` 的完整门禁为 **3166 passed、零跳过**，
 分支覆盖率 **96.67%**，未覆盖公共接口 **0**；补修的六项独立语义突变全部 killed。
 来源、文件范围和原始证据见[合并验证记录](category-contract-main-verification.md)。
-下面各特性段落保留各自独立开发时的验收快照，不替代上述本次合并门禁。
+下面各特性段落保留各自独立开发时的验收快照，也不能替代当前地图与品类组合门禁。
 
 决策上下文特性以 [冻结规格](SPEC-decision-context.md) 为本次完整开发范围；
 已完成提案裁决、官方协议核对、分模块实现、独立审查修复与隔离源码突变审查，无特性延期项。
@@ -34,16 +58,16 @@ AS2 `e4155095` 的全量测试 **448 passed**。六十种源码反例最终均�
 完整修改清单、条款到测试与独立报告见 [决策上下文验收记录](research/decision-context-verification.md)。
 这些结果只证明本次确定性代码层，不改变下述真实运行门禁的状态。
 
-本次品类契约特性从 `426af3bfe3d7e507b749f286e08857e697c2ac2f` 在隔离分支
+品类契约独立特性从 `426af3bfe3d7e507b749f286e08857e697c2ac2f` 在隔离分支
 `codex/category-contract` 开发。冻结规格为 [SPEC-category-contract.md](SPEC-category-contract.md)，
 实施、测试、独立 Bob 审查与实际文件清单统一记入
 [品类契约验证台账](category-contract-verification.md)。正式目录采用原生增量对象与闭集交换规则，
-三份生活场景绑定目录 `3.0`；现有 163 个对象的业务含义保持原样。
+该次三份生活场景绑定目录 `3.0`，当时 163 个对象的业务含义保持原样；本次组合目录使用新身份 `4.0`。
 本次离线确定性验证不等于下面三项项目级真实验收已经完成。
 
 LifeEnv 运行时、数字足迹、画像编译、语料、LabelKit 交付与真实性评估已有实现与确定性测试；
-但候选资格的 `location_kinds` 能力集合尚未进入 `LocationConfig` 和正式输入，不能声称修订合同全部落地。
-它与本次菜单使用的单值 `locations[].kind` 是两个现有合同，不能用菜单实现替代能力集合验收。
+审查基线曾缺少正式地点的 `location_kinds` 能力集合，本次由地图目录贯通，该分支的完成状态按其固定验收记录判断；当前组合待新门禁。
+活动环境与菜单使用的地点单值 `kind` 是两个合同，不能用菜单实现替代活动环境验收。
 项目仍不是完成态，三项真实验收也全部未完成。
 确定性测试通过、短窗口运行、测试夹具与单条语义通过都不构成这三项的证据。
 
@@ -73,7 +97,7 @@ flowchart LR
 
 本轮规格新增 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md`
 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节
-（版本表第 7、8 条）。历史算法与夹具测试已经落地，但正式地点能力输入仍未闭合，本文件按层分别记录；
+（版本表第 7、8 条）。地图特性已把正式地点能力输入接入生产模型，新增行为已通过独立地图分支门禁；下表区分实现与验收证据，当前主线组合待重验。
 门禁判定对象是 `docs/VERIFICATION.md`「放行门禁」章「工程门禁」节的「候选与呈现一致性」条（九项判据），
 其可执行判定由下表的测试文件与三项门禁命令承载。
 
@@ -81,8 +105,8 @@ flowchart LR
 | --- | --- | --- |
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
-| 运行期装配与检索 | **算法已落地，正式地点能力输入未闭合**：`presentation.py`、`retrieval.py` 和 `activities.py` 已有候选、检索与 `require_location_kinds`；但 `LocationConfig` 及正式场景未声明 `location_kinds`，不能把夹具中的能力集合校验证明成正式输入端到端已生效。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地**：`src/worldmock/life/observe.py` 的观察投影与 `browse_activities` 下推经 `presentation.py` 产出；`src/worldmock/life/engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；`WorldState.schema_version` 由 2 递增为 3，新增 `presentation_state` 字段承载轮转判据「上次呈现时刻」 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 3`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
+| 运行期装配与检索 | **已接入地图输入，独立地图分支已验收**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
+| 运行期接线与持久化 | **已落地，独立地图分支验收通过**：`observe.py` 与 `browse_activities` 经 `presentation.py` 产出实际窗口，`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 4，持久化供给库存、报价、营业例外和逐供给可见凭据，`presentation_state` 继续保存轮转时刻 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 4`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 三项门禁的实测输出（复跑命令与关键行）
@@ -123,18 +147,18 @@ $ uv run pytest -q
 
 八个文件合并复跑实测 **165 passed**。
 
-### 未解决的一项独立缺陷：静态可达性守卫对正式场景非零退出
+### 历史静态可达性缺陷记录
 
 `scripts/check_reachability.py` 不带 `--scenario` 时通过（实测 `all 7106 entries reachable across 101 partition(s)`、退出码 0），
 但带 `--scenario scenarios/white-collar-12-weeks.json` 时**退出码 1**，报 `86 unreachable object(s)`，
 全部来自 `scenario:contents`，`missing=['genre','language']`：80 条为 `game_session` 品类
 （`game-0001`…`game-0080`），另 6 条为 `jokes-feed`、`movie-reviews-feed`、`news-feed`、
 `sintel-en-subtitles`、`weibo-feed`、`zhihu-feed`。即场景 `contents[]` 有 86 条条目自身缺题材与语言声明，
-落不进任何检索分区。这是规格自己记的另一类独立缺陷，**未解决**，不因本轮落地而消失。
+落不进任何检索分区。这是当时独立记录的缺陷；地图分支已另有完整可达性实测，不能把本段旧结果当作当前阻塞。
 
-### 工具面指纹重钉
+### 历史候选呈现工具面指纹
 
-`tests/integration/test_life_agent_protocol.py` 的 `_PINNED_TOOL_SCHEMA_SHA256` 因本轮工具面变更而重钉：
+以下指纹只属于历史候选呈现基线，不是当前门店供给版本。该次 `tests/integration/test_life_agent_protocol.py` 的 `_PINNED_TOOL_SCHEMA_SHA256` 因工具面变更而重钉：
 `browse_activities` 新增可空 `cursor` 参数、返回体字段由 `count` 改名为 `returned` 并新增 `total` 与 `next_cursor`，
 指纹随之改变。新值 `463c496b09848b9634d0f0f11f9f7fc4af7e06d3c7282088151b48625aa92b89`。
 
@@ -142,7 +166,7 @@ $ uv run pytest -q
 `docs/VERIFICATION.md`「候选与呈现一致性」的九项判据中，凡判据要求「观察投影」「下推返回体」
 「轮转前后目录与对象状态不变」「两次投影逐字节相同」的项均已可执行，证据见上节表格与
 `tests/life/test_candidate_wiring.py`。规格追溯矩阵 `docs/dev/ANALYSIS-spec-coverage.md`
-的「候选契约与呈现规则」章 44 行中，`covered` 已由 27 行增至 35 行、`gap` 由 17 行收窄为 9 行。
+的「候选契约与呈现规则」章保留各轮历史计数；后续映射已经清零，不能以早期缺口数描述当前状态。
 
 ### 已落地的条款：口味权重降级为排序信号
 
@@ -155,23 +179,17 @@ $ uv run pytest -q
 - 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
 - 该行在 `docs/dev/SPEC-life-realism.md` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
 
-### 已实施的不可逆变更：`WorldState.schema_version` 2 → 3
+### 当前世界格式：`WorldState.schema_version` 为 4
 
-本轮新增章落地时引入了 `presentation_state`（承载轮转判据「上次呈现时刻」）持久化字段，
-`WorldState.schema_version` 随之由 2 递增为 3（`src/worldmock/life/models.py:18` 现为 `WORLD_SCHEMA_VERSION = 3`）。
+候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据。生产模型使用严格版本常量，旧格式由当前代码直接拒绝，不转换旧检查点，也不保留迁移脚本。
 
-- **影响面**：`schema_version` 是 `Literal` 常量且无缺省，旧值检查点在加载时即拒绝，
-  因此 2 → 3 使**已提交的检查点在磁盘上不可读**，不存在向前读取路径，也不补兼容层。
-- **可回滚性最差的一项**：本轮其余改动都可回滚，这一项不可——回滚代码不能使已按 3 写入的检查点重新可读。
-- **对 `replay --intervention` 的约束**：反事实分支要求父检查点与干预条件匹配，
-  `replay --parent` 必须换用按 3 生成的新检查点；旧检查点与其派生分支不能再作为反事实父。
-- 现状：**已实施**。`runs/` 内按 2 写入的既有运行目录与检查点不可再读，这是有意为之，不保留兼容读取路径。
+打开、共同检查点恢复与分支必须使用版本 4 的状态以及一致的场景、地图、语料和代码身份。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录身份继续按新门禁重验。
 
 ## 已完成的确定性范围
 
 ### 测试基线与覆盖率实测
 
-| 命令 | 实测结果（本工作树） |
+| 命令 | 历史快照实测结果 |
 | --- | --- |
 | `uv run python scripts/coverage_gate.py` | `branch coverage: 98.83% (covered=5851, missing=69, threshold=85.00)`；`uncovered public interfaces: 0`；`gate verdict: PASSED` |
 | `uv run pytest -q tests/test_style_gate.py tests/test_documentation_gate.py` | `7 passed` |
@@ -199,7 +217,7 @@ $ uv run pytest -q
   `missing_lines`，从而被接口覆盖率门禁捕获。
 - 失败关闭：文件出现在生产根目录但未被测量时其全部公共接口计为未覆盖；汇总分支总数为 0 时按 0% 判定；
   测试套件本身非零退出时门禁不通过，不论覆盖率数值。
-- 门禁报告是生成物 `docs/dev/coverage-report.json`，每次门禁运行覆盖重写；本次结果为
+- 门禁报告是生成物 `docs/dev/coverage-report.json`，每次门禁运行覆盖重写；下列为固定主线历史结果：
   `covered_branches = 6300`、`missing_branches = 216`、`total_branches = 6516`、百分比 `96.69`、
   未覆盖公共接口 0、`passed = true`（`generated_at` = `2026-09-20T11:01:47+00:00`，
   `source_identity` = `a651dc5db539d38be113f494eaf3580e387c3cf2`）。
@@ -209,7 +227,7 @@ $ uv run pytest -q
 - 规格追溯矩阵（`docs/dev/ANALYSIS-spec-coverage.md`）的 2026-09-19 历史条款映射终态为
   435 = covered 421 + exempt 14，gap 为 0；候选章早期的 8/9 项缺口计数已经被后续复核取代。
   豁免条款的实际验证入口仍是真实模型调用、真实外部服务或长墙钟真实运行验收，各自附有确定性锚测试。
-  该历史映射计数不代表当前项目全部端到端完成，尤其不能替代页首记录的 `location_kinds` 正式输入缺口。
+  该历史映射计数不代表当前项目全部端到端完成，也不能替代地图活动环境的生产入口证据及当前组合验收。
   新增特性的条款与源码证据分别以交互菜单、品类契约和决策上下文的固定验收记录为准。
 - 增量源码突变审查：规格关键设计断言 12 项（时钟顺序、内容暴露、幂等结算、素材吞错、分支隔离、来源绑定、
   睡眠常数、账本守恒、静默边界、知识截止、提示投影、交通报价）与两轮增量审查（31 项、108 项）均已执行，
@@ -269,27 +287,15 @@ $ uv run pytest -q
 输入预算 768928；评审 675882，低于 867232。每次实际调用仍执行完整预算检查。这些值不是任意未来意见长度的
 数学保证，也不证明模型已经正确理解全部单跳引用。
 
-## 未完成项与阻塞
+## 项目级真实验收边界
 
-1. 正式 DeepSeek 十二周运行未启动。场景已冻结，`runs/` 的 42 个运行目录中没有任何 84 天窗口运行，没有精确终点数据。
-2. LabelKit 完整自然日交付未通过。最近一次完整自然日加工在 action 阶段中止（扫描 69 条、68 条通过，语义不合格），
-   未进入 intent、dreaming、规则与训练加载，没有最终交付清单。多次尝试的失败集两两零交集，且每条失败记录都曾在
-   别的次通过，当前判断是方差主导而不是结构性不可满足。
-3. 三次隔离盲评未执行。现有盲评包只是 smoke 包，三个新建隔离模型会话尚未产出并保存原始回答。
-4. 缺少匹配人群的真实个体数据，因此只能报告相对合理性，不能声称验证了人类相似度。
-5. 候选与呈现合同有一项独立缺陷未解决：`scripts/check_reachability.py --scenario` 对正式场景退出码 1，
-   报 `86 unreachable object(s)`，全部来自 `scenario:contents`、`missing=['genre','language']`，
-   其中 80 条为 `game_session` 品类。这是此前记录的独立可达性缺陷，本次没有把它计入已解决范围。
-   运行期接线与持久化已有实现；候选章的测试映射缺口已在后续矩阵复核归零，
-   「随身持有与远程订购」也已有测试映射，不再列作待实现内容；正式地点能力输入缺口另见页首。
-6. 已消除的存量红：`tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest`
-   曾因工具面变更（`browse_activities` 新增可空 `cursor` 参数、返回体字段 `count` 改名为 `returned`
-   并新增 `total` 与 `next_cursor`）而失败，本轮已重钉为
-   `463c496b09848b9634d0f0f11f9f7fc4af7e06d3c7282088151b48625aa92b89`，套件恢复全绿、覆盖率门禁 PASSED。
-   该指纹由工具 Schema 与可供性注册表的字节共同决定：`life_tool_schema_sha256()` 把各工具 Schema
-   （`_tool_schema` 由 `worldmock.life.models` 的请求模型生成，模型与字段的 docstring 文本随之进入 Schema
-   的 `parameters`）与 `affordance_registry_sha256()` 读出的 `catalog/affordances.toml` 字节摘要合并后取
-   SHA-256。请求模型 docstring 或注册表字节任一变化都会改变实算值，钉板常量随之需要重钉。
+- 正式 DeepSeek 十二周运行：本次未执行，不以确定性工具驱动流程替代八十四天的真实模型产物。
+- LabelKit 完整自然日交付：本次未重跑；历史基线在 action 阶段中止，未完成 intent、dreaming、规则和训练加载，原证据仍按其当时身份解释。
+- 隔离盲评与真实人群对照：本次未执行三次隔离盲评，也未取得新的匹配人群个体数据，不能声称验证了人类相似度。
+
+地图独立分支的固定验收已关闭历史候选可达性缺口：该次代码实跑正式十二周场景，7384 条素材全部可达，分布于 142 个分区；当前组合仍须重跑相同守卫。
+旧“九行无测试”“远程订购待实现”描述已被当前逐项映射及门店特性的真实购买、配送、持有与消费断言取代。
+旧工具面指纹仅属于对应历史基线，当前实际动态工具与注册表指纹由完整套件中的钉板测试验证。
 
 ## 结论边界
 

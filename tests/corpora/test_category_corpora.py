@@ -9,6 +9,8 @@ import json
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 CORPORA = ROOT / "corpora"
 
@@ -76,7 +78,10 @@ def test_meals_energy_matches_catalog_objects():
         assert consume.amount == meal["energy_kcal_per_serving"]
         assert consume.duration_s == meal["meal_duration_minutes"] * 60
         purchase = next(edge for edge in obj.edges if edge.on == "purchase")
-        assert purchase.amount_fen == meal["price_fen"]
+        assert purchase.rule_id == "purchase-product"
+        supplies = _load("zhangjiang-map/supplies.json")["supplies"]
+        matches = [row for row in supplies if row["product_id"] == meal["meal_id"]]
+        assert matches and all(row["quotes"][0]["price_fen"] == meal["price_fen"] for row in matches)
         facts = [source for source in obj.provenance if source.type == "fact"]
         assert any(str(meal["energy_source"]["fdc_id"]) in source.source for source in facts)
 
@@ -94,24 +99,34 @@ def _probe_node_positions() -> dict:
 
 
 def test_locations_cover_all_required_kinds_with_real_osm_coordinates():
+    """营业类别独立覆盖，真实 POI 位置仍能追溯原始 OSM 节点。"""
     document = _load("zhangjiang-map/locations.json")
     locations = document["locations"]
-    covers = {}
+    required = json.loads((ROOT / "catalog/manifest.json").read_text())["category_requirements"]
+    by_kind = {}
     for location in locations:
-        for kind in location["covers"]:
-            covers.setdefault(kind, []).append(location)
-        assert location["opening_hours"]["opens"] and location["opening_hours"]["closes"]
-        assert location["opening_hours"]["basis"]
+        by_kind.setdefault(location["business_kind"], []).append(location)
+        assert location["opening_calendars"] and location["location_kinds"]
+        assert location["opening_calendars"][0]["source"]["kind"] == "scenario"
+        assert set(location["opening_calendars"][0]["weekly"]) == set(map(str, range(7)))
         assert location["affordances"]
-    for kind in document["required_kinds"]:
-        floor = document["min_per_kind"].get(kind, 1)
-        assert len(covers.get(kind, [])) >= floor, kind
+    for kind in required["location_required_kinds"]:
+        assert len(by_kind.get(kind, [])) >= required["location_min_per_kind"].get(kind, 1)
     positions = _probe_node_positions()
     for location in locations:
-        origin = location["coordinate_source"]
-        if origin["type"] == "osm-probe-node":
-            lat, lon = positions[str(origin["osm"]["id"])]
-            assert (location["latitude"], location["longitude"]) == (lat, lon), location["location_id"]
+        if location["location_id"].startswith("poi-"):
+            identity = location["location_id"].removeprefix("poi-")
+            assert location["source"]["kind"] == "fact"
+            if "/node/" in location["source"]["url"]:
+                assert (location["latitude"], location["longitude"]) == positions[identity]
+            else:
+                from xml.etree import ElementTree
+                tree = ElementTree.parse(CORPORA / "zhangjiang-map/zhangjiang-probe.osm")
+                way = tree.find(f"./way[@id='{identity}']")
+                points = [positions[node.attrib["ref"]] for node in way.findall("nd")]
+                expected = tuple(sum(point[index] for point in points) / len(points) for index in (0, 1))
+                assert (location["latitude"], location["longitude"]) == pytest.approx(expected, abs=0.0000001)
+                assert "centroid" in location["source"]["applicability"]
 
 
 def test_location_affordances_declare_meal_and_grocery_links():

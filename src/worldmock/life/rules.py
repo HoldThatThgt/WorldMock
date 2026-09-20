@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import logging
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life.content import SubtitleCue, load_content_titles, load_subtitles
+from worldmock.life.activities import require_location_kinds
+from worldmock.life.retrieval import item_kinds
 from worldmock.life.models import ActivityKind, AgentState, StartActivityRequest
 from worldmock.life.scenario import (
     ContentItemConfig,
@@ -28,6 +31,9 @@ class LifeRuleEngine:
         self.products = {item.product_id: item for item in scenario.products}
         self.items = {item.product_id: item
                       for item in (*scenario.products, *scenario.inventory_items)}
+        self.supplies = {item.supply_id: item for item in scenario.supplies}
+        self.locations = {item.location_id: item for item in scenario.locations}
+        self.activity_location_kinds = item_kinds(self.corpus_root)
         self.tasks = {item.task_id: item for item in scenario.tasks}
         self.messages = {item.message_id: item for item in scenario.messages}
         self.contents = {item.item_id: item for item in scenario.contents}
@@ -39,6 +45,7 @@ class LifeRuleEngine:
     def validate_start(self, agent: AgentState, request: StartActivityRequest, now: int) -> dict:
         """@brief 校验活动目标并返回结算所需的冻结身份。"""
         kind = request.activity_type
+        self.validate_activity_location(agent, kind, request.target_id)
         if kind == ActivityKind.WORK:
             task = self.task(request.target_id)
             validate_work_start(agent, task, now)
@@ -73,6 +80,16 @@ class LifeRuleEngine:
         if kind == ActivityKind.TRAVEL:
             return {"route_id": route_for(self.scenario, agent.location_id, request).route_id}
         return {}
+
+    def validate_activity_location(self, agent: AgentState, kind: ActivityKind, target_id: str | None) -> None:
+        """@brief 启动和恢复生活活动共用当前地图的活动环境资格判断。"""
+        if kind != ActivityKind.LIFESTYLE:
+            return
+        if target_id not in self.activity_location_kinds:
+            logging.getLogger(__name__).error("Lifestyle activity is not in the frozen corpus: %s", target_id)
+            raise BusinessRuleError("LIFESTYLE_ACTIVITY_NOT_FOUND")
+        location = self.locations[agent.location_id]
+        require_location_kinds(frozenset(location.location_kinds), self.activity_location_kinds[target_id])
 
     def product(self, product_id: str | None) -> InventoryItemConfig:
         """@brief 取得一个冻结可持有对象，否则业务拒绝。"""

@@ -102,7 +102,6 @@ def _item(object_id: str, category_id: str) -> InventoryItemConfig:
         use_modes=("use",),
         consumable=True,
         effect="package_opened",
-        delivery_delay_seconds=60,
         source_kind=f"test:{object_id}",
     )
 

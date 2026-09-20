@@ -40,10 +40,10 @@ def test_real_loader_compiles_raw_object_to_effective_view(valid_catalog_dir: Pa
     assert obj.category_id == "food"
     assert obj.attribute("weight") == 10
     assert obj.attribute("price_fen") == 680
-    assert isinstance(obj.edges[0], TransferEdge)
-    assert obj.edges[0].amount_fen == 680
-    assert obj.edges[0].account_roles is not None
-    assert obj.edges[0].account_roles.to_role == "merchant:grocery"
+    assert isinstance(obj.edges[0], RuleEdge)
+    assert obj.edges[0].rule_id == "buy-product"
+    assert obj.edges[0].coefficient == 1
+    assert not any(isinstance(edge, TransferEdge) for edge in obj.edges)
     assert isinstance(obj.edges[1], SourceEdge)
     assert obj.edges[1].amount == 185
     assert catalog.raw_objects["milk"].model_dump(exclude={"provenance"}).keys() == {
@@ -72,7 +72,7 @@ def test_catalog_models_cannot_mutate_frozen_runtime_semantics(valid_catalog_dir
     ):
         with pytest.raises(ValidationError, match="frozen"):
             setattr(model, field, value)
-    assert catalog.objects["milk"].edges[0].amount_fen == 680
+    assert catalog.objects["milk"].edges[0].rule_id == "buy-product"
     assert catalog.resources["money_fen"].unit == "fen"
 
 

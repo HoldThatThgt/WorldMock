@@ -10,6 +10,7 @@ from worldmock.categories import (
     CategoryError,
     InventoryTransformRule,
     PairingState,
+    PurchaseTransferRule,
 )
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.models import ContractKind
@@ -135,7 +136,8 @@ def _initial_pairs(document: Any, catalog: Any) -> list[ReachablePair]:
     """@brief 收集全部商品、初始持有、未来发布、合同与路线的可能动作。"""
     pairs: list[ReachablePair] = []
     product_ids = {item.product_id for item in document.products}
-    release_ids = {item.object_id for item in document.product_releases}
+    supplies = {item.supply_id: item for item in document.supplies}
+    release_ids = {supplies[item.supply_id].product_id for item in document.product_releases}
     held_ids = {object_id for agent in document.agents
                 for holding in agent.initial_inventory.values() for object_id in holding}
     for object_id in sorted(product_ids | release_ids | held_ids):
@@ -192,6 +194,8 @@ def _admit_pair(catalog: Any, pair: ReachablePair) -> Any | None:
     if resolution.rule_id is None or resolution.coefficient is None:
         raise IntegrityError("Defined category pairing has no rule or coefficient")
     rule = catalog.exchange_rules.require(resolution.rule_id)
+    if isinstance(rule, PurchaseTransferRule) and (rule.from_role != "buyer" or rule.to_role != "merchant"):
+        raise IntegrityError("Purchase transfer roles must be buyer and merchant")
     if isinstance(rule, InventoryTransformRule) and resolution.coefficient == 0:
         raise IntegrityError("Reachable inventory recipe coefficient must be positive")
     return rule

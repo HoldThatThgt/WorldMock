@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import copy
 import json
+import hashlib
+import os
 import shutil
 import sqlite3
 from datetime import datetime
@@ -94,8 +96,6 @@ def _raw_item(object_id: str, category_id: str, consumable: bool) -> dict:
         "category_id": category_id,
         "values": {
             "absolute": {
-                "price_fen": 100,
-                "merchant_role": "merchant:general",
                 "effect": "package_opened",
                 "consumable": consumable,
             },
@@ -235,6 +235,41 @@ def _save_fixture(path: Path, catalog_dir: Path, scenario: dict) -> None:
     refresh_manifest_identity(catalog_dir)
 
 
+def _scenario_source() -> dict:
+    """形成有时态和许可边界的显式测试假设。"""
+    return {"kind": "scenario", "url": "scenario://category-integration/test-assumption",
+            "retrieved_at": "2026-09-20T00:00:00+08:00", "license": "WorldMock-project",
+            "notice": "Controlled category integration assumption", "fact_cutoff": "2026-09-20",
+            "applicability": "Explicit simulation assumption; not an observed retail fact"}
+
+
+def _replace_map_file(root: Path, scenario: dict, kind: str, rows: list[dict]) -> None:
+    """复制真实地图语料并钉扎被修改文件，替换前断开硬链接保护正式数据。"""
+    corpus = root / "corpora"
+    shutil.copytree("corpora", corpus, copy_function=os.link)
+    relative = f"zhangjiang-map/{kind}.json"
+    data_path = corpus / relative
+    data_path.unlink()
+    _write_json(data_path, {"schema_version": 1, kind: rows})
+    dataset_path = corpus / scenario["map_dataset"]["path"]
+    dataset = _read_json(dataset_path)
+    dataset[f"{kind}_file"]["sha256"] = hashlib.sha256(data_path.read_bytes()).hexdigest()
+    dataset["version"] += 1
+    dataset_path.unlink()
+    _write_json(dataset_path, dataset)
+    scenario["map_dataset"].update(version=dataset["version"],
+        sha256=hashlib.sha256(dataset_path.read_bytes()).hexdigest())
+    manifest_path = corpus / "manifest.json"
+    manifest = _read_json(manifest_path)
+    for entry in manifest["entries"]:
+        if entry["path"] in {relative, scenario["map_dataset"]["path"]}:
+            target = corpus / entry["path"]
+            entry.update(sha256=hashlib.sha256(target.read_bytes()).hexdigest(), size_bytes=target.stat().st_size)
+    manifest_path.unlink()
+    _write_json(manifest_path, manifest)
+    scenario.update(corpus_root=str(corpus), corpus_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest())
+
+
 def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -> str:
     """让唯一零库存商品独占子品类，其他可见商品不能代替它触发准入失败。"""
     category_id = "food-hidden-reachable"
@@ -242,7 +277,6 @@ def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -
     category["parent_id"] = "food-dairy"
     contract["categories"].append(category)
     product = scenario["products"][0]
-    product["stock"] = 0
     objects_path = catalog_dir / "objects.jsonl"
     objects = [json.loads(line) for line in objects_path.read_text().splitlines()]
     for item in objects:
@@ -250,9 +284,12 @@ def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -
             item["category_id"] = category_id
     assert [item["object_id"] for item in objects if item["category_id"] == category_id] == [product["product_id"]]
     objects_path.write_text("".join(json.dumps(item) + "\n" for item in objects))
-    for item in scenario["products"][1:]:
-        item["stock"] = 1
-    assert all(item["stock"] > 0 for item in scenario["products"][1:])
+    supplies = _read_json(Path("corpora/zhangjiang-map/supplies.json"))["supplies"]
+    targets = {item["supply_id"] for item in supplies if item["product_id"] == product["product_id"]}
+    for item in scenario["supplies"]:
+        item["initial_stock"] = 0 if item["supply_id"] in targets else 1
+    assert targets and all(item["initial_stock"] == 0 for item in scenario["supplies"]
+                           if item["supply_id"] in targets)
     return category_id
 
 
@@ -359,10 +396,10 @@ def _stage_open_market(engine: LifeEngine) -> None:
     staged.current_time = now
     staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
     agent = staged.agents[1]
-    visible = {item.product_id for item in engine.scenario.products}
+    visible = {item.supply_id for item in engine.scenario.supplies}
     staged.agents[1] = agent.model_copy(update={
-        "visible_product_ids": visible, "product_browsed_at": now,
-        "product_browsed_location": agent.location_id, "next_decision_at": now,
+        "visible_supply_ids": visible, "supply_browsed_at": {key: now for key in visible},
+        "supply_browsed_location": {key: agent.location_id for key in visible}, "next_decision_at": now,
     }, deep=True)
     staged.version += 1
     from worldmock.footprints.models import EventDraft
@@ -485,8 +522,8 @@ def test_all_reachable_pairings_reject_undefined_before_artifacts(
         expected = "undefined purchase"
         if reachable == "future_release":
             scenario["product_releases"] = [{
-                "release_id": "future-milk", "object_id": product["product_id"],
-                "merchant": product["merchant"], "stock": 20,
+                "release_id": "future-milk", "supply_id": f"supply-market-{product['product_id']}",
+                "stock": 20, "source": _scenario_source(),
                 "due_at": "2026-01-06T12:00:00+08:00",
             }]
     elif reachable == "contract":
@@ -526,7 +563,7 @@ def test_purchase_transfer_must_debit_buyer_before_artifacts(tmp_path: Path) -> 
     _write_json(catalog_dir / "exchange-rules.json", rules)
     _save_fixture(path, catalog_dir, scenario)
     run_dir = tmp_path / "non-buyer-purchase-run"
-    with pytest.raises(IntegrityError, match="purchase transfer from_role must be buyer"):
+    with pytest.raises(IntegrityError, match="Purchase transfer roles must be buyer and merchant"):
         LifeEngine.create(path, run_dir, _identity(path, "non-buyer-purchase"))
     assert not run_dir.exists()
 
@@ -534,7 +571,7 @@ def test_purchase_transfer_must_debit_buyer_before_artifacts(tmp_path: Path) -> 
 def test_purchase_coefficient_changes_real_life_engine_transfer(tmp_path: Path) -> None:
     """购买系数改变已编译报价，并由真实整单结算转移对应金额。"""
     baseline, _ = load_runtime_scenario(_SCENARIO)
-    base_price = baseline.scenario.products[0].price_fen
+    base_price = baseline.scenario.supplies[0].quotes[0].price_fen
     path, catalog_dir, scenario = _formal_fixture(tmp_path)
     contract = _read_json(catalog_dir / "category-contract.json")
     _set_pairing_coefficient(contract, "product", "purchase", 2)
@@ -544,18 +581,20 @@ def test_purchase_coefficient_changes_real_life_engine_transfer(tmp_path: Path) 
     try:
         _stage_open_market(engine)
         product = engine.scenario.products[0]
-        assert product.price_fen == base_price * 2
+        supply = next(item for item in engine.scenario.supplies
+                      if item.product_id == product.product_id and item.location_id == "market")
+        assert engine.semantics.purchase_amount(product.product_id, base_price, 1) == base_price * 2
         request = PurchaseOrderRequest(
-            items=(PurchaseItem(product_id=product.product_id, quantity=1,
-                                price_version=product.price_version),),
+            items=(PurchaseItem(supply_id=supply.supply_id, quantity=1,
+                                price_version=engine.state.supply_quotes[supply.supply_id].price_version),),
             fulfillment=FulfillmentKind.DELIVERY, destination_id="home",
         )
         before = dict(engine.state.accounts)
         result = _action(engine, "purchase-coefficient", "purchase", request)
         assert result.data["total_price_fen"] == base_price * 2
         assert engine.state.accounts["agent:1"] == before["agent:1"] - base_price * 2
-        assert engine.state.accounts[product.merchant_account_id] == (
-            before[product.merchant_account_id] + base_price * 2)
+        assert engine.state.accounts[supply.seller_account_id] == (
+            before[supply.seller_account_id] + base_price * 2)
     finally:
         engine.close()
 
@@ -574,19 +613,21 @@ def test_no_effect_purchase_loads_and_rejects_without_transfer(tmp_path: Path) -
     try:
         _stage_open_market(engine)
         product = engine.scenario.products[0]
+        supply = next(item for item in engine.scenario.supplies
+                      if item.product_id == product.product_id and item.location_id == "market")
         request = PurchaseOrderRequest(
-            items=(PurchaseItem(product_id=product.product_id, quantity=1,
-                                price_version=product.price_version),),
+            items=(PurchaseItem(supply_id=supply.supply_id, quantity=1,
+                                price_version=engine.state.supply_quotes[supply.supply_id].price_version),),
             fulfillment=FulfillmentKind.DELIVERY, destination_id="home",
         )
-        before = (dict(engine.state.accounts), dict(engine.state.merchant_stock),
+        before = (dict(engine.state.accounts), dict(engine.state.supply_stock),
                   dict(engine.state.deliveries))
         body = engine.state.agents[1].body.model_dump(mode="python")
         effects = set(engine.state.agents[1].active_effects)
         result = _action(engine, "purchase-no-effect", "purchase", request)
         assert result.status.value == "rejected"
         assert result.error_code == "CATEGORY_PAIRING_NO_EFFECT"
-        assert (engine.state.accounts, engine.state.merchant_stock,
+        assert (engine.state.accounts, engine.state.supply_stock,
                 engine.state.deliveries) == before
         assert engine.state.agents[1].body.model_dump(mode="python") == body
         assert engine.state.agents[1].active_effects == effects
@@ -707,7 +748,8 @@ def test_food_rule_duration_slot_drives_real_consume_duration(tmp_path: Path) ->
 def test_travel_coefficient_changes_real_life_engine_payment(tmp_path: Path) -> None:
     """出行系数改变冻结路线报价并由真实启程动作预付对应金额。"""
     path, catalog_dir, scenario = _formal_fixture(tmp_path)
-    baseline = next(item for item in scenario["routes"]
+    routes = _read_json(Path("corpora/zhangjiang-map/routes.json"))["routes"]
+    baseline = next(item for item in routes
                     if item["origin_id"] == "home" and item["destination_id"] == "office"
                     and item["mode"] == "driving")["fare_fen"]
     contract = _read_json(catalog_dir / "category-contract.json")
@@ -715,12 +757,13 @@ def test_travel_coefficient_changes_real_life_engine_payment(tmp_path: Path) -> 
     _write_json(catalog_dir / "category-contract.json", contract)
     rules = _read_json(catalog_dir / "exchange-rules.json")
     driving = next(item for item in rules["rules"] if item["rule_id"] == "travel-driving")
-    for route in scenario["routes"]:
+    for route in routes:
         if route["mode"] == "driving":
             distance = Decimal(str(route["distance_meters"]))
             amount = max(Decimal(driving["minimum_fen"]),
                          distance * Decimal(str(driving["fen_per_meter"]))) * 2
             route["fare_fen"] = int(amount.to_integral_value(rounding=ROUND_CEILING))
+    _replace_map_file(path.parent.parent, scenario, "routes", routes)
     _save_fixture(path, catalog_dir, scenario)
     engine = _engine(tmp_path, path, "travel-coefficient")
     try:
@@ -990,6 +1033,8 @@ def test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged(tmp_path
         _, started = _consume(engine, "sql-rollback")
         engine.observe(context(engine, "recipe-before-failed-advance"))
         engine._pending_presentation = {1: {_INPUT_OBJECT: engine.state.current_time}}
+        engine._pending_visible_supplies = {1: {engine.scenario.supplies[0].supply_id}}
+        before_visible = copy.deepcopy(engine._pending_visible_supplies)
         before_state = engine.state.model_dump(mode="json")
         before_store = copy.deepcopy(engine.store.state)
         before_seq = engine.store.last_event_seq
@@ -1007,6 +1052,7 @@ def test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged(tmp_path
         assert engine.store.last_event_seq == before_seq
         assert engine.store.read_events(before_seq) == before_events
         assert engine._pending_presentation == before_presentation
+        assert engine._pending_visible_supplies == before_visible
         engine.store.connection.execute("DROP TRIGGER fail_recipe_state_update")
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}

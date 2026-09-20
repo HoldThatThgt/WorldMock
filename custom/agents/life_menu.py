@@ -200,3 +200,175 @@ def _runtime_error(message: str) -> None:
     """@brief 记录英文观察完整性错误并终止准备。"""
     logging.error(message)
     raise RuntimeError(message)
+
+
+def visible_products(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """@brief 商品身份只绑定使用合同，不再携带任一门店的报价库存。"""
+    catalog = data.get("products")
+    if not isinstance(catalog, list):
+        _runtime_error("LifeAgent products catalog must be a list")
+    result = {}
+    for item in catalog:
+        if not isinstance(item, dict):
+            _runtime_error("LifeAgent product must be an object")
+        product_id, modes = item.get("product_id"), item.get("use_modes")
+        duration, required = item.get("use_duration_seconds"), item.get("required_location_id")
+        if not isinstance(product_id, str) or not product_id.strip():
+            _runtime_error("LifeAgent product identity is invalid")
+        if product_id in result:
+            _runtime_error("LifeAgent product identities are duplicated")
+        if not isinstance(modes, list) or not modes or not all(isinstance(mode, str) for mode in modes):
+            _runtime_error("LifeAgent product use modes are invalid")
+        if isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0:
+            _runtime_error("LifeAgent product use contract is invalid")
+        if required is not None and not isinstance(required, str):
+            _runtime_error("LifeAgent product required location is invalid")
+        result[product_id] = {"use_modes": tuple(sorted(set(modes))), "duration_seconds": duration,
+                              "required_location_id": required}
+    return result
+
+
+def visible_supply_contracts(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """@brief 只从实际呈现供给生成可购买合同，资格与履约条件分别保留。"""
+    catalog = data.get("supplies")
+    if not isinstance(catalog, list):
+        _runtime_error("LifeAgent supplies catalog must be a list")
+    locations = _location_ids(data)
+    result, seen = {}, set()
+    for item in catalog:
+        _validate_supply_row(item)
+        supply_id = item["supply_id"]
+        if item["location_id"] not in locations or not set(item["delivery_destination_ids"]) <= locations:
+            _runtime_error("LifeAgent supply references an unknown location")
+        if supply_id in seen:
+            _runtime_error("LifeAgent supply identities are duplicated")
+        seen.add(supply_id)
+        if not item["purchase_allowed"]:
+            continue
+        modes = [mode for mode in item["fulfillment_modes"]
+                 if mode == "delivery" or item["pickup_allowed"]]
+        if modes:
+            result[supply_id] = {**item, "fulfillment_modes": tuple(modes)}
+    return result
+
+
+def _location_ids(data: dict) -> set[str]:
+    """@brief 已呈现供给的门店与履约范围必须引用公开地点身份。"""
+    rows = data.get("locations")
+    if not isinstance(rows, list):
+        _runtime_error("LifeAgent locations catalog must be a list")
+    result = set()
+    for row in rows:
+        value = row.get("location_id") if isinstance(row, dict) else None
+        if not isinstance(value, str) or not value.strip() or value in result:
+            _runtime_error("LifeAgent location identities are invalid")
+        result.add(value)
+    return result
+
+
+def _validate_supply_row(item: Any) -> None:
+    """@brief 验证供给身份、报价三态和世界资格，拒绝不完整的工具合同。"""
+    if not isinstance(item, dict):
+        _runtime_error("LifeAgent supply must be an object")
+    for field in ("supply_id", "product_id", "location_id", "seller_account_id"):
+        if not isinstance(item.get(field), str) or not item[field].strip():
+            _runtime_error("LifeAgent supply identity is invalid")
+    stock, version, price = item.get("current_stock"), item.get("price_version"), item.get("price_fen")
+    if isinstance(stock, bool) or not isinstance(stock, int) or stock < 0:
+        _runtime_error("LifeAgent supply stock is invalid")
+    if item.get("quote_status") not in {"known", "unknown"}:
+        _runtime_error("LifeAgent supply quote status is invalid")
+    if item["quote_status"] == "known":
+        if (not isinstance(version, str) or not version.strip() or isinstance(price, bool)
+                or not isinstance(price, int) or price <= 0):
+            _runtime_error("LifeAgent known supply quote is invalid")
+    elif version is not None or price is not None:
+        _runtime_error("LifeAgent unknown supply quote contains a price")
+    for field in ("purchase_allowed", "pickup_allowed", "access_allowed", "service_allowed"):
+        if not isinstance(item.get(field), bool):
+            _runtime_error("LifeAgent supply qualification is invalid")
+    modes, destinations = item.get("fulfillment_modes"), item.get("delivery_destination_ids")
+    if (not isinstance(modes, list) or not modes or not set(modes) <= {"pickup", "delivery"}
+            or not isinstance(destinations, list) or not all(isinstance(value, str) for value in destinations)):
+        _runtime_error("LifeAgent supply fulfillment is invalid")
+    if item.get("opening_status") not in {"open", "closed", "unknown"}:
+        _runtime_error("LifeAgent supply opening status is invalid")
+    if item["purchase_allowed"] and not (stock > 0 and version is not None and item["access_allowed"]
+                                         and item["service_allowed"] and item["opening_status"] == "open"):
+        _runtime_error("LifeAgent supply purchase qualification is inconsistent")
+
+
+def discovery_contract(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """@brief 查询筛选条件来自公开地图词表，未知业务身份不能由模型编造。"""
+    catalog = data.get("discovery_catalog")
+    if not isinstance(catalog, dict):
+        _runtime_error("LifeAgent discovery catalog must be an object")
+    result = {}
+    for field in ("product_ids", "business_kinds"):
+        values = catalog.get(field)
+        if not isinstance(values, list) or not all(isinstance(value, str) and value.strip() for value in values):
+            _runtime_error("LifeAgent discovery catalog values are invalid")
+        result[field] = tuple(sorted(set(values)))
+    return result
+
+
+def bind_storefront_schemas(functions: dict, contracts: dict) -> None:
+    """@brief 实际模型 Schema 使用供给身份和可选发现条件，消费仍按商品身份。"""
+    if "discover_places" in functions:
+        properties = functions["discover_places"]["parameters"]["properties"]
+        for field, key in (("product_id", "product_ids"), ("business_kind", "business_kinds")):
+            string_schema = next(item for item in properties[field]["anyOf"] if item["type"] == "string")
+            values = list(contracts["discover_places"][key])
+            if values:
+                string_schema["enum"] = values
+            else:
+                properties[field]["anyOf"] = [{"type": "null"}]
+    if "purchase" not in functions:
+        return
+    supplies = contracts["purchase"]
+    properties = functions["purchase"]["parameters"]["properties"]
+    item_properties = properties["items"]["items"]["properties"]
+    item_properties["supply_id"]["enum"] = sorted(supplies)
+    item_properties["price_version"]["enum"] = sorted({item["price_version"] for item in supplies.values()})
+    destinations = {value for item in supplies.values() for value in item["delivery_destination_ids"]}
+    destinations.update(item["location_id"] for item in supplies.values() if item["pickup_allowed"])
+    properties["destination_id"]["enum"] = sorted(destinations)
+    properties["fulfillment"]["enum"] = sorted({mode for item in supplies.values()
+                                                for mode in item["fulfillment_modes"]})
+
+
+def validate_discovery(request: BaseModel, contract: dict) -> str:
+    """@brief 本地查询校验与实际 Schema 共用同一可见业务词表。"""
+    for field, key in (("product_id", "product_ids"), ("business_kind", "business_kinds")):
+        value = getattr(request, field)
+        if value is not None and value not in contract[key]:
+            return _denied(f"discover_places {field} is not visible")
+    return ""
+
+
+def validate_purchase(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
+    """@brief 校验供给报价配对、重复项、同地点同卖方及每条供给的履约条件。"""
+    if not 1 <= len(request.items) <= 5:
+        return _denied("purchase requires one to five items")
+    selected, seen = [], set()
+    for item in request.items:
+        supply = catalog.get(item.supply_id)
+        if supply is None or item.price_version != supply["price_version"]:
+            return _denied("purchase supply_id and price_version are not a visible pair")
+        if item.supply_id in seen:
+            return _denied("purchase supply items must be unique")
+        seen.add(item.supply_id)
+        if item.quantity > supply["current_stock"]:
+            return _denied("purchase quantity exceeds the visible current stock")
+        selected.append(supply)
+    if len({(item["location_id"], item["seller_account_id"]) for item in selected}) != 1:
+        return _denied("purchase items must share one location and seller account")
+    for supply in selected:
+        if request.fulfillment not in supply["fulfillment_modes"]:
+            return _denied("purchase fulfillment is not supported by every selected supply")
+        if request.fulfillment == "pickup":
+            if not supply["pickup_allowed"] or request.destination_id != supply["location_id"]:
+                return _denied("purchase pickup requires the selected store location")
+        elif request.destination_id not in supply["delivery_destination_ids"]:
+            return _denied("purchase destination is outside the selected supply delivery scope")
+    return ""

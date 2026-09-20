@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "contract_version": 1,
+  "contract_version": 2,
   "categories": [
     {
       "category_id": "entity",
@@ -39,16 +39,6 @@
           },
           "required": true
         },
-        "merchant_role": {
-          "schema": {
-            "enum": [
-              "merchant:grocery",
-              "merchant:general",
-              "merchant:restaurant"
-            ]
-          },
-          "required": true
-        },
         "consumable": {
           "schema": {
             "type": "boolean"
@@ -69,31 +59,7 @@
           },
           "required": true
         },
-        "stock_initial": {
-          "schema": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "required": true,
-          "unit": "item"
-        },
-        "stock_restock": {
-          "schema": {
-            "enum": [
-              "none"
-            ]
-          },
-          "required": true
-        },
         "use_duration_seconds": {
-          "schema": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "required": true,
-          "unit": "second"
-        },
-        "delivery_delay_seconds": {
           "schema": {
             "type": "integer",
             "minimum": 1
@@ -124,14 +90,6 @@
             ]
           },
           "required": true
-        },
-        "price_fen": {
-          "schema": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "required": true,
-          "unit": "fen"
         },
         "energy_kcal_per_serving": {
           "schema": {
@@ -171,10 +129,7 @@
           "use_modes": [
             "eat"
           ],
-          "stock_initial": 120,
-          "stock_restock": "none",
           "use_duration_seconds": 900,
-          "delivery_delay_seconds": 1800,
           "serving_quantity": 1,
           "required_location_id": null
         },
@@ -388,7 +343,6 @@
       "slots": {},
       "values": {
         "absolute": {
-          "stock_initial": 40,
           "serving_unit": "g"
         },
         "relative": {},
@@ -406,10 +360,7 @@
           "use_modes": [
             "use"
           ],
-          "stock_initial": 80,
-          "stock_restock": "none",
           "use_duration_seconds": 300,
-          "delivery_delay_seconds": 2400,
           "required_location_id": null
         },
         "relative": {},
@@ -721,14 +672,10 @@
       "method": "Encode the frozen type and range requirements as JSON Schema",
       "paths": [
         "/categories/2/slots/effect/schema/minLength",
-        "/categories/2/slots/merchant_role/schema",
         "/categories/2/slots/use_modes/schema/minItems",
-        "/categories/2/slots/stock_initial/schema/minimum",
         "/categories/2/slots/use_duration_seconds/schema/minimum",
-        "/categories/2/slots/delivery_delay_seconds/schema/minimum",
         "/categories/2/slots/serving_quantity/schema/exclusiveMinimum",
         "/categories/2/slots/serving_unit/schema/minLength",
-        "/categories/2/slots/price_fen/schema/minimum",
         "/categories/2/slots/energy_kcal_per_serving/schema/minimum",
         "/categories/3/slots/energy_density_kcal_per_100/schema",
         "/categories/17/slots/acceptance_required_effective_seconds/schema/minimum",
@@ -814,10 +761,10 @@
     }
   ],
   "review": {
-    "reviewer": "Codex category-contract data agent",
+    "reviewer": "Codex map-and-storefront integration agent",
     "reviewer_type": "delegated_agent",
-    "evidence": "docs/dev/SPEC-category-contract.md and the preserved 163-object catalog",
-    "reason": "Publish the frozen category hierarchy, sparse pairings, inherited shared values, and source coverage",
+    "evidence": "docs/dev/SPEC-category-contract.md and docs/dev/SPEC-map-and-storefront.md",
+    "reason": "Keep category use rules and sparse pairings while moving all purchase facts to versioned storefront supplies",
     "authorization": "User request on 2026-09-20 to fan out agents to review and fully implement the frozen specification"
   }
 }

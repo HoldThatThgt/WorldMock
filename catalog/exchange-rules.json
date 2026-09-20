@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "contract_version": 1,
+  "contract_version": 2,
   "rules": [
     {
       "rule_id": "purchase-product",
@@ -10,7 +10,6 @@
       "resource_id": "money_fen",
       "unit": "fen",
       "conservation": "closed",
-      "price_slot": "price_fen",
       "from_role": "buyer",
       "to_role": "merchant"
     },
@@ -106,10 +105,10 @@
     }
   ],
   "review": {
-    "reviewer": "Codex category-contract data agent",
+    "reviewer": "Codex map-and-storefront integration agent",
     "reviewer_type": "delegated_agent",
-    "evidence": "docs/dev/SPEC-category-contract.md and current LifeEngine settlement entrypoints",
-    "reason": "Publish an expression-free closed operator set with explicit conservation domains",
+    "evidence": "docs/dev/SPEC-category-contract.md and docs/dev/SPEC-map-and-storefront.md",
+    "reason": "Bind purchase arithmetic to current supply quotes instead of product price slots",
     "authorization": "User request on 2026-09-20 to fan out agents to review and fully implement the frozen specification"
   }
 }

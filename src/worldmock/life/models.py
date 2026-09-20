@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
@@ -14,8 +16,10 @@ from worldmock.life.social import Message
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 #: 世界状态结构版本（docs/dev/SPEC-life-realism.md「产品行为」）：旧检查点缺该字段即拒绝加载。
-#: 版本 3 引入 `presentation_state`（轮转所需的「上次呈现时刻」，docs/CONTRACTS.md「派生量字段」）。
-WORLD_SCHEMA_VERSION = 3
+#: 版本 4 按门店供给保存报价、库存、营业例外与可见凭据，直接拒绝旧检查点。
+WORLD_SCHEMA_VERSION = 4
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class StrictModel(BaseModel):
@@ -235,6 +239,7 @@ class AgentState(StrictModel):
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
     skill_levels: dict[str, float] = Field(default_factory=dict)
+    qualifications: tuple[str, ...] = ()
     # 内容口味权重（docs/dev/SPEC-life-realism.md「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
     # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
     taste_weights: dict[str, float] = Field(default_factory=dict)
@@ -250,7 +255,7 @@ class AgentState(StrictModel):
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
-    visible_product_ids: set[str] = Field(default_factory=set)
+    visible_supply_ids: set[str] = Field(default_factory=set)
     # 决策节律簿记（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
@@ -267,9 +272,9 @@ class AgentState(StrictModel):
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
-    # 商品可见期（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：浏览时刻与浏览所在商家地点，离开或 1800 秒清空。
-    product_browsed_at: int | None = Field(default=None, ge=0)
-    product_browsed_location: str | None = None
+    # 供给可见期按实际呈现记账；商品身份不能授权另一门店的供给。
+    supply_browsed_at: dict[str, int] = Field(default_factory=dict)
+    supply_browsed_location: dict[str, str] = Field(default_factory=dict)
     # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：
     # 自上次决策以来新读到的区间，单次 ≤2000 字符。
     material_reveals: list[dict[str, Any]] = Field(default_factory=list)
@@ -279,7 +284,7 @@ class AgentState(StrictModel):
         "read_message_ids",
         "visible_message_ids",
         "visible_task_ids",
-        "visible_product_ids",
+        "visible_supply_ids",
         "known_task_ids",
         "plan_submitted_dates",
         "read_inbox_ids",
@@ -343,13 +348,19 @@ class DeliveryState(StrictModel):
     order_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
     product_id: str = Field(min_length=1)
+    supply_id: str = Field(min_length=1)
+    location_id: str = Field(min_length=1)
+    seller_account_id: str = Field(min_length=1)
+    price_version: str = Field(min_length=1)
+    route_id: str | None
+    source: dict[str, Any]
     quantity: int = Field(gt=0)
     destination_id: str = Field(min_length=1)
     fulfillment: FulfillmentKind
     created_at: int = Field(ge=0)
     expected_at: int = Field(gt=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
-    total_price_fen: int = Field(gt=0)
+    total_price_fen: int = Field(ge=0)
 
 
 class StoredAction(StrictModel):
@@ -392,6 +403,31 @@ class DecisionRoundState(StrictModel):
     pending_actions: list[PendingAction] = Field(default_factory=list)
 
 
+class SupplyQuoteState(StrictModel):
+    """@brief 保存本次实际生效的门店报价和来源，恢复时不重新推断初值。"""
+
+    price_fen: int = Field(gt=0)
+    price_version: str = Field(pattern=r"\S")
+    effective_from: int = Field(ge=0)
+    effective_to: int | None = Field(ge=0)
+    source: dict[str, Any]
+
+    @model_validator(mode="after")
+    def validate_interval(self) -> "SupplyQuoteState":
+        """@brief 拒绝空或倒置的报价生效区间。"""
+        if self.effective_to is not None and self.effective_to <= self.effective_from:
+            _LOGGER.error("Supply quote effective interval is invalid")
+            raise ValueError("supply quote effective interval is invalid")
+        from worldmock.life.map_models import DataSource
+
+        try:
+            DataSource.model_validate(self.source)
+        except ValueError as error:
+            _LOGGER.error("Supply quote source is invalid: %s", error)
+            raise ValueError("supply quote source is invalid") from error
+        return self
+
+
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
@@ -406,7 +442,9 @@ class WorldState(StrictModel):
     content_manifest_sha256: str = Field(min_length=64, max_length=64)
     agents: dict[int, AgentState]
     accounts: dict[str, int]
-    merchant_stock: dict[str, int]
+    supply_stock: dict[str, int]
+    supply_quotes: dict[str, SupplyQuoteState | None]
+    opening_exceptions: dict[str, dict[str, list[tuple[int, int]]]]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
@@ -430,8 +468,12 @@ class WorldState(StrictModel):
             raise ValueError("world current time exceeds experiment end")
         if any(value < 0 for value in self.accounts.values()):
             raise ValueError("world account balance cannot be negative")
-        if any(value < 0 for value in self.merchant_stock.values()):
-            raise ValueError("world merchant stock cannot be negative")
+        if any(value < 0 for value in self.supply_stock.values()):
+            _LOGGER.error("World supply stock cannot be negative")
+            raise ValueError("world supply stock cannot be negative")
+        if self.supply_stock.keys() != self.supply_quotes.keys():
+            _LOGGER.error("World supply stock and quote identities differ")
+            raise ValueError("world supply stock and quote identities differ")
         for agent_id, agent in self.agents.items():
             if agent_id != agent.agent_id:
                 raise ValueError("world agent mapping identity mismatch")
@@ -439,7 +481,39 @@ class WorldState(StrictModel):
                 raise ValueError("agent current activity does not exist")
             if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
                 raise ValueError("agent inventory quantity cannot be negative")
+            _validate_supply_visibility(agent, self)
+        _validate_opening_exceptions(self.opening_exceptions)
         return self
+
+
+def _validate_supply_visibility(agent: AgentState, state: WorldState) -> None:
+    """@brief 每条可见供给必须有自己的呈现时刻与地点，不得借另一条供给延长有效期。"""
+    identities = set(agent.visible_supply_ids)
+    if (identities != set(agent.supply_browsed_at) or identities != set(agent.supply_browsed_location)
+            or not identities <= state.supply_stock.keys()
+            or any(not 0 <= value <= state.current_time for value in agent.supply_browsed_at.values())
+            or not set(agent.supply_browsed_location.values()) <= state.opening_exceptions.keys()):
+        _LOGGER.error("Supply visibility records have inconsistent identities or timestamps")
+        raise ValueError("supply visibility records are inconsistent")
+
+
+def _validate_opening_exceptions(exceptions: dict) -> None:
+    """@brief 恢复时核验日期和营业分钟区间，不接受损坏或互相矛盾的世界事实。"""
+    from worldmock.life.map_models import OpeningInterval
+
+    try:
+        for dates in exceptions.values():
+            for key, intervals in dates.items():
+                if date.fromisoformat(key).isoformat() != key:
+                    raise ValueError("opening exception date must use canonical ISO format")
+                values = [
+                    OpeningInterval(opens=start, closes=end) for start, end in intervals]
+                ordered = sorted(values, key=lambda item: item.opens)
+                if any(left.closes > right.opens for left, right in zip(ordered, ordered[1:])):
+                    raise ValueError("opening exception intervals overlap")
+    except ValueError as error:
+        _LOGGER.error("World opening exceptions are invalid: %s", error)
+        raise ValueError("world opening exceptions are invalid") from error
 
 
 _TARGETED_ACTIVITY_KINDS = frozenset({
@@ -566,20 +640,10 @@ class ContinueActivityRequest(FrozenModel):
     activity_id: str = Field(pattern=r"\S")
 
 
-class PurchaseRequest(FrozenModel):
-    """@brief 购买一个冻结目录中的商品（域内部单件形状，供 commerce.purchase 消费）。"""
-
-    product_id: str = Field(pattern=r"\S")
-    quantity: int = Field(gt=0, le=100)
-    fulfillment: Literal["delivery", "pickup"]
-    destination_id: str = Field(pattern=r"\S")
-    price_version: str = Field(pattern=r"\S")
-
-
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中的一件商品与数量（docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件）。"""
+    """@brief 一笔订单中明确选定的门店供给与数量。"""
 
-    product_id: str = Field(pattern=r"\S")
+    supply_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
     price_version: str = Field(pattern=r"\S")
 
@@ -602,6 +666,16 @@ class PurchaseOrderRequest(FrozenModel):
     ]
     fulfillment: Literal["delivery", "pickup"]
     destination_id: str = Field(pattern=r"\S")
+
+
+class DiscoverPlacesRequest(FrozenModel):
+    """@brief 登记地点与门店供给发现，查询结果在结算后进入下一次观察。"""
+
+    product_id: str | None = Field(pattern=r"\S")
+    business_kind: str | None = Field(pattern=r"\S")
+    travel_mode: Literal["walking", "driving"]
+    max_travel_seconds: int | None = Field(gt=0, le=86_400)
+    cursor: str | None = Field(pattern=r"\S")
 
 
 class ConsumeItem(FrozenModel):
@@ -741,7 +815,7 @@ ActionRequest = Annotated[
     StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
     SetActivityStateRequest | ChangePlaybackSpeedRequest | ContinueActivityRequest |
     PurchaseOrderRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
-    BrowseActivitiesRequest | PlanDayRequest | ReviseDayPlanRequest |
+    BrowseActivitiesRequest | DiscoverPlacesRequest | PlanDayRequest | ReviseDayPlanRequest |
     SendMessageRequest | StartSocialActivityRequest,
     Field(union_mode="left_to_right"),
 ]
@@ -799,6 +873,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "submit_work": SubmitWorkRequest,
     "game_action": GameActionRequest,
     "browse_activities": BrowseActivitiesRequest,
+    "discover_places": DiscoverPlacesRequest,
     "plan_day": PlanDayRequest,
     "revise_day_plan": ReviseDayPlanRequest,
     "send_message": SendMessageRequest,

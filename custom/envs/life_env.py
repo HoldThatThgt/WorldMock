@@ -17,7 +17,7 @@ from worldmock.status import write_status
 
 #: 修订合同（docs/dev/SPEC-life-realism.md「日程骨架」、docs/dev/SPEC-life-runtime.md「社交最小可行版」）要求环境侧可受理的四件新生活工具。
 _REVISION_CONTRACT_TOOLS = frozenset({
-    "plan_day", "revise_day_plan", "send_message", "start_social_activity"})
+    "plan_day", "revise_day_plan", "send_message", "start_social_activity", "discover_places"})
 
 
 class LifeEnv(EnvBase):

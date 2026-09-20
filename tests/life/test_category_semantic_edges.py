@@ -23,11 +23,11 @@ def semantics() -> ScenarioSemantics:
     return result
 
 
-def test_with_price_translates_invalid_integer_input(semantics: ScenarioSemantics) -> None:
-    """价格替换把正浮点分值的算子拒绝翻译为完整性错误。"""
+def test_purchase_amount_translates_invalid_integer_input(semantics: ScenarioSemantics) -> None:
+    """供给报价计价把非整数分值的算子拒绝翻译为完整性错误。"""
     product_id = semantics.scenario.products[0].product_id
-    with pytest.raises(IntegrityError, match="Price change exchange failed: EXCHANGE_INPUT_INVALID"):
-        semantics.with_price(product_id, 1.5, "invalid-price")
+    with pytest.raises(IntegrityError, match="Purchase exchange failed: EXCHANGE_INPUT_INVALID"):
+        semantics.purchase_amount(product_id, 1.5, 1)
 
 
 def test_contract_payment_rejects_incompatible_rule(
@@ -82,3 +82,29 @@ def _profile_bytes(provenance: str) -> bytes:
     factors.extend(f"driving_{hour:02d} = 1.0" for hour in range(24))
     document = "\n".join(("version = 1", provenance, "[factors]", *factors, ""))
     return document.encode("utf-8")
+
+
+def test_purchase_rejects_an_incompatible_runtime_rule(semantics, monkeypatch):
+    """运行期错误绑定出行规则不能作为购买算子执行。"""
+    from worldmock.life import semantics as module
+
+    travel = semantics.travel_match("walking")
+    monkeypatch.setattr(module, "require_runtime_rule", lambda *_args: travel)
+    with pytest.raises(IntegrityError, match="Purchase category resolved to an incompatible exchange rule"):
+        semantics.purchase_coefficient(semantics.scenario.products[0].product_id)
+
+
+@pytest.mark.parametrize("field", ["from_role", "to_role"])
+def test_purchase_rechecks_buyer_and_supply_seller_roles(semantics, monkeypatch, field):
+    """运行中的错误规则角色不能绕过供给绑定改变收付款账户。"""
+    from dataclasses import replace
+    from worldmock.categories import Action
+    from worldmock.life import semantics as module
+    from worldmock.life.category_contract import require_runtime_rule
+
+    product = semantics.scenario.products[0]
+    match = require_runtime_rule(semantics.catalog, product.category_id, Action.PURCHASE)
+    corrupted = replace(match, rule=match.rule.model_copy(update={field: "employer"}))
+    monkeypatch.setattr(module, "require_runtime_rule", lambda *_args: corrupted)
+    with pytest.raises(IntegrityError, match="Purchase transfer roles must be buyer and merchant"):
+        semantics.purchase_amount(product.product_id, 101, 3)

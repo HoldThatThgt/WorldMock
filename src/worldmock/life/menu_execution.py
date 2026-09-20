@@ -1,5 +1,7 @@
 """@brief 在共同结算与独立工作验收前执行权威交互菜单检查。"""
 
+import logging
+
 from worldmock.errors import BusinessRuleError
 from worldmock.life.interaction_menu import menu_allows_action, resolve_interaction_menu
 
@@ -11,4 +13,5 @@ def require_interaction_menu(scenario, state, pending, request) -> None:
     activity = state.activities.get(getattr(request, "activity_id", None))
     kind = activity.kind if activity is not None and activity.agent_id == agent.agent_id else None
     if not menu_allows_action(menu, pending.tool_name, request, kind):
+        logging.error("Interaction menu denies action: %s", pending.tool_name)
         raise BusinessRuleError("INTERACTION_MENU_DENIED")

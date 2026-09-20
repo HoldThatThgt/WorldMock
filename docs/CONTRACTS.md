@@ -57,11 +57,12 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `set_activity_state` | `activity_id`, `operation` (`pause`/`resume`/`cancel`) | `status: "submitted"` |
 | `change_playback_speed` | `activity_id`, `playback_speed` | `status: "submitted"` |
 | `continue_activity` | `activity_id` | `status: "submitted"` (只安排后续反馈，不额外推进时间) |
-| `purchase` | `items: List[{product_id, quantity, price_version}]` (1–5 件), `fulfillment`, `destination_id` | `status: "submitted"`, `action_id` |
+| `discover_places` | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds`, `cursor`（全部必填，可空边界见下文） | `status: "submitted"`, `action_id`；发现结果结算后进入下一次观察 |
+| `purchase` | `items: List[{supply_id, quantity, price_version}]` (1–5 件), `fulfillment`, `destination_id` | `status: "submitted"`, `action_id` |
 | `consume` | `items: List[{product_id, quantity}]` (食品 1–3 件，非食品使用仅 1 件), `use_mode`, `duration_seconds` | `status: "submitted"` |
 | `submit_work` | `task_id`, `deliverable` | `status: "submitted"` |
 | `game_action` | `game_session_id`, `command` | `status: "submitted"` |
-| `browse_activities` | `category` (活动品类摘要的键，取值闭集由当前观察绑定), `cursor` (可空，缺省表示从首条开始) | `status: "submitted"`, `action_id` (纯查询，不启动活动、不消耗内容；品类条目清单经 `action_result` 按下方「候选与呈现合同」的「下推返回体」返回) |
+| `browse_activities` | `category` (活动品类摘要的键，取值闭集由当前观察绑定), `cursor` (必填可空，首屏显式为 `null`) | `status: "submitted"`, `action_id` (纯查询，不启动活动、不消耗内容；品类条目清单经 `action_result` 按下方「候选与呈现合同」的「下推返回体」返回) |
 | `plan_day` | `segments: List[{start, end, intent_kind, note}]` (5–8 段) | `status: "submitted"` |
 | `revise_day_plan` | `segments: List[{start, end, intent_kind, note}]` (1–8 段，只含尚未开始的段) | `status: "submitted"` |
 | `send_message` | `recipient_id`, `text` | `status: "submitted"` |
@@ -70,8 +71,8 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 #### 交互菜单声明与有效菜单
 
 场景根对象必须显式包含 `interaction_menus_by_location_kind`，键集合恰好等于场景中
-`locations[].kind` 的不同值集合；每个人物也必须显式包含 `interaction_menu`。人物值可以为
-`null`，表示不在地点菜单之外增加限制；地点菜单不能为 `null`。`locations[].kind` 是场景地点类，
+场景选中地点经地图目录解析后的 `kind` 不同值集合；每个人物也必须显式包含 `interaction_menu`。人物值可以为
+`null`，表示不在地点菜单之外增加限制；地点菜单不能为 `null`。解析后的地点 `kind` 是交互菜单地点类，
 与候选资格使用的 `location_kinds` 不是同一个字段或词表。
 
 ```python
@@ -82,7 +83,7 @@ InteractionMenu = {
 ```
 
 两个数组都非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
-`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 的十五个工具名；
+`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 注册的工具名，包含 `discover_places`；
 `allowed_activity_kinds` 的闭集是当前可供性注册表的 `kinds`。
 场景地点类缺项或多项、人物字段缺失、未知名称、错误类型、重复、空数组或缺少保护项均拒绝加载。
 
@@ -180,7 +181,8 @@ IntentKind = Literal[
 | --- | --- | --- |
 | 启动活动 | `activity_type`, `target_id`, `planned_duration_seconds`, `playback_speed`；出行另有 `destination_id`、`travel_mode` | 内容已可访问、位置合法、没有冲突占用；持续时间取 60–86400 秒 |
 | 修改活动 | `activity_id`, `operation` (`pause`/`resume`/`cancel`)；变速走独立的 `change_playback_speed` 请求，字段为 `activity_id`, `playback_speed` | 活动属于调用者，转换合法；倍速在已声明范围内 |
-| 购买 | `items: List[{product_id, quantity, price_version}]`, `fulfillment`, `destination_id` | 价格版本、资金、库存、营业和配送范围 |
+| 发现地点 | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds` | 选择范围、地图身份、道路状态和实际返回信息；只登记生活动作 |
+| 购买 | `items: List[{supply_id, quantity, price_version}]`, `fulfillment`, `destination_id` | 同地点同卖方、无重复供给、有效报价、资金、供给库存、营业、资格和履约范围 |
 | 使用 | `items: List[{product_id, quantity}]`, `use_mode`, `duration_seconds` | 物品已取得、数量足够、用途符合物品定义 |
 | 提交工作 | `task_id`, `deliverable` | 任务归属、进度、截止规则、素材存在及未重复结算 |
 | 游戏动作 | `game_session_id`, `command` | 会话归属、当前局面和游戏进度 |
@@ -188,7 +190,7 @@ IntentKind = Literal[
 
 ### 请求模型的闭集与字面边界
 
-工具 Schema 由请求模型直接生成，全部字段必填。下列闭集与字面边界在请求模型层声明，与结算检查相互独立；文本身份字段（`target_id`、`destination_id`、`activity_id`、`product_id`、`task_id`、`game_session_id`、`partner_id`、`recipient_id`、`price_version`）一律要求非空白。
+工具 Schema 由请求模型直接生成，全部字段必填。下列闭集与字面边界在请求模型层声明，与结算检查相互独立；文本身份字段（`target_id`、`destination_id`、`activity_id`、`product_id`、`supply_id`、`task_id`、`game_session_id`、`partner_id`、`recipient_id`、`price_version`）一律要求非空白。
 
 | 请求 | 字段 | 闭集或边界 |
 | --- | --- | --- |
@@ -197,6 +199,11 @@ IntentKind = Literal[
 | `start_targeted_activity` | `activity_type` | `work`、`watch`、`play_game`、`read_mail`、`browse` |
 | `start_targeted_activity`、`change_playback_speed` | `playback_speed` | 0.5–2 |
 | `start_travel` | `travel_mode` | `driving`、`walking` |
+| `discover_places` | `product_id`、`business_kind` | 必填可空字符串；非空时不得全为空白，`null` 表示不按该条件筛选 |
+| `discover_places` | `travel_mode` | `driving`、`walking`，必须显式提供 |
+| `discover_places` | `max_travel_seconds` | 必填可空正整数，上限 86400 秒；`null` 表示不加道路时间上限 |
+| `discover_places` | `cursor` | 必填可空字符串；首次为 `null`，后续原样使用 `next_cursor`，不得伪造或跨筛选条件/地图/起点复用 |
+| `purchase` | `items[].supply_id` | 必须是实际呈现过且仍可见的供给身份，整单不得重复 |
 | `purchase` | `items[].quantity` | 1–100 |
 | `purchase` | `fulfillment` | `delivery`、`pickup` |
 | `consume` | `items[].quantity` | 大于零且不超过 100 |
@@ -209,7 +216,7 @@ IntentKind = Literal[
 | `start_social_activity` | `duration_minutes` | 1–120 分钟 |
 | `submit_work` | `deliverable` | 会议纪要结构：`summary`、`decisions`、`action_items`，三者均不得为空白 |
 
-**`browse_activities` 的 `cursor` 是唯一的可空字段**：它必须显式声明为可空，首屏提交 `null`，后续屏提交上一页返回的 `next_cursor` 原值。这条取代「没有缺省参数或条件可选字段」的通用表述在该字段上的适用——游标本身就是分页状态，无法用必填非空值表达。
+**可空与缺省不同**：`browse_activities.cursor` 和发现动作的可空筛选字段都必须显式填写。首屏游标为 `null`，后续屏提交上一页 `next_cursor` 原值；发现筛选的 `null` 表示不增加该筛选。缺字段仍拒绝，不生成隐含条件。
 
 请求不能指定任意文件路径让环境读取；引用只允许已经登记且对人物可见的素材，实际文本交付由宿主保存成新素材。请求校验失败返回明确业务错误，环境不自动修改数量、替换商品、改变目的地或选择其他行动。
 
@@ -261,15 +268,15 @@ ContractKind = Literal["package", "hourly", "piece"]
 | --- | --- |
 | 订单状态 `DeliveryState.status` | `pending`、`ready`、`delivered`、`cancelled` |
 | 决策轮状态 `DecisionRoundState.status` | `open`、`committed`、`aborted` |
-| 世界状态结构版本 `WorldState.schema_version` | 2 |
+| 世界状态结构版本 `WorldState.schema_version` | 4 |
 
 环境自主到期事件（世界状态 `pending_events`）的类型闭集：
 
 ```python
 ScheduledKind = Literal[
-    "mail_arrival", "delivery_ready", "delivery_arrival", "work_available",
+    "mail_arrival", "delivery_arrival", "work_available",
     "task_expired", "calendar_flag", "bill_due", "payroll",
-    "price_change", "product_release",
+    "price_change", "supply_quote_change", "product_release",
 ]
 ```
 
@@ -277,6 +284,102 @@ ScheduledKind = Literal[
 | --- | --- |
 | `scheduled_id`, `kind`, `due_at`, `sequence` | 事件身份、类型、到期模拟时刻与确定序号 |
 | `agent_id`, `data` | 相关人物（可为空）与事件载荷 |
+
+## 地图与门店供给合同
+
+本节定义 [地图与门店供给规格](dev/SPEC-map-and-storefront.md) 的字段面。记录正文和恢复材料由
+[记录引擎](design/05-recording-engine.md)定义；实现与验收状态独立记录。
+
+### 冻结地图与场景引用
+
+| 结构 | 字段 | 约束 |
+| --- | --- | --- |
+| `MapDatasetReference` | `dataset_id`、`version`、`path`、`sha256` | 稳定非空身份、整数版本、冻结文件位置及 SHA-256；文件身份与语料清单一致 |
+| 场景 `locations` | 每项仅 `location_id` | 引用地图地点，不复制名称、坐标、营业或路线 |
+| 场景 `products` | 每项仅 `product_id` | 引用商品定义，不携带卖方、报价或门店库存 |
+| 场景 `supplies` | `supply_id`、可选 `initial_stock` | 引用冻结供给，可显式覆盖实例库存初值 |
+| 运行时场景 | 完整 `map_dataset`、`locations`、`routes`、`products`、`supplies` | 只解析场景选中的范围；引用之外不得行动 |
+| 人物声明 | `qualifications` | 显式资格集合；到达与购买分别验证，不能从画像推断 |
+
+地图元数据固定 WGS84、时区、区域、来源时间、许可及通知。地点同时具有 `kind`、`business_kind`、
+`location_kinds`，分别服务交互菜单、经营业态和活动环境；品牌可以缺失。供给以 `supply_id` 标识，
+`(location_id, product_id, seller_account_id)` 唯一；多个卖方账户允许共享经营角色。
+商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
+运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
+
+当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 4。
+这些版本分别约束不同输入，不能相互替代。旧商品门店字段、旧场景内嵌地点和旧世界状态直接拒绝，
+不保留迁移脚本、兼容解析或回退数据源。
+
+### 营业与报价声明
+
+| 结构 | 字段 | 约束 |
+| --- | --- | --- |
+| `QuoteConfig` | `price_version`、`price_fen` | 非空报价版本与正整数分价格，取值由供给声明 |
+| 时态声明共有字段 | `effective_from`、`effective_to`、`reviewed_on`、`still_valid_on`、`source` | 生效时刻带时区，结束可空；适用区间左闭右开，核对日期不得晚于可信截止日；来源保留事实或假设依据 |
+| `OpeningCalendar` | 时态共有字段、`weekly`、`exceptions` | 周声明与日期例外使用同一时间口径 |
+| `weekly` | 周一至周日的字符串键 `"0".."6"` 到开放区间映射，七天全部声明 | 每段以分钟 `opens`/`closes` 表示；跨午夜的 `closes` 大于 1440 |
+| `exceptions` | 日期到开放区间映射 | 优先于每周声明；空区间明确闭店，不能继承前日跨夜营业 |
+| 营业结果 | `open`、`closed`、`unknown` | 未生效、声明间隙与未知资料保持未知，不默认全天开放 |
+
+同类生效声明不得重叠。所有营业消费者使用同一解释入口；运行例外覆盖和日历边界进入事件时钟。
+报价未定义时不能购买，不使用零价或最后一次旧值。核对有效性在发布时校验，不把近期资料冒充实验日期事实。
+`source` 严格使用 `DataSource`：`kind`、`url`、`retrieved_at`、`license`、`notice`、`fact_cutoff`、`applicability`。
+当前报价状态恢复也校验该结构；空对象不能充当来源。显式调价和补货声明使用自身的场景假设来源。
+
+### 地点发现与购买身份
+
+`discover_places` 接受 `product_id: str | null`、`business_kind: str | null`、
+`travel_mode: walking | driving`、`max_travel_seconds: int | null` 与 `cursor: str | null`，五个字段均必填。
+分页以实际呈现条数为界，返回 `total/returned/returned_places/next_cursor`；游标绑定地图、选区、筛选与起点，
+时间推进或世界版本更新不使同一查询失效。越界或篡改游标明确拒绝，不自动重启首屏。
+道路范围使用分时路线预计秒数。已知超范围、不可达和资料未知分别表达，未知结果保留地点身份与原因。
+路线状态为 `reachable/unreachable/unknown`；成功和已证不可达记录必须绑定原始响应及哈希。
+每个所选有向端点与方式组合都必须有记录；`unknown` 可仅有来源解释且禁止出行。真正缺记录属于发布错误，
+既不能伪造 `unreachable`，也不能用漏项隐式表达 `unknown`。
+
+发现结果经 `action_result` 和下一次观察返回，包含实际筛选条件及有序地点/供给结果。
+成功发现登记 `discovery_result` 唤醒，在下一秒合法决策回灌；同轮不允许再选择生活动作。
+每行公开实际返回的路线、分时路程和费用、营业、资格、报价及版本、库存、履约和来源；不得注入未返回供给。
+完整记录结构见[地图与门店供给证据](design/05-recording-engine.md#地图与门店供给证据)。
+
+公开供给行保留原始 `price_fen`、`price_version` 与 `quote`，同时提供 `purchase_pairing_state`、`purchase_coefficient` 和 `purchase_price_fen`。
+配对为 `defined` 时，系数来自冻结声明，`purchase_price_fen` 通过同一 `purchase_amount` 入口计算购买一份的实际金额；报价未知时金额为 `null`。
+配对不是 `defined` 时保留原始报价和配对状态，系数及实际金额均为 `null`，`purchase_allowed=false`；动机跳过该供给，但不隐藏已持有物品。
+人物的余额判断和价格排序也使用该入口计算的一份金额。多份请求必须用原始报价、数量和系数重新求整行金额，不能把已取整的一份金额乘以数量。
+原始报价保持正整数分；明确的 `defined` 配对可以有零系数并产生零额付款，仍正常扣供给库存和履约，不能把 `no_effect` 当作零价购买。
+
+购买每行只用 `supply_id`、`quantity`、`price_version`；整单一至五项，同一地点、同一卖方且无重复供给。
+消费每行仍用 `product_id`、`quantity`。自提必须在所选门店，不要求配送路线；配送按供给支持、范围及路径验证。
+每个订单行调用 `evaluate_purchase(quote.price_fen, quantity, coefficient)`，以 Decimal 对整行乘积向上取整分，形成该行的 `total_price_fen`；整单 `total_price_fen` 为各行金额之和。不得先对单价取整再乘数量。
+报价身份和值保持原声明，付款账户取人物账户、收款账户取供给 `seller_account_id`；品类配对继续校验，禁止静态商品转账边替代。
+错误字段继续使用既有 `error_code`；未知营业、闭店、资格不足、无报价、旧报价、库存不足、履约不支持、
+路径不可达和资料未知必须可区分，不能统一归成“未找到商品”。英文错误与日志不得泄露凭据。
+
+### 持久化当下事实
+
+| 世界字段 | 身份与语义 |
+| --- | --- |
+| `supply_stock` | 供给身份到非负库存；替代按商品共用的门店库存 |
+| `supply_quotes` | 供给身份到当前报价状态或 `null`；未知保留空值，不从初始目录补回 |
+| `opening_exceptions` | 地点身份到日期开放区间的世界覆盖；与冻结定义共同求值 |
+| `presentation_state` | 购买呈现按人物与供给身份记录，持有使用保留商品身份 |
+
+世界结构版本为 `4`，旧购买请求、旧场景和旧检查点直接拒绝。人物的 `visible_supply_ids`、
+`supply_browsed_at`、`supply_browsed_location` 分别保存实际可见供给集合及逐供给的呈现时刻、呈现地点映射。
+三者的供给键集必须一致；只更新本次实际呈现行，不延长未呈现供给的可见期。资格、库存、
+报价、营业例外和轮转状态随共同检查点往返；地图或代码身份改变后不能打开或恢复为同一运行。
+
+### 供给结算与事件载荷
+
+`price_change` 携带 `supply_id/price_version/amount_fen/source`，显式调价必须用新版本和自己的场景假设来源。
+调价要求到期时存在有效报价，新的起点为 `due_at`，终点保留原报价到期或下一声明边界；无有效声明不能凭空生成永久价格。
+`supply_quote_change` 在声明生效与失效边界完整替换报价，声明间隙写入 `null`；同一边界先切换声明，再执行该秒显式调价。
+`product_release` 携带 `supply_id/stock/source`，仅把该供给库存设置为声明数量，允许明确置零；来源必须标为场景假设。
+
+一次配送使用单个 `delivery_arrival` 事件，其 `order_ids` 列表引用整单全部项目。结果的 `orders` 保存各项实际交付状态，
+`inventory_changes` 仅记录本次新增数量；重复到期不再增加库存且该列表为空。订单保留 `supply_id/product_id/location_id/`
+`seller_account_id/price_version/route_id/source` 与金额，人物持有仍以目的地和商品身份合并。
 
 ## 社交接口
 
@@ -381,7 +484,7 @@ flowchart LR
 
 | `scene` 行 | 字段 |
 | --- | --- |
-| `reachable_places` | `name`, `open`；路线分钟数只保留在 facts 与工具支持行 |
+| `reachable_places` | 地点名称及 `open/closed/unknown` 营业状态；路线分钟数只保留在 facts 与工具支持行，不把未知写为闭店 |
 | `inbox_head` | 按 `created_at`、`id` 排序后最近 3 条收件头，展示保持时间先后 |
 | `inbox_has_older_unread` | bool；未展示集合存在未读项时为 true |
 | `todos_summary` | 待办一句话，无待办时为空串 |
@@ -392,11 +495,16 @@ flowchart LR
 | `contacts` | `contact_id`, `salutation`, `relation`；联系人是本人的通讯录，亲密度、渠道与回复策略是引擎结算内部参数，不进提示 |
 | `inbox` | `id`, `kind`, `sender_id`, `head`, `read`, `created_at` |
 | `tasks` | `task_id`, `title`, `due_at`, `remaining_contract_seconds`, `new_material_ranges` |
-| `products` | `product_id`, `name`, `price_fen`, `energy_kcal_per_unit`, `use_duration_seconds` |
+| `products` | 实际呈现的购买供给包含 `supply_id`、`product_id`、商品名称、地点与卖方身份、原始 `price_fen`/`price_version`/`quote`、`purchase_pairing_state`、`purchase_coefficient`、购买一份的 `purchase_price_fen`、供给库存、营业/资格/履约和来源；同次结果已有该供给时可使用 `supply_id/based_on_action_id/changes` 表达当前差异；持有物使用商品身份与商品效果 |
 | `routes` | `destination`, `mode`, `minutes`, `fare`, `feasible` |
 | `day_plan` | `segments`（每项为 `{start, end, intent_kind, note}`）与 `current_segment`（处于段间空隙时为 `null`）；就寝时刻之后整项为 `null` |
-| `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review` |
+| `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review`；旅行终态公开 `arrival` 的实际地点、进入状态、缺少资格和来源 |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
+
+供给差异行的 `based_on_action_id` 引用同次公开结果中的完整供给行，`changes` 按键替换原行对应值。
+`null` 是应替换的实际值，不表示删除或省略；嵌套对象整体替换，不能递归合并旧来源或旧报价。
+无变化的当前行不重复呈现。发现与浏览结果优先占用共同供给窗口，当前事实仅补剩余身份名额；
+差异形式必须能还原完整当前比较事实，原始观察及结算证据仍保存完整行。
 
 事件级工具支持行必须包含 `interaction_menu`，字段形状就是当前人物有效的 `InteractionMenu`。
 它与该观察一起冻结并进入观察事件证据，供实际模型请求 Schema、本地决策校验和宿主派发共用；
@@ -417,7 +525,7 @@ flowchart LR
 
 | 量 | 值 |
 | --- | --- |
-| 商品可见期 | 1800 秒；仅店内常驻，或浏览后 1800 秒内 |
+| 门店供给可见期 | 只覆盖实际呈现的供给；逐供给记录后超过 1800 秒或离开呈现地点失效，人在门店也不能自动授权未呈现供给 |
 | 工作材料单次揭示上限 | 每任务 2000 字符，只揭示自上次决策以来的新读区间 |
 | 收件箱头展示条数 | 3 |
 | 最近动作结果摘要条数 | 不截断；全部新结果受 user 消息整体预算约束 |
@@ -429,7 +537,7 @@ flowchart LR
 
 user、最终 system、场景与人物卡超出预算即运行故障并记录英文错误日志：不截断、不删字段。
 system 在追加权威回合预算块后检查。决策自述的空与超长属于可重试一次的协议错误；
-收件头是展示选择，材料揭示是增量窗口，商品可见期是可见性条件，不属于消息预算故障。
+收件头是展示选择，材料揭示是增量窗口，门店供给可见期是可见性条件，不属于消息预算故障。
 
 工作公开评审只取 `public_work_review` 定义的字段：`accepted`、`required_fact_total`、
 `required_fact_passed`、`required_fact_missing`、`missing_content_categories`、
@@ -449,6 +557,10 @@ CandidateKind = Literal["product", "lifestyle", "content", "game", "task"]
 CandidateSource = Literal["on_site", "browsed", "carried", "activated"]
 ```
 
+`CandidateKind` 保持原闭集。购买候选 `kind=product` 的 `object_id` 取 `supply_id`，并保留商品引用 `product_id`；
+持有与使用候选仍按商品身份。用途区分购买与使用，排序、游标、排除统计及轮转不能把不同门店供给合并。
+浏览或发现只授予实际呈现供给的可见资格，不能把整份商品目录变成购买凭据。
+
 | 来源 | 含义 |
 | --- | --- |
 | `on_site` | 当前地点的常驻对象 |
@@ -465,6 +577,7 @@ ExclusionReason = Literal[
     "ELIGIBILITY_LOCATION_ABSENT",        # 人物不在该对象要求的商家或使用地点
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",  # 地点类交集为空
     "ELIGIBILITY_CLOSED_HOURS",           # 不在营业时段
+    "ELIGIBILITY_OPENING_UNKNOWN",        # 当前营业声明未知，不能当作闭店
     "ELIGIBILITY_OUT_OF_STOCK",           # 库存为零
     "ELIGIBILITY_DELISTED",               # 目录级下架（墓碑语义，保留可读）
     "ELIGIBILITY_RESOURCE_CONFLICT",      # 资源占用冲突
@@ -482,7 +595,7 @@ ExclusionReason = Literal[
 | 量 | 字段 | 说明 |
 | --- | --- | --- |
 | 排序键 | `taste_weight`（定点整数，四位小数口径与 `taste_weights` 一致）、`attention_prior`（定点整数）、`object_id`（决胜键） | 主键为口味 × 注意力先验；决胜键取对象标识，保证全序 |
-| 游标 | `cursor` | 上一页最后一条的完整稳定排序键，缺省表示从首条开始 |
+| 游标 | `cursor` | 上一页返回的稳定游标；首屏显式为 `null`，后续原样传回，不解析内部结构 |
 | 排序键版本 | `order_key_version` | 排序键口径的版本号，参与游标的身份 |
 
 游标身份由（冻结目录摘要、世界状态版本、`order_key_version`、游标）四项决定。
@@ -499,9 +612,11 @@ ExclusionReason = Literal[
 | `total` | 整数 | 该分区过滤后的候选总数 |
 | `next_cursor` | 文本或 `null` | 下一页游标，最后一页为 `null` |
 | `items` | 数组 | 本次返回的条目行 |
-| `excluded` | 数组 | 被排除项，每项为 `{object_id, kind, reason}`，`reason` 取 `ExclusionReason` |
+| `excluded` | 数组 | 原始结果逐项保存 `{object_id, kind, reason}` 及存在的其他排除属性，`reason` 取 `ExclusionReason`；公开投影按全部非 `object_id` 属性分组，以 `object_ids` 保留各项身份 |
 
 `returned` 取代此前的 `count` 告知值；`count` 不再作为返回体字段。
+公开排除分组必须能够逐项还原原始排除行，不能只按原因码合并后丢失其他属性。
+直接下钻和有时长浏览完成共用这条投影规则，原始事件仍保留逐项行。
 
 ### 场景常量
 
@@ -523,7 +638,7 @@ ExclusionReason = Literal[
 | --- | --- | --- |
 | `last_presented_at` | 整数，UTC 纪元秒 | 按（人物、对象标识）记录的上次呈现时刻；键为人物与对象标识，值为时刻 |
 
-`WorldState` 新增字段 `presentation_state`，承载 `last_presented_at`。轮转状态按对象逐个记录时刻，不按检索分区记游标：游标位置以后的对象优先与「哪些对象长期未被呈现」不是同一个判据，未访问分区里刚被呈现过的对象会被误当成长期未呈现。当前 `WorldState.schema_version` 为 2；引入该字段即递增。
+`WorldState` 新增字段 `presentation_state`，承载 `last_presented_at`。轮转状态按对象逐个记录时刻，不按检索分区记游标：游标位置以后的对象优先与「哪些对象长期未被呈现」不是同一个判据，未访问分区里刚被呈现过的对象会被误当成长期未呈现。地图与门店供给特性再次更新 `WorldState.schema_version`，新增供给状态并严格拒绝旧结构；具体版本与状态字段见「地图与门店供给合同」。
 
 ### 地点类词表
 
@@ -535,7 +650,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 | 字段 | 位置 | 含义 |
 | --- | --- | --- |
-| `location_kinds` | 地点声明（场景地点与地点语料） | 该地点满足哪些地点类，非空且为该闭集子集 |
+| `location_kinds` | 唯一地图地点目录，场景通过地点身份引用 | 该地点满足哪些活动环境，必填、非空且为实际环境闭集子集；不由经营业态推断，地点侧禁止 `anywhere` |
 | `location_kinds` | 内容品类与生活活动条目声明 | 该条目需要哪些地点类；含 `anywhere` 表示恒可行 |
 | `required_location_id` | 目录对象 | 具体地点实例要求；与地点类判定并列，取交集即可行 |
 
@@ -548,7 +663,8 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 `motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，
-路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、库存物品使用合同、
+发现结果只提供实际返回地点和供给的公开事实，不能复制全量地图或世界库存。
+路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、门店供给、库存物品使用合同、
 可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具
 身份枚举与公开名称说明，不随提示下发。
 
@@ -556,7 +672,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
 持有数量仍以 `available_inventory` 和人物可见的 `facts.inventory` 为准，不复制到使用合同。
 宿主据此约束 `consume` 的身份、使用方式、时长和地点，并在动态工具说明中关联物品身份与公开名称。
-`purchase` 仍只读取在售 `products` 的报价与商家库存；不能为持有物虚构商家、报价或可购买性。
+`purchase` 读取实际门店 `supplies` 的当前报价与供给库存；商品定义和 `inventory_items` 只提供规格与使用合同，不能为持有物虚构供给、报价或可购买性。
 `consume.items[].quantity` 是请求份数，配方实际输入还要按冻结规则与配对系数缩放。
 人物侧保持请求模型的数量范围与数组边界校验，不直接把份数与物品持有量比较；
 实际库存是否足够由环境结算路径检查，拒绝结果在下一次观察返回。
@@ -660,6 +776,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 ## 品类契约与目录字段
 
 行为规则由 [品类契约规格](dev/SPEC-category-contract.md) 定义；本节固定文件字段与命令输入。
+当前原生目录为 `4.0`，品类契约及交换规则的 `contract_version` 均为 `2`；格式版本与运行结构版本分别校验。
 原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
 
 | 文件 | 顶层字段 |
@@ -686,7 +803,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 | `operator` | 专属字段 |
 | --- | --- |
-| `purchase_transfer` | `price_slot`、`from_role`、`to_role` |
+| `purchase_transfer` | `from_role`、`to_role`；不接受 `price_slot` |
 | `food_energy_source` | `energy_slot`、`duration_slot` |
 | `durable_use` | 可选 `effect_slot` |
 | `travel_fare` | `minimum_fen`、`fen_per_meter` |
@@ -696,8 +813,9 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | `inventory_transform` | `input_category_id`、`output_category_id`、`input_quantity`、`output_quantity`、`inventory_unit` |
 
 购买规则的 `from_role` 必须为 `buyer`，不允许声明另一付款人而仍从人物账户扣款。
-`merchant` 是购买规则的商户角色；对象有效属性 `merchant_role` 将它绑定到场景的具体账户角色，
-例如 `merchant:grocery`。库存仍使用 `kind=level` 的资源定义，不增加第三种资源形态。
+`merchant` 是购买规则的收款角色，运行时绑定所选供给的 `seller_account_id`；不再从商品 `merchant_role` 或场景角色唯一性推断卖方。
+购买规则编译为 `RuleEdge`，报价在结算时传入，商品不得编译静态购买 `TransferEdge`。
+库存仍使用 `kind=level` 的资源定义，不增加第三种资源形态。
 场景 `recipe_output_bindings` 为输出品类身份到输出对象身份的映射；没有配方的场景使用空对象。
 库存配方按实际缩放数量检查库存，保留可表示的微量变化，不固定保留小数位，也不以库存容差放行不足输入。
 正数量若下溢为零、超出有限数值范围或无法形成实际库存变化，以
@@ -720,7 +838,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | `language`, `region`, `valid_time` | 语言、适用地区和数据时间 |
 | `assets` | 原始文字、图像、音视频、任务附件等文件引用及哈希 |
 | `segments` | 内容区间、媒体起止位置、顺序与是否具有可靠时间依据 |
-| `attributes` | 营养、价格、类别、技能要求等已核对属性及单位 |
+| `attributes` | 营养、类别、技能要求等已核对属性及单位；原始语料可保留历史价格依据，当前成交报价属于门店供给 |
 | `access` | 人物、地点、时间、持有权和前置事件等访问条件 |
 | `evaluation_refs` | 参考答案或评价依据，仅验收端可用 |
 | `usage_rights` | 可用于内部处理、再分发和训练的条件及核对结果 |

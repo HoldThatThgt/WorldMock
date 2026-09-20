@@ -1,6 +1,6 @@
 # 特性规格：人物决策与画像
 
-> 状态：FROZEN——条款已裁决并冻结。口味排序、素材可达性函数及候选呈现的确定性证据见验收矩阵；正式十二周运行、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。另有一项既有实现缺口：`LocationConfig` 与正式地点语料尚未提供本规格要求的 `location_kinds`，缺省运行路径因此不施加地点类限制；交互菜单使用的是另一字段 `locations[].kind`，不视为修复此缺口。实际状态与收据见 `docs/dev/implementation-status.md`
+> 状态：FROZEN——条款已裁决。既有测试证据保留原源码身份；正式地点活动环境、供给候选与交易由地图特性完整实现并重新验收，不能沿用历史数字宣称完成。正式十二周、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。
 > 日期：2026-09-19
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
@@ -195,11 +195,11 @@ flowchart LR
 
 | 品类 | 要求 |
 | --- | --- |
-| 地点 | 至少覆盖家、办公室、食堂或餐馆（≥2）、便利店、超市或菜场、公园或健身场所；从已取得的张江 OSM 探针选真实兴趣点，路线由 OSRM 冻结；每个地点必须声明 `location_kinds`，取值取自生活活动地点类六值 `{home, office, outdoor, fitness, venue, anywhere}`，非空且为该封闭集的子集 |
+| 地点 | 至少覆盖家、办公室、食堂或餐馆（≥2）、便利店、超市或菜场、公园或健身场所；从已取得的张江 OSM 探针选真实兴趣点，路线由 OSRM 冻结；每个地点必须声明 `location_kinds`，取值来自 `{home, office, outdoor, fitness, venue}`，非空且为该闭集的子集；`anywhere` 仅用于活动侧声明无地点限制 |
 | 内容的地点类 | 每个内容品类必须声明 `location_kinds`（该品类需要哪些地点类），缺一即准入拒绝；条目所在地点类与地点声明的地点类取交集，非空即可行，声明含 `anywhere` 表示恒可行；白领场景的内容品类只取 `home`、`office`、`anywhere` 三个值 |
-| 家的可供性 | 晨间例程（洗漱 15 分钟）与家中储备食品：场景初始储备 7 份早餐类食品，进食扣减，超市购买补充；储备为场景假设并留痕 |
+| 家的可供性 | 晨间例程（洗漱 15 分钟）与家中储备食品：场景初始储备 7 份早餐类食品，进食扣减，选择支持配送的门店供给补充至家中；储备为场景假设并留痕 |
 | 办公室的可供性 | 茶水间饮水（免费、5 分钟、微量娱乐缓解）、会议室（会议任务）、同事在场 |
-| 正餐 | 至少 30 个正餐类商品（热食、餐馆菜、外卖套餐），热量来源为中国食物成分表或 USDA FNDDS 并标注来源，价格 15–45 元为场景假设，用餐时长 20–40 分钟，可堂食或配送 |
+| 正餐 | 至少 30 个正餐类商品（热食、餐馆菜、外卖套餐），热量来源为中国食物成分表或 USDA FNDDS 并标注来源，门店供给报价 15–45 元为场景假设，用餐时长 20–40 分钟，可堂食或配送 |
 | 内容 | 每个观看条目必须有 `title`、`genre[]`、`language`、`age_rating`；白领场景拒绝 `age_rating ≥ 18` 的条目；现有 `drama` 语料（英文视觉小说脚本）整体替换；此外每个条目必须携带可作检索分区键的条目属性——题材（`genre[]`）、语言（`language`）、时长段（由 `duration_seconds` 落格）三项不得缺省，检索分区即由这三项的组合构成 |
 | 工作 | 84 天至少 20 份互不相同、与人物职业匹配的中文输入材料；`tasks[].assignee_agent_id` 必填，合同按人分配 |
 | 生活活动 | 条目 Schema 增加 `location_kinds`、`time_window`、`needs_partner`、`effects`（娱乐、社交、健康）；启用集由画像编译产生 |
@@ -207,13 +207,9 @@ flowchart LR
 
 ### `location_kinds` 的运行期强制语义
 
-`location_kinds` 不是准入期的装饰字段。现行实现的准入校验会读取它，运行期也已经有候选地点判定和
-`activities.require_location_kinds` 受理门；但 `LocationConfig` 仍只有单值
-`kind`，正式场景与地点语料尚未声明本节要求的 `location_kinds`。缺省解析把未声明地点视为不增加限制，
-所以正式场景尚未真正执行地点类交集；现有测试证明的是显式提供地点侧集合时的行为。
-
-这是本规格原有的实现缺口，不属于交互菜单特性。交互菜单读取 `locations[].kind` 选择地点菜单；它不生成、
-迁移或替代候选资格的 `location_kinds`，两者不得混为同一字段或用一方的测试证明另一方已落地。
+`location_kinds` 必须来自地图地点目录的显式非空声明，场景只选择地点，运行时组装后由候选、活动启动和恢复共同读取。
+审查基线缺失字段时放行的问题属于地图特性的完整开发范围；禁止保留缺失转 `anywhere` 的路径。
+交互菜单读取解析后的 `kind`，既不生成活动环境，也不能替代其验收。
 
 **行为规则**：
 
@@ -230,7 +226,7 @@ flowchart LR
 地点最多贡献六到十倍收窄，而语料规模可以无限增长，两者不同步；把地点调细到足以当分区键必然细到与现实不符
 （场景十一个地点里没有影院，把影片标成可在 `venue` 观看是空承诺），所以分区责任交给内容条目的题材、语言与时长段，
 轮转单位也是检索分区。地点类取值取生活活动那一套六值而不是新造一套，理由有二：它是已冻结的封闭集并带双端防漂移断言；
-它顺手消灭场景地点标签与生活活动地点类之间的零映射。`venue` 这个值今天在场景侧没有任何地点承载它，
+它顺手消灭场景地点标签与生活活动地点类之间的零映射。审查基线的 `venue` 未被正式地点声明承载，现行地图必须显式核验每个活动环境；
 保留在封闭集里不删除——未来影院落地时它是正确取值，而删除封闭集取值会改动词表身份。
 
 依据：《对象模型重分析》「可达性：池变大后靠什么被看到」与 `LOCATION-GRANULARITY.md`「推荐」「明确做不到什么」。
@@ -294,7 +290,7 @@ flowchart LR
 - 分桶与游标派生使用 `hashlib`，不得使用内建 `hash()`——后者受进程哈希种子影响，跨进程不稳定
 - 可见性的变更必须是事件。若某对象的可见性依赖「世界发生过什么」，那个「什么」必须是调度器里的一条已排定事件，
   有事件序号与变更前后的证据
-- 只允许世界事实排除候选：不在场、库存为零、营业时间之外、身体条件不允许、地点类交集为空。
+- 只允许世界事实排除候选：不在场、供给库存为零、营业关闭或未知、资格不足、无有效报价、身体条件不允许、地点类交集为空。
   每一条排除都带稳定原因码，原因码取闭集，不自由拼字符串
 
 依据：《对象模型重分析》「分层下推」的确定性四条与「被裁掉的对象怎么办」的裁剪三分表。
@@ -391,10 +387,21 @@ flowchart LR
 依据：Fleeson 2001 与 Mischel–Shoda CAPS 说明单日行为由情境与 if-then 签名决定，特质只解释小部分方差；
 Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
+## 地图、门店供给与活动环境
+
+[地图与门店供给规格](SPEC-map-and-storefront.md) 将商品定义与购买候选分离。
+同商品不同地点的供给分别呈现价差、道路路程、营业和库存；人物自己选择，不预设近店或低价店必胜。
+候选仍使用原类型闭集，购买身份取供给，消费与商品多样性取商品；不能把两家门店计成两种商品。
+
+活动环境来自唯一地图地点目录的显式非空声明，按场景选中地点装配；不再依靠缺失声明时的放行路径。
+经营业态、可选品牌和交互菜单地点类不自动生成活动环境。发现动作进入正常单动作协议，
+结果结算后进入下一次观察，未实际呈现供给不能被浏览动作顺带授权。
+现有地点活动环境缺口属于本次完整开发范围，待正式输入上的行为断言通过后再刷新状态。
+
 ## 商务与进食
 
-`purchase.items` 为 1–5 件商品与数量，同一商家、同一履约方式、一次付款、一次配送；结算时任一件不可购则
-整单拒绝，不自动删件。`consume.items` 为 1–3 件已持有的食品，同一地点一次进食，用餐时长取最长者，
+`purchase.items` 为一至五个不同门店供给与数量，必须同地点、同卖方、同履约方式，一次付款、一次配送；
+同账户跨地点也拒绝，重复供给明确拒绝；任一项不可购则整单无副作用，不自动删件。`consume.items` 为 1–3 件已持有的食品，同一地点一次进食，用餐时长取最长者，
 热量与效果累加；非食品使用仍为单件。家中储备与超市补货按「世界素材品类要求」执行。请求与结果字段见
 `docs/CONTRACTS.md`，动作结算规则见 `docs/dev/SPEC-life-runtime.md`「具体活动结算」。
 
@@ -449,7 +456,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `src/worldmock/profile/taste.py` | 零权重语义改为「排最后」而非「不可选」 |
 | `src/worldmock/catalog/admission.py`、`affordances.py` | 地点与内容品类的 `location_kinds` 声明完整性校验；分区键齐备与分区可达性校验（准入期阻断） |
 | `catalog/affordances.toml`、`catalog/manifest.json`、`corpora/zhangjiang-map/locations.json`、`corpora/lifestyle/enrichment.json` | 地点补语义键；七个内容品类各补一行地点类；目录版本递增；`location_kinds` 词表三处逐值一致 |
-| `src/worldmock/life/scenario.py`、`scenarios/*.json` | `LocationConfig` 增 `location_kinds` 并声明六值封闭集；三份带 `locations` 键的场景文件（`white-collar-12-weeks.json`、`multi-person.json`、`multi-person-half-day.json`）的地点补语义键，`evaluation.json` 无 `locations` 键、不在其列；单次呈现上限与换新名额作为场景常量 |
+| `src/worldmock/life/scenario.py`、`scenarios/*.json` | `LocationConfig` 增 `location_kinds` 并声明六值封闭集；三份生活场景（`white-collar-12-weeks.json`、`multi-person.json`、`multi-person-half-day.json`）只引用具有明确活动环境的地图地点，`evaluation.json` 无 `locations` 键、不在其列；单次呈现上限与换新名额作为场景常量 |
 | `docs/dev/implementation-status.md` | 记录本规格各项的实际门禁结果 |
 
 **实施顺序**：
@@ -478,12 +485,12 @@ flowchart LR
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重；`drive_summary` 为一句中文；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 日程骨架 | 首次提交的当日计划为 5–8 段、覆盖到就寝、不重叠、不越界；`revise_day_plan` 改写尚未开始的段后允许 1–8 段，剩余段数可少于 5；`intent_kind` 只取闭集；到达段起点只构成唤醒条件而不执行计划步 | `tests/life/test_day_plan.py`、`tests/life/test_wake_reasons.py` | 代码层已验证 |
-| 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；地点 `location_kinds` 缺口见本规格对应小节 | 既有实现缺口 |
+| 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支已验收，当前主线组合待重验 |
 | 画像编译 | 卡片字段完整并经确定性渲染进入提示；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` | 代码层已验证 |
 | 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项 | `validate` 输出的 `persona_coverage.json` | 代码层已验证 |
 | 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加 | `tests/life/test_commerce.py` | 代码层已验证 |
 | 口味权重是排序信号 | 卡片未声明题材的条目仍在候选集里，只是排在非零权重之后；娱乐候选的入选条件不含偏好权重为正这一支 | `tests/life/test_motivation.py`（`TestScorerContract::test_zero_taste_weights_keep_entertainment_ranked_last`、`test_unstated_genre_items_stay_in_candidate_pool`）、`tests/life/test_candidates.py`（`TestSoftPreferenceOnlyReorders`）、`tests/profile/` | 代码层已验证 |
-| 素材可达性 | 每个条目至少属于一个可检索分区且分区可达；分区键缺省或分区在场景里恒不可行的条目被逐条列出并阻断启动 | `tests/catalog/test_reachability_admission.py`（准入侧两个错误码 `CATEGORY_PARTITION_KEY_MISSING`、`CATEGORY_PARTITION_LOCATION_INFEASIBLE` 与阻断启动）、`tests/life/test_retrieval.py`（`reachability_report`）、`scripts/check_reachability.py`（静态守卫） | 代码层已验证（另有一项未解决的独立缺陷，见复判说明） |
+| 素材可达性 | 每个条目至少属于一个可检索分区且分区可达；分区键缺省或分区在场景里恒不可行的条目被逐条列出并阻断启动 | `tests/catalog/test_reachability_admission.py`（准入侧两个错误码 `CATEGORY_PARTITION_KEY_MISSING`、`CATEGORY_PARTITION_LOCATION_INFEASIBLE` 与阻断启动）、`tests/life/test_retrieval.py`（`reachability_report`）、`scripts/check_reachability.py`（静态守卫） | 历史缺陷与独立地图分支修复证据分别保留，当前组合待重验 |
 | 候选与呈现 | 同一（世界状态、人物、场景）两次投影逐字节相同；软偏好不出局；被排除项带原因码；单次呈现不超上限；全量遍历等于一次全量的有序子序列；轮转不改目录、不改对象状态、不产生下架事件；最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D` | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py`、`tests/life/test_rotation.py`；门禁 `scripts/coverage_gate.py` | 代码层已验证 |
 | 呈现与导出 | 时间线投影与 `render_day.py` 输出一致且合并静默边界与同一活动；盲评记录含地点与同伴列 | `tests/footprints/test_export.py` | 代码层已验证（`tools/run-viewer.html` 的“一天”视图按手工核对验收） |
 | 人物卡片落地效果 | 两次同代码运行的作息落在人物卡片声明的就寝窗口内；进食多样性与人格可区分性按报告口径结算 | `docs/dev/implementation-status.md` 的正式运行记录 | 待真实运行 |
@@ -526,7 +533,7 @@ flowchart LR
 （空游标起反复下推所得标识集合恰等于该分区全量、无重复，跨页零交集）；轮转不改目录、不改对象状态、
 不产生下架事件 → `tests/life/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting`
 与 `test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation`
-（留痕条目仍全在 `WorldState.merchant_stock` 内）；最坏未展示间隔上界 `⌈N ÷ k⌉ ÷ D` →
+（历史基线断言采用当时商品库存；现行购买供给必须改验 `WorldState.supply_stock`，通过状态按新规格重验）；最坏未展示间隔上界 `⌈N ÷ k⌉ ÷ D` →
 `tests/life/test_rotation.py::test_worst_case_unpresented_interval_is_bounded_by_exact_form`
 与 `test_exact_bound_is_not_the_continuous_relaxation`（断言用精确形式而非连续松弛）。
 原写的验证入口「`docs/VERIFICATION.md`『工程门禁』的候选与呈现一致性」是门禁判据的承载处，

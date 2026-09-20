@@ -39,6 +39,15 @@ def _payload() -> dict:
     return json.loads(_FORMAL.read_text(encoding="utf-8"))
 
 
+def _write_document(payload, tmp_path, name):
+    """让真实加载器从临时场景引用既有冻结目录与地图。"""
+    (tmp_path / "scenarios").mkdir()
+    (tmp_path / "catalog").symlink_to(Path("catalog").resolve())
+    path = tmp_path / "scenarios" / name
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
 def _menu(tools: set[str] | None = None, kinds: set[str] | None = None) -> InteractionMenu:
     """构造含全部保护项并按需增加权限的测试菜单。"""
     return InteractionMenu(
@@ -144,23 +153,29 @@ def test_formal_life_scenarios_declare_full_permissions_explicitly() -> None:
     ],
 )
 @pytest.mark.parametrize("model", [LifeScenario, RuntimeScenario])
-def test_scenario_requires_exact_location_menu_coverage(mutate, message: str, model) -> None:
+def test_scenario_requires_exact_location_menu_coverage(mutate, message: str, model, tmp_path) -> None:
     """场景和人物字段均必填，地点类菜单既不能缺也不能多。"""
     payload = _payload() if model is LifeScenario else load_scenario(_FORMAL)[0].model_dump(mode="json")
     mutate(payload)
-    with pytest.raises(ValidationError, match=message):
-        model.model_validate(payload)
+    if model is LifeScenario and message == "exactly match declared location kinds":
+        payload["corpus_root"] = str(Path("corpora").resolve())
+        path = _write_document(payload, tmp_path, "menu-map-references.json")
+        with pytest.raises(IntegrityError, match=message):
+            load_scenario(path)
+    else:
+        with pytest.raises(ValidationError, match=message):
+            model.model_validate(payload)
 
 
 def test_scenario_file_entry_logs_invalid_menu(tmp_path: Path, caplog) -> None:
     """文件入口把菜单准入失败包装为完整性错误并留下英文日志。"""
     payload = _payload()
     payload["interaction_menus_by_location_kind"].pop("office")
-    path = tmp_path / "invalid-menu.json"
-    path.write_text(json.dumps(payload), encoding="utf-8")
-    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Scenario validation failed"):
-        parse_scenario_document(path)
-    assert "Scenario validation failed" in caplog.text
+    payload["corpus_root"] = str(Path("corpora").resolve())
+    path = _write_document(payload, tmp_path, "invalid-menu.json")
+    with caplog.at_level(logging.ERROR), pytest.raises(IntegrityError, match="Scenario assembly failed"):
+        load_scenario(path)
+    assert "Scenario assembly failed" in caplog.text
     assert "interaction menu location kinds" in caplog.text
 
 

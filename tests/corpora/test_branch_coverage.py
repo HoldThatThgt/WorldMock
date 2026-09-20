@@ -9,6 +9,8 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from types import SimpleNamespace
+import requests
 from xml.etree import ElementTree
 from pathlib import Path
 
@@ -22,12 +24,13 @@ from worldmock.corpora.fetch import (
     _manifest_entry,
     _normalize_off,
     _off_product,
-    _route_url,
     _source_for,
-    _validate_route,
     prepare_corpora,
 )
 from worldmock.corpora.manifest import CorpusSource, load_manifest
+from worldmock.corpora.map_prepare import _route_url, _validate_response
+from worldmock.life.map_models import RouteConfig
+from tests.life.test_map_dataset import route
 from worldmock.errors import IntegrityError
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -102,6 +105,7 @@ def _route_response() -> dict:
     return {"code": "Ok", "routes": [{
         "distance": 2774.4, "duration": 600.0,
         "geometry": {"type": "LineString", "coordinates": [[121.6, 31.2], [121.61, 31.21]]},
+        "legs": [{"steps": [{"mode": "driving"}]}],
     }]}
 
 
@@ -165,7 +169,18 @@ def _install_network(monkeypatch, *, off_override=None, sintel=None, ami=None, o
                                  .encode("utf-8"))
         raise AssertionError(f"unexpected URL requested: {url}")
 
+    def fake_route_get(url, **kwargs):
+        for fragment in fail_substrings:
+            if fragment in url:
+                raise requests.ConnectionError(f"network refused: {fragment}")
+        payload = route if route is not None else _route_response()
+        if route is None and "/route/v1/foot/" in url:
+            payload["routes"][0]["legs"][0]["steps"][0]["mode"] = "walking"
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("worldmock.corpora.map_prepare.requests.get", fake_route_get)
+    monkeypatch.setattr("worldmock.corpora.map_prepare.time.sleep", lambda seconds: None)
     return fake_urlopen
 
 
@@ -204,7 +219,7 @@ def test_prepare_corpora_publishes_validated_manifest_with_mock_sources(tmp_path
     assert (destination / "ami-es2002" / "inputs" / "ES2002a.txt").is_file()
     assert (destination / "zhangjiang-map" / "zhangjiang-probe.osm").is_file()
     routes = sorted((destination / "zhangjiang-map" / "routes").iterdir())
-    assert len(routes) == 12  # 3 地点 × 2 对 × 2 模式
+    assert len(routes) == 220  # 十一地点的全部有向地点对与两种方式。
     assert (destination / "textworld" / "game-1201.json").is_file()
     assert (destination / "scenario-catalog" / "catalog.json").is_file()
     reloaded = load_manifest(destination)
@@ -296,34 +311,40 @@ def test_normalize_ami_rejects_incomplete_annotations(tmp_path, zip_builder, mat
             fetch_module._normalize_ami(archive, tmp_path)
 
 
-def test_fetch_geodata_rejects_invalid_osm_extract(tmp_path, monkeypatch):
-    _install_network(monkeypatch, osm=b"<osm></osm>")
-    with pytest.raises(IntegrityError, match="extract is invalid"):
+def test_fetch_geodata_delegates_to_the_reviewed_map_preparation(tmp_path, monkeypatch):
+    """地图准备使用已审阅的完整地点集合并传播发布校验错误。"""
+    calls = []
+    def reject(destination, frozen_root):
+        calls.append((destination, frozen_root))
+        raise IntegrityError("Map file hash mismatch")
+    monkeypatch.setattr("worldmock.corpora.map_prepare.prepare_map", reject)
+    with pytest.raises(IntegrityError, match="hash mismatch"):
         fetch_module._fetch_geodata(tmp_path)
-
+    assert calls == [(tmp_path, PROJECT_ROOT / "corpora")]
 
 @pytest.mark.parametrize("response, match", [
-    ({"code": "NoRoute"}, "unavailable"),
-    ({"code": "Ok", "routes": []}, "unavailable"),
+    ({"code": "Ok", "routes": []}, "preparation failed"),
     ({"code": "Ok", "routes": [{"distance": 0, "duration": 5, "geometry": {"type": "x"}}]},
      "incomplete"),
     ({"code": "Ok", "routes": [{"distance": 5, "duration": 5}]}, "incomplete"),
 ])
 def test_validate_route_rejects_unusable_responses(response, match):
     with pytest.raises(IntegrityError, match=match):
-        _validate_route(response, "home-office-driving")
+        _validate_response(response, RouteConfig.model_validate(route("home", "office")))
 
 
 def test_route_url_requests_full_geometry_with_steps():
-    url = _route_url("home", "office", "driving")
+    declared = RouteConfig.model_validate(route("home", "office"))
+    places = {"home": SimpleNamespace(longitude=121.6142, latitude=31.2025),
+              "office": SimpleNamespace(longitude=121.6278, latitude=31.2108)}
+    url = _route_url(declared, places)
     assert "overview=full" in url and "geometries=geojson" in url and "steps=true" in url
-    assert "121.6142,31.2025;121.6278,31.2108" in url
+    assert "/route/v1/foot/121.6142,31.2025;121.6278,31.2108" in url
 
 
-# ---------------------------------------------------------------------------
-# TextWorld 执行反例
-# ---------------------------------------------------------------------------
-
+def test_route_no_route_response_is_an_explicit_unreachable_result():
+    """NoRoute 是可发布的不可达证据，空结果与未知错误不可冒充不可达。"""
+    _validate_response({"code": "NoRoute"}, RouteConfig.model_validate(route("home", "office")))
 
 def _write_game(tmp_path, name="game.json"):
     path = tmp_path / name

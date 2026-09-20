@@ -47,14 +47,13 @@ from worldmock.life.candidates import (
 )
 from worldmock.life.models import ActivityKind
 from worldmock.life.projection import hour_of_day
+from worldmock.life.opening_hours import opening_status
 
 #: 活动品类摘要里的食品下钻键：候选类别仍是 product（docs/CONTRACTS.md「候选对象与来源」）。
 FOOD_CATEGORY = "foods"
 #: 游戏会话与工作合同的下钻键。
 GAME_CATEGORY = "game_session"
 TASK_CATEGORY = "work_contract"
-#: 地点未声明地点类时的可行底线：不限定即恒可行。
-ANYWHERE_KIND = "anywhere"
 
 #: 候选类别 → 活动类型（能量判据与反塌缩子类标签所需）。
 ACTIVITY_OF_KIND: dict[str, ActivityKind] = {
@@ -83,6 +82,8 @@ class PoolEntry:
     location_kinds: frozenset[str] = frozenset()
     #: 目录级库存；0 表示缺货（世界事实）。
     stock: int = 1
+    #: 生活活动按条目的代谢当量判断能量。
+    met: float | None = None
     #: 目录级下架（墓碑语义：保留可读、拒绝新场景引用）。
     retired: bool = False
     #: 在本人启用集内（世界事实，不是偏好推断）。
@@ -98,7 +99,7 @@ class PoolEntry:
                               minimum_seconds=self.minimum_seconds,
                               maximum_seconds=self.maximum_seconds,
                               stock=self.stock, retired=self.retired,
-                              enabled=self.enabled, bucket=self.bucket)
+                              enabled=self.enabled, bucket=self.bucket, met=self.met)
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,21 +141,16 @@ class PresentationContext:
     agent: Any
 
 
-def _location_kinds(config) -> frozenset[str]:
-    """@brief 场景地点的地点类集合；未声明时按恒可行处理。"""
-    declared = getattr(config, "location_kinds", None)
-    return frozenset(declared) if declared else frozenset({ANYWHERE_KIND})
-
-
-def location_views(scenario) -> dict[str, LocationView]:
-    """@brief 全部地点的可行性门视图（键为地点标识），资格段按条目要求取用。"""
-    return {item.location_id: LocationView.from_config(item, _location_kinds(item))
-            for item in scenario.locations}
+def location_views(context: PresentationContext) -> dict[str, LocationView]:
+    """@brief 地点活动环境与营业日历由同一个冻结声明解释。"""
+    return {item.location_id: LocationView.from_config(item, opening_status(
+        item, context.state.current_time, context.scenario.timezone,
+        context.state.opening_exceptions.get(item.location_id))) for item in context.scenario.locations}
 
 
 def current_location(context: PresentationContext) -> LocationView | None:
     """@brief 人物当前地点的可行性门视图；不在任何可声明地点时为 None。"""
-    return location_views(context.scenario).get(context.agent.location_id)
+    return location_views(context).get(context.agent.location_id)
 
 
 def local_hour(context: PresentationContext) -> float:
@@ -164,7 +160,8 @@ def local_hour(context: PresentationContext) -> float:
 
 def _rank_features(entry: PoolEntry, inputs: CandidateInputs) -> tuple[int, int]:
     """@brief 排序键特征（定点整数）：口味权重与注意力先验，缺项一律与 0 同义。"""
-    weight = candidates.fixed_point(inputs.taste_weights.get(entry.object_id, 0.0))
+    key = entry.bucket if entry.kind == "product" and entry.bucket else entry.object_id
+    weight = candidates.fixed_point(inputs.taste_weights.get(key, 0.0))
     prior = candidates.fixed_point(
         inputs.attention_priors.get(entry.bucket or entry.object_id, 0.0))
     return (weight, prior)
@@ -486,7 +483,7 @@ def candidate_inputs(context: PresentationContext, sources: dict,
     activity = context.state.activities.get(context.agent.current_activity_id or "")
     return CandidateInputs(
         location=current_location(context),
-        locations=location_views(context.scenario), sources=sources,
+        locations=location_views(context), sources=sources,
         occupied_activity_id=(activity.activity_id if activity is not None and moment
                               else None),
         local_hour=(local_hour(context) if moment else None), current_time=now,

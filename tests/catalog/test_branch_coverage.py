@@ -34,13 +34,13 @@ def test_exchange_resource_unit_mismatch_rejected(catalog_dir) -> None:
     assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
 
 
-def test_transfer_role_must_bind_declared_resource(loaded_catalog) -> None:
-    """购买边角色若绑定其他资源域会触发单位准入失败。"""
+def test_buyer_account_must_bind_closed_money_resource(loaded_catalog) -> None:
+    """购买账户若绑定身体资源域会触发守恒准入失败。"""
     refs = valid_refs()
     bad = refs.accounts[0].model_copy(update={"resource_id": "energy_kcal", "unit": "kcal"})
     refs = refs.model_copy(update={"accounts": (bad, refs.accounts[1])})
     result = validate_scenario_against_catalog(refs, loaded_catalog)
-    assert UNIT_MISMATCH in {violation.code for violation in result.violations}
+    assert "CONSERVATION_DOMAIN_VIOLATION" in {violation.code for violation in result.violations}
 
 
 def test_builder_schema_failure_keeps_original_catalog_loadable(catalog_dir) -> None:

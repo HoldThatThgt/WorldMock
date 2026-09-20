@@ -11,6 +11,8 @@ from pydantic import ValidationError
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
 from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario, load_scenario
+from worldmock.life.map_data import load_map_dataset, validate_map_dataset
+from worldmock.life.map_models import MapDataset, RouteConfig
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
 
@@ -22,6 +24,12 @@ _CATALOG = Path("catalog")
 def _payload() -> dict:
     """读取正式场景为每个反例提供独立对象。"""
     return json.loads(_FORMAL.read_text())
+
+
+def _map(document=None):
+    """加载与指定场景钉扎一致的完整地图。"""
+    document = document or LifeScenario.model_validate(_payload())
+    return load_map_dataset(Path("corpora"), document.map_dataset)
 
 
 def _replace(path: tuple[str | int, ...], value: object) -> dict:
@@ -44,7 +52,7 @@ def _assert_assembly_invalid(payload: dict, message: str) -> None:
     """确认目录组装阶段以稳定英文原因拒绝。"""
     document = LifeScenario.model_validate(payload)
     with pytest.raises(IntegrityError, match=message):
-        assemble_semantics(document, load_catalog(_CATALOG))
+        assemble_semantics(document, load_catalog(_CATALOG), _map(document))
 
 
 @pytest.mark.parametrize(
@@ -134,7 +142,7 @@ def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
         (("body", "initial_energy_kcal"), -1, "greater than or equal to 0"),
         (("max_consecutive_rejections",), 0, "greater than 0"),
         (("catalog_version", "minor"), -1, "greater than or equal to 0"),
-        (("products", 0, "stock"), -1, "greater than or equal to 0"),
+        (("supplies", 0, "initial_stock"), -1, "greater than or equal to 0"),
     ],
 )
 def test_body_instance_and_rejection_ranges_are_enforced(
@@ -144,18 +152,17 @@ def test_body_instance_and_rejection_ranges_are_enforced(
     _assert_invalid(_replace(path, value), message)
 
 
-def test_accounts_and_roles_stay_unique_and_non_blank() -> None:
-    """账户实例身份与角色在文档内唯一且不得为空白。"""
+def test_account_identities_are_unique_and_seller_roles_can_repeat() -> None:
+    """账户实例身份唯一；不同卖方允许声明相同业务角色。"""
     duplicated = _payload()
     duplicated["accounts"].append(dict(duplicated["accounts"][0]))
     _assert_invalid(duplicated, "account_id values must be unique")
-    duplicated_role = _payload()
-    entry = dict(duplicated_role["accounts"][0])
+    repeated_role = _payload()
+    entry = dict(repeated_role["accounts"][0])
     entry["account_id"] = "merchant:other"
-    duplicated_role["accounts"].append(entry)
-    _assert_invalid(duplicated_role, "role values must be unique")
+    repeated_role["accounts"].append(entry)
+    assert LifeScenario.model_validate(repeated_role).accounts[-1].role == entry["role"]
     _assert_invalid(_replace(("accounts", 0, "account_id"), " "), "account ids and roles must not be blank")
-
 
 @pytest.mark.parametrize(
     ("skills", "message"),
@@ -185,8 +192,8 @@ def test_task_skill_targets_must_be_declared() -> None:
     ("path", "message"),
     [
         (("tasks", 0, "required_location_id"), "work task references an unknown location"),
-        (("products", 0, "merchant_location_id"), "product references an unknown merchant location"),
-        (("products", 0, "merchant"), "product merchant account is not declared"),
+        (("products", 0, "merchant_location_id"), "Extra inputs are not permitted"),
+        (("products", 0, "merchant"), "Extra inputs are not permitted"),
     ],
 )
 def test_all_declared_location_and_merchant_references_are_resolved(
@@ -196,24 +203,23 @@ def test_all_declared_location_and_merchant_references_are_resolved(
     _assert_invalid(_replace(path, "missing-location"), message)
 
 
-def test_product_merchant_cannot_bind_an_agent_account() -> None:
-    """服务账户不得复用人物账户身份。"""
-    _assert_invalid(
-        _replace(("products", 0, "merchant"), "agent:1"),
-        "product merchant account is not declared",
-    )
-
+def test_supply_seller_cannot_bind_an_agent_account() -> None:
+    """供给卖方不得复用人物账户身份。"""
+    document = LifeScenario.model_validate(_payload())
+    dataset = _map(document)
+    supplies = (dataset.supplies[0].model_copy(update={"seller_account_id": "agent:1"}), *dataset.supplies[1:])
+    with pytest.raises(IntegrityError, match="seller|merchant"):
+        assemble_semantics(document, load_catalog(_CATALOG), dataset.model_copy(update={"supplies": supplies}))
 
 def test_route_ids_and_lookup_keys_are_unique() -> None:
-    """稳定路线身份与运行时查找自然键都保持唯一。"""
-    duplicate_id = _replace(("routes", 1, "route_id"), _payload()["routes"][0]["route_id"])
-    _assert_invalid(duplicate_id, "route_id values must be unique")
-    duplicate_key = _payload()
-    copied = dict(duplicate_key["routes"][0])
-    copied["route_id"] = "different-id"
-    duplicate_key["routes"].append(copied)
-    _assert_invalid(duplicate_key, "route lookup keys")
-
+    """独立地图的路线身份与运行时自然键都保持唯一。"""
+    dataset = _map()
+    duplicate = dataset.routes[0]
+    with pytest.raises(IntegrityError, match="identities must be unique"):
+        validate_map_dataset(dataset.model_copy(update={"routes": (*dataset.routes, duplicate)}))
+    with pytest.raises(IntegrityError, match="route lookup keys"):
+        validate_map_dataset(dataset.model_copy(update={"routes": (
+            *dataset.routes, duplicate.model_copy(update={"route_id": "different-id"}))}))
 
 @pytest.mark.parametrize(
     ("route_index", "fare"),
@@ -223,34 +229,34 @@ def test_route_ids_and_lookup_keys_are_unique() -> None:
     ],
 )
 def test_route_fares_follow_the_catalog_exchange_rule(route_index: int, fare: int) -> None:
-    """路线报价偏离目录闭集规则求值时在组装阶段拒绝。"""
-    _assert_assembly_invalid(
-        _replace(("routes", route_index, "fare_fen"), fare),
-        "disagrees with the catalog exchange value",
-    )
-
+    """路线报价偏离目录公式求值时在组装阶段拒绝。"""
+    document = LifeScenario.model_validate(_payload())
+    dataset = _map(document)
+    routes = list(dataset.routes)
+    routes[route_index] = routes[route_index].model_copy(update={"fare_fen": fare})
+    with pytest.raises(IntegrityError, match="disagrees with the catalog exchange value"):
+        assemble_semantics(document, load_catalog(_CATALOG), dataset.model_copy(update={"routes": tuple(routes)}))
 
 def test_route_fare_source_is_closed() -> None:
     """路线费用来源只能标记为场景假设。"""
-    _assert_invalid(
-        _replace(("routes", 0, "fare_source_kind"), "osrm"),
-        "Input should be 'scenario'",
-    )
-
+    payload = _map().routes[0].model_dump()
+    payload["fare_source_kind"] = "osrm"
+    with pytest.raises(ValidationError, match="Input should be 'scenario'"):
+        RouteConfig.model_validate(payload)
 
 def test_catalog_pin_and_reference_admission_are_enforced() -> None:
     """目录版本钉扎与对象引用完整性在组装准入层拒绝。"""
     _assert_assembly_invalid(
-        _replace(("catalog_version", "major"), 4),
+        _replace(("catalog_version", "major"), 3),
         "pins catalog",
     )
     _assert_assembly_invalid(
         _replace(("products", 0, "product_id"), "food-0000000000000"),
         "is not in the catalog",
     )
-    _assert_assembly_invalid(
+    _assert_invalid(
         _replace(("products", 0, "merchant"), "merchant:general"),
-        "does not bind catalog role",
+        "Extra inputs are not permitted",
     )
 
 
@@ -289,59 +295,116 @@ def test_scheduled_records_use_scenario_timezone_and_window() -> None:
 
 def test_location_hours_content_kind_and_calendar_are_closed() -> None:
     """当前运行时使用的营业、内容和日历集合在启动前闭合。"""
-    _assert_invalid(_replace(("locations", 1, "close_hour"), 8), "closing hour")
+    _assert_invalid(_replace(("locations", 1, "close_hour"), 8), "Extra inputs are not permitted")
     _assert_invalid(_replace(("contents", 0, "kind"), "video"), "subtitle_experience")
     _assert_invalid(_replace(("calendar", "sick_leave_date"), "2026-02-30"), "ISO format")
 
 
-def test_stock_override_replaces_the_catalog_default() -> None:
-    """库存覆盖优先生效，缺省回退目录对象库存。"""
-    payload = _replace(("products", 0, "stock"), 7)
+def test_stock_override_replaces_the_selected_supply_initial_value() -> None:
+    """库存覆盖仅作用于指定供给，其他门店同商品库存不变。"""
+    payload = _replace(("supplies", 0, "initial_stock"), 7)
     document = LifeScenario.model_validate(payload)
-    semantics = assemble_semantics(document, load_catalog(_CATALOG))
-    product = semantics.scenario.products[0]
-    assert product.initial_stock == 7
-    default = next(item for item in semantics.scenario.products if item.product_id != product.product_id)
-    assert default.initial_stock in (120, 80)
+    dataset = _map(document)
+    semantics = assemble_semantics(document, load_catalog(_CATALOG), dataset)
+    selected = document.supplies[0].supply_id
+    assert next(item for item in semantics.scenario.supplies if item.supply_id == selected).initial_stock == 7
+    originals = {item.supply_id: item.initial_stock for item in dataset.supplies}
+    assert all(item.initial_stock == originals[item.supply_id]
+               for item in semantics.scenario.supplies if item.supply_id != selected)
 
 
-# ---------------------------------------------------------------------------
-# 修订合同 v2：人物卡片、联系人、日历发薪/房租、地点品类、正餐与合同分配。
-# ---------------------------------------------------------------------------
+def _scheduled_price(supply_id, version, ordinal):
+    """@brief 形成来源完整且位于正式场景窗口内的一次显式调价。"""
+    supply = next(item for item in _map().supplies if item.supply_id == supply_id)
+    return {"change_id": f"price-{ordinal}", "supply_id": supply_id, "price_version": version,
+            "amount_fen": 1000 + ordinal, "due_at": f"2026-01-05T{10 + ordinal:02d}:00:00+08:00",
+            "source": supply.source.model_dump(mode="json")}
 
+
+def test_scheduled_prices_cannot_return_to_an_earlier_version():
+    """同供给的 v2 到 v3 再回 v2 不得重新授权旧报价凭据。"""
+    payload = _payload()
+    supply = payload["supplies"][0]["supply_id"]
+    payload["price_changes"] = [_scheduled_price(supply, version, index)
+                                for index, version in enumerate(("v2", "v3", "v2"))]
+    _assert_invalid(payload, "price versions must be unique")
+
+
+@pytest.mark.parametrize("declaration", ["initial", "future"])
+def test_scheduled_prices_cannot_reuse_any_declared_quote_version(declaration):
+    """显式调价不能复用初始或未来报价声明的版本，即使未来报价尚未生效。"""
+    from worldmock.life.map_models import SupplyConfig
+
+    payload = _payload()
+    dataset = _map()
+    supply = dataset.supplies[0]
+    version = supply.quotes[0].price_version
+    if declaration == "future":
+        original = supply.model_dump(mode="json")
+        original["quotes"][0]["effective_to"] = "2026-02-01T00:00:00+08:00"
+        original["quotes"].append({**original["quotes"][0], "price_version": "future-v2",
+            "effective_from": "2026-02-01T00:00:00+08:00", "effective_to": None})
+        supply = SupplyConfig.model_validate(original)
+        dataset = dataset.model_copy(update={"supplies": (supply, *dataset.supplies[1:])})
+        version = "future-v2"
+    payload["price_changes"] = [_scheduled_price(supply.supply_id, version, 0)]
+    document = LifeScenario.model_validate(payload)
+    with pytest.raises(IntegrityError, match="price versions must be unique"):
+        assemble_semantics(document, load_catalog(_CATALOG), dataset)
+
+
+def test_distinct_supplies_may_use_the_same_local_price_version():
+    """报价版本在供给内唯一；不同门店或商品的同名版本相互独立。"""
+    payload = _payload()
+    payload["price_changes"] = [_scheduled_price(item["supply_id"], "local-v2", index)
+                                for index, item in enumerate(payload["supplies"][:2])]
+    document = LifeScenario.model_validate(payload)
+    result = assemble_semantics(document, load_catalog(_CATALOG), _map(document))
+    assert len(result.scenario.price_changes) == 2
+
+
+@pytest.mark.parametrize("section,reason", [
+    ("price_changes", "Scheduled price changes require an explicit scenario source"),
+    ("product_releases", "Scheduled supply releases require an explicit scenario source"),
+])
+def test_scheduled_supply_changes_cannot_claim_retail_observation_sources(section, reason, caplog):
+    """@brief 人工调价和补货必须明确为场景假设，不能继承真实零售资料的来源标签。"""
+    payload = _payload()
+    supply = payload["supplies"][0]["supply_id"]
+    price = _scheduled_price(supply, "new-scheduled-price", 0)
+    price["source"].update(kind="fact", url="https://retailer.example/observed-price")
+    entry = price if section == "price_changes" else {
+        "release_id": "new-stock", "supply_id": supply, "stock": 20,
+        "due_at": price["due_at"], "source": price["source"]}
+    payload[section] = [entry]
+    _assert_invalid(payload, reason)
+    assert reason in caplog.text
+
+
+def test_product_use_cannot_require_a_location_outside_the_selected_world():
+    """@brief 商品使用场所必须在人物所在的已选择世界内，不能成为无法兑现的使用条件。"""
+    runtime, _ = load_scenario(_FORMAL)
+    payload = runtime.model_dump(mode="json")
+    payload["products"][0]["required_location_id"] = "outside-selected-map"
+    with pytest.raises(ValidationError, match="product use requirement references an unknown location"):
+        RuntimeScenario.model_validate(payload)
+
+
+# 修订合同：人物、联系人、日历、独立地图与正餐供给。
 _V2_SCENARIOS = (
     _FORMAL,
     Path("scenarios/multi-person.json"),
     Path("scenarios/multi-person-half-day.json"),
 )
 _MULTI_SCENARIOS = _V2_SCENARIOS[1:]
-
-#: 场景地点 kind → 世界素材品类（docs/dev/SPEC-life-realism.md「世界素材品类要求」的闭集映射）。
-#: 表外 kind 不得出现在场景里：`market` 曾因不在表内而被覆盖断言静默跳过，故此处
-#: 显式登记它承载的品类 `merchant_goods`（地点语料的 `covers` 声明同值）。
-_KIND_CATEGORY = {
-    "home": "home",
-    "office": "office",
-    "restaurant": "canteen_or_restaurant",
-    "convenience_store": "convenience_store",
-    "supermarket": "supermarket_or_wet_market",
-    "wet_market": "supermarket_or_wet_market",
-    "park": "park_or_fitness",
-    "fitness": "park_or_fitness",
-    "merchant": "merchant_goods",
-}
 _REQUIRED_CATEGORIES = {
-    "home", "office", "canteen_or_restaurant", "convenience_store",
-    "supermarket_or_wet_market", "park_or_fitness",
+    "home", "office", "restaurant", "convenience_store", "supermarket", "wet_market", "park", "fitness",
 }
-#: 7 份早餐储备的语料来源（scene-stock/home-pantry.json）。
 _PANTRY_CORPUS = Path("corpora/scene-stock/home-pantry.json")
 _LOCATIONS_CORPUS = Path("corpora/zhangjiang-map/locations.json")
 _WORK_CORPUS = Path("corpora/scenario-work/materials.json")
-#: 人物锚点：李凡晚型、陈曦早型的可复核分界（background_story 事实）。
 _LATE_CHRONOTYPE_MIN = 4.5
 _EARLY_CHRONOTYPE_MAX = 3.5
-
 
 def _document(path: Path) -> dict:
     """读取一份场景 JSON 文档。"""
@@ -451,58 +514,37 @@ def test_payday_and_rent_are_calendar_opportunities_not_obligations() -> None:
         assert variant.get("bills", []) == []
 
 
-def test_location_kinds_cover_the_closed_category_set() -> None:
-    """三场景地点覆盖修订合同品类闭集，POI 坐标与张江语料逐项一致。
-
-    场景里出现 `_KIND_CATEGORY` 表外 kind 即失败——这条断言取代了早先
-    `if item["kind"] in _KIND_CATEGORY` 的静默跳过，`market` 曾因此游离在校验之外。
-    """
+def test_location_business_kinds_cover_all_distinct_required_categories() -> None:
+    """三场景共享地图，营业类别分别覆盖，地点属性不再复制进场景。"""
     corpus = json.loads(_LOCATIONS_CORPUS.read_text())
     corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
     for path in _V2_SCENARIOS:
         document = _document(path)
-        unknown = sorted({item["kind"] for item in document["locations"]
-                          if item["kind"] not in _KIND_CATEGORY})
-        assert not unknown, f"{path} declares unmapped location kinds: {unknown}"
-        categories = {_KIND_CATEGORY[item["kind"]] for item in document["locations"]}
-        assert _REQUIRED_CATEGORIES <= categories
-        restaurants = [item for item in document["locations"]
-                       if item["kind"] == "restaurant"]
-        assert len(restaurants) >= 2
-        for item in document["locations"]:
-            corpus_entry = corpus_by_id.get(item["location_id"])
-            # 坐标与名称逐项一致仅对 OSM POI 断言；home/office/market 为冻结场景锚点，
-            # 语料以坐标回指场景（frozen-scenario-anchor），显示名不要求改写。
-            if corpus_entry is not None and item["location_id"].startswith("poi-"):
-                assert item["latitude"] == corpus_entry["latitude"]
-                assert item["longitude"] == corpus_entry["longitude"]
-                assert item["name"] == corpus_entry["name"]
+        assert all(set(item) == {"location_id"} for item in document["locations"])
+        scenario, _ = load_scenario(path)
+        assert _REQUIRED_CATEGORIES <= {item.business_kind for item in scenario.locations}
+        assert sum(item.business_kind == "restaurant" for item in scenario.locations) >= 2
+        for item in scenario.locations:
+            original = corpus_by_id[item.location_id]
+            assert (item.latitude, item.longitude, item.name) == (
+                original["latitude"], original["longitude"], original["name"])
+            assert item.location_kinds and "anywhere" not in item.location_kinds
 
-
-def test_market_location_is_declared_in_the_location_corpus() -> None:
-    """承载全部商品的 market 必须在地点语料里声明覆盖关系（曾游离在校验之外）。
-
-    语料的 `covers` 是 `admission` 地点品类覆盖检查的输入，market 缺失即
-    等于"商品地点没有任何覆盖断言"。
-    """
+def test_shared_product_has_independent_market_and_store_supplies() -> None:
+    """同一商品拥有多个门店供给，地点分别声明现实环境与营业类别。"""
     corpus = json.loads(_LOCATIONS_CORPUS.read_text())
-    corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
-    market = corpus_by_id.get("market")
-    assert market is not None, "market must be declared in the location corpus"
-    assert market["kind"] == "merchant"
-    assert market["covers"] == [_KIND_CATEGORY["merchant"]]
+    market = next(item for item in corpus["locations"] if item["location_id"] == "market")
+    assert market["kind"] == "merchant" and market["business_kind"] == "general_retail"
+    assert market["location_kinds"] == ["venue"]
     for path in _V2_SCENARIOS:
-        document = _document(path)
-        product_ids = {item["product_id"] for item in document["products"]}
-        assert product_ids, f"{path} declares no products"
-        carriers = {item["merchant_location_id"] for item in document["products"]}
-        assert carriers == {"market"}, f"{path} product merchants must be the declared market"
-        # 场景侧坐标与语料锚点逐项一致（frozen-scenario-anchor 回指）。
-        scenario_market = next(item for item in document["locations"]
-                               if item["location_id"] == "market")
-        assert scenario_market["latitude"] == market["latitude"]
-        assert scenario_market["longitude"] == market["longitude"]
-
+        scenario, _ = load_scenario(path)
+        milk = [item for item in scenario.supplies if item.product_id == "food-6923644266066"]
+        assert len(milk) >= 3
+        assert len({item.location_id for item in milk}) >= 3
+        assert len({item.seller_account_id for item in milk}) >= 3
+        assert len({item.quotes[0].price_fen for item in milk}) >= 3
+        assert {product.product_id for product in scenario.products} <= {
+            item.product_id for item in scenario.supplies}
 
 def test_meal_products_resolve_against_the_catalog() -> None:
     """正餐 ≥30 条：场景引用全部解析为目录 meal-* 对象且窗口合规。"""
@@ -516,10 +558,11 @@ def test_meal_products_resolve_against_the_catalog() -> None:
         for product in meals:
             obj = catalog.objects[product.product_id]
             assert obj.consumable and "eat" in product.use_modes
-            assert 1500 <= product.price_fen <= 4500
+            supply = next(item for item in scenario.supplies if item.product_id == product.product_id)
+            assert 1500 <= supply.quotes[0].price_fen <= 4500
             assert 20 * 60 <= product.use_duration_seconds <= 40 * 60
-            assert product.delivery_delay_seconds > 0
-            assert merchants[product.merchant_account_id]["role"] == "merchant:restaurant"
+            assert supply.delivery_delay_seconds > 0
+            assert merchants[supply.seller_account_id]["role"] == "merchant:restaurant"
 
 
 def test_home_pantry_declares_seven_breakfast_servings() -> None:
@@ -607,7 +650,7 @@ def test_three_scenarios_share_the_v2_schema() -> None:
     manifests = set()
     for path in _V2_SCENARIOS:
         document = _document(path)
-        assert document["schema_version"] >= 2
+        assert document["schema_version"] == 3
         assert document["reconsideration_interval_seconds"] == 5400
         manifests.add(document["corpus_manifest_sha256"])
         for agent in document["agents"]:

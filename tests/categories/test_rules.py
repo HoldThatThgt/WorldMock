@@ -28,7 +28,7 @@ from worldmock.categories import (
     validate_rule_resource_domains,
 )
 from worldmock.catalog import load_catalog
-from worldmock.catalog.models import ResourceDefinition, TransferEdge
+from worldmock.catalog.models import ResourceDefinition, RuleEdge
 
 from .conftest import contract_document, raw_object, review, rules_document, source, write_contract, write_rules
 
@@ -365,10 +365,10 @@ def test_money_operators_preserve_exact_amounts_independently_of_decimal_context
 
 @pytest.mark.parametrize("price", [10**28 + 1, 10**80 + 1])
 @pytest.mark.parametrize("coefficient", [1, 0.5, 0.1])
-def test_catalog_compiles_the_exact_resolved_purchase_price(
+def test_catalog_preserves_purchase_coefficient_for_exact_dynamic_quote_amount(
     valid_catalog_dir: Path, price: int, coefficient: int | float,
 ) -> None:
-    """@brief 完整目录加载保留已接受的大整数价格，并按精确值生成付款边。"""
+    """@brief 完整目录加载保留精确系数，供给大整数报价交给同一购买算子。"""
     declaration = raw_object()
     declaration["values"]["absolute"]["price_fen"] = price
     (valid_catalog_dir / "objects.jsonl").write_text(json.dumps(declaration) + "\n", encoding="utf-8")
@@ -382,9 +382,10 @@ def test_catalog_compiles_the_exact_resolved_purchase_price(
         catalog = load_catalog(valid_catalog_dir)
         assert repr(ambient) == original_context
     obj = catalog.objects["milk"]
-    transfer = next(edge for edge in obj.edges if isinstance(edge, TransferEdge))
-    assert obj.attributes["price_fen"] == price
-    assert transfer.amount_fen == math.ceil(Fraction(price) * Fraction(str(coefficient)))
+    purchase = next(edge for edge in obj.edges if isinstance(edge, RuleEdge))
+    assert purchase.coefficient == coefficient
+    assert evaluate_purchase(price, 3, purchase.coefficient) == math.ceil(
+        Fraction(price) * 3 * Fraction(str(coefficient)))
 
 
 @pytest.mark.parametrize(

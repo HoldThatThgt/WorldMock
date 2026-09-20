@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+
+from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from pydantic import ValidationError
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
@@ -150,15 +152,16 @@ def _observations() -> list[dict]:
         "game_catalog": [{"game_id": "game-visible"}],
         "messages": [{"message_id": "message-visible"}],
         "browse_targets": ["product_catalog"],
-        "products": [{"product_id": "product-visible", "price_version": "price-v1",
-                      "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
-                      "merchant_location_id": "home", "required_location_id": None}],
+        "products": [{"product_id": "product-visible", "use_modes": ["eat"],
+                      "use_duration_seconds": 300, "required_location_id": None}],
+        "supplies": [supply_row(supply_id="supply-visible", product_id="product-visible")],
+        "discovery_catalog": discovery_catalog("product-visible"),
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
         "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
                              "use_duration_seconds": 300, "required_location_id": None}],
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
     }
@@ -329,9 +332,9 @@ def _frozen_observation_cases() -> list[tuple[str, object, str]]:
          _replace(("active_activity",),
                   {"activity_id": "act-1", "kind": "watch", "status": "paused"}),
          "active activity state is invalid"),
-        ("active kind without controls",
+        ("active kind undeclared",
          _replace(("active_activity",),
-                  {"activity_id": "act-1", "kind": "lifestyle", "status": "active"}),
+                  {"activity_id": "act-1", "kind": "undeclared", "status": "active"}),
          "kind has no decision boundary controls"),
         ("paused activities not list", _replace(("paused_activities",), "x"),
          "paused_activities must be a list"),
@@ -358,12 +361,12 @@ def _frozen_observation_cases() -> list[tuple[str, object, str]]:
         ("products not list", _replace(("products",), "x"),
          "products catalog must be a list"),
         ("product not object", _replace(("products",), [5]),
-         "products catalog item must be an object"),
+         "product must be an object"),
         ("product identity blank", _replace(("products",), [_base_product(product_id="")]),
-         "identity or price version is invalid"),
-        ("product stock negative",
-         _replace(("products",), [_base_product(current_stock=-1)]),
-         "current stock is invalid"),
+         "product identity is invalid"),
+        ("supply stock negative",
+         _replace(("supplies",), [supply_row(current_stock=-1)]),
+         "supply stock is invalid"),
         ("product use modes empty",
          _replace(("products",), [_base_product(use_modes=[])]),
          "use modes are invalid"),
@@ -646,7 +649,7 @@ def test_remote_merchant_forces_delivery_only_purchase() -> None:
     """当前地点无自提资格时履约枚举只保留 delivery（不发送非法 pickup）。"""
 
     def mutate(data: dict) -> None:
-        data["products"] = [_base_product(merchant_location_id="office")]
+        data["supplies"] = [supply_row(location_id="office", pickup_allowed=False)]
 
     agent = _prepared(mutate)
     schema = next(item for item in agent.build_react_tool_schemas(readonly=False)
@@ -800,13 +803,13 @@ def test_instant_action_pairings_are_validated_locally() -> None:
 
     def order(destination: str, fulfillment: str) -> ReactDecision:
         return _decision("purchase", {
-            "items": [{"product_id": "product-visible", "quantity": 1,
+            "items": [{"supply_id": 'supply-visible', "quantity": 1,
                        "price_version": "price-v1"}],
             "fulfillment": fulfillment, "destination_id": destination})
 
-    assert "destination_id is not visible" in agent.validate_react_decisions(
+    assert "delivery scope" in agent.validate_react_decisions(
         [order("ghost-loc", "delivery")], False)
-    assert "pickup is not valid" in agent.validate_react_decisions(
+    assert "pickup requires" in agent.validate_react_decisions(
         [order("office", "pickup")], False)
 
     two_item_use = _decision("consume", {
@@ -856,7 +859,7 @@ async def test_dispatch_guards_reject_unusable_tools_before_execution() -> None:
     feedback = _feedback_agent()
     with pytest.raises(RuntimeError, match="unavailable in the prepared activity state"):
         await feedback.dispatch_react_tool("purchase", {
-            "items": [{"product_id": "product-visible", "quantity": 1,
+            "items": [{"supply_id": 'supply-visible', "quantity": 1,
                        "price_version": "price-v1"}],
             "fulfillment": "delivery", "destination_id": "home"})
 

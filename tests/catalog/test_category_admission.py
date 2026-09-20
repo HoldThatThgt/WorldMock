@@ -178,7 +178,7 @@ def test_location_required_kind_missing(real_catalog, tmp_path):
 
     def drop_convenience(doc):
         doc["locations"] = [loc for loc in doc["locations"]
-                            if "convenience_store" not in loc.get("covers", [])]
+                            if loc["business_kind"] != "convenience_store"]
 
     _mutate_json(root, "zhangjiang-map/locations.json", drop_convenience)
     result = validate_world_categories(real_catalog, root)
@@ -191,10 +191,10 @@ def test_location_restaurant_floor_of_two(real_catalog, tmp_path):
     def keep_one_restaurant(doc):
         kept = 0
         for loc in doc["locations"]:
-            if "canteen_or_restaurant" in loc.get("covers", []):
+            if loc["business_kind"] == "restaurant":
                 kept += 1
                 if kept >= 2:
-                    loc["covers"] = [k for k in loc["covers"] if k != "canteen_or_restaurant"]
+                    loc["business_kind"] = "general_retail"
 
     _mutate_json(root, "zhangjiang-map/locations.json", keep_one_restaurant)
     result = validate_world_categories(real_catalog, root)

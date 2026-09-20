@@ -105,8 +105,9 @@ async def test_inventory_only_recipe_survives_real_model_roundtrip(tmp_path, coe
         }]
         assert _item_ids(functions["consume"])["enum"] == [_INPUT_OBJECT]
         assert f"{_INPUT_OBJECT}: 密封工具盒" in _item_ids(functions["consume"])["description"]
-        assert _item_ids(functions["purchase"])["enum"]
-        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(_item_ids(functions["purchase"])["enum"])
+        purchase = functions["purchase"]["parameters"]["properties"]["items"]["items"]["properties"]
+        assert set(purchase["supply_id"]["enum"]) == {row["supply_id"] for row in observed["supplies"]}
+        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(row["product_id"] for row in observed["supplies"])
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
@@ -118,7 +119,7 @@ async def test_inventory_only_recipe_survives_real_model_roundtrip(tmp_path, coe
         assert [row["product_id"] for row in after["inventory_items"]] == [_OUTPUT_OBJECT]
         assert _item_ids(next_functions["consume"])["enum"] == [_OUTPUT_OBJECT]
         assert f"{_OUTPUT_OBJECT}: 拆封工具盒" in _item_ids(next_functions["consume"])["description"]
-        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(_item_ids(next_functions["purchase"])["enum"])
+        assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(row["product_id"] for row in after["supplies"])
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
         assert "package_opened" in engine.state.agents[1].active_effects
@@ -161,7 +162,8 @@ async def test_held_food_can_be_eaten_without_a_visible_purchase_offer(tmp_path,
         observed, functions, started = await _model_consume(
             engine, "held-food", _use_request(
                 product_id, quantity, mode="eat", duration=product.use_duration_seconds))
-        assert product_id not in {row["product_id"] for row in observed["products"]}
+        assert product_id not in {row["product_id"] for row in observed["supplies"]}
+        assert "purchase" not in functions
         assert _item_ids(functions["consume"])["enum"] == [product_id]
         assert f"{product_id}: {product.name}" in _item_ids(functions["consume"])["description"]
         if quantity == 1:
