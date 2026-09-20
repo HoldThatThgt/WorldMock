@@ -65,7 +65,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 | 文档 | 职责 | 状态 |
 | --- | --- | --- |
-| `docs/dev/research/category-contract-feasibility.md` | 品类契约的第一方业界依据、排除理由与当前代码差距 | 调研证据 |
+| `docs/dev/research/category-contract-feasibility.md` | 品类契约的第一方业界依据、排除理由与实施前代码差距及验证目标 | 调研证据 |
 | `docs/dev/research/as2-feasibility.md` | AS2 接入可行性与核心改动独立审查 | 调研证据 |
 | `docs/dev/research/bob-mutation-plan.md` | 核心合同语义突变计划与历史突变台账 | 调研证据 |
 | `docs/dev/research/code-refute-2026-09-17.md` | 编码模块对抗审计：确认的缺陷、被驳倒的发现与未完成复核的缺口 | 调研证据 |

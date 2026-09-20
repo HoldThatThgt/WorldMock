@@ -261,9 +261,6 @@ CompiledEdge = Annotated[
     Field(discriminator="type"),
 ]
 
-Edge = CompiledEdge
-
-
 class Stock(CatalogModel):
     """@brief 交换对象的库存初值与补货策略。"""
 

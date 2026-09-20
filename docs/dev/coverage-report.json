@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-09-20T07:17:21+00:00",
+  "generated_at": "2026-09-20T07:37:42+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "302585ab-05b5-445a-a2cb-e11bafc1554a",
-    "manifest_hash": "f5969b86b4ef03e5303cbc5130118c0db9fdc16ae7621e529d061404254c8566",
-    "source_identity": "426af3bfe3d7e507b749f286e08857e697c2ac2f"
+    "snapshot_id": "0168b20f-f7c5-4722-9282-e4c6c352f137",
+    "manifest_hash": "fbf5a91ea51fd9e8e1d629c0a05be6bcf43bc8e3bef30812c81fb9c09e26d5fe",
+    "source_identity": "c582330140dd80f43dd4d67853e0eb27e83e9476"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 6111,
-    "missing_branches": 241,
-    "total_branches": 6352,
-    "percent": 96.21,
+    "covered_branches": 6127,
+    "missing_branches": 221,
+    "total_branches": 6348,
+    "percent": 96.52,
     "passed": true
   },
   "per_file_branch": [
@@ -79,7 +79,7 @@
     },
     {
       "file": "src/worldmock/catalog/models.py",
-      "covered_branches": 20,
+      "covered_branches": 16,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -439,9 +439,9 @@
     },
     {
       "file": "src/worldmock/life/category_contract.py",
-      "covered_branches": 46,
-      "missing_branches": 10,
-      "percent": 82.14
+      "covered_branches": 50,
+      "missing_branches": 6,
+      "percent": 89.29
     },
     {
       "file": "src/worldmock/life/commerce.py",
@@ -481,9 +481,9 @@
     },
     {
       "file": "src/worldmock/life/inventory_recipe.py",
-      "covered_branches": 10,
-      "missing_branches": 8,
-      "percent": 55.56
+      "covered_branches": 13,
+      "missing_branches": 5,
+      "percent": 72.22
     },
     {
       "file": "src/worldmock/life/models.py",
@@ -553,9 +553,9 @@
     },
     {
       "file": "src/worldmock/life/scenario.py",
-      "covered_branches": 207,
-      "missing_branches": 13,
-      "percent": 94.09
+      "covered_branches": 216,
+      "missing_branches": 4,
+      "percent": 98.18
     },
     {
       "file": "src/worldmock/life/schedule.py",
@@ -565,9 +565,9 @@
     },
     {
       "file": "src/worldmock/life/semantics.py",
-      "covered_branches": 126,
-      "missing_branches": 18,
-      "percent": 87.5
+      "covered_branches": 127,
+      "missing_branches": 17,
+      "percent": 88.19
     },
     {
       "file": "src/worldmock/life/settlement.py",
@@ -607,9 +607,9 @@
     },
     {
       "file": "src/worldmock/life/travel_time.py",
-      "covered_branches": 13,
-      "missing_branches": 3,
-      "percent": 81.25
+      "covered_branches": 16,
+      "missing_branches": 0,
+      "percent": 100.0
     },
     {
       "file": "src/worldmock/life/work.py",
@@ -744,85 +744,6 @@
       "percent": 95.0
     }
   ],
-  "uncovered_public_interfaces": [
-    {
-      "file": "src/worldmock/life/category_contract.py",
-      "line": 53,
-      "name": "require_runtime_rule",
-      "kind": "function"
-    },
-    {
-      "file": "src/worldmock/life/category_contract.py",
-      "line": 69,
-      "name": "optional_defined_rule",
-      "kind": "function"
-    },
-    {
-      "file": "src/worldmock/life/category_contract.py",
-      "line": 85,
-      "name": "require_item_rules",
-      "kind": "function"
-    },
-    {
-      "file": "src/worldmock/life/inventory_recipe.py",
-      "line": 52,
-      "name": "from_payload",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/inventory_recipe.py",
-      "line": 68,
-      "name": "prepare_inventory_recipe",
-      "kind": "function"
-    },
-    {
-      "file": "src/worldmock/life/inventory_recipe.py",
-      "line": 97,
-      "name": "apply_inventory_recipe",
-      "kind": "function"
-    },
-    {
-      "file": "src/worldmock/life/scenario.py",
-      "line": 214,
-      "name": "validate_traits",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/scenario.py",
-      "line": 719,
-      "name": "validate_scenario",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/semantics.py",
-      "line": 194,
-      "name": "with_price",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/semantics.py",
-      "line": 216,
-      "name": "contract_payment",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/semantics.py",
-      "line": 239,
-      "name": "travel_match",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/travel_time.py",
-      "line": 25,
-      "name": "factor",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/travel_time.py",
-      "line": 34,
-      "name": "parse_travel_time_profile",
-      "kind": "function"
-    }
-  ],
-  "passed": false
+  "uncovered_public_interfaces": [],
+  "passed": true
 }
