@@ -55,6 +55,8 @@ finish 三次请求。每次实际请求都计入同一回合预算。世界时�
 事件为 `decision_started.data.decision_statement`；运行清单阶段为 `decision_statement`；
 质量计数为 `decision_started_with_decision_statement` 与 `decision_started_missing_decision_statement`。
 AS2 调用钩子同步更名，生产路径不得调用旧钩子。
+新建、打开既有运行、恢复和从工作区加载均校验当前阶段身份；含旧阶段名称的清单必须拒绝。
+显式不使用模型身份的引擎直驱测试路径沿用既有合同，不为生产运行生成替代身份。
 
 决策自述请求显式要求一至三句第一人称中文、表达此刻感受和打算、最多二百汉字。
 确定性协议校验非空和汉字上限；第一人称与句意是生成要求，不引入语义分类器冒充确定性校验。
@@ -93,6 +95,9 @@ tool 消息只有固定的登记确认语义，不包含其 `request_sha256`、`
 存在工作验收反馈时，另保留 `work_review`，只使用现有 `public_work_review` 的公开字段，
 包括通过与否、缺项、逐项判断、可公开原文片段与理由。
 没有工作验收时不制造该字段。不复制原始 `result` 或 `data` 整棵树。
+两类逐项理由均不得含任何内部参考身份或 SHA-256 摘要。评审解析阶段确定性拒绝此类输出，
+复用既有评审纠错次数与原始证据保存路径；公开投影入口也必须验证，防止绕过解析器。
+生成要求明确只用公开内容品类说明理由；不截短理由，不生成替代理由。
 
 内部参考身份、答案对象、哈希、资源账户、数值身体状态、完整活动快照不得通过结果重新泄漏。
 公开结果字段为第一道防线，递归渲染校验为第二道防线。场景仅概括最近一条结果，
@@ -124,7 +129,7 @@ user 四万字符、最终 system 三千字符、场景八百汉字、人物卡�
 | 责任 | 生产文件 | 验证文件 |
 | --- | --- | --- |
 | 人物循环与消息 | `custom/agents/life_agent.py`、`custom/agents/life_context.py`；AS2 `agent/base/agent_runtime.py` | `tests/integration/test_life_agent_protocol.py`、新增决策上下文协议测试与真实跨轮测试；AS2 钩子测试 |
-| 场景与结果 | `src/worldmock/life/projection.py`、`observe.py`、`narration.py`、`models.py`、`result_projection.py` | `tests/life/test_narration.py`、工作验收、轮次、反馈与新增投影合同测试 |
+| 场景与结果 | `src/worldmock/life/projection.py`、`observe.py`、`narration.py`、`models.py`、`result_projection.py`、`work_review.py` | `tests/life/test_narration.py`、工作验收、轮次、反馈与新增投影合同测试 |
 | 决策证据与下游 | `life/decision_start.py`、`life/engine.py`、`footprints/models.py`、`footprints/quality.py`、`runtime.py`、`validation.py`、`delivery/windows.py`、`evaluation/behavior_metrics.py` | 事件字段、运行清单、足迹质量与 delivery 窗口测试 |
 | 规范一致性 | `CONTRACTS.md`、相关 `SPEC-*.md`、`INDEX.md`、`VERIFICATION.md`、实现状态、覆盖追溯、模拟／记录／交付设计 | 文档链接、命名残留、条款到测试的双向核对 |
 
@@ -154,3 +159,4 @@ user 四万字符、最终 system 三千字符、场景八百汉字、人物卡�
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
 | 1 | 2026-09-20 | 将提案裁决为可实现合同；修正调用次数与工具时序，明确无兼容改名、无损公开结果、场景与预算边界 |
+| 2 | 2026-09-20 | 独立审查补全公开理由的文本边界、全部恢复入口的阶段身份验证和原生 runner 单次观察断言 |

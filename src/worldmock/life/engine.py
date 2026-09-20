@@ -16,10 +16,8 @@ from zoneinfo import ZoneInfo
 from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
-from worldmock.footprints.models import (
-    DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
-    AssetRef, EventDraft, validate_resource_flows,
-)
+from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
+                                        AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
@@ -67,11 +65,8 @@ from worldmock.life.content import (
     reveal_watch,
 )
 from worldmock.life.game import (
-    GameOutcomeUnknown,
-    new_game_session,
-    run_game_command,
-    validate_game,
-    verify_game_progress,
+    GameOutcomeUnknown, new_game_session, run_game_command,
+    validate_game, verify_game_progress,
 )
 from worldmock.life.models import (
     ActionReceipt,
@@ -687,13 +682,19 @@ class LifeEngine(ObservationMixin):
         self.ops.close()
 
     def _validate_runtime(self) -> None:
-        """@brief 在运行前全量核对场景、内容、路线、游戏和状态身份。"""
+        """@brief 在新建和恢复时核对场景、内容、决策阶段、路线、游戏和状态身份。"""
         if self.state.scenario_sha256 != self.scenario_sha256:
             raise IntegrityError("Runtime scenario identity mismatch")
         if self.state.content_manifest_sha256 != self.scenario.corpus_manifest_sha256:
             raise IntegrityError("Runtime corpus identity mismatch")
         if self.state.run_id != self.store.manifest["run_id"]:
             raise IntegrityError("Runtime run identity mismatch")
+        if "two_stage_model_identity" not in self.store.manifest:
+            raise IntegrityError("Runtime decision stage identity is missing")
+        identity = self.store.manifest["two_stage_model_identity"]
+        if identity is not None:
+            from worldmock.validation import validate_two_stage_model_identity
+            validate_two_stage_model_identity(identity)
         validate_routes(self.scenario, self.corpus_root)
         for config in self.scenario.games:
             validate_game(config, self.corpus_root)

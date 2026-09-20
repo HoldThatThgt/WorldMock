@@ -406,13 +406,13 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 | 条款 | 默认 | 备选（需新规格版本） |
 | --- | --- | --- |
-| 决策自述阶段 | 采纳；每次决策一次短调用 | 只恢复身份前言，不加决策自述 |
+| 决策自述阶段 | 采纳；正常路径一次短调用，空白或超长最多重试一次 | 只恢复身份前言，不加决策自述 |
 | 重估间隔 | 5400 秒 | 3600 或 7200 秒 |
 | 社交需要 | 作为第四项需要进入身体模型 | 不加资源，只靠人物卡片签名与消息驱动 |
 | 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物 | 全部 `template` |
 | 动机评分器 | 保留为内部仪表并落库 | 整体删除 |
 | 决策自述的信息范围 | 仅 dreaming 可读 | 动作任务也可读（需修改信息范围条款） |
-| 覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
+| 人物卡片覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
 | 提示字符预算 | 40000 字符硬失败 | 60000 字符 |
 
 ## 文件修改清单与实施顺序
@@ -428,7 +428,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `src/worldmock/life/engine.py` | 计划段起点与计划投影；`drive_summary` 与 `motivation_internal` 字段；多件商务结算 |
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
 | `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`catalog/rules/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
-| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.decision_statement`、时间线投影、指标接入 |
+| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data.decision_statement`、时间线投影、指标接入 |
 | `src/worldmock/delivery/windows.py` | dreaming 窗口可含决策自述与场景 |
 | `src/worldmock/evaluation/review.py`、`public_evidence.py` | 盲评记录的地点与同伴列 |
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |

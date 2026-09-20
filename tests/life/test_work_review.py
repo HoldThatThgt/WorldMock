@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import copy
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -26,12 +27,16 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import load_scenario
 from worldmock.life.narration import render_facts, render_scene
+from worldmock.life.result_projection import public_action_result
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
 from worldmock.life.work_review import (
     WorkReviewer,
+    WorkReviewDecision,
+    WorkReviewOutputError,
     WorkReviewResponse,
     parse_work_review,
     prepare_work_review,
+    public_work_review,
 )
 
 
@@ -70,6 +75,30 @@ class StaticReviewer:
                 "choices": [{"message": {"tool_calls": [{
                     "id": f"review-tool-{self.calls}", "type": "function", "function": {
                         "name": "submit_work_review", "arguments": json.dumps(arguments)}}]}}]}
+
+
+class PrivateRationaleReviewer(StaticReviewer):
+    """先返回含私有值的合法结构，后续响应可在现有协议重试中纠正。"""
+
+    def __init__(self, collection: str, private_kind: str, invalid_attempts: int = 1):
+        """保留真实请求响应，验证失败留证与纠错反馈。"""
+        super().__init__()
+        self.collection = collection
+        self.private_kind = private_kind
+        self.invalid_attempts = invalid_attempts
+        self.requests = []
+        self.responses = []
+        self.private_value = ""
+
+    async def call(self, prepared):
+        """只污染公开理由字段，其余真实评审约束保持有效。"""
+        raw = await super().call(prepared)
+        self.requests.append(copy.deepcopy(prepared.request))
+        if self.calls <= self.invalid_attempts:
+            self.private_value = _private_rationale_value(prepared, self.private_kind)
+            _replace_rationale(raw, self.collection, f"The source supports internal evidence [{self.private_value}].")
+        self.responses.append(copy.deepcopy(raw))
+        return raw
 
 
 def _at_task_start(engine) -> None:
@@ -422,6 +451,153 @@ def test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucinati
     assert observed == [True, False]
 
 
+def _prepared_review_and_raw_response():
+    """从真实响应夹具和真实工作输入生成可走完整公开链的评审。"""
+    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text())
+    scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
+    task = scenario.tasks[0]
+    case = fixture["cases"][0]
+    request = SubmitWorkRequest(task_id=task.task_id, deliverable=_fixture_minutes(case))
+    submission = WorkSubmission(
+        task, None, request, WorkMetrics(60_000, 14_400, 14_400),
+        load_work_oracle(Path("corpora"), task), load_work_input(Path("corpora"), task))
+    return prepare_work_review(submission, fixture["model"]), copy.deepcopy(case["raw_response"])
+
+
+def _replace_rationale(raw: dict, collection: str, text: str) -> None:
+    """只更改合法工具响应中的指定理由，保持全部身份与其他判断有效。"""
+    function = raw["choices"][0]["message"]["tool_calls"][0]["function"]
+    arguments = json.loads(function["arguments"])
+    arguments[collection][0]["rationale"] = text
+    function["arguments"] = json.dumps(arguments)
+
+
+def _render_public_review_decision(decision, source: str) -> str:
+    """从真实公开评审函数经结果投影进入提示渲染。"""
+    row = {"action_id": "reviewed-work", "occurred_at": 1767542400, "status": "completed",
+           "error_code": None, "message": "Work completed.",
+           "result": {"data": {"work_review": public_work_review(decision, source)}}}
+    return render_facts({"recent_action_results": [public_action_result(row)]})
+
+
+def _private_rationale_value(prepared, kind: str) -> str:
+    """选择交叉引用身份、已知摘要或任意大小写摘要作为隐私反例。"""
+    return {"reference": prepared.expected_reference_ids[-1],
+            "known_digest": prepared.oracle_sha256,
+            "unknown_digest": "0123456789abcdef" * 4,
+            "uppercase_digest": "0123456789ABCDEF" * 4}[kind]
+
+
+@pytest.mark.parametrize("collection", ["reference_assessments", "delivery_assessments"])
+@pytest.mark.parametrize("private_kind", ["reference", "known_digest", "unknown_digest", "uppercase_digest"])
+def test_private_rationale_is_rejected_in_parse_to_prompt_chain(collection, private_kind, caplog) -> None:
+    """合法 Schema 中的私有理由必须在解析阶段阻止，不能经公开投影进入提示。"""
+    prepared, raw = _prepared_review_and_raw_response()
+    private = _private_rationale_value(prepared, private_kind)
+    _replace_rationale(raw, collection, f"The summary is supported; internal evidence is [{private}].")
+    with caplog.at_level(logging.ERROR), pytest.raises(WorkReviewOutputError, match="rationale") as caught:
+        decision = parse_work_review(raw, prepared)
+        _render_public_review_decision(decision, prepared.source)
+    assert private not in str(caught.value)
+    errors = [record.message for record in caplog.records if record.levelno == logging.ERROR]
+    assert errors and all(private not in message for message in errors)
+    assert all(not any("\u4e00" <= char <= "\u9fff" for char in message) for message in errors)
+
+
+@pytest.mark.parametrize("collection", ["reference_assessments", "delivery_assessments"])
+@pytest.mark.parametrize("private_kind", ["reference", "known_digest", "uppercase_digest"])
+@pytest.mark.parametrize("restored_from_json", [False, True])
+def test_reloaded_decision_cannot_bypass_private_rationale_validation(
+    collection, private_kind, restored_from_json, caplog,
+) -> None:
+    """已经落盘的评审对象即使绕开响应解析，公开入口也不能泄漏私有理由。"""
+    prepared, raw = _prepared_review_and_raw_response()
+    decision = parse_work_review(raw, prepared)
+    private = _private_rationale_value(prepared, private_kind)
+    saved = decision.model_dump(mode="json")
+    saved[collection][0]["rationale"] = f"This result depends on internal evidence [{private}]."
+    restored = (WorkReviewDecision.model_validate_json(json.dumps(saved)) if restored_from_json
+                else WorkReviewDecision(**saved))
+    with caplog.at_level(logging.ERROR), pytest.raises(WorkReviewOutputError, match="rationale") as caught:
+        _render_public_review_decision(restored, prepared.source)
+    assert private not in str(caught.value)
+    assert any(record.levelno == logging.ERROR for record in caplog.records)
+    assert private not in caplog.text
+
+
+@pytest.mark.parametrize("collection,public_collection", [
+    ("reference_assessments", "required_fact_assessments"),
+    ("delivery_assessments", "delivery_assessments"),
+])
+def test_full_legal_rationale_survives_parse_projection_and_render(collection, public_collection) -> None:
+    """使用公开内容品类的完整长理由原样公开，不截断也不生成替代理由。"""
+    prepared, raw = _prepared_review_and_raw_response()
+    rationale = ("The summary, decisions and action_items agree with the source. " * 10
+                 + "The complete rationale ends here.")
+    _replace_rationale(raw, collection, rationale)
+    decision = parse_work_review(raw, prepared)
+    rendered = _render_public_review_decision(decision, prepared.source)
+    review = json.loads(rendered)["recent_action_results"][0]["work_review"]
+    assert review[public_collection][0]["rationale"] == rationale
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("collection", ["reference_assessments", "delivery_assessments"])
+@pytest.mark.parametrize("private_kind", ["reference", "known_digest"])
+async def test_private_rationale_retries_preserve_evidence_and_publish_only_corrected_feedback(
+    engine_factory, collection, private_kind, caplog,
+) -> None:
+    """私有理由触发现有纠错预算，原始响应留存，结算和下一观察只发布合法反馈。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    _complete_required_work(engine)
+    reviewer = PrivateRationaleReviewer(collection, private_kind)
+    with caplog.at_level(logging.ERROR):
+        result = await _submit_with_review(engine, reviewer, "private-rationale-corrected")
+    assert reviewer.calls == 2 and result.status == "completed"
+    feedback = json.loads(reviewer.requests[1]["messages"][-1]["content"])
+    assert feedback["PREVIOUS_INVALID_RESPONSE"] == reviewer.responses[0]
+    assert "rationale" in feedback["VALIDATION_ERROR"]
+    assert reviewer.private_value not in feedback["VALIDATION_ERROR"]
+    responses = [event for event in engine.store.read_agent_events("model_response", 1)
+                 if event.data.get("purpose") == "work_review"]
+    assert len(responses) == 2
+    assert responses[0].data["response"] == reviewer.responses[0]
+    assert feedback["VALIDATION_ERROR"] in responses[0].data["error"]
+    assert responses[0].visibility == "system"
+    assert reviewer.private_value in json.dumps(responses[0].data["response"])
+    assert any(record.levelno == logging.ERROR for record in caplog.records)
+    assert reviewer.private_value not in caplog.text
+    advance_next(engine)
+    observed = engine.observe(context(engine, "corrected-review-visible"))
+    rendered = render_facts(observed["facts"])
+    assert "Supported by the transcript." in rendered
+    assert reviewer.private_value not in rendered
+
+
+@pytest.mark.asyncio
+async def test_private_rationale_exhaustion_never_settles_work_or_leaks_in_error(engine_factory, caplog) -> None:
+    """三次私有理由均留存原始证据并终止，错误与日志不包含私有值。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    _complete_required_work(engine)
+    reviewer = PrivateRationaleReviewer("delivery_assessments", "known_digest", invalid_attempts=3)
+    balances = dict(engine.state.accounts)
+    with caplog.at_level(logging.ERROR), pytest.raises(ProtocolError, match="remained invalid after three"):
+        await _submit_with_review(engine, reviewer, "private-rationale-exhausted")
+    responses = [event for event in engine.store.read_agent_events("model_response", 1)
+                 if event.data.get("purpose") == "work_review"]
+    assert reviewer.calls == len(responses) == 3
+    assert [event.data["response"] for event in responses] == reviewer.responses
+    assert all("rationale" in event.data["error"] for event in responses)
+    assert all(reviewer.private_value not in event.data["error"] for event in responses)
+    assert reviewer.private_value not in caplog.text
+    assert engine.state.accounts == balances and not engine.state.paid_task_ids
+    assert not any(event.action_id == "action-private-rationale-exhausted"
+                   for event in engine.store.read_agent_events("action_result", 1))
+    engine.abort_decision_round("private-rationale-exhausted", "expected private rationale failure")
+
+
 def test_work_review_request_uses_required_strict_contract() -> None:
     """独立工作验收使用同一 beta strict 参数且本地保留数组非空硬约束。"""
     fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text())
@@ -447,6 +623,9 @@ def test_work_review_request_uses_required_strict_contract() -> None:
     assert prepared.request["tool_choice"] == "required"
     assert prepared.request["max_retries"] == 0
     assert prepared.request["extra_body"] == {"thinking": {"type": "disabled"}}
+    instructions = " ".join(prepared.request["messages"][0]["content"].split())
+    assert "Write each rationale using public content categories" in instructions
+    assert "Never include internal reference identities or SHA-256 digests in a rationale." in instructions
     assert tool["name"] == "submit_work_review" and tool["strict"] is True
     assert tool["parameters"] == WorkReviewResponse.model_json_schema(mode="validation")
     with pytest.raises(ValueError, match="requires reference and delivery"):

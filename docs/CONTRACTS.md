@@ -362,6 +362,11 @@ flowchart LR
 | `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review` |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
+`work_review` 仅包含公开汇总、必需事实判断和交付项判断；嵌套字段也按显式清单选择。
+两类判断的 `rationale` 不得包含本次评审任一内部参考身份或 SHA-256 摘要。
+解析阶段将此类输出作为协议错误，按既有评审预算纠错并保存原始响应；公开投影入口重复验证该边界。
+合法理由完整保留，不截短、不生成替代理由。内部身份、摘要与完整评审证据只留在宿主侧。
+
 ### 体感与动机证据
 
 `body` 分两组：`levels` 是进入提示的体感分级短语，`values` 是只进事件的数值，含 `appetite`、`sleepiness`、`entertainment_need`、`social_need`、`mood_valence`、`sleep_pressure`、`energy_kcal`、`sleep_deficit_hours`。动机评分器继续计算并写入 `motivation_internal`，只供评估与研究，不进提示。
@@ -500,6 +505,10 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、`energy_feasibility`、`observation_event_id`、`motivation_hints`、`game_catalog`、完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，路线坐标与几何不得进入提示。事件级工具支持行（完整任务、路线、商品、可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举，不随提示下发。
 
+结果投影同样递归禁止内部评审字段（`reference_id`、`reference_assessments`、`oracle`、`oracle_path`、
+`input_path`、`expected`）、摘要字段、完整 `activity`、账户及资源变化字段，以及数值身体状态、
+身体常量与 `taste_weights`。体感分级文字仍可见；不能把禁止的数值换一个嵌套位置重新送入提示。
+
 ## 人物决策提示与生成参数
 
 每次提供决策机会时，人物先决策自述，再进入可多回合的行动循环；正常无查询无纠错需要自述、动作、finish 三次请求。
@@ -515,7 +524,8 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 身份前言与只读前言是固定的中文模板。只读决策不启用决策自述阶段，其 user 消息由人物卡片、记忆摘要与外部只读问题组成。
 
-初始环境观察只渲染一次，行动循环的初始 user 逐字节固定。宿主 observations 随工具调用增长，
+每次决策只向环境读取一次观察；自述与行动分别渲染所需内容，行动循环的初始 user 只构造一次并逐字节固定。
+宿主 observations 随工具调用增长，
 其中的完整审计记录不再整体序列化进提示；实际模型消息以原生 assistant/tool 配对承载交互历史。
 
 ### 工具返回通道
@@ -554,7 +564,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | 工具声明 | 每个函数声明 `strict=true` |
 | `reasoning_effort` | 不发送 |
 
-阶段键为 `decision_statement`、`action`、`work_review`。逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。旧阶段名称不接受，也不提供别名或迁移。
+阶段键为 `decision_statement`、`action`、`work_review`。逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。新建、打开既有运行、恢复及从工作区加载均拒绝旧阶段名称，不提供别名或迁移。显式无模型身份的引擎直驱路径不生成替代模型身份。
 
 ### 思考回传
 

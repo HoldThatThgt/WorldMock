@@ -89,6 +89,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
     from worldmock.runtime import two_stage_model_identity
 
     actual = identity if identity is not None else two_stage_model_identity()
+    if not isinstance(actual, dict):
+        raise IntegrityError("Two-stage model identity must be an object")
     problems: list[str] = []
     if actual.get("base_url") != "https://api.deepseek.com/beta":
         problems.append(f"base_url={actual.get('base_url')!r} must include /beta")

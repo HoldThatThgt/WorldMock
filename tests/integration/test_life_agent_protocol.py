@@ -721,10 +721,12 @@ class _StepEnvironment(_Environment):
         self.aborts = []
         self.failures = []
         self.checkpoints = []
+        self.observed_contexts = []
 
     async def observe(self, context: DecisionContext) -> dict:
         """返回带稳定来源事件身份的当前人物观察。"""
         assert context.agent_id == 7
+        self.observed_contexts.append(context)
         return dict(_observations()[0]["data"])
 
     async def scheduling_state(self) -> SchedulingState:
@@ -1281,11 +1283,16 @@ async def test_native_memory_update_hashes_real_workspace_files(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_person_step_records_native_finish_memory_update(tmp_path) -> None:
-    """真实人物步骤把原生 finish 写盘并登记同一工作区身份。"""
+@pytest.mark.parametrize("decision_path", ["normal", "decision_statement_retry", "action_correction"])
+async def test_person_step_records_native_finish_memory_update(tmp_path, decision_path: str) -> None:
+    """真实人物步骤每次仅观察一次，自述重试或行动纠错后仍保存原生 finish。"""
     workspace = tmp_path / "agent_0007"
     environment = _StepEnvironment()
     dispatcher = _StepDispatcher()
+    if decision_path == "decision_statement_retry":
+        dispatcher.decision_statements.insert(0, _DecisionStatementResponse(""))
+    elif decision_path == "action_correction":
+        dispatcher.responses.insert(0, _ModelResponse("call-invalid", "invented_action", "{}"))
     _create_step_workspace(workspace)
     agent = await LifeAgent.from_workspace(
         workspace,
@@ -1296,11 +1303,14 @@ async def test_person_step_records_native_finish_memory_update(tmp_path) -> None
     summary = await agent.step(0, _context().observed_at)
 
     assert summary == "I chose to wait for one minute."
+    assert environment.observed_contexts == [_context()]
     assert len(environment.calls) == 1
-    assert [item.phase for item in environment.evidence] == [
-        "request", "response",
-        "request", "response", "request", "response",
-    ]
+    expected_calls = 3 if decision_path == "normal" else 4
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * expected_calls
+    errors = [item.error for item in environment.evidence if item.error]
+    expected_error = {"normal": [], "decision_statement_retry": ["decision_statement is empty"],
+                      "action_correction": ["unknown native tool calls: ['invented_action']"]}
+    assert errors == expected_error[decision_path]
     assert len(environment.memory_updates) == 1
     evidence = environment.memory_updates[0]
     episodes = [
