@@ -5,6 +5,10 @@
 > 失败：`tests/integration/test_life_agent_protocol.py::test_life_tool_schema_fingerprint_pins_registry_digest`。
 > 当前状态：全部必需验收项已闭合，功能实现、独立语义突变复验、工程门禁及文档一致性通过；无延期项。
 
+下述 3008 项门禁与 136 项语义突变是合入主分支前的独立特性快照。
+合并审查发现并修复了人物模型侧的库存使用合同与份数比较缺口；
+当前完整结果以[合并验证记录](category-contract-main-verification.md)的 3166 项门禁及新增独立复验为准。
+
 | 要求 | 实现位置 | 可执行反例入口 | 状态 |
 | --- | --- | --- | --- |
 | 品类树与只读语义 | `categories/contract.py`、`common.py` | `test_invalid_category_tree_rejected`、`test_frozen_raw_declarations_are_deep_read_only`、`test_effective_attributes_are_deep_read_only` | 已实现；验证通过 |
@@ -17,6 +21,7 @@
 | 算子及守恒 | `categories/rules.py`、`operators.py` | `test_unknown_operator_and_formula_string_rejected`、`test_every_operator_rejects_the_wrong_resource_shape`、`test_fixed_runtime_resources_reject_same_domain_aliases`、`test_closed_inventory_requires_equal_quantities`、`test_money_operators_preserve_exact_amounts_independently_of_decimal_context` | 已实现；验证通过 |
 | 真实结算与系数 | `life/semantics.py`、`work.py`、`engine.py` | `test_purchase_coefficient_changes_real_life_engine_transfer`、`test_food_coefficient_changes_real_life_engine_body_settlement`、`test_travel_coefficient_changes_real_life_engine_payment`、`test_work_coefficient_changes_real_life_engine_payment`、`test_hourly_and_piece_coefficients_change_real_submit_work_payment` | 已实现；验证通过 |
 | 库存转换 | `life/inventory_recipe.py` | `test_recipe_completes_once_and_replayed_action_is_idempotent`、`test_recipe_cancel_and_insufficient_inventory_leave_no_conversion`、`test_recipe_ledger_failure_rolls_back_activity_inventory_and_footprint`、`test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged`、`test_recipe_pause_wait_resume_produces_output_only_once_at_completion`、`test_tiny_recipe_quantity_changes_both_real_inventory_balances`、`test_recipe_completion_fixture_settles_both_balances_and_effects`、`test_recipe_completion_rechecks_pairing_before_inventory_or_effects` | 已实现；验证通过 |
+| 模型侧库存使用 | `life/observe.py`、仓库根目录下 `custom/agents/life_inventory.py` | `test_inventory_only_recipe_survives_real_model_roundtrip`、`test_insufficient_recipe_inventory_is_rejected_by_real_settlement`、`test_held_food_can_be_eaten_without_a_visible_purchase_offer` | 合并补修；验证通过 |
 | 细化影响与触达统计 | `categories/maintenance.py` | `test_refinement_uses_current_attributes_and_reports_unique_ambiguous_and_unmatched`、`test_refinement_reports_rule_and_pairing_changes_and_raw_touch_counts`、`test_refinement_lists_parent_child_and_grandchild_objects_with_their_current_categories`、`test_refinement_reports_removed_rule_and_pairing_with_complete_before_and_after` | 已实现；验证通过 |
 | 新版本发布 | `categories/maintenance.py` | `test_publish_runs_actual_scenario_admission_and_preserves_source`、`test_publication_rejects_real_undefined_route_without_destination_or_source_changes`、`test_publication_rejects_invalid_requests`、`test_atomic_publication_preserves_competing_empty_directory`、`test_publication_rejects_nonincreasing_version_when_catalog_and_real_scenario_are_valid` | 已实现；验证通过 |
 | 运行绑定与导出 | `life/run_identity.py`、`runtime.py` | `test_open_rejects_same_version_changed_content_without_mutating_run`、`test_resume_and_replay_bind_original_identity_before_publishing_branch`、`test_running_semantics_and_export_keep_original_category_identity` | 已实现；验证通过 |
@@ -25,6 +30,7 @@
 实现路径以 `src/worldmock/` 为根。品类测试位于 `tests/categories/`，对象维护测试位于
 `tests/catalog/`，真实动作测试位于 `tests/life/test_category_runtime.py`，身份测试位于
 `tests/integration/test_category_identity.py`。矩阵按行为组合，不以函数数量充当规格覆盖比例。
+模型到结算再到下一轮观察的用例在 `tests/integration/test_category_inventory_protocol.py`。
 
 ## 命令与证据
 
