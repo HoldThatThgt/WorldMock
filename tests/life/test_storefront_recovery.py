@@ -149,6 +149,13 @@ def _business_state(engine):
         engine.store.manifest["map_dataset"])}
 
 
+def _directory_snapshot(root):
+    """@brief 同时核对父目录全部文件字节及文件夹身份，不能只检查业务状态和清单。"""
+    return {path.relative_to(root).as_posix(): (
+        hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None)
+        for path in sorted(root.rglob("*"))}
+
+
 def _finish_order_and_consume(engine, order_id, phase):
     """@brief 待配送时明确等待真实到达，之后按商品身份消费到完成。"""
     assert advance_until_ready(engine)
@@ -197,9 +204,10 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
         checkpoint = reopened.checkpoint({"agent:1": reference})
         _finish_order_and_consume(reopened, order_id, "parent")
         parent_after = _business_state(reopened)
-        parent_manifest = hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest()
+        parent_files = _directory_snapshot(run_dir)
         child_store = reopened.store.restore(checkpoint.checkpoint_id, tmp_path / "restored-branch")
         child_store.close()
+        assert _directory_snapshot(run_dir) == parent_files
         branch = LifeEngine.open(scenario_path, tmp_path / "restored-branch")
         assert _business_state(branch) == expected
         assert branch.state.run_id != reopened.state.run_id
@@ -209,7 +217,7 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
         assert branch.state.agents[1].inventory == reopened.state.agents[1].inventory
         assert branch.state.deliveries[order_id] == reopened.state.deliveries[order_id]
         assert _business_state(reopened) == parent_after
-        assert hashlib.sha256((run_dir / "manifest.json").read_bytes()).hexdigest() == parent_manifest
+        assert _directory_snapshot(run_dir) == parent_files
         events = branch.store.read_agent_events("action_result", 1)
         recorded = next(event.data["data"] for event in events if event.action_id == "action-discover-initial")
         assert recorded == discovery.data

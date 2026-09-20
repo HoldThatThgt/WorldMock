@@ -168,6 +168,16 @@ def test_locations_reject_old_or_inferred_activity_environments(change):
         LocationConfig.model_validate({**location().model_dump(), **change})
 
 
+def test_map_publication_rejects_missing_activity_environment_with_valid_file_identity(tmp_path, caplog):
+    """@brief 文件与哈希完全一致仍不能给缺失的地点活动环境补默认值。"""
+    ref = create_dataset(tmp_path, lambda data: data["locations"][0].pop("location_kinds"))
+    with pytest.raises(IntegrityError, match="Map dataset validation failed") as failure:
+        load_map_dataset(tmp_path, ref)
+    assert "location_kinds" in str(failure.value)
+    assert "Field required" in str(failure.value)
+    assert "Map dataset loading failed" in caplog.text
+
+
 def test_unreachable_status_requires_real_no_route_evidence(tmp_path):
     response = write(tmp_path / "no-route.json", {"code": "NoRoute"})
     def edit(data):

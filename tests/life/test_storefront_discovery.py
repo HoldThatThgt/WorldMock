@@ -40,9 +40,9 @@ def _supply(identity, place, *, product="meal", required=()):
                         required_qualifications=required, source=_source())
 
 
-def _route(place, status, *, seconds=200):
+def _route(place, status, *, seconds=200, origin="home"):
     known = status != "unknown"
-    return RouteConfig(route_id=f"home-{place}-walking", origin_id="home", destination_id=place,
+    return RouteConfig(route_id=f"{origin}-{place}-walking", origin_id=origin, destination_id=place,
                        mode="walking", status=status,
                        distance_meters=300 if status == "reachable" else None,
                        duration_seconds=seconds if status == "reachable" else None,
@@ -64,16 +64,17 @@ def world():
                               supplies_file=SimpleNamespace(sha256="b" * 64),
                               routes_file=SimpleNamespace(sha256="c" * 64))
     product = SimpleNamespace(product_id="meal", name="Meal", energy_kcal_per_unit=500, use_duration_seconds=600)
+    statuses = {"home": "reachable", "store-a": "reachable", "store-b": "unreachable", "store-u": "unknown"}
+    routes = tuple(_route(destination.location_id, statuses[destination.location_id], origin=origin.location_id)
+        for origin in locations for destination in locations if origin.location_id != destination.location_id)
     scenario = SimpleNamespace(locations=locations, supplies=supplies, products=(product,), timezone="Asia/Shanghai",
-                               map_dataset=dataset,
-                               routes=(_route("store-a", "reachable"), _route("store-b", "unreachable"),
-                                       _route("store-u", "unknown")))
+                               map_dataset=dataset, routes=routes)
     agent = AgentState.model_construct(agent_id=1, location_id="home", qualifications=set())
     quotes = {item.supply_id: SupplyQuoteState(price_fen=100 + index, price_version=f"v{index}",
                                               effective_from=NOW - 1, effective_to=None,
                                               source=_source().model_dump(mode="json"))
               for index, item in enumerate(supplies)}
-    state = WorldState.model_construct(current_time=NOW, agents={1: agent}, supply_quotes=quotes,
+    state = WorldState.model_construct(version=0, current_time=NOW, agents={1: agent}, supply_quotes=quotes,
                                        supply_stock={"supply-a": 5, "supply-b": 0, "supply-u": 2},
                                        opening_exceptions={"store-a": {"2026-01-05": []}})
     semantics = SimpleNamespace(travel_planned_seconds=lambda mode, base, now: base * 2,
@@ -196,6 +197,7 @@ def test_discovery_rejects_cursor_for_other_conditions(world, change):
         overrides["max_travel_seconds"] = 400
     elif change == "origin":
         world.agent.location_id = "store-a"
+        assert _query(world)["places"][0]["route"]["origin_id"] == "store-a"
     elif change == "map":
         world.scenario.map_dataset.version = 2
     else:
