@@ -5,12 +5,12 @@ from worldmock.footprints.models import (
     CHAT_INVITE_KIND,
     DECISION_OFFERED_FIELD,
     EventType,
-    INNER_MONOLOGUE_FIELD,
+    DECISION_STATEMENT_FIELD,
     MESSAGE_ARRIVAL_KIND,
     WAKE_REASON_NAMES,
     WAKE_REASONS_FIELD,
     validate_decision_rhythm,
-    validate_inner_monologue,
+    validate_decision_statement,
 )
 
 #: 事件类型冻结枚举（footprints/models.py EventType Literal 的运行时视图）。
@@ -89,12 +89,63 @@ def test_wake_reasons_outside_the_frozen_vocabulary_are_rejected(reasons):
         validate_decision_rhythm({DECISION_OFFERED_FIELD: True, WAKE_REASONS_FIELD: reasons})
 
 
-def test_inner_monologue_field_type_contract():
-    validate_inner_monologue({INNER_MONOLOGUE_FIELD: "有点饿，先吃点东西。"})
-    validate_inner_monologue({"phase": "monologue"})
-    validate_inner_monologue({})
+def test_decision_statement_field_type_contract():
+    validate_decision_statement({DECISION_STATEMENT_FIELD: "有点饿，先吃点东西。"})
+    validate_decision_statement({"phase": "decision_statement"})
+    validate_decision_statement({})
 
     with pytest.raises(ValueError):
-        validate_inner_monologue({INNER_MONOLOGUE_FIELD: 123})
+        validate_decision_statement({DECISION_STATEMENT_FIELD: 123})
     with pytest.raises(ValueError):
-        validate_inner_monologue({INNER_MONOLOGUE_FIELD: ["打算"]})
+        validate_decision_statement({DECISION_STATEMENT_FIELD: ["打算"]})
+
+
+@pytest.mark.parametrize("value", [None, 123, True, ["打算"], {"text": "打算"}])
+def test_decision_statement_validation_is_wired_into_event_drafts(value, caplog):
+    """真实事件入口拒绝不合法自述，独立校验函数不能代替生产接线。"""
+    from worldmock.footprints.models import EventDraft
+
+    with pytest.raises(ValueError, match="decision_statement must be a string"):
+        EventDraft(event_type="decision_started", occurred_at=1, data={DECISION_STATEMENT_FIELD: value})
+
+    assert "Decision statement evidence must be a string" in caplog.text
+
+
+def test_persisted_decision_statement_is_validated_when_reading_events():
+    """读取持久事件复用自述校验，不接受错误类型的导入证据。"""
+    from worldmock.footprints.models import Event, EventDraft
+
+    payload = EventDraft(event_type="decision_started", occurred_at=1).model_dump()
+    payload.update(run_id="run", event_seq=1, recorded_at="2026-09-20T00:00:00Z",
+                   wall_elapsed_ms=0, state_version_before=0, state_version_after=0)
+    assert Event.model_validate(payload).data == {}
+    payload["data"] = {DECISION_STATEMENT_FIELD: ["invalid"]}
+
+    with pytest.raises(ValueError, match="decision_statement must be a string"):
+        Event.model_validate(payload)
+
+
+def test_direct_engine_decision_can_omit_statement_without_fabrication():
+    """未经过模型的引擎决策不制造自述字段。"""
+    from worldmock.footprints.models import EventDraft
+
+    event = EventDraft(event_type="decision_started", occurred_at=1, data={"round_id": "round"})
+    assert event.data == {"round_id": "round"}
+
+
+def test_store_revalidates_decision_statement_before_persisting_mutated_draft(tmp_path):
+    """草稿创建后被破坏的字段也不能通过真实存储入口写入。"""
+    from worldmock.footprints.models import EventDraft
+    from worldmock.footprints.store import FootprintStore
+
+    store = FootprintStore.create(tmp_path / "run", {"run_id": "run"}, {"version": 0, "current_time": 1})
+    try:
+        draft = EventDraft(event_type="decision_started", occurred_at=store.state["current_time"],
+                           data={DECISION_STATEMENT_FIELD: "我想先歇一会儿。"})
+        draft.data[DECISION_STATEMENT_FIELD] = ["invalid"]
+        previous = store.last_event_seq
+        with pytest.raises(ValueError, match="decision_statement must be a string"):
+            store.commit(store.state, [draft])
+        assert store.last_event_seq == previous
+    finally:
+        store.close()

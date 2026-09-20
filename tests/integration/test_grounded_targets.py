@@ -222,7 +222,7 @@ def test_prepare_binds_current_catalogs_to_native_strict_schema() -> None:
         "content-visible", "game-visible", "message-visible", "product_catalog", "task-a", "task-b",
     ]
     assert "work uses tasks[].task_id" in properties["activity_type"]["description"]
-    assert "read_mail = messages[].message_id" in properties["target_id"]["description"]
+    assert "read_mail = the id of a facts.inbox entry whose kind is mail" in properties["target_id"]["description"]
     Draft202012Validator.check_schema(parameters)
 
 

@@ -59,19 +59,19 @@ def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
 
 
 def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
-    """两阶段身份：独白/行动/工作验收参数与 LifeAgent 常量单一事实源一致。"""
+    """两阶段身份：决策自述/行动/工作验收参数与 LifeAgent 常量单一事实源一致。"""
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
-        MONOLOGUE_MAX_TOKENS,
-        MONOLOGUE_TEMPERATURE,
+        DECISION_STATEMENT_MAX_TOKENS,
+        DECISION_STATEMENT_TEMPERATURE,
     )
 
     identity = two_stage_model_identity()
     stages = identity["stages"]
 
-    assert stages["monologue"] == {"thinking": "disabled", "temperature": MONOLOGUE_TEMPERATURE,
-                                   "max_tokens": MONOLOGUE_MAX_TOKENS, "tools": None,
+    assert stages["decision_statement"] == {"thinking": "disabled", "temperature": DECISION_STATEMENT_TEMPERATURE,
+                                   "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None,
                                    "tool_choice": None}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
                                 "tool_choice": ACTION_TOOL_CHOICE}
@@ -89,8 +89,8 @@ def test_two_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
     validate_two_stage_model_identity(identity)
 
     tampered = copy.deepcopy(identity)
-    tampered["stages"]["monologue"]["temperature"] = 0.7
-    with pytest.raises(IntegrityError, match="monologue"):
+    tampered["stages"]["decision_statement"]["temperature"] = 0.7
+    with pytest.raises(IntegrityError, match="decision_statement"):
         validate_two_stage_model_identity(tampered)
 
     no_beta = copy.deepcopy(identity)

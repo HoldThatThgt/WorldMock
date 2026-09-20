@@ -20,22 +20,23 @@ from agentsociety2.agent.base import (
     ReactToolResult,
 )
 from agentsociety2.society import DirectToolCall
+from custom.agents.life_context import decision_statement_content, persona_card_text
 from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.narration import (
-    MonologueValidationError,
+    DecisionStatementValidationError,
     compose_user_message,
     enforce_budgets,
     render_facts,
     render_scene,
-    validate_monologue,
+    validate_decision_statement,
 )
 from worldmock.life.schedule import INTENT_KINDS
 
 
-#: 独白阶段采样参数（DeepSeek 一般对话推荐温度 1.3，两阶段决策合同）。
-MONOLOGUE_TEMPERATURE = 1.3
-#: 独白阶段输出上限（两阶段决策合同：一到三句、≤200 汉字）。
-MONOLOGUE_MAX_TOKENS = 400
+#: 决策自述阶段采样参数（DeepSeek 一般对话推荐温度 1.3，两阶段决策合同）。
+DECISION_STATEMENT_TEMPERATURE = 1.3
+#: 决策自述阶段输出上限（两阶段决策合同：一到三句、≤200 汉字）。
+DECISION_STATEMENT_MAX_TOKENS = 400
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
@@ -328,7 +329,9 @@ _TOOL_DESCRIPTIONS = {
         "Finish after exactly one submitted life action; finish must be the only tool "
         "call in its response. memories holds zero to eight episodes written in the "
         "person's own words; never put event identifiers, request hashes, or any "
-        "hexadecimal identifier inside memory text. Every ref must use an allowed "
+        "hexadecimal identifier inside memory text. Record observed facts and your "
+        "intentions only; never claim that the pending action has succeeded. "
+        "Every ref must use an allowed "
         "source ID from this schema: the current observation_event_id, current "
         "recent_action_results[].event_id, or a durable episode ID actually shown in "
         "this decision. Never use action_id, decision_id, round_id, request hashes, "
@@ -457,13 +460,14 @@ _TARGET_KIND_DESCRIPTION = (
     "Choose only a kind with a currently visible target: work uses tasks[].task_id; "
     "watch uses item_id values revealed by a recent browse_activities result or listed in "
     "content_progress; play_game uses the game IDs of the currently available games; "
-    "read_mail uses messages[].message_id; browse uses browse_targets[]."
+    "read_mail uses the id of a facts.inbox entry whose kind is mail; browse uses browse_targets[]."
 )
 
 _TARGET_ID_DESCRIPTION = (
     "Use the exact visible ID paired with activity_type: work = tasks[].task_id; "
     "watch = item_id from recent browse_activities results or content_progress; "
-    "play_game = a game ID of the currently available games; read_mail = messages[].message_id; "
+    "play_game = a game ID of the currently available games; "
+    "read_mail = the id of a facts.inbox entry whose kind is mail; "
     "browse = browse_targets[]."
 )
 
@@ -494,6 +498,14 @@ _READONLY_INSTRUCTIONS = """
 先按需要使用提供的记忆查询工具，再单独调用一次 finish 给出答案；
 不要把答案写在正文里。
 """.strip()
+
+#: 决策自述的显式生成要求；确定性校验仅负责非空与汉字上限。
+_DECISION_STATEMENT_INSTRUCTIONS = (
+    "\n\n请用一至三句第一人称中文，说出你此刻的感受和打算，最多二百汉字。")
+
+#: 世界结果尚未结算，模型只收到不带内部身份的固定登记确认。
+_ACTION_REGISTRATION_CONFIRMATION = (
+    "Your action has been registered for later settlement. Its outcome will appear in your next observation.")
 
 _REACT_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
 
@@ -582,6 +594,7 @@ class LifeAgent(PersonAgent):
             first["content"] += _LOW_BUDGET_SENTENCE.format(phase=budget["phase"])
         first["content"] += _REACT_BUDGET_MARKER + json.dumps(
             budget, ensure_ascii=False, sort_keys=True)
+        enforce_budgets(0, len(first["content"]))
         request = super()._model_request([first, *messages[1:]], tools)
         request["tool_choice"] = ACTION_TOOL_CHOICE
         request["extra_body"] = dict(ACTION_THINKING)
@@ -630,26 +643,8 @@ class LifeAgent(PersonAgent):
         return {**self._life_action_models, **memory}
 
     def _persona_card_text(self) -> str:
-        """@brief 从人物档案确定性渲染提示用人物卡片文本（≤600 汉字）。
-
-        档案若携带画像编译产出的 persona_card 文本则直接使用；否则由
-        background_story / health_habits / social_style 等安全字段组装。
-        黑名单字段（motivation、entertainment_preferences）不会进入。
-        """
-        profile = self.get_profile()
-        card = profile.get("persona_card")
-        if isinstance(card, str) and card.strip():
-            return card.strip()
-        lines = [f"你是{self.name or '这个人'}。"]
-        for key, lead in (
-            ("background_story", "你的经历："),
-            ("health_habits", "你的健康习惯："),
-            ("social_style", "你的社交风格："),
-        ):
-            value = profile.get(key)
-            if isinstance(value, str) and value.strip():
-                lines.append(f"{lead}{value.strip()}")
-        return "\n".join(lines)
+        """@brief 从公开人物档案字段确定性渲染提示用人物卡片。"""
+        return persona_card_text(self.get_profile(), self.name)
 
     def _memory_prompt_section(self) -> str:
         """@brief 渲染持久记忆摘要段并冻结其可见记忆身份。"""
@@ -671,9 +666,9 @@ class LifeAgent(PersonAgent):
         return "\n\n".join(parts)
 
     def _life_user_sections(self, request: ReactLoopRequest, *, with_facts: bool) -> str:
-        """@brief 组装三段 user 消息文本（persona + scene + 记忆 [+ facts + 独白]）。
+        """@brief 组装三段 user 消息文本（persona + scene + 记忆 [+ facts + 决策自述]）。
 
-        独白阶段只取 persona + scene + 记忆摘要；行动阶段再追加 facts 与
+        决策自述阶段只取 persona + scene + 记忆摘要；行动阶段再追加 facts 与
         "你刚才心里想的是"（docs/dev/SPEC-life-realism.md「两阶段决策」）。scene/facts 由
         narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本。
         """
@@ -686,9 +681,9 @@ class LifeAgent(PersonAgent):
             return core
         facts = render_facts(_facts_projection(data))
         parts = [core, facts]
-        monologue = getattr(self, "_life_monologue", None)
-        if monologue:
-            parts.append(f"你刚才心里想的是：{monologue}")
+        decision_statement = getattr(self, "_life_decision_statement", None)
+        if decision_statement:
+            parts.append(f"你刚才心里想的是：{decision_statement}")
         user = "\n\n".join(parts)
         enforce_budgets(len(user), 0)
         return user
@@ -698,7 +693,8 @@ class LifeAgent(PersonAgent):
         template = _READONLY_INSTRUCTIONS if request.readonly else _LIFE_INSTRUCTIONS
         system = template.format(name=self.name or "this person")
         if request.readonly:
-            sections = [self._persona_card_text(), self._memory_prompt_section()]
+            sections = [compose_user_message(
+                self._persona_card_text(), "", self._memory_prompt_section())]
             if request.question is not None:
                 sections.append(f"外部只读问题：{request.question}")
             user = "\n\n".join(section for section in sections if section)
@@ -710,17 +706,19 @@ class LifeAgent(PersonAgent):
             {"role": "user", "content": user},
         ]
 
-    def prelude_monologue_request(self, request: ReactLoopRequest) -> dict[str, Any] | None:
-        """@brief 两阶段决策的独白请求参数；只读决策不启用独白。
+    def prelude_decision_statement_request(self, request: ReactLoopRequest) -> dict[str, Any] | None:
+        """@brief 两阶段决策的决策自述请求参数；只读决策不启用决策自述。
 
-        独白 = system 身份前言 + persona_card + scene + 记忆摘要，不带
+        决策自述 = system 身份前言 + persona_card + scene + 记忆摘要，不带
         tools；thinking=disabled、temperature=1.3、max_tokens=400。
         """
         if request.readonly:
             return None
         if self._model_name is None:
+            self._logger.error("Decision statement model is not initialized")
             raise RuntimeError("LLM is not initialized")
-        system = _LIFE_INSTRUCTIONS.format(name=self.name or "this person")
+        system = (_LIFE_INSTRUCTIONS.format(name=self.name or "this person")
+                  + _DECISION_STATEMENT_INSTRUCTIONS)
         user = self._life_user_sections(request, with_facts=False)
         enforce_budgets(len(user), len(system))
         return {
@@ -730,45 +728,48 @@ class LifeAgent(PersonAgent):
                 {"role": "user", "content": user},
             ],
             "stream": False,
-            "temperature": MONOLOGUE_TEMPERATURE,
-            "max_tokens": MONOLOGUE_MAX_TOKENS,
+            "temperature": DECISION_STATEMENT_TEMPERATURE,
+            "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
             "max_retries": 0,
             "extra_body": {"thinking": {"type": "disabled"}},
         }
 
-    def receive_prelude_monologue(self, request: ReactLoopRequest, monologue: str) -> None:
-        """@brief 接收已通过协议校验的独白文本，供行动阶段消息引用。"""
+    def receive_prelude_decision_statement(self, request: ReactLoopRequest, decision_statement: str) -> None:
+        """@brief 接收已通过协议校验的决策自述文本，供行动阶段消息引用。"""
         del request
-        self._life_monologue = monologue
+        self._life_decision_statement = decision_statement
 
-    async def _run_prelude_monologue(self, request: ReactLoopRequest) -> None:
-        """@brief 执行单次无工具独白；超长或空消耗一个回合后重试一次。
+    async def _run_prelude_decision_statement(self, request: ReactLoopRequest) -> None:
+        """@brief 执行单次无工具决策自述；超长或空消耗一个回合后重试一次。
 
-        两次失败即本次决策失败（docs/dev/SPEC-life-realism.md「两阶段决策」）。独白经完整
+        两次失败即本次决策失败（docs/dev/SPEC-life-realism.md「两阶段决策」）。决策自述经完整
         model_request/model_response 证据路径保存；传输异常立即传播。
         """
-        params = self.prelude_monologue_request(request)
+        params = self.prelude_decision_statement_request(request)
         if not params:
             return
-        if params.get("tools"):
-            raise RuntimeError("Prelude monologue request must not expose tools")
-        self._life_require_turns("monologue", 3)
-        last_error: MonologueValidationError | None = None
+        if "tools" in params:
+            self._logger.error("Decision statement request must not expose tools")
+            raise RuntimeError("Prelude decision_statement request must not expose tools")
+        last_error: DecisionStatementValidationError | None = None
         for _attempt in (1, 2):
-            monologue, last_error = await self._monologue_once(params)
-            if monologue is not None:
-                self.receive_prelude_monologue(request, monologue)
+            self._life_require_turns("decision_statement", 3)
+            decision_statement, last_error = await self._decision_statement_once(params)
+            if decision_statement is not None:
+                self.receive_prelude_decision_statement(request, decision_statement)
                 return
-        raise RuntimeError(
-            f"Prelude monologue failed the protocol twice: {last_error}")
+        message = f"Prelude decision_statement failed the protocol twice: {last_error}"
+        self._logger.error("%s", message)
+        raise RuntimeError(message)
 
-    async def _monologue_once(
-        self, params: dict[str, Any]) -> tuple[str | None, MonologueValidationError | None]:
-        """@brief 调用一次独白模型并保存带校验结果的完整证据。
+    async def _decision_statement_once(
+        self, params: dict[str, Any]) -> tuple[str | None, DecisionStatementValidationError | None]:
+        """@brief 调用一次决策自述模型并保存带校验结果的完整证据。
 
-        :returns: (通过校验的独白文本或空值, 协议错误或空值)。
+        :returns: (通过校验的决策自述文本或空值, 协议错误或空值)。
         """
         if self._dispatcher is None:
+            self._logger.error("Decision statement dispatcher is not initialized")
             raise RuntimeError("LLM is not initialized")
         context = getattr(self, "_decision_context", None)
         call_id = self._next_model_call_id(1)
@@ -777,14 +778,16 @@ class LifeAgent(PersonAgent):
         try:
             response = await self._dispatcher.call(**params)
         except Exception as exc:
+            self._logger.error("Decision statement transport failed: %s", exc)
             await self._record_model_evidence(
                 ModelCallEvidence(context, call_id, "failure", 1, params, error=repr(exc)))
             raise
-        text = _monologue_content(response)
+        text = decision_statement_content(response)
         try:
-            monologue = validate_monologue(text)
-        except MonologueValidationError as error:
-            monologue, validated_error = None, error
+            decision_statement = validate_decision_statement(text)
+        except DecisionStatementValidationError as error:
+            self._logger.error("Decision statement protocol validation failed: %s", error)
+            decision_statement, validated_error = None, error
         else:
             validated_error = None
         await self._record_model_evidence(
@@ -794,7 +797,7 @@ class LifeAgent(PersonAgent):
                 error=None if validated_error is None else str(validated_error),
             )
         )
-        return monologue, validated_error
+        return decision_statement, validated_error
 
     def memory_sleep_boundary(self) -> bool:
         """@brief 报告本步骤是否为人物进入睡眠后的第一个边界。
@@ -810,7 +813,7 @@ class LifeAgent(PersonAgent):
         self._life_action_count = 0
         self._life_readonly = request.readonly
         self._life_request_models = None
-        self._life_monologue = None
+        self._life_decision_statement = None
         if request.readonly:
             self._life_visible_refs = set()
             self._life_visible_targets = {}
@@ -949,6 +952,12 @@ class LifeAgent(PersonAgent):
         data = validated.model_dump(mode="json")
         return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
 
+    def _append_react_tool_result(self, decision: ReactDecision, result: ReactToolResult) -> None:
+        """@brief 模型只见生活动作登记语义，宿主仍保留完整回执与记忆查询结果。"""
+        if decision.action in REQUEST_MODELS:
+            result = ReactToolResult(True, _ACTION_REGISTRATION_CONFIRMATION, {})
+        super()._append_react_tool_result(decision, result)
+
     def _dispatch_strict_memory(
         self,
         action: str,
@@ -969,13 +978,6 @@ class LifeAgent(PersonAgent):
                 raise RuntimeError("Memory reference does not exist")
         self._life_visible_refs.update(_episode_ids(data.get("episodes", [])))
         return ReactToolResult(True, observation, data)
-
-
-def _monologue_content(response: Any) -> str:
-    """@brief 严格提取独白响应正文（空白视同空文本，交由协议校验拒绝）。"""
-    choices = getattr(response, "choices", None)
-    message = getattr(choices[0], "message", None) if choices else None
-    return str(getattr(message, "content", "") or "").strip()
 
 
 def _validate_request(model: type[BaseModel], values: dict[str, Any]) -> BaseModel:
@@ -1918,8 +1920,14 @@ def _episode_ids(episodes: Any) -> set[str]:
 
 
 def life_prompt_sha256() -> str:
-    """@brief 返回正式 LifeAgent 指令模板的稳定 SHA-256。"""
-    return hashlib.sha256(_LIFE_INSTRUCTIONS.encode()).hexdigest()
+    """@brief 将身份、自述要求及只读指令全部绑定为稳定模板身份。"""
+    templates = {
+        "life": _LIFE_INSTRUCTIONS,
+        "decision_statement": _DECISION_STATEMENT_INSTRUCTIONS,
+        "readonly": _READONLY_INSTRUCTIONS,
+    }
+    encoded = json.dumps(templates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode()).hexdigest()
 
 
 def affordance_registry_sha256() -> str:
@@ -1934,8 +1942,8 @@ def affordance_registry_sha256() -> str:
 def life_tool_schema_sha256() -> str:
     """@brief 返回正式生活决策闭集工具 Schema + 注册表摘要的稳定 SHA-256。
 
-    家族相关工具描述自注册表合同拼装、指纹输入再并入 affordances.toml 的
-    字节摘要——注册表变则工具面变则指纹变，审计链闭合。
+    家族相关工具描述自注册表合同拼装，指纹还绑定运行期目标字段描述与
+    affordances.toml 字节摘要，确保提示字段指路和工具面一起留证。
     """
     from worldmock.catalog.affordances import default_affordances
     from worldmock.life.engine import affordance_contract
@@ -1946,6 +1954,8 @@ def life_tool_schema_sha256() -> str:
                for name in _TOOL_MODELS]
     encoded = json.dumps(
         {"tool_schemas": schemas,
+         "target_kind_description": _TARGET_KIND_DESCRIPTION,
+         "target_id_description": _TARGET_ID_DESCRIPTION,
          "affordance_registry_sha256": affordance_registry_sha256()},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()

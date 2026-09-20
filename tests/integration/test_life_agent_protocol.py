@@ -29,8 +29,8 @@ from agentsociety2.society import (
 )
 from custom.agents.life_agent import (
     LifeAgent,
-    MONOLOGUE_MAX_TOKENS,
-    MONOLOGUE_TEMPERATURE,
+    DECISION_STATEMENT_MAX_TOKENS,
+    DECISION_STATEMENT_TEMPERATURE,
     life_prompt_sha256,
     life_tool_schema_sha256,
 )
@@ -210,7 +210,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 随身持有与远程订购重钉：`purchase` 的 `description` 按
 #: docs/dev/SPEC-life-runtime.md「随身持有与远程订购」点明「配送不受在场约束、
 #: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "cdffee51c9570ba626861bf5ba8d5eb744c270e7cbc93c73ae4f12bb8edab3bd"
+#: 决策上下文重钉：基线已包含注册表注释与模型描述的字节变动；本次将
+#: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
+_PINNED_TOOL_SCHEMA_SHA256 = "dd2c1490f5ad9306e95fe23828665b9f0338164cdeb2477fb009d3073a9b639e"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -401,7 +403,7 @@ def test_react_messages_are_three_parts_and_observation_written_once() -> None:
     agent._profile = {"id": 7, "name": "Alice",
                       "background_story": "在上海张江做工程师，工作认真。"}
     agent._enable_memory = False
-    agent._life_monologue = "先喝口水，再回消息。"
+    agent._life_decision_statement = "先喝口水，再回消息。"
     request = ReactLoopRequest(0, _context().observed_at, _observations())
 
     messages = agent.build_react_messages(request)
@@ -490,8 +492,8 @@ class _ModelResponse:
         }], "reasoning_content": self._reasoning_content}}]}
 
 
-class _MonologueResponse:
-    """提供两阶段决策独白阶段的无工具纯文本响应。"""
+class _DecisionStatementResponse:
+    """提供两阶段决策决策自述阶段的无工具纯文本响应。"""
 
     def __init__(self, content: str) -> None:
         self.choices = [SimpleNamespace(message=SimpleNamespace(
@@ -499,7 +501,7 @@ class _MonologueResponse:
         self._content = content
 
     def model_dump(self, *, mode: str) -> dict:
-        """返回独白响应的最小 JSON 序列化。"""
+        """返回决策自述响应的最小 JSON 序列化。"""
         assert mode == "json"
         return {"choices": [{"message": {"content": self._content, "tool_calls": []}}]}
 
@@ -535,18 +537,18 @@ class _MultipleModelResponse:
         return {"choices": [{"message": {"tool_calls": tool_calls}}]}
 
 
-def _assert_monologue_wire(request: dict) -> None:
-    """核对独白请求的 wire 形状：无工具、1.3 温度、400 上限、思考关闭。"""
+def _assert_decision_statement_wire(request: dict) -> None:
+    """核对决策自述请求的 wire 形状：无工具、1.3 温度、400 上限、思考关闭。"""
     assert "tools" not in request
     assert "tool_choice" not in request
-    assert request["temperature"] == MONOLOGUE_TEMPERATURE
-    assert request["max_tokens"] == MONOLOGUE_MAX_TOKENS
+    assert request["temperature"] == DECISION_STATEMENT_TEMPERATURE
+    assert request["max_tokens"] == DECISION_STATEMENT_MAX_TOKENS
     assert request["max_retries"] == 0
     assert request["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 class _Dispatcher:
-    """按顺序返回独白、生活动作、动作后记忆读取和结束调用。"""
+    """按顺序返回决策自述、生活动作、动作后记忆读取和结束调用。"""
 
     model_name = "deepseek-flash"
 
@@ -564,14 +566,14 @@ class _Dispatcher:
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ]
-        self.monologues = [_MonologueResponse("有点累，先歇一分钟再干活。")]
+        self.decision_statements = [_DecisionStatementResponse("有点累，先歇一分钟再干活。")]
 
     async def call(self, **request):
-        """返回独白或下一个原生工具响应。"""
+        """返回决策自述或下一个原生工具响应。"""
         self.requests.append(request)
         if "tools" not in request:
-            _assert_monologue_wire(request)
-            return self.monologues.pop(0)
+            _assert_decision_statement_wire(request)
+            return self.decision_statements.pop(0)
         assert request["tool_choice"] == "auto"
         assert request["max_retries"] == 0
         assert "reasoning_effort" not in request
@@ -629,7 +631,7 @@ class _Environment:
 
 
 class _StepDispatcher:
-    """返回独白、一个生活动作和原生 finish。"""
+    """返回决策自述、一个生活动作和原生 finish。"""
 
     model_name = "deepseek-flash"
 
@@ -643,13 +645,13 @@ class _StepDispatcher:
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ]
-        self.monologues = [_MonologueResponse("先把手头的事做完。")]
+        self.decision_statements = [_DecisionStatementResponse("先把手头的事做完。")]
 
     async def call(self, **request):
-        """返回独白或下一个严格工具响应。"""
+        """返回决策自述或下一个严格工具响应。"""
         self.requests.append(request)
         if "tools" not in request:
-            return self.monologues.pop(0)
+            return self.decision_statements.pop(0)
         return self.responses.pop(0)
 
 
@@ -673,7 +675,7 @@ class _GroundedCorrectionDispatcher:
     model_name = "deepseek-flash"
 
     def __init__(self, responses: list[_ModelResponse] | None = None,
-                 monologues: list[_MonologueResponse] | None = None) -> None:
+                 decision_statements: list[_DecisionStatementResponse] | None = None) -> None:
         self.requests = []
         defaults = [
             _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
@@ -695,14 +697,14 @@ class _GroundedCorrectionDispatcher:
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ]
         self.responses = list(responses) if responses is not None else defaults
-        self.monologues = monologues if monologues is not None else [
-            _MonologueResponse("先查查昨天做了什么。")]
+        self.decision_statements = decision_statements if decision_statements is not None else [
+            _DecisionStatementResponse("先查查昨天做了什么。")]
 
     async def call(self, **request):
-        """记录真实 wire 并返回独白或下一个协议响应。"""
+        """记录真实 wire 并返回决策自述或下一个协议响应。"""
         self.requests.append(request)
         if "tools" not in request:
-            return self.monologues.pop(0)
+            return self.decision_statements.pop(0)
         return self.responses.pop(0)
 
 
@@ -803,7 +805,7 @@ def _wire_agent(agent: LifeAgent, environment: _Environment, dispatcher,
 
 @pytest.mark.asyncio
 async def test_native_react_submits_one_host_bound_life_action() -> None:
-    """原生 ReAct 完成独白、动作、收据观察与后续结束调用。"""
+    """原生 ReAct 完成决策自述、动作、收据观察与后续结束调用。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _Dispatcher()
@@ -834,7 +836,8 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     ]
     assert second["messages"][-1]["tool_call_id"] == "call-action"
     assert third["messages"][-1]["tool_call_id"] == "call-memory"
-    assert "decision:action:0001" in second["messages"][-1]["content"]
+    assert "decision:action:0001" not in second["messages"][-1]["content"]
+    assert "registered for later settlement" in second["messages"][-1]["content"]
     assert "m_prior" in third["messages"][-1]["content"]
     assert second["messages"][1] == first["messages"][1]
     assert third["messages"][1] == first["messages"][1]
@@ -880,8 +883,8 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
 
 
 @pytest.mark.asyncio
-async def test_two_stage_monologue_evidence_and_single_retry() -> None:
-    """独白空文本消耗一个回合重试一次，第二次成功进入行动消息。"""
+async def test_two_stage_decision_statement_evidence_and_single_retry() -> None:
+    """决策自述空文本消耗一个回合重试一次，第二次成功进入行动消息。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _GroundedCorrectionDispatcher(
@@ -893,9 +896,9 @@ async def test_two_stage_monologue_evidence_and_single_retry() -> None:
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ],
-        monologues=[
-            _MonologueResponse(""),
-            _MonologueResponse("有点累，先歇一分钟再干活。"),
+        decision_statements=[
+            _DecisionStatementResponse(""),
+            _DecisionStatementResponse("有点累，先歇一分钟再干活。"),
         ],
     )
     _wire_agent(agent, environment, dispatcher, 4)
@@ -903,8 +906,8 @@ async def test_two_stage_monologue_evidence_and_single_retry() -> None:
     await agent.run_react_loop(
         ReactLoopRequest(0, _context().observed_at, _observations()))
 
-    monologue_requests = [item for item in dispatcher.requests if "tools" not in item]
-    assert len(monologue_requests) == 2
+    decision_statement_requests = [item for item in dispatcher.requests if "tools" not in item]
+    assert len(decision_statement_requests) == 2
     assert [item.phase for item in environment.evidence] == [
         "request", "response", "request", "response",
         "request", "response", "request", "response",
@@ -916,16 +919,16 @@ async def test_two_stage_monologue_evidence_and_single_retry() -> None:
         environment.evidence[2].request["messages"][1]["content"])
     assert "你刚才心里想的是：有点累，先歇一分钟再干活。" in (
         dispatcher.requests[2]["messages"][1]["content"])
-    assert agent._life_monologue == "有点累，先歇一分钟再干活。"
+    assert agent._life_decision_statement == "有点累，先歇一分钟再干活。"
 
 
 @pytest.mark.asyncio
-async def test_monologue_failing_twice_fails_the_whole_decision() -> None:
-    """独白连续两次协议失败即本次决策失败，不再进入行动阶段。"""
+async def test_decision_statement_failing_twice_fails_the_whole_decision() -> None:
+    """决策自述连续两次协议失败即本次决策失败，不再进入行动阶段。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _GroundedCorrectionDispatcher(
-        monologues=[_MonologueResponse(""), _MonologueResponse("")])
+        decision_statements=[_DecisionStatementResponse(""), _DecisionStatementResponse("")])
     _wire_agent(agent, environment, dispatcher, 4)
 
     with pytest.raises(RuntimeError, match="failed the protocol twice"):
@@ -953,12 +956,12 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
 
     requests = [item for item in environment.evidence if item.phase == "request"]
     responses = [item for item in environment.evidence if item.phase == "response"]
-    # 独白请求关闭思考；行动阶段请求钉死思考开启与 DeepSeek thinking 兼容 tool_choice。
+    # 决策自述请求关闭思考；行动阶段请求钉死思考开启与 DeepSeek thinking 兼容 tool_choice。
     assert requests[0].request["extra_body"] == {"thinking": {"type": "disabled"}}
     for item in requests[1:]:
         assert item.request["extra_body"] == {"thinking": {"type": "enabled"}}
         assert item.request["tool_choice"] == "auto"
-    # 独白响应是纯文本；正例：带 reasoning_content 的响应按原样进入足迹事件。
+    # 决策自述响应是纯文本；正例：带 reasoning_content 的响应按原样进入足迹事件。
     assert responses[0].response["choices"][0]["message"]["content"] == (
         "有点累，先歇一分钟再干活。")
     first_message = responses[1].response["choices"][0]["message"]
@@ -1121,7 +1124,7 @@ def test_life_actions_are_removed_after_one_submission() -> None:
 
 @pytest.mark.asyncio
 async def test_native_react_rejects_impossible_one_turn_life_decision() -> None:
-    """动作前不足独白加动作加结束回合时不发送注定失败的请求。"""
+    """动作前不足决策自述加动作加结束回合时不发送注定失败的请求。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _PrematureFinishDispatcher()

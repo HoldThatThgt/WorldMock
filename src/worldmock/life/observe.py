@@ -162,7 +162,7 @@ class ObservationMixin:
         return rows
 
     def _reachable_places(self, agent) -> list[dict]:
-        """@brief scene 可达地点行：名称/营业状态/约分钟。"""
+        """@brief scene 可达地点行只含名称与营业状态，分钟数留在事实与工具行。"""
         open_hour = projection.hour_of_day(self.state.current_time, self.scenario.timezone)
         rows = []
         for route in self.scenario.routes:
@@ -170,11 +170,8 @@ class ObservationMixin:
                 continue
             location = next(item for item in self.scenario.locations
                             if item.location_id == route.destination_id)
-            planned = self.semantics.travel_planned_seconds(
-                route.mode.value, route.duration_seconds, self.state.current_time)
             rows.append({"name": location.name,
-                         "open": location.open_hour <= open_hour < location.close_hour,
-                         "minutes": round(planned / 60)})
+                         "open": location.open_hour <= open_hour < location.close_hour})
         return rows
 
     def _product_rows(self, agent) -> list[dict]:

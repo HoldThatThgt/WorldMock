@@ -17,16 +17,13 @@ from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.footprints.models import (
-    DECISION_OFFERED_FIELD,
-    RESOURCE_FLOWS_FIELD,
-    AssetRef,
-    EventDraft,
-    validate_resource_flows,
+    DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
+    AssetRef, EventDraft, validate_resource_flows,
 )
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
-                                            maybe_monologue_start, pop_decision_start)
+                                            maybe_decision_statement_start, pop_decision_start)
 from worldmock.life.activities import (
     ActivityAdvance,
     ActivityOrigin,
@@ -272,7 +269,7 @@ class LifeEngine(ObservationMixin):
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
-        """@brief 持久化观察顺序；decision_started 延迟到独白可得时写（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
+        """@brief 持久化观察顺序；decision_started 延迟到决策自述可得时写（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
         if self._round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -527,7 +524,7 @@ class LifeEngine(ObservationMixin):
         else:
             self._model_request_events.pop(key)
         self._ops_exchange(context, exchange)
-        start = maybe_monologue_start(self._pending_decision_starts, context.agent_id,
+        start = maybe_decision_statement_start(self._pending_decision_starts, context.agent_id,
                                       self.state.current_time, exchange)
         if start is not None:
             commit_state(self.store, self.state, [start])
@@ -1639,6 +1636,9 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity,
                   two_stage_identity: dict | None = None) -> dict:
     """@brief 绑定新运行的场景、内容、人物身份与两阶段请求形状。"""
+    if two_stage_identity is not None:
+        from worldmock.validation import validate_two_stage_model_identity
+        validate_two_stage_model_identity(two_stage_identity)
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id,
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
@@ -1997,4 +1997,3 @@ def _remaining_activity_energy(activity, agent, body) -> dict:
     feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
     return {"remaining_duration_seconds": remaining, "minimum_energy_cost_kcal": cost,
             "resume_energy_feasible": feasible}
-

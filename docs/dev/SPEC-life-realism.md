@@ -10,8 +10,8 @@
 
 人物自己决定怎么过日子。本规格规定其中两件事：每次决策给模型看什么，以及模型说了什么要留下什么。
 
-环境每提供一次决策机会，人物模型就分两阶段调用一次。先独白：用第一人称说出此刻的感受与打算，不带工具。再行动：
-走现有 ReAct 回合，携带事实与原生工具，恰好提交一个生活动作。两次调用都留完整证据；独白是人物私有内容，
+环境每提供一次决策机会，人物模型先决策自述：用第一人称说出此刻的感受与打算，不带工具。再行动：
+走现有 ReAct 循环，携带事实与原生工具，恰好提交一个生活动作再 finish。每次请求都留完整证据；决策自述是人物私有内容，
 只允许 dreaming 任务读取。人物每天第一次醒来时先提交当日计划，覆盖到当日就寝；计划是人物的自我承诺，
 环境不执行计划步，到达某一段起点只构成一次唤醒条件，由人物当场决定是否照做。人物提交的记忆可以为空，
 有新事件才写；写入前按相似度合并，累计到阈值、待巩固条数达到十条或入睡后的第一个边界时重写长期记忆，
@@ -29,10 +29,10 @@
 flowchart TD
     BS[background_story] --> PC[画像编译产出人物卡片]
     PC --> TXT[确定性渲染 不超过 600 汉字]
-    TXT --> MONO[独白阶段 不带工具]
+    TXT --> MONO[决策自述阶段 不带工具]
     SCENE[场景段落] --> MONO
     MEM[记忆摘要与长期记忆] --> MONO
-    MONO -->|独白文本| ACT[行动阶段 事实与原生工具]
+    MONO -->|决策自述文本| ACT[行动阶段 事实与原生工具]
     ACT -->|恰好一个生活动作| ENV[LifeEnv 结算与唤醒条件]
     PLAN[当日计划 5–8 段] --> SCENE
     ENV -->|结算边界与唤醒原因| FOOT[数字足迹]
@@ -81,12 +81,14 @@ flowchart TD
 
 ## 两阶段决策
 
-每一次决策机会都由人物模型分两阶段调用；两阶段的请求与响应都留完整证据。
+每一次决策机会都由人物模型先完成决策自述，再运行可多回合的行动循环；所有请求与响应都留完整证据。
+正常无查询无纠错时需要自述、动作、finish 三次请求。上下文、动作登记、结果回灌与只读边界
+以 [决策上下文规格](SPEC-decision-context.md) 为准。
 
 | 阶段 | 请求 | 输出 |
 | --- | --- | --- |
-| 独白 | system 身份前言、`persona_card`（人物卡片的请求字段名）、`scene` 与记忆摘要；不带 `tools` | 一到三句第一人称中文，说出此刻的感受与打算，不超过 200 汉字 |
-| 行动 | 现有 ReAct：上述内容加 `facts`、承接独白的一句话与原生工具 | 恰好一个生活动作，再 `finish`；后续请求完整回传 `reasoning_content` |
+| 决策自述 | system 身份前言、`persona_card`（人物卡片的请求字段名）、`scene` 与记忆摘要；不带 `tools` | 一到三句第一人称中文，说出此刻的感受与打算，不超过 200 汉字 |
+| 行动 | 现有 ReAct：上述内容加 `facts`、承接决策自述的一句话与原生工具 | 恰好一个生活动作，再 `finish`；后续请求完整回传 `reasoning_content` |
 
 三段投影各自的内容规则、上限与禁止进入提示的字段见 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」；
 请求组成、逐阶段生成参数（`thinking`、`temperature`、`max_tokens`、`tool_choice`）、模型身份与工具面只在
@@ -94,9 +96,9 @@ flowchart TD
 
 **行为规则**：
 
-- 每次决策的独白都留下完整证据；独白文本的写入字段、事件载体与信息范围见 `docs/CONTRACTS.md`「独白证据」
-- 独白阶段超长或为空是协议错误：消耗一个回合后重试一次，再失败则本次决策失败
-- 独白不是动作，不改变世界
+- 每次决策的决策自述都留下完整证据；决策自述文本的写入字段、事件载体与信息范围见 `docs/CONTRACTS.md`「决策自述证据」
+- 请求显式要求一至三句第一人称中文；确定性协议拒绝超长或空文本，消耗一个回合后重试一次，再失败则本次决策失败
+- 决策自述不是动作，不改变世界
 - 行动阶段的 ReAct 预算、非法响应反馈与 finish 合同沿用现有条款；`finish.memories` 允许空列表
 
 依据：Tam 等 2024 表明格式约束越严推理越差，而先自然语言再转格式与自由文本几乎无损；DeepSeek 文档规定
@@ -393,7 +395,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
   由 `scripts/render_day.py` 生成
 - `tools/run-viewer.html` 增加同一投影的“一天”视图
 - 盲评记录为每条活动补上地点与同伴，同伴以匿名引用给出
-- dreaming 任务的窗口输入可包含独白与场景（`inner_monologue` 与 `scene`）；动作与意图任务的可读面保持不变
+- dreaming 任务的窗口输入可包含决策自述与场景（`decision_statement` 与 `scene`）；动作与意图任务的可读面保持不变
 
 本规格不改变 `docs/CONTRACTS.md` 中 LabelKit 最终数据合同的字段；训练目标是否改为叙事化 completion
 不由本规格决定。
@@ -404,12 +406,12 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 | 条款 | 默认 | 备选（需新规格版本） |
 | --- | --- | --- |
-| 独白阶段 | 采纳；每次决策一次短调用 | 只恢复身份前言，不加独白 |
+| 决策自述阶段 | 采纳；每次决策一次短调用 | 只恢复身份前言，不加决策自述 |
 | 重估间隔 | 5400 秒 | 3600 或 7200 秒 |
 | 社交需要 | 作为第四项需要进入身体模型 | 不加资源，只靠人物卡片签名与消息驱动 |
 | 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物 | 全部 `template` |
 | 动机评分器 | 保留为内部仪表并落库 | 整体删除 |
-| 独白的信息范围 | 仅 dreaming 可读 | 动作任务也可读（需修改信息范围条款） |
+| 决策自述的信息范围 | 仅 dreaming 可读 | 动作任务也可读（需修改信息范围条款） |
 | 覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
 | 提示字符预算 | 40000 字符硬失败 | 60000 字符 |
 
@@ -419,20 +421,20 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 | 模块与文件 | 必须完成的变化 |
 | --- | --- |
-| `custom/agents/life_agent.py` | 独白阶段调用与 `reasoning_content` 完整回传；身份前言；生活活动工具描述与 Schema 一致；商家或可配送时开放购买与进食；日程工具请求模型；记忆列表允许为空 |
+| `custom/agents/life_agent.py` | 决策自述阶段调用与 `reasoning_content` 完整回传；身份前言；生活活动工具描述与 Schema 一致；商家或可配送时开放购买与进食；日程工具请求模型；记忆列表允许为空 |
 | `custom/envs/life_env.py` | 注册日程与多件商务动作 |
 | `src/worldmock/life/models.py`、`scenario.py` | 日程与人物卡片相关 Schema、多件购买与多件进食请求、品类与人物卡片覆盖率准入检查 |
 | `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、`drive_summary` 渲染、结果写入 `motivation_internal` |
 | `src/worldmock/life/engine.py` | 计划段起点与计划投影；`drive_summary` 与 `motivation_internal` 字段；多件商务结算 |
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
 | `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`catalog/rules/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
-| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.inner_monologue`、时间线投影、指标接入 |
-| `src/worldmock/delivery/windows.py` | dreaming 窗口可含独白与场景 |
+| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.decision_statement`、时间线投影、指标接入 |
+| `src/worldmock/delivery/windows.py` | dreaming 窗口可含决策自述与场景 |
 | `src/worldmock/evaluation/review.py`、`public_evidence.py` | 盲评记录的地点与同伴列 |
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |
 | `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`scripts/build_catalog.py`、`scripts/build_lifestyle_corpus.py`、`src/worldmock/corpora/fetch.py`、`corpora/` | 正餐、地点、内容元数据、生活活动 Schema、联系人、工作材料；替换 `drama` 语料 |
 | `scenarios/multi-person.json`、`white-collar-12-weeks.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 |
-| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | 独白钩子与 `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并 |
+| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | 决策自述钩子与 `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并 |
 | `src/worldmock/life/motivation.py`、`observe.py`、`activities.py`、`projection.py` | 娱乐与生活活动候选的入选条件去掉「偏好权重为正」；地点类交集门与稳定原因码；候选上限与下推游标；被挡项带原因码而非静默消失 |
 | `src/worldmock/profile/taste.py` | 零权重语义改为「排最后」而非「不可选」 |
 | `src/worldmock/catalog/admission.py`、`affordances.py` | 地点与内容品类的 `location_kinds` 声明完整性校验；分区键齐备与分区可达性校验（准入期阻断） |
@@ -458,8 +460,8 @@ flowchart LR
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 两阶段决策 | 每次提供决策机会都产生独白与行动两次调用；独白写入 `decision_started` 并作为请求响应证据保存；超长或为空时保留一次重试并最终记为决策失败 | `tests/integration/test_life_agent_protocol.py` | 代码层已验证 |
-| 独白信息范围 | 独白只出现在 dreaming 任务的可读输入，动作与意图任务读不到它 | `tests/delivery/test_windows.py` | 代码层已验证 |
+| 两阶段决策 | 每次提供决策机会先产生决策自述，再进入行动循环；决策自述写入 `decision_started` 并作为请求响应证据保存；超长或为空时保留一次重试并最终记为决策失败 | `tests/integration/test_life_agent_protocol.py` | 代码层已验证 |
+| 决策自述信息范围 | 决策自述只出现在 dreaming 任务的可读输入，动作与意图任务读不到它 | `tests/delivery/test_windows.py` | 代码层已验证 |
 | 记忆写入 | 空列表不报错；文本不含标识与哈希；类型枚举含 `event`；相似合并只增加计数与最近时刻 | AS2 分支记忆测试、`tests/life/test_revision_contract.py` | 代码层已验证 |
 | 记忆巩固 | 三种触发条件各自生效；巩固提示含人物卡片、不含示例身份或示例编号；就寝后同时产生反思洞见 | AS2 分支记忆测试 | 代码层已验证 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
@@ -525,10 +527,11 @@ flowchart LR
 | --- | --- | --- |
 | 1 | 2026-09-18 | 人物决策与画像条款从主设计单体拆分并冻结为本规格 |
 | 2 | 2026-09-18 | 接口定义改引 `docs/CONTRACTS.md` 对应章节，本规格只留行为规则与算法理由；日程骨架验收观察按源码补「首次提交」限定；设计裁决表改为一行一个症状并统一条款引用体例；中文正文统一称「人物卡片」 |
-| 3 | 2026-09-18 | 「两阶段决策」的独白信息范围改为引用 `docs/CONTRACTS.md`「独白证据」，本规格不再复述独白的可读任务与可见输入 |
-| 4 | 2026-09-18 | 「两阶段决策」的独白写入条款改为引用 `docs/CONTRACTS.md`「独白证据」，写入字段、事件载体与信息范围收敛为同一处引用并保留完整证据义务；巩固触发、巩固章节清单、记忆检索留存、引用错误、dreaming 材料字段、动机层 `drive_summary`、画像编译卡片字段与 `taste_weights`、呈现导出可见面中与接口合同逐字重合的陈述改为本规格措辞或章节引用 |
+| 3 | 2026-09-18 | 「两阶段决策」的决策自述信息范围改为引用 `docs/CONTRACTS.md`「决策自述证据」，本规格不再复述决策自述的可读任务与可见输入 |
+| 4 | 2026-09-18 | 「两阶段决策」的决策自述写入条款改为引用 `docs/CONTRACTS.md`「决策自述证据」，写入字段、事件载体与信息范围收敛为同一处引用并保留完整证据义务；巩固触发、巩固章节清单、记忆检索留存、引用错误、dreaming 材料字段、动机层 `drive_summary`、画像编译卡片字段与 `taste_weights`、呈现导出可见面中与接口合同逐字重合的陈述改为本规格措辞或章节引用 |
 | 5 | 2026-09-18 | 清掉与其他文档逐字重合的复述：四个交付阶段与每阶段通过条件改为按章引用 `docs/VERIFICATION.md`「实施顺序」，本规格只补一条阶段间不得放宽已验证观察的约束；记忆质量门禁的判定对象与阈值改为按章引用 `docs/VERIFICATION.md`「协议门禁」，只留长期记忆身份残留的观察；设计裁决表的日程症状、世界素材品类的联系人行、动机层文件清单、呈现与导出的盲评记录、验收矩阵引言等本职陈述保留原意并改写措辞 |
 | 6 | 2026-09-18 | 「日程骨架」示意图的计划改写节点改为行为措辞并在邻近行为规则引用 `docs/CONTRACTS.md`「日程骨架请求」，示意图的醒来节点措辞与相邻文档去重；与 `docs/dev/SPEC-life-runtime.md` 的章节引用改用完整标题名「身体语义：两过程睡眠、睡眠不足账、体感分级」与「决策节律：结算边界与唤醒条件分离」 |
 | 7 | 2026-09-19 | 「画像编译」新增口味权重定位条款，取代 `motivation.py` 的 `attention_prior × preference > 0` 入选条件，零权重改为「排最后」而非「不可选」；「世界素材品类要求」的内容行补可检索条目属性、地点行补 `location_kinds` 声明；新增「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」（含候选确定性、呈现上限与下推游标、呈现轮转）四节；覆盖率校验补与可达性的区分；验收矩阵与外溢清单按新条款补齐。依据为 `.work/object-model-reanalysis/REPORT.md` 的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」与 `LOCATION-GRANULARITY.md` |
 | 8 | 2026-09-19 | 头部状态声明与验收矩阵对齐：点名三行未落地条款，并说明「口味权重是排序信号」一行的入选条件已落地、留在矩阵的原因是零权重排序位次待补断言，删去已过时的「现行实现失败」描述；术语统一为「换新名额」与「上次呈现时刻」，并在判据首次出现处说明未展示时长的导出关系；文件修改清单的场景文件数由「四份」改准为三份并点名 `evaluation.json` 不在其列 |
 | 9 | 2026-09-19 | 三行复判刷新：**口味权重是排序信号**改记「代码层已验证」（两处观察均有断言，零权重条目仍在候选内且排在非零权重之后，复跑 `tests/life/test_motivation.py` 两测 `2 passed, 76 deselected`）；**素材可达性**改记「代码层已验证」（证据改为准入函数的直接测试 `tests/catalog/test_reachability_admission.py`，原写的入口 `worldmock validate` 因 `PERSONA_COVERAGE_FAILED` 提前终止而不再构成可复现入口）；**候选与呈现**改记「代码层已验证」（证据改为 `tests/life/test_candidate_wiring.py` 等可复现测试路径与 `scripts/coverage_gate.py`）；新增表下复判说明，逐行给出判据与测试的对应关系；同时如实记录一项未解决的独立缺陷：`scripts/check_reachability.py --scenario` 退出码 1、86 条场景内容条目落不进分区；头部状态同步改写 |
+| `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |

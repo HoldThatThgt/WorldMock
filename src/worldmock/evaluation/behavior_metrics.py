@@ -6,7 +6,7 @@
 
 当前引擎尚未写入的未来字段按"未提供"处理并在报告 notes 中注明，不臆造数值：
 - activity_progress.data.decision_offered / wake_reasons（决策节律合同）；
-- decision_started.data.inner_monologue（两阶段决策合同，本版指标未消费）；
+- decision_started.data.decision_statement（两阶段决策合同，本版指标未消费）；
 - lifestyle 活动快照的 family / category 字段（十类闭集聚合）；
 - memory_updated.data.episodes 内的文本与类型（记忆重复率；本模块假定未来
   episodes 为 [{text, kind|type}, ...] 形态，属待验证假设）；

@@ -175,6 +175,9 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
              if item.location_id in routed}
     reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
     assert reachable == names  # scene 用展示名（docs/dev/SPEC-life-runtime.md「观察投影三部分」）
+    assert all(set(item) == {"name", "open"} for item in observed["scene"]["reachable_places"])
+    assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
+    assert all(item["duration_seconds"] > 0 for item in observed["routes"])
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_basic_activity", request))
     engine.commit_decision_round("discover")

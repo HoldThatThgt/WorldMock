@@ -4,7 +4,7 @@
 docs/dev/SPEC-as2-integration.md「确定性工具调用与身份绑定」（严格工具合同、身份配对、观察目录 fail-closed 冻结），为
 ``custom/agents/life_agent.py`` 补齐未执行分支：请求模型本地校验器拒绝、
 观察目录冻结错误、活动控制与瞬时动作身份配对、记忆调度边界与两阶段
-独白的失败传播。只新增行为测试，不改生产代码。
+决策自述的失败传播。只新增行为测试，不改生产代码。
 """
 
 from __future__ import annotations
@@ -906,7 +906,7 @@ async def test_memory_dispatch_rejects_runtime_failures_and_unknown_ids() -> Non
 
 
 # ---------------------------------------------------------------------------
-# 七、两阶段独白失败传播（docs/dev/SPEC-as2-integration.md「失败传播改动」：传输异常立即传播并保存失败证据）
+# 七、两阶段决策自述失败传播（docs/dev/SPEC-as2-integration.md「失败传播改动」：传输异常立即传播并保存失败证据）
 # ---------------------------------------------------------------------------
 
 
@@ -927,7 +927,7 @@ class _RecordingEnvironment:
 
 
 class _RaisingDispatcher:
-    """独白请求即抛出传输异常的调度器。"""
+    """决策自述请求即抛出传输异常的调度器。"""
 
     model_name = "deepseek-flash"
 
@@ -950,39 +950,39 @@ def _wire(agent: LifeAgent, environment, dispatcher) -> None:
     agent._model_call_sequence = 0
 
 
-def test_prelude_monologue_requires_initialized_llm() -> None:
-    """模型未初始化时独白请求明确失败。"""
+def test_prelude_decision_statement_requires_initialized_llm() -> None:
+    """模型未初始化时决策自述请求明确失败。"""
     agent = LifeAgent()
     with pytest.raises(RuntimeError, match="LLM is not initialized"):
-        agent.prelude_monologue_request(
+        agent.prelude_decision_statement_request(
             ReactLoopRequest(0, _OBSERVED_AT, _observations()))
 
 
-async def test_prelude_monologue_never_exposes_tools() -> None:
-    """独白请求参数携带工具时按内部失败拒绝。"""
+async def test_prelude_decision_statement_never_exposes_tools() -> None:
+    """决策自述请求参数携带工具时按内部失败拒绝。"""
     agent = LifeAgent()
-    agent.prelude_monologue_request = (  # type: ignore[method-assign]
+    agent.prelude_decision_statement_request = (  # type: ignore[method-assign]
         lambda request: {"tools": [{"type": "function"}]})
     with pytest.raises(RuntimeError, match="must not expose tools"):
-        await agent._run_prelude_monologue(
+        await agent._run_prelude_decision_statement(
             ReactLoopRequest(0, _OBSERVED_AT, _observations()))
 
 
-async def test_monologue_once_requires_dispatcher() -> None:
-    """调度器缺失时单次独白明确失败。"""
+async def test_decision_statement_once_requires_dispatcher() -> None:
+    """调度器缺失时单次决策自述明确失败。"""
     agent = LifeAgent()
     agent._dispatcher = None
     with pytest.raises(RuntimeError, match="LLM is not initialized"):
-        await agent._monologue_once({"model": "deepseek-flash", "messages": []})
+        await agent._decision_statement_once({"model": "deepseek-flash", "messages": []})
 
 
-async def test_monologue_transport_failure_is_recorded_and_propagated() -> None:
-    """独白传输异常保存失败证据后立即传播。"""
+async def test_decision_statement_transport_failure_is_recorded_and_propagated() -> None:
+    """决策自述传输异常保存失败证据后立即传播。"""
     agent = LifeAgent()
     environment = _RecordingEnvironment()
     _wire(agent, environment, _RaisingDispatcher())
     with pytest.raises(OSError, match="connection reset"):
-        await agent._monologue_once({"model": "deepseek-flash",
+        await agent._decision_statement_once({"model": "deepseek-flash",
                                      "messages": [{"role": "user", "content": "hi"}]})
     assert [item.phase for item in environment.evidence] == ["request", "failure"]
     assert "connection reset" in environment.evidence[1].error

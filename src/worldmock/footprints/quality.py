@@ -12,7 +12,7 @@ from typing import Any
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
-    INNER_MONOLOGUE_FIELD,
+    DECISION_STATEMENT_FIELD,
     WAKE_REASON_NAMES,
     WAKE_REASONS_FIELD,
     Event,
@@ -314,7 +314,7 @@ def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty
 
 
 def _decision_rhythm_quality(events: list[Event]) -> dict:
-    """@brief 统计静默边界、唤醒原因分布与独白存在情况，只透传原始计数。
+    """@brief 统计静默边界、唤醒原因分布与决策自述存在情况，只透传原始计数。
 
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。
@@ -324,7 +324,7 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     silent = sum(event.data.get(DECISION_OFFERED_FIELD) is False for event in progresses)
     known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(progresses)
     started = [event for event in events if event.event_type == "decision_started"]
-    with_monologue = sum(isinstance(event.data.get(INNER_MONOLOGUE_FIELD), str) for event in started)
+    with_decision_statement = sum(isinstance(event.data.get(DECISION_STATEMENT_FIELD), str) for event in started)
     return {
         "activity_progress_events": len(progresses),
         "boundaries_with_decision_field": offered + silent,
@@ -335,9 +335,9 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "wake_reason_counts": dict(sorted(known_reasons.items())),
         "unrecognized_wake_reason_counts": dict(sorted(unrecognized_reasons.items())),
         "decision_started_events": len(started),
-        "decision_started_with_monologue": with_monologue,
-        "decision_started_missing_monologue": len(started) - with_monologue,
-        "method": "Raw counts from activity_progress decision fields and decision_started monologue field",
+        "decision_started_with_decision_statement": with_decision_statement,
+        "decision_started_missing_decision_statement": len(started) - with_decision_statement,
+        "method": "Raw counts from activity_progress decision fields and decision_started decision_statement field",
     }
 
 

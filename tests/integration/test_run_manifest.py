@@ -18,7 +18,7 @@ from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.scenario import load_scenario
-from worldmock.runtime import two_stage_model_identity
+from worldmock.runtime import _model_identity, _require_runtime_identity, runtime_code_sha256, two_stage_model_identity
 from worldmock.validation import validate_two_stage_model_identity
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
@@ -63,7 +63,7 @@ async def test_life_env_init_freezes_two_stage_identity_into_manifest(tmp_path) 
         await env.close()
 
     identity = manifest["two_stage_model_identity"]
-    assert set(identity["stages"]) == {"monologue", "action", "work_review"}
+    assert set(identity["stages"]) == {"decision_statement", "action", "work_review"}
     # 与 runtime 单一事实源逐字节一致（B5 设计决定 1 的对齐目标）。
     assert identity == two_stage_model_identity()
     validate_two_stage_model_identity(identity)
@@ -85,13 +85,53 @@ def test_manifest_two_stage_identity_tampering_is_rejected(tmp_path) -> None:
 
     validate_two_stage_model_identity(frozen)
     tampered = copy.deepcopy(frozen)
-    tampered["stages"]["monologue"]["temperature"] = 0.7
-    with pytest.raises(IntegrityError, match="monologue"):
+    tampered["stages"]["decision_statement"]["temperature"] = 0.7
+    with pytest.raises(IntegrityError, match="decision_statement"):
         validate_two_stage_model_identity(tampered)
     no_beta = copy.deepcopy(frozen)
     no_beta["base_url"] = "https://api.deepseek.com"
     with pytest.raises(IntegrityError, match="beta"):
         validate_two_stage_model_identity(no_beta)
+
+
+@pytest.mark.parametrize("keep_current", [False, True])
+def test_retired_stage_is_rejected_even_beside_the_current_stage(keep_current, caplog) -> None:
+    """阶段名精确闭集；旧名称替换或混入当前清单均拒绝。"""
+    identity = two_stage_model_identity()
+    identity["stages"]["monologue"] = copy.deepcopy(identity["stages"]["decision_statement"])
+    if not keep_current:
+        del identity["stages"]["decision_statement"]
+
+    with pytest.raises(IntegrityError, match="stages must be exactly decision_statement"):
+        validate_two_stage_model_identity(identity)
+
+    assert "Model identity stages must be exactly" in caplog.text
+
+
+def test_engine_create_rejects_retired_stage_before_writing_run_artifacts(tmp_path) -> None:
+    """真实新建入口拒绝旧阶段；独立校验通过不能替代持久化前校验。"""
+    scenario, _ = load_scenario(_SCENARIO)
+    identity = two_stage_model_identity()
+    identity["stages"]["monologue"] = identity["stages"].pop("decision_statement")
+    run_dir = tmp_path / "old-stage"
+
+    with pytest.raises(IntegrityError, match="stages must be exactly decision_statement"):
+        LifeEngine.create(_SCENARIO, run_dir, _run_identity(scenario), identity)
+
+    assert not (run_dir / "manifest.json").exists()
+    assert not (run_dir / "footprints.sqlite").exists()
+
+
+def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches() -> None:
+    """恢复入口独立验证阶段身份，不能只依赖源码哈希间接拒绝旧清单。"""
+    root = Path(__file__).resolve().parents[2]
+    stages = two_stage_model_identity()
+    stages["stages"]["monologue"] = stages["stages"].pop("decision_statement")
+    manifest = {"model_identity": _model_identity().model_dump(mode="json"),
+                "two_stage_model_identity": stages, "code_sha256": runtime_code_sha256(root)}
+
+    with pytest.raises(IntegrityError, match="decision stage identity differs"):
+        _require_runtime_identity(manifest, root)
 
 
 def test_engine_created_without_two_stage_identity_keeps_null_slot(tmp_path) -> None:

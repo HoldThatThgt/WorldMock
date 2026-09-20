@@ -55,7 +55,7 @@ AS2 是基础框架，本项目在其上新增 LifeEnv 与 LifeAgent 两个扩�
 
 ```mermaid
 flowchart TD
-    S[决策调度：只执行就绪人物，收齐后有序结算] --> MONO[决策前独白：单次无工具调用]
+    S[决策调度：只执行就绪人物，收齐后有序结算] --> MONO[决策自述：单次无工具调用]
     MONO --> ACT[行动 ReAct：保留 reasoning_content]
     ACT --> TOOL[确定性工具调用：宿主绑定 agent_id / decision_id / action_id]
     TOOL --> MSG[观察记录单写：同一观察不重复出现]
@@ -199,18 +199,18 @@ def restore(workspace_path):
 
 **验证**：缺少快照或校验失败立即终止；不把较新的世界状态与较旧的记忆混合恢复。
 
-### 决策前独白与推理内容保留
+### 决策自述与推理内容保留
 
-**问题**：决策需要一段人物私有的、不带工具的独白作为行动阶段的输入；DeepSeek 思考模式下带 `tools` 的后续请求
+**问题**：决策需要一段人物私有的、不带工具的决策自述作为行动阶段的输入；DeepSeek 思考模式下带 `tools` 的后续请求
 必须回传 assistant 消息的 `reasoning_content`。
 
 **改动行为**：
-1. AS2 `agent/base/agent_runtime.py` 的 ReAct 入口增加决策前独白钩子：单次模型调用，不带工具（独白请求暴露工具即抛错）
-2. 独白文本落库，并作为行动阶段请求的一段输入
+1. AS2 `agent/base/agent_runtime.py` 的 ReAct 入口增加决策自述钩子：单次模型调用，不带工具（决策自述请求暴露工具即抛错）
+2. 决策自述文本落库，并作为行动阶段请求的一段输入
 3. 后续请求保留 assistant 消息的 `reasoning_content`；缺失时不伪造该字段
 
-**验证**：独白落库并进入行动请求；带 `tools` 的后续请求不因缺少 `reasoning_content` 被拒。
-独白的内容规则与信息范围合同见 `docs/dev/SPEC-life-realism.md`「两阶段决策」。
+**验证**：决策自述落库并进入行动请求；带 `tools` 的后续请求不因缺少 `reasoning_content` 被拒。
+决策自述的内容规则与信息范围合同见 `docs/dev/SPEC-life-realism.md`「两阶段决策」。
 
 ### 记忆运行时改动
 
@@ -357,7 +357,7 @@ observation_record = {
 | 失败传播 | 预算耗尽、工具执行失败、证据写入失败均致命且不触发新的模型调用；`finish` 与其他工具同批时整批拒绝且无部分执行 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_loop_exhaustion_is_fatal`、`test_finish_mixed_with_action_is_rejected_atomically`、`test_mixed_batch_is_rejected_without_partial_execution`、`test_tool_execution_failure_is_fatal_without_new_model_call`）、`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit` | 代码层已验证 |
 | 必要观察与证据保存 | 响应证据写入失败是致命错误且不再发起模型调用；空观察或持久化故障不转换成可继续的普通工具结果 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_response_evidence_failure_is_fatal_without_new_model_call`、`test_unserializable_response_is_fatal_without_protocol_feedback`） | 代码层已验证 |
 | 恢复与检查点 | 缺少快照、校验失败或记忆损坏时立即终止，不发布子分支；完整检查点保留父目录与精确工作区 | `tests/integration/test_runtime.py`（`test_restore_rejects_corrupt_used_memory_before_branch_publish`、`test_counterfactual_branch_freezes_intervention_before_publish`）、`tests/footprints/test_store.py`（`test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`、`test_incomplete_checkpoint_never_creates_child`）、`tests/life/test_counterfactual.py` | 代码层已验证 |
-| 决策前独白与推理内容保留 | 独白钩子恰好发起一次不带工具的调用；带 `tools` 的后续请求与协议反馈请求都保留 `reasoning_content`；无推理时省略该键而不伪造；独白文本作为模型响应证据落库 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_prelude_monologue_hook_runs_one_toolless_call`、`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence` | 代码层已验证 |
+| 决策自述与推理内容保留 | 决策自述钩子恰好发起一次不带工具的调用；带 `tools` 的后续请求与协议反馈请求都保留 `reasoning_content`；无推理时省略该键而不伪造；决策自述文本作为模型响应证据落库 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_prelude_decision_statement_hook_runs_one_toolless_call`、`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence` | 代码层已验证 |
 | 记忆运行时改动 | 空记忆列表合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`） | 代码层已验证 |
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `AS2 分支测试目录/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_three_parts_and_observation_written_once`、`AS2 分支测试目录/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message` | 代码层已验证 |
@@ -373,3 +373,4 @@ observation_record = {
 | 3 | 2026-09-18 | 消除与 `docs/dev/SPEC-life-runtime.md`、`docs/design/05-recording-engine.md`、`docs/dev/SPEC-life-realism.md` 的逐字复述：观察记录单写改为登记 AS2 侧模块改动并引用本规格外的行为与字段权威，恢复与检查点改动的行为语义改为引用 `docs/design/05-recording-engine.md`「保存共同检查点」与「恢复与反事实分支」，调度、预算、记忆验证与验收矩阵前言各条目改写为 AS2 侧措辞。改动归属、技术结论与验收标准未变。 |
 | 4 | 2026-09-18 | 时间对账不再复述接口原文：时间约定统一的对账条件改按本规格措辞描述，接口表述引用 `docs/CONTRACTS.md`「生命周期」。改动归属、技术结论与验收标准未变。 |
 | 5 | 2026-09-18 | 代码围栏与验收矩阵内不再复述接口原文：分层职责图的观察行与动作接收行改按本规格措辞描述，时间推进流程图节点改为描述性措辞并在图邻近文字引用 `docs/CONTRACTS.md`「生命周期」，验收矩阵的时间约定统一观察项以「时间对账成立」承载同一条义务。改动归属、技术结论与验收标准未变。 |
+| `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |

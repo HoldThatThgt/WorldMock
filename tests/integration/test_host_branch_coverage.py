@@ -276,7 +276,7 @@ def test_prepare_new_run_admits_scenario_and_logs_start(tmp_path):
     entry = json.loads(
         sorted((run_dir / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
     assert entry["code"] == "RUN_STARTED" and entry["run_id"] == "identity"
-    assert entry["two_stage_model_identity"]["stages"]["monologue"]["thinking"] == "disabled"
+    assert entry["two_stage_model_identity"]["stages"]["decision_statement"]["thinking"] == "disabled"
 
 
 def test_prepare_new_run_rejects_identity_mismatch(tmp_path):
@@ -321,8 +321,11 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
 
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
+    from worldmock.runtime import two_stage_model_identity
+
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
                 "model_identity": _model_identity().model_dump(mode="json"),
+                "two_stage_model_identity": two_stage_model_identity(),
                 "code_sha256": runtime_code_sha256(ROOT),
                 "scenario_sha256": "0" * 64}
     state = {"version": 0, "current_time": 1767225600}
@@ -397,6 +400,8 @@ def test_prepare_resume_counterfactual_binds_intervention(tmp_path):
 
 def test_require_runtime_identity_rejects_diverged_manifest(tmp_path):
     """父清单模型或代码身份偏离时拒绝恢复。"""
+    from worldmock.runtime import two_stage_model_identity
+
     _, _checkpoint = _parent_store(tmp_path)
     wrong_model = {"model_identity": {"provider": "other"}, "code_sha256": "0" * 64}
     with pytest.raises(IntegrityError, match="model identity differs"):
@@ -404,9 +409,11 @@ def test_require_runtime_identity_rejects_diverged_manifest(tmp_path):
     current = _model_identity().model_dump(mode="json")
     with pytest.raises(IntegrityError, match="code identity differs"):
         _require_runtime_identity(
-            {"model_identity": current, "code_sha256": "0" * 64}, ROOT)
+            {"model_identity": current, "two_stage_model_identity": two_stage_model_identity(),
+             "code_sha256": "0" * 64}, ROOT)
     _require_runtime_identity(
-        {"model_identity": current, "code_sha256": runtime_code_sha256(ROOT)}, ROOT)
+        {"model_identity": current, "two_stage_model_identity": two_stage_model_identity(),
+         "code_sha256": runtime_code_sha256(ROOT)}, ROOT)
 
 
 def test_runtime_code_sha256_requires_complete_sources(tmp_path):
@@ -887,7 +894,7 @@ def test_two_stage_identity_rejects_retries_and_reasoning_effort():
     identity = {"provider": "deepseek", "base_url": "https://api.deepseek.com/beta",
                 "requested_model": "deepseek-flash", "max_retries": 0, "strict": True,
                 "reasoning_effort": None,
-                "stages": {"monologue": {}, "action": {}, "work_review": {}}}
+                "stages": {"decision_statement": {}, "action": {}, "work_review": {}}}
     from worldmock.runtime import two_stage_model_identity
 
     actual = two_stage_model_identity()

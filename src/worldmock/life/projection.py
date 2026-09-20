@@ -22,6 +22,7 @@ from typing import Any
 
 from worldmock.life import felt, narration, social
 from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
+from worldmock.life.result_projection import public_action_result
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
@@ -31,8 +32,6 @@ PRODUCT_VISIBILITY_TTL_SECONDS = 1800
 MATERIAL_REVEAL_CHAR_CAP = 2000
 #: 收件箱头在 scene 中展示的条数上限（收件箱头合同，防溢出）。
 INBOX_HEAD_LIMIT = 3
-#: recent_action_results 摘要条数上限（docs/dev/SPEC-life-runtime.md「观察投影行为规则」：只含状态、一句话与必要身份）。
-RECENT_RESULTS_LIMIT = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,7 +41,7 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 由引擎计算的最近动作结果摘要（store 事件侧已裁剪）。
+    #: 上次观察后全部按事件顺序排列的动作结算证据。
     recent_results: tuple[dict[str, Any], ...]
     #: 各任务的剩余合同工时与标题（engine._visible_task 裁剪后的行）。
     task_rows: tuple[dict[str, Any], ...]
@@ -190,7 +189,7 @@ def _task_due_soon(task_rows: tuple[dict[str, Any], ...], now: int) -> bool:
 def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     """@brief 组装一次观察的两层投影与事件级证据（scene + facts + body）。
 
-    引擎把裁剪好的 route/task/recent_result 行经 ProjectionInputs 传入；本函数
+    引擎把 route/task 行与完整 recent_result 证据经 ProjectionInputs 传入；本函数
     只做投影组装，不做 IO 与模型调用。返回字典进入 observation 事件 data 与
     LifeAgent 侧渲染（narration.render_scene / render_facts）。
     """
@@ -198,48 +197,15 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     now = state.current_time
     hour = hour_of_day(now, scenario.timezone)
     local = local_datetime(now, scenario.timezone)
-    location = _location_index(scenario).get(agent.location_id)
     body_data = body_projection(agent, hour, inputs.meal_windows)
     levels = body_data["levels"]
     people = people_here_views(state, agent)
-    activity_rows = inputs.extras.get("activity_rows", {"current": None, "paused": []})
-    routes = inputs.extras.get("route_rows", [])
-    reachable = inputs.extras.get("reachable_places", [])
     inbox = _inbox_rows(inputs)
-    plan = _plan_row(agent, now, local)
-    scene = {
-        "current_time": local.isoformat(),
-        "location": location.name if location else agent.location_id,
-        "people_here": [item["name"] for item in people],
-        "felt": levels,
-        "current_activity": activity_rows["current"] or {},
-        "paused_activities": activity_rows["paused"],
-        "day_plan": plan,
-        "inbox_head": [entry["head"] for entry in inbox[:INBOX_HEAD_LIMIT]],
-        "todos_summary": _todos_summary(inputs.task_rows, now),
-        "reachable_places": reachable,
-        "inventory": _inventory_names(agent, scenario),
-        "recent_action_results": [row.get("message", "") for row in inputs.recent_results],
-    }
-    facts = {
-        "current_time": local.isoformat(),
-        "location_id": agent.location_id,
-        "people_here": people,
-        "contacts": _contact_rows(scenario, agent),
-        "inbox": inbox,
-        "tasks": _task_fact_rows(inputs),
-        "routes": routes,
-        "products": inputs.extras.get("product_rows", []),
-        "inventory": agent.inventory,
-        "day_plan": _plan_fact(agent, now, local),
-        "felt": levels,
-        "drive_summary": drive_summary(levels, inputs.task_rows, now),
-        "recent_action_results": [
-            {"action_id": row.get("action_id"), "status": row.get("status"),
-             "message": row.get("message")} for row in inputs.recent_results[:RECENT_RESULTS_LIMIT]],
-    }
+    activity_rows = inputs.extras["activity_rows"]
     data: dict[str, Any] = {
-        "agent_id": agent.agent_id, "current_time": now, "scene": scene, "facts": facts,
+        "agent_id": agent.agent_id, "current_time": now,
+        "scene": _scene_projection(inputs, local, levels, people, inbox),
+        "facts": _facts_projection(inputs, local, levels, people, inbox),
         "body": body_data, "balance_fen": state.accounts[agent.balance_account_id],
         "active_activity": activity_rows["control"],
         "paused_activities": activity_rows.get("paused_control"),
@@ -247,6 +213,50 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     if inputs.motivation_internal is not None:
         data["motivation_internal"] = inputs.motivation_internal
     return data
+
+
+def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
+                      people: list[dict], inbox: list[dict]) -> dict[str, Any]:
+    """@brief 组装场景事实，最近收件头与完整收件事实分开选择。"""
+    agent, now = inputs.agent, inputs.state.current_time
+    location = _location_index(inputs.scenario).get(agent.location_id)
+    activity_rows = inputs.extras["activity_rows"]
+    return {
+        "current_time": local.isoformat(),
+        "location": location.name if location else agent.location_id,
+        "people_here": [item["name"] for item in people],
+        "felt": levels,
+        "current_activity": activity_rows["current"] or {},
+        "paused_activities": activity_rows["paused"],
+        "day_plan": _plan_row(agent, now, local),
+        "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
+        "inbox_has_older_unread": any(not entry["read"] for entry in inbox[:-INBOX_HEAD_LIMIT]),
+        "todos_summary": _todos_summary(inputs.task_rows, now),
+        "reachable_places": inputs.extras.get("reachable_places", []),
+        "inventory": _inventory_names(agent, inputs.scenario),
+        "recent_action_results": [row["message"] for row in inputs.recent_results[-1:]],
+    }
+
+
+def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
+                      people: list[dict], inbox: list[dict]) -> dict[str, Any]:
+    """@brief 组装完整事实清单，全部新结果经过公开字段投影。"""
+    agent, now = inputs.agent, inputs.state.current_time
+    return {
+        "current_time": local.isoformat(),
+        "location_id": agent.location_id,
+        "people_here": people,
+        "contacts": _contact_rows(inputs.scenario, agent),
+        "inbox": inbox,
+        "tasks": _task_fact_rows(inputs),
+        "routes": inputs.extras.get("route_rows", []),
+        "products": inputs.extras.get("product_rows", []),
+        "inventory": agent.inventory,
+        "day_plan": _plan_fact(agent, now, local),
+        "felt": levels,
+        "drive_summary": drive_summary(levels, inputs.task_rows, now),
+        "recent_action_results": [public_action_result(row) for row in inputs.recent_results],
+    }
 
 
 def _location_index(scenario: RuntimeScenario) -> dict[str, Any]:

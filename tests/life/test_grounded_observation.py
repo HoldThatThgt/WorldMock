@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+import pytest
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
@@ -234,23 +237,23 @@ def _events_of(engine, event_type: str) -> list:
             if event.event_type == event_type]
 
 
-def _monologue_params() -> dict:
-    """独白阶段的模型请求参数形状（无 tools、温度 1.3、max_tokens 400）。"""
+def _decision_statement_params() -> dict:
+    """决策自述阶段的模型请求参数形状（无 tools、温度 1.3、max_tokens 400）。"""
     return {"model": "deepseek-flash", "messages": [{"role": "user", "content": "此刻感受"}],
             "stream": False, "temperature": 1.3, "max_tokens": 400, "max_retries": 0,
             "extra_body": {"thinking": {"type": "disabled"}}}
 
 
-def test_decision_started_written_once_complete_with_monologue(engine_factory) -> None:
-    """独白可得时才写 decision_started：一次写完整（含 inner_monologue）且不可再更新。"""
+def test_decision_started_written_once_complete_with_decision_statement(engine_factory) -> None:
+    """决策自述可得时才写 decision_started：一次写完整（含 decision_statement）且不可再更新。"""
     from agentsociety2.agent.base import ModelCallEvidence
-    from worldmock.footprints.models import INNER_MONOLOGUE_FIELD
+    from worldmock.footprints.models import DECISION_STATEMENT_FIELD
 
     engine = engine_factory()
-    ctx = context(engine, "monologue-round")
+    ctx = context(engine, "decision_statement-round")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    params = _monologue_params()
+    params = _decision_statement_params()
     engine.record_model_exchange(ModelCallEvidence(ctx, "call-1", "request", 1, params))
     assert _events_of(engine, "decision_started") == []
 
@@ -260,36 +263,47 @@ def test_decision_started_written_once_complete_with_monologue(engine_factory) -
     starts = _events_of(engine, "decision_started")
     assert len(starts) == 1
     data = starts[0].data
-    assert data[INNER_MONOLOGUE_FIELD] == "有点饿，先吃点东西再继续工作。"
-    assert data["round_id"] == "monologue-round" and data["round_order"] == 0
+    assert data[DECISION_STATEMENT_FIELD] == "有点饿，先吃点东西再继续工作。"
+    assert data["round_id"] == "decision_statement-round" and data["round_order"] == 0
     assert data["world_state_version"] == engine.state.version
     assert data["wake_reasons"] == ["run_start"]
     assert starts[0].agent_id == 1 and starts[0].decision_id == ctx.decision_id
+    stored = engine.store.connection.execute(
+        "SELECT body FROM events WHERE event_id=?", (starts[0].event_id,),
+    ).fetchone()[0]
+    assert json.loads(stored)["data"]["decision_statement"] == data[DECISION_STATEMENT_FIELD]
+    with pytest.raises(sqlite3.IntegrityError, match="Events are immutable"):
+        engine.store.connection.execute(
+            "UPDATE events SET body=? WHERE event_id=?", ("{}", starts[0].event_id),
+        )
 
-    # 引擎直驱兜底不再产生第二条（一次写完整，独白后登记动作不重复落库）。
+    # 自述已经持久化，登记动作不重复创建或修改证据。
     engine.submit_action(DirectToolCall(
-        ctx, "action-monologue", "start_basic_activity",
+        ctx, "action-decision_statement", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
-    engine.commit_decision_round("monologue-round")
+    engine.commit_decision_round("decision_statement-round")
     assert len(_events_of(engine, "decision_started")) == 1
+    assert engine.store.connection.execute(
+        "SELECT body FROM events WHERE event_id=?", (starts[0].event_id,),
+    ).fetchone()[0] == stored
 
 
-def test_invalid_monologue_falls_back_to_complete_event_without_monologue(engine_factory) -> None:
-    """独白协议失败（空文本带错误证据）不写事件；结算兜底一次写完整（无独白）。"""
+def test_invalid_decision_statement_is_absent_from_direct_engine_evidence(engine_factory) -> None:
+    """空文本带错误证据不写自述；独立的引擎直驱登记只写无自述事件。"""
     from agentsociety2.agent.base import ModelCallEvidence
-    from worldmock.footprints.models import INNER_MONOLOGUE_FIELD
+    from worldmock.footprints.models import DECISION_STATEMENT_FIELD
 
     engine = engine_factory()
-    ctx = context(engine, "monologue-invalid")
+    ctx = context(engine, "decision_statement-invalid")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    params = _monologue_params()
+    params = _decision_statement_params()
     engine.record_model_exchange(ModelCallEvidence(ctx, "call-1", "request", 1, params))
     engine.record_model_exchange(ModelCallEvidence(
         ctx, "call-1", "response", 1, params,
         response={"choices": [{"message": {"content": ""}}]},
-        error="monologue is empty"))
-    # 行动阶段形状（带 tools）的交换也不是独白，不触发落库。
+        error="decision_statement is empty"))
+    # 行动阶段形状（带 tools）的交换也不是决策自述，不触发落库。
     engine.record_model_exchange(ModelCallEvidence(
         ctx, "call-2", "request", 1, {**params, "tools": [], "tool_choice": "auto"}))
     engine.record_model_exchange(ModelCallEvidence(
@@ -298,13 +312,13 @@ def test_invalid_monologue_falls_back_to_complete_event_without_monologue(engine
     assert _events_of(engine, "decision_started") == []
 
     engine.submit_action(DirectToolCall(
-        ctx, "action-monologue-invalid", "start_basic_activity",
+        ctx, "action-decision_statement-invalid", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
-    engine.commit_decision_round("monologue-invalid")
+    engine.commit_decision_round("decision_statement-invalid")
     starts = _events_of(engine, "decision_started")
     assert len(starts) == 1
-    assert INNER_MONOLOGUE_FIELD not in starts[0].data
-    assert starts[0].data["round_id"] == "monologue-invalid"
+    assert DECISION_STATEMENT_FIELD not in starts[0].data
+    assert starts[0].data["round_id"] == "decision_statement-invalid"
 
 
 def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -> None:

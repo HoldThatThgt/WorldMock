@@ -315,14 +315,14 @@ def _model_identity() -> ModelIdentity:
 def two_stage_model_identity() -> dict[str, Any]:
     """@brief 两阶段决策与工作验收的完整冻结请求身份（docs/dev/SPEC-life-realism.md「两阶段决策」）。
 
-    独白/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
+    决策自述/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
     运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
     """
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
-        MONOLOGUE_MAX_TOKENS,
-        MONOLOGUE_TEMPERATURE,
+        DECISION_STATEMENT_MAX_TOKENS,
+        DECISION_STATEMENT_TEMPERATURE,
     )
 
     return {
@@ -333,10 +333,10 @@ def two_stage_model_identity() -> dict[str, Any]:
         "strict": True,
         "reasoning_effort": None,
         "stages": {
-            "monologue": {
+            "decision_statement": {
                 "thinking": "disabled",
-                "temperature": MONOLOGUE_TEMPERATURE,
-                "max_tokens": MONOLOGUE_MAX_TOKENS,
+                "temperature": DECISION_STATEMENT_TEMPERATURE,
+                "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
                 "tools": None,
                 "tool_choice": None,
             },
@@ -401,6 +401,8 @@ def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> N
     expected = _model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
+    if manifest.get("two_stage_model_identity") != two_stage_model_identity():
+        raise IntegrityError("Checkpoint decision stage identity differs from the current LifeAgent contract")
     if manifest.get("code_sha256") != runtime_code_sha256(project_root):
         raise IntegrityError("Checkpoint code identity differs from the current runtime")
 

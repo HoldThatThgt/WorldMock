@@ -242,7 +242,11 @@ def test_rejection_waits_one_second_and_next_observation_reports_once(engine_fac
     assert first["observation_event_id"]
     assert [(item["action_id"], item["error_code"]) for item in first["recent_action_results"]] == [
         ("action-missing-content", "CONTENT_NOT_FOUND")]
-    assert engine.observe(ctx)["recent_action_results"] == []
+    assert first["facts"]["recent_action_results"][0]["error_code"] == "CONTENT_NOT_FOUND"
+    repeated = engine.observe(ctx)
+    assert repeated["recent_action_results"] == []
+    assert repeated["facts"]["recent_action_results"] == []
+    assert repeated["scene"]["recent_action_results"] == []
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "recovered", "start_basic_activity", request))
     engine.commit_decision_round("after-reject")

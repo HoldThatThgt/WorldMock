@@ -106,7 +106,7 @@ flowchart LR
 
 | 检查层次 | 规则 |
 | --- | --- |
-| 事件可见性 | 动作与意图输入排除模型请求、模型响应、记忆更新与决策独白；dreaming 对独白的读取遵循其专用合同 |
+| 事件可见性 | 动作与意图输入排除模型请求、模型响应、记忆更新与决策决策自述；dreaming 对决策自述的读取遵循其专用合同 |
 | 身体字段可见性 | 同一观察中，体感分级可供数字人理解处境；`body.values` 和 `motivation_internal` 只保留在内部证据中 |
 | 结算字段可见性 | `body_settlement` 等内部身体变化不能因所在事件标为 `agent` 就整体复制到输入；只提供当时实际呈现的结果 |
 | 来源关联 | 裁剪后的输入保留原事件引用，完整事实与内部数值仍可用于审计；不得据此向模型补充隐藏状态 |
@@ -141,7 +141,7 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
     
     每个窗口包含：
     - 当日全部可见事件（含部分私有事件）
-    - decision_started 中的 inner_monologue
+    - decision_started 中的 decision_statement
     - 观察事件的 scene 描述
     """
     by_agent_day = defaultdict(list)

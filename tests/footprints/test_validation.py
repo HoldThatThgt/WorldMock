@@ -110,7 +110,7 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
                               coverage_out=coverage_out)
 
     assert result["valid"] is True
-    assert result["model_identity"] == {"stages": ["action", "monologue", "work_review"],
+    assert result["model_identity"] == {"stages": ["action", "decision_statement", "work_review"],
                                         "consistent": True}
     report = result["persona_coverage"][0]
     assert report["agent_id"] == 1 and report["passed"] is True

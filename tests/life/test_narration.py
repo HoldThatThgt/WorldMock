@@ -1,7 +1,7 @@
 """观察投影与提示合同（worldmock.life.narration）的合同测试。
 
 覆盖docs/dev/SPEC-life-runtime.md「观察投影与提示合同」：场景渲染内容与 800 汉字上限、驱动摘要无数字
-权重、user 40000 / system 3000 字符预算边界、独白 200 汉字边界与空串、
+权重、user 40000 / system 3000 字符预算边界、决策自述 200 汉字边界与空串、
 黑名单字段递归校验（含 routes 白名单）、facts 确定性渲染与 user 消息
 三段组装顺序。
 """
@@ -11,13 +11,13 @@ from __future__ import annotations
 import pytest
 
 from worldmock.life.narration import (
-    MONOLOGUE_HANZI_BUDGET,
+    DECISION_STATEMENT_HANZI_BUDGET,
     PERSONA_CARD_HANZI_BUDGET,
     SCENE_HANZI_BUDGET,
     SYSTEM_MESSAGE_CHAR_BUDGET,
     USER_MESSAGE_CHAR_BUDGET,
     ForbiddenObservationFieldError,
-    MonologueValidationError,
+    DecisionStatementValidationError,
     PromptBudgetExceededError,
     RenderBudgetExceededError,
     compose_user_message,
@@ -27,7 +27,7 @@ from worldmock.life.narration import (
     render_drive_summary,
     render_facts,
     render_scene,
-    validate_monologue,
+    validate_decision_statement,
 )
 
 
@@ -41,17 +41,18 @@ def scene_observation() -> dict:
         "felt": {"hunger": "有点饿", "energy": "精力尚可"},
         "current_activity": {"title": "写周报", "progress": "已写将近一半"},
         "paused_activities": [
-            {"title": "整理会议纪要", "progress": "暂停了二十分钟"},
+            {"title": "整理会议纪要", "progress": "已做二十分钟"},
         ],
         "day_plan": {
             "summary": "上午写代码、下午开评审会、晚上健身",
             "current_segment": "下午开评审会",
         },
         "inbox_head": ["张三：周报请在今天下班前提交", "人事部：下午茶活动报名"],
+        "inbox_has_older_unread": True,
         "todos_summary": "还有两件待办：提交周报和预约体检",
         "reachable_places": [
-            {"name": "公司食堂", "open": True, "minutes": 5},
-            {"name": "楼下便利店", "open": False, "minutes": 3},
+            {"name": "公司食堂", "open": True},
+            {"name": "楼下便利店", "open": False},
         ],
         "inventory": ["手机", "工卡", "钱包"],
         "recent_action_results": ["你完成了通勤，准时到达公司。"],
@@ -72,11 +73,12 @@ class TestRenderScene:
         assert "李雷" in scene and "韩梅梅" in scene
         assert "有点饿" in scene and "精力尚可" in scene
         assert "《写周报》" in scene and "已写将近一半" in scene
-        assert "《整理会议纪要》" in scene and "暂停了二十分钟" in scene
+        assert "之前做到一半的《整理会议纪要》（已做二十分钟）还没收尾。" in scene
         assert "上午写代码、下午开评审会、晚上健身" in scene
         assert "「下午开评审会」这一段" in scene
         assert "收件箱最新消息" in scene
         assert "张三：周报请在今天下班前提交" in scene
+        assert "更早还有未读消息。" in scene
         assert "还有两件待办：提交周报和预约体检" in scene
         assert "公司食堂" in scene and "营业中" in scene
         assert "楼下便利店" in scene and "未营业" in scene
@@ -93,7 +95,8 @@ class TestRenderScene:
         })
         assert "公司工位" in scene
         assert "收件箱" not in scene
-        assert "暂停中的活动" not in scene
+        assert "还没收尾" not in scene
+        assert "更早还有未读消息" not in scene
 
     def test_scene_rejects_non_contract_language(self, scene_observation: dict) -> None:
         """合同只支持 zh-CN，其他语言值必须如实报错而非降级渲染。"""
@@ -113,6 +116,21 @@ class TestRenderScene:
         assert "exceeds 800 hanzi budget" in message
         reported = int(message.split("budget: ")[1].split(" hanzi")[0])
         assert reported > SCENE_HANZI_BUDGET
+
+    def test_scene_exactly_at_hanzi_budget_passes(self) -> None:
+        """恰好八百汉字的场景原样保留，不通过裁剪伪装通过。"""
+        message = "事" * SCENE_HANZI_BUDGET
+        assert render_scene({"recent_action_results": [message]}) == message + "。"
+
+    def test_reachable_places_do_not_render_route_minutes(self) -> None:
+        """场景保留地点名和营业状态，不重复事实清单中的路线分钟数。"""
+        scene = render_scene({"reachable_places": [{"name": "书店", "open": True, "minutes": 13}]})
+        assert scene == "可达地点有书店（营业中）。"
+
+    def test_older_unread_hint_only_follows_the_explicit_flag(self) -> None:
+        """当前头部存在消息不代表更早存在未读消息。"""
+        scene = render_scene({"inbox_head": ["今晚见面"], "inbox_has_older_unread": False})
+        assert scene == "收件箱最新消息：今晚见面。"
 
 
 class TestDriveSummary:
@@ -166,33 +184,33 @@ class TestPromptBudgets:
             enforce_budgets(USER_MESSAGE_CHAR_BUDGET, SYSTEM_MESSAGE_CHAR_BUDGET + 1)
 
 
-class TestMonologue:
-    """独白协议：200 汉字边界与空串。"""
+class TestDecisionStatement:
+    """决策自述协议：200 汉字边界与空串。"""
 
     def test_exactly_200_hanzi_passes(self) -> None:
         """恰好 200 汉字通过，且判定函数原样返回文本。"""
-        text = "我" * MONOLOGUE_HANZI_BUDGET
-        assert validate_monologue(text) == text
+        text = "我" * DECISION_STATEMENT_HANZI_BUDGET
+        assert validate_decision_statement(text) == text
 
     def test_201_hanzi_raises(self) -> None:
         """201 汉字是协议错误。"""
-        with pytest.raises(MonologueValidationError, match="exceeds 200 hanzi"):
-            validate_monologue("我" * (MONOLOGUE_HANZI_BUDGET + 1))
+        with pytest.raises(DecisionStatementValidationError, match="exceeds 200 hanzi"):
+            validate_decision_statement("我" * (DECISION_STATEMENT_HANZI_BUDGET + 1))
 
     def test_empty_string_raises(self) -> None:
         """空串是协议错误。"""
-        with pytest.raises(MonologueValidationError, match="monologue is empty"):
-            validate_monologue("")
+        with pytest.raises(DecisionStatementValidationError, match="decision_statement is empty"):
+            validate_decision_statement("")
 
     def test_whitespace_only_raises(self) -> None:
         """纯空白视为为空，同样是协议错误。"""
-        with pytest.raises(MonologueValidationError, match="monologue is empty"):
-            validate_monologue("   \n  ")
+        with pytest.raises(DecisionStatementValidationError, match="decision_statement is empty"):
+            validate_decision_statement("   \n  ")
 
-    def test_short_first_person_monologue_passes(self) -> None:
-        """常规一到三句第一人称独白通过。"""
+    def test_short_first_person_decision_statement_passes(self) -> None:
+        """常规一到三句第一人称决策自述通过。"""
         text = "我想先喝杯水，再继续把周报写完。"
-        assert validate_monologue(text) == text
+        assert validate_decision_statement(text) == text
 
 
 class TestFieldBlacklist:

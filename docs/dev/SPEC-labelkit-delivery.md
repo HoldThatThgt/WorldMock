@@ -102,7 +102,7 @@ flowchart LR
 - 前置状态只在窗口开始前已经观察过时给出；没有可依据的观察时明确标为未观察，不推测状态。
 - 边界类型区分活动完成、容量切断与实验结束，不从未来目标推测边界；窗口内的活动边界只保留真正观察到的完成、取消、失败与截断原因。
 - 人物可见的素材引用在此展开为实际内容；文本与结构化素材给出正文，二进制素材保留模态引用；内容与引用摘要不符时立即失败。
-- 动作与意图窗口不进入人物独白、模型请求与响应、记忆更新等私有载体；dreaming 窗口按当日可见经历读取独白与观察场景，私有载体的可见字段定义见 `docs/CONTRACTS.md`。
+- 动作与意图窗口不进入人物决策自述、模型请求与响应、记忆更新等私有载体；dreaming 窗口按当日可见经历读取决策自述与观察场景，私有载体的可见字段定义见 `docs/CONTRACTS.md`。
 - 追溯性证据只并入当前观察明示暴露的先前结果，并且必须以截止前同人物可见的权威结果为准；引用不得指向观察本身或截止之后。
 - 可见来源按请求人物核对，同一不透明标识跨人物复用时的判定见 `docs/CONTRACTS.md`「窗口声明与字段字典编码」；不依赖标识字符串的组成方式代替人物字段校验，也不静默删掉冲突来源后继续发布。
 - 自然日归属由场景时区决定；排他实验终点的结算事件归入最后一天，不产生额外空白自然日。
@@ -198,7 +198,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 
 | 模块与文件 | 必须完成的变化 |
 | --- | --- |
-| `src/worldmock/delivery/windows.py` | 只从认证导出构造动作、意图与 dreaming 窗口；动作与意图窗口排除私有载体，dreaming 窗口读取当日独白与观察场景；前置状态只在窗口开始前已观察时给出 |
+| `src/worldmock/delivery/windows.py` | 只从认证导出构造动作、意图与 dreaming 窗口；动作与意图窗口排除私有载体，dreaming 窗口读取当日决策自述与观察场景；前置状态只在窗口开始前已观察时给出 |
 | `src/worldmock/delivery/replay.py` | 认证父子导出、共同前缀与一次实际干预，再逐自然日建立重演证据窗口；未发生环境重演的反事实材料不得声明已执行 |
 | `src/worldmock/delivery/evidence_encoding.py` | 窗口的字段字典编码与解码共用唯一入口；指针取值形式与编码收益判定见 `docs/CONTRACTS.md`「窗口声明与字段字典编码」 |
 | `src/worldmock/delivery/pipeline.py` | 在独立依赖环境调用固定项目与配置；模型输入、来源索引、提交标志核验、trace 绑定与最终清单的顺序执行；任一环节失败都不产生可消费成品 |
@@ -220,7 +220,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | 输入范围与认证导出 | 只有通过完成标志、运行身份、文件哈希、行数与因果引用的导出才进入加工；不完整或被篡改的导出永不进入 LabelKit | `tests/footprints/test_validation.py` 的 `test_production_windows_require_and_accept_complete_authenticated_export`、`test_incomplete_or_tampered_export_never_reaches_labelkit`；`tests/delivery/test_publication.py` 的 `test_invalid_source_never_creates_delivery_or_runs_model` | 复跑通过 |
 | 知识截止与未来泄漏 | 动作输入看不到下一步动作的答案，意图截止时刻显式声明；被观察到的先前结果以直接证据并入而不移动截止；公开窗口身份不由未来目标决定 | `tests/delivery/test_windows.py` 的 `test_action_history_never_sees_future_answer_and_intent_cutoff_is_explicit`、`test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cutoff`、`test_action_public_identity_is_independent_of_the_future_target` | 复跑通过 |
 | 跨人物来源隔离 | 同一不透明标识跨人物复用时明确拒绝；不同人物分组与系统事实正常受理 | `tests/delivery/test_windows.py` 的 `test_authenticated_export_rejects_cross_agent_action_group`、`test_authenticated_export_accepts_distinct_agent_groups_and_system_facts` | 复跑通过 |
-| 私有载体边界 | 动作与意图窗口不含独白载体；dreaming 窗口读取当日独白与观察场景 | `tests/delivery/test_windows.py` 的 `test_dreaming_window_reads_inner_monologue_and_scene`、`test_action_and_intent_windows_still_exclude_the_monologue_carrier` | 复跑通过 |
+| 私有载体边界 | 动作与意图窗口不含决策自述载体；dreaming 窗口读取当日决策自述与观察场景 | `tests/delivery/test_windows.py` 的 `test_dreaming_window_reads_decision_statement_and_scene`、`test_action_and_intent_windows_still_exclude_the_decision_statement_carrier` | 复跑通过 |
 | 观察结果引用的合法性 | 被引用的结果必须解析到同人物可见、且在观察之前的权威事件；摘要与权威事件不一致时拒绝 | `tests/delivery/test_windows.py` 的 `test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event`、`test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself` | 复跑通过 |
 | 自然日归属 | 排他实验终点的结算不产生额外训练日 | `tests/delivery/test_windows.py` 的 `test_midnight_experiment_end_does_not_create_an_extra_training_day` | 复跑通过 |
 | 语义候选与真值分离 | 生成与评审请求对目标盲视；候选不得包含未来事实或原始字段；四字段组装发生在评审通过之后 | `tests/delivery/test_labelkit_process.py` 的 `test_real_labelkit_annotate_and_verify_requests_are_target_blind`；`tests/delivery/test_training.py` 的 `test_candidate_cannot_include_future_facts_or_original_fields`、`test_target_candidate_is_validated_before_four_field_assembly`、`test_target_event_identities_are_added_only_after_semantic_review` | 复跑通过 |
@@ -247,3 +247,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | `2026-09-18-revision-1` | 2026-09-18 | 接口去重：与 `docs/CONTRACTS.md` 逐字重复的窗口字段、交付字段、错误形态、重演绑定与调用配置句改为引用 CONTRACTS 对应章节；正文只保留生产流程、加工责任、来源关联行为、信息范围判定、长序列与划分与验证步骤。 |
 | `2026-09-18-revision-2` | 2026-09-18 | 复述去重：窗口编码收益判定、编码身份绑定、连通组划分、候选组装时机、动作目标与调用配置句改为引用 `docs/CONTRACTS.md` 对应章节；导出原则、来源关联、语义评审与返工、假设标签、反事实材料与夹具备注改写为本规格措辞；验收矩阵列头保留与 `docs/VERIFICATION.md`、`docs/design/05-recording-engine.md` 一致的骨架形式。技术结论、参数、阈值与验收判定标准未变。 |
 | `2026-09-18-revision-3` | 2026-09-18 | 降阈回声清扫：前几轮探针阈值（十二字符、八汉字）以下的合同复述句改为按 `docs/CONTRACTS.md` 章节名引用——运行报告口径、原始真值暴露时机、编码身份绑定、超限的失败口径、语义返工的独立评审要求、反事实干预的施加时机、指针取值形式、交付命令的失败状态与发布边界；本规格自有的评审要求（身份字段反推禁则）换用本文件措辞。技术结论、参数、阈值与验收判定标准未变。 |
+| `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |

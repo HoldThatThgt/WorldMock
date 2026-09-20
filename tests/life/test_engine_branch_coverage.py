@@ -41,7 +41,7 @@ from worldmock.life.body import (
     settle_body,
 )
 from worldmock.life.body import body_observation
-from worldmock.life.decision_start import maybe_monologue_start
+from worldmock.life.decision_start import maybe_decision_statement_start
 from worldmock.life.engine import (
     LifeEngine,
     _activity_progress_phrase,
@@ -89,7 +89,7 @@ from worldmock.life.scenario import (
     parse_scenario_document,
     load_scenario,
 )
-from worldmock.footprints.models import EventDraft, INNER_MONOLOGUE_FIELD
+from worldmock.footprints.models import EventDraft, DECISION_STATEMENT_FIELD
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +843,7 @@ def test_recent_meal_counts_skip_malformed_items() -> None:
 
 
 # ---------------------------------------------------------------------------
-# decision_start.py：独白响应判定的拒绝形态
+# decision_start.py：决策自述响应判定的拒绝形态
 # ---------------------------------------------------------------------------
 
 
@@ -853,32 +853,32 @@ def _exchange(request: dict, content, error=None) -> SimpleNamespace:
     return SimpleNamespace(request=request, response=response, error=error)
 
 
-def test_maybe_monologue_start_rejects_non_monologue_sampling() -> None:
-    """非独白采样参数（温度/长度不符）不消费延迟草稿。"""
+def test_maybe_decision_statement_start_rejects_non_decision_statement_sampling() -> None:
+    """非决策自述采样参数（温度/长度不符）不消费延迟草稿。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     exchange = _exchange({"temperature": 0.7, "max_tokens": 400}, "我今天很饿。")
-    assert maybe_monologue_start(pending, 1, 0, exchange) is None
+    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
     assert 1 in pending
 
 
-def test_maybe_monologue_start_swallows_invalid_monologue_text() -> None:
-    """空文本/超长独白按协议错误返回 None，不抛错不消费草稿。"""
+def test_maybe_decision_statement_start_swallows_invalid_decision_statement_text() -> None:
+    """空文本/超长决策自述按协议错误返回 None，不抛错不消费草稿。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     request = {"temperature": 1.3, "max_tokens": 400}
-    assert maybe_monologue_start(pending, 1, 0, _exchange(request, "")) is None
-    assert maybe_monologue_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
+    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "")) is None
+    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
     assert 1 in pending
 
 
-def test_maybe_monologue_start_accepts_valid_text_and_pops_pending() -> None:
-    """有效独白取出草稿并携带 inner_monologue 字段。"""
+def test_maybe_decision_statement_start_accepts_valid_text_and_pops_pending() -> None:
+    """有效决策自述取出草稿并携带 decision_statement 字段。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    draft = maybe_monologue_start(pending, 1, 42,
+    draft = maybe_decision_statement_start(pending, 1, 42,
                                   _exchange({"temperature": 1.3, "max_tokens": 400},
                                             "我现在很饿，想去找点吃的。"))
     assert pending == {}
     assert draft is not None and draft.event_type == "decision_started"
-    assert draft.data[INNER_MONOLOGUE_FIELD] == "我现在很饿，想去找点吃的。"
+    assert draft.data[DECISION_STATEMENT_FIELD] == "我现在很饿，想去找点吃的。"
 
 
 # ---------------------------------------------------------------------------

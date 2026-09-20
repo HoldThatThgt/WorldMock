@@ -785,8 +785,9 @@ def test_rejection_message_carries_error_code_and_reason(engine_factory) -> None
     data = _observe_current(engine, "observe-rejection")
     rows = data["facts"]["recent_action_results"]
     assert rows and rows[-1]["status"] == "rejected"
-    assert set(rows[-1]) == {"action_id", "status", "message"}, (
-        "docs/dev/SPEC-life-runtime.md「观察投影行为规则」冻结行形状：状态 + 一句话 + 必要身份")
+    assert set(rows[-1]) == {"action_id", "occurred_at", "status", "error_code", "message"}
+    assert rows[-1]["error_code"] == "PLAN_SEGMENTS_INVALID"
+    assert rows[-1]["occurred_at"] == rejected.occurred_at
     assert "PLAN_SEGMENTS_INVALID" in rows[-1]["message"], (
         "错误码经摘要消息进入 facts，模型可据此修正重试")
     # 修正后可重试：骨架合法的计划在同一日成功提交

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from worldmock.resources.models import DRAIN_DIRECTION, SOURCE_DIRECTION
 
@@ -37,9 +38,9 @@ WAKE_REASON_NAMES = frozenset({
     "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
 })
 
-#: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：独白文本写入 decision_started.data；
-#: 独白是人物私有内容，只允许 dreaming 任务读取。旧事件缺省该字段。
-INNER_MONOLOGUE_FIELD = "inner_monologue"
+#: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：决策自述文本写入 decision_started.data；
+#: 决策自述是人物私有内容，只允许 dreaming 任务读取；引擎直驱路径可不提供该字段。
+DECISION_STATEMENT_FIELD = "decision_statement"
 
 #: 消息送达记录种类（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：send_message 的送达记录为
 #: environment_event kind=message_arrival；交谈邀约以 chat_invite 消息送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
@@ -88,17 +89,18 @@ def validate_decision_rhythm(data: dict[str, Any]) -> None:
                 raise ValueError(f"{WAKE_REASONS_FIELD}[{index}] must be one of the frozen wake reasons")
 
 
-def validate_inner_monologue(data: dict[str, Any]) -> None:
-    """@brief 校验 decision_started.data 的独白增量字段，缺省视为旧事件不拒收。
+def validate_decision_statement(data: dict[str, Any]) -> None:
+    """@brief 校验 decision_started.data 的决策自述类型；引擎直驱路径可不提供该字段。
 
-    只做类型合同校验；独白为空或超长的协议错误由两阶段决策协议在生成侧裁决
+    只做类型合同校验；决策自述为空或超长的协议错误由两阶段决策协议在生成侧裁决
     （docs/dev/SPEC-life-realism.md「两阶段决策」），不属于存储层结构校验。
 
     :param data: decision_started 事件的 data 字典。
-    :raises ValueError: inner_monologue 存在且不是字符串时 fail-closed。
+    :raises ValueError: decision_statement 存在且不是字符串时 fail-closed。
     """
-    if INNER_MONOLOGUE_FIELD in data and not isinstance(data[INNER_MONOLOGUE_FIELD], str):
-        raise ValueError(f"{INNER_MONOLOGUE_FIELD} must be a string")
+    if DECISION_STATEMENT_FIELD in data and not isinstance(data[DECISION_STATEMENT_FIELD], str):
+        logging.error("Decision statement evidence must be a string")
+        raise ValueError(f"{DECISION_STATEMENT_FIELD} must be a string")
 
 
 EventType = Literal[
@@ -125,8 +127,8 @@ class EventDraft(BaseModel):
     分录（{resource, owner, direction, amount, cause} 字典列表），写入前可用
     validate_resource_flows 校验；activity_progress 可另携 DECISION_OFFERED_FIELD
     与 WAKE_REASONS_FIELD（validate_decision_rhythm 校验），decision_started 可携
-    INNER_MONOLOGUE_FIELD（validate_inner_monologue 校验）——三者均为增量字段，
-    旧事件缺省不拒收；其余事件的 data 结构由各自领域自行约定。
+    DECISION_STATEMENT_FIELD，由本模型自动执行 validate_decision_statement 校验。
+    引擎直驱决策可不提供自述；其余事件的 data 结构由各自领域自行约定。
     """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -143,6 +145,13 @@ class EventDraft(BaseModel):
     visibility: Literal["agent", "evaluation", "system"] = "agent"
     source_kind: Literal["environment", "model", "scenario", "external"] = "environment"
     observed_at: int | None = None
+
+    @model_validator(mode="after")
+    def validate_decision_statement_evidence(self) -> EventDraft:
+        """@brief 在创建、持久化和读取决策事件时校验自述字段。"""
+        if self.event_type == "decision_started":
+            validate_decision_statement(self.data)
+        return self
 
 
 class Event(EventDraft):

@@ -340,13 +340,14 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文自然语言场景段落的渲染输入；`people_here` 是姓名列表，`day_plan` 是 `{summary, current_segment}`，活动行是 `{title, progress}` |
+| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文自然语言场景段落的渲染输入；`people_here` 是姓名列表，`day_plan` 是 `{summary, current_segment}`，活动行是 `{title, progress}` |
 | `facts` | `current_time`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具需要的事实清单；`day_plan` 是 `{segments, current_segment}` |
 
 | `scene` 行 | 字段 |
 | --- | --- |
-| `reachable_places` | `name`, `open`, `minutes` |
-| `inbox_head` | 收件箱头文本，至多 3 条 |
+| `reachable_places` | `name`, `open`；路线分钟数只保留在 facts 与工具支持行 |
+| `inbox_head` | 按 `created_at`、`id` 排序后最近 3 条收件头，展示保持时间先后 |
+| `inbox_has_older_unread` | bool；未展示集合存在未读项时为 true |
 | `todos_summary` | 待办一句话，无待办时为空串 |
 
 | `facts` 行 | 字段 |
@@ -358,7 +359,7 @@ flowchart LR
 | `products` | `product_id`, `name`, `price_fen`, `energy_kcal_per_unit`, `use_duration_seconds` |
 | `routes` | `destination`, `mode`, `minutes`, `fare`, `feasible` |
 | `day_plan` | `segments`（每项为 `{start, end, intent_kind, note}`）与 `current_segment`（处于段间空隙时为 `null`）；就寝时刻之后整项为 `null` |
-| `recent_action_results` | `action_id`, `status`, `message`，至多 5 条 |
+| `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review` |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
 ### 体感与动机证据
@@ -374,14 +375,22 @@ flowchart LR
 | 商品可见期 | 1800 秒；仅店内常驻，或浏览后 1800 秒内 |
 | 工作材料单次揭示上限 | 每任务 2000 字符，只揭示自上次决策以来的新读区间 |
 | 收件箱头展示条数 | 3 |
-| 最近动作结果摘要条数 | 5 |
+| 最近动作结果摘要条数 | 不截断；全部新结果受 user 消息整体预算约束 |
 | user 消息字符预算 | 40000 |
 | system 消息字符预算 | 3000 |
 | 场景段落汉字上限 | 800 |
 | 人物卡片汉字上限 | 600 |
-| 独白汉字上限 | 200 |
+| 决策自述汉字上限 | 200 |
 
-任一上限超出即运行故障：不截断、不删字段，如实抛错。
+user、最终 system、场景与人物卡超出预算即运行故障并记录英文错误日志：不截断、不删字段。
+system 在追加权威回合预算块后检查。决策自述的空与超长属于可重试一次的协议错误；
+收件头是展示选择，材料揭示是增量窗口，商品可见期是可见性条件，不属于消息预算故障。
+
+工作公开评审只取 `public_work_review` 定义的字段：`accepted`、`required_fact_total`、
+`required_fact_passed`、`required_fact_missing`、`missing_content_categories`、
+`required_fact_assessments`、`delivery_assessments`。逐项判断只含公开内容品类、判断、
+理由与经来源核实的原文片段，不含内部参考身份、答案、哈希、资源账户或完整活动快照。
+具体时序与无损回灌行为见 [决策上下文规格](dev/SPEC-decision-context.md#登记确认与结算结果)。
 
 ### 候选与呈现合同
 
@@ -493,19 +502,34 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 ## 人物决策提示与生成参数
 
-每次提供决策机会时，人物模型分两阶段调用，两次调用都经同一证据路径保存完整请求与响应。请求模板与生成参数在本节定义，行为规则归 `docs/dev/SPEC-life-realism.md`「两阶段决策」。
+每次提供决策机会时，人物先决策自述，再进入可多回合的行动循环；正常无查询无纠错需要自述、动作、finish 三次请求。
+每次请求都经同一证据路径保存完整请求与响应。请求模板与生成参数在本节定义，
+上下文与工具通道的行为归 [决策上下文规格](dev/SPEC-decision-context.md)，其他人物行为归 `docs/dev/SPEC-life-realism.md`。
 
 ### 请求组成
 
 | 阶段 | 消息 | 工具 |
 | --- | --- | --- |
-| 独白 | system 身份前言一条；user 依次为人物卡片、场景段落、记忆摘要 | 不带工具 |
-| 行动 | 同左，再追加事实清单与一句「你刚才心里想的是：<独白>」 | 原生工具，含生活动作、记忆查询与 `finish` |
+| 决策自述 | system 身份前言与一至三句第一人称中文自述的生成要求；user 依次为人物卡片、场景段落、记忆摘要 | 不带工具 |
+| 行动 | 初始 user 同左，再追加事实清单与一句「你刚才心里想的是：<决策自述>」 | 动作前为生活动作与预算允许的记忆查询；动作后为记忆查询与 `finish` |
 
-身份前言与只读前言是固定的中文模板。只读决策不启用独白阶段，其 user 消息由人物卡片、记忆摘要与外部只读问题组成。
+身份前言与只读前言是固定的中文模板。只读决策不启用决策自述阶段，其 user 消息由人物卡片、记忆摘要与外部只读问题组成。
 
-人物提示里的观察记录以 `turn`、`action`、`ok` 与 `data` 四个键承载实际观察；
-非字典观察改用 `observation`，不另写入 JSON 字符串副本。
+初始环境观察只渲染一次，行动循环的初始 user 逐字节固定。宿主 observations 随工具调用增长，
+其中的完整审计记录不再整体序列化进提示；实际模型消息以原生 assistant/tool 配对承载交互历史。
+
+### 工具返回通道
+
+| 返回语义 | 宿主证据 | 人物模型可见内容 |
+| --- | --- | --- |
+| 生活动作登记 | 完整 `ActionReceipt`，含请求身份与哈希 | 保留 `tool_call_id` 配对的固定登记确认，正文不含登记回执字段；不代表世界动作成功 |
+| 即时记忆查询 | 实际查询输入与结果 | 当轮返回的记忆内容 |
+| 已结算世界结果 | 完整动作结算事件 | 下一次观察的公开结果投影；不在提交时提前回流 |
+
+工作验收可在提交期间准备，仍只在批量结算后对人物可见。原生工具配对身份不属于内部世界身份，
+不能为删除句柄而删除 `tool_call_id`。登记回执在 observation 与 data 两处均不得进入模型正文。
+
+### 回合预算
 
 行动阶段的 ReAct 请求在 system 消息尾部附加一段权威回合预算（阶段、总回合、已用回合、剩余回合与是否仍开放记忆工具）；剩余回合不超过 2 时先附加一句话低预算提示，预算 JSON 始终作为消息尾部的可解析块。
 
@@ -513,11 +537,11 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 | 阶段 | `thinking` | `temperature` | `max_tokens` | `tool_choice` | `tools` |
 | --- | --- | --- | --- | --- | --- |
-| 独白 | `disabled` | 1.3 | 400 | 不发送 | 不发送 |
+| 决策自述 | `disabled` | 1.3 | 400 | 不发送 | 不发送 |
 | 行动 | `enabled` | 不发送 | 不发送 | `auto` | 原生生活工具 |
 | 工作验收 | `disabled` | 不发送 | 不发送 | `required` | 单个验收工具 |
 
-`thinking` 经请求的扩展体发送。思考模式的服务端拒绝 `tool_choice=required`，行动阶段的工具选择因此固定为 `auto`，模型不产出工具调用时由 ReAct 协议纠错回合兜底。独白以 `temperature=1.3` 与 `max_tokens=400` 作为形状标识：记忆巩固与反思的模型调用既不带工具也不带这两个参数，因此可与独白请求区分。
+`thinking` 经请求的扩展体发送。思考模式的服务端拒绝 `tool_choice=required`，行动阶段的工具选择因此固定为 `auto`，模型不产出工具调用时由 ReAct 协议纠错回合兜底。决策自述以 `temperature=1.3` 与 `max_tokens=400` 作为形状标识：记忆巩固与反思的模型调用既不带工具也不带这两个参数，因此可与决策自述请求区分。
 
 ### 模型身份
 
@@ -530,15 +554,16 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | 工具声明 | 每个函数声明 `strict=true` |
 | `reasoning_effort` | 不发送 |
 
-两阶段与工作验收的逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。
+阶段键为 `decision_statement`、`action`、`work_review`。逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。旧阶段名称不接受，也不提供别名或迁移。
 
 ### 思考回传
 
 思考模式下的 assistant 工具消息必须完整回传模型给出的 `reasoning_content`，与 `content`、`tool_calls` 一起进入后续带工具的请求。被拒绝的工具调用整批不执行，在现有 ReAct 剩余回合内把协议错误反馈给模型自行重新提交。
 
-### 独白证据
+### 决策自述证据
 
-独白文本写入 `decision_started` 事件的 `inner_monologue` 字段，并作为该决策的 `model_request` 与 `model_response` 事件保存。独白只允许 dreaming 任务读取，不进入动作与意图任务的可见输入，公开来源也不携带它。
+决策自述文本写入 `decision_started.data.decision_statement`，并作为该决策的 `model_request` 与 `model_response` 事件保存。决策自述只允许 dreaming 任务读取，不进入动作与意图任务的可见输入，公开来源也不携带它。
+质量计数使用 `decision_started_with_decision_statement` 和 `decision_started_missing_decision_statement`。
 
 ## 记录引擎接口导航
 
@@ -904,3 +929,4 @@ RunPhase = Literal[
 | 2026-09-18-revision-3 | 2026-09-18 | 事件字段节补观察记录的字段形态合同：`observation` 事件的 `data` 即结构化观察投影本身，人物决策提示里的观察记录以 `turn`、`action`、`ok` 与 `data` 四个键承载，不另写入 JSON 字符串副本 |
 | 2026-09-20-recording | 2026-09-20 | 记录引擎的事件、存储、检查点、运行状态与足迹质量报告归入单一设计文档，本文件保留接口导航 |
 | 2026-09-20-boundaries | 2026-09-20 | 运行状态与公共日志合同由运行宿主管理，记录引擎仅提供已保存事实的查询与完整性诊断 |
+| `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |

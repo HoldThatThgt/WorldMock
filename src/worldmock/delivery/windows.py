@@ -13,9 +13,9 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
 
-#: 动作/意图窗口永不进入的私有事件：独白仅 dreaming 任务可读（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。
+#: 动作/意图窗口永不进入的私有事件：决策自述仅 dreaming 任务可读（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
-#: dreaming 专属可读的私有载体：当日 decision_started.data.inner_monologue 与观察 scene。
+#: dreaming 专属可读的私有载体：当日 decision_started.data.decision_statement 与观察 scene。
 DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS - {"decision_started"}
 
 
@@ -198,8 +198,8 @@ def _invalid_observed_result(message: str) -> None:
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
     """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。
 
-    独白载体例外进入：dreaming 窗口可含当日 decision_started.data.
-    inner_monologue 与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）；model_request/
+    决策自述载体例外进入：dreaming 窗口可含当日 decision_started.data.
+    decision_statement 与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）；model_request/
     model_response/memory_updated 仍排除，动作与意图窗口输入不变。
     """
     zone = ZoneInfo(manifest["window"]["timezone"])

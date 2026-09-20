@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -13,16 +14,18 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 
-from tests.life.conftest import advance_until_ready, advance_next, context, submit_round, stage_day_plan
+from tests.life.conftest import advance_until_ready, advance_next, context, submit_round, stage_day_plan, wake_by_mail
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ContinueActivityRequest,
     MeetingMinutes,
+    SetActivityStateRequest,
     StartTargetedActivityRequest,
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
+from worldmock.life.narration import render_facts, render_scene
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
 from worldmock.life.work_review import (
     WorkReviewer,
@@ -148,6 +151,103 @@ async def _submit_with_review(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("accepted", [True, False])
+async def test_prepared_work_review_is_private_until_round_settlement(engine_factory, accepted) -> None:
+    """独立验收准备不改世界与观察，原子结算后下一次观察才出现公开反馈。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    _complete_required_work(engine)
+    engine._work_reviewer = StaticReviewer(accepted=accepted)
+    ctx = context(engine, "delayed-review")
+    engine.begin_decision_round([ctx])
+    initial = engine.observe(ctx)
+    snapshot = engine.state.model_dump(mode="json")
+    call = DirectToolCall(ctx, "action-delayed-review", "submit_work", _paraphrased_submission())
+    engine.submit_action(call)
+    await engine.prepare_pending_work_review(call.action_id)
+    assert engine._work_reviewer.calls == 1
+    assert engine.state.model_dump(mode="json") == snapshot
+    assert engine._recent_action_results(1) == []
+    assert all(row["action_id"] != call.action_id for row in initial["facts"]["recent_action_results"])
+    assert not any(event.action_id == call.action_id
+                   for event in engine.store.read_agent_events("action_result", 1))
+    result = engine.commit_decision_round(ctx.round_id)[0]
+    advance_next(engine)
+    observed = engine.observe(context(engine, "review-visible"))
+    public = next(row for row in observed["facts"]["recent_action_results"] if row["action_id"] == call.action_id)
+    assert public["work_review"] == json.loads(json.dumps(result.data["work_review"]))
+    assert public["work_review"]["accepted"] is accepted
+    assert "Supported by the transcript." in render_facts(observed["facts"])
+    assert engine.observe(context(engine, "review-consumed"))["facts"]["recent_action_results"] == []
+
+
+@pytest.mark.asyncio
+async def test_nested_private_fields_in_real_settlement_do_not_enter_public_results(
+    engine_factory, monkeypatch,
+) -> None:
+    """结算证据保留内部字段，事实清单只按公开评审的逐层白名单取值。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    _complete_required_work(engine)
+    original_dispatch = engine._dispatch
+    expected = {}
+    private = {"oracle_sha256": "PRIVATE_SENTINEL", "accounts": {"private-account": 123},
+               "activity": {"status": "active"}, "energy_kcal": 2000,
+               "reference_id": "summary:private", "oracle": {"expected": "PRIVATE_SENTINEL"}}
+
+    def inject_private_fields(state, pending):
+        """在真实领域结果中注入未来可能新增的内部证据字段。"""
+        changed, result = original_dispatch(state, pending)
+        data = copy.deepcopy(result.data)
+        expected.update(copy.deepcopy(data["work_review"]))
+        data.update(copy.deepcopy(private))
+        data["work_review"].update(copy.deepcopy(private))
+        for collection in ("required_fact_assessments", "delivery_assessments"):
+            for assessment in data["work_review"][collection]:
+                assessment.update(copy.deepcopy(private))
+        return changed, result.model_copy(update={"data": data})
+
+    monkeypatch.setattr(engine, "_dispatch", inject_private_fields)
+    await _submit_with_review(engine, StaticReviewer(), "private-review")
+    advance_next(engine)
+    observed = engine.observe(context(engine, "private-review-visible"))
+    public = next(row for row in observed["facts"]["recent_action_results"]
+                  if row["action_id"] == "action-private-review")
+    assert set(public) == {"action_id", "occurred_at", "status", "error_code", "message", "work_review"}
+    assert public["work_review"] == json.loads(json.dumps(expected))
+    assert "PRIVATE_SENTINEL" in json.dumps(observed["recent_action_results"])
+    rendered = render_facts(observed["facts"])
+    assert "PRIVATE_SENTINEL" not in rendered
+    assert "private-account" not in rendered
+    assert "resource_changes" not in rendered
+
+
+def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) -> None:
+    """已经开始但仍欠工时的工作暂停后，同时保留活动进度与独立待办提醒。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    task = engine.scenario.tasks[0]
+    wake_by_mail(engine, offset=900)
+    request = StartTargetedActivityRequest(activity_type="work", target_id=task.task_id,
+                                            planned_duration_seconds=task.maximum_duration_seconds,
+                                            playback_speed=1)
+    _, results = submit_round(engine, {1: ("start_targeted_activity", request)}, "pause-work-start")
+    activity_id = results[0].activity_id
+    assert advance_until_ready(engine)
+    pause = SetActivityStateRequest(activity_id=activity_id, operation="pause")
+    _, paused = submit_round(engine, {1: ("set_activity_state", pause)}, "pause-work")
+    assert paused[0].status == "completed"
+    assert advance_until_ready(engine)
+    observed = engine.observe(context(engine, "paused-work-observation"))
+    scene = render_scene(observed["scene"])
+    assert "之前做到一半的" in scene and "还没收尾。" in scene
+    assert observed["scene"]["paused_activities"][0]["progress"] in scene
+    assert "有待办任务" in scene
+    remaining = observed["facts"]["tasks"][0]["remaining_contract_seconds"]
+    assert 0 < remaining < task.maximum_duration_seconds
+
+
+@pytest.mark.asyncio
 async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_factory) -> None:
     """观察不免费泄漏正文，实际工作揭示全文，独立正例才支付。"""
     engine = engine_factory()
@@ -234,18 +334,18 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     request = ReactLoopRequest(0, ctx.observed_at, wrapped)
     agent.prepare_react_loop(request)
     messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
-    # 事件证据保留评审全文（JSON 往返后元组序列化为列表）；提示侧新合同
-    # （docs/dev/SPEC-life-runtime.md「观察投影行为规则」）只含状态 + 一句话 + 身份，评审全文不进提示。
+    # 完整证据与公开提示共同保留工作反馈；提示不包含内部参考身份与哈希。
     assert visible == json.loads(json.dumps(feedback))
-    # facts 摘要行只含状态 + 一句话 + 身份（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），且是最近 5 条的裁剪。
     summaries = observation["facts"]["recent_action_results"]
-    assert 1 <= len(summaries) <= 5
-    assert all(set(row) == {"action_id", "status", "message"} for row in summaries)
-    assert {row["action_id"] for row in summaries} <= {
-        row["action_id"] for row in observation["recent_action_results"]}
+    assert [row["action_id"] for row in summaries] == [
+        row["action_id"] for row in observation["recent_action_results"]]
+    public = next(row for row in summaries if row["action_id"] == "action-rework")
+    assert set(public) == {"action_id", "occurred_at", "status", "error_code", "message", "work_review"}
+    assert public["work_review"] == visible
+    assert public["error_code"] == "WORK_REQUIRES_REWORK"
     assert summaries[-1]["message"] in messages
-    assert json.dumps(visible["required_fact_assessments"], ensure_ascii=False) not in messages
-    assert "Supported by the transcript." not in messages
+    assert "Supported by the transcript." in messages
+    assert "source_excerpt" in messages and "Hi , I'm David" in messages
     assert "reference_id" not in messages and engine.scenario.tasks[0].oracle_path not in messages
 
     replay = context(engine, "rework-replay")

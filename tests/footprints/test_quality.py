@@ -5,7 +5,7 @@ import pytest
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
-    INNER_MONOLOGUE_FIELD,
+    DECISION_STATEMENT_FIELD,
     WAKE_REASONS_FIELD,
     Event,
 )
@@ -239,7 +239,7 @@ def test_environment_event_cannot_be_used_as_a_memory_read_episode():
     assert [item['code'] for item in memory['problems']] == ['unknown_memory_reference']
 
 
-def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_monologues():
+def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_statements():
     events = [
         _event(1, "activity_progress", data={DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -249,9 +249,9 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_monologues():
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
         _event(4, "activity_progress", data={"activity": {"kind": "work"}}),
         _event(5, "decision_started", agent_id=1, decision_id="decision-1",
-               data={INNER_MONOLOGUE_FIELD: "今天想早点到办公室。"}),
+               data={DECISION_STATEMENT_FIELD: "今天想早点到办公室。"}),
         _event(6, "decision_started", agent_id=1, decision_id="decision-2",
-               data={"phase": "monologue"}),
+               data={"phase": "decision_statement"}),
         _event(7, "run_ended", occurred_at=1100),
     ]
 
@@ -266,8 +266,8 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_monologues():
     assert rhythm["wake_reason_counts"] == {"person_arrived": 1, "planned_end": 2}
     assert rhythm["unrecognized_wake_reason_counts"] == {"mystery": 1}
     assert rhythm["decision_started_events"] == 2
-    assert rhythm["decision_started_with_monologue"] == 1
-    assert rhythm["decision_started_missing_monologue"] == 1
+    assert rhythm["decision_started_with_decision_statement"] == 1
+    assert rhythm["decision_started_missing_decision_statement"] == 1
 
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
@@ -284,8 +284,8 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     assert rhythm["wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["decision_started_events"] == 1
-    assert rhythm["decision_started_with_monologue"] == 0
-    assert rhythm["decision_started_missing_monologue"] == 1
+    assert rhythm["decision_started_with_decision_statement"] == 0
+    assert rhythm["decision_started_missing_decision_statement"] == 1
 
 
 def test_acceleration_sums_observed_wall_time_across_restore_branches():

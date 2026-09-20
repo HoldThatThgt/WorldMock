@@ -254,52 +254,52 @@ def test_midnight_experiment_end_does_not_create_an_extra_training_day(tmp_path)
     assert counterfactual["target"]["environment_replay"] is None
 
 
-def test_dreaming_window_reads_inner_monologue_and_scene(tmp_path):
-    """dreaming 窗口可含当日 decision_started 独白与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。"""
+def test_dreaming_window_reads_decision_statement_and_scene(tmp_path):
+    """dreaming 窗口可含当日 decision_started 决策自述与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。"""
     observed = event('observed', 1, 'observation', {'scene': '清晨在家，阳光很好。', 'balance_fen': 800})
-    monologue = event('monologue-start', 2, 'decision_started',
-                      {'inner_monologue': '今天想先把报告写完，再去买菜。', 'phase': 'monologue'})
+    decision_statement = event('decision_statement-start', 2, 'decision_started',
+                      {'decision_statement': '今天想先把报告写完，再去买菜。', 'phase': 'decision_statement'})
     requested = event('request-3', 3, 'action_requested', {'tool_name': 'plan_day'})
     requested.update(action_id='action-1')
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 3,
                 'window': {'start': '2026-01-05T00:00:00+08:00', 'end': '2026-01-06T00:00:00+08:00',
                            'timezone': 'Asia/Shanghai'},
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-    indexed = {row['event_id']: row for row in (observed, monologue, requested)}
+    indexed = {row['event_id']: row for row in (observed, decision_statement, requested)}
 
-    records = _dream_windows([observed, monologue, requested], manifest, tmp_path, indexed)
+    records = _dream_windows([observed, decision_statement, requested], manifest, tmp_path, indexed)
 
     assert len(records) == 3
     for record in records:
         rows = record['input']['events']
-        monologue_rows = [row for row in rows if row['event_type'] == 'decision_started']
-        assert [row['data'].get('inner_monologue') for row in monologue_rows] == \
+        decision_statement_rows = [row for row in rows if row['event_type'] == 'decision_started']
+        assert [row['data'].get('decision_statement') for row in decision_statement_rows] == \
             ['今天想先把报告写完，再去买菜。']
         assert any(row['event_type'] == 'observation'
                    and '清晨在家' in str(row['data'].get('scene')) for row in rows)
 
 
-def test_action_and_intent_windows_still_exclude_the_monologue_carrier(tmp_path):
-    """信息范围合同：独白仅 dreaming 可读，动作/意图可见输入仍排除（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
+def test_action_and_intent_windows_still_exclude_the_decision_statement_carrier(tmp_path):
+    """信息范围合同：决策自述仅 dreaming 可读，动作/意图可见输入仍排除（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
     from worldmock.delivery.windows import PRIVATE_EVENTS
 
     assert 'decision_started' in PRIVATE_EVENTS
     observed = event('visible', 1, 'observation', {'balance': 800})
-    monologue = event('monologue-start', 2, 'decision_started',
-                      {'inner_monologue': '今天想先把报告写完，再去买菜。', 'phase': 'monologue'})
+    decision_statement = event('decision_statement-start', 2, 'decision_started',
+                      {'decision_statement': '今天想先把报告写完，再去买菜。', 'phase': 'decision_statement'})
     requested = event('target', 3, 'action_requested', {'tool_name': 'purchase'})
     requested['action_id'] = 'purchase'
     completed = event('completed', 4, 'action_result', {'status': 'completed', 'balance': 750})
     completed['action_id'] = 'purchase'
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 4,
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-    indexed = {row['event_id']: row for row in (observed, monologue, requested, completed)}
+    indexed = {row['event_id']: row for row in (observed, decision_statement, requested, completed)}
 
     action, intent = _action_windows(requested, {'purchase': [requested, completed]},
-                                     {'decision': [observed, monologue, requested, completed]},
+                                     {'decision': [observed, decision_statement, requested, completed]},
                                      (manifest, tmp_path, indexed))
 
     for record in (action, intent):
         rows = record['input']['events']
         assert all(row['event_type'] != 'decision_started' for row in rows)
-        assert all('inner_monologue' not in str(row['data']) for row in rows)
+        assert all('decision_statement' not in str(row['data']) for row in rows)

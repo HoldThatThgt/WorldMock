@@ -13,8 +13,8 @@ persona_card、scene、facts 三部分组成，
   不静默截断。
 - user 消息 40000 字符、system 消息 3000 字符；超限是运行故障，
   不截断、不删字段（「字符预算」）。
-- 独白一到三句、不超过 200 汉字、不得为空；违反是协议错误
-  （`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
+- 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
+  二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
 - 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
   affordance_contract、energy_feasibility、observation_event_id、
   motivation_hints、profile.motivation、profile.entertainment_preferences、
@@ -26,14 +26,15 @@ persona_card、scene、facts 三部分组成，
 current_time（ISO 8601 或 datetime）、location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activity（title/
 progress）、paused_activities（title/progress 列表）、day_plan（str 或
-summary/current_segment）、inbox_head（收件箱头字符串列表）、todos_summary、
-reachable_places（name/open/minutes 列表）、inventory、recent_action_results
+summary/current_segment）、inbox_head（收件箱头字符串列表）、inbox_has_older_unread、todos_summary、
+reachable_places（name/open 列表）、inventory、recent_action_results
 （一句话列表，取最近一条）。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 
 #: user 消息字符预算（「字符预算」，合同常数，非实验假设）。
@@ -44,8 +45,8 @@ SYSTEM_MESSAGE_CHAR_BUDGET = 3000
 SCENE_HANZI_BUDGET = 800
 #: persona_card 人物卡片汉字上限（「观察投影与提示合同」，合同常数）。
 PERSONA_CARD_HANZI_BUDGET = 600
-#: 独白汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
-MONOLOGUE_HANZI_BUDGET = 200
+#: 决策自述汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
+DECISION_STATEMENT_HANZI_BUDGET = 200
 #: 场景文本语言（「观察投影与提示合同」：提示与场景文本使用 language=zh-CN）。
 SCENE_LANGUAGE = "zh-CN"
 
@@ -62,7 +63,30 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "profile.entertainment_preferences",
     "game_catalog",
     "activity_snapshot",
+    "activity",
     "activities",
+    "reference_id",
+    "reference_assessments",
+    "oracle",
+    "oracle_path",
+    "input_path",
+    "expected",
+    "accounts",
+    "account_id",
+    "balance_account_id",
+    "balance_fen",
+    "resource_changes",
+    "energy_kcal",
+    "sleep_pressure",
+    "sleep_deficit_hours",
+    "chronotype_midsleep",
+    "sleep_need_hours",
+    "taste_weights",
+})
+
+#: 体感分级允许进入提示，同名的数值身体状态禁止进入。
+BODY_VALUE_KEYS = frozenset({
+    "appetite", "sleepiness", "entertainment_need", "social_need", "mood_valence",
 })
 
 #: 嵌套路径禁键：(父键, 子键)。profile 的动机与娱乐偏好不得进入提示。
@@ -94,8 +118,8 @@ class RenderBudgetExceededError(ValueError):
     """@brief 渲染部件超出汉字上限（scene 800 / persona_card 600），输入侧问题。"""
 
 
-class MonologueValidationError(ValueError):
-    """@brief 独白违反协议：为空或超过 200 汉字（两阶段决策合同）。"""
+class DecisionStatementValidationError(ValueError):
+    """@brief 决策自述违反协议：为空或超过 200 汉字（两阶段决策合同）。"""
 
 
 class ForbiddenObservationFieldError(ValueError):
@@ -161,7 +185,7 @@ def _activity_sentences(observation: dict) -> str:
         described = "、".join(
             f"《{item['title']}》（{item['progress']}）" if item.get("progress")
             else f"《{item['title']}》" for item in paused)
-        sentences.append(_close_sentence(f"暂停中的活动有{described}"))
+        sentences.append(_close_sentence(f"之前做到一半的{described}还没收尾"))
     return "".join(sentences)
 
 
@@ -184,19 +208,19 @@ def _plan_sentence(observation: dict) -> str:
 def _inbox_sentence(observation: dict) -> str:
     """@brief 渲染收件箱头句：只列给定的头部条目，不虚构未读数。"""
     head = [line for line in (observation.get("inbox_head") or []) if line]
-    return _close_sentence(f"收件箱最新消息：{'；'.join(head)}") if head else ""
+    latest = _close_sentence(f"收件箱最新消息：{'；'.join(head)}") if head else ""
+    older = "更早还有未读消息。" if observation.get("inbox_has_older_unread") else ""
+    return latest + older
 
 
 def _places_sentence(observation: dict) -> str:
-    """@brief 渲染可达地点与营业状态句："公司食堂（营业中，约 5 分钟）"。"""
+    """@brief 渲染可达地点与营业状态句，路线分钟数由事实清单提供。"""
     places = [place for place in (observation.get("reachable_places") or [])
               if place.get("name")]
     if not places:
         return ""
     described = "、".join(
-        f"{place['name']}（{'营业中' if place.get('open') else '未营业'}"
-        + (f"，约 {place['minutes']} 分钟" if place.get("minutes") is not None else "")
-        + "）" for place in places)
+        f"{place['name']}（{'营业中' if place.get('open') else '未营业'}）" for place in places)
     return _close_sentence(f"可达地点有{described}")
 
 
@@ -231,6 +255,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
     @exception ForbiddenObservationFieldError observation 含黑名单字段
     """
     if language != SCENE_LANGUAGE:
+        logging.error("Scene language is unsupported: %s", language)
         raise ValueError(f"scene language must be {SCENE_LANGUAGE}, got: {language}")
     enforce_field_blacklist(observation)
     todos = observation.get("todos_summary")
@@ -249,6 +274,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
     scene = "".join(part for part in parts if part)
     hanzi = count_hanzi(scene)
     if hanzi > SCENE_HANZI_BUDGET:
+        logging.error("Scene exceeds the Hanzi budget: actual=%s limit=%s", hanzi, SCENE_HANZI_BUDGET)
         raise RenderBudgetExceededError(
             f"rendered scene exceeds {SCENE_HANZI_BUDGET} hanzi budget: "
             f"{hanzi} hanzi; input observation is over-specified")
@@ -284,6 +310,7 @@ def render_drive_summary(
     text = _close_sentence("，".join(segments))
     digits = [ch for ch in text if ch.isdigit()]
     if digits:
+        logging.error("Drive summary contains forbidden digit weights")
         raise ValueError(
             f"drive summary must not contain digit weights: {digits} in {text!r}")
     return text
@@ -300,40 +327,49 @@ def enforce_budgets(user_message_len: int, system_message_len: int) -> None:
     @exception PromptBudgetExceededError 任一消息超出预算
     """
     if user_message_len > USER_MESSAGE_CHAR_BUDGET:
+        logging.error("User message exceeds character budget: actual=%s limit=%s",
+                      user_message_len, USER_MESSAGE_CHAR_BUDGET)
         raise PromptBudgetExceededError(
             f"user message exceeds {USER_MESSAGE_CHAR_BUDGET} chars: "
             f"{user_message_len}")
     if system_message_len > SYSTEM_MESSAGE_CHAR_BUDGET:
+        logging.error("System message exceeds character budget: actual=%s limit=%s",
+                      system_message_len, SYSTEM_MESSAGE_CHAR_BUDGET)
         raise PromptBudgetExceededError(
             f"system message exceeds {SYSTEM_MESSAGE_CHAR_BUDGET} chars: "
             f"{system_message_len}")
 
 
-def validate_monologue(text: str) -> str:
-    """@brief 判定独白是否满足两阶段决策协议并原样返回。
+def validate_decision_statement(text: str) -> str:
+    """@brief 判定决策自述是否满足两阶段决策协议并原样返回。
 
     协议（`docs/dev/SPEC-life-realism.md`「两阶段决策」）：一到三句第一人称中文，不超过 200 汉字，不得为空；
     超长或为空是协议错误。空串与纯空白同样视为为空。
 
-    @param text 独白文本
+    @param text 决策自述文本
     @return 通过校验的原文本
-    @exception MonologueValidationError 独白为空或超过 200 汉字
+    @exception DecisionStatementValidationError 决策自述为空或超过 200 汉字
     """
     if not text or not text.strip():
-        raise MonologueValidationError("monologue is empty")
+        logging.error("Decision statement is empty")
+        raise DecisionStatementValidationError("decision_statement is empty")
     hanzi = count_hanzi(text)
-    if hanzi > MONOLOGUE_HANZI_BUDGET:
-        raise MonologueValidationError(
-            f"monologue exceeds {MONOLOGUE_HANZI_BUDGET} hanzi: {hanzi}")
+    if hanzi > DECISION_STATEMENT_HANZI_BUDGET:
+        logging.error("Decision statement exceeds the Hanzi budget: actual=%s limit=%s",
+                      hanzi, DECISION_STATEMENT_HANZI_BUDGET)
+        raise DecisionStatementValidationError(
+            f"decision_statement exceeds {DECISION_STATEMENT_HANZI_BUDGET} hanzi: {hanzi}")
     return text
 
 
 def _raise_if_forbidden(key: str, path: str, parent_key: str | None) -> None:
     """@brief 按字面键集与 (父键, 子键) 嵌套规则检查单个键，违规即抛错。"""
-    if key in FORBIDDEN_OBSERVATION_KEYS:
+    if key in FORBIDDEN_OBSERVATION_KEYS or key.endswith("_sha256"):
+        logging.error("Forbidden observation field rejected: %s", path)
         raise ForbiddenObservationFieldError(
             f"forbidden observation field {path!r} must not enter the prompt")
     if parent_key is not None and (parent_key, key) in FORBIDDEN_PROFILE_FIELDS:
+        logging.error("Forbidden profile field rejected: %s", path)
         raise ForbiddenObservationFieldError(
             f"forbidden observation field {parent_key}.{key} at {path!r} "
             "must not enter the prompt")
@@ -347,6 +383,7 @@ def _check_route_entries(value: object, path: str) -> None:
             continue
         extra = sorted(str(key) for key in set(entry) - ROUTE_ALLOWED_FIELDS)
         if extra:
+            logging.error("Route entry carries fields outside the public contract: %s", path)
             raise ForbiddenObservationFieldError(
                 f"route entry {path}[{index}] carries non-contract fields "
                 f"{extra}; allowed fields: {sorted(ROUTE_ALLOWED_FIELDS)}")
@@ -359,6 +396,10 @@ def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
             child_key = str(key)
             child_path = f"{path}.{child_key}"
             _raise_if_forbidden(child_key, child_path, parent_key)
+            if child_key in BODY_VALUE_KEYS and isinstance(value, (int, float)):
+                logging.error("Numeric body state rejected: %s", child_path)
+                raise ForbiddenObservationFieldError(
+                    f"numeric body state {child_path!r} must not enter the prompt")
             if child_key == "routes":
                 _check_route_entries(value, child_path)
             _walk_blacklist(value, child_path, child_key)
@@ -373,9 +414,9 @@ def enforce_field_blacklist(payload: dict) -> None:
     覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、
     end_time、affordance_contract、energy_feasibility、observation_event_id、
     motivation_hints、game_catalog、activity_snapshot/activities 即完整活动
-    快照）、profile 嵌套键（motivation、entertainment_preferences，兼容
-    点号扁平键）、以及 routes 条目只保留目的地/方式/分钟/票价/是否可行
-    （路线坐标与几何不得进入提示）。通过时静默返回。
+    快照）、工作隐藏参考与答案、哈希、内部账户与数值身体状态、profile
+    嵌套键与点号扁平键、以及 routes 条目只保留目的地/方式/分钟/票价/
+    是否可行（路线坐标与几何不得进入提示）。通过时静默返回。
 
     @param payload 渲染输入字典（observation 或 facts）
     @exception ForbiddenObservationFieldError 命中任一禁项，消息含完整路径
@@ -413,6 +454,7 @@ def compose_user_message(persona_card: str, scene: str, facts: str) -> str:
     """
     hanzi = count_hanzi(persona_card)
     if hanzi > PERSONA_CARD_HANZI_BUDGET:
+        logging.error("Persona card exceeds the Hanzi budget: actual=%s limit=%s", hanzi, PERSONA_CARD_HANZI_BUDGET)
         raise RenderBudgetExceededError(
             f"persona card exceeds {PERSONA_CARD_HANZI_BUDGET} hanzi budget: "
             f"{hanzi} hanzi")

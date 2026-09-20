@@ -83,8 +83,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
-        MONOLOGUE_MAX_TOKENS,
-        MONOLOGUE_TEMPERATURE,
+        DECISION_STATEMENT_MAX_TOKENS,
+        DECISION_STATEMENT_TEMPERATURE,
     )
     from worldmock.runtime import two_stage_model_identity
 
@@ -98,13 +98,17 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
         problems.append("every function declaration must be strict=true")
     if actual.get("reasoning_effort") is not None:
         problems.append("reasoning_effort must not be sent")
-    stages = actual.get("stages") or {}
-    expected_monologue = {"thinking": "disabled", "temperature": MONOLOGUE_TEMPERATURE,
-                          "max_tokens": MONOLOGUE_MAX_TOKENS, "tools": None, "tool_choice": None}
+    stages = actual.get("stages")
+    if not isinstance(stages, dict) or set(stages) != {"decision_statement", "action", "work_review"}:
+        raise IntegrityError("Model identity stages must be exactly decision_statement, action, work_review")
+    expected_decision_statement = {
+        "thinking": "disabled", "temperature": DECISION_STATEMENT_TEMPERATURE,
+        "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None, "tool_choice": None,
+    }
     expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
                        "tool_choice": ACTION_TOOL_CHOICE}
     expected_review = {"thinking": "disabled", "tool_choice": "required"}
-    for name, expected in (("monologue", expected_monologue), ("action", expected_action),
+    for name, expected in (("decision_statement", expected_decision_statement), ("action", expected_action),
                            ("work_review", expected_review)):
         if stages.get(name) != expected:
             problems.append(f"stage {name} is {stages.get(name)!r}, expected {expected!r}")

@@ -771,7 +771,7 @@ class ActionResult(FrozenModel):
 
 
 def rejection_reason_text(error: Exception) -> str:
-    """@brief 拒绝原因文本：业务错误码加链式底层原因（去十六进制身份并截断）。
+    """@brief 拒绝原因文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
     拒绝消息经 recent_action_results 摘要进入 facts/scene（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），模型据此
     修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
@@ -783,7 +783,7 @@ def rejection_reason_text(error: Exception) -> str:
     cause = error.__cause__
     if cause is not None:
         detail = re.sub(r"[0-9a-fA-F]{8,}", "-", " ".join(str(cause).split()))
-        reason = f"{reason}: {detail[:160]}"
+        reason = f"{reason}: {detail}"
     return reason
 
 
