@@ -15,7 +15,6 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, RunIdentity, StartBasicActivityRequest
-from worldmock.life.run_identity import category_identity
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import ResumeRequest, _model_identity, _prepare_resume, runtime_code_sha256
 from tests.life.conftest import advance_next, stage_day_plan, submit_round
@@ -60,6 +59,19 @@ def _hash_files(directory):
             for path in directory.rglob("*") if path.is_file()}
 
 
+def _expected_identity(directory):
+    """直接对照实际文件字节与已经加载验证的目录清单，不复用运行身份提取函数。"""
+    contract_bytes = (directory / "category-contract.json").read_bytes()
+    rule_bytes = (directory / "exchange-rules.json").read_bytes()
+    manifest = json.loads((directory / "manifest.json").read_bytes())
+    return {
+        "category_contract_version": json.loads(contract_bytes)["contract_version"],
+        "category_contract_sha256": hashlib.sha256(contract_bytes).hexdigest(),
+        "exchange_rules_sha256": hashlib.sha256(rule_bytes).hexdigest(),
+        "catalog_content_sha256": manifest["catalog_content_sha256"],
+    }
+
+
 def _checkpoint(engine, tmp_path):
     snapshots = {"life": engine.store.assets.put_json(
         {"state_version": engine.state.version}, {"kind": "life_checkpoint"})}
@@ -79,8 +91,13 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
     path, directory = _fixture(tmp_path)
     engine = _create(path, tmp_path / "run")
     try:
-        expected = category_identity(engine.semantics)
+        expected = _expected_identity(directory)
         assert {key: engine.store.manifest[key] for key in expected} == expected
+        reopened = LifeEngine.open(path, tmp_path / "run")
+        try:
+            assert {key: reopened.store.manifest[key] for key in expected} == expected
+        finally:
+            reopened.close()
         names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
@@ -89,10 +106,11 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         advance_next(engine)
         cutoff = engine.store.last_event_seq
         first = export_run(engine.store, cutoff, tmp_path / "first-export")
+        assert {key: first["frozen_run_manifest"][key] for key in expected} == expected
         frozen_bytes = _hash_files(tmp_path / "first-export")
         _change_category(directory)
-        changed, _ = load_runtime_scenario(path)
-        assert category_identity(changed) != expected
+        load_runtime_scenario(path)
+        assert _expected_identity(directory) != expected
         assert {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()} == names
         second = export_run(engine.store, cutoff, tmp_path / "second-export")
         assert first["frozen_run_manifest"] == second["frozen_run_manifest"] == engine.store.manifest
@@ -124,7 +142,8 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
     run, destination = tmp_path / "run", tmp_path / "branch"
     engine = _create(path, run)
     try:
-        expected = category_identity(engine.semantics)
+        expected = _expected_identity(directory)
+        assert {key: engine.store.manifest[key] for key in expected} == expected
         checkpoint = _checkpoint(engine, tmp_path)
         parent_manifest = engine.store.manifest
     finally:
@@ -150,6 +169,18 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
         assert {key: manifest[key] for key in expected} == expected
         assert manifest["parent_checkpoint_id"] == checkpoint.checkpoint_id
         assert manifest["run_id"] != parent_manifest["run_id"]
+        branch = LifeEngine.open(path, destination)
+        try:
+            assert {key: branch.store.manifest[key] for key in expected} == expected
+            for agent_id in branch.state.agents:
+                stage_day_plan(branch, agent_id)
+            submit_round(branch, {agent_id: ("start_basic_activity", StartBasicActivityRequest(
+                activity_type="wait", planned_duration_seconds=60)) for agent_id in branch.state.agents}, "branch-wait")
+            advance_next(branch)
+            exported = export_run(branch.store, branch.store.last_event_seq, tmp_path / "branch-export")
+            assert {key: exported["frozen_run_manifest"][key] for key in expected} == expected
+        finally:
+            branch.close()
 
 
 @pytest.mark.parametrize("field", ["category_contract_version", "category_contract_sha256",

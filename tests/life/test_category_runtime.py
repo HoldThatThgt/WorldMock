@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import shutil
+import sqlite3
 from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan, travel_quote, wake_by_mail
+from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, travel_quote, wake_by_mail
 from worldmock.categories import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.engine import LifeEngine
@@ -26,6 +27,7 @@ from worldmock.life.models import (
     PurchaseOrderRequest,
     RunIdentity,
     SetActivityStateRequest,
+    StartBasicActivityRequest,
     StartTravelRequest,
 )
 from worldmock.life.scenario import parse_scenario_document
@@ -231,6 +233,27 @@ def _save_fixture(path: Path, catalog_dir: Path, scenario: dict) -> None:
     """写回场景并刷新被变异目录的完整内容身份。"""
     _write_json(path, scenario)
     refresh_manifest_identity(catalog_dir)
+
+
+def _isolate_hidden_product(catalog_dir: Path, contract: dict, scenario: dict) -> str:
+    """让唯一零库存商品独占子品类，其他可见商品不能代替它触发准入失败。"""
+    category_id = "food-hidden-reachable"
+    category = _category(category_id)
+    category["parent_id"] = "food-dairy"
+    contract["categories"].append(category)
+    product = scenario["products"][0]
+    product["stock"] = 0
+    objects_path = catalog_dir / "objects.jsonl"
+    objects = [json.loads(line) for line in objects_path.read_text().splitlines()]
+    for item in objects:
+        if item["object_id"] == product["product_id"]:
+            item["category_id"] = category_id
+    assert [item["object_id"] for item in objects if item["category_id"] == category_id] == [product["product_id"]]
+    objects_path.write_text("".join(json.dumps(item) + "\n" for item in objects))
+    for item in scenario["products"][1:]:
+        item["stock"] = 1
+    assert all(item["stock"] > 0 for item in scenario["products"][1:])
+    return category_id
 
 
 def _set_pairing_undefined(contract: dict, category_id: str, action: str) -> None:
@@ -457,8 +480,8 @@ def test_all_reachable_pairings_reject_undefined_before_artifacts(
     expected = "undefined"
     if reachable in {"hidden_product", "future_release"}:
         product = scenario["products"][0]
-        product["stock"] = 0
-        _set_pairing_undefined(contract, "food-dairy", "purchase")
+        category_id = _isolate_hidden_product(catalog_dir, contract, scenario)
+        _set_pairing_undefined(contract, category_id, "purchase")
         expected = "undefined purchase"
         if reachable == "future_release":
             scenario["product_releases"] = [{
@@ -558,11 +581,15 @@ def test_no_effect_purchase_loads_and_rejects_without_transfer(tmp_path: Path) -
         )
         before = (dict(engine.state.accounts), dict(engine.state.merchant_stock),
                   dict(engine.state.deliveries))
+        body = engine.state.agents[1].body.model_dump(mode="python")
+        effects = set(engine.state.agents[1].active_effects)
         result = _action(engine, "purchase-no-effect", "purchase", request)
         assert result.status.value == "rejected"
         assert result.error_code == "CATEGORY_PAIRING_NO_EFFECT"
         assert (engine.state.accounts, engine.state.merchant_stock,
                 engine.state.deliveries) == before
+        assert engine.state.agents[1].body.model_dump(mode="python") == body
+        assert engine.state.agents[1].active_effects == effects
     finally:
         engine.close()
 
@@ -735,11 +762,12 @@ async def test_work_coefficient_changes_real_life_engine_payment(tmp_path: Path)
         _at_task_start(engine)
         _complete_required_work(engine)
         task = engine.scenario.tasks[0]
-        before = engine.state.accounts["agent:1"]
+        before = dict(engine.state.accounts)
         result = await _submit_with_review(
             engine, StaticReviewer(), "work-coefficient", _paraphrased_submission(task.task_id))
         assert result.data["payment_fen"] == task.pay_fen * 2
-        assert engine.state.accounts["agent:1"] == before + task.pay_fen * 2
+        assert engine.state.accounts["agent:1"] == before["agent:1"] + task.pay_fen * 2
+        assert engine.state.accounts[task.employer_account_id] == before[task.employer_account_id] - task.pay_fen * 2
     finally:
         engine.close()
 
@@ -777,12 +805,13 @@ def test_recipe_cancel_and_insufficient_inventory_leave_no_conversion(tmp_path: 
         short.close()
 
 
-def test_recipe_ledger_failure_rolls_back_activity_inventory_and_footprint(tmp_path: Path) -> None:
+@pytest.mark.parametrize("quantity", (1, 1e-10))
+def test_recipe_ledger_failure_rolls_back_activity_inventory_and_footprint(tmp_path: Path, quantity: float) -> None:
     """闭合账本上界失败时推进事务不提交任何部分状态。"""
     path = _fixture(tmp_path, held=1, output_held=1, maximum=1)
     engine = _engine(tmp_path, path, "rollback")
     try:
-        _, started = _consume(engine, "rollback-start")
+        _, started = _consume(engine, "rollback-start", quantity=quantity)
         before_state = engine.state.model_dump(mode="json")
         before_seq = engine.store.last_event_seq
         with pytest.raises(BusinessRuleError, match="OUT_OF_BOUNDS"):
@@ -800,12 +829,24 @@ def test_no_effect_loads_but_runtime_use_rejects_without_resource_change(tmp_pat
     try:
         inventory = copy.deepcopy(engine.state.agents[1].inventory)
         accounts = dict(engine.state.accounts)
+        body = engine.state.agents[1].body.model_dump(mode="python")
+        effects = set(engine.state.agents[1].active_effects)
         _, rejected = _consume(engine, "no-effect")
         assert rejected.status.value == "rejected"
         assert rejected.error_code == "CATEGORY_PAIRING_NO_EFFECT"
         assert engine.state.agents[1].inventory == inventory
         assert engine.state.accounts == accounts
         assert engine.state.activities == {}
+        assert engine.state.agents[1].body.model_dump(mode="python") == body
+        assert engine.state.agents[1].active_effects == effects
+        advance_next(engine)
+        replay_body = engine.state.agents[1].body.model_dump(mode="python")
+        _, replayed = _consume(engine, "no-effect-replay")
+        assert replayed == rejected
+        assert engine.state.agents[1].consecutive_rejections == 1
+        assert engine.state.agents[1].body.model_dump(mode="python") == replay_body
+        assert engine.state.agents[1].inventory == inventory
+        assert engine.state.accounts == accounts
     finally:
         engine.close()
 
@@ -817,3 +858,337 @@ def test_recursive_recipe_output_undefined_rejects_before_run_artifacts(tmp_path
     with pytest.raises(IntegrityError, match="undefined consume:use"):
         LifeEngine.create(path, run_dir, _identity(path, "undefined-output"))
     assert not run_dir.exists()
+
+
+def test_tiny_recipe_quantity_changes_both_real_inventory_balances(tmp_path: Path) -> None:
+    """合法微量配方完整结束后仍保留实际扣入和产出，不能固定小数位归零。"""
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "tiny-quantity")
+    try:
+        _, started = _consume(engine, "tiny-quantity", quantity=1e-10)
+        assert started.status.value == "in_progress"
+        _advance_to_completion(engine, started.activity_id)
+        inventory = engine.state.agents[1].inventory["home"]
+        assert inventory[_INPUT_OBJECT] == 1 - 1e-10
+        assert inventory[_OUTPUT_OBJECT] == 1e-10
+        assert engine.state.activities[started.activity_id].data["consumed"] == {_INPUT_OBJECT: 1e-10}
+    finally:
+        engine.close()
+
+
+def test_new_tiny_recipe_request_after_exhaustion_is_rejected(tmp_path: Path) -> None:
+    """先通过真实活动耗尽库存，再提交新身份微量请求时不能靠绝对容差放行。"""
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "tiny-after-empty")
+    try:
+        _, started = _consume(engine, "exhaust")
+        _advance_to_completion(engine, started.activity_id)
+        before = engine.state.model_dump(mode="python")
+        _, rejected = _consume(engine, "after-empty", "new-tiny-action", quantity=1e-10)
+        assert rejected.status.value == "rejected"
+        assert rejected.error_code == "PRODUCT_NOT_HELD"
+        assert engine.state.agents[1].inventory == before["agents"][1]["inventory"]
+        assert engine.state.activities.keys() == before["activities"].keys()
+    finally:
+        engine.close()
+
+
+def test_recipe_small_coefficient_checks_actual_scaled_inventory(tmp_path: Path) -> None:
+    """一份请求乘半量系数只需要半件输入，真实完成后只产出半件。"""
+    path = _fixture(tmp_path, held=0.5, coefficient=0.5)
+    engine = _engine(tmp_path, path, "half-coefficient")
+    try:
+        _, started = _consume(engine, "half-coefficient")
+        assert started.status.value == "in_progress"
+        _advance_to_completion(engine, started.activity_id)
+        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 0.5}
+    finally:
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_no_effect_work_loads_and_rejects_settlement_without_payment(tmp_path: Path) -> None:
+    """已审核无作用的合同可创建运行，但真实提交不调用审核或支付报酬。"""
+    from tests.life.test_work_review import (
+        StaticReviewer, _at_task_start, _complete_required_work, _paraphrased_submission, _submit_with_review,
+    )
+
+    path, catalog_dir, scenario = _formal_fixture(tmp_path)
+    contract = _read_json(catalog_dir / "category-contract.json")
+    _set_pairing_undefined(contract, "contract-package", "work:settle")
+    pairing = next(item for item in contract["pairings"]
+                   if item["target_category_id"] == "contract-package" and item["action"] == "work:settle")
+    pairing.update(state="no_effect", review=_review())
+    _write_json(catalog_dir / "category-contract.json", contract)
+    _save_fixture(path, catalog_dir, scenario)
+    engine = _engine(tmp_path, path, "no-effect-work")
+    try:
+        _at_task_start(engine)
+        _complete_required_work(engine)
+        before = engine.state.model_dump(mode="python")
+        reviewer = StaticReviewer()
+        result = await _submit_with_review(
+            engine, reviewer, "no-effect-work", _paraphrased_submission(engine.scenario.tasks[0].task_id))
+        assert result.status.value == "rejected"
+        assert result.error_code == "CATEGORY_PAIRING_NO_EFFECT"
+        assert reviewer.calls == 0
+        assert engine.state.accounts == before["accounts"]
+        assert engine.state.paid_task_ids == before["paid_task_ids"]
+        assert engine.state.agents[1].inventory == before["agents"][1]["inventory"]
+        assert engine.state.agents[1].body.model_dump(mode="python") == before["agents"][1]["body"]
+        assert engine.state.agents[1].active_effects == before["agents"][1]["active_effects"]
+        assert engine.state.model_dump(mode="python")["activities"] == before["activities"]
+    finally:
+        engine.close()
+
+
+@pytest.mark.parametrize(("kind", "expected"), (("hourly", 25_315), ("piece", 37_503)))
+@pytest.mark.asyncio
+async def test_hourly_and_piece_coefficients_change_real_submit_work_payment(
+    tmp_path: Path, kind: str, expected: int,
+) -> None:
+    """非单位系数在实际工时与验收件数上生效，公开提交后逐一核对收付款账户。"""
+    from tests.life.test_work_review import (
+        StaticReviewer, _at_task_start, _complete_required_work, _paraphrased_submission, _submit_with_review,
+    )
+
+    path, catalog_dir, scenario = _formal_fixture(tmp_path)
+    task_document = scenario["tasks"][0]
+    task_document.update(contract_kind=kind, pay_fen=10_001,
+                         maximum_duration_seconds=7_290, required_effective_seconds=60)
+    contract = _read_json(catalog_dir / "category-contract.json")
+    _set_pairing_coefficient(contract, f"contract-{kind}", "work:settle", 1.25)
+    _write_json(catalog_dir / "category-contract.json", contract)
+    _save_fixture(path, catalog_dir, scenario)
+    engine = _engine(tmp_path, path, f"work-{kind}-coefficient")
+    try:
+        _at_task_start(engine)
+        _complete_required_work(engine)
+        task = engine.scenario.tasks[0]
+        oracle = _read_json(Path(scenario["corpus_root"]) / task.oracle_path)
+        assert oracle["piece_count"] == 3
+        before = dict(engine.state.accounts)
+        reviewer = StaticReviewer()
+        result = await _submit_with_review(
+            engine, reviewer, f"work-{kind}-coefficient", _paraphrased_submission(task.task_id))
+        assert result.status.value == "completed"
+        assert result.data["worked_seconds"] == 7_290
+        assert result.data["payment_fen"] == expected
+        assert reviewer.calls == 1
+        assert engine.state.accounts["agent:1"] == before["agent:1"] + expected
+        assert engine.state.accounts[task.employer_account_id] == before[task.employer_account_id] - expected
+        assert sum(engine.state.accounts.values()) == sum(before.values())
+    finally:
+        engine.close()
+
+
+def test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged(tmp_path: Path) -> None:
+    """配方已计算完而真实 SQL 提交失败时，内存、库存、活动与事件序号全部回滚。"""
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "sql-rollback")
+    try:
+        _, started = _consume(engine, "sql-rollback")
+        engine.observe(context(engine, "recipe-before-failed-advance"))
+        engine._pending_presentation = {1: {_INPUT_OBJECT: engine.state.current_time}}
+        before_state = engine.state.model_dump(mode="json")
+        before_store = copy.deepcopy(engine.store.state)
+        before_seq = engine.store.last_event_seq
+        before_events = engine.store.read_events(before_seq)
+        before_presentation = copy.deepcopy(engine._pending_presentation)
+        engine.store.connection.executescript("""
+            CREATE TRIGGER fail_recipe_state_update BEFORE UPDATE ON world_state
+            WHEN json_extract(NEW.body, '$.agents."1".inventory.home."opened-item"') = 1
+            BEGIN SELECT RAISE(ABORT, 'Injected recipe commit failure'); END;
+        """)
+        with pytest.raises(sqlite3.IntegrityError, match="Injected recipe commit failure"):
+            _advance_to_completion(engine, started.activity_id)
+        assert engine.state.model_dump(mode="json") == before_state
+        assert engine.store.state == before_store
+        assert engine.store.last_event_seq == before_seq
+        assert engine.store.read_events(before_seq) == before_events
+        assert engine._pending_presentation == before_presentation
+        engine.store.connection.execute("DROP TRIGGER fail_recipe_state_update")
+        _advance_to_completion(engine, started.activity_id)
+        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+    finally:
+        engine.close()
+
+
+def test_recipe_pause_wait_resume_produces_output_only_once_at_completion(tmp_path: Path) -> None:
+    """真实暂停保留部分进度，等待不产出，恢复完整结束才一次完成转换。"""
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "pause-resume")
+    try:
+        wake_by_mail(engine, offset=60)
+        _, started = _consume(engine, "pause-start")
+        advance_next(engine)
+        before = copy.deepcopy(engine.state.agents[1].inventory)
+        assert engine.state.activities[started.activity_id].elapsed_seconds == 60
+        result = _action(engine, "pause-recipe", "set_activity_state", SetActivityStateRequest(
+            activity_id=started.activity_id, operation="pause"))
+        assert result.status.value == "completed"
+        assert engine.state.agents[1].inventory == before
+        assert advance_until_ready(engine)
+        waited = _action(engine, "wait-paused-recipe", "start_basic_activity", StartBasicActivityRequest(
+            activity_type="wait", planned_duration_seconds=600))
+        _advance_to_completion(engine, waited.activity_id)
+        paused = engine.state.activities[started.activity_id]
+        assert paused.status.value == "paused" and paused.elapsed_seconds == 60
+        assert engine.state.agents[1].inventory == before
+        assert not paused.data.get("recipe_applied") and paused.data["consumed"] == {}
+        resumed = _action(engine, "resume-recipe", "set_activity_state", SetActivityStateRequest(
+            activity_id=started.activity_id, operation="resume"))
+        assert resumed.status.value == "completed"
+        assert engine.state.agents[1].inventory == before
+        _advance_to_completion(engine, started.activity_id)
+        finished = engine.state.activities[started.activity_id]
+        assert finished.elapsed_seconds == 300 and finished.data["recipe_applied"] is True
+        assert finished.data["consumed"] == {_INPUT_OBJECT: 1.0}
+        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+        transformations = [event for event in engine.store.read_events(engine.store.last_event_seq)
+                           if event.event_type == "activity_progress" and event.activity_id == started.activity_id
+                           and event.data.get("consumption", {}).get("inventory_transform")]
+        assert len(transformations) == 1
+    finally:
+        engine.close()
+
+
+@pytest.mark.parametrize("mismatch", ("category", "unit"))
+def test_valid_output_object_with_wrong_recipe_binding_rejects_before_artifacts(
+    tmp_path: Path, mismatch: str,
+) -> None:
+    """输出对象本身可加载，但错误品类或库存单位的绑定必须在创建运行前拒绝。"""
+    from worldmock.catalog import load_catalog
+
+    path = _fixture(tmp_path)
+    catalog_dir = path.parent.parent / "catalog"
+    scenario = _read_json(path)
+    if mismatch == "category":
+        scenario["recipe_output_bindings"][_OUTPUT_CATEGORY] = "item-umbrella"
+        message = "does not belong to durable-opened"
+    else:
+        contract = _read_json(catalog_dir / "category-contract.json")
+        durable = next(item for item in contract["categories"] if item["category_id"] == "durable")
+        durable["slots"]["inventory_unit"]["schema"]["enum"].append("box")
+        _write_json(catalog_dir / "category-contract.json", contract)
+        objects_path = catalog_dir / "objects.jsonl"
+        objects = [json.loads(line) for line in objects_path.read_text().splitlines()]
+        output = next(item for item in objects if item["object_id"] == _OUTPUT_OBJECT)
+        output["values"]["absolute"]["inventory_unit"] = "box"
+        objects_path.write_text("".join(json.dumps(item) + "\n" for item in objects))
+        message = "uses another inventory unit"
+    _save_fixture(path, catalog_dir, scenario)
+    catalog = load_catalog(catalog_dir)
+    bound = scenario["recipe_output_bindings"][_OUTPUT_CATEGORY]
+    assert bound in catalog.objects
+    if mismatch == "unit":
+        assert catalog.objects[bound].attribute("inventory_unit") == "box"
+    run_dir = tmp_path / f"bad-output-{mismatch}"
+    with pytest.raises(IntegrityError, match=message):
+        LifeEngine.create(path, run_dir, _identity(path, f"bad-output-{mismatch}"))
+    assert not run_dir.exists()
+
+
+@pytest.mark.parametrize(("quantity", "coefficient", "output_held"), (
+    (1e-100, 1e-300, 0), (1e-20, 1, 0), (1e-10, 1, 1e30),
+))
+def test_unrepresentable_recipe_rejects_without_free_effect(
+    tmp_path: Path, quantity: float, coefficient: float, output_held: float,
+) -> None:
+    """拒绝下溢以及无法改变任一真实余额的正配方，不引入固定最小数量。"""
+    path = _fixture(tmp_path, coefficient=coefficient, output_held=output_held)
+    engine = _engine(tmp_path, path, "unrepresentable")
+    try:
+        before = engine.state.agents[1].model_dump(mode="python")
+        _, result = _consume(engine, "unrepresentable", quantity=quantity)
+        assert result.status.value == "rejected"
+        assert result.error_code == "INVENTORY_RECIPE_QUANTITY_UNREPRESENTABLE"
+        assert engine.state.agents[1].inventory == before["inventory"]
+        assert engine.state.agents[1].active_effects == before["active_effects"]
+        assert engine.state.activities == {}
+    finally:
+        engine.close()
+
+
+def test_recipe_completion_rechecks_inventory_without_quantity_tolerance(tmp_path: Path) -> None:
+    """活动受理后库存耗尽，完成时再次严格复查，不允许容差掩盖新的不足。"""
+    from worldmock.footprints.models import EventDraft
+
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "completion-shortage")
+    try:
+        _, started = _consume(engine, "completion-shortage", quantity=1e-10)
+        staged = engine.state.model_copy(deep=True)
+        staged.agents[1].inventory["home"][_INPUT_OBJECT] = 0
+        staged.version += 1
+        engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+            event_type="environment_event", occurred_at=staged.current_time,
+            visibility="system", data={"kind": "test_inventory_exhausted"})])
+        engine.state = staged
+        before = engine.state.model_dump(mode="json")
+        before_seq = engine.store.last_event_seq
+        with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_HELD"):
+            _advance_to_completion(engine, started.activity_id)
+        assert engine.state.model_dump(mode="json") == before
+        assert engine.store.state == before
+        assert engine.store.last_event_seq == before_seq
+    finally:
+        engine.close()
+
+
+def test_recipe_scales_once_and_preserves_representable_subnormal_quantity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """配方仅在受理时缩放一次，现有浮点库存可表达的极小数量仍可正常转换。"""
+    from worldmock.life import inventory_recipe
+
+    original = inventory_recipe.scale_inventory_recipe
+    calls = []
+
+    def record_scale(rule, servings, coefficient):
+        calls.append((servings, coefficient))
+        return original(rule, servings, coefficient)
+
+    monkeypatch.setattr(inventory_recipe, "scale_inventory_recipe", record_scale)
+    path = _fixture(tmp_path, held=1e-320)
+    engine = _engine(tmp_path, path, "subnormal")
+    try:
+        _, started = _consume(engine, "subnormal", quantity=1e-320)
+        assert started.status.value == "in_progress"
+        _advance_to_completion(engine, started.activity_id)
+        assert calls == [(1e-320, 1)]
+        assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1e-320}
+    finally:
+        engine.close()
+
+
+def test_runtime_undefined_use_rejects_without_body_or_resource_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """运行复查发现未定义时保持身体和资源原值，不触发通用服务拒绝情绪。"""
+    from types import SimpleNamespace
+
+    from worldmock.categories import PairingState
+
+    path = _fixture(tmp_path)
+    engine = _engine(tmp_path, path, "runtime-undefined")
+    catalog_type = type(engine.semantics.catalog)
+    original = catalog_type.pairing
+
+    def undefined_input(self, actor, target, action):
+        if target == _INPUT_CATEGORY and action.value == "consume:use":
+            return SimpleNamespace(state=PairingState.UNDEFINED)
+        return original(self, actor, target, action)
+
+    monkeypatch.setattr(catalog_type, "pairing", undefined_input)
+    try:
+        before = engine.state.model_dump(mode="python")
+        _, result = _consume(engine, "runtime-undefined")
+        assert result.status.value == "rejected" and result.error_code == "CATEGORY_PAIRING_UNDEFINED"
+        assert engine.state.agents[1].body.model_dump(mode="python") == before["agents"][1]["body"]
+        assert engine.state.agents[1].inventory == before["agents"][1]["inventory"]
+        assert engine.state.agents[1].active_effects == before["agents"][1]["active_effects"]
+        assert engine.state.accounts == before["accounts"]
+        assert engine.state.activities == {}
+    finally:
+        engine.close()

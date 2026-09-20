@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import logging
+import math
 from typing import Any, Mapping
 
-from worldmock.categories import CategoryError, InventoryTransformRule, scale_inventory_recipe
+from worldmock.categories import Action, CategoryError, InventoryTransformRule, scale_inventory_recipe
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life.category_contract import RuntimeCategoryRule
+from worldmock.life.category_contract import RuntimeCategoryRule, require_runtime_rule
 from worldmock.life.models import ActivityState, AgentState, ConsumeRequest
 from worldmock.life.scenario import InventoryItemConfig
 from worldmock.resources import ConvertEntry, ResourceLedger, ResourceLedgerError, ResourceMeta
@@ -85,13 +86,13 @@ def prepare_inventory_recipe(
         raise BusinessRuleError("INVENTORY_RECIPE_OUTPUT_UNBOUND")
     output = _require_item(context.products, output_id)
     _validate_categories(context.catalog, source, output, delta)
-    if _held(agent, source.product_id) + 1e-9 < float(delta.input_quantity):
-        raise BusinessRuleError("PRODUCT_NOT_HELD")
-    return InventoryRecipePlan(
+    plan = InventoryRecipePlan(
         match.rule.rule_id, source.product_id, output.product_id,
         delta.input_quantity, delta.output_quantity, match.rule.resource_id,
         delta.inventory_unit,
     )
+    _inventory_amounts(agent, plan)
+    return plan
 
 
 def apply_inventory_recipe(
@@ -105,7 +106,11 @@ def apply_inventory_recipe(
         return agent
     plan = InventoryRecipePlan.from_payload(activity.data["inventory_recipe"])
     source = _require_item(products, plan.input_object_id)
-    _require_item(products, plan.output_object_id)
+    output = _require_item(products, plan.output_object_id)
+    match = require_runtime_rule(catalog, source.category_id, Action.CONSUME_USE)
+    if not isinstance(match.rule, InventoryTransformRule) or match.rule.rule_id != plan.rule_id:
+        raise BusinessRuleError("INVENTORY_RECIPE_RULE_MISMATCH")
+    _validate_categories(catalog, source, output, match.rule)
     inventory = _apply_inventory_ledger(agent, catalog, plan, activity)
     effects = set(agent.active_effects)
     effects.add(source.effect)
@@ -126,22 +131,46 @@ def _apply_inventory_ledger(agent: AgentState, catalog: Any, plan: InventoryReci
                         bounds.max if bounds is not None else None)
     input_owner = _inventory_owner(agent, plan.input_object_id)
     output_owner = _inventory_owner(agent, plan.output_object_id)
+    input_amount, output_amount = _inventory_amounts(agent, plan)
     balances = {
         (plan.resource_id, input_owner): _held(agent, plan.input_object_id),
         (plan.resource_id, output_owner): _held(agent, plan.output_object_id),
     }
-    entry = ConvertEntry(
-        inputs=((plan.resource_id, input_owner, float(plan.input_quantity)),),
-        outputs=((plan.resource_id, output_owner, float(plan.output_quantity)),),
-        cause=activity.origin_action_id,
-        occurred_at=activity.planned_end_at,
-    )
     try:
+        entry = ConvertEntry(
+            inputs=((plan.resource_id, input_owner, input_amount),),
+            outputs=((plan.resource_id, output_owner, output_amount),),
+            cause=activity.origin_action_id,
+            occurred_at=activity.planned_end_at,
+        )
         converted = ResourceLedger((meta,)).apply((entry,), balances)
     except ResourceLedgerError as error:
         logging.error("Inventory recipe settlement failed: %s", error.code)
         raise BusinessRuleError(error.code) from error
+    expected = {key: value + (output_amount if key[1] == output_owner else -input_amount)
+                for key, value in balances.items()}
+    if converted != expected:
+        raise BusinessRuleError("OUT_OF_BOUNDS")
     return _inventory_from_balances(agent, plan, converted, input_owner, output_owner)
+
+
+def _inventory_amounts(agent: AgentState, plan: InventoryRecipePlan) -> tuple[float, float]:
+    """@brief 受理和完成均复查真实库存，拒绝不能表示为有限库存变化的正数量。"""
+    quantities = (plan.input_quantity, plan.output_quantity)
+    if any(not value.is_finite() or value <= 0 for value in quantities):
+        raise BusinessRuleError("EXCHANGE_INPUT_INVALID")
+    held = _held(agent, plan.input_object_id)
+    if Decimal(str(held)) < plan.input_quantity:
+        raise BusinessRuleError("PRODUCT_NOT_HELD")
+    input_amount, output_amount = (float(value) for value in quantities)
+    if any(not math.isfinite(value) or value <= 0 for value in (input_amount, output_amount)):
+        raise BusinessRuleError("INVENTORY_RECIPE_QUANTITY_UNREPRESENTABLE")
+    output_held = _held(agent, plan.output_object_id)
+    if plan.input_object_id != plan.output_object_id and (
+            held - input_amount >= held or output_held + output_amount <= output_held
+            or not math.isfinite(output_held + output_amount)):
+        raise BusinessRuleError("INVENTORY_RECIPE_QUANTITY_UNREPRESENTABLE")
+    return input_amount, output_amount
 
 
 def _inventory_owner(agent: AgentState, object_id: str) -> str:
@@ -155,8 +184,8 @@ def _inventory_from_balances(agent: AgentState, plan: InventoryRecipePlan,
     """@brief 把账本转换后的两个对象余额投影回人物地点库存。"""
     inventory = {location: dict(items) for location, items in agent.inventory.items()}
     local = inventory.setdefault(agent.location_id, {})
-    local[plan.input_object_id] = round(balances[(plan.resource_id, input_owner)], 9)
-    local[plan.output_object_id] = round(balances[(plan.resource_id, output_owner)], 9)
+    local[plan.input_object_id] = balances[(plan.resource_id, input_owner)]
+    local[plan.output_object_id] = balances[(plan.resource_id, output_owner)]
     return inventory
 
 

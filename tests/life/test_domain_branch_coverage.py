@@ -45,7 +45,7 @@ from worldmock.life.basket import (
     meal_duration,
     meal_food_rate,
     purchase_order,
-    validate_meal,
+    validate_meal_use,
 )
 from worldmock.life.commerce import deliver_order, purchase
 from worldmock.life.content import (
@@ -464,25 +464,25 @@ def test_basket_validate_meal_item_count_and_non_food_single(meal_request, code)
     """进食 1-3 件、非食品单件（`docs/dev/SPEC-life-realism.md`「商务与进食」）。"""
     products = {"food-1": _product()}
     with pytest.raises(BusinessRuleError, match=code):
-        validate_meal(_agent(), products, meal_request)
+        validate_meal_use(_agent(), products, meal_request)
 
 
 def test_basket_validate_meal_rejects_unknown_product() -> None:
     """进食校验对目录外商品拒绝。"""
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
-        validate_meal(_agent(), {}, _consume())
+        validate_meal_use(_agent(), {}, _consume())
 
 
 def test_basket_validate_meal_rejects_mode_and_location_violations() -> None:
     """使用方式不符与要求地点不符分别拒绝。"""
     mode_product = _product(use_modes=("eat",))
     with pytest.raises(BusinessRuleError, match="PRODUCT_USE_MODE_NOT_ALLOWED"):
-        validate_meal(_agent(), {"food-1": mode_product},
+        validate_meal_use(_agent(), {"food-1": mode_product},
                       _consume(use_mode="use"))
     bound = _product(product_id="food-k", required_location="kitchen")
     holder = _agent(inventory={"home": {"food-k": 1.0}})
     with pytest.raises(BusinessRuleError, match="PRODUCT_USE_LOCATION_REQUIRED"):
-        validate_meal(holder, {"food-k": bound},
+        validate_meal_use(holder, {"food-k": bound},
                       _consume(product_id="food-k"))
 
 

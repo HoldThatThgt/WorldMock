@@ -49,7 +49,7 @@ from worldmock.life.basket import (
     meal_duration,
     meal_food_rate,
     purchase_order,
-    validate_meal,
+    validate_meal_inventory, validate_meal_use,
 )
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
@@ -584,7 +584,6 @@ class LifeEngine(ObservationMixin):
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.state.current_time
         staged = flush_presentation(self.state, self._pending_presentation)
-        self._pending_presentation = None
         staged = staged.model_copy(deep=True)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
@@ -605,6 +604,7 @@ class LifeEngine(ObservationMixin):
         staged.version = self.state.version + 1
         commit_state(self.store, staged, drafts)
         self.state = staged
+        self._pending_presentation = None
         return results
 
     def fail_run(self, error: str) -> None:
@@ -855,7 +855,8 @@ class LifeEngine(ObservationMixin):
         failed = count >= self.scenario.max_consecutive_rejections
         pulse_key = ("work_review_returned" if str(error) == "WORK_REQUIRES_REWORK"
                      else "service_refused")
-        body = apply_mood_pulse(agent.body, pulse_key)
+        body = (agent.body if str(error) in {"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"}
+                else apply_mood_pulse(agent.body, pulse_key))
         changed_agent = agent.model_copy(update={"next_decision_at": state.current_time + 1,
                                                   "consecutive_rejections": count,
                                                   "decision_failed": failed,
@@ -1182,14 +1183,12 @@ class LifeEngine(ObservationMixin):
         matches = require_item_rules(
             self.semantics.catalog, products,
             (item.product_id for item in request.items), action)
-        validate_meal(agent, products, request)
+        validate_meal_use(agent, products, request)
         recipe = prepare_inventory_recipe(
-            agent,
-            RecipeContext(self.semantics.catalog, products,
-                          self.scenario.recipe_output_bindings),
-            request,
-            matches[0],
-        )
+            agent, RecipeContext(self.semantics.catalog, products, self.scenario.recipe_output_bindings),
+            request, matches[0])
+        if recipe is None:
+            validate_meal_inventory(agent, request)
         duration = meal_duration(products, request)
         start = StartActivityRequest(activity_type=ActivityKind.CONSUME,
                                      planned_duration_seconds=duration,

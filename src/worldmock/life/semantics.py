@@ -335,7 +335,11 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
 def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
     """@brief 在创建运行产物前确认每条合同规则的命名槽能由任务实例提供。"""
     for task in semantics.scenario.tasks:
-        rule = semantics.contract_match(task).rule
+        target = semantics.catalog.objects[CONTRACT_OBJECTS[task.contract_kind]]
+        match = optional_defined_rule(semantics.catalog, target.category_id, Action.WORK_SETTLE)
+        if match is None:
+            continue
+        rule = match.rule
         if isinstance(rule, WorkHourlyRule):
             _contract_value(task, rule.rate_slot)
             _contract_value(task, rule.maximum_duration_slot)

@@ -189,9 +189,9 @@ def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequ
     return max(durations)
 
 
-def validate_meal(agent: AgentState, products: dict[str, InventoryItemConfig],
-                  request: ConsumeRequest) -> None:
-    """@brief 校验一次进食/使用：持有量、使用方式、食品多件与非食品单件。"""
+def validate_meal_use(agent: AgentState, products: dict[str, InventoryItemConfig],
+                      request: ConsumeRequest) -> None:
+    """@brief 校验配方与普通使用共享的件数、使用方式和地点条件。"""
     if not 1 <= len(request.items) <= 3:
         raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件
     if request.use_mode == "use" and len(request.items) != 1:
@@ -202,10 +202,15 @@ def validate_meal(agent: AgentState, products: dict[str, InventoryItemConfig],
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
         if request.use_mode not in product.use_modes:
             raise BusinessRuleError("PRODUCT_USE_MODE_NOT_ALLOWED")
-        if held_quantity(agent, product.product_id) + 1e-9 < item.quantity:
-            raise BusinessRuleError("PRODUCT_NOT_HELD")
         if product.required_location_id and agent.location_id != product.required_location_id:
             raise BusinessRuleError("PRODUCT_USE_LOCATION_REQUIRED")
+
+
+def validate_meal_inventory(agent: AgentState, request: ConsumeRequest) -> None:
+    """@brief 普通使用按请求份数核对库存，配方数量由配方计划核对。"""
+    for item in request.items:
+        if held_quantity(agent, item.product_id) + 1e-9 < item.quantity:
+            raise BusinessRuleError("PRODUCT_NOT_HELD")
 
 
 def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> float:

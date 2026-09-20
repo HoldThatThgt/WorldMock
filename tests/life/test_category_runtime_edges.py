@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from decimal import Decimal
 
 import pytest
 
@@ -14,6 +15,7 @@ from worldmock.life.category_contract import (
     require_item_rules,
     require_runtime_rule,
 )
+from worldmock.life.basket import validate_meal_inventory
 from worldmock.life.inventory_recipe import (
     InventoryRecipePlan,
     RecipeContext,
@@ -268,3 +270,58 @@ def test_apply_recipe_returns_same_state_when_activity_was_already_applied() -> 
     result = apply_inventory_recipe(agent, {}, object(), activity)
     assert result is agent
     assert activity.data == {"recipe_applied": True}
+
+
+def _finished_recipe() -> ActivityState:
+    """形成数量与身份齐全、尚未执行的完成活动。"""
+    plan = InventoryRecipePlan("open-item", "sealed-item", "opened-item", Decimal(1), Decimal(1),
+                               "inventory_closed", "item")
+    return ActivityState(
+        activity_id="consume-1", agent_id=1, kind="consume", status="completed",
+        started_at=1, ended_at=61, planned_end_at=61, last_settled_at=61,
+        elapsed_seconds=60, planned_duration_seconds=60, origin_action_id="action-1",
+        origin_decision_id="decision-1", origin_request_event_id="request-1",
+        data={"inventory_recipe": plan.payload(), "consumed": {}},
+    )
+
+
+@pytest.mark.parametrize(("state", "code"), (
+    (PairingState.DEFINED, "INVENTORY_RECIPE_RULE_MISMATCH"),
+    (PairingState.NO_EFFECT, "CATEGORY_PAIRING_NO_EFFECT"),
+    (PairingState.UNDEFINED, "CATEGORY_PAIRING_UNDEFINED"),
+))
+def test_recipe_completion_rechecks_pairing_before_inventory_or_effects(state, code) -> None:
+    """完成执行复查冻结配对；不作用、未定义或不相容规则不改变输入与活动。"""
+    catalog = _Catalog(_resolution(state, "another-rule", 1))
+    agent = _agent()
+    activity = _finished_recipe()
+    before = (agent.model_dump(mode="python"), activity.model_dump(mode="python"))
+    with pytest.raises(BusinessRuleError, match=code):
+        apply_inventory_recipe(agent, _context().products, catalog, activity)
+    assert (agent.model_dump(mode="python"), activity.model_dump(mode="python")) == before
+
+
+def test_plain_meal_inventory_retains_insufficient_quantity_rejection() -> None:
+    """拆开使用条件后，普通消费仍按请求数量拒绝不足库存。"""
+    agent = _agent(held=0.5)
+    with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_HELD"):
+        validate_meal_inventory(agent, _request())
+    assert agent.inventory["home"]["sealed-item"] == 0.5
+
+
+def test_recipe_same_object_keeps_ledger_overlap_rejection_without_effects() -> None:
+    """同一对象两端交叠仍由现有账本拒绝，不能误报为数值精度丢失。"""
+    activity = _finished_recipe()
+    activity.data["inventory_recipe"]["output_object_id"] = "sealed-item"
+    rule = _recipe_rule().model_copy(update={"output_category_id": "sealed"})
+    catalog = _Catalog(_resolution(PairingState.DEFINED, rule.rule_id, 1))
+    catalog.exchange_rules = _Rules(rule)
+    catalog.category_contract = _CategoryContract()
+    catalog.resources = {"inventory_closed": SimpleNamespace(
+        resource_id="inventory_closed", kind=SimpleNamespace(value="level"),
+        conservation=SimpleNamespace(value="closed"), bounds=SimpleNamespace(min=0, max=None))}
+    agent = _agent()
+    before = (agent.model_dump(mode="python"), activity.model_dump(mode="python"))
+    with pytest.raises(BusinessRuleError, match="CONVERT_IMBALANCED"):
+        apply_inventory_recipe(agent, _context().products, catalog, activity)
+    assert (agent.model_dump(mode="python"), activity.model_dump(mode="python")) == before

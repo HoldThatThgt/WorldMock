@@ -181,8 +181,9 @@ flowchart LR
 
 ### 交换对象与内容条目
 
-商品、服务和合同由 [ExchangeObject](../../src/worldmock/catalog/models.py) 声明身份、类型、
-版本和来源，并引用其资源变化规则。交换条件与投入产出见[交换引擎](02-exchange-engine.md)。
+商品、服务和合同由 [ObjectDeclaration](../../src/worldmock/catalog/models.py) 声明身份、品类、
+属性、版本和来源；`ExchangeObject` 是合并品类属性与交换规则后的编译运行视图。
+交换条件与投入产出见[交换引擎](02-exchange-engine.md)。
 资源引擎负责这些条目的加载、属性查询与来源追踪。交换条件和资源变化声明作为关联规则提供，
 其计算语义由交换引擎维护。
 

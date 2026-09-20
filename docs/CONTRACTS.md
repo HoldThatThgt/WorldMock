@@ -608,6 +608,11 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 `merchant` 是购买规则的商户角色；对象有效属性 `merchant_role` 将它绑定到场景的具体账户角色，
 例如 `merchant:grocery`。库存仍使用 `kind=level` 的资源定义，不增加第三种资源形态。
 场景 `recipe_output_bindings` 为输出品类身份到输出对象身份的映射；没有配方的场景使用空对象。
+库存配方按实际缩放数量检查库存，保留可表示的微量变化，不固定保留小数位，也不以库存容差放行不足输入。
+正数量若下溢为零、超出有限数值范围或无法形成实际库存变化，以
+`INVENTORY_RECIPE_QUANTITY_UNREPRESENTABLE` 拒绝，不扣加库存或推进配方活动；
+受理拒绝仍正常记录 `action_rejected` 与 `action_result`。配方完成提交失败时，
+库存、活动进度和该次足迹事务保持原值。
 原始对象不得写 `edges`、公式或旧的 `object_kind` 字段。
 
 目录和运行清单共享 `category_contract_version`、`category_contract_sha256`、

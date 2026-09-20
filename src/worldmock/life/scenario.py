@@ -206,8 +206,8 @@ class AgentConfig(FrozenModel):
     # docs/dev/SPEC-life-realism.md「世界素材品类要求」）：按人物声明，
     # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
-    # 初始持有物按地点冻结；对象必须同时出现在场景商品引用中，避免运行视图缺少
-    # 使用时长、效果和品类身份。空映射表示人物没有场景预置持有物。
+    # 初始持有物按地点冻结，由目录独立装配使用属性与品类身份，不要求同时可购买。
+    # 空映射表示人物没有场景预置持有物。
     initial_inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
