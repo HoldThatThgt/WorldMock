@@ -17,7 +17,12 @@ from agentsociety2.society import DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import affordance_contract
-from worldmock.life.models import ActionReceipt, SetActivityStateRequest, StartTargetedActivityRequest
+from worldmock.life.models import (
+    ActionReceipt,
+    REQUEST_MODELS,
+    SetActivityStateRequest,
+    StartTargetedActivityRequest,
+)
 
 
 _MEMORY_TOOLS = {
@@ -150,6 +155,10 @@ def _observations(
         "paused_activities": paused_activities or [],
         "energy_feasibility": _energy_limits(),
         "affordance_contract": _AFFORDANCE_CONTRACT,
+        "interaction_menu": {
+            "allowed_tools": sorted(REQUEST_MODELS),
+            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
+        },
         "content_progress": {},
         "products": [{"product_id": "product-visible", "price_version": "price-v1",
                       "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
@@ -558,7 +567,7 @@ def test_readonly_needs_no_environment_catalog_and_opens_no_life_action() -> Non
 def test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty() -> None:
     """目标启动工具撤下时暂停活动仍保留显式恢复控制。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused",
+    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
                "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
                "resume_energy_feasible": True}]
     agent = _prepare(empty, paused_activities=paused, browse_results=[])
@@ -600,7 +609,7 @@ async def test_valid_grounded_target_dispatches_same_typed_request() -> None:
 async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs() -> None:
     """暂停活动恢复动作不依赖目标启动目录并保持原请求类型。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused",
+    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
                "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
                "resume_energy_feasible": True}]
     agent = _prepare(empty, paused_activities=paused, browse_results=[])
@@ -693,7 +702,7 @@ def test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets() -> Non
 
 def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
     """当前能量不足时暂停活动仍可取消，但 Schema 和本地校验都拒绝恢复。"""
-    paused = [{"activity_id": "activity-paused", "status": "paused",
+    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
                "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
                "resume_energy_feasible": False}]
     agent = _prepare(_catalogs(), paused_activities=paused)
@@ -711,10 +720,10 @@ def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
 def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
     """联合活动身份与操作枚举仍由本地校验保持每个暂停活动的能量配对。"""
     paused = [
-        {"activity_id": "activity-feasible", "status": "paused",
+        {"activity_id": "activity-feasible", "status": "paused", "kind": "work",
          "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
          "resume_energy_feasible": True},
-        {"activity_id": "activity-infeasible", "status": "paused",
+        {"activity_id": "activity-infeasible", "status": "paused", "kind": "work",
          "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
          "resume_energy_feasible": False},
     ]

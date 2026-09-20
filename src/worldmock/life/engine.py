@@ -20,6 +20,7 @@ from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
+from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_decision_statement_start, pop_decision_start)
 from worldmock.life.activities import (
@@ -174,11 +175,7 @@ _SCHEDULED_WAKE_FLAGS = {
 def affordance_contract(view: AffordanceView) -> dict[str, dict]:
     """@brief 从可供性派生视图构造观察合同冻结块（docs/design/02-exchange-engine.md「可供性与活动声明」）。
 
-    合同随场景组装一次性生成、运行期不变：每个 kind 携带
-    {surface, target_discovery, target_field, energy_projection,
-    feedback_eligible, continuable, game_boundary} 七键；target_field 仅在
-    catalog_field 直读时为 [观察字段, 身份键]，否则为 None。continuable 采用
-    M01 裁决口径（= feedback 闭集；play_game 的继续交互走 game_boundary）。
+    合同随场景组装后不变，键集见 AFFORDANCE_CONTRACT_KEYS；游戏继续交互走 game_boundary。
     """
     feedback = view.feedback_kinds
     continuable = view.continuable_kinds
@@ -311,6 +308,7 @@ class LifeEngine(ObservationMixin):
             raise ProtocolError("Pending work review cannot restart after model evidence was recorded")
         request = SubmitWorkRequest.model_validate(pending.request)
         try:
+            require_interaction_menu(self.scenario, self.state, pending, request)
             submission = prepare_work_submission(
                 self.state, self.scenario, self.corpus_root, pending.agent_id, request)
         except BusinessRuleError:
@@ -906,6 +904,8 @@ class LifeEngine(ObservationMixin):
         """@brief 依据闭集工具名进入对应领域转换。"""
         model = REQUEST_MODELS[pending.tool_name]
         request = model.model_validate(pending.request)
+        if pending.tool_name != "browse_activities":
+            require_interaction_menu(self.scenario, state, pending, request)
         self._require_boundary_action(state, pending, request)
         handlers = {"start_basic_activity": self._start_basic,
                     "start_targeted_activity": self._start_targeted,

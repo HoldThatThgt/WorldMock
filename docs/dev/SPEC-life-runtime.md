@@ -1,6 +1,8 @@
 # 特性规格：LifeEnv 运行时行为与结算规则
 
-> 状态：FROZEN——条款已裁决并冻结；本版新增的「候选契约与呈现规则」章条款已落地并通过确定性测试，验收矩阵中该章九行里八行由「待实现」改记「代码层已验证」，该章九行今全部记「代码层已验证」（逐行证据位置见矩阵与表下的复判说明）。全章其余条款代码层行为已落地并通过确定性测试，真实 DeepSeek 端点与完整活动结算的集成验证待正式运行
+> 状态：FROZEN——条款已裁决并冻结；「候选契约与呈现规则」章九行中八行已有代码层证据，
+> 地点侧 `location_kinds` 尚未进入 `LocationConfig` 与正式场景，因此地点语义一行保留为既有实现缺口。
+> 全章其余条款代码层行为已落地并通过确定性测试，真实 DeepSeek 端点与完整活动结算的集成验证待正式运行。
 > 日期：2026-09-18
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
@@ -650,11 +652,27 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 暂停活动以自然中文描述且与未完成工作合同分开。行为与验收见
 [场景信息](SPEC-decision-context.md#场景信息)；不得为去重让自述阶段失去可理解的处境。
 
+### 交互菜单的运行边界
+
+每次生活观察的事件级工具支持数据包含按人物权威位置计算的有效交互菜单。该菜单随观察冻结，
+不进入 `scene`、`facts` 或人物 user 消息；实际模型 Schema、本地决策校验和宿主派发共用这份冻结值。
+地点变化不改写本轮观察，只在下一次观察重新计算。声明形状、交集、保护项和工具参数收窄规则见
+[交互菜单规格](SPEC-interaction-menu.md)。
+
+环境受理时按权威场景、人物位置和当前状态重验菜单。禁止的工具、活动类型、下钻品类或恢复请求在
+领域副作用前以 `INTERACTION_MENU_DENIED` 拒绝，并沿用现有业务拒绝计数、一秒反馈边界、结果回灌
+和幂等规则。工作工具被禁时不得进入独立评审。已开始活动的继续、暂停、取消、调速和游戏指令保留
+原控制规则，恢复仍须满足当前菜单与既有能量、归属和身份检查。
+
+菜单只控制入口和启动资格，不改变 `affordance_contract`、候选生成、世界事实排除、排除原因计数、
+呈现上限、游标或轮转。候选与呈现仍完整执行本规格的统一合同；菜单不为关闭的入口伪造候选排除原因。
+
 ### 系统提示与身份前言
 
 **系统提示以身份为主**：恢复 AS2 人物提示的身份前言语义（“你不是 AI 助手，你是一个有自己性格、需要与处境的人”），按词数计人物与情境部分不少于 50%；工具协议、引用规则与阶段规则移入各工具的 `description`；回合预算只在剩余回合不多于两个时以一句话出现。
 
-提示中不得出现「评审」「评分」「引擎期望」等把人物置于被评价位置的措辞。地点礼仪以场景描述表达（工位、茶水间、午休时段），不以禁令句出现。
+提示中不得出现「评审」「评分」「引擎期望」等把人物置于被评价位置的措辞。地点处境可以由场景描述
+表达；地点允许的行动由显式交互菜单控制，工具描述不得固定写入办公室娱乐偏好或其他人物策略。
 
 ### 字符预算
 
@@ -827,7 +845,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 ## 验收矩阵
 
-下表给出本规格每条要求的观察、证据位置与状态。状态区分两类：确定性测试已通过的记「代码层已验证」，依赖正式模型运行或真实盲评的记「待真实运行」。
+下表给出本规格每条要求的观察、证据位置与状态。确定性测试已通过的记「代码层已验证」，依赖正式
+模型运行或真实盲评的记「待真实运行」；已有合同尚未贯通正式输入的记「既有实现缺口」；本次新增行为
+在最终源码身份尚未完成门禁时记「本次离线验收待执行」，不能提前写成通过。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
@@ -845,13 +865,14 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 导航与配送 | 路线报价一次预付且不可负担时不改动任何账户；walking 记录零车费不虚构付款；定位轨迹确定且不构成人物决策；交通时间因子随日期时段变化 | `tests/life/test_travel_cost.py`、`tests/life/test_travel_trajectory.py`、`tests/life/test_travel_time.py` | 代码层已验证 |
 | 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户与角色唯一；出行报价符合目录公式；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
 | 观察投影 | 黑名单字段不进入提示；商品可见期离开商家地点或到 1800 秒即清空；工作材料单次至多 2000 字符；跨边界字幕不重复；场景不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py` | 代码层已验证 |
+| 交互菜单 | 有效菜单随观察冻结；模型、本地与宿主使用同一资格；环境重验不可绕过；拒绝无领域副作用；候选、事实与排除统计不变 | [交互菜单验收记录](research/interaction-menu-verification.md)所列对应测试 | 本次离线验收待执行 |
 | 统一候选契约 | 五类对象的候选区分生成、资格与排序三段且返回体形状一致；同输入两次取候选逐字节相同；候选不依赖时间戳、缓存或模型输出 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两条排除纪律 | 画像未声明的题材其条目仍在候选内且排序靠后；每个被排除项带闭集内的原因码；保留项计数与排除项计数之和等于候选全集规模 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两级上限 | 单次呈现条数不超过场景声明的呈现上限；池上限只进 `total` 计数，不当作呈现上限截短返回体 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py`、`tests/life/test_candidate_constants.py` | 代码层已验证 |
 | 下推 | 层数不超过两层；以游标下推得到全量有序候选的无重无漏子序列；返回体含本次条数、总数与下一页游标 | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py` | 代码层已验证 |
 | 曝光轮转 | 连续 `⌈N ÷ k⌉` 次呈现后分区内每个对象至少出现一次；轮转不改目录、不改对象状态、不产生下架事件；轮转判据是上次呈现时刻（`last_presented_at`）而非互动次数 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 禁止永久退役 | 轮转、裁剪与淘汰统计都不改变对象层条目数；无运行期通路按互动统计移出条目 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
-| 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py` | 代码层已验证 |
+| 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | 显式地点集合的单元证据见 `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py`；`LocationConfig` 与正式场景缺少地点侧 `location_kinds` | 既有实现缺口 |
 | 检索与反塌缩 | 同一查询在同一（冻结目录、世界状态版本）下返回同一有序结果；静态可达性检查对任意对象给出至少一条到达路径；索引不含浮点距离或随机初始化 | `tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py` | 代码层已验证 |
 | 随身持有与远程订购 | 持有物只在其所在地点可见；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分 | `tests/life/test_commerce.py` 的 `test_delivery_ignores_presence_while_pickup_requires_it`（行为两分句）；`purchase` 的 `description` 已点明该分野 | 代码层已验证 |
 | 提示字符预算 | user 消息 40000 字符与 system 消息 3000 字符的边界通过；超限报错且不截断、不删字段 | `tests/life/test_narration.py` | 代码层已验证 |
@@ -860,7 +881,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 「候选契约与呈现规则」章的复判说明（逐行核对，含未达成的分句）：
 
-- 该章九行中有八行整行落地，每一行的证据位置见上表。判定依据是八个测试文件在复判时刻的实跑结果
+- 该章九行中有八行具备代码层证据，每一行的证据位置见上表；地点语义一行的算法分支虽有显式
+  地点集合的单元测试，正式输入仍未提供地点侧 `location_kinds`，所以不以单元测试替代端到端落地。
+  八个测试文件在复判时刻的实跑结果为
   `165 passed`：`tests/life/test_candidates.py` 49 测、`tests/life/test_rotation.py` 20 测、
   `tests/life/test_candidate_constants.py` 32 测、`tests/life/test_candidate_wiring.py` 9 测、
   `tests/life/test_retrieval.py` 31 测、`tests/catalog/test_reachability_admission.py` 9 测、
@@ -904,3 +927,4 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 8 | 2026-09-19 | 新增「候选契约与呈现规则」章：统一候选契约三段式与派生量身份、两条排除纪律（只有世界事实可排除、软偏好只改序、被排除项带原因码）、两级上限（分区池上限与单次呈现上限分离，呈现上限默认 20）、两层下推与游标返回体、曝光轮转（判据为上次呈现时刻、非破坏性、最大未呈现间隔闭式上界 `⌈N ÷ k⌉ ÷ D`）、禁止永久退役与墓碑语义、地点语义与检索分区分离、确定性索引与 facet 并禁止向量检索与近似最近邻、随身持有的手边语义与远程订购复用交付语义；商品可见期条款就地修订为离开商家地点与 1800 秒两条并列，取代只按时间判定的旧口径；验收矩阵补入该章各项观察项 |
 | 8（复判刷新） | 2026-09-19 | 该章落地后逐行复判验收矩阵：九行中八行由「待实现」改记「代码层已验证」并填入证据位置（`tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_constants.py`、`test_candidate_wiring.py`、`test_retrieval.py`、`tests/catalog/test_reachability_admission.py`、`test_activity_location_kinds.py`），「随身持有与远程订购」一行保留「待实现」（持有面 `AgentState.inventory` 缺地点嵌套、两个原因码未分野）；新增表下复判说明，记录分句级的未达成项与该章一项独立缺陷（`scripts/check_reachability.py --scenario` 退出码 1，86 条场景内容条目落不进分区）；头部状态同步改写 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
+| `2026-09-20-interaction-menu` | 2026-09-20 | 对齐有效菜单的观察冻结、模型与宿主共用、环境重验、拒绝副作用和候选不变边界；删除固定地点偏好表述；如实标明正式地点 `location_kinds` 仍未贯通且与菜单地点类不同 |

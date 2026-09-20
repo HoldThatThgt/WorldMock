@@ -360,7 +360,7 @@ def _prepare_resume(
     destination = Path(request.run_dir).resolve()
     _require_run_shell(destination)
     scenario_path = Path(request.scenario_path).resolve()
-    semantics, _ = load_runtime_scenario(scenario_path)
+    semantics, scenario_digest = load_runtime_scenario(scenario_path)
     _admit_scenario(semantics)
     scenario = semantics.scenario
     digest = _intervention_sha256(intervention) if intervention is not None else None
@@ -371,6 +371,8 @@ def _prepare_resume(
     )
     parent = FootprintStore(Path(request.parent_run_dir))
     try:
+        if parent.manifest.get("scenario_sha256") != scenario_digest:
+            raise IntegrityError("Checkpoint scenario identity differs from the requested scenario")
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         _require_runtime_identity(parent.manifest, Path(request.project_root))
         manifest, state = _restore_branch(parent, checkpoint, destination, metadata)

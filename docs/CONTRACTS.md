@@ -67,6 +67,42 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `send_message` | `recipient_id`, `text` | `status: "submitted"` |
 | `start_social_activity` | `kind` (`chat`/`call`), `partner_id`, `duration_minutes`（1–120 分钟） | `status: "submitted"` |
 
+#### 交互菜单声明与有效菜单
+
+场景根对象必须显式包含 `interaction_menus_by_location_kind`，键集合恰好等于场景中
+`locations[].kind` 的不同值集合；每个人物也必须显式包含 `interaction_menu`。人物值可以为
+`null`，表示不在地点菜单之外增加限制；地点菜单不能为 `null`。`locations[].kind` 是场景地点类，
+与候选资格使用的 `location_kinds` 不是同一个字段或词表。
+
+```python
+InteractionMenu = {
+    "allowed_tools": list[str],
+    "allowed_activity_kinds": list[str],
+}
+```
+
+两个数组都非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
+`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 的十五个工具名；
+`allowed_activity_kinds` 的闭集是当前可供性注册表的 `kinds`。
+场景地点类缺项或多项、人物字段缺失、未知名称、错误类型、重复、空数组或缺少保护项均拒绝加载。
+
+| 保护集合 | 每个非空菜单必须显式包含 |
+| --- | --- |
+| 工具 | `start_basic_activity`、`plan_day`、`revise_day_plan`、`set_activity_state`、`continue_activity`、`change_playback_speed`、`game_action` |
+| 活动类型 | `wait`、`sleep` |
+
+当前有效菜单按人物权威位置取得地点类菜单，再与人物菜单逐字段求交集并确定性排序；人物菜单为
+`null` 时直接使用地点类菜单。它是现有状态、阶段、能量、可见目标、日首计划和回合预算门控之前的
+准入约束，只能继续收窄工具与参数，不能放宽既有规则。完整活动控制、下钻品类映射和恢复资格见
+[交互菜单规格](dev/SPEC-interaction-menu.md#观察与人物工具)。菜单不得删除 `scene`、`facts`、
+`affordance_contract` 或候选，也不得改变候选排除原因、呈现上限和轮转。
+
+实际模型请求 Schema、本地决策校验和环境受理使用同一轮冻结菜单。环境在产生领域副作用前按权威
+状态重验；违反工具、活动类型、下钻品类或恢复资格的请求返回 `INTERACTION_MENU_DENIED`，
+并沿用 `action_rejected` 与 `action_result` 的公开结果通道。拒绝不得扣款、消费、启动或恢复活动、
+推进游戏、发送消息或调用工作验收。只读人物查询不进入生活观察与菜单，只开放原有记忆工具及只读
+`finish`。完整声明、失败关闭和验收要求以[冻结特性规格](dev/SPEC-interaction-menu.md)为准。
+
 | 管理接口 (不向模型暴露) | 参数 | 返回 |
 | --- | --- | --- |
 | `scheduling_state` | - | `decidable_agents: List[str]`, `next_event_time: int` |
@@ -362,6 +398,10 @@ flowchart LR
 | `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review` |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
+事件级工具支持行必须包含 `interaction_menu`，字段形状就是当前人物有效的 `InteractionMenu`。
+它与该观察一起冻结并进入观察事件证据，供实际模型请求 Schema、本地决策校验和宿主派发共用；
+不把所有人物或地点的原始声明送入当前人物的 user 消息。地点变化只影响下一次观察。
+
 `work_review` 仅包含公开汇总、必需事实判断和交付项判断；嵌套字段也按显式清单选择。
 两类判断的 `rationale` 不得包含本次评审任一内部参考身份或 SHA-256 摘要。
 解析阶段将此类输出作为协议错误，按既有评审预算纠错并保存原始响应；公开投影入口重复验证该边界。
@@ -503,7 +543,14 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 ### 禁止进入提示的字段
 
-观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、`energy_feasibility`、`observation_event_id`、`motivation_hints`、`game_catalog`、完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，路线坐标与几何不得进入提示。事件级工具支持行（完整任务、路线、商品、可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举，不随提示下发。
+观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、
+`interaction_menu`、`interaction_menus_by_location_kind`、`energy_feasibility`、`observation_event_id`、
+`motivation_hints`、`game_catalog`、
+完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与
+`profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，
+路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、可供性合同、
+游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举，
+不随提示下发。
 
 结果投影同样递归禁止内部评审字段（`reference_id`、`reference_assessments`、`oracle`、`oracle_path`、
 `input_path`、`expected`）、摘要字段、完整 `activity`、账户及资源变化字段，以及数值身体状态、
@@ -940,3 +987,4 @@ RunPhase = Literal[
 | 2026-09-20-recording | 2026-09-20 | 记录引擎的事件、存储、检查点、运行状态与足迹质量报告归入单一设计文档，本文件保留接口导航 |
 | 2026-09-20-boundaries | 2026-09-20 | 运行状态与公共日志合同由运行宿主管理，记录引擎仅提供已保存事实的查询与完整性诊断 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
+| `2026-09-20-interaction-menu` | 2026-09-20 | 冻结地点类与人物交互菜单声明、观察证据、模型与宿主共同门控及环境拒绝合同 |

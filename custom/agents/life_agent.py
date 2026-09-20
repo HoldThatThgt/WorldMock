@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import logging
 import math
 import re
 from datetime import datetime
@@ -20,6 +21,7 @@ from agentsociety2.agent.base import (
     ReactToolResult,
 )
 from agentsociety2.society import DirectToolCall
+from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
 from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.narration import (
@@ -374,9 +376,7 @@ def _life_tool_descriptions(
         f"{_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
         "target from the current observation catalogs. At a feedback boundary this "
         "switches directly: the current activity pauses automatically with its "
-        "progress preserved. Consider your location: at the office, prefer brief "
-        "phone-friendly content (feeds, short clips); save movies and long drama "
-        "episodes for home.")
+        "progress preserved.")
     descriptions["browse_activities"] = (
         "Drill into one activity category from activity_summary and read its item list. "
         "Pure query: it starts nothing and consumes nothing; the returned items arrive "
@@ -558,6 +558,7 @@ class LifeAgent(PersonAgent):
         if not readonly and not getattr(self, "_life_action_count", 0):
             if not hasattr(self, "_life_visible_targets"):
                 raise RuntimeError("LifeAgent visible target catalogs are not prepared")
+            life_menu.bind_basic_activity_schema(schemas, self._life_basic_activity_types)
             _bind_targeted_activity_catalogs(
                 schemas,
                 self._life_targeted_kinds,
@@ -815,6 +816,8 @@ class LifeAgent(PersonAgent):
         self._life_request_models = None
         self._life_decision_statement = None
         if request.readonly:
+            self._life_interaction_menu = None
+            self._life_basic_activity_types = ()
             self._life_visible_refs = set()
             self._life_visible_targets = {}
             self._life_activity_controls = {}
@@ -829,27 +832,39 @@ class LifeAgent(PersonAgent):
                 True, budget["memory_tools_available"])
             return
         data = _environment_observation_data(request.observations)
-        self._life_contract = contract = _affordance_contract(data)
-        self._life_targeted_kinds = _targeted_activity_kinds(contract)
-        energy_limits = _visible_energy_limits(data, contract)
-        self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
-        self._life_visible_refs = _environment_source_ids(data)
-        self._life_browse_categories = _visible_browse_categories(data)
-        self._life_visible_targets = _visible_target_ids(data, contract, energy_limits)
-        self._life_activity_controls = _visible_activity_controls(data, contract, energy_limits)
-        self._life_action_contracts = _visible_action_contracts(data)
-        self._life_action_models = _available_action_models(
-            self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
-            self._life_browse_categories)
+        self._prepare_life_action_state(data)
         if _plan_required_before_other_actions(data, self._life_action_models):
-            # 日首唤醒且当日无计划：撤下其他生活动作工具，只留 plan_day
-            # （docs/dev/SPEC-life-realism.md「日程骨架」"必须先提交"的工具面强制；记忆查询与 finish 阶段门不变）。
+            # 日首唤醒且当日无计划：撤下其他生活动作工具，只留 plan_day。
             self._life_action_models = {
                 name: model for name, model in self._life_action_models.items()
                 if name == "plan_day"}
         budget = self._react_budget(False)
         self._life_request_models = self._budgeted_tool_models(
             False, budget["memory_tools_available"])
+
+    def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
+        """@brief 从一次冻结观察组装菜单、可见身份、控制和生活动作工具。"""
+        self._life_interaction_menu = menu = life_menu.parse_interaction_menu(data)
+        self._life_contract = contract = _affordance_contract(data)
+        self._life_targeted_kinds = life_menu.filter_targeted_kinds(
+            menu, _targeted_activity_kinds(contract))
+        energy_limits = _visible_energy_limits(data, contract)
+        self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
+        self._life_visible_refs = _environment_source_ids(data)
+        self._life_basic_activity_types = life_menu.basic_activity_types(menu, data)
+        self._life_browse_categories = life_menu.filter_browse_categories(
+            menu, _visible_browse_categories(data))
+        self._life_visible_targets = life_menu.filter_targets(
+            menu, _visible_target_ids(data, contract, energy_limits))
+        self._life_activity_controls = life_menu.filter_activity_controls(
+            menu, _visible_activity_controls(data, contract, energy_limits))
+        self._life_action_contracts = life_menu.filter_action_contracts(
+            menu, _visible_action_contracts(data))
+        self._life_action_models = _available_action_models(
+            self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
+            self._life_browse_categories)
+        self._life_action_models = life_menu.filter_action_models(
+            menu, self._life_action_models)
 
     def validate_react_decisions(
         self,
@@ -887,6 +902,12 @@ class LifeAgent(PersonAgent):
                 )
                 if error:
                     return error
+                if decision.action in REQUEST_MODELS:
+                    error = life_menu.menu_action_error(
+                        self._life_interaction_menu, decision.action, validated,
+                        self._life_activity_controls, self._life_basic_activity_types)
+                    if error:
+                        return error
                 if decision.action == "finish" and not readonly:
                     error = self._validate_finish(validated)
                     if error:
@@ -928,9 +949,10 @@ class LifeAgent(PersonAgent):
         if self._life_action_count:
             raise RuntimeError("Life action was already submitted")
         if action not in self._life_action_models:
+            self._logger.error("Life action is unavailable in the prepared activity state")
             raise RuntimeError("Life action is unavailable in the prepared activity state")
-        context = self.require_decision_context()
         request = _validate_request(REQUEST_MODELS[action], args)
+        context = self.require_decision_context()
         error = _validate_prepared_action(
             action,
             request,
@@ -939,6 +961,11 @@ class LifeAgent(PersonAgent):
             self._life_action_contracts,
             self._life_browse_categories,
         )
+        if error:
+            raise RuntimeError(error)
+        error = life_menu.menu_action_error(
+            self._life_interaction_menu, action, request,
+            self._life_activity_controls, self._life_basic_activity_types)
         if error:
             raise RuntimeError(error)
         action_id = f"{context.decision_id}:action:0001"
@@ -1187,10 +1214,12 @@ def _visible_activity_controls(
 ) -> dict[str, Any]:
     """@brief 从当前活动、暂停活动与游戏局面冻结本轮控制合同。"""
     active = _visible_active_activity(data, contract)
-    paused_ids, resumable_ids = _visible_paused_activity_ids(data)
+    paused_ids, resumable_ids, paused_kinds = _visible_paused_activity_ids(data)
     if active is not None and active["activity_id"] in paused_ids:
         raise RuntimeError("LifeAgent active activity is also listed as paused")
     controls = {"active": active, "paused_ids": paused_ids, "resumable_paused_ids": resumable_ids,
+                "menu_resumable_paused_ids": resumable_ids,
+                "paused_activity_kinds": paused_kinds,
                 "maximum_duration_seconds_by_kind": energy_limits,
                 "game_session_id": None, "game_commands": ()}
     if active is not None and active["kind"] == "play_game":
@@ -1222,19 +1251,26 @@ def _visible_active_activity(
     return {"activity_id": activity_id, "kind": kind}
 
 
-def _visible_paused_activity_ids(data: dict[str, Any]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+def _visible_paused_activity_ids(
+    data: dict[str, Any],
+) -> tuple[tuple[str, ...], tuple[str, ...], dict[str, str]]:
     """@brief 校验暂停活动身份，并区分当前能量允许恢复的闭集。"""
     activities = data.get("paused_activities")
     if not isinstance(activities, list):
         raise RuntimeError("LifeAgent paused_activities must be a list")
     identities = []
     resumable = []
+    kinds = {}
     for activity in activities:
         if not isinstance(activity, dict) or activity.get("status") != "paused":
             raise RuntimeError("LifeAgent paused activity state is invalid")
         activity_id = activity.get("activity_id")
         if not isinstance(activity_id, str) or not activity_id.strip():
             raise RuntimeError("LifeAgent paused activity identity is invalid")
+        kind = activity.get("kind")
+        if not isinstance(kind, str) or not kind.strip():
+            logging.error("LifeAgent paused activity kind is invalid")
+            raise RuntimeError("LifeAgent paused activity kind is invalid")
         remaining = activity.get("remaining_duration_seconds")
         cost = activity.get("minimum_energy_cost_kcal")
         feasible = activity.get("resume_energy_feasible")
@@ -1243,11 +1279,12 @@ def _visible_paused_activity_ids(data: dict[str, Any]) -> tuple[tuple[str, ...],
                 or not math.isfinite(cost) or cost < 0 or not isinstance(feasible, bool)):
             raise RuntimeError("LifeAgent paused activity energy feasibility is invalid")
         identities.append(activity_id)
+        kinds[activity_id] = kind
         if feasible:
             resumable.append(activity_id)
     if len(identities) != len(set(identities)):
         raise RuntimeError("LifeAgent paused activity identities are duplicated")
-    return tuple(sorted(identities)), tuple(sorted(resumable))
+    return tuple(sorted(identities)), tuple(sorted(resumable)), kinds
 
 
 def _visible_game_control(data: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
@@ -1729,7 +1766,7 @@ def _bind_activity_control_schemas(
             properties["operation"]["enum"] = ["pause", "cancel"]
         else:
             operations = ["cancel"]
-            if controls["resumable_paused_ids"]:
+            if controls["menu_resumable_paused_ids"]:
                 operations.insert(0, "resume")
             properties["operation"]["enum"] = operations
     for name in ("continue_activity", "change_playback_speed"):

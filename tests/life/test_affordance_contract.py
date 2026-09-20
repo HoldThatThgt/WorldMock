@@ -15,7 +15,7 @@ from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import advance_next, context
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import affordance_contract
-from worldmock.life.models import StartBasicActivityRequest
+from worldmock.life.models import REQUEST_MODELS, StartBasicActivityRequest
 
 #: 合同条目的七键闭集（与引擎 AFFORDANCE_CONTRACT_KEYS 同形）。
 _CONTRACT_KEYS = {
@@ -89,6 +89,10 @@ def test_engine_observation_carries_frozen_contract_across_run(engine_factory) -
 def _agent_with_data(data: dict) -> None:
     """用一份手写观察数据按正式入口准备 LifeAgent 决策。"""
     agent = LifeAgent()
+    data = {**data, "interaction_menu": {
+        "allowed_tools": sorted(REQUEST_MODELS),
+        "allowed_activity_kinds": sorted(default_affordances().kinds),
+    }}
     observed = datetime(2026, 1, 5, tzinfo=timezone.utc)
     wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": data}]
     agent.prepare_react_loop(ReactLoopRequest(0, observed, wrapped))

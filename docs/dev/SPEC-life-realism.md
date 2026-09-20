@@ -1,6 +1,6 @@
 # 特性规格：人物决策与画像
 
-> 状态：FROZEN——条款已裁决并冻结；除下列三行外，代码层已落地并通过确定性门禁，正式十二周运行、隔离盲评与 LabelKit 完整自然日交付仍待真实运行（见 `docs/dev/implementation-status.md`）。验收矩阵里三行已按本版第 7 条的复判刷新：**口味权重是排序信号**一行两处断言均已补齐（入选条件由 `attention_prior[kind] > 0` 判定、`preference` 只参与排序，零权重条目仍进候选并排在非零权重之后），改记「代码层已验证」；**素材可达性**一行改记「代码层已验证」（准入侧两个错误码与静态可达性守卫均已有测试），但同章另有系统提示记的一项独立缺陷未解决——`scripts/check_reachability.py --scenario` 对正式场景退出码 1、86 条场景内容条目落不进分区，该项不在本行判定范围内；**候选与呈现**一行改记「代码层已验证」（`tests/life/test_candidate_wiring.py` 与覆盖率门禁逐条覆盖判据）。三行的逐行证据与未达成项见矩阵表下的复判说明
+> 状态：FROZEN——条款已裁决并冻结。口味排序、素材可达性函数及候选呈现的确定性证据见验收矩阵；正式十二周运行、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。另有一项既有实现缺口：`LocationConfig` 与正式地点语料尚未提供本规格要求的 `location_kinds`，缺省运行路径因此不施加地点类限制；交互菜单使用的是另一字段 `locations[].kind`，不视为修复此缺口。实际状态与收据见 `docs/dev/implementation-status.md`
 > 日期：2026-09-19
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
@@ -55,6 +55,7 @@ flowchart TD
 | 决策节律：结算边界不等于决策机会、唤醒条件清单、静默边界 | `docs/dev/SPEC-life-runtime.md`「决策节律：结算边界与唤醒条件分离」 |
 | 类型、签名、字段、枚举、上限常量与提示模板 | `docs/CONTRACTS.md` |
 | 活动受理门、被挡项的原因码与观察可见性、投影通道预算 | `docs/dev/SPEC-life-runtime.md`「活动组合政策」「观察投影与提示合同」 |
+| 地点类与人物显式交互菜单、工具及活动类型准入 | `docs/dev/SPEC-interaction-menu.md` |
 | 行为指标与门禁的汇总口径、report-only 边界与交付顺序 | `docs/VERIFICATION.md` |
 
 ## 设计裁决
@@ -100,6 +101,8 @@ flowchart TD
 - 请求显式要求一至三句第一人称中文；确定性协议拒绝超长或空文本，消耗一个回合后重试一次，再失败则本次决策失败
 - 决策自述不是动作，不改变世界
 - 行动阶段的 ReAct 预算、非法响应反馈与 finish 合同沿用现有条款；`finish.memories` 允许空列表
+- 行动阶段的生活工具先取冻结观察中的有效交互菜单，再由现有状态、目标、日首计划和预算收窄；
+  人物的 `interaction_menu` 是显式场景准入声明，不由人格特征、口味权重或动机评分推导
 
 依据：Tam 等 2024 表明格式约束越严推理越差，而先自然语言再转格式与自由文本几乎无损；DeepSeek 文档规定
 思考模式下采样参数无效、带 `tools` 的后续请求必须回传 `reasoning_content`、一般对话的推荐温度为 1.3；
@@ -201,9 +204,13 @@ flowchart LR
 
 ### `location_kinds` 的运行期强制语义
 
-`location_kinds` 不是准入期的装饰字段。现行实现只在准入校验里读它（`src/worldmock/catalog/admission.py`），
-运行期零读者——`src/worldmock/life/activities.py` 的 `start_activity` 只校验时长、资源冲突与能量，
-内容与娱乐候选也不看地点。后果是 192 条内容在任何地点同样可达：不是「看不到」，是「到处都是」，没有分区就谈不上检索。
+`location_kinds` 不是准入期的装饰字段。现行实现的准入校验会读取它，运行期也已经有候选地点判定和
+`activities.require_location_kinds` 受理门；但 `LocationConfig` 仍只有单值
+`kind`，正式场景与地点语料尚未声明本节要求的 `location_kinds`。缺省解析把未声明地点视为不增加限制，
+所以正式场景尚未真正执行地点类交集；现有测试证明的是显式提供地点侧集合时的行为。
+
+这是本规格原有的实现缺口，不属于交互菜单特性。交互菜单读取 `locations[].kind` 选择地点菜单；它不生成、
+迁移或替代候选资格的 `location_kinds`，两者不得混为同一字段或用一方的测试证明另一方已落地。
 
 **行为规则**：
 
@@ -456,7 +463,8 @@ flowchart LR
 ## 验收矩阵
 
 下表给出每条条款的观察、证据位置与状态；实际门禁结果与收据见 `docs/dev/implementation-status.md`。
-状态分两档：确定性测试与门禁已通过的记 `代码层已验证`；必须等正式模型运行或真实盲评才能判定的记 `待真实运行`。
+确定性测试与门禁已通过的记 `代码层已验证`；必须等正式模型运行或真实盲评才能判定的记
+`待真实运行`；已有合同尚未贯通正式输入的记 `既有实现缺口`。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
@@ -467,7 +475,7 @@ flowchart LR
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重；`drive_summary` 为一句中文；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 日程骨架 | 首次提交的当日计划为 5–8 段、覆盖到就寝、不重叠、不越界；`revise_day_plan` 改写尚未开始的段后允许 1–8 段，剩余段数可少于 5；`intent_kind` 只取闭集；到达段起点只构成唤醒条件而不执行计划步 | `tests/life/test_day_plan.py`、`tests/life/test_wake_reasons.py` | 代码层已验证 |
-| 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`、`worldmock validate` | 代码层已验证 |
+| 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；地点 `location_kinds` 缺口见本规格对应小节 | 既有实现缺口 |
 | 画像编译 | 卡片字段完整并经确定性渲染进入提示；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` | 代码层已验证 |
 | 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项 | `validate` 输出的 `persona_coverage.json` | 代码层已验证 |
 | 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加 | `tests/life/test_commerce.py` | 代码层已验证 |
@@ -535,3 +543,4 @@ flowchart LR
 | 8 | 2026-09-19 | 头部状态声明与验收矩阵对齐：点名三行未落地条款，并说明「口味权重是排序信号」一行的入选条件已落地、留在矩阵的原因是零权重排序位次待补断言，删去已过时的「现行实现失败」描述；术语统一为「换新名额」与「上次呈现时刻」，并在判据首次出现处说明未展示时长的导出关系；文件修改清单的场景文件数由「四份」改准为三份并点名 `evaluation.json` 不在其列 |
 | 9 | 2026-09-19 | 三行复判刷新：**口味权重是排序信号**改记「代码层已验证」（两处观察均有断言，零权重条目仍在候选内且排在非零权重之后，复跑 `tests/life/test_motivation.py` 两测 `2 passed, 76 deselected`）；**素材可达性**改记「代码层已验证」（证据改为准入函数的直接测试 `tests/catalog/test_reachability_admission.py`，原写的入口 `worldmock validate` 因 `PERSONA_COVERAGE_FAILED` 提前终止而不再构成可复现入口）；**候选与呈现**改记「代码层已验证」（证据改为 `tests/life/test_candidate_wiring.py` 等可复现测试路径与 `scripts/coverage_gate.py`）；新增表下复判说明，逐行给出判据与测试的对应关系；同时如实记录一项未解决的独立缺陷：`scripts/check_reachability.py --scenario` 退出码 1、86 条场景内容条目落不进分区；头部状态同步改写 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
+| `2026-09-20-interaction-menu` | 2026-09-20 | 对齐人物显式交互菜单与行动工具收窄边界；如实标明正式地点 `location_kinds` 仍未贯通，且与 `locations[].kind` 不同 |
