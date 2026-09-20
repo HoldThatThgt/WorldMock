@@ -1,6 +1,6 @@
 # 覆盖率门禁口径与基线
 
-> 状态：最近一次完整门禁通过：2781 passed、0 skipped，整体分支覆盖率 96.52% ≥ 85.00，未覆盖公共接口 0。
+> 状态：最近一次完整门禁通过：3008 passed、0 skipped，整体分支覆盖率 96.66% ≥ 85.00，未覆盖公共接口 0。
 > 日期：2026-09-20
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
@@ -61,18 +61,20 @@ uv run coverage html            # HTML 明细
 
 ## 基线记录
 
-基线取自 `docs/dev/coverage-report.json`，生成于 2026-09-20T07:37:42+00:00，
-被测源代码提交为 `c582330140dd80f43dd4d67853e0eb27e83e9476`。
+基线取自 `docs/dev/coverage-report.json`，生成于 2026-09-20T09:11:41+00:00，
+被测源代码提交为 `5bd851186e8124b19d5a1786ea4c858be338ef4e`。
 
 | 指标 | 数值 |
 | --- | --- |
-| 全量 pytest | 2781 passed、0 failed、0 skipped |
-| 整体分支覆盖率 | 96.52%（covered=6127，missing=221，total=6348；阈值 85.00） |
+| 全量 pytest | 3008 passed、0 failed、0 skipped |
+| 整体分支覆盖率 | 96.66%（covered=6155，missing=213，total=6368；阈值 85.00） |
 | 未覆盖公共接口数 | 0 |
 | 顶层判定 `passed` | true（通过） |
 
 历史资金锚定测试读取本机已有运行的只读数据库，未创建替代数据或跳过测试。
 该工程门禁验证离线测试，不代表正式十二周模型运行或真实交付整体验收。
+本次执行的完整命令与原始输出归档在 `docs/dev/evidence/category-contract/final-gates.json.gz`。
+为保持并发 Bob 调用方干净，门禁只临时改变报告输出路径；报告原字节归位，判定逻辑没有改变。
 品类契约逐项行为与独立语义突变证据记录在 `docs/dev/category-contract-verification.md`。
 
 ## 版本表

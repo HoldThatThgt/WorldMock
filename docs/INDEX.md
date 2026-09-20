@@ -38,6 +38,8 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/SPEC-labelkit-delivery.md` | 数字足迹接入 LabelKit 的输入范围与加工责任、证据窗口与来源关联、交付产物与发布边界、长序列与数据划分、真实调用的生产与验证步骤 | FROZEN |
 | `docs/dev/SPEC-category-contract.md` | 品类树、属性增量、三态配对、闭集交换、库存转换、细化发布和运行内容身份 | FROZEN |
 | `docs/dev/category-contract-verification.md` | 品类契约逐要求实施、测试与独立突变证据 | 实施台账 |
+| `docs/dev/category-contract-files.md` | 对照开发基线逐文件核对真实 Git diff 与功能责任 | 实施台账 |
+| `docs/dev/category-contract-bob-review.md` | 独立语义突变、原始证据及修复复审结果 | 审查记录 |
 | `docs/dev/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 已裁决 |
 | `docs/dev/ANALYSIS-spec-coverage.md` | 规格条款与测试用例的覆盖率追溯矩阵 | 现行追溯矩阵 |
 
@@ -195,7 +197,7 @@ flowchart TB
 
 ## 状态与变更约定
 
-文档地图「状态」列只用下表八个取值，表外取值不得出现在该列：
+文档地图「状态」列只用下表取值，表外取值不得出现在该列：
 
 | 状态词 | 含义 |
 | --- | --- |
@@ -205,6 +207,9 @@ flowchart TB
 | `现行口径` | 该文件是当前生效的判定口径 |
 | `生成物` | 由脚本覆盖重写的产物，内容随每次运行变化 |
 | `未冻结提案` | 方向尚未裁决，使用边界见「权威层级」节 |
+| `已裁决` | 提案已收敛为冻结规格，只保留决策背景，不再承载实现要求 |
+| `实施台账` | 逐项记录当前实现、对应测试与验收结论 |
+| `审查记录` | 保留独立审查、问题修复与复审证据，不替代冻结规格 |
 | `现行追溯矩阵` | 随规格条款与测试同步维护的当前映射 |
 | `调研证据` | 当时快照下的依据，不被当前条款引用 |
 
