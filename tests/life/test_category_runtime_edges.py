@@ -7,6 +7,7 @@ from decimal import Decimal
 
 import pytest
 
+from worldmock.catalog import ResourceDefinition
 from worldmock.categories import Action, CategoryError, InventoryTransformRule, PairingState
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.category_contract import (
@@ -285,6 +286,39 @@ def _finished_recipe() -> ActivityState:
     )
 
 
+def _settlement_catalog(rule: InventoryTransformRule, state: PairingState) -> _Catalog:
+    """提供可完成真实账本转换的规则表、品类关系和有效封闭库存资源。"""
+    resolution = (_resolution(state, rule.rule_id, 1)
+                  if state == PairingState.DEFINED else _resolution(state))
+    catalog = _Catalog(resolution)
+    rules = {"open-item": _recipe_rule(), rule.rule_id: rule}
+    catalog.exchange_rules = SimpleNamespace(require=rules.__getitem__)
+    catalog.category_contract = _CategoryContract()
+    resource = ResourceDefinition.model_validate({
+        "resource_id": "inventory_closed", "kind": "level", "unit": "item",
+        "owner": "agent_location", "bounds": {"min": 0, "max": 2}, "conservation": "closed",
+        "provenance": [{"part": "recipe settlement bounds", "paths": ["bounds.min", "bounds.max"],
+                        "type": "scenario", "source": "isolated recipe completion fixture"}],
+        "version": 1,
+    })
+    catalog.resources = {resource.resource_id: resource}
+    return catalog
+
+
+def test_recipe_completion_fixture_settles_both_balances_and_effects() -> None:
+    """正对照证明复查夹具可真实扣输入、增输出和效果，并标记活动已执行。"""
+    catalog = _settlement_catalog(_recipe_rule(), PairingState.DEFINED)
+    agent = _agent()
+    activity = _finished_recipe()
+    before = agent.model_dump(mode="python")
+    changed = apply_inventory_recipe(agent, _context().products, catalog, activity)
+    assert changed.inventory == {"home": {"sealed-item": 0, "opened-item": 1}}
+    assert changed.active_effects == {"package_opened"}
+    assert activity.data["recipe_applied"] is True
+    assert activity.data["consumed"] == {"sealed-item": 1}
+    assert agent.model_dump(mode="python") == before
+
+
 @pytest.mark.parametrize(("state", "code"), (
     (PairingState.DEFINED, "INVENTORY_RECIPE_RULE_MISMATCH"),
     (PairingState.NO_EFFECT, "CATEGORY_PAIRING_NO_EFFECT"),
@@ -292,12 +326,14 @@ def _finished_recipe() -> ActivityState:
 ))
 def test_recipe_completion_rechecks_pairing_before_inventory_or_effects(state, code) -> None:
     """完成执行复查冻结配对；不作用、未定义或不相容规则不改变输入与活动。"""
-    catalog = _Catalog(_resolution(state, "another-rule", 1))
+    rule = _recipe_rule().model_copy(update={"rule_id": "another-rule"})
+    catalog = _settlement_catalog(rule, state)
     agent = _agent()
     activity = _finished_recipe()
     before = (agent.model_dump(mode="python"), activity.model_dump(mode="python"))
-    with pytest.raises(BusinessRuleError, match=code):
+    with pytest.raises(BusinessRuleError, match=f"^{code}$") as caught:
         apply_inventory_recipe(agent, _context().products, catalog, activity)
+    assert type(caught.value) is BusinessRuleError
     assert (agent.model_dump(mode="python"), activity.model_dump(mode="python")) == before
 
 
@@ -314,12 +350,7 @@ def test_recipe_same_object_keeps_ledger_overlap_rejection_without_effects() -> 
     activity = _finished_recipe()
     activity.data["inventory_recipe"]["output_object_id"] = "sealed-item"
     rule = _recipe_rule().model_copy(update={"output_category_id": "sealed"})
-    catalog = _Catalog(_resolution(PairingState.DEFINED, rule.rule_id, 1))
-    catalog.exchange_rules = _Rules(rule)
-    catalog.category_contract = _CategoryContract()
-    catalog.resources = {"inventory_closed": SimpleNamespace(
-        resource_id="inventory_closed", kind=SimpleNamespace(value="level"),
-        conservation=SimpleNamespace(value="closed"), bounds=SimpleNamespace(min=0, max=None))}
+    catalog = _settlement_catalog(rule, PairingState.DEFINED)
     agent = _agent()
     before = (agent.model_dump(mode="python"), activity.model_dump(mode="python"))
     with pytest.raises(BusinessRuleError, match="CONVERT_IMBALANCED"):
