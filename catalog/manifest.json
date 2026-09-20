@@ -1,5 +1,5 @@
 {
-  "version_major": 2,
+  "version_major": 3,
   "version_minor": 0,
   "category_requirements": {
     "declared_at": "2026-09-18",
@@ -60,5 +60,9 @@
       "colleague_reply_policy": "persona",
       "other_reply_policy": "model"
     }
-  }
+  },
+  "category_contract_version": 1,
+  "category_contract_sha256": "ef3a88cc58fdcd766804099dd39b29351c02629cf471fcb8f2124b317153b436",
+  "exchange_rules_sha256": "62fd0b28e72161cfa5c8fc3ef6078e43ba3e25d868a73a767d4e2ead20b09275",
+  "catalog_content_sha256": "0636b644c5411fc7b70dc7ba73fa67da78a6d2061a7deb722fe975f936835321"
 }

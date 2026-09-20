@@ -7,7 +7,13 @@ from pathlib import Path
 from worldmock.errors import BusinessRuleError
 from worldmock.life.content import SubtitleCue, load_content_titles, load_subtitles
 from worldmock.life.models import ActivityKind, AgentState, StartActivityRequest
-from worldmock.life.scenario import ContentItemConfig, GameConfig, LifeScenario, ProductConfig, WorkTaskConfig
+from worldmock.life.scenario import (
+    ContentItemConfig,
+    GameConfig,
+    InventoryItemConfig,
+    LifeScenario,
+    WorkTaskConfig,
+)
 from worldmock.life.travel import route_for
 from worldmock.life.work import validate_work_start
 
@@ -20,6 +26,8 @@ class LifeRuleEngine:
         self.scenario = scenario
         self.corpus_root = Path(corpus_root).resolve()
         self.products = {item.product_id: item for item in scenario.products}
+        self.items = {item.product_id: item
+                      for item in (*scenario.products, *scenario.inventory_items)}
         self.tasks = {item.task_id: item for item in scenario.tasks}
         self.messages = {item.message_id: item for item in scenario.messages}
         self.contents = {item.item_id: item for item in scenario.contents}
@@ -66,11 +74,11 @@ class LifeRuleEngine:
             return {"route_id": route_for(self.scenario, agent.location_id, request).route_id}
         return {}
 
-    def product(self, product_id: str | None) -> ProductConfig:
-        """@brief 取得一个冻结商品，否则业务拒绝。"""
-        if product_id not in self.products:
+    def product(self, product_id: str | None) -> InventoryItemConfig:
+        """@brief 取得一个冻结可持有对象，否则业务拒绝。"""
+        if product_id not in self.items:
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        return self.products[product_id]
+        return self.items[product_id]
 
     def task(self, task_id: str | None) -> WorkTaskConfig:
         """@brief 取得一个冻结工作任务，否则业务拒绝。"""

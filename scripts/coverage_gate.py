@@ -2,7 +2,7 @@
 """覆盖率门禁工具：运行测试套件，计算分支覆盖率与公共接口覆盖率并判定。
 
 @file     coverage_gate.py
-@brief    WorldMock 覆盖率门禁；三项覆盖率口径定义见 docs/coverage-baseline.md。
+@brief    WorldMock 覆盖率门禁；三项覆盖率口径定义见 docs/dev/coverage-baseline.md。
 @note     机器判定两项：整体分支覆盖率 >= 85%，且公共接口未覆盖数为 0；
           功能 spec 测试用例覆盖率为映射义务，不由本脚本计算。
 """
@@ -25,7 +25,7 @@ BRANCH_THRESHOLD = 85.0
 TEST_COMMAND = ("uv", "run", "coverage", "run", "-m", "pytest", "-q")
 JSON_COMMAND = ("uv", "run", "coverage", "json")
 PRODUCTION_ROOTS = ("src/worldmock", "custom/agents", "custom/envs")
-REPORT_PATH = REPO_ROOT / "docs" / "coverage-report.json"
+REPORT_PATH = REPO_ROOT / "docs" / "dev" / "coverage-report.json"
 
 
 @dataclass
@@ -254,7 +254,7 @@ def build_report(
     manifest_hash: str,
     source_identity: str,
 ) -> dict:
-    """@brief 组装写往 docs/coverage-report.json 的门禁报告字典。
+    """@brief 组装写往 docs/dev/coverage-report.json 的门禁报告字典。
     
     @param snapshot_id      本次测试运行的唯一标识符。
     @param manifest_hash    manifest 文件或覆盖数据的 SHA-256 哈希。

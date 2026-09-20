@@ -206,6 +206,9 @@ class AgentConfig(FrozenModel):
     # docs/dev/SPEC-life-realism.md「世界素材品类要求」）：按人物声明，
     # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
+    # 初始持有物按地点冻结，由目录独立装配使用属性与品类身份，不要求同时可购买。
+    # 空映射表示人物没有场景预置持有物。
+    initial_inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_traits(self) -> "AgentConfig":
@@ -242,6 +245,13 @@ class AgentConfig(FrozenModel):
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
             raise ValueError("agent contact ids must be unique")
+        for location_id, holding in self.initial_inventory.items():
+            if not location_id.strip() or not holding:
+                raise ValueError("initial inventory locations and holdings must not be empty")
+            if any(not object_id.strip() for object_id in holding):
+                raise ValueError("initial inventory object ids must not be empty")
+            if any(not math.isfinite(quantity) or quantity <= 0 for quantity in holding.values()):
+                raise ValueError("initial inventory quantities must be positive finite numbers")
         return self
 
 
@@ -267,7 +277,7 @@ class LocationConfig(FrozenModel):
 class RouteConfig(FrozenModel):
     """@brief 一条 prepare 阶段冻结的真实 OSRM 路由及其实例报价。
 
-    报价公式本身是目录语义（rules/travel-fare.toml），由 ScenarioSemantics
+    报价规则本身来自冻结交换规则，由 ScenarioSemantics
     在组装时对每条路线的 fare_fen 做交叉核验，本模型不再内嵌公式。
     """
 
@@ -284,18 +294,15 @@ class RouteConfig(FrozenModel):
     source_url: str = Field(min_length=1)
 
 
-class ProductConfig(FrozenModel):
-    """@brief 组装后的商品运行事实：实例绑定加上目录解析的静态语义。"""
+class InventoryItemConfig(FrozenModel):
+    """@brief 可被持有和使用的已解析对象语义，不要求它在场景中可购买。"""
 
     product_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    merchant_account_id: str = Field(min_length=1)
-    merchant_location_id: str = Field(min_length=1)
-    price_fen: int = Field(gt=0)
-    price_version: str = Field(min_length=1)
-    initial_stock: int = Field(ge=0)
+    category_id: str = Field(min_length=1)
     serving_quantity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     serving_unit: str | None = None
+    inventory_unit: str | None = None
     energy_kcal_per_unit: float = Field(default=0, ge=0, allow_inf_nan=False)
     use_duration_seconds: int = Field(gt=0)
     use_modes: tuple[str, ...]
@@ -306,7 +313,7 @@ class ProductConfig(FrozenModel):
     source_kind: str = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_product(self) -> "ProductConfig":
+    def validate_product(self) -> "InventoryItemConfig":
         """@brief 食品必须携带来源份量，耐用品不得伪造营养。"""
         modes = set(self.use_modes)
         if not modes or len(modes) != len(self.use_modes) or not modes <= _PRODUCT_USE_MODES:
@@ -321,6 +328,17 @@ class ProductConfig(FrozenModel):
         if food and not self.consumable:
             raise ValueError("food product must be consumable")
         return self
+
+
+class ProductConfig(InventoryItemConfig):
+    """@brief 场景可购买商品：持有物语义加商家、价格、库存和交付绑定。"""
+
+    merchant_account_id: str = Field(min_length=1)
+    merchant_location_id: str = Field(min_length=1)
+    price_fen: int = Field(ge=0)
+    price_version: str = Field(min_length=1)
+    initial_stock: int = Field(ge=0)
+    delivery_delay_seconds: int = Field(gt=0)
 
 
 class WorkTaskConfig(FrozenModel):
@@ -551,6 +569,7 @@ class LifeScenario(FrozenModel):
     payrolls: tuple[PayrollConfig, ...] = ()
     price_changes: tuple[PriceChangeConfig, ...] = ()
     product_releases: tuple[ProductReleaseConfig, ...] = ()
+    recipe_output_bindings: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_document(self) -> "LifeScenario":
@@ -576,11 +595,26 @@ class LifeScenario(FrozenModel):
         _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
         _check_catalog_references(self.agents, self.tasks, self.messages, targets)
+        self._validate_inventory_references()
+        self._validate_recipe_bindings()
         self._validate_merchant_bindings()
         self._validate_route_keys()
         _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
         self._validate_schedule_sections(zone)
         return self
+
+    def _validate_inventory_references(self) -> None:
+        """@brief 文档层只校验初始持有地点；对象存在性由冻结目录组装校验。"""
+        locations = {item.location_id for item in self.locations}
+        for agent in self.agents:
+            if any(location_id not in locations for location_id in agent.initial_inventory):
+                raise ValueError("initial inventory references an unknown location")
+
+    def _validate_recipe_bindings(self) -> None:
+        """@brief 配方输出绑定要求非空输出品类身份和对象身份。"""
+        if any(not category_id.strip() or not object_id.strip()
+               for category_id, object_id in self.recipe_output_bindings.items()):
+            raise ValueError("recipe output bindings must use non-empty ids")
 
     def _validate_schedule_sections(self, zone: ZoneInfo) -> None:
         """@brief 四个可选预排段的身份、时区、窗口与文档内跨引用校验。"""
@@ -667,6 +701,7 @@ class RuntimeScenario(FrozenModel):
     locations: tuple[LocationConfig, ...]
     routes: tuple[RouteConfig, ...]
     products: tuple[ProductConfig, ...]
+    inventory_items: tuple[InventoryItemConfig, ...] = ()
     tasks: tuple[WorkTaskConfig, ...]
     messages: tuple[MessageConfig, ...]
     contents: tuple[ContentItemConfig, ...]
@@ -678,6 +713,7 @@ class RuntimeScenario(FrozenModel):
     payrolls: tuple[PayrollConfig, ...] = ()
     price_changes: tuple[PriceChangeConfig, ...] = ()
     product_releases: tuple[ProductReleaseConfig, ...] = ()
+    recipe_output_bindings: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_scenario(self) -> "RuntimeScenario":
@@ -693,6 +729,7 @@ class RuntimeScenario(FrozenModel):
         _unique(self.locations, "location_id")
         _unique(self.routes, "route_id")
         _unique(self.products, "product_id")
+        _unique(self.inventory_items, "product_id")
         _unique(self.tasks, "task_id")
         _unique(self.messages, "message_id")
         _unique(self.contents, "item_id")
@@ -701,10 +738,27 @@ class RuntimeScenario(FrozenModel):
         _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
         _check_catalog_references(self.agents, self.tasks, self.messages, targets)
+        self._validate_inventory_references()
+        if any(not category_id.strip() or not object_id.strip()
+               for category_id, object_id in self.recipe_output_bindings.items()):
+            raise ValueError("recipe output bindings must use non-empty ids")
         self._validate_route_keys()
         self._validate_accounts()
         _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
         return self
+
+    def _validate_inventory_references(self) -> None:
+        """@brief 运行视图中的初始持有物必须具有完整商品语义。"""
+        locations = {item.location_id for item in self.locations}
+        products = {item.product_id for item in (*self.products, *self.inventory_items)}
+        if {item.product_id for item in self.products} & {item.product_id for item in self.inventory_items}:
+            raise ValueError("purchasable products and inventory-only items must not overlap")
+        for agent in self.agents:
+            if any(location_id not in locations for location_id in agent.initial_inventory):
+                raise ValueError("initial inventory references an unknown location")
+            held = {object_id for rows in agent.initial_inventory.values() for object_id in rows}
+            if not held <= products:
+                raise ValueError("initial inventory references an undeclared scenario product")
 
     def _validate_route_keys(self) -> None:
         """@brief 每个起点、终点与方式只允许一条冻结路线。"""

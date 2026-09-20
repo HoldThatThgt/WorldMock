@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from worldmock.catalog import load_catalog
 from worldmock.errors import IntegrityError
-from worldmock.life.scenario import LifeScenario, load_scenario
+from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario, load_scenario
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
 
@@ -45,6 +45,58 @@ def _assert_assembly_invalid(payload: dict, message: str) -> None:
     document = LifeScenario.model_validate(payload)
     with pytest.raises(IntegrityError, match=message):
         assemble_semantics(document, load_catalog(_CATALOG))
+
+
+@pytest.mark.parametrize(
+    ("holding", "message"),
+    [
+        ({" ": {"milk": 1}}, "locations and holdings must not be empty"),
+        ({"home": {}}, "locations and holdings must not be empty"),
+        ({"home": {" ": 1}}, "object ids must not be empty"),
+        ({"home": {"milk": 0}}, "quantities must be positive finite"),
+        ({"home": {"milk": -1}}, "quantities must be positive finite"),
+        ({"home": {"milk": float("inf")}}, "quantities must be positive finite"),
+        ({"home": {"milk": float("nan")}}, "quantities must be positive finite"),
+        ({"unknown": {"milk": 1}}, "references an unknown location"),
+    ],
+)
+def test_initial_inventory_shape_rejects_invalid_holdings(holding, message) -> None:
+    """预置库存不能以空身份、非正数或未知地点进入场景。"""
+    _assert_invalid(_replace(("agents", 0, "initial_inventory"), holding), message)
+
+
+@pytest.mark.parametrize("bindings", [{" ": "milk"}, {"food": " "}])
+def test_recipe_output_binding_requires_nonblank_category_and_object(bindings) -> None:
+    """文档与运行视图均拒绝空白的配方输出品类或对象身份。"""
+    _assert_invalid(_replace(("recipe_output_bindings",), bindings), "must use non-empty ids")
+    scenario, _ = load_scenario(_FORMAL)
+    runtime = scenario.model_dump(mode="json")
+    runtime["recipe_output_bindings"] = bindings
+    with pytest.raises(ValidationError, match="must use non-empty ids"):
+        RuntimeScenario.model_validate(runtime)
+
+
+@pytest.mark.parametrize("kind", ["unknown_location", "undeclared_product", "overlap"])
+def test_runtime_inventory_cross_references_are_validated(kind) -> None:
+    """运行视图拒绝未知库存引用以及商品和纯库存对象身份冲突。"""
+    scenario, _ = load_scenario(_FORMAL)
+    runtime = scenario.model_dump(mode="json")
+    product_id = runtime["products"][0]["product_id"]
+    location_id = runtime["locations"][0]["location_id"]
+    if kind == "unknown_location":
+        runtime["agents"][0]["initial_inventory"] = {"missing": {product_id: 1}}
+        message = "unknown location"
+    elif kind == "undeclared_product":
+        runtime["agents"][0]["initial_inventory"] = {location_id: {"missing": 1}}
+        message = "undeclared scenario product"
+    else:
+        runtime["inventory_items"] = [{
+            key: value for key, value in runtime["products"][0].items()
+            if key in InventoryItemConfig.model_fields
+        }]
+        message = "must not overlap"
+    with pytest.raises(ValidationError, match=message):
+        RuntimeScenario.model_validate(runtime)
 
 
 def test_formal_and_multi_person_scenarios_are_valid() -> None:
@@ -170,11 +222,11 @@ def test_route_ids_and_lookup_keys_are_unique() -> None:
         (1, 1),
     ],
 )
-def test_route_fares_follow_the_catalog_formula(route_index: int, fare: int) -> None:
-    """路线报价偏离目录公式求值时在组装阶段拒绝。"""
+def test_route_fares_follow_the_catalog_exchange_rule(route_index: int, fare: int) -> None:
+    """路线报价偏离目录闭集规则求值时在组装阶段拒绝。"""
     _assert_assembly_invalid(
         _replace(("routes", route_index, "fare_fen"), fare),
-        "disagrees with the catalog formula",
+        "disagrees with the catalog exchange value",
     )
 
 
@@ -189,7 +241,7 @@ def test_route_fare_source_is_closed() -> None:
 def test_catalog_pin_and_reference_admission_are_enforced() -> None:
     """目录版本钉扎与对象引用完整性在组装准入层拒绝。"""
     _assert_assembly_invalid(
-        _replace(("catalog_version", "major"), 3),
+        _replace(("catalog_version", "major"), 4),
         "pins catalog",
     )
     _assert_assembly_invalid(
@@ -214,7 +266,7 @@ def test_work_and_message_references_stay_inside_scenario() -> None:
     )
     _assert_assembly_invalid(
         _replace(("tasks", 0, "employer_account_id"), "missing-account"),
-        "unknown employer",
+        "supports exactly one employer account",
     )
 
 

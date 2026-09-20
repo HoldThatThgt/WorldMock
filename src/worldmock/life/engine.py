@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
+from worldmock.categories import Action
 from worldmock.catalog.affordances import AffordanceView
 from worldmock.corpora import load_manifest
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -20,6 +21,10 @@ from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
+from worldmock.life.activity_evidence import (browse_visibility as _browse_visibility,
+                                              dedupe_revealed_cues as _dedupe_revealed_cues,
+                                              meal_consumption_data as _meal_consumption_data,
+                                              record_material_reveal as _record_material_reveal)
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_decision_statement_start, pop_decision_start)
 from worldmock.life.activities import (
@@ -36,11 +41,10 @@ from worldmock.life.activities import (
 from worldmock.life.basket import (
     apply_meal_progress,
     change_inventory,
-    held_quantity,
     meal_duration,
     meal_food_rate,
     purchase_order,
-    validate_meal,
+    validate_meal_inventory, validate_meal_use,
 )
 from worldmock.life.body import (
     ENERGY_RECOVERY_ACTIVITY_KINDS,
@@ -64,6 +68,7 @@ from worldmock.life.content import (
     reveal_mail,
     reveal_watch,
 )
+from worldmock.life.category_contract import match_rows, require_item_rules
 from worldmock.life.game import (
     GameOutcomeUnknown, new_game_session, run_game_command,
     validate_game, verify_game_progress,
@@ -107,12 +112,15 @@ from worldmock.life.models import (
     WorldState,
     WORLD_SCHEMA_VERSION,
 )
+from worldmock.life.inventory_recipe import (RecipeContext, apply_inventory_recipe,
+                                             prepare_inventory_recipe)
 from worldmock.life.observe import ObservationMixin
 from worldmock.life.rhythm import (
     apply_engine_rhythm,
     engine_rhythm_inputs,
     next_decision_candidates,
 )
+from worldmock.life.run_identity import category_identity, open_category_validated_store, require_category_identity
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.schedule import (PlanSegment, WakeReason, bedtime_anchor,
@@ -234,7 +242,7 @@ class LifeEngine(ObservationMixin):
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
         state = _initial_state(semantics, digest, run_identity.run_id, agent_taste_weights or {})
-        manifest = _run_manifest(scenario, digest, run_identity, two_stage_identity)
+        manifest = _run_manifest(semantics, digest, run_identity, two_stage_identity)
         store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
         changes["account:external:scenario"] = -sum(state.accounts.values())
@@ -251,7 +259,8 @@ class LifeEngine(ObservationMixin):
         corpus_root = (Path(scenario_path).resolve().parent
                        / semantics.scenario.corpus_root).resolve()
         load_manifest(corpus_root, semantics.scenario.corpus_manifest_sha256)
-        return cls(semantics, digest, corpus_root, FootprintStore(Path(run_dir)))
+        return cls(semantics, digest, corpus_root,
+                   open_category_validated_store(Path(run_dir), semantics))
 
     def observe(self, context: "DecisionContext") -> dict:
         """@brief 返回人物当下可见事实，并以同版本追加观察事件。"""
@@ -312,7 +321,7 @@ class LifeEngine(ObservationMixin):
         request = SubmitWorkRequest.model_validate(pending.request)
         try:
             submission = prepare_work_submission(
-                self.state, self.scenario, self.corpus_root, pending.agent_id, request)
+                self.state, self.semantics, self.corpus_root, pending.agent_id, request)
         except BusinessRuleError:
             return
         model_name = self.store.manifest["model_identity"]["requested_model"]
@@ -567,7 +576,6 @@ class LifeEngine(ObservationMixin):
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.state.current_time
         staged = flush_presentation(self.state, self._pending_presentation)
-        self._pending_presentation = None
         staged = staged.model_copy(deep=True)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
@@ -588,6 +596,7 @@ class LifeEngine(ObservationMixin):
         staged.version = self.state.version + 1
         commit_state(self.store, staged, drafts)
         self.state = staged
+        self._pending_presentation = None
         return results
 
     def fail_run(self, error: str) -> None:
@@ -695,6 +704,7 @@ class LifeEngine(ObservationMixin):
         if identity is not None:
             from worldmock.validation import validate_two_stage_model_identity
             validate_two_stage_model_identity(identity)
+        require_category_identity(self.store.manifest, self.semantics)
         validate_routes(self.scenario, self.corpus_root)
         for config in self.scenario.games:
             validate_game(config, self.corpus_root)
@@ -843,7 +853,8 @@ class LifeEngine(ObservationMixin):
         failed = count >= self.scenario.max_consecutive_rejections
         pulse_key = ("work_review_returned" if str(error) == "WORK_REQUIRES_REWORK"
                      else "service_refused")
-        body = apply_mood_pulse(agent.body, pulse_key)
+        body = (agent.body if str(error) in {"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"}
+                else apply_mood_pulse(agent.body, pulse_key))
         changed_agent = agent.model_copy(update={"next_decision_at": state.current_time + 1,
                                                   "consecutive_rejections": count,
                                                   "decision_failed": failed,
@@ -1023,6 +1034,19 @@ class LifeEngine(ObservationMixin):
             payload["title"] = title
         return payload
 
+    def _travel_start_context(self, state: WorldState, agent,
+                              request: StartActivityRequest):
+        """@brief 在暂停现有活动和扣款前完成路线与品类规则复查。"""
+        if request.activity_type != ActivityKind.TRAVEL:
+            return None
+        route = route_for(self.scenario, agent.location_id, request)
+        match = self.semantics.travel_match(route.mode.value)
+        expected = self.semantics.travel_planned_seconds(
+            route.mode.value, route.duration_seconds, state.current_time)
+        if request.planned_duration_seconds != expected:
+            raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
+        return route, match
+
     def _start(self, state: WorldState, pending: PendingAction,
                request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
@@ -1032,6 +1056,7 @@ class LifeEngine(ObservationMixin):
             validate_work_duration(
                 state, self.rules.task(request.target_id), pending.agent_id,
                 request.planned_duration_seconds)
+        travel_context = self._travel_start_context(state, agent, request)
         paused_activity = None
         if agent.current_activity_id is not None:
             state, paused_activity = self._auto_pause_for_switch(state, agent)
@@ -1042,12 +1067,8 @@ class LifeEngine(ObservationMixin):
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
         changed_state = state
         payment = None
-        if request.activity_type == ActivityKind.TRAVEL:
-            route = route_for(self.scenario, agent.location_id, request)
-            expected = self.semantics.travel_planned_seconds(
-                route.mode.value, route.duration_seconds, state.current_time)
-            if request.planned_duration_seconds != expected:
-                raise BusinessRuleError("ROUTE_DURATION_MISMATCH")
+        if travel_context is not None:
+            route, _ = travel_context
             changed_state, payment = pay_travel_fare(state, self.scenario, pending.agent_id, route)
             data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         if request.activity_type == ActivityKind.PLAY_GAME:
@@ -1068,6 +1089,8 @@ class LifeEngine(ObservationMixin):
             result_data["auto_paused_activity"] = self._activity_snapshot(paused_activity)
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
+        if travel_context is not None:
+            result_data["category_matches"] = match_rows((travel_context[1],))
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Activity started", data=result_data)
@@ -1132,6 +1155,9 @@ class LifeEngine(ObservationMixin):
                      if item.product_id not in effective]
         if invisible:
             raise BusinessRuleError("PRODUCT_NOT_VISIBLE")
+        matches = require_item_rules(
+            self.semantics.catalog, self.rules.products,
+            (item.product_id for item in request.items), Action.PURCHASE)
         outcome = purchase_order(state, self.scenario, pending.agent_id, request)
         account = agent.balance_account_id
         merchant = self.rules.products[request.items[0].product_id].merchant_account_id
@@ -1140,6 +1166,7 @@ class LifeEngine(ObservationMixin):
                               message="Purchase accepted",
                               data={"orders": [order.model_dump(mode="json") for order in outcome.orders],
                                     "total_price_fen": outcome.total_price_fen,
+                                    "category_matches": match_rows(matches),
                                     "resource_changes": {
                                         f"account:{account}": -outcome.total_price_fen,
                                         f"account:{merchant}": outcome.total_price_fen}})
@@ -1149,8 +1176,17 @@ class LifeEngine(ObservationMixin):
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。"""
         agent = state.agents[pending.agent_id]
-        products = self.rules.products
-        validate_meal(agent, products, request)
+        products = self.rules.items
+        action = Action(f"consume:{request.use_mode}")
+        matches = require_item_rules(
+            self.semantics.catalog, products,
+            (item.product_id for item in request.items), action)
+        validate_meal_use(agent, products, request)
+        recipe = prepare_inventory_recipe(
+            agent, RecipeContext(self.semantics.catalog, products, self.scenario.recipe_output_bindings),
+            request, matches[0])
+        if recipe is None:
+            validate_meal_inventory(agent, request)
         duration = meal_duration(products, request)
         start = StartActivityRequest(activity_type=ActivityKind.CONSUME,
                                      planned_duration_seconds=duration,
@@ -1164,17 +1200,20 @@ class LifeEngine(ObservationMixin):
         food_rate = meal_food_rate(products, request) * efficiency
         activity.data.update(request=request.model_dump(mode="json"), consumed={},
                              food_energy_kcal_per_hour=food_rate)
+        if recipe is not None:
+            activity.data["inventory_recipe"] = recipe.payload()
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Product use started",
-                              data={"activity": self._activity_snapshot(activity)})
+                              data={"activity": self._activity_snapshot(activity),
+                                    "category_matches": match_rows(matches)})
         return changed, result
 
     def _submit_work(self, state: WorldState, pending: PendingAction,
                      request: SubmitWorkRequest) -> tuple[WorldState, ActionResult]:
         """@brief 独立验收结构化工作并支付唯一报酬。"""
-        submission = prepare_work_submission(state, self.scenario, self.corpus_root,
+        submission = prepare_work_submission(state, self.semantics, self.corpus_root,
                                              pending.agent_id, request)
         if pending.work_review is None:
             raise ProtocolError("Eligible work submission has no recorded semantic review")
@@ -1194,6 +1233,7 @@ class LifeEngine(ObservationMixin):
         data = {"task_id": request.task_id, "payment_fen": outcome.payment_fen,
                 "worked_seconds": outcome.worked_seconds,
                 "effective_seconds": outcome.effective_seconds, "work_review": feedback,
+                "category_matches": match_rows((self.semantics.contract_match(submission.task),)),
                 "resource_changes": {
                     f"account:{self.rules.task(request.task_id).employer_account_id}": -outcome.payment_fen,
                     f"account:{state.agents[pending.agent_id].balance_account_id}": outcome.payment_fen}}
@@ -1472,10 +1512,16 @@ class LifeEngine(ObservationMixin):
             state.agents[agent.agent_id] = _record_material_reveal(
                 state.agents[agent.agent_id], activity.target_id, material, state.current_time)
         if activity.kind == ActivityKind.CONSUME:
-            state.agents[activity.agent_id] = apply_meal_progress(
-                state.agents[activity.agent_id], self.rules.products, activity,
-                self.semantics.body)
-            evidence["consumption"] = _meal_consumption_data(activity, agent)
+            if completed and "inventory_recipe" in activity.data:
+                state.agents[activity.agent_id] = apply_inventory_recipe(
+                    state.agents[activity.agent_id], self.rules.items,
+                    self.semantics.catalog, activity)
+            elif "inventory_recipe" not in activity.data:
+                state.agents[activity.agent_id] = apply_meal_progress(
+                    state.agents[activity.agent_id], self.rules.items, activity,
+                    self.semantics.body)
+            evidence["consumption"] = _meal_consumption_data(
+                activity, state.agents[activity.agent_id])
             state.activities[activity.activity_id] = activity
         if not completed:
             return evidence
@@ -1518,6 +1564,9 @@ class LifeEngine(ObservationMixin):
         self.scenario = semantics.scenario
         self.rules.scenario = semantics.scenario
         self.rules.products = {item.product_id: item for item in semantics.scenario.products}
+        self.rules.items = {
+            item.product_id: item
+            for item in (*semantics.scenario.products, *semantics.scenario.inventory_items)}
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
         """@brief 在实验终点标记所有仍活动的会话并保留实际进度。"""
@@ -1631,15 +1680,18 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
                       balance_account_id=account_id, skill_levels=config.skill_levels,
                       body=body, visible_task_ids=visible_tasks, known_task_ids=set(visible_tasks),
                       visible_message_ids=visible_mail, next_decision_at=start,
-                      pending_wake_reasons=["run_start"], taste_weights=taste_weights.get(config.agent_id) or {})
+                      pending_wake_reasons=["run_start"], taste_weights=taste_weights.get(config.agent_id) or {},
+                      inventory=config.initial_inventory)
 
 
-def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: RunIdentity,
+def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
                   two_stage_identity: dict | None = None) -> dict:
     """@brief 绑定新运行的场景、内容、人物身份与两阶段请求形状。"""
     if two_stage_identity is not None:
         from worldmock.validation import validate_two_stage_model_identity
         validate_two_stage_model_identity(two_stage_identity)
+    scenario = semantics.scenario
+    category_fields = category_identity(semantics)
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
             "scenario_id": scenario.scenario_id,
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
@@ -1647,7 +1699,7 @@ def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: Run
             "model_identity": identity.model_identity.model_dump(mode="json"),
             "two_stage_model_identity": two_stage_identity,
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
-                       "timezone": scenario.timezone}}
+                       "timezone": scenario.timezone}, **category_fields}
 
 
 def _validate_run_identity(scenario: RuntimeScenario, identity: RunIdentity) -> None:
@@ -1735,8 +1787,9 @@ def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[st
 def _result_draft(pending: PendingAction, result: ActionResult, event_type: str) -> EventDraft:
     """@brief 将动作结果与原请求事件建立直接因果回链。"""
     data = result.model_dump(mode="json")
-    if "resource_changes" in result.data:
-        data["resource_changes"] = result.data["resource_changes"]
+    for field in ("resource_changes", "category_matches"):
+        if field in result.data:
+            data[field] = result.data[field]
     return EventDraft(event_type=event_type, occurred_at=result.occurred_at, agent_id=result.agent_id,
                       decision_id=pending.decision_id, action_id=pending.action_id,
                       activity_id=result.activity_id, caused_by=_pending_causes(pending),
@@ -1901,59 +1954,6 @@ def _resource_flows_data(agent_id: int, occurred_at: int) -> list[dict[str, Any]
                for stamped in (replace(entry, owner=f"agent:{agent_id}", occurred_at=occurred_at)
                                for entry in last_flows())]
     return validate_resource_flows(payload) if payload else []
-
-
-def _meal_consumption_data(activity, before_agent) -> dict:
-    """@brief 记录一次多件进食的区间使用、地点持有量（热量结算在分录证据中）。"""
-    request = ConsumeRequest.model_validate(activity.data["request"])
-    consumed = dict(activity.data.get("consumed", {}))
-    rows = []
-    for item in request.items:
-        rows.append({"product_id": item.product_id,
-                     "interval_quantity": consumed.get(item.product_id, 0.0),
-                     "held_after": held_quantity(before_agent, item.product_id)})
-    return {"location_id": before_agent.location_id, "items": rows,
-            "use_mode": request.use_mode}
-
-
-def _dedupe_revealed_cues(activity) -> None:
-    """@brief 横跨结算边界的同一条字幕只交付一次（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
-
-    reveal_watch 的区间过滤会重复交付起止横跨上一边界的 cue；此处按
-    "起点落入本区间才算本次新跨过"去重，与 last_revealed_position 对齐。
-    """
-    revealed = activity.data.get("revealed")
-    if not isinstance(revealed, dict):
-        return
-    start = revealed.get("position_before_seconds")
-    cues = revealed.get("cues")
-    if not isinstance(start, (int, float)) or not isinstance(cues, list):
-        return
-    revealed["cues"] = [cue for cue in cues
-                        if isinstance(cue, dict) and cue.get("start_seconds", start) >= start]
-
-
-def _record_material_reveal(agent, task_id, material, occurred_at):
-    """@brief 登记工作材料本区间新读区间（观察侧按上次决策过滤并限 2000 字符）。"""
-    if not task_id:
-        return agent
-    entry = {"task_id": task_id, "at": occurred_at,
-             "start_char": material.get("start_char", 0),
-             "end_char": material.get("end_char", 0),
-             "chars": max(0, int(material.get("end_char", 0)) - int(material.get("start_char", 0)))}
-    reveals = list(agent.material_reveals)[-63:] + [entry]
-    return agent.model_copy(update={"material_reveals": reveals}, deep=True)
-
-
-def _browse_visibility(agent, products, now):
-    """@brief 浏览完成：可见集=目录全部商品（配送浏览同样适用），TTL 1800 秒。
-
-    有效可见集由 projection.visible_products 按店内常驻 ∪ 浏览 TTL 计算；
-    此处只登记浏览时刻与原始可见集（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
-    """
-    return agent.model_copy(
-        update={"visible_product_ids": set(products), "product_browsed_at": now,
-                "product_browsed_location": agent.location_id}, deep=True)
 
 
 def _activity_progress_phrase(activity) -> str:

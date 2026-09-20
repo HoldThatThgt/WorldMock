@@ -281,6 +281,15 @@ run/
 数字人维护自身记忆与可变工作区，模拟引擎协调其保存和恢复；交付目录由数据交付管理。
 记录引擎仅持有检查点封存的不可变快照。
 
+运行清单冻结 `category_contract_version`、`category_contract_sha256`、`exchange_rules_sha256`、
+`catalog_content_sha256`。LifeEngine 在创建、打开、恢复或重放的副作用之前核对当前目录与该身份；
+同版本异内容拒绝执行。检查点已有的 `manifest_sha256` 覆盖这些字段，
+足迹导出的 `frozen_run_manifest` 原样保留它们，不从导出时的目录重建。
+字段含义见[品类接口合同](../CONTRACTS.md#品类契约与目录字段)，行为见[品类契约规格](../dev/SPEC-category-contract.md)。
+
+成功动作的首条 `action_result.data.category_matches` 记录实际命中的 `category_id`、`rule_id`、`action`。
+维护工具按这些记录统计触达次数；活动完成和幂等重试不重复登记命中。
+
 | 数据表 | 责任 |
 | --- | --- |
 | `events` | 不覆盖的事件序列；可按人物、活动、动作和时间查询 |

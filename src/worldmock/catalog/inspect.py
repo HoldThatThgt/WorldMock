@@ -1,19 +1,18 @@
-"""@brief 目录只读查询：边聚合、对象影响面与溯源链。"""
+"""@brief 编译目录的资源影响面与对象来源只读查询。"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
+from worldmock.categories import ProducerType, ProvenanceType, SourceRecord
 from worldmock.catalog.models import (
     Catalog,
     CatalogError,
-    ConvertEdge,
+    CompiledEdge,
     DrainEdge,
-    Edge,
     ExchangeObject,
     ObjectKind,
-    Provenance,
-    ProvenanceType,
+    RuleEdge,
     SourceEdge,
     TransferEdge,
 )
@@ -21,30 +20,31 @@ from worldmock.catalog.models import (
 
 @dataclass(frozen=True)
 class EdgeHit:
-    """@brief 一条触及某资源的边及其宿主对象。"""
+    """@brief 一条触及指定资源的编译边及其宿主对象。"""
 
     object_id: str
     object_kind: ObjectKind
-    edge: Edge
+    edge: CompiledEdge
     relation: str
 
 
 @dataclass(frozen=True)
 class LineageEntry:
-    """@brief 溯源链上的一站：某数值部分来自哪个来源、落在哪些路径。"""
+    """@brief 对象来源链中的一条可审核记录。"""
 
-    part: str
+    source_id: str
     type: ProvenanceType
+    producer: ProducerType
     source: str
     artifact: str | None
     method: str | None
-    paths: tuple[str, ...] = ()
-    note: str | None = None
+    paths: tuple[str, ...]
+    note: str | None
 
 
 @dataclass(frozen=True)
 class LineageReport:
-    """@brief 一个交换对象的完整溯源链。"""
+    """@brief 一个 raw 对象版本的完整来源链。"""
 
     object_id: str
     object_version: int
@@ -52,63 +52,39 @@ class LineageReport:
 
 
 def edges_of(catalog: Catalog, resource_id: str) -> tuple[EdgeHit, ...]:
-    """@brief 聚合全部给某资源注水或放水的边（含已墓碑对象的边，保留可读）。
-
-    :param catalog: 冻结目录视图。
-    :param resource_id: 目标资源 id。
-    :returns: 按（对象 id、边序）稳定排序的边命中元组。
-    :raises CatalogError: 资源 id 不在注册表中。
-    """
+    """@brief 聚合全部触及指定资源的字面边与 typed rule 引用边。"""
     _require_resource(catalog, resource_id)
     hits = [
         hit
         for object_id, obj in sorted(catalog.objects.items())
-        for hit in _object_edge_hits(obj, resource_id, object_id)
+        for hit in _object_edge_hits(catalog, obj, resource_id, object_id)
     ]
     return tuple(hits)
 
 
 def objects_affecting(catalog: Catalog, resource_id: str) -> tuple[str, ...]:
-    """@brief 返回影响某资源的全部对象 id（含已墓碑对象，按字典序）。
-
-    :param catalog: 冻结目录视图。
-    :param resource_id: 目标资源 id。
-    :returns: 排序去重后的对象 id 元组。
-    :raises CatalogError: 资源 id 不在注册表中。
-    """
-    _require_resource(catalog, resource_id)
-    affecting = {
-        object_id
-        for object_id, obj in catalog.objects.items()
-        if any(endpoint == resource_id for edge in obj.edges for endpoint in _edge_resource_ids(edge))
-    }
-    return tuple(sorted(affecting))
+    """@brief 返回影响指定资源的全部对象身份，按字典序。"""
+    return tuple(sorted({hit.object_id for hit in edges_of(catalog, resource_id)}))
 
 
 def lineage(catalog: Catalog, object_id: str) -> LineageReport:
-    """@brief 展开一个对象的溯源链：每个数值部分来自哪个来源。
-
-    :param catalog: 冻结目录视图。
-    :param object_id: 目标对象 id。
-    :returns: 对象版本与逐条溯源记录。
-    :raises CatalogError: 对象 id 不在目录中。
-    """
-    obj = catalog.objects.get(object_id)
+    """@brief 展开一个 raw 对象的版本与来源链。"""
+    obj = catalog.raw_objects.get(object_id)
     if obj is None:
         raise CatalogError("INSPECT_OBJECT_UNKNOWN", f"object {object_id} not in catalog")
-    entries = tuple(_lineage_entry(record) for record in obj.provenance)
     return LineageReport(
         object_id=obj.object_id,
         object_version=obj.version,
-        entries=entries,
+        entries=tuple(_lineage_entry(record) for record in obj.provenance),
     )
 
 
-def _lineage_entry(record: Provenance) -> LineageEntry:
-    """@brief 把模型溯源记录投影为只读溯源链节点。"""
+def _lineage_entry(record: SourceRecord) -> LineageEntry:
+    """@brief 把来源模型投影为稳定只读报告。"""
     return LineageEntry(
-        part=record.part,
+        source_id=record.source_id,
         type=record.type,
+        producer=record.producer,
         source=record.source,
         artifact=record.artifact,
         method=record.method,
@@ -118,41 +94,35 @@ def _lineage_entry(record: Provenance) -> LineageEntry:
 
 
 def _require_resource(catalog: Catalog, resource_id: str) -> None:
-    """@brief 查询前要求资源 id 已注册。"""
+    """@brief 查询前要求资源已注册。"""
     if resource_id not in catalog.resources:
         raise CatalogError("INSPECT_RESOURCE_UNKNOWN", f"resource {resource_id} not in catalog")
 
 
-def _object_edge_hits(obj: ExchangeObject, resource_id: str, object_id: str) -> list[EdgeHit]:
-    """@brief 产出单个对象中触及目标资源的边命中。"""
+def _object_edge_hits(
+    catalog: Catalog,
+    obj: ExchangeObject,
+    resource_id: str,
+    object_id: str,
+) -> list[EdgeHit]:
+    """@brief 返回单对象中触及目标资源的边。"""
     hits: list[EdgeHit] = []
     for edge in obj.edges:
-        for endpoint, relation in _edge_relations(edge):
-            if endpoint == resource_id:
-                hits.append(
-                    EdgeHit(
-                        object_id=object_id,
-                        object_kind=obj.object_kind,
-                        edge=edge,
-                        relation=relation,
-                    )
-                )
+        relation = _edge_relation(catalog, edge, resource_id)
+        if relation is not None:
+            hits.append(EdgeHit(object_id, obj.object_kind, edge, relation))
     return hits
 
 
-def _edge_relations(edge: Edge) -> tuple[tuple[str, str], ...]:
-    """@brief 返回边触及的（资源 id, 关系）对。"""
+def _edge_relation(catalog: Catalog, edge: CompiledEdge, resource_id: str) -> str | None:
+    """@brief 返回边对目标资源的关系，不触及时返回空。"""
+    if isinstance(edge, SourceEdge) and edge.resource == resource_id:
+        return "source"
+    if isinstance(edge, DrainEdge) and edge.resource == resource_id:
+        return "drain"
+    if isinstance(edge, RuleEdge):
+        rule = catalog.exchange_rules.require(edge.rule_id)
+        return "rule" if rule.resource_id == resource_id else None
     if isinstance(edge, TransferEdge):
-        return ((edge.from_account, "transfer_from"), (edge.to_account, "transfer_to"))
-    if isinstance(edge, SourceEdge):
-        return ((edge.resource, "source"),)
-    if isinstance(edge, DrainEdge):
-        return ((edge.resource, "drain"),)
-    if isinstance(edge, ConvertEdge):
-        return ((edge.from_endpoint, "convert_from"), (edge.to_endpoint, "convert_to"))
-    return ()
-
-
-def _edge_resource_ids(edge: Edge) -> tuple[str, ...]:
-    """@brief 返回一条边触及的全部资源 id。"""
-    return tuple(endpoint for endpoint, _ in _edge_relations(edge))
+        return "transfer" if edge.resource == resource_id else None
+    return None

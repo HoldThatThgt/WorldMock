@@ -98,7 +98,7 @@ def test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count(
     task = next(item for item in engine.scenario.tasks if item.task_id == task_id)
     state = _completed_work_state(engine, task, worked, task.required_effective_seconds)
     submission = prepare_work_submission(
-        state, engine.scenario, engine.corpus_root, 1, _submission(task))
+        state, engine.semantics, engine.corpus_root, 1, _submission(task))
     outcome = settle_work(state, submission, True)
     assert submission.metrics.worked_seconds == worked
     assert outcome.payment_fen == expected_payment
@@ -182,7 +182,7 @@ def test_li_fan_backend_contracts_settle_with_scenario_materials(
     assert task.input_path.startswith("scenario-work/inputs/")
     state = _completed_work_state(engine, task, worked, task.required_effective_seconds, agent_id=2)
     submission = prepare_work_submission(
-        state, engine.scenario, engine.corpus_root, 2, _submission(task))
+        state, engine.semantics, engine.corpus_root, 2, _submission(task))
     outcome = settle_work(state, submission, True)
     assert outcome.payment_fen == expected_payment
     assert outcome.state.accounts["agent:2"] == state.accounts["agent:2"] + expected_payment
@@ -212,16 +212,16 @@ def test_late_duplicate_and_unfunded_work_stop_before_semantic_payment(engine_fa
                                   task.required_effective_seconds)
     late = state.model_copy(update={"current_time": int(task.due_at.timestamp()) + 1}, deep=True)
     with pytest.raises(BusinessRuleError, match="WORK_SUBMISSION_LATE"):
-        prepare_work_submission(late, engine.scenario, engine.corpus_root, 1, request)
+        prepare_work_submission(late, engine.semantics, engine.corpus_root, 1, request)
     duplicate = state.model_copy(update={"paid_task_ids": {task.task_id}}, deep=True)
     with pytest.raises(BusinessRuleError, match="WORK_TASK_ALREADY_PAID"):
-        prepare_work_submission(duplicate, engine.scenario, engine.corpus_root, 1, request)
+        prepare_work_submission(duplicate, engine.semantics, engine.corpus_root, 1, request)
     accounts = dict(state.accounts)
     accounts[task.employer_account_id] = 0
     unfunded = state.model_copy(update={"accounts": accounts}, deep=True)
     frozen = unfunded.model_dump(mode="json")
     with pytest.raises(BusinessRuleError, match="EMPLOYER_FUNDS_INSUFFICIENT"):
-        prepare_work_submission(unfunded, engine.scenario, engine.corpus_root, 1, request)
+        prepare_work_submission(unfunded, engine.semantics, engine.corpus_root, 1, request)
     assert unfunded.model_dump(mode="json") == frozen
 
 
