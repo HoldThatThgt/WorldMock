@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import json
 import logging
+import os
 import shutil
+import sys
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -136,7 +140,9 @@ def category_touches(run_dir: Path) -> list[dict]:
 def publish_catalog(source: Path, candidate: Path, destination: Path,
                     assignments: dict[str, str], scenarios: tuple[Path, ...]) -> dict:
     """@brief 审核新版本并在独立临时目录完成全部场景准入后公开，不改源目录。"""
-    source, candidate, destination = (Path(path).resolve() for path in (source, candidate, destination))
+    source, candidate = Path(source).resolve(), Path(candidate).resolve()
+    destination = Path(destination).absolute()
+    destination = destination.parent.resolve() / destination.name
     _publication_paths(source, candidate, destination)
     source_catalog = load_catalog(source)
     _validate_publication_request(source, candidate, assignments, scenarios)
@@ -154,9 +160,7 @@ def publish_catalog(source: Path, candidate: Path, destination: Path,
                 _reject("CATEGORY_VERSION_NOT_INCREMENTED", "Published catalog version must increase")
             _admit_scenarios(staged, scenarios)
             identity = _read_json(staged / "manifest.json")
-            if destination.exists():
-                _reject("CATEGORY_DESTINATION_EXISTS", "Publication destination already exists")
-            staged.rename(destination)
+            _rename_exclusive(staged, destination)
         except Exception:
             _LOG.exception("Category publication failed")
             raise
@@ -166,7 +170,7 @@ def publish_catalog(source: Path, candidate: Path, destination: Path,
 
 def _publication_paths(source: Path, candidate: Path, destination: Path) -> None:
     """@brief 拒绝覆盖发布和输入目录嵌套写入，确保临时文件不进入源目录。"""
-    if destination.exists():
+    if destination.exists() or destination.is_symlink():
         _reject("CATEGORY_DESTINATION_EXISTS", "Publication destination already exists")
     if not source.is_dir() or not candidate.is_dir():
         _reject("CATEGORY_DIRECTORY_MISSING", "Source and candidate catalogs must exist")
@@ -174,6 +178,30 @@ def _publication_paths(source: Path, candidate: Path, destination: Path) -> None
         _reject("CATEGORY_DESTINATION_NESTED", "Publication destination must be outside input catalogs")
     if any(path.is_symlink() for path in candidate.rglob("*")):
         _reject("CATEGORY_SYMLINK_FORBIDDEN", "Candidate catalog must contain regular files")
+
+
+def _rename_exclusive(source: Path, destination: Path) -> None:
+    """@brief 使用系统排他重命名原子公开目录，任何已有目标均不得被覆盖。"""
+    library = ctypes.CDLL(None, use_errno=True)
+    paths = os.fsencode(source), os.fsencode(destination)
+    if sys.platform == "darwin":
+        operation = library.renamex_np
+        operation.argtypes = (ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint)
+        parameters = (*paths, 0x00000004)  # RENAME_EXCL：目标已存在则失败。
+    elif sys.platform.startswith("linux"):
+        operation = library.renameat2
+        operation.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
+        parameters = (-100, paths[0], -100, paths[1], 1)  # AT_FDCWD 与 RENAME_NOREPLACE。
+    else:
+        _reject("CATEGORY_ATOMIC_PUBLICATION_UNSUPPORTED", "Exclusive directory rename is unavailable")
+    operation.restype = ctypes.c_int
+    if operation(*parameters) == 0:
+        return
+    error = ctypes.get_errno()
+    if error == errno.EEXIST:
+        _reject("CATEGORY_DESTINATION_EXISTS", "Publication destination already exists")
+    _LOG.error("Exclusive directory publication failed: destination=%s errno=%s", destination, error)
+    raise OSError(error, os.strerror(error), str(destination))
 
 
 def _validate_publication_request(source: Path, candidate: Path, assignments, scenarios) -> None:

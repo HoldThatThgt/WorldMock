@@ -40,6 +40,36 @@ def test_relative_child_tracks_parent_value(tmp_path: Path) -> None:
     assert second.categories["food"].attributes["weight"] == 22
 
 
+@pytest.mark.parametrize("owner", ["category", "object"])
+def test_proportional_values_multiply_the_inherited_base(tmp_path: Path, owner: str) -> None:
+    """@brief 非中性乘法增量随父值成比例变化，品类与对象遵循同一规则。"""
+    document = contract_document()
+    payload = raw_object()
+    values = document["categories"][3]["values"] if owner == "category" else payload["values"]
+    values["proportional"]["weight"] = 2
+    declaration = ObjectDeclaration.model_validate(payload)
+    for parent_weight, expected in [(10, 20), (20, 40)]:
+        document["categories"][2]["slots"]["weight"]["schema"]["default"] = parent_weight
+        contract = load_category_contract(write_contract(tmp_path, document))
+        resolved = resolve_object_values(declaration, contract)
+        assert resolved.attributes["weight"] == expected
+
+
+@pytest.mark.parametrize("owner", ["category", "object"])
+@pytest.mark.parametrize("operation", ["relative", "proportional"])
+def test_numeric_delta_requires_a_defined_base(tmp_path: Path, owner: str, operation: str) -> None:
+    """@brief 已声明但尚未赋值的槽位不能把零作为增量基值。"""
+    document = contract_document()
+    payload = raw_object()
+    payload["values"]["absolute"].pop("price_fen")
+    values = document["categories"][3]["values"] if owner == "category" else payload["values"]
+    values[operation]["price_fen"] = 5
+    with pytest.raises(CategoryError) as excinfo:
+        contract = load_category_contract(write_contract(tmp_path, document))
+        resolve_object_values(ObjectDeclaration.model_validate(payload), contract)
+    assert excinfo.value.code == "CATEGORY_DELTA_BASE_INVALID"
+
+
 def test_resolved_nested_values_are_read_only(tmp_path: Path) -> None:
     """解析值的嵌套映射和数组不能被调用方改写。"""
     document = contract_document()
@@ -71,6 +101,48 @@ def test_invalid_category_tree_rejected(tmp_path: Path, mutation, code: str) -> 
     with pytest.raises(CategoryError) as excinfo:
         load_category_contract(write_contract(tmp_path, document))
     assert excinfo.value.code == code
+
+
+def test_multiple_entity_roots_are_rejected(tmp_path: Path) -> None:
+    """@brief 两个根各自形态合法时仍必须拒绝多根树。"""
+    document = contract_document()
+    other_root = copy.deepcopy(document["categories"][0])
+    other_root.update(category_id="other-entity", name="Other entity")
+    document["categories"].append(other_root)
+    with pytest.raises(CategoryError) as excinfo:
+        load_category_contract(write_contract(tmp_path, document))
+    assert excinfo.value.code == "CATEGORY_ROOT_COUNT_INVALID"
+
+
+def test_child_cannot_make_an_inherited_required_slot_optional(tmp_path: Path) -> None:
+    """@brief 子类不能通过重声明槽位允许对象省略祖先必填价格。"""
+    document = contract_document()
+    document["categories"][3]["slots"]["price_fen"] = {
+        "schema": {"type": "integer", "minimum": 0}, "required": False, "unit": "fen",
+    }
+    with pytest.raises(CategoryError) as excinfo:
+        load_category_contract(write_contract(tmp_path, document))
+    assert excinfo.value.code == "CATEGORY_SLOT_REQUIRED_LOOSENED"
+
+
+@pytest.mark.parametrize("owner", ["category", "object", "candidate"])
+def test_child_schema_keeps_all_ancestor_constraints(tmp_path: Path, owner: str) -> None:
+    """@brief 子类较宽的数值范围不能替换祖先约束，所有属性入口均需验证交集。"""
+    document = contract_document()
+    document["categories"][3]["slots"]["weight"] = {
+        "schema": {"type": "number", "minimum": -100}, "required": True, "unit": "kg",
+    }
+    if owner == "category":
+        document["categories"][3]["values"]["absolute"]["weight"] = -1
+    with pytest.raises(CategoryError) as excinfo:
+        contract = load_category_contract(write_contract(tmp_path, document))
+        payload = raw_object()
+        if owner == "object":
+            payload["values"]["absolute"]["weight"] = -1
+        resolved = resolve_object_values(ObjectDeclaration.model_validate(payload), contract)
+        if owner == "candidate":
+            validate_category_attributes(contract, "food", {**resolved.attributes, "weight": -1})
+    assert excinfo.value.code == "CATEGORY_SLOT_VALUE_INVALID"
 
 
 def test_redundant_object_absolute_value_rejected(tmp_path: Path) -> None:
@@ -211,6 +283,33 @@ def test_model_fact_and_unreviewed_agent_rejected(tmp_path: Path) -> None:
     with pytest.raises(CategoryError) as review:
         load_category_contract(write_contract(tmp_path, document))
     assert review.value.code == "CATEGORY_CONTRACT_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("reviewer_type", ["human", "delegated_agent"])
+@pytest.mark.parametrize("authorization", ["missing", "null", "empty", "blank"])
+def test_every_reviewer_requires_nonempty_authorization(
+    tmp_path: Path, reviewer_type: str, authorization: str,
+) -> None:
+    """@brief 人工与委托审查均须提供非空授权来源，身份类型不能豁免证据。"""
+    document = contract_document()
+    document["review"]["reviewer_type"] = reviewer_type
+    if authorization == "missing":
+        document["review"].pop("authorization")
+    else:
+        document["review"]["authorization"] = {"null": None, "empty": "", "blank": " \t"}[authorization]
+    with pytest.raises(CategoryError) as excinfo:
+        load_category_contract(write_contract(tmp_path, document))
+    assert excinfo.value.code == "CATEGORY_CONTRACT_SCHEMA_INVALID"
+
+
+@pytest.mark.parametrize("reviewer_type", ["human", "delegated_agent"])
+def test_review_preserves_declared_identity_and_authorization(tmp_path: Path, reviewer_type: str) -> None:
+    """@brief 合法审核保留原身份种类和授权来源。"""
+    document = contract_document()
+    document["review"].update(reviewer_type=reviewer_type, authorization="User requested this review")
+    contract = load_category_contract(write_contract(tmp_path, document))
+    assert contract.review.reviewer_type == reviewer_type
+    assert contract.review.authorization == "User requested this review"
 
 
 @pytest.mark.parametrize("case", ["anchored", "duplicate", "relative"])

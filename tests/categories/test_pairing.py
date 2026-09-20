@@ -74,6 +74,31 @@ def test_incomparable_double_specialization_is_ambiguous(tmp_path: Path) -> None
     assert excinfo.value.code == "PAIRING_AMBIGUOUS"
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_incomparable_pairings_remain_ambiguous_with_unequal_total_depth(tmp_path: Path, reverse: bool) -> None:
+    """@brief 双端不可比时较深的一端和文件顺序都不能替代偏序判定。"""
+    document = contract_document()
+    document["categories"].extend([
+        {"category_id": "adult", "name": "Adult", "parent_id": "person", "kind": "person"},
+        {"category_id": "specialist", "name": "Specialist", "parent_id": "adult", "kind": "person"},
+    ])
+    declarations = [
+        {
+            "actor_category_id": "specialist", "target_category_id": "product",
+            "action": "consume:use", "state": "undefined",
+        },
+        {
+            "actor_category_id": "person", "target_category_id": "food",
+            "action": "consume:use", "state": "undefined",
+        },
+    ]
+    document["pairings"].extend(reversed(declarations) if reverse else declarations)
+    contract = load_category_contract(write_contract(tmp_path, document))
+    with pytest.raises(CategoryError) as excinfo:
+        resolve_pairing(contract, "specialist", "food", "consume:use")
+    assert excinfo.value.code == "PAIRING_AMBIGUOUS"
+
+
 def test_no_effect_requires_review(tmp_path: Path) -> None:
     """已验证不作用若无审核证据必须拒绝。"""
     document = contract_document()
@@ -109,6 +134,15 @@ def test_pairing_state_field_combinations_are_strict(tmp_path: Path, case: str) 
         pairing["coefficient"] = -1
     else:
         pairing["state"] = "undefined"
+    with pytest.raises(CategoryError) as excinfo:
+        load_category_contract(write_contract(tmp_path, document))
+    assert excinfo.value.code == "CATEGORY_CONTRACT_SCHEMA_INVALID"
+
+
+def test_defined_pairing_requires_an_explicit_unit_coefficient(tmp_path: Path) -> None:
+    """@brief 合法规则引用不能在缺少冻结系数时隐式取得单位系数。"""
+    document = contract_document()
+    document["pairings"][0].pop("coefficient")
     with pytest.raises(CategoryError) as excinfo:
         load_category_contract(write_contract(tmp_path, document))
     assert excinfo.value.code == "CATEGORY_CONTRACT_SCHEMA_INVALID"

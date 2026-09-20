@@ -10,9 +10,17 @@
 | [Cataclysm: DDA：JSON Interface](https://docs.cataclysmdda.org/c%2B%2B/JSON_INTERFACE.html) | 先复制父值、再应用差异的可执行加载机制 | 不引入游戏数据系统，也不照搬宽松缺省 |
 | [OPA：Policy Language](https://www.openpolicyagent.org/docs/policy-language) | 未定义结果与显式结果能够分开建模 | OPA 的默认值和内置函数错误可被视为 false；本特性明确禁止照搬此宽松处理 |
 | [OCI：Descriptor](https://specs.opencontainers.org/image-spec/descriptor/?v=v1.1.1) | 用字节内容摘要识别并验证冻结产物 | 只借用内容身份，不引入容器运行依赖 |
+| [Python：Decimal](https://docs.python.org/3/library/decimal.html) | 局部计算上下文与精确十进制运算 | 默认精度只有 28 位；须按已接受操作数设置精度并验证取整，不能把使用 Decimal 等同于天然精确 |
+| [Linux：rename](https://man7.org/linux/man-pages/man2/rename.2.html)、[Apple：排他重命名能力](https://developer.apple.com/documentation/foundation/urlresourcevalues/volumesupportsexclusiverenaming) | 系统原子且不覆盖目标的目录重命名 | 文件锁和先检查再普通 rename 不满足竞争安全；文件系统不支持时明确失败，禁止普通 rename 替代 |
 
 这些资料支持部件机制的可行性；品类配对的偏序优先级、作用域守恒与库存转换是结合本仓库约束作出的设计推导。
 它们仍需通过严格模型、资源账本、实际动作与反例测试验证，不能由资料类比替代。
+
+目录发布使用标准库调用系统的排他重命名原语：macOS 的 `renamex_np(RENAME_EXCL)`，
+Linux 的 `renameat2(RENAME_NOREPLACE)`。macOS 声明和标志同时核对了本机 SDK 的 `sys/stdio.h`。
+当前依赖中的 filelock 只负责协作锁；portalocker 的文件原子写入不提供目录排他公开，因此不复用它们完成此边界。
+本机 macOS 测试在最终系统调用前创建竞争方空目录，验证发布被拒绝且原目录 inode 保持不变；
+Linux 调用参数另有测试，当前验证不将其等同于 Linux 文件系统实测。
 
 ## 排除与收窄
 

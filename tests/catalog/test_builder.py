@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object
+from worldmock.categories import refresh_manifest_identity
 from worldmock.catalog import (
     CatalogEntryKind,
     CatalogError,
@@ -22,7 +23,15 @@ from worldmock.catalog import (
 
 def test_add_object_preserves_manifest_identity_and_contract_fields(catalog_dir: Path) -> None:
     """新增同品类对象只追加 raw 行并完整刷新清单身份。"""
+    manifest_path = catalog_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    requirements = json.loads(Path("catalog/manifest.json").read_text())["category_requirements"]
+    manifest["category_requirements"] = requirements
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
     before = json.loads((catalog_dir / "manifest.json").read_text())
+    frozen_paths = (catalog_dir / "category-contract.json", catalog_dir / "exchange-rules.json")
+    frozen_bytes = [path.read_bytes() for path in frozen_paths]
     payload = raw_object("milk-second")
     version = add_object(catalog_dir, ObjectDeclaration.model_validate(payload))
     after = json.loads((catalog_dir / "manifest.json").read_text())
@@ -32,7 +41,11 @@ def test_add_object_preserves_manifest_identity_and_contract_fields(catalog_dir:
     assert after["version_minor"] == before["version_minor"] + 1
     assert after["category_contract_version"] == before["category_contract_version"]
     assert after["category_contract_sha256"] == before["category_contract_sha256"]
+    assert after["exchange_rules_sha256"] == before["exchange_rules_sha256"]
     assert after["catalog_content_sha256"] != before["catalog_content_sha256"]
+    assert after["category_requirements"] == before["category_requirements"] == requirements
+    assert catalog.category_requirements.model_dump(mode="json") == requirements
+    assert [path.read_bytes() for path in frozen_paths] == frozen_bytes
 
 
 def test_invalid_object_does_not_append_or_bump_manifest(catalog_dir: Path) -> None:

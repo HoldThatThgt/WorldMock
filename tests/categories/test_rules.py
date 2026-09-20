@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from decimal import Context, FloatOperation, Inexact, ROUND_UP, Rounded, localcontext
+from fractions import Fraction
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -20,13 +23,14 @@ from worldmock.categories import (
     evaluate_travel_fare,
     load_category_contract,
     load_exchange_rules,
+    refresh_manifest_identity,
     scale_inventory_recipe,
     validate_rule_resource_domains,
 )
 from worldmock.catalog import load_catalog
-from worldmock.catalog.models import ResourceDefinition
+from worldmock.catalog.models import ResourceDefinition, TransferEdge
 
-from .conftest import contract_document, review, rules_document, source, write_contract, write_rules
+from .conftest import contract_document, raw_object, review, rules_document, source, write_contract, write_rules
 
 
 def test_rule_action_and_target_must_match_pairing(tmp_path: Path) -> None:
@@ -37,6 +41,30 @@ def test_rule_action_and_target_must_match_pairing(tmp_path: Path) -> None:
     with pytest.raises(CategoryError) as excinfo:
         load_exchange_rules(write_rules(tmp_path, document), contract)
     assert excinfo.value.code == "PAIRING_RULE_MISMATCH"
+
+
+def test_operator_action_must_match_even_when_its_pairing_agrees(tmp_path: Path) -> None:
+    """@brief 规则和配对同时改动作也不能把购买转账算子解释为使用动作。"""
+    contract_payload = contract_document()
+    contract_payload["pairings"][0]["action"] = "consume:use"
+    contract = load_category_contract(write_contract(tmp_path, contract_payload))
+    document = rules_document()
+    document["rules"][0]["action"] = "consume:use"
+    with pytest.raises(CategoryError) as excinfo:
+        load_exchange_rules(write_rules(tmp_path, document), contract)
+    assert excinfo.value.code == "EXCHANGE_RULE_ACTION_MISMATCH"
+
+
+@pytest.mark.parametrize("reviewer_type", ["human", "delegated_agent"])
+def test_rule_review_requires_authorization(tmp_path: Path, reviewer_type: str) -> None:
+    """@brief 规则发布中的人工和委托审核同样不能省略授权。"""
+    contract = load_category_contract(write_contract(tmp_path, contract_document()))
+    document = rules_document()
+    document["review"]["reviewer_type"] = reviewer_type
+    document["review"].pop("authorization")
+    with pytest.raises(CategoryError) as excinfo:
+        load_exchange_rules(write_rules(tmp_path, document), contract)
+    assert excinfo.value.code == "EXCHANGE_RULES_SCHEMA_INVALID"
 
 
 def test_unknown_operator_and_formula_string_rejected(tmp_path: Path) -> None:
@@ -159,6 +187,23 @@ def test_fixed_runtime_resources_reject_same_domain_aliases(rule_id: str, wrong_
     assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
 
 
+@pytest.mark.parametrize(
+    "operator", ["purchase_transfer", "travel_fare", "work_hourly", "work_piece", "work_package"],
+)
+def test_money_operators_require_a_closed_domain_even_when_resource_agrees(operator: str) -> None:
+    """@brief 货币算子与资源共同声明开放域时仍不能产生或销毁资金。"""
+    catalog = load_catalog(Path(__file__).resolve().parents[2] / "catalog")
+    original = next(rule for rule in catalog.exchange_rules.rules.values() if rule.operator.value == operator)
+    payload = original.model_dump(mode="json")
+    payload["conservation"] = "open"
+    rule = type(original).model_validate(payload)
+    resource = _resource_for_rule(rule, "account")
+    rule_set = replace(catalog.exchange_rules, rules={rule.rule_id: rule})
+    with pytest.raises(CategoryError) as excinfo:
+        validate_rule_resource_domains(rule_set, {rule.resource_id: resource})
+    assert excinfo.value.code == "EXCHANGE_RESOURCE_DOMAIN_MISMATCH"
+
+
 def _resource_for_rule(rule, kind: str) -> ResourceDefinition:
     """@brief 为算子构造单位与守恒完全一致、但形态错误的资源。"""
     payload = {
@@ -178,11 +223,38 @@ def _resource_for_rule(rule, kind: str) -> ResourceDefinition:
 def test_money_and_energy_rounding_operators() -> None:
     """购买向上、合同向下，食品能量保持有限值。"""
     assert evaluate_purchase(101, 2, 1.5) == 303
+    assert evaluate_purchase(101, 1, 0.5) == 51
     assert evaluate_hourly_pay(100, 1801, 3600, 1) == 50
+    assert evaluate_hourly_pay(100, 7200, 3600, 1) == 100
     assert evaluate_piece_pay(101, 3, 0.5) == 151
     assert evaluate_package_pay(101, True, 0.5) == 50
     assert evaluate_package_pay(101, False, 2) == 0
     assert evaluate_food_energy(185, 0.5) == 92.5
+
+
+def test_unit_multipliers_preserve_large_integer_amounts_in_default_decimal_context() -> None:
+    """@brief 默认二十八位精度下，单位系数不能丢失金额或库存数量的最低位。"""
+    amount = 10**28 + 1
+    with localcontext(Context(prec=28)):
+        assert evaluate_purchase(amount, 1, 1) == amount
+        assert evaluate_hourly_pay(amount, 3600, 3600, 1) == amount
+        assert evaluate_piece_pay(amount, 1, 1) == amount
+        assert evaluate_package_pay(amount, True, 1) == amount
+        assert evaluate_travel_fare(_travel_rule(amount, 0.2), 1, 1) == amount
+        delta = scale_inventory_recipe(_inventory_rule(amount, amount), 1, 1)
+        assert delta.input_quantity == delta.output_quantity == amount
+
+
+def test_integer_coefficients_do_not_acquire_a_decimal_string_conversion_limit() -> None:
+    """@brief 算子已接受的整数系数不应因转为十进制字符串而被额外限制。"""
+    coefficient = 10**5000 + 1
+    assert evaluate_purchase(1, 1, coefficient) == coefficient
+    assert evaluate_hourly_pay(1, 3600, 3600, coefficient) == coefficient
+    assert evaluate_piece_pay(1, 1, coefficient) == coefficient
+    assert evaluate_package_pay(1, True, coefficient) == coefficient
+    assert evaluate_travel_fare(_travel_rule(1, 0), 1, coefficient) == coefficient
+    delta = scale_inventory_recipe(_inventory_rule(1, 1), 1, coefficient)
+    assert delta.input_quantity == delta.output_quantity == coefficient
 
 
 def test_purchase_quantity_and_package_acceptance_are_strict() -> None:
@@ -241,6 +313,138 @@ def test_travel_uses_raw_distance_and_rounds_final_fen() -> None:
     })
     assert evaluate_travel_fare(rule, 2.1, 1) == 1
     assert evaluate_travel_fare(rule, 2500.1, 1) == 501
+
+
+def test_travel_applies_minimum_before_coefficient_and_final_rounding() -> None:
+    """@brief 低于最低费用时先采用最低金额，再按配对系数和分值向上取整。"""
+    rule = _travel_rule(101, 0.2)
+    assert evaluate_travel_fare(rule, 1, 1) == 101
+    assert evaluate_travel_fare(rule, 1, 0.5) == 51
+    assert evaluate_travel_fare(rule, 1000, 0.5) == 100
+
+
+@pytest.mark.parametrize(
+    ("evaluator", "multiplier", "round_amount"),
+    [
+        pytest.param(lambda amount, factor: evaluate_purchase(amount, 3, factor), Fraction(3), math.ceil, id="purchase"),
+        pytest.param(
+            lambda amount, factor: evaluate_hourly_pay(amount, 7201, 3601, factor),
+            Fraction(3601, 3600), math.floor, id="hourly",
+        ),
+        pytest.param(lambda amount, factor: evaluate_piece_pay(amount, 3, factor), Fraction(3), math.floor, id="piece"),
+        pytest.param(lambda amount, factor: evaluate_package_pay(amount, True, factor), Fraction(1), math.floor, id="package"),
+        pytest.param(
+            lambda amount, factor: evaluate_travel_fare(_travel_rule(amount, 0.2), 1, factor),
+            Fraction(1), math.ceil, id="travel-minimum",
+        ),
+        pytest.param(
+            lambda amount, factor: evaluate_travel_fare(_travel_rule(0, amount), 1.25, factor),
+            Fraction(5, 4), math.ceil, id="travel-rate",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("amount", "coefficient"),
+    [
+        (10**28 + 1, 1), (10**80 + 1, 0.5), (10**40 - 1, 0.1),
+        (10**80 + 1, 1e-20), (10**28 + 1, 1e100), (3600 * 10**80 - 1, 1), (101, 0.5),
+    ],
+)
+@pytest.mark.parametrize("precision", [3, 28, 80])
+def test_money_operators_preserve_exact_amounts_independently_of_decimal_context(
+    evaluator, multiplier: Fraction, round_amount, amount: int, coefficient: int | float, precision: int,
+) -> None:
+    """@brief 金额依据精确有理数取整，大整数与分数均不受调用方 Decimal 设置影响。"""
+    expected = round_amount(Fraction(amount) * Fraction(str(coefficient)) * multiplier)
+    with localcontext() as ambient:
+        _restrict_decimal_context(ambient, precision)
+        original_context = repr(ambient)
+        assert evaluator(amount, coefficient) == expected
+        assert repr(ambient) == original_context
+
+
+@pytest.mark.parametrize("price", [10**28 + 1, 10**80 + 1])
+@pytest.mark.parametrize("coefficient", [1, 0.5, 0.1])
+def test_catalog_compiles_the_exact_resolved_purchase_price(
+    valid_catalog_dir: Path, price: int, coefficient: int | float,
+) -> None:
+    """@brief 完整目录加载保留已接受的大整数价格，并按精确值生成付款边。"""
+    declaration = raw_object()
+    declaration["values"]["absolute"]["price_fen"] = price
+    (valid_catalog_dir / "objects.jsonl").write_text(json.dumps(declaration) + "\n", encoding="utf-8")
+    document = contract_document()
+    document["pairings"][0]["coefficient"] = coefficient
+    write_contract(valid_catalog_dir, document)
+    refresh_manifest_identity(valid_catalog_dir)
+    with localcontext() as ambient:
+        _restrict_decimal_context(ambient, 3)
+        original_context = repr(ambient)
+        catalog = load_catalog(valid_catalog_dir)
+        assert repr(ambient) == original_context
+    obj = catalog.objects["milk"]
+    transfer = next(edge for edge in obj.edges if isinstance(edge, TransferEdge))
+    assert obj.attributes["price_fen"] == price
+    assert transfer.amount_fen == math.ceil(Fraction(price) * Fraction(str(coefficient)))
+
+
+@pytest.mark.parametrize(
+    ("input_quantity", "output_quantity", "servings", "coefficient"),
+    [
+        (10**28 + 1, 10**28 + 1, 1, 1),
+        (10**80 + 1, 10**80 + 1, 0.25, 0.1),
+        (0.1, 0.3, 10**28 + 1, 0.2),
+        (0.1, 0.2, 0.3, 1e100),
+        (1, 2, 0.1, 10**28 + 1),
+    ],
+)
+@pytest.mark.parametrize("precision", [3, 28, 80])
+def test_recipe_scaling_preserves_exact_quantities_independently_of_decimal_context(
+    input_quantity, output_quantity, servings, coefficient, precision: int,
+) -> None:
+    """@brief 配方两侧精确同比缩放，大整数和小数不受环境精度或陷阱影响。"""
+    rule = _inventory_rule(input_quantity, output_quantity)
+    multiplier = Fraction(str(servings)) * Fraction(str(coefficient))
+    expected_input = Fraction(str(input_quantity)) * multiplier
+    expected_output = Fraction(str(output_quantity)) * multiplier
+    with localcontext() as ambient:
+        _restrict_decimal_context(ambient, precision)
+        original_context = repr(ambient)
+        delta = scale_inventory_recipe(rule, servings, coefficient)
+        assert Fraction(delta.input_quantity) == expected_input
+        assert Fraction(delta.output_quantity) == expected_output
+        assert repr(ambient) == original_context
+
+
+def _restrict_decimal_context(context, precision: int) -> None:
+    """@brief 设置会暴露环境耦合的精度、舍入、指数界限、陷阱和既有标志。"""
+    context.prec = precision
+    context.rounding = ROUND_UP
+    context.Emax = 9
+    context.Emin = -9
+    context.clamp = 1
+    context.traps[Inexact] = True
+    context.traps[Rounded] = True
+    context.flags[FloatOperation] = True
+
+
+def _travel_rule(minimum_fen: int, fen_per_meter: int | float) -> TravelFareRule:
+    """@brief 构造最低金额与每米费率均显式声明的出行规则。"""
+    return TravelFareRule.model_validate({
+        "rule_id": "drive", "category_id": "product", "action": "travel:driving",
+        "operator": "travel_fare", "resource_id": "money_fen", "unit": "fen", "conservation": "closed",
+        "minimum_fen": minimum_fen, "fen_per_meter": fen_per_meter,
+    })
+
+
+def _inventory_rule(input_quantity: int | float, output_quantity: int | float) -> InventoryTransformRule:
+    """@brief 数量相等时声明封闭域，其余合法转换显式声明开放域。"""
+    return InventoryTransformRule.model_validate({
+        "rule_id": "unseal", "category_id": "product", "action": "consume:use",
+        "operator": "inventory_transform", "resource_id": "inventory", "unit": "item",
+        "conservation": "closed" if input_quantity == output_quantity else "open",
+        "input_category_id": "product", "output_category_id": "product",
+        "input_quantity": input_quantity, "output_quantity": output_quantity, "inventory_unit": "item",
+    })
 
 
 def test_recipe_scales_both_sides_once() -> None:

@@ -143,14 +143,7 @@ class ReviewRecord(FrozenModel):
     reviewer_type: ReviewerType
     evidence: str = Field(pattern=r"\S")
     reason: str = Field(pattern=r"\S")
-    authorization: str | None = Field(default=None, pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_authorization(self) -> "ReviewRecord":
-        """@brief 委托审查 agent 必须记录用户授权来源。"""
-        if self.reviewer_type == ReviewerType.DELEGATED_AGENT and self.authorization is None:
-            raise ValueError("delegated agent review requires authorization")
-        return self
+    authorization: str = Field(pattern=r"\S")
 
 
 def require_finite_number(value: Any, label: str) -> int | float:

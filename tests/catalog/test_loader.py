@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from tests.categories.conftest import raw_object
-from worldmock.categories import refresh_manifest_identity
+from worldmock.categories import compute_catalog_identity, refresh_manifest_identity
 from worldmock.catalog import CatalogError, load_catalog, load_object_declarations
 
 
@@ -106,6 +106,73 @@ def test_affordances_changes_catalog_content_identity(catalog_dir: Path) -> None
     path.write_text("[affordance]\nversion = 2\n", encoding="utf-8")
     second = refresh_manifest_identity(catalog_dir)
     assert first.catalog_content_sha256 != second.catalog_content_sha256
+
+
+def _prepare_identity_dependencies(catalog_dir: Path) -> None:
+    """@brief 用真实时长规则和完整素材要求建立当前算法可加载的身份基线。"""
+    travel_path = catalog_dir / "rules/travel-time.toml"
+    travel_path.parent.mkdir(exist_ok=True)
+    travel_path.write_bytes(Path("catalog/rules/travel-time.toml").read_bytes())
+    manifest_path = catalog_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["category_requirements"] = json.loads(Path("catalog/manifest.json").read_text())["category_requirements"]
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    refresh_manifest_identity(catalog_dir)
+
+
+def _tamper_identity_dependency(catalog_dir: Path, dependency: str) -> None:
+    """@brief 只改一种合法依赖内容，保留所有版本与旧清单摘要。"""
+    path = catalog_dir / dependency
+    if dependency == "objects.jsonl":
+        payload = json.loads(path.read_text())
+        payload["values"]["absolute"]["price_fen"] = 700
+    elif dependency == "resources.jsonl":
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        next(row for row in rows if row["resource_id"] == "energy_kcal")["bounds"]["max"] = 3000
+        path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+        return
+    elif dependency == "overrides/tombstones.jsonl":
+        path.parent.mkdir(exist_ok=True)
+        payload = {"target_id": "milk", "kind": "object", "at_version": 1, "reason": "retired"}
+    elif dependency == "rules/travel-time.toml":
+        content = path.read_text()
+        assert "walking = 1.0" in content
+        path.write_text(content.replace("walking = 1.0", "walking = 1.1", 1), encoding="utf-8")
+        return
+    else:
+        assert dependency == "manifest.json"
+        payload = json.loads(path.read_text())
+        payload["category_requirements"]["declared_at"] = "2099-01-01"
+    path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+
+@pytest.mark.parametrize("dependency", [
+    "objects.jsonl", "resources.jsonl", "overrides/tombstones.jsonl", "rules/travel-time.toml", "manifest.json",
+])
+def test_same_version_dependency_tamper_changes_digest_and_is_rejected_by_loader(
+    catalog_dir: Path, dependency: str,
+) -> None:
+    """每种结算依赖都进入完整摘要，同版本篡改只因内容身份不匹配而拒绝。"""
+    _prepare_identity_dependencies(catalog_dir)
+    original = load_catalog(catalog_dir)
+    before = compute_catalog_identity(catalog_dir)
+    manifest_before = json.loads((catalog_dir / "manifest.json").read_text())
+
+    _tamper_identity_dependency(catalog_dir, dependency)
+
+    after = compute_catalog_identity(catalog_dir)
+    manifest_after = json.loads((catalog_dir / "manifest.json").read_text())
+    assert after.catalog_content_sha256 != before.catalog_content_sha256
+    assert after.category_contract_version == before.category_contract_version
+    assert after.category_contract_sha256 == before.category_contract_sha256
+    assert after.exchange_rules_sha256 == before.exchange_rules_sha256
+    for field in ("version_major", "version_minor", "category_contract_version", "catalog_content_sha256"):
+        assert manifest_after[field] == manifest_before[field]
+    assert original.catalog_content_sha256 == before.catalog_content_sha256
+    with pytest.raises(CatalogError) as excinfo:
+        load_catalog(catalog_dir)
+    assert excinfo.value.code == "CATALOG_CONTENT_IDENTITY_MISMATCH"
+    assert excinfo.value.message == "catalog identity fields mismatch: ['catalog_content_sha256']"
 
 
 def test_unknown_rule_resource_rejected(catalog_dir: Path) -> None:

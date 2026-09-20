@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from decimal import Decimal, MAX_EMAX, MIN_EMIN, ROUND_CEILING, ROUND_FLOOR, localcontext
 import math
 from typing import Any
 
@@ -31,7 +31,7 @@ def evaluate_purchase(
     price = _integer_non_negative(unit_price_fen, "unit_price_fen")
     count = _integer_positive(quantity, "quantity")
     factor = _decimal_non_negative(coefficient, "coefficient")
-    amount = Decimal(price) * count * factor
+    amount = _multiply_exact((Decimal(price), count, factor))
     return int(amount.to_integral_value(rounding=ROUND_CEILING))
 
 
@@ -42,7 +42,7 @@ def evaluate_food_energy(
     """@brief 计算进食动作进入身体结算的有限能量。"""
     energy = _decimal_non_negative(energy_kcal, "energy_kcal")
     factor = _decimal_non_negative(coefficient, "coefficient")
-    result = float(energy * factor)
+    result = float(_multiply_exact((energy, factor)))
     if not math.isfinite(result):
         raise CategoryError("EXCHANGE_RESULT_INVALID", "food energy result must be finite")
     return result
@@ -56,8 +56,8 @@ def evaluate_travel_fare(
     """@brief 按原始有限距离计算费率并对最终金额向上取整分。"""
     distance = _decimal_non_negative(distance_meters, "distance_meters")
     factor = _decimal_non_negative(coefficient, "coefficient")
-    rate_amount = distance * _decimal_non_negative(rule.fen_per_meter, "fen_per_meter")
-    amount = max(Decimal(rule.minimum_fen), rate_amount) * factor
+    rate_amount = _multiply_exact((distance, _decimal_non_negative(rule.fen_per_meter, "fen_per_meter")))
+    amount = _multiply_exact((max(Decimal(rule.minimum_fen), rate_amount), factor))
     return int(amount.to_integral_value(rounding=ROUND_CEILING))
 
 
@@ -72,8 +72,10 @@ def evaluate_hourly_pay(
     actual = _integer_non_negative(actual_seconds, "actual_seconds")
     maximum = _integer_non_negative(maximum_duration_seconds, "maximum_duration_seconds")
     factor = _decimal_non_negative(coefficient, "coefficient")
-    amount = Decimal(rate) * Decimal(min(actual, maximum)) * factor / Decimal(3600)
-    return int(amount.to_integral_value(rounding=ROUND_FLOOR))
+    amount = _multiply_exact((Decimal(rate), Decimal(min(actual, maximum)), factor))
+    with localcontext(prec=max(1, amount.adjusted() + 1), Emax=MAX_EMAX, Emin=MIN_EMIN, clamp=0):
+        # 非负金额整除直接得到下整分，避免循环小数的中间舍入跨过整数边界。
+        return int(amount // Decimal(3600))
 
 
 def evaluate_piece_pay(
@@ -87,7 +89,7 @@ def evaluate_piece_pay(
         raise CategoryError("EXCHANGE_PIECE_COUNT_MISSING", "accepted piece count is required")
     pieces = _integer_non_negative(accepted_pieces, "accepted_pieces")
     factor = _decimal_non_negative(coefficient, "coefficient")
-    amount = Decimal(rate) * Decimal(pieces) * factor
+    amount = _multiply_exact((Decimal(rate), Decimal(pieces), factor))
     return int(amount.to_integral_value(rounding=ROUND_FLOOR))
 
 
@@ -103,7 +105,7 @@ def evaluate_package_pay(
     if not accepted:
         return 0
     factor = _decimal_non_negative(coefficient, "coefficient")
-    amount = Decimal(package_amount) * factor
+    amount = _multiply_exact((Decimal(package_amount), factor))
     return int(amount.to_integral_value(rounding=ROUND_FLOOR))
 
 
@@ -120,16 +122,23 @@ def scale_inventory_recipe(
     return InventoryDelta(
         input_category_id=rule.input_category_id,
         output_category_id=rule.output_category_id,
-        input_quantity=Decimal(str(rule.input_quantity)) * count * factor,
-        output_quantity=Decimal(str(rule.output_quantity)) * count * factor,
+        input_quantity=_multiply_exact((_decimal_positive(rule.input_quantity, "input_quantity"), count, factor)),
+        output_quantity=_multiply_exact((_decimal_positive(rule.output_quantity, "output_quantity"), count, factor)),
         inventory_unit=rule.inventory_unit,
     )
+
+
+def _multiply_exact(values: tuple[Decimal, ...]) -> Decimal:
+    """@brief 按操作数的总有效位数精确相乘，并隔离调用方 Decimal 上下文。"""
+    precision = sum(len(value.as_tuple().digits) for value in values)
+    with localcontext(prec=precision, Emax=MAX_EMAX, Emin=MIN_EMIN, clamp=0):
+        return math.prod(values, start=Decimal(1))
 
 
 def _decimal_non_negative(value: Any, label: str) -> Decimal:
     """@brief 把非布尔有限非负数转换为 Decimal。"""
     number = require_finite_number(value, label)
-    decimal = Decimal(str(number))
+    decimal = Decimal(number) if isinstance(number, int) else Decimal(str(number))
     if decimal < 0:
         raise CategoryError("EXCHANGE_INPUT_INVALID", f"{label} must be non-negative")
     return decimal
