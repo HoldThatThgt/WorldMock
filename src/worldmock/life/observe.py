@@ -99,6 +99,7 @@ class ObservationMixin:
             if item.agent_id == agent.agent_id and item.status == "pending"]
         data["inventory"] = agent.inventory
         data["available_inventory"] = agent.inventory.get(agent.location_id, {})
+        data["inventory_items"] = self._inventory_item_contracts(agent)
         data["tasks"] = [self._visible_task(item, agent.agent_id)
                          for item in sorted(agent.visible_task_ids)
                          if item not in self.state.paid_task_ids
@@ -239,6 +240,13 @@ class ObservationMixin:
         data = self.rules.products[product_id].model_dump(mode="json", exclude={"initial_stock"})
         data["current_stock"] = self.state.merchant_stock[product_id]
         return data
+
+    def _inventory_item_contracts(self, agent) -> list[dict]:
+        """@brief 投影当前地点正库存的使用合同，数量仍由现有库存字段唯一提供。"""
+        fields = {"product_id", "name", "use_modes", "use_duration_seconds", "required_location_id"}
+        holding = agent.inventory.get(agent.location_id, {})
+        return [self.rules.product(product_id).model_dump(mode="json", include=fields)
+                for product_id, quantity in sorted(holding.items()) if quantity > 0]
 
     def _content_progress(self, agent) -> dict[str, dict]:
         """@brief 返回人物已观看位置、接触次数、展示标题和当前媒体剩余时长。"""

@@ -503,7 +503,16 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 ### 禁止进入提示的字段
 
-观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、`energy_feasibility`、`observation_event_id`、`motivation_hints`、`game_catalog`、完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，路线坐标与几何不得进入提示。事件级工具支持行（完整任务、路线、商品、可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举，不随提示下发。
+观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、`energy_feasibility`、`observation_event_id`、`motivation_hints`、`game_catalog`、完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，路线坐标与几何不得进入提示。事件级工具支持行（完整任务、路线、商品、库存物品使用合同、可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具身份枚举与公开名称说明，不随提示下发。
+
+事件级 `inventory_items` 为当前地点正数持有物的使用合同，覆盖在售商品和独立库存物品；
+每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
+持有数量仍以 `available_inventory` 和人物可见的 `facts.inventory` 为准，不复制到使用合同。
+宿主据此约束 `consume` 的身份、使用方式、时长和地点，并在动态工具说明中关联物品身份与公开名称。
+`purchase` 仍只读取在售 `products` 的报价与商家库存；不能为持有物虚构商家、报价或可购买性。
+`consume.items[].quantity` 是请求份数，配方实际输入还要按冻结规则与配对系数缩放。
+人物侧保持请求模型的数量范围与数组边界校验，不直接把份数与物品持有量比较；
+实际库存是否足够由环境结算路径检查，拒绝结果在下一次观察返回。
 
 结果投影同样递归禁止内部评审字段（`reference_id`、`reference_assessments`、`oracle`、`oracle_path`、
 `input_path`、`expected`）、摘要字段、完整 `activity`、账户及资源变化字段，以及数值身体状态、

@@ -151,6 +151,8 @@ def _observations() -> list[dict]:
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
+        "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
+                             "use_duration_seconds": 300, "required_location_id": None}],
         "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
@@ -616,11 +618,13 @@ def test_consume_contract_only_offers_feasible_held_products() -> None:
     """持有量为零、时长不足与地点不符的持有物不进入 consume 枚举。"""
 
     def mutate(data: dict) -> None:
-        data["products"] = [
-            _base_product(),
-            _base_product(product_id="product-zero"),
-            _base_product(product_id="product-short", use_duration_seconds=30),
-            _base_product(product_id="product-office", required_location_id="office"),
+        data["inventory_items"] = [
+            {"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
+             "use_duration_seconds": 300, "required_location_id": None},
+            {"product_id": "product-short", "name": "短时物品", "use_modes": ["use"],
+             "use_duration_seconds": 30, "required_location_id": None},
+            {"product_id": "product-office", "name": "办公室物品", "use_modes": ["use"],
+             "use_duration_seconds": 300, "required_location_id": "office"},
         ]
         data["available_inventory"] = {"product-visible": 1.0, "product-zero": 0.0,
                                        "product-short": 2.0, "product-office": 1.0}
