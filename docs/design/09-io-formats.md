@@ -96,7 +96,7 @@ flowchart TB
 
 `SupplyQuoteState` 保存 `price_fen`、`price_version`、UTC 秒制的半开 `effective_from/effective_to` 与 `source`。
 来源按 `DataSource` 全字段校验，不能用空字典代替真实资料或场景假设声明。
-`opening_exceptions` 的日期键保存排序、不重叠的分钟区间，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
+`opening_exceptions` 的日期键保存不重叠的分钟区间并保留声明顺序，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
 公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；模型提示 `facts.products` 仍是实际呈现的供给行。
 同次发现或浏览结果优先占用共同呈现窗口；当前供给改变时可表示为 `supply_id/based_on_action_id/changes`。
 根据引用动作的完整行按键替换即可还原：`null` 是值，嵌套对象整体替换，未变行不重复。
