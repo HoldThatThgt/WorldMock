@@ -23,6 +23,8 @@
 交互菜单特性的逐项映射见 [交互菜单验收记录](research/interaction-menu-verification.md#条款与行为证据)，
 规范权威是 [交互菜单特性规格](SPEC-interaction-menu.md)。新增测试覆盖实际模型请求、环境结算、
 候选排除统计、暂停恢复、场景身份与真实跨轮观察；最终门禁和源码突变以该记录为准。
+与品类契约主线组合后的源码身份和全仓门禁见
+[交互菜单主线合并验收](research/interaction-menu-main-verification.md)，各独立审查保留原快照边界。
 
 2026-09-20 核查发现，候选 `location_kinds` 算法有测试，但 `LocationConfig` 与正式输入没有该能力集合。
 下述历史条款计数只说明当时映射判断，不能解释为当前全项目端到端规格全部完成。

@@ -25,7 +25,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/EXPERIMENT.md` | 实验身份：时间窗与日历情境、依赖冻结、运行绑定、场景参数、内容与语料绑定、样本划分与外部参照 | FROZEN |
 | `docs/VERIFICATION.md` | 放行门禁（最终门禁、协议门禁、工程门禁、报告项）、交付阶段与通过条件、测试矩阵、验收原则与结论边界 | NOT-COMPLETE |
 | `docs/dev/implementation-status.md` | 当前实现状态：确定性范围与测试基线实测、覆盖率口径、规格追溯与突变守卫、未完成项与阻塞 | NOT-COMPLETE |
-| `docs/dev/coverage-baseline.md` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定与基线记录（最近一次门禁顶层判定不通过） | 现行口径 |
+| `docs/dev/coverage-baseline.md` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定与基线记录（最近一次完整门禁通过） | 现行口径 |
 | `docs/dev/coverage-report.json` | 门禁生成物：分支覆盖率、未覆盖公共接口与逐文件分项，由 `scripts/coverage_gate.py` 写入 | 生成物 |
 
 ### 特性规格与提案
@@ -52,6 +52,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/decision-context-bob-projection.md` | 结果投影、场景、事件与恢复入口的隔离源码突变及恢复证据 | 验收记录 |
 | `docs/dev/research/interaction-menu-feasibility.md` | 动态工具、场景可供性、服务端重验与运行身份的业界机制核查及采纳边界 | 调研证据 |
 | `docs/dev/research/interaction-menu-verification.md` | 交互菜单修改清单、条款到测试、固定源码门禁与 Uncle Bob 突变证据 | 验收记录 |
+| `docs/dev/research/interaction-menu-main-verification.md` | 交互菜单与品类、库存及决策上下文的主线合并、冲突裁决和完整工程门禁 | 验收记录 |
 | `docs/dev/research/interaction-menu-bob-environment.md` | 菜单声明、交集、观察与环境执行的隔离源码突变、补强复验及恢复证据 | 验收记录 |
 | `docs/dev/research/interaction-menu-bob-host.md` | 人物工具与参数、恢复身份和提示字段的隔离源码突变、补强复验及恢复证据 | 验收记录 |
 
