@@ -40,6 +40,9 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/PROPOSAL-category-contract.md` | 品类契约与交换规则分层：品类契约作为资源引擎与交换引擎之间的第三方冻结产物、规则在品类树上的继承与覆盖、未定义配对的一等地位与逐节点细化 | 未冻结提案 |
 | `docs/dev/PROPOSAL-decision-context.md` | 已裁决的心智模型与取舍记录；行为与开发验收由 `SPEC-decision-context.md` 承载 | 调研证据 |
 | `docs/dev/ANALYSIS-spec-coverage.md` | 规格条款与测试用例的覆盖率追溯矩阵 | 现行追溯矩阵 |
+| `docs/dev/research/decision-context-verification.md` | 决策上下文完整修改清单、条款到测试、独立审查与工程门禁证据 | 验收记录 |
+| `docs/dev/research/decision-context-bob-protocol.md` | 决策协议与预算的隔离源码突变、补充验证与恢复证据 | 验收记录 |
+| `docs/dev/research/decision-context-bob-projection.md` | 结果投影、场景、事件与恢复入口的隔离源码突变及恢复证据 | 验收记录 |
 
 ### 资源引擎设计
 
@@ -207,6 +210,7 @@ flowchart TB
 | `未冻结提案` | 方向尚未裁决，使用边界见「权威层级」节 |
 | `现行追溯矩阵` | 随规格条款与测试同步维护的当前映射 |
 | `调研证据` | 当时快照下的裁决依据，不单独构成当前行为合同 |
+| `验收记录` | 固定源码身份下的实际命令、测试结果和审查证据，不定义新行为 |
 
 接口或行为变更先更新所属合同再改代码；记录引擎统一修改模块设计，其他特性修改对应合同与 SPEC，并在本文件登记阅读入口。
 

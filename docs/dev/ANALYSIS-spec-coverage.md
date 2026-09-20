@@ -1,7 +1,7 @@
 # 规格—测试用例覆盖率追溯矩阵
 
 > 状态：分析文档，不拥有规范权威——本文件只回答「每条规格要求是否有测试覆盖、缺口在哪」，不定义、不裁决规格；条款的内容与判定以现行文档树为准
-> 日期：2026-09-19（增量修订；原基线 2026-09-18）
+> 日期：2026-09-20（增量修订；原基线 2026-09-18）
 > 审计：本轮只读审计；终态：独立复核
 > 范围：`tests/`（九个子目录 + 根）与 `vendor/agentsociety2/packages/agentsociety2/tests/`（含 worldmock hooks）的测试函数与现行文档树条款的映射
 
@@ -12,7 +12,11 @@
 `docs/VERIFICATION.md`；实验身份、时间窗、依赖与场景参数在 `docs/EXPERIMENT.md`；设计理由与数据流在
 `docs/ARCHITECTURE.md`；文件归属在 `docs/INDEX.md`。
 
-测试函数总数实测 **1789**（同步 1718 + 异步 71；全部函数名索引建立后逐条映射；计数口径与两种独立计数方法见文末覆盖边界）。
+决策上下文特性的完整条款到真实调用路径与测试的映射，见
+[本次验收记录](research/decision-context-verification.md#条款与可观察证据)。
+其中记录本次源码身份、全量门禁、独立审查与源码突变结果，不用下述历史函数计数替代。
+
+2026-09-18 历史基线的测试函数总数为 **1789**（同步 1718 + 异步 71；全部函数名索引建立后逐条映射；计数口径与两种独立计数方法见文末覆盖边界）。
 终态独立复核（2026-09-18）逐个亲读测试函数断言（不凭修复报告转述）核实五个 GAP 均已落地并如实覆盖；
 条款覆盖判定与命令输出见文末 GAP 清单复核记录。
 **2026-09-19 增量**：补入 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与
@@ -184,7 +188,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | C6 | 工作需要从义务与经济处境产生，无固定脚本 | L/test_motivation.py::test_goal_deficit_lifts_work_candidates、test_no_tasks_no_work_candidates | covered |
 | C7 | 允许拖延/过度娱乐/拒绝；规则只限可行性 | L/test_engine_round.py::test_business_rejection_is_evidence_and_not_activity；I/test_grounded_targets.py::test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets | covered |
 | C8 | 能量变化公式（进食×利用率−基础−活动） | L/test_body.py::test_food_uses_sleep_debt_curve_and_energy_cap、test_non_recovery_activity_rejects_negative_energy | covered |
-| C9 | 睡眠不足变化公式 | L/test_sleep_two_process.py::test_default_accumulation_rate、test_full_day_awake_accumulates | covered |
+| C9 | 睡眠不足变化公式 | L/test_sleep_two_process.py::TestSleepDeficitAccount::test_default_accumulation_rate、TestSleepDeficitAccount::test_full_day_awake_accumulation | covered |
 | C10 | 有效工作量公式（技能速率×效率×工具×时间） | L/test_activity_effects.py::test_work_progress_uses_skill_and_actual_notes_effect；L/test_work_efficiency_factors.py | covered |
 | C11 | 计件/计时收入公式 | L/test_work_contracts.py::test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count | covered |
 | C12 | 不双重惩罚睡眠（不同时降时薪与效率，除合同明示） | L/test_work_contracts.py::test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count（docstring 明示"技能产出不重复降低工资"） | covered |
@@ -305,7 +309,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | P2 | events 表按人物/活动/动作/时间可查询 | F/test_store.py::test_agent_event_queries_respect_type_person_and_exclusive_boundary | covered |
 | P3 | world_state 带状态版本 | F/test_store.py::test_state_and_events_commit_together_and_reject_same_version_mutation | covered |
 | P4 | artifacts 表（哈希/位置/大小/模态/来源/使用条件） | F/test_store.py::test_missing_or_damaged_asset_prevents_commit_and_checkpoint | covered |
-| P5 | checkpoints 表（快照引用/时钟/随机态/最后序号） | F/test_store.py::test_checkpoint_event_must_match_committed_identity_and_clock、test_seed_changes_competition_order（种子恢复） | covered |
+| P5 | checkpoints 表（快照引用/时钟/随机态/最后序号） | F/test_store.py::test_checkpoint_event_must_match_committed_identity_and_clock；L/test_engine_feedback.py::test_seed_changes_competition_order_and_checkpoint_restores_it（种子恢复） | covered |
 | P6 | 环境 actor 唯一写入；证据先成素材再宿主提交引用 | F/test_store.py（单写入事务）；I/test_grounded_evidence.py | covered |
 
 ## 事务与失败处理
@@ -411,7 +415,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | DEV14 | status 只读显示已确认状态与统计 | F/test_status.py（2 测） | covered |
 | DEV15 | export 固定截止与活动边界、完整证据 JSONL/索引/哈希 | F/test_export.py（7 测）；L/test_export_integration.py | covered |
 | DEV16 | deliver 执行 LabelKit+独立校验+训练加载+规则执行+清单 | 锚：D/test_publication.py、D/test_training.py、D/test_rules.py（真实 LabelKit CLI 见 EX-4） | exempt |
-| DEV17 | evaluate 两套数据身份核对、机器报告/图表/中文结论 | E/test_runner.py（6 测）；E/test_report 相关 | covered |
+| DEV17 | evaluate 两套数据身份核对、机器报告/图表/中文结论 | E/test_runner.py（6 测），其中 test_one_day_prepare_and_finalize_writes_complete_committed_delivery 核验机器交付、中文报告与图表 | covered |
 | DEV18 | 运行目录必含 manifest/sqlite/assets/as2/exports/labelkit/日志 | D/test_publication.py::test_manifest_inventory_binds_every_gate_and_consumer_file；L/test_opslog.py（运行日志） | covered |
 | DEV19 | 运行状态/阶段枚举（5 状态 5 阶段；睡眠属活动状态） | src/worldmock/status.py（阶段闭集校验）+F/test_status.py::test_status_reads_confirmed_state_without_modifying_any_run_file；L/test_opslog.py RUN_CRASHED | covered |
 | DEV20 | 事件类型冻结枚举 14 类 | F/test_event_fields.py::test_event_type_vocabulary_is_the_frozen_spec_set（与 F11 同一测试，14 类逐字==`docs/design/05-recording-engine.md` 事件类型枚举） | covered |
@@ -841,7 +845,7 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
 - 硬规范承载：生产代码硬规范条款（中文 Doxygen 注释、英文日志、行宽上限、函数与文件规模上限）由
   `docs/VERIFICATION.md` 的「放行门禁」章「工程门禁」节中加粗的源码硬规范条目承载；本矩阵该行同时映射
   `tests/test_style_gate.py` 的实现证据。
-- 测试函数总数口径：本矩阵采用 `tests/` 全量测试函数口径，当前实测 **1789**（同步 1718 + 异步 71）；
+- 测试函数总数口径：本矩阵采用 `tests/` 全量测试函数口径，2026-09-18 历史基线实测 **1789**（同步 1718 + 异步 71）；
   `grep -rE "^\s*(async )?def test_" tests/` 与 AST 解析两种独立方法结果一致。计数单位为测试函数定义
   （含 `async def`），不按函数名去重（`sort -u` 口径为 1788，差 1 来自 `tests/life/test_sleep_two_process.py`
   中同名测试函数定义出现两次）。审计期记录的 1584（同步 1458 + 异步 126）扫描范围未记录、在当前树上不可复现，
