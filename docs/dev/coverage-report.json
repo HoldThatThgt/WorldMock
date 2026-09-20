@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-09-20T11:01:47+00:00",
+  "generated_at": "2026-09-20T13:54:27+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "3eb21275-70ea-468b-8562-51a95181a75c",
-    "manifest_hash": "82afdaa51ae8ccdf1349d181b3e65682d2049aea4c3092f66730043af6aee5f4",
-    "source_identity": "a651dc5db539d38be113f494eaf3580e387c3cf2"
+    "snapshot_id": "74edc0c8-2389-4c7b-912c-01b7cc95949f",
+    "manifest_hash": "235fee98d01706bc7b9b5bb2d9d8d55702e7fa9fb045f4d9b14df25d12866c2c",
+    "source_identity": "70af9a70f82ebe9b2b33d5f4d7327f59de150002"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 6300,
-    "missing_branches": 216,
-    "total_branches": 6516,
-    "percent": 96.69,
+    "covered_branches": 6653,
+    "missing_branches": 243,
+    "total_branches": 6896,
+    "percent": 96.48,
     "passed": true
   },
   "per_file_branch": [
     {
       "file": "custom/agents/life_agent.py",
-      "covered_branches": 497,
-      "missing_branches": 1,
-      "percent": 99.8
+      "covered_branches": 464,
+      "missing_branches": 2,
+      "percent": 99.57
     },
     {
       "file": "custom/agents/life_context.py",
@@ -37,9 +37,9 @@
     },
     {
       "file": "custom/agents/life_menu.py",
-      "covered_branches": 40,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 139,
+      "missing_branches": 1,
+      "percent": 99.29
     },
     {
       "file": "custom/envs/life_env.py",
@@ -61,9 +61,9 @@
     },
     {
       "file": "src/worldmock/catalog/admission.py",
-      "covered_branches": 217,
-      "missing_branches": 29,
-      "percent": 88.21
+      "covered_branches": 206,
+      "missing_branches": 42,
+      "percent": 83.06
     },
     {
       "file": "src/worldmock/catalog/affordances.py",
@@ -79,9 +79,9 @@
     },
     {
       "file": "src/worldmock/catalog/compiler.py",
-      "covered_branches": 50,
+      "covered_branches": 48,
       "missing_branches": 10,
-      "percent": 83.33
+      "percent": 82.76
     },
     {
       "file": "src/worldmock/catalog/inspect.py",
@@ -97,7 +97,7 @@
     },
     {
       "file": "src/worldmock/catalog/models.py",
-      "covered_branches": 16,
+      "covered_branches": 18,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -187,15 +187,21 @@
     },
     {
       "file": "src/worldmock/corpora/fetch.py",
-      "covered_branches": 73,
+      "covered_branches": 65,
       "missing_branches": 1,
-      "percent": 98.65
+      "percent": 98.48
     },
     {
       "file": "src/worldmock/corpora/manifest.py",
       "covered_branches": 18,
       "missing_branches": 0,
       "percent": 100.0
+    },
+    {
+      "file": "src/worldmock/corpora/map_prepare.py",
+      "covered_branches": 20,
+      "missing_branches": 4,
+      "percent": 83.33
     },
     {
       "file": "src/worldmock/delivery/__init__.py",
@@ -427,9 +433,9 @@
     },
     {
       "file": "src/worldmock/life/activities.py",
-      "covered_branches": 81,
+      "covered_branches": 75,
       "missing_branches": 1,
-      "percent": 98.78
+      "percent": 98.68
     },
     {
       "file": "src/worldmock/life/activity_evidence.py",
@@ -439,7 +445,7 @@
     },
     {
       "file": "src/worldmock/life/basket.py",
-      "covered_branches": 72,
+      "covered_branches": 96,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -451,21 +457,21 @@
     },
     {
       "file": "src/worldmock/life/candidates.py",
-      "covered_branches": 52,
+      "covered_branches": 54,
       "missing_branches": 4,
-      "percent": 92.86
+      "percent": 93.1
     },
     {
       "file": "src/worldmock/life/category_contract.py",
-      "covered_branches": 52,
+      "covered_branches": 54,
       "missing_branches": 4,
-      "percent": 92.86
+      "percent": 93.1
     },
     {
       "file": "src/worldmock/life/commerce.py",
-      "covered_branches": 31,
+      "covered_branches": 7,
       "missing_branches": 1,
-      "percent": 96.88
+      "percent": 87.5
     },
     {
       "file": "src/worldmock/life/content.py",
@@ -476,6 +482,12 @@
     {
       "file": "src/worldmock/life/decision_start.py",
       "covered_branches": 12,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "covered_branches": 28,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -510,6 +522,18 @@
       "percent": 78.57
     },
     {
+      "file": "src/worldmock/life/map_data.py",
+      "covered_branches": 77,
+      "missing_branches": 7,
+      "percent": 91.67
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "covered_branches": 60,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
       "file": "src/worldmock/life/menu_execution.py",
       "covered_branches": 2,
       "missing_branches": 0,
@@ -517,15 +541,15 @@
     },
     {
       "file": "src/worldmock/life/models.py",
-      "covered_branches": 54,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 67,
+      "missing_branches": 1,
+      "percent": 98.53
     },
     {
       "file": "src/worldmock/life/motivation.py",
-      "covered_branches": 142,
+      "covered_branches": 158,
       "missing_branches": 2,
-      "percent": 98.61
+      "percent": 98.75
     },
     {
       "file": "src/worldmock/life/narration.py",
@@ -535,39 +559,45 @@
     },
     {
       "file": "src/worldmock/life/observe.py",
-      "covered_branches": 105,
-      "missing_branches": 1,
-      "percent": 99.06
+      "covered_branches": 116,
+      "missing_branches": 2,
+      "percent": 98.31
+    },
+    {
+      "file": "src/worldmock/life/opening_hours.py",
+      "covered_branches": 24,
+      "missing_branches": 0,
+      "percent": 100.0
     },
     {
       "file": "src/worldmock/life/presentation.py",
-      "covered_branches": 17,
-      "missing_branches": 1,
-      "percent": 94.44
+      "covered_branches": 18,
+      "missing_branches": 0,
+      "percent": 100.0
     },
     {
       "file": "src/worldmock/life/projection.py",
-      "covered_branches": 40,
+      "covered_branches": 34,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/life/result_projection.py",
-      "covered_branches": 2,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 21,
+      "missing_branches": 1,
+      "percent": 95.45
     },
     {
       "file": "src/worldmock/life/retrieval.py",
-      "covered_branches": 91,
+      "covered_branches": 89,
       "missing_branches": 1,
-      "percent": 98.91
+      "percent": 98.89
     },
     {
       "file": "src/worldmock/life/rhythm.py",
-      "covered_branches": 100,
-      "missing_branches": 2,
-      "percent": 98.04
+      "covered_branches": 95,
+      "missing_branches": 3,
+      "percent": 96.94
     },
     {
       "file": "src/worldmock/life/rotation.py",
@@ -577,7 +607,7 @@
     },
     {
       "file": "src/worldmock/life/rules.py",
-      "covered_branches": 32,
+      "covered_branches": 36,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -589,21 +619,21 @@
     },
     {
       "file": "src/worldmock/life/scenario.py",
-      "covered_branches": 218,
-      "missing_branches": 4,
-      "percent": 98.2
+      "covered_branches": 210,
+      "missing_branches": 6,
+      "percent": 97.22
     },
     {
       "file": "src/worldmock/life/schedule.py",
-      "covered_branches": 74,
+      "covered_branches": 76,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/life/semantics.py",
-      "covered_branches": 129,
-      "missing_branches": 17,
-      "percent": 88.36
+      "covered_branches": 113,
+      "missing_branches": 11,
+      "percent": 91.13
     },
     {
       "file": "src/worldmock/life/settlement.py",
@@ -631,15 +661,27 @@
     },
     {
       "file": "src/worldmock/life/state_commit.py",
-      "covered_branches": 2,
+      "covered_branches": 4,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
+      "file": "src/worldmock/life/storefront_runtime.py",
+      "covered_branches": 6,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "covered_branches": 34,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/life/travel.py",
-      "covered_branches": 35,
+      "covered_branches": 45,
       "missing_branches": 1,
-      "percent": 97.22
+      "percent": 97.83
     },
     {
       "file": "src/worldmock/life/travel_time.py",
@@ -751,15 +793,15 @@
     },
     {
       "file": "src/worldmock/scheduling/compile.py",
-      "covered_branches": 20,
+      "covered_branches": 26,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/scheduling/effects.py",
-      "covered_branches": 22,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 34,
+      "missing_branches": 2,
+      "percent": 94.44
     },
     {
       "file": "src/worldmock/scheduling/events.py",

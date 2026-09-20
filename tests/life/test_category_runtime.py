@@ -1056,6 +1056,8 @@ def test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged(tmp_path
         engine.store.connection.execute("DROP TRIGGER fail_recipe_state_update")
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+        assert engine._pending_presentation is None
+        assert engine._pending_visible_supplies == {}
     finally:
         engine.close()
 
