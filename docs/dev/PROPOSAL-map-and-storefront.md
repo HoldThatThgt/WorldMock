@@ -104,7 +104,7 @@ flowchart LR
 
 审查基线资料有二百二十份按方式命名的路线响应，其中一百零四份步行材料与同端点驾车材料完全相同，
 当时需要修正步行来源；旧“只有十二条冻结路线”和当时“二百二十条都是真实可用路线”的判断都不成立。
-后续独立地图特性已修正并验收，证据见 [验收记录](research/map-and-storefront-verification.md)；主线组合另行验证。
+后续独立地图特性已修正并验收，证据见 [验收记录](research/map-and-storefront-verification.md)；主线组合的独立复验已通过，见[主线合并验收](research/map-and-storefront-main-verification.md)。
 
 ### 完整交付顺序
 

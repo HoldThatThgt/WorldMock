@@ -1,15 +1,15 @@
 # 覆盖率门禁口径与基线
 
-> 状态：保留交互菜单与品类主线、地图与门店供给的独立历史门禁；当前组合尚待本轮完整验收，不复用旧数字作为新结论
+> 状态：地图与品类主线组合已独立通过离线工程门禁；此前各特性及主线数字保留历史身份，不与当前结果相加
 > 日期：2026-09-20
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
 
-地图与门店供给的最终验收提交 `017d49c4a246c0c524e541571220e1a07b16ce87` 已通过门禁：
+地图与门店供给独立分支的最终验收提交 `017d49c4a246c0c524e541571220e1a07b16ce87` 已通过门禁：
 3240 passed、4 个历史运行锚定用例因原产物缺失而 skipped，分支覆盖率 98.49%，未覆盖公共接口为零。
 本特性新增用例无跳过；原始机器报告、完整输出和独立审查见 [本特性验收记录](research/map-and-storefront-verification.md)。
-下文保留的旧基线仅用于解释历史判据，不代表上述提交的当前结果。
+该数字与下文主线历史基线均保留原身份；当前组合结果单列，完整证据见 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
 ## 门禁流程
 
@@ -66,6 +66,25 @@ uv run coverage html            # HTML 明细
 
 ## 基线记录
 
+### 当前地图与品类主线组合
+
+完整门禁的生产源码提交为 `70af9a70f82ebe9b2b33d5f4d7327f59de150002`，
+`docs/dev/coverage-report.json` 生成时间为 `2026-09-20T13:54:27+00:00`，其 `source_identity` 与该提交一致。
+
+| 指标 | 当前组合的完整门禁 |
+| --- | --- |
+| 全量 pytest | 3550 passed、0 failed、4 skipped；跳过均为既有历史运行产物缺失，本特性和组合新增用例无跳过 |
+| 整体分支覆盖率 | 96.48%（covered=6653，missing=243，total=6896；阈值 85.00） |
+| 未覆盖公共接口数 | 0 |
+| 顶层判定 `passed` | true（通过） |
+
+后续 `6fe3ab7b1711c5d7bee9d0bf3f4f22d48a53cb82` 仅保存这份覆盖率报告，并增加真实 SQL 成功重试后两条缓存清空断言；
+生产源码与完整门禁提交逐字节相同。相关回归 73 passed，原存活补丁和独立供给缓存突变复验均 killed。
+这不是在 `6fe3ab7` 重新执行全量门禁，不将定向计数与全量计数相加。完整命令、原始审查结果和复验证据归
+[主线组合验收](research/map-and-storefront-main-verification.md)。
+
+### 合并地图之前的主线历史基线
+
 以下为交互菜单与品类主线的固定历史基线，不能代表加入地图后的当前组合：
 基线取自 `docs/dev/coverage-report.json`，生成于 2026-09-20T11:01:47+00:00，
 被测源代码提交为 `a651dc5db539d38be113f494eaf3580e387c3cf2`。
@@ -83,7 +102,7 @@ uv run coverage html            # HTML 明细
 门禁运行于固定合并提交的隔离工作区，覆盖率数据独立保存，脚本及判定逻辑没有改变。
 交互菜单与品类、库存和决策上下文在该固定提交的合并结果见
 [主线合并验收](research/interaction-menu-main-verification.md)。
-地图与门店供给的独立历史门禁保存在 [地图特性验收](research/map-and-storefront-verification.md)，不覆盖上表记录；当前组合等待新完整门禁。
+地图与门店供给的独立历史门禁保存在 [地图特性验收](research/map-and-storefront-verification.md)，不覆盖上表记录；当前组合的独立完整门禁见本节前表。
 品类契约原分支逐项证据记录在 `docs/dev/category-contract-verification.md`；
 其先前 3166 项测试与模型库存补修结果继续保留在 `docs/dev/category-contract-main-verification.md`。
 
@@ -97,4 +116,5 @@ uv run coverage html            # HTML 明细
 | `2026-09-20` | 2026-09-20 | 更新为品类契约固定提交上的完整通过基线；保留离线门禁与真实实验的证据边界。 |
 | `2026-09-20-main-merge` | 2026-09-20 | 更新为合并决策上下文并补修模型库存路径后的完整门禁，保留原分支历史快照。 |
 | `2026-09-20-interaction-menu-merge` | 2026-09-20 | 更新为交互菜单与已有品类、库存和决策上下文合并后的完整门禁。 |
+| `2026-09-20-map-main-merge` | 2026-09-20 | 单列地图与品类主线组合的 70af9a7 完整门禁，以及生产源码不变的 6fe3ab7 测试加固与独立复验；保留旧统计身份。 |
 | `2026-09-20-map-path` | 2026-09-20 | 地图分支曾将输出路径记录为 `docs/coverage-report.json`；当前组合以 main 脚本实际 `docs/dev/coverage-report.json` 为准；历史基线保留原始路径、数值与源码身份。 |

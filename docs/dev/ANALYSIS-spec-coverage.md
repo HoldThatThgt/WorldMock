@@ -30,7 +30,7 @@
 ## 地图与门店供给增量映射
 
 完整行为合同为 [开发规格](SPEC-map-and-storefront.md)，命名要求与设计/测试影响见
-[文档一致性审查](research/map-and-storefront-document-impact.md)。以下为独立地图分支已验收的具体断言映射，不能纳入旧覆盖百分比或直接宣称本次主线组合通过，
+[文档一致性审查](research/map-and-storefront-document-impact.md)。以下为独立地图分支已验收的具体断言映射，不能纳入旧覆盖百分比；本次主线组合另有下节的独立验收，
 完整门禁与独立突变的初次发现、补测和复验见 [本特性验收记录](research/map-and-storefront-verification.md)。
 
 | 命名要求 | 实际测试入口与可观察断言 | 当前证据边界 |
@@ -50,15 +50,23 @@
 ## 品类主线与门店供给组合验证边界
 
 组合合同保留品类配对和库存使用/转换，以供给报价、数量和系数求每行付款，卖方取供给账户；
-目录 `4.0`、品类契约与规则绑定版本 `2` 区别于两条分支的旧身份。组合验收必须覆盖以下实际交接，
-现阶段不改写上方独立特性计数，也不提前将新组合标记通过。
+目录 `4.0`、品类契约与规则绑定版本 `2` 区别于两条分支的旧身份。以下交接已独立通过离线验收，
+完整源码、命令和 Bob 原始记录见 [主线组合验收](research/map-and-storefront-main-verification.md)，不改写上方独立特性与下方历史条款计数。
 
-| 交接要求 | 必须断言的行为 | 当前证据边界 |
+| 交接要求 | 具体测试入口与行为断言 | 当前证据边界 |
 | --- | --- | --- |
-| 供给与品类购买 | 选择同商品的不同供给时保持独立原价、报价版本与卖方；非作用供给保留报价但不可购买，已定义零系数正常零额履约；非整数系数和多份数量按整行向上取整，整单合计原子结算 | 等待本次合并固定源码验收 |
-| 比较与动机共享计价 | 公开原始报价、配对状态、系数、一份实际金额；非定义配对的系数与实际金额为空且动机跳过，已持有物仍可使用；未知报价为空；余额判断、价格排序与交易均用 `purchase_amount`，不得用已取整单价计算多份总价 | 等待本次合并固定源码验收 |
-| 地图准备和出行 | 准备与运行均解析 `TravelFareRule` 并调用 `evaluate_travel_fare`，不恢复旧文本公式 | 等待本次合并固定源码验收 |
-| 商品使用与发布身份 | 纯商品共享 `InventoryItemConfig`；持有而未售卖的物品仍按使用/转换合同运行；目录、契约、规则与场景地图身份完整校验和恢复 | 等待本次合并固定源码验收 |
+| 独立供给与整行计价 | `tests/life/test_storefront_category_integration.py::test_independent_quotes_share_exact_category_arithmetic_in_real_engine`：真实发现后分别购买同商品的两家供给；原报价不变，三件金额按原价乘数量乘系数再上整分；实际卖方、账户、库存与订单逐项对应；`tests/categories/test_rules.py::test_catalog_preserves_purchase_coefficient_for_exact_dynamic_quote_amount` 验证目录保留动态报价算子系数 | 完整门禁通过；购买组合的七项独立变异均 killed |
+| 配对拒绝与零系数 | `tests/life/test_storefront_category_integration.py::test_purchase_pairing_recheck_refuses_without_any_domain_state_change`、`test_defined_zero_coefficient_purchase_fulfills_without_account_transfer`、`test_zero_base_quote_remains_invalid_in_frozen_and_persisted_models`：undefined/no_effect 明确拒绝且无状态变化；defined 零系数正常交付，正原价合同不变 | 完整门禁与相关回归通过 |
+| 公开比较事实 | `tests/life/test_storefront_discovery.py::test_discovery_exposes_category_amount_without_rewriting_quote`、`test_no_effect_supply_remains_visible_without_a_purchase_amount`：原始报价/版本保留，系数和一份实际金额可见；未知报价为空，非作用供给可见但不可买 | 完整门禁通过 |
+| 动机余额与持有使用 | `tests/life/test_motivation.py::test_food_affordability_uses_category_amount_instead_of_raw_quote`、`test_no_effect_purchase_does_not_hide_held_food`：一份算子金额用于成本和余额边界；非作用供给不求价，已持有食物继续可用 | 完整门禁通过；不以目录原价冒充实际付款 |
+| 地图准备与出行 | `tests/life/test_map_dataset.py::test_preparation_fetches_full_selected_set_and_publishes_verifiable_version`：准备产物可重新加载，步行费为零；`tests/life/test_scenario.py::test_route_fares_follow_the_catalog_exchange_rule` 校验实例费率；`tests/life/test_category_runtime.py::test_travel_coefficient_changes_real_life_engine_payment` 与 `tests/categories/test_rules.py::test_travel_applies_minimum_before_coefficient_and_final_rounding` 核对真实出行付款和闭集取整 | 完整门禁、正式场景准入和目录四输出复现通过；准备与运行均使用现行 `TravelFareRule` |
+| 库存使用合同 | `tests/integration/test_category_inventory_protocol.py::test_inventory_only_recipe_survives_real_model_roundtrip`、`test_held_food_can_be_eaten_without_a_visible_purchase_offer`：未出售物品也能经实际模型工具使用和库存转换，不为使用补造供给 | 完整门禁通过，保留主线库存能力 |
+| 恢复内容身份 | `tests/integration/test_category_identity.py::test_open_rejects_missing_category_identity_fields`、`test_open_rejects_same_version_changed_content_without_mutating_run`、`test_resume_and_replay_bind_original_identity_before_publishing_branch`；`tests/life/test_storefront_recovery.py::test_reopening_rejects_map_identity_substitution`：品类与地图身份拒绝篡改，恢复/分支及导出保持原身份 | 完整门禁通过；品类版本和地图供给摘要漏验突变分别 killed |
+| 真实提交失败与成功重试 | `tests/life/test_storefront_recovery.py::test_failed_decision_commit_preserves_visible_supply_credentials`；`tests/life/test_category_runtime.py::test_recipe_completion_sql_failure_keeps_engine_and_store_unchanged`：真实 SQLite 触发器拒绝后世界、持久状态、事件及两种缓存不变，成功重试后缓存清空且库存转换完成 | 初次状态审查 4 killed、1 survived 保留；`6fe3ab7` 加固成功断言后，原样呈现缓存变异及独立供给缓存变异均 killed |
+
+完整门禁绑定 `70af9a7`：3550 passed、4 个既有缺历史产物用例跳过，分支 96.48%（6653/6896）、公共接口缺口 0。
+`6fe3ab7` 只增加成功后的两条断言并保存覆盖率报告，生产源码未变；相关回归 73 passed，不是新的全量计数。
+正式十二周场景的素材可达性守卫覆盖 7384 条素材、142 个分区并全部通过，不能替代十二周真实模型运行。
 
 ## 历史基线说明
 
