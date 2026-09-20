@@ -2,14 +2,12 @@
 
 从 load_catalog(catalog_dir) 的目录视图与瘦身场景文档（LifeScenario）组装出
 引擎运行所需的一切静态语义：商品（价格/热量/交付延迟/使用时长/耐用品效果）、
-身体参数（阈值→告警码、MET、基础代谢、效率曲线）、出行费率公式求值与三种
-合同模板的 convert 公式求值。引擎不直接接触目录，也不从场景文档读取静态语义。
+身体参数（阈值→告警码、MET、基础代谢、效率曲线）、闭集出行费率与三种
+合同付款算子。引擎不直接接触目录，也不从场景文档读取静态语义。
 """
 
 from __future__ import annotations
 
-import math
-import re
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from decimal import ROUND_CEILING, Decimal
@@ -20,9 +18,7 @@ from zoneinfo import ZoneInfo
 from worldmock.catalog import (
     Catalog,
     CatalogError,
-    ConvertEdge,
     ExchangeObject,
-    FormulaBinding,
     ObjectKind,
     ResourceDefinition,
     ScenarioAccountRef,
@@ -36,24 +32,44 @@ from worldmock.catalog import (
     load_catalog,
     validate_scenario_against_catalog,
 )
+from worldmock.categories import (
+    Action,
+    CategoryError,
+    TravelFareRule,
+    WorkHourlyRule,
+    WorkPackageRule,
+    WorkPieceRule,
+    evaluate_hourly_pay,
+    evaluate_package_pay,
+    evaluate_piece_pay,
+    evaluate_purchase,
+    evaluate_travel_fare,
+)
 from worldmock.catalog.affordances import (
     AFFORDANCES_FILE,
     AffordanceView,
     default_affordances,
     load_affordances,
 )
-from worldmock.catalog.loader import RULES_DIR
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ContractKind, CurvePoint, EfficiencyFactor
+from worldmock.life.category_contract import (
+    RuntimeCategoryRule,
+    admit_reachable_categories,
+    optional_defined_rule,
+    require_runtime_rule,
+)
 from worldmock.life.motivation import MotivationTransforms, load_motivation_transforms
 from worldmock.life.scenario import (
     AccountInstanceConfig,
     BodyConfig,
+    InventoryItemConfig,
     LifeScenario,
     ProductConfig,
     RuntimeScenario,
     parse_scenario_document,
 )
+from worldmock.life.travel_time import TravelTimeProfile, parse_travel_time_profile
 from worldmock.scheduling.compile import compile_schedule
 from worldmock.scheduling.events import ScheduledKind
 
@@ -63,9 +79,6 @@ ENERGY_RESOURCE = "energy_kcal"
 SLEEP_RESOURCE = "sleep_debt_hours"
 ENTERTAINMENT_RESOURCE = "entertainment_need"
 TRAVEL_OBJECT = "travel-service"
-TRAVEL_TIME_FORMULA = "travel-time"
-#: travel-time 系数的合法区间：自由流为下界 1.0，上界防止坏数据放大时长。
-TRAVEL_TIME_FACTOR_BOUNDS = (1.0, 5.0)
 CONTRACT_OBJECTS = {
     ContractKind.HOURLY: "contract-hourly",
     ContractKind.PIECE: "contract-piece",
@@ -106,6 +119,14 @@ class CandidateConstants:
     retrieval_index_threshold: int
 
 
+@dataclass(frozen=True, slots=True)
+class RuntimeItems:
+    """@brief 场景可购买商品与仅供持有或配方输出的对象语义。"""
+
+    products: tuple[ProductConfig, ...]
+    inventory: tuple[InventoryItemConfig, ...]
+
+
 @dataclass(frozen=True)
 class ScenarioSemantics:
     """@brief 瘦身场景 + 冻结目录组装出的全部静态语义与运行时场景。"""
@@ -116,6 +137,7 @@ class ScenarioSemantics:
     body: BodyConfig
     refs: ScenarioCatalogRefs
     accounts: Mapping[str, int]
+    travel_time_profile: TravelTimeProfile
     alert_codes: Mapping[str, str] = field(default_factory=dict)
     motivation_transforms: MotivationTransforms | None = None
     #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
@@ -140,14 +162,14 @@ class ScenarioSemantics:
         )
 
     def travel_fare(self, mode: str, distance_meters: float) -> int:
-        """@brief 按 travel-fare 公式分支求值出行费率（分）。"""
-        formula = self.catalog.formulas.get("travel-fare")
-        if formula is None or mode not in formula.branches:
-            raise IntegrityError(f"travel-fare formula has no branch for mode {mode}")
-        amount = formula.branches[mode].amount
-        if isinstance(amount, int):
-            return amount
-        return evaluate_int_expression(amount, {"m": distance_meters})
+        """@brief 按运行时复查后的闭集规则计算出行费率。"""
+        category_id = self._object(TRAVEL_OBJECT).category_id
+        try:
+            action = Action(f"travel:{mode}")
+        except ValueError as error:
+            raise IntegrityError(f"Travel mode {mode} has no category action") from error
+        match = require_runtime_rule(self.catalog, category_id, action)
+        return self._travel_fare(match, distance_meters)
 
     def travel_time_factor(self, mode: str, departure_second: int) -> float:
         """@brief 按 travel-time 公式分支查出发时刻的分时系数。
@@ -155,25 +177,9 @@ class ScenarioSemantics:
         查表键为场景时区的出发小时：walking 固定 1.0（自由流步行已合理），
         driving 走 driving_HH 分支（HH 为两位小时，00-23 工作日 profile）。
         """
-        formula = self.catalog.formulas.get(TRAVEL_TIME_FORMULA)
-        if formula is None:
-            raise IntegrityError(
-                f"{TRAVEL_TIME_FORMULA} formula is not declared in the catalog")
         hour = datetime.fromtimestamp(
             departure_second, ZoneInfo(self.document.timezone)).hour
-        branch = "walking" if mode == "walking" else f"{mode}_{hour:02d}"
-        if branch not in formula.branches:
-            raise IntegrityError(f"travel-time formula has no branch for {branch}")
-        amount = formula.branches[branch].amount
-        try:
-            factor = float(amount)
-        except (TypeError, ValueError) as error:
-            raise IntegrityError(f"travel-time branch {branch} is not numeric") from error
-        low, high = TRAVEL_TIME_FACTOR_BOUNDS
-        if not low <= factor <= high:
-            raise IntegrityError(
-                f"travel-time branch {branch} factor {factor} is outside [{low}, {high}]")
-        return factor
+        return self.travel_time_profile.factor(mode, hour)
 
     def travel_planned_seconds(self, mode: str, base_seconds: int,
                                departure_second: int) -> int:
@@ -186,7 +192,7 @@ class ScenarioSemantics:
         return int((factor * int(base_seconds)).to_integral_value(rounding=ROUND_CEILING))
 
     def with_price(self, product_id: str, amount_fen: int, price_version: str) -> "ScenarioSemantics":
-        """@brief 受控价格替换：返回单个商品 transfer 边金额更新后的新语义。
+        """@brief 受控价格替换：按当前冻结配对系数返回新商品语义。
 
         PRICE_CHANGE 到点由引擎换持返回值；price_version 必须同步变化，否则
         购买侧 PRICE_VERSION_MISMATCH 守卫无法区分新旧报价观察。
@@ -195,35 +201,65 @@ class ScenarioSemantics:
             raise IntegrityError(f"price change references unknown product {product_id}")
         if amount_fen <= 0:
             raise IntegrityError("price change amount must be positive")
+        product = self._object(product_id)
+        match = require_runtime_rule(self.catalog, product.category_id, Action.PURCHASE)
+        try:
+            price = evaluate_purchase(amount_fen, 1, match.coefficient)
+        except CategoryError as error:
+            raise IntegrityError(f"Price change exchange failed: {error.code}") from error
         products = tuple(
             item if item.product_id != product_id else
-            item.model_copy(update={"price_fen": amount_fen, "price_version": price_version})
+            item.model_copy(update={"price_fen": price, "price_version": price_version})
             for item in self.scenario.products)
         return replace(self, scenario=self.scenario.model_copy(update={"products": products}, deep=True))
 
     def contract_payment(self, task, worked_seconds: int, piece_count: int | None) -> int:
-        """@brief 按合同模板 convert 公式求值整数分付款。"""
-        formula = self._contract_formula(task.contract_kind)
-        variables = {
-            "pay_fen": task.pay_fen,
-            "worked_seconds": worked_seconds,
-            "maximum_duration_seconds": task.maximum_duration_seconds,
-        }
-        if "piece_count" in _free_names(formula):
-            if piece_count is None:
-                raise IntegrityError("piece contract payment requires an oracle piece count")
-            variables["piece_count"] = piece_count
-        return evaluate_int_expression(formula, variables)
+        """@brief 按合同类型唯一对应的闭集算子计算整数分付款。"""
+        match = self.contract_match(task)
+        try:
+            if isinstance(match.rule, WorkHourlyRule):
+                return evaluate_hourly_pay(
+                    _contract_value(task, match.rule.rate_slot), worked_seconds,
+                    _contract_value(task, match.rule.maximum_duration_slot), match.coefficient)
+            if isinstance(match.rule, WorkPieceRule):
+                return evaluate_piece_pay(
+                    _contract_value(task, match.rule.rate_slot), piece_count, match.coefficient)
+            if isinstance(match.rule, WorkPackageRule):
+                return evaluate_package_pay(
+                    _contract_value(task, match.rule.amount_slot), True, match.coefficient)
+        except CategoryError as error:
+            raise IntegrityError(f"Contract exchange failed: {error.code}") from error
+        raise IntegrityError(f"Contract {task.task_id} resolved to an incompatible exchange rule")
 
-    def _contract_formula(self, kind: ContractKind) -> str:
-        """@brief 取得某合同模板 settle 边的 convert 公式文本。"""
-        obj = self.catalog.objects.get(CONTRACT_OBJECTS[kind])
+    def contract_match(self, task) -> RuntimeCategoryRule:
+        """@brief 复查任务合同品类配对并返回足迹所需命中身份。"""
+        target = self._object(CONTRACT_OBJECTS[task.contract_kind])
+        return require_runtime_rule(self.catalog, target.category_id, Action.WORK_SETTLE)
+
+    def travel_match(self, mode: str) -> RuntimeCategoryRule:
+        """@brief 复查一次出行动作并返回足迹所需命中身份。"""
+        target = self._object(TRAVEL_OBJECT)
+        try:
+            action = Action(f"travel:{mode}")
+        except ValueError as error:
+            raise IntegrityError(f"Travel mode {mode} has no category action") from error
+        return require_runtime_rule(self.catalog, target.category_id, action)
+
+    def _travel_fare(self, match: RuntimeCategoryRule, distance_meters: float) -> int:
+        """@brief 求值一个已经解析的出行规则。"""
+        if not isinstance(match.rule, TravelFareRule):
+            raise IntegrityError("Travel category resolved to an incompatible exchange rule")
+        try:
+            return evaluate_travel_fare(match.rule, distance_meters, match.coefficient)
+        except CategoryError as error:
+            raise IntegrityError(f"Travel exchange failed: {error.code}") from error
+
+    def _object(self, object_id: str) -> ExchangeObject:
+        """@brief 返回一个运行必需的已解析对象。"""
+        obj = self.catalog.objects.get(object_id)
         if obj is None:
-            raise IntegrityError(f"contract template {CONTRACT_OBJECTS[kind]} is not in the catalog")
-        edges = [edge for edge in obj.edges if isinstance(edge, ConvertEdge) and edge.on == "settle"]
-        if len(edges) != 1 or edges[0].formula is None:
-            raise IntegrityError(f"contract template {obj.object_id} has no settle formula")
-        return strip_formula_annotation(edges[0].formula)
+            raise IntegrityError(f"Catalog object {object_id} is missing")
+        return obj
 
 
 def load_runtime_scenario(
@@ -240,7 +276,7 @@ def load_runtime_scenario(
     directory = Path(catalog_dir) if catalog_dir is not None else resolve_catalog_dir(scenario_path)
     try:
         catalog = load_catalog(directory)
-        motivation_transforms = load_motivation_transforms(directory / RULES_DIR)
+        motivation_transforms = load_motivation_transforms(directory / "rules")
     except CatalogError as error:
         raise IntegrityError(f"Catalog load failed: {error}") from error
     affordances = load_affordances(directory / AFFORDANCES_FILE)
@@ -270,28 +306,61 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog,
             f"Scenario pins catalog {pinned[0]}.{pinned[1]} but loaded {loaded[0]}.{loaded[1]}")
     body = _assemble_body(document, catalog, view)
     _check_lifestyle_declarations(document, body, view)
-    products = _assemble_products(document, catalog)
+    admit_reachable_categories(document, catalog)
+    items = _assemble_items(document, catalog)
     services = _service_accounts(document)
-    employer_id = _role_account(services, _contract_role(catalog, "from"))
-    transport_id = _role_account(services, _travel_role(catalog))
-    scenario = _build_runtime(document, body, products, employer_id, transport_id)
+    employer_id = _employer_account(document, services)
+    transport_id = _role_account(services, "transport:service")
+    scenario = _build_runtime(document, body, items, employer_id, transport_id)
     semantics = ScenarioSemantics(
         document=document, catalog=catalog, scenario=scenario, body=body,
         refs=_catalog_refs(document, catalog, scenario),
         accounts=_ledger_accounts(document, services),
+        travel_time_profile=parse_travel_time_profile(catalog.travel_time_rules_bytes),
         alert_codes={rule.code: rule.code.lower()
                      for resource in (catalog.resources[ENERGY_RESOURCE],)
                      for rule in resource.alert_rules},
         motivation_transforms=motivation_transforms,
         affordances=view,
     )
+    _check_contract_bindings(semantics)
     _check_route_fares(semantics)
-    _check_travel_time_formula(semantics)
     result = validate_scenario_against_catalog(semantics.refs, catalog)
     if not result.ok:
         detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
         raise IntegrityError(f"Scenario admission rejected by catalog: {detail}")
     return semantics
+
+
+def _check_contract_bindings(semantics: ScenarioSemantics) -> None:
+    """@brief 在创建运行产物前确认每条合同规则的命名槽能由任务实例提供。"""
+    for task in semantics.scenario.tasks:
+        rule = semantics.contract_match(task).rule
+        if isinstance(rule, WorkHourlyRule):
+            _contract_value(task, rule.rate_slot)
+            _contract_value(task, rule.maximum_duration_slot)
+        elif isinstance(rule, WorkPieceRule):
+            _contract_value(task, rule.rate_slot)
+        elif isinstance(rule, WorkPackageRule):
+            _contract_value(task, rule.amount_slot)
+        else:
+            raise IntegrityError(
+                f"Contract {task.task_id} resolved to an incompatible exchange rule")
+
+
+def _contract_value(task, slot: str) -> int:
+    """@brief 按合同类型把规则命名槽精确绑定到场景任务实例值。"""
+    values = {
+        ContractKind.HOURLY: {
+            "work_rate_fen": task.pay_fen,
+            "maximum_duration_seconds": task.maximum_duration_seconds,
+        },
+        ContractKind.PIECE: {"work_rate_fen": task.pay_fen},
+        ContractKind.PACKAGE: {"package_amount_fen": task.pay_fen},
+    }[task.contract_kind]
+    if slot not in values:
+        raise IntegrityError(f"Contract {task.task_id} does not bind rule slot {slot}")
+    return values[slot]
 
 
 def _assemble_body(document: LifeScenario, catalog: Catalog,
@@ -333,8 +402,8 @@ def _assemble_body(document: LifeScenario, catalog: Catalog,
     })
 
 
-def _assemble_products(document: LifeScenario, catalog: Catalog) -> tuple[ProductConfig, ...]:
-    """@brief 逐个商品引用解析目录对象边并绑定为运行时商品。"""
+def _assemble_items(document: LifeScenario, catalog: Catalog) -> RuntimeItems:
+    """@brief 解析可购买商品和初始持有、配方输出所需的对象。"""
     role_index = {item.role: item for item in document.accounts}
     products = []
     for reference in document.products:
@@ -343,58 +412,91 @@ def _assemble_products(document: LifeScenario, catalog: Catalog) -> tuple[Produc
             raise IntegrityError(f"scenario product {reference.product_id} is not in the catalog")
         if obj.object_kind != ObjectKind.PRODUCT:
             raise IntegrityError(f"catalog object {obj.object_id} is not a product")
-        products.append(_product_payload(reference, obj, role_index))
-    return tuple(products)
+        products.append(_product_payload(reference, obj, role_index, catalog))
+    product_ids = {item.product_id for item in products}
+    inventory_ids = _inventory_object_ids(document) - product_ids
+    inventory = tuple(_inventory_payload(_product_object(catalog, object_id))
+                      for object_id in sorted(inventory_ids))
+    return RuntimeItems(tuple(products), inventory)
 
 
 def _product_payload(
     reference, obj: ExchangeObject, role_index: Mapping[str, AccountInstanceConfig],
+    catalog: Catalog,
 ) -> ProductConfig:
     """@brief 从对象边与字段解析单个商品的全部静态语义。"""
-    purchase = _purchase_edge(obj)
     consume = _consume_edge(obj)
-    binding = role_index.get(reference.merchant)
-    if binding is None or purchase.account_roles.to_role != binding.role:
+    binding = next((item for item in role_index.values()
+                    if item.account_id == reference.merchant), None)
+    if binding is None:
+        raise IntegrityError(f"Product {reference.product_id} merchant account is not declared")
+    expected_role = _purchase_merchant_role(catalog, obj)
+    if binding.role != expected_role:
         raise IntegrityError(
-            f"product {reference.product_id} merchant {reference.merchant} does not bind"
-            f" catalog role {purchase.account_roles.to_role}")
+            f"Product {reference.product_id} merchant does not bind catalog role {expected_role}")
     if obj.stock is None and reference.stock is None:
         raise IntegrityError(f"product {reference.product_id} has no stock source")
-    payload = {
-        "product_id": obj.object_id,
-        "name": obj.name,
+    payload = {**_inventory_values(obj, consume),
         "merchant_account_id": reference.merchant,
         "merchant_location_id": reference.merchant_location_id,
-        "price_fen": _literal_fen(purchase.amount_fen, obj.object_id),
+        "price_fen": _purchase_price(catalog, obj),
         "price_version": f"catalog:{obj.object_id}:v{obj.version}",
         "initial_stock": reference.stock if reference.stock is not None else obj.stock.initial,
+    }
+    return ProductConfig.model_validate(payload)
+
+
+def _inventory_payload(obj: ExchangeObject) -> InventoryItemConfig:
+    """@brief 把不能购买但可能持有的对象编译成消费运行视图。"""
+    return InventoryItemConfig.model_validate(_inventory_values(obj, _consume_edge(obj)))
+
+
+def _inventory_values(obj: ExchangeObject, consume: SourceEdge | None) -> dict:
+    """@brief 形成商品与库存对象共享的已解析静态语义。"""
+    payload = {
+        "product_id": obj.object_id, "name": obj.name, "category_id": obj.category_id,
+        "inventory_unit": obj.attributes.get("inventory_unit"),
         "energy_kcal_per_unit": consume.amount if consume is not None else 0,
         "use_duration_seconds": _positive(obj.use_duration_seconds, "use_duration_seconds"),
-        "use_modes": obj.use_modes,
-        "consumable": obj.consumable,
-        "effect": obj.legacy_effect or obj.effect,
+        "use_modes": obj.use_modes, "consumable": obj.consumable,
+        "effect": obj.effect,
         "required_location_id": obj.required_location_id,
         "delivery_delay_seconds": _positive(obj.delivery_delay_seconds, "delivery_delay_seconds"),
         "source_kind": f"catalog:{obj.object_id}:v{obj.version}",
     }
     if obj.serving is not None:
         payload.update(serving_quantity=obj.serving.quantity, serving_unit=obj.serving.unit)
-    return ProductConfig.model_validate(payload)
+    return payload
+
+
+def _inventory_object_ids(document: LifeScenario) -> set[str]:
+    """@brief 汇总初始持有与所有显式配方输出对象身份。"""
+    held = {object_id for agent in document.agents for rows in agent.initial_inventory.values()
+            for object_id in rows}
+    return held | set(document.recipe_output_bindings.values())
+
+
+def _product_object(catalog: Catalog, object_id: str) -> ExchangeObject:
+    """@brief 返回一个必须存在且属于商品树的目录对象。"""
+    obj = catalog.objects.get(object_id)
+    if obj is None or obj.object_kind != ObjectKind.PRODUCT:
+        raise IntegrityError(f"Inventory object {object_id} is not a catalog product")
+    return obj
 
 
 def _build_runtime(
-    document: LifeScenario, body: BodyConfig, products: tuple[ProductConfig, ...],
+    document: LifeScenario, body: BodyConfig, items: RuntimeItems,
     employer_id: str, transport_id: str,
 ) -> RuntimeScenario:
     """@brief 用组装好的语义构造运行时场景并触发其全部跨引用校验。"""
     try:
-        return _runtime_payload(document, body, products, employer_id, transport_id)
+        return _runtime_payload(document, body, items, employer_id, transport_id)
     except Exception as error:
         raise IntegrityError(f"Scenario assembly failed: {error}") from error
 
 
 def _runtime_payload(
-    document: LifeScenario, body: BodyConfig, products: tuple[ProductConfig, ...],
+    document: LifeScenario, body: BodyConfig, items: RuntimeItems,
     employer_id: str, transport_id: str,
 ) -> RuntimeScenario:
     """@brief 构造运行时场景的载荷字典并执行模型校验。"""
@@ -418,7 +520,8 @@ def _runtime_payload(
         "agents": [item.model_dump(mode="python") for item in document.agents],
         "locations": [item.model_dump(mode="python") for item in document.locations],
         "routes": [item.model_dump(mode="python") for item in document.routes],
-        "products": [item.model_dump(mode="python") for item in products],
+        "products": [item.model_dump(mode="python") for item in items.products],
+        "inventory_items": [item.model_dump(mode="python") for item in items.inventory],
         "tasks": [item.model_dump(mode="python") for item in document.tasks],
         "messages": [item.model_dump(mode="python") for item in document.messages],
         "contents": [item.model_dump(mode="python") for item in document.contents],
@@ -430,6 +533,7 @@ def _runtime_payload(
         "payrolls": [item.model_dump(mode="python") for item in document.payrolls],
         "price_changes": [item.model_dump(mode="python") for item in document.price_changes],
         "product_releases": [item.model_dump(mode="python") for item in document.product_releases],
+        "recipe_output_bindings": dict(document.recipe_output_bindings),
     })
 
 
@@ -460,10 +564,10 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog,
             ScenarioAccountRef(account_id=f"agent:{first.agent_id}", resource_id=money.resource_id,
                                role=role, initial_value=first.initial_balance_fen, unit=money.unit)
             for role in CONTEXTUAL_AGENT_ROLES)
-    objects = [ScenarioObjectRef(object_id=item.product_id) for item in document.products]
-    objects.append(ScenarioObjectRef(object_id=TRAVEL_OBJECT))
-    objects.extend(ScenarioObjectRef(object_id=CONTRACT_OBJECTS[kind])
-                   for kind in {task.contract_kind for task in document.tasks})
+    object_ids = {item.product_id for item in document.products} | _inventory_object_ids(document)
+    object_ids.add(TRAVEL_OBJECT)
+    object_ids.update(CONTRACT_OBJECTS[kind] for kind in {task.contract_kind for task in document.tasks})
+    objects = [ScenarioObjectRef(object_id=object_id) for object_id in sorted(object_ids)]
     return ScenarioCatalogRefs(
         catalog_major=document.catalog_version.major,
         catalog_minor=document.catalog_version.minor,
@@ -519,37 +623,20 @@ def _ledger_accounts(
 
 
 def _check_route_fares(semantics: ScenarioSemantics) -> None:
-    """@brief 每条冻结路线报价必须与目录公式分支求值一致。"""
+    """@brief defined 路线报价必须与闭集规则一致；no_effect 留给运行拒绝。"""
+    target = semantics.catalog.objects.get(TRAVEL_OBJECT)
+    if target is None:
+        raise IntegrityError(f"Catalog object {TRAVEL_OBJECT} is missing")
     for route in semantics.document.routes:
-        expected = semantics.travel_fare(route.mode.value, route.distance_meters)
+        action = Action(f"travel:{route.mode.value}")
+        match = optional_defined_rule(semantics.catalog, target.category_id, action)
+        if match is None:
+            continue
+        expected = semantics._travel_fare(match, route.distance_meters)
         if route.fare_fen != expected:
             raise IntegrityError(
                 f"Route {route.route_id} fare {route.fare_fen} disagrees with the"
-                f" catalog formula value {expected}")
-
-
-def _check_travel_time_formula(semantics: ScenarioSemantics) -> None:
-    """@brief travel-time 公式必须在场且形状完整（存在性准入，缺公式即拒绝）。
-
-    形状合同：walking 分支恒为 1.0；driving 覆盖 00-23 全部 24 个小时分支，
-    每个分支都是区间内的数值。场景时区取文档声明。
-    """
-    formula = semantics.catalog.formulas.get(TRAVEL_TIME_FORMULA)
-    if formula is None:
-        raise IntegrityError(
-            f"{TRAVEL_TIME_FORMULA} formula is not declared in the catalog")
-    if "walking" not in formula.branches:
-        raise IntegrityError("travel-time formula has no walking branch")
-    probe = datetime.fromtimestamp(
-        0, ZoneInfo(semantics.document.timezone)).replace(hour=12)
-    if semantics.travel_time_factor("walking", int(probe.timestamp())) != 1.0:
-        raise IntegrityError("travel-time walking branch must be the constant 1.0")
-    for hour in range(24):
-        branch = f"driving_{hour:02d}"
-        if branch not in formula.branches:
-            raise IntegrityError(f"travel-time formula has no branch for {branch}")
-        semantics.travel_time_factor("driving", int(
-            probe.replace(hour=hour).timestamp()))
+                f" catalog exchange value {expected}")
 
 
 def _service_accounts(document: LifeScenario) -> dict[str, AccountInstanceConfig]:
@@ -565,27 +652,23 @@ def _role_account(services: Mapping[str, AccountInstanceConfig], role: str) -> s
     return matches[0]
 
 
-def _travel_role(catalog: Catalog) -> str:
-    """@brief 从 travel-service 对象的 depart 边解析收款方角色。"""
-    obj = catalog.objects.get(TRAVEL_OBJECT)
-    if obj is None:
-        raise IntegrityError(f"catalog object {TRAVEL_OBJECT} is missing")
-    edges = [edge for edge in obj.edges if isinstance(edge, TransferEdge) and edge.on == "depart"]
-    if len(edges) != 1 or edges[0].account_roles is None:
-        raise IntegrityError(f"catalog object {TRAVEL_OBJECT} has no role-annotated depart edge")
-    return edges[0].account_roles.to_role
-
-
-def _contract_role(catalog: Catalog, direction: str) -> str:
-    """@brief 从合同模板 settle 边解析雇主或工人角色。"""
-    obj = catalog.objects.get("contract-package")
-    if obj is None:
-        raise IntegrityError("catalog object contract-package is missing")
-    edges = [edge for edge in obj.edges if isinstance(edge, ConvertEdge)]
-    if len(edges) != 1 or edges[0].account_roles is None:
-        raise IntegrityError("contract-package has no role-annotated settle edge")
-    roles = edges[0].account_roles
-    return roles.from_role if direction == "from" else roles.to_role
+def _employer_account(
+    document: LifeScenario, services: Mapping[str, AccountInstanceConfig],
+) -> str:
+    """@brief 从任务实例取得唯一雇主；无任务时要求唯一 employer 角色账户。"""
+    task_accounts = {task.employer_account_id for task in document.tasks}
+    if len(task_accounts) == 1:
+        account_id = next(iter(task_accounts))
+        if account_id not in services:
+            raise IntegrityError("Work task employer account is not declared")
+        return account_id
+    if len(task_accounts) > 1:
+        raise IntegrityError("Runtime scenario supports exactly one employer account")
+    matches = [item.account_id for item in services.values()
+               if item.role.startswith("employer:")]
+    if len(matches) != 1:
+        raise IntegrityError("Scenario must declare exactly one employer account")
+    return matches[0]
 
 
 def _contract_efficiency(catalog: Catalog, attribute: str):
@@ -593,9 +676,9 @@ def _contract_efficiency(catalog: Catalog, attribute: str):
     values = []
     for object_id in CONTRACT_OBJECTS.values():
         obj = catalog.objects.get(object_id)
-        if obj is None or obj.efficiency is None:
+        if obj is None:
             raise IntegrityError(f"contract template {object_id} has no efficiency params")
-        values.append(getattr(obj.efficiency, attribute))
+        values.append(obj.attribute(attribute))
     if any(value != values[0] for value in values):
         raise IntegrityError(f"contract templates disagree on {attribute}")
     return values[0]
@@ -606,24 +689,29 @@ def _contract_work_efficiency_factors(catalog: Catalog) -> tuple[EfficiencyFacto
     values = []
     for object_id in CONTRACT_OBJECTS.values():
         obj = catalog.objects.get(object_id)
-        if obj is None or obj.efficiency is None:
+        if obj is None:
             raise IntegrityError(f"contract template {object_id} has no efficiency params")
-        values.append(obj.efficiency.work_efficiency_factors)
+        values.append(obj.attribute("work_efficiency_factors"))
     if any(value != values[0] for value in values):
         raise IntegrityError("contract templates disagree on work_efficiency_factors")
-    return tuple(
-        EfficiencyFactor(
-            input_resource=factor.input_resource,
-            curve=_curve(factor.curve, f"work_efficiency_factors[{factor.input_resource}]"))
-        for factor in values[0])
+    return tuple(EfficiencyFactor.model_validate(dict(factor)) for factor in values[0])
 
 
-def _purchase_edge(obj: ExchangeObject) -> TransferEdge:
-    """@brief 取得商品对象的 purchase 转账边。"""
-    edges = [edge for edge in obj.edges if isinstance(edge, TransferEdge) and edge.on == "purchase"]
-    if len(edges) != 1 or edges[0].account_roles is None:
-        raise IntegrityError(f"product {obj.object_id} has no role-annotated purchase edge")
-    return edges[0]
+def _purchase_price(catalog: Catalog, obj: ExchangeObject) -> int:
+    """@brief defined 购买按系数编译单价，no_effect 保留只读展示值。"""
+    match = optional_defined_rule(catalog, obj.category_id, Action.PURCHASE)
+    if match is None:
+        price = obj.attribute("price_fen")
+        if isinstance(price, bool) or not isinstance(price, int) or price < 0:
+            raise IntegrityError(f"Product {obj.object_id} has an invalid price")
+        return price
+    price_slot = getattr(match.rule, "price_slot", None)
+    if price_slot is None:
+        raise IntegrityError(f"Product {obj.object_id} resolved to an incompatible purchase rule")
+    try:
+        return evaluate_purchase(obj.attribute(price_slot), 1, match.coefficient)
+    except CategoryError as error:
+        raise IntegrityError(f"Product price exchange failed: {error.code}") from error
 
 
 def _consume_edge(obj: ExchangeObject) -> SourceEdge | None:
@@ -634,11 +722,20 @@ def _consume_edge(obj: ExchangeObject) -> SourceEdge | None:
     return edges[0] if edges else None
 
 
-def _literal_fen(amount: int | FormulaBinding, object_id: str) -> int:
-    """@brief 静态价格必须是字面金额；公式定价需要预排事件，当前不支持。"""
-    if isinstance(amount, FormulaBinding):
-        raise IntegrityError(f"product {object_id} uses a dynamic price formula")
-    return amount
+def _purchase_merchant_role(catalog: Catalog, obj: ExchangeObject) -> str:
+    """@brief 从 defined 购买边或显式 no_effect 对象槽取得具体商家角色。"""
+    if optional_defined_rule(catalog, obj.category_id, Action.PURCHASE) is None:
+        role = obj.attribute("merchant_role")
+        if not isinstance(role, str) or not role:
+            raise IntegrityError(f"product {obj.object_id} has no merchant role")
+        return role
+    edges = [edge for edge in obj.edges if isinstance(edge, TransferEdge) and edge.on == "purchase"]
+    if len(edges) != 1 or edges[0].account_roles is None:
+        raise IntegrityError(f"product {obj.object_id} needs one purchase transfer edge")
+    if edges[0].account_roles.from_role != "buyer":
+        raise IntegrityError(
+            f"Product {obj.object_id} purchase transfer from_role must be buyer")
+    return edges[0].account_roles.to_role
 
 
 def _resource(catalog: Catalog, resource_id: str) -> ResourceDefinition:
@@ -738,129 +835,3 @@ def _curve(points, label: str) -> tuple[CurvePoint, ...]:
         raise IntegrityError(f"catalog curve {label} is empty")
     return tuple(CurvePoint(input_value=point.input_value, output_value=point.output_value)
                  for point in points)
-
-
-#: ---------------------------------------------------------------------------
-#: 公式安全求值：递归下降解析四则、整除、min/max/ceil/floor 与命名变量。
-#: ---------------------------------------------------------------------------
-
-_TOKEN = re.compile(r"\s*(\d+(?:\.\d+)?|//|[A-Za-z_][A-Za-z_0-9]*|[()+\-*/,])")
-_ANNOTATION = re.compile(r"\s+\([^()]*\)\s*$")
-_FUNCTIONS = {"min": min, "max": max, "ceil": math.ceil, "floor": math.floor}
-
-
-def strip_formula_annotation(formula: str) -> str:
-    """@brief 去掉公式文本末尾的文档性括注（如 " (oracle piece_count)"）。
-
-    括注以空白开头；函数调用（min/max/ceil）的括号紧跟标识符，不会被剥离。
-    """
-    text = formula.strip()
-    while True:
-        stripped = _ANNOTATION.sub("", text)
-        if stripped == text or not stripped.strip():
-            return text.strip()
-        text = stripped.strip()
-
-
-def _free_names(formula: str) -> set[str]:
-    """@brief 列出公式中出现的全部标识符。"""
-    return {token for token in _TOKEN.findall(formula)
-            if re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", token)}
-
-
-def evaluate_int_expression(expression: str, variables: Mapping[str, float]) -> int:
-    """@brief 安全求值整数表达式，返回 int 结果。
-
-    只支持字面量、命名变量、+ - * / //、括号、逗号与 min/max/ceil/floor；
-    任何未知记号、未知变量或非整数结果都以 IntegrityError 拒绝。
-    """
-    tokens = _TOKEN.findall(expression)
-    trailing = _TOKEN.sub("", expression).strip()
-    if trailing:
-        raise IntegrityError(f"Formula contains unsupported tokens: {trailing!r}")
-    parser = _Parser(tokens, variables, expression)
-    value = parser.parse()
-    if not isinstance(value, int):
-        raise IntegrityError(f"Formula {expression!r} must evaluate to an integer")
-    return value
-
-
-class _Parser:
-    """@brief 整数公式的递归下降解析器。"""
-
-    def __init__(self, tokens: list[str], variables: Mapping[str, float], source: str):
-        """@brief 绑定记号流、变量表与原文。"""
-        self._tokens = tokens
-        self._variables = variables
-        self._source = source
-        self._index = 0
-
-    def parse(self):
-        """@brief 解析完整表达式并要求记号耗尽。"""
-        value = self._expression()
-        if self._index != len(self._tokens):
-            raise IntegrityError(f"Formula {self._source!r} has trailing tokens")
-        return value
-
-    def _peek(self) -> str | None:
-        """@brief 预读当前记号。"""
-        return self._tokens[self._index] if self._index < len(self._tokens) else None
-
-    def _take(self, expected: str | None = None) -> str:
-        """@brief 消费当前记号，可选校验。"""
-        token = self._peek()
-        if token is None or (expected is not None and token != expected):
-            raise IntegrityError(f"Formula {self._source!r} is malformed near {token!r}")
-        self._index += 1
-        return token
-
-    def _expression(self):
-        """@brief expr := term (('+'|'-') term)*。"""
-        value = self._term()
-        while self._peek() in {"+", "-"}:
-            operator = self._take()
-            right = self._term()
-            value = value + right if operator == "+" else value - right
-        return value
-
-    def _term(self):
-        """@brief term := factor (('*'|'/'|'//') factor)*。"""
-        value = self._factor()
-        while self._peek() in {"*", "/", "//"}:
-            operator = self._take()
-            right = self._factor()
-            if operator == "*":
-                value = value * right
-            elif operator == "//":
-                value = value // right
-            else:
-                value = value / right
-        return value
-
-    def _factor(self):
-        """@brief factor := 数 | 变量 | 函数调用 | '(' expr ')' | 一元负号。"""
-        token = self._peek()
-        if token == "(":
-            self._take("(")
-            value = self._expression()
-            self._take(")")
-            return value
-        if token == "-":
-            self._take()
-            return -self._factor()
-        if token is not None and re.fullmatch(r"\d+(?:\.\d+)?", token):
-            self._take()
-            return float(token) if "." in token else int(token)
-        if token in _FUNCTIONS:
-            self._take()
-            self._take("(")
-            arguments = [self._expression()]
-            while self._peek() == ",":
-                self._take(",")
-                arguments.append(self._expression())
-            self._take(")")
-            return _FUNCTIONS[token](*arguments)
-        if token in self._variables:
-            self._take()
-            return self._variables[token]
-        raise IntegrityError(f"Formula {self._source!r} references unknown name {token!r}")

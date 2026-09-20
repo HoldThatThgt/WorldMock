@@ -30,6 +30,7 @@ from worldmock.catalog import validate_scenario_against_catalog
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.state_commit import commit_state
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
+from worldmock.life.run_identity import require_category_identity
 from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
@@ -373,6 +374,7 @@ def _prepare_resume(
     try:
         checkpoint = parent.get_checkpoint(request.checkpoint_id)
         _require_runtime_identity(parent.manifest, Path(request.project_root))
+        require_category_identity(parent.manifest, semantics)
         manifest, state = _restore_branch(parent, checkpoint, destination, metadata)
     finally:
         parent.close()

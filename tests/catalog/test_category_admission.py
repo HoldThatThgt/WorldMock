@@ -33,6 +33,7 @@ from worldmock.catalog.admission import (
     validate_world_categories,
 )
 from worldmock.catalog.loader import load_catalog
+from worldmock.categories import refresh_manifest_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPORA = ROOT / "corpora"
@@ -164,11 +165,9 @@ def test_meals_catalog_object_missing(real_catalog, tmp_path):
             objects.append(line)
     assert len(objects) == 162
     catalog_dir = tmp_path / "catalog"
-    catalog_dir.mkdir()
+    shutil.copytree(ROOT / "catalog", catalog_dir)
     (catalog_dir / "objects.jsonl").write_text("\n".join(objects) + "\n", encoding="utf-8")
-    shutil.copy2(ROOT / "catalog/resources.jsonl", catalog_dir / "resources.jsonl")
-    shutil.copy2(ROOT / "catalog/manifest.json", catalog_dir / "manifest.json")
-    shutil.copytree(ROOT / "catalog/rules", catalog_dir / "rules")
+    refresh_manifest_identity(catalog_dir)
     stripped = load_catalog(catalog_dir)
     result = validate_world_categories(stripped, root)
     assert CATEGORY_MEALS_CATALOG_OBJECT_MISSING in _codes(result)

@@ -210,7 +210,9 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 随身持有与远程订购重钉：`purchase` 的 `description` 按
 #: docs/dev/SPEC-life-runtime.md「随身持有与远程订购」点明「配送不受在场约束、
 #: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "cdffee51c9570ba626861bf5ba8d5eb744c270e7cbc93c73ae4f12bb8edab3bd"
+#: 冻结基线重钉：Pydantic 将当前请求模型的文档引用写入 Schema description；
+#: 与实际生成的完整工具面摘要对齐，保留注册表变更必须改变指纹的反例断言。
+_PINNED_TOOL_SCHEMA_SHA256 = "b81e93faace24699a65eaee10b7a27a131c27a62cecc4b98e5018ba81a8e67a4"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:

@@ -1,21 +1,21 @@
-"""场景语义组装器的公式求值、告警映射与目录准入测试。"""
+"""场景语义组装器的闭集算子、告警映射与目录准入测试。"""
 
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
-from worldmock.catalog import Catalog, CatalogManifest, ResourceDefinition, load_catalog
+from worldmock.catalog import Catalog, ResourceDefinition, load_catalog
 from worldmock.errors import IntegrityError
 from worldmock.life.models import ContractKind, TravelMode
 from worldmock.life.scenario import parse_scenario_document
-from worldmock.life.semantics import (
-    ScenarioSemantics,
-    assemble_semantics,
-    evaluate_int_expression,
-)
+from worldmock.life import semantics as semantics_module
+from worldmock.life.semantics import ScenarioSemantics, assemble_semantics
+from worldmock.life.travel_time import parse_travel_time_profile
 
 _CATALOG = Path("catalog")
 _SCENARIOS = (Path("scenarios/multi-person.json"), Path("scenarios/white-collar-12-weeks.json"))
@@ -28,8 +28,8 @@ def semantics() -> ScenarioSemantics:
     return assemble_semantics(document, load_catalog(_CATALOG))
 
 
-def test_travel_fare_formula_reproduces_every_frozen_route(semantics) -> None:
-    """walking=0、driving=max(500,ceil(m*0.2)) 逐条复现全部冻结报价。"""
+def test_travel_fare_rule_reproduces_every_frozen_route(semantics) -> None:
+    """闭集 walking/driving 费率逐条复现全部冻结报价。"""
     for path in _SCENARIOS:
         document, _ = parse_scenario_document(path)
         for route in document.routes:
@@ -42,7 +42,7 @@ def test_travel_fare_formula_reproduces_every_frozen_route(semantics) -> None:
 
 
 def test_contract_math_matches_the_engine_settlement(semantics) -> None:
-    """三模板 convert 公式求值与 work 结算的数学完全一致。"""
+    """三种 typed 合同算子与 work 结算的数学完全一致。"""
     task = semantics.scenario.tasks[0]
     shell = type(task).model_construct
     hourly = shell(contract_kind=ContractKind.HOURLY, pay_fen=60000,
@@ -53,7 +53,7 @@ def test_contract_math_matches_the_engine_settlement(semantics) -> None:
         60000 * 7200 // 3600, 60000 * 28800 // 3600)
     assert semantics.contract_payment(hourly, 3600 * 24, None) == 60000 * 28800 // 3600
     assert semantics.contract_payment(piece, 0, 7) == 60000 * 7
-    with pytest.raises(IntegrityError, match="oracle piece count"):
+    with pytest.raises(IntegrityError, match="EXCHANGE_PIECE_COUNT_MISSING"):
         semantics.contract_payment(piece, 0, None)
     assert semantics.contract_payment(task, 0, None) == task.pay_fen
 
@@ -99,10 +99,7 @@ def _drifted_catalog(semantics: ScenarioSemantics, mutate) -> Catalog:
     resources = {key: value.model_dump() for key, value in semantics.catalog.resources.items()}
     mutate(resources)
     rebuilt = {key: ResourceDefinition.model_validate(value) for key, value in resources.items()}
-    manifest = CatalogManifest(version_major=semantics.catalog.version_major,
-                               version_minor=semantics.catalog.version_minor)
-    return Catalog.build(manifest, rebuilt, dict(semantics.catalog.objects),
-                         dict(semantics.catalog.formulas), dict(semantics.catalog.tombstones))
+    return replace(semantics.catalog, resources=MappingProxyType(rebuilt))
 
 
 def test_assembly_rejects_catalog_met_drift(semantics) -> None:
@@ -145,23 +142,19 @@ def test_assembly_rejects_missing_alert_rules(semantics) -> None:
         assemble_semantics(semantics.document, _drifted_catalog(semantics, drop_alerts))
 
 
-def test_expression_evaluator_is_closed_and_safe() -> None:
-    """求值器只接受封闭算子集并拒绝未知记号。"""
-    assert evaluate_int_expression("max(500, ceil(m * 0.2))", {"m": 1000}) == 500
-    assert evaluate_int_expression("min(a // 3600, b // 3600)", {"a": 7200, "b": 28800}) == 2
-    assert evaluate_int_expression("1 + 2 * 3", {}) == 7
-    with pytest.raises(IntegrityError, match="unsupported tokens"):
-        evaluate_int_expression("m ^ 2", {"m": 3})
-    with pytest.raises(IntegrityError, match="unknown name"):
-        evaluate_int_expression("pay_fen * 2", {})
-    with pytest.raises(IntegrityError, match="integer"):
-        evaluate_int_expression("m / 3", {"m": 10})
+def test_arbitrary_expression_evaluator_is_removed(semantics) -> None:
+    """生产语义不再导出表达式解释器，数值表也拒绝字符串表达式。"""
+    assert not hasattr(semantics_module, "evaluate_int_expression")
+    malformed = semantics.catalog.travel_time_rules_bytes.replace(
+        b"walking = 1.0", b'walking = "1 + 0"')
+    with pytest.raises(IntegrityError, match="not numeric"):
+        parse_travel_time_profile(malformed)
 
 
 def test_admission_refs_cover_accounts_and_objects(semantics) -> None:
     """准入引用包含对象闭集与角色账户绑定。"""
     refs = semantics.refs
-    assert (refs.catalog_major, refs.catalog_minor) == (2, 0)
+    assert (refs.catalog_major, refs.catalog_minor) == (3, 0)
     roles = {account.role for account in refs.accounts}
     assert {"buyer", "traveler", "worker", "merchant:grocery", "merchant:general",
             "employer:zhangjiang", "transport:service", "external:scenario"} <= roles

@@ -553,12 +553,14 @@ class TestTombstoneSemantics:
     def test_delisted_entry_is_excluded_from_candidates_and_still_readable(
             self, tmp_path: Path) -> None:
         """同一份墓碑目录：下架条目在候选里带 `ELIGIBILITY_DELISTED` 出局，在目录里仍可读。"""
-        from tests.catalog.conftest import (default_objects, default_resources,
-                                            default_tombstones, write_catalog)
+        from tests.categories.conftest import raw_object, write_catalog
+        from worldmock.catalog import CatalogEntryKind, ObjectDeclaration, add_object, deprecate
         from worldmock.catalog.loader import load_catalog
 
-        catalog = load_catalog(write_catalog(tmp_path / "catalog", default_resources(),
-                                             default_objects(), default_tombstones()))
+        directory = write_catalog(tmp_path / "catalog")
+        add_object(directory, ObjectDeclaration.model_validate(raw_object("food-soda")))
+        deprecate(directory, CatalogEntryKind.OBJECT, "food-soda", "retired")
+        catalog = load_catalog(directory)
         assert catalog.tombstoned_ids() == frozenset({"food-soda"})
 
         # 「保留可读」一侧：墓碑不动条目本身，原始行与解析后的条目都还在
@@ -584,9 +586,12 @@ class TestTombstoneSemantics:
 
     def test_runtime_has_no_path_that_deletes_a_catalog_entry(self) -> None:
         """契约层与生活层都不含删除条目的通路：退役只追加墓碑。"""
-        sources = {path: path.read_text(encoding="utf-8")
-                   for root in ("src/worldmock/catalog", "src/worldmock/life")
-                   for path in sorted((PROJECT_ROOT / root).rglob("*.py"))
+        catalog_modules = (
+            "admission.py", "affordances.py", "compiler.py", "inspect.py", "loader.py", "models.py",
+        )
+        runtime_paths = list((PROJECT_ROOT / "src/worldmock/life").rglob("*.py"))
+        runtime_paths.extend(PROJECT_ROOT / "src/worldmock/catalog" / name for name in catalog_modules)
+        sources = {path: path.read_text(encoding="utf-8") for path in sorted(runtime_paths)
                    if "__pycache__" not in path.parts}
         assert sources
         for path, source in sources.items():

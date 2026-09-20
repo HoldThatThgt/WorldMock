@@ -2,12 +2,28 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
-from types import MappingProxyType
-from typing import Annotated, Literal, Mapping
+from pathlib import Path
+from typing import Annotated, Any, Literal, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, StrictInt, model_validator
+
+from worldmock.categories import (
+    AttributeValues,
+    CategoryContract,
+    CategoryError,
+    ExchangeRule,
+    ExchangeRuleSet,
+    PairingResolution,
+    PairingState,
+    SourceRecord,
+    resolve_pairing,
+)
+from worldmock.categories.common import FrozenModel
+
+LOGGER = logging.getLogger(__name__)
 
 
 class CatalogError(ValueError):
@@ -21,13 +37,12 @@ class CatalogError(ValueError):
         """
         self.code = code
         self.message = message
+        LOGGER.error("%s: %s", code, message)
         super().__init__(f"{code}: {message}")
 
 
-class CatalogModel(BaseModel):
-    """@brief 拒绝未知字段的目录条目模型基类。"""
-
-    model_config = ConfigDict(extra="forbid")
+class CatalogModel(FrozenModel):
+    """@brief 拒绝未知字段并深度冻结目录条目的模型基类。"""
 
 
 class ProvenanceType(StrEnum):
@@ -40,7 +55,7 @@ class ProvenanceType(StrEnum):
 
 
 class ResourceKind(StrEnum):
-    """@brief 资源的两种形态：存量型与账户型。"""
+    """@brief 资源的存量型与账户型形态。"""
 
     LEVEL = "level"
     ACCOUNT = "account"
@@ -66,7 +81,6 @@ class CatalogEntryKind(StrEnum):
 
     RESOURCE = "resource"
     OBJECT = "object"
-    FORMULA = "formula"
 
 
 def is_role_placeholder(endpoint: str) -> bool:
@@ -177,13 +191,6 @@ class ResourceDefinition(CatalogModel):
         return self
 
 
-class FormulaBinding(CatalogModel):
-    """@brief 边金额对目录公式声明的引用绑定（公式 id + 入参路径）。"""
-
-    formula_ref: str = Field(pattern=r"\S")
-    params: Mapping[str, str] = Field(default_factory=dict)
-
-
 class AccountRoles(CatalogModel):
     """@brief 占位端点的角色标注：场景按角色名绑定账户实例。"""
 
@@ -202,7 +209,8 @@ class TransferEdge(CatalogModel):
     type: Literal["transfer"]
     from_account: str = Field(alias="from", pattern=r"\S")
     to_account: str = Field(alias="to", pattern=r"\S")
-    amount_fen: Annotated[int, Field(gt=0)] | FormulaBinding
+    resource: str = Field(pattern=r"\S")
+    amount_fen: Annotated[int, Field(ge=0)]
     account_roles: AccountRoles | None = None
     unit: str | None = Field(default=None, pattern=r"\S")
 
@@ -223,7 +231,7 @@ class SourceEdge(CatalogModel):
     on: str = Field(pattern=r"\S")
     type: Literal["source"]
     resource: str = Field(pattern=r"\S")
-    amount: Annotated[float, Field(ge=0)] | FormulaBinding
+    amount: Annotated[float, Field(ge=0)]
     duration_s: int | None = Field(default=None, ge=1)
     unit: str | None = Field(default=None, pattern=r"\S")
 
@@ -234,46 +242,26 @@ class DrainEdge(CatalogModel):
     on: str = Field(pattern=r"\S")
     type: Literal["drain"]
     resource: str = Field(pattern=r"\S")
-    amount: Annotated[float, Field(ge=0)] | FormulaBinding
+    amount: Annotated[float, Field(ge=0)]
     duration_s: int | None = Field(default=None, ge=1)
     unit: str | None = Field(default=None, pattern=r"\S")
 
 
-class ConvertEdge(CatalogModel):
-    """@brief 时间与资源到资源的折算边（合同结算：端点可为账户占位）。
-
-    端点是字面资源 id 时按资源折算（能量→货币）；是账户占位时按角色绑定
-    账户实例，结算公式以内联表达式声明（参数取自任务实例）。
-    """
-
-    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+class RuleEdge(CatalogModel):
+    """@brief 编译对象对动态闭集规则的一条 typed 引用边。"""
 
     on: str = Field(pattern=r"\S")
-    type: Literal["convert"]
-    from_endpoint: str = Field(alias="from", pattern=r"\S")
-    to_endpoint: str = Field(alias="to", pattern=r"\S")
-    amount: Annotated[float, Field(gt=0)] | None = None
-    formula: str | None = Field(default=None, pattern=r"\S")
-    account_roles: AccountRoles | None = None
-    unit: str | None = Field(default=None, pattern=r"\S")
-
-    @model_validator(mode="after")
-    def validate_amount(self) -> "ConvertEdge":
-        """@brief 要求静态数量与内联公式恰好取其一且端点合法。"""
-        if (self.amount is None) == (self.formula is None):
-            raise ValueError("convert edge requires exactly one of amount or formula")
-        if self.from_endpoint == self.to_endpoint:
-            raise ValueError("convert edge endpoints must differ")
-        if (is_role_placeholder(self.from_endpoint) or is_role_placeholder(self.to_endpoint)) \
-                and self.account_roles is None:
-            raise ValueError("role placeholder endpoints require account_roles")
-        return self
+    type: Literal["rule"]
+    rule_id: str = Field(pattern=r"\S")
+    coefficient: int | float = Field(ge=0, allow_inf_nan=False)
 
 
-Edge = Annotated[
-    TransferEdge | SourceEdge | DrainEdge | ConvertEdge,
+CompiledEdge = Annotated[
+    TransferEdge | SourceEdge | DrainEdge | RuleEdge,
     Field(discriminator="type"),
 ]
+
+Edge = CompiledEdge
 
 
 class Stock(CatalogModel):
@@ -305,61 +293,50 @@ class Efficiency(CatalogModel):
     work_notes_multiplier: float = Field(gt=0)
 
 
-class ExchangeObject(CatalogModel):
-    """@brief 一条交换对象条目：全部经济语义为一组边。"""
+class ObjectDeclaration(CatalogModel):
+    """@brief `objects.jsonl` 中禁止 edges 与公式的原始对象增量。"""
 
     object_id: str = Field(pattern=r"\S")
     name: str = Field(pattern=r"\S")
+    category_id: str = Field(pattern=r"\S")
+    values: AttributeValues = Field(default_factory=AttributeValues)
+    provenance: tuple[SourceRecord, ...] = Field(min_length=1)
+    version: StrictInt = Field(ge=1)
+
+
+class ExchangeObject(CatalogModel):
+    """@brief 原始对象与冻结品类规则编译出的现有运行期有效视图。"""
+
+    object_id: str = Field(pattern=r"\S")
+    name: str = Field(pattern=r"\S")
+    category_id: str = Field(pattern=r"\S")
     object_kind: ObjectKind
+    attributes: Mapping[str, Any]
     effect: str | None = Field(default=None, pattern=r"\S")
-    legacy_effect: str | None = Field(default=None, pattern=r"\S")
     consumable: bool | None = None
     use_modes: tuple[str, ...] = ()
-    edges: tuple[Edge, ...] = Field(min_length=1)
+    edges: tuple[CompiledEdge, ...] = ()
     stock: Stock | None = None
     use_duration_seconds: int | None = Field(default=None, ge=1)
     delivery_delay_seconds: int | None = Field(default=None, ge=1)
     serving: Serving | None = None
     required_location_id: str | None = Field(default=None, pattern=r"\S")
-    formula_ref: str | None = Field(default=None, pattern=r"\S")
     acceptance: Acceptance | None = None
     efficiency: Efficiency | None = None
-    provenance: tuple[Provenance, ...] = Field(min_length=1)
+    provenance: tuple[SourceRecord, ...] = Field(min_length=1)
     version: int = Field(ge=1)
 
-    @model_validator(mode="after")
-    def validate_provenance_coverage(self) -> "ExchangeObject":
-        """@brief 要求每条边至少有一条去重后的溯源标注。"""
-        parts = [entry.part for entry in self.provenance]
-        if len(set(parts)) != len(parts):
-            raise ValueError("object provenance parts must be unique")
-        if len(self.provenance) < len(self.edges):
-            raise ValueError("every edge requires at least one provenance entry")
-        return self
+    def attribute(self, name: str) -> Any:
+        """@brief 返回一个已解析属性，不存在时明确失败。
 
-
-class FormulaBranch(CatalogModel):
-    """@brief 公式的一个分支：字面金额或待求值表达式。"""
-
-    amount: int | str
-
-
-class FormulaDeclaration(CatalogModel):
-    """@brief rules/ 下 TOML 公式声明文件解析出的计费公式。"""
-
-    formula_id: str = Field(pattern=r"\S")
-    unit: str = Field(pattern=r"\S")
-    branches: Mapping[str, FormulaBranch]
-    params: Mapping[str, str] = Field(default_factory=dict)
-    provenance: tuple[Provenance, ...] = ()
-    version: int = Field(default=1, ge=1)
-
-    @model_validator(mode="after")
-    def validate_branches(self) -> "FormulaDeclaration":
-        """@brief 公式至少要有一个分支。"""
-        if not self.branches:
-            raise ValueError("formula declaration requires at least one branch")
-        return self
+        :param name: 槽位身份。
+        :returns: 槽位有效值。
+        """
+        if name not in self.attributes:
+            raise CatalogError(
+                "CATALOG_ATTRIBUTE_MISSING", f"object {self.object_id} lacks attribute {name}",
+            )
+        return self.attributes[name]
 
 
 class Tombstone(CatalogModel):
@@ -430,10 +407,14 @@ class CategoryRequirements(CatalogModel):
 
 
 class CatalogManifest(CatalogModel):
-    """@brief 目录版本清单：major 语义变更，minor 纯增量；可携带品类要求声明。"""
+    """@brief 目录版本、品类内容身份与世界素材要求的冻结清单。"""
 
     version_major: int = Field(ge=1)
     version_minor: int = Field(ge=0)
+    category_contract_version: int = Field(ge=1)
+    category_contract_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    exchange_rules_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    catalog_content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     category_requirements: CategoryRequirements | None = None
 
 
@@ -443,39 +424,43 @@ class Catalog:
 
     version_major: int
     version_minor: int
+    category_contract_version: int
+    category_contract_sha256: str
+    exchange_rules_sha256: str
+    catalog_content_sha256: str
     resources: Mapping[str, ResourceDefinition]
+    raw_objects: Mapping[str, ObjectDeclaration]
     objects: Mapping[str, ExchangeObject]
-    formulas: Mapping[str, FormulaDeclaration]
     tombstones: Mapping[str, Tombstone]
+    category_contract: CategoryContract
+    exchange_rules: ExchangeRuleSet
+    source_dir: Path
+    travel_time_rules_bytes: bytes
     category_requirements: CategoryRequirements | None = None
-
-    @staticmethod
-    def build(
-        manifest: CatalogManifest,
-        resources: dict[str, ResourceDefinition],
-        objects: dict[str, ExchangeObject],
-        formulas: dict[str, FormulaDeclaration],
-        tombstones: dict[str, Tombstone],
-    ) -> "Catalog":
-        """@brief 用只读代理包装各映射，构造冻结视图。
-
-        :param manifest: 已校验的目录版本清单。
-        :param resources: 以 resource_id 为键的资源表。
-        :param objects: 以 object_id 为键的对象表。
-        :param formulas: 以 formula_id 为键的公式表。
-        :param tombstones: 以 target_id 为键的墓碑表。
-        :returns: 各映射不可再变更的冻结目录视图。
-        """
-        return Catalog(
-            version_major=manifest.version_major,
-            version_minor=manifest.version_minor,
-            resources=MappingProxyType(resources),
-            objects=MappingProxyType(objects),
-            formulas=MappingProxyType(formulas),
-            tombstones=MappingProxyType(tombstones),
-            category_requirements=manifest.category_requirements,
-        )
 
     def tombstoned_ids(self) -> frozenset[str]:
         """@brief 返回全部墓碑目标 id 的冻结集合。"""
         return frozenset(self.tombstones)
+
+    def pairing(
+        self,
+        actor_category_id: str,
+        target_category_id: str,
+        action: str,
+    ) -> PairingResolution:
+        """@brief 查询目录冻结契约中的唯一最具体有向配对。"""
+        return resolve_pairing(self.category_contract, actor_category_id, target_category_id, action)
+
+    def rule_for(
+        self,
+        actor_category_id: str,
+        target_category_id: str,
+        action: str,
+    ) -> tuple[ExchangeRule, int | float]:
+        """@brief 返回 defined 配对的 typed rule 与显式系数。"""
+        pairing = self.pairing(actor_category_id, target_category_id, action)
+        if pairing.state != PairingState.DEFINED:
+            code = "PAIRING_NO_EFFECT" if pairing.state == PairingState.NO_EFFECT else "PAIRING_UNDEFINED"
+            raise CategoryError(code, f"pairing {actor_category_id}->{target_category_id} {action} is {pairing.state}")
+        assert pairing.rule_id is not None and pairing.coefficient is not None
+        return self.exchange_rules.require(pairing.rule_id), pairing.coefficient

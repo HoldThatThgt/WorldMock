@@ -566,6 +566,55 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 见[运行目录与数据表](design/05-recording-engine.md#持久化结构)。
 
+## 品类契约与目录字段
+
+行为规则由 [品类契约规格](dev/SPEC-category-contract.md) 定义；本节固定文件字段与命令输入。
+原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
+
+| 文件 | 顶层字段 |
+| --- | --- |
+| `category-contract.json` | `format_version: 1`、正整数 `contract_version`、`categories`、`pairings`、`sources`、`review` |
+| `exchange-rules.json` | `format_version: 1`、相同 `contract_version`、`rules`、`sources`、`review` |
+| `objects.jsonl` 每行 | `object_id`、`name`、`category_id`、`values`、`provenance`、正整数 `version` |
+| `manifest.json` | `version_major`、`version_minor`、`category_requirements` 和下方四个内容身份字段 |
+
+| 声明 | 字段与闭集 |
+| --- | --- |
+| 品类节点 | `category_id`、`name`、`parent_id`、`kind`、`slots`、`values`；形态为 `entity`、`person`、`product`、`service`、`contract` |
+| 属性槽 | 槽名映射到 `schema`（JSON Schema）、`required`、`unit`；子类与祖先约束同时成立 |
+| 属性值 | `absolute`、`relative`、`proportional` 三个槽名映射；同层同槽只选一种 |
+| 有向配对 | `actor_category_id`、`target_category_id`、`action`、`state`、`rule_id`、`coefficient`、`review` |
+| 配对状态 | `defined` 必须有规则和显式系数；`no_effect` 必须有审核；`undefined` 表示未定义。后二者不携带生效规则或系数 |
+| 来源 | `source_id`、`type`、`producer`、`source`、`artifact`、`method`、`paths`、`note`；`paths` 为绝对 JSON Pointer 数组 |
+| 来源种类 | `fact`、`anchored`、`assumption`、`scenario`；生产者为 `human`、`data_source`、`model` |
+| 审核 | `reviewer`、`reviewer_type`、`evidence`、`reason`、`authorization`；`delegated_agent` 必须记录授权，人工为 `human` |
+
+动作闭集为 `purchase`、`consume:eat`、`consume:use`、`work:settle`、`travel:walking`、`travel:driving`。
+规则共同字段为 `rule_id`、`category_id`、`action`、`operator`、`resource_id`、`unit`、`conservation`。
+`conservation` 只取 `open` 或 `closed`，必须与资源定义一致。
+
+| `operator` | 专属字段 |
+| --- | --- |
+| `purchase_transfer` | `price_slot`、`from_role`、`to_role` |
+| `food_energy_source` | `energy_slot`、`duration_slot` |
+| `durable_use` | 可选 `effect_slot` |
+| `travel_fare` | `minimum_fen`、`fen_per_meter` |
+| `work_hourly` | `rate_slot`、`maximum_duration_slot` |
+| `work_piece` | `rate_slot` |
+| `work_package` | `amount_slot` |
+| `inventory_transform` | `input_category_id`、`output_category_id`、`input_quantity`、`output_quantity`、`inventory_unit` |
+
+购买规则的 `from_role` 必须为 `buyer`，不允许声明另一付款人而仍从人物账户扣款。
+`merchant` 是购买规则的商户角色；对象有效属性 `merchant_role` 将它绑定到场景的具体账户角色，
+例如 `merchant:grocery`。库存仍使用 `kind=level` 的资源定义，不增加第三种资源形态。
+场景 `recipe_output_bindings` 为输出品类身份到输出对象身份的映射；没有配方的场景使用空对象。
+原始对象不得写 `edges`、公式或旧的 `object_kind` 字段。
+
+目录和运行清单共享 `category_contract_version`、`category_contract_sha256`、
+`exchange_rules_sha256`、`catalog_content_sha256`。前三者绑定契约版本及两个原始文件的字节；
+最后一项绑定对象、资源、墓碑、契约、交换规则、可供性与规则文件，以及排除该摘要自身的规范化清单。
+检查点与导出继续保存原始运行清单，字段的持久化责任见 [记录引擎](design/05-recording-engine.md)。
+
 ## 语料内容目录字段
 
 | 字段 | 含义 |
@@ -846,6 +895,13 @@ JSONL 实际每个对象一行；`input.text_field = "evidence"` 使用 LabelKit
 | `profile compile` | `text`, `runs`, `out` | 编译指定文本的人物卡片、大五与世界层动力学，输出卡片、渲染文本与溯源 |
 | `profile check` | `text`, `runs` | 重复编译并断言卡片一致性与大五众数稳定 |
 | `profile validate` | `scenario_path`, `coverage_out` | 校验场景人物卡片的世界可执行覆盖并写 `persona_coverage.json` |
+| `category check` | `--catalog`，可选 `--queries`、`--run-dir` | 严格加载目录，报告三态配对查询与真实规则触达次数 |
+| `category refine` | `--catalog`、`--candidate`、`--parent-category`，可选 `--run-dir` | 列出对象归属建议、规则与配对变化；不改旧目录 |
+| `category publish` | `--catalog`、`--candidate`、`--output`、`--assignments`、可重复的 `--scenario` | 检查完整候选与场景，将递增版本原子发布到新路径 |
+
+`category check --queries` 读取 JSON 数组，每项恰含 `actor_category_id`、`target_category_id`、`action`。
+`category publish --assignments` 读取对象身份到品类身份的 JSON 映射；没有改挂时显式传空对象。
+维护命令成功向标准输出写一个 JSON 对象，发布命令至少要求一份真实场景。
 
 ### 运行状态枚举
 
@@ -904,3 +960,4 @@ RunPhase = Literal[
 | 2026-09-18-revision-3 | 2026-09-18 | 事件字段节补观察记录的字段形态合同：`observation` 事件的 `data` 即结构化观察投影本身，人物决策提示里的观察记录以 `turn`、`action`、`ok` 与 `data` 四个键承载，不另写入 JSON 字符串副本 |
 | 2026-09-20-recording | 2026-09-20 | 记录引擎的事件、存储、检查点、运行状态与足迹质量报告归入单一设计文档，本文件保留接口导航 |
 | 2026-09-20-boundaries | 2026-09-20 | 运行状态与公共日志合同由运行宿主管理，记录引擎仅提供已保存事实的查询与完整性诊断 |
+| 2026-09-20-category | 2026-09-20 | 冻结品类、对象增量、来源审核、闭集交换算子、库存输出绑定、维护命令与内容身份字段 |

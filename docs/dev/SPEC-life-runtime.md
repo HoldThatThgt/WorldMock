@@ -8,6 +8,8 @@
 本文定义 LifeEnv 的状态归属、生命周期、工具和动作结果行为规则；资源、需求、活动结算、共享时钟、并发和加速算法；语料进入环境、内容目录、工作反馈、导航和配送的准入和结算行为；场景与身体规则、内容提供与消费生产之间的绑定算法。
 
 类型、签名、枚举和结果字段见 `docs/CONTRACTS.md`。人物决策与画像条款见 `docs/dev/SPEC-life-realism.md`。
+品类继承、有向三态配对、闭集金额计算、使用完成时的库存转换与运行内容身份由
+[品类契约规格](SPEC-category-contract.md)统一定义；这些规则接入本规格已有的动作、活动与提交路径。
 
 ## 状态归属与生命周期
 
@@ -604,7 +606,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 ### 资金与合同
 
-币种、账户初始余额、合同金额与工作机会时长、交通服务账户与场景报价公式属于冻结参数，只在 `docs/EXPERIMENT.md`「场景参数」章定义。本节判定资金结算行为：
+币种、账户初始余额、合同实例金额与工作机会时长、交通服务账户和路线实例由 `docs/EXPERIMENT.md`「场景参数」章说明。
+品类费率、计酬槽位与算法统一由 `catalog/exchange-rules.json` 的闭集规则定义，行为归[品类契约规格](SPEC-category-contract.md)。
+本节判定资金结算行为：
 
 - 计时与计件两类合同都按实际合格产出结算，交付通过验收是付款条件
 - 重复任务付款由稳定任务标识防止，已付款任务的集合不得重复放款
@@ -836,7 +840,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 | 工作与验收 | 计时与计件合同按实际合格工时与冻结件数结算；过期、重复与无资金在语义付款前停止；评审协议纠正、耗尽与零重试 | `tests/life/test_work_contracts.py`、`tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py` | 代码层已验证 |
 | 语料准入 | 场景目录逐条通过引用完整性、单位与守恒检查；正式清单逐文件校验与选定条数；AMI 输入与隐藏参考分离；TextWorld 使用真实重置与步进 | `tests/catalog/test_admission.py`、`tests/corpora/test_corpora.py` | 代码层已验证 |
 | 导航与配送 | 路线报价一次预付且不可负担时不改动任何账户；walking 记录零车费不虚构付款；定位轨迹确定且不构成人物决策；交通时间因子随日期时段变化 | `tests/life/test_travel_cost.py`、`tests/life/test_travel_trajectory.py`、`tests/life/test_travel_time.py` | 代码层已验证 |
-| 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户与角色唯一；出行报价符合目录公式；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
+| 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户与角色唯一；出行报价符合目录闭集规则；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
 | 观察投影 | 黑名单字段不进入提示；商品可见期离开商家地点或到 1800 秒即清空；工作材料单次至多 2000 字符；跨边界字幕不重复；场景不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py` | 代码层已验证 |
 | 统一候选契约 | 五类对象的候选区分生成、资格与排序三段且返回体形状一致；同输入两次取候选逐字节相同；候选不依赖时间戳、缓存或模型输出 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两条排除纪律 | 画像未声明的题材其条目仍在候选内且排序靠后；每个被排除项带闭集内的原因码；保留项计数与排除项计数之和等于候选全集规模 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |

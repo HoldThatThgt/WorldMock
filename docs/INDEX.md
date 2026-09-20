@@ -36,6 +36,9 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/SPEC-life-runtime.md` | LifeEnv 的状态归属与生命周期、共享时钟与并发活动、身体语义与体感分级、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版 | FROZEN |
 | `docs/dev/SPEC-life-realism.md` | 人物的两阶段决策调用、记忆写入与巩固、动机层、日程骨架、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影 | FROZEN |
 | `docs/dev/SPEC-labelkit-delivery.md` | 数字足迹接入 LabelKit 的输入范围与加工责任、证据窗口与来源关联、交付产物与发布边界、长序列与数据划分、真实调用的生产与验证步骤 | FROZEN |
+| `docs/dev/SPEC-category-contract.md` | 品类树、属性增量、三态配对、闭集交换、库存转换、细化发布和运行内容身份 | FROZEN |
+| `docs/dev/category-contract-verification.md` | 品类契约逐要求实施、测试与独立突变证据 | 实施台账 |
+| `docs/dev/PROPOSAL-category-contract.md` | 品类契约提案裁决记录；规范已收敛到对应 SPEC | 已裁决 |
 | `docs/dev/ANALYSIS-spec-coverage.md` | 规格条款与测试用例的覆盖率追溯矩阵 | 现行追溯矩阵 |
 
 ### 资源引擎设计
@@ -62,6 +65,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 | 文档 | 职责 | 状态 |
 | --- | --- | --- |
+| `docs/dev/research/category-contract-feasibility.md` | 品类契约的第一方业界依据、排除理由与当前代码差距 | 调研证据 |
 | `docs/dev/research/as2-feasibility.md` | AS2 接入可行性与核心改动独立审查 | 调研证据 |
 | `docs/dev/research/bob-mutation-plan.md` | 核心合同语义突变计划与历史突变台账 | 调研证据 |
 | `docs/dev/research/code-refute-2026-09-17.md` | 编码模块对抗审计：确认的缺陷、被驳倒的发现与未完成复核的缺口 | 调研证据 |

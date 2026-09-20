@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -459,10 +460,7 @@ def test_call_facing_contact_validates_duration(engine_factory) -> None:
     """通话面向联系人：10-60 分钟合同由 social 域校验（越界拒绝）。"""
     engine = engine_factory("multi-person.json")
     staged = engine.state.model_copy(deep=True)
-    from worldmock.life.scenario import AgentConfig
     from worldmock.life.social import Contact
-    config = staged.scenario if False else None  # placeholder to satisfy lint
-    from worldmock.life import social as social_domain
     contacts = (Contact(contact_id="contact-mother", salutation="妈妈", relation="家人",
                         closeness=25, channels=("phone",), reply_policy="none"),)
     document = engine.semantics.document.model_copy(update={
@@ -473,10 +471,7 @@ def test_call_facing_contact_validates_duration(engine_factory) -> None:
         "agents": tuple(item.model_copy(update={"contacts": contacts})
                         if item.agent_id == 1 else item
                         for item in engine.scenario.agents)})
-    engine.semantics = engine.semantics.__class__(
-        document=document, catalog=engine.semantics.catalog, scenario=runtime,
-        body=engine.semantics.body, refs=engine.semantics.refs,
-        accounts=engine.semantics.accounts)
+    engine.semantics = replace(engine.semantics, document=document, scenario=runtime)
     engine.scenario = runtime
     too_short = _round_ready(engine, "call-short", "start_social_activity",
                              StartSocialActivityRequest(kind="call", partner_id="contact-mother",
