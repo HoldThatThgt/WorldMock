@@ -43,6 +43,7 @@ from custom.agents.life_agent import (
 )
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import affordance_contract
+from worldmock.life.models import REQUEST_MODELS
 
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
 _AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
@@ -135,6 +136,10 @@ def _observations() -> list[dict]:
             "read_mail": 86_400, "browse": 86_400,
         }},
         "affordance_contract": copy.deepcopy(_AFFORDANCE_CONTRACT),
+        "interaction_menu": {
+            "allowed_tools": sorted(REQUEST_MODELS),
+            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
+        },
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -269,7 +274,7 @@ def test_memory_read_and_episode_models_enforce_local_limits() -> None:
 
 def _paused_activity(activity_id: str, **overrides) -> dict:
     """构造一条合法暂停活动记录（可覆盖字段注入错误）。"""
-    entry = {"activity_id": activity_id, "status": "paused",
+    entry = {"activity_id": activity_id, "status": "paused", "kind": "work",
              "remaining_duration_seconds": 60,
              "minimum_energy_cost_kcal": 1.0, "resume_energy_feasible": True}
     entry.update(overrides)

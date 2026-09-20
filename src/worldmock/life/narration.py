@@ -56,6 +56,8 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
     "end_time",
     "affordance_contract",
+    "interaction_menu",
+    "interaction_menus_by_location_kind",
     "energy_feasibility",
     "observation_event_id",
     "motivation_hints",

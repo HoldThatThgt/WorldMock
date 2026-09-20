@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-20  
-> **版本**：v1.2
+> **版本**：v1.3
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -51,6 +51,13 @@ flowchart TB
 | 共同检查点与恢复分支 | [保存共同检查点](05-recording-engine.md#保存共同检查点)与[恢复与反事实分支](05-recording-engine.md#恢复与反事实分支) |
 | 足迹 JSONL、导出清单与质量报告 | [固定截止导出](05-recording-engine.md#固定截止导出) |
 | 状态文件、查询输出与日志 | [运行查询与诊断](05-recording-engine.md#运行查询与诊断) |
+
+场景输入中的 `interaction_menus_by_location_kind` 与 `agents[].interaction_menu` 由
+[配置设计](08-configuration.md#32-交互菜单声明)及[接口合同](../CONTRACTS.md#交互菜单声明与有效菜单)
+定义。每个生活 `observation` 事件的 `data.interaction_menu` 保存两个排序数组
+`allowed_tools` 与 `allowed_activity_kinds`，表示该人物在该冻结观察中的有效菜单；它是事件级工具支持
+证据，不新增 `WorldState` 或 `AgentState` 字段，也不在 user 消息中复制。菜单声明本身由
+`scenario_sha256` 绑定，运行时有效值由观察事件留证。
 
 ## 世界与人物状态格式
 
@@ -286,3 +293,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.0 | 2026-09-20 | 初版：事件 Schema、状态快照、导出格式、报告结构、检查点格式、素材引用、日志格式、Schema 验证规则 |
 | v1.1 | 2026-09-20 | 对齐身体结算事件、资金事实、资源流水与体感可见性 |
 | v1.2 | 2026-09-20 | 事件、检查点、素材、足迹导出、质量报告与日志格式归入记录引擎；保留领域状态与交付格式入口 |
+| v1.3 | 2026-09-20 | 增加场景交互菜单与观察事件有效菜单的格式导航，明确它们不新增世界或人物状态字段 |

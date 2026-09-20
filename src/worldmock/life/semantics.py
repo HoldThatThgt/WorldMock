@@ -417,6 +417,10 @@ def _runtime_payload(
         "body": body.model_dump(mode="python"),
         "agents": [item.model_dump(mode="python") for item in document.agents],
         "locations": [item.model_dump(mode="python") for item in document.locations],
+        "interaction_menus_by_location_kind": {
+            kind: menu.model_dump(mode="python")
+            for kind, menu in document.interaction_menus_by_location_kind.items()
+        },
         "routes": [item.model_dump(mode="python") for item in document.routes],
         "products": [item.model_dump(mode="python") for item in products],
         "tasks": [item.model_dump(mode="python") for item in document.tasks],

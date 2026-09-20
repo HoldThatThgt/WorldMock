@@ -17,6 +17,8 @@ from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, Conte
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_energy_duration_seconds, minimum_energy_cost
 from worldmock.life.models import ActivityKind
+from worldmock.life.interaction_menu import resolve_interaction_menu
+from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.work import work_totals
 
@@ -79,6 +81,8 @@ class ObservationMixin:
         """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
         # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
         data: dict[str, Any] = {}
+        data["interaction_menu"] = resolve_interaction_menu(
+            self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
         data["content_progress"] = self._content_progress(agent)
         data["games"] = {key: value.model_dump(mode="json")
                          for key, value in agent.game_sessions.items()}
@@ -394,6 +398,7 @@ class ObservationMixin:
         category = request.category
         if category not in self._activity_summary(agent):
             raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
+        require_interaction_menu(self.scenario, state, pending, request)
         window = self._candidate_window(agent, category, request.cursor)
         result = ActionResult(
             action_id=pending.action_id, agent_id=agent.agent_id,
@@ -776,15 +781,14 @@ _BROWSE_NOTES = {
 
 def _kind_of_category(category: str, scenario) -> str:
     """@brief 品类下钻键到候选类别：内容品类、生活活动品类与三个固定键各归一类。"""
-    content_kinds = {item.kind for item in scenario.contents}
-    if category in content_kinds:
-        return "content"
     if category == presentation.FOOD_CATEGORY:
         return "product"
     if category == presentation.GAME_CATEGORY:
         return "game"
     if category == presentation.TASK_CATEGORY:
         return "task"
+    if category in {item.kind for item in scenario.contents}:
+        return "content"
     return "lifestyle"
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from datetime import date, datetime
 from pathlib import Path
@@ -14,6 +15,7 @@ from pydantic import Field, model_validator
 
 from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import IntegrityError
+from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.life.models import (
     ContractKind,
     CurvePoint,
@@ -189,6 +191,8 @@ class AgentConfig(FrozenModel):
     # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
     # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
     lifestyle_activities: tuple[str, ...] | None = None
+    # 交互菜单人物声明必须显式出现；null 表示不在地点类菜单之上追加限制。
+    interaction_menu: InteractionMenu | None
     # 人物档案字段（docs/dev/SPEC-life-runtime.md「两过程睡眠模型」、docs/dev/SPEC-life-realism.md「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
     sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
@@ -540,6 +544,7 @@ class LifeScenario(FrozenModel):
     body: BodyInstanceConfig
     agents: tuple[AgentConfig, ...]
     locations: tuple[LocationConfig, ...]
+    interaction_menus_by_location_kind: dict[str, InteractionMenu]
     routes: tuple[RouteConfig, ...]
     products: tuple[ProductReference, ...]
     tasks: tuple[WorkTaskConfig, ...]
@@ -572,6 +577,8 @@ class LifeScenario(FrozenModel):
         _unique(self.games, "game_id")
         _unique(self.accounts, "account_id")
         _unique(self.accounts, "role")
+        _check_interaction_menu_location_kinds(
+            self.locations, self.interaction_menus_by_location_kind)
         places = [(item.merchant_location_id, None) for item in self.products]
         _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
@@ -665,6 +672,7 @@ class RuntimeScenario(FrozenModel):
     body: BodyConfig
     agents: tuple[AgentConfig, ...]
     locations: tuple[LocationConfig, ...]
+    interaction_menus_by_location_kind: dict[str, InteractionMenu]
     routes: tuple[RouteConfig, ...]
     products: tuple[ProductConfig, ...]
     tasks: tuple[WorkTaskConfig, ...]
@@ -697,6 +705,8 @@ class RuntimeScenario(FrozenModel):
         _unique(self.messages, "message_id")
         _unique(self.contents, "item_id")
         _unique(self.games, "game_id")
+        _check_interaction_menu_location_kinds(
+            self.locations, self.interaction_menus_by_location_kind)
         places = [(item.merchant_location_id, item.required_location_id) for item in self.products]
         _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
@@ -737,6 +747,24 @@ def _check_location_references(agents, routes, product_places, tasks, locations)
             raise ValueError("product references an unknown merchant location")
     if any(task.required_location_id not in known for task in tasks):
         raise ValueError("work task references an unknown location")
+
+
+def _check_interaction_menu_location_kinds(
+    locations: tuple[LocationConfig, ...],
+    menus: dict[str, InteractionMenu],
+) -> None:
+    """@brief 要求地点类菜单键集与场景中实际地点类精确一致。"""
+    expected = {item.kind for item in locations}
+    actual = set(menus)
+    if actual != expected:
+        missing = sorted(expected - actual)
+        unexpected = sorted(actual - expected)
+        message = (
+            "interaction menu location kinds must exactly match declared location kinds: "
+            f"missing={missing}, unexpected={unexpected}"
+        )
+        logging.error(message)
+        raise ValueError(message)
 
 
 def _check_catalog_references(agents, tasks, messages, targets) -> None:
@@ -862,6 +890,7 @@ def parse_scenario_document(path: Path) -> tuple[LifeScenario, str]:
     try:
         scenario = LifeScenario.model_validate(json.loads(content))
     except Exception as error:
+        logging.error("Scenario validation failed for %s", source)
         raise IntegrityError("Scenario validation failed") from error
     root = (source.parent / scenario.corpus_root).resolve()
     manifest = root / "manifest.json"

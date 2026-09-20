@@ -154,6 +154,10 @@ def _observations(*result_ids: str) -> list[dict]:
             "read_mail": 86_400, "browse": 86_400,
         }},
         "affordance_contract": _AFFORDANCE_CONTRACT,
+        "interaction_menu": {
+            "allowed_tools": sorted(REQUEST_MODELS),
+            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
+        },
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -212,7 +216,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
 #: 决策上下文重钉：基线已包含注册表注释与模型描述的字节变动；本次将
 #: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
-_PINNED_TOOL_SCHEMA_SHA256 = "dd2c1490f5ad9306e95fe23828665b9f0338164cdeb2477fb009d3073a9b639e"
+_PINNED_TOOL_SCHEMA_SHA256 = "6bc60d84d4fefbd6fc8aaa81d2be97caf5ad8e6b1da12b30aecb2c73728d609a"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -225,8 +229,8 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     assert life_tool_schema_sha256() != _PINNED_TOOL_SCHEMA_SHA256
 
 
-def test_location_norm_guides_tool_description_not_system_prohibitions() -> None:
-    """办公室场景的位置行为规范只落在工具描述里，系统指令不出现禁令句。"""
+def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:
+    """地点行为改由菜单声明，静态工具描述和系统指令均不保留办公室散文。"""
     agent = LifeAgent()
     agent.prepare_react_loop(
         ReactLoopRequest(0, _context().observed_at, _observations())
@@ -240,8 +244,8 @@ def test_location_norm_guides_tool_description_not_system_prohibitions() -> None
             ReactLoopRequest(0, _context().observed_at, _observations()))
         if message.get("role") == "system")
 
-    assert "at the office, prefer brief phone-friendly content" in schemas["start_targeted_activity"]
-    assert "save movies and long drama episodes" in schemas["start_targeted_activity"]
+    assert "at the office, prefer brief phone-friendly content" not in schemas["start_targeted_activity"]
+    assert "save movies and long drama episodes" not in schemas["start_targeted_activity"]
     flattened = " ".join(system_prompt.split())
     assert "watching long entertainment openly at the office" not in flattened
     assert "inappropriate" not in flattened

@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-20  
-> **版本**：v1.2\
+> **版本**：v1.3\
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
 ## 版本历史
@@ -12,16 +12,17 @@
 | v1.0 | 2026-09-20 | Claude | 初版：配置层级、场景文件、目录结构、语料配置、规则配置、凭证管理、校验机制 |
 | v1.1 | 2026-09-20 | Codex | 身体初值、资源目录和规则来源对齐实际输入，明确已有实现差异 |
 | v1.2 | 2026-09-20 | Codex | 资源、内容和语料设计归入资源引擎；配置仅保留场景引用与初值 |
+| v1.3 | 2026-09-20 | Codex | 增加地点类与人物交互菜单声明、失败关闭校验和场景身份边界；删除会被误读为实测收据的固定校验示例 |
 
 ## 1. 模块概述
 
 ### 1.1 职责与边界
 
-配置负责定义一次实验的人物、时间、初值、资源与语料版本引用，以及模型凭证。
+配置负责定义一次实验的人物、时间、地点类与人物交互菜单、初值、资源与语料版本引用，以及模型凭证。
 资源、内容和语料的定义与发布统一见[资源引擎设计](03-resource-engine.md)。
 
 **职责**：
-- 定义场景参数（人物、时间窗口、地点、初始状态）
+- 定义场景参数（人物、时间窗口、地点、交互菜单、初始状态）
 - 绑定资源目录版本与语料清单哈希
 - 选择场景参数，并引用资源引擎和交换引擎的规则
 - 提供模型凭证的安全存储与加载机制
@@ -78,7 +79,7 @@ flowchart TB
 
 ### 2.2 加载与校验
 
-场景先通过自身模型校验，再解析固定目录和语料引用；在启动前完成引用、文件身份和品类准入。
+场景先通过自身模型与交互菜单闭集校验，再解析固定目录和语料引用；在启动前完成引用、文件身份和品类准入。
 实际入口见[场景加载](../../src/worldmock/life/scenario.py)与
 [项目校验](../../src/worldmock/validation.py)。目录和语料的加载细节统一见
 [资源引擎的准入边界](03-resource-engine.md#准入边界)，本节不另设通用配置装配类。
@@ -111,7 +112,26 @@ flowchart LR
 身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
 本文不重新定义完整场景 Schema。
 
-### 3.2 身体资源初值
+### 3.2 交互菜单声明
+
+场景根对象必须具有 `interaction_menus_by_location_kind`，键集合恰好等于 `locations[].kind` 的不同值
+集合。每个地点类都有一个非空菜单，不接受 `null`、通配键、缺项或额外键。每个 `agents[]` 条目必须
+显式具有 `interaction_menu`，取同形菜单或 `null`；`null` 表示人物不在地点菜单之外追加限制，字段缺失
+仍是配置错误。
+
+菜单只有 `allowed_tools` 与 `allowed_activity_kinds` 两个必填数组。两个数组均非空、元素无重复且为
+非空白字符串，不接受其他字段。工具名只取 `worldmock.life.models.REQUEST_MODELS`，活动类型只取当前
+可供性注册表的 `kinds`；必须显式保留休息、睡眠、日程与既有活动控制所需的保护项。完整闭集、
+保护集合和 `null` 语义见[交互菜单合同](../CONTRACTS.md#交互菜单声明与有效菜单)。
+
+运行时按人物权威 `location_id` 找到地点的单值 `kind`，再将该地点菜单与人物菜单逐字段求交集。
+`locations[].kind` 只用于选择交互菜单，和候选资格的多值 `location_kinds` 不是同一字段；不能以其中一个
+代替另一个。菜单是显式准入声明，不从人物画像、偏好、动机或目录 `surface` 推导。
+
+所有版本控制内的正式场景和相应测试输入都使用当前字段。旧文件缺字段时拒绝，不生成缺省全量菜单，
+不添加迁移或兼容读取。实现与验收以[冻结特性规格](../dev/SPEC-interaction-menu.md)为准。
+
+### 3.3 身体资源初值
 
 以下是当前白领场景的 `body` 字段摘录，仅展示这一字段，不是可独立运行的完整场景：
 
@@ -138,7 +158,7 @@ flowchart LR
 依据为 [场景语义组装](../../src/worldmock/life/semantics.py) 与
 [身体初始化](../../src/worldmock/life/body.py)。
 
-### 3.3 人物差异与衍生体感
+### 3.4 人物差异与衍生体感
 
 人物的 `chronotype_midsleep`、`sleep_need_hours`、`lunch_window`、`dinner_window`
 分别驱动睡眠节律、睡眠不足累积和饥饿体感的餐时项；完整约束引用
@@ -148,7 +168,7 @@ flowchart LR
 场景不另存可自由改写的饥饿条或疲劳条；身体变化与体感的执行边界见
 [模拟引擎](04-simulation-engine.md#实际区间身体变化与效率)。人物余额使用 `initial_balance_fen`，单位为整数分。
 
-### 3.4 规则来源与配置边界
+### 3.5 规则来源与配置边界
 
 能量上界、基础代谢、活动 MET、娱乐需要变化规则从冻结目录装配到 `BodyConfig`。
 睡眠压力、睡眠不足累积与恢复及食品利用效率由
@@ -261,6 +281,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 时间窗口 | `end_at > start_at` | 拒绝启动 |
 | 初始状态 | 按资源单位与目录边界校验能量、睡眠不足、娱乐需要；运行时继续满足各状态约束 | 拒绝启动 |
 | 地点引用 | `agents[].home_location_id` 指向已声明地点 | 拒绝启动 |
+| 交互菜单 | 地点类映射完整且无额外键；人物字段显式存在；数组非空无重复；名称来自权威闭集并包含保护项 | 以 `IntegrityError` 拒绝启动，保留英文校验原因 |
 | 目录准入 | 满足 `category_requirements` | 拒绝启动，列出缺失品类 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
 | 规则完整性 | 所有规则文件存在且可解析 | 拒绝启动 |
@@ -268,21 +289,10 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 
 ### 8.3 校验报告
 
-```json
-{
-  "validation_status": "passed",
-  "scenario": "scenarios/white-collar-12-weeks.json",
-  "checks": {
-    "schema_version": { "status": "passed", "value": 2 },
-    "required_fields": { "status": "passed", "missing": [] },
-    "time_window": { "status": "passed", "duration_days": 84 },
-    "catalog_admission": { "status": "passed", "categories": 6 },
-    "corpora_hashes": { "status": "passed", "verified": 8 },
-    "rules_completeness": { "status": "passed", "files": 4 },
-    "credentials": { "status": "passed", "file_mode": "0o600" }
-  }
-}
-```
+交互菜单准入由场景加载完成：`load_scenario` 成功即已通过菜单字段与覆盖检查，失败由
+`IntegrityError` 和英文日志给出原因；现有报告不另加独立菜单结果字段。
+报告只记录实际结果，不能用固定数量或示例 `passed` 值冒充一次真实校验。可复现的命令、源码身份和精确输出进入
+[交互菜单验收记录](../dev/research/interaction-menu-verification.md)。
 
 ### 8.4 错误分类与提示
 
@@ -292,6 +302,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 字段缺失 | 缺少 `agents` | "Required field 'agents' is missing" |
 | 类型错误 | `initial_balance_fen: "invalid"` | "Field 'initial_balance_fen' must be an integer" |
 | 引用错误 | `home_location_id: "unknown"` | "Location 'unknown' is not declared" |
+| 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
 | 权限错误 | `deepseek.env` 权限 `0644` | "Run: chmod 0600 ~/.config/worldmock/deepseek.env" |
 
@@ -301,6 +312,8 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 [资源引擎设计](03-resource-engine.md#构建与版本)。
 旧字段和失效配置直接删除，不提供格式迁移或兼容层；实验身份与历史证据的保存遵循
 [实验定义](../EXPERIMENT.md)。
+菜单声明属于场景原始 JSON 字节并进入 `scenario_sha256`。修改地点或人物菜单会产生新的实验身份；
+打开已有运行、恢复与反事实分支不得接受不同场景身份，也不新增与场景哈希重复的菜单版本字段。
 
 ## 10. 配置最佳实践
 
@@ -312,6 +325,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | **固定随机种子** | 保证实验可复现 |
 | **合理时间窗口** | 12 周覆盖完整行为模式 |
 | **真实初始状态** | 按能量、睡眠不足与需要的实际单位设置初值，满足各自边界并保留实验假设来源 |
+| **显式交互菜单** | 每个地点类与人物都按当前合同声明；人物无限制使用显式 `null`，不省略字段 |
 
 ### 10.2 语料管理
 

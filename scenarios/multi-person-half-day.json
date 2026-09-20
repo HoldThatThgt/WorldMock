@@ -19,6 +19,44 @@
     "major": 2,
     "minor": 0
   },
+  "interaction_menus_by_location_kind": {
+    "home": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "office": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "merchant": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "restaurant": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "convenience_store": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "supermarket": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "wet_market": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "fitness": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    },
+    "park": {
+      "allowed_tools": ["start_basic_activity", "start_targeted_activity", "start_travel", "set_activity_state", "change_playback_speed", "continue_activity", "purchase", "consume", "submit_work", "game_action", "browse_activities", "plan_day", "revise_day_plan", "send_message", "start_social_activity"],
+      "allowed_activity_kinds": ["wait", "sleep", "work", "watch", "play_game", "travel", "read_mail", "browse", "consume", "lifestyle"]
+    }
+  },
   "accounts": [
     {
       "account_id": "merchant:general",
@@ -111,6 +149,7 @@
         }
       ],
       "home_location_id": "home",
+      "interaction_menu": null,
       "initial_balance_fen": 800000,
       "skill_levels": {
         "meeting_analysis": 0.8
@@ -226,6 +265,7 @@
         }
       ],
       "home_location_id": "home",
+      "interaction_menu": null,
       "initial_balance_fen": 800000,
       "skill_levels": {
         "meeting_analysis": 0.6,

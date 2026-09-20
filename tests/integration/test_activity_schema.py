@@ -93,6 +93,10 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
             "read_mail": 86_400, "browse": 86_400,
         }},
         "affordance_contract": _AFFORDANCE_CONTRACT,
+        "interaction_menu": {
+            "allowed_tools": sorted(REQUEST_MODELS),
+            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
+        },
         "tasks": [{"task_id": "task", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -223,7 +227,9 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
         assert set(parameters["properties"]) == set(base["properties"])
         assert parameters["required"] == base["required"]
         if name == "start_basic_activity":
-            assert parameters == base
+            assert parameters["properties"]["activity_type"]["enum"] == ["wait", "sleep"]
+            assert parameters["properties"]["activity_type"]["pattern"] == (
+                base["properties"]["activity_type"]["pattern"])
 
 
 def test_duration_bounds_are_preserved_in_schema_and_runtime_validation() -> None:
@@ -234,7 +240,10 @@ def test_duration_bounds_are_preserved_in_schema_and_runtime_validation() -> Non
     too_long = {"activity_type": "wait", "planned_duration_seconds": 86_401}
     too_short = {"activity_type": "wait", "planned_duration_seconds": 59}
 
-    assert schema == model.model_json_schema(mode="validation")
+    base = model.model_json_schema(mode="validation")
+    assert schema["properties"]["activity_type"]["enum"] == ["wait", "sleep"]
+    assert schema["properties"]["planned_duration_seconds"] == (
+        base["properties"]["planned_duration_seconds"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     model.model_validate_json(json.dumps(valid), strict=True)
     for invalid in (too_short, too_long):

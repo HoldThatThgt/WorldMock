@@ -1,11 +1,20 @@
 # WorldMock 实现状态
 
-> 状态：NOT-COMPLETE——确定性代码与测试层已完成；三项真实验收（正式十二周运行、三次隔离盲评、LabelKit 完整自然日交付）均未完成
+> 状态：NOT-COMPLETE——各特性按独立验收记录判断；候选地点能力输入仍有既有缺口，三项真实验收均未完成
 > 日期：2026-09-20（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；本文件只写当前状态，变更过程由 Git 承载
 
 ## 当前结论
+
+交互菜单以 [冻结规格](SPEC-interaction-menu.md) 为本次完整开发范围，覆盖声明、有效菜单、
+人物工具与参数、环境拒绝、恢复身份和文档一致性，不设特性延期项。
+固定源码的最终门禁、条款到行为断言与 Uncle Bob 审查统一记录在
+[交互菜单验收记录](research/interaction-menu-verification.md)，不能以本页历史测试数字代替。
+本特性离线验收已完成：最终固定快照根测试 **2985 passed、零跳过**，分支覆盖率 **98.79%**，
+未覆盖公共接口 **0**；环境侧三十二个、宿主侧二十四个有效语义变异最终全部被检出。
+声明、模型工具与参数、环境结算和恢复身份已经贯通；当前生产、场景与测试文件和被测快照一致。
+两组独立报告保留初次存活项、补强复验和临时工作树清理边界；结果不改变下述全项目真实运行状态。
 
 决策上下文特性以 [冻结规格](SPEC-decision-context.md) 为本次完整开发范围；
 已完成提案裁决、官方协议核对、分模块实现、独立审查修复与隔离源码突变审查，无特性延期项。
@@ -14,8 +23,10 @@ AS2 `e4155095` 的全量测试 **448 passed**。六十种源码反例最终均�
 完整修改清单、条款到测试与独立报告见 [决策上下文验收记录](research/decision-context-verification.md)。
 这些结果只证明本次确定性代码层，不改变下述真实运行门禁的状态。
 
-人物真实性修订合同已在代码层全量落地：LifeEnv 运行时、数字足迹、画像编译、语料、LabelKit 交付与真实性评估
-都是修订后合同的实现，规格条款映射与确定性测试也已就位。但项目不是完成态，因为三项真实验收全部未完成。
+LifeEnv 运行时、数字足迹、画像编译、语料、LabelKit 交付与真实性评估已有实现与确定性测试；
+但候选资格的 `location_kinds` 能力集合尚未进入 `LocationConfig` 和正式输入，不能声称修订合同全部落地。
+它与本次菜单使用的单值 `locations[].kind` 是两个现有合同，不能用菜单实现替代能力集合验收。
+项目仍不是完成态，三项真实验收也全部未完成。
 确定性测试通过、短窗口运行、测试夹具与单条语义通过都不构成这三项的证据。
 
 | 验收项 | 当前状态 | 已有证据 | 缺口 |
@@ -44,7 +55,7 @@ flowchart LR
 
 本轮规格新增 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md`
 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节
-（版本表第 7、8 条）。该章代码层已整章落地，本文件按层如实分别记录；
+（版本表第 7、8 条）。历史算法与夹具测试已经落地，但正式地点能力输入仍未闭合，本文件按层分别记录；
 门禁判定对象是 `docs/VERIFICATION.md`「放行门禁」章「工程门禁」节的「候选与呈现一致性」条（九项判据），
 其可执行判定由下表的测试文件与三项门禁命令承载。
 
@@ -52,7 +63,7 @@ flowchart LR
 | --- | --- | --- |
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
-| 运行期装配与检索 | **已落地**：`src/worldmock/life/presentation.py` 是运行期装配层（装候选输入、取候选、定呈现窗口），`src/worldmock/life/retrieval.py` 提供确定性倒排与 facet、地点类闭集与静态可达性报告；`src/worldmock/life/activities.py` 的 `require_location_kinds` 实施地点类运行期强制；准入侧新增分区键与分区可行性两个校验（`src/worldmock/catalog/admission.py` 的 `_check_partition_keys`、`_check_partition_feasibility`） | `tests/life/test_candidate_wiring.py`（9 测）、`tests/life/test_retrieval.py`（31 测）、`tests/life/test_activity_location_kinds.py`（9 测）、`tests/catalog/test_reachability_admission.py`（9 测） |
+| 运行期装配与检索 | **算法已落地，正式地点能力输入未闭合**：`presentation.py`、`retrieval.py` 和 `activities.py` 已有候选、检索与 `require_location_kinds`；但 `LocationConfig` 及正式场景未声明 `location_kinds`，不能把夹具中的能力集合校验证明成正式输入端到端已生效。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
 | 运行期接线与持久化 | **已落地**：`src/worldmock/life/observe.py` 的观察投影与 `browse_activities` 下推经 `presentation.py` 产出；`src/worldmock/life/engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；`WorldState.schema_version` 由 2 递增为 3，新增 `presentation_state` 字段承载轮转判据「上次呈现时刻」 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 3`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 

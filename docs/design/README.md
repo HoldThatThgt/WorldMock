@@ -23,12 +23,12 @@
 | `01-architecture.md` | 总体架构：系统定位、模块清单、数据流、CLI 规格 | DRAFT |
 | `02-exchange-engine.md` | 交换引擎：维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果 | DRAFT |
 | `03-resource-engine.md` | 资源引擎：资源定义、内容、语料、目录发布与检索提供 | DRAFT |
-| `04-simulation-engine.md` | 模拟引擎：初始化、观察与动作受理、时间与活动推进、结算、唤醒和恢复编排 | DRAFT |
+| `04-simulation-engine.md` | 模拟引擎：初始化、冻结观察与交互菜单、动作受理、时间与活动推进、结算、唤醒和恢复编排 | DRAFT |
 | `05-recording-engine.md` | 记录引擎：事件、素材、事务、检查点、分支、导出与诊断 | 已整合，承接冻结约束 |
 | `06-delivery.md` | 数据交付：LabelKit 接口、证据窗口、发布协议 | DRAFT |
 | `07-evaluation.md` | 行为评估：指标定义、对比协议、结论边界 | DRAFT |
-| `08-configuration.md` | 配置规格：场景、版本引用、初值与模型凭证 | DRAFT |
-| `09-io-formats.md` | 输入输出格式：领域状态与跨模块格式导航 | DRAFT |
+| `08-configuration.md` | 配置规格：场景、交互菜单、版本引用、初值与模型凭证 | DRAFT |
+| `09-io-formats.md` | 输入输出格式：领域状态、观察菜单证据与跨模块格式导航 | DRAFT |
 
 ## 与主文档集的关系
 
@@ -83,6 +83,7 @@ flowchart TB
 | 对接 LabelKit | `06-delivery.md` | `SPEC-labelkit-delivery.md` → LabelKit 文档 |
 | 设计评估指标 | `07-evaluation.md` | `VERIFICATION.md` → `EXPERIMENT.md` |
 | 配置实验场景 | `08-configuration.md` | `scenarios/` 示例 → `EXPERIMENT.md` |
+| 配置地点类与人物交互菜单 | [交互菜单规格](../dev/SPEC-interaction-menu.md) | `08-configuration.md` → `04-simulation-engine.md` → `05-recording-engine.md` |
 | 解析输出数据 | `09-io-formats.md` | 记录引擎的事件与导出格式 → 数据交付格式 |
 | 追踪运行问题 | `05-recording-engine.md` | `scripts/inspect_run.py` |
 
