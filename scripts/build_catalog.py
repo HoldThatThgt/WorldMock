@@ -12,7 +12,8 @@ credible kcal density windows enforced at generation time; prices anchored to
 frozen baseline foods +/-30% with fixed seeds per wave) and
 corpora/manifest.json, plus corpora/meals/items.json (30 contract meals with
 USDA FNDDS calorie provenance), then emits the static catalog per
-docs/dev/PROPOSAL-resource-registry.md (§3/§4.2/§5/§13): catalog/resources.jsonl,
+docs/design/03-resource-engine.md (「可计量资源定义」「来源分类」「构建与版本」)
+and docs/design/02-exchange-engine.md (「交换对象与资源变化声明」): catalog/resources.jsonl,
 catalog/objects.jsonl (121 foods + 30 meals + 8 durables + travel + contracts),
 catalog/manifest.json (2.0, carrying the versioned world-material
 category_requirements declaration) and an empty
@@ -23,7 +24,7 @@ scripts/migrate_scenarios.py parity assertions. The --check gate therefore
 proves "catalog matches the generator" (snapshot + rules + corpora), not
 "catalog matches the scenarios".
 
-Hand-written files NOT touched by this generator (per §13, rules are human-authored):
+Hand-written files NOT touched by this generator (per 「交换规则的加载与准入」, rules are human-authored):
   catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
   catalog/rules/travel-time.toml, catalog/rules/motivation.toml,
   catalog/rules/persona-mapping.toml, catalog/affordances.toml,
@@ -60,10 +61,10 @@ HEAD = "cd2586b"
 
 #: 修订合同《世界素材品类要求》的版本化声明：随 catalog/manifest.json 冻结，
 #: 场景启动准入（admission.validate_world_categories）逐条执行，不满足即拒绝启动。
-#: 阈值即合同原文（docs/agentsociety2-design.md §世界素材品类要求）。
+#: 阈值即合同原文（`docs/dev/SPEC-life-realism.md`「世界素材品类要求」）。
 CATEGORY_REQUIREMENTS = {
     "declared_at": "2026-09-18",
-    "spec": "docs/agentsociety2-design.md world-material category table (L1635-1650)",
+    "spec": "docs/dev/SPEC-life-realism.md 世界素材品类要求",
     "meals": {
         "min_count": 30,
         "price_fen_min": 1500,
@@ -165,7 +166,7 @@ def sha256_of(path: Path) -> str:
 
 
 # ---------------------------------------------------------------------------
-# provenance coverage walker (§5: every static numeric value must be covered)
+# provenance coverage walker (「来源分类」: every static numeric value must be covered)
 # ---------------------------------------------------------------------------
 
 SKIP_KEYS = {"version", "provenance"}
@@ -210,7 +211,7 @@ FACT_SOURCES = {
     "met": "Compendium of Physical Activities 2011",
     "dri": "中国居民膳食营养素参考摄入量",
 }
-FACT_ARTIFACT = "docs/dev/PROPOSAL-resource-registry.md §5"
+FACT_ARTIFACT = "docs/design/03-resource-engine.md「来源分类」"
 ENGINE_CLAMP = "legacy-engine-body clamp (src/worldmock/life/body.py:71,86,183,195)"
 
 
@@ -283,7 +284,7 @@ def build_resources(body: dict) -> list[dict]:
             {"part": "alert_rules", "paths": ["alert_rules"],
              "type": "scenario",
              "source": "legacy-scenario-body hunger/emergency thresholds; codes per "
-                       "docs/dev/PROPOSAL-resource-registry.md §3.1 (engine currently emits "
+                       "docs/design/03-resource-engine.md「可计量资源定义」 (engine currently emits "
                        "lowercase hungry/emergency_energy, src/worldmock/life/body.py:126-129)"},
         ],
         "version": 1,

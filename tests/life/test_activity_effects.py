@@ -177,7 +177,7 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
     agent = engine.state.agents[1]
     before = agent.body.entertainment_need
     item = engine.rules.content("sintel-en-subtitles")
-    # 修订合同 L1661：结算偏好源=taste_weights（卡片口味 x genre 确定性权重）；
+    # docs/dev/SPEC-life-realism.md「画像编译」：结算偏好源=taste_weights（卡片口味 x genre 确定性权重）；
     # 引擎路径在 PersonaCard 入库前为空映射，经 staged 提交注入权重验证结算链路。
     from worldmock.footprints.models import EventDraft
 

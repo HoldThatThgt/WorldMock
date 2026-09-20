@@ -23,7 +23,9 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     assert manifest.corpus_id == "life-full-2026-09-15"
     # C23 扩容：材料三件套 195 份（65 材料 × 输入/参考/oracle）+ POI 路由 208 份。
-    assert len(manifest.entries) == 956
+    # 可达性修复：补 5 个流身份条目（news-feed / jokes-feed / weibo-feed / zhihu-feed /
+    # movie-reviews-feed），使场景声明的这五条在语料里有可检索的分区键。
+    assert len(manifest.entries) == 961
     products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
     threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
     assert len(products) == 8

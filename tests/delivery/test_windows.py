@@ -201,7 +201,7 @@ def test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event(in
 
 @pytest.mark.parametrize('ordering', ['after', 'equal'])
 def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself(ordering):
-    """引用排序守卫（规格 L677、L1396-1407）：未来事件不得进入引用集合。
+    """引用排序守卫（docs/dev/SPEC-labelkit-delivery.md「信息范围与标签」「来源关联」）：未来事件不得进入引用集合。
 
     观察的 recent_action_results 引用的结果事件序号 >= 观察自身序号时，
     导出管道必须经 `source["event_seq"] >= observation["event_seq"]` 拒绝。
@@ -255,7 +255,7 @@ def test_midnight_experiment_end_does_not_create_an_extra_training_day(tmp_path)
 
 
 def test_dreaming_window_reads_inner_monologue_and_scene(tmp_path):
-    """dreaming 窗口可含当日 decision_started 独白与观察 scene（规格 L1578/L1680）。"""
+    """dreaming 窗口可含当日 decision_started 独白与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。"""
     observed = event('observed', 1, 'observation', {'scene': '清晨在家，阳光很好。', 'balance_fen': 800})
     monologue = event('monologue-start', 2, 'decision_started',
                       {'inner_monologue': '今天想先把报告写完，再去买菜。', 'phase': 'monologue'})
@@ -280,7 +280,7 @@ def test_dreaming_window_reads_inner_monologue_and_scene(tmp_path):
 
 
 def test_action_and_intent_windows_still_exclude_the_monologue_carrier(tmp_path):
-    """信息范围合同：独白仅 dreaming 可读，动作/意图可见输入仍排除（L1578）。"""
+    """信息范围合同：独白仅 dreaming 可读，动作/意图可见输入仍排除（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
     from worldmock.delivery.windows import PRIVATE_EVENTS
 
     assert 'decision_started' in PRIVATE_EVENTS

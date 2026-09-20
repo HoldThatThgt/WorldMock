@@ -1,4 +1,4 @@
-"""@brief 唤醒条件判定与下一决策时刻的规格测试（规格 L1447-1477）。"""
+"""@brief 唤醒条件判定与下一决策时刻的规格测试（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
 
 from __future__ import annotations
 
@@ -207,12 +207,12 @@ def test_felt_band_change_detects_added_or_removed_band() -> None:
 
 
 def test_sleep_ignores_reconsideration_interval() -> None:
-    """@brief 睡眠不受重估间隔影响（规格 L1470）：间隔早已期满也不唤醒。"""
+    """@brief 睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：间隔早已期满也不唤醒。"""
     assert verdict(is_asleep=True, last_decision_time=NOW - 7200) == []
 
 
 def test_sleep_allows_planned_end_and_wake_events_only() -> None:
-    """@brief 睡眠只在计划结束或唤醒事件时提供决策（规格 L1470）。"""
+    """@brief 睡眠只在计划结束或唤醒事件时提供决策（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
     assert verdict(is_asleep=True, planned_end=NOW) == [WakeReason.PLANNED_END]
     assert verdict(is_asleep=True, wake_from_sleep=True) == [WakeReason.WAKE_FROM_SLEEP]
     assert verdict(is_asleep=True, run_start=True) == [WakeReason.RUN_START]
@@ -259,7 +259,7 @@ def test_task_due_window_excludes_overdue_and_far() -> None:
 
 
 def test_location_open_event_fires() -> None:
-    """@brief 已开门事件构成 location_hours_change 唤醒（规格 L1460）。"""
+    """@brief 已开门事件构成 location_hours_change 唤醒（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
     assert verdict(location_just_opened=True) == [WakeReason.LOCATION_HOURS_CHANGE]
 
 
@@ -287,7 +287,7 @@ def make_query(**overrides) -> NextDecisionQuery:
 
 
 def test_next_decision_takes_minimum_of_all_candidates() -> None:
-    """@brief 下一决策时刻取全部候选的最小值（规格 L1471-1473）。"""
+    """@brief 下一决策时刻取全部候选的最小值（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
     moment = next_decision_time(
         make_query(
             planned_end=NOW + 500,
@@ -327,7 +327,7 @@ def test_next_decision_awake_includes_reconsideration_expiry() -> None:
 
 
 def test_next_decision_asleep_skips_reconsideration_expiry() -> None:
-    """@brief 睡眠不受重估间隔影响（规格 L1470）：到期时刻被剔除。"""
+    """@brief 睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：到期时刻被剔除。"""
     moment = next_decision_time(
         make_query(planned_end=NOW + 1000, last_decision_time=NOW - 5000, is_asleep=True)
     )

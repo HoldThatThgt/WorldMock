@@ -23,7 +23,7 @@ _SPEC_WAKE_REASONS = frozenset({
     "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
 })
 
-#: 规格事件类型冻结枚举 14 类（docs/agentsociety2-design.md L864-866 逐字）。
+#: 规格事件类型冻结枚举 14 类（`docs/CONTRACTS.md`「事件类型枚举」逐字）。
 _SPEC_EVENT_TYPES = (
     "observation", "decision_started", "model_request", "model_response", "action_requested",
     "action_accepted", "action_rejected", "activity_progress", "action_result",

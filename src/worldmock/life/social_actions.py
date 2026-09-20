@@ -1,11 +1,11 @@
-"""@brief 社交动作的引擎侧执行：瞬时消息、交谈与通话前台活动（修订合同 L1616-1633）。
+"""@brief 社交动作的引擎侧执行：瞬时消息、交谈与通话前台活动（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 
 域校验与记录结构复用 life.social 纯函数；本模块补足引擎侧接线：构造 CHAT/CALL
 前台活动（这两种 kind 不在可供性注册表内，不经 activities.start_activity 的
 注册表 MET 查表）、按区间推进并结算社交需要账本（felt.apply_social_need_ledger
 与 social.chat_settlement 的速率）。
 
-聊天接受语义（L1625）：对方在其下一次决策开始与发起方的交谈（对方存在以本方
+聊天接受语义（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：对方在其下一次决策开始与发起方的交谈（对方存在以本方
 为伙伴的进行中 CHAT 活动）则双方各按 0.5/小时缓解，否则发起方按 0.2/小时。
 model 策略联系人回复的实际模型调用沿用 work_review 的外部调用模式：引擎只登记
 social.ModelReplyRequest 待宿主执行（本仓库引擎无模型直连通道，见交付报告）。
@@ -34,7 +34,7 @@ from worldmock.life.scenario import BodyConfig
 CHAT_MET = 1.5
 #: 通话代谢当量（experiment_assumption：坐姿通话约 1.3 MET）。
 CALL_MET = 1.3
-#: 社交活动的资源锁：位置恒占 + 注意力（通话占用注意力，L1626）。
+#: 社交活动的资源锁：位置恒占 + 注意力（通话占用注意力，docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 SOCIAL_RESOURCE_CLAIMS = frozenset({"position", "attention"})
 
 
@@ -65,7 +65,7 @@ def partner_presence(state: WorldState, partner_id: str) -> social.AgentPresence
 
 def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivityRequest,
                origin: ActivityOrigin, message_id: str) -> SocialStart:
-    """@brief 受理交谈：共同在场且对方可交谈，作为发起方前台活动结算（L1625）。"""
+    """@brief 受理交谈：共同在场且对方可交谈，作为发起方前台活动结算（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
     partner = partner_presence(state, request.partner_id)
     if agent.current_activity_id is not None:
         raise BusinessRuleError("RESOURCE_CONFLICT")
@@ -85,7 +85,7 @@ def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivit
 
 def start_call(agent: AgentState, contact: social.Contact, request: StartSocialActivityRequest,
                origin: ActivityOrigin, now: int) -> SocialStart:
-    """@brief 受理通话：面向场景联系人，10-60 分钟，占用注意力（L1626）。"""
+    """@brief 受理通话：面向场景联系人，10-60 分钟，占用注意力（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
     if agent.current_activity_id is not None:
         raise BusinessRuleError("RESOURCE_CONFLICT")
     started = social.start_call(contact, request.duration_minutes)

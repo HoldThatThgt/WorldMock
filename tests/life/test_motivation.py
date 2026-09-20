@@ -238,7 +238,7 @@ class TestHomeostatic:
         assert "restores energy 100->" in eat.candidate.reason
 
     def test_money_at_comfort_keeps_price_out_of_homeostatic(self, transforms):
-        # 修订合同 L1598：价格只在成本项计一次——购餐与持餐候选的 homeostatic
+        # docs/dev/SPEC-life-realism.md「动机层」：价格只在成本项计一次——购餐与持餐候选的 homeostatic
         # 完全一致（钱坐标不含价格流），价格损失全量落在成本项。
         base = dict(products=(_food(price=800),), merchant_stock={"food-1": 5},
                     locations={"market": _location()})
@@ -268,7 +268,7 @@ class TestHomeostatic:
         scored = evaluate_motivation(context, profile, transforms)
         candidate = next(item for item in scored
                          if item.candidate.family == "eat").candidate
-        # L1598：价格只进成本项——内稳态钱坐标只含折现的延期钱流。
+        # docs/dev/SPEC-life-realism.md「动机层」：价格只进成本项——内稳态钱坐标只含折现的延期钱流。
         money_after = context.balance_fen
         energy_after = agent.body.energy_kcal + candidate.energy_delta
         deficit_after = agent.body.sleep_deficit_hours + candidate.sleep_deficit_delta
@@ -416,13 +416,13 @@ class TestCost:
         scored = evaluate_motivation(context, _profile(), transforms)
         travel = next(item for item in scored if item.candidate.family == "travel")
         hours = travel.candidate.duration_seconds / 3600
-        # L1598：价格单计 + 时间机会成本，整体按候选时长归一到单位小时口径。
+        # docs/dev/SPEC-life-realism.md「动机层」：价格单计 + 时间机会成本，整体按候选时长归一到单位小时口径。
         expected = (600 + hours * transforms.time_value_fen_per_hour) \
             / transforms.money_scale_fen / hours
         assert travel.components["cost"] == pytest.approx(expected, rel=1e-6)
 
     def test_cost_normalized_per_hour_across_durations(self, transforms):
-        """@brief L1598 单位小时效用：10 分钟与 120 分钟零价格候选的时间成本可比。"""
+        """@brief docs/dev/SPEC-life-realism.md「动机层」单位小时效用：10 分钟与 120 分钟零价格候选的时间成本可比。"""
         short = _context(agent=_agent(need=0.5), contents=(_content("movie-a",
                                                                     seconds=600),),
                          taste_weights={"movie-a": 0.8})
@@ -766,7 +766,7 @@ class TestLifestyleCandidates:
 
 
 # ---------------------------------------------------------------------------
-# 修订合同 L1596-1601 评分器修正
+# docs/dev/SPEC-life-realism.md「动机层」评分器修正
 # ---------------------------------------------------------------------------
 
 class TestScorerContract:
@@ -806,7 +806,7 @@ class TestScorerContract:
         assert [item.summary for item in _eat_candidates(context)] == ["Buy and eat food-b"]
 
     def test_same_entertainment_family_capped_at_two(self, transforms):
-        # 同一娱乐家族（内容品类）至多两条候选（L1599）。
+        # 同一娱乐家族（内容品类）至多两条候选（docs/dev/SPEC-life-realism.md「动机层」）。
         contents = tuple(_content(f"movie-{index:04d}", "feature_film", 3600, 0.2)
                          for index in range(1, 6))
         context = _context(contents=contents,
@@ -817,7 +817,7 @@ class TestScorerContract:
         assert 0 < len(entertainment) <= ENTERTAINMENT_FAMILY_CAP == 2
 
     def test_need_below_floor_suppresses_entertainment(self, transforms):
-        # 娱乐需要低于 0.3 时不生成娱乐候选；恰在 0.3 时恢复生成（L1599）。
+        # 娱乐需要低于 0.3 时不生成娱乐候选；恰在 0.3 时恢复生成（docs/dev/SPEC-life-realism.md「动机层」）。
         contents = (_content(),)
         taste = {"movie-0001": 0.8}
         low = _context(agent=_agent(need=0.29), contents=contents, taste_weights=taste)
@@ -828,7 +828,7 @@ class TestScorerContract:
         assert any(item.candidate.family == "entertainment" for item in high_scored)
 
     def test_lifestyle_enabled_set_scopes_sampling(self, transforms):
-        # 生活活动只从人物启用集采样：启用集外的目录内条目不进候选（L1600）。
+        # 生活活动只从人物启用集采样：启用集外的目录内条目不进候选（docs/dev/SPEC-life-realism.md「动机层」）。
         met = {"lifestyle:jogging": 7.0, "lifestyle:archery": 4.3, "lifestyle:yoga": 3.0}
         body = _body().model_copy(update={"activity_met": dict(_body().activity_met, **met)})
         context = _context(body=body, lifestyle_enabled=("yoga",))
@@ -854,11 +854,26 @@ class TestScorerContract:
         assert [item.summary for item in _eat_candidates(context)] == [
             "Buy and eat food-fresh", "Buy and eat food-old"]
 
-    def test_zero_taste_weights_do_not_lift_entertainment(self, transforms):
-        # taste_weights 全 0（未接线或无口味）：不做 0.5 缺省抬升，娱乐候选为空。
-        context = _context(contents=(_content(), _content("news-1", "news_feed", 600, 0.1)))
+    def test_zero_taste_weights_keep_entertainment_ranked_last(self, transforms):
+        # docs/dev/SPEC-life-realism.md「画像编译」：口味权重是排序信号不是准入条件。
+        # 零权重条目仍在候选集里，只排在非零权重之后；不做 0.5 缺省抬升。
+        contents = (_content("movie-0001", "feature_film", 3600, 0.2),
+                    _content("movie-0002", "feature_film", 3600, 0.2))
+        context = _context(contents=contents, taste_weights={"movie-0001": 0.8})
         scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
-        assert all(item.candidate.family != "entertainment" for item in scored)
+        entertainment = [item.candidate.summary for item in scored
+                         if item.candidate.family == "entertainment"]
+        # 两条都进候选（零权重那条不被丢弃），且零权重排在非零权重之后
+        assert len(entertainment) == 2
+        assert "movie-0001" in entertainment[0] and "movie-0002" in entertainment[1]
+
+    def test_unstated_genre_items_stay_in_candidate_pool(self, transforms):
+        # 卡片未声明某题材时该题材条目权重为零：必须仍在候选内，不得在枚举时被丢弃。
+        contents = tuple(_content(f"movie-{index:04d}", "feature_film", 3600, 0.2)
+                         for index in range(1, 4))
+        context = _context(contents=contents, taste_weights={})
+        scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
+        assert any(item.candidate.family == "entertainment" for item in scored)
 
     def test_sleep_candidate_clears_deficit_at_one_hour_per_hour(self, transforms):
         # 新标度：睡眠每小时恢复 1h 不足账——4h 账给出 4.0h 睡眠候选并清零。

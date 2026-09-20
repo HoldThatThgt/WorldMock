@@ -1,4 +1,4 @@
-"""@brief 画像编译 v2 结构合同：PersonaCard、大五与世界层动力学（规格 L1652-1669）。
+"""@brief 画像编译 v2 结构合同：PersonaCard、大五与世界层动力学（docs/dev/SPEC-life-realism.md「画像编译」）。
 
 PersonaCard 从 background_story 抽取（三次一致性口径），承载身份、关系、当下
 处境、时间锚点、时型、习惯签名、口味与应对方式；经确定性渲染成不超过 600
@@ -23,23 +23,23 @@ from pydantic import (BaseModel, ConfigDict, Field, field_validator,
 SCHEMA_VERSION = 2
 #: 卡片抽取提示版本（换提示词必须换版本号）。
 PROMPT_VERSION = "card-v1"
-#: 卡片渲染汉字上限（规格 L1531，与 life/narration.py 同源常数；不互相 import，
+#: 卡片渲染汉字上限（docs/dev/SPEC-life-runtime.md「字符预算」，与 life/narration.py 同源常数；不互相 import，
 #: 两处同时钉死同一规格行）。
 PERSONA_CARD_HANZI_BUDGET = 600
 
 BIG_FIVE_DIMENSIONS = ("openness", "conscientiousness", "extraversion",
                        "agreeableness", "neuroticism")
-#: 已删除的旧模板字段（规格 L1661）：出现在输入档案即明确报错，不静默兼容。
+#: 已删除的旧模板字段（docs/dev/SPEC-life-realism.md「画像编译」）：出现在输入档案即明确报错，不静默兼容。
 LEGACY_TEMPLATE_FIELDS = frozenset({
     "occupation", "routine_preference", "consumption_preference", "risk_preference"})
 
-#: 睡眠需要小时数区间（规格 L1656，合同常数；与 life/sleep.py 同口径）。
+#: 睡眠需要小时数区间（docs/dev/SPEC-life-realism.md「画像编译」，合同常数；与 life/sleep.py 同口径）。
 SLEEP_NEED_MIN_H = 7.0
 SLEEP_NEED_MAX_H = 9.0
 DEFAULT_SLEEP_NEED_H = 7.5
 #: 时型（自由日睡眠中点）默认 04:00（Roenneberg MCTQ 典型中点，experiment_assumption）。
 DEFAULT_CHRONOTYPE_MIDSLEEP_H = 4.0
-#: 亲密度 0-30 整数刻度（Humanoid Agents closeness 0-30，规格 L1621 联系人同刻度）。
+#: 亲密度 0-30 整数刻度（Humanoid Agents closeness 0-30，docs/dev/SPEC-life-runtime.md「社交最小可行版」联系人同刻度）。
 INTIMACY_MIN = 0
 INTIMACY_MAX = 30
 
@@ -211,7 +211,7 @@ class BigFiveProfile(_Frozen):
 
 
 class PersonaCard(_Frozen):
-    """@brief 结构化人物卡片（画像编译 v2 核心合同，规格 L1653-1657）。"""
+    """@brief 结构化人物卡片（画像编译 v2 核心合同，docs/dev/SPEC-life-realism.md「画像编译」）。"""
 
     identity: Identity
     relationships: tuple[Relationship, ...] = Field(min_length=1, max_length=MAX_RELATIONSHIPS)
@@ -234,7 +234,7 @@ class PersonaCard(_Frozen):
 
 
 class WorldDynamics(_Frozen):
-    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，规格 L1659-1660）。
+    """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，docs/dev/SPEC-life-realism.md「画像编译」）。
 
     神经质→mood_pulse_amplitude/mood_halflife_minutes；外向性→
     social_need_growth_per_hour/conversation_relief_per_hour；开放性→

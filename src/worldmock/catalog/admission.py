@@ -1,4 +1,8 @@
-"""@brief 场景加载时的目录准入校验：七条规则全部 fail-closed。"""
+"""@brief 场景加载时的目录准入校验：十条规则全部 fail-closed。
+
+资源注册表的八条规则作用于场景引用闭集（`validate_scenario_against_catalog`），
+素材可达性的两条作用于世界素材品类（`validate_world_categories`）。
+"""
 
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ from worldmock.catalog.models import (
     TransferEdge,
     is_role_placeholder,
 )
+from worldmock.life.retrieval import entry_from_content, feasible_kinds
 
 CATALOG_REF_INTEGRITY = "CATALOG_REF_INTEGRITY"
 UNIT_MISMATCH = "UNIT_MISMATCH"
@@ -127,7 +132,7 @@ def validate_scenario_against_catalog(
     refs: ScenarioCatalogRefs,
     catalog: Catalog,
 ) -> AdmissionResult:
-    """@brief 按设计 §8 的七条规则校验场景引用闭集。
+    """@brief 按 docs/design/03-resource-engine.md「准入边界」的八条规则校验场景引用闭集。
 
     :param refs: 场景侧的资源初始化、账户声明、对象引用与预排表引用。
     :param catalog: 场景钉定版本的冻结目录视图。
@@ -599,7 +604,7 @@ def _check_formula_refs(
     catalog: Catalog,
     violations: list[AdmissionViolation],
 ) -> None:
-    """@brief 第七条：对象引用的计费公式必须在注册表中声明。
+    """@brief 第八条：对象引用的计费公式必须在注册表中声明。
 
     覆盖对象顶层 formula_ref 与边金额的公式绑定（travel 类对象的费率公式）。
     """
@@ -648,6 +653,8 @@ CATEGORY_LIFESTYLE_CORPUS_MISSING = "CATEGORY_LIFESTYLE_CORPUS_MISSING"
 CATEGORY_LIFESTYLE_FIELD_MISSING = "CATEGORY_LIFESTYLE_FIELD_MISSING"
 CATEGORY_CONTACTS_BELOW_MIN = "CATEGORY_CONTACTS_BELOW_MIN"
 CATEGORY_CONTACTS_MAPPING_INVALID = "CATEGORY_CONTACTS_MAPPING_INVALID"
+CATEGORY_PARTITION_KEY_MISSING = "CATEGORY_PARTITION_KEY_MISSING"
+CATEGORY_PARTITION_LOCATION_INFEASIBLE = "CATEGORY_PARTITION_LOCATION_INFEASIBLE"
 TASK_ASSIGNEE_MISSING = "TASK_ASSIGNEE_MISSING"
 
 MEALS_CORPUS = "meals/items.json"
@@ -662,12 +669,21 @@ MORNING_WASH_ACTIVITY = "wellness-morning-wash"
 LIFESTYLE_LOCATION_KINDS = frozenset(
     {"home", "office", "outdoor", "fitness", "venue", "anywhere"})
 #: 观看内容语料清单：路径与其条目装载方式（list / items 包装 / 单文档）。
+#: `*-items.json` 是「流式语料的分区键文件」：一条流对应一条内容条目，声明该
+#: 条目的 genre/language（`feed`/`jokes` 与三条社交流各一份）；`games/library/
+#: items.json` 的条目自带 `item_id`/`genre`/`language`，直接参与投影。
 CONTENT_CORPORA: tuple[tuple[str, str], ...] = (
     ("movies/items.json", "list"),
     ("drama/items.json", "list"),
     ("novels/items.json", "list"),
     ("feed/items.json", "list"),
+    ("feed/feed-items.json", "list"),
     ("jokes/items.json", "list"),
+    ("jokes/feed-items.json", "list"),
+    ("games/library/items.json", "list"),
+    ("social/weibo/feed-items.json", "list"),
+    ("social/zhihu/feed-items.json", "list"),
+    ("social/movie_reviews/feed-items.json", "list"),
     ("sintel/media-identity.json", "single"),
 )
 #: 白领场景联系人映射的封闭类型集。
@@ -724,6 +740,8 @@ def validate_world_categories(catalog: Catalog, corpora_root) -> AdmissionResult
     _check_work(root, requirements.work_materials, violations)
     _check_lifestyle(root, violations)
     _check_contacts(root, requirements.contacts, violations)
+    _check_partition_keys(root, violations)
+    _check_partition_feasibility(root, violations)
     return AdmissionResult(ok=not violations, violations=tuple(violations))
 
 
@@ -967,6 +985,98 @@ def _lifestyle_fields_valid(item) -> bool:
         return False
     return all(isinstance(value, (int, float)) and 0.0 <= value <= 1.0
                for value in effects.values())
+
+
+def _check_partition_keys(root, violations) -> None:
+    """@brief 素材可达性第一半：每个可检索条目必须齐备全部分区键。
+
+    条目的检索分区键（内容为题材、语言、时长段）必须齐备；任一键缺省的条目
+    落不进任何分区，判定为不可达并阻断启动（docs/dev/SPEC-life-realism.md
+    「素材可达性」）。
+    """
+    for entry in _retrieval_entries(root):
+        missing = entry.missing_dimensions
+        if missing:
+            violations.append(AdmissionViolation(
+                CATEGORY_PARTITION_KEY_MISSING,
+                f"entry {entry.object_id} from {entry.source} lacks retrieval partition"
+                f" dimensions {list(missing)} (genre/language/duration_bucket)"))
+
+
+def _check_partition_feasibility(root, violations) -> None:
+    """@brief 素材可达性第二半：每个分区必须存在非空的地点可行组合。
+
+    分区内至少有一条条目的 `location_kinds` 与场景至少一个地点的
+    `location_kinds` 交集非空，否则该分区在场景里恒不可行，判定为不可达
+    （docs/dev/SPEC-life-realism.md「素材可达性」）。
+    """
+    entries = _retrieval_entries(root)
+    places = _place_kinds(root)
+    for partition, members in sorted(_partitions_of(entries).items()):
+        if any(feasible_kinds(place, member.location_kinds)
+               for member in members for place in places):
+            continue
+        blocked = sorted(member.object_id for member in members)
+        violations.append(AdmissionViolation(
+            CATEGORY_PARTITION_LOCATION_INFEASIBLE,
+            f"partition {list(partition)} is infeasible at every scenario location: {blocked}"))
+
+
+def _partitions_of(entries):
+    """@brief 按完整分区键归组条目；分区键缺省的条目不进任何分区。"""
+    groups: dict[tuple[str, str, str], list] = {}
+    for entry in entries:
+        if entry.partition is not None:
+            groups.setdefault(entry.partition, []).append(entry)
+    return groups
+
+
+def _place_kinds(root) -> tuple[frozenset[str], ...]:
+    """@brief 地点语料里全部地点的地点类集合。
+
+    地点未声明 `location_kinds` 时按 `anywhere` 处理：未声明不是「哪里都去不了」，
+    而是「没有声明限制」，与 `life.presentation` 的运行期缺省同口径。声明了却为空
+    不是缺省——那是「哪里都去不了」，按空集投影。
+    """
+    document = _load_corpus(root, LOCATIONS_CORPUS)
+    if document is None:
+        return ()
+    places = []
+    for location in document.get("locations", []):
+        declared = location.get("location_kinds")
+        if isinstance(declared, list) and declared:
+            places.append(frozenset(str(kind) for kind in declared))
+        else:
+            places.append(frozenset({"anywhere"}))
+    return tuple(places)
+
+
+def _retrieval_entries(root) -> tuple:
+    """@brief 该语料根下全部可检索条目的分区侧事实（内容语料逐条投影）。
+
+    条目身份取语料自身的 `item_id`；时长优先 `duration_seconds`，阅读类条目
+    退到 `estimated_read_seconds`（同为整数秒量）。条目的地点类取条目自身的
+    `location_kinds` 声明；未声明的按空集投影——空集不构成地点要求，与
+    `life.candidates` 的 `_location_reason` 同口径（无要求即恒可行）。
+
+    `single` 装载方式的语料（`sintel/media-identity.json`）是单条内容条目的
+    身份文件，本身携带 `item_id` 与分区键（题材、语言），因此与列表式语料一样
+    逐条投影：它就是要检索的那一条，不再由场景的 `contents[]` 代声明分区键。
+    """
+    entries = []
+    for relative, mode in CONTENT_CORPORA:
+        document = _load_corpus(root, relative)
+        if document is None:
+            continue
+        for item in _corpus_items(document, mode):
+            if not isinstance(item, dict):
+                continue
+            object_id = str(item.get("item_id") or item.get("title") or "")
+            if not object_id:
+                continue
+            entries.append(entry_from_content(object_id, relative, item,
+                                              item.get("location_kinds") or ()))
+    return tuple(entries)
 
 
 def _check_contacts(root, requirements, violations) -> None:

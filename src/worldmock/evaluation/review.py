@@ -365,7 +365,7 @@ def _timeline_row(
 ) -> JsonObject:
     """@brief 规范化一个可见活动区间，同伴以 keyed HMAC 匿名对象引用输出。
 
-    地点与同伴两列为修订合同 L1632/L1680 新增：location_id 适配层尚未
+    地点与同伴两列为docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」新增：location_id 适配层尚未
     填充时为 null；partner_id 只以评审槽+候选命名空间隔离的匿名引用出现，
     原始人物身份不进盲评包。
     """

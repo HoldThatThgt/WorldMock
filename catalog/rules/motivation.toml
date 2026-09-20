@@ -1,5 +1,5 @@
 # 动机评分层通用变换参数（src/worldmock/life/motivation.py 消费；loader 跳过非公式规则文件）。
-# 与 travel-fare/travel-time 同属人工编写规则（§13）：本文件不含 [formula] 表，
+# 与 travel-fare/travel-time 同属人工编写规则（docs/design/03-resource-engine.md「文件职责」）：本文件不含 [formula] 表，
 # scripts/build_catalog.py 只断言其存在；语义校验由 MotivationTransforms 模型在装配时执行。
 # 人物个体差异（weights/tau/beta/loss_aversion/comfort/emotion_sensitivity/attention_prior）
 # 全部来自场景 agents[].motivation 档案（画像编译器产物），本文件只放跨人物通用的变换形状。
@@ -17,7 +17,7 @@ loss_exponent = 0.88
 satiation_exponent = 0.88
 
 [normalization]
-# 各资源舒适坐标的归一尺度：把 fen/kcal/hours/ratio 折到可比 util 坐标（§类型异构归一）。
+# 各资源舒适坐标的归一尺度：把 fen/kcal/hours/ratio 折到可比 util 坐标（类型异构归一）。
 # 取值口径：让"一次典型行为的变化量"落在 O(1) util——廉价一餐 ≈300–1500 fen、
 # 一份正餐热量 ≈500–900 kcal、一夜睡眠债 ≈6–8 h、重度娱乐需要 ≈0.5–1.0。
 money_fen = 1000.0

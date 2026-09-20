@@ -1,4 +1,4 @@
-"""社交最小可行版纯函数域的独立测试（修订合同 L1616-1633）。"""
+"""社交最小可行版纯函数域的独立测试（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
 
 from __future__ import annotations
 
@@ -65,7 +65,7 @@ def test_people_here_filters_location_and_exposes_closed_fields() -> None:
     away = _presence(name="韩梅梅", location="家", agent_id="a3")
     views = people_here("共享办公-茶水间", [here, away])
     assert [view.name for view in views] == ["李雷"]
-    # 身份锚点闭集（L1005-1007 工具身份枚举）+ 隐私闭集（L1630）。
+    # 身份锚点闭集（docs/CONTRACTS.md「人物工具与管理接口」工具身份枚举）+ 隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
     assert set(PersonView.model_fields) == {"person_id", "name", "activity_family", "can_talk"}
     dumped = views[0].model_dump()
     assert dumped["person_id"] == "a2"
@@ -216,7 +216,7 @@ def _identity_facts() -> dict:
 
 
 def test_message_recipients_come_from_current_observation_identities() -> None:
-    """send_message 收件人闭集 = 在场人物 ∪ 联系人 ∪ 收件箱发送者（L1005-1007）。"""
+    """send_message 收件人闭集 = 在场人物 ∪ 联系人 ∪ 收件箱发送者（docs/CONTRACTS.md「人物工具与管理接口」）。"""
     from custom.agents.life_agent import (
         _visible_message_recipients,
         _validate_visible_action,

@@ -40,15 +40,15 @@ MONOLOGUE_MAX_TOKENS = 400
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
 
-#: 一笔订单的件数闭区间（修订合同 L1672：1-5 件，服务端不表达 minItems）。
+#: 一笔订单的件数闭区间（docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件，服务端不表达 minItems）。
 _ORDER_ITEM_BOUNDS = (1, 5)
-#: 一次进食的件数闭区间（修订合同 L1673：1-3 件）。
+#: 一次进食的件数闭区间（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。
 _MEAL_ITEM_BOUNDS = (1, 3)
-#: 瞬时消息文本上限（修订合同 L1624：不超过 300 汉字，域内同口径）。
+#: 瞬时消息文本上限（docs/dev/SPEC-life-runtime.md「社交最小可行版」：不超过 300 汉字，域内同口径）。
 _MESSAGE_TEXT_MAX_CHARS = 300
 #: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
 _HEX_IDENTITY_MIN_CHARS = 8
-#: 日首唤醒原因闭集（修订合同 L1606）：run_start/wake_from_sleep。当天首次
+#: 日首唤醒原因闭集（docs/dev/SPEC-life-realism.md「日程骨架」）：run_start/wake_from_sleep。当天首次
 #: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
 #: 拒绝重试边界的唤醒原因是 rejection_feedback，不属日首，不触发强制。
 _DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
@@ -180,7 +180,7 @@ class LifeMemoryEpisode(_ToolRequest):
 class FinishRequest(_ToolRequest):
     """@brief 在一个生活动作后结束当前人物决策并保存记忆。
 
-    记忆合同（修订合同 L1580-1583）：memories 为 0-8 条，没有值得记录的
+    记忆合同（docs/dev/SPEC-life-realism.md「记忆合同」）：memories 为 0-8 条，没有值得记录的
     新事件时允许空列表；每条 text 使用人物语言，不得含事件标识或十六进制
     身份（LifeMemoryEpisode 本地校验拒绝）。
     """
@@ -250,7 +250,7 @@ _MEMORY_RUNTIME_ACTIONS = {
 }
 
 #: 需要内联嵌套子模型 Schema 的四个工具字段已在 life.models 的字段定义
-#: 以 WithJsonSchema 内联（strict 合同禁嵌套引用键，规格 L1307-1309）；
+#: 以 WithJsonSchema 内联（strict 合同禁嵌套引用键，docs/CONTRACTS.md「人物工具与管理接口」）；
 #: 本侧直接使用 REQUEST_MODELS 的原始模型，无第二套适配层。
 
 
@@ -267,7 +267,7 @@ _ACTION_PROTOCOL = (
 #: 与可供性家族无关的工具文案（静态）；家族相关的三个工具描述
 #: （start_basic_activity / start_targeted_activity / browse_activities）的
 #: kind 清单自观察合同拼装，见 _life_tool_descriptions。工具协议、引用规则
-#: 与阶段规则按提示合同（L1542）移入各工具 description。
+#: 与阶段规则按提示合同（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）移入各工具 description。
 _TOOL_DESCRIPTIONS = {
     "start_travel": (
         _ACTION_PROTOCOL
@@ -287,7 +287,9 @@ _TOOL_DESCRIPTIONS = {
         _ACTION_PROTOCOL
         + " Buy one to five visible products from one merchant in a single paid order "
         "with one shared fulfillment; every product_id must pair with its visible "
-        "price_version and each quantity must not exceed the visible current stock."),
+        "price_version and each quantity must not exceed the visible current stock. "
+        "Delivery is not constrained by your current location, but pickup requires you "
+        "to be at the merchant's location."),
     "consume": (
         _ACTION_PROTOCOL
         + " Eat one to three held foods in one sitting (the duration equals the longest "
@@ -452,16 +454,17 @@ def _game_boundary_kinds(
 
 
 _TARGET_KIND_DESCRIPTION = (
-    "Choose only a kind with a currently visible target: work uses observations[0].data.tasks[].task_id; "
+    "Choose only a kind with a currently visible target: work uses tasks[].task_id; "
     "watch uses item_id values revealed by a recent browse_activities result or listed in "
-    "content_progress; play_game uses game_catalog[].game_id; read_mail uses "
-    "messages[].message_id; browse uses browse_targets[]."
+    "content_progress; play_game uses the game IDs of the currently available games; "
+    "read_mail uses messages[].message_id; browse uses browse_targets[]."
 )
 
 _TARGET_ID_DESCRIPTION = (
-    "Use the exact visible ID paired with activity_type: work=tasks[].task_id; "
-    "watch=item_id from recent browse_activities results or content_progress; "
-    "play_game=game_catalog[].game_id; read_mail=messages[].message_id; browse=browse_targets[]."
+    "Use the exact visible ID paired with activity_type: work = tasks[].task_id; "
+    "watch = item_id from recent browse_activities results or content_progress; "
+    "play_game = a game ID of the currently available games; read_mail = messages[].message_id; "
+    "browse = browse_targets[]."
 )
 
 _ACTIVITY_CONTROL_TOOLS = frozenset({
@@ -471,7 +474,7 @@ _ACTIVITY_CONTROL_TOOLS = frozenset({
     "game_action",
 })
 
-#: 身份前言（提示合同 L1541-1544）：以人物与情境为主，工具协议、引用规则
+#: 身份前言（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）：以人物与情境为主，工具协议、引用规则
 #: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
 #: 地点礼仪由场景段落表达，不在此出现禁令句；回合预算只在剩余回合 ≤2 时
 #: 由 _model_request 附加一句话。
@@ -494,7 +497,7 @@ _READONLY_INSTRUCTIONS = """
 
 _REACT_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
 
-#: 低预算提示（提示合同 L1546）：剩余回合 ≤2 时以一句话出现（先于预算 JSON，
+#: 低预算提示（docs/CONTRACTS.md「人物决策提示与生成参数」）：剩余回合 ≤2 时以一句话出现（先于预算 JSON，
 #: 保证预算 JSON 始终是消息尾部可解析块）。
 _LOW_BUDGET_SENTENCE = (
     "\n\n剩余回合已经不多：当前阶段是{phase}，请尽快提交本阶段需要的动作或结束。")
@@ -566,8 +569,8 @@ class LifeAgent(PersonAgent):
     ) -> dict[str, Any]:
         """@brief 注入思考开启的 ReAct 请求并写入当前实际模型回合预算。
 
-        每次请求在实际消息中明确当前剩余回合与决策阶段（L1355-1356）；
-        剩余回合 ≤2 时按提示合同（L1546）先附一句话低预算提示。
+        每次请求在实际消息中明确当前剩余回合与决策阶段（docs/CONTRACTS.md「人物决策提示与生成参数」）；
+        剩余回合 ≤2 时按 docs/CONTRACTS.md「人物决策提示与生成参数」先附一句话低预算提示。
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400：
         "Thinking mode does not support this tool_choice"），因此与思考
         开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由
@@ -671,7 +674,7 @@ class LifeAgent(PersonAgent):
         """@brief 组装三段 user 消息文本（persona + scene + 记忆 [+ facts + 独白]）。
 
         独白阶段只取 persona + scene + 记忆摘要；行动阶段再追加 facts 与
-        "你刚才心里想的是"（两阶段决策合同 L1551-1566）。scene/facts 由
+        "你刚才心里想的是"（docs/dev/SPEC-life-realism.md「两阶段决策」）。scene/facts 由
         narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本。
         """
         data = _environment_observation_data(request.observations)
@@ -741,7 +744,7 @@ class LifeAgent(PersonAgent):
     async def _run_prelude_monologue(self, request: ReactLoopRequest) -> None:
         """@brief 执行单次无工具独白；超长或空消耗一个回合后重试一次。
 
-        两次失败即本次决策失败（两阶段决策合同 L1572）。独白经完整
+        两次失败即本次决策失败（docs/dev/SPEC-life-realism.md「两阶段决策」）。独白经完整
         model_request/model_response 证据路径保存；传输异常立即传播。
         """
         params = self.prelude_monologue_request(request)
@@ -837,7 +840,7 @@ class LifeAgent(PersonAgent):
             self._life_browse_categories)
         if _plan_required_before_other_actions(data, self._life_action_models):
             # 日首唤醒且当日无计划：撤下其他生活动作工具，只留 plan_day
-            # （L1606"必须先提交"的工具面强制；记忆查询与 finish 阶段门不变）。
+            # （docs/dev/SPEC-life-realism.md「日程骨架」"必须先提交"的工具面强制；记忆查询与 finish 阶段门不变）。
             self._life_action_models = {
                 name: model for name, model in self._life_action_models.items()
                 if name == "plan_day"}
@@ -1296,7 +1299,7 @@ def _plan_required_before_other_actions(
 
     判据 = plan_day 在本轮动作面开放（即 facts.day_plan 为空）且唤醒原因含
     日首闭集。这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才
-    合法"的顺序（与"提交动作后才开放 finish"的阶段门同构，L1004 工具集合
+    合法"的顺序（与"提交动作后才开放 finish"的阶段门同构，docs/CONTRACTS.md「动作状态与动作结果」工具集合
     不替人物选择指的是不代选内容）；人物仍可提交计划后 finish 跳过当天，
     或被拒绝后在一秒重试边界拿回其他动作工具。
     """
@@ -1305,7 +1308,7 @@ def _plan_required_before_other_actions(
 
 
 def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief plan_day 在当日尚无计划时开放（L1606；跳过首醒者当天可补交）。
+    """@brief plan_day 在当日尚无计划时开放（docs/dev/SPEC-life-realism.md「日程骨架」；跳过首醒者当天可补交）。
 
     可见性判据只有"当日尚无计划"（facts.day_plan 为空，观察与跨日归零/就寝
     隐藏同口径）；不限唤醒原因——被引擎拒绝后的一秒重试边界与当天中途的
@@ -1317,7 +1320,7 @@ def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief revise_day_plan 只在存在尚未开始的计划段时开放（L1611）。"""
+    """@brief revise_day_plan 只在存在尚未开始的计划段时开放（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
     plan = _facts_projection(data).get("day_plan")
     if plan is None:
         return {}
@@ -1385,7 +1388,7 @@ def _visible_inbox_senders(facts: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _visible_message_recipients(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮可见的消息收件人身份闭集（L1005-1007 身份枚举用本轮观察）。
+    """@brief 冻结本轮可见的消息收件人身份闭集（docs/CONTRACTS.md「人物工具与管理接口」身份枚举用本轮观察）。
 
     收件人 = 在场人物（people_here 的不透明 person_id）∪ 场景联系人
     （contacts 的 contact_id）∪ 已向你发过消息的人（inbox 发送者）；
@@ -1398,7 +1401,7 @@ def _visible_message_recipients(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _visible_social_partners(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮可见的交谈与通话对象身份闭集（修订合同 L1625-1626）。
+    """@brief 冻结本轮可见的交谈与通话对象身份闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 
     chat 对象 = 在场人物 ∪ 收件箱发送者（共同在场与可交谈由环境结算
     边界校验）；call 对象 = 场景联系人。两个闭集都为空时撤下工具。
@@ -1537,7 +1540,7 @@ def _available_action_models(
     修订合同四件新工具（plan_day/revise_day_plan/send_message/
     start_social_activity）与购买、进食、提交一样属于瞬时或独立动作，
     只在无当前活动的自由决策点开放；活动反馈边界只提供该活动允许的
-    控制、调速或直接切换工具（L998-1003）。
+    控制、调速或直接切换工具（docs/dev/SPEC-life-runtime.md「活动组合政策」）。
     """
     active = controls["active"]
     if active is None:

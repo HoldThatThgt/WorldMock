@@ -1,4 +1,4 @@
-"""@brief 日程骨架 DayPlan 的规格测试（规格 L1604-1614）。"""
+"""@brief 日程骨架 DayPlan 的规格测试（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ def test_valid_plan_segment_counts(count: int) -> None:
 def test_too_few_segments_rejected() -> None:
     """@brief <5 段在首次 plan_day 构造处非法；模型本身接受修订后的短尾骨架。
 
-    修订合同 L1611：下限只约束首次 plan_day（initial_day_plan 承载），
+    docs/dev/SPEC-life-realism.md「日程骨架」：下限只约束首次 plan_day（initial_day_plan 承载），
     尾段修订后剩余段数可少于 5——该状态必须可通过加载口径重校验。
     """
     with pytest.raises(ValueError, match="at least 5 segments"):
@@ -269,7 +269,7 @@ def test_revise_result_supports_segment_queries() -> None:
 def test_day_plan_expired_boundary_at_day_end() -> None:
     """@brief day_plan_expired：day_end 前未过期，恰在 day_end（跨日零点）起过期。
 
-    引擎用该判定在跨日边界把 day_plan 归零，使规格 L1606"每天第一次醒来
+    引擎用该判定在跨日边界把 day_plan 归零，使docs/dev/SPEC-life-realism.md「日程骨架」"每天第一次醒来
     必须先提交 plan_day"在第二天重新成立（边界值：now == day_end 即过期）。
     """
     plan = make_plan(5)

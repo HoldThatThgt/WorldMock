@@ -1,4 +1,4 @@
-"""@brief 两阶段决策的 decision_started 证据装配（修订合同 L1562-1573）。
+"""@brief 两阶段决策的 decision_started 证据装配（docs/dev/SPEC-life-realism.md「两阶段决策」）。
 
 decision_started 事件不可变（events_no_update 触发器），而独白在决策轮
 开启之后才由人物模型产生——因此引擎延迟落库：人物独白可得时才写
@@ -18,7 +18,7 @@ from worldmock.footprints.models import (
 )
 from worldmock.life.narration import MonologueValidationError, validate_monologue
 
-#: 独白阶段采样参数（规格 L1562：DeepSeek 一般对话推荐温度 1.3、max_tokens 400）。
+#: 独白阶段采样参数（docs/dev/SPEC-life-realism.md「两阶段决策」：DeepSeek 一般对话推荐温度 1.3、max_tokens 400）。
 #: 与 custom/agents/life_agent.py 的同名常数同值（agent 层不可被 src 反向导入）。
 _MONOLOGUE_TEMPERATURE = 1.3
 _MONOLOGUE_MAX_TOKENS = 400

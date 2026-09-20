@@ -18,7 +18,7 @@
   "min_per_kind": {
     "canteen_or_restaurant": 2
   },
-  "count": 10,
+  "count": 11,
   "locations": [
     {
       "location_id": "home",
@@ -303,6 +303,30 @@
           "lifestyle:outdoor-park-walk",
           "lifestyle:jogging"
         ]
+      }
+    },
+    {
+      "location_id": "market",
+      "name": "张江日用集市与配送取货点（冻结场景锚点）",
+      "kind": "merchant",
+      "covers": [
+        "merchant_goods"
+      ],
+      "latitude": 31.206,
+      "longitude": 121.6205,
+      "coordinate_source": {
+        "type": "frozen-scenario-anchor",
+        "note": "scenarios/*.json locations[market]，场景合成锚点（fetch.py 的 _LOCATIONS['market']），非新造坐标"
+      },
+      "opening_hours": {
+        "opens": "07:00",
+        "closes": "23:00",
+        "basis": "冻结场景 market open_hour/close_hour"
+      },
+      "affordances": {
+        "goods_retail": true,
+        "pickup_point": true,
+        "product_objects": "catalog food-*（全部 159 件商品的商家地点，merchant_location_id=market）"
       }
     }
   ]

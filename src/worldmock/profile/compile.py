@@ -1,7 +1,7 @@
 """@brief 编译入口：background_story -> 卡片 + 大五 + 世界层动力学（编排，零数值）。
 
 旧模板字段 occupation/routine_preference/consumption_preference/risk_preference
-已删除不保留别名（规格 L1661）：输入档案携带任一旧字段即明确报错，不静默
+已删除不保留别名（docs/dev/SPEC-life-realism.md「画像编译」）：输入档案携带任一旧字段即明确报错，不静默
 兼容；旧 v1 九参数档案（schema_version=1）同样被 schema 拒绝。
 """
 

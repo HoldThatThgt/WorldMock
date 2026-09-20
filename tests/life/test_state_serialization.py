@@ -44,7 +44,7 @@ def _world_state() -> WorldState:
         origin_request_event_id="request-1",
     )
     return WorldState(
-        schema_version=2,
+        schema_version=3,
         version=1,
         current_time=1,
         end_time=10,
@@ -57,6 +57,7 @@ def _world_state() -> WorldState:
         merchant_stock={},
         activities={activity.activity_id: activity},
         paid_task_ids={"paid-z", "paid-a"},
+        presentation_state={1: {"product-z": 1_700_000_000, "product-a": 1_700_000_600}},
         random_seed=1,
         random_state="random-state",
     )
@@ -129,6 +130,9 @@ def test_json_mode_sorts_every_persisted_string_set() -> None:
     assert isinstance(state.model_dump()["agents"][1]["active_effects"], set)
     assert isinstance(state.model_dump()["activities"]["activity-1"]["resource_claims"], set)
     assert isinstance(state.model_dump()["paid_task_ids"], set)
+    # 轮转派生量按（人物, 对象标识）逐个记录时刻，JSON 模式取值确定
+    assert payload["presentation_state"] == {
+        "1": {"product-a": 1_700_000_600, "product-z": 1_700_000_000}}
 
 
 def test_readonly_commit_is_identical_across_python_hash_seeds(tmp_path: Path) -> None:

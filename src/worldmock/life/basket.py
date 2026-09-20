@@ -1,4 +1,4 @@
-"""@brief 商务与进食的多件结算（修订合同 L1672-1674）：整单购买与一次多件进食。
+"""@brief 商务与进食的多件结算（docs/dev/SPEC-life-realism.md「商务与进食」）：整单购买与一次多件进食。
 
 purchase.items 为 1-5 件商品与数量，同一商家、同一履约方式、一次付款、一次
 配送：任一件不可购则整单拒绝，不自动删件。consume.items 为 1-3 件已持有食品，
@@ -95,7 +95,7 @@ def _order_rows(state: WorldState, scenario: RuntimeScenario, agent: AgentState,
                 request: PurchaseOrderRequest, products: dict[str, ProductConfig]):
     """@brief 校验整单：每件可见、同商家、报价一致、资金与库存充足、商家营业。"""
     if not 1 <= len(request.items) <= 5:
-        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")  # 修订合同 L1672：1-5 件
+        raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件
     rows = []
     for item in request.items:
         if item.product_id not in products:
@@ -175,7 +175,7 @@ def held_quantity(agent: AgentState, product_id: str) -> float:
 
 
 def meal_duration(products: dict[str, ProductConfig], request: ConsumeRequest) -> int:
-    """@brief 多件进食时长取最长者；非食品单件必须等于目录时长（L1673）。"""
+    """@brief 多件进食时长取最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md「商务与进食」）。"""
     durations = []
     for item in request.items:
         product = products.get(item.product_id)
@@ -193,7 +193,7 @@ def validate_meal(agent: AgentState, products: dict[str, ProductConfig],
                   request: ConsumeRequest) -> None:
     """@brief 校验一次进食/使用：持有量、使用方式、食品多件与非食品单件。"""
     if not 1 <= len(request.items) <= 3:
-        raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")  # 修订合同 L1673：1-3 件
+        raise BusinessRuleError("MEAL_ITEM_COUNT_OUT_OF_RANGE")  # docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件
     if request.use_mode == "use" and len(request.items) != 1:
         raise BusinessRuleError("NON_FOOD_USE_SINGLE_ITEM")
     for item in request.items:

@@ -303,7 +303,7 @@ def test_js_distance_hand_anchor() -> None:
 
 
 def test_reference_minutes_match_spec_constants() -> None:
-    """@brief 参照常量与规格 L1704-1706 逐项一致（分钟换算）。"""
+    """@brief 参照常量与 docs/VERIFICATION.md「真实性评估与结论边界」逐项一致（分钟换算）。"""
     assert TIME_USE_REFERENCE_MINUTES == {
         "sleep": 553, "hygiene": 50, "meals": 104, "work": 460, "transport": 44,
         "socializing": 21, "exercise": 41, "screen_entertainment": 165, "no_reference": 0,

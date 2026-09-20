@@ -289,7 +289,7 @@ def test_plan_day_registers_self_commitment_and_rejects_midday(engine_factory) -
 def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     """跨日边界把 day_plan 归零：第二天首次醒来 plan_day 工具重新开放且可再提交。
 
-    规格L1606"每天第一次醒来的决策必须先提交 plan_day"要求计划按日归零：
+    docs/dev/SPEC-life-realism.md「日程骨架」"每天第一次醒来的决策必须先提交 plan_day"要求计划按日归零：
     day1 提交后跨日睡眠，day2 醒来时观察的 day_plan 必须为空（只反映当日
     计划），人物侧 plan_day 契约重新开放，引擎侧接受新一天的首个提交。
     """
@@ -583,15 +583,24 @@ def test_multi_item_meal_accumulates_energy(engine_factory) -> None:
         assert agent.inventory["home"][item.product_id] == 0
 
 
-def test_world_state_schema_version_two_rejects_old_checkpoints(engine_factory) -> None:
-    """旧检查点（无 schema_version）加载即拒绝；版本 2 是唯一合法结构版本。"""
+def test_world_state_schema_version_three_rejects_old_checkpoints(engine_factory) -> None:
+    """旧检查点（无 schema_version 或版本 2）加载即拒绝；版本 3 是唯一合法结构版本。
+
+    版本 3 引入 `presentation_state`（轮转所需的「上次呈现时刻」）；不保留兼容读取
+    路径，旧检查点一律拒载（docs/CONTRACTS.md「派生量字段」）。
+    """
     engine = engine_factory()
     legacy = engine.state.model_dump(mode="json")
     legacy.pop("schema_version")
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(legacy)
+    previous = engine.state.model_dump(mode="json")
+    previous["schema_version"] = 2
+    with pytest.raises(Exception, match="schema_version"):
+        WorldState.model_validate(previous)
     fresh = engine.state.model_dump(mode="json")
-    assert fresh["schema_version"] == 2
+    assert fresh["schema_version"] == 3
+    assert fresh["presentation_state"] == {}
 
 
 def _next_local_midnight(engine, now: int) -> int:
@@ -777,7 +786,7 @@ def test_rejection_message_carries_error_code_and_reason(engine_factory) -> None
     rows = data["facts"]["recent_action_results"]
     assert rows and rows[-1]["status"] == "rejected"
     assert set(rows[-1]) == {"action_id", "status", "message"}, (
-        "L1548 冻结行形状：状态 + 一句话 + 必要身份")
+        "docs/dev/SPEC-life-runtime.md「观察投影行为规则」冻结行形状：状态 + 一句话 + 必要身份")
     assert "PLAN_SEGMENTS_INVALID" in rows[-1]["message"], (
         "错误码经摘要消息进入 facts，模型可据此修正重试")
     # 修正后可重试：骨架合法的计划在同一日成功提交
@@ -850,3 +859,44 @@ def test_sleep_debt_hours_has_no_residual_references() -> None:
                   and "CATALOG_SLEEP_RESOURCE" not in line
                   and "initial_sleep_debt_hours" not in line]
     assert code_lines == [], f"residual sleep_debt_hours references: {code_lines}"
+
+
+def _browsed_state(engine, location_id: str):
+    """把人物放到一个非商家地点并在该处完成一次配送浏览（浏览集为整份目录）。"""
+    product_ids = {item.product_id for item in engine.scenario.products}
+    staged = engine.state.model_copy(deep=True)
+    now = staged.current_time
+    staged.agents[1] = staged.agents[1].model_copy(update={
+        "location_id": location_id, "visible_product_ids": set(product_ids),
+        "product_browsed_at": now, "product_browsed_location": location_id,
+        "inventory": {}}, deep=True)
+    engine.state = staged
+    return product_ids
+
+
+def test_browsed_products_expire_on_leaving_merchant_location(engine_factory) -> None:
+    """浏览可见期是两支并列：离开商家地点即清空，与 1800 秒 TTL 无关。"""
+    engine = engine_factory()
+    browsed_at = "office"  # 办公室不是任何商品商家，只有浏览支能把目录带进可见集
+    product_ids = _browsed_state(engine, browsed_at)
+    agent = engine.state.agents[1]
+
+    # 在浏览地点且未超 TTL：浏览支可见（店内常驻支为空，可见集完全来自浏览）。
+    assert set(projection.visible_products(engine.state, agent, engine.scenario)) == product_ids
+
+    # 未超 TTL 但已离开浏览地点：浏览支清空，可见集回到空。
+    moved = engine.state.model_copy(deep=True)
+    moved.agents[1] = moved.agents[1].model_copy(update={"location_id": "home"}, deep=True)
+    engine.state = moved
+    agent = engine.state.agents[1]
+    assert agent.product_browsed_at is not None
+    assert engine.state.current_time - agent.product_browsed_at <= 1800
+    assert projection.visible_products(engine.state, agent, engine.scenario) == [], (
+        "leaving the browsed location must clear browsed products before the TTL elapses")
+
+    # 回到浏览地点且未超 TTL：浏览支恢复可见（可见期由地点与时刻两支共同判定）。
+    back = engine.state.model_copy(deep=True)
+    back.agents[1] = back.agents[1].model_copy(update={"location_id": browsed_at}, deep=True)
+    engine.state = back
+    assert set(projection.visible_products(
+        engine.state, engine.state.agents[1], engine.scenario)) == product_ids

@@ -1,6 +1,6 @@
 """观察投影与提示合同（worldmock.life.narration）的合同测试。
 
-覆盖设计文档 L1529-1549：场景渲染内容与 800 汉字上限、驱动摘要无数字
+覆盖docs/dev/SPEC-life-runtime.md「观察投影与提示合同」：场景渲染内容与 800 汉字上限、驱动摘要无数字
 权重、user 40000 / system 3000 字符预算边界、独白 200 汉字边界与空串、
 黑名单字段递归校验（含 routes 白名单）、facts 确定性渲染与 user 消息
 三段组装顺序。
@@ -254,7 +254,7 @@ class TestFieldBlacklist:
             enforce_field_blacklist({"routes": [route]})
 
     def test_contract_fact_fields_pass(self) -> None:
-        """L1535 facts 合同字段与 routes 五键白名单整体通过。"""
+        """docs/dev/SPEC-life-runtime.md「观察投影三部分」facts 合同字段与 routes 五键白名单整体通过。"""
         facts = {
             "current_time": "2026-09-18T08:30:00+00:00",
             "location_id": "office_desk",

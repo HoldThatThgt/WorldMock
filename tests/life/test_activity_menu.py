@@ -4,14 +4,15 @@ from __future__ import annotations
 
 from worldmock.life.models import BrowseActivitiesRequest
 
-from .conftest import advance_next, browse_activities, context, submit_round, wake_by_mail
+from .conftest import (advance_next, browse_activities, browse_all, context,
+                       submit_round, wake_by_mail)
 
 
 def _browse_result(engine_factory, category: str, round_id: str = "menu"):
     """下钻一个品类并返回 (items, 结算结果)。"""
     engine = engine_factory()
     _, results = submit_round(engine, {1: ("browse_activities",
-                                           BrowseActivitiesRequest(category=category))}, round_id)
+                                           BrowseActivitiesRequest(category=category, cursor=None))}, round_id)
     return engine, results[0]
 
 
@@ -26,21 +27,22 @@ def test_observation_carries_activity_summary_without_full_catalog(engine_factor
     assert summary["webnovel_excerpt"] == 6
     assert summary["news_feed"] + summary["joke_feed"] == 5
     assert summary["subtitle_experience"] == 1
-    assert summary["game_session"] == 80
+    # game_session 键同时覆盖内容侧的会话条目与场景声明的游戏身份（同一池、同一链路）
+    assert summary["game_session"] == 80 + len(engine.scenario.games)
     assert summary["foods"] == len(engine.scenario.products)
     # 全局启用的生活活动按品类计数：sport=44、hobby=56（corpora/lifestyle）
     assert summary["sport"] == 44
     assert summary["hobby"] == 56
-    # 观察不再逐条展开 192 项内容
+    # 观察不再逐条展开 192 项内容：内容品类之和等于场景内容总数
     assert sum(summary[kind] for kind in (
         "feature_film", "drama_series", "webnovel_excerpt", "news_feed",
-        "joke_feed", "subtitle_experience", "game_session")) == len(engine.scenario.contents)
+        "joke_feed", "subtitle_experience")) + 80 == len(engine.scenario.contents)
 
 
 def test_browse_content_kind_returns_full_items(engine_factory) -> None:
-    """内容品类下钻返回与观看受理一致的条目形状（分段/标题/进度）。"""
+    """内容品类下钻经游标下推返回全量条目，形状与观看受理一致（分段/标题/进度）。"""
     engine = engine_factory()
-    movies = browse_activities(engine, "menu-movies", "feature_film")
+    movies = browse_all(engine, "feature_film")
     assert len(movies) == 90
     first = next(item for item in movies if item["item_id"] == "movie-0001")
     assert first["kind"] == "feature_film"
@@ -53,7 +55,7 @@ def test_browse_content_kind_returns_full_items(engine_factory) -> None:
 def test_browse_lifestyle_category_returns_catalog_entries(engine_factory) -> None:
     """生活活动品类下钻返回名称/时长/MET/一句话描述。"""
     engine = engine_factory()
-    sport = browse_activities(engine, "menu-sport", "sport")
+    sport = browse_all(engine, "sport")
     assert len(sport) == 44
     yoga = next(item for item in sport if item["activity_id"] == "yoga")
     assert yoga["activity_type"] == "lifestyle:yoga"
@@ -67,7 +69,7 @@ def test_browse_lifestyle_category_returns_catalog_entries(engine_factory) -> No
 def test_browse_foods_returns_menu_level_products(engine_factory) -> None:
     """foods 下钻返回菜单级商品行，购买合同仍走 product_catalog 限时 browse。"""
     engine = engine_factory()
-    foods = browse_activities(engine, "menu-foods", "foods")
+    foods = browse_all(engine, "foods")
     assert len(foods) == len(engine.scenario.products)
     by_id = {item["product_id"]: item for item in foods}
     product = engine.scenario.products[0].product_id
@@ -80,7 +82,7 @@ def test_browse_unknown_category_is_rejected(engine_factory) -> None:
     """不在 activity_summary 键闭集内的品类稳定拒绝。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="casino"))}, "menu-bad")
+        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="casino", cursor=None))}, "menu-bad")
     result = results[0]
     assert result.status.value == "rejected"
     assert result.error_code == "BROWSE_CATEGORY_NOT_FOUND"
@@ -90,12 +92,14 @@ def test_browse_is_pure_query_and_feeds_next_observation(engine_factory) -> None
     """下钻不消耗内容、不开活动；结果进入下一观察的 recent_action_results。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="drama_series"))},
+        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="drama_series", cursor=None))},
         "menu-dramas")
     result = results[0]
     assert result.status.value == "completed"
     assert result.activity_id is None
-    assert result.data["count"] == 10
+    assert result.data["total"] == 10  # 分区总数（筛选后的候选规模），不是本次条数
+    assert result.data["returned"] == len(result.data["items"])
+    assert "count" not in result.data  # count 不再是返回体字段
     assert engine.state.agents[1].content_progress == {}  # 不进 content_progress
 
     observed = engine.observe(context(engine, "after-menu"))
@@ -133,7 +137,7 @@ def test_browse_while_active_activity_is_boundary_gated(engine_factory) -> None:
     wake_by_mail(engine)  # 首个 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
     _, browse_results = submit_round(
-        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="sport"))}, "menu-active")
+        engine, {1: ("browse_activities", BrowseActivitiesRequest(category="sport", cursor=None))}, "menu-active")
     assert browse_results[0].status.value == "rejected"
     assert browse_results[0].error_code == "ACTIVITY_FEEDBACK_ACTION_REQUIRED"
 

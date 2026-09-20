@@ -524,7 +524,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
 
 
 def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
-    """装配侧由同一次编译的卡片口味计算确定性权重（修订合同 L1661-1662）。"""
+    """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
     from worldmock.profile.taste import compute_taste_weights
@@ -600,6 +600,8 @@ def test_content_genre_catalog_joins_contents_to_corpus_genres() -> None:
     genres = _content_genre_catalog(scenario_path, scenario)
 
     assert genres["movie-0001"] == ("剧情", "历史")
-    assert "sintel-en-subtitles" not in genres
+    # sintel 的身份文件（single 装载）在补入 item_id 与 genre 后成为一条真实条目：
+    # 可观看内容本就该带题材，故它进表而非缺席（旧断言以"无 item_id 即缺席"为前提，已失效）。
+    assert genres["sintel-en-subtitles"] == ("动画", "奇幻")
     joined = {item.item_id for item in scenario.contents} & set(genres)
     assert joined

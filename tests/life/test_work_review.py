@@ -235,9 +235,9 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     agent.prepare_react_loop(request)
     messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
     # 事件证据保留评审全文（JSON 往返后元组序列化为列表）；提示侧新合同
-    # （L1548）只含状态 + 一句话 + 身份，评审全文不进提示。
+    # （docs/dev/SPEC-life-runtime.md「观察投影行为规则」）只含状态 + 一句话 + 身份，评审全文不进提示。
     assert visible == json.loads(json.dumps(feedback))
-    # facts 摘要行只含状态 + 一句话 + 身份（L1548），且是最近 5 条的裁剪。
+    # facts 摘要行只含状态 + 一句话 + 身份（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），且是最近 5 条的裁剪。
     summaries = observation["facts"]["recent_action_results"]
     assert 1 <= len(summaries) <= 5
     assert all(set(row) == {"action_id", "status", "message"} for row in summaries)

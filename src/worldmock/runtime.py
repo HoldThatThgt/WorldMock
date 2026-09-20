@@ -36,12 +36,13 @@ logger = logging.getLogger(__name__)
 
 _DEEPSEEK_BASE_URL = "https://api.deepseek.com/beta"
 _DEEPSEEK_MODEL = "deepseek-flash"
-#: 工作验收阶段参数（规格 L1307：独立工作验收保持 disabled/required）。
+#: 工作验收阶段参数（docs/dev/SPEC-life-realism.md「两阶段决策」：独立工作验收保持
+#: disabled/required）。
 _WORK_REVIEW_THINKING = "disabled"
 _WORK_REVIEW_TOOL_CHOICE = "required"
 #: 联系人回复生成的 max_tokens 上限（200 汉字 ≈ 300+ token，留冗余；experiment_assumption）。
 CONTACT_REPLY_MAX_TOKENS = 512
-#: 联系人回复的 system 提示（L1628：独立调用、中文、不超过 200 汉字）。
+#: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字）。
 _CONTACT_REPLY_PROMPT = (
     "你是消息收件人通讯录里的一名联系人。根据你的联系人档案与收到的消息，"
     "以你本人的口吻写一条自然、简短的中文回复。只输出回复正文，不超过 200 个汉字，"
@@ -312,7 +313,7 @@ def _model_identity() -> ModelIdentity:
 
 
 def two_stage_model_identity() -> dict[str, Any]:
-    """@brief 两阶段决策与工作验收的完整冻结请求身份（规格 L1301-1308）。
+    """@brief 两阶段决策与工作验收的完整冻结请求身份（docs/dev/SPEC-life-realism.md「两阶段决策」）。
 
     独白/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
     运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
@@ -721,7 +722,7 @@ def parse_contact_reply(raw: dict[str, Any]) -> str:
 
 
 async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 执行引擎登记的联系人 model 回复并送达收件箱（L1628）。
+    """@brief 执行引擎登记的联系人 model 回复并送达收件箱（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 
     每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
     独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
@@ -831,7 +832,7 @@ def _agent_specs(scenario: RuntimeScenario, *,
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
     （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]），
     并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
-    L1661-1662：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
+    docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
     匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
     persona_compiler/content_genres 供测试注入确定性桩（注入文本桩时只影响

@@ -39,7 +39,7 @@ from worldmock.profile.models import (
 
 API_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-chat"
-#: 三次一致性口径：默认 3 次独立采样（规格 L1657）。
+#: 三次一致性口径：默认 3 次独立采样（docs/dev/SPEC-life-realism.md「画像编译」）。
 DEFAULT_RUNS = 3
 #: 采样温度：要多样性做共识，但保持在低躁区间。
 TEMPERATURE = 0.3

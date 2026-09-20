@@ -2,7 +2,8 @@
 @brief    C4d 覆盖率达标单元：evaluation 簇缺失分支与公共接口的行为测试。
 
 只新增测试，不修改生产代码；统计类断言使用可手算的小夹具。
-规格依据：docs/agentsociety2-design.md L1163-1229（真实性评估合同）与 L1683-1706（行为指标）。
+规格依据：`docs/VERIFICATION.md`「真实性评估与结论边界」（真实性评估合同）
+与「测试矩阵」的行为指标行。
 """
 
 from __future__ import annotations
@@ -150,7 +151,7 @@ def _public_event(
 
 
 # ---------------------------------------------------------------------------
-# io.py：严格 JSON 输入、原子输出与文件身份校验（L1179 输入身份合同）
+# io.py：严格 JSON 输入、原子输出与文件身份校验（`docs/VERIFICATION.md`「真实性评估与结论边界」的输入身份合同）
 # ---------------------------------------------------------------------------
 
 
@@ -388,7 +389,7 @@ def test_evaluate_causality_wraps_checker_failure(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# decision.py：结论规则（不可比较、区间方向与一致方向，L1225-1229）
+# decision.py：结论规则（不可比较、区间方向与一致方向，`docs/VERIFICATION.md`「真实性评估与结论边界」）
 # ---------------------------------------------------------------------------
 
 
@@ -631,7 +632,7 @@ def test_claim_text_covers_all_result_statuses() -> None:
     assert "真人参照" in reporting_module._claim_text({"status": "human_reference_comparison"})
     assert "共同观察范围不足" in reporting_module._claim_text({"status": "not_comparable"})
 # ---------------------------------------------------------------------------
-# scenario.py：评估场景严格读取的全部拒绝分支（L1179 声明窗口合同）
+# scenario.py：评估场景严格读取的全部拒绝分支（`docs/VERIFICATION.md`「真实性评估与结论边界」的声明窗口合同）
 # ---------------------------------------------------------------------------
 
 FORMAL_SCENARIO = Path(__file__).parents[2] / "scenarios/evaluation.json"
@@ -1303,7 +1304,7 @@ def test_checkpoint_time_must_match_evaluation_window(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# review.py：盲评包校验、收据校验、解盲统计（L1207-1225 盲评合同）
+# review.py：盲评包校验、收据校验、解盲统计（`docs/VERIFICATION.md`「真实性评估与结论边界」的盲评合同）
 # ---------------------------------------------------------------------------
 
 
@@ -1608,7 +1609,7 @@ def test_reliability_reports_not_applicable_when_raters_agree_nowhere(tmp_path: 
 
 
 # ---------------------------------------------------------------------------
-# runner.py：准备收据与最终清单完整性（评估产物合同 L1227）
+# runner.py：准备收据与最终清单完整性（评估产物合同，`docs/VERIFICATION.md`「真实性评估与结论边界」）
 # ---------------------------------------------------------------------------
 
 
@@ -1713,7 +1714,7 @@ def test_verify_final_manifest_rejects_uncommitted_and_drifted_state(tmp_path: P
     with pytest.raises(EvaluationError, match="evaluation manifest changed after write"):
         runner_module._verify_final_manifest(tmp_path, {"committed": True, "artifacts": {}})
 # ---------------------------------------------------------------------------
-# public_evidence.py：闭集公开结构证据的提取分支（L1187-1207 公开证据合同）
+# public_evidence.py：闭集公开结构证据的提取分支（`docs/VERIFICATION.md`「真实性评估与结论边界」的公开证据合同）
 # ---------------------------------------------------------------------------
 
 

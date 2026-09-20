@@ -32,8 +32,22 @@ from worldmock.life.sleep import (
 #: 商品使用方式的封闭集合（eat=食品进食，use=耐用品使用）。
 _PRODUCT_USE_MODES = frozenset({"eat", "use"})
 
-#: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90 分钟（修订合同 L1459）。
+#: 重估间隔缺省（秒）：Kleitman 基本休息—活动周期约 90 分钟（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 RECONSIDERATION_INTERVAL_SECONDS = 5400
+
+#: 候选与呈现常量的合法上界。上界的作用是拦住让两侧口径失效的取值，不是推荐值：
+#: 单次呈现上限 1000 已远超一次模型调用能承载的条目数；检索分区池上限 100_000 之外的
+#: 池在 15% 换新名额（每次 3 条）下最坏等待约 1.5 年，已超出正式实验窗口，
+#: 闭式断言会退化成不断言（docs/dev/SPEC-life-runtime.md「候选契约与呈现规则」「两级上限」）。
+CANDIDATE_PRESENTATION_LIMIT_MAX = 1000
+CANDIDATE_POOL_LIMIT_MAX = 100_000
+
+#: 长期未呈现判定阈值的缺省（秒）＝一周。取值理由：轮转按人物的作息周期产生可观测效果，
+#: 而作息以周为节律；单池 1000 条、每次呈现 20 条时换新名额 k = floor(20 × 0.15) = 3，
+#: 实测每天决策点中位 71、范围 9–112.5（.work/object-model-reanalysis/REPORT.md 2.8），
+#: 故最坏未呈现间隔闭式上界 ⌈N ÷ k⌉ ÷ D 约 2.96–37 天、中位约 4.7 天，
+#: 一周落在该区间内且略高于中位数，使轮转名额在一个人物的一周内必然被消耗一轮。
+DEFAULT_ROTATION_STALE_SECONDS = 604_800
 
 
 class BodyConfig(FrozenModel):
@@ -154,7 +168,7 @@ class MotivationProfile(FrozenModel):
 class AgentConfig(FrozenModel):
     """@brief 人物的初态、技能、内容偏好、动机档案与人物档案声明。
 
-    修订合同（L1661-1663）删除 occupation/routine_preference/consumption_
+    修订合同（docs/dev/SPEC-life-realism.md「画像编译」）删除 occupation/routine_preference/consumption_
     preference/risk_preference 四个模板字段与随机偏好浮点字段（其生产者已随
     画像编译 v2 删除，单位区间校验一并移除）；其内容并入
     画像编译产出的 PersonaCard。人物档案字段（chronotype_midsleep、
@@ -175,20 +189,22 @@ class AgentConfig(FrozenModel):
     # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
     # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
     lifestyle_activities: tuple[str, ...] | None = None
-    # 人物档案字段（修订合同 L1494-1501/L1656）：时型与睡眠需要可按人声明。
+    # 人物档案字段（docs/dev/SPEC-life-runtime.md「两过程睡眠模型」、docs/dev/SPEC-life-realism.md「画像编译」）：时型与睡眠需要可按人声明。
     chronotype_midsleep: float = Field(default=DEFAULT_CHRONOTYPE_MIDSLEEP_H, ge=0.0, lt=24.0)
     sleep_need_hours: float = Field(default=DEFAULT_SLEEP_NEED_H, ge=SLEEP_NEED_MIN_H,
                                     le=SLEEP_NEED_MAX_H)
     # 时间锚点窗口（自午夜起的小时数，半开区间 [start, end)）：午餐/晚餐窗口
-    # 驱动饥饿体感餐时项（规格 L1508）；None=未声明（无餐时项）。
+    # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
-    # 就寝窗口（规格 L1612 计划锚点来自人物卡片）：末端为当日计划骨架的
+    # 就寝窗口（docs/dev/SPEC-life-realism.md「日程骨架」计划锚点来自人物卡片）：末端为当日计划骨架的
     # 就寝锚点（engine 侧 bedtime_anchor 取声明末端）；末端允许跨午夜
     # （>24，如 25.0=次日 01:00，与画像层 TimeWindow 同口径），引擎侧
     # 锚点钳制不超过当日结束；None=未声明走 persona-mapping 缺省锚点。
     bedtime_window: tuple[float, float] | None = None
-    # 场景联系人（修订合同 L1627/L1647）：按人物声明，schema 复用 life.social.Contact。
+    # 场景联系人（docs/dev/SPEC-life-runtime.md「社交最小可行版」与
+    # docs/dev/SPEC-life-realism.md「世界素材品类要求」）：按人物声明，
+    # schema 复用 life.social.Contact。
     contacts: tuple[Contact, ...] = ()
 
     @model_validator(mode="after")
@@ -310,7 +326,7 @@ class ProductConfig(FrozenModel):
 class WorkTaskConfig(FrozenModel):
     """@brief 一个可见后才能执行和提交的独立工作合同（按人物分配）。
 
-    assignee_agent_id 必填（修订合同 L1645：合同按人分配），引用场景内已声明
+    assignee_agent_id 必填（docs/dev/SPEC-life-realism.md「世界素材品类要求」：合同按人分配），引用场景内已声明
     人物（"agent:<id>" 或裸数字 id 两种规范写法，与 A10 ScenarioTaskRef 同名同义）。
     """
 
@@ -504,10 +520,19 @@ class LifeScenario(FrozenModel):
     end_at: datetime
     random_seed: int
     activity_feedback_seconds: int = Field(gt=0, le=86_400)
-    # 决策节律（修订合同 L1459/L1470）：距上一次实际决策满该秒数触发重估唤醒。
+    # 决策节律（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：距上一次实际决策满该秒数触发重估唤醒。
     reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
                                                   gt=0, le=86_400)
     max_consecutive_rejections: int = Field(gt=0)
+    # 候选与呈现常量（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+    # 刻意落在场景层而非 catalog/manifest.json：目录常量的一次增量会触发目录版本 major 变更。
+    candidate_presentation_limit: int = Field(default=20, gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
+    candidate_pool_limit: int = Field(default=1000, gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
+    # 比例取上开区间：比例 1 意味着全部名额都留给未呈现对象，排序键不再起作用。
+    rotation_quota_ratio: float = Field(default=0.15, gt=0, lt=1, allow_inf_nan=False)
+    # 无缺省：契约要求每个场景显式声明本次实验的判定阈值（同上）。
+    rotation_stale_seconds: int = Field(gt=0, le=31_536_000)
+    retrieval_index_threshold: int = Field(default=1000, gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     catalog_version: CatalogVersionPin
@@ -530,6 +555,8 @@ class LifeScenario(FrozenModel):
     @model_validator(mode="after")
     def validate_document(self) -> "LifeScenario":
         """@brief 核对时区、身份唯一性、账户声明和全部跨引用。"""
+        _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
+                                   self.rotation_stale_seconds)
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
         zone = _zone(self.timezone)
@@ -627,6 +654,12 @@ class RuntimeScenario(FrozenModel):
     random_seed: int
     activity_feedback_seconds: int = Field(gt=0, le=86_400)
     max_consecutive_rejections: int = Field(gt=0)
+    # 候选与呈现常量：由 _runtime_payload 从瘦身文档原样搬运（docs/CONTRACTS.md「场景常量」）。
+    candidate_presentation_limit: int = Field(gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
+    candidate_pool_limit: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
+    rotation_quota_ratio: float = Field(gt=0, lt=1, allow_inf_nan=False)
+    rotation_stale_seconds: int = Field(gt=0, le=31_536_000)
+    retrieval_index_threshold: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     body: BodyConfig
@@ -649,6 +682,8 @@ class RuntimeScenario(FrozenModel):
     @model_validator(mode="after")
     def validate_scenario(self) -> "RuntimeScenario":
         """@brief 核对时区、身份唯一性和全部跨引用。"""
+        _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
+                                   self.rotation_stale_seconds)
         _aware(self.start_at, "start_at")
         _aware(self.end_at, "end_at")
         zone = _zone(self.timezone)
@@ -707,7 +742,7 @@ def _check_location_references(agents, routes, product_places, tasks, locations)
 def _check_catalog_references(agents, tasks, messages, targets) -> None:
     """@brief 确保任务技能、任务受理人、邮件收件人引用场景内实体。
 
-    随机偏好浮点字段及其条目引用校验已随修订合同 L1661 整体删除；
+    随机偏好浮点字段及其条目引用校验已随docs/dev/SPEC-life-realism.md「画像编译」整体删除；
     targets 参数保留供调用方组装内容目录。
     """
     agents_by_id = {item.agent_id for item in agents}
@@ -738,6 +773,23 @@ def _check_times(zone, start_at, end_at, tasks, messages) -> None:
     for message in messages:
         if not _matches_zone(message.sent_at, zone) or message.sent_at >= end_at:
             raise ValueError("message timestamp is invalid for the scenario")
+
+
+def _check_candidate_constants(presentation_limit: int, quota_ratio: float,
+                               stale_seconds: int) -> None:
+    """@brief 候选常量必须让轮转名额与判定阈值都真的生效。
+
+    单次呈现上限与换新比例的组合下界：`floor(上限 × 比例)` 至少 1，否则轮转
+    名额恒为零，"长期未呈现的对象一定会被轮到"这条纪律无法成立（同一次呈现里
+    名额被排序键挤占，也是同一类失败）。`allow_inf_nan=False` 在字段层已拒绝
+    `NaN` 与无穷，这里只再确认比例落在开区间下界之上。
+    """
+    if not math.isfinite(quota_ratio) or quota_ratio <= 0 or quota_ratio >= 1:
+        raise ValueError("rotation_quota_ratio must be a finite value in (0, 1)")
+    if math.floor(presentation_limit * quota_ratio) < 1:
+        raise ValueError("candidate_presentation_limit and rotation_quota_ratio leave no rotation quota")
+    if stale_seconds <= 0:
+        raise ValueError("rotation_stale_seconds must be positive")
 
 
 def _aware(value: datetime, field_name: str) -> None:

@@ -31,7 +31,7 @@ def _wrapped_observation(scenario) -> list[dict]:
 
 
 def test_frozen_persona_traits_reach_the_actual_native_agent_prompt():
-    """冻结画像实质以 persona_card 渲染文本进入三段消息（修订合同 L1529-1535）。"""
+    """冻结画像实质以 persona_card 渲染文本进入三段消息（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。"""
     scenario, _ = load_scenario(SCENARIO)
     specification = _agent_specs(
         scenario, persona_compiler=lambda agent: '画像卡片：陈曦，产品经理。')[0]
@@ -66,7 +66,7 @@ def test_persona_traits_cannot_be_silently_omitted(field):
 @pytest.mark.parametrize('field', ('occupation', 'routine_preference',
                                    'consumption_preference', 'risk_preference'))
 def test_deleted_template_fields_stay_out_of_documents(field):
-    """修订合同 L1663：四个模板字段删除；文档中再次出现即被封闭模型拒绝。"""
+    """docs/dev/SPEC-life-realism.md「画像编译」：四个模板字段删除；文档中再次出现即被封闭模型拒绝。"""
     value = json.loads(SCENARIO.read_text())
     value['agents'][0][field] = 'legacy'
     with pytest.raises(ValidationError):

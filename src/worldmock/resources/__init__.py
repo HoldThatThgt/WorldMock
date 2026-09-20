@@ -1,4 +1,9 @@
-"""@brief 多资源分录结算通道：模型、账本与域级审计（设计文档 §3.2/§9/§14.2）。"""
+"""@brief 多资源分录结算通道：模型、账本与域级审计。
+
+资源定义见 docs/design/03-resource-engine.md「可计量资源定义」；
+本次分录校验见 docs/design/02-exchange-engine.md「校验资源分录」；
+历史审计见 docs/design/05-recording-engine.md「资金守恒验证」。
+"""
 
 from worldmock.resources.audit import (
     ClosedDomainReport,

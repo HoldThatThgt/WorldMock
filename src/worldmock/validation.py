@@ -79,7 +79,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
 
 
 def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 两阶段 model_identity 一致性校验（规格 L1301-1308，B2 常量单一事实源）。"""
+    """@brief 两阶段 model_identity 一致性校验（docs/dev/SPEC-life-realism.md「两阶段决策」，B2 常量单一事实源）。"""
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,

@@ -1,4 +1,4 @@
-"""@brief 卡片口味 x 内容 genre[] -> taste_weights（确定性匹配，零随机，规格 L1661-1662）。
+"""@brief 卡片口味 x 内容 genre[] -> taste_weights（确定性匹配，零随机，docs/dev/SPEC-life-realism.md「画像编译」）。
 
 取代已删除的 entertainment_preferences 随机浮点：权重由卡片 content_genres
 与每个内容条目的 genre[] 精确匹配得到，只供内部评分器与浏览排序使用，

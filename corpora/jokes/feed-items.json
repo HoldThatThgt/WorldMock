@@ -1,0 +1,13 @@
+[
+  {
+    "item_id": "jokes-feed",
+    "title": "中文段子流（6000 条）",
+    "genre": [
+      "幽默"
+    ],
+    "language": "zh",
+    "age_rating": 12,
+    "basis": "genre/language 与同目录 items.json 的 6000 条 joke 条目同口径（幽默/zh）；duration_seconds=SRT 末 cue 结束秒（与场景条目声明一致）。",
+    "duration_seconds": 138264
+  }
+]

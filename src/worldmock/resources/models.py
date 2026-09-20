@@ -1,4 +1,7 @@
-"""@brief 多资源分录的入口类型与资源元信息（设计文档 §3.2/§9 的代码形态）。
+"""@brief 多资源分录的入口类型与资源元信息。
+
+资源元信息见 docs/design/03-resource-engine.md「可计量资源定义」；
+结算规则见 docs/design/02-exchange-engine.md「校验资源分录」。
 
 分录是判别联合：转账（transfer，限 closed 账户域）、单边流水（flow，限 open level 域）、
 原子转换（convert，跨资源组合）。每条分录必须携带 cause（触发它的动作/事件引用）与
@@ -42,7 +45,7 @@ def _require_amount(code: str, label: str, amount) -> None:
 
 
 def _require_cause(cause) -> None:
-    """@brief 分录必须引用触发它的动作/事件（§9：原因必填）。"""
+    """@brief 分录必须引用触发它的动作/事件（docs/design/02-exchange-engine.md「校验资源分录」：原因必填）。"""
     if not isinstance(cause, str) or not cause:
         raise ResourceLedgerError("CAUSE_REQUIRED", "entry cause must be a non-empty string")
 

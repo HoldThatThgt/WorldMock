@@ -1,4 +1,4 @@
-"""@brief 货币域分录结算通道：引擎全部资金变动的唯一入口（设计文档 §9）。
+"""@brief 货币域分录结算通道：引擎全部资金变动的唯一入口（docs/design/02-exchange-engine.md「校验资源分录」）。
 
 ResourceLedger 以 money_fen/closed 元信息与 external:scenario 锚点结算四类资金
 变动（初始注资、工资支付、商品购买、出行费）：每笔变动构造 TransferEntry 经

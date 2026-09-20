@@ -1,4 +1,4 @@
-"""定位轨迹投影测试（规格 L454 / GAP-1）：沿冻结路线与模拟时间的确定性采样。"""
+"""定位轨迹投影测试（docs/dev/SPEC-life-runtime.md「导航与配送」/GAP-1）：沿冻结路线与模拟时间的确定性采样。"""
 
 from __future__ import annotations
 

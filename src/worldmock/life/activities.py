@@ -28,6 +28,7 @@ from worldmock.life.models import (
     ContinueActivityRequest,
     StartActivityRequest,
 )
+from worldmock.life.retrieval import feasible_kinds, item_kinds, place_kinds
 from worldmock.life.scenario import BodyConfig
 
 
@@ -60,15 +61,23 @@ _AFFORDANCES = default_affordances()
 
 #: 生活活动 effects 娱乐缓解的每小时尺度（experiment_assumption：锚定目录既有
 #: 娱乐缓解费率 watch 0.3 / play_game 0.4，effects 权重 1.0 的生活活动对标
-#: 0.5/小时；规格 L1600 要求生活活动具备 relief 通道）。
+#: 0.5/小时；docs/dev/SPEC-life-realism.md「动机层」要求生活活动具备 relief 通道）。
 LIFESTYLE_ENTERTAINMENT_SCALE_PER_HOUR = 0.5
 #: 生活活动 effects 社交缓解的每小时尺度（experiment_assumption：锚定 felt
 #: 账本交谈 0.5/小时上限，effects.social=1.0 的社交型活动对标半场交谈）。
 LIFESTYLE_SOCIAL_SCALE_PER_HOUR = 0.5
 #: 生活活动 effects 健康效应的每小时情绪脉冲幅度（experiment_assumption：
 #: 锚定 felt.MOOD_PULSES 的 message_received +0.1；健康无独立需要池，落
-#: 情绪通道——规格 L1521 情绪不改变动作可行性）。
+#: 情绪通道——docs/dev/SPEC-life-runtime.md「其他体感分级」情绪不改变动作可行性）。
 LIFESTYLE_HEALTH_MOOD_PER_HOUR = 0.1
+
+
+#: 语料根目录（仓库内 corpora/），地点类声明两侧共用同一读法。
+_CORPORA_ROOT = Path(__file__).resolve().parents[3] / "corpora"
+#: 生活活动语料相对路径（effects 与地点类声明同源）。
+LIFESTYLE_ITEMS_RELATIVE = "lifestyle/items.json"
+#: 生活活动条目的地点类声明表（活动标识 -> 所需地点类；冻结语料加载一次）。
+_LIFESTYLE_LOCATION_KINDS = item_kinds(_CORPORA_ROOT)
 
 
 @lru_cache(maxsize=1)
@@ -79,8 +88,7 @@ def lifestyle_effects() -> Mapping[str, Mapping[str, float]]:
     time_window/needs_partner/effects）；目录条目由准入检查保证逐条携带
     effects，此处只做形状防御（缺 effects 的行按全零处理）。
     """
-    root = Path(__file__).resolve().parents[3] / "corpora"
-    payload = json.loads((root / "lifestyle/items.json").read_text(encoding="utf-8"))
+    payload = json.loads((_CORPORA_ROOT / LIFESTYLE_ITEMS_RELATIVE).read_text(encoding="utf-8"))
     return {row["activity_id"]: {key: float(value) for key, value in
                              (row.get("effects") or {}).items()}
             for row in payload["items"]}
@@ -98,13 +106,53 @@ def lifestyle_relief_rates(activity_id: str) -> tuple[float, float, float]:
             effects.get("health", 0.0) * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
 
 
+def required_location_kinds(request: StartActivityRequest) -> frozenset[str]:
+    """@brief 该次受理所需的地点类集合；无声明即空集（不构成地点要求）。
+
+    地点类声明只在生活活动条目的 v2 字段上存在（`location_kinds`）；其余活动
+    类型没有条目级地点类声明，因此不构成地点要求，与
+    `life.candidates.CandidateEntry.location_kinds` 的缺省语义一致。
+    """
+    if request.activity_type != ActivityKind.LIFESTYLE or not request.target_id:
+        return frozenset()
+    return _LIFESTYLE_LOCATION_KINDS.get(request.target_id, frozenset())
+
+
+def require_location_kinds(location_id: str, request: StartActivityRequest,
+                           place_location_kinds: frozenset[str] | None = None) -> None:
+    """@brief 地点门：条目所需地点类与所在地点满足的地点类交集为空即拒绝。
+
+    这是世界事实排除（「此刻此地能不能做」），不是偏好排除：原因码取排除原因码
+    闭集的成员 `ELIGIBILITY_LOCATION_KIND_MISMATCH`（docs/CONTRACTS.md「排除原因码」），
+    与 `life.candidates` 的地点类判定同一口径，且与资源冲突的 `RESOURCE_CONFLICT`
+    是两个可区分的原因码，不归为同一个（docs/dev/SPEC-life-realism.md
+    「`location_kinds` 的运行期强制语义」）。
+
+    :param location_id: 人物当前所在地点标识。
+    :param request: 待受理的活动请求。
+    :param place_location_kinds: 该地点满足的地点类集合；缺省时按地点语料解析
+        （未声明地点类的地点按 `anywhere` 处理，即不构成地点限制）。
+    :raises BusinessRuleError: 交集为空时携带稳定原因码
+        ELIGIBILITY_LOCATION_KIND_MISMATCH。
+    """
+    needed = required_location_kinds(request)
+    if not needed:
+        return
+    if place_location_kinds is None:
+        place_location_kinds = place_kinds(_CORPORA_ROOT).get(location_id)
+    if place_location_kinds is None or feasible_kinds(place_location_kinds, needed):
+        return
+    raise BusinessRuleError("ELIGIBILITY_LOCATION_KIND_MISMATCH")
+
+
 def start_activity(agent: AgentState, request: StartActivityRequest, now: int, origin: ActivityOrigin,
                    config: BodyConfig) -> tuple[AgentState, ActivityState]:
-    """@brief 受理一个主活动，并拒绝资源冲突或不可完成能量预算。"""
+    """@brief 受理一个主活动，并拒绝地点不可行、资源冲突或不可完成能量预算。"""
     if request.planned_duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     if agent.current_activity_id is not None:
         raise BusinessRuleError("RESOURCE_CONFLICT")
+    require_location_kinds(agent.location_id, request)
     met = _activity_met(request.activity_type, request.travel_mode, config, request.target_id)
     cost = minimum_energy_cost(request.activity_type, request.planned_duration_seconds, config, met)
     if cost > agent.body.energy_kcal and request.activity_type not in ENERGY_RECOVERY_ACTIVITY_KINDS:
@@ -194,7 +242,7 @@ def advance_activity(activity: ActivityState, agent: AgentState, now: int,
 
 def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
                                  seconds: int) -> AgentState:
-    """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（L1600）。
+    """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（docs/dev/SPEC-life-realism.md「动机层」）。
 
     娱乐缓解在 _entertainment_relief 走既有分录通道（有事件留痕）；社交
     需要不是分录资源（与 chat/call 同口径直接落账），健康无需要池、以正向
@@ -253,7 +301,7 @@ def _entertainment_relief(activity: ActivityState, preference: float, config: Bo
     通道，避免与内容偏好相乘归零或双重计入。content_rate：watch 按条目
     费率/偏好/接触次数。preference_rate/none：偏好 x 目录费率（无费率
     键的活动得 0）。lifestyle 在通道为 none 时按条目 effects 折算缓解
-    （修订合同 L1600：生活活动的 effects 真正缓解需要池；注册表通道仍为
+    （docs/dev/SPEC-life-realism.md「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
     none——effects 是条目级数据，不在目录活动费率表内）。
     """
     if (activity.kind == ActivityKind.LIFESTYLE

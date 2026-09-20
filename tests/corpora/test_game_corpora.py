@@ -97,7 +97,7 @@ def test_both_scenarios_wire_game_sessions_and_preferences() -> None:
                 Path(f"corpora/{game['timeline_path']}").read_bytes()).hexdigest()
             assert entry["experience_label"] == "game_session_play"
             assert entry["entertainment_relief_per_hour"] == 0.35
-        # 修订合同 L1661：随机偏好浮点删除——逐游戏 0.4-0.8 断言随合同移除，
+        # docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点删除——逐游戏 0.4-0.8 断言随合同移除，
         # 改为负向断言：场景人物不再携带随机偏好浮点键。
         for agent in doc["agents"]:
             assert "entertainment_preferences" not in agent, (

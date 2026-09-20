@@ -2,9 +2,9 @@
 rules/content/work/work_review/game/travel/semantics/motivation/narration/social
 的缺分支与未覆盖公共接口（C4c 覆盖率达标单元）。
 
-只新增测试，不改生产代码。断言对照规格 docs/agentsociety2-design.md：
-结算检查表（L204-231）、活动结算（L276-294）、工作评审（L984-995）、
-动机层（L1594-1602）、社交最小可行版（L1616-1633）。
+只新增测试，不改生产代码。断言对照的规格章节：`docs/CONTRACTS.md`「请求字段与结算检查」、
+`docs/dev/SPEC-life-runtime.md`「具体活动结算」「内容提供行为」「社交最小可行版」、
+`docs/dev/SPEC-life-realism.md`「动机层」。
 """
 
 from __future__ import annotations
@@ -273,7 +273,7 @@ def _sha(data: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
-# commerce：单件购买/配送/按进度使用（结算检查表 L204-231）
+# commerce：单件购买/配送/按进度使用（`docs/CONTRACTS.md`「请求字段与结算检查」）
 # ---------------------------------------------------------------------------
 
 def test_commerce_purchase_rejects_unknown_product_without_mutation() -> None:
@@ -357,7 +357,7 @@ def _use_activity(request: ConsumeRequest, **overrides) -> ActivityState:
 
 
 # ---------------------------------------------------------------------------
-# basket：整单购买与多件进食（修订合同 L1672-1674）
+# basket：整单购买与多件进食（`docs/dev/SPEC-life-realism.md`「商务与进食」）
 # ---------------------------------------------------------------------------
 
 def _order(product_ids=("food-1",), destination="home",
@@ -460,7 +460,7 @@ def test_basket_meal_duration_enforces_longest_and_catalog_contract() -> None:
     ),
 )
 def test_basket_validate_meal_item_count_and_non_food_single(meal_request, code) -> None:
-    """进食 1-3 件、非食品单件（修订合同 L1673）。"""
+    """进食 1-3 件、非食品单件（`docs/dev/SPEC-life-realism.md`「商务与进食」）。"""
     products = {"food-1": _product()}
     with pytest.raises(BusinessRuleError, match=code):
         validate_meal(_agent(), products, meal_request)
@@ -515,7 +515,7 @@ def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
 
 
 # ---------------------------------------------------------------------------
-# social + social_actions：社交最小可行版（L1616-1633）
+# social + social_actions：社交最小可行版（`docs/dev/SPEC-life-runtime.md`「社交最小可行版」）
 # ---------------------------------------------------------------------------
 
 def _presence(agent_id="agent:2", location="home", awake=True, gaming=False) -> social.AgentPresence:
@@ -560,7 +560,7 @@ def test_social_actions_start_chat_and_call_require_idle_agent() -> None:
 
 
 def test_social_actions_chat_accepted_detects_partner_chat_activity() -> None:
-    """接受语义（L1625）：对方存在以本方为伙伴的进行中 CHAT 活动即已接受。"""
+    """接受语义（「社交最小可行版」）：对方存在以本方为伙伴的进行中 CHAT 活动即已接受。"""
     accepted = _activity(activity_id="a2", agent_id=2, kind=ActivityKind.CHAT,
                          data={"partner_id": "agent:1", "accepted": False})
     assert chat_accepted(_social_state(_agent(), activities={"a2": accepted}), 1) is True
@@ -597,7 +597,7 @@ def test_social_actions_advance_completes_chat_and_clears_activity_slot() -> Non
 @pytest.mark.parametrize(("kind", "accepted"), ((ActivityKind.CALL, False),
                                                 (ActivityKind.CHAT, True)))
 def test_social_actions_advance_applies_felt_ledger_by_activity(kind, accepted) -> None:
-    """通话/被接受的交谈按 felt 账本速率结算社交需要（L1625-1626）。"""
+    """通话/被接受的交谈按 felt 账本速率结算社交需要（「社交最小可行版」）。"""
     activity = _activity(kind=kind, data={"partner_id": "agent:2"})
     result = advance_social(activity, _agent(), 3600, _body(), accepted=accepted)
     start_need = _agent().body.social_need
@@ -631,7 +631,7 @@ def test_social_activity_change_cancel_pause_and_unknown_operations() -> None:
 
 
 # ---------------------------------------------------------------------------
-# activities：活动转换闭集（结算检查表 L204-231「修改活动」行）
+# activities：活动转换闭集（`docs/CONTRACTS.md`「请求字段与结算检查」的「修改活动」行）
 # ---------------------------------------------------------------------------
 
 def _feedback_activity(**overrides) -> ActivityState:
@@ -773,7 +773,7 @@ def test_activity_factors_rejects_incomplete_frozen_evidence(activity, match) ->
 
 
 # ---------------------------------------------------------------------------
-# motivation：动机层（L1594-1602）
+# motivation：动机层（`docs/dev/SPEC-life-realism.md`「动机层」）
 # ---------------------------------------------------------------------------
 
 CONTRACT_PROFILE = {
@@ -1008,7 +1008,7 @@ def test_field_blacklist_tolerates_non_dict_route_entries() -> None:
 
 
 # ---------------------------------------------------------------------------
-# content：内容增量揭示（L204-231 使用/阅读行）
+# content：内容增量揭示（`docs/CONTRACTS.md`「请求字段与结算检查」的「使用」行）
 # ---------------------------------------------------------------------------
 
 def _write(root: Path, relative: str, data: bytes) -> None:
@@ -1121,7 +1121,7 @@ def test_mail_headers_show_body_only_for_read_messages() -> None:
 
 
 # ---------------------------------------------------------------------------
-# work：任务受理与材料揭示（L204-231 提交工作行）
+# work：任务受理与材料揭示（`docs/CONTRACTS.md`「请求字段与结算检查」的「提交工作」行）
 # ---------------------------------------------------------------------------
 
 def test_validate_work_start_requires_visible_task() -> None:
@@ -1249,7 +1249,7 @@ def test_prepare_work_submission_rejects_unknown_or_invisible_task(tmp_path) -> 
 
 
 # ---------------------------------------------------------------------------
-# work_review：独立验收协议（L984-995）
+# work_review：独立验收协议（`docs/dev/SPEC-life-runtime.md`「内容提供行为」）
 # ---------------------------------------------------------------------------
 
 def _review_prepared(**overrides) -> PreparedWorkReview:
@@ -1390,7 +1390,7 @@ def test_prepare_work_review_reference_fact_contract() -> None:
 
 
 # ---------------------------------------------------------------------------
-# game：TextWorld 身份与重放（L276-294 游戏行）
+# game：TextWorld 身份与重放（`docs/dev/SPEC-life-runtime.md`「具体活动结算」的游戏行）
 # ---------------------------------------------------------------------------
 
 def _game_config(root: Path, *, game_sha: str | None = None,
@@ -1563,7 +1563,7 @@ def test_new_game_session_and_verify_progress_replay(monkeypatch, tmp_path) -> N
 
 
 # ---------------------------------------------------------------------------
-# travel：路线校验与定位轨迹（L204-231 出行行）
+# travel：路线校验与定位轨迹（`docs/CONTRACTS.md`「请求字段与结算检查」的「启动活动」行）
 # ---------------------------------------------------------------------------
 
 def test_route_for_requires_unique_frozen_route() -> None:
@@ -1665,7 +1665,7 @@ def test_location_track_rejects_broken_geometry_and_paths(tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# rules：封闭目录查找（L204-231 启动活动行）
+# rules：封闭目录查找（`docs/CONTRACTS.md`「请求字段与结算检查」的启动活动行）
 # ---------------------------------------------------------------------------
 
 def test_rules_lookup_helpers_reject_unknown_ids(engine_factory) -> None:

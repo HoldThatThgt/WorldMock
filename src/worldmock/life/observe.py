@@ -3,19 +3,21 @@
 本模块从 engine.py 下沉（生产文件 ≤2000 行规范）：包含两层观察组装
 （scene + facts + 事件级工具支持行）、活动品类摘要、browse_activities
 下钻、内部动机仪表上下文与决策参照快照。engine 侧以 Mixin 继承接线，
-`self` 即 LifeEngine；行为合同与注释见修订合同观察投影一节（L1529-1548）。
+`self` 即 LifeEngine；行为合同与注释见修订合同观察投影一节（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
-from worldmock.life import felt, projection
+from worldmock.life import felt, presentation, projection
 from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, ContentProgress
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_energy_duration_seconds, minimum_energy_cost
 from worldmock.life.models import ActivityKind
+from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.work import work_totals
 
 
@@ -26,11 +28,15 @@ class ObservationMixin:
         """@brief 两层观察投影：scene 场景输入 + facts 精简结构 + body 数值证据。
 
         黑名单字段不进 scene/facts 提示路径；事件级工具支持行（完整任务/路线/
-        商品、能量可行性、可供性合同、游戏目录）供宿主工具 Schema 使用。
+        商品、能量可行性、可供性合同、游戏目录）供宿主工具 Schema 使用。商品
+        事实清单经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据。
         """
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
         recent = self._recent_action_results(agent.agent_id)
+        rows = self._window_rows(agent)
+        self._pending_presentation = _presentation_stamps(
+            self.state, agent.agent_id, rows["window"])
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
             recent_results=tuple(recent),
@@ -41,7 +47,7 @@ class ObservationMixin:
                 "scenario_messages": self.rules.messages,
                 "route_rows": self._route_rows(agent),
                 "reachable_places": self._reachable_places(agent),
-                "product_rows": self._product_rows(agent),
+                "product_rows": rows["products"],
                 "activity_rows": self._activity_rows(agent),
             })
         data = projection.build_observation(inputs)
@@ -56,9 +62,22 @@ class ObservationMixin:
         data.update(self._event_tool_support(agent, recent))
         return data
 
+    def _window_rows(self, agent) -> dict:
+        """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）。"""
+        context = self._presentation_context(agent)
+        entries = self._product_pool(agent)
+        sources = presentation.entry_sources(entries, on_site=_on_site_products(self, agent),
+                                            carried=_carried_products(agent))
+        inputs = presentation.candidate_inputs(
+            context, sources, rotation_offset=self._rotation_offset(agent.agent_id),
+            last_presented_at=self._last_presented(agent.agent_id))
+        window = presentation.present(entries, inputs, "product", None)
+        products = [{key: row[key] for key in _PRODUCT_ROW_KEYS} for row in window.items]
+        return {"products": products, "window": window}
+
     def _event_tool_support(self, agent, recent: list) -> dict:
         """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
-        # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（L1019/L1542）。
+        # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
         data: dict[str, Any] = {}
         data["content_progress"] = self._content_progress(agent)
         data["games"] = {key: value.model_dump(mode="json")
@@ -98,7 +117,7 @@ class ObservationMixin:
         return next(item for item in self.scenario.agents if item.agent_id == agent_id)
 
     def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（规格 L1019 既有口径）。"""
+        """@brief 工作目录：已投入/有效/合同剩余工时（docs/dev/SPEC-life-runtime.md「活动组合政策」既有口径）。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
@@ -159,15 +178,13 @@ class ObservationMixin:
         return rows
 
     def _product_rows(self, agent) -> list[dict]:
-        """@brief facts 商品行：仅有效可见集，每件五键（L1537/L1545）。"""
-        rows = []
-        for product_id in projection.visible_products(self.state, agent, self.scenario):
-            product = self.rules.products[product_id]
-            rows.append({"product_id": product.product_id, "name": product.name,
-                         "price_fen": product.price_fen,
-                         "energy_kcal_per_unit": product.energy_kcal_per_unit,
-                         "use_duration_seconds": product.use_duration_seconds})
-        return rows
+        """@brief facts 商品行：经统一候选契约产出的有效可见集，每件五键
+        （docs/dev/SPEC-life-runtime.md「观察投影三部分」「观察投影行为规则」）。
+
+        可见集是生成段的输入（在场 ∪ 浏览时效内），资格段施加库存与地点事实，排序后
+        受单次呈现上限约束；行形状与下钻的商品行同源，不再另起一条枚举路径。
+        """
+        return self._window_rows(agent)["products"]
 
     def _activity_rows(self, agent) -> dict:
         """@brief scene 活动进度行与 facts 控制身份（不含完整活动快照）。"""
@@ -254,7 +271,7 @@ class ObservationMixin:
     def _motivation_internal(self, agent) -> dict | None:
         """@brief 计算内部动机仪表（observation.data.motivation_internal，不进提示）。
 
-        修订合同 L1594-1596：评分器继续计算供评估与研究，但候选、名次与概率
+        docs/dev/SPEC-life-realism.md「动机层」：评分器继续计算供评估与研究，但候选、名次与概率
         不再向模型展示。任何求值异常都吞掉并记日志（fail-open 于仪表）。
         """
         profile = next((item.motivation for item in self.scenario.agents
@@ -278,7 +295,7 @@ class ObservationMixin:
     def _motivation_context(self, agent, profile) -> MotivationContext:
         """@brief 从当前世界装配动机求值输入切片（全部只读）。
 
-        修订合同三接线（L1598-1599/L1646）：taste_weights 为确定性口味权重
+        修订合同三接线（docs/dev/SPEC-life-realism.md「动机层」「世界素材品类要求」）：taste_weights 为确定性口味权重
         唯一源，引擎侧读人物持久化权重（AgentState.taste_weights——由
         profile.taste.compute_taste_weights(card.tastes.content_genres, contents)
         在画像编译/运行装配时产出；life→profile import 方向合法，profile 不
@@ -343,14 +360,18 @@ class ObservationMixin:
         return tasks, habit, effective_total, requested
 
     def _activity_summary(self, agent) -> dict[str, int]:
-        """@brief 一行品类计数：观察只报各活动品类的在场数量，明细由下钻读取。"""
+        """@brief 一行品类计数：五类可选对象各按生成段的池规模报数，明细由下钻读取。
+
+        计数与下钻同源：键闭集取同一组候选池（内容按品类、生活活动按品类、商品归
+        `foods`、游戏与工作各占一键），因此模型看到的键一定可下钻。
+        """
+        pools = (self._content_pool(agent), self._lifestyle_pool(agent),
+                 self._product_pool(agent, menu=True), self._game_pool(agent),
+                 self._task_pool(agent))
         summary: dict[str, int] = {}
-        for item in self.scenario.contents:
-            summary[item.kind] = summary.get(item.kind, 0) + 1
-        for entry in self._enabled_lifestyle_items(agent):
-            summary[entry.category] = summary.get(entry.category, 0) + 1
-        if self.scenario.products:
-            summary["foods"] = len(self.scenario.products)
+        for pool in pools:
+            for entry in pool:
+                summary[entry.category] = summary.get(entry.category, 0) + 1
         return dict(sorted(summary.items()))
 
     def _enabled_lifestyle_items(self, agent) -> tuple:
@@ -363,49 +384,188 @@ class ObservationMixin:
         return tuple(item for item in self.lifestyle_items if item.activity_id in allowed)
 
     def _browse_activities(self, state, pending, request: BrowseActivitiesRequest):
-        """@brief 下钻读取一个活动品类目录：纯查询，不启动活动、不消耗内容。"""
+        """@brief 下钻读取一个活动品类目录：纯查询，不启动活动、不消耗内容。
+
+        条目清单经统一候选契约（生成 → 资格 → 排序）产出，首屏的呈现顺序由曝光轮转
+        决定；返回体按「下推返回体」合同给出本次条数、总数、下一页游标与被排除项
+        （docs/CONTRACTS.md「候选与呈现合同」）。
+        """
         from worldmock.errors import BusinessRuleError
-        from worldmock.life.models import ActionStatus, ActionResult, LIFESTYLE_TYPE_PREFIX
+        from worldmock.life.models import ActionStatus, ActionResult
 
         agent = state.agents[pending.agent_id]
         category = request.category
         if category not in self._activity_summary(agent):
             raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
-        content_kinds = {item.kind for item in self.scenario.contents}
-        if category in content_kinds:
-            items = [row for row in _content_catalog(
-                        self.scenario, self.rules.subtitles, self.rules.content_titles,
-                        agent.content_progress)
-                     if row["kind"] == category]
-            note = "watch items accept start_targeted_activity with activity_type watch"
-        elif category == "foods":
-            items = [{"product_id": product.product_id,
-                      "price_fen": product.price_fen,
-                      "use_modes": list(product.use_modes),
-                      "use_duration_seconds": product.use_duration_seconds,
-                      "merchant_location_id": product.merchant_location_id}
-                     for product in sorted(self.scenario.products,
-                                           key=lambda item: item.product_id)]
-            note = "menu-level view only; purchase contracts need the timed product catalog browse"
-        else:
-            items = [{"activity_id": entry.activity_id,
-                      "activity_type": f"{LIFESTYLE_TYPE_PREFIX}{entry.activity_id}",
-                      "name": entry.name, "category": entry.category,
-                      "typical_duration_minutes": entry.typical_duration_minutes,
-                      "description": entry.description, "met_value": entry.met_value}
-                     for entry in sorted(self._enabled_lifestyle_items(agent),
-                                         key=lambda item: item.activity_id)
-                     if entry.category == category]
-            note = "lifestyle items accept start_basic_activity with activity_type lifestyle:<activity_id>"
-        result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Activity menu browsed",
-                              data={"tool": "browse_activities", "category": category,
-                                    "count": len(items), "note": note, "items": items})
-        return state, result
+        window = self._candidate_window(agent, category, request.cursor)
+        result = ActionResult(
+            action_id=pending.action_id, agent_id=agent.agent_id,
+            status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+            message="Activity menu browsed",
+            data={"tool": "browse_activities", "category": category,
+                  "returned": len(window.items), "total": window.total,
+                  "next_cursor": window.next_cursor, "note": _browse_note(category),
+                  "items": list(window.items),
+                  "excluded": [item.as_row() for item in window.excluded]})
+        return _stage_presentation(state, agent.agent_id, window), result
+
+    def _candidate_window(self, agent, category: str,
+                          cursor: str | None) -> PresentationWindow:
+        """@brief 走统一候选契约取一个品类分区的呈现窗口（五类对象同一链路）。
+
+        下钻是目录浏览：只施加目录级事实（库存、下架、启用集、时长窗口），不施加
+        地点与占用这类当下可行性判定；呈现顺序首屏由曝光轮转给出。
+        """
+        kind = _kind_of_category(category, self.scenario)
+        context = self._presentation_context(agent)
+        entries = self._pool_entries(context, agent, kind, category)
+        offset = (presentation.cursor_offset(cursor) if cursor
+                  else self._rotation_offset(agent.agent_id))
+        inputs = presentation.candidate_inputs(
+            context, presentation.entry_sources(entries), moment=False,
+            rotation_offset=offset, last_presented_at=self._last_presented(agent.agent_id))
+        return presentation.present(entries, inputs, kind, cursor)
+
+    def _presentation_context(self, agent) -> PresentationContext:
+        """@brief 装配一次呈现所需的只读世界切片。"""
+        return PresentationContext(state=self.state, scenario=self.scenario,
+                                   semantics=self.semantics, agent=agent)
+
+    def _last_presented(self, agent_id: int) -> dict[str, int]:
+        """@brief 该人物各对象的上次呈现时刻（轮转判据，不含任何偏好推断）。"""
+        return dict(self.state.presentation_state.get(agent_id, {}))
+
+    def _rotation_offset(self, agent_id: int) -> int:
+        """@brief 该人物本次轮转的池内起点：取已留痕的呈现次数（单调前进、不折返）。
+
+        游标只前进，因此任一对象的最坏等待间隔有界；它不记录「谁更受欢迎」，只记录
+        绕池走到哪儿（docs/dev/SPEC-life-runtime.md「曝光轮转」）。
+        """
+        return len(self.state.presentation_state.get(agent_id, {}))
+
+    def _pool_entries(self, context: PresentationContext, agent, kind: str,
+                      category: str) -> tuple[PoolEntry, ...]:
+        """@brief 按候选类别装配该分区的池条目（五类对象共用同一形状）。
+
+        商品分区的池随观察面变化：图鉴下钻是菜单级视角（全目录在售条目），观察投影是
+        「此刻能拿到的」（有效可见集：商家地点常驻 ∪ 浏览时效内）。两者走同一张行形状
+        与同一套三段式，差别只在生成段的输入。
+        """
+        if kind == "product":
+            return self._product_pool(agent, menu=bool(category))
+        if kind == "content":
+            return tuple(entry for entry in self._content_pool(agent)
+                         if category in ("", entry.category))
+        if kind == "game":
+            return self._game_pool(agent)
+        if kind == "task":
+            return self._task_pool(agent)
+        return tuple(entry for entry in self._lifestyle_pool(agent)
+                     if category in ("", entry.category))
+
+    def _product_pool(self, agent, menu: bool = False) -> tuple[PoolEntry, ...]:
+        """@brief 商品池：观察面取有效可见集，菜单面取全目录（在售条目都进候选）。
+
+        @param agent 人物状态。
+        @param menu 是否菜单级视角（下钻）；False 表示观察投影的有效可见集。
+        """
+        from worldmock.life import projection as projection_module
+
+        visible = ({item.product_id for item in self.scenario.products}
+                   if menu else set(projection_module.visible_products(
+                       self.state, agent, self.scenario)))
+        entries = []
+        for product_id in sorted(visible):
+            product = self.rules.products.get(product_id)
+            if product is None:  # 有效可见集只保留仍在冻结目录里的商品
+                continue
+            entries.append(PoolEntry(
+                object_id=product_id, kind="product",
+                bucket=product_id, stock=self.state.merchant_stock[product_id],
+                required_location_id=product.merchant_location_id,
+                minimum_seconds=0, maximum_seconds=product.use_duration_seconds,
+                row={"product_id": product.product_id, "name": product.name,
+                     "price_fen": product.price_fen,
+                     "energy_kcal_per_unit": product.energy_kcal_per_unit,
+                     "use_duration_seconds": product.use_duration_seconds,
+                     "category": presentation.FOOD_CATEGORY},
+                category=presentation.FOOD_CATEGORY))
+        return tuple(entries)
+
+    def _content_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 内容池：目录全量条目自带题材标签（排序键原料，不参与资格判定）。
+
+        行的其余字段由 `_content_catalog` 同源补齐（分段、标题、进度），因此下钻行形状
+        与既有一致；`category` 取内容品类，是它的下钻键。
+        """
+        rows = {row["item_id"]: row for row in _content_catalog(
+            self.scenario, self.rules.subtitles, self.rules.content_titles,
+            agent.content_progress)}
+        return tuple(PoolEntry(
+            object_id=item.item_id, kind="content", bucket=item.item_id,
+            tags=tuple(getattr(item, "genre", ()) or ()),
+            row=rows[item.item_id], category=item.kind)
+            for item in sorted(self.scenario.contents, key=lambda value: value.item_id)
+            if item.kind != presentation.GAME_CATEGORY)
+
+    def _lifestyle_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 生活活动池：只含本人启用集内的目录条目（启用集是世界事实）。"""
+        from worldmock.life.models import LIFESTYLE_TYPE_PREFIX
+
+        return tuple(PoolEntry(
+            object_id=entry.activity_id, kind="lifestyle",
+            bucket=entry.activity_id, minimum_seconds=60,
+            maximum_seconds=entry.typical_duration_minutes * 60,
+            row={"activity_id": entry.activity_id,
+                 "activity_type": f"{LIFESTYLE_TYPE_PREFIX}{entry.activity_id}",
+                 "name": entry.name, "category": entry.category,
+                 "typical_duration_minutes": entry.typical_duration_minutes,
+                 "description": entry.description, "met_value": entry.met_value},
+            category=entry.category)
+            for entry in sorted(self._enabled_lifestyle_items(agent),
+                                key=lambda item: item.activity_id))
+
+    def _game_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 游戏池：`game_session` 下钻键下的全部条目（内容侧会话 + 场景声明身份）。
+
+        `game_session` 同时是内容品类与游戏身份的下钻键：两者共用同一池与同一键，否则该
+        键下的一半条目没有链路可走（「某一品类走了不经过生成段的枚举路径」即违规）。
+        """
+        rows = {row["item_id"]: row for row in _content_catalog(
+            self.scenario, self.rules.subtitles, self.rules.content_titles,
+            agent.content_progress)}
+        games = tuple(PoolEntry(object_id=item.game_id, kind="game", bucket=item.game_id,
+                                row={"game_id": item.game_id, "seed": item.seed,
+                                     "category": presentation.GAME_CATEGORY},
+                                category=presentation.GAME_CATEGORY)
+                      for item in self.scenario.games)
+        sessions = tuple(PoolEntry(
+            object_id=item.item_id, kind="game", bucket=item.item_id,
+            row=rows[item.item_id], category=presentation.GAME_CATEGORY)
+            for item in sorted(self.scenario.contents, key=lambda value: value.item_id)
+            if item.kind == presentation.GAME_CATEGORY)
+        return (*games, *sessions)
+
+    def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
+        """@brief 工作池：本人可见、未结清且未过截止的合同。"""
+        rows = []
+        for task_id in sorted(agent.visible_task_ids):
+            if task_id in self.state.paid_task_ids:
+                continue
+            due = int(self.rules.tasks[task_id].due_at.timestamp())
+            if self.state.current_time > due:
+                continue
+            rows.append(PoolEntry(object_id=task_id, kind="task", bucket=task_id,
+                                  minimum_seconds=60,
+                                  maximum_seconds=self.rules.tasks[task_id].maximum_duration_seconds,
+                                  required_location_id=self.rules.tasks[task_id].required_location_id,
+                                  row={"task_id": task_id,
+                                       "category": presentation.TASK_CATEGORY},
+                                  category=presentation.TASK_CATEGORY))
+        return tuple(rows)
 
     def _snapshot_decision_references(self, staged, agent_ids: list[int]):
-        """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（L1524-1525）。"""
+        """@brief 决策落定后更新滞回参照：分级/在场人物/已知任务（docs/dev/SPEC-life-runtime.md「滞回规则」）。"""
         agents = dict(staged.agents)
         for agent_id in agent_ids:
             agent = agents[agent_id]
@@ -550,11 +710,11 @@ def _content_catalog(scenario, subtitles: dict, titles: dict,
 
 
 def _recent_meal_counts(requested_events, now: int) -> dict[str, int]:
-    """@brief 近 24 小时各商品已进食次数（product_id -> n，修订合同 L1599）。
+    """@brief 近 24 小时各商品已进食次数（product_id -> n，docs/dev/SPEC-life-realism.md「动机层」）。
 
     从足迹 action_requested 的 consume 请求聚合（use_mode=eat）：每件按
     数量累计（一次吃两份计 2 次，Rolls 1981 感官特异性饱足按食用次数降权）。
-    24 小时窗口为规格常数（L1599"近 24 小时"）。
+    24 小时窗口为规格常数（docs/dev/SPEC-life-realism.md「动机层」"近 24 小时"）。
     """
     counts: dict[str, int] = {}
     for event in requested_events:
@@ -582,7 +742,7 @@ def _recent_meal_counts(requested_events, now: int) -> dict[str, int]:
 def _sample_contents(contents, profile, taste_weights) -> tuple:
     """@brief 每内容品类按 attention_prior x 口味权重采 top-2，全局按权排序。
 
-    权重唯一源是 taste_weights（确定性，修订合同 L1661-1662）；空映射时
+    权重唯一源是 taste_weights（确定性，docs/dev/SPEC-life-realism.md「画像编译」）；空映射时
     退化为按品类注意力排序（稳定 item_id 决胜），与评分器的零抬升口径一致。
     """
 
@@ -601,3 +761,91 @@ def _sample_contents(contents, profile, taste_weights) -> tuple:
         per_kind[item.kind] = taken + 1
         sample.append(item)
     return tuple(sample)
+
+
+#: facts 商品行的五键白名单（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
+_PRODUCT_ROW_KEYS = ("product_id", "name", "price_fen",
+                     "energy_kcal_per_unit", "use_duration_seconds")
+#: 品类下钻的提示句（按分区给出可用动作，不描述内部口径）。
+_BROWSE_NOTES = {
+    presentation.FOOD_CATEGORY:
+        "menu-level view only; purchase contracts need the timed product catalog browse",
+    presentation.GAME_CATEGORY: "game ids accept start_targeted_activity with activity_type play_game",
+    presentation.TASK_CATEGORY: "work contracts accept start_targeted_activity with activity_type work",
+    "content": "watch items accept start_targeted_activity with activity_type watch",
+    "lifestyle": "lifestyle items accept start_basic_activity with activity_type lifestyle:<activity_id>",
+}
+
+
+def _kind_of_category(category: str, scenario) -> str:
+    """@brief 品类下钻键到候选类别：内容品类、生活活动品类与三个固定键各归一类。"""
+    content_kinds = {item.kind for item in scenario.contents}
+    if category in content_kinds:
+        return "content"
+    if category == presentation.FOOD_CATEGORY:
+        return "product"
+    if category == presentation.GAME_CATEGORY:
+        return "game"
+    if category == presentation.TASK_CATEGORY:
+        return "task"
+    return "lifestyle"
+
+
+def _browse_note(category: str) -> str:
+    """@brief 该品类的下钻提示句；内容品类与生活活动品类各取固定句。"""
+    if category in _BROWSE_NOTES:
+        return _BROWSE_NOTES[category]
+    return _BROWSE_NOTES["content"] if category in _CONTENT_NOTE_KINDS \
+        else _BROWSE_NOTES["lifestyle"]
+
+
+#: 提示句归到内容句的内容品类尾名单（不在 `_BROWSE_NOTES` 里逐项出现的那些）。
+_CONTENT_NOTE_KINDS = frozenset({"feature_film", "drama_series", "webnovel_excerpt",
+                                 "news_feed", "joke_feed", "subtitle_experience"})
+
+
+def _on_site_products(engine, agent) -> frozenset[str]:
+    """@brief 当前地点常驻在场的商品标识（商家地点等于人物所在地点）。"""
+    return frozenset(item.product_id for item in engine.scenario.products
+                     if item.merchant_location_id == agent.location_id)
+
+
+def _carried_products(agent) -> frozenset[str]:
+    """@brief 当前位置手边持有的商品标识（库存量大于零）。"""
+    holding = agent.inventory.get(agent.location_id, {})
+    return frozenset(product_id for product_id, quantity in holding.items() if quantity > 0)
+
+
+def _presentation_stamps(state, agent_id: int, window: PresentationWindow) -> dict:
+    """@brief 计算本次呈现要写入 `presentation_state` 的留痕（按人物与对象标识记时刻）。
+
+    轮转的判据是「上次呈现时刻」，所以每次呈现都要留痕；留痕是新的派生量取值，但**不
+    允许在观察边界直接落盘**——`store._validate_state` 只允许同版本追加事件，因此引擎
+    把结果暂存到本属性，在下一个状态提交（决策轮或时钟推进）里随世界状态一起落盘。这
+    里不改目录、不改对象状态、不产生下架事件（docs/dev/SPEC-life-runtime.md「曝光轮转」
+    「禁止永久退役」）。
+
+    @param state 当前世界状态。
+    @param agent_id 被呈现的对象所属人物。
+    @param window 本次呈现窗口。
+    @return 写入后的 `presentation_state` 取值；本次没有呈现任何对象时返回空字典。
+    """
+    if not window.presented:
+        return {}
+    recorded = dict(state.presentation_state.get(agent_id, {}))
+    for object_id in window.presented:
+        recorded[object_id] = int(state.current_time)
+    return {**state.presentation_state, agent_id: recorded}
+
+
+def _stage_presentation(state, agent_id: int, window: PresentationWindow):
+    """@brief 把本次呈现的留痕写进状态副本（下钻在提交路径上，故可当场落盘）。
+
+    @param state 本次提交的世界状态。
+    @param agent_id 被呈现的对象所属人物。
+    @param window 本次呈现窗口。
+    @return 写入留痕后的世界状态副本。
+    """
+    stamps = _presentation_stamps(state, agent_id, window)
+    return state if not stamps else state.model_copy(
+        update={"presentation_state": stamps}, deep=True)

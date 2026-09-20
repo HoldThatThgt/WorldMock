@@ -1,4 +1,4 @@
-"""引擎写入路径域不变量复校（P0-2）与 taste_weights 运行时接线（修订合同 L1598/L1646）。
+"""引擎写入路径域不变量复校（P0-2）与 taste_weights 运行时接线（docs/dev/SPEC-life-realism.md「动机层」「世界素材品类要求」）。
 
 先红后绿：修复前 LifeEngine 的 16 处 store.commit 与 create 初始落盘不重跑
 WorldState.validate_world，五条不变量可被落盘（C6 探针实测 create 5/5、

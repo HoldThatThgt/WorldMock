@@ -1,0 +1,14 @@
+[
+  {
+    "item_id": "weibo-feed",
+    "title": "微博流（3000 条）",
+    "genre": [
+      "社会",
+      "娱乐"
+    ],
+    "language": "zh",
+    "age_rating": 12,
+    "basis": "genre 为 scenario 假设（抽样正文以社会话题与转发段子为主）；language=zh 由正文直接观测；duration_seconds=SRT 末 cue 结束秒（与场景条目声明一致）。",
+    "duration_seconds": 96759
+  }
+]

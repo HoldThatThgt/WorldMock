@@ -92,6 +92,21 @@ ENGINE_RELIEF_KEYS = _AFFORDANCES.relief_keys
 
 
 @dataclass(frozen=True)
+class CandidateConstants:
+    """@brief 候选与呈现常量在运行期的只读视图（取值来源是场景声明）。
+
+    字段名与场景层同名同义，不在运行期另立口径；五个值都在场景加载时校验，
+    此处只做搬运（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+    """
+
+    presentation_limit: int
+    pool_limit: int
+    rotation_quota_ratio: float
+    rotation_stale_seconds: int
+    retrieval_index_threshold: int
+
+
+@dataclass(frozen=True)
 class ScenarioSemantics:
     """@brief 瘦身场景 + 冻结目录组装出的全部静态语义与运行时场景。"""
 
@@ -106,6 +121,23 @@ class ScenarioSemantics:
     #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
     #: 下游各层经 semantics 访问，不直接读注册表文件）。
     affordances: AffordanceView = field(default_factory=default_affordances)
+
+    @property
+    def candidate_constants(self) -> "CandidateConstants":
+        """@brief 候选与呈现常量（场景声明值经组装后原样透出）。
+
+        下游（候选层、轮转、观察投影与下推返回体）只经此处读取这五个值，
+        不各自解析场景文档，也不在代码里另写一份缺省值
+        （docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
+        """
+        scenario = self.scenario
+        return CandidateConstants(
+            presentation_limit=scenario.candidate_presentation_limit,
+            pool_limit=scenario.candidate_pool_limit,
+            rotation_quota_ratio=scenario.rotation_quota_ratio,
+            rotation_stale_seconds=scenario.rotation_stale_seconds,
+            retrieval_index_threshold=scenario.retrieval_index_threshold,
+        )
 
     def travel_fare(self, mode: str, distance_meters: float) -> int:
         """@brief 按 travel-fare 公式分支求值出行费率（分）。"""
@@ -375,6 +407,11 @@ def _runtime_payload(
         "random_seed": document.random_seed,
         "activity_feedback_seconds": document.activity_feedback_seconds,
         "max_consecutive_rejections": document.max_consecutive_rejections,
+        "candidate_presentation_limit": document.candidate_presentation_limit,
+        "candidate_pool_limit": document.candidate_pool_limit,
+        "rotation_quota_ratio": document.rotation_quota_ratio,
+        "rotation_stale_seconds": document.rotation_stale_seconds,
+        "retrieval_index_threshold": document.retrieval_index_threshold,
         "corpus_root": document.corpus_root,
         "corpus_manifest_sha256": document.corpus_manifest_sha256,
         "body": body.model_dump(mode="python"),
@@ -437,7 +474,7 @@ def _catalog_refs(document: LifeScenario, catalog: Catalog,
     )
 
 
-#: 预排表引用只覆盖 §7.2 五种新事件：邮件/任务/配送由场景文档校验器负责。
+#: 预排表引用只覆盖 docs/design/04-simulation-engine.md「预排事件」五种新事件：邮件/任务/配送由场景文档校验器负责。
 _SCHEDULE_REF_KINDS = frozenset({
     ScheduledKind.CALENDAR_FLAG, ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
     ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE})

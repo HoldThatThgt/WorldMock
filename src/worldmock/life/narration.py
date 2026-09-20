@@ -1,7 +1,7 @@
 """@brief 观察投影与提示合同：场景渲染、驱动摘要、字符预算与字段黑名单。
 
-设计文档《人物真实性修订合同》"观察投影与提示合同"（docs/agentsociety2-design.md
-L1529-1549）：给模型的 user 消息由 persona_card、scene、facts 三部分组成，
+`docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」：给模型的 user 消息由
+persona_card、scene、facts 三部分组成，
 全部由确定性代码渲染、不调用模型。本模块是纯函数库——只依赖标准库与
 调用方计算好的观察字段字典，不 import 本项目其他模块。
 
@@ -9,18 +9,18 @@ L1529-1549）：给模型的 user 消息由 persona_card、scene、facts 三部�
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
   体感分级、当前与暂停活动的进度、今天的计划与当前段、收件箱头、待办
   一句话、可达地点与营业状态、手边持有物、最近一次动作结果，上限
-  800 汉字（L1531-1533）；超限按合同是输入侧问题，渲染器如实抛错，
+  800 汉字（「字符预算」）；超限按合同是输入侧问题，渲染器如实抛错，
   不静默截断。
 - user 消息 40000 字符、system 消息 3000 字符；超限是运行故障，
-  不截断、不删字段（L1547）。
+  不截断、不删字段（「字符预算」）。
 - 独白一到三句、不超过 200 汉字、不得为空；违反是协议错误
-  （"两阶段决策"表，L1551-1566）。
-- 黑名单字段不得进入提示（L1537-1540）：world_state_version、end_time、
+  （`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
+- 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
   affordance_contract、energy_feasibility、observation_event_id、
   motivation_hints、profile.motivation、profile.entertainment_preferences、
   game_catalog 全表、完整活动快照（activity_snapshot/activities）、
   路线坐标与几何（routes 条目仅保留目的地/方式/分钟/票价/是否可行）。
-- drive_summary 只含体感分级与文字摘要，不含数字权重（L1535）。
+- drive_summary 只含体感分级与文字摘要，不含数字权重（「观察投影与提示合同」）。
 
 观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
 current_time（ISO 8601 或 datetime）、location（地点显示名）、people_here
@@ -36,20 +36,20 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-#: user 消息字符预算（设计文档 L1547，合同常数，非实验假设）。
+#: user 消息字符预算（「字符预算」，合同常数，非实验假设）。
 USER_MESSAGE_CHAR_BUDGET = 40000
-#: system 消息字符预算（设计文档 L1547，合同常数，非实验假设）。
+#: system 消息字符预算（「字符预算」，合同常数，非实验假设）。
 SYSTEM_MESSAGE_CHAR_BUDGET = 3000
-#: scene 场景段落汉字上限（设计文档 L1533，合同常数）。
+#: scene 场景段落汉字上限（「字符预算」，合同常数）。
 SCENE_HANZI_BUDGET = 800
-#: persona_card 人物卡片汉字上限（设计文档 L1531，合同常数）。
+#: persona_card 人物卡片汉字上限（「观察投影与提示合同」，合同常数）。
 PERSONA_CARD_HANZI_BUDGET = 600
-#: 独白汉字上限（设计文档 L1556"不超过 200 汉字"，合同常数）。
+#: 独白汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
 MONOLOGUE_HANZI_BUDGET = 200
-#: 场景文本语言（设计文档 L1549：提示与场景文本使用 language=zh-CN）。
+#: 场景文本语言（「观察投影与提示合同」：提示与场景文本使用 language=zh-CN）。
 SCENE_LANGUAGE = "zh-CN"
 
-#: 不得进入提示的字面键（设计文档 L1537-1540）。activity_snapshot 与
+#: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与
 #: activities 对应"完整活动快照"——观察只允许进度短语，不允许整表。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
@@ -71,8 +71,8 @@ FORBIDDEN_PROFILE_FIELDS = frozenset({
     ("profile", "entertainment_preferences"),
 })
 
-#: routes 条目白名单：目的地/方式/分钟/票价/是否可行（设计文档 L1535、
-#: L1540"路线坐标与几何"不得进入提示）。键名与 facts 合同英文口径一致。
+#: routes 条目白名单：目的地/方式/分钟/票价/是否可行（「观察投影与提示合同」、
+#: 「不进入提示的字段」的路线坐标与几何不得进入提示）。键名与 facts 合同英文口径一致。
 ROUTE_ALLOWED_FIELDS = frozenset({
     "destination",
     "mode",
@@ -99,7 +99,7 @@ class MonologueValidationError(ValueError):
 
 
 class ForbiddenObservationFieldError(ValueError):
-    """@brief 渲染输入含黑名单字段（观察投影合同 L1537-1540）。"""
+    """@brief 渲染输入含黑名单字段（观察投影合同「不进入提示的字段」）。"""
 
 
 def count_hanzi(text: str) -> int:
@@ -263,7 +263,7 @@ def render_drive_summary(
     """@brief 由体感分级、今日工作缺口与待办拼成一句中文驱动摘要。
 
     例："你有点饿，今天的工作还差两小时，晚上想放松一下。"数字权重
-    不得出现（L1535）：分级与缺口须以文字短语（含中文数字词）传入，
+    不得出现（「观察投影与提示合同」）：分级与缺口须以文字短语（含中文数字词）传入，
     组装结果含阿拉伯数字时抛 ValueError 如实报告。
 
     @param felt_bands 维度到体感分级短语的映射（如 {"hunger": "有点饿"}）
@@ -292,7 +292,7 @@ def render_drive_summary(
 def enforce_budgets(user_message_len: int, system_message_len: int) -> None:
     """@brief 执行提示字符预算：user 40000、system 3000，超限即运行故障。
 
-    合同（L1547）：超限是运行故障，不截断、不删字段——本函数只判定并
+    合同（「字符预算」）：超限是运行故障，不截断、不删字段——本函数只判定并
     抛错，恰好等于预算视为通过。
 
     @param user_message_len user 消息字符数
@@ -312,7 +312,7 @@ def enforce_budgets(user_message_len: int, system_message_len: int) -> None:
 def validate_monologue(text: str) -> str:
     """@brief 判定独白是否满足两阶段决策协议并原样返回。
 
-    协议（L1556）：一到三句第一人称中文，不超过 200 汉字，不得为空；
+    协议（`docs/dev/SPEC-life-realism.md`「两阶段决策」）：一到三句第一人称中文，不超过 200 汉字，不得为空；
     超长或为空是协议错误。空串与纯空白同样视为为空。
 
     @param text 独白文本
@@ -370,7 +370,7 @@ def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
 def enforce_field_blacklist(payload: dict) -> None:
     """@brief 校验渲染输入字典不含黑名单字段（多层递归，含列表内嵌套）。
 
-    覆盖设计文档 L1537-1540 的全部禁项：字面键（world_state_version、
+    覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、
     end_time、affordance_contract、energy_feasibility、observation_event_id、
     motivation_hints、game_catalog、activity_snapshot/activities 即完整活动
     快照）、profile 嵌套键（motivation、entertainment_preferences，兼容
@@ -386,7 +386,7 @@ def enforce_field_blacklist(payload: dict) -> None:
 def render_facts(facts: dict) -> str:
     """@brief 把 facts 字典渲染为确定性紧凑 JSON 文本（键排序、中文不转义）。
 
-    facts 是工具需要的精简结构（L1535 字段表），同一字典必须渲染出同一
+    facts 是工具需要的精简结构（「观察投影与提示合同」的字段表），同一字典必须渲染出同一
     文本；渲染前先执行字段黑名单校验，泄漏字段在此拦截。
 
     @param facts 已计算好的 facts 字段字典

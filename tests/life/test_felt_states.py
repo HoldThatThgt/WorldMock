@@ -247,7 +247,7 @@ def test_mood_level_boundaries(valence: float, expected: str) -> None:
 
 
 class TestSocialLedger:
-    """社交需要账本速率（规格 L1513-1515）。"""
+    """社交需要账本速率（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
 
     def test_awake_growth(self) -> None:
         # 0.5 + 0.04×10 = 0.9。
@@ -296,7 +296,7 @@ class TestSocialLedger:
 
 
 class TestMood:
-    """情绪脉冲、N_norm 调制、半衰期与多脉冲叠加（规格 L1517-1520）。"""
+    """情绪脉冲、N_norm 调制、半衰期与多脉冲叠加（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
 
     def test_pulse_table_values(self) -> None:
         assert MOOD_PULSES == {
@@ -397,7 +397,7 @@ class TestMood:
 
 
 class TestSummarizeAndHysteresis:
-    """分级汇总与滞回判定（决策参照，非结算参照，规格 L1524-1525）。"""
+    """分级汇总与滞回判定（决策参照，非结算参照，docs/dev/SPEC-life-runtime.md「滞回规则」）。"""
 
     def test_summarize_felt_levels(self) -> None:
         summary = summarize_felt_levels(0.585, 0.8, 0.4, 0.65, 0.2)

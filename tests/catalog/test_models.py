@@ -21,7 +21,7 @@ from .conftest import ENERGY_RESOURCE, MILK_OBJECT, MONEY_RESOURCE, SLEEP_RESOUR
 
 
 def test_resource_definition_accepts_design_example() -> None:
-    """@brief 设计 §3.1 的资源示例（数组溯源+drain_rules）原样通过校验。"""
+    """@brief docs/design/03-resource-engine.md「可计量资源定义」的资源示例（数组溯源+drain_rules）原样通过校验。"""
     resource = ResourceDefinition.model_validate(ENERGY_RESOURCE)
     assert resource.resource_id == "energy_kcal"
     assert resource.bounds is not None and resource.bounds.max == 2400

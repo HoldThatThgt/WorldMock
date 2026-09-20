@@ -53,7 +53,7 @@ _FAMILY_ALIASES = {
     "exercise": "exercise", "运动": "exercise", "outing": "outing", "外出": "outing",
 }
 
-#: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，规格 L1704-1706）。
+#: 2018 年全国时间利用调查公报参照（分钟；城镇/工作日口径，居民均值，docs/VERIFICATION.md「真实性评估与结论边界」）。
 #: 睡觉 9h13m、个人卫生 50m、用餐 1h44m、就业参与者工作 7h40m、交通 44m、
 #: 社会交往 21m、健身 41m、看电视 100m、休闲娱乐 65m（后两项合并为屏幕娱乐 165m）。
 TIME_USE_REFERENCE_MINUTES = {
@@ -87,7 +87,7 @@ UNREPORTED_CODE_KEY = "code_sha256_unreported"
 #: 各协议门禁缺失证据时的统一说明前缀。
 _NOT_PROVIDED = "未提供"
 
-#: 计划-实际偏离报告口径（规格 L1611：统计并报告，报告项非门禁）。
+#: 计划-实际偏离报告口径（docs/dev/SPEC-life-realism.md「日程骨架」：统计并报告，报告项非门禁）。
 _PLAN_DEVIATION_CONVENTIONS = [
     "计划的生效口径取当日最后一次完成的 plan_day/revise_day_plan action_result 携带的段（修订覆盖初版）",
     "实际分钟由 activity_progress 结算区间按本地零点切分累加（时间加权）",
@@ -553,7 +553,7 @@ def _plan_day_entry(
 def _plan_actual_deviation(
     events: list[dict[str, Any]], timezone: str, notes: list[str]
 ) -> dict[str, Any]:
-    """按日对比 day_plan 段（intent_kind+时长）与实际活动家族分钟（报告项，L1611）。"""
+    """按日对比 day_plan 段（intent_kind+时长）与实际活动家族分钟（报告项，docs/dev/SPEC-life-realism.md「日程骨架」）。"""
     zone = ZoneInfo(timezone)
     plans = _effective_daily_plans(events, zone)
     if not plans:

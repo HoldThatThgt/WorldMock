@@ -8,7 +8,14 @@
     "typical_playtime_minutes": 45,
     "description": "中世纪帝国争霸的即时战略常青树，四十余个文明与随机地图的对局节奏历久弥新。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0001.srt"
+    "timeline_path": "games/library/game-0001.srt",
+    "item_id": "game-0001",
+    "genre": [
+      "即时战略",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0002",
@@ -19,7 +26,14 @@
     "typical_playtime_minutes": 30,
     "description": "太空船上的社交推理派对游戏，内鬼破坏与船员投票的嘴炮博弈曾风靡全球。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0002.srt"
+    "timeline_path": "games/library/game-0002.srt",
+    "item_id": "game-0002",
+    "genre": [
+      "独立",
+      "派对"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0003",
@@ -30,7 +44,14 @@
     "typical_playtime_minutes": 30,
     "description": "重生工作室的大逃杀射击游戏，以滑铲、攀爬与钩锁的流畅机动和标记沟通系统重塑了小队协作玩法。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0003.srt"
+    "timeline_path": "games/library/game-0003.srt",
+    "item_id": "game-0003",
+    "genre": [
+      "第一人称射击",
+      "大逃杀"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0004",
@@ -41,7 +62,14 @@
     "typical_playtime_minutes": 30,
     "description": "移动端国民级 MOBA 竞技场，五人分队推塔团战，匹配与排位体系支撑起庞大的电竞生态。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0004.srt"
+    "timeline_path": "games/library/game-0004.srt",
+    "item_id": "game-0004",
+    "genre": [
+      "多人在线竞技",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0005",
@@ -52,7 +80,14 @@
     "typical_playtime_minutes": 45,
     "description": "以扑克牌型为基础的构建类 roguelike，小丑牌协同与筹码倍率的滚雪球快感一发不可收拾。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0005.srt"
+    "timeline_path": "games/library/game-0005.srt",
+    "item_id": "game-0005",
+    "genre": [
+      "独立",
+      "卡牌"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0006",
@@ -63,7 +98,14 @@
     "typical_playtime_minutes": 90,
     "description": "蝙蝠侠被投入阿卡姆之城的高墙，自由格斗、侦探模式与哥谭群像塑造了超级英雄游戏的天花板。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0006.srt"
+    "timeline_path": "games/library/game-0006.srt",
+    "item_id": "game-0006",
+    "genre": [
+      "动作",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0007",
@@ -74,7 +116,14 @@
     "typical_playtime_minutes": 40,
     "description": "以第一次世界大战为背景的大规模战场射击，骑兵冲锋、飞艇轰炸与征服模式的64人混战气势磅礴。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0007.srt"
+    "timeline_path": "games/library/game-0007.srt",
+    "item_id": "game-0007",
+    "genre": [
+      "第一人称射击",
+      "战争"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0008",
@@ -85,7 +134,14 @@
     "typical_playtime_minutes": 30,
     "description": "去掉小兵与推塔的纯团战竞技场，双人对拼与轮换模式将 MOBA 的技能博弈浓缩进数分钟对决。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0008.srt"
+    "timeline_path": "games/library/game-0008.srt",
+    "item_id": "game-0008",
+    "genre": [
+      "多人在线竞技",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0009",
@@ -96,7 +152,14 @@
     "typical_playtime_minutes": 60,
     "description": "攀登塞莱斯特山的精密平台跳跃，帮助玛迪琳直面内心焦虑的故事与操作上限同样动人。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0009.srt"
+    "timeline_path": "games/library/game-0009.srt",
+    "item_id": "game-0009",
+    "genre": [
+      "独立",
+      "平台跳跃"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0010",
@@ -107,7 +170,14 @@
     "typical_playtime_minutes": 45,
     "description": "诺曼底战场的小队制即时战略，掩体、压制与资源点争夺让每一场遭遇战都如电影般紧张。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0010.srt"
+    "timeline_path": "games/library/game-0010.srt",
+    "item_id": "game-0010",
+    "genre": [
+      "即时战略",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0011",
@@ -118,7 +188,14 @@
     "typical_playtime_minutes": 180,
     "description": "以人物关系为核心的王朝模拟，联姻、密谋与封臣管理编织出中世纪贵族的权力游戏。",
     "duration_seconds": 10800,
-    "timeline_path": "games/library/game-0011.srt"
+    "timeline_path": "games/library/game-0011.srt",
+    "item_id": "game-0011",
+    "genre": [
+      "策略",
+      "大战略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0012",
@@ -129,7 +206,14 @@
     "typical_playtime_minutes": 45,
     "description": "以三十年代橡皮管动画风格手绘的横版射击，与魔鬼赌局的 boss 战难度高冷又华丽。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0012.srt"
+    "timeline_path": "games/library/game-0012.srt",
+    "item_id": "game-0012",
+    "genre": [
+      "独立",
+      "横版射击"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0013",
@@ -140,7 +224,14 @@
     "typical_playtime_minutes": 90,
     "description": "夜之城的义体雇佣兵传说，主线与支线交织出阶级、科技与人性的赛博朋克群像。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0013.srt"
+    "timeline_path": "games/library/game-0013.srt",
+    "item_id": "game-0013",
+    "genre": [
+      "角色扮演",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0014",
@@ -151,7 +242,14 @@
     "typical_playtime_minutes": 60,
     "description": "id Software 的标志性斩妖除魔射击续作，用链条、火焰与处决串联起高速残酷的恶魔屠杀战斗循环。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0014.srt"
+    "timeline_path": "games/library/game-0014.srt",
+    "item_id": "game-0014",
+    "genre": [
+      "第一人称射击",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0015",
@@ -162,7 +260,14 @@
     "typical_playtime_minutes": 90,
     "description": "传火之旅的终章，洛斯里克王城的每一个角落都布满致命的敌人与深沉的碎片叙事。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0015.srt"
+    "timeline_path": "games/library/game-0015.srt",
+    "item_id": "game-0015",
+    "genre": [
+      "角色扮演",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0016",
@@ -173,7 +278,14 @@
     "typical_playtime_minutes": 60,
     "description": "bungie 打造的太空幻境射击网游，守护者们在行星间巡逻、刷副本，收集装备对抗黑暗势力。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0016.srt"
+    "timeline_path": "games/library/game-0016.srt",
+    "item_id": "game-0016",
+    "genre": [
+      "第一人称射击",
+      "大型多人在线"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0017",
@@ -184,7 +296,14 @@
     "typical_playtime_minutes": 90,
     "description": "暴雪北方打造的暗黑系动作角色扮演标杆，刷装备、加点与符文之语构成的循环影响了整个品类。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0017.srt"
+    "timeline_path": "games/library/game-0017.srt",
+    "item_id": "game-0017",
+    "genre": [
+      "角色扮演",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0018",
@@ -195,7 +314,14 @@
     "typical_playtime_minutes": 120,
     "description": "起源角色各怀秘密的回合制角色扮演沙盒，元素互动战斗与自由度极高的系统设计广受赞誉。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0018.srt"
+    "timeline_path": "games/library/game-0018.srt",
+    "item_id": "game-0018",
+    "genre": [
+      "角色扮演",
+      "回合制"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0019",
@@ -206,7 +332,14 @@
     "typical_playtime_minutes": 120,
     "description": "用 ASCII 字符构建最深邃的矮人要塞模拟，地质、流体与历史生成的复杂度前无古人。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0019.srt"
+    "timeline_path": "games/library/game-0019.srt",
+    "item_id": "game-0019",
+    "genre": [
+      "模拟经营",
+      "殖民地经营"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0020",
@@ -217,7 +350,14 @@
     "typical_playtime_minutes": 30,
     "description": "承袭 FIFA 系列衣钵的足球竞速年货，终极队伍与职业生涯模式覆盖从赛场到更衣室的全部体验。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0020.srt"
+    "timeline_path": "games/library/game-0020.srt",
+    "item_id": "game-0020",
+    "genre": [
+      "体育",
+      "足球"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0021",
@@ -228,7 +368,14 @@
     "typical_playtime_minutes": 120,
     "description": "宫崎英高与乔治·马丁联手打造的交界地开放世界魂系冒险，探索、build 与 boss 战的自由度系列之最。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0021.srt"
+    "timeline_path": "games/library/game-0021.srt",
+    "item_id": "game-0021",
+    "genre": [
+      "角色扮演",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0022",
@@ -239,7 +386,14 @@
     "typical_playtime_minutes": 60,
     "description": "驾驶卡车穿行欧洲高速公路的货运模拟，电台、货运合同与一路风景构成独特的放松体验。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0022.srt"
+    "timeline_path": "games/library/game-0022.srt",
+    "item_id": "game-0022",
+    "genre": [
+      "模拟经营",
+      "驾驶"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0023",
@@ -250,7 +404,14 @@
     "typical_playtime_minutes": 240,
     "description": "自1444年起任意国家经营全球霸业的大战略沙盒，外交、贸易与战争系统的深度无出其右。",
     "duration_seconds": 14400,
-    "timeline_path": "games/library/game-0023.srt"
+    "timeline_path": "games/library/game-0023.srt",
+    "item_id": "game-0023",
+    "genre": [
+      "策略",
+      "大战略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0024",
@@ -261,7 +422,14 @@
     "typical_playtime_minutes": 45,
     "description": "官方授权的一级方程式赛车模拟，轮胎磨损、进站策略与刹车点的较量还原大奖赛周末。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0024.srt"
+    "timeline_path": "games/library/game-0024.srt",
+    "item_id": "game-0024",
+    "genre": [
+      "体育",
+      "竞速"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0025",
@@ -272,7 +440,14 @@
     "typical_playtime_minutes": 180,
     "description": "在外星荒野搭建传送带工厂的自动化模拟，产线规划、瓶颈排除与蓝图分享令人废寝忘食。",
     "duration_seconds": 10800,
-    "timeline_path": "games/library/game-0025.srt"
+    "timeline_path": "games/library/game-0025.srt",
+    "item_id": "game-0025",
+    "genre": [
+      "模拟经营",
+      "工厂自动化"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0026",
@@ -283,7 +458,14 @@
     "typical_playtime_minutes": 90,
     "description": "开放世界荒岛射击冒险，主角杰森从游客成长为部落战士，疯狂反派瓦斯的名字成为系列传奇。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0026.srt"
+    "timeline_path": "games/library/game-0026.srt",
+    "item_id": "game-0026",
+    "genre": [
+      "第一人称射击",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0027",
@@ -294,7 +476,14 @@
     "typical_playtime_minutes": 90,
     "description": "驾驶真实农机完成播种与收割的农业模拟，地块经营与机械购置构成踏实的经营节奏。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0027.srt"
+    "timeline_path": "games/library/game-0027.srt",
+    "item_id": "game-0027",
+    "genre": [
+      "模拟经营",
+      "农场经营"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0028",
@@ -305,7 +494,14 @@
     "typical_playtime_minutes": 60,
     "description": "克劳德与雪崩组织反抗神罗公司的日式角色扮演里程碑，魔晄、萨菲罗斯与爱丽丝的故事感动一代玩家。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0028.srt"
+    "timeline_path": "games/library/game-0028.srt",
+    "item_id": "game-0028",
+    "genre": [
+      "角色扮演",
+      "日式角色扮演"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0029",
@@ -316,7 +512,14 @@
     "typical_playtime_minutes": 90,
     "description": "在加尔古·玛库士官学校执教三方的战棋角色扮演，养成与羁绊系统让每场战斗的取舍更沉重。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0029.srt"
+    "timeline_path": "games/library/game-0029.srt",
+    "item_id": "game-0029",
+    "genre": [
+      "策略",
+      "战棋"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0030",
@@ -327,7 +530,14 @@
     "typical_playtime_minutes": 90,
     "description": "执教俱乐部从战术板到转会谈判的全要素足球经理模拟，数据的深度让玩家真正体会教练生涯。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0030.srt"
+    "timeline_path": "games/library/game-0030.srt",
+    "item_id": "game-0030",
+    "genre": [
+      "模拟经营",
+      "体育"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0031",
@@ -338,7 +548,14 @@
     "typical_playtime_minutes": 60,
     "description": "在墨西哥开放世界举办的虚拟车展嘉年华，季节更替与数百辆车的驾驶手感轻松又华丽。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0031.srt"
+    "timeline_path": "games/library/game-0031.srt",
+    "item_id": "game-0031",
+    "genre": [
+      "竞速",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0032",
@@ -349,7 +566,14 @@
     "typical_playtime_minutes": 120,
     "description": "洛圣都三主角交叉叙事的犯罪开放世界，抢劫任务设计与线上模式的持续更新造就长寿传奇。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0032.srt"
+    "timeline_path": "games/library/game-0032.srt",
+    "item_id": "game-0032",
+    "genre": [
+      "动作",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0033",
@@ -360,7 +584,14 @@
     "typical_playtime_minutes": 90,
     "description": " Valve 的科幻射击里程碑，科学家弗里曼在联合军占领的地球城市中拿起重力枪掀起反抗。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0033.srt"
+    "timeline_path": "games/library/game-0033.srt",
+    "item_id": "game-0033",
+    "genre": [
+      "第一人称射击",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0034",
@@ -371,7 +602,14 @@
     "typical_playtime_minutes": 60,
     "description": "士官长与星盟战争的终章，光环三部曲的巅峰之作，载具战斗与合作模式定义了主机射击的黄金标准。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0034.srt"
+    "timeline_path": "games/library/game-0034.srt",
+    "item_id": "game-0034",
+    "genre": [
+      "第一人称射击",
+      "科幻"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0035",
@@ -382,7 +620,14 @@
     "typical_playtime_minutes": 30,
     "description": "暴雪以魔兽宇宙为背景的数字卡牌对战，法力曲线、牌组构筑与随机趣味的平衡老少咸宜。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0035.srt"
+    "timeline_path": "games/library/game-0035.srt",
+    "item_id": "game-0035",
+    "genre": [
+      "卡牌",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0036",
@@ -393,7 +638,14 @@
     "typical_playtime_minutes": 30,
     "description": "暴雪宇宙大乱斗风格的团队 brawl，来自魔兽、星际与暗黑的英雄在多张特色地图上争夺目标机制。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0036.srt"
+    "timeline_path": "games/library/game-0036.srt",
+    "item_id": "game-0036",
+    "genre": [
+      "多人在线竞技",
+      "团队"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0037",
@@ -404,7 +656,14 @@
     "typical_playtime_minutes": 60,
     "description": "特工47在迪拜塔顶与列车上的合同暗杀沙盒，伪装、意外与路线规划的暗杀选项多如繁星。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0037.srt"
+    "timeline_path": "games/library/game-0037.srt",
+    "item_id": "game-0037",
+    "genre": [
+      "动作",
+      "潜行"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0038",
@@ -415,7 +674,14 @@
     "typical_playtime_minutes": 90,
     "description": "圣巢王国废墟中的虫子骑士物语，手绘画风、平台动作与地图探索的完成度极高一鸣惊人。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0038.srt"
+    "timeline_path": "games/library/game-0038.srt",
+    "item_id": "game-0038",
+    "genre": [
+      "独立",
+      "银河恶魔城"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0039",
@@ -426,7 +692,14 @@
     "typical_playtime_minutes": 60,
     "description": "收购破旧房屋翻新转卖的装修模拟，清洁、粉刷与布置的每一步都带来肉眼可见的成就感。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0039.srt"
+    "timeline_path": "games/library/game-0039.srt",
+    "item_id": "game-0039",
+    "genre": [
+      "模拟经营",
+      "职业模拟"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0040",
@@ -437,7 +710,14 @@
     "typical_playtime_minutes": 60,
     "description": "以最小网格预测虫族攻击的机甲战术小品，完美信息下的每一步推演都像解一道残局。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0040.srt"
+    "timeline_path": "games/library/game-0040.srt",
+    "item_id": "game-0040",
+    "genre": [
+      "策略",
+      "战棋"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0041",
@@ -448,7 +728,14 @@
     "typical_playtime_minutes": 90,
     "description": "专为双人合作设计的奇幻平台冒险，科迪与小梅在每个关卡获得互补能力化解婚姻危机。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0041.srt"
+    "timeline_path": "games/library/game-0041.srt",
+    "item_id": "game-0041",
+    "genre": [
+      "动作",
+      "合作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0042",
@@ -459,7 +746,14 @@
     "typical_playtime_minutes": 120,
     "description": "以坎巴拉星人为宇航员的航天工程模拟，火箭设计、轨道力学与失败爆炸同样充满教育意义。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0042.srt"
+    "timeline_path": "games/library/game-0042.srt",
+    "item_id": "game-0042",
+    "genre": [
+      "模拟经营",
+      "太空"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0043",
@@ -470,7 +764,14 @@
     "typical_playtime_minutes": 35,
     "description": "全球最受欢迎的多人在线战术竞技场，五人小队操控英雄推塔夺龙，围绕资源与团战争夺胜负。",
     "duration_seconds": 2100,
-    "timeline_path": "games/library/game-0043.srt"
+    "timeline_path": "games/library/game-0043.srt",
+    "item_id": "game-0043",
+    "genre": [
+      "多人在线竞技",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0044",
@@ -481,7 +782,14 @@
     "typical_playtime_minutes": 60,
     "description": "黑白剪影画风的小男孩寻姐之旅，沉默的谜题与潜伏的危机营造出挥之不去的压抑诗意。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0044.srt"
+    "timeline_path": "games/library/game-0044.srt",
+    "item_id": "game-0044",
+    "genre": [
+      "独立",
+      "解谜平台"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0045",
@@ -492,7 +800,14 @@
     "typical_playtime_minutes": 45,
     "description": "从投打对抗到球队经营的棒球模拟旗舰，球探报告与击球时机的拟真度备受好评。",
     "duration_seconds": 2700,
-    "timeline_path": "games/library/game-0045.srt"
+    "timeline_path": "games/library/game-0045.srt",
+    "item_id": "game-0045",
+    "genre": [
+      "体育",
+      "棒球"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0046",
@@ -503,7 +818,14 @@
     "typical_playtime_minutes": 40,
     "description": "任天堂招牌卡丁车竞速，道具乱斗与漂移蓄力的派对乐趣适合全家同乐。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0046.srt"
+    "timeline_path": "games/library/game-0046.srt",
+    "item_id": "game-0046",
+    "genre": [
+      "竞速",
+      "体育"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0047",
@@ -514,7 +836,14 @@
     "typical_playtime_minutes": 90,
     "description": "谢泼德指挥官集结团队执行自杀式任务的太空歌剧，队友忠诚任务与结局的取舍是 BioWare 叙事巅峰。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0047.srt"
+    "timeline_path": "games/library/game-0047.srt",
+    "item_id": "game-0047",
+    "genre": [
+      "角色扮演",
+      "科幻"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0048",
@@ -525,7 +854,14 @@
     "typical_playtime_minutes": 90,
     "description": "以卫星与航拍数据重建地球的飞行模拟，从起飞爬升到仪表进近的每个环节都拟真到苛刻。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0048.srt"
+    "timeline_path": "games/library/game-0048.srt",
+    "item_id": "game-0048",
+    "genre": [
+      "模拟经营",
+      "飞行"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0049",
@@ -536,7 +872,14 @@
     "typical_playtime_minutes": 120,
     "description": "方块世界挖掘合成的生存与建造沙盒，红石电路、生物群系与无尽模组使其成为销量之王的创作平台。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0049.srt"
+    "timeline_path": "games/library/game-0049.srt",
+    "item_id": "game-0049",
+    "genre": [
+      "沙盒",
+      "生存"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0050",
@@ -547,7 +890,14 @@
     "typical_playtime_minutes": 60,
     "description": "狩猎古龙与灭尽龙的共斗动作游戏，十四种武器深度与生态调查令狩猎准备本身成为乐趣。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0050.srt"
+    "timeline_path": "games/library/game-0050.srt",
+    "item_id": "game-0050",
+    "genre": [
+      "角色扮演",
+      "动作"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0051",
@@ -558,7 +908,14 @@
     "typical_playtime_minutes": 60,
     "description": "被困二十二分钟时间循环中的太阳系考古冒险，知识即进度 的设计带来纯粹的求知乐趣。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0051.srt"
+    "timeline_path": "games/library/game-0051.srt",
+    "item_id": "game-0051",
+    "genre": [
+      "独立",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0052",
@@ -569,7 +926,14 @@
     "typical_playtime_minutes": 30,
     "description": "暴雪的团队射击游戏，玩家从数十名风格各异的英雄中选择，围绕运载目标与控制点展开五对五对抗。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0052.srt"
+    "timeline_path": "games/library/game-0052.srt",
+    "item_id": "game-0052",
+    "genre": [
+      "第一人称射击",
+      "多人在线竞技"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0053",
@@ -580,7 +944,14 @@
     "typical_playtime_minutes": 90,
     "description": "心之怪盗团白天上学夜晚改心的日式角色扮演，时髦的界面风格与回合制战斗令人过目难忘。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0053.srt"
+    "timeline_path": "games/library/game-0053.srt",
+    "item_id": "game-0053",
+    "genre": [
+      "角色扮演",
+      "日式角色扮演"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0054",
@@ -591,7 +962,14 @@
     "typical_playtime_minutes": 90,
     "description": "自由建造与经营主题乐园的模拟游戏，过山车编辑器的曲线设计与游客模拟的真实反馈相得益彰。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0054.srt"
+    "timeline_path": "games/library/game-0054.srt",
+    "item_id": "game-0054",
+    "genre": [
+      "模拟经营",
+      "建造"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0055",
@@ -602,7 +980,14 @@
     "typical_playtime_minutes": 60,
     "description": "宝可梦系列初代，真新镇少年踏上收集图鉴、挑战道馆的旅程，成为跨世代的文化现象起点。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0055.srt"
+    "timeline_path": "games/library/game-0055.srt",
+    "item_id": "game-0055",
+    "genre": [
+      "角色扮演",
+      "日式角色扮演"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0056",
@@ -613,7 +998,14 @@
     "typical_playtime_minutes": 30,
     "description": "宝可梦题材的轻量化 MOBA，五人队伍用进球得分机制取代拆塔，节奏明快易上手。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0056.srt"
+    "timeline_path": "games/library/game-0056.srt",
+    "item_id": "game-0056",
+    "genre": [
+      "多人在线竞技",
+      "体育"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0057",
@@ -624,7 +1016,14 @@
     "typical_playtime_minutes": 90,
     "description": "手持传送门枪在光圈科技实验舱解谜的科幻小品，GLaDOS 的冷幽默与物理谜题设计天衣无缝。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0057.srt"
+    "timeline_path": "games/library/game-0057.srt",
+    "item_id": "game-0057",
+    "genre": [
+      "独立",
+      "解谜"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0058",
@@ -635,7 +1034,14 @@
     "typical_playtime_minutes": 120,
     "description": "范德林德帮覆灭史诗的西部慢节奏杰作，亚瑟·摩根的救赎之旅与拟真的边疆生活细节无与伦比。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0058.srt"
+    "timeline_path": "games/library/game-0058.srt",
+    "item_id": "game-0058",
+    "genre": [
+      "动作",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0059",
@@ -646,7 +1052,14 @@
     "typical_playtime_minutes": 30,
     "description": "火箭车踢足球的竞技杂交品，空翻射门与团队配合的上限极高，几分钟一局节奏爽快。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0059.srt"
+    "timeline_path": "games/library/game-0059.srt",
+    "item_id": "game-0059",
+    "genre": [
+      "体育",
+      "竞速"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0060",
@@ -657,7 +1070,14 @@
     "typical_playtime_minutes": 60,
     "description": "苇名弦一郎与剑圣一心压阵的战国忍者动作游戏，弹反与忍义手的战斗节奏干脆凌厉。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0060.srt"
+    "timeline_path": "games/library/game-0060.srt",
+    "item_id": "game-0060",
+    "genre": [
+      "动作",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0061",
@@ -668,7 +1088,14 @@
     "typical_playtime_minutes": 240,
     "description": "从石器时代到信息时代的回合制文明建构，科技、文化与政体路线的选择支撑起再一回合的魔力。",
     "duration_seconds": 14400,
-    "timeline_path": "games/library/game-0061.srt"
+    "timeline_path": "games/library/game-0061.srt",
+    "item_id": "game-0061",
+    "genre": [
+      "策略",
+      "4X"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0062",
@@ -679,7 +1106,14 @@
     "typical_playtime_minutes": 60,
     "description": "卡牌构筑爬塔的开创者，遗物协同与路线抉择让每局都像解一道新的谜题。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0062.srt"
+    "timeline_path": "games/library/game-0062.srt",
+    "item_id": "game-0062",
+    "genre": [
+      "独立",
+      "卡牌"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0063",
@@ -690,7 +1124,14 @@
     "typical_playtime_minutes": 90,
     "description": "一人开发的像素农场生活模拟，种田、钓鱼、挖矿与小镇人际关系交织出治愈的乡野岁月。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0063.srt"
+    "timeline_path": "games/library/game-0063.srt",
+    "item_id": "game-0063",
+    "genre": [
+      "模拟经营",
+      "农场经营"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0064",
@@ -701,7 +1142,14 @@
     "typical_playtime_minutes": 180,
     "description": "从母星走向星海的太空大战略，种族特性、飞升理念与银河社区的选择塑造文明的命运。",
     "duration_seconds": 10800,
-    "timeline_path": "games/library/game-0064.srt"
+    "timeline_path": "games/library/game-0064.srt",
+    "item_id": "game-0064",
+    "genre": [
+      "策略",
+      "4X"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0065",
@@ -712,7 +1160,14 @@
     "typical_playtime_minutes": 40,
     "description": "由前星际争霸开发者创立的霜巨人工作室打造的即时战略新作，人类联盟对抗外星侵袭者。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0065.srt"
+    "timeline_path": "games/library/game-0065.srt",
+    "item_id": "game-0065",
+    "genre": [
+      "即时战略",
+      "策略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0066",
@@ -723,7 +1178,14 @@
     "typical_playtime_minutes": 120,
     "description": "二维沙盒挖掘建造冒险，探索、 boss 挑战与装备合成的海量内容让每个存档都能玩上百小时。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0066.srt"
+    "timeline_path": "games/library/game-0066.srt",
+    "item_id": "game-0066",
+    "genre": [
+      "独立",
+      "沙盒"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0067",
@@ -734,7 +1196,14 @@
     "typical_playtime_minutes": 120,
     "description": "龙裔在天霜省的自由冒险，捏人、龙吼与无尽模组生态让这作角色扮演游戏十年不衰。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0067.srt"
+    "timeline_path": "games/library/game-0067.srt",
+    "item_id": "game-0067",
+    "genre": [
+      "角色扮演",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0068",
@@ -745,7 +1214,14 @@
     "typical_playtime_minutes": 90,
     "description": "海拉鲁王国的开放世界革命，攀爬、滑翔与化学引擎赋予的探索自由重塑了动作冒险设计范式。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0068.srt"
+    "timeline_path": "games/library/game-0068.srt",
+    "item_id": "game-0068",
+    "genre": [
+      "角色扮演",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0069",
@@ -756,7 +1232,14 @@
     "typical_playtime_minutes": 120,
     "description": "猎魔人杰洛特寻找养女的开放世界史诗，支线故事的深度与石之心血腥男爵等人物塑造堪称行业标杆。",
     "duration_seconds": 7200,
-    "timeline_path": "games/library/game-0069.srt"
+    "timeline_path": "games/library/game-0069.srt",
+    "item_id": "game-0069",
+    "genre": [
+      "角色扮演",
+      "开放世界"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0070",
@@ -767,7 +1250,14 @@
     "typical_playtime_minutes": 90,
     "description": "蒸汽朋克末世下的丧尸潮防守建造，一个漏洞就会被数万感染者冲垮殖民地的紧张感独一无二。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0070.srt"
+    "timeline_path": "games/library/game-0070.srt",
+    "item_id": "game-0070",
+    "genre": [
+      "策略",
+      "即时战略"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0071",
@@ -778,7 +1268,14 @@
     "typical_playtime_minutes": 40,
     "description": "机甲与铁驭共同作战的快节奏射击游戏，单人战役中机甲BT-7274与铁驭的羁绊令玩家印象深刻。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0071.srt"
+    "timeline_path": "games/library/game-0071.srt",
+    "item_id": "game-0071",
+    "genre": [
+      "第一人称射击",
+      "机甲"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0072",
@@ -789,7 +1286,14 @@
     "typical_playtime_minutes": 30,
     "description": "战术爆破射击游戏，攻防双方利用可破坏墙体、封阻与侦察干员技能进行高强度的近距离博弈。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0072.srt"
+    "timeline_path": "games/library/game-0072.srt",
+    "item_id": "game-0072",
+    "genre": [
+      "第一人称射击",
+      "战术"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0073",
@@ -800,7 +1304,14 @@
     "typical_playtime_minutes": 90,
     "description": "年轻劳拉在邪马台岛劫后重生的起源故事，生存动作与探险解谜重启了古墓丽影系列。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0073.srt"
+    "timeline_path": "games/library/game-0073.srt",
+    "item_id": "game-0073",
+    "genre": [
+      "动作",
+      "冒险"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0074",
@@ -811,7 +1322,14 @@
     "typical_playtime_minutes": 40,
     "description": "回归的职业网球模拟，发球上网与底线相持的手感与真实赛程的职业模式兼备。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0074.srt"
+    "timeline_path": "games/library/game-0074.srt",
+    "item_id": "game-0074",
+    "genre": [
+      "体育",
+      "网球"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0075",
@@ -822,7 +1340,14 @@
     "typical_playtime_minutes": 90,
     "description": "经营怪病丛生的卡通医院，诊断、治疗与员工管理的紧凑循环充满英式幽默。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0075.srt"
+    "timeline_path": "games/library/game-0075.srt",
+    "item_id": "game-0075",
+    "genre": [
+      "模拟经营",
+      "经营"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0076",
@@ -833,7 +1358,14 @@
     "typical_playtime_minutes": 60,
     "description": "可以不杀任何一只怪物的颠覆性 RPG，战斗系统的弹幕躲避与道德抉择的叙事至今被反复解读。",
     "duration_seconds": 3600,
-    "timeline_path": "games/library/game-0076.srt"
+    "timeline_path": "games/library/game-0076.srt",
+    "item_id": "game-0076",
+    "genre": [
+      "独立",
+      "角色扮演"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0077",
@@ -844,7 +1376,14 @@
     "typical_playtime_minutes": 40,
     "description": "拳头游戏将英雄技能与硬核射击结合的战术竞技游戏，每局围绕技能组合、道具使用与爆头枪法展开攻防。",
     "duration_seconds": 2400,
-    "timeline_path": "games/library/game-0077.srt"
+    "timeline_path": "games/library/game-0077.srt",
+    "item_id": "game-0077",
+    "genre": [
+      "第一人称射击",
+      "多人在线竞技"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0078",
@@ -855,7 +1394,14 @@
     "typical_playtime_minutes": 30,
     "description": "像素风自动射击生存小品， weapon 进化与怪潮压迫感构成的爽快循环令人不知不觉一小时过去。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0078.srt"
+    "timeline_path": "games/library/game-0078.srt",
+    "item_id": "game-0078",
+    "genre": [
+      "独立",
+      "弹幕生存"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0079",
@@ -866,7 +1412,14 @@
     "typical_playtime_minutes": 30,
     "description": "以体感操作打网球、保龄球与高尔夫的国民运动合集，定义了一代人的客厅娱乐记忆。",
     "duration_seconds": 1800,
-    "timeline_path": "games/library/game-0079.srt"
+    "timeline_path": "games/library/game-0079.srt",
+    "item_id": "game-0079",
+    "genre": [
+      "体育",
+      "派对"
+    ],
+    "language": "zh",
+    "age_rating": 12
   },
   {
     "game_id": "game-0080",
@@ -877,6 +1430,13 @@
     "typical_playtime_minutes": 90,
     "description": "指挥残余抵抗军对抗外星统治的回合制战术游戏，掩体、命中与压力系统的抉择扣人心弦。",
     "duration_seconds": 5400,
-    "timeline_path": "games/library/game-0080.srt"
+    "timeline_path": "games/library/game-0080.srt",
+    "item_id": "game-0080",
+    "genre": [
+      "策略",
+      "战棋"
+    ],
+    "language": "zh",
+    "age_rating": 12
   }
 ]

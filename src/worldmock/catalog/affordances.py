@@ -1,12 +1,13 @@
 """@brief 可供性注册表：affordances.toml 的解析、fail-closed 校验与不可变派生视图。
 
 注册表把散落五层的手写行为闭集（动机家族、习惯归并路由、MET 键、缓解通道、
-反馈边界、资源锁、采样上限……）收编为同一份数据的声明式投影（设计文档
-docs/dev/PROPOSAL-affordance-registry.md §二 Schema、§三 五层派生、§五 校验）。
+反馈边界、资源锁、采样上限……）收编为同一份数据的声明式投影
+（docs/design/02-exchange-engine.md「可供性与活动声明」「交换规则的加载与准入」）。
 
-本模块只做加载期解析与校验（§五 规则 1-5）和派生视图查询，运行期零 IO；
+本模块只做加载期解析与校验（docs/design/03-resource-engine.md「准入边界」的加载期五条：
+完整性、引用完整性、原型登记、互斥不变量、习惯覆盖完备）和派生视图查询，运行期零 IO；
 候选生成器原型保持 Python 函数，由 life/motivation.py 导入时登记进
-PROTOTYPE_GENERATORS（§2.3 原型库是唯一的代码扩展点）。
+PROTOTYPE_GENERATORS；候选生成职责见 docs/design/03-resource-engine.md「从目录到候选」。
 """
 
 from __future__ import annotations
@@ -50,7 +51,7 @@ TRAVEL_MODES = frozenset({"driving", "walking"})
 REFERENCEABLE_RESOURCES = frozenset({
     "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need",
 })
-#: 候选生成器原型的合法参数键（§2.3；引用未知原型名或未知参数键都拒绝）。
+#: 候选生成器原型的合法参数键；引用未知原型名或未知参数键都拒绝。
 GENERATOR_PARAM_KEYS: Mapping[str, frozenset[str]] = MappingProxyType({
     "clear_backlog": frozenset({"resource", "cap_seconds", "fallback_seconds",
                                 "min_session_seconds"}),
@@ -139,7 +140,7 @@ class FamilySpec:
 
 @dataclass(frozen=True)
 class AffordanceView:
-    """@brief 校验后的不可变派生视图：各层闭集的唯一派生来源（§三）。"""
+    """@brief 校验后的不可变派生视图：各层闭集的唯一派生来源（docs/design/02-exchange-engine.md「可供性与活动声明」）。"""
 
     kinds: Mapping[str, KindSpec]
     families: Mapping[str, FamilySpec]
@@ -322,7 +323,7 @@ class AffordanceView:
 
 
 # ---------------------------------------------------------------------------
-# 解析与校验（§五 规则 1-5，全部 IntegrityError fail-closed）
+# 解析与校验（docs/design/03-resource-engine.md「准入边界」的加载期五条，全部 IntegrityError fail-closed）
 # ---------------------------------------------------------------------------
 
 def load_affordances(path: Path, corpora_root: Path | None = None) -> AffordanceView:

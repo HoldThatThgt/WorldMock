@@ -34,7 +34,7 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
             break
         advance_next(engine)
     activity = engine.state.activities[result.activity_id]
-    assert "world_state_version" not in observed  # 黑名单字段不再进入观察（L1539）
+    assert "world_state_version" not in observed  # 黑名单字段不再进入观察（docs/dev/SPEC-life-runtime.md「不进入提示的字段」）
     assert receipt.status == "submitted" and result.status == "in_progress"
     assert activity.status == "completed" and activity.ended_at == activity.started_at + 60
     progress = [event for event in engine.store.read_events(engine.store.last_event_seq)
@@ -174,7 +174,7 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     names = {item.name for item in engine.scenario.locations
              if item.location_id in routed}
     reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
-    assert reachable == names  # scene 用展示名（规格 L1536）
+    assert reachable == names  # scene 用展示名（docs/dev/SPEC-life-runtime.md「观察投影三部分」）
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_basic_activity", request))
     engine.commit_decision_round("discover")

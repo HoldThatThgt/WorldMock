@@ -1,4 +1,4 @@
-"""@brief 货币改道等价冒烟与 resource_flows 落迹正反例（设计文档 §9/§14.2）。
+"""@brief 货币改道等价冒烟与 resource_flows 落迹正反例（docs/design/02-exchange-engine.md「校验资源分录」与「分阶段验证与完成条件」）。
 
 一天夹具（multi-person）期末六账户对账参照 tests/resources/test_equivalence_anchor.py
 的模式：把运行足迹中全部携带 resource_changes 的事件改写为 TransferEntry 序列，

@@ -797,7 +797,7 @@ def test_account_transition_rejects_unbalanced_changes_and_bad_types():
 
 
 def test_account_transition_rejects_nonzero_sum_counterparty_event():
-    """资金零和守恒（规格 L883-886）：每笔转账必须指名双方且合计为零。
+    """资金零和守恒（docs/dev/SPEC-footprints.md「资金守恒验证」）：每笔转账必须指名双方且合计为零。
 
     双边金额不抵消的事件（{a:-5, b:+4}，合计 -1）即使账户差额与事件逐项
     一致，也必须被 `sum(money.values()) != 0` 子句拒绝——`len(money) < 2`

@@ -54,7 +54,7 @@ def test_movie_library_size_fields_and_manifest_agreement() -> None:
 
 
 def test_no_random_preference_floats_survive_in_both_scenarios() -> None:
-    """修订合同 L1661：随机偏好浮点删除——两场景人物不再携带偏好浮点键。"""
+    """docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点删除——两场景人物不再携带偏好浮点键。"""
     movies = {movie["item_id"] for movie in _items("movies")}
     assert movies, "movie corpus must not be empty for the negative guard to bite"
     for path in SCENARIOS:

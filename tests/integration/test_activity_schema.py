@@ -276,7 +276,7 @@ def test_nested_life_schemas_are_inlined_from_runtime_models() -> None:
 
 
 def test_tuple_request_models_inline_subschemas_without_adapter() -> None:
-    """四件含元组字段的请求模型在模型层内联子 Schema（strict 合同，L1307-1309）。
+    """四件含元组字段的请求模型在模型层内联子 Schema（strict 合同，docs/CONTRACTS.md「人物工具与管理接口」）。
 
     purchase.items/consume.items/plan_day.segments/revise_day_plan.segments
     的子模型约束以 WithJsonSchema 注解进 life.models 字段定义，生成的

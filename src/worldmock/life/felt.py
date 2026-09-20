@@ -5,8 +5,8 @@
 - 困意只做分级：原始压力值（两过程睡眠压力演化）由调用方传入，演化归 sleep.py；
 - 社交需要按账本速率推进并夹到 [0, 1]；
 - 情绪按事件加脉冲并以半衰期衰减：只影响体感呈现与记忆重要度加权，不直接
-  改变任何动作可行性（规格 L1521）——本模块不耦合可行性判断，由调用方保证；
-- 滞回以"上一次实际提供决策时的分级"为参照（规格 L1524-1525），非结算边界。
+  改变任何动作可行性（docs/dev/SPEC-life-runtime.md「其他体感分级」）——本模块不耦合可行性判断，由调用方保证；
+- 滞回以"上一次实际提供决策时的分级"为参照（docs/dev/SPEC-life-runtime.md「滞回规则」），非结算边界。
 数值参数一律标注 experiment_assumption（明确引用文献的常数除外）。
 分级区间为下闭上开 [lo, hi)，顶档取 ≥ 顶下界；分级文本为中文提示文本。
 """
@@ -19,10 +19,10 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-#: 饥饿锚定热量（场景参数默认值，规格 L1505-1506）。
+#: 饥饿锚定热量（场景参数默认值，docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 #: experiment_assumption：规格冻结的场景默认，无文献出处。
 APPETITE_ANCHOR_KCAL_DEFAULT = 1200.0
-#: 公式分母下限热量（800/400 kcal 作为世界事实记录，不进分级文本，规格 L1510）。
+#: 公式分母下限热量（800/400 kcal 作为世界事实记录，不进分级文本，docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 #: experiment_assumption：规格冻结值，无文献出处。
 APPETITE_KCAL_FLOOR = 400.0
 #: 昼夜项振幅（峰 1.17 / 谷 0.83，峰谷差 17%）。
@@ -30,19 +30,19 @@ APPETITE_KCAL_FLOOR = 400.0
 APPETITE_CIRCADIAN_AMPLITUDE = 0.17
 #: 昼夜项峰值时刻（自午夜起的小时数）。出处：Scheer、Morris 与 Shea 2013。
 APPETITE_CIRCADIAN_PEAK_HOUR = 20.0
-#: 餐时项幅度（窗口内 +0.15，窗口外为零）。experiment_assumption：规格 L1508 明示
+#: 餐时项幅度（窗口内 +0.15，窗口外为零）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」明示
 #: 属实验假设。
 APPETITE_MEAL_WINDOW_BONUS = 0.15
 
 #: 饥饿分级阈值表（(下界, 分级文本)，区间 [lo, hi)，顶档 ≥ 末下界）。
-#: experiment_assumption：规格 L1509 冻结阈值，无文献出处。
+#: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
 APPETITE_BANDS: tuple[tuple[float, str], ...] = (
     (0.15, "有点想吃"),
     (0.35, "饿"),
     (0.6, "很饿"),
     (0.85, "饿得难受"),
 )
-#: 饥饿分级基档（低于首下界）。experiment_assumption：规格 L1509。
+#: 饥饿分级基档（低于首下界）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 APETITE_BASE_LEVEL = "不饿"
 
 #: 困意分级阈值表（输入为 sleep.py 演化的原始压力值，域约 0-1.2）。
@@ -56,34 +56,34 @@ SLEEPINESS_BANDS: tuple[tuple[float, str], ...] = (
 #: 困意分级基档。experiment_assumption：修订合同冻结阈值。
 SLEEPINESS_BASE_LEVEL = "清醒"
 
-#: 娱乐需要分级阈值表。experiment_assumption：规格 L1512 冻结阈值，无文献出处。
+#: 娱乐需要分级阈值表。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
 ENTERTAINMENT_BANDS: tuple[tuple[float, str], ...] = (
     (0.3, "有点想放松"),
     (0.6, "很想放松"),
 )
-#: 娱乐需要分级基档。experiment_assumption：规格 L1512。
+#: 娱乐需要分级基档。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 ENTERTAINMENT_BASE_LEVEL = "不闷"
 
-#: 社交需要分级阈值表。experiment_assumption：规格 L1514 冻结阈值，无文献出处。
+#: 社交需要分级阈值表。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
 SOCIAL_BANDS: tuple[tuple[float, str], ...] = (
     (0.3, "想和人说说话"),
     (0.6, "有点孤单"),
 )
-#: 社交需要分级基档。experiment_assumption：规格 L1514。
+#: 社交需要分级基档。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 SOCIAL_BASE_LEVEL = "不想找人"
 
 #: 情绪分级阈值表（mood_valence ∈ [−1, 1]）。
-#: experiment_assumption：规格 L1520 冻结阈值，无文献出处。
+#: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
 MOOD_BANDS: tuple[tuple[float, str], ...] = (
     (-0.4, "有点烦"),
     (-0.15, "平静"),
     (0.15, "挺好"),
     (0.4, "很开心"),
 )
-#: 情绪分级基档（低于 −0.4）。experiment_assumption：规格 L1520。
+#: 情绪分级基档（低于 −0.4）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 MOOD_BASE_LEVEL = "很烦"
 
-#: 社交需要账本速率（每小时/每条）。experiment_assumption：规格 L1515 明示
+#: 社交需要账本速率（每小时/每条）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」明示
 #: "数值为实验假设"；Humanoid Agents 的 social 需要与 The Sims 的 Social
 #: motive 为结构依据。
 SOCIAL_NEED_AWAKE_RATE = 0.04
@@ -93,7 +93,7 @@ SOCIAL_NEED_SHARED_MEAL_RATE = 0.3
 SOCIAL_NEED_MESSAGE_RELIEF = 0.05
 
 #: 情绪脉冲表（基础幅度，应用时再乘 (1 + 0.5·N_norm)）。
-#: experiment_assumption：规格 L1522 明示"脉冲与半衰期是实验假设"；
+#: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」明示"脉冲与半衰期是实验假设"；
 #: OCC 评价理论与 PAD 心境模型为结构依据。
 MOOD_PULSES: dict[str, float] = {
     "work_review_passed": 0.3,
@@ -104,14 +104,14 @@ MOOD_PULSES: dict[str, float] = {
     "plan_segment_completed": 0.05,
     "service_refused": -0.05,
 }
-#: 情绪半衰期基准（分钟）。experiment_assumption：规格 L1517-1519。
+#: 情绪半衰期基准（分钟）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 MOOD_HALFLIFE_MINUTES = 45.0
-#: 半衰期神经质调制系数（× (1 + 0.3·N_norm)）。experiment_assumption：规格 L1519。
+#: 半衰期神经质调制系数（× (1 + 0.3·N_norm)）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 MOOD_HALFLIFE_NEUROTICISM_FACTOR = 0.3
-#: 脉冲幅度神经质调制系数（× (1 + 0.5·N_norm)）。experiment_assumption：规格 L1519。
+#: 脉冲幅度神经质调制系数（× (1 + 0.5·N_norm)）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
 MOOD_PULSE_NEUROTICISM_FACTOR = 0.5
 #: 连续饿/困的不适脉冲触发时长的下界（小时，≥ 该值才计脉冲）。
-#: experiment_assumption：规格 L1518 冻结值。
+#: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结值。
 MOOD_DISCOMFORT_TRIGGER_HOURS = 2.0
 
 
@@ -181,7 +181,7 @@ def _require_time_hour(time_hour: float) -> None:
 
 
 def appetite_circadian_multiplier(time_hour: float) -> float:
-    """@brief 饥饿昼夜因子 1 + 0.17·cos(2π(t − 20h)/24h)（规格 L1505、L1507）。
+    """@brief 饥饿昼夜因子 1 + 0.17·cos(2π(t − 20h)/24h)（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     20:00 峰值 1.17、08:00 低谷 0.83，峰谷差 17%。
     出处：Scheer、Morris 与 Shea 2013 的内源饥饿节律。
@@ -192,7 +192,7 @@ def appetite_circadian_multiplier(time_hour: float) -> float:
 
 
 def meal_window_bonus(time_hour: float, windows: MealWindows) -> float:
-    """@brief 餐时项：t 落在任一声明窗口内为 +0.15，窗口外为 0（规格 L1508）。
+    """@brief 餐时项：t 落在任一声明窗口内为 +0.15，窗口外为 0（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     两窗口已由 MealWindows 校验不相交，故至多命中其一、不叠加。
     experiment_assumption：餐时项幅度属实验假设。
@@ -210,11 +210,11 @@ def compute_appetite(
     meal_windows: MealWindows | None = None,
     appetite_anchor_kcal: float = APPETITE_ANCHOR_KCAL_DEFAULT,
 ) -> float:
-    """@brief 计算饥饿体感 appetite（规格 L1505-1508）。
+    """@brief 计算饥饿体感 appetite（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     appetite = clamp((anchor − energy)/(anchor − 400), 0, 1) · 昼夜因子 + 餐时项。
     只夹基值分数，乘昼夜因子与加餐时项后可超过 1（上限 1.32）——顶档按
-    ≥ 0.85 判"饿得难受"，与规格 L1506 的 800/400 kcal 阈值一致。
+    ≥ 0.85 判"饿得难受"，与 docs/dev/SPEC-life-runtime.md「其他体感分级」的 800/400 kcal 阈值一致。
     """
     if appetite_anchor_kcal <= APPETITE_KCAL_FLOOR:
         raise ValueError("appetite_anchor_kcal must exceed 400 kcal")
@@ -230,7 +230,7 @@ def compute_appetite(
 
 
 def appetite_level(appetite: float) -> str:
-    """@brief 饥饿分级文本（规格 L1509）：不饿/有点想吃/饿/很饿/饿得难受。"""
+    """@brief 饥饿分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）：不饿/有点想吃/饿/很饿/饿得难受。"""
     return _band_level(appetite, APETITE_BASE_LEVEL, APPETITE_BANDS)
 
 
@@ -240,17 +240,17 @@ def sleepiness_level(sleepiness: float) -> str:
 
 
 def entertainment_need_level(need: float) -> str:
-    """@brief 娱乐需要分级文本（规格 L1512）：不闷/有点想放松/很想放松。"""
+    """@brief 娱乐需要分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）：不闷/有点想放松/很想放松。"""
     return _band_level(need, ENTERTAINMENT_BASE_LEVEL, ENTERTAINMENT_BANDS)
 
 
 def social_need_level(need: float) -> str:
-    """@brief 社交需要分级文本（规格 L1514）：不想找人/想和人说说话/有点孤单。"""
+    """@brief 社交需要分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）：不想找人/想和人说说话/有点孤单。"""
     return _band_level(need, SOCIAL_BASE_LEVEL, SOCIAL_BANDS)
 
 
 def mood_level(valence: float) -> str:
-    """@brief 情绪分级文本（规格 L1520）：很烦/有点烦/平静/挺好/很开心。"""
+    """@brief 情绪分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）：很烦/有点烦/平静/挺好/很开心。"""
     return _band_level(valence, MOOD_BASE_LEVEL, MOOD_BANDS)
 
 
@@ -272,11 +272,11 @@ def summarize_felt_levels(
 
 
 def apply_social_need_ledger(social_need: float, exposure: SocialExposure) -> float:
-    """@brief 按账本速率推进社交需要并夹到 [0, 1]（规格 L1513-1515）。
+    """@brief 按账本速率推进社交需要并夹到 [0, 1]（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     清醒每小时 +0.04；与在场人物交谈每小时 −0.5、与联系人通话每小时 −0.4、
     共同用餐每小时 −0.3、收到并阅读一条来自人物或联系人的消息 −0.05。
-    数值为实验假设（规格 L1515）。
+    数值为实验假设（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
     """
     if not 0 <= social_need <= 1:
         raise ValueError("social_need must be within [0, 1]")
@@ -302,7 +302,7 @@ def normalize_neuroticism(raw_value: float, scale_low: float, scale_high: float)
 
 
 def mood_halflife_minutes(neuroticism_norm: float) -> float:
-    """@brief 情绪半衰期 45 分钟 × (1 + 0.3·N_norm)（规格 L1519）。"""
+    """@brief 情绪半衰期 45 分钟 × (1 + 0.3·N_norm)（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     _require_neuroticism_range(neuroticism_norm)
     factor = 1.0 + MOOD_HALFLIFE_NEUROTICISM_FACTOR * neuroticism_norm
     return MOOD_HALFLIFE_MINUTES * factor
@@ -311,7 +311,7 @@ def mood_halflife_minutes(neuroticism_norm: float) -> float:
 def apply_mood_pulse(
     mood_valence: float, base_amplitude: float, neuroticism_norm: float
 ) -> float:
-    """@brief 叠加一次情绪脉冲并夹到 [−1, 1]（规格 L1517-1519）。
+    """@brief 叠加一次情绪脉冲并夹到 [−1, 1]（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     幅度调制 × (1 + 0.5·N_norm)；base_amplitude 取 MOOD_PULSES 的基础幅度
     （不适脉冲取 discomfort_pulse(连续小时数)）。
@@ -324,7 +324,7 @@ def apply_mood_pulse(
 
 
 def discomfort_pulse(continuous_hours: float) -> float:
-    """@brief 连续饿/困的不适脉冲基础幅度：不足 2 小时为 0，否则 −0.1/小时（L1518）。"""
+    """@brief 连续饿/困的不适脉冲基础幅度：不足 2 小时为 0，否则 −0.1/小时（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     if continuous_hours < 0:
         raise ValueError("continuous_hours must be non-negative")
     if continuous_hours < MOOD_DISCOMFORT_TRIGGER_HOURS:
@@ -335,7 +335,7 @@ def discomfort_pulse(continuous_hours: float) -> float:
 def decay_mood_valence(
     mood_valence: float, elapsed_minutes: float, neuroticism_norm: float
 ) -> float:
-    """@brief 按半衰期指数衰减情绪（规格 L1519）：valence · 0.5^(elapsed / halflife)。"""
+    """@brief 按半衰期指数衰减情绪（docs/dev/SPEC-life-runtime.md「其他体感分级」）：valence · 0.5^(elapsed / halflife)。"""
     if elapsed_minutes < 0:
         raise ValueError("elapsed_minutes must be non-negative")
     _require_neuroticism_range(neuroticism_norm)
@@ -348,7 +348,7 @@ def changed_felt_levels(
 ) -> list[str]:
     """@brief 滞回判定：与"上一次实际提供决策时的分级"比较，返回变化的体感键。
 
-    参照是决策而非结算（规格 L1524-1525）：结算边界重算产生的中间分级不进入
+    参照是决策而非结算（docs/dev/SPEC-life-runtime.md「滞回规则」）：结算边界重算产生的中间分级不进入
     参照，只要与决策时一致就不构成变化，天然抑制分级边界附近的抖动，不另设
     阈值参数。键只在任一侧出现也视为变化（首次观察/信号消失）。
     """

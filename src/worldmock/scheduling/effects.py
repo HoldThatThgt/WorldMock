@@ -1,4 +1,4 @@
-"""@brief 预排事件到点效果的纯处理器（设计文档 §7.2）。
+"""@brief 预排事件到点效果的纯处理器（docs/design/04-simulation-engine.md「预排事件」）。
 
 每个处理器接收世界状态并返回状态变更与环境事件证据；引擎在事件点调用并负责
 提交足迹与换持语义。资金类事件（BILL_DUE/PAYROLL）经 settlement.settle_money_transfer

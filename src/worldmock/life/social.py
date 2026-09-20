@@ -1,9 +1,9 @@
 """@brief 社交最小可行版的纯函数域：在场可见、消息、交谈、通话与联系人回复。
 
-《人物真实性修订合同·社交最小可行版》（docs/agentsociety2-design.md L1616-1633）
-的域校验、可见性投影与记录结构。本模块只产出结构与判定，不写足迹库、
+`docs/dev/SPEC-life-runtime.md`「社交最小可行版」的域校验、可见性投影与
+记录结构。本模块只产出结构与判定，不写足迹库、
 不调用模型、不结算资源；登记投递与独立模型调用由引擎层接线完成。
-可见性闭集（L1630）：他人观察只暴露姓名、活动家族与可交谈状态，
+可见性闭集（「社交最小可行版」）：他人观察只暴露姓名、活动家族与可交谈状态，
 不暴露身体数值、余额、任务或记忆。
 """
 
@@ -14,16 +14,16 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-#: 回复策略闭集（修订合同 L1627）。
+#: 回复策略闭集（「社交最小可行版」）。
 ReplyPolicy = Literal["none", "template", "model"]
-#: 收件箱消息种类：直发消息与交谈邀请（L1624/L1625）。
+#: 收件箱消息种类：直发消息与交谈邀请（「社交最小可行版」）。
 MessageKind = Literal["direct", "chat_invite"]
 
-#: 消息文本上限（L1624：不超过 300 汉字；按字符数计，超出即拒绝）。
+#: 消息文本上限（「社交最小可行版」：不超过 300 汉字；按字符数计，超出即拒绝）。
 MESSAGE_TEXT_MAX_CHARS = 300
-#: model 策略回复文本上限（L1628：不超过 200 汉字）。
+#: model 策略回复文本上限（「社交最小可行版」：不超过 200 汉字）。
 MODEL_REPLY_MAX_CHARS = 200
-#: 通话时长闭区间端点（分钟，含端点，L1626）。
+#: 通话时长闭区间端点（分钟，含端点，「社交最小可行版」）。
 CALL_MIN_MINUTES = 10
 CALL_MAX_MINUTES = 60
 #: experiment_assumption：交谈被接受时双方社交需要缓解速率（约定值，非文献常数）。
@@ -32,7 +32,7 @@ CHAT_RELIEF_ACCEPTED_PER_HOUR = 0.5
 CHAT_RELIEF_DECLINED_PER_HOUR = 0.2
 #: experiment_assumption：通话社交需要缓解速率（约定值，非文献常数）。
 CALL_RELIEF_PER_HOUR = 0.4
-#: 联系人回复来源标记（L1628）。足迹 EventDraft.source_kind 冻结枚举不含
+#: 联系人回复来源标记（「社交最小可行版」）。足迹 EventDraft.source_kind 冻结枚举不含
 #: model_npc，落库时的映射由引擎层负责，本模块只产出记录结构。
 REPLY_SOURCE_KIND = "model_npc"
 #: template 策略的占位回复文本；正式模板渲染由引擎与语料层完成。
@@ -46,7 +46,7 @@ class _SocialModel(BaseModel):
 
 
 class Contact(_SocialModel):
-    """@brief 场景联系人：按人物声明（修订合同 L1627、L1647）。
+    """@brief 场景联系人：按人物声明（「社交最小可行版」与 `docs/dev/SPEC-life-realism.md`「世界素材品类要求」）。
 
     亲密度沿用 Humanoid Agents 的 closeness 0-30 口径；channels 为可用
     联系渠道（如电话、短信），由场景声明，引擎据此约束可达性。
@@ -77,9 +77,10 @@ class AgentPresence(_SocialModel):
 class PersonView(_SocialModel):
     """@brief 他人观察的可见投影：不透明身份 + 姓名、活动家族、可交谈。
 
-    隐私闭集（L1630）限定他人只暴露姓名、活动家族与可交谈状态，不暴露
+    隐私闭集（「社交最小可行版」）限定他人只暴露姓名、活动家族与可交谈状态，不暴露
     身体数值、余额、任务或记忆；person_id 是工具身份锚点（send_message/
-    start_social_activity 的身份枚举用本轮观察，L1005-1007），不是隐私
+    start_social_activity 的身份枚举用本轮观察，见
+    `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」），不是隐私
     泄漏——scene 渲染仍只用姓名（含活动家族短语），身份只进 facts 层。
     """
 
@@ -103,7 +104,7 @@ class Message(_SocialModel):
 class MessageArrivalEvent(_SocialModel):
     """@brief message_arrival 送达记录结构（引擎落库为 environment_event）。
 
-    本模块只产出结构不写库；inbox 在收件方下一次观察时可见（L1624）。
+    本模块只产出结构不写库；inbox 在收件方下一次观察时可见（「社交最小可行版」）。
     """
 
     event_type: Literal["environment_event"] = "environment_event"
@@ -152,7 +153,7 @@ class SocialRelief(_SocialModel):
 
 
 class CallStart(_SocialModel):
-    """@brief 通话发起结果：占用注意力的前台活动（面向场景联系人，L1626）。"""
+    """@brief 通话发起结果：占用注意力的前台活动（面向场景联系人，「社交最小可行版」）。"""
 
     activity_kind: Literal["call"] = "call"
     contact_id: str
@@ -162,7 +163,7 @@ class CallStart(_SocialModel):
 
 
 class IncomingMessage(_SocialModel):
-    """@brief 联系人收到的人物消息；message_id 即回复幂等键（L1628）。"""
+    """@brief 联系人收到的人物消息；message_id 即回复幂等键（「社交最小可行版」）。"""
 
     message_id: str
     sender_id: str
@@ -183,24 +184,24 @@ class ModelReplyRequest(_SocialModel):
 
 
 class ContactReply(_SocialModel):
-    """@brief 联系人回复记录：只进入收件箱，不改任何资源或任务（L1628）。"""
+    """@brief 联系人回复记录：只进入收件箱，不改任何资源或任务（「社交最小可行版」）。"""
 
     message: Message
     source_kind: Literal["model_npc"] = REPLY_SOURCE_KIND
 
 
 def can_talk(presence: AgentPresence) -> bool:
-    """@brief 可交谈判定：清醒且非主动游戏（修订合同 L1623）。"""
+    """@brief 可交谈判定：清醒且非主动游戏（「社交最小可行版」）。"""
     return presence.awake and not presence.actively_gaming
 
 
 def people_here(agent_location: str,
                 other_agents: list[AgentPresence]) -> list[PersonView]:
-    """@brief 同一地点他人的可见投影（隐私闭集 + 身份锚点，L1623/L1630）。
+    """@brief 同一地点他人的可见投影（隐私闭集 + 身份锚点，「社交最小可行版」）。
 
     只暴露不透明身份、姓名、当前活动家族与可交谈状态；不暴露身体数值、
     余额、任务或记忆。身份（agent:<id> 不透明形式）供工具身份枚举与配对
-    校验使用（L1005-1007），scene 渲染仍只用姓名。列表保持输入顺序。
+    校验使用（见 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」），scene 渲染仍只用姓名。列表保持输入顺序。
     """
     return [
         PersonView(
@@ -226,7 +227,7 @@ def send_message(outgoing: OutgoingMessage, world_agent_ids: Collection[str],
 
     收件人必须存在（同世界人物或场景联系人）；文本不超过 300 汉字。
     瞬时动作语义：本函数只登记，收件方在下一次观察的 inbox 看到送达
-    （L1624）；写库由引擎层完成。
+    （「社交最小可行版」）；写库由引擎层完成。
     """
     known = set(world_agent_ids) | {item.contact_id for item in contacts}
     if outgoing.recipient_id not in known:
@@ -245,7 +246,7 @@ def start_chat(initiator_location: str, partner: AgentPresence,
                duration_minutes: int, invite: OutgoingMessage) -> ChatStart:
     """@brief 交谈域校验：共同在场且对方可交谈；产出前台活动与邀请。
 
-    邀请以 chat_invite 消息送达对方（L1625）；接受/拒绝后的社交需要
+    邀请以 chat_invite 消息送达对方（「社交最小可行版」）；接受/拒绝后的社交需要
     数值结算见 chat_settlement，活动本体按发起方前台活动由引擎结算。
     """
     if partner.location != initiator_location:
@@ -290,7 +291,7 @@ def chat_settlement(accepted: bool) -> SocialRelief:
 def start_call(contact: Contact, duration_minutes: int) -> CallStart:
     """@brief 通话域校验：面向场景联系人，10-60 分钟，占用注意力，0.4/小时。
 
-    联系人类型即场景联系人的类型约束；时长闭区间含端点（L1626）。
+    联系人类型即场景联系人的类型约束；时长闭区间含端点（「社交最小可行版」）。
     """
     if not CALL_MIN_MINUTES <= duration_minutes <= CALL_MAX_MINUTES:
         raise ValueError(
@@ -307,7 +308,7 @@ def needs_reply(policy: ReplyPolicy, message_id: str,
                 replied_message_ids: Container[str]) -> bool:
     """@brief 联系人回复判定：策略开启且该消息尚未回复过（最多一次幂等）。
 
-    幂等键为收件消息的 message_id。L1628 只显式要求 model 策略最多一次；
+    幂等键为收件消息的 message_id。「社交最小可行版」只显式要求 model 策略最多一次；
     template 策略沿用同一道门，避免同一消息的占位回复重复进入收件箱。
     """
     if policy == "none":

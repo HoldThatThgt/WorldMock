@@ -1,7 +1,9 @@
-"""@brief 设计 §8 七条准入规则的正反例测试（类型级资源 + 账户声明 + 占位端点）。"""
+"""@brief docs/design/03-resource-engine.md「准入边界」八条准入规则的正反例测试（类型级资源 + 账户声明 + 占位端点）。"""
 
 from __future__ import annotations
 
+import ast
+import re
 from pathlib import Path
 
 import pytest
@@ -373,7 +375,7 @@ def test_schedule_bill_due_undeclared_account(tmp_path: Path) -> None:
     assert _codes(result) == {SCHEDULE_INVALID}
 
 
-# 第七条：计费公式引用。
+# 第八条：计费公式引用。
 
 
 def test_unknown_formula_reference_rejected(tmp_path: Path) -> None:
@@ -435,3 +437,48 @@ def test_duplicate_account_roles_rejected_at_construction() -> None:
     ]
     with pytest.raises(ValidationError, match="roles must be unique"):
         ScenarioCatalogRefs.model_validate(payload)
+
+
+_CN_DIGITS = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+_RULE_COUNT_PATTERN = re.compile(r"的([一二三四五六七八九十]+)条规则")
+
+
+def _chinese_number(text: str) -> int:
+    """@brief 解析 docstring 里的中文条数（支持"十"以内与"十几"两种形态）。"""
+    if "十" not in text:
+        return _CN_DIGITS[text]
+    head, _, tail = text.partition("十")
+    tens = _CN_DIGITS[head] if head else 1
+    ones = _CN_DIGITS[tail] if tail else 0
+    return tens * 10 + ones
+
+
+def _admission_module() -> ast.Module:
+    """@brief 解析 admission 生产源文件。"""
+    from worldmock.catalog import admission
+
+    source = Path(admission.__file__).read_text(encoding="utf-8")
+    return ast.parse(source)
+
+
+def _rule_check_call_count(tree: ast.Module) -> int:
+    """@brief 统计 validate_scenario_against_catalog 函数体内实际调用的 _check_* 条数。"""
+    function = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "validate_scenario_against_catalog")
+    return sum(1 for node in ast.walk(function)
+               if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+               and node.func.id.startswith("_check_"))
+
+
+def test_admission_rule_count_matches_docstring() -> None:
+    """@brief docstring 自陈的规则条数等于函数体内实际调用的 _check_* 条数（防再次漂移）。"""
+    tree = _admission_module()
+    function = next(node for node in tree.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "validate_scenario_against_catalog")
+    declared = _RULE_COUNT_PATTERN.search(ast.get_docstring(function) or "")
+    assert declared is not None, "admission docstring must declare its rule count in Chinese"
+    assert _chinese_number(declared.group(1)) == _rule_check_call_count(tree)
+    assert _chinese_number(declared.group(1)) == 8

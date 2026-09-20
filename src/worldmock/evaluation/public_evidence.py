@@ -264,7 +264,7 @@ def _world_request_shape(
 def _social_shape(request: Mapping[str, Any]) -> _Shape | None:
     """@brief 交谈/通话以 person 对象进入公开证据；同伴身份由盲评层 HMAC 匿名化。
 
-    修订合同 L1632/L1680：活动记录的同伴只用匿名对象引用——此处保留
+    docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」：活动记录的同伴只用匿名对象引用——此处保留
     object_key=partner_id，渲染端（review._masked_ref）统一转 keyed HMAC。
     """
     kind = _string(request.get("kind"))

@@ -1,4 +1,4 @@
-# 画像编译 v2 映射规则表（worldmock.profile.mapper 的唯一数值来源，规格 L1652-1669）。
+# 画像编译 v2 映射规则表（worldmock.profile.mapper 的唯一数值来源，规格见 docs/dev/SPEC-life-realism.md「画像编译」）。
 # v1 的九参数动机映射（weights/tau/beta_present_bias/loss_aversion/comfort/aspiration/
 # emotion_sensitivity/attention_prior）已整体删除，不保留别名。
 # 大五只进世界层动力学；大五分数与任何权重不得进入提示。
@@ -13,7 +13,7 @@ span = 3.0
 
 # ---------------------------------------------------------------------------
 # world_dynamics：大五 → 世界层动力学参数 = intercept + slope×normalized，
-# 钳制到 [min, max] 后吸附 step 格点（规格 L1659-1660 的五条映射）。
+# 钳制到 [min, max] 后吸附 step 格点（docs/dev/SPEC-life-realism.md「画像编译」的五条映射）。
 # ---------------------------------------------------------------------------
 
 # 神经质 → 情绪脉冲幅度 [0.2, 1.0] 步进 0.05（基础脉冲表的整体缩放系数）。
@@ -91,7 +91,7 @@ max = 1.0
 step = 0.05
 
 # ---------------------------------------------------------------------------
-# defaults：background_story 未提及时的确定性缺省（规格 L1656-1657）。
+# defaults：background_story 未提及时的确定性缺省（docs/dev/SPEC-life-realism.md「画像编译」）。
 # sleep_need_hours 默认 7.5（人群众数量级，experiment_assumption）；
 # chronotype_midsleep 默认 04:00（Roenneberg MCTQ 典型自由日睡眠中点，
 # experiment_assumption）；时间锚点为都市白领典型窗口（experiment_assumption）。

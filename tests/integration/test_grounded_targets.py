@@ -221,8 +221,8 @@ def test_prepare_binds_current_catalogs_to_native_strict_schema() -> None:
     assert properties["target_id"]["enum"] == [
         "content-visible", "game-visible", "message-visible", "product_catalog", "task-a", "task-b",
     ]
-    assert "work uses observations[0].data.tasks[].task_id" in properties["activity_type"]["description"]
-    assert "read_mail=messages[].message_id" in properties["target_id"]["description"]
+    assert "work uses tasks[].task_id" in properties["activity_type"]["description"]
+    assert "read_mail = messages[].message_id" in properties["target_id"]["description"]
     Draft202012Validator.check_schema(parameters)
 
 
@@ -502,8 +502,9 @@ def test_browse_activities_binds_summary_keys_and_rejects_unknown_category() -> 
     schema = functions["browse_activities"]["parameters"]["properties"]
 
     assert schema["category"]["enum"] == ["feature_film", "foods", "sport"]
-    valid = ReactDecision("", "browse_activities", {"category": "sport"}, "")
-    invalid = ReactDecision("", "browse_activities", {"category": "casino"}, "")
+    valid = ReactDecision("", "browse_activities", {"category": "sport", "cursor": None}, "")
+    invalid = ReactDecision("", "browse_activities",
+                            {"category": "casino", "cursor": None}, "")
     assert agent.validate_react_decisions([valid], False) == ""
     assert agent.validate_react_decisions([invalid], False) == (
         "browse_activities category is not a key of the visible activity_summary")

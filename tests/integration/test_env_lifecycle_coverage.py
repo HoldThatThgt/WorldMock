@@ -90,7 +90,7 @@ def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionCont
 
 
 # ---------------------------------------------------------------------------
-# 一、init 校验与工具面 fail-closed（修订合同 L1606/L1624-1626）
+# 一、init 校验与工具面 fail-closed（docs/dev/SPEC-life-realism.md「日程骨架」、docs/dev/SPEC-life-runtime.md「社交最小可行版」）
 # ---------------------------------------------------------------------------
 
 

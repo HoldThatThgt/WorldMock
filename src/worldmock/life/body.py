@@ -1,15 +1,15 @@
 """@brief 按实际活动区间结算能量、两过程睡眠、睡眠不足账与娱乐需要。
 
-身体语义按《人物真实性修订合同》（docs/agentsociety2-design.md L1479-1527）
-重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
+身体语义按 `docs/dev/SPEC-life-runtime.md`「身体语义：两过程睡眠、睡眠不足账、
+体感分级」重写：sleep_pressure 与 sleep_deficit_hours 的演化委托 life.sleep 的两过程
 纯函数（18.2h/4.2h 时间常数、清醒累积 need/(24−need)、睡眠恢复 1h）；效率
 曲线输入改为 sleep_deficit_hours（sleep.work_efficiency / food_utilization）。
-能量与娱乐需要沿用 ResourceLedger 分录通道（§9）；社交需要账本（felt.apply_
+能量与娱乐需要沿用 ResourceLedger 分录通道（docs/design/05-recording-engine.md「事件正文与资源证据」）；社交需要账本（felt.apply_
 social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
 valence）由引擎在结算边界调用本模块的包装函数驱动。
 
 body_observation 返回分级与数值两组：数值只进事件供评估与导出，分级才进
-提示（规格 L1527）。
+提示（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ CATALOG_SLEEP_RESOURCE = "sleep_debt_hours"
 BODY_FLOW_OWNER = "body"
 BODY_FLOW_OCCURRED_AT = 0
 
-#: 自上次 last_flows() 调用以来结算产生的分录证据流（§9）。
+#: 自上次 last_flows() 调用以来结算产生的分录证据流（docs/design/05-recording-engine.md「事件正文与资源证据」）。
 _flow_buffer: list[FlowEntry] = []
 
 
@@ -228,7 +228,7 @@ def maximum_energy_duration_seconds(
 
 def felt_values(body: BodyState, hour_of_day: float,
                 meal_windows: felt.MealWindows | None = None) -> dict[str, float]:
-    """@brief 计算五个体感信号数值（appetite 含昼夜与餐时项，规格 L1505-1514）。"""
+    """@brief 计算五个体感信号数值（appetite 含昼夜与餐时项，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
     appetite = felt.compute_appetite(body.energy_kcal, hour_of_day, meal_windows)
     sleepiness = sleep.sleepiness(body.sleep_pressure, hour_of_day,
                                    body.chronotype_midsleep)
@@ -239,14 +239,14 @@ def felt_values(body: BodyState, hour_of_day: float,
 
 def felt_levels(body: BodyState, hour_of_day: float,
                 meal_windows: felt.MealWindows | None = None) -> dict[str, str]:
-    """@brief 计算五个体感分级文本（滞回判定与提示渲染的输入，规格 L1509-1520）。"""
+    """@brief 计算五个体感分级文本（滞回判定与提示渲染的输入，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
     values = felt_values(body, hour_of_day, meal_windows)
     return felt.summarize_felt_levels(**values)
 
 
 def body_observation(body: BodyState, config: BodyConfig, hour_of_day: float = 12.0,
                      meal_windows: felt.MealWindows | None = None) -> dict:
-    """@brief 生成不替人物做决定的身体投影：分级与数值两组（规格 L1527）。
+    """@brief 生成不替人物做决定的身体投影：分级与数值两组（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。
 
     数值（values）只进观察事件供评估与导出；分级（levels）才进提示。
     hour_of_day 缺省正午仅供结构稳定调用方（引擎始终传场景本地时刻）。
@@ -270,20 +270,20 @@ def body_observation(body: BodyState, config: BodyConfig, hour_of_day: float = 1
 
 
 def apply_social_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyState:
-    """@brief 按 felt 账本速率推进社交需要（规格 L1513-1515），返回新身体状态。"""
+    """@brief 按 felt 账本速率推进社交需要（「身体语义：两过程睡眠、睡眠不足账、体感分级」），返回新身体状态。"""
     need = felt.apply_social_need_ledger(body.social_need, exposure)
     return body.model_copy(update={"social_need": need}, deep=True)
 
 
 def apply_mood_pulse(body: BodyState, pulse_key: str) -> BodyState:
-    """@brief 按事件脉冲表叠加一次情绪脉冲（规格 L1517-1519）。"""
+    """@brief 按事件脉冲表叠加一次情绪脉冲（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
     amplitude = felt.MOOD_PULSES[pulse_key]
     valence = felt.apply_mood_pulse(body.mood_valence, amplitude, body.neuroticism_norm)
     return body.model_copy(update={"mood_valence": valence}, deep=True)
 
 
 def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyState:
-    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，规格 L1518）。"""
+    """@brief 叠加连续饿/困的不适脉冲（不足 2 小时时 felt 返回 0，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
     amplitude = felt.discomfort_pulse(continuous_hours)
     if amplitude == 0:
         return body
@@ -292,7 +292,7 @@ def apply_discomfort_pulse(body: BodyState, continuous_hours: float) -> BodyStat
 
 
 def decay_mood(body: BodyState, elapsed_minutes: float) -> BodyState:
-    """@brief 按半衰期衰减情绪（规格 L1519），返回新身体状态。"""
+    """@brief 按半衰期衰减情绪（「身体语义：两过程睡眠、睡眠不足账、体感分级」），返回新身体状态。"""
     valence = felt.decay_mood_valence(body.mood_valence, elapsed_minutes,
                                       body.neuroticism_norm)
     return body.model_copy(update={"mood_valence": valence}, deep=True)
@@ -304,7 +304,7 @@ def initial_body(config: BodyConfig, hour_of_day: float,
                  neuroticism_norm: float = 0.0) -> BodyState:
     """@brief 构造场景起点身体：初始睡眠不足账与反推的初始 sleep_pressure。
 
-    初始 sleep_pressure 由场景起点时刻按已睡时长反推（规格 L1498）：experiment_
+    初始 sleep_pressure 由场景起点时刻按已睡时长反推（「身体语义：两过程睡眠、睡眠不足账、体感分级」）：experiment_
     assumption——缺省假设人物起点前刚睡满一个睡眠需要量（已睡 = sleep_need_hours，
     即正常睡醒），起点落在夜间时该假设同样确定性适用。
     """
@@ -476,7 +476,7 @@ def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,
     """@brief 按目录因子列表通用合成工作效率：各因子在输入资源区间上取值连乘。
 
     sleep_deficit_hours 轴上的因子由 sleep.work_efficiency 曲线求值（修订合同
-    L1502：效率曲线输入改为不足账，节点值不变）；其余输入资源沿用目录声明。
+    「睡眠不足账与效率曲线」：效率曲线输入改为不足账，节点值不变）；其余输入资源沿用目录声明。
     区间取值按梯形平均（方向无关）；非 work 观察值取区间起点插值快照。最后乘入
     冻结人物技能与实际工具因子（沿用既有行为）。
     """

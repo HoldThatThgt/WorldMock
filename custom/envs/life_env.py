@@ -15,7 +15,7 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
 from worldmock.status import write_status
 
-#: 修订合同（L1606/L1624-1626）要求环境侧可受理的四件新生活工具。
+#: 修订合同（docs/dev/SPEC-life-realism.md「日程骨架」、docs/dev/SPEC-life-runtime.md「社交最小可行版」）要求环境侧可受理的四件新生活工具。
 _REVISION_CONTRACT_TOOLS = frozenset({
     "plan_day", "revise_day_plan", "send_message", "start_social_activity"})
 
@@ -101,7 +101,7 @@ class LifeEnv(EnvBase):
         return receipt
 
     async def commit_decision_round(self, round_id: str):
-        """@brief 原子结算人物批次，随后送达待发的联系人 model 回复（L1628）。"""
+        """@brief 原子结算人物批次，随后送达待发的联系人 model 回复（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         engine = self._require_engine()
         write_status(engine.store.run_dir, "running", "resolving")
         results = engine.commit_decision_round(round_id)

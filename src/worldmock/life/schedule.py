@@ -1,6 +1,6 @@
 """@brief 决策节律与日程骨架：唤醒条件判定、下一决策时刻、当日计划（纯函数库）。
 
-结算边界与决策机会分离（规格 L1447-1477）：activity_feedback_seconds=900 仍作为
+结算边界与决策机会分离（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：activity_feedback_seconds=900 仍作为
 身体/进度/内容的结算粒度，每个结算边界照常结算资源；是否在该边界向人物提供
 决策机会只由唤醒条件决定。无任何命中的边界是静默边界：decision_offered=false、
 wake_reasons=[]，环境按人物已提交的计划续行，不调用模型。续行不是环境替人物
@@ -8,22 +8,22 @@ wake_reasons=[]，环境按人物已提交的计划续行，不调用模型。�
 
 下一决策时刻取下列各项的最小值：计划结束、体感分级预计跨越时刻（由调用方
 传入，复用现有 next_body_boundary_seconds 预测，本模块不另写公式）、已排定的
-通知与配送、计划段起点、重估间隔到期、地点营业变化（规格 L1471-1473）。
+通知与配送、计划段起点、重估间隔到期、地点营业变化（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
-日程骨架（规格 L1604-1614）：每天第一次醒来的决策必须先提交 5-8 段 plan_day，
+日程骨架（docs/dev/SPEC-life-realism.md「日程骨架」）：每天第一次醒来的决策必须先提交 5-8 段 plan_day，
 覆盖到当日就寝、段不重叠、不越过当日结束；环境不执行计划步，到达段起点只构成
 plan_block_boundary 唤醒，由人物当场决定是否照做。revise_day_plan 只允许改写
 尚未开始的段。
 
-睡眠契约（规格 L1470）：睡眠不受重估间隔影响，只在计划结束或唤醒事件
+睡眠契约（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：睡眠不受重估间隔影响，只在计划结束或唤醒事件
 （wake_from_sleep、run_start）时提供决策；外部事件不中断睡眠，引擎若要让事件
 唤醒睡眠者，应以 wake_from_sleep 标志表达。游戏模式保持逐回合反馈，由引擎侧
 处理，本模块不感知。
 
 数值参数：reconsideration_interval_seconds 默认 5400 秒（Kleitman 基本休息-
-活动周期约 90 分钟，规格 L1459/L1476-1477；场景参数可覆盖）；闭店预警窗口
-15 分钟（规格 L1460 定值）与任务截止预警窗口 30 分钟（规格 L1457 定值）为
-规格冻结常数。
+活动周期约 90 分钟，场景参数可覆盖）；闭店预警窗口 15 分钟与任务截止预警
+窗口 30 分钟为规格冻结常数。以上数值见
+docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」。
 """
 
 from __future__ import annotations
@@ -38,23 +38,23 @@ from pydantic import BaseModel, model_validator
 
 
 RECONSIDERATION_INTERVAL_SECONDS = 5400
-"""距上一次实际决策满该秒数触发重估唤醒；默认 90 分钟（Kleitman BRAC，规格 L1459）。"""
+"""距上一次实际决策满该秒数触发重估唤醒；默认 90 分钟（Kleitman BRAC，docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
 
 CLOSING_WARNING_SECONDS = 900
-"""闭店预警窗口：距闭店不足该秒数视为"即将闭店"（规格 L1460 定值 15 分钟）。"""
+"""闭店预警窗口：距闭店不足该秒数视为"即将闭店"（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」定值 15 分钟）。"""
 
 TASK_DUE_SOON_SECONDS = 1800
-"""截止预警窗口：距任务截止不足该秒数视为"即将截止"（规格 L1457 定值 30 分钟）。"""
+"""截止预警窗口：距任务截止不足该秒数视为"即将截止"（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」定值 30 分钟）。"""
 
 MIN_PLAN_SEGMENTS = 5
-"""日程骨架最少段数（规格 L1606-1607）。"""
+"""日程骨架最少段数（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
 
 MAX_PLAN_SEGMENTS = 8
-"""日程骨架最多段数（规格 L1606-1607）。"""
+"""日程骨架最多段数（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
 
 
 class WakeReason(str, Enum):
-    """@brief 唤醒原因冻结枚举（规格 L1452-1463，成员集不可增删）。"""
+    """@brief 唤醒原因冻结枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」，成员集不可增删）。"""
 
     PLANNED_END = "planned_end"
     FELT_BAND_CHANGE = "felt_band_change"
@@ -77,7 +77,7 @@ class WakeReason(str, Enum):
 SLEEP_ALLOWED_REASONS = frozenset(
     {WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START}
 )
-"""睡眠期间仍可提供决策的唤醒原因：仅计划结束与唤醒事件（规格 L1470）。"""
+"""睡眠期间仍可提供决策的唤醒原因：仅计划结束与唤醒事件（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
 
 
 INTENT_KINDS: tuple[str, ...] = (
@@ -93,7 +93,7 @@ INTENT_KINDS: tuple[str, ...] = (
     "运动",
     "外出",
 )
-"""计划段意图闭集（规格 L1607-1608）；与下方 IntentKind Literal 保持同步。"""
+"""计划段意图闭集（docs/dev/SPEC-life-realism.md「日程骨架」）；与下方 IntentKind Literal 保持同步。"""
 
 IntentKind = Literal[
     "睡眠",
@@ -123,7 +123,7 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
     "运动": frozenset({"lifestyle:sport"}),
     "外出": frozenset({"travel", "lifestyle:outdoor"}),
 }
-"""意图闭集 → 实际活动家族闭集（照做判定口径，L1518"完成计划段"）。
+"""意图闭集 → 实际活动家族闭集（照做判定口径，docs/dev/SPEC-life-runtime.md「其他体感分级」"完成计划段"）。
 
 家族令牌 = ActivityKind 文本（sleep/work/travel/consume/chat/call/play_game/
 watch/browse/wait）加生活活动品类令牌 "lifestyle:{category}"（category 取
@@ -135,7 +135,7 @@ corpora/lifestyle/items.json 的 category 闭集）。映射为实验假设：�
 def segment_followed(
     intent_kind: str, spans: Sequence[tuple[str, int]], window_seconds: int
 ) -> bool:
-    """@brief 照做判定：段区间内时间加权主导活动家族与段意图家族匹配（L1518）。
+    """@brief 照做判定：段区间内时间加权主导活动家族与段意图家族匹配（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     spans 为段区间内各活动的 (家族令牌, 覆盖秒数)；未覆盖秒数计入 idle
     （idle 不属于任何意图家族，段大部分空闲即未照做）。主导家族取加权秒数
@@ -162,7 +162,7 @@ def segment_followed(
 
 
 def default_bedtime_end_hour() -> float:
-    """@brief 缺省就寝窗口末端：persona-mapping 默认锚点（非时钟常量，L1612）。
+    """@brief 缺省就寝窗口末端：persona-mapping 默认锚点（非时钟常量，docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     读取 catalog/rules/persona-mapping.toml [defaults.time_anchors].bedtime
     的窗口末端（与 profile/textgen 渲染人物卡片的缺省口径同源）；模块级
@@ -189,7 +189,7 @@ def bedtime_anchor(
 ) -> int:
     """@brief 当日就寝锚点：人物声明末端优先，缺省走 persona-mapping 默认锚点。
 
-    取值链（L1612 计划锚点来自人物卡片声明）：① 场景人物的就寝窗口声明
+    取值链（docs/dev/SPEC-life-realism.md「日程骨架」计划锚点来自人物卡片声明）：① 场景人物的就寝窗口声明
     （AgentConfig.bedtime_window 的末端小时）；② 声明缺失时 persona-mapping
     默认锚点 [defaults.time_anchors].bedtime 的窗口末端。跨午夜声明（末端
     >24h）落在次日，锚点钳制不超过当日结束（次日零点）。
@@ -208,7 +208,7 @@ def bedtime_anchor(
 
 
 def day_end_seconds(now: int, timezone_name: str) -> int:
-    """@brief 当日结束时刻：场景时区次日零点（计划段不得越过，L1607）。"""
+    """@brief 当日结束时刻：场景时区次日零点（计划段不得越过，docs/dev/SPEC-life-realism.md「日程骨架」）。"""
     midnight = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).replace(
         hour=0, minute=0, second=0, microsecond=0)
     return int((midnight + timedelta(days=1)).timestamp())
@@ -255,9 +255,9 @@ class WakeVerdict(BaseModel):
 class NextDecisionQuery(BaseModel):
     """@brief 下一决策时刻计算的输入：各候选时刻由引擎侧预测/排定后传入。
 
-    体感分级预计跨越时刻复用现有 next_body_boundary_seconds 预测（规格 L1471-
-    1472），本模块不另写能耗或压力公式。scheduled_arrival_times 汇总已排定的
-    通知与配送时刻。
+    体感分级预计跨越时刻复用现有 next_body_boundary_seconds 预测
+    （docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），本模块不另写能耗或压力
+    公式。scheduled_arrival_times 汇总已排定的通知与配送时刻。
     """
 
     now: int
@@ -288,11 +288,11 @@ class PlanSegment(BaseModel):
 
 
 class DayPlan(BaseModel):
-    """@brief 当日日程骨架：上限 8 段、覆盖到就寝、不越过当日结束（规格 L1606-1607）。
+    """@brief 当日日程骨架：上限 8 段、覆盖到就寝、不越过当日结束（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     bedtime 为当日就寝时刻，day_end 为当日结束时刻；段间允许留空（未计划的自由
     时间），但不得重叠、不得乱序，最末段必须覆盖到 bedtime。5 段下限只约束首次
-    plan_day（由 initial_day_plan 构造期校验承载）：修订合同 L1611 允许尾段修订
+    plan_day（由 initial_day_plan 构造期校验承载）：docs/dev/SPEC-life-realism.md「日程骨架」允许尾段修订
     后剩余段数少于 5，模型层不设下限，保证合法修订态可通过加载口径重校验。
     """
 
@@ -335,10 +335,10 @@ def _validate_skeleton(
 def initial_day_plan(
     segments: Sequence[PlanSegment], day_end: int, bedtime: int
 ) -> DayPlan:
-    """@brief 构造首次 plan_day 的当日骨架：执行 5 段下限后交模型校验（规格 L1606-1607）。
+    """@brief 构造首次 plan_day 的当日骨架：执行 5 段下限后交模型校验（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     段数下限只在此处约束：一天尾段只剩少量待改段时，下限会让修订无法成立，
-    故 revise_day_plan 的合并结果不受 5 段下限限制（修订合同 L1611），
+    故 revise_day_plan 的合并结果不受 5 段下限限制（docs/dev/SPEC-life-realism.md「日程骨架」），
     下限由本构造函数在首次提交时唯一承载。bedtime 为就寝锚点（人物声明或
     persona-mapping 缺省，见 bedtime_anchor），由调用方显式传入——骨架的
     "覆盖到就寝"约束因此是真实约束，而非最末段末端自证。
@@ -383,11 +383,11 @@ def _reconsideration_due(snapshot: WakeSnapshot) -> bool:
 
 
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
-    """@brief 判定某结算边界命中的全部唤醒原因（规格 L1452-1463）。
+    """@brief 判定某结算边界命中的全部唤醒原因（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     输出按 WakeReason 枚举声明顺序排列；无命中即静默边界
     （decision_offered=false、wake_reasons=[]）。睡眠期间只保留计划结束与唤醒
-    事件（规格 L1470），其余命中一律忽略。
+    事件（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），其余命中一律忽略。
 
     @param snapshot 该结算边界处的世界摘要
     @return 唤醒判定结果
@@ -432,11 +432,11 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
 
 
 def next_decision_time(query: NextDecisionQuery) -> int | None:
-    """@brief 计算下一决策时刻：各项候选的最小值（规格 L1471-1473）。
+    """@brief 计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     候选=计划结束、体感分级预计跨越、已排定通知与配送、计划段起点、重估间隔
     到期、地点营业变化；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
-    睡眠不受重估间隔影响（规格 L1470），is_asleep 时剔除该项；无任何候选返回
+    睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），is_asleep 时剔除该项；无任何候选返回
     None。游戏模式保持逐回合反馈，不经过本函数。
 
     @param query 各候选时刻的汇总输入
@@ -494,7 +494,7 @@ def is_plan_block_boundary(plan: DayPlan, now: int) -> bool:
 def revise_day_plan(
     plan: DayPlan, now: int, new_segments: Sequence[PlanSegment]
 ) -> DayPlan:
-    """@brief 增量修订日程：只允许改写尚未开始的段（规格 L1611）。
+    """@brief 增量修订日程：只允许改写尚未开始的段（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     已开始的段（start <= now，含恰在 now 起段的边界时刻）原样保留为前缀，
     尾部由 new_segments 整体替换；替换后仍须满足骨架约束（不重叠、不越过
@@ -518,7 +518,7 @@ def revise_day_plan(
 
 
 def day_plan_expired(plan: DayPlan, now: int) -> bool:
-    """@brief 判定骨架是否跨日残留：now 越过计划自带的 day_end 即属前一天（L1606）。
+    """@brief 判定骨架是否跨日残留：now 越过计划自带的 day_end 即属前一天（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     引擎在跨日边界据此把 day_plan 归零，使"每天第一次醒来的决策必须先提交
     plan_day"在第二天重新成立；判定不做时区换算，day_end 即提交日的次日
@@ -532,7 +532,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
 
 
 def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
-    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，L1606）。
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
                  与人物状态模型的环依赖）

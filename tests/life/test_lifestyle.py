@@ -182,7 +182,7 @@ def test_agent_config_lifestyle_validation() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 修订合同 L1600：生活活动 effects 的 relief 通道（结算真正缓解需要池）
+# docs/dev/SPEC-life-realism.md「动机层」：生活活动 effects 的 relief 通道（结算真正缓解需要池）
 # ---------------------------------------------------------------------------
 
 class TestLifestyleRelief:
@@ -217,7 +217,7 @@ class TestLifestyleRelief:
         assert sum(entry.amount for entry in flows) == pytest.approx(_fun_rate * 0.5)
 
     def test_jogging_relieves_social_need_and_lifts_mood(self):
-        # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（L1600）。
+        # effects.social 与 effects.health：社交需要下降、情绪正向脉冲（docs/dev/SPEC-life-realism.md「动机层」）。
         body, agent, activity = self._relief_fixture()
         advance = advance_activity(activity, agent, 1800, body)
         _fun_rate, social_rate, health_rate = lifestyle_relief_rates("jogging")

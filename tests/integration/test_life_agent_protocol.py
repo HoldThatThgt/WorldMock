@@ -204,7 +204,13 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: B6 重钉：四请求模型的嵌套 Schema 内联注解移入 life.models 字段定义
 #: （删除 agent 侧 _request_tool_model 适配层），四个工具 Schema 的根
 #: description 随真实模型 docstring 出现 → 工具面字节变化，指纹随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "9726733354cac0f75f7f590d8926ebba328dc4123d2806da15b90bff093e5d0d"
+#: 候选与呈现重钉：`browse_activities` 新增可空 `cursor` 字段、返回体 `count` 改名
+#: `returned` 并补 `total` / `next_cursor` / `excluded`（docs/CONTRACTS.md「候选与呈现合同」），
+#: 工具面字节随之变化；指纹输入并入注册表摘要，注册表变则工具面变则指纹变。
+#: 随身持有与远程订购重钉：`purchase` 的 `description` 按
+#: docs/dev/SPEC-life-runtime.md「随身持有与远程订购」点明「配送不受在场约束、
+#: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
+_PINNED_TOOL_SCHEMA_SHA256 = "cdffee51c9570ba626861bf5ba8d5eb744c270e7cbc93c73ae4f12bb8edab3bd"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -857,7 +863,8 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
             for item in dispatcher.requests[1:4]] == [3, 2, 1]
     assert [_request_budget(item)["phase"] for item in dispatcher.requests[1:4]] == [
         "before_action", "after_action", "after_action"]
-    # 回合预算句只在剩余回合 ≤2 时出现（提示合同 L1546），且预算 JSON 保持尾部可解析。
+    # 回合预算句只在剩余回合 ≤2 时出现（docs/CONTRACTS.md「人物决策提示与生成参数」），
+    # 且预算 JSON 保持尾部可解析。
     assert "剩余回合已经不多" not in dispatcher.requests[1]["messages"][0]["content"]
     assert "剩余回合已经不多" in dispatcher.requests[2]["messages"][0]["content"]
     assert "剩余回合已经不多" in dispatcher.requests[3]["messages"][0]["content"]

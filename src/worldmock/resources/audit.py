@@ -1,4 +1,7 @@
-"""@brief 域级审计：closed 域守恒对账与 level 域逐主体流水对账（设计文档 §3.2/§14.2）。
+"""@brief 域级审计：closed 域守恒对账与 level 域逐主体流水对账。
+
+资源定义见 docs/design/03-resource-engine.md「可计量资源定义」；
+验收规则见 docs/design/05-recording-engine.md「资金守恒验证」。
 
 closed 域（货币）：全部真实账户之和恒等于外部锚点注入总额，含锚点的全域总和
 在全历史重放前后不变。level 域（身体）：期末余额 = 初值 + Σsource − Σdrain，

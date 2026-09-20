@@ -28,7 +28,7 @@ from worldmock.life.models import (
 def _plan(engine, offsets: tuple[int, ...], span: int = 100) -> PlanDayRequest:
     """以受控段起点构造当日计划：段起点即 plan_block_boundary 唤醒时刻。
 
-    末段延伸到缺省就寝锚点（当日结束）——"覆盖到就寝"是真实骨架约束（L1607）。
+    末段延伸到缺省就寝锚点（当日结束）——"覆盖到就寝"是真实骨架约束（docs/dev/SPEC-life-realism.md「日程骨架」）。
     """
     from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo

@@ -1,6 +1,6 @@
 # 可供性注册表（affordance registry）——行为闭集的单一声明源。
 #
-# 设计文档：docs/dev/PROPOSAL-affordance-registry.md（§二 Schema、§三 五层派生、§五 fail-closed 校验）。
+# 设计文档：docs/design/02-exchange-engine.md（「可供性与活动声明」「交换规则的加载与准入」）。
 # 两级结构：kinds（引擎活动类型，结算与受理的最小单元）× families（动机家族，习惯归并键
 # + 候选生成器 + 注意力）。一个家族可跨多个 kind（entertainment = watch + play_game）；
 # 一个 kind 可以不属于任何动机候选家族（read_mail：unclassified 显式声明）。
@@ -11,7 +11,7 @@
 version = 1
 
 # ---------- 活动类型层 ----------
-# 字段语义（规范 §2.1）：
+# 字段语义（规范「可供性与活动声明」）：
 #   met_key             MET 查表键；参数化键写模板：travel 用 "{mode}"（封闭展开域
 #                       见 met_key_modes），lifestyle 用 "{item_id}"（开放命名空间前缀）。
 #   energy_floor_exempt 能量投影可穿透下界的活动（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS）。
@@ -142,7 +142,7 @@ target_discovery = "none"
 met_key = "lifestyle:{item_id}"
 energy_floor_exempt = false
 sleep_channel = "awake"
-# 修订合同 L1600：生活活动具备 relief 通道——缓解量按条目 effects 声明
+# docs/dev/SPEC-life-realism.md「动机层」：生活活动具备 relief 通道——缓解量按条目 effects 声明
 # （lifestyle/items.json 的 effects.entertainment/social/health，activities.
 # py 结算侧折算）。注册表通道保持 none：本表的通道四值语义是"目录活动费率
 # 表"（semantics 对 resources.jsonl entertainment_relief_per_hour 的封闭键
@@ -159,7 +159,7 @@ target_discovery = "browse_result"
 target_corpus = "lifestyle/items.json"
 
 # ---------- 动机家族层 ----------
-# 字段语义（规范 §2.2-2.4）：
+# 字段语义（规范「可供性与活动声明」）：
 #   kinds             家族聚合的活动类型（引用完整性：必须都已声明）。
 #   attention         none = 不按内容品类采样；content_kind = 按品类键采样
 #                     （per_kind 为家族内每品类采样上限，pool_cap 为全局
@@ -168,7 +168,7 @@ target_corpus = "lifestyle/items.json"
 #   habit_members     习惯归并路由（classify_action_event 的查表化）：匹配优先级
 #                     精确 > 前缀（"lifestyle:*"）> 通配（"*"）。activity_type 省略
 #                     等价 "*"（无 activity_type 空间的工具恒匹配）。
-#   candidate         候选生成器原型名 + 参数（规范 §2.3 八原型；原型函数保持 Python，
+#   candidate         候选生成器原型名 + 参数（规范「可供性与活动声明」八原型；原型函数保持 Python，
 #                     在 life/motivation.py 登记进 PROTOTYPE_GENERATORS）。
 #   comfort           情绪分量 comfort_type（该家族候选自带舒适属性）。
 #   enumeration_rank  候选池枚举序（升序遍历；省略 = 不参与枚举）。现行序：
@@ -282,7 +282,7 @@ title_source = "self_label"
 # 候选目录来自 lifestyle 语料 + 场景 MET 身份核对 + 人物启用集过滤），每生活
 # 品类采 top-1、全局配额 4（183 条涌入不挤掉生存位；枚举序在 browse 之后、
 # 娱乐之前）。缓解：条目 effects 经 activities.lifestyle_relief_rates 折算
-# （修订合同 L1600），候选侧预演同式——见 kinds.lifestyle 的 relief 注释。
+# （docs/dev/SPEC-life-realism.md「动机层」），候选侧预演同式——见 kinds.lifestyle 的 relief 注释。
 kinds = ["lifestyle"]
 attention = { kind = "content_kind", sampling = "per_kind_top_n", per_kind = 1, pool_cap = 4 }
 # 习惯归并：lifestyle:* 前缀自 continue 家族迁入（前缀路由按声明序命中，

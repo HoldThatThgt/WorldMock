@@ -15,7 +15,7 @@ from worldmock.life.models import ActivityState, AgentState, StartActivityReques
 from worldmock.life.scenario import LifeScenario, RouteConfig
 from worldmock.life.settlement import settle_money_transfer
 
-#: environment_event kind=location_track（规格 L454 定位轨迹；沿用 environment_event kind 机制）。
+#: environment_event kind=location_track（docs/dev/SPEC-life-runtime.md「导航与配送」定位轨迹；沿用 environment_event kind 机制）。
 LOCATION_TRACK_KIND = "location_track"
 #: 采样方法冻结名：匀速沿冻结路线几何折线插值（非人物决策，不产生 decision_started）。
 TRACK_SAMPLING_METHOD = "constant_speed_polyline_interpolation"
@@ -99,7 +99,7 @@ class LocationTrackRequest:
 def sample_location_track(request: LocationTrackRequest, corpus_root: Path) -> list[EventDraft]:
     """@brief 沿冻结路线几何按固定间隔生成模拟时间戳的定位轨迹事件。
 
-    定位采样不是人物的一次决策（规格 L454）：本函数只产出
+    定位采样不是人物的一次决策（docs/dev/SPEC-life-runtime.md「导航与配送」）：本函数只产出
     environment_event(kind=location_track)，不产生 decision_started 或
     observation；每个事件携带采样规则与路线引用，同输入确定性可重放。
     """

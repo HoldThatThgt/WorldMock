@@ -13,8 +13,9 @@ from worldmock.life.social import Message
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
-#: 世界状态结构版本（修订合同 L1418-1420）：旧检查点缺该字段即拒绝加载。
-WORLD_SCHEMA_VERSION = 2
+#: 世界状态结构版本（docs/dev/SPEC-life-realism.md「产品行为」）：旧检查点缺该字段即拒绝加载。
+#: 版本 3 引入 `presentation_state`（轮转所需的「上次呈现时刻」，docs/CONTRACTS.md「派生量字段」）。
+WORLD_SCHEMA_VERSION = 3
 
 
 class StrictModel(BaseModel):
@@ -190,7 +191,7 @@ class BodyState(StrictModel):
     旧睡眠债字段已删除，不保留别名。sleep_need_hours 与 chronotype_midsleep
     为人物档案常量（默认 7.5h 与 04:00，experiment_assumption），随状态持久化
     使结算纯函数自包含。mood_valence 只影响体感呈现与记忆重要度加权，不直接
-    改变任何动作可行性（规格 L1521）。
+    改变任何动作可行性（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
     """
 
     energy_kcal: float = Field(ge=0)
@@ -234,7 +235,7 @@ class AgentState(StrictModel):
     location_id: str = Field(min_length=1)
     balance_account_id: str = Field(min_length=1)
     skill_levels: dict[str, float] = Field(default_factory=dict)
-    # 内容口味权重（修订合同 L1661-1662）：卡片口味 x 条目 genre[] 的确定性匹配，
+    # 内容口味权重（docs/dev/SPEC-life-realism.md「画像编译」）：卡片口味 x 条目 genre[] 的确定性匹配，
     # 取代已删除的随机偏好浮点；引擎路径在卡片持久化入库前为空映射（缺项 0）。
     taste_weights: dict[str, float] = Field(default_factory=dict)
     body: BodyState
@@ -250,26 +251,27 @@ class AgentState(StrictModel):
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
     visible_product_ids: set[str] = Field(default_factory=set)
-    # 决策节律簿记（修订合同 L1447-1477）：滞回参照=上次实际提供决策时的分级。
+    # 决策节律簿记（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：滞回参照=上次实际提供决策时的分级。
     last_decision_time: int | None = Field(default=None, ge=0)
     felt_bands_at_last_decision: dict[str, str] = Field(default_factory=dict)
     people_at_last_decision: frozenset[str] = frozenset()
     known_task_ids: set[str] = Field(default_factory=set)
     pending_wake_reasons: list[str] = Field(default_factory=list)
-    # 日程骨架（L1604-1614）：计划是人物的自我承诺，环境不执行计划步。
+    # 日程骨架（docs/dev/SPEC-life-realism.md「日程骨架」）：计划是人物的自我承诺，环境不执行计划步。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
-    # 社交最小可行版（L1616-1633）：收件箱与已读消息。
+    # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)
-    # 情绪与不适脉冲簿记（L1517-1519）。
+    # 情绪与不适脉冲簿记（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
     discomfort_pulse_hours: float = Field(default=0.0, ge=0)
-    # 商品可见期（L1545）：浏览时刻与浏览所在商家地点，离开或 1800 秒清空。
+    # 商品可见期（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：浏览时刻与浏览所在商家地点，离开或 1800 秒清空。
     product_browsed_at: int | None = Field(default=None, ge=0)
     product_browsed_location: str | None = None
-    # 工作材料增量揭示账（L1546）：自上次决策以来新读到的区间，单次 ≤2000 字符。
+    # 工作材料增量揭示账（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：
+    # 自上次决策以来新读到的区间，单次 ≤2000 字符。
     material_reveals: list[dict[str, Any]] = Field(default_factory=list)
 
     @field_serializer(
@@ -393,7 +395,7 @@ class DecisionRoundState(StrictModel):
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
-    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（修订合同 L1418-1420）。
+    # 结构版本必填（无缺省）：旧检查点缺该字段即拒绝加载（docs/dev/SPEC-life-realism.md「产品行为」）。
     schema_version: Literal[WORLD_SCHEMA_VERSION]
     version: int = Field(ge=0)
     current_time: int = Field(ge=0)
@@ -410,6 +412,9 @@ class WorldState(StrictModel):
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     paid_task_ids: set[str] = Field(default_factory=set)
+    #: 呈现派生量（docs/CONTRACTS.md「派生量字段」）：按（人物, 对象标识）记录上次呈现
+    #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
+    presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
     random_seed: int
     random_state: str = Field(min_length=1)
 
@@ -527,6 +532,10 @@ class BrowseActivitiesRequest(FrozenModel):
     """
 
     category: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    #: 下一页游标；它是候选与呈现合同里唯一的可空字段——首屏提交 `null`。字段本身在
+    #: strict 合同下必须显式必填（类型可空），因此无缺省值
+    #: （docs/CONTRACTS.md「工具面」的 browse_activities 行）。
+    cursor: str | None = Field()
 
 
 class StartTravelRequest(FrozenModel):
@@ -568,7 +577,7 @@ class PurchaseRequest(FrozenModel):
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中的一件商品与数量（修订合同 L1672：1-5 件）。"""
+    """@brief 一笔订单中的一件商品与数量（docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件）。"""
 
     product_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
@@ -578,9 +587,9 @@ class PurchaseItem(FrozenModel):
 class PurchaseOrderRequest(FrozenModel):
     """@brief 购买 1-5 件同一商家、同一履约方式的商品，一次付款一次配送。
 
-    结算时任一件不可购则整单拒绝，不自动删件（修订合同商务与进食 L1672）。
+    结算时任一件不可购则整单拒绝，不自动删件（docs/dev/SPEC-life-realism.md「商务与进食」）。
     items 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止嵌套引用
-    键，规格 L1307-1309 认可的唯一内联机制）；1-5 件由结算域校验
+    键，docs/CONTRACTS.md「人物工具与管理接口」认可的唯一内联机制）；1-5 件由结算域校验
     （DeepSeek strict 禁 minItems）。
     """
 
@@ -596,7 +605,7 @@ class PurchaseOrderRequest(FrozenModel):
 
 
 class ConsumeItem(FrozenModel):
-    """@brief 一次进食中的一件已持有食品与数量（修订合同 L1673：1-3 件）。"""
+    """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。"""
 
     product_id: str = Field(pattern=r"\S")
     quantity: float = Field(gt=0, le=100)
@@ -606,7 +615,7 @@ class ConsumeRequest(FrozenModel):
     """@brief 使用已经交付并持有的商品。
 
     多件（1-3）仅限食品同地点一次进食：用餐时长取最长者、热量与效果累加；
-    非食品使用仍为单件（修订合同 L1673）。单件路径沿用域内时长合同
+    非食品使用仍为单件（docs/dev/SPEC-life-realism.md「商务与进食」）。单件路径沿用域内时长合同
     （duration_seconds 必须等于商品目录时长）。items 以 WithJsonSchema
     内联子模型 Schema（strict 合同禁止嵌套引用键）；1-3 件由结算域校验
     （DeepSeek strict 禁 minItems）。
@@ -640,7 +649,7 @@ class PlanSegmentInput(FrozenModel):
 
 
 class PlanDayRequest(FrozenModel):
-    """@brief 提交当日日程骨架：5-8 段，覆盖到当日就寝（修订合同 L1606-1609）。
+    """@brief 提交当日日程骨架：5-8 段，覆盖到当日就寝（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     计划是人物的自我承诺，以 action_result 登记；环境不执行计划步，到达段
     起点只构成 plan_block_boundary 唤醒条件。segments 以 WithJsonSchema
@@ -658,7 +667,7 @@ class PlanDayRequest(FrozenModel):
 
 
 class ReviseDayPlanRequest(FrozenModel):
-    """@brief 改写尚未开始的当日计划段（修订合同 L1611）。
+    """@brief 改写尚未开始的当日计划段（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
     segments 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止
     嵌套引用键）；上限由 revise_day_plan 骨架校验承载。
@@ -674,14 +683,14 @@ class ReviseDayPlanRequest(FrozenModel):
 
 
 class SendMessageRequest(FrozenModel):
-    """@brief 向同世界人物或场景联系人发送瞬时消息（修订合同 L1624）。"""
+    """@brief 向同世界人物或场景联系人发送瞬时消息（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
 
     recipient_id: str = Field(pattern=r"\S")
     text: str
 
 
 class StartSocialActivityRequest(FrozenModel):
-    """@brief 发起交谈（共同在场）或通话（联系人，10-60 分钟，修订合同 L1625-1626）。"""
+    """@brief 发起交谈（共同在场）或通话（联系人，10-60 分钟，docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
 
     kind: Literal["chat", "call"]
     partner_id: str = Field(pattern=r"\S")
@@ -764,7 +773,7 @@ class ActionResult(FrozenModel):
 def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝原因文本：业务错误码加链式底层原因（去十六进制身份并截断）。
 
-    拒绝消息经 recent_action_results 摘要进入 facts/scene（L1548），模型据此
+    拒绝消息经 recent_action_results 摘要进入 facts/scene（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），模型据此
     修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
     等），不含任何十六进制事件/请求身份。
     """

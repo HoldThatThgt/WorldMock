@@ -1,4 +1,4 @@
-"""@brief 预排事件的封闭类型与载荷模型（设计文档 §7）。
+"""@brief 预排事件的封闭类型与载荷模型（docs/design/04-simulation-engine.md「预排事件」）。
 
 本模块是 ScheduledKind/ScheduledEvent 的权威定义处；life.models 再导出以维持
 既有导入路径。为保持导入方向（life.models → 本模块），此处不得依赖任何
@@ -20,7 +20,7 @@ class _StrictScheduledModel(BaseModel):
 
 
 class ScheduledKind(StrEnum):
-    """@brief 环境自主到期事件的封闭类型（现状五种 + §7.2 新增五种）。"""
+    """@brief 环境自主到期事件的封闭类型（现状五种 + docs/design/04-simulation-engine.md「预排事件」新增五种）。"""
 
     MAIL_ARRIVAL = "mail_arrival"
     DELIVERY_READY = "delivery_ready"

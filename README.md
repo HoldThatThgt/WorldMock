@@ -1,14 +1,30 @@
 # WorldMock
 
-WorldMock 通过 AgentSociety 2 和 DeepSeek 驱动人物生活，保存可追溯的数字足迹，再使用 LabelKit 生产训练数据和规则测试数据。
+WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日常生活，把生活过程写成可追溯的数字足迹，
+再交给 LabelKit 生产模型训练数据与规则引擎测试数据。
 
 ## 文档导航
 
-- **特性规范** → [docs/INDEX.md](docs/INDEX.md) - 当前实施规格与接口合同入口
-- **实施进度** → [实现与验收记录](docs/implementation-status.md) - 实际完成情况与覆盖率
-- **提案文档** → `docs/dev/PROPOSAL-*.md` - 待裁决方案与多方案对比
-- **历史经验** → [docs/history/](docs/history/) - 已移除原型的经验总结
-- **调研证据** → `docs/dev/research/` - 技术分析与行业调研
+[docs/INDEX.md](docs/INDEX.md) 是唯一入口，给出项目状态、文档地图与阅读路径；其余文档按职责分工：
+
+### 主文档集
+
+- [架构设计](docs/ARCHITECTURE.md)：系统分层、职责、数据流与核心裁决。
+- [接口合同](docs/CONTRACTS.md)：跨模块接口合同与导航，记录引擎定义见所属设计。
+- [实验身份](docs/EXPERIMENT.md)：依赖、场景、时间窗、样本与外部参照。
+- [验证与验收](docs/VERIFICATION.md)：四项协议门禁、report-only 边界、测试矩阵与证据规则。
+- [实现状态](docs/dev/implementation-status.md)：当前实现情况与覆盖率。
+- [覆盖率口径与基线](docs/dev/coverage-baseline.md)：覆盖率门禁的判定口径、失败关闭约定与基线记录。
+- `docs/dev/SPEC-*.md`：已定稿的特性实施规格。
+- `docs/dev/PROPOSAL-*.md`：待裁决方案与多方案对比。
+- [规格覆盖率追溯矩阵](docs/dev/ANALYSIS-spec-coverage.md)：规格条款与测试用例的覆盖率追溯矩阵。
+- `docs/dev/research/`：技术分析、审计与调研证据。
+
+### 设计文档集
+
+- [记录引擎](docs/design/05-recording-engine.md)：记录、素材、事务、检查点、分支、导出与诊断的统一设计和合同。
+
+- [docs/design/](docs/design/)：产品设计说明书，提供实现级的完整规格，包含模块详细设计、算法流程、配置规格、数据格式等。参考 LabelKit 设计文档风格组织。
 
 ```mermaid
 flowchart LR
@@ -41,8 +57,6 @@ DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件
 运行输出位于 `runs/`。事件数据库与内容素材保留实际来源；模型调用、行为结果、共同检查点、
 数据交付和真实性评估分别记录证据。恢复使用新目录，保留父运行。
 
-旧手机穿刺实现已移除，仅保留 [经验档案](docs/history/mobile-prototype-lessons.md)。
-
 ## 命令
 
 ```sh
@@ -56,11 +70,11 @@ worldmock deliver --export runs/white-collar/exports/final --output runs/white-c
 `resume` 必须显式提供父运行、检查点和新的输出目录。`prepare-corpora --output` 重新获取固定来源；
 运行时只读已校验快照，不访问在线路线服务。
 
-`replay` 还需 `--intervention` 指向严格的假设条件文件，在新分支中实际重演；
-`deliver --replay-export` 可接收该分支的完整导出，把实际分支结果与普通反事实想象分别标明。
-导出的 `quality.json` 保留完成情况、内容接触、实际用量与估算成本；最终清单绑定全部消费者文件。
-DatasetDict 的 `input`、`target`、`provenance` 保留为 JSON 文本，读取嵌套值时使用 `json.loads`；
-`prompt`、`completion` 已提供可用于训练的消息。这样保留原始数值，避免加载器自动解码改变浮点数。
+`replay` 还需 `--intervention` 指向严格的假设条件文件，在新分支中实际重演；`deliver --replay-export`
+可接收该分支的完整导出，把实际分支结果与普通反事实想象分别标明。
+
+交给 LabelKit 的 `DatasetDict` 数据集结构、导出与交付产物的字段，由
+[接口合同](docs/CONTRACTS.md) 定义，本文件不重复。
 
 真实性评估分两阶段：`evaluate` 提供双方数据、配置和新目录以生成固定统计及盲评包；
 评审完成后，只传同一 `--output` 与三个 `--reviews` 文件进行解盲和结论发布。不能把模型评审称为真人评审。

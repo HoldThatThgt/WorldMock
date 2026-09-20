@@ -1,11 +1,11 @@
-"""@brief 决策节律的引擎侧装配：唤醒判定、静默边界留痕与下一决策候选（L1447-1477）。
+"""@brief 决策节律的引擎侧装配：唤醒判定、静默边界留痕与下一决策候选（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
 结算边界（activity_feedback_seconds=900）照常结算资源；是否提供决策只由唤醒
 条件决定——判定委托 life.schedule.evaluate_wake_reasons，本模块负责从世界状态
 装配 WakeSnapshot、在同一边界推进情绪账（脉冲与衰减）、计算下一决策候选
 （schedule.next_decision_time）。静默边界在 activity_progress.data 留
 decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际命中的全部
-唤醒原因。滞回参照=上次实际提供决策时的分级（L1524-1525）。
+唤醒原因。滞回参照=上次实际提供决策时的分级（docs/dev/SPEC-life-runtime.md「滞回规则」）。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, Worl
 from worldmock.life.projection import felt_values
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 
-#: 饥饿不适档（L1518 连续两小时以上饿）：appetite 分级达到"饿"及以上。
+#: 饥饿不适档（docs/dev/SPEC-life-runtime.md「其他体感分级」连续两小时以上饿）：appetite 分级达到"饿"及以上。
 HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受"})
 #: 困倦不适档：sleepiness 分级达到"困"及以上。
 SLEEPY_BANDS = frozenset({"困", "很困", "撑不住"})
@@ -84,7 +84,7 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
         agent = _settle_mood(agent, inputs)
         verdict = rhythm_schedule.evaluate_wake_reasons(_wake_snapshot(agent, inputs))
         if _game_turn_due(inputs.state, agent):
-            # 游戏保持逐回合反馈（规格 L1473）：交互边界到期即提供决策，
+            # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
             verdict = rhythm_schedule.WakeVerdict(
                 decision_offered=True, wake_reasons=verdict.wake_reasons)
@@ -145,7 +145,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
 
 
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（L1517-1519）。"""
+    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     now = inputs.state.current_time
     if agent.mood_updated_at is not None:
         agent = agent.model_copy(update={
@@ -173,7 +173,7 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
 
 
 def _read_new_messages(agent: AgentState) -> AgentState:
-    """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（L1513/L1518）。"""
+    """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     fresh = [message for message_id, message in agent.inbox.items()
              if message_id not in agent.read_inbox_ids]
     if not fresh:
@@ -186,7 +186,7 @@ def _read_new_messages(agent: AgentState) -> AgentState:
 
 
 def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 清醒社交需要增长 +0.04/h 与共同用餐 −0.3/h（L1513-1515）。
+    """@brief 清醒社交需要增长 +0.04/h 与共同用餐 −0.3/h（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     CHAT/CALL 活动区间的账本由 life.social_actions.advance_social 在活动结算内
     推进（含清醒增长），此处跳过避免重复计数。
@@ -235,7 +235,7 @@ def _shared_meal(agent: AgentState, inputs: RhythmInputs) -> bool:
 
 
 def _plan_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 完成计划段（照做才计）+0.05；任务到期未交 −0.4（L1517-1518）。"""
+    """@brief 完成计划段（照做才计）+0.05；任务到期未交 −0.4（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     now = inputs.state.current_time
     body = agent.body
     if agent.day_plan is not None:

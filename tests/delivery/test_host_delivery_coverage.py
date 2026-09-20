@@ -1,6 +1,6 @@
 """C4e 交付簇分支覆盖：pipeline 正反路径、编码往返、trace 校验、窗口边界、规则与训练门禁。
 
-deliver() 成功发布路径 E2E（规格 L846-857 deliver 合同）：用打桩 LabelKit CLI
+deliver() 成功发布路径 E2E（docs/CONTRACTS.md「CLI 命令接口」deliver 合同）：用打桩 LabelKit CLI
 产物（fake subprocess.run 写出与真实 CLI 相同结构的 out/*.jsonl 与 trace）
 构造完整成功清单走通发布；此前 test_publication.py 只测失败路径。
 模型客户端全部打桩，零真实调用。
@@ -284,7 +284,7 @@ def _fake_labelkit_cli(monkeypatch, calls):
 
 
 # ---------------------------------------------------------------------------
-# deliver() 成功发布路径 E2E（规格 L846-857）
+# deliver() 成功发布路径 E2E（docs/CONTRACTS.md「CLI 命令接口」）
 # ---------------------------------------------------------------------------
 
 

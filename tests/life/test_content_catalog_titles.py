@@ -8,14 +8,14 @@ from pathlib import Path
 from worldmock.life.content import load_content_titles
 from worldmock.life.scenario import load_scenario
 
-from .conftest import browse_activities
+from .conftest import browse_all
 
 
 def _browsed(engine_factory, category: str,
              scenario_name: str = "white-collar-12-weeks.json") -> list[dict]:
     """下钻一个内容品类并读取条目（观察只带 activity_summary 计数）。"""
     engine = engine_factory(scenario_name)
-    return browse_activities(engine, f"browse-{category}", category)
+    return browse_all(engine, category)
 
 
 def test_title_sources_cover_movies_dramas_novels_and_single_experience() -> None:

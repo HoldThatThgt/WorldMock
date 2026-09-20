@@ -128,7 +128,7 @@ from worldmock.life.schedule import (PlanSegment, WakeReason, bedtime_anchor,
                                      initial_day_plan, revise_day_plan)
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.settlement import inject_initial_funds
-from worldmock.life.state_commit import commit_state, validated_payload
+from worldmock.life.state_commit import commit_state, flush_presentation, validated_payload
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
 from worldmock.life.work import (
     load_work_input,
@@ -180,7 +180,7 @@ _SCHEDULED_WAKE_FLAGS = {
 
 
 def affordance_contract(view: AffordanceView) -> dict[str, dict]:
-    """@brief 从可供性派生视图构造观察合同冻结块（设计文档 §三 L4）。
+    """@brief 从可供性派生视图构造观察合同冻结块（docs/design/02-exchange-engine.md「可供性与活动声明」）。
 
     合同随场景组装一次性生成、运行期不变：每个 kind 携带
     {surface, target_discovery, target_field, energy_projection,
@@ -227,6 +227,7 @@ class LifeEngine(ObservationMixin):
         self._pending_decision_starts: dict[int, dict] = {}
         self._model_request_events: dict[tuple[str, str], str] = {}
         self._pending_event_drafts: list[EventDraft] = []
+        self._pending_presentation: dict | None = None
         self._work_reviewer: WorkReviewer | None = None
         self.ops = OpsLogger(store.run_dir, self.scenario.timezone)
         self._validate_runtime()
@@ -263,17 +264,15 @@ class LifeEngine(ObservationMixin):
     def observe(self, context: "DecisionContext") -> dict:
         """@brief 返回人物当下可见事实，并以同版本追加观察事件。"""
         self._validate_context(context)
-        agent = self.state.agents[context.agent_id]
-        data = self._observation_data(agent)
+        data = self._observation_data(self.state.agents[context.agent_id])
         draft = EventDraft(event_type="observation", occurred_at=self.state.current_time,
-                           agent_id=agent.agent_id, decision_id=context.decision_id,
+                           agent_id=context.agent_id, decision_id=context.decision_id,
                            observed_at=self.state.current_time, data=data)
-        event = commit_state(self.store, self.state, [draft])[0]
-        data["observation_event_id"] = event.event_id
+        data["observation_event_id"] = commit_state(self.store, self.state, [draft])[0].event_id
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
-        """@brief 持久化观察顺序；decision_started 延迟到独白可得时写（L1562-1573）。"""
+        """@brief 持久化观察顺序；decision_started 延迟到独白可得时写（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
         if self._round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -413,7 +412,8 @@ class LifeEngine(ObservationMixin):
         submitted = {item.agent_id for item in current.pending_actions}
         if submitted != set(current.expected_agent_ids):
             raise ProtocolError("Decision round does not contain every expected agent")
-        staged = self.state.model_copy(deep=True)
+        staged = flush_presentation(self.state, self._pending_presentation).model_copy(deep=True)
+        self._pending_presentation = None
         drafts: list[EventDraft] = flush_decision_starts(self._pending_decision_starts, self.state.current_time)
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
@@ -574,12 +574,14 @@ class LifeEngine(ObservationMixin):
         if tick <= 0 or target_epoch - self.state.current_time != tick or target_epoch != self._next_epoch():
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.state.current_time
-        staged = self.state.model_copy(deep=True)
+        staged = flush_presentation(self.state, self._pending_presentation)
+        self._pending_presentation = None
+        staged = staged.model_copy(deep=True)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
         staged.current_time = target_epoch
-        for agent_id in expired_plan_agent_ids(staged):  # 跨日归零：观察只反映当日计划（L1606）
+        for agent_id in expired_plan_agent_ids(staged):  # 跨日归零：观察只反映当日计划（docs/dev/SPEC-life-realism.md「日程骨架」）
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         staged = apply_engine_rhythm(self, staged, target_epoch, interval, arrivals, drafts)
         if not drafts:
@@ -820,7 +822,7 @@ class LifeEngine(ObservationMixin):
         agent = state.agents[agent_id]
         activity = state.activities.get(agent.current_activity_id or "")
         if activity is not None and activity.kind == ActivityKind.PLAY_GAME:
-            # 游戏保持逐回合反馈（L1473）：交互边界到期即提供决策。
+            # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策。
             next_at = activity.next_interaction_at or activity.planned_end_at
         else:
             candidate = next_decision_candidates(agent, engine_rhythm_inputs(self, state))
@@ -1147,7 +1149,7 @@ class LifeEngine(ObservationMixin):
 
     def _consume(self, state: WorldState, pending: PendingAction,
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 启动一次多件进食或单件使用活动（L1673：时长取最长、效果累加）。"""
+        """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。"""
         agent = state.agents[pending.agent_id]
         products = self.rules.products
         validate_meal(agent, products, request)
@@ -1239,7 +1241,7 @@ class LifeEngine(ObservationMixin):
 
     def _plan_day(self, state: WorldState, pending: PendingAction,
                   request: PlanDayRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 登记当日骨架为自我承诺（L1606-1609）；日首判据=当日尚无计划（跨日归零+台账），拒绝重试边界仍可提交。"""
+        """@brief 登记当日骨架为自我承诺（docs/dev/SPEC-life-realism.md「日程骨架」）；日首判据=当日尚无计划（跨日归零+台账），拒绝重试边界仍可提交。"""
         agent = state.agents[pending.agent_id]
         now = state.current_time
         date = _datetime(now, self.scenario.timezone).date().isoformat()
@@ -1272,7 +1274,7 @@ class LifeEngine(ObservationMixin):
 
     def _revise_day_plan(self, state: WorldState, pending: PendingAction,
                          request: ReviseDayPlanRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 改写尚未开始的当日计划段（L1611：已开始段不可改）。"""
+        """@brief 改写尚未开始的当日计划段（docs/dev/SPEC-life-realism.md「日程骨架」：已开始段不可改）。"""
         agent = state.agents[pending.agent_id]
         if agent.day_plan is None:
             raise BusinessRuleError("PLAN_NOT_FOUND")
@@ -1293,7 +1295,7 @@ class LifeEngine(ObservationMixin):
 
     def _send_message(self, state: WorldState, pending: PendingAction,
                       request: SendMessageRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 瞬时消息：登记收件方 inbox 与 message_arrival 送达（L1624）。"""
+        """@brief 瞬时消息：登记收件方 inbox 与 message_arrival 送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         from worldmock.life import social as social_domain
 
         agent = state.agents[pending.agent_id]
@@ -1351,7 +1353,7 @@ class LifeEngine(ObservationMixin):
 
     def _start_social_activity(self, state: WorldState, pending: PendingAction,
                                request: StartSocialActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（L1625-1626）。"""
+        """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         agent = state.agents[pending.agent_id]
         origin = ActivityOrigin(pending.action_id, pending.decision_id,
                                 pending.requested_event_id)
@@ -1885,7 +1887,7 @@ def _body_settlement_data(settlement) -> dict:
 
 
 def _resource_flows_data(agent_id: int, occurred_at: int) -> list[dict[str, Any]]:
-    """@brief 取走本区间身体结算分录并重盖主体与时间后校验序列化（§9）。
+    """@brief 取走本区间身体结算分录并重盖主体与时间后校验序列化（docs/design/05-recording-engine.md「事件正文与资源证据」）。
 
     body 结算函数以占位 owner 与零时间戳缓冲分录；引擎按事件归属重盖为
     agent:{id} 与事件模拟时间，序列化为 {resource, owner, direction, amount,
@@ -1914,7 +1916,7 @@ def _meal_consumption_data(activity, before_agent) -> dict:
 
 
 def _dedupe_revealed_cues(activity) -> None:
-    """@brief 横跨结算边界的同一条字幕只交付一次（L1547）。
+    """@brief 横跨结算边界的同一条字幕只交付一次（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 
     reveal_watch 的区间过滤会重复交付起止横跨上一边界的 cue；此处按
     "起点落入本区间才算本次新跨过"去重，与 last_revealed_position 对齐。
@@ -1946,7 +1948,7 @@ def _browse_visibility(agent, products, now):
     """@brief 浏览完成：可见集=目录全部商品（配送浏览同样适用），TTL 1800 秒。
 
     有效可见集由 projection.visible_products 按店内常驻 ∪ 浏览 TTL 计算；
-    此处只登记浏览时刻与原始可见集（L1545）。
+    此处只登记浏览时刻与原始可见集（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
     """
     return agent.model_copy(
         update={"visible_product_ids": set(products), "product_browsed_at": now,

@@ -154,7 +154,7 @@ def test_food_energy_cap_limits_source_amount_to_headroom(body_config) -> None:
 
 
 def test_sleep_recovery_beyond_deficit_clamps_at_zero(body_config) -> None:
-    """恢复量超过现有不足账时期末钳制为零（下限零，规格 L1501）。"""
+    """恢复量超过现有不足账时期末钳制为零（下限零，docs/dev/SPEC-life-runtime.md「睡眠不足账与效率曲线」）。"""
     body = BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0.5, entertainment_need=0)
     result = settle_body(body, ActivityKind.SLEEP, 3600, body_config, ActivityFactors(0.95))
 

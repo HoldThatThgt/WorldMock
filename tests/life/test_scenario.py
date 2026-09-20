@@ -124,7 +124,7 @@ def test_task_skill_targets_must_be_declared() -> None:
         _replace(("tasks", 0, "required_skill"), "missing-skill"),
         "unknown skill",
     )
-    # 修订合同 L1661：随机偏好浮点字段整体删除——场景再携带该键按未知字段拒绝。
+    # docs/dev/SPEC-life-realism.md「画像编译」：随机偏好浮点字段整体删除——场景再携带该键按未知字段拒绝。
     payload = _replace(("agents", 0, "entertainment_preferences"), {"missing-content": 0.5})
     _assert_invalid(payload, "Extra inputs are not permitted")
 
@@ -264,7 +264,9 @@ _V2_SCENARIOS = (
 )
 _MULTI_SCENARIOS = _V2_SCENARIOS[1:]
 
-#: 场景地点 kind → 世界素材品类（修订合同 L1635-1647 的闭集映射）。
+#: 场景地点 kind → 世界素材品类（docs/dev/SPEC-life-realism.md「世界素材品类要求」的闭集映射）。
+#: 表外 kind 不得出现在场景里：`market` 曾因不在表内而被覆盖断言静默跳过，故此处
+#: 显式登记它承载的品类 `merchant_goods`（地点语料的 `covers` 声明同值）。
 _KIND_CATEGORY = {
     "home": "home",
     "office": "office",
@@ -274,6 +276,7 @@ _KIND_CATEGORY = {
     "wet_market": "supermarket_or_wet_market",
     "park": "park_or_fitness",
     "fitness": "park_or_fitness",
+    "merchant": "merchant_goods",
 }
 _REQUIRED_CATEGORIES = {
     "home", "office", "canteen_or_restaurant", "convenience_store",
@@ -397,25 +400,56 @@ def test_payday_and_rent_are_calendar_opportunities_not_obligations() -> None:
 
 
 def test_location_kinds_cover_the_closed_category_set() -> None:
-    """三场景地点覆盖修订合同品类闭集，POI 坐标与张江语料逐项一致。"""
+    """三场景地点覆盖修订合同品类闭集，POI 坐标与张江语料逐项一致。
+
+    场景里出现 `_KIND_CATEGORY` 表外 kind 即失败——这条断言取代了早先
+    `if item["kind"] in _KIND_CATEGORY` 的静默跳过，`market` 曾因此游离在校验之外。
+    """
     corpus = json.loads(_LOCATIONS_CORPUS.read_text())
     corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
     for path in _V2_SCENARIOS:
         document = _document(path)
-        categories = {_KIND_CATEGORY[item["kind"]] for item in document["locations"]
-                      if item["kind"] in _KIND_CATEGORY}
+        unknown = sorted({item["kind"] for item in document["locations"]
+                          if item["kind"] not in _KIND_CATEGORY})
+        assert not unknown, f"{path} declares unmapped location kinds: {unknown}"
+        categories = {_KIND_CATEGORY[item["kind"]] for item in document["locations"]}
         assert _REQUIRED_CATEGORIES <= categories
         restaurants = [item for item in document["locations"]
                        if item["kind"] == "restaurant"]
         assert len(restaurants) >= 2
         for item in document["locations"]:
             corpus_entry = corpus_by_id.get(item["location_id"])
-            # 坐标与名称逐项一致仅对 OSM POI 断言；home/office 为冻结场景锚点，
+            # 坐标与名称逐项一致仅对 OSM POI 断言；home/office/market 为冻结场景锚点，
             # 语料以坐标回指场景（frozen-scenario-anchor），显示名不要求改写。
             if corpus_entry is not None and item["location_id"].startswith("poi-"):
                 assert item["latitude"] == corpus_entry["latitude"]
                 assert item["longitude"] == corpus_entry["longitude"]
                 assert item["name"] == corpus_entry["name"]
+
+
+def test_market_location_is_declared_in_the_location_corpus() -> None:
+    """承载全部商品的 market 必须在地点语料里声明覆盖关系（曾游离在校验之外）。
+
+    语料的 `covers` 是 `admission` 地点品类覆盖检查的输入，market 缺失即
+    等于"商品地点没有任何覆盖断言"。
+    """
+    corpus = json.loads(_LOCATIONS_CORPUS.read_text())
+    corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
+    market = corpus_by_id.get("market")
+    assert market is not None, "market must be declared in the location corpus"
+    assert market["kind"] == "merchant"
+    assert market["covers"] == [_KIND_CATEGORY["merchant"]]
+    for path in _V2_SCENARIOS:
+        document = _document(path)
+        product_ids = {item["product_id"] for item in document["products"]}
+        assert product_ids, f"{path} declares no products"
+        carriers = {item["merchant_location_id"] for item in document["products"]}
+        assert carriers == {"market"}, f"{path} product merchants must be the declared market"
+        # 场景侧坐标与语料锚点逐项一致（frozen-scenario-anchor 回指）。
+        scenario_market = next(item for item in document["locations"]
+                               if item["location_id"] == "market")
+        assert scenario_market["latitude"] == market["latitude"]
+        assert scenario_market["longitude"] == market["longitude"]
 
 
 def test_meal_products_resolve_against_the_catalog() -> None:

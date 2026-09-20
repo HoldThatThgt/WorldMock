@@ -8,8 +8,13 @@
   "activity_feedback_seconds": 900,
   "reconsideration_interval_seconds": 5400,
   "max_consecutive_rejections": 10,
+  "candidate_presentation_limit": 20,
+  "candidate_pool_limit": 1000,
+  "rotation_quota_ratio": 0.15,
+  "rotation_stale_seconds": 604800,
+  "retrieval_index_threshold": 1000,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "f0b6116ac4fab04e4f644ee99a3f98b2d1ad38cbbddcc7d11308474094634272",
+  "corpus_manifest_sha256": "f7a9f5f738f3924c5ec1b4189b14d626bc05253909dba9f7d28f0740b1f720b2",
   "catalog_version": {
     "major": 2,
     "minor": 0

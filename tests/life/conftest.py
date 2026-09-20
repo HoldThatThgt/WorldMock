@@ -157,13 +157,61 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
 
 def browse_activities(engine: LifeEngine, round_id: str, category: str,
                       agent_id: int = 1) -> list[dict]:
-    """按真实轮次下钻一个活动品类并返回结算条目（browse 是纯查询动作）。"""
+    """按真实轮次下钻一个活动品类并返回该品类的全量条目（browse 是纯查询动作）。
+
+    下推按游标逐页进行，因此返回的是全量有序候选而不是首屏；round_id 只用于首屏。
+    """
     from worldmock.life.models import BrowseActivitiesRequest
 
     ready = list(engine.scheduling_state().ready_agent_ids)
-    requests = {item: ("browse_activities", BrowseActivitiesRequest(category=category))
+    requests = {item: ("browse_activities",
+                       BrowseActivitiesRequest(category=category, cursor=None))
                 for item in ready}
     _, results = submit_round(engine, requests, round_id)
     result = next(item for item in results if item.agent_id == agent_id)
     assert result.status.value == "completed", result.error_code
-    return result.data["items"]
+    items = list(result.data["items"])
+    cursor = result.data["next_cursor"]
+    step = 0
+    while cursor is not None:
+        if not advance_until_ready(engine):
+            break
+        step += 1
+        ready = list(engine.scheduling_state().ready_agent_ids)
+        requests = {item: ("browse_activities",
+                           BrowseActivitiesRequest(category=category, cursor=cursor))
+                    for item in ready}
+        _, results = submit_round(engine, requests, f"{round_id}-page-{step}")
+        page = next(item for item in results if item.agent_id == agent_id)
+        assert page.status.value == "completed", page.error_code
+        items.extend(page.data["items"])
+        cursor = page.data["next_cursor"]
+    return items
+
+
+def browse_all(engine: LifeEngine, category: str, agent_id: int = 1,
+               limit: int = 32) -> list[dict]:
+    """以空游标起反复带上一页游标下推，拼出一个品类的全量条目（无重、无漏）。
+
+    游标下推要求每个下一屏落在新的决策位上，因此每次下推前先推进到人物就绪的边界。
+    """
+    from worldmock.life.models import BrowseActivitiesRequest
+
+    items: list[dict] = []
+    cursor = None
+    for step in range(limit):
+        ready = list(engine.scheduling_state().ready_agent_ids)
+        if agent_id not in ready and step:
+            if not advance_until_ready(engine):
+                break
+            ready = list(engine.scheduling_state().ready_agent_ids)
+        requests = {item: ("browse_activities",
+                           BrowseActivitiesRequest(category=category, cursor=cursor))
+                    for item in ready}
+        _, results = submit_round(engine, requests, f"menu-all-{category}-{step}")
+        payload = next(item for item in results if item.agent_id == agent_id).data
+        items.extend(payload["items"])
+        cursor = payload["next_cursor"]
+        if cursor is None:
+            break
+    return items

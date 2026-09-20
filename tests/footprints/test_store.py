@@ -219,7 +219,7 @@ def test_create_rejects_non_integer_initial_clock_or_version(tmp_path, bad_state
     机制论证（为什么是缺陷不是特征）：commit 的 _validate_state 已要求 version 与
     current_time 为整数（store.py 结构合同），而 create 对同两个字段只查 version>=0 与
     current_time 键存在，非整数初始状态被静默持久化，直到下次加载才暴露——与
-    FootprintStore 合同（agentsociety2-design.md L878-884）的写入路径校验口径不一致。
+    FootprintStore 合同（docs/CONTRACTS.md「数字足迹存储接口」）的写入路径校验口径不一致。
     """
     manifest = {'run_id': 'bad-shape', 'agent_ids': [1], 'code': 'frozen'}
     with pytest.raises(IntegrityError):

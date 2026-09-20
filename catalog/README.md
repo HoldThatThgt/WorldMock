@@ -1,23 +1,24 @@
-# catalog/ — 静态资源与交换对象字典（冻结 JSONL，version 1）
+# catalog/ 使用说明
 
-- `resources.jsonl` — 4 条资源定义（money_fen 账户 + energy/sleep_debt/entertainment 三个 level）
-- `objects.jsonl` — 163 条交换对象（121 食品 = 8 冻结基线 + 25 第一波扩容（foods/expansion.json）+ 88 第二波扩容（foods/expansion2.json，源自 open-food-facts/china-pool.json 548 条含能量池）+ 30 正餐（meals/items.json，USDA FNDDS 热量溯源）+ 8 耐用品 + travel-service + 3 合同模板）
-- `rules/` — 人写的映射/公式声明（off-foods.mapping.toml、travel-fare.toml）
-- `overrides/`、`snapshots/` — 预留（例外覆盖/墓碑、anchored 取值快照），v1 尚无内容
+资源定义、来源、目录发布与语料设计统一见[资源引擎设计](../docs/design/03-resource-engine.md)；
+交换对象、可供性和结算规则见[交换引擎设计](../docs/design/02-exchange-engine.md)。
+本目录保存运行时读取的静态定义与规则。
 
-数据四分工：原料不进库（datasets）、字典进库（catalog）、证据进库（corpora）、快照进库（scenarios）。
-每个静态数值逐参数标注溯源（fact / assumption / scenario），由生成器强制 100% 覆盖。
+| 文件 | 用途 | 维护方式 |
+| --- | --- | --- |
+| `resources.jsonl`、`objects.jsonl` | 资源与交换对象定义 | 由生成器输出 |
+| `manifest.json` | 目录版本与世界素材品类要求 | 由生成器输出 |
+| `overrides/tombstones.jsonl` | 对象墓碑记录 | 当前由生成器输出空文件 |
+| `affordances.toml` | 可供性定义 | 手动维护 |
+| `rules/` | 数据映射、计费、通行时间、动机与人物映射规则 | 手动维护 |
+| `snapshots/` | 保留给取值快照的目录 | 当前尚无内容 |
 
-再生成（读 scenarios + corpora，重跑结果逐字节一致）：
+在仓库根目录执行：
 
+```sh
+.venv/bin/python scripts/build_catalog.py           # 重新生成目录数据
+.venv/bin/python scripts/build_catalog.py --check   # 校验生成结果与在库文件逐字节一致
 ```
-python3 scripts/build_catalog.py           # 生成 resources.jsonl + objects.jsonl
-python3 scripts/build_catalog.py --check   # 校验在库文件与重生成结果一致（CI 门禁）
-```
 
-rules/ 与本文件为人写，生成器只校验不覆写。设计依据：docs/dev/PROPOSAL-resource-registry.md。
-
-再生成：`python3 scripts/build_catalog.py`（`--check` 校验字节一致）。
-产物共四件：resources.jsonl、objects.jsonl、manifest.json（版本锚）、overrides/tombstones.jsonl（可空）。
-
-品类准入（修订合同《世界素材品类要求》）：`catalog/manifest.json` 自 2.0 起携带`category_requirements` 版本化声明；`admission.validate_world_categories(catalog, corpora_root)`对正餐/地点/家与办公室可供性/内容元数据/工作材料/生活活动 v2 字段/联系人逐条执行，不满足即拒绝启动（fail-closed）。
+生成器读取 `scripts/catalog-snapshot-legacy-scenario.json` 和 `corpora/` 中的冻结素材，
+不会读取当前场景文件，也不会覆写 `affordances.toml`、`rules/` 与本说明文件。

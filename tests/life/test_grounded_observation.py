@@ -105,7 +105,7 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     assert result.status == "completed"
     assert engine.state.merchant_stock[product_id] == 0
 
-    # 下一决策钉在浏览可见期内（+900 < 1800 秒，L1545）：售罄商品仍在
+    # 下一决策钉在浏览可见期内（+900 < 1800 秒，docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：售罄商品仍在
     # 可见目录中报告 current_stock=0，购买工具按库存闭集撤下。
     wake_by_mail(engine, agent_id=1, offset=900)
     advance_next(engine)
@@ -369,8 +369,28 @@ def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -
                             for row in contacts)
     text = render_facts(data["facts"])
     assert '"person_id":"agent:2"' in text and '"contact_id"' in text
-    # 他人隐私闭集（L1630）：身体数值/余额/记忆不进 facts 渲染文本
+    # 他人隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：身体数值/余额/记忆不进 facts 渲染文本
     # （tasks 是本人可见任务行，属 facts 合同字段，不在禁项之列）。
     for forbidden in ("energy_kcal", "balance_fen", "memory", "sleep_pressure",
                       "entertainment_preferences"):
         assert forbidden not in text
+
+
+def test_scene_inventory_shows_product_display_names(engine_factory) -> None:
+    """scene 手边持有物用目录展示名，不用商品标识（scene 合同是给人读的）。"""
+    from worldmock.life.narration import render_scene
+
+    engine = engine_factory()
+    held = next(item for item in engine.scenario.products if item.name)
+    data = engine._observation_data(engine.state.agents[1])
+    # 未持有时先确认标识不出现在 scene，再持有后确认展示名出现。
+    assert held.product_id not in data["scene"]["inventory"]
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[1] = staged.agents[1].model_copy(
+        update={"inventory": {staged.agents[1].location_id: {held.product_id: 1.0}}}, deep=True)
+    engine.state = staged
+    data = engine._observation_data(engine.state.agents[1])
+    assert held.name in data["scene"]["inventory"]
+    assert held.product_id not in data["scene"]["inventory"]
+    scene = render_scene(dict(data["scene"]))
+    assert held.name in scene and held.product_id not in scene

@@ -282,20 +282,20 @@ def felt_body(energy_kcal: float = 1600, **updates):
 
 
 def test_felt_values_expose_five_numeric_signals(body_config) -> None:
-    """体感数值组含五项信号，餐时窗口只放大食欲（规格 L1505-1514）。"""
+    """体感数值组含五项信号，餐时窗口只放大食欲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     body = felt_body(1600, social_need=0.4, mood_valence=0.2)
     plain = felt_values(body, 22.0)
     in_window = felt_values(body, 12.5, felt.MealWindows(lunch=(12.0, 13.5)))
     assert set(plain) == {"appetite", "sleepiness", "entertainment_need",
                           "social_need", "mood_valence"}
     assert plain["social_need"] == 0.4 and plain["mood_valence"] == 0.2
-    # 餐时项在窗口内加 0.15（experiment_assumption，L1508）
+    # 餐时项在窗口内加 0.15（experiment_assumption，docs/dev/SPEC-life-runtime.md「其他体感分级」）
     assert in_window["appetite"] == pytest.approx(plain["appetite"] + 0.15)
     assert plain["sleepiness"] > 0
 
 
 def test_felt_levels_render_five_band_texts(body_config) -> None:
-    """体感分级组输出五项中文分级文本（规格 L1509-1520）。"""
+    """体感分级组输出五项中文分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     body = felt_body(1600, social_need=0.7, mood_valence=0.5, entertainment_need=0.7)
     levels = felt_levels(body, 20.0)
     assert set(levels) == {"appetite", "sleepiness", "entertainment", "social", "mood"}
@@ -305,7 +305,7 @@ def test_felt_levels_render_five_band_texts(body_config) -> None:
 
 
 def test_body_observation_alert_ladder_and_two_group_projection(body_config) -> None:
-    """观察投影分级/数值两组；能量告警按 400/800 阈值分档（规格 L1510/L1527）。"""
+    """观察投影分级/数值两组；能量告警按 400/800 阈值分档（docs/dev/SPEC-life-runtime.md「其他体感分级」「数值与分级的分离」）。"""
     emergency = body_observation(felt_body(300), body_config, 12.0)
     hungry = body_observation(felt_body(600), body_config, 12.0)
     calm = body_observation(felt_body(1600), body_config, 12.0)
@@ -726,7 +726,7 @@ def _consume_activity(engine, use_mode: str, activity_id: str = "activity-meal")
 
 
 def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> None:
-    """共同在场堂食停止社交需要累积；外带取餐不覆盖（规格 L1513-1515）。"""
+    """共同在场堂食停止社交需要累积；外带取餐不覆盖（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     engine = engine_factory("multi-person.json")
     now = engine.state.current_time
     staged = engine.state.model_copy(deep=True)
@@ -748,7 +748,7 @@ def test_shared_meal_covers_social_accrual_only_for_eat_mode(engine_factory) -> 
 
 
 def test_task_deadline_missed_pulses_negative_mood(engine_factory) -> None:
-    """任务到期未交叠加 −0.4 脉冲（规格 L1517-1518）。"""
+    """任务到期未交叠加 −0.4 脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
@@ -1038,7 +1038,7 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
 
 
 def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engine_factory) -> None:
-    """时钟边界跳跃守卫（规格 L115、L322-331；Uncle Bob 条款 L788-790）。
+    """时钟边界跳跃守卫（docs/dev/SPEC-as2-integration.md「决策调度改动」、docs/dev/SPEC-life-runtime.md「共享时钟」；Uncle Bob 条款 docs/VERIFICATION.md「源码突变审查」）。
 
     推进必须同时满足三条：tick 严格为正、t = 上次确认时刻 + tick、且命中
     下一调度边界；不得跨过新开始活动更早的结束边界。本用例瞄准
@@ -1304,7 +1304,7 @@ def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None
 
 
 def _plan_request(engine, offsets: tuple[int, ...], span: int = 600) -> PlanDayRequest:
-    """构造覆盖若干偏移时刻的当日计划（末段延伸到缺省就寝锚点，L1607）。"""
+    """构造覆盖若干偏移时刻的当日计划（末段延伸到缺省就寝锚点，docs/dev/SPEC-life-realism.md「日程骨架」）。"""
     from zoneinfo import ZoneInfo
 
     base = engine.state.current_time

@@ -1,17 +1,17 @@
-"""@brief 观察投影引擎侧组装：scene 场景输入 + facts 精简结构（修订合同 L1529-1548）。
+"""@brief 观察投影引擎侧组装：scene 场景输入 + facts 精简结构（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。
 
 给模型的 user 消息由 persona_card、scene、facts 三部分组成，全部由确定性代码
 渲染（life.narration 渲染，不调用模型）；本模块只负责从世界状态计算两层投影
-的输入字典与 body 数值/分级两组证据（数值只进事件供评估，分级进提示，L1527）。
+的输入字典与 body 数值/分级两组证据（数值只进事件供评估，分级进提示，docs/dev/SPEC-life-runtime.md「数值与分级的分离」）。
 
 黑名单字段（world_state_version、end_time、affordance_contract、energy_
 feasibility、observation_event_id、motivation_hints、game_catalog 全表、完整
 活动快照、路线坐标与几何）在本层就不再产生——narration 的 enforce_field_
 blacklist 是第二道防线，不是第一道。
 
-商品可见期（L1545）：仅店内或浏览后 1800 秒内，每件只含 product_id/名称/
+商品可见期（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：仅店内，或未离开商家地点且浏览后未超 1800 秒；每件只含 product_id/名称/
 价格/热量/用餐时长。工作材料只揭示自上次决策以来新读区间、单次至多 2000
-字符（L1546）。
+字符（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 """
 
 from __future__ import annotations
@@ -25,13 +25,13 @@ from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, Worl
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
-#: 商品浏览可见期（秒）：距浏览超过该值清空（修订合同 L1545）。
+#: 商品浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 PRODUCT_VISIBILITY_TTL_SECONDS = 1800
-#: 工作材料单次揭示上限（字符，修订合同 L1546）。
+#: 工作材料单次揭示上限（字符，docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
 MATERIAL_REVEAL_CHAR_CAP = 2000
 #: 收件箱头在 scene 中展示的条数上限（收件箱头合同，防溢出）。
 INBOX_HEAD_LIMIT = 3
-#: recent_action_results 摘要条数上限（L1548：只含状态、一句话与必要身份）。
+#: recent_action_results 摘要条数上限（docs/dev/SPEC-life-runtime.md「观察投影行为规则」：只含状态、一句话与必要身份）。
 RECENT_RESULTS_LIMIT = 5
 
 
@@ -48,7 +48,7 @@ class ProjectionInputs:
     task_rows: tuple[dict[str, Any], ...]
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
-    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，L1594-1596）。
+    #: 引擎内部动机仪表结果（写入 motivation_internal，不进提示，docs/dev/SPEC-life-realism.md「动机层」）。
     motivation_internal: dict[str, Any] | None = None
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -67,17 +67,28 @@ def local_datetime(epoch: int, timezone_name: str) -> datetime:
 
 
 def visible_products(state: WorldState, agent: AgentState, scenario: RuntimeScenario) -> list[str]:
-    """@brief 计算有效商品可见集：店内常驻 ∪ 浏览后 1800 秒内（L1537/L1545）。
+    """@brief 计算有效商品可见集：店内常驻 ∪ 未离开商家地点且未超时的浏览（docs/dev/SPEC-life-runtime.md
+    「观察投影三部分」「观察投影行为规则」）。
 
     店内（人物当前地点的商家）商品常驻可见；浏览（BROWSE 完成或配送浏览）
-    把目录商品加入可见集，距浏览 1800 秒后清空——配送浏览同样适用 TTL。
+    把目录商品加入可见集，离开商家地点或距浏览 1800 秒后清空——配送浏览
+    同样适用这两支。
     """
     effective = {item.product_id for item in scenario.products
                  if item.merchant_location_id == agent.location_id}
-    browsed = agent.product_browsed_at
-    if browsed is not None and state.current_time - browsed <= PRODUCT_VISIBILITY_TTL_SECONDS:
+    if _browsed_products_visible(state, agent):
         effective |= set(agent.visible_product_ids)
     return sorted(effective)
+
+
+def _browsed_products_visible(state: WorldState, agent: AgentState) -> bool:
+    """@brief 浏览产生的可见期是否仍在：位置未变且未超 1800 秒（两者缺一即清空）。"""
+    browsed = agent.product_browsed_at
+    if browsed is None:
+        return False
+    if agent.product_browsed_location != agent.location_id:
+        return False
+    return state.current_time - browsed <= PRODUCT_VISIBILITY_TTL_SECONDS
 
 
 def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPresence]:
@@ -105,7 +116,7 @@ def _activity_family(kind: ActivityKind | None, active: bool) -> str:
 
 
 def people_here_views(state: WorldState, agent: AgentState) -> list[dict[str, Any]]:
-    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（L1623/L1630）。"""
+    """@brief 同一地点他人的可见投影闭集：姓名、活动家族、可交谈（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
     views = social.people_here(agent.location_id, other_presences(state, agent))
     return [view.model_dump(mode="json") for view in views]
 
@@ -153,7 +164,7 @@ def new_material_ranges(agent: AgentState) -> dict[str, list[dict[str, Any]]]:
 
 def drive_summary(levels: dict[str, str], task_rows: tuple[dict[str, Any], ...],
                   now: int) -> str:
-    """@brief 由体感分级、今日工作缺口与待办拼一句中文驱动摘要（L1597）。
+    """@brief 由体感分级、今日工作缺口与待办拼一句中文驱动摘要（docs/dev/SPEC-life-realism.md「动机层」）。
 
     不含数字权重（render_drive_summary 对阿拉伯数字 fail-closed）。
     """
@@ -207,7 +218,7 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
         "inbox_head": [entry["head"] for entry in inbox[:INBOX_HEAD_LIMIT]],
         "todos_summary": _todos_summary(inputs.task_rows, now),
         "reachable_places": reachable,
-        "inventory": _inventory_names(agent),
+        "inventory": _inventory_names(agent, scenario),
         "recent_action_results": [row.get("message", "") for row in inputs.recent_results],
     }
     facts = {
@@ -246,7 +257,7 @@ def _location_index(scenario: RuntimeScenario) -> dict[str, Any]:
 def _contact_rows(scenario: RuntimeScenario, agent: AgentState) -> list[dict[str, Any]]:
     """@brief 人物自己声明的联系人 facts 行：不透明 contact_id + 称谓 + 关系。
 
-    联系人是本人的通讯录（L1627），不是他人隐私闭集（L1630）约束的对象；
+    联系人是本人的通讯录（docs/dev/SPEC-life-runtime.md「社交最小可行版」），不是他人隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）约束的对象；
     亲密度、渠道与回复策略是引擎结算内部参数，不进 facts。call 的对象集
     与 send_message 的联系人收件人都以该 contact_id 为身份锚点。
     """
@@ -326,7 +337,9 @@ def _task_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     return rows
 
 
-def _inventory_names(agent: AgentState) -> list[str]:
-    """@brief 手边持有物展示名（scene 合同）。"""
-    return sorted({product_id for holding in agent.inventory.values()
-                   for product_id, quantity in holding.items() if quantity > 0})
+def _inventory_names(agent: AgentState, scenario: RuntimeScenario) -> list[str]:
+    """@brief 手边持有物展示名（scene 合同）：目录名称，缺名时回退标识。"""
+    names = {item.product_id: item.name for item in scenario.products}
+    holding_ids = {product_id for holding in agent.inventory.values()
+                   for product_id, quantity in holding.items() if quantity > 0}
+    return sorted({names.get(product_id, product_id) for product_id in holding_ids})

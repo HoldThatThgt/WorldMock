@@ -160,7 +160,7 @@ def _midnight_epoch(date_text: str, timezone: str) -> int:
 def test_default_scenario_compilation_matches_legacy_algorithm() -> None:
     """缺省场景（无可选段）编译结果与提取前算法逐条一致。
 
-    v2 正式场景补入发薪/房租预排段（修订合同 L1726）：§7.2 五种新事件不参与
+    v2 正式场景补入发薪/房租预排段（docs/dev/SPEC-life-realism.md「文件修改清单与实施顺序」）：docs/design/04-simulation-engine.md「预排事件」五种新事件不参与
     与提取前算法（HEAD b5e2d4b）的等价对照，先剔除再比对；邮件/任务/日历旗标
     行为不变。
     """
@@ -254,7 +254,7 @@ def test_bill_due_settles_transfer_via_ledger(tmp_path: Path) -> None:
 
 
 def test_bill_due_to_external_anchor_absorbs_credit(tmp_path: Path) -> None:
-    """设计 §7.2 的房租/水电形态：付款入外部锚点，锚点侧吸收不入运行账。"""
+    """docs/design/04-simulation-engine.md「预排事件」的房租/水电形态：付款入外部锚点，锚点侧吸收不入运行账。"""
 
     def mutate(document: dict) -> None:
         document["bills"] = [{"bill_id": "utility-jan", "account_id": "agent:1",

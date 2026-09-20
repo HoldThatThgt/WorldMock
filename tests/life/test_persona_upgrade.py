@@ -54,7 +54,7 @@ def test_new_persona_fields_are_optional_and_template_fields_are_gone() -> None:
     assert agent.background_story is None
     assert agent.health_habits is None
     assert agent.social_style is None
-    assert not hasattr(agent, "occupation")  # 模板字段已删除（L1663）
+    assert not hasattr(agent, "occupation")  # 模板字段已删除（docs/dev/SPEC-life-realism.md「画像编译」）
 
 
 @pytest.mark.parametrize("path", [_FORMAL, _MULTI])
@@ -115,7 +115,7 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
 
 
 def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
-    """新画像字段以 persona_card 渲染文本进入三段 ReAct 用户消息（L1529-1535）。"""
+    """新画像字段以 persona_card 渲染文本进入三段 ReAct 用户消息（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
@@ -157,7 +157,7 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 画像编译 v2（PersonaCard 合同，规格 L1652-1669）：以下用例自包含（打桩提取层，
+# 画像编译 v2（PersonaCard 合同，docs/dev/SPEC-life-realism.md「画像编译」）：以下用例自包含（打桩提取层，
 # 直接读场景 JSON 取 background_story，不经 load_scenario 的语料清单完整性门禁）。
 # ---------------------------------------------------------------------------
 
