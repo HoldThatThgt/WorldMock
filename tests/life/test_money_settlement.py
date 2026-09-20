@@ -70,7 +70,7 @@ def _transfer_entries(engine) -> list[TransferEntry]:
         payers = [owner for owner, value in changes.items() if value < 0]
         assert len(payers) == 1 and sum(changes.values()) == 0, (event.event_seq, changes)
         for owner, value in changes.items():
-            if owner != payers[0]:
+            if value > 0:
                 entries.append(TransferEntry(MONEY, payers[0], owner, value,
                                              f"footprints:{event.event_seq}", event.occurred_at))
     return entries
@@ -87,11 +87,13 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
         2: ("start_basic_activity", _wait()),
     }, "browse")
     advance_next(engine)
-    product = engine.scenario.products[0]
+    supply = next(item for item in engine.scenario.supplies
+                  if item.location_id == "market" and item.supply_id in engine.state.agents[1].visible_supply_ids)
+    price = engine.state.supply_quotes[supply.supply_id].price_fen
     submit_round(engine, {
         1: ("purchase", PurchaseOrderRequest(
-            items=(PurchaseItem(product_id=product.product_id, quantity=1,
-                                price_version=product.price_version),),
+            items=(PurchaseItem(supply_id=supply.supply_id, quantity=1,
+                                price_version=engine.state.supply_quotes[supply.supply_id].price_version),),
             fulfillment=FulfillmentKind.DELIVERY, destination_id="home")),
         2: ("start_basic_activity", _wait()),
     }, "buy")
@@ -112,26 +114,28 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
 
     accounts = dict(engine.state.accounts)
     # 修订合同正餐品类新增 merchant:restaurant 商家账户（v2 场景 7 个账本账户）。
-    assert len(accounts) == 7, f"expected seven ledger accounts, got {sorted(accounts)}"
+    assert set(accounts) == set(engine.semantics.accounts)
+    assert {"merchant:haode", "merchant:nonggongshang"} <= accounts.keys()
     assert "merchant:restaurant" in accounts
     entries = _transfer_entries(engine)
     assert len(entries) >= 1 + 1 + 1, "expected injection + purchase + fare transfers"
 
     ledger = money_ledger()
-    replayed = ledger.validate_history({}, entries)
+    replayed = ledger.validate_history({(MONEY, owner): 0 for owner in accounts}, entries)
     assert {key: value for key, value in replayed.items()
             if key[1] in accounts} == {(MONEY, owner): value for owner, value in accounts.items()}
     assert replayed[(MONEY, SCENARIO_ANCHOR_OWNER)] == -sum(accounts.values())
 
-    report = audit_closed_domain(ledger, MONEY, {}, entries, expected_final=accounts)
+    report = audit_closed_domain(ledger, MONEY, {(MONEY, owner): 0 for owner in accounts},
+                                 entries, expected_final=accounts)
     assert report.real_final_total == report.injection_total == sum(accounts.values())
     assert report.final_total == report.initial_total == 0
 
-    settlement = engine.state.accounts[product.merchant_account_id] - \
-        engine.semantics.accounts[product.merchant_account_id]
-    assert settlement == product.price_fen
+    settlement = engine.state.accounts[supply.seller_account_id] - \
+        engine.semantics.accounts[supply.seller_account_id]
+    assert settlement == price
     assert engine.state.accounts["agent:1"] == (
-        engine.semantics.accounts["agent:1"] - product.price_fen - 555)
+        engine.semantics.accounts["agent:1"] - price - 555)
 
 
 def test_initial_injection_matches_semantics_accounts(engine_factory) -> None:

@@ -112,9 +112,19 @@ flowchart LR
 身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
 本文不重新定义完整场景 Schema。
 
+| 格式 | 当前版本 | 拒绝边界 |
+| --- | --- | --- |
+| 地图文件 `schema_version` | 1 | 声明与文件身份、完整路线关系共同校验 |
+| 商品目录 `version_major` | 3 | 商品门店、卖方、购买价格和库存旧字段拒绝 |
+| 生活场景 `schema_version` | 3 | 地点、商品与供给按身份引用，旧内嵌地点和路线拒绝 |
+| 世界状态 `schema_version` | 4 | 旧检查点拒绝，供给报价、库存、营业例外及逐供给可见凭据完整保存 |
+
+目录通过 `scripts/build_catalog.py` 生成，地图通过 `scripts/prepare_map.py` 从显式输入准备与发布。
+地图准备的发布流程见[资源引擎](03-resource-engine.md#冻结地图的准备与发布)。不保留旧场景迁移脚本或兼容输入层。
+
 ### 3.2 交互菜单声明
 
-场景根对象必须具有 `interaction_menus_by_location_kind`，键集合恰好等于 `locations[].kind` 的不同值
+场景根对象必须具有 `interaction_menus_by_location_kind`，键集合恰好等于 所选地点经地图解析后的 `kind` 不同值
 集合。每个地点类都有一个非空菜单，不接受 `null`、通配键、缺项或额外键。每个 `agents[]` 条目必须
 显式具有 `interaction_menu`，取同形菜单或 `null`；`null` 表示人物不在地点菜单之外追加限制，字段缺失
 仍是配置错误。
@@ -125,11 +135,24 @@ flowchart LR
 保护集合和 `null` 语义见[交互菜单合同](../CONTRACTS.md#交互菜单声明与有效菜单)。
 
 运行时按人物权威 `location_id` 找到地点的单值 `kind`，再将该地点菜单与人物菜单逐字段求交集。
-`locations[].kind` 只用于选择交互菜单，和候选资格的多值 `location_kinds` 不是同一字段；不能以其中一个
+解析后地点的 `kind` 只用于选择交互菜单，和候选资格的多值 `location_kinds` 不是同一字段；不能以其中一个
 代替另一个。菜单是显式准入声明，不从人物画像、偏好、动机或目录 `surface` 推导。
 
 所有版本控制内的正式场景和相应测试输入都使用当前字段。旧文件缺字段时拒绝，不生成缺省全量菜单，
 不添加迁移或兼容读取。实现与验收以[冻结特性规格](../dev/SPEC-interaction-menu.md)为准。
+
+### 地图引用与门店供给初值
+
+场景 `map_dataset` 使用 `dataset_id/version/path/sha256` 绑定唯一冻结地图。
+`locations` 只写 `location_id`，`products` 只写 `product_id`，`supplies` 写 `supply_id` 及可选 `initial_stock`。
+地点名称、坐标、营业、路线和供给定义从固定资料装配，不在场景手抄副本，也不添加额外配置层。
+人物 `qualifications` 显式声明；访问与供给资格不能从人物画像推断。
+
+完整运行时场景包含解析后的地图、地点、路线、商品和供给。地图和场景选区共同校验账户、产品、
+供给组合和有向路线覆盖。每个端点/方式组合必须有可达、不可达或带来源的未知记录；漏项拒绝。
+营业与报价的有效期、核对日期、可信截止日及来源在发布前验证。旧整点营业和旧商品单店字段直接拒绝。
+`discover_places` 加入工具闭集；允许发现的正式地点菜单必须显式纳入，人物菜单仍可进一步限制。
+
 
 ### 3.3 身体资源初值
 
@@ -314,6 +337,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 [实验定义](../EXPERIMENT.md)。
 菜单声明属于场景原始 JSON 字节并进入 `scenario_sha256`。修改地点或人物菜单会产生新的实验身份；
 打开已有运行、恢复与反事实分支不得接受不同场景身份，也不新增与场景哈希重复的菜单版本字段。
+地图集合身份、版本与文件摘要同时进入运行绑定；变更供给、路线或营业资料须得到新的身份，不能重用旧运行。
 
 ## 10. 配置最佳实践
 

@@ -28,6 +28,7 @@ facet；未超过时按品类下推。两条路径的查询入口与分区键完
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
@@ -221,34 +222,26 @@ def _matches(entry: RetrievalEntry, query: RetrievalQuery) -> bool:
 @lru_cache(maxsize=8)
 def place_kinds(corpora_root: Any, relative: str = LOCATIONS_RELATIVE
                 ) -> Mapping[str, frozenset[str]]:
-    """@brief 地点语料的地点类声明表：地点标识 -> 该地点满足的地点类集合。
-
-    地点未声明 `location_kinds` 时按 `anywhere` 处理——未声明不是「哪里都去不了」，
-    而是「没有声明限制」。地点侧未声明时地点门因此不拦任何条目，这正是当前
-    场景的实况：地点类声明补齐后本表即刻生效，不需要改调用方。
-
-    结果按（语料根，相对路径）缓存并只读，冻结语料在一次进程内不会变。
-
-    :param corpora_root: 语料根目录。
-    :param relative: 地点语料的相对路径。
-    :return: 地点标识到地点类集合的只读映射（值恒非空）。
-    """
+    """@brief 读取显式地点活动环境；缺文件、缺声明和活动侧通配符均拒绝。"""
     path = corpora_root / relative
     if not path.is_file():
-        return MappingProxyType({})
+        logging.error("Location corpus is missing: %s", relative)
+        raise ValueError("location corpus is missing")
     document = json.loads(path.read_text(encoding="utf-8"))
     places: dict[str, frozenset[str]] = {}
-    for location in document.get("locations", []):
+    for location in document["locations"]:
         if not isinstance(location, dict):
-            continue
-        location_id = str(location.get("location_id") or "")
-        if not location_id:
-            continue
+            logging.error("Location activity kinds declaration is invalid")
+            raise ValueError("location activity kinds declaration is invalid")
+        location_id = location.get("location_id")
         declared = location.get("location_kinds")
-        if isinstance(declared, list) and declared:
-            places[location_id] = frozenset(str(kind) for kind in declared)
-        else:
-            places[location_id] = frozenset({ANYWHERE_KIND})
+        if (not isinstance(location_id, str) or not location_id.strip() or location_id in places
+                or not isinstance(declared, list) or not declared
+                or not all(isinstance(kind, str) and kind in LOCATION_KINDS for kind in declared)
+                or ANYWHERE_KIND in declared or len(set(declared)) != len(declared)):
+            logging.error("Location activity kinds declaration is invalid")
+            raise ValueError("location activity kinds declaration is invalid")
+        places[location_id] = frozenset(declared)
     return MappingProxyType(places)
 
 
@@ -335,20 +328,12 @@ def facet_counts(entries: Sequence[RetrievalEntry], query: RetrievalQuery
 
 
 def feasible_kinds(place_kinds: Iterable[str], item_kinds: Iterable[str]) -> bool:
-    """@brief 地点类交集判定：任一侧含 `anywhere` 即恒可行，否则交集非空才可行。
-
-    条目未声明地点类（空集）时视为没有地点要求，恒可行——与
-    `life.candidates` 的 `_location_reason` 同口径；地点未声明地点类时由调用方
-    代为折算为 `anywhere`（未声明不是「哪里都去不了」）。
-
-    这是世界事实判定（「此刻此地能不能做」），不是偏好判定；原因码闭集内的
-    对应成员是 `ELIGIBILITY_LOCATION_KIND_MISMATCH`。
-    """
+    """@brief 只有活动侧的 anywhere 表示无地点限制，地点必须有显式环境。"""
     item = {str(kind) for kind in item_kinds}
     place = {str(kind) for kind in place_kinds}
-    if not item or ANYWHERE_KIND in item or ANYWHERE_KIND in place:
-        return True
-    return bool(item & place)
+    if not place or ANYWHERE_KIND in place:
+        return False
+    return not item or ANYWHERE_KIND in item or bool(item & place)
 
 
 def _partition_rows(entries: Sequence[RetrievalEntry]) -> dict[tuple[str, str, str],

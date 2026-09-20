@@ -35,11 +35,6 @@ _ROUTE_BASES = {
     "driving": "https://router.project-osrm.org",
     "walking": "https://routing.openstreetmap.de/routed-foot",
 }
-_LOCATIONS = {
-    "home": (121.6142, 31.2025),
-    "office": (121.6278, 31.2108),
-    "market": (121.6205, 31.2060),
-}
 _USER_AGENT = "WorldMock/1.0 (research corpus preparation)"
 _GAME_INFOS = EnvInfos(admissible_commands=True, score=True, won=True, lost=True, facts=True, moves=True)
 
@@ -198,41 +193,11 @@ def _local_name(tag: str) -> str:
 
 
 def _fetch_geodata(root: Path) -> None:
-    """@brief 取得张江小区域地图和全部地点对的 driving/walking 响应。"""
-    folder = root / "zhangjiang-map"
-    routes = folder / "routes"
-    routes.mkdir(parents=True)
-    osm = _download(_OSM_URL)
-    if b"<osm" not in osm or len(osm) < 100_000:
-        raise IntegrityError("OpenStreetMap Zhangjiang extract is invalid")
-    (folder / "zhangjiang-probe.osm").write_bytes(osm)
-    for origin in _LOCATIONS:
-        for destination in _LOCATIONS:
-            if origin == destination:
-                continue
-            for mode in _ROUTE_BASES:
-                route_id = f"{origin}-{destination}-{mode}"
-                response = _download_json(_route_url(origin, destination, mode))
-                _validate_route(response, route_id)
-                _write_json(routes / f"{route_id}.json", response, compact=True)
+    """@brief 为当前冻结地图的完整地点范围重建真实 walking/driving 路由。"""
+    from worldmock.corpora.map_prepare import prepare_map
 
-
-def _route_url(origin: str, destination: str, mode: str) -> str:
-    """@brief 形成固定 geometry、steps 和完整 overview 的 OSRM 请求。"""
-    start = ",".join(str(value) for value in _LOCATIONS[origin])
-    end = ",".join(str(value) for value in _LOCATIONS[destination])
-    query = urllib.parse.urlencode({"overview": "full", "geometries": "geojson", "steps": "true"})
-    return f"{_ROUTE_BASES[mode]}/route/v1/driving/{start};{end}?{query}"
-
-
-def _validate_route(response: dict, route_id: str) -> None:
-    """@brief 要求路由成功且携带正距离、时长和 geometry。"""
-    routes = response.get("routes")
-    route = routes[0] if isinstance(routes, list) and routes else None
-    if response.get("code") != "Ok" or not isinstance(route, dict):
-        raise IntegrityError(f"OSRM route {route_id} is unavailable")
-    if route.get("distance", 0) <= 0 or route.get("duration", 0) <= 0 or not route.get("geometry"):
-        raise IntegrityError(f"OSRM route {route_id} is incomplete")
+    frozen_root = Path(__file__).resolve().parents[3] / "corpora"
+    prepare_map(root, frozen_root)
 
 
 def _generate_games(root: Path) -> None:
@@ -300,6 +265,14 @@ def _manifest_entry(root: Path, path: Path, retrieved_at: datetime) -> CorpusEnt
     """@brief 根据唯一目录前缀绑定来源、许可和用途。"""
     relative = path.relative_to(root).as_posix()
     source, purpose = _source_for(relative, retrieved_at)
+    if relative.startswith("zhangjiang-map/routes/"):
+        route_rows = json.loads((root / "zhangjiang-map/routes.json").read_text())["routes"]
+        route = next(item for item in route_rows if item["response_path"] == relative)
+        declared = route["source"]
+        source = CorpusSource(kind="external_geodata", url=declared["url"],
+                              retrieved_at=declared["retrieved_at"], license=declared["license"],
+                              selector=f"route {route['route_id']}; profile={route['routing_profile']}",
+                              fact_cutoff=declared["fact_cutoff"])
     content = path.read_bytes()
     media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     if path.suffix == ".srt":
@@ -333,6 +306,16 @@ def _source_for(relative: str, retrieved_at: datetime) -> tuple[CorpusSource, st
         return CorpusSource(kind="external_geodata", url=_ROUTE_BASES[mode], retrieved_at=retrieved_at,
                             license="ODbL-1.0", selector=f"frozen Zhangjiang route {Path(relative).stem}",
                             fact_cutoff=date), "offline route"
+    if relative in {"zhangjiang-map/supplies.json", "zhangjiang-map/supply-assumptions.json"}:
+        return CorpusSource(kind="scenario", url="scenario://worldmock/zhangjiang-storefronts",
+                            retrieved_at=retrieved_at, license="WorldMock-project",
+                            selector="reviewed simulation supply assumptions",
+                            fact_cutoff=date), "storefront assumptions"
+    if relative in {"zhangjiang-map/dataset.json", "zhangjiang-map/locations.json", "zhangjiang-map/routes.json"}:
+        return CorpusSource(kind="derived_geodata", url=None, retrieved_at=retrieved_at,
+                            license="ODbL-1.0 AND WorldMock-project",
+                            selector="derived map facts and explicit scenario declarations; see per-record sources",
+                            fact_cutoff=date), "frozen map declarations"
     if relative.startswith("zhangjiang-map/"):
         return CorpusSource(kind="external_geodata", url=_OSM_URL, retrieved_at=retrieved_at,
                             license="ODbL-1.0", selector="bbox 121.6000,31.1950,121.6400,31.2250",

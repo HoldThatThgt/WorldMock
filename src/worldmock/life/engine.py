@@ -40,7 +40,6 @@ from worldmock.life.basket import (
     held_quantity,
     meal_duration,
     meal_food_rate,
-    purchase_order,
     validate_meal,
 )
 from worldmock.life.body import (
@@ -121,7 +120,9 @@ from worldmock.life.schedule import (PlanSegment, WakeReason, bedtime_anchor,
                                      initial_day_plan, revise_day_plan)
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.settlement import inject_initial_funds
-from worldmock.life.state_commit import commit_state, flush_presentation, validated_payload
+from worldmock.life.state_commit import commit_state, flush_presentation, flush_supply_visibility, validated_payload
+from worldmock.life.storefront_runtime import StorefrontRuntimeMixin, record_arrival_access
+from worldmock.life.storefront_state import initial_supply_state, map_provenance, validate_storefront_state
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
 from worldmock.life.work import (
     load_work_input,
@@ -195,7 +196,7 @@ def affordance_contract(view: AffordanceView) -> dict[str, dict]:
     return contract
 
 
-class LifeEngine(ObservationMixin):
+class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
     """@brief LifeEnv 的单写入领域服务和状态权威（观察投影见 life.observe Mixin）。"""
 
     def __init__(self, semantics: ScenarioSemantics, scenario_sha256: str, corpus_root: Path,
@@ -217,6 +218,7 @@ class LifeEngine(ObservationMixin):
         self._model_request_events: dict[tuple[str, str], str] = {}
         self._pending_event_drafts: list[EventDraft] = []
         self._pending_presentation: dict | None = None
+        self._pending_visible_supplies: dict[int, set[str]] = {}
         self._work_reviewer: WorkReviewer | None = None
         self.ops = OpsLogger(store.run_dir, self.scenario.timezone)
         self._validate_runtime()
@@ -404,6 +406,8 @@ class LifeEngine(ObservationMixin):
             raise ProtocolError("Decision round does not contain every expected agent")
         staged = flush_presentation(self.state, self._pending_presentation).model_copy(deep=True)
         self._pending_presentation = None
+        staged = flush_supply_visibility(staged, self._pending_visible_supplies)
+        self._pending_visible_supplies = {}
         drafts: list[EventDraft] = flush_decision_starts(self._pending_decision_starts, self.state.current_time)
         results = []
         for pending in sorted(current.pending_actions, key=lambda item: item.order):
@@ -566,11 +570,12 @@ class LifeEngine(ObservationMixin):
         interval = target_epoch - self.state.current_time
         staged = flush_presentation(self.state, self._pending_presentation)
         self._pending_presentation = None
-        staged = staged.model_copy(deep=True)
+        staged = flush_supply_visibility(staged, self._pending_visible_supplies)
+        self._pending_visible_supplies = {}
+        staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
-        staged.current_time = target_epoch
         for agent_id in expired_plan_agent_ids(staged):  # 跨日归零：观察只反映当日计划（docs/dev/SPEC-life-realism.md「日程骨架」）
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         staged = apply_engine_rhythm(self, staged, target_epoch, interval, arrivals, drafts)
@@ -693,6 +698,7 @@ class LifeEngine(ObservationMixin):
         if identity is not None:
             from worldmock.validation import validate_two_stage_model_identity
             validate_two_stage_model_identity(identity)
+        validate_storefront_state(self.state, self.scenario, self.store.manifest)
         validate_routes(self.scenario, self.corpus_root)
         for config in self.scenario.games:
             validate_game(config, self.corpus_root)
@@ -773,7 +779,7 @@ class LifeEngine(ObservationMixin):
             return self._reused_result(state, pending)
         try:
             changed, result = self._dispatch(state, pending)
-            changed = self._after_success(changed, pending.agent_id)
+            changed = self._after_success(changed, pending.agent_id, pending.tool_name)
             resolved = changed.activities.get(result.activity_id) if result.activity_id else None
             resolved_title = self._activity_title(resolved) if resolved is not None else None
             changed = _remember_terminal_activity(changed, result, resolved_title)
@@ -813,11 +819,14 @@ class LifeEngine(ObservationMixin):
             return self._after_unknown(state, pending.agent_id), result, [
                 _result_draft(pending, result, "action_result")]
 
-    def _after_success(self, state: WorldState, agent_id: int) -> WorldState:
+    def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 成功选择重置拒绝计数并按节律计算下一次合法决策时刻。"""
         agent = state.agents[agent_id]
         activity = state.activities.get(agent.current_activity_id or "")
-        if activity is not None and activity.kind == ActivityKind.PLAY_GAME:
+        if tool_name in {"discover_places", "browse_activities"}:
+            # 发现结果在下一秒的合法决策轮回灌，避免查询后等待至可见凭据失效。
+            next_at = state.current_time + 1
+        elif activity is not None and activity.kind == ActivityKind.PLAY_GAME:
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策。
             next_at = activity.next_interaction_at or activity.planned_end_at
         else:
@@ -828,7 +837,9 @@ class LifeEngine(ObservationMixin):
             next_at = candidate if candidate is not None else (
                 state.current_time + self.scenario.activity_feedback_seconds)
         changed = agent.model_copy(update={"next_decision_at": next_at,
-                                           "consecutive_rejections": 0}, deep=True)
+                                           "consecutive_rejections": 0,
+                                           "pending_wake_reasons": ["discovery_result"]
+                                           if tool_name in {"discover_places", "browse_activities"} else []}, deep=True)
         agents = dict(state.agents)
         agents[agent_id] = changed
         return state.model_copy(update={"agents": agents}, deep=True)
@@ -915,7 +926,7 @@ class LifeEngine(ObservationMixin):
                     "continue_activity": self._continue,
                     "purchase": self._purchase, "consume": self._consume,
                     "submit_work": self._submit_work, "game_action": self._game_action,
-                    "browse_activities": self._browse_activities,
+                    "browse_activities": self._browse_activities, "discover_places": self._discover_places,
                     "plan_day": self._plan_day, "revise_day_plan": self._revise_day_plan,
                     "send_message": self._send_message,
                     "start_social_activity": self._start_social_activity}
@@ -1080,6 +1091,8 @@ class LifeEngine(ObservationMixin):
             raise BusinessRuleError("ACTIVITY_NOT_FOUND")
         agent = state.agents[pending.agent_id]
         current = state.activities[request.activity_id]
+        if request.operation == ActivityChange.RESUME:
+            self.rules.validate_activity_location(agent, current.kind, current.target_id)
         if current.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
             agent, activity = social_actions.social_activity_change(
                 agent, current, request.operation.value, state.current_time)
@@ -1122,28 +1135,6 @@ class LifeEngine(ObservationMixin):
                               activity_id=activity.activity_id, message="Activity continued",
                               data={"activity": self._activity_snapshot(activity)})
         return changed, result
-
-    def _purchase(self, state: WorldState, pending: PendingAction,
-                  request: PurchaseOrderRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 结算整单购买：一次付款、同一配送、任一件不可购整单拒绝。"""
-        agent = state.agents[pending.agent_id]
-        effective = set(projection.visible_products(state, agent, self.scenario))
-        invisible = [item.product_id for item in request.items
-                     if item.product_id not in effective]
-        if invisible:
-            raise BusinessRuleError("PRODUCT_NOT_VISIBLE")
-        outcome = purchase_order(state, self.scenario, pending.agent_id, request)
-        account = agent.balance_account_id
-        merchant = self.rules.products[request.items[0].product_id].merchant_account_id
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Purchase accepted",
-                              data={"orders": [order.model_dump(mode="json") for order in outcome.orders],
-                                    "total_price_fen": outcome.total_price_fen,
-                                    "resource_changes": {
-                                        f"account:{account}": -outcome.total_price_fen,
-                                        f"account:{merchant}": outcome.total_price_fen}})
-        return outcome.state, result
 
     def _consume(self, state: WorldState, pending: PendingAction,
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
@@ -1457,6 +1448,7 @@ class LifeEngine(ObservationMixin):
         if activity.kind == ActivityKind.TRAVEL:
             route = next(item for item in self.scenario.routes if item.route_id == activity.data["route_id"])
             activity, agent = update_travel(activity, route, agent)
+            record_arrival_access(activity, agent, self.scenario)
             state.activities[activity.activity_id] = activity
             state.agents[agent.agent_id] = agent
         if activity.kind == ActivityKind.WATCH:
@@ -1483,8 +1475,10 @@ class LifeEngine(ObservationMixin):
             state.agents[agent.agent_id], activity.data["revealed"] = reveal_mail(
                 activity, agent, self.rules.messages)
         elif activity.kind == ActivityKind.BROWSE:
-            state.agents[agent.agent_id] = _browse_visibility(
-                agent, self.rules.products, state.current_time)
+            staged, revealed = self._complete_product_browse(state, agent)
+            state.agents, state.presentation_state = staged.agents, staged.presentation_state
+            activity.data["revealed"] = revealed
+            evidence["browse_result"] = revealed
         return evidence
 
     def _process_scheduled(
@@ -1497,8 +1491,6 @@ class LifeEngine(ObservationMixin):
         arrivals: dict[int, set[str]] = {}
         for item in sorted(due, key=lambda value: (value.sequence, value.scheduled_id)):
             outcome = apply_scheduled_effect(state, item, self.semantics)
-            if outcome.semantics is not None:
-                self._adopt_semantics(outcome.semantics)
             state = outcome.state
             if item.agent_id is not None:
                 arrivals.setdefault(item.agent_id, set()).add(
@@ -1511,13 +1503,6 @@ class LifeEngine(ObservationMixin):
                                      data={"kind": item.kind.value, "scheduled_id": item.scheduled_id,
                                            **outcome.data}))
         return state, drafts, arrivals
-
-    def _adopt_semantics(self, semantics: ScenarioSemantics) -> None:
-        """@brief PRICE_CHANGE 到点换持新语义并同步场景与规则的商品索引。"""
-        self.semantics = semantics
-        self.scenario = semantics.scenario
-        self.rules.scenario = semantics.scenario
-        self.rules.products = {item.product_id: item for item in semantics.scenario.products}
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
         """@brief 在实验终点标记所有仍活动的会话并保留实际进度。"""
@@ -1612,8 +1597,7 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
                       end_time=end, run_id=run_id,
                       timezone=scenario.timezone, scenario_sha256=scenario_sha256,
                       content_manifest_sha256=scenario.corpus_manifest_sha256, agents=agents,
-                      accounts=accounts, merchant_stock={item.product_id: item.initial_stock
-                                                         for item in scenario.products},
+                      accounts=accounts, **initial_supply_state(scenario, start),
                       pending_events=pending, random_seed=scenario.random_seed, random_state=random_state)
 
 
@@ -1629,6 +1613,7 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
                         config.chronotype_midsleep)
     return AgentState(agent_id=config.agent_id, name=config.name, location_id=config.home_location_id,
                       balance_account_id=account_id, skill_levels=config.skill_levels,
+                      qualifications=config.qualifications,
                       body=body, visible_task_ids=visible_tasks, known_task_ids=set(visible_tasks),
                       visible_message_ids=visible_mail, next_decision_at=start,
                       pending_wake_reasons=["run_start"], taste_weights=taste_weights.get(config.agent_id) or {})
@@ -1641,7 +1626,7 @@ def _run_manifest(scenario: RuntimeScenario, scenario_sha256: str, identity: Run
         from worldmock.validation import validate_two_stage_model_identity
         validate_two_stage_model_identity(two_stage_identity)
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
-            "scenario_id": scenario.scenario_id,
+            "scenario_id": scenario.scenario_id, "map_dataset": map_provenance(scenario),
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
             "model_identity": identity.model_identity.model_dump(mode="json"),
@@ -1773,7 +1758,9 @@ def _activity_terminal_result(activity, occurred_at: int,
     return ActionResult(action_id=activity.origin_action_id, agent_id=activity.agent_id,
                         status=statuses[activity.status], occurred_at=occurred_at,
                         activity_id=activity.activity_id, message=messages[activity.status],
-                        data={"activity": snapshot})
+                        error_code=activity.interruption_reason if activity.status == ActivityStatus.FAILED else None,
+                        data={"activity": snapshot, **({"browse_result": activity.data["revealed"]}
+                              if activity.kind == ActivityKind.BROWSE and "revealed" in activity.data else {})})
 
 
 def _activity_terminal_draft(activity, occurred_at: int,
@@ -1943,17 +1930,6 @@ def _record_material_reveal(agent, task_id, material, occurred_at):
              "chars": max(0, int(material.get("end_char", 0)) - int(material.get("start_char", 0)))}
     reveals = list(agent.material_reveals)[-63:] + [entry]
     return agent.model_copy(update={"material_reveals": reveals}, deep=True)
-
-
-def _browse_visibility(agent, products, now):
-    """@brief 浏览完成：可见集=目录全部商品（配送浏览同样适用），TTL 1800 秒。
-
-    有效可见集由 projection.visible_products 按店内常驻 ∪ 浏览 TTL 计算；
-    此处只登记浏览时刻与原始可见集（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
-    """
-    return agent.model_copy(
-        update={"visible_product_ids": set(products), "product_browsed_at": now,
-                "product_browsed_location": agent.location_id}, deep=True)
 
 
 def _activity_progress_phrase(activity) -> str:

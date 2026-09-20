@@ -157,7 +157,7 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert "content_catalog" not in observed
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
-    assert observed["activity_summary"]["foods"] == len(engine.scenario.products)
+    assert observed["activity_summary"]["foods"] == len(engine.scenario.supplies)
     # 修订合同：game_catalog 全表与完整路线不再进入观察（黑名单/坐标几何）；
     # 游戏身份经 data["games"]（本人会话）与 browse 下钻揭示，地点经 scene 可达集。
     assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
@@ -175,7 +175,7 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
              if item.location_id in routed}
     reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
     assert reachable == names  # scene 用展示名（docs/dev/SPEC-life-runtime.md「观察投影三部分」）
-    assert all(set(item) == {"name", "open"} for item in observed["scene"]["reachable_places"])
+    assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
     assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)

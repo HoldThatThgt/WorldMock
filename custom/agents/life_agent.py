@@ -43,8 +43,6 @@ DECISION_STATEMENT_MAX_TOKENS = 400
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
 
-#: 一笔订单的件数闭区间（docs/dev/SPEC-life-realism.md「商务与进食」：1-5 件，服务端不表达 minItems）。
-_ORDER_ITEM_BOUNDS = (1, 5)
 #: 一次进食的件数闭区间（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。
 _MEAL_ITEM_BOUNDS = (1, 3)
 #: 瞬时消息文本上限（docs/dev/SPEC-life-runtime.md「社交最小可行版」：不超过 300 汉字，域内同口径）。
@@ -286,10 +284,15 @@ _TOOL_DESCRIPTIONS = {
     "continue_activity": (
         _ACTION_PROTOCOL
         + " Continue the current activity when its visible feedback boundary is due."),
+    "discover_places": (
+        _ACTION_PROTOCOL
+        + " Find places and their store supplies by optional product, business kind, travel mode "
+        "and maximum road travel seconds. Closed, unreachable, unknown and outside-range places "
+        "remain visible with their conditions. Results arrive in the next observation."),
     "purchase": (
         _ACTION_PROTOCOL
-        + " Buy one to five visible products from one merchant in a single paid order "
-        "with one shared fulfillment; every product_id must pair with its visible "
+        + " Buy one to five visible supplies from one location and seller in a single paid order "
+        "with one shared fulfillment; every supply_id must pair with its visible "
         "price_version and each quantity must not exceed the visible current stock. "
         "Delivery is not constrained by your current location, but pickup requires you "
         "to be at the merchant's location."),
@@ -490,6 +493,8 @@ _LIFE_INSTRUCTIONS = """
 场景段落是你此刻的真实处境：什么时间、在哪儿、身边有谁、身体感觉如何、
 手头正有什么事。
 事实清单是此刻对你有用的信息。
+供给行若有 based_on_action_id，就继承该动作结果中相同 supply_id 的完整供给行，
+再用 changes 按键替换；未列字段保持不变，null 是该字段的当前值，嵌套对象整项替换。
 凭你自己的性子和眼下的处境拿主意，像一个真实的人那样过日子。
 """.strip()
 
@@ -896,9 +901,8 @@ class LifeAgent(PersonAgent):
                     decision.action,
                     validated,
                     self._life_visible_targets,
-                    self._life_activity_controls,
+                    {**self._life_activity_controls, "browse_categories": self._life_browse_categories},
                     self._life_action_contracts,
-                    self._life_browse_categories,
                 )
                 if error:
                     return error
@@ -957,9 +961,8 @@ class LifeAgent(PersonAgent):
             action,
             request,
             self._life_visible_targets,
-            self._life_activity_controls,
+            {**self._life_activity_controls, "browse_categories": self._life_browse_categories},
             self._life_action_contracts,
-            self._life_browse_categories,
         )
         if error:
             raise RuntimeError(error)
@@ -1309,18 +1312,14 @@ def _visible_game_control(data: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     """@brief 冻结瞬时动作工具所需的公开身份配对（含修订合同四件新工具）。"""
-    products = _visible_products(data)
-    locations = _visible_location_ids(data)
+    products = life_menu.visible_products(data)
     available = _visible_available_inventory(data, products)
     location_id = data.get("location_id")
     if not isinstance(location_id, str) or not location_id:
         raise RuntimeError("LifeAgent current location is invalid")
     return {
-        "purchase": {
-            key: {**value, "destination_ids": locations,
-                  "pickup_allowed": value["merchant_location_id"] == location_id}
-            for key, value in products.items() if value["current_stock"] > 0
-        },
+        "purchase": life_menu.visible_supply_contracts(data),
+        "discover_places": life_menu.discovery_contract(data),
         "consume": available,
         "submit_work": _visible_submittable_tasks(data),
         "start_travel": _visible_routes(data),
@@ -1452,49 +1451,6 @@ def _visible_social_partners(data: dict[str, Any]) -> dict[str, Any]:
     return {"chat_partners": chat, "call_partners": call} if chat or call else {}
 
 
-def _visible_products(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """@brief 校验已浏览商品的当前库存、报价和使用合同。"""
-    catalog = data.get("products")
-    if not isinstance(catalog, list):
-        raise RuntimeError("LifeAgent products catalog must be a list")
-    result = {}
-    for item in catalog:
-        if not isinstance(item, dict):
-            raise RuntimeError("LifeAgent products catalog item must be an object")
-        product_id = item.get("product_id")
-        price_version = item.get("price_version")
-        stock = item.get("current_stock")
-        modes = item.get("use_modes")
-        duration = item.get("use_duration_seconds")
-        merchant = item.get("merchant_location_id")
-        required = item.get("required_location_id")
-        if (not isinstance(product_id, str) or not product_id.strip()
-                or not isinstance(price_version, str) or not price_version.strip()):
-            raise RuntimeError("LifeAgent product identity or price version is invalid")
-        if isinstance(stock, bool) or not isinstance(stock, int) or stock < 0:
-            raise RuntimeError("LifeAgent product current stock is invalid")
-        if not isinstance(modes, list) or not modes or not all(isinstance(value, str) for value in modes):
-            raise RuntimeError("LifeAgent product use modes are invalid")
-        if not isinstance(duration, int) or duration <= 0 or not isinstance(merchant, str):
-            raise RuntimeError("LifeAgent product use contract is invalid")
-        if required is not None and not isinstance(required, str):
-            raise RuntimeError("LifeAgent product required location is invalid")
-        if product_id in result:
-            raise RuntimeError("LifeAgent product identities are duplicated")
-        result[product_id] = {"price_version": price_version, "current_stock": stock,
-                              "use_modes": tuple(sorted(set(modes))), "duration_seconds": duration,
-                              "merchant_location_id": merchant, "required_location_id": required}
-    return result
-
-
-def _visible_location_ids(data: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 从公开地点目录取得购买目的地闭集。"""
-    locations = data.get("locations")
-    if not isinstance(locations, list):
-        raise RuntimeError("LifeAgent locations catalog must be a list")
-    return _catalog_identity_values(locations, "locations", "location_id")
-
-
 def _visible_available_inventory(
     data: dict[str, Any],
     products: dict[str, dict[str, Any]],
@@ -1550,6 +1506,11 @@ def _visible_routes(data: dict[str, Any]) -> tuple[tuple[str, str, int], ...]:
         raise RuntimeError("LifeAgent routes catalog must be a list")
     values = []
     for route in routes:
+        if not isinstance(route, dict) or route.get("status") not in {"reachable", "unreachable", "unknown"}:
+            logging.error("LifeAgent route status is invalid")
+            raise RuntimeError("LifeAgent route status is invalid")
+        if route["status"] != "reachable":
+            continue
         destination = route.get("destination_id") if isinstance(route, dict) else None
         mode = route.get("mode") if isinstance(route, dict) else None
         duration = route.get("duration_seconds") if isinstance(route, dict) else None
@@ -1644,7 +1605,6 @@ def _validate_prepared_action(
     targets: dict[str, tuple[str, ...]],
     controls: dict[str, Any],
     contracts: dict[str, Any],
-    browse_categories: frozenset[str] = frozenset(),
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
     if action == "start_targeted_activity":
@@ -1652,7 +1612,7 @@ def _validate_prepared_action(
     if action in _ACTIVITY_CONTROL_TOOLS:
         return _validate_activity_control(action, request, controls)
     if action == "browse_activities":
-        if request.category not in browse_categories:
+        if request.category not in controls["browse_categories"]:
             return "browse_activities category is not a key of the visible activity_summary"
         return ""
     if action in contracts:
@@ -1782,17 +1742,7 @@ def _bind_activity_control_schemas(
 def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
     """@brief 将公开身份闭集写入瞬时动作工具的实际 Schema。"""
     functions = {item["function"]["name"]: item["function"] for item in schemas}
-    if "purchase" in functions:
-        products = contracts["purchase"]
-        properties = functions["purchase"]["parameters"]["properties"]
-        item_properties = properties["items"]["items"]["properties"]
-        item_properties["product_id"]["enum"] = sorted(products)
-        item_properties["price_version"]["enum"] = sorted(
-            {item["price_version"] for item in products.values()})
-        properties["destination_id"]["enum"] = sorted(
-            {identity for item in products.values() for identity in item["destination_ids"]})
-        if not any(item["pickup_allowed"] for item in products.values()):
-            properties["fulfillment"]["enum"] = ["delivery"]
+    life_menu.bind_storefront_schemas(functions, contracts)
     if "consume" in functions:
         products = contracts["consume"]
         properties = functions["consume"]["parameters"]["properties"]
@@ -1854,7 +1804,9 @@ def _validate_activity_control(
 def _validate_visible_action(action: str, request: BaseModel, contracts: dict[str, Any]) -> str:
     """@brief 本地核对商品报价、使用方式、任务身份、路线与计划配对。"""
     if action == "purchase":
-        return _validate_purchase_order(request, contracts[action])
+        return life_menu.validate_purchase(request, contracts[action])
+    if action == "discover_places":
+        return life_menu.validate_discovery(request, contracts[action])
     if action == "consume":
         return _validate_meal_request(request, contracts[action])
     if action == "submit_work" and request.task_id not in contracts[action]:
@@ -1878,31 +1830,6 @@ def _validate_visible_action(action: str, request: BaseModel, contracts: dict[st
         partners = contracts[action][f"{request.kind}_partners"]
         if request.partner_id not in partners:
             return "start_social_activity partner_id is not visible"
-    return ""
-
-
-def _validate_purchase_order(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
-    """@brief 本地核对多件购买：件数、可见配对、库存、同商家与自提边界。"""
-    if not _ORDER_ITEM_BOUNDS[0] <= len(request.items) <= _ORDER_ITEM_BOUNDS[1]:
-        return "purchase requires one to five items"
-    merchants = set()
-    for item in request.items:
-        product = catalog.get(item.product_id)
-        if product is None or item.price_version != product["price_version"]:
-            return "purchase product_id and price_version are not a visible pair"
-        if item.quantity > product["current_stock"]:
-            return "purchase quantity exceeds the visible current stock"
-        merchants.add(product["merchant_location_id"])
-    if len(merchants) != 1:
-        return "purchase items must share one merchant"
-    destinations = {identity for product in catalog.values()
-                    for identity in product["destination_ids"]}
-    if request.destination_id not in destinations:
-        return "purchase destination_id is not visible"
-    if (request.fulfillment == "pickup"
-            and (request.destination_id not in merchants
-                 or not any(product["pickup_allowed"] for product in catalog.values()))):
-        return "purchase pickup is not valid for the visible products and location"
     return ""
 
 

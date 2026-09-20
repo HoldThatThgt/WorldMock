@@ -1,46 +1,13 @@
-"""Build catalog data files (resources/objects JSONL + manifest + empty tombstones).
+"""@brief 从冻结商品事实和资源声明生成目录，不生成门店报价、库存或履约规则。
 
-Self-contained regeneration: the generator consumes the frozen legacy-scenario
-snapshot scripts/catalog-snapshot-legacy-scenario.json (semantic fields of
-scenarios/white-collar-12-weeks.json as of git cd2586b, kept verbatim when the
-scenarios were slimmed to schema 2) plus corpora/open-food-facts/{products,
-china-100,china-pool}.json, the food-catalog expansion whitelists
-corpora/foods/expansion.json (25 barcodes derived from china-100.json) and
-corpora/foods/expansion2.json (>=70 barcodes derived from the larger
-china-pool.json raw pool; same off-foods mapping fallback; per-category
-credible kcal density windows enforced at generation time; prices anchored to
-frozen baseline foods +/-30% with fixed seeds per wave) and
-corpora/manifest.json, plus corpora/meals/items.json (30 contract meals with
-USDA FNDDS calorie provenance), then emits the static catalog per
-docs/design/03-resource-engine.md (「可计量资源定义」「来源分类」「构建与版本」)
-and docs/design/02-exchange-engine.md (「交换对象与资源变化声明」): catalog/resources.jsonl,
-catalog/objects.jsonl (121 foods + 30 meals + 8 durables + travel + contracts),
-catalog/manifest.json (2.0, carrying the versioned world-material
-category_requirements declaration) and an empty
-catalog/overrides/tombstones.jsonl.
-
-It no longer reads scenarios/ — scenario ↔ catalog equivalence is owned by
-scripts/migrate_scenarios.py parity assertions. The --check gate therefore
-proves "catalog matches the generator" (snapshot + rules + corpora), not
-"catalog matches the scenarios".
-
-Hand-written files NOT touched by this generator (per 「交换规则的加载与准入」, rules are human-authored):
-  catalog/rules/off-foods.mapping.toml, catalog/rules/travel-fare.toml,
-  catalog/rules/travel-time.toml, catalog/rules/motivation.toml,
-  catalog/rules/persona-mapping.toml, catalog/affordances.toml,
-  catalog/README.md, catalog/snapshots/ —
-  the generator only asserts these files exist.
-
-Usage:
-  python3 scripts/build_catalog.py           # write catalog data files
-  python3 scripts/build_catalog.py --check   # regenerate in memory, compare bytes, exit 1 on drift
+商品价格与库存由地图供给目录独立维护。资源初值依据冻结的标定材料，食品规格
+依据 Open Food Facts 和正餐语料。--check 在内存中重建并核对输出文件字节。
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
-import random
 import sys
 from pathlib import Path
 
@@ -74,10 +41,10 @@ CATEGORY_REQUIREMENTS = {
         "energy_databases": ["USDA FNDDS", "\u4e2d\u56fd\u98df\u7269\u6210\u5206\u8868"],
     },
     "location_required_kinds": [
-        "home", "office", "canteen_or_restaurant", "convenience_store",
-        "supermarket_or_wet_market", "park_or_fitness",
+        "home", "office", "restaurant", "convenience_store",
+        "supermarket", "wet_market", "park", "fitness",
     ],
-    "location_min_per_kind": {"canteen_or_restaurant": 2},
+    "location_min_per_kind": {"restaurant": 2},
     "home_pantry": {"breakfast_servings_min": 7, "morning_wash_minutes": 15},
     "office_affordances": ["pantry_water", "meeting_room", "colleagues_present"],
     "content_metadata": {
@@ -93,53 +60,9 @@ CATEGORY_REQUIREMENTS = {
     },
 }
 
-#: 食品扩容的价格锚定表（条码 → 品类标签 + 锚定对象）。锚定对象必须是
-#: 冻结基线 8 条食品之一，价格按锚 ±30% 以固定种子采样（anchored 溯源）。
-FOOD_EXPANSION_PRICE_ANCHORS: dict[str, tuple[str, str]] = {
-    "6901939621738": ("无糖汽水", "food-6928804010114"),
-    "6937003704014": ("无糖汽水", "food-6928804010114"),
-    "6974800253352": ("无糖汽水", "food-6928804010114"),
-    "6902083881085": ("乳制品", "food-6923644266066"),
-    "6907992100272": ("乳制品", "food-6923644266066"),
-    "6907992500942": ("乳制品", "food-6923644266066"),
-    "6907992507095": ("乳制品", "food-6923644266066"),
-    "6916196410414": ("乳制品", "food-6923644266066"),
-    "6923644223458": ("乳制品", "food-6923644266066"),
-    "6922577790068": ("酸奶", "food-6901209212215"),
-    "6902538006575": ("茶饮果汁", "food-6920459902387"),
-    "6909548098880": ("茶饮果汁", "food-6920459902387"),
-    "6921168593569": ("茶饮果汁", "food-6920459902387"),
-    "6972020770130": ("茶饮果汁", "food-6920459902387"),
-    "6914973603394": ("零食", "food-6924743919211"),
-    "6921351120305": ("零食", "food-6924743919211"),
-    "6924743919242": ("零食", "food-6924743919211"),
-    "6943949415174": ("零食", "food-6924743919211"),
-    "6950955909610": ("零食", "food-6924743919211"),
-    "6937962112714": ("方便面", "food-6920152460061"),
-    "6923167524186": ("坚果肉零食", "food-8935090914864"),
-    "6924773540416": ("坚果肉零食", "food-8935090914864"),
-    "6938360357264": ("坚果肉零食", "food-8935090914864"),
-    "6948939681928": ("坚果肉零食", "food-8935090914864"),
-    "6948939696106": ("坚果肉零食", "food-8935090914864"),
-}
-FOOD_PRICE_SEED = 20260916
-FOOD_PRICE_SPREAD = 0.3
-FOOD2_PRICE_SEED = 20260917
 
-#: 第二波食品扩容的价格品类表（品类标签 → 锚定对象）。锚定对象仍必须是冻结
-#: 基线 8 条食品之一，价格按锚 ±30% 以固定种子采样（anchored 溯源）。
-#: 面包烘焙无冻结同类，锚定到最接近的价格量级（红烧牛肉面 650 fen）。
-FOOD2_CATEGORY_ANCHORS: dict[str, str] = {
-    "汽水": "food-6928804010114",
-    "乳制品": "food-6923644266066",
-    "酸奶": "food-6901209212215",
-    "茶饮果汁": "food-6920459902387",
-    "零食": "food-6924743919211",
-    "方便面": "food-6920152460061",
-    "面包烘焙": "food-6920152460061",
-    "坚果肉零食": "food-8935090914864",
-    "咖啡": "food-6917878044729",
-}
+#: 食品分类闭集用于核验营养密度声明。
+FOOD_CATEGORIES = frozenset({"汽水","乳制品","酸奶","茶饮果汁","零食","方便面","面包烘焙","坚果肉零食","咖啡"})
 
 #: 品类可信 kcal 密度窗（kcal/100g 或 /100ml，闭区间）。筛选期执行，
 #: 生成器按原始数据逐条复核——密度越窗的记录视为 OFF 数据缺陷，不得入选。
@@ -368,130 +291,48 @@ def build_resources(body: dict) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def product_object(product: dict, off_index: dict, off_sha: str) -> dict:
+    """@brief 从冻结食品规格和耐用品使用声明构造无交易事实的商品定义。"""
     is_food = product["product_id"].startswith("food-")
-    barcode = product["product_id"].removeprefix("food-")
-    edges = [{
-        "on": "purchase",
-        "type": "transfer",
-        "from": "{buyer}",
-        "to": "{merchant}",
-        "amount_fen": product["price_fen"],
-        "account_roles": {"from": "buyer", "to": product["merchant_account_id"]},
-    }]
-    provenance = [
-        {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-         "type": "scenario", "source": "legacy-scenario-price",
-         "note": f"price_version {product['price_version']}"},
-        {"part": "stock", "paths": ["stock.initial"],
-         "type": "scenario", "source": "legacy-scenario-product"},
-    ]
+    edges = []
+    provenance = [{"part": "usage definition", "paths": ["use_duration_seconds"],
+                   "type": "scenario", "source": "frozen product usage declaration"}]
     if is_food:
-        edges.append({
-            "on": "consume",
-            "type": "source",
-            "resource": "energy_kcal",
-            "amount": product["energy_kcal_per_unit"],
-            "duration_s": product["use_duration_seconds"],
-        })
-        provenance.insert(0, {
-            "part": "consume energy edge", "paths": ["edges[1].amount"],
-            "type": "fact", "source": f"openfoodfacts:product/{barcode}",
-            "artifact": f"corpora/open-food-facts/products.json (sha256 {off_sha})",
-        })
-        provenance.append({
-            "part": "legacy timing/serving fields",
-            "paths": ["edges[1].duration_s", "use_duration_seconds",
-                      "delivery_delay_seconds", "serving.quantity"],
-            "type": "scenario", "source": "legacy-scenario-product",
-        })
-        entry = {
-            "object_id": product["product_id"],
-            "name": product["name"],
-            "object_kind": "product",
-            "effect": product["effect"],
-            "consumable": product["consumable"],
-            "use_modes": product["use_modes"],
-            "edges": edges,
-            "stock": {"initial": product["initial_stock"], "restock": "none"},
-            "use_duration_seconds": product["use_duration_seconds"],
-            "delivery_delay_seconds": product["delivery_delay_seconds"],
-            "serving": {"quantity": product["serving_quantity"], "unit": product["serving_unit"]},
-            "required_location_id": product["required_location_id"],
-            "provenance": provenance,
-            "version": 1,
-        }
-    else:
-        provenance.append({
-            "part": "legacy timing fields",
-            "paths": ["use_duration_seconds", "delivery_delay_seconds"],
-            "type": "scenario", "source": "legacy-scenario-product",
-        })
-        entry = {
-            "object_id": product["product_id"],
-            "name": product["name"],
-            "object_kind": "product",
-            "effect": "durable",
-            "legacy_effect": product["effect"],
-            "consumable": product["consumable"],
-            "use_modes": product["use_modes"],
-            "edges": edges,
-            "stock": {"initial": product["initial_stock"], "restock": "none"},
-            "use_duration_seconds": product["use_duration_seconds"],
-            "delivery_delay_seconds": product["delivery_delay_seconds"],
-            "required_location_id": product["required_location_id"],
-            "provenance": provenance,
-            "version": 1,
-        }
-    return entry
+        edges.append({"on": "consume", "type": "source", "resource": "energy_kcal",
+                      "amount": product["energy_kcal_per_unit"],
+                      "duration_s": product["use_duration_seconds"]})
+        provenance.append({"part": "food energy and serving", "paths": [
+            "edges[0].amount", "edges[0].duration_s", "serving.quantity"], "type": "fact",
+            "source": "Open Food Facts product record",
+            "artifact": f"corpora/open-food-facts/products.json (sha256 {off_sha})"})
+    result = {"object_id": product["product_id"], "name": product["name"], "object_kind": "product",
+              "effect": product["effect"], "consumable": product["consumable"],
+              "use_modes": product["use_modes"], "edges": edges,
+              "use_duration_seconds": product["use_duration_seconds"],
+              "required_location_id": product["required_location_id"], "provenance": provenance, "version": 2}
+    if is_food:
+        result["serving"] = {"quantity": product["serving_quantity"], "unit": product["serving_unit"]}
+    return result
 
 
-def expansion_food_object(entry: dict, price_fen: int, anchor_label: str,
-                          anchor_object_id: str, expansion_sha: str,
-                          artifact: str = "corpora/foods/expansion.json",
-                          price_seed: int = FOOD_PRICE_SEED) -> dict:
-    """@brief 由扩容白名单条目构造食品目录对象（consume 事实边 + purchase 锚定价边）。"""
-    barcode = entry["barcode"]
+def expansion_food_object(entry: dict, expansion_sha: str,
+                          artifact: str = "corpora/foods/expansion.json") -> dict:
+    """@brief 扩容食品定义仅记录消费事实与规格，报价由门店供给声明。"""
     return {
-        "object_id": f"food-{barcode}",
-        "name": entry["name"],
-        "object_kind": "product",
-        "effect": "nutrition",
-        "consumable": True,
-        "use_modes": ["eat"],
-        "edges": [
-            {"on": "purchase", "type": "transfer", "from": "{buyer}", "to": "{merchant}",
-             "amount_fen": price_fen,
-             "account_roles": {"from": "buyer", "to": "merchant:grocery"}},
-            {"on": "consume", "type": "source", "resource": "energy_kcal",
-             "amount": entry["energy_kcal_serving"], "duration_s": 900},
-        ],
-        "stock": {"initial": 120, "restock": "none"},
-        "use_duration_seconds": 900,
-        "delivery_delay_seconds": 1800,
-        "serving": {"quantity": 1, "unit": entry["serving_size"]},
+        "object_id": f"food-{entry['barcode']}", "name": entry["name"], "object_kind": "product",
+        "effect": "nutrition", "consumable": True, "use_modes": ["eat"],
+        "edges": [{"on": "consume", "type": "source", "resource": "energy_kcal",
+                   "amount": entry["energy_kcal_serving"], "duration_s": 900}],
+        "use_duration_seconds": 900, "serving": {"quantity": 1, "unit": entry["serving_size"]},
         "required_location_id": None,
         "provenance": [
-            {"part": "consume energy edge", "paths": ["edges[1].amount"],
-             "type": "fact", "source": f"openfoodfacts:product/{barcode}",
+            {"part": "consume energy edge", "paths": ["edges[0].amount"], "type": "fact",
+             "source": f"openfoodfacts:product/{entry['barcode']}",
              "artifact": f"{artifact} (sha256 {expansion_sha})",
-             "note": f"derived via {entry['kcal_rule']} x serving {entry['serving_quantity']}"
-                     " per catalog/rules/off-foods.mapping.toml fallback"},
-            {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-             "type": "anchored", "source": f"category anchor {anchor_object_id} ({anchor_label})",
-             "artifact": "catalog/objects.jsonl @ 1.0",
-             "method": f"anchor_fen * uniform(1-{FOOD_PRICE_SPREAD}, 1+{FOOD_PRICE_SPREAD}),"
-                       f" seed {price_seed}, barcode-sorted order",
-             "note": "price_version catalog-food-expansion-2"
-                     if artifact.endswith("expansion2.json") else
-                     "price_version catalog-food-expansion-1"},
-            {"part": "stock", "paths": ["stock.initial"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-            {"part": "legacy timing/serving fields",
-             "paths": ["edges[1].duration_s", "use_duration_seconds",
-                       "delivery_delay_seconds", "serving.quantity"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-        ],
-        "version": 1,
+             "note": f"derived via {entry['kcal_rule']} x serving {entry['serving_quantity']}"},
+            {"part": "usage and serving", "paths": ["edges[0].duration_s", "use_duration_seconds",
+                                                       "serving.quantity"],
+             "type": "scenario", "source": "frozen serving and usage declaration"},
+        ], "version": 2,
     }
 
 
@@ -501,21 +342,7 @@ def load_expansion_entries() -> list[dict]:
     entries = document["entries"]
     by_barcode = {entry["barcode"]: entry for entry in entries}
     assert len(by_barcode) == len(entries) == 25, "expansion whitelist must hold 25 unique entries"
-    assert set(by_barcode) == set(FOOD_EXPANSION_PRICE_ANCHORS), \
-        "expansion whitelist and price anchor table disagree"
     return entries
-
-
-def expansion_prices(entries: list[dict], frozen_foods: list[dict]) -> dict[str, int]:
-    """@brief 以固定种子按品类锚定价 ±30% 采样每条扩容食品价格（条码序稳定）。"""
-    anchors = {product["product_id"]: product["price_fen"] for product in frozen_foods}
-    rng = random.Random(FOOD_PRICE_SEED)
-    prices = {}
-    for barcode in sorted(entry["barcode"] for entry in entries):
-        _, anchor_object_id = FOOD_EXPANSION_PRICE_ANCHORS[barcode]
-        factor = rng.uniform(1 - FOOD_PRICE_SPREAD, 1 + FOOD_PRICE_SPREAD)
-        prices[barcode] = max(1, round(anchors[anchor_object_id] * factor))
-    return prices
 
 
 def verify_expansion(entries: list[dict], off_frozen: list[dict], off_raw: dict,
@@ -553,8 +380,8 @@ def load_expansion2_entries() -> list[dict]:
     assert len(set(barcodes)) == len(barcodes), "wave-2 barcodes must be unique"
     assert len(entries) >= 70, f"wave-2 expansion must hold >=70 entries, got {len(entries)}"
     for entry in entries:
-        assert entry["category"] in FOOD2_CATEGORY_ANCHORS, \
-            f"{entry['barcode']}: price category {entry['category']!r} has no anchor"
+        assert entry["category"] in FOOD_CATEGORIES, \
+            f"{entry['barcode']}: food category {entry['category']!r} is not supported"
     return entries
 
 
@@ -603,19 +430,6 @@ def verify_expansion2(entries: list[dict], off_pool: dict, off_frozen: list[dict
             f"{barcode}: serving unit disagrees with raw serving_size"
 
 
-def expansion2_prices(entries: list[dict], frozen_foods: list[dict]) -> dict[str, int]:
-    """@brief 以固定种子按品类锚定价 ±30% 采样第二波食品价格（条码序稳定）。"""
-    anchors = {product["product_id"]: product["price_fen"] for product in frozen_foods}
-    by_barcode = {entry["barcode"]: entry for entry in entries}
-    rng = random.Random(FOOD2_PRICE_SEED)
-    prices = {}
-    for barcode in sorted(by_barcode):
-        category = by_barcode[barcode]["category"]
-        factor = rng.uniform(1 - FOOD_PRICE_SPREAD, 1 + FOOD_PRICE_SPREAD)
-        prices[barcode] = max(1, round(anchors[FOOD2_CATEGORY_ANCHORS[category]] * factor))
-    return prices
-
-
 def load_meals() -> list[dict]:
     """@brief 读取正餐语料并做合同窗口校验（数量/价格/时长/来源逐条）。"""
     document = load_json(MEALS_CORPUS)
@@ -640,48 +454,26 @@ def load_meals() -> list[dict]:
 
 
 def meal_object(meal: dict, meals_sha: str) -> dict:
-    """@brief 由正餐语料条目构造目录对象（consume 事实边 + purchase 场景价边）。"""
+    """@brief 正餐定义保留食品份量、消费效果和时长，删除交易价格及库存。"""
     source = meal["energy_source"]
     duration_seconds = meal["meal_duration_minutes"] * 60
     return {
-        "object_id": meal["meal_id"],
-        "name": meal["name_zh"],
-        "object_kind": "product",
-        "effect": "nutrition",
-        "consumable": True,
-        "use_modes": ["eat"],
-        "edges": [
-            {"on": "purchase", "type": "transfer", "from": "{buyer}", "to": "{merchant}",
-             "amount_fen": meal["price_fen"],
-             "account_roles": {"from": "buyer", "to": "merchant:restaurant"}},
-            {"on": "consume", "type": "source", "resource": "energy_kcal",
-             "amount": meal["energy_kcal_per_serving"], "duration_s": duration_seconds},
-        ],
-        "stock": {"initial": 40, "restock": "none"},
+        "object_id": meal["meal_id"], "name": meal["name_zh"], "object_kind": "product",
+        "effect": "nutrition", "consumable": True, "use_modes": ["eat"],
+        "edges": [{"on": "consume", "type": "source", "resource": "energy_kcal",
+                   "amount": meal["energy_kcal_per_serving"], "duration_s": duration_seconds}],
         "use_duration_seconds": duration_seconds,
-        "delivery_delay_seconds": meal["delivery_delay_seconds"] or 1800,
         "serving": {"quantity": meal["serving"]["quantity"], "unit": meal["serving"]["unit"]},
         "required_location_id": None,
         "provenance": [
-            {"part": "consume energy edge", "paths": ["edges[1].amount"],
-             "type": "fact",
+            {"part": "consume energy edge", "paths": ["edges[0].amount"], "type": "fact",
              "source": f"USDA FNDDS fdc:{source['fdc_id']} ({source['food_description']})",
              "artifact": f"corpora/meals/items.json (sha256 {meals_sha})",
-             "note": (f"kcal = {source['energy_kcal_per_100g']} kcal/100g x"
-                      f" {meal['serving']['quantity']} g / 100; no ml-to-g conversion;"
-                      " FNDDS recorded values not adjusted")},
-            {"part": "purchase price edge", "paths": ["edges[0].amount_fen"],
-             "type": "scenario", "source": meal["price_assumption"],
-             "note": "price_version zhangjiang-2026-q1-meals"},
-            {"part": "stock", "paths": ["stock.initial"],
-             "type": "scenario", "source": "legacy-scenario-product"},
-            {"part": "meal timing/serving fields",
-             "paths": ["edges[1].duration_s", "use_duration_seconds",
-                       "delivery_delay_seconds", "serving.quantity"],
-             "type": "scenario",
-             "source": "meal corpus scenario assumptions (duration 20-40 min per contract)"},
-        ],
-        "version": 1,
+             "note": f"kcal = {source['energy_kcal_per_100g']} per 100g x {meal['serving']['quantity']}g"},
+            {"part": "meal duration and serving", "paths": ["edges[0].duration_s", "use_duration_seconds",
+                                                            "serving.quantity"],
+             "type": "scenario", "source": "meal duration and serving declarations"},
+        ], "version": 2,
     }
 
 
@@ -854,13 +646,11 @@ def build() -> dict[str, str]:
     expansion_entries = load_expansion_entries()
     verify_expansion(expansion_entries, off_frozen, off_raw, parts["foods"])
     expansion_sha = sha256_of(FOOD_EXPANSION)
-    prices = expansion_prices(expansion_entries, parts["foods"])
 
     expansion2_entries = load_expansion2_entries()
     verify_expansion2(expansion2_entries, off_pool, off_frozen,
                       {entry["barcode"] for entry in expansion_entries}, parts["foods"])
     expansion2_sha = sha256_of(FOOD_EXPANSION2)
-    prices2 = expansion2_prices(expansion2_entries, parts["foods"])
 
     meals = load_meals()
     meals_sha = sha256_of(MEALS_CORPUS)
@@ -872,20 +662,11 @@ def build() -> dict[str, str]:
     resources = build_resources(body)
     frozen_food_objects = [product_object(p, {e["barcode"]: e for e in off_frozen}, off_sha)
                            for p in parts["foods"]]
-    expansion_food_objects = [
-        expansion_food_object(entry, prices[entry["barcode"]],
-                              FOOD_EXPANSION_PRICE_ANCHORS[entry["barcode"]][0],
-                              FOOD_EXPANSION_PRICE_ANCHORS[entry["barcode"]][1],
-                              expansion_sha)
-        for entry in sorted(expansion_entries, key=lambda item: item["barcode"])]
-    expansion2_food_objects = [
-        expansion_food_object(entry, prices2[entry["barcode"]],
-                              entry["category"],
-                              FOOD2_CATEGORY_ANCHORS[entry["category"]],
-                              expansion2_sha,
-                              artifact="corpora/foods/expansion2.json",
-                              price_seed=FOOD2_PRICE_SEED)
-        for entry in sorted(expansion2_entries, key=lambda item: item["barcode"])]
+    expansion_food_objects = [expansion_food_object(entry, expansion_sha)
+                              for entry in sorted(expansion_entries, key=lambda item: item["barcode"])]
+    expansion2_food_objects = [expansion_food_object(entry, expansion2_sha,
+                                                    artifact="corpora/foods/expansion2.json")
+                               for entry in sorted(expansion2_entries, key=lambda item: item["barcode"])]
     meal_objects = [meal_object(meal, meals_sha) for meal in sorted(meals, key=lambda m: m["meal_id"])]
     objects = (frozen_food_objects + expansion_food_objects + expansion2_food_objects
                + meal_objects
@@ -908,7 +689,7 @@ def build() -> dict[str, str]:
         "catalog/objects.jsonl": "".join(
             json.dumps(e, ensure_ascii=False) + "\n" for e in objects),
         "catalog/manifest.json": json.dumps(
-            {"version_major": 2, "version_minor": 0,
+            {"version_major": 3, "version_minor": 0,
              "category_requirements": CATEGORY_REQUIREMENTS},
             ensure_ascii=False, indent=2) + "\n",
         "catalog/overrides/tombstones.jsonl": "",

@@ -6,6 +6,8 @@ import os
 from datetime import datetime, timezone
 
 import pytest
+
+from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from jsonschema import Draft202012Validator
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
@@ -160,13 +162,14 @@ def _observations(
             "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
         },
         "content_progress": {},
-        "products": [{"product_id": "product-visible", "price_version": "price-v1",
-                      "current_stock": 2, "use_modes": ["eat"], "use_duration_seconds": 300,
-                      "merchant_location_id": "home", "required_location_id": None}],
+        "products": [{"product_id": "product-visible", "use_modes": ["eat"],
+                      "use_duration_seconds": 300, "required_location_id": None}],
+        "supplies": [supply_row(supply_id="supply-visible", product_id="product-visible")],
+        "discovery_catalog": discovery_catalog("product-visible"),
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product-visible": 1.0},
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
         **catalogs,
@@ -260,12 +263,13 @@ def test_failed_run_observation_removes_unreleased_work_and_invented_target() ->
 def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
     """全部公开身份为空时仅保留无需目标的基础活动与当日计划工具。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    overrides = {"products": [], "locations": [], "available_inventory": {}, "routes": []}
+    overrides = {"products": [], "supplies": [], "locations": [], "available_inventory": {}, "routes": [],
+                 "discovery_catalog": {"product_ids": [], "business_kinds": []}}
     functions = _functions(_prepare(empty, overrides=overrides, browse_results=[]))
 
     assert "start_targeted_activity" not in functions
     assert set(functions) == _MEMORY_TOOLS | {
-        "start_basic_activity", "browse_activities", "plan_day"}
+        "start_basic_activity", "browse_activities", "discover_places", "plan_day"}
 
 
 @pytest.mark.parametrize(
@@ -340,7 +344,7 @@ def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear
     agent = _prepare(_catalogs())
     functions = _functions(agent)
     invalid = [
-        ("purchase", {"items": [{"product_id": "product-visible", "quantity": 1,
+        ("purchase", {"items": [{"supply_id": 'supply-visible', "quantity": 1,
                                  "price_version": "wrong"}],
                       "fulfillment": "delivery", "destination_id": "home"}),
         ("consume", {"items": [{"product_id": "product-visible", "quantity": 1}],
@@ -356,9 +360,7 @@ def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear
     catalogs["tasks"][0]["material"] = {"end_char": 9, "total_chars": 10}
     catalogs["tasks"][1]["material"] = {"end_char": 9, "total_chars": 10}
     removed = _functions(_prepare(catalogs, overrides={
-        "products": [{"product_id": "product-visible", "price_version": "price-v1",
-                      "current_stock": 0, "use_modes": ["eat"], "use_duration_seconds": 300,
-                      "merchant_location_id": "home", "required_location_id": None}],
+        "supplies": [supply_row(current_stock=0, purchase_allowed=False)],
         "available_inventory": {"product-visible": 0.0},
         "routes": [],
     }))
@@ -406,7 +408,7 @@ async def test_invalid_visible_pair_cannot_bypass_validation_through_dispatch() 
     agent._env = environment
     agent._decision_context = _context()
     payload = {
-        "items": [{"product_id": "product-visible", "quantity": 1,
+        "items": [{"supply_id": 'supply-visible', "quantity": 1,
                    "price_version": "wrong"}],
         "fulfillment": "delivery", "destination_id": "home",
     }
@@ -453,12 +455,9 @@ def test_prepare_rejects_malformed_catalogs(field: str, value, message: str) -> 
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [
-        ({"products": [{"product_id": "product", "price_version": "v1", "current_stock": -1,
-                        "use_modes": ["eat"], "use_duration_seconds": 300,
-                        "merchant_location_id": "home", "required_location_id": None}]},
-         "current stock"),
+        ({"supplies": [supply_row(current_stock=-1)]}, "supply stock"),
         ({"available_inventory": {"unknown-product": 1}}, "held product contract"),
-        ({"routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 0}]},
+        ({"routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 0}]},
          "route contract"),
         ({"content_progress": {"mismatched": {
             "item_id": "other", "position_seconds": 1,
@@ -661,9 +660,9 @@ async def test_energy_limit_binds_schema_and_rejects_sixty_one_seconds_before_di
 def test_route_schema_keeps_feasible_driving_and_removes_infeasible_walking() -> None:
     """相同起点的路线按各自方式代谢成本独立形成可见闭集。"""
     routes = [
-        {"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        {"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
          "minimum_energy_cost_kcal": 6.0, "energy_feasible": True},
-        {"destination_id": "office", "mode": "walking", "duration_seconds": 900,
+        {"destination_id": "office", "status": "reachable", "mode": "walking", "duration_seconds": 900,
          "minimum_energy_cost_kcal": 50.0, "energy_feasible": False},
     ]
     agent = _prepare(_catalogs(), overrides={"routes": routes})
@@ -682,7 +681,7 @@ def test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets() -> Non
     zero = {kind: 0 for kind in _TARGET_CATALOG_FIELDS_FOR_TEST}
     agent = _prepare(_catalogs(), overrides={
         "energy_feasibility": _energy_limits(**zero),
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": False}],
     })
     names = set(_functions(agent))
@@ -875,17 +874,17 @@ def test_purchase_binds_multi_item_enums_and_validates_order_bounds() -> None:
     properties = _functions(agent)["purchase"]["parameters"]["properties"]
     item_properties = properties["items"]["items"]["properties"]
 
-    assert item_properties["product_id"]["enum"] == ["product-visible"]
+    assert item_properties["supply_id"]["enum"] == ["supply-visible"]
     assert item_properties["price_version"]["enum"] == ["price-v1"]
     assert properties["destination_id"]["enum"] == ["home", "office"]
-    legal = {"items": [{"product_id": "product-visible", "quantity": 2,
+    legal = {"items": [{"supply_id": 'supply-visible', "quantity": 2,
                         "price_version": "price-v1"}],
              "fulfillment": "delivery", "destination_id": "home"}
-    over_stock = {"items": [{"product_id": "product-visible", "quantity": 3,
+    over_stock = {"items": [{"supply_id": 'supply-visible', "quantity": 3,
                              "price_version": "price-v1"}],
                   "fulfillment": "delivery", "destination_id": "home"}
     six_items = {"items": [
-        {"product_id": "product-visible", "quantity": 1, "price_version": "price-v1"}
+        {"supply_id": 'supply-visible', "quantity": 1, "price_version": "price-v1"}
         for _ in range(6)],
         "fulfillment": "delivery", "destination_id": "home"}
 
@@ -897,36 +896,29 @@ def test_purchase_binds_multi_item_enums_and_validates_order_bounds() -> None:
         [ReactDecision("", "purchase", six_items, "")], False)
 
 
-def test_purchase_rejects_mixed_merchants_before_dispatch() -> None:
-    """跨商家订单在提交环境前被本地拒绝（整单同一商家合同）。"""
-    products = [
-        {"product_id": "product-home", "price_version": "price-v1", "current_stock": 2,
-         "use_modes": ["eat"], "use_duration_seconds": 300,
-         "merchant_location_id": "home", "required_location_id": None},
-        {"product_id": "product-office", "price_version": "price-v2", "current_stock": 2,
-         "use_modes": ["eat"], "use_duration_seconds": 300,
-         "merchant_location_id": "office", "required_location_id": None},
-    ]
-    agent = _prepare(_catalogs(), overrides={"products": products,
-                                             "available_inventory": {}})
+def test_purchase_rejects_mixed_locations_before_dispatch() -> None:
+    """同一卖方跨地点订单在提交环境前仍被本地拒绝。"""
+    supplies = [supply_row(supply_id="supply-home"),
+                supply_row(supply_id="supply-office", location_id="office", pickup_allowed=False,
+                           price_version="price-v2")]
+    agent = _prepare(_catalogs(), overrides={"supplies": supplies, "available_inventory": {}})
     mixed = {"items": [
-        {"product_id": "product-home", "quantity": 1, "price_version": "price-v1"},
-        {"product_id": "product-office", "quantity": 1, "price_version": "price-v2"}],
+        {"supply_id": "supply-home", "quantity": 1, "price_version": "price-v1"},
+        {"supply_id": "supply-office", "quantity": 1, "price_version": "price-v2"}],
         "fulfillment": "delivery", "destination_id": "home"}
-
-    assert "one merchant" in agent.validate_react_decisions(
+    assert "one location and seller account" in agent.validate_react_decisions(
         [ReactDecision("", "purchase", mixed, "")], False)
 
 
 def test_consume_multi_item_meal_duration_and_held_quantity() -> None:
     """多件进食时长取最长者，件数与持有量本地拒绝越界。"""
     products = [
-        {"product_id": "food-rice", "price_version": "price-v1", "current_stock": 2,
+        {"product_id": "food-rice",
          "use_modes": ["eat"], "use_duration_seconds": 1200,
-         "merchant_location_id": "home", "required_location_id": None},
-        {"product_id": "food-tea", "price_version": "price-v2", "current_stock": 2,
+         "required_location_id": None},
+        {"product_id": "food-tea",
          "use_modes": ["eat"], "use_duration_seconds": 300,
-         "merchant_location_id": "home", "required_location_id": None},
+         "required_location_id": None},
     ]
     agent = _prepare(_catalogs(), overrides={
         "products": products,

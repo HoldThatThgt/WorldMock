@@ -56,6 +56,7 @@ def deliver(export_dir: Path, destination: Path, project_root: Path, replay_expo
         source_manifest = (export_dir / "manifest.json").read_bytes()
         manifest["source_export"] = {"path": str(export_dir.resolve()),
                                      "manifest_sha256": hashlib.sha256(source_manifest).hexdigest()}
+        manifest["map_dataset"] = json.loads(source_manifest)["frozen_run_manifest"]["map_dataset"]
         manifest["replay_exports"] = [_export_reference(path) for path in replay_exports]
         manifest["files"] = _file_inventory(destination)
         atomic_write(destination / "manifest.json", canonical_json(manifest))

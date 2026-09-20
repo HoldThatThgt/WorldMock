@@ -29,7 +29,7 @@ def test_observation_carries_activity_summary_without_full_catalog(engine_factor
     assert summary["subtitle_experience"] == 1
     # game_session 键同时覆盖内容侧的会话条目与场景声明的游戏身份（同一池、同一链路）
     assert summary["game_session"] == 80 + len(engine.scenario.games)
-    assert summary["foods"] == len(engine.scenario.products)
+    assert summary["foods"] == len(engine.scenario.supplies)
     # 全局启用的生活活动按品类计数：sport=44、hobby=56（corpora/lifestyle）
     assert summary["sport"] == 44
     assert summary["hobby"] == 56
@@ -66,16 +66,29 @@ def test_browse_lifestyle_category_returns_catalog_entries(engine_factory) -> No
     assert yoga["description"]
 
 
-def test_browse_foods_returns_menu_level_products(engine_factory) -> None:
-    """foods 下钻返回菜单级商品行，购买合同仍走 product_catalog 限时 browse。"""
+def test_browse_foods_returns_distinct_supply_facts_and_actual_visibility(engine_factory) -> None:
+    """foods 逐页返回全部门店供给及其报价，凭据只来自有效期内实际返回的身份。"""
+    from worldmock.life.projection import SUPPLY_VISIBILITY_TTL_SECONDS
+
     engine = engine_factory()
     foods = browse_all(engine, "foods")
-    assert len(foods) == len(engine.scenario.products)
-    by_id = {item["product_id"]: item for item in foods}
-    product = engine.scenario.products[0].product_id
-    assert by_id[product]["price_fen"] == engine.rules.products[product].price_fen
-    assert "price_version" not in by_id[product]  # 合同字段不随菜单泄露
-    assert engine.state.agents[1].visible_product_ids == set()  # 可见性门控未被动
+    by_id = {item["supply_id"]: item for item in foods}
+    assert len(foods) == len(by_id) == len(engine.scenario.supplies)
+    assert set(by_id) == {item.supply_id for item in engine.scenario.supplies}
+    for supply in engine.scenario.supplies:
+        row = by_id[supply.supply_id]
+        assert row["product_id"] == supply.product_id
+        assert row["location_id"] == supply.location_id
+        assert row["seller_account_id"] == supply.seller_account_id
+        assert row["price_fen"] == row["quote"]["price_fen"]
+        assert row["price_version"] == row["quote"]["price_version"]
+    events = engine.store.read_agent_events("action_result", 1)
+    expected = {row["supply_id"] for event in events
+                if event.data.get("data", {}).get("tool") == "browse_activities"
+                and engine.state.current_time - event.occurred_at <= SUPPLY_VISIBILITY_TTL_SECONDS
+                for row in event.data["data"]["items"]}
+    assert expected
+    assert engine.state.agents[1].visible_supply_ids == expected
 
 
 def test_browse_unknown_category_is_rejected(engine_factory) -> None:

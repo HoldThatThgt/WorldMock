@@ -114,7 +114,16 @@ def test_pause_resume_keeps_content_position(engine_factory) -> None:
     advance_next(engine)
     _observed_action(engine, "resume", "set_activity_state",
                      SetActivityStateRequest(activity_id=activity_id, operation="resume"))
-    advance_next(engine)  # 恢复后推进到新结束边界：位置 900->1800
+    # 查询反馈可能早于后续邮件边界；只在真实活动结束后验证最终媒体进度。
+    from worldmock.life.models import ContinueActivityRequest
+    for turn in range(4):
+        if engine.state.activities[activity_id].status == "completed":
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _observed_action(engine, f"resume-continue-{turn}", "continue_activity",
+                             ContinueActivityRequest(activity_id=activity_id))
+        advance_next(engine)
+    assert engine.state.activities[activity_id].status == "completed"
 
     progress = engine.state.agents[1].content_progress[NOVEL_ID]
     assert progress.position_seconds == 1800 and progress.exposure_count == 1

@@ -41,8 +41,11 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/PROPOSAL-category-contract.md` | 品类契约与交换规则分层：品类契约作为资源引擎与交换引擎之间的第三方冻结产物、规则在品类树上的继承与覆盖、未定义配对的一等地位与逐节点细化 | 未冻结提案 |
 | `docs/dev/PROPOSAL-decision-context.md` | 已裁决的心智模型与取舍记录；行为与开发验收由 `SPEC-decision-context.md` 承载 | 调研证据 |
 | `docs/dev/PROPOSAL-interaction-menu.md` | 交互菜单的原始问题、方案比较与取舍记录；行为与验收由 `SPEC-interaction-menu.md` 承载 | 调研证据 |
-| `docs/dev/PROPOSAL-map-and-storefront.md` | 地图数据集合、地点目录与门店供给：同商品多门店的数据结构、规则归属与分层、来源选择与固定方式、迁移顺序与验收场景 | 未冻结提案 |
-| `docs/dev/ANALYSIS-map-model.md` | 地图、地点与门店供给的原始问题定义与现状差距清单 | 分析草案 |
+| `docs/dev/SPEC-map-and-storefront.md` | 地图唯一来源、地点发现、独立门店供给、营业与报价时态、原子购买、自提配送、恢复和完整验收 | FROZEN |
+| `docs/dev/PROPOSAL-map-and-storefront.md` | 已裁决的地图与门店供给心智模型、采纳机制和审查基线差距；行为以开发规格为准 | 调研证据 |
+| `docs/dev/ANALYSIS-map-model.md` | 原始问题与已纠正的历史判断，连接现行开发规格和研究证据 | 调研证据 |
+| `docs/dev/research/map-and-storefront-feasibility.md` | 商品与供给、路线方式、营业、AS2 复用和许可的一手资料核验 | 调研证据 |
+| `docs/dev/research/map-and-storefront-document-impact.md` | 地图与门店供给的要求、文档、测试影响及审查基线 | 调研证据 |
 | `docs/dev/ANALYSIS-spec-coverage.md` | 规格条款与测试用例的覆盖率追溯矩阵 | 现行追溯矩阵 |
 | `docs/dev/research/decision-context-verification.md` | 决策上下文完整修改清单、条款到测试、独立审查与工程门禁证据 | 验收记录 |
 | `docs/dev/research/decision-context-bob-protocol.md` | 决策协议与预算的隔离源码突变、补充验证与恢复证据 | 验收记录 |
@@ -96,6 +99,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 知道现在跑到哪一步、已有哪些实测证据 | `docs/dev/implementation-status.md` | `docs/dev/coverage-baseline.md` 与 `docs/dev/coverage-report.json` |
 | 判断能不能放行、本次要交哪些证据 | `docs/VERIFICATION.md` | `docs/dev/implementation-status.md` 取源码身份与命令收据 |
 | 复现实验：依赖版本、场景参数、时间窗、样本划分 | `docs/EXPERIMENT.md` | `docs/CONTRACTS.md` 取运行接口与目录结构 |
+| 理解地图、门店供给与交易 | `docs/dev/SPEC-map-and-storefront.md` | `docs/CONTRACTS.md` 取字段，各引擎设计取定义、判断、结算和记录；研究核验说明路线与许可边界 |
 | 配置或修改地点类与人物交互菜单 | `docs/dev/SPEC-interaction-menu.md` | `docs/design/08-configuration.md` 取配置，`docs/design/04-simulation-engine.md` 取执行链路 |
 | 查历史调研、审计与根因结论 | `docs/dev/research/` | 对应 SPEC 看结论如何落地为条款 |
 | 查看资源、内容与语料的统一设计 | `docs/design/03-resource-engine.md` | 资源定义、来源、版本、内容提供与实现差距 |
@@ -116,7 +120,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 - **验收**（什么算通过、门禁键、测试矩阵、证据层级、report-only 边界）看 `docs/VERIFICATION.md`。
 - **实现状态**（现在到哪一步、已有哪些证据、还剩哪些阻塞）看 `docs/dev/implementation-status.md`；它只写现状，变更过程由 Git 承载。
 - **覆盖率口径与基线**看 `docs/dev/coverage-baseline.md` 与它写出的 `docs/dev/coverage-report.json`。
-- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`。提案在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的决策上下文和交互菜单提案仅保留设计记录，实施依据为对应冻结规格。
+- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`。提案在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的决策上下文、交互菜单及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格。
 - **历史证据**看 `docs/dev/research/`。这些文件是当时快照下的依据，不构成当前规范。
 
 ```mermaid

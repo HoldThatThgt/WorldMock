@@ -130,12 +130,13 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
                           fulfillment=FulfillmentKind.DELIVERY,
                           created_at=staged.current_time,
                           expected_at=staged.current_time + 60, status="pending",
-                          total_price_fen=100)
+                          total_price_fen=100, supply_id="supply-wake", location_id="market",
+                          seller_account_id="merchant:grocery", price_version="v1", route_id=None, source={})
     staged.deliveries[order.order_id] = order
     staged.pending_events.append(ScheduledEvent(
         scheduled_id="delivery-wake", kind=ScheduledKind.DELIVERY_ARRIVAL,
         due_at=order.expected_at, sequence=900, agent_id=1,
-        data={"order_id": order.order_id}))
+        data={"order_ids": [order.order_id]}))
     _commit_staged(engine, staged)
     advance_next(engine)
     assert "delivery_arrival" in engine.state.agents[1].pending_wake_reasons
@@ -215,17 +216,17 @@ def test_observation_projection_blacklist_and_product_ttl(engine_factory) -> Non
     assert "end_time" not in data and "world_state_version" not in data
     # facts 路线只保留五键白名单
     for route in data["facts"]["routes"]:
-        assert set(route) <= {"destination", "mode", "minutes", "fare", "feasible"}
+        assert set(route) <= {"destination", "mode", "minutes", "fare", "feasible", "status", "reason", "distance_meters"}
     # 商品 TTL：浏览后 1800 秒内可见，超时清空
     _act(engine, "browse-ttl", "start_targeted_activity",
          StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
                                       planned_duration_seconds=60, playback_speed=1))
     advance_until_ready(engine)  # 浏览完成边界登记可见集与浏览时刻
     staged = engine.state.model_copy(deep=True)
-    staged.current_time = staged.agents[1].product_browsed_at + 1801
+    staged.current_time = max(staged.agents[1].supply_browsed_at.values()) + 1801
     staged.version += 1
     engine.state = staged
-    visible = projection.visible_products(engine.state, engine.state.agents[1],
+    visible = projection.visible_supplies(engine.state, engine.state.agents[1],
                                           engine.scenario)
     assert visible == [], "products must clear 1800s after browse"
 
@@ -514,41 +515,38 @@ def test_multi_item_purchase_rejects_whole_order(engine_factory) -> None:
          StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
                                       planned_duration_seconds=60, playback_speed=1))
     advance_until_ready(engine)
-    by_merchant: dict[str, list] = {}
-    for item in sorted(engine.scenario.products, key=lambda value: value.product_id):
-        by_merchant.setdefault(item.merchant_account_id, []).append(item)
-    products = max(by_merchant.values(), key=len)[:2]  # 同一商家的前两件
+    visible = engine.state.agents[1].visible_supply_ids
+    supplies = [item for item in engine.scenario.supplies
+                if item.location_id == "market" and item.supply_id in visible][:2]
+    assert len(supplies) == 2
     ok_request = PurchaseOrderRequest(
-        items=tuple(PurchaseItem(product_id=item.product_id, quantity=1,
-                                 price_version=item.price_version)
-                    for item in products),
-        fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
+        items=tuple(PurchaseItem(supply_id=item.supply_id, quantity=1,
+                                 price_version=engine.state.supply_quotes[item.supply_id].price_version)
+                    for item in supplies), fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
     result = _act(engine, "order-ok", "purchase", ok_request)
     assert result.status.value == "completed"
     assert len(result.data["orders"]) == 2
-    assert len({order["expected_at"] for order in result.data["orders"]}) == 1  # 一次配送
-    assert sum(entry[1] for entry in result.data["resource_changes"].items()
-               if entry[0].endswith(products[0].merchant_account_id)) == result.data["total_price_fen"]
-    # 反例：第二件报价过期 → 整单拒绝
+    assert len({order["expected_at"] for order in result.data["orders"]}) == 1
+    assert result.data["resource_changes"][f"account:{supplies[0].seller_account_id}"] == result.data["total_price_fen"]
     engine2 = engine_factory()
     _stage_open_hours(engine2)
     _act(engine2, "browse-stale", "start_targeted_activity",
          StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
                                       planned_duration_seconds=60, playback_speed=1))
     advance_until_ready(engine2)
-    by_merchant = {}
-    for item in sorted(engine2.scenario.products, key=lambda value: value.product_id):
-        by_merchant.setdefault(item.merchant_account_id, []).append(item)
-    two = max(by_merchant.values(), key=len)[:2]  # 同一商家的前两件
-    stale = PurchaseItem(product_id=two[1].product_id, quantity=1, price_version="stale")
-    fresh = PurchaseItem(product_id=two[0].product_id, quantity=1,
-                         price_version=two[0].price_version)
+    visible = engine2.state.agents[1].visible_supply_ids
+    two = [item for item in engine2.scenario.supplies
+           if item.location_id == "market" and item.supply_id in visible][:2]
+    assert len(two) == 2
+    stale = PurchaseItem(supply_id=two[1].supply_id, quantity=1, price_version="stale")
+    fresh = PurchaseItem(supply_id=two[0].supply_id, quantity=1,
+                         price_version=engine2.state.supply_quotes[two[0].supply_id].price_version)
+    before = dict(engine2.state.supply_stock), dict(engine2.state.accounts)
     rejected = _act(engine2, "order-stale", "purchase", PurchaseOrderRequest(
         items=(fresh, stale), fulfillment=FulfillmentKind.DELIVERY, destination_id="home"))
     assert rejected.status.value == "rejected"
     assert rejected.error_code == "PRICE_VERSION_MISMATCH"
-    assert engine2.state.merchant_stock[two[0].product_id] == two[0].initial_stock, (
-        "rejected order must not decrement any item")
+    assert (engine2.state.supply_stock, engine2.state.accounts) == before
 
 
 def test_multi_item_meal_accumulates_energy(engine_factory) -> None:
@@ -583,10 +581,10 @@ def test_multi_item_meal_accumulates_energy(engine_factory) -> None:
         assert agent.inventory["home"][item.product_id] == 0
 
 
-def test_world_state_schema_version_three_rejects_old_checkpoints(engine_factory) -> None:
-    """旧检查点（无 schema_version 或版本 2）加载即拒绝；版本 3 是唯一合法结构版本。
+def test_world_state_schema_version_four_rejects_old_checkpoints(engine_factory) -> None:
+    """旧检查点（无 schema_version 或版本 3）加载即拒绝；版本 4 是唯一合法结构版本。
 
-    版本 3 引入 `presentation_state`（轮转所需的「上次呈现时刻」）；不保留兼容读取
+    版本 4 引入门店供给、持久报价与逐供给可见凭据；不保留兼容读取
     路径，旧检查点一律拒载（docs/CONTRACTS.md「派生量字段」）。
     """
     engine = engine_factory()
@@ -595,11 +593,11 @@ def test_world_state_schema_version_three_rejects_old_checkpoints(engine_factory
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(legacy)
     previous = engine.state.model_dump(mode="json")
-    previous["schema_version"] = 2
+    previous["schema_version"] = 3
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(previous)
     fresh = engine.state.model_dump(mode="json")
-    assert fresh["schema_version"] == 3
+    assert fresh["schema_version"] == 4
     assert fresh["presentation_state"] == {}
 
 
@@ -864,15 +862,16 @@ def test_sleep_debt_hours_has_no_residual_references() -> None:
 
 def _browsed_state(engine, location_id: str):
     """把人物放到一个非商家地点并在该处完成一次配送浏览（浏览集为整份目录）。"""
-    product_ids = {item.product_id for item in engine.scenario.products}
+    supply_ids = {item.supply_id for item in engine.scenario.supplies}
     staged = engine.state.model_copy(deep=True)
     now = staged.current_time
     staged.agents[1] = staged.agents[1].model_copy(update={
-        "location_id": location_id, "visible_product_ids": set(product_ids),
-        "product_browsed_at": now, "product_browsed_location": location_id,
+        "location_id": location_id, "visible_supply_ids": set(supply_ids),
+        "supply_browsed_at": {key: now for key in supply_ids},
+        "supply_browsed_location": {key: location_id for key in supply_ids},
         "inventory": {}}, deep=True)
     engine.state = staged
-    return product_ids
+    return supply_ids
 
 
 def test_browsed_products_expire_on_leaving_merchant_location(engine_factory) -> None:
@@ -883,21 +882,21 @@ def test_browsed_products_expire_on_leaving_merchant_location(engine_factory) ->
     agent = engine.state.agents[1]
 
     # 在浏览地点且未超 TTL：浏览支可见（店内常驻支为空，可见集完全来自浏览）。
-    assert set(projection.visible_products(engine.state, agent, engine.scenario)) == product_ids
+    assert set(projection.visible_supplies(engine.state, agent, engine.scenario)) == product_ids
 
     # 未超 TTL 但已离开浏览地点：浏览支清空，可见集回到空。
     moved = engine.state.model_copy(deep=True)
     moved.agents[1] = moved.agents[1].model_copy(update={"location_id": "home"}, deep=True)
     engine.state = moved
     agent = engine.state.agents[1]
-    assert agent.product_browsed_at is not None
-    assert engine.state.current_time - agent.product_browsed_at <= 1800
-    assert projection.visible_products(engine.state, agent, engine.scenario) == [], (
+    assert agent.supply_browsed_at is not None
+    assert all(engine.state.current_time - stamp <= 1800 for stamp in agent.supply_browsed_at.values())
+    assert projection.visible_supplies(engine.state, agent, engine.scenario) == [], (
         "leaving the browsed location must clear browsed products before the TTL elapses")
 
     # 回到浏览地点且未超 TTL：浏览支恢复可见（可见期由地点与时刻两支共同判定）。
     back = engine.state.model_copy(deep=True)
     back.agents[1] = back.agents[1].model_copy(update={"location_id": browsed_at}, deep=True)
     engine.state = back
-    assert set(projection.visible_products(
+    assert set(projection.visible_supplies(
         engine.state, engine.state.agents[1], engine.scenario)) == product_ids

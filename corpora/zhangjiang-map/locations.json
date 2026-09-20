@@ -1,42 +1,88 @@
 {
   "schema_version": 1,
-  "corpus_id": "zhangjiang-locations-2026-09-18",
-  "description": "地点品类语料：从冻结张江 OSM 探针选取的真实兴趣点（含冻结场景锚点），带营业时间与可供性声明。",
-  "source": {
-    "osm_probe": "corpora/zhangjiang-map/zhangjiang-probe.osm",
-    "retrieved_at_probe": "2026-09-15",
-    "selection_note": "按品类就近选取真实 POI；营业时间在探针无 opening_hours 标签时为 scenario 假设"
-  },
-  "required_kinds": [
-    "home",
-    "office",
-    "canteen_or_restaurant",
-    "convenience_store",
-    "supermarket_or_wet_market",
-    "park_or_fitness"
-  ],
-  "min_per_kind": {
-    "canteen_or_restaurant": 2
-  },
-  "count": 11,
   "locations": [
     {
       "location_id": "home",
       "name": "张江居所（冻结场景锚点）",
       "kind": "home",
-      "covers": [
+      "business_kind": "home",
+      "longitude": 121.6142,
+      "latitude": 31.2025,
+      "location_kinds": [
         "home"
       ],
-      "latitude": 31.2025,
-      "longitude": 121.6142,
-      "coordinate_source": {
-        "type": "frozen-scenario-anchor",
-        "note": "scenarios/white-collar-12-weeks.json locations[home]，非新造坐标"
-      },
-      "opening_hours": {
-        "opens": "00:00",
-        "closes": "24:00",
-        "basis": "住所无营业时间概念（scenario）"
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "住所无营业时间概念（scenario）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "1": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "2": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "3": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "4": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "5": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "6": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/zhangjiang-storefronts",
+        "retrieved_at": "2026-09-20T00:00:00+08:00",
+        "license": "WorldMock-project",
+        "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+        "fact_cutoff": "2026-09-20",
+        "applicability": "scenarios/white-collar-12-weeks.json locations[home]，非新造坐标; selected simulation anchor, not a verified real establishment."
       },
       "affordances": {
         "morning_routine": {
@@ -58,19 +104,84 @@
       "location_id": "office",
       "name": "张江高科技园区办公室（冻结场景锚点）",
       "kind": "office",
-      "covers": [
+      "business_kind": "office",
+      "longitude": 121.6278,
+      "latitude": 31.2108,
+      "location_kinds": [
         "office"
       ],
-      "latitude": 31.2108,
-      "longitude": 121.6278,
-      "coordinate_source": {
-        "type": "frozen-scenario-anchor",
-        "note": "scenarios/white-collar-12-weeks.json locations[office]，非新造坐标"
-      },
-      "opening_hours": {
-        "opens": "08:00",
-        "closes": "22:00",
-        "basis": "冻结场景 office open_hour/close_hour"
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "冻结场景 office open_hour/close_hour; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "1": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "2": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "3": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "4": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "5": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ],
+            "6": [
+              {
+                "opens": 480,
+                "closes": 1320
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/zhangjiang-storefronts",
+        "retrieved_at": "2026-09-20T00:00:00+08:00",
+        "license": "WorldMock-project",
+        "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+        "fact_cutoff": "2026-09-20",
+        "applicability": "scenarios/white-collar-12-weeks.json locations[office]，非新造坐标; selected simulation anchor, not a verified real establishment."
       },
       "affordances": {
         "pantry_water": {
@@ -89,23 +200,84 @@
       "location_id": "poi-3538660453",
       "name": "菜饭骨头汤",
       "kind": "restaurant",
-      "covers": [
-        "canteen_or_restaurant"
-      ],
-      "latitude": 31.2048913,
+      "business_kind": "restaurant",
       "longitude": 121.6166504,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538660453
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "10:00",
-        "closes": "21:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2048913,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "1": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "2": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "3": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "4": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "5": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "6": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538660453",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "dine_in": true,
@@ -117,23 +289,84 @@
       "location_id": "poi-3538682404",
       "name": "鼎盛川菜",
       "kind": "restaurant",
-      "covers": [
-        "canteen_or_restaurant"
-      ],
-      "latitude": 31.2057286,
+      "business_kind": "restaurant",
       "longitude": 121.6169261,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538682404
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "10:30",
-        "closes": "21:30",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2057286,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "1": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "2": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "3": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "4": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "5": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ],
+            "6": [
+              {
+                "opens": 630,
+                "closes": 1290
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538682404",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "dine_in": true,
@@ -145,23 +378,84 @@
       "location_id": "poi-3538682408",
       "name": "三十六道金牌煲仔饭",
       "kind": "restaurant",
-      "covers": [
-        "canteen_or_restaurant"
-      ],
-      "latitude": 31.2061927,
+      "business_kind": "restaurant",
       "longitude": 121.6170379,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538682408
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "10:00",
-        "closes": "21:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2061927,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "1": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "2": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "3": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "4": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "5": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ],
+            "6": [
+              {
+                "opens": 600,
+                "closes": 1260
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538682408",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "dine_in": true,
@@ -173,23 +467,84 @@
       "location_id": "poi-3538682402",
       "name": "好德",
       "kind": "convenience_store",
-      "covers": [
-        "convenience_store"
-      ],
-      "latitude": 31.2055062,
+      "business_kind": "convenience_store",
       "longitude": 121.6167248,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538682402
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "07:00",
-        "closes": "23:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2055062,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "1": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "2": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "3": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "4": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "5": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "6": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538682402",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "quick_purchase": "catalog food-*（便利店即食品）"
@@ -199,23 +554,84 @@
       "location_id": "poi-3538763552",
       "name": "农工商超市",
       "kind": "supermarket",
-      "covers": [
-        "supermarket_or_wet_market"
-      ],
-      "latitude": 31.2061428,
+      "business_kind": "supermarket",
       "longitude": 121.6127158,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538763552
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "07:30",
-        "closes": "22:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2061428,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "1": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "2": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "3": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "4": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "5": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ],
+            "6": [
+              {
+                "opens": 450,
+                "closes": 1320
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538763552",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "grocery_purchase": true,
@@ -226,23 +642,84 @@
       "location_id": "poi-3538684972",
       "name": "紫薇菜市场",
       "kind": "wet_market",
-      "covers": [
-        "supermarket_or_wet_market"
-      ],
-      "latitude": 31.2071006,
+      "business_kind": "wet_market",
       "longitude": 121.6162677,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 3538684972
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "06:30",
-        "closes": "19:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2071006,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "1": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "2": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "3": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "4": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "5": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ],
+            "6": [
+              {
+                "opens": 390,
+                "closes": 1140
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/3538684972",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "fresh_purchase": true
@@ -252,23 +729,85 @@
       "location_id": "poi-1868478037",
       "name": "篮球场",
       "kind": "fitness",
-      "covers": [
-        "park_or_fitness"
-      ],
-      "latitude": 31.2020801,
+      "business_kind": "fitness",
       "longitude": 121.6183492,
-      "coordinate_source": {
-        "type": "osm-probe-node",
-        "osm": {
-          "type": "node",
-          "id": 1868478037
-        },
-        "note": "zhangjiang-probe.osm 节点坐标原样引用，不新造坐标"
-      },
-      "opening_hours": {
-        "opens": "06:00",
-        "closes": "22:00",
-        "basis": "scenario assumption（OSM 探针无 opening_hours 标签）"
+      "latitude": 31.2020801,
+      "location_kinds": [
+        "outdoor",
+        "fitness"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "scenario assumption（OSM 探针无 opening_hours 标签）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "1": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "2": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "3": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "4": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "5": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ],
+            "6": [
+              {
+                "opens": 360,
+                "closes": 1320
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/node/1868478037",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence."
       },
       "affordances": {
         "sport_activities": [
@@ -280,23 +819,85 @@
       "location_id": "poi-337936012",
       "name": "紫薇公园",
       "kind": "park",
-      "covers": [
-        "park_or_fitness"
-      ],
-      "latitude": 31.2023337,
+      "business_kind": "park",
       "longitude": 121.6105584,
-      "coordinate_source": {
-        "type": "osm-probe-way-centroid",
-        "osm": {
-          "type": "way",
-          "id": 337936012
-        },
-        "note": "way 成员节点均值质心（13/13 个带坐标节点）"
-      },
-      "opening_hours": {
-        "opens": "00:00",
-        "closes": "24:00",
-        "basis": "市政公园全天开放（scenario 假设）"
+      "latitude": 31.2023337,
+      "location_kinds": [
+        "outdoor",
+        "fitness"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "市政公园全天开放（scenario 假设）; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "1": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "2": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "3": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "4": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "5": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ],
+            "6": [
+              {
+                "opens": 0,
+                "closes": 1440
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "fact",
+        "url": "https://www.openstreetmap.org/way/337936012",
+        "retrieved_at": "2026-09-15T10:30:00+08:00",
+        "license": "ODbL-1.0",
+        "notice": "© OpenStreetMap contributors; https://www.openstreetmap.org/copyright",
+        "fact_cutoff": "2026-09-15",
+        "applicability": "September 2026 map snapshot used for January-March 2026 simulation; this is not historical January store evidence. Coordinates are the arithmetic centroid of all 13 way member references in the frozen OSM extract."
       },
       "affordances": {
         "outdoor_activities": [
@@ -309,19 +910,84 @@
       "location_id": "market",
       "name": "张江日用集市与配送取货点（冻结场景锚点）",
       "kind": "merchant",
-      "covers": [
-        "merchant_goods"
-      ],
-      "latitude": 31.206,
+      "business_kind": "general_retail",
       "longitude": 121.6205,
-      "coordinate_source": {
-        "type": "frozen-scenario-anchor",
-        "note": "scenarios/*.json locations[market]，场景合成锚点（fetch.py 的 _LOCATIONS['market']），非新造坐标"
-      },
-      "opening_hours": {
-        "opens": "07:00",
-        "closes": "23:00",
-        "basis": "冻结场景 market open_hour/close_hour"
+      "latitude": 31.206,
+      "location_kinds": [
+        "venue"
+      ],
+      "opening_calendars": [
+        {
+          "effective_from": "2026-01-01T00:00:00+08:00",
+          "effective_to": null,
+          "reviewed_on": "2026-09-20",
+          "still_valid_on": "2027-12-31",
+          "source": {
+            "kind": "scenario",
+            "url": "scenario://worldmock/zhangjiang-storefronts",
+            "retrieved_at": "2026-09-20T00:00:00+08:00",
+            "license": "WorldMock-project",
+            "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+            "fact_cutoff": "2026-09-20",
+            "applicability": "冻结场景 market open_hour/close_hour; explicitly assumed for the simulation interval."
+          },
+          "weekly": {
+            "0": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "1": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "2": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "3": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "4": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "5": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ],
+            "6": [
+              {
+                "opens": 420,
+                "closes": 1380
+              }
+            ]
+          },
+          "exceptions": {}
+        }
+      ],
+      "required_qualifications": [],
+      "brand": null,
+      "source": {
+        "kind": "scenario",
+        "url": "scenario://worldmock/zhangjiang-storefronts",
+        "retrieved_at": "2026-09-20T00:00:00+08:00",
+        "license": "WorldMock-project",
+        "notice": "WorldMock scenario assumptions; store offers and opening times are not observed retail facts.",
+        "fact_cutoff": "2026-09-20",
+        "applicability": "scenarios/*.json locations[market]，场景合成锚点（fetch.py 的 _LOCATIONS['market']），非新造坐标; selected simulation anchor, not a verified real establishment."
       },
       "affordances": {
         "goods_retail": true,

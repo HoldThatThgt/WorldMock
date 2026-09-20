@@ -53,50 +53,44 @@ def _function_names(agent: LifeAgent) -> set[str]:
 
 def _stage_open_single_stock(engine) -> str:
     """让一个公开商品处于营业时段且只剩一件。"""
-    product = engine.scenario.products[0]
-    merchant = next(
-        item for item in engine.scenario.locations
-        if item.location_id == product.merchant_location_id
-    )
+    supply = engine.scenario.supplies[0]
+    product_id = supply.product_id
     local = datetime.fromtimestamp(engine.state.current_time, ZoneInfo(engine.scenario.timezone))
-    now = int(local.replace(hour=merchant.open_hour, minute=0, second=0).timestamp())
+    now = int(local.replace(hour=12, minute=0, second=0).timestamp())
     state = engine.state.model_copy(deep=True)
     state.current_time = now
     state.pending_events = [item for item in state.pending_events if item.due_at > now]
-    state.merchant_stock[product.product_id] = 1
+    state.supply_stock[supply.supply_id] = 1
     agent = state.agents[1]
-    visible = set(agent.visible_product_ids)
-    visible.add(product.product_id)
-    inventory = {"office": {product.product_id: 0.0}, "home": {product.product_id: 1.0}}
+    inventory = {"office": {product_id: 0.0}, "home": {product_id: 1.0}}
     state.agents[1] = agent.model_copy(
-        update={"visible_product_ids": visible, "product_browsed_at": now,
-                    "product_browsed_location": "office", "location_id": "office",
-                "inventory": inventory, "next_decision_at": now},
-        deep=True,
-    )
+        update={"visible_supply_ids": {supply.supply_id}, "supply_browsed_at": {supply.supply_id: now},
+                "supply_browsed_location": {supply.supply_id: "office"}, "location_id": "office",
+                "inventory": inventory, "next_decision_at": now}, deep=True)
     _commit_test_state(engine, state, "test_single_stock")
-    return product.product_id
+    return supply.supply_id
 
 
 def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -> None:
     """真实观察形成可购买闭集，结算最后库存后下一轮撤下购买工具。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    product_id = _stage_open_single_stock(engine)
+    supply_id = _stage_open_single_stock(engine)
+    product_id = next(item.product_id for item in engine.scenario.supplies if item.supply_id == supply_id)
     first_context = context(engine, "purchase-grounded")
     engine.begin_decision_round([first_context])
     observation = engine.observe(first_context)
     agent = _prepare_agent(observation, first_context.observed_at)
-    product = next(item for item in observation["products"] if item["product_id"] == product_id)
+    supply = next(item for item in observation["supplies"] if item["supply_id"] == supply_id)
     payload = {
-        "items": [{"product_id": product_id, "quantity": 1,
-                   "price_version": product["price_version"]}],
+        "items": [{"supply_id": supply_id, "quantity": 1,
+                   "price_version": supply["price_version"]}],
         "fulfillment": "delivery",
         "destination_id": "home",
     }
     decision = ReactDecision("", "purchase", payload, "")
 
-    assert product["current_stock"] == 1 and "initial_stock" not in product
+    assert supply["current_stock"] == 1 and "initial_stock" not in supply
     assert observation["available_inventory"][product_id] == 0
     assert "consume" not in _function_names(agent)
     assert agent.validate_react_decisions([decision], False) == ""
@@ -106,7 +100,7 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
         first_context, "action-purchase-grounded", "purchase", request))
     result = engine.commit_decision_round("purchase-grounded")[0]
     assert result.status == "completed"
-    assert engine.state.merchant_stock[product_id] == 0
+    assert engine.state.supply_stock[supply_id] == 0
 
     # 下一决策钉在浏览可见期内（+900 < 1800 秒，docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：售罄商品仍在
     # 可见目录中报告 current_stock=0，购买工具按库存闭集撤下。
@@ -116,7 +110,7 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     engine.begin_decision_round([next_context])
     refreshed = engine.observe(next_context)
     next_agent = _prepare_agent(refreshed, next_context.observed_at)
-    sold_out = next(item for item in refreshed["products"] if item["product_id"] == product_id)
+    sold_out = next(item for item in refreshed["supplies"] if item["supply_id"] == supply_id)
 
     assert sold_out["current_stock"] == 0 and "initial_stock" not in sold_out
     assert "purchase" not in _function_names(next_agent)

@@ -104,7 +104,7 @@ def test_reference_integrity_unknown_object(tmp_path: Path) -> None:
 def test_reference_integrity_unknown_edge_endpoint(tmp_path: Path) -> None:
     """@brief 引用对象的边指向不存在的字面资源被拒。"""
     objects = default_objects()
-    objects[0]["edges"][1]["resource"] = "energy_missing"
+    objects[0]["edges"][0]["resource"] = "energy_missing"
     refs = valid_refs()
     result = validate_scenario_against_catalog(refs, _catalog(tmp_path, objects=objects))
     assert _codes(result) == {CATALOG_REF_INTEGRITY}
@@ -135,7 +135,7 @@ def test_unit_mismatch_on_account_unit(tmp_path: Path) -> None:
 def test_unit_mismatch_on_explicit_edge_unit(tmp_path: Path) -> None:
     """@brief 边上显式声明的单位与资源单位不一致被拒。"""
     objects = default_objects()
-    objects[0]["edges"][1]["unit"] = "cal"
+    objects[0]["edges"][0]["unit"] = "cal"
     result = validate_scenario_against_catalog(valid_refs(), _catalog(tmp_path, objects=objects))
     assert _codes(result) == {UNIT_MISMATCH}
 
@@ -193,7 +193,7 @@ def test_conservation_scenario_account_must_bind_closed_account_type(tmp_path: P
 def test_conservation_unbound_role_rejected(tmp_path: Path) -> None:
     """@brief 占位端点的角色未被场景账户声明被拒。"""
     refs = valid_refs()
-    accounts = tuple(a for a in refs.accounts if a.role != "merchant:grocery")
+    accounts = tuple(a for a in refs.accounts if a.role != "transport:service")
     refs = refs.model_copy(update={"accounts": accounts})
     result = validate_scenario_against_catalog(refs, _catalog(tmp_path))
     assert _codes(result) == {CONSERVATION_DOMAIN_VIOLATION}
@@ -218,8 +218,8 @@ def test_conservation_transfer_literal_endpoint_must_be_closed_account(tmp_path:
         }
     )
     objects = default_objects()
-    objects[0]["edges"][0] = {
-        "on": "purchase",
+    objects[2]["edges"][0] = {
+        "on": "depart",
         "type": "transfer",
         "from": "money_fen",
         "to": "voucher_fen",
@@ -248,8 +248,8 @@ def test_conservation_transfer_endpoints_must_share_domain(tmp_path: Path) -> No
         }
     )
     objects = default_objects()
-    objects[0]["edges"][0] = {
-        "on": "purchase",
+    objects[2]["edges"][0] = {
+        "on": "depart",
         "type": "transfer",
         "from": "{buyer}",
         "to": "{coupon_bank}",
@@ -270,7 +270,7 @@ def test_conservation_transfer_endpoints_must_share_domain(tmp_path: Path) -> No
 def test_conservation_source_must_target_open_domain(tmp_path: Path) -> None:
     """@brief source 边注入封闭守恒账户被拒。"""
     objects = default_objects()
-    objects[0]["edges"][1] = {
+    objects[0]["edges"][0] = {
         "on": "consume",
         "type": "source",
         "resource": "money_fen",

@@ -144,8 +144,8 @@ def test_search_filters_each_dimension_independently():
     assert [item.object_id for item in search(entries, query)] == ["keep"]
 
 
-def test_place_kinds_skips_malformed_entries(tmp_path):
-    """地点语料里的非映射条目与无标识条目被跳过，不产生空键。"""
+def test_place_kinds_rejects_malformed_entries(tmp_path):
+    """地点语料里的非映射条目与无标识条目必须明确拒绝。"""
     path = tmp_path / "zhangjiang-map" / "locations.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"locations": [
@@ -153,7 +153,8 @@ def test_place_kinds_skips_malformed_entries(tmp_path):
         {"name": "no id"},
         {"location_id": "home", "location_kinds": ["home"]},
     ]}), encoding="utf-8")
-    assert dict(place_kinds(tmp_path)) == {"home": frozenset({"home"})}
+    with pytest.raises(ValueError, match="activity kinds declaration"):
+        place_kinds(tmp_path)
 
 
 def test_item_kinds_skips_malformed_entries(tmp_path):
@@ -215,8 +216,8 @@ def test_facet_counts_reflect_current_filters():
 
 
 def test_feasible_kinds_follows_anywhere_and_intersection():
-    """地点类交集：任一侧含 anywhere 恒可行；两侧都有声明时交集非空才可行。"""
-    assert feasible_kinds({"anywhere"}, {"venue"}) is True
+    """地点类交集：活动侧 anywhere 恒可行；地点侧必须具有实际活动环境。"""
+    assert feasible_kinds({"anywhere"}, {"venue"}) is False
     assert feasible_kinds({"home"}, {"anywhere"}) is True
     assert feasible_kinds({"home", "office"}, {"home"}) is True
     assert feasible_kinds({"office"}, {"home"}) is False
@@ -287,8 +288,8 @@ def test_reachable_entry_row_is_serialisable():
     assert json.dumps(row, ensure_ascii=False)
 
 
-def test_place_kinds_defaults_undeclared_locations_to_anywhere(tmp_path):
-    """地点未声明地点类时按恒可行处理；声明了空的也按未声明处理。"""
+def test_place_kinds_rejects_undeclared_location_environment(tmp_path):
+    """地点环境缺失或为空必须拒绝，不自动使用 anywhere。"""
     path = tmp_path / "zhangjiang-map" / "locations.json"
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"locations": [
@@ -296,15 +297,14 @@ def test_place_kinds_defaults_undeclared_locations_to_anywhere(tmp_path):
         {"location_id": "market"},
         {"location_id": "office", "location_kinds": []},
     ]}), encoding="utf-8")
-    kinds = place_kinds(tmp_path)
-    assert kinds["home"] == frozenset({"home"})
-    assert kinds["market"] == frozenset({ANYWHERE_KIND})
-    assert kinds["office"] == frozenset({ANYWHERE_KIND})
+    with pytest.raises(ValueError, match="activity kinds declaration"):
+        place_kinds(tmp_path)
 
 
-def test_place_kinds_missing_file_returns_empty(tmp_path):
-    """地点语料缺失时返回空表（调用方按「没有地点可判定」处理）。"""
-    assert dict(place_kinds(tmp_path)) == {}
+def test_place_kinds_missing_file_is_rejected(tmp_path):
+    """地点语料缺失必须拒绝。"""
+    with pytest.raises(ValueError, match="location corpus is missing"):
+        place_kinds(tmp_path)
 
 
 def test_item_kinds_reads_lifestyle_declarations(tmp_path):

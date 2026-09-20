@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from enum import StrEnum
 from types import MappingProxyType
@@ -276,13 +277,6 @@ Edge = Annotated[
 ]
 
 
-class Stock(CatalogModel):
-    """@brief 交换对象的库存初值与补货策略。"""
-
-    initial: float = Field(ge=0)
-    restock: str = Field(default="none", pattern=r"\S")
-
-
 class Serving(CatalogModel):
     """@brief 一份交换对象份量的数量与单位。"""
 
@@ -306,19 +300,16 @@ class Efficiency(CatalogModel):
 
 
 class ExchangeObject(CatalogModel):
-    """@brief 一条交换对象条目：全部经济语义为一组边。"""
+    """@brief 商品使用定义或服务、合同交换声明；门店交易事实由供给负责。"""
 
     object_id: str = Field(pattern=r"\S")
     name: str = Field(pattern=r"\S")
     object_kind: ObjectKind
     effect: str | None = Field(default=None, pattern=r"\S")
-    legacy_effect: str | None = Field(default=None, pattern=r"\S")
     consumable: bool | None = None
     use_modes: tuple[str, ...] = ()
-    edges: tuple[Edge, ...] = Field(min_length=1)
-    stock: Stock | None = None
+    edges: tuple[Edge, ...]
     use_duration_seconds: int | None = Field(default=None, ge=1)
-    delivery_delay_seconds: int | None = Field(default=None, ge=1)
     serving: Serving | None = None
     required_location_id: str | None = Field(default=None, pattern=r"\S")
     formula_ref: str | None = Field(default=None, pattern=r"\S")
@@ -330,6 +321,12 @@ class ExchangeObject(CatalogModel):
     @model_validator(mode="after")
     def validate_provenance_coverage(self) -> "ExchangeObject":
         """@brief 要求每条边至少有一条去重后的溯源标注。"""
+        if self.object_kind == ObjectKind.PRODUCT and any(edge.on == "purchase" for edge in self.edges):
+            logging.error("Product definitions must not contain purchase price edges")
+            raise ValueError("Product definitions must not contain purchase price edges")
+        if self.object_kind != ObjectKind.PRODUCT and not self.edges:
+            logging.error("Non-product exchange objects require at least one edge")
+            raise ValueError("Non-product exchange objects require at least one edge")
         parts = [entry.part for entry in self.provenance]
         if len(set(parts)) != len(parts):
             raise ValueError("object provenance parts must be unique")

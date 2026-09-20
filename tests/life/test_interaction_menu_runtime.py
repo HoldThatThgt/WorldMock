@@ -48,7 +48,7 @@ def _domain_state(engine):
     """提取拒绝前后不得被菜单改变的领域状态。"""
     state = engine.state.model_dump(mode="json")
     return {"accounts": state["accounts"], "activities": state["activities"],
-            "merchant_stock": state["merchant_stock"],
+            "supply_stock": state["supply_stock"],
             "agents": {key: {name: value[name] for name in (
                 "location_id", "inventory", "game_sessions", "content_progress", "current_activity_id")}
                        for key, value in state["agents"].items()}}

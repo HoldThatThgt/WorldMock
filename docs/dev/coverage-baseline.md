@@ -1,10 +1,10 @@
 # 覆盖率门禁口径与基线
 
-> 状态：本文口径与 `scripts/coverage_gate.py` 实现逐项一致；最近一次门禁记录两项机器口径达标（整体分支覆盖率 99.01% ≥ 85.00，未覆盖公共接口 0），顶层判定为不通过——该次运行的测试套件退出码非 0
-> 日期：2026-09-18
+> 状态：本文当前口径与 `scripts/coverage_gate.py` 对齐；保留的历史门禁记录两项机器口径达标（整体分支覆盖率 99.01% ≥ 85.00，未覆盖公共接口 0），顶层判定为不通过——该次运行的测试套件退出码非 0；不代表当前整合版本的验收结果
+> 日期：2026-09-20（修正当前输出路径，历史基线保留原始身份）
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
-门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
+门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
 
 ## 门禁流程
 
@@ -16,8 +16,8 @@ flowchart TB
     B -- "是" --> D["枚举生产根目录，抽取公共接口<br/>对照未执行行找出未覆盖接口"]
     C --> E{"测试套件退出码为 0<br/>且分支覆盖率 ≥ 85.00<br/>且未覆盖公共接口数为 0"}
     D --> E
-    E -- "是" --> P["写 docs/dev/coverage-report.json<br/>退出码 0（PASSED）"]
-    E -- "否" --> Q["写 docs/dev/coverage-report.json<br/>退出码 1（FAILED）"]
+    E -- "是" --> P["写 docs/coverage-report.json<br/>退出码 0（PASSED）"]
+    E -- "否" --> Q["写 docs/coverage-report.json<br/>退出码 1（FAILED）"]
 ```
 
 ## 覆盖率口径
@@ -49,7 +49,7 @@ flowchart TB
 
 ```bash
 # 一键门禁：跑全量 pytest → 导出 coverage JSON → 判定两项机器口径 →
-# 写 docs/dev/coverage-report.json；退出码 0=通过 / 1=不通过
+# 写 docs/coverage-report.json；退出码 0=通过 / 1=不通过
 uv run python scripts/coverage_gate.py
 
 # 分项查看（需先有 .coverage 数据，可由门禁脚本产生）
@@ -57,11 +57,11 @@ uv run coverage report          # 终端汇总表
 uv run coverage html            # HTML 明细
 ```
 
-`docs/dev/coverage-report.json` 是生成物，每次运行覆盖重写，内容为：生成时间、执行命令、证据身份（本次运行的 `snapshot_id`、覆盖数据的 `manifest_hash`、被测源代码的 Git 提交哈希 `source_identity`，取不到时记为 `unknown`）、阈值、整体分支覆盖（covered / missing / total / percent / passed）、逐文件分支覆盖、未覆盖公共接口清单（`文件:行:函数名:种类`）、顶层判定位 `passed`。
+`docs/coverage-report.json` 是生成物，每次运行覆盖重写，内容为：生成时间、执行命令、证据身份（本次运行的 `snapshot_id`、覆盖数据的 `manifest_hash`、被测源代码的 Git 提交哈希 `source_identity`，取不到时记为 `unknown`）、阈值、整体分支覆盖（covered / missing / total / percent / passed）、逐文件分支覆盖、未覆盖公共接口清单（`文件:行:函数名:种类`）、顶层判定位 `passed`。
 
 ## 基线记录
 
-基线取自磁盘上的最近一次门禁产物 `docs/dev/coverage-report.json`（观察时间 2026-09-18T12:24:15+00:00，`source_identity` 为 `8991a1047764e279392967fa832ad48210558cdc`）：
+以下历史基线取自当时门禁产物 `docs/dev/coverage-report.json`（观察时间 2026-09-18T12:24:15+00:00，`source_identity` 为 `8991a1047764e279392967fa832ad48210558cdc`）；历史路径不代表当前输出位置：
 
 | 指标 | 数值 |
 | --- | --- |
@@ -81,3 +81,4 @@ uv run coverage html            # HTML 明细
 | `2026-09-18` | 2026-09-18 | 覆盖率门禁口径与基线记录：两项机器口径、一项映射义务；失败关闭约定；测量范围与排除。 |
 | `2026-09-18-revision-1` | 2026-09-18 | 行文与结构改造：状态头改为 LabelKit 形态；章节标题改为概念命名；口径与阈值逐项对照 `scripts/coverage_gate.py` 与 `pyproject.toml` 重写；基线改以 `docs/dev/coverage-report.json` 实产物为准并标注观察时间。 |
 | `2026-09-18-revision-2` | 2026-09-18 | 失败关闭约定按 `scripts/coverage_gate.py` 的 `parse_production_source` 原文纠正：语法错误抛出的 `RuntimeError` 只携带文件名与行号。 |
+| `2026-09-20` | 2026-09-20 | 当前行为、流程图与使用命令的输出路径统一为脚本实际 `docs/coverage-report.json`；历史基线保留原始路径、数值与源码身份。 |

@@ -45,13 +45,11 @@ def test_lineage_lists_every_part(loaded_catalog) -> None:
     assert report.object_version == 1
     assert [(entry.part, entry.type) for entry in report.entries] == [
         ("consume energy edge", ProvenanceType.FACT),
-        ("purchase price edge", ProvenanceType.ANCHORED),
-        ("stock", ProvenanceType.SCENARIO),
-        ("legacy timing/serving fields", ProvenanceType.SCENARIO),
+        ("use timing and serving", ProvenanceType.SCENARIO),
     ]
     assert report.entries[0].source == "openfoodfacts:product/6923644266066"
-    assert report.entries[0].paths == ("edges[1].amount",)
-    assert report.entries[1].method == "point-in-distribution p60"
+    assert report.entries[0].paths == ("edges[0].amount",)
+    assert report.entries[1].source == "test fixture"
 
 
 def test_lineage_contract_object(loaded_catalog) -> None:

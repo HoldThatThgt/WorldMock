@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,12 @@ def route_for(scenario: LifeScenario, origin_id: str, request: StartActivityRequ
     matches = [route for route in scenario.routes if route.origin_id == origin_id
                and route.destination_id == request.destination_id and route.mode == request.travel_mode]
     if len(matches) != 1:
+        logging.getLogger(__name__).error("Frozen route identity is missing or ambiguous")
         raise BusinessRuleError("FROZEN_ROUTE_NOT_FOUND")
+    if matches[0].status != "reachable":
+        reason = "ROUTE_UNREACHABLE" if matches[0].status == "unreachable" else "ROUTE_INFORMATION_UNKNOWN"
+        logging.getLogger(__name__).error("Travel rejected: %s", reason)
+        raise BusinessRuleError(reason)
     return matches[0]
 
 
@@ -58,17 +64,25 @@ def pay_travel_fare(state: WorldState, scenario: LifeScenario, agent_id: int,
 def validate_routes(scenario: LifeScenario, corpus_root: Path) -> None:
     """@brief 全量核验路线文件身份及 OSRM 返回的距离和时长。"""
     for route in scenario.routes:
+        if route.status == "unknown":
+            continue
         path = _safe_file(corpus_root, route.response_path)
         content = path.read_bytes()
         if hashlib.sha256(content).hexdigest() != route.response_sha256:
             raise IntegrityError("Frozen route response hash mismatch")
         try:
             response = json.loads(content)
-            first = response["routes"][0]
         except Exception as error:
             raise IntegrityError("Frozen route response is invalid") from error
+        if route.status == "unreachable":
+            if response.get("code") != "NoRoute":
+                raise IntegrityError("Frozen unreachable route requires a NoRoute response")
+            continue
         if response.get("code") != "Ok":
             raise IntegrityError("Frozen route response was not successful")
+        if not response.get("routes"):
+            raise IntegrityError("Frozen route response has no route")
+        first = response["routes"][0]
         if abs(float(first["distance"]) - route.distance_meters) > 0.1:
             raise IntegrityError("Frozen route distance mismatch")
         if abs(float(first["duration"]) - route.duration_seconds) > 1:

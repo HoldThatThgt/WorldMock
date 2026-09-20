@@ -1,5 +1,5 @@
 {
-  "version_major": 2,
+  "version_major": 3,
   "version_minor": 0,
   "category_requirements": {
     "declared_at": "2026-09-18",
@@ -18,13 +18,15 @@
     "location_required_kinds": [
       "home",
       "office",
-      "canteen_or_restaurant",
+      "restaurant",
       "convenience_store",
-      "supermarket_or_wet_market",
-      "park_or_fitness"
+      "supermarket",
+      "wet_market",
+      "park",
+      "fitness"
     ],
     "location_min_per_kind": {
-      "canteen_or_restaurant": 2
+      "restaurant": 2
     },
     "home_pantry": {
       "breakfast_servings_min": 7,

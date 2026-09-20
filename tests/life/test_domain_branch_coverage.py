@@ -48,7 +48,7 @@ from worldmock.life.basket import (
     purchase_order,
     validate_meal,
 )
-from worldmock.life.commerce import deliver_order, purchase
+from worldmock.life.commerce import deliver_order
 from worldmock.life.content import (
     load_content_titles,
     load_lifestyle_items,
@@ -78,7 +78,6 @@ from worldmock.life.models import (
     GameProgress,
     PurchaseItem,
     PurchaseOrderRequest,
-    PurchaseRequest,
     StartActivityRequest,
     StartSocialActivityRequest,
     TravelMode,
@@ -100,12 +99,15 @@ from worldmock.life.motivation import (
     _work_candidates,
     load_motivation_transforms,
 )
+from worldmock.life.map_models import DataSource, SupplyConfig
+from worldmock.life.storefront_state import quote_state
 from worldmock.life.narration import render_scene
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
     GameConfig,
     LifeScenario,
+    RuntimeScenario,
     LocationConfig,
     MessageConfig,
     MotivationProfile,
@@ -198,42 +200,62 @@ def _agent(**overrides) -> AgentState:
     return AgentState(**payload)
 
 
-def _product(product_id="food-1", price=800, kcal=600, location="market",
+def _product(product_id="food-1", kcal=600,
              duration=900, use_modes=("eat",), consumable=True, effect="fed",
              required_location=None) -> ProductConfig:
     serving = {"serving_quantity": 1.0, "serving_unit": "serving"} if "eat" in use_modes else {}
     return ProductConfig.model_validate({
-        "product_id": product_id, "name": "Test food", "merchant_account_id": "merchant:g",
-        "merchant_location_id": location, "price_fen": price, "price_version": "v1",
-        "initial_stock": 5, "energy_kcal_per_unit": kcal if "eat" in use_modes else 0,
+        "product_id": product_id, "name": "Test food",
+        "energy_kcal_per_unit": kcal if "eat" in use_modes else 0,
         "use_duration_seconds": duration, "use_modes": list(use_modes),
         "consumable": consumable, "effect": effect,
         "required_location_id": required_location,
-        "delivery_delay_seconds": 600, "source_kind": "test", **serving})
+        "source_kind": "test", **serving})
+
+
+def _source(kind="scenario") -> dict:
+    return {"kind": kind, "url": "scenario://domain-tests", "retrieved_at": "2023-11-15T00:00:00+08:00",
+            "license": "test", "notice": "Domain fixture", "fact_cutoff": "2023-11-14",
+            "applicability": "Explicit test fixture"}
+
+
+def _supply(product_id="food-1", supply_id="supply-food-1", location="market", price=800):
+    return SupplyConfig.model_validate({
+        "supply_id": supply_id, "product_id": product_id, "location_id": location,
+        "seller_account_id": "merchant:g", "initial_stock": 5,
+        "fulfillment_modes": ["pickup", "delivery"], "delivery_destination_ids": ["home"],
+        "delivery_delay_seconds": 600, "required_qualifications": [], "source": _source(),
+        "quotes": [{"price_fen": price, "price_version": "v1", "effective_from": "2023-01-01T00:00:00+08:00",
+                    "effective_to": None, "reviewed_on": "2023-11-14", "still_valid_on": "2027-01-01",
+                    "source": _source()}]})
 
 
 def _route(route_id="r1", origin="market", destination="home", mode="driving",
-           seconds=600, fare=600, response_path="routes/a.json",
-           response_sha256="a" * 64) -> RouteConfig:
+           seconds=600, fare=600, response_path="routes/a.json", response_sha256="a" * 64) -> RouteConfig:
+    profile = "car" if mode == "driving" else "foot"
     return RouteConfig.model_validate({
         "route_id": route_id, "origin_id": origin, "destination_id": destination,
-        "mode": mode, "distance_meters": 3000, "duration_seconds": seconds,
-        "fare_fen": fare, "fare_source_kind": "scenario",
+        "mode": mode, "status": "reachable", "distance_meters": 3000, "duration_seconds": seconds,
+        "fare_fen": fare, "fare_source_kind": "scenario", "reason": None,
         "response_path": response_path, "response_sha256": response_sha256,
-        "source_url": "https://example.com"})
+        "routing_instance": "https://routing.example", "routing_profile": profile,
+        "source_url": f"https://routing.example/route/v1/{profile}/test", "source": _source("fact")})
 
 
-def _location(location_id="market", open_hour=0, close_hour=24) -> LocationConfig:
+def _location(location_id="market", opens=0, closes=1440) -> LocationConfig:
     return LocationConfig.model_validate({
-        "location_id": location_id, "name": location_id, "kind": "shop",
-        "longitude": 121.4, "latitude": 31.2,
-        "open_hour": open_hour, "close_hour": close_hour})
+        "location_id": location_id, "name": location_id, "kind": "shop", "business_kind": "grocery",
+        "location_kinds": ["venue"], "longitude": 121.4, "latitude": 31.2,
+        "required_qualifications": [], "brand": None, "affordances": {}, "source": _source(),
+        "opening_calendars": [{"effective_from": "2023-01-01T00:00:00+08:00", "effective_to": None,
+                               "reviewed_on": "2023-11-14", "still_valid_on": "2027-01-01", "source": _source(),
+                               "weekly": {str(day): [{"opens": opens, "closes": closes}] for day in range(7)},
+                               "exceptions": {}}]})
 
 
-def _life_scenario(products=(), routes=(), locations=(), timezone=TIMEZONE) -> LifeScenario:
-    return LifeScenario.model_construct(
-        products=tuple(products), routes=tuple(routes),
-        locations=tuple(locations), timezone=timezone)
+def _life_scenario(products=(), routes=(), locations=(), timezone=TIMEZONE) -> RuntimeScenario:
+    return RuntimeScenario.model_construct(products=tuple(products), routes=tuple(routes),
+                                            locations=tuple(locations), supplies=(), timezone=timezone)
 
 
 def _world(agent: AgentState, *, accounts=None, stock=None, current_time=CURRENT,
@@ -241,7 +263,8 @@ def _world(agent: AgentState, *, accounts=None, stock=None, current_time=CURRENT
     return WorldState.model_construct(
         agents={agent.agent_id: agent},
         accounts=accounts if accounts is not None else {"agent:1": 100_000, "merchant:g": 0},
-        merchant_stock=stock if stock is not None else {"food-1": 5},
+        supply_stock=stock if stock is not None else {}, supply_quotes={},
+        opening_exceptions={"home": {}, "market": {}},
         current_time=current_time, paid_task_ids=set(),
         activities=activities if activities is not None else {},
         deliveries=deliveries if deliveries is not None else {},
@@ -276,73 +299,6 @@ def _sha(data: bytes) -> str:
 # commerce：单件购买/配送/按进度使用（`docs/CONTRACTS.md`「请求字段与结算检查」）
 # ---------------------------------------------------------------------------
 
-def test_commerce_purchase_rejects_unknown_product_without_mutation() -> None:
-    """单件购买目录外商品按业务拒绝（PRODUCT_NOT_FOUND）。"""
-    agent, scenario = _agent(), _life_scenario(products=[_product()])
-    state = _world(agent)
-    frozen = state.model_dump(mode="json")
-    request = PurchaseRequest(product_id="missing", quantity=1, fulfillment="delivery",
-                              destination_id="home", price_version="v1")
-    with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
-        purchase(state, scenario, 1, request)
-    assert state.model_dump(mode="json") == frozen
-
-
-def test_commerce_pickup_purchase_delivers_immediately_and_schedules_nothing() -> None:
-    """到店取货当场入库存且不产生配送事件（结算检查表：履约方式）。"""
-    agent = _agent(location_id="market", inventory={})
-    scenario = _life_scenario(products=[_product()], locations=[_location("market")])
-    request = PurchaseRequest(product_id="food-1", quantity=2, fulfillment="pickup",
-                              destination_id="market", price_version="v1")
-    outcome = purchase(_world(agent), scenario, 1, request)
-    assert outcome.delivery.status == "delivered"
-    assert outcome.scheduled is None
-    assert outcome.state.pending_events == []
-    assert outcome.state.agents[1].inventory["market"]["food-1"] == 2
-    assert outcome.state.accounts["agent:1"] == 100_000 - 2 * _product().price_fen
-    assert outcome.state.merchant_stock["food-1"] == 3
-
-
-@pytest.mark.parametrize(
-    ("accounts", "locations", "destination", "fulfillment", "code"),
-    (
-        # 资金不足：拒绝整单且不动库存
-        ({"agent:1": 100, "merchant:g": 0}, [_location("market")], "home", "delivery",
-         "INSUFFICIENT_FUNDS"),
-        # 商家按场景本地小时冻结营业：22 点对 23-24 营业的商家已关门
-        ({"agent:1": 100_000, "merchant:g": 0}, [_location("market", open_hour=23, close_hour=24)],
-         "home", "delivery", "MERCHANT_CLOSED"),
-        # 目的地不在场景地点闭集
-        ({"agent:1": 100_000, "merchant:g": 0}, [_location("market")], "nowhere", "delivery",
-         "DESTINATION_NOT_FOUND"),
-        # 取货地点必须同时是商家地点与人物所在地
-        ({"agent:1": 100_000, "merchant:g": 0}, [_location("market")], "market", "pickup",
-         "PICKUP_LOCATION_REQUIRED"),
-    ),
-)
-def test_commerce_purchase_resource_boundaries(accounts, locations, destination,
-                                               fulfillment, code) -> None:
-    """单件购买的报价外资源边界逐项 fail-closed。"""
-    agent = _agent(location_id="home")
-    scenario = _life_scenario(products=[_product()], locations=locations)
-    request = PurchaseRequest(product_id="food-1", quantity=1, fulfillment=fulfillment,
-                              destination_id=destination, price_version="v1")
-    with pytest.raises(BusinessRuleError, match=code):
-        purchase(_world(agent, accounts=accounts), scenario, 1, request)
-
-
-def test_commerce_delivery_requires_frozen_driving_route_across_locations() -> None:
-    """跨地点配送没有唯一冻结驾驶路线时拒绝（不能静默瞬移商品）。"""
-    agent = _agent(location_id="home")
-    scenario = _life_scenario(products=[_product()], locations=[_location("market"),
-                                                               _location("home")],
-                              routes=[])
-    request = PurchaseRequest(product_id="food-1", quantity=1, fulfillment="delivery",
-                              destination_id="home", price_version="v1")
-    with pytest.raises(BusinessRuleError, match="DELIVERY_ROUTE_NOT_FOUND"):
-        purchase(_world(agent), scenario, 1, request)
-
-
 def test_commerce_deliver_order_rejects_unknown_order() -> None:
     """到期配送对未知订单按业务拒绝。"""
     with pytest.raises(BusinessRuleError, match="ORDER_NOT_FOUND"):
@@ -359,64 +315,6 @@ def _use_activity(request: ConsumeRequest, **overrides) -> ActivityState:
 # ---------------------------------------------------------------------------
 # basket：整单购买与多件进食（`docs/dev/SPEC-life-realism.md`「商务与进食」）
 # ---------------------------------------------------------------------------
-
-def _order(product_ids=("food-1",), destination="home",
-           fulfillment=FulfillmentKind.DELIVERY, quantities=None) -> PurchaseOrderRequest:
-    items = tuple(
-        PurchaseItem(product_id=pid, quantity=(quantities or {}).get(pid, 1),
-                     price_version="v1")
-        for pid in product_ids)
-    return PurchaseOrderRequest(items=items, fulfillment=fulfillment,
-                                destination_id=destination)
-
-
-def test_basket_pickup_order_adds_inventory_without_delivery_events() -> None:
-    """整单取货逐件入库存且不排配送事件。"""
-    agent = _agent(location_id="market")
-    scenario = _life_scenario(products=[_product()], locations=[_location("market")])
-    outcome = purchase_order(_world(agent), scenario, 1, _order(destination="market",
-                                                                fulfillment=FulfillmentKind.PICKUP))
-    assert all(order.status == "delivered" for order in outcome.orders)
-    assert outcome.scheduled == ()
-    assert outcome.state.agents[1].inventory["market"]["food-1"] == 1
-
-
-def test_basket_order_rejects_item_count_out_of_contract_range() -> None:
-    """整单件数必须 1-5：六件整单拒绝。"""
-    agent = _agent()
-    scenario = _life_scenario(products=[_product()], locations=[_location("market")])
-    with pytest.raises(BusinessRuleError, match="ORDER_ITEM_COUNT_OUT_OF_RANGE"):
-        purchase_order(_world(agent), scenario, 1, _order(product_ids=("food-1",) * 6))
-
-
-def test_basket_order_rejects_unknown_product_item() -> None:
-    """整单内任一件目录外商品即整单拒绝。"""
-    agent = _agent()
-    scenario = _life_scenario(products=[_product()], locations=[_location("market")])
-    with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_FOUND"):
-        purchase_order(_world(agent), scenario, 1, _order(product_ids=("missing",)))
-
-
-def test_basket_order_rejects_mixed_merchants() -> None:
-    """跨商家整单拒绝：一次付款一次配送无法跨商家成立。"""
-    agent = _agent()
-    other = _product(product_id="food-2")
-    other = other.model_copy(update={"merchant_account_id": "merchant:other"})
-    scenario = _life_scenario(products=[_product(), other], locations=[_location("market")])
-    with pytest.raises(BusinessRuleError, match="ORDER_MERCHANT_MISMATCH"):
-        purchase_order(_world(agent), scenario, 1,
-                       _order(product_ids=("food-1", "food-2")))
-
-
-def test_basket_order_requires_delivery_route_for_remote_merchant() -> None:
-    """商家到目的地缺冻结驾驶路线时整单拒绝。"""
-    agent = _agent(location_id="home")
-    scenario = _life_scenario(products=[_product(location="market")],
-                              locations=[_location("market"), _location("home")],
-                              routes=[])
-    with pytest.raises(BusinessRuleError, match="DELIVERY_ROUTE_NOT_FOUND"):
-        purchase_order(_world(agent), scenario, 1, _order())
-
 
 def test_basket_change_inventory_rejects_over_consume() -> None:
     """负值变动超过持有量即 PRODUCT_NOT_HELD（其他地点库存不救场）。"""
@@ -803,12 +701,14 @@ def _profile() -> MotivationProfile:
 def _context(**overrides) -> MotivationContext:
     defaults = dict(
         agent=_agent(), balance_fen=20_000, body=_body(), home_location_id="home",
-        products=(), merchant_stock={}, locations={}, routes=(), tasks=(),
+        products=(), supplies=(), supply_stock={}, supply_quotes={}, opening_exceptions={},
+        lifestyle_items=(), activity_location_kinds={},
+        locations={}, routes=(), tasks=(),
         task_totals={}, contents=(), content_progress={}, active_activity=None,
         habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
-        planned_travel_seconds=lambda mode, base: base)
+        planned_travel_seconds=lambda mode, base, departure: base)
     defaults.update(overrides)
     return MotivationContext(**defaults)
 
@@ -853,7 +753,7 @@ def test_softmax_empty_value_list_returns_empty() -> None:
 
 def test_browse_candidate_requires_minimal_feasible_duration() -> None:
     """浏览候选的速览时长不足一分钟时不给候选。"""
-    context = _context(catalog_products=(_product(),), products=())
+    context = _context(catalog_supplies=(_supply(),), supplies=())
     assert _browse_candidate(context, {"probe_duration_seconds": 30}) is None
 
 
@@ -866,16 +766,14 @@ def test_sleep_candidate_skips_when_session_falls_below_minimum() -> None:
     assert _sleep_candidate(context, params) is None
 
 
-def test_feasible_food_rows_drop_unknown_merchant_location_and_unroutable_delivery() -> None:
-    """商家地点不在场景或无配送路线的食品不可行（不虚构可达性）。"""
+def test_feasible_food_rows_drop_unroutable_delivery() -> None:
+    """已准入地点的供给仍须具有明确可达的配送道路，不能虚构即时取得。"""
     distant = _product(product_id="food-far")
-    stocked = {"food-far": 5}
-    context = _context(products=(distant,), locations={}, merchant_stock=stocked,
-                       routes=(_route("r1", "office", "home"),))
-    assert _feasible_food_rows(context) == []  # 商家地点不在场景闭集
-    known = _context(products=(distant,), locations={"market": _location("market")},
-                     merchant_stock=stocked, routes=())
-    assert _feasible_food_rows(known) == []  # 商家到当前位置无配送路线
+    supply = _supply(product_id="food-far", supply_id="supply-far")
+    known = _context(products=(distant,), supplies=(supply,), locations={"market": _location("market")},
+                     supply_stock={supply.supply_id: 5}, supply_quotes={supply.supply_id: quote_state(supply.quotes[0])},
+                     opening_exceptions={"market": {}}, routes=())
+    assert _feasible_food_rows(known) == []
 
 
 def test_continue_candidate_covers_travel_lifestyle_and_consume_flows() -> None:
@@ -926,13 +824,13 @@ def test_travel_candidate_rejects_short_or_energy_infeasible_legs() -> None:
     """出行候选：分时计划不足一分钟或能量不可支撑时不出候选。"""
     context = _context(routes=(_route("r1", "home", "office"),))
     short = _context(routes=(_route("r1", "home", "office"),),
-                     planned_travel_seconds=lambda mode, base: 30)
+                     planned_travel_seconds=lambda mode, base, departure: 30)
     assert _travel_candidate(short, "work", "office") is None
     exhausted = _context(agent=_agent(body=BodyState(energy_kcal=10, sleep_pressure=0.0,
                                                      sleep_deficit_hours=4.0,
                                                      entertainment_need=0.5)),
                          routes=(_route("r1", "home", "office"),),
-                         planned_travel_seconds=lambda mode, base: 7200)
+                         planned_travel_seconds=lambda mode, base, departure: 7200)
     assert _travel_candidate(exhausted, "work", "office") is None
     assert _travel_candidate(context, "work", "office") is not None
 
@@ -1596,9 +1494,11 @@ def test_validate_routes_rejects_identity_and_measurement_drift(tmp_path) -> Non
         validate_routes(_life_scenario(routes=[
             _response_route(tmp_path, {"code": "Ok", "routes": [
                 {"distance": 3000, "duration": 600}]}, sha="0" * 64)]), tmp_path)
+    invalid = b"not JSON"
+    _write(tmp_path, "routes/invalid.json", invalid)
     with pytest.raises(IntegrityError, match="response is invalid"):
         validate_routes(_life_scenario(routes=[
-            _response_route(tmp_path, {"broken": True})]), tmp_path)
+            _route(response_path="routes/invalid.json", response_sha256=_sha(invalid))]), tmp_path)
     with pytest.raises(IntegrityError, match="not successful"):
         validate_routes(_life_scenario(routes=[
             _response_route(tmp_path, {"code": "NoRoute", "routes": [
@@ -1731,8 +1631,7 @@ def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> N
 
 @lru_cache(maxsize=1)
 def _semantics() -> ScenarioSemantics:
-    document, _ = parse_scenario_document(Path("scenarios/white-collar-12-weeks.json"))
-    return assemble_semantics(document, load_catalog(Path("catalog")))
+    return load_runtime_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
 
 
 def test_load_runtime_scenario_wraps_catalog_load_failures(tmp_path) -> None:
@@ -1822,7 +1721,7 @@ def test_assembly_rejects_travel_time_shape_drift(mutate, match) -> None:
     sem = _semantics()
     drifted = _formulas_catalog(sem, mutate)
     with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, drifted)
+        assemble_semantics(sem.document, drifted, map_dataset=sem.scenario.map_dataset)
 
 
 @pytest.mark.parametrize(
@@ -1852,7 +1751,7 @@ def test_assembly_rejects_resource_drift(mutate, match) -> None:
     sem = _semantics()
     drifted = _resources_catalog(sem, mutate)
     with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, drifted)
+        assemble_semantics(sem.document, drifted, map_dataset=sem.scenario.map_dataset)
 
 
 def _objects_drifted(sem: ScenarioSemantics, mutate) -> Catalog:
@@ -1888,16 +1787,13 @@ def _duplicate_edge(data: dict, object_id: str, on: str) -> None:
         (lambda data: data["contract-hourly"]["efficiency"][
             "work_efficiency_factors"][0].__setitem__("input_resource", "zzz"),
          "disagree on work_efficiency_factors"),
-        (lambda data: data[MILK].__setitem__(
-            "edges", [edge for edge in data[MILK]["edges"]
-                      if edge.get("on") != "purchase"]), "purchase edge"),
     ),
 )
 def test_assembly_rejects_object_drift(mutate, match) -> None:
     """对象表漂移（缺服务/缺角色注解/坏效率/坏商品边）逐项拒绝。"""
     sem = _semantics()
     with pytest.raises(IntegrityError, match=match):
-        assemble_semantics(sem.document, _objects_drifted(sem, mutate))
+        assemble_semantics(sem.document, _objects_drifted(sem, mutate), map_dataset=sem.scenario.map_dataset)
 
 
 def test_assembly_rejects_duplicate_consume_edges() -> None:
@@ -1908,21 +1804,16 @@ def test_assembly_rejects_duplicate_consume_edges() -> None:
 
     sem = _semantics()
     with pytest.raises(IntegrityError, match="multiple consume edges"):
-        assemble_semantics(sem.document, _objects_drifted(sem, mutate))
+        assemble_semantics(sem.document, _objects_drifted(sem, mutate), map_dataset=sem.scenario.map_dataset)
 
 
-def test_assembly_rejects_formula_priced_product() -> None:
-    """静态价格目录不接受公式定价商品。"""
-    sem = _semantics()
-
-    def mutate(data):
-        for edge in data[MILK]["edges"]:
-            if edge.get("on") == "purchase":
-                edge["amount_fen"] = {"formula_ref": "travel-fare", "params": {}}
-
-    drifted = _objects_catalog(sem, mutate)
-    with pytest.raises(IntegrityError, match="dynamic price formula"):
-        assemble_semantics(sem.document, drifted)
+def test_product_definition_rejects_purchase_price_edges() -> None:
+    """商品定义不得重新携带门店购买价格，旧购买边直接拒绝。"""
+    data = _semantics().catalog.objects[MILK].model_dump(mode="json")
+    data["edges"].append({"type": "transfer", "on": "purchase",
+                          "from": "agent:1", "to": "merchant:g", "amount_fen": 100})
+    with pytest.raises(ValueError, match="purchase price edges"):
+        ExchangeObject.model_validate(data)
 
 
 def test_assembly_rejects_unknown_or_mistyped_product_references() -> None:
@@ -1932,26 +1823,20 @@ def test_assembly_rejects_unknown_or_mistyped_product_references() -> None:
     unknown = base.model_copy(update={"product_id": "missing-object"})
     with pytest.raises(IntegrityError, match="not in the catalog"):
         assemble_semantics(sem.document.model_copy(update={"products": (unknown,)}),
-                           load_catalog(Path("catalog")))
+                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
     mistyped = base.model_copy(update={"product_id": "travel-service"})
     with pytest.raises(IntegrityError, match="not a product"):
         assemble_semantics(sem.document.model_copy(update={"products": (mistyped,)}),
-                           load_catalog(Path("catalog")))
+                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
 
 
-def test_assembly_rejects_stockless_product_reference() -> None:
-    """对象与场景都没有库存来源的商品拒绝。"""
+def test_product_reference_rejects_storefront_stock_fields() -> None:
+    """商品引用只负责商品身份，库存只能作为供给事实声明。"""
+    with pytest.raises(ValueError, match="Extra inputs are not permitted"):
+        ProductReference.model_validate({"product_id": MILK, "stock": 5})
     sem = _semantics()
-    base = next(item for item in sem.document.products if item.product_id == MILK)
-    stockless = base.model_copy(update={"stock": None})
-
-    def mutate(data):
-        data[MILK]["stock"] = None
-
-    drifted = _objects_catalog(sem, mutate)
-    with pytest.raises(IntegrityError, match="no stock source"):
-        assemble_semantics(sem.document.model_copy(update={"products": (stockless,)}),
-                           drifted)
+    product = next(item for item in sem.scenario.products if item.product_id == MILK)
+    assert not {"stock", "initial_stock", "price_fen", "price_version", "merchant_account_id"} & type(product).model_fields.keys()
 
 
 def test_contract_payment_rejects_missing_template_or_settle_formula() -> None:
@@ -1994,7 +1879,7 @@ def test_assembly_requires_unique_role_account_binding() -> None:
     trimmed = tuple(item for item in sem.document.accounts if item.role != employer_role)
     with pytest.raises(IntegrityError, match="exactly one scenario account"):
         assemble_semantics(sem.document.model_copy(update={"accounts": trimmed}),
-                           load_catalog(Path("catalog")))
+                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)
 
 
 def test_assembly_with_agentless_document_fails_closed() -> None:
@@ -2002,4 +1887,4 @@ def test_assembly_with_agentless_document_fails_closed() -> None:
     sem = _semantics()
     with pytest.raises(IntegrityError):
         assemble_semantics(sem.document.model_copy(update={"agents": ()}),
-                           load_catalog(Path("catalog")))
+                           load_catalog(Path("catalog")), map_dataset=sem.scenario.map_dataset)

@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from worldmock.catalog import load_catalog
+from worldmock.life.map_data import load_map_dataset
 from worldmock.life.models import (
     ActivityKind,
     ActivityStatus,
@@ -47,7 +48,7 @@ def table() -> dict:
 @pytest.fixture(scope="module")
 def semantics():
     document, _ = parse_scenario_document(SCENARIO)
-    return assemble_semantics(document, load_catalog(CATALOG))
+    return assemble_semantics(document, load_catalog(CATALOG), load_map_dataset(ROOT / "corpora", document.map_dataset))
 
 
 def test_factor_lookup_matches_the_snapshot_table_for_every_hour(semantics, table) -> None:
@@ -76,7 +77,7 @@ def test_factor_ordering_peaks_offpeak_and_night(semantics, table) -> None:
 
 def test_same_route_duration_differs_between_0730_and_1400(semantics) -> None:
     """同一冻结路线：7:30 出发与 14:00 出发的受理时长不同且都 ≥ 自由流。"""
-    route = next(item for item in semantics.document.routes
+    route = next(item for item in semantics.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office"
                  and item.mode == TravelMode.DRIVING)
     morning = semantics.travel_planned_seconds("driving", route.duration_seconds, _epoch(7, 30))

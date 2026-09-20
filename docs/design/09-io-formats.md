@@ -67,7 +67,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[3] | 是 | 当前版本 3 |
+| `schema_version` | Literal[4] | 是 | 地图与门店供给世界结构版本；旧状态直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |
@@ -77,7 +77,9 @@ flowchart TB
 | `content_manifest_sha256` | str | 是 | 内容清单哈希，64 位 |
 | `agents` | dict[int, AgentState] | 是 | 人物状态映射 |
 | `accounts` | dict[str, int] | 是 | 账户余额映射，单位：分 |
-| `merchant_stock` | dict[str, int] | 是 | 商家库存映射 |
+| `supply_stock` | dict[str, int] | 是 | 供给身份到非负库存，不能按商品共用 |
+| `supply_quotes` | dict[str, quote 或 null] | 是 | 供给身份到当前报价；未知为空，恢复不重载初值 |
+| `opening_exceptions` | 地点到日期区间映射 | 是 | 世界营业覆盖；空日期区间明确闭店 |
 | `activities` | dict[str, ActivityState] | 是 | 活动状态映射 |
 | `deliveries` | dict[str, DeliveryState] | 是 | 订单状态映射 |
 | `pending_events` | list[ScheduledEvent] | 是 | 预排事件列表 |
@@ -87,60 +89,18 @@ flowchart TB
 | `random_seed` | int | 是 | 随机种子 |
 | `random_state` | str | 是 | 随机状态 |
 
-**示例 JSON**：
+世界状态采用确定性 JSON 编码，完整字段由生产模型校验；这里不再提供缺字段或摘要截断的伪完整示例。
+人物持有物仍是地点到商品数量的嵌套映射，购买呈现身份则是供给。
+冻结地图引用、时态声明和请求结构统一见 [地图与门店供给合同](../CONTRACTS.md#地图与门店供给合同)，
+事件、清单和恢复材料见 [地图与门店供给证据](05-recording-engine.md#地图与门店供给证据)。
 
-```json
-{
-  "schema_version": 3,
-  "version": 128,
-  "current_time": 1726819200,
-  "end_time": 1734595200,
-  "run_id": "white-collar-20260920-01",
-  "timezone": "Asia/Shanghai",
-  "scenario_sha256": "a1b2c3d4...",
-  "content_manifest_sha256": "e5f6a7b8...",
-  "agents": {
-    "1": {
-      "agent_id": 1,
-      "name": "张伟",
-      "location_id": "home_001",
-      "balance_account_id": "account_agent_1",
-      "body": {
-        "energy_kcal": 1800.0,
-        "sleep_pressure": 0.3,
-        "sleep_deficit_hours": 0.5,
-        "social_need": 0.2,
-        "entertainment_need": 0.4,
-        "mood_valence": 0.1,
-        "neuroticism_norm": 0.0,
-        "sleep_need_hours": 7.5,
-        "chronotype_midsleep": 4.0
-      },
-      "inventory": {},
-      "current_activity_id": "act_work_001"
-    }
-  },
-  "accounts": {
-    "account_agent_1": 500000,
-    "account_merchant_food": 1000000
-  },
-  "merchant_stock": {
-    "product_rice_meal": 100
-  },
-  "activities": {},
-  "deliveries": {},
-  "pending_events": [],
-  "processed_actions": {},
-  "paid_task_ids": [],
-  "presentation_state": {
-    "1": {
-      "product_rice_meal": 1726819000
-    }
-  },
-  "random_seed": 42,
-  "random_state": "..."
-}
-```
+`SupplyQuoteState` 保存 `price_fen`、`price_version`、UTC 秒制的半开 `effective_from/effective_to` 与 `source`。
+来源按 `DataSource` 全字段校验，不能用空字典代替真实资料或场景假设声明。
+`opening_exceptions` 的日期键保存排序、不重叠的分钟区间，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
+公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；模型提示 `facts.products` 仍是实际呈现的供给行。
+同次发现或浏览结果优先占用共同呈现窗口；当前供给改变时可表示为 `supply_id/based_on_action_id/changes`。
+根据引用动作的完整行按键替换即可还原：`null` 是值，嵌套对象整体替换，未变行不重复。
+这种公开格式不裁剪原始观察、动作和结算中的完整证据；窗口外身份也不会因此获得可见凭据。
 
 ### 3.2 AgentState（人物状态）
 
@@ -164,9 +124,16 @@ flowchart TB
 | `read_message_ids` | set[str] | 是 | 已读消息 ID 集合 |
 | `visible_message_ids` | set[str] | 是 | 可见消息 ID 集合 |
 | `visible_task_ids` | set[str] | 是 | 可见任务 ID 集合 |
-| `visible_product_ids` | set[str] | 是 | 可见商品 ID 集合 |
+| `qualifications` | tuple[str, ...] | 是 | 显式资格集合 |
+| `visible_supply_ids` | set[str] | 是 | 实际呈现所授予的供给身份；使用时再按逐供给时刻与地点判定有效性 |
+| `supply_browsed_at` | 供给到时刻映射 | 是 | 各供给实际呈现时刻 |
+| `supply_browsed_location` | 供给到地点映射 | 是 | 各供给实际呈现地点 |
 | `inbox` | dict[str, Message] | 是 | 收件箱 |
 | `day_plan` | DayPlan \| None | 否 | 当日计划 |
+
+可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
+超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，
+后者使用完成时的世界时刻。恢复和分支保留这些字段以及 `presentation_state`，不能重建为全目录可见。
 
 ### 3.3 BodyState（身体状态）
 

@@ -33,7 +33,7 @@ def _violations() -> dict[str, dict]:
     return {
         "time_exceeds_end": {"current_time": 11},
         "negative_account": {"accounts": {"agent:1": -1}},
-        "negative_merchant_stock": {"merchant_stock": {"m1": -1}},
+        "negative_supply_stock": {"supply_stock": {"m1": -1}},
         "agent_identity_mismatch": {"agents": {1: {**agent, "agent_id": 2}}},
         "negative_inventory": {"agents": {1: {**agent, "inventory": {"fridge": {"milk": -1}}}}},
     }
@@ -82,7 +82,7 @@ def test_engine_write_path_rejects_drifted_state(engine_factory):
     """引擎 observe 写入路径：漂移状态在提交前被拒（修复前此处静默落盘）。"""
     engine = engine_factory()
     staged = engine.state.model_copy(deep=True)
-    staged.merchant_stock[next(iter(staged.merchant_stock), "m1")] = -1
+    staged.supply_stock[next(iter(staged.supply_stock), "m1")] = -1
     staged.version = engine.state.version + 1
     engine.state = staged
     with pytest.raises(IntegrityError):

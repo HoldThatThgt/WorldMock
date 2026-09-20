@@ -21,13 +21,11 @@ comfort/emotion_sensitivity/attention_prior）来自场景 agents[].motivation �
 
 from __future__ import annotations
 
-import json
 import math
 import tomllib
 from bisect import bisect_right
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from functools import lru_cache
 from pathlib import Path
 
 from pydantic import Field
@@ -47,9 +45,7 @@ from worldmock.life.body import (
     minimum_energy_cost,
 )
 from worldmock.life.content import (
-    LIFESTYLE_ITEMS_PATH,
     LifestyleItem,
-    load_lifestyle_items,
 )
 from worldmock.life.models import (
     ActivityKind,
@@ -58,6 +54,11 @@ from worldmock.life.models import (
     ContentProgress,
     FrozenModel,
 )
+from worldmock.life.map_models import SupplyConfig
+from worldmock.life.models import SupplyQuoteState
+from worldmock.life.opening_hours import opening_status
+from worldmock.life.retrieval import feasible_kinds
+from worldmock.life.storefront_state import effective_quote
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
@@ -116,22 +117,6 @@ def meal_repeat_weight(repeat_count: int) -> float:
     """
     return 1.0 / (1.0 + max(0, repeat_count))
 
-
-@lru_cache(maxsize=1)
-def _repo_lifestyle_items() -> tuple[LifestyleItem, ...]:
-    """@brief 仓库默认语料的生活活动目录（lifestyle 候选枚举的品类/时长来源）。
-
-    动机上下文只携带场景 MET 表（body.activity_met 的 lifestyle:<id> 键），
-    不携带目录条目本身；候选生成按 MET 键与目录求交界定场景身份——键不在
-    场景 MET 表内的条目不枚举。解析复用 content.load_lifestyle_items 的
-    fail-closed 行（重复 id/坏字段拒绝），身份核对表从语料自身的 met_value
-    合成（引擎侧另有 语料↔场景 MET 的一一核对，两道闸口互为冗余）。
-    """
-    root = Path(__file__).resolve().parents[3] / "corpora"
-    payload = json.loads((root / LIFESTYLE_ITEMS_PATH).read_text(encoding="utf-8"))
-    met = {f"lifestyle:{row['activity_id']}": float(row["met_value"])
-           for row in payload["items"]}
-    return load_lifestyle_items(root, met)
 
 #: 候选时长/观察窗口的工程上限（秒）：防止整部电影/整段合同把候选坐标推到极端。
 MAX_CANDIDATE_SECONDS = 4 * 3600
@@ -268,7 +253,12 @@ class MotivationContext:
     body: BodyConfig
     home_location_id: str
     products: tuple[ProductConfig, ...]
-    merchant_stock: Mapping[str, int]
+    lifestyle_items: tuple[LifestyleItem, ...]
+    activity_location_kinds: Mapping[str, frozenset[str]]
+    supplies: tuple[SupplyConfig, ...]
+    supply_stock: Mapping[str, int]
+    supply_quotes: Mapping[str, SupplyQuoteState | None]
+    opening_exceptions: Mapping[str, dict]
     locations: Mapping[str, LocationConfig]
     routes: tuple[RouteConfig, ...]
     tasks: tuple[WorkTaskConfig, ...]
@@ -285,9 +275,9 @@ class MotivationContext:
     current_time: int
     end_time: int
     timezone: str
-    planned_travel_seconds: Callable[[str, int], int]
-    #: 全量商品目录（不经 browse 可见性门控）：browse 候选的存在性依据。
-    catalog_products: tuple[ProductConfig, ...] = ()
+    planned_travel_seconds: Callable[[str, int, int], int]
+    #: 全量供给目录（不经浏览可见性门控）：浏览候选的存在性依据。
+    catalog_supplies: tuple[SupplyConfig, ...] = ()
     #: 内容分段边界（item_id -> 各段结束秒）：娱乐候选的分段时长槽依据。
     content_segments: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     #: 品类摘要（kind -> 条目数）：观察 activity_summary 的内容段同源。
@@ -545,8 +535,8 @@ def _browse_candidate(context: MotivationContext, params: Mapping) -> _Candidate
     浏览是工具性动作：browse 之后商品目录对人物可见，进食候选才可
     枚举——因此只要还有没见过的商品就保持此候选在场。
     """
-    seen = {product.product_id for product in context.products}
-    if not any(product.product_id not in seen for product in context.catalog_products):
+    seen = {supply.supply_id for supply in context.supplies}
+    if not any(supply.supply_id not in seen for supply in context.catalog_supplies):
         return None
     duration = min(params["probe_duration_seconds"], MAX_CANDIDATE_SECONDS,
                    context.end_time - context.current_time)
@@ -598,54 +588,53 @@ def _sleep_candidate(context: MotivationContext, params: Mapping) -> _Candidate 
         comfort_type=True)
 
 
-def _merchant_open(context: MotivationContext, product: ProductConfig) -> bool:
-    """@brief 以场景本地小时执行商家冻结营业时间（与 commerce 口径一致）。"""
-    location = context.locations.get(product.merchant_location_id)
-    if location is None:
-        return False
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    hour = datetime.fromtimestamp(context.current_time, ZoneInfo(context.timezone)).hour
-    return location.open_hour <= hour < location.close_hour
-
-
-def _feasible_food_rows(context: MotivationContext) -> list[tuple[ProductConfig, float, float]]:
-    """@brief 可行食品枚举（手持优先，其次可购）：返回 (商品, 价格, 等待秒) 行。
-
-    可行性口径：报价可负担、库存可取、商家营业，且净能量恢复为正
-    （进食活动自身代谢后仍有盈余——净负的“餐”不构成恢复性进食）。
-    不在商家处时走配送，等待 = 交付延迟 + 商家到当前位置的冻结驾驶配送
-    路线时长。食品利用效率与结算同式（sleep.food_utilization_efficiency，
-    输入睡眠不足账）。
-    """
+def _feasible_food_rows(context: MotivationContext) -> list[tuple[ProductConfig, float, float, str]]:
+    """@brief 对持有商品和每条可见供给分别判断进食可行性，不合并门店事实。"""
     agent = context.agent
     efficiency = sleep.food_utilization_efficiency(agent.body.sleep_deficit_hours)
-    rows: list[tuple[ProductConfig, float, float]] = []
+    rows = []
     for product in context.products:
         if "eat" not in product.use_modes:
             continue
-        burn = minimum_energy_cost(ActivityKind.CONSUME,
-                                   int(product.use_duration_seconds), context.body)
+        burn = minimum_energy_cost(ActivityKind.CONSUME, int(product.use_duration_seconds), context.body)
         if product.energy_kcal_per_unit * efficiency <= burn:
             continue
         holding = float(agent.inventory.get(agent.location_id, {}).get(product.product_id, 0))
         if holding >= 1:
-            rows.append((product, 0.0, 0.0))
-            continue
-        if (product.price_fen > context.balance_fen
-                or context.merchant_stock.get(product.product_id, 0) < 1
-                or not _merchant_open(context, product)):
-            continue
-        if agent.location_id == product.merchant_location_id:
-            wait = 0.0
-        else:
-            route = _delivery_route_seconds(context, product.merchant_location_id,
-                                            agent.location_id)
-            if route is None:
-                continue
-            wait = float(product.delivery_delay_seconds + route)
-        rows.append((product, float(product.price_fen), wait))
+            rows.append((product, 0.0, 0.0, product.product_id))
+        for supply in context.supplies:
+            if supply.product_id == product.product_id:
+                row = _food_supply_row(context, product, supply)
+                if row is not None:
+                    rows.append(row)
     return rows
+
+
+def _food_supply_row(context: MotivationContext, product: ProductConfig, supply: SupplyConfig):
+    """@brief 供给资格、世界报价、营业与履约使用当前冻结事实进行判断。"""
+    quote = effective_quote(context.supply_quotes[supply.supply_id], context.current_time)
+    location = context.locations[supply.location_id]
+    qualifications = set(context.agent.qualifications)
+    required = set(location.required_qualifications) | set(supply.required_qualifications)
+    if (quote is None or quote.price_fen > context.balance_fen
+            or context.supply_stock[supply.supply_id] < 1 or not required <= qualifications):
+        return None
+    status = opening_status(location, context.current_time, context.timezone,
+                            context.opening_exceptions[location.location_id])
+    if status != "open":
+        return None
+    destination = context.agent.location_id
+    if destination == supply.location_id and "pickup" in supply.fulfillment_modes:
+        wait = 0
+    else:
+        if "delivery" not in supply.fulfillment_modes or destination not in supply.delivery_destination_ids:
+            return None
+        route = _delivery_route_seconds(context, supply.location_id, destination,
+                                        context.current_time + supply.delivery_delay_seconds)
+        if route is None:
+            return None
+        wait = supply.delivery_delay_seconds + route
+    return product, float(quote.price_fen), float(wait), supply.supply_id
 
 
 def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
@@ -665,20 +654,20 @@ def _eat_candidates(context: MotivationContext) -> list[_Candidate]:
         accepted = [min(rows, key=lambda row: (abs(row[0].energy_kcal_per_unit - gap),
                                                row[0].product_id))]
 
-    def rank_key(row: tuple[ProductConfig, float, float]) -> tuple:
-        product, price, wait = row
+    def rank_key(row: tuple[ProductConfig, float, float, str]) -> tuple:
+        product, price, wait, supply_id = row
         repeats = context.recent_meal_counts.get(product.product_id, 0)
         return (abs(product.energy_kcal_per_unit - gap) / meal_repeat_weight(repeats),
-                price, wait, product.product_id)
+                price, wait, supply_id)
 
     return [_eat_candidate(context, row)
             for row in sorted(accepted, key=rank_key)[:MEAL_CANDIDATE_COUNT]]
 
 
 def _eat_candidate(context: MotivationContext,
-                   row: tuple[ProductConfig, float, float]) -> _Candidate:
+                   row: tuple[ProductConfig, float, float, str]) -> _Candidate:
     """@brief 由可行行构造单个进食候选（资源流与英文理由）。"""
-    product, price, wait = row
+    product, price, wait, supply_id = row
     agent = context.agent
     duration = float(product.use_duration_seconds)
     hours = duration / 3600
@@ -698,7 +687,7 @@ def _eat_candidate(context: MotivationContext,
     prefix = "Eat held" if price == 0 else "Buy and eat"
     return _Candidate(
         family=FAMILY_EAT,
-        summary=f"{prefix} {product.product_id}",
+        summary=f"{prefix} {product.product_id} ({supply_id})",
         reason=(f"Eating {product.product_id} now restores energy "
                 f"{agent.body.energy_kcal:.0f}->{energy_after:.0f} kcal, work efficiency "
                 f"{efficiency_before:.2f}->{efficiency_after:.2f}"),
@@ -711,11 +700,16 @@ def _eat_candidate(context: MotivationContext,
 
 
 def _delivery_route_seconds(context: MotivationContext, origin: str,
-                            destination: str) -> int | None:
+                            destination: str, departure_at: int) -> int | None:
     """@brief 取商家到目的地的冻结驾驶配送路线时长（无路线则不可配送）。"""
+    if origin == destination:
+        return 0
     matches = [item for item in context.routes if item.origin_id == origin
-               and item.destination_id == destination and item.mode.value == "driving"]
-    return matches[0].duration_seconds if len(matches) == 1 else None
+               and item.destination_id == destination and item.mode.value == "driving"
+               and item.status == "reachable"]
+    if len(matches) != 1:
+        return None
+    return context.planned_travel_seconds("driving", matches[0].duration_seconds, departure_at)
 
 
 def _continue_candidate(context: MotivationContext) -> _Candidate | None:
@@ -831,11 +825,12 @@ def _travel_candidate(context: MotivationContext, label: str,
         return None
     feasible = [item for item in context.routes
                 if item.origin_id == agent.location_id and item.destination_id == destination_id
-                and item.fare_fen <= context.balance_fen]
+                and item.status == "reachable" and item.fare_fen <= context.balance_fen]
     if not feasible:
         return None
     route = min(feasible, key=lambda item: (item.fare_fen, item.route_id))
-    duration = int(context.planned_travel_seconds(route.mode.value, route.duration_seconds))
+    duration = int(context.planned_travel_seconds(
+        route.mode.value, route.duration_seconds, context.current_time))
     if duration < 60:
         return None
     met = context.body.activity_met[f"travel:{route.mode.value}"]
@@ -1043,8 +1038,12 @@ def _lifestyle_candidates(context: MotivationContext, profile: MotivationProfile
     pool_cap = family.attention_params["pool_cap"]
     met_table = context.body.activity_met
     enabled = context.lifestyle_enabled
-    items = [item for item in _repo_lifestyle_items()
+    place = context.locations.get(context.agent.location_id)
+    if place is None:
+        return []
+    items = [item for item in context.lifestyle_items
              if f"lifestyle:{item.activity_id}" in met_table
+             and feasible_kinds(frozenset(place.location_kinds), context.activity_location_kinds[item.activity_id])
              and (enabled is None or item.activity_id in enabled)]
     ranked = sorted(
         (item for item in items if profile.attention_prior.get(item.category, 0) > 0),

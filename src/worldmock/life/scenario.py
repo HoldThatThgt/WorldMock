@@ -23,6 +23,10 @@ from worldmock.life.models import (
     FrozenModel,
     TravelMode,
 )
+from worldmock.life.map_models import (
+    DataSource, LocationConfig, LocationReference, MapDataset, MapDatasetReference, RouteConfig,
+    SupplyConfig, SupplyReference, validate_names, validate_price_versions,
+)
 from worldmock.life.social import Contact
 from worldmock.life.sleep import (
     DEFAULT_CHRONOTYPE_MIDSLEEP_H,
@@ -187,6 +191,7 @@ class AgentConfig(FrozenModel):
     home_location_id: str = Field(min_length=1)
     initial_balance_fen: int = Field(ge=0)
     skill_levels: dict[str, float]
+    qualifications: tuple[str, ...]
     motivation: MotivationProfile | None = None
     # 生活活动目录（corpora/lifestyle/items.json）的启用声明：None=全局启用
     # 全部条目；非空元组=仅启用列出的 activity_id（语义层对照目录准入校验）。
@@ -243,61 +248,18 @@ class AgentConfig(FrozenModel):
                 raise ValueError("bedtime_window span must not exceed 12 hours")
             if self.dinner_window is not None and bedtime_start < self.dinner_window[1]:
                 raise ValueError("bedtime window must not overlap dinner window")
+        validate_names(self.qualifications, "Agent qualifications")
         ids = [item.contact_id for item in self.contacts]
         if len(ids) != len(set(ids)):
             raise ValueError("agent contact ids must be unique")
         return self
 
 
-class LocationConfig(FrozenModel):
-    """@brief 一个可定位并可声明营业条件的地点。"""
-
-    location_id: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    kind: str = Field(min_length=1)
-    longitude: float = Field(ge=-180, le=180)
-    latitude: float = Field(ge=-90, le=90)
-    open_hour: int = Field(default=0, ge=0, le=23)
-    close_hour: int = Field(default=24, ge=1, le=24)
-
-    @model_validator(mode="after")
-    def validate_hours(self) -> "LocationConfig":
-        """@brief 当前营业日模型要求关闭时刻严格晚于开放时刻。"""
-        if self.close_hour <= self.open_hour:
-            raise ValueError("location closing hour must follow opening hour")
-        return self
-
-
-class RouteConfig(FrozenModel):
-    """@brief 一条 prepare 阶段冻结的真实 OSRM 路由及其实例报价。
-
-    报价公式本身是目录语义（rules/travel-fare.toml），由 ScenarioSemantics
-    在组装时对每条路线的 fare_fen 做交叉核验，本模型不再内嵌公式。
-    """
-
-    route_id: str = Field(min_length=1)
-    origin_id: str = Field(min_length=1)
-    destination_id: str = Field(min_length=1)
-    mode: TravelMode
-    distance_meters: float = Field(gt=0, allow_inf_nan=False)
-    duration_seconds: int = Field(gt=0)
-    fare_fen: int = Field(ge=0)
-    fare_source_kind: Literal["scenario"]
-    response_path: str = Field(min_length=1)
-    response_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    source_url: str = Field(min_length=1)
-
-
 class ProductConfig(FrozenModel):
-    """@brief 组装后的商品运行事实：实例绑定加上目录解析的静态语义。"""
+    """@brief 商品身份、规格和使用效果，不携带供给或交易事实。"""
 
     product_id: str = Field(min_length=1)
     name: str = Field(min_length=1)
-    merchant_account_id: str = Field(min_length=1)
-    merchant_location_id: str = Field(min_length=1)
-    price_fen: int = Field(gt=0)
-    price_version: str = Field(min_length=1)
-    initial_stock: int = Field(ge=0)
     serving_quantity: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     serving_unit: str | None = None
     energy_kcal_per_unit: float = Field(default=0, ge=0, allow_inf_nan=False)
@@ -306,7 +268,6 @@ class ProductConfig(FrozenModel):
     consumable: bool
     effect: str = Field(min_length=1)
     required_location_id: str | None = None
-    delivery_delay_seconds: int = Field(gt=0)
     source_kind: str = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -465,23 +426,40 @@ class PayrollConfig(FrozenModel):
 
 
 class PriceChangeConfig(FrozenModel):
-    """@brief 一次到点把目录对象的 purchase 转账边金额替换为给定值的调价。"""
+    """@brief 一次按供给身份登记的到点调价。"""
 
     change_id: str = Field(min_length=1)
-    object_id: str = Field(min_length=1)
-    object_version: int = Field(ge=1)
+    supply_id: str = Field(min_length=1)
+    price_version: str = Field(min_length=1)
     amount_fen: int = Field(gt=0)
     due_at: datetime
+    source: DataSource
+
+    @model_validator(mode="after")
+    def validate_price_source(self) -> "PriceChangeConfig":
+        """@brief 显式调价属于场景事件，禁止沿用原报价的真实来源身份。"""
+        if self.source.kind != "scenario":
+            logging.error("Scheduled price changes require an explicit scenario source")
+            raise ValueError("Scheduled price changes require an explicit scenario source")
+        return self
 
 
 class ProductReleaseConfig(FrozenModel):
-    """@brief 一次到点把商家某对象库存置为给定值的上架。"""
+    """@brief 一次到点把指定门店供给库存设为明确数量的补货。"""
 
     release_id: str = Field(min_length=1)
-    object_id: str = Field(min_length=1)
-    merchant: str = Field(min_length=1)
+    supply_id: str = Field(min_length=1)
     stock: int = Field(ge=0)
     due_at: datetime
+    source: DataSource
+
+    @model_validator(mode="after")
+    def validate_release_source(self) -> "ProductReleaseConfig":
+        """@brief 补货数量必须明确标记为本次场景假设。"""
+        if self.source.kind != "scenario":
+            logging.error("Scheduled supply releases require an explicit scenario source")
+            raise ValueError("Scheduled supply releases require an explicit scenario source")
+        return self
 
 
 class AccountInstanceConfig(FrozenModel):
@@ -497,12 +475,9 @@ class AccountInstanceConfig(FrozenModel):
 
 
 class ProductReference(FrozenModel):
-    """@brief 场景对一个目录商品的实例引用与商家绑定。"""
+    """@brief 场景对一个商品定义的唯一引用。"""
 
     product_id: str = Field(min_length=1)
-    merchant: str = Field(min_length=1)
-    merchant_location_id: str = Field(min_length=1)
-    stock: int | None = Field(default=None, ge=0)
 
 
 class BodyInstanceConfig(FrozenModel):
@@ -517,7 +492,7 @@ class BodyInstanceConfig(FrozenModel):
 class LifeScenario(FrozenModel):
     """@brief 瘦身场景文档：实例数据与目录引用，静态语义全部来自目录。"""
 
-    schema_version: int = Field(ge=2)
+    schema_version: Literal[3]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -543,10 +518,11 @@ class LifeScenario(FrozenModel):
     accounts: tuple[AccountInstanceConfig, ...] = Field(min_length=1)
     body: BodyInstanceConfig
     agents: tuple[AgentConfig, ...]
-    locations: tuple[LocationConfig, ...]
+    map_dataset: MapDatasetReference
+    locations: tuple[LocationReference, ...]
     interaction_menus_by_location_kind: dict[str, InteractionMenu]
-    routes: tuple[RouteConfig, ...]
     products: tuple[ProductReference, ...]
+    supplies: tuple[SupplyReference, ...]
     tasks: tuple[WorkTaskConfig, ...]
     messages: tuple[MessageConfig, ...]
     contents: tuple[ContentItemConfig, ...]
@@ -569,22 +545,17 @@ class LifeScenario(FrozenModel):
             raise ValueError("scenario time interval or timezone is invalid")
         _unique(self.agents, "agent_id")
         _unique(self.locations, "location_id")
-        _unique(self.routes, "route_id")
         _unique(self.products, "product_id")
         _unique(self.tasks, "task_id")
         _unique(self.messages, "message_id")
         _unique(self.contents, "item_id")
         _unique(self.games, "game_id")
         _unique(self.accounts, "account_id")
-        _unique(self.accounts, "role")
-        _check_interaction_menu_location_kinds(
-            self.locations, self.interaction_menus_by_location_kind)
-        places = [(item.merchant_location_id, None) for item in self.products]
-        _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
+        _unique(self.supplies, "supply_id")
+        _check_location_references(self.agents, (), (), self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
         _check_catalog_references(self.agents, self.tasks, self.messages, targets)
-        self._validate_merchant_bindings()
-        self._validate_route_keys()
+        self._validate_account_identities()
         _check_times(zone, self.start_at, self.end_at, self.tasks, self.messages)
         self._validate_schedule_sections(zone)
         return self
@@ -595,9 +566,10 @@ class LifeScenario(FrozenModel):
         _unique(self.payrolls, "payroll_id")
         _unique(self.price_changes, "change_id")
         _unique(self.product_releases, "release_id")
+        validate_price_versions((), self.price_changes)
         declared = {item.account_id for item in self.accounts}
         people = {f"agent:{item.agent_id}" for item in self.agents}
-        product_merchants = {item.product_id: item.merchant for item in self.products}
+        supply_ids = {item.supply_id for item in self.supplies}
         for section, items in (("bill", self.bills), ("payroll", self.payrolls),
                                ("price change", self.price_changes),
                                ("product release", self.product_releases)):
@@ -619,31 +591,20 @@ class LifeScenario(FrozenModel):
             if f"agent:{payroll.agent_id}" not in people:
                 raise ValueError("payroll references an unknown agent")
         for change in self.price_changes:
-            if change.object_id not in product_merchants:
-                raise ValueError("price change references an unknown product")
+            if change.supply_id not in supply_ids:
+                raise ValueError("price change references an unknown supply")
         for release in self.product_releases:
-            if release.object_id not in product_merchants:
-                raise ValueError("product release references an unknown product")
-            if release.merchant != product_merchants[release.object_id]:
-                raise ValueError("product release merchant disagrees with the product binding")
+            if release.supply_id not in supply_ids:
+                raise ValueError("product release references an unknown supply")
 
-    def _validate_merchant_bindings(self) -> None:
-        """@brief 商品商家必须是已声明服务账户且不得占用人物账户身份。"""
-        declared = {item.account_id for item in self.accounts}
+    def _validate_account_identities(self) -> None:
+        """@brief 账户必须具备明确身份和角色且不得占用人物账户身份。"""
         people = {f"agent:{item.agent_id}" for item in self.agents}
         if any(not item.account_id.strip() or not item.role.strip() for item in self.accounts):
             raise ValueError("account ids and roles must not be blank")
-        for reference in self.products:
-            if reference.merchant not in declared:
-                raise ValueError("product merchant account is not declared by the scenario")
         if any(account.account_id in people for account in self.accounts):
             raise ValueError("service accounts must not reuse agent account ids")
 
-    def _validate_route_keys(self) -> None:
-        """@brief 每个起点、终点与方式只允许一条冻结路线。"""
-        keys = [(route.origin_id, route.destination_id, route.mode) for route in self.routes]
-        if len(keys) != len(set(keys)) or any(origin == destination for origin, destination, _ in keys):
-            raise ValueError("route lookup keys must be unique and connect different locations")
 
 
 class RuntimeScenario(FrozenModel):
@@ -653,7 +614,7 @@ class RuntimeScenario(FrozenModel):
     领域模块（commerce/travel/work/rules/body）消费的全部静态语义都在此处。
     """
 
-    schema_version: int = Field(ge=1)
+    schema_version: Literal[3]
     scenario_id: str = Field(min_length=1)
     timezone: str = Field(min_length=1)
     start_at: datetime
@@ -669,12 +630,14 @@ class RuntimeScenario(FrozenModel):
     retrieval_index_threshold: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    map_dataset: MapDataset
     body: BodyConfig
     agents: tuple[AgentConfig, ...]
     locations: tuple[LocationConfig, ...]
     interaction_menus_by_location_kind: dict[str, InteractionMenu]
     routes: tuple[RouteConfig, ...]
     products: tuple[ProductConfig, ...]
+    supplies: tuple[SupplyConfig, ...]
     tasks: tuple[WorkTaskConfig, ...]
     messages: tuple[MessageConfig, ...]
     contents: tuple[ContentItemConfig, ...]
@@ -707,7 +670,12 @@ class RuntimeScenario(FrozenModel):
         _unique(self.games, "game_id")
         _check_interaction_menu_location_kinds(
             self.locations, self.interaction_menus_by_location_kind)
-        places = [(item.merchant_location_id, item.required_location_id) for item in self.products]
+        _unique(self.supplies, "supply_id")
+        validate_price_versions(self.supplies, self.price_changes)
+        places = [item.location_id for item in self.supplies]
+        known = {item.location_id for item in self.locations}
+        if any(item.required_location_id not in known for item in self.products if item.required_location_id):
+            raise ValueError("product use requirement references an unknown location")
         _check_location_references(self.agents, self.routes, places, self.tasks, self.locations)
         targets = {item.item_id for item in self.contents} | {item.game_id for item in self.games}
         _check_catalog_references(self.agents, self.tasks, self.messages, targets)
@@ -727,7 +695,7 @@ class RuntimeScenario(FrozenModel):
         if any(task.employer_account_id != self.employer_account_id for task in self.tasks):
             raise ValueError("work task references an unknown employer account")
         people = {f"agent:{agent.agent_id}" for agent in self.agents}
-        merchants = {product.merchant_account_id for product in self.products}
+        merchants = {supply.seller_account_id for supply in self.supplies}
         services = {self.employer_account_id, self.transport_account_id}
         if any(not account.strip() for account in services | merchants):
             raise ValueError("account ids must not be blank")
@@ -735,16 +703,16 @@ class RuntimeScenario(FrozenModel):
             raise ValueError("account roles must use distinct account ids")
 
 
-def _check_location_references(agents, routes, product_places, tasks, locations) -> None:
-    """@brief 确保住处、路线、商品商家与任务地点引用已声明地点。"""
+def _check_location_references(agents, routes, supply_locations, tasks, locations) -> None:
+    """@brief 确保住处、路线、供给与任务地点引用已声明地点。"""
     known = {item.location_id for item in locations}
     if any(agent.home_location_id not in known for agent in agents):
         raise ValueError("agent home is not a declared location")
     if any(route.origin_id not in known or route.destination_id not in known for route in routes):
         raise ValueError("route references an unknown location")
-    for merchant_location, required_location in product_places:
-        if merchant_location not in known or required_location is not None and required_location not in known:
-            raise ValueError("product references an unknown merchant location")
+    if any(location_id not in known for location_id in supply_locations):
+        logging.error("Supply references an unknown location")
+        raise ValueError("supply references an unknown location")
     if any(task.required_location_id not in known for task in tasks):
         raise ValueError("work task references an unknown location")
 

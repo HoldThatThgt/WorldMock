@@ -94,7 +94,7 @@ def _move_agent_to_market(engine: LifeEngine) -> int:
     merchant = next(item for item in engine.scenario.locations
                     if item.location_id == "market")
     state = engine.state.model_copy(deep=True)
-    state.current_time = _market_hour(engine, merchant.open_hour + 1)
+    state.current_time = _market_hour(engine, 12)
     state.agents[1] = state.agents[1].model_copy(
         update={"location_id": merchant.location_id, "next_decision_at": state.current_time},
         deep=True)

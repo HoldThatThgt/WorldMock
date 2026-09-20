@@ -20,6 +20,12 @@ def _load(path: Path) -> list[dict]:
     return entries
 
 
+def _market_supplies():
+    """价格对照独立门店供给，商品目录只提供营养与规格。"""
+    document = json.loads((ROOT / "corpora/zhangjiang-map/supplies.json").read_text())
+    return {item["product_id"]: item for item in document["supplies"] if item["location_id"] == "market"}
+
+
 def _numeric_leaves(node, prefix=""):
     if isinstance(node, dict):
         for key, value in node.items():
@@ -82,11 +88,11 @@ def test_objects_catalog_shape():
         consume = [e for e in food["edges"] if e["on"] == "consume"]
         assert len(consume) == 1 and consume[0]["type"] == "source"
         assert consume[0]["resource"] == "energy_kcal"
-        purchase = [e for e in food["edges"] if e["on"] == "purchase"][0]
-        assert purchase["type"] == "transfer" and purchase["from"] == "{buyer}"
-        assert purchase["account_roles"]["from"] == "buyer"
+        assert not any(e["on"] == "purchase" for e in food["edges"])
+        assert not {"stock", "price_fen", "delivery_delay_seconds"} & food.keys()
     for durable in durables:
-        assert durable["effect"] == "durable"
+        assert durable["effect"] and durable["effect"] != "durable"
+        assert "legacy_effect" not in durable
         assert all(e["on"] != "consume" for e in durable["edges"])
     contracts = {o["object_id"]: o for o in objects if o["object_kind"] == "contract"}
     assert set(contracts) == {"contract-hourly", "contract-piece", "contract-package"}
@@ -115,10 +121,11 @@ def test_food_expansion_whitelist_and_spectrum():
                                  or raw[entry["barcode"]].get("product_name"))
     objects = _load(ROOT / "catalog/objects.jsonl")
     foods = {o["object_id"]: o for o in objects if o["object_id"].startswith("food-")}
+    supplies = _market_supplies()
     ratios = {}
     for object_id, obj in foods.items():
-        price = obj["edges"][0]["amount_fen"]
-        kcal = obj["edges"][1]["amount"]
+        price = supplies[object_id]["quotes"][0]["price_fen"]
+        kcal = obj["edges"][0]["amount"]
         ratios[object_id] = kcal / price
     band = {oid for oid, ratio in ratios.items() if 0.3 <= ratio <= 1.0}
     assert len(band) >= 6, "0.3-1.0 kcal/fen band must hold multiple options"
@@ -127,10 +134,10 @@ def test_food_expansion_whitelist_and_spectrum():
     assert len(near_top) >= 2, "best kcal/fen must not be a single unique winner"
     for entry in entries:
         obj = foods[f"food-{entry['barcode']}"]
-        assert obj["edges"][1]["amount"] == entry["energy_kcal_serving"]
+        assert obj["edges"][0]["amount"] == entry["energy_kcal_serving"]
         assert obj["serving"]["unit"] == entry["serving_size"]
-        price_part = next(p for p in obj["provenance"] if p["part"] == "purchase price edge")
-        assert price_part["type"] == "anchored"
+        assert supplies[obj["object_id"]]["quotes"][0]["source"]["kind"] == "scenario"
+        assert not any(part["part"] == "purchase price edge" for part in obj["provenance"])
 
 
 def test_food_expansion2_whitelist_against_pool():
@@ -160,14 +167,14 @@ def test_food_expansion2_whitelist_against_pool():
     foods = {o["object_id"]: o for o in objects if o["object_id"].startswith("food-")}
     for entry in entries:
         obj = foods[f"food-{entry['barcode']}"]
-        assert obj["edges"][1]["amount"] == entry["energy_kcal_serving"]
+        assert obj["edges"][0]["amount"] == entry["energy_kcal_serving"]
         assert obj["serving"]["unit"] == entry["serving_size"]
         consume_part = next(p for p in obj["provenance"] if p["part"] == "consume energy edge")
         assert consume_part["type"] == "fact"
         assert consume_part["source"] == f"openfoodfacts:product/{entry['barcode']}"
-        price_part = next(p for p in obj["provenance"] if p["part"] == "purchase price edge")
-        assert price_part["type"] == "anchored"
-        assert entry["category"] in price_part["source"]
+        supply = _market_supplies()[obj["object_id"]]
+        assert supply["quotes"][0]["source"]["kind"] == "scenario"
+        assert not any(part["part"] == "purchase price edge" for part in obj["provenance"])
 
 
 def test_food_catalog_kcal_per_fen_spectrum():
@@ -175,7 +182,9 @@ def test_food_catalog_kcal_per_fen_spectrum():
     objects = _load(ROOT / "catalog/objects.jsonl")
     foods = [o for o in objects if o["object_id"].startswith("food-")]
     assert len(foods) >= 100
-    ratios = {o["object_id"]: o["edges"][1]["amount"] / o["edges"][0]["amount_fen"] for o in foods}
+    supplies = _market_supplies()
+    ratios = {o["object_id"]: o["edges"][0]["amount"] / supplies[o["object_id"]]["quotes"][0]["price_fen"]
+              for o in foods}
     top = max(ratios.values())
     assert top >= 0.9, f"max kcal/fen {top:.3f} below 0.9"
     band_counts = Counter(
@@ -188,10 +197,10 @@ def test_food_catalog_kcal_per_fen_spectrum():
 
 def test_manifest_and_overrides_layout():
     manifest = json.loads((ROOT / "catalog/manifest.json").read_text(encoding="utf-8"))
-    assert manifest["version_major"] == 2 and manifest["version_minor"] == 0
+    assert manifest["version_major"] == 3 and manifest["version_minor"] == 0
     requirements = manifest["category_requirements"]
     assert requirements["meals"]["min_count"] == 30
-    assert requirements["location_min_per_kind"] == {"canteen_or_restaurant": 2}
+    assert requirements["location_min_per_kind"] == {"restaurant": 2}
     assert requirements["home_pantry"]["breakfast_servings_min"] == 7
     assert requirements["content_metadata"]["max_age_rating"] == 17
     assert requirements["work_materials"]["min_distinct"] == 20
@@ -218,7 +227,7 @@ def test_every_numeric_value_has_exactly_one_provenance_part():
 
 def test_real_catalog_loads_through_package():
     catalog = load_catalog(ROOT / "catalog")
-    assert (catalog.version_major, catalog.version_minor) == (2, 0)
+    assert (catalog.version_major, catalog.version_minor) == (3, 0)
     assert set(catalog.resources) == {
         "money_fen", "energy_kcal", "sleep_debt_hours", "entertainment_need"}
     assert len(catalog.objects) == 163

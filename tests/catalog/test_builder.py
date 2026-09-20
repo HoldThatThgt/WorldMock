@@ -106,16 +106,11 @@ def test_add_object_appends_and_bumps_minor(catalog_dir: Path) -> None:
             "object_kind": "product",
             "edges": [
                 {
-                    "on": "purchase",
-                    "type": "transfer",
-                    "from": "{buyer}",
-                    "to": "{merchant}",
-                    "amount_fen": 1500,
-                    "account_roles": {"from": "buyer", "to": "merchant:grocery"},
+                    "on": "consume", "type": "source", "resource": "energy_kcal", "amount": 1500,
                 }
             ],
             "provenance": [
-                {"part": "price edge", "paths": ["edges[0].amount_fen"],
+                {"part": "energy", "paths": ["edges[0].amount"],
                  "type": "anchored", "source": "numbeo:shanghai/oats"}
             ],
             "version": 1,
@@ -168,16 +163,11 @@ def test_append_to_tombstoned_entry_rejected(catalog_dir: Path) -> None:
             "object_kind": "product",
             "edges": [
                 {
-                    "on": "purchase",
-                    "type": "transfer",
-                    "from": "{buyer}",
-                    "to": "{merchant}",
-                    "amount_fen": 700,
-                    "account_roles": {"from": "buyer", "to": "merchant:grocery"},
+                    "on": "consume", "type": "source", "resource": "energy_kcal", "amount": 700,
                 }
             ],
             "provenance": [
-                {"part": "price edge", "paths": ["edges[0].amount_fen"],
+                {"part": "energy", "paths": ["edges[0].amount"],
                  "type": "anchored", "source": "numbeo:shanghai/milk"}
             ],
             "version": 2,

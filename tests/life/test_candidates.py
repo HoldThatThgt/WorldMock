@@ -47,6 +47,7 @@ CONTRACT_REASONS = (
     "ELIGIBILITY_LOCATION_ABSENT",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH",
     "ELIGIBILITY_CLOSED_HOURS",
+    "ELIGIBILITY_OPENING_UNKNOWN",
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
@@ -108,7 +109,7 @@ def _inputs(**overrides) -> CandidateInputs:
     defaults = dict(
         location=LocationView(location_id="market",
                               location_kinds=frozenset({"outdoor", "venue"}),
-                              open_hour=7, close_hour=22,
+                              opening_status="open",
                               minimum_seconds=60, maximum_seconds=14_400),
         locations={},
         sources={
@@ -386,7 +387,8 @@ class TestExclusionDiscipline:
         assert page.retained == ()
 
     def test_closed_hours_excludes_product_at_a_shut_merchant(self) -> None:
-        page = recall(_inputs(local_hour=3.0))
+        page = recall(_inputs(local_hour=3.0, location=dataclasses.replace(
+            _inputs().location, opening_status="closed")))
         assert page.retained == ()
         assert {item.reason for item in page.excluded} == {"ELIGIBILITY_CLOSED_HOURS"}
 
@@ -423,18 +425,18 @@ class TestExclusionDiscipline:
         inputs = _inputs(sources={"on_site": (entry,)}, local_hour=23.5,
                          location=LocationView(location_id="night-shop",
                                                location_kinds=frozenset({"venue"}),
-                                               open_hour=22, close_hour=24),
+                                               opening_status="open"),
                          locations={"night-shop": LocationView(
                              location_id="night-shop", location_kinds=frozenset({"venue"}),
-                             open_hour=22, close_hour=24)})
+                             opening_status="open")})
         assert [item.object_id for item in recall(inputs).retained] == ["food-1"]
         shut = _inputs(sources={"on_site": (entry,)}, local_hour=3.0,
                        location=LocationView(location_id="night-shop",
                                              location_kinds=frozenset({"venue"}),
-                                             open_hour=22, close_hour=24),
+                                             opening_status="closed"),
                        locations={"night-shop": LocationView(
                            location_id="night-shop", location_kinds=frozenset({"venue"}),
-                           open_hour=22, close_hour=24)})
+                           opening_status="closed")})
         assert {item.reason for item in recall(shut).excluded} == {
             "ELIGIBILITY_CLOSED_HOURS"}
 
@@ -443,7 +445,7 @@ class TestExclusionDiscipline:
                                required_location_id="home",
                                minimum_seconds=600, maximum_seconds=3600)
         place = LocationView(location_id="home", location_kinds=frozenset({"home"}),
-                             open_hour=0, close_hour=24,
+                             opening_status="open",
                              minimum_seconds=60, maximum_seconds=300)
         inputs = _inputs(sources={"browsed": (entry,)}, location=place,
                          locations={"home": place})
@@ -452,7 +454,7 @@ class TestExclusionDiscipline:
         roomy = _inputs(sources={"browsed": (entry,)}, location=place,
                         locations={"home": LocationView(
                             location_id="home", location_kinds=frozenset({"home"}),
-                            open_hour=0, close_hour=24,
+                            opening_status="open",
                             minimum_seconds=60, maximum_seconds=7200)})
         assert [item.object_id for item in recall(roomy).retained] == ["movie-long"]
 
@@ -468,46 +470,22 @@ class TestExclusionDiscipline:
         assert page.retained == ()
         assert {item.reason for item in page.excluded} == {"ELIGIBILITY_LOCATION_ABSENT"}
 
-    def test_anywhere_declaration_is_always_feasible(self) -> None:
-        """声明含 `anywhere` 即恒可行：地点侧声明与条目侧声明各自成立，且与另外两形可分。"""
-        item_anywhere = CandidateEntry(object_id="task-any", kind="task",
-                                       location_kinds=frozenset({"anywhere"}),
-                                       minimum_seconds=600, maximum_seconds=3600)
-        place_anywhere = LocationView(location_id="anywhere-place",
-                                      location_kinds=frozenset({"anywhere"}),
-                                      open_hour=0, close_hour=24)
-        no_declaration = CandidateEntry(object_id="task-bare", kind="task",
-                                        minimum_seconds=600, maximum_seconds=3600)
-        empty_intersection = CandidateEntry(object_id="task-gym", kind="task",
-                                            location_kinds=frozenset({"fitness"}),
-                                            minimum_seconds=600, maximum_seconds=3600)
-
-        # 情形一：声明含 anywhere——条目侧或地点侧任一含之，都恒可行
-        kept = recall(_inputs(sources={"on_site": (item_anywhere,)},
-                              location=LocationView(location_id="office",
-                                                    location_kinds=frozenset({"office"}),
-                                                    open_hour=0, close_hour=24)))
+    def test_anywhere_only_waives_activity_location_requirement(self) -> None:
+        """活动侧 anywhere 可用；地点缺失环境或滥用通配符不能解除限制。"""
+        entry = CandidateEntry(object_id="task-any", kind="task", location_kinds=frozenset({"anywhere"}),
+                               minimum_seconds=600, maximum_seconds=3600)
+        kept = recall(_inputs(sources={"on_site": (entry,)}))
         assert [item.object_id for item in kept.retained] == ["task-any"]
         assert kept.excluded == ()
-        kept_by_place = recall(_inputs(sources={"on_site": (item_anywhere,)},
-                                       location=place_anywhere))
-        assert [item.object_id for item in kept_by_place.retained] == ["task-any"]
-
-        # 情形二：两侧都无声明——没有地点要求，同样恒可行（未声明不是「哪里都去不了」）
-        bare = recall(_inputs(sources={"on_site": (no_declaration,)},
-                              location=place_anywhere))
-        assert [item.object_id for item in bare.retained] == ["task-bare"]
-        assert bare.excluded == ()
-
-        # 情形三：两侧都有声明且交集为空——这才是地点类不匹配
-        mismatch = recall(_inputs(sources={"on_site": (empty_intersection,)}))
-        assert mismatch.retained == ()
-        assert {item.reason for item in mismatch.excluded} == {
-            "ELIGIBILITY_LOCATION_KIND_MISMATCH"}
-
-        # 三种情形的区分是原因码层面的：只有第三种产生原因码
-        assert kept.exclusion_counts["ELIGIBILITY_LOCATION_KIND_MISMATCH"] == 0
-        assert bare.exclusion_counts["ELIGIBILITY_LOCATION_KIND_MISMATCH"] == 0
+        for kinds in (frozenset(), frozenset({"anywhere"})):
+            invalid = LocationView("invalid", kinds, opening_status="open")
+            rejected = recall(_inputs(sources={"on_site": (entry,)}, location=invalid))
+            assert rejected.retained == ()
+            assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
+        fitness = CandidateEntry(object_id="task-gym", kind="task", location_kinds=frozenset({"fitness"}),
+                                 minimum_seconds=600, maximum_seconds=3600)
+        rejected = recall(_inputs(sources={"on_site": (fitness,)}))
+        assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
 
     def test_every_exclusion_reason_is_inside_the_closed_set(self) -> None:
         inputs = _inputs(location=None, occupied_activity_id="act-1")

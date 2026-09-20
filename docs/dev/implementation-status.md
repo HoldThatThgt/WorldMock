@@ -1,9 +1,27 @@
 # WorldMock 实现状态
 
-> 状态：NOT-COMPLETE——各特性按独立验收记录判断；候选地点能力输入仍有既有缺口，三项真实验收均未完成
+> 状态：NOT-COMPLETE——地图与门店供给正在整合验收，各特性按独立记录判断；三项项目级真实验收均未完成
 > 日期：2026-09-20（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；本文件只写当前状态，变更过程由 Git 承载
+
+## 地图与门店供给开发状态
+
+本次完整范围由 [开发规格](SPEC-map-and-storefront.md) 冻结，当前处于实现与验收中。
+文档已同步商品/供给分离、唯一地点来源、异步发现、时态营业与报价、供给库存和恢复，以及来源许可边界。
+字段合同、设计同步和研究文件的存在都不构成行为通过证据。
+
+| 验收范围 | 当前状态 | 后续必须记录的实际证据 |
+| --- | --- | --- |
+| 地图、供给与活动环境 | 实现中 | 正式场景引用解析、严格准入、地点活动门及路线方式核验 |
+| 发现、比较与交易 | 实现中 | 实际呈现供给、动态工具、跨轮发现结果、原子订单与履约 |
+| 时态与恢复 | 实现中 | 营业例外、调价补货、世界版本 4、报价库存和可见供给完整恢复 |
+| 工程和独立验收 | 待整合执行 | 条款到具体测试、全量和覆盖、文档门、独立源码突变与最终源码身份 |
+
+原始路线基线为二百二十份方式命名响应，含一百零四份步行/驾车复用；修复与准入结果必须单独验证。
+旧地点活动环境缺口在本次范围内完整解决，其闭合以正式输入上的生产入口测试为准。
+下文既有特性的通过数字保留原源码身份，不代表加入地图功能后的新状态已经通过。
+
 
 ## 当前结论
 
@@ -24,8 +42,8 @@ AS2 `e4155095` 的全量测试 **448 passed**。六十种源码反例最终均�
 这些结果只证明本次确定性代码层，不改变下述真实运行门禁的状态。
 
 LifeEnv 运行时、数字足迹、画像编译、语料、LabelKit 交付与真实性评估已有实现与确定性测试；
-但候选资格的 `location_kinds` 能力集合尚未进入 `LocationConfig` 和正式输入，不能声称修订合同全部落地。
-它与本次菜单使用的单值 `locations[].kind` 是两个现有合同，不能用菜单实现替代能力集合验收。
+审查基线曾缺少正式地点的 `location_kinds` 能力集合，本次由地图目录贯通，完成状态按上表新门禁判断。
+活动环境与菜单使用的地点单值 `kind` 是两个合同，不能用菜单实现替代活动环境验收。
 项目仍不是完成态，三项真实验收也全部未完成。
 确定性测试通过、短窗口运行、测试夹具与单条语义通过都不构成这三项的证据。
 
@@ -55,7 +73,7 @@ flowchart LR
 
 本轮规格新增 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md`
 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节
-（版本表第 7、8 条）。历史算法与夹具测试已经落地，但正式地点能力输入仍未闭合，本文件按层分别记录；
+（版本表第 7、8 条）。地图特性已把正式地点能力输入接入生产模型，新增行为仍须完成整合门禁；下表区分实现与验收证据。
 门禁判定对象是 `docs/VERIFICATION.md`「放行门禁」章「工程门禁」节的「候选与呈现一致性」条（九项判据），
 其可执行判定由下表的测试文件与三项门禁命令承载。
 
@@ -63,8 +81,8 @@ flowchart LR
 | --- | --- | --- |
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
-| 运行期装配与检索 | **算法已落地，正式地点能力输入未闭合**：`presentation.py`、`retrieval.py` 和 `activities.py` 已有候选、检索与 `require_location_kinds`；但 `LocationConfig` 及正式场景未声明 `location_kinds`，不能把夹具中的能力集合校验证明成正式输入端到端已生效。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地**：`src/worldmock/life/observe.py` 的观察投影与 `browse_activities` 下推经 `presentation.py` 产出；`src/worldmock/life/engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；`WorldState.schema_version` 由 2 递增为 3，新增 `presentation_state` 字段承载轮转判据「上次呈现时刻」 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 3`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
+| 运行期装配与检索 | **已接入地图输入，整合验收中**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
+| 运行期接线与持久化 | **已落地，新增行为整合验收中**：`observe.py` 与 `browse_activities` 经 `presentation.py` 产出实际窗口，`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 4，持久化供给库存、报价、营业例外和逐供给可见凭据，`presentation_state` 继续保存轮转时刻 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 4`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 三项门禁的实测输出（复跑命令与关键行）
@@ -137,17 +155,11 @@ $ uv run pytest -q
 - 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
 - 该行在 `docs/dev/SPEC-life-realism.md` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
 
-### 已实施的不可逆变更：`WorldState.schema_version` 2 → 3
+### 当前世界格式：`WorldState.schema_version` 为 4
 
-本轮新增章落地时引入了 `presentation_state`（承载轮转判据「上次呈现时刻」）持久化字段，
-`WorldState.schema_version` 随之由 2 递增为 3（`src/worldmock/life/models.py:18` 现为 `WORLD_SCHEMA_VERSION = 3`）。
+候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据。生产模型使用严格版本常量，旧格式由当前代码直接拒绝，不转换旧检查点，也不保留迁移脚本。
 
-- **影响面**：`schema_version` 是 `Literal` 常量且无缺省，旧值检查点在加载时即拒绝，
-  因此 2 → 3 使**已提交的检查点在磁盘上不可读**，不存在向前读取路径，也不补兼容层。
-- **可回滚性最差的一项**：本轮其余改动都可回滚，这一项不可——回滚代码不能使已按 3 写入的检查点重新可读。
-- **对 `replay --intervention` 的约束**：反事实分支要求父检查点与干预条件匹配，
-  `replay --parent` 必须换用按 3 生成的新检查点；旧检查点与其派生分支不能再作为反事实父。
-- 现状：**已实施**。`runs/` 内按 2 写入的既有运行目录与检查点不可再读，这是有意为之，不保留兼容读取路径。
+打开、共同检查点恢复与分支必须使用版本 4 的状态以及一致的场景、地图、语料和代码身份。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收必须从当前格式建立运行和父检查点。结构切换已经落盘，功能完成仍以地图特性的整合门禁与独立审查为准。
 
 ## 已完成的确定性范围
 

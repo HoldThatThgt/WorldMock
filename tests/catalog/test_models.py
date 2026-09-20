@@ -111,7 +111,7 @@ def test_role_placeholder_detection() -> None:
 def test_transfer_edge_requires_amount() -> None:
     """@brief 转账边必须携带金额（整数或公式绑定）。"""
     neither = {
-        "on": "purchase",
+        "on": "depart",
         "type": "transfer",
         "from": "{buyer}",
         "to": "{merchant}",
@@ -119,7 +119,7 @@ def test_transfer_edge_requires_amount() -> None:
     }
     with pytest.raises(ValidationError, match="amount_fen"):
         ExchangeObject.model_validate(
-            {**MILK_OBJECT, "edges": [neither, MILK_OBJECT["edges"][1]]}
+            {**MILK_OBJECT, "edges": [neither, MILK_OBJECT["edges"][0]]}
         )
 
 
@@ -141,7 +141,7 @@ def test_transfer_edge_accepts_formula_binding_amount() -> None:
 def test_transfer_edge_same_endpoints_rejected() -> None:
     """@brief 转账边两端必须不同。"""
     self_loop = {
-        "on": "purchase",
+        "on": "depart",
         "type": "transfer",
         "from": "{buyer}",
         "to": "{buyer}",
@@ -149,20 +149,20 @@ def test_transfer_edge_same_endpoints_rejected() -> None:
         "account_roles": {"from": "buyer", "to": "merchant:grocery"},
     }
     with pytest.raises(ValidationError, match="endpoints must differ"):
-        ExchangeObject.model_validate({**MILK_OBJECT, "edges": [self_loop, MILK_OBJECT["edges"][1]]})
+        ExchangeObject.model_validate({**MILK_OBJECT, "edges": [self_loop, MILK_OBJECT["edges"][0]]})
 
 
 def test_transfer_placeholder_without_account_roles_rejected() -> None:
     """@brief 占位端点缺角色标注被拒。"""
     orphan = {
-        "on": "purchase",
+        "on": "depart",
         "type": "transfer",
         "from": "{buyer}",
         "to": "{merchant}",
         "amount_fen": 680,
     }
     with pytest.raises(ValidationError, match="account_roles"):
-        ExchangeObject.model_validate({**MILK_OBJECT, "edges": [orphan, MILK_OBJECT["edges"][1]]})
+        ExchangeObject.model_validate({**MILK_OBJECT, "edges": [orphan, MILK_OBJECT["edges"][0]]})
 
 
 def test_source_edge_accepts_zero_amount_fact() -> None:
@@ -231,7 +231,8 @@ def test_object_rejects_unknown_fields() -> None:
 
 def test_object_provenance_must_cover_edges() -> None:
     """@brief 每条边至少要有一条溯源标注。"""
-    payload = {**MILK_OBJECT, "provenance": MILK_OBJECT["provenance"][:1]}
+    payload = {**MILK_OBJECT, "edges": [*MILK_OBJECT["edges"], *MILK_OBJECT["edges"]],
+               "provenance": MILK_OBJECT["provenance"][:1]}
     with pytest.raises(ValidationError, match="at least one provenance"):
         ExchangeObject.model_validate(payload)
 
@@ -244,9 +245,9 @@ def test_object_provenance_parts_must_be_unique() -> None:
         ExchangeObject.model_validate(payload)
 
 
-def test_object_requires_at_least_one_edge() -> None:
-    """@brief 交换对象的全部经济语义就是边，空边不许入场。"""
-    payload = {**MILK_OBJECT, "edges": []}
+def test_nonproduct_object_requires_at_least_one_edge() -> None:
+    """@brief 服务与合同仍然必须声明交换边。"""
+    payload = {**MILK_OBJECT, "object_kind": "service", "edges": []}
     with pytest.raises(ValidationError):
         ExchangeObject.model_validate(payload)
 

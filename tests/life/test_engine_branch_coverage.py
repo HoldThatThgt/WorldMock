@@ -620,15 +620,15 @@ def test_scenario_rejects_unknown_references() -> None:
     """住处/路线/受理人未知引用拒绝。"""
     _assert_invalid(_replace(("agents", 0, "home_location_id"), "nowhere"),
                     "agent home is not a declared location")
-    _assert_invalid(_replace(("routes", 0, "origin_id"), "nowhere"),
-                    "route references an unknown location")
+    _assert_invalid(_replace(("routes",), [{"origin_id": "nowhere"}]),
+                    "Extra inputs are not permitted")
     _assert_invalid(_replace(("tasks", 0, "assignee_agent_id"), "agent:99"),
                     "unknown assignee agent")
     _assert_invalid(_replace(("tasks", 0, "due_at"), "2026-01-05T09:00:00+08:00"),
                     "work due time must follow availability")
 
 
-def test_schedule_sections_reject_each_invalid_shape() -> None:
+def test_schedule_sections_reject_each_invalid_shape(engine_factory) -> None:
     """预排段时区、窗口、账户引用与对象引用的拒绝形态。"""
     _assert_invalid(_replace(("bills", 0, "due_at"), "2026-01-05T09:00:00+09:00"),
                     "do not match the declared timezone")
@@ -640,22 +640,23 @@ def test_schedule_sections_reject_each_invalid_shape() -> None:
                     "undeclared employer account")
     _assert_invalid(_replace(("payrolls", 0, "agent_id"), 99),
                     "unknown agent")
+    source = engine_factory().scenario.supplies[0].source.model_dump(mode="json")
     payload = _payload()
-    payload["price_changes"] = [{"change_id": "change-x", "object_id": "food-ghost",
-                                 "object_version": 1, "amount_fen": 100,
+    payload["price_changes"] = [{"change_id": "change-x", "supply_id": "supply-ghost",
+                                 "price_version": "new-version", "source": source, "amount_fen": 100,
                                  "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "price change references an unknown product")
+    _assert_invalid(payload, "price change references an unknown supply")
     payload = _payload()
-    payload["product_releases"] = [{"release_id": "release-x", "object_id": "food-ghost",
-                                    "merchant": "merchant:grocery", "stock": 5,
+    payload["product_releases"] = [{"release_id": "release-x", "supply_id": "supply-ghost",
+                                    "source": source, "stock": 5,
                                     "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "product release references an unknown product")
+    _assert_invalid(payload, "product release references an unknown supply")
     payload = _payload()
     payload["product_releases"] = [{"release_id": "release-x",
-                                    "object_id": payload["products"][0]["product_id"],
+                                    "supply_id": payload["supplies"][0]["supply_id"], "source": source,
                                     "merchant": "merchant:wrong", "stock": 5,
                                     "due_at": "2026-01-06T09:00:00+08:00"}]
-    _assert_invalid(payload, "merchant disagrees with the product binding")
+    _assert_invalid(payload, "Extra inputs are not permitted")
     payload = _payload()
     payload["accounts"].append({"account_id": "agent:1", "money_fen": 1, "role": "personal:dup"})
     _assert_invalid(payload, "must not reuse agent account ids")
@@ -824,7 +825,7 @@ def test_activity_summary_foods_row_requires_products(engine_factory) -> None:
     engine = engine_factory()
     summary = engine._activity_summary(engine.state.agents[1])
     assert "foods" in summary
-    engine.scenario = engine.scenario.model_copy(update={"products": ()})
+    engine.scenario = engine.scenario.model_copy(update={"products": (), "supplies": ()})
     assert "foods" not in engine._activity_summary(engine.state.agents[1])
 
 
@@ -1180,7 +1181,7 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
     with pytest.raises(ProtocolError, match="does not match its tool"):
         engine.submit_action(DirectToolCall(ctx, "a-3", "start_basic_activity",
                                             PurchaseOrderRequest(
-                                                items=(PurchaseItem(product_id="food-6923644266066",
+                                                items=(PurchaseItem(supply_id="food-6923644266066",
                                                                    quantity=1, price_version="v1"),),
                                                 fulfillment="delivery", destination_id="home")))
     engine.submit_action(DirectToolCall(ctx, "a-4", "start_basic_activity", request))
@@ -1275,10 +1276,10 @@ def test_purchase_rejects_invisible_product(engine_factory) -> None:
     """不可见商品的整单购买被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "buy-ghost", "purchase", PurchaseOrderRequest(
-        items=(PurchaseItem(product_id="food-ghost", quantity=1, price_version="v1"),),
+        items=(PurchaseItem(supply_id="food-ghost", quantity=1, price_version="v1"),),
         fulfillment="delivery", destination_id="home"))
     assert result.status.value == "rejected"
-    assert result.error_code == "PRODUCT_NOT_VISIBLE"
+    assert result.error_code == "SUPPLY_NOT_VISIBLE"
 
 
 def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None:

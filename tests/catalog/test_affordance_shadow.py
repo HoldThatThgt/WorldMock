@@ -57,9 +57,9 @@ EXPECTED_MET_KEYS = frozenset({
 EXPECTED_RELIEF_KEYS = frozenset({"watch", "play_game", "wait"})
 EXPECTED_RECOVERY_KINDS = frozenset({"sleep", "wait", "consume"})
 EXPECTED_FEEDBACK_KINDS = frozenset({
-    "wait", "work", "watch", "travel", "read_mail", "browse", "consume"})
+    "wait", "work", "watch", "travel", "read_mail", "browse", "consume", "lifestyle"})
 EXPECTED_CONTINUABLE_KINDS = frozenset({
-    "wait", "work", "watch", "travel", "read_mail", "browse", "consume"})
+    "wait", "work", "watch", "travel", "read_mail", "browse", "consume", "lifestyle"})
 EXPECTED_TARGETED_ORDER = ("work", "watch", "play_game", "read_mail", "browse")
 EXPECTED_CATALOG_FIELDS = {
     "work": ("tasks", "task_id"),

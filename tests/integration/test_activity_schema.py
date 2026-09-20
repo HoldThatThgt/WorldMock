@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+
+from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
@@ -107,13 +109,14 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         "game_catalog": [{"game_id": "game"}],
         "messages": [{"message_id": "message"}],
         "browse_targets": ["product_catalog"],
-        "products": [{"product_id": "product", "price_version": "price-v1", "current_stock": 2,
-                      "use_modes": ["eat"], "use_duration_seconds": 300,
-                      "merchant_location_id": "home", "required_location_id": None}],
+        "products": [{"product_id": "product", "use_modes": ["eat"],
+                      "use_duration_seconds": 300, "required_location_id": None}],
+        "supplies": [supply_row(supply_id="supply", product_id="product")],
+        "discovery_catalog": discovery_catalog("product"),
         "locations": [{"location_id": "home"}, {"location_id": "office"}],
         "location_id": "home",
         "available_inventory": {"product": 1.0},
-        "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
                     "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
         "games": {},
     }
@@ -205,7 +208,7 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
     functions = {item["function"]["name"]: item["function"] for item in schemas}
-    assert len(functions) == 22  # 15 生活动作（含 browse_activities）+ 6 记忆 + finish
+    assert len(functions) == 23  # 16 生活动作（含 discover_places）+ 6 记忆 + finish
     for function in functions.values():
         assert function["strict"] is True
         Draft202012Validator.check_schema(function["parameters"])

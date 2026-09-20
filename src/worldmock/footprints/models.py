@@ -35,7 +35,7 @@ WAKE_REASON_NAMES = frozenset({
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
     "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
-    "activity_infeasible", "rejection_feedback", "wake_from_sleep", "run_start",
+    "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
 })
 
 #: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：决策自述文本写入 decision_started.data；

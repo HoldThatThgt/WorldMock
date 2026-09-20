@@ -151,7 +151,7 @@ sleep_channel = "awake"
 # 分支让位注册表通道（activities._entertainment_relief 的分支序）。
 relief = { channel = "none" }
 resource_claims = []
-feedback_boundary = false
+feedback_boundary = true
 energy_projection = false
 tool = { surface = "basic", type_pattern = "lifestyle:{item_id}" }
 target_discovery = "browse_result"
@@ -237,6 +237,7 @@ kinds = ["browse"]
 attention = { kind = "none" }
 habit_members = [
   { tool = "start_targeted_activity", activity_type = "browse" },
+  { tool = "discover_places" },
 ]
 candidate = { generator = "catalog_visibility", probe_duration_seconds = 600 }
 enumeration_rank = 60

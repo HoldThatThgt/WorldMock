@@ -33,6 +33,7 @@ FROZEN_WAKE_REASONS = (
     "person_left",
     "activity_infeasible",
     "rejection_feedback",
+    "discovery_result",
     "wake_from_sleep",
     "run_start",
 )
@@ -98,6 +99,7 @@ POSITIVE_CASES = {
     "activity_infeasible": {"activity_infeasible": True},
     "rejection_feedback": {"consecutive_rejections": 2},
     "wake_from_sleep": {"wake_from_sleep": True},
+    "discovery_result": {"discovery_result_ready": True},
     "run_start": {"run_start": True},
 }
 
@@ -127,6 +129,7 @@ NEGATIVE_CASES = {
     "activity_infeasible": {"activity_infeasible": False},
     "rejection_feedback": {"consecutive_rejections": 0},
     "wake_from_sleep": {"wake_from_sleep": False},
+    "discovery_result": {"discovery_result_ready": False},
     "run_start": {"run_start": False},
 }
 
@@ -144,9 +147,9 @@ def test_negative_each_member(member: str) -> None:
 
 
 def test_wake_reason_frozen_member_set() -> None:
-    """@brief 冻结成员集校验：16 个成员、名称与声明序与规格一致。"""
+    """@brief 冻结成员集校验：17 个成员、名称与声明序与规格一致。"""
     assert [reason.value for reason in WakeReason] == list(FROZEN_WAKE_REASONS)
-    assert len(WakeReason) == 16
+    assert len(WakeReason) == 17
 
 
 def test_intent_kind_literal_matches_tuple() -> None:

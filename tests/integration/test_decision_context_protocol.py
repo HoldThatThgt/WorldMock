@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 
 import pytest
 
@@ -128,7 +129,8 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         "request_sha256", "run_id", "round_id", "decision_id", "agent_id", "action_id", "submitted",
         "private-run-identity", "private-round-identity", "private-decision-identity", "a" * 64,
     ):
-        assert forbidden not in json.dumps(followup, ensure_ascii=False)
+        # 检查完整协议身份，供给差异事实中的 based_on_action_id 说明不是宿主回执泄露。
+        assert re.search(rf"(?<!\w){re.escape(forbidden)}(?!\w)", json.dumps(followup, ensure_ascii=False)) is None
     assistant = next(item for item in followup if item.get("reasoning_content"))
     assert assistant["reasoning_content"] == "I intend to rest; the outcome is not known yet."
     assert assistant["tool_calls"][0]["id"] == action_tool["tool_call_id"]

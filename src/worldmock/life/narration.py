@@ -27,7 +27,7 @@ current_time（ISO 8601 或 datetime）、location（地点显示名）、people
 （在场人物名列表）、felt（维度到体感分级短语）、current_activity（title/
 progress）、paused_activities（title/progress 列表）、day_plan（str 或
 summary/current_segment）、inbox_head（收件箱头字符串列表）、inbox_has_older_unread、todos_summary、
-reachable_places（name/open 列表）、inventory、recent_action_results
+reachable_places（name/opening_status 列表）、inventory、recent_action_results
 （一句话列表，取最近一条）。
 """
 
@@ -105,6 +105,9 @@ ROUTE_ALLOWED_FIELDS = frozenset({
     "minutes",
     "fare",
     "feasible",
+    "status",
+    "reason",
+    "distance_meters",
 })
 
 _WEEKDAY_NAMES = (
@@ -221,8 +224,9 @@ def _places_sentence(observation: dict) -> str:
               if place.get("name")]
     if not places:
         return ""
+    states = {"open": "营业中", "closed": "未营业", "unknown": "营业信息未知"}
     described = "、".join(
-        f"{place['name']}（{'营业中' if place.get('open') else '未营业'}）" for place in places)
+        f"{place['name']}（{states[place['opening_status']]}）" for place in places)
     return _close_sentence(f"可达地点有{described}")
 
 
