@@ -7,7 +7,7 @@
 沿用现有单文件页面、sql.js 和 SQLite JSON 投影，不增加生产依赖。
 
 名称与内部身份分开处理，采用 [Activity Streams 的对象名称语义](https://www.w3.org/TR/activitystreams-vocabulary/#dfn-name)
-及 [Grafana 的显示名称机制](https://grafana.com/docs/grafana/latest/panels-visualizations/configure-standard-options/)。
+及 [Grafana 的显示名称机制](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/configure-standard-options/)。
 名称是记录中的可读文本；对象编号用于关联和审计。
 
 ## 地点名称
