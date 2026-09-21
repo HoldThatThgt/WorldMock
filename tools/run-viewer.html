@@ -144,7 +144,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
     <h1>拖入 footprints.sqlite</h1>
     <p>将运行产生的 SQLite 足迹文件拖到此处，或点击选择文件。<br>
        也可以把 sqlite 文件与整个 run 目录一起拖入（目录含 <code>as2/agents/*/MEMORY.md</code>）以加载记忆文件；<br>
-       若一并拖入含 <code>items.json</code>（电影/剧集/小说条目）的目录，活动目标会显示片名。<br>
+       地点名称和活动标题直接读取运行记录。<br>
        所有数据只在本地浏览器内解析，不会上传。</p>
   </div>
   <input type="file" id="file-input" accept=".sqlite,.db,.sqlite3">
@@ -227,8 +227,8 @@ const S = {
   obs: [],               // {seq,t,agent,bal,en,sl,et}
   acts: [],              // 合并后的活动段
   memFiles: {},          // agentId -> {memoryMd, episodes:[]}
-  itemNames: {},         // item_id -> 标题（拖入 items.json 后可用）
-  nameIdx: null,         // {products:Map, messages:Map, catalog:Map} 来自 observation
+  nameIdx: null,         // {locations:Map, targets:Map} 来自本次运行记录
+  missingNames: new Set(), // 已报告名称缺失的对象
   fmt: null, tzOff: 28800,
   view: 'overview',
   day: null,             // {title, rows[], source} 解析后的 render_day timeline markdown
@@ -303,17 +303,12 @@ const TOOL_LABELS = {
   purchase:'购买', consume:'进食', set_activity_state:'调整活动状态',
   submit_work:'提交工作', game_action:'游戏操作',
 };
-const FEED_LABELS = {
-  'jokes-feed':'段子', 'weibo-feed':'微博', 'zhihu-feed':'知乎',
-  'movie-reviews-feed':'影评', 'news-feed':'新闻', 'product_catalog':'商品目录',
-};
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈' };
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
   delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期' };
 const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
 const ERR_LABELS = { WORK_REQUIRES_REWORK:'工作需返工' };
-const LOC_LABELS = { home:'家', office:'公司', market:'市场' };
 const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'商家·通用',
   'merchant:grocery':'商家·杂货', 'transport:service':'交通服务' };
 const TRAVEL_MODES = { driving:'驾车', walking:'步行', transit:'公交', bicycle:'骑行' };
@@ -321,7 +316,8 @@ const typeLabel = t => TYPE_LABELS[t]||t;
 const kindLabel = k => k==null?'':(KIND_LABELS[k]||k);
 const toolLabel = t => t==null?'—':(TOOL_LABELS[t]||t);
 const statusLabel = s => s==null?'—':(STATUS_LABELS[s]||s);
-const locLabel = id => id==null?'':(LOC_LABELS[id]||id);
+/** @brief 将地点身份关联到本次运行记录中的名称。 */
+const locLabel = id => id==null?'':recordedName(S.nameIdx?.locations, String(id));
 const acctLabel = a => {
   if (a==null) return '—';
   const m = String(a).match(/^agent:(\d+)$/);
@@ -348,25 +344,24 @@ function actTypeLabel(kind, target){
   if (kind==='purchase') return '买';
   return kindLabel(kind);
 }
-/* target_id → 可读目标名 */
-function targetLabel(t){
+/** @brief 显示记录中的名称，缺失时显式报告数据问题。 */
+function recordedName(names, id){
+  if (names?.has(id)) return names.get(id);
+  if (!S.missingNames.has(id)){
+    console.error('Missing recorded object name:', id);
+    S.missingNames.add(id);
+  }
+  return `名称缺失（${id}）`;
+}
+
+/** @brief 活动自身标题优先，其余目标通过运行内名称关联。 */
+function targetLabel(t, title){
   if (t==null || t==='') return '';
+  if (typeof title==='string' && title.trim() && title.trim()!==String(t)) return title;
   const s = String(t);
-  const idx = S.nameIdx;
-  if (/^food-/.test(s)) return (idx && idx.products.get(s)) || `食品 #${s.slice(5)}`;
-  if (/^movie-\d+$/.test(s)) return S.itemNames[s] || `电影 #${s.slice(6)}`;
-  if (/^drama-\d+$/.test(s)) return S.itemNames[s] || `剧集 #${s.slice(6)}`;
-  if (/^novel-\d+$/.test(s)) return S.itemNames[s] || `小说 #${s.slice(6)}`;
-  if (/^textworld-\d+$/.test(s)) return `游戏 #${s.slice(10)}`;
-  if (/^game-\d+$/.test(s)) return `游戏 #${s.slice(5)}`;
-  if (/^task-\d{4}-\d{2}-\d{2}$/.test(s)) return '包工任务';
-  if (/^hourly-\d{4}-\d{2}-\d{2}$/.test(s)) return '计时工';
-  if (/^piece-\d{4}-\d{2}-\d{2}$/.test(s)) return '计件工';
-  if (FEED_LABELS[s]) return FEED_LABELS[s];
-  if (s==='sintel-en-subtitles') return 'Sintel 字幕体验';
-  if (idx && idx.messages.has(s)) return `邮件「${idx.messages.get(s)}」`;
-  if (LOC_LABELS[s]) return LOC_LABELS[s];
-  return s;
+  if (S.nameIdx?.targets.has(s)) return S.nameIdx.targets.get(s);
+  if (S.nameIdx?.locations.has(s)) return S.nameIdx.locations.get(s);
+  return recordedName(S.nameIdx?.targets, s);
 }
 
 /* ---------- 查询封装 ---------- */
@@ -380,6 +375,48 @@ function q(sqlText, params){
   } finally { stmt.free(); }
 }
 const parseJArr = text => { try{ return JSON.parse(text); }catch(e){ return []; } };
+
+/** @brief 累积非空名称，稀疏观察不会清除此前的记录。 */
+function collectNames(rows, names){
+  for (const row of rows){
+    if (row.id && typeof row.label==='string' && row.label.trim() && row.label.trim()!==row.id){
+      names.set(row.id, row.label);
+    }
+  }
+}
+
+/** @brief 用 SQLite 投影构建名称索引，不加载模型请求或事件全文。 */
+function buildNameIndex(){
+  const locations = new Map(), targets = new Map();
+  const sources = [
+    ['locations', 'location_id', 'name', locations],
+    ['products', 'product_id', 'name', targets],
+    ['facts.tasks', 'task_id', 'title', targets],
+  ];
+  for (const [path, id, label, names] of sources){
+    collectNames(q(`SELECT json_extract(item.value,'$.${id}') AS id,
+      json_extract(item.value,'$.${label}') AS label
+      FROM events e, json_each(e.body,'$.data.${path}') item
+      WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`), names);
+  }
+  const messages = q(`SELECT json_extract(item.value,'$.message_id') AS id,
+    json_extract(item.value,'$.subject') AS label
+    FROM events e, json_each(e.body,'$.data.messages') item
+    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`);
+  collectNames(messages.filter(row=>row.label?.trim() && row.label.trim()!==row.id)
+    .map(row=>({id:row.id, label:`邮件「${row.label}」`})), targets);
+  collectNames(q(`SELECT COALESCE(json_extract(item.value,'$.item_id'),
+      json_extract(item.value,'$.product_id'), json_extract(item.value,'$.activity_id'),
+      json_extract(item.value,'$.task_id')) AS id,
+    COALESCE(json_extract(item.value,'$.title'), json_extract(item.value,'$.name')) AS label
+    FROM events e, json_each(e.body,'$.data.data.items') item
+    WHERE json_extract(e.body,'$.event_type')='action_accepted' ORDER BY e.event_seq`), targets);
+  collectNames(q(`SELECT json_extract(body,'$.data.activity.target_id') AS id,
+    json_extract(body,'$.data.activity.title') AS label FROM events
+    WHERE json_extract(body,'$.event_type') IN ('action_accepted','activity_progress')
+    ORDER BY event_seq`), targets);
+  S.nameIdx = {locations, targets};
+}
 
 /* ================================================================
  * 索引构建
@@ -423,9 +460,10 @@ function buildIndex(){
     S.summaries.set(r.seq,{tool:r['$.data.tool_name'], req:r['$.data.request']});
   });
   typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
-                                '$.data.activity.target_id','$.data.activity.destination_id'], r=>{
+                                '$.data.activity.target_id','$.data.activity.destination_id',
+                                '$.data.activity.title'], r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
-      tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id']});
+      tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title']});
   });
   typeQuery('action_rejected', ['$.data.error_code','$.data.consecutive_rejections'], r=>{
     S.summaries.set(r.seq,{err:r['$.data.error_code'],nrej:r['$.data.consecutive_rejections']});
@@ -436,13 +474,13 @@ function buildIndex(){
   typeQuery('activity_progress', ['$.activity_id','$.data.activity.kind','$.data.activity.status','$.data.activity.started_at',
                                   '$.data.activity.ended_at','$.data.activity.planned_end_at','$.data.activity.elapsed_seconds',
                                   '$.data.activity.boundary_type','$.data.activity.target_id','$.data.activity.destination_id',
-                                  '$.data.activity.media_position_seconds'],
+                                  '$.data.activity.title'],
   r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
       pend:r['$.data.activity.planned_end_at'],elapsed:r['$.data.activity.elapsed_seconds'],
       bnd:r['$.data.activity.boundary_type'],tg:r['$.data.activity.target_id'],
-      dest:r['$.data.activity.destination_id'],mpos:r['$.data.activity.media_position_seconds']});
+      dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title']});
   });
   typeQuery('model_request', ['$.data.request.model','$.data.attempt'], r=>{
     S.summaries.set(r.seq,{model:r['$.data.request.model'],attempt:r['$.data.attempt']});
@@ -471,19 +509,7 @@ function buildIndex(){
   for (const o of S.obs){ const e=bySeq.get(o.seq); if(e){ o.t=e.t; o.agent=e.agent; } }
   S.obs = S.obs.filter(o=>o.t!=null);
 
-  /* 名称索引：从最后一条 observation 提取商品名 / 邮件主题 / 内容目录（段长）。
-   * 必须在 makeSummary 之前构建 —— 摘要里的目标名依赖它。 */
-  try{
-    const r = q(`SELECT body FROM events WHERE json_extract(body,'$.event_type')='observation' ORDER BY event_seq DESC LIMIT 1`)[0];
-    if (r){
-      const d = JSON.parse(r.body).data||{};
-      S.nameIdx = {
-        products: new Map((d.products||[]).filter(p=>p.product_id).map(p=>[p.product_id,p.name||p.product_id])),
-        messages: new Map((d.messages||[]).filter(m=>m.message_id).map(m=>[m.message_id,m.subject||''])),
-        catalog: new Map((d.content_catalog||[]).filter(c=>c.item_id).map(c=>[c.item_id,c])),
-      };
-    }
-  }catch(e){ /* 无 observation 时 targetLabel 走回退标签 */ }
+  buildNameIndex();
 
   for (const e of S.events) e.sum = makeSummary(e);
 
@@ -554,7 +580,9 @@ function makeSummary(e){
     case 'model_request': return `模型请求 ${s.model||''} · 第${s.attempt??'?'}次尝试`;
     case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}`;
-    case 'action_accepted': return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+(s.tg?targetLabel(s.tg):locLabel(s.dest)):''} · 计划 ${fmtDur(s.dur)}`;
+    case 'action_accepted':
+      return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+actTargetText(s):''}` +
+        ` · 计划 ${fmtDur(s.dur)}`;
     case 'action_rejected': return `被拒绝 · ${ERR_LABELS[s.err]||s.err||'—'} · 连续拒绝 ${s.nrej??'?'} 次`;
     case 'action_result': {
       let ord='';
@@ -562,7 +590,9 @@ function makeSummary(e){
         if (o && o.total_price_fen!=null) ord=` · 订单 ${targetLabel(o.product_id)} ¥${fmtFen(o.total_price_fen)}`; }catch(_){}}
       return `结果 ${statusLabel(s.status)}${s.msg?' · '+s.msg:''}${s.err?' · '+(ERR_LABELS[s.err]||s.err):''}${ord}`;
     }
-    case 'activity_progress': return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg? ' '+targetLabel(s.tg) : (s.dest? ' → '+locLabel(s.dest):'')} · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+BND_LABELS[s.bnd]:''}`;
+    case 'activity_progress':
+      return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' '+actTargetText(s):''}` +
+        ` · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+BND_LABELS[s.bnd]:''}`;
     case 'memory_updated': {
       let n = 0; try{ n = Array.isArray(s.ep)? s.ep.length : (s.ep?JSON.parse(s.ep).length:0); }catch(_){}
       return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆${s.cons?' · 已巩固':''}`;
@@ -584,7 +614,7 @@ function buildActivities(){
     const aid = s.aid || `(accepted@${e.seq})`;
     let a = map.get(aid);
     if (!a){ a = {aid, agent:e.agent, kind:s.kind||'?', start:s.start??e.t, end:null, pend:s.pend??null,
-                   status:s.status||'active', elapsed:0, tg:null, dest:null, mpos:null};
+                   status:s.status||'active', elapsed:0, tg:null, dest:null, title:null};
              map.set(aid,a); }
     if (s.kind) a.kind = s.kind;
     if (s.start!=null && s.start < a.start) a.start = s.start;
@@ -594,7 +624,7 @@ function buildActivities(){
     if (s.elapsed!=null) a.elapsed = Math.max(a.elapsed, s.elapsed);
     if (a.tg==null && s.tg!=null && s.tg!=='') a.tg = s.tg;
     if (a.dest==null && s.dest!=null && s.dest!=='') a.dest = s.dest;
-    if (a.mpos==null && s.mpos!=null) a.mpos = s.mpos;
+    if (typeof s.title==='string' && s.title.trim() && s.title.trim()!==s.tg) a.title = s.title;
   }
   for (const a of map.values()){
     if (a.end==null) a.end = a.pend!=null? Math.min(a.pend,S.t1) : Math.min(a.start+a.elapsed,S.t1);
@@ -846,14 +876,9 @@ function toggleDetail(row, seq){
 
 /* ---------- 活动表格（替代甘特图） ---------- */
 const AT = { sortKey:'start', sortDir:1, page:0, pageSize:50, filtered:[] };
-function dramaSegLabel(a){
-  if (!a.tg || !S.nameIdx) return '';
-  const cc = S.nameIdx.catalog.get(a.tg);
-  if (!cc || !cc.typical_segment_seconds || a.mpos==null) return '';
-  return ` 第${Math.floor(a.mpos/cc.typical_segment_seconds)+1}段`;
-}
+/** @brief 以活动自身标题或目的地名称展示活动对象。 */
 function actTargetText(a){
-  if (a.tg) return targetLabel(a.tg) + dramaSegLabel(a);
+  if (a.tg) return targetLabel(a.tg, a.title);
   if (a.dest) return `→ ${locLabel(a.dest)}`;
   return '—';
 }
@@ -1387,16 +1412,6 @@ async function handleFiles(fileList, dirEntries){
 async function loadMemFiles(entries){
   const walk = async (entry, path='')=>{
     if (entry.isFile){
-      if (entry.name==='items.json'){
-        /* 条目目录（电影/剧集/小说等）：item_id → 标题 */
-        try{
-          const file = await new Promise((res,rej)=>entry.file(res,rej));
-          const arr = JSON.parse(await file.text());
-          if (Array.isArray(arr))
-            for (const it of arr) if (it && it.item_id) S.itemNames[it.item_id] = it.title||'';
-        }catch(_){}
-        return;
-      }
       if (entry.name==='MEMORY.md' || entry.name==='episodes.jsonl'){
         const m = (path+'/'+entry.name).match(/agent_?0*(\d+)/i);
         const aid = m? String(+m[1]) : String(Object.keys(S.memFiles).length+1);
@@ -1449,7 +1464,7 @@ function bindDnd(){
     if (S.db) S.db.close();
     S.db=null; S.events=[]; S.summaries=new Map(); S.typeCounts={}; S.obs=[]; S.acts=[];
     S.memFiles={}; S.bodyCache=new Map(); S.world=null; S.runId='';
-    S.itemNames={}; S.nameIdx=null; S.day=null;
+    S.nameIdx=null; S.missingNames=new Set(); S.day=null;
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
     RS.loaded=false; RS.items=[]; RS.kw='';
