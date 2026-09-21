@@ -46,7 +46,7 @@ from worldmock.life.candidates import (
     Exclusion,
     LocationView,
 )
-from worldmock.life.models import ActivityKind
+from worldmock.life.models import ActivityKind, active_activities
 from worldmock.life.projection import hour_of_day
 from worldmock.life.opening_hours import opening_status
 
@@ -492,12 +492,12 @@ def candidate_inputs(context: PresentationContext, sources: dict,
     profile = next((item for item in context.scenario.agents
                     if item.agent_id == context.agent.agent_id), None)
     motivation = getattr(profile, "motivation", None)
-    activity = context.state.activities.get(context.agent.current_activity_id or "")
+    occupied = frozenset(claim for item in active_activities(context.state, context.agent.agent_id)
+                         for claim in item.resource_claims) if moment else frozenset()
     return CandidateInputs(
         location=current_location(context),
         locations=location_views(context), sources=sources,
-        occupied_activity_id=(activity.activity_id if activity is not None and moment
-                              else None),
+        occupied_resources=occupied,
         local_hour=(local_hour(context) if moment else None), current_time=now,
         window_end_time=now + candidates.CANDIDATE_WINDOW_SECONDS,
         energy_kcal=float(context.agent.body.energy_kcal),

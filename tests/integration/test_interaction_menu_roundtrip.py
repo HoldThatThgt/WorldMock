@@ -28,7 +28,8 @@ async def test_real_person_requests_use_current_location_menu_and_next_round_res
         home_tools = {item["function"]["name"] for item in home_requests[1]["tools"]}
         assert "send_message" in home_tools
         assert home["location_id"] == "home"
-        assert engine.state.agents[1].current_activity_id is None
+        assert not any(item.agent_id == 1 and item.status.value == "active"
+                       for item in engine.state.activities.values())
         assert engine.commit_decision_round(first.round_id)[0].error_code is None
         assert advance_until_ready(engine)
         _travel_to_office(engine)

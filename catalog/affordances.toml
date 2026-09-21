@@ -16,10 +16,9 @@ version = 1
 #                       见 met_key_modes），lifestyle 用 "{item_id}"（开放命名空间前缀）。
 #   energy_floor_exempt 能量投影可穿透下界的活动（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS）。
 #   sleep_channel       recovery = 清债 | awake = 累积（body 结算分支）。
-#   relief.channel      娱乐缓解通道四选一：none | intrinsic（wait 边等边刷，目录费率直读）|
-#                       preference_rate（play_game：偏好 x 目录费率）|
+#   relief.channel      娱乐缓解通道三选一：none | preference_rate（play_game：偏好 x 目录费率）|
 #                       content_rate（watch：条目费率 x 偏好 / 接触次数）。
-#   resource_claims     资源锁声明（position 恒占，不在表中重复声明）；travel 用
+#   resource_claims     全部资源锁均显式声明；travel 用
 #                       conditional 子句表达 driving 条件锁。
 #   feedback_boundary   到期反馈边界资格（派生 activities.FEEDBACK_ACTIVITY_KINDS 与
 #                       agent 侧 continue_activity 资格闭集）。
@@ -37,8 +36,8 @@ version = 1
 met_key = "wait"
 energy_floor_exempt = true
 sleep_channel = "awake"
-relief = { channel = "intrinsic" }
-resource_claims = []
+relief = { channel = "none" }
+resource_claims = ["position"]
 feedback_boundary = true
 energy_projection = false
 tool = { surface = "basic", activity_type = "wait" }
@@ -49,7 +48,7 @@ met_key = "sleep"
 energy_floor_exempt = true
 sleep_channel = "recovery"
 relief = { channel = "none" }
-resource_claims = []
+resource_claims = ["position", "attention"]
 feedback_boundary = false
 energy_projection = false
 tool = { surface = "basic", activity_type = "sleep" }
@@ -60,7 +59,7 @@ met_key = "work"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["attention", "device", "hands"]
+resource_claims = ["position", "attention", "device", "hands"]
 feedback_boundary = true
 energy_projection = true
 tool = { surface = "targeted", activity_type = "work" }
@@ -82,7 +81,7 @@ met_key = "play_game"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "preference_rate" }
-resource_claims = ["attention", "device", "hands"]
+resource_claims = ["position", "attention", "device", "hands"]
 feedback_boundary = false
 game_boundary = true
 energy_projection = true
@@ -97,7 +96,7 @@ met_key_modes = ["driving", "walking"]
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = { base = [], conditional = [{ when = "mode:driving", add = ["attention", "hands", "vehicle"] }] }
+resource_claims = { base = ["position"], conditional = [{ when = "mode:driving", add = ["attention", "hands", "vehicle"] }] }
 feedback_boundary = true
 energy_projection = false
 tool = { surface = "travel" }
@@ -108,7 +107,7 @@ met_key = "read_mail"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["attention", "device"]
+resource_claims = ["position", "attention", "device"]
 feedback_boundary = true
 energy_projection = true
 # 现状显式化：read_mail 不参与习惯份额（classify_action_event 返回 None）。
@@ -121,7 +120,7 @@ met_key = "browse"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["attention", "device"]
+resource_claims = ["position", "attention", "device"]
 feedback_boundary = true
 energy_projection = true
 tool = { surface = "targeted", activity_type = "browse" }
@@ -132,7 +131,7 @@ met_key = "consume"
 energy_floor_exempt = true
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["hands"]
+resource_claims = ["position", "hands"]
 feedback_boundary = true
 energy_projection = false
 tool = { surface = "commerce", activity_type = "consume" }
@@ -150,7 +149,7 @@ sleep_channel = "awake"
 # resources.jsonl 增加 lifestyle 费率键（目录数据属 A10 波次），届时 effects
 # 分支让位注册表通道（activities._entertainment_relief 的分支序）。
 relief = { channel = "none" }
-resource_claims = []
+resource_claims = ["position"]
 feedback_boundary = true
 energy_projection = false
 tool = { surface = "basic", type_pattern = "lifestyle:{item_id}" }
@@ -262,6 +261,9 @@ title_source = { corpus_path = "movies/items.json", id_key = "item_id" }
 [families.entertainment.content_kinds.drama_series]
 attention_required = true
 title_source = { corpus_path = "drama/items.json", id_key = "item_id" }
+[families.entertainment.content_kinds.podcast_episode]
+attention_required = true
+title_source = { corpus_path = "podcasts/items.json", id_key = "item_id" }
 [families.entertainment.content_kinds.webnovel_excerpt]
 attention_required = true
 title_source = { corpus_path = "novels/items.json", id_key = "item_id" }

@@ -50,6 +50,16 @@ def _usage():
             "prompt_cache_hit_tokens": 40, "prompt_cache_miss_tokens": 60}
 
 
+def _memory_update(identity, observation_id):
+    return {"operation": "append_episodes", "created_episode_ids": [identity],
+            "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
+            "text": "想继续生活", "epistemic_status": "subjective"}],
+            "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
+            "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
+            "consolidated": False, "observation_event_id": observation_id,
+            "verified_event_ids": []}
+
+
 def _activity(identity, kind, elapsed, status="completed", **fields):
     return {"activity_id": identity, "agent_id": 1, "activity_type": kind,
             "elapsed_seconds": elapsed, "status": status, **fields}
@@ -57,31 +67,35 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
 
 def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     events = [
-        _event(1, "model_request", agent_id=1, decision_id="decision-1", data={"call_id": "call-1"}),
-        _event(2, "model_response", agent_id=1, decision_id="decision-1",
+        _event(1, "observation", agent_id=1, decision_id="decision-1", data={"verified_experiences": []}),
+        _event(2, "model_request", agent_id=1, decision_id="decision-1", data={"call_id": "call-1"}),
+        _event(3, "model_response", agent_id=1, decision_id="decision-1",
                data=_tool_response("call-1", None, _usage())),
-        _event(3, "memory_updated", agent_id=1, decision_id="decision-1",
-               data={"episode_ids": ["memory-1"]}),
-        _event(4, "model_request", agent_id=1, decision_id="decision-2", data={"call_id": "call-2"}),
-        _event(5, "model_response", agent_id=1, decision_id="decision-2",
+        _event(4, "memory_updated", agent_id=1, decision_id="decision-1",
+               data=_memory_update("memory-1", "event-1")),
+        _event(5, "observation", agent_id=1, decision_id="decision-2", data={"verified_experiences": []}),
+        _event(6, "model_request", agent_id=1, decision_id="decision-2", data={"call_id": "call-2"}),
+        _event(7, "model_response", agent_id=1, decision_id="decision-2",
                data=_tool_response("call-2", ["memory-1"], _usage())),
-        _event(6, "memory_updated", agent_id=1, decision_id="decision-2",
-               data={"episode_ids": ["memory-2"]}),
-        _event(7, "action_requested", agent_id=1, action_id="action-1"),
-        _event(8, "action_result", agent_id=1, action_id="action-1", data={"status": "completed"}),
-        _event(9, "action_requested", agent_id=1, action_id="action-2"),
-        _event(10, "action_rejected", agent_id=1, action_id="action-2",
+        _event(8, "memory_updated", agent_id=1, decision_id="decision-2",
+               data=_memory_update("memory-2", "event-5")),
+        _event(9, "action_requested", agent_id=1, action_id="action-1"),
+        _event(10, "action_result", agent_id=1, action_id="action-1", data={"status": "completed"}),
+        _event(11, "action_requested", agent_id=1, action_id="action-2"),
+        _event(12, "action_rejected", agent_id=1, action_id="action-2",
                data={"error_code": "RESOURCE_BUSY"}),
-        _event(11, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
-        _event(12, "activity_progress", data={
+        _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
+        _event(14, "activity_progress", data={
             "activity": {"kind": "work"},
-            "body_settlement": {"duration_seconds": 100, "work_efficiency": 0.8},
+            "interval_start": 104, "interval_end": 114, "activity_efficiency": 0.8,
         }),
-        _event(13, "activity_progress", data={
+        _event(15, "activity_progress", data={
             "activity": {"kind": "consume"},
-            "consumption": {"food_settlement": {"duration_seconds": 50, "food_efficiency": 0.9}},
+            "interval_start": 114, "interval_end": 115,
+            "consumption": {"use_mode": "eat", "food_efficiency": 0.9,
+                            "items": [{"interval_quantity": 0.5}]},
         }),
-        _event(14, "run_ended", occurred_at=1100, wall_ms=100_000),
+        _event(16, "run_ended", occurred_at=1100, wall_ms=100_000),
     ]
     activities = [
         _activity("watch-1", "watch", 600, target_id="show"),
@@ -207,21 +221,54 @@ def test_memory_quality_reports_unknown_reference_and_missing_update():
 def test_finish_memory_can_reference_its_observation_and_visible_prior_result():
     events = [_event(1, 'action_result', agent_id=1, action_id='prior', data={'status': 'completed'}),
               _event(2, 'observation', agent_id=1, decision_id='current',
-                     data={'recent_action_results': [{'event_id': 'event-1'}]}),
+                 data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
               _event(3, 'model_request', agent_id=1, decision_id='current', data={'call_id': 'call'}),
               _event(4, 'model_response', agent_id=1, decision_id='current',
                      data=_tool_response('call', ['event-1', 'event-2'], _usage())),
-              _event(5, 'memory_updated', agent_id=1, decision_id='current', data={'episode_ids': ['m1']})]
+              _event(5, 'memory_updated', agent_id=1, decision_id='current',
+                     data=_memory_update('m1', 'event-2'))]
     memory = build_quality_report(events, [], _manifest())['memory_references']
     assert memory['references_checked'] == 2
     assert memory['problems'] == []
+
+
+def test_merged_memory_identity_is_not_reported_as_a_duplicate():
+    first = _memory_update('m1', 'event-1')
+    merged = {**_memory_update('m1', 'event-4'), 'created_episode_ids': [],
+              'merged_episode_ids': ['m1']}
+    events = [
+        _event(1, 'observation', agent_id=1, decision_id='first', data={'verified_experiences': []}),
+        _event(2, 'model_response', agent_id=1, decision_id='first',
+               data=_tool_response('first', ['event-1'], _usage())),
+        _event(3, 'memory_updated', agent_id=1, decision_id='first', data=first),
+        _event(4, 'observation', agent_id=1, decision_id='second', data={'verified_experiences': []}),
+        _event(5, 'model_response', agent_id=1, decision_id='second',
+               data=_tool_response('second', ['m1'], _usage())),
+        _event(6, 'memory_updated', agent_id=1, decision_id='second', data=merged),
+    ]
+    memory = build_quality_report(events, [], _manifest())['memory_references']
+    assert memory['persisted_episode_ids'] == 1
+    assert memory['problems'] == []
+
+
+def test_valid_looking_observed_fact_must_equal_its_committed_source():
+    source = _event(1, 'activity_progress', agent_id=1, activity_id='wait', data={
+        'interval_start': 90, 'interval_end': 101,
+        'activity': {'activity_id': 'wait', 'kind': 'wait'}})
+    forged = {'kind': 'waited', 'agent_id': 1, 'activity_id': 'wait',
+              'source_event_id': 'event-1', 'event_seq': 1, 'occurred_at': 101,
+              'interval_start': 91, 'interval_end': 101, 'duration_seconds': 10, 'reason': None}
+    observation = _event(2, 'observation', agent_id=1, decision_id='decision',
+                         data={'verified_experiences': [forged]})
+    quality = build_quality_report([source, observation], [], _manifest())['memory_references']
+    assert [item['code'] for item in quality['problems']] == ['invalid_verified_experience_source']
 
 
 @pytest.mark.parametrize('source_agent,visibility', [(2, 'agent'), (1, 'system')])
 def test_finish_rejects_environment_refs_unavailable_to_this_person(source_agent, visibility):
     events = [_event(1, 'action_result', agent_id=source_agent, visibility=visibility),
               _event(2, 'observation', agent_id=1, decision_id='current',
-                     data={'recent_action_results': [{'event_id': 'event-1'}]}),
+                 data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
               _event(3, 'model_response', agent_id=1, decision_id='current',
                      data=_tool_response('call', ['event-1'], _usage()))]
     memory = build_quality_report(events, [], _manifest())['memory_references']
@@ -233,7 +280,8 @@ def test_environment_event_cannot_be_used_as_a_memory_read_episode():
     response = _tool_response('call', [], _usage())
     function = response['response']['choices'][0]['message']['tool_calls'][0]['function']
     function.update(name='memory_read', arguments=json.dumps({'ids': ['event-1']}))
-    events = [_event(1, 'observation', agent_id=1, decision_id='current'),
+    events = [_event(1, 'observation', agent_id=1, decision_id='current',
+                     data={'verified_experiences': []}),
               _event(2, 'model_response', agent_id=1, decision_id='current', data=response)]
     memory = build_quality_report(events, [], _manifest())['memory_references']
     assert [item['code'] for item in memory['problems']] == ['unknown_memory_reference']
@@ -241,13 +289,13 @@ def test_environment_event_cannot_be_used_as_a_memory_read_episode():
 
 def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_statements():
     events = [
-        _event(1, "activity_progress", data={DECISION_OFFERED_FIELD: False,
+        _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
-        _event(2, "activity_progress", data={DECISION_OFFERED_FIELD: True,
+        _event(2, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "person_arrived"]}),
-        _event(3, "activity_progress", data={DECISION_OFFERED_FIELD: True,
+        _event(3, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
-        _event(4, "activity_progress", data={"activity": {"kind": "work"}}),
+        _event(4, "environment_event", data={"kind": "body_settlement"}),
         _event(5, "decision_started", agent_id=1, decision_id="decision-1",
                data={DECISION_STATEMENT_FIELD: "今天想早点到办公室。"}),
         _event(6, "decision_started", agent_id=1, decision_id="decision-2",
@@ -257,7 +305,7 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_stat
 
     rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
 
-    assert rhythm["activity_progress_events"] == 4
+    assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
     assert rhythm["boundaries_missing_decision_field"] == 1
     assert rhythm["silent_boundaries"] == 1
@@ -271,7 +319,7 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_stat
 
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
-    events = [_event(1, "activity_progress", data={"activity": {"kind": "work"}}),
+    events = [_event(1, "environment_event", data={"kind": "body_settlement"}),
               _event(2, "decision_started", agent_id=1, decision_id="decision-1", data={}),
               _event(3, "run_ended", occurred_at=1100)]
 

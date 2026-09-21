@@ -17,14 +17,16 @@ from typing import Any
 from worldmock.life import discovery, felt, presentation, projection
 from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, ContentProgress, DiscoverPlacesRequest
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
-from worldmock.life.body import maximum_energy_duration_seconds, minimum_energy_cost
-from worldmock.life.models import ActivityKind
+from worldmock.life.body import maximum_shared_energy_duration, shared_energy_cost
+from worldmock.life.activities import active_energy_entries, activity_factors
+from worldmock.life.models import ActivityKind, active_activities, paused_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import work_totals
 from worldmock.life.result_projection import public_supply_row
+from worldmock.life.dining import local_food_summary
 
 
 class ObservationMixin:
@@ -57,12 +59,19 @@ class ObservationMixin:
                 "reachable_places": self._reachable_places(agent),
                 "product_rows": rows["products"],
                 "activity_rows": self._activity_rows(agent),
+                "local_food_summary": local_food_summary(self._discovery_context(agent)),
             })
         data = projection.build_observation(inputs)
         data["paused_activities"] = [
-            _paused_activity_observation(item, agent, self.semantics.body) for item in sorted(
+            _paused_activity_observation(item, self.state, self.semantics.body) for item in sorted(
                 self.state.activities.values(), key=lambda value: value.activity_id)
             if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
+        data["occupied_resources"] = sorted({claim for item in active_activities(self.state, agent.agent_id)
+                                             for claim in item.resource_claims})
+        from worldmock.footprints.experiences import recent_verified_experiences
+
+        data["verified_experiences"] = recent_verified_experiences(
+            self.store, agent.agent_id, self.store.last_event_seq)
         data["wake_reasons"] = list(agent.pending_wake_reasons)
         data["location_id"] = agent.location_id
         data["hour_of_day"] = projection.hour_of_day(
@@ -95,7 +104,7 @@ class ObservationMixin:
         data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = _mail_headers(agent, self.rules.messages)
         data["energy_feasibility"] = _activity_energy_feasibility(
-            agent, self.semantics.body, self._affordance_contract)
+            self.state, agent.agent_id, self.semantics.body, self._affordance_contract)
         data["affordance_contract"] = self._affordance_contract
         visible = set(projection.visible_supplies(self.state, agent, self.scenario)) | set(presented)
         context = self._discovery_context(agent)
@@ -124,8 +133,7 @@ class ObservationMixin:
                          if item not in self.state.paid_task_ids
                          and self.state.current_time <= int(
                              self.rules.tasks[item].due_at.timestamp())]
-        data["routes"] = _route_catalog(self.scenario.routes, self.semantics.body,
-                                        agent, self.state.current_time, self.semantics)
+        data["routes"] = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
         data["game_catalog"] = _game_catalog(self.scenario)
         data["browse_targets"] = ["product_catalog"]
         data["calendar_context"] = _calendar_context(self.scenario, self.state.current_time)
@@ -168,8 +176,7 @@ class ObservationMixin:
 
     def _route_rows(self, agent) -> list[dict]:
         """@brief 路线事实保留未知与不可达，只有已核实路线计算时长和能量。"""
-        rows = _route_catalog(self.scenario.routes, self.semantics.body,
-                              agent, self.state.current_time, self.semantics)
+        rows = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
         return [{"destination": row["destination_id"], "mode": row["mode"],
                  "minutes": round(row["duration_seconds"] / 60) if row["status"] == "reachable" else None,
                  "fare": row["fare_fen"], "feasible": row["energy_feasible"],
@@ -189,26 +196,23 @@ class ObservationMixin:
         return self._window_rows(agent, self._recent_action_results(agent.agent_id))["products"]
 
     def _activity_rows(self, agent) -> dict:
-        """@brief scene 活动进度行与 facts 控制身份（不含完整活动快照）。"""
-        active = self.state.activities.get(agent.current_activity_id) if agent.current_activity_id else None
-        paused = [item for item in sorted(self.state.activities.values(),
-                                          key=lambda value: value.activity_id)
-                  if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
-        current = None
-        control = None
-        if active is not None:
-            title = self._activity_title(active)
-            progress = _activity_progress_phrase(active)
-            current = {"title": title or active.kind.value, "progress": progress}
-            control = {"activity_id": active.activity_id, "kind": active.kind.value,
-                       "status": active.status.value,
-                       "title": title, "progress": progress,
-                       "elapsed_seconds": active.elapsed_seconds,
-                       "planned_duration_seconds": active.planned_duration_seconds,
-                       "data": deepcopy(active.data)}
-        return {"current": current, "control": control,
+        """@brief 按共同活动集合生成独立场景进度与完整控制行。"""
+        current, controls = [], []
+        for item in active_activities(self.state, agent.agent_id):
+            title = self._activity_title(item)
+            progress = _activity_progress_phrase(item)
+            label = "听取" if (item.kind == ActivityKind.WATCH
+                               and self.rules.content(item.target_id).kind == "podcast_episode") else "进行"
+            current.append({"title": title or item.kind.value, "progress": progress, "verb": label})
+            controls.append({"activity_id": item.activity_id, "kind": item.kind.value,
+                             "status": item.status.value, "title": title, "progress": progress,
+                             "elapsed_seconds": item.elapsed_seconds,
+                             "planned_duration_seconds": item.planned_duration_seconds,
+                             "data": deepcopy(item.data)})
+        return {"current": current, "control": controls,
                 "paused": [{"title": self._activity_title(item) or item.kind.value,
-                            "progress": _activity_progress_phrase(item)} for item in paused]}
+                            "progress": _activity_progress_phrase(item)}
+                           for item in paused_activities(self.state, agent.agent_id)]}
 
     def _market_summary(self) -> dict | None:
         """@brief 仅报告市场存在性，不从未呈现供给泄露报价或购买凭据。"""
@@ -322,8 +326,7 @@ class ObservationMixin:
                 kind: sum(1 for item in self.scenario.contents if item.kind == kind)
                 for kind in {item.kind for item in self.scenario.contents}},
             content_progress=agent.content_progress,
-            active_activity=(self.state.activities.get(agent.current_activity_id)
-                             if agent.current_activity_id else None),
+            active_activities=active_activities(self.state, agent.agent_id),
             habit_events=habit,
             consecutive_rejections=agent.consecutive_rejections,
             max_consecutive_rejections=self.scenario.max_consecutive_rejections,
@@ -622,8 +625,10 @@ def _mail_headers(agent, messages) -> list[dict]:
     return result
 
 
-def _route_catalog(routes: tuple, body, agent, now: int, semantics) -> list[dict]:
+def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]:
     """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级）。"""
+    agent, body, now = state.agents[agent_id], semantics.body, state.current_time
+    entries = active_energy_entries(state, agent_id, body)
     fields = {"route_id", "origin_id", "destination_id", "mode", "status", "reason",
               "distance_meters", "duration_seconds", "fare_fen", "fare_source_kind"}
     result = []
@@ -636,7 +641,7 @@ def _route_catalog(routes: tuple, body, agent, now: int, semantics) -> list[dict
         if item.status == "reachable":
             planned = semantics.travel_planned_seconds(item.mode.value, item.duration_seconds, now)
             met = body.activity_met[f"travel:{item.mode.value}"]
-            cost = minimum_energy_cost(ActivityKind.TRAVEL, planned, body, met)
+            cost = shared_energy_cost(entries + ((planned, met),), body)
             data.update(duration_seconds=planned, minimum_energy_cost_kcal=cost,
                         travel_time_factor=semantics.travel_time_factor(item.mode.value, now),
                         energy_feasible=cost <= agent.body.energy_kcal)
@@ -644,25 +649,26 @@ def _route_catalog(routes: tuple, body, agent, now: int, semantics) -> list[dict
     return result
 
 
-def _activity_energy_feasibility(agent, body, contract: dict) -> dict:
-    """@brief 返回能量投影活动按当前能量可受理的最大整数墙钟秒数。"""
+def _activity_energy_feasibility(state, agent_id: int, body, contract: dict) -> dict:
+    """@brief 以全部现有活动与候选的分段最大 MET 预测同一能量预算。"""
+    entries = active_energy_entries(state, agent_id, body)
+    energy = state.agents[agent_id].body.energy_kcal
     maximums = {
-        kind: maximum_energy_duration_seconds(
-            ActivityKind(kind), agent.body.energy_kcal, body)
+        kind: maximum_shared_energy_duration(entries, body.activity_met[kind], energy, body, 86_400)
         for kind, entry in contract.items() if entry["energy_projection"]
     }
     return {"maximum_duration_seconds_by_kind": maximums}
 
 
-def _paused_activity_observation(activity, agent, body) -> dict:
-    """@brief 公开暂停活动本身及当前剩余时长的恢复能量可行性。"""
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    from worldmock.life.activities import activity_factors
-
-    factors = activity_factors(activity, agent, body)
-    cost = minimum_energy_cost(activity.kind, remaining, body, factors.met)
+def _paused_activity_observation(activity, state, body) -> dict:
+    """@brief 暂停恢复与现有活动共享剩余能量，暂停区间不重复扣费。"""
     from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
 
+    agent = state.agents[activity.agent_id]
+    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
+    factors = activity_factors(activity, agent, body)
+    entries = active_energy_entries(state, activity.agent_id, body)
+    cost = shared_energy_cost(entries + ((remaining, factors.met),), body)
     feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
     data = activity.model_dump(mode="json")
     data.update({"remaining_duration_seconds": remaining,
@@ -815,7 +821,7 @@ def _browse_note(category: str) -> str:
 
 
 #: 提示句归到内容句的内容品类尾名单（不在 `_BROWSE_NOTES` 里逐项出现的那些）。
-_CONTENT_NOTE_KINDS = frozenset({"feature_film", "drama_series", "webnovel_excerpt",
+_CONTENT_NOTE_KINDS = frozenset({"podcast_episode", "feature_film", "drama_series", "webnovel_excerpt",
                                  "news_feed", "joke_feed", "subtitle_experience"})
 
 

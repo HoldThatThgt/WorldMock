@@ -37,6 +37,29 @@ def test_export_uses_cutoff_and_excludes_pause_from_duration(tmp_path):
     store.close()
 
 
+def test_export_writes_full_committed_experience_prefix(tmp_path):
+    """@brief 离线事实导出超过观察五条窗口，且每条保留来源事件身份。"""
+    store = FootprintStore.create(tmp_path / 'run', {
+        'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 300, 'timezone': 'UTC'}
+    }, {'version': 0, 'current_time': 100})
+    drafts = []
+    for index in range(6):
+        identity = f'wait-{index}'
+        snapshot = {'activity_id': identity, 'agent_id': 1, 'kind': 'wait', 'started_at': 100,
+                    'elapsed_seconds': 10, 'status': 'completed', 'ended_at': 110}
+        drafts.append(EventDraft(event_type='activity_progress', occurred_at=110, agent_id=1,
+                                 activity_id=identity, data={'activity': snapshot,
+                                                             'interval_start': 100, 'interval_end': 110}))
+    committed = store.commit({'version': 1, 'current_time': 110}, drafts)
+    manifest = export_run(store, 6, tmp_path / 'export')
+    path = tmp_path / 'export' / 'verified-experiences.jsonl'
+    facts = [json.loads(line) for line in path.read_text().splitlines()]
+    assert manifest['artifacts']['verified_experiences']['rows'] == 6
+    assert [row['source_event_id'] for row in facts] == [event.event_id for event in committed]
+    assert all(row['kind'] == 'waited' and row['reason'] is None for row in facts)
+    store.close()
+
+
 def test_clock_end_without_successful_final_checkpoint_is_not_complete(tmp_path):
     store = FootprintStore.create(tmp_path / 'run', {
         'run_id': 'run', 'agent_ids': [1], 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}

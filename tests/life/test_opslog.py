@@ -134,8 +134,14 @@ def test_opslog_records_memory_update(engine_factory) -> None:
     """记忆更新记录带人物与决策关联键及 episode 数量。"""
     engine = engine_factory()
     ctx = context(engine, "memory-ops")
-    evidence = MemoryUpdateEvidence(ctx, "append_episodes", ("episode-1",),
-                                    "a" * 64, "b" * 64, "c" * 64, False)
+    observation = engine.observe(ctx)
+    evidence = MemoryUpdateEvidence(
+        context=ctx, operation="append_episodes", created_episode_ids=("episode-1",),
+        merged_episode_ids=(), episodes=({"id": "episode-1", "type": "reflection",
+                                          "text": "记得今天的事", "epistemic_status": "subjective"},),
+        memory_before_sha256="0" * 64, memory_sha256="a" * 64,
+        episodes_sha256="b" * 64, state_sha256="c" * 64, consolidated=False,
+        observation_event_id=observation["observation_event_id"], verified_event_ids=())
     engine.record_memory_update(evidence)
     records = _records(engine)
     updated = next(record for record in records if record["code"] == "MEMORY_UPDATED")

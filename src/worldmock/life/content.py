@@ -127,6 +127,10 @@ def load_content_titles(
 
 def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:
     """@brief 校验字幕身份并解析完整 SRT 时间轴。"""
+    if item.kind == "podcast_episode":
+        audio = _safe_file(corpus_root, item.audio_path)
+        if hashlib.sha256(audio.read_bytes()).hexdigest() != item.audio_sha256:
+            raise IntegrityError("Podcast audio hash mismatch")
     path = _safe_file(corpus_root, item.timeline_path)
     content = path.read_bytes()
     if hashlib.sha256(content).hexdigest() != item.timeline_sha256:
@@ -148,7 +152,10 @@ def reveal_watch(activity: ActivityState, agent: AgentState, item: ContentItemCo
     start = activity.data.get("last_revealed_position_seconds",
                               activity.data.get("start_position_seconds", 0))
     stop = min(item.duration_seconds, activity.media_position_seconds)
-    visible = [cue for cue in cues if cue.start_seconds < stop and cue.end_seconds > start]
+    if item.kind == "podcast_episode":
+        visible = [cue for cue in cues if start < cue.end_seconds <= stop]
+    else:
+        visible = [cue for cue in cues if cue.start_seconds < stop and cue.end_seconds > start]
     count = activity.data["exposure_count"]
     progress = ContentProgress(item_id=item.item_id, position_seconds=stop, exposure_count=count)
     mapping = dict(agent.content_progress)

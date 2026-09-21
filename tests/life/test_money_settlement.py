@@ -47,7 +47,8 @@ def _stage_open(engine) -> None:
     staged.current_time = epoch
     staged.pending_events = [event for event in staged.pending_events if event.due_at > epoch]
     for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(update={"next_decision_at": epoch}, deep=True)
+        staged.agents[agent_id] = agent.model_copy(
+            update={"next_decision_at": epoch, "body_settled_at": epoch}, deep=True)
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
                        source_kind="scenario", data={"kind": "test_merchant_open"})
@@ -98,7 +99,6 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
         2: ("start_basic_activity", _wait()),
     }, "buy")
     # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
-    from tests.life.conftest import advance_until_ready, advance_until_ready
     while 1 not in engine.scheduling_state().ready_agent_ids:
         ready_now = engine.scheduling_state().ready_agent_ids
         if ready_now:
@@ -148,38 +148,43 @@ def test_initial_injection_matches_semantics_accounts(engine_factory) -> None:
     assert inject_initial_funds(accounts, 0) == accounts
 
 
-def test_activity_progress_carries_validated_body_flows(engine_factory) -> None:
-    """活动推进事件落迹身体分录：owner 重盖为 agent 账户且载荷过校验。"""
+def test_shared_body_event_carries_validated_body_flows(engine_factory) -> None:
+    """共同身体结算只落一次分录，活动进度引用它且 owner 为人物账户。"""
     engine = engine_factory("multi-person.json")
     submit_round(engine, {1: ("start_basic_activity", _wait(3600)),
                           2: ("start_basic_activity", _wait(3600))}, "wait")
     advance_next(engine)
-    progresses = [event for event in engine.store.read_events(engine.store.last_event_seq)
-                  if event.event_type == "activity_progress"
-                  and event.agent_id == 1 and RESOURCE_FLOWS_FIELD in event.data]
-    assert progresses, "activity progress settlement must leave body flow evidence"
-    flows = validate_resource_flows(progresses[0].data[RESOURCE_FLOWS_FIELD])
+    events = engine.store.read_events(engine.store.last_event_seq)
+    bodies = [event for event in events if event.event_type == "environment_event"
+              and event.agent_id == 1 and event.data.get("kind") == "body_settlement"]
+    progresses = [event for event in events if event.event_type == "activity_progress"
+                  and event.agent_id == 1]
+    assert len(bodies) == 1 and progresses
+    assert all(event.data["body_settlement_event_id"] == bodies[0].event_id for event in progresses)
+    flows = validate_resource_flows(bodies[0].data[RESOURCE_FLOWS_FIELD])
     assert {flow["resource"] for flow in flows} == {
         "energy_kcal", "entertainment_need"}  # 不足账由 sleep 纯函数演化，不分录
     assert {flow["owner"] for flow in flows} == {"agent:1"}
     assert all(flow["direction"] in ("source", "drain") and flow["amount"] > 0 for flow in flows)
     assert all(flow["cause"].startswith("settle:") for flow in flows)
-    settlement = progresses[0].data["body_settlement"]
+    settlement = bodies[0].data["body_settlement"]
     drained = sum(flow["amount"] for flow in flows
                   if flow["resource"] == "energy_kcal" and flow["direction"] == "drain")
     assert drained == settlement["before"]["energy_kcal"] - settlement["after"]["energy_kcal"]
 
 
 def test_non_settlement_events_never_carry_resource_flows(engine_factory) -> None:
-    """动作受理/结果与环境事件不是身体结算点，不得携带 resource_flows 字段。"""
+    """动作事件和普通环境事件没有身体分录；共同结算事件独占公共身体分录。"""
     engine = engine_factory("multi-person.json")
     submit_round(engine, {1: ("start_basic_activity", _wait(3600)),
                           2: ("start_basic_activity", _wait(3600))}, "wait")
     advance_next(engine)
-    events = [event for event in engine.store.read_events(engine.store.last_event_seq)
-              if event.event_type != "activity_progress"]
-    assert events
-    assert all(RESOURCE_FLOWS_FIELD not in event.data for event in events)
+    events = engine.store.read_events(engine.store.last_event_seq)
+    other = [event for event in events if event.event_type not in {"activity_progress", "environment_event"}
+             or (event.event_type == "environment_event" and event.data.get("kind") != "body_settlement")]
+    assert other and all(RESOURCE_FLOWS_FIELD not in event.data for event in other)
+    assert any(RESOURCE_FLOWS_FIELD in event.data for event in events
+               if event.event_type == "environment_event" and event.data.get("kind") == "body_settlement")
 
 
 def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> None:
@@ -194,18 +199,18 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
         2: ("continue_activity", ContinueActivityRequest(activity_id="activity-action-wait-2")),
     }, "keep-waiting")
     advance_next(engine)
-    progresses = sorted(
+    bodies = sorted(
         (event for event in engine.store.read_events(engine.store.last_event_seq)
-         if event.event_type == "activity_progress" and event.agent_id == 1
-         and RESOURCE_FLOWS_FIELD in event.data),
+         if event.event_type == "environment_event" and event.agent_id == 1
+         and event.data.get("kind") == "body_settlement"),
         key=lambda event: event.data["interval_end"])
-    assert len(progresses) >= 2
-    for event in progresses:
+    assert len(bodies) >= 2
+    for event in bodies:
         drained = sum(flow["amount"] for flow in event.data[RESOURCE_FLOWS_FIELD]
                       if flow["resource"] == "energy_kcal" and flow["direction"] == "drain")
         settlement = event.data["body_settlement"]
         assert drained == settlement["before"]["energy_kcal"] - settlement["after"]["energy_kcal"]
-    first, second = progresses[0], progresses[1]
+    first, second = bodies[0], bodies[1]
     assert first.data["interval_end"] == second.data["interval_start"]
 
 

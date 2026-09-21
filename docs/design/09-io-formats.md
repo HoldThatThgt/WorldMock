@@ -72,7 +72,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[4] | 是 | 地图与门店供给世界结构版本；旧状态直接拒绝 |
+| `schema_version` | Literal[5] | 是 | 活动集合与共同身体时刻的世界结构版本；旧状态直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |
@@ -124,7 +124,8 @@ flowchart TB
 | `body` | BodyState | 是 | 身体状态 |
 | `inventory` | dict[str, dict[str, float]] | 是 | 库存 |
 | `active_effects` | set[str] | 是 | 活跃效果（JSON 编码为排序列表） |
-| `current_activity_id` | str \| None | 否 | 当前活动 ID |
+| `body_settled_at` | int | 是 | 本人身体已结算到的共同世界时刻 |
+| `delivered_warning_signatures` | set[str] | 是 | 当前持续威胁中已实际交付的签名 |
 | `next_decision_at` | int | 是 | 下次决策时间 |
 | `consecutive_rejections` | int | 是 | 连续拒绝次数 |
 | `decision_failed` | bool | 是 | 决策是否失败 |
@@ -141,6 +142,11 @@ flowchart TB
 | `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`；空清单仍为已提交，条目含环境推进证据，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
+活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。
+观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合；
+每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量。
+事实窗口 `verified_experiences` 由截止前已提交事件确定；记录格式与共同身体结算引用由
+[记录引擎](05-recording-engine.md)定义，人物自述不得写入该事实窗口。
 超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，
 后者使用完成时的世界时刻。恢复和分支保留这些字段以及 `presentation_state`，不能重建为全目录可见。
 

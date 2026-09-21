@@ -47,6 +47,7 @@ CHECKED_FILES = [
     "lifestyle/items.json",
     "movies/items.json",
     "drama/items.json",
+    "podcasts/items.json",
     "novels/items.json",
     "feed/items.json",
     "jokes/items.json",

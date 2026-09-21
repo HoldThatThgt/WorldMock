@@ -38,6 +38,7 @@ def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> Age
     effects = {"work_notes"} if notes else set()
     return AgentState(
         agent_id=1,
+        body_settled_at=0,
         name="worker",
         location_id="office",
         balance_account_id="agent:1",
@@ -201,7 +202,8 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
     advance_next(engine)
 
     activity = engine.state.activities[results[0].activity_id]
-    expected = before - item.entertainment_relief_per_hour * preference / 60
+    expected = before + (engine.semantics.body.entertainment_need_per_awake_hour
+                         - item.entertainment_relief_per_hour * preference) / 60
     assert activity.data["entertainment_relief_per_hour"] == item.entertainment_relief_per_hour
     assert activity.data["exposure_count"] == 1
     assert engine.state.agents[1].body.entertainment_need == pytest.approx(expected)

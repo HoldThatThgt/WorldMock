@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "description": "Reviewed simulation supply assumptions; prices and stocks are not observations of the named stores.",
-  "reviewed_on": "2026-09-20",
+  "description": "Reviewed simulation supply assumptions; prices and stocks are not observations of the named stores. Three formal restaurants explicitly offer one prepared meal each as scenario assumptions.",
+  "reviewed_on": "2026-09-21",
   "still_valid_on": "2027-12-31",
   "products": [
     {
@@ -2773,6 +2773,44 @@
         "source": "legacy-scenario-price",
         "note": "price_version zhangjiang-2026-q1"
       }
+    }
+  ],
+  "restaurant_offers": [
+    {
+      "location_id": "poi-3538660453",
+      "product_id": "meal-0018",
+      "supply_id": "supply-poi-3538660453-meal-0018",
+      "price_fen": 2200,
+      "initial_stock": 40,
+      "seller_account_id": "merchant:restaurant",
+      "fulfillment_modes": [
+        "pickup"
+      ],
+      "basis": "WorldMock formal scenario assumption; not an observed restaurant menu."
+    },
+    {
+      "location_id": "poi-3538682404",
+      "product_id": "meal-0022",
+      "supply_id": "supply-poi-3538682404-meal-0022",
+      "price_fen": 3600,
+      "initial_stock": 40,
+      "seller_account_id": "merchant:restaurant",
+      "fulfillment_modes": [
+        "pickup"
+      ],
+      "basis": "WorldMock formal scenario assumption; not an observed restaurant menu."
+    },
+    {
+      "location_id": "poi-3538682408",
+      "product_id": "meal-0026",
+      "supply_id": "supply-poi-3538682408-meal-0026",
+      "price_fen": 2600,
+      "initial_stock": 40,
+      "seller_account_id": "merchant:restaurant",
+      "fulfillment_modes": [
+        "pickup"
+      ],
+      "basis": "WorldMock formal scenario assumption; not an observed restaurant menu."
     }
   ]
 }

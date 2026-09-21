@@ -16,6 +16,7 @@ HOME_ACTIVITY = 'wellness-morning-wash'
 
 def _agent(location_id):
     return AgentState(agent_id=1, name='worker', location_id=location_id,
+                      body_settled_at=0,
                       balance_account_id='agent:1', next_decision_at=0,
                       body=BodyState(energy_kcal=1600, sleep_pressure=0, sleep_deficit_hours=0,
                                      entertainment_need=0))
@@ -73,12 +74,13 @@ def test_resume_location_gate_rechecks_the_current_location():
         rules.validate_activity_location(_agent('office'), ActivityKind.LIFESTYLE, HOME_ACTIVITY)
 
 
-def test_resource_conflict_remains_distinct_after_location_admission():
+def test_location_admission_returns_activity_resource_claims():
     rules = _rules()
-    agent = _agent('home').model_copy(update={'current_activity_id': 'busy'})
+    agent = _agent('home')
     rules.validate_start(agent, _request(), 100)
-    with pytest.raises(BusinessRuleError, match='RESOURCE_CONFLICT'):
-        start_activity(agent, _request(), 100, ActivityOrigin('a', 'd', 'e'), rules.scenario.body)
+    person, activity = start_activity(agent, _request(), 100, ActivityOrigin('a', 'd', 'e'), rules.scenario.body)
+    assert person == agent
+    assert activity.resource_claims == {'position'}
 
 
 def test_accepted_location_starts_real_activity():
@@ -86,5 +88,5 @@ def test_accepted_location_starts_real_activity():
     agent = _agent('home')
     rules.validate_start(agent, _request(), 100)
     person, activity = start_activity(agent, _request(), 100, ActivityOrigin('a', 'd', 'e'), rules.scenario.body)
-    assert person.current_activity_id == activity.activity_id
+    assert person == agent
     assert activity.target_id == HOME_ACTIVITY

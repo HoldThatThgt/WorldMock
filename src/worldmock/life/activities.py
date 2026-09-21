@@ -18,6 +18,8 @@ from worldmock.life.body import (
     BodySettlement,
     minimum_energy_cost,
     settle_body,
+    shared_energy_cost,
+    maximum_shared_energy_duration,
 )
 from worldmock.life.models import (
     ActivityChange,
@@ -28,6 +30,8 @@ from worldmock.life.models import (
     ChangeActivityRequest,
     ContinueActivityRequest,
     StartActivityRequest,
+    WorldState,
+    active_activities,
 )
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import BodyConfig
@@ -118,12 +122,6 @@ def start_activity(agent: AgentState, request: StartActivityRequest, now: int, o
     """@brief 受理一个主活动，并拒绝地点不可行、资源冲突或不可完成能量预算。"""
     if request.planned_duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
-    if agent.current_activity_id is not None:
-        raise BusinessRuleError("RESOURCE_CONFLICT")
-    met = _activity_met(request.activity_type, request.travel_mode, config, request.target_id)
-    cost = minimum_energy_cost(request.activity_type, request.planned_duration_seconds, config, met)
-    if cost > agent.body.energy_kcal and request.activity_type not in ENERGY_RECOVERY_ACTIVITY_KINDS:
-        raise BusinessRuleError("INSUFFICIENT_ENERGY")
     activity_id = f"activity-{origin.action_id}"
     activity = ActivityState(
         activity_id=activity_id,
@@ -144,7 +142,7 @@ def start_activity(agent: AgentState, request: StartActivityRequest, now: int, o
         origin_decision_id=origin.decision_id,
         origin_request_event_id=origin.request_event_id,
     )
-    return agent.model_copy(update={"current_activity_id": activity_id}, deep=True), activity
+    return agent.model_copy(deep=True), activity
 
 
 def change_activity(agent: AgentState, activity: ActivityState, request: ChangeActivityRequest,
@@ -201,10 +199,24 @@ def advance_activity(activity: ActivityState, agent: AgentState, now: int,
     elapsed = activity.elapsed_seconds + seconds
     completed = elapsed >= activity.planned_duration_seconds
     updated_activity = _advanced_activity(activity, stop, elapsed, settlement, completed)
-    current = None if completed else agent.current_activity_id
-    updated_agent = agent.model_copy(update={"body": settlement.after, "current_activity_id": current}, deep=True)
+    updated_agent = agent.model_copy(update={"body": settlement.after,
+                                             "body_settled_at": stop}, deep=True)
     updated_agent = _apply_lifestyle_felt_relief(updated_agent, activity, seconds)
     return ActivityAdvance(updated_activity, updated_agent, settlement, completed)
+
+
+def advance_activity_shared(activity: ActivityState, agent: AgentState, now: int,
+                            settlement: BodySettlement) -> ActivityAdvance:
+    """@brief 在已结算共同身体的前提下只推进本活动进度与专有效果。"""
+    stop = min(now, activity.planned_end_at)
+    seconds = stop - activity.last_settled_at
+    if activity.status != ActivityStatus.ACTIVE or seconds < 0:
+        raise ValueError("active activity settlement interval is invalid")
+    elapsed = activity.elapsed_seconds + seconds
+    completed = elapsed >= activity.planned_duration_seconds
+    changed = _advanced_activity(activity, stop, elapsed, settlement, completed)
+    changed_agent = _apply_lifestyle_felt_relief(agent, activity, seconds)
+    return ActivityAdvance(changed, changed_agent, settlement, completed)
 
 
 def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
@@ -238,16 +250,51 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
                                           "boundary_type": "experiment_end",
                                           "interruption_reason": "experiment_end",
                                           "next_interaction_at": None}, deep=True)
-    changed_agent = agent.model_copy(update={"current_activity_id": None}, deep=True)
-    return changed, changed_agent
+    return changed, agent.model_copy(deep=True)
 
 
 def resource_claims(request: StartActivityRequest) -> set[str]:
-    """@brief 返回活动的明确资源锁集合（注册表 kinds.*.resource_claims 派生查表；
-    position 恒占，travel 的 driving 条件锁由 conditional 声明表达）。"""
+    """@brief 从注册表取得活动显式资源锁及驾驶条件锁。"""
     return set(_AFFORDANCES.resource_claims(
         request.activity_type.value,
         travel_mode=request.travel_mode.value if request.travel_mode is not None else None))
+
+
+def active_energy_entries(state: WorldState, agent_id: int,
+                          config: BodyConfig) -> tuple[tuple[int, float], ...]:
+    """@brief 返回全部正在执行活动的剩余秒数与冻结 MET。"""
+    from worldmock.life.social_actions import CALL_MET, CHAT_MET
+
+    entries = []
+    for activity in active_activities(state, agent_id):
+        if activity.kind == ActivityKind.CHAT:
+            met = CHAT_MET
+        elif activity.kind == ActivityKind.CALL:
+            met = CALL_MET
+        else:
+            met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
+        entries.append((activity.planned_duration_seconds - activity.elapsed_seconds, met))
+    return tuple(entries)
+
+
+def combined_energy_cost(state: WorldState, agent_id: int, config: BodyConfig,
+                         candidate: StartActivityRequest | None = None) -> float:
+    """@brief 与实际共同结算同式预测全部剩余活动及候选的分段能量成本。"""
+    entries = active_energy_entries(state, agent_id, config)
+    if candidate is not None:
+        met = _activity_met(candidate.activity_type, candidate.travel_mode, config,
+                            candidate.target_id)
+        entries += ((candidate.planned_duration_seconds, met),)
+    return shared_energy_cost(entries, config)
+
+
+def maximum_combined_duration(state: WorldState, agent_id: int, config: BodyConfig,
+                              candidate: StartActivityRequest, limit_seconds: int) -> int:
+    """@brief 二分搜索可与现有活动同人共用能量的候选最长整秒时长。"""
+    entries = active_energy_entries(state, agent_id, config)
+    met = _activity_met(candidate.activity_type, candidate.travel_mode, config, candidate.target_id)
+    return maximum_shared_energy_duration(entries, met, state.agents[agent_id].body.energy_kcal,
+                                          config, limit_seconds)
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:
@@ -263,10 +310,8 @@ def activity_factors(activity: ActivityState, agent: AgentState, config: BodyCon
 def _entertainment_relief(activity: ActivityState, preference: float, config: BodyConfig) -> float:
     """@brief 按注册表缓解通道（kinds.*.relief.channel 四值）计算娱乐缓解速率。
 
-    intrinsic：wait 的被动缓解（边等边刷）是活动类内在语义：settle 阶段在
-    body.py 的 wait 分支直接按目录费率结算，不走偏好 gating 的 factors
-    通道，避免与内容偏好相乘归零或双重计入。content_rate：watch 按条目
-    费率/偏好/接触次数。preference_rate/none：偏好 x 目录费率（无费率
+    content_rate：watch 按条目费率、偏好和接触次数。preference_rate/none：
+    偏好 x 目录费率（无费率
     键的活动得 0）。lifestyle 在通道为 none 时按条目 effects 折算缓解
     （docs/dev/SPEC-life-realism.md「动机层」：生活活动的 effects 真正缓解需要池；注册表通道仍为
     none——effects 是条目级数据，不在目录活动费率表内）。
@@ -275,8 +320,6 @@ def _entertainment_relief(activity: ActivityState, preference: float, config: Bo
             and _AFFORDANCES.relief_channel(activity.kind.value) == "none"):
         return lifestyle_relief_rates(activity.target_id or "")[0]
     channel = _AFFORDANCES.relief_channel(activity.kind.value)
-    if channel == "intrinsic":
-        return 0
     if channel == "content_rate":
         rate = activity.data.get("entertainment_relief_per_hour")
         count = activity.data.get("exposure_count")
@@ -343,10 +386,10 @@ def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,
 
 
 def _pause(agent: AgentState, activity: ActivityState) -> tuple[AgentState, ActivityState]:
-    """@brief 暂停活动并释放当前主活动槽位。"""
-    if activity.status != ActivityStatus.ACTIVE or agent.current_activity_id != activity.activity_id:
+    """@brief 暂停指定活动并释放其显式资源。"""
+    if activity.status != ActivityStatus.ACTIVE:
         raise BusinessRuleError("ACTIVITY_NOT_ACTIVE")
-    return (agent.model_copy(update={"current_activity_id": None}, deep=True),
+    return (agent.model_copy(deep=True),
             activity.model_copy(update={"status": ActivityStatus.PAUSED,
                                         "boundary_type": "paused",
                                         "next_interaction_at": None}, deep=True))
@@ -356,13 +399,11 @@ def _resume(agent: AgentState, activity: ActivityState, now: int) -> tuple[Agent
     """@brief 从保留进度恢复活动并形成新的结束边界。"""
     if activity.status != ActivityStatus.PAUSED:
         raise BusinessRuleError("ACTIVITY_NOT_PAUSED")
-    if agent.current_activity_id is not None:
-        raise BusinessRuleError("RESOURCE_CONFLICT")
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     changed = activity.model_copy(update={"status": ActivityStatus.ACTIVE, "last_settled_at": now,
                                           "planned_end_at": now + remaining,
                                           "boundary_type": None}, deep=True)
-    return agent.model_copy(update={"current_activity_id": activity.activity_id}, deep=True), changed
+    return agent.model_copy(deep=True), changed
 
 
 def _cancel(agent: AgentState, activity: ActivityState) -> tuple[AgentState, ActivityState]:
@@ -374,23 +415,22 @@ def _cancel(agent: AgentState, activity: ActivityState) -> tuple[AgentState, Act
                                           "boundary_type": "cancelled",
                                           "next_interaction_at": None,
                                           "interruption_reason": "agent_cancelled"}, deep=True)
-    current = None if agent.current_activity_id == activity.activity_id else agent.current_activity_id
-    return agent.model_copy(update={"current_activity_id": current}, deep=True), changed
+    return agent.model_copy(deep=True), changed
 
 
 def _require_feedback_boundary(agent: AgentState, activity: ActivityState, now: int) -> None:
     """@brief 要求活动属于人物且当前正处于显式反馈边界。"""
-    if activity.agent_id != agent.agent_id or agent.current_activity_id != activity.activity_id:
+    if activity.agent_id != agent.agent_id:
         raise BusinessRuleError("ACTIVITY_NOT_OWNED")
     if (activity.status != ActivityStatus.ACTIVE or activity.kind not in FEEDBACK_ACTIVITY_KINDS
-            or activity.next_interaction_at != now or activity.boundary_type != "feedback"):
+            or now < activity.last_settled_at):
         raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
 
 
 def _require_decision_boundary(agent: AgentState, activity: ActivityState, now: int) -> None:
     """@brief 要求活动正处于通用反馈或游戏交互边界。"""
     if activity.kind == ActivityKind.PLAY_GAME:
-        if (activity.agent_id != agent.agent_id or agent.current_activity_id != activity.activity_id
+        if (activity.agent_id != agent.agent_id
                 or activity.status != ActivityStatus.ACTIVE or activity.next_interaction_at != now
                 or activity.boundary_type != "game_feedback"):
             raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")

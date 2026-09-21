@@ -33,6 +33,7 @@ from tests.life.conftest import (  # noqa: E402
     engine_factory as _engine_factory,  # noqa: F401
 )
 from worldmock.life.models import (  # noqa: E402
+    active_activities,
     PlanDayRequest,
     PlanGoalInput,
     StartBasicActivityRequest,
@@ -80,7 +81,7 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
 
-    control = observation["active_activity"]
+    control = observation["active_activities"][0]
     assert control is not None
     assert control["kind"] == "wait"
     assert control["status"] == "active"
@@ -94,7 +95,7 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     assert {"continue_activity", "set_activity_state"} <= set(schemas)
     state = schemas["set_activity_state"]["parameters"]["properties"]
     assert state["activity_id"]["enum"] == [control["activity_id"]]
-    assert state["operation"]["enum"] == ["pause", "cancel"]
+    assert set(state["operation"]["enum"]) == {"pause", "cancel"}
     assert schemas["continue_activity"]["parameters"]["properties"][
         "activity_id"]["enum"] == [control["activity_id"]]
     control["data"]["observer_write"] = "must stay outside the world"
@@ -107,7 +108,7 @@ def test_life_agent_rejects_active_activity_without_active_status(
     """status 键缺失（历史缺陷）或非 active 值时控制合同构建必须失败。"""
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
-    assert observation["active_activity"]["status"] == "active"
+    assert observation["active_activities"][0]["status"] == "active"
 
     def sabotage_drop_status(row: dict) -> None:
         row.pop("status")
@@ -117,9 +118,9 @@ def test_life_agent_rejects_active_activity_without_active_status(
 
     for sabotage in (sabotage_drop_status, sabotage_pause_status):
         damaged = copy.deepcopy(observation)
-        sabotage(damaged["active_activity"])
+        sabotage(damaged["active_activities"][0])
         agent = LifeAgent()
-        with pytest.raises(RuntimeError, match="active activity state is invalid"):
+        with pytest.raises(RuntimeError, match="active activity (control fields are|state or kind is) invalid"):
             agent.prepare_react_loop(ReactLoopRequest(
                 0, ctx.observed_at, _observation_records(damaged)))
 
@@ -137,7 +138,7 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     ctx = context(engine, "copy-observe")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    control = observation["active_activity"]
+    control = observation["active_activities"][0]
     actual = engine.state.activities[control["activity_id"]].data["revealed"]["cues"]
     assert len(actual) > 0
     count = len(actual)
@@ -183,15 +184,15 @@ async def test_real_game_observation_accepts_and_executes_visible_command(_engin
         activity_type="play_game", target_id="textworld-1201",
         planned_duration_seconds=3600, playback_speed=1))
     advance_next(engine)
-    activity = engine.state.activities[engine.state.agents[1].current_activity_id]
+    activity = active_activities(engine.state, 1)[0]
     session_id = activity.data["game_session_id"]
     command = engine.state.agents[1].game_sessions[session_id].admissible_commands[0]
     observation, result, schemas = await _agent_action(
         engine, "game-command", "game_action", {"game_session_id": session_id, "command": command})
-    assert observation["active_activity"]["data"]["game_session_id"] == session_id
+    assert observation["active_activities"][0]["data"]["game_session_id"] == session_id
     assert schemas["game_action"]["parameters"]["properties"]["game_session_id"]["enum"] == [session_id]
     assert result.data["game"]["moves"] == 1
-    observation["active_activity"]["data"]["game_session_id"] = "mutated-observation"
+    observation["active_activities"][0]["data"]["game_session_id"] = "mutated-observation"
     assert engine.state.activities[activity.activity_id].data["game_session_id"] == session_id
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
     engine.checkpoint({"agent:1": reference})
@@ -206,7 +207,7 @@ async def test_real_game_observation_accepts_and_executes_visible_command(_engin
         visible = restored.observe(ctx)
         agent = LifeAgent()
         agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(visible)))
-        assert visible["active_activity"]["data"]["game_session_id"] == session_id
+        assert visible["active_activities"][0]["data"]["game_session_id"] == session_id
     finally:
         restored.close()
 

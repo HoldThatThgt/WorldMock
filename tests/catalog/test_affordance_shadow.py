@@ -54,7 +54,7 @@ EXPECTED_FAMILIES = frozenset({
 EXPECTED_MET_KEYS = frozenset({
     "wait", "sleep", "work", "watch", "play_game", "travel:driving", "travel:walking",
     "read_mail", "browse", "consume"})
-EXPECTED_RELIEF_KEYS = frozenset({"watch", "play_game", "wait"})
+EXPECTED_RELIEF_KEYS = frozenset({"watch", "play_game"})
 EXPECTED_RECOVERY_KINDS = frozenset({"sleep", "wait", "consume"})
 EXPECTED_FEEDBACK_KINDS = frozenset({
     "wait", "work", "watch", "travel", "read_mail", "browse", "consume", "lifestyle"})
@@ -71,6 +71,7 @@ EXPECTED_ENERGY_LIMIT_KINDS = frozenset({"work", "watch", "play_game", "read_mai
 EXPECTED_TITLE_SOURCES = {
     "feature_film": ("movies/items.json", "item_id"),
     "drama_series": ("drama/items.json", "item_id"),
+    "podcast_episode": ("podcasts/items.json", "item_id"),
     "webnovel_excerpt": ("novels/items.json", "item_id"),
     "subtitle_experience": ("sintel/media-identity.json", ""),
     # M4：lifestyle 9 品类（条目名是 name_zh，标题注入按合同缺省不写）。
@@ -98,12 +99,12 @@ EXPECTED_HABIT_ROUTES = [
     ("submit_work", None, "work"),
     ("nonexistent_tool", None, None),
 ]
-#: 现行资源锁矩阵（activities.resource_claims if 链的逐分支快照；position 恒占）。
+#: 现行资源锁矩阵（position 只由需要固定地点的活动占用）。
 EXPECTED_RESOURCE_CLAIMS = {
     ("wait", None): {"position"},
-    ("sleep", None): {"position"},
+    ("sleep", None): {"position", "attention"},
     ("work", None): {"position", "attention", "device", "hands"},
-    ("watch", None): {"position", "attention", "device"},
+    ("watch", None): {"attention", "device"},
     ("play_game", None): {"position", "attention", "device", "hands"},
     ("travel", "driving"): {"position", "attention", "hands", "vehicle"},
     ("travel", "walking"): {"position"},
@@ -121,11 +122,11 @@ def view():
 
 
 def test_registry_entry_counts(view) -> None:
-    """@brief 注册表覆盖度：10 kinds + 8 families + 16 内容品类（7 娱乐 + 9 生活）。"""
+    """@brief 注册表覆盖度：10 kinds + 8 families + 17 内容品类（8 娱乐 + 9 生活）。"""
     assert len(view.kinds) == 10
     assert len(view.families) == 8
     entertainment = view.families["entertainment"]
-    assert len(entertainment.content_kinds) == 7
+    assert len(entertainment.content_kinds) == 8
     lifestyle = view.families["lifestyle"]
     assert len(lifestyle.content_kinds) == 9
 
@@ -241,9 +242,9 @@ def test_attention_params_rejects_a_family_without_content_attention(view) -> No
 
 
 def test_attention_required_keys(view) -> None:
-    """@brief M4：attention_required=true 键集 = 娱乐 5 + 生活 9 = 14 键
+    """@brief attention_required=true 键集 = 娱乐 6 + 生活 9 = 15 键
     （画像键集由注册表驱动：MotivationProfile 动态键按此键集核对）。"""
-    expected = {"feature_film", "drama_series", "webnovel_excerpt", "news_feed",
+    expected = {"feature_film", "drama_series", "podcast_episode", "webnovel_excerpt", "news_feed",
                 "joke_feed", "sport", "hobby", "outdoor", "wellness", "household",
                 "learning", "pet", "social", "volunteer"}
     assert view.attention_required_kinds == frozenset(expected)
@@ -307,11 +308,11 @@ def test_met_lookup_keys_match_activities(view) -> None:
 
 def test_relief_channels_match_activities(view) -> None:
     """@brief L5：缓解通道四值 == activities._entertainment_relief 的分支语义。"""
-    assert view.relief_channel("wait") == "intrinsic"
+    assert view.relief_channel("wait") == "none"
     assert view.relief_channel("watch") == "content_rate"
     assert view.relief_channel("play_game") == "preference_rate"
     assert view.relief_channel("sleep") == "none"
-    config = SimpleNamespace(entertainment_relief_per_hour={"play_game": 0.45, "wait": 0.05})
+    config = SimpleNamespace(entertainment_relief_per_hour={"play_game": 0.45})
     wait = SimpleNamespace(kind=ActivityKind.WAIT, data={})
     watch = SimpleNamespace(kind=ActivityKind.WATCH,
                             data={"entertainment_relief_per_hour": 0.3, "exposure_count": 2})

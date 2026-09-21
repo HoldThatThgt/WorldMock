@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "corpus_id": "life-map-storefront-2026-09-20",
-  "created_at": "2026-09-20T19:08:40.228191+08:00",
-  "transformer_version": "worldmock-map-storefront-1",
+  "corpus_id": "life-dayrun-behavior-2026-09-21",
+  "created_at": "2026-09-21T16:00:04+08:00",
+  "transformer_version": "worldmock-dayrun-behavior-1",
   "entries": [
     {
       "entry_id": "LICENSES.md",
       "path": "LICENSES.md",
-      "sha256": "86f7627bfb5303a50634038fd26d1d1554cb9b411ce81d85ebbe6b81c8b7e559",
-      "size_bytes": 4023,
+      "sha256": "dd4b81e9836e88157cf4cf2eaaf4f8997ef0a6050c3c0ecf98eaaeb4bfa8a1ea",
+      "size_bytes": 4847,
       "media_type": "text/markdown",
       "purpose": "LICENSES.md",
       "source": {
@@ -3490,6 +3490,86 @@
         "license": "ODbL-1.0",
         "selector": "eight-barcode-allowlist",
         "fact_cutoff": "2026-09-15"
+      }
+    },
+    {
+      "entry_id": "podcasts/items.json",
+      "path": "podcasts/items.json",
+      "sha256": "9bb66cd50a8e4de859625195084925de46c315d3e84dbbd0766f03ab993a6272",
+      "size_bytes": 647,
+      "media_type": "application/json",
+      "purpose": "podcasts/items.json",
+      "source": {
+        "kind": "derived from NASA official podcast",
+        "url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/",
+        "retrieved_at": "2026-09-21T16:00:04+08:00",
+        "license": "NASA Media Usage Guidelines",
+        "selector": "podcast item metadata",
+        "fact_cutoff": "2017-12-22"
+      }
+    },
+    {
+      "entry_id": "podcasts/nasa-space-habitat.excerpt.mp3",
+      "path": "podcasts/nasa-space-habitat.excerpt.mp3",
+      "sha256": "f298a5f15c489c2efbc1e730647665532bb1a8ff3737ea5453a5e08ca44fff25",
+      "size_bytes": 9432620,
+      "media_type": "audio/mpeg",
+      "purpose": "podcasts/nasa-space-habitat.excerpt.mp3",
+      "source": {
+        "kind": "NASA official podcast",
+        "url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/",
+        "retrieved_at": "2026-09-21T16:00:04+08:00",
+        "license": "NASA Media Usage Guidelines",
+        "selector": "original audio 112–898 s reencoded excerpt",
+        "fact_cutoff": "2017-12-22"
+      }
+    },
+    {
+      "entry_id": "podcasts/nasa-space-habitat.identity.json",
+      "path": "podcasts/nasa-space-habitat.identity.json",
+      "sha256": "3806796fa7824a7cf7a3141f3cb3bfbc1c16f7fc8355913fe6190ebe631ac5b5",
+      "size_bytes": 6154,
+      "media_type": "application/json",
+      "purpose": "podcasts/nasa-space-habitat.identity.json",
+      "source": {
+        "kind": "derived from NASA official podcast",
+        "url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/",
+        "retrieved_at": "2026-09-21T16:00:04+08:00",
+        "license": "NASA Media Usage Guidelines",
+        "selector": "episode and source anchor identity",
+        "fact_cutoff": "2017-12-22"
+      }
+    },
+    {
+      "entry_id": "podcasts/nasa-space-habitat.source.html",
+      "path": "podcasts/nasa-space-habitat.source.html",
+      "sha256": "351db2301d36f625de314f3d917457b34d77eb7760082bf9a8f842ca865b3d0e",
+      "size_bytes": 322679,
+      "media_type": "text/html",
+      "purpose": "podcasts/nasa-space-habitat.source.html",
+      "source": {
+        "kind": "NASA official podcast",
+        "url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/",
+        "retrieved_at": "2026-09-21T16:00:04+08:00",
+        "license": "NASA Media Usage Guidelines",
+        "selector": "complete official page snapshot",
+        "fact_cutoff": "2017-12-22"
+      }
+    },
+    {
+      "entry_id": "podcasts/podcast-0001.srt",
+      "path": "podcasts/podcast-0001.srt",
+      "sha256": "3476075372af7e927eca557da7b9acba8957ada984fb8c9580c943073c65ad52",
+      "size_bytes": 15477,
+      "media_type": "application/x-subrip",
+      "purpose": "podcasts/podcast-0001.srt",
+      "source": {
+        "kind": "derived from NASA official podcast",
+        "url": "https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/",
+        "retrieved_at": "2026-09-21T16:00:04+08:00",
+        "license": "NASA Media Usage Guidelines",
+        "selector": "official paragraph anchors normalized to excerpt",
+        "fact_cutoff": "2017-12-22"
       }
     },
     {
@@ -11839,8 +11919,8 @@
       },
       "entry_id": "zhangjiang-map:dataset.json",
       "path": "zhangjiang-map/dataset.json",
-      "sha256": "ab07eb633dbb4b8363113a1e6ffabf614700e7c7d4843ddd941e44b2012d7d4f",
-      "size_bytes": 1282,
+      "sha256": "5adabfd2aade46211b8d71045b47342694166ca1bc1eb44af2107ff52f91d0f6",
+      "size_bytes": 1275,
       "media_type": "application/json",
       "purpose": "frozen map declarations"
     },
@@ -15407,8 +15487,8 @@
       },
       "entry_id": "zhangjiang-map:supplies.json",
       "path": "zhangjiang-map/supplies.json",
-      "sha256": "c7a0d785015a496321c7cd636b612b735038d91c221b1d417869316ef998726a",
-      "size_bytes": 362965,
+      "sha256": "becd4e906c2e8b0fe8d95c73f6ee9bd386c647ac4be504a9fe63625b32eb1f88",
+      "size_bytes": 368311,
       "media_type": "application/json",
       "purpose": "offline map and storefront simulation"
     },
@@ -15423,8 +15503,8 @@
       },
       "entry_id": "zhangjiang-map:supply-assumptions.json",
       "path": "zhangjiang-map/supply-assumptions.json",
-      "sha256": "534667f6339599dbc7a805f6066286aff3881ee8c8b3c4c08adb3fde30c387ed",
-      "size_bytes": 92224,
+      "sha256": "af06343ead8abedffb9e621528088959e466460d515326217bdb576d7aa6ccde",
+      "size_bytes": 93495,
       "media_type": "application/json",
       "purpose": "offline map and storefront simulation"
     },

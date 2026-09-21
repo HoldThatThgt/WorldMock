@@ -31,7 +31,6 @@ _OUTSTANDING: dict[str, dict[str, int]] = {
     "src/worldmock/delivery/trace_validation.py": {"WIDTH": 1},
     "src/worldmock/evaluation/behavior_metrics.py": {"DOCSTRING": 1},
     "src/worldmock/life/motivation.py": {"DOCSTRING": 1},
-    "src/worldmock/life/rhythm.py": {"PARAMS": 1},
     "src/worldmock/life/social_actions.py": {"PARAMS": 1},
     "src/worldmock/opslog.py": {"PARAMS": 1},
     "src/worldmock/runtime.py": {"PARAMS": 1},

@@ -181,7 +181,7 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), directory)
     try:
         assert restored.state.agents[1].day_plan == plan
-        advance_next(restored)
+        assert restored.scheduling_state().ready_agent_ids == (1,)
         assert restored.state.agents[1].day_plan == plan
     finally:
         restored.close()
@@ -206,7 +206,7 @@ def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine
     agent = engine.state.agents[1].model_copy(update={"day_plan": DayPlan(
         day_end=now + 1000, goals=[goal("休息", registered=now), goal("晨间例程", registered=now)])})
     data = {"activity": activity("wait"), "interval_start": now, "interval_end": now + 60}
-    inputs = engine_rhythm_inputs(engine, engine.state, 60, progress_data={1: data})
+    inputs = engine_rhythm_inputs(engine, engine.state, 60, progress_data={1: [data]})
     result = _goal_and_deadline_pulses(agent, inputs)
     from worldmock.life.body import apply_mood_pulse
     assert result.body == apply_mood_pulse(agent.body, "goal_progressed")
@@ -230,6 +230,7 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
     staged.current_time = midnight - 60
     staged.pending_events = []
     staged.agents[1] = staged.agents[1].model_copy(update={"next_decision_at": staged.current_time,
+        "body_settled_at": staged.current_time,
         "day_plan": DayPlan(day_end=midnight, goals=[goal("休息", registered=staged.current_time)])})
     _commit_staged(engine, staged)
     started = act(engine, "last-minute", "start_basic_activity",

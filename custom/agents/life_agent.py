@@ -21,10 +21,13 @@ from agentsociety2.agent.base import (
     ReactToolResult,
 )
 from agentsociety2.society import DirectToolCall
-from custom.agents import life_menu
+from custom.agents import life_menu, life_activity_controls
+from custom.agents.life_activity_controls import (
+    _visible_activity_controls, _bind_activity_control_schemas, _validate_activity_control,
+)
 from custom.agents.life_context import decision_statement_content, persona_card_text
 from custom.agents.life_inventory import bind_consume_schema, visible_inventory_contract
-from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema, activity_start_tool
 from worldmock.life.narration import (
     DecisionStatementValidationError,
     compose_user_message,
@@ -166,10 +169,10 @@ class LifeMemoryEpisode(_ToolRequest):
         "conflict",
         "resolution",
         "identity",
-        "observation",
         "routine",
-        "event",
+        "reflection",
     ]
+    epistemic_status: Literal["subjective"]
     importance: float = Field(ge=0, le=1)
     keywords: list[Annotated[str, Field(pattern=r"\S")]]
     text: str = Field(pattern=r"\S")
@@ -285,8 +288,7 @@ _TOOL_DESCRIPTIONS = {
     "start_travel": (
         _ACTION_PROTOCOL
         + " Start travel to an observed destination using an observed mode and duration. "
-        "At a feedback boundary this switches directly: the current activity pauses "
-        "automatically with its progress preserved."),
+        "Existing activities keep running; their claimed resources must remain compatible."),
     "set_activity_state": (
         _ACTION_PROTOCOL
         + " Pause, resume, or cancel an activity exposed by the current observation. "
@@ -296,7 +298,7 @@ _TOOL_DESCRIPTIONS = {
         + " Change playback speed for the owned active watching activity."),
     "continue_activity": (
         _ACTION_PROTOCOL
-        + " Continue the current activity when its visible feedback boundary is due."),
+        + " Continue one named active activity at this decision; other activities keep running."),
     "discover_places": (
         _ACTION_PROTOCOL
         + " Find places and their store supplies by optional product, business kind, travel mode "
@@ -341,23 +343,23 @@ _TOOL_DESCRIPTIONS = {
         "visible in this decision's inbox projection; never invent a recipient."),
     "start_social_activity": (
         _ACTION_PROTOCOL
-        + " Start a chat with a visible conversation partner as a foreground social "
+        + " Start a chat with a visible conversation partner as a continuous social "
         "activity; the partner identity must come from this decision's observation."),
-    "memory_recent": "Read the person's most recent durable memory episodes.",
-    "memory_search": "Search the person's durable memory episodes by keyword.",
-    "memory_step_range": "Read durable memory episodes within an inclusive decision-step range.",
-    "memory_tick_range": "Read durable memory episodes within an inclusive duration range.",
-    "memory_time_range": "Read durable memory episodes within an inclusive ISO time range.",
-    "memory_read": "Read durable memory episodes by exact stable identifiers.",
+    "memory_recent": "Read the person's most recent subjective durable memory episodes.",
+    "memory_search": "Search the person's subjective durable memory episodes by keyword.",
+    "memory_step_range": "Read subjective durable memory episodes within an inclusive decision-step range.",
+    "memory_tick_range": "Read subjective durable memory episodes within an inclusive duration range.",
+    "memory_time_range": "Read subjective durable memory episodes within an inclusive ISO time range.",
+    "memory_read": "Read subjective durable memory episodes by exact stable identifiers.",
     "finish": (
         "Finish after exactly one submitted life action; finish must be the only tool "
         "call in its response. memories holds zero to eight episodes written in the "
         "person's own words; never put event identifiers, request hashes, or any "
-        "hexadecimal identifier inside memory text. Record observed facts and your "
-        "intentions only; never claim that the pending action has succeeded. "
+        "hexadecimal identifier inside memory text. Every episode is subjective self-report: "
+        "feelings, intentions, preferences or reflection. Verified experiences are supplied by the environment. "
         "Every ref must use an allowed "
         "source ID from this schema: the current observation_event_id, current "
-        "recent_action_results[].event_id, or a durable episode ID actually shown in "
+        "recent_action_results[].event_id, verified_experiences[].source_event_id, or a durable episode ID shown in "
         "this decision. Never use action_id, decision_id, round_id, request hashes, "
         "tool_call_id, product IDs, activity IDs, or any other identifier as a ref."),
 }
@@ -391,14 +393,16 @@ def _life_tool_descriptions(
                     and entry["surface"] == "basic"]
     descriptions["start_basic_activity"] = (
         f"{_ACTION_PROTOCOL} Start {_join_kinds(basic_direct)} for an explicit duration. "
-        "At a feedback boundary this switches directly: the current activity pauses "
-        "automatically with its progress preserved.")
+        "Existing activities keep running; their claimed resources must remain compatible.")
     descriptions["start_targeted_activity"] = (
         f"{_ACTION_PROTOCOL} Start one of "
         f"{_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
-        "target from the current observation catalogs. At a feedback boundary this "
-        "switches directly: the current activity pauses automatically with its "
-        "progress preserved.")
+        "target from the current observation catalogs. Existing activities keep running; "
+        "their claimed resources must remain compatible.")
+    descriptions["start_parallel_activities"] = (
+        f"{_ACTION_PROTOCOL} Start two or more visible continuous activities atomically. "
+        "Each child uses its existing start request fields. All claimed resources must be disjoint; "
+        "children continue and finish independently. One invalid child rejects the entire group.")
     descriptions["browse_activities"] = (
         "Drill into one activity category from activity_summary and read its item list. "
         "Pure query: it starts nothing and consumes nothing; the returned items arrive "
@@ -598,6 +602,7 @@ class LifeAgent(PersonAgent):
             _bind_browse_categories(schemas, self._life_browse_categories)
             _bind_activity_control_schemas(schemas, self._life_activity_controls)
             _bind_visible_action_schemas(schemas, self._life_action_contracts)
+            life_activity_controls.bind_parallel_schema(schemas)
         if not readonly and "finish" in models:
             _bind_finish_reference_ids(
                 schemas,
@@ -677,6 +682,12 @@ class LifeAgent(PersonAgent):
         """@brief 从公开人物档案字段确定性渲染提示用人物卡片。"""
         return persona_card_text(self.get_profile(), self.name)
 
+    def _new_memory_runtime(self, config):
+        """@brief 复用 AS2 构造接点装配 WorldMock 的事实与主观记忆视图。"""
+        from custom.agents.life_memory import WorldMockMemoryRuntime
+
+        return WorldMockMemoryRuntime(self, config)
+
     def _memory_prompt_section(self) -> str:
         """@brief 渲染持久记忆摘要段并冻结其可见记忆身份。"""
         if not self._enable_memory:
@@ -686,14 +697,14 @@ class LifeAgent(PersonAgent):
             _episode_ids(memory.get("recent_episodes", []))
         )
         parts = []
-        summary = memory.get("memory_md")
+        summary = memory.get("subjective_summary")
         if isinstance(summary, str) and summary.strip():
-            parts.append(summary.strip())
+            parts.append("主观归纳：\n" + summary.strip())
         episodes = memory.get("recent_episodes") or []
-        lines = [f"- {item.get('text', '')}".rstrip()
+        lines = [f"- [subjective] {item.get('text', '')}".rstrip()
                  for item in episodes if isinstance(item, dict)]
         if lines:
-            parts.append("最近的记忆：\n" + "\n".join(lines))
+            parts.append("最近的人物自述：\n" + "\n".join(lines))
         return "\n\n".join(parts)
 
     def _life_user_sections(self, request: ReactLoopRequest, *, with_facts: bool) -> str:
@@ -707,7 +718,9 @@ class LifeAgent(PersonAgent):
         persona = self._persona_card_text()
         scene = render_scene(_scene_projection(data))
         memory = self._memory_prompt_section()
-        core = compose_user_message(persona, scene, memory)
+        verified = getattr(self, "_life_verified_experiences", [])
+        facts_text = "已核验经历（环境事件）：\n" + json.dumps(verified, ensure_ascii=False, sort_keys=True)
+        core = compose_user_message(persona, scene, "\n\n".join((facts_text, memory)))
         if not with_facts:
             return core
         facts = render_facts(_facts_projection(data))
@@ -878,7 +891,7 @@ class LifeAgent(PersonAgent):
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
         """@brief 从一次冻结观察组装菜单、可见身份、控制和生活动作工具。"""
-        _observation_now(data)
+        self._prepare_verified_experiences(data)
         self._life_interaction_menu = menu = life_menu.parse_interaction_menu(data)
         self._life_contract = contract = _affordance_contract(data)
         self._life_targeted_kinds = life_menu.filter_targeted_kinds(
@@ -895,11 +908,33 @@ class LifeAgent(PersonAgent):
             menu, _visible_activity_controls(data, contract, energy_limits))
         self._life_action_contracts = life_menu.filter_action_contracts(
             menu, _visible_action_contracts(data))
+        self._filter_start_resources()
         self._life_action_models = _available_action_models(
             self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
             self._life_browse_categories)
+        if not self._life_basic_activity_types:
+            self._life_action_models.pop("start_basic_activity", None)
+        if life_activity_controls.parallel_available(
+                self._life_basic_activity_types, self._life_visible_targets, self._life_action_contracts):
+            self._life_action_models["start_parallel_activities"] = _TOOL_MODELS["start_parallel_activities"]
         self._life_action_models = life_menu.filter_action_models(
             menu, self._life_action_models)
+
+    def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
+        """@brief 冻结本轮本人事件事实窗口，模型和记忆不能写入该窗口。"""
+        from worldmock.footprints.experiences import validate_verified_experiences
+
+        now = _observation_now(data)
+        self._life_verified_experiences = validate_verified_experiences(
+            data.get("verified_experiences"), data.get("agent_id"), now)
+        self._life_observation_event_id = data.get("observation_event_id")
+
+    def _filter_start_resources(self) -> None:
+        """@brief 人物启动工具与引擎按同一资源声明排除冲突。"""
+        values = life_activity_controls.filter_starts(
+            self._life_activity_controls["occupied_resources"], self._life_visible_targets,
+            self._life_action_contracts, self._life_basic_activity_types)
+        self._life_visible_targets, self._life_action_contracts, self._life_basic_activity_types = values
 
     def validate_react_decisions(
         self,
@@ -1109,7 +1144,7 @@ def _environment_source_ids(data: dict[str, Any]) -> set[str]:
         if not isinstance(event_id, str) or not event_id:
             raise RuntimeError("LifeAgent action result event identity is invalid")
         result_ids.append(event_id)
-    return {observation_id, *result_ids}
+    return {observation_id, *result_ids, *(item["source_event_id"] for item in data["verified_experiences"])}
 
 
 def _visible_energy_limits(
@@ -1246,105 +1281,12 @@ def _visible_content_available(progress: dict[str, dict[str, Any]],
     return available
 
 
-def _visible_activity_controls(
-    data: dict[str, Any],
-    contract: Mapping[str, Mapping[str, Any]],
-    energy_limits: dict[str, int],
-) -> dict[str, Any]:
-    """@brief 从当前活动、暂停活动与游戏局面冻结本轮控制合同。"""
-    active = _visible_active_activity(data, contract)
-    paused_ids, resumable_ids, paused_kinds = _visible_paused_activity_ids(data)
-    if active is not None and active["activity_id"] in paused_ids:
-        raise RuntimeError("LifeAgent active activity is also listed as paused")
-    controls = {"active": active, "paused_ids": paused_ids, "resumable_paused_ids": resumable_ids,
-                "menu_resumable_paused_ids": resumable_ids,
-                "paused_activity_kinds": paused_kinds,
-                "maximum_duration_seconds_by_kind": energy_limits,
-                "game_session_id": None, "game_commands": ()}
-    if active is not None and active["kind"] == "play_game":
-        session_id, commands = _visible_game_control(data)
-        controls.update(game_session_id=session_id, game_commands=commands)
-    return controls
 
 
-def _visible_active_activity(
-    data: dict[str, Any],
-    contract: Mapping[str, Mapping[str, Any]],
-) -> dict[str, str] | None:
-    """@brief 校验环境提供的当前活动身份、类型和活动状态。"""
-    if "active_activity" not in data:
-        raise RuntimeError("LifeAgent active_activity is unavailable")
-    activity = data["active_activity"]
-    if activity is None:
-        return None
-    if not isinstance(activity, dict):
-        raise RuntimeError("LifeAgent active_activity must be an object or null")
-    activity_id = activity.get("activity_id")
-    kind = activity.get("kind")
-    if not isinstance(activity_id, str) or not activity_id.strip():
-        raise RuntimeError("LifeAgent active activity identity is invalid")
-    if activity.get("status") != "active" or not isinstance(kind, str):
-        raise RuntimeError("LifeAgent active activity state is invalid")
-    if kind not in (_continuable_activity_kinds(contract)
-                    | _game_boundary_kinds(contract) | _SOCIAL_BOUNDARY_KINDS):
-        raise RuntimeError("LifeAgent active activity kind has no decision boundary controls")
-    return {"activity_id": activity_id, "kind": kind}
 
 
-def _visible_paused_activity_ids(
-    data: dict[str, Any],
-) -> tuple[tuple[str, ...], tuple[str, ...], dict[str, str]]:
-    """@brief 校验暂停活动身份，并区分当前能量允许恢复的闭集。"""
-    activities = data.get("paused_activities")
-    if not isinstance(activities, list):
-        raise RuntimeError("LifeAgent paused_activities must be a list")
-    identities = []
-    resumable = []
-    kinds = {}
-    for activity in activities:
-        if not isinstance(activity, dict) or activity.get("status") != "paused":
-            raise RuntimeError("LifeAgent paused activity state is invalid")
-        activity_id = activity.get("activity_id")
-        if not isinstance(activity_id, str) or not activity_id.strip():
-            raise RuntimeError("LifeAgent paused activity identity is invalid")
-        kind = activity.get("kind")
-        if not isinstance(kind, str) or not kind.strip():
-            logging.error("LifeAgent paused activity kind is invalid")
-            raise RuntimeError("LifeAgent paused activity kind is invalid")
-        remaining = activity.get("remaining_duration_seconds")
-        cost = activity.get("minimum_energy_cost_kcal")
-        feasible = activity.get("resume_energy_feasible")
-        if (isinstance(remaining, bool) or not isinstance(remaining, int) or remaining < 0
-                or isinstance(cost, bool) or not isinstance(cost, (int, float))
-                or not math.isfinite(cost) or cost < 0 or not isinstance(feasible, bool)):
-            raise RuntimeError("LifeAgent paused activity energy feasibility is invalid")
-        identities.append(activity_id)
-        kinds[activity_id] = kind
-        if feasible:
-            resumable.append(activity_id)
-    if len(identities) != len(set(identities)):
-        raise RuntimeError("LifeAgent paused activity identities are duplicated")
-    return tuple(sorted(identities)), tuple(sorted(resumable)), kinds
 
 
-def _visible_game_control(data: dict[str, Any]) -> tuple[str, tuple[str, ...]]:
-    """@brief 取得当前游戏活动的真实会话和可接受命令闭集。"""
-    activity = data["active_activity"]
-    activity_data = activity.get("data") if isinstance(activity, dict) else None
-    session_id = activity_data.get("game_session_id") if isinstance(activity_data, dict) else None
-    games = data.get("games")
-    if not isinstance(session_id, str) or not session_id or not isinstance(games, dict):
-        raise RuntimeError("LifeAgent active game session is invalid")
-    progress = games.get(session_id)
-    if not isinstance(progress, dict) or progress.get("session_id") != session_id:
-        raise RuntimeError("LifeAgent active game progress is unavailable")
-    if progress.get("won") is not False or progress.get("lost") is not False:
-        raise RuntimeError("LifeAgent active game progress is terminal")
-    commands = progress.get("admissible_commands")
-    if not isinstance(commands, list):
-        raise RuntimeError("LifeAgent active game commands must be a list")
-    values = _catalog_identity_values(commands, "game commands", None)
-    return session_id, values
 
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
@@ -1537,39 +1479,21 @@ def _available_action_models(
     contracts: dict[str, Any],
     browse_categories: frozenset[str] = frozenset(),
 ) -> dict[str, type[BaseModel]]:
-    """@brief 依据当前活动状态过滤预注册生活动作工具。
-
-    修订合同四件新工具（plan_day/revise_day_plan/send_message/
-    start_social_activity）与购买、进食、提交一样属于瞬时或独立动作，
-    只在无当前活动的自由决策点开放；活动反馈边界只提供该活动允许的
-    控制、调速或直接切换工具（docs/dev/SPEC-life-runtime.md「活动组合政策」）。
-    """
-    active = controls["active"]
-    if active is None:
-        names = {"start_basic_activity"}
-        if any(targets.values()):
-            names.add("start_targeted_activity")
-        if browse_categories:
-            names.add("browse_activities")
-        if controls["paused_ids"]:
-            names.add("set_activity_state")
-        names.update(name for name, contract in contracts.items() if contract)
-    elif active["kind"] == "play_game":
-        names = {"set_activity_state"}
-        if controls["game_commands"]:
-            names.add("game_action")
-    elif active["kind"] in _SOCIAL_BOUNDARY_KINDS:
-        # 交谈/通话跨边界存活但控制面只有取消：continue 与 start_* 会被引擎
-        # 按注册表边界门槛拒绝，暴露即制造业务拒绝节律（CONTRACTS「交谈与通话」）。
-        names = {"set_activity_state"}
-    else:
-        names = {"continue_activity", "set_activity_state", "start_basic_activity"}
-        if any(targets.values()):
-            names.add("start_targeted_activity")
-        if contracts["start_travel"]:
-            names.add("start_travel")
-        if active["kind"] == "watch":
-            names.add("change_playback_speed")
+    """@brief 启动资格与活动控制分别派生，已有活动不屏蔽相容行动。"""
+    names = {"start_basic_activity"}
+    if any(targets.values()):
+        names.add("start_targeted_activity")
+    if browse_categories:
+        names.add("browse_activities")
+    if controls["active"] or controls["paused_ids"]:
+        names.add("set_activity_state")
+    if controls["continuable_ids"]:
+        names.add("continue_activity")
+    if controls["watch_ids"]:
+        names.add("change_playback_speed")
+    if controls["game_commands"]:
+        names.add("game_action")
+    names.update(name for name, contract in contracts.items() if contract)
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
 
 
@@ -1613,6 +1537,17 @@ def _validate_prepared_action(
     contracts: dict[str, Any],
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
+    if action in REQUEST_MODELS:
+        resource_error = life_activity_controls.start_resource_error(
+            action, request, controls["occupied_resources"])
+        if resource_error:
+            return resource_error
+    if action == "start_parallel_activities":
+        for item in request.activities:
+            error = _validate_prepared_action(activity_start_tool(item), item, targets, controls, contracts)
+            if error:
+                return error
+        return ""
     if action == "start_targeted_activity":
         return _validate_visible_target(request, targets, controls["maximum_duration_seconds_by_kind"])
     if action in _ACTIVITY_CONTROL_TOOLS:
@@ -1717,32 +1652,6 @@ def _energy_limit_description(kinds: list[str], maximums: dict[str, int]) -> str
     return f"{_TARGET_KIND_DESCRIPTION} Current maximum wall-clock seconds by kind: {values}."
 
 
-def _bind_activity_control_schemas(
-    schemas: list[dict[str, Any]],
-    controls: dict[str, Any],
-) -> None:
-    """@brief 将当前或暂停活动身份与操作写入实际模型工具 Schema。"""
-    functions = {item["function"]["name"]: item["function"] for item in schemas}
-    active = controls["active"]
-    if "set_activity_state" in functions:
-        identifiers = [active["activity_id"]] if active is not None else list(controls["paused_ids"])
-        properties = functions["set_activity_state"]["parameters"]["properties"]
-        properties["activity_id"]["enum"] = identifiers
-        if active is not None:
-            properties["operation"]["enum"] = ["pause", "cancel"]
-        else:
-            operations = ["cancel"]
-            if controls["menu_resumable_paused_ids"]:
-                operations.insert(0, "resume")
-            properties["operation"]["enum"] = operations
-    for name in ("continue_activity", "change_playback_speed"):
-        if name in functions:
-            properties = functions[name]["parameters"]["properties"]
-            properties["activity_id"]["enum"] = [active["activity_id"]]
-    if "game_action" in functions:
-        properties = functions["game_action"]["parameters"]["properties"]
-        properties["game_session_id"]["enum"] = [controls["game_session_id"]]
-        properties["command"]["enum"] = list(controls["game_commands"])
 
 
 def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
@@ -1778,35 +1687,6 @@ def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[
             set(contract["chat_partners"]) | set(contract["call_partners"]))
 
 
-def _validate_activity_control(
-    action: str,
-    request: BaseModel,
-    controls: dict[str, Any],
-) -> str:
-    """@brief 本地核对控制工具与本轮活动身份、操作和游戏命令。"""
-    active = controls["active"]
-    if action == "set_activity_state":
-        identifiers = {active["activity_id"]} if active is not None else set(controls["paused_ids"])
-        if active is None:
-            operations = {"resume", "cancel"}
-        elif active["kind"] in _SOCIAL_BOUNDARY_KINDS:
-            # 交谈/通话不可暂停（引擎 SOCIAL_ACTIVITY_CANNOT_PAUSE），活跃时仅可取消。
-            operations = {"cancel"}
-        else:
-            operations = {"pause", "cancel"}
-        if request.activity_id not in identifiers or request.operation not in operations:
-            return "set_activity_state is not valid for the visible activity state"
-        if (active is None and request.operation == "resume"
-                and request.activity_id not in controls["resumable_paused_ids"]):
-            return "set_activity_state resume exceeds current energy for the visible paused activity"
-    elif action in {"continue_activity", "change_playback_speed"}:
-        if active is None or request.activity_id != active["activity_id"]:
-            return f"{action} activity_id is not the current visible activity"
-    elif action == "game_action":
-        if (request.game_session_id != controls["game_session_id"]
-                or request.command not in controls["game_commands"]):
-            return "game_action is not valid for the current visible game state"
-    return ""
 
 
 def _validate_visible_action(action: str, request: BaseModel, contracts: dict[str, Any]) -> str:

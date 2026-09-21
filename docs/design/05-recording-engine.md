@@ -150,11 +150,16 @@ flowchart TB
 `decision_id`、`action_id`、`activity_id` 为字符串或空值，`caused_by` 为事件标识字符串列表，
 `data` 为对象，`artifact_refs` 为 `AssetRef` 列表；`recorded_at` 保存程序时刻字符串。
 
-#### 决策节律增量字段
+#### 共同身体结算与决策证据
 
-不提供决策机会的静默结算边界在 `activity_progress` 事件的 `data.decision_offered` 记 `false`，提供决策的边界在 `data.wake_reasons` 记录本次实际命中的全部唤醒原因。两个字段均允许缺省，读取方按可选字段处理。
+同一人物同一真实区间只产生一次 `environment_event.data.kind=body_settlement`，事件顶层
+`activity_id` 为空。正文保存 `interval_start`、`interval_end`、按身份排序的 `activity_ids`、
+`body_settlement`、`resource_flows`、`decision_offered` 和 `wake_reasons`。同一边界的各
+`activity_progress.data.body_settlement_event_id` 引用这条已提交事件；各自只保存本活动的
+进度、效率、消费和内容接触，不复制共同身体变化或将联合代谢成本分摊给某条活动。
 
-字段保存模拟引擎已经作出的判定，记录引擎不计算唤醒条件、不决定是否调用模型。
+记录引擎校验引用身份、人物、区间与事件顺序；具体身体演化和唤醒条件仍由模拟引擎计算。
+静默边界也写共同身体证据，不能因没有人物决策而漏记身体时间。
 唤醒原因闭集、睡眠允许的原因与触发条件统一见
 [生活运行时规格的决策节律](../dev/SPEC-life-runtime.md#决策节律结算边界与唤醒条件分离)。
 
@@ -191,10 +196,10 @@ EventType = Literal[
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`，受理时不重复声明最终支付 |
-| `activity_progress` | 实际区间、活动、`body_settlement`、存在时的 `resource_flows`，以及决策机会与唤醒原因 |
+| `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实 |
-| `environment_event` | 实际发生的自主事件；初始注资也需完整资金证据 |
-| `memory_updated` | 对应实际记忆写入与版本，不能在写盘失败后宣称完成 |
+| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据 |
+| `memory_updated` | 实际记忆写入或视图刷新、来源截止与文件哈希；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
 
@@ -236,8 +241,12 @@ EventType = Literal[
 
 ##### activity_progress 事件
 
-保存模拟引擎提交的实际区间、`body_settlement` 与存在时的 `resource_flows`，不重算身体变化或活动效率。
-身体结算的阶段含义和实际食品利用效率缺口见
+保存模拟引擎提交的本活动实际区间、效率、消费和内容接触，以及
+`body_settlement_event_id`；身体变化与公共资源流只在该区间的共同身体结算事件中保存。
+食用明细的 `interval_quantity` 是本区间正增量，`cumulative_quantity` 才是累计值；
+购买、交付、开始食用和累计量重复出现都不能冒充本区间实际吃下的份额。
+实际食品利用效率由进食进度的 `consumption.food_efficiency` 留证，工作效率由工作进度的
+`activity_efficiency` 留证；共同身体结算不归属其中某个活动。阶段含义见
 [模拟引擎的实际区间、身体变化与效率](04-simulation-engine.md#实际区间身体变化与效率)。
 上游没有提供的测量值必须保持未知，不能补造数值或把缺失当作零变化。
 
@@ -245,6 +254,45 @@ EventType = Literal[
 `resource`、`owner`、`cause` 为非空字符串；`direction` 仅取 `source` 或 `drain`；
 `amount` 必须为有限正数，不能使用布尔值、NaN 或无穷值。
 记录引擎校验载荷结构；交换条件与投入产出由[交换引擎](02-exchange-engine.md)计算，身体演化与状态更新由[模拟引擎](04-simulation-engine.md)执行。
+
+#### 已核验经历与主观记忆
+
+记录引擎仅从本人、明确截止前已提交的 `activity_progress` 投影
+`waited`、`consumed`、`arrived`、`played`。路线到达取其中的真实终态与到达位置，
+包括组合动作中先完成的出行子活动，不依赖聚合 `action_result`。每条经历带
+`kind`、`agent_id`、`activity_id`、`source_event_id`、`event_seq`、`occurred_at` 和类型载荷。
+等待只证明正时长区间；实际食用取 eat 的区间增量；到达取路线真实终态；播放取媒体位置正向区间。
+请求、受理、购买、人物文字和反思均不能产生这些事实。畸形结算拒绝投影并记录英文错误日志。
+完整事件前缀用于固定截止离线导出；每次观察只交付该观察事件前本人最近五条，按事件序号正序，
+来源身份保留在原事件库。重复读取、检查点恢复与分支重放不额外累加或改写源事件。
+导出另写哈希绑定的 `verified-experiences.jsonl`，按固定截止前缀重建全部人物事实；消费端从
+`events.jsonl` 独立重算并逐行核对，不将观察五条窗口误作完整历史。
+
+人物 `finish.memories`、`memory_*` 检索结果及就寝反思是 `epistemic_status=subjective`
+的自述。合法 `refs` 仅证明来源曾显示给人物。`MEMORY.md` 由冻结身份、当轮已核验经历和单独
+持久的主观归纳确定性装配；模型不能整篇重写完成事实章节。人物当前提示只采用当轮观察的事实窗口，
+不重复加入上轮长期记忆视图中的旧窗口。记忆更新记录本轮观察身份、实际渲染的事实来源、新增与
+相似合并的 episode 身份、对应的 `{id,type,text,epistemic_status}` 主观条目快照、
+三个文件的写入后哈希及 `MEMORY.md` 写入前哈希和
+主观巩固标志；快照只用于自述重复率与导出，不进入客观经历或身体指标。视图刷新不重置主观巩固计数。
+空输入且视图未变化不写更新；写盘或反思失败不写成功更新。完整字段与行为见
+[人物记忆合同](../CONTRACTS.md#记忆字段)和[一日行为规格](../dev/SPEC-dayrun-behavior.md#已核验经历与人物自述)。
+
+`memory_updated.data` 的实际载荷和核对边界如下：
+
+| 字段 | 记录内容与约束 |
+| --- | --- |
+| `operation` | `append_episodes` 或 `refresh_summary`；追加时有新建或合并身份，纯视图刷新时无身份且文件内容确有变化 |
+| `created_episode_ids`、`merged_episode_ids` | 本次新建及相似合并的稳定身份；两组互斥且各自不重复 |
+| `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective` |
+| `observation_event_id` | 本次决策中实际交付给该人物的观察身份 |
+| `verified_event_ids` | 本轮事实窗口的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
+| `memory_before_sha256`、`memory_sha256` | 写入前和写入后 `MEMORY.md` 的内容身份 |
+| `episodes_sha256`、`state_sha256` | 写入后主观条目文件和记忆状态文件的内容身份 |
+| `consolidated` | 该步是否实际执行主观巩固，不代表已核验事实发生变化 |
+
+记录入口与质量重算均要求来源身份集合与该观察可见的事实窗口严格相等。
+来源身份重复、越窗、跨人物或把人物自述快照写成客观状态均不能作为合法记忆更新导出。
 
 事件全序与状态关联的验收见[一致性保存与校验的验收](#一致性保存与校验的验收)，原始素材留证见[保存与关联证据的验收](#保存与关联证据的验收)。
 
@@ -650,6 +698,11 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总、
 已记录转换效率的摘要、记忆引用检查、实际模型用量、冻结价格估算和实测加速比。
+`activities.known_elapsed_seconds` 是各活动自身时间之和；同人并行时另以共同身体结算区间并集报告
+`activities.person_elapsed_seconds_by_agent`，不能将前者冒充人物一天的经过时长。决策节律和唤醒
+原因只从每人每区间唯一的共同身体结算读取，食品与工作效率读取对应活动自身进度。
+进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
+商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
 这些判断由对应规则、行为评估与数据交付负责。
 测不到的指标标记未知，不能填成零；价格估算不能称为供应商账单。

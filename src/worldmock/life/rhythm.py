@@ -10,6 +10,7 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -24,9 +25,10 @@ from worldmock.life.body import (
     apply_mood_pulse,
     apply_social_ledger,
     decay_mood,
-    next_body_boundary_seconds,
+    next_shared_body_boundary_seconds,
 )
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
+from worldmock.life.models import (ActivityKind, ActivityStatus, AgentState, WorldState,
+                                   active_activities)
 from worldmock.life.projection import felt_values
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 
@@ -62,8 +64,8 @@ class RhythmInputs:
     meal_windows_by_agent: dict[int, felt.MealWindows] = field(default_factory=dict)
     #: 本 tick 由预排事件触发的唤醒旗标：agent_id -> {wake_reason 名}。
     arrival_flags: dict[int, set[str]] = field(default_factory=dict)
-    #: 待注解的 activity_progress 草稿数据（agent_id -> draft.data）。
-    progress_data: dict[int, dict[str, Any]] = field(default_factory=dict)
+    #: 待注解的本人活动进度及唯一共同身体草稿。
+    progress_data: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +77,16 @@ class AgentRhythm:
     next_decision_at: int
 
 
+@dataclass(frozen=True, slots=True)
+class RhythmBoundary:
+    """@brief 本次共同边界的时刻、长度、到达事实和待提交草稿。"""
+
+    target: int
+    interval: int
+    arrivals: dict[int, set[str]]
+    drafts: list
+
+
 def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, AgentRhythm]]:
     """@brief 对每个人物执行边界节律：情绪账、唤醒判定与下一决策时刻。"""
     state = inputs.state
@@ -83,19 +95,26 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
     for agent_id in sorted(state.agents):
         agent = state.agents[agent_id]
         agent = _settle_mood(agent, inputs)
-        verdict = rhythm_schedule.evaluate_wake_reasons(_wake_snapshot(agent, inputs))
+        warning_facts = _warning_signatures(agent, inputs)
+        current = set().union(*warning_facts.values())
+        delivered = set(agent.delivered_warning_signatures) & current
+        verdict = rhythm_schedule.evaluate_wake_reasons(
+            _wake_snapshot(agent, inputs, warning_facts, delivered))
         if _game_turn_due(inputs.state, agent):
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
             verdict = rhythm_schedule.WakeVerdict(
                 decision_offered=True, wake_reasons=verdict.wake_reasons)
-        data = inputs.progress_data.get(agent_id)
-        if data is not None:
-            data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan is not None else None
-            data[DECISION_OFFERED_FIELD] = verdict.decision_offered
-            data[WAKE_REASONS_FIELD] = [reason.value for reason in verdict.wake_reasons]
+        for data in inputs.progress_data.get(agent_id, []):
+            if data.get("kind") == "body_settlement":
+                data[DECISION_OFFERED_FIELD] = verdict.decision_offered
+                data[WAKE_REASONS_FIELD] = [reason.value for reason in verdict.wake_reasons]
+            else:
+                data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan else None
         offered = verdict.decision_offered
         reasons = [reason.value for reason in verdict.wake_reasons]
+        if offered:
+            delivered.update(_delivered_warning_signatures(warning_facts, verdict))
         if offered:
             next_at = state.current_time
         else:
@@ -103,7 +122,8 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
             next_at = candidate if candidate is not None else (
                 state.current_time + max(1, inputs.interval_seconds))
         agent = agent.model_copy(update={"next_decision_at": next_at,
-                                         "pending_wake_reasons": reasons if offered else []},
+                                         "pending_wake_reasons": reasons if offered else [],
+                                         "delivered_warning_signatures": delivered},
                                  deep=True)
         agents[agent_id] = agent
         rhythms[agent_id] = AgentRhythm(offered, reasons, next_at)
@@ -113,25 +133,23 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
 def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | None:
     """@brief 计算某人物的下一决策时刻（schedule.next_decision_time 候选装配）。"""
     state = inputs.state
-    activity = state.activities.get(agent.current_activity_id or "")
-    active = activity is not None and activity.status == ActivityStatus.ACTIVE
+    activities = active_activities(state, agent.agent_id)
     felt_crossings: list[int] = []
-    if active and activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-        felt_crossings.append(activity.planned_end_at)
-    elif active:
+    if not any(item.kind in {ActivityKind.CHAT, ActivityKind.CALL,
+                             ActivityKind.PLAY_GAME, ActivityKind.SLEEP} for item in activities):
         from worldmock.life.activities import activity_factors
-
         hour = local_hour(state.current_time, inputs.scenario.timezone)
-        factors = activity_factors(activity, agent, inputs.body_config)
-        seconds = next_body_boundary_seconds(agent.body, activity.kind,
-                                             inputs.body_config, factors, hour)
+        factors = tuple((item.kind, activity_factors(item, agent, inputs.body_config))
+                        for item in activities)
+        seconds = next_shared_body_boundary_seconds(agent.body, factors,
+                                                    inputs.body_config, hour)
         if seconds is not None:
             felt_crossings.append(state.current_time + seconds)
     arrivals = [item.due_at for item in state.pending_events
                 if item.due_at > state.current_time and item.agent_id == agent.agent_id]
     return rhythm_schedule.next_decision_time(rhythm_schedule.NextDecisionQuery(
         now=state.current_time,
-        planned_end=activity.planned_end_at if active else None,
+        planned_end=min((item.planned_end_at for item in activities), default=None),
         felt_band_crossing_times=tuple(felt_crossings),
         scheduled_arrival_times=tuple(arrivals),
         last_decision_time=agent.last_decision_time,
@@ -140,8 +158,9 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
         has_commitments=_has_commitments(agent, inputs),
         location_hours_change_times=tuple(_location_change_times(agent, inputs)),
         next_task_due_at=_next_task_due(agent, inputs),
-        location_closing_at=_closing_at(agent, inputs),
-        is_asleep=active and activity.kind == ActivityKind.SLEEP,
+        location_closing_at=(_closing_at(agent, inputs)
+                             if _commitment_signatures(agent, inputs) else None),
+        is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     ))
 
 
@@ -194,9 +213,8 @@ def _apply_awake_social_ledger(agent: AgentState, inputs: RhythmInputs) -> Agent
     """
     if _social_activity_covered(agent, inputs):
         return agent
-    activity = inputs.state.activities.get(agent.current_activity_id or "")
-    active = activity is not None and activity.status == ActivityStatus.ACTIVE
-    asleep = active and activity.kind == ActivityKind.SLEEP
+    asleep = any(item.kind == ActivityKind.SLEEP
+                 for item in active_activities(inputs.state, agent.agent_id))
     hours = 0.0 if asleep else inputs.interval_seconds / 3600
     shared = (hours if _shared_meal(agent, inputs) else 0.0)
     if hours <= 0 and shared <= 0:
@@ -214,8 +232,7 @@ def _social_activity_covered(agent: AgentState, inputs: RhythmInputs) -> bool:
             continue
         ended_here = (activity.status == ActivityStatus.COMPLETED
                       and activity.ended_at == now)
-        active_now = (activity.status == ActivityStatus.ACTIVE
-                      and activity.activity_id == agent.current_activity_id)
+        active_now = activity.status == ActivityStatus.ACTIVE
         if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL} and (ended_here or active_now):
             return True
     return False
@@ -223,16 +240,10 @@ def _social_activity_covered(agent: AgentState, inputs: RhythmInputs) -> bool:
 
 def _shared_meal(agent: AgentState, inputs: RhythmInputs) -> bool:
     """@brief 本区间是否共同用餐：进食活动进行中且同地点有他人在场。"""
-    from worldmock.life.models import ConsumeRequest
-
-    activity = inputs.state.activities.get(agent.current_activity_id or "")
-    if (activity is None or activity.status != ActivityStatus.ACTIVE
-            or activity.kind != ActivityKind.CONSUME):
-        return False
-    request = activity.data.get("request")
-    if not isinstance(request, dict) or request.get("use_mode") != "eat":
-        return False
-    return bool(_people_here(inputs.state, agent))
+    eating = any(item.kind == ActivityKind.CONSUME
+                 and item.data.get("request", {}).get("use_mode") == "eat"
+                 for item in active_activities(inputs.state, agent.agent_id))
+    return eating and bool(_people_here(inputs.state, agent))
 
 
 def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
@@ -240,8 +251,10 @@ def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentS
     now = inputs.state.current_time
     body = agent.body
     plan = agent.day_plan
-    data = inputs.progress_data.get(agent.agent_id)
-    if plan is not None and data is not None and data["activity"]["agent_id"] == agent.agent_id:
+    for data in inputs.progress_data.get(agent.agent_id, []):
+        if (plan is None or "activity" not in data
+                or data["activity"].get("agent_id") != agent.agent_id):
+            continue
         changed = rhythm_schedule.progress_day_plan(
             plan, data["activity"], data["interval_start"], data["interval_end"])
         if changed != plan:
@@ -269,19 +282,71 @@ def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
                for activity in inputs.state.activities.values())
 
 
-def _next_task_due(agent: AgentState, inputs: RhythmInputs) -> int | None:
-    """@brief 返回仍未完成且当前可见任务的最近未来截止时刻。"""
-    return min((value for task_id, value in inputs.task_due.items()
+def _task_signature(task_id: str, due_at: int) -> str:
+    """@brief 将任务身份和具体截止编码为稳定事实签名。"""
+    return json.dumps(["task", task_id, due_at], ensure_ascii=False, separators=(",", ":"))
+
+
+def _next_task_due(agent: AgentState, inputs: RhythmInputs,
+                   eligible: set[str] | None = None) -> int | None:
+    """@brief 返回尚未交付预警的所有可见未完成任务中的最近截止。"""
+    signatures = eligible
+    if signatures is None:
+        signatures = set().union(*_warning_signatures(agent, inputs).values())
+        signatures |= {_task_signature(task_id, due) for task_id, due in inputs.task_due.items()
+                       if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids}
+        signatures -= agent.delivered_warning_signatures
+    return min((due for task_id, due in inputs.task_due.items()
                 if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
-                and value > inputs.state.current_time), default=None)
+                and _task_signature(task_id, due) in signatures
+                and due > inputs.state.current_time), default=None)
 
 
-def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.WakeSnapshot:
+def _warning_signatures(agent: AgentState, inputs: RhythmInputs) -> dict[str, set[str]]:
+    """@brief 从当前威胁事实生成任务、闭店和不可行签名。"""
+    now = inputs.state.current_time
+    task = {_task_signature(task_id, due) for task_id, due in inputs.task_due.items()
+            if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
+            and due - rhythm_schedule.TASK_DUE_SOON_SECONDS <= now < due}
+    closing: set[str] = set()
+    close_at = _closing_at(agent, inputs)
+    if close_at is not None and close_at - rhythm_schedule.CLOSING_WARNING_SECONDS <= now < close_at:
+        for commitment in _commitment_signatures(agent, inputs):
+            closing.add(json.dumps(["closing", agent.location_id, close_at, commitment],
+                                   ensure_ascii=False, separators=(",", ":")))
+    return {"task": task, "closing": closing,
+            "infeasible": _activity_infeasible_signatures(agent, inputs)}
+
+
+def _commitment_signatures(agent: AgentState, inputs: RhythmInputs) -> set[str]:
+    """@brief 仅由结构化地点任务证明当前地点的闭店威胁。"""
+    locations = {task.task_id: task.required_location_id for task in inputs.scenario.tasks}
+    return {f"task:{task_id}:{inputs.task_due[task_id]}"
+            for task_id in agent.visible_task_ids
+            if (task_id in inputs.task_due and task_id not in inputs.state.paid_task_ids
+                and locations.get(task_id) == agent.location_id)}
+
+
+def _delivered_warning_signatures(facts: dict[str, set[str]],
+                                  verdict: rhythm_schedule.WakeVerdict) -> set[str]:
+    """@brief 只把本次实际提供的具体预警标为已交付。"""
+    reasons = set(verdict.wake_reasons)
+    delivered: set[str] = set()
+    if rhythm_schedule.WakeReason.TASK_DUE_SOON in reasons:
+        delivered.update(facts["task"])
+    if rhythm_schedule.WakeReason.LOCATION_HOURS_CHANGE in reasons:
+        delivered.update(facts["closing"])
+    if rhythm_schedule.WakeReason.ACTIVITY_INFEASIBLE in reasons:
+        delivered.update(facts["infeasible"])
+    return delivered
+
+
+def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set[str]],
+                   delivered: set[str]) -> rhythm_schedule.WakeSnapshot:
     """@brief 装配该边界的唤醒判定输入（与上一次实际决策比较）。"""
     state = inputs.state
     now = state.current_time
-    activity = state.activities.get(agent.current_activity_id or "")
-    active = activity is not None and activity.status == ActivityStatus.ACTIVE
+    activities = active_activities(state, agent.agent_id)
     completed_now = any(item.agent_id == agent.agent_id
                         and item.status in {ActivityStatus.COMPLETED, ActivityStatus.FAILED}
                         and item.ended_at == now for item in state.activities.values())
@@ -291,9 +356,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
     flags = inputs.arrival_flags.get(agent.agent_id, set())
     return rhythm_schedule.WakeSnapshot(
         now=now,
-        planned_end=(activity.planned_end_at
-                     if active and activity.planned_end_at <= now
-                     else (now if completed_now else None)),
+        planned_end=now if completed_now else None,
         felt_bands_now={key: _band_index(value) for key, value in levels.items()},
         felt_bands_at_last_decision={key: _band_index(value) for key, value
                                      in agent.felt_bands_at_last_decision.items()},
@@ -302,23 +365,24 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
         delivery_arrived="delivery_arrival" in flags,
         task_newly_visible=bool(set(agent.visible_task_ids) - agent.known_task_ids)
         or "task_available" in flags,
-        next_task_due_at=_next_task_due(agent, inputs),
+        next_task_due_at=_next_task_due(agent, inputs, facts["task"] - delivered),
         work_review_returned="work_review_result" in flags,
         last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
         has_commitments=_has_commitments(agent, inputs),
-        location_closing_at=_closing_at(agent, inputs),
+        location_closing_at=(_closing_at(agent, inputs)
+                             if facts["closing"] - delivered else None),
         location_just_opened=_just_opened(agent, inputs),
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
         people_present_before=agent.people_at_last_decision,
-        activity_infeasible=_activity_infeasible(agent, inputs),
+        activity_infeasible=bool(facts["infeasible"] - delivered),
         consecutive_rejections=agent.consecutive_rejections,
         discovery_result_ready=("discovery_result" in agent.pending_wake_reasons
                                 and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),
         run_start=agent.last_decision_time is None,
-        is_asleep=active and activity.kind == ActivityKind.SLEEP,
+        is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
 
@@ -377,33 +441,31 @@ def _location_change_times(agent: AgentState, inputs: RhythmInputs) -> list[int]
     return [change] if change is not None else []
 
 
-def _activity_infeasible(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 能量已不允许当前活动继续（恢复活动与游戏/睡眠除外）。"""
-    activity = inputs.state.activities.get(agent.current_activity_id or "")
-    if activity is None or activity.status != ActivityStatus.ACTIVE:
-        return False
-    if activity.kind in inputs.recovery_kinds or activity.kind in {
-            ActivityKind.SLEEP, ActivityKind.PLAY_GAME, ActivityKind.CHAT, ActivityKind.CALL}:
-        return False
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    if remaining < 60:
-        return False
-    from worldmock.life.activities import activity_factors
-    from worldmock.life.body import minimum_energy_cost
+def _activity_infeasible_signatures(agent: AgentState, inputs: RhythmInputs) -> set[str]:
+    """@brief 用共同剩余成本和离散原因标识当前不可行活动。"""
+    from worldmock.life.activities import active_energy_entries
+    from worldmock.life.body import shared_energy_cost
 
-    factors = activity_factors(activity, agent, inputs.body_config)
-    cost = minimum_energy_cost(activity.kind, remaining, inputs.body_config, factors.met)
-    return cost > agent.body.energy_kcal
+    activities = active_activities(inputs.state, agent.agent_id)
+    candidates = [item for item in activities if item.kind not in inputs.recovery_kinds
+                  and item.kind not in {ActivityKind.PLAY_GAME, ActivityKind.CHAT, ActivityKind.CALL}
+                  and item.planned_duration_seconds - item.elapsed_seconds >= 60]
+    if not candidates:
+        return set()
+    cost = shared_energy_cost(active_energy_entries(inputs.state, agent.agent_id,
+                                                    inputs.body_config), inputs.body_config)
+    if cost <= agent.body.energy_kcal:
+        return set()
+    return {f"infeasible:{item.activity_id}:insufficient_energy" for item in candidates}
 
 
 def _game_turn_due(state: WorldState, agent: AgentState) -> bool:
     """@brief 游戏交互边界到期（next_interaction_at == now 且活动进行中）。"""
     from worldmock.life.models import ActivityKind
 
-    activity = state.activities.get(agent.current_activity_id or "")
-    return (activity is not None and activity.status == ActivityStatus.ACTIVE
-            and activity.kind == ActivityKind.PLAY_GAME
-            and activity.next_interaction_at == state.current_time)
+    return any(item.kind == ActivityKind.PLAY_GAME
+               and item.next_interaction_at == state.current_time
+               for item in active_activities(state, agent.agent_id))
 
 
 def _woke_from_sleep(state: WorldState, agent_id: int, now: int) -> bool:
@@ -439,35 +501,27 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
         progress_data=progress_data or {})
 
 
-def apply_engine_rhythm(engine, staged, target: int, interval: int,
-                        arrivals: dict[int, set[str]], drafts: list) -> "WorldState":
+def apply_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
     """@brief 边界节律：唤醒判定、静默留痕，并让被唤醒的活动对齐决策边界。"""
     from worldmock.life.engine import _put_activity
     from worldmock.life.models import ActivityStatus
 
-    progress_data: dict[int, dict] = {}
-    for draft in drafts:
-        if draft.event_type == "activity_progress" and draft.agent_id is not None:
-            progress_data.setdefault(draft.agent_id, draft.data)
+    progress_data: dict[int, list[dict]] = {}
+    for draft in boundary.drafts:
+        if (draft.event_type == "activity_progress"
+                or draft.event_type == "environment_event"
+                and draft.data.get("kind") == "body_settlement") and draft.agent_id is not None:
+            progress_data.setdefault(draft.agent_id, []).append(draft.data)
     staged, rhythms = apply_decision_rhythm(engine_rhythm_inputs(
-        engine, staged, interval, arrivals, progress_data))
-    for agent_id, rhythm in rhythms.items():
-        if not rhythm.offered:
-            agent = staged.agents[agent_id]
-            activity = staged.activities.get(agent.current_activity_id or "")
-            if (activity is not None and activity.status == ActivityStatus.ACTIVE
-                    and activity.next_interaction_at is not None
-                    and activity.next_interaction_at <= target):
-                from worldmock.life.activities import schedule_feedback
+        engine, staged, boundary.interval, boundary.arrivals, progress_data))
+    from worldmock.life.activities import schedule_feedback
 
-                staged = _put_activity(staged, agent, schedule_feedback(
-                    activity, target, engine.scenario.activity_feedback_seconds))
-            continue
+    for agent_id in rhythms:
         agent = staged.agents[agent_id]
-        activity = staged.activities.get(agent.current_activity_id or "")
-        if (activity is not None and activity.status == ActivityStatus.ACTIVE
-                and activity.next_interaction_at != target):
-            aligned = activity.model_copy(
-                update={"next_interaction_at": target, "boundary_type": "feedback"}, deep=True)
-            staged = _put_activity(staged, agent, aligned)
+        for activity in active_activities(staged, agent_id):
+            if activity.next_interaction_at is not None and activity.next_interaction_at <= boundary.target:
+                if activity.kind == ActivityKind.PLAY_GAME:
+                    continue
+                staged = _put_activity(staged, agent, schedule_feedback(
+                    activity, boundary.target, engine.scenario.activity_feedback_seconds))
     return staged

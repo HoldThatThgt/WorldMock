@@ -124,7 +124,7 @@ def _inputs(**overrides) -> CandidateInputs:
                           CandidateEntry(object_id="game-1", kind="game",
                                          minimum_seconds=600, maximum_seconds=3600)),
         },
-        occupied_activity_id=None, local_hour=12.0, current_time=1_700_000_000,
+        occupied_resources=frozenset(), local_hour=12.0, current_time=1_700_000_000,
         window_end_time=1_700_000_000 + CANDIDATE_WINDOW_SECONDS,
         energy_kcal=1600.0, body=_body(),
         taste_weights={"food-1": 0.5, "movie-0001": 0.25, "trip-1": 0.75,
@@ -393,7 +393,7 @@ class TestExclusionDiscipline:
         assert {item.reason for item in page.excluded} == {"ELIGIBILITY_CLOSED_HOURS"}
 
     def test_resource_conflict_is_reachable(self) -> None:
-        busy = recall(_inputs(occupied_activity_id="act-1"))
+        busy = recall(_inputs(occupied_resources=frozenset({"position", "attention", "device", "hands"})))
         assert busy.retained == ()
         assert {item.reason for item in busy.excluded} == {"ELIGIBILITY_RESOURCE_CONFLICT"}
 
@@ -488,7 +488,7 @@ class TestExclusionDiscipline:
         assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
 
     def test_every_exclusion_reason_is_inside_the_closed_set(self) -> None:
-        inputs = _inputs(location=None, occupied_activity_id="act-1")
+        inputs = _inputs(location=None, occupied_resources=frozenset({"position", "attention", "device", "hands"}))
         page = recall(inputs)
         assert page.excluded
         for item in page.excluded:

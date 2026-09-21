@@ -258,6 +258,12 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     reference = store.assets.put_json(state, {"kind": "test"})
     checkpoint = store.checkpoint(state, {"agent:1": reference, "life": reference})
     export_run(store, checkpoint.last_event_seq, root)
+    if run_id == "human-run":
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["artifacts"].pop("verified_experiences")
+        (root / "verified-experiences.jsonl").unlink()
+        manifest_path.write_text(json.dumps(manifest))
     store.close()
 
 

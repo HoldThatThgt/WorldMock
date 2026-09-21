@@ -30,6 +30,7 @@ from worldmock.life.scenario import load_scenario
 def agent() -> AgentState:
     """建立足够能量的测试人物。"""
     return AgentState(agent_id=1, name="worker", location_id="home", balance_account_id="agent:1",
+                      body_settled_at=0,
                       body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0),
                       next_decision_at=0)
 
@@ -61,11 +62,11 @@ def test_activity_pause_resume_cancel_preserves_actual_progress() -> None:
         advanced.agent, advanced.activity,
         ChangeActivityRequest(activity_id="activity-a", operation=ActivityChange.CANCEL), 2200, feedback)
     assert activity.elapsed_seconds == 1800 and activity.ended_at == 2200
-    assert person.current_activity_id is None
+    assert activity.status == ActivityStatus.CANCELLED
 
 
-def test_conflict_short_activity_and_exhaustion_are_rejected() -> None:
-    """资源冲突、过短申请和能量不足具有稳定业务错误。"""
+def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() -> None:
+    """领域构造检查最小时长；资源和共享能量由引擎在完整集合上检查。"""
     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
     person = agent()
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
@@ -74,14 +75,14 @@ def test_conflict_short_activity_and_exhaustion_are_rejected() -> None:
     person, _ = start_activity(
         person, StartActivityRequest(activity_type="wait", planned_duration_seconds=60),
         0, origin("x"), config)
-    with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-        start_activity(person, StartActivityRequest(activity_type="sleep", planned_duration_seconds=60),
-                       0, origin("y"), config)
+    _, sleep = start_activity(person, StartActivityRequest(activity_type="sleep", planned_duration_seconds=60),
+                              0, origin("y"), config)
+    assert sleep.kind == ActivityKind.SLEEP
     weak = agent().model_copy(update={"body": BodyState(
         energy_kcal=1, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)})
-    with pytest.raises(BusinessRuleError, match="INSUFFICIENT_ENERGY"):
-        start_activity(weak, StartActivityRequest(activity_type="work", planned_duration_seconds=3600,
-                                                  target_id="task"), 0, origin("z"), config)
+    _, work = start_activity(weak, StartActivityRequest(activity_type="work", planned_duration_seconds=3600,
+                                                        target_id="task"), 0, origin("z"), config)
+    assert work.kind == ActivityKind.WORK
 
 
 def test_completion_and_experiment_truncation_set_ended_at() -> None:
@@ -113,7 +114,7 @@ def test_continue_activity_moves_feedback_strictly_forward_without_releasing_slo
     request = ContinueActivityRequest(activity_id=activity.activity_id)
     person, activity = continue_activity(
         advanced.agent, advanced.activity, request, 900, scenario.activity_feedback_seconds)
-    assert person.current_activity_id == activity.activity_id
+    assert activity.status == ActivityStatus.ACTIVE
     assert activity.next_interaction_at == 1800 and activity.last_settled_at == 900
     advanced = advance_activity(activity, person, 1800, scenario.body)
     _, activity = continue_activity(

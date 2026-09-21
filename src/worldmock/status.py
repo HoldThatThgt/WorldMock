@@ -75,15 +75,16 @@ def _people_status(connection: sqlite3.Connection, state: dict) -> list[dict]:
     people = []
     for person in state["agents"].values():
         identity = person["agent_id"]
-        activity_id = person["current_activity_id"]
-        activity = state["activities"][activity_id] if activity_id else None
+        activities = sorted((item for item in state["activities"].values()
+                             if item["agent_id"] == identity and item["status"] == "active"),
+                            key=lambda item: (item["started_at"], item["activity_id"]))
         rows = connection.execute("""
             SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type') IN ('action_accepted','action_rejected','action_result')
             ORDER BY event_seq DESC LIMIT 3
         """, (identity,))
         results = [json.loads(row[0]) for row in rows]
-        people.append({"agent_id": identity, "location_id": person["location_id"], "activity": activity,
+        people.append({"agent_id": identity, "location_id": person["location_id"], "active_activities": activities,
                        "recent_action_results": results,
                        "next_decision_at": _decision_boundary(state, person)})
     return people

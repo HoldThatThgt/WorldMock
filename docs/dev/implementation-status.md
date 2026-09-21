@@ -5,6 +5,13 @@
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
+## 一日行为可信性开发状态
+
+[冻结规格](SPEC-dayrun-behavior.md)在独立分支 `codex/dayrun-behavior` 实施。
+完整修改清单、条款到行为测试、设计文档核查与最终门禁以[实施台账](research/dayrun-behavior/verification.md)为准。
+当前两种子的完整双人自然日已走通真实人物工具、并行活动、餐馆进食、记忆、共同检查点恢复和导出；
+全仓门禁和独立语义突变仍在执行，本节不提前声明本特性完成。
+
 ## 当日目标开发状态
 
 独立分支 `codex/day-plan-goals` 以当前工作区快照 `170e1f0fcd83a745f9989da5dac95eac72ea8647`
@@ -36,7 +43,7 @@
 下文各特性的通过数字保留原源码身份；地图分支与 main 品类主线的组合已重新验收，结果单列于下节，不将任一侧旧数字作为本次结果。
 
 
-## 当前结论
+## 地图与品类组合的历史结论
 
 当前合并保留品类契约、库存转换和交互菜单，并接入独立地图与门店供给。
 购买保留品类配对及闭集算子，但改以当前供给报价、数量与系数计算整行 `total_price_fen`；卖方来自供给。
@@ -129,7 +136,7 @@ flowchart LR
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
 | 运行期装配与检索 | **已接入地图输入，独立地图分支已验收**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地，独立地图分支验收通过**：`observe.py` 与 `browse_activities` 经 `presentation.py` 产出实际窗口，`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 4，持久化供给库存、报价、营业例外和逐供给可见凭据，`presentation_state` 继续保存轮转时刻 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 4`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
+| 运行期接线与持久化 | **已落地，独立地图分支验收通过**：`observe.py` 与 `browse_activities` 经 `presentation.py` 产出实际窗口，`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 5，另外保留共同身体结算时刻与威胁交付状态；持久化供给库存、报价、营业例外和逐供给可见凭据，`presentation_state` 继续保存轮转时刻 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 5`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 候选特性历史门禁输出（原命令与关键行）
@@ -202,11 +209,11 @@ $ uv run pytest -q
 - 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
 - 该行在 `docs/dev/SPEC-life-realism.md` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
 
-### 当前世界格式：`WorldState.schema_version` 为 4
+### 当前世界格式：`WorldState.schema_version` 为 5
 
-候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据。生产模型使用严格版本常量，旧格式由当前代码直接拒绝，不转换旧检查点，也不保留迁移脚本。
+候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据。本次活动集合、共同身体时刻和威胁交付状态将版本提升至 5。生产模型使用严格版本常量，旧格式由当前代码直接拒绝，不转换旧检查点，也不保留迁移脚本。
 
-打开、共同检查点恢复与分支必须使用版本 4 的状态以及一致的场景、地图、语料和代码身份。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在本次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
+打开、共同检查点恢复与分支必须使用版本 5 的状态以及一致的场景、地图、语料和代码身份。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在本次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
 ## 已完成的确定性范围
 

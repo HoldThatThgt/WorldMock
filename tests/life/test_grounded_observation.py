@@ -68,7 +68,7 @@ def _stage_open_single_stock(engine) -> str:
     state.agents[1] = agent.model_copy(
         update={"visible_supply_ids": {supply.supply_id}, "supply_browsed_at": {supply.supply_id: now},
                 "supply_browsed_location": {supply.supply_id: "office"}, "location_id": "office",
-                "inventory": inventory, "next_decision_at": now}, deep=True)
+                "inventory": inventory, "next_decision_at": now, "body_settled_at": now}, deep=True)
     _commit_test_state(engine, state, "test_single_stock")
     return supply.supply_id
 
@@ -194,7 +194,7 @@ def _stage_progress_limits(engine) -> None:
     visible.add(task.task_id)
     state.agents[1] = agent.model_copy(
         update={"location_id": task.required_location_id, "visible_task_ids": visible,
-                "content_progress": drained, "next_decision_at": now},
+                "content_progress": drained, "next_decision_at": now, "body_settled_at": now},
         deep=True,
     )
     activity = ActivityState(
@@ -210,6 +210,7 @@ def _stage_progress_limits(engine) -> None:
         planned_duration_seconds=worked,
         effective_work_seconds=task.required_effective_seconds,
         target_id=task.task_id,
+        resource_claims={"position", "attention", "device", "hands"},
         origin_action_id="work-limit-action",
         origin_decision_id="work-limit-decision",
         origin_request_event_id="work-limit-request",

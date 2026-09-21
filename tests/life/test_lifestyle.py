@@ -191,6 +191,7 @@ class TestLifestyleRelief:
     def _relief_fixture(self):
         scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
         agent = AgentState(agent_id=1, name="T", location_id="home",
+                           body_settled_at=0,
                            balance_account_id="agent:1", next_decision_at=0,
                            body=BodyState(energy_kcal=1800.0, sleep_pressure=0.3,
                                           sleep_deficit_hours=1.0,

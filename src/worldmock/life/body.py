@@ -172,6 +172,86 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
                           _work_efficiency(body, after, kind, config, factors))
 
 
+def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
+                       seconds: int, config: BodyConfig) -> BodySettlement:
+    """@brief 一个人物真实区间只结算一次基础消耗，运动负荷取最大值。"""
+    if seconds < 0:
+        raise ValueError("settlement duration cannot be negative")
+    hours = seconds / 3600
+    sleeping = any(kind == ActivityKind.SLEEP for kind, _ in activities)
+    met = max((factors.met for _, factors in activities), default=1.0)
+    basal = config.basal_kcal_per_hour * hours
+    extra = max(met - 1, 0) * config.mass_kg * hours
+    cost = basal + extra
+    exempt = not activities or all(kind in ENERGY_RECOVERY_ACTIVITY_KINDS for kind, _ in activities)
+    if cost > body.energy_kcal + 1e-9 and not exempt:
+        raise ValueError("activity would exhaust available energy")
+    entries = _shared_entries(body, activities, hours, cost, config)
+    energy, _deficit, entertainment = _settle_via_ledger(config, body, entries)
+    if sleeping:
+        pressure = sleep.pressure_after_sleep(body.sleep_pressure, hours)
+        deficit = sleep.deficit_after_sleep(body.sleep_deficit_hours, hours)
+    else:
+        pressure = sleep.pressure_after_awake(body.sleep_pressure, hours)
+        deficit = sleep.deficit_after_awake(body.sleep_deficit_hours, hours, body.sleep_need_hours)
+    after = body.model_copy(update={"energy_kcal": energy, "sleep_pressure": pressure,
+                                    "sleep_deficit_hours": deficit,
+                                    "entertainment_need": entertainment}, deep=True)
+    _flow_buffer.extend(entries)
+    work = next((factors for kind, factors in activities if kind == ActivityKind.WORK), None)
+    efficiency = _work_efficiency(body, after, ActivityKind.WORK, config, work) if work else 1.0
+    return BodySettlement(body.model_copy(deep=True), after, seconds, basal, extra, 0, None, efficiency)
+
+
+def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
+                    hours: float, cost: float, config: BodyConfig) -> list[FlowEntry]:
+    """@brief 同一身体通道先汇总效果再限幅，生成一份资源分录。"""
+    entries = []
+    if cost > 0 and body.energy_kcal > 0:
+        entries.append(FlowEntry(ENERGY_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
+                                 min(cost, body.energy_kcal), "settle:shared:energy_cost",
+                                 BODY_FLOW_OCCURRED_AT))
+    if any(kind == ActivityKind.SLEEP for kind, _ in activities):
+        return entries
+    relief = sum(factors.entertainment_relief_per_hour for _, factors in activities)
+    change = (config.entertainment_need_per_awake_hour - relief) * hours
+    actual = min(1.0, max(0.0, body.entertainment_need + change)) - body.entertainment_need
+    if actual:
+        direction = SOURCE_DIRECTION if actual > 0 else DRAIN_DIRECTION
+        entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, direction,
+                                 abs(actual), "settle:shared:entertainment_need",
+                                 BODY_FLOW_OCCURRED_AT))
+    return entries
+
+
+def shared_energy_cost(activities: tuple[tuple[int, float], ...], config: BodyConfig) -> float:
+    """@brief 按每个剩余结束点切分，用共同最大 MET 预测能量预算。"""
+    endpoints = sorted({seconds for seconds, _ in activities if seconds > 0})
+    previous = 0
+    total = 0.0
+    for endpoint in endpoints:
+        met = max((value for seconds, value in activities if seconds > previous), default=1.0)
+        hours = (endpoint - previous) / 3600
+        total += (config.basal_kcal_per_hour + max(met - 1, 0) * config.mass_kg) * hours
+        previous = endpoint
+    return total
+
+
+def maximum_shared_energy_duration(entries: tuple[tuple[int, float], ...], candidate_met: float,
+                                   energy: float, config: BodyConfig, limit_seconds: int) -> int:
+    """@brief 使用共同分段成本函数求候选最长可行整秒时长。"""
+    if energy < 0 or limit_seconds < 0:
+        raise ValueError("shared energy duration inputs are invalid")
+    low, high = 0, limit_seconds
+    while low < high:
+        middle = (low + high + 1) // 2
+        if shared_energy_cost(entries + ((middle, candidate_met),), config) <= energy:
+            low = middle
+        else:
+            high = middle - 1
+    return low
+
+
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
     """@brief 以进食开始时睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
     if calories < 0:
@@ -339,6 +419,24 @@ def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: Body
     return min(candidates) if candidates else None
 
 
+def next_shared_body_boundary_seconds(body: BodyState,
+                                      activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
+                                      config: BodyConfig, hour_of_day: float) -> int | None:
+    """@brief 以实际共同结算的最大 MET 和合并效果预测下一个阈值。"""
+    if any(kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME,
+                    ActivityKind.CHAT, ActivityKind.CALL} for kind, _ in activities):
+        return None
+    factors = ActivityFactors(max((item.met for _, item in activities), default=1.0),
+                              entertainment_relief_per_hour=sum(
+                                  item.entertainment_relief_per_hour for _, item in activities),
+                              food_energy_kcal_per_hour=sum(
+                                  item.food_energy_kcal_per_hour for _, item in activities))
+    kinds = {kind for kind, _ in activities}
+    kind = (ActivityKind.WORK if ActivityKind.WORK in kinds
+            else ActivityKind.CONSUME if ActivityKind.CONSUME in kinds else ActivityKind.WAIT)
+    return next_body_boundary_seconds(body, kind, config, factors, hour_of_day)
+
+
 def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
     """@brief 返回当前活动用于边界预测的效率曲线节点（输入 sleep_deficit_hours）。"""
     if kind == ActivityKind.WORK:
@@ -414,8 +512,6 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
     """
     if kind == ActivityKind.SLEEP:
         return [], False
-    if kind == ActivityKind.WAIT:
-        return _wait_entertainment_entries(need, hours, config)
     if relief_per_hour:
         amount = min(relief_per_hour * hours, need)
         if amount > 0:
@@ -437,38 +533,6 @@ def _entertainment_entries(kind: ActivityKind, need: float, hours: float, config
                           f"settle:{kind.value}:awake_entertainment_need",
                           BODY_FLOW_OCCURRED_AT)], True
     return [], True
-
-
-def _wait_entertainment_entries(need: float, hours: float,
-                                config: BodyConfig) -> tuple[list[FlowEntry], bool]:
-    """@brief wait=边等边刷：清醒累积继续，被动消费按目录费率小额 drain 抵消。
-
-    被动缓解是 wait 的活动类内在语义（等待时刷的是随手内容，无目标、不
-    gating 于内容偏好），费率直接读目录 entertainment_relief_per_hour 的
-    wait 键。净效果是缓慢正累积。
-
-    :returns: (分录列表, 累积是否在无被动抵消下触及上限需要钳制)。
-    """
-    accrual = config.entertainment_need_per_awake_hour * hours
-    entries: list[FlowEntry] = []
-    accrual_capped = False
-    if accrual > 0:
-        amount = min(accrual, 1 - need)
-        if amount > 0:
-            entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, SOURCE_DIRECTION,
-                                     amount, "settle:wait:awake_entertainment_need",
-                                     BODY_FLOW_OCCURRED_AT))
-        else:
-            accrual_capped = True
-    balance = min(need + max(min(accrual, 1 - need), 0), 1)
-    rate = config.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
-    relief = min(rate * hours, balance)
-    if relief > 0:
-        entries.append(FlowEntry(ENTERTAINMENT_RESOURCE, BODY_FLOW_OWNER, DRAIN_DIRECTION,
-                                 relief, "settle:wait:passive_entertainment",
-                                 BODY_FLOW_OCCURRED_AT))
-        return entries, False
-    return entries, accrual_capped
 
 
 def _work_efficiency(before: BodyState, after: BodyState, kind: ActivityKind,

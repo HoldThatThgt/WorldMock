@@ -56,7 +56,8 @@ def _stage_final_interval(engine, seconds: int) -> None:
     staged.current_time = staged.end_time - seconds
     staged.pending_events = []
     staged.agents[1] = staged.agents[1].model_copy(
-        update={"next_decision_at": staged.current_time}, deep=True)
+        update={"next_decision_at": staged.current_time,
+                "body_settled_at": staged.current_time}, deep=True)
     staged.version += 1
     draft = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
                        visibility="system", source_kind="scenario",

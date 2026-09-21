@@ -164,6 +164,7 @@ def test_home_pantry_seven_breakfast_servings_reference_catalog_foods():
 CONTENT_FILES = [
     ("movies/items.json", "list"),
     ("drama/items.json", "list"),
+    ("podcasts/items.json", "list"),
     ("novels/items.json", "list"),
     ("feed/items.json", "list"),
     ("jokes/items.json", "list"),

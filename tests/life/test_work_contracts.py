@@ -74,7 +74,7 @@ def _completed_work_state(engine, task, worked: int, effective: float, agent_id:
     visible.add(task.task_id)
     state.agents[agent_id] = agent.model_copy(
         update={"location_id": task.required_location_id, "visible_task_ids": visible,
-                "next_decision_at": now}, deep=True)
+                "next_decision_at": now, "body_settled_at": now}, deep=True)
     activity = ActivityState(
         activity_id=f"completed-{task.task_id}-{agent_id}", agent_id=agent_id, kind="work",
         status="completed", started_at=now - worked, ended_at=now, planned_end_at=now,
@@ -237,7 +237,7 @@ def _stage_shared_work(engine) -> None:
         visible.add(task.task_id)
         staged.agents[agent_id] = agent.model_copy(
             update={"location_id": task.required_location_id, "visible_task_ids": visible,
-                    "next_decision_at": now}, deep=True)
+                    "next_decision_at": now, "body_settled_at": now}, deep=True)
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=now, visibility="system",
                        source_kind="scenario", data={"kind": "test_shared_work_start"})

@@ -17,8 +17,8 @@ from worldmock.life.social import Message
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 #: 世界状态结构版本（docs/dev/SPEC-life-realism.md「产品行为」）：旧检查点缺该字段即拒绝加载。
-#: 版本 4 按门店供给保存报价、库存、营业例外与可见凭据，直接拒绝旧检查点。
-WORLD_SCHEMA_VERSION = 4
+#: 版本 5 保存同人活动集合的共同身体时刻与已交付预警，直接拒绝旧检查点。
+WORLD_SCHEMA_VERSION = 5
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -247,7 +247,8 @@ class AgentState(StrictModel):
     body: BodyState
     inventory: dict[str, dict[str, float]] = Field(default_factory=dict)
     active_effects: set[str] = Field(default_factory=set)
-    current_activity_id: str | None = None
+    body_settled_at: int = Field(ge=0)
+    delivered_warning_signatures: set[str] = Field(default_factory=set)
     next_decision_at: int = Field(ge=0)
     consecutive_rejections: int = Field(default=0, ge=0)
     decision_failed: bool = False
@@ -287,6 +288,7 @@ class AgentState(StrictModel):
         "visible_task_ids",
         "visible_supply_ids",
         "known_task_ids",
+        "delivered_warning_signatures",
         "plan_submitted_dates",
         "read_inbox_ids",
         "people_at_last_decision",
@@ -338,7 +340,11 @@ class ActivityState(StrictModel):
                     ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
         if (self.status in terminal) != (self.ended_at is not None):
             raise ValueError("activity ended_at disagrees with lifecycle status")
-        if self.last_settled_at < self.started_at or self.elapsed_seconds > self.planned_duration_seconds:
+        if (not self.started_at <= self.last_settled_at <= self.planned_end_at
+                or self.elapsed_seconds > self.planned_duration_seconds
+                or self.planned_end_at < self.started_at
+                or self.ended_at is not None and self.ended_at < self.last_settled_at):
+            _LOGGER.error("Activity progress interval is invalid")
             raise ValueError("activity progress interval is invalid")
         return self
 
@@ -464,7 +470,7 @@ class WorldState(StrictModel):
 
     @model_validator(mode="after")
     def validate_world(self) -> "WorldState":
-        """@brief 核对时钟、账户、库存和人物当前活动引用。"""
+        """@brief 核对时钟、账户、库存与人物活动集合。"""
         if self.current_time > self.end_time:
             raise ValueError("world current time exceeds experiment end")
         if any(value < 0 for value in self.accounts.values()):
@@ -478,13 +484,77 @@ class WorldState(StrictModel):
         for agent_id, agent in self.agents.items():
             if agent_id != agent.agent_id:
                 raise ValueError("world agent mapping identity mismatch")
-            if agent.current_activity_id and agent.current_activity_id not in self.activities:
-                raise ValueError("agent current activity does not exist")
+            if agent.body_settled_at > self.current_time:
+                _LOGGER.error("Agent body settlement is ahead of world time")
+                raise ValueError("agent body settlement is ahead of world time")
             if any(quantity < 0 for inventory in agent.inventory.values() for quantity in inventory.values()):
                 raise ValueError("agent inventory quantity cannot be negative")
             _validate_supply_visibility(agent, self)
+        _validate_activity_collection(self)
         _validate_opening_exceptions(self.opening_exceptions)
         return self
+
+
+def active_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
+    """@brief 按开始时刻与身份稳定返回人物全部正在执行的活动。"""
+    return tuple(sorted((activity for activity in state.activities.values()
+                         if activity.agent_id == agent_id and activity.status == ActivityStatus.ACTIVE),
+                        key=lambda activity: (activity.started_at, activity.activity_id)))
+
+
+def paused_activities(state: WorldState, agent_id: int) -> tuple[ActivityState, ...]:
+    """@brief 按开始时刻与身份稳定返回人物全部暂停活动。"""
+    return tuple(sorted((activity for activity in state.activities.values()
+                         if activity.agent_id == agent_id and activity.status == ActivityStatus.PAUSED),
+                        key=lambda activity: (activity.started_at, activity.activity_id)))
+
+
+def _validate_activity_collection(state: WorldState) -> None:
+    """@brief 恢复时拒绝身份、时间或同人资源占用矛盾。"""
+    for activity_id, activity in state.activities.items():
+        agent = state.agents.get(activity.agent_id)
+        if agent is None or activity_id != activity.activity_id:
+            _LOGGER.error("World activity identity or owner is invalid")
+            raise ValueError("world activity identity or owner is invalid")
+        if (activity.started_at > state.current_time or activity.last_settled_at > state.current_time
+                or activity.last_settled_at > agent.body_settled_at
+                or activity.ended_at is not None and activity.ended_at > state.current_time
+                or activity.elapsed_seconds > activity.last_settled_at - activity.started_at
+                or activity.status == ActivityStatus.ACTIVE
+                and activity.last_settled_at != state.current_time):
+            _LOGGER.error("World activity settlement time is invalid")
+            raise ValueError("world activity settlement time is invalid")
+        if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED} and (
+                activity.planned_end_at - activity.last_settled_at
+                != activity.planned_duration_seconds - activity.elapsed_seconds):
+            _LOGGER.error("World activity remaining duration is invalid")
+            raise ValueError("world activity remaining duration is invalid")
+        if activity.resource_claims != _expected_activity_claims(activity):
+            _LOGGER.error("World activity resource claims disagree with the registry")
+            raise ValueError("world activity resource claims disagree with the registry")
+    for agent_id in state.agents:
+        claimed: set[str] = set()
+        for activity in active_activities(state, agent_id):
+            if claimed & activity.resource_claims:
+                _LOGGER.error("World active activities claim the same resource")
+                raise ValueError("world active activities claim the same resource")
+            claimed.update(activity.resource_claims)
+
+
+def _expected_activity_claims(activity: ActivityState) -> set[str]:
+    """@brief 从唯一注册表和社交活动声明恢复每项权威资源占用。"""
+    if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
+        from worldmock.life.social_actions import SOCIAL_RESOURCE_CLAIMS
+
+        return set(SOCIAL_RESOURCE_CLAIMS)
+    from worldmock.catalog.affordances import default_affordances
+
+    mode = activity.travel_mode.value if activity.travel_mode is not None else None
+    try:
+        return set(default_affordances().resource_claims(activity.kind.value, travel_mode=mode))
+    except (KeyError, ValueError) as error:
+        _LOGGER.error("World activity kind or travel mode has no resource declaration")
+        raise ValueError("world activity resource declaration is invalid") from error
 
 
 def _validate_supply_visibility(agent: AgentState, state: WorldState) -> None:
@@ -789,6 +859,47 @@ class StartSocialActivityRequest(FrozenModel):
     duration_minutes: int = Field(gt=0, le=120)
 
 
+ParallelActivityRequest = Annotated[
+    StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
+    ConsumeRequest | StartSocialActivityRequest,
+    Field(union_mode="left_to_right"),
+]
+
+
+class StartParallelActivitiesRequest(FrozenModel):
+    """@brief 原子启动至少两项现有持续活动请求，不接受其他工具。"""
+
+    activities: Annotated[
+        tuple[ParallelActivityRequest, ...],
+        WithJsonSchema({
+            "type": "array",
+            "items": {"anyOf": [model.model_json_schema(mode="validation") for model in (
+                StartBasicActivityRequest, StartTargetedActivityRequest, StartTravelRequest,
+                ConsumeRequest, StartSocialActivityRequest)]},
+        }),
+    ]
+
+    @model_validator(mode="after")
+    def validate_count(self) -> "StartParallelActivitiesRequest":
+        """@brief 防止一个组合请求退化为零项或单项。"""
+        if len(self.activities) < 2:
+            _LOGGER.error("Parallel activity request has fewer than two activities")
+            raise ValueError("parallel activities require at least two items")
+        return self
+
+
+def activity_start_tool(request: ParallelActivityRequest) -> str:
+    """@brief 以请求模型的唯一类型返回原有单项启动工具名。"""
+    tools = {
+        StartBasicActivityRequest: "start_basic_activity",
+        StartTargetedActivityRequest: "start_targeted_activity",
+        StartTravelRequest: "start_travel",
+        ConsumeRequest: "consume",
+        StartSocialActivityRequest: "start_social_activity",
+    }
+    return tools[type(request)]
+
+
 class MeetingMinutes(FrozenModel):
     """@brief AMI 会议整理任务公开要求的结构化成果。"""
 
@@ -831,6 +942,7 @@ class GameActionRequest(FrozenModel):
 
 ActionRequest = Annotated[
     StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
+    StartParallelActivitiesRequest |
     SetActivityStateRequest | ChangePlaybackSpeedRequest | ContinueActivityRequest |
     PurchaseOrderRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
     BrowseActivitiesRequest | DiscoverPlacesRequest | PlanDayRequest | ReviseDayPlanRequest |
@@ -883,6 +995,7 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_basic_activity": StartBasicActivityRequest,
     "start_targeted_activity": StartTargetedActivityRequest,
     "start_travel": StartTravelRequest,
+    "start_parallel_activities": StartParallelActivitiesRequest,
     "set_activity_state": SetActivityStateRequest,
     "change_playback_speed": ChangePlaybackSpeedRequest,
     "continue_activity": ContinueActivityRequest,

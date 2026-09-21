@@ -58,6 +58,7 @@ _MEMORY_TOOL_NAMES = {
 
 _BASE_ACTION_NAMES = {
     "discover_places",
+    "start_parallel_activities",
     "browse_activities",
     "plan_day",
     "start_basic_activity",
@@ -82,7 +83,7 @@ _SCENE = {
     "location": "自己家",
     "people_here": [],
     "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activity": {},
+    "current_activities": [],
     "paused_activities": [],
     "day_plan": None,
     "inbox_head": [],
@@ -124,8 +125,8 @@ def _finish_args(ref: str = "observation-current") -> dict:
     """构造合法正式结束记忆。"""
     return {
         "memories": [
-            {
-                "type": "observation",
+            {"epistemic_status": "subjective",
+                "type": "reflection",
                 "importance": 0.5,
                 "keywords": ["wait"],
                 "text": "I chose to wait for one minute.",
@@ -151,7 +152,8 @@ def _observations(*result_ids: str) -> list[dict]:
         "scene": dict(_SCENE),
         "facts": dict(_FACTS),
         "recent_action_results": [{"event_id": item} for item in result_ids],
-        "active_activity": None,
+        "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
+        "active_activities": [],
         "paused_activities": [],
         "energy_feasibility": {"maximum_duration_seconds_by_kind": {
             "work": 86_400, "watch": 86_400, "play_game": 86_400,
@@ -229,7 +231,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 社交边界重钉：set_activity_state 描述写明交谈/通话不可暂停、取消是唯一
 #: 控制（chat/call 以 ACTIVE 跨决策边界存活，闭集与工具面收窄见 unit-21，
 #: /tmp/wm-day-rerun/unit-21-fix-chat-boundary.md），工具面字节随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "1d03a89c78e1a21b05b3b184f785e2ebbc0cbc2603c63a070696f458e054dad1"
+_PINNED_TOOL_SCHEMA_SHA256 = "66b4c37e486fc96e99806a78bdc12ef9033c8f50056cc1dbae3134aafbd0f704"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -297,12 +299,13 @@ def test_action_schema_requires_prepared_environment_catalogs() -> None:
         LifeAgent().build_react_tool_schemas(readonly=False)
 
 
-def test_feedback_boundary_exposes_direct_switch_tools() -> None:
-    """活动反馈边界除继续与暂停外，同时暴露直接切换的启动工具。"""
+def test_feedback_boundary_exposes_only_resource_compatible_starts() -> None:
+    """持续等待可继续或暂停，同时保留播放和瞬时动作；不提供冲突的新启动。"""
     agent = LifeAgent()
     observation = dict(_observations()[0]["data"])
-    observation["active_activity"] = {
-        "activity_id": "activity-current", "kind": "wait", "status": "active"}
+    observation["active_activities"] = [{"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "data": {},
+        "activity_id": "activity-current", "kind": "wait", "status": "active"}]
+    observation["occupied_resources"] = ["position"]
     agent.prepare_react_loop(
         ReactLoopRequest(0, _context().observed_at,
                          [{"turn": 0, "action": "observe", "ok": True,
@@ -312,13 +315,13 @@ def test_feedback_boundary_exposes_direct_switch_tools() -> None:
     functions = {item["function"]["name"]: item["function"] for item in schemas}
 
     assert set(functions) == (
-        {"continue_activity", "set_activity_state",
-         "start_basic_activity", "start_targeted_activity", "start_travel"}
+        {"continue_activity", "set_activity_state", "start_targeted_activity",
+         "browse_activities", "discover_places", "purchase", "submit_work", "plan_day"}
         | _MEMORY_TOOL_NAMES
     )
     state = functions["set_activity_state"]["parameters"]["properties"]
     assert state["activity_id"]["enum"] == ["activity-current"]
-    assert state["operation"]["enum"] == ["pause", "cancel"]
+    assert set(state["operation"]["enum"]) == {"pause", "cancel"}
     assert functions["continue_activity"]["parameters"]["properties"]["activity_id"][
         "enum"] == ["activity-current"]
 
@@ -332,8 +335,7 @@ def test_feedback_boundary_exposes_direct_switch_tools() -> None:
                    "price_version": "price-v1"}],
         "fulfillment": "delivery", "destination_id": "home",
     }, "")
-    assert "is not available in the current activity state" in agent.validate_react_decisions(
-        [blocked], False)
+    assert agent.validate_react_decisions([blocked], False) == ""
 
 
 def test_readonly_schema_uses_its_independent_finish_contract() -> None:
@@ -409,7 +411,7 @@ def test_finish_schema_contains_only_sources_shown_this_decision() -> None:
         store=SimpleNamespace(read_ids=lambda _ids: [{"id": "m_hidden"}])
     )
     agent._build_memory_context = lambda: {  # type: ignore[method-assign]
-        "memory_md": "# Memory",
+        "subjective_summary": "# Subjective",
         "recent_episodes": [{"id": "m_initial", "text": "Visible memory."}],
     }
     request = ReactLoopRequest(
@@ -638,14 +640,14 @@ class _MemoryRuntime:
 
     def build_context(self):
         """返回稳定长期记忆提示上下文。"""
-        return {"memory_md": "# Memory", "recent_episodes": []}
+        return {"subjective_summary": "# Subjective", "recent_episodes": []}
 
     def dispatch_tool(self, action, args):
         """返回模型可见的实际记忆工具结果。"""
         assert action == "memory_recent"
         assert args == {"limit": 1}
         self.calls.append((action, args))
-        data = {"episodes": [{"id": "m_prior", "text": "I waited yesterday."}]}
+        data = {"episodes": [{"id": "m_prior", "text": "I waited yesterday.", "epistemic_status": "subjective"}]}
         return True, json.dumps(data), data
 
 
@@ -1341,12 +1343,14 @@ async def test_native_memory_update_hashes_real_workspace_files(tmp_path) -> Non
     agent._step_count = 1
     agent._memory_runtime = SimpleNamespace(store=store)
 
-    await agent._record_memory_update(written)
+    from agentsociety2.agent.memory_runtime import MemoryStepOutcome
+
+    await agent._record_memory_update(MemoryStepOutcome(tuple(written), (), "a" * 64))
 
     assert len(environment.memory_updates) == 1
     evidence = environment.memory_updates[0]
     assert evidence.context == _context()
-    assert evidence.episode_ids == (written[0]["id"],)
+    assert evidence.created_episode_ids == (written[0]["id"],)
     assert evidence.consolidated is False
     for digest in (
         evidence.memory_sha256,
@@ -1393,7 +1397,7 @@ async def test_person_step_records_native_finish_memory_update(tmp_path, decisio
         for line in (workspace / "memory" / "episodes.jsonl").read_text().splitlines()
     ]
     assert evidence.context == _context()
-    assert evidence.episode_ids == (episodes[0]["id"],)
+    assert evidence.created_episode_ids == (episodes[0]["id"],)
 
 
 @pytest.mark.asyncio

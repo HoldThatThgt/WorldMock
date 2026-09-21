@@ -5,12 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
 from worldmock.errors import IntegrityError
 from worldmock.evaluation.goal_metrics import day_plan_metrics
+from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
     DECISION_STATEMENT_FIELD,
@@ -25,6 +27,8 @@ _ACTION_STATUSES = (
 _ACTIVITY_STATUSES = ("active", "paused", "completed", "cancelled", "failed", "truncated")
 _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
 _CONTENT_TYPES = {"watch", "read_mail", "play_game", "browse"}
+_SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",
+                              "resolution", "identity", "routine", "reflection"})
 _PRICING = {
     "source": "https://api-docs.deepseek.com/quick_start/pricing/",
     "checked_at": "2026-09-15",
@@ -60,7 +64,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         },
         "run_outcome": _run_outcome(events),
         "actions": _action_quality(events),
-        "activities": _activity_quality(activities),
+        "activities": _activity_quality(activities, events),
         "content_contact": _content_quality(activities),
         "conversion_efficiency": _efficiency_quality(events),
         "decision_rhythm": _decision_rhythm_quality(events),
@@ -151,7 +155,7 @@ def _action_quality(events: list[Event]) -> dict:
     }
 
 
-def _activity_quality(activities: list[dict]) -> dict:
+def _activity_quality(activities: list[dict], events: list[Event]) -> dict:
     """@brief 按权威活动终态区分完成、终态中断和截止点暂停。"""
     statuses = Counter(str(row.get("status")) for row in activities)
     unrecognized = {key: value for key, value in statuses.items() if key not in _ACTIVITY_STATUSES}
@@ -159,6 +163,11 @@ def _activity_quality(activities: list[dict]) -> dict:
     reasons = Counter(row["interruption_reason"] for row in interrupted
                       if isinstance(row.get("interruption_reason"), str) and row["interruption_reason"])
     known = [row["elapsed_seconds"] for row in activities if _is_nonnegative_number(row.get("elapsed_seconds"))]
+    shared = _body_settlement_events(events)
+    intervals = [(event.data.get("interval_start"), event.data.get("interval_end")) for event in shared]
+    valid_intervals = [(start, end) for start, end in intervals
+                       if _is_int(start) and _is_int(end) and end > start]
+    person_seconds = _person_elapsed_seconds(shared)
     return {
         "status_counts": {status: statuses[status] for status in _ACTIVITY_STATUSES},
         "unrecognized_status_counts": dict(sorted(unrecognized.items())),
@@ -171,9 +180,28 @@ def _activity_quality(activities: list[dict]) -> dict:
         "interruptions_missing_reason": len(interrupted) - sum(reasons.values()),
         "paused_at_cutoff": statuses["paused"],
         "known_elapsed_seconds": sum(known) if known else (0 if not activities else None),
+        "person_elapsed_seconds_by_agent": person_seconds if len(valid_intervals) == len(shared) else None,
+        "body_settlements_missing_interval": len(shared) - len(valid_intervals),
         "elapsed_seconds_complete": len(known) == len(activities),
         "activities_missing_elapsed_seconds": len(activities) - len(known),
     }
+
+
+def _person_elapsed_seconds(events: list[Event]) -> dict[str, int]:
+    """@brief 将共同结算按人取区间并集，多个并行活动不重复累计。"""
+    by_agent: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for event in events:
+        start, end = event.data.get("interval_start"), event.data.get("interval_end")
+        if _is_int(start) and _is_int(end) and end > start:
+            by_agent[str(event.agent_id)].append((start, end))
+    totals = {}
+    for agent_id, intervals in by_agent.items():
+        total, previous_end = 0, 0
+        for start, end in sorted(intervals):
+            total += max(0, end - max(start, previous_end))
+            previous_end = max(previous_end, end)
+        totals[agent_id] = total
+    return dict(sorted(totals.items()))
 
 
 def _content_quality(activities: list[dict]) -> dict:
@@ -256,8 +284,11 @@ def _work_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
         activity = event.data.get("activity")
         if not isinstance(activity, dict) or activity.get("kind") != "work":
             continue
-        settlement = event.data.get("body_settlement")
-        sample = _settlement_sample(settlement, "work_efficiency")
+        start, end = event.data.get("interval_start"), event.data.get("interval_end")
+        efficiency = event.data.get("activity_efficiency")
+        sample = (float(end - start), float(efficiency)) if (
+            _is_int(start) and _is_int(end) and end > start and _is_nonnegative_number(efficiency)
+        ) else None
         if sample is None:
             missing += 1
         else:
@@ -273,25 +304,23 @@ def _food_efficiency_samples(events: list[Event]) -> tuple[list[tuple[float, flo
         if event.event_type != "activity_progress" or "consumption" not in event.data:
             continue
         consumption = event.data.get("consumption")
-        settlement = consumption.get("food_settlement") if isinstance(consumption, dict) else None
-        if settlement is None:
+        if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
             continue
-        sample = _settlement_sample(settlement, "food_efficiency")
+        items = consumption.get("items")
+        if not isinstance(items, list) or not any(
+            isinstance(item, dict) and _is_positive_number(item.get("interval_quantity")) for item in items
+        ):
+            continue
+        start, end = event.data.get("interval_start"), event.data.get("interval_end")
+        efficiency = consumption.get("food_efficiency")
+        sample = (float(end - start), float(efficiency)) if (
+            _is_int(start) and _is_int(end) and end > start and _is_nonnegative_number(efficiency)
+        ) else None
         if sample is None:
             missing += 1
         else:
             samples.append(sample)
     return samples, missing
-
-
-def _settlement_sample(settlement: Any, field: str) -> tuple[float, float] | None:
-    """@brief 从单个结算提取正时长和有限效率，缺失时返回 None。"""
-    if not isinstance(settlement, dict):
-        return None
-    duration, value = settlement.get("duration_seconds"), settlement.get(field)
-    if not _is_positive_number(duration) or not _is_nonnegative_number(value):
-        return None
-    return float(duration), float(value)
 
 
 def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty_reason: str) -> dict:
@@ -324,16 +353,16 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。
     """
-    progresses = [event for event in events if event.event_type == "activity_progress"]
-    offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in progresses)
-    silent = sum(event.data.get(DECISION_OFFERED_FIELD) is False for event in progresses)
-    known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(progresses)
+    boundaries = _body_settlement_events(events)
+    offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in boundaries)
+    silent = sum(event.data.get(DECISION_OFFERED_FIELD) is False for event in boundaries)
+    known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(boundaries)
     started = [event for event in events if event.event_type == "decision_started"]
     with_decision_statement = sum(isinstance(event.data.get(DECISION_STATEMENT_FIELD), str) for event in started)
     return {
-        "activity_progress_events": len(progresses),
+        "body_settlement_events": len(boundaries),
         "boundaries_with_decision_field": offered + silent,
-        "boundaries_missing_decision_field": len(progresses) - offered - silent,
+        "boundaries_missing_decision_field": len(boundaries) - offered - silent,
         "silent_boundaries": silent,
         "offered_boundaries": offered,
         "wake_reason_events": reason_events,
@@ -342,8 +371,14 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "decision_started_events": len(started),
         "decision_started_with_decision_statement": with_decision_statement,
         "decision_started_missing_decision_statement": len(started) - with_decision_statement,
-        "method": "Raw counts from activity_progress decision fields and decision_started decision_statement field",
+        "method": "Raw counts from shared body settlement and decision started events",
     }
+
+
+def _body_settlement_events(events: list[Event]) -> list[Event]:
+    """@brief 共同身体结算是人物经过时长与边界的唯一来源。"""
+    return [event for event in events if event.event_type == "environment_event"
+            and event.data.get("kind") == "body_settlement"]
 
 
 def _wake_reason_distribution(progresses: list[Event]) -> tuple[Counter, Counter, int]:
@@ -369,6 +404,7 @@ def _memory_quality(events: list[Event]) -> dict:
     state = {
         "known": defaultdict(set), "finishes": {}, "updates": set(), "problems": [],
         "references_checked": 0, "episodes": 0, "update_events": 0, "visible": {}, "events": {},
+        "windows": {},
     }
     for event in events:
         if event.event_type == "observation":
@@ -380,9 +416,9 @@ def _memory_quality(events: list[Event]) -> dict:
         elif event.event_type == "run_failed":
             _inspect_memory_failure(event, state)
         state["events"][event.event_id] = event
-    for key, event_id in state["finishes"].items():
-        if key not in state["updates"]:
-            _add_memory_problem(state, "finish_without_memory_update", event_id, key[0], [])
+    for key, finish in state["finishes"].items():
+        if key not in state["updates"] and finish[1]:
+            _add_memory_problem(state, "finish_without_memory_update", finish[0], key[0], [])
     return {
         "memory_update_events": state["update_events"],
         "persisted_episode_ids": state["episodes"],
@@ -414,7 +450,7 @@ def _inspect_memory_response(event: Event, state: dict) -> None:
         if missing:
             _add_memory_problem(state, "unknown_memory_reference", event.event_id, event.agent_id, missing)
         if name == "finish" and event.data.get("error") is None:
-            state["finishes"][key] = event.event_id
+            state["finishes"][key] = (event.event_id, bool(arguments.get("memories")))
     error = event.data.get("error")
     if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
@@ -425,6 +461,19 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
     if event.visibility != "agent" or event.agent_id is None:
         return
     allowed = {event.event_id}
+    try:
+        facts = validate_verified_experiences(
+            event.data.get("verified_experiences"), event.agent_id, event.occurred_at)
+    except IntegrityError:
+        _add_memory_problem(state, "invalid_verified_experience_window", event.event_id, event.agent_id, [])
+        facts = []
+    for fact in facts:
+        source = state["events"].get(fact["source_event_id"])
+        if not _verified_source_matches(source, fact, event):
+            _add_memory_problem(state, "invalid_verified_experience_source", event.event_id,
+                                event.agent_id, [fact["source_event_id"]])
+        else:
+            allowed.add(source.event_id)
     for result in event.data.get("recent_action_results", []):
         identity = result.get("event_id") if isinstance(result, dict) else None
         source = state["events"].get(identity)
@@ -435,25 +484,90 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
         else:
             allowed.add(identity)
     state["visible"][(event.agent_id, event.decision_id)] = allowed
+    state["windows"][(event.agent_id, event.decision_id)] = (
+        event.event_id, {item["source_event_id"] for item in facts})
+
+
+def _verified_source_matches(source: Event | None, fact: dict, observation: Event) -> bool:
+    """@brief 观察中的事实必须与该人物更早提交的规范来源逐字对应。"""
+    if source is None or source.event_seq >= observation.event_seq:
+        return False
+    try:
+        return fact in project_verified_experiences(
+            [source], agent_id=observation.agent_id, cutoff_seq=source.event_seq)
+    except IntegrityError:
+        return False
 
 
 def _inspect_memory_update(event: Event, state: dict) -> None:
-    """@brief 累计持久 episode，并报告重复身份或缺少成功 finish。"""
-    identities = event.data.get("episode_ids")
-    valid = isinstance(identities, list) and all(isinstance(item, str) and item for item in identities)
-    if not valid:
+    """@brief 区分本次新增、合法合并和事实视图刷新。"""
+    data = event.data
+    created, merged = data.get("created_episode_ids"), data.get("merged_episode_ids")
+    episodes = data.get("episodes")
+    if not _valid_memory_update_payload(data):
         _add_memory_problem(state, "invalid_memory_update", event.event_id, event.agent_id, [])
         return
-    duplicates = sorted({item for item in identities if item in state["known"][event.agent_id]})
+    duplicates = sorted(set(created) & state["known"][event.agent_id])
     if duplicates:
         _add_memory_problem(state, "duplicate_memory_episode_id", event.event_id, event.agent_id, duplicates)
-    state["known"][event.agent_id].update(identities)
-    state["episodes"] += len(identities)
+    unknown_merged = sorted(set(merged) - state["known"][event.agent_id])
+    if unknown_merged:
+        _add_memory_problem(state, "unknown_merged_memory_episode_id", event.event_id,
+                            event.agent_id, unknown_merged)
+    state["known"][event.agent_id].update(created)
+    state["episodes"] += len(created)
     state["update_events"] += 1
     key = (event.agent_id, event.decision_id)
     state["updates"].add(key)
+    window = state["windows"].get(key)
+    if (window is None or data.get("observation_event_id") != window[0]
+            or set(data.get("verified_event_ids", [])) != window[1]):
+        _add_memory_problem(state, "invalid_memory_update_source_window", event.event_id, event.agent_id, [])
     if key not in state["finishes"]:
         _add_memory_problem(state, "memory_update_without_successful_finish", event.event_id, event.agent_id, [])
+
+
+def _valid_memory_update_payload(data: dict) -> bool:
+    """@brief 核对封闭操作、文件身份与主观快照的严格对应。"""
+    created, merged, episodes = (data.get(name) for name in
+                                 ("created_episode_ids", "merged_episode_ids", "episodes"))
+    if any(not isinstance(value, list) or any(not isinstance(item, str) or not item for item in value)
+           for value in (created, merged)) or not isinstance(episodes, list):
+        return False
+    identities = created + merged
+    if len(identities) != len(set(identities)):
+        return False
+    if data.get("operation") == "append_episodes":
+        if not identities:
+            return False
+    elif data.get("operation") != "refresh_summary" or identities:
+        return False
+    if data.get("operation") == "refresh_summary" and data.get("memory_before_sha256") == data.get("memory_sha256"):
+        return False
+    if any(not isinstance(data.get(name), str) or not re.fullmatch(r"[0-9a-f]{64}", data[name])
+           for name in ("memory_before_sha256", "memory_sha256", "episodes_sha256", "state_sha256")):
+        return False
+    if (type(data.get("consolidated")) is not bool or not isinstance(data.get("observation_event_id"), str)
+            or not data["observation_event_id"]):
+        return False
+    verified = data.get("verified_event_ids")
+    if (not isinstance(verified, list) or any(not isinstance(item, str) or not item for item in verified)
+            or len(verified) != len(set(verified))):
+        return False
+    return _valid_subjective_snapshots(episodes, identities)
+
+
+def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
+    """@brief 主观快照与本次实际持久身份一一对应。"""
+    if len(episodes) != len(identities):
+        return False
+    for item in episodes:
+        if (not isinstance(item, dict) or set(item) != {"id", "type", "text", "epistemic_status"}
+                or item.get("id") not in identities or item.get("type") not in _SUBJECTIVE_TYPES
+                or not isinstance(item.get("text"), str)
+                or not item["text"] or item.get("epistemic_status") != "subjective"):
+            return False
+    return {item["id"] for item in episodes} == set(identities)
 
 
 def _inspect_memory_failure(event: Event, state: dict) -> None:

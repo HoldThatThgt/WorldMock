@@ -65,6 +65,13 @@ def _progress(
                   activity_id=activity_id, code_sha256=code_sha256, event_seq=event_seq)
 
 
+def _body(seq: int, start: int, end: int, activity_ids: list[str], **fields: Any) -> dict[str, Any]:
+    """@brief 构造每人每区间唯一的共同身体结算。"""
+    data = {"kind": "body_settlement", "interval_start": start, "interval_end": end,
+            "activity_ids": activity_ids, **fields}
+    return _event("environment_event", end, data=data, event_seq=seq)
+
+
 def _model_request(
     event_seq: int,
     call_id: str,
@@ -108,9 +115,11 @@ def _action(event_seq: int, decision_id: str, tool_name: str,
 
 
 def _memory(episodes: list[dict[str, str]], *, event_seq: int = 90) -> dict[str, Any]:
-    """@brief 构造带 episodes 文本的 memory_updated 事件。"""
+    """@brief 构造带规范主观条目快照的 memory_updated 事件。"""
+    snapshots = [{"id": f"episode-{index}", "epistemic_status": "subjective", **episode}
+                 for index, episode in enumerate(episodes)]
     return _event("memory_updated", _clock(0, 20) + event_seq,
-                  data={"operation": "append_episodes", "episodes": episodes}, event_seq=event_seq)
+                  data={"operation": "append_episodes", "episodes": snapshots}, event_seq=event_seq)
 
 
 def _report(events: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
@@ -149,9 +158,8 @@ def test_observation_gate_fails_closed_without_user_messages() -> None:
 def test_silent_boundary_ratio_exact_values() -> None:
     """@brief 静默占比 0.6 通过、0.4 失败；sleep 边界不计入清醒分母。"""
     def waking(seq: int, offered: bool) -> dict[str, Any]:
-        return _progress(seq, _clock(0, seq, 0), _clock(0, seq, 10), "watch",
-                         activity_id=f"watch-{seq}",
-                         data_extra={"decision_offered": offered})
+        return _body(seq, _clock(0, seq, 0), _clock(0, seq, 10), [f"watch-{seq}"],
+                     decision_offered=offered)
 
     mostly_silent = [waking(1, False), waking(2, False), waking(3, False),
                      waking(4, True), waking(5, True)]
@@ -164,8 +172,9 @@ def test_silent_boundary_ratio_exact_values() -> None:
     gate = _report(mostly_offered)["gates"]["silent_boundary_ratio"]
     assert gate["value"] == 0.4 and gate["pass"] is False
 
-    sleep_boundary = _progress(9, _clock(0, 1), _clock(0, 2), "sleep")
-    gate = _report(mostly_silent + [sleep_boundary])["gates"]["silent_boundary_ratio"]
+    sleep_boundary = _body(9, _clock(0, 1), _clock(0, 2), ["sleep-9"], decision_offered=True)
+    sleep_progress = _progress(10, _clock(0, 1), _clock(0, 2), "sleep", activity_id="sleep-9")
+    gate = _report(mostly_silent + [sleep_boundary, sleep_progress])["gates"]["silent_boundary_ratio"]
     assert gate["known_boundaries"] == 5
 
 
@@ -205,16 +214,15 @@ def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
 def test_wake_reason_distribution_counts() -> None:
     """@brief 唤醒原因按出现次数累计；sleep 的事件也参与统计。"""
     events = [
-        _progress(1, _clock(0, 9), _clock(0, 10), "watch", activity_id="w1",
-                  data_extra={"wake_reasons": ["commitment_threatened"]}),
-        _progress(2, _clock(0, 10), _clock(0, 11), "sleep", activity_id="s1",
-                  data_extra={"wake_reasons": ["commitment_threatened", "person_arrived"]}),
-        _progress(3, _clock(0, 11), _clock(0, 12), "work", activity_id="wk1"),
+        _body(1, _clock(0, 9), _clock(0, 10), ["w1"], wake_reasons=["commitment_threatened"]),
+        _body(2, _clock(0, 10), _clock(0, 11), ["s1"],
+              wake_reasons=["commitment_threatened", "person_arrived"]),
+        _body(3, _clock(0, 11), _clock(0, 12), ["wk1"]),
     ]
     report = _report(events)["reports"]["wake_reason_distribution"]
     assert report["counts"] == {"person_arrived": 1, "commitment_threatened": 2}
     assert report["events_with_wake_reasons"] == 2
-    assert report["activity_progress_events"] == 3
+    assert report["body_settlement_events"] == 3
 
 
 def test_wait_minutes_and_early_arrival() -> None:
@@ -223,22 +231,45 @@ def test_wait_minutes_and_early_arrival() -> None:
         _progress(1, _clock(0, 9), _clock(0, 9, 30), "wait", activity_id="wait-1"),
         _progress(2, _clock(0, 12), _clock(0, 12, 15), "wait", activity_id="wait-2"),
         _progress(3, _clock(0, 7), _clock(0, 7, 30), "travel", activity_id="go-1",
-                  snapshot_extra={"destination_id": "office", "ended_at": _clock(0, 7, 30)}),
+                  snapshot_extra={"destination_id": "office", "ended_at": _clock(0, 7, 30),
+                                  "data": {"arrival": {"location_id": "office"}}}),
         _progress(4, _clock(0, 7, 30), _clock(0, 8), "travel", activity_id="go-2",
-                  snapshot_extra={"destination_id": "office", "ended_at": _clock(0, 8)}),
+                  snapshot_extra={"destination_id": "office", "ended_at": _clock(0, 8),
+                                  "data": {"arrival": {"location_id": "office"}}}),
         _progress(5, _clock(0, 9), _clock(0, 9, 20), "travel", activity_id="go-3",
-                  snapshot_extra={"destination_id": "home", "ended_at": _clock(0, 9, 20)}),
+                  snapshot_extra={"destination_id": "home", "ended_at": _clock(0, 9, 20),
+                                  "data": {"arrival": {"location_id": "home"}}}),
     ]
     report = _report(events, location_open_hours={"office": 8})
     wait = report["reports"]["wait_minutes"]
     assert wait["total_minutes"] == 45.0
     assert wait["per_agent_minutes"] == {"1": 45.0}
+    assert report["reports"]["unknown_wait_minutes"]["total_minutes"] == 45.0
     early = report["reports"]["early_arrival_minutes"]
     assert early["value"] == 30.0
     assert early["per_location_minutes"] == {"office": 30.0}
 
     missing = _report(events)["reports"]["early_arrival_minutes"]
     assert missing["value"] is None
+
+
+def test_parallel_activity_time_does_not_double_person_elapsed_or_fake_content() -> None:
+    """@brief 共同时间取并集，等待自身不产生媒体接触。"""
+    start = _clock(0, 8)
+    events = [
+        _body(1, start, start + 1800, ["walk", "watch"]),
+        _progress(2, start, start + 1800, "travel", activity_id="walk"),
+        _progress(3, start, start + 1800, "watch", activity_id="watch",
+                  snapshot_extra={"data": {"revealed": {
+                      "position_before_seconds": 0, "position_after_seconds": 900}}}),
+        _body(4, start + 1800, start + 3600, ["wait"]),
+        _progress(5, start + 1800, start + 3600, "wait", activity_id="wait"),
+    ]
+    reports = _report(events)["reports"]
+    assert reports["person_elapsed_minutes"]["per_agent_minutes"] == {"1": 60.0}
+    assert reports["content_contact_minutes"]["total_minutes"] == 30.0
+    assert reports["wait_minutes"]["total_minutes"] == 30.0
+    assert reports["unknown_wait_minutes"]["total_minutes"] == 30.0
 
 
 def test_sleep_schedule_from_sleep_intervals() -> None:
@@ -256,19 +287,14 @@ def test_sleep_schedule_from_sleep_intervals() -> None:
 
 
 def test_meal_diversity_simpson_and_repetition_anchors() -> None:
-    """@brief Simpson 浓度 {a:2,b:1,c:1}=0.375；24h 重复率按前进窗口逐事件判定。"""
-    events = [
-        _action(1, "d1", "consume", {"product_id": "a", "quantity": 1, "use_mode": "eat",
-                                     "duration_seconds": 1200}),
-        _action(2, "d2", "consume", {"product_id": "a", "quantity": 1, "use_mode": "eat",
-                                     "duration_seconds": 1200}),
-        _action(3, "d3", "consume", {"product_id": "b", "quantity": 1, "use_mode": "eat",
-                                     "duration_seconds": 1200}),
-        _action(4, "d4", "consume", {"product_id": "c", "quantity": 1, "use_mode": "eat",
-                                     "duration_seconds": 1200}),
-        _action(5, "d5", "consume", {"product_id": "d", "quantity": 1, "use_mode": "use",
-                                     "duration_seconds": 1200}),
-    ]
+    """@brief Simpson 浓度 {a:2,b:1,c:1}=0.375；只算实际 eat 正增量。"""
+    def eaten(seq: int, product: str, use_mode: str = "eat") -> dict[str, Any]:
+        return _progress(seq, _clock(0, 8, seq), _clock(0, 8, seq + 1), "consume",
+                         activity_id=f"meal-{seq}", data_extra={"consumption": {
+                             "use_mode": use_mode,
+                             "items": [{"product_id": product, "interval_quantity": 0.5}]}})
+    events = [_action(10, "d1", "consume", {"product_id": "phantom", "use_mode": "eat"}),
+              eaten(1, "a"), eaten(2, "a"), eaten(3, "b"), eaten(4, "c"), eaten(5, "d", "use")]
     diversity = _report(events)["reports"]["meal_diversity"]
     assert diversity["simpson_concentration"] == 0.375
     assert diversity["consume_event_count"] == 4
@@ -276,12 +302,7 @@ def test_meal_diversity_simpson_and_repetition_anchors() -> None:
     assert diversity["product_counts"] == {"a": 2, "b": 1, "c": 1}
 
     hours = 3600
-    window_events = [
-        _action(1, "d1", "consume", {"product_id": "a", "use_mode": "eat"}),
-        _action(2, "d2", "consume", {"product_id": "a", "use_mode": "eat"}),
-        _action(3, "d3", "consume", {"product_id": "b", "use_mode": "eat"}),
-        _action(4, "d4", "consume", {"product_id": "a", "use_mode": "eat"}),
-    ]
+    window_events = [eaten(11, "a"), eaten(12, "a"), eaten(13, "b"), eaten(14, "a")]
     window_events[1]["occurred_at"] = _clock(0, 0) + 10 * hours
     window_events[2]["occurred_at"] = _clock(0, 0) + 20 * hours
     window_events[3]["occurred_at"] = _clock(0, 0) + 25 * hours
@@ -316,7 +337,9 @@ def test_activity_distribution_matches_reference_exactly() -> None:
         _progress(1, _clock(0, 0), _clock(0, 9, 13), "sleep", activity_id="sleep-1"),
         _progress(2, _clock(0, 10), _clock(0, 10, 50), "lifestyle", activity_id="wash-1",
                   snapshot_extra={"family": "morning_routine"}),
-        _progress(3, _clock(0, 12), _clock(0, 13, 44), "consume", activity_id="meal-1"),
+        _progress(3, _clock(0, 12), _clock(0, 13, 44), "consume", activity_id="meal-1",
+                  data_extra={"consumption": {"use_mode": "eat", "items": [
+                      {"product_id": "meal", "interval_quantity": 1.0}]}}),
         _progress(4, _clock(0, 14), _clock(0, 21, 40), "work", activity_id="work-1"),
         _progress(5, _clock(0, 22), _clock(0, 22, 34), "travel", activity_id="go-1"),
         _progress(6, _clock(0, 23), _clock(0, 23, 21), "lifestyle", activity_id="chat-1",
@@ -388,26 +411,31 @@ def test_social_minutes_and_message_counts() -> None:
 def test_memory_repetition_gate_values() -> None:
     """@brief 3/10=0.3 失败、2/10=0.2 边界通过、全唯一为 0；类型内才比较。"""
     texts = ["早上去了公园散步很高兴", "晚上在家读了一本书", "中午吃了一碗面条"]
-    fail_events = [_memory([{"text": texts[0], "kind": "episode"},
-                            {"text": texts[0], "kind": "episode"},
-                            {"text": texts[0], "kind": "episode"},
-                            {"text": texts[1], "kind": "episode"},
-                            {"text": texts[2], "kind": "episode"}])]
+    fail_events = [_memory([{"text": texts[0], "type": "goal"},
+                            {"text": texts[0], "type": "goal"},
+                            {"text": texts[0], "type": "goal"},
+                            {"text": texts[1], "type": "goal"},
+                            {"text": texts[2], "type": "goal"}])]
     gate = _report(fail_events)["gates"]["memory_repetition_ratio"]
     assert gate["value"] == 0.3 and gate["pass"] is False
 
-    boundary_events = [_memory([{"text": texts[0], "kind": "episode"},
-                                {"text": texts[0], "kind": "episode"},
-                                {"text": texts[1], "kind": "episode"},
-                                {"text": texts[1], "kind": "episode"},
-                                {"text": "下午开了一个长会", "kind": "episode"}])]
+    boundary_events = [_memory([{"text": texts[0], "type": "goal"},
+                                {"text": texts[0], "type": "goal"},
+                                {"text": texts[1], "type": "goal"},
+                                {"text": texts[1], "type": "goal"},
+                                {"text": "下午开了一个长会", "type": "goal"}])]
     gate = _report(boundary_events)["gates"]["memory_repetition_ratio"]
     assert gate["value"] == 0.2 and gate["pass"] is True
 
-    distinct_types = [_memory([{"text": texts[0], "kind": "habit"},
-                              {"text": texts[0], "kind": "event"}])]
+    distinct_types = [_memory([{"text": texts[0], "type": "routine"},
+                              {"text": texts[0], "type": "goal"}])]
     gate = _report(distinct_types)["gates"]["memory_repetition_ratio"]
     assert gate["value"] == 0.0 and gate["pass"] is True
+
+    malformed = [_memory([{"text": texts[0], "type": "goal"}])]
+    malformed[0]["data"]["episodes"].append({"text": texts[0], "kind": "event"})
+    gate = _report(malformed)["gates"]["memory_repetition_ratio"]
+    assert gate["value"] is None and gate["pass"] is False
 
 
 def test_memory_md_identity_residue_gate() -> None:
@@ -427,8 +455,8 @@ def test_memory_md_identity_residue_gate() -> None:
     assert absent["value"] is None and absent["pass"] is False
 
 
-def test_old_style_events_do_not_crash_and_gates_fail_closed() -> None:
-    """@brief 无未来字段（decision_offered/wake_reasons/episodes）的旧式事件不崩溃。"""
+def test_missing_metric_evidence_is_reported_unknown_and_gates_fail_closed() -> None:
+    """@brief 不完整的合成指标输入保持未知，不补造静默、记忆或身份测量。"""
     events = [
         _event("decision_started", _clock(0, 8), decision_id="d1"),
         _model_request(2, "d1", ["当前观察：在家，精神不错"]),
@@ -446,7 +474,7 @@ def test_old_style_events_do_not_crash_and_gates_fail_closed() -> None:
     assert report["reports"]["decision_prompt_token_median"]["value"] is None
     assert report["reports"]["wake_reason_distribution"]["counts"] == {}
     notes = "".join(report["notes"])
-    for keyword in ("decision_offered", "wake_reasons", "episodes", "MEMORY.md", "prompt token"):
+    for keyword in ("decision_offered", "wake_reasons", "主观记忆快照", "MEMORY.md", "prompt token"):
         assert keyword in notes
     assert report["reports"]["early_arrival_minutes"]["value"] is None
 

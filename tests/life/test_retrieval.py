@@ -324,7 +324,8 @@ def test_item_kinds_reads_lifestyle_declarations(tmp_path):
 def test_real_corpus_partitions_are_reachable():
     """真实冻结语料：全部内容条目分区键齐备，且各分区在真实地点集下可行。"""
     entries = tuple(entry_from_content(str(item["item_id"]), "fixture", item)
-                    for relative in ("movies/items.json", "drama/items.json", "novels/items.json",
+                    for relative in ("movies/items.json", "drama/items.json", "podcasts/items.json",
+                                     "novels/items.json",
                                      "feed/items.json", "jokes/items.json")
                     for item in json.loads((CORPORA / relative).read_text(encoding="utf-8")))
     report = reachability_report(entries, tuple(place_kinds(CORPORA).values()))

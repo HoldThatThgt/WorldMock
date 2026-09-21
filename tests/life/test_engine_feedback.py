@@ -47,7 +47,8 @@ def _stage_time(engine, epoch: int, pending_events=None) -> None:
     staged.current_time = epoch
     staged.pending_events = list(staged.pending_events if pending_events is None else pending_events)
     for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(update={"next_decision_at": epoch}, deep=True)
+        staged.agents[agent_id] = agent.model_copy(
+            update={"next_decision_at": epoch, "body_settled_at": epoch}, deep=True)
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
                        source_kind="scenario", data={"kind": "test_clock_position"})
@@ -76,10 +77,10 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
     first = ContinueActivityRequest(activity_id=activity_id)
     before = engine.state.current_time
     observation, result = _observed_action(engine, "continue-one", "continue_activity", first)
-    assert observation["active_activity"]["elapsed_seconds"] == 900
+    assert observation["active_activities"][0]["elapsed_seconds"] == 900
     assert engine.state.current_time == before
     assert result.status == "completed"
-    assert engine.state.agents[1].current_activity_id == activity_id
+    assert engine.state.activities[activity_id].status == ActivityStatus.ACTIVE
 
     advance_next(engine)
     _observed_action(engine, "continue-two", "continue_activity", first)
@@ -96,10 +97,10 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
     assert requested.event_id in terminal.caused_by
 
 
-def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
+def test_feedback_boundary_compatible_watch_runs_alongside_wait(
     engine_factory,
 ) -> None:
-    """唤醒边界直接提交 watch 切换时旧 wait 自动暂停保留进度，恢复后进度接续。"""
+    """唤醒边界直接提交观看时，等待保留自己的进度并同步继续。"""
     engine = engine_factory()
     _observed_action(engine, "plan", "plan_day",
                      _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
@@ -117,13 +118,10 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
             planned_duration_seconds=600, playback_speed=1))
     watch_id = switched.activity_id
     assert switched.status == "in_progress"
-    assert observation["active_activity"]["activity_id"] == wait_id
-    paused_wait = engine.state.activities[wait_id]
-    assert paused_wait.status == "paused" and paused_wait.elapsed_seconds == 900
-    assert paused_wait.boundary_type == "paused"
-    assert switched.data["auto_paused_activity"]["activity_id"] == wait_id
-    assert switched.data["auto_paused_activity"]["elapsed_seconds"] == 900
-    assert engine.state.agents[1].current_activity_id == watch_id
+    assert observation["active_activities"][0]["activity_id"] == wait_id
+    parallel_wait = engine.state.activities[wait_id]
+    assert parallel_wait.status == "active" and parallel_wait.elapsed_seconds == 900
+    assert "auto_paused_activity" not in switched.data
     watch = engine.state.activities[watch_id]
     assert watch.kind.value == "watch" and watch.status == ActivityStatus.ACTIVE
 
@@ -133,15 +131,11 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     assert finished_watch.status == ActivityStatus.COMPLETED
     assert finished_watch.elapsed_seconds == 600
     assert finished_watch.media_position_seconds == 600
-    assert engine.state.activities[wait_id].status == "paused"
-
-    _, resumed = _observed_action(
-        engine, "switch-resume", "set_activity_state",
-        SetActivityStateRequest(activity_id=wait_id, operation="resume"))
-    assert resumed.status == "completed"
+    assert engine.state.activities[wait_id].status == "active"
+    _observed_action(engine, "switch-continue", "continue_activity",
+                     ContinueActivityRequest(activity_id=wait_id))
     assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
-    assert engine.state.activities[wait_id].elapsed_seconds == 900
-    assert engine.state.agents[1].current_activity_id == wait_id
+    assert engine.state.activities[wait_id].elapsed_seconds > 900
 
     while engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
         advance_until_ready(engine)
@@ -154,8 +148,8 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     assert final_wait.elapsed_seconds == 2700
 
 
-def test_game_feedback_boundary_still_rejects_direct_switch(engine_factory) -> None:
-    """游戏交互边界仍保持闭集协议，直接提交新活动被业务拒绝。"""
+def test_game_feedback_boundary_rejects_resource_conflict(engine_factory) -> None:
+    """游戏占用位置，直接提交等待被资源冲突拒绝。"""
     engine = engine_factory()
     _, started = _observed_action(
         engine, "game-start", "start_targeted_activity",
@@ -168,8 +162,8 @@ def test_game_feedback_boundary_still_rejects_direct_switch(engine_factory) -> N
         engine, "game-switch", "start_basic_activity",
         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
     assert rejected.status == "rejected"
-    assert rejected.error_code == "ACTIVITY_FEEDBACK_ACTION_REQUIRED"
-    assert engine.state.agents[1].current_activity_id == started.activity_id
+    assert rejected.error_code == "RESOURCE_CONFLICT"
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
 
 
 def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_factory) -> None:

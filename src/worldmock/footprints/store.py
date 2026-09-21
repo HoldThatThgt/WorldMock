@@ -192,6 +192,19 @@ class FootprintStore:
         """, (agent_id, event_type, after))
         return [Event.model_validate_json(row[0]) for row in rows]
 
+    def read_recent_experience_sources(self, agent_id: int, before_seq: int, limit: int) -> list[Event]:
+        """@brief 按倒序有限读取本人活动进度候选事件。"""
+        if (type(agent_id) is not int or agent_id <= 0 or type(before_seq) is not int
+                or not 0 < before_seq <= self.last_event_seq + 1
+                or type(limit) is not int or limit <= 0):
+            raise IntegrityError("Experience source query boundary is invalid")
+        rows = self.connection.execute("""
+            SELECT body FROM events WHERE json_extract(body,'$.agent_id')=?
+            AND json_extract(body,'$.event_type')='activity_progress'
+            AND event_seq<? ORDER BY event_seq DESC LIMIT ?
+        """, (agent_id, before_seq, limit))
+        return [Event.model_validate_json(row[0]) for row in rows]
+
     def read_events(self, cutoff: int) -> list[Event]:
         """@brief 固定截止序号读取原始顺序，拒绝不存在的截止位置。"""
         if cutoff < 0 or cutoff > self.last_event_seq:

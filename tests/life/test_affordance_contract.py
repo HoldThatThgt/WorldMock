@@ -89,7 +89,7 @@ def test_engine_observation_carries_frozen_contract_across_run(engine_factory) -
 def _agent_with_data(data: dict) -> None:
     """用一份手写观察数据按正式入口准备 LifeAgent 决策。"""
     agent = LifeAgent()
-    data = {**data, "interaction_menu": {
+    data = {"agent_id": 1, "verified_experiences": [], **data, "interaction_menu": {
         "allowed_tools": sorted(REQUEST_MODELS),
         "allowed_activity_kinds": sorted(default_affordances().kinds),
     }}

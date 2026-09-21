@@ -14,7 +14,7 @@
   "rotation_stale_seconds": 604800,
   "retrieval_index_threshold": 1000,
   "corpus_root": "../corpora",
-  "corpus_manifest_sha256": "a14ecc26f48e00ac9b32297cd97b31a417318078b372d91fef42aba8d8e4eda0",
+  "corpus_manifest_sha256": "965c9fafd40845e40a449e497f1ed40b97f20c8a064ed5526c910f81254ff5bf",
   "catalog_version": {
     "major": 4,
     "minor": 0
@@ -25,6 +25,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -57,6 +58,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -89,6 +91,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -121,6 +124,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -153,6 +157,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -185,6 +190,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -217,6 +223,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -249,6 +256,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -281,6 +289,7 @@
         "start_basic_activity",
         "start_targeted_activity",
         "start_travel",
+        "start_parallel_activities",
         "set_activity_state",
         "change_playback_speed",
         "continue_activity",
@@ -471,7 +480,8 @@
           "learning": 0.06,
           "pet": 0.04,
           "social": 0.06,
-          "volunteer": 0.04
+          "volunteer": 0.04,
+          "podcast_episode": 0.5
         },
         "source": {
           "persona_text_sha256": "1bad26b3057612820732d96b1b519efe84260e272b683e6388d3da6db7286d08",
@@ -602,7 +612,8 @@
           "learning": 0.06,
           "pet": 0.03,
           "social": 0.06,
-          "volunteer": 0.03
+          "volunteer": 0.03,
+          "podcast_episode": 0.5
         },
         "source": {
           "persona_text_sha256": "0d9301956e27931d784938411b5143324d6538454c37cdecb716e48e7a9781c0",
@@ -3001,6 +3012,17 @@
       "timeline_sha256": "b247302ae4981912248d5c3bc1b4aa84bd08bd5c3a2171b45e14db154b8d5918",
       "entertainment_relief_per_hour": 0.35,
       "experience_label": "game_session_play"
+    },
+    {
+      "item_id": "podcast-nasa-space-habitat-excerpt",
+      "kind": "podcast_episode",
+      "duration_seconds": 786,
+      "timeline_path": "podcasts/podcast-0001.srt",
+      "timeline_sha256": "3476075372af7e927eca557da7b9acba8957ada984fb8c9580c943073c65ad52",
+      "entertainment_relief_per_hour": 0.3,
+      "experience_label": "NASA Space Habitat podcast interview excerpt",
+      "audio_path": "podcasts/nasa-space-habitat.excerpt.mp3",
+      "audio_sha256": "f298a5f15c489c2efbc1e730647665532bb1a8ff3737ea5453a5e08ca44fff25"
     }
   ],
   "games": [
@@ -3241,151 +3263,11 @@
   },
   "map_dataset": {
     "dataset_id": "zhangjiang-map",
-    "version": 1,
+    "version": 2,
     "path": "zhangjiang-map/dataset.json",
-    "sha256": "ab07eb633dbb4b8363113a1e6ffabf614700e7c7d4843ddd941e44b2012d7d4f"
+    "sha256": "5adabfd2aade46211b8d71045b47342694166ca1bc1eb44af2107ff52f91d0f6"
   },
   "supplies": [
-    {
-      "supply_id": "supply-market-food-6923644266066",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-poi-3538682402-food-6923644266066",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-poi-3538763552-food-6923644266066",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6928804010114",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6917878044729",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6924743919211",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6920152460061",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6920459902387",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6901209212215",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-8935090914864",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6901939621738",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6902083881085",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6902538006575",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6907992100272",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6907992500942",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6907992507095",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6909548098880",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6914973603394",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6916196410414",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6921168593569",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6921351120305",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6922577790068",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6923167524186",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6923644223458",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6924743919242",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6924773540416",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6937003704014",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6937962112714",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6938360357264",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6943949415174",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6948939681928",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6948939696106",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6950955909610",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6972020770130",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-food-6974800253352",
-      "initial_stock": null
-    },
     {
       "supply_id": "supply-market-food-0012256091053",
       "initial_stock": null
@@ -3459,6 +3341,10 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6901209212215",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6901668005946",
       "initial_stock": null
     },
@@ -3467,7 +3353,15 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6901939621738",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6902083814045",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6902083881085",
       "initial_stock": null
     },
     {
@@ -3483,6 +3377,10 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6902538006575",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6902890235590",
       "initial_stock": null
     },
@@ -3491,11 +3389,27 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6907992100272",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6907992102764",
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6907992500942",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6907992507095",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6907992513560",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6909548098880",
       "initial_stock": null
     },
     {
@@ -3507,7 +3421,23 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6914973603394",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6916196410414",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6917486003286",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6917878044729",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6920152460061",
       "initial_stock": null
     },
     {
@@ -3523,6 +3453,10 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6920459902387",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6920907810707",
       "initial_stock": null
     },
@@ -3532,6 +3466,14 @@
     },
     {
       "supply_id": "supply-market-food-6920934800863",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6921168593569",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6921351120305",
       "initial_stock": null
     },
     {
@@ -3551,6 +3493,14 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6922577790068",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6923167524186",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6923404800974",
       "initial_stock": null
     },
@@ -3559,7 +3509,23 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6923644223458",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6923644266066",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6924743915084",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6924743919211",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6924743919242",
       "initial_stock": null
     },
     {
@@ -3571,7 +3537,15 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6924773540416",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6927770903437",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6928804010114",
       "initial_stock": null
     },
     {
@@ -3587,11 +3561,23 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6937003704014",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6937962103293",
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6937962112714",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6937973100212",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6938360357264",
       "initial_stock": null
     },
     {
@@ -3623,11 +3609,27 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6943949415174",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6944839902385",
       "initial_stock": null
     },
     {
       "supply_id": "supply-market-food-6944839956548",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6948939681928",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6948939696106",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6950955909610",
       "initial_stock": null
     },
     {
@@ -3683,6 +3685,10 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-6972020770130",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-6972146801022",
       "initial_stock": null
     },
@@ -3704,6 +3710,10 @@
     },
     {
       "supply_id": "supply-market-food-6974348720972",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-food-6974800253352",
       "initial_stock": null
     },
     {
@@ -3731,11 +3741,47 @@
       "initial_stock": null
     },
     {
+      "supply_id": "supply-market-food-8935090914864",
+      "initial_stock": null
+    },
+    {
       "supply_id": "supply-market-food-9300639999005",
       "initial_stock": null
     },
     {
       "supply_id": "supply-market-food-9556771007584",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-charger",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-detergent",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-headphones",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-metro-card",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-notebook",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-tissues",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-toothbrush",
+      "initial_stock": null
+    },
+    {
+      "supply_id": "supply-market-item-umbrella",
       "initial_stock": null
     },
     {
@@ -3859,35 +3905,23 @@
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-item-umbrella",
+      "supply_id": "supply-poi-3538660453-meal-0018",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-item-notebook",
+      "supply_id": "supply-poi-3538682402-food-6923644266066",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-item-charger",
+      "supply_id": "supply-poi-3538682404-meal-0022",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-item-detergent",
+      "supply_id": "supply-poi-3538682408-meal-0026",
       "initial_stock": null
     },
     {
-      "supply_id": "supply-market-item-tissues",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-item-toothbrush",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-item-headphones",
-      "initial_stock": null
-    },
-    {
-      "supply_id": "supply-market-item-metro-card",
+      "supply_id": "supply-poi-3538763552-food-6923644266066",
       "initial_stock": null
     }
   ],

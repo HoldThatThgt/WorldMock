@@ -16,6 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.integration.activity_fixtures import occupied_resources
 from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from pydantic import ValidationError
 
@@ -58,7 +59,7 @@ _SCENE = {
     "location": "自己家",
     "people_here": [],
     "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activity": {},
+    "current_activities": [],
     "paused_activities": [],
     "day_plan": None,
     "inbox_head": [],
@@ -131,7 +132,8 @@ def _observations() -> list[dict]:
         "scene": copy.deepcopy(_SCENE),
         "facts": copy.deepcopy(_FACTS),
         "recent_action_results": [],
-        "active_activity": None,
+        "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
+        "active_activities": [],
         "paused_activities": [],
         "energy_feasibility": {"maximum_duration_seconds_by_kind": {
             "work": 86_400, "watch": 86_400, "play_game": 86_400,
@@ -175,12 +177,15 @@ def _base_product(**overrides) -> dict:
     return product
 
 
-def _prepared(mutate=None, *, readonly: bool = False) -> LifeAgent:
+def _prepared(mutate=None, *, readonly: bool = False, sync_resources: bool = True) -> LifeAgent:
     """按正式入口准备 LifeAgent 决策（可注入观察修改函数）。"""
     agent = LifeAgent()
     observations = _observations()
     if mutate is not None:
         mutate(observations[0]["data"])
+    rows = observations[0]["data"].get("active_activities")
+    if sync_resources and isinstance(rows, list) and all(isinstance(row, dict) for row in rows):
+        observations[0]["data"]["occupied_resources"] = occupied_resources(rows)
     request = ReactLoopRequest(0, _OBSERVED_AT, observations, None, readonly)
     agent.prepare_react_loop(request)
     return agent
@@ -244,8 +249,8 @@ def test_memory_read_and_episode_models_enforce_local_limits() -> None:
     with pytest.raises(ValidationError, match="one to twenty nonblank ids"):
         MemoryReadRequest(ids=[f"m-{i}" for i in range(21)])
 
-    episode = {
-        "type": "observation", "importance": 0.5, "keywords": ["wait"],
+    episode = {"epistemic_status": "subjective",
+        "type": "reflection", "importance": 0.5, "keywords": ["wait"],
         "text": "I waited.", "source": "decision_observation",
         "refs": ["observation-current"],
     }
@@ -281,7 +286,17 @@ def _paused_activity(activity_id: str, **overrides) -> dict:
     """构造一条合法暂停活动记录（可覆盖字段注入错误）。"""
     entry = {"activity_id": activity_id, "status": "paused", "kind": "work",
              "remaining_duration_seconds": 60,
-             "minimum_energy_cost_kcal": 1.0, "resume_energy_feasible": True}
+             "minimum_energy_cost_kcal": 1.0, "resume_energy_feasible": True,
+             "resource_claims": occupied_resources([{"kind": "work"}])}
+    entry.update(overrides)
+    return entry
+
+
+def _active_activity(activity_id: str, kind: str = "watch", **overrides) -> dict:
+    """构造一条八键活动控制行，可覆盖指定字段验证失败关闭。"""
+    entry = {"activity_id": activity_id, "kind": kind, "status": "active",
+             "title": None, "progress": "进行中", "elapsed_seconds": 60,
+             "planned_duration_seconds": 3600, "data": {}}
     entry.update(overrides)
     return entry
 
@@ -320,22 +335,19 @@ def _frozen_observation_cases() -> list[tuple[str, object, str]]:
         ("action result identity blank",
          _replace(("recent_action_results",), [{"event_id": ""}]),
          "action result event identity is invalid"),
-        ("active activity missing", _drop(("active_activity",)),
-         "active_activity is unavailable"),
-        ("active activity not object", _replace(("active_activity",), 5),
-         "must be an object or null"),
+        ("active activities missing", _drop(("active_activities",)),
+         "active_activities must be a list"),
+        ("active activities not list", _replace(("active_activities",), 5),
+         "active_activities must be a list"),
         ("active identity blank",
-         _replace(("active_activity",),
-                  {"activity_id": "", "kind": "watch", "status": "active"}),
+         _replace(("active_activities",), [_active_activity("")]),
          "active activity identity is invalid"),
         ("active state not active",
-         _replace(("active_activity",),
-                  {"activity_id": "act-1", "kind": "watch", "status": "paused"}),
-         "active activity state is invalid"),
+         _replace(("active_activities",), [_active_activity("act-1", status="paused")]),
+         "active activity state or kind is invalid"),
         ("active kind undeclared",
-         _replace(("active_activity",),
-                  {"activity_id": "act-1", "kind": "undeclared", "status": "active"}),
-         "kind has no decision boundary controls"),
+         _replace(("active_activities",), [_active_activity("act-1", kind="undeclared")]),
+         "active activity state or kind is invalid"),
         ("paused activities not list", _replace(("paused_activities",), "x"),
          "paused_activities must be a list"),
         ("paused state not paused",
@@ -353,8 +365,7 @@ def _frozen_observation_cases() -> list[tuple[str, object, str]]:
                   [_paused_activity("p1"), _paused_activity("p1")]),
          "paused activity identities are duplicated"),
         ("game session missing",
-         _replace(("active_activity",),
-                  {"activity_id": "act-game", "kind": "play_game", "status": "active"}),
+         _replace(("active_activities",), [_active_activity("act-game", kind="play_game")]),
          "active game session is invalid"),
         ("location blank", _replace(("location_id",), ""),
          "current location is invalid"),
@@ -509,22 +520,20 @@ def test_active_activity_also_listed_as_paused_is_rejected() -> None:
     """同一活动既活跃又列入暂停是矛盾观察，直接协议错误。"""
 
     def mutate(data: dict) -> None:
-        data["active_activity"] = {"activity_id": "act-1", "kind": "watch",
-                                   "status": "active"}
+        data["active_activities"] = [_active_activity("act-1")]
         data["paused_activities"] = [_paused_activity("act-1")]
 
-    with pytest.raises(RuntimeError, match="also listed as paused"):
+    with pytest.raises(RuntimeError, match="both active and paused"):
         _prepared(mutate)
 
 
 def test_game_progress_and_commands_fail_closed() -> None:
     """游戏会话进度缺失、终局与命令形状错误均为协议错误。"""
-    active_game = {"activity_id": "act-game", "kind": "play_game", "status": "active",
-                   "data": {"game_session_id": "session-1"}}
+    active_game = _active_activity("act-game", kind="play_game", data={"game_session_id": "session-1"})
 
     def with_games(games: dict):
         def mutate(data: dict) -> None:
-            data["active_activity"] = active_game
+            data["active_activities"] = [active_game]
             data["games"] = games
         return mutate
 
@@ -534,7 +543,7 @@ def test_game_progress_and_commands_fail_closed() -> None:
         _prepared(with_games({"session-1": {"session_id": "session-1", "won": True,
                                             "lost": False,
                                             "admissible_commands": ["look"]}}))
-    with pytest.raises(RuntimeError, match="active game commands must be a list"):
+    with pytest.raises(RuntimeError, match="active game commands are invalid"):
         _prepared(with_games({"session-1": {"session_id": "session-1", "won": False,
                                             "lost": False,
                                             "admissible_commands": "look"}}))
@@ -661,18 +670,16 @@ def _feedback_agent() -> LifeAgent:
     """准备一个观看活动反馈边界上的决策。"""
 
     def mutate(data: dict) -> None:
-        data["active_activity"] = {"activity_id": "act-1", "kind": "watch",
-                                   "status": "active"}
+        data["active_activities"] = [_active_activity("act-1")]
 
     return _prepared(mutate)
 
 
 def test_feedback_boundary_withholds_switch_tools_without_visible_targets() -> None:
-    """反馈边界无可切换目标与路线时只保留继续/暂停与基础活动工具。"""
+    """播放占用注意力时撤下冲突启动，保留相容消费和既有控制。"""
 
     def mutate(data: dict) -> None:
-        data["active_activity"] = {"activity_id": "act-1", "kind": "watch",
-                                   "status": "active"}
+        data["active_activities"] = [_active_activity("act-1")]
         data["tasks"] = []
         data["facts"]["tasks"] = []
         data["content_progress"] = {}
@@ -682,9 +689,11 @@ def test_feedback_boundary_withholds_switch_tools_without_visible_targets() -> N
         data["routes"] = []
 
     agent = _prepared(mutate)
-    assert _tool_names(agent) == {"continue_activity", "set_activity_state",
-                                  "start_basic_activity",
-                                  "change_playback_speed"} | _MEMORY_TOOL_NAMES
+    names = _tool_names(agent)
+    assert {"continue_activity", "set_activity_state", "start_basic_activity",
+            "change_playback_speed", "consume"} | _MEMORY_TOOL_NAMES <= names
+    assert not names & {"start_targeted_activity", "start_travel", "start_social_activity"}
+    assert {"browse_activities", "discover_places", "purchase"} <= names
 
 
 def test_visible_people_contacts_and_inbox_open_social_tools() -> None:
@@ -713,18 +722,22 @@ def test_visible_people_contacts_and_inbox_open_social_tools() -> None:
 
 def test_game_tools_follow_current_visible_game_state() -> None:
     """游戏边界按 admissible_commands 提供或撤下 game_action；命令闭集入枚举。"""
-    active_game = {"activity_id": "act-game", "kind": "play_game", "status": "active",
-                   "data": {"game_session_id": "session-1"}}
+    active_game = _active_activity("act-game", kind="play_game", data={"game_session_id": "session-1"})
 
     def prepare_games(commands: list) -> LifeAgent:
         def mutate(data: dict) -> None:
-            data["active_activity"] = active_game
+            data["active_activities"] = [active_game]
             data["games"] = {"session-1": {
                 "session_id": "session-1", "won": False, "lost": False,
                 "admissible_commands": commands}}
         return _prepared(mutate)
 
-    assert _tool_names(prepare_games([])) == {"set_activity_state"} | _MEMORY_TOOL_NAMES
+    empty_names = _tool_names(prepare_games([]))
+    assert "set_activity_state" in empty_names
+    assert "game_action" not in empty_names
+    assert not empty_names & {"start_basic_activity", "start_targeted_activity", "start_travel",
+                              "consume", "start_social_activity", "start_parallel_activities"}
+    assert _MEMORY_TOOL_NAMES <= empty_names
 
     agent = prepare_games(["look", "take coin"])
     schema = next(item for item in agent.build_react_tool_schemas(readonly=False)
@@ -740,7 +753,7 @@ def test_game_tools_follow_current_visible_game_state() -> None:
 
 
 def test_social_boundary_activities_cross_decision_boundary_cancel_only() -> None:
-    """交谈/通话以 ACTIVE 跨决策边界：控制合同成立、工具面只剩 set_activity_state 且仅可取消。
+    """交谈/通话以 ACTIVE 跨决策边界：自身仅可取消，新活动按资源交集收窄。
 
     run11 round 36 死点复现面：唤醒节律把计划未完的 chat/call 对齐成反馈边界后，
     agent 侧闭集必须认识这两个非注册表 kind（docs/CONTRACTS.md「交谈与通话」：
@@ -748,13 +761,15 @@ def test_social_boundary_activities_cross_decision_boundary_cancel_only() -> Non
     """
     for kind in ("chat", "call"):
         def mutate(data: dict, social_kind: str = kind) -> None:
-            data["active_activity"] = {"activity_id": f"act-{social_kind}",
-                                       "kind": social_kind, "status": "active"}
+            data["active_activities"] = [_active_activity(f"act-{social_kind}", kind=social_kind)]
 
         agent = _prepared(mutate)
-        # 工具面只含取消类控制：continue_activity 与 start_* 会被引擎按注册表
-        # 边界门槛拒绝，暴露即制造业务拒绝节律。
-        assert _tool_names(agent) == {"set_activity_state"} | _MEMORY_TOOL_NAMES
+        names = _tool_names(agent)
+        assert "set_activity_state" in names
+        assert "continue_activity" not in names
+        assert not names & {"start_basic_activity", "start_targeted_activity", "start_travel",
+                            "consume", "start_social_activity", "start_parallel_activities"}
+        assert _MEMORY_TOOL_NAMES <= names
         cancel = _decision("set_activity_state",
                            {"activity_id": f"act-{kind}", "operation": "cancel"})
         assert agent.validate_react_decisions([cancel], False) == ""
@@ -773,7 +788,8 @@ def test_browse_withdrawn_without_categories_and_targeted_removed_when_empty() -
     """无品类可下钻时撤下 browse_activities；全目录空时移除整个目标工具。"""
     models = _available_action_models(
         targets={"work": ()},
-        controls={"active": None, "paused_ids": (), "resumable_paused_ids": ()},
+        controls={"active": {}, "paused_ids": (), "resumable_paused_ids": (),
+                  "continuable_ids": (), "watch_ids": (), "game_commands": ()},
         contracts={},
         browse_categories=frozenset(),
     )
@@ -809,7 +825,7 @@ def test_activity_control_pairings_are_validated_locally() -> None:
         False) == ""
 
     wrong_continue = _decision("continue_activity", {"activity_id": "act-ghost"})
-    assert "continue_activity activity_id is not the current visible activity" in (
+    assert "continue_activity activity_id is not available for this operation" in (
         agent.validate_react_decisions([wrong_continue], False))
     assert agent.validate_react_decisions(
         [_decision("continue_activity", {"activity_id": "act-1"})], False) == ""
@@ -886,11 +902,11 @@ async def test_dispatch_guards_reject_unusable_tools_before_execution() -> None:
             {"activity_type": "wait", "planned_duration_seconds": 60})
 
     feedback = _feedback_agent()
+    feedback._decision_context = _context()
     with pytest.raises(RuntimeError, match="unavailable in the prepared activity state"):
-        await feedback.dispatch_react_tool("purchase", {
-            "items": [{"supply_id": 'supply-visible', "quantity": 1,
-                       "price_version": "price-v1"}],
-            "fulfillment": "delivery", "destination_id": "home"})
+        await feedback.dispatch_react_tool("start_targeted_activity", {
+            "activity_type": "watch", "target_id": "content-visible",
+            "planned_duration_seconds": 60, "playback_speed": 1})
 
 
 def test_action_and_finish_state_guards_in_validation() -> None:

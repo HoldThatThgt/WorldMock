@@ -400,6 +400,7 @@ def _stage_open_market(engine: LifeEngine) -> None:
     staged.agents[1] = agent.model_copy(update={
         "visible_supply_ids": visible, "supply_browsed_at": {key: now for key in visible},
         "supply_browsed_location": {key: agent.location_id for key in visible}, "next_decision_at": now,
+        "body_settled_at": now,
     }, deep=True)
     staged.version += 1
     from worldmock.footprints.models import EventDraft
@@ -571,7 +572,10 @@ def test_purchase_transfer_must_debit_buyer_before_artifacts(tmp_path: Path) -> 
 def test_purchase_coefficient_changes_real_life_engine_transfer(tmp_path: Path) -> None:
     """购买系数改变已编译报价，并由真实整单结算转移对应金额。"""
     baseline, _ = load_runtime_scenario(_SCENARIO)
-    base_price = baseline.scenario.supplies[0].quotes[0].price_fen
+    first_product = baseline.scenario.products[0]
+    base_supply = next(item for item in baseline.scenario.supplies
+                       if item.product_id == first_product.product_id and item.location_id == "market")
+    base_price = base_supply.quotes[0].price_fen
     path, catalog_dir, scenario = _formal_fixture(tmp_path)
     contract = _read_json(catalog_dir / "category-contract.json")
     _set_pairing_coefficient(contract, "product", "purchase", 2)

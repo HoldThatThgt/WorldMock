@@ -110,6 +110,7 @@ def _agent(held: float = 1) -> AgentState:
     """形成带密封物品的人物状态。"""
     return AgentState(
         agent_id=1,
+        body_settled_at=0,
         name="tester",
         location_id="home",
         balance_account_id="agent:1",

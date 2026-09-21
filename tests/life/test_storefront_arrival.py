@@ -24,6 +24,7 @@ from worldmock.life.models import (
     SetActivityStateRequest,
     StartBasicActivityRequest,
     StartTravelRequest,
+    active_activities,
 )
 
 
@@ -208,7 +209,7 @@ def test_arrival_rechecks_access_and_records_denial_without_undoing_real_travel(
     assert travel.status == "failed" and travel.interruption_reason == "LOCATION_ACCESS_DENIED"
     assert travel.data["arrival"]["missing_qualifications"] == ["arrival-member"]
     assert travel.data["arrival"]["access_status"] == "denied"
-    assert engine.state.agents[1].current_activity_id is None
+    assert not active_activities(engine.state, 1)
     events = engine.store.read_agent_events("action_result", 1)
     terminal = [event for event in events if event.action_id == "action-drive-to-restricted-place"
                 and event.data["status"] == "failed"]
@@ -250,5 +251,5 @@ def test_paused_lifestyle_cannot_resume_after_real_travel_to_incompatible_enviro
                                   SetActivityStateRequest(activity_id=started.activity_id, operation="resume"))
     assert rejected.status == "rejected" and rejected.error_code == "ELIGIBILITY_LOCATION_KIND_MISMATCH"
     assert engine.state.activities[started.activity_id] == original
-    assert engine.state.agents[1].current_activity_id is None
+    assert not active_activities(engine.state, 1)
     assert engine.state.agents[1].location_id == "office"

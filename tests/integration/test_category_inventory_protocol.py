@@ -106,7 +106,10 @@ async def test_inventory_only_recipe_survives_real_model_roundtrip(tmp_path, coe
         assert _item_ids(functions["consume"])["enum"] == [_INPUT_OBJECT]
         assert f"{_INPUT_OBJECT}: 密封工具盒" in _item_ids(functions["consume"])["description"]
         purchase = functions["purchase"]["parameters"]["properties"]["items"]["items"]["properties"]
-        assert set(purchase["supply_id"]["enum"]) == {row["supply_id"] for row in observed["supplies"]}
+        assert set(purchase["supply_id"]["enum"]) == {
+            row["supply_id"] for row in observed["supplies"]
+            if row["purchase_allowed"] and (row["pickup_allowed"] or "delivery" in row["fulfillment_modes"])
+        }
         assert {_INPUT_OBJECT, _OUTPUT_OBJECT}.isdisjoint(row["product_id"] for row in observed["supplies"])
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}

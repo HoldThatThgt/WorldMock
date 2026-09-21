@@ -21,19 +21,29 @@ from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
+from worldmock.life.action_evidence import (
+    _activity_terminal_draft, _activity_terminal_result, _decision_failure_drafts,
+    _pending_causes, _remember_action, _remember_terminal_activity, _result_draft,
+    _result_event_data, _terminal_action_records, _terminal_after_action,
+    _terminal_parallel_action, _work_review_failure_draft, _work_review_request_draft,
+    _work_review_response_draft,
+)
+from worldmock.life.memory_evidence import _memory_evidence_data
 from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
+from worldmock.life.activity_validation import validate_activity_energy, validate_activity_targets
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_decision_statement_start, pop_decision_start)
 from worldmock.life.activities import (
     ActivityAdvance,
     ActivityOrigin,
     activity_factors,
-    advance_activity,
+    advance_activity_shared,
     change_activity,
     continue_activity,
+    resource_claims,
     schedule_feedback,
     start_activity,
     truncate_activity,
@@ -58,6 +68,9 @@ from worldmock.life.body import (
     maximum_energy_duration_seconds,
     minimum_energy_cost,
     next_body_boundary_seconds,
+    next_shared_body_boundary_seconds,
+    settle_shared_body,
+    shared_energy_cost,
 )
 from worldmock.life.content import (
     LifestyleItem,
@@ -105,15 +118,19 @@ from worldmock.life.models import (
     StartSocialActivityRequest,
     StartTargetedActivityRequest,
     StartTravelRequest,
+    StartParallelActivitiesRequest,
     StoredAction,
     SubmitWorkRequest,
     WorldState,
     WORLD_SCHEMA_VERSION,
+    active_activities,
+    activity_start_tool,
 )
 from worldmock.life.inventory_recipe import (RecipeContext, apply_inventory_recipe,
                                              prepare_inventory_recipe)
 from worldmock.life.observe import ObservationMixin
 from worldmock.life.rhythm import (
+    RhythmBoundary,
     apply_engine_rhythm,
     engine_rhythm_inputs,
     next_decision_candidates,
@@ -160,10 +177,6 @@ if TYPE_CHECKING:
 
 #: 生活动作工具到操作日志组件的映射，未列出的工具归属 engine。
 _OPS_COMPONENTS = {"purchase": "commerce", "start_travel": "travel", "submit_work": "review"}
-
-#: 反馈边界上可直接提交并自动暂停当前活动的切换工具闭集。
-_SWITCH_TOOL_NAMES = frozenset({
-    "start_basic_activity", "start_targeted_activity", "start_travel"})
 
 #: 观察合同条目的七键闭集（LifeAgent 侧严格校验同一形状）。
 AFFORDANCE_CONTRACT_KEYS = frozenset({
@@ -309,7 +322,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             raise ProtocolError("Pending work review action does not exist")
         if pending.tool_name != "submit_work" or pending.reused or pending.work_review is not None:
             return
-        if self.state.agents[pending.agent_id].current_activity_id is not None:
+        if any(activity.kind == ActivityKind.WORK
+               for activity in active_activities(self.state, pending.agent_id)):
             return
         existing = [event for event in self.store.read_agent_events("model_request", pending.agent_id)
                     if event.action_id == pending.action_id and event.data.get("purpose") == "work_review"]
@@ -547,21 +561,28 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
     def record_memory_update(self, evidence: Any) -> None:
         """@brief 保存人物已落盘记忆的枚举操作和内容身份。"""
         self._validate_context(evidence.context)
-        hashes = (evidence.memory_sha256, evidence.episodes_sha256, evidence.state_sha256)
-        if (evidence.operation != "append_episodes" or not evidence.episode_ids
-                or len(set(evidence.episode_ids)) != len(evidence.episode_ids)
-                or any(not _is_sha256(value) for value in hashes)):
-            raise ProtocolError("Memory update evidence is invalid")
-        data = {"operation": evidence.operation, "episode_ids": list(evidence.episode_ids),
-                "memory_sha256": evidence.memory_sha256, "episodes_sha256": evidence.episodes_sha256,
-                "state_sha256": evidence.state_sha256, "consolidated": evidence.consolidated}
+        try:
+            data = _memory_evidence_data(evidence)
+            observations = self.store.read_agent_events("observation", evidence.context.agent_id)
+            observation = next((event for event in reversed(observations)
+                                if event.event_id == evidence.observation_event_id
+                                and event.decision_id == evidence.context.decision_id), None)
+            if observation is None:
+                raise ProtocolError("Memory update observation is invalid")
+            visible_ids = {row["source_event_id"]
+                           for row in observation.data.get("verified_experiences", [])}
+            if set(evidence.verified_event_ids) != visible_ids:
+                raise ProtocolError("Memory update source window is invalid")
+        except (ProtocolError, KeyError, AttributeError, TypeError) as exc:
+            logging.error("Memory update evidence rejected: %s", exc)
+            raise ProtocolError("Memory update evidence is invalid") from exc
         draft = EventDraft(event_type="memory_updated", occurred_at=self.state.current_time,
                            agent_id=evidence.context.agent_id,
                            decision_id=evidence.context.decision_id,
                            visibility="system", source_kind="environment", data=data)
         commit_state(self.store, self.state, [draft])
         self.ops.log(self.state.current_time, "memory", "info", "MEMORY_UPDATED",
-                     f"Memory update appended {len(evidence.episode_ids)} episodes",
+                     f"Memory update recorded {len(data['episodes'])} episodes",
                      agent_id=evidence.context.agent_id,
                      decision_id=evidence.context.decision_id)
 
@@ -581,7 +602,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
-        staged = apply_engine_rhythm(self, staged, target_epoch, interval, arrivals, drafts)
+        staged = apply_engine_rhythm(self, staged,
+                                     RhythmBoundary(target_epoch, interval, arrivals, drafts))
         for agent_id in expired_plan_agent_ids(staged):
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         if not drafts:
@@ -706,6 +728,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             from worldmock.validation import validate_two_stage_model_identity
             validate_two_stage_model_identity(identity)
         require_category_identity(self.store.manifest, self.semantics)
+        validate_activity_targets(self.state, self.rules, self.scenario)
+        validate_activity_energy(self.state, self.semantics.body)
         validate_storefront_state(self.state, self.scenario, self.store.manifest)
         validate_routes(self.scenario, self.corpus_root)
         for config in self.scenario.games:
@@ -806,7 +830,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         except BusinessRuleError as error:
             changed, result = self._after_rejection(state, pending, error)
             agent = changed.agents[pending.agent_id]
-            activity = changed.activities.get(agent.current_activity_id or "")
+            activity = next(iter(active_activities(changed, agent.agent_id)), None)
             data = {"error_code": str(error), **result.data}
             if activity is not None:
                 data["activity"] = self._activity_snapshot(activity)
@@ -830,7 +854,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
         """@brief 成功选择重置拒绝计数并按节律计算下一次合法决策时刻。"""
         agent = state.agents[agent_id]
-        activity = state.activities.get(agent.current_activity_id or "")
+        activity = next((item for item in active_activities(state, agent_id)
+                         if item.kind == ActivityKind.PLAY_GAME), None)
         if tool_name in {"discover_places", "browse_activities"}:
             # 发现结果在下一秒的合法决策轮回灌，避免查询后等待至可见凭据失效。
             next_at = state.current_time + 1
@@ -934,6 +959,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         handlers = {"start_basic_activity": self._start_basic,
                     "start_targeted_activity": self._start_targeted,
                     "start_travel": self._start_travel,
+                    "start_parallel_activities": self._start_parallel_activities,
                     "set_activity_state": self._set_activity_state,
                     "change_playback_speed": self._change_playback_speed,
                     "continue_activity": self._continue,
@@ -946,27 +972,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         return handlers[pending.tool_name](state, pending, request)
 
     def _require_boundary_action(self, state: WorldState, pending: PendingAction, request) -> None:
-        """@brief 活动反馈到期时只接受显式边界动作或直接切换新活动。"""
-        agent = state.agents[pending.agent_id]
-        if agent.current_activity_id is None:
-            return
-        activity = state.activities[agent.current_activity_id]
-        if activity.next_interaction_at != state.current_time:
-            raise BusinessRuleError("RESOURCE_CONFLICT")
-        if (pending.tool_name in _SWITCH_TOOL_NAMES
-                and activity.boundary_type == "feedback"):
-            return
-        expected_id = getattr(request, "activity_id", None)
-        if activity.kind == ActivityKind.PLAY_GAME:
-            allowed = {"game_action", "set_activity_state"}
-        elif activity.kind == ActivityKind.WATCH:
-            allowed = {"continue_activity", "set_activity_state", "change_playback_speed"}
-        else:
-            allowed = {"continue_activity", "set_activity_state"}
-        if pending.tool_name not in allowed:
-            raise BusinessRuleError("ACTIVITY_FEEDBACK_ACTION_REQUIRED")
-        if pending.tool_name != "game_action" and expected_id != activity.activity_id:
-            raise BusinessRuleError("ACTIVITY_NOT_OWNED")
+        """@brief 人物在已获准的共同决策边界可选择或控制任意合法活动。"""
+        if state.agents[pending.agent_id].next_decision_at > state.current_time:
+            raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
 
     def _start_basic(self, state: WorldState, pending: PendingAction,
                      request: StartBasicActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -1005,6 +1013,90 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                         travel_mode=request.travel_mode)
         return self._start(state, pending, activity)
 
+    def _parallel_claims(self, agent_id: int, request) -> set[str]:
+        """@brief 将五类既有启动请求映射到同一冻结资源声明。"""
+        if isinstance(request, StartSocialActivityRequest):
+            return set(social_actions.SOCIAL_RESOURCE_CLAIMS)
+        if isinstance(request, ConsumeRequest):
+            return set(self.semantics.affordances.resource_claims(ActivityKind.CONSUME.value))
+        if isinstance(request, StartBasicActivityRequest):
+            kind, _target = self._lifestyle_request(agent_id, request.activity_type)
+            return set(self.semantics.affordances.resource_claims(kind.value))
+        if isinstance(request, StartTravelRequest):
+            return set(self.semantics.affordances.resource_claims(
+                ActivityKind.TRAVEL.value, request.travel_mode))
+        return set(self.semantics.affordances.resource_claims(request.activity_type))
+
+    def _parallel_child(self, state: WorldState, pending: PendingAction,
+                        request) -> tuple[WorldState, ActionResult]:
+        """@brief 在暂存世界复用原领域启动路径，暂缓单项能量判定。"""
+        if isinstance(request, StartBasicActivityRequest):
+            kind, target_id = self._lifestyle_request(pending.agent_id, request.activity_type)
+            start = StartActivityRequest(activity_type=kind,
+                                         planned_duration_seconds=request.planned_duration_seconds,
+                                         target_id=target_id)
+            return self._start(state, pending, start, False)
+        if isinstance(request, StartTargetedActivityRequest):
+            return self._start(state, pending, StartActivityRequest(**request.model_dump()), False)
+        if isinstance(request, StartTravelRequest):
+            start = StartActivityRequest(activity_type=ActivityKind.TRAVEL,
+                                         planned_duration_seconds=request.planned_duration_seconds,
+                                         destination_id=request.destination_id,
+                                         travel_mode=request.travel_mode)
+            return self._start(state, pending, start, False)
+        if isinstance(request, ConsumeRequest):
+            return self._consume(state, pending, request, False)
+        return self._start_social_activity(state, pending, request, False)
+
+    def _start_parallel_activities(self, state: WorldState, pending: PendingAction,
+                                   request: StartParallelActivitiesRequest) -> tuple[WorldState, ActionResult]:
+        """@brief 全组先核对菜单与资源，再在暂存世界原子受理。"""
+        claimed: set[str] = set()
+        children = []
+        for index, item in enumerate(request.activities):
+            child = pending.model_copy(update={"tool_name": activity_start_tool(item),
+                                               "request": item.model_dump(mode="json"),
+                                               "action_id": f"{pending.action_id}:parallel:{index}"})
+            require_interaction_menu(self.scenario, state, child, item)
+            slots = self._parallel_claims(pending.agent_id, item)
+            self._require_available_resources(state, pending.agent_id, slots)
+            if claimed & slots:
+                raise BusinessRuleError("RESOURCE_CONFLICT")
+            claimed.update(slots)
+            children.append((child, item))
+        staged = state.model_copy(deep=True)
+        draft_count = len(self._pending_event_drafts)
+        succeeded = False
+        try:
+            staged, snapshots, payments = self._accept_parallel_children(staged, pending, children)
+            self._require_energy_plan(staged, staged.agents[pending.agent_id])
+            succeeded = True
+        finally:
+            if not succeeded:
+                del self._pending_event_drafts[draft_count:]
+        data = {"activities": snapshots}
+        if payments:
+            data["resource_changes"] = payments
+        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
+                              status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
+                              message="Parallel activities started", data=data)
+        return staged, result
+
+    def _accept_parallel_children(self, state: WorldState, pending: PendingAction,
+                                  children: list[tuple]) -> tuple[WorldState, list[dict], dict[str, int]]:
+        """@brief 依请求顺序写暂存活动，活动来源统一回链原动作。"""
+        snapshots: list[dict] = []
+        payments: dict[str, int] = {}
+        for child, item in children:
+            state, result = self._parallel_child(state, child, item)
+            activity = state.activities[result.activity_id].model_copy(
+                update={"origin_action_id": pending.action_id}, deep=True)
+            state.activities[activity.activity_id] = activity
+            snapshots.append(self._activity_snapshot(activity))
+            for key, amount in result.data.get("resource_changes", {}).items():
+                payments[key] = payments.get(key, 0) + amount
+        return state, snapshots, payments
+
     def _set_activity_state(self, state: WorldState, pending: PendingAction,
                             request: SetActivityStateRequest) -> tuple[WorldState, ActionResult]:
         """@brief 将显式活动状态请求转换为统一领域变更。"""
@@ -1018,16 +1110,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                        operation="change_speed",
                                        playback_speed=request.playback_speed)
         return self._change(state, pending, change)
-
-    def _auto_pause_for_switch(self, state: WorldState,
-                               agent) -> tuple[WorldState, Any]:
-        """@brief 反馈边界上直接切换时自动暂停当前活动并保留进度。"""
-        current = state.activities[agent.current_activity_id]
-        change = ChangeActivityRequest(activity_id=current.activity_id,
-                                       operation=ActivityChange.PAUSE)
-        agent, paused = change_activity(agent, current, change, state.current_time,
-                                        self.scenario.activity_feedback_seconds)
-        return _put_activity(state, agent, paused), paused
 
     def _activity_title(self, activity) -> str | None:
         """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
@@ -1054,7 +1136,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
 
     def _travel_start_context(self, state: WorldState, agent,
                               request: StartActivityRequest):
-        """@brief 在暂停现有活动和扣款前完成路线与品类规则复查。"""
+        """@brief 在扣款前完成路线与品类规则复查。"""
         if request.activity_type != ActivityKind.TRAVEL:
             return None
         route = route_for(self.scenario, agent.location_id, request)
@@ -1066,7 +1148,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         return route, match
 
     def _start(self, state: WorldState, pending: PendingAction,
-               request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
+               request: StartActivityRequest, energy_check: bool = True) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
         agent = state.agents[pending.agent_id]
         data = self.rules.validate_start(agent, request, state.current_time)
@@ -1075,10 +1157,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                 state, self.rules.task(request.target_id), pending.agent_id,
                 request.planned_duration_seconds)
         travel_context = self._travel_start_context(state, agent, request)
-        paused_activity = None
-        if agent.current_activity_id is not None:
-            state, paused_activity = self._auto_pause_for_switch(state, agent)
-            agent = state.agents[pending.agent_id]
+        self._require_available_resources(state, pending.agent_id, resource_claims(request))
         origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
         agent, activity = start_activity(agent, request, state.current_time, origin,
                                          self.semantics.body)
@@ -1101,10 +1180,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         activity.data.update(data)
         if request.activity_type == ActivityKind.WATCH:
             activity.media_position_seconds = data["start_position_seconds"]
+        if energy_check:
+            self._require_energy_plan(changed_state, agent, activity)
         changed = _put_activity(changed_state, agent, activity)
         result_data = {"activity": self._activity_snapshot(activity)}
-        if paused_activity is not None:
-            result_data["auto_paused_activity"] = self._activity_snapshot(paused_activity)
         if payment is not None:
             result_data.update(travel_payment=payment, resource_changes=payment["resource_changes"])
         if travel_context is not None:
@@ -1113,6 +1192,34 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
                               activity_id=activity.activity_id, message="Activity started", data=result_data)
         return changed, result
+
+    def _require_available_resources(self, state: WorldState, agent_id: int,
+                                     claims: set[str], exclude_id: str | None = None) -> None:
+        """@brief 以全部 ACTIVE 活动显式声明校验同人资源交集。"""
+        occupied = set().union(*(item.resource_claims for item in active_activities(state, agent_id)
+                                 if item.activity_id != exclude_id))
+        if occupied & claims:
+            raise BusinessRuleError("RESOURCE_CONFLICT")
+
+    def _require_energy_plan(self, state: WorldState, agent, candidate=None) -> None:
+        """@brief 按各结束点最大 MET 校验活动集合的共同剩余能量。"""
+        activities = (*active_activities(state, agent.agent_id), *((candidate,) if candidate else ()))
+        durations = tuple((item.planned_duration_seconds - item.elapsed_seconds,
+                           self._activity_met(item)) for item in activities)
+        projected = shared_energy_cost(durations, self.semantics.body)
+        if (projected > agent.body.energy_kcal + 1e-9
+                and not all(item.kind in ENERGY_RECOVERY_ACTIVITY_KINDS for item in activities)):
+            raise BusinessRuleError("INSUFFICIENT_ENERGY")
+
+    def _activity_met(self, activity) -> float:
+        """@brief 使用冻结声明与社交常量读取单项 MET。"""
+        if activity.kind == ActivityKind.CHAT:
+            return social_actions.CHAT_MET
+        if activity.kind == ActivityKind.CALL:
+            return social_actions.CALL_MET
+        key = self.semantics.affordances.met_lookup_key(
+            activity.kind.value, travel_mode=activity.travel_mode, target_id=activity.target_id)
+        return self.semantics.body.activity_met[key]
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -1123,6 +1230,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         current = state.activities[request.activity_id]
         if request.operation == ActivityChange.RESUME:
             self.rules.validate_activity_location(agent, current.kind, current.target_id)
+            self._require_available_resources(state, pending.agent_id, current.resource_claims,
+                                              current.activity_id)
         if current.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
             agent, activity = social_actions.social_activity_change(
                 agent, current, request.operation.value, state.current_time)
@@ -1140,9 +1249,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         agent, activity = change_activity(agent, current, request, state.current_time,
                                           self.scenario.activity_feedback_seconds)
         if request.operation == ActivityChange.RESUME:
-            feasibility = _remaining_activity_energy(current, agent, self.semantics.body)
-            if not feasibility["resume_energy_feasible"]:
-                raise BusinessRuleError("INSUFFICIENT_ENERGY")
+            self._require_energy_plan(state, agent, activity)
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
@@ -1167,7 +1274,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         return changed, result
 
     def _consume(self, state: WorldState, pending: PendingAction,
-                 request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
+                 request: ConsumeRequest, energy_check: bool = True) -> tuple[WorldState, ActionResult]:
         """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。"""
         agent = state.agents[pending.agent_id]
         products = self.rules.items
@@ -1186,6 +1293,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                      planned_duration_seconds=duration,
                                      target_id=request.items[0].product_id)
         origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
+        self._require_available_resources(state, pending.agent_id, resource_claims(start))
         agent, activity = start_activity(agent, start, state.current_time, origin,
                                          self.semantics.body)
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
@@ -1196,6 +1304,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                              food_energy_kcal_per_hour=food_rate)
         if recipe is not None:
             activity.data["inventory_recipe"] = recipe.payload()
+        if energy_check:
+            self._require_energy_plan(state, agent, activity)
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
@@ -1240,7 +1350,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                      request: GameActionRequest) -> tuple[WorldState, ActionResult]:
         """@brief 在当前主动游戏活动中执行一个真实 TextWorld 命令。"""
         agent = state.agents[pending.agent_id]
-        activity = state.activities.get(agent.current_activity_id or "")
+        activity = next((item for item in active_activities(state, pending.agent_id)
+                         if item.kind == ActivityKind.PLAY_GAME), None)
         if not activity or activity.kind != ActivityKind.PLAY_GAME:
             raise BusinessRuleError("GAME_ACTIVITY_NOT_ACTIVE")
         if activity.data.get("game_session_id") != request.game_session_id:
@@ -1267,8 +1378,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             updates.update(status=ActivityStatus.COMPLETED, ended_at=state.current_time,
                            boundary_type="game_terminal", next_interaction_at=None)
         changed_activity = activity.model_copy(update=updates, deep=True)
-        current = None if outcome.done else agent.current_activity_id
-        changed_agent = agent.model_copy(update={"game_sessions": sessions, "current_activity_id": current}, deep=True)
+        changed_agent = agent.model_copy(update={"game_sessions": sessions}, deep=True)
         return _put_activity(state, changed_agent, changed_activity), changed_activity
 
     def _plan_day(self, state: WorldState, pending: PendingAction,
@@ -1387,7 +1497,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             received_at=message.created_at))
 
     def _start_social_activity(self, state: WorldState, pending: PendingAction,
-                               request: StartSocialActivityRequest) -> tuple[WorldState, ActionResult]:
+                               request: StartSocialActivityRequest,
+                               energy_check: bool = True) -> tuple[WorldState, ActionResult]:
         """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         agent = state.agents[pending.agent_id]
         origin = ActivityOrigin(pending.action_id, pending.decision_id,
@@ -1399,8 +1510,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                                     f"invite-{pending.action_id}")
             except ValueError as error:
                 raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE") from error
-            if started.invite is not None:
-                self._deliver_social_message(state, started.invite)
         else:
             contact = self._contact(request.partner_id, agent.agent_id)
             try:
@@ -1408,6 +1517,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                                     state.current_time)
             except ValueError as error:
                 raise BusinessRuleError("CALL_DURATION_OUT_OF_RANGE") from error
+        self._require_available_resources(state, pending.agent_id, started.activity.resource_claims)
+        if energy_check:
+            self._require_energy_plan(state, started.agent, started.activity)
+        if started.invite is not None:
+            self._deliver_social_message(state, started.invite)
         changed = _put_activity(state, started.agent, started.activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
@@ -1441,57 +1555,95 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                   "occurred_at": sent.arrival.occurred_at}))
 
     def _advance_activities(self, state: WorldState, target: int) -> tuple[list[EventDraft], list[ActionResult]]:
-        """@brief 结算所有人物的活动区间，并为每段写完整活动状态。"""
-        drafts, results = [], []
-        for activity_id in sorted(state.activities):
-            activity = state.activities[activity_id]
-            if activity.status != ActivityStatus.ACTIVE:
+        """@brief 每个人先结算共同身体，再独立推进全部正在执行的活动。"""
+        drafts: list[EventDraft] = []
+        results: list[ActionResult] = []
+        for agent_id in sorted(state.agents):
+            agent = state.agents[agent_id]
+            interval_start = agent.body_settled_at
+            if interval_start == target:
                 continue
-            interval_start = activity.last_settled_at
-            body_boundary = self._body_boundary_at(activity, state.agents[activity.agent_id])
-            if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-                advanced = social_actions.advance_social(
-                    activity, state.agents[activity.agent_id], target, self.semantics.body,
-                    social_actions.chat_accepted(state, activity.agent_id))
-            else:
-                advanced = advance_activity(activity, state.agents[activity.agent_id], target,
+            activities = active_activities(state, agent_id)
+            factors = tuple((item.kind, self._shared_factors(item, agent)) for item in activities)
+            settlement = settle_shared_body(agent.body, factors, target - interval_start,
                                             self.semantics.body)
-            if body_boundary == target and not advanced.completed:
-                update = {"next_interaction_at": target, "boundary_type": "feedback"}
-                advanced = ActivityAdvance(advanced.activity.model_copy(update=update, deep=True),
-                                           advanced.agent, advanced.settlement, False)
-            if advanced.completed:
-                agent = advanced.agent.model_copy(update={"next_decision_at": target}, deep=True)
-                advanced = ActivityAdvance(advanced.activity, agent, advanced.settlement, True)
-            state.agents[activity.agent_id] = advanced.agent
-            state.activities[activity_id] = advanced.activity
-            effects = self._apply_activity_effect(state, advanced.activity, advanced.completed)
-            if not advanced.completed:
-                current = state.agents[activity.agent_id]
-                next_at = self._activity_decision_at(state.activities[activity_id], current, target)
-                state.agents[activity.agent_id] = current.model_copy(update={"next_decision_at": next_at},
-                                                                     deep=True)
-            data = {"interval_start": interval_start, "interval_end": advanced.activity.last_settled_at,
-                    "activity": self._activity_snapshot(state.activities[activity_id]),
-                    "body_settlement": _body_settlement_data(advanced.settlement), **effects}
-            data["activity"]["location_id"] = state.agents[activity.agent_id].location_id
-            flows = _resource_flows_data(activity.agent_id, target)
-            if flows:
-                data[RESOURCE_FLOWS_FIELD] = flows
-            drafts.append(EventDraft(event_type="activity_progress", occurred_at=target,
-                                     agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
-                                     action_id=activity.origin_action_id, activity_id=activity_id,
-                                     caused_by=[activity.origin_request_event_id], data=data))
-            if advanced.completed:
-                final_activity = state.activities[activity_id]
-                result = _activity_terminal_result(final_activity, target, self._activity_title(final_activity))
-                state.processed_actions = _terminal_action_records(state, result)
-                results.append(result)
-                drafts.append(_activity_terminal_draft(final_activity, target, [],
-                                                       self._activity_title(final_activity)))
+            body_event = EventDraft(event_type="environment_event", occurred_at=target,
+                                    agent_id=agent_id, source_kind="environment",
+                                    caused_by=list(dict.fromkeys(item.origin_request_event_id
+                                                                 for item in activities)),
+                                    data={"kind": "body_settlement", "interval_start": interval_start,
+                                          "interval_end": target,
+                                          "activity_ids": [item.activity_id for item in activities],
+                                          "body_settlement": _body_settlement_data(settlement),
+                                          RESOURCE_FLOWS_FIELD: _resource_flows_data(agent_id, target)})
+            drafts.append(body_event)
+            state.agents[agent_id] = agent.model_copy(
+                update={"body": settlement.after, "body_settled_at": target}, deep=True)
+            for activity in activities:
+                progress, terminal = self._advance_one_activity(state, activity, target,
+                                                                 settlement, body_event.event_id)
+                drafts.append(progress)
+                if terminal is not None:
+                    result, event = terminal
+                    results.append(result)
+                    drafts.append(event)
         return drafts, results
 
-    def _apply_activity_effect(self, state: WorldState, activity, completed: bool) -> dict:
+    def _shared_factors(self, activity, agent) -> ActivityFactors:
+        """@brief 社交活动用冻结常量，其余活动复用自身声明系数。"""
+        if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
+            return ActivityFactors(self._activity_met(activity))
+        return activity_factors(activity, agent, self.semantics.body)
+
+    def _advance_one_activity(self, state: WorldState, activity, target: int,
+                              settlement, body_event_id: str):
+        """@brief 推进单项进度并引用已排在前面的唯一共同身体事件。"""
+        agent = state.agents[activity.agent_id]
+        before_consumed = dict(activity.data.get("consumed", {}))
+        if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
+            advanced = social_actions.advance_social_shared(
+                activity, agent, target, settlement,
+                social_actions.chat_accepted(state, activity.agent_id))
+        else:
+            advanced = advance_activity_shared(activity, agent, target, settlement)
+        if advanced.completed:
+            advanced = ActivityAdvance(advanced.activity, advanced.agent.model_copy(
+                update={"next_decision_at": target}, deep=True), settlement, True)
+        state.agents[activity.agent_id] = advanced.agent
+        state.activities[activity.activity_id] = advanced.activity
+        effects = self._apply_activity_effect(state, advanced.activity, advanced.completed,
+                                              before_consumed)
+        data = {"interval_start": activity.last_settled_at, "interval_end": target,
+                "activity": self._activity_snapshot(state.activities[activity.activity_id]),
+                "body_settlement_event_id": body_event_id, **effects}
+        data["activity"]["location_id"] = state.agents[activity.agent_id].location_id
+        if activity.kind == ActivityKind.WORK:
+            data["activity_efficiency"] = settlement.work_efficiency
+        flows = _resource_flows_data(activity.agent_id, target)
+        if flows:
+            data[RESOURCE_FLOWS_FIELD] = flows
+        draft = EventDraft(event_type="activity_progress", occurred_at=target,
+                           agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
+                           action_id=activity.origin_action_id, activity_id=activity.activity_id,
+                           caused_by=[body_event_id, activity.origin_request_event_id], data=data)
+        return draft, self._terminal_for_progress(state, state.activities[activity.activity_id], target)
+
+    def _terminal_for_progress(self, state: WorldState, activity, target: int):
+        """@brief 单项立即终结，组合仅全部子活动终结后聚合一次。"""
+        if activity.status not in {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
+                                   ActivityStatus.FAILED, ActivityStatus.TRUNCATED}:
+            return None
+        stored = state.processed_actions.get(activity.origin_action_id)
+        if stored is None:
+            raise ProtocolError("Activity origin action is missing from processed actions")
+        if stored.tool_name == "start_parallel_activities":
+            return _terminal_parallel_action(state, stored, target)
+        result = _activity_terminal_result(activity, target, self._activity_title(activity))
+        state.processed_actions = _terminal_action_records(state, result)
+        return result, _activity_terminal_draft(activity, target, [], self._activity_title(activity))
+
+    def _apply_activity_effect(self, state: WorldState, activity, completed: bool,
+                               before_consumed: dict[str, float]) -> dict:
         """@brief 在推进后投影路线、内容和按区间发生的商品效果。"""
         agent = state.agents[activity.agent_id]
         evidence = {}
@@ -1505,7 +1657,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             item = self.rules.content(activity.target_id)
             state.agents[agent.agent_id], activity.data["revealed"] = reveal_watch(
                 activity, agent, item, self.rules.cues(item.item_id))
-            _dedupe_revealed_cues(activity)
+            if item.kind != "podcast_episode":
+                _dedupe_revealed_cues(activity)
         if activity.kind == ActivityKind.WORK:
             material = reveal_work_progress(
                 state, self.corpus_root, self.rules.task(activity.target_id),
@@ -1514,17 +1667,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             state.agents[agent.agent_id] = _record_material_reveal(
                 state.agents[agent.agent_id], activity.target_id, material, state.current_time)
         if activity.kind == ActivityKind.CONSUME:
-            if completed and "inventory_recipe" in activity.data:
-                state.agents[activity.agent_id] = apply_inventory_recipe(
-                    state.agents[activity.agent_id], self.rules.items,
-                    self.semantics.catalog, activity)
-            elif "inventory_recipe" not in activity.data:
-                state.agents[activity.agent_id] = apply_meal_progress(
-                    state.agents[activity.agent_id], self.rules.items, activity,
-                    self.semantics.body)
-            evidence["consumption"] = _meal_consumption_data(
-                activity, state.agents[activity.agent_id])
-            state.activities[activity.activity_id] = activity
+            evidence["consumption"] = self._apply_consume_effect(
+                state, activity, completed, before_consumed)
         if not completed:
             return evidence
         if activity.kind == ActivityKind.READ_MAIL:
@@ -1536,6 +1680,25 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             activity.data["revealed"] = revealed
             evidence["browse_result"] = revealed
         return evidence
+
+    def _apply_consume_effect(self, state: WorldState, activity, completed: bool,
+                              before_consumed: dict[str, float]) -> dict:
+        """@brief 记录本区间实际食用增量和当时的营养利用效率。"""
+        from worldmock.life import sleep as sleep_module
+
+        agent = state.agents[activity.agent_id]
+        food_efficiency = (sleep_module.food_utilization_efficiency(agent.body.sleep_deficit_hours)
+                           if activity.data["request"]["use_mode"] == "eat" else None)
+        if completed and "inventory_recipe" in activity.data:
+            state.agents[activity.agent_id] = apply_inventory_recipe(
+                agent, self.rules.items, self.semantics.catalog, activity)
+        elif "inventory_recipe" not in activity.data:
+            state.agents[activity.agent_id] = apply_meal_progress(
+                agent, self.rules.items, activity, self.semantics.body)
+        state.activities[activity.activity_id] = activity
+        data = _meal_consumption_data(activity, state.agents[activity.agent_id], before_consumed)
+        data["food_efficiency"] = food_efficiency
+        return data
 
     def _process_scheduled(
             self, state: WorldState, target: int
@@ -1569,9 +1732,15 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             activity, agent = truncate_activity(activity, state.agents[activity.agent_id], now)
             state.activities[activity_id] = activity
             state.agents[agent.agent_id] = agent
-            result = _activity_terminal_result(activity, now, self._activity_title(activity))
-            state.processed_actions = _terminal_action_records(state, result)
-            drafts.append(_activity_terminal_draft(activity, now, [], self._activity_title(activity)))
+            stored = state.processed_actions[activity.origin_action_id]
+            if stored.tool_name == "start_parallel_activities":
+                terminal = _terminal_parallel_action(state, stored, now)
+                if terminal is not None:
+                    drafts.append(terminal[1])
+            else:
+                result = _activity_terminal_result(activity, now, self._activity_title(activity))
+                state.processed_actions = _terminal_action_records(state, result)
+                drafts.append(_activity_terminal_draft(activity, now, [], self._activity_title(activity)))
         return drafts
 
     def _ready(self, agent_id: int) -> bool:
@@ -1581,10 +1750,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         agent = self.state.agents[agent_id]
         if agent.decision_failed or agent.next_decision_at > self.state.current_time:
             return False
-        if agent.current_activity_id is None:
-            return True
-        activity = self.state.activities[agent.current_activity_id]
-        return activity.next_interaction_at == self.state.current_time
+        return True
 
     def _next_epoch(self) -> int:
         """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界。"""
@@ -1599,33 +1765,25 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             candidates.append(activity.planned_end_at)
             if activity.next_interaction_at and activity.next_interaction_at > self.state.current_time:
                 candidates.append(activity.next_interaction_at)
-            body_boundary = self._body_boundary_at(activity, self.state.agents[activity.agent_id])
+        for agent_id in self.state.agents:
+            body_boundary = self._body_boundary_at(agent_id)
             if body_boundary is not None:
                 candidates.append(body_boundary)
         return min(candidates)
 
-    def _activity_decision_at(self, activity, agent, now: int) -> int:
-        """@brief 将活动反馈、完成和身体阈值合并为人物持久下一决策时刻。"""
-        candidates = [activity.next_interaction_at or activity.planned_end_at]
-        body_boundary = self._body_boundary_at(activity, agent, now)
-        if body_boundary is not None:
-            candidates.append(body_boundary)
-        return min(candidates)
-
-    def _body_boundary_at(self, activity, agent, now: int | None = None) -> int | None:
-        """@brief 计算需要人物重新观察的首个身体/体感阈值时刻。"""
-        if activity.kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME,
-                             ActivityKind.CHAT, ActivityKind.CALL}:
-            return None
-        factors = activity_factors(activity, agent, self.semantics.body)
-        current = self.state.current_time if now is None else now
+    def _body_boundary_at(self, agent_id: int) -> int | None:
+        """@brief 按同人活动集合预测首个共同身体阈值，空闲仍使用静息。"""
+        agent = self.state.agents[agent_id]
+        activities = active_activities(self.state, agent_id)
+        current = self.state.current_time
         hour = projection.hour_of_day(current, self.scenario.timezone)
-        seconds = next_body_boundary_seconds(agent.body, activity.kind,
-                                            self.semantics.body, factors, hour)
+        factors = tuple((item.kind, self._shared_factors(item, agent)) for item in activities)
+        seconds = next_shared_body_boundary_seconds(agent.body, factors, self.semantics.body, hour)
         if seconds is None:
             return None
         candidate = current + seconds
-        return candidate if candidate < activity.planned_end_at else None
+        end = min((item.planned_end_at for item in activities), default=self.state.end_time)
+        return candidate if candidate < end else None
 
     def _life_snapshot(self) -> dict:
         """@brief 生成恢复时必须重放核对的 life 参与者收据。"""
@@ -1670,7 +1828,8 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
     return AgentState(agent_id=config.agent_id, name=config.name, location_id=config.home_location_id,
                       balance_account_id=account_id, skill_levels=config.skill_levels,
                       qualifications=config.qualifications,
-                      body=body, visible_task_ids=visible_tasks, known_task_ids=set(visible_tasks),
+                      body=body, body_settled_at=start,
+                      visible_task_ids=visible_tasks, known_task_ids=set(visible_tasks),
                       visible_message_ids=visible_mail, next_decision_at=start,
                       pending_wake_reasons=["run_start"], taste_weights=taste_weights.get(config.agent_id) or {},
                       inventory=config.initial_inventory)
@@ -1726,10 +1885,10 @@ def _put_agent_and_defer_feedback(state: WorldState, agent) -> WorldState:
     agents = dict(state.agents)
     agents[agent.agent_id] = agent
     activities = dict(state.activities)
-    activity = activities.get(agent.current_activity_id or "")
-    if activity is not None and activity.next_interaction_at == state.current_time:
-        activities[activity.activity_id] = activity.model_copy(
-            update={"next_interaction_at": state.current_time + 1}, deep=True)
+    for activity in active_activities(state, agent.agent_id):
+        if activity.next_interaction_at == state.current_time:
+            activities[activity.activity_id] = activity.model_copy(
+                update={"next_interaction_at": state.current_time + 1}, deep=True)
     return state.model_copy(update={"agents": agents, "activities": activities}, deep=True)
 
 
@@ -1738,183 +1897,6 @@ def _request_sha(tool_name: str, request) -> str:
     payload = {"tool_name": tool_name, "request": request.model_dump(mode="json")}
     content = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(content).hexdigest()
-
-
-def _remember_action(state: WorldState, pending: PendingAction, result: ActionResult) -> WorldState:
-    """@brief 保存终态结果供同一 action_id 严格幂等复用。"""
-    receipt = ActionReceipt(action_id=pending.action_id, round_id=pending.round_id,
-                            decision_id=pending.decision_id, request_sha256=pending.request_sha256)
-    stored = StoredAction(action_id=pending.action_id, tool_name=pending.tool_name,
-                          request_sha256=pending.request_sha256, receipt=receipt.model_dump(mode="json"),
-                          result=result.model_dump(mode="json"))
-    actions = dict(state.processed_actions)
-    actions[pending.action_id] = stored
-    return state.model_copy(update={"processed_actions": actions}, deep=True)
-
-
-def _remember_terminal_activity(state: WorldState, result: ActionResult,
-                                title: str | None = None) -> WorldState:
-    """@brief 控制动作终结活动时同步更新最初动作的幂等终态。"""
-    if result.activity_id is None or result.activity_id not in state.activities:
-        return state
-    activity = state.activities[result.activity_id]
-    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
-                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-    if activity.status not in terminal:
-        return state
-    final = _activity_terminal_result(activity, result.occurred_at, title)
-    return state.model_copy(update={"processed_actions": _terminal_action_records(state, final)}, deep=True)
-
-
-def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[str, StoredAction]:
-    """@brief 以活动最终结果替换最初动作的持久幂等结果。"""
-    if result.action_id not in state.processed_actions:
-        raise ProtocolError("Activity origin action is missing from processed actions")
-    actions = dict(state.processed_actions)
-    stored = actions[result.action_id]
-    actions[result.action_id] = stored.model_copy(update={"result": result.model_dump(mode="json")}, deep=True)
-    return actions
-
-
-def _result_draft(pending: PendingAction, result: ActionResult, event_type: str) -> EventDraft:
-    """@brief 将动作结果与原请求事件建立直接因果回链。"""
-    data = result.model_dump(mode="json")
-    for field in ("resource_changes", "category_matches"):
-        if field in result.data:
-            data[field] = result.data[field]
-    return EventDraft(event_type=event_type, occurred_at=result.occurred_at, agent_id=result.agent_id,
-                      decision_id=pending.decision_id, action_id=pending.action_id,
-                      activity_id=result.activity_id, caused_by=_pending_causes(pending),
-                      data=data)
-
-
-def _terminal_after_action(state: WorldState, result: ActionResult,
-                           request_event_id: str, title: str | None = None) -> EventDraft | None:
-    """@brief 在控制动作终结另一原始活动时补齐原动作最终结果。"""
-    if result.activity_id is None or result.activity_id not in state.activities:
-        return None
-    activity = state.activities[result.activity_id]
-    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
-                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-    if activity.status not in terminal or activity.origin_action_id == result.action_id:
-        return None
-    return _activity_terminal_draft(activity, result.occurred_at, [request_event_id], title)
-
-
-def _activity_terminal_result(activity, occurred_at: int,
-                              title: str | None = None) -> ActionResult:
-    """@brief 将活动生命周期终态编码为最初动作的最终结果。"""
-    statuses = {ActivityStatus.COMPLETED: ActionStatus.COMPLETED,
-                ActivityStatus.CANCELLED: ActionStatus.CANCELLED,
-                ActivityStatus.FAILED: ActionStatus.FAILED,
-                ActivityStatus.TRUNCATED: ActionStatus.CANCELLED}
-    messages = {ActivityStatus.COMPLETED: "Activity completed",
-                ActivityStatus.CANCELLED: "Activity cancelled",
-                ActivityStatus.FAILED: "Activity failed",
-                ActivityStatus.TRUNCATED: "Activity truncated at experiment end"}
-    snapshot = activity.model_dump(mode="json")
-    if title is not None:
-        snapshot["title"] = title
-    return ActionResult(action_id=activity.origin_action_id, agent_id=activity.agent_id,
-                        status=statuses[activity.status], occurred_at=occurred_at,
-                        activity_id=activity.activity_id, message=messages[activity.status],
-                        error_code=activity.interruption_reason if activity.status == ActivityStatus.FAILED else None,
-                        data={"activity": snapshot, **({"browse_result": activity.data["revealed"]}
-                              if activity.kind == ActivityKind.BROWSE and "revealed" in activity.data else {})})
-
-
-def _activity_terminal_draft(activity, occurred_at: int,
-                             additional_causes: list[str],
-                             title: str | None = None) -> EventDraft:
-    """@brief 形成回链原请求且携带权威活动快照的生命周期终态。"""
-    result = _activity_terminal_result(activity, occurred_at, title)
-    data = result.model_dump(mode="json")
-    data["activity"] = data["data"]["activity"]
-    causes = list(dict.fromkeys([activity.origin_request_event_id, *additional_causes]))
-    return EventDraft(event_type="action_result", occurred_at=occurred_at,
-                      agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
-                      action_id=activity.origin_action_id, activity_id=activity.activity_id,
-                      caused_by=causes, data=data)
-
-
-def _decision_failure_drafts(now: int, pending: PendingAction, result: ActionResult,
-                             agent) -> list[EventDraft]:
-    """@brief 连续拒绝到限时记录人物失败并原子形成运行失败。"""
-    data = {"kind": "agent_decision_failed", "consecutive_rejections": agent.consecutive_rejections,
-            "last_error_code": result.error_code, "action_id": pending.action_id}
-    failed = EventDraft(event_type="environment_event", occurred_at=now,
-                        agent_id=pending.agent_id, decision_id=pending.decision_id,
-                        action_id=pending.action_id, caused_by=_pending_causes(pending), data=data)
-    run_failed = EventDraft(event_type="run_failed", occurred_at=now, visibility="system",
-                            caused_by=[failed.event_id], data={"error_type": "DecisionFailure",
-                            "error": result.message, "agent_id": pending.agent_id,
-                            "last_error_code": result.error_code})
-    return [failed, run_failed]
-
-
-def _pending_causes(pending: PendingAction) -> list[str]:
-    """@brief 将动作请求和适用的独立工作验收作为直接原因。"""
-    causes = [pending.requested_event_id]
-    if pending.work_review_event_id:
-        causes.append(pending.work_review_event_id)
-    return causes
-
-
-def _work_review_request_draft(now: int, pending: PendingAction, link: tuple[str, int, str | None],
-                               request: dict) -> EventDraft:
-    """@brief 形成系统私有的完整工作验收模型请求证据。"""
-    call_id, attempt, previous_event_id = link
-    causes = [pending.requested_event_id]
-    if previous_event_id:
-        causes.append(previous_event_id)
-    data = {"phase": "request", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": request, "response": None, "error": None}
-    return EventDraft(event_type="model_request", occurred_at=now, agent_id=pending.agent_id,
-                      decision_id=pending.decision_id, action_id=pending.action_id,
-                      caused_by=causes, visibility="system",
-                      source_kind="model", data=data)
-
-
-def _work_review_failure_draft(now: int, pending: PendingAction,
-                               link: tuple[str, str, int], error: BaseException) -> EventDraft:
-    """@brief 形成工作验收配置或传输失败证据。"""
-    call_id, request_event_id, attempt = link
-    data = {"phase": "failure", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": None, "response": None, "error": repr(error)}
-    return _work_review_terminal_draft(now, pending, request_event_id, data)
-
-
-def _work_review_response_draft(now: int, pending: PendingAction,
-                                link: tuple[str, str, int], outcome: tuple) -> EventDraft:
-    """@brief 形成带原始响应、用量和本地验收结论的工作评审证据。"""
-    call_id, request_event_id, attempt = link
-    raw, decision, error = outcome
-    data = {"phase": "response", "purpose": "work_review", "call_id": call_id,
-            "attempt": attempt, "request": None, "response": raw,
-            "usage": raw.get("usage") if isinstance(raw, dict) else None,
-            "review_decision": decision.model_dump(mode="json") if decision else None,
-            "error": repr(error) if error else None}
-    return _work_review_terminal_draft(now, pending, request_event_id, data)
-
-
-def _work_review_terminal_draft(now: int, pending: PendingAction,
-                                request_event_id: str, data: dict) -> EventDraft:
-    """@brief 将工作验收终态直接回链其唯一请求。"""
-    return EventDraft(event_type="model_response", occurred_at=now, agent_id=pending.agent_id,
-                      decision_id=pending.decision_id, action_id=pending.action_id,
-                      caused_by=[request_event_id], visibility="system", source_kind="model", data=data)
-
-
-def _result_event_data(result: ActionResult, state: WorldState,
-                       title: str | None = None) -> dict:
-    """@brief 确保活动受理事件携带固定 cutoff 可重建的权威状态。"""
-    data = result.model_dump(mode="json")
-    if result.activity_id and result.activity_id in state.activities:
-        snapshot = state.activities[result.activity_id].model_dump(mode="json")
-        if title is not None:
-            snapshot["title"] = title
-        data["activity"] = snapshot
-    return data
 
 
 def _datetime(epoch: int, timezone_name: str) -> datetime:
@@ -1961,11 +1943,6 @@ def _paused_activity_control(activity) -> dict:
     remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
     return {"activity_id": activity.activity_id, "kind": activity.kind.value,
             "remaining_seconds": remaining}
-
-
-def _is_sha256(value: Any) -> bool:
-    """@brief 判断字符串是否为规范小写 SHA-256。"""
-    return isinstance(value, str) and len(value) == 64 and all(character in "0123456789abcdef" for character in value)
 
 
 def _current_branch_event(events: list, manifest: dict):

@@ -95,6 +95,22 @@ def test_interleaved_activities_keep_separate_rows(tmp_path):
     assert markdown.index("07:05–07:20") < markdown.index("07:20–07:35") < markdown.index("07:35–08:00")
 
 
+def test_parallel_interleaved_progress_merges_each_activity_independently(tmp_path):
+    """并行结算按同秒 A/B/A/B 交错时，时间线各显示一条完整持续活动。"""
+    travel = _snapshot("walk", "travel", travel_mode="walking", destination_id="office")
+    watch = _snapshot("watch", "watch", target_id="episode", title="播客节目")
+    events = [
+        _progress("walk", travel, _at(7, 0), _at(7, 15)),
+        _progress("watch", watch, _at(7, 0), _at(7, 15)),
+        _progress("walk", travel, _at(7, 15), _at(7, 30)),
+        _progress("watch", watch, _at(7, 15), _at(7, 30)),
+    ]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert markdown.count("07:00–07:30") == 2
+    assert "| 07:00–07:30 | 步行 | 30 分钟 | 2 |" in markdown
+    assert "| 07:00–07:30 | 看《播客节目》 | 30 分钟 | 2 |" in markdown
+
+
 def test_resolves_names_instead_of_identifiers(tmp_path):
     """目标解析为标题/品名/地名/邮件主题：观察事件建名称索引。"""
     observation = _observation({

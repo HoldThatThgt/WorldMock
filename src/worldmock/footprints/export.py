@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
+from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import Event, canonical_json
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
@@ -53,6 +54,8 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
     manifest["artifacts"] = {
         "events": write_jsonl(stage / "events.jsonl", [event.model_dump() for event in events]),
         "activities": write_jsonl(stage / "activities.jsonl", activities),
+        "verified_experiences": write_jsonl(
+            stage / "verified-experiences.jsonl", _verified_experience_rows(store.manifest["agent_ids"], events)),
     }
     references = {}
     if manifest["experiment_completed"]:
@@ -75,6 +78,15 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
                                   "sha256": hashlib.sha256(quality).hexdigest()}
     manifest["timeline"] = _write_timeline_projections(store, stage, manifest["daily_coverage"])
     return manifest
+
+
+def _verified_experience_rows(agent_ids: list[int], events: list[Event]) -> list[dict]:
+    """@brief 离线从完整已提交截止前缀导出每个人的全部规范经历。"""
+    cutoff = events[-1].event_seq
+    rows = [fact for agent_id in sorted(int(item) for item in agent_ids)
+            for fact in project_verified_experiences(events, agent_id=agent_id, cutoff_seq=cutoff)]
+    return sorted(rows, key=lambda item: (item["event_seq"], item["agent_id"], item["kind"],
+                                          item.get("product_id", "")))
 
 
 def _write_timeline_projections(store: FootprintStore, stage: Path,

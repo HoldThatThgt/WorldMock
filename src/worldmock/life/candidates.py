@@ -39,6 +39,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.life.models import ActivityKind
 from worldmock.life.scenario import LocationConfig
 
@@ -167,8 +168,8 @@ class CandidateInputs:
     locations: Mapping[str, LocationView]
     #: 四个来源各自的候选条目，键取 `CandidateSource`。
     sources: Mapping[CandidateSource, Sequence[CandidateEntry]]
-    #: 人物当前是否已占用资源（进行中的活动身份，None 表示空闲）。
-    occupied_activity_id: str | None = None
+    #: 当前所有 ACTIVE 活动的显式个人资源并集。
+    occupied_resources: frozenset[str] = field(default_factory=frozenset)
     #: 当前地点本地时刻（自午夜起的小时数，含小数）；None 表示不判定营业时段。
     local_hour: float | None = 0.0
     #: 判定时长越界用的当前时刻（UTC 纪元秒）。
@@ -460,8 +461,10 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 
 
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 资源占用冲突：人物已有进行中的活动占用。"""
-    return "ELIGIBILITY_RESOURCE_CONFLICT" if inputs.occupied_activity_id else None
+    """@brief 候选与全部 ACTIVE 活动按同一注册表的显式资源交集判定。"""
+    kind = _ACTIVITY_OF_KIND[entry.kind]
+    claims = default_affordances().resource_claims(kind.value)
+    return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 
 def _duration_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:

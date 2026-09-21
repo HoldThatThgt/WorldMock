@@ -6,7 +6,7 @@ def test_status_reads_confirmed_state_without_modifying_any_run_file(tmp_path):
     run = tmp_path / 'run'
     store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'end_time': 200, 'activities': {},
-                                   'agents': {'1': {'agent_id': 1, 'location_id': 'home', 'current_activity_id': None,
+                                   'agents': {'1': {'agent_id': 1, 'location_id': 'home',
                                                     'next_decision_at': 100}}})
     store.close()
     write_status(run, 'running', 'deciding')
@@ -19,6 +19,7 @@ def test_status_reads_confirmed_state_without_modifying_any_run_file(tmp_path):
     assert result['runtime'] == {'status': 'running', 'phase': 'deciding', 'error_type': None}
     assert result['token_stats'] is None
     assert result['people'][0]['next_decision_at'] == 100
+    assert result['people'][0]['active_activities'] == []
     assert result['wall_time']['elapsed_seconds'] is None
 
 
@@ -27,9 +28,10 @@ def test_status_preserves_earlier_body_decision_time_instead_of_activity_end(tmp
     store = FootprintStore.create(run, {'run_id': 'run', 'agent_ids': [1], 'window': {'timezone': 'UTC'}},
                                   {'version': 0, 'current_time': 100, 'end_time': 2000,
                                    'activities': {'watch': {'status': 'active', 'planned_end_at': 1900,
+                                                            'activity_id': 'watch', 'agent_id': 1, 'started_at': 100,
                                                             'next_interaction_at': 1000}},
                                    'agents': {'1': {'agent_id': 1, 'location_id': 'home',
-                                                    'current_activity_id': 'watch', 'next_decision_at': 143}}})
+                                                    'next_decision_at': 143}}})
     store.close()
     before = (run / 'footprints.sqlite').read_bytes()
     assert read_status(run)['people'][0]['next_decision_at'] == 143

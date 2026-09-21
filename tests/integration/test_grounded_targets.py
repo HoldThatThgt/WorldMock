@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from tests.integration.activity_fixtures import occupied_resources, paused_activity
 from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from jsonschema import Draft202012Validator
 
@@ -76,7 +77,7 @@ _SCENE = {
     "location": "自己家",
     "people_here": [],
     "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activity": {},
+    "current_activities": [],
     "paused_activities": [],
     "day_plan": None,
     "inbox_head": [],
@@ -153,7 +154,8 @@ def _observations(
         "recent_action_results": (
             [_browse_entry()] if browse_results is None else browse_results),
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
-        "active_activity": active_activity,
+        "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
+        "active_activities": [active_activity] if active_activity is not None else [],
         "paused_activities": paused_activities or [],
         "energy_feasibility": _energy_limits(),
         "affordance_contract": _AFFORDANCE_CONTRACT,
@@ -176,6 +178,7 @@ def _observations(
         "games": {},
         **catalogs,
     }
+    data["occupied_resources"] = occupied_resources(data["active_activities"])
     data.update(overrides or {})
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
 
@@ -221,7 +224,7 @@ class _Environment:
 def _active(kind: str, *, session_id: str | None = None) -> dict:
     """形成一个与反馈边界一致的当前活动投影。"""
     data = {"game_session_id": session_id} if session_id else {}
-    return {"activity_id": f"activity-{kind}", "status": "active", "kind": kind, "data": data}
+    return {"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "activity_id": f"activity-{kind}", "status": "active", "kind": kind, "data": data}
 
 
 def test_prepare_binds_current_catalogs_to_native_strict_schema() -> None:
@@ -277,10 +280,9 @@ def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
 @pytest.mark.parametrize(
     ("kind", "expected", "overrides"),
     [
-        ("wait", {"continue_activity", "set_activity_state",
-                  "start_basic_activity", "start_targeted_activity", "start_travel"}, {}),
+        ("wait", {"continue_activity", "set_activity_state", "start_targeted_activity"}, {}),
         ("watch", {"continue_activity", "set_activity_state", "change_playback_speed",
-                   "start_basic_activity", "start_targeted_activity", "start_travel"}, {}),
+                   "start_basic_activity", "consume"}, {}),
         ("play_game", {"set_activity_state", "game_action"}, {
             "games": {"session-visible": {
                 "session_id": "session-visible", "admissible_commands": ["look", "inventory"],
@@ -289,14 +291,21 @@ def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
         }),
     ],
 )
-def test_active_boundary_keeps_activity_controls_and_direct_switch_tools(
+def test_active_boundary_keeps_compatible_starts_and_independent_controls(
     kind, expected, overrides,
 ) -> None:
-    """反馈边界保留当前活动控制并暴露直接切换工具；游戏边界维持闭集协议。"""
+    """活动中的工具集合按真实资源交集收窄，独立控制与瞬时查询仍保留。"""
     session_id = "session-visible" if kind == "play_game" else None
     agent = _prepare(_catalogs(), active_activity=_active(kind, session_id=session_id), overrides=overrides)
 
-    assert set(_functions(agent)) == _MEMORY_TOOLS | expected
+    names = set(_functions(agent))
+    assert expected <= names
+    assert names & {"start_basic_activity", "start_targeted_activity", "start_travel",
+                    "consume", "start_social_activity", "start_parallel_activities"} == (
+                        expected & {"start_basic_activity", "start_targeted_activity", "start_travel",
+                                    "consume", "start_social_activity", "start_parallel_activities"})
+    assert {"browse_activities", "discover_places", "plan_day", "purchase", "submit_work"} <= names
+    assert _MEMORY_TOOLS <= names
 
 
 def test_finished_activity_refresh_restores_starts_and_removes_old_controls() -> None:
@@ -569,9 +578,7 @@ def test_readonly_needs_no_environment_catalog_and_opens_no_life_action() -> Non
 def test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty() -> None:
     """目标启动工具撤下时暂停活动仍保留显式恢复控制。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
-               "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
-               "resume_energy_feasible": True}]
+    paused = [paused_activity("activity-paused")]
     agent = _prepare(empty, paused_activities=paused, browse_results=[])
     functions = _functions(agent)
     decision = ReactDecision(
@@ -611,9 +618,7 @@ async def test_valid_grounded_target_dispatches_same_typed_request() -> None:
 async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs() -> None:
     """暂停活动恢复动作不依赖目标启动目录并保持原请求类型。"""
     empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
-               "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
-               "resume_energy_feasible": True}]
+    paused = [paused_activity("activity-paused")]
     agent = _prepare(empty, paused_activities=paused, browse_results=[])
     environment = _Environment()
     agent._env = environment
@@ -704,9 +709,8 @@ def test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets() -> Non
 
 def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
     """当前能量不足时暂停活动仍可取消，但 Schema 和本地校验都拒绝恢复。"""
-    paused = [{"activity_id": "activity-paused", "status": "paused", "kind": "work",
-               "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
-               "resume_energy_feasible": False}]
+    paused = [paused_activity("activity-paused", remaining_duration_seconds=600,
+                              minimum_energy_cost_kcal=20.0, resume_energy_feasible=False)]
     agent = _prepare(_catalogs(), paused_activities=paused)
     function = _functions(agent)["set_activity_state"]
     resume = ReactDecision(
@@ -715,19 +719,16 @@ def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
         "", "set_activity_state", {"activity_id": "activity-paused", "operation": "cancel"}, "")
 
     assert function["parameters"]["properties"]["operation"]["enum"] == ["cancel"]
-    assert "exceeds current energy" in agent.validate_react_decisions([resume], False)
+    assert "not valid for the visible activity state" in agent.validate_react_decisions([resume], False)
     assert agent.validate_react_decisions([cancel], False) == ""
 
 
 def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
     """联合活动身份与操作枚举仍由本地校验保持每个暂停活动的能量配对。"""
     paused = [
-        {"activity_id": "activity-feasible", "status": "paused", "kind": "work",
-         "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
-         "resume_energy_feasible": True},
-        {"activity_id": "activity-infeasible", "status": "paused", "kind": "work",
-         "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 20.0,
-         "resume_energy_feasible": False},
+        paused_activity("activity-feasible"),
+        paused_activity("activity-infeasible", remaining_duration_seconds=600,
+                        minimum_energy_cost_kcal=20.0, resume_energy_feasible=False),
     ]
     agent = _prepare(_catalogs(), paused_activities=paused)
     operations = _functions(agent)["set_activity_state"]["parameters"]["properties"]["operation"]["enum"]
@@ -736,8 +737,8 @@ def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
     valid = ReactDecision(
         "", "set_activity_state", {"activity_id": "activity-feasible", "operation": "resume"}, "")
 
-    assert operations == ["resume", "cancel"]
-    assert "exceeds current energy" in agent.validate_react_decisions([invalid], False)
+    assert operations == ["cancel", "resume"]
+    assert "not valid for the visible activity state" in agent.validate_react_decisions([invalid], False)
     assert agent.validate_react_decisions([valid], False) == ""
 
 

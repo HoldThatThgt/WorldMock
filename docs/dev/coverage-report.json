@@ -1,27 +1,33 @@
 {
-  "generated_at": "2026-09-21T06:59:30+00:00",
+  "generated_at": "2026-09-21T08:46:13+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "9815d2ac-9509-4943-be0c-a49b245902c5",
-    "manifest_hash": "5d06b218c9c12e81420ba858026b624a44a45f9eb411c4d5350c17def80301af",
-    "source_identity": "fa150fb2fc874db568f1812b606608217e42e574"
+    "snapshot_id": "8cab561a-c08f-43f4-ae56-ef2e16078ac5",
+    "manifest_hash": "33f3c9b9ba45c948ee60290f842c0ccd121bf05baa145b31d2ad772af2dfb742",
+    "source_identity": "74edeaddccf1e051a0f7c98024ec95eeb6c48514"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 6723,
-    "missing_branches": 243,
-    "total_branches": 6966,
-    "percent": 96.51,
+    "covered_branches": 6757,
+    "missing_branches": 567,
+    "total_branches": 7324,
+    "percent": 92.26,
     "passed": true
   },
   "per_file_branch": [
     {
+      "file": "custom/agents/life_activity_controls.py",
+      "covered_branches": 96,
+      "missing_branches": 4,
+      "percent": 96.0
+    },
+    {
       "file": "custom/agents/life_agent.py",
-      "covered_branches": 458,
+      "covered_branches": 394,
       "missing_branches": 2,
-      "percent": 99.57
+      "percent": 99.49
     },
     {
       "file": "custom/agents/life_context.py",
@@ -36,10 +42,16 @@
       "percent": 100.0
     },
     {
+      "file": "custom/agents/life_memory.py",
+      "covered_branches": 7,
+      "missing_branches": 25,
+      "percent": 21.88
+    },
+    {
       "file": "custom/agents/life_menu.py",
-      "covered_branches": 139,
-      "missing_branches": 1,
-      "percent": 99.29
+      "covered_branches": 146,
+      "missing_branches": 2,
+      "percent": 98.65
     },
     {
       "file": "custom/envs/life_env.py",
@@ -289,9 +301,9 @@
     },
     {
       "file": "src/worldmock/evaluation/behavior_metrics.py",
-      "covered_branches": 171,
-      "missing_branches": 17,
-      "percent": 90.96
+      "covered_branches": 69,
+      "missing_branches": 141,
+      "percent": 32.86
     },
     {
       "file": "src/worldmock/evaluation/causality.py",
@@ -396,6 +408,12 @@
       "percent": 100.0
     },
     {
+      "file": "src/worldmock/footprints/experiences.py",
+      "covered_branches": 66,
+      "missing_branches": 30,
+      "percent": 68.75
+    },
+    {
       "file": "src/worldmock/footprints/export.py",
       "covered_branches": 38,
       "missing_branches": 0,
@@ -415,19 +433,19 @@
     },
     {
       "file": "src/worldmock/footprints/quality.py",
-      "covered_branches": 174,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 202,
+      "missing_branches": 12,
+      "percent": 94.39
     },
     {
       "file": "src/worldmock/footprints/store.py",
-      "covered_branches": 60,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 61,
+      "missing_branches": 1,
+      "percent": 98.39
     },
     {
       "file": "src/worldmock/footprints/validation.py",
-      "covered_branches": 70,
+      "covered_branches": 72,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -438,10 +456,16 @@
       "percent": null
     },
     {
+      "file": "src/worldmock/life/action_evidence.py",
+      "covered_branches": 32,
+      "missing_branches": 4,
+      "percent": 88.89
+    },
+    {
       "file": "src/worldmock/life/activities.py",
-      "covered_branches": 75,
-      "missing_branches": 1,
-      "percent": 98.68
+      "covered_branches": 70,
+      "missing_branches": 8,
+      "percent": 89.74
     },
     {
       "file": "src/worldmock/life/activity_evidence.py",
@@ -457,9 +481,9 @@
     },
     {
       "file": "src/worldmock/life/body.py",
-      "covered_branches": 100,
-      "missing_branches": 2,
-      "percent": 98.04
+      "covered_branches": 111,
+      "missing_branches": 5,
+      "percent": 95.69
     },
     {
       "file": "src/worldmock/life/candidates.py",
@@ -481,13 +505,19 @@
     },
     {
       "file": "src/worldmock/life/content.py",
-      "covered_branches": 38,
+      "covered_branches": 44,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/life/decision_start.py",
       "covered_branches": 14,
+      "missing_branches": 0,
+      "percent": 100.0
+    },
+    {
+      "file": "src/worldmock/life/dining.py",
+      "covered_branches": 6,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -499,9 +529,9 @@
     },
     {
       "file": "src/worldmock/life/engine.py",
-      "covered_branches": 343,
-      "missing_branches": 9,
-      "percent": 97.44
+      "covered_branches": 344,
+      "missing_branches": 22,
+      "percent": 93.99
     },
     {
       "file": "src/worldmock/life/felt.py",
@@ -517,9 +547,9 @@
     },
     {
       "file": "src/worldmock/life/interaction_menu.py",
-      "covered_branches": 51,
+      "covered_branches": 53,
       "missing_branches": 3,
-      "percent": 94.44
+      "percent": 94.64
     },
     {
       "file": "src/worldmock/life/inventory_recipe.py",
@@ -540,6 +570,12 @@
       "percent": 100.0
     },
     {
+      "file": "src/worldmock/life/memory_evidence.py",
+      "covered_branches": 6,
+      "missing_branches": 2,
+      "percent": 75.0
+    },
+    {
       "file": "src/worldmock/life/menu_execution.py",
       "covered_branches": 2,
       "missing_branches": 0,
@@ -547,15 +583,15 @@
     },
     {
       "file": "src/worldmock/life/models.py",
-      "covered_branches": 73,
-      "missing_branches": 1,
-      "percent": 98.65
+      "covered_branches": 19,
+      "missing_branches": 75,
+      "percent": 20.21
     },
     {
       "file": "src/worldmock/life/motivation.py",
-      "covered_branches": 158,
-      "missing_branches": 2,
-      "percent": 98.75
+      "covered_branches": 147,
+      "missing_branches": 11,
+      "percent": 93.04
     },
     {
       "file": "src/worldmock/life/narration.py",
@@ -583,7 +619,7 @@
     },
     {
       "file": "src/worldmock/life/projection.py",
-      "covered_branches": 34,
+      "covered_branches": 32,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -601,9 +637,9 @@
     },
     {
       "file": "src/worldmock/life/rhythm.py",
-      "covered_branches": 83,
-      "missing_branches": 1,
-      "percent": 98.81
+      "covered_branches": 91,
+      "missing_branches": 5,
+      "percent": 94.79
     },
     {
       "file": "src/worldmock/life/rotation.py",
@@ -625,9 +661,9 @@
     },
     {
       "file": "src/worldmock/life/scenario.py",
-      "covered_branches": 212,
-      "missing_branches": 6,
-      "percent": 97.25
+      "covered_branches": 214,
+      "missing_branches": 8,
+      "percent": 96.4
     },
     {
       "file": "src/worldmock/life/schedule.py",
@@ -661,9 +697,9 @@
     },
     {
       "file": "src/worldmock/life/social_actions.py",
-      "covered_branches": 29,
-      "missing_branches": 1,
-      "percent": 96.67
+      "covered_branches": 20,
+      "missing_branches": 10,
+      "percent": 66.67
     },
     {
       "file": "src/worldmock/life/state_commit.py",
@@ -828,6 +864,205 @@
       "percent": 95.83
     }
   ],
-  "uncovered_public_interfaces": [],
-  "passed": true
+  "uncovered_public_interfaces": [
+    {
+      "file": "src/worldmock/evaluation/behavior_metrics.py",
+      "line": 89,
+      "name": "behavior_metrics_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 29,
+      "name": "validate_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 107,
+      "name": "project_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 134,
+      "name": "recent_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 195,
+      "name": "read_recent_experience_sources",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 208,
+      "name": "advance_activity_shared",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 263,
+      "name": "active_energy_entries",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 280,
+      "name": "combined_energy_cost",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 291,
+      "name": "maximum_combined_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 175,
+      "name": "settle_shared_body",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 240,
+      "name": "maximum_shared_energy_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 317,
+      "name": "prepare_pending_work_review",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 560,
+      "name": "record_memory_update",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 588,
+      "name": "advance",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 337,
+      "name": "validate_lifecycle",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 423,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 467,
+      "name": "serialize_world_sets",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 472,
+      "name": "validate_world",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 620,
+      "name": "validate_target",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 643,
+      "name": "validate_speed",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 814,
+      "name": "validate_goal_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 834,
+      "name": "validate_goals",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 883,
+      "name": "validate_count",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 977,
+      "name": "rejection_reason_text",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 1025,
+      "name": "deepseek_strict_schema",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 384,
+      "name": "validate_audio",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 140,
+      "name": "advance_social_shared",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 181,
+      "name": "social_activity_change",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_activity_controls.py",
+      "line": 209,
+      "name": "start_resource_error",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 42,
+      "name": "build_context",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 55,
+      "name": "after_step",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 152,
+      "name": "render_memory_view",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_menu.py",
+      "line": 124,
+      "name": "menu_action_error",
+      "kind": "function"
+    }
+  ],
+  "passed": false
 }

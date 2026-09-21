@@ -90,7 +90,7 @@ def test_observe_uses_candidate_contract_and_records_presentation(engine_factory
     state.pending_events = [item for item in state.pending_events
                             if item.due_at > state.current_time]
     state.agents[1] = state.agents[1].model_copy(
-        update={"location_id": merchant.location_id, "next_decision_at": state.current_time},
+        update={"location_id": merchant.location_id, "next_decision_at": state.current_time, "body_settled_at": state.current_time},
         deep=True)
     _commit(engine, state)
 
@@ -137,7 +137,7 @@ def test_next_presentation_rotates_when_the_pool_is_fully_recent(engine_factory)
         update={"location_id": merchant.location_id}, deep=True))
     stamps = {entry.object_id: state.current_time for entry in entries}
     state.agents[1] = agent.model_copy(
-        update={"location_id": merchant.location_id, "next_decision_at": state.current_time},
+        update={"location_id": merchant.location_id, "next_decision_at": state.current_time, "body_settled_at": state.current_time},
         deep=True)
     state.presentation_state = {1: stamps}
     _commit(engine, state)

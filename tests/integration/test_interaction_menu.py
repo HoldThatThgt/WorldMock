@@ -14,6 +14,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.agents.life_menu import basic_activity_types, menu_action_error
+from tests.integration.activity_fixtures import paused_activity
 from tests.integration.test_grounded_targets import (
     _Environment,
     _active,
@@ -300,28 +301,19 @@ def test_readonly_and_action_phases_do_not_reopen_menu_actions() -> None:
 @pytest.mark.parametrize("kind,restriction,start_tool", [
     ("watch", "activity_kind", "start_targeted_activity"),
     ("watch", "start_tool", "start_targeted_activity"),
-    ("chat", "start_tool", "start_social_activity"),
-    ("call", "start_tool", "start_social_activity"),
 ])
 async def test_paused_resume_obeys_kind_menu_while_cancel_stays_available(
-        kind, restriction, start_tool, caplog) -> None:
-    """活动类型或对应启动工具单独禁止时都撤下恢复，社交同样受限而取消仍可用。"""
+        kind, restriction, start_tool) -> None:
+    """活动类型或对应启动工具单独禁止时撤下恢复，取消仍可用。"""
     menu = _full_menu()
     if restriction == "activity_kind":
         menu["allowed_activity_kinds"].remove(kind)
     else:
         menu["allowed_tools"].remove(start_tool)
-    paused = [{
-        "activity_id": "activity-watch",
-        "status": "paused",
-        "kind": kind,
-        "remaining_duration_seconds": 600,
-        "minimum_energy_cost_kcal": 2.0,
-        "resume_energy_feasible": True,
-    }]
+    paused = [paused_activity("activity-watch", kind=kind, remaining_duration_seconds=600)]
     unrestricted = _prepare(_catalogs(), paused_activities=paused)
     full_operation = _functions(unrestricted)["set_activity_state"]["parameters"]["properties"]["operation"]
-    assert full_operation["enum"] == ["resume", "cancel"]
+    assert full_operation["enum"] == ["cancel", "resume"]
     agent = _prepare(_catalogs(), overrides={"interaction_menu": menu},
                      paused_activities=paused)
     environment = _Environment()
@@ -332,16 +324,17 @@ async def test_paused_resume_obeys_kind_menu_while_cancel_stays_available(
     operation = _functions(agent)["set_activity_state"]["parameters"]["properties"]["operation"]
 
     assert operation["enum"] == ["cancel"]
-    assert "interaction menu" in agent.validate_react_decisions(
+    assert "not valid for the visible activity state" in agent.validate_react_decisions(
         [ReactDecision("", "set_activity_state", resume, "")], False)
     assert agent.validate_react_decisions(
         [ReactDecision("", "set_activity_state", cancel, "")], False) == ""
-    with pytest.raises(RuntimeError, match="interaction menu"):
+    with pytest.raises(RuntimeError, match="not valid for the visible activity state"):
         await agent.dispatch_react_tool("set_activity_state", resume)
     assert environment.calls == []
+    assert agent._life_action_count == 0
     await agent.dispatch_react_tool("set_activity_state", cancel)
     assert len(environment.calls) == 1
-    assert "interaction menu" in caplog.text
+    assert agent._life_action_count == 1
 
 
 @pytest.mark.asyncio
@@ -349,23 +342,20 @@ async def test_mixed_paused_kinds_validate_the_requested_identity_before_dispatc
     """共享恢复枚举存在时逐个核验暂停身份，不能借另一个允许活动的类型绕过。"""
     menu = _full_menu()
     menu["allowed_activity_kinds"].remove("play_game")
-    paused = [{
-        "activity_id": identity, "status": "paused", "kind": kind,
-        "remaining_duration_seconds": 600, "minimum_energy_cost_kcal": 2.0,
-        "resume_energy_feasible": True,
-    } for identity, kind in (("allowed-watch", "watch"), ("denied-game", "play_game"))]
+    paused = [paused_activity(identity, kind=kind, remaining_duration_seconds=600)
+              for identity, kind in (("allowed-watch", "watch"), ("denied-game", "play_game"))]
     agent = _prepare(_catalogs(), overrides={"interaction_menu": menu}, paused_activities=paused)
     operations = _functions(agent)["set_activity_state"]["parameters"]["properties"]["operation"]["enum"]
-    assert operations == ["resume", "cancel"]
+    assert operations == ["cancel", "resume"]
     denied = {"activity_id": "denied-game", "operation": "resume"}
     allowed = {"activity_id": "allowed-watch", "operation": "resume"}
-    assert "interaction menu" in agent.validate_react_decisions(
+    assert "not valid for the visible activity state" in agent.validate_react_decisions(
         [ReactDecision("", "set_activity_state", denied, "")], False)
     assert agent.validate_react_decisions([ReactDecision("", "set_activity_state", allowed, "")], False) == ""
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    with pytest.raises(RuntimeError, match="interaction menu"):
+    with pytest.raises(RuntimeError, match="not valid for the visible activity state"):
         await agent.dispatch_react_tool("set_activity_state", denied)
     assert environment.calls == []
     await agent.dispatch_react_tool("set_activity_state", allowed)

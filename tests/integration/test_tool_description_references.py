@@ -40,7 +40,7 @@ DELIVERED_OBSERVATION_KEYS = frozenset({
     "market_summary", "recent_action_results", "activity_summary",
     "pending_deliveries", "inventory", "available_inventory", "tasks", "routes",
     "browse_targets", "calendar_context", "locations", "agent_id",
-    "current_time", "scene", "facts", "body", "balance_fen", "active_activity",
+    "current_time", "scene", "facts", "body", "balance_fen", "active_activities", "occupied_resources", "verified_experiences",
     "paused_activities", "wake_reasons", "decision_index",
 })
 

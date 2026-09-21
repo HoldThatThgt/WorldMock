@@ -73,6 +73,12 @@ def _events(engine, event_type: str, agent_id: int = 1):
             if event.event_type == event_type and event.agent_id == agent_id]
 
 
+def _body_events(engine):
+    """读取本人唯一的共同身体结算证据。"""
+    return [event for event in _events(engine, "environment_event")
+            if event.agent_id == 1 and event.data.get("kind") == "body_settlement"]
+
+
 def test_silent_boundary_settles_without_decision_events(engine_factory) -> None:
     """静默边界照常结算（activity_progress + decision_offered=false）且不产生决策事件。"""
     engine = engine_factory()
@@ -83,8 +89,8 @@ def test_silent_boundary_settles_without_decision_events(engine_factory) -> None
     assert not engine.scheduling_state().ready_agent_ids
     progress = [event for event in _events(engine, "activity_progress") if event.agent_id == 1]
     assert progress, "settlement boundary must leave activity_progress evidence"
-    assert progress[-1].data["decision_offered"] is False
-    assert progress[-1].data["wake_reasons"] == []
+    assert _body_events(engine)[-1].data["decision_offered"] is False
+    assert _body_events(engine)[-1].data["wake_reasons"] == []
     for event_type in ("decision_started", "observation", "model_request", "memory_updated"):
         at_boundary = [event for event in _events(engine, event_type)
                        if event.occurred_at >= boundary]
@@ -99,8 +105,8 @@ def test_offered_boundary_records_actual_wake_reasons(engine_factory) -> None:
     advance_next(engine)  # 计划结束唤醒
     assert engine.scheduling_state().ready_agent_ids == (1,)
     progress = [event for event in _events(engine, "activity_progress")][-1]
-    assert progress.data["decision_offered"] is True
-    assert "planned_end" in progress.data["wake_reasons"]
+    assert _body_events(engine)[-1].data["decision_offered"] is True
+    assert "planned_end" in _body_events(engine)[-1].data["wake_reasons"]
 
 
 def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
@@ -117,8 +123,9 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     wake_by_mail(engine)
     advance_next(engine)
     assert "message_arrival" in engine.state.agents[1].pending_wake_reasons
-    _act(engine, "hold-2", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    _act(engine, "hold-2", "continue_activity",
+         ContinueActivityRequest(activity_id=next(item.activity_id for item in
+                                 engine.state.activities.values() if item.status.value == "active")))
     # delivery_arrival：配送到达唤醒
     staged = engine.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
@@ -140,8 +147,9 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     _commit_staged(engine, staged)
     advance_next(engine)
     assert "delivery_arrival" in engine.state.agents[1].pending_wake_reasons
-    _act(engine, "hold-3", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    _act(engine, "hold-3", "continue_activity",
+         ContinueActivityRequest(activity_id=next(item.activity_id for item in
+                                 engine.state.activities.values() if item.status.value == "active")))
     # reconsideration_interval：距上次决策满 5400 秒
     staged = engine.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
@@ -170,7 +178,8 @@ def test_sleep_is_not_interrupted_by_reconsideration(engine_factory) -> None:
             assert not engine.scheduling_state().ready_agent_ids, (
                 "sleep must not be interrupted by the reconsideration interval")
     advance_until_ready(engine)
-    assert engine.state.agents[1].current_activity_id is None
+    assert not any(item.agent_id == 1 and item.status.value == "active"
+                   for item in engine.state.activities.values())
     assert engine.state.activities["activity-action-sleep-9k"].status.value == "completed"
     assert "planned_end" in engine.state.agents[1].pending_wake_reasons
 
@@ -328,7 +337,7 @@ def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     assert _visible_plan_day_contract(data) != {}
     assert _visible_revise_plan_contract(data) == {}
     contracts = _visible_action_contracts(data)
-    available = _available_action_models({}, {"active": None, "paused_ids": []}, contracts)
+    available = _available_action_models({}, {"active": {}, "paused_ids": [], "continuable_ids": [], "watch_ids": [], "game_commands": []}, contracts)
     assert "plan_day" in available
     day2 = _goal_plan()
     second = _act(engine, "plan-day2", "plan_day", day2)
@@ -480,7 +489,7 @@ def _stage_open_hours(engine, hour: int = 12) -> None:
     staged.current_time = noon
     staged.pending_events = [item for item in staged.pending_events if item.due_at > noon]
     for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(update={"next_decision_at": noon}, deep=True)
+        staged.agents[agent_id] = agent.model_copy(update={"next_decision_at": noon, "body_settled_at": noon}, deep=True)
     _commit_staged(engine, staged)
 
 
@@ -559,10 +568,10 @@ def test_multi_item_meal_accumulates_energy(engine_factory) -> None:
         assert agent.inventory["home"][item.product_id] == 0
 
 
-def test_world_state_schema_version_four_rejects_old_checkpoints(engine_factory) -> None:
-    """旧检查点（无 schema_version 或版本 3）加载即拒绝；版本 4 是唯一合法结构版本。
+def test_world_state_schema_version_five_rejects_old_checkpoints(engine_factory) -> None:
+    """旧检查点（无 schema_version 或版本 4）加载即拒绝；版本 5 是唯一合法结构版本。
 
-    版本 4 引入门店供给、持久报价与逐供给可见凭据；不保留兼容读取
+    版本 5 引入活动集合、共同身体时刻与已交付威胁状态；不保留兼容读取
     路径，旧检查点一律拒载（docs/CONTRACTS.md「派生量字段」）。
     """
     engine = engine_factory()
@@ -571,11 +580,11 @@ def test_world_state_schema_version_four_rejects_old_checkpoints(engine_factory)
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(legacy)
     previous = engine.state.model_dump(mode="json")
-    previous["schema_version"] = 3
+    previous["schema_version"] = 4
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(previous)
     fresh = engine.state.model_dump(mode="json")
-    assert fresh["schema_version"] == 4
+    assert fresh["schema_version"] == 5
     assert fresh["presentation_state"] == {}
 
 

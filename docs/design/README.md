@@ -23,7 +23,7 @@
 | `01-architecture.md` | 总体架构：系统定位、数字人与四引擎职责、协作数据流、配置与接口导航 | DRAFT |
 | `02-exchange-engine.md` | 交换引擎：维护交换规则、查询适用规则、校验交换条件、计算投入产出、校验资源分录与返回规则结果 | DRAFT |
 | `03-resource-engine.md` | 资源引擎：资源定义、内容、语料、目录发布与检索提供 | DRAFT |
-| `04-simulation-engine.md` | 模拟引擎：初始化、冻结观察与交互菜单、动作受理、时间与活动推进、结算、唤醒和恢复编排 | DRAFT |
+| `04-simulation-engine.md` | 模拟引擎：初始化、冻结观察与交互菜单、动作受理、共享时间、同人活动集合、共同身体结算、威胁唤醒和恢复编排 | DRAFT |
 | `05-recording-engine.md` | 记录引擎：事件、素材、事务、检查点、分支、导出与诊断 | 已整合，承接冻结约束 |
 | `06-delivery.md` | 数据交付：LabelKit 接口、证据窗口、发布协议 | DRAFT |
 | `07-evaluation.md` | 行为评估：指标定义、对比协议、结论边界 | DRAFT |

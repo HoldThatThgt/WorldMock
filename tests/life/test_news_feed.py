@@ -12,6 +12,7 @@ from tests.life.conftest import wake_by_mail, advance_next, browse_activities, c
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
 from worldmock.life.models import (
+    active_activities,
     SetActivityStateRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
@@ -136,15 +137,14 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     body = engine.semantics.body
     energy_before = engine.state.agents[1].body.energy_kcal
     need_before = engine.state.agents[1].body.entertainment_need
-    # wait=边等边刷：净累积 = 清醒累积 − 被动缓解（0.08−0.05）
-    wait_net = (body.entertainment_need_per_awake_hour
-                - body.entertainment_relief_per_hour["wait"])
+    # 纯等待只累计实际清醒时间的娱乐需要。
+    wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 900 / 3600)
 
     _act(engine, "scroll", "start_targeted_activity",
          StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
                                       planned_duration_seconds=planned, playback_speed=1))
-    activity_id = engine.state.agents[1].current_activity_id
+    activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
     advance_next(engine)
     activity = engine.state.activities[activity_id]
     assert activity.status.name == "COMPLETED"
@@ -160,7 +160,7 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     expected_cost = (body.basal_kcal_per_hour + max(met - 1, 0) * body.mass_kg) * hours
     assert energy_before - engine.state.agents[1].body.energy_kcal == pytest.approx(expected_cost)
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
-        FEED_RATE * FEED_PREFERENCE * hours)
+        (FEED_RATE * FEED_PREFERENCE - body.entertainment_need_per_awake_hour) * hours)
 
 
 def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factory) -> None:
@@ -178,7 +178,8 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
              StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
                                           planned_duration_seconds=duration, playback_speed=1))
         advance_next(engine)
-        step = FEED_RATE * FEED_PREFERENCE * (duration / 3600) / n
+        step = (FEED_RATE * FEED_PREFERENCE / n
+                - engine.semantics.body.entertainment_need_per_awake_hour) * (duration / 3600)
         assert need_at_step - engine.state.agents[1].body.entertainment_need == pytest.approx(step)
         relief += step
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(relief)
@@ -192,20 +193,19 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
 def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_factory) -> None:
     """一次可中断的连续刷屏按总接触时长乘现行费率结算。"""
     engine = engine_factory()
-    # 6 轮 wait（5400s）净累积 0.045，高于 950s 刷屏的未钳制缓解量
+    # 6 轮 wait（5400s）按清醒增长累积需求，高于 950s 刷屏的未钳制缓解量
     # 0.25×0.6×950/3600≈0.0396——保证断言观测的是未触底的总接触费率结算。
     _seed_feed_taste(engine)
     _wait_awake(engine, rounds=6)
     need_before = engine.state.agents[1].body.entertainment_need
     body = engine.semantics.body
-    wait_net = (body.entertainment_need_per_awake_hour
-                - body.entertainment_relief_per_hour["wait"])
+    wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 5400 / 3600)
 
     _act(engine, "long-scroll", "start_targeted_activity",
          StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
                                       planned_duration_seconds=950, playback_speed=1))
-    activity_id = engine.state.agents[1].current_activity_id
+    activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
     wake_by_mail(engine)  # 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
     assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
@@ -233,4 +233,5 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     assert 20 <= len(set(ids)) <= 30
     assert len(cues) - len(set(ids)) <= 1
     assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
-        FEED_RATE * FEED_PREFERENCE * 950 / 3600)
+        FEED_RATE * FEED_PREFERENCE * 950 / 3600
+        - body.entertainment_need_per_awake_hour * (950 + 900) / 3600)

@@ -81,7 +81,7 @@ flowchart TB
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
 | `observation_repetition` | 决策类 `model_request` 中同一 user 观察文本的最大出现次数 | `==` | 1 | 观察被重复序列化 |
-| `silent_boundary_ratio` | 清醒活动结算边界中 `decision_offered=false` 的占比 | `>=` | 0.5 | 人物决策机会不足 |
+| `silent_boundary_ratio` | 每人唯一共同身体结算的清醒边界中 `decision_offered=false` 的占比 | `>=` | 0.5 | 人物决策机会不足 |
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | MEMORY.md 命中示例身份的人物数 | `==` | 0 | 示例身份残留 |
 
@@ -89,14 +89,18 @@ flowchart TB
 
 ### 2.2 报告项（Reports）
 
-报告项只进报告，不参与放行。
+报告项只进报告，不参与放行。并行活动的各自时长允许重叠，人的经过时间取区间并集；
+用餐指标仅消费 eat 正实际进度，按活动身份去重，购买或受理不算吃过。
+记忆重复率只比较明确主观 episodes，不把其文字作为客观完成事实。
 
 | 报告项键 | 说明 | 目标参照 |
 | --- | --- | --- |
 | `decision_prompt_token_median` | 决策 prompt token 中位数 | 15000（对照值） |
 | `effective_autonomous_decision_rate` | 最终动作非 continue/wait 的占比 | 无固定阈值 |
 | `wake_reason_distribution` | 各唤醒原因计数 | 覆盖所有唤醒类型 |
-| `wait_minutes` | wait 活动总分钟 | 最小化 |
+| `wait_minutes` | 本人真实等待区间并集分钟 | 只报告，不设占比上限 |
+| `unknown_wait_minutes` | 未有可核验原因的等待区间并集分钟 | 不根据自由叙述推断目的 |
+| `content_contact_minutes` | 实际 watch 播放的区间并集分钟 | 不把等待或开始播放计为已接触 |
 | `early_arrival_minutes` | 早于开门时间到达的分钟 | 最小化 |
 | `sleep_schedule` | 就寝/起床时刻与时长 | 人物卡片就寝窗口 |
 | `meal_diversity` | Simpson 集中度与 24h 重复率 | 低集中度、低重复 |

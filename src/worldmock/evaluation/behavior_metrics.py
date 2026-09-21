@@ -4,14 +4,11 @@
 指标按事件顶层 code_sha256 分组输出，供写入 quality.json；全部计算确定性，
 同一输入两次计算逐字节相等。协议门禁在证据缺失时按不通过处理（fail-closed）。
 
-当前引擎尚未写入的未来字段按"未提供"处理并在报告 notes 中注明，不臆造数值：
-- activity_progress.data.decision_offered / wake_reasons（决策节律合同）；
-- decision_started.data.decision_statement（两阶段决策合同，本版指标未消费）；
-- memory_updated.data.episodes 内的文本与类型（记忆重复率；本模块假定未来
-  episodes 为 [{text, kind|type}, ...] 形态，属待验证假设）；
-- 事件顶层 code_sha256（缺失时归入 code_sha256_unreported 组并注明）；
-- start_social_activity / send_message 请求与 environment_event kind=message_arrival
-  （社交最小可行版；duration_minutes / kind 为假定的请求字段名，属待验证假设）。
+当前事件合同已提供共同身体结算的 decision_offered / wake_reasons、主观记忆快照及
+社交请求的 kind / duration_minutes。认证输入若缺少这些指标所需证据，报告以未知值和 notes
+明示，相关协议门禁按不通过处理；不得把缺证据解释成零次事件。
+本版指标不消费 decision_started.data.decision_statement。事件顶层 code_sha256 缺失时
+归入 code_sha256_unreported 组并注明，不猜测代码身份。
 """
 
 from __future__ import annotations
@@ -31,7 +28,7 @@ ACTIVITY_FAMILY_ORDER = (
     "entertainment", "social", "chore", "exercise",
 )
 
-#: 原始活动 kind 到家族的确定性映射；wait 计入休息、consume 计入用餐为口径约定。
+#: 原始活动 kind 到家族的确定性映射；wait 计入休息，consume 需实际 eat 证据才计用餐。
 _KIND_FAMILY = {
     "sleep": "sleep", "travel": "commute", "work": "work", "consume": "meal",
     "watch": "entertainment", "play_game": "entertainment", "browse": "entertainment",
@@ -71,7 +68,7 @@ REFERENCE_SOURCE = (
 CONVENTIONS = [
     "外出(outing)并入通勤(commute)口径，闭集聚合为十类",
     "wait 活动时间计入休息(rest)",
-    "consume 活动时间计入用餐（含 use 模式）",
+    "consume 活动仅有 eat 真实进度时计入用餐；use 模式未归类",
     "参照的看电视(100m)与休闲娱乐(65m)合并为屏幕娱乐 165m 口径",
     "休息与家务无参照项，并入无参照桶（参照 0 分钟）",
     "lifestyle 活动缺 family/category 字段时计为未归类分钟，不进入 JS 距离",
@@ -141,6 +138,9 @@ def _group_report(
         "effective_autonomous_decision_rate": autonomous,
         "wake_reason_distribution": _wake_reason_distribution(events, notes),
         "wait_minutes": wait_and_early["wait_minutes"],
+        "unknown_wait_minutes": wait_and_early["unknown_wait_minutes"],
+        "content_contact_minutes": _content_contact_minutes(events),
+        "person_elapsed_minutes": _person_elapsed_minutes(events, notes),
         "early_arrival_minutes": wait_and_early["early_arrival_minutes"],
         "sleep_schedule": _sleep_schedule(events, timezone, notes),
         "meal_diversity": _meal_diversity(events),
@@ -211,6 +211,12 @@ def _activity_progress_events(events: list[dict[str, Any]]) -> list[dict[str, An
     return [event for event in events if event.get("event_type") == "activity_progress"]
 
 
+def _body_settlement_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 取每人每区间唯一的共同身体证据。"""
+    return [event for event in events if event.get("event_type") == "environment_event"
+            and event.get("data", {}).get("kind") == "body_settlement"]
+
+
 def _snapshot(event: Mapping[str, Any]) -> Mapping[str, Any]:
     """@brief 取事件 data 内的活动权威快照；缺失按空快照处理。"""
     activity = event.get("data", {}).get("activity")
@@ -219,11 +225,14 @@ def _snapshot(event: Mapping[str, Any]) -> Mapping[str, Any]:
 
 def _silent_boundary_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
     """@brief 计算清醒活动结算边界中未提供决策（decision_offered=false）的占比。"""
-    waking = [event for event in _activity_progress_events(events)
-              if _snapshot(event).get("kind") != "sleep"]
+    sleep_ids = {event.get("activity_id") for event in _activity_progress_events(events)
+                 if _snapshot(event).get("kind") == "sleep"}
+    waking = [event for event in _body_settlement_events(events)
+              if not event.get("data", {}).get("activity_ids")
+              or any(identity not in sleep_ids for identity in event["data"]["activity_ids"])]
     known = [event for event in waking if "decision_offered" in event.get("data", {})]
     if not known:
-        notes.append("activity_progress.data.decision_offered 未提供，静默边界占比无法计算")
+        notes.append("body_settlement.data.decision_offered 未提供，静默边界占比无法计算")
         return _gate(None, ">=", 0.5)
     silent = sum(1 for event in known if event["data"]["decision_offered"] is False)
     missing = len(waking) - len(known)
@@ -311,21 +320,21 @@ def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _wake_reason_distribution(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计 activity_progress.data.wake_reasons 内各唤醒原因的计数（报告项）。"""
+    """@brief 统计共同身体结算内各唤醒原因的计数（报告项）。"""
     counts: Counter[str] = Counter()
     with_reasons = 0
-    for event in _activity_progress_events(events):
+    for event in _body_settlement_events(events):
         reasons = event.get("data", {}).get("wake_reasons")
         if isinstance(reasons, list) and reasons:
             with_reasons += 1
             counts.update(str(reason) for reason in reasons)
         elif isinstance(reasons, list):
             with_reasons += 1
-    total = len(_activity_progress_events(events))
+    total = len(_body_settlement_events(events))
     if with_reasons == 0:
-        notes.append("activity_progress.data.wake_reasons 未提供，唤醒原因分布为空")
+        notes.append("body_settlement.data.wake_reasons 未提供，唤醒原因分布为空")
     return {"counts": dict(sorted(counts.items())), "events_with_wake_reasons": with_reasons,
-            "activity_progress_events": total}
+            "body_settlement_events": total}
 
 
 def _interval_minutes(event: Mapping[str, Any]) -> float:
@@ -349,7 +358,9 @@ def _wait_and_early_minutes(
         agent = str(event.get("agent_id"))
         if kind == "wait":
             wait_total[agent] = wait_total.get(agent, 0.0) + _interval_minutes(event)
-        if kind == "travel" and location_open_hours:
+        detail = _snapshot(event).get("data")
+        arrived = isinstance(detail, dict) and isinstance(detail.get("arrival"), dict)
+        if kind == "travel" and arrived and location_open_hours:
             destination = str(_snapshot(event).get("destination_id"))
             if destination in location_open_hours:
                 arrivals.setdefault(destination, []).append((agent, _interval_end(event)))
@@ -358,9 +369,55 @@ def _wait_and_early_minutes(
         early = _early_arrival_summary(arrivals, location_open_hours, timezone)
     else:
         notes.append("location_open_hours 未提供，早到分钟无法计算")
-    return {"wait_minutes": {"per_agent_minutes": dict(sorted(wait_total.items())),
-                             "total_minutes": round(sum(wait_total.values()), 6)},
+    waits = {"per_agent_minutes": dict(sorted(wait_total.items())),
+             "total_minutes": round(sum(wait_total.values()), 6)}
+    return {"wait_minutes": waits, "unknown_wait_minutes": waits,
             "early_arrival_minutes": early}
+
+
+def _content_contact_minutes(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """@brief 只计真实前进的媒体位置，不把等待或浏览目录算内容接触。"""
+    per_agent: dict[str, float] = {}
+    for event in _activity_progress_events(events):
+        if _snapshot(event).get("kind") != "watch":
+            continue
+        detail = _snapshot(event).get("data")
+        revealed = detail.get("revealed") if isinstance(detail, dict) else None
+        if not isinstance(revealed, dict):
+            continue
+        before, after = revealed.get("position_before_seconds"), revealed.get("position_after_seconds")
+        if isinstance(before, (int, float)) and isinstance(after, (int, float)) and after > before:
+            agent = str(event.get("agent_id"))
+            per_agent[agent] = per_agent.get(agent, 0.0) + _interval_minutes(event)
+    return {"per_agent_minutes": dict(sorted(per_agent.items())),
+            "total_minutes": round(sum(per_agent.values()), 6)}
+
+
+def _person_elapsed_minutes(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
+    """@brief 共同结算按人物取区间并集，保留活动家族的独立时间口径。"""
+    by_agent: dict[str, list[tuple[float, float]]] = {}
+    missing = 0
+    for event in _body_settlement_events(events):
+        start, end = event.get("data", {}).get("interval_start"), event.get("data", {}).get("interval_end")
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)) or end <= start:
+            missing += 1
+            continue
+        by_agent.setdefault(str(event.get("agent_id")), []).append((start, end))
+    per_agent = {agent: round(_interval_union_seconds(intervals) / 60.0, 6)
+                 for agent, intervals in sorted(by_agent.items())}
+    if missing:
+        notes.append(f"{missing} 条共同身体结算缺少有效区间，人物经过时长不完整")
+    return {"per_agent_minutes": per_agent if missing == 0 else None,
+            "known_per_agent_minutes": per_agent, "missing_interval_events": missing}
+
+
+def _interval_union_seconds(intervals: list[tuple[float, float]]) -> float:
+    """@brief 合并相交或接续的真实时间区间。"""
+    total, previous_end = 0.0, 0.0
+    for start, end in sorted(intervals):
+        total += max(0.0, end - max(start, previous_end))
+        previous_end = max(previous_end, end)
+    return total
 
 
 def _interval_end(event: Mapping[str, Any]) -> int | float:
@@ -446,36 +503,38 @@ def _sleep_summary(valid: list[dict[str, Any]], zone: ZoneInfo) -> dict[str, Any
             "mean_duration_hours": round(duration, 4), "session_count": len(valid)}
 
 
-def _consume_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取进食（use_mode=eat）的 consume 动作请求事件。"""
-    result = []
-    for event in events:
-        if event.get("event_type") != "action_requested":
+def _meal_sessions(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 把真实 eat 正增量按活动去重，购买与提交请求不算进食。"""
+    sessions: dict[str, dict[str, Any]] = {}
+    for event in _activity_progress_events(events):
+        if _snapshot(event).get("kind") != "consume":
             continue
-        data = event.get("data", {})
-        if data.get("tool_name") != "consume":
+        consumption = event.get("data", {}).get("consumption")
+        if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
             continue
-        request = data.get("request", {})
-        if str(request.get("use_mode", "eat")) == "eat":
-            result.append(event)
-    return result
-
-
-def _consume_products(event: Mapping[str, Any]) -> list[str]:
-    """@brief 取一次进食动作的商品清单（未来多件 items 或现订单件 product_id）。"""
-    request = event.get("data", {}).get("request", {})
-    items = request.get("items")
-    if isinstance(items, list) and items:
-        return [str(item.get("product_id")) for item in items if isinstance(item, Mapping)]
-    return [str(request.get("product_id"))] if request.get("product_id") else []
+        items = consumption.get("items")
+        if not isinstance(items, list):
+            continue
+        products = {str(item["product_id"]) for item in items if isinstance(item, dict)
+                    and isinstance(item.get("product_id"), str)
+                    and isinstance(item.get("interval_quantity"), (int, float))
+                    and item["interval_quantity"] > 0}
+        if not products:
+            continue
+        identity = str(event.get("activity_id"))
+        session = sessions.setdefault(identity, {"occurred_at": event.get("occurred_at"),
+                                                 "products": set()})
+        session["products"].update(products)
+    return [{"activity_id": identity, "occurred_at": item["occurred_at"],
+             "products": sorted(item["products"])} for identity, item in sorted(sessions.items())]
 
 
 def _meal_diversity(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 计算 consume 商品的 Simpson 集中度与 24 小时内重复进食率（报告项）。"""
-    consumed = _consume_events(events)
+    """@brief 只以实际食用活动计算 Simpson 集中度与 24 小时重复率。"""
+    consumed = _meal_sessions(events)
     product_counts: Counter[str] = Counter()
     for event in consumed:
-        product_counts.update(_consume_products(event))
+        product_counts.update(event["products"])
     total_units = sum(product_counts.values())
     if not product_counts or not total_units:
         return {"simpson_concentration": None, "repetition_24h_rate": None,
@@ -495,7 +554,7 @@ def _repetition_24h(consumed: list[dict[str, Any]]) -> float | None:
     history: list[tuple[int, set[str]]] = []
     repeated = 0
     for event in ordered:
-        products = set(_consume_products(event))
+        products = set(event["products"])
         occurred_at = event.get("occurred_at", 0)
         if any(products & seen and 0 < occurred_at - at <= 86400 for at, seen in history):
             repeated += 1
@@ -522,6 +581,10 @@ def _family_minutes(events: list[dict[str, Any]]) -> dict[str, dict[str, float]]
         run_id = str(event.get("run_id"))
         agent = str(event.get("agent_id"))
         family = _family_of(_snapshot(event))
+        if _snapshot(event).get("kind") == "consume":
+            consumption = event.get("data", {}).get("consumption")
+            if not isinstance(consumption, dict) or consumption.get("use_mode") != "eat":
+                family = None
         bucket = totals.setdefault(run_id, {}).setdefault(agent, {})
         key = family or "unclassified"
         bucket[key] = bucket.get(key, 0.0) + _interval_minutes(event)
@@ -657,24 +720,30 @@ def _bigrams(text: str) -> frozenset[str]:
     return frozenset(text[index:index + 2] for index in range(len(text) - 1))
 
 
-def _episode_pairs(events: list[dict[str, Any]]) -> tuple[int, int, int]:
-    """@brief 统计同类型记忆两两组合中 bigram Jaccard ≥ 0.6 的对数、总对数与文本条数。"""
+def _episode_pairs(events: list[dict[str, Any]]) -> tuple[int, int, int, int]:
+    """@brief 仅从规范主观快照统计同类型 bigram Jaccard；畸形快照记缺证。"""
     by_type: dict[str, list[str]] = {}
     texts_found = 0
+    malformed = 0
     for event in events:
         if event.get("event_type") != "memory_updated":
             continue
         data = event.get("data", {})
         episodes = data.get("episodes")
         if not isinstance(episodes, list):
+            malformed += 1
             continue
         for episode in episodes:
-            if not isinstance(episode, Mapping) or not isinstance(episode.get("text"), str):
+            if (not isinstance(episode, Mapping)
+                    or set(episode) != {"id", "type", "text", "epistemic_status"}
+                    or not isinstance(episode["id"], str) or not episode["id"]
+                    or not isinstance(episode["type"], str) or not episode["type"]
+                    or not isinstance(episode["text"], str) or not episode["text"]
+                    or episode["epistemic_status"] != "subjective"):
+                malformed += 1
                 continue
             texts_found += 1
-            kind = str(episode.get("kind") or episode.get("type") or data.get("memory_type")
-                       or "unclassified")
-            by_type.setdefault(kind, []).append(episode["text"])
+            by_type.setdefault(episode["type"], []).append(episode["text"])
     qualifying = 0
     total = 0
     for texts in by_type.values():
@@ -682,7 +751,7 @@ def _episode_pairs(events: list[dict[str, Any]]) -> tuple[int, int, int]:
             for right in texts[index + 1:]:
                 total += 1
                 qualifying += _bigram_jaccard(left, right) >= 0.6
-    return qualifying, total, texts_found
+    return qualifying, total, texts_found, malformed
 
 
 def _bigram_jaccard(left: str, right: str) -> float:
@@ -696,7 +765,10 @@ def _bigram_jaccard(left: str, right: str) -> float:
 
 def _memory_repetition_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
     """@brief 计算同类型记忆两两 bigram Jaccard ≥ 0.6 的比例；门禁 ≤ 0.2。"""
-    qualifying, total, texts_found = _episode_pairs(events)
+    qualifying, total, texts_found, malformed = _episode_pairs(events)
+    if malformed:
+        notes.append(f"{malformed} 条主观记忆快照缺失或畸形，重复率无法计算")
+        return _gate(None, "<=", 0.2)
     if texts_found == 0:
         notes.append("memory_updated 未提供 episodes 文本，记忆重复率无法计算")
         return _gate(None, "<=", 0.2)

@@ -32,6 +32,7 @@ from worldmock.life.retrieval import (  # noqa: E402
 CONTENT_CORPORA: tuple[tuple[str, str], ...] = (
     ("movies/items.json", "list"),
     ("drama/items.json", "list"),
+    ("podcasts/items.json", "list"),
     ("novels/items.json", "list"),
     ("feed/items.json", "list"),
     ("feed/feed-items.json", "list"),

@@ -21,16 +21,20 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     _validate_identity(manifest)
     events = _read_artifact(root, manifest["artifacts"]["events"], "events.jsonl")
     activities = _read_artifact(root, manifest["artifacts"]["activities"], "activities.jsonl")
+    experiences = _read_artifact(
+        root, manifest["artifacts"]["verified_experiences"], "verified-experiences.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
     records = [Event.model_validate(row, strict=True) for row in events]
     checkpoint = _validate_checkpoint(manifest, records)
     _validate_events(manifest, records)
     _validate_assets(root, records, checkpoint, indexed)
     validate_account_history(records, checkpoint.state)
-    from worldmock.footprints.export import reconstruct_activities
+    from worldmock.footprints.export import _verified_experience_rows, reconstruct_activities
 
     if reconstruct_activities(records) != activities:
         raise IntegrityError("Export activities disagree with their authoritative events")
+    if _verified_experience_rows(manifest["frozen_run_manifest"]["agent_ids"], records) != experiences:
+        raise IntegrityError("Export verified experiences disagree with committed events")
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
 
@@ -72,7 +76,7 @@ def _validate_identity(manifest: dict) -> None:
         cursor = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time(), zone)
     if manifest["daily_coverage"] != days:
         raise IntegrityError("Export day coverage is inconsistent")
-    if set(manifest["artifacts"]) != {"events", "activities"}:
+    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences"}:
         raise IntegrityError("Export artifact set is invalid")
 
 

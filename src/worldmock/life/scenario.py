@@ -358,6 +358,7 @@ class MessageConfig(FrozenModel):
 CONTENT_KINDS = Literal[
     "feature_film",
     "drama_series",
+    "podcast_episode",
     "webnovel_excerpt",
     "news_feed",
     "joke_feed",
@@ -374,8 +375,20 @@ class ContentItemConfig(FrozenModel):
     duration_seconds: int = Field(gt=0)
     timeline_path: str = Field(min_length=1)
     timeline_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    audio_path: str | None = None
+    audio_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     entertainment_relief_per_hour: float = Field(ge=0, le=1)
     experience_label: str = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def validate_audio(self) -> "ContentItemConfig":
+        """@brief 只允许真实播客声明已冻结的本地音轨身份。"""
+        has_audio = bool(self.audio_path) and self.audio_sha256 is not None
+        if self.kind == "podcast_episode" and not has_audio:
+            raise ValueError("podcast episode requires audio path and SHA-256")
+        if self.kind != "podcast_episode" and (self.audio_path is not None or self.audio_sha256 is not None):
+            raise ValueError("non-podcast content cannot declare podcast audio")
+        return self
 
 
 class GameConfig(FrozenModel):

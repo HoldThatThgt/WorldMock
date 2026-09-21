@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Any
 
 from worldmock.life import felt, narration, social
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, WorldState
+from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
@@ -80,22 +80,13 @@ def other_presences(state: WorldState, agent: AgentState) -> list[social.AgentPr
     for other in state.agents.values():
         if other.agent_id == agent.agent_id:
             continue
-        activity = state.activities.get(other.current_activity_id or "")
-        kind = activity.kind if activity is not None else None
-        active = activity is not None and activity.status == ActivityStatus.ACTIVE
+        kinds = {item.kind for item in active_activities(state, other.agent_id)}
         presences.append(social.AgentPresence(
             agent_id=f"agent:{other.agent_id}", name=other.name, location=other.location_id,
-            activity_family=_activity_family(kind, active),
-            awake=not (active and kind == ActivityKind.SLEEP),
-            actively_gaming=active and kind == ActivityKind.PLAY_GAME))
+            activity_family=" + ".join(sorted(kind.value for kind in kinds)) if kinds else "idle",
+            awake=ActivityKind.SLEEP not in kinds,
+            actively_gaming=ActivityKind.PLAY_GAME in kinds))
     return presences
-
-
-def _activity_family(kind: ActivityKind | None, active: bool) -> str:
-    """@brief 活动家族：进行中取活动 kind 文本，否则 idle。"""
-    if not active or kind is None:
-        return "idle"
-    return kind.value
 
 
 def people_here_views(state: WorldState, agent: AgentState) -> list[dict[str, Any]]:
@@ -191,7 +182,7 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
         "scene": _scene_projection(inputs, local, levels, people, inbox),
         "facts": _facts_projection(inputs, local, levels, people, inbox),
         "body": body_data, "balance_fen": state.accounts[agent.balance_account_id],
-        "active_activity": activity_rows["control"],
+        "active_activities": activity_rows["control"],
         "paused_activities": activity_rows.get("paused_control"),
     }
     if inputs.motivation_internal is not None:
@@ -211,7 +202,7 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "location": location.name if location else agent.location_id,
         "people_here": [item["name"] for item in people],
         "felt": levels,
-        "current_activity": activity_rows["current"] or {},
+        "current_activities": activity_rows["current"],
         "paused_activities": activity_rows["paused"],
         "day_plan": _plan_row(agent, now),
         "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
@@ -219,6 +210,7 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "todos_summary": _todos_summary(inputs.task_rows, now),
         "reachable_places": inputs.extras.get("reachable_places", []),
         "inventory": _inventory_names(agent, inputs.scenario),
+        "local_food_summary": inputs.extras["local_food_summary"],
         "recent_action_results": [row["message"] for row in inputs.recent_results[-1:]],
     }
 

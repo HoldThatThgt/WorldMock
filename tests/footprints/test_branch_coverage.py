@@ -118,6 +118,8 @@ def _rewrite_jsonl(directory, name, rows):
         manifest["artifacts"]["events"] = descriptor
     elif name == "activities.jsonl":
         manifest["artifacts"]["activities"] = descriptor
+    elif name == "verified-experiences.jsonl":
+        manifest["artifacts"]["verified_experiences"] = descriptor
     else:
         manifest["asset_index"] = descriptor
     manifest_path.write_text(json.dumps(manifest))
@@ -199,20 +201,21 @@ def test_efficiency_reports_missing_and_partial_samples():
         # 工作结算：一个有效、一个无效（时长为零）。
         _event(1, "activity_progress", data={
             "activity": {"kind": "work"},
-            "body_settlement": {"duration_seconds": 100, "work_efficiency": 0.5},
+            "interval_start": 100, "interval_end": 101, "activity_efficiency": 0.5,
         }),
         _event(2, "activity_progress", data={
             "activity": {"kind": "work"},
-            "body_settlement": {"duration_seconds": 0, "work_efficiency": 0.5},
+            "interval_start": 102, "interval_end": 102, "activity_efficiency": 0.5,
         }),
-        # 食品消费：consumption 在场但无 food_settlement。
+        # 非食用不进入食品利用效率分母。
         _event(3, "activity_progress", data={
-            "activity": {"kind": "consume"}, "consumption": {"note": "no settlement"},
+            "activity": {"kind": "consume"}, "consumption": {"use_mode": "use"},
         }),
-        # 食品消费：food_settlement 在场但效率缺失。
+        # 正增量食用已发生，但本活动食品效率缺失。
         _event(4, "activity_progress", data={
             "activity": {"kind": "consume"},
-            "consumption": {"food_settlement": {"duration_seconds": 50}},
+            "interval_start": 103, "interval_end": 104,
+            "consumption": {"use_mode": "eat", "items": [{"interval_quantity": 0.5}]},
         }),
         _event(5, "run_ended", occurred_at=200),
     ]
@@ -227,6 +230,14 @@ def test_efficiency_reports_missing_and_partial_samples():
 
 
 def test_memory_quality_reports_each_problem_code():
+    def update_data(identity):
+        return {"operation": "append_episodes", "created_episode_ids": [identity],
+                "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
+                "text": "我想出门", "epistemic_status": "subjective"}],
+                "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
+                "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
+                "consolidated": False, "observation_event_id": "observation-absent",
+                "verified_event_ids": []}
     bad_json = _tool_response("call-1", "{not json", name="memory_read")
     not_a_list = _tool_response("call-2", {"ids": "not-a-list"}, name="memory_read")
     memories_not_list = _tool_response("call-3", {"memories": "nope"})
@@ -253,9 +264,9 @@ def test_memory_quality_reports_each_problem_code():
                data={"phase": "response", "call_id": "call-9", "error": "memory tool failed"}),
         _event(10, "memory_updated", agent_id=1, decision_id="d1", data={"episode_ids": "bad"}),
         _event(11, "memory_updated", agent_id=1, decision_id="d2",
-               data={"episode_ids": ["m1"]}),
+               data=update_data("m1")),
         _event(12, "memory_updated", agent_id=1, decision_id="d2",
-               data={"episode_ids": ["m1"]}),
+               data=update_data("m1")),
         _event(13, "run_failed", occurred_at=200, data={"error": "memories corrupted"}),
     ]
     memory = _run_report(events, [], _manifest(end=200))["memory_references"]
@@ -671,7 +682,7 @@ def test_reconstruct_activities_rejects_invalid_progress_chains(craft):
 
 
 @pytest.mark.parametrize("tamper", [
-    "identity", "artifact_set", "activities_disagree", "quality_path",
+    "identity", "artifact_set", "activities_disagree", "verified_experiences_disagree", "quality_path",
     "checkpoint_manifest", "checkpoint_world", "checkpoint_participants",
     "checkpoint_event", "event_seq", "causal", "ancestor_return",
     "ancestor_before_branch", "run_failed", "no_end",
@@ -688,6 +699,9 @@ def test_validate_export_rejects_each_tamper_shape(tmp_path, tamper):
         manifest["artifacts"]["extra"] = manifest["artifacts"]["events"]
     elif tamper == "activities_disagree":
         _rewrite_jsonl(directory, "activities.jsonl", [{"activity_id": "ghost"}])
+        manifest = _load_manifest_json(directory)
+    elif tamper == "verified_experiences_disagree":
+        _rewrite_jsonl(directory, "verified-experiences.jsonl", [{"kind": "waited", "agent_id": 1}])
         manifest = _load_manifest_json(directory)
     elif tamper == "quality_path":
         manifest["quality_report"]["path"] = "elsewhere.json"

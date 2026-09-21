@@ -24,8 +24,9 @@ def test_title_sources_cover_movies_dramas_novels_and_single_experience() -> Non
     titles = load_content_titles(scenario.contents, Path("corpora"))
     by_id = {item.item_id: item.kind for item in scenario.contents}
     titled_kinds = {by_id[item_id] for item_id in titles}
-    assert titled_kinds == {"feature_film", "drama_series", "webnovel_excerpt",
+    assert titled_kinds == {"feature_film", "drama_series", "podcast_episode", "webnovel_excerpt",
                             "subtitle_experience"}
+    assert titles["podcast-nasa-space-habitat-excerpt"] == "Space Habitat (English interview excerpt)"
     assert titles["sintel-en-subtitles"] == "Sintel"
     movie_titles = {row["item_id"]: row["title"] for row
                     in json.loads(Path("corpora/movies/items.json").read_text())}

@@ -22,6 +22,7 @@ def _world_state() -> WorldState:
         balance_account_id="agent:1",
         body=BodyState(energy_kcal=500, sleep_pressure=0.0, sleep_deficit_hours=1, entertainment_need=0.5),
         active_effects={"work_notes", "coffee"},
+        body_settled_at=1,
         next_decision_at=1,
         read_message_ids={"mail-z", "mail-a"},
         visible_message_ids={"visible-z", "visible-a"},
@@ -40,13 +41,13 @@ def _world_state() -> WorldState:
         last_settled_at=1,
         elapsed_seconds=0,
         planned_duration_seconds=9,
-        resource_claims={"hands", "device"},
+        resource_claims={"position"},
         origin_action_id="action-1",
         origin_decision_id="decision-1",
         origin_request_event_id="request-1",
     )
     return WorldState(
-        schema_version=4,
+        schema_version=5,
         version=1,
         current_time=1,
         end_time=10,

@@ -27,6 +27,7 @@ def storefront_case():
     scenario = semantics.scenario
     now = epoch('2026-01-05T12:00:00+08:00')
     agent = AgentState(agent_id=1, name='测试人物', location_id='home', balance_account_id='agent:1',
+                       body_settled_at=now,
                        body=BodyState(energy_kcal=1800, entertainment_need=0.2), next_decision_at=now)
     state = WorldState(
         schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=now,
@@ -35,7 +36,11 @@ def storefront_case():
         agents={1: agent}, accounts=dict(semantics.accounts), random_seed=1, random_state='test-state',
         **initial_supply_state(scenario, now))
     market = [supply for supply in scenario.supplies if supply.location_id == 'market']
-    primary, second = market[:2]
+    primary = next(supply for supply in market
+                   if supply.supply_id == 'supply-market-food-6923644266066')
+    second = next(supply for supply in market
+                  if supply.seller_account_id == primary.seller_account_id
+                  and supply.product_id != primary.product_id)
     alternative = next(supply for supply in scenario.supplies
                        if supply.product_id == primary.product_id and supply.location_id != 'market')
     return semantics, state, primary, second, alternative

@@ -29,7 +29,8 @@ _PLAIN_KIND_LABELS = {"wait": "空档", "sleep": "睡觉", "work": "工作"}
 TRAVEL_MODES = {"driving": "驾车", "walking": "步行"}
 BROWSE_LABELS = {"product_catalog": "商品目录", "foods": "食品目录", "feature_film": "电影",
                  "drama_series": "剧集", "webnovel_excerpt": "网文", "news_feed": "新闻",
-                 "joke_feed": "段子", "subtitle_experience": "字幕体验", "game_session": "游戏"}
+                 "joke_feed": "段子", "subtitle_experience": "字幕体验", "game_session": "游戏",
+                 "podcast_episode": "播客"}
 
 WEEKDAYS = ("一", "二", "三", "四", "五", "六", "日")
 _HEX_ID = re.compile(r"^[0-9a-f]{16,}$")
@@ -71,23 +72,27 @@ def _segments_for_day(conn: sqlite3.Connection, agent_id: int, bounds: tuple[int
 
 
 def _merge_runs(segments: list[dict]) -> list[dict]:
-    """@brief 把事件流中连续的同 activity_progress 段合并为一个运行块。
+    """@brief 按活动身份和实际区间合并续行，保留并行活动各自的完整行。
 
     总时长按逐段真实区间累加（静默边界续行折进来），段数保留原始计数；
     被其他活动打断后恢复的同一活动形成独立运行块，不跨断点合并。
     """
-    runs: list[dict] = []
+    grouped: dict[str, list[dict]] = {}
     for segment in segments:
         activity_id = str(segment["snapshot"].get("activity_id") or "")
-        previous = runs[-1] if runs else None
-        if previous is not None and previous["activity_id"] == activity_id:
-            previous["end"] = segment["end"]
-            previous["seconds"] += segment["end"] - segment["start"]
-            previous["count"] += 1
-        else:
-            runs.append({"activity_id": activity_id, "start": segment["start"], "end": segment["end"],
-                         "seconds": segment["end"] - segment["start"], "count": 1,
-                         "snapshot": segment["snapshot"]})
+        grouped.setdefault(activity_id, []).append(segment)
+    runs: list[dict] = []
+    for activity_id, parts in grouped.items():
+        for segment in sorted(parts, key=lambda item: (item["start"], item["end"])):
+            previous = runs[-1] if runs and runs[-1]["activity_id"] == activity_id else None
+            if previous is not None and previous["end"] == segment["start"]:
+                previous["end"] = segment["end"]
+                previous["seconds"] += segment["end"] - segment["start"]
+                previous["count"] += 1
+            else:
+                runs.append({"activity_id": activity_id, "start": segment["start"], "end": segment["end"],
+                             "seconds": segment["end"] - segment["start"], "count": 1,
+                             "snapshot": segment["snapshot"]})
     return runs
 
 

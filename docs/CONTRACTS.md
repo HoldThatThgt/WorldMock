@@ -51,6 +51,7 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
 | `observe` | `context` (宿主只读 RPC) | 当前可见状态、已到达通知和已完成的内容接触结果 |
+| `start_parallel_activities` | `activities` | 至少两项；子项分别符合 StartBasicActivityRequest、StartTargetedActivityRequest、StartTravelRequest、ConsumeRequest 或 StartSocialActivityRequest；禁止瞬时动作和嵌套组合 |
 | `start_basic_activity` | `activity_type`, `planned_duration_seconds` | `status: "submitted"`, `action_id` |
 | `start_targeted_activity` | `target_id`, `activity_type`, `planned_duration_seconds`, `playback_speed` | `status: "submitted"`, `action_id` |
 | `start_travel` | `destination_id`, `travel_mode`, `planned_duration_seconds` | `status: "submitted"`, `action_id` |
@@ -83,7 +84,7 @@ InteractionMenu = {
 ```
 
 两个数组都非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
-`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 注册的工具名，包含 `discover_places`；
+`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 注册的工具名，包含 `discover_places` 与 `start_parallel_activities`；
 `allowed_activity_kinds` 的闭集是当前可供性注册表的 `kinds`。
 场景地点类缺项或多项、人物字段缺失、未知名称、错误类型、重复、空数组或缺少保护项均拒绝加载。
 
@@ -192,6 +193,7 @@ flowchart LR
 
 | 请求 | 主要业务字段 | 结算时的关键检查 |
 | --- | --- | --- |
+| 组合启动 | `activities`，至少两项既有严格基础/目标/出行/消费/社交启动请求 | 组合工具显式被菜单允许，全部子项按各自菜单与目标校验，资源相容，整体接受或拒绝 |
 | 启动活动 | `activity_type`, `target_id`, `planned_duration_seconds`, `playback_speed`；出行另有 `destination_id`、`travel_mode` | 内容已可访问、位置合法、没有冲突占用；持续时间取 60–86400 秒 |
 | 修改活动 | `activity_id`, `operation` (`pause`/`resume`/`cancel`)；变速走独立的 `change_playback_speed` 请求，字段为 `activity_id`, `playback_speed` | 活动属于调用者，转换合法；倍速在已声明范围内 |
 | 发现地点 | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds` | 选择范围、地图身份、道路状态和实际返回信息；只登记生活动作 |
@@ -275,13 +277,13 @@ FulfillmentKind = Literal["delivery", "pickup"]
 ContractKind = Literal["package", "hourly", "piece"]
 ```
 
-`lifestyle` 是生活活动子类型的统一活动类型，具体条目放 `target_id`，令牌形式为 `lifestyle:<activity_id>`；`chat` 与 `call` 是交谈与通话的前台活动类型，不在可供性注册表内。
+`lifestyle` 是生活活动子类型的统一活动类型，具体条目放 `target_id`，令牌形式为 `lifestyle:<activity_id>`；`chat` 与 `call` 是交谈与通话的独立活动类型，不在可供性注册表内。
 
 | 接口 | 取值 |
 | --- | --- |
 | 订单状态 `DeliveryState.status` | `pending`、`ready`、`delivered`、`cancelled` |
 | 决策轮状态 `DecisionRoundState.status` | `open`、`committed`、`aborted` |
-| 世界状态结构版本 `WorldState.schema_version` | 4 |
+| 世界状态结构版本 `WorldState.schema_version` | 5 |
 
 环境自主到期事件（世界状态 `pending_events`）的类型闭集：
 
@@ -320,7 +322,7 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 4。
+当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 5。
 这些版本分别约束不同输入，不能相互替代。旧商品门店字段、旧场景内嵌地点和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
@@ -468,7 +470,7 @@ MessageKind = Literal["direct", "chat_invite"]
 | `CONTACT_NOT_FOUND` | 通话对象不是本人声明的联系人 |
 | `CALL_DURATION_OUT_OF_RANGE` | 通话时长超出 10–60 分钟 |
 | `CONTACT_REPLY_NOT_MODEL` | 对非 `model` 策略的联系人登记模型回复 |
-| `RESOURCE_CONFLICT` | 本人已有进行中的前台活动时发起交谈或通话 |
+| `RESOURCE_CONFLICT` | 新建或恢复活动的个人独占资源与本人 ACTIVE 活动冲突，或组合内部冲突 |
 | `SOCIAL_ACTIVITY_CANNOT_PAUSE` | 对交谈或通话发起暂停 |
 | `SOCIAL_ACTIVITY_OPERATION_UNKNOWN` | 交谈或通话的变更操作不在取消与恢复之内 |
 | `ACTIVITY_TOO_SHORT` | 折算后的社交活动时长不足 60 秒 |
@@ -494,7 +496,7 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `current_epoch`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文场景渲染输入；`day_plan` 为 `{goals:[{intent_kind,progressed}]}`，按清单顺序显示意图与已推进状态，完整目标在 facts 中保留；当前时刻为通用环境事实 |
+| `scene` | `current_time`, `current_epoch`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `recent_action_results` | 中文场景渲染输入；`day_plan` 为 `{goals:[{intent_kind,progressed}]}`，按清单顺序显示意图与已推进状态，完整目标在 facts 中保留；当前时刻为通用环境事实 |
 | `facts` | `current_time`, `current_epoch`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具事实清单；`day_plan` 为完整当日目标对象或 null；空 goals 仍是已提交 |
 
 | `scene` 行 | 字段 |
@@ -532,20 +534,49 @@ flowchart LR
 
 ### 活动控制行
 
-观察顶层的 `active_activity` 是事件级工具支持行，供 LifeAgent 冻结本轮活动控制合同（继续/暂停/取消的身份枚举），不进 scene/facts 提示。人物活动槽位为空时整体为 `null`；非空时控制行是恰好 8 键的字段闭集：
+观察顶层 `active_activities` 是稳定按 started_at、activity_id 排序的活动控制列表，无活动时为空列表。
+删除 active_activity 与人物 current_activity_id，不接受单项/列表双形状。
+WorldState.activities 是唯一活动事实源；人物另外持久保存 body_settled_at 及
+已实际交付的当前威胁 delivered_warning_signatures。状态、资源及时间不变量见
+[并行活动规格](dev/SPEC-dayrun-behavior.md#同一人物的活动集合)。
+
+每项恰好八键，供 LifeAgent 冻结继续、暂停、取消和变速的目标身份；内部 data 不直接复制进提示。
 
 | 字段 | 说明 |
 | --- | --- |
-| `activity_id` | 活动不透明身份 |
-| `kind` | 活动类型字符串（`ActivityKind` 枚举值） |
-| `status` | 恒为 `"active"`：槽位不变量保证 `current_activity_id` 非空时指向的活动必为 ACTIVE——完成、暂停、取消与截断都先离开 ACTIVE 并清空槽位，不存在非 active 活动留在槽内的路径 |
-| `title` | 关联内容或任务标题，无关联时为 `null` |
-| `progress` | 中文进度短语，与 scene 活动行同源 |
-| `elapsed_seconds` | 已进行整数秒 |
+| `activity_id` | 本人活动的不透明身份 |
+| `kind` | ActivityKind 枚举值 |
+| `status` | 恒为 active；仅从活动表实际 ACTIVE 项取得 |
+| `title` | 关联内容或任务标题，无关联时为 null |
+| `progress` | 中文进度短语，与 scene 活动列表同源 |
+| `elapsed_seconds` | 已执行整数秒 |
 | `planned_duration_seconds` | 计划整数秒 |
-| `data` | 活动数据的独立副本；游戏活动必须保留真实 `game_session_id`，与同次观察的 `games` 会话一致 |
+| `data` | 独立深拷贝；游戏保留真实 game_session_id，与同次观察会话一致 |
 
-同顶层的 `paused_activities` 为暂停活动列表，每项是活动完整 `model_dump`（含 `status="paused"`）加 `remaining_duration_seconds`、`minimum_energy_cost_kcal`、`resume_energy_feasible` 三键。两个顶层字段的 `status` 均由 LifeAgent 控制合同校验：缺键或非闭集值时本轮决策明确失败，不静默降级。
+`paused_activities` 仍提供暂停活动的完整记录及 remaining_duration_seconds、
+minimum_energy_cost_kcal、resume_energy_feasible。每项按独立生命周期控制；
+不从列表第一项猜测目标，不隐式暂停未点名活动，缺失或非法控制结构明确失败。
+scene 的 `current_activities` 必须表达集合，每项为 title、progress、verb；
+播客的 verb 为“听取”，其余为“进行”。不能把其中一项描述为人物的全部活动。
+观察 `occupied_resources` 是这些 ACTIVE 显式资源声明的排序并集；不另存状态，
+候选、人物工具 Schema、本地验证及环境准入均按同一注册表资源交集判定。
+
+组合启动结果 data.activities 提供各独立活动记录，顶层 activity_id 为 null。
+单项动作仍引用它自己的 activity_id。组合请求只在全部子活动终结后产生一次动作聚合终态，
+各子活动此前的完成或取消留在自身 activity_progress；完整聚合规则见特性规格。
+
+### 已核验经历与当地餐食
+
+observation.data.verified_experiences 是本人在该观察事件之前已提交的最近五条已核验经历，
+按 event_seq 正序；每项包含 kind、agent_id、activity_id、source_event_id、event_seq、
+occurred_at 和种类载荷。模型不能写入它，来源与事件正文由
+[记录引擎设计](design/05-recording-engine.md)维护。本轮 observation_event_id 绑定截止，
+只有实际展示过的 source_event_id 可作为本轮人物自述的引用。
+
+scene.local_food_summary 是当前地点餐食的一句中文说明，依据真实本地供给及当时购买条件。
+无可购餐食时如实说明；不能从有限窗口为空推出全店无食物，也不因该摘要授权未呈现供给。
+正式餐馆覆盖与音频片段合同见 [一日行为规格](dev/SPEC-dayrun-behavior.md)。
+内容品类增加 podcast_episode，沿用 watch 播放活动及内容进度；官方段落全部播放后才揭示文本。
 
 ### 体感与动机证据
 
@@ -944,38 +975,40 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 
 ### 记忆字段
 
-`finish` 的 `memories` 为 0–8 条，没有值得记录的新事件时允许空列表。每条的字段面：
+finish.memories 仍为零至八条。所有模型写入、反思及 memory_* 查询结果都是人物自述，
+持久记录和结果固定 epistemic_status=subjective；有效来源引用不赋予正文客观事实地位。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `type` | 枚举 | 记忆类型，取下方闭集十项之一 |
-| `importance` | 浮点，0–1 | 重要度 |
-| `keywords` | 文本数组，至多 12 项 | 供后续检索的关键词 |
-| `text` | 文本 | 记忆正文，不超过 1000 字符；不得为空，也不得包含 8 位以上的十六进制身份 |
-| `source` | 文本 | 来源标签，取值固定为 `decision_observation`，表示该条来自本次决策的观察 |
-| `refs` | 文本数组，1–8 项 | 来源引用；每项必须是本轮实际可见的来源身份（当前观察事件、已到达的动作结果事件，或本次决策展示过的记忆身份） |
-
-记忆类型闭集：
-
-```python
-MemoryEpisodeType = Literal[
-    "commitment", "relationship", "preference", "goal", "conflict",
-    "resolution", "identity", "event", "observation", "routine",
-]
-```
-
-写入的持久记录另带元数据：`id`、`agent_id`、`tick`、`tick_duration_sec`、`step_index`、`time`、`step_count`、`merge_count`。其中 `time` 是该条记忆的形成时刻，`id` 形如 `m_<决策跨度八位>_<序号六位>`。
-
-写入前按相似度合并：新记忆与最近 24 小时内、同 `type`、正文 bigram Jaccard 相似度不低于 0.6 的既有记录合并。合并只把 `merge_count` 加一、把 `time` 刷新为新时刻，不追加文本。每条输入记忆必须落库或合并，落库失败即报错，不静默丢弃。
-
-巩固（重写长期记忆文件）由三选一触发：自上次巩固以来 `importance` 累计达到 3.0、待巩固条数达到 10 条、人物进入睡眠后的第一个边界。进入巩固的候选为 `identity`、`preference`、`relationship`、`conflict`、`resolution` 五类，加上 `importance` 不低于 0.6 的 `commitment`、`goal`、`event`、`observation`；`routine` 不进入巩固候选。巩固产出的长期记忆文件固定六个章节：关于我、关系与常联系的人、近期在意的事、最近发生的重要事情、稳定的习惯与偏好、约束。
-
-反思在就寝后的巩固中同时执行一次：由三个问题引导生成至多五条洞见，每条必须引用至少一个输入记忆身份。写入的洞见记忆类型为 `observation`、`importance` 为 0.8、`source` 为 `reflection`；无有效文本或引用不存在的记忆即报错。
-
-| 字段 | 合同 |
+| 字段 | 类型及合同 |
 | --- | --- |
-| 检索结果 | 保存每次决策实际检索到的记忆，不仅保存最后一份 `MEMORY.md` |
-| 引用错误 | 记忆来源引用错误记录为模型产物问题，不修改原事件 |
+| type | commitment、relationship、preference、goal、conflict、resolution、identity、routine、reflection |
+| importance | 零至一浮点数 |
+| keywords | 至多十二项文本关键词 |
+| text | 非空、至多一千字符的人物语言，不包含八位以上十六进制身份 |
+| source | finish 固定 decision_observation，就寝反思为 reflection；表示形成来源，不表示事实已核验 |
+| refs | 一至八项本轮真正可见的观察、动作结果、已核验经历来源或主观记忆身份 |
+| epistemic_status | 固定 subjective；由严格人物输入与持久运行时共同保证 |
+
+WorldMock 删除模型可写 event、observation 类型。主观自由文字不得进入已核验经历、
+完成事实章节、客观指标或世界状态。memory_* 只查询主观 episodes，并明确返回其性质；
+近期实际经历来自本轮观察，不另建事实检索框架。
+
+持久 episode 保留 id、agent_id、tick、tick_duration_sec、step_index、time、step_count、
+merge_count。近二十四小时同类型 bigram Jaccard 不低于 0.6 时合并，更新计数与形成时刻，
+不重复追加文本。记忆更新区分新增与合并，合法合并旧身份不是重复落库。
+完整 MemoryUpdateEvidence 及 memory_updated 字段、主观快照和四个内容哈希由
+[记录引擎设计](design/05-recording-engine.md#已核验经历与主观记忆)唯一维护。
+
+主观巩固触发保持 importance 累计三、待巩固十条、入睡后的第一个边界三选一。
+主观归纳单独持久保存；模型不能直接重写完整 MEMORY.md。
+WorldMock 每步确定性装配身份、已核验经历和人物自述三个区段；刷新视图不重置主观巩固计数。
+当前提示的事实窗口只取当前观察，不再重复引用上一步 MEMORY.md 的旧事实窗口。
+
+就寝反思至多五条，必须引用有效输入记忆，type=reflection、importance=0.8、
+source=reflection、epistemic_status=subjective。这些新增身份进入同次更新证据。
+空 memories 合法；无任何变化可以没有更新事件，实际摘要或反思变化必须记录。
+写盘失败不报告成功。事件、哈希及来源截止的记录格式见
+[记录引擎设计](design/05-recording-engine.md)，行为与恢复验收见
+[一日行为规格](dev/SPEC-dayrun-behavior.md#已核验经历与人物自述)。
 
 ## LabelKit 输入结构与窗口编码
 
@@ -1235,7 +1268,7 @@ RunPhase = Literal[
 | 2026-09-20-statement-budget | 2026-09-20 | 决策自述生成参数 `max_tokens` 2000→8000：抽取阶段实测 reasoning 峰值 4925-6916，2000 预算下复杂决策 content 被 reasoning 烧穿（一日模拟 07:30 中断实证）；联系人回复代码常量同步 8000（合同无独立条目） |
 | 2026-09-20-reasoning-cap | 2026-09-20 | 三个有界生成调用点加 reasoning 上限（决策自述 1500、联系人回复 1500、画像抽取 3000，OpenRouter 扩展参数 `reasoning.max_tokens`）：temp 1.3 偶发 reasoning 思考螺旋烧穿全部 `max_tokens`（`finish=length`、content 为空，两次一日模拟 07:30 实测）；上限实测被尊重且只截断思考不伤内容；`reasoning.effort` 实测破坏输出，禁用。生成参数表新增 `reasoning` 上限列与联系人回复、画像抽取两行 |
 | 2026-09-20-temp-1-0 | 2026-09-20 | 决策自述生成参数 `temperature` 1.3→1.0：模型更换后旧温度偶发采样脱轨（reasoning 螺旋烧穿/多语言乱码/超长输出，均发于一日模拟 07:30 最富上下文轮次，累计 12 发 5 发病态；乱码样本 reasoning 3587 超 1500 上限，证实 `reasoning.max_tokens` 为软限制、正文中「实测被尊重」表述同步修正）；同请求 temp 1.0 与 0.8 各 4 发全部正常（8/8）。联系人回复请求不带 `temperature`（表载「不发送」），无变更 |
-| 2026-09-20-active-activity | 2026-09-20 | 观察投影字段节新增活动控制行合同：`active_activity` 控制行冻结为 7 键闭集（含 `status`，槽位不变量下恒 `"active"`），`paused_activities` 为完整 dump 加恢复可行性三键。迁移到极简控制行时丢 `status` 键曾致 LifeAgent 控制合同构建崩溃（runs/deepseek-day-openrouter 一日模拟 08:00 轮实证）；字段闭集防两侧再漂移 |
+| 2026-09-20-active-activity | 2026-09-20 | 观察投影字段节新增活动控制行合同：`active_activity` 控制行冻结为 7 键闭集（含 `status`，槽位不变量下恒 `"active"`），`paused_activities` 为完整 dump 加恢复可行性三键。迁移到极简控制行时丢 `status` 键曾致 LifeAgent 控制合同构建崩溃（runs/deepseek-day-openrouter 一日模拟 08:00 轮实证）；字段闭集防两侧再漂移；此历史合同已由上文八键 active_activities 集合及世界版本 5 取代 |
 | `2026-09-20-killpoint-conversions` | 2026-09-20 | 模型可控输入的引擎严格路径全部转为业务拒绝：`note` 上限 300 字符进日程骨架字段表（请求模型与持久层同限）；社交拒绝错误码表补 `MESSAGE_TEXT_TOO_LONG` 与 `CHAT_PARTNER_NOT_AVAILABLE`（交谈共同在场/可交谈校验）；结算拒绝错误码表补通用兜底 `ACTION_REQUEST_INVALID`（引擎边界请求再验证）。此前四条路径以裸异常穿透 `commit_decision_round` 杀死整个 run（unit-15 审计 E1-E3 探针复现），agent 侧记忆工具幻觉 id 改为可重试失败反馈（E4） |
 | `2026-09-20-plan-epoch-disclosure` | 2026-09-20 | 日程骨架单位披露合同：schema 一直要求 epoch 秒但提示只给 ISO 本地时间，模型猜成"当日分钟数"烧掉 33/83≈40% 模型调用直至 ReAct 预算耗尽（unit-11 审计 §6）。plan_day/revise_day_plan 工具描述与 `PlanSegmentInput.start/end` 字段描述写明绝对 Unix epoch 秒（UTC）；scene/facts 在 `current_time` 旁披露 `current_epoch` 与 `day_start_epoch`，时间句内并排渲染。工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
 | `2026-09-20-day-end-disclosure` | 2026-09-20 | 日程骨架披露第三个锚点 `day_end_epoch`（当日结束，即场景时区次日 00:00）：与 `day_end_seconds`/DayPlan 校验拒绝边界同源（段 `end` 越过即 `PLAN_SEGMENTS_INVALID`）。此前只披露 `current_epoch`/`day_start_epoch`，模型规划末段只能猜当日结束边界，猜过线即拒且拒绝消息不含边界值，run10 一日模拟 agent 2 连续 10 次被拒触发 fail-closed 死亡（unit-18）。scene/facts 键表、时间句、`PlanSegmentInput.end` 字段描述与 plan_day/revise_day_plan 工具描述硬规则同步；工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |

@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 
 from worldmock.catalog.affordances import SURFACE_TOOLS, default_affordances
 from worldmock.errors import IntegrityError
-from worldmock.life.models import FrozenModel, REQUEST_MODELS
+from worldmock.life.models import FrozenModel, REQUEST_MODELS, activity_start_tool
 
 #: 每份非空菜单必须显式保留的生活工具，避免切断计划、恢复与既有活动控制。
 PROTECTED_INTERACTION_TOOLS = frozenset({
@@ -161,6 +161,8 @@ def menu_allows_action(
     """
     if tool_name not in menu.allowed_tools:
         return False
+    if tool_name == "start_parallel_activities":
+        return all(menu_allows_action(menu, activity_start_tool(item), item) for item in request.activities)
     if tool_name in {"start_basic_activity", "start_targeted_activity"}:
         return menu_allows_activity(menu, _request_value(request, "activity_type"))
     if tool_name == "start_travel":

@@ -31,6 +31,7 @@ from worldmock.profile.coverage import (
 _MEDIA_KIND_LABELS = {
     "feature_film": "电影",
     "drama_series": "剧集",
+    "podcast_episode": "播客",
     "webnovel_excerpt": "网文",
     "news_feed": "新闻",
     "joke_feed": "段子",

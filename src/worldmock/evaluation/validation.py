@@ -273,8 +273,10 @@ def _validate_canonical_manifest(
     if coverage != expected:
         raise EvaluationError("invalid_input", "daily coverage does not match the declared window")
     artifacts = manifest.get("artifacts")
-    if not isinstance(artifacts, dict) or set(artifacts) != {"events", "activities"}:
-        raise EvaluationError("invalid_input", "delivery artifacts must contain events and activities")
+    required = {"events", "activities", "verified_experiences"} if source_kind == "worldmock" else {
+        "events", "activities"}
+    if not isinstance(artifacts, dict) or set(artifacts) != required:
+        raise EvaluationError("invalid_input", "delivery artifact set is invalid")
 
 
 def _source_run_ids(manifest: JsonObject) -> tuple[str, ...]:

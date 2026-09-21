@@ -202,6 +202,17 @@ uv run python scripts/prepare_map.py \
 `750` 表示 7.50 元；保留原有效期前要确认它覆盖本次模拟。
 运行中的定时调价和补货用场景 `price_changes`、`product_releases`，详见[场景配置](scenarios.md)。
 
+三个正式场景选中的餐馆供给均为明确的场景假设，不是实际门店菜单：
+
+| 餐馆地点 | 选中正餐商品 | 供给身份 |
+| --- | --- | --- |
+| `poi-3538660453` | `meal-0018` 鸡汤面 | `supply-poi-3538660453-meal-0018` |
+| `poi-3538682404` | `meal-0022` 糖醋里脊 | `supply-poi-3538682404-meal-0022` |
+| `poi-3538682408` | `meal-0026` 糖醋肉盖饭 | `supply-poi-3538682408-meal-0026` |
+
+映射与库存依据保存在[供给假设](../../corpora/zhangjiang-map/supply-assumptions.json)。
+这些供给支持本店自提；其他地图地点可以没有餐食，售罄或闭店时也不自动补货。
+
 ### 新增商品对象
 
 优先选已有品类，让使用方式、单位和规则继承下来。以下是**一条完整原始对象**；
@@ -306,6 +317,7 @@ uv run python scripts/build_catalog.py --check
 | 社交流 | `social/weibo/feed-items.json`、`social/zhihu/feed-items.json`、`social/movie_reviews/feed-items.json` |
 | 游戏 | `games/library/items.json`，预生成文件由场景 `games` 引用 |
 | 字幕体验 | `sintel/media-identity.json`，单个对象 |
+| NASA 播客选段 | `podcasts/items.json`、官方页快照、音频选段与原始锚点身份文件；见下文 |
 | 工作材料 | `scenario-work/materials.json` 的 `materials` 列表；任务另外引用实际输入文件和隐藏验收文件 |
 
 内容元数据至少包含非空 `title`、非空列表 `genre`、非空 `language`、非负整数 `age_rating`。
@@ -327,10 +339,20 @@ uv run python scripts/build_catalog.py --check
 }
 ```
 
-`kind` 只接受 `feature_film`、`drama_series`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
+`kind` 只接受 `feature_film`、`drama_series`、`podcast_episode`、`webnovel_excerpt`、`news_feed`、`joke_feed`、
 `subtitle_experience`、`game_session`。时长为正整数秒，娱乐缓解率为每小时 0–1。
 时间轴使用 SRT：片段编号、`HH:MM:SS,mmm --> HH:MM:SS,mmm`、正文，片段间空行；必须非空且不重叠。
 人物按实际接触进度看到正文，不会直接看到整份文件。
+
+现有 NASA `podcast_episode` 使用 Houston We Have a Podcast — Space Habitat 的
+00:01:52–00:14:58 英文访谈选段，选段媒体时长 786 秒。
+[官方页快照](../../corpora/podcasts/nasa-space-habitat.source.html)、
+[原始锚点与音频身份](../../corpora/podcasts/nasa-space-habitat.identity.json)、
+[本地音频选段](../../corpora/podcasts/nasa-space-habitat.excerpt.mp3)和
+[派生时间轴](../../corpora/podcasts/podcast-0001.srt)随语料清单绑定。
+`python scripts/build_nasa_podcast.py --check` 可按官方段落锚点复核 SRT 与身份文件。
+只在媒体位置完整越过下一官方锚点后揭示该段文字；该时间轴没有逐词精度。
+来源使用条件见[语料通知](../../corpora/LICENSES.md)，不得暗示 NASA 认可本项目。
 
 ### 配置可玩的游戏
 

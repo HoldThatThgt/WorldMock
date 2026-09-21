@@ -148,8 +148,8 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         assert not (set(REQUEST_MODELS) & names) if index >= 2 else set(REQUEST_MODELS) & names
     finish = next(tool["function"] for tool in dispatcher.requests[-1]["tools"]
                   if tool["function"]["name"] == "finish")
-    assert "Record observed facts and your intentions only" in finish["description"]
-    assert "never claim that the pending action has succeeded" in finish["description"]
+    assert "Every episode is subjective self-report" in finish["description"]
+    assert "Verified experiences are supplied by the environment" in finish["description"]
 
 
 @pytest.mark.asyncio
@@ -245,7 +245,7 @@ async def test_readonly_loop_uses_only_card_memory_and_question() -> None:
     assert len(dispatcher.requests) == 2
     assert agent._life_decision_statement is None
     first_user = dispatcher.requests[0]["messages"][1]["content"]
-    assert first_user == "我是一个爱散步的人。\n\n# Memory\n\n外部只读问题：What happened?"
+    assert first_user == "我是一个爱散步的人。\n\n主观归纳：\n# Subjective\n\n外部只读问题：What happened?"
     assert {tool["function"]["name"] for tool in dispatcher.requests[0]["tools"]} == (
         _MEMORY_TOOL_NAMES | {"finish"})
     assert {tool["function"]["name"] for tool in dispatcher.requests[1]["tools"]} == {"finish"}
@@ -282,14 +282,14 @@ async def test_user_budget_is_enforced_at_every_model_entry(monkeypatch, stage: 
         _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()]
     agent, _, dispatcher = _configured(responses, 3)
     request = _request(readonly=readonly)
-    monkeypatch.setattr(agent, "_build_memory_context", lambda: {"memory_md": "", "recent_episodes": []})
+    monkeypatch.setattr(agent, "_build_memory_context", lambda: {"subjective_summary": "", "recent_episodes": []})
     agent.prepare_react_loop(request)
     agent._life_decision_statement = _STATEMENT
     baseline = (agent._life_user_sections(request, with_facts=False) if stage == "decision_statement"
                 else agent.build_react_messages(request)[1]["content"])
-    memory_text = "x" * (USER_MESSAGE_CHAR_BUDGET - len(baseline) - 2 + extra)
+    memory_text = "x" * (USER_MESSAGE_CHAR_BUDGET - len(baseline) - len("主观归纳：\n") - (2 if readonly else 0) + extra)
     monkeypatch.setattr(agent, "_build_memory_context", lambda: {
-        "memory_md": memory_text, "recent_episodes": []})
+        "subjective_summary": memory_text, "recent_episodes": []})
     if extra or stage == "decision_statement":
         with pytest.raises(PromptBudgetExceededError, match="user message exceeds"):
             await agent.run_react_loop(request)

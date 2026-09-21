@@ -39,7 +39,7 @@ def scene_observation() -> dict:
         "location": "公司工位",
         "people_here": ["李雷", "韩梅梅"],
         "felt": {"hunger": "有点饿", "energy": "精力尚可"},
-        "current_activity": {"title": "写周报", "progress": "已写将近一半"},
+        "current_activities": [{"title": "写周报", "progress": "已写将近一半"}],
         "paused_activities": [
             {"title": "整理会议纪要", "progress": "已做二十分钟"},
         ],

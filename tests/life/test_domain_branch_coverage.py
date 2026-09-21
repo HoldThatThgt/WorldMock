@@ -191,6 +191,7 @@ def _body() -> BodyConfig:
 def _agent(**overrides) -> AgentState:
     payload = dict(
         agent_id=1, name="Lin", location_id="home", balance_account_id="agent:1",
+        body_settled_at=0,
         next_decision_at=0,
         body=BodyState(energy_kcal=1600, sleep_pressure=0.0, sleep_deficit_hours=4.0,
                        entertainment_need=0.5),
@@ -442,19 +443,23 @@ def test_social_actions_partner_presence_rejects_unknown_partner() -> None:
         partner_presence(_social_state(_agent()), "agent:9")
 
 
-def test_social_actions_start_chat_and_call_require_idle_agent() -> None:
-    """前台活动占用资源槽：已有主活动时交谈与通话都 RESOURCE_CONFLICT。"""
-    busy = _agent(current_activity_id="a0")
-    state = _social_state(busy)
+def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(engine_factory) -> None:
+    """社交启动声明注意力资源，引擎对已有播放逐项拒绝冲突。"""
+    busy = _agent()
+    watch = _activity(resource_claims={"attention", "device"})
+    state = _social_state(busy, activities={watch.activity_id: watch})
     state.agents[2] = _agent(agent_id=2, location_id="home")
     request = StartSocialActivityRequest(kind="chat", partner_id="agent:2",
                                          duration_minutes=10)
-    with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-        start_chat(state, busy, request, _origin(), "m1")
+    chat = start_chat(state, busy, request, _origin(), "m1")
     contact = social.Contact(contact_id="c1", salutation="妈", relation="母亲",
                              closeness=20, channels=("phone",), reply_policy="template")
-    with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-        start_call(busy, contact, request, _origin(), CURRENT)
+    call = start_call(busy, contact, request, _origin(), CURRENT)
+    engine = engine_factory()
+    for started in (chat, call):
+        assert "attention" in started.activity.resource_claims
+        with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
+            engine._require_available_resources(state, busy.agent_id, started.activity.resource_claims)
 
 
 def test_social_actions_chat_accepted_detects_partner_chat_activity() -> None:
@@ -475,21 +480,21 @@ def test_social_actions_advance_rejects_backwards_settlement_time() -> None:
 def test_social_actions_advance_skips_non_active_activity() -> None:
     """暂停的交谈推进为无结算空转，保留既有进度。"""
     paused = _activity(kind=ActivityKind.CHAT, status=ActivityStatus.PAUSED)
-    result = advance_social(paused, _agent(current_activity_id=None), 600, _body(),
+    result = advance_social(paused, _agent(), 600, _body(),
                             accepted=False)
     assert result.settlement is None and result.completed is False
     assert result.activity.status == ActivityStatus.PAUSED
 
 
-def test_social_actions_advance_completes_chat_and_clears_activity_slot() -> None:
-    """到计划终点完成交谈：终态+planned_end 边界并释放主活动槽。"""
+def test_social_actions_advance_completes_chat_without_agent_activity_slot() -> None:
+    """到计划终点完成交谈；终态归活动，人物不保存旧主活动槽。"""
     finishing = _activity(kind=ActivityKind.CHAT)
-    result = advance_social(finishing, _agent(current_activity_id="a1"), 600, _body(),
+    result = advance_social(finishing, _agent(), 600, _body(),
                             accepted=False)
     assert result.completed is True
     assert result.activity.status == ActivityStatus.COMPLETED
     assert result.activity.boundary_type == "planned_end"
-    assert result.agent.current_activity_id is None
+    assert result.agent.agent_id == 1 and result.agent.body_settled_at == 600
 
 
 @pytest.mark.parametrize(("kind", "accepted"), ((ActivityKind.CALL, False),
@@ -511,21 +516,21 @@ def test_social_actions_advance_applies_felt_ledger_by_activity(kind, accepted) 
 def test_social_activity_change_cancel_pause_and_unknown_operations() -> None:
     """社交活动转换闭集：取消任意时刻、不可暂停、未知操作拒绝、恢复无操作。"""
     active = _activity(kind=ActivityKind.CALL)
-    agent, cancelled = social_activity_change(_agent(current_activity_id="a1"), active,
+    agent, cancelled = social_activity_change(_agent(), active,
                                               "cancel", 100)
     assert cancelled.status == ActivityStatus.CANCELLED
     assert cancelled.boundary_type == "cancelled"
-    assert agent.current_activity_id is None
+    assert agent.agent_id == 1
     terminal = cancelled
     with pytest.raises(BusinessRuleError, match="ACTIVITY_ALREADY_TERMINAL"):
         social_activity_change(agent, terminal, "cancel", 100)
     with pytest.raises(BusinessRuleError, match="SOCIAL_ACTIVITY_CANNOT_PAUSE"):
-        social_activity_change(_agent(current_activity_id="a1"), active, "pause", 100)
+        social_activity_change(_agent(), active, "pause", 100)
     with pytest.raises(BusinessRuleError, match="SOCIAL_ACTIVITY_OPERATION_UNKNOWN"):
-        social_activity_change(_agent(current_activity_id="a1"), active, "rewind", 100)
-    same_agent, same = social_activity_change(_agent(current_activity_id="a1"), active,
+        social_activity_change(_agent(), active, "rewind", 100)
+    same_agent, same = social_activity_change(_agent(), active,
                                               "resume", 100)
-    assert same.activity_id == "a1" and same_agent.current_activity_id == "a1"
+    assert same.activity_id == "a1" and same_agent.agent_id == 1
 
 
 # ---------------------------------------------------------------------------
@@ -551,13 +556,13 @@ def test_change_activity_speed_changes_rate_at_feedback_boundary() -> None:
     watch = _feedback_activity(planned_end_at=2000,
                                data={"entertainment_relief_per_hour": 0.3,
                                      "exposure_count": 1})
-    agent = _agent(current_activity_id="a1")
+    agent = _agent()
     request = ChangeActivityRequest(activity_id="a1", operation=ActivityChange.CHANGE_SPEED,
                                     playback_speed=2.0)
     changed_agent, changed = change_activity(agent, watch, request, 1000, 300)
     assert changed.playback_speed == 2.0
     assert changed.next_interaction_at == 1300  # 严格未来且早于完成
-    assert changed_agent.current_activity_id == "a1"
+    assert changed.activity_id == "a1" and changed_agent.agent_id == 1
 
 
 def test_change_activity_speed_rejected_for_non_watch_activity() -> None:
@@ -566,7 +571,7 @@ def test_change_activity_speed_rejected_for_non_watch_activity() -> None:
     request = ChangeActivityRequest(activity_id="a1", operation=ActivityChange.CHANGE_SPEED,
                                     playback_speed=2.0)
     with pytest.raises(BusinessRuleError, match="PLAYBACK_SPEED_NOT_ALLOWED"):
-        change_activity(_agent(current_activity_id="a1"), game, request, 1000, 300)
+        change_activity(_agent(), game, request, 1000, 300)
 
 
 def test_continue_activity_rejects_activity_id_mismatch() -> None:
@@ -574,7 +579,7 @@ def test_continue_activity_rejects_activity_id_mismatch() -> None:
     watch = _feedback_activity(planned_end_at=2000)
     request = ContinueActivityRequest(activity_id="not-a1")
     with pytest.raises(BusinessRuleError, match="ACTIVITY_NOT_OWNED"):
-        continue_activity(_agent(current_activity_id="a1"), watch, request, 1000, 300)
+        continue_activity(_agent(), watch, request, 1000, 300)
 
 
 def test_advance_lifestyle_without_social_or_health_effects_skips_relief() -> None:
@@ -593,7 +598,7 @@ def test_advance_lifestyle_without_social_or_health_effects_skips_relief() -> No
 def test_change_activity_pause_at_game_feedback_boundary() -> None:
     """游戏交互边界（game_feedback）允许暂停；边界不符即拒绝。"""
     game = _feedback_activity(kind=ActivityKind.PLAY_GAME, boundary_type="game_feedback")
-    agent = _agent(current_activity_id="a1")
+    agent = _agent()
     request = ChangeActivityRequest(activity_id="a1", operation=ActivityChange.PAUSE)
     _, paused = change_activity(agent, game, request, 1000, 300)
     assert paused.status == ActivityStatus.PAUSED
@@ -602,25 +607,29 @@ def test_change_activity_pause_at_game_feedback_boundary() -> None:
         change_activity(agent, wrong, request, 1000, 300)
 
 
-def test_continue_activity_ownership_and_boundary_rules() -> None:
-    """继续活动要求所有权与恰在反馈边界。"""
+def test_continue_activity_ownership_and_active_state_rules() -> None:
+    """继续活动要求所有权和活动进行中；人物获准决策时无需旧反馈时刻。"""
     watch = _feedback_activity(planned_end_at=2000)
     request = ContinueActivityRequest(activity_id="a1")
     with pytest.raises(BusinessRuleError, match="ACTIVITY_NOT_OWNED"):
-        continue_activity(_agent(current_activity_id="other"), watch, request, 1000, 300)
-    not_due = _feedback_activity(planned_end_at=2000, next_interaction_at=1300)
+        continue_activity(_agent(agent_id=2), watch, request, 1000, 300)
+    not_due = _feedback_activity(planned_end_at=2000, status=ActivityStatus.PAUSED)
     with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
-        continue_activity(_agent(current_activity_id="a1"), not_due, request, 1000, 300)
-    _, kept = continue_activity(_agent(current_activity_id="a1"), watch, request, 1000, 300)
+        continue_activity(_agent(), not_due, request, 1000, 300)
+    _, kept = continue_activity(_agent(), watch, request, 1000, 300)
     assert kept.next_interaction_at == 1300
 
 
-def test_change_activity_resume_conflicts_with_occupied_slot() -> None:
-    """恢复暂停活动时主活动槽被占即 RESOURCE_CONFLICT。"""
-    paused = _activity(status=ActivityStatus.PAUSED)
-    request = ChangeActivityRequest(activity_id="a1", operation=ActivityChange.RESUME)
+def test_change_activity_resume_conflicts_with_occupied_resources(engine_factory) -> None:
+    """恢复前引擎校验同人的活动资源交集，冲突时暂停进度不变。"""
+    paused = _activity(status=ActivityStatus.PAUSED, resource_claims={"attention", "device"})
+    active = _activity(activity_id="occupied", resource_claims={"attention", "device"})
+    state = _world(_agent(), activities={"a1": paused, "occupied": active})
+    engine = engine_factory()
     with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
-        change_activity(_agent(current_activity_id="other"), paused, request, 1000, 300)
+        engine._require_available_resources(state, 1, paused.resource_claims, paused.activity_id)
+    assert state.activities["a1"].status == ActivityStatus.PAUSED
+    assert state.activities["a1"].elapsed_seconds == 0
 
 
 def test_change_activity_cancel_rejects_terminal_activity() -> None:
@@ -645,7 +654,7 @@ def test_truncate_activity_keeps_terminal_activity_untouched() -> None:
     """实验终点截断只作用于进行中/暂停活动，终态保持原样。"""
     done = _activity(status=ActivityStatus.COMPLETED, ended_at=600)
     changed, agent = truncate_activity(done, _agent(), 900)
-    assert changed is done and agent.current_activity_id is None
+    assert changed is done and agent == _agent()
 
 
 @pytest.mark.parametrize(
@@ -686,7 +695,8 @@ CONTRACT_PROFILE = {
     "comfort": {"balance_fen": 20000, "energy_kcal": 1200},
     "aspiration": {"daily_effective_work_seconds": 14400},
     "emotion_sensitivity": 0.3,
-    "attention_prior": {"feature_film": 0.3, "news_feed": 0.2, "joke_feed": 0.1,
+    "attention_prior": {"feature_film": 0.3, "podcast_episode": 0.05,
+                        "news_feed": 0.2, "joke_feed": 0.1,
                         "webnovel_excerpt": 0.05, "drama_series": 0.05,
                         "sport": 0.05, "hobby": 0.04, "outdoor": 0.03,
                         "wellness": 0.03, "household": 0.03, "learning": 0.03,
@@ -705,7 +715,7 @@ def _context(**overrides) -> MotivationContext:
         products=(), supplies=(), supply_stock={}, supply_quotes={}, opening_exceptions={},
         lifestyle_items=(), activity_location_kinds={},
         locations={}, routes=(), tasks=(),
-        task_totals={}, contents=(), content_progress={}, active_activity=None,
+        task_totals={}, contents=(), content_progress={}, active_activities=(),
         habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
@@ -783,29 +793,28 @@ def test_continue_candidate_covers_travel_lifestyle_and_consume_flows() -> None:
     context = _context(agent=_agent())
     travel = _activity(kind=ActivityKind.TRAVEL, travel_mode=TravelMode.DRIVING,
                        planned_end_at=3600, planned_duration_seconds=3600)
-    assert _continue_candidate(_context(active_activity=travel)) is not None
+    assert _continue_candidate(context, travel) is not None
     lifestyle_body = _body().model_copy(update={
         "activity_met": {**_body().activity_met, "lifestyle:jog": 2.0}})
     lifestyle = _activity(kind=ActivityKind.LIFESTYLE, target_id="jog",
                           planned_end_at=3600, planned_duration_seconds=3600)
-    assert _continue_candidate(_context(active_activity=lifestyle,
-                                        body=lifestyle_body)) is not None
+    assert _continue_candidate(_context(body=lifestyle_body), lifestyle) is not None
     consume = _activity(kind=ActivityKind.CONSUME,
                         planned_end_at=3600, planned_duration_seconds=3600,
                         data={"food_energy_kcal_per_hour": 600})
-    candidate = _continue_candidate(_context(active_activity=consume))
+    candidate = _continue_candidate(context, consume)
     assert candidate is not None and candidate.energy_delta > -candidate.energy_delta
 
 
 def test_continue_candidate_skips_when_remaining_or_energy_infeasible() -> None:
     """剩余不足一分钟或能量不可完成时不出继续候选。"""
     almost_done = _activity(elapsed_seconds=570)
-    assert _continue_candidate(_context(active_activity=almost_done)) is None
+    assert _continue_candidate(_context(), almost_done) is None
     long_work = _activity(kind=ActivityKind.WORK, planned_end_at=7200,
                           planned_duration_seconds=7200)
     exhausted = _agent(body=BodyState(energy_kcal=10, sleep_pressure=0.0,
                                       sleep_deficit_hours=4.0, entertainment_need=0.5))
-    assert _continue_candidate(_context(agent=exhausted, active_activity=long_work)) is None
+    assert _continue_candidate(_context(agent=exhausted), long_work) is None
 
 
 def test_continue_candidate_skips_social_boundary_kinds_without_met_lookup() -> None:
@@ -818,8 +827,8 @@ def test_continue_candidate_skips_social_boundary_kinds_without_met_lookup() -> 
                      planned_duration_seconds=900)
     call = _activity(kind=ActivityKind.CALL, planned_end_at=900,
                      planned_duration_seconds=900)
-    assert _continue_candidate(_context(active_activity=chat)) is None
-    assert _continue_candidate(_context(active_activity=call)) is None
+    assert _continue_candidate(_context(), chat) is None
+    assert _continue_candidate(_context(), call) is None
 
 
 def test_sleep_deficit_delta_recovers_only_for_sleep() -> None:

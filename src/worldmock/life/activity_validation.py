@@ -1,0 +1,86 @@
+"""@brief 已持久化活动的目标和路线身份恢复校验。"""
+
+from __future__ import annotations
+
+import logging
+
+from worldmock.errors import IntegrityError
+from worldmock.life.activities import combined_energy_cost
+from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
+from worldmock.life.models import (ActivityKind, ActivityState, ConsumeRequest,
+                                   WorldState, active_activities)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+def validate_activity_targets(state: WorldState, rules, scenario) -> None:
+    """@brief 用冻结场景与内容目录核对全部持久活动目标。"""
+    routes = {route.route_id: route for route in scenario.routes}
+    people = {person.agent_id: person for person in scenario.agents}
+    for activity in state.activities.values():
+        if not _target_is_valid(activity, state, rules, routes, people):
+            _LOGGER.error("Persisted activity target is invalid: %s", activity.activity_id)
+            raise IntegrityError("Persisted activity target is invalid")
+
+
+def validate_activity_energy(state: WorldState, config) -> None:
+    """@brief 恢复时用同一分段预测拒绝能量不足的进行中集合。"""
+    for agent_id, agent in state.agents.items():
+        activities = active_activities(state, agent_id)
+        if not activities or all(item.kind in ENERGY_RECOVERY_ACTIVITY_KINDS for item in activities):
+            continue
+        if combined_energy_cost(state, agent_id, config) > agent.body.energy_kcal + 1e-9:
+            _LOGGER.error("Persisted active activities exceed available energy: %s", agent_id)
+            raise IntegrityError("Persisted active activities exceed available energy")
+
+
+def _target_is_valid(activity: ActivityState, state: WorldState, rules,
+                     routes: dict, people: dict) -> bool:
+    """@brief 各活动类型只接受自身权威目标和冻结来源身份。"""
+    kind = activity.kind
+    target = activity.target_id
+    data = activity.data
+    if kind == ActivityKind.WORK:
+        valid = target in rules.tasks and data.get("task_id") == target
+    elif kind == ActivityKind.WATCH:
+        valid = target in rules.contents and data.get("content_id") == target
+    elif kind == ActivityKind.PLAY_GAME:
+        valid = target in rules.games and data.get("game_id") == target
+    elif kind == ActivityKind.READ_MAIL:
+        valid = target in rules.messages and data.get("message_id") == target
+    elif kind == ActivityKind.BROWSE:
+        valid = target == "product_catalog" and data.get("catalog") == "all_products"
+    elif kind == ActivityKind.LIFESTYLE:
+        valid = target in rules.activity_location_kinds
+    elif kind == ActivityKind.CONSUME:
+        valid = _consume_target_is_valid(activity, rules)
+    elif kind == ActivityKind.TRAVEL:
+        valid = _travel_target_is_valid(activity, routes)
+    elif kind == ActivityKind.CHAT:
+        valid = (target is None and data.get("partner_id") in
+                 {f"agent:{agent_id}" for agent_id in state.agents if agent_id != activity.agent_id})
+    elif kind == ActivityKind.CALL:
+        owner = people.get(activity.agent_id)
+        valid = (target is None and owner is not None
+                 and data.get("contact_id") in {contact.contact_id for contact in owner.contacts})
+    else:
+        valid = target is None
+    return valid and (kind == ActivityKind.TRAVEL or activity.destination_id is None)
+
+
+def _consume_target_is_valid(activity: ActivityState, rules) -> bool:
+    """@brief 已持有商品请求仍须与持久目标和冻结商品目录一致。"""
+    try:
+        request = ConsumeRequest.model_validate(activity.data["request"])
+    except (KeyError, ValueError):
+        return False
+    return (bool(request.items) and activity.target_id == request.items[0].product_id
+            and all(item.product_id in rules.items for item in request.items))
+
+
+def _travel_target_is_valid(activity: ActivityState, routes: dict) -> bool:
+    """@brief 出行目的地、方式和路线身份均须来自同一冻结路线。"""
+    route = routes.get(activity.data.get("route_id"))
+    return (activity.target_id is None and route is not None
+            and route.destination_id == activity.destination_id
+            and route.mode == activity.travel_mode)

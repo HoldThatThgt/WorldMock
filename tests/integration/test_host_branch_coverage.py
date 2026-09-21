@@ -897,7 +897,7 @@ def test_read_status_reports_empty_world_and_wall_time(tmp_path):
 
 def test_read_status_decision_boundaries(tmp_path):
     """决策边界：终态返回 None、非法持久时间拒绝、未来边界截到终点。"""
-    agent = {"agent_id": 1, "location_id": "home", "current_activity_id": None,
+    agent = {"agent_id": 1, "location_id": "home",
              "next_decision_at": 100}
     store, run_dir = _status_store(tmp_path, {1: agent})
     store.close()

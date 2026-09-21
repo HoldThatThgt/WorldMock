@@ -27,6 +27,7 @@ from worldmock.life.models import (
     BodyState,
     StartSocialActivityRequest,
     WorldState,
+    active_activities,
 )
 from worldmock.life.scenario import BodyConfig
 
@@ -53,22 +54,19 @@ def partner_presence(state: WorldState, partner_id: str) -> social.AgentPresence
     if len(matches) != 1:
         raise BusinessRuleError("SOCIAL_PARTNER_NOT_FOUND")
     other = matches[0]
-    activity = state.activities.get(other.current_activity_id or "")
-    active = activity is not None and activity.status == ActivityStatus.ACTIVE
-    kind = activity.kind if activity is not None else None
+    active = active_activities(state, other.agent_id)
+    kinds = {activity.kind for activity in active}
     return social.AgentPresence(
         agent_id=partner_id, name=other.name, location=other.location_id,
-        activity_family=kind.value if active and kind else "idle",
-        awake=not (active and kind == ActivityKind.SLEEP),
-        actively_gaming=active and kind == ActivityKind.PLAY_GAME)
+        activity_family=active[0].kind.value if active else "idle",
+        awake=ActivityKind.SLEEP not in kinds,
+        actively_gaming=ActivityKind.PLAY_GAME in kinds)
 
 
 def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivityRequest,
                origin: ActivityOrigin, message_id: str) -> SocialStart:
     """@brief 受理交谈：共同在场且对方可交谈，作为发起方前台活动结算（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
     partner = partner_presence(state, request.partner_id)
-    if agent.current_activity_id is not None:
-        raise BusinessRuleError("RESOURCE_CONFLICT")
     invite = social.OutgoingMessage(
         message_id=message_id, sender_id=f"agent:{agent.agent_id}",
         recipient_id=request.partner_id,
@@ -78,22 +76,18 @@ def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivit
     activity = _social_activity(agent, ActivityKind.CHAT, request.duration_minutes * 60,
                                 origin, state.current_time,
                                 {"partner_id": request.partner_id, "accepted": False})
-    return SocialStart(agent.model_copy(update={"current_activity_id": activity.activity_id},
-                                        deep=True), activity,
+    return SocialStart(agent.model_copy(deep=True), activity,
                        social.SentMessage(message=started.invite_message, arrival=started.arrival))
 
 
 def start_call(agent: AgentState, contact: social.Contact, request: StartSocialActivityRequest,
                origin: ActivityOrigin, now: int) -> SocialStart:
     """@brief 受理通话：面向场景联系人，10-60 分钟，占用注意力（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
-    if agent.current_activity_id is not None:
-        raise BusinessRuleError("RESOURCE_CONFLICT")
     started = social.start_call(contact, request.duration_minutes)
     activity = _social_activity(agent, ActivityKind.CALL, started.duration_minutes * 60,
                                 origin, now,
                                 {"contact_id": started.contact_id})
-    return SocialStart(agent.model_copy(update={"current_activity_id": activity.activity_id},
-                                        deep=True), activity, None)
+    return SocialStart(agent.model_copy(deep=True), activity, None)
 
 
 def _social_activity(agent: AgentState, kind: ActivityKind, duration_seconds: int,
@@ -139,8 +133,26 @@ def advance_social(activity: ActivityState, agent: AgentState, now: int,
         updates.update(status=ActivityStatus.COMPLETED, boundary_type="planned_end",
                        ended_at=stop, next_interaction_at=None)
     changed = activity.model_copy(update=updates, deep=True)
-    current = None if completed else agent.current_activity_id
-    changed_agent = agent.model_copy(update={"body": body, "current_activity_id": current}, deep=True)
+    changed_agent = agent.model_copy(update={"body": body, "body_settled_at": stop}, deep=True)
+    return ActivityAdvance(changed, changed_agent, settlement, completed)
+
+
+def advance_social_shared(activity: ActivityState, agent: AgentState, now: int,
+                          settlement, accepted: bool) -> ActivityAdvance:
+    """@brief 在共同身体结算后只推进社交活动与其独立缓解。"""
+    stop = min(now, activity.planned_end_at)
+    seconds = stop - activity.last_settled_at
+    if activity.status != ActivityStatus.ACTIVE or seconds < 0:
+        raise ValueError("social activity settlement interval is invalid")
+    body = _social_body_relief(agent.body, activity, seconds, accepted)
+    elapsed = activity.elapsed_seconds + seconds
+    completed = elapsed >= activity.planned_duration_seconds
+    updates = {"last_settled_at": stop, "elapsed_seconds": elapsed}
+    if completed:
+        updates.update(status=ActivityStatus.COMPLETED, boundary_type="planned_end",
+                       ended_at=stop, next_interaction_at=None)
+    changed = activity.model_copy(update=updates, deep=True)
+    changed_agent = agent.model_copy(update={"body": body}, deep=True)
     return ActivityAdvance(changed, changed_agent, settlement, completed)
 
 
@@ -180,8 +192,7 @@ def social_activity_change(agent: AgentState, activity: ActivityState, operation
             update={"status": ActivityStatus.CANCELLED, "ended_at": activity.last_settled_at,
                     "boundary_type": "cancelled", "next_interaction_at": None,
                     "interruption_reason": "agent_cancelled"}, deep=True)
-        current = None if agent.current_activity_id == activity.activity_id else agent.current_activity_id
-        return agent.model_copy(update={"current_activity_id": current}, deep=True), changed
+        return agent.model_copy(deep=True), changed
     if operation == "pause":
         raise BusinessRuleError("SOCIAL_ACTIVITY_CANNOT_PAUSE")
     if operation != "resume":

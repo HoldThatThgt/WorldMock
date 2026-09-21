@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "dataset_id": "zhangjiang-map",
-  "version": 1,
+  "version": 2,
   "coordinate_system": "WGS84",
   "timezone": "Asia/Shanghai",
   "bounds": [
@@ -10,7 +10,7 @@
     121.64,
     31.225
   ],
-  "prepared_at": "2026-09-20T19:08:40.228191+08:00",
+  "prepared_at": "2026-09-21T16:00:04+08:00",
   "source": {
     "kind": "fact",
     "url": "https://api.openstreetmap.org/api/0.6/map?bbox=121.6000,31.1950,121.6400,31.2250",
@@ -30,7 +30,7 @@
   },
   "supplies_file": {
     "path": "zhangjiang-map/supplies.json",
-    "sha256": "c7a0d785015a496321c7cd636b612b735038d91c221b1d417869316ef998726a"
+    "sha256": "becd4e906c2e8b0fe8d95c73f6ee9bd386c647ac4be504a9fe63625b32eb1f88"
   },
   "routes_file": {
     "path": "zhangjiang-map/routes.json",

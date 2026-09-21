@@ -169,7 +169,7 @@ def test_build_coverage_targets_derives_from_catalog_and_corpora():
     assert "悬疑" in targets.content_genres
     assert "牛肉炒面" in targets.food_kinds
     assert targets.media_kinds and set(targets.media_kinds) <= {
-        "电影", "剧集", "网文", "新闻", "段子", "字幕体验", "游戏"}
+        "电影", "剧集", "播客", "网文", "新闻", "段子", "字幕体验", "游戏"}
     again = build_coverage_targets(scenario, load_catalog(PROJECT_ROOT / "catalog"),
                                    PROJECT_ROOT / "corpora")
     assert again == targets

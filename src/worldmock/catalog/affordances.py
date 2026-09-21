@@ -25,12 +25,12 @@ from worldmock.errors import IntegrityError
 AFFORDANCES_FILE = "affordances.toml"
 
 TOOL_SURFACES = frozenset({"basic", "targeted", "travel", "commerce", "game", "none"})
-RELIEF_CHANNELS = frozenset({"none", "intrinsic", "preference_rate", "content_rate"})
+RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
-#: 资源锁槽位闭集（position 由引擎恒占，不在注册表中声明）。
-RESOURCE_CLAIM_SLOTS = frozenset({"attention", "device", "hands", "vehicle"})
+#: 所有个人资源均由各活动显式声明，position 不再由引擎暗中添加。
+RESOURCE_CLAIM_SLOTS = frozenset({"position", "attention", "device", "hands", "vehicle"})
 #: 习惯归并路由认识的工具名闭集（classify_action_event 的工具面）。
 HABIT_TOOLS = frozenset({
     "continue_activity", "start_basic_activity", "purchase", "consume",
@@ -253,9 +253,9 @@ class AffordanceView:
                          if spec.energy_floor_exempt)
 
     def resource_claims(self, kind_value: str, travel_mode: Any = None) -> frozenset[str]:
-        """@brief 活动类型的资源锁集合（position 恒占 + 声明锁 + 条件锁）。"""
+        """@brief 活动类型的显式资源锁集合，含条件锁。"""
         spec = self.kinds[kind_value]
-        claims = {"position", *spec.resource_claims}
+        claims = set(spec.resource_claims)
         mode = getattr(travel_mode, "value", travel_mode) if travel_mode is not None else None
         for condition, extra in spec.conditional_claims:
             dimension, _, value = condition.partition(":")

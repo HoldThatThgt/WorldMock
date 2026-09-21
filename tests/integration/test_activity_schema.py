@@ -68,7 +68,7 @@ _SCENE = {
     "location": "自己家",
     "people_here": [],
     "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activity": {},
+    "current_activities": [],
     "paused_activities": [],
     "day_plan": None,
     "inbox_head": [],
@@ -88,7 +88,8 @@ def _prepared_agent(tool_name: str | None = None) -> LifeAgent:
         "scene": dict(_SCENE),
         "facts": dict(_FACTS),
         "recent_action_results": [],
-        "active_activity": None,
+        "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
+        "active_activities": [],
         "paused_activities": [],
         "energy_feasibility": {"maximum_duration_seconds_by_kind": {
             "work": 86_400, "watch": 86_400, "play_game": 86_400,
@@ -146,14 +147,14 @@ def _set_activity_boundary(data: dict, tool_name: str | None) -> None:
     if tool_name not in kinds:
         _set_new_tool_visibility(data, tool_name)
         return
-    activity = {"activity_id": "activity", "status": "active", "kind": kinds[tool_name], "data": {}}
+    activity = {"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "activity_id": "activity", "status": "active", "kind": kinds[tool_name], "data": {}}
     if tool_name == "game_action":
         activity["data"] = {"game_session_id": "game"}
         data["games"] = {"game": {
             "session_id": "game", "admissible_commands": ["look", "x" * 201],
             "won": False, "lost": False,
         }}
-    data["active_activity"] = activity
+    data["active_activities"] = [activity]
 
 
 def _set_new_tool_visibility(data: dict, tool_name: str | None) -> None:
@@ -208,7 +209,7 @@ def test_all_life_tools_use_deepseek_strict_schemas_with_grounded_target_enums()
     agent._life_action_count = 1
     schemas.extend(agent.build_react_tool_schemas(readonly=False))
     functions = {item["function"]["name"]: item["function"] for item in schemas}
-    assert len(functions) == 23  # 16 生活动作（含 discover_places）+ 6 记忆 + finish
+    assert len(functions) == 24  # 17 生活动作（含组合启动）+ 6 记忆 + finish
     for function in functions.values():
         assert function["strict"] is True
         Draft202012Validator.check_schema(function["parameters"])
@@ -424,8 +425,8 @@ def test_finish_accepts_empty_memories_list_in_schema_and_runtime() -> None:
 
 def test_memory_text_rejects_hexadecimal_identities() -> None:
     """记忆 text 使用人物语言：事件标识/请求哈希/十六进制身份本地拒绝。"""
-    episode = {
-        "type": "event",
+    episode = {"epistemic_status": "subjective",
+        "type": "reflection",
         "importance": 0.5,
         "keywords": ["meeting"],
         "text": "We met at the usual place and talked about the weekend plans.",
@@ -457,8 +458,8 @@ def test_finish_nested_schema_and_runtime_reject_the_same_expressible_error() ->
         for item in agent.build_react_tool_schemas(readonly=False)
         if item["function"]["name"] == "finish"
     )
-    memory = {
-        "type": "observation",
+    memory = {"epistemic_status": "subjective",
+        "type": "reflection",
         "importance": 0.5,
         "keywords": ["work"],
         "text": "I observed a work result.",

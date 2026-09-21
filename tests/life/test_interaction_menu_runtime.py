@@ -14,6 +14,7 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
+    ActivityKind,
     BrowseActivitiesRequest,
     ConsumeItem,
     ConsumeRequest,
@@ -25,6 +26,7 @@ from worldmock.life.models import (
     StartTargetedActivityRequest,
     StartTravelRequest,
     SubmitWorkRequest,
+    active_activities,
 )
 
 
@@ -50,7 +52,7 @@ def _domain_state(engine):
     return {"accounts": state["accounts"], "activities": state["activities"],
             "supply_stock": state["supply_stock"],
             "agents": {key: {name: value[name] for name in (
-                "location_id", "inventory", "game_sessions", "content_progress", "current_activity_id")}
+                "location_id", "inventory", "game_sessions", "content_progress")}
                        for key, value in state["agents"].items()}}
 
 
@@ -203,7 +205,8 @@ def _travel_to_office(engine):
         if engine.state.agents[1].location_id == "office":
             return
         if engine.scheduling_state().ready_agent_ids:
-            activity_id = engine.state.agents[1].current_activity_id
+            activity_id = next(item.activity_id for item in active_activities(engine.state, 1)
+                               if item.kind == ActivityKind.TRAVEL)
             _, continued = _observed_action(engine, f"continue-travel-{turn}", "continue_activity",
                                              ContinueActivityRequest(activity_id=activity_id))
             assert continued.error_code is None

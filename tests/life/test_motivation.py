@@ -71,7 +71,7 @@ CONTRACT_PROFILE = {
     "emotion_sensitivity": 0.3,
     # M4：attention 键集 = 注册表 attention_required（娱乐 5 + 生活 9 = 14 键）。
     "attention_prior": {"feature_film": 0.3, "news_feed": 0.2, "joke_feed": 0.1,
-                        "webnovel_excerpt": 0.05, "drama_series": 0.05,
+                        "webnovel_excerpt": 0.05, "drama_series": 0.05, "podcast_episode": 0.03,
                         "sport": 0.05, "hobby": 0.04, "outdoor": 0.03,
                         "wellness": 0.03, "household": 0.03, "learning": 0.03,
                         "pet": 0.03, "social": 0.03, "volunteer": 0.03},
@@ -118,7 +118,7 @@ def _body() -> BodyConfig:
 def _agent(energy=1600.0, sleep_debt=4.0, need=0.5, location="home",
            inventory=None, preferences=None, skills=None) -> AgentState:
     return AgentState(agent_id=1, name="Lin", location_id=location,
-                      balance_account_id="agent:1", next_decision_at=0,
+                      balance_account_id="agent:1", next_decision_at=0, body_settled_at=0,
                       body=BodyState(energy_kcal=energy, sleep_pressure=0.0, sleep_deficit_hours=sleep_debt,
                                      entertainment_need=need),
                       skill_levels=skills if skills is not None else {"ami": 0.8},
@@ -219,7 +219,7 @@ def _context(**overrides) -> MotivationContext:
         supply_quotes={item.supply.supply_id: quote_state(item.supply.quotes[0]) for item in food_offers},
         opening_exceptions={key: {} for key in overrides.get("locations", {})}, locations={"home": _location("home").model_copy(
             update={"location_kinds": ("home", "office", "outdoor", "fitness", "venue")})}, routes=(), tasks=(),
-        task_totals={}, contents=(), content_progress={}, active_activity=None,
+        task_totals={}, contents=(), content_progress={}, active_activities=(),
         habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
@@ -529,7 +529,7 @@ class TestSoftmaxAndShape:
                            locations={"market": _location()},
                            routes=(_route("rd", "market", "office"),
                                    _route("rh", "office", "home")),
-                           contents=contents, tasks=tasks, active_activity=activity,
+                           contents=contents, tasks=tasks, active_activities=(activity,),
                            taste_weights={item.item_id: 0.8 for item in contents},
                            task_totals={item.task_id: (0, 0.0) for item in tasks})
         scored = evaluate_motivation(context, _profile(), transforms, top_k=20)
@@ -575,15 +575,15 @@ class TestEnumerationBoundaries:
             planned_duration_seconds=1800, target_id="movie-0001", origin_action_id="a",
             origin_decision_id="d", origin_request_event_id="e",
             data={"entertainment_relief_per_hour": 0.2, "exposure_count": 1})
-        context = _context(active_activity=activity, contents=(_content(),),
+        context = _context(active_activities=(activity,), contents=(_content(),),
                            taste_weights={"movie-0001": 0.8})
         scored = evaluate_motivation(context, _profile(), transforms)
         keep = next(item for item in scored if item.candidate.family == "continue")
         assert keep.candidate.duration_seconds == 1200
         assert keep.candidate.entertainment_delta < 0
 
-    def test_continue_wait_reason_presents_passive_browsing(self, transforms):
-        """wait=边等边刷：继续等待的候选理由呈现被动缓解而非干坐。"""
+    def test_continue_wait_reports_only_elapsed_awake_time(self, transforms):
+        """等待不预测任何未实际播放内容产生的娱乐缓解。"""
         activity = ActivityState(
             activity_id="activity-w1", agent_id=1, kind=ActivityKind.WAIT,
             status=ActivityStatus.ACTIVE, started_at=CURRENT - 600,
@@ -592,18 +592,15 @@ class TestEnumerationBoundaries:
             origin_decision_id="d", origin_request_event_id="e")
         body = _body().model_copy(update={"entertainment_relief_per_hour": {
             **_body().entertainment_relief_per_hour, "wait": 0.01}})
-        context = _context(active_activity=activity, body=body)
+        context = _context(active_activities=(activity,), body=body)
         scored = evaluate_motivation(context, _profile(), transforms)
         keep = next(item for item in scored if item.candidate.family == "continue")
 
-        assert keep.candidate.summary == "Keep waiting while casually browsing for 20 min"
-        assert keep.candidate.reason == ("Waiting while casually browsing for 20 min "
-                                         "(passive relief ~0.01/h)")
-        # 净值为正的缓慢累积（夹具累积率 0.02 > 被动缓解 0.01，与正式目录
-        # 0.08 > 0.05 同构）：被动缓解只抵消部分清醒累积，不额外降权候选。
+        assert keep.candidate.summary == "Keep waiting for 20 min"
+        assert keep.candidate.reason == "Waiting for 20 min advances awake time without content exposure"
+        # 即使旧实验费率表含 wait 项，纯等待仍只累计清醒需要。
         accrual = body.entertainment_need_per_awake_hour * 1200 / 3600
-        assert keep.candidate.entertainment_delta == pytest.approx(accrual - 0.01 * 1200 / 3600)
-        assert 0 < keep.candidate.entertainment_delta < accrual
+        assert keep.candidate.entertainment_delta == pytest.approx(accrual)
 
 
 class TestEntertainmentSegmentSlots:
@@ -723,7 +720,7 @@ class TestLifestyleCandidates:
     def _lifestyle_only_context(self, **overrides) -> MotivationContext:
         # 注意力压在生活品类上、清空 contents：只观察 lifestyle 家族的枚举。
         profile = _profile(attention_prior={
-            "feature_film": 0.0, "news_feed": 0.0, "joke_feed": 0.0,
+            "feature_film": 0.0, "news_feed": 0.0, "joke_feed": 0.0, "podcast_episode": 0.0,
             "webnovel_excerpt": 0.0, "drama_series": 0.0,
             "sport": 0.3, "hobby": 0.2, "outdoor": 0.15, "wellness": 0.15,
             "household": 0.1, "learning": 0.05, "pet": 0.03, "social": 0.01,

@@ -25,8 +25,7 @@ persona_card、scene、facts 三部分组成，
 观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
 current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
 location（地点显示名）、people_here
-（在场人物名列表）、felt（维度到体感分级短语）、current_activity（title/
-progress）、paused_activities（title/progress 列表）、
+（在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
 day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
 reachable_places（name/opening_status 列表）、inventory、recent_action_results
@@ -186,10 +185,10 @@ def _felt_sentence(observation: dict) -> str:
 def _activity_sentences(observation: dict) -> str:
     """@brief 渲染当前活动与暂停活动的进度句（只写进度短语，不写快照）。"""
     sentences = []
-    current = observation.get("current_activity") or {}
-    if current.get("title"):
+    for current in observation.get("current_activities", []):
         progress = f"，{current['progress']}" if current.get("progress") else ""
-        sentences.append(_close_sentence(f"你正在进行《{current['title']}》{progress}"))
+        verb = current.get("verb", "进行")
+        sentences.append(_close_sentence(f"你正在{verb}《{current['title']}》{progress}"))
     paused = [item for item in (observation.get("paused_activities") or [])
               if item.get("title")]
     if paused:
@@ -278,6 +277,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _close_sentence(todos) if todos else "",
         _places_sentence(observation),
         _inventory_sentence(observation),
+        _close_sentence(observation["local_food_summary"]) if observation.get("local_food_summary") else "",
         _recent_result_sentence(observation),
     ]
     scene = "".join(part for part in parts if part)

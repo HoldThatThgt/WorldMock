@@ -14,7 +14,7 @@ from worldmock.life.interaction_menu import (
     menu_allows_activity,
     menu_allows_category,
 )
-from worldmock.life.models import StartBasicActivityRequest
+from worldmock.life.models import StartBasicActivityRequest, activity_start_tool
 
 
 def parse_interaction_menu(data: dict[str, Any]) -> InteractionMenu:
@@ -132,6 +132,14 @@ def menu_action_error(
 
     @return 允许时为空字符串，禁止时为英文协议错误。
     """
+    if action == "start_parallel_activities":
+        if action not in menu.allowed_tools:
+            return _denied("interaction menu denies start_parallel_activities")
+        for item in request.activities:
+            error = menu_action_error(menu, activity_start_tool(item), item, controls, basic_types)
+            if error:
+                return error
+        return ""
     activity_kind = _resume_kind(action, request, controls)
     if action == "set_activity_state" and str(getattr(request, "operation", "")) == "resume":
         if activity_kind is None:

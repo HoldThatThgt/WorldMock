@@ -267,7 +267,7 @@ class MotivationContext:
     #: 不是全量目录；评分器对传入列表仍按品类重采样，直接构造全量亦安全。
     contents: tuple[ContentItemConfig, ...]
     content_progress: Mapping[str, ContentProgress]
-    active_activity: ActivityState | None
+    active_activities: tuple[ActivityState, ...]
     habit_events: tuple[tuple[str, Mapping], ...]
     consecutive_rejections: int
     max_consecutive_rejections: int
@@ -717,10 +717,9 @@ def _delivery_route_seconds(context: MotivationContext, origin: str,
     return context.planned_travel_seconds("driving", matches[0].duration_seconds, departure_at)
 
 
-def _continue_candidate(context: MotivationContext) -> _Candidate | None:
+def _continue_candidate(context: MotivationContext, activity: ActivityState) -> _Candidate | None:
     """@brief 继续当前活动：按剩余计划时长推导资源流，不可行能量时不出候选。"""
-    activity = context.active_activity
-    if activity is None or activity.kind in (ActivityKind.CHAT, ActivityKind.CALL):
+    if activity.kind in (ActivityKind.CHAT, ActivityKind.CALL):
         return None  # 无当前活动；交谈/通话仅可取消且不在注册表 MET 表内
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     if remaining < 60:
@@ -755,7 +754,7 @@ def _continue_candidate(context: MotivationContext) -> _Candidate | None:
     reason = (f"Continuing current {activity.kind.value} activity for {minutes:.0f} min"
               f" keeps committed progress")
     if activity.kind == ActivityKind.WAIT:
-        summary, reason = _wait_texts(context, minutes)
+        summary, reason = _wait_texts(minutes)
     return _Candidate(
         family=FAMILY_CONTINUE,
         summary=summary,
@@ -768,13 +767,10 @@ def _continue_candidate(context: MotivationContext) -> _Candidate | None:
         comfort_type=activity.kind in {ActivityKind.WATCH, ActivityKind.PLAY_GAME})
 
 
-def _wait_texts(context: MotivationContext, minutes: float) -> tuple[str, str]:
-    """@brief wait=边等边刷的候选文案：呈现被动缓解而非干坐。"""
-    rate = context.body.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
-    summary = f"Keep waiting while casually browsing for {minutes:.0f} min"
-    reason = (f"Waiting while casually browsing for {minutes:.0f} min "
-              f"(passive relief ~{rate:.2f}/h)")
-    return summary, reason
+def _wait_texts(minutes: float) -> tuple[str, str]:
+    """@brief 等待只表达经过时间，不推断任何内容接触或娱乐行为。"""
+    return (f"Keep waiting for {minutes:.0f} min",
+            f"Waiting for {minutes:.0f} min advances awake time without content exposure")
 
 
 def _sleep_deficit_delta(context: MotivationContext, kind: ActivityKind, hours: float) -> float:
@@ -812,13 +808,6 @@ def _entertainment_delta(context: MotivationContext, activity: ActivityState,
         base = context.body.entertainment_relief_per_hour.get(ActivityKind.PLAY_GAME.value, 0)
         relief = min(preference * base * hours, context.agent.body.entertainment_need)
         return -relief
-    if activity.kind == ActivityKind.WAIT:
-        # wait=边等边刷：被动缓解抵消部分清醒累积（净效果仍为缓慢正累积），
-        # 与 body.py 结算分支的速率语义一致，不额外降权候选。
-        rate = context.body.entertainment_relief_per_hour.get(ActivityKind.WAIT.value, 0)
-        accrual = _entertainment_accrual(context, hours)
-        relief = min(rate * hours, context.agent.body.entertainment_need + max(accrual, 0))
-        return accrual - relief
     return _entertainment_accrual(context, hours)
 
 
@@ -1132,8 +1121,8 @@ def _cheapest_feasible_meal_adapter(context: MotivationContext, profile: Motivat
 def _continue_current_adapter(context: MotivationContext, profile: MotivationProfile,
                               family: FamilySpec) -> list[_Candidate]:
     """@brief continue_current 原型：继续当前活动（continue 家族）。"""
-    candidate = _continue_candidate(context)
-    return [candidate] if candidate is not None else []
+    return [candidate for activity in context.active_activities
+            if (candidate := _continue_candidate(context, activity)) is not None]
 
 
 def _cheapest_route_adapter(context: MotivationContext, profile: MotivationProfile,

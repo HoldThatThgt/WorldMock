@@ -108,7 +108,7 @@ def _stage(engine: LifeEngine, scheduled_id: str) -> int:
     staged.pending_events = [event]
     for agent_id, agent in staged.agents.items():
         staged.agents[agent_id] = agent.model_copy(
-            update={"next_decision_at": event.due_at + 3600}, deep=True)
+            update={"next_decision_at": event.due_at + 3600, "body_settled_at": staged.current_time}, deep=True)
     engine.state = staged
     return event.due_at
 
@@ -137,12 +137,11 @@ def _bare_world(engine: LifeEngine) -> dict:
     volatile = {"next_decision_at", "pending_wake_reasons", "mood_updated_at",
                 "discomfort_started_at", "discomfort_pulse_hours",
                 "last_decision_time", "felt_bands_at_last_decision",
-                "people_at_last_decision", "known_task_ids"}
+                "people_at_last_decision", "known_task_ids", "body_settled_at", "body"}
     for agent in payload["agents"].values():
         for key in volatile:
             agent.pop(key, None)
-        agent["body"].pop("mood_valence", None)
-        agent["body"].pop("social_need", None)
+
     return payload
 
 
@@ -217,7 +216,11 @@ def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> Non
     assert _environment_events(engine, "calendar_flag") == []
     due = _stage(engine, "calendar-2026-01-24")
     before = _bare_world(engine)
+    energy = {identity: agent.body.energy_kcal for identity, agent in engine.state.agents.items()}
     advance_next(engine)
+    for identity, agent in engine.state.agents.items():
+        assert agent.body.energy_kcal == pytest.approx(
+            energy[identity] - engine.semantics.body.basal_kcal_per_hour / 60)
     assert engine.state.current_time == due
     events = _environment_events(engine, "calendar_flag")
     assert len(events) == 1
@@ -281,7 +284,11 @@ def test_bill_due_insufficient_funds_refuses_without_crash(tmp_path: Path) -> No
     engine = _custom_engine("multi-person.json", mutate, tmp_path)
     due = _stage(engine, "bill-rent-impossible")
     before = _bare_world(engine)
+    energy = {identity: agent.body.energy_kcal for identity, agent in engine.state.agents.items()}
     advance_next(engine)
+    for identity, agent in engine.state.agents.items():
+        assert agent.body.energy_kcal == pytest.approx(
+            energy[identity] - engine.semantics.body.basal_kcal_per_hour / 60)
     assert engine.state.current_time == due
     assert engine.state.accounts["agent:1"] == 800_000
     assert engine.state.accounts["merchant:grocery"] == 10_000_000

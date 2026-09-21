@@ -14,6 +14,7 @@ from worldmock.life.models import (
     ConsumeItem,
     ActivityKind,
     ConsumeRequest,
+    PlanDayRequest,
     ContinueActivityRequest,
     SetActivityStateRequest,
     StartBasicActivityRequest,
@@ -66,6 +67,24 @@ def _prepare_agent(observation: dict, observed_at) -> LifeAgent:
 def _tool_names(agent: LifeAgent) -> set[str]:
     """返回本轮实际模型请求能够携带的工具名。"""
     return {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
+
+
+def test_zero_energy_idle_time_settles_after_instant_action(engine_factory) -> None:
+    """零能量时瞬时动作之后的真实空白仍推进清醒身体，不因无活动而崩溃。"""
+    engine = engine_factory()
+    _set_energy(engine, 0)
+    _, result = _observed_action(engine, "zero-energy-plan", "plan_day", PlanDayRequest(goals=()))
+    assert result.status == "completed" and not engine.state.activities
+    before = engine.state.agents[1].body
+    advance_next(engine)
+    after = engine.state.agents[1].body
+    assert after.energy_kcal == 0
+    assert after.sleep_pressure > before.sleep_pressure
+    assert after.entertainment_need > before.entertainment_need
+    assert after.social_need >= before.social_need
+    events = engine.store.read_agent_events("environment_event", 1)
+    assert any(item.data.get("kind") == "body_settlement" and not item.data["activity_ids"]
+               for item in events)
 
 
 def test_zero_energy_real_observation_removes_non_recovery_actions(engine_factory) -> None:
@@ -163,7 +182,7 @@ def test_start_one_second_beyond_energy_limit_is_rejected(engine_factory) -> Non
     maximums = observation["energy_feasibility"]["maximum_duration_seconds_by_kind"]
     assert maximums["browse"] == 60
     assert result.status == "rejected" and result.error_code == "INSUFFICIENT_ENERGY"
-    assert engine.state.agents[1].current_activity_id is None
+    assert not engine.state.activities
 
 
 @pytest.mark.parametrize("duration", [901, 902, 1801])

@@ -60,7 +60,8 @@ def _stage_midnight_round(engine, now):
     state = engine.state.model_copy(deep=True)
     state.current_time = now
     state.pending_events = []
-    state.agents[1] = state.agents[1].model_copy(update={"next_decision_at": now}, deep=True)
+    state.agents[1] = state.agents[1].model_copy(
+        update={"next_decision_at": now, "body_settled_at": now}, deep=True)
     state.version += 1
     engine.store.commit(state.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=now, source_kind="scenario",

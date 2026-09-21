@@ -167,7 +167,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | A11 | 恢复入口收父检查点+新目录；全部成功才启动；删除失败后新建 | V/test_society_decision_round.py::test_society_init_checkpoint_failure_records_run_failure；I/test_runtime.py::test_restore_rejects_corrupt_used_memory_before_branch_publish | covered |
 | A12 | 观察记录只保留结构化 data，不写 JSON 副本 | V/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message、test_string_observation_keeps_single_text_copy | covered |
 | A13 | 决策前决策自述钩子（单次无工具）；后续请求保留 reasoning_content | V/test_worldmock_life_hooks.py::test_prelude_decision_statement_hook_runs_one_toolless_call、test_reasoning_content_survives_into_followup_request | covered |
-| A14 | finish 空记忆；巩固触发/提示传卡片/删示例身份；相似合并 | V/test_worldmock_life_hooks.py（consolidation 触发×3、persona_card 提示、bigram 合并×3）；V/framework/test_memory.py | covered |
+| A14 | finish 空记忆；巩固触发/提示传卡片/删示例身份；相似合并 | V/test_worldmock_life_hooks.py（consolidation 触发×3、persona_card 提示、bigram 合并×3）；V/framework/test_memory.py；I/test_verified_memory.py | covered |
 | A15 | 禁止 monkey patch/复制调度器/两套决策循环（接入走真实 AS2 路径） | 结构性：I/test_runtime.py::test_runtime_code_identity_is_deterministic + 集成测试实例化真实 AS2 类（V/framework/test_registry_person.py::test_builtin_registry_discovers_person_agent） | covered |
 
 ## LifeEnv 状态与接口
@@ -212,7 +212,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | E34 | 食物/耐用品使用走 consume | I/test_grounded_targets.py::test_consume_multi_item_meal_duration_and_held_quantity；L/test_commerce.py | covered |
 | E35 | 余额/天气/瞬移/验收/全读不暴露；无通用代码执行 | I/test_life_agent_protocol.py::test_life_agent_schema_is_closed_and_host_fields_are_hidden | covered |
 | E36 | readonly 观察仍留证据 | I/test_life_agent_protocol.py::test_readonly_state_mismatch_is_an_internal_failure；F/test_grounded_evidence 观察证据链 | covered |
-| E37 | 浏览/阅读/观看消耗注意力与时间 | L/test_activity_menu.py::test_browse_is_pure_query_and_feeds_next_observation、test_browse_while_active_activity_is_boundary_gated；L/test_affordance_contract.py | covered |
+| E37 | 浏览/阅读/观看消耗注意力与时间 | L/test_activity_menu.py::test_browse_is_pure_query_and_feeds_next_observation、test_browse_while_active_activity_preserves_playback；L/test_affordance_contract.py | covered |
 | E38 | 结算检查表六行（启动/修改/购买/使用/工作/游戏） | L/test_activities.py::test_conflict_short_activity_and_exhaustion_are_rejected；L/test_commerce.py；L/test_work_contracts.py；L/test_content_game.py | covered |
 | E39 | 请求不能指定任意路径；引用只允许已登记可见素材 | I/test_grounded_targets.py::test_prepare_rejects_malformed_business_identity_sources、test_prepare_rejects_missing_or_malformed_energy_projection | covered |
 | E40 | 校验失败明确业务错误；不自动改数量/换商品/改目的地 | L/test_commerce.py::test_purchase_rejects_each_resource_boundary_without_mutating_input | covered |
@@ -279,9 +279,9 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | T4 | 最小反应间隔一秒；max_consecutive_rejections=10 失败停止、成功重置、不代选 | L/test_engine_feedback.py::test_tenth_consecutive_rejection_fails_agent_and_run、test_new_game_waits_one_second_before_first_real_command | covered |
 | T5 | t=上次+tick 共享约定，三方共同校验 | L/test_engine_round.py::test_context_with_wrong_time_is_rejected；V/test_decision_round.py::test_decision_context_requires_aware_time | covered |
 | T6 | 秒精度；UTC epoch；ISO 8601 转换不变时刻排序 | F/test_store.py::test_invalid_time_and_causal_references_fail_without_state_change；D/test_windows.py::test_midnight_experiment_end_does_not_create_an_extra_training_day | covered |
-| T7 | 唤醒条件才提供决策；进度事件记录未提供决策及原因；睡眠不自动写记忆 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events；L/test_wake_reasons.py（57 测）；F/test_event_fields.py::test_decision_rhythm_accepts_offered_and_silent_boundaries | covered |
+| T7 | 唤醒条件才提供决策；共同身体事件记录未提供决策及原因；睡眠不自动写记忆 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events；L/test_wake_reasons.py（57 测）；F/test_event_fields.py::test_decision_rhythm_accepts_offered_and_silent_boundaries | covered |
 | T8 | 一次决策一个主要行动；记忆检索不改世界 | I/test_life_agent_protocol.py::test_native_react_submits_one_host_bound_life_action | covered |
-| T9 | 已接受后不能同时刻免费浏览/工作/进食 | L/test_activities.py::test_continue_activity_moves_feedback_strictly_forward_without_releasing_slot；L/test_activity_menu.py::test_browse_while_active_activity_is_boundary_gated | covered |
+| T9 | 一次获准决策只提交一项生活动作；资源相容的持续活动允许并行 | L/test_activities.py::test_continue_activity_moves_feedback_strictly_forward_without_releasing_slot；I/test_dayrun_parallel_agent.py；I/test_dayrun_complete_days.py | covered |
 | T10 | 拒绝后有限决策预算；耗尽记失败不代选 | L/test_engine_feedback.py::test_tenth_consecutive_rejection_fails_agent_and_run | covered |
 | T11 | 注意力/位置/设备占用；驾驶与主动游戏不并发；多人并行不互跳 | L/test_activities.py::test_conflict_short_activity_and_exhaustion_are_rejected；L/test_engine_round.py::test_multi_person_arrival_order_does_not_change_settlement_order | covered |
 | T12 | 模型可并发；共享修改串行 actor；竞争顺序固定种子并记录 | L/test_engine_feedback.py::test_contexts_must_follow_seeded_scheduling_order、test_seed_changes_competition_order_and_checkpoint_restores_it；L/test_commerce.py::test_multi_person_stock_competition_uses_seeded_order_not_arrival | covered |
@@ -586,7 +586,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 
 | ID | 条款 | 测试映射 | 状态 |
 | --- | --- | --- | --- |
-| RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_four_rejects_old_checkpoints（当前世界结构为 4，旧检查点直接拒绝）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
+| RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_five_rejects_old_checkpoints（当前世界结构为 5，旧检查点直接拒绝）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
 | RC1 | wake_reason 表 12 类触发条件 | L/test_wake_reasons.py::test_positive_each_member、test_wake_reason_frozen_member_set；L/test_revision_contract.py::test_engine_wake_reasons_cover_each_trigger_class；F/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set | covered |
 | RC2 | 静默边界无决策四事件；activity_progress 带 decision_offered/wake_reasons；提供决策记录全部命中原因 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events、test_offered_boundary_records_actual_wake_reasons | covered |
 | RC3 | 常规与空闲重估是场景参数；精确任务与闭店威胁；睡眠不受间隔，游戏逐回合 | L/test_wake_reasons.py；L/test_engine_feedback.py；L/test_scenario.py | covered |
@@ -616,9 +616,9 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC27 | 决策自述写 decision_started.data.decision_statement+模型证据；超长/空重试一次再失败；决策自述不改世界 | L/test_grounded_observation.py::test_decision_started_written_once_complete_with_decision_statement、test_invalid_decision_statement_is_absent_from_direct_engine_evidence；I/test_life_agent_protocol.py::test_two_stage_decision_statement_evidence_and_single_retry、test_decision_statement_failing_twice_fails_the_whole_decision | covered |
 | RC28 | finish.memories 允许空列表 | V/test_agent_react_validation.py::test_native_finish_accepts_empty_memory_list；I/test_activity_schema.py::test_finish_accepts_empty_memories_list_in_schema_and_runtime | covered |
 | RC29 | 决策自述仅 dreaming 任务可读；dreaming 窗口可含 decision_statement 与 scene（动作/意图输入不变） | src/worldmock/delivery/windows.py 的 DREAMING_PRIVATE_EVENTS=PRIVATE_EVENTS−{decision_started}；D/test_windows.py::test_dreaming_window_reads_decision_statement_and_scene（dreaming 窗口含当日 decision_started.data.decision_statement 与 observation scene）、test_action_and_intent_windows_still_exclude_the_decision_statement_carrier（动作/意图窗口无 decision_started、无 decision_statement） | covered |
-| RC30 | memories 0-8 条空合法；text 人物语言无标识/哈希；引用放 refs；event 类型枚举 | V/test_person_tools.py::test_validate_finish_memories_bounds；I/test_activity_schema.py::test_memory_text_rejects_hexadecimal_identities；V/test_worldmock_life_hooks.py::test_event_type_registered_and_candidate_rules | covered |
+| RC30 | memories 0-8 条空合法；text 人物语言无标识/哈希；引用放 refs；九种主观类型及固定 subjective 标签 | V/test_person_tools.py::test_validate_finish_memories_bounds；I/test_activity_schema.py::test_memory_text_rejects_hexadecimal_identities；I/test_verified_memory.py、I/test_activity_schema.py | covered |
 | RC31 | bigram Jaccard≥0.6 与 24h 同类型合并（只增计数与最近时刻） | V/test_worldmock_life_hooks.py::test_similar_same_type_memory_merges_within_window、test_similar_memory_outside_window_or_type_is_kept、test_bigram_jaccard_bounds | covered |
-| RC32 | 巩固触发三选一（importance≥3.0/待巩固≥10/就寝首边界）；单条 preference 不触发；提示传 persona_card 无示例身份、固定章节；候选含 event/observation（importance≥0.6） | V/test_worldmock_life_hooks.py::test_consolidation_triggers_importance_accumulation、test_consolidation_triggers_pending_threshold、test_consolidation_triggers_sleep_boundary、test_single_preference_does_not_trigger_consolidation、test_consolidation_prompt_carries_persona_card_without_example_identity；V/framework/test_memory.py | covered |
+| RC32 | 巩固触发三选一（importance≥3.0/待巩固≥10/就寝首边界）；单条 preference 不触发；提示传 persona_card 无示例身份、固定章节；WorldMock 候选仅九种主观类型；当前事实章节由已提交事件装配 | V/test_worldmock_life_hooks.py::test_consolidation_triggers_importance_accumulation、test_consolidation_triggers_pending_threshold、test_consolidation_triggers_sleep_boundary、test_single_preference_does_not_trigger_consolidation、test_consolidation_prompt_carries_persona_card_without_example_identity；V/framework/test_memory.py；I/test_verified_memory.py | covered |
 | RC33 | 就寝巩固同执行反思：三问≤5 条洞见、每条引用记忆身份 | V/test_worldmock_life_hooks.py::test_reflection_persists_cited_insights、test_reflection_rejects_unknown_reference、test_reflection_rejects_more_than_five_insights | covered |
 | RC34 | 评分器写 observation.data.motivation_internal，不展示候选/名次/概率 | L/test_activity_menu.py::test_motivation_internal_remain_top5_under_layered_menu；I/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages（motivation_internal 在禁入清单） | covered |
 | RC35 | drive_summary 一句中文、不含数字权重 | L/test_motivation.py::test_summary_common_knowledge_without_browse、test_summary_open_flips_when_market_opens、test_no_store_scenario_omits_summary | covered |
@@ -675,7 +675,7 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
 - **运行期接线与持久化已落地**：`src/worldmock/life/presentation.py` 是运行期装配层（装候选输入、取候选、
   定呈现窗口），`src/worldmock/life/observe.py` 的观察投影与 `browse_activities` 下推均经它产出；
   `src/worldmock/life/engine.py` 经 `state_commit.flush_presentation` 把留痕并入世界状态；
-  `WorldState.schema_version` 当前为 4，`presentation_state` 继续承载轮转时刻；逐供给可见记录、库存和报价随世界状态保存。
+  `WorldState.schema_version` 当前为 5，`presentation_state` 继续承载轮转时刻；逐供给可见记录、库存和报价随世界状态保存。
   `tests/life/test_candidate_wiring.py`（9 测）逐条覆盖该层的端到端观察：
   下推返回体形状、轮转名额真的决定呈现顺序、观察投影经候选契约产出且留痕落盘、全池刚呈现过时的顺序退化、
   排除项带闭集原因码、游标下推无重无漏、非法游标载荷报错、五类共用一个三段式、返回体行可读。
@@ -746,7 +746,7 @@ docs/dev/implementation-status.md 行为管理性记录，排除。）
 | CC27 | 有效可达率计入：按有效决策点 `D × 可达率` 计算最坏等待，不按理论决策点 | L/test_rotation.py::test_reachability_discount_scales_worst_case_wait_proportionally、test_wait_bound_finding_reports_effective_decision_points | covered |
 | CC28 | 轮转单位是检索分区而不是整个语料池，也不是地点分区 | L/test_rotation.py::test_subclass_cap_in_top_window、test_multi_subtype_pool_keeps_cap_and_fills_window、test_rotation_indices_wrap_forward_without_revisiting | covered |
 | CC29 | 分区池规模 `N`、换新名额 `k`、每天决策点 `D` 的取值来源；`D` 取实测区间而非单一估计值 | `D` 的实测区间取 `docs/EXPERIMENT.md`「决策点节奏」节（中位 71、范围 9–112.5、保守取值 60）；断言 L/test_rotation.py::test_wait_bound_uses_the_measured_decision_point_interval（区间端点与保守取值都可用作 `D`，且上界恒等于 `⌈N ÷ k⌉ ÷ D`）、test_changing_the_decision_point_count_changes_the_wait_in_proportion（改 `D` 即改等待，多个 `D` 下最坏等待单调——不硬编码天数）、test_wait_bound_default_is_inside_the_measured_interval（缺省入参落在实测区间内，换端点结论随之改变）；`N` 与 `k` 的取值来源沿用 L/test_rotation.py::test_quota_slots_derive_from_scenario_constants_never_hardcoded、test_quota_inversion_from_target_wait_round_trips | covered |
-| CC30 | 轮转状态「上次呈现时刻」是派生量，字段面与写入方式按合同 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（`WorldState.presentation_state` 承载「上次呈现时刻」，观察边界只暂存、随下一个状态提交落盘，键为参与本次呈现的对象标识）；实现见 `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 4`、`presentation_state` 字段）与 `src/worldmock/life/state_commit.py::flush_presentation`（提交路径上的唯一写状态处）；`src/worldmock/life/rotation.py` 只读输入不回写 | covered |
+| CC30 | 轮转状态「上次呈现时刻」是派生量，字段面与写入方式按合同 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（`WorldState.presentation_state` 承载「上次呈现时刻」，观察边界只暂存、随下一个状态提交落盘，键为参与本次呈现的对象标识）；实现见 `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 5`、`presentation_state` 字段）与 `src/worldmock/life/state_commit.py::flush_presentation`（提交路径上的唯一写状态处）；`src/worldmock/life/rotation.py` 只读输入不回写 | covered |
 | CC31 | 禁止按互动统计永久移除对象；任何以互动次数或被选择次数为判据移出对象层的机制不得实现 | L/test_rotation.py::test_rotation_criterion_is_last_presented_at_not_exposure_count | covered |
 | CC32 | 目录条目退役只允许走墓碑语义（保留可读、拒绝新场景引用），不删除条目、不改既有足迹解释 | 拒绝新场景引用一侧：CAT/test_admission.py::test_tombstoned_object_reference_rejected（`TOMBSTONED_REFERENCE` 拒绝码，实现见 `src/worldmock/catalog/admission.py::_check_tombstones`）、CAT/test_builder.py::test_append_to_tombstoned_entry_rejected（墓碑条目禁止复活追加，换新 id 才合法）；「保留可读」一侧：CAT/test_builder.py::test_deprecate_writes_tombstone_and_keeps_entry_readable（打墓碑后条目行逐字节不变、条目仍在 `catalog.objects` 里）；两侧在候选契约里的合流断言 L/test_candidates.py::TestTombstoneSemantics::test_delisted_entry_is_excluded_from_candidates_and_still_readable（带墓碑的目录里，下架条目在候选里以 `ELIGIBILITY_DELISTED` 出局、同一时刻仍在目录里可读，保留项+排除项=候选全集）与 test_runtime_has_no_path_that_deletes_a_catalog_entry（AST 与文本扫描：契约层与生活层无 `unlink`/`rmtree`/`remove` 调用，也无「删除条目」「下架事件」这类事件名） | covered |
 | CC33 | 轮转、候选裁剪与淘汰统计都不改对象层条目数量；条目数变化只由目录版本变更产生 | L/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation（历史基线写入呈现留痕后仍保留库存；现行供给身份需由本次 `supply_stock` 行为断言重新验收）、test_rotation_quota_actually_decides_presentation_order（轮转不改候选集身份）；L/test_rotation.py::test_rotation_is_non_destructive_and_defers_without_delisting（输入池逐字节不变） | covered |
@@ -817,7 +817,7 @@ python3 scripts/documentation_gate.py
 `src/worldmock/life/engine.py:131` 的 `state_commit.flush_presentation` 写入留痕；
 `life.retrieval` 的调用点是 `src/worldmock/catalog/admission.py:31`、`src/worldmock/life/activities.py:31`
 与 `scripts/check_reachability.py:23`；
-当时 `src/worldmock/life/models.py` 的版本为 3；当前世界版本为 4，`WorldState.presentation_state` 仍持久化，新增供给状态见增量矩阵。
+当时 `src/worldmock/life/models.py` 的版本为 3；当前世界版本为 5，`WorldState.presentation_state` 仍持久化，新增供给状态见增量矩阵。
 
 本节不含 `exempt` 行：新增章的验证入口全部是离线确定性测试，无真实模型调用或长墙钟运行。
 **未解决的另一类缺陷（如实记录，不随本节 `covered` 变化）**：`scripts/check_reachability.py --scenario`

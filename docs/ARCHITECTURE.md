@@ -1,7 +1,7 @@
 # WorldMock 架构设计
 
 > 状态：设计冻结（FROZEN）。分层、职责边界、核心决策与数据流理由以本文件为准；实现状态见 `docs/dev/implementation-status.md`。
-> 日期：2026-09-18
+> 日期：2026-09-21
 > 实施基线：AgentSociety 2 提交 `670c94f`（在线文档版本 2.8.7）；LabelKit 提交 `5a359ca`
 > 范围：AgentSociety 2 驱动的数字人生活模拟，以及数字足迹向 LabelKit 的交付
 
@@ -34,6 +34,14 @@ flowchart LR
 本层不取代内容可供性声明，也不把所有活动题材改造成商品品类。
 行为规范见 `docs/dev/SPEC-category-contract.md`；字段归 `docs/CONTRACTS.md`，实际证据归
 `docs/dev/category-contract-verification.md`。
+
+## 活动与经历的唯一归属
+
+同一人物的持续活动由世界活动表表达，按显式个人资源判断能否同时执行。模拟引擎推进每项进度，
+对每人的共同时间只结算一次身体变化，再由记录引擎保存已提交证据并投影实际经历。
+人物借助 AS2 原有记忆运行时保存感受、意图和反思，始终标为主观自述；长期记忆视图由冻结身份、
+当前实际经历和主观内容确定性装配，自由文本不能反向修改世界事实。
+完整行为及验收见[一日行为规格](dev/SPEC-dayrun-behavior.md)，格式归记录引擎设计。
 
 ## 设计目标与边界
 

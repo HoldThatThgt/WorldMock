@@ -920,7 +920,7 @@ def _rehash_checkpoint(manifest: dict) -> None:
         (lambda m: m.update(asset_index="x"), "asset_index is missing"),
         (lambda m: m.update(run_id=""), "run_id is missing"),
         (lambda m: m.update(run_id="ghost-run"), "run_id must be declared in source_run_ids"),
-        (lambda m: m["artifacts"].update(extra={}), "artifacts must contain events and activities"),
+        (lambda m: m["artifacts"].update(extra={}), "delivery artifact set is invalid"),
         (lambda m: m.update(parent_run_id="ghost"), "parent_run_id must be declared"),
         (lambda m: m.update(parent_run_id=5), "parent_run_id must be a non-empty string or null"),
         (lambda m: m["window"].update(start="2026-01-04T00:00:00+08:00"),

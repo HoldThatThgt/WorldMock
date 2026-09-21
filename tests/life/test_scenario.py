@@ -13,6 +13,8 @@ from worldmock.errors import IntegrityError
 from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario, load_scenario
 from worldmock.life.map_data import load_map_dataset, validate_map_dataset
 from worldmock.life.map_models import MapDataset, RouteConfig
+from worldmock.life.models import ActivityKind
+from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
 
@@ -117,6 +119,34 @@ def test_formal_and_multi_person_scenarios_are_valid() -> None:
         assert scenario.max_consecutive_rejections == 10
         assert scenario.transport_account_id == "transport:service"
         assert all(route.fare_source_kind == "scenario" for route in scenario.routes)
+
+
+def test_formal_restaurants_select_edible_pickup_meals() -> None:
+    """@brief 正式三场景逐店交叉核验选中供给、商品、初始库存与实际菜单。"""
+    restaurants = {"poi-3538660453", "poi-3538682404", "poi-3538682408"}
+    paths = (_FORMAL, Path("scenarios/multi-person.json"),
+             Path("scenarios/multi-person-half-day.json"))
+    for path in paths:
+        scenario, _ = load_scenario(path)
+        places = {item.location_id: item for item in scenario.locations}
+        products = {item.product_id: item for item in scenario.products}
+        selected = {item.location_id: item for item in scenario.supplies
+                    if item.location_id in restaurants}
+        assert set(selected) == restaurants
+        for location_id in restaurants:
+            place = places[location_id]
+            supply = selected[location_id]
+            product = products[supply.product_id]
+            menu = scenario.interaction_menus_by_location_kind[place.kind]
+            assert place.business_kind == "restaurant"
+            assert product.category_id == "prepared-meal"
+            assert "eat" in product.use_modes and product.consumable
+            assert product.required_location_id in (None, location_id)
+            assert supply.initial_stock > 0 and "pickup" in supply.fulfillment_modes
+            quote = quote_at(supply, int(scenario.start_at.timestamp()))
+            assert quote is not None and quote.price_fen > 0
+            assert {"purchase", "consume"} <= set(menu.allowed_tools)
+            assert ActivityKind.CONSUME in menu.allowed_activity_kinds
 
 
 def test_motivation_attention_prior_must_equal_registry_kinds() -> None:

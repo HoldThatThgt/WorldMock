@@ -80,6 +80,7 @@ from worldmock.life.models import (
     StartTargetedActivityRequest,
     SubmitWorkRequest,
     WorldState,
+    active_activities,
 )
 from worldmock.life.observe import _recent_meal_counts
 from worldmock.life.scenario import (
@@ -328,11 +329,11 @@ def test_entertainment_need_capped_at_one_when_already_full(body_config) -> None
     assert result.after.entertainment_need == 1.0
 
 
-def test_wait_keeps_slow_net_accrual_from_full_need(body_config) -> None:
-    """wait=边等边刷：需要已满时被动消费按费率小幅回降（净语义保持）。"""
+def test_wait_does_not_relieve_full_entertainment_need(body_config) -> None:
+    """等待不含隐式内容接触，已满的娱乐需求保持上限。"""
     result = settle_body(felt_body(1600, entertainment_need=1.0),
                          ActivityKind.WAIT, 3600, body_config)
-    assert result.after.entertainment_need == pytest.approx(1.0 - 0.05)
+    assert result.after.entertainment_need == 1.0
 
 
 def test_zero_second_interval_settles_no_entertainment_entries(body_config) -> None:
@@ -405,12 +406,15 @@ def test_activity_lifecycle_validators_reject_disagreements() -> None:
             elapsed_seconds=200).model_dump())
 
 
-def test_world_state_rejects_dangling_current_activity(engine_factory) -> None:
-    """人物当前活动引用不存在时世界状态拒绝校验。"""
+def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None:
+    """活动集合中人物归属未知时世界状态拒绝恢复。"""
     engine = engine_factory()
+    started = _act(engine, "owner-wait", "start_basic_activity",
+                   StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
     staged = engine.state.model_copy(deep=True)
-    staged.agents[1] = staged.agents[1].model_copy(update={"current_activity_id": "ghost"})
-    with pytest.raises(ValidationError, match="current activity does not exist"):
+    staged.activities[started.activity_id] = staged.activities[started.activity_id].model_copy(
+        update={"agent_id": 999}, deep=True)
+    with pytest.raises(ValidationError, match="identity or owner"):
         WorldState.model_validate(staged.model_dump())
 
 
@@ -953,8 +957,8 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
     assert all(item.work_review is None for item in engine._round.pending_actions)
 
 
-async def test_prepare_pending_work_review_skips_busy_agent(engine_factory) -> None:
-    """人物有进行中活动时评审准备直接跳过（不记录评审）。"""
+async def test_prepare_pending_work_review_during_independent_wait(engine_factory) -> None:
+    """等待占用位置时仍可执行瞬时工作提交，不打断已有活动。"""
     engine = engine_factory()
     _stage_submission(engine)
     # 中止未准备评审的提交轮，再让人物进入等待活动后重新提交工作。
@@ -972,7 +976,8 @@ async def test_prepare_pending_work_review_skips_busy_agent(engine_factory) -> N
     await engine.prepare_pending_work_review(call.action_id)
     pending = next(item for item in engine._round.pending_actions
                    if item.action_id == call.action_id)
-    assert pending.work_review is None
+    assert pending.work_review is not None
+    assert active_activities(engine.state, 1)
     engine.abort_decision_round(round_id, "test teardown")
 
 
@@ -1025,8 +1030,14 @@ def test_record_memory_update_rejects_invalid_evidence(engine_factory) -> None:
     ctx = context(engine, "memory-guard")
     engine.begin_decision_round([ctx])
     digest = "a" * 64
-    evidence = MemoryUpdateEvidence(ctx, "append_episodes", ["ep-1", "ep-1"],
-                                    digest, digest, digest, False)
+    observation = engine.observe(ctx)
+    evidence = MemoryUpdateEvidence(
+        context=ctx, operation="append_episodes", created_episode_ids=("ep-1", "ep-1"),
+        merged_episode_ids=(), episodes=({"id": "ep-1", "type": "reflection",
+                                          "text": "主观回忆", "epistemic_status": "subjective"},),
+        memory_before_sha256=digest, memory_sha256=digest,
+        episodes_sha256=digest, state_sha256=digest, consolidated=False,
+        observation_event_id=observation["observation_event_id"], verified_event_ids=())
     with pytest.raises(ProtocolError, match="evidence is invalid"):
         engine.record_memory_update(evidence)
 
@@ -1269,7 +1280,7 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
     wrong_owner = _act(engine, "own-wrong", "set_activity_state",
                        SetActivityStateRequest(activity_id="activity-ghost", operation="pause"))
     assert wrong_owner.status.value == "rejected"
-    assert wrong_owner.error_code == "ACTIVITY_NOT_OWNED"
+    assert wrong_owner.error_code == "ACTIVITY_NOT_FOUND"
 
 
 def test_unknown_activity_change_and_continue_reject_when_idle(engine_factory) -> None:
@@ -1366,7 +1377,7 @@ def test_store_game_outcome_terminal_closes_activity(engine_factory) -> None:
     assert final_activity.status == ActivityStatus.COMPLETED
     assert final_activity.boundary_type == "game_terminal"
     assert final_activity.next_interaction_at is None
-    assert changed.agents[1].current_activity_id is None
+    assert not active_activities(changed, 1)
 
 
 def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
@@ -1476,4 +1487,4 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     activity = engine.state.activities[activity_id]
     assert activity.status == ActivityStatus.CANCELLED
     assert activity.boundary_type == "cancelled"
-    assert engine.state.agents[1].current_activity_id is None
+    assert not active_activities(engine.state, 1)

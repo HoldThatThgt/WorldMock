@@ -112,7 +112,8 @@ def _at_task_start(engine) -> None:
     visible = set(agent.visible_task_ids)
     visible.add(task.task_id)
     staged.agents[1] = agent.model_copy(
-        update={"location_id": task.required_location_id, "visible_task_ids": visible}, deep=True)
+        update={"location_id": task.required_location_id, "visible_task_ids": visible,
+                "body_settled_at": now}, deep=True)
     staged.version += 1
     event = EventDraft(event_type="environment_event", occurred_at=now, visibility="system",
                        source_kind="scenario", data={"kind": "test_task_start"})
@@ -304,7 +305,7 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
         engine.store.last_event_seq) if event.action_id == "action-accepted-work"
         and event.event_type == "action_accepted").caused_by
     paid_accounts = dict(engine.state.accounts)
-    advance_next(engine)
+    assert advance_until_ready(engine)
     replay_context = context(engine, "accepted-work-replay")
     engine.begin_decision_round([replay_context])
     engine.observe(replay_context)

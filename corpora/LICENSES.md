@@ -38,3 +38,7 @@
 准备新路线使用 `uv run python scripts/prepare_map.py --source-root corpora --destination NEW_CORPUS`。
 该命令以当前已审阅地点与供给为输入，按完整有向地点对查询路由，每秒至多一次请求，验证响应
 实际出行方式后原子发布新目录；任何未知响应或方式不符都会中止，不以驾驶路线代替步行路线。
+
+## NASA audio and transcript
+
+The NASA Johnson Space Center Houston We Have a Podcast episode Space Habitat is credited to NASA. The original English transcript page and an audio excerpt are frozen under podcasts/. NASA says its content is generally not subject to US copyright and may be used for educational or informational purposes, with NASA acknowledged and no implied endorsement. NASA cautions that third-party rights and identifiable people may require separate clearance for commercial use. The clip contains the interview interval 00:01:52–00:14:58, excluding the preceding music marker. WorldMock does not claim NASA reviewed or endorsed the simulation or its AI outputs. See https://www.nasa.gov/nasa-brand-center/images-and-media/ and https://www.nasa.gov/podcasts/houston-we-have-a-podcast/space-habitat/.

@@ -1,14 +1,19 @@
 """环境事件、承诺威胁与双重估间隔的精确边界合同。"""
 
+import json
 from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 from typing import get_args
 
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, wake_by_mail
 from tests.life.test_day_plan import act, goal
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, StartBasicActivityRequest
+from worldmock.life.engine import LifeEngine
+from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus,
+                                   SetActivityStateRequest, StartBasicActivityRequest)
 from worldmock.life.rhythm import _has_commitments, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.scenario import LifeScenario
 from worldmock.life.schedule import (
@@ -156,6 +161,7 @@ def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_fa
     state.current_time = due - 1901
     state.pending_events = []
     state.agents[1] = state.agents[1].model_copy(update={"visible_task_ids": {task.task_id},
+        "body_settled_at": state.current_time,
         "next_decision_at": state.current_time, "day_plan": DayPlan(day_end=due + 10000, goals=())})
     from tests.life.test_revision_contract import _commit_staged
     _commit_staged(engine, state)
@@ -168,7 +174,8 @@ def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_fa
     assert {"task_due_soon", "commitment_threatened"}.issubset(engine.state.agents[1].pending_wake_reasons)
 
 
-def test_engine_schedules_exact_closing_warning_with_commitment(engine_factory):
+@pytest.mark.parametrize("bound_to_location", [False, True])
+def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bound_to_location):
     from datetime import datetime
     from zoneinfo import ZoneInfo
     from tests.life.test_revision_contract import _commit_staged
@@ -178,16 +185,131 @@ def test_engine_schedules_exact_closing_warning_with_commitment(engine_factory):
     closing_minute = local.hour * 60 + local.minute + 17
     closing = int(local.replace(second=0).timestamp()) + 17 * 60
     state.pending_events = []
-    state.agents[1] = state.agents[1].model_copy(update={"visible_task_ids": set(),
-        "day_plan": DayPlan(day_end=closing + 10000, goals=())})
-    location_id = state.agents[1].location_id
+    task = engine.scenario.tasks[0]
+    location_id = task.required_location_id if bound_to_location else state.agents[1].location_id
+    state.agents[1] = state.agents[1].model_copy(update={
+        "location_id": location_id, "visible_task_ids": {task.task_id},
+        "known_task_ids": {task.task_id},
+        "day_plan": DayPlan(day_end=closing + 10000,
+                            goals=[goal("工作", "去别处完成任务", registered=state.current_time)]),
+    })
     state.opening_exceptions[location_id][local.date().isoformat()] = [(0, closing_minute)]
     _commit_staged(engine, state)
     result = act(engine, "closing-wait", "start_basic_activity",
                  StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
     assert result.status == "in_progress"
-    assert engine.scheduling_state().next_event_at.timestamp() == closing - 900
+    if bound_to_location:
+        assert engine.scheduling_state().next_event_at.timestamp() == closing - 900
+        advance_next(engine)
+        assert engine.state.current_time == closing - 900
+        assert {"location_hours_change", "commitment_threatened"}.issubset(
+            engine.state.agents[1].pending_wake_reasons)
+    else:
+        assert engine.scheduling_state().next_event_at.timestamp() != closing - 900
+        while engine.state.current_time < closing:
+            advance_next(engine)
+        assert "commitment_threatened" not in engine.state.agents[1].pending_wake_reasons
+
+
+def _stage_task_warning(engine, task_ids: set[str], due: int) -> None:
+    """把真实引擎放到预警前并同步身体结算时钟。"""
+    from worldmock.footprints.models import EventDraft
+
+    state = engine.state.model_copy(deep=True)
+    now = due - 1901
+    state.current_time = now
+    state.pending_events = []
+    agent = state.agents[1]
+    state.agents[1] = agent.model_copy(update={
+        "body_settled_at": now, "next_decision_at": now,
+        "visible_task_ids": task_ids, "known_task_ids": task_ids,
+        "day_plan": DayPlan(day_end=due + 10000, goals=()),
+    }, deep=True)
+    state.version += 1
+    engine.store.commit(state.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system",
+        source_kind="scenario", data={"kind": "test_warning_clock"})])
+    engine.state = state
+
+
+def _task_warning_ids(agent) -> set[str]:
+    """读取已经交付的具体任务截止签名。"""
+    return {row[1] for entry in agent.delivered_warning_signatures
+            if (row := json.loads(entry))[0] == "task"}
+
+
+def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
+    """第二个任务进入预警窗口时，即使第一项仍未完成也再次提醒。"""
+    engine = engine_factory()
+    first, second = engine.scenario.tasks[:2]
+    due = int(first.due_at.timestamp())
+    engine.rules.tasks[second.task_id] = second.model_copy(update={
+        "available_at": datetime.fromtimestamp(due - 3600, first.due_at.tzinfo),
+        "due_at": datetime.fromtimestamp(due + 100, first.due_at.tzinfo)})
+    _stage_task_warning(engine, {first.task_id, second.task_id}, due)
+    started = act(engine, "two-task-wait", "start_basic_activity",
+                  StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    assert started.status == "in_progress"
     advance_next(engine)
-    assert engine.state.current_time == closing - 900
-    assert {"location_hours_change", "commitment_threatened"}.issubset(
-        engine.state.agents[1].pending_wake_reasons)
+    assert engine.state.current_time == due - 1800
+    assert _task_warning_ids(engine.state.agents[1]) == {first.task_id}
+    act(engine, "first-warning-ack", "set_activity_state",
+        SetActivityStateRequest(activity_id=started.activity_id, operation="cancel"))
+    while engine.state.current_time < due - 1700:
+        advance_next(engine)
+    assert engine.state.current_time == due - 1700
+    assert "task_due_soon" in engine.state.agents[1].pending_wake_reasons
+    assert _task_warning_ids(engine.state.agents[1]) == {first.task_id, second.task_id}
+
+
+def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> None:
+    """睡眠区间经过预警时不标记交付，醒来且威胁仍在才标记。"""
+    engine = engine_factory()
+    task = engine.scenario.tasks[0]
+    due = int(task.due_at.timestamp())
+    _stage_task_warning(engine, {task.task_id}, due)
+    started = act(engine, "sleep-warning", "start_basic_activity",
+                  StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=120))
+    assert started.status == "in_progress"
+    wake_by_mail(engine, offset=101)
+    while engine.state.current_time < due - 1800:
+        advance_next(engine)
+    assert engine.state.current_time == due - 1800
+    assert _task_warning_ids(engine.state.agents[1]) == set()
+    assert engine.scheduling_state().ready_agent_ids == ()
+    advance_next(engine)
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
+    assert "task_due_soon" in engine.state.agents[1].pending_wake_reasons
+    assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
+
+
+def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory) -> None:
+    """共同检查点恢复后，持续成立的同一任务威胁不会再次唤醒。"""
+    engine = engine_factory()
+    task = engine.scenario.tasks[0]
+    due = int(task.due_at.timestamp())
+    _stage_task_warning(engine, {task.task_id}, due)
+    started = act(engine, "checkpoint-wait", "start_basic_activity",
+                  StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    advance_next(engine)
+    assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
+    act(engine, "checkpoint-ack", "set_activity_state",
+        SetActivityStateRequest(activity_id=started.activity_id, operation="cancel"))
+    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
+    checkpoint = engine.checkpoint({"agent:1": reference})
+    assert checkpoint.checkpoint_id
+    run_dir = engine.store.run_dir
+    engine.close()
+    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    try:
+        assert _task_warning_ids(restored.state.agents[1]) == {task.task_id}
+        wake_by_mail(restored, offset=60)
+        while not restored.scheduling_state().ready_agent_ids:
+            advance_next(restored)
+        reasons = restored.state.agents[1].pending_wake_reasons
+        assert "message_arrival" in reasons
+        assert "task_due_soon" not in reasons
+        assert "commitment_threatened" not in reasons
+        assert _task_warning_ids(restored.state.agents[1]) == {task.task_id}
+    finally:
+        restored.close()

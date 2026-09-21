@@ -24,6 +24,7 @@ def test_observation_carries_activity_summary_without_full_catalog(engine_factor
     summary = observed["activity_summary"]
     assert summary["feature_film"] == 90
     assert summary["drama_series"] == 10
+    assert summary["podcast_episode"] == 1
     assert summary["webnovel_excerpt"] == 6
     assert summary["news_feed"] + summary["joke_feed"] == 5
     assert summary["subtitle_experience"] == 1
@@ -33,9 +34,9 @@ def test_observation_carries_activity_summary_without_full_catalog(engine_factor
     # 全局启用的生活活动按品类计数：sport=44、hobby=56（corpora/lifestyle）
     assert summary["sport"] == 44
     assert summary["hobby"] == 56
-    # 观察不再逐条展开 192 项内容：内容品类之和等于场景内容总数
+    # 观察不再逐条展开全部内容：内容品类之和等于场景内容总数
     assert sum(summary[kind] for kind in (
-        "feature_film", "drama_series", "webnovel_excerpt", "news_feed",
+        "feature_film", "drama_series", "podcast_episode", "webnovel_excerpt", "news_feed",
         "joke_feed", "subtitle_experience")) + 80 == len(engine.scenario.contents)
 
 
@@ -124,8 +125,8 @@ def test_browse_is_pure_query_and_feeds_next_observation(engine_factory) -> None
         entry.item_id for entry in engine.scenario.contents if entry.kind == "drama_series"}
 
 
-def test_browse_while_active_activity_is_boundary_gated(engine_factory) -> None:
-    """活动进行中下钻被反馈边界合同拒绝：菜单查询只在空闲决策位可用。"""
+def test_browse_while_active_activity_preserves_playback(engine_factory) -> None:
+    """播放中的真实决策允许下钻，查询不停止或改写播放进度。"""
     import pytest
 
     from worldmock.errors import ProtocolError
@@ -137,7 +138,7 @@ def test_browse_while_active_activity_is_boundary_gated(engine_factory) -> None:
     ctx = context(engine, "menu-second")
     with pytest.raises(ProtocolError):
         engine.begin_decision_round([ctx])
-    # 推进到下一决策位启动 watch，反馈边界上的菜单查询被边界合同拒绝
+    # 推进到下一决策位启动 watch，邮件到达后形成播放中的新决策
     advance_next(engine)
     _, watch_results = submit_round(
         engine, {1: ("start_targeted_activity",
@@ -147,12 +148,15 @@ def test_browse_while_active_activity_is_boundary_gated(engine_factory) -> None:
                                                   playback_speed=1))},
         "menu-watch")
     assert watch_results[0].status.value == "in_progress"
+    watch_id = watch_results[0].activity_id
     wake_by_mail(engine)  # 首个 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
+    before = engine.state.activities[watch_id].media_position_seconds
     _, browse_results = submit_round(
         engine, {1: ("browse_activities", BrowseActivitiesRequest(category="sport", cursor=None))}, "menu-active")
-    assert browse_results[0].status.value == "rejected"
-    assert browse_results[0].error_code == "ACTIVITY_FEEDBACK_ACTION_REQUIRED"
+    assert browse_results[0].status.value == "completed"
+    assert engine.state.activities[watch_id].status == "active"
+    assert engine.state.activities[watch_id].media_position_seconds == before
 
 
 def test_motivation_internal_remain_top5_under_layered_menu(engine_factory) -> None:
