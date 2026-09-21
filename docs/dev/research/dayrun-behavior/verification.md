@@ -1,6 +1,6 @@
 # 一日行为实施与验收台账
 
-> 实施中。基线 `74edeaddccf1e051a0f7c98024ec95eeb6c48514`，分支 `codex/dayrun-behavior`。
+> 本特性全部实现并通过离线验收，无特性延期项。基线 `74edeaddccf1e051a0f7c98024ec95eeb6c48514`，分支 `codex/dayrun-behavior`。
 > 工作树 `/Users/atishoo/.codex/worktrees/dayrun-behavior/WorldMock`；不修改并发主工作树。
 > 行为权威为 [特性规格](../../SPEC-dayrun-behavior.md)，接口归 [CONTRACTS](../../../CONTRACTS.md)，
 > 记录格式归 [记录引擎设计](../../../design/05-recording-engine.md)。本表不能替代生产验证。完整逐文件清单见[文件清单](files.md)。
@@ -14,7 +14,7 @@
 ## 条款、生产行为与可执行验证
 
 下表按冻结规格的小节和可观察合同分组，覆盖本次全部行为；测试路径均相对仓库。
-生产已固定为 `d998a31`，最终门禁及独立审查尚在执行。表内的行为映射不代替本页末尾的固定源码收据。
+最终被测生产与测试固定为 `9a62963`，全仓门禁和独立语义审查均已通过。表内的行为映射与本页末尾的固定源码收据共同构成验收依据。
 设计文件的具体责任与全部实际修改文件另见[文件清单](files.md)。
 
 | 规格范围与可观察合同 | 生产入口 | 可执行验证 |
@@ -38,7 +38,7 @@
 | 最大 MET、按结束点切分，准入、剩余预测、实际阈值同式；恢复项不豁免混合耗能项 | life/body、activities、engine；life/observe | tests/life/test_shared_body.py；tests/life/test_parallel_activities.py::test_recovery_activity_cannot_sponsor_unaffordable_watch；tests/life/test_energy_feasibility.py |
 | 独立效果按 ACTIVE 秒数汇总后限幅，排序无关；工作共享身体，食品热量实际一次 | life/engine、body、activity_evidence | tests/life/test_shared_body.py::test_real_parallel_body_uses_maximum_met_and_is_order_independent；tests/integration/test_meal_checkpoint.py |
 | 每人区间唯一 body_settlement，活动仅引用公共事件并记自己的进度 | life/engine、activity_evidence；footprints/validation | tests/life/test_parallel_activities.py；tests/life/test_parallel_acceptance.py；tests/integration/test_dayrun_complete_days.py |
-| 所有本人正活动进度参与目标匹配，首次推进和情绪脉冲仍只一次 | life/rhythm、schedule | tests/life/test_day_plan.py::test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time；tests/life/test_day_plan.py |
+| 所有本人正活动进度参与目标匹配，首次推进和情绪脉冲仍只一次 | life/rhythm、schedule | tests/life/test_day_plan.py::test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time；tests/life/test_parallel_acceptance.py::test_every_parallel_activity_progresses_its_matching_day_goal |
 | 三个正式场景的三家餐馆显式已有餐食、可自提和初始库存；通用空菜单合法 | corpora/zhangjiang-map；scenarios；life/dining | tests/corpora/test_category_corpora.py；tests/catalog/test_category_admission.py；tests/life/test_dayrun_restaurants.py |
 | 到达首轮本店候选可直接购买，完整本地摘要不授予候选外权限 | life/dining、observe、projection、presentation；life/engine | tests/life/test_dayrun_restaurants.py::test_restaurant_arrival_immediately_exposes_pickup_and_consumption；tests/life/test_storefront_arrival.py；tests/integration/test_category_inventory_protocol.py |
 | 空菜单、售罄、闭店及不满足购买条件如实进入提示，遵守预算 | life/dining、narration；LifeAgent | tests/life/test_dayrun_restaurants.py；tests/life/test_narration.py；tests/integration/test_decision_context_protocol.py |
@@ -55,11 +55,11 @@
 | 反思新身份进入证据；零输入合法、新增/合并区分、未变可不写，写盘失败不成功 | life_memory；AS2 MemoryStepOutcome；life/memory_evidence | tests/integration/test_verified_memory.py；tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit；tests/footprints/test_quality.py::test_merged_memory_identity_is_not_reported_as_a_duplicate |
 | 静默边界推进全部活动，不调用模型/观察/记忆；每人边界至多一次决策 | life/engine、rhythm；LifeEnv | tests/life/test_parallel_acceptance.py；tests/life/test_scheduling.py；tests/integration/test_dayrun_complete_days.py |
 | 全部可见任务截止前三十分钟，真正受威胁本地承诺闭店前十五分钟 | life/rhythm、schedule | tests/life/test_wake_reasons.py::test_second_task_new_warning_is_not_hidden_by_first；tests/life/test_wake_reasons.py::test_engine_schedules_closing_warning_only_for_local_task |
-| 签名绑定具体任务/截止/地点/闭店/承诺；持续同因静默，新事实才重提醒 | life/rhythm、schedule；models/delivered_warning_signatures | tests/life/test_wake_reasons.py；tests/life/test_day_plan.py |
-| 活动不可行离散原因，条件消失清除；睡眠过滤不消费提醒；实际事件仍独立唤醒 | life/rhythm、schedule、engine | tests/life/test_wake_reasons.py::test_sleep_filtered_warning_is_delivered_after_waking；tests/life/test_wake_reasons.py；tests/life/test_energy_feasibility.py |
+| 签名绑定具体任务/截止/地点/闭店/承诺；持续同因静默，新事实才重提醒 | life/rhythm、schedule；models/delivered_warning_signatures | tests/life/test_wake_reasons.py::test_changed_task_deadline_warns_again_and_completed_task_clears_signature；tests/life/test_wake_reasons.py::test_changed_closing_time_and_new_local_commitment_warn_independently |
+| 活动不可行离散原因，条件消失清除；睡眠过滤不消费提醒；实际事件仍独立唤醒 | life/rhythm、schedule、engine | tests/life/test_wake_reasons.py::test_sleep_filtered_warning_is_delivered_after_waking；tests/life/test_wake_reasons.py::test_infeasibility_warns_once_clears_and_can_reappear；tests/life/test_energy_feasibility.py |
 | 检查点保留身体时刻与交付签名，不重扣区间或重交同一预警 | life/models、engine、rhythm | tests/life/test_wake_reasons.py::test_checkpoint_restore_does_not_redeliver_same_task_warning；tests/integration/test_dayrun_complete_days.py |
 | 两种子、双人完整自然日与非法模型输出，真实工具到 SQLite、记忆、恢复、导出 | LifeAgent → LifeEnv → LifeEngine → FootprintStore → memory/export | tests/integration/test_dayrun_complete_days.py，种子 17、54，每人 86400 秒 |
-| 覆盖、目录/语料身份、文档一致性与独立语义变异闭环 | scripts/coverage_gate、build_catalog、build_nasa_podcast、documentation_gate | 固定源码收据和独立 Bob 报告见下文，未完成前不放行 |
+| 覆盖、目录/语料身份、文档一致性与独立语义变异闭环 | scripts/coverage_gate.py、build_catalog.py、build_nasa_podcast.py、documentation_gate.py | 固定源码收据和独立 Bob 报告见下文，全部通过 |
 
 ## 集成中发现并关闭的问题
 
@@ -77,7 +77,7 @@
 
 这些修复对应规格已有的事实、恢复及共同时间要求，不新增替人物行动或自由文字推断功能。
 
-## 当前证据
+## 初期集成证据与历史边界
 
 独立工作树初始化正确的可编辑依赖；核心回归基线：
 `tests/life/test_engine_round.py tests/life/test_wait_passive_entertainment.py
@@ -90,7 +90,7 @@
 
 首次整合覆盖门禁是在并发实现尚未冻结时运行，75 failed、3709 passed、4 个既有历史产物缺失跳过；
 分支 92.26%，公共接口有 33 项未完全执行。此轮是定位回归和边界测试缺口的失败证据，
-不是放行结果；缺口正在按独占文件修复，最终必须以固定源码重新执行。
+不是放行结果；该轮缺口随后全部关闭，最终固定源码结果见末节。
 
 目录四项逐字节复现、NASA 派生文件检查通过；正式十二周场景 7386 条素材、143 个分区全部可达。
 素材可达不证明真实十二周模型运行完成。
@@ -117,7 +117,7 @@
 | 合并已写入存储但更新结果漏报身份 | 两次 after_step 后旧身份、merge_count 与 merged_episodes 同时核对 |
 | 同区间只处理第一条活动进度 | 真实播放与等待各自推进对应目标、保留各自活动身份和实际时刻 |
 
-这些补测的干净快照将用于原始补丁复验；最终结果以随后收据为准。
+这些补测已在干净快照上完成原始补丁复验；精确补丁及失败断言保留在末节的独立报告中。
 
 
 预警签名补充审查另发现同任务截止、同地点闭店时刻、具体本地承诺及威胁消失清理四项漏检。
@@ -137,4 +137,44 @@ PersonAgent 原生记录入口和宿主证据捕获，证明合并身份确实�
 3839 passed、4 个既有历史产物跳过、24 warnings，653.36 秒；
 分支 95.86%（7046/7350），公共接口未覆盖数 0。
 随后预警条件转换、旧记忆类型拒绝及原生合并载荷的测试补强不修改生产，
-将随补测提交再执行完整门禁，避免把旧选择集当作新增用例的通过收据。
+已在最终补测提交重新执行完整门禁；下列收据包含新增用例。
+
+
+## 最终固定源码验收
+
+所有 SPEC 功能同批完成，无待实现或延期条款。固定被测提交为
+`9a62963841694cb668cc49a039c59f39caa757a6`，AS2 为
+`8768e14df5c887c710fe96bf24981a2d8508346e`，LabelKit 保持
+`d0afd606decbc3f4aa64c64ef5339586120c5a7a`。此后仅更新文档与证据，生产、测试、脚本、输入和依赖不变。
+
+| 验收范围 | 实际命令或入口 | 最终结果 |
+| --- | --- | --- |
+| 全仓测试与覆盖 | `MEM0_TELEMETRY=False ANONYMIZED_TELEMETRY=False LITELLM_LOCAL_MODEL_COST_MAP=True .venv/bin/python scripts/coverage_gate.py` | 3847 passed、4 个既有历史产物缺失跳过、24 warnings，651.72 秒；分支 95.89%（7048/7350），公共接口缺口 0，PASSED；新增特性用例无跳过 |
+| 完整自然日 | `tests/integration/test_dayrun_complete_days.py`，种子 17 与 54，每种子双人 | 2 passed，已纳入最终全仓门禁；真实 LifeAgent、工具、环境、SQLite、观察、记忆、恢复与导出，每人 86400 秒共同身体区间 |
+| 实际进食恢复 | `tests/integration/test_meal_checkpoint.py` | 1 passed，已纳入最终全仓门禁；真实到店、自提、半程进食、暂停、关库恢复和剩余份额结算守恒 |
+| 维护依赖 | `pytest -q vendor/agentsociety2/packages/agentsociety2/tests` | 480 passed、2 项依赖警告；独立固定 AS2 提交的原始上下文见[记忆验收](memory-verification.md) |
+| 目录身份 | `scripts/build_catalog.py --check` | 四项正式产物逐字节一致 |
+| 官方播客派生 | `scripts/build_nasa_podcast.py --check` | 正式选段及派生文件一致 |
+| 正式素材准入 | `.venv/bin/python scripts/check_reachability.py --scenario scenarios/white-collar-12-weeks.json` | 7386 条素材、143 个分区，全部可达 |
+| 文档与样式 | `scripts/documentation_gate.py`、`tests/test_style_gate.py`，另核查本次 Markdown 本地链接 | 文档最终扫描及链接数量见[门禁收据](final-gates.json)；样式通过，生产没有新增冻结例外 |
+
+覆盖原始机器报告见[coverage-report.json](../../coverage-report.json)。最终门禁命令、来源身份与日志哈希见
+[门禁收据](final-gates.json)，原始输出保存在[门禁证据包](final-gates.tar.gz)。
+
+| 独立语义审查 | 固定源码与选择集 | 结果与精确证据 |
+| --- | --- | --- |
+| 活动、身体、目标与预警 | 初轮 `d998a31`，补测 `aa22dc8`，最终 `9a62963` 六文件 125 passed | 十六个有效变异全部关闭；五个曾存活补丁在最终源码原样杀死，见[活动审查](bob-activity/report.md) |
+| 人物入口与主观记忆 | 初轮 `d998a31`，补测 `aa22dc8` 七文件 102 passed | 十八个有效变异全部关闭；三个原存活补丁原样杀死；一项没有经过实际提示入口的无效变异排除，见[记忆审查](bob-memory/report.md) |
+| 经历、餐食、音频与评估 | 初轮 `d998a31`，补测 `aa22dc8` 相关基线 79 passed | 十个原始补丁全部重新运行并杀死，见[经历审查](bob-experiences/report.md) |
+
+合计四十四个有效语义变异，无存活项；这不是“每条 SPEC 都做过变异”的声明。
+全部条款的生产行为与普通回归由上方逐条表负责，独立变异用于检验关键断言是否能识别真实行为倒退。
+记忆审查初始报告内关于旧类型拒绝和原生合并载荷的测试边界，已由最终提交的三条新增用例补足，
+不倒改审查员原始快照判断。最后一轮文档语义复核见[独立文档报告](bob-experiences/final-document-review.md)。
+
+三个父级只读审查入口已正常移除；七个包含子模块的临时审查树均已恢复干净，
+Git 拒绝普通移除后按审查规则保留，精确路径见三份报告与门禁证据。未强制删除，也未触动其他会话工作树。
+
+本次使用可控模型输出验证两个完整自然日，未运行真实云端模型长跑；它证明工程路径与规格验收，
+不证明人物行为质量、真实十二周运行、LabelKit 项目交付或三名独立盲评。这些原有项目级门禁继续由
+[项目实现状态](../../implementation-status.md)记录，不属于本次延期功能。

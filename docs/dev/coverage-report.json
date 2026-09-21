@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-09-21T09:31:01+00:00",
+  "generated_at": "2026-09-21T09:43:05+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "8839f39e-a113-45f5-b24d-07ab8ebd871d",
-    "manifest_hash": "776bc38f2d1a2dc4ec880dc97b1aff897968297a079fb1c82aa3eb4dbc8ccdf7",
-    "source_identity": "aa22dc830d6a66d13f14a22a04babae5cb41ec98"
+    "snapshot_id": "73a8b4b9-67f2-42ee-ae73-5b4d548c56fb",
+    "manifest_hash": "f442c9e4e7d7d2037ee7670f6b17c592cf4f5d3dffa277c7a50d19fde4c70c17",
+    "source_identity": "9a62963841694cb668cc49a039c59f39caa757a6"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 7046,
-    "missing_branches": 304,
+    "covered_branches": 7048,
+    "missing_branches": 302,
     "total_branches": 7350,
-    "percent": 95.86,
+    "percent": 95.89,
     "passed": true
   },
   "per_file_branch": [
@@ -643,9 +643,9 @@
     },
     {
       "file": "src/worldmock/life/rhythm.py",
-      "covered_branches": 90,
-      "missing_branches": 4,
-      "percent": 95.74
+      "covered_branches": 92,
+      "missing_branches": 2,
+      "percent": 97.87
     },
     {
       "file": "src/worldmock/life/rotation.py",

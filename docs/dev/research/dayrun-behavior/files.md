@@ -23,6 +23,8 @@
 | 素材与场景手册 | 正式三家餐馆供给身份、NASA 选段及重建命令、开启组合所需实际菜单配置 |
 | INDEX、VERIFICATION、implementation-status、ANALYSIS-spec-coverage | 新入口、现行版本与验收门禁、条款测试追溯；历史收据保留原身份，不冒充本次结果 |
 
+本次共涉及 182 个仓库路径；维护依赖的子模块内部文件另见末节。
+
 ## 设计与现行合同
 
 - `docs/ARCHITECTURE.md`
@@ -55,10 +57,22 @@
 
 ## 实施证据与审查
 
+- `docs/dev/research/dayrun-behavior/bob-activity/evidence-manifest.json`
+- `docs/dev/research/dayrun-behavior/bob-activity/evidence.tar.gz`
+- `docs/dev/research/dayrun-behavior/bob-activity/report.md`
+- `docs/dev/research/dayrun-behavior/bob-experiences/evidence-manifest.json`
+- `docs/dev/research/dayrun-behavior/bob-experiences/evidence.tar.gz`
+- `docs/dev/research/dayrun-behavior/bob-experiences/final-document-review.md`
+- `docs/dev/research/dayrun-behavior/bob-experiences/report.md`
+- `docs/dev/research/dayrun-behavior/bob-memory/evidence-manifest.json`
+- `docs/dev/research/dayrun-behavior/bob-memory/evidence.tar.gz`
+- `docs/dev/research/dayrun-behavior/bob-memory/report.md`
 - `docs/dev/research/dayrun-behavior/concurrency-design-review.md`
 - `docs/dev/research/dayrun-behavior/dining-design-review.md`
 - `docs/dev/research/dayrun-behavior/document-consistency-review.md`
 - `docs/dev/research/dayrun-behavior/files.md`
+- `docs/dev/research/dayrun-behavior/final-gates.json`
+- `docs/dev/research/dayrun-behavior/final-gates.tar.gz`
 - `docs/dev/research/dayrun-behavior/inputs-verification.md`
 - `docs/dev/research/dayrun-behavior/memory-design-review.md`
 - `docs/dev/research/dayrun-behavior/memory-verification.md`
@@ -109,7 +123,7 @@
 - `src/worldmock/validation.py`
 - `vendor/agentsociety2`
 
-## 正式输入与语料
+## 正式输入与生成物
 
 - `catalog/affordances.toml`
 - `catalog/manifest.json`
@@ -128,7 +142,7 @@
 - `scenarios/multi-person.json`
 - `scenarios/white-collar-12-weeks.json`
 
-## 行为测试
+## 回归与验收测试
 
 - `tests/catalog/test_affordance_shadow.py`
 - `tests/catalog/test_category_admission.py`
@@ -204,6 +218,16 @@
 - `tests/life/test_storefront_commerce.py`
 - `tests/life/test_wait_passive_entertainment.py`
 - `tests/life/test_wake_reasons.py`
+- `tests/life/test_work_contracts.py`
 - `tests/life/test_work_review.py`
 - `tests/test_style_gate.py`
 
+## AS2 子模块内部修改
+
+基线 `ae3224ce982d52f1eb773a4f70521a7b60e19cba` → 本次 `8768e14df5c887c710fe96bf24981a2d8508346e`，共 5 个内部路径：
+
+- `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/react.py`
+- `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory.py`
+- `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/memory_runtime.py`
+- `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/person.py`
+- `vendor/agentsociety2/packages/agentsociety2/tests/test_worldmock_life_hooks.py`

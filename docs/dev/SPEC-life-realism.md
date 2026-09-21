@@ -483,8 +483,8 @@ flowchart LR
 | --- | --- | --- | --- |
 | 两阶段决策 | 每次提供决策机会先产生决策自述，再进入行动循环；决策自述写入 `decision_started` 并作为请求响应证据保存；超长或为空时保留一次重试并最终记为决策失败 | `tests/integration/test_life_agent_protocol.py` | 代码层已验证 |
 | 决策自述信息范围 | 决策自述只出现在 dreaming 任务的可读输入，动作与意图任务读不到它 | `tests/delivery/test_windows.py` | 代码层已验证 |
-| 记忆写入 | 空列表不报错；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、一日行为端到端验收 | 本特性待验证 |
-| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节 | AS2 分支记忆测试、一日行为端到端验收 | 本特性待验证 |
+| 记忆写入 | 空列表不报错；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、一日行为端到端验收 | 已通过一日行为离线验收，见[实施台账](research/dayrun-behavior/verification.md) |
+| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节 | AS2 分支记忆测试、一日行为端到端验收 | 已通过一日行为离线验收，见[实施台账](research/dayrun-behavior/verification.md) |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重；`drive_summary` 为一句中文；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
 | 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md)验收台账 | 本特性确定性验收通过 |

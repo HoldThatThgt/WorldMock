@@ -1,6 +1,6 @@
 # 一日行为可信性特性开发规格
 
-> 状态：FROZEN，实施中；所有条款同批交付，不以分阶段顺序延期功能。
+> 状态：FROZEN，已实现并通过本特性离线验收；所有条款同批交付，无特性延期项。
 > 开发基线：`74edead`；独立分支：`codex/dayrun-behavior`。
 > 来源：[行为提案](PROPOSAL-dayrun-behavior.md)；用户已授权确定细节、修订规格及完整实现。
 > 本文定义特性行为和验收；接口归 [CONTRACTS](../CONTRACTS.md)，记录格式归
