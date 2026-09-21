@@ -957,15 +957,27 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
     assert all(item.work_review is None for item in engine._round.pending_actions)
 
 
-async def test_prepare_pending_work_review_during_independent_wait(engine_factory) -> None:
+@pytest.mark.parametrize("kind", ["wait", "work"])
+async def test_prepare_pending_work_review_during_independent_wait(engine_factory, kind) -> None:
     """等待占用位置时仍可执行瞬时工作提交，不打断已有活动。"""
     engine = engine_factory()
-    _stage_submission(engine)
-    # 中止未准备评审的提交轮，再让人物进入等待活动后重新提交工作。
-    engine.abort_decision_round("cover-submit", "busy-agent teardown")
-    advance_until_ready(engine)
-    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)
-    _act(engine, "busy-wait", "start_basic_activity", wait)
+    if kind == "wait":
+        _stage_submission(engine)
+        engine.abort_decision_round("cover-submit", "busy-agent teardown")
+        advance_until_ready(engine)
+    else:
+        from tests.life.conftest import stage_day_plan
+        _at_task_start(engine)
+        stage_day_plan(engine)
+    if kind == "wait":
+        request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)
+        tool = "start_basic_activity"
+    else:
+        request = StartTargetedActivityRequest(activity_type="work",
+            target_id=engine.scenario.tasks[0].task_id, planned_duration_seconds=3600, playback_speed=1)
+        tool = "start_targeted_activity"
+    started = _act(engine, "busy-work-or-wait", tool, request)
+    assert started.status == "in_progress"
     wake_by_mail(engine)
     advance_until_ready(engine)
     round_id = "busy-submit"
@@ -976,7 +988,10 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
     await engine.prepare_pending_work_review(call.action_id)
     pending = next(item for item in engine._round.pending_actions
                    if item.action_id == call.action_id)
-    assert pending.work_review is not None
+    assert (pending.work_review is not None) == (kind == "wait")
+    if kind == "work":
+        assert not [event for event in engine.store.read_agent_events("model_request", 1)
+                    if event.action_id == call.action_id]
     assert active_activities(engine.state, 1)
     engine.abort_decision_round(round_id, "test teardown")
 
@@ -1295,14 +1310,49 @@ def test_unknown_activity_change_and_continue_reject_when_idle(engine_factory) -
     assert continue_ghost.error_code == "ACTIVITY_NOT_FOUND"
 
 
-def test_purchase_rejects_invisible_product(engine_factory) -> None:
-    """不可见商品的整单购买被拒绝。"""
+@pytest.mark.parametrize("existing", [False, True])
+def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
+    """不存在和真实存在但未呈现的供给都拒绝，实际库存和资金保持原样。"""
+    from tests.life.conftest import stage_day_plan
+    from tests.life.test_commerce import _stage_open
+    from worldmock.life.discovery import supply_row
+
     engine = engine_factory()
-    result = _act(engine, "buy-ghost", "purchase", PurchaseOrderRequest(
-        items=(PurchaseItem(supply_id="food-ghost", quantity=1, price_version="v1"),),
-        fulfillment="delivery", destination_id="home"))
+    if existing:
+        _stage_open(engine)
+        staged = engine.state.model_copy(deep=True)
+        for agent in staged.agents.values():
+            agent.body_settled_at = staged.current_time
+        staged.agents[1].location_id = "market"
+        _commit_staged(engine, staged)
+        stage_day_plan(engine)
+    ctx = context(engine, "buy-invisible")
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    supply_id, version, destination, fulfillment = "food-ghost", "v1", "home", "delivery"
+    if existing:
+        shown = set(engine._pending_visible_supplies[1])
+        discovery = engine._discovery_context(engine.state.agents[1])
+        hidden = [row for supply in engine.scenario.supplies if supply.location_id == "market"
+                  for row in [supply_row(discovery, supply)]
+                  if row["supply_id"] not in shown and row["purchase_allowed"] and row["pickup_allowed"]
+                  and row["purchase_price_fen"] <= engine.state.accounts["agent:1"]]
+        assert shown and hidden
+        supply_id, version = hidden[0]["supply_id"], hidden[0]["price_version"]
+        destination, fulfillment = "market", "pickup"
+    before = engine.state.model_copy(deep=True)
+    request = PurchaseOrderRequest(
+        items=(PurchaseItem(supply_id=supply_id, quantity=1, price_version=version),),
+        fulfillment=fulfillment, destination_id=destination)
+    engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "purchase", request))
+    result = engine.commit_decision_round("buy-invisible")[0]
     assert result.status.value == "rejected"
     assert result.error_code == "SUPPLY_NOT_VISIBLE"
+    assert engine.state.accounts == before.accounts
+    assert engine.state.supply_stock == before.supply_stock
+    assert engine.state.agents[1].inventory == before.agents[1].inventory
+    assert engine.state.deliveries == before.deliveries
+    assert engine.state.pending_events == before.pending_events
 
 
 def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None:

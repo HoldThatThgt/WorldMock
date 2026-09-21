@@ -546,7 +546,7 @@ flowchart TD
 
 ### 地图与供给的恢复身份
 
-世界结构版本为 `4`；旧状态直接拒绝，不迁移、不从旧商品字段重建供给。
+世界结构版本为 `5`；旧状态直接拒绝，不迁移、不从旧商品字段重建供给。
 共同检查点必须封存 `supply_stock`、`supply_quotes`、`opening_exceptions`、人物 `qualifications`、
 `visible_supply_ids`、`supply_browsed_at`、`supply_browsed_location` 与 `presentation_state`。
 待配送、已处理动作和已交付物品与上述状态共同恢复，调价后恢复不得回到初始报价。

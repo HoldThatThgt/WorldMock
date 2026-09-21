@@ -380,7 +380,7 @@ ScheduledKind = Literal[
 | `opening_exceptions` | 地点身份到日期开放区间的世界覆盖；与冻结定义共同求值 |
 | `presentation_state` | 购买呈现按人物与供给身份记录，持有使用保留商品身份 |
 
-世界结构版本为 `4`，旧购买请求、旧场景和旧检查点直接拒绝。人物的 `visible_supply_ids`、
+世界结构版本为 `5`，旧购买请求、旧场景和旧检查点直接拒绝。人物的 `visible_supply_ids`、
 `supply_browsed_at`、`supply_browsed_location` 分别保存实际可见供给集合及逐供给的呈现时刻、呈现地点映射。
 三者的供给键集必须一致；只更新本次实际呈现行，不延长未呈现供给的可见期。资格、库存、
 报价、营业例外和轮转状态随共同检查点往返；地图或代码身份改变后不能打开或恢复为同一运行。

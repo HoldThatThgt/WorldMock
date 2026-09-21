@@ -164,3 +164,24 @@ def test_export_timeline_projection_matches_render_day_output(tmp_path):
     assert actual == expected
     assert '空档' in actual
     store.close()
+
+
+def test_export_quality_counts_person_interval_union_separately(tmp_path):
+    """实际导出的质量报告对每个人的重叠、包含和分离区间取并集。"""
+    store = FootprintStore.create(tmp_path / "run", {
+        "run_id": "run", "agent_ids": [1, 2], "window": {"start": 100, "end": 300, "timezone": "UTC"}
+    }, {"version": 0, "current_time": 100})
+    try:
+        intervals = [(1, 100, 130), (1, 115, 145), (1, 120, 125), (1, 160, 170), (2, 100, 110)]
+        drafts = [EventDraft(event_type="environment_event", occurred_at=end, agent_id=agent_id,
+                            data={"kind": "body_settlement", "interval_start": start,
+                                  "interval_end": end, "activity_ids": []})
+                  for agent_id, start, end in sorted(intervals, key=lambda row: row[2])]
+        store.commit({"version": 1, "current_time": 170}, drafts)
+        manifest = export_run(store, store.last_event_seq, tmp_path / "export")
+        path = tmp_path / "export" / "quality.json"
+        quality = json.loads(path.read_text())
+        assert quality["activities"]["person_elapsed_seconds_by_agent"] == {"1": 55, "2": 10}
+        assert manifest["quality_report"]["sha256"] == hashlib.sha256(path.read_bytes()).hexdigest()
+    finally:
+        store.close()

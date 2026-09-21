@@ -508,3 +508,17 @@ def test_same_input_produces_byte_identical_report() -> None:
     second = behavior_metrics_report(events, location_open_hours={"office": 8},
                                      memory_md_texts={1: "李凡是后端工程师"})
     assert canonical_json(first) == canonical_json(second)
+
+
+def test_person_elapsed_merges_overlapping_nested_and_disjoint_intervals() -> None:
+    """报告对相交、包含和分离的区间取并集，并分别核算不同人物。"""
+    start = _clock(0, 8)
+    intervals = [(0, 1800), (900, 2700), (1200, 1500), (3600, 4200)]
+    events = [_body(index, start + begin, start + end, [])
+              for index, (begin, end) in enumerate(intervals, start=1)]
+    other = _body(5, start, start + 600, [])
+    other["agent_id"] = 2
+    events.append(other)
+    report = _report(events)["reports"]["person_elapsed_minutes"]
+    assert report["per_agent_minutes"] == {"1": 55.0, "2": 10.0}
+    assert sum(report["per_agent_minutes"].values()) == 65.0

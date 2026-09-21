@@ -301,3 +301,31 @@ def test_rejected_group_has_no_activity_money_game_or_invitation_effects(tmp_pat
                        if event.event_seq > events_before)
     finally:
         engine.close()
+
+
+def test_every_parallel_activity_progresses_its_matching_day_goal(tmp_path) -> None:
+    """同一真实结算区间的播放和等待均推进对应目标，不能只处理首项进度。"""
+    from tests.life.test_day_plan import goal
+    from tests.life.test_revision_contract import _commit_staged
+    from worldmock.life.schedule import DayPlan, day_end_seconds
+
+    engine = _engine(tmp_path)
+    try:
+        now = engine.state.current_time
+        staged = engine.state.model_copy(deep=True)
+        staged.agents[1].day_plan = DayPlan(
+            day_end=day_end_seconds(now, engine.scenario.timezone), goals=(
+                goal("休息", "真实等待", registered=now - 1),
+                goal("娱乐", "真实播放", registered=now - 1)))
+        _commit_staged(engine, staged)
+        result, identities = _parallel(engine, "two-goals", _watch(120),
+            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120))
+        assert result.status == "in_progress" and len(identities) == 2
+        advance_next(engine)
+        by_kind = {engine.state.activities[identity].kind.value: identity for identity in identities}
+        goals = {item.intent_kind: item for item in engine.state.agents[1].day_plan.goals}
+        assert goals["娱乐"].progress_activity_id == by_kind["watch"]
+        assert goals["休息"].progress_activity_id == by_kind["wait"]
+        assert {item.progressed_at for item in goals.values()} == {engine.state.current_time}
+    finally:
+        engine.close()

@@ -76,6 +76,8 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
     assert runtime.store.read_state()["pending_episode_count"] == 1
     view = runtime.store.memory_md_path.read_text()
     assert view.count("## 已核验经历") == 1
+    identity = view.split("## 身份\n", 1)[1].split("## 已核验经历", 1)[0].strip()
+    assert identity == "> 人物画像里的身份"
     facts = view.split("## 已核验经历\n", 1)[1].split("## 人物自述", 1)[0]
     assert "progress-1" in facts and "吃完三顿饭" not in facts
     assert runtime.build_context()["recent_episodes"][0]["epistemic_status"] == "subjective"
@@ -204,3 +206,21 @@ async def test_restore_preserves_subjective_identity_and_rejects_status_tamperin
     resumed.store.episodes_path.write_text(json.dumps(episode, ensure_ascii=False) + "\n")
     with pytest.raises(ValueError, match="epistemic status"):
         WorldMockMemoryRuntime(owner, MemoryRuntimeConfig()).restore_store(tmp_path)
+
+
+@pytest.mark.asyncio
+async def test_repeated_subjective_memory_reports_merge_identity_without_duplicate(tmp_path):
+    """相似记忆合并沿用旧身份，并在本次更新结果明确报告合并。"""
+    runtime, _ = _runtime(tmp_path)
+    memory = {"type": "goal", "importance": 0.5, "text": "想去附近散步",
+              "source": "decision_observation", "refs": ["observation-1"],
+              "epistemic_status": "subjective"}
+    first = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[memory])
+    identity = first.created_episodes[0]["id"]
+    second = await runtime.after_step(tick=120, t=_TIME, step_count=2, finish_memories=[memory])
+    assert second.created_episodes == ()
+    assert [row["id"] for row in second.merged_episodes] == [identity]
+    assert second.merged_episodes[0]["epistemic_status"] == "subjective"
+    stored = runtime.store.iter_episodes()
+    assert len(stored) == 1 and stored[0]["id"] == identity
+    assert stored[0]["merge_count"] == 2

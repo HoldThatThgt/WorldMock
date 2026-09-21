@@ -99,6 +99,7 @@ def test_ordinary_long_cue_does_not_repeat_at_next_settlement() -> None:
     ("target_id", "not-selected-content"),
     ("planned_end_at", "before-start"),
     ("energy_kcal", 0),
+    ("body_settled_at", "future"),
 ])
 def test_reopen_rejects_tampered_parallel_activity(engine_factory, field, value) -> None:
     """真实落盘的资源、目标或时间被篡改后，恢复入口必须拒绝。"""
@@ -110,7 +111,9 @@ def test_reopen_rejects_tampered_parallel_activity(engine_factory, field, value)
     assert result.status == "in_progress"
     snapshot = engine.state.model_dump(mode="json")
     watch = next(item for item in snapshot["activities"].values() if item["kind"] == "watch")
-    if field == "energy_kcal":
+    if field == "body_settled_at":
+        snapshot["agents"][str(watch["agent_id"])]["body_settled_at"] = snapshot["current_time"] + 1
+    elif field == "energy_kcal":
         snapshot["agents"][str(watch["agent_id"])]["body"]["energy_kcal"] = value
     else:
         watch[field] = watch["started_at"] - 1 if value == "before-start" else value
@@ -120,5 +123,13 @@ def test_reopen_rejects_tampered_parallel_activity(engine_factory, field, value)
         visibility="system", data={"kind": "test_tampered_activity"})])
     run_dir = engine.store.run_dir
     engine.close()
-    with pytest.raises((ValueError, IntegrityError), match="invalid|disagree|exceed"):
+    with pytest.raises((ValueError, IntegrityError), match="invalid|disagree|exceed|ahead"):
         LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_parallel_request_requires_multiple_real_children(count):
+    """组合不能以空数组或单项绕过持续活动组合的最小数量合同。"""
+    child = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    with pytest.raises(ValueError, match="at least two"):
+        StartParallelActivitiesRequest(activities=(child,) * count)

@@ -155,3 +155,16 @@ def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store
     }})
     with pytest.raises(IntegrityError, match="arrival"):
         project_verified_experiences([missing_arrival], agent_id=1, cutoff_seq=2)
+
+
+@pytest.mark.parametrize("count", [8, 40])
+def test_recent_window_returns_latest_five_before_cutoff_with_more_history(store, count):
+    """最近窗口明确排除旧经历、其他人物以及截止之后的新经历。"""
+    own = store.commit(store.state, [_progress("wait", f"own-{index}") for index in range(count)])
+    store.commit(store.state, [_progress("wait", "other", agent_id=2)])
+    cutoff = store.last_event_seq
+    store.commit(store.state, [_progress("wait", "after-cutoff")])
+    facts = recent_verified_experiences(store, 1, cutoff)
+    assert [row["activity_id"] for row in facts] == [f"own-{index}" for index in range(count - 5, count)]
+    assert [row["source_event_id"] for row in facts] == [event.event_id for event in own[-5:]]
+    assert [row["event_seq"] for row in facts] == list(range(count - 4, count + 1))

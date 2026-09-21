@@ -421,7 +421,11 @@ def test_finish_schema_contains_only_sources_shown_this_decision() -> None:
     )
     agent.prepare_react_loop(request)
 
-    agent.build_react_messages(request)
+    messages = agent.build_react_messages(request)
+    assert "主观归纳：\n# Subjective" in messages[1]["content"]
+    assert "已核验经历：\n# Subjective" not in messages[1]["content"]
+    statement = agent._life_user_sections(request, with_facts=False)
+    assert "主观归纳：\n# Subjective" in statement
     agent._life_action_count = 1
     finish = next(
         item

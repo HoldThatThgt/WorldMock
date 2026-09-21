@@ -606,11 +606,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                      RhythmBoundary(target_epoch, interval, arrivals, drafts))
         for agent_id in expired_plan_agent_ids(staged):
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
-        if not drafts:
-            drafts.append(EventDraft(event_type="environment_event", occurred_at=target_epoch,
-                                     visibility="system", source_kind="environment",
-                                     data={"kind": "time_advanced", "interval_start": self.state.current_time,
-                                           "interval_end": target_epoch}))
         if target_epoch == staged.end_time:
             drafts.extend(self._truncate(staged, target_epoch))
             drafts.append(EventDraft(event_type="run_ended", occurred_at=target_epoch,
