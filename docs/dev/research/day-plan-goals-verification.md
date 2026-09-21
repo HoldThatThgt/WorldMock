@@ -3,6 +3,9 @@
 > 状态：本特性全部实现并通过确定性验收，无待实现或待复验条目。
 > 范围：[最终规格](../SPEC-day-plan-goals.md)全部行为，无特性延期项。日期：2026-09-21。
 
+本文保留独立特性分支在 `4ae28c7` 的验收快照；后续与 main 的组合证据见
+[主线组合验收](day-plan-goals-main-verification.md)。
+
 ## 隔离与源码身份
 
 | 身份 | 实际内容 |
@@ -113,7 +116,7 @@ PYTHONPATH=src:.:vendor/agentsociety2/packages/agentsociety2:vendor/labelkit/src
 
 ## 实际修改清单
 
-以下清单由开发基线 `170e1f0fcd83a745f9989da5dac95eac72ea8647` 到最终工作树的 Git diff 生成。
+以下清单由开发基线 `170e1f0fcd83a745f9989da5dac95eac72ea8647` 到特性验收提交 `4ae28c7` 的 Git diff 生成。
 
 共 61 个文件；不包含开发基线冻结的其他会话修改。
 

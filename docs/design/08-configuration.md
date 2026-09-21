@@ -1,9 +1,11 @@
 # WorldMock 产品设计说明书 — 配置规格
 
 > **状态**：DRAFT  
-> **日期**：2026-09-20  
-> **版本**：v1.3\
+> **日期**：2026-09-21\
+> **版本**：v1.5\
 > **目标读者**：算法工程师、开发工程师、实验设计者
+
+配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md)。本文维护配置职责与设计边界。
 
 ## 版本历史
 
@@ -13,6 +15,8 @@
 | v1.1 | 2026-09-20 | Codex | 身体初值、资源目录和规则来源对齐实际输入，明确已有实现差异 |
 | v1.2 | 2026-09-20 | Codex | 资源、内容和语料设计归入资源引擎；配置仅保留场景引用与初值 |
 | v1.3 | 2026-09-20 | Codex | 增加地点类与人物交互菜单声明、失败关闭校验和场景身份边界；删除会被误读为实测收据的固定校验示例 |
+| v1.4 | 2026-09-21 | Codex | 接入用户配置手册，对齐模型凭据的实际检查边界，删除过时加载伪代码 |
+| v1.5 | 2026-09-21 | Codex | 合并当日目标的双重估间隔及已冻结密钥池合同，统一手册与运行校验边界 |
 
 ## 1. 模块概述
 
@@ -245,56 +249,16 @@ flowchart LR
 └── deepseek.env
 ```
 
-### 7.2 deepseek.env 格式
+### 7.2 格式与加载边界
 
-```bash
-# DeepSeek API Key (mode 0600)
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+当前运行凭据仅允许 `DEEPSEEK_NODE_KEYS`，填写至少一把非空密钥，多把用逗号分隔；
+正式接口见[模型凭据合同](../CONTRACTS.md#人物决策提示与生成参数)，
+填写示例和权限设置见[运行配置手册](../manual/runtime.md#填写模型凭据)。
 
-**安全要求**：
-
-| 要求 | 检查点 | 违规处理 |
-| --- | --- | --- |
-| 文件权限必须 `0600` | 加载前检查 `stat(file).st_mode` | 拒绝启动，输出错误提示 |
-| 文件必须存在 | `Path.exists()` | 拒绝启动，输出设置指引 |
-| API Key 非空 | 长度 > 20 | 拒绝启动 |
-| 禁止进入 Git | `.gitignore` 包含 `deepseek.env` | CI 检查 |
-
-### 7.3 凭证加载流程
-
-```python
-def load_credentials(config_dir: Path) -> dict:
-    """加载模型凭证
-    
-    :raises CredentialError: 文件不存在、权限错误、格式错误
-    """
-    env_file = config_dir / "deepseek.env"
-    
-    # 检查文件存在
-    if not env_file.exists():
-        raise CredentialError(
-            f"Credential file not found: {env_file}\n"
-            f"Please create it with: echo 'DEEPSEEK_API_KEY=sk-xxx' > {env_file}"
-        )
-    
-    # 检查文件权限
-    stat_info = env_file.stat()
-    if stat_info.st_mode & 0o077:
-        raise CredentialError(
-            f"Insecure file permissions: {oct(stat_info.st_mode)}\n"
-            f"Please run: chmod 0600 {env_file}"
-        )
-    
-    # 解析环境变量
-    load_dotenv(env_file)
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    
-    if not api_key or len(api_key) < 20:
-        raise CredentialError("DEEPSEEK_API_KEY is missing or invalid")
-    
-    return {"deepseek_api_key": api_key}
-```
+[运行启动器](../../src/worldmock/runtime.py)拒绝缺失文件、符号链接、未知键、空值和空密钥段，
+逐段去除首尾空白并按出现顺序去重后，把密钥池交给 LiteLLM Router 分摊请求。
+`0600` 是推荐权限，当前加载器没有权限位强制检查，也没有密钥长度大于 20 的检查。
+画像抽取与模拟启动的凭据读取顺序不同，详见手册；不在此处保留与实际实现不同的加载伪代码。
 
 ## 8. 配置验证
 
@@ -308,6 +272,9 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 
 ### 8.2 校验清单
 
+运行凭据项在模拟启动器中检查，不由 `worldmock validate` 执行。
+画像抽取和 LabelKit 的凭据读取边界见[运行配置手册](../manual/runtime.md)，不能视为执行同一套文件校验。
+
 | 校验项 | 检查内容 | 失败行为 |
 | --- | --- | --- |
 | Schema 版本 | 满足当前场景模型的整数版本约束 | 拒绝启动，说明不受支持的版本 |
@@ -319,7 +286,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 目录准入 | 满足 `category_requirements`，内容摘要一致，全部可能触达配对已定义或已审核不作用 | 未定义、歧义或文件篡改拒绝启动，给出具体来源 |
 | 语料哈希 | 文件 SHA-256 与清单一致 | 拒绝启动，列出不匹配文件 |
 | 规则完整性 | 所有规则文件存在且可解析 | 拒绝启动 |
-| 凭证安全 | 文件权限 `0600` | 拒绝启动，输出修复命令 |
+| 运行凭据 | 固定文件存在且非符号链接；仅含 `DEEPSEEK_NODE_KEYS`，值及密钥段非空 | 文件缺失或不安全时报 `FileNotFoundError`，内容无效时报 `IntegrityError`；`0600` 仅为推荐权限 |
 
 ### 8.3 校验报告
 
@@ -338,7 +305,7 @@ uv run worldmock validate --scenario scenarios/white-collar-12-weeks.json
 | 引用错误 | `home_location_id: "unknown"` | "Location 'unknown' is not declared" |
 | 菜单声明错误 | 地点类缺项、人物字段缺失、未知或重复值、空数组、缺保护项 | `IntegrityError` 与具体英文 Pydantic 原因；不宣称存在统一注册表错误码 |
 | 哈希不匹配 | 语料文件被修改 | "Corpus entry identity mismatch"；核对已绑定版本与来源文件后重新发布 |
-| 权限错误 | `deepseek.env` 权限 `0644` | "Run: chmod 0600 ~/.config/worldmock/deepseek.env" |
+| 凭据内容错误 | 未知键、空值或空密钥段 | "DeepSeek credential file has an invalid schema" |
 
 ## 9. 配置版本与运行绑定
 

@@ -7,6 +7,9 @@ WorldMock 用 AgentSociety 2（下称 AS2）与 DeepSeek 驱动数字人的日�
 
 [docs/INDEX.md](docs/INDEX.md) 是唯一入口，给出项目状态、文档地图与阅读路径；其余文档按职责分工：
 
+想自定义人物和生活环境，从[用户配置手册](docs/manual/README.md)开始：包含一天场景入门、
+人物画像、场景、世界素材、规则、模型凭据、数据生成和评估配置的编写与校验方法。
+
 ### 主文档集
 
 - [架构设计](docs/ARCHITECTURE.md)：系统分层、职责、数据流与核心裁决。
@@ -46,7 +49,8 @@ uv sync --frozen
 uv sync --project vendor/labelkit --frozen
 ```
 
-DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件仅含 `DEEPSEEK_API_KEY`，权限为 `0600`。
+DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件仅含 `DEEPSEEK_NODE_KEYS`，
+填写单把或逗号分隔的多把密钥。建议权限为 `0600`；完整格式及各入口的读取方式见[运行配置](docs/manual/runtime.md#填写模型凭据)。
 凭据文件不属于工程或运行产物，不能加入版本控制。
 
 ## 实验与数据
