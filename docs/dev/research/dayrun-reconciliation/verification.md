@@ -79,13 +79,33 @@ Router 不启用内部重试或备用模型，取消执行仍能释放并发许�
 
 | 检查 | 结果 |
 | --- | --- |
-| 真实游戏观察、人物工具与恢复；运行配置与身份 | 35 passed |
-| 全部根 integration 测试 | 488 passed；随后新增生产配置下十二次非法响应再成功的回归，1 passed |
-| AS2 全套离线测试 | 478 passed |
-| 库存分段与非法游标、邻接商务与候选 | 117 passed |
-| 完整工程门禁 | 待最终收据 |
-| 独立 Uncle Bob 审查 | 待最终收据 |
+| 根项目完整测试与覆盖门禁 | **3745 passed, 4 skipped**，576.58 秒；分支覆盖 **96.51%**，公共接口未覆盖数 **0**，门禁通过 |
+| AS2 全套离线测试 | **480 passed**，15.02 秒；最后两个测试执行真实 LiteLLM Router 的重试与路由流程 |
+| 根修复 Uncle Bob 审查 | 基线 89 例；八个独立有效突变全部被检出，见[根审查](bob-root.md) |
+| 供应商 Uncle Bob 审查 | [首次审查](bob-vendor.md)十四个被检出、两个存活；补测试后[原样复验](bob-vendor-recheck.md)两个均被检出 |
+| 文档引用门禁 | 97 篇，零断链，通过 |
 | 设计与证据一致性 | 独立核对四个机制、五个差距、来源与路径；两处文字更正已处理 |
+
+完整门禁使用隔离目录的冻结依赖和独立 Python 环境，执行：
+
+```sh
+MEM0_TELEMETRY=False ANONYMIZED_TELEMETRY=False LITELLM_LOCAL_MODEL_COST_MAP=True \
+uv run python scripts/coverage_gate.py
+```
+
+[覆盖收据](../../coverage-report.json)绑定生产提交 `fa150fb2fc874db568f1812b606608217e42e574`。
+原始输出为 `/tmp/worldmock-dayrun-coverage-final.log`。
+初次全量执行因隔离 LabelKit 未安装 CLI，十二项本地 HTTP 夹具测试失败；
+在该 vendor 目录完成 `uv sync --frozen --no-dev` 后相关测试通过，并重新执行上述完整门禁。
+没有跳过失败用例、放宽断言或修改生产路径以绕过环境问题。
+最终四项跳过均来自 `tests/resources/test_equivalence_anchor.py`，原因是隔离目录未带历史账本数据库。
+
+AS2 生产修复提交为 `8fb24348953c5cfa3e8d4b280c8830a8efcf5de6`，
+最终子模块提交为 `ae3224ce982d52f1eb773a4f70521a7b60e19cba`。
+后者仅追加两个 Router 测试，生产源码相同；完整根门禁与 Bob 基线期间未修改生产源码。
+原始首次 Bob 记录保留，后续复验另存，避免把修复前的测试遗漏隐去。
+
+主目录集成后的关键路径与历史账本复验收据将在本地合入后记录。
 
 所有新增测试使用确定性输入或本地替身，不调用付费模型；TextWorld 和 SQLite 路径实际执行。
 本次没有启动新主线的一整天云端模型运行，因此不会把旧 dayrun 的 completed 当作新代码长跑完成。

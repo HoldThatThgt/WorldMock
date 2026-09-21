@@ -84,7 +84,7 @@ flowchart TD
 | dayrun 原传输补丁 | 从实际源码提取 `call` 与错误判断函数，在内存中配合已安装 LiteLLM 异常对象、脚本化 Router 与假 sleep 执行。 | 复现服务不可用漏判和尝试次数误报。 |
 | 隔离整合后的 dispatcher 首轮验证 | 隔离 `.venv/bin/python -m pytest`，`PYTHONPATH` 显式指向隔离 vendor；运行 `test_llm_dispatcher_no_retry.py`、`test_llm_dispatcher_transport.py`、`test_llm_callback_lifecycle.py`。 | 37 个通过；后续补充固定退避、流式拒绝、敏感错误正文和环境包装器测试，并纳入整套回归。 |
 | AS2 全套回归 | 使用隔离 Python、显式 vendor `PYTHONPATH`、`WORKSPACE_PATH` 和占位模型凭据；设置 `MEM0_TELEMETRY=False`、`ANONYMIZED_TELEMETRY=False`、`LITELLM_LOCAL_MODEL_COST_MAP=True`，运行 `vendor/agentsociety2/packages/agentsociety2/tests`。 | 478 个通过，两个第三方弃用警告。首轮因未设置 `WORKSPACE_PATH` 有两个 registry 测试失败；补全所需环境后整套通过。 |
-| 格式与修改边界 | `git diff --check`；生产修改为 dispatcher 与环境包装器的旧退避参数删除；测试为 transport 新文件与 no_retry 文案修正。 | 通过；未提交。 |
+| 格式与修改边界 | `git diff --check`；生产修改为 dispatcher 与环境包装器的旧退避参数删除；测试为 transport 新文件与 no_retry 文案修正。 | 通过；后续已提交至 vendor `8fb2434`。 |
 
 没有执行真实模型长跑、真实八密钥分布实验或供应商 reasoning 上限实验。
 完整主仓库集成回归与独立变异审查由根任务汇总，不用本页局部测试替代。
@@ -95,3 +95,14 @@ flowchart TD
 若“全链路分摊”明确包含画像编译，后续设计应确定统一供应商客户端是否覆盖画像抽取、
 运行阶段、联系人回复与工作验收，并统一密钥选择、请求身份、重试与用量证据。
 本次没有增加局部轮转兼容逻辑，也没有把画像编译分摊列为已完成。
+
+## 最终补充验证
+
+独立审查发现原窄测试没有约束真实 LiteLLM Router 的内部重试与备用模型，
+见[首次 Bob 报告](bob-vendor.md)。在独立工作树增加两个真实库边界测试后，
+固定三文件基线为 **45 passed**，AS2 全套为 **480 passed in 15.02s**；
+供应商调用的最后一层使用离线替身，Router 的路由与重试流程实际执行。
+
+测试提交为 `ae3224ce982d52f1eb773a4f70521a7b60e19cba`，生产源码与 `8fb2434` 完全相同。
+[原样复验](bob-vendor-recheck.md)确认两个原存活突变均被检出。
+首次审查其余十四个突变已被检出，未把它们宣称为在新测试提交上重新执行。

@@ -1,6 +1,7 @@
 # WorldMock dayrun 根集成审查
 
-审查对象为 `/Users/atishoo/.codex/worktrees/dayrun-reconciliation/WorldMock` 的当前未提交修改。
+初始审查对象为 `/Users/atishoo/.codex/worktrees/dayrun-reconciliation/WorldMock` 的整合修改，
+后续随根提交 `fa150fb2` 冻结。
 未调用真实模型，未运行变异测试。初始审查独立于根集成实现；发现恢复缺口后，按根任务新增授权完成了该处修复。
 
 ## 可证实问题
@@ -45,3 +46,14 @@
 最终 **97 passed in 15.10s**。
 首次新增测试因缺少 `load_scenario` 本地导入失败一次；修正后上述全部文件通过。
 完整主仓库门禁和独立 Bob 审查由根任务汇总。
+
+## 缺口关闭收据
+
+- 恢复工作区预算已严格要求整数十六，实际创建、检查点恢复和 `LifeAgent.from_workspace` 回归通过。
+- 两个 manifest 预算均已拒绝数值相同的浮点数，缺失、篡改和错误类型回归通过。
+- 活动观察新增真实播放内容的嵌套 cues 列表修改测试，观察副本改变不能改写世界中的播放数据。
+- 合同表格已恢复完整，文档引用门禁通过。
+
+[根修复 Bob 报告](bob-root.md)进一步以八个独立突变验证上述预算与副本边界，
+以及真实游戏、游标和分段进食行为；全部被检出。完整门禁和主线整合收据见
+[核查与验收](verification.md)。
