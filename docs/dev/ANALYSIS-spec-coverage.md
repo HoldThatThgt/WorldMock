@@ -141,7 +141,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | G2 | 职业/技能/机会/合同影响产出报酬；睡眠影响效率 | L/test_work_efficiency_factors.py::test_hungry_band_interval_average_with_skill、test_factors_assembled_from_catalog | covered |
 | G3 | 需求进入观察与决策，非脚本排序 | L/test_motivation.py::test_goal_deficit_lifts_work_candidates；L/test_grounded_observation.py::test_motivation_context_wires_enabled_set_and_recent_meals | covered |
 | G4 | 内容覆盖饮食/节目/游戏/工作/邮件/导航/购物 | CO/test_category_corpora.py（17 测全量）；CO/test_corpora.py::test_formal_manifest_validates_every_file_and_selected_counts | covered |
-| G5 | 看见同处他人、通讯、晨间例程与用餐、当日计划；机会由世界提供 | L/test_social.py::test_people_here_filters_location_and_exposes_closed_fields；L/test_day_plan.py（34 测）；CO/test_category_corpora.py::test_morning_wash_activity_declared_at_fifteen_minutes、test_home_pantry_seven_breakfast_servings_reference_catalog_foods | covered |
+| G5 | 看见同处他人、通讯、晨间例程与用餐、当日目标；机会由世界提供 | L/test_social.py；L/test_day_plan.py；CO/test_category_corpora.py | 目标新合同待本次复验 |
 | G6 | 场景可定义地点/日历/天气/交通/速度 | L/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid；L/test_travel_time.py::test_factor_lookup_matches_the_snapshot_table_for_every_hour | covered |
 | G7 | 区分来源数据/规则结果/模型文本/外部服务返回 | F/test_quality.py::test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost、test_transport_failure_marks_tokens_and_cost_unknown | covered |
 | G8 | 完整数字足迹（观察/决策/执行/状态/结果/记忆/关联） | F/test_store.py（15 测）；F/test_event_fields.py | covered |
@@ -172,7 +172,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 
 ## LifeEnv 状态与接口
 
-覆盖对象：`docs/CONTRACTS.md` 的「LifeEnv 状态字段」章（状态归属、资源与需求字段、生命周期、人物工具与管理接口、日程骨架请求、请求字段与结算检查各节）。
+覆盖对象：`docs/CONTRACTS.md` 的「LifeEnv 状态字段」章（状态归属、资源与需求字段、生命周期、人物工具与管理接口、当日目标请求、请求字段与结算检查各节）。
 
 | ID | 条款 | 测试映射 | 状态 |
 | --- | --- | --- | --- |
@@ -199,8 +199,8 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | E21 | consume 至多三件持有食品；人物校验身份、方式与时长，环境按实际用量校验库存；安排使用时间与效果 | I/test_grounded_targets.py::test_consume_multi_item_meal_duration_and_quantity_authority；I/test_category_inventory_protocol.py::test_insufficient_recipe_inventory_is_rejected_by_real_settlement | covered |
 | E22 | submit_work 登记交付物引用；结算触发验收 | L/test_work_contracts.py::test_work_start_rejects_skill_location_and_deadline_boundaries；L/test_work_review.py | covered |
 | E23 | game_action 结算时引擎执行、反馈时刻交付局面 | I/test_grounded_targets.py::test_game_action_requires_current_session_and_admissible_command_pair；L/test_content_game.py | covered |
-| E24 | plan_day 醒来后 5-8 段；自我承诺不代执行 | I/test_grounded_targets.py::test_plan_day_open_without_plan_and_restricted_at_day_start；L/test_day_plan.py（34 测）；L/test_revision_contract.py::test_plan_day_registers_self_commitment_and_rejects_midday | covered |
-| E25 | revise_day_plan 改未开始段 | I/test_grounded_targets.py::test_revise_day_plan_only_rewrites_future_segments；L/test_day_plan.py::test_revise_replaces_only_unstarted_segments | covered |
+| E24 | plan_day 提交零至八条有序目标，空清单仍已提交，不代执行 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py | 待本次复验 |
+| E25 | 修订仅替换未推进目标，保留已推进证据 | L/test_day_plan.py；L/test_revision_contract.py；I/test_grounded_targets.py | 待本次复验 |
 | E26 | send_message 瞬时登记、下次观察送达 | L/test_social.py::test_send_message_delivers_to_world_agent_and_contact 等 4 测 | covered |
 | E27 | start_social_activity 交谈/通话 | L/test_social.py::test_start_chat_registers_foreground_activity_with_invite、test_call_duration_boundaries_10_and_60_minutes | covered |
 | E28 | scheduling_state() 返回可决策人物与下一事件时间 | V/test_decision_round.py::test_scheduling_state_requires_future_boundary、test_scheduling_state_rejects_duplicate_agents | covered |
@@ -582,14 +582,14 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 
 ## 人物真实性修订合同
 
-覆盖对象：`docs/dev/SPEC-life-runtime.md` 的「身体语义：两过程睡眠、睡眠不足账、体感分级」章、「决策节律：结算边界与唤醒条件分离」节、「观察投影与提示合同」章与「社交最小可行版」章；`docs/dev/SPEC-life-realism.md` 的「两阶段决策」「记忆合同」「动机层」「日程骨架」「世界素材品类要求」「画像编译」「商务与进食」「呈现与导出」「默认裁决与备选」各章；`docs/CONTRACTS.md` 的「LifeAgent 人格与记忆字段」章与「观察投影字段」章；验收指标与门禁在 `docs/VERIFICATION.md` 的「放行门禁」章与「实施顺序」章；文件归属在 `docs/INDEX.md` 的「文件归属」章。
+覆盖对象：`docs/dev/SPEC-life-runtime.md` 的「身体语义：两过程睡眠、睡眠不足账、体感分级」章、「决策节律：结算边界与唤醒条件分离」节、「观察投影与提示合同」章与「社交最小可行版」章；`docs/dev/SPEC-life-realism.md` 的「两阶段决策」「记忆合同」「动机层」「当日目标」「世界素材品类要求」「画像编译」「商务与进食」「呈现与导出」「默认裁决与备选」各章；`docs/CONTRACTS.md` 的「LifeAgent 人格与记忆字段」章与「观察投影字段」章；验收指标与门禁在 `docs/VERIFICATION.md` 的「放行门禁」章与「实施顺序」章；文件归属在 `docs/INDEX.md` 的「文件归属」章。
 
 | ID | 条款 | 测试映射 | 状态 |
 | --- | --- | --- | --- |
 | RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_four_rejects_old_checkpoints（当前世界结构为 4，旧检查点直接拒绝）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
 | RC1 | wake_reason 表 12 类触发条件 | L/test_wake_reasons.py::test_positive_each_member、test_wake_reason_frozen_member_set；L/test_revision_contract.py::test_engine_wake_reasons_cover_each_trigger_class；F/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set | covered |
 | RC2 | 静默边界无决策四事件；activity_progress 带 decision_offered/wake_reasons；提供决策记录全部命中原因 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events、test_offered_boundary_records_actual_wake_reasons | covered |
-| RC3 | reconsideration_interval_seconds 场景参数默认 5400；睡眠不受间隔；游戏逐回合 | L/test_wake_reasons.py::test_next_decision_custom_interval_is_scenario_parameter、test_sleep_ignores_reconsideration_interval；L/test_engine_feedback.py::test_game_feedback_boundary_still_rejects_direct_switch | covered |
+| RC3 | 常规与空闲重估是场景参数；精确任务与闭店威胁；睡眠不受间隔，游戏逐回合 | L/test_wake_reasons.py；L/test_engine_feedback.py；L/test_scenario.py | 待本次复验 |
 | RC4 | 下一次决策机会取各项最小值（复用 next_body_boundary_seconds） | L/test_wake_reasons.py::test_next_decision_takes_minimum_of_all_candidates、test_next_decision_excludes_now_and_past；L/test_activity_effects.py::test_body_boundary_predicts_first_energy_threshold_second | covered |
 | RC5 | BodyState 新增四字段、删 sleep_debt_hours、无别名 | L/test_revision_contract.py::test_sleep_debt_hours_has_no_residual_references | covered |
 | RC6 | 两过程公式（χw=18.2h、χs=4.2h、H=0.67、L=0.17、振幅 0.12、困意截断 [0,1.2]） | L/test_sleep_two_process.py::test_awake_step_matches_raw_formula、test_sleep_step_matches_raw_formula、test_thresholds_match_raw_formula_across_day、test_sleepiness_clips_to_1_2_above 等 57 测 | covered |
@@ -623,8 +623,8 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC34 | 评分器写 observation.data.motivation_internal，不展示候选/名次/概率 | L/test_activity_menu.py::test_motivation_internal_remain_top5_under_layered_menu；I/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages（motivation_internal 在禁入清单） | covered |
 | RC35 | drive_summary 一句中文、不含数字权重 | L/test_motivation.py::test_summary_common_knowledge_without_browse、test_summary_open_flips_when_market_opens、test_no_store_scenario_omits_summary | covered |
 | RC36 | 评分器修正（成本/小时归一、价格单计、正餐≥300kcal 前三、家族≤2、<0.3 无娱乐、启用集采样、relief 通道、重复进食 1/(1+n) 降权） | L/test_motivation.py::test_cost_normalized_per_hour_across_durations、test_price_enters_cost、test_meal_floor_and_top_three、test_same_entertainment_family_capped_at_two、test_need_below_floor_suppresses_entertainment、test_lifestyle_enabled_set_scopes_sampling、test_repeated_food_downweighted_by_sensory_satiety | covered |
-| RC37 | 首次醒来必先 plan_day（5-8 段/覆盖就寝/不重叠/intent 闭集；action_result 登记、进观察 day_plan、"今天的打算"）；环境不执行计划步；段起点构成唤醒；revise 未开始段；偏差入 metrics | I/test_grounded_targets.py::test_plan_day_open_without_plan_and_restricted_at_day_start、test_plan_day_validates_segment_count_intent_and_start_boundary；L/test_day_plan.py（34 测）；L/test_revision_contract.py::test_plan_day_registers_self_commitment_and_rejects_midday、test_revise_day_plan_only_rewrites_unstarted_segments、test_plan_day_reopens_on_day_two_after_rollover、test_plan_day_retry_allowed_after_engine_rejection、test_plan_day_rejects_plan_below_bedtime_anchor、test_plan_day_uses_declared_bedtime_window_end、test_facts_day_plan_hidden_after_bedtime_matches_scene、test_rejection_message_carries_error_code_and_reason、test_plan_segment_pulse_requires_matching_activity；E/test_behavior_metrics.py::test_plan_actual_deviation_report_hand_anchor、test_plan_actual_deviation_fails_closed_without_plan_events（计划-实际偏离报告） | covered |
-| RC38 | 计划段时间锚点来自人物卡片 | P/test_models.py::test_time_anchors_must_be_ordered、test_time_window_cross_midnight；L/test_scenario.py::test_persona_declarations_are_complete_and_story_consistent；L/test_revision_contract.py::test_plan_day_uses_declared_bedtime_window_end、L/test_day_plan.py::test_bedtime_anchor_prefers_declaration_then_persona_mapping_default；L/test_revision_contract.py::test_plan_day_anchor_follows_real_scenario_declaration | covered |
+| RC37 | 有序目标、空清单、一次提交、修订、正时长推进、一次证据与情绪；三层报告 | [当日目标规格](SPEC-day-plan-goals.md)与[验收记录](research/day-plan-goals-verification.md)逐要求映射 | 待本次复验 |
+| RC38 | 人物卡片作息保留；当日目标不带绝对时间，环境本地日界决定生命周期 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py；P/test_models.py | 待本次复验 |
 | RC39 | 社交在 LifeEnv 内实现、不装 SimpleSocialSpace、复用消息通道与事件类型 | L/test_social.py（15 测经 engine/store 实现承载）；L/test_revision_contract.py::test_send_message_delivers_inbox_and_arrival_event | covered |
 | RC40 | people_here（姓名/活动家族/可交谈=清醒且非主动游戏）；变化构成唤醒 | L/test_social.py::test_people_here_filters_location_and_exposes_closed_fields、test_can_talk_requires_awake_and_not_active_gaming；L/test_wake_reasons.py（person_arrived/person_left） | covered |
 | RC41 | send_message 瞬时、≤300 汉字、inbox 送达、environment_event kind=message_arrival | L/test_social.py::test_send_message_accepts_300_chars_and_rejects_301、test_send_message_delivers_to_world_agent_and_contact；L/test_revision_contract.py::test_send_message_delivers_inbox_and_arrival_event | covered |
@@ -954,3 +954,9 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
 | 新增章映射 | 2026-09-19 | 补入「候选契约与呈现规则」章 44 行（`CC1`…`CC44`），覆盖 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md` 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节；条款总数由 391 重算为 435，覆盖率由 100.0%（391/391）重算为 96.1%（418/435）；新增行中 27 行按纯函数层测试记 `covered`（`tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_constants.py`，99 测实测全绿），17 行因运行期接线与持久化未落地记 `gap`；`CC12` 一行映射 `tests/life/test_motivation.py` 的两个既有测试（实测 2 passed） |
 | 新增章复判 | 2026-09-19 | 该章整章落地后逐行复判 44 行：`CC16`、`CC22`、`CC30`、`CC33`、`CC36`、`CC39`、`CC41`、`CC42` 由 `gap` 改判 `covered`（运行期装配 `src/worldmock/life/presentation.py`、检索与可达性 `src/worldmock/life/retrieval.py`、准入侧分区校验 `src/worldmock/catalog/admission.py`、地点类运行期强制 `src/worldmock/life/activities.py`、持久化 `WorldState.presentation_state` 与 `WORLD_SCHEMA_VERSION = 3`），`CC34` 映射扩容到运行期强制侧；仍余 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）；`CC43` 与 `CC44` 经复判由 `gap` 改判 `covered`，逐条原因见该章。条款总数 435 不变，covered 由 404 重算为 **414**，gap 由 17 收窄为 **7**，覆盖率由 96.1% 重算为 **98.4%**（428/435 = covered 414 + exempt 14）。复判证据：八个测试文件合计 `165 passed`（`test_candidates.py` 49、`test_rotation.py` 20、`test_candidate_constants.py` 32、`test_candidate_wiring.py` 9、`test_retrieval.py` 31、`test_reachability_admission.py` 9、`test_activity_location_kinds.py` 9、`test_documentation_gate.py` 6）；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：`CC32` 原映射引用 `ELIGIBILITY_RETIRED`，该常量在 `src/worldmock/life/candidates.py` 的 `EXCLUSION_REASONS` 闭集内并不存在，属名实不符，已据实改述并保留 `gap`；另如实记录一项与本矩阵无关的独立缺陷：`scripts/check_reachability.py --scenario` 对正式场景退出码 1（86 条场景内容条目落不进分区），未解决 |
 | 缺口清零 | 2026-09-19 | 为「候选契约与呈现规则」章余下的 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）逐行补入真实性测试并改判 `covered`，**未改动任何生产代码**。新增与加固共 19 个测试函数：新建 `tests/life/test_candidate_contract_boundaries.py`（9 测，经生产接口建普通分支比对候选集、呈现上限不取 `MAX_CANDIDATES`、下推两层与游标载荷形状），`tests/life/test_candidates.py` 增 2 测（`anywhere` 三形区分、墓碑目录里下架条目出局且仍可读 + 无删除条目的通路扫描），`tests/life/test_retrieval.py` 增 2 测并加固 1 测（禁止 ANN 库与浮点距离的常驻断言），`tests/life/test_rotation.py` 增 6 测（`D` 取实测区间而非单一估计值，不硬编码天数）。条款总数 435 不变，covered 由 414 重算为 **421**，gap 由 7 收窄为 **0**，覆盖率由 98.4% 重算为 **100.0%**（435/435 = covered 421 + exempt 14）。实测证据：全量 `2747 passed`；相关八个测试文件 `180 passed`；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`test_style_gate.py` 1 passed；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：正文原写「复判后仍余九行 `gap`」，与矩阵表的去重终态（8 行，`CC34` 已改判）不符，已按表改正。**如实记录的边界**：`CC29` 断言核对的是「缺省值落在实测区间内」与「上界随 `D` 精确变化」，不钉死某个特定缺省数值；`CC40` 的依赖侧断言范围是本项目自己的依赖声明，vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu`（只由上游未使用的 `env/router_codegen.py` 导入）作为已知上游事实写明，本项目运行路径不经它检索 |
+
+## 当日目标特性追溯
+
+[当日目标规格](SPEC-day-plan-goals.md)取代旧时段约束；
+本特性的完整行为、文件清单、测试和独立变异证据统一见
+[本特性验收记录](research/day-plan-goals-verification.md)，不沿用旧段测试计数作为新功能证据。

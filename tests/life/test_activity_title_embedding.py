@@ -86,6 +86,12 @@ def test_lifestyle_activity_embeds_name_zh_title(engine_factory) -> None:
                          if event.action_id == "action-start-lifestyle"]
     assert lifestyle_results, "lifestyle action_result event is missing"
     assert lifestyle_results[-1].data["data"]["activity"]["title"] == expected
+    category = next(row["category"] for row in rows["items"] if row["activity_id"] == lifestyle_id)
+    assert lifestyle_results[-1].data["data"]["activity"]["category"] == category
+    advance_next(engine)
+    progress = engine.store.read_agent_events("activity_progress", 1)[-1]
+    assert progress.data["activity"]["category"] == category
+    assert progress.data["activity"]["location_id"] == engine.state.agents[1].location_id
 
 
 def test_wait_activity_carries_no_title(engine_factory) -> None:

@@ -68,7 +68,7 @@ from worldmock.life.models import (
     ModelIdentity,
     PendingAction,
     PlanDayRequest,
-    PlanSegmentInput,
+    PlanGoalInput,
     PurchaseItem,
     PurchaseOrderRequest,
     ReviseDayPlanRequest,
@@ -427,10 +427,12 @@ def test_playback_speed_only_for_change_speed_operation() -> None:
         ChangeActivityRequest(activity_id="a", operation="pause", playback_speed=2)
 
 
-def test_plan_segment_span_must_be_positive() -> None:
-    """计划段跨度必须为正。"""
-    with pytest.raises(ValidationError, match="earlier than end"):
-        PlanSegmentInput(start=100, end=100, intent_kind="工作", note="")
+def test_plan_goal_rejects_blank_text_and_old_time_fields() -> None:
+    """目标必须有文字，旧绝对时段请求严格拒绝。"""
+    with pytest.raises(ValidationError, match="pattern"):
+        PlanGoalInput(intent_kind="工作", goal=" ")
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "start": 100})
 
 
 def test_meeting_minutes_fields_reject_whitespace_only_text() -> None:
@@ -1295,7 +1297,7 @@ def test_purchase_rejects_invisible_product(engine_factory) -> None:
 def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None:
     """调速不越过剩余媒体时长：超速拒绝、可容纳调速生效。"""
     engine = engine_factory()
-    _act(engine, "speed-plan", "plan_day", _plan_request(engine, (900, 1800, 2700, 3600, 4500)))
+    _act(engine, "speed-plan", "plan_day", _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     started = _act(engine, "speed-watch", "start_targeted_activity",
                    StartTargetedActivityRequest(
@@ -1314,20 +1316,11 @@ def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None
     assert engine.state.activities[activity_id].playback_speed == 0.5
 
 
-def _plan_request(engine, offsets: tuple[int, ...], span: int = 600) -> PlanDayRequest:
-    """构造覆盖若干偏移时刻的当日计划（末段延伸到缺省就寝锚点，docs/dev/SPEC-life-realism.md「日程骨架」）。"""
-    from zoneinfo import ZoneInfo
-
-    base = engine.state.current_time
-    local = datetime.fromtimestamp(base, ZoneInfo(engine.scenario.timezone))
-    anchor = int((local + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0).timestamp())
-    segments = [PlanSegmentInput(start=base + offset, end=base + offset + span,
-                                 intent_kind="休息", note="")
-                for offset in offsets[:-1]]
-    segments.append(PlanSegmentInput(start=base + offsets[-1], end=anchor,
-                                     intent_kind="休息", note=""))
-    return PlanDayRequest(segments=tuple(segments))
+def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
+    """空目标不制造时钟，活动分支所需的精确机会由真实邮件事件提供。"""
+    for offset in offsets:
+        wake_by_mail(engine, offset=offset)
+    return PlanDayRequest(goals=())
 
 
 def test_game_action_guards_activity_session_and_timing(engine_factory) -> None:
@@ -1339,7 +1332,7 @@ def test_game_action_guards_activity_session_and_timing(engine_factory) -> None:
     assert no_game.error_code == "GAME_ACTIVITY_NOT_ACTIVE"
     advance_until_ready(engine)  # 拒绝后的一秒反应边界
 
-    _act(engine, "game-plan", "plan_day", _plan_request(engine, (30, 1800, 3600, 5400, 7200)))
+    _act(engine, "game-plan", "plan_day", _goals_with_wake_events(engine, (30, 1800, 3600, 5400, 7200)))
     advance_next(engine)
     started = _act(engine, "game-start", "start_targeted_activity",
                    StartTargetedActivityRequest(
@@ -1358,7 +1351,7 @@ def test_game_action_guards_activity_session_and_timing(engine_factory) -> None:
 def test_store_game_outcome_terminal_closes_activity(engine_factory) -> None:
     """游戏终局把活动置为完成并清空下一交互时刻。"""
     engine = engine_factory()
-    _act(engine, "terminal-plan", "plan_day", _plan_request(engine, (900, 1800, 2700, 3600, 4500)))
+    _act(engine, "terminal-plan", "plan_day", _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     started = _act(engine, "terminal-game", "start_targeted_activity",
                    StartTargetedActivityRequest(
@@ -1376,10 +1369,10 @@ def test_store_game_outcome_terminal_closes_activity(engine_factory) -> None:
     assert changed.agents[1].current_activity_id is None
 
 
-def test_plan_day_rejects_duplicate_invalid_and_started_segments(engine_factory) -> None:
-    """同日重复、骨架不合法与已开始段的计划提交逐项拒绝。"""
+def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
+    """空清单仍禁止重复提交，绕过构造器的非法目标在环境严格边界拒绝。"""
     engine = engine_factory()
-    plan = _plan_request(engine, (0, 1200, 2400, 3600, 4800))
+    plan = PlanDayRequest(goals=())
     ok = _act(engine, "plan-ok", "plan_day", plan)
     assert ok.status.value == "completed"
     staged = engine.state.model_copy(deep=True)
@@ -1391,28 +1384,19 @@ def test_plan_day_rejects_duplicate_invalid_and_started_segments(engine_factory)
     assert duplicate.error_code == "PLAN_ALREADY_SUBMITTED"
 
     fresh = engine_factory()
-    short_tail = _plan_request(fresh, (0, 1200, 2400, 3600))
-    invalid = _act(fresh, "plan-invalid", "plan_day", short_tail)
-    assert invalid.error_code == "PLAN_SEGMENTS_INVALID"
-    advance_until_ready(fresh)  # 拒绝后的一秒反应边界
-
-    virgin = engine_factory()
-    past = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=virgin.state.current_time + offset,
-                         end=virgin.state.current_time + offset + 3000,
-                         intent_kind="休息", note="")
-        for offset in (-60, 3500, 7000, 10500, 14000)))
-    started = _act(virgin, "plan-started", "plan_day", past)
-    assert started.error_code == "PLAN_SEGMENT_ALREADY_STARTED"
+    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标")
+    forged = PlanDayRequest.model_construct(goals=(invalid_goal,))
+    invalid = _act(fresh, "plan-invalid", "plan_day", forged)
+    assert invalid.status.value == "rejected"
+    assert invalid.error_code == "ACTION_REQUEST_INVALID"
+    assert fresh.state.agents[1].day_plan is None
 
 
 def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
-    """无当日计划时修订被拒绝。"""
+    """无当日目标时修订被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "revise-none", "revise_day_plan", ReviseDayPlanRequest(
-        segments=(PlanSegmentInput(start=engine.state.current_time + 600,
-                                   end=engine.state.current_time + 1200,
-                                   intent_kind="休息", note=""),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿"),)))
     assert result.status.value == "rejected"
     assert result.error_code == "PLAN_NOT_FOUND"
 

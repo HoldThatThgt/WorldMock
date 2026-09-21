@@ -98,7 +98,7 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 
 协议门禁由 `worldmock.evaluation.behavior_metrics.behavior_metrics_report` 计算：以冻结足迹事件为输入，
 按事件顶层 `code_sha256` 分组，返回 `{"schema_version": "behavior-metrics-1", "gates": ..., "reports": ..., "notes": ...}`。
-`gates` 是放行门禁，`reports` 是只报告项。四项门禁的键名、比较符与阈值以源码为唯一依据：
+`gates` 是放行门禁，`reports` 是只报告项。既有四项门禁的键名、比较符与阈值以源码为唯一依据：
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
@@ -119,8 +119,21 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 - 记忆重复率与 MEMORY.md 身份残留同属协议门禁，不属于只报告项。
 - 决策 token 中位数的 15000 是报告项内的 `target_reference` 对照值，不是门禁阈值。
 
-截至 2026-09-18，生产导出链路的 `build_quality_report`（`worldmock export`）未把 `gates` 与 `reports` 落盘进 `quality.json`；
-本节键名与阈值因此直接以 `src/worldmock/evaluation/behavior_metrics.py` 为唯一依据，不转述为已接线。
+既有四项协议门禁未整体接入生产质量导出。
+当日目标新增的三层度量及外部约束门禁单独进入 `quality.json.day_plan_metrics`；
+其接线不改变既有记忆协议的额外证据要求。
+
+### 当日目标特性门禁
+
+完整范围见 [当日目标特性规格](dev/SPEC-day-plan-goals.md)。同一被测源码必须覆盖目标输入闭集、
+空计划与跨日、修订证据保留、正时长首次推进、重复活动和恢复防重、午夜最后结算、
+两档重估与精确任务/闭店威胁、真实人物工具与引擎闭环、三层度量与实际质量导出。
+删除旧时段合同，不保留兼容、迁移、占位或本特性 skip/xfail。
+
+工程放行要求全量测试、分支与公共接口覆盖、风格、文档链接通过；
+还要在同一干净提交的隔离 worktree 上用 Uncle Bob 语义突变检验空计划门控、修订保护、
+活动证据、防重复脉冲、威胁与间隔、报告分母和质量接线。存活突变必须补测后以原补丁复验。
+证据统一见 [本特性验收记录](dev/research/day-plan-goals-verification.md)。
 
 ### 工程门禁
 
@@ -278,13 +291,15 @@ flowchart LR
 | `activity_distribution` | 十类活动日时间分布与外部参照的 JS 距离 |
 | `persona_distinguishability` | 同代码 ≥3 次运行中两人物活动分布的留一最近邻准确率 |
 | `social` | 交谈与通话分钟、发送与收到的消息数 |
-| `plan_actual_deviation` | 计划-实际偏离（分钟），逐人物逐日与汇总；**report-only**，不作门禁 |
+| `habitual_consistency` | 相同可观测情境的活动家族一致率；只报告，不声称识别心理习惯 |
+| `deliberate_goals` | 家族活动证据支持的目标推进率，含修订丢弃项；只报告，缺外部参照为 null |
+| `external_constraints` | 受阻错误码分布与已判定动作接受率；受阻次数另进入质量门禁 |
 | `partition_reachability` | 逐条目的可检索分区归属与不可达条目清单；准入判定本身是全有或全无的门禁（见「工程门禁」的候选与呈现一致性），本键只是把判定过程留在报告里，不额外判定 |
 | `rotation_wait_interval` | 每个检索分区的实测最坏未展示间隔、闭式上界 `⌈N ÷ k⌉ ÷ D` 与可达率取值；上界对照的门禁判定见「工程门禁」，本键只把逐分区取值留在报告里 |
 
-`plan_actual_deviation` 单独说明：计划口径取当日最后一次完成的 `plan_day`／`revise_day_plan` 动作结果携带的段
-（修订覆盖初版），实际分钟由 `activity_progress` 结算区间按本地零点切分累加，偏离为实际减计划。
-它是报告项，既不参与放行，也不反馈成行动脚本。
+三层的分组、分母、去重和缺样本合同见 [当日目标规格](dev/SPEC-day-plan-goals.md#度量输出合同)。
+`external_constraint_block_count` 是新增运行质量门禁：完整证据且受阻次数等于零才通过；
+正确的环境拒绝也是运行受阻，不能因此报告为引擎实现错误。目标推进不证明文字目标已完成。
 
 活动分布的口径固定为：外出并入通勤，wait 计入休息，consume 计入用餐（含 use 模式），
 参照的看电视与休闲娱乐合并为屏幕娱乐 165 分钟，休息与家务并入无参照桶。
@@ -342,7 +357,7 @@ flowchart LR
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation/`、`tests/footprints/test_quality.py`、实际十二周 export／quality 与评估报告 | 离线覆盖，真实运行待执行 |
-| 决策节律 | 无唤醒条件的边界不调用模型且留痕、每类唤醒条件各触发一次、重估间隔、计划段边界、睡眠不被打断 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py` | 离线覆盖 |
+| 决策节律 | 无唤醒条件的边界不调用模型且留痕、每类唤醒条件各触发一次、常规与空闲间隔、精确威胁边界、睡眠不被打断 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py` | 离线覆盖 |
 | 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线覆盖 |
 | 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` | 离线覆盖 |
 | 两阶段决策 | 决策自述阶段无工具且落库、行动阶段回传 `reasoning_content`、决策自述进入行动请求、finish 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_agent_react_validation.py` | 离线覆盖 |
@@ -453,7 +468,7 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | 阶段 | 内容 |
 | --- | --- |
 | 提示与投影 | 观察投影与提示合同、两阶段决策、记忆合同、动机层不进提示、运行检视修正——改动范围限于提示层、投影层与 AS2 分支；正式十二周启动前，先在同一份代码上跑满三次双人 24 小时验证运行并全部通过协议门禁，见「最终门禁」的行为节律行 |
-| 引擎与状态 | 决策节律、身体语义、商务与进食、日程骨架——改引擎与状态结构，使用当前世界状态 `schema_version=4`，旧格式直接拒绝 |
+| 引擎与状态 | 决策节律、身体语义、商务与进食、当日目标——改引擎与状态结构，使用当前世界状态 `schema_version=4`，旧格式直接拒绝 |
 | 场景与素材 | 画像编译 v2、社交最小可行版、世界素材品类——本阶段改动场景 Schema、目录与语料，并重新生成两个场景 |
 | 指标与门禁 | 行为指标与门禁接入质量报告与 `worldmock evaluate`；本阶段完成后才放行正式十二周运行 |
 

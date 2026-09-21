@@ -4,7 +4,7 @@
 > 日期：2026-09-19
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
-> 范围：人物的两阶段决策调用、记忆写入与巩固、动机层的内部仪表与呈现、日程骨架、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
+> 范围：人物的两阶段决策调用、记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
 
 ## 产品行为
 
@@ -15,8 +15,8 @@
 
 环境每提供一次决策机会，人物模型先决策自述：用第一人称说出此刻的感受与打算，不带工具。再行动：
 走现有 ReAct 循环，携带事实与原生工具，恰好提交一个生活动作再 finish。每次请求都留完整证据；决策自述是人物私有内容，
-只允许 dreaming 任务读取。人物每天第一次醒来时先提交当日计划，覆盖到当日就寝；计划是人物的自我承诺，
-环境不执行计划步，到达某一段起点只构成一次唤醒条件，由人物当场决定是否照做。人物提交的记忆可以为空，
+只允许 dreaming 任务读取。人物每天第一次清醒决策先提交有序当日目标，也可提交空清单；
+目标是人物意图，环境只根据实际活动证据标记推进，并以环境事件提供决策机会。人物提交的记忆可以为空，
 有新事件才写；写入前按相似度合并，累计到阈值、待巩固条数达到十条或入睡后的第一个边界时重写长期记忆，
 并在就寝后做一次反思。
 
@@ -37,7 +37,7 @@ flowchart TD
     MEM[记忆摘要与长期记忆] --> MONO
     MONO -->|决策自述文本| ACT[行动阶段 事实与原生工具]
     ACT -->|恰好一个生活动作| ENV[LifeEnv 结算与唤醒条件]
-    PLAN[当日计划 5–8 段] --> SCENE
+    PLAN[今天想推进的目标] --> SCENE
     ENV -->|结算边界与唤醒原因| FOOT[数字足迹]
     FOOT --> WRITE[记忆写入与相似合并]
     WRITE --> MEM
@@ -73,7 +73,7 @@ flowchart TD
 | 53.9% 的决策是 `continue_activity`，吃掉 53–62% 的 token | 900 秒结算边界每次都唤醒模型 | `docs/dev/SPEC-life-runtime.md`「决策节律：结算边界与唤醒条件分离」 |
 | 记忆一半是边界簿记 | 结算边界强制写记忆 | 本规格「记忆合同」 |
 | 就寝 19:53 / 21:44、计划睡 11 小时，李凡三次运行均早于人物卡片声明的凌晨一点 | `sleep_debt_hours` 等于醒着小时数，无饱和无昼夜门控，原值直接进提示 | `docs/dev/SPEC-life-runtime.md`「身体语义：两过程睡眠、睡眠不足账、体感分级」 |
-| 07:00 开车去 08:00 才开门的公司并空等近两小时，21 个代码版本未改善 | ① 家中没有早晨可供性，任务 09:00 才可见<br/>② 模型按动机权重推翻直觉<br/>③ 缺少日程骨架，每次决策只对当前状态作贪心反应 | ① 本规格「世界素材品类要求」<br/>② 本规格「动机层」<br/>③ 本规格「日程骨架」 |
+| 07:00 开车去 08:00 才开门的公司并空等近两小时，21 个代码版本未改善 | ① 家中没有早晨可供性，任务 09:00 才可见<br/>② 模型按动机权重推翻直觉<br/>③ 缺少当日目标，每次决策只对当前状态作贪心反应 | ① 本规格「世界素材品类要求」<br/>② 本规格「动机层」<br/>③ 本规格「当日目标」 |
 | 三次同一碗面 | ① 正餐只有 7 碗方便面<br/>② 首次购买被写成偏好记忆后回灌为稳定偏好 | ① 本规格「世界素材品类要求」<br/>② 本规格「记忆合同」 |
 | 冰红茶三次放弃 | ① 活动进行中隐藏购买与进食工具<br/>② 一次响应只接受一个生活动作<br/>③ 最廉进食候选恒为西柚汁 | ① `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」<br/>② 本规格「商务与进食」<br/>③ 本规格「动机层」 |
 | 两人同办公室清醒共处 10.86 小时互不可见，Relationships 恒空 | ① 观察没有在场人物字段，也没有通讯工具<br/>② 人物卡片没有关系字段 | ① `docs/dev/SPEC-life-runtime.md`「社交最小可行版」<br/>② 本规格「画像编译」 |
@@ -159,35 +159,23 @@ dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `
 Dill 的双效用（先按类别排序再在类内加权随机）是评分器修正的结构依据。本规格只修正内部仪表，
 不据此替人物选择：内部仪表落库，人物看到的是那句话。
 
-## 日程骨架
+## 当日目标
 
-人物在每天第一次醒来的决策中（`wake_from_sleep` 或 `run_start`）必须先提交当日计划：5–8 段，
-每段给出起止时刻、活动家族与一句话说明，覆盖到当日就寝，段不重叠、不越过当日结束。
-活动家族取闭集 `intent_kind`；闭集全部取值、段字段与骨架约束只在 `docs/CONTRACTS.md`「日程骨架请求」定义。
-计划是人物的自我承诺，以 `action_result` 登记，进入观察的 `day_plan`，并在场景段落中以“今天的打算”出现。
+人物自己表达今天想推进什么，环境掌握具体活动、时间约束和进展证据。
+完整行为与验收统一见 [当日目标规格](SPEC-day-plan-goals.md)，字段见
+[当日目标请求](../CONTRACTS.md#当日目标请求)。本节不再保留时段骨架的另一份规则。
 
 ```mermaid
 flowchart LR
-    WAKE[每天第一次醒来后的决策] --> SUBMIT[提交当日计划 5–8 段]
-    SUBMIT --> REG[以 action_result 登记]
-    REG --> OBS[进入观察 day_plan 与场景的今天的打算]
-    OBS --> MOVE[人物按唤醒条件自行决定]
-    START[到达某一段起点] -->|plan_block_boundary 唤醒条件| MOVE
-    MOVE --> REV[按接口改写当日尚未开始的段]
-    REV --> OBS
-    MOVE --> DEV[计划与实际的偏离由 behavior_metrics 统计并报告]
+    WAKE[清醒后的首次决策] --> GOALS[提交有序目标或空清单]
+    GOALS --> ACT[人物选择具体活动]
+    ACT --> EVIDENCE[实际结算后记录已推进]
+    ENV[环境约束与身体事件] --> ACT
+    EVIDENCE --> REPORT[三层度量]
 ```
 
-**行为规则**：
-
-- 环境不执行计划步；到达某段起点只构成 `plan_block_boundary` 唤醒条件，由人物当场决定是否照做
-  （唤醒条件的语义见 `docs/dev/SPEC-life-runtime.md`「决策节律：结算边界与唤醒条件分离」）
-- `revise_day_plan` 可改写尚未开始的段；段数边界与开放条件见 `docs/CONTRACTS.md`「日程骨架请求」
-- 计划与实际的偏离由 `behavior_metrics` 统计并报告
-- 计划段的时间锚点来自人物卡片（起床、出门、午餐、晚餐、就寝窗口），场景日历只提供机会与约束
-
-依据：Generative Agents 的 5–8 段日计划递归分解；Stardew Valley 与 Skyrim 的日程表说明像人的日常八成来自骨架。
-本规格刻意不做递归分解到 5–15 分钟：细粒度由唤醒条件与人物即时决策承担，避免让计划变成脚本。
+目标不是全天轮廓；人物卡片的作息继续影响环境与身体，不成为目标的绝对起止时刻。
+原段数、覆盖就寝、段起点唤醒与分钟偏离算法退役。目标推进率仅报告，外部约束受阻按质量门禁处理。
 
 ## 世界素材品类要求
 
@@ -442,7 +430,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 | `custom/envs/life_env.py` | 注册日程与多件商务动作 |
 | `src/worldmock/life/models.py`、`scenario.py` | 日程与人物卡片相关 Schema、多件购买与多件进食请求、品类与人物卡片覆盖率准入检查 |
 | `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、`drive_summary` 渲染、结果写入 `motivation_internal` |
-| `src/worldmock/life/engine.py` | 计划段起点与计划投影；`drive_summary` 与 `motivation_internal` 字段；多件商务结算 |
+| `src/worldmock/life/engine.py` | 目标实际推进与目标投影；`drive_summary` 与 `motivation_internal` 字段；多件商务结算 |
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
 | `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`catalog/rules/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
 | `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data.decision_statement`、时间线投影、指标接入 |
@@ -463,7 +451,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 ```mermaid
 flowchart LR
-    A[提示与投影 两阶段决策与记忆合同] --> B[引擎与状态 日程骨架与商务进食]
+    A[提示与投影 两阶段决策与记忆合同] --> B[引擎与状态 当日目标与商务进食]
     B --> C[场景与语料 画像编译与世界素材品类]
     C --> D[指标与门禁 接入质量报告与评估]
 ```
@@ -484,7 +472,7 @@ flowchart LR
 | 记忆巩固 | 三种触发条件各自生效；巩固提示含人物卡片、不含示例身份或示例编号；就寝后同时产生反思洞见 | AS2 分支记忆测试 | 代码层已验证 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
 | 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重；`drive_summary` 为一句中文；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
-| 日程骨架 | 首次提交的当日计划为 5–8 段、覆盖到就寝、不重叠、不越界；`revise_day_plan` 改写尚未开始的段后允许 1–8 段，剩余段数可少于 5；`intent_kind` 只取闭集；到达段起点只构成唤醒条件而不执行计划步 | `tests/life/test_day_plan.py`、`tests/life/test_wake_reasons.py` | 代码层已验证 |
+| 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md)验收台账 | 实施中，等待本次门禁 |
 | 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 画像编译 | 卡片字段完整并经确定性渲染进入提示；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` | 代码层已验证 |
 | 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项 | `validate` 输出的 `persona_coverage.json` | 代码层已验证 |
@@ -540,6 +528,8 @@ flowchart LR
 其可执行判定即上述测试与 `scripts/coverage_gate.py`；本行改以可复现的测试路径与门禁命令为据。
 
 ## 版本表
+
+以下仅为历史修订记录；旧时段合同已由当日目标规格替代，不构成现行接口。
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |

@@ -757,7 +757,7 @@ def test_plan_day_open_without_plan_and_restricted_at_day_start() -> None:
     day_start = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]}))
     assert "plan_day" in day_start
     properties = day_start["plan_day"]["parameters"]["properties"]
-    assert properties["segments"]["items"]["properties"]["intent_kind"]["enum"] == list(
+    assert properties["goals"]["items"]["properties"]["intent_kind"]["enum"] == list(
         INTENT_KINDS)
     action_tools = set(day_start) - _MEMORY_TOOLS
     assert action_tools == {"plan_day"}, (
@@ -769,67 +769,57 @@ def test_plan_day_open_without_plan_and_restricted_at_day_start() -> None:
     planned = _prepare(_catalogs(), overrides={
         "wake_reasons": ["run_start"],
         "facts": {**_FACTS, "day_plan": {
-            "segments": [{"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
-                          "intent_kind": "工作", "note": ""}]}}})
+            "day_end": _NOW_EPOCH + 72000, "goals": []}}})
     assert "plan_day" not in _functions(planned)
     assert "revise_day_plan" in _functions(planned)
     assert "start_basic_activity" in _functions(planned), (
         "已有计划的日首唤醒不撤其他动作工具")
 
 
-def test_plan_day_validates_segment_count_intent_and_start_boundary() -> None:
-    """plan_day 本地拒绝越界段数、闭集外意图与已经开始的段。"""
+@pytest.mark.parametrize("goals", [
+    [], [{"intent_kind": "工作", "goal": "写报告"}],
+    [{"intent_kind": kind, "goal": "目" * 300}
+     for kind in ("睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交")],
+])
+def test_plan_day_accepts_empty_or_valid_goals(goals) -> None:
+    """空目标和实际目标都可通过人物本地校验。"""
     agent = _prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]})
-    legal = {"segments": [
-        {"start": _NOW_EPOCH + 600, "end": _NOW_EPOCH + 3600,
-         "intent_kind": "晨间例程", "note": ""},
-        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
-         "intent_kind": "通勤", "note": ""},
-        {"start": _NOW_EPOCH + 7200, "end": _NOW_EPOCH + 10800,
-         "intent_kind": "工作", "note": ""},
-        {"start": _NOW_EPOCH + 10800, "end": _NOW_EPOCH + 14400,
-         "intent_kind": "用餐", "note": ""},
-        {"start": _NOW_EPOCH + 14400, "end": _NOW_EPOCH + 18000,
-         "intent_kind": "睡眠", "note": ""},
-    ]}
-    too_few = {"segments": legal["segments"][:3]}
-    past = {"segments": [
-        {**segment, "start": _NOW_EPOCH - 60} for segment in legal["segments"]]}
-    bad_intent = {"segments": [
-        {**segment, "intent_kind": "摸鱼"} for segment in legal["segments"]]}
-
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "plan_day", legal, "")], False) == ""
-    assert "requires 5 to 8 segments" in agent.validate_react_decisions(
-        [ReactDecision("", "plan_day", too_few, "")], False)
-    assert "starts earlier" in agent.validate_react_decisions(
-        [ReactDecision("", "plan_day", past, "")], False)
-    assert "closed intent set" in agent.validate_react_decisions(
-        [ReactDecision("", "plan_day", bad_intent, "")], False)
+    assert agent.validate_react_decisions([ReactDecision("", "plan_day", {"goals": goals}, "")], False) == ""
 
 
-def test_revise_day_plan_only_rewrites_future_segments() -> None:
-    """revise_day_plan 只改尚未开始的段，已经开始的段本地拒绝。"""
-    plan = {"day_plan": {"segments": [
-        {"start": _NOW_EPOCH - 3600, "end": _NOW_EPOCH + 60,
-         "intent_kind": "睡眠", "note": ""},
-        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
-         "intent_kind": "工作", "note": ""},
-    ]}}
-    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, **plan}})
-    future = {"segments": [
-        {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 5400,
-         "intent_kind": "工作", "note": "下午先写纪要"},
-    ]}
-    started = {"segments": [
-        {"start": _NOW_EPOCH - 3600, "end": _NOW_EPOCH + 60,
-         "intent_kind": "睡眠", "note": ""},
-    ]}
+@pytest.mark.parametrize("payload", [
+    {"segments": []},
+    {"goals": [{"intent_kind": "工作", "goal": " \t"}]},
+    {"goals": [{"intent_kind": "工作", "goal": "目" * 301}]},
+    {"goals": [{"intent_kind": "摸鱼", "goal": "歇会"}]},
+    {"goals": [{"intent_kind": "工作", "goal": "写报告", "start": 0}]},
+    {"goals": [{"intent_kind": "工作", "goal": "写报告"}] * 2},
+    {"goals": [{"intent_kind": kind, "goal": "推进目标"}
+               for kind in ("睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交", "家务")]},
+])
+def test_plan_day_rejects_invalid_goals_or_old_shape(payload) -> None:
+    """非法目标、重复意图和旧时段请求在人物入口拒绝。"""
+    agent = _prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]})
+    assert agent.validate_react_decisions([ReactDecision("", "plan_day", payload, "")], False)
 
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "revise_day_plan", future, "")], False) == ""
-    assert "starts earlier" in agent.validate_react_decisions(
-        [ReactDecision("", "revise_day_plan", started, "")], False)
+
+def test_revise_day_plan_preserves_progressed_intents_and_combined_capacity() -> None:
+    """修订仅发送未推进目标，不能复用已推进意图或突破合并容量。"""
+    from worldmock.life.schedule import INTENT_KINDS
+
+    progressed = {"intent_kind": "睡眠", "goal": "休息好", "registered_at": _NOW_EPOCH - 100,
+                  "progressed_at": _NOW_EPOCH - 1, "progress_activity_id": "activity-sleep"}
+    plan = {"day_end": _NOW_EPOCH + 72000, "goals": [progressed]}
+    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "day_plan": plan}})
+    def validate(goals):
+        return agent.validate_react_decisions([ReactDecision("", "revise_day_plan", {"goals": goals}, "")], False)
+    schema = _functions(agent)["revise_day_plan"]["parameters"]["properties"]
+    assert "睡眠" not in schema["goals"]["items"]["properties"]["intent_kind"]["enum"]
+    assert validate([]) == ""
+    assert validate([{"intent_kind": "工作", "goal": "先写纪要"}]) == ""
+    assert "cannot resubmit" in validate([{"intent_kind": "睡眠", "goal": "换目标"}])
+    assert "including progressed goals" in validate([
+        {"intent_kind": kind, "goal": "推进目标"} for kind in INTENT_KINDS[1:9]])
 
 
 def test_send_message_binds_visible_inbox_senders_and_local_text_limit() -> None:

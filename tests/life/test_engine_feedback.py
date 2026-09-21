@@ -9,7 +9,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context
+from tests.life.conftest import advance_next, advance_until_ready, context, wake_by_mail
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
@@ -18,31 +18,17 @@ from worldmock.life.models import (
     ContinueActivityRequest,
     GameActionRequest,
     PlanDayRequest,
-    PlanSegmentInput,
     SetActivityStateRequest,
     StartBasicActivityRequest,
     StartTargetedActivityRequest,
 )
 
 
-def _plan(engine, offsets: tuple[int, ...], span: int = 100) -> PlanDayRequest:
-    """以受控段起点构造当日计划：段起点即 plan_block_boundary 唤醒时刻。
-
-    末段延伸到缺省就寝锚点（当日结束）——"覆盖到就寝"是真实骨架约束（docs/dev/SPEC-life-realism.md「日程骨架」）。
-    """
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    base = engine.state.current_time
-    local = datetime.fromtimestamp(base, ZoneInfo(engine.scenario.timezone))
-    anchor = int((local + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0).timestamp())
-    segments = [PlanSegmentInput(start=base + offset, end=base + offset + span,
-                                 intent_kind="休息", note="")
-                for offset in offsets[:-1]]
-    segments.append(PlanSegmentInput(start=base + offsets[-1], end=anchor,
-                                     intent_kind="休息", note=""))
-    return PlanDayRequest(segments=tuple(segments))
+def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
+    """登记空目标前排定真实邮件事件，让活动控制仍在精确反馈边界发生。"""
+    for offset in offsets:
+        wake_by_mail(engine, offset=offset)
+    return PlanDayRequest(goals=())
 
 
 def _observed_action(engine, round_id: str, tool_name: str, request):
@@ -72,13 +58,12 @@ def _stage_time(engine, epoch: int, pending_events=None) -> None:
 def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_factory) -> None:
     """长活动在唤醒点显式继续，最终结果回链最初动作且区间不重复。
 
-    修订决策节律：静默反馈边界不再自动提供决策；段起点唤醒（plan_block_
-    boundary）提供继续决策的机会。
+    静默反馈边界不自动提供决策；真实邮件到达提供继续决策的机会。
     """
     engine = engine_factory()
     started = engine.state.current_time
     _observed_action(engine, "plan", "plan_day",
-                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     assert engine.state.current_time == started + 900
     request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2000)
@@ -117,7 +102,7 @@ def test_feedback_boundary_direct_switch_auto_pauses_wait_and_resume_continues(
     """唤醒边界直接提交 watch 切换时旧 wait 自动暂停保留进度，恢复后进度接续。"""
     engine = engine_factory()
     _observed_action(engine, "plan", "plan_day",
-                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     _, started = _observed_action(
         engine, "switch-wait", "start_basic_activity",
@@ -190,11 +175,11 @@ def test_game_feedback_boundary_still_rejects_direct_switch(engine_factory) -> N
 def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_factory) -> None:
     """暂停不结算未来区间，恢复后继续，取消终结最初动作并保留已完成进度。
 
-    修订决策节律：暂停/恢复/取消都发生在唤醒边界（段起点唤醒）。
+    暂停、恢复、取消都发生在真实邮件到达的唤醒边界。
     """
     engine = engine_factory()
     _observed_action(engine, "plan", "plan_day",
-                     _plan(engine, (900, 1800, 2700, 3600, 4500)))
+                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     _, started = _observed_action(
         engine, "pausable", "start_basic_activity",
@@ -326,7 +311,7 @@ def test_paused_activity_is_truncated_at_end_with_original_action_identity(engin
     end = engine.state.end_time
     _stage_time(engine, end - 2000, [])
     _observed_action(engine, "end-plan", "plan_day",
-                     _plan(engine, (1000, 1200, 1400, 1450, 1550), span=40))
+                     _goals_with_wake_events(engine, (1000, 1200, 1400, 1450, 1550)))
     advance_next(engine)
     _, started = _observed_action(
         engine, "end-wait", "start_basic_activity",

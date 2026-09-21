@@ -10,7 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import (BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
-from worldmock.life.schedule import PLAN_NOTE_MAX_CHARS, DayPlan
+from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
 
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
@@ -263,7 +263,7 @@ class AgentState(StrictModel):
     people_at_last_decision: frozenset[str] = frozenset()
     known_task_ids: set[str] = Field(default_factory=set)
     pending_wake_reasons: list[str] = Field(default_factory=list)
-    # 日程骨架（docs/dev/SPEC-life-realism.md「日程骨架」）：计划是人物的自我承诺，环境不执行计划步。
+    # 当日目标只记录人物自我承诺和实际推进证据，不驱动活动执行。
     day_plan: DayPlan | None = None
     plan_submitted_dates: set[str] = Field(default_factory=set)
     # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
@@ -734,71 +734,44 @@ class ConsumeRequest(FrozenModel):
     duration_seconds: int = Field(ge=60, le=14_400)
 
 
-class PlanSegmentInput(FrozenModel):
-    """@brief plan_day 提交的单段计划：{start, end, intent_kind, note}。"""
+class PlanGoalInput(FrozenModel):
+    """@brief 人物提交的当日目标；不接受时刻、时长或环境推进字段。"""
 
-    start: int = Field(
-        gt=0, description="Unix epoch seconds (UTC), disclosed as current_epoch in the observation")
-    end: int = Field(
-        gt=0, description="Unix epoch seconds (UTC); every segment end must not "
-        "exceed day_end_epoch (local next midnight), and the last segment's end "
-        "must reach bedtime_epoch (today's bedtime anchor; both disclosed in the "
-        "observation facts)")
-    intent_kind: str = Field(pattern=r"\S")
-    note: str
+    intent_kind: IntentKind
+    goal: str = Field(pattern=r"\S")
 
     @model_validator(mode="after")
-    def validate_span(self) -> "PlanSegmentInput":
-        """@brief 段跨度必须为正。"""
-        if self.start >= self.end:
-            raise ValueError("plan segment start must be earlier than end")
-        return self
-
-    @model_validator(mode="after")
-    def validate_note_length(self) -> "PlanSegmentInput":
-        """@brief 拒绝超长备注（与 schedule.PlanSegment 同限）。
-
-        用 model_validator 而非 Field(max_length)：maxLength 在
-        _DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS 黑名单里，会令 strict 建模抛错。
-        """
-        if len(self.note) > PLAN_NOTE_MAX_CHARS:
-            raise ValueError(
-                f"plan segment note exceeds {PLAN_NOTE_MAX_CHARS} characters")
+    def validate_goal_length(self) -> "PlanGoalInput":
+        """@brief 限制目标字符数，同时保持受支持的严格工具 Schema。"""
+        if len(self.goal) > PLAN_GOAL_MAX_CHARS:
+            _LOGGER.error("Day goal exceeds its character limit")
+            raise ValueError(f"day goal exceeds {PLAN_GOAL_MAX_CHARS} characters")
         return self
 
 
 class PlanDayRequest(FrozenModel):
-    """@brief 提交当日日程骨架：5-8 段，覆盖到当日就寝（docs/dev/SPEC-life-realism.md「日程骨架」）。
+    """@brief 提交当日有序目标；允许空清单，同一意图最多一条。"""
 
-    计划是人物的自我承诺，以 action_result 登记；环境不执行计划步，到达段
-    起点只构成 plan_block_boundary 唤醒条件。segments 以 WithJsonSchema
-    内联子模型 Schema（strict 合同禁止嵌套引用键）；5-8 段由 DayPlan
-    骨架校验承载。
-    """
-
-    segments: Annotated[
-        tuple[PlanSegmentInput, ...],
+    goals: Annotated[
+        tuple[PlanGoalInput, ...],
         WithJsonSchema({
             "type": "array",
-            "items": PlanSegmentInput.model_json_schema(mode="validation"),
+            "items": PlanGoalInput.model_json_schema(mode="validation"),
         }),
     ]
 
+    @model_validator(mode="after")
+    def validate_goals(self) -> "PlanDayRequest":
+        """@brief 请求入口核验容量与意图唯一性。"""
+        kinds = [goal.intent_kind for goal in self.goals]
+        if len(self.goals) > MAX_PLAN_GOALS or len(kinds) != len(set(kinds)):
+            _LOGGER.error("Day goals exceed capacity or contain duplicate intents")
+            raise ValueError("day goals must contain at most eight unique intents")
+        return self
 
-class ReviseDayPlanRequest(FrozenModel):
-    """@brief 改写尚未开始的当日计划段（docs/dev/SPEC-life-realism.md「日程骨架」）。
 
-    segments 以 WithJsonSchema 内联子模型 Schema（strict 合同禁止
-    嵌套引用键）；上限由 revise_day_plan 骨架校验承载。
-    """
-
-    segments: Annotated[
-        tuple[PlanSegmentInput, ...],
-        WithJsonSchema({
-            "type": "array",
-            "items": PlanSegmentInput.model_json_schema(mode="validation"),
-        }),
-    ]
+class ReviseDayPlanRequest(PlanDayRequest):
+    """@brief 用请求中的目标替换全部未推进条目，已推进条目由环境保留。"""
 
 
 class SendMessageRequest(FrozenModel):

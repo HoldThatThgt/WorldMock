@@ -18,7 +18,7 @@ EVENT_TYPES = get_args(EventType)
 
 _SPEC_WAKE_REASONS = frozenset({
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
+    "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
 })

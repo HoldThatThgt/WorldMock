@@ -7,7 +7,7 @@ persona_card、scene、facts 三部分组成，
 
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
-  体感分级、当前与暂停活动的进度、今天的计划与当前段、收件箱头、待办
+  体感分级、当前与暂停活动的进度、今天想推进的目标与推进状态、收件箱头、待办
   一句话、可达地点与营业状态、手边持有物、最近一次动作结果，上限
   800 汉字（「字符预算」）；超限按合同是输入侧问题，渲染器如实抛错，
   不静默截断。
@@ -24,13 +24,11 @@ persona_card、scene、facts 三部分组成，
 
 观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
 current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
-day_start_epoch（当日本地 00:00 的 Unix epoch 秒）、day_end_epoch（当日结束
-即次日 00:00 的 Unix epoch 秒，DayPlan 校验的段终点上界）、bedtime_epoch
-（当日就寝锚点，DayPlan 校验的最末段覆盖边界；四者供 plan_day
-段起点/终点换算，与 current_time 并排披露）、location（地点显示名）、people_here
+location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activity（title/
-progress）、paused_activities（title/progress 列表）、day_plan（str 或
-summary/current_segment）、inbox_head（收件箱头字符串列表）、inbox_has_older_unread、todos_summary、
+progress）、paused_activities（title/progress 列表）、
+day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
+inbox_has_older_unread、todos_summary、
 reachable_places（name/opening_status 列表）、inventory、recent_action_results
 （一句话列表，取最近一条）。
 """
@@ -150,7 +148,7 @@ def _close_sentence(text: str) -> str:
 
 
 def _time_sentence(observation: dict) -> str:
-    """@brief 渲染时间与星期句：ISO 本地时间 + Unix epoch 四锚点（当前、今日 00:00 起、明日 00:00 段终点上界止、就寝锚点最末段须覆盖到）。"""
+    """@brief 渲染本地时间与星期，仅披露现有时间合同的当前 epoch 秒。"""
     current_time = observation.get("current_time")
     if current_time is None:
         return ""
@@ -162,17 +160,8 @@ def _time_sentence(observation: dict) -> str:
     sentence = (f"现在是 {moment.year} 年 {moment.month} 月 {moment.day} 日"
                 f"{weekday} {moment.strftime('%H:%M')}")
     current_epoch = observation.get("current_epoch")
-    day_start_epoch = observation.get("day_start_epoch")
-    day_end_epoch = observation.get("day_end_epoch")
-    if isinstance(current_epoch, int) and isinstance(day_start_epoch, int):
-        sentence += (f"（Unix epoch：当前 {current_epoch}，"
-                     f"今日 00:00 起 {day_start_epoch}")
-        if isinstance(day_end_epoch, int):
-            sentence += f"，明日 00:00（段终点上界）止 {day_end_epoch}"
-        bedtime_epoch = observation.get("bedtime_epoch")
-        if isinstance(bedtime_epoch, int):
-            sentence += f"，就寝锚点（最末段须覆盖到）{bedtime_epoch}"
-        sentence += "）"
+    if isinstance(current_epoch, int):
+        sentence += f"（Unix epoch：当前 {current_epoch}）"
     return sentence + "。"
 
 
@@ -212,19 +201,16 @@ def _activity_sentences(observation: dict) -> str:
 
 
 def _plan_sentence(observation: dict) -> str:
-    """@brief 渲染今天的计划与当前段句；day_plan 接受 str 或 summary/current_segment。"""
+    """@brief 按意图和推进状态描述当天目标，不宣称文字目标已完成。"""
     day_plan = observation.get("day_plan")
-    if not day_plan:
+    if day_plan is None:
         return ""
-    if isinstance(day_plan, str):
-        return _close_sentence(f"今天的计划：{day_plan}")
-    summary = day_plan.get("summary")
-    segment = day_plan.get("current_segment")
-    if summary and segment:
-        return _close_sentence(f"今天的计划是{summary}，当前处于「{segment}」这一段")
-    if summary:
-        return _close_sentence(f"今天的计划是{summary}")
-    return _close_sentence(f"今天当前处于「{segment}」这一段") if segment else ""
+    goals = day_plan["goals"]
+    if not goals:
+        return "今天没有刻意目标。"
+    labels = [f"{goal['intent_kind']}（{'已推进' if goal['progressed'] else '未推进'}）"
+              for goal in goals]
+    return _close_sentence(f"今天想推进：{'、'.join(labels)}")
 
 
 def _inbox_sentence(observation: dict) -> str:
@@ -265,7 +251,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
     """@brief 渲染中文自然语言场景段落（scene 合同，上限 800 汉字）。
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
-    的进度、今天的计划与当前段、收件箱头、待办一句话、可达地点与营业
+    的进度、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
     状态、手边持有物、最近一次动作结果；缺失的字段跳过对应句子，渲染器
     不虚构事实。输出超过 800 汉字按合同是输入侧问题：抛
     RenderBudgetExceededError 如实报告，不静默截断。

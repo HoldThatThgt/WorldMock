@@ -93,7 +93,6 @@ from worldmock.life.models import (
     MeetingMinutes,
     PendingAction,
     PlanDayRequest,
-    PlanSegmentInput,
     PurchaseOrderRequest,
     REQUEST_MODELS,
     rejection_reason_text,
@@ -122,7 +121,7 @@ from worldmock.life.rhythm import (
 from worldmock.life.run_identity import category_identity, open_category_validated_store, require_category_identity
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
-from worldmock.life.schedule import (PlanSegment, WakeReason, bedtime_anchor,
+from worldmock.life.schedule import (PlanGoal, WakeReason,
                                      day_end_seconds, day_plan_expired, expired_plan_agent_ids,
                                      initial_day_plan, revise_day_plan)
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
@@ -582,9 +581,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
-        for agent_id in expired_plan_agent_ids(staged):  # 跨日归零：观察只反映当日计划（docs/dev/SPEC-life-realism.md「日程骨架」）
-            staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         staged = apply_engine_rhythm(self, staged, target_epoch, interval, arrivals, drafts)
+        for agent_id in expired_plan_agent_ids(staged):
+            staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         if not drafts:
             drafts.append(EventDraft(event_type="environment_event", occurred_at=target_epoch,
                                      visibility="system", source_kind="environment",
@@ -841,7 +840,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         else:
             candidate = next_decision_candidates(agent, engine_rhythm_inputs(self, state))
             # 修订决策节律：下一决策时刻只由唤醒候选决定（计划结束、体感分级
-            # 跨越、排定通知、计划段起点、重估间隔、营业变化）；900 秒反馈
+            # 跨越、排定通知、承诺威胁、重估间隔、营业变化）；900 秒反馈
             # 边界只是结算粒度，不再构成决策时刻。
             next_at = candidate if candidate is not None else (
                 state.current_time + self.scenario.activity_feedback_seconds)
@@ -927,7 +926,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         try:
             request = model.model_validate(pending.request)
         except ValueError as error:
-            # 请求再验证失败（绕过构造期校验的载荷，如超长 note）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
+            # 请求再验证失败（绕过构造期校验的载荷，如超长 goal）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
             raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
         if pending.tool_name != "browse_activities":
             require_interaction_menu(self.scenario, state, pending, request)
@@ -1043,6 +1042,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
     def _activity_snapshot(self, activity) -> dict:
         """@brief 导出活动权威快照并为内容型活动附查看器直显标题。"""
         payload = activity.model_dump(mode="json")
+        if activity.kind == ActivityKind.LIFESTYLE:
+            item_id = (activity.target_id or "").removeprefix("lifestyle:")
+            item = next((item for item in self.lifestyle_items if item.activity_id == item_id), None)
+            if item is not None:
+                payload["category"] = item.category
         title = self._activity_title(activity)
         if title is not None:
             payload["title"] = title
@@ -1269,7 +1273,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
 
     def _plan_day(self, state: WorldState, pending: PendingAction,
                   request: PlanDayRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 登记当日骨架为自我承诺（docs/dev/SPEC-life-realism.md「日程骨架」）；日首判据=当日尚无计划（跨日归零+台账），拒绝重试边界仍可提交。"""
+        """@brief 登记当日有序目标；成功登记每天至多一次，迟交与拒绝重试均允许。"""
         agent = state.agents[pending.agent_id]
         now = state.current_time
         date = _datetime(now, self.scenario.timezone).date().isoformat()
@@ -1277,18 +1281,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         if date in agent.plan_submitted_dates or planned_today:
             raise BusinessRuleError("PLAN_ALREADY_SUBMITTED")
         day_end = day_end_seconds(now, self.scenario.timezone)
-        declared = getattr(self._agent_config(agent.agent_id), "bedtime_window", None)
-        bedtime = bedtime_anchor(now, self.scenario.timezone, declared[1] if declared else None)
         try:
-            segments = tuple(PlanSegment(**segment.model_dump()) for segment in request.segments)
+            goals = tuple(PlanGoal(**goal.model_dump(), registered_at=now) for goal in request.goals)
+            plan = initial_day_plan(goals, day_end)
         except ValueError as error:
-            raise BusinessRuleError("PLAN_SEGMENTS_INVALID") from error
-        if segments and segments[0].start < now:
-            raise BusinessRuleError("PLAN_SEGMENT_ALREADY_STARTED")
-        try:
-            plan = initial_day_plan(segments, day_end, bedtime)
-        except ValueError as error:
-            raise BusinessRuleError("PLAN_SEGMENTS_INVALID") from error
+            raise BusinessRuleError("PLAN_GOALS_INVALID") from error
         changed_agent = agent.model_copy(
             update={"day_plan": plan, "plan_submitted_dates": set(agent.plan_submitted_dates) | {date}},
             deep=True)
@@ -1296,29 +1293,27 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=now,
                               message="Day plan registered as self-commitment",
-                              data={"day_plan": [segment.model_dump(mode="json")
-                                                 for segment in plan.segments]})
+                              data={"day_plan": plan.model_dump(mode="json")})
         return changed, result
 
     def _revise_day_plan(self, state: WorldState, pending: PendingAction,
                          request: ReviseDayPlanRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 改写尚未开始的当日计划段（docs/dev/SPEC-life-realism.md「日程骨架」：已开始段不可改）。"""
+        """@brief 替换未推进的当日目标，已推进目标保持不变。"""
         agent = state.agents[pending.agent_id]
-        if agent.day_plan is None:
+        if agent.day_plan is None or day_plan_expired(agent.day_plan, state.current_time):
             raise BusinessRuleError("PLAN_NOT_FOUND")
         try:
-            segments = tuple(PlanSegment(**segment.model_dump()) for segment in request.segments)
-            plan = revise_day_plan(agent.day_plan, state.current_time, segments)
+            goals = tuple(PlanGoal(**goal.model_dump(), registered_at=state.current_time) for goal in request.goals)
+            plan = revise_day_plan(agent.day_plan, state.current_time, goals)
         except ValueError as error:
-            raise BusinessRuleError("PLAN_SEGMENT_ALREADY_STARTED" if "already started" in str(error)
-                                    else "PLAN_SEGMENTS_INVALID") from error
+            raise BusinessRuleError("PLAN_GOAL_ALREADY_PROGRESSED" if "already progressed" in str(error)
+                                    else "PLAN_GOALS_INVALID") from error
         changed_agent = agent.model_copy(update={"day_plan": plan}, deep=True)
         changed = _put_agent(state, changed_agent)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
                               message="Day plan revised",
-                              data={"day_plan": [segment.model_dump(mode="json")
-                                                 for segment in plan.segments]})
+                              data={"day_plan": plan.model_dump(mode="json")})
         return changed, result
 
     def _send_message(self, state: WorldState, pending: PendingAction,
@@ -1447,8 +1442,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
 
     def _advance_activities(self, state: WorldState, target: int) -> tuple[list[EventDraft], list[ActionResult]]:
         """@brief 结算所有人物的活动区间，并为每段写完整活动状态。"""
-        drafts = []
-        results = []
+        drafts, results = [], []
         for activity_id in sorted(state.activities):
             activity = state.activities[activity_id]
             if activity.status != ActivityStatus.ACTIVE:
@@ -1480,6 +1474,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             data = {"interval_start": interval_start, "interval_end": advanced.activity.last_settled_at,
                     "activity": self._activity_snapshot(state.activities[activity_id]),
                     "body_settlement": _body_settlement_data(advanced.settlement), **effects}
+            data["activity"]["location_id"] = state.agents[activity.agent_id].location_id
             flows = _resource_flows_data(activity.agent_id, target)
             if flows:
                 data[RESOURCE_FLOWS_FIELD] = flows

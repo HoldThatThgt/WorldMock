@@ -161,9 +161,7 @@ def _set_new_tool_visibility(data: dict, tool_name: str | None) -> None:
     if tool_name == "plan_day":
         data["wake_reasons"] = ["run_start"]
     elif tool_name == "revise_day_plan":
-        data["facts"] = {**data["facts"], "day_plan": {"segments": [
-            {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
-             "intent_kind": "工作", "note": ""}]}}
+        data["facts"] = {**data["facts"], "day_plan": {"day_end": _NOW_EPOCH + 72000, "goals": []}}
     elif tool_name in ("send_message", "start_social_activity"):
         data["facts"] = {**data["facts"], "inbox": [
             {"id": "m-1", "kind": "direct", "sender_id": "agent:9",
@@ -292,17 +290,17 @@ def test_nested_life_schemas_are_inlined_from_runtime_models() -> None:
 def test_tuple_request_models_inline_subschemas_without_adapter() -> None:
     """四件含元组字段的请求模型在模型层内联子 Schema（strict 合同，docs/CONTRACTS.md「人物工具与管理接口」）。
 
-    purchase.items/consume.items/plan_day.segments/revise_day_plan.segments
+    purchase.items/consume.items/plan_day.goals/revise_day_plan.goals
     的子模型约束以 WithJsonSchema 注解进 life.models 字段定义，生成的
     strict Schema 不含嵌套引用键，agent 侧适配层已删除。
     """
     import custom.agents.life_agent as life_agent_module
-    from worldmock.life.models import ConsumeItem, PlanSegmentInput, PurchaseItem
+    from worldmock.life.models import ConsumeItem, PlanGoalInput, PurchaseItem
 
     subs = {"purchase": PurchaseItem, "consume": ConsumeItem,
-            "plan_day": PlanSegmentInput, "revise_day_plan": PlanSegmentInput}
+            "plan_day": PlanGoalInput, "revise_day_plan": PlanGoalInput}
     fields = {"purchase": "items", "consume": "items",
-              "plan_day": "segments", "revise_day_plan": "segments"}
+              "plan_day": "goals", "revise_day_plan": "goals"}
     for name, field in fields.items():
         schema = deepseek_strict_schema(REQUEST_MODELS[name])
         encoded = json.dumps(schema)

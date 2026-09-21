@@ -23,7 +23,7 @@ from worldmock.life.models import (
     ActivityKind,
     ContinueActivityRequest,
     PlanDayRequest,
-    PlanSegmentInput,
+    PlanGoalInput,
     ReviseDayPlanRequest,
     SendMessageRequest,
     StartBasicActivityRequest,
@@ -104,14 +104,13 @@ def test_offered_boundary_records_actual_wake_reasons(engine_factory) -> None:
 
 
 def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
-    """每类唤醒条件经引擎真实触发一次（run_start/段界/消息/配送/重估/拒绝）。"""
+    """每类唤醒条件经引擎真实触发一次（run_start/消息/配送/重估/拒绝）。"""
     engine = engine_factory()
     _act(engine, "plan", "plan_day",
-         _anchored_plan(engine, (900, 1800, 2700, 3600, 4500), span=60))
+         _goal_plan())
     first = _events(engine, "decision_started")
     assert first and first[-1].data["wake_reasons"] == ["run_start"]
-    advance_next(engine)
-    assert engine.state.agents[1].pending_wake_reasons == ["plan_block_boundary"]
+    advance_until_ready(engine)
     _act(engine, "hold-1", "start_basic_activity",
          StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
     # message_arrival：邮件到达唤醒
@@ -274,24 +273,24 @@ def test_subtitle_does_not_repeat_across_boundary(engine_factory) -> None:
 
 
 def test_plan_day_registers_self_commitment_and_rejects_midday(engine_factory) -> None:
-    """plan_day 正例登记为自我承诺；非首醒决策与重复提交被拒绝。"""
+    """plan_day 登记当日目标，同日重复提交被拒绝。"""
     engine = engine_factory()
-    plan = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
+    plan = _goal_plan()
     result = _act(engine, "plan-ok", "plan_day", plan)
     assert result.status.value == "completed"
     assert engine.state.agents[1].day_plan is not None
-    assert len(engine.state.agents[1].day_plan.segments) == 5
+    assert len(engine.state.agents[1].day_plan.goals) == 1
     # 反例：同日重复提交
     advance_until_ready(engine)
     again = _act(engine, "plan-dup", "plan_day", plan)
     assert again.status.value == "rejected"
-    assert again.error_code in {"PLAN_ALREADY_SUBMITTED", "PLAN_DAY_ONLY_AT_DAY_START"}
+    assert again.error_code == "PLAN_ALREADY_SUBMITTED"
 
 
 def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     """跨日边界把 day_plan 归零：第二天首次醒来 plan_day 工具重新开放且可再提交。
 
-    docs/dev/SPEC-life-realism.md「日程骨架」"每天第一次醒来的决策必须先提交 plan_day"要求计划按日归零：
+    docs/dev/SPEC-life-realism.md「当日目标」"每天第一次醒来的决策必须先提交 plan_day"要求计划按日归零：
     day1 提交后跨日睡眠，day2 醒来时观察的 day_plan 必须为空（只反映当日
     计划），人物侧 plan_day 契约重新开放，引擎侧接受新一天的首个提交。
     """
@@ -306,7 +305,7 @@ def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     )
 
     engine = engine_factory()
-    day1 = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
+    day1 = _goal_plan()
     first = _act(engine, "plan-day1", "plan_day", day1)
     assert first.status.value == "completed"
     assert engine.state.agents[1].day_plan is not None
@@ -331,64 +330,48 @@ def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     contracts = _visible_action_contracts(data)
     available = _available_action_models({}, {"active": None, "paused_ids": []}, contracts)
     assert "plan_day" in available
-    day2 = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
+    day2 = _goal_plan()
     second = _act(engine, "plan-day2", "plan_day", day2)
     assert second.status.value == "completed"
     assert sorted(engine.state.agents[1].plan_submitted_dates) == ["2026-01-05", "2026-01-06"]
 
 
 def test_plan_day_retry_allowed_after_engine_rejection(engine_factory) -> None:
-    """引擎拒绝（段重叠，本地校验不覆盖）后的一秒重试边界上 plan_day 仍可提交。
-
-    重试边界的唤醒原因是 rejection_feedback；plan_day 的可见性与引擎判据
-    都必须把它当作当日首次计划决策的延续，否则一次骨架拒绝=当天永久锁死。
-    """
+    """绕过请求构造器的非法目标被引擎拒绝，下一秒可修正并完成首次登记。"""
     from custom.agents.life_agent import _visible_plan_day_contract
-
     engine = engine_factory()
-    base = engine.state.current_time
-    overlapping = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=base + off, end=base + off + 600,
-                         intent_kind="工作", note="") for off in (0, 1200, 2400, 2700, 4800)))
-    rejected = _act(engine, "plan-overlap", "plan_day", overlapping)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "PLAN_SEGMENTS_INVALID"
-    advance_next(engine)  # 拒绝后的一秒重试边界
+    invalid = PlanDayRequest.model_construct(goals=(
+        PlanGoalInput.model_construct(intent_kind="工作", goal="字" * 301),))
+    rejected = _act(engine, "plan-invalid", "plan_day", invalid)
+    assert rejected.status.value == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
+    advance_next(engine)
     assert "rejection_feedback" in engine.state.agents[1].pending_wake_reasons
-    ctx = context(engine, "observe-retry")
-    engine.begin_decision_round([ctx])
-    data = engine.observe(ctx)
-    engine.abort_decision_round("observe-retry", "probe")
-    assert _visible_plan_day_contract(data) != {}, "重试边界上 plan_day 工具必须对人物可见"
-    valid = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
-    retry = _act(engine, "plan-retry", "plan_day", valid)
-    assert retry.status.value == "completed", (
-        f"拒绝后的当日重试被拒：{retry.error_code}")
-    assert engine.state.agents[1].day_plan is not None
+    data = _observe_current(engine, "observe-retry")
+    assert _visible_plan_day_contract(data)
+    assert _act(engine, "plan-retry", "plan_day", _goal_plan()).status.value == "completed"
 
 
-def test_revise_day_plan_only_rewrites_unstarted_segments(engine_factory) -> None:
-    """revise_day_plan 正例改写未开始段；已开始段被拒绝。"""
+
+def test_revise_day_plan_keeps_progressed_goals_and_rejects_resubmission(engine_factory) -> None:
+    """真实活动推进后目标不能改写，修订请求只替换未推进条目。"""
     engine = engine_factory()
-    base = engine.state.current_time
-    _act(engine, "plan-base", "plan_day", _anchored_plan(engine, (0, 1200, 2400, 3600, 4800)))
-    advance_until_ready(engine)  # 第一段已开始
-    tail = ReviseDayPlanRequest(segments=(
-        PlanSegmentInput(start=base + 600, end=base + 700, intent_kind="娱乐", note="已开始"),
-        PlanSegmentInput(start=base + 3000, end=base + 5400, intent_kind="休息", note=""),
-    ))
-    rejected = _act(engine, "revise-started", "revise_day_plan", tail)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "PLAN_SEGMENT_ALREADY_STARTED"
-    advance_next(engine)  # 拒绝后的一秒反应边界
-    anchor = _next_local_midnight(engine, base)
-    future = ReviseDayPlanRequest(segments=(
-        PlanSegmentInput(start=base + 3600, end=base + 4200, intent_kind="家务", note=""),
-        PlanSegmentInput(start=base + 4200, end=anchor, intent_kind="睡眠", note=""),))
-    ok = _act(engine, "revise-future", "revise_day_plan", future)
-    assert ok.status.value == "completed"
-    assert any(segment.intent_kind == "家务"
-               for segment in engine.state.agents[1].day_plan.segments)
+    request = PlanDayRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),))
+    _act(engine, "plan-base", "plan_day", request)
+    advance_until_ready(engine)
+    _act(engine, "rest-goal", "start_basic_activity",
+         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    advance_until_ready(engine)
+    evidence = engine.state.agents[1].day_plan.goals[0]
+    rejected = _act(engine, "rewrite-progress", "revise_day_plan", ReviseDayPlanRequest(
+        goals=(PlanGoalInput(intent_kind="休息", goal="改写休息"),)))
+    assert rejected.error_code == "PLAN_GOAL_ALREADY_PROGRESSED"
+    advance_next(engine)
+    result = _act(engine, "replace-pending", "revise_day_plan", ReviseDayPlanRequest(
+        goals=(PlanGoalInput(intent_kind="工作", goal="写报告"),)))
+    assert result.status.value == "completed"
+    assert engine.state.agents[1].day_plan.goals[0] == evidence
+    assert engine.state.agents[1].day_plan.goals[1].intent_kind == "工作"
+
 
 
 def test_send_message_delivers_inbox_and_arrival_event(engine_factory) -> None:
@@ -596,28 +579,13 @@ def test_world_state_schema_version_four_rejects_old_checkpoints(engine_factory)
     assert fresh["presentation_state"] == {}
 
 
-def _next_local_midnight(engine, now: int) -> int:
-    """计算场景时区的次日零点（缺省就寝锚点=persona-mapping 默认窗口末端 24:00）。"""
-    from datetime import timedelta
-
-    from worldmock.life.engine import _datetime
-
-    local = _datetime(now, engine.scenario.timezone)
-    return int((local + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0).timestamp())
 
 
-def _anchored_plan(engine, offsets: tuple[int, ...], span: int = 600,
-                   intent: str = "工作") -> PlanDayRequest:
-    """构造末段恰好覆盖到缺省就寝锚点（次日零点）的合法计划（D6 缺口 3 夹具）。"""
-    now = engine.state.current_time
-    anchor = _next_local_midnight(engine, now)
-    segments = [PlanSegmentInput(start=now + offset, end=now + offset + span,
-                                 intent_kind=intent, note="")
-                for offset in offsets[:-1]]
-    segments.append(PlanSegmentInput(start=now + offsets[-1], end=anchor,
-                                     intent_kind="休息", note=""))
-    return PlanDayRequest(segments=tuple(segments))
+
+def _goal_plan() -> PlanDayRequest:
+    """构造不包含时刻的当日目标。"""
+    return PlanDayRequest(goals=(PlanGoalInput(intent_kind="工作", goal="推进报告"),))
+
 
 
 def _stage_bedtime_window(engine, window: tuple[float, float]) -> None:
@@ -640,198 +608,56 @@ def _observe_current(engine, round_id: str, agent_id: int = 1) -> dict:
     return data
 
 
-def test_plan_day_rejects_plan_below_bedtime_anchor(engine_factory) -> None:
-    """缺口 3：末段早于就寝锚点拒绝；恰好到达通过；缺省锚点留痕在 day_plan.bedtime。"""
-    engine = engine_factory()
-    _stage_bedtime_window(engine, None)  # B4 落地后场景已声明；本测试钉住缺省取值链
-    now = engine.state.current_time
-    anchor = _next_local_midnight(engine, now)
-    short = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=now + off, end=now + off + 600,
-                         intent_kind="工作", note="") for off in (0, 1200, 2400, 3600, 4800)))
-    rejected = _act(engine, "plan-short", "plan_day", short)
-    assert rejected.status.value == "rejected", (
-        "末段未覆盖到就寝锚点的计划必须被拒绝（空约束修复）")
-    assert rejected.error_code == "PLAN_SEGMENTS_INVALID"
-    assert "cover until bedtime" in rejected.message
-
-    advance_next(engine)  # 拒绝后的一秒重试边界
-    reaching = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
-    ok = _act(engine, "plan-reach", "plan_day", reaching)
-    assert ok.status.value == "completed", f"恰好覆盖到锚点必须通过：{ok.error_code}"
-    stored = engine.state.agents[1].day_plan
-    assert stored is not None and stored.bedtime == anchor, (
-        "缺省取值链留痕：声明缺失时锚点=persona-mapping 默认窗口末端（次日零点）")
 
 
-def test_plan_day_uses_declared_bedtime_window_end(engine_factory) -> None:
-    """缺口 3：人物声明的就寝窗口末端覆盖缺省锚点（22-23 点声明→锚点=23:00）。"""
+
+
+
+
+
+
+
+def test_facts_day_plan_remains_visible_after_bedtime_until_midnight(engine_factory) -> None:
+    """就寝之后仍展示当日目标，只有跨本地午夜才失效。"""
     engine = engine_factory()
     _stage_bedtime_window(engine, (22.0, 23.0))
-    now = engine.state.current_time
-    from datetime import datetime as dt
-    from zoneinfo import ZoneInfo
-
-    local = dt.fromtimestamp(now, ZoneInfo(engine.scenario.timezone))
-    declared_anchor = int(local.replace(hour=23, minute=0, second=0,
-                                        microsecond=0).timestamp())
-    early = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=now + off, end=now + off + 600,
-                         intent_kind="工作", note="") for off in (0, 1200, 2400, 3600, 4800)))
-    rejected = _act(engine, "plan-declared-short", "plan_day", early)
-    assert rejected.status.value == "rejected", "声明锚点前结束必须被拒绝"
-    advance_next(engine)  # 拒绝后的一秒重试边界
-    retry_now = engine.state.current_time
-    reaching = PlanDayRequest(segments=tuple(
-        [PlanSegmentInput(start=retry_now + off, end=retry_now + off + 600,
-                          intent_kind="工作", note="")
-         for off in (0, 12000, 24000, 36000)]
-        + [PlanSegmentInput(start=retry_now + 48000, end=declared_anchor,
-                            intent_kind="休息", note="")]))
-    ok = _act(engine, "plan-declared-reach", "plan_day", reaching)
-    assert ok.status.value == "completed", f"覆盖到声明锚点必须通过：{ok.error_code}"
-    assert engine.state.agents[1].day_plan.bedtime == declared_anchor
-
-
-def test_plan_day_anchor_follows_real_scenario_declaration(engine_factory) -> None:
-    """B4：场景声明的就寝窗口末端成为真实锚点（陈曦 22:30-23:30→锚点=23:30）。"""
-    engine = engine_factory()  # white-collar：陈曦声明 bedtime_window (22.5, 23.5)
-    assert engine.scenario.agents[0].bedtime_window == (22.5, 23.5), (
-        "场景文档的就寝窗口声明必须随组装进入运行时场景")
-    now = engine.state.current_time
-    from datetime import datetime as dt
-    from zoneinfo import ZoneInfo
-
-    local = dt.fromtimestamp(now, ZoneInfo(engine.scenario.timezone))
-    declared_anchor = int(local.replace(hour=23, minute=30, second=0,
-                                        microsecond=0).timestamp())
-    early = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=now + off, end=now + off + 600,
-                         intent_kind="工作", note="") for off in (0, 1200, 2400, 3600, 4800)))
-    rejected = _act(engine, "plan-scenario-short", "plan_day", early)
-    assert rejected.status.value == "rejected", "末段早于场景声明锚点必须被拒绝"
-    assert rejected.error_code == "PLAN_SEGMENTS_INVALID"
-    assert "cover until bedtime" in rejected.message
-    advance_next(engine)  # 拒绝后的一秒重试边界
-    retry_now = engine.state.current_time
-    reaching = PlanDayRequest(segments=tuple(
-        [PlanSegmentInput(start=retry_now + off, end=retry_now + off + 600,
-                          intent_kind="工作", note="")
-         for off in (0, 12000, 24000, 36000)]
-        + [PlanSegmentInput(start=retry_now + 48000, end=declared_anchor,
-                            intent_kind="休息", note="")]))
-    ok = _act(engine, "plan-scenario-reach", "plan_day", reaching)
-    assert ok.status.value == "completed", f"覆盖到场景声明锚点必须通过：{ok.error_code}"
-    assert engine.state.agents[1].day_plan.bedtime == declared_anchor, (
-        "day_plan.bedtime 留痕必须等于场景声明的窗口末端（23:30）")
-
-
-def test_facts_day_plan_hidden_after_bedtime_matches_scene(engine_factory) -> None:
-    """缺口 5：bedtime→midnight 窗口 scene 与 facts 的 day_plan 同步隐藏。"""
-    from datetime import datetime as dt
-    from zoneinfo import ZoneInfo
-
-    engine = engine_factory()
-    _stage_bedtime_window(engine, (22.0, 23.0))
-    now = engine.state.current_time
-    local = dt.fromtimestamp(now, ZoneInfo(engine.scenario.timezone))
-    bedtime = int(local.replace(hour=23, minute=0, second=0, microsecond=0).timestamp())
-    reaching = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=now + off, end=now + off + 600,
-                         intent_kind="工作", note="")
-        for off in (0, 12000, 24000, 36000, 48000))[:4]
-        + (PlanSegmentInput(start=now + 48000, end=bedtime,
-                            intent_kind="休息", note=""),))
-    assert _act(engine, "plan-align", "plan_day", reaching).status.value == "completed"
-
+    assert _act(engine, "plan-visible", "plan_day", _goal_plan()).status.value == "completed"
+    end = engine.state.agents[1].day_plan.day_end
     staged = engine.state.model_copy(deep=True)
-    staged.current_time = bedtime - 3600  # 就寝前：两层都携带当日计划
-    staged.version += 1
-    engine.state = staged
-    before = _observe_current(engine, "observe-before-bedtime")
-    assert before["scene"]["day_plan"] is not None
+    staged.current_time = end - 60
+    staged.agents[1] = staged.agents[1].model_copy(update={"next_decision_at": staged.current_time})
+    _commit_staged(engine, staged)
+    before = _observe_current(engine, "before-midnight")
     assert before["facts"]["day_plan"] is not None
-
+    assert before["scene"]["day_plan"] is not None
     staged = engine.state.model_copy(deep=True)
-    staged.current_time = bedtime + 60  # 就寝后、跨日零点前：两层一致隐藏
-    staged.version += 1
-    engine.state = staged
-    after = _observe_current(engine, "observe-after-bedtime")
+    staged.current_time = end
+    _commit_staged(engine, staged)
+    after = _observe_current(engine, "after-midnight")
+    assert after["facts"]["day_plan"] is None
     assert after["scene"]["day_plan"] is None
-    assert after["facts"]["day_plan"] is None, (
-        "bedtime→midnight 窗口 facts 必须与 scene 同口径隐藏当日已过期计划")
+
 
 
 def test_rejection_message_carries_error_code_and_reason(engine_factory) -> None:
-    """缺口 7：拒绝消息携带业务错误码与可读原因，经 recent_action_results 进 facts。"""
+    """目标校验错误经业务结果和下次观察完整反馈，修正后可重试。"""
     engine = engine_factory()
-    now = engine.state.current_time
-    overlapping = PlanDayRequest(segments=tuple(
-        PlanSegmentInput(start=now + off, end=now + off + 600,
-                         intent_kind="工作", note="") for off in (0, 1200, 2400, 2700, 4800)))
-    rejected = _act(engine, "plan-overlap-reason", "plan_day", overlapping)
+    invalid = PlanDayRequest.model_construct(goals=(
+        PlanGoalInput.model_construct(intent_kind="工作", goal="字" * 301),))
+    rejected = _act(engine, "plan-invalid-reason", "plan_day", invalid)
     assert rejected.status.value == "rejected"
-    assert "PLAN_SEGMENTS_INVALID" in rejected.message, (
-        f"模型必须看到业务错误码，实际 message={rejected.message!r}")
-    assert "overlap" in rejected.message
-    advance_next(engine)  # 一秒重试边界：观察携带拒绝摘要
-    data = _observe_current(engine, "observe-rejection")
-    rows = data["facts"]["recent_action_results"]
-    assert rows and rows[-1]["status"] == "rejected"
-    assert set(rows[-1]) == {"action_id", "occurred_at", "status", "error_code", "message"}
-    assert rows[-1]["error_code"] == "PLAN_SEGMENTS_INVALID"
+    assert "ACTION_REQUEST_INVALID" in rejected.message
+    assert "300" in rejected.message
+    advance_next(engine)
+    rows = _observe_current(engine, "observe-rejection")["facts"]["recent_action_results"]
+    assert rows[-1]["error_code"] == "ACTION_REQUEST_INVALID"
     assert rows[-1]["occurred_at"] == rejected.occurred_at
-    assert "PLAN_SEGMENTS_INVALID" in rows[-1]["message"], (
-        "错误码经摘要消息进入 facts，模型可据此修正重试")
-    # 修正后可重试：骨架合法的计划在同一日成功提交
-    valid = _anchored_plan(engine, (0, 1200, 2400, 3600, 4800))
-    retried = _act(engine, "plan-corrected", "plan_day", valid)
-    assert retried.status.value == "completed", (
-        f"看到原因后修正重试必须成功：{retried.error_code}")
+    assert set(rows[-1]) == {"action_id", "occurred_at", "status", "error_code", "message"}
+    assert _act(engine, "plan-corrected", "plan_day", _goal_plan()).status.value == "completed"
 
 
-def test_plan_segment_pulse_requires_matching_activity(engine_factory) -> None:
-    """缺口 8：段结束情绪脉冲只在时间加权主导活动家族与段意图匹配时发放。"""
-    from worldmock.life import felt as felt_module
-    from worldmock.life.models import ActivityState, ActivityStatus
-    from worldmock.life.rhythm import _plan_and_deadline_pulses, engine_rhythm_inputs
-    from worldmock.life.schedule import DayPlan, PlanSegment
 
-    def pulse_delta(kind: ActivityKind, target_id, intent: str) -> float:
-        engine = engine_factory()
-        now = engine.state.current_time
-        end = now + 3000
-        segments = (
-            PlanSegment(start=now, end=now + 600, intent_kind="休息"),
-            PlanSegment(start=now + 600, end=now + 1200, intent_kind="休息"),
-            PlanSegment(start=now + 1200, end=now + 1800, intent_kind="休息"),
-            PlanSegment(start=now + 1800, end=now + 2400, intent_kind="休息"),
-            PlanSegment(start=now + 2400, end=end, intent_kind=intent),
-        )
-        activity = ActivityState(
-            activity_id="activity-pulse-probe", agent_id=1, kind=kind,
-            status=ActivityStatus.COMPLETED, started_at=now + 2400, ended_at=end,
-            planned_end_at=end, last_settled_at=end, elapsed_seconds=600,
-            planned_duration_seconds=600, origin_action_id="probe-action",
-            origin_decision_id="probe-decision", origin_request_event_id="probe-event",
-            target_id=target_id)
-        staged = engine.state.model_copy(deep=True)
-        staged.current_time = end
-        staged.activities[activity.activity_id] = activity
-        staged.agents[1] = staged.agents[1].model_copy(
-            update={"day_plan": DayPlan(bedtime=end, day_end=end + 3600,
-                                        segments=segments)}, deep=True)
-        inputs = engine_rhythm_inputs(engine, staged, interval=900)
-        settled = _plan_and_deadline_pulses(staged.agents[1], inputs)
-        return settled.body.mood_valence - staged.agents[1].body.mood_valence
 
-    body_norm = engine_factory().state.agents[1].body.neuroticism_norm
-    expected = felt_module.apply_mood_pulse(0.0, 0.05, body_norm)
-    followed = pulse_delta(ActivityKind.WORK, None, "工作")
-    assert followed == pytest.approx(expected), (
-        f"照做（工作段内主导工作）应发放 +0.05 脉冲，实际 Δ={followed}")
-    mismatched = pulse_delta(ActivityKind.WAIT, None, "工作")
-    assert mismatched == 0.0, f"未照做（等待主导）不应发放脉冲，实际 Δ={mismatched}"
 
 
 def test_sleep_debt_hours_has_no_residual_references() -> None:

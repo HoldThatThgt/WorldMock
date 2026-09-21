@@ -113,6 +113,11 @@ flowchart LR
 [LifeScenario、BodyInstanceConfig 与 AgentConfig](../../src/worldmock/life/scenario.py)
 校验；资源语义引用 [资源与需求字段](../CONTRACTS.md#资源与需求字段)。
 
+当日目标重估沿用生活场景配置：`reconsideration_interval_seconds` 默认 5400，
+`idle_reconsideration_interval_seconds` 默认 10800，均为正整数且不超过 86400，空闲间隔不能短于常规间隔。
+其选择与环境威胁边界见 [当日目标规格](../dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
+人物目标条目不接收时间或调度参数。
+
 场景使用整数 `schema_version`，人物清单为 `agents`，时间字段为 `start_at`、`end_at`；
 身体资源初值放在顶层 `body`，人物档案常量放在各自的 `agents` 条目。
 本文不重新定义完整场景 Schema。
@@ -137,7 +142,7 @@ flowchart LR
 
 菜单只有 `allowed_tools` 与 `allowed_activity_kinds` 两个必填数组。两个数组均非空、元素无重复且为
 非空白字符串，不接受其他字段。工具名只取 `worldmock.life.models.REQUEST_MODELS`，活动类型只取当前
-可供性注册表的 `kinds`；必须显式保留休息、睡眠、日程与既有活动控制所需的保护项。完整闭集、
+可供性注册表的 `kinds`；必须显式保留休息、睡眠、当日目标与既有活动控制所需的保护项。完整闭集、
 保护集合和 `null` 语义见[交互菜单合同](../CONTRACTS.md#交互菜单声明与有效菜单)。
 
 运行时按人物权威 `location_id` 找到地点的单值 `kind`，再将该地点菜单与人物菜单逐字段求交集。

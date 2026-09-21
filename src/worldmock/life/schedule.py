@@ -1,30 +1,4 @@
-"""@brief 决策节律与日程骨架：唤醒条件判定、下一决策时刻、当日计划（纯函数库）。
-
-结算边界与决策机会分离（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：activity_feedback_seconds=900 仍作为
-身体/进度/内容的结算粒度，每个结算边界照常结算资源；是否在该边界向人物提供
-决策机会只由唤醒条件决定。无任何命中的边界是静默边界：decision_offered=false、
-wake_reasons=[]，环境按人物已提交的计划续行，不调用模型。续行不是环境替人物
-选择——人物的选择就是它提交的计划持续时间，静默边界只是不打断这一选择。
-
-下一决策时刻取下列各项的最小值：计划结束、体感分级预计跨越时刻（由调用方
-传入，复用现有 next_body_boundary_seconds 预测，本模块不另写公式）、已排定的
-通知与配送、计划段起点、重估间隔到期、地点营业变化（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
-
-日程骨架（docs/dev/SPEC-life-realism.md「日程骨架」）：每天第一次醒来的决策必须先提交 5-8 段 plan_day，
-覆盖到当日就寝、段不重叠、不越过当日结束；环境不执行计划步，到达段起点只构成
-plan_block_boundary 唤醒，由人物当场决定是否照做。revise_day_plan 只允许改写
-尚未开始的段。
-
-睡眠契约（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：睡眠不受重估间隔影响，只在计划结束或唤醒事件
-（wake_from_sleep、run_start）时提供决策；外部事件不中断睡眠，引擎若要让事件
-唤醒睡眠者，应以 wake_from_sleep 标志表达。游戏模式保持逐回合反馈，由引擎侧
-处理，本模块不感知。
-
-数值参数：reconsideration_interval_seconds 默认 5400 秒（Kleitman 基本休息-
-活动周期约 90 分钟，场景参数可覆盖）；闭店预警窗口 15 分钟与任务截止预警
-窗口 30 分钟为规格冻结常数。以上数值见
-docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」。
-"""
+"""@brief 当日目标与事件驱动决策节律的纯函数合同。"""
 
 from __future__ import annotations
 
@@ -34,33 +8,25 @@ from enum import Enum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, model_validator
+import logging
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+_LOGGER = logging.getLogger(__name__)
+
+#: 有在手承诺时的常规重估间隔。
 RECONSIDERATION_INTERVAL_SECONDS = 5400
-"""距上一次实际决策满该秒数触发重估唤醒；默认 90 分钟（Kleitman BRAC，docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
-
+#: 没有在手承诺时的较长重估间隔。
+IDLE_RECONSIDERATION_INTERVAL_SECONDS = 10800
+#: 当前地点的闭店预警窗口。
 CLOSING_WARNING_SECONDS = 900
-"""闭店预警窗口：距闭店不足该秒数视为"即将闭店"（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」定值 15 分钟）。"""
-
+#: 可见工作任务的截止预警窗口。
 TASK_DUE_SOON_SECONDS = 1800
-"""截止预警窗口：距任务截止不足该秒数视为"即将截止"（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」定值 30 分钟）。"""
-
-MIN_PLAN_SEGMENTS = 5
-"""日程骨架最少段数（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
-
-MAX_PLAN_SEGMENTS = 8
-"""日程骨架最多段数（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
-
-PLAN_NOTE_MAX_CHARS = 300
-"""计划段备注上限字符数。
-
-note 原文进入之后每一轮的观察 facts（projection `_plan_fact` → render_facts，
-无截断），无界 note 会持久化进 day_plan 后在下一次提示构建击穿 40000 字符
-预算（PromptBudgetExceededError，fail-closed 不截断）且永久复发。300 对齐
-既有模型自写文本上限的量级（社交消息 MESSAGE_TEXT_MAX_CHARS=300）；按
-MAX_PLAN_SEGMENTS=8 段全满计，计划 facts 贡献至多约 2400 字符。
-"""
+#: 有序目标清单的容量上限。
+MAX_PLAN_GOALS = 8
+#: 单条自然语言目标的字符上限。
+PLAN_GOAL_MAX_CHARS = 300
 
 
 class WakeReason(str, Enum):
@@ -73,7 +39,7 @@ class WakeReason(str, Enum):
     TASK_AVAILABLE = "task_available"
     TASK_DUE_SOON = "task_due_soon"
     WORK_REVIEW_RESULT = "work_review_result"
-    PLAN_BLOCK_BOUNDARY = "plan_block_boundary"
+    COMMITMENT_THREATENED = "commitment_threatened"
     RECONSIDERATION_INTERVAL = "reconsideration_interval"
     LOCATION_HOURS_CHANGE = "location_hours_change"
     PERSON_ARRIVED = "person_arrived"
@@ -104,7 +70,7 @@ INTENT_KINDS: tuple[str, ...] = (
     "运动",
     "外出",
 )
-"""计划段意图闭集（docs/dev/SPEC-life-realism.md「日程骨架」）；与下方 IntentKind Literal 保持同步。"""
+"""当日目标意图闭集；与下方 IntentKind Literal 保持同步。"""
 
 IntentKind = Literal[
     "睡眠",
@@ -134,92 +100,11 @@ INTENT_ACTIVITY_FAMILIES: dict[str, frozenset[str]] = {
     "运动": frozenset({"lifestyle:sport"}),
     "外出": frozenset({"travel", "lifestyle:outdoor"}),
 }
-"""意图闭集 → 实际活动家族闭集（照做判定口径，docs/dev/SPEC-life-runtime.md「其他体感分级」"完成计划段"）。
-
-家族令牌 = ActivityKind 文本（sleep/work/travel/consume/chat/call/play_game/
-watch/browse/wait）加生活活动品类令牌 "lifestyle:{category}"（category 取
-corpora/lifestyle/items.json 的 category 闭集）。映射为实验假设：通勤与外出
-共享 travel、休息与晨间例程共享 wait 属家族天然重叠，不另设优先级。
-"""
-
-
-def segment_followed(
-    intent_kind: str, spans: Sequence[tuple[str, int]], window_seconds: int
-) -> bool:
-    """@brief 照做判定：段区间内时间加权主导活动家族与段意图家族匹配（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
-
-    spans 为段区间内各活动的 (家族令牌, 覆盖秒数)；未覆盖秒数计入 idle
-    （idle 不属于任何意图家族，段大部分空闲即未照做）。主导家族取加权秒数
-    最大者（并列取字典序最大，保证确定性）。
-
-    @param intent_kind 段意图（INTENT_KINDS 闭集成员）
-    @param spans 段区间内活动家族覆盖表
-    @param window_seconds 段区间总秒数
-    @return 主导家族属于该意图的活动家族闭集时为 True
-    """
-    families = INTENT_ACTIVITY_FAMILIES.get(intent_kind)
-    if not families or window_seconds <= 0:
-        return False
-    weights: dict[str, int] = {}
-    covered = 0
-    for token, seconds in spans:
-        if seconds <= 0:
-            continue
-        weights[token] = weights.get(token, 0) + seconds
-        covered += seconds
-    weights["idle"] = weights.get("idle", 0) + max(0, window_seconds - covered)
-    dominant = max(sorted(weights), key=lambda token: weights[token])
-    return dominant in families
-
-
-def default_bedtime_end_hour() -> float:
-    """@brief 缺省就寝窗口末端：persona-mapping 默认锚点（非时钟常量，docs/dev/SPEC-life-realism.md「日程骨架」）。
-
-    读取 catalog/rules/persona-mapping.toml [defaults.time_anchors].bedtime
-    的窗口末端（与 profile/textgen 渲染人物卡片的缺省口径同源）；模块级
-    缓存保证一次运行只读一次。
-
-    @return 缺省就寝窗口末端小时数（自午夜起）
-    """
-    global _DEFAULT_BEDTIME_END_HOUR
-    if _DEFAULT_BEDTIME_END_HOUR is None:
-        from worldmock.profile.mapper import load_mapping_config
-        from worldmock.profile.models import TimeWindow
-
-        window = TimeWindow.from_clock_range(
-            load_mapping_config()["defaults"]["time_anchors"]["bedtime"])
-        _DEFAULT_BEDTIME_END_HOUR = window.end_hour
-    return _DEFAULT_BEDTIME_END_HOUR
-
-
-_DEFAULT_BEDTIME_END_HOUR: float | None = None
-
-
-def bedtime_anchor(
-    now: int, timezone_name: str, declared_end_hour: float | None
-) -> int:
-    """@brief 当日就寝锚点：人物声明末端优先，缺省走 persona-mapping 默认锚点。
-
-    取值链（docs/dev/SPEC-life-realism.md「日程骨架」计划锚点来自人物卡片声明）：① 场景人物的就寝窗口声明
-    （AgentConfig.bedtime_window 的末端小时）；② 声明缺失时 persona-mapping
-    默认锚点 [defaults.time_anchors].bedtime 的窗口末端。跨午夜声明（末端
-    >24h）落在次日，锚点钳制不超过当日结束（次日零点）。
-
-    @param now 查询时刻（UTC epoch 秒）
-    @param timezone_name 场景时区名
-    @param declared_end_hour 人物声明的就寝窗口末端小时；None=未声明
-    @return 当日就寝锚点时刻（UTC epoch 秒，≤ 当日结束）
-    """
-    end_hour = (declared_end_hour if declared_end_hour is not None
-                else default_bedtime_end_hour())
-    midnight = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).replace(
-        hour=0, minute=0, second=0, microsecond=0)
-    anchor = int((midnight + timedelta(hours=end_hour)).timestamp())
-    return min(anchor, day_end_seconds(now, timezone_name))
+"""意图到实际活动家族的映射；共享家族由目标清单顺序裁决。"""
 
 
 def day_end_seconds(now: int, timezone_name: str) -> int:
-    """@brief 当日结束时刻：场景时区次日零点（计划段不得越过，docs/dev/SPEC-life-realism.md「日程骨架」）。"""
+    """@brief 当日目标失效时刻：场景时区次日零点。"""
     midnight = datetime.fromtimestamp(now, ZoneInfo(timezone_name)).replace(
         hour=0, minute=0, second=0, microsecond=0)
     return int((midnight + timedelta(days=1)).timestamp())
@@ -242,9 +127,10 @@ class WakeSnapshot(BaseModel):
     task_newly_visible: bool = False
     next_task_due_at: int | None = None
     work_review_returned: bool = False
-    plan_block_starts: tuple[int, ...] = ()
     last_decision_time: int | None = None
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
+    idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
+    has_commitments: bool = False
     location_closing_at: int | None = None
     location_just_opened: bool = False
     people_present_now: frozenset[str] = frozenset()
@@ -276,105 +162,63 @@ class NextDecisionQuery(BaseModel):
     planned_end: int | None = None
     felt_band_crossing_times: tuple[int, ...] = ()
     scheduled_arrival_times: tuple[int, ...] = ()
-    plan_block_starts: tuple[int, ...] = ()
     last_decision_time: int | None = None
     reconsideration_interval_seconds: int = RECONSIDERATION_INTERVAL_SECONDS
+    idle_reconsideration_interval_seconds: int = IDLE_RECONSIDERATION_INTERVAL_SECONDS
+    has_commitments: bool = False
     location_hours_change_times: tuple[int, ...] = ()
+    next_task_due_at: int | None = None
+    location_closing_at: int | None = None
     is_asleep: bool = False
 
 
-class PlanSegment(BaseModel):
-    """@brief 日程骨架的单段：起止时刻（UTC epoch 秒）、意图与备注。"""
+class PlanGoal(BaseModel):
+    """@brief 已登记的当日目标；推进时刻与活动标识是环境证据。"""
 
-    start: int
-    end: int
+    model_config = ConfigDict(extra="forbid", frozen=True)
     intent_kind: IntentKind
-    note: str = ""
+    goal: str = Field(min_length=1, max_length=PLAN_GOAL_MAX_CHARS, pattern=r"\S")
+    registered_at: int = Field(ge=0)
+    progressed_at: int | None = Field(default=None, ge=0)
+    progress_activity_id: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
-    def _check_span(self) -> "PlanSegment":
-        """@brief 校验段跨度为正。"""
-        if self.start >= self.end:
-            raise ValueError("segment start must be earlier than end")
-        return self
-
-    @model_validator(mode="after")
-    def _check_note_length(self) -> "PlanSegment":
-        """@brief 校验备注不超过 PLAN_NOTE_MAX_CHARS（持久层上限，见常量注释）。"""
-        if len(self.note) > PLAN_NOTE_MAX_CHARS:
-            raise ValueError(
-                f"segment note exceeds {PLAN_NOTE_MAX_CHARS} characters: got {len(self.note)}")
+    def _check_progress(self) -> "PlanGoal":
+        """@brief 推进证据必须成对存在，且不能早于登记。"""
+        if (self.progressed_at is None) != (self.progress_activity_id is None):
+            _LOGGER.error("Goal progress evidence is incomplete")
+            raise ValueError("goal progress evidence must be present together")
+        if self.progressed_at is not None and self.progressed_at <= self.registered_at:
+            _LOGGER.error("Goal progress must follow registration")
+            raise ValueError("goal progress must follow registration")
         return self
 
 
 class DayPlan(BaseModel):
-    """@brief 当日日程骨架：上限 8 段、覆盖到就寝、不越过当日结束（docs/dev/SPEC-life-realism.md「日程骨架」）。
+    """@brief 有序当日目标清单；空清单也是一次有效登记。"""
 
-    bedtime 为当日就寝时刻，day_end 为当日结束时刻；段间允许留空（未计划的自由
-    时间），但不得重叠、不得乱序，最末段必须覆盖到 bedtime。5 段下限只约束首次
-    plan_day（由 initial_day_plan 构造期校验承载）：docs/dev/SPEC-life-realism.md「日程骨架」允许尾段修订
-    后剩余段数少于 5，模型层不设下限，保证合法修订态可通过加载口径重校验。
-    """
-
-    bedtime: int
-    day_end: int
-    segments: tuple[PlanSegment, ...]
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    day_end: int = Field(gt=0)
+    goals: tuple[PlanGoal, ...] = Field(max_length=MAX_PLAN_GOALS)
 
     @model_validator(mode="after")
     def _check_plan(self) -> "DayPlan":
-        """@brief 校验段数上限与骨架约束。"""
-        if len(self.segments) > MAX_PLAN_SEGMENTS:
-            raise ValueError(
-                f"plan must contain at most {MAX_PLAN_SEGMENTS} "
-                f"segments, got {len(self.segments)}"
-            )
-        _validate_skeleton(self.segments, self.bedtime, self.day_end)
+        """@brief 核验意图唯一、活动证据唯一及当日登记和推进边界。"""
+        kinds = [goal.intent_kind for goal in self.goals]
+        evidence = [goal.progress_activity_id for goal in self.goals if goal.progress_activity_id is not None]
+        if len(kinds) != len(set(kinds)) or len(evidence) != len(set(evidence)):
+            _LOGGER.error("Day plan contains duplicate intent or activity evidence")
+            raise ValueError("day plan intent and activity evidence must be unique")
+        if any(goal.registered_at >= self.day_end or
+               (goal.progressed_at is not None and goal.progressed_at > self.day_end) for goal in self.goals):
+            _LOGGER.error("Day plan goal evidence exceeds its local day")
+            raise ValueError("goal evidence exceeds day_end")
         return self
 
 
-def _validate_skeleton(
-    segments: Sequence[PlanSegment], bedtime: int, day_end: int
-) -> None:
-    """@brief 校验骨架结构：段不越过当日结束、不重叠不乱序、覆盖到就寝。
-
-    @param segments 按起点升序排列的段序列
-    @param bedtime 当日就寝时刻
-    @param day_end 当日结束时刻
-    @raises ValueError 任一约束不满足时抛出英文错误
-    """
-    for index, segment in enumerate(segments):
-        if segment.end > day_end:
-            raise ValueError(f"segment {index} ends after day_end")
-    for previous, current in zip(segments, segments[1:]):
-        if current.start < previous.end:
-            raise ValueError("segments overlap or are out of order")
-    if segments and segments[-1].end < bedtime:
-        raise ValueError("plan does not cover until bedtime")
-
-
-def initial_day_plan(
-    segments: Sequence[PlanSegment], day_end: int, bedtime: int
-) -> DayPlan:
-    """@brief 构造首次 plan_day 的当日骨架：执行 5 段下限后交模型校验（docs/dev/SPEC-life-realism.md「日程骨架」）。
-
-    段数下限只在此处约束：一天尾段只剩少量待改段时，下限会让修订无法成立，
-    故 revise_day_plan 的合并结果不受 5 段下限限制（docs/dev/SPEC-life-realism.md「日程骨架」），
-    下限由本构造函数在首次提交时唯一承载。bedtime 为就寝锚点（人物声明或
-    persona-mapping 缺省，见 bedtime_anchor），由调用方显式传入——骨架的
-    "覆盖到就寝"约束因此是真实约束，而非最末段末端自证。
-
-    @param segments 按起点升序排列的完整段序列（至少 5 段）
-    @param day_end 当日结束时刻（UTC epoch 秒）
-    @param bedtime 当日就寝锚点时刻（UTC epoch 秒，≤ day_end）
-    @return 已通过骨架校验的新 DayPlan（bedtime 为传入锚点）
-    @raises ValueError 段数不足下限或骨架约束不满足时抛出英文错误
-    """
-    if len(segments) < MIN_PLAN_SEGMENTS:
-        raise ValueError(
-            f"initial plan must contain at least {MIN_PLAN_SEGMENTS} "
-            f"segments, got {len(segments)}"
-        )
-    return DayPlan(bedtime=bedtime, day_end=day_end, segments=segments)
+def initial_day_plan(goals: Sequence[PlanGoal], day_end: int) -> DayPlan:
+    """@brief 登记初次有序目标清单，所有容量和证据约束由领域模型校验。"""
+    return DayPlan(day_end=day_end, goals=tuple(goals))
 
 
 def _task_due_soon(now: int, due_at: int | None) -> bool:
@@ -399,7 +243,13 @@ def _reconsideration_due(snapshot: WakeSnapshot) -> bool:
     if snapshot.last_decision_time is None:
         return False
     elapsed = snapshot.now - snapshot.last_decision_time
-    return elapsed >= snapshot.reconsideration_interval_seconds
+    return elapsed >= reconsideration_interval(snapshot)
+
+
+def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
+    """@brief 判定与调度共用同一在手承诺口径选择重估间隔。"""
+    return (query.reconsideration_interval_seconds if query.has_commitments
+            else query.idle_reconsideration_interval_seconds)
 
 
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
@@ -428,11 +278,12 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.TASK_DUE_SOON)
     if snap.work_review_returned:
         reasons.append(WakeReason.WORK_REVIEW_RESULT)
-    if snap.now in snap.plan_block_starts:
-        reasons.append(WakeReason.PLAN_BLOCK_BOUNDARY)
+    closing_threat = snap.has_commitments and _closing_soon(snap.now, snap.location_closing_at)
+    if _task_due_soon(snap.now, snap.next_task_due_at) or closing_threat or snap.activity_infeasible:
+        reasons.append(WakeReason.COMMITMENT_THREATENED)
     if _reconsideration_due(snap):
         reasons.append(WakeReason.RECONSIDERATION_INTERVAL)
-    if _closing_soon(snap.now, snap.location_closing_at) or snap.location_just_opened:
+    if closing_threat or snap.location_just_opened:
         reasons.append(WakeReason.LOCATION_HOURS_CHANGE)
     if snap.people_present_now - snap.people_present_before:
         reasons.append(WakeReason.PERSON_ARRIVED)
@@ -456,7 +307,7 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
 def next_decision_time(query: NextDecisionQuery) -> int | None:
     """@brief 计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
-    候选=计划结束、体感分级预计跨越、已排定通知与配送、计划段起点、重估间隔
+    候选=计划结束、体感分级预计跨越、已排定通知与配送、承诺威胁边界、重估间隔
     到期、地点营业变化；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
     睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），is_asleep 时剔除该项；无任何候选返回
     None。游戏模式保持逐回合反馈，不经过本函数。
@@ -469,84 +320,64 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
         candidates.append(query.planned_end)
     candidates.extend(query.felt_band_crossing_times)
     candidates.extend(query.scheduled_arrival_times)
-    candidates.extend(query.plan_block_starts)
     if not query.is_asleep and query.last_decision_time is not None:
         candidates.append(
-            query.last_decision_time + query.reconsideration_interval_seconds
+            query.last_decision_time + reconsideration_interval(query)
         )
     candidates.extend(query.location_hours_change_times)
+    if not query.is_asleep and query.next_task_due_at is not None:
+        candidates.append(query.next_task_due_at - TASK_DUE_SOON_SECONDS)
+    if not query.is_asleep and query.has_commitments and query.location_closing_at is not None:
+        candidates.append(query.location_closing_at - CLOSING_WARNING_SECONDS)
     future = [moment for moment in candidates if moment > query.now]
     return min(future) if future else None
 
 
-def current_segment(plan: DayPlan, now: int) -> PlanSegment | None:
-    """@brief 查询 now 时刻所在的当前计划段。
-
-    @param plan 当日日程骨架
-    @param now 查询时刻（UTC epoch 秒）
-    @return 满足 start <= now < end 的段；处于段间空隙时为 None
-    """
-    for segment in plan.segments:
-        if segment.start <= now < segment.end:
-            return segment
-    return None
-
-
-def next_segment_start(plan: DayPlan, now: int) -> int | None:
-    """@brief 查询下一计划段起点。
-
-    @param plan 当日日程骨架
-    @param now 查询时刻（UTC epoch 秒）
-    @return 严格晚于 now 的最早段起点；已无后续段时为 None
-    """
-    future = [segment.start for segment in plan.segments if segment.start > now]
-    return min(future) if future else None
+def revise_day_plan(plan: DayPlan, now: int, new_goals: Sequence[PlanGoal]) -> DayPlan:
+    """@brief 保留已推进目标，整体替换未推进目标，未改写条目保留登记时刻。"""
+    kept = tuple(goal for goal in plan.goals if goal.progressed_at is not None)
+    progressed_kinds = {goal.intent_kind for goal in kept}
+    if any(goal.intent_kind in progressed_kinds for goal in new_goals):
+        _LOGGER.error("A progressed day goal cannot be resubmitted")
+        raise ValueError("goal already progressed")
+    pending = {(goal.intent_kind, goal.goal): goal for goal in plan.goals if goal.progressed_at is None}
+    changed = tuple(pending.get((goal.intent_kind, goal.goal), goal) for goal in new_goals)
+    return DayPlan(day_end=plan.day_end, goals=kept + changed)
 
 
-def is_plan_block_boundary(plan: DayPlan, now: int) -> bool:
-    """@brief 判断 now 是否恰为某计划段起点（构成 plan_block_boundary 唤醒）。
-
-    @param plan 当日日程骨架
-    @param now 查询时刻（UTC epoch 秒）
-    @return 恰在某段起点上为 True
-    """
-    return any(segment.start == now for segment in plan.segments)
-
-
-def revise_day_plan(
-    plan: DayPlan, now: int, new_segments: Sequence[PlanSegment]
-) -> DayPlan:
-    """@brief 增量修订日程：只允许改写尚未开始的段（docs/dev/SPEC-life-realism.md「日程骨架」）。
-
-    已开始的段（start <= now，含恰在 now 起段的边界时刻）原样保留为前缀，
-    尾部由 new_segments 整体替换；替换后仍须满足骨架约束（不重叠、不越过
-    当日结束、覆盖到就寝）且总数不超过上限。修订结果不强制 5 段下限——
-    一天尾段只剩少量待改段时下限会让修订无法成立，下限只约束首次 plan_day。
-
-    @param plan 被修订的当日日程骨架
-    @param now 修订时刻（UTC epoch 秒）
-    @param new_segments 替换全部未开始段的新段序列（按起点升序）
-    @return 修订后的新 DayPlan（原对象不变；正常构造，保证加载口径可重校验）
-    @raises ValueError 试图改写已开始的段或替换后违反骨架约束时抛出
-    """
-    kept = tuple(segment for segment in plan.segments if segment.start <= now)
-    for segment in new_segments:
-        if segment.start <= now:
-            raise ValueError("cannot rewrite a segment that already started")
-    merged = kept + tuple(new_segments)
-    if len(merged) > MAX_PLAN_SEGMENTS:
-        raise ValueError(f"revised plan exceeds {MAX_PLAN_SEGMENTS} segments")
-    return DayPlan(bedtime=plan.bedtime, day_end=plan.day_end, segments=merged)
+def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> DayPlan:
+    """@brief 正时长结算最多推进一个匹配目标，活动证据在当日只消费一次。"""
+    activity_id = activity["activity_id"]
+    if activity["status"] in {"cancelled", "failed"} or end <= start:
+        return plan
+    if any(goal.progress_activity_id == activity_id for goal in plan.goals):
+        return plan
+    family = activity["kind"]
+    if family == "lifestyle":
+        category = activity.get("category")
+        if category is None:
+            return plan
+        family = f"lifestyle:{category}"
+    stop = min(end, plan.day_end)
+    for index, goal in enumerate(plan.goals):
+        if goal.progressed_at is not None or stop <= max(start, goal.registered_at):
+            continue
+        if family not in INTENT_ACTIVITY_FAMILIES[goal.intent_kind]:
+            continue
+        progressed = goal.model_copy(update={"progressed_at": stop, "progress_activity_id": activity_id})
+        goals = plan.goals[:index] + (progressed,) + plan.goals[index + 1:]
+        return DayPlan(day_end=plan.day_end, goals=goals)
+    return plan
 
 
 def day_plan_expired(plan: DayPlan, now: int) -> bool:
-    """@brief 判定骨架是否跨日残留：now 越过计划自带的 day_end 即属前一天（docs/dev/SPEC-life-realism.md「日程骨架」）。
+    """@brief 判定目标清单是否跨日残留：now 越过计划自带的 day_end 即属前一天。
 
     引擎在跨日边界据此把 day_plan 归零，使"每天第一次醒来的决策必须先提交
     plan_day"在第二天重新成立；判定不做时区换算，day_end 即提交日的次日
     本地零点（修订沿用原计划的 day_end，判定对修订结果稳定）。
 
-    @param plan 当日日程骨架
+    @param plan 当日目标
     @param now 查询时刻（UTC epoch 秒）
     @return now >= plan.day_end 时为 True
     """
@@ -554,7 +385,7 @@ def day_plan_expired(plan: DayPlan, now: int) -> bool:
 
 
 def expired_plan_agent_ids(state: Any) -> tuple[int, ...]:
-    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/dev/SPEC-life-realism.md「日程骨架」）。
+    """@brief 枚举 day_plan 已跨日残留的人物编号（引擎跨日边界归零用，docs/dev/SPEC-life-realism.md「当日目标」）。
 
     @param state 世界状态（只读 agents 与 current_time 两字段；鸭子类型避免
                  与人物状态模型的环依赖）

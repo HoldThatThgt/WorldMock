@@ -1,7 +1,7 @@
 """模型可控输入触发引擎严格路径的四条杀 run 死点回归（unit-16 E1-E4）。
 
 对照 tests/life 的真实引擎入口：E1（chat 对象不可交谈）、E3（send_message
-超长/未知收件人）、E2（plan_day 超长 note）修复后都必须是 action_rejected
+超长/未知收件人）、E2（plan_day 超长 goal）修复后都必须是 action_rejected
 业务拒绝（引擎可见、可重试、run 存活），而不是裸异常穿透 commit_decision_round。
 """
 
@@ -18,13 +18,13 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import context
 from worldmock.life.models import (
     PlanDayRequest,
-    PlanSegmentInput,
+    PlanGoalInput,
     SendMessageRequest,
     StartBasicActivityRequest,
     StartSocialActivityRequest,
     deepseek_strict_schema,
 )
-from worldmock.life.schedule import PlanSegment
+from worldmock.life.schedule import PlanGoal
 
 
 def _round(engine, round_id: str, requests: dict[int, tuple[str, object]]):
@@ -133,20 +133,19 @@ def test_send_message_unknown_recipient_is_business_rejection(engine_factory) ->
 
 
 # ---------------------------------------------------------------------------
-# E2：plan_day 超长 note → PLAN_SEGMENTS_INVALID 拒绝且不持久化（不再永久杀 run）
+# E2：plan_day 超长 goal → ACTION_REQUEST_INVALID 拒绝且不持久化（不再永久杀 run）
 # ---------------------------------------------------------------------------
 
 
-def test_plan_note_capped_at_300_on_request_and_persistence_models() -> None:
-    """agent 侧请求模型与引擎持久层同限：300 受理、301 拒绝。"""
-    boundary = "备" * 300
-    assert PlanSegmentInput(start=100, end=200, intent_kind="工作",
-                            note=boundary).note == boundary
-    assert PlanSegment(start=100, end=200, intent_kind="工作", note=boundary).note == boundary
+def test_plan_goal_capped_at_300_on_request_and_persistence_models() -> None:
+    """人物请求模型与持久层同限：三百字符受理，再多一字拒绝。"""
+    boundary = "目" * 300
+    assert PlanGoalInput(intent_kind="工作", goal=boundary).goal == boundary
+    assert PlanGoal(intent_kind="工作", goal=boundary, registered_at=100).goal == boundary
     with pytest.raises(ValidationError, match="exceeds 300 characters"):
-        PlanSegmentInput(start=100, end=200, intent_kind="工作", note=boundary + "余")
-    with pytest.raises(ValidationError, match="exceeds 300 characters"):
-        PlanSegment(start=100, end=200, intent_kind="工作", note=boundary + "余")
+        PlanGoalInput(intent_kind="工作", goal=boundary + "余")
+    with pytest.raises(ValidationError, match="at most 300 characters"):
+        PlanGoal(intent_kind="工作", goal=boundary + "余", registered_at=100)
 
 
 def test_plan_day_schema_still_passes_deepseek_strict_gate() -> None:
@@ -155,28 +154,16 @@ def test_plan_day_schema_still_passes_deepseek_strict_gate() -> None:
     assert schema["type"] == "object"
 
 
-def _plan_segments(engine, note: str) -> tuple[PlanSegmentInput, ...]:
-    """从当前时刻到就寝构造 8 段合法骨架（note 可注入超长值）。"""
-    from worldmock.life.schedule import bedtime_anchor, day_end_seconds
+def _plan_goals(goal: str) -> tuple[PlanGoalInput, ...]:
+    """构造八个不同意图的目标，以原生请求承载异常长度测试。"""
+    from worldmock.life.schedule import INTENT_KINDS
 
-    agent_config = next(item for item in engine.scenario.agents if item.agent_id == 1)
-    now = engine.state.current_time
-    day_end = day_end_seconds(now, engine.scenario.timezone)
-    declared = getattr(agent_config, "bedtime_window", None)
-    bedtime = bedtime_anchor(now, engine.scenario.timezone,
-                             declared[1] if declared else None)
-    step = (bedtime - now) // 8
-    segments = [PlanSegmentInput.model_construct(start=now + index * step,
-                                                 end=now + (index + 1) * step,
-                                                 intent_kind="休息", note=note)
-                for index in range(7)]
-    segments.append(PlanSegmentInput.model_construct(start=now + 7 * step, end=bedtime,
-                                                     intent_kind="睡眠", note="收尾"))
-    return tuple(segments)
+    return tuple(PlanGoalInput.model_construct(intent_kind=kind, goal=goal)
+                 for kind in INTENT_KINDS[:8])
 
 
-def test_plan_day_oversized_note_rejected_and_never_poisons_future_rounds(engine_factory) -> None:
-    """超长 note 提交（绕过构造期校验模拟异常载荷）被引擎再验证拒绝，不落 day_plan，后续轮次照常。"""
+def test_plan_day_oversized_goal_rejected_and_never_poisons_future_rounds(engine_factory) -> None:
+    """超长 goal 提交（绕过构造期校验模拟异常载荷）被引擎再验证拒绝，不落 day_plan，后续轮次照常。"""
     from worldmock.life.narration import compose_user_message, render_facts
     from worldmock.life.projection import _plan_fact
 
@@ -184,7 +171,7 @@ def test_plan_day_oversized_note_rejected_and_never_poisons_future_rounds(engine
     _advance_until(engine, {1})
     # model_construct 绕过请求模型构造期校验（对齐 MeetingMinutes 直调先例），
     # 模拟"已通过 agent 门但载荷异常"的最坏路径：引擎 _dispatch 再验证必须兜住。
-    oversized = PlanDayRequest.model_construct(segments=_plan_segments(engine, "备注" * 301))
+    oversized = PlanDayRequest.model_construct(goals=_plan_goals( "备注" * 301))
     results = _round(engine, "plan-oversized", {1: ("plan_day", oversized)})
     rejected = _result_for(results, 1)
     assert rejected.status.value == "rejected"
@@ -193,16 +180,14 @@ def test_plan_day_oversized_note_rejected_and_never_poisons_future_rounds(engine
     assert _rejected_event_seen(engine, "ACTION_REQUEST_INVALID")
 
     _advance_until(engine, {1})
-    healthy = PlanDayRequest(segments=_plan_segments(engine, "备注" * 150))
+    healthy = PlanDayRequest(goals=_plan_goals( "备注" * 150))
     follow_up = _round(engine, "plan-healthy", {1: ("plan_day", healthy)})
     assert _result_for(follow_up, 1).status.value == "completed"
     assert engine.state.agents[1].day_plan is not None
 
     # 持久化后的计划经 facts 渲染在提示预算内（原杀点：42658 字符 > 40000）。
     agent = engine.state.agents[1]
-    local = datetime.fromtimestamp(engine.state.current_time,
-                                   ZoneInfo(engine.scenario.timezone))
-    rendered = render_facts({"day_plan": _plan_fact(agent, engine.state.current_time, local),
+    rendered = render_facts({"day_plan": _plan_fact(agent, engine.state.current_time),
                              "placeholder": "x"})
     assert len(rendered) < 40000
     compose_user_message("卡片", "场景", rendered)

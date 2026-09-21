@@ -138,7 +138,7 @@ flowchart TB
 | `supply_browsed_at` | 供给到时刻映射 | 是 | 各供给实际呈现时刻 |
 | `supply_browsed_location` | 供给到地点映射 | 是 | 各供给实际呈现地点 |
 | `inbox` | dict[str, Message] | 是 | 收件箱 |
-| `day_plan` | DayPlan \| None | 否 | 当日计划 |
+| `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`；空清单仍为已提交，条目含环境推进证据，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
 超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，

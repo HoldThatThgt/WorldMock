@@ -905,13 +905,10 @@ def test_render_scene_with_empty_observation_is_blank() -> None:
     assert render_scene({}) == ""
 
 
-def test_render_scene_covers_day_plan_shapes_and_recent_string_result() -> None:
-    """day_plan 三形态与字符串动作结果按合同渲染。"""
-    assert "今天的计划：先工作" in render_scene({"day_plan": "先工作"})
-    assert "今天的计划是上午工作" in render_scene(
-        {"day_plan": {"summary": "上午工作"}})
-    assert "今天当前处于「上午」" in render_scene(
-        {"day_plan": {"current_segment": "上午"}})
+def test_render_scene_covers_day_goals_and_recent_string_result() -> None:
+    """目标清单与字符串动作结果按合同渲染。"""
+    rendered = render_scene({"day_plan": {"goals": [{"intent_kind": "工作", "progressed": False}]}})
+    assert "工作（未推进）" in rendered
     scene = render_scene({"recent_action_results": "你刚吃完饭"})
     assert scene.endswith("你刚吃完饭。")
 

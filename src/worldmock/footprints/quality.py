@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from worldmock.errors import IntegrityError
+from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
     DECISION_STATEMENT_FIELD,
@@ -66,6 +67,10 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
         "memory_references": _memory_quality(events),
         "model_usage": _model_quality(events),
         "acceleration": _acceleration(events, manifest),
+        "day_plan_metrics": day_plan_metrics(
+            [{**event.model_dump(mode="json"), "code_sha256": manifest.get("code_sha256")} for event in events],
+            manifest["window"]["timezone"],
+        ),
     }
 
 

@@ -206,10 +206,8 @@ class AgentConfig(FrozenModel):
     # 驱动饥饿体感餐时项（docs/dev/SPEC-life-runtime.md「其他体感分级」）；None=未声明（无餐时项）。
     lunch_window: tuple[float, float] | None = None
     dinner_window: tuple[float, float] | None = None
-    # 就寝窗口（docs/dev/SPEC-life-realism.md「日程骨架」计划锚点来自人物卡片）：末端为当日计划骨架的
-    # 就寝锚点（engine 侧 bedtime_anchor 取声明末端）；末端允许跨午夜
-    # （>24，如 25.0=次日 01:00，与画像层 TimeWindow 同口径），引擎侧
-    # 锚点钳制不超过当日结束；None=未声明走 persona-mapping 缺省锚点。
+    # 人物声明的就寝窗口，仅用于人物作息表达；末端可跨午夜。
+    # 例如 25.0 表示次日 01:00，与画像层 TimeWindow 口径一致。
     bedtime_window: tuple[float, float] | None = None
     # 场景联系人（docs/dev/SPEC-life-runtime.md「社交最小可行版」与
     # docs/dev/SPEC-life-realism.md「世界素材品类要求」）：按人物声明，
@@ -518,6 +516,7 @@ class LifeScenario(FrozenModel):
     # 决策节律（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：距上一次实际决策满该秒数触发重估唤醒。
     reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
                                                   gt=0, le=86_400)
+    idle_reconsideration_interval_seconds: int = Field(default=10800, gt=0, le=86_400)
     max_consecutive_rejections: int = Field(gt=0)
     # 候选与呈现常量（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
     # 刻意落在场景层而非 catalog/manifest.json：目录常量的一次增量会触发目录版本 major 变更。
@@ -553,6 +552,9 @@ class LifeScenario(FrozenModel):
     @model_validator(mode="after")
     def validate_document(self) -> "LifeScenario":
         """@brief 核对时区、身份唯一性、账户声明和全部跨引用。"""
+        if self.idle_reconsideration_interval_seconds < self.reconsideration_interval_seconds:
+            logging.getLogger(__name__).error("Idle reconsideration interval must not be shorter than regular interval")
+            raise ValueError("idle reconsideration interval must not be shorter than regular interval")
         _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
                                    self.rotation_stale_seconds)
         _aware(self.start_at, "start_at")

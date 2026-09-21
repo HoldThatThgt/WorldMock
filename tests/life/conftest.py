@@ -66,21 +66,15 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
 
 
 def stage_day_plan(engine: LifeEngine, agent_id: int = 1) -> None:
-    """给人物预置当日计划：解除日首 plan_day 工具面强制（非计划语义测试用）。
-
-    D6 缺口 6 后，日首唤醒（run_start/wake_from_sleep）且当日无计划时动作面
-    只留 plan_day；考察其他工具面的测试先预置一份当日计划（单段覆盖到
-    当日结束，无未来段起点——不引入额外唤醒）。经存储落盘保持版本连续。
-    """
+    """给非目标测试登记空清单，解除日首提交要求并保持存储版本连续。"""
     from worldmock.footprints.models import EventDraft
-    from worldmock.life.schedule import DayPlan, PlanSegment, day_end_seconds
+    from worldmock.life.schedule import DayPlan, day_end_seconds
 
     now = engine.state.current_time
     day_end = day_end_seconds(now, engine.scenario.timezone)
     staged = engine.state.model_copy(deep=True)
     staged.agents[agent_id] = staged.agents[agent_id].model_copy(
-        update={"day_plan": DayPlan(bedtime=day_end, day_end=day_end, segments=(
-            PlanSegment(start=now, end=day_end, intent_kind="休息"),))}, deep=True)
+        update={"day_plan": DayPlan(day_end=day_end, goals=())}, deep=True)
     staged.version += 1
     engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,

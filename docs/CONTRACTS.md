@@ -63,8 +63,8 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `submit_work` | `task_id`, `deliverable` | `status: "submitted"` |
 | `game_action` | `game_session_id`, `command` | `status: "submitted"` |
 | `browse_activities` | `category` (活动品类摘要的键，取值闭集由当前观察绑定), `cursor` (必填可空，首屏显式为 `null`) | `status: "submitted"`, `action_id` (纯查询，不启动活动、不消耗内容；品类条目清单经 `action_result` 按下方「候选与呈现合同」的「下推返回体」返回) |
-| `plan_day` | `segments: List[{start, end, intent_kind, note}]` (5–8 段) | `status: "submitted"` |
-| `revise_day_plan` | `segments: List[{start, end, intent_kind, note}]` (1–8 段，只含尚未开始的段) | `status: "submitted"` |
+| `plan_day` | `goals: List[{intent_kind, goal}]`（零至八条） | `status: "submitted"` |
+| `revise_day_plan` | `goals: List[{intent_kind, goal}]`（替换全部未推进目标） | `status: "submitted"` |
 | `send_message` | `recipient_id`, `text` | `status: "submitted"` |
 | `start_social_activity` | `kind` (`chat`/`call`), `partner_id`, `duration_minutes`（1–120 分钟） | `status: "submitted"` |
 
@@ -112,47 +112,36 @@ InteractionMenu = {
 
 模型工具名是 LifeAgent 的原生请求合同。删除旧的 `start_activity`、`change_activity` 工具名，不维护别名；领域执行函数可以共享已有活动实现。食物和耐用品使用始终走 `consume`，不能用缺少物品信息的通用活动请求模拟消费。余额调整、天气设定、地点瞬移、验收强制通过和全世界读取不向人物暴露，也不提供通用代码执行接口。`readonly=True` 表示调用不改变生活状态，观察调用本身仍需要留下证据。
 
-### 日程骨架请求
+### 当日目标请求
 
-`plan_day` 与 `revise_day_plan` 提交同一形状的段序列。请求模型层只要求 `intent_kind` 是非空白文本；意图闭集与骨架约束由当日骨架的构造与校验承担。
-
-单位披露合同：`start`/`end` 是绝对 Unix epoch 秒（UTC）。工具描述与 `PlanSegmentInput.start`/`end` 字段描述必须写明该单位（"absolute Unix epoch seconds (UTC), never minutes-of-day"）；scene 与 facts 在 `current_time`（ISO 本地时间）旁并排披露 `current_epoch`（当前时刻）、`day_start_epoch`（当日本地 00:00）、`day_end_epoch`（当日结束，即次日 00:00）与 `bedtime_epoch`（当日就寝锚点，人物特有），模型据此直接换算、不必猜单位。提示只给 ISO 本地时间时模型曾以"当日分钟数"提交（1/20/470/1350），烧掉约四成模型调用直至预算耗尽（runs/deepseek-day-openrouter 实证）。
-
-边界披露合同：`day_end_epoch` 与当日骨架校验的拒绝边界同源——同一 `day_end_seconds(now, timezone)`（场景时区次日零点），段 `end` 超过它即 `PLAN_SEGMENTS_INVALID`（"segment ends after day_end"）。披露值即校验值，模型不再需要猜"当日还剩多久"；就寝窗口跨午夜（末端 >24h）的人物，其就寝锚点被钳制不超过 `day_end_epoch`（见 `bedtime_anchor`）。只披露两个起点锚点而不披露终点上界时，模型规划末段"看到睡觉"只能猜边界值，猜过线即拒且拒绝消息不含边界值，run10 一日模拟 agent 2 因此连续 10 次被拒触发 fail-closed 死亡（decision `a85e7c73…:agent:2`，segment 7 ends after day_end）。`bedtime_epoch` 与当日骨架校验的就寝覆盖边界同源——同一 `bedtime_anchor(now, timezone, declared_end_hour)`（`AgentConfig.bedtime_window` 末端小时，未声明走 persona-mapping 缺省，跨午夜钳制 ≤ `day_end_epoch`；`engine._plan_day` 对同一人物取同一末端），最末段 `end` 低于它即 `PLAN_SEGMENTS_INVALID`（"plan does not cover until bedtime"），`revise_day_plan` 修订结果经同一校验。披露值即校验值，就寝不跨午夜的人物（锚点严格早于 `day_end_epoch`）规划"最后一段到就寝"时不再需要猜就寝时刻。
+`plan_day` 与 `revise_day_plan` 使用严格请求 `{goals: [...]}`。条目为
+`PlanGoalInput`，只允许下表两个字段，禁止旧时段载荷和未知字段；工具 Schema 内联条目，
+本地与环境共同校验文本长度、数量和意图闭集，不依赖提供商不支持的 Schema 关键字。
+行为与验收见 [当日目标规格](dev/SPEC-day-plan-goals.md)。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `start` | 整数，UTC 纪元秒，大于零 | 段起点 |
-| `end` | 整数，UTC 纪元秒，大于零 | 段终点，必须晚于 `start`，不得超过披露的 `day_end_epoch`（越过即 `PLAN_SEGMENTS_INVALID`），且最末段的 `end` 须到达披露的 `bedtime_epoch`（低于即 `PLAN_SEGMENTS_INVALID`） |
-| `intent_kind` | 文本 | 段意图，取下方闭集十一项之一 |
-| `note` | 文本 | 一句话说明，允许空串，上限 300 字符（与消息文本同限；请求模型与当日骨架持久层同限执行，超出即拒绝） |
+| `intent_kind` | 下表十一种意图的闭集 | 同一清单最多出现一次 |
+| `goal` | 非空白文本，最多三百字符 | 人物想推进什么；实际家族活动不证明这句话已完成 |
 
-| 约束 | `plan_day` | `revise_day_plan` |
-| --- | --- | --- |
-| 段数 | 5–8 段；下限由首次提交的骨架构造承载，上限由当日骨架承载 | 不设段数下限，下限只约束首次提交，修订后剩余段数允许少于 5；替换全部未开始段后的总段数不超过 8 |
-| 段起点 | 不得早于当前时刻 | 不得早于当前时刻；已开始的段（`start` 不晚于当前时刻）原样保留为前缀，改写已开始的段即拒绝 |
-| 骨架 | 段按起点升序、不重叠，末段覆盖到当日就寝，任何段不越过当日结束 | 同左 |
-| 提交条件 | 当日已提交过或当日计划仍有效时拒绝重复提交 | 当日计划不存在时拒绝 |
+清单零至八条，数组顺序就是优先级。首次清单可以为空；当日只允许一次成功提交。
+修订只提交替换后的全部未推进目标；已推进目标按原相对顺序保留前缀，合并后仍满足上限和唯一性。
+完全相同的未推进条目保留登记时刻；改变文字或删除记录为旧承诺丢弃，新条目重新登记。
+
+`DayPlan` 持久形状是 `{day_end, goals}`。环境以场景本地次日零点填 `day_end`；
+每条 `PlanGoal` 附加 `registered_at`、`progressed_at`、`progress_activity_id`。
+推进时刻与活动标识同时为 null 表示未推进，同时有值表示已有真实结算证据。
+这些字段由环境生成，人物请求不能写入。动作完成结果 `data.day_plan` 和正时长结算事件
+`data.day_plan` 保存完整对象，与世界状态在同一事务提交。
 
 ```mermaid
 flowchart LR
-    A[当天第一次醒来的决策] --> B[plan_day 提交 5-8 段]
-    B --> C[以 action_result 登记当日计划]
-    C --> D[段起点只构成 plan_block_boundary 唤醒]
-    D --> E[人物当场决定是否照做]
-    E --> F[revise_day_plan 改写尚未开始的段]
+    A[清醒后提交有序目标] --> B[环境登记目标清单]
+    B --> C[人物选择具体活动]
+    C --> D[环境实际结算并记录目标推进]
+    D --> E[人物修订尚未推进的目标]
+    E --> C
 ```
-
-段意图闭集（`intent_kind`）：
-
-```python
-IntentKind = Literal[
-    "睡眠", "晨间例程", "通勤", "工作", "用餐", "休息",
-    "娱乐", "社交", "家务", "运动", "外出",
-]
-```
-
-段意图到实际活动家族的对应关系是照做判定的判据：段区间内时间加权主导家族属于该意图的家族闭集即判定为照做。未覆盖秒数计入 `idle`，`idle` 不属于任何意图家族。
 
 | `intent_kind` | 活动家族闭集 |
 | --- | --- |
@@ -168,17 +157,36 @@ IntentKind = Literal[
 | 运动 | `lifestyle:sport` |
 | 外出 | `travel`, `lifestyle:outdoor` |
 
-家族令牌取活动类型文本，生活活动为 `lifestyle:<category>`（`category` 取生活活动目录的类别闭集）。
+生活活动家族来自目录 `category`，活动快照原样保存该类别。同一活动在同一人物当日
+最多推进一项目标，按未推进清单顺序匹配，不把重叠家族当成两份进展。
 
-工具面与生命周期：当天第一次醒来（`run_start` 或 `wake_from_sleep`）且当日尚无计划时，动作工具面只保留 `plan_day`；`plan_day` 在当日尚无计划时开放，`revise_day_plan` 只在存在尚未开始的段时开放。计划跨日残留（当前时刻越过计划自带的当日结束时刻）即归零，使次日的首次提交重新成立。计划进入观察的 `day_plan`，就寝时刻之后对观察隐藏。环境不执行计划步，登记成功只表示计划成为人物的自我承诺。
+工具开放与生命周期：清醒日首尚无计划时只开放 `plan_day`；已有空清单也关闭该工具。
+存在当日计划即可开放 `revise_day_plan`，包括空清单后追加目标。计划只在本地日界清除，
+不因就寝隐藏。环境不按清单执行活动，不从目标文字推导时刻。
 
 | 结算拒绝错误码 | 触发条件 |
 | --- | --- |
-| `PLAN_ALREADY_SUBMITTED` | 当日已提交过计划，或当日计划仍有效 |
-| `PLAN_SEGMENTS_INVALID` | 段数、段跨度或骨架约束不满足 |
-| `PLAN_SEGMENT_ALREADY_STARTED` | 试图改写已经开始或早于当前时刻的段 |
-| `PLAN_NOT_FOUND` | 当日计划不存在时发起改写 |
-| `ACTION_REQUEST_INVALID` | 请求载荷未通过引擎边界再验证（任何工具的通用兜底；如绕过构造期校验的超长 `note`） |
+| `PLAN_ALREADY_SUBMITTED` | 当日已有成功提交或有效计划 |
+| `PLAN_GOALS_INVALID` | 请求自身合法，但与保留的已推进目标合并后超过容量或违反领域约束 |
+| `PLAN_GOAL_ALREADY_PROGRESSED` | 试图把已推进意图重新提交为待推进目标 |
+| `PLAN_NOT_FOUND` | 没有当日计划时请求修订 |
+| `ACTION_REQUEST_INVALID` | 请求未通过引擎边界严格校验，包括旧字段、超量或重复意图、非法文本或伪造状态字段 |
+
+观察保留通用 `current_time` 与 `current_epoch`。原计划专用日首、日末、就寝换算锚点移除；
+人物卡片作息与环境营业时刻继续在各自事实中表达。场景目标叙述只显示意图及已推进状态，
+完整目标文字与证据字段在 facts 中提供，不扩大场景叙述预算。
+
+### 当日目标的配置与质量输出
+
+场景沿用 `reconsideration_interval_seconds`（默认 5400 秒），并增加
+`idle_reconsideration_interval_seconds`（默认 10800 秒）；两者为不超过 86400 的正整数，
+空闲间隔不能短于常规间隔。选择与威胁条件见 [目标决策节律](dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
+
+质量输出 `quality.json.day_plan_metrics` 按代码摘要分组，来源是同一认证截止的事件，
+摘要从冻结 manifest 注入。每组包含 `habitual_consistency`、`external_constraints`、
+`deliberate_goals` 和 `gates.external_constraint_block_count`；
+字段、错误码闭集、分母、缺证据规则的唯一统计合同见
+[度量输出合同](dev/SPEC-day-plan-goals.md#度量输出合同)，门禁地位见 [验证文档](VERIFICATION.md)。
 
 ### 请求字段与结算检查
 
@@ -486,8 +494,8 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `current_epoch`, `day_start_epoch`, `day_end_epoch`, `bedtime_epoch`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文自然语言场景段落的渲染输入；`people_here` 是姓名列表，`day_plan` 是 `{summary, current_segment}`，活动行是 `{title, progress}`；`current_epoch`/`day_start_epoch`/`day_end_epoch`/`bedtime_epoch` 是当前时刻、当日本地 00:00、当日结束（次日 00:00）与当日就寝锚点（人物特有）的 Unix epoch 秒（「日程骨架请求」单位与边界披露合同，时间句内并排渲染） |
-| `facts` | `current_time`, `current_epoch`, `day_start_epoch`, `day_end_epoch`, `bedtime_epoch`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具需要的事实清单；`day_plan` 是 `{segments, current_segment}`；`current_epoch`/`day_start_epoch`/`day_end_epoch`/`bedtime_epoch` 语义同 scene 行 |
+| `scene` | `current_time`, `current_epoch`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文场景渲染输入；`day_plan` 为 `{goals:[{intent_kind,progressed}]}`，按清单顺序显示意图与已推进状态，完整目标在 facts 中保留；当前时刻为通用环境事实 |
+| `facts` | `current_time`, `current_epoch`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具事实清单；`day_plan` 为完整当日目标对象或 null；空 goals 仍是已提交 |
 
 | `scene` 行 | 字段 |
 | --- | --- |
@@ -504,7 +512,7 @@ flowchart LR
 | `tasks` | `task_id`, `title`, `due_at`, `remaining_contract_seconds`, `new_material_ranges` |
 | `products` | 实际呈现的购买供给包含 `supply_id`、`product_id`、商品名称、地点与卖方身份、原始 `price_fen`/`price_version`/`quote`、`purchase_pairing_state`、`purchase_coefficient`、购买一份的 `purchase_price_fen`、供给库存、营业/资格/履约和来源；同次结果已有该供给时可使用 `supply_id/based_on_action_id/changes` 表达当前差异；持有物使用商品身份与商品效果 |
 | `routes` | `destination`, `mode`, `minutes`, `fare`, `feasible` |
-| `day_plan` | `segments`（每项为 `{start, end, intent_kind, note}`）与 `current_segment`（处于段间空隙时为 `null`）；就寝时刻之后整项为 `null` |
+| `day_plan` | `{day_end, goals}`；目标含意图、文字、登记时刻和推进证据；仅跨日后为 null，空目标与就寝后的清单保持可见 |
 | `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review`；旅行终态公开 `arrival` 的实际地点、进入状态、缺少资格和来源 |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
@@ -1191,6 +1199,8 @@ RunPhase = Literal[
 必要模型留证、记忆或数据库写入失败仍按[模拟引擎的失败处理](design/04-simulation-engine.md#失败处理)停止运行，不因诊断日志的处理方式而放宽。
 
 ## 版本表
+
+以下仅为历史修订记录；旧时段合同已由当日目标规格替代，不构成现行接口。
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |

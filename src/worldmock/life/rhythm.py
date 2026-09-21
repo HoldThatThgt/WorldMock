@@ -56,14 +56,14 @@ class RhythmInputs:
     reconsideration_interval_seconds: int
     #: 能量投影可穿透下界的恢复活动闭集（sleep/wait/consume）。
     recovery_kinds: frozenset
+    #: 没有在手承诺时的较长重估间隔。
+    idle_reconsideration_interval_seconds: int = rhythm_schedule.IDLE_RECONSIDERATION_INTERVAL_SECONDS
     #: 人物档案餐时窗口（agent_id -> MealWindows；滞回参照与观察同源）。
     meal_windows_by_agent: dict[int, felt.MealWindows] = field(default_factory=dict)
     #: 本 tick 由预排事件触发的唤醒旗标：agent_id -> {wake_reason 名}。
     arrival_flags: dict[int, set[str]] = field(default_factory=dict)
     #: 待注解的 activity_progress 草稿数据（agent_id -> draft.data）。
     progress_data: dict[int, dict[str, Any]] = field(default_factory=dict)
-    #: 生活活动目录闭集（activity_id -> category；照做判定的家族令牌解析）。
-    lifestyle_categories: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +91,7 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
                 decision_offered=True, wake_reasons=verdict.wake_reasons)
         data = inputs.progress_data.get(agent_id)
         if data is not None:
+            data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan is not None else None
             data[DECISION_OFFERED_FIELD] = verdict.decision_offered
             data[WAKE_REASONS_FIELD] = [reason.value for reason in verdict.wake_reasons]
         offered = verdict.decision_offered
@@ -128,19 +129,18 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
             felt_crossings.append(state.current_time + seconds)
     arrivals = [item.due_at for item in state.pending_events
                 if item.due_at > state.current_time and item.agent_id == agent.agent_id]
-    plan_starts = []
-    if agent.day_plan is not None:
-        plan_starts = [segment.start for segment in agent.day_plan.segments
-                       if segment.start > state.current_time]
     return rhythm_schedule.next_decision_time(rhythm_schedule.NextDecisionQuery(
         now=state.current_time,
         planned_end=activity.planned_end_at if active else None,
         felt_band_crossing_times=tuple(felt_crossings),
         scheduled_arrival_times=tuple(arrivals),
-        plan_block_starts=tuple(plan_starts),
         last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
+        idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
+        has_commitments=_has_commitments(agent, inputs),
         location_hours_change_times=tuple(_location_change_times(agent, inputs)),
+        next_task_due_at=_next_task_due(agent, inputs),
+        location_closing_at=_closing_at(agent, inputs),
         is_asleep=active and activity.kind == ActivityKind.SLEEP,
     ))
 
@@ -169,7 +169,7 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     else:
         agent = agent.model_copy(update={"discomfort_started_at": None,
                                          "discomfort_pulse_hours": 0.0}, deep=True)
-    agent = _plan_and_deadline_pulses(agent, inputs)
+    agent = _goal_and_deadline_pulses(agent, inputs)
     return agent.model_copy(update={"mood_updated_at": now}, deep=True)
 
 
@@ -235,59 +235,45 @@ def _shared_meal(agent: AgentState, inputs: RhythmInputs) -> bool:
     return bool(_people_here(inputs.state, agent))
 
 
-def _plan_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 完成计划段（照做才计）+0.05；任务到期未交 −0.4（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentState:
+    """@brief 实际目标首次推进产生情绪脉冲，任务到期未交产生失约脉冲。"""
     now = inputs.state.current_time
     body = agent.body
-    if agent.day_plan is not None:
-        for segment in agent.day_plan.segments:
-            if segment.end != now:
-                continue
-            spans = _segment_activity_spans(inputs, agent, segment)
-            if rhythm_schedule.segment_followed(
-                    segment.intent_kind, spans, segment.end - segment.start):
-                body = apply_mood_pulse(body, "plan_segment_completed")
+    plan = agent.day_plan
+    data = inputs.progress_data.get(agent.agent_id)
+    if plan is not None and data is not None and data["activity"]["agent_id"] == agent.agent_id:
+        changed = rhythm_schedule.progress_day_plan(
+            plan, data["activity"], data["interval_start"], data["interval_end"])
+        if changed != plan:
+            body = apply_mood_pulse(body, "goal_progressed")
+            plan = changed
     window_start = now - inputs.interval_seconds
     for task_id in sorted(agent.visible_task_ids):
         due = inputs.task_due.get(task_id)
         if (due is not None and task_id not in inputs.state.paid_task_ids
                 and window_start < due <= now):
             body = apply_mood_pulse(body, "task_deadline_missed")
-    return agent.model_copy(update={"body": body}, deep=True)
+    return agent.model_copy(update={"body": body, "day_plan": plan}, deep=True)
 
 
-def _segment_activity_spans(
-    inputs: RhythmInputs, agent: AgentState, segment
-) -> list[tuple[str, int]]:
-    """@brief 段区间内该人物实际活动的家族覆盖表（时间加权照做判定输入）。
+def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
+    """@brief 在手承诺包含未推进目标、可见未完成任务及当前或暂停活动。"""
+    plan = agent.day_plan
+    if (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)
+            and any(goal.progressed_at is None for goal in plan.goals)):
+        return True
+    if any(task_id not in inputs.state.paid_task_ids for task_id in agent.visible_task_ids):
+        return True
+    return any(activity.agent_id == agent.agent_id
+               and activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}
+               for activity in inputs.state.activities.values())
 
-    活动区间 = [started_at, ended_at 或当前边界]；暂停活动的有效区间按
-    started_at + elapsed_seconds 收口（elapsed 是权威活动秒数，暂停后不再
-    占用墙钟）。家族令牌：普通活动取 kind 文本，生活活动解析为
-    "lifestyle:{category}"（目录缺失的条目解析为 lifestyle:unknown，不匹配
-    任何意图家族——fail-closed 不发脉冲）。
-    """
-    from worldmock.life.models import ActivityKind, ActivityStatus
 
-    now = inputs.state.current_time
-    excluded = {ActivityStatus.CANCELLED, ActivityStatus.FAILED}
-    spans: list[tuple[str, int]] = []
-    for activity in inputs.state.activities.values():
-        if activity.agent_id != agent.agent_id or activity.status in excluded:
-            continue
-        stop = activity.ended_at
-        if stop is None:
-            elapsed_stop = activity.started_at + activity.elapsed_seconds
-            stop = elapsed_stop if activity.status == ActivityStatus.PAUSED else now
-        overlap = max(0, min(stop, segment.end) - max(activity.started_at, segment.start))
-        if overlap <= 0:
-            continue
-        token = activity.kind.value
-        if activity.kind == ActivityKind.LIFESTYLE:
-            item_id = (activity.target_id or "").removeprefix("lifestyle:")
-            token = f"lifestyle:{inputs.lifestyle_categories.get(item_id, 'unknown')}"
-        spans.append((token, overlap))
-    return spans
+def _next_task_due(agent: AgentState, inputs: RhythmInputs) -> int | None:
+    """@brief 返回仍未完成且当前可见任务的最近未来截止时刻。"""
+    return min((value for task_id, value in inputs.task_due.items()
+                if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
+                and value > inputs.state.current_time), default=None)
 
 
 def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.WakeSnapshot:
@@ -302,13 +288,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
     levels = felt.summarize_felt_levels(
         **felt_values(agent, local_hour(now, inputs.scenario.timezone),
                       inputs.meal_windows_by_agent.get(agent.agent_id)))
-    plan_starts = ()
-    if agent.day_plan is not None:
-        plan_starts = tuple(segment.start for segment in agent.day_plan.segments)
     flags = inputs.arrival_flags.get(agent.agent_id, set())
-    due = min((value for task_id, value in sorted(inputs.task_due.items())
-               if task_id in agent.visible_task_ids
-               and task_id not in state.paid_task_ids and value > now), default=None)
     return rhythm_schedule.WakeSnapshot(
         now=now,
         planned_end=(activity.planned_end_at
@@ -322,11 +302,12 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs) -> rhythm_schedule.W
         delivery_arrived="delivery_arrival" in flags,
         task_newly_visible=bool(set(agent.visible_task_ids) - agent.known_task_ids)
         or "task_available" in flags,
-        next_task_due_at=due,
+        next_task_due_at=_next_task_due(agent, inputs),
         work_review_returned="work_review_result" in flags,
-        plan_block_starts=plan_starts,
         last_decision_time=agent.last_decision_time,
         reconsideration_interval_seconds=inputs.reconsideration_interval_seconds,
+        idle_reconsideration_interval_seconds=inputs.idle_reconsideration_interval_seconds,
+        has_commitments=_has_commitments(agent, inputs),
         location_closing_at=_closing_at(agent, inputs),
         location_just_opened=_just_opened(agent, inputs),
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
@@ -451,12 +432,11 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
                   for task_id, task in engine.rules.tasks.items()},
         interval_seconds=interval or engine.scenario.activity_feedback_seconds,
         reconsideration_interval_seconds=engine.semantics.document.reconsideration_interval_seconds,
+        idle_reconsideration_interval_seconds=engine.semantics.document.idle_reconsideration_interval_seconds,
         recovery_kinds=engine.recovery_kinds,
         meal_windows_by_agent=engine.meal_windows_by_agent(),
         arrival_flags=arrival_flags or {},
-        progress_data=progress_data or {},
-        lifestyle_categories={item.activity_id: item.category
-                              for item in engine.lifestyle_items})
+        progress_data=progress_data or {})
 
 
 def apply_engine_rhythm(engine, staged, target: int, interval: int,

@@ -225,23 +225,11 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
 #: 门店供给重钉：购买引用供给；地点发现含明确分页工具与业务筛选。
 #: 地点资格恢复重钉：生活活动具有反馈控制边界，实际工具描述随注册表合同冻结。
-#: 计划单位重钉：plan_day/revise_day_plan 工具描述与 PlanSegmentInput.start/end
-#: 字段描述写明「绝对 Unix epoch 秒（UTC），不是当日至今分钟数」，工具面字节
-#: 随之变化 → 指纹随之变化（时间单位混乱烧掉 33/83 模型调用的审计，见
-#: /tmp/wm-day-rerun/unit-11-audit-wait-bug.md §6）。
-#: 终点上界重钉：工具描述补 day_end_epoch 硬规则（no segment end may exceed
-#: day_end_epoch），PlanSegmentInput.end 字段描述指向 day_end_epoch；run10 一日
-#: 模拟 agent 2 因末段越界连续 10 次被拒 fail-closed（unit-18，见
-#: /tmp/wm-day-rerun/unit-18-day-end-disclosure.md），工具面字节随之变化。
-#: 就寝锚点重钉：工具描述与 PlanSegmentInput.end 字段描述补 bedtime_epoch
-#: 硬规则（the last segment must end at bedtime_epoch or later）——day_end_epoch
-#: 只救跨午夜钳制型，陈曦型（bedtime 23.5 < day_end）"最后一段规划到就寝"
-#: 仍要猜就寝时刻（unit-19，见 /tmp/wm-day-rerun/unit-19-bedtime-anchor.md），
-#: 工具面字节随之变化。
+#: 当日目标重钉：有序目标替代时段，完整工具请求与描述保持同一合同。
 #: 社交边界重钉：set_activity_state 描述写明交谈/通话不可暂停、取消是唯一
 #: 控制（chat/call 以 ACTIVE 跨决策边界存活，闭集与工具面收窄见 unit-21，
 #: /tmp/wm-day-rerun/unit-21-fix-chat-boundary.md），工具面字节随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "e7e1c94f86b57539dc805f7875f6be526e2e8e5ab7b458e861a64152264a76fc"
+_PINNED_TOOL_SCHEMA_SHA256 = "1d03a89c78e1a21b05b3b184f785e2ebbc0cbc2603c63a070696f458e054dad1"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -254,48 +242,31 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     assert life_tool_schema_sha256() != _PINNED_TOOL_SCHEMA_SHA256
 
 
-def test_plan_tool_schemas_disclose_epoch_seconds_unit() -> None:
-    """@brief 计划段起点单位合同：工具描述与 start/end 字段说明写明绝对 Unix epoch 秒。
-
-    plan_day 与 revise_day_plan 互斥开放（无计划开 plan_day，有未开始段开
-    revise_day_plan），两个状态分别断言。
-    """
+def test_plan_tool_schemas_describe_ordered_goals_and_empty_revision() -> None:
+    """实际模型工具只接收目标，空清单仍关闭提交并开放修订。"""
     def build_functions(observations: list[dict]) -> dict[str, dict]:
         agent = LifeAgent()
-        agent.prepare_react_loop(
-            ReactLoopRequest(0, _context().observed_at, observations)
-        )
+        agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
         return {item["function"]["name"]: item["function"]
                 for item in agent.build_react_tool_schemas(readonly=False)}
 
     planning = build_functions(_observations())
     assert "plan_day" in planning and "revise_day_plan" not in planning
-
-    revising_observations = _observations()
-    revising_observations[0]["data"]["facts"]["day_plan"] = {
-        "segments": [
-            {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
-             "intent_kind": "work", "note": "上午处理任务"},
-        ],
-        "current_segment": None,
-    }
-    revising = build_functions(revising_observations)
+    observations = _observations()
+    observations[0]["data"]["facts"]["day_plan"] = {"day_end": _NOW_EPOCH + 72000, "goals": []}
+    revising = build_functions(observations)
     assert "revise_day_plan" in revising and "plan_day" not in revising
-
     for name, functions in (("plan_day", planning), ("revise_day_plan", revising)):
-        description = functions[name]["description"]
-        assert "absolute Unix epoch seconds (UTC)" in description
-        assert "never minutes-of-day" in description
-        assert "current_epoch" in description and "day_start_epoch" in description
-        assert "day_end_epoch" in description
-        assert "bedtime_epoch" in description
-        assert "no segment end may exceed day_end_epoch" in description
-        assert "the last segment must end at bedtime_epoch or later" in description
-    segment_fields = planning["plan_day"]["parameters"]["properties"]["segments"]["items"]["properties"]
-    for field in ("start", "end"):
-        assert "Unix epoch seconds (UTC)" in segment_fields[field]["description"]
-    assert "day_end_epoch" in segment_fields["end"]["description"]
-    assert "bedtime_epoch" in segment_fields["end"]["description"]
+        tool = functions[name]
+        assert "at most 300 characters" in tool["description"]
+        assert "Do not provide times or durations" in tool["description"]
+        assert set(tool["parameters"]["properties"]) == {"goals"}
+        fields = tool["parameters"]["properties"]["goals"]["items"]["properties"]
+        assert set(fields) == {"intent_kind", "goal"}
+        assert fields["goal"]["pattern"] == r"\S"
+        assert "day_start_epoch" not in json.dumps(tool)
+    assert "empty list" in planning["plan_day"]["description"]
+    assert "Progressed goals stay unchanged" in revising["revise_day_plan"]["description"]
 
 
 def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:

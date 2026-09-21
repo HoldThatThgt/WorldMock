@@ -206,13 +206,13 @@ def test_wake_reason_distribution_counts() -> None:
     """@brief 唤醒原因按出现次数累计；sleep 的事件也参与统计。"""
     events = [
         _progress(1, _clock(0, 9), _clock(0, 10), "watch", activity_id="w1",
-                  data_extra={"wake_reasons": ["plan_block_boundary"]}),
+                  data_extra={"wake_reasons": ["commitment_threatened"]}),
         _progress(2, _clock(0, 10), _clock(0, 11), "sleep", activity_id="s1",
-                  data_extra={"wake_reasons": ["plan_block_boundary", "people_change"]}),
+                  data_extra={"wake_reasons": ["commitment_threatened", "person_arrived"]}),
         _progress(3, _clock(0, 11), _clock(0, 12), "work", activity_id="wk1"),
     ]
     report = _report(events)["reports"]["wake_reason_distribution"]
-    assert report["counts"] == {"people_change": 1, "plan_block_boundary": 2}
+    assert report["counts"] == {"person_arrived": 1, "commitment_threatened": 2}
     assert report["events_with_wake_reasons"] == 2
     assert report["activity_progress_events"] == 3
 
@@ -469,7 +469,7 @@ def test_same_input_produces_byte_identical_report() -> None:
         _model_request(1, "d1", ["观察 A"]),
         _model_response(2, "d1", 1234),
         _progress(3, _clock(0, 9), _clock(0, 10), "watch", activity_id="w1",
-                  data_extra={"decision_offered": False, "wake_reasons": ["plan_block_boundary"]}),
+                  data_extra={"decision_offered": False, "wake_reasons": ["commitment_threatened"]}),
         _progress(4, _clock(0, 23), _clock(1, 7), "sleep", activity_id="s1",
                   snapshot_extra={"started_at": _clock(0, 23), "ended_at": _clock(1, 7)}),
         _action(5, "d2", "consume", {"product_id": "noodle", "use_mode": "eat"}),
@@ -480,85 +480,3 @@ def test_same_input_produces_byte_identical_report() -> None:
     second = behavior_metrics_report(events, location_open_hours={"office": 8},
                                      memory_md_texts={1: "李凡是后端工程师"})
     assert canonical_json(first) == canonical_json(second)
-
-
-def _plan_result(event_seq: int, occurred_at: int, segments: list[dict[str, Any]],
-                 *, agent_id: int = 1) -> dict[str, Any]:
-    """@brief 构造携带 day_plan 段列表的完成 action_result 事件。"""
-    return _event("action_result", occurred_at, agent_id=agent_id,
-                  data={"action_id": f"a{event_seq}", "agent_id": agent_id, "status": "completed",
-                        "occurred_at": occurred_at, "message": "Day plan registered",
-                        "data": {"day_plan": segments}}, event_seq=event_seq)
-
-
-def test_plan_actual_deviation_report_hand_anchor() -> None:
-    """@brief 手算锚点：按日对比计划段与实际活动家族分钟（修订覆盖初版、跨日切分）。
-
-    手算（2026-01-05，人物 1）：初版计划 工作 09:00-12:00(180m)+娱乐 12:00-13:00(60m)；
-    11:00 修订为 工作 09:00-12:00(180m)+娱乐 13:00-14:30(90m)——生效口径取修订。
-    实际：work 09:00-11:00(120m)、watch 11:00-12:00(娱乐 60m)、无家族 lifestyle
-    13:00-13:30(unclassified 30m)、sleep 23:00→次日 07:00（当日切分 60m）。
-    偏离矩阵：work 120-180=-60；entertainment 60-90=-30；sleep 60-0=+60；
-    unclassified 30-0=+30；绝对偏离合计 180m；计划/实际总量均 270m。
-    """
-    segments_initial = [
-        {"start": _clock(0, 9), "end": _clock(0, 12), "intent_kind": "工作", "note": ""},
-        {"start": _clock(0, 12), "end": _clock(0, 13), "intent_kind": "娱乐", "note": ""},
-    ]
-    segments_revised = [
-        {"start": _clock(0, 9), "end": _clock(0, 12), "intent_kind": "工作", "note": ""},
-        {"start": _clock(0, 13), "end": _clock(0, 14, 30), "intent_kind": "娱乐", "note": ""},
-        {"start": _clock(0, 15), "intent_kind": "家务", "note": "缺 end 的畸形段记 0 分钟"},
-    ]
-    rejected = _event("action_result", _clock(0, 8), agent_id=1,
-                      data={"action_id": "a0", "agent_id": 1, "status": "rejected",
-                            "occurred_at": _clock(0, 8), "message": "Action rejected",
-                            "data": {"consecutive_rejections": 1}}, event_seq=0)
-    events = [
-        rejected,
-        _plan_result(1, _clock(0, 8), segments_initial),
-        _plan_result(2, _clock(0, 11), segments_revised),
-        _progress(3, _clock(0, 9), _clock(0, 11), "work", activity_id="w1"),
-        _progress(4, _clock(0, 11), _clock(0, 12), "watch", activity_id="v1"),
-        _progress(5, _clock(0, 13), _clock(0, 13, 30), "lifestyle", activity_id="misc-1"),
-        _progress(6, _clock(0, 14), _clock(0, 13), "wait", activity_id="bad-interval"),
-        _progress(7, _clock(0, 23), _clock(1, 7), "sleep", activity_id="s1"),
-    ]
-    report = _report(events)["reports"]["plan_actual_deviation"]
-    entry = report["per_agent_day"]["1:2026-01-05"]
-    assert entry["plan_segments"] == [
-        {"intent_kind": "工作", "family": "work", "planned_minutes": 180.0,
-         "actual_same_family_minutes": 120.0},
-        {"intent_kind": "娱乐", "family": "entertainment", "planned_minutes": 90.0,
-         "actual_same_family_minutes": 60.0},
-        {"intent_kind": "家务", "family": "chore", "planned_minutes": 0.0,
-         "actual_same_family_minutes": 0.0},
-    ]
-    assert entry["family_deviation"] == {
-        "chore": {"planned_minutes": 0.0, "actual_minutes": 0.0, "deviation_minutes": 0.0},
-        "entertainment": {"planned_minutes": 90.0, "actual_minutes": 60.0,
-                          "deviation_minutes": -30.0},
-        "sleep": {"planned_minutes": 0.0, "actual_minutes": 60.0, "deviation_minutes": 60.0},
-        "unclassified": {"planned_minutes": 0.0, "actual_minutes": 30.0,
-                         "deviation_minutes": 30.0},
-        "work": {"planned_minutes": 180.0, "actual_minutes": 120.0, "deviation_minutes": -60.0},
-    }
-    assert entry["planned_total_minutes"] == 270.0
-    assert entry["actual_total_minutes"] == 270.0
-    assert entry["absolute_deviation_minutes"] == 180.0
-    assert report["summary"] == {"agent_day_count": 1, "planned_total_minutes": 270.0,
-                                 "actual_total_minutes": 270.0,
-                                 "absolute_deviation_minutes": 180.0,
-                                 "mean_absolute_deviation_minutes": 180.0}
-    assert "1:2026-01-06" not in report["per_agent_day"], "无计划的本地日不产生偏离行"
-    assert report["conventions"], "偏离报告必须携带口径说明"
-    again = _report(events)["reports"]["plan_actual_deviation"]
-    assert canonical_json(again) == canonical_json(report)
-
-
-def test_plan_actual_deviation_fails_closed_without_plan_events() -> None:
-    """@brief 无任何完成的 plan_day 登记时偏离报告 fail-closed 并注明。"""
-    report = _report([_progress(1, _clock(0, 9), _clock(0, 10), "work", activity_id="w1")])
-    deviation = report["reports"]["plan_actual_deviation"]
-    assert deviation["per_agent_day"] == {} and deviation["summary"] is None
-    assert any("plan_day" in note for note in report["notes"])

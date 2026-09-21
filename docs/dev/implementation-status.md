@@ -5,6 +5,14 @@
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
 
+## 当日目标开发状态
+
+独立分支 `codex/day-plan-goals` 以当前工作区快照 `170e1f0fcd83a745f9989da5dac95eac72ea8647`
+为开发基线，保留主目录其他会话的未提交工作。用户已批准家族活动证据与 `plan_day` 名称。
+[最终规格](SPEC-day-plan-goals.md)已冻结，领域、人物接口、质量报告并发实施；
+当前状态为实施中，具体门禁与未完成验收见 [验收记录](research/day-plan-goals-verification.md)。
+本节不改变以下项目级真实验收的未完成状态。
+
 ## 地图与门店供给开发状态
 
 地图独立分支的完整范围由 [开发规格](SPEC-map-and-storefront.md) 冻结，已实现并通过该分支离线验收，无特性延期项。

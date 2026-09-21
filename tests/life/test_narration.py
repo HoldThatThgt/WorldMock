@@ -44,8 +44,8 @@ def scene_observation() -> dict:
             {"title": "整理会议纪要", "progress": "已做二十分钟"},
         ],
         "day_plan": {
-            "summary": "上午写代码、下午开评审会、晚上健身",
-            "current_segment": "下午开评审会",
+            "goals": [{"intent_kind": "工作", "progressed": True},
+                      {"intent_kind": "运动", "progressed": False}],
         },
         "inbox_head": ["张三：周报请在今天下班前提交", "人事部：下午茶活动报名"],
         "inbox_has_older_unread": True,
@@ -74,8 +74,8 @@ class TestRenderScene:
         assert "有点饿" in scene and "精力尚可" in scene
         assert "《写周报》" in scene and "已写将近一半" in scene
         assert "之前做到一半的《整理会议纪要》（已做二十分钟）还没收尾。" in scene
-        assert "上午写代码、下午开评审会、晚上健身" in scene
-        assert "「下午开评审会」这一段" in scene
+        assert "今天想推进：工作（已推进）、运动（未推进）" in scene
+        assert "当前计划段" not in scene and "目标已完成" not in scene
         assert "收件箱最新消息" in scene
         assert "张三：周报请在今天下班前提交" in scene
         assert "更早还有未读消息。" in scene
@@ -87,35 +87,18 @@ class TestRenderScene:
         assert scene.endswith("。")
         assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
 
-    def test_time_sentence_discloses_epoch_anchors(self, scene_observation: dict) -> None:
-        """时间句在 ISO 本地时间旁披露当前与当日 00:00 的 Unix epoch（计划单位合同）。"""
+    def test_time_sentence_keeps_only_current_epoch(self, scene_observation: dict) -> None:
+        """当前 epoch 时间合同保留，计划换算锚点不再进入场景。"""
         scene_observation["current_epoch"] = 1767568200
-        scene_observation["day_start_epoch"] = 1767537600
         scene = render_scene(scene_observation)
-        assert "（Unix epoch：当前 1767568200，今日 00:00 起 1767537600）" in scene
+        assert "（Unix epoch：当前 1767568200）" in scene
+        assert "今日 00:00" not in scene and "就寝锚点" not in scene
         assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
 
-    def test_time_sentence_discloses_day_end_upper_bound(self, scene_observation: dict) -> None:
-        """时间句在两锚点旁披露段终点上界 day_end_epoch（边界披露合同）。"""
-        scene_observation["current_epoch"] = 1767568200
-        scene_observation["day_start_epoch"] = 1767537600
-        scene_observation["day_end_epoch"] = 1767624000
-        scene = render_scene(scene_observation)
-        assert ("（Unix epoch：当前 1767568200，今日 00:00 起 1767537600，"
-                "明日 00:00（段终点上界）止 1767624000）") in scene
-        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
-
-    def test_time_sentence_discloses_bedtime_anchor(self, scene_observation: dict) -> None:
-        """时间句在段终点上界旁披露就寝锚点 bedtime_epoch（最末段覆盖边界合同）。"""
-        scene_observation["current_epoch"] = 1767568200
-        scene_observation["day_start_epoch"] = 1767537600
-        scene_observation["day_end_epoch"] = 1767624000
-        scene_observation["bedtime_epoch"] = 1767622200
-        scene = render_scene(scene_observation)
-        assert ("（Unix epoch：当前 1767568200，今日 00:00 起 1767537600，"
-                "明日 00:00（段终点上界）止 1767624000，"
-                "就寝锚点（最末段须覆盖到）1767622200）") in scene
-        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
+    def test_empty_plan_is_an_explicit_no_goals_statement(self) -> None:
+        """空目标清单仍与尚未提交明确区分。"""
+        assert render_scene({"day_plan": {"goals": []}}) == "今天没有刻意目标。"
+        assert render_scene({"day_plan": None}) == ""
 
     def test_time_sentence_without_epoch_anchors_stays_plain(self, scene_observation: dict) -> None:
         """缺 epoch 锚点时时间句退回纯 ISO 本地形状，不虚构数字。"""
@@ -325,7 +308,7 @@ class TestFieldBlacklist:
                 "price": 2800, "calories": 650, "eating_minutes": 20,
             }],
             "inventory": ["手机"],
-            "day_plan": {"summary": "上午写代码", "current_segment": "上午写代码"},
+            "day_plan": {"day_end": 1790000000, "goals": []},
             "felt": {"hunger": "有点饿"},
             "drive_summary": "你有点饿，今天的工作还差两小时。",
             "recent_action_results": [{"status": "accepted", "message": "开始写周报"}],

@@ -103,7 +103,9 @@ flowchart TB
 | `activity_distribution` | 十类活动日时间分布与参照 JS 距离 | 2018 年全国时间利用调查 |
 | `persona_distinguishability` | 留一最近邻人物识别准确率 | ≥3 次运行、≥2 人 |
 | `social` | 交谈/通话分钟、消息数 | 人物社交需求 |
-| `plan_actual_deviation` | 计划-实际偏离（分钟） | 最小化偏离 |
+| `habitual_consistency` | 同人物地点与本地小时的活动家族一致率 | 只报告情境重复性，不识别心理习惯 |
+| `deliberate_goals` | 曾登记目标中的家族实际推进率，保留丢弃条目 | 只报告，外部参照未接入时为 null |
+| `external_constraints` | 去重后的外部约束受阻与动作接受率 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -283,6 +285,10 @@ flowchart LR
   "travel": ["interaction", "object_type", "travel_mode"]
 }
 ```
+
+三层事件口径与缺证据规则统一见 [当日目标规格](../dev/SPEC-day-plan-goals.md#三层度量与质量导出)。
+纯事件统计由行为评估和生产质量导出共同调用，各层按最终规格的分组键隔离：
+目标按人物日归属，习惯跨不同本地日比较，外部约束按运行与动作去重。
 
 ## 4. 盲评流程
 

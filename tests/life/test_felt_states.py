@@ -305,7 +305,7 @@ class TestMood:
             "task_deadline_missed": -0.4,
             "message_received": 0.1,
             "discomfort_hourly": -0.1,
-            "plan_segment_completed": 0.05,
+            "goal_progressed": 0.05,
             "service_refused": -0.05,
         }
 

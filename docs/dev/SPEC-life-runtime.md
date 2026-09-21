@@ -95,7 +95,7 @@ sequenceDiagram
 ```python
 WakeReason = Literal[
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
-    "task_available", "task_due_soon", "work_review_result", "plan_block_boundary",
+    "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
 ]
@@ -111,9 +111,9 @@ WakeReason = Literal[
 | `felt_band_change` | 任一体感分级与上一次实际提供决策时的分级不同 |
 | `message_arrival`、`delivery_arrival` | 新消息或配送到达本人 |
 | `task_available`、`task_due_soon`、`work_review_result` | 新任务可见、任务截止前 30 分钟、工作验收结果返回 |
-| `plan_block_boundary` | 到达人物自己当日计划的某一段起点 |
-| `reconsideration_interval` | 距上一次实际决策已满 `reconsideration_interval_seconds=5400` |
-| `location_hours_change` | 当前地点即将闭店（提前 15 分钟）或已开门 |
+| `commitment_threatened` | 已有承诺进入任务截止或闭店预警，或当前活动不可行；同时保留具体原因，边界按当日目标规格 |
+| `reconsideration_interval` | 距上次实际决策达到当前在手承诺对应的常规或空闲间隔 |
+| `location_hours_change` | 有在手承诺时当前地点即将闭店（提前 15 分钟），或地点已开门；承诺口径见当日目标规格 |
 | `person_arrived`、`person_left` | 同一地点的在场人物集合变化 |
 | `activity_infeasible` | 能量或位置条件已不允许当前活动继续 |
 | `discovery_result` | 发现门店结果已提交，下一秒进入合法决策轮并回灌比较事实 |
@@ -135,11 +135,14 @@ WakeReason = Literal[
 - 计划结束
 - 体感分级预计跨越时刻（复用 `next_body_boundary_seconds` 预测）
 - 已排定的通知与配送
-- 计划段起点
-- 重估间隔到期（`reconsideration_interval_seconds=5400`）
+- 任务截止与闭店的精确预警边界
+- 当前在手承诺对应的重估间隔到期
 - 地点营业变化
 
-`reconsideration_interval_seconds` 是场景参数，默认 5400 秒；睡眠期只在计划结束或有唤醒事件到达时提供决策机会。
+常规间隔 `reconsideration_interval_seconds` 默认 5400 秒；无在手承诺的空闲间隔
+`idle_reconsideration_interval_seconds` 默认 10800 秒，不能短于常规间隔。
+两者沿用场景配置；在手承诺闭集、切换和精确威胁候选见
+[当日目标的决策节律](SPEC-day-plan-goals.md#事件驱动的决策节律)。睡眠继续仅接受睡眠允许的原因。
 
 **验证**：游戏保持逐回合反馈；睡眠期只在计划结束或有唤醒事件到达时提供决策机会（见 `tests/life/test_wake_reasons.py` 的 `test_sleep_ignores_reconsideration_interval` 与 `tests/life/test_revision_contract.py` 的 `test_sleep_is_not_interrupted_by_reconsideration`）。
 
@@ -305,7 +308,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 任务到期未交 −0.4
 - 收到人物或联系人的消息 +0.1
 - 连续两小时以上饿或困 −0.1/小时
-- 完成计划段 +0.05
+- 当日目标首次由实际活动推进 +0.05；每条目标只发一次，按当日目标规格核验活动证据
 - 业务拒绝 −0.05
 
 半衰期：45 分钟 × `(1 + 0.3 · N_norm)`

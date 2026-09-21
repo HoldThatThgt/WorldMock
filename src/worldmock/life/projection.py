@@ -170,38 +170,6 @@ def _task_due_soon(task_rows: tuple[dict[str, Any], ...], now: int) -> bool:
     return False
 
 
-def _declared_bedtime_end_hour(scenario: RuntimeScenario, agent_id: int) -> float | None:
-    """@brief 人物声明的就寝窗口末端小时（与 engine._plan_day 的取值链同源）。
-
-    AgentConfig.bedtime_window 的末端（二元组第二位）；未声明返回 None，
-    由 bedtime_anchor 落到 persona-mapping 缺省锚点。
-    """
-    config = next((item for item in scenario.agents if item.agent_id == agent_id), None)
-    declared = getattr(config, "bedtime_window", None)
-    return declared[1] if declared else None
-
-
-def _epoch_anchors(now: int, timezone_name: str,
-                   declared_end_hour: float | None) -> dict[str, int]:
-    """@brief 当前时刻、当日本地 00:00、当日结束（次日 00:00）与当日就寝锚点。
-
-    plan_day/revise_day_plan 的段起点/终点合同是 epoch 秒；与 ISO 本地时间
-    并排披露锚点，模型可直接换算（docs/CONTRACTS.md「日程骨架请求」）。
-    day_end_epoch 与 DayPlan 校验的拒绝边界同源：同一 day_end_seconds
-    （段 end 越过即 PLAN_SEGMENTS_INVALID），披露值即校验值。bedtime_epoch
-    与 DayPlan 校验的就寝覆盖边界同源：同一 bedtime_anchor（人物声明末端或
-    persona-mapping 缺省，跨午夜钳制 ≤ 当日结束；engine._plan_day 对同一
-    人物取同一 declared_end_hour），最末段 end 低于它即 PLAN_SEGMENTS_INVALID
-    （"plan does not cover until bedtime"），披露值即校验值。
-    """
-    from worldmock.life.schedule import bedtime_anchor, day_end_seconds
-
-    return {"current_epoch": now,
-            "day_start_epoch": now - int(hour_of_day(now, timezone_name) * 3600),
-            "day_end_epoch": day_end_seconds(now, timezone_name),
-            "bedtime_epoch": bedtime_anchor(now, timezone_name, declared_end_hour)}
-
-
 def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     """@brief 组装一次观察的两层投影与事件级证据（scene + facts + body）。
 
@@ -239,14 +207,13 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
     activity_rows = inputs.extras["activity_rows"]
     return {
         "current_time": local.isoformat(),
-        **_epoch_anchors(now, inputs.scenario.timezone,
-                         _declared_bedtime_end_hour(inputs.scenario, agent.agent_id)),
+        "current_epoch": now,
         "location": location.name if location else agent.location_id,
         "people_here": [item["name"] for item in people],
         "felt": levels,
         "current_activity": activity_rows["current"] or {},
         "paused_activities": activity_rows["paused"],
-        "day_plan": _plan_row(agent, now, local),
+        "day_plan": _plan_row(agent, now),
         "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
         "inbox_has_older_unread": any(not entry["read"] for entry in inbox[:-INBOX_HEAD_LIMIT]),
         "todos_summary": _todos_summary(inputs.task_rows, now),
@@ -262,8 +229,7 @@ def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
     agent, now = inputs.agent, inputs.state.current_time
     return {
         "current_time": local.isoformat(),
-        **_epoch_anchors(now, inputs.scenario.timezone,
-                         _declared_bedtime_end_hour(inputs.scenario, agent.agent_id)),
+        "current_epoch": now,
         "location_id": agent.location_id,
         "people_here": people,
         "contacts": _contact_rows(inputs.scenario, agent),
@@ -272,7 +238,7 @@ def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "routes": inputs.extras.get("route_rows", []),
         "products": inputs.extras.get("product_rows", []),
         "inventory": agent.inventory,
-        "day_plan": _plan_fact(agent, now, local),
+        "day_plan": _plan_fact(agent, now),
         "felt": levels,
         "drive_summary": drive_summary(levels, inputs.task_rows, now),
         "recent_action_results": [public_action_result(row) for row in inputs.recent_results],
@@ -326,33 +292,22 @@ def _todos_summary(task_rows: tuple[dict[str, Any], ...], now: int) -> str:
             else "有待办任务可以推进")
 
 
-def _plan_row(agent: AgentState, now: int, local: datetime) -> dict[str, Any] | None:
-    """@brief scene 的今日计划行：summary + 当前段（schedule.current_segment）。"""
-    from worldmock.life import schedule as schedule_module
-
+def _plan_row(agent: AgentState, now: int) -> dict[str, Any] | None:
+    """@brief 场景按目标顺序展示意图和推进状态，完整文字只进入事实。"""
     plan = agent.day_plan
-    if plan is None or plan.bedtime <= now:
+    if plan is None or plan.day_end <= now:
         return None
-    current = schedule_module.current_segment(plan, now)
-    summary = "；".join(f"{segment.intent_kind}" for segment in plan.segments)
-    return {"summary": summary,
-            "current_segment": current.intent_kind if current else "段间自由时间"}
+    return {"goals": [{"intent_kind": goal.intent_kind,
+                       "progressed": goal.progressed_at is not None}
+                      for goal in plan.goals]}
 
 
-def _plan_fact(agent: AgentState, now: int, local: datetime) -> dict[str, Any] | None:
-    """@brief facts 的今日计划行：段列表与当前段身份；就寝后与 scene 同口径隐藏。"""
-    from worldmock.life import schedule as schedule_module
-
+def _plan_fact(agent: AgentState, now: int) -> dict[str, Any] | None:
+    """@brief 事实保留当日完整目标与推进证据，空清单保持已提交身份。"""
     plan = agent.day_plan
-    if plan is None or plan.bedtime <= now:
+    if plan is None or plan.day_end <= now:
         return None
-    current = schedule_module.current_segment(plan, now)
-    return {"segments": [{"start": segment.start, "end": segment.end,
-                          "intent_kind": segment.intent_kind, "note": segment.note}
-                         for segment in plan.segments],
-            "current_segment": ({"start": current.start, "end": current.end,
-                                 "intent_kind": current.intent_kind}
-                                if current else None)}
+    return plan.model_dump(mode="json")
 
 
 def _task_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:

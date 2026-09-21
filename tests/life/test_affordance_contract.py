@@ -94,6 +94,7 @@ def _agent_with_data(data: dict) -> None:
         "allowed_activity_kinds": sorted(default_affordances().kinds),
     }}
     observed = datetime(2026, 1, 5, tzinfo=timezone.utc)
+    data["current_time"] = int(observed.timestamp())
     wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": data}]
     agent.prepare_react_loop(ReactLoopRequest(0, observed, wrapped))
 

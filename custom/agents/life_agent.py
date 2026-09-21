@@ -33,7 +33,7 @@ from worldmock.life.narration import (
     render_scene,
     validate_decision_statement,
 )
-from worldmock.life.schedule import INTENT_KINDS
+from worldmock.life.schedule import DayPlan, INTENT_KINDS, MAX_PLAN_GOALS
 
 
 #: 决策自述阶段采样参数（模型更换后 temp 1.3 偶发采样脱轨：reasoning 螺旋烧穿、
@@ -61,7 +61,7 @@ _MEAL_ITEM_BOUNDS = (1, 3)
 _MESSAGE_TEXT_MAX_CHARS = 300
 #: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
 _HEX_IDENTITY_MIN_CHARS = 8
-#: 日首唤醒原因闭集（docs/dev/SPEC-life-realism.md「日程骨架」）：run_start/wake_from_sleep。当天首次
+#: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
 #: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
 #: 拒绝重试边界的唤醒原因是 rejection_feedback，不属日首，不触发强制。
 _DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
@@ -321,25 +321,20 @@ _TOOL_DESCRIPTIONS = {
         + " Send one admissible command to an active TextWorld game session."),
     "plan_day": (
         _ACTION_PROTOCOL
-        + " At the first decision after waking, submit today's skeleton of five to "
-        "eight non-overlapping segments covering up to bedtime; every intent_kind "
-        "must come from the closed enum in this schema and no segment may start "
-        "earlier than the current time. Segment start and end are absolute Unix "
-        "epoch seconds (UTC), never minutes-of-day; the facts in this observation "
-        "disclose current_epoch (now), day_start_epoch (local midnight), "
-        "day_end_epoch (local next midnight) and bedtime_epoch (today's bedtime "
-        "anchor, per-person) for conversion. Hard rule: no segment end may "
-        "exceed day_end_epoch, and the last segment must end at bedtime_epoch "
-        "or later (cover until bedtime)."),
+        + " At the first decision after waking, submit today's ordered goals, "
+        "from zero to eight entries. An empty list means no deliberate goals today. "
+        "Each intent_kind must be unique and belong to the closed enum; each goal "
+        "must contain non-whitespace text of at most 300 characters. List order "
+        "expresses priority. Do not provide times or durations. Activity evidence "
+        "can show progress, but does not establish that the written goal is complete."),
     "revise_day_plan": (
         _ACTION_PROTOCOL
-        + " Rewrite only the not-yet-started segments of today's submitted plan; a "
-        "segment that already started cannot be rewritten. Segment start and end "
-        "are absolute Unix epoch seconds (UTC), never minutes-of-day; use "
-        "current_epoch, day_start_epoch, day_end_epoch and bedtime_epoch "
-        "disclosed in the observation facts. Hard rule: no segment end may "
-        "exceed day_end_epoch, and the last segment must end at bedtime_epoch "
-        "or later (cover until bedtime)."),
+        + " Replace all pending goals by sending the complete new pending list, "
+        "which may be empty. Progressed goals stay unchanged at the front; do not "
+        "resubmit their intent_kind. The combined list accepts at most eight unique "
+        "intent kinds. Each goal must contain non-whitespace text of at most 300 "
+        "characters. Keep an unchanged pending goal verbatim to preserve its "
+        "registration. Do not provide times or durations."),
     "send_message": (
         _ACTION_PROTOCOL
         + " Send one short message (at most 300 characters) to a recipient identity "
@@ -883,6 +878,7 @@ class LifeAgent(PersonAgent):
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
         """@brief 从一次冻结观察组装菜单、可见身份、控制和生活动作工具。"""
+        _observation_now(data)
         self._life_interaction_menu = menu = life_menu.parse_interaction_menu(data)
         self._life_contract = contract = _affordance_contract(data)
         self._life_targeted_kinds = life_menu.filter_targeted_kinds(
@@ -1082,9 +1078,10 @@ def _facts_projection(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _observation_now(data: dict[str, Any]) -> int:
-    """@brief 读取观察顶层的模拟时钟（UTC epoch 秒，计划工具的本地基准）。"""
+    """@brief 校验观察顶层的模拟时钟（UTC epoch 秒）。"""
     now = data.get("current_time")
     if isinstance(now, bool) or not isinstance(now, int) or now < 0:
+        logging.error("LifeAgent observation current time is invalid")
         raise RuntimeError("LifeAgent observation current time is invalid")
     return now
 
@@ -1386,31 +1383,24 @@ def _plan_required_before_other_actions(
 
 
 def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief plan_day 在当日尚无计划时开放（docs/dev/SPEC-life-realism.md「日程骨架」；跳过首醒者当天可补交）。
-
-    可见性判据只有"当日尚无计划"（facts.day_plan 为空，观察与跨日归零/就寝
-    隐藏同口径）；不限唤醒原因——被引擎拒绝后的一秒重试边界与当天中途的
-    补交决策同样开放。日首无计划时的动作面强制见 prepare_react_loop。
-    """
+    """@brief 当日尚未提交时开放目标清单；空清单同样表示已提交。"""
     if _facts_projection(data).get("day_plan") is not None:
         return {}
-    return {"now": _observation_now(data)}
+    return {"progressed_intents": ()}
 
 
 def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief revise_day_plan 只在存在尚未开始的计划段时开放（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
+    """@brief 任何已提交清单都可修订未推进部分，空清单也允许追加目标。"""
     plan = _facts_projection(data).get("day_plan")
     if plan is None:
         return {}
-    if not isinstance(plan, dict) or not isinstance(plan.get("segments"), list):
-        raise RuntimeError("LifeAgent day plan segments are invalid")
-    now = _observation_now(data)
-    for segment in plan["segments"]:
-        start = segment.get("start") if isinstance(segment, dict) else None
-        if isinstance(start, bool) or not isinstance(start, int) or start < 0:
-            raise RuntimeError("LifeAgent day plan segment start is invalid")
-    future = [item for item in plan["segments"] if item["start"] > now]
-    return {"now": now} if future else {}
+    try:
+        validated = DayPlan.model_validate(plan)
+    except Exception as exc:
+        logging.error("LifeAgent day plan goals are invalid: %s", exc)
+        raise RuntimeError("LifeAgent day plan goals are invalid") from exc
+    return {"progressed_intents": tuple(goal.intent_kind for goal in validated.goals
+                                        if goal.progressed_at is not None)}
 
 
 def _visible_people_ids(facts: dict[str, Any]) -> tuple[str, ...]:
@@ -1773,7 +1763,9 @@ def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[
     for name in ("plan_day", "revise_day_plan"):
         if name in functions:
             properties = functions[name]["parameters"]["properties"]
-            properties["segments"]["items"]["properties"]["intent_kind"]["enum"] = list(INTENT_KINDS)
+            progressed = contracts[name]["progressed_intents"]
+            properties["goals"]["items"]["properties"]["intent_kind"]["enum"] = [
+                kind for kind in INTENT_KINDS if kind not in progressed]
     if "send_message" in functions:
         properties = functions["send_message"]["parameters"]["properties"]
         properties["recipient_id"]["enum"] = list(contracts["send_message"]["recipients"])
@@ -1831,12 +1823,8 @@ def _validate_visible_action(action: str, request: BaseModel, contracts: dict[st
         route = (request.destination_id, request.travel_mode, request.planned_duration_seconds)
         if route not in contracts[action]:
             return "start_travel destination, mode, and duration are not a visible route"
-    if action == "plan_day":
-        return _validate_plan_segments(request.segments, contracts[action]["now"], 5, 8,
-                                       "plan_day")
-    if action == "revise_day_plan":
-        return _validate_plan_segments(request.segments, contracts[action]["now"], 1, 8,
-                                       "revise_day_plan")
+    if action in {"plan_day", "revise_day_plan"}:
+        return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
     if action == "send_message":
         if request.recipient_id not in contracts[action]["recipients"]:
             return "send_message recipient_id is not visible"
@@ -1867,21 +1855,14 @@ def _validate_meal_request(request: BaseModel, catalog: dict[str, dict[str, Any]
     return ""
 
 
-def _validate_plan_segments(
-    segments: Any,
-    now: int,
-    minimum: int,
-    maximum: int,
-    action: str,
-) -> str:
-    """@brief 本地核对计划段数量、意图闭集与"尚未开始"边界。"""
-    if not minimum <= len(segments) <= maximum:
-        return f"{action} requires {minimum} to {maximum} segments"
-    for segment in segments:
-        if segment.intent_kind not in INTENT_KINDS:
-            return f"{action} intent_kind is outside the closed intent set"
-        if segment.start < now:
-            return f"{action} segment starts earlier than the current time"
+def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
+    """@brief 修订仅包含未推进目标，合并后保持容量和意图唯一性。"""
+    if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
+        logging.error("Day plan exceeds eight goals after preserving progressed goals")
+        return "day plan requires at most eight goals including progressed goals"
+    if set(progressed_intents).intersection(goal.intent_kind for goal in goals):
+        logging.error("Day plan revision resubmits a progressed intent")
+        return "revise_day_plan cannot resubmit progressed goals"
     return ""
 
 

@@ -101,7 +101,7 @@ MOOD_PULSES: dict[str, float] = {
     "task_deadline_missed": -0.4,
     "message_received": 0.1,
     "discomfort_hourly": -0.1,
-    "plan_segment_completed": 0.05,
+    "goal_progressed": 0.05,
     "service_refused": -0.05,
 }
 #: 情绪半衰期基准（分钟）。experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」。
