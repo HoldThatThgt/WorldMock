@@ -105,7 +105,37 @@ AS2 生产修复提交为 `8fb24348953c5cfa3e8d4b280c8830a8efcf5de6`，
 后者仅追加两个 Router 测试，生产源码相同；完整根门禁与 Bob 基线期间未修改生产源码。
 原始首次 Bob 记录保留，后续复验另存，避免把修复前的测试遗漏隐去。
 
-主目录集成后的关键路径与历史账本复验收据将在本地合入后记录。
+## 本地主线整合收据
+
+本地 `main` 从 `20dedcd` 快进到整合提交 `040cda4`，AS2 子模块检出 `ae3224ce`。
+主目录实际导入路径已核对为 `/Users/atishoo/Project/WorldMock` 下的 runtime 与 vendor dispatcher，
+运行预算分别为十六轮与三次传输重试。
+
+在该主目录执行以下关键路径回归，**133 passed in 28.65s**，没有跳过：
+
+```sh
+MEM0_TELEMETRY=False ANONYMIZED_TELEMETRY=False LITELLM_LOCAL_MODEL_COST_MAP=True \
+.venv/bin/python -m pytest -q \
+  tests/life/test_dayrun_inventory_regressions.py \
+  tests/life/test_dayrun_cursor_regressions.py \
+  tests/integration/test_observation_agent_seam.py \
+  tests/integration/test_run_manifest.py \
+  tests/integration/test_runtime.py \
+  tests/integration/test_host_branch_coverage.py::test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspace \
+  tests/integration/test_life_agent_protocol.py::test_runtime_budget_handles_twelve_bad_responses_then_submits_once \
+  tests/resources/test_equivalence_anchor.py
+```
+
+原始输出为 `/tmp/worldmock-dayrun-main-smoke.log`。
+四项历史账本测试实际读取主目录既有 `runs/deepseek-multi-47931e06/footprints.sqlite`，
+补齐隔离完整门禁中因数据未随工作树复制而跳过的验证。
+主目录文档门禁扫描九十九篇、零断链，通过。
+后续提交只补充本页验收收据，生产源码和测试保持已验证版本。
+
+合入前对另一任务新增的外生事件研究文档及索引修改保存快照，
+Git 自动暂存与恢复后核对：研究文档字节相同，索引去掉本次新增的两个入口后也与原输入字节相同。
+这两处并行改动没有纳入本次提交。原 dayrun 工作树保持原样；没有向远端推送。
+
 
 所有新增测试使用确定性输入或本地替身，不调用付费模型；TextWorld 和 SQLite 路径实际执行。
 本次没有启动新主线的一整天云端模型运行，因此不会把旧 dayrun 的 completed 当作新代码长跑完成。
