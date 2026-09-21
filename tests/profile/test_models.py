@@ -150,6 +150,38 @@ def test_time_anchors_wraparound_from_dict_payload():
     assert (anchors.bedtime.start_hour, anchors.bedtime.end_hour) == (25.0, 26.0)
 
 
+@pytest.mark.parametrize("payload", [None, []])
+def test_time_anchors_reject_non_object_payload(payload):
+    """@brief 非对象输入由模型边界拒绝，不在回绕归一中泄漏类型异常。"""
+    with pytest.raises(ValidationError) as error:
+        TimeAnchors.model_validate(payload)
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [((), "model_type")]
+
+
+@pytest.mark.parametrize("window, location, error_type", [
+    ({"start_hour": 7.0}, ("wake", "end_hour"), "missing"),
+    ({"start_hour": None, "end_hour": 7.5}, ("wake", "start_hour"), "float_type"),
+    ({"start_hour": "morning", "end_hour": 7.5}, ("wake", "start_hour"), "float_parsing"),
+    (None, ("wake",), "model_type"),
+])
+def test_time_anchors_preserve_field_errors_for_invalid_windows(window, location, error_type):
+    """@brief 缺失时刻、非法数值与非法窗口形状保留精确字段错误，不被归一补齐。"""
+    payload = make_card().time_anchors.model_dump()
+    payload["wake"] = window
+    with pytest.raises(ValidationError) as error:
+        TimeAnchors.model_validate(payload)
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(location, error_type)]
+
+
+def test_time_anchors_reject_missing_window():
+    """@brief 不完整锚点清单必须明确报告缺少窗口，不能补默认作息。"""
+    payload = make_card().time_anchors.model_dump()
+    del payload["lunch"]
+    with pytest.raises(ValidationError) as error:
+        TimeAnchors.model_validate(payload)
+    assert [(item["loc"], item["type"]) for item in error.value.errors()] == [(("lunch",), "missing")]
+
+
 def test_sleep_need_and_chronotype_bounds():
     assert make_card().sleep_need_hours == 7.5
     for bad in (6.5, 9.25, 8.3):

@@ -272,7 +272,7 @@ def test_subtitle_does_not_repeat_across_boundary(engine_factory) -> None:
     assert repeated == {}, f"cues delivered on multiple boundaries: {sorted(repeated)}"
 
 
-def test_plan_day_registers_self_commitment_and_rejects_midday(engine_factory) -> None:
+def test_plan_day_registers_goals_and_rejects_same_day_resubmission(engine_factory) -> None:
     """plan_day 登记当日目标，同日重复提交被拒绝。"""
     engine = engine_factory()
     plan = _goal_plan()

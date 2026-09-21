@@ -167,15 +167,15 @@ flowchart LR
 | 模块 | 文件 | 必须修改的内容 |
 | --- | --- | --- |
 | 目标与节律 | `src/worldmock/life/schedule.py`、`models.py`、`rhythm.py`、`scenario.py`、`engine.py`、`felt.py` | 目标模型、生命周期、修订、实际推进、单次情绪、威胁边界和双间隔；删除旧段逻辑 |
-| 观察与人物 | `src/worldmock/life/projection.py`、`narration.py`、`observe.py`、`custom/agents/life_agent.py` | 目标事实、叙述、旧锚点删除、实际工具 Schema 与可见性 |
+| 观察与人物 | `src/worldmock/life/projection.py`、`narration.py`、`custom/agents/life_agent.py`、`custom/envs/life_env.py` | 目标事实、叙述、旧锚点删除、实际工具 Schema、工具说明与可见性 |
 | 足迹与评估 | `src/worldmock/footprints/models.py`、`quality.py`、`src/worldmock/evaluation/behavior_metrics.py`、新 `goal_metrics.py` | 唤醒枚举、结算证据消费、三层报告、实际质量导出 |
 | 接口权威 | `docs/CONTRACTS.md` | 目标请求/状态/结果、错误码、观察字段、唤醒枚举、间隔配置和报告字段 |
 | 行为权威 | 本文、`docs/dev/SPEC-life-realism.md`、`SPEC-life-runtime.md`、`SPEC-decision-context.md`、`SPEC-interaction-menu.md` | 去掉旧时段语义并按职责引用本规格，保留无关已冻结条款 |
 | 设计文档 | `docs/design/04-simulation-engine.md`、`05-recording-engine.md`、`07-evaluation.md`、`08-configuration.md`、`09-io-formats.md`；其他设计命中处 | 模拟负责时间/推进，记录负责原子证据，评估负责三层统计，配置与输入输出对齐；禁止重复建权威 |
 | 索引与证据 | `docs/INDEX.md`、`docs/VERIFICATION.md`、`docs/dev/ANALYSIS-spec-coverage.md`、`implementation-status.md`、提案及研究入口 | 链接最终规格、更新条款到测试映射、写真实门禁证据、提案改为历史依据 |
-| 领域测试 | `tests/life/test_day_plan.py`、`test_revision_contract.py`、`test_wake_reasons.py`、`test_engine_round.py`、`test_engine_feedback.py`、`test_felt_states.py` 及引用旧字段的测试 | 新合同边界、跨日/恢复、单次证据与脉冲、精确威胁、删除旧段断言 |
+| 领域测试 | `tests/life/test_day_plan.py`、`test_revision_contract.py`、`test_wake_reasons.py`、`test_engine_feedback.py`、`test_felt_states.py` 及引用旧字段的测试 | 新合同边界、跨日/恢复、单次证据与脉冲、精确威胁、删除旧段断言 |
 | 接口测试 | `tests/integration/test_observation_agent_seam.py`、`test_life_agent_protocol.py`、`test_activity_schema.py`、相关菜单/观察测试 | 实际工具闭环、空计划、修订、旧请求拒绝、提示与 schema 同源 |
-| 评估测试 | `tests/evaluation/test_behavior_metrics.py`、新 `test_goal_metrics.py`、`tests/footprints/test_quality.py` | 三层正确分母/隔离/去重/缺样本、导出实接线、旧指标删除 |
+| 评估测试 | `tests/evaluation/test_behavior_metrics.py`、新 `test_goal_metrics.py`、新 `tests/footprints/test_goal_export.py` | 三层正确分母/隔离/去重/缺样本、导出实接线、旧指标删除 |
 
 仅为通过既有门禁而需要迁移的夹具随所属测试修改；新增生产文件只用于上述职责分离。
 最终验收记录必须给出相对开发基线的实际完整文件清单，不能用此预估表替代 diff。

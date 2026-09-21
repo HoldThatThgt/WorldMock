@@ -153,6 +153,20 @@ def test_shared_family_uses_one_activity_once_and_first_matching_goal():
     assert day["progressed_count"] == 1
 
 
+def test_later_valid_interval_cannot_reuse_activity_for_another_goal():
+    goals = [goal("通勤", "到公司"), goal("外出", "散步")]
+    first = dict(goals[0], progressed_at=clock(0, 9), progress_activity_id="travel")
+    second = dict(goals[1], progressed_at=clock(0, 10), progress_activity_id="travel")
+    events = [plan_result(1, goals),
+              progress(2, clock(), clock(0, 9), "travel", [first, goals[1]], activity_id="travel"),
+              progress(3, clock(0, 9), clock(0, 10), "travel", [first, second], activity_id="travel")]
+    day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
+    assert [item["status"] for item in day["goals"]] == ["progressed", "pending"]
+    assert day["progressed_count"] == 1
+    assert day["goals"][0]["progress_event_id"] == "e2"
+    assert day["goals"][1]["progress_event_id"] is None
+
+
 def test_lifestyle_uses_actual_category_and_cross_midnight_interval_stays_in_old_day():
     original = goal("运动", "散步运动", clock(0, 23))
     settled = dict(original, progressed_at=clock(1, 0), progress_activity_id="exercise")
@@ -204,6 +218,32 @@ def test_habit_does_not_merge_runs_people_locations_or_hours():
     habit = report(events)["habitual_consistency"]
     assert len(habit["groups"]) == 5 and habit["comparable_pair_count"] == 0
     assert habit["consistency_rate"] is None
+
+
+def test_habit_zero_duration_cannot_create_or_claim_first_activity_sample():
+    empty = progress(1, clock(), clock(), activity_id="same")
+    empty_habit = report([empty])["habitual_consistency"]
+    assert empty_habit["groups"] == {}
+    assert empty_habit["missing_samples"]["no_positive_activity_settlement"] == 1
+    events = [empty, progress(2, clock(0, 9), clock(0, 9, 10), "watch", activity_id="same"),
+              progress(3, clock(1, 9), clock(1, 9, 10), "watch", activity_id="next-day")]
+    habit = report(events)["habitual_consistency"]
+    assert set(habit["groups"]) == {"run:1:office:9"}
+    group = habit["groups"]["run:1:office:9"]
+    assert group["sample_count"] == 2 and group["day_count"] == 2
+    assert [sample["event_id"] for sample in group["samples"]] == ["e2", "e3"]
+    assert habit["consistency_rate"] == 1
+
+
+def test_same_day_repetition_is_not_cross_day_habit_evidence():
+    events = [progress(1, clock(), clock(0, 8, 10), activity_id="first"),
+              progress(2, clock(0, 8, 20), clock(0, 8, 30), activity_id="second")]
+    habit = report(events)["habitual_consistency"]
+    group = habit["groups"]["run:1:office:8"]
+    assert group["sample_count"] == 2 and group["day_count"] == 1
+    assert group["comparable_pair_count"] == 0 and group["consistency_rate"] is None
+    assert habit["comparable_pair_count"] == 0 and habit["consistency_rate"] is None
+    assert habit["missing_samples"]["contexts_without_two_days"] == 1
 
 
 def test_missing_lifestyle_category_or_location_does_not_guess_habits():
