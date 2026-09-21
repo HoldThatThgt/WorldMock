@@ -1,9 +1,11 @@
 # WorldMock 产品设计说明书 — 配置规格
 
 > **状态**：DRAFT  
-> **日期**：2026-09-20  
-> **版本**：v1.3\
+> **日期**：2026-09-21\
+> **版本**：v1.4\
 > **目标读者**：算法工程师、开发工程师、实验设计者
+
+配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md)。本文维护配置职责与设计边界。
 
 ## 版本历史
 
@@ -13,6 +15,7 @@
 | v1.1 | 2026-09-20 | Codex | 身体初值、资源目录和规则来源对齐实际输入，明确已有实现差异 |
 | v1.2 | 2026-09-20 | Codex | 资源、内容和语料设计归入资源引擎；配置仅保留场景引用与初值 |
 | v1.3 | 2026-09-20 | Codex | 增加地点类与人物交互菜单声明、失败关闭校验和场景身份边界；删除会被误读为实测收据的固定校验示例 |
+| v1.4 | 2026-09-21 | Codex | 接入用户配置手册，对齐模型凭据的实际检查边界，删除过时加载伪代码 |
 
 ## 1. 模块概述
 
@@ -240,56 +243,15 @@ flowchart LR
 └── deepseek.env
 ```
 
-### 7.2 deepseek.env 格式
+### 7.2 格式与加载边界
 
-```bash
-# DeepSeek API Key (mode 0600)
-DEEPSEEK_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-```
+当前凭据仅允许 `DEEPSEEK_API_KEY`，填写一把非空密钥；
+正式接口见[模型凭据合同](../CONTRACTS.md#人物决策提示与生成参数)，
+填写示例和权限设置见[运行配置手册](../manual/runtime.md#填写模型凭据)。
 
-**安全要求**：
-
-| 要求 | 检查点 | 违规处理 |
-| --- | --- | --- |
-| 文件权限必须 `0600` | 加载前检查 `stat(file).st_mode` | 拒绝启动，输出错误提示 |
-| 文件必须存在 | `Path.exists()` | 拒绝启动，输出设置指引 |
-| API Key 非空 | 长度 > 20 | 拒绝启动 |
-| 禁止进入 Git | `.gitignore` 包含 `deepseek.env` | CI 检查 |
-
-### 7.3 凭证加载流程
-
-```python
-def load_credentials(config_dir: Path) -> dict:
-    """加载模型凭证
-    
-    :raises CredentialError: 文件不存在、权限错误、格式错误
-    """
-    env_file = config_dir / "deepseek.env"
-    
-    # 检查文件存在
-    if not env_file.exists():
-        raise CredentialError(
-            f"Credential file not found: {env_file}\n"
-            f"Please create it with: echo 'DEEPSEEK_API_KEY=sk-xxx' > {env_file}"
-        )
-    
-    # 检查文件权限
-    stat_info = env_file.stat()
-    if stat_info.st_mode & 0o077:
-        raise CredentialError(
-            f"Insecure file permissions: {oct(stat_info.st_mode)}\n"
-            f"Please run: chmod 0600 {env_file}"
-        )
-    
-    # 解析环境变量
-    load_dotenv(env_file)
-    api_key = os.getenv("DEEPSEEK_API_KEY")
-    
-    if not api_key or len(api_key) < 20:
-        raise CredentialError("DEEPSEEK_API_KEY is missing or invalid")
-    
-    return {"deepseek_api_key": api_key}
-```
+[运行启动器](../../src/worldmock/runtime.py)拒绝缺失文件、符号链接、未知键和空值。
+`0600` 是推荐权限，当前加载器没有权限位强制检查，也没有密钥长度大于 20 的检查。
+画像抽取与模拟启动的凭据读取顺序不同，详见手册；不在此处保留与实际实现不同的加载伪代码。
 
 ## 8. 配置验证
 

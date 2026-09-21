@@ -10,6 +10,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 文档集按职责分工：`ARCHITECTURE.md` 写分层理由，`CONTRACTS.md` 提供跨模块接口定义与导航，
 `docs/dev/SPEC-*.md` 写对应特性的行为，`VERIFICATION.md` 写通过条件，`implementation-status.md` 写当前状态。
+[用户配置手册](manual/README.md)面向使用者，说明如何编写、修改和校验当前支持的配置。
 记录引擎的接口、行为与格式统一维护在[记录引擎设计](design/05-recording-engine.md)，
 其他文档引用所属合同，不再重复定义。
 
@@ -27,6 +28,22 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/implementation-status.md` | 当前实现状态：确定性范围与测试基线实测、覆盖率口径、规格追溯与突变守卫、未完成项与阻塞 | NOT-COMPLETE |
 | `docs/dev/coverage-baseline.md` | 覆盖率门禁的判定口径、测量与排除范围、失败关闭约定与基线记录（最近一次完整门禁通过） | 现行口径 |
 | `docs/dev/coverage-report.json` | 门禁生成物：分支覆盖率、未覆盖公共接口与逐文件分项，由 `scripts/coverage_gate.py` 写入 | 生成物 |
+
+### 用户配置手册
+
+从[创建自己的第一个场景](manual/README.md#创建自己的第一个场景)开始，再按修改目标阅读对应页面。
+手册提供使用步骤和示例，接口与行为定义仍引用所属合同和规格。
+
+| 页面 | 使用目标 |
+| --- | --- |
+| [手册入口](manual/README.md) | 文件分类、一天自定义场景、加载检查与运行 |
+| [人物画像](manual/personas.md) | 编写背景故事、作息、关系与人物初值，预览和校验卡片 |
+| [生活场景](manual/scenarios.md) | 自定义日期、人数、账户、菜单、任务、消息及预排事件 |
+| [世界素材](manual/resources.md) | 准备地图、门店供给、商品、内容、语料和目录输入 |
+| [规则配置](manual/rules.md) | 编写品类与交换规则，调整身体、动机和画像映射 |
+| [运行配置](manual/runtime.md) | 模型凭据、新建运行、恢复和反事实干预文件 |
+| [数据生成](manual/delivery.md) | LabelKit 项目、生成设置与规则测试数据 |
+| [真实性评估](manual/evaluation.md) | 评估配置、人工参照和评审输入 |
 
 ### 特性规格与提案
 
@@ -102,6 +119,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 | 你想做的事 | 从这里读 | 接着读 |
 | --- | --- | --- |
+| 编写自己的配置、自定义人物与生活环境 | [用户配置手册](manual/README.md) | 对应手册页的示例、字段说明与校验命令 |
 | 了解系统怎么分层、为什么这样设计 | `docs/ARCHITECTURE.md` | 对应 `docs/dev/SPEC-*.md` 看具体行为 |
 | 实现或修改某个特性的行为 | `docs/dev/SPEC-*.md` 中对应那一份 | `docs/CONTRACTS.md` 取接口，`docs/VERIFICATION.md` 取门禁 |
 | 找某个接口、字段、枚举、目录结构、命令行参数或提示词模板 | `docs/CONTRACTS.md` | 设计理由在 `docs/ARCHITECTURE.md` 与对应 SPEC |
@@ -121,6 +139,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 
 同一件事出现两份说法时，按下面的归属判定，不按文档新旧、不按篇幅长短。
 
+- **用户配置步骤与示例**看 `docs/manual/README.md` 及其分册；手册不新增配置能力或改变所属合同。
 - **记录引擎的接口、行为与格式**看 `docs/design/05-recording-engine.md`，原冻结约束继续有效，待实现项单列。
 - **其他接口、字段、枚举、Schema、目录结构、命令行参数与提示词模板**看 `docs/CONTRACTS.md`；代码变更先更新所属合同，再改代码。
 - **其他行为规则与算法**（怎么结算、怎么推进、怎么决策）看 `docs/dev/SPEC-*.md`。
@@ -136,6 +155,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 flowchart TB
     README["README.md<br/>项目自述"]
     IDX["docs/INDEX.md<br/>唯一入口"]
+    MANUAL["manual/README.md<br/>用户配置手册"]
     ARCH["ARCHITECTURE.md<br/>WHY 与分层"]
     CON["CONTRACTS.md<br/>跨模块接口与导航"]
     RECORD["design/05-recording-engine.md<br/>记录引擎合同与设计"]
@@ -150,6 +170,9 @@ flowchart TB
     ANA["dev/ANALYSIS-spec-coverage.md<br/>追溯矩阵"]
 
     README --> IDX
+    IDX --> MANUAL
+    MANUAL -->|"字段定义"| CON
+    MANUAL -->|"行为约束"| SPEC
     IDX --> ARCH
     IDX --> RECORD
     CON -->|"记录引擎"| RECORD
@@ -214,6 +237,7 @@ flowchart TB
 | 路径 | 职责 |
 | --- | --- |
 | `scenarios/` | 实验场景定义 |
+| `docs/manual/` | 当前可用配置的用户编写手册与校验示例 |
 | `corpora/` | 固化语料素材 |
 | `catalog/` | 目录注册表 |
 | `labelkit-projects/` | LabelKit 项目配置 |
