@@ -141,7 +141,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | G2 | 职业/技能/机会/合同影响产出报酬；睡眠影响效率 | L/test_work_efficiency_factors.py::test_hungry_band_interval_average_with_skill、test_factors_assembled_from_catalog | covered |
 | G3 | 需求进入观察与决策，非脚本排序 | L/test_motivation.py::test_goal_deficit_lifts_work_candidates；L/test_grounded_observation.py::test_motivation_context_wires_enabled_set_and_recent_meals | covered |
 | G4 | 内容覆盖饮食/节目/游戏/工作/邮件/导航/购物 | CO/test_category_corpora.py（17 测全量）；CO/test_corpora.py::test_formal_manifest_validates_every_file_and_selected_counts | covered |
-| G5 | 看见同处他人、通讯、晨间例程与用餐、当日目标；机会由世界提供 | L/test_social.py；L/test_day_plan.py；CO/test_category_corpora.py | 目标新合同待本次复验 |
+| G5 | 看见同处他人、通讯、晨间例程与用餐、当日目标；机会由世界提供 | L/test_social.py；L/test_day_plan.py；CO/test_category_corpora.py | covered |
 | G6 | 场景可定义地点/日历/天气/交通/速度 | L/test_scenario.py::test_formal_and_multi_person_scenarios_are_valid；L/test_travel_time.py::test_factor_lookup_matches_the_snapshot_table_for_every_hour | covered |
 | G7 | 区分来源数据/规则结果/模型文本/外部服务返回 | F/test_quality.py::test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost、test_transport_failure_marks_tokens_and_cost_unknown | covered |
 | G8 | 完整数字足迹（观察/决策/执行/状态/结果/记忆/关联） | F/test_store.py（15 测）；F/test_event_fields.py | covered |
@@ -199,8 +199,8 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | E21 | consume 至多三件持有食品；人物校验身份、方式与时长，环境按实际用量校验库存；安排使用时间与效果 | I/test_grounded_targets.py::test_consume_multi_item_meal_duration_and_quantity_authority；I/test_category_inventory_protocol.py::test_insufficient_recipe_inventory_is_rejected_by_real_settlement | covered |
 | E22 | submit_work 登记交付物引用；结算触发验收 | L/test_work_contracts.py::test_work_start_rejects_skill_location_and_deadline_boundaries；L/test_work_review.py | covered |
 | E23 | game_action 结算时引擎执行、反馈时刻交付局面 | I/test_grounded_targets.py::test_game_action_requires_current_session_and_admissible_command_pair；L/test_content_game.py | covered |
-| E24 | plan_day 提交零至八条有序目标，空清单仍已提交，不代执行 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py | 待本次复验 |
-| E25 | 修订仅替换未推进目标，保留已推进证据 | L/test_day_plan.py；L/test_revision_contract.py；I/test_grounded_targets.py | 待本次复验 |
+| E24 | plan_day 提交零至八条有序目标，空清单仍已提交，不代执行 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py | covered |
+| E25 | 修订仅替换未推进目标，保留已推进证据 | L/test_day_plan.py；L/test_revision_contract.py；I/test_grounded_targets.py | covered |
 | E26 | send_message 瞬时登记、下次观察送达 | L/test_social.py::test_send_message_delivers_to_world_agent_and_contact 等 4 测 | covered |
 | E27 | start_social_activity 交谈/通话 | L/test_social.py::test_start_chat_registers_foreground_activity_with_invite、test_call_duration_boundaries_10_and_60_minutes | covered |
 | E28 | scheduling_state() 返回可决策人物与下一事件时间 | V/test_decision_round.py::test_scheduling_state_requires_future_boundary、test_scheduling_state_rejects_duplicate_agents | covered |
@@ -589,7 +589,7 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC0 | schema_version；旧状态加载拒绝；无兼容别名；prompt/tool/code SHA 随之改变 | L/test_revision_contract.py::test_world_state_schema_version_four_rejects_old_checkpoints（当前世界结构为 4，旧检查点直接拒绝）、test_sleep_debt_hours_has_no_residual_references；I/test_grounded_evidence.py::test_runtime_code_identity_includes_life_agent_content | covered |
 | RC1 | wake_reason 表 12 类触发条件 | L/test_wake_reasons.py::test_positive_each_member、test_wake_reason_frozen_member_set；L/test_revision_contract.py::test_engine_wake_reasons_cover_each_trigger_class；F/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set | covered |
 | RC2 | 静默边界无决策四事件；activity_progress 带 decision_offered/wake_reasons；提供决策记录全部命中原因 | L/test_revision_contract.py::test_silent_boundary_settles_without_decision_events、test_offered_boundary_records_actual_wake_reasons | covered |
-| RC3 | 常规与空闲重估是场景参数；精确任务与闭店威胁；睡眠不受间隔，游戏逐回合 | L/test_wake_reasons.py；L/test_engine_feedback.py；L/test_scenario.py | 待本次复验 |
+| RC3 | 常规与空闲重估是场景参数；精确任务与闭店威胁；睡眠不受间隔，游戏逐回合 | L/test_wake_reasons.py；L/test_engine_feedback.py；L/test_scenario.py | covered |
 | RC4 | 下一次决策机会取各项最小值（复用 next_body_boundary_seconds） | L/test_wake_reasons.py::test_next_decision_takes_minimum_of_all_candidates、test_next_decision_excludes_now_and_past；L/test_activity_effects.py::test_body_boundary_predicts_first_energy_threshold_second | covered |
 | RC5 | BodyState 新增四字段、删 sleep_debt_hours、无别名 | L/test_revision_contract.py::test_sleep_debt_hours_has_no_residual_references | covered |
 | RC6 | 两过程公式（χw=18.2h、χs=4.2h、H=0.67、L=0.17、振幅 0.12、困意截断 [0,1.2]） | L/test_sleep_two_process.py::test_awake_step_matches_raw_formula、test_sleep_step_matches_raw_formula、test_thresholds_match_raw_formula_across_day、test_sleepiness_clips_to_1_2_above 等 57 测 | covered |
@@ -623,8 +623,8 @@ V=vendor/agentsociety2/packages/agentsociety2/tests。
 | RC34 | 评分器写 observation.data.motivation_internal，不展示候选/名次/概率 | L/test_activity_menu.py::test_motivation_internal_remain_top5_under_layered_menu；I/test_life_agent_protocol.py::test_blacklisted_observation_fields_never_enter_messages（motivation_internal 在禁入清单） | covered |
 | RC35 | drive_summary 一句中文、不含数字权重 | L/test_motivation.py::test_summary_common_knowledge_without_browse、test_summary_open_flips_when_market_opens、test_no_store_scenario_omits_summary | covered |
 | RC36 | 评分器修正（成本/小时归一、价格单计、正餐≥300kcal 前三、家族≤2、<0.3 无娱乐、启用集采样、relief 通道、重复进食 1/(1+n) 降权） | L/test_motivation.py::test_cost_normalized_per_hour_across_durations、test_price_enters_cost、test_meal_floor_and_top_three、test_same_entertainment_family_capped_at_two、test_need_below_floor_suppresses_entertainment、test_lifestyle_enabled_set_scopes_sampling、test_repeated_food_downweighted_by_sensory_satiety | covered |
-| RC37 | 有序目标、空清单、一次提交、修订、正时长推进、一次证据与情绪；三层报告 | [当日目标规格](SPEC-day-plan-goals.md)与[验收记录](research/day-plan-goals-verification.md)逐要求映射 | 待本次复验 |
-| RC38 | 人物卡片作息保留；当日目标不带绝对时间，环境本地日界决定生命周期 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py；P/test_models.py | 待本次复验 |
+| RC37 | 有序目标、空清单、一次提交、修订、正时长推进、一次证据与情绪；三层报告 | [当日目标规格](SPEC-day-plan-goals.md)与[验收记录](research/day-plan-goals-verification.md)逐要求映射 | covered |
+| RC38 | 人物卡片作息保留；当日目标不带绝对时间，环境本地日界决定生命周期 | L/test_day_plan.py；L/test_revision_contract.py；I/test_observation_agent_seam.py；P/test_models.py | covered |
 | RC39 | 社交在 LifeEnv 内实现、不装 SimpleSocialSpace、复用消息通道与事件类型 | L/test_social.py（15 测经 engine/store 实现承载）；L/test_revision_contract.py::test_send_message_delivers_inbox_and_arrival_event | covered |
 | RC40 | people_here（姓名/活动家族/可交谈=清醒且非主动游戏）；变化构成唤醒 | L/test_social.py::test_people_here_filters_location_and_exposes_closed_fields、test_can_talk_requires_awake_and_not_active_gaming；L/test_wake_reasons.py（person_arrived/person_left） | covered |
 | RC41 | send_message 瞬时、≤300 汉字、inbox 送达、environment_event kind=message_arrival | L/test_social.py::test_send_message_accepts_300_chars_and_rejects_301、test_send_message_delivers_to_world_agent_and_contact；L/test_revision_contract.py::test_send_message_delivers_inbox_and_arrival_event | covered |
