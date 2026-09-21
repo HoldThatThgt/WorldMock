@@ -513,3 +513,22 @@ def test_work_review_array_cardinality_remains_a_local_hard_rejection() -> None:
     assert list(Draft202012Validator(schema).iter_errors(payload)) == []
     with pytest.raises(ValidationError, match="requires reference and delivery"):
         WorkReviewResponse.model_validate_json(json.dumps(payload), strict=True)
+
+
+@pytest.mark.parametrize("retired_type", ["event", "observation"])
+def test_finish_rejects_retired_fact_like_memory_types(retired_type: str) -> None:
+    """旧事实型记忆在原生 Schema、本地模型和人物动作校验三处均不得写入。"""
+    from agentsociety2.agent.base import ReactDecision
+
+    memory = {"type": retired_type, "epistemic_status": "subjective", "importance": 0.5,
+              "keywords": ["生活"], "text": "我以为今天已经吃过饭", "source": "decision_observation",
+              "refs": ["observation-current"]}
+    payload = {"memories": [memory]}
+    assert list(Draft202012Validator(_function("finish")["parameters"]).iter_errors(payload))
+    with pytest.raises(ValidationError):
+        FinishRequest.model_validate_json(json.dumps(payload), strict=True)
+    agent = _prepared_agent()
+    agent._life_action_count = 1
+    agent.build_react_tool_schemas(readonly=False)
+    assert "invalid finish" in agent.validate_react_decisions(
+        [ReactDecision("", "finish", payload, "")], False)

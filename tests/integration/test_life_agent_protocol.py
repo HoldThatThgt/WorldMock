@@ -1366,6 +1366,83 @@ async def test_native_memory_update_hashes_real_workspace_files(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_native_memory_update_records_real_subjective_merge_without_duplicate(tmp_path) -> None:
+    """真实记忆运行时合并旧身份，原生记录入口保留合并、来源及文件证据。"""
+    import hashlib
+
+    from custom.agents.life_memory import WorldMockMemoryRuntime
+    from worldmock.footprints.experiences import project_verified_experiences
+    from worldmock.footprints.models import EventDraft
+    from worldmock.footprints.store import FootprintStore
+    from worldmock.life.memory_evidence import _memory_evidence_data
+
+    footprint = FootprintStore.create(
+        tmp_path / "run", {"run_id": "run", "agent_ids": [7]},
+        {"version": 0, "current_time": _NOW_EPOCH},
+    )
+    source = footprint.commit(footprint.state, [EventDraft(
+        event_type="activity_progress", occurred_at=_NOW_EPOCH,
+        agent_id=7, activity_id="wait-activity",
+        data={"interval_start": _NOW_EPOCH - 60, "interval_end": _NOW_EPOCH,
+              "activity": {"activity_id": "wait-activity", "kind": "wait"}},
+    )])[0]
+    facts = project_verified_experiences([source], agent_id=7, cutoff_seq=source.event_seq)
+    footprint.close()
+    workspace = tmp_path / "agent_0007"
+    environment = _StepEnvironment()
+    _create_step_workspace(workspace)
+    agent = await LifeAgent.from_workspace(workspace, _service(environment, _StepDispatcher()))
+    agent.bind_decision_context(_context())
+    observations = _observations()
+    observations[0]["data"]["verified_experiences"] = facts
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
+    runtime = agent._memory_runtime
+    assert isinstance(runtime, WorldMockMemoryRuntime)
+    store = runtime.store
+    assert store is not None
+
+    first = await runtime.after_step(
+        tick=60, t=_context().observed_at, step_count=1,
+        finish_memories=_finish_args()["memories"],
+    )
+    await agent._record_memory_update(first)
+    initial_merge_count = store.iter_episodes()[0]["merge_count"]
+    second = await runtime.after_step(
+        tick=60, t=_context().observed_at + timedelta(minutes=1), step_count=2,
+        finish_memories=_finish_args()["memories"],
+    )
+    await agent._record_memory_update(second)
+
+    episodes = store.iter_episodes()
+    assert len(episodes) == 1
+    identity = episodes[0]["id"]
+    assert episodes[0]["merge_count"] == initial_merge_count + 1
+    assert len(environment.memory_updates) == 2
+    created, merged = environment.memory_updates
+    assert created.created_episode_ids == (identity,)
+    assert created.merged_episode_ids == ()
+    assert merged.created_episode_ids == ()
+    assert merged.merged_episode_ids == (identity,)
+    assert merged.episodes == ({"id": identity, "type": "reflection",
+                                "text": episodes[0]["text"], "epistemic_status": "subjective"},)
+    assert merged.context == _context()
+    assert merged.observation_event_id == "observation-current"
+    assert merged.verified_event_ids == (source.event_id,)
+    assert merged.memory_before_sha256 == created.memory_sha256
+    assert merged.episodes_sha256 != created.episodes_sha256
+    for actual, path in ((merged.memory_sha256, store.memory_md_path),
+                         (merged.episodes_sha256, store.episodes_path),
+                         (merged.state_sha256, store.state_path)):
+        assert actual == hashlib.sha256(path.read_bytes()).hexdigest()
+    data = _memory_evidence_data(merged)
+    assert data["created_episode_ids"] == []
+    assert data["merged_episode_ids"] == [identity]
+    assert data["episodes"] == list(merged.episodes)
+    assert data["observation_event_id"] == "observation-current"
+    assert data["verified_event_ids"] == [source.event_id]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("decision_path", ["normal", "decision_statement_retry", "action_correction"])
 async def test_person_step_records_native_finish_memory_update(tmp_path, decision_path: str) -> None:
     """真实人物步骤每次仅观察一次，自述重试或行动纠错后仍保存原生 finish。"""

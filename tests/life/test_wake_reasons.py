@@ -313,3 +313,113 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
         assert _task_warning_ids(restored.state.agents[1]) == {task.task_id}
     finally:
         restored.close()
+
+
+def _warning_step(engine, state, **changes):
+    """用引擎实际装配输入测试同一边界的威胁状态转换，不重复结算身体。"""
+    from worldmock.life.rhythm import apply_decision_rhythm
+    inputs = replace(engine_rhythm_inputs(engine, state), interval_seconds=0, **changes)
+    changed, verdicts = apply_decision_rhythm(inputs)
+    return changed, verdicts[1].wake_reasons
+
+
+def test_changed_task_deadline_warns_again_and_completed_task_clears_signature(engine_factory):
+    """任务身份相同时，真实截止改变仍是新威胁；完成任务清除旧交付状态。"""
+    engine = engine_factory()
+    task = engine.scenario.tasks[0]
+    due = int(task.due_at.timestamp())
+    state = engine.state.model_copy(deep=True)
+    state.current_time = due - 1000
+    agent = state.agents[1]
+    agent.body_settled_at = state.current_time
+    agent.last_decision_time = state.current_time
+    agent.visible_task_ids = agent.known_task_ids = {task.task_id}
+    due_map = {task.task_id: due}
+    state, reasons = _warning_step(engine, state, task_due=due_map)
+    assert "task_due_soon" in reasons and "commitment_threatened" in reasons
+    original = set(state.agents[1].delivered_warning_signatures)
+    state, reasons = _warning_step(engine, state, task_due=due_map)
+    assert "task_due_soon" not in reasons and "commitment_threatened" not in reasons
+    state, reasons = _warning_step(engine, state, task_due={task.task_id: due + 60})
+    assert "task_due_soon" in reasons and "commitment_threatened" in reasons
+    assert original.isdisjoint(state.agents[1].delivered_warning_signatures)
+    signature = next(iter(state.agents[1].delivered_warning_signatures))
+    assert json.loads(signature) == ["task", task.task_id, due + 60]
+    state.paid_task_ids.add(task.task_id)
+    state, reasons = _warning_step(engine, state, task_due={task.task_id: due + 60})
+    assert not state.agents[1].delivered_warning_signatures
+    assert "commitment_threatened" not in reasons
+
+
+def test_changed_closing_time_and_new_local_commitment_warn_independently(engine_factory):
+    """同地点闭店时刻改变、同一闭店新增受威胁任务分别触发新提醒。"""
+    from zoneinfo import ZoneInfo
+    engine = engine_factory()
+    first = engine.scenario.tasks[0]
+    second = next(task for task in engine.scenario.tasks[1:]
+                  if task.required_location_id == first.required_location_id)
+    state = engine.state.model_copy(deep=True)
+    agent = state.agents[1]
+    agent.location_id = first.required_location_id
+    agent.last_decision_time = state.current_time
+    agent.visible_task_ids = agent.known_task_ids = {first.task_id}
+    local = datetime.fromtimestamp(state.current_time, ZoneInfo(engine.scenario.timezone))
+    close_minute = local.hour * 60 + local.minute + 10
+    state.opening_exceptions[agent.location_id][local.date().isoformat()] = [(0, close_minute)]
+    state, reasons = _warning_step(engine, state)
+    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
+    old = set(state.agents[1].delivered_warning_signatures)
+    state, reasons = _warning_step(engine, state)
+    assert "location_hours_change" not in reasons and "commitment_threatened" not in reasons
+    state.opening_exceptions[agent.location_id][local.date().isoformat()] = [(0, close_minute + 1)]
+    state, reasons = _warning_step(engine, state)
+    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
+    assert old.isdisjoint(state.agents[1].delivered_warning_signatures)
+    state.agents[1].visible_task_ids.add(second.task_id)
+    state.agents[1].known_task_ids.add(second.task_id)
+    state, reasons = _warning_step(engine, state)
+    assert "location_hours_change" in reasons and "commitment_threatened" in reasons
+    closing = [json.loads(value) for value in state.agents[1].delivered_warning_signatures
+               if json.loads(value)[0] == "closing"]
+    assert len(closing) == 2
+    assert {row[3].split(":")[1] for row in closing} == {first.task_id, second.task_id}
+    state.paid_task_ids.update({first.task_id, second.task_id})
+    state, reasons = _warning_step(engine, state)
+    assert not state.agents[1].delivered_warning_signatures
+    assert "commitment_threatened" not in reasons
+
+
+@pytest.mark.parametrize("resolution", ["energy", "paused", "completed"])
+def test_infeasibility_warns_once_clears_and_can_reappear(engine_factory, resolution):
+    """持续同因不重报；能量恢复、暂停或终态解除威胁，重新不可行时重新交付。"""
+    from worldmock.life.models import StartTargetedActivityRequest
+    engine = engine_factory()
+    started = act(engine, "infeasible-watch", "start_targeted_activity", StartTargetedActivityRequest(
+        activity_type="watch", target_id="sintel-en-subtitles", planned_duration_seconds=600, playback_speed=1))
+    assert started.status == "in_progress"
+    state = engine.state.model_copy(deep=True)
+    state.agents[1].body.energy_kcal = 0
+    state.agents[1].visible_task_ids = set()
+    state.agents[1].last_decision_time = state.current_time
+    state, reasons = _warning_step(engine, state)
+    expected = {f"infeasible:{started.activity_id}:insufficient_energy"}
+    assert state.agents[1].delivered_warning_signatures == expected
+    assert "activity_infeasible" in reasons and "commitment_threatened" in reasons
+    state.activities[started.activity_id].elapsed_seconds += 1
+    state, reasons = _warning_step(engine, state)
+    assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
+    assert state.agents[1].delivered_warning_signatures == expected
+    activity = state.activities[started.activity_id]
+    if resolution == "energy":
+        state.agents[1].body.energy_kcal = 2000
+    else:
+        activity.status = ActivityStatus(resolution)
+    state, reasons = _warning_step(engine, state)
+    assert not state.agents[1].delivered_warning_signatures
+    assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
+    if resolution != "completed":
+        state.activities[started.activity_id].status = ActivityStatus.ACTIVE
+        state.agents[1].body.energy_kcal = 0
+        state, reasons = _warning_step(engine, state)
+        assert state.agents[1].delivered_warning_signatures == expected
+        assert "activity_infeasible" in reasons and "commitment_threatened" in reasons

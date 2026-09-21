@@ -1,19 +1,19 @@
 {
-  "generated_at": "2026-09-21T09:15:04+00:00",
+  "generated_at": "2026-09-21T09:31:01+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "4a2a751b-b395-4f93-b173-a2a8cf01d351",
-    "manifest_hash": "52f69739935985c9a258303cb4f9a76c012166a14f3979cf97ed306a63e50649",
-    "source_identity": "d998a311ff51f518c975fb29eb1f631d13528d5a"
+    "snapshot_id": "8839f39e-a113-45f5-b24d-07ab8ebd871d",
+    "manifest_hash": "776bc38f2d1a2dc4ec880dc97b1aff897968297a079fb1c82aa3eb4dbc8ccdf7",
+    "source_identity": "aa22dc830d6a66d13f14a22a04babae5cb41ec98"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 7043,
-    "missing_branches": 309,
-    "total_branches": 7352,
-    "percent": 95.8,
+    "covered_branches": 7046,
+    "missing_branches": 304,
+    "total_branches": 7350,
+    "percent": 95.86,
     "passed": true
   },
   "per_file_branch": [
@@ -535,9 +535,9 @@
     },
     {
       "file": "src/worldmock/life/engine.py",
-      "covered_branches": 353,
-      "missing_branches": 13,
-      "percent": 96.45
+      "covered_branches": 354,
+      "missing_branches": 10,
+      "percent": 97.25
     },
     {
       "file": "src/worldmock/life/felt.py",
@@ -589,9 +589,9 @@
     },
     {
       "file": "src/worldmock/life/models.py",
-      "covered_branches": 88,
-      "missing_branches": 6,
-      "percent": 93.62
+      "covered_branches": 90,
+      "missing_branches": 4,
+      "percent": 95.74
     },
     {
       "file": "src/worldmock/life/motivation.py",
@@ -870,37 +870,6 @@
       "percent": 95.83
     }
   ],
-  "uncovered_public_interfaces": [
-    {
-      "file": "src/worldmock/life/engine.py",
-      "line": 318,
-      "name": "prepare_pending_work_review",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/engine.py",
-      "line": 561,
-      "name": "record_memory_update",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/engine.py",
-      "line": 589,
-      "name": "advance",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/models.py",
-      "line": 472,
-      "name": "validate_world",
-      "kind": "method"
-    },
-    {
-      "file": "src/worldmock/life/models.py",
-      "line": 883,
-      "name": "validate_count",
-      "kind": "method"
-    }
-  ],
-  "passed": false
+  "uncovered_public_interfaces": [],
+  "passed": true
 }

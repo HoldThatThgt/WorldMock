@@ -98,9 +98,9 @@ flowchart TB
 | `decision_prompt_token_median` | 决策 prompt token 中位数 | 15000（对照值） |
 | `effective_autonomous_decision_rate` | 最终动作非 continue/wait 的占比 | 无固定阈值 |
 | `wake_reason_distribution` | 各唤醒原因计数 | 覆盖所有唤醒类型 |
-| `wait_minutes` | 本人真实等待区间并集分钟 | 只报告，不设占比上限 |
-| `unknown_wait_minutes` | 未有可核验原因的等待区间并集分钟 | 不根据自由叙述推断目的 |
-| `content_contact_minutes` | 实际 watch 播放的区间并集分钟 | 不把等待或开始播放计为已接触 |
+| `wait_minutes` | 本人真实等待活动的实际区间累计分钟 | 只报告，不设占比上限 |
+| `unknown_wait_minutes` | 未有可核验原因的等待活动实际区间累计分钟 | 不根据自由叙述推断目的 |
+| `content_contact_minutes` | 实际 watch 播放活动的执行区间累计分钟 | 不把等待或开始播放计为已接触 |
 | `early_arrival_minutes` | 早于开门时间到达的分钟 | 最小化 |
 | `sleep_schedule` | 就寝/起床时刻与时长 | 人物卡片就寝窗口 |
 | `meal_diversity` | Simpson 集中度与 24h 重复率 | 低集中度、低重复 |

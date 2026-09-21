@@ -1,7 +1,7 @@
 # 一日行为文档双向一致性审查
 
 > 审查对象：当前未提交工作树的 `SPEC-dayrun-behavior.md`、`CONTRACTS.md`、本次修改的设计、旧规格、手册与文档入口。
-> 本页是待修订清单，不替代冻结规格或固定源码身份的验收收据；并发实现和台账仍在变动。
+> 本页保存首次诊断，不替代冻结规格或固定源码验收收据；原问题的最终关闭见文末。
 
 ## 必须同步的矛盾与遗漏
 
@@ -30,3 +30,12 @@
 本次逐项读取了修改中的 `docs/design/01-architecture.md`、`02-exchange-engine.md`、`03-resource-engine.md`、`04-simulation-engine.md`、`05-recording-engine.md`、`08-configuration.md`、`09-io-formats.md`，以及 `SPEC-dayrun-behavior.md`、`CONTRACTS.md`、`SPEC-life-runtime.md`、`SPEC-life-realism.md`、`SPEC-day-plan-goals.md`、`SPEC-interaction-menu.md`、`SPEC-map-and-storefront.md`、`docs/manual/resources.md`、`docs/manual/scenarios.md`、`docs/INDEX.md`、`docs/VERIFICATION.md` 和现行状态／追溯页。资源声明交集、ACTIVE 集合与八键控制行、每人每区间唯一 `body_settlement`、NASA 官方段落边界、三家正式餐馆供给与通用空菜单在新规格、合同及对应模块设计之间相容；上表列的是仍需处理的实质差异。
 
 本审查只核对当前可见文档与少量真实模型字段／事件入口；并发代码仍在变动。它不宣称完整自然日、全仓门禁或突变审查通过。待生产与台账固定后，应执行文档链接门禁，再对新增字段、事件和手册命令作最终双向复读。
+
+
+## 最终复核
+
+首次清单中的版本、事件载荷、记忆证据、入口状态和旧测试名已同步修正。
+后续独立审查又校正了现行 CONTRACTS 与记录设计中的两处版本、追溯表的公共身体字段归属，
+以及评估表对活动分钟和人物时间并集的口径。逐项复读结论见
+[最终独立文档复核](bob-experiences/final-document-review.md)。
+最终测试数字及特性状态统一从[实施台账](verification.md)读取，旧收据不改写成当前结果。
