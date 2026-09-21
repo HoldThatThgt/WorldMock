@@ -20,10 +20,10 @@ from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 from pydantic import ValidationError
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
+from agentsociety2.agent.base import ReactDecision, ReactLoopRequest, ReactToolResult
 from agentsociety2.society import DecisionContext
 
 import custom.agents.life_agent as life_agent_module
@@ -740,6 +740,36 @@ def test_game_tools_follow_current_visible_game_state() -> None:
     assert "game_action is not valid" in agent.validate_react_decisions([invalid], False)
 
 
+def test_social_boundary_activities_cross_decision_boundary_cancel_only() -> None:
+    """交谈/通话以 ACTIVE 跨决策边界：控制合同成立、工具面只剩 set_activity_state 且仅可取消。
+
+    run11 round 36 死点复现面：唤醒节律把计划未完的 chat/call 对齐成反馈边界后，
+    agent 侧闭集必须认识这两个非注册表 kind（docs/CONTRACTS.md「交谈与通话」：
+    不可暂停、取消任意时刻允许），否则协议错误杀死整个决策轮。
+    """
+    for kind in ("chat", "call"):
+        def mutate(data: dict, social_kind: str = kind) -> None:
+            data["active_activity"] = {"activity_id": f"act-{social_kind}",
+                                       "kind": social_kind, "status": "active"}
+
+        agent = _prepared(mutate)
+        # 工具面只含取消类控制：continue_activity 与 start_* 会被引擎按注册表
+        # 边界门槛拒绝，暴露即制造业务拒绝节律。
+        assert _tool_names(agent) == {"set_activity_state"} | _MEMORY_TOOL_NAMES
+        cancel = _decision("set_activity_state",
+                           {"activity_id": f"act-{kind}", "operation": "cancel"})
+        assert agent.validate_react_decisions([cancel], False) == ""
+        pause = _decision("set_activity_state",
+                          {"activity_id": f"act-{kind}", "operation": "pause"})
+        assert "set_activity_state is not valid" in agent.validate_react_decisions([pause], False)
+        resume = _decision("set_activity_state",
+                           {"activity_id": f"act-{kind}", "operation": "resume"})
+        assert "set_activity_state is not valid" in agent.validate_react_decisions([resume], False)
+        continue_action = _decision("continue_activity", {"activity_id": f"act-{kind}"})
+        assert "continue_activity is not available" in agent.validate_react_decisions(
+            [continue_action], False)
+
+
 def test_browse_withdrawn_without_categories_and_targeted_removed_when_empty() -> None:
     """无品类可下钻时撤下 browse_activities；全目录空时移除整个目标工具。"""
     models = _available_action_models(
@@ -899,19 +929,25 @@ def test_action_schema_requires_frozen_target_catalogs() -> None:
         agent.build_react_tool_schemas(readonly=False)
 
 
-async def test_memory_dispatch_rejects_runtime_failures_and_unknown_ids() -> None:
-    """记忆工具失败反馈与未知身份引用都按运行时错误拒绝。"""
+async def test_memory_dispatch_reports_runtime_failures_and_unknown_ids_as_retry_feedback() -> None:
+    """记忆工具失败与未知身份引用以可重试的失败反馈返回，不再 raise 杀 run（unit-16 E4）。"""
     agent = _prepared()
     agent._memory_runtime = SimpleNamespace(
         dispatch_tool=lambda action, args: (False, "memory backend unavailable", None))
-    with pytest.raises(RuntimeError, match="memory backend unavailable"):
-        await agent.dispatch_react_tool("memory_recent", {"limit": 1})
+    failure = await agent.dispatch_react_tool("memory_recent", {"limit": 1})
+    assert isinstance(failure, ReactToolResult)
+    assert failure.ok is False
+    assert "memory backend unavailable" in failure.observation
 
     agent._memory_runtime = SimpleNamespace(
         dispatch_tool=lambda action, args: (
             True, "{}", {"episodes": [{"id": "m-other", "text": "other"}]}))
-    with pytest.raises(RuntimeError, match="Memory reference does not exist"):
-        await agent.dispatch_react_tool("memory_read", {"ids": ["m-wanted"]})
+    miss = await agent.dispatch_react_tool("memory_read", {"ids": ["m-wanted"]})
+    assert isinstance(miss, ReactToolResult)
+    assert miss.ok is False
+    assert "m-wanted" in miss.observation
+    assert miss.data == {"unknown_ids": ["m-wanted"]}
+    assert "m-wanted" not in agent._life_visible_refs
     result = await agent.dispatch_react_tool("memory_read", {"ids": ["m-other"]})
     assert result.ok is True
     assert "m-other" in agent._life_visible_refs
@@ -941,7 +977,7 @@ class _RecordingEnvironment:
 class _RaisingDispatcher:
     """决策自述请求即抛出传输异常的调度器。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     async def call(self, **request):
         """注入一次传输失败。"""
@@ -952,7 +988,7 @@ def _wire(agent: LifeAgent, environment, dispatcher) -> None:
     """装配协议守卫测试所需的最小人物接线。"""
     agent._env = environment
     agent._dispatcher = dispatcher
-    agent._model_name = "deepseek-flash"
+    agent._model_name = "deepseek-v4.1-flash"
     agent._id = 7
     agent._name = "Alice"
     agent._profile = {"id": 7, "name": "Alice"}
@@ -985,7 +1021,7 @@ async def test_decision_statement_once_requires_dispatcher() -> None:
     agent = LifeAgent()
     agent._dispatcher = None
     with pytest.raises(RuntimeError, match="LLM is not initialized"):
-        await agent._decision_statement_once({"model": "deepseek-flash", "messages": []})
+        await agent._decision_statement_once({"model": "deepseek-v4.1-flash", "messages": []})
 
 
 async def test_decision_statement_transport_failure_is_recorded_and_propagated() -> None:
@@ -994,7 +1030,7 @@ async def test_decision_statement_transport_failure_is_recorded_and_propagated()
     environment = _RecordingEnvironment()
     _wire(agent, environment, _RaisingDispatcher())
     with pytest.raises(OSError, match="connection reset"):
-        await agent._decision_statement_once({"model": "deepseek-flash",
+        await agent._decision_statement_once({"model": "deepseek-v4.1-flash",
                                      "messages": [{"role": "user", "content": "hi"}]})
     assert [item.phase for item in environment.evidence] == ["request", "failure"]
     assert "connection reset" in environment.evidence[1].error

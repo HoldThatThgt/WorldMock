@@ -284,7 +284,7 @@ def _fake_labelkit_cli(monkeypatch, calls):
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(pipeline.subprocess, 'run', fake_run)
-    monkeypatch.setattr(pipeline, 'dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
+    monkeypatch.setattr(pipeline, 'dotenv_values', lambda _path: {'DEEPSEEK_NODE_KEYS': 'fixture'})
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +412,7 @@ def test_run_labelkit_rejects_wrong_input_combinations(tmp_path, monkeypatch):
 
     record = _source_record(tmp_path)
     workspace = _workspace(tmp_path, [record])
-    monkeypatch.setattr(pipeline, 'dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
+    monkeypatch.setattr(pipeline, 'dotenv_values', lambda _path: {'DEEPSEEK_NODE_KEYS': 'fixture'})
     monkeypatch.setattr(pipeline.subprocess, 'run',
                         lambda *_a, **_k: pytest.fail('rejected input must not invoke LabelKit'))
     with pytest.raises(IntegrityError, match='complete logical inputs'):
@@ -420,7 +420,7 @@ def test_run_labelkit_rejects_wrong_input_combinations(tmp_path, monkeypatch):
     with pytest.raises(IntegrityError, match='cannot receive semantic model inputs'):
         run_labelkit('rules', workspace, ROOT, [record])
     monkeypatch.setattr(pipeline, 'dotenv_values', lambda _path: {})
-    with pytest.raises(IntegrityError, match='DEEPSEEK_API_KEY is required'):
+    with pytest.raises(IntegrityError, match='DEEPSEEK_NODE_KEYS is required'):
         run_labelkit('rules', workspace, ROOT)
 
 

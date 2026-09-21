@@ -23,7 +23,11 @@ persona_card、scene、facts 三部分组成，
 - drive_summary 只含体感分级与文字摘要，不含数字权重（「观察投影与提示合同」）。
 
 观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
-current_time（ISO 8601 或 datetime）、location（地点显示名）、people_here
+current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
+day_start_epoch（当日本地 00:00 的 Unix epoch 秒）、day_end_epoch（当日结束
+即次日 00:00 的 Unix epoch 秒，DayPlan 校验的段终点上界）、bedtime_epoch
+（当日就寝锚点，DayPlan 校验的最末段覆盖边界；四者供 plan_day
+段起点/终点换算，与 current_time 并排披露）、location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activity（title/
 progress）、paused_activities（title/progress 列表）、day_plan（str 或
 summary/current_segment）、inbox_head（收件箱头字符串列表）、inbox_has_older_unread、todos_summary、
@@ -146,7 +150,7 @@ def _close_sentence(text: str) -> str:
 
 
 def _time_sentence(observation: dict) -> str:
-    """@brief 渲染时间与星期句："现在是 2026 年 9 月 18 日星期五 08:30。"。"""
+    """@brief 渲染时间与星期句：ISO 本地时间 + Unix epoch 四锚点（当前、今日 00:00 起、明日 00:00 段终点上界止、就寝锚点最末段须覆盖到）。"""
     current_time = observation.get("current_time")
     if current_time is None:
         return ""
@@ -155,8 +159,21 @@ def _time_sentence(observation: dict) -> str:
         else datetime.fromisoformat(str(current_time))
     )
     weekday = _WEEKDAY_NAMES[moment.weekday()]
-    return (f"现在是 {moment.year} 年 {moment.month} 月 {moment.day} 日"
-            f"{weekday} {moment.strftime('%H:%M')}。")
+    sentence = (f"现在是 {moment.year} 年 {moment.month} 月 {moment.day} 日"
+                f"{weekday} {moment.strftime('%H:%M')}")
+    current_epoch = observation.get("current_epoch")
+    day_start_epoch = observation.get("day_start_epoch")
+    day_end_epoch = observation.get("day_end_epoch")
+    if isinstance(current_epoch, int) and isinstance(day_start_epoch, int):
+        sentence += (f"（Unix epoch：当前 {current_epoch}，"
+                     f"今日 00:00 起 {day_start_epoch}")
+        if isinstance(day_end_epoch, int):
+            sentence += f"，明日 00:00（段终点上界）止 {day_end_epoch}"
+        bedtime_epoch = observation.get("bedtime_epoch")
+        if isinstance(bedtime_epoch, int):
+            sentence += f"，就寝锚点（最末段须覆盖到）{bedtime_epoch}"
+        sentence += "）"
+    return sentence + "。"
 
 
 def _location_sentence(observation: dict) -> str:

@@ -50,7 +50,7 @@ class AcceptingReviewer:
                        "rationale": "Supported."} for path in prepared.expected_delivery_paths]
         arguments = {"reference_assessments": references,
                      "delivery_assessments": deliveries, "accepted": True}
-        return {"id": f"review-{self.calls}", "model": "deepseek-flash",
+        return {"id": f"review-{self.calls}", "model": "deepseek-v4.1-flash",
                 "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
                 "choices": [{"message": {"tool_calls": [{
                     "id": f"review-tool-{self.calls}", "type": "function", "function": {

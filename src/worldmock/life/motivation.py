@@ -720,8 +720,8 @@ def _delivery_route_seconds(context: MotivationContext, origin: str,
 def _continue_candidate(context: MotivationContext) -> _Candidate | None:
     """@brief 继续当前活动：按剩余计划时长推导资源流，不可行能量时不出候选。"""
     activity = context.active_activity
-    if activity is None:
-        return None
+    if activity is None or activity.kind in (ActivityKind.CHAT, ActivityKind.CALL):
+        return None  # 无当前活动；交谈/通话仅可取消且不在注册表 MET 表内
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     if remaining < 60:
         return None

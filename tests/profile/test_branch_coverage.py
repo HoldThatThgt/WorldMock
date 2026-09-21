@@ -167,9 +167,9 @@ class FakeSession:
 
 @pytest.fixture(autouse=True)
 def isolate_credentials(monkeypatch, tmp_path):
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_NODE_KEYS", raising=False)
     monkeypatch.setattr(extractor, "CREDENTIALS_PATH", tmp_path / "absent.env")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "test-key")
 
 
 def test_single_run_retries_on_http_errors_then_raises():

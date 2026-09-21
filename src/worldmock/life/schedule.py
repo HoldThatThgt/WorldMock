@@ -52,6 +52,16 @@ MIN_PLAN_SEGMENTS = 5
 MAX_PLAN_SEGMENTS = 8
 """日程骨架最多段数（docs/dev/SPEC-life-realism.md「日程骨架」）。"""
 
+PLAN_NOTE_MAX_CHARS = 300
+"""计划段备注上限字符数。
+
+note 原文进入之后每一轮的观察 facts（projection `_plan_fact` → render_facts，
+无截断），无界 note 会持久化进 day_plan 后在下一次提示构建击穿 40000 字符
+预算（PromptBudgetExceededError，fail-closed 不截断）且永久复发。300 对齐
+既有模型自写文本上限的量级（社交消息 MESSAGE_TEXT_MAX_CHARS=300）；按
+MAX_PLAN_SEGMENTS=8 段全满计，计划 facts 贡献至多约 2400 字符。
+"""
+
 
 class WakeReason(str, Enum):
     """@brief 唤醒原因冻结枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」，成员集不可增删）。"""
@@ -286,6 +296,14 @@ class PlanSegment(BaseModel):
         """@brief 校验段跨度为正。"""
         if self.start >= self.end:
             raise ValueError("segment start must be earlier than end")
+        return self
+
+    @model_validator(mode="after")
+    def _check_note_length(self) -> "PlanSegment":
+        """@brief 校验备注不超过 PLAN_NOTE_MAX_CHARS（持久层上限，见常量注释）。"""
+        if len(self.note) > PLAN_NOTE_MAX_CHARS:
+            raise ValueError(
+                f"segment note exceeds {PLAN_NOTE_MAX_CHARS} characters: got {len(self.note)}")
         return self
 
 

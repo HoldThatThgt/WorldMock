@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError
@@ -38,10 +38,12 @@ from worldmock.validation import validate_two_stage_model_identity
 
 
 def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
-    """运行身份记录完整 beta URL 和唯一 strict 请求参数。"""
+    """运行身份记录完整节点 URL 和唯一 strict 请求参数。"""
     identity = _model_identity().model_dump(mode="json")
 
-    assert identity["base_url"] == "https://api.deepseek.com/beta"
+    assert identity["base_url"] == "https://openrouter.ai/api/v1"
+    assert identity["provider"] == "openai_compatible"
+    assert identity["requested_model"] == "deepseek-v4.1-flash"
     assert identity["tool_choice"] == "auto"
     assert identity["thinking"] == "enabled"
     assert identity["max_retries"] == 0
@@ -76,7 +78,7 @@ def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
                                 "tool_choice": ACTION_TOOL_CHOICE}
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
-    assert identity["base_url"].endswith("/beta")
+    assert identity["base_url"].endswith("/v1")
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
 
@@ -93,10 +95,10 @@ def test_two_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
     with pytest.raises(IntegrityError, match="decision_statement"):
         validate_two_stage_model_identity(tampered)
 
-    no_beta = copy.deepcopy(identity)
-    no_beta["base_url"] = "https://api.deepseek.com"
-    with pytest.raises(IntegrityError, match="beta"):
-        validate_two_stage_model_identity(no_beta)
+    wrong_endpoint = copy.deepcopy(identity)
+    wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
+    with pytest.raises(IntegrityError, match="base_url"):
+        validate_two_stage_model_identity(wrong_endpoint)
 
     reasoning = copy.deepcopy(identity)
     reasoning["reasoning_effort"] = "high"
@@ -418,7 +420,7 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
 class _StubContactReplyClient:
     """NPC 送达集成测试的联系人回复客户端桩（记录请求、返回脚本化响应）。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self, model_identity):
         self.calls = []

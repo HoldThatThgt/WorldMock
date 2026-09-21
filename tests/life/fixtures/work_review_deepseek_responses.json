@@ -46,7 +46,7 @@
         ],
         "created": 1789458204,
         "id": "a51517d7-7ef6-48f6-8d1b-8232e9e03d34",
-        "model": "deepseek-flash",
+        "model": "deepseek-v4.1-flash",
         "object": "chat.completion",
         "service_tier": null,
         "system_fingerprint": "aeb56401ca74e127821c4f9126dcb669",
@@ -108,7 +108,7 @@
         ],
         "created": 1789458210,
         "id": "552d1f1d-e1f1-46ec-95aa-623ad5468a77",
-        "model": "deepseek-flash",
+        "model": "deepseek-v4.1-flash",
         "object": "chat.completion",
         "service_tier": null,
         "system_fingerprint": "aeb56401ca74e127821c4f9126dcb669",
@@ -127,7 +127,7 @@
       }
     }
   ],
-  "model": "deepseek-flash",
+  "model": "deepseek-v4.1-flash",
   "provider": "deepseek",
   "schema_version": 1
 }

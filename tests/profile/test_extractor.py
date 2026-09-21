@@ -45,9 +45,9 @@ def variant_payload(**overrides):
 @pytest.fixture(autouse=True)
 def isolate_credentials(monkeypatch, tmp_path):
     """@brief 测试不依赖真实凭据。"""
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_NODE_KEYS", raising=False)
     monkeypatch.setattr(extractor, "CREDENTIALS_PATH", tmp_path / "absent.env")
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "test-key")
 
 
 def test_three_run_consensus_picks_field_modes():
@@ -182,32 +182,118 @@ def test_rejects_empty_story_and_bad_runs():
 
 
 def test_request_payload_shape():
-    """@brief 请求载荷：温度 0.3、json_object 输出、system+user 双消息。"""
+    """@brief 请求载荷：温度 0.3、json_object 输出、system+user 双消息、reasoning 上限。"""
     session = FakeSession([FakeResponse(content=make_payload())])
     extractor.extract_persona("某段背景故事", n_runs=1, session=session)
     call = session.calls[0]
     assert call["url"] == extractor.API_URL
     payload = call["json"]
     assert payload["temperature"] == 0.3
+    assert payload["max_tokens"] == extractor.MAX_COMPLETION_TOKENS == 8000
+    assert payload["reasoning"] == {"max_tokens": extractor.MAX_REASONING_TOKENS}
+    assert extractor.MAX_REASONING_TOKENS == 3000
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["messages"][0]["role"] == "system"
     assert "某段背景故事" in payload["messages"][1]["content"]
     assert call["headers"]["Authorization"] == "Bearer test-key"
 
 
+def test_none_content_is_invalid_payload_and_retries():
+    """@brief content=None（reasoning 烧穿补全预算）归类无效 payload：ValueError 走既有重试，不裸 TypeError。"""
+    session = FakeSession([
+        FakeResponse(content=None),
+        FakeResponse(content=make_payload()),
+    ])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 2
+    assert result.card.coping
+
+
+def test_empty_content_is_invalid_payload_and_retries():
+    """@brief 空串/纯空白正文同型归类无效 payload 并在重试预算内恢复。"""
+    session = FakeSession([
+        FakeResponse(content=""),
+        FakeResponse(content="   "),
+        FakeResponse(content=make_payload()),
+    ])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 3
+    assert result.card.coping
+
+
+def test_all_attempts_none_content_raise_extraction_error():
+    """@brief 持续 content=None -> 明确 ExtractionError 且错误类型为 ValueError 口径。"""
+    session = FakeSession([FakeResponse(content=None)] * 3)
+    with pytest.raises(extractor.ExtractionError,
+                       match="empty or non-string model content"):
+        extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 3
+
+
 def test_resolve_api_key_priority(monkeypatch, tmp_path):
     assert extractor.resolve_api_key("explicit") == "explicit"
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "from-env")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "from-env")
     assert extractor.resolve_api_key() == "from-env"
-    monkeypatch.delenv("DEEPSEEK_API_KEY")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "pool-1, pool-2")
+    assert extractor.resolve_api_key() == "pool-1"
+    monkeypatch.delenv("DEEPSEEK_NODE_KEYS")
     credentials = tmp_path / "deepseek.env"
-    credentials.write_text("export DEEPSEEK_API_KEY=from-file\n", encoding="utf-8")
+    credentials.write_text("DEEPSEEK_NODE_KEYS=file-pool-1,file-pool-2\n", encoding="utf-8")
     monkeypatch.setattr(extractor, "CREDENTIALS_PATH", credentials)
-    assert extractor.resolve_api_key() == "from-file"
+    assert extractor.resolve_api_key() == "file-pool-1"
 
 
 def test_resolve_api_key_missing_everywhere(monkeypatch, tmp_path):
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_NODE_KEYS", raising=False)
     monkeypatch.setattr(extractor, "CREDENTIALS_PATH", tmp_path / "absent.env")
-    with pytest.raises(extractor.ExtractionError, match="DEEPSEEK_API_KEY"):
+    with pytest.raises(extractor.ExtractionError, match="DEEPSEEK_NODE_KEYS"):
         extractor.resolve_api_key()
+
+
+def test_null_habit_time_window_is_invalid_payload_and_retries():
+    """@brief habits.time_window=null 是无效 payload：走既有重试路径，不炸 AttributeError。"""
+    payload = json.loads(make_payload())
+    payload["habits"][0]["time_window"] = None
+    session = FakeSession([
+        FakeResponse(content=json.dumps(payload, ensure_ascii=False)),
+        FakeResponse(content=make_payload()),
+    ])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 2
+    assert result.card.habits[0].time_window.start_hour == 19.0
+
+
+def test_all_attempts_null_habit_time_window_raise_extraction_error():
+    """@brief 持续 null 窗口 -> 明确 ExtractionError（不给 null 编默认窗口）。"""
+    payload = json.loads(make_payload())
+    payload["habits"][0]["time_window"] = None
+    session = FakeSession([FakeResponse(
+        content=json.dumps(payload, ensure_ascii=False))] * 3)
+    with pytest.raises(extractor.ExtractionError, match="invalid time range"):
+        extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 3
+
+
+def test_non_string_habit_time_window_is_invalid_payload():
+    """@brief 非字符串窗口（数组）同型归类无效 payload 并重试。"""
+    payload = json.loads(make_payload())
+    payload["habits"][1]["time_window"] = ["22:30", "23:00"]
+    session = FakeSession([
+        FakeResponse(content=json.dumps(payload, ensure_ascii=False)),
+        FakeResponse(content=make_payload()),
+    ])
+    extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 2
+
+
+def test_null_big_five_dimension_is_invalid_payload_and_retries():
+    """@brief big_five null 维度在 _parse_payload 即拒（否则穿透到共识中位数排序处 TypeError）。"""
+    payload = json.loads(make_payload())
+    payload["big_five"]["openness"] = None
+    session = FakeSession([
+        FakeResponse(content=json.dumps(payload, ensure_ascii=False)),
+        FakeResponse(content=make_payload()),
+    ])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert len(session.calls) == 2
+    assert result.big_five.openness == 5

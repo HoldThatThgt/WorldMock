@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError
@@ -36,9 +36,9 @@ def _run_identity(scenario) -> RunIdentity:
         timezone=scenario.timezone,
         code_sha256="3" * 64,
         model_identity=ModelIdentity(
-            provider="deepseek",
-            base_url="https://api.deepseek.com/beta",
-            requested_model="deepseek-flash",
+            provider="openai_compatible",
+            base_url="https://openrouter.ai/api/v1",
+            requested_model="deepseek-v4.1-flash",
             thinking="enabled",
             tool_choice="auto",
             max_retries=0,
@@ -88,10 +88,10 @@ def test_manifest_two_stage_identity_tampering_is_rejected(tmp_path) -> None:
     tampered["stages"]["decision_statement"]["temperature"] = 0.7
     with pytest.raises(IntegrityError, match="decision_statement"):
         validate_two_stage_model_identity(tampered)
-    no_beta = copy.deepcopy(frozen)
-    no_beta["base_url"] = "https://api.deepseek.com"
-    with pytest.raises(IntegrityError, match="beta"):
-        validate_two_stage_model_identity(no_beta)
+    wrong_endpoint = copy.deepcopy(frozen)
+    wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
+    with pytest.raises(IntegrityError, match="base_url"):
+        validate_two_stage_model_identity(wrong_endpoint)
 
 
 @pytest.mark.parametrize("keep_current", [False, True])

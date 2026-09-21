@@ -52,7 +52,7 @@ class FakeSession:
 @pytest.fixture(autouse=True)
 def fake_extraction_session(monkeypatch):
     """@brief 编译测试不真实调 API：打桩三次一致的提取会话。"""
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "test-key")
     session = FakeSession([make_payload()] * 3)
 
     def fake_extract(story, n_runs=3, **kwargs):

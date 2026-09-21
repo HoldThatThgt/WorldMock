@@ -116,12 +116,16 @@ InteractionMenu = {
 
 `plan_day` 与 `revise_day_plan` 提交同一形状的段序列。请求模型层只要求 `intent_kind` 是非空白文本；意图闭集与骨架约束由当日骨架的构造与校验承担。
 
+单位披露合同：`start`/`end` 是绝对 Unix epoch 秒（UTC）。工具描述与 `PlanSegmentInput.start`/`end` 字段描述必须写明该单位（"absolute Unix epoch seconds (UTC), never minutes-of-day"）；scene 与 facts 在 `current_time`（ISO 本地时间）旁并排披露 `current_epoch`（当前时刻）、`day_start_epoch`（当日本地 00:00）、`day_end_epoch`（当日结束，即次日 00:00）与 `bedtime_epoch`（当日就寝锚点，人物特有），模型据此直接换算、不必猜单位。提示只给 ISO 本地时间时模型曾以"当日分钟数"提交（1/20/470/1350），烧掉约四成模型调用直至预算耗尽（runs/deepseek-day-openrouter 实证）。
+
+边界披露合同：`day_end_epoch` 与当日骨架校验的拒绝边界同源——同一 `day_end_seconds(now, timezone)`（场景时区次日零点），段 `end` 超过它即 `PLAN_SEGMENTS_INVALID`（"segment ends after day_end"）。披露值即校验值，模型不再需要猜"当日还剩多久"；就寝窗口跨午夜（末端 >24h）的人物，其就寝锚点被钳制不超过 `day_end_epoch`（见 `bedtime_anchor`）。只披露两个起点锚点而不披露终点上界时，模型规划末段"看到睡觉"只能猜边界值，猜过线即拒且拒绝消息不含边界值，run10 一日模拟 agent 2 因此连续 10 次被拒触发 fail-closed 死亡（decision `a85e7c73…:agent:2`，segment 7 ends after day_end）。`bedtime_epoch` 与当日骨架校验的就寝覆盖边界同源——同一 `bedtime_anchor(now, timezone, declared_end_hour)`（`AgentConfig.bedtime_window` 末端小时，未声明走 persona-mapping 缺省，跨午夜钳制 ≤ `day_end_epoch`；`engine._plan_day` 对同一人物取同一末端），最末段 `end` 低于它即 `PLAN_SEGMENTS_INVALID`（"plan does not cover until bedtime"），`revise_day_plan` 修订结果经同一校验。披露值即校验值，就寝不跨午夜的人物（锚点严格早于 `day_end_epoch`）规划"最后一段到就寝"时不再需要猜就寝时刻。
+
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | `start` | 整数，UTC 纪元秒，大于零 | 段起点 |
-| `end` | 整数，UTC 纪元秒，大于零 | 段终点，必须晚于 `start` |
+| `end` | 整数，UTC 纪元秒，大于零 | 段终点，必须晚于 `start`，不得超过披露的 `day_end_epoch`（越过即 `PLAN_SEGMENTS_INVALID`），且最末段的 `end` 须到达披露的 `bedtime_epoch`（低于即 `PLAN_SEGMENTS_INVALID`） |
 | `intent_kind` | 文本 | 段意图，取下方闭集十一项之一 |
-| `note` | 文本 | 一句话说明，允许空串 |
+| `note` | 文本 | 一句话说明，允许空串，上限 300 字符（与消息文本同限；请求模型与当日骨架持久层同限执行，超出即拒绝） |
 
 | 约束 | `plan_day` | `revise_day_plan` |
 | --- | --- | --- |
@@ -174,6 +178,7 @@ IntentKind = Literal[
 | `PLAN_SEGMENTS_INVALID` | 段数、段跨度或骨架约束不满足 |
 | `PLAN_SEGMENT_ALREADY_STARTED` | 试图改写已经开始或早于当前时刻的段 |
 | `PLAN_NOT_FOUND` | 当日计划不存在时发起改写 |
+| `ACTION_REQUEST_INVALID` | 请求载荷未通过引擎边界再验证（任何工具的通用兜底；如绕过构造期校验的超长 `note`） |
 
 ### 请求字段与结算检查
 
@@ -211,12 +216,12 @@ IntentKind = Literal[
 | `consume` | `duration_seconds` | 60–14400 秒 |
 | `game_action` | `command` | 不超过 200 字符 |
 | `browse_activities` | `category` | 模式 `^[a-z][a-z0-9_]*$` |
-| `browse_activities` | `cursor` | 可空文本；非空时必须是上一页返回的 `next_cursor` 原值，不解析其内部结构 |
+| `browse_activities` | `cursor` | 可空文本；字符串 `"null"`/`"None"` 与纯空白按首屏 `null` 归一；其余非空时必须是上一页返回的 `next_cursor` 原值，不解析其内部结构；载荷不合形状时该次调用以 `BROWSE_CURSOR_INVALID` 拒绝 |
 | `send_message` | `text` | 不超过 300 字符 |
 | `start_social_activity` | `duration_minutes` | 1–120 分钟 |
 | `submit_work` | `deliverable` | 会议纪要结构：`summary`、`decisions`、`action_items`，三者均不得为空白 |
 
-**可空与缺省不同**：`browse_activities.cursor` 和发现动作的可空筛选字段都必须显式填写。首屏游标为 `null`，后续屏提交上一页 `next_cursor` 原值；发现筛选的 `null` 表示不增加该筛选。缺字段仍拒绝，不生成隐含条件。
+**可空与缺省不同**：`browse_activities.cursor` 和发现动作的可空筛选字段都必须显式填写。首屏游标为 `null`，后续屏提交上一页 `next_cursor` 原值；发现筛选的 `null` 表示不增加该筛选。缺字段仍拒绝，不生成隐含条件。首屏游标若被写成字符串 `"null"`/`"None"`（browse_activities 另含纯空白），环境在请求边界归一为 `null`；解析不了的非空游标文本按业务错误拒绝该次调用（browse_activities 为 `BROWSE_CURSOR_INVALID`，发现动作为 `DISCOVERY_CURSOR_INVALID`），不静默从首页重读。
 
 请求不能指定任意文件路径让环境读取；引用只允许已经登记且对人物可见的素材，实际文本交付由宿主保存成新素材。请求校验失败返回明确业务错误，环境不自动修改数量、替换商品、改变目的地或选择其他行动。
 
@@ -449,6 +454,8 @@ MessageKind = Literal["direct", "chat_invite"]
 | 错误码 | 触发条件 |
 | --- | --- |
 | `RECIPIENT_NOT_FOUND` | 消息收件人既非同世界人物也非本人声明的联系人 |
+| `MESSAGE_TEXT_TOO_LONG` | 消息文本超过 300 字符 |
+| `CHAT_PARTNER_NOT_AVAILABLE` | 发起交谈时对方不在同一地点或不可交谈（睡眠/主动游戏中） |
 | `SOCIAL_PARTNER_NOT_FOUND` | 交谈对象不在世界人物中 |
 | `CONTACT_NOT_FOUND` | 通话对象不是本人声明的联系人 |
 | `CALL_DURATION_OUT_OF_RANGE` | 通话时长超出 10–60 分钟 |
@@ -479,8 +486,8 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文自然语言场景段落的渲染输入；`people_here` 是姓名列表，`day_plan` 是 `{summary, current_segment}`，活动行是 `{title, progress}` |
-| `facts` | `current_time`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具需要的事实清单；`day_plan` 是 `{segments, current_segment}` |
+| `scene` | `current_time`, `current_epoch`, `day_start_epoch`, `day_end_epoch`, `bedtime_epoch`, `location`, `people_here`, `felt`, `current_activity`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `recent_action_results` | 中文自然语言场景段落的渲染输入；`people_here` 是姓名列表，`day_plan` 是 `{summary, current_segment}`，活动行是 `{title, progress}`；`current_epoch`/`day_start_epoch`/`day_end_epoch`/`bedtime_epoch` 是当前时刻、当日本地 00:00、当日结束（次日 00:00）与当日就寝锚点（人物特有）的 Unix epoch 秒（「日程骨架请求」单位与边界披露合同，时间句内并排渲染） |
+| `facts` | `current_time`, `current_epoch`, `day_start_epoch`, `day_end_epoch`, `bedtime_epoch`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具需要的事实清单；`day_plan` 是 `{segments, current_segment}`；`current_epoch`/`day_start_epoch`/`day_end_epoch`/`bedtime_epoch` 语义同 scene 行 |
 
 | `scene` 行 | 字段 |
 | --- | --- |
@@ -514,6 +521,22 @@ flowchart LR
 两类判断的 `rationale` 不得包含本次评审任一内部参考身份或 SHA-256 摘要。
 解析阶段将此类输出作为协议错误，按既有评审预算纠错并保存原始响应；公开投影入口重复验证该边界。
 合法理由完整保留，不截短、不生成替代理由。内部身份、摘要与完整评审证据只留在宿主侧。
+
+### 活动控制行
+
+观察顶层的 `active_activity` 是事件级工具支持行，供 LifeAgent 冻结本轮活动控制合同（继续/暂停/取消的身份枚举），不进 scene/facts 提示。人物活动槽位为空时整体为 `null`；非空时控制行是恰好 7 键的字段闭集：
+
+| 字段 | 说明 |
+| --- | --- |
+| `activity_id` | 活动不透明身份 |
+| `kind` | 活动类型字符串（`ActivityKind` 枚举值） |
+| `status` | 恒为 `"active"`：槽位不变量保证 `current_activity_id` 非空时指向的活动必为 ACTIVE——完成、暂停、取消与截断都先离开 ACTIVE 并清空槽位，不存在非 active 活动留在槽内的路径 |
+| `title` | 关联内容或任务标题，无关联时为 `null` |
+| `progress` | 中文进度短语，与 scene 活动行同源 |
+| `elapsed_seconds` | 已进行整数秒 |
+| `planned_duration_seconds` | 计划整数秒 |
+
+同顶层的 `paused_activities` 为暂停活动列表，每项是活动完整 `model_dump`（含 `status="paused"`）加 `remaining_duration_seconds`、`minimum_energy_cost_kcal`、`resume_energy_feasible` 三键。两个顶层字段的 `status` 均由 LifeAgent 控制合同校验：缺键或非闭集值时本轮决策明确失败，不静默降级。
 
 ### 体感与动机证据
 
@@ -717,24 +740,28 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 ### 生成参数
 
-| 阶段 | `thinking` | `temperature` | `max_tokens` | `tool_choice` | `tools` |
-| --- | --- | --- | --- | --- | --- |
-| 决策自述 | `disabled` | 1.3 | 400 | 不发送 | 不发送 |
-| 行动 | `enabled` | 不发送 | 不发送 | `auto` | 原生生活工具 |
-| 工作验收 | `disabled` | 不发送 | 不发送 | `required` | 单个验收工具 |
+| 阶段 | `thinking` | `temperature` | `max_tokens` | `reasoning` 上限 | `tool_choice` | `tools` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 决策自述 | `disabled` | 1.0 | 8000 | 1500 | 不发送 | 不发送 |
+| 行动 | `enabled` | 不发送 | 不发送 | 不发送 | `auto` | 原生生活工具 |
+| 工作验收 | `disabled` | 不发送 | 不发送 | 不发送 | `required` | 单个验收工具 |
+| 联系人回复 | `disabled` | 不发送 | 8000 | 1500 | 不发送 | 不发送 |
+| 画像抽取 | 不发送 | 0.3 | 8000 | 3000 | 不发送 | 不发送 |
 
-`thinking` 经请求的扩展体发送。思考模式的服务端拒绝 `tool_choice=required`，行动阶段的工具选择因此固定为 `auto`，模型不产出工具调用时由 ReAct 协议纠错回合兜底。决策自述以 `temperature=1.3` 与 `max_tokens=400` 作为形状标识：记忆巩固与反思的模型调用既不带工具也不带这两个参数，因此可与决策自述请求区分。
+`thinking` 经请求的扩展体发送；三个有界生成调用点（决策自述、联系人回复、画像抽取）的 `reasoning` 上限同为 OpenRouter 扩展参数——前两者经扩展体发送，画像抽取是独立 requests 客户端、直接进请求体顶层。思考模式的服务端拒绝 `tool_choice=required`，行动阶段的工具选择因此固定为 `auto`，模型不产出工具调用时由 ReAct 协议纠错回合兜底。决策自述以 `temperature=1.0` 与 `max_tokens=8000` 作为形状标识：记忆巩固与反思的模型调用既不带工具也不带这两个参数，因此可与决策自述请求区分。`max_tokens` 预算覆盖 OpenRouter `deepseek-v4.1-flash` 每响应必带的 reasoning 耗量（抽取阶段实测峰值 4925-6916），不足则 content 为空；reasoning 上限（决策自述/联系人回复 1500、画像抽取 3000）防偶发 reasoning 思考螺旋烧穿全部 `max_tokens`（`finish=length`、content 为空）——只截断思考不伤内容、只切病理尾部（健康 reasoning 分布 100-2000、抽取重尾 4916-6916），但属软限制：temp 1.3 病态样本实测 reasoning 3587 超 1500 上限，不可依赖为硬保障；`reasoning.effort` 实测破坏输出（content 为空），不发送。决策自述温度 1.0 的依据：模型更换后 temp 1.3 偶发采样脱轨（reasoning 螺旋烧穿/多语言乱码/超长输出，均发于一日模拟 07:30 最富上下文轮次，累计 12 发 5 发病态），同请求 temp 1.0 与 0.8 各 4 发全部正常（8/8），故 1.3→1.0。
 
 ### 模型身份
 
 | 键 | 值 |
 | --- | --- |
-| `provider` | `deepseek` |
-| `base_url` | `https://api.deepseek.com/beta` |
-| `requested_model` | `deepseek-flash` |
+| `provider` | `openai_compatible` |
+| `base_url` | `https://openrouter.ai/api/v1` |
+| `requested_model` | `deepseek-v4.1-flash` |
 | `max_retries` | 0 |
 | 工具声明 | 每个函数声明 `strict=true` |
 | `reasoning_effort` | 不发送 |
+
+运行凭据来自唯一私密文件 `~/.config/worldmock/deepseek.env`，schema 仅允许 `DEEPSEEK_NODE_KEYS` 一个键：值为逗号分隔的至少一个非空密钥段，读取时逐段去除首尾空白、按出现顺序去重后以逗号连接传给仿真 LLM 与 CODER 角色；拒绝符号链接、未知键、空值与空段。多把密钥在 LiteLLM Router 中按 deployment 负载分摊。
 
 阶段键为 `decision_statement`、`action`、`work_review`。逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。新建、打开既有运行、恢复及从工作区加载均拒绝旧阶段名称，不提供别名或迁移。显式无模型身份的引擎直驱路径不生成替代模型身份。
 
@@ -859,14 +886,14 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | `identity` | `Identity` | 身份：`age` 取 16–100，`occupation` 不超过 20 字，`living_arrangement` 不超过 30 字 |
 | `relationships` | `Relationship[]`，1–4 条 | 关系：`name_or_appellation` 不超过 12 字、`role` 不超过 12 字、`intimacy` 取 0–30 整数、`channels` 取 1–3 项非空文本 |
 | `situation` | `Situation` | 当下处境：`busy_this_week`（本周在忙什么）与 `cares_about`（在意什么），各不超过 60 字 |
-| `time_anchors` | `TimeAnchors` | 时间锚点：`wake`、`leave_home`、`lunch`、`dinner`、`bedtime` 五个时间窗口，按起点排列为起床 < 出门 < 午餐 < 晚餐 < 就寝 |
+| `time_anchors` | `TimeAnchors` | 时间锚点：`wake`、`leave_home`、`lunch`、`dinner`、`bedtime` 五个时间窗口，按起点排列为起床 < 出门 < 午餐 < 晚餐 < 就寝；递增序列后的回绕小值构造时确定性 +24 归一为次日锚点（1.0→25.0，落在字段值里），归一后仍不单调的（同日乱序，如 8→7）拒绝 |
 | `chronotype_midsleep` | 浮点，小时 | 时型（自由日睡眠中点），取 [0, 24)，吸附 0.25 小时格点 |
 | `sleep_need_hours` | 浮点，小时 | 睡眠需要，取 7.0–9.0，吸附 0.25 小时格点，默认 7.5 |
 | `habits` | `HabitSignature[]`，至多 5 条 | 习惯签名：`trigger` 不超过 30 字、`response` 不超过 40 字、`time_window` |
 | `tastes` | `Tastes` | 口味：`content_genres` 至多 6 项、`food_preferences` 至多 6 项、`media` 至多 4 项，条目非空且去重；内容题材与内容条目 `genre[]` 确定性匹配得到 `taste_weights`，只供内部评分器与浏览排序使用 |
 | `coping` | 文本 | 应对方式（压力时做什么），不超过 60 字 |
 
-时间窗口（`TimeWindow`）取自午夜起的小时数，半开区间：`start_hour` 取 [0, 24)，`end_hour` 取 (0, 30]，两者吸附 0.5 小时格点，跨度不超过 12 小时。就寝窗口允许跨午夜，`end_hour` 可大于 24（如 23–25 表示到次日 01:00）。当日计划骨架的就寝锚点取场景人物声明的就寝窗口末端；未声明时走画像映射配置的默认锚点窗口末端。
+时间窗口（`TimeWindow`）取自午夜起的小时数，半开区间：`start_hour` 取 [0, 30)，`end_hour` 取 (0, 30]，两者吸附 0.5 小时格点，跨度不超过 12 小时。就寝窗口允许跨午夜：`end_hour` 可大于 24（如 23–25 表示到次日 01:00）；锚点回绕归一后 `start_hour` 亦可大于 24（25 表示次日 01:00），上限为次日 06:00 地平线（30 小时）。当日计划骨架的就寝锚点取场景人物声明的就寝窗口末端；未声明时走画像映射配置的默认锚点窗口末端。
 
 编译产物（`CompiledPersona`）除卡片外还包含 `big_five`（大五五维各取 1–7 整数）、`world_dynamics`（大五到世界层动力学参数）、`source`（`background_story` 指纹、抽取模型、提示版本，以及三次一致性的运行次数与逐字段平均众数占比）、`schema_version` 与 `warnings`。抽取提示版本为 `card-v1`，卡片结构版本为 2。出现 `occupation`、`routine_preference`、`consumption_preference`、`risk_preference` 四个已删除模板字段的旧档案明确报错，不静默兼容。
 
@@ -1177,3 +1204,12 @@ RunPhase = Literal[
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
 | `2026-09-20-interaction-menu` | 2026-09-20 | 冻结地点类与人物交互菜单声明、观察证据、模型与宿主共同门控及环境拒绝合同 |
 | 2026-09-20-category | 2026-09-20 | 冻结品类、对象增量、来源审核、闭集交换算子、库存输出绑定、维护命令与内容身份字段 |
+| 2026-09-20-max-tokens | 2026-09-20 | 决策自述生成参数 `max_tokens` 400→2000：OpenRouter `deepseek-v4.1-flash` 每响应必带 reasoning 耗 token，400 预算下 content 必空（冒烟实证） |
+| 2026-09-20-statement-budget | 2026-09-20 | 决策自述生成参数 `max_tokens` 2000→8000：抽取阶段实测 reasoning 峰值 4925-6916，2000 预算下复杂决策 content 被 reasoning 烧穿（一日模拟 07:30 中断实证）；联系人回复代码常量同步 8000（合同无独立条目） |
+| 2026-09-20-reasoning-cap | 2026-09-20 | 三个有界生成调用点加 reasoning 上限（决策自述 1500、联系人回复 1500、画像抽取 3000，OpenRouter 扩展参数 `reasoning.max_tokens`）：temp 1.3 偶发 reasoning 思考螺旋烧穿全部 `max_tokens`（`finish=length`、content 为空，两次一日模拟 07:30 实测）；上限实测被尊重且只截断思考不伤内容；`reasoning.effort` 实测破坏输出，禁用。生成参数表新增 `reasoning` 上限列与联系人回复、画像抽取两行 |
+| 2026-09-20-temp-1-0 | 2026-09-20 | 决策自述生成参数 `temperature` 1.3→1.0：模型更换后旧温度偶发采样脱轨（reasoning 螺旋烧穿/多语言乱码/超长输出，均发于一日模拟 07:30 最富上下文轮次，累计 12 发 5 发病态；乱码样本 reasoning 3587 超 1500 上限，证实 `reasoning.max_tokens` 为软限制、正文中「实测被尊重」表述同步修正）；同请求 temp 1.0 与 0.8 各 4 发全部正常（8/8）。联系人回复请求不带 `temperature`（表载「不发送」），无变更 |
+| 2026-09-20-active-activity | 2026-09-20 | 观察投影字段节新增活动控制行合同：`active_activity` 控制行冻结为 7 键闭集（含 `status`，槽位不变量下恒 `"active"`），`paused_activities` 为完整 dump 加恢复可行性三键。迁移到极简控制行时丢 `status` 键曾致 LifeAgent 控制合同构建崩溃（runs/deepseek-day-openrouter 一日模拟 08:00 轮实证）；字段闭集防两侧再漂移 |
+| `2026-09-20-killpoint-conversions` | 2026-09-20 | 模型可控输入的引擎严格路径全部转为业务拒绝：`note` 上限 300 字符进日程骨架字段表（请求模型与持久层同限）；社交拒绝错误码表补 `MESSAGE_TEXT_TOO_LONG` 与 `CHAT_PARTNER_NOT_AVAILABLE`（交谈共同在场/可交谈校验）；结算拒绝错误码表补通用兜底 `ACTION_REQUEST_INVALID`（引擎边界请求再验证）。此前四条路径以裸异常穿透 `commit_decision_round` 杀死整个 run（unit-15 审计 E1-E3 探针复现），agent 侧记忆工具幻觉 id 改为可重试失败反馈（E4） |
+| `2026-09-20-plan-epoch-disclosure` | 2026-09-20 | 日程骨架单位披露合同：schema 一直要求 epoch 秒但提示只给 ISO 本地时间，模型猜成"当日分钟数"烧掉 33/83≈40% 模型调用直至 ReAct 预算耗尽（unit-11 审计 §6）。plan_day/revise_day_plan 工具描述与 `PlanSegmentInput.start/end` 字段描述写明绝对 Unix epoch 秒（UTC）；scene/facts 在 `current_time` 旁披露 `current_epoch` 与 `day_start_epoch`，时间句内并排渲染。工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
+| `2026-09-20-day-end-disclosure` | 2026-09-20 | 日程骨架披露第三个锚点 `day_end_epoch`（当日结束，即场景时区次日 00:00）：与 `day_end_seconds`/DayPlan 校验拒绝边界同源（段 `end` 越过即 `PLAN_SEGMENTS_INVALID`）。此前只披露 `current_epoch`/`day_start_epoch`，模型规划末段只能猜当日结束边界，猜过线即拒且拒绝消息不含边界值，run10 一日模拟 agent 2 连续 10 次被拒触发 fail-closed 死亡（unit-18）。scene/facts 键表、时间句、`PlanSegmentInput.end` 字段描述与 plan_day/revise_day_plan 工具描述硬规则同步；工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
+| `2026-09-20-bedtime-epoch-disclosure` | 2026-09-20 | 日程骨架披露第四个锚点 `bedtime_epoch`（当日就寝锚点，人物特有）：与 `bedtime_anchor`/DayPlan 校验就寝覆盖边界同源（最末段 `end` 低于它即 `PLAN_SEGMENTS_INVALID` "plan does not cover until bedtime"，修订同校验）。`day_end_epoch` 只救跨午夜钳制型；就寝不跨午夜的人物（陈曦型 bedtime 23.5 < day_end）在"最后一段规划到就寝"路径仍要猜就寝时刻（unit-18 残余风险）。per-agent 注入经 `AgentConfig.bedtime_window` 末端（与 `engine._plan_day` 同一取值链）；scene/facts 键表、时间句、`PlanSegmentInput.end` 字段描述与 plan_day/revise_day_plan 工具描述硬规则同步；工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |

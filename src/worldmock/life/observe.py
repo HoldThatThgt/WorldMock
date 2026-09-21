@@ -200,6 +200,7 @@ class ObservationMixin:
             progress = _activity_progress_phrase(active)
             current = {"title": title or active.kind.value, "progress": progress}
             control = {"activity_id": active.activity_id, "kind": active.kind.value,
+                       "status": active.status.value,
                        "title": title, "progress": progress,
                        "elapsed_seconds": active.elapsed_seconds,
                        "planned_duration_seconds": active.planned_duration_seconds}
@@ -427,6 +428,13 @@ class ObservationMixin:
             logging.error("Browse category is not declared: %s", category)
             raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
         require_interaction_menu(self.scenario, state, pending, request)
+        # 游标载荷先经同一纯函数校验一次（cursor_offset 与分页 present 内部都走
+        # _cursor_key 解析同一字符串）：形状不合法走工具级业务拒绝，绝不穿透
+        # dispatch 杀死 run（engine 的 BusinessRuleError 路径回执 agent 可纠错）。
+        try:
+            presentation.cursor_offset(request.cursor)
+        except ValueError as error:
+            raise BusinessRuleError("BROWSE_CURSOR_INVALID") from error
         window = self._candidate_window(agent, category, request.cursor)
         result = ActionResult(
             action_id=pending.action_id, agent_id=agent.agent_id,

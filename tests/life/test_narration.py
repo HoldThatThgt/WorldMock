@@ -87,6 +87,40 @@ class TestRenderScene:
         assert scene.endswith("。")
         assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
 
+    def test_time_sentence_discloses_epoch_anchors(self, scene_observation: dict) -> None:
+        """时间句在 ISO 本地时间旁披露当前与当日 00:00 的 Unix epoch（计划单位合同）。"""
+        scene_observation["current_epoch"] = 1767568200
+        scene_observation["day_start_epoch"] = 1767537600
+        scene = render_scene(scene_observation)
+        assert "（Unix epoch：当前 1767568200，今日 00:00 起 1767537600）" in scene
+        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
+
+    def test_time_sentence_discloses_day_end_upper_bound(self, scene_observation: dict) -> None:
+        """时间句在两锚点旁披露段终点上界 day_end_epoch（边界披露合同）。"""
+        scene_observation["current_epoch"] = 1767568200
+        scene_observation["day_start_epoch"] = 1767537600
+        scene_observation["day_end_epoch"] = 1767624000
+        scene = render_scene(scene_observation)
+        assert ("（Unix epoch：当前 1767568200，今日 00:00 起 1767537600，"
+                "明日 00:00（段终点上界）止 1767624000）") in scene
+        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
+
+    def test_time_sentence_discloses_bedtime_anchor(self, scene_observation: dict) -> None:
+        """时间句在段终点上界旁披露就寝锚点 bedtime_epoch（最末段覆盖边界合同）。"""
+        scene_observation["current_epoch"] = 1767568200
+        scene_observation["day_start_epoch"] = 1767537600
+        scene_observation["day_end_epoch"] = 1767624000
+        scene_observation["bedtime_epoch"] = 1767622200
+        scene = render_scene(scene_observation)
+        assert ("（Unix epoch：当前 1767568200，今日 00:00 起 1767537600，"
+                "明日 00:00（段终点上界）止 1767624000，"
+                "就寝锚点（最末段须覆盖到）1767622200）") in scene
+        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
+
+    def test_time_sentence_without_epoch_anchors_stays_plain(self, scene_observation: dict) -> None:
+        """缺 epoch 锚点时时间句退回纯 ISO 本地形状，不虚构数字。"""
+        assert "Unix epoch" not in render_scene(scene_observation)
+
     def test_scene_skips_missing_optional_fields(self) -> None:
         """缺失的可选字段跳过对应句子，渲染器不虚构、不报错。"""
         scene = render_scene({

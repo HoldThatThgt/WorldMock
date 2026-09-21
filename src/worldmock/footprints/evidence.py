@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 SECRET_FIELDS = {"api_key", "authorization", "password", "access_token", "refresh_token", "secret"}
-SECRET_ENVIRONMENTS = ("DEEPSEEK_API_KEY", "AGENTSOCIETY_LLM_API_KEY", "AGENTSOCIETY_CODER_LLM_API_KEY")
+SECRET_ENVIRONMENTS = ("DEEPSEEK_NODE_KEYS", "AGENTSOCIETY_LLM_API_KEY", "AGENTSOCIETY_CODER_LLM_API_KEY")
 
 
 def redact_evidence(value: Any) -> Any:

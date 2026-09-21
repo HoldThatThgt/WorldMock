@@ -131,10 +131,13 @@ def run_labelkit(task: str, workspace: Path, project_root: Path, inputs: list[di
                "--project", str(workspace / f"{task}.toml"), "--strict", "--console", "plain"]
     environment = dict(os.environ)
     credentials = dotenv_values(Path.home() / ".config/worldmock/deepseek.env")
-    environment.update({key: value for key, value in credentials.items()
-                        if value is not None and key == "DEEPSEEK_API_KEY"})
-    if not environment.get("DEEPSEEK_API_KEY"):
-        raise IntegrityError("DEEPSEEK_API_KEY is required for LabelKit delivery")
+    pool = credentials.get("DEEPSEEK_NODE_KEYS")
+    first_key = pool.split(",")[0].strip() if isinstance(pool, str) else ""
+    if not first_key:
+        raise IntegrityError("DEEPSEEK_NODE_KEYS is required for LabelKit delivery")
+    # labelkit-projects/config.toml 冻结声明 api_key_env = "DEEPSEEK_API_KEY"：
+    # 子进程变量名是 labelkit 侧接口，此处只桥接池首 key，不改名。
+    environment["DEEPSEEK_API_KEY"] = first_key
     source_paths = (project_root / "src", project_root / "vendor/labelkit")
     environment["PYTHONPATH"] = os.pathsep.join(str(path) for path in source_paths)
     started = time.monotonic()

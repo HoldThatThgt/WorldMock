@@ -67,7 +67,7 @@ def _review_response(prepared, call_number: int, rejected: bool = False) -> dict
     }
     return {
         "id": f"review-response-{call_number}",
-        "model": "deepseek-flash",
+        "model": "deepseek-v4.1-flash",
         "usage": {"prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
         "choices": [{"message": {"tool_calls": [tool_call]}}],
     }

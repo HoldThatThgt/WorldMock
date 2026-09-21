@@ -15,7 +15,7 @@ import pytest
 from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -32,6 +32,7 @@ from agentsociety2.society import (
 from custom.agents.life_agent import (
     LifeAgent,
     DECISION_STATEMENT_MAX_TOKENS,
+    DECISION_STATEMENT_REASONING_MAX_TOKENS,
     DECISION_STATEMENT_TEMPERATURE,
     life_prompt_sha256,
     life_tool_schema_sha256,
@@ -224,7 +225,23 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 #: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
 #: 门店供给重钉：购买引用供给；地点发现含明确分页工具与业务筛选。
 #: 地点资格恢复重钉：生活活动具有反馈控制边界，实际工具描述随注册表合同冻结。
-_PINNED_TOOL_SCHEMA_SHA256 = "97b04c6021d1f905ae02fff2f7a880bb6413c19bf517542af5296c767cf88b19"
+#: 计划单位重钉：plan_day/revise_day_plan 工具描述与 PlanSegmentInput.start/end
+#: 字段描述写明「绝对 Unix epoch 秒（UTC），不是当日至今分钟数」，工具面字节
+#: 随之变化 → 指纹随之变化（时间单位混乱烧掉 33/83 模型调用的审计，见
+#: /tmp/wm-day-rerun/unit-11-audit-wait-bug.md §6）。
+#: 终点上界重钉：工具描述补 day_end_epoch 硬规则（no segment end may exceed
+#: day_end_epoch），PlanSegmentInput.end 字段描述指向 day_end_epoch；run10 一日
+#: 模拟 agent 2 因末段越界连续 10 次被拒 fail-closed（unit-18，见
+#: /tmp/wm-day-rerun/unit-18-day-end-disclosure.md），工具面字节随之变化。
+#: 就寝锚点重钉：工具描述与 PlanSegmentInput.end 字段描述补 bedtime_epoch
+#: 硬规则（the last segment must end at bedtime_epoch or later）——day_end_epoch
+#: 只救跨午夜钳制型，陈曦型（bedtime 23.5 < day_end）"最后一段规划到就寝"
+#: 仍要猜就寝时刻（unit-19，见 /tmp/wm-day-rerun/unit-19-bedtime-anchor.md），
+#: 工具面字节随之变化。
+#: 社交边界重钉：set_activity_state 描述写明交谈/通话不可暂停、取消是唯一
+#: 控制（chat/call 以 ACTIVE 跨决策边界存活，闭集与工具面收窄见 unit-21，
+#: /tmp/wm-day-rerun/unit-21-fix-chat-boundary.md），工具面字节随之变化。
+_PINNED_TOOL_SCHEMA_SHA256 = "e7e1c94f86b57539dc805f7875f6be526e2e8e5ab7b458e861a64152264a76fc"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -235,6 +252,50 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     monkeypatch.setattr(life_agent_module, "affordance_registry_sha256",
                         lambda: "0" * 64)
     assert life_tool_schema_sha256() != _PINNED_TOOL_SCHEMA_SHA256
+
+
+def test_plan_tool_schemas_disclose_epoch_seconds_unit() -> None:
+    """@brief 计划段起点单位合同：工具描述与 start/end 字段说明写明绝对 Unix epoch 秒。
+
+    plan_day 与 revise_day_plan 互斥开放（无计划开 plan_day，有未开始段开
+    revise_day_plan），两个状态分别断言。
+    """
+    def build_functions(observations: list[dict]) -> dict[str, dict]:
+        agent = LifeAgent()
+        agent.prepare_react_loop(
+            ReactLoopRequest(0, _context().observed_at, observations)
+        )
+        return {item["function"]["name"]: item["function"]
+                for item in agent.build_react_tool_schemas(readonly=False)}
+
+    planning = build_functions(_observations())
+    assert "plan_day" in planning and "revise_day_plan" not in planning
+
+    revising_observations = _observations()
+    revising_observations[0]["data"]["facts"]["day_plan"] = {
+        "segments": [
+            {"start": _NOW_EPOCH + 3600, "end": _NOW_EPOCH + 7200,
+             "intent_kind": "work", "note": "上午处理任务"},
+        ],
+        "current_segment": None,
+    }
+    revising = build_functions(revising_observations)
+    assert "revise_day_plan" in revising and "plan_day" not in revising
+
+    for name, functions in (("plan_day", planning), ("revise_day_plan", revising)):
+        description = functions[name]["description"]
+        assert "absolute Unix epoch seconds (UTC)" in description
+        assert "never minutes-of-day" in description
+        assert "current_epoch" in description and "day_start_epoch" in description
+        assert "day_end_epoch" in description
+        assert "bedtime_epoch" in description
+        assert "no segment end may exceed day_end_epoch" in description
+        assert "the last segment must end at bedtime_epoch or later" in description
+    segment_fields = planning["plan_day"]["parameters"]["properties"]["segments"]["items"]["properties"]
+    for field in ("start", "end"):
+        assert "Unix epoch seconds (UTC)" in segment_fields[field]["description"]
+    assert "day_end_epoch" in segment_fields["end"]["description"]
+    assert "bedtime_epoch" in segment_fields["end"]["description"]
 
 
 def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:
@@ -550,19 +611,21 @@ class _MultipleModelResponse:
 
 
 def _assert_decision_statement_wire(request: dict) -> None:
-    """核对决策自述请求的 wire 形状：无工具、1.3 温度、400 上限、思考关闭。"""
+    """核对决策自述请求的 wire 形状：无工具、1.0 温度、8000 上限、思考关闭、reasoning 上限。"""
     assert "tools" not in request
     assert "tool_choice" not in request
     assert request["temperature"] == DECISION_STATEMENT_TEMPERATURE
     assert request["max_tokens"] == DECISION_STATEMENT_MAX_TOKENS
     assert request["max_retries"] == 0
-    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert request["extra_body"] == {"thinking": {"type": "disabled"},
+                                     "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS}}
+    assert DECISION_STATEMENT_REASONING_MAX_TOKENS < DECISION_STATEMENT_MAX_TOKENS
 
 
 class _Dispatcher:
     """按顺序返回决策自述、生活动作、动作后记忆读取和结束调用。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -645,7 +708,7 @@ class _Environment:
 class _StepDispatcher:
     """返回决策自述、一个生活动作和原生 finish。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -670,7 +733,7 @@ class _StepDispatcher:
 class _PrematureFinishDispatcher:
     """在人物提交生活动作前注入未开放的 finish。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -684,7 +747,7 @@ class _PrematureFinishDispatcher:
 class _GroundedCorrectionDispatcher:
     """复现记忆查询后捏造旧游戏工具并自行纠正的响应序列。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self, responses: list[_ModelResponse] | None = None,
                  decision_statements: list[_DecisionStatementResponse] | None = None) -> None:
@@ -802,7 +865,7 @@ def _wire_agent(agent: LifeAgent, environment: _Environment, dispatcher,
     """按协议测试需要装配人物、环境与调度器。"""
     agent._env = environment
     agent._dispatcher = dispatcher
-    agent._model_name = "deepseek-flash"
+    agent._model_name = "deepseek-v4.1-flash"
     agent._id = 7
     agent._name = "Alice"
     agent._profile = {"id": 7, "name": "Alice", "occupation": "engineer"}
@@ -970,8 +1033,11 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
 
     requests = [item for item in environment.evidence if item.phase == "request"]
     responses = [item for item in environment.evidence if item.phase == "response"]
-    # 决策自述请求关闭思考；行动阶段请求钉死思考开启与 DeepSeek thinking 兼容 tool_choice。
-    assert requests[0].request["extra_body"] == {"thinking": {"type": "disabled"}}
+    # 决策自述请求关闭思考并带 reasoning 上限；行动阶段请求钉死思考开启与 DeepSeek thinking 兼容 tool_choice。
+    assert requests[0].request["extra_body"] == {
+        "thinking": {"type": "disabled"},
+        "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS},
+    }
     for item in requests[1:]:
         assert item.request["extra_body"] == {"thinking": {"type": "enabled"}}
         assert item.request["tool_choice"] == "auto"

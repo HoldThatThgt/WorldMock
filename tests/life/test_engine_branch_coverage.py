@@ -174,9 +174,9 @@ def _run_identity(scn, **updates) -> RunIdentity:
         timezone=scn.timezone,
         code_sha256="2" * 64,
         model_identity=ModelIdentity(
-            provider="deepseek",
-            base_url="https://api.deepseek.com/beta",
-            requested_model="deepseek-flash",
+            provider="openai_compatible",
+            base_url="https://openrouter.ai/api/v1",
+            requested_model="deepseek-v4.1-flash",
             thinking="enabled",
             tool_choice="auto",
             max_retries=0,
@@ -865,9 +865,18 @@ def test_maybe_decision_statement_start_rejects_non_decision_statement_sampling(
 def test_maybe_decision_statement_start_swallows_invalid_decision_statement_text() -> None:
     """空文本/超长决策自述按协议错误返回 None，不抛错不消费草稿。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    request = {"temperature": 1.3, "max_tokens": 400}
+    request = {"temperature": 1.0, "max_tokens": 8000,
+               "extra_body": {"reasoning": {"max_tokens": 1500}}}
     assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "")) is None
     assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
+    assert 1 in pending
+
+
+def test_maybe_decision_statement_start_rejects_missing_reasoning_cap() -> None:
+    """有界生成形状必须含 reasoning 上限：缺 extra_body.reasoning.max_tokens 不消费草稿。"""
+    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
+    exchange = _exchange({"temperature": 1.0, "max_tokens": 8000}, "我现在很饿，想去找点吃的。")
+    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
     assert 1 in pending
 
 
@@ -875,7 +884,8 @@ def test_maybe_decision_statement_start_accepts_valid_text_and_pops_pending() ->
     """有效决策自述取出草稿并携带 decision_statement 字段。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     draft = maybe_decision_statement_start(pending, 1, 42,
-                                  _exchange({"temperature": 1.3, "max_tokens": 400},
+                                  _exchange({"temperature": 1.0, "max_tokens": 8000,
+                                             "extra_body": {"reasoning": {"max_tokens": 1500}}},
                                             "我现在很饿，想去找点吃的。"))
     assert pending == {}
     assert draft is not None and draft.event_type == "decision_started"
@@ -998,7 +1008,7 @@ def test_model_exchange_phase_and_duplicate_request_rejected(engine_factory) -> 
     engine = engine_factory()
     ctx = context(engine, "exchange-guard")
     engine.begin_decision_round([ctx])
-    request = {"model": "deepseek-flash", "messages": []}
+    request = {"model": "deepseek-v4.1-flash", "messages": []}
     with pytest.raises(ProtocolError, match="phase or attempt is invalid"):
         engine.record_model_exchange(ModelCallEvidence(ctx, "call-bad", "request", 0, request))
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
@@ -1408,11 +1418,12 @@ def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
 
 
 def test_send_message_rejects_unknown_recipient_and_non_model_contact(engine_factory) -> None:
-    """未知收件人拒绝；非模型回复策略联系人拒绝登记回复请求。"""
+    """未知收件人业务拒绝（引擎边界转换，非裸 ValueError 杀 run）；非模型回复策略联系人拒绝登记回复请求。"""
     engine = engine_factory()
-    with pytest.raises(ValueError, match="recipient not found"):
-        _act(engine, "say-ghost", "send_message",
-             SendMessageRequest(recipient_id="agent:9", text="hi"))
+    rejected = _act(engine, "say-ghost", "send_message",
+                    SendMessageRequest(recipient_id="agent:9", text="hi"))
+    assert rejected.status.value == "rejected"
+    assert rejected.error_code == "RECIPIENT_NOT_FOUND"
 
     multi = engine_factory("multi-person.json")
     refused = _act_ready(multi, "say-colleague", "send_message",

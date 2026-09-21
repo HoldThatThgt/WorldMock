@@ -132,7 +132,7 @@ def test_manifest_uses_single_window_shape(engine_factory) -> None:
     assert manifest["window"]["timezone"] == "Asia/Shanghai"
     assert manifest["code_sha256"] == "2" * 64
     identity = manifest["model_identity"]
-    assert identity["base_url"] == "https://api.deepseek.com/beta"
+    assert identity["base_url"] == "https://openrouter.ai/api/v1"
     assert identity["tool_choice"] == "auto" and identity["max_retries"] == 0
     assert identity["thinking"] == "enabled"
     assert "base_url_host" not in identity
@@ -223,7 +223,7 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     engine = engine_factory()
     ctx = context(engine, "model-evidence")
     engine.begin_decision_round([ctx])
-    request = {"model": "deepseek-flash", "messages": [], "tools": []}
+    request = {"model": "deepseek-v4.1-flash", "messages": [], "tools": []}
     first = f"{ctx.decision_id}:model:0001:attempt:1"
     second = f"{ctx.decision_id}:model:0002:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, first, "request", 1, request))

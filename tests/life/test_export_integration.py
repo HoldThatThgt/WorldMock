@@ -23,7 +23,7 @@ from worldmock.runtime import settle_pending_model_replies
 class _StubReplyClient:
     """联系人回复模型客户端桩：记录请求并返回脚本化响应。"""
 
-    model_name = "deepseek-flash"
+    model_name = "deepseek-v4.1-flash"
 
     def __init__(self, texts=None, error=None):
         self.calls = []
@@ -196,7 +196,8 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     assert len(settled) == 1 and settled[0]["source_kind"] == "model_npc"
     assert len(client.calls) == 1
     request_payload = client.calls[0]
-    assert request_payload["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert request_payload["extra_body"] == {"thinking": {"type": "disabled"},
+                                             "reasoning": {"max_tokens": 1500}}
     assert request_payload["max_retries"] == 0
     assert "tools" not in request_payload and "tool_choice" not in request_payload
     assert "周五晚上一起吃饭" in request_payload["messages"][1]["content"]
@@ -214,7 +215,7 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     assert evidence[0].data["source_kind"] == "model_npc"
     assert evidence[0].data["request"] == request_payload
     assert evidence[0].data["usage"]["prompt_tokens"] == 21
-    assert evidence[0].data["response"]["model"] == "deepseek-flash"
+    assert evidence[0].data["response"]["model"] == "deepseek-v4.1-flash"
     pending = [item for item in events if item.data.get("kind") == "model_npc_reply_pending"]
     assert len(pending) == 1 and evidence[0].caused_by == [pending[0].event_id]
     arrivals = [item for item in events if item.data.get("kind") == "message_arrival"

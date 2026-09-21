@@ -8,7 +8,7 @@ import os
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com/beta")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -97,7 +97,7 @@ def test_actual_model_request_projects_tools_kinds_targets_and_categories() -> N
     """实际发送请求只含菜单与原状态门共同允许的工具和参数枚举。"""
     agent = _work_menu_agent()
     tools = agent.build_react_tool_schemas(readonly=False)
-    agent._model_name = "deepseek-flash"
+    agent._model_name = "deepseek-v4.1-flash"
     request = agent._model_request([{"role": "user", "content": "Choose."}], tools)
     functions = {item["function"]["name"]: item["function"] for item in request["tools"]}
 
@@ -195,7 +195,7 @@ async def test_kind_denial_removes_permitted_travel_or_consume_tool(tool, kind, 
     menu["allowed_activity_kinds"].remove(kind)
     assert tool in menu["allowed_tools"]
     agent = _prepare(_catalogs(), overrides={"interaction_menu": menu})
-    agent._model_name = "deepseek-flash"
+    agent._model_name = "deepseek-v4.1-flash"
     request = agent._model_request(
         [{"role": "user", "content": "Choose."}], agent.build_react_tool_schemas(readonly=False))
     assert tool not in {item["function"]["name"] for item in request["tools"]}

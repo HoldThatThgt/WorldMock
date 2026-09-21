@@ -7,9 +7,10 @@ from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer,
+                      field_validator, model_validator)
 
-from worldmock.life.schedule import DayPlan
+from worldmock.life.schedule import PLAN_NOTE_MAX_CHARS, DayPlan
 from worldmock.life.social import Message
 
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
@@ -37,9 +38,9 @@ class FrozenModel(BaseModel):
 class ModelIdentity(FrozenModel):
     """@brief 不包含凭据的冻结模型请求身份。"""
 
-    provider: Literal["deepseek"]
-    base_url: Literal["https://api.deepseek.com/beta"]
-    requested_model: Literal["deepseek-flash"]
+    provider: Literal["openai_compatible"]
+    base_url: Literal["https://openrouter.ai/api/v1"]
+    requested_model: Literal["deepseek-v4.1-flash"]
     thinking: Literal["disabled", "enabled"]
     tool_choice: Literal["required", "auto"]
     max_retries: Literal[0]
@@ -598,6 +599,21 @@ class StartTargetedActivityRequest(FrozenModel):
     playback_speed: float = Field(ge=0.5, le=2)
 
 
+def _normalize_cursor(value: str | None) -> str | None:
+    """@brief 首屏游标的可空表示归一：字符串 "null"/"None" 与纯空白同 JSON null 处理。
+
+    模型常把合同要求的首屏 `null` 写成字面文本；它们在请求边界归一为 None，
+    与候选消费点对空串的既有容忍同语义（presentation 首页判定）。其余文本
+    原样放行，载荷合法性由游标解析点负责。
+    """
+    if value is None:
+        return None
+    stripped = value.strip()
+    if not stripped or stripped in ("null", "None"):
+        return None
+    return value
+
+
 class BrowseActivitiesRequest(FrozenModel):
     """@brief 由模型下钻读取一个活动品类目录（activity_summary 的键）。
 
@@ -610,6 +626,12 @@ class BrowseActivitiesRequest(FrozenModel):
     #: strict 合同下必须显式必填（类型可空），因此无缺省值
     #: （docs/CONTRACTS.md「工具面」的 browse_activities 行）。
     cursor: str | None = Field()
+
+    @field_validator("cursor", mode="after")
+    @classmethod
+    def _cursor_null_literals_mean_first_page(cls, value: str | None) -> str | None:
+        """@brief 字符串 "null"/"None" 与纯空白在请求边界归一为首屏 None。"""
+        return _normalize_cursor(value)
 
 
 class StartTravelRequest(FrozenModel):
@@ -677,6 +699,12 @@ class DiscoverPlacesRequest(FrozenModel):
     max_travel_seconds: int | None = Field(gt=0, le=86_400)
     cursor: str | None = Field(pattern=r"\S")
 
+    @field_validator("cursor", mode="after")
+    @classmethod
+    def _cursor_null_literals_mean_first_page(cls, value: str | None) -> str | None:
+        """@brief 字符串 "null"/"None" 在请求边界归一为首屏 None（空白仍由 \\S 模式拒绝）。"""
+        return _normalize_cursor(value)
+
 
 class ConsumeItem(FrozenModel):
     """@brief 一次进食中的一件已持有食品与数量（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。"""
@@ -709,8 +737,13 @@ class ConsumeRequest(FrozenModel):
 class PlanSegmentInput(FrozenModel):
     """@brief plan_day 提交的单段计划：{start, end, intent_kind, note}。"""
 
-    start: int = Field(gt=0)
-    end: int = Field(gt=0)
+    start: int = Field(
+        gt=0, description="Unix epoch seconds (UTC), disclosed as current_epoch in the observation")
+    end: int = Field(
+        gt=0, description="Unix epoch seconds (UTC); every segment end must not "
+        "exceed day_end_epoch (local next midnight), and the last segment's end "
+        "must reach bedtime_epoch (today's bedtime anchor; both disclosed in the "
+        "observation facts)")
     intent_kind: str = Field(pattern=r"\S")
     note: str
 
@@ -719,6 +752,18 @@ class PlanSegmentInput(FrozenModel):
         """@brief 段跨度必须为正。"""
         if self.start >= self.end:
             raise ValueError("plan segment start must be earlier than end")
+        return self
+
+    @model_validator(mode="after")
+    def validate_note_length(self) -> "PlanSegmentInput":
+        """@brief 拒绝超长备注（与 schedule.PlanSegment 同限）。
+
+        用 model_validator 而非 Field(max_length)：maxLength 在
+        _DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS 黑名单里，会令 strict 建模抛错。
+        """
+        if len(self.note) > PLAN_NOTE_MAX_CHARS:
+            raise ValueError(
+                f"plan segment note exceeds {PLAN_NOTE_MAX_CHARS} characters")
         return self
 
 

@@ -2,7 +2,8 @@
 
 沿用既有口径：温度 0.3 独立采样 N 次（默认 3，三次一致性），逐字段取众数、
 大五逐维度取中位数；单次运行内 JSON 解析/校验失败重试至多 2 次。字段众数
-占比 < 2/3 标黄警告。凭据 ~/.config/worldmock/deepseek.env（DEEPSEEK_API_KEY）。
+占比 < 2/3 标黄警告。凭据 ~/.config/worldmock/deepseek.env
+（DEEPSEEK_NODE_KEYS 多 key 池取第一把，与 runtime 契约同源）。
 故事未提及的时型、睡眠需要与时间锚点输出 null，由 persona-mapping.toml
 [defaults] 确定性补齐（不在提示层编造）。
 """
@@ -37,12 +38,22 @@ from worldmock.profile.models import (
     quantize,
 )
 
-API_URL = "https://api.deepseek.com/chat/completions"
-DEFAULT_MODEL = "deepseek-chat"
+#: 端点与模型与 runtime._DEEPSEEK_BASE_URL/_DEEPSEEK_MODEL 同源冻结
+#: （docs/CONTRACTS.md、ModelIdentity Literal）。
+API_URL = "https://openrouter.ai/api/v1/chat/completions"
+DEFAULT_MODEL = "deepseek-v4.1-flash"
 #: 三次一致性口径：默认 3 次独立采样（docs/dev/SPEC-life-realism.md「画像编译」）。
 DEFAULT_RUNS = 3
 #: 采样温度：要多样性做共识，但保持在低躁区间。
 TEMPERATURE = 0.3
+#: 单次响应补全预算：须覆盖 OpenRouter deepseek-v4.1-flash 每响应必带的
+#: reasoning 耗量（smoke 观测 90-1450+）再叠加 JSON 载荷本身；预算不足时
+#: content 为 None（合同生成参数表「画像抽取」行）。
+MAX_COMPLETION_TOKENS = 8000
+#: reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数，请求体顶层）：抽取
+#: reasoning 重尾分布 4916-6916，偶发思考螺旋烧穿全部补全预算（content=None）；
+#: 3000 只切病理尾部、不切正常思考，实测上限被尊重且不伤内容。
+MAX_REASONING_TOKENS = 3000
 #: 单次运行内 JSON 解析/校验失败的重试上限。
 MAX_PARSE_RETRIES = 2
 #: 任一字段众数占比低于该阈值 -> 标黄警告（2/3 与三次口径一致）。
@@ -64,14 +75,18 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
 - relationships：最多 4 条 [{"name_or_appellation": 姓名或称谓, "role": 角色短语,
   "intimacy": 0-30 整数亲密度, "channels": ["电话","微信","见面"] 最多 3 个渠道}]
 - situation：{"busy_this_week": 本周在忙什么（一句话）, "cares_about": 在意什么（一句话）}
-- time_anchors：{"wake","leave_home","lunch","dinner","bedtime"} 各为 "HH:MM-HH:MM" 窗口；
-  就寝窗口可跨午夜（如 "23:00-01:00"）；故事未提及的锚点写 null
+- time_anchors：{"wake","leave_home","lunch","dinner","bedtime"} 各为 "HH:MM-HH:MM" 窗口，
+  按时间升序（起床 < 出门 < 午餐 < 晚餐 < 就寝）；就寝窗口可跨午夜，起点必须是当日
+  晚间小时（如 "23:00-01:00" 表凌晨一点入睡；实际入睡再晚也不写 "00:30-08:00" 式
+  次日起点）；故事未提及的锚点写 null
 - chronotype_midsleep："HH:MM" 自由日睡眠中点；未提及写 null
 - sleep_need_hours：7-9 之间 0.25 步进的数字；未提及写 null
 - habits：最多 5 条 [{"trigger": 情境短语, "response": 行为短语, "time_window": "HH:MM-HH:MM"}]
 - tastes：{"content_genres": 最多 6 个内容题材词, "food_preferences": 最多 6 个饮食喜好词,
   "media": 最多 4 个常用媒介词}；无相关内容给空数组
 - coping：压力时做什么（一句话）
+- 任何 time_window（锚点与习惯）跨度不超过 12 小时，禁止 "00:00-24:00" 式全天窗口
+- 习惯的 time_window 必须是具体窗口，不写 null；锚点无法确定写 null 由缺省补齐
 全部值用中文（时间与数字除外）；只依据故事证据，不编造故事外事实。"""
 
 
@@ -95,17 +110,20 @@ class PersonaExtraction(BaseModel):
 
 
 def resolve_api_key(explicit: str | None = None) -> str:
-    """@brief 凭据解析：显式参数 > 环境变量 > ~/.config/worldmock/deepseek.env。"""
+    """@brief 凭据解析：显式参数 > 环境变量 > ~/.config/worldmock/deepseek.env。
+
+    与 runtime._read_deepseek_key 的 DEEPSEEK_NODE_KEYS 多 key 契约一致；
+    抽取层是单 key 独立客户端，取逗号分隔池中的第一把。
+    """
     if explicit:
         return explicit
-    if os.environ.get("DEEPSEEK_API_KEY"):
-        return os.environ["DEEPSEEK_API_KEY"]
-    values = dotenv_values(CREDENTIALS_PATH, interpolate=False)
-    key = values.get("DEEPSEEK_API_KEY")
-    if not key:
+    raw = os.environ.get("DEEPSEEK_NODE_KEYS") or dotenv_values(
+        CREDENTIALS_PATH, interpolate=False).get("DEEPSEEK_NODE_KEYS")
+    first = raw.split(",")[0].strip() if isinstance(raw, str) else ""
+    if not first:
         raise ExtractionError(
-            f"DEEPSEEK_API_KEY not found in environment or {CREDENTIALS_PATH}")
-    return key
+            f"DEEPSEEK_NODE_KEYS not found in environment or {CREDENTIALS_PATH}")
+    return first
 
 
 def extract_persona(background_story: str, n_runs: int = DEFAULT_RUNS, *,
@@ -153,7 +171,8 @@ def _single_run(story: str, model: str, api_key: str, caller: Any,
             {"role": "user", "content": f"background_story：\n{story}"},
         ],
         "temperature": TEMPERATURE,
-        "max_tokens": 2048,
+        "max_tokens": MAX_COMPLETION_TOKENS,
+        "reasoning": {"max_tokens": MAX_REASONING_TOKENS},
         "response_format": {"type": "json_object"},
     }
     headers = {"Authorization": f"Bearer {api_key}",
@@ -176,7 +195,15 @@ def _single_run(story: str, model: str, api_key: str, caller: Any,
 
 
 def _parse_payload(content: str, config: Mapping) -> dict:
-    """@brief 解析模型输出为完整载荷（结构校验走卡片模型；失败即 ValueError 重试）。"""
+    """@brief 解析模型输出为完整载荷（结构校验走卡片模型；失败即 ValueError 重试）。
+
+    big_five 不在 PersonaCard 内，在此一并校验：null 维度若漏到共识层会在
+    中位数排序处抛 TypeError（绕过重试路径），与 habits.time_window=null
+    同型，一律归类为无效 payload。
+    """
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("empty or non-string model content: "
+                         f"{content!r} (reasoning exhausted completion budget?)")
     try:
         parsed = json.loads(content)
     except json.JSONDecodeError as error:
@@ -185,6 +212,7 @@ def _parse_payload(content: str, config: Mapping) -> dict:
         raise ValueError(f"unexpected payload keys: "
                          f"{sorted(parsed) if isinstance(parsed, dict) else type(parsed)}")
     _build_card({key: parsed[key] for key in PAYLOAD_KEYS}, config)
+    BigFiveProfile(**parsed["big_five"])
     return parsed
 
 

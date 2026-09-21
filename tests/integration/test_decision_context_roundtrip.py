@@ -50,7 +50,7 @@ def _person(environment, ctx, dispatcher):
     person._profile = {"id": ctx.agent_id, "name": "测试人物"}
     person._env = environment
     person._dispatcher = dispatcher
-    person._model_name = "deepseek-flash"
+    person._model_name = "deepseek-v4.1-flash"
     person._decision_context = ctx
     person._max_react_turns = 3
     person._enable_memory = False

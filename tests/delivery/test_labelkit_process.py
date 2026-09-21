@@ -114,7 +114,7 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
     server = HTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_API_KEY': 'fixture'})
+    monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_NODE_KEYS': 'fixture'})
     try:
         workspace = _workspace(tmp_path, record, server.server_port)
         if review_result in {'exhausted', 'max_items_exhausted', 'history_exhausted'}:

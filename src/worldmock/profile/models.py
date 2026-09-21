@@ -69,7 +69,9 @@ def quantize(value: float, low: float, high: float, step: float) -> float:
 
 
 def parse_clock(value: str) -> float:
-    """@brief "HH:MM" → 自午夜起的小时数（"23:30" → 23.5）；格式错误即 ValueError。"""
+    """@brief "HH:MM" → 自午夜起的小时数（"23:30" → 23.5）；非字符串/格式错误即 ValueError。"""
+    if not isinstance(value, str):
+        raise ValueError(f"invalid clock value {value!r}, expected HH:MM string")
     parts = value.strip().split(":")
     if len(parts) != 2:
         raise ValueError(f"invalid clock value {value!r}, expected HH:MM")
@@ -88,16 +90,18 @@ class _Frozen(BaseModel):
 class TimeWindow(_Frozen):
     """@brief 时间窗口：自午夜起的小时数，半开区间 [start, end)。
 
-    就寝窗口允许跨午夜（end 可大于 24，如 23–25 表示到次日 01:00）；其余
-    锚点天然落在 [0, 24] 内。窗口跨度上限 12 小时防止病态区间。
+    就寝窗口允许跨午夜（end 可大于 24，如 23–25 表示到次日 01:00）；锚点
+    回绕归一（TimeAnchors.normalize_wraparound）后 start 亦可大于 24
+    （25 表示次日 01:00），上限 30 小时（次日 06:00 地平线）。窗口跨度
+    上限 12 小时防止病态区间。
     """
 
-    start_hour: float = Field(ge=0.0, lt=24.0)
+    start_hour: float = Field(ge=0.0, lt=30.0)
     end_hour: float = Field(gt=0.0, le=30.0)
 
     @model_validator(mode="after")
     def validate_window(self) -> "TimeWindow":
-        """@brief 0 ≤ start < 24、跨度 (0, 12]；小时吸附 0.5 格点保证确定性渲染。"""
+        """@brief 0 ≤ start < 30、跨度 (0, 12]；小时吸附 0.5 格点保证确定性渲染。"""
         for name, value in (("start_hour", self.start_hour), ("end_hour", self.end_hour)):
             if not value_on_grid(value, 0.0, 30.0, 0.5):
                 raise ValueError(f"TimeWindow.{name}={value} is off the 0.5-hour grid")
@@ -109,7 +113,14 @@ class TimeWindow(_Frozen):
 
     @classmethod
     def from_clock_range(cls, value: str) -> "TimeWindow":
-        """@brief "HH:MM-HH:MM" → TimeWindow；跨午夜（end < start）自动 +24。"""
+        """@brief "HH:MM-HH:MM" → TimeWindow；跨午夜（end < start）自动 +24。
+
+        非字符串（含 null）输入是抽取 payload 合同违规：抛 ValueError
+        （而非 AttributeError），使其落入抽取器无效 payload 重试路径。
+        """
+        if not isinstance(value, str):
+            raise ValueError(f"invalid time range {value!r}, "
+                             f"expected HH:MM-HH:MM string")
         parts = value.strip().split("-")
         if len(parts) != 2:
             raise ValueError(f"invalid time range {value!r}, expected HH:MM-HH:MM")
@@ -154,7 +165,13 @@ class Situation(_Frozen):
 
 
 class TimeAnchors(_Frozen):
-    """@brief 时间锚点：起床、出门、午餐、晚餐、就寝窗口。"""
+    """@brief 时间锚点：起床、出门、午餐、晚餐、就寝窗口。
+
+    构造时做确定性回绕归一：单调递增序列后出现的回绕小值（如 …18.5, 1.0
+    的「凌晨一点才睡」）按跨午夜惯例 +24 读作次日锚点（1.0→25.0），与
+    TimeWindow.from_clock_range 的跨午夜 +24 同构，归一结果落进卡片值。
+    +24 后越过 30 小时地平线的是同日乱序而非回绕，仍由顺序校验拒绝。
+    """
 
     wake: TimeWindow
     leave_home: TimeWindow
@@ -162,9 +179,54 @@ class TimeAnchors(_Frozen):
     dinner: TimeWindow
     bedtime: TimeWindow
 
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_wraparound(cls, values: object) -> object:
+        """@brief 回绕归一：递增序列尾部的回绕小锚点 +24 落成次日锚点（写进字段值）。
+
+        模型对「凌晨一点才睡」稳定输出 1.0-2.0 式同日窗口（提示层约束修不动）；
+        跟在大值锚点后的小值唯一合理读法是次日。+24 后 start ≥ 30 或
+        end > 30 的序列不是回绕而是同日乱序：原样放行交 validate_order 按
+        原错误拒绝；结构不完整的载荷同样原样放行交字段校验报结构错误。
+        """
+        if not isinstance(values, dict):
+            return values
+        names = ("wake", "leave_home", "lunch", "dinner", "bedtime")
+        raw: list[tuple[float, float]] = []
+        for name in names:
+            item = values.get(name)
+            if isinstance(item, TimeWindow):
+                raw.append((item.start_hour, item.end_hour))
+            elif isinstance(item, dict):
+                try:
+                    raw.append((float(item["start_hour"]), float(item["end_hour"])))
+                except (KeyError, TypeError, ValueError):
+                    return values
+            else:
+                return values
+        shifts = [0.0] * len(raw)
+        previous: float | None = None
+        for index, (start, end) in enumerate(raw):
+            while previous is not None and start + shifts[index] < previous:
+                shifts[index] += 24.0
+            if start + shifts[index] >= 30.0 or end + shifts[index] > 30.0:
+                return values
+            previous = start + shifts[index]
+        if not any(shifts):
+            return values
+        rewritten = dict(values)
+        for name, (start, end), shift in zip(names, raw, shifts):
+            if shift:
+                rewritten[name] = TimeWindow(start_hour=start + shift,
+                                             end_hour=end + shift)
+        return rewritten
+
     @model_validator(mode="after")
     def validate_order(self) -> "TimeAnchors":
-        """@brief 日内顺序锚点不倒挂：起床 < 出门 < 午餐 < 晚餐 < 就寝（按起点）。"""
+        """@brief 日内顺序锚点不倒挂：起床 ≤ 出门 ≤ 午餐 ≤ 晚餐 ≤ 就寝（按起点）。
+
+        回绕小值已在归一化为次日锚点；此处拒绝的是归一救不回的同日乱序。
+        """
         ordered = (self.wake, self.leave_home, self.lunch, self.dinner, self.bedtime)
         starts = [window.start_hour for window in ordered]
         if starts != sorted(starts):

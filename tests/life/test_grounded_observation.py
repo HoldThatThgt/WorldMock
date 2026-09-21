@@ -22,6 +22,8 @@ from worldmock.life.models import (
     PurchaseOrderRequest,
     StartBasicActivityRequest,
 )
+from worldmock.life.narration import render_facts, render_scene
+from worldmock.life.schedule import DayPlan, PlanSegment, bedtime_anchor, day_end_seconds
 
 
 def _commit_test_state(engine, state, kind: str) -> None:
@@ -114,6 +116,104 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
 
     assert sold_out["current_stock"] == 0 and "initial_stock" not in sold_out
     assert "purchase" not in _function_names(next_agent)
+
+
+def test_observation_discloses_epoch_anchors_beside_local_time(engine_factory) -> None:
+    """scene/facts 在 ISO 本地时间旁披露当前与当日本地 00:00 epoch（「日程骨架请求」单位披露合同）。"""
+    engine = engine_factory()
+    first_context = context(engine, "epoch-disclosure")
+    engine.begin_decision_round([first_context])
+    observation = engine.observe(first_context)
+    now = observation["current_time"]
+    local = datetime.fromtimestamp(now, ZoneInfo(engine.scenario.timezone))
+    seconds_since_midnight = local.hour * 3600 + local.minute * 60 + local.second
+
+    for layer in ("scene", "facts"):
+        projection = observation[layer]
+        assert projection["current_time"] == local.isoformat()
+        assert projection["current_epoch"] == now
+        assert now - projection["day_start_epoch"] == seconds_since_midnight
+        assert projection["day_end_epoch"] == day_end_seconds(now, engine.scenario.timezone)
+
+    scene_text = render_scene(observation["scene"])
+    assert f"Unix epoch：当前 {now}，今日 00:00 起 {now - seconds_since_midnight}" in scene_text
+    assert f'"current_epoch":{now}' in render_facts(observation["facts"])
+
+
+def test_observation_discloses_day_end_epoch_matching_validation_boundary(engine_factory) -> None:
+    """day_end_epoch 与 DayPlan 校验拒绝边界同源：恰在披露值的段终点通过、+1 秒被拒（「日程骨架请求」边界披露合同）。
+
+    用跨午夜就寝窗口的人物李凡（bedtime_window [23.5, 25.0]，末端 >24h）：
+    就寝锚点被钳制不超过当日结束，披露值就是末段"看到睡觉"时的硬上界。
+    """
+    engine = engine_factory("multi-person-half-day.json")
+    ready = engine.scheduling_state().ready_agent_ids
+    contexts = [context(engine, "day-end-disclosure", agent_id=agent_id)
+                for agent_id in ready]
+    engine.begin_decision_round(contexts)
+    lifan_context = next(item for item in contexts if item.agent_id == 2)
+    observation = engine.observe(lifan_context)
+    now = observation["current_time"]
+    timezone_name = engine.scenario.timezone
+
+    day_end = observation["scene"]["day_end_epoch"]
+    assert day_end == observation["facts"]["day_end_epoch"]
+    assert day_end - observation["scene"]["day_start_epoch"] == 24 * 3600
+
+    bedtime = bedtime_anchor(now, timezone_name, 25.0)
+    assert bedtime == day_end, "跨午夜就寝窗口末端被钳制到当日结束（bedtime_anchor）"
+
+    ok = PlanSegment(start=now, end=day_end, intent_kind="睡眠", note="直到就寝")
+    DayPlan(bedtime=bedtime, day_end=day_end, segments=(ok,))
+    beyond = PlanSegment(start=now, end=day_end + 1, intent_kind="睡眠", note="越过边界一秒")
+    with pytest.raises(ValueError, match="ends after day_end"):
+        DayPlan(bedtime=bedtime, day_end=day_end, segments=(beyond,))
+
+    scene_text = render_scene(observation["scene"])
+    assert f"明日 00:00（段终点上界）止 {day_end}" in scene_text
+    assert f'"day_end_epoch":{day_end}' in render_facts(observation["facts"])
+
+
+def test_observation_discloses_bedtime_epoch_matching_validation_anchor(engine_factory) -> None:
+    """bedtime_epoch 与 DayPlan 校验就寝覆盖边界同源：陈曦型锚点早于 day_end、李凡型钳制等于 day_end（「日程骨架请求」边界披露合同）。
+
+    multi-person-half-day 的陈曦（agent 1，bedtime_window [22.5, 23.5]）就寝
+    不跨午夜，锚点严格早于当日结束——此前该型人物在"最后一段规划到就寝"
+    路径只能猜就寝时刻；李凡（agent 2，[23.5, 25.0]）跨午夜被钳制到当日结束。
+    """
+    engine = engine_factory("multi-person-half-day.json")
+    ready = engine.scheduling_state().ready_agent_ids
+    contexts = [context(engine, "bedtime-disclosure", agent_id=agent_id)
+                for agent_id in ready]
+    engine.begin_decision_round(contexts)
+
+    declared = {item.agent_id: item.bedtime_window[1] for item in engine.scenario.agents}
+    observations = {}
+    for context_item in contexts:
+        observation = engine.observe(context_item)
+        observations[context_item.agent_id] = observation
+        now = observation["current_time"]
+        expected = bedtime_anchor(now, engine.scenario.timezone, declared[context_item.agent_id])
+        assert observation["scene"]["bedtime_epoch"] == expected
+        assert observation["facts"]["bedtime_epoch"] == expected
+
+    chenxi = observations[1]
+    bedtime = chenxi["scene"]["bedtime_epoch"]
+    day_end = chenxi["scene"]["day_end_epoch"]
+    assert bedtime < day_end, "陈曦型就寝不跨午夜：锚点严格早于当日结束"
+    assert observations[2]["scene"]["bedtime_epoch"] == observations[2]["scene"]["day_end_epoch"], \
+        "李凡型跨午夜：锚点被钳制到当日结束"
+
+    now = chenxi["current_time"]
+    ok = PlanSegment(start=now, end=bedtime, intent_kind="睡眠", note="直到就寝")
+    DayPlan(bedtime=bedtime, day_end=day_end, segments=(ok,))
+    short = PlanSegment(start=now, end=bedtime - 1, intent_kind="睡眠", note="差一秒到就寝")
+    with pytest.raises(ValueError, match="does not cover until bedtime"):
+        DayPlan(bedtime=bedtime, day_end=day_end, segments=(short,))
+
+    scene_text = render_scene(chenxi["scene"])
+    assert f"就寝锚点（最末段须覆盖到）{bedtime}" in scene_text
+    assert f'"bedtime_epoch":{bedtime}' in render_facts(chenxi["facts"])
 
 
 def _stage_progress_limits(engine) -> None:
@@ -232,10 +332,11 @@ def _events_of(engine, event_type: str) -> list:
 
 
 def _decision_statement_params() -> dict:
-    """决策自述阶段的模型请求参数形状（无 tools、温度 1.3、max_tokens 400）。"""
-    return {"model": "deepseek-flash", "messages": [{"role": "user", "content": "此刻感受"}],
-            "stream": False, "temperature": 1.3, "max_tokens": 400, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}}}
+    """决策自述阶段的模型请求参数形状（无 tools、温度 1.0、max_tokens 8000、reasoning 上限）。"""
+    return {"model": "deepseek-v4.1-flash", "messages": [{"role": "user", "content": "此刻感受"}],
+            "stream": False, "temperature": 1.0, "max_tokens": 8000, "max_retries": 0,
+            "extra_body": {"thinking": {"type": "disabled"},
+                           "reasoning": {"max_tokens": 1500}}}
 
 
 def test_decision_started_written_once_complete_with_decision_statement(engine_factory) -> None:

@@ -35,14 +35,20 @@ from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
 
-_DEEPSEEK_BASE_URL = "https://api.deepseek.com/beta"
-_DEEPSEEK_MODEL = "deepseek-flash"
+_DEEPSEEK_BASE_URL = "https://openrouter.ai/api/v1"
+_DEEPSEEK_MODEL = "deepseek-v4.1-flash"
 #: 工作验收阶段参数（docs/dev/SPEC-life-realism.md「两阶段决策」：独立工作验收保持
 #: disabled/required）。
 _WORK_REVIEW_THINKING = "disabled"
 _WORK_REVIEW_TOOL_CHOICE = "required"
-#: 联系人回复生成的 max_tokens 上限（200 汉字 ≈ 300+ token，留冗余；experiment_assumption）。
-CONTACT_REPLY_MAX_TOKENS = 512
+#: 联系人回复生成的 max_tokens 上限（OpenRouter 模型每响应必带 reasoning 耗 token，512 预算下
+#: content 必空；与决策自述同抬到 8000——reasoning 峰值实测远超 2000；合同生成参数表
+#: 「联系人回复」行）。
+CONTACT_REPLY_MAX_TOKENS = 8000
+#: 联系人回复 reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数，经 extra_body
+#: 透传）：偶发 reasoning 思考螺旋烧穿全部 max_tokens（finish=length、content=None，
+#: 一日模拟实测）；1500 覆盖健康 reasoning 分布（100-2000），只切病理尾部。
+CONTACT_REPLY_REASONING_MAX_TOKENS = 1500
 #: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字）。
 _CONTACT_REPLY_PROMPT = (
     "你是消息收件人通讯录里的一名联系人。根据你的联系人档案与收到的消息，"
@@ -210,16 +216,23 @@ def _configure_process(project_root: Path) -> None:
 
 
 def _read_deepseek_key() -> str:
-    """@brief 只读取固定私密配置中的 DeepSeek 密钥，不输出其内容。"""
+    """@brief 只读取固定私密配置中的多把 DeepSeek 节点密钥，不输出其内容。
+
+    值为逗号分隔的至少一个非空密钥段；逐段 strip、按出现顺序去重后
+    以逗号 join 返回（单把密钥也 join），由 Router 侧拆分为多 deployment。
+    """
     path = Path.home() / ".config" / "worldmock" / "deepseek.env"
     if not path.is_file() or path.is_symlink():
         raise FileNotFoundError("DeepSeek credential file is missing or unsafe")
     values = dotenv_values(path, interpolate=False)
-    unknown = set(values) - {"DEEPSEEK_API_KEY"}
-    key = values.get("DEEPSEEK_API_KEY")
-    if unknown or not isinstance(key, str) or not key.strip():
+    unknown = set(values) - {"DEEPSEEK_NODE_KEYS"}
+    raw = values.get("DEEPSEEK_NODE_KEYS")
+    if unknown or not isinstance(raw, str) or not raw.strip():
         raise IntegrityError("DeepSeek credential file has an invalid schema")
-    return key.strip()
+    segments = [item.strip() for item in raw.split(",")]
+    if not segments or any(not item for item in segments):
+        raise IntegrityError("DeepSeek credential file has an invalid schema")
+    return ",".join(dict.fromkeys(segments))
 
 
 def _prepend_pythonpath(root: Path) -> None:
@@ -302,7 +315,7 @@ def _model_identity() -> ModelIdentity:
     )
 
     return ModelIdentity(
-        provider="deepseek",
+        provider="openai_compatible",
         base_url=_DEEPSEEK_BASE_URL,
         requested_model=_DEEPSEEK_MODEL,
         thinking=ACTION_THINKING["thinking"]["type"],
@@ -327,7 +340,7 @@ def two_stage_model_identity() -> dict[str, Any]:
     )
 
     return {
-        "provider": "deepseek",
+        "provider": "openai_compatible",
         "base_url": _DEEPSEEK_BASE_URL,
         "requested_model": _DEEPSEEK_MODEL,
         "max_retries": 0,
@@ -712,7 +725,8 @@ def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
     ]
     return {"model": model_name, "messages": messages, "stream": False,
             "max_tokens": CONTACT_REPLY_MAX_TOKENS, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}}}
+            "extra_body": {"thinking": {"type": "disabled"},
+                           "reasoning": {"max_tokens": CONTACT_REPLY_REASONING_MAX_TOKENS}}}
 
 
 def parse_contact_reply(raw: dict[str, Any]) -> str:

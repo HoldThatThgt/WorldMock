@@ -36,10 +36,21 @@ from worldmock.life.narration import (
 from worldmock.life.schedule import INTENT_KINDS
 
 
-#: 决策自述阶段采样参数（DeepSeek 一般对话推荐温度 1.3，两阶段决策合同）。
-DECISION_STATEMENT_TEMPERATURE = 1.3
-#: 决策自述阶段输出上限（两阶段决策合同：一到三句、≤200 汉字）。
-DECISION_STATEMENT_MAX_TOKENS = 400
+#: 决策自述阶段采样参数（模型更换后 temp 1.3 偶发采样脱轨：reasoning 螺旋烧穿、
+#: 多语言乱码、超长输出，均发于一日模拟 07:30 最富上下文轮次；同请求 temp 1.0
+#: 实测 4/4 正常、0.8 4/4 正常、1.3 累计 12 发 5 发病态，合同「生成参数」定 1.0）。
+DECISION_STATEMENT_TEMPERATURE = 1.0
+#: 决策自述阶段输出上限（两阶段决策合同「生成参数」：8000；OpenRouter deepseek-v4.1-flash
+#: 每响应必带 reasoning 耗 token，抽取阶段实测 reasoning 峰值 4925-6916——2000 预算下
+#: 复杂决策 content 会被 reasoning 烧穿，统一抬到 8000）。
+DECISION_STATEMENT_MAX_TOKENS = 8000
+#: 决策自述 reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数）：temp 1.3 下
+#: 偶发 reasoning 长思考螺旋烧穿全部 max_tokens（finish=length、content=None，两次
+#: 一日模拟 07:30 实测；同一请求重放基线仅 142 reasoning，属重尾随机事件）。上限
+#: 只截断思考不伤内容、1500 覆盖健康 reasoning 分布（100-2000），但属软限制——
+#: temp 1.3 病态样本实测 reasoning 3587 超 1500 上限，脱轨主治理靠温度 1.0。
+#: 禁用 reasoning.effort（实测 content=None）。
+DECISION_STATEMENT_REASONING_MAX_TOKENS = 1500
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
@@ -278,7 +289,8 @@ _TOOL_DESCRIPTIONS = {
         "automatically with its progress preserved."),
     "set_activity_state": (
         _ACTION_PROTOCOL
-        + " Pause, resume, or cancel an activity exposed by the current observation."),
+        + " Pause, resume, or cancel an activity exposed by the current observation. "
+        "Conversations and calls cannot be paused; cancel is their only control."),
     "change_playback_speed": (
         _ACTION_PROTOCOL
         + " Change playback speed for the owned active watching activity."),
@@ -312,11 +324,22 @@ _TOOL_DESCRIPTIONS = {
         + " At the first decision after waking, submit today's skeleton of five to "
         "eight non-overlapping segments covering up to bedtime; every intent_kind "
         "must come from the closed enum in this schema and no segment may start "
-        "earlier than the current time."),
+        "earlier than the current time. Segment start and end are absolute Unix "
+        "epoch seconds (UTC), never minutes-of-day; the facts in this observation "
+        "disclose current_epoch (now), day_start_epoch (local midnight), "
+        "day_end_epoch (local next midnight) and bedtime_epoch (today's bedtime "
+        "anchor, per-person) for conversion. Hard rule: no segment end may "
+        "exceed day_end_epoch, and the last segment must end at bedtime_epoch "
+        "or later (cover until bedtime)."),
     "revise_day_plan": (
         _ACTION_PROTOCOL
         + " Rewrite only the not-yet-started segments of today's submitted plan; a "
-        "segment that already started cannot be rewritten."),
+        "segment that already started cannot be rewritten. Segment start and end "
+        "are absolute Unix epoch seconds (UTC), never minutes-of-day; use "
+        "current_epoch, day_start_epoch, day_end_epoch and bedtime_epoch "
+        "disclosed in the observation facts. Hard rule: no segment end may "
+        "exceed day_end_epoch, and the last segment must end at bedtime_epoch "
+        "or later (cover until bedtime)."),
     "send_message": (
         _ACTION_PROTOCOL
         + " Send one short message (at most 300 characters) to a recipient identity "
@@ -458,6 +481,12 @@ def _game_boundary_kinds(
         contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
     """@brief 游戏反馈边界闭集（合同 game_boundary；走 game_action 继续交互）。"""
     return frozenset(kind for kind, entry in contract.items() if entry["game_boundary"])
+
+
+#: 社交边界活动闭集（docs/CONTRACTS.md「交谈与通话」）：chat/call 不在可供性
+#: 注册表内，但接受语义要求其以 ACTIVE 跨决策边界存活（唤醒节律无 kind 豁免）；
+#: 其恒占位置与注意力、不可暂停，唯一边界控制是 set_activity_state cancel。
+_SOCIAL_BOUNDARY_KINDS = frozenset({"chat", "call"})
 
 
 _TARGET_KIND_DESCRIPTION = (
@@ -717,7 +746,8 @@ class LifeAgent(PersonAgent):
         """@brief 两阶段决策的决策自述请求参数；只读决策不启用决策自述。
 
         决策自述 = system 身份前言 + persona_card + scene + 记忆摘要，不带
-        tools；thinking=disabled、temperature=1.3、max_tokens=400。
+        tools；thinking=disabled、temperature=1.0、max_tokens=8000、
+        reasoning 上限 1500（防思考螺旋烧穿）。
         """
         if request.readonly:
             return None
@@ -738,7 +768,10 @@ class LifeAgent(PersonAgent):
             "temperature": DECISION_STATEMENT_TEMPERATURE,
             "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
             "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}},
+            "extra_body": {
+                "thinking": {"type": "disabled"},
+                "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS},
+            },
         }
 
     def receive_prelude_decision_statement(self, request: ReactLoopRequest, decision_statement: str) -> None:
@@ -1000,13 +1033,18 @@ class LifeAgent(PersonAgent):
         payload = request.model_dump(mode="json", exclude_none=True)
         runtime_action = _MEMORY_RUNTIME_ACTIONS[action]
         ok, observation, data = self._memory_runtime.dispatch_tool(runtime_action, payload)
+        # 工具失败必须以 ReactToolResult(False) 反馈给模型重试（对齐 finish refs
+        # 预检语义）；raise 会穿透无 try/except 的 dispatch_react_tool 覆写杀 run。
         if not ok:
-            raise RuntimeError(observation)
+            return ReactToolResult(False, observation, {"error": observation})
         if action == "memory_read":
             requested = set(request.ids)
             found = {str(item["id"]) for item in data["episodes"]}
             if found != requested:
-                raise RuntimeError("Memory reference does not exist")
+                unresolved = sorted(requested - found)
+                detail = (f"memory_read contains unknown episode ids: "
+                          f"{', '.join(unresolved)}")
+                return ReactToolResult(False, detail, {"unknown_ids": unresolved})
         self._life_visible_refs.update(_episode_ids(data.get("episodes", [])))
         return ReactToolResult(True, observation, data)
 
@@ -1250,7 +1288,8 @@ def _visible_active_activity(
         raise RuntimeError("LifeAgent active activity identity is invalid")
     if activity.get("status") != "active" or not isinstance(kind, str):
         raise RuntimeError("LifeAgent active activity state is invalid")
-    if kind not in _continuable_activity_kinds(contract) | _game_boundary_kinds(contract):
+    if kind not in (_continuable_activity_kinds(contract)
+                    | _game_boundary_kinds(contract) | _SOCIAL_BOUNDARY_KINDS):
         raise RuntimeError("LifeAgent active activity kind has no decision boundary controls")
     return {"activity_id": activity_id, "kind": kind}
 
@@ -1529,6 +1568,10 @@ def _available_action_models(
         names = {"set_activity_state"}
         if controls["game_commands"]:
             names.add("game_action")
+    elif active["kind"] in _SOCIAL_BOUNDARY_KINDS:
+        # 交谈/通话跨边界存活但控制面只有取消：continue 与 start_* 会被引擎
+        # 按注册表边界门槛拒绝，暴露即制造业务拒绝节律（CONTRACTS「交谈与通话」）。
+        names = {"set_activity_state"}
     else:
         names = {"continue_activity", "set_activity_state", "start_basic_activity"}
         if any(targets.values()):
@@ -1752,7 +1795,13 @@ def _validate_activity_control(
     active = controls["active"]
     if action == "set_activity_state":
         identifiers = {active["activity_id"]} if active is not None else set(controls["paused_ids"])
-        operations = {"pause", "cancel"} if active is not None else {"resume", "cancel"}
+        if active is None:
+            operations = {"resume", "cancel"}
+        elif active["kind"] in _SOCIAL_BOUNDARY_KINDS:
+            # 交谈/通话不可暂停（引擎 SOCIAL_ACTIVITY_CANNOT_PAUSE），活跃时仅可取消。
+            operations = {"cancel"}
+        else:
+            operations = {"pause", "cancel"}
         if request.activity_id not in identifiers or request.operation not in operations:
             return "set_activity_state is not valid for the visible activity state"
         if (active is None and request.operation == "resume"

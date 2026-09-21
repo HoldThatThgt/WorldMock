@@ -36,9 +36,9 @@ def engine_factory(tmp_path: Path):
             timezone=scenario.timezone,
             code_sha256="2" * 64,
             model_identity=ModelIdentity(
-                provider="deepseek",
-                base_url="https://api.deepseek.com/beta",
-                requested_model="deepseek-flash",
+                provider="openai_compatible",
+                base_url="https://openrouter.ai/api/v1",
+                requested_model="deepseek-v4.1-flash",
                 thinking="enabled",
                 tool_choice="auto",
                 max_retries=0,

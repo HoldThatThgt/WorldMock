@@ -32,7 +32,7 @@ def test_opslog_writer_emits_complete_fields(tmp_path: Path) -> None:
     writer.log(day1, "engine", "info", "DECISION_ROUND_COMMITTED", "Round committed",
                agent_id=1, decision_id="decision-x", round_id="ops", action_id="a-1",
                event_seq_first=3, event_seq_last=9, tokens_in=11, tokens_out=7,
-               model="deepseek-flash", omitted_key=None)
+               model="deepseek-v4.1-flash", omitted_key=None)
     writer.close()
     line = (tmp_path / "logs" / "ops-20260105.jsonl").read_text(encoding="utf-8")
     record = json.loads(line)
@@ -46,7 +46,7 @@ def test_opslog_writer_emits_complete_fields(tmp_path: Path) -> None:
     assert record["round_id"] == "ops" and record["action_id"] == "a-1"
     assert record["event_seq_first"] == 3 and record["event_seq_last"] == 9
     assert record["tokens_in"] == 11 and record["tokens_out"] == 7
-    assert record["model"] == "deepseek-flash" and "omitted_key" not in record
+    assert record["model"] == "deepseek-v4.1-flash" and "omitted_key" not in record
 
 
 def test_opslog_writer_splits_files_by_simulation_day(tmp_path: Path) -> None:
@@ -89,12 +89,12 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     engine = engine_factory()
     ctx = context(engine, "ops")
     engine.begin_decision_round([ctx])
-    request = {"model": "deepseek-flash", "messages": [], "tools": []}
+    request = {"model": "deepseek-v4.1-flash", "messages": [], "tools": []}
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, request))
     engine.record_model_exchange(ModelCallEvidence(
         ctx, call_id, "response", 1, request,
-        response={"model": "deepseek-flash", "usage": {"prompt_tokens": 11, "completion_tokens": 7}}))
+        response={"model": "deepseek-v4.1-flash", "usage": {"prompt_tokens": 11, "completion_tokens": 7}}))
     wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
     engine.submit_action(DirectToolCall(ctx, "ops-wait", "start_basic_activity", wait))
     engine.commit_decision_round("ops")
@@ -108,7 +108,7 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     assert [record["detail"].split()[1] for record in exchanges] == ["request", "response"]
     response = exchanges[1]
     assert response["agent_id"] == ctx.agent_id and response["decision_id"] == ctx.decision_id
-    assert response["model"] == "deepseek-flash"
+    assert response["model"] == "deepseek-v4.1-flash"
     assert response["tokens_in"] == 11 and response["tokens_out"] == 7
     accepted = next(record for record in records if record["code"] == "ACTION_ACCEPTED")
     assert accepted["agent_id"] == ctx.agent_id and accepted["decision_id"] == ctx.decision_id

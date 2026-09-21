@@ -92,8 +92,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
     if not isinstance(actual, dict):
         raise IntegrityError("Two-stage model identity must be an object")
     problems: list[str] = []
-    if actual.get("base_url") != "https://api.deepseek.com/beta":
-        problems.append(f"base_url={actual.get('base_url')!r} must include /beta")
+    if actual.get("base_url") != "https://openrouter.ai/api/v1":
+        problems.append(f"base_url={actual.get('base_url')!r} must be the frozen openai_compatible OpenRouter endpoint")
     if actual.get("max_retries") != 0:
         problems.append(f"max_retries={actual.get('max_retries')!r} must be 0")
     if actual.get("strict") is not True:

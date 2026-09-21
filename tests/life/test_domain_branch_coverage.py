@@ -808,6 +808,20 @@ def test_continue_candidate_skips_when_remaining_or_energy_infeasible() -> None:
     assert _continue_candidate(_context(agent=exhausted, active_activity=long_work)) is None
 
 
+def test_continue_candidate_skips_social_boundary_kinds_without_met_lookup() -> None:
+    """交谈/通话不出继续候选：引擎仅接受取消，且其 kind 不在注册表 MET 表内。
+
+    run11 观察降级复现面：chat 以 ACTIVE 跨决策边界后，继续候选按 kind 查
+    activity_met 抛 KeyError('chat')，使 motivation_internal 整段从观察消失。
+    """
+    chat = _activity(kind=ActivityKind.CHAT, planned_end_at=900,
+                     planned_duration_seconds=900)
+    call = _activity(kind=ActivityKind.CALL, planned_end_at=900,
+                     planned_duration_seconds=900)
+    assert _continue_candidate(_context(active_activity=chat)) is None
+    assert _continue_candidate(_context(active_activity=call)) is None
+
+
 def test_sleep_deficit_delta_recovers_only_for_sleep() -> None:
     """睡眠按 1h/h 清账，其余活动按清醒标度累积。"""
     context = _context(agent=_agent())

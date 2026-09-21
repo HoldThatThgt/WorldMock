@@ -17,12 +17,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from agentsociety2.society import DirectToolCall
+from pydantic import ValidationError
 
 from tests.life.conftest import context
 from worldmock.footprints.models import EventDraft
 from worldmock.life import candidates, presentation
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import BrowseActivitiesRequest, StartBasicActivityRequest
+from worldmock.life.models import (BrowseActivitiesRequest, DiscoverPlacesRequest,
+                                   StartBasicActivityRequest)
 from worldmock.life.motivation import MAX_CANDIDATES
 
 from .conftest import advance_until_ready, submit_round
@@ -246,6 +248,61 @@ def test_cursor_payload_admits_no_third_level(engine_factory) -> None:
         with pytest.raises(ValueError):
             presentation.cursor_offset(json.dumps(
                 {"key": shorter, "offset": 0, "identity": "x"}))
+
+
+@pytest.mark.parametrize("literal", ["null", "None", "   "])
+def test_cursor_null_literals_are_normalized_to_first_page(engine_factory, literal: str) -> None:
+    """字符串 "null"/"None"/纯空白在请求边界归一为首屏 None：与 cursor=None 同一返回。
+
+    真实事故：模型把首屏 null 写成四字符文本 "null"，旧链路在 _cursor_key 抛
+    ValueError 穿透 dispatch 杀死 run。归一层之后同一提交与 None 逐字段一致。
+    """
+    assert BrowseActivitiesRequest(category="sport", cursor=literal).cursor is None
+
+    none_engine = engine_factory()
+    literal_engine = engine_factory()
+    _, baseline = submit_round(
+        none_engine, {1: ("browse_activities",
+                          BrowseActivitiesRequest(category="sport", cursor=None))},
+        "cursor-none-baseline")
+    _, normalized = submit_round(
+        literal_engine, {1: ("browse_activities",
+                             BrowseActivitiesRequest(category="sport", cursor=literal))},
+        "cursor-literal-first")
+    assert normalized[0].status.value == "completed", normalized[0].error_code
+    assert normalized[0].data["items"] == baseline[0].data["items"]
+    assert normalized[0].data["next_cursor"] == baseline[0].data["next_cursor"]
+    assert normalized[0].data["total"] == baseline[0].data["total"]
+
+
+def test_discover_cursor_null_literals_are_normalized_too() -> None:
+    """发现动作的 cursor 同一归一："null"/"None" 变 None；纯空白仍按既有 \\S 模式拒绝。"""
+    query = {"product_id": None, "business_kind": None,
+             "travel_mode": "walking", "max_travel_seconds": None}
+    assert DiscoverPlacesRequest(**query, cursor="null").cursor is None
+    assert DiscoverPlacesRequest(**query, cursor="None").cursor is None
+    with pytest.raises(ValidationError):
+        DiscoverPlacesRequest(**query, cursor="   ")
+
+
+def test_cursor_garbage_payload_is_rejected_without_killing_the_run(engine_factory) -> None:
+    """畸形游标走工具级业务拒绝（BROWSE_CURSOR_INVALID）：run 不死，下一轮纠错成功。"""
+    engine = engine_factory()
+    _, results = submit_round(
+        engine, {1: ("browse_activities",
+                     BrowseActivitiesRequest(category="sport", cursor="garbage{["))},
+        "cursor-garbage")
+    result = results[0]
+    assert result.status.value in {"rejected", "failed"}
+    assert result.error_code == "BROWSE_CURSOR_INVALID"
+    assert any(event.data.get("error_code") == "BROWSE_CURSOR_INVALID"
+               for event in engine.store.read_agent_events("action_rejected", 1))
+    assert advance_until_ready(engine)  # run 存活：人物照常唤醒
+    _, retry = submit_round(
+        engine, {1: ("browse_activities",
+                     BrowseActivitiesRequest(category="sport", cursor=None))},
+        "cursor-garbage-retry")
+    assert retry[0].status.value == "completed", retry[0].error_code
 
 
 def test_presentation_envelopes_themselves_have_no_third_layer() -> None:

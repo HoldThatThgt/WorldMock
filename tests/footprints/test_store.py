@@ -198,7 +198,7 @@ def test_checkpoint_event_must_match_committed_identity_and_clock(store, field, 
 
 def test_credentials_are_redacted_without_losing_model_task(monkeypatch):
     from worldmock.footprints.evidence import redact_evidence
-    monkeypatch.setenv('DEEPSEEK_API_KEY', 'private-credential-value')
+    monkeypatch.setenv('DEEPSEEK_NODE_KEYS', 'private-credential-value')
     original = {'headers': {'Authorization': 'Bearer private-credential-value'},
                 'messages': [{'role': 'user', 'content': 'Read the actual meeting transcript'}],
                 'failure': 'Request private-credential-value failed'}

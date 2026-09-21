@@ -924,7 +924,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
     def _dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
         """@brief 依据闭集工具名进入对应领域转换。"""
         model = REQUEST_MODELS[pending.tool_name]
-        request = model.model_validate(pending.request)
+        try:
+            request = model.model_validate(pending.request)
+        except ValueError as error:
+            # 请求再验证失败（绕过构造期校验的载荷，如超长 note）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
+            raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
         if pending.tool_name != "browse_activities":
             require_interaction_menu(self.scenario, state, pending, request)
         self._require_boundary_action(state, pending, request)
@@ -1329,7 +1333,24 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
             recipient_id=request.recipient_id, text=request.text,
             created_at=state.current_time)
         world_agent_ids = {f"agent:{agent_id}" for agent_id in self.state.agents}
-        sent = social_domain.send_message(outgoing, world_agent_ids, contacts)
+        # 域校验（收件人存在 + 文本 300 上限）ValueError 转业务拒绝：裸穿杀 run；RECIPIENT_NOT_FOUND 由此复活（收件登记的 else 分支不可达）。
+        try:
+            sent = social_domain.send_message(outgoing, world_agent_ids, contacts)
+        except ValueError as error:
+            if "recipient not found" in str(error):
+                raise BusinessRuleError("RECIPIENT_NOT_FOUND") from error
+            raise BusinessRuleError("MESSAGE_TEXT_TOO_LONG") from error
+        state = self._register_delivered_message(state, agent, contacts, request, sent)
+        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
+                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+                              message="Message delivered", data={
+                                  "message_id": sent.message.message_id,
+                                  "recipient_id": request.recipient_id})
+        return state, result
+
+    def _register_delivered_message(self, state: WorldState, agent, contacts,
+                                    request: SendMessageRequest, sent) -> WorldState:
+        """@brief 送达登记：收件方 inbox、model 联系人回复待办与 message_arrival 事件。"""
         drafts: list[EventDraft] = []
         recipient_agent = next((item for item in state.agents.values()
                                 if f"agent:{item.agent_id}" == request.recipient_id), None)
@@ -1356,12 +1377,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
                                    "occurred_at": state.current_time})
         drafts.append(arrival)
         self._pending_event_drafts.extend(drafts)
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Message delivered", data={
-                                  "message_id": sent.message.message_id,
-                                  "recipient_id": request.recipient_id})
-        return state, result
+        return state
 
     def _contact_reply_request(self, message, contacts):
         """@brief model 策略联系人的回复请求（待宿主执行的外部调用登记）。"""
@@ -1382,8 +1398,12 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin):
         origin = ActivityOrigin(pending.action_id, pending.decision_id,
                                 pending.requested_event_id)
         if request.kind == "chat":
-            started = social_actions.start_chat(state, agent, request, origin,
-                                                f"invite-{pending.action_id}")
+            # 共同在场/可交谈 ValueError 转业务拒绝：裸异常穿透 _resolve 杀 run（观察层把睡着/游戏中的人也列入 partner_id 枚举）。
+            try:
+                started = social_actions.start_chat(state, agent, request, origin,
+                                                    f"invite-{pending.action_id}")
+            except ValueError as error:
+                raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE") from error
             if started.invite is not None:
                 self._deliver_social_message(state, started.invite)
         else:

@@ -835,7 +835,7 @@ def test_account_checks_pass_without_accounts():
 
 
 def test_redact_evidence_passes_scalars_and_replaces_env_secrets(monkeypatch):
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-secret-value")
+    monkeypatch.setenv("DEEPSEEK_NODE_KEYS", "sk-secret-value")
     assert evidence.redact_evidence(7) == 7
     assert evidence.redact_evidence(None) is None
     assert evidence.redact_evidence([3, "plain"]) == [3, "plain"]
