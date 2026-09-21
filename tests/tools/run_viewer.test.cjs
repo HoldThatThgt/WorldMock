@@ -262,6 +262,36 @@ test('unknown names are explicit and logged in English while basic activities ha
   assert.ok(view.errors.every(error => !/[\u4e00-\u9fff]/.test(error)));
 });
 
+test('empty names are reported and cannot erase earlier recorded names', t => {
+  const view = viewer([
+    event('observation', {
+      locations: [{location_id: 'poi-keep', name: '菜饭骨头汤'},
+        {location_id: 'poi-empty', name: ''}, {location_id: 'poi-space', name: ' \t '}],
+      products: [{product_id: 'food-empty', name: ''}],
+      messages: [{message_id: 'mail-space', subject: '   '}],
+      facts: {tasks: [{task_id: 'task-space', title: ' \t '}]},
+    }),
+    browse([{item_id: 'movie-keep', title: '海边的清晨'},
+      {item_id: 'movie-empty', title: ''}, {item_id: 'movie-space', title: '   '}]),
+    event('observation', {locations: [{location_id: 'poi-keep', name: ''}]}),
+    browse([{item_id: 'movie-keep', title: '   '}]),
+    ...['poi-keep', 'poi-empty', 'poi-space'].map(destination_id =>
+      activity('action_accepted', destination_id, {kind: 'travel', destination_id})),
+    ...['movie-keep', 'food-empty', 'mail-space', 'task-space', 'movie-empty', 'movie-space'].map(target_id =>
+      activity('action_accepted', target_id, {kind: 'watch', target_id})),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(targets(view.activities()), [
+    '→ 菜饭骨头汤', '→ 名称缺失（poi-empty）', '→ 名称缺失（poi-space）', '海边的清晨',
+    '名称缺失（food-empty）', '名称缺失（mail-space）', '名称缺失（task-space）',
+    '名称缺失（movie-empty）', '名称缺失（movie-space）',
+  ]);
+  for (const id of ['poi-empty', 'poi-space', 'food-empty', 'mail-space', 'task-space', 'movie-empty', 'movie-space']) {
+    assert.ok(view.errors.some(error => error.includes(id) && /[A-Za-z]/.test(error)));
+  }
+  assert.ok(view.errors.every(error => !/[\u4e00-\u9fff]/.test(error)));
+});
+
 test('reload clears both recorded names and missing-name diagnostics', t => {
   const missing = activity('action_accepted', 'missing', {kind: 'watch', target_id: 'drama-0099'});
   const view = viewer([
