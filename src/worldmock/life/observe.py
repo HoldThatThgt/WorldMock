@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
@@ -203,7 +204,8 @@ class ObservationMixin:
                        "status": active.status.value,
                        "title": title, "progress": progress,
                        "elapsed_seconds": active.elapsed_seconds,
-                       "planned_duration_seconds": active.planned_duration_seconds}
+                       "planned_duration_seconds": active.planned_duration_seconds,
+                       "data": deepcopy(active.data)}
         return {"current": current, "control": control,
                 "paused": [{"title": self._activity_title(item) or item.kind.value,
                             "progress": _activity_progress_phrase(item)} for item in paused]}

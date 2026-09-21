@@ -86,7 +86,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
         DECISION_STATEMENT_MAX_TOKENS,
         DECISION_STATEMENT_TEMPERATURE,
     )
-    from worldmock.runtime import two_stage_model_identity
+    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
+    from worldmock.runtime import MAX_REACT_TURNS, two_stage_model_identity
 
     actual = identity if identity is not None else two_stage_model_identity()
     if not isinstance(actual, dict):
@@ -96,6 +97,10 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
         problems.append(f"base_url={actual.get('base_url')!r} must be the frozen openai_compatible OpenRouter endpoint")
     if actual.get("max_retries") != 0:
         problems.append(f"max_retries={actual.get('max_retries')!r} must be 0")
+    if type(actual.get("transport_max_retries")) is not int or actual["transport_max_retries"] != TRANSPORT_MAX_RETRIES:
+        problems.append("transport_max_retries must match the dispatcher budget")
+    if type(actual.get("max_react_turns")) is not int or actual["max_react_turns"] != MAX_REACT_TURNS:
+        problems.append("max_react_turns must match the agent budget")
     if actual.get("strict") is not True:
         problems.append("every function declaration must be strict=true")
     if actual.get("reasoning_effort") is not None:

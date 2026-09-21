@@ -35,6 +35,9 @@ from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
 
+#: 自述、工具纠错与结束共享的有限回合预算。
+MAX_REACT_TURNS = 16
+
 _DEEPSEEK_BASE_URL = "https://openrouter.ai/api/v1"
 _DEEPSEEK_MODEL = "deepseek-v4.1-flash"
 #: 工作验收阶段参数（docs/dev/SPEC-life-realism.md「两阶段决策」：独立工作验收保持
@@ -332,6 +335,7 @@ def two_stage_model_identity() -> dict[str, Any]:
     决策自述/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
     运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
     """
+    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
@@ -344,6 +348,8 @@ def two_stage_model_identity() -> dict[str, Any]:
         "base_url": _DEEPSEEK_BASE_URL,
         "requested_model": _DEEPSEEK_MODEL,
         "max_retries": 0,
+        "transport_max_retries": TRANSPORT_MAX_RETRIES,
+        "max_react_turns": MAX_REACT_TURNS,
         "strict": True,
         "reasoning_effort": None,
         "stages": {
@@ -547,6 +553,9 @@ def _validate_agent_workspace(workspace: Path, agent_id: int) -> None:
         raise IntegrityError("Restored agent identity does not match the manifest")
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
+    if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != MAX_REACT_TURNS:
+        logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
+        raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
     store = AgentMemoryStore(workspace, agent_id=agent_id)
     memory_paths = (store.memory_md_path, store.episodes_path, store.state_path)
     if agent.get("initialized_at") is not None or any(path.exists() for path in memory_paths):
@@ -682,7 +691,7 @@ class ContactReplyClient:
     """@brief 联系人 model 回复的独立 DeepSeek 客户端（工作验收同模式）。
 
     复用 AS2 已维护的单次 LiteLLM 客户端，身份必须与运行 manifest 一致；
-    不执行内部重试（max_retries=0），传输异常原样传播为运行故障。
+    不重试业务或协议错误；瞬时传输错误使用调度器独立的三次重试预算。
     """
 
     def __init__(self, model_identity: dict[str, Any]):
@@ -876,7 +885,7 @@ def _agent_specs(scenario: RuntimeScenario, *,
         config = {
             "enable_memory": True,
             "enable_todo_list": False,
-            "max_react_turns": 10,
+            "max_react_turns": MAX_REACT_TURNS,
             "disabled_skill_ids": [],
             "default_activated_skill_ids": [],
         }

@@ -120,9 +120,11 @@ def test_agent_specs_inject_compiled_persona_card_text() -> None:
     specs = _agent_specs(scenario, persona_compiler=fake_compiler)
 
     assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert specs[0]["config"]["max_react_turns"] == 16
     assert compiled == [1]
     restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
     assert "persona_card" not in restored[0]["profile"]
+    assert restored[0]["config"]["max_react_turns"] == 16
 
 
 def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> None:
@@ -135,7 +137,7 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
         "initialized_at": "2026-01-01T00:00:00+00:00" if initialized else None,
     }
     (workspace / "AGENT.json").write_text(json.dumps(agent))
-    (workspace / "config.json").write_text(json.dumps({"enable_memory": True}))
+    (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
 def test_runtime_code_identity_is_deterministic() -> None:

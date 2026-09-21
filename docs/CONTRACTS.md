@@ -532,7 +532,7 @@ flowchart LR
 
 ### 活动控制行
 
-观察顶层的 `active_activity` 是事件级工具支持行，供 LifeAgent 冻结本轮活动控制合同（继续/暂停/取消的身份枚举），不进 scene/facts 提示。人物活动槽位为空时整体为 `null`；非空时控制行是恰好 7 键的字段闭集：
+观察顶层的 `active_activity` 是事件级工具支持行，供 LifeAgent 冻结本轮活动控制合同（继续/暂停/取消的身份枚举），不进 scene/facts 提示。人物活动槽位为空时整体为 `null`；非空时控制行是恰好 8 键的字段闭集：
 
 | 字段 | 说明 |
 | --- | --- |
@@ -543,6 +543,7 @@ flowchart LR
 | `progress` | 中文进度短语，与 scene 活动行同源 |
 | `elapsed_seconds` | 已进行整数秒 |
 | `planned_duration_seconds` | 计划整数秒 |
+| `data` | 活动数据的独立副本；游戏活动必须保留真实 `game_session_id`，与同次观察的 `games` 会话一致 |
 
 同顶层的 `paused_activities` 为暂停活动列表，每项是活动完整 `model_dump`（含 `status="paused"`）加 `remaining_duration_seconds`、`minimum_energy_cost_kcal`、`resume_energy_feasible` 三键。两个顶层字段的 `status` 均由 LifeAgent 控制合同校验：缺键或非闭集值时本轮决策明确失败，不静默降级。
 
@@ -644,6 +645,10 @@ ExclusionReason = Literal[
 | `next_cursor` | 文本或 `null` | 下一页游标，最后一页为 `null` |
 | `items` | 数组 | 本次返回的条目行 |
 | `excluded` | 数组 | 原始结果逐项保存 `{object_id, kind, reason}` 及存在的其他排除属性，`reason` 取 `ExclusionReason`；公开投影按全部非 `object_id` 属性分组，以 `object_ids` 保留各项身份 |
+
+浏览游标解码后的排序键必须是两项整数与一项非空对象身份，偏移必须是非负整数；
+布尔、浮点数、非有限值、缺项和 `null` 均为无效游标，不强制转换类型。
+无效游标只拒绝当前动作并允许下一轮正常查询，不改变世界或呈现状态。
 
 `returned` 取代此前的 `count` 告知值；`count` 不再作为返回体字段。
 公开排除分组必须能够逐项还原原始排除行，不能只按原因码合并后丢失其他属性。
@@ -765,11 +770,23 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 | `provider` | `openai_compatible` |
 | `base_url` | `https://openrouter.ai/api/v1` |
 | `requested_model` | `deepseek-v4.1-flash` |
-| `max_retries` | 0 |
+| `max_retries` | 0；非传输错误不在客户端内重试 |
+| `transport_max_retries` | 3；仿真调度器独立的瞬时传输重试预算 |
+| `max_react_turns` | 16；决策自述、工具纠错与结束共享的有限预算 |
 | 工具声明 | 每个函数声明 `strict=true` |
 | `reasoning_effort` | 不发送 |
 
 运行凭据来自唯一私密文件 `~/.config/worldmock/deepseek.env`，schema 仅允许 `DEEPSEEK_NODE_KEYS` 一个键：值为逗号分隔的至少一个非空密钥段，读取时逐段去除首尾空白、按出现顺序去重后以逗号连接传给仿真 LLM 与 CODER 角色；拒绝符号链接、未知键、空值与空段。多把密钥在 LiteLLM Router 中按 deployment 负载分摊。
+
+仿真调度器按 LiteLLM 的连接、超时、内部服务错误与服务暂不可用异常类型识别瞬时传输失败；
+每次逻辑请求最多额外尝试三次，依次退避 2、4、8 秒。传输预算与 `max_retries` 独立计数，
+认证、无效参数、协议与业务错误不得借用剩余传输预算；任一对应预算耗尽立即报告真实总尝试次数。
+LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同一逻辑请求的参数。
+`transport_max_retries` 与 `max_react_turns` 冻结在两阶段运行身份内，缺失或篡改都拒绝。
+恢复人物工作区时，实际 config.json 也必须显式包含整数 `max_react_turns=16`，
+与清单一致；缺失、类型错误或错值均在恢复执行前拒绝，不使用 Agent 默认预算。
+此传输策略适用于仿真 LLMClient；画像抽取使用独立 requests 客户端，当前仍使用凭据池首把，
+不属于运行阶段 Router 的分摊与传输重试范围。LabelKit 的独立请求合同见下文。
 
 阶段键为 `decision_statement`、`action`、`work_review`。逐阶段参数、重试次数、模型身份、提示指纹与工具 Schema 指纹一起冻结进运行清单，运行中不变更；`validate` 复核该身份一致，不一致即拒绝新运行。新建、打开既有运行、恢复及从工作区加载均拒绝旧阶段名称，不提供别名或迁移。显式无模型身份的引擎直驱路径不生成替代模型身份。
 

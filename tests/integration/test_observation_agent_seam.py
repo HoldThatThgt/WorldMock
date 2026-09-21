@@ -36,12 +36,13 @@ from worldmock.life.models import (  # noqa: E402
     PlanDayRequest,
     PlanGoalInput,
     StartBasicActivityRequest,
+    StartTargetedActivityRequest,
 )
 
-#: CONTRACTS.md「观察投影字段」钉住的 active_activity 控制行字段闭集（7 键）。
+#: CONTRACTS.md「观察投影字段」钉住的 active_activity 控制行字段闭集。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
     "activity_id", "kind", "status", "title", "progress",
-    "elapsed_seconds", "planned_duration_seconds",
+    "elapsed_seconds", "planned_duration_seconds", "data",
 }
 
 
@@ -96,6 +97,8 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     assert state["operation"]["enum"] == ["pause", "cancel"]
     assert schemas["continue_activity"]["parameters"]["properties"][
         "activity_id"]["enum"] == [control["activity_id"]]
+    control["data"]["observer_write"] = "must stay outside the world"
+    assert "observer_write" not in engine.state.activities[control["activity_id"]].data
 
 
 def test_life_agent_rejects_active_activity_without_active_status(
@@ -119,6 +122,27 @@ def test_life_agent_rejects_active_activity_without_active_status(
         with pytest.raises(RuntimeError, match="active activity state is invalid"):
             agent.prepare_react_loop(ReactLoopRequest(
                 0, ctx.observed_at, _observation_records(damaged)))
+
+
+def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
+    """观察中已播放字幕的嵌套列表必须隔离，调用者修改它不能篡改世界进度。"""
+    engine = _engine_factory()
+    _submit(engine, "copy-plan", "plan_day", PlanDayRequest(goals=()))
+    advance_next(engine)
+    wake_by_mail(engine, offset=900)
+    _submit(engine, "copy-watch", "start_targeted_activity", StartTargetedActivityRequest(
+        activity_type="watch", target_id="sintel-en-subtitles",
+        planned_duration_seconds=1260, playback_speed=0.5))
+    assert advance_until_ready(engine)
+    ctx = context(engine, "copy-observe")
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    control = observation["active_activity"]
+    actual = engine.state.activities[control["activity_id"]].data["revealed"]["cues"]
+    assert len(actual) > 0
+    count = len(actual)
+    control["data"]["revealed"]["cues"].clear()
+    assert len(actual) == count
 
 
 async def _agent_action(engine, round_id: str, action: str, payload: dict):
@@ -145,6 +169,46 @@ async def _agent_action(engine, round_id: str, action: str, payload: dict):
     expected_status = "in_progress" if action == "start_basic_activity" else "completed"
     assert results[0].status.value == expected_status
     return observation, results[0], functions
+
+
+@pytest.mark.asyncio
+async def test_real_game_observation_accepts_and_executes_visible_command(_engine_factory) -> None:
+    """真实游戏经观察与人物合同执行命令，持久化后仍可恢复同一会话。"""
+    from worldmock.life.engine import LifeEngine
+
+    engine = _engine_factory()
+    _submit(engine, "game-plan", "plan_day", PlanDayRequest(goals=()))
+    advance_next(engine)
+    _submit(engine, "game-start", "start_targeted_activity", StartTargetedActivityRequest(
+        activity_type="play_game", target_id="textworld-1201",
+        planned_duration_seconds=3600, playback_speed=1))
+    advance_next(engine)
+    activity = engine.state.activities[engine.state.agents[1].current_activity_id]
+    session_id = activity.data["game_session_id"]
+    command = engine.state.agents[1].game_sessions[session_id].admissible_commands[0]
+    observation, result, schemas = await _agent_action(
+        engine, "game-command", "game_action", {"game_session_id": session_id, "command": command})
+    assert observation["active_activity"]["data"]["game_session_id"] == session_id
+    assert schemas["game_action"]["parameters"]["properties"]["game_session_id"]["enum"] == [session_id]
+    assert result.data["game"]["moves"] == 1
+    observation["active_activity"]["data"]["game_session_id"] = "mutated-observation"
+    assert engine.state.activities[activity.activity_id].data["game_session_id"] == session_id
+    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "game_seam_checkpoint"})
+    engine.checkpoint({"agent:1": reference})
+    run_dir = engine.store.run_dir
+    engine.close()
+    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    try:
+        assert restored.state.agents[1].game_sessions[session_id].moves == 1
+        advance_next(restored)
+        ctx = context(restored, "game-restored")
+        restored.begin_decision_round([ctx])
+        visible = restored.observe(ctx)
+        agent = LifeAgent()
+        agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(visible)))
+        assert visible["active_activity"]["data"]["game_session_id"] == session_id
+    finally:
+        restored.close()
 
 
 @pytest.mark.asyncio

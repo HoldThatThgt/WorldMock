@@ -304,12 +304,16 @@ def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConf
             target = item.quantity
         else:
             target = previous.get(item.product_id, 0.0)
-        delta = max(0.0, target - previous.get(item.product_id, 0.0))
-        if held_quantity(agent, product.product_id) + 1e-9 < delta:
+        # 库存既有九位份量精度必须同时用于累计目标和差额，避免分段舍入累积成缺货。
+        target = round(target, 9)
+        delta = round(max(0.0, target - previous.get(item.product_id, 0.0)), 9)
+        held = held_quantity(agent, product.product_id)
+        if held + 1e-9 < delta:
             raise BusinessRuleError("PRODUCT_NOT_HELD")
+        delta = min(delta, held)
         agent = _apply_item_delta(agent, product, delta, config)
-        activity.data.setdefault("consumed", {})[item.product_id] = previous.get(
-            item.product_id, 0.0) + delta
+        activity.data.setdefault("consumed", {})[item.product_id] = round(
+            previous.get(item.product_id, 0.0) + delta, 9)
     return agent
 
 

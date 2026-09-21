@@ -34,6 +34,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -323,12 +324,23 @@ def cursor_offset(cursor: str | None) -> int:
 
 def _cursor_key(cursor: str) -> tuple[tuple[int, int, str], int]:
     """@brief 解出游标承载的排序键与轮转偏移；载荷形状不合法即报错，不静默从头开始。"""
-    payload = json.loads(cursor)
-    values = payload.get("key") if isinstance(payload, dict) else None
-    if not isinstance(values, list) or len(values) != 3:
+    try:
+        payload = json.loads(cursor)
+    except json.JSONDecodeError as error:
+        logging.error("Candidate cursor is not valid JSON")
+        raise ValueError("candidate cursor is not valid JSON") from error
+    if not isinstance(payload, dict) or set(payload) != {"key", "offset", "identity"}:
+        logging.error("Candidate cursor fields do not match the generated shape")
+        raise ValueError("candidate cursor fields do not match the generated shape")
+    values, offset, identity = payload["key"], payload["offset"], payload["identity"]
+    if (not isinstance(values, list) or len(values) != 3
+            or any(type(value) is not int for value in values[:2])
+            or not isinstance(values[2], str) or not values[2].strip()
+            or type(offset) is not int or offset < 0
+            or not isinstance(identity, str) or not identity.strip()):
+        logging.error("Candidate cursor contains an invalid order key, offset or identity")
         raise ValueError("candidate cursor payload is not a stable order key")
-    return ((int(values[0]), int(values[1]), str(values[2])),
-            int(payload.get("offset", 0)))
+    return ((values[0], values[1], values[2]), offset)
 
 
 def present(entries: tuple[PoolEntry, ...], inputs: CandidateInputs, kind: CandidateKind,

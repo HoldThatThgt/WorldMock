@@ -24,6 +24,21 @@ from worldmock.validation import validate_two_stage_model_identity
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 
 
+@pytest.mark.parametrize("field,expected", [("transport_max_retries", 3), ("max_react_turns", 16)])
+@pytest.mark.parametrize("change", ["missing", "incremented", "float", "string"])
+def test_run_budgets_are_frozen_and_missing_or_changed_values_rejected(field, expected, change) -> None:
+    """真实运行身份冻结纠错预算，旧身份缺字段或篡改时拒绝，不生成缺省值。"""
+    identity = two_stage_model_identity()
+    assert identity[field] == expected
+    assert validate_two_stage_model_identity(identity) == identity
+    if change == "missing":
+        del identity[field]
+    else:
+        identity[field] = {"incremented": expected + 1, "float": float(expected), "string": str(expected)}[change]
+    with pytest.raises(IntegrityError, match=field):
+        validate_two_stage_model_identity(identity)
+
+
 def _run_identity(scenario) -> RunIdentity:
     """形成与 conftest 工厂同口径的运行身份（隔离运行目录）。"""
     run_id = f"manifest-test-{scenario.scenario_id}"

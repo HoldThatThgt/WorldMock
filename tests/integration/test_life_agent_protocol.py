@@ -1225,6 +1225,32 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert fourth_names == {"finish"}
 
 
+@pytest.mark.asyncio
+async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -> None:
+    """生产配置允许超过十次模型调用后纠正，完整循环仍只登记一个动作。"""
+    from worldmock.life.scenario import load_scenario
+    from worldmock.runtime import _agent_specs
+
+    scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
+    config = _agent_specs(scenario, persona_compiler=lambda _: None)[0]["config"]
+    responses = [_ModelResponse(f"bad-{index}", "invented_game", "{}") for index in range(12)]
+    responses.extend([
+        _ModelResponse("action", "start_basic_activity",
+                       '{"activity_type":"wait","planned_duration_seconds":60}'),
+        _ModelResponse("finish", "finish", json.dumps(_finish_args())),
+    ])
+    dispatcher = _GroundedCorrectionDispatcher(responses=responses)
+    environment = _Environment()
+    agent = LifeAgent()
+    _wire_agent(agent, environment, dispatcher, config["max_react_turns"])
+    result = await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+    assert "wait" in result
+    assert len(dispatcher.requests) == 15
+    assert len(environment.calls) == 1
+    assert isinstance(environment.calls[0].request, StartBasicActivityRequest)
+    assert sum(item.error is not None for item in environment.evidence if item.phase == "response") == 12
+
+
 def test_readonly_state_mismatch_is_an_internal_failure() -> None:
     """宿主只读状态不一致必须抛出，不能作为模型可纠正错误。"""
     agent = LifeAgent()

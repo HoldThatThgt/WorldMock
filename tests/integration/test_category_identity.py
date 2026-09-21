@@ -89,7 +89,7 @@ def _checkpoint(engine, tmp_path):
             "schema_version": 1, "agent_class": "LifeAgent", "agent_id": agent.agent_id,
             "initialized_at": None,
         }))
-        (workspace / "config.json").write_text(json.dumps({"enable_memory": True}))
+        (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
         snapshots[f"agent:{agent.agent_id}"] = snapshot_directory(workspace, engine.store.assets)
     return engine.store.checkpoint(engine.store.state, snapshots)
 

@@ -338,7 +338,7 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
     agent = agent_document if agent_document is not None else {
         "schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1,
         "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None}
-    config = config_document if config_document is not None else {"enable_memory": True}
+    config = config_document if config_document is not None else {"enable_memory": True, "max_react_turns": 16}
     if "AGENT.json" not in missing:
         (workspace / "AGENT.json").write_text(
             agent if isinstance(agent, str) else json.dumps(agent))
@@ -1306,6 +1306,55 @@ def test_restore_rejects_invalid_agent_workspaces(tmp_path, workspace_builder, m
             _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "parent",
                                           checkpoint.checkpoint_id, tmp_path / "child"))
         assert not (tmp_path / "child").exists()
+    finally:
+        parent.close()
+
+
+@pytest.mark.parametrize("budget", [None, 10, 17, 16.0, "16", True, False])
+def test_restore_rejects_missing_changed_or_wrong_type_agent_budget(tmp_path, budget):
+    """恢复清单虽正确，人物工作区缺失、错值或错类型的预算仍阻止分支发布。"""
+    config = {"enable_memory": True}
+    if budget is not None:
+        config["max_react_turns"] = budget
+    parent, checkpoint = _parent_store(
+        tmp_path, workspace_builder=lambda path: _agent_workspace(path, config_document=config))
+    try:
+        with pytest.raises(IntegrityError, match="max_react_turns must match"):
+            _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "parent",
+                                          checkpoint.checkpoint_id, tmp_path / "child"))
+        assert not (tmp_path / "child").exists()
+    finally:
+        parent.close()
+
+
+@pytest.mark.asyncio
+async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspace(tmp_path):
+    """生产配置经检查点恢复后，由实际 LifeAgent.restore 读文件得到十六回合预算。"""
+    from custom.agents.life_agent import LifeAgent
+    from worldmock.life.scenario import load_scenario
+    from worldmock.runtime import _agent_specs, two_stage_model_identity
+
+    scenario, _ = load_scenario(SCENARIO)
+    spec = _agent_specs(scenario, persona_compiler=lambda _: None)[0]
+
+    def workspace_builder(path):
+        """用正式人物 create 写入将被打包进检查点的配置文件。"""
+        workspace = path / "agent"
+        LifeAgent.create(workspace, spec["profile"], spec["config"])
+        return workspace
+
+    parent, checkpoint = _parent_store(tmp_path, workspace_builder=workspace_builder)
+    try:
+        destination = tmp_path / "child"
+        _prepare_resume(ResumeRequest(ROOT, SCENARIO, tmp_path / "parent",
+                                      checkpoint.checkpoint_id, destination))
+        workspace = destination / "as2" / "agents" / "agent_0001"
+        service = SimpleNamespace(env=SimpleNamespace(), trace=None,
+                                  llm=SimpleNamespace(default=SimpleNamespace(model_name="offline-model")))
+        agent = await LifeAgent.from_workspace(workspace, service)
+        assert agent._max_react_turns == two_stage_model_identity()["max_react_turns"] == 16
+        assert agent._config["max_react_turns"] == 16
+        assert json.loads((workspace / "config.json").read_text())["max_react_turns"] == 16
     finally:
         parent.close()
 
