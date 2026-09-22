@@ -14,8 +14,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context
 from worldmock.life.models import (
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 DRAMA_ID = "drama-0002"
@@ -42,7 +41,7 @@ def test_activity_progress_and_action_result_embed_content_title(engine_factory)
     engine = engine_factory()
     started = _observed_action(
         engine, "watch-drama", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="watch", target_id=DRAMA_ID,
+        StartActivityRequest(activity_type="watch", target_id=DRAMA_ID,
                                      planned_duration_seconds=1800, playback_speed=1))
     assert started.status.value == "in_progress", started.error_code
     advance_next(engine)  # 首个反馈边界：产出 activity_progress 结算段
@@ -78,7 +77,7 @@ def test_lifestyle_activity_embeds_name_zh_title(engine_factory) -> None:
 
     started = _observed_action(
         engine, "start-lifestyle", "start_basic_activity",
-        StartBasicActivityRequest(activity_type=f"lifestyle:{lifestyle_id}",
+        StartActivityRequest(activity_type=f"lifestyle:{lifestyle_id}",
                                   planned_duration_seconds=1800))
     assert started.status.value == "in_progress", started.error_code
     result_events = engine.store.read_agent_events("action_result", 1)
@@ -99,7 +98,7 @@ def test_wait_activity_carries_no_title(engine_factory) -> None:
     engine = engine_factory()
     started = _observed_action(
         engine, "start-wait", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=600))
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=600))
     assert started.status.value == "in_progress", started.error_code
     advance_next(engine)
     wait_events = [event for event in engine.store.read_agent_events("activity_progress", 1)

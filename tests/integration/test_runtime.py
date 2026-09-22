@@ -21,7 +21,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention
+from worldmock.life.models import CounterfactualIntervention, StartActivityRequest
 from worldmock.runtime import (
     _agent_specs,
     _build_society,
@@ -499,8 +499,6 @@ async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypa
 async def test_life_env_commit_without_pending_never_builds_reply_client(
         tmp_path, monkeypatch) -> None:
     """反例：无待回复消息时 commit 不构造回复客户端（结算循环零副作用）。"""
-    from worldmock.life.models import StartBasicActivityRequest
-
     engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
     try:
         from custom.envs.life_env import LifeEnv
@@ -511,7 +509,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         await env.begin_decision_round((ctx,))
         await env.submit_action(DirectToolCall(
             ctx, "action-npc-noop", "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+            StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
 
         import worldmock.runtime as runtime_module
 

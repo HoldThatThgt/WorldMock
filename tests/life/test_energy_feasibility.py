@@ -17,8 +17,7 @@ from worldmock.life.models import (
     PlanDayRequest,
     ContinueActivityRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 
@@ -125,8 +124,8 @@ def test_real_route_projection_uses_mode_specific_met_cost(engine_factory) -> No
     observation, _ = _observed_action(
         engine,
         "route-energy",
-        "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60),
+        "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60),
     )
     visible = {route["mode"]: route for route in observation["routes"]
                if route["destination_id"] == "office"}
@@ -146,14 +145,14 @@ def test_watch_energy_limit_uses_wall_clock_for_fast_playback(engine_factory) ->
     engine.begin_decision_round([decision])
     observation = engine.observe(decision)
     content_id = engine.scenario.contents[0].item_id
-    request = StartTargetedActivityRequest(
+    request = StartActivityRequest(
         activity_type="watch",
         planned_duration_seconds=60,
         target_id=content_id,
         playback_speed=2,
     )
     engine.submit_action(DirectToolCall(
-        decision, "action-watch-wall-clock", "start_targeted_activity", request))
+        decision, "action-watch-wall-clock", "start_activity", request))
     result = engine.commit_decision_round("watch-wall-clock")[0]
 
     maximums = observation["energy_feasibility"]["maximum_duration_seconds_by_kind"]
@@ -170,8 +169,8 @@ def test_start_one_second_beyond_energy_limit_is_rejected(engine_factory) -> Non
     observation, result = _observed_action(
         engine,
         "browse-one-second-over",
-        "start_targeted_activity",
-        StartTargetedActivityRequest(
+        "start_activity",
+        StartActivityRequest(
             activity_type="browse",
             planned_duration_seconds=61,
             target_id="product_catalog",
@@ -194,8 +193,8 @@ def test_exact_energy_activity_completes_across_real_feedback(engine_factory, du
     _, result = _observed_action(
         engine,
         f"browse-exact-{duration}",
-        "start_targeted_activity",
-        StartTargetedActivityRequest(
+        "start_activity",
+        StartActivityRequest(
             activity_type="browse",
             planned_duration_seconds=duration,
             target_id="product_catalog",
@@ -227,8 +226,8 @@ def test_zero_energy_basic_recovery_activity_is_accepted(engine_factory, kind: s
     _, result = _observed_action(
         engine,
         f"zero-{kind}",
-        "start_basic_activity",
-        StartBasicActivityRequest(activity_type=kind, planned_duration_seconds=60),
+        "start_activity",
+        StartActivityRequest(activity_type=kind, planned_duration_seconds=60),
     )
     assert result.status == "in_progress"
 
@@ -271,8 +270,8 @@ def test_paused_non_recovery_resume_rejects_but_cancel_succeeds(engine_factory) 
     _, started = _observed_action(
         engine,
         "start-browse",
-        "start_targeted_activity",
-        StartTargetedActivityRequest(
+        "start_activity",
+        StartActivityRequest(
             activity_type="browse",
             planned_duration_seconds=7200,
             target_id="product_catalog",
@@ -319,8 +318,8 @@ def test_resume_checks_terminal_status_before_energy(engine_factory) -> None:
     _, started = _observed_action(
         engine,
         "start-cancelled-browse",
-        "start_targeted_activity",
-        StartTargetedActivityRequest(
+        "start_activity",
+        StartActivityRequest(
             activity_type="browse",
             planned_duration_seconds=7200,
             target_id="product_catalog",
@@ -357,8 +356,8 @@ def test_paused_recovery_activity_can_resume_at_zero_energy(engine_factory) -> N
     _, started = _observed_action(
         engine,
         "start-wait",
-        "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=7200),
+        "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=7200),
     )
     activity_id = started.activity_id
     advance_until_ready(engine)

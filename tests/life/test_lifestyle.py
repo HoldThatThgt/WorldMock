@@ -17,7 +17,6 @@ from worldmock.life.models import (
     AgentState,
     BodyState,
     StartActivityRequest,
-    StartBasicActivityRequest,
     deepseek_strict_schema,
 )
 from worldmock.life.scenario import AgentConfig, load_scenario
@@ -78,13 +77,13 @@ def test_catalog_activity_met_carries_lifestyle_keys() -> None:
 
 
 def test_basic_request_pattern_contract() -> None:
-    """start_basic_activity 的 activity_type 只接受 wait/sleep/lifestyle:<slug>。"""
+    """start_activity 的 activity_type 只接受 wait/sleep/lifestyle:<slug>。"""
     for valid in ("wait", "sleep", "lifestyle:yoga", "lifestyle:3d-printing"):
-        StartBasicActivityRequest(activity_type=valid, planned_duration_seconds=120)
+        StartActivityRequest(activity_type=valid, planned_duration_seconds=120)
     for invalid in ("work", "lifestyle:", "lifestyle:Yoga", "lifestyle:yoga x", "lifestyle:-bad"):
         with pytest.raises(ValidationError):
-            StartBasicActivityRequest(activity_type=invalid, planned_duration_seconds=120)
-    schema = deepseek_strict_schema(StartBasicActivityRequest)
+            StartActivityRequest(activity_type=invalid, planned_duration_seconds=120)
+    schema = deepseek_strict_schema(StartActivityRequest)
     assert schema["properties"]["activity_type"]["type"] == "string"
 
 
@@ -102,9 +101,9 @@ def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
     engine = engine_factory()
     body = engine.scenario.body
     met = body.activity_met["lifestyle:yoga"]
-    request = StartBasicActivityRequest(activity_type="lifestyle:yoga",
+    request = StartActivityRequest(activity_type="lifestyle:yoga",
                                         planned_duration_seconds=900)
-    _, results = submit_round(engine, {1: ("start_basic_activity", request)}, "lifestyle-yoga")
+    _, results = submit_round(engine, {1: ("start_activity", request)}, "lifestyle-yoga")
     assert results[0].activity_id
     activity = engine.state.activities[results[0].activity_id]
     assert activity.kind == ActivityKind.LIFESTYLE
@@ -124,9 +123,9 @@ def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
 def test_engine_rejects_unknown_lifestyle_id(engine_factory) -> None:
     """目录外条目 id 被业务规则拒绝，而非查表崩溃。"""
     engine = engine_factory()
-    request = StartBasicActivityRequest(activity_type="lifestyle:not-in-catalog",
+    request = StartActivityRequest(activity_type="lifestyle:not-in-catalog",
                                         planned_duration_seconds=120)
-    _, results = submit_round(engine, {1: ("start_basic_activity", request)}, "lifestyle-bad")
+    _, results = submit_round(engine, {1: ("start_activity", request)}, "lifestyle-bad")
     assert results[0].status.value == "rejected"
     assert results[0].error_code == "UNKNOWN_LIFESTYLE_ACTIVITY"
 
@@ -138,11 +137,11 @@ def test_engine_honors_agent_lifestyle_declaration(engine_factory) -> None:
                     for item in engine.scenario.agents}
     assert declarations[1] is not None and "yoga" in declarations[1]
     assert "sport-badminton" not in declarations[1]
-    badminton = StartBasicActivityRequest(activity_type="lifestyle:sport-badminton",
+    badminton = StartActivityRequest(activity_type="lifestyle:sport-badminton",
                                           planned_duration_seconds=120)
-    other = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
-    _, results = submit_round(engine, {1: ("start_basic_activity", badminton),
-                                       2: ("start_basic_activity", other)},
+    other = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    _, results = submit_round(engine, {1: ("start_activity", badminton),
+                                       2: ("start_activity", other)},
                               "lifestyle-undeclared")
     assert results[0].status.value == "rejected"
     assert results[0].error_code == "UNKNOWN_LIFESTYLE_ACTIVITY"

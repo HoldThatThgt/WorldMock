@@ -22,8 +22,7 @@ from worldmock.life.models import (
     MeetingMinutes,
     SendMessageRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
     StartTravelRequest,
     SubmitWorkRequest,
     active_activities,
@@ -52,14 +51,14 @@ def _domain_state(engine):
     return {"accounts": state["accounts"], "activities": state["activities"],
             "supply_stock": state["supply_stock"],
             "agents": {key: {name: value[name] for name in (
-                "location_id", "inventory", "game_sessions", "content_progress")}
+                "location_id", "inventory", "content_progress")}
                        for key, value in state["agents"].items()}}
 
 
 @pytest.mark.parametrize("tool,values,blocked_tools,blocked_kinds", [
-    ("start_targeted_activity", {"activity_type": "play_game", "target_id": "game",
+    ("start_activity", {"activity_type": "play_game", "target_id": "game",
      "planned_duration_seconds": 60, "playback_speed": 1}, (), ("play_game",)),
-    ("start_basic_activity", {"activity_type": "lifestyle:walk", "planned_duration_seconds": 60},
+    ("start_activity", {"activity_type": "lifestyle:walk", "planned_duration_seconds": 60},
      (), ("lifestyle",)),
     ("start_travel", {"destination_id": "office", "travel_mode": "walking", "planned_duration_seconds": 60},
      (), ("travel",)),
@@ -224,8 +223,8 @@ def test_paused_activity_is_not_resumed_after_arrival_but_can_be_cancelled(tmp_p
                                      BrowseActivitiesRequest(category="subtitle_experience", cursor=None))
         assert browsed.error_code is None
         assert advance_until_ready(engine)
-        _, started = _observed_action(engine, "watch-start", "start_targeted_activity",
-                                      StartTargetedActivityRequest(activity_type="watch",
+        _, started = _observed_action(engine, "watch-start", "start_activity",
+                                      StartActivityRequest(activity_type="watch",
                                       target_id="sintel-en-subtitles", planned_duration_seconds=1260,
                                       playback_speed=0.5))
         assert started.error_code is None

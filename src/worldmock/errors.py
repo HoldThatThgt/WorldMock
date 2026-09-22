@@ -22,3 +22,19 @@ class ProtocolError(WorldMockError):
 
 class BusinessRuleError(WorldMockError):
     """@brief 可被生活环境明确登记为拒绝的业务条件。"""
+
+
+class PreconditionError(BusinessRuleError):
+    """@brief 前置条件未满足的业务拒绝；携带未满足项列表与可选建议动作。"""
+
+    def __init__(self, message: str, unmet: list[str],
+                 suggested: "dict | None" = None):
+        """@brief 绑定未满足条件列表，建议由调用侧按需填充。
+
+        :param message: 英文错误码字符串（与 BusinessRuleError 保持同一口径）
+        :param unmet: 未满足条件名称列表（如 ["required_location_id"]）
+        :param suggested: 可选的后续动作建议字典，引擎侧按需填充
+        """
+        super().__init__(message)
+        self.unmet = unmet
+        self.suggested = suggested

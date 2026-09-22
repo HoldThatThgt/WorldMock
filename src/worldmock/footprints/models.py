@@ -36,13 +36,14 @@ WAKE_REASON_NAMES = frozenset({
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
+    "progress_report_due",
 })
 
 #: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：决策自述文本写入 decision_started.data；
 #: 决策自述是人物私有内容，只允许 dreaming 任务读取；引擎直驱路径可不提供该字段。
 DECISION_STATEMENT_FIELD = "decision_statement"
 
-#: 消息送达记录种类（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：send_message 的送达记录为
+#: 消息送达记录种类（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：message 动作的送达记录为
 #: environment_event kind=message_arrival；交谈邀约以 chat_invite 消息送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 MESSAGE_ARRIVAL_KIND = "message_arrival"
 CHAT_INVITE_KIND = "chat_invite"

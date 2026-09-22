@@ -78,8 +78,8 @@ class PersonView(_SocialModel):
     """@brief 他人观察的可见投影：不透明身份 + 姓名、活动家族、可交谈。
 
     隐私闭集（「社交最小可行版」）限定他人只暴露姓名、活动家族与可交谈状态，不暴露
-    身体数值、余额、任务或记忆；person_id 是工具身份锚点（send_message/
-    start_social_activity 的身份枚举用本轮观察，见
+    身体数值、余额、任务或记忆；person_id 是动作目标身份锚点（message/chat/call
+    动作的身份枚举用本轮观察，见
     `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」），不是隐私
     泄漏——scene 渲染仍只用姓名（含活动家族短语），身份只进 facts 层。
     """
@@ -115,7 +115,7 @@ class MessageArrivalEvent(_SocialModel):
 
 
 class OutgoingMessage(_SocialModel):
-    """@brief send_message / chat 邀请的动作请求：消息身份与时间由引擎赋予。"""
+    """@brief message 动作 / chat 邀请的动作请求：消息身份与时间由引擎赋予。"""
 
     message_id: str
     sender_id: str

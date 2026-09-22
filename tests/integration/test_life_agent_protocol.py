@@ -42,8 +42,7 @@ from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
     ActionReceipt,
     REQUEST_MODELS,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 
@@ -874,7 +873,7 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     call = environment.calls[0]
     assert call.context == _context()
     assert call.action_id == "decision:action:0001"
-    assert isinstance(call.request, StartBasicActivityRequest)
+    assert isinstance(call.request, StartActivityRequest)
     assert [item.phase for item in environment.evidence] == [
         "request", "response",
         "request", "response", "request", "response",
@@ -1211,7 +1210,7 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
 
     assert "wait" in result
     assert len(environment.calls) == 1
-    assert isinstance(environment.calls[0].request, StartTargetedActivityRequest)
+    assert isinstance(environment.calls[0].request, StartActivityRequest)
     assert environment.calls[0].request.activity_type == "play_game"
     assert [item.phase for item in environment.evidence] == [
         "request", "response",
@@ -1253,7 +1252,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     assert "wait" in result
     assert len(dispatcher.requests) == 15
     assert len(environment.calls) == 1
-    assert isinstance(environment.calls[0].request, StartBasicActivityRequest)
+    assert isinstance(environment.calls[0].request, StartActivityRequest)
     assert sum(item.error is not None for item in environment.evidence if item.phase == "response") == 12
 
 

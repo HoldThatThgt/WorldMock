@@ -23,12 +23,6 @@ DELIVERY_ASSESSMENT_FIELDS = (
     "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
 )
 
-#: 地点发现只公开真正返回的比较事实，不复制任意结算内部字段。
-DISCOVERY_PLACE_FIELDS = (
-    "location_id", "name", "kind", "business_kind", "location_kinds", "opening_status",
-    "access_allowed", "required_qualifications", "missing_qualifications", "source", "scenario_assumption",
-    "route", "range_status", "supplies",
-)
 #: 订单公开实际选定供给、报价和履约证据，不暴露账户余额或内部流水。
 ORDER_FIELDS = (
     "order_id", "product_id", "supply_id", "location_id", "seller_account_id", "quantity",
@@ -47,17 +41,9 @@ def public_action_result(row: dict[str, Any]) -> dict[str, Any]:
     data = row["result"]["data"]
     if "work_review" in data:
         result["work_review"] = _public_review(data["work_review"])
-    if data.get("tool") == "discover_places":
-        result["discovery"] = {
-            "query": dict(data["query"]),
-            "places": [_public_place(item) for item in data["places"]],
-            **{key: data[key] for key in ("total", "returned", "returned_places", "next_cursor") if key in data},
-        }
     if "orders" in data:
         result["orders"] = [{key: order[key] for key in ORDER_FIELDS if key in order}
                             for order in data["orders"]]
-    if data.get("tool") == "browse_activities":
-        result["browse_result"] = _public_browse(data)
     if "browse_result" in data:
         result["browse_result"] = _public_browse(data["browse_result"])
     if "activity" in data and "data" in data["activity"] and "arrival" in data["activity"]["data"]:
@@ -73,8 +59,8 @@ def _public_arrival(arrival: dict[str, Any]) -> dict[str, Any]:
 
 
 def _public_browse(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 直接下钻与有时长浏览完成共用公开结果，保留实际供给购买凭据。"""
-    result = {key: data[key] for key in ("tool", "category", "returned", "total", "next_cursor", "note")
+    """@brief 有时长浏览完成的公开结果，保留实际供给购买凭据。"""
+    result = {key: data[key] for key in ("action", "category", "returned", "total", "next_cursor", "note")
               if key in data}
     result["items"] = [public_supply_row(item) if "supply_id" in item else dict(item) for item in data["items"]]
     if "excluded" in data:
@@ -111,18 +97,6 @@ def public_supply_row(row: dict[str, Any]) -> dict[str, Any]:
 def _source_reference(source: dict[str, Any]) -> dict[str, Any]:
     """@brief 模型只需区分事实和假设并引用来源，许可全文随运行及导出清单保留。"""
     return {"kind": source["kind"], "reference": source["url"], "fact_cutoff": source["fact_cutoff"]}
-
-
-def _public_place(row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 公开地点、路线与供给比较事实，避免在提示重复展开全部来源声明。"""
-    result = {key: row[key] for key in DISCOVERY_PLACE_FIELDS if key in row}
-    result["source"] = _source_reference(row["source"])
-    result["supplies"] = [public_supply_row(item) for item in row["supplies"]]
-    route = dict(row["route"])
-    if route.get("source") is not None:
-        route["source"] = _source_reference(route["source"])
-    result["route"] = route
-    return result
 
 
 def _public_review(review: dict[str, Any]) -> dict[str, Any]:

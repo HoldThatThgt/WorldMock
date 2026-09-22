@@ -16,9 +16,7 @@ from worldmock.life.models import (
     ActivityStatus,
     AgentState,
     BodyState,
-    StartBasicActivityRequest,
     StartActivityRequest,
-    StartTargetedActivityRequest,
     StartTravelRequest,
     TravelMode,
 )
@@ -172,7 +170,7 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
     # wait 前导 900s：边等边刷后娱乐需要 ≈0.0075（0.08−0.05 每小时净累积
     # ×0.25h），高于 60s 观看的未钳制缓解量 0.3×0.7×(60/3600)=0.0035，
     # 保证断言观测的是内容费率×偏好的未触底 drain 而非钳到 0 的退化值。
-    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)
+    wait = StartActivityRequest(activity_type="wait", planned_duration_seconds=900)
     submit_round(engine, {1: ("start_basic_activity", wait)}, "watch-need")
     advance_next(engine)
     agent = engine.state.agents[1]
@@ -191,7 +189,7 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
         visibility="system", data={"kind": "test_seed_watch_taste"})])
     engine.state = staged
     preference = engine.state.agents[1].taste_weights[item.item_id]
-    request = StartTargetedActivityRequest(
+    request = StartActivityRequest(
         activity_type="watch",
         planned_duration_seconds=60,
         target_id=item.item_id,
@@ -212,7 +210,7 @@ def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) ->
 def test_engine_work_progress_uses_frozen_skill_without_unused_tool(engine_factory) -> None:
     """真实 LifeEngine 工作推进使用人物技能，未生效工具不乘场景倍率。"""
     engine = engine_factory()
-    sleep = StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=32_400)
+    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=32_400)
     _, sleep_results = submit_round(engine, {1: ("start_basic_activity", sleep)}, "sleep-to-work")
     while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
@@ -224,7 +222,7 @@ def test_engine_work_progress_uses_frozen_skill_without_unused_tool(engine_facto
     _, travel_results = submit_round(engine, {1: ("start_travel", travel)}, "travel-to-work")
     while engine.state.activities[travel_results[0].activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
-    work = StartTargetedActivityRequest(
+    work = StartActivityRequest(
         activity_type="work",
         planned_duration_seconds=3600,
         target_id="task-2026-01-05",

@@ -130,7 +130,6 @@ flowchart TB
 | `consecutive_rejections` | int | 是 | 连续拒绝次数 |
 | `decision_failed` | bool | 是 | 决策是否失败 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
-| `game_sessions` | dict[str, GameProgress] | 是 | 游戏会话 |
 | `read_message_ids` | set[str] | 是 | 已读消息 ID 集合 |
 | `visible_message_ids` | set[str] | 是 | 可见消息 ID 集合 |
 | `visible_task_ids` | set[str] | 是 | 可见任务 ID 集合 |

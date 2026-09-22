@@ -16,11 +16,9 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     ActivityStatus,
     ContinueActivityRequest,
-    GameActionRequest,
     PlanDayRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 
@@ -67,8 +65,8 @@ def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_fa
                      _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     assert engine.state.current_time == started + 900
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2000)
-    _, result = _observed_action(engine, "long-wait", "start_basic_activity", request)
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=2000)
+    _, result = _observed_action(engine, "long-wait", "start_activity", request)
     activity_id = result.activity_id
     assert engine.state.agents[1].next_decision_at == started + 1800
 
@@ -106,14 +104,14 @@ def test_feedback_boundary_compatible_watch_runs_alongside_wait(
                      _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     _, started = _observed_action(
-        engine, "switch-wait", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
+        engine, "switch-wait", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=2700))
     wait_id = started.activity_id
     advance_next(engine)
 
     observation, switched = _observed_action(
-        engine, "switch-watch", "start_targeted_activity",
-        StartTargetedActivityRequest(
+        engine, "switch-watch", "start_activity",
+        StartActivityRequest(
             activity_type="watch", target_id="sintel-en-subtitles",
             planned_duration_seconds=600, playback_speed=1))
     watch_id = switched.activity_id
@@ -152,15 +150,15 @@ def test_game_feedback_boundary_rejects_resource_conflict(engine_factory) -> Non
     """游戏占用位置，直接提交等待被资源冲突拒绝。"""
     engine = engine_factory()
     _, started = _observed_action(
-        engine, "game-start", "start_targeted_activity",
-        StartTargetedActivityRequest(
+        engine, "game-start", "start_activity",
+        StartActivityRequest(
             activity_type="play_game", target_id="textworld-1201",
             planned_duration_seconds=3600, playback_speed=1))
     assert started.status == "in_progress"
     advance_next(engine)
     _, rejected = _observed_action(
-        engine, "game-switch", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+        engine, "game-switch", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
     assert rejected.status == "rejected"
     assert rejected.error_code == "RESOURCE_CONFLICT"
     assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
@@ -176,8 +174,8 @@ def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_fact
                      _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
     advance_next(engine)
     _, started = _observed_action(
-        engine, "pausable", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
+        engine, "pausable", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=2700))
     activity_id = started.activity_id
     advance_next(engine)
     pause = SetActivityStateRequest(activity_id=activity_id, operation="pause")
@@ -206,8 +204,8 @@ def test_rejection_waits_one_second_and_next_observation_reports_once(engine_fac
     engine = engine_factory()
     now = engine.state.current_time
     _, rejected = _observed_action(
-        engine, "missing-content", "start_targeted_activity",
-        StartTargetedActivityRequest(
+        engine, "missing-content", "start_activity",
+        StartActivityRequest(
             activity_type="watch", target_id="missing-content",
             planned_duration_seconds=60, playback_speed=1))
     assert rejected.status == "rejected" and rejected.error_code == "CONTENT_NOT_FOUND"
@@ -226,8 +224,8 @@ def test_rejection_waits_one_second_and_next_observation_reports_once(engine_fac
     assert repeated["recent_action_results"] == []
     assert repeated["facts"]["recent_action_results"] == []
     assert repeated["scene"]["recent_action_results"] == []
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    engine.submit_action(DirectToolCall(ctx, "recovered", "start_basic_activity", request))
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    engine.submit_action(DirectToolCall(ctx, "recovered", "start_activity", request))
     engine.commit_decision_round("after-reject")
     assert engine.state.agents[1].consecutive_rejections == 0
 
@@ -238,8 +236,8 @@ def test_tenth_consecutive_rejection_fails_agent_and_run(engine_factory) -> None
     result = None
     for index in range(10):
         _, result = _observed_action(
-            engine, f"reject-{index}", "start_targeted_activity",
-            StartTargetedActivityRequest(
+            engine, f"reject-{index}", "start_activity",
+            StartActivityRequest(
                 activity_type="watch", target_id="missing-content",
                 planned_duration_seconds=60, playback_speed=1))
         if index < 9:
@@ -254,26 +252,6 @@ def test_tenth_consecutive_rejection_fails_agent_and_run(engine_factory) -> None
     assert len(failures) == 1 and failures[0].data["error_type"] == "DecisionFailure"
 
 
-def test_new_game_waits_one_second_before_first_real_command(engine_factory) -> None:
-    """创建真实 TextWorld 会话后首个命令只能在下一秒执行，不能同秒免费连用。"""
-    engine = engine_factory()
-    now = engine.state.current_time
-    _, result = _observed_action(
-        engine, "game-start", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="play_game", target_id="textworld-1201",
-                                     planned_duration_seconds=3600, playback_speed=1))
-    activity = engine.state.activities[result.activity_id]
-    assert activity.next_interaction_at == now + 1
-    assert engine.state.agents[1].next_decision_at == now + 1
-    assert engine.scheduling_state().ready_agent_ids == ()
-    advance_next(engine)
-    progress = next(iter(engine.state.agents[1].game_sessions.values()))
-    request = GameActionRequest(game_session_id=progress.session_id,
-                                command=progress.admissible_commands[0])
-    _, outcome = _observed_action(engine, "game-command", "game_action", request)
-    assert outcome.status == "completed" and outcome.data["game"]["moves"] == 1
-
-
 def test_task_expiry_advances_during_sleep_without_forcing_wake(engine_factory) -> None:
     """睡眠跨过任务截止时只处理一次到期事实，人物仍睡到计划结束。"""
     engine = engine_factory()
@@ -283,8 +261,8 @@ def test_task_expiry_advances_during_sleep_without_forcing_wake(engine_factory) 
                   if event.scheduled_id == f"expired-{task.task_id}")
     _stage_time(engine, due - 600, [expiry])
     _, result = _observed_action(
-        engine, "sleep-over-due", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
+        engine, "sleep-over-due", "start_activity",
+        StartActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
     activity_id = result.activity_id
     advance_next(engine)
     assert engine.state.current_time == due
@@ -308,8 +286,8 @@ def test_paused_activity_is_truncated_at_end_with_original_action_identity(engin
                      _goals_with_wake_events(engine, (1000, 1200, 1400, 1450, 1550)))
     advance_next(engine)
     _, started = _observed_action(
-        engine, "end-wait", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=1800))
+        engine, "end-wait", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=1800))
     activity_id = started.activity_id
     advance_until_ready(engine)
     _observed_action(
@@ -318,8 +296,8 @@ def test_paused_activity_is_truncated_at_end_with_original_action_identity(engin
     advance_until_ready(engine)
     remaining = end - engine.state.current_time
     _observed_action(
-        engine, "end-sleep", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=remaining))
+        engine, "end-sleep", "start_activity",
+        StartActivityRequest(activity_type="sleep", planned_duration_seconds=remaining))
     while engine.scheduling_state().next_event_at is not None:
         advance_next(engine)  # 睡眠期间的静默 tick 一路推进到实验终点
     activity = engine.state.activities[activity_id]

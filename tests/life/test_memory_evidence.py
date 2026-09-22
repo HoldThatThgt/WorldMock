@@ -8,14 +8,14 @@ from agentsociety2.agent.base import MemoryUpdateEvidence
 
 from tests.life.conftest import advance_next, context, submit_round
 from worldmock.errors import ProtocolError
-from worldmock.life.models import StartBasicActivityRequest
+from worldmock.life.models import StartActivityRequest
 
 
 @pytest.mark.parametrize("wrong_observation", [False, True])
 def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_observation) -> None:
     """等待经历已被当前观察交付时，不能在记忆证据中漏报该来源。"""
     engine = engine_factory()
-    submit_round(engine, {1: ("start_basic_activity", StartBasicActivityRequest(
+    submit_round(engine, {1: ("start_activity", StartActivityRequest(
         activity_type="wait", planned_duration_seconds=60))}, "observed-wait")
     advance_next(engine)
     ctx = context(engine, "memory-source")

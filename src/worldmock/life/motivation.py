@@ -212,12 +212,11 @@ def prospect_value(z: float, transforms: MotivationTransforms, loss_aversion: fl
 def classify_action_event(tool_name: str, request: Mapping) -> str | None:
     """@brief 把一次动作请求归入候选家族；不可判定的动作返回 None。
 
-    归并路由自注册表 families.*.habit_members 展开的查找表取得（精确 >
-    前缀 lifestyle:* > 通配；start_basic_activity 非 sleep 一律归 continue
-    的现行决定已显式写进 continue 家族的通配成员）。
+    归并键是动作名：start_activity 取请求里的 action，其余稳定工具取工具名本身
+    （归并路由自注册表 families.*.habit_members 展开，docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
     """
-    activity_type = request.get("activity_type") if isinstance(request, Mapping) else None
-    return _AFFORDANCES.classify_habit_event(tool_name, activity_type)
+    action = request.get("action") if isinstance(request, Mapping) else None
+    return _AFFORDANCES.classify_habit_event(action or tool_name)
 
 
 def habit_shares(events: Sequence[tuple[str, Mapping]], discount: float) -> dict[str, float]:
@@ -1089,8 +1088,8 @@ def _lifestyle_candidate(context: MotivationContext, item: LifestyleItem,
                 f"lifestyle catalog; a {slot / 60:.0f} min session burns about "
                 f"{burn:.0f} kcal and relieves entertainment need "
                 f"{agent.body.entertainment_need:.2f}->{fun_after:.2f} "
-                f"(start via start_basic_activity "
-                f"activity_type lifestyle:{item.activity_id})"),
+                f"(start via start_activity action do "
+                f"target {item.activity_id})"),
         duration_seconds=slot,
         energy_delta=-burn,
         sleep_deficit_delta=_awake_deficit_delta(agent.body, hours),

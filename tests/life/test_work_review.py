@@ -1,5 +1,7 @@
 """工作正文揭示、独立语义验收和付款测试。"""
 
+# TODO: ContinueActivityRequest, SetActivityStateRequest removed
+
 from __future__ import annotations
 
 import json
@@ -19,10 +21,9 @@ from tests.life.conftest import advance_until_ready, advance_next, context, subm
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
-    ContinueActivityRequest,
+    ChangeActivityRequest,
     MeetingMinutes,
-    SetActivityStateRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
@@ -125,10 +126,10 @@ def _complete_required_work(engine) -> None:
     """经实际活动入口完成首个任务所需有效工作时间。"""
     task = engine.scenario.tasks[0]
     duration = task.maximum_duration_seconds
-    request = StartTargetedActivityRequest(
+    request = StartActivityRequest(
         activity_type="work", target_id=task.task_id,
         planned_duration_seconds=duration, playback_speed=1)
-    _, results = submit_round(engine, {1: ("start_targeted_activity", request)}, "work-time")
+    _, results = submit_round(engine, {1: ("start_activity", request)}, "work-time")
     activity_id = results[0].activity_id
     feedback_index = 0
     while engine.state.activities[activity_id].status == "active":
@@ -258,10 +259,10 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     _at_task_start(engine)
     task = engine.scenario.tasks[0]
     wake_by_mail(engine, offset=900)
-    request = StartTargetedActivityRequest(activity_type="work", target_id=task.task_id,
-                                            planned_duration_seconds=task.maximum_duration_seconds,
-                                            playback_speed=1)
-    _, results = submit_round(engine, {1: ("start_targeted_activity", request)}, "pause-work-start")
+    request = StartActivityRequest(activity_type="work", target_id=task.task_id,
+                                    planned_duration_seconds=task.maximum_duration_seconds,
+                                    playback_speed=1)
+    _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
     pause = SetActivityStateRequest(activity_id=activity_id, operation="pause")

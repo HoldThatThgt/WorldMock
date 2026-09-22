@@ -127,10 +127,8 @@ def test_browse_is_pure_query_and_feeds_next_observation(engine_factory) -> None
 
 def test_browse_while_active_activity_preserves_playback(engine_factory) -> None:
     """播放中的真实决策允许下钻，查询不停止或改写播放进度。"""
-    import pytest
-
     from worldmock.errors import ProtocolError
-    from worldmock.life.models import StartTargetedActivityRequest
+    from worldmock.life.models import StartActivityRequest
 
     engine, result = _browse_result(engine_factory, "feature_film", "menu-first")
     assert result.status.value == "completed"
@@ -142,7 +140,7 @@ def test_browse_while_active_activity_preserves_playback(engine_factory) -> None
     advance_next(engine)
     _, watch_results = submit_round(
         engine, {1: ("start_targeted_activity",
-                     StartTargetedActivityRequest(activity_type="watch",
+                     StartActivityRequest(activity_type="watch",
                                                   target_id="novel-0001",
                                                   planned_duration_seconds=1800,
                                                   playback_speed=1))},

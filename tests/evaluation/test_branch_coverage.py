@@ -1878,21 +1878,21 @@ def test_social_actions_project_chat_and_call_partner_objects() -> None:
 def test_game_and_targeted_keys_come_from_actual_activity_data() -> None:
     game_request = _public_event(1, "action_requested",
                                  {"tool_name": "start_targeted_activity",
-                                  "request": {"activity_type": "play_game", "target_id": None}},
+                                  "request": {"activity_type": "play_game",
+                                             "target_id": "textworld-1201"}},
                                  "game-action")
     game_result = _public_event(2, "action_result",
                                 {"status": "completed",
-                                 "data": {"activity": {"status": "completed",
-                                                       "data": {"game_session_id": "game-private"}}}},
+                                 "data": {"activity": {"status": "completed", "data": {}}}},
                                 "game-action")
     evidence = worldmock_public_evidence([game_request, game_result], [], {})
-    assert {item.object_key for item in evidence} == {"game-private"}
+    assert {item.object_key for item in evidence} == {"textworld-1201"}
 
-    done_missing = _public_event(1, "action_requested",
+    deleted_tool = _public_event(1, "action_requested",
                                  {"tool_name": "game_action", "request": {}}, "game-2")
-    done_absent = _public_event(2, "action_result", {"status": "completed", "data": {}}, "game-2")
-    rows = worldmock_public_evidence([done_missing, done_absent], [], {})
-    assert [item.state for item in rows] == ["requested", None]
+    deleted_result = _public_event(2, "action_result", {"status": "completed", "data": {}}, "game-2")
+    rows = worldmock_public_evidence([deleted_tool, deleted_result], [], {})
+    assert rows == ()
 
     watch = _public_event(1, "action_requested",
                           {"tool_name": "start_targeted_activity",
@@ -1918,14 +1918,21 @@ def test_control_actions_bind_to_real_activities_and_closed_operations() -> None
                              "request": {"activity_id": "act-1", "operation": "explode"}},
                             "control-2")
     assert worldmock_public_evidence([invalid], [activity], {}) == ()
-    evidence = worldmock_public_evidence(
+    deleted_tool = worldmock_public_evidence(
         [_public_event(1, "action_requested",
                        {"tool_name": "change_playback_speed",
                         "request": {"activity_id": "act-1", "speed": 2}}, "control-3")],
         [activity], {"browse": "browsing"},
     )
+    assert deleted_tool == ()
+    evidence = worldmock_public_evidence(
+        [_public_event(1, "action_requested",
+                       {"tool_name": "set_activity_state",
+                        "request": {"activity_id": "act-1", "operation": "resume"}}, "control-4")],
+        [activity], {"browse": "browsing"},
+    )
     assert [(item.interaction, item.object_type, item.object_key) for item in evidence] == [
-        ("change", "activity", "act-1"),
+        ("resume", "activity", "act-1"),
     ]
 
 
@@ -1951,7 +1958,7 @@ def test_activity_shapes_use_real_targets_and_closed_categories() -> None:
         {"activity_type": "play_game", "data": {"game_session_id": "session-9"}, "target_id": "x"},
         {"play_game": "entertainment"},
     )
-    assert keyed.object_key == "session-9"
+    assert keyed.object_key == "x"
 
 
 def test_purchase_and_work_results_follow_actual_object_states() -> None:

@@ -1,5 +1,7 @@
 """travel-time 分时系数：查表、结算、报价、快照一致性与存在性准入。"""
 
+# TODO: StartTravelRequest removed - replaced by StartActivityRequest with action="travel_to"
+
 from __future__ import annotations
 
 import json
@@ -18,8 +20,7 @@ from worldmock.life.map_data import load_map_dataset
 from worldmock.life.models import (
     ActivityKind,
     ActivityStatus,
-    StartBasicActivityRequest,
-    StartTravelRequest,
+    StartActivityRequest,
     TravelMode,
 )
 from worldmock.life.body import minimum_energy_cost
@@ -95,8 +96,8 @@ def test_walking_duration_is_immune_to_the_factor(semantics) -> None:
 def test_engine_start_travel_enforces_the_factored_duration(engine_factory) -> None:
     """引擎层：自由流时长在高峰被拒（ROUTE_DURATION_MISMATCH），报价时长被受理。"""
     engine = engine_factory()
-    sleep = StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
-    _, sleep_results = submit_round(engine, {1: ("start_basic_activity", sleep)}, "sleep-to-peak")
+    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
+    _, sleep_results = submit_round(engine, {1: ("start_activity", sleep)}, "sleep-to-peak")
     while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
     assert datetime.fromtimestamp(engine.state.current_time,
@@ -124,9 +125,9 @@ def test_engine_start_travel_enforces_the_factored_duration(engine_factory) -> N
 def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) -> None:
     """路途能量按折算后时长结算（MET 路径），到达后地点更新。"""
     engine = engine_factory()
-    sleep = StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
+    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
     _, sleep_results = submit_round(
-        engine, {1: ("start_basic_activity", sleep)}, "sleep-to-peak-energy")
+        engine, {1: ("start_activity", sleep)}, "sleep-to-peak-energy")
     while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
     route = next(item for item in engine.scenario.routes
@@ -157,8 +158,8 @@ def test_observation_quotes_the_factored_duration(engine_factory) -> None:
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     engine.submit_action(DirectToolCall(
-        ctx, "action-quote-night", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        ctx, "action-quote-night", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     engine.commit_decision_round("quote-night")
     hour = datetime.fromtimestamp(engine.state.current_time,
                                   ZoneInfo(engine.scenario.timezone)).hour

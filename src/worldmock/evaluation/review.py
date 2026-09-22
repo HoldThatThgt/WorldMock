@@ -36,7 +36,7 @@ _PUBLIC_VALUES = {
     "interaction": {
         "order", "travel", "check_in", "check_out", "open", "close", "view", "copy",
         "notify", "arrive", "leave", "visit", "read", "work", "submit", "pay", "deliver",
-        "play", "browse", "consume", "pause", "resume", "cancel", "continue", "change",
+        "play", "browse", "consume", "report", "pause", "conclude",
         "deadline", "chat", "call",
     },
     "object_type": {"order", "route", "workplace", "application", "content", "message", "task", "game",

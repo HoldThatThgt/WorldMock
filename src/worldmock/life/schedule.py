@@ -49,6 +49,7 @@ class WakeReason(str, Enum):
     DISCOVERY_RESULT = "discovery_result"
     WAKE_FROM_SLEEP = "wake_from_sleep"
     RUN_START = "run_start"
+    PROGRESS_REPORT_DUE = "progress_report_due"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
@@ -140,6 +141,7 @@ class WakeSnapshot(BaseModel):
     discovery_result_ready: bool = False
     wake_from_sleep: bool = False
     run_start: bool = False
+    progress_report_due: bool = False
     is_asleep: bool = False
 
 
@@ -169,6 +171,7 @@ class NextDecisionQuery(BaseModel):
     location_hours_change_times: tuple[int, ...] = ()
     next_task_due_at: int | None = None
     location_closing_at: int | None = None
+    next_progress_report_at: int | None = None
     is_asleep: bool = False
 
 
@@ -299,6 +302,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.WAKE_FROM_SLEEP)
     if snap.run_start:
         reasons.append(WakeReason.RUN_START)
+    if snap.progress_report_due:
+        reasons.append(WakeReason.PROGRESS_REPORT_DUE)
     if snap.is_asleep:
         reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
@@ -329,6 +334,8 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
         candidates.append(query.next_task_due_at - TASK_DUE_SOON_SECONDS)
     if not query.is_asleep and query.has_commitments and query.location_closing_at is not None:
         candidates.append(query.location_closing_at - CLOSING_WARNING_SECONDS)
+    if query.next_progress_report_at is not None:
+        candidates.append(query.next_progress_report_at)
     future = [moment for moment in candidates if moment > query.now]
     return min(future) if future else None
 

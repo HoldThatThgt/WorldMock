@@ -1,10 +1,12 @@
 """并行活动共同身体分段公式与真实引擎事件一致。"""
 
+# TODO: parallel activities removed from spec - most tests in this file are for parallel mechanics
+# The shared body mechanics tested here (shared_energy_cost, settle_shared_body, etc.) were designed
+# specifically for parallel activity execution, which is no longer in the 7-tool model.
+
 from __future__ import annotations
 
 import pytest
-
-from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context
 from worldmock.errors import BusinessRuleError
@@ -12,53 +14,55 @@ from worldmock.life.activities import (active_energy_entries, advance_activity_s
                                        combined_energy_cost, maximum_combined_duration)
 from worldmock.life.body import (ActivityFactors, last_flows, maximum_shared_energy_duration,
                                  settle_shared_body, shared_energy_cost)
-from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, BodyState,
-                                   StartActivityRequest, StartBasicActivityRequest,
-                                   StartParallelActivitiesRequest, StartTargetedActivityRequest)
+from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
+                                   BodyState)
 from worldmock.life.scenario import load_scenario
 from worldmock.life.social_actions import (CALL_MET, CHAT_MET, advance_social_shared,
                                            social_activity_change)
 
 
-def _watch_wait(reverse: bool = False) -> StartParallelActivitiesRequest:
-    """构造同资源集合、相反顺序的两项活动。"""
-    rows = [StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120),
-            StartTargetedActivityRequest(activity_type="watch", target_id="sintel-en-subtitles",
-                                         planned_duration_seconds=60, playback_speed=1)]
-    return StartParallelActivitiesRequest(activities=tuple(reversed(rows) if reverse else rows))
+# TODO: parallel activities removed from spec
+# def _watch_wait(reverse: bool = False) -> StartParallelActivitiesRequest:
+#     """构造同资源集合、相反顺序的两项活动。"""
+#     rows = [StartActivityRequest(activity_type="wait", planned_duration_seconds=120),
+#             StartActivityRequest(activity_type="watch", target_id="sintel-en-subtitles",
+#                                  planned_duration_seconds=60, playback_speed=1)]
+#     return StartParallelActivitiesRequest(activities=tuple(reversed(rows) if reverse else rows))
 
 
-def _first_body(engine, reverse: bool) -> dict:
-    """真实决策启动组合后推进至首个播放结束点。"""
-    ctx = context(engine, f"shared-{reverse}")
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, f"parallel-{reverse}",
-                                        "start_parallel_activities", _watch_wait(reverse)))
-    accepted = engine.commit_decision_round(ctx.round_id)[0]
-    assert accepted.status == "in_progress"
-    while engine.state.current_time < min(item.planned_end_at for item in engine.state.activities.values()):
-        advance_next(engine)
-    events = engine.store.read_agent_events("environment_event", 1)
-    return next(event.data for event in events if event.data.get("kind") == "body_settlement")
+# TODO: parallel activities removed from spec
+# def _first_body(engine, reverse: bool) -> dict:
+#     """真实决策启动组合后推进至首个播放结束点。"""
+#     ctx = context(engine, f"shared-{reverse}")
+#     engine.begin_decision_round([ctx])
+#     engine.observe(ctx)
+#     engine.submit_action(DirectToolCall(ctx, f"parallel-{reverse}",
+#                                         "start_parallel_activities", _watch_wait(reverse)))
+#     accepted = engine.commit_decision_round(ctx.round_id)[0]
+#     assert accepted.status == "in_progress"
+#     while engine.state.current_time < min(item.planned_end_at for item in engine.state.activities.values()):
+#         advance_next(engine)
+#     events = engine.store.read_agent_events("environment_event", 1)
+#     return next(event.data for event in events if event.data.get("kind") == "body_settlement")
 
 
-def test_real_parallel_body_uses_maximum_met_and_is_order_independent(engine_factory) -> None:
-    """两种提交顺序都只扣一次基础能量，最大 MET 与共同身体状态一致。"""
-    first = _first_body(engine_factory(), False)
-    second = _first_body(engine_factory(), True)
-    config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
-    expected = shared_energy_cost(((60, config.activity_met["wait"]),
-                                   (60, config.activity_met["watch"])), config)
-    assert first["body_settlement"] == second["body_settlement"]
-    assert first["body_settlement"]["basal_energy_kcal"] == pytest.approx(
-        config.basal_kcal_per_hour / 60)
-    assert first["body_settlement"]["extra_energy_kcal"] == pytest.approx(
-        (max(config.activity_met["wait"], config.activity_met["watch"]) - 1) * config.mass_kg / 60,
-        abs=0.01)
-    before = first["body_settlement"]["before"]["energy_kcal"]
-    after = first["body_settlement"]["after"]["energy_kcal"]
-    assert before - after == pytest.approx(expected)
+# TODO: parallel activities removed from spec
+# def test_real_parallel_body_uses_maximum_met_and_is_order_independent(engine_factory) -> None:
+#     """两种提交顺序都只扣一次基础能量，最大 MET 与共同身体状态一致。"""
+#     first = _first_body(engine_factory(), False)
+#     second = _first_body(engine_factory(), True)
+#     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+#     expected = shared_energy_cost(((60, config.activity_met["wait"]),
+#                                    (60, config.activity_met["watch"])), config)
+#     assert first["body_settlement"] == second["body_settlement"]
+#     assert first["body_settlement"]["basal_energy_kcal"] == pytest.approx(
+#         config.basal_kcal_per_hour / 60)
+#     assert first["body_settlement"]["extra_energy_kcal"] == pytest.approx(
+#         (max(config.activity_met["wait"], config.activity_met["watch"]) - 1) * config.mass_kg / 60,
+#         abs=0.01)
+#     before = first["body_settlement"]["before"]["energy_kcal"]
+#     after = first["body_settlement"]["after"]["energy_kcal"]
+#     assert before - after == pytest.approx(expected)
 
 
 def test_shared_energy_duration_matches_actual_settlement_at_limit() -> None:
@@ -102,7 +106,7 @@ def test_combined_energy_public_predictors_include_social_met_and_candidate(engi
         state = engine.state.model_copy(update={"activities": {kind.value: _active(kind, now)}}, deep=True)
         assert active_energy_entries(state, 1, config) == ((60, met),)
         assert combined_energy_cost(state, 1, config) == pytest.approx(shared_energy_cost(((60, met),), config))
-        candidate = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+        candidate = ActivityStartParams(activity_type=ActivityKind.WAIT, planned_duration_seconds=120)
         expected = shared_energy_cost(((60, met), (120, config.activity_met["wait"])), config)
         assert combined_energy_cost(state, 1, config, candidate) == pytest.approx(expected)
         assert maximum_combined_duration(state, 1, config, candidate, 120) == 120

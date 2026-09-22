@@ -20,7 +20,7 @@ from worldmock.life.models import (
     ActivityState,
     ContentProgress,
     PurchaseOrderRequest,
-    StartBasicActivityRequest,
+    StartActivityRequest,
 )
 from worldmock.life.narration import render_facts, render_scene
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -235,7 +235,7 @@ def test_real_observation_hides_impossible_media_and_work_tail_starts(engine_fac
         item["function"]["name"]: item["function"]
         for item in agent.build_react_tool_schemas(readonly=False)
     }
-    kinds = schemas["start_targeted_activity"]["parameters"]["properties"]["activity_type"]["enum"]
+    kinds = schemas["start_activity"]["parameters"]["properties"]["activity_type"]["enum"]
 
     assert task["remaining_contract_seconds"] == 59
     assert task["worked_seconds"] == engine.scenario.tasks[0].maximum_duration_seconds - 59
@@ -332,8 +332,8 @@ def test_decision_started_written_once_complete_with_decision_statement(engine_f
 
     # 自述已经持久化，登记动作不重复创建或修改证据。
     engine.submit_action(DirectToolCall(
-        ctx, "action-decision_statement", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+        ctx, "action-decision_statement", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=900)))
     engine.commit_decision_round("decision_statement-round")
     assert len(_events_of(engine, "decision_started")) == 1
     assert engine.store.connection.execute(
@@ -365,8 +365,8 @@ def test_invalid_decision_statement_is_absent_from_direct_engine_evidence(engine
     assert _events_of(engine, "decision_started") == []
 
     engine.submit_action(DirectToolCall(
-        ctx, "action-decision_statement-invalid", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+        ctx, "action-decision_statement-invalid", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=900)))
     engine.commit_decision_round("decision_statement-invalid")
     starts = _events_of(engine, "decision_started")
     assert len(starts) == 1

@@ -29,7 +29,7 @@ from worldmock.life.models import (
     PurchaseOrderRequest,
     RunIdentity,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
+    StartActivityRequest,
     StartTravelRequest,
 )
 from worldmock.life.scenario import parse_scenario_document
@@ -1081,7 +1081,7 @@ def test_recipe_pause_wait_resume_produces_output_only_once_at_completion(tmp_pa
         assert result.status.value == "completed"
         assert engine.state.agents[1].inventory == before
         assert advance_until_ready(engine)
-        waited = _action(engine, "wait-paused-recipe", "start_basic_activity", StartBasicActivityRequest(
+        waited = _action(engine, "wait-paused-recipe", "start_basic_activity", StartActivityRequest(
             activity_type="wait", planned_duration_seconds=600))
         _advance_to_completion(engine, waited.activity_id)
         paused = engine.state.activities[started.activity_id]

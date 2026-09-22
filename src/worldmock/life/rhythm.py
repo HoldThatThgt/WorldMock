@@ -60,6 +60,8 @@ class RhythmInputs:
     recovery_kinds: frozenset
     #: 没有在手承诺时的较长重估间隔。
     idle_reconsideration_interval_seconds: int = rhythm_schedule.IDLE_RECONSIDERATION_INTERVAL_SECONDS
+    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「播报节律」）：活跃对话距上次报告满该秒数触发唤醒。
+    progress_report_interval_seconds: int = 1800
     #: 人物档案餐时窗口（agent_id -> MealWindows；滞回参照与观察同源）。
     meal_windows_by_agent: dict[int, felt.MealWindows] = field(default_factory=dict)
     #: 本 tick 由预排事件触发的唤醒旗标：agent_id -> {wake_reason 名}。
@@ -160,6 +162,8 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
         next_task_due_at=_next_task_due(agent, inputs),
         location_closing_at=(_closing_at(agent, inputs)
                              if _commitment_signatures(agent, inputs) else None),
+        next_progress_report_at=_next_progress_report_at(
+            agent, state, inputs.progress_report_interval_seconds),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     ))
 
@@ -382,6 +386,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
                                 and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),
         run_start=agent.last_decision_time is None,
+        progress_report_due=_progress_report_due(agent, state, inputs.progress_report_interval_seconds),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
@@ -478,6 +483,50 @@ def _woke_from_sleep(state: WorldState, agent_id: int, now: int) -> bool:
     return False
 
 
+def _progress_report_due(agent: AgentState, state: WorldState,
+                          interval_seconds: int) -> bool:
+    """@brief 人物有活跃对话且距上次播报已满间隔时触发播报节律（docs/dev/SPEC-agent-interaction.md「播报节律」）。
+
+    @param agent 当前人物状态
+    @param state 世界状态（sessions 字段由 Track 1 添加，缺失时返回 False）
+    @param interval_seconds 播报间隔秒数
+    """
+    sessions = getattr(state, "sessions", {})
+    now = state.current_time
+    for session in sessions.values():
+        if getattr(session, "agent_id", None) != agent.agent_id:
+            continue
+        if getattr(session, "status", None) != "active":
+            continue
+        anchor = (getattr(session, "note_updated_at", None)
+                  or getattr(session, "started_at", now))
+        if now - anchor >= interval_seconds:
+            return True
+    return False
+
+
+def _next_progress_report_at(agent: AgentState, state: WorldState,
+                              interval_seconds: int) -> int | None:
+    """@brief 返回最早满足播报间隔的候选时刻（docs/dev/SPEC-agent-interaction.md「播报节律」）。
+
+    @param agent 当前人物状态
+    @param state 世界状态（sessions 字段由 Track 1 添加，缺失时返回 None）
+    @param interval_seconds 播报间隔秒数
+    """
+    sessions = getattr(state, "sessions", {})
+    now = state.current_time
+    candidates: list[int] = []
+    for session in sessions.values():
+        if getattr(session, "agent_id", None) != agent.agent_id:
+            continue
+        if getattr(session, "status", None) != "active":
+            continue
+        anchor = (getattr(session, "note_updated_at", None)
+                  or getattr(session, "started_at", now))
+        candidates.append(anchor + interval_seconds)
+    return min((t for t in candidates if t > now), default=None)
+
+
 def local_hour(epoch: int, timezone_name: str) -> float:
     """@brief 场景时区自午夜起的小时数。"""
     moment = datetime.fromtimestamp(epoch, ZoneInfo(timezone_name))
@@ -495,6 +544,7 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
         interval_seconds=interval or engine.scenario.activity_feedback_seconds,
         reconsideration_interval_seconds=engine.semantics.document.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=engine.semantics.document.idle_reconsideration_interval_seconds,
+        progress_report_interval_seconds=engine.semantics.document.progress_report_interval_seconds,
         recovery_kinds=engine.recovery_kinds,
         meal_windows_by_agent=engine.meal_windows_by_agent(),
         arrival_flags=arrival_flags or {},

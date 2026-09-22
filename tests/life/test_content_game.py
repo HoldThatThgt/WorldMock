@@ -1,19 +1,13 @@
-"""真实字幕、邮件与 TextWorld 内容接触边界测试。"""
+"""真实字幕与邮件内容接触边界测试。"""
 
 from __future__ import annotations
-
-from pathlib import Path
 
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import wake_by_mail, browse_activities, advance_next, context
-from worldmock.life.engine import LifeEngine
-from worldmock.life.game import GameOutcomeUnknown
 from worldmock.life.models import (
-    GameActionRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 
@@ -44,10 +38,10 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
             "experience_label": "subtitle_experience", "title": "Sintel",
             "segments_total": 26, "typical_segment_seconds": 24.2} in catalog
     advance_next(engine)  # browse 消耗了 t0 决策位：下钻后推进到下一决策边界
-    request = StartTargetedActivityRequest(
+    request = StartActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=1260, playback_speed=0.5)
-    _, started = _observed_action(engine, "watch", "start_targeted_activity", request)
+    _, started = _observed_action(engine, "watch", "start_activity", request)
     activity_id = started.activity_id
 
     wake_by_mail(engine)  # 首个 900 边界经 message_arrival 提供决策（节律合同）
@@ -79,10 +73,10 @@ def test_subtitles_reveal_only_played_intervals_across_pause_and_repeat(engine_f
     progress = engine.state.agents[1].content_progress["sintel-en-subtitles"]
     assert progress.position_seconds == 630 and progress.exposure_count == 1
 
-    repeat = StartTargetedActivityRequest(
+    repeat = StartActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=240, playback_speed=0.5)
-    _, repeated = _observed_action(engine, "watch-repeat", "start_targeted_activity", repeat)
+    _, repeated = _observed_action(engine, "watch-repeat", "start_activity", repeat)
     advance_next(engine)
     repeat_event = _progress_events(engine, "action-watch-repeat")[-1]
     repeat_revealed = repeat_event.data["activity"]["data"]["revealed"]
@@ -99,16 +93,16 @@ def test_mail_body_requires_arrival_and_completed_read_activity(engine_factory) 
     engine = engine_factory()
     message = engine.scenario.messages[0]
     initial, rejected = _observed_action(
-        engine, "early-mail", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="read_mail", target_id=message.message_id,
+        engine, "early-mail", "start_activity",
+        StartActivityRequest(activity_type="read_mail", target_id=message.message_id,
                                      planned_duration_seconds=60, playback_speed=1))
     assert initial["messages"] == []
     assert rejected.status == "rejected" and rejected.error_code == "MESSAGE_NOT_VISIBLE"
     advance_next(engine)
 
     _, sleeping = _observed_action(
-        engine, "sleep-to-mail", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=28_799))
+        engine, "sleep-to-mail", "start_activity",
+        StartActivityRequest(activity_type="sleep", planned_duration_seconds=28_799))
     assert sleeping.status == "in_progress"
     advance_next(engine)
     assert engine.state.current_time == int(message.sent_at.timestamp())
@@ -118,8 +112,8 @@ def test_mail_body_requires_arrival_and_completed_read_activity(engine_factory) 
                       "subject": message.subject, "read": False}
 
     _, reading = _observed_action(
-        engine, "read-mail", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="read_mail", target_id=message.message_id,
+        engine, "read-mail", "start_activity",
+        StartActivityRequest(activity_type="read_mail", target_id=message.message_id,
                                      planned_duration_seconds=60, playback_speed=1))
     assert reading.status == "in_progress"
     assert message.message_id not in engine.state.agents[1].read_message_ids
@@ -129,66 +123,3 @@ def test_mail_body_requires_arrival_and_completed_read_activity(engine_factory) 
     assert record["read"] is True and record["body"] == message.body
     terminal = _progress_events(engine, "action-read-mail")[-1]
     assert terminal.data["activity"]["data"]["revealed"]["body"] == message.body
-
-
-def test_textworld_checkpoint_replays_commands_and_rejects_invalid_input(engine_factory) -> None:
-    """游戏命令通过真实 TextWorld 执行，检查点恢复重放相同公开状态。"""
-    engine = engine_factory()
-    _, started = _observed_action(
-        engine, "game-start", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="play_game", target_id="textworld-1201",
-                                     planned_duration_seconds=3600, playback_speed=1))
-    advance_next(engine)
-    session_id = started.data["activity"]["data"]["game_session_id"]
-    progress = engine.state.agents[1].game_sessions[session_id]
-    command = progress.admissible_commands[0]
-    _, first = _observed_action(
-        engine, "game-first", "game_action",
-        GameActionRequest(game_session_id=session_id, command=command))
-    assert first.data["game"]["moves"] == 1
-
-    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "game_restore_test"})
-    engine.checkpoint({"agent:1": reference})
-    run_dir = engine.store.run_dir
-    expected = engine.state.agents[1].game_sessions[session_id].model_copy(deep=True)
-    engine.close()
-    restored = LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
-    try:
-        assert restored.state.agents[1].game_sessions[session_id] == expected
-        advance_next(restored)
-        before = restored.state.agents[1].game_sessions[session_id]
-        invalid = GameActionRequest(game_session_id=session_id, command="not an admissible command")
-        _, rejected = _observed_action(restored, "game-invalid", "game_action", invalid)
-        assert rejected.status == "rejected" and rejected.error_code == "GAME_COMMAND_NOT_ADMISSIBLE"
-        assert restored.state.agents[1].game_sessions[session_id] == before
-        advance_next(restored)
-        valid = restored.state.agents[1].game_sessions[session_id].admissible_commands[0]
-        _, second = _observed_action(
-            restored, "game-second", "game_action",
-            GameActionRequest(game_session_id=session_id, command=valid))
-        assert second.data["game"]["moves"] == 2
-    finally:
-        restored.close()
-
-
-def test_unknown_game_outcome_is_explicit_and_preserves_session(engine_factory, monkeypatch) -> None:
-    """TextWorld 执行结果不确定时不虚构进度，并在一秒后允许人物重新决策。"""
-    engine = engine_factory()
-    _, started = _observed_action(
-        engine, "unknown-start", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="play_game", target_id="textworld-1201",
-                                     planned_duration_seconds=3600, playback_speed=1))
-    advance_next(engine)
-    session_id = started.data["activity"]["data"]["game_session_id"]
-    before = engine.state.agents[1].game_sessions[session_id].model_copy(deep=True)
-
-    def fail_command(*_args, **_kwargs):
-        """模拟 TextWorld 已接收但没有可确认返回。"""
-        raise GameOutcomeUnknown("TextWorld command outcome is unknown")
-
-    monkeypatch.setattr("worldmock.life.engine.run_game_command", fail_command)
-    request = GameActionRequest(game_session_id=session_id, command=before.admissible_commands[0])
-    _, result = _observed_action(engine, "unknown-command", "game_action", request)
-    assert result.status == "unknown" and result.error_code == "GAME_OUTCOME_UNKNOWN"
-    assert engine.state.agents[1].game_sessions[session_id] == before
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time + 1

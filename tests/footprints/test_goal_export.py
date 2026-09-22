@@ -12,7 +12,7 @@ from worldmock.cli import main
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import PlanDayRequest, StartBasicActivityRequest
+from worldmock.life.models import PlanDayRequest, StartActivityRequest
 
 CODE = "a" * 64
 
@@ -85,7 +85,7 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
         {"intent_kind": "休息", "goal": "睡前休息"}]), "midnight-plan")
     assert registered.status == "completed"
     _stage_midnight_round(engine, midnight - 120)
-    started = _submit(engine, "start_basic_activity", StartBasicActivityRequest(
+    started = _submit(engine, "start_basic_activity", StartActivityRequest(
         activity_type="wait", planned_duration_seconds=120), "midnight-rest")
     assert started.status == "in_progress"
     advance_next(engine)

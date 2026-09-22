@@ -15,10 +15,10 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
 from worldmock.status import write_status
 
-#: 修订合同（docs/dev/SPEC-day-plan-goals.md「提交与修订」、docs/dev/SPEC-life-runtime.md「社交最小可行版」）要求环境侧可受理的四件新生活工具。
-_REVISION_CONTRACT_TOOLS = frozenset({
-    "plan_day", "revise_day_plan", "send_message", "start_social_activity",
-    "discover_places", "start_parallel_activities"})
+#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理这 7 个工具，多一个或少一个都是漂移。
+_STABLE_TOOL_SURFACE = frozenset({
+    "start_activity", "recall_task_summary", "report_status", "pause_activity",
+    "conclude_activity", "plan_day", "revise_day_plan"})
 
 
 class LifeEnv(EnvBase):
@@ -69,16 +69,16 @@ class LifeEnv(EnvBase):
         """@brief 核对环境与人物两侧登记的完整新工具 Schema 闭集。
 
         LifeEnv 的工具登记 = 领域 REQUEST_MODELS（引擎 _dispatch 的唯一
-        受理闭集）。四件修订合同工具缺失说明领域模型未迁移完成；人物侧
+        受理闭集）。它与稳定工具面不一致说明领域模型未迁移完成；人物侧
         开放集合与登记闭集不一致说明 agent/env 工具面漂移——两者都在
         init 时 fail-closed，而不是运行中 KeyError。
         """
         from custom.agents.life_agent import life_action_tool_names
 
-        missing = _REVISION_CONTRACT_TOOLS - set(REQUEST_MODELS)
-        if missing:
+        drift = frozenset(REQUEST_MODELS) ^ _STABLE_TOOL_SURFACE
+        if drift:
             raise ProtocolError(
-                f"LifeEnv registered tool surface is missing revision tools: {sorted(missing)}")
+                f"LifeEnv registered tool surface disagrees with the stable tool surface: {sorted(drift)}")
         if life_action_tool_names() != frozenset(REQUEST_MODELS):
             raise ProtocolError(
                 "LifeEnv tool surface disagrees with the LifeAgent action tool set")

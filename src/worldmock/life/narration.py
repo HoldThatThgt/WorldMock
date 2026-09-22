@@ -48,11 +48,15 @@ SCENE_HANZI_BUDGET = 800
 PERSONA_CARD_HANZI_BUDGET = 600
 #: 决策自述汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
 DECISION_STATEMENT_HANZI_BUDGET = 200
+#: 单会话进度层字符上限（「进度层」容量表，合同常数）：该会话全部客观字段与自述合计不超过此值。
+SESSION_PROGRESS_LAYER_BUDGET = 4000
 #: 场景文本语言（「观察投影与提示合同」：提示与场景文本使用 language=zh-CN）。
 SCENE_LANGUAGE = "zh-CN"
 
 #: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与
 #: activities 对应"完整活动快照"——观察只允许进度短语，不允许整表。
+#: affordance_contract 和 interaction_menu 是合同全表，禁止进入提示；
+#: interactive_objects 是每对象过滤后的动作枚举与前置条件状态，允许进入提示。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
     "end_time",
@@ -238,12 +242,62 @@ def _inventory_sentence(observation: dict) -> str:
     return _close_sentence(f"你手边有{'、'.join(items)}") if items else ""
 
 
+def _precondition_sentence(observation: dict) -> str:
+    """@brief 前置条件未满足时补一句中文说明，点名具体地点（前置条件前置合同）。
+
+    每条 hint 对应一份工作任务，格式为「这份工作要在{地点}做，先去{地点}」；
+    多个 hint 时每条独立一句。
+    """
+    hints = observation.get("precondition_hints") or []
+    sentences = []
+    for hint in hints:
+        title = hint.get("task_title") or ""
+        loc_name = hint.get("required_location_name") or ""
+        if not loc_name:
+            continue
+        if title:
+            sentences.append(_close_sentence(f"「{title}」要在{loc_name}做，先去{loc_name}"))
+        else:
+            sentences.append(_close_sentence(f"这份工作要在{loc_name}做，先去{loc_name}"))
+    return "".join(sentences)
+
+
 def _recent_result_sentence(observation: dict) -> str:
     """@brief 渲染最近一次动作结果的一句话（列表取最近一条，原文照录）。"""
     results = observation.get("recent_action_results") or []
     if isinstance(results, str):
         return _close_sentence(results) if results else ""
     return _close_sentence(results[-1]) if results else ""
+
+
+def _session_sentences(observation: dict) -> str:
+    """@brief 渲染当前 active 会话的中文进度短句（至多 2 条，进度层合同）。
+
+    每条格式为"正在做：{标签}（已投入X小时，{进展自述}）"；无进展自述时省略后半。
+    只渲染 active 会话，不渲染 paused/concluded/aborted（进度层合同）。
+
+    @param observation 引擎侧计算好的观察字段字典（含 current_sessions 键）
+    @return 进度短句文本；无 active 会话时返回空串
+    """
+    sessions = observation.get("current_sessions") or []
+    sentences = []
+    for session in sessions[:2]:
+        label = session.get("label") or ""
+        invested = int(session.get("invested_seconds") or 0)
+        note = session.get("progress_note") or ""
+        hours = invested // 3600
+        minutes = (invested % 3600) // 60
+        if hours > 0:
+            time_str = f"已投入{hours}小时"
+        elif minutes > 0:
+            time_str = f"已投入{minutes}分钟"
+        else:
+            time_str = "刚开始"
+        if note:
+            sentences.append(_close_sentence(f"正在做：{label}（{time_str}，{note}）"))
+        else:
+            sentences.append(_close_sentence(f"正在做：{label}（{time_str}）"))
+    return "".join(sentences)
 
 
 def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
@@ -272,6 +326,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _location_sentence(observation),
         _felt_sentence(observation),
         _activity_sentences(observation),
+        _session_sentences(observation),
         _plan_sentence(observation),
         _inbox_sentence(observation),
         _close_sentence(todos) if todos else "",
@@ -279,6 +334,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _inventory_sentence(observation),
         _close_sentence(observation["local_food_summary"]) if observation.get("local_food_summary") else "",
         _recent_result_sentence(observation),
+        _precondition_sentence(observation),
     ]
     scene = "".join(part for part in parts if part)
     hanzi = count_hanzi(scene)

@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from tests.life.conftest import advance_next, advance_until_ready, context, wake_by_mail
 from agentsociety2.society import DirectToolCall
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, StartBasicActivityRequest
+from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, StartActivityRequest
 from worldmock.life.rhythm import _goal_and_deadline_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
     INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds, day_plan_expired,
@@ -166,8 +166,8 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     assert registered.status == "completed" and engine.state.current_time == now
     assert registered.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
     advance_until_ready(engine)
-    started = act(engine, "rest", "start_basic_activity",
-                  StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=7200))
+    started = act(engine, "rest", "start_activity",
+                  StartActivityRequest(activity_type="wait", planned_duration_seconds=7200))
     advance_next(engine)
     plan = engine.state.agents[1].day_plan
     assert plan.goals[0].progress_activity_id == started.activity_id
@@ -233,8 +233,8 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
         "body_settled_at": staged.current_time,
         "day_plan": DayPlan(day_end=midnight, goals=[goal("休息", registered=staged.current_time)])})
     _commit_staged(engine, staged)
-    started = act(engine, "last-minute", "start_basic_activity",
-                  StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    started = act(engine, "last-minute", "start_activity",
+                  StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
     advance_next(engine)
     assert engine.state.current_time == midnight
     assert engine.state.agents[1].day_plan is None
@@ -246,8 +246,8 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
 
 def test_late_first_submission_does_not_require_a_bedtime_schedule(engine_factory):
     engine = engine_factory()
-    act(engine, "before-plan", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    act(engine, "before-plan", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
     advance_until_ready(engine)
     registered_at = engine.state.current_time
     result = act(engine, "late-goal", "plan_day", PlanDayRequest(

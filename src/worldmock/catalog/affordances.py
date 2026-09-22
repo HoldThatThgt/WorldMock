@@ -24,27 +24,21 @@ from worldmock.errors import IntegrityError
 #: 注册表文件名（位于目录顶层，与 resources.jsonl/objects.jsonl 平级）。
 AFFORDANCES_FILE = "affordances.toml"
 
-TOOL_SURFACES = frozenset({"basic", "targeted", "travel", "commerce", "game", "none"})
+#: start_activity 的动作闭集（docs/dev/SPEC-agent-interaction.md「交互对象 x 动作表」）：
+#: 交互菜单、请求校验与本注册表的 kinds.*.action 共用这一份声明。
+START_ACTIVITY_ACTIONS = frozenset({
+    "travel_to", "work", "submit", "browse", "purchase", "consume", "watch", "play",
+    "chat", "call", "message", "read", "do", "wait", "sleep",
+})
 RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
 #: 所有个人资源均由各活动显式声明，position 不再由引擎暗中添加。
 RESOURCE_CLAIM_SLOTS = frozenset({"position", "attention", "device", "hands", "vehicle"})
-#: 习惯归并路由认识的工具名闭集（classify_action_event 的工具面）。
-HABIT_TOOLS = frozenset({
-    "continue_activity", "start_basic_activity", "purchase", "consume",
-    "start_travel", "start_targeted_activity", "submit_work", "discover_places",
-})
-#: 工具面 → 工具名的派生（surface = none 的 kind 不占任何工具）。
-SURFACE_TOOLS: Mapping[str, tuple[str, ...]] = MappingProxyType({
-    "basic": ("start_basic_activity",),
-    "targeted": ("start_targeted_activity",),
-    "travel": ("start_travel",),
-    "commerce": ("purchase", "consume"),
-    "game": ("start_targeted_activity",),
-    "none": (),
-})
+#: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
+#: 的动作全集，外加会话进展自述这一个独立工具名。
+HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status"}
 #: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
 TRAVEL_MODES = frozenset({"driving", "walking"})
 #: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。
@@ -71,7 +65,7 @@ PROTOTYPE_GENERATORS: dict[str, Callable[..., list]] = {}
 _KIND_KEYS = frozenset({
     "met_key", "met_key_modes", "energy_floor_exempt", "sleep_channel", "relief",
     "resource_claims", "feedback_boundary", "game_boundary", "energy_projection",
-    "unclassified", "tool", "target_discovery", "target_corpus",
+    "unclassified", "action", "target_discovery", "target_corpus",
 })
 #: families 层允许的字段键。
 _FAMILY_KEYS = frozenset({
@@ -101,9 +95,7 @@ class KindSpec:
     game_boundary: bool = False
     energy_projection: bool = False
     unclassified: bool = False
-    surface: str = "none"
-    activity_type: str | None = None
-    type_pattern: str | None = None
+    action: str = "none"
     target_discovery: str = "none"
     target_field: str | None = None
     target_id_key: str | None = None
@@ -129,7 +121,7 @@ class FamilySpec:
     kinds: tuple[str, ...]
     attention_kind: str
     attention_params: Mapping[str, Any]
-    habit_members: tuple[tuple[str, str], ...]
+    habit_members: tuple[str, ...]
     generator: str
     generator_params: Mapping[str, Any]
     comfort: bool = False
@@ -144,12 +136,8 @@ class AffordanceView:
 
     kinds: Mapping[str, KindSpec]
     families: Mapping[str, FamilySpec]
-    #: 习惯归并路由（精确键）：(tool, activity_type) -> family。
-    _exact_routes: Mapping[tuple[str, str], str] = field(default_factory=dict)
-    #: 前缀路由（"lifestyle:*" 之类）：(tool, 前缀) 按声明序。
-    _prefix_routes: tuple[tuple[str, str, str], ...] = ()
-    #: 通配路由：tool -> family（该工具任意 activity_type 兜底）。
-    _wildcard_routes: Mapping[str, str] = field(default_factory=dict)
+    #: 习惯归并路由：动作名 -> 家族名（每个动作至多归一个家族）。
+    _habit_routes: Mapping[str, str] = field(default_factory=dict)
 
     # ----- L3 动机层 -----
 
@@ -180,20 +168,9 @@ class AffordanceView:
                 f"affordance family {family_name!r} declares no content attention")
         return family.attention_params
 
-    def classify_habit_event(self, tool_name: str, activity_type: str | None) -> str | None:
-        """@brief 把一次动作请求归入习惯家族；未命中（含显式 unclassified）返回 None。
-
-        匹配优先级：精确 > 前缀 > 通配——sleep 精确键优先于 continue 的
-        start_basic_activity 通配，与原 if 链语义一致。
-        """
-        if activity_type is not None:
-            family = self._exact_routes.get((tool_name, activity_type))
-            if family is not None:
-                return family
-            for tool, prefix, family in self._prefix_routes:
-                if tool == tool_name and activity_type.startswith(prefix):
-                    return family
-        return self._wildcard_routes.get(tool_name)
+    def classify_habit_event(self, action: str) -> str | None:
+        """@brief 把一次动作归入习惯家族；未声明的动作（含显式 unclassified）返回 None。"""
+        return self._habit_routes.get(action)
 
     # ----- L5 结算层 -----
 
@@ -276,19 +253,6 @@ class AffordanceView:
         """@brief 游戏反馈边界闭集（game_boundary = true；与 feedback 互斥）。"""
         return frozenset(name for name, spec in self.kinds.items()
                          if spec.game_boundary)
-
-    @property
-    def continuable_kinds(self) -> frozenset[str]:
-        """@brief continue_activity 资格闭集（= feedback_boundary；play_game 的
-        继续交互走 game_action 的 game_feedback 边界，不经 continue_activity——
-        与现行 agent 行为一致）。"""
-        return self.feedback_kinds
-
-    @property
-    def targeted_activity_kinds(self) -> tuple[str, ...]:
-        """@brief start_targeted_activity 的 activity_type 枚举序（声明序）。"""
-        return tuple(name for name, spec in self.kinds.items()
-                     if spec.surface in ("targeted", "game"))
 
     @property
     def target_catalog_fields(self) -> dict[str, tuple[str, str | None]]:
@@ -422,19 +386,9 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
     if not isinstance(relief, dict) or relief.get("channel", "none") not in RELIEF_CHANNELS:
         raise IntegrityError(f"Affordance kind {name!r} relief channel is invalid")
     claims, conditional = _parse_resource_claims(name, body.get("resource_claims", []))
-    tool = body.get("tool", {})
-    if not isinstance(tool, dict) or tool.get("surface", "none") not in TOOL_SURFACES:
-        raise IntegrityError(f"Affordance kind {name!r} tool surface is invalid")
-    surface = tool.get("surface", "none")
-    activity_type = tool.get("activity_type")
-    type_pattern = tool.get("type_pattern")
-    if surface in ("targeted", "game"):
-        if activity_type != name:
-            raise IntegrityError(
-                f"Affordance kind {name!r} targeted tool activity_type must equal the kind name")
-    if surface == "basic" and activity_type is not None and activity_type != name:
-        raise IntegrityError(
-            f"Affordance kind {name!r} basic tool activity_type must equal the kind name")
+    action = body.get("action", "none")
+    if action != "none" and action not in START_ACTIVITY_ACTIONS:
+        raise IntegrityError(f"Affordance kind {name!r} action is invalid")
     discovery_source, target_field, target_id_key = _parse_target_discovery(name, body)
     if relief.get("channel", "none") == "content_rate" and discovery_source not in (
             "browse_result", "catalog_field"):
@@ -458,9 +412,7 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         game_boundary=game,
         energy_projection=_require_bool(name, body, "energy_projection"),
         unclassified=_require_bool(name, body, "unclassified"),
-        surface=surface,
-        activity_type=activity_type,
-        type_pattern=type_pattern,
+        action=action,
         target_discovery=discovery_source,
         target_field=target_field,
         target_id_key=target_id_key,
@@ -596,20 +548,15 @@ def _parse_family(name: str, body: Mapping,
     )
 
 
-def _parse_habit_members(name: str, raw: Any) -> tuple[tuple[str, str], ...]:
-    """@brief 解析习惯归并成员：省略 activity_type 等价通配 "*"。"""
+def _parse_habit_members(name: str, raw: Any) -> tuple[str, ...]:
+    """@brief 解析习惯归并成员：一串动作名，逐个对闭集核对。"""
     if not isinstance(raw, list):
         raise IntegrityError(f"Affordance family {name!r} habit_members must be a list")
-    members: list[tuple[str, str]] = []
     for member in raw:
-        if not isinstance(member, dict) or set(member) - {"tool", "activity_type"}:
-            raise IntegrityError(f"Affordance family {name!r} habit member is malformed")
-        tool = member.get("tool")
-        if tool not in HABIT_TOOLS:
+        if member not in HABIT_ACTIONS:
             raise IntegrityError(
-                f"Affordance family {name!r} habit member tool {tool!r} is unknown")
-        members.append((tool, member.get("activity_type", "*")))
-    return tuple(members)
+                f"Affordance family {name!r} habit member action {member!r} is unknown")
+    return tuple(raw)
 
 
 def _check_generator_values(name: str, generator: str, params: Mapping[str, Any]) -> None:
@@ -664,56 +611,32 @@ def _parse_content_kind(name: str, body: Mapping) -> ContentKindSpec:
 
 def _build_view(kinds: Mapping[str, KindSpec],
                 families: Mapping[str, FamilySpec]) -> AffordanceView:
-    """@brief 组装视图并展开习惯归并路由表（精确/前缀/通配三层）。"""
-    exact: dict[tuple[str, str], str] = {}
-    prefix: list[tuple[str, str, str]] = []
-    wildcard: dict[str, str] = {}
+    """@brief 组装视图并展开习惯归并路由表（动作名 -> 家族名，一一对应）。"""
+    routes: dict[str, str] = {}
     for family_name, family in families.items():
-        for tool, pattern in family.habit_members:
-            if pattern == "*":
-                if tool in wildcard:
-                    raise IntegrityError(
-                        f"Affordance habit route for tool {tool!r} is declared twice")
-                wildcard[tool] = family_name
-            elif pattern.endswith("*"):
-                prefix.append((tool, pattern[:-1], family_name))
-            else:
-                key = (tool, pattern)
-                if key in exact:
-                    raise IntegrityError(
-                        f"Affordance habit route {key} is declared twice")
-                exact[key] = family_name
-    return AffordanceView(
-        kinds=kinds, families=families,
-        _exact_routes=MappingProxyType(exact),
-        _prefix_routes=tuple(prefix),
-        _wildcard_routes=MappingProxyType(wildcard),
-    )
+        for action in family.habit_members:
+            if action in routes:
+                raise IntegrityError(
+                    f"Affordance habit route for action {action!r} is declared twice")
+            routes[action] = family_name
+    return AffordanceView(kinds=kinds, families=families,
+                          _habit_routes=MappingProxyType(routes))
 
 
 def _check_habit_coverage(view: AffordanceView) -> None:
-    """@brief 规则 5：习惯覆盖完备——每个已声明 kind 的工具 × activity_type
-    空间必须被 habit_members 或 unclassified 声明覆盖，没有默认桶。"""
-    def covered(tool: str, kind_name: str) -> bool:
-        if (tool, kind_name) in view._exact_routes:
-            return True
-        if any(entry_tool == tool and kind_name.startswith(entry_prefix)
-               for entry_tool, entry_prefix, _ in view._prefix_routes):
-            return True
-        return tool in view._wildcard_routes
-
+    """@brief 规则 5：习惯覆盖完备——每个已声明 kind 的启动动作必须被某个
+    family 的 habit_members 收走，或由该 kind/family 显式声明 unclassified。"""
     exempt: set[str] = {name for name, spec in view.kinds.items() if spec.unclassified}
     for family in view.families.values():
         if family.unclassified:
             exempt.update(family.kinds)
     for name, spec in view.kinds.items():
-        if name in exempt:
+        if name in exempt or spec.action == "none":
             continue
-        for tool in SURFACE_TOOLS[spec.surface]:
-            if not covered(tool, name):
-                raise IntegrityError(
-                    f"Affordance kind {name!r} ({tool}) is covered by no habit_members "
-                    f"and declares no unclassified flag")
+        if spec.action not in view._habit_routes:
+            raise IntegrityError(
+                f"Affordance kind {name!r} ({spec.action}) is covered by no habit_members "
+                f"and declares no unclassified flag")
 
 
 def _check_corpus_references(view: AffordanceView, corpora_root: Path) -> None:

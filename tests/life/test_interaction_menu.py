@@ -108,8 +108,6 @@ def test_interaction_menu_declaration_is_closed(payload: dict, message: str) -> 
     ("allowed_tools", "revise_day_plan"),
     ("allowed_tools", "set_activity_state"),
     ("allowed_tools", "continue_activity"),
-    ("allowed_tools", "change_playback_speed"),
-    ("allowed_tools", "game_action"),
     ("allowed_activity_kinds", "wait"),
     ("allowed_activity_kinds", "sleep"),
 ])
@@ -215,7 +213,7 @@ def test_location_and_person_each_remove_the_other_sources_exclusive_permissions
     resolved = resolve_interaction_menu(restricted, first.agent_id, "home")
     assert resolved.allowed_tools == tuple(sorted({
         "start_basic_activity", "plan_day", "revise_day_plan", "set_activity_state",
-        "continue_activity", "change_playback_speed", "game_action",
+        "continue_activity",
         "start_targeted_activity", "browse_activities",
     }))
     assert resolved.allowed_activity_kinds == ("sleep", "wait", "work")

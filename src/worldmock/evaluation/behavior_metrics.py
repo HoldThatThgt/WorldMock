@@ -294,11 +294,10 @@ def _final_action_by_decision(events: list[dict[str, Any]]) -> dict[str, Mapping
 
 
 def _is_passive_action(tool_name: str, request: Mapping[str, Any]) -> bool:
-    """@brief 判断最终动作是否为 continue 或 wait（非自主动作）。"""
-    if tool_name == "continue_activity":
+    """@brief 判断最终动作是否为播报进展或等待（非自主动作）。"""
+    if tool_name == "report_status":
         return True
-    activity_type = str(request.get("activity_type", ""))
-    return tool_name.startswith("start_") and activity_type.split(":")[0] == "wait"
+    return tool_name == "start_activity" and request.get("action") == "wait"
 
 
 def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -697,20 +696,21 @@ def _social(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
     received = 0
     for event in events:
         data = event.get("data", {})
-        if event.get("event_type") == "action_requested":
-            if data.get("tool_name") == "send_message":
+        if event.get("event_type") == "action_requested" and data.get("tool_name") == "start_activity":
+            request = data.get("request", {})
+            action = request.get("action")
+            if action == "message":
                 sent += 1
-            if data.get("tool_name") == "start_social_activity":
-                request = data.get("request", {})
-                duration = request.get("duration_minutes")
-                if isinstance(request.get("kind"), str) and isinstance(duration, (int, float)):
-                    minutes[request["kind"]] += float(duration)
+            if action in ("chat", "call"):
+                duration = request.get("planned_duration_seconds")
+                if isinstance(duration, (int, float)):
+                    minutes[action] += float(duration) / 60
                 else:
                     missing_fields += 1
         if event.get("event_type") == "environment_event" and data.get("kind") == "message_arrival":
             received += 1
     if missing_fields:
-        notes.append(f"{missing_fields} 个 start_social_activity 请求缺 kind/duration_minutes 字段")
+        notes.append(f"{missing_fields} 个 chat/call 动作缺 planned_duration_seconds 字段")
     return {"chat_call_minutes": dict(sorted(minutes.items())),
             "sent_message_count": sent, "received_message_count": received}
 

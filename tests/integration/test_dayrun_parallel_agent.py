@@ -106,23 +106,6 @@ def test_active_watch_keeps_compatible_start_and_its_own_controls() -> None:
         _decision("set_activity_state", {"activity_id": "activity-watch", "operation": "pause"})], False) == ""
 
 
-def test_two_active_activities_bind_independent_control_identities() -> None:
-    """两个相容活动各有控制身份，变速只属于播放。"""
-    rows = [_active("watch"), _active("travel")]
-    agent = _prepare(_catalogs(), overrides={
-        "active_activities": rows, "occupied_resources": occupied_resources(rows)})
-    functions = _functions(agent)
-    assert functions["set_activity_state"]["parameters"]["properties"]["activity_id"]["enum"] == [
-        "activity-travel", "activity-watch"]
-    assert functions["change_playback_speed"]["parameters"]["properties"]["activity_id"]["enum"] == [
-        "activity-watch"]
-    invalid = {"activity_id": "activity-travel", "playback_speed": 2}
-    assert "not available for this operation" in agent.validate_react_decisions(
-        [_decision("change_playback_speed", invalid)], False)
-    for identity in ("activity-travel", "activity-watch"):
-        assert agent.validate_react_decisions([
-            _decision("set_activity_state", {"activity_id": identity, "operation": "cancel"})], False) == ""
-
 
 @pytest.mark.parametrize("kind", ["chat", "call"])
 def test_social_active_activity_only_offers_cancel(kind: str) -> None:

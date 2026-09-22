@@ -14,7 +14,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention, RunIdentity, StartBasicActivityRequest
+from worldmock.life.models import CounterfactualIntervention, RunIdentity, StartActivityRequest
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import (
     ResumeRequest,
@@ -108,7 +108,7 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
-        submit_round(engine, {agent_id: ("start_basic_activity", StartBasicActivityRequest(
+        submit_round(engine, {agent_id: ("start_basic_activity", StartActivityRequest(
             activity_type="wait", planned_duration_seconds=60)) for agent_id in engine.state.agents}, "wait")
         advance_next(engine)
         cutoff = engine.store.last_event_seq
@@ -181,7 +181,7 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
             assert {key: branch.store.manifest[key] for key in expected} == expected
             for agent_id in branch.state.agents:
                 stage_day_plan(branch, agent_id)
-            submit_round(branch, {agent_id: ("start_basic_activity", StartBasicActivityRequest(
+            submit_round(branch, {agent_id: ("start_basic_activity", StartActivityRequest(
                 activity_type="wait", planned_duration_seconds=60)) for agent_id in branch.state.agents}, "branch-wait")
             advance_next(branch)
             exported = export_run(branch.store, branch.store.last_event_seq, tmp_path / "branch-export")

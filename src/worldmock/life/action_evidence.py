@@ -32,9 +32,6 @@ def _remember_terminal_activity(state: WorldState, result: ActionResult,
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal:
         return state
-    stored = state.processed_actions.get(activity.origin_action_id)
-    if stored is not None and stored.tool_name == "start_parallel_activities":
-        return state
     final = _activity_terminal_result(activity, result.occurred_at, title)
     return state.model_copy(update={"processed_actions": _terminal_action_records(state, final)}, deep=True)
 
@@ -47,38 +44,6 @@ def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[st
     stored = actions[result.action_id]
     actions[result.action_id] = stored.model_copy(update={"result": result.model_dump(mode="json")}, deep=True)
     return actions
-
-
-def _terminal_parallel_action(state: WorldState, stored: StoredAction,
-                              occurred_at: int) -> tuple[ActionResult, EventDraft] | None:
-    """@brief 仅全部子活动进入终态后写一次组合动作聚合结果。"""
-    previous = ActionResult.model_validate(stored.result)
-    if previous.status != ActionStatus.IN_PROGRESS:
-        return None
-    activity_ids = [row["activity_id"] for row in previous.data["activities"]]
-    activities = [state.activities[activity_id] for activity_id in activity_ids]
-    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
-                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-    if any(activity.status not in terminal for activity in activities):
-        return None
-    if any(activity.status in {ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-           for activity in activities):
-        status = ActionStatus.FAILED
-    elif any(activity.status == ActivityStatus.CANCELLED for activity in activities):
-        status = ActionStatus.CANCELLED
-    else:
-        status = ActionStatus.COMPLETED
-    data = {"activities": [activity.model_dump(mode="json") for activity in activities]}
-    result = ActionResult(action_id=stored.action_id, agent_id=activities[0].agent_id,
-                          status=status, occurred_at=occurred_at, activity_id=None,
-                          message="Parallel activities ended", data=data)
-    state.processed_actions = _terminal_action_records(state, result)
-    receipt = ActionReceipt.model_validate(stored.receipt)
-    draft = EventDraft(event_type="action_result", occurred_at=occurred_at,
-                       agent_id=activities[0].agent_id, decision_id=receipt.decision_id,
-                       action_id=stored.action_id, caused_by=[activities[0].origin_request_event_id],
-                       data=result.model_dump(mode="json"))
-    return result, draft
 
 
 def _result_draft(pending: PendingAction, result: ActionResult, event_type: str) -> EventDraft:
@@ -99,10 +64,6 @@ def _terminal_after_action(state: WorldState, result: ActionResult,
     if result.activity_id is None or result.activity_id not in state.activities:
         return None
     activity = state.activities[result.activity_id]
-    stored = state.processed_actions.get(activity.origin_action_id)
-    if stored is not None and stored.tool_name == "start_parallel_activities":
-        terminal = _terminal_parallel_action(state, stored, result.occurred_at)
-        return terminal[1] if terminal is not None else None
     terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal or activity.origin_action_id == result.action_id:

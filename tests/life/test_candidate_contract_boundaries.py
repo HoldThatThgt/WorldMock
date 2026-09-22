@@ -24,7 +24,7 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import candidates, presentation
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (BrowseActivitiesRequest, DiscoverPlacesRequest,
-                                   StartBasicActivityRequest)
+                                   StartActivityRequest)
 from worldmock.life.motivation import MAX_CANDIDATES
 
 from .conftest import advance_until_ready, submit_round

@@ -530,6 +530,8 @@ class LifeScenario(FrozenModel):
     reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
                                                   gt=0, le=86_400)
     idle_reconsideration_interval_seconds: int = Field(default=10800, gt=0, le=86_400)
+    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「播报节律」）：活跃对话距上次报告满该秒数唤醒人物。
+    progress_report_interval_seconds: int = Field(default=1800, gt=0)
     max_consecutive_rejections: int = Field(gt=0)
     # 候选与呈现常量（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
     # 刻意落在场景层而非 catalog/manifest.json：目录常量的一次增量会触发目录版本 major 变更。

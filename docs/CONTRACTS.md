@@ -56,13 +56,11 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `start_targeted_activity` | `target_id`, `activity_type`, `planned_duration_seconds`, `playback_speed` | `status: "submitted"`, `action_id` |
 | `start_travel` | `destination_id`, `travel_mode`, `planned_duration_seconds` | `status: "submitted"`, `action_id` |
 | `set_activity_state` | `activity_id`, `operation` (`pause`/`resume`/`cancel`) | `status: "submitted"` |
-| `change_playback_speed` | `activity_id`, `playback_speed` | `status: "submitted"` |
 | `continue_activity` | `activity_id` | `status: "submitted"` (只安排后续反馈，不额外推进时间) |
 | `discover_places` | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds`, `cursor`（全部必填，可空边界见下文） | `status: "submitted"`, `action_id`；发现结果结算后进入下一次观察 |
 | `purchase` | `items: List[{supply_id, quantity, price_version}]` (1–5 件), `fulfillment`, `destination_id` | `status: "submitted"`, `action_id` |
 | `consume` | `items: List[{product_id, quantity}]` (食品 1–3 件，非食品使用仅 1 件), `use_mode`, `duration_seconds` | `status: "submitted"` |
 | `submit_work` | `task_id`, `deliverable` | `status: "submitted"` |
-| `game_action` | `game_session_id`, `command` | `status: "submitted"` |
 | `browse_activities` | `category` (活动品类摘要的键，取值闭集由当前观察绑定), `cursor` (必填可空，首屏显式为 `null`) | `status: "submitted"`, `action_id` (纯查询，不启动活动、不消耗内容；品类条目清单经 `action_result` 按下方「候选与呈现合同」的「下推返回体」返回) |
 | `plan_day` | `goals: List[{intent_kind, goal}]`（零至八条） | `status: "submitted"` |
 | `revise_day_plan` | `goals: List[{intent_kind, goal}]`（替换全部未推进目标） | `status: "submitted"` |
@@ -90,7 +88,7 @@ InteractionMenu = {
 
 | 保护集合 | 每个非空菜单必须显式包含 |
 | --- | --- |
-| 工具 | `start_basic_activity`、`plan_day`、`revise_day_plan`、`set_activity_state`、`continue_activity`、`change_playback_speed`、`game_action` |
+| 工具 | `start_basic_activity`、`plan_day`、`revise_day_plan`、`set_activity_state`、`continue_activity` |
 | 活动类型 | `wait`、`sleep` |
 
 当前有效菜单按人物权威位置取得地点类菜单，再与人物菜单逐字段求交集并确定性排序；人物菜单为

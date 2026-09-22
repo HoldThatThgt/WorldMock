@@ -23,9 +23,8 @@ from worldmock.life.models import (
     ActivityStatus,
     BrowseActivitiesRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
+    StartActivityRequest,
     StartSocialActivityRequest,
-    StartTargetedActivityRequest,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -67,7 +66,7 @@ def test_every_registry_content_and_lifestyle_category_uses_its_start_qualificat
     assert not menu_allows_category(no_game, "game_session")
     assert all(menu_allows_category(no_game, category) for category in content)
 
-    no_targeted_start = _without(full, tool="start_targeted_activity")
+    no_targeted_start = _without(full, tool="start_activity")
     assert all(not menu_allows_category(no_targeted_start, category) for category in content)
     assert not menu_allows_category(no_targeted_start, "game_session")
 
@@ -81,7 +80,7 @@ def test_resume_rejects_missing_start_tool_even_when_activity_kind_remains_allow
         tmp_path,
         lambda document: _restrict(
             document,
-            tools=("start_targeted_activity",),
+            tools=("start_activity",),
             location="office",
         ),
     )
@@ -98,8 +97,8 @@ def test_resume_rejects_missing_start_tool_even_when_activity_kind_remains_allow
         _, started = _observed_action(
             engine,
             "starter-tool-watch-start",
-            "start_targeted_activity",
-            StartTargetedActivityRequest(
+            "start_activity",
+            StartActivityRequest(
                 activity_type="watch",
                 target_id="sintel-en-subtitles",
                 planned_duration_seconds=1260,
@@ -121,7 +120,7 @@ def test_resume_rejects_missing_start_tool_even_when_activity_kind_remains_allow
 
         observation = engine.observe(context(engine, "starter-tool-office"))
         assert "watch" in observation["interaction_menu"]["allowed_activity_kinds"]
-        assert "start_targeted_activity" not in observation["interaction_menu"]["allowed_tools"]
+        assert "start_activity" not in observation["interaction_menu"]["allowed_tools"]
         before = engine.state.activities[started.activity_id].model_dump(mode="json")
         _, denied = _observed_action(
             engine,
@@ -204,8 +203,8 @@ def test_social_resume_requires_start_social_activity_permission(tmp_path, kind:
                     ),
                 ),
                 2: (
-                    "start_basic_activity",
-                    StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600),
+                    "start_activity",
+                    StartActivityRequest(activity_type="wait", planned_duration_seconds=3600),
                 ),
             }
             _, results = submit_round(engine, requests, "social-chat-start")

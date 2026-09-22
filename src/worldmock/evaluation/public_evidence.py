@@ -24,10 +24,19 @@ _LEGACY_ACTIONS = {
 _TARGETED_ACTIONS = {
     "work": ("work", "work", "task"),
     "watch": ("entertainment", "view", "content"),
-    "play_game": ("entertainment", "play", "game"),
-    "read_mail": ("work", "read", "message"),
+    "play": ("entertainment", "play", "game"),
+    "read": ("work", "read", "message"),
     "browse": ("browsing", "browse", "content"),
 }
+#: 会话控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
+_SESSION_CONTROL_TOOLS = {
+    "report_status": "report",
+    "pause_activity": "pause",
+    "conclude_activity": "conclude",
+}
+#: 公开终态取自活动快照的启动动作；其余动作以动作自身终态为准。
+_ACTIVITY_BACKED_ACTIONS = frozenset({
+    "travel_to", "work", "watch", "play", "read", "browse", "consume"})
 _RESULT_STATES = {
     "accepted": "started",
     "in_progress": "started",
@@ -238,74 +247,66 @@ def _world_request_shape(
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> _Shape | None:
-    """@brief 映射一个 typed 请求并用结果中的对象字段回链。"""
-    if tool_name == "purchase":
-        attributes = _fulfillment(request.get("fulfillment"))
-        return _Shape("purchase", "order", "order", _order_key(related), attributes)
-    if tool_name == "start_travel":
-        key = _activity_data_key(related, "route_id")
-        return _Shape("travel", "travel", "route", key, _travel_mode(request.get("travel_mode")))
-    if tool_name == "start_targeted_activity":
-        return _targeted_shape(request, related)
-    if tool_name == "submit_work":
-        return _Shape("work", "submit", "task", _string(request.get("task_id")), {})
-    if tool_name == "game_action":
-        return _Shape("entertainment", "play", "game", _string(request.get("game_session_id")), {})
-    if tool_name == "consume":
-        category = _consume_category(request.get("use_mode"))
-        return _Shape(category, "consume", "product", _string(request.get("product_id")), {})
-    if tool_name == "start_social_activity":
-        return _social_shape(request)
-    if tool_name in {"set_activity_state", "continue_activity", "change_playback_speed"}:
-        return _control_shape(tool_name, request, activities, activity_map)
+    """@brief 映射一个稳定工具请求并用结果中的对象字段回链。"""
+    if tool_name == "start_activity":
+        return _start_shape(request, related)
+    if tool_name in _SESSION_CONTROL_TOOLS:
+        return _control_shape(tool_name, related, activities, activity_map)
     return None
 
 
-def _social_shape(request: Mapping[str, Any]) -> _Shape | None:
-    """@brief 交谈/通话以 person 对象进入公开证据；同伴身份由盲评层 HMAC 匿名化。
+def _start_shape(request: Mapping[str, Any], related: Sequence[Event]) -> _Shape | None:
+    """@brief 按 start_activity 的动作名映射对象投影；对象身份取 targets 首项。
 
-    docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」：活动记录的同伴只用匿名对象引用——此处保留
-    object_key=partner_id，渲染端（review._masked_ref）统一转 keyed HMAC。
+    社交动作保留 object_key=partner_id，渲染端（review._masked_ref）统一转 keyed HMAC
+    （docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」）。
     """
-    kind = _string(request.get("kind"))
-    interaction = {"chat": "chat", "call": "call"}.get(kind or "")
-    if interaction is None:
-        return None
-    return _Shape("social", interaction, "person", _string(request.get("partner_id")), {})
-
-
-def _targeted_shape(request: Mapping[str, Any], related: Sequence[Event]) -> _Shape | None:
-    """@brief 映射带明确目标的活动请求。"""
-    activity_type = _string(request.get("activity_type"))
-    mapped = _TARGETED_ACTIONS.get(activity_type or "")
-    if mapped is None:
-        return None
-    category, interaction, object_type = mapped
-    key = _string(request.get("target_id"))
-    if activity_type == "play_game":
-        key = _activity_data_key(related, "game_session_id") or key
-    return _Shape(category, interaction, object_type, key, {})
+    action = _string(request.get("action"))
+    targets = request.get("targets")
+    target = _string(targets[0]) if isinstance(targets, list) and targets else None
+    if action == "travel_to":
+        key = _activity_data_key(related, "route_id")
+        return _Shape("travel", "travel", "route", key, _travel_mode(request.get("travel_mode")))
+    if action in _TARGETED_ACTIONS:
+        category, interaction, object_type = _TARGETED_ACTIONS[action]
+        return _Shape(category, interaction, object_type, target, {})
+    if action == "purchase":
+        attributes = _fulfillment("delivery" if request.get("destination_id") else "pickup")
+        return _Shape("purchase", "order", "order", _order_key(related), attributes)
+    if action == "consume":
+        return _Shape("eat", "consume", "product", target, {})
+    if action == "submit":
+        return _Shape("work", "submit", "task", target, {})
+    if action in {"chat", "call"}:
+        return _Shape("social", action, "person", target, {})
+    return None
 
 
 def _control_shape(
     tool_name: str,
-    request: Mapping[str, Any],
+    related: Sequence[Event],
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> _Shape | None:
-    """@brief 将活动控制动作绑定到现有活动或其真实目标。"""
-    activity_id = _string(request.get("activity_id"))
+    """@brief 将会话控制动作绑定到该会话结果里确实回报的首个活动。"""
+    activity_id = _control_activity_key(related)
     row = activities.get(activity_id or "")
     if row is None:
         return None
-    interaction = {
-        "continue_activity": "continue",
-        "change_playback_speed": "change",
-    }.get(tool_name, str(request.get("operation")))
     base = _activity_shape(row, activity_map)
-    if base is None or interaction not in {"continue", "change", "pause", "resume", "cancel"}:
+    if base is None:
         return None
-    return _Shape(base.category, interaction, "activity", activity_id, base.attributes)
+    return _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity", activity_id,
+                  base.attributes)
+
+
+def _control_activity_key(events: Sequence[Event]) -> str | None:
+    """@brief 从会话控制结果读取该会话确实涉及的首个活动身份。"""
+    for event in events:
+        ids = _result_payload(event.data).get("activity_ids")
+        if isinstance(ids, list) and ids:
+            return _string(ids[0])
+    return None
 
 
 def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> _Shape | None:
@@ -332,24 +333,30 @@ def _activity_object_key(kind: str, row: Mapping[str, Any], data: Mapping[str, A
     """@brief 选择活动确实保存的对象身份。"""
     if kind == "travel":
         return _string(data.get("route_id"))
-    if kind == "play_game":
-        return _string(data.get("game_session_id")) or _string(row.get("target_id"))
     return _string(row.get("target_id"))
 
 
 def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     """@brief 投影动作终态，并为确实付款生成独立公开状态。"""
-    if action.tool_name == "purchase":
+    started = _start_action(action)
+    if started == "purchase":
         return _purchase_result(event, action)
-    if action.tool_name == "submit_work":
+    if started == "submit":
         return _work_result(event, action)
     state = _result_state(event, action)
     rows = [_from_event(event, action.shape, state)]
-    if action.tool_name == "start_travel" and _mapping(event.data.get("resource_changes")):
+    if started == "travel_to" and _mapping(event.data.get("resource_changes")):
         payment = _Shape(action.shape.category, "pay", action.shape.object_type,
                          action.shape.object_key, action.shape.attributes)
         rows.append(_from_event(event, payment, "paid"))
     return rows
+
+
+def _start_action(action: _Action) -> str | None:
+    """@brief 读取 start_activity 请求声明的动作名；其余稳定工具没有动作名。"""
+    if action.tool_name != "start_activity":
+        return None
+    return _string(action.request.get("action"))
 
 
 def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
@@ -394,31 +401,16 @@ def _result_state(event: Event, action: _Action) -> str | None:
     status = _RESULT_STATES.get(event.data.get("status"))
     if status in {"rejected", "cancelled", "failed", "unknown"}:
         return status
-    if action.tool_name == "game_action":
-        return _game_result_state(event)
+    started = _start_action(action)
     activity = _result_activity(event.data)
-    if action.tool_name in {
-        "start_travel", "start_targeted_activity", "consume", "set_activity_state",
-        "continue_activity", "change_playback_speed",
-    }:
+    if started in _ACTIVITY_BACKED_ACTIONS:
         status = _ACTIVITY_RESULT_STATES.get(activity.get("status"))
-    if status == "completed" and action.tool_name == "start_targeted_activity":
-        kind = action.request.get("activity_type")
-        if kind == "read_mail" and _mapping(_mapping(activity.get("data")).get("revealed")):
+    if status == "completed":
+        if started == "read" and _mapping(_mapping(activity.get("data")).get("revealed")):
             return "read"
-        if kind == "watch":
+        if started == "watch":
             return "viewed"
     return status
-
-
-def _game_result_state(event: Event) -> str | None:
-    """@brief 只用实际游戏 done 字段区分进行中和终局。"""
-    done = _result_payload(event.data).get("done")
-    if done is True:
-        return "completed"
-    if done is False:
-        return "in_progress"
-    return None
 
 
 def _world_environment(event: Event) -> PublicEvidence | None:

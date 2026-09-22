@@ -16,13 +16,15 @@ blacklist 是第二道防线，不是第一道。
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from worldmock.life import felt, narration, social
-from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
+from worldmock.life.models import ActivityKind, AgentState, SessionStatus, WorldState, active_activities
 from worldmock.life.result_projection import public_action_result
+from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
@@ -196,6 +198,9 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
     agent, now = inputs.agent, inputs.state.current_time
     location = _location_index(inputs.scenario).get(agent.location_id)
     activity_rows = inputs.extras["activity_rows"]
+    # 场景层只暴露展示名与营业状态，去掉 location_id（location_id 仅供交互对象层使用）
+    reachable_scene = [{"name": r["name"], "opening_status": r["opening_status"]}
+                       for r in inputs.extras.get("reachable_places", [])]
     return {
         "current_time": local.isoformat(),
         "current_epoch": now,
@@ -208,11 +213,71 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
         "inbox_has_older_unread": any(not entry["read"] for entry in inbox[:-INBOX_HEAD_LIMIT]),
         "todos_summary": _todos_summary(inputs.task_rows, now),
-        "reachable_places": inputs.extras.get("reachable_places", []),
+        "reachable_places": reachable_scene,
         "inventory": _inventory_names(agent, inputs.scenario),
         "local_food_summary": inputs.extras["local_food_summary"],
         "recent_action_results": [row["message"] for row in inputs.recent_results[-1:]],
+        "current_sessions": _active_session_scene_rows(inputs.state, agent.agent_id),
+        "precondition_hints": _precondition_hints(inputs),
     }
+
+
+def _session_fact_row(session: Any) -> dict[str, Any]:
+    """@brief 把单个 SessionState 投影为 facts 行（排除 note_history，进度层合同）。"""
+    return {
+        "session_id": session.session_id,
+        "task_kind": session.task_kind,
+        "task_ref": session.task_ref,
+        "status": session.status,
+        "started_at": session.started_at,
+        "ended_at": session.ended_at,
+        "targets": list(session.targets),
+        "activity_ids": list(session.activity_ids),
+        "segments": [list(seg) for seg in session.segments],
+        "invested_seconds": session.invested_seconds,
+        "effective_seconds": session.effective_seconds,
+        "remaining_contract_seconds": session.remaining_contract_seconds,
+        "preconditions_unmet": list(session.preconditions_unmet),
+        "progress_note": session.progress_note,
+        "note_updated_at": session.note_updated_at,
+    }
+
+
+def _session_fact_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
+    """@brief 投影当前 agent 的全部会话为 facts.sessions 行（进度层合同）。"""
+    rows = []
+    for session in state.sessions.values():
+        if session.agent_id != agent_id:
+            continue
+        row = _session_fact_row(session)
+        budget = narration.SESSION_PROGRESS_LAYER_BUDGET
+        row_json = json.dumps(row, ensure_ascii=False)
+        if len(row_json) > budget and row.get("progress_note"):
+            excess = len(row_json) - budget
+            note = row["progress_note"]
+            trimmed = note[: max(0, len(note) - excess)]
+            row["progress_note"] = trimmed
+        rows.append(row)
+    return rows
+
+
+def _active_session_scene_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
+    """@brief 取当前 agent 的 active 会话渲染为 scene 短句所需的最小行（至多 2 条）。"""
+    rows = []
+    for session in state.sessions.values():
+        if session.agent_id != agent_id:
+            continue
+        if session.status != SessionStatus.ACTIVE:
+            continue
+        label = session.targets[0] if session.targets else session.session_id
+        rows.append({
+            "label": label,
+            "invested_seconds": session.invested_seconds,
+            "progress_note": session.progress_note,
+        })
+        if len(rows) >= 2:
+            break
+    return rows
 
 
 def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
@@ -227,6 +292,8 @@ def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "contacts": _contact_rows(inputs.scenario, agent),
         "inbox": inbox,
         "tasks": _task_fact_rows(inputs),
+        "sessions": _session_fact_rows(inputs.state, agent.agent_id),
+        "interactive_objects": _interactive_objects_rows(inputs, people, inbox),
         "routes": inputs.extras.get("route_rows", []),
         "products": inputs.extras.get("product_rows", []),
         "inventory": agent.inventory,
@@ -303,21 +370,231 @@ def _plan_fact(agent: AgentState, now: int) -> dict[str, Any] | None:
 
 
 def _task_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief facts 任务行：task_id/标题/截止/剩余合同工时/新揭示材料区间。"""
+    """@brief facts 任务行：含五项前置条件字段、剩余合同工时与新揭示材料区间。"""
     ranges = new_material_ranges(inputs.agent)
     rows = []
     for row in inputs.task_rows:
-        rows.append({"task_id": row["task_id"], "title": row["title"],
-                     "due_at": row["due_at"],
-                     "remaining_contract_seconds": row["remaining_contract_seconds"],
-                     "new_material_ranges": ranges.get(row["task_id"], [])})
+        rows.append({
+            "task_id": row["task_id"],
+            "title": row["title"],
+            "due_at": row["due_at"],
+            "remaining_contract_seconds": row["remaining_contract_seconds"],
+            "required_location_id": row.get("required_location_id"),
+            "required_skill": row.get("required_skill"),
+            "minimum_skill": row.get("minimum_skill"),
+            "maximum_duration_seconds": row.get("maximum_duration_seconds"),
+            "required_effective_seconds": row.get("required_effective_seconds"),
+            "new_material_ranges": ranges.get(row["task_id"], []),
+        })
     return rows
+
+
+def _product_names(scenario: RuntimeScenario) -> dict[str, str]:
+    """@brief 商品身份到目录展示名的索引（库存条目与商品目录合并）。"""
+    return {item.product_id: item.name
+            for item in (*scenario.products, *scenario.inventory_items)}
 
 
 def _inventory_names(agent: AgentState, scenario: RuntimeScenario) -> list[str]:
     """@brief 手边持有物展示名（scene 合同）：目录名称，缺名时回退标识。"""
-    names = {item.product_id: item.name
-             for item in (*scenario.products, *scenario.inventory_items)}
-    holding_ids = {product_id for holding in agent.inventory.values()
-                   for product_id, quantity in holding.items() if quantity > 0}
-    return sorted({names.get(product_id, product_id) for product_id in holding_ids})
+    names = _product_names(scenario)
+    return sorted({names.get(product_id, product_id)
+                   for product_id in _holding_ids(agent)})
+
+
+def _holding_ids(agent: AgentState) -> set[str]:
+    """@brief 手边持有量为正的商品身份集合。"""
+    return {product_id for holding in agent.inventory.values()
+            for product_id, quantity in holding.items() if quantity > 0}
+
+
+def _interactive_objects_rows(inputs: ProjectionInputs, people: list[dict[str, Any]],
+                              inbox: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 交互对象层：本轮可见对象及其动作枚举与前置条件满足状态。
+
+    动作按对象绑定（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」）：
+    每个对象只列出对它自己合法的动作，start_activity 的 action 取值即这些枚举的并集投影。
+    """
+    rows = _task_object_rows(inputs)
+    rows.extend(_place_object_rows(inputs))
+    rows.extend(_supply_object_rows(inputs))
+    rows.extend(_holding_object_rows(inputs))
+    rows.extend(_catalog_object_rows(inputs))
+    rows.extend(_content_object_rows(inputs))
+    rows.extend(_game_object_rows(inputs))
+    rows.extend(_lifestyle_object_rows(inputs))
+    rows.extend(_person_object_rows(inputs, people))
+    rows.extend(_mail_object_rows(inbox))
+    rows.append(_self_object_row(inputs))
+    return rows
+
+
+def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 工作任务对象：推进与提交两个动作，前置条件按技能与地点判定。"""
+    agent = inputs.agent
+    rows: list[dict[str, Any]] = []
+    for row in inputs.task_rows:
+        skill_ok = (agent.skill_levels.get(row.get("required_skill"), 0)
+                    >= (row.get("minimum_skill") or 0.0))
+        location_ok = (agent.location_id == row.get("required_location_id"))
+        rows.append({
+            "object_id": row["task_id"],
+            "kind": "work_task",
+            "name": row["title"],
+            "actions": ["work", "submit"],
+            "preconditions_met": bool(skill_ok and location_ok),
+        })
+    return rows
+
+
+def _place_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 可达地点对象：只接受前往动作。"""
+    return [{
+        "object_id": place["location_id"],
+        "kind": "location",
+        "name": place["name"],
+        "actions": ["travel_to"],
+        "preconditions_met": True,
+    } for place in inputs.extras.get("reachable_places", [])]
+
+
+def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 本轮呈现的供给对象：只接受购买动作，资格沿用供给自身的购买声明。"""
+    names = _product_names(inputs.scenario)
+    rows = []
+    for row in inputs.extras.get("product_rows", []):
+        product_id = row.get("product_id", "")
+        rows.append({
+            "object_id": row["supply_id"],
+            "kind": "supply",
+            "name": names.get(product_id, product_id or row["supply_id"]),
+            "actions": ["purchase"],
+            "preconditions_met": bool(row.get("purchase_allowed")),
+        })
+    return rows
+
+
+def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 手边持有的商品对象：只接受进食动作。"""
+    names = _product_names(inputs.scenario)
+    return [{
+        "object_id": product_id,
+        "kind": "holding",
+        "name": names.get(product_id, product_id),
+        "actions": ["consume"],
+        "preconditions_met": True,
+    } for product_id in sorted(_holding_ids(inputs.agent))]
+
+
+def _catalog_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 目录对象：只接受浏览动作，身份沿用既有 browse_targets 闭集。"""
+    return [{
+        "object_id": target,
+        "kind": "catalog",
+        "name": target,
+        "actions": ["browse"],
+        "preconditions_met": True,
+    } for target in inputs.extras.get("browse_targets", [])]
+
+
+def _content_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 本轮呈现的内容对象：只接受观看动作，进度由 content_progress 单独承载。"""
+    return [{
+        "object_id": row["item_id"],
+        "kind": "content",
+        "name": row.get("title", row["item_id"]),
+        "actions": ["watch"],
+        "preconditions_met": True,
+    } for row in inputs.extras.get("content_rows", [])]
+
+
+def _game_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 本轮呈现的游戏对象：只接受游玩动作，场景声明身份与内容侧会话同池。"""
+    rows = []
+    for row in inputs.extras.get("game_rows", []):
+        object_id = row.get("game_id") or row["item_id"]
+        rows.append({
+            "object_id": object_id,
+            "kind": "game",
+            "name": row.get("title", object_id),
+            "actions": ["play"],
+            "preconditions_met": True,
+        })
+    return rows
+
+
+def _lifestyle_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 本轮呈现的生活活动目录条目：只接受执行动作，前置条件按地点环境类判定。"""
+    place = _location_index(inputs.scenario).get(inputs.agent.location_id)
+    place_kinds = frozenset(place.location_kinds) if place else frozenset()
+    rows = []
+    for row in inputs.extras.get("lifestyle_rows", []):
+        needed = inputs.extras["lifestyle_location_kinds"][row["activity_id"]]
+        rows.append({
+            "object_id": row["activity_id"],
+            "kind": "lifestyle",
+            "name": row["name"],
+            "actions": ["do"],
+            "preconditions_met": feasible_kinds(place_kinds, needed),
+        })
+    return rows
+
+
+def _person_object_rows(inputs: ProjectionInputs,
+                        people: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 同场人物接受交谈通话留言；通讯录联系人不在场，只接受通话与留言。"""
+    rows = [{
+        "object_id": view["person_id"],
+        "kind": "person",
+        "name": view["name"],
+        "actions": ["chat", "call", "message"],
+        "preconditions_met": bool(view["can_talk"]),
+    } for view in people]
+    rows.extend({
+        "object_id": item["contact_id"],
+        "kind": "contact",
+        "name": item["salutation"],
+        "actions": ["call", "message"],
+        "preconditions_met": True,
+    } for item in _contact_rows(inputs.scenario, inputs.agent))
+    return rows
+
+
+def _mail_object_rows(inbox: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 收件箱对象：只接受阅读动作，已读条目仍可重读。"""
+    return [{
+        "object_id": row["id"],
+        "kind": "mail",
+        "name": row["head"],
+        "actions": ["read"],
+        "preconditions_met": True,
+    } for row in inbox]
+
+
+def _self_object_row(inputs: ProjectionInputs) -> dict[str, Any]:
+    """@brief 「自身」对象：等待与睡眠两个受保护动作恒可见。"""
+    return {
+        "object_id": f"agent:{inputs.agent.agent_id}",
+        "kind": "self",
+        "name": inputs.agent.name,
+        "actions": ["wait", "sleep"],
+        "preconditions_met": True,
+    }
+
+
+def _precondition_hints(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 可见任务中因地点前置条件未满足的提示列表（供 scene 渲染中文说明句）。"""
+    agent = inputs.agent
+    loc_index = _location_index(inputs.scenario)
+    hints = []
+    for row in inputs.task_rows:
+        req_loc = row.get("required_location_id")
+        if not req_loc or agent.location_id == req_loc:
+            continue
+        loc = loc_index.get(req_loc)
+        hints.append({
+            "task_title": row["title"],
+            "required_location_id": req_loc,
+            "required_location_name": loc.name if loc else req_loc,
+        })
+    return hints

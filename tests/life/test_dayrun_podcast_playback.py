@@ -6,8 +6,8 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_until_ready, context, stage_day_plan, wake_by_mail
 from worldmock.life.models import (
-    BrowseActivitiesRequest, ChangePlaybackSpeedRequest, SetActivityStateRequest,
-    StartBasicActivityRequest, StartTargetedActivityRequest,
+    BrowseActivitiesRequest, SetActivityStateRequest,
+    StartActivityRequest,
 )
 
 ITEM_ID = "podcast-nasa-space-habitat-excerpt"
@@ -36,15 +36,15 @@ def _revealed(engine, activity_id: str) -> list[dict]:
 
 
 def test_podcast_pause_and_speed_follow_real_media_position(engine_factory) -> None:
-    """@brief 暂停不前进，半速只在跨过官方下一锚点时揭示段落。"""
+    """@brief 暂停不前进，恢复后到达官方锚点时揭示段落。"""
     engine = engine_factory()
     stage_day_plan(engine)
     start = engine.state.current_time
-    started = _action(engine, "podcast-start", "start_targeted_activity",
-                      StartTargetedActivityRequest(activity_type="watch", target_id=ITEM_ID,
+    started = _action(engine, "podcast-start", "start_activity",
+                      StartActivityRequest(activity_type="watch", target_id=ITEM_ID,
                                                    planned_duration_seconds=786, playback_speed=1))
     activity_id = started.activity_id
-    for offset in (1, 10, 11, 12, 13):
+    for offset in (1, 10, 11, 12):
         wake_by_mail(engine, offset=offset)
     _advance_to(engine, start + 1)
     assert engine.state.activities[activity_id].media_position_seconds == 1
@@ -58,14 +58,9 @@ def test_podcast_pause_and_speed_follow_real_media_position(engine_factory) -> N
     _advance_to(engine, start + 11)
     assert engine.state.activities[activity_id].media_position_seconds == 2
     assert _revealed(engine, activity_id) == []
-    _action(engine, "podcast-slow", "change_playback_speed",
-            ChangePlaybackSpeedRequest(activity_id=activity_id, playback_speed=0.5))
-    _advance_to(engine, start + 12)
-    assert engine.state.activities[activity_id].media_position_seconds == 2.5
-    assert _revealed(engine, activity_id) == []
     _action(engine, "podcast-browse", "browse_activities",
             BrowseActivitiesRequest(category="podcast_episode", cursor=None))
-    _advance_to(engine, start + 13)
+    _advance_to(engine, start + 12)
     assert engine.state.activities[activity_id].media_position_seconds == 3
     assert [cue["cue_id"] for cue in _revealed(engine, activity_id)] == [1], (
         engine.state.activities[activity_id].data["revealed"])
@@ -75,8 +70,8 @@ def test_podcast_full_speed_playback_reaches_final_official_anchor(engine_factor
     """@brief 完整音轨播放到 786 秒时才完成最后的官方段落。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    started = _action(engine, "podcast-full", "start_targeted_activity",
-                      StartTargetedActivityRequest(activity_type="watch", target_id=ITEM_ID,
+    started = _action(engine, "podcast-full", "start_activity",
+                      StartActivityRequest(activity_type="watch", target_id=ITEM_ID,
                                                    planned_duration_seconds=393, playback_speed=2))
     activity_id = started.activity_id
     for _ in range(64):
@@ -95,13 +90,13 @@ def test_watch_and_wait_start_separately_and_control_independently(engine_factor
     engine = engine_factory()
     stage_day_plan(engine)
     start = engine.state.current_time
-    watching = _action(engine, "listen-with-wait", "start_targeted_activity",
-                       StartTargetedActivityRequest(activity_type="watch", target_id=ITEM_ID,
+    watching = _action(engine, "listen-with-wait", "start_activity",
+                       StartActivityRequest(activity_type="watch", target_id=ITEM_ID,
                                                     planned_duration_seconds=786, playback_speed=1))
     wake_by_mail(engine, offset=1)
     _advance_to(engine, start + 1)
-    waiting = _action(engine, "wait-while-listening", "start_basic_activity",
-                      StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120))
+    waiting = _action(engine, "wait-while-listening", "start_activity",
+                      StartActivityRequest(activity_type="wait", planned_duration_seconds=120))
     assert engine.state.activities[watching.activity_id].status == "active"
     assert engine.state.activities[waiting.activity_id].status == "active"
     wake_by_mail(engine, offset=1)

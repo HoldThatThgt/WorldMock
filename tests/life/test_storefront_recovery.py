@@ -1,5 +1,8 @@
 """真实门店动作、逐供给呈现凭据和共同检查点恢复的合同验证。"""
 
+# TODO: ContinueActivityRequest, DiscoverPlacesRequest, StartTravelRequest removed
+# Tests using these need refactoring to the new 7-tool model
+
 from __future__ import annotations
 
 import copy
@@ -21,8 +24,8 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.engine import LifeEngine
 from worldmock.life.map_models import QuoteConfig
 from worldmock.life.models import (
-    ConsumeItem, ConsumeRequest, ContinueActivityRequest, DiscoverPlacesRequest,
-    PurchaseItem, PurchaseOrderRequest, StartBasicActivityRequest, StartTravelRequest,
+    ConsumeItem, ConsumeRequest,
+    PurchaseItem, PurchaseOrderRequest, StartActivityRequest,
 )
 from worldmock.life.projection import visible_supplies
 from worldmock.life.scenario import PriceChangeConfig
@@ -161,7 +164,7 @@ def _finish_order_and_consume(engine, order_id, phase):
     assert advance_until_ready(engine)
     order = engine.state.deliveries[order_id]
     if order.status == "pending":
-        _, started = _action(engine, f"{phase}-await-delivery", "start_basic_activity", StartBasicActivityRequest(
+        _, started = _action(engine, f"{phase}-await-delivery", "start_activity", StartActivityRequest(
             activity_type="wait", planned_duration_seconds=order.expected_at - engine.state.current_time))
         _finish_activity(engine, started.activity_id, f"{phase}-wait")
     order = engine.state.deliveries[order_id]

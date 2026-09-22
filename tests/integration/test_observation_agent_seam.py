@@ -36,8 +36,7 @@ from worldmock.life.models import (  # noqa: E402
     active_activities,
     PlanDayRequest,
     PlanGoalInput,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
 )
 
 #: CONTRACTS.md「观察投影字段」钉住的 active_activity 控制行字段闭集。
@@ -64,7 +63,7 @@ def _observe_active_wait(engine) -> tuple[dict, object]:
     advance_next(engine)
     wake_by_mail(engine, offset=900)
     _submit(engine, "seam-wait", "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=2700))
+            StartActivityRequest(activity_type="wait", planned_duration_seconds=2700))
     assert advance_until_ready(engine)
     ctx = context(engine, "seam-observe")
     engine.begin_decision_round([ctx])
@@ -131,7 +130,7 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     _submit(engine, "copy-plan", "plan_day", PlanDayRequest(goals=()))
     advance_next(engine)
     wake_by_mail(engine, offset=900)
-    _submit(engine, "copy-watch", "start_targeted_activity", StartTargetedActivityRequest(
+    _submit(engine, "copy-watch", "start_targeted_activity", StartActivityRequest(
         activity_type="watch", target_id="sintel-en-subtitles",
         planned_duration_seconds=1260, playback_speed=0.5))
     assert advance_until_ready(engine)
@@ -180,7 +179,7 @@ async def test_real_game_observation_accepts_and_executes_visible_command(_engin
     engine = _engine_factory()
     _submit(engine, "game-plan", "plan_day", PlanDayRequest(goals=()))
     advance_next(engine)
-    _submit(engine, "game-start", "start_targeted_activity", StartTargetedActivityRequest(
+    _submit(engine, "game-start", "start_targeted_activity", StartActivityRequest(
         activity_type="play_game", target_id="textworld-1201",
         planned_duration_seconds=3600, playback_speed=1))
     advance_next(engine)

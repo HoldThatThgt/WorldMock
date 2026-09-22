@@ -15,7 +15,7 @@ from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import advance_next, context
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import affordance_contract
-from worldmock.life.models import REQUEST_MODELS, StartBasicActivityRequest
+from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
 
 #: 合同条目的七键闭集（与引擎 AFFORDANCE_CONTRACT_KEYS 同形）。
 _CONTRACT_KEYS = {
@@ -74,7 +74,7 @@ def test_engine_observation_carries_frozen_contract_across_run(engine_factory) -
 
     engine.submit_action(DirectToolCall(
         ctx, "action-contract", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     engine.commit_decision_round("contract-first")
     advance_next(engine)
 

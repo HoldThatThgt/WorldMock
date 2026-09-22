@@ -1,27 +1,25 @@
 """@brief LifeEngine 的观察投影与浏览/动机上下文装配（Mixin 层）。
 
 本模块从 engine.py 下沉（生产文件 ≤2000 行规范）：包含两层观察组装
-（scene + facts + 事件级工具支持行）、活动品类摘要、browse_activities
-下钻、内部动机仪表上下文与决策参照快照。engine 侧以 Mixin 继承接线，
+（scene + facts + 事件级工具支持行）、活动品类摘要、呈现窗口、
+内部动机仪表上下文与决策参照快照。engine 侧以 Mixin 继承接线，
 `self` 即 LifeEngine；行为合同与注释见修订合同观察投影一节（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。
 """
 
 from __future__ import annotations
 
-import json
 import logging
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
 from worldmock.life import discovery, felt, presentation, projection
-from worldmock.life.models import ActivityStatus, BrowseActivitiesRequest, ContentProgress, DiscoverPlacesRequest
+from worldmock.life.models import ActivityStatus, ContentProgress
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_shared_energy_duration, shared_energy_cost
 from worldmock.life.activities import active_energy_entries, activity_factors
 from worldmock.life.models import ActivityKind, active_activities, paused_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
-from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import work_totals
@@ -44,8 +42,11 @@ class ObservationMixin:
         recent = self._recent_action_results(agent.agent_id)
         rows = self._window_rows(agent, recent)
         rows["products"] = _current_supply_facts(rows["products"], recent)
+        menu = self._menu_windows(agent)
         self._pending_presentation = _presentation_stamps(
-            self.state, agent.agent_id, rows["window"])
+            self.state, agent.agent_id,
+            rows["window"].presented + tuple(
+                identity for window in menu.values() for identity in window.presented))
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
@@ -53,31 +54,46 @@ class ObservationMixin:
             task_rows=tuple(self._visible_task_rows(agent)),
             meal_windows=meal_windows,
             motivation_internal=self._motivation_internal(agent),
-            extras={
-                "scenario_messages": self.rules.messages,
-                "route_rows": self._route_rows(agent),
-                "reachable_places": self._reachable_places(agent),
-                "product_rows": rows["products"],
-                "activity_rows": self._activity_rows(agent),
-                "local_food_summary": local_food_summary(self._discovery_context(agent)),
-            })
+            extras=self._projection_extras(agent, rows["products"], menu))
         data = projection.build_observation(inputs)
-        data["paused_activities"] = [
-            _paused_activity_observation(item, self.state, self.semantics.body) for item in sorted(
-                self.state.activities.values(), key=lambda value: value.activity_id)
-            if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED]
-        data["occupied_resources"] = sorted({claim for item in active_activities(self.state, agent.agent_id)
-                                             for claim in item.resource_claims})
-        from worldmock.footprints.experiences import recent_verified_experiences
-
-        data["verified_experiences"] = recent_verified_experiences(
-            self.store, agent.agent_id, self.store.last_event_seq)
-        data["wake_reasons"] = list(agent.pending_wake_reasons)
-        data["location_id"] = agent.location_id
-        data["hour_of_day"] = projection.hour_of_day(
-            self.state.current_time, self.scenario.timezone)
+        data.update(self._observation_evidence(agent))
         data.update(self._event_tool_support(agent, recent, rows["window"].presented))
         return data
+
+    def _projection_extras(self, agent, product_rows: list[dict],
+                           menu: dict[str, PresentationWindow]) -> dict:
+        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源）。"""
+        return {
+            "scenario_messages": self.rules.messages,
+            "route_rows": self._route_rows(agent),
+            "reachable_places": self._reachable_places(agent),
+            "product_rows": product_rows,
+            "activity_rows": self._activity_rows(agent),
+            "local_food_summary": local_food_summary(self._discovery_context(agent)),
+            "content_rows": list(menu["content"].items),
+            "game_rows": list(menu["game"].items),
+            "lifestyle_rows": list(menu["lifestyle"].items),
+            "lifestyle_location_kinds": self.rules.activity_location_kinds,
+            "browse_targets": BROWSE_TARGETS,
+        }
+
+    def _observation_evidence(self, agent) -> dict:
+        """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。"""
+        from worldmock.footprints.experiences import recent_verified_experiences
+
+        return {
+            "paused_activities": [
+                _paused_activity_observation(item, self.state, self.semantics.body) for item in sorted(
+                    self.state.activities.values(), key=lambda value: value.activity_id)
+                if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED],
+            "occupied_resources": sorted({claim for item in active_activities(self.state, agent.agent_id)
+                                          for claim in item.resource_claims}),
+            "verified_experiences": recent_verified_experiences(
+                self.store, agent.agent_id, self.store.last_event_seq),
+            "wake_reasons": list(agent.pending_wake_reasons),
+            "location_id": agent.location_id,
+            "hour_of_day": projection.hour_of_day(self.state.current_time, self.scenario.timezone),
+        }
 
     def _window_rows(self, agent, recent: list[dict]) -> dict:
         """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）。"""
@@ -92,6 +108,27 @@ class ObservationMixin:
         products = [public_supply_row(row) for row in window.items]
         return {"products": products, "window": window}
 
+    def _menu_windows(self, agent) -> dict[str, PresentationWindow]:
+        """@brief 内容、游戏与生活活动三类对象的本轮呈现窗口（交互对象层来源）。
+
+        这三类没有在场与库存这样的当下事实，可见性只由曝光轮转决定；它们与商品窗口
+        共用同一候选契约，只有实际进入窗口的身份才更新呈现凭据（docs/dev/SPEC-life-runtime.md
+        「曝光轮转」）。旧的目录下钻工具已随工具面收敛删除，因此窗口是模型看到
+        这三类对象的唯一通道。
+        """
+        context = self._presentation_context(agent)
+        offset = self._rotation_offset(agent.agent_id)
+        last = self._last_presented(agent.agent_id)
+        windows: dict[str, PresentationWindow] = {}
+        for kind, entries in (("content", self._content_pool(agent)),
+                              ("game", self._game_pool(agent)),
+                              ("lifestyle", self._lifestyle_pool(agent))):
+            inputs = presentation.candidate_inputs(
+                context, presentation.entry_sources(entries), moment=False,
+                rotation_offset=offset, last_presented_at=last)
+            windows[kind] = presentation.present(entries, inputs, kind, None)
+        return windows
+
     def _event_tool_support(self, agent, recent: list, presented: tuple[str, ...]) -> dict:
         """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
         # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
@@ -99,8 +136,6 @@ class ObservationMixin:
         data["interaction_menu"] = resolve_interaction_menu(
             self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
         data["content_progress"] = self._content_progress(agent)
-        data["games"] = {key: value.model_dump(mode="json")
-                         for key, value in agent.game_sessions.items()}
         data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = _mail_headers(agent, self.rules.messages)
         data["energy_feasibility"] = _activity_energy_feasibility(
@@ -135,7 +170,7 @@ class ObservationMixin:
                              self.rules.tasks[item].due_at.timestamp())]
         data["routes"] = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
         data["game_catalog"] = _game_catalog(self.scenario)
-        data["browse_targets"] = ["product_catalog"]
+        data["browse_targets"] = list(BROWSE_TARGETS)
         data["calendar_context"] = _calendar_context(self.scenario, self.state.current_time)
         data["locations"] = _location_catalog(self.scenario)
         return data
@@ -159,7 +194,7 @@ class ObservationMixin:
         return rows
 
     def _visible_task_rows(self, agent) -> list[dict]:
-        """@brief 可见任务的 facts 行：task_id/标题/截止/剩余合同工时。"""
+        """@brief 可见任务的 facts 行：task_id/标题/截止/剩余合同工时及五项前置条件字段。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
@@ -170,8 +205,15 @@ class ObservationMixin:
                 continue
             worked, _effective = work_totals(self.state, agent.agent_id, task_id)
             title = self.rules.content_titles.get(task_id)
-            rows.append({"task_id": task_id, "title": title or task.task_id, "due_at": due,
-                         "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked)})
+            rows.append({
+                "task_id": task_id, "title": title or task.task_id, "due_at": due,
+                "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
+                "required_location_id": task.required_location_id,
+                "required_skill": task.required_skill,
+                "minimum_skill": task.minimum_skill,
+                "maximum_duration_seconds": task.maximum_duration_seconds,
+                "required_effective_seconds": task.required_effective_seconds,
+            })
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
@@ -183,13 +225,14 @@ class ObservationMixin:
                  "status": row["status"], "reason": row["reason"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
-        """@brief 场景句只列实际可达地点，营业未知保持为未知。"""
+        """@brief 场景句只列实际可达地点，营业未知保持为未知；含 location_id 供交互对象层使用。"""
         destination_ids = {route.destination_id for route in self.scenario.routes
                            if route.origin_id == agent.location_id and route.status == "reachable"}
         context = self._discovery_context(agent)
         rows = [discovery.place_row(context, location) for location in self.scenario.locations
                 if location.location_id in destination_ids]
-        return [{"name": row["name"], "opening_status": row["opening_status"]} for row in rows]
+        return [{"location_id": row["location_id"], "name": row["name"],
+                 "opening_status": row["opening_status"]} for row in rows]
 
     def _product_rows(self, agent) -> list[dict]:
         """@brief facts 供给行与下钻共用实际呈现窗口，保留商品引用及完整购买比较事实。"""
@@ -386,20 +429,6 @@ class ObservationMixin:
         allowed = set(enabled)
         return tuple(item for item in self.lifestyle_items if item.activity_id in allowed)
 
-    def _discover_places(self, state, pending, request: DiscoverPlacesRequest):
-        """@brief 地点查询经生活动作结算，只把实际返回供给授予下一轮可见凭据。"""
-        from worldmock.life.models import ActionStatus, ActionResult
-
-        require_interaction_menu(self.scenario, state, pending, request)
-        agent = state.agents[pending.agent_id]
-        data = discovery.discover_places(state, self.scenario, self.semantics, agent, request)
-        visible = {supply["supply_id"] for place in data["places"] for supply in place["supplies"]}
-        staged = discovery.stage_visible_supplies(state, agent.agent_id, visible, self.scenario)
-        result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Places discovered", data=data)
-        return staged, result
-
     def _complete_product_browse(self, state, agent) -> tuple:
         """@brief 有时长目录浏览完成后仍只呈现一个窗口，并为该窗口保存真实凭据。"""
         context = PresentationContext(state, self.scenario, self.semantics, agent)
@@ -411,65 +440,11 @@ class ObservationMixin:
         window = presentation.present(entries, inputs, "product", None)
         staged = _stage_presentation(state, agent.agent_id, window)
         staged = discovery.stage_visible_supplies(staged, agent.agent_id, set(window.presented), self.scenario)
-        data = {"tool": "browse_activities", "category": presentation.FOOD_CATEGORY,
+        data = {"action": "browse", "category": presentation.FOOD_CATEGORY,
                 "returned": len(window.items), "total": window.total, "next_cursor": window.next_cursor,
-                "note": _browse_note(presentation.FOOD_CATEGORY), "items": list(window.items),
+                "note": _BROWSE_NOTE, "items": list(window.items),
                 "excluded": [item.as_row() for item in window.excluded]}
         return staged, data
-
-    def _browse_activities(self, state, pending, request: BrowseActivitiesRequest):
-        """@brief 下钻读取一个活动品类目录：纯查询，不启动活动、不消耗内容。
-
-        条目清单经统一候选契约（生成 → 资格 → 排序）产出，首屏的呈现顺序由曝光轮转
-        决定；返回体按「下推返回体」合同给出本次条数、总数、下一页游标与被排除项
-        （docs/CONTRACTS.md「候选与呈现合同」）。
-        """
-        from worldmock.errors import BusinessRuleError
-        from worldmock.life.models import ActionStatus, ActionResult
-
-        agent = state.agents[pending.agent_id]
-        category = request.category
-        if category not in self._activity_summary(agent):
-            logging.error("Browse category is not declared: %s", category)
-            raise BusinessRuleError("BROWSE_CATEGORY_NOT_FOUND")
-        require_interaction_menu(self.scenario, state, pending, request)
-        # 游标载荷先经同一纯函数校验一次（cursor_offset 与分页 present 内部都走
-        # _cursor_key 解析同一字符串）：形状不合法走工具级业务拒绝，绝不穿透
-        # dispatch 杀死 run（engine 的 BusinessRuleError 路径回执 agent 可纠错）。
-        try:
-            presentation.cursor_offset(request.cursor)
-        except ValueError as error:
-            raise BusinessRuleError("BROWSE_CURSOR_INVALID") from error
-        window = self._candidate_window(agent, category, request.cursor)
-        result = ActionResult(
-            action_id=pending.action_id, agent_id=agent.agent_id,
-            status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-            message="Activity menu browsed",
-            data={"tool": "browse_activities", "category": category,
-                  "returned": len(window.items), "total": window.total,
-                  "next_cursor": window.next_cursor, "note": _browse_note(category),
-                  "items": list(window.items),
-                  "excluded": [item.as_row() for item in window.excluded]})
-        staged = _stage_presentation(state, agent.agent_id, window)
-        visible = {row["supply_id"] for row in window.items if "supply_id" in row}
-        return discovery.stage_visible_supplies(staged, agent.agent_id, visible, self.scenario), result
-
-    def _candidate_window(self, agent, category: str,
-                          cursor: str | None) -> PresentationWindow:
-        """@brief 走统一候选契约取一个品类分区的呈现窗口（五类对象同一链路）。
-
-        下钻是目录浏览：只施加目录级事实（库存、下架、启用集、时长窗口），不施加
-        地点与占用这类当下可行性判定；呈现顺序首屏由曝光轮转给出。
-        """
-        kind = _kind_of_category(category, self.scenario)
-        context = self._presentation_context(agent)
-        entries = self._pool_entries(context, agent, kind, category)
-        offset = (presentation.cursor_offset(cursor) if cursor
-                  else self._rotation_offset(agent.agent_id))
-        inputs = presentation.candidate_inputs(
-            context, presentation.entry_sources(entries), moment=False,
-            rotation_offset=offset, last_presented_at=self._last_presented(agent.agent_id))
-        return presentation.present(entries, inputs, kind, cursor)
 
     def _presentation_context(self, agent) -> PresentationContext:
         """@brief 装配一次呈现所需的只读世界切片。"""
@@ -487,25 +462,6 @@ class ObservationMixin:
         绕池走到哪儿（docs/dev/SPEC-life-runtime.md「曝光轮转」）。
         """
         return len(self.state.presentation_state.get(agent_id, {}))
-
-    def _pool_entries(self, context: PresentationContext, agent, kind: str,
-                      category: str) -> tuple[PoolEntry, ...]:
-        """@brief 按候选类别装配该分区的池条目（五类对象共用同一形状）。
-
-        商品分区在图鉴下钻时读取全供给目录；观察投影读取在场与凭据有效的供给。
-        两者共用供给行与候选管线，只有实际进入窗口的身份才更新呈现凭据。
-        """
-        if kind == "product":
-            return self._product_pool(agent, menu=bool(category))
-        if kind == "content":
-            return tuple(entry for entry in self._content_pool(agent)
-                         if category in ("", entry.category))
-        if kind == "game":
-            return self._game_pool(agent)
-        if kind == "task":
-            return self._task_pool(agent)
-        return tuple(entry for entry in self._lifestyle_pool(agent)
-                     if category in ("", entry.category))
 
     def _product_pool(self, agent, menu: bool = False) -> tuple[PoolEntry, ...]:
         """@brief 购买候选以供给为身份，口味按商品读取，窗口外供给不授予购买资格。"""
@@ -737,30 +693,29 @@ def _content_catalog(scenario, subtitles: dict, titles: dict,
 def _recent_meal_counts(requested_events, now: int) -> dict[str, int]:
     """@brief 近 24 小时各商品已进食次数（product_id -> n，docs/dev/SPEC-life-realism.md「动机层」）。
 
-    从足迹 action_requested 的 consume 请求聚合（use_mode=eat）：每件按
-    数量累计（一次吃两份计 2 次，Rolls 1981 感官特异性饱足按食用次数降权）。
+    从足迹 action_requested 的 consume 动作聚合：targets 逐件按 quantity 累计
+    （一次吃两份计 2 次，Rolls 1981 感官特异性饱足按食用次数降权）。
     24 小时窗口为规格常数（docs/dev/SPEC-life-realism.md「动机层」"近 24 小时"）。
     """
     counts: dict[str, int] = {}
     for event in requested_events:
         data = event.data if isinstance(event.data, dict) else {}
-        if data.get("tool_name") != "consume":
+        if data.get("tool_name") != "start_activity":
             continue
         if not 0 <= now - event.occurred_at <= 86_400:
             continue
         request = data.get("request")
-        if not isinstance(request, dict) or request.get("use_mode") != "eat":
+        if not isinstance(request, dict) or request.get("action") != "consume":
             continue
-        items = request.get("items")
-        if not isinstance(items, list):
+        targets = request.get("targets")
+        if not isinstance(targets, list):
             continue
-        for item in items:
-            if not isinstance(item, dict) or not isinstance(item.get("product_id"), str):
-                continue
-            quantity = item.get("quantity")
-            units = (quantity if isinstance(quantity, (int, float))
-                     and not isinstance(quantity, bool) and quantity > 0 else 1)
-            counts[item["product_id"]] = counts.get(item["product_id"], 0) + int(units)
+        quantity = request.get("quantity")
+        units = (quantity if isinstance(quantity, (int, float))
+                 and not isinstance(quantity, bool) and quantity > 0 else 1)
+        for target in targets:
+            if isinstance(target, str):
+                counts[target] = counts.get(target, 0) + int(units)
     return counts
 
 
@@ -788,52 +743,20 @@ def _sample_contents(contents, profile, taste_weights) -> tuple:
     return tuple(sample)
 
 
-#: 品类下钻的提示句（按分区给出可用动作，不描述内部口径）。
-_BROWSE_NOTES = {
-    presentation.FOOD_CATEGORY:
-        "compare supply_id and current price_version; purchase rechecks stock, access, opening and fulfillment",
-    presentation.GAME_CATEGORY: "game ids accept start_targeted_activity with activity_type play_game",
-    presentation.TASK_CATEGORY: "work contracts accept start_targeted_activity with activity_type work",
-    "content": "watch items accept start_targeted_activity with activity_type watch",
-    "lifestyle": "lifestyle items accept start_basic_activity with activity_type lifestyle:<activity_id>",
-}
+#: 浏览动作的目录对象身份闭集（交互对象层的 catalog 行与事件级支持行同源）。
+BROWSE_TARGETS = ("product_catalog",)
 
-
-def _kind_of_category(category: str, scenario) -> str:
-    """@brief 品类下钻键到候选类别：内容品类、生活活动品类与三个固定键各归一类。"""
-    if category == presentation.FOOD_CATEGORY:
-        return "product"
-    if category == presentation.GAME_CATEGORY:
-        return "game"
-    if category == presentation.TASK_CATEGORY:
-        return "task"
-    if category in {item.kind for item in scenario.contents}:
-        return "content"
-    return "lifestyle"
-
-
-def _browse_note(category: str) -> str:
-    """@brief 该品类的下钻提示句；内容品类与生活活动品类各取固定句。"""
-    if category in _BROWSE_NOTES:
-        return _BROWSE_NOTES[category]
-    return _BROWSE_NOTES["content"] if category in _CONTENT_NOTE_KINDS \
-        else _BROWSE_NOTES["lifestyle"]
-
-
-#: 提示句归到内容句的内容品类尾名单（不在 `_BROWSE_NOTES` 里逐项出现的那些）。
-_CONTENT_NOTE_KINDS = frozenset({"podcast_episode", "feature_film", "drama_series", "webnovel_excerpt",
-                                 "news_feed", "joke_feed", "subtitle_experience"})
+#: 目录浏览完成后的提示句（说明窗口里的身份还要经购买时复核）。
+_BROWSE_NOTE = (
+    "compare supply_id and current price_version; "
+    "purchase rechecks stock, access, opening and fulfillment")
 
 
 def _reported_supply_rows(recent: list[dict]) -> list[dict]:
-    """@brief 读取本次发现与两种浏览回灌真正包含的供给行，不枚举未呈现目录。"""
+    """@brief 读取本次浏览回灌真正包含的供给行，不枚举未呈现目录。"""
     reported = []
     for result in recent:
         data = result["result"]["data"]
-        if data.get("tool") == "discover_places":
-            reported.extend(supply for place in data["places"] for supply in place["supplies"])
-        if data.get("tool") == "browse_activities":
-            reported.extend(item for item in data["items"] if "supply_id" in item)
         if "browse_result" in data:
             reported.extend(item for item in data["browse_result"]["items"] if "supply_id" in item)
     return reported
@@ -898,7 +821,7 @@ def _on_site_supplies(engine, agent) -> frozenset[str]:
                      if item.location_id == agent.location_id)
 
 
-def _presentation_stamps(state, agent_id: int, window: PresentationWindow) -> dict:
+def _presentation_stamps(state, agent_id: int, presented: tuple[str, ...]) -> dict:
     """@brief 计算本次呈现要写入 `presentation_state` 的留痕（按人物与对象标识记时刻）。
 
     轮转的判据是「上次呈现时刻」，所以每次呈现都要留痕；留痕是新的派生量取值，但**不
@@ -909,13 +832,13 @@ def _presentation_stamps(state, agent_id: int, window: PresentationWindow) -> di
 
     @param state 当前世界状态。
     @param agent_id 被呈现的对象所属人物。
-    @param window 本次呈现窗口。
+    @param presented 本轮实际进入窗口的对象身份（可跨多个分区窗口拼接）。
     @return 写入后的 `presentation_state` 取值；本次没有呈现任何对象时返回空字典。
     """
-    if not window.presented:
+    if not presented:
         return {}
     recorded = dict(state.presentation_state.get(agent_id, {}))
-    for object_id in window.presented:
+    for object_id in presented:
         recorded[object_id] = int(state.current_time)
     return {**state.presentation_state, agent_id: recorded}
 
@@ -928,6 +851,6 @@ def _stage_presentation(state, agent_id: int, window: PresentationWindow):
     @param window 本次呈现窗口。
     @return 写入留痕后的世界状态副本。
     """
-    stamps = _presentation_stamps(state, agent_id, window)
+    stamps = _presentation_stamps(state, agent_id, window.presented)
     return state if not stamps else state.model_copy(
         update={"presentation_state": stamps}, deep=True)

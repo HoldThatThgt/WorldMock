@@ -9,7 +9,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import advance_next, context, stage_day_plan, wake_by_mail
 from tests.life.test_scheduling import _custom_engine
 from worldmock.life.models import (
-    ChangePlaybackSpeedRequest, ConsumeItem, ConsumeRequest, ContinueActivityRequest,
+    ConsumeItem, ConsumeRequest, ContinueActivityRequest,
     SetActivityStateRequest, StartBasicActivityRequest, StartParallelActivitiesRequest,
     StartSocialActivityRequest, StartTargetedActivityRequest, StartTravelRequest,
 )
@@ -167,8 +167,8 @@ def test_simultaneous_completion_has_one_body_and_one_aggregate_terminal(tmp_pat
         engine.close()
 
 
-def test_pause_resume_speed_and_cancel_affect_only_named_activity(tmp_path) -> None:
-    """@brief 播放暂停与变速不停止等待，取消等待不重置媒体位置。"""
+def test_pause_resume_and_cancel_affect_only_named_activity(tmp_path) -> None:
+    """@brief 播放暂停不停止等待，取消等待不重置媒体位置。"""
     engine = _engine(tmp_path)
     try:
         started, ids = _parallel(engine, "controls", _watch(600),
@@ -194,10 +194,6 @@ def test_pause_resume_speed_and_cancel_affect_only_named_activity(tmp_path) -> N
         assert resumed.status == "completed"
         wake_by_mail(engine, offset=60)
         _until(engine, lambda: engine.state.current_time == started.occurred_at + 180)
-        changed = _action(engine, "speed-watch", "change_playback_speed",
-                          ChangePlaybackSpeedRequest(activity_id=watch_id, playback_speed=2))
-        assert changed.status == "completed"
-        assert engine.state.activities[wait_id].status == "active"
         wake_by_mail(engine, offset=60)
         _until(engine, lambda: engine.state.current_time == started.occurred_at + 240)
         assert engine.state.activities[watch_id].media_position_seconds > before_media + 60
@@ -294,7 +290,6 @@ def test_rejected_group_has_no_activity_money_game_or_invitation_effects(tmp_pat
         for field in ("accounts", "supply_stock", "deliveries", "pending_events"):
             assert after[field] == before[field]
         assert engine.state.agents[1].inventory == agent_before.inventory
-        assert engine.state.agents[1].game_sessions == agent_before.game_sessions
         assert engine.state.agents[1].inbox == agent_before.inbox
         assert not any(event.event_type == "activity_progress" for event in
                        engine.store.read_events(engine.store.last_event_seq)

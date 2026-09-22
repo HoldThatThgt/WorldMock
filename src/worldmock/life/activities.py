@@ -27,9 +27,8 @@ from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
     AgentState,
+    ActivityStartParams,
     ChangeActivityRequest,
-    ContinueActivityRequest,
-    StartActivityRequest,
     WorldState,
     active_activities,
 )
@@ -117,7 +116,7 @@ def require_location_kinds(place_location_kinds: frozenset[str], needed: frozens
     raise BusinessRuleError("ELIGIBILITY_LOCATION_KIND_MISMATCH")
 
 
-def start_activity(agent: AgentState, request: StartActivityRequest, now: int, origin: ActivityOrigin,
+def start_activity(agent: AgentState, request: ActivityStartParams, now: int, origin: ActivityOrigin,
                    config: BodyConfig) -> tuple[AgentState, ActivityState]:
     """@brief 受理一个主活动，并拒绝地点不可行、资源冲突或不可完成能量预算。"""
     if request.planned_duration_seconds < 60:
@@ -165,15 +164,6 @@ def change_activity(agent: AgentState, activity: ActivityState, request: ChangeA
     _require_decision_boundary(agent, activity, now)
     changed = activity.model_copy(update={"playback_speed": request.playback_speed}, deep=True)
     return agent.model_copy(deep=True), schedule_feedback(changed, now, feedback_seconds)
-
-
-def continue_activity(agent: AgentState, activity: ActivityState, request: ContinueActivityRequest,
-                      now: int, feedback_seconds: int) -> tuple[AgentState, ActivityState]:
-    """@brief 在到期反馈边界保留资源槽并安排下一次反馈。"""
-    if activity.activity_id != request.activity_id or activity.agent_id != agent.agent_id:
-        raise BusinessRuleError("ACTIVITY_NOT_OWNED")
-    _require_feedback_boundary(agent, activity, now)
-    return agent.model_copy(deep=True), schedule_feedback(activity, now, feedback_seconds)
 
 
 def schedule_feedback(activity: ActivityState, now: int, feedback_seconds: int) -> ActivityState:
@@ -253,7 +243,7 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
     return changed, agent.model_copy(deep=True)
 
 
-def resource_claims(request: StartActivityRequest) -> set[str]:
+def resource_claims(request: ActivityStartParams) -> set[str]:
     """@brief 从注册表取得活动显式资源锁及驾驶条件锁。"""
     return set(_AFFORDANCES.resource_claims(
         request.activity_type.value,
@@ -278,7 +268,7 @@ def active_energy_entries(state: WorldState, agent_id: int,
 
 
 def combined_energy_cost(state: WorldState, agent_id: int, config: BodyConfig,
-                         candidate: StartActivityRequest | None = None) -> float:
+                         candidate: ActivityStartParams | None = None) -> float:
     """@brief 与实际共同结算同式预测全部剩余活动及候选的分段能量成本。"""
     entries = active_energy_entries(state, agent_id, config)
     if candidate is not None:
@@ -289,7 +279,7 @@ def combined_energy_cost(state: WorldState, agent_id: int, config: BodyConfig,
 
 
 def maximum_combined_duration(state: WorldState, agent_id: int, config: BodyConfig,
-                              candidate: StartActivityRequest, limit_seconds: int) -> int:
+                              candidate: ActivityStartParams, limit_seconds: int) -> int:
     """@brief 二分搜索可与现有活动同人共用能量的候选最长整秒时长。"""
     entries = active_energy_entries(state, agent_id, config)
     met = _activity_met(candidate.activity_type, candidate.travel_mode, config, candidate.target_id)

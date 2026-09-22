@@ -13,8 +13,8 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.life.dining import local_food_summary
 from worldmock.life.discovery import DiscoveryContext
 from worldmock.life.models import (
-    ConsumeItem, ConsumeRequest, ContinueActivityRequest, PurchaseItem,
-    PurchaseOrderRequest, StartBasicActivityRequest, StartTravelRequest,
+    ChangeActivityRequest, ConsumeItem, ConsumeRequest, PurchaseItem,
+    PurchaseOrderRequest, StartActivityRequest,
 )
 from worldmock.life.projection import visible_supplies
 
@@ -41,8 +41,8 @@ def _finish(engine, activity_id: str) -> None:
         if engine.state.activities[activity_id].status == "completed":
             return
         if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"continue-{activity_id}-{step}", "continue_activity",
-                    ContinueActivityRequest(activity_id=activity_id))
+            _action(engine, f"continue-{activity_id}-{step}", "change_activity",
+                    ChangeActivityRequest(activity_id=activity_id, operation="resume"))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
@@ -64,8 +64,8 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
                      and item.mode.value == "walking")
         duration = engine.semantics.travel_planned_seconds(
             "walking", route.duration_seconds, engine.state.current_time)
-        _, started = _action(engine, "to-restaurant", "start_travel", StartTravelRequest(
-            destination_id=RESTAURANT, travel_mode="walking", planned_duration_seconds=duration))
+        _, started = _action(engine, "to-restaurant", "start_activity", StartActivityRequest(
+            activity_type="travel", destination_id=RESTAURANT, travel_mode="walking", planned_duration_seconds=duration))
         _finish(engine, started.activity_id)
         agent = engine.state.agents[1]
         assert agent.location_id == RESTAURANT
@@ -75,8 +75,8 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
             assert local_food_summary(engine._discovery_context(agent)) == (
                 "当前地点有餐食供给，但现在没有可购买餐食。")
             duration = opening - engine.state.current_time
-            _, waiting = _action(engine, "wait-for-opening", "start_basic_activity",
-                                 StartBasicActivityRequest(activity_type="wait",
+            _, waiting = _action(engine, "wait-for-opening", "start_activity",
+                                 StartActivityRequest(activity_type="wait",
                                                            planned_duration_seconds=duration))
             _finish(engine, waiting.activity_id)
             agent = engine.state.agents[1]

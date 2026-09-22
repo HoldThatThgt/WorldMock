@@ -1,63 +1,51 @@
 {
-  "generated_at": "2026-09-21T09:43:05+00:00",
+  "generated_at": "2026-09-22T17:12:01+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "73a8b4b9-67f2-42ee-ae73-5b4d548c56fb",
-    "manifest_hash": "f442c9e4e7d7d2037ee7670f6b17c592cf4f5d3dffa277c7a50d19fde4c70c17",
-    "source_identity": "9a62963841694cb668cc49a039c59f39caa757a6"
+    "snapshot_id": "eae044ed-135c-4941-877f-62724725e455",
+    "manifest_hash": "dda9b1e69f1eb8a3e2330423873e07624f71b44acd602ce2688bf6a3de32cbcf",
+    "source_identity": "80c8cf3d13da2aea25c81e2b3d726b1f5234814f"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 7048,
-    "missing_branches": 302,
-    "total_branches": 7350,
-    "percent": 95.89,
-    "passed": true
+    "covered_branches": 151,
+    "missing_branches": 6711,
+    "total_branches": 6862,
+    "percent": 2.2,
+    "passed": false
   },
   "per_file_branch": [
     {
-      "file": "custom/agents/life_activity_controls.py",
-      "covered_branches": 97,
-      "missing_branches": 3,
-      "percent": 97.0
-    },
-    {
       "file": "custom/agents/life_agent.py",
-      "covered_branches": 394,
-      "missing_branches": 2,
-      "percent": 99.49
+      "covered_branches": 0,
+      "missing_branches": 218,
+      "percent": 0.0
     },
     {
       "file": "custom/agents/life_context.py",
-      "covered_branches": 6,
-      "missing_branches": 0,
-      "percent": 100.0
-    },
-    {
-      "file": "custom/agents/life_inventory.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 6,
+      "percent": 0.0
     },
     {
       "file": "custom/agents/life_memory.py",
-      "covered_branches": 26,
-      "missing_branches": 6,
-      "percent": 81.25
+      "covered_branches": 0,
+      "missing_branches": 32,
+      "percent": 0.0
     },
     {
       "file": "custom/agents/life_menu.py",
-      "covered_branches": 148,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "custom/envs/life_env.py",
-      "covered_branches": 30,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/__init__.py",
@@ -73,45 +61,45 @@
     },
     {
       "file": "src/worldmock/catalog/admission.py",
-      "covered_branches": 206,
-      "missing_branches": 42,
-      "percent": 83.06
+      "covered_branches": 0,
+      "missing_branches": 248,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/catalog/affordances.py",
-      "covered_branches": 164,
-      "missing_branches": 50,
-      "percent": 76.64
+      "covered_branches": 107,
+      "missing_branches": 79,
+      "percent": 57.53
     },
     {
       "file": "src/worldmock/catalog/builder.py",
-      "covered_branches": 11,
-      "missing_branches": 5,
-      "percent": 68.75
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/catalog/compiler.py",
-      "covered_branches": 48,
-      "missing_branches": 10,
-      "percent": 82.76
+      "covered_branches": 0,
+      "missing_branches": 58,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/catalog/inspect.py",
-      "covered_branches": 14,
-      "missing_branches": 2,
-      "percent": 87.5
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/catalog/loader.py",
-      "covered_branches": 20,
-      "missing_branches": 4,
-      "percent": 83.33
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/catalog/models.py",
-      "covered_branches": 18,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 18,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/__init__.py",
@@ -121,75 +109,75 @@
     },
     {
       "file": "src/worldmock/categories/cli.py",
-      "covered_branches": 4,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 4,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/common.py",
-      "covered_branches": 26,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 26,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/contract.py",
-      "covered_branches": 72,
-      "missing_branches": 10,
-      "percent": 87.8
+      "covered_branches": 0,
+      "missing_branches": 82,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/identity.py",
-      "covered_branches": 9,
-      "missing_branches": 5,
-      "percent": 64.29
+      "covered_branches": 0,
+      "missing_branches": 14,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/loader.py",
-      "covered_branches": 5,
-      "missing_branches": 3,
-      "percent": 62.5
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/maintenance.py",
-      "covered_branches": 68,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 68,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/models.py",
-      "covered_branches": 23,
-      "missing_branches": 1,
-      "percent": 95.83
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/operators.py",
-      "covered_branches": 16,
-      "missing_branches": 2,
-      "percent": 88.89
+      "covered_branches": 0,
+      "missing_branches": 18,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/pairing.py",
-      "covered_branches": 4,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 4,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/provenance.py",
-      "covered_branches": 26,
-      "missing_branches": 2,
-      "percent": 92.86
+      "covered_branches": 0,
+      "missing_branches": 28,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/categories/rules.py",
-      "covered_branches": 31,
-      "missing_branches": 3,
-      "percent": 91.18
+      "covered_branches": 0,
+      "missing_branches": 34,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/cli.py",
-      "covered_branches": 51,
-      "missing_branches": 1,
-      "percent": 98.08
+      "covered_branches": 1,
+      "missing_branches": 51,
+      "percent": 1.92
     },
     {
       "file": "src/worldmock/corpora/__init__.py",
@@ -199,21 +187,21 @@
     },
     {
       "file": "src/worldmock/corpora/fetch.py",
-      "covered_branches": 65,
-      "missing_branches": 1,
-      "percent": 98.48
+      "covered_branches": 0,
+      "missing_branches": 66,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/corpora/manifest.py",
-      "covered_branches": 18,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 18,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/corpora/map_prepare.py",
-      "covered_branches": 20,
-      "missing_branches": 4,
-      "percent": 83.33
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/__init__.py",
@@ -223,57 +211,57 @@
     },
     {
       "file": "src/worldmock/delivery/evidence_encoding.py",
-      "covered_branches": 92,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 92,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/generation.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 28,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/pipeline.py",
-      "covered_branches": 72,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 72,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/replay.py",
-      "covered_branches": 22,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 22,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/rules.py",
-      "covered_branches": 30,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/semantics.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 28,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/trace_validation.py",
-      "covered_branches": 98,
-      "missing_branches": 2,
-      "percent": 98.0
+      "covered_branches": 0,
+      "missing_branches": 100,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/training.py",
-      "covered_branches": 24,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/delivery/windows.py",
-      "covered_branches": 64,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 64,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/errors.py",
@@ -289,33 +277,33 @@
     },
     {
       "file": "src/worldmock/evaluation/adapters.py",
-      "covered_branches": 159,
-      "missing_branches": 1,
-      "percent": 99.38
+      "covered_branches": 0,
+      "missing_branches": 160,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/aggregate_reference.py",
-      "covered_branches": 32,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 32,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/behavior_metrics.py",
-      "covered_branches": 190,
-      "missing_branches": 20,
-      "percent": 90.48
+      "covered_branches": 0,
+      "missing_branches": 210,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/causality.py",
-      "covered_branches": 14,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 14,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/decision.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 28,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/errors.py",
@@ -325,63 +313,63 @@
     },
     {
       "file": "src/worldmock/evaluation/goal_metrics.py",
-      "covered_branches": 72,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 72,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/io.py",
-      "covered_branches": 24,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/metrics.py",
-      "covered_branches": 74,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 74,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/models.py",
-      "covered_branches": 16,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 3,
+      "missing_branches": 13,
+      "percent": 18.75
     },
     {
       "file": "src/worldmock/evaluation/public_evidence.py",
-      "covered_branches": 152,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 144,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/reporting.py",
-      "covered_branches": 30,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/review.py",
-      "covered_branches": 226,
-      "missing_branches": 4,
-      "percent": 98.26
+      "covered_branches": 0,
+      "missing_branches": 230,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/runner.py",
-      "covered_branches": 30,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/scenario.py",
-      "covered_branches": 54,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 54,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/evaluation/validation.py",
-      "covered_branches": 94,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 94,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/__init__.py",
@@ -391,63 +379,63 @@
     },
     {
       "file": "src/worldmock/footprints/assets.py",
-      "covered_branches": 8,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/checkpoint.py",
-      "covered_branches": 36,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 36,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/evidence.py",
-      "covered_branches": 8,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/experiences.py",
-      "covered_branches": 77,
-      "missing_branches": 19,
-      "percent": 80.21
+      "covered_branches": 0,
+      "missing_branches": 96,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/export.py",
-      "covered_branches": 38,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 38,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/ledger.py",
-      "covered_branches": 40,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 40,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/models.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 1,
+      "missing_branches": 27,
+      "percent": 3.57
     },
     {
       "file": "src/worldmock/footprints/quality.py",
-      "covered_branches": 202,
-      "missing_branches": 12,
-      "percent": 94.39
+      "covered_branches": 0,
+      "missing_branches": 214,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/store.py",
-      "covered_branches": 62,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 62,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/footprints/validation.py",
-      "covered_branches": 72,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 72,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/__init__.py",
@@ -457,303 +445,309 @@
     },
     {
       "file": "src/worldmock/life/action_evidence.py",
-      "covered_branches": 35,
-      "missing_branches": 1,
-      "percent": 97.22
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/activities.py",
-      "covered_branches": 76,
-      "missing_branches": 2,
-      "percent": 97.44
+      "covered_branches": 0,
+      "missing_branches": 76,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/activity_evidence.py",
-      "covered_branches": 8,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/activity_validation.py",
-      "covered_branches": 24,
-      "missing_branches": 6,
-      "percent": 80.0
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/basket.py",
-      "covered_branches": 96,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 96,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/body.py",
-      "covered_branches": 113,
-      "missing_branches": 3,
-      "percent": 97.41
+      "covered_branches": 0,
+      "missing_branches": 116,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/candidates.py",
-      "covered_branches": 54,
-      "missing_branches": 4,
-      "percent": 93.1
+      "covered_branches": 0,
+      "missing_branches": 58,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/category_contract.py",
-      "covered_branches": 54,
-      "missing_branches": 4,
-      "percent": 93.1
+      "covered_branches": 0,
+      "missing_branches": 58,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/commerce.py",
-      "covered_branches": 7,
-      "missing_branches": 1,
-      "percent": 87.5
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/content.py",
-      "covered_branches": 44,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 44,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/decision_start.py",
-      "covered_branches": 14,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 14,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/dining.py",
-      "covered_branches": 6,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 6,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/discovery.py",
-      "covered_branches": 28,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 10,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/engine.py",
-      "covered_branches": 354,
-      "missing_branches": 10,
-      "percent": 97.25
+      "covered_branches": 2,
+      "missing_branches": 306,
+      "percent": 0.65
     },
     {
       "file": "src/worldmock/life/felt.py",
-      "covered_branches": 32,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 32,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/game.py",
-      "covered_branches": 24,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 10,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/interaction_menu.py",
-      "covered_branches": 53,
-      "missing_branches": 3,
-      "percent": 94.64
+      "covered_branches": 0,
+      "missing_branches": 20,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/inventory_recipe.py",
-      "covered_branches": 22,
-      "missing_branches": 6,
-      "percent": 78.57
+      "covered_branches": 0,
+      "missing_branches": 28,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/map_data.py",
-      "covered_branches": 77,
-      "missing_branches": 7,
-      "percent": 91.67
+      "covered_branches": 0,
+      "missing_branches": 84,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/map_models.py",
-      "covered_branches": 60,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 60,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/memory_evidence.py",
-      "covered_branches": 6,
-      "missing_branches": 2,
-      "percent": 75.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/menu_execution.py",
-      "covered_branches": 2,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 2,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/models.py",
-      "covered_branches": 90,
-      "missing_branches": 4,
-      "percent": 95.74
+      "covered_branches": 27,
+      "missing_branches": 77,
+      "percent": 25.96
     },
     {
       "file": "src/worldmock/life/motivation.py",
-      "covered_branches": 156,
-      "missing_branches": 2,
-      "percent": 98.73
+      "covered_branches": 0,
+      "missing_branches": 158,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/narration.py",
-      "covered_branches": 66,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 80,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/observe.py",
-      "covered_branches": 116,
-      "missing_branches": 2,
-      "percent": 98.31
+      "covered_branches": 0,
+      "missing_branches": 96,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/opening_hours.py",
-      "covered_branches": 24,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 24,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/presentation.py",
-      "covered_branches": 20,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 20,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/projection.py",
-      "covered_branches": 32,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 58,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/result_projection.py",
-      "covered_branches": 21,
-      "missing_branches": 1,
-      "percent": 95.45
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/retrieval.py",
-      "covered_branches": 89,
-      "missing_branches": 1,
-      "percent": 98.89
+      "covered_branches": 0,
+      "missing_branches": 90,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/rhythm.py",
-      "covered_branches": 92,
-      "missing_branches": 2,
-      "percent": 97.87
+      "covered_branches": 0,
+      "missing_branches": 108,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/rotation.py",
-      "covered_branches": 43,
-      "missing_branches": 1,
-      "percent": 97.73
+      "covered_branches": 0,
+      "missing_branches": 44,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/rules.py",
-      "covered_branches": 36,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 38,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/run_identity.py",
-      "covered_branches": 2,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 2,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/scenario.py",
-      "covered_branches": 216,
-      "missing_branches": 6,
-      "percent": 97.3
+      "covered_branches": 0,
+      "missing_branches": 222,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/schedule.py",
-      "covered_branches": 70,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 74,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/semantics.py",
-      "covered_branches": 113,
-      "missing_branches": 11,
-      "percent": 91.13
+      "covered_branches": 0,
+      "missing_branches": 124,
+      "percent": 0.0
+    },
+    {
+      "file": "src/worldmock/life/session_actions.py",
+      "covered_branches": 0,
+      "missing_branches": 88,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/settlement.py",
-      "covered_branches": 2,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 2,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/sleep.py",
-      "covered_branches": 30,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 4,
+      "missing_branches": 26,
+      "percent": 13.33
     },
     {
       "file": "src/worldmock/life/social.py",
-      "covered_branches": 18,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 18,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/social_actions.py",
-      "covered_branches": 28,
-      "missing_branches": 2,
-      "percent": 93.33
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/state_commit.py",
-      "covered_branches": 4,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 4,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/storefront_runtime.py",
-      "covered_branches": 6,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 6,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/storefront_state.py",
-      "covered_branches": 34,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 34,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/travel.py",
-      "covered_branches": 45,
-      "missing_branches": 1,
-      "percent": 97.83
+      "covered_branches": 0,
+      "missing_branches": 46,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/travel_time.py",
-      "covered_branches": 16,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/work.py",
-      "covered_branches": 42,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 44,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/life/work_review.py",
-      "covered_branches": 48,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 48,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/opslog.py",
-      "covered_branches": 8,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 8,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/__init__.py",
@@ -763,45 +757,45 @@
     },
     {
       "file": "src/worldmock/profile/compile.py",
-      "covered_branches": 16,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/coverage.py",
-      "covered_branches": 10,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 10,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/extractor.py",
-      "covered_branches": 29,
-      "missing_branches": 1,
-      "percent": 96.67
+      "covered_branches": 0,
+      "missing_branches": 30,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/mapper.py",
-      "covered_branches": 14,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 14,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/models.py",
-      "covered_branches": 54,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 54,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/taste.py",
-      "covered_branches": 2,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 2,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/profile/textgen.py",
-      "covered_branches": 16,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 16,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/resources/__init__.py",
@@ -811,27 +805,27 @@
     },
     {
       "file": "src/worldmock/resources/audit.py",
-      "covered_branches": 32,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 32,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/resources/ledger.py",
-      "covered_branches": 54,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 54,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/resources/models.py",
-      "covered_branches": 52,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 6,
+      "missing_branches": 46,
+      "percent": 11.54
     },
     {
       "file": "src/worldmock/runtime.py",
-      "covered_branches": 121,
-      "missing_branches": 1,
-      "percent": 99.18
+      "covered_branches": 0,
+      "missing_branches": 122,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/scheduling/__init__.py",
@@ -841,15 +835,15 @@
     },
     {
       "file": "src/worldmock/scheduling/compile.py",
-      "covered_branches": 26,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 26,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/scheduling/effects.py",
-      "covered_branches": 34,
-      "missing_branches": 2,
-      "percent": 94.44
+      "covered_branches": 0,
+      "missing_branches": 36,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/scheduling/events.py",
@@ -859,17 +853,3816 @@
     },
     {
       "file": "src/worldmock/status.py",
-      "covered_branches": 14,
-      "missing_branches": 0,
-      "percent": 100.0
+      "covered_branches": 0,
+      "missing_branches": 14,
+      "percent": 0.0
     },
     {
       "file": "src/worldmock/validation.py",
-      "covered_branches": 46,
-      "missing_branches": 2,
-      "percent": 95.83
+      "covered_branches": 0,
+      "missing_branches": 48,
+      "percent": 0.0
     }
   ],
-  "uncovered_public_interfaces": [],
-  "passed": true
+  "uncovered_public_interfaces": [
+    {
+      "file": "src/worldmock/catalog/admission.py",
+      "line": 98,
+      "name": "validate_refs_shape",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/admission.py",
+      "line": 128,
+      "name": "validate_scenario_against_catalog",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/admission.py",
+      "line": 554,
+      "name": "validate_task_assignees",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/admission.py",
+      "line": 572,
+      "name": "validate_world_categories",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 145,
+      "name": "family_names",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 157,
+      "name": "families_by_rank",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 163,
+      "name": "attention_params",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 171,
+      "name": "classify_habit_event",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 196,
+      "name": "met_lookup_key",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 222,
+      "name": "relief_channel",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 232,
+      "name": "resource_claims",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 258,
+      "name": "target_catalog_fields",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 265,
+      "name": "energy_limit_kinds",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 273,
+      "name": "title_sources",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 283,
+      "name": "attention_required_kinds",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/affordances.py",
+      "line": 293,
+      "name": "load_affordances",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/builder.py",
+      "line": 23,
+      "name": "add_resource",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/builder.py",
+      "line": 39,
+      "name": "add_object",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/builder.py",
+      "line": 55,
+      "name": "deprecate",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/compiler.py",
+      "line": 40,
+      "name": "compile_exchange_object",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/inspect.py",
+      "line": 54,
+      "name": "edges_of",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/inspect.py",
+      "line": 65,
+      "name": "objects_affecting",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/inspect.py",
+      "line": 70,
+      "name": "lineage",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/loader.py",
+      "line": 57,
+      "name": "load_catalog",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/loader.py",
+      "line": 71,
+      "name": "load_object_declarations",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 86,
+      "name": "is_role_placeholder",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 113,
+      "name": "validate_span",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 128,
+      "name": "validate_threshold",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 184,
+      "name": "validate_shape",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 218,
+      "name": "validate_endpoints",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 319,
+      "name": "validate_purchase_edges",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 327,
+      "name": "attribute",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 439,
+      "name": "tombstoned_ids",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 443,
+      "name": "pairing",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/catalog/models.py",
+      "line": 452,
+      "name": "rule_for",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/cli.py",
+      "line": 9,
+      "name": "add_category_arguments",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/cli.py",
+      "line": 32,
+      "name": "run_category_command",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/common.py",
+      "line": 37,
+      "name": "freeze_containers",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/common.py",
+      "line": 47,
+      "name": "serialize_containers",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/common.py",
+      "line": 125,
+      "name": "validate_model_evidence",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/common.py",
+      "line": 149,
+      "name": "require_finite_number",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/contract.py",
+      "line": 28,
+      "name": "build_category_contract",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/contract.py",
+      "line": 57,
+      "name": "resolve_object_values",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/contract.py",
+      "line": 90,
+      "name": "validate_category_attributes",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/identity.py",
+      "line": 37,
+      "name": "manifest_fields",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/identity.py",
+      "line": 42,
+      "name": "compute_catalog_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/identity.py",
+      "line": 67,
+      "name": "refresh_manifest_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/loader.py",
+      "line": 24,
+      "name": "load_category_contract",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/loader.py",
+      "line": 42,
+      "name": "load_exchange_rules",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/maintenance.py",
+      "line": 24,
+      "name": "check_catalog",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/maintenance.py",
+      "line": 43,
+      "name": "refinement_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/maintenance.py",
+      "line": 123,
+      "name": "category_touches",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/maintenance.py",
+      "line": 140,
+      "name": "publish_catalog",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 30,
+      "name": "validate_numeric_inputs",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 38,
+      "name": "validate_operations",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 86,
+      "name": "validate_coefficient_input",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 91,
+      "name": "validate_state_shape",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 151,
+      "name": "require_category",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 164,
+      "name": "is_descendant",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 183,
+      "name": "rule_id",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/models.py",
+      "line": 188,
+      "name": "coefficient",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 25,
+      "name": "evaluate_purchase",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 38,
+      "name": "evaluate_food_energy",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 51,
+      "name": "evaluate_travel_fare",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 64,
+      "name": "evaluate_hourly_pay",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 81,
+      "name": "evaluate_piece_pay",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 96,
+      "name": "evaluate_package_pay",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/operators.py",
+      "line": 112,
+      "name": "scale_inventory_recipe",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/pairing.py",
+      "line": 9,
+      "name": "resolve_pairing",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/provenance.py",
+      "line": 14,
+      "name": "validate_numeric_sources",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 83,
+      "name": "validate_rate_input",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 122,
+      "name": "validate_quantity_input",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 127,
+      "name": "validate_inventory_conservation",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 169,
+      "name": "require",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 181,
+      "name": "build_exchange_rules",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/categories/rules.py",
+      "line": 207,
+      "name": "validate_rule_resource_domains",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/cli.py",
+      "line": 20,
+      "name": "build_parser",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/cli.py",
+      "line": 91,
+      "name": "main",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/corpora/fetch.py",
+      "line": 42,
+      "name": "prepare_corpora",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/corpora/manifest.py",
+      "line": 51,
+      "name": "validate_identities",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/corpora/manifest.py",
+      "line": 62,
+      "name": "load_manifest",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/corpora/map_prepare.py",
+      "line": 21,
+      "name": "prepare_map",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/evidence_encoding.py",
+      "line": 31,
+      "name": "encode_model_input",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/evidence_encoding.py",
+      "line": 46,
+      "name": "decode_model_input",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/evidence_encoding.py",
+      "line": 75,
+      "name": "encode_model_record",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/evidence_encoding.py",
+      "line": 84,
+      "name": "decode_model_record",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/generation.py",
+      "line": 18,
+      "name": "create_catalog",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/generation.py",
+      "line": 34,
+      "name": "verify_generation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/generation.py",
+      "line": 73,
+      "name": "generation_fixtures",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/pipeline.py",
+      "line": 43,
+      "name": "deliver",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/pipeline.py",
+      "line": 120,
+      "name": "run_labelkit",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/pipeline.py",
+      "line": 157,
+      "name": "write_model_inputs",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/pipeline.py",
+      "line": 168,
+      "name": "verify_process",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/replay.py",
+      "line": 16,
+      "name": "replay_windows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/rules.py",
+      "line": 14,
+      "name": "evaluate_causal_events",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/rules.py",
+      "line": 72,
+      "name": "execute_fixture",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/rules.py",
+      "line": 88,
+      "name": "sequence_facts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/semantics.py",
+      "line": 12,
+      "name": "validate_annotation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/semantics.py",
+      "line": 26,
+      "name": "attach_facts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/trace_validation.py",
+      "line": 19,
+      "name": "completed_trace_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/training.py",
+      "line": 17,
+      "name": "load_training",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/training.py",
+      "line": 71,
+      "name": "assign_splits",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/windows.py",
+      "line": 22,
+      "name": "prepare_windows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/delivery/windows.py",
+      "line": 226,
+      "name": "event_day",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/adapters.py",
+      "line": 78,
+      "name": "adapt_labelkit",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/adapters.py",
+      "line": 339,
+      "name": "adapt_worldmock",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/adapters.py",
+      "line": 344,
+      "name": "adapt_human_reference",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/adapters.py",
+      "line": 681,
+      "name": "build_days",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/aggregate_reference.py",
+      "line": 12,
+      "name": "evaluate_official_reference",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/behavior_metrics.py",
+      "line": 89,
+      "name": "behavior_metrics_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/causality.py",
+      "line": 15,
+      "name": "evaluate_causality",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/decision.py",
+      "line": 10,
+      "name": "decide_result",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/goal_metrics.py",
+      "line": 33,
+      "name": "day_plan_metrics",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 15,
+      "name": "sha256_file",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 27,
+      "name": "read_json",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 38,
+      "name": "read_jsonl",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 64,
+      "name": "verify_artifact",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 90,
+      "name": "stable_json_bytes",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 107,
+      "name": "atomic_write_json",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 112,
+      "name": "atomic_write_jsonl",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/io.py",
+      "line": 121,
+      "name": "atomic_write_text",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/metrics.py",
+      "line": 19,
+      "name": "shared_support",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/metrics.py",
+      "line": 153,
+      "name": "evaluate_metrics",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/metrics.py",
+      "line": 441,
+      "name": "finite_sample_burstiness",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/metrics.py",
+      "line": 454,
+      "name": "interval_memory",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 17,
+      "name": "parse_datetime",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 31,
+      "name": "parse_utc_seconds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 63,
+      "name": "days",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 71,
+      "name": "contains",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 75,
+      "name": "localize",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 89,
+      "name": "to_dict",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 125,
+      "name": "to_rule_dict",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 172,
+      "name": "duration_seconds",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 193,
+      "name": "field_values",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 232,
+      "name": "mapping_report",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 262,
+      "name": "to_dict",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 293,
+      "name": "calendar_class",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/models.py",
+      "line": 309,
+      "name": "to_dict",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/evaluation/public_evidence.py",
+      "line": 79,
+      "name": "labelkit_public_evidence",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/public_evidence.py",
+      "line": 198,
+      "name": "worldmock_public_evidence",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/public_evidence.py",
+      "line": 488,
+      "name": "worldmock_activity_category",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/reporting.py",
+      "line": 40,
+      "name": "write_charts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/reporting.py",
+      "line": 61,
+      "name": "render_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/review.py",
+      "line": 107,
+      "name": "create_review_material",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/review.py",
+      "line": 144,
+      "name": "write_review_material",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/review.py",
+      "line": 158,
+      "name": "ingest_reviews",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/runner.py",
+      "line": 32,
+      "name": "prepare_evaluation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/runner.py",
+      "line": 66,
+      "name": "finalize_evaluation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/scenario.py",
+      "line": 14,
+      "name": "load_scenario",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/validation.py",
+      "line": 34,
+      "name": "validate_labelkit_delivery",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/evaluation/validation.py",
+      "line": 207,
+      "name": "validate_canonical_delivery",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/assets.py",
+      "line": 15,
+      "name": "atomic_write",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/assets.py",
+      "line": 47,
+      "name": "put",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/assets.py",
+      "line": 59,
+      "name": "put_json",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/assets.py",
+      "line": 63,
+      "name": "read",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/checkpoint.py",
+      "line": 20,
+      "name": "snapshot_directory",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/checkpoint.py",
+      "line": 40,
+      "name": "restore_directory",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/checkpoint.py",
+      "line": 60,
+      "name": "restore_branch",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/evidence.py",
+      "line": 10,
+      "name": "redact_evidence",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 29,
+      "name": "validate_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 107,
+      "name": "project_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/experiences.py",
+      "line": 134,
+      "name": "recent_verified_experiences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/export.py",
+      "line": 22,
+      "name": "write_jsonl",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/export.py",
+      "line": 29,
+      "name": "export_run",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/export.py",
+      "line": 150,
+      "name": "reconstruct_activities",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/ledger.py",
+      "line": 11,
+      "name": "validate_account_transition",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/ledger.py",
+      "line": 37,
+      "name": "validate_account_history",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/models.py",
+      "line": 52,
+      "name": "validate_resource_flows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/models.py",
+      "line": 76,
+      "name": "validate_decision_rhythm",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/models.py",
+      "line": 93,
+      "name": "validate_decision_statement",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/models.py",
+      "line": 151,
+      "name": "validate_decision_statement_evidence",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/models.py",
+      "line": 186,
+      "name": "canonical_json",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/quality.py",
+      "line": 46,
+      "name": "build_quality_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 57,
+      "name": "create",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 84,
+      "name": "state",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 90,
+      "name": "last_event_seq",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 94,
+      "name": "commit",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 177,
+      "name": "last_agent_event_seq",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 185,
+      "name": "read_agent_events",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 195,
+      "name": "read_recent_experience_sources",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 208,
+      "name": "read_events",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 215,
+      "name": "checkpoint",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 257,
+      "name": "get_checkpoint",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 285,
+      "name": "restore",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/store.py",
+      "line": 291,
+      "name": "close",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/footprints/validation.py",
+      "line": 17,
+      "name": "validate_export",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 86,
+      "name": "lifestyle_effects",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 99,
+      "name": "lifestyle_relief_rates",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 111,
+      "name": "require_location_kinds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 119,
+      "name": "start_activity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 147,
+      "name": "change_activity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 169,
+      "name": "schedule_feedback",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 178,
+      "name": "advance_activity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 198,
+      "name": "advance_activity_shared",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 235,
+      "name": "truncate_activity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 246,
+      "name": "resource_claims",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 253,
+      "name": "active_energy_entries",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 270,
+      "name": "combined_energy_cost",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 281,
+      "name": "maximum_combined_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activities.py",
+      "line": 290,
+      "name": "activity_factors",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activity_evidence.py",
+      "line": 9,
+      "name": "meal_consumption_data",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activity_evidence.py",
+      "line": 31,
+      "name": "dedupe_revealed_cues",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activity_evidence.py",
+      "line": 44,
+      "name": "record_material_reveal",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activity_validation.py",
+      "line": 16,
+      "name": "validate_activity_targets",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/activity_validation.py",
+      "line": 26,
+      "name": "validate_activity_energy",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 64,
+      "name": "purchase_order",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 229,
+      "name": "change_inventory",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 239,
+      "name": "held_quantity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 246,
+      "name": "meal_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 261,
+      "name": "validate_meal_use",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 278,
+      "name": "validate_meal_inventory",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 285,
+      "name": "meal_food_rate",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/basket.py",
+      "line": 294,
+      "name": "apply_meal_progress",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 56,
+      "name": "last_flows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 63,
+      "name": "body_resource_metas",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 114,
+      "name": "interpolate",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 128,
+      "name": "settle_body",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 175,
+      "name": "settle_shared_body",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 227,
+      "name": "shared_energy_cost",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 240,
+      "name": "maximum_shared_energy_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 255,
+      "name": "apply_food",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 277,
+      "name": "minimum_energy_cost",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 285,
+      "name": "maximum_energy_duration_seconds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 309,
+      "name": "felt_values",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 320,
+      "name": "felt_levels",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 327,
+      "name": "body_observation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 352,
+      "name": "apply_social_ledger",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 358,
+      "name": "apply_mood_pulse",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 365,
+      "name": "apply_discomfort_pulse",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 374,
+      "name": "decay_mood",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 381,
+      "name": "initial_body",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 401,
+      "name": "next_body_boundary_seconds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/body.py",
+      "line": 422,
+      "name": "next_shared_body_boundary_seconds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 105,
+      "name": "fixed_point",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 129,
+      "name": "from_config",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 223,
+      "name": "as_row",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 237,
+      "name": "order_key",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 247,
+      "name": "as_row",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 280,
+      "name": "recall",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 301,
+      "name": "generate_candidates",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 321,
+      "name": "filter_candidates",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 336,
+      "name": "source_counts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 345,
+      "name": "exclusion_counts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/candidates.py",
+      "line": 353,
+      "name": "cursor_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 36,
+      "name": "match",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 54,
+      "name": "require_runtime_rule",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 70,
+      "name": "optional_defined_rule",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 86,
+      "name": "require_item_rules",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 102,
+      "name": "match_rows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/category_contract.py",
+      "line": 115,
+      "name": "admit_reachable_categories",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/commerce.py",
+      "line": 9,
+      "name": "deliver_order",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/commerce.py",
+      "line": 29,
+      "name": "held_quantity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 44,
+      "name": "load_lifestyle_items",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 92,
+      "name": "load_content_titles",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 128,
+      "name": "load_subtitles",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 148,
+      "name": "reveal_watch",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 173,
+      "name": "reveal_mail",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/content.py",
+      "line": 189,
+      "name": "mail_headers",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/decision_start.py",
+      "line": 31,
+      "name": "defer_decision_starts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/decision_start.py",
+      "line": 50,
+      "name": "pop_decision_start",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/decision_start.py",
+      "line": 64,
+      "name": "flush_decision_starts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/decision_start.py",
+      "line": 70,
+      "name": "maybe_decision_statement_start",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/dining.py",
+      "line": 8,
+      "name": "local_food_summary",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "line": 22,
+      "name": "place_row",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "line": 38,
+      "name": "supply_row",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "line": 75,
+      "name": "route_row",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "line": 95,
+      "name": "range_status",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/discovery.py",
+      "line": 104,
+      "name": "stage_visible_supplies",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 230,
+      "name": "create",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 250,
+      "name": "open",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 259,
+      "name": "observe",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 269,
+      "name": "begin_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 289,
+      "name": "submit_action",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 302,
+      "name": "prepare_pending_work_review",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 409,
+      "name": "commit_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 462,
+      "name": "abort_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 486,
+      "name": "scheduling_state",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 505,
+      "name": "record_model_exchange",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 549,
+      "name": "record_memory_update",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 577,
+      "name": "advance",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 608,
+      "name": "fail_run",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 620,
+      "name": "apply_counterfactual",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 679,
+      "name": "checkpoint",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 694,
+      "name": "close",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 772,
+      "name": "recovery_kinds",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/engine.py",
+      "line": 776,
+      "name": "meal_windows_by_agent",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 127,
+      "name": "validate_windows",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 183,
+      "name": "appetite_circadian_multiplier",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 194,
+      "name": "meal_window_bonus",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 207,
+      "name": "compute_appetite",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 232,
+      "name": "appetite_level",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 237,
+      "name": "sleepiness_level",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 242,
+      "name": "entertainment_need_level",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 247,
+      "name": "social_need_level",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 252,
+      "name": "mood_level",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 257,
+      "name": "summarize_felt_levels",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 274,
+      "name": "apply_social_need_ledger",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 293,
+      "name": "normalize_neuroticism",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 304,
+      "name": "mood_halflife_minutes",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 311,
+      "name": "apply_mood_pulse",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 326,
+      "name": "discomfort_pulse",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 335,
+      "name": "decay_mood_valence",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/felt.py",
+      "line": 346,
+      "name": "changed_felt_levels",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/game.py",
+      "line": 18,
+      "name": "validate_game",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/interaction_menu.py",
+      "line": 27,
+      "name": "validate_declaration",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/interaction_menu.py",
+      "line": 36,
+      "name": "resolve_interaction_menu",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/interaction_menu.py",
+      "line": 61,
+      "name": "menu_allows_action",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/inventory_recipe.py",
+      "line": 40,
+      "name": "payload",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/inventory_recipe.py",
+      "line": 53,
+      "name": "from_payload",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/inventory_recipe.py",
+      "line": 69,
+      "name": "prepare_inventory_recipe",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/inventory_recipe.py",
+      "line": 98,
+      "name": "apply_inventory_recipe",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_data.py",
+      "line": 18,
+      "name": "load_map_dataset",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_data.py",
+      "line": 63,
+      "name": "validate_map_dataset",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_data.py",
+      "line": 146,
+      "name": "select_map",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 17,
+      "name": "reject",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 23,
+      "name": "require_aware",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 41,
+      "name": "validate_source",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 59,
+      "name": "validate_temporal",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 80,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 94,
+      "name": "validate_calendar",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 128,
+      "name": "validate_declarations",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 161,
+      "name": "validate_location",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 189,
+      "name": "validate_supply",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 201,
+      "name": "validate_names",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 207,
+      "name": "validate_price_versions",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 238,
+      "name": "validate_route",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/map_models.py",
+      "line": 302,
+      "name": "validate_dataset",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/menu_execution.py",
+      "line": 9,
+      "name": "require_interaction_menu",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 75,
+      "name": "validate_sources",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 269,
+      "name": "validate_session",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 386,
+      "name": "validate_lifecycle",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 472,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 522,
+      "name": "validate_world",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 555,
+      "name": "paused_activities",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 670,
+      "name": "validate_target",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 693,
+      "name": "validate_speed",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 764,
+      "name": "validate_goal_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 784,
+      "name": "validate_goals",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 820,
+      "name": "validate_text",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 871,
+      "name": "validate_summary_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 902,
+      "name": "validate_summary_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 920,
+      "name": "validate_summary_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 938,
+      "name": "validate_summary_length",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 976,
+      "name": "rejection_reason_text",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/models.py",
+      "line": 1014,
+      "name": "deepseek_strict_schema",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 112,
+      "name": "meal_repeat_weight",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 141,
+      "name": "scale_of",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 153,
+      "name": "load_motivation_transforms",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 197,
+      "name": "prospect_value",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 212,
+      "name": "classify_action_event",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 222,
+      "name": "habit_shares",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 324,
+      "name": "to_hint",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 340,
+      "name": "evaluate_motivation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/motivation.py",
+      "line": 488,
+      "name": "beta_discount",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 139,
+      "name": "count_hanzi",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 303,
+      "name": "render_scene",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 349,
+      "name": "render_drive_summary",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 384,
+      "name": "enforce_budgets",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 408,
+      "name": "validate_decision_statement",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 476,
+      "name": "enforce_field_blacklist",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 492,
+      "name": "render_facts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/narration.py",
+      "line": 506,
+      "name": "compose_user_message",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/opening_hours.py",
+      "line": 14,
+      "name": "quote_at",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/opening_hours.py",
+      "line": 19,
+      "name": "opening_status",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/opening_hours.py",
+      "line": 38,
+      "name": "next_opening_change",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 95,
+      "name": "as_candidate",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 145,
+      "name": "location_views",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 152,
+      "name": "current_location",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 157,
+      "name": "local_hour",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 182,
+      "name": "subtype_of",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 219,
+      "name": "rotate_window",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 317,
+      "name": "cursor_offset",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 346,
+      "name": "present",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 453,
+      "name": "entry_sources",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/presentation.py",
+      "line": 472,
+      "name": "candidate_inputs",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 57,
+      "name": "hour_of_day",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 63,
+      "name": "local_datetime",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 70,
+      "name": "visible_supplies",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 79,
+      "name": "other_presences",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 94,
+      "name": "people_here_views",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 100,
+      "name": "body_projection",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 110,
+      "name": "felt_values",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 121,
+      "name": "new_material_ranges",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 141,
+      "name": "drive_summary",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/projection.py",
+      "line": 166,
+      "name": "build_observation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/result_projection.py",
+      "line": 34,
+      "name": "public_action_result",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/result_projection.py",
+      "line": 83,
+      "name": "public_supply_row",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 78,
+      "name": "partition",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 86,
+      "name": "missing_dimensions",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 97,
+      "name": "facet_values",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 106,
+      "name": "as_row",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 140,
+      "name": "duration_bucket",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 156,
+      "name": "genre_values",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 164,
+      "name": "entry_from_content",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 183,
+      "name": "build_index",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 223,
+      "name": "place_kinds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 249,
+      "name": "item_kinds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 276,
+      "name": "indexed_ids",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 298,
+      "name": "search",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 312,
+      "name": "facet_counts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 330,
+      "name": "feasible_kinds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 351,
+      "name": "reachable",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/retrieval.py",
+      "line": 363,
+      "name": "reachability_report",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rhythm.py",
+      "line": 92,
+      "name": "apply_decision_rhythm",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rhythm.py",
+      "line": 135,
+      "name": "next_decision_candidates",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rhythm.py",
+      "line": 530,
+      "name": "local_hour",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rhythm.py",
+      "line": 536,
+      "name": "engine_rhythm_inputs",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rhythm.py",
+      "line": 554,
+      "name": "apply_engine_rhythm",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 96,
+      "name": "is_stale",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 130,
+      "name": "rotation_quota_slots",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 194,
+      "name": "rotation_cursor_after",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 209,
+      "name": "rotation_indices",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 217,
+      "name": "rotation_worst_case_wait_days",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 240,
+      "name": "quota_slots_for_target_wait",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 260,
+      "name": "quota_ratio_for_target_wait",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 276,
+      "name": "wait_bound_finding",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 315,
+      "name": "subtype_capacity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 360,
+      "name": "subtype_cap_counts",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rotation.py",
+      "line": 372,
+      "name": "rotate_candidates",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 45,
+      "name": "validate_start",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 94,
+      "name": "validate_activity_location",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 104,
+      "name": "product",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 110,
+      "name": "task",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 116,
+      "name": "content",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 122,
+      "name": "game",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/rules.py",
+      "line": 128,
+      "name": "cues",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/run_identity.py",
+      "line": 11,
+      "name": "category_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/run_identity.py",
+      "line": 22,
+      "name": "require_category_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/run_identity.py",
+      "line": 29,
+      "name": "open_category_validated_store",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 80,
+      "name": "validate_body",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 134,
+      "name": "validate_profile",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 221,
+      "name": "validate_traits",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 284,
+      "name": "validate_product",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 330,
+      "name": "validate_dates",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 352,
+      "name": "validate_time",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 384,
+      "name": "validate_audio",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 415,
+      "name": "validate_dates",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 466,
+      "name": "validate_price_source",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 484,
+      "name": "validate_release_source",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 568,
+      "name": "validate_document",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 705,
+      "name": "validate_scenario",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 913,
+      "name": "sha256_file",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 918,
+      "name": "parse_scenario_document",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/scenario.py",
+      "line": 939,
+      "name": "load_scenario",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 107,
+      "name": "day_end_seconds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 222,
+      "name": "initial_day_plan",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 252,
+      "name": "reconsideration_interval",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 258,
+      "name": "evaluate_wake_reasons",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 312,
+      "name": "next_decision_time",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 343,
+      "name": "revise_day_plan",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 355,
+      "name": "progress_day_plan",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 380,
+      "name": "day_plan_expired",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/schedule.py",
+      "line": 394,
+      "name": "expired_plan_agent_ids",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 151,
+      "name": "candidate_constants",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 167,
+      "name": "travel_fare",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 177,
+      "name": "travel_time_factor",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 187,
+      "name": "travel_planned_seconds",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 197,
+      "name": "purchase_pairing",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 201,
+      "name": "purchase_coefficient",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 210,
+      "name": "purchase_amount",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 218,
+      "name": "contract_payment",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 236,
+      "name": "contract_match",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 241,
+      "name": "travel_match",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 267,
+      "name": "load_runtime_scenario",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 290,
+      "name": "resolve_catalog_dir",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/semantics.py",
+      "line": 295,
+      "name": "assemble_semantics",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/settlement.py",
+      "line": 23,
+      "name": "money_ledger",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/settlement.py",
+      "line": 28,
+      "name": "inject_initial_funds",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/settlement.py",
+      "line": 43,
+      "name": "settle_money_transfer",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 77,
+      "name": "sleep_onset_threshold",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 87,
+      "name": "wake_threshold",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 96,
+      "name": "sleepiness",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 104,
+      "name": "sleepiness_grade",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 117,
+      "name": "pressure_after_awake",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 124,
+      "name": "pressure_after_sleep",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 131,
+      "name": "initial_sleep_pressure",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 149,
+      "name": "validate_sleep_need_hours",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 156,
+      "name": "deficit_after_awake",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 170,
+      "name": "deficit_after_sleep",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 191,
+      "name": "validate_efficiency_curve",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 201,
+      "name": "interpolate_efficiency",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 236,
+      "name": "work_efficiency",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/sleep.py",
+      "line": 241,
+      "name": "food_utilization_efficiency",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 193,
+      "name": "can_talk",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 198,
+      "name": "people_here",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 224,
+      "name": "send_message",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 245,
+      "name": "start_chat",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 278,
+      "name": "chat_settlement",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 291,
+      "name": "start_call",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 307,
+      "name": "needs_reply",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 319,
+      "name": "model_reply_request",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 329,
+      "name": "finalize_model_reply",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social.py",
+      "line": 344,
+      "name": "template_reply",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 51,
+      "name": "partner_presence",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 66,
+      "name": "start_chat",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 83,
+      "name": "start_call",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 107,
+      "name": "chat_accepted",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 116,
+      "name": "advance_social",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 140,
+      "name": "advance_social_shared",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/social_actions.py",
+      "line": 181,
+      "name": "social_activity_change",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/state_commit.py",
+      "line": 18,
+      "name": "validated_payload",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/state_commit.py",
+      "line": 34,
+      "name": "commit_state",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/state_commit.py",
+      "line": 46,
+      "name": "flush_presentation",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/state_commit.py",
+      "line": 62,
+      "name": "flush_supply_visibility",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_runtime.py",
+      "line": 39,
+      "name": "record_arrival_access",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 20,
+      "name": "quote_state",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 32,
+      "name": "initial_supply_state",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 41,
+      "name": "current_quote",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 46,
+      "name": "effective_quote",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 55,
+      "name": "changed_quote",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 76,
+      "name": "expected_supply_quotes",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 96,
+      "name": "map_provenance",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/storefront_state.py",
+      "line": 109,
+      "name": "validate_storefront_state",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel.py",
+      "line": 27,
+      "name": "route_for",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel.py",
+      "line": 46,
+      "name": "pay_travel_fare",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel.py",
+      "line": 64,
+      "name": "validate_routes",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel.py",
+      "line": 92,
+      "name": "update_travel",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel.py",
+      "line": 113,
+      "name": "sample_location_track",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/travel_time.py",
+      "line": 25,
+      "name": "factor",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/travel_time.py",
+      "line": 34,
+      "name": "parse_travel_time_profile",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 52,
+      "name": "validate_work_start",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 67,
+      "name": "validate_work_duration",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 75,
+      "name": "load_work_input",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 84,
+      "name": "visible_work_material",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 94,
+      "name": "reveal_work_progress",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 109,
+      "name": "prepare_work_submission",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 128,
+      "name": "settle_work",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 135,
+      "name": "load_work_oracle",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work.py",
+      "line": 175,
+      "name": "work_totals",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 76,
+      "name": "validate_assessment_counts",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 131,
+      "name": "call",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 145,
+      "name": "prepare_work_review",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 165,
+      "name": "prepare_work_review_correction",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 183,
+      "name": "parse_work_review",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 207,
+      "name": "review_matches",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/life/work_review.py",
+      "line": 216,
+      "name": "public_work_review",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/opslog.py",
+      "line": 27,
+      "name": "log",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/opslog.py",
+      "line": 51,
+      "name": "close",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/compile.py",
+      "line": 32,
+      "name": "compile_persona",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/coverage.py",
+      "line": 59,
+      "name": "validate_coverage",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/coverage.py",
+      "line": 89,
+      "name": "require_coverage",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/extractor.py",
+      "line": 112,
+      "name": "resolve_api_key",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/extractor.py",
+      "line": 129,
+      "name": "extract_persona",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/mapper.py",
+      "line": 34,
+      "name": "default_mapping_path",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/mapper.py",
+      "line": 48,
+      "name": "load_mapping_config",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/mapper.py",
+      "line": 82,
+      "name": "map_world_dynamics",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 56,
+      "name": "value_on_grid",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 64,
+      "name": "quantize",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 71,
+      "name": "parse_clock",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 103,
+      "name": "validate_window",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 115,
+      "name": "from_clock_range",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 153,
+      "name": "validate_channels",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 184,
+      "name": "normalize_wraparound",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 225,
+      "name": "validate_order",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 254,
+      "name": "validate_entries",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 291,
+      "name": "validate_hour_grid",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 345,
+      "name": "background_story_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/models.py",
+      "line": 350,
+      "name": "normalized_scores",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/taste.py",
+      "line": 14,
+      "name": "compute_taste_weights",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/textgen.py",
+      "line": 23,
+      "name": "count_hanzi",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/profile/textgen.py",
+      "line": 28,
+      "name": "render_card",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/resources/audit.py",
+      "line": 52,
+      "name": "audit_closed_domain",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/resources/audit.py",
+      "line": 74,
+      "name": "audit_level_flows",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/resources/ledger.py",
+      "line": 47,
+      "name": "anchor_owners",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/resources/ledger.py",
+      "line": 52,
+      "name": "resource_ids",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/resources/ledger.py",
+      "line": 56,
+      "name": "apply",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/resources/ledger.py",
+      "line": 64,
+      "name": "validate_history",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/resources/models.py",
+      "line": 97,
+      "name": "coerce",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 151,
+      "name": "run_world",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 166,
+      "name": "resume_world",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 181,
+      "name": "replay_world",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 332,
+      "name": "two_stage_model_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 433,
+      "name": "runtime_code_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 710,
+      "name": "call",
+      "kind": "method"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 724,
+      "name": "prepare_contact_reply",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 741,
+      "name": "parse_contact_reply",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/runtime.py",
+      "line": 753,
+      "name": "settle_pending_model_replies",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/scheduling/compile.py",
+      "line": 26,
+      "name": "compile_schedule",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/scheduling/compile.py",
+      "line": 124,
+      "name": "datetime_midnight",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/scheduling/effects.py",
+      "line": 28,
+      "name": "apply_scheduled_effect",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/status.py",
+      "line": 16,
+      "name": "write_status",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/status.py",
+      "line": 25,
+      "name": "read_status",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/validation.py",
+      "line": 43,
+      "name": "validate_project",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/validation.py",
+      "line": 82,
+      "name": "validate_two_stage_model_identity",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/validation.py",
+      "line": 128,
+      "name": "validate_persona_coverage",
+      "kind": "function"
+    },
+    {
+      "file": "src/worldmock/validation.py",
+      "line": 172,
+      "name": "build_coverage_targets",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 88,
+      "name": "validate_query_length",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 103,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 118,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 133,
+      "name": "validate_interval",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 148,
+      "name": "validate_ids",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 177,
+      "name": "validate_local_limits",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 207,
+      "name": "validate_memory_count",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 220,
+      "name": "validate_answer_length",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 267,
+      "name": "life_action_tool_names",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 392,
+      "name": "description",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 397,
+      "name": "init_description",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 414,
+      "name": "build_react_tool_schemas",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 562,
+      "name": "build_react_messages",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 580,
+      "name": "prelude_decision_statement_request",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 612,
+      "name": "receive_prelude_decision_statement",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 677,
+      "name": "memory_sleep_boundary",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 685,
+      "name": "prepare_react_loop",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 742,
+      "name": "validate_react_decisions",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 798,
+      "name": "dispatch_react_tool",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 1194,
+      "name": "life_prompt_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 1205,
+      "name": "affordance_registry_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_agent.py",
+      "line": 1214,
+      "name": "life_tool_schema_sha256",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_context.py",
+      "line": 8,
+      "name": "persona_card_text",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_context.py",
+      "line": 25,
+      "name": "decision_statement_content",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 42,
+      "name": "build_context",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 55,
+      "name": "after_step",
+      "kind": "method"
+    },
+    {
+      "file": "custom/agents/life_memory.py",
+      "line": 152,
+      "name": "render_memory_view",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_menu.py",
+      "line": 13,
+      "name": "parse_interaction_menu",
+      "kind": "function"
+    },
+    {
+      "file": "custom/agents/life_menu.py",
+      "line": 31,
+      "name": "menu_action_error",
+      "kind": "function"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 40,
+      "name": "init_description",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 46,
+      "name": "init",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 86,
+      "name": "begin_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 93,
+      "name": "observe",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 97,
+      "name": "submit_action",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 104,
+      "name": "commit_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 113,
+      "name": "abort_decision_round",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 117,
+      "name": "scheduling_state",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 121,
+      "name": "record_model_exchange",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 125,
+      "name": "record_memory_update",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 129,
+      "name": "checkpoint",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 148,
+      "name": "step",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 155,
+      "name": "fail_run",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 159,
+      "name": "apply_counterfactual",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 163,
+      "name": "to_workspace",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 171,
+      "name": "restore",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 185,
+      "name": "from_workspace",
+      "kind": "method"
+    },
+    {
+      "file": "custom/envs/life_env.py",
+      "line": 191,
+      "name": "close",
+      "kind": "method"
+    }
+  ],
+  "passed": false
 }

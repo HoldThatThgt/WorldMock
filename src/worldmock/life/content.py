@@ -45,9 +45,9 @@ def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> t
     """@brief 装载生活活动目录并对照身体 MET 表核对身份闭集（fail-closed）。
 
     观察不再逐条展开生活活动：目录按品类计数进 activity_summary，明细由
-    browse_activities 下钻揭示。items.json 与 activity_met 的 lifestyle 键
-    必须一一对应（多、少、重复都按 IntegrityError 终止），保证 browse 结果
-    与 start_basic_activity("lifestyle:<id>") 的受理闭集一致。
+    呈现窗口揭示。items.json 与 activity_met 的 lifestyle 键
+    必须一一对应（多、少、重复都按 IntegrityError 终止），保证呈现窗口
+    与 start_activity(action="do") 的受理闭集一致。
     """
     payload = json.loads(_safe_file(corpus_root, LIFESTYLE_ITEMS_PATH).read_text(encoding="utf-8"))
     items = payload.get("items") if isinstance(payload, dict) else None

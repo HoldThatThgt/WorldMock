@@ -33,7 +33,7 @@ from worldmock.life.models import (
     CounterfactualIntervention,
     ModelIdentity,
     RunIdentity,
-    StartBasicActivityRequest,
+    StartActivityRequest,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -139,22 +139,19 @@ async def test_open_existing_restores_prior_run(tmp_path) -> None:
 async def test_registered_tool_surface_fails_closed(tmp_path, monkeypatch) -> None:
     """环境或人物侧登记工具面漂移都在 init 时失败，不留给运行中 KeyError。"""
     scenario, _ = load_scenario(_SCENARIO)
-    monkeypatch.setattr(life_env_module, "_REVISION_CONTRACT_TOOLS",
-                        frozenset({"plan_day", "revise_day_plan", "send_message",
-                                   "start_social_activity", "ghost_tool"}))
+    monkeypatch.setattr(life_env_module, "_STABLE_TOOL_SURFACE",
+                        life_env_module._STABLE_TOOL_SURFACE | {"ghost_tool"})
     drifted = LifeEnv(scenario_path=str(_SCENARIO),
                       run_dir=str(tmp_path / "drift-env"),
                       run_identity=_identity(scenario, "drift").model_dump(mode="json"))
-    with pytest.raises(ProtocolError, match="missing revision tools"):
+    with pytest.raises(ProtocolError, match="disagrees with the stable tool surface"):
         await drifted.init(_start(scenario))
     if drifted.engine is not None:
         drifted.engine.close()
 
-    monkeypatch.setattr(life_env_module, "_REVISION_CONTRACT_TOOLS",
-                        frozenset({"plan_day", "revise_day_plan", "send_message",
-                                   "start_social_activity"}))
+    monkeypatch.undo()
     monkeypatch.setattr(life_agent_module, "life_action_tool_names",
-                        lambda: frozenset({"start_basic_activity"}))
+                        lambda: frozenset({"start_activity"}))
     mismatch = LifeEnv(scenario_path=str(_SCENARIO),
                        run_dir=str(tmp_path / "mismatch-env"),
                        run_identity=_identity(scenario, "mismatch").model_dump(mode="json"))
@@ -201,7 +198,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
 
         receipt = await env.submit_action(DirectToolCall(
             contexts[-1], "action-round-1", "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait",
+            StartActivityRequest(activity_type="wait",
                                       planned_duration_seconds=60)))
         assert receipt.action_id == "action-round-1"
         results = await env.commit_decision_round("round-1")
@@ -242,7 +239,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
                 await env.submit_action(DirectToolCall(
                     context, f"action-{round_id}-{context.agent_id}",
                     "start_basic_activity",
-                    StartBasicActivityRequest(activity_type="wait",
+                    StartActivityRequest(activity_type="wait",
                                               planned_duration_seconds=60)))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()

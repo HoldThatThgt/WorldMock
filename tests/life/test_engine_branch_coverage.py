@@ -57,13 +57,11 @@ from worldmock.life.models import (
     ActivityStatus,
     ActionResult,
     ChangeActivityRequest,
-    ChangePlaybackSpeedRequest,
     ConsumeRequest,
     ContinueActivityRequest,
     CounterfactualIntervention,
     CurvePoint,
     deepseek_strict_schema,
-    GameActionRequest,
     MeetingMinutes,
     ModelIdentity,
     PendingAction,
@@ -75,9 +73,8 @@ from worldmock.life.models import (
     RunIdentity,
     SendMessageRequest,
     SetActivityStateRequest,
-    StartBasicActivityRequest,
+    StartActivityRequest,
     StartSocialActivityRequest,
-    StartTargetedActivityRequest,
     SubmitWorkRequest,
     WorldState,
     active_activities,
@@ -130,8 +127,8 @@ def _advance_until_agent_ready(engine, agent_id: int = 1, limit: int = 96) -> No
                 return
             advance_next(engine)
             continue
-        submit_round(engine, {rid: ("start_basic_activity",
-                                    StartBasicActivityRequest(activity_type="wait",
+        submit_round(engine, {rid: ("start_activity",
+                                    StartActivityRequest(activity_type="wait",
                                                               planned_duration_seconds=60))
                               for rid in ready}, f"filler-{index}")
 
@@ -142,8 +139,8 @@ def _act_ready(engine, round_id: str, tool_name: str, request, agent_id: int = 1
     requests = {}
     for rid in ready:
         requests[rid] = (tool_name, request) if rid == agent_id else (
-            "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+            "start_activity",
+            StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
     _, results = submit_round(engine, requests, round_id)
     return next(item for item in results if item.agent_id == agent_id)
 
@@ -409,8 +406,8 @@ def test_activity_lifecycle_validators_reject_disagreements() -> None:
 def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None:
     """活动集合中人物归属未知时世界状态拒绝恢复。"""
     engine = engine_factory()
-    started = _act(engine, "owner-wait", "start_basic_activity",
-                   StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    started = _act(engine, "owner-wait", "start_activity",
+                   StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
     staged = engine.state.model_copy(deep=True)
     staged.activities[started.activity_id] = staged.activities[started.activity_id].model_copy(
         update={"agent_id": 999}, deep=True)
@@ -420,7 +417,6 @@ def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None
 
 def test_travel_target_requires_destination_and_mode() -> None:
     """出行启动必须携带目的地与方式（领域内统一请求模型）。"""
-    from worldmock.life.models import StartActivityRequest
     with pytest.raises(ValidationError, match="required for travel"):
         StartActivityRequest(activity_type="travel", planned_duration_seconds=600)
 
@@ -458,12 +454,6 @@ def test_meeting_minutes_validate_text_direct_call_blank_and_non_blank() -> None
         blank.validate_text()
     healthy = MeetingMinutes(summary="ok", decisions=("d",), action_items=("a",))
     assert healthy.validate_text() is healthy
-
-
-def test_game_command_length_is_capped_by_request_model() -> None:
-    """游戏命令超过 200 字符被请求模型拒绝。"""
-    with pytest.raises(ValidationError, match="exceeds 200 characters"):
-        GameActionRequest(game_session_id="game-1", command="look " * 60)
 
 
 def test_deepseek_strict_schema_rejects_optional_fields() -> None:
@@ -909,8 +899,8 @@ def test_begin_decision_round_rejects_double_open_and_bad_contexts(engine_factor
     ctx = context(engine, "one")
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
-        ctx, "action-one", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        ctx, "action-one", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     with pytest.raises(ProtocolError, match="cannot be started"):
         engine.begin_decision_round([ctx])
     with pytest.raises(ProtocolError, match="cannot be started"):
@@ -931,15 +921,15 @@ def test_same_round_resubmit_is_idempotent_and_parameter_conflict_fails(engine_f
     engine = engine_factory()
     ctx = context(engine, "replay-round")
     engine.begin_decision_round([ctx])
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    call = DirectToolCall(ctx, "same-action", "start_basic_activity", request)
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    call = DirectToolCall(ctx, "same-action", "start_activity", request)
     first = engine.submit_action(call)
     second = engine.submit_action(call)
     assert second == first
     assert len(engine._round.pending_actions) == 1
-    changed = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    changed = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(ctx, "same-action", "start_basic_activity", changed))
+        engine.submit_action(DirectToolCall(ctx, "same-action", "start_activity", changed))
 
 
 async def test_prepare_pending_work_review_rejects_missing_action(engine_factory) -> None:
@@ -948,8 +938,8 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
     ctx = context(engine, "review-missing")
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
-        ctx, "action-review-missing", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        ctx, "action-review-missing", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     with pytest.raises(ProtocolError, match="does not exist"):
         await engine.prepare_pending_work_review("ghost-action")
     # 非工作提交的挂起动作不进入评审（静默返回，不记录评审）。
@@ -970,12 +960,12 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
         _at_task_start(engine)
         stage_day_plan(engine)
     if kind == "wait":
-        request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)
-        tool = "start_basic_activity"
+        request = StartActivityRequest(activity_type="wait", planned_duration_seconds=3600)
+        tool = "start_activity"
     else:
-        request = StartTargetedActivityRequest(activity_type="work",
+        request = StartActivityRequest(activity_type="work",
             target_id=engine.scenario.tasks[0].task_id, planned_duration_seconds=3600, playback_speed=1)
-        tool = "start_targeted_activity"
+        tool = "start_activity"
     started = _act(engine, "busy-work-or-wait", tool, request)
     assert started.status == "in_progress"
     wake_by_mail(engine)
@@ -1003,8 +993,8 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
                 for agent_id in engine.scheduling_state().ready_agent_ids]
     engine.begin_decision_round(contexts)
     engine.submit_action(DirectToolCall(
-        contexts[0], "action-partial", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        contexts[0], "action-partial", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     with pytest.raises(ProtocolError, match="every expected agent"):
         engine.commit_decision_round("partial")
 
@@ -1012,13 +1002,13 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
 def test_abort_decision_round_skips_memory_for_reused_action(engine_factory) -> None:
     """中止轮对重放动作不重复写入幂等记忆。"""
     engine = engine_factory()
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    _act(engine, "abort-first", "start_basic_activity", request)
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    _act(engine, "abort-first", "start_activity", request)
     advance_until_ready(engine)
     ctx = context(engine, "abort-replay")
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(ctx, "action-abort-first",
-                                        "start_basic_activity", request))
+                                        "start_activity", request))
     engine.abort_decision_round("abort-replay", BusinessRuleError("test abort"))
     stored = engine.state.processed_actions["action-abort-first"]
     assert "result" not in stored.model_dump() or stored.result is None or \
@@ -1069,8 +1059,8 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
     with pytest.raises(ProtocolError, match="during an open decision round"):
         engine.advance(900, target)
     engine.submit_action(DirectToolCall(
-        ctx, "action-advance-guard", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)))
+        ctx, "action-advance-guard", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=3600)))
     engine.commit_decision_round("advance-guard")
     with pytest.raises(ProtocolError, match="next scheduling boundary"):
         engine.advance(601, datetime.fromtimestamp(engine.state.current_time + 600, zone))
@@ -1090,8 +1080,8 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
     ctx = context(engine, "boundary-jump")
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
-        ctx, "action-boundary-jump", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)))
+        ctx, "action-boundary-jump", "start_activity",
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=3600)))
     engine.commit_decision_round("boundary-jump")
     now = engine.state.current_time
     next_epoch = engine._next_epoch()
@@ -1205,9 +1195,9 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
         engine.begin_decision_round([versioned])
 
     ctx = context(engine, "call-guards")
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
     with pytest.raises(ProtocolError, match="requires an open decision round"):
-        engine.submit_action(DirectToolCall(ctx, "a-1", "start_basic_activity", request))
+        engine.submit_action(DirectToolCall(ctx, "a-1", "start_activity", request))
     engine.begin_decision_round([ctx])
     with pytest.raises(ProtocolError, match="another decision round"):
         engine.submit_action(DirectToolCall(
@@ -1215,16 +1205,16 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
                             datetime.fromtimestamp(engine.state.current_time,
                                                    ZoneInfo(engine.scenario.timezone)),
                             engine.state.version),
-            "a-2", "start_basic_activity", request))
+            "a-2", "start_activity", request))
     with pytest.raises(ProtocolError, match="does not match its tool"):
-        engine.submit_action(DirectToolCall(ctx, "a-3", "start_basic_activity",
+        engine.submit_action(DirectToolCall(ctx, "a-3", "start_activity",
                                             PurchaseOrderRequest(
                                                 items=(PurchaseItem(supply_id="food-6923644266066",
                                                                    quantity=1, price_version="v1"),),
                                                 fulfillment="delivery", destination_id="home")))
-    engine.submit_action(DirectToolCall(ctx, "a-4", "start_basic_activity", request))
+    engine.submit_action(DirectToolCall(ctx, "a-4", "start_activity", request))
     with pytest.raises(ProtocolError, match="already submitted"):
-        engine.submit_action(DirectToolCall(ctx, "a-5", "start_basic_activity", request))
+        engine.submit_action(DirectToolCall(ctx, "a-5", "start_activity", request))
     with pytest.raises(ProtocolError, match="not open"):
         engine.commit_decision_round("wrong-round-id")
     engine.commit_decision_round("call-guards")
@@ -1288,8 +1278,8 @@ def test_rework_rejection_at_limit_fails_decision_with_review_feedback(engine_fa
 def test_boundary_action_requires_owned_current_activity(engine_factory) -> None:
     """反馈边界上非当前活动身份的控制被拒绝。"""
     engine = engine_factory()
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600)
-    _act(engine, "own-wait", "start_basic_activity", request)
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=3600)
+    _act(engine, "own-wait", "start_activity", request)
     wake_by_mail(engine)
     advance_next(engine)
     wrong_owner = _act(engine, "own-wrong", "set_activity_state",
@@ -1355,79 +1345,11 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
     assert engine.state.pending_events == before.pending_events
 
 
-def test_change_playback_speed_bounds_by_remaining_media(engine_factory) -> None:
-    """调速不越过剩余媒体时长：超速拒绝、可容纳调速生效。"""
-    engine = engine_factory()
-    _act(engine, "speed-plan", "plan_day", _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
-    advance_next(engine)
-    started = _act(engine, "speed-watch", "start_targeted_activity",
-                   StartTargetedActivityRequest(
-                       activity_type="watch", target_id="sintel-en-subtitles",
-                       planned_duration_seconds=1260, playback_speed=0.5))
-    activity_id = started.activity_id
-    advance_next(engine)
-    exceeded = _act(engine, "speed-too-fast", "change_playback_speed",
-                    ChangePlaybackSpeedRequest(activity_id=activity_id, playback_speed=2))
-    assert exceeded.status.value == "rejected"
-    assert exceeded.error_code == "CONTENT_END_EXCEEDED"
-    advance_until_ready(engine)
-    legal = _act(engine, "speed-ok", "change_playback_speed",
-                 ChangePlaybackSpeedRequest(activity_id=activity_id, playback_speed=0.5))
-    assert legal.status.value == "completed"
-    assert engine.state.activities[activity_id].playback_speed == 0.5
-
-
 def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
     """空目标不制造时钟，活动分支所需的精确机会由真实邮件事件提供。"""
     for offset in offsets:
         wake_by_mail(engine, offset=offset)
     return PlanDayRequest(goals=())
-
-
-def test_game_action_guards_activity_session_and_timing(engine_factory) -> None:
-    """无游戏活动、会话不符与未到交互时刻的游戏命令逐项拒绝。"""
-    engine = engine_factory()
-    no_game = _act(engine, "game-none", "game_action",
-                   GameActionRequest(game_session_id="ghost", command="look"))
-    assert no_game.status.value == "rejected"
-    assert no_game.error_code == "GAME_ACTIVITY_NOT_ACTIVE"
-    advance_until_ready(engine)  # 拒绝后的一秒反应边界
-
-    _act(engine, "game-plan", "plan_day", _goals_with_wake_events(engine, (30, 1800, 3600, 5400, 7200)))
-    advance_next(engine)
-    started = _act(engine, "game-start", "start_targeted_activity",
-                   StartTargetedActivityRequest(
-                       activity_type="play_game", target_id="textworld-1201",
-                       planned_duration_seconds=1800, playback_speed=1))
-    activity_id = started.activity_id
-    session_id = engine.state.activities[activity_id].data["game_session_id"]
-    wake_by_mail(engine, offset=1800)
-    advance_next(engine)
-    advance_until_ready(engine)
-    wrong_session = _act(engine, "game-wrong-session", "game_action",
-                         GameActionRequest(game_session_id="ghost-session", command="look"))
-    assert wrong_session.error_code == "GAME_SESSION_NOT_ACTIVE"
-
-
-def test_store_game_outcome_terminal_closes_activity(engine_factory) -> None:
-    """游戏终局把活动置为完成并清空下一交互时刻。"""
-    engine = engine_factory()
-    _act(engine, "terminal-plan", "plan_day", _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
-    advance_next(engine)
-    started = _act(engine, "terminal-game", "start_targeted_activity",
-                   StartTargetedActivityRequest(
-                       activity_type="play_game", target_id="textworld-1201",
-                       planned_duration_seconds=1800, playback_speed=1))
-    activity = engine.state.activities[started.activity_id]
-    agent = engine.state.agents[1]
-    session = agent.game_sessions[activity.data["game_session_id"]]
-    outcome = SimpleNamespace(done=True, progress=session)
-    changed, final_activity = engine._store_game_outcome(
-        engine.state, agent, activity, outcome)
-    assert final_activity.status == ActivityStatus.COMPLETED
-    assert final_activity.boundary_type == "game_terminal"
-    assert final_activity.next_interaction_at is None
-    assert not active_activities(changed, 1)
 
 
 def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
@@ -1523,7 +1445,7 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     requests = {1: ("start_social_activity", StartSocialActivityRequest(
         kind="chat", partner_id="agent:2", duration_minutes=30)),
-        2: ("start_basic_activity", StartBasicActivityRequest(
+        2: ("start_activity", StartActivityRequest(
             activity_type="wait", planned_duration_seconds=60))}
     _, results = submit_round(engine, requests, "chat-start")
     chat = next(item for item in results if item.agent_id == 1)

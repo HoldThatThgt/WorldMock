@@ -27,7 +27,6 @@ from agentsociety2.agent.base import ReactLoopRequest
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
-    GameActionRequest,
     MeetingMinutes,
     REQUEST_MODELS,
     deepseek_strict_schema,
@@ -142,18 +141,11 @@ def _function(tool_name: str) -> dict[str, Any]:
 
 def _set_activity_boundary(data: dict, tool_name: str | None) -> None:
     """为活动控制工具提供与生产观察一致的当前边界。"""
-    kinds = {"set_activity_state": "wait", "continue_activity": "wait",
-             "change_playback_speed": "watch", "game_action": "play_game"}
+    kinds = {"set_activity_state": "wait", "continue_activity": "wait"}
     if tool_name not in kinds:
         _set_new_tool_visibility(data, tool_name)
         return
     activity = {"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "activity_id": "activity", "status": "active", "kind": kinds[tool_name], "data": {}}
-    if tool_name == "game_action":
-        activity["data"] = {"game_session_id": "game"}
-        data["games"] = {"game": {
-            "session_id": "game", "admissible_commands": ["look", "x" * 201],
-            "won": False, "lost": False,
-        }}
     data["active_activities"] = [activity]
 
 
@@ -354,7 +346,6 @@ def test_tuple_request_models_inline_subschemas_without_adapter() -> None:
         ("start_travel", {"planned_duration_seconds": 216, "destination_id": "office"}, False),
         ("set_activity_state", {"activity_id": "activity", "operation": "pause"}, True),
         ("set_activity_state", {"activity_id": "activity", "operation": "change_speed"}, False),
-        ("change_playback_speed", {"activity_id": "activity", "playback_speed": 1.5}, True),
     ],
 )
 def test_split_activity_schema_matches_runtime_model(
@@ -362,7 +353,7 @@ def test_split_activity_schema_matches_runtime_model(
     payload: dict,
     accepted: bool,
 ) -> None:
-    """拆分后的十八个代表输入由服务 Schema 和运行模型作出同一判断。"""
+    """拆分后的十七个代表输入由服务 Schema 和运行模型作出同一判断。"""
     _assert_action_case(tool_name, payload, accepted)
 
 
@@ -393,7 +384,6 @@ def test_submit_work_schema_rejects_blank_minutes(deliverable: dict, accepted: b
         (MemoryReadRequest, "memory_read", {"ids": []}),
         (MemoryReadRequest, "memory_read", {"ids": [f"memory-{index}" for index in range(21)]}),
         (MemorySearchRequest, "memory_search", {"query": "q" * 201, "limit": 1}),
-        (GameActionRequest, "game_action", {"game_session_id": "game", "command": "x" * 201}),
     ],
 )
 def test_provider_array_or_text_limit_gap_remains_a_local_hard_rejection(

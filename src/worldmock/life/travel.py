@@ -12,7 +12,7 @@ from typing import Any
 
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import ActivityState, AgentState, StartActivityRequest, WorldState
+from worldmock.life.models import ActivityStartParams, ActivityState, AgentState, WorldState
 from worldmock.life.scenario import LifeScenario, RouteConfig
 from worldmock.life.settlement import settle_money_transfer
 
@@ -24,7 +24,7 @@ TRACK_SAMPLING_METHOD = "constant_speed_polyline_interpolation"
 TRACK_EARTH_RADIUS_METERS = 6371008.8
 
 
-def route_for(scenario: LifeScenario, origin_id: str, request: StartActivityRequest) -> RouteConfig:
+def route_for(scenario: LifeScenario, origin_id: str, request: ActivityStartParams) -> RouteConfig:
     """@brief 按起点、终点和方式选择唯一冻结路线。
 
     时长合同（计划时长 = 冻结自由流时长 × travel-time 分时系数）由引擎

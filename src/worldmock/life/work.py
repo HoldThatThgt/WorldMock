@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from worldmock.errors import BusinessRuleError, IntegrityError
+from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
 from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, SubmitWorkRequest, WorldState
 from worldmock.life.scenario import RuntimeScenario, WorkTaskConfig
 from worldmock.life.settlement import settle_money_transfer
@@ -50,15 +50,18 @@ class WorkSubmission:
 
 
 def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int) -> None:
-    """@brief 只有已可见、有效期内且技能合格的工作才能开始。"""
+    """@brief 只有已可见、有效期内且技能合格、且在指定地点的工作才能开始。"""
     if task.task_id not in agent.visible_task_ids:
         raise BusinessRuleError("WORK_TASK_NOT_VISIBLE")
     if not _within(task, now):
         raise BusinessRuleError("WORK_TASK_NOT_AVAILABLE")
+    unmet = []
     if agent.skill_levels.get(task.required_skill, 0) < task.minimum_skill:
-        raise BusinessRuleError("WORK_SKILL_INSUFFICIENT")
+        unmet.append("required_skill")
     if agent.location_id != task.required_location_id:
-        raise BusinessRuleError("WORK_LOCATION_REQUIRED")
+        unmet.append("required_location_id")
+    if unmet:
+        raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=unmet)
 
 
 def validate_work_duration(state: WorldState, task: WorkTaskConfig, agent_id: int,

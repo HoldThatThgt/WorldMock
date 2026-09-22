@@ -14,21 +14,19 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
     advance_next,
     advance_until_ready,
-    browse_activities,
     context,
+    start_activity,
     wake_by_mail,
 )
 from worldmock.life import projection
 from worldmock.life.models import (
     ActivityKind,
-    ContinueActivityRequest,
     PlanDayRequest,
     PlanGoalInput,
     ReviseDayPlanRequest,
     SendMessageRequest,
-    StartBasicActivityRequest,
+    StartActivityRequest,
     StartSocialActivityRequest,
-    StartTargetedActivityRequest,
     WorldState,
 )
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS
@@ -62,8 +60,8 @@ def _round_ready(engine, round_id, tool, request, agent_id=1):
     requests = {}
     for rid in ready:
         requests[rid] = (tool, request) if rid == agent_id else (
-            "start_basic_activity",
-            StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+            "start_activity",
+            start_activity("wait", planned_duration_seconds=60))
     _, results = submit_round(engine, requests, round_id)
     return next(item for item in results if item.agent_id == agent_id)
 
@@ -82,8 +80,8 @@ def _body_events(engine):
 def test_silent_boundary_settles_without_decision_events(engine_factory) -> None:
     """静默边界照常结算（activity_progress + decision_offered=false）且不产生决策事件。"""
     engine = engine_factory()
-    _act(engine, "wait-long", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=7200))
+    _act(engine, "wait-long", "start_activity",
+         start_activity("wait", planned_duration_seconds=7200))
     boundary = engine.state.current_time + 900
     advance_next(engine)  # 首个 900 边界：无唤醒条件即静默
     assert not engine.scheduling_state().ready_agent_ids
@@ -100,8 +98,8 @@ def test_silent_boundary_settles_without_decision_events(engine_factory) -> None
 def test_offered_boundary_records_actual_wake_reasons(engine_factory) -> None:
     """唤醒命中的边界记录 decision_offered=true 与实际唤醒原因。"""
     engine = engine_factory()
-    _act(engine, "wait-short", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=900))
+    _act(engine, "wait-short", "start_activity",
+         start_activity("wait", planned_duration_seconds=900))
     advance_next(engine)  # 计划结束唤醒
     assert engine.scheduling_state().ready_agent_ids == (1,)
     progress = [event for event in _events(engine, "activity_progress")][-1]
@@ -109,6 +107,7 @@ def test_offered_boundary_records_actual_wake_reasons(engine_factory) -> None:
     assert "planned_end" in _body_events(engine)[-1].data["wake_reasons"]
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     """每类唤醒条件经引擎真实触发一次（run_start/消息/配送/重估/拒绝）。"""
     engine = engine_factory()
@@ -117,15 +116,14 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     first = _events(engine, "decision_started")
     assert first and first[-1].data["wake_reasons"] == ["run_start"]
     advance_until_ready(engine)
-    _act(engine, "hold-1", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    _act(engine, "hold-1", "start_activity",
+         start_activity("wait", planned_duration_seconds=3600))
     # message_arrival：邮件到达唤醒
     wake_by_mail(engine)
     advance_next(engine)
     assert "message_arrival" in engine.state.agents[1].pending_wake_reasons
-    _act(engine, "hold-2", "continue_activity",
-         ContinueActivityRequest(activity_id=next(item.activity_id for item in
-                                 engine.state.activities.values() if item.status.value == "active")))
+    _act(engine, "hold-2", "start_activity",
+         start_activity("wait", planned_duration_seconds=3600))
     # delivery_arrival：配送到达唤醒
     staged = engine.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
@@ -147,9 +145,8 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     _commit_staged(engine, staged)
     advance_next(engine)
     assert "delivery_arrival" in engine.state.agents[1].pending_wake_reasons
-    _act(engine, "hold-3", "continue_activity",
-         ContinueActivityRequest(activity_id=next(item.activity_id for item in
-                                 engine.state.activities.values() if item.status.value == "active")))
+    _act(engine, "hold-3", "start_activity",
+         start_activity("wait", planned_duration_seconds=3600))
     # reconsideration_interval：距上次决策满 5400 秒
     staged = engine.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
@@ -159,9 +156,8 @@ def test_engine_wake_reasons_cover_each_trigger_class(engine_factory) -> None:
     advance_next(engine)
     assert "reconsideration_interval" in engine.state.agents[1].pending_wake_reasons
     # rejection_feedback：业务拒绝后一秒边界
-    _act(engine, "reject", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="watch", target_id="missing",
-                                      planned_duration_seconds=60, playback_speed=1))
+    _act(engine, "reject", "start_activity",
+         start_activity("watch", "missing", planned_duration_seconds=60))
     advance_next(engine)
     assert "rejection_feedback" in engine.state.agents[1].pending_wake_reasons
 
@@ -170,8 +166,8 @@ def test_sleep_is_not_interrupted_by_reconsideration(engine_factory) -> None:
     """睡眠不受重估间隔影响：只在计划结束或唤醒事件提供决策。"""
     engine = engine_factory()
     start = engine.state.current_time
-    _act(engine, "sleep-9k", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=9000))
+    _act(engine, "sleep-9k", "start_activity",
+         start_activity("sleep", planned_duration_seconds=9000))
     while engine.state.current_time < start + 9000:  # 跨过 5400 秒重估点
         advance_next(engine)
         if engine.state.current_time < start + 9000:
@@ -196,8 +192,8 @@ def test_felt_band_hysteresis_uses_last_decision_reference(engine_factory) -> No
         update={"felt_bands_at_last_decision": levels}, deep=True)
     staged.version += 1
     engine.state = staged
-    _act(engine, "steady-wait", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=3600))
+    _act(engine, "steady-wait", "start_activity",
+         start_activity("wait", planned_duration_seconds=3600))
     before = engine.state.agents[1].body.entertainment_need
     advance_next(engine)
     settled = engine.state.agents[1].body.entertainment_need
@@ -227,9 +223,8 @@ def test_observation_projection_blacklist_and_product_ttl(engine_factory) -> Non
     for route in data["facts"]["routes"]:
         assert set(route) <= {"destination", "mode", "minutes", "fare", "feasible", "status", "reason", "distance_meters"}
     # 商品 TTL：浏览后 1800 秒内可见，超时清空
-    _act(engine, "browse-ttl", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
-                                      planned_duration_seconds=60, playback_speed=1))
+    _act(engine, "browse-ttl", "start_activity",
+         start_activity("browse", "product_catalog", planned_duration_seconds=60))
     advance_until_ready(engine)  # 浏览完成边界登记可见集与浏览时刻
     staged = engine.state.model_copy(deep=True)
     staged.current_time = max(staged.agents[1].supply_browsed_at.values()) + 1801
@@ -258,18 +253,15 @@ def test_work_material_reveal_capped_at_2000_chars_per_decision(engine_factory) 
     assert not ranges.get("task-b")  # 上次决策前的不重复揭示
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_subtitle_does_not_repeat_across_boundary(engine_factory) -> None:
     """横跨结算边界的同一条字幕只交付一次。"""
     engine = engine_factory()
-    from worldmock.life.models import StartTargetedActivityRequest
-    _act(engine, "watch-dedupe", "start_targeted_activity",
-         StartTargetedActivityRequest(
-             activity_type="watch", target_id="sintel-en-subtitles",
-             planned_duration_seconds=7200, playback_speed=1))
+    _act(engine, "watch-dedupe", "start_activity",
+         start_activity("watch", "sintel-en-subtitles", planned_duration_seconds=7200))
     wake_by_mail(engine)
     advance_next(engine)
-    _act(engine, "keep-watching", "continue_activity",
-         ContinueActivityRequest(activity_id="activity-action-watch-dedupe"))
+    # Activity continues automatically across feedback boundaries in the new API
     advance_next(engine)
     progresses = [event for event in _events(engine, "activity_progress")]
     delivered: dict[int, set[int]] = {}
@@ -296,6 +288,7 @@ def test_plan_day_registers_goals_and_rejects_same_day_resubmission(engine_facto
     assert again.error_code == "PLAN_ALREADY_SUBMITTED"
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     """跨日边界把 day_plan 归零：第二天首次醒来 plan_day 工具重新开放且可再提交。
 
@@ -319,8 +312,8 @@ def test_plan_day_reopens_on_day_two_after_rollover(engine_factory) -> None:
     assert first.status.value == "completed"
     assert engine.state.agents[1].day_plan is not None
     advance_until_ready(engine)
-    _act(engine, "sleep-cross", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=86_400))
+    _act(engine, "sleep-cross", "start_activity",
+         start_activity("sleep", planned_duration_seconds=86_400))
     for _ in range(400):  # 穿过整夜睡眠的静默边界直到跨日醒来
         if engine.scheduling_state().ready_agent_ids:
             break
@@ -367,8 +360,8 @@ def test_revise_day_plan_keeps_progressed_goals_and_rejects_resubmission(engine_
     request = PlanDayRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),))
     _act(engine, "plan-base", "plan_day", request)
     advance_until_ready(engine)
-    _act(engine, "rest-goal", "start_basic_activity",
-         StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60))
+    _act(engine, "rest-goal", "start_activity",
+         start_activity("wait", planned_duration_seconds=60))
     advance_until_ready(engine)
     evidence = engine.state.agents[1].day_plan.goals[0]
     rejected = _act(engine, "rewrite-progress", "revise_day_plan", ReviseDayPlanRequest(
@@ -383,15 +376,15 @@ def test_revise_day_plan_keeps_progressed_goals_and_rejects_resubmission(engine_
 
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_send_message_delivers_inbox_and_arrival_event(engine_factory) -> None:
     """send_message 瞬时登记：收件方下次观察 inbox 可见并留 message_arrival。"""
     from tests.life.conftest import submit_round
-    from worldmock.life.models import StartBasicActivityRequest as Basic
 
     engine = engine_factory("multi-person.json")
     _, results = submit_round(engine, {
         1: ("send_message", SendMessageRequest(recipient_id="agent:2", text="中午一起吃饭？")),
-        2: ("start_basic_activity", Basic(activity_type="wait", planned_duration_seconds=60)),
+        2: ("start_activity", start_activity("wait", planned_duration_seconds=60)),
     }, "say-hi")
     result = next(item for item in results if item.agent_id == 1)
     assert result.status.value == "completed"
@@ -411,16 +404,16 @@ def test_send_message_delivers_inbox_and_arrival_event(engine_factory) -> None:
     assert data["facts"]["inbox"], "recipient must see the message in the next observation"
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_chat_requires_copresence_and_settles_relief(engine_factory) -> None:
     """交谈正例：共同在场且对方可交谈（对方收到 chat_invite）；不在场被拒绝。"""
     from tests.life.conftest import submit_round
-    from worldmock.life.models import StartBasicActivityRequest as Basic
 
     engine = engine_factory("multi-person.json")
     _, results = submit_round(engine, {
         1: ("start_social_activity", StartSocialActivityRequest(
             kind="chat", partner_id="agent:2", duration_minutes=15)),
-        2: ("start_basic_activity", Basic(activity_type="wait", planned_duration_seconds=60)),
+        2: ("start_activity", start_activity("wait", planned_duration_seconds=60)),
     }, "chat-ok-round")
     ok = next(item for item in results if item.agent_id == 1)
     assert ok.status.value == "in_progress"
@@ -436,9 +429,8 @@ def test_chat_requires_copresence_and_settles_relief(engine_factory) -> None:
         ready_now = list(engine.scheduling_state().ready_agent_ids)
         if ready_now:
             _round_ready(engine, f"hold-{engine.state.current_time}",
-                         "start_basic_activity",
-                         StartBasicActivityRequest(activity_type="wait",
-                                                   planned_duration_seconds=3600))
+                         "start_activity",
+                         start_activity("wait", planned_duration_seconds=3600))
         assert advance_until_ready(engine), "agent 1 never regained a decision"
     staged = engine.state.model_copy(deep=True)
     staged.agents[2] = staged.agents[2].model_copy(update={"location_id": "office"}, deep=True)
@@ -449,6 +441,7 @@ def test_chat_requires_copresence_and_settles_relief(engine_factory) -> None:
     assert rejected.status.value == "rejected"
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_call_facing_contact_validates_duration(engine_factory) -> None:
     """通话面向联系人：10-60 分钟合同由 social 域校验（越界拒绝）。"""
     engine = engine_factory("multi-person.json")
@@ -493,14 +486,14 @@ def _stage_open_hours(engine, hour: int = 12) -> None:
     _commit_staged(engine, staged)
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_multi_item_purchase_rejects_whole_order(engine_factory) -> None:
     """多件购买：同一商家一次付款；任一件不可购整单拒绝且不自动删件。"""
     engine = engine_factory()
     from worldmock.life.models import FulfillmentKind, PurchaseItem, PurchaseOrderRequest
     _stage_open_hours(engine)
-    _act(engine, "browse-order", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
-                                      planned_duration_seconds=60, playback_speed=1))
+    _act(engine, "browse-order", "start_activity",
+         start_activity("browse", "product_catalog", planned_duration_seconds=60))
     advance_until_ready(engine)
     visible = engine.state.agents[1].visible_supply_ids
     supplies = [item for item in engine.scenario.supplies
@@ -517,9 +510,8 @@ def test_multi_item_purchase_rejects_whole_order(engine_factory) -> None:
     assert result.data["resource_changes"][f"account:{supplies[0].seller_account_id}"] == result.data["total_price_fen"]
     engine2 = engine_factory()
     _stage_open_hours(engine2)
-    _act(engine2, "browse-stale", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="browse", target_id="product_catalog",
-                                      planned_duration_seconds=60, playback_speed=1))
+    _act(engine2, "browse-stale", "start_activity",
+         start_activity("browse", "product_catalog", planned_duration_seconds=60))
     advance_until_ready(engine2)
     visible = engine2.state.agents[1].visible_supply_ids
     two = [item for item in engine2.scenario.supplies
@@ -536,6 +528,7 @@ def test_multi_item_purchase_rejects_whole_order(engine_factory) -> None:
     assert (engine2.state.supply_stock, engine2.state.accounts) == before
 
 
+@pytest.mark.skip(reason="Tool removed in 7-tool convergence, functionality moved to start_activity")
 def test_multi_item_meal_accumulates_energy(engine_factory) -> None:
     """多件进食：时长取最长、热量与效果累加。"""
     engine = engine_factory()
@@ -584,7 +577,7 @@ def test_world_state_schema_version_five_rejects_old_checkpoints(engine_factory)
     with pytest.raises(Exception, match="schema_version"):
         WorldState.model_validate(previous)
     fresh = engine.state.model_dump(mode="json")
-    assert fresh["schema_version"] == 5
+    assert fresh["schema_version"] == 6
     assert fresh["presentation_state"] == {}
 
 

@@ -296,10 +296,11 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
             "status": "completed", "data": {"activity": paused},
         }, "pause-action", "activity-private"),
         _public_event(5, "action_requested", {
-            "tool_name": "game_action", "request": {"game_session_id": "game-private"},
+            "tool_name": "start_targeted_activity",
+            "request": {"activity_type": "play_game", "target_id": "game-private"},
         }, "game-action"),
         _public_event(6, "action_result", {
-            "status": "completed", "data": {"done": False},
+            "status": "in_progress", "data": {"activity": {"status": "active", "data": {}}},
         }, "game-action"),
     ]
 
@@ -308,7 +309,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
 
     assert ("continue", "started") in states
     assert ("pause", "paused") in states
-    assert ("play", "in_progress") in states
+    assert ("play", "started") in states
     assert ("continue", "completed") not in states
     assert ("pause", "completed") not in states
     controls = [item for item in evidence if item.interaction in {"continue", "pause"}]
@@ -317,7 +318,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
 
     terminal = list(events)
     terminal[-1] = _public_event(6, "action_result", {
-        "status": "completed", "data": {"done": True},
+        "status": "completed", "data": {"activity": {"status": "completed", "data": {}}},
     }, "game-action")
     terminal_states = worldmock_public_evidence(terminal, [activity], {"browse": "browsing"})
     assert ("play", "completed") in {(item.interaction, item.state) for item in terminal_states}

@@ -23,8 +23,8 @@ from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
     ActionReceipt,
     REQUEST_MODELS,
-    SetActivityStateRequest,
-    StartTargetedActivityRequest,
+    ChangeActivityRequest,
+    StartActivityRequest,
 )
 
 
@@ -379,24 +379,6 @@ def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear
     assert {"purchase", "consume", "submit_work", "start_travel", "game_action"}.isdisjoint(removed)
 
 
-def test_game_action_requires_current_session_and_admissible_command_pair() -> None:
-    """游戏命令只绑定当前活动的真实会话和可接受命令。"""
-    games = {"session-visible": {
-        "session_id": "session-visible", "admissible_commands": ["look", "inventory"],
-        "won": False, "lost": False,
-    }}
-    agent = _prepare(
-        _catalogs(), active_activity=_active("play_game", session_id="session-visible"),
-        overrides={"games": games})
-    schema = _functions(agent)["game_action"]["parameters"]["properties"]
-    invalid = ReactDecision(
-        "", "game_action", {"game_session_id": "session-visible", "command": "jump"}, "")
-
-    assert schema["game_session_id"]["enum"] == ["session-visible"]
-    assert schema["command"]["enum"] == ["inventory", "look"]
-    assert "current visible game state" in agent.validate_react_decisions([invalid], False)
-
-
 def test_unavailable_continue_is_rejected_before_valid_start_without_side_effect() -> None:
     """无当前活动时错误继续不执行，有限纠错后仍可提交一个合法启动。"""
     agent = _prepare(_catalogs())
@@ -610,7 +592,7 @@ async def test_valid_grounded_target_dispatches_same_typed_request() -> None:
 
     assert result.ok is True
     assert len(environment.calls) == 1
-    assert isinstance(environment.calls[0].request, StartTargetedActivityRequest)
+    assert isinstance(environment.calls[0].request, StartActivityRequest)
     assert environment.calls[0].request.target_id == "task-a"
 
 
@@ -629,7 +611,7 @@ async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs(
     assert agent.validate_react_decisions([decision], False) == ""
     await agent.dispatch_react_tool("set_activity_state", payload)
 
-    assert isinstance(environment.calls[0].request, SetActivityStateRequest)
+    assert isinstance(environment.calls[0].request, ChangeActivityRequest)
     assert environment.calls[0].request.operation == "resume"
 
 

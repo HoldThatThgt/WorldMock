@@ -55,13 +55,7 @@ from worldmock.life.content import (
     mail_headers,
     reveal_mail,
 )
-from worldmock.life.game import (
-    GameOutcomeUnknown,
-    new_game_session,
-    run_game_command,
-    validate_game,
-    verify_game_progress,
-)
+from worldmock.life.game import validate_game
 from worldmock.life.models import (
     ActivityChange,
     ActivityKind,
@@ -74,7 +68,6 @@ from worldmock.life.models import (
     ConsumeRequest,
     ContinueActivityRequest,
     FulfillmentKind,
-    GameProgress,
     PurchaseItem,
     PurchaseOrderRequest,
     StartActivityRequest,
@@ -1364,123 +1357,6 @@ def test_game_path_rejects_escape_and_symlinks(tmp_path) -> None:
     symlinked = escaped.model_copy(update={"game_path": "link.json"})
     with pytest.raises(IntegrityError, match="path is invalid"):
         validate_game(symlinked, tmp_path)
-
-
-class _StubGameState:
-    """@brief TextWorld 公开状态的最小替身（被测对象是 game.py 自身逻辑）。"""
-
-    def __init__(self, commands, moves=0, facts=()):
-        self.admissible_commands = list(commands)
-        self.moves = moves
-        self.score = 0
-        self.won = False
-        self.lost = False
-        self.facts = list(facts)
-
-
-class _StubGameEnv:
-    """@brief 可编程的 TextWorld 环境替身：记录关闭与步进行为。"""
-
-    def __init__(self, state, step_outcomes=None, step_error=None):
-        self._state = state
-        self._step_outcomes = list(step_outcomes or [])
-        self._step_error = step_error
-        self.closed = False
-
-    def reset(self):
-        return self._state
-
-    def step(self, _command):
-        if self._step_error is not None:
-            raise self._step_error
-        return self._step_outcomes.pop(0)
-
-    def close(self):
-        self.closed = True
-
-
-def _game_with_env(monkeypatch, env, root: Path) -> GameConfig:
-    _write(root, "game.json", b"{}")
-    monkeypatch.setattr("worldmock.life.game.textworld.start", lambda *_a, **_k: env)
-    return GameConfig.model_construct(game_id="g", seed=1, game_path="game.json",
-                                      game_sha256="0" * 64, walkthrough_sha256="0" * 64)
-
-
-def test_run_game_command_rejects_terminal_progress(monkeypatch, tmp_path) -> None:
-    """已通关/已失败会话不再接受命令。"""
-    env = _StubGameEnv(_StubGameState(["look"]))
-    config = _game_with_env(monkeypatch, env, tmp_path)
-    progress = GameProgress.model_construct(
-        session_id="s", game_id="g", commands=[], moves=0, score=0, won=True,
-        admissible_commands=("look",), public_state_sha256="0" * 64)
-    with pytest.raises(BusinessRuleError, match="GAME_ALREADY_TERMINAL"):
-        run_game_command(progress, "look", config, tmp_path)
-
-
-def test_run_game_command_rejects_replayed_state_drift(monkeypatch, tmp_path) -> None:
-    """重放哈希与存档不符即完整性错误，且环境被关闭。"""
-    state = _StubGameState(["look"])
-    after = _StubGameState(["look"], moves=1)
-    env = _StubGameEnv(state, step_outcomes=[(after, 0, False)])
-    config = _game_with_env(monkeypatch, env, tmp_path)
-    from worldmock.life.game import _state_hash
-    progress = GameProgress.model_construct(
-        session_id="s", game_id="g", commands=[], moves=0, score=0,
-        admissible_commands=("look",), public_state_sha256="0" * 64)
-    with pytest.raises(IntegrityError, match="replay state hash mismatch"):
-        run_game_command(progress, "look", config, tmp_path)
-    assert env.closed is True
-    good = progress.model_copy(
-        update={"public_state_sha256": _state_hash(state)})
-    outcome = run_game_command(good, "look", config, tmp_path)
-    assert outcome.progress.commands == ["look"]
-
-
-def test_run_game_command_reports_unknown_outcome(monkeypatch, tmp_path) -> None:
-    """引擎已接收但无返回时按结果未知拒绝（不虚构进度）。"""
-    state = _StubGameState(["look"])
-    env = _StubGameEnv(state, step_error=RuntimeError("engine crashed"))
-    config = _game_with_env(monkeypatch, env, tmp_path)
-    from worldmock.life.game import _state_hash
-    progress = GameProgress.model_construct(
-        session_id="s", game_id="g", commands=[], moves=0, score=0,
-        admissible_commands=("look",), public_state_sha256=_state_hash(state))
-    with pytest.raises(GameOutcomeUnknown, match="outcome is unknown"):
-        run_game_command(progress, "look", config, tmp_path)
-
-
-def test_replay_rejects_stale_or_terminal_command_logs(monkeypatch, tmp_path) -> None:
-    """重放校验：存档命令不可接受/终态后仍有命令都拒绝并关闭环境。"""
-    stale_env = _StubGameEnv(_StubGameState(["go east"]))
-    config = _game_with_env(monkeypatch, stale_env, tmp_path)
-    stale = GameProgress.model_construct(
-        session_id="s", game_id="g", commands=["go west"], moves=1, score=0,
-        admissible_commands=("go east",), public_state_sha256="0" * 64)
-    with pytest.raises(IntegrityError, match="no longer admissible"):
-        run_game_command(stale, "go east", config, tmp_path)
-    assert stale_env.closed is True
-
-    mid_terminal = _StubGameEnv(
-        _StubGameState(["a", "b"]),
-        step_outcomes=[(_StubGameState(["b"], moves=1), 0, True)])
-    config = _game_with_env(monkeypatch, mid_terminal, tmp_path)
-    logged = GameProgress.model_construct(
-        session_id="s", game_id="g", commands=["a", "b"], moves=1, score=0,
-        admissible_commands=("a", "b"), public_state_sha256="0" * 64)
-    with pytest.raises(IntegrityError, match="continues after terminal"):
-        run_game_command(logged, "b", config, tmp_path)
-
-
-def test_new_game_session_and_verify_progress_replay(monkeypatch, tmp_path) -> None:
-    """新会话与检查点恢复都从冻结初态重放公开状态。"""
-    state = _StubGameState(["look"], facts=["at start"])
-    env = _StubGameEnv(state)
-    config = _game_with_env(monkeypatch, env, tmp_path)
-    progress = new_game_session("s", config, tmp_path)
-    verify_game_progress(progress, config, tmp_path)
-    drifted = progress.model_copy(update={"moves": 5})
-    with pytest.raises(IntegrityError, match="checkpoint replay disagrees"):
-        verify_game_progress(drifted, config, tmp_path)
 
 
 # ---------------------------------------------------------------------------

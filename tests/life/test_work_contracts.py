@@ -1,5 +1,7 @@
 """工作合同类型、工时上限、资金和多人任务竞争测试。"""
 
+# TODO: ContinueActivityRequest removed - no direct replacement in 7-tool model
+
 from __future__ import annotations
 
 import hashlib
@@ -16,9 +18,8 @@ from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
-    ContinueActivityRequest,
     MeetingMinutes,
-    StartTargetedActivityRequest,
+    StartActivityRequest,
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
@@ -113,11 +114,11 @@ def test_work_start_rejects_skill_location_and_deadline_boundaries(engine_factor
     task = engine.scenario.tasks[0]
     now = int(task.available_at.timestamp())
     agent = engine.state.agents[1].model_copy(update={"visible_task_ids": {task.task_id}}, deep=True)
-    with pytest.raises(BusinessRuleError, match="WORK_LOCATION_REQUIRED"):
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET"):
         validate_work_start(agent, task, now)
     at_office = agent.model_copy(update={"location_id": task.required_location_id}, deep=True)
     unskilled = at_office.model_copy(update={"skill_levels": {task.required_skill: 0.1}}, deep=True)
-    with pytest.raises(BusinessRuleError, match="WORK_SKILL_INSUFFICIENT"):
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET"):
         validate_work_start(unskilled, task, now)
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_AVAILABLE"):
         validate_work_start(at_office, task, int((task.due_at + timedelta(seconds=1)).timestamp()))
@@ -260,11 +261,11 @@ def _shared_round(engine, round_id: str, requests: dict[int, tuple[str, object]]
 
 def _complete_shared_work(engine, task) -> None:
     """让两个人物通过全部实际反馈边界完成同一任务的最大合同工时。"""
-    start = StartTargetedActivityRequest(
+    start = StartActivityRequest(
         activity_type="work", target_id=task.task_id,
         planned_duration_seconds=task.maximum_duration_seconds, playback_speed=1)
-    ready = _shared_round(engine, "shared-work", {1: ("start_targeted_activity", start),
-                                                   2: ("start_targeted_activity", start)})
+    ready = _shared_round(engine, "shared-work", {1: ("start_activity", start),
+                                                   2: ("start_activity", start)})
     engine.commit_decision_round("shared-work")
     feedback = 0
     while any(engine.state.activities[f"activity-shared-work-{agent_id}"].status == "active"

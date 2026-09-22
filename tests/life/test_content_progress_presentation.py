@@ -8,7 +8,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import wake_by_mail, advance_next, browse_activities, context
 from worldmock.life.content import load_subtitles
-from worldmock.life.models import SetActivityStateRequest, StartTargetedActivityRequest
+from worldmock.life.models import SetActivityStateRequest, StartActivityRequest
 from worldmock.life.scenario import load_scenario
 
 NOVEL_ID = "novel-0001"
@@ -68,8 +68,8 @@ def test_started_entry_merges_progress_aligned_with_real_timeline(engine_factory
     engine = engine_factory()
     cues = _novel_cues()
     started = _observed_action(
-        engine, "watch", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="watch", target_id=NOVEL_ID,
+        engine, "watch", "start_activity",
+        StartActivityRequest(activity_type="watch", target_id=NOVEL_ID,
                                      planned_duration_seconds=1800, playback_speed=1))
     assert started.status.value == "in_progress"
     activity_id = started.activity_id
@@ -98,8 +98,8 @@ def test_pause_resume_keeps_content_position(engine_factory) -> None:
     """娱乐活动暂停后恢复，内容位置不丢失：进度跨暂停累积而非重置。"""
     engine = engine_factory()
     activity_id = _observed_action(
-        engine, "watch", "start_targeted_activity",
-        StartTargetedActivityRequest(activity_type="watch", target_id=NOVEL_ID,
+        engine, "watch", "start_activity",
+        StartActivityRequest(activity_type="watch", target_id=NOVEL_ID,
                                      planned_duration_seconds=1800, playback_speed=1)
     ).activity_id
     wake_by_mail(engine)  # t0+900：位置 0->900（邮件唤醒提供决策）

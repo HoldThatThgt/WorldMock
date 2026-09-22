@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import logging
 from dataclasses import dataclass
 from typing import Any
 
-from worldmock.errors import BusinessRuleError
 from worldmock.life.opening_hours import opening_status
 from worldmock.life.storefront_state import current_quote
 
@@ -21,74 +17,6 @@ class DiscoveryContext:
     scenario: Any
     semantics: Any
     agent: Any
-
-
-def discover_places(state, scenario, semantics, agent, request) -> dict:
-    """@brief 保留所有匹配地点，分别解释超范围、不可达、未知和当前不可购买。"""
-    context = DiscoveryContext(state, scenario, semantics, agent)
-    matches = _matching_rows(scenario, request)
-    identity = _cursor_identity(context, request, matches)
-    offset = _cursor_offset(request.cursor, identity, len(matches))
-    limit = semantics.candidate_constants.presentation_limit
-    selected = matches[offset:offset + limit]
-    places = {}
-    for location, supply in selected:
-        if location.location_id not in places:
-            row = place_row(context, location)
-            row["route"] = route_row(context, location.location_id, request.travel_mode)
-            row["range_status"] = range_status(row["route"], request.max_travel_seconds)
-            row["supplies"] = []
-            places[location.location_id] = row
-        if supply is not None:
-            places[location.location_id]["supplies"].append(supply_row(context, supply))
-    next_offset = offset + len(selected)
-    cursor = (json.dumps({"offset": next_offset, "identity": identity}, separators=(",", ":"))
-              if next_offset < len(matches) else None)
-    return {"tool": "discover_places", "query": request.model_dump(mode="json"),
-            "generated_at": state.current_time, "total": len(matches), "returned": len(selected),
-            "returned_places": len(places), "next_cursor": cursor, "places": list(places.values())}
-
-
-def _matching_rows(scenario, request) -> list[tuple]:
-    """@brief 按地点与供给身份展开分页全集，不根据营业、库存或路线状态删除匹配。"""
-    rows = []
-    for location in sorted(scenario.locations, key=lambda item: item.location_id):
-        if request.business_kind is not None and location.business_kind != request.business_kind:
-            continue
-        supplies = sorted((item for item in scenario.supplies if item.location_id == location.location_id
-                          and (request.product_id is None or item.product_id == request.product_id)),
-                         key=lambda item: item.supply_id)
-        if supplies:
-            rows.extend((location, supply) for supply in supplies)
-        elif request.product_id is None:
-            rows.append((location, None))
-    return rows
-
-
-def _cursor_identity(context: DiscoveryContext, request, matches: list[tuple]) -> str:
-    """@brief 游标绑定地图、筛选与起点；世界版本和模拟时间变化不破坏下一页。"""
-    dataset = context.scenario.map_dataset
-    payload = {"dataset_id": dataset.dataset_id, "version": dataset.version,
-               "files": [dataset.locations_file.sha256, dataset.supplies_file.sha256, dataset.routes_file.sha256],
-               "selection": [(place.location_id, supply.supply_id if supply else None) for place, supply in matches],
-               "origin": context.agent.location_id, "query": request.model_dump(mode="json", exclude={"cursor"})}
-    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-
-
-def _cursor_offset(cursor: str | None, identity: str, total: int) -> int:
-    """@brief 拒绝跨地图、跨条件、跨起点或越界游标，不能静默重启第一页。"""
-    if cursor is None:
-        return 0
-    try:
-        data = json.loads(cursor)
-    except (ValueError, TypeError):
-        data = None
-    if (not isinstance(data, dict) or set(data) != {"offset", "identity"} or data["identity"] != identity
-            or isinstance(data["offset"], bool) or not isinstance(data["offset"], int)
-            or not 0 < data["offset"] < total):
-        logging.error("Discovery cursor does not match the frozen query")
-        raise BusinessRuleError("DISCOVERY_CURSOR_INVALID")
-    return data["offset"]
 
 
 def place_row(context: DiscoveryContext, location) -> dict:

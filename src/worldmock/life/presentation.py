@@ -23,9 +23,9 @@
 **两级上限分开**：`candidate_pool_limit` 只进 `total`，`candidate_presentation_limit` 才
 是单次呈现条数上限（docs/dev/SPEC-life-runtime.md「两级上限」）。
 
-**两个观察面共用一条链路**：图鉴下钻（`browse_activities`）与观察投影（`observe`）从同
+**两个观察面共用一条链路**：呈现窗口与观察投影（`observe`）从同
 一组 `*_entries` 装配候选；区别只在是否施加地点、营业、占用这三类当下的可行性事实——
-下钻是目录浏览（菜单级视角），观察是「此刻能不能做」。
+呈现窗口是目录浏览（菜单级视角），观察是「此刻能不能做」。
 
 **禁止向量检索**：本模块与两个纯函数模块都不含 ANN 索引、embedding 或浮点距离比较；检
 索分区键取条目属性，全序由整数排序键给出（docs/dev/SPEC-life-runtime.md「检索」）。

@@ -13,7 +13,7 @@ from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ConsumeItem, ConsumeRequest, PurchaseItem, PurchaseOrderRequest,
-                                   SetActivityStateRequest, StartTravelRequest, StartBasicActivityRequest)
+                                   ChangeActivityRequest, StartActivityRequest)
 
 
 def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path: Path):
@@ -32,7 +32,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
             destination_id=RESTAURANT, travel_mode="walking", planned_duration_seconds=duration))
         _finish(engine, trip.activity_id)
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
-        _, wait = _action(engine, "opening", "start_basic_activity", StartBasicActivityRequest(
+        _, wait = _action(engine, "opening", "start_basic_activity", StartActivityRequest(
             activity_type="wait", planned_duration_seconds=opening - engine.state.current_time))
         _finish(engine, wait.activity_id)
         stock = engine.state.supply_stock[SUPPLY]
@@ -51,7 +51,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
             advance_next(engine)
         eaten = engine.state.activities[meal.activity_id].data["consumed"][MEAL]
         assert 0 < eaten < 1
-        _action(engine, "pause", "set_activity_state", SetActivityStateRequest(
+        _action(engine, "pause", "change_activity", ChangeActivityRequest(
             activity_id=meal.activity_id, operation="pause"))
         wake = wake_by_mail(engine, offset=60)
         snapshot = engine.state.model_dump(mode="json")
@@ -66,7 +66,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         while engine.state.current_time < wake:
             advance_next(engine)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == eaten
-        _action(engine, "resume", "set_activity_state", SetActivityStateRequest(
+        _action(engine, "resume", "change_activity", ChangeActivityRequest(
             activity_id=meal.activity_id, operation="resume"))
         _finish(engine, meal.activity_id)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == 1

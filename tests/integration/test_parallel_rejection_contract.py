@@ -6,20 +6,18 @@ import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
-from custom.agents.life_activity_controls import start_resource_error
 from custom.agents.life_menu import menu_action_error
-from worldmock.life.interaction_menu import (InteractionMenu, PROTECTED_ACTIVITY_KINDS,
-                                             PROTECTED_INTERACTION_TOOLS)
-from worldmock.life.models import StartBasicActivityRequest, StartParallelActivitiesRequest, StartTargetedActivityRequest
+from worldmock.life.interaction_menu import InteractionMenu
+from worldmock.life.models import StartActivityRequest, StartParallelActivitiesRequest
 
 
 def _watch():
-    return StartTargetedActivityRequest(activity_type="watch", target_id="visible-podcast",
+    return StartActivityRequest(activity_type="watch", target_id="visible-podcast",
                                         planned_duration_seconds=120, playback_speed=1)
 
 
 def _wait():
-    return StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    return StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
 
 
 @pytest.mark.parametrize("resource", ["attention", "device"])

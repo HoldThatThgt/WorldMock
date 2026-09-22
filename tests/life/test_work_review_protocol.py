@@ -22,7 +22,7 @@ from worldmock.errors import ProtocolError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import StartBasicActivityRequest
+from worldmock.life.models import StartActivityRequest
 
 
 class SequenceReviewer:
@@ -307,8 +307,8 @@ def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dic
     ctx = context(engine, "review-export-end")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    engine.submit_action(DirectToolCall(ctx, "review-export-wait", "start_basic_activity", request))
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    engine.submit_action(DirectToolCall(ctx, "review-export-wait", "start_activity", request))
     engine.commit_decision_round("review-export-end")
     advance_next(engine)
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "review_protocol_export"})

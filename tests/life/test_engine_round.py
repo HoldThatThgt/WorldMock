@@ -13,9 +13,7 @@ from agentsociety2.agent.base import ModelCallEvidence
 from tests.life.conftest import advance_next, advance_until_ready, context, submit_round, travel_quote
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
-    StartTravelRequest,
+    StartActivityRequest,
     TravelMode,
 )
 
@@ -26,8 +24,9 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
     ctx = context(engine, "one")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    receipt = engine.submit_action(DirectToolCall(ctx, "wait-one", "start_basic_activity", request))
+    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    receipt = engine.submit_action(DirectToolCall(ctx, "wait-one", "start_activity", request))
     result = engine.commit_decision_round("one")[0]
     while engine.scheduling_state().next_event_at is not None:
         if engine.scheduling_state().ready_agent_ids:
@@ -47,9 +46,10 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     """业务拒绝仍进入同轮结果，但不建立活动。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_targeted_activity", StartTargetedActivityRequest(
-            activity_type="watch", target_id="missing-content",
-            planned_duration_seconds=60, playback_speed=1))}, "missing-content")
+        engine, {1: ("start_activity", StartActivityRequest(
+            targets=["missing-content"], action="watch",
+            planned_duration_seconds=60, destination_id=None,
+            travel_mode=None, text=None, summary=None))}, "missing-content")
     assert results[0].status == "rejected"
     assert results[0].error_code == "CONTENT_NOT_FOUND"
     assert engine.state.activities == {}
@@ -60,24 +60,26 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
 def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) -> None:
     """同参数 action_id 不重复产生副作用，参数冲突作为协议故障。"""
     engine = engine_factory()
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
     ctx = context(engine, "first")
     engine.begin_decision_round([ctx])
-    engine.submit_action(DirectToolCall(ctx, "stable-action", "start_basic_activity", request))
+    engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", request))
     engine.commit_decision_round("first")
     advance_until_ready(engine)  # 计划结束唤醒后重放
     ctx = context(engine, "replay")
     engine.begin_decision_round([ctx])
-    engine.submit_action(DirectToolCall(ctx, "stable-action", "start_basic_activity", request))
+    engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
     assert list(engine.state.activities) == ["activity-stable-action"]
     advance_until_ready(engine)
     ctx = context(engine, "conflict")
     engine.begin_decision_round([ctx])
-    changed = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    changed = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=120,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
     with pytest.raises(ProtocolError, match="different parameters"):
-        engine.submit_action(DirectToolCall(ctx, "stable-action", "start_basic_activity", changed))
+        engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", changed))
     engine.abort_decision_round("conflict", "expected conflict")
 
 
@@ -86,8 +88,9 @@ def test_abort_preserves_unexecuted_life_state_and_stale_context_fails(engine_fa
     engine = engine_factory()
     ctx = context(engine, "abort")
     engine.begin_decision_round([ctx])
-    request = StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=3600)
-    engine.submit_action(DirectToolCall(ctx, "never-run", "start_basic_activity", request))
+    request = StartActivityRequest(targets=[], action="sleep", planned_duration_seconds=3600,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    engine.submit_action(DirectToolCall(ctx, "never-run", "start_activity", request))
     engine.abort_decision_round("abort", "runner failed")
     assert engine.state.activities == {}
     assert engine.state.processed_actions["never-run"].result["status"] == "failed"
@@ -95,7 +98,7 @@ def test_abort_preserves_unexecuted_life_state_and_stale_context_fails(engine_fa
                for event in engine.store.read_events(engine.store.last_event_seq))
     engine.begin_decision_round([context(engine, "fresh")])
     with pytest.raises(ProtocolError, match="stale"):
-        engine.submit_action(DirectToolCall(ctx, "old", "start_basic_activity", request))
+        engine.submit_action(DirectToolCall(ctx, "old", "start_activity", request))
     engine.abort_decision_round("fresh", "cleanup")
 
 
@@ -103,7 +106,8 @@ def test_multi_person_arrival_order_does_not_change_settlement_order(engine_fact
     """人物调用到达顺序颠倒时，结算仍使用 begin 中的共同顺序。"""
     first = engine_factory("multi-person.json")
     second = engine_factory("multi-person.json")
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
     expected_order = first.scheduling_state().ready_agent_ids
     for engine, order in ((first, (2, 1)), (second, (1, 2))):
         contexts = {agent_id: context(engine, "multi", agent_id) for agent_id in (1, 2)}
@@ -112,7 +116,7 @@ def test_multi_person_arrival_order_does_not_change_settlement_order(engine_fact
         engine.begin_decision_round([contexts[agent_id] for agent_id in scheduled])
         for agent_id in order:
             call = DirectToolCall(
-                contexts[agent_id], f"multi-{agent_id}", "start_basic_activity", request)
+                contexts[agent_id], f"multi-{agent_id}", "start_activity", request)
             engine.submit_action(call)
         engine.commit_decision_round("multi")
     first_events = [event.agent_id for event in first.store.read_events(first.store.last_event_seq)
@@ -178,27 +182,31 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
     assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_basic_activity", request))
+    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
+                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))
     engine.commit_decision_round("discover")
 
 
 @pytest.mark.parametrize(
-    ("label", "tool_name", "action_request"),
+    ("label", "action_request"),
     (
-        ("watch", "start_targeted_activity", StartTargetedActivityRequest(
-            activity_type="watch", target_id="sintel-en-subtitles",
-            planned_duration_seconds=60, playback_speed=1)),
-        ("game", "start_targeted_activity", StartTargetedActivityRequest(
-            activity_type="play_game", target_id="textworld-1201",
-            planned_duration_seconds=3600, playback_speed=1)),
-        ("travel", "start_travel", StartTravelRequest(
+        ("watch", StartActivityRequest(
+            targets=["sintel-en-subtitles"], action="watch",
+            planned_duration_seconds=60, destination_id=None,
+            travel_mode=None, text=None, summary=None)),
+        ("game", StartActivityRequest(
+            targets=["textworld-1201"], action="play",
+            planned_duration_seconds=3600, destination_id=None,
+            travel_mode=None, text=None, summary=None)),
+        ("travel", StartActivityRequest(
+            targets=[], action="travel_to", planned_duration_seconds=216,
             destination_id="office", travel_mode=TravelMode.DRIVING,
-            planned_duration_seconds=216)),
+            text=None, summary=None)),
     ),
 )
 def test_first_round_accepts_discovered_content_game_and_route(
-    engine_factory, label, tool_name, action_request,
+    engine_factory, label, action_request,
 ) -> None:
     """首轮目录中的三类身份可以直接进入对应真实领域边界。"""
     engine = engine_factory()
@@ -209,13 +217,14 @@ def test_first_round_accepts_discovered_content_game_and_route(
     ctx = context(engine, f"first-{label}")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    call = DirectToolCall(ctx, f"first-{label}", tool_name, action_request)
+    call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]
     assert result.status == "in_progress"
     activity = engine.state.activities[result.activity_id]
-    assert activity.target_id == getattr(action_request, "target_id", None)
-    assert activity.destination_id == getattr(action_request, "destination_id", None)
+    expected_target = action_request.targets[0] if action_request.targets else None
+    assert activity.target_id == expected_target
+    assert activity.destination_id == action_request.destination_id
 
 
 def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factory) -> None:
@@ -235,9 +244,10 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(ModelCallEvidence(ctx, second, "failure", 1, request,
                                                        error="duplicate terminal"))
-    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    wait = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
+                                destination_id=None, travel_mode=None, text=None, summary=None)
     engine.submit_action(DirectToolCall(
-        ctx, "model-evidence-wait", "start_basic_activity", wait))
+        ctx, "model-evidence-wait", "start_activity", wait))
     engine.commit_decision_round("model-evidence")
     exchanges = [event for event in engine.store.read_events(engine.store.last_event_seq)
                  if event.event_type in {"model_request", "model_response"}]

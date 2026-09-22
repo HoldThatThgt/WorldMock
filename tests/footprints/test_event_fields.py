@@ -21,6 +21,7 @@ _SPEC_WAKE_REASONS = frozenset({
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
+    "progress_report_due",
 })
 
 #: 规格事件类型冻结枚举 14 类（`docs/CONTRACTS.md`「事件类型枚举」逐字）。

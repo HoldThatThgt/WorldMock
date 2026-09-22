@@ -149,63 +149,43 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     return at
 
 
-def browse_activities(engine: LifeEngine, round_id: str, category: str,
-                      agent_id: int = 1) -> list[dict]:
-    """按真实轮次下钻一个活动品类并返回该品类的全量条目（browse 是纯查询动作）。
+def start_activity(action: str, *targets: str, **fields):
+    """构造 start_activity 请求：稳定工具面要求全部字段显式提交，未声明的一律按合同填 null。
 
-    下推按游标逐页进行，因此返回的是全量有序候选而不是首屏；round_id 只用于首屏。
+    action 取 docs/dev/SPEC-agent-interaction.md「交互对象 x 动作表」的动作闭集，
+    targets 是本次会话服务的可见交互对象身份（至多 2 项）。
     """
-    from worldmock.life.models import BrowseActivitiesRequest
+    from worldmock.life.models import StartActivityRequest
 
-    ready = list(engine.scheduling_state().ready_agent_ids)
-    requests = {item: ("browse_activities",
-                       BrowseActivitiesRequest(category=category, cursor=None))
-                for item in ready}
-    _, results = submit_round(engine, requests, round_id)
-    result = next(item for item in results if item.agent_id == agent_id)
-    assert result.status.value == "completed", result.error_code
-    items = list(result.data["items"])
-    cursor = result.data["next_cursor"]
-    step = 0
-    while cursor is not None:
-        if not advance_until_ready(engine):
-            break
-        step += 1
-        ready = list(engine.scheduling_state().ready_agent_ids)
-        requests = {item: ("browse_activities",
-                           BrowseActivitiesRequest(category=category, cursor=cursor))
-                    for item in ready}
-        _, results = submit_round(engine, requests, f"{round_id}-page-{step}")
-        page = next(item for item in results if item.agent_id == agent_id)
-        assert page.status.value == "completed", page.error_code
-        items.extend(page.data["items"])
-        cursor = page.data["next_cursor"]
-    return items
+    payload = {"targets": list(targets), "action": action, "planned_duration_seconds": None,
+               "destination_id": None, "travel_mode": None, "text": None, "quantity": None,
+               "price_version": None, "deliverable": None, "summary": None}
+    payload.update(fields)
+    return StartActivityRequest(**payload)
 
 
-def browse_all(engine: LifeEngine, category: str, agent_id: int = 1,
-               limit: int = 32) -> list[dict]:
-    """以空游标起反复带上一页游标下推，拼出一个品类的全量条目（无重、无漏）。
+def presented_rows(engine: LifeEngine, round_id: str, kind: str, agent_id: int = 1,
+                   rounds: int = 8) -> list[dict]:
+    """累计连续几轮呈现窗口里出现过的某类交互对象行（object_id 去重，保持首见序）。
 
-    游标下推要求每个下一屏落在新的决策位上，因此每次下推前先推进到人物就绪的边界。
+    目录下钻工具已随稳定工具面收敛删除，呈现窗口是内容/游戏/生活活动的唯一可见通道
+    （docs/dev/SPEC-life-runtime.md「曝光轮转」）。轮转游标只在决策轮提交或世界推进时
+    落盘，因此每观察一轮都要真正走完一轮，才能看到下一批身份。
     """
-    from worldmock.life.models import BrowseActivitiesRequest
-
-    items: list[dict] = []
-    cursor = None
-    for step in range(limit):
+    rows: dict[str, dict] = {}
+    for step in range(rounds):
         ready = list(engine.scheduling_state().ready_agent_ids)
-        if agent_id not in ready and step:
+        if agent_id not in ready:
             if not advance_until_ready(engine):
                 break
             ready = list(engine.scheduling_state().ready_agent_ids)
-        requests = {item: ("browse_activities",
-                           BrowseActivitiesRequest(category=category, cursor=cursor))
+            if agent_id not in ready:
+                break
+        data = engine.observe(context(engine, f"{round_id}-{step}", agent_id))
+        for row in data["facts"]["interactive_objects"]:
+            if row["kind"] == kind:
+                rows.setdefault(row["object_id"], row)
+        requests = {item: ("start_activity", start_activity("wait", planned_duration_seconds=60))
                     for item in ready}
-        _, results = submit_round(engine, requests, f"menu-all-{category}-{step}")
-        payload = next(item for item in results if item.agent_id == agent_id).data
-        items.extend(payload["items"])
-        cursor = payload["next_cursor"]
-        if cursor is None:
-            break
-    return items
+        submit_round(engine, requests, f"{round_id}-{step}")
+    return list(rows.values())

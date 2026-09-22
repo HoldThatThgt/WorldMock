@@ -16,7 +16,7 @@ from tests.life.conftest import stage_day_plan
 from worldmock.footprints.models import EventDraft
 from agentsociety2.society import DirectToolCall
 
-from worldmock.life.models import BrowseActivitiesRequest, StartBasicActivityRequest
+from worldmock.life.models import BrowseActivitiesRequest, StartActivityRequest
 
 from .conftest import browse_all, context, submit_round
 
@@ -114,7 +114,7 @@ def test_observe_uses_candidate_contract_and_records_presentation(engine_factory
     assert engine.state.presentation_state == {}
     engine.submit_action(DirectToolCall(
         ctx, "wiring-wait", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
     engine.commit_decision_round("wiring-observe")
     recorded = engine.state.presentation_state.get(1, {})
     assert set(recorded) == set(expected.presented)

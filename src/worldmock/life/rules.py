@@ -5,11 +5,11 @@ from __future__ import annotations
 from pathlib import Path
 import logging
 
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.life.content import SubtitleCue, load_content_titles, load_subtitles
 from worldmock.life.activities import require_location_kinds
 from worldmock.life.retrieval import item_kinds
-from worldmock.life.models import ActivityKind, AgentState, StartActivityRequest
+from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState
 from worldmock.life.scenario import (
     ContentItemConfig,
     GameConfig,
@@ -42,13 +42,23 @@ class LifeRuleEngine:
                           for item in scenario.contents}
         self.content_titles = load_content_titles(scenario.contents, self.corpus_root)
 
-    def validate_start(self, agent: AgentState, request: StartActivityRequest, now: int) -> dict:
-        """@brief 校验活动目标并返回结算所需的冻结身份。"""
+    def validate_start(self, agent: AgentState, request: ActivityStartParams, now: int) -> dict:
+        """@brief 校验活动目标并返回结算所需的冻结身份；位置前置条件附带前往建议。"""
         kind = request.activity_type
         self.validate_activity_location(agent, kind, request.target_id)
         if kind == ActivityKind.WORK:
             task = self.task(request.target_id)
-            validate_work_start(agent, task, now)
+            try:
+                validate_work_start(agent, task, now)
+            except PreconditionError as exc:
+                if "required_location_id" in exc.unmet:
+                    loc = self.locations.get(task.required_location_id)
+                    exc.suggested = {
+                        "action": "travel_to",
+                        "destination_id": task.required_location_id,
+                        "destination_name": loc.name if loc else task.required_location_id,
+                    }
+                raise
             if request.planned_duration_seconds > task.maximum_duration_seconds:
                 raise BusinessRuleError("WORK_DURATION_EXCEEDS_CONTRACT")
             if now + request.planned_duration_seconds > int(task.due_at.timestamp()):

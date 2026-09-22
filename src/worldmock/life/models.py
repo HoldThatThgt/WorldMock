@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import (BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
+from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
 
@@ -17,8 +18,8 @@ from worldmock.life.social import Message
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 #: 世界状态结构版本（docs/dev/SPEC-life-realism.md「产品行为」）：旧检查点缺该字段即拒绝加载。
-#: 版本 5 保存同人活动集合的共同身体时刻与已交付预警，直接拒绝旧检查点。
-WORLD_SCHEMA_VERSION = 5
+#: 版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions 字段，直接拒绝旧检查点。
+WORLD_SCHEMA_VERSION = 6
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -113,9 +114,8 @@ class ActivityKind(StrEnum):
     CALL = "call"
 
 
-#: start_basic_activity 的 activity_type 文本合同：wait/sleep 或 lifestyle:<id>。
+#: 生活活动的 activity_type 文本合同：LIFESTYLE 活动的 target_id 前缀。
 LIFESTYLE_TYPE_PREFIX = "lifestyle:"
-BASIC_ACTIVITY_TYPE_PATTERN = r"^(?:wait|sleep|lifestyle:[a-z0-9][a-z0-9-]*)$"
 
 
 class ActivityStatus(StrEnum):
@@ -218,18 +218,68 @@ class ContentProgress(StrictModel):
     exposure_count: int = Field(ge=0)
 
 
-class GameProgress(StrictModel):
-    """@brief 可通过命令日志重建的游戏进度。"""
+class SessionStatus(StrEnum):
+    """@brief 会话生命周期状态闭集。"""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+    CONCLUDED = "concluded"
+    ABORTED = "aborted"
+
+
+class SessionTaskKind(StrEnum):
+    """@brief 会话关联的任务类型闭集。"""
+
+    GOAL = "goal"
+    WORK_TASK = "work_task"
+    NONE = "none"
+
+
+_TERMINAL_SESSION_STATUSES = frozenset({SessionStatus.CONCLUDED, SessionStatus.ABORTED})
+
+
+class SessionState(StrictModel):
+    """@brief 一个 Task→Session 的完整状态，含时段积累与进展自述。
+
+    :param task_kind: 会话所服务的任务类型；none 时 task_ref 必须为 null。
+    :param task_ref: 关联任务的外部身份；goal/work_task 时必填。
+    :param status: 生命周期状态；终态（concluded/aborted）必须含 ended_at。
+    :param segments: 实际运行的时段列表，每项 [start_epoch, end_epoch]。
+    """
 
     session_id: str = Field(min_length=1)
-    game_id: str = Field(min_length=1)
-    commands: list[str] = Field(default_factory=list)
-    moves: int = Field(ge=0)
-    score: int
-    won: bool = False
-    lost: bool = False
-    admissible_commands: tuple[str, ...] = ()
-    public_state_sha256: str = Field(min_length=64, max_length=64)
+    agent_id: int = Field(gt=0)
+    task_kind: SessionTaskKind
+    task_ref: str | None = None
+    status: SessionStatus
+    started_at: int = Field(ge=0)
+    ended_at: int | None = Field(default=None, ge=0)
+    targets: list[str] = Field(default_factory=list)
+    activity_ids: list[str] = Field(default_factory=list)
+    segments: list[list[int]] = Field(default_factory=list)
+    invested_seconds: int = Field(default=0, ge=0)
+    effective_seconds: float = Field(default=0.0, ge=0.0)
+    remaining_contract_seconds: int | None = Field(default=None, ge=0)
+    preconditions_unmet: list[str] = Field(default_factory=list)
+    progress_note: str = Field(default="", max_length=500)
+    note_updated_at: int | None = Field(default=None, ge=0)
+    note_history: list[dict] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_session(self) -> "SessionState":
+        """@brief 验证任务类型与引用配对、生命周期终态与时间顺序。"""
+        if self.task_kind == SessionTaskKind.NONE and self.task_ref is not None:
+            raise ValueError("task_ref must be null when task_kind is none")
+        if self.task_kind != SessionTaskKind.NONE and self.task_ref is None:
+            raise ValueError("task_ref required for goal and work_task")
+        is_terminal = self.status in _TERMINAL_SESSION_STATUSES
+        if is_terminal and self.ended_at is None:
+            raise ValueError("terminal session must have ended_at")
+        if not is_terminal and self.ended_at is not None:
+            raise ValueError("non-terminal session must not have ended_at")
+        if self.ended_at is not None and self.ended_at < self.started_at:
+            raise ValueError("ended_at must not be before started_at")
+        return self
 
 
 class AgentState(StrictModel):
@@ -253,7 +303,6 @@ class AgentState(StrictModel):
     consecutive_rejections: int = Field(default=0, ge=0)
     decision_failed: bool = False
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
-    game_sessions: dict[str, GameProgress] = Field(default_factory=dict)
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
     visible_task_ids: set[str] = Field(default_factory=set)
@@ -453,6 +502,7 @@ class WorldState(StrictModel):
     supply_quotes: dict[str, SupplyQuoteState | None]
     opening_exceptions: dict[str, dict[str, list[tuple[int, int]]]]
     activities: dict[str, ActivityState] = Field(default_factory=dict)
+    sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
@@ -597,7 +647,7 @@ _TARGETED_ACTIVITY_KINDS = frozenset({
 })
 
 
-class StartActivityRequest(FrozenModel):
+class ActivityStartParams(FrozenModel):
     """@brief 领域内部统一启动一个有时长生活活动。"""
 
     activity_type: ActivityKind
@@ -617,7 +667,7 @@ class StartActivityRequest(FrozenModel):
     playback_speed: float = Field(default=1, ge=0.5, le=2)
 
     @model_validator(mode="after")
-    def validate_target(self) -> "StartActivityRequest":
+    def validate_target(self) -> "ActivityStartParams":
         """@brief 校验不同活动需要的业务目标。"""
         if self.activity_type in _TARGETED_ACTIVITY_KINDS and not self.target_id:
             raise ValueError("target_id is required for the selected activity")
@@ -648,90 +698,6 @@ class ChangeActivityRequest(FrozenModel):
         return self
 
 
-class StartBasicActivityRequest(FrozenModel):
-    """@brief 由模型显式启动等待、睡眠或一种生活活动。
-
-    activity_type 为 "wait"、"sleep" 或 "lifestyle:<activity_id>"（id 取自
-    当前观察暴露的生活活动目录条目）；lifestyle 子类型在引擎层解析为
-    ActivityKind.LIFESTYLE + target_id，MET 走 body 的 lifestyle 键。
-    """
-
-    activity_type: str = Field(pattern=BASIC_ACTIVITY_TYPE_PATTERN)
-    planned_duration_seconds: int = Field(ge=60, le=86_400)
-
-
-class StartTargetedActivityRequest(FrozenModel):
-    """@brief 由模型显式启动需要目标的生活活动。"""
-
-    activity_type: Literal["work", "watch", "play_game", "read_mail", "browse"]
-    planned_duration_seconds: int = Field(ge=60, le=86_400)
-    target_id: str = Field(pattern=r"\S")
-    playback_speed: float = Field(ge=0.5, le=2)
-
-
-def _normalize_cursor(value: str | None) -> str | None:
-    """@brief 首屏游标的可空表示归一：字符串 "null"/"None" 与纯空白同 JSON null 处理。
-
-    模型常把合同要求的首屏 `null` 写成字面文本；它们在请求边界归一为 None，
-    与候选消费点对空串的既有容忍同语义（presentation 首页判定）。其余文本
-    原样放行，载荷合法性由游标解析点负责。
-    """
-    if value is None:
-        return None
-    stripped = value.strip()
-    if not stripped or stripped in ("null", "None"):
-        return None
-    return value
-
-
-class BrowseActivitiesRequest(FrozenModel):
-    """@brief 由模型下钻读取一个活动品类目录（activity_summary 的键）。
-
-    纯查询：不启动活动、不消耗内容、不进 content_progress，条目清单只
-    作为动作反馈（action_result）返回，供下一决策选取具体目标。
-    """
-
-    category: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
-    #: 下一页游标；它是候选与呈现合同里唯一的可空字段——首屏提交 `null`。字段本身在
-    #: strict 合同下必须显式必填（类型可空），因此无缺省值
-    #: （docs/CONTRACTS.md「工具面」的 browse_activities 行）。
-    cursor: str | None = Field()
-
-    @field_validator("cursor", mode="after")
-    @classmethod
-    def _cursor_null_literals_mean_first_page(cls, value: str | None) -> str | None:
-        """@brief 字符串 "null"/"None" 与纯空白在请求边界归一为首屏 None。"""
-        return _normalize_cursor(value)
-
-
-class StartTravelRequest(FrozenModel):
-    """@brief 由模型显式启动一次有目的地的出行。"""
-
-    planned_duration_seconds: int = Field(ge=60, le=86_400)
-    destination_id: str = Field(pattern=r"\S")
-    travel_mode: Literal["driving", "walking"]
-
-
-class SetActivityStateRequest(FrozenModel):
-    """@brief 由模型显式暂停、恢复或取消已有活动。"""
-
-    activity_id: str = Field(pattern=r"\S")
-    operation: Literal["pause", "resume", "cancel"]
-
-
-class ChangePlaybackSpeedRequest(FrozenModel):
-    """@brief 由模型显式修改正在观看内容的播放速度。"""
-
-    activity_id: str = Field(pattern=r"\S")
-    playback_speed: float = Field(ge=0.5, le=2)
-
-
-class ContinueActivityRequest(FrozenModel):
-    """@brief 在反馈边界保持当前活动连续执行到下一边界。"""
-
-    activity_id: str = Field(pattern=r"\S")
-
-
 class PurchaseItem(FrozenModel):
     """@brief 一笔订单中明确选定的门店供给与数量。"""
 
@@ -758,22 +724,6 @@ class PurchaseOrderRequest(FrozenModel):
     ]
     fulfillment: Literal["delivery", "pickup"]
     destination_id: str = Field(pattern=r"\S")
-
-
-class DiscoverPlacesRequest(FrozenModel):
-    """@brief 登记地点与门店供给发现，查询结果在结算后进入下一次观察。"""
-
-    product_id: str | None = Field(pattern=r"\S")
-    business_kind: str | None = Field(pattern=r"\S")
-    travel_mode: Literal["walking", "driving"]
-    max_travel_seconds: int | None = Field(gt=0, le=86_400)
-    cursor: str | None = Field(pattern=r"\S")
-
-    @field_validator("cursor", mode="after")
-    @classmethod
-    def _cursor_null_literals_mean_first_page(cls, value: str | None) -> str | None:
-        """@brief 字符串 "null"/"None" 在请求边界归一为首屏 None（空白仍由 \\S 模式拒绝）。"""
-        return _normalize_cursor(value)
 
 
 class ConsumeItem(FrozenModel):
@@ -859,47 +809,6 @@ class StartSocialActivityRequest(FrozenModel):
     duration_minutes: int = Field(gt=0, le=120)
 
 
-ParallelActivityRequest = Annotated[
-    StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
-    ConsumeRequest | StartSocialActivityRequest,
-    Field(union_mode="left_to_right"),
-]
-
-
-class StartParallelActivitiesRequest(FrozenModel):
-    """@brief 原子启动至少两项现有持续活动请求，不接受其他工具。"""
-
-    activities: Annotated[
-        tuple[ParallelActivityRequest, ...],
-        WithJsonSchema({
-            "type": "array",
-            "items": {"anyOf": [model.model_json_schema(mode="validation") for model in (
-                StartBasicActivityRequest, StartTargetedActivityRequest, StartTravelRequest,
-                ConsumeRequest, StartSocialActivityRequest)]},
-        }),
-    ]
-
-    @model_validator(mode="after")
-    def validate_count(self) -> "StartParallelActivitiesRequest":
-        """@brief 防止一个组合请求退化为零项或单项。"""
-        if len(self.activities) < 2:
-            _LOGGER.error("Parallel activity request has fewer than two activities")
-            raise ValueError("parallel activities require at least two items")
-        return self
-
-
-def activity_start_tool(request: ParallelActivityRequest) -> str:
-    """@brief 以请求模型的唯一类型返回原有单项启动工具名。"""
-    tools = {
-        StartBasicActivityRequest: "start_basic_activity",
-        StartTargetedActivityRequest: "start_targeted_activity",
-        StartTravelRequest: "start_travel",
-        ConsumeRequest: "consume",
-        StartSocialActivityRequest: "start_social_activity",
-    }
-    return tools[type(request)]
-
-
 class MeetingMinutes(FrozenModel):
     """@brief AMI 会议整理任务公开要求的结构化成果。"""
 
@@ -926,27 +835,117 @@ class SubmitWorkRequest(FrozenModel):
     ]
 
 
-class GameActionRequest(FrozenModel):
-    """@brief 向人物自己的 TextWorld 会话发送一个命令。"""
+#: 会话进展自述的字符上限（DeepSeek strict 禁 maxLength；由 model_validator 执行）。
+SESSION_SUMMARY_MAX_CHARS = 500
 
-    game_session_id: str = Field(pattern=r"\S")
-    command: str = Field(pattern=r"\S")
+class StartActivityRequest(FrozenModel):
+    """@brief 开始一个会话；targets 含至多 2 个可见交互对象，action 绑定本轮对象动作枚举。
+
+    :param targets: 本次会话服务的可见交互对象身份列表，至多 2 项（业务规则执行上限）。
+    :param action: 对 targets 执行的动作名称，由 facts.interactive_objects[].actions 枚举约束。
+    :param planned_duration_seconds: 有时长活动的计划时长；无时长动作提交 null。
+    :param destination_id: travel_to 动作的目的地身份；其他动作提交 null。
+    :param travel_mode: travel_to 动作的出行方式；其他动作提交 null。
+    :param text: message 动作的正文；其他动作提交 null。
+    :param quantity: purchase/consume 动作对 targets[0] 的数量；其他动作提交 null。
+    :param price_version: purchase 动作核对的报价版本（防陈旧）；其他动作提交 null。
+    :param deliverable: submit 动作提交的会议纪要成果；其他动作提交 null。
+    :param summary: 开启会话时的初始自述（可空）。
+    """
+
+    targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    action: str
+    planned_duration_seconds: int | None
+    destination_id: str | None
+    travel_mode: str | None
+    text: str | None
+    quantity: float | None
+    price_version: str | None
+    deliverable: Annotated[
+        MeetingMinutes | None,
+        WithJsonSchema({"anyOf": [MeetingMinutes.model_json_schema(mode="validation"), {"type": "null"}]}),
+    ]
+    summary: str | None
 
     @model_validator(mode="after")
-    def validate_command_length(self) -> "GameActionRequest":
-        """@brief 保留服务端不支持表达的命令长度上限。"""
-        if len(self.command) > 200:
-            raise ValueError("game command exceeds 200 characters")
+    def validate_summary_length(self) -> "StartActivityRequest":
+        """@brief 拒绝超长开启自述（DeepSeek strict 禁 maxLength）。"""
+        if self.summary is not None and len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
+            raise ValueError(f"start_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+        return self
+
+
+class RecallTaskSummaryRequest(FrozenModel):
+    """@brief 只读回看一个任务或会话的进展；不改变世界状态。
+
+    :param session_id: 按会话身份回看；与 task_kind/task_ref 互斥（另一组提交 null）。
+    :param task_kind: 按任务类型回看（goal/work_task/none）；与 session_id 互斥。
+    :param task_ref: 与 task_kind 配对的任务引用值。
+    """
+
+    session_id: str | None
+    task_kind: str | None
+    task_ref: str | None
+
+
+class ReportStatusRequest(FrozenModel):
+    """@brief 播报进展并继续当前会话；summary 为本轮人物主观自述。
+
+    :param session_ids: 本次播报的会话身份列表（当前实现支持 1 项）。
+    :param summary: 会话进展自述，至多 500 字符。
+    """
+
+    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: str
+
+    @model_validator(mode="after")
+    def validate_summary_length(self) -> "ReportStatusRequest":
+        """@brief 拒绝超长进展自述（DeepSeek strict 禁 maxLength）。"""
+        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
+            raise ValueError(f"report_status summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+        return self
+
+
+class PauseActivityRequest(FrozenModel):
+    """@brief 播报进展并暂停当前会话；summary 为暂停时的人物主观自述。
+
+    :param session_ids: 本次暂停的会话身份列表（当前实现支持 1 项）。
+    :param summary: 会话进展自述，至多 500 字符。
+    """
+
+    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: str
+
+    @model_validator(mode="after")
+    def validate_summary_length(self) -> "PauseActivityRequest":
+        """@brief 拒绝超长暂停自述（DeepSeek strict 禁 maxLength）。"""
+        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
+            raise ValueError(f"pause_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+        return self
+
+
+class ConcludeActivityRequest(FrozenModel):
+    """@brief 播报进展并结束当前会话；summary 为结束时的人物主观自述。
+
+    :param session_ids: 本次结束的会话身份列表（当前实现支持 1 项）。
+    :param summary: 会话进展自述，至多 500 字符。
+    """
+
+    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: str
+
+    @model_validator(mode="after")
+    def validate_summary_length(self) -> "ConcludeActivityRequest":
+        """@brief 拒绝超长结束自述（DeepSeek strict 禁 maxLength）。"""
+        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
+            raise ValueError(f"conclude_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
         return self
 
 
 ActionRequest = Annotated[
-    StartBasicActivityRequest | StartTargetedActivityRequest | StartTravelRequest |
-    StartParallelActivitiesRequest |
-    SetActivityStateRequest | ChangePlaybackSpeedRequest | ContinueActivityRequest |
-    PurchaseOrderRequest | ConsumeRequest | SubmitWorkRequest | GameActionRequest |
-    BrowseActivitiesRequest | DiscoverPlacesRequest | PlanDayRequest | ReviseDayPlanRequest |
-    SendMessageRequest | StartSocialActivityRequest,
+    StartActivityRequest | RecallTaskSummaryRequest |
+    ReportStatusRequest | PauseActivityRequest | ConcludeActivityRequest |
+    PlanDayRequest | ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -992,23 +991,13 @@ def rejection_reason_text(error: Exception) -> str:
 
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
-    "start_basic_activity": StartBasicActivityRequest,
-    "start_targeted_activity": StartTargetedActivityRequest,
-    "start_travel": StartTravelRequest,
-    "start_parallel_activities": StartParallelActivitiesRequest,
-    "set_activity_state": SetActivityStateRequest,
-    "change_playback_speed": ChangePlaybackSpeedRequest,
-    "continue_activity": ContinueActivityRequest,
-    "purchase": PurchaseOrderRequest,
-    "consume": ConsumeRequest,
-    "submit_work": SubmitWorkRequest,
-    "game_action": GameActionRequest,
-    "browse_activities": BrowseActivitiesRequest,
-    "discover_places": DiscoverPlacesRequest,
+    "start_activity": StartActivityRequest,
+    "recall_task_summary": RecallTaskSummaryRequest,
+    "report_status": ReportStatusRequest,
+    "pause_activity": PauseActivityRequest,
+    "conclude_activity": ConcludeActivityRequest,
     "plan_day": PlanDayRequest,
     "revise_day_plan": ReviseDayPlanRequest,
-    "send_message": SendMessageRequest,
-    "start_social_activity": StartSocialActivityRequest,
 }
 
 

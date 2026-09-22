@@ -16,7 +16,7 @@ from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import SendMessageRequest, StartBasicActivityRequest
+from worldmock.life.models import SendMessageRequest, StartActivityRequest
 from worldmock.runtime import settle_pending_model_replies
 
 
@@ -74,8 +74,8 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     action_id = "action-final-wait"
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
-    engine.submit_action(DirectToolCall(ctx, action_id, "start_basic_activity", request))
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    engine.submit_action(DirectToolCall(ctx, action_id, "start_activity", request))
     started = engine.commit_decision_round("final-wait")[0]
     assert started.status == "in_progress"
     activity_id = started.activity_id
@@ -123,8 +123,8 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     ctx = context(engine, "timeline-wait")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
-    engine.submit_action(DirectToolCall(ctx, "action-timeline-wait", "start_basic_activity", request))
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    engine.submit_action(DirectToolCall(ctx, "action-timeline-wait", "start_activity", request))
     engine.commit_decision_round("timeline-wait")
     advance_next(engine)
 
@@ -159,8 +159,8 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
     action_id = "action-truncated-wait"
-    request = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120)
-    engine.submit_action(DirectToolCall(ctx, action_id, "start_basic_activity", request))
+    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    engine.submit_action(DirectToolCall(ctx, action_id, "start_activity", request))
     started = engine.commit_decision_round("truncated-wait")[0]
     activity_id = started.activity_id
 

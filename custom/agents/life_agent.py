@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
-import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -21,13 +20,9 @@ from agentsociety2.agent.base import (
     ReactToolResult,
 )
 from agentsociety2.society import DirectToolCall
-from custom.agents import life_menu, life_activity_controls
-from custom.agents.life_activity_controls import (
-    _visible_activity_controls, _bind_activity_control_schemas, _validate_activity_control,
-)
+from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
-from custom.agents.life_inventory import bind_consume_schema, visible_inventory_contract
-from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema, activity_start_tool
+from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.narration import (
     DecisionStatementValidationError,
     compose_user_message,
@@ -58,10 +53,9 @@ DECISION_STATEMENT_REASONING_MAX_TOKENS = 1500
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
 
-#: 一次进食的件数闭区间（docs/dev/SPEC-life-realism.md「商务与进食」：1-3 件）。
-_MEAL_ITEM_BOUNDS = (1, 3)
-#: 瞬时消息文本上限（docs/dev/SPEC-life-runtime.md「社交最小可行版」：不超过 300 汉字，域内同口径）。
-_MESSAGE_TEXT_MAX_CHARS = 300
+#: 一次会话至多服务两个交互对象（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」：
+#: targets[] ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
+_START_ACTIVITY_MAX_TARGETS = 2
 #: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
 _HEX_IDENTITY_MIN_CHARS = 8
 #: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
@@ -280,47 +274,39 @@ _ACTION_PROTOCOL = (
     "During one decision submit exactly one life action, and it must be the only "
     "tool call in its model response.")
 
-#: 与可供性家族无关的工具文案（静态）；家族相关的三个工具描述
-#: （start_basic_activity / start_targeted_activity / browse_activities）的
-#: kind 清单自观察合同拼装，见 _life_tool_descriptions。工具协议、引用规则
-#: 与阶段规则按提示合同（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）移入各工具 description。
+#: 稳定工具面的静态工具文案（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
+#: 动作枚举与对象身份每轮由交互对象层绑定进 Schema，不写进这里的文字。
+#: 工具协议、引用规则与阶段规则按提示合同（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）移入各工具 description。
 _TOOL_DESCRIPTIONS = {
-    "start_travel": (
+    "start_activity": (
         _ACTION_PROTOCOL
-        + " Start travel to an observed destination using an observed mode and duration. "
-        "Existing activities keep running; their claimed resources must remain compatible."),
-    "set_activity_state": (
+        + " Begin one session on at most two interactive objects listed in "
+        "facts.interactive_objects. targets holds their exact object_id values and action must be "
+        "legal for every chosen target. Fill only the parameters this action needs and send null "
+        "for the rest: planned_duration_seconds for a timed action; destination_id and travel_mode "
+        "for travel_to; text for message; quantity for purchase and consume; price_version for "
+        "purchase; deliverable for submit. The world decides feasibility and answers with the "
+        "unmet preconditions when it refuses."),
+    "recall_task_summary": (
         _ACTION_PROTOCOL
-        + " Pause, resume, or cancel an activity exposed by the current observation. "
-        "Conversations and calls cannot be paused; cancel is their only control."),
-    "change_playback_speed": (
+        + " Read back the progress of one session or task without changing anything. "
+        "Send either session_id, or task_kind paired with task_ref, and null for the other group."),
+    "report_status": (
         _ACTION_PROTOCOL
-        + " Change playback speed for the owned active watching activity."),
-    "continue_activity": (
+        + " Report progress in your own words and keep the named session running. "
+        "session_ids holds an active session identity from facts.sessions; "
+        "summary is at most 500 characters."),
+    "pause_activity": (
         _ACTION_PROTOCOL
-        + " Continue one named active activity at this decision; other activities keep running."),
-    "discover_places": (
+        + " Report progress in your own words and pause the named session; "
+        "its invested time is kept and it can resume later. "
+        "session_ids holds an active session identity from facts.sessions; "
+        "summary is at most 500 characters."),
+    "conclude_activity": (
         _ACTION_PROTOCOL
-        + " Find places and their store supplies by optional product, business kind, travel mode "
-        "and maximum road travel seconds. Closed, unreachable, unknown and outside-range places "
-        "remain visible with their conditions. Results arrive in the next observation."),
-    "purchase": (
-        _ACTION_PROTOCOL
-        + " Buy one to five visible supplies from one location and seller in a single paid order "
-        "with one shared fulfillment; every supply_id must pair with its visible "
-        "price_version and each quantity must not exceed the visible current stock. "
-        "Delivery is not constrained by your current location, but pickup requires you "
-        "to be at the merchant's location."),
-    "consume": (
-        _ACTION_PROTOCOL
-        + " Eat one to three held foods in one sitting (the duration equals the longest "
-        "item duration) or use exactly one held product with its catalog duration."),
-    "submit_work": (
-        _ACTION_PROTOCOL
-        + " Submit one actual work deliverable for an available task."),
-    "game_action": (
-        _ACTION_PROTOCOL
-        + " Send one admissible command to an active TextWorld game session."),
+        + " Report progress in your own words and end the named session for good. "
+        "session_ids holds an active session identity from facts.sessions; "
+        "summary is at most 500 characters."),
     "plan_day": (
         _ACTION_PROTOCOL
         + " At the first decision after waking, submit today's ordered goals, "
@@ -337,14 +323,6 @@ _TOOL_DESCRIPTIONS = {
         "intent kinds. Each goal must contain non-whitespace text of at most 300 "
         "characters. Keep an unchanged pending goal verbatim to preserve its "
         "registration. Do not provide times or durations."),
-    "send_message": (
-        _ACTION_PROTOCOL
-        + " Send one short message (at most 300 characters) to a recipient identity "
-        "visible in this decision's inbox projection; never invent a recipient."),
-    "start_social_activity": (
-        _ACTION_PROTOCOL
-        + " Start a chat with a visible conversation partner as a continuous social "
-        "activity; the partner identity must come from this decision's observation."),
     "memory_recent": "Read the person's most recent subjective durable memory episodes.",
     "memory_search": "Search the person's subjective durable memory episodes by keyword.",
     "memory_step_range": "Read subjective durable memory episodes within an inclusive decision-step range.",
@@ -365,150 +343,8 @@ _TOOL_DESCRIPTIONS = {
 }
 
 
-def _join_kinds(kinds: list[str]) -> str:
-    """@brief 以自然英文枚举拼出 kind 清单（两个用 or，三个以上用牛津逗号）。"""
-    if len(kinds) <= 1:
-        return ", ".join(kinds)
-    if len(kinds) == 2:
-        return f"{kinds[0]} or {kinds[1]}"
-    return ", ".join(kinds[:-1]) + f", or {kinds[-1]}"
-
-
-def _life_tool_descriptions(
-        contract: Mapping[str, Mapping[str, Any]]) -> dict[str, str]:
-    """@brief 模板 + 合同品类拼装家族相关工具描述（kind 清单不硬编码）。
-
-    直名基础活动 = surface basic 且目标不由 browse 揭示；下钻揭示目标按
-    工具面拆分（targeted/game surface 的进 start_targeted_activity，
-    basic surface 的进 start_basic_activity）。
-    """
-    descriptions = {name: text for name, text in _TOOL_DESCRIPTIONS.items()}
-    basic_direct = [kind for kind, entry in contract.items()
-                    if entry["surface"] == "basic" and entry["target_discovery"] == "none"]
-    browse_targeted = [kind for kind, entry in contract.items()
-                       if entry["target_discovery"] == "browse_result"
-                       and entry["surface"] in ("targeted", "game")]
-    browse_basic = [kind for kind, entry in contract.items()
-                    if entry["target_discovery"] == "browse_result"
-                    and entry["surface"] == "basic"]
-    descriptions["start_basic_activity"] = (
-        f"{_ACTION_PROTOCOL} Start {_join_kinds(basic_direct)} for an explicit duration. "
-        "Existing activities keep running; their claimed resources must remain compatible.")
-    descriptions["start_targeted_activity"] = (
-        f"{_ACTION_PROTOCOL} Start one of "
-        f"{_join_kinds(list(_targeted_activity_kinds(contract)))} using an exact "
-        "target from the current observation catalogs. Existing activities keep running; "
-        "their claimed resources must remain compatible.")
-    descriptions["start_parallel_activities"] = (
-        f"{_ACTION_PROTOCOL} Start two or more visible continuous activities atomically. "
-        "Each child uses its existing start request fields. All claimed resources must be disjoint; "
-        "children continue and finish independently. One invalid child rejects the entire group.")
-    descriptions["browse_activities"] = (
-        "Drill into one activity category from activity_summary and read its item list. "
-        "Pure query: it starts nothing and consumes nothing; the returned items arrive "
-        f"as action results and become usable targets ({_join_kinds(browse_targeted)} items "
-        f"for start_targeted_activity, {_join_kinds(browse_basic)} items for "
-        "start_basic_activity).")
-    return descriptions
-
-
-#: 观察合同（affordance_contract）条目的七键闭集：每个 kind 的
-#: {surface, target_discovery, target_field, energy_projection,
-#: feedback_eligible, continuable, game_boundary} 冻结形状（引擎随场景组装
-#: 一次性生成；本侧严格校验同一形状）。
-_CONTRACT_KEYS = frozenset({
-    "surface", "target_discovery", "target_field", "energy_projection",
-    "feedback_eligible", "continuable", "game_boundary"})
-
-
-def _affordance_contract(data: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    """@brief 严格读取环境观察中的冻结可供性合同（L4 工具面单一事实源）。"""
-    contract = data.get("affordance_contract")
-    if not isinstance(contract, dict) or not contract:
-        raise RuntimeError("LifeAgent affordance contract is unavailable")
-    for kind, entry in contract.items():
-        if not isinstance(kind, str) or not kind.strip() or not isinstance(entry, dict):
-            raise RuntimeError("LifeAgent affordance contract entry is invalid")
-        if set(entry) != _CONTRACT_KEYS:
-            raise RuntimeError("LifeAgent affordance contract keys are invalid")
-        if not isinstance(entry["surface"], str) or not entry["surface"].strip():
-            raise RuntimeError("LifeAgent affordance contract surface is invalid")
-        if not isinstance(entry["target_discovery"], str):
-            raise RuntimeError("LifeAgent affordance contract target discovery is invalid")
-        target_field = entry["target_field"]
-        if target_field is not None and (
-                not isinstance(target_field, list) or len(target_field) != 2
-                or not isinstance(target_field[0], str) or not target_field[0].strip()
-                or not (target_field[1] is None or (
-                    isinstance(target_field[1], str) and target_field[1].strip()))):
-            raise RuntimeError("LifeAgent affordance contract target field is invalid")
-        for key in ("energy_projection", "feedback_eligible", "continuable", "game_boundary"):
-            if not isinstance(entry[key], bool):
-                raise RuntimeError(f"LifeAgent affordance contract {key} is invalid")
-    return contract
-
-
-def _targeted_activity_kinds(
-        contract: Mapping[str, Mapping[str, Any]]) -> tuple[str, ...]:
-    """@brief start_targeted_activity 的 activity_type 枚举序（合同声明序）。"""
-    return tuple(kind for kind, entry in contract.items()
-                 if entry["surface"] in ("targeted", "game"))
-
-
-def _target_catalog_fields(
-        contract: Mapping[str, Mapping[str, Any]]) -> dict[str, tuple[str, str | None]]:
-    """@brief 观察目录直读字段映射（合同 target_discovery = catalog_field）。"""
-    return {kind: (entry["target_field"][0], entry["target_field"][1])
-            for kind, entry in contract.items()
-            if entry["target_discovery"] == "catalog_field"}
-
-
-def _energy_limit_kinds(
-        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
-    """@brief 能量可行性投影闭集（合同 energy_projection = true）。"""
-    return frozenset(kind for kind, entry in contract.items()
-                     if entry["energy_projection"])
-
-
-def _continuable_activity_kinds(
-        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
-    """@brief continue_activity 资格闭集（合同 continuable 键）。"""
-    return frozenset(kind for kind, entry in contract.items() if entry["continuable"])
-
-
-def _game_boundary_kinds(
-        contract: Mapping[str, Mapping[str, Any]]) -> frozenset[str]:
-    """@brief 游戏反馈边界闭集（合同 game_boundary；走 game_action 继续交互）。"""
-    return frozenset(kind for kind, entry in contract.items() if entry["game_boundary"])
-
-
-#: 社交边界活动闭集（docs/CONTRACTS.md「交谈与通话」）：chat/call 不在可供性
-#: 注册表内，但接受语义要求其以 ACTIVE 跨决策边界存活（唤醒节律无 kind 豁免）；
-#: 其恒占位置与注意力、不可暂停，唯一边界控制是 set_activity_state cancel。
-_SOCIAL_BOUNDARY_KINDS = frozenset({"chat", "call"})
-
-
-_TARGET_KIND_DESCRIPTION = (
-    "Choose only a kind with a currently visible target: work uses tasks[].task_id; "
-    "watch uses item_id values revealed by a recent browse_activities result or listed in "
-    "content_progress; play_game uses the game IDs of the currently available games; "
-    "read_mail uses the id of a facts.inbox entry whose kind is mail; browse uses browse_targets[]."
-)
-
-_TARGET_ID_DESCRIPTION = (
-    "Use the exact visible ID paired with activity_type: work = tasks[].task_id; "
-    "watch = item_id from recent browse_activities results or content_progress; "
-    "play_game = a game ID of the currently available games; "
-    "read_mail = the id of a facts.inbox entry whose kind is mail; "
-    "browse = browse_targets[]."
-)
-
-_ACTIVITY_CONTROL_TOOLS = frozenset({
-    "set_activity_state",
-    "change_playback_speed",
-    "continue_activity",
-    "game_action",
-})
+#: 有 active 会话时才开放的三条会话退出通道（docs/dev/SPEC-agent-interaction.md「保护项修订」）。
+_SESSION_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 
 #: 身份前言（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）：以人物与情境为主，工具协议、引用规则
 #: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
@@ -580,29 +416,20 @@ class LifeAgent(PersonAgent):
         budget = self._react_budget(readonly)
         models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
         self._life_request_models = models
-        descriptions = _life_tool_descriptions(getattr(self, "_life_contract", None) or {})
         schemas = [
             _tool_schema(
                 name,
                 model,
-                descriptions,
+                _TOOL_DESCRIPTIONS,
             )
             for name, model in models.items()
         ]
         if not readonly and not getattr(self, "_life_action_count", 0):
-            if not hasattr(self, "_life_visible_targets"):
-                raise RuntimeError("LifeAgent visible target catalogs are not prepared")
-            life_menu.bind_basic_activity_schema(schemas, self._life_basic_activity_types)
-            _bind_targeted_activity_catalogs(
-                schemas,
-                self._life_targeted_kinds,
-                self._life_visible_targets,
-                self._life_activity_controls["maximum_duration_seconds_by_kind"],
-            )
-            _bind_browse_categories(schemas, self._life_browse_categories)
-            _bind_activity_control_schemas(schemas, self._life_activity_controls)
-            _bind_visible_action_schemas(schemas, self._life_action_contracts)
-            life_activity_controls.bind_parallel_schema(schemas)
+            if not hasattr(self, "_life_visible_objects"):
+                raise RuntimeError("LifeAgent visible interactive objects are not prepared")
+            _bind_start_activity_schema(schemas, self._life_visible_objects, self._life_allowed_actions)
+            _bind_session_schemas(schemas, self._life_active_sessions)
+            _bind_plan_goal_schemas(schemas, self._life_action_contracts)
         if not readonly and "finish" in models:
             _bind_finish_reference_ids(
                 schemas,
@@ -864,15 +691,13 @@ class LifeAgent(PersonAgent):
         self._life_decision_statement = None
         if request.readonly:
             self._life_interaction_menu = None
-            self._life_basic_activity_types = ()
             self._life_visible_refs = set()
-            self._life_visible_targets = {}
-            self._life_activity_controls = {}
+            self._life_visible_objects = {}
+            self._life_allowed_actions = frozenset()
+            self._life_active_sessions = ()
+            self._life_known_sessions = ()
             self._life_action_contracts = {}
             self._life_action_models = {}
-            self._life_browse_categories = frozenset()
-            self._life_contract = {}
-            self._life_targeted_kinds = ()
             self._life_wake_reasons = frozenset()
             budget = self._react_budget(True)
             self._life_request_models = self._budgeted_tool_models(
@@ -890,35 +715,20 @@ class LifeAgent(PersonAgent):
             False, budget["memory_tools_available"])
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装菜单、可见身份、控制和生活动作工具。"""
+        """@brief 从一次冻结观察组装菜单、交互对象层、会话身份和稳定工具面。"""
         self._prepare_verified_experiences(data)
-        self._life_interaction_menu = menu = life_menu.parse_interaction_menu(data)
-        self._life_contract = contract = _affordance_contract(data)
-        self._life_targeted_kinds = life_menu.filter_targeted_kinds(
-            menu, _targeted_activity_kinds(contract))
-        energy_limits = _visible_energy_limits(data, contract)
+        self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
         self._life_visible_refs = _environment_source_ids(data)
-        self._life_basic_activity_types = life_menu.basic_activity_types(menu, data)
-        self._life_browse_categories = life_menu.filter_browse_categories(
-            menu, _visible_browse_categories(data))
-        self._life_visible_targets = life_menu.filter_targets(
-            menu, _visible_target_ids(data, contract, energy_limits))
-        self._life_activity_controls = life_menu.filter_activity_controls(
-            menu, _visible_activity_controls(data, contract, energy_limits))
-        self._life_action_contracts = life_menu.filter_action_contracts(
-            menu, _visible_action_contracts(data))
-        self._filter_start_resources()
+        self._life_visible_objects = _visible_interactive_objects(data)
+        self._life_allowed_actions = frozenset(self._life_interaction_menu.allowed_actions)
+        sessions = _visible_sessions(data)
+        self._life_known_sessions = tuple(sorted(sessions))
+        self._life_active_sessions = tuple(
+            sorted(key for key, status in sessions.items() if status == "active"))
+        self._life_action_contracts = _visible_action_contracts(data)
         self._life_action_models = _available_action_models(
-            self._life_visible_targets, self._life_activity_controls, self._life_action_contracts,
-            self._life_browse_categories)
-        if not self._life_basic_activity_types:
-            self._life_action_models.pop("start_basic_activity", None)
-        if life_activity_controls.parallel_available(
-                self._life_basic_activity_types, self._life_visible_targets, self._life_action_contracts):
-            self._life_action_models["start_parallel_activities"] = _TOOL_MODELS["start_parallel_activities"]
-        self._life_action_models = life_menu.filter_action_models(
-            menu, self._life_action_models)
+            self._life_active_sessions, self._life_action_contracts)
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
         """@brief 冻结本轮本人事件事实窗口，模型和记忆不能写入该窗口。"""
@@ -928,13 +738,6 @@ class LifeAgent(PersonAgent):
         self._life_verified_experiences = validate_verified_experiences(
             data.get("verified_experiences"), data.get("agent_id"), now)
         self._life_observation_event_id = data.get("observation_event_id")
-
-    def _filter_start_resources(self) -> None:
-        """@brief 人物启动工具与引擎按同一资源声明排除冲突。"""
-        values = life_activity_controls.filter_starts(
-            self._life_activity_controls["occupied_resources"], self._life_visible_targets,
-            self._life_action_contracts, self._life_basic_activity_types)
-        self._life_visible_targets, self._life_action_contracts, self._life_basic_activity_types = values
 
     def validate_react_decisions(
         self,
@@ -965,16 +768,15 @@ class LifeAgent(PersonAgent):
                 error = _validate_prepared_action(
                     decision.action,
                     validated,
-                    self._life_visible_targets,
-                    {**self._life_activity_controls, "browse_categories": self._life_browse_categories},
+                    self._life_visible_objects,
+                    self._life_active_sessions,
                     self._life_action_contracts,
                 )
                 if error:
                     return error
                 if decision.action in REQUEST_MODELS:
                     error = life_menu.menu_action_error(
-                        self._life_interaction_menu, decision.action, validated,
-                        self._life_activity_controls, self._life_basic_activity_types)
+                        self._life_interaction_menu, decision.action, validated)
                     if error:
                         return error
                 if decision.action == "finish" and not readonly:
@@ -1025,15 +827,13 @@ class LifeAgent(PersonAgent):
         error = _validate_prepared_action(
             action,
             request,
-            self._life_visible_targets,
-            {**self._life_activity_controls, "browse_categories": self._life_browse_categories},
+            self._life_visible_objects,
+            self._life_active_sessions,
             self._life_action_contracts,
         )
         if error:
             raise RuntimeError(error)
-        error = life_menu.menu_action_error(
-            self._life_interaction_menu, action, request,
-            self._life_activity_controls, self._life_basic_activity_types)
+        error = life_menu.menu_action_error(self._life_interaction_menu, action, request)
         if error:
             raise RuntimeError(error)
         action_id = f"{context.decision_id}:action:0001"
@@ -1147,165 +947,54 @@ def _environment_source_ids(data: dict[str, Any]) -> set[str]:
     return {observation_id, *result_ids, *(item["source_event_id"] for item in data["verified_experiences"])}
 
 
-def _visible_energy_limits(
-    data: dict[str, Any],
-    contract: Mapping[str, Mapping[str, Any]],
-) -> dict[str, int]:
-    """@brief 严格读取环境以权威成本函数计算的能量投影活动墙钟上限。
+def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
+    """@brief 冻结本轮交互对象层：对象身份 -> 该对象自己的动作枚举。
 
-    键集对照观察合同的 energy_projection 闭集（与引擎投影器同一份合同，
-    生产者与校验者共享单一事实源）。
+    每个对象只暴露对它自己合法的动作（docs/dev/SPEC-agent-interaction.md
+    「动作参数：能力如何收进 action」的绑定粒度裁决），start_activity 的
+    action 取值即这些枚举的并集投影，不是一张全局动作表。
     """
-    projection = data.get("energy_feasibility")
-    maximums = projection.get("maximum_duration_seconds_by_kind") if isinstance(projection, dict) else None
-    if not isinstance(maximums, dict) or set(maximums) != _energy_limit_kinds(contract):
-        raise RuntimeError("LifeAgent energy feasibility kinds are invalid")
-    for kind, value in maximums.items():
-        if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 86_400:
-            raise RuntimeError(f"LifeAgent {kind} energy duration limit is invalid")
-    return dict(maximums)
+    rows = _facts_projection(data).get("interactive_objects")
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError("LifeAgent interactive objects layer is unavailable")
+    objects: dict[str, tuple[str, ...]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise RuntimeError("LifeAgent interactive object must be an object")
+        object_id, actions = row.get("object_id"), row.get("actions")
+        if not isinstance(object_id, str) or not object_id.strip() or object_id in objects:
+            raise RuntimeError("LifeAgent interactive object identity is invalid")
+        if (not isinstance(actions, list) or not actions
+                or not all(isinstance(item, str) and item.strip() for item in actions)):
+            raise RuntimeError("LifeAgent interactive object actions are invalid")
+        if not isinstance(row.get("preconditions_met"), bool):
+            raise RuntimeError("LifeAgent interactive object preconditions flag is invalid")
+        objects[object_id] = tuple(sorted(set(actions)))
+    return objects
 
 
-def _visible_target_ids(
-    data: dict[str, Any],
-    contract: Mapping[str, Mapping[str, Any]],
-    energy_limits: dict[str, int],
-) -> dict[str, tuple[str, ...]]:
-    """@brief 从公开目录、browse 结果与进度冻结本轮可用活动目标身份。
-
-    观察目录直读的字段映射自合同派生（target_discovery = catalog_field 的
-    kinds；watch 目标由 browse_activities 结果与观看进度单独冻结）。
-    """
-    result = {}
-    for kind, (field, identity_field) in _target_catalog_fields(contract).items():
-        catalog = data.get(field)
-        if not isinstance(catalog, list):
-            raise RuntimeError(f"LifeAgent {field} catalog must be a list")
-        result[kind] = _catalog_identity_values(catalog, field, identity_field)
-    result["work"] = _visible_work_target_ids(data, result["work"])
-    result["watch"] = _visible_watch_target_ids(data)
-    for kind, maximum in energy_limits.items():
-        if maximum < 60:
-            result[kind] = ()
-    return result
-
-
-def _visible_work_target_ids(data: dict[str, Any], visible_ids: tuple[str, ...]) -> tuple[str, ...]:
-    """@brief 只保留合同剩余时间可容纳最短活动的工作任务。"""
-    allowed = []
-    for task in data["tasks"]:
-        task_id = task.get("task_id") if isinstance(task, dict) else None
-        remaining = task.get("remaining_contract_seconds") if isinstance(task, dict) else None
-        if (task_id not in visible_ids or isinstance(remaining, bool)
-                or not isinstance(remaining, int) or remaining < 0):
-            raise RuntimeError("LifeAgent task remaining contract time is invalid")
-        if remaining >= 60:
-            allowed.append(task_id)
-    return tuple(sorted(set(allowed)))
-
-
-def _visible_watch_target_ids(data: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 只保留 browse 结果或观看进度中可播放至少三十秒的内容目标。
-
-    观察不再携带全量 content_catalog：观看目标闭集来自（一）上次观察后的
-    browse_activities 内容品类结果（action_result），（二）content_progress
-    中已开始的条目（时长 = 位置 + 剩余，保证跨轮续看不需要重新下钻）。
-    """
-    durations = _browsed_content_durations(data.get("recent_action_results"))
-    progress = _visible_content_progress(data.get("content_progress"), durations)
-    available = _visible_content_available(progress, durations)
-    return tuple(sorted(item_id for item_id, seconds in available.items() if seconds >= 30))
-
-
-def _browsed_content_durations(results: Any) -> dict[str, int]:
-    """@brief 从近期 browse_activities 动作结果提取内容身份与总时长。"""
-    if not isinstance(results, list):
-        raise RuntimeError("LifeAgent recent action results are invalid")
-    result: dict[str, int] = {}
-    for entry in results:
-        payload = entry.get("result") if isinstance(entry, dict) else None
-        if not isinstance(payload, dict) or payload.get("status") != "completed":
-            continue
-        data = payload.get("data")
-        if not isinstance(data, dict) or data.get("tool") != "browse_activities":
-            continue
-        items = data.get("items")
-        if not isinstance(items, list):
-            raise RuntimeError("LifeAgent browsed activity items must be a list")
-        for item in items:
-            if not isinstance(item, dict) or "item_id" not in item:
-                continue  # 生活活动/食品条目不是观看目标
-            item_id = item.get("item_id")
-            duration = item.get("duration_seconds")
-            if (not isinstance(item_id, str) or not item_id.strip()
-                    or isinstance(duration, bool) or not isinstance(duration, int)
-                    or duration <= 0):
-                raise RuntimeError("LifeAgent browsed content duration is invalid")
-            if item_id in result and result[item_id] != duration:
-                raise RuntimeError("LifeAgent browsed content duration is ambiguous")
-            result[item_id] = duration
-    return result
-
-
-def _visible_content_progress(progress: Any, durations: dict[str, int]) -> dict[str, dict[str, Any]]:
-    """@brief 校验人物观看进度，并为无 browse 结果的条目推导总时长。"""
-    if not isinstance(progress, dict):
-        raise RuntimeError("LifeAgent content_progress must be an object")
-    for item_id, item in progress.items():
-        if not isinstance(item, dict) or item.get("item_id") != item_id:
-            raise RuntimeError("LifeAgent content progress identity is invalid")
-        position = item.get("position_seconds")
-        remaining = item.get("remaining_media_seconds")
-        exposure = item.get("exposure_count")
-        values = (position, remaining)
-        if (any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in values)
-                or not isinstance(exposure, int) or isinstance(exposure, bool) or exposure < 0):
-            raise RuntimeError("LifeAgent content progress value is invalid")
-        if position < 0 or remaining < 0:
-            raise RuntimeError("LifeAgent content progress time is invalid")
-        if item_id not in durations:
-            durations[item_id] = int(float(position) + float(remaining))
-    return progress
-
-
-def _visible_content_available(progress: dict[str, dict[str, Any]],
-                               durations: dict[str, int]) -> dict[str, float]:
-    """@brief 返回每个已知内容目标的下次播放可用媒体秒数。"""
-    available = {item_id: float(duration) for item_id, duration in durations.items()}
-    for item_id, item in progress.items():
-        position = float(item["position_seconds"])
-        expected = durations[item_id] - position
-        if expected < 0 or abs(float(item["remaining_media_seconds"]) - expected) > 1e-6:
-            raise RuntimeError("LifeAgent content remaining time is invalid")
-        available[item_id] = float(durations[item_id]) if expected == 0 else expected
-    return available
-
-
-
-
-
-
-
-
+def _visible_sessions(data: dict[str, Any]) -> dict[str, str]:
+    """@brief 冻结本轮本人会话身份与状态（facts.sessions 的进度层合同）。"""
+    rows = _facts_projection(data).get("sessions")
+    if not isinstance(rows, list):
+        raise RuntimeError("LifeAgent sessions layer must be a list")
+    sessions: dict[str, str] = {}
+    for row in rows:
+        session_id = row.get("session_id") if isinstance(row, dict) else None
+        status = row.get("status") if isinstance(row, dict) else None
+        if not isinstance(session_id, str) or not session_id.strip() or session_id in sessions:
+            raise RuntimeError("LifeAgent session identity is invalid")
+        if status not in {"active", "paused", "concluded"}:
+            raise RuntimeError("LifeAgent session status is invalid")
+        sessions[session_id] = status
+    return sessions
 
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 分别冻结门店供给、持有物品与其他瞬时动作的公开身份合同。"""
-    life_menu.visible_products(data)
-    available = visible_inventory_contract(data)
-    location_id = data.get("location_id")
-    if not isinstance(location_id, str) or not location_id:
-        raise RuntimeError("LifeAgent current location is invalid")
+    """@brief 冻结两件登记动作工具的当日目标合同（其余动作由交互对象层承载）。"""
     return {
-        "purchase": life_menu.visible_supply_contracts(data),
-        "discover_places": life_menu.discovery_contract(data),
-        "consume": available,
-        "submit_work": _visible_submittable_tasks(data),
-        "start_travel": _visible_routes(data),
         "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
-        "send_message": _visible_message_recipients(data),
-        "start_social_activity": _visible_social_partners(data),
     }
 
 
@@ -1345,249 +1034,109 @@ def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
                                         if goal.progressed_at is not None)}
 
 
-def _visible_people_ids(facts: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 冻结本轮在场人物的不透明身份闭集（facts.people_here 的 person_id）。"""
-    people = facts.get("people_here")
-    if not isinstance(people, list):
-        raise RuntimeError("LifeAgent people projection is invalid")
-    identities = []
-    for row in people:
-        if not isinstance(row, dict):
-            raise RuntimeError("LifeAgent people projection row must be an object")
-        person_id = row.get("person_id")
-        if not isinstance(person_id, str) or not person_id.strip():
-            raise RuntimeError("LifeAgent person identity is invalid")
-        identities.append(person_id)
-    return tuple(sorted(set(identities)))
-
-
-def _visible_contact_ids(facts: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 冻结本轮场景联系人的不透明身份闭集（facts.contacts 的 contact_id）。"""
-    contacts = facts.get("contacts", [])
-    if contacts is None:
-        contacts = []
-    if not isinstance(contacts, list):
-        raise RuntimeError("LifeAgent contacts projection is invalid")
-    identities = []
-    for row in contacts:
-        if not isinstance(row, dict):
-            raise RuntimeError("LifeAgent contacts projection row must be an object")
-        contact_id = row.get("contact_id")
-        if not isinstance(contact_id, str) or not contact_id.strip():
-            raise RuntimeError("LifeAgent contact identity is invalid")
-        identities.append(contact_id)
-    return tuple(sorted(set(identities)))
-
-
-def _visible_inbox_senders(facts: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 冻结本轮收件箱投影的发送者身份闭集。"""
-    inbox = facts.get("inbox")
-    if not isinstance(inbox, list):
-        raise RuntimeError("LifeAgent inbox projection is invalid")
-    senders = set()
-    for row in inbox:
-        if not isinstance(row, dict):
-            raise RuntimeError("LifeAgent inbox row must be an object")
-        sender = row.get("sender_id")
-        if sender is None:
-            continue
-        if not isinstance(sender, str) or not sender.strip():
-            raise RuntimeError("LifeAgent inbox sender identity is invalid")
-        senders.add(sender)
-    return tuple(sorted(senders))
-
-
-def _visible_message_recipients(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮可见的消息收件人身份闭集（docs/CONTRACTS.md「人物工具与管理接口」身份枚举用本轮观察）。
-
-    收件人 = 在场人物（people_here 的不透明 person_id）∪ 场景联系人
-    （contacts 的 contact_id）∪ 已向你发过消息的人（inbox 发送者）；
-    三者都是本轮观察实际可见的身份，无可见收件人时撤下工具。
-    """
-    facts = _facts_projection(data)
-    recipients = (set(_visible_people_ids(facts)) | set(_visible_contact_ids(facts))
-                  | set(_visible_inbox_senders(facts)))
-    return {"recipients": tuple(sorted(recipients))} if recipients else {}
-
-
-def _visible_social_partners(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮可见的交谈与通话对象身份闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
-
-    chat 对象 = 在场人物 ∪ 收件箱发送者（共同在场与可交谈由环境结算
-    边界校验）；call 对象 = 场景联系人。两个闭集都为空时撤下工具。
-    """
-    facts = _facts_projection(data)
-    chat = tuple(sorted(set(_visible_people_ids(facts))
-                        | set(_visible_inbox_senders(facts))))
-    call = _visible_contact_ids(facts)
-    return {"chat_partners": chat, "call_partners": call} if chat or call else {}
-
-
-def _visible_submittable_tasks(data: dict[str, Any]) -> tuple[str, ...]:
-    """@brief 只保留正文已经按实际工作完整揭示的公开任务。"""
-    tasks = data.get("tasks")
-    if not isinstance(tasks, list):
-        raise RuntimeError("LifeAgent tasks catalog must be a list")
-    identities = []
-    for task in tasks:
-        material = task.get("material") if isinstance(task, dict) else None
-        task_id = task.get("task_id") if isinstance(task, dict) else None
-        if not isinstance(task_id, str) or not isinstance(material, dict):
-            raise RuntimeError("LifeAgent task submission contract is invalid")
-        end = material.get("end_char")
-        total = material.get("total_chars")
-        if not isinstance(end, int) or not isinstance(total, int) or end < 0 or total <= 0 or end > total:
-            raise RuntimeError("LifeAgent task material progress is invalid")
-        if end == total:
-            identities.append(task_id)
-    return tuple(sorted(set(identities)))
-
-
-def _visible_routes(data: dict[str, Any]) -> tuple[tuple[str, str, int], ...]:
-    """@brief 冻结人物当前位置公开路线的目的地、方式与时长三元组。"""
-    routes = data.get("routes")
-    if not isinstance(routes, list):
-        raise RuntimeError("LifeAgent routes catalog must be a list")
-    values = []
-    for route in routes:
-        if not isinstance(route, dict) or route.get("status") not in {"reachable", "unreachable", "unknown"}:
-            logging.error("LifeAgent route status is invalid")
-            raise RuntimeError("LifeAgent route status is invalid")
-        if route["status"] != "reachable":
-            continue
-        destination = route.get("destination_id") if isinstance(route, dict) else None
-        mode = route.get("mode") if isinstance(route, dict) else None
-        duration = route.get("duration_seconds") if isinstance(route, dict) else None
-        cost = route.get("minimum_energy_cost_kcal") if isinstance(route, dict) else None
-        feasible = route.get("energy_feasible") if isinstance(route, dict) else None
-        if (not isinstance(destination, str) or not destination.strip()
-                or mode not in {"driving", "walking"}
-                or isinstance(duration, bool) or not isinstance(duration, int) or duration <= 0
-                or isinstance(cost, bool) or not isinstance(cost, (int, float))
-                or not math.isfinite(cost) or cost < 0 or not isinstance(feasible, bool)):
-            raise RuntimeError("LifeAgent route contract is invalid")
-        if duration >= 60 and feasible:
-            values.append((destination, mode, duration))
-    if len(values) != len(set(values)):
-        raise RuntimeError("LifeAgent route contracts are duplicated")
-    return tuple(sorted(values))
-
-
 def _available_action_models(
-    targets: dict[str, tuple[str, ...]],
-    controls: dict[str, Any],
+    active_sessions: tuple[str, ...],
     contracts: dict[str, Any],
-    browse_categories: frozenset[str] = frozenset(),
 ) -> dict[str, type[BaseModel]]:
-    """@brief 启动资格与活动控制分别派生，已有活动不屏蔽相容行动。"""
-    names = {"start_basic_activity"}
-    if any(targets.values()):
-        names.add("start_targeted_activity")
-    if browse_categories:
-        names.add("browse_activities")
-    if controls["active"] or controls["paused_ids"]:
-        names.add("set_activity_state")
-    if controls["continuable_ids"]:
-        names.add("continue_activity")
-    if controls["watch_ids"]:
-        names.add("change_playback_speed")
-    if controls["game_commands"]:
-        names.add("game_action")
-    names.update(name for name, contract in contracts.items() if contract)
+    """@brief 稳定工具面的可见性规则（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
+
+    start_activity 与 recall_task_summary 永恒可见；三条会话退出通道只在有
+    active 会话时开放；两件登记动作工具按当日目标合同分别开放。
+    """
+    names = {"start_activity", "recall_task_summary"}
+    if active_sessions:
+        names.update(_SESSION_CONTROL_TOOLS)
+    names.update(name for name in ("plan_day", "revise_day_plan") if contracts[name])
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
-
-
-def _catalog_identity_values(
-    catalog: list[Any],
-    field: str,
-    identity_field: str | None,
-) -> tuple[str, ...]:
-    """@brief 严格提取一个目录的非空身份并形成排序闭集。"""
-    values = []
-    for item in catalog:
-        if identity_field is not None and not isinstance(item, dict):
-            raise RuntimeError(f"LifeAgent {field} catalog item must be an object")
-        identity = item.get(identity_field) if identity_field is not None else item
-        if not isinstance(identity, str) or not identity.strip():
-            raise RuntimeError(f"LifeAgent {field} catalog identity must be a nonblank string")
-        values.append(identity)
-    return tuple(sorted(set(values)))
-
-
-def _validate_visible_target(
-    request: BaseModel,
-    targets: dict[str, tuple[str, ...]],
-    maximums: dict[str, int],
-) -> str:
-    """@brief 要求活动类型与本轮首观察中的目标身份准确配对。"""
-    kind = str(request.activity_type)
-    allowed = targets.get(kind, ())
-    if request.target_id not in allowed:
-        return "start_targeted_activity target_id is not visible for activity_type"
-    if request.planned_duration_seconds > maximums[kind]:
-        return "start_targeted_activity duration exceeds the current energy limit for activity_type"
-    return ""
 
 
 def _validate_prepared_action(
     action: str,
     request: BaseModel,
-    targets: dict[str, tuple[str, ...]],
-    controls: dict[str, Any],
+    objects: dict[str, tuple[str, ...]],
+    active_sessions: tuple[str, ...],
     contracts: dict[str, Any],
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
-    if action in REQUEST_MODELS:
-        resource_error = life_activity_controls.start_resource_error(
-            action, request, controls["occupied_resources"])
-        if resource_error:
-            return resource_error
-    if action == "start_parallel_activities":
-        for item in request.activities:
-            error = _validate_prepared_action(activity_start_tool(item), item, targets, controls, contracts)
-            if error:
-                return error
+    if action == "start_activity":
+        return _validate_start_activity(request, objects)
+    if action in _SESSION_CONTROL_TOOLS:
+        if len(request.session_ids) != 1:
+            return f"{action} accepts exactly one session identity"
+        if request.session_ids[0] not in active_sessions:
+            return f"{action} session_ids is not an active session"
         return ""
-    if action == "start_targeted_activity":
-        return _validate_visible_target(request, targets, controls["maximum_duration_seconds_by_kind"])
-    if action in _ACTIVITY_CONTROL_TOOLS:
-        return _validate_activity_control(action, request, controls)
-    if action == "browse_activities":
-        if request.category not in controls["browse_categories"]:
-            return "browse_activities category is not a key of the visible activity_summary"
-        return ""
+    if action == "recall_task_summary":
+        return _validate_recall_task_summary(request)
     if action in contracts:
-        return _validate_visible_action(action, request, contracts)
+        return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
     return ""
 
 
-def _visible_browse_categories(data: dict[str, Any]) -> frozenset[str]:
-    """@brief 从 activity_summary 冻结本轮可下钻的活动品类闭集。"""
-    summary = data.get("activity_summary")
-    if not isinstance(summary, dict) or not summary:
-        raise RuntimeError("LifeAgent activity summary is unavailable")
-    categories = []
-    for key, count in summary.items():
-        if (not isinstance(key, str) or not key.strip()
-                or isinstance(count, bool) or not isinstance(count, int) or count < 0):
-            raise RuntimeError("LifeAgent activity summary entry is invalid")
-        categories.append(key)
-    return frozenset(categories)
+def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[str, ...]]) -> str:
+    """@brief 目标必须是本轮可见交互对象，动作必须对每个目标都合法。"""
+    if not request.targets:
+        return "start_activity requires at least one target"
+    if len(request.targets) > _START_ACTIVITY_MAX_TARGETS:
+        return f"start_activity accepts at most {_START_ACTIVITY_MAX_TARGETS} targets"
+    if len(set(request.targets)) != len(request.targets):
+        return "start_activity targets must be unique"
+    for target in request.targets:
+        actions = objects.get(target)
+        if actions is None:
+            return "start_activity target is not a visible interactive object"
+        if request.action not in actions:
+            return "start_activity action is not offered by the chosen target"
+    return ""
 
 
-def _bind_browse_categories(
+def _validate_recall_task_summary(request: BaseModel) -> str:
+    """@brief 会话身份与任务引用两组参数互斥且必须恰好提交一组。"""
+    by_session = request.session_id is not None
+    by_task = request.task_kind is not None and request.task_ref is not None
+    if by_session == by_task:
+        return "recall_task_summary requires either session_id or task_kind with task_ref"
+    return ""
+
+
+def _bind_start_activity_schema(
     schemas: list[dict[str, Any]],
-    categories: frozenset[str],
+    objects: dict[str, tuple[str, ...]],
+    allowed_actions: frozenset[str],
 ) -> None:
-    """@brief 将 activity_summary 键绑定到 browse_activities 原生 Schema。"""
-    browse = next(
-        (item for item in schemas if item["function"]["name"] == "browse_activities"),
-        None,
-    )
-    if browse is None:
+    """@brief 把本轮交互对象身份与菜单允许的动作并集绑定到 start_activity Schema。
+
+    地点菜单只剪裁动作枚举（docs/dev/SPEC-agent-interaction.md「保护项修订」），
+    因此绑定值是对象动作并集与菜单允许集合的交集。
+    """
+    start = next((item for item in schemas if item["function"]["name"] == "start_activity"), None)
+    if start is None:
         return
-    properties = browse["function"]["parameters"]["properties"]
-    properties["category"]["enum"] = sorted(categories)
+    union = {value for actions in objects.values() for value in actions}
+    properties = start["function"]["parameters"]["properties"]
+    properties["targets"]["items"]["enum"] = sorted(objects)
+    properties["action"]["enum"] = sorted(union & allowed_actions)
+
+
+def _bind_session_schemas(schemas: list[dict[str, Any]], active_sessions: tuple[str, ...]) -> None:
+    """@brief 把本轮 active 会话身份绑定到三条会话退出通道的 Schema。"""
+    identities = list(active_sessions)
+    for item in schemas:
+        if item["function"]["name"] in _SESSION_CONTROL_TOOLS:
+            properties = item["function"]["parameters"]["properties"]
+            properties["session_ids"]["items"]["enum"] = identities
+
+
+def _bind_plan_goal_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
+    """@brief 把尚未推进的意图闭集绑定到两件登记动作工具的目标 Schema。"""
+    for item in schemas:
+        name = item["function"]["name"]
+        if name not in contracts or not contracts[name]:
+            continue
+        properties = item["function"]["parameters"]["properties"]
+        progressed = contracts[name]["progressed_intents"]
+        properties["goals"]["items"]["properties"]["intent_kind"]["enum"] = [
+            kind for kind in INTENT_KINDS if kind not in progressed]
 
 
 def _tool_schema(
@@ -1616,123 +1165,6 @@ def _bind_finish_reference_ids(
     parameters = finish["function"]["parameters"]
     episode = parameters["properties"]["memories"]["items"]
     episode["properties"]["refs"]["items"]["enum"] = sorted(reference_ids)
-
-
-def _bind_targeted_activity_catalogs(
-    schemas: list[dict[str, Any]],
-    targeted_kinds: tuple[str, ...],
-    targets: dict[str, tuple[str, ...]],
-    maximums: dict[str, int],
-) -> None:
-    """@brief 将本轮可见目录绑定到原生目标活动工具 Schema。
-
-    枚举序取合同声明序（targeted_kinds 自观察合同派生，本侧零硬编码）。
-    """
-    targeted = next(
-        (item for item in schemas if item["function"]["name"] == "start_targeted_activity"),
-        None,
-    )
-    if targeted is None:
-        return
-    kinds = [kind for kind in targeted_kinds if targets[kind]]
-    if not kinds:
-        schemas[:] = [item for item in schemas if item["function"]["name"] != "start_targeted_activity"]
-        return
-    properties = targeted["function"]["parameters"]["properties"]
-    properties["activity_type"]["enum"] = kinds
-    properties["activity_type"]["description"] = _energy_limit_description(kinds, maximums)
-    properties["target_id"]["enum"] = sorted({value for kind in kinds for value in targets[kind]})
-    properties["target_id"]["description"] = _TARGET_ID_DESCRIPTION
-    properties["planned_duration_seconds"]["maximum"] = max(maximums[kind] for kind in kinds)
-
-
-def _energy_limit_description(kinds: list[str], maximums: dict[str, int]) -> str:
-    """@brief 将每类当前最大墙钟时长写入实际模型工具说明。"""
-    values = ", ".join(f"{kind}={maximums[kind]}" for kind in kinds)
-    return f"{_TARGET_KIND_DESCRIPTION} Current maximum wall-clock seconds by kind: {values}."
-
-
-
-
-def _bind_visible_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 将公开身份闭集写入瞬时动作工具的实际 Schema。"""
-    functions = {item["function"]["name"]: item["function"] for item in schemas}
-    life_menu.bind_storefront_schemas(functions, contracts)
-    if "consume" in functions:
-        bind_consume_schema(functions["consume"], contracts["consume"])
-    if "submit_work" in functions:
-        properties = functions["submit_work"]["parameters"]["properties"]
-        properties["task_id"]["enum"] = list(contracts["submit_work"])
-    if "start_travel" in functions:
-        routes = contracts["start_travel"]
-        properties = functions["start_travel"]["parameters"]["properties"]
-        properties["destination_id"]["enum"] = sorted({item[0] for item in routes})
-        properties["travel_mode"]["enum"] = sorted({item[1] for item in routes})
-        properties["planned_duration_seconds"]["enum"] = sorted({item[2] for item in routes})
-    for name in ("plan_day", "revise_day_plan"):
-        if name in functions:
-            properties = functions[name]["parameters"]["properties"]
-            progressed = contracts[name]["progressed_intents"]
-            properties["goals"]["items"]["properties"]["intent_kind"]["enum"] = [
-                kind for kind in INTENT_KINDS if kind not in progressed]
-    if "send_message" in functions:
-        properties = functions["send_message"]["parameters"]["properties"]
-        properties["recipient_id"]["enum"] = list(contracts["send_message"]["recipients"])
-    if "start_social_activity" in functions:
-        contract = contracts["start_social_activity"]
-        properties = functions["start_social_activity"]["parameters"]["properties"]
-        properties["kind"]["enum"] = [kind for kind in ("chat", "call")
-                                      if contract[f"{kind}_partners"]]
-        properties["partner_id"]["enum"] = sorted(
-            set(contract["chat_partners"]) | set(contract["call_partners"]))
-
-
-
-
-def _validate_visible_action(action: str, request: BaseModel, contracts: dict[str, Any]) -> str:
-    """@brief 本地核对商品报价、使用方式、任务身份、路线与计划配对。"""
-    if action == "purchase":
-        return life_menu.validate_purchase(request, contracts[action])
-    if action == "discover_places":
-        return life_menu.validate_discovery(request, contracts[action])
-    if action == "consume":
-        return _validate_meal_request(request, contracts[action])
-    if action == "submit_work" and request.task_id not in contracts[action]:
-        return "submit_work task_id has no fully revealed visible material"
-    if action == "start_travel":
-        route = (request.destination_id, request.travel_mode, request.planned_duration_seconds)
-        if route not in contracts[action]:
-            return "start_travel destination, mode, and duration are not a visible route"
-    if action in {"plan_day", "revise_day_plan"}:
-        return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
-    if action == "send_message":
-        if request.recipient_id not in contracts[action]["recipients"]:
-            return "send_message recipient_id is not visible"
-        if len(request.text) > _MESSAGE_TEXT_MAX_CHARS:
-            return "send_message text exceeds 300 characters"
-    if action == "start_social_activity":
-        partners = contracts[action][f"{request.kind}_partners"]
-        if request.partner_id not in partners:
-            return "start_social_activity partner_id is not visible"
-    return ""
-
-
-def _validate_meal_request(request: BaseModel, catalog: dict[str, dict[str, Any]]) -> str:
-    """@brief 本地核对件数、身份、使用方式与时长；实际数量按环境配方结算。"""
-    if not _MEAL_ITEM_BOUNDS[0] <= len(request.items) <= _MEAL_ITEM_BOUNDS[1]:
-        return "consume requires one to three items"
-    if request.use_mode == "use" and len(request.items) != 1:
-        return "consume use mode accepts exactly one item"
-    durations = []
-    for item in request.items:
-        product = catalog.get(item.product_id)
-        if product is None or request.use_mode not in product["use_modes"]:
-            return "consume request is not valid for current local inventory"
-        durations.append(product["duration_seconds"])
-    expected = max(durations) if request.use_mode == "eat" else durations[0]
-    if request.duration_seconds != expected:
-        return "consume duration does not match the selected products"
-    return ""
 
 
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
@@ -1782,20 +1214,13 @@ def affordance_registry_sha256() -> str:
 def life_tool_schema_sha256() -> str:
     """@brief 返回正式生活决策闭集工具 Schema + 注册表摘要的稳定 SHA-256。
 
-    家族相关工具描述自注册表合同拼装，指纹还绑定运行期目标字段描述与
-    affordances.toml 字节摘要，确保提示字段指路和工具面一起留证。
+    稳定工具面的描述是静态的（每轮绑定的对象身份与动作枚举不进指纹），
+    指纹另绑定 affordances.toml 字节摘要，确保内容目录与工具面一起留证。
     """
-    from worldmock.catalog.affordances import default_affordances
-    from worldmock.life.engine import affordance_contract
-
-    descriptions = _life_tool_descriptions(
-        affordance_contract(default_affordances()))
-    schemas = [_tool_schema(name, _TOOL_MODELS[name], descriptions)
+    schemas = [_tool_schema(name, _TOOL_MODELS[name], _TOOL_DESCRIPTIONS)
                for name in _TOOL_MODELS]
     encoded = json.dumps(
         {"tool_schemas": schemas,
-         "target_kind_description": _TARGET_KIND_DESCRIPTION,
-         "target_id_description": _TARGET_ID_DESCRIPTION,
          "affordance_registry_sha256": affordance_registry_sha256()},
         ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()

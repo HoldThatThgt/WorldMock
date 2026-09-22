@@ -21,10 +21,7 @@ from worldmock.life.models import (
     FulfillmentKind,
     PurchaseItem,
     PurchaseOrderRequest,
-    DiscoverPlacesRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
-    StartTravelRequest,
+    StartActivityRequest,
 )
 
 
@@ -138,8 +135,8 @@ def test_browse_purchase_replay_and_remote_delivery_use_one_canonical_payment(en
     }
     advance_until_ready(engine)  # 出行完成后的下一决策（配送已交付家中）
     _observed_action(
-        engine, "sleep-for-delivery", "start_basic_activity",
-        StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
+        engine, "sleep-for-delivery", "start_activity",
+        StartActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
     while engine.scheduling_state().next_event_at is not None:
         if engine.scheduling_state().ready_agent_ids:
             break
@@ -292,7 +289,7 @@ def test_pending_delivery_is_private_to_its_owner(engine_factory) -> None:
     observations = {agent_id: engine.observe(contexts[agent_id]) for agent_id in ready}
     product = engine.scenario.products[0]
     requests = {1: ("purchase", _delivery_request(engine, product.product_id)),
-                2: ("start_basic_activity", StartBasicActivityRequest(
+                2: ("start_activity", StartActivityRequest(
                     activity_type="wait", planned_duration_seconds=60))}
     for agent_id in reversed(ready):
         tool, request = requests[agent_id]

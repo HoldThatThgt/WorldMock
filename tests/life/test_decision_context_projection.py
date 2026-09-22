@@ -9,7 +9,7 @@ import pytest
 from tests.life.conftest import advance_next, context, submit_round
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import StartTargetedActivityRequest
+from worldmock.life.models import StartActivityRequest
 from worldmock.life.narration import (
     ForbiddenObservationFieldError,
     PromptBudgetExceededError,
@@ -26,10 +26,10 @@ def _reject_unobserved_rounds(engine, count: int) -> list:
     """通过真实登记和结算积累多条结果，期间人物不读取新观察。"""
     results = []
     for index in range(count):
-        request = StartTargetedActivityRequest(
+        request = StartActivityRequest(
             activity_type="watch", target_id=f"unavailable-{index}",
             planned_duration_seconds=60, playback_speed=1)
-        _, batch = submit_round(engine, {1: ("start_targeted_activity", request)}, f"unobserved-{index}")
+        _, batch = submit_round(engine, {1: ("start_activity", request)}, f"unobserved-{index}")
         results.extend(batch)
         advance_next(engine)
     return results
