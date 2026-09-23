@@ -16,13 +16,10 @@ from worldmock.life.models import (
     ActivityStatus,
     AgentState,
     BodyState,
-    StartActivityRequest,
-    StartTravelRequest,
-    TravelMode,
+    ActivityStartParams,
 )
 from worldmock.life.scenario import load_scenario
 
-from tests.life.conftest import advance_next, submit_round, travel_quote
 
 
 @pytest.fixture(scope="module")
@@ -50,7 +47,7 @@ def _agent(skill: float = 0.8, *, notes: bool = False, need: float = 0.5) -> Age
 
 def _start(kind: ActivityKind, seconds: int, agent: AgentState, config, target: str):
     """用完整来源身份启动一个专项测试活动。"""
-    request = StartActivityRequest(
+    request = ActivityStartParams(
         activity_type=kind,
         planned_duration_seconds=seconds,
         target_id=target,
@@ -162,78 +159,3 @@ def test_body_boundary_uses_curve_node_and_food_net_energy(body_config) -> None:
     assert curve_seconds == round((8 - 7.9) / deficit_rate * 3600)
     entertainment_crossing = round(0.3 / 0.08 * 3600)
     assert consume_seconds == entertainment_crossing
-
-
-def test_engine_watch_uses_frozen_content_rate_and_preference(engine_factory) -> None:
-    """真实 LifeEngine 结算路径使用内容效果、口味权重和实际接触时长。"""
-    engine = engine_factory()
-    # wait 前导 900s：边等边刷后娱乐需要 ≈0.0075（0.08−0.05 每小时净累积
-    # ×0.25h），高于 60s 观看的未钳制缓解量 0.3×0.7×(60/3600)=0.0035，
-    # 保证断言观测的是内容费率×偏好的未触底 drain 而非钳到 0 的退化值。
-    wait = StartActivityRequest(activity_type="wait", planned_duration_seconds=900)
-    submit_round(engine, {1: ("start_basic_activity", wait)}, "watch-need")
-    advance_next(engine)
-    agent = engine.state.agents[1]
-    before = agent.body.entertainment_need
-    item = engine.rules.content("sintel-en-subtitles")
-    # docs/dev/SPEC-life-realism.md「画像编译」：结算偏好源=taste_weights（卡片口味 x genre 确定性权重）；
-    # 引擎路径在 PersonaCard 入库前为空映射，经 staged 提交注入权重验证结算链路。
-    from worldmock.footprints.models import EventDraft
-
-    staged = engine.state.model_copy(deep=True)
-    staged.agents[1] = staged.agents[1].model_copy(
-        update={"taste_weights": {item.item_id: 0.7}}, deep=True)
-    staged.version += 1
-    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
-        event_type="environment_event", occurred_at=staged.current_time,
-        visibility="system", data={"kind": "test_seed_watch_taste"})])
-    engine.state = staged
-    preference = engine.state.agents[1].taste_weights[item.item_id]
-    request = StartActivityRequest(
-        activity_type="watch",
-        planned_duration_seconds=60,
-        target_id=item.item_id,
-        playback_speed=1,
-    )
-
-    _, results = submit_round(engine, {1: ("start_targeted_activity", request)}, "watch-real")
-    advance_next(engine)
-
-    activity = engine.state.activities[results[0].activity_id]
-    expected = before + (engine.semantics.body.entertainment_need_per_awake_hour
-                         - item.entertainment_relief_per_hour * preference) / 60
-    assert activity.data["entertainment_relief_per_hour"] == item.entertainment_relief_per_hour
-    assert activity.data["exposure_count"] == 1
-    assert engine.state.agents[1].body.entertainment_need == pytest.approx(expected)
-
-
-def test_engine_work_progress_uses_frozen_skill_without_unused_tool(engine_factory) -> None:
-    """真实 LifeEngine 工作推进使用人物技能，未生效工具不乘场景倍率。"""
-    engine = engine_factory()
-    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=32_400)
-    _, sleep_results = submit_round(engine, {1: ("start_basic_activity", sleep)}, "sleep-to-work")
-    while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
-    travel = StartTravelRequest(
-        planned_duration_seconds=travel_quote(engine, "driving", 216),
-        destination_id="office",
-        travel_mode=TravelMode.DRIVING,
-    )
-    _, travel_results = submit_round(engine, {1: ("start_travel", travel)}, "travel-to-work")
-    while engine.state.activities[travel_results[0].activity_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
-    work = StartActivityRequest(
-        activity_type="work",
-        planned_duration_seconds=3600,
-        target_id="task-2026-01-05",
-        playback_speed=1,
-    )
-    _, work_results = submit_round(engine, {1: ("start_targeted_activity", work)}, "work-real")
-
-    advance_next(engine)
-
-    activity = engine.state.activities[work_results[0].activity_id]
-    assert activity.elapsed_seconds == engine.scenario.activity_feedback_seconds
-    assert activity.data["skill_level"] == 0.8
-    assert activity.data["work_notes_multiplier"] == 1.1
-    assert activity.effective_work_seconds == pytest.approx(activity.elapsed_seconds * 0.8)

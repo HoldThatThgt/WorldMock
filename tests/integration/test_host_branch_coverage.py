@@ -173,7 +173,7 @@ def _write_secret(home: Path, body: str) -> None:
 
 def test_read_deepseek_key_enforces_private_schema(tmp_path, monkeypatch):
     """凭据文件缺失、symlink、未知键、空文件与空段各自拒绝。"""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     with pytest.raises(FileNotFoundError, match="missing or unsafe"):
         _read_deepseek_key()
     _write_secret(tmp_path, "DEEPSEEK_NODE_KEYS=  \n")
@@ -196,14 +196,19 @@ def test_read_deepseek_key_enforces_private_schema(tmp_path, monkeypatch):
     real = config / "real.env"
     real.write_text("DEEPSEEK_NODE_KEYS=node-secret-1\n")
     link.unlink()
-    link.symlink_to(real)
+    try:
+        link.symlink_to(real)
+    except OSError as error:
+        if getattr(error, 'winerror', None) == 1314:
+            pytest.skip('Windows symlink privilege is unavailable')
+        raise
     with pytest.raises(FileNotFoundError, match="missing or unsafe"):
         _read_deepseek_key()
 
 
 def test_read_deepseek_key_strips_dedupes_and_joins_multi_key_pool(tmp_path, monkeypatch):
     """多 key 池：逐段 strip、按序去重、逗号 join（单 key 也 join）。"""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _write_secret(tmp_path, "DEEPSEEK_NODE_KEYS=node-secret-1\n")
     assert _read_deepseek_key() == "node-secret-1"
     _write_secret(tmp_path, "DEEPSEEK_NODE_KEYS= node-secret-1 , node-secret-2 \n")
@@ -237,7 +242,7 @@ def test_require_loaded_config_rejects_diverged_as2_configuration(monkeypatch):
 
 def test_configure_process_sets_worker_environment(tmp_path, monkeypatch):
     """完整配置写入 worker 环境与 PYTHONPATH；工程根不完整即拒绝。"""
-    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     _write_secret(tmp_path, "DEEPSEEK_NODE_KEYS=secret-a,secret-b\n")
     with pytest.raises(FileNotFoundError, match="incomplete"):
         _configure_process(tmp_path)
@@ -786,7 +791,7 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
 
     from tests.life.conftest import context
     from worldmock.life.engine import LifeEngine
-    from worldmock.life.models import RunIdentity, SendMessageRequest
+    from worldmock.life.models import RunIdentity, SendMessageActionRequest
     from worldmock.life.scenario import load_scenario
 
     scenario, _ = load_scenario(SCENARIO)
@@ -805,10 +810,11 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
         env.engine = engine
         ctx = context(engine, "settle-direct")
         await env.begin_decision_round((ctx,))
+        await env.observe(ctx)
         await env.submit_action(DirectToolCall(
             ctx, "action-settle", "send_message",
-            SendMessageRequest(recipient_id="contact-chenxi-oldfriend",
-                               text="周五晚上一起吃饭？")))
+            SendMessageActionRequest(recipient_name="联系人：沈昊",
+                                     text="周五晚上一起吃饭？")))
         monkeypatch.setattr(runtime, "ContactReplyClient", RecordingClient)
         results = await env.commit_decision_round("settle-direct")
         assert results[0].status == "completed"
@@ -947,10 +953,11 @@ def copy_dict(value):
     return _copy.deepcopy(value)
 
 
-def test_validate_project_requires_installed_labelkit_cli(tmp_path):
+def test_validate_project_requires_installed_labelkit_cli(tmp_path, monkeypatch):
     """独立 LabelKit CLI 环境缺失时拒绝校验。"""
     from worldmock.validation import validate_project
 
+    monkeypatch.setattr('worldmock.validation.importlib.metadata.version', lambda _name: 'fixture')
     with pytest.raises(IntegrityError, match="LabelKit CLI environment is not installed"):
         validate_project(tmp_path, SCENARIO)
 
@@ -1096,8 +1103,13 @@ def test_cli_dispatch_delivers_validate_and_prepares_corpora(monkeypatch, tmp_pa
     """deliver/validate/prepare-corpora 分支连接真实生产模块（协作者打桩）。"""
     from worldmock import cli
     from worldmock import validation as validation_module
-    from worldmock.corpora import fetch as fetch_module
     from worldmock.delivery import pipeline as pipeline_module
+    import sys
+    from types import ModuleType
+
+    fetch_module = ModuleType('worldmock.corpora.fetch')
+    fetch_module.prepare_corpora = lambda output: SimpleNamespace(model_dump=lambda **_k: {'entries': 3})
+    monkeypatch.setitem(sys.modules, 'worldmock.corpora.fetch', fetch_module)
 
     monkeypatch.setattr(pipeline_module, "deliver",
                         lambda export, output, root, replays: {"committed": True})
@@ -1111,8 +1123,6 @@ def test_cli_dispatch_delivers_validate_and_prepares_corpora(monkeypatch, tmp_pa
         ["validate", "--scenario", str(SCENARIO)]))
     assert result == {"valid": True}
 
-    monkeypatch.setattr(fetch_module, "prepare_corpora",
-                        lambda output: SimpleNamespace(model_dump=lambda **_k: {"entries": 3}))
     result = cli._dispatch(cli.build_parser().parse_args(
         ["prepare-corpora", "--output", str(tmp_path / "corpora")]))
     assert result == {"entries": 3}

@@ -1,7 +1,5 @@
 """环境事件、承诺威胁与双重估间隔的精确边界合同。"""
 
-# TODO: SetActivityStateRequest removed - replaced by pause_activity/conclude_activity tools
-
 import json
 from dataclasses import replace
 from datetime import datetime
@@ -14,8 +12,7 @@ from pydantic import ValidationError
 from tests.life.conftest import advance_next, context, start_activity, wake_by_mail
 from tests.life.test_day_plan import act, goal
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus,
-                                   ChangeActivityRequest, StartActivityRequest)
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest
 from worldmock.life.rhythm import _has_commitments, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.scenario import LifeScenario
 from worldmock.life.schedule import (
@@ -168,7 +165,7 @@ def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_fa
     from tests.life.test_revision_contract import _commit_staged
     _commit_staged(engine, state)
     started = act(engine, "warning-wait", "start_activity",
-                  start_activity("wait", planned_duration_seconds=3600))
+                  start_activity("等待", "自己"))
     assert started.status == "in_progress"
     assert engine.scheduling_state().next_event_at.timestamp() == due - 1800
     advance_next(engine)
@@ -198,7 +195,7 @@ def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bo
     state.opening_exceptions[location_id][local.date().isoformat()] = [(0, closing_minute)]
     _commit_staged(engine, state)
     result = act(engine, "closing-wait", "start_activity",
-                 start_activity("wait", planned_duration_seconds=3600))
+                 start_activity("等待", "自己"))
     assert result.status == "in_progress"
     if bound_to_location:
         assert engine.scheduling_state().next_event_at.timestamp() == closing - 900
@@ -209,16 +206,19 @@ def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bo
     else:
         assert engine.scheduling_state().next_event_at.timestamp() != closing - 900
         while engine.state.current_time < closing:
-            advance_next(engine)
+            if engine.scheduling_state().ready_agent_ids:
+                act(engine, "closing-continue", "start_activity", start_activity("等待", "自己"))
+            else:
+                advance_next(engine)
         assert "commitment_threatened" not in engine.state.agents[1].pending_wake_reasons
 
 
-def _stage_task_warning(engine, task_ids: set[str], due: int) -> None:
+def _stage_task_warning(engine, task_ids: set[str], due: int, lead_seconds: int = 1901) -> None:
     """把真实引擎放到预警前并同步身体结算时钟。"""
     from worldmock.footprints.models import EventDraft
 
     state = engine.state.model_copy(deep=True)
-    now = due - 1901
+    now = due - lead_seconds
     state.current_time = now
     state.pending_events = []
     agent = state.agents[1]
@@ -242,8 +242,6 @@ def _task_warning_ids(agent) -> set[str]:
 
 def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
     """第二个任务进入预警窗口时，即使第一项仍未完成也再次提醒。"""
-    # TODO: SetActivityStateRequest removed - test needs conclude_activity tool migration
-    pytest.skip("SetActivityStateRequest removed, needs conclude_activity migration")
     engine = engine_factory()
     first, second = engine.scenario.tasks[:2]
     due = int(first.due_at.timestamp())
@@ -252,13 +250,15 @@ def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
         "due_at": datetime.fromtimestamp(due + 100, first.due_at.tzinfo)})
     _stage_task_warning(engine, {first.task_id, second.task_id}, due)
     started = act(engine, "two-task-wait", "start_activity",
-                  start_activity("wait", planned_duration_seconds=3600))
+                  start_activity("等待", "自己"))
     assert started.status == "in_progress"
     advance_next(engine)
     assert engine.state.current_time == due - 1800
     assert _task_warning_ids(engine.state.agents[1]) == {first.task_id}
-    # act(engine, "first-warning-ack", "set_activity_state",
-    #     SetActivityStateRequest(activity_id=started.activity_id, operation="cancel"))
+    session = next(item for item in engine.state.sessions.values()
+                   if started.activity_id in item.activity_ids)
+    act(engine, "first-warning-ack", "conclude_activity",
+        ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
     while engine.state.current_time < due - 1700:
         advance_next(engine)
     assert engine.state.current_time == due - 1700
@@ -271,17 +271,18 @@ def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> Non
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
-    _stage_task_warning(engine, {task.task_id}, due)
+    sleep_seconds = round(engine.state.agents[1].body.sleep_need_hours * 3600)
+    _stage_task_warning(engine, {task.task_id}, due, sleep_seconds + 1750)
     started = act(engine, "sleep-warning", "start_activity",
-                  start_activity("sleep", planned_duration_seconds=120))
+                  start_activity("睡觉", "自己"))
     assert started.status == "in_progress"
     wake_by_mail(engine, offset=101)
-    while engine.state.current_time < due - 1800:
-        advance_next(engine)
-    assert engine.state.current_time == due - 1800
-    assert _task_warning_ids(engine.state.agents[1]) == set()
-    assert engine.scheduling_state().ready_agent_ids == ()
     advance_next(engine)
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert _task_warning_ids(engine.state.agents[1]) == set()
+    while engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
+        advance_next(engine)
+    assert engine.state.current_time == due - 1750
     assert engine.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
     assert "task_due_soon" in engine.state.agents[1].pending_wake_reasons
     assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
@@ -289,18 +290,18 @@ def test_sleep_filtered_warning_is_delivered_after_waking(engine_factory) -> Non
 
 def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory) -> None:
     """共同检查点恢复后，持续成立的同一任务威胁不会再次唤醒。"""
-    # TODO: SetActivityStateRequest removed - test needs conclude_activity tool migration
-    pytest.skip("SetActivityStateRequest removed, needs conclude_activity migration")
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
     _stage_task_warning(engine, {task.task_id}, due)
     started = act(engine, "checkpoint-wait", "start_activity",
-                  start_activity("wait", planned_duration_seconds=3600))
+                  start_activity("等待", "自己"))
     advance_next(engine)
     assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
-    # act(engine, "checkpoint-ack", "set_activity_state",
-    #     SetActivityStateRequest(activity_id=started.activity_id, operation="cancel"))
+    session = next(item for item in engine.state.sessions.values()
+                   if started.activity_id in item.activity_ids)
+    act(engine, "checkpoint-ack", "conclude_activity",
+        ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.checkpoint_id
@@ -400,7 +401,7 @@ def test_infeasibility_warns_once_clears_and_can_reappear(engine_factory, resolu
     """持续同因不重报；能量恢复、暂停或终态解除威胁，重新不可行时重新交付。"""
     engine = engine_factory()
     started = act(engine, "infeasible-watch", "start_activity",
-                  start_activity("watch", "sintel-en-subtitles", planned_duration_seconds=600))
+                  start_activity("观看", "内容：Sintel"))
     assert started.status == "in_progress"
     state = engine.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -77,7 +78,7 @@ def engine(tmp_path):
     document["corpus_root"] = str(PROJECT_ROOT / "corpora")
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir(parents=True)
-    (tmp_path / "catalog").symlink_to(PROJECT_ROOT / "catalog")
+    shutil.copytree(PROJECT_ROOT / "catalog", tmp_path / "catalog")
     path = scenarios / "custom.json"
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return LifeEngine.create(path, tmp_path / "run", _identity(document, "effects"))

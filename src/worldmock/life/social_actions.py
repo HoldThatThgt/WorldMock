@@ -96,7 +96,9 @@ def _social_activity(agent: AgentState, kind: ActivityKind, duration_seconds: in
     if duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     return ActivityState(
-        activity_id=f"activity-{origin.action_id}", agent_id=agent.agent_id, kind=kind,
+        activity_id=(f"activity-{origin.action_id}:" + f"{origin.activity_ordinal:04d}"
+                     if origin.activity_ordinal > 1 else f"activity-{origin.action_id}"),
+        agent_id=agent.agent_id, kind=kind,
         status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration_seconds,
         last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=duration_seconds,
         target_id=None, resource_claims=set(SOCIAL_RESOURCE_CLAIMS),

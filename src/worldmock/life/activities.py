@@ -53,6 +53,7 @@ class ActivityOrigin:
     action_id: str
     decision_id: str
     request_event_id: str
+    activity_ordinal: int = 1
 
 
 #: 到期反馈边界闭集（含生活活动）——自可供性注册表 kinds.*.feedback_boundary 派生
@@ -121,7 +122,8 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int, or
     """@brief 受理一个主活动，并拒绝地点不可行、资源冲突或不可完成能量预算。"""
     if request.planned_duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
-    activity_id = f"activity-{origin.action_id}"
+    suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
+    activity_id = f"activity-{origin.action_id}{suffix}"
     activity = ActivityState(
         activity_id=activity_id,
         agent_id=agent.agent_id,

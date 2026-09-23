@@ -127,7 +127,7 @@ def test_validator_accepts_hydrated_prior_result_and_rejects_allowed_list_tamper
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
 def test_semantic_prompt_requires_every_citation_to_use_the_exact_allowed_set(task):
-    config = (ROOT / f'labelkit-projects/{task}.toml').read_text()
+    config = (ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8")
 
     assert '每个 evidence_event_ids 值必须逐字取自 input.allowed_evidence_event_ids' in config
     assert 'input.events 与 input.prerequisite_state 中、且列于 input.allowed_evidence_event_ids' in config
@@ -197,7 +197,7 @@ def test_high_precision_floats_round_trip_through_real_dataset_loader(tmp_path):
     assert json.loads(row['target']) == record['target']
     assert json.loads(row['target'])['facts']['nested'][0]['x'] == 5.000000000000001
     assert json.loads(row['provenance']) == record['provenance']
-    line = json.loads((tmp_path / 'training' / f'{split}.jsonl').read_text().splitlines()[0])
+    line = json.loads((tmp_path / 'training' / f'{split}.jsonl').read_text(encoding="utf-8").splitlines()[0])
     assert isinstance(line['input'], str) and isinstance(line['target'], str)
     assert isinstance(line['provenance'], str)
     assert json.loads(line['input']) == record['input']

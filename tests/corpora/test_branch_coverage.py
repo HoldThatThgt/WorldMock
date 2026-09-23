@@ -6,8 +6,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import json
+import sys
 import zipfile
 from types import SimpleNamespace
 import requests
@@ -15,6 +17,9 @@ from xml.etree import ElementTree
 from pathlib import Path
 
 import pytest
+
+if sys.platform == "win32" and importlib.util.find_spec("textworld") is None:
+    pytest.skip("TextWorld 1.7.0 has no Windows wheel in the project lockfile", allow_module_level=True)
 
 import worldmock.corpora.fetch as fetch_module
 from worldmock.corpora.fetch import (

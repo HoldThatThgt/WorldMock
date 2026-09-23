@@ -7,7 +7,7 @@ import pytest
 from worldmock.life.activities import ActivityOrigin, advance_activity, start_activity
 from worldmock.life.body import (ENTERTAINMENT_RESOURCE, last_flows,
                                  minimum_energy_cost, settle_body)
-from worldmock.life.models import ActivityKind, AgentState, BodyState, StartActivityRequest
+from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
 from worldmock.life.scenario import load_scenario
 
 
@@ -74,7 +74,7 @@ def test_direct_wait_activity_preserves_plain_accrual(body_config) -> None:
     agent = AgentState(agent_id=1, name="Lin", location_id="home",
                        balance_account_id="agent:1", body_settled_at=0,
                        next_decision_at=0, body=_body())
-    request = StartActivityRequest(activity_type=ActivityKind.WAIT,
+    request = ActivityStartParams(activity_type=ActivityKind.WAIT,
                                    planned_duration_seconds=3600)
     person, activity = start_activity(agent, request, 0,
                                       ActivityOrigin("a", "d", "e"), body_config)

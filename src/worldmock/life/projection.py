@@ -17,11 +17,14 @@ blacklist 是第二道防线，不是第一道。
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from worldmock.life import felt, narration, social
+from worldmock.life.interaction_menu import action_label, purchase_action_label
 from worldmock.life.models import ActivityKind, AgentState, SessionStatus, WorldState, active_activities
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.retrieval import feasible_kinds
@@ -179,10 +182,13 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     people = people_here_views(state, agent)
     inbox = _inbox_rows(inputs)
     activity_rows = inputs.extras["activity_rows"]
+    bindings = _interaction_bindings(inputs, people, inbox)
+    public_context = {"people": people, "inbox": inbox, "bindings": bindings}
     data: dict[str, Any] = {
         "agent_id": agent.agent_id, "current_time": now,
         "scene": _scene_projection(inputs, local, levels, people, inbox),
-        "facts": _facts_projection(inputs, local, levels, people, inbox),
+        "facts": _facts_projection(inputs, local, levels, public_context),
+        "interaction_bindings": bindings,
         "body": body_data, "balance_fen": state.accounts[agent.balance_account_id],
         "active_activities": activity_rows["control"],
         "paused_activities": activity_rows.get("paused_control"),
@@ -216,49 +222,79 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "reachable_places": reachable_scene,
         "inventory": _inventory_names(agent, inputs.scenario),
         "local_food_summary": inputs.extras["local_food_summary"],
-        "recent_action_results": [row["message"] for row in inputs.recent_results[-1:]],
         "current_sessions": _active_session_scene_rows(inputs.state, agent.agent_id),
         "precondition_hints": _precondition_hints(inputs),
     }
 
 
 def _session_fact_row(session: Any) -> dict[str, Any]:
-    """@brief 把单个 SessionState 投影为 facts 行（排除 note_history，进度层合同）。"""
-    return {
-        "session_id": session.session_id,
-        "task_kind": session.task_kind,
-        "task_ref": session.task_ref,
-        "status": session.status,
-        "started_at": session.started_at,
-        "ended_at": session.ended_at,
-        "targets": list(session.targets),
-        "activity_ids": list(session.activity_ids),
-        "segments": [list(seg) for seg in session.segments],
-        "invested_seconds": session.invested_seconds,
-        "effective_seconds": session.effective_seconds,
-        "remaining_contract_seconds": session.remaining_contract_seconds,
-        "preconditions_unmet": list(session.preconditions_unmet),
-        "progress_note": session.progress_note,
-        "note_updated_at": session.note_updated_at,
-    }
+    """@brief 只向人物呈现会话名称、结算进度和注明来源的自述。"""
+    phase = {SessionStatus.ACTIVE: "进行中", SessionStatus.PAUSED: "已暂停",
+             SessionStatus.CONCLUDED: "已结束", SessionStatus.ABORTED: "已中断"}
+    objective = f"已投入{session.invested_seconds}秒，有效进度{session.effective_seconds:g}秒"
+    if session.remaining_contract_seconds is not None:
+        objective += f"，剩余合同时间{session.remaining_contract_seconds}秒"
+    if session.preconditions_unmet:
+        objective += f"，待满足条件：{'、'.join(session.preconditions_unmet)}"
+    return {"task_name": session.task_name, "session_name": session.session_name,
+            "phase": phase[session.status],
+            "objective_progress": objective, "subjective_progress": session.progress_note,
+            "subjective_status": "未经核验"}
 
 
 def _session_fact_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
-    """@brief 投影当前 agent 的全部会话为 facts.sessions 行（进度层合同）。"""
-    rows = []
-    for session in state.sessions.values():
-        if session.agent_id != agent_id:
-            continue
-        row = _session_fact_row(session)
-        budget = narration.SESSION_PROGRESS_LAYER_BUDGET
-        row_json = json.dumps(row, ensure_ascii=False)
-        if len(row_json) > budget and row.get("progress_note"):
-            excess = len(row_json) - budget
-            note = row["progress_note"]
-            trimmed = note[: max(0, len(note) - excess)]
-            row["progress_note"] = trimmed
-        rows.append(row)
-    return rows
+    """@brief 当前与历史会话均按语义名称呈现，容量压缩在请求边界执行。"""
+    sessions = [session for session in state.sessions.values() if session.agent_id == agent_id]
+    order = {SessionStatus.ACTIVE: 0, SessionStatus.PAUSED: 1,
+             SessionStatus.CONCLUDED: 2, SessionStatus.ABORTED: 2}
+    sessions.sort(key=lambda item: (order[item.status],
+                                    -item.started_at if order[item.status] == 2 else item.started_at,
+                                    item.task_name))
+    return [_session_fact_row(session) for session in sessions]
+
+
+def _progress_alarms(inputs: ProjectionInputs) -> list[str]:
+    """@brief 由任务截止事实生成本轮临近截止提醒。"""
+    now = inputs.state.current_time
+    return [f"{row['title']}即将截止" for row in inputs.task_rows
+            if row.get("due_at") is not None and 0 < int(row["due_at"]) - now <= 7200]
+
+
+def _progress_projection(inputs: ProjectionInputs) -> dict[str, Any]:
+    """@brief 将会话进度、最新结算和截止提醒归入同一个进度层。"""
+    return {"sessions": _session_fact_rows(inputs.state, inputs.agent.agent_id),
+            "results": [_progress_result(inputs, row) for row in inputs.recent_results],
+            "alarms": _progress_alarms(inputs)}
+
+
+def _progress_result(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str, Any]:
+    """@brief 公开动作结果的语义字段，不要求人物处理事件身份。"""
+    public = public_action_result(row)
+    keys = ("occurred_at", "status", "error_code", "message", "work_review")
+    result = {key: public[key] for key in keys if key in public}
+    details = _progress_result_details(inputs, public)
+    if details:
+        result["details"] = details
+    return result
+
+
+def _progress_result_details(inputs: ProjectionInputs, public: dict[str, Any]) -> dict[str, Any]:
+    """@brief 把订单、到达和浏览结果转为名称与金额，省去所有内部身份。"""
+    details: dict[str, Any] = {}
+    products = {item.product_id: item.name for item in inputs.scenario.products}
+    places = {item.location_id: item.name for item in inputs.scenario.locations}
+    if "orders" in public:
+        details["purchases"] = [{"product": products[item["product_id"]],
+                                 "quantity": item["quantity"], "charged_fen": item["total_price_fen"]}
+                                for item in public["orders"]]
+    if "arrival" in public:
+        arrival = public["arrival"]
+        details["arrival"] = {"place": places[arrival["location_id"]],
+                              "access_status": arrival["access_status"]}
+    if "browse_result" in public:
+        items = public["browse_result"].get("items", [])
+        details["browse_items"] = [products[item["product_id"]] for item in items]
+    return details
 
 
 def _active_session_scene_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
@@ -269,9 +305,8 @@ def _active_session_scene_rows(state: WorldState, agent_id: int) -> list[dict[st
             continue
         if session.status != SessionStatus.ACTIVE:
             continue
-        label = session.targets[0] if session.targets else session.session_id
         rows.append({
-            "label": label,
+            "label": session.task_name,
             "invested_seconds": session.invested_seconds,
             "progress_note": session.progress_note,
         })
@@ -281,26 +316,26 @@ def _active_session_scene_rows(state: WorldState, agent_id: int) -> list[dict[st
 
 
 def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
-                      people: list[dict], inbox: list[dict]) -> dict[str, Any]:
+                      context: dict[str, Any]) -> dict[str, Any]:
     """@brief 组装完整事实清单，全部新结果经过公开字段投影。"""
     agent, now = inputs.agent, inputs.state.current_time
+    people, inbox, bindings = context["people"], context["inbox"], context["bindings"]
     return {
         "current_time": local.isoformat(),
         "current_epoch": now,
-        "location_id": agent.location_id,
-        "people_here": people,
+        "location": _location_index(inputs.scenario)[agent.location_id].name,
+        "people_here": [{"name": row["name"], "can_talk": row["can_talk"]} for row in people],
         "contacts": _contact_rows(inputs.scenario, agent),
-        "inbox": inbox,
+        "inbox": _public_inbox(inputs, inbox),
         "tasks": _task_fact_rows(inputs),
-        "sessions": _session_fact_rows(inputs.state, agent.agent_id),
-        "interactive_objects": _interactive_objects_rows(inputs, people, inbox),
-        "routes": inputs.extras.get("route_rows", []),
-        "products": inputs.extras.get("product_rows", []),
-        "inventory": agent.inventory,
+        "progress": _progress_projection(inputs),
+        "interactive_objects": [_public_interaction(row) for row in bindings],
+        "routes": _public_routes(inputs),
+        "products": _public_products(inputs),
+        "inventory": _public_inventory(inputs),
         "day_plan": _plan_fact(agent, now),
         "felt": levels,
         "drive_summary": drive_summary(levels, inputs.task_rows, now),
-        "recent_action_results": [public_action_result(row) for row in inputs.recent_results],
     }
 
 
@@ -310,16 +345,53 @@ def _location_index(scenario: RuntimeScenario) -> dict[str, Any]:
 
 
 def _contact_rows(scenario: RuntimeScenario, agent: AgentState) -> list[dict[str, Any]]:
-    """@brief 人物自己声明的联系人 facts 行：不透明 contact_id + 称谓 + 关系。
-
-    联系人是本人的通讯录（docs/dev/SPEC-life-runtime.md「社交最小可行版」），不是他人隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）约束的对象；
-    亲密度、渠道与回复策略是引擎结算内部参数，不进 facts。call 的对象集
-    与 send_message 的联系人收件人都以该 contact_id 为身份锚点。
-    """
+    """@brief 人物通讯录只公开称谓与关系，内部身份留在观察绑定中。"""
     config = next((item for item in scenario.agents if item.agent_id == agent.agent_id), None)
     contacts = getattr(config, "contacts", ()) or ()
-    return [{"contact_id": item.contact_id, "salutation": item.salutation,
-             "relation": item.relation} for item in contacts]
+    return [{"salutation": item.salutation, "relation": item.relation} for item in contacts]
+
+
+def _public_inbox(inputs: ProjectionInputs, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 将收件人可见消息转成标题、发件人和时间，不公开消息身份。"""
+    people = {f"agent:{item.agent_id}": item.name for item in inputs.state.agents.values()}
+    config = next(item for item in inputs.scenario.agents if item.agent_id == inputs.agent.agent_id)
+    people.update({item.contact_id: item.salutation for item in config.contacts})
+    return [{"kind": row["kind"], "sender": people[row["sender_id"]]
+             if row["sender_id"] is not None else None,
+             "head": row["head"], "read": row["read"], "created_at": row["created_at"]}
+            for row in rows]
+
+
+def _public_routes(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 路线按地点名称公开，时长和票价仍由系统告知。"""
+    places = _location_index(inputs.scenario)
+    return [{"destination": places[row["destination"]].name, "mode": row["mode"],
+             "minutes": row["minutes"], "fare_fen": row["fare"],
+             "feasible": row["feasible"], "status": row["status"], "reason": row["reason"]}
+            for row in inputs.extras.get("route_rows", [])]
+
+
+def _public_products(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 供给只公开购物决策所需名称、报价与履约事实。"""
+    places = _location_index(inputs.scenario)
+    return [{"object": _interaction_object_label(inputs, {"kind": "supply", "name": row["name"],
+                                                    "object_id": row["supply_id"]}),
+             "product": row["name"], "place": row["location_name"],
+             "price_fen": row["purchase_price_fen"], "quote_status": row["quote_status"],
+             "current_stock": row["current_stock"], "purchase_allowed": row["purchase_allowed"],
+             "fulfillment_modes": row["fulfillment_modes"],
+             "delivery_destinations": [places[item].name for item in row["delivery_destination_ids"]],
+             "delivery_delay_seconds": row["delivery_delay_seconds"]}
+            for row in inputs.extras.get("product_rows", [])]
+
+
+def _public_inventory(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 库存按地点和商品名称公开正数持有量。"""
+    places = _location_index(inputs.scenario)
+    products = _product_names(inputs.scenario)
+    return [{"place": places[place_id].name, "product": products[product_id], "quantity": quantity}
+            for place_id, holding in sorted(inputs.agent.inventory.items())
+            for product_id, quantity in sorted(holding.items()) if quantity > 0]
 
 
 def _inbox_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
@@ -362,29 +434,34 @@ def _plan_row(agent: AgentState, now: int) -> dict[str, Any] | None:
 
 
 def _plan_fact(agent: AgentState, now: int) -> dict[str, Any] | None:
-    """@brief 事实保留当日完整目标与推进证据，空清单保持已提交身份。"""
+    """@brief 事实保留当日目标文字和推进状态，隐藏内部活动证据。"""
     plan = agent.day_plan
     if plan is None or plan.day_end <= now:
         return None
-    return plan.model_dump(mode="json")
+    return {"goals": [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}",
+                       "intent_kind": goal.intent_kind,
+                       "progressed": goal.progressed_at is not None,
+                       "progress_note": goal.progress_note, "subjective_status": "未经核验"}
+                      for goal in plan.goals]}
 
 
 def _task_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief facts 任务行：含五项前置条件字段、剩余合同工时与新揭示材料区间。"""
+    """@brief facts 任务行：公开任务名称、前置条件与剩余合同工时。"""
     ranges = new_material_ranges(inputs.agent)
+    places = _location_index(inputs.scenario)
     rows = []
     for row in inputs.task_rows:
         rows.append({
-            "task_id": row["task_id"],
-            "title": row["title"],
+            "task_name": row["title"],
             "due_at": row["due_at"],
             "remaining_contract_seconds": row["remaining_contract_seconds"],
-            "required_location_id": row.get("required_location_id"),
+            "required_location": (places[row["required_location_id"]].name
+                                  if row.get("required_location_id") else None),
             "required_skill": row.get("required_skill"),
             "minimum_skill": row.get("minimum_skill"),
             "maximum_duration_seconds": row.get("maximum_duration_seconds"),
             "required_effective_seconds": row.get("required_effective_seconds"),
-            "new_material_ranges": ranges.get(row["task_id"], []),
+            "new_material_chars": sum(item["chars"] for item in ranges.get(row["task_id"], [])),
         })
     return rows
 
@@ -396,16 +473,100 @@ def _product_names(scenario: RuntimeScenario) -> dict[str, str]:
 
 
 def _inventory_names(agent: AgentState, scenario: RuntimeScenario) -> list[str]:
-    """@brief 手边持有物展示名（scene 合同）：目录名称，缺名时回退标识。"""
+    """@brief 手边持有物展示名（scene 合同）：始终来自目录名称。"""
     names = _product_names(scenario)
-    return sorted({names.get(product_id, product_id)
-                   for product_id in _holding_ids(agent)})
+    return sorted({names[product_id] for product_id in _holding_ids(agent)})
 
 
 def _holding_ids(agent: AgentState) -> set[str]:
     """@brief 手边持有量为正的商品身份集合。"""
-    return {product_id for holding in agent.inventory.values()
-            for product_id, quantity in holding.items() if quantity > 0}
+    holding = agent.inventory.get(agent.location_id, {})
+    return {product_id for product_id, quantity in holding.items() if quantity > 0}
+
+
+def _interaction_bindings(inputs: ProjectionInputs, people: list[dict[str, Any]],
+                          inbox: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 将本轮可见对象冻结为可读选择及仅供引擎使用的身份映射。"""
+    rows = _interactive_objects_rows(inputs, people, inbox)
+    bindings = [binding for row in rows
+                if (binding := _interaction_binding(inputs, row))["actions"]]
+    labels = [row["object"] for row in bindings]
+    if len(labels) != len(set(labels)):
+        repeated = sorted({label for label in labels if labels.count(label) > 1})
+        logging.error("Interactive object labels are ambiguous: %s", repeated)
+        raise ValueError("interactive object labels must be unique")
+    return bindings
+
+
+def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str, Any]:
+    """@brief 将一个内部对象身份和本轮动作绑定到可读短语。"""
+    identity, kind = row["object_id"], row["kind"]
+    label = _interaction_object_label(inputs, row)
+    actions = _interaction_actions(inputs, row)
+    result = {"object": label, "kind": kind, "object_id": identity,
+              "actions": actions, "preconditions_met": row["preconditions_met"]}
+    if kind == "supply":
+        supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == identity)
+        result["quote"] = {"price_version": supply.get("price_version"),
+                           "price_fen": supply.get("price_fen"),
+                           "purchase_price_fen": supply.get("purchase_price_fen")}
+    return result
+
+
+def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:
+    """@brief 用人能区分的类别、名称和场所表达对象，不输出内部编号。"""
+    kind, name = row["kind"], row["name"]
+    if kind == "supply":
+        supply = next(item for item in inputs.extras["product_rows"]
+                      if item["supply_id"] == row["object_id"])
+        place = supply["location_name"]
+        return f"{place}出售的{name}"
+    if kind == "catalog":
+        return "商品目录"
+    if kind == "self":
+        return "自己"
+    prefixes = {"work_task": "工作", "location": "地点", "holding": "持有物",
+                "content": "内容", "game": "游戏", "lifestyle": "活动",
+                "person": "人物", "contact": "联系人", "mail": "邮件"}
+    return f"{prefixes[kind]}：{name}"
+
+
+def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
+    """@brief 将内部动作映射为可读动作，路线按目的地冻结可用方式。"""
+    if row["kind"] == "location":
+        routes = [route for route in inputs.extras.get("route_rows", [])
+                  if route["destination"] == row["object_id"] and route["status"] == "reachable"]
+        return [{"label": action_label("travel_to", route["mode"]),
+                 "canonical_action": "travel_to", "travel_mode": route["mode"]}
+                for route in routes]
+    if row["kind"] == "holding":
+        product = next(item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)
+                       if item.product_id == row["object_id"])
+        return [{"label": "食用" if mode == "eat" else "使用", "canonical_action": "consume",
+                 "use_mode": mode, "travel_mode": None} for mode in product.use_modes]
+    if row["kind"] == "supply":
+        supply = next(item for item in inputs.extras["product_rows"]
+                      if item["supply_id"] == row["object_id"])
+        if not supply["purchase_allowed"]:
+            return []
+        actions = []
+        if supply["pickup_allowed"]:
+            actions.append({"label": purchase_action_label("pickup"), "canonical_action": "purchase",
+                            "fulfillment": "pickup", "travel_mode": None})
+        if ("delivery" in supply["fulfillment_modes"]
+                and inputs.agent.location_id in supply["delivery_destination_ids"]):
+            actions.append({"label": purchase_action_label("delivery"), "canonical_action": "purchase",
+                            "fulfillment": "delivery", "travel_mode": None})
+        return actions
+    return [{"label": action_label(action), "canonical_action": action, "travel_mode": None}
+            for action in row["actions"]]
+
+
+def _public_interaction(binding: dict[str, Any]) -> dict[str, Any]:
+    """@brief 仅展示可读对象、动作及是否可执行，不泄露内部映射。"""
+    return {"object": binding["object"],
+            "actions": [action["label"] for action in binding["actions"]],
+            "preconditions_met": binding["preconditions_met"]}
 
 
 def _interactive_objects_rows(inputs: ProjectionInputs, people: list[dict[str, Any]],
@@ -424,7 +585,7 @@ def _interactive_objects_rows(inputs: ProjectionInputs, people: list[dict[str, A
     rows.extend(_game_object_rows(inputs))
     rows.extend(_lifestyle_object_rows(inputs))
     rows.extend(_person_object_rows(inputs, people))
-    rows.extend(_mail_object_rows(inbox))
+    rows.extend(_mail_object_rows(inputs, inbox))
     rows.append(_self_object_row(inputs))
     return rows
 
@@ -437,12 +598,13 @@ def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
         skill_ok = (agent.skill_levels.get(row.get("required_skill"), 0)
                     >= (row.get("minimum_skill") or 0.0))
         location_ok = (agent.location_id == row.get("required_location_id"))
+        duration_ok = row["remaining_contract_seconds"] >= 60
         rows.append({
             "object_id": row["task_id"],
             "kind": "work_task",
             "name": row["title"],
-            "actions": ["work", "submit"],
-            "preconditions_met": bool(skill_ok and location_ok),
+            "actions": ["work"] if duration_ok else [],
+            "preconditions_met": bool(skill_ok and location_ok and duration_ok),
         })
     return rows
 
@@ -467,7 +629,7 @@ def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
         rows.append({
             "object_id": row["supply_id"],
             "kind": "supply",
-            "name": names.get(product_id, product_id or row["supply_id"]),
+            "name": names[product_id],
             "actions": ["purchase"],
             "preconditions_met": bool(row.get("purchase_allowed")),
         })
@@ -475,12 +637,12 @@ def _supply_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _holding_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 手边持有的商品对象：只接受进食动作。"""
+    """@brief 手边持有的商品对象：按目录支持食用或使用。"""
     names = _product_names(inputs.scenario)
     return [{
         "object_id": product_id,
         "kind": "holding",
-        "name": names.get(product_id, product_id),
+        "name": names[product_id],
         "actions": ["consume"],
         "preconditions_met": True,
     } for product_id in sorted(_holding_ids(inputs.agent))]
@@ -499,25 +661,32 @@ def _catalog_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 def _content_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 本轮呈现的内容对象：只接受观看动作，进度由 content_progress 单独承载。"""
-    return [{
-        "object_id": row["item_id"],
-        "kind": "content",
-        "name": row.get("title", row["item_id"]),
-        "actions": ["watch"],
-        "preconditions_met": True,
-    } for row in inputs.extras.get("content_rows", [])]
+    rows = []
+    contents = {item.item_id: item for item in inputs.scenario.contents}
+    for row in inputs.extras.get("content_rows", []):
+        item = contents[row["item_id"]]
+        progress = inputs.agent.content_progress.get(item.item_id)
+        position = progress.position_seconds if progress else 0
+        remaining = item.duration_seconds - position
+        available = position >= item.duration_seconds or remaining >= 60
+        rows.append({"object_id": item.item_id, "kind": "content",
+                     "name": row["title"],
+                     "actions": ["watch"] if available else [],
+                     "preconditions_met": available})
+    return rows
 
 
 def _game_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     """@brief 本轮呈现的游戏对象：只接受游玩动作，场景声明身份与内容侧会话同池。"""
     rows = []
     for row in inputs.extras.get("game_rows", []):
-        object_id = row.get("game_id") or row["item_id"]
+        playable = "game_id" in row
+        object_id = row["game_id"] if playable else row["item_id"]
         rows.append({
             "object_id": object_id,
             "kind": "game",
-            "name": row.get("title", object_id),
-            "actions": ["play"],
+            "name": row["title"],
+            "actions": ["play"] if playable else ["watch"],
             "preconditions_met": True,
         })
     return rows
@@ -542,30 +711,32 @@ def _lifestyle_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 def _person_object_rows(inputs: ProjectionInputs,
                         people: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 同场人物接受交谈通话留言；通讯录联系人不在场，只接受通话与留言。"""
+    """@brief 同场人物接受交谈或通话；通讯录联系人可通话。"""
     rows = [{
         "object_id": view["person_id"],
         "kind": "person",
         "name": view["name"],
-        "actions": ["chat", "call", "message"],
+        "actions": ["chat", "call"],
         "preconditions_met": bool(view["can_talk"]),
     } for view in people]
+    config = next(item for item in inputs.scenario.agents if item.agent_id == inputs.agent.agent_id)
     rows.extend({
-        "object_id": item["contact_id"],
+        "object_id": item.contact_id,
         "kind": "contact",
-        "name": item["salutation"],
-        "actions": ["call", "message"],
+        "name": item.salutation,
+        "actions": ["call"],
         "preconditions_met": True,
-    } for item in _contact_rows(inputs.scenario, inputs.agent))
+    } for item in config.contacts)
     return rows
 
 
-def _mail_object_rows(inbox: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 收件箱对象：只接受阅读动作，已读条目仍可重读。"""
+def _mail_object_rows(inputs: ProjectionInputs, inbox: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """@brief 收件箱对象：用标题和到达时间区分同主题邮件。"""
+    zone = ZoneInfo(inputs.scenario.timezone)
     return [{
         "object_id": row["id"],
         "kind": "mail",
-        "name": row["head"],
+        "name": f"{row['head']}（{datetime.fromtimestamp(row['created_at'], zone):%Y年%m月%d日 %H:%M:%S}）",
         "actions": ["read"],
         "preconditions_met": True,
     } for row in inbox]

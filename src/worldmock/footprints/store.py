@@ -46,7 +46,7 @@ class FootprintStore:
         database = self.run_dir / "footprints.sqlite"
         if not database.is_file():
             raise IntegrityError("Footprint database does not exist")
-        self.manifest = json.loads((self.run_dir / "manifest.json").read_text())
+        self.manifest = json.loads((self.run_dir / "manifest.json").read_text(encoding="utf-8"))
         self.connection = sqlite3.connect(database)
         self.connection.execute("PRAGMA synchronous=FULL")
         self.connection.execute("PRAGMA foreign_keys=ON")
@@ -180,6 +180,15 @@ class FootprintStore:
             SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')=?
         """, (agent_id, event_type)).fetchone()
+        return row[0] if row[0] is not None else 0
+
+    def last_agent_progress_request_seq(self, agent_id: int) -> int:
+        """@brief 找到最近一次实际发给人物模型且包含进度层的请求。"""
+        row = self.connection.execute("""
+            SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
+            AND json_extract(body,'$.event_type')='model_request'
+            AND instr(json_extract(body,'$.data.request.messages[1].content'), '"progress":') > 0
+        """, (agent_id,)).fetchone()
         return row[0] if row[0] is not None else 0
 
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:

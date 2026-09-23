@@ -195,14 +195,14 @@ def test_decision_token_median_from_paired_response() -> None:
 
 
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
-    """@brief 最终动作为 continue 或 wait 的决策不计入自主决策。"""
+    """@brief 最终动作为进度播报或等待的决策不计入自主决策。"""
     events = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
-        _action(2, "d1", "continue_activity"),
+        _action(2, "d1", "report_status", {"task": ["当前会话"], "summary": ["继续。"]}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
-        _action(4, "d2", "start_basic_activity", {"activity_type": "wait", "duration_seconds": 600}),
+        _action(4, "d2", "start_activity", {"targets": ["自己"], "actions": ["等待"]}),
         _event("decision_started", _clock(0, 8, 5), decision_id="d3"),
-        _action(6, "d3", "start_targeted_activity", {"activity_type": "watch", "target_id": "x"}),
+        _action(6, "d3", "start_activity", {"targets": ["内容：节目"], "actions": ["观看"]}),
         _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
     ]
     report = _report(events)["reports"]["effective_autonomous_decision_rate"]
@@ -390,22 +390,21 @@ def test_persona_distinguishability_leave_one_out() -> None:
 
 
 def test_social_minutes_and_message_counts() -> None:
-    """@brief 交谈/通话按请求 duration_minutes 累计；消息按动作与到达事件计数。"""
+    """@brief 交谈/通话按真实结算区间累计；消息按独立工具与到达事件计数。"""
     events = [
-        _action(1, "d1", "start_social_activity", {"kind": "chat", "partner_id": 2,
-                                                   "duration_minutes": 30}),
-        _action(2, "d2", "start_social_activity", {"kind": "call", "partner_id": "c1",
-                                                   "duration_minutes": 15}),
-        _action(3, "d3", "send_message", {"recipient_id": 2, "text": "在忙吗"}),
-        _action(4, "d4", "send_message", {"recipient_id": "c1", "text": "周末聚？"}),
-        _action(5, "d5", "start_social_activity", {"kind": "chat"}),
+        _action(1, "d1", "start_activity", {"targets": ["人物：同事"], "actions": ["交谈"]}),
+        _action(2, "d2", "start_activity", {"targets": ["联系人：朋友"], "actions": ["通话"]}),
+        _progress(3, _clock(0, 9), _clock(0, 9, 30), "chat"),
+        _progress(4, _clock(0, 10), _clock(0, 10, 15), "call"),
+        _action(5, "d3", "send_message", {"recipient_name": "同事", "text": "在忙吗"}),
+        _action(6, "d4", "send_message", {"recipient_name": "朋友", "text": "周末聚？"}),
         _event("environment_event", _clock(0, 15),
-               data={"kind": "message_arrival", "sender_id": 2, "text": "在"}, event_seq=6),
+               data={"kind": "message_arrival", "sender_id": 2, "text": "在"}, event_seq=7),
     ]
     report = _report(events)["reports"]["social"]
     assert report["chat_call_minutes"] == {"call": 15.0, "chat": 30.0}
     assert report["sent_message_count"] == 2 and report["received_message_count"] == 1
-    assert any("start_social_activity" in note for note in _report(events)["notes"])
+    assert not any("planned_duration_seconds" in note for note in _report(events)["notes"])
 
 
 def test_memory_repetition_gate_values() -> None:

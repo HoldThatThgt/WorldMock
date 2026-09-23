@@ -13,7 +13,7 @@ from worldmock.categories import maintenance
 
 
 @pytest.mark.parametrize("entry_kind", ["empty_directory", "file", "dangling_symlink"])
-def test_publication_refuses_every_existing_entry(valid_catalog_dir, tmp_path, entry_kind):
+def test_publication_refuses_every_existing_entry(valid_catalog_dir, tmp_path, entry_kind, monkeypatch):
     candidate = _candidate(valid_catalog_dir, tmp_path / "candidate")
     destination = tmp_path / "published"
     if entry_kind == "empty_directory":
@@ -21,12 +21,17 @@ def test_publication_refuses_every_existing_entry(valid_catalog_dir, tmp_path, e
     elif entry_kind == "file":
         destination.write_text("another publisher")
     else:
-        destination.symlink_to(tmp_path / "absent")
+        original_is_symlink = type(destination).is_symlink
+        monkeypatch.setattr(type(destination), "is_symlink",
+                            lambda path: path == destination or original_is_symlink(path))
     before = _snapshot(valid_catalog_dir)
-    previous = destination.lstat()
+    previous = destination.lstat() if entry_kind != "dangling_symlink" else None
     with pytest.raises(ValueError, match="CATEGORY_DESTINATION_EXISTS"):
         maintenance.publish_catalog(valid_catalog_dir, candidate, destination, {}, (tmp_path / "scene",))
-    assert destination.lstat() == previous
+    if previous is None:
+        assert not destination.exists()
+    else:
+        assert destination.lstat() == previous
     assert _snapshot(valid_catalog_dir) == before
     assert not (tmp_path / "absent").exists()
     assert not list(tmp_path.glob(".category-publish-*"))

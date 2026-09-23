@@ -1,18 +1,16 @@
 # 特性规格：数字人交互（会话层、上下文分层与稳定工具面）
 
-> 状态：**FROZEN**；2026-09-22 冻结。依据用例心智模型与 11 路只读源码审计书写。
+> 状态：**FROZEN**；2026-09-23 按 issue #1 的运行证据及用户裁决修订。
 > 来源：[数字人交互方案](PROPOSAL-agent-interaction.md)。裁决后本规格取代该提案的全部行为定义。
 > 字段与 Schema 由 [接口合同](../CONTRACTS.md) 承载；设计职责由既有设计文档承载。
-> **本规格显式修订四条既有冻结条款**，见「冻结条款修订」节；该修订随本次冻结一并生效。
-> **裁决状态**：原先阻断冻结的 3 项已于 2026-09-22 全部裁决，落地位置见文末「已裁决」节。
-> **遗留**：2 处待消解缺口（原 3 处，「目标层进展字段的语义限定」已由裁决 #3 消解），
-> 均为「规格要求 vs 代码无承载物」的实现落地项，**不改变条款语义**，清单见
-> 「与既有文档的一致性核对」→「本规格自身的内部矛盾」。
+> 本规格显式修订与旧交互工具、观察结果、预算和业务拒绝相关的冻结条款，见「冻结条款修订」。
+> 原先阻断冻结的对象动作绑定、登记工具、目标层进展归属均已裁决；本版按最新裁决执行。
+> 本规格描述最终行为；实现状态及文档同步以验收台账逐项核对，不能把规格冻结视为已实现。
 
 ## 心智模型
 
 人物过日子不是「一次做一件事、做完再想」，而是**同时挂着若干件事、隔一阵回看进展**。
-系统掌握时间、身体、结算与资源；人物掌握自己做的事进展到哪、接下来想干什么。
+系统掌握时间、身体、报价、结算与资源；人物选择可读对象和动作，撰写自己的进展与通信内容。
 
 ```mermaid
 flowchart TB
@@ -34,6 +32,11 @@ flowchart TB
 **一条硬边界**：模型写的任何文字都不承载状态转移。会话的进行、暂停、结束由系统字段单独推出；
 模型的进展自述只改变「人物怎么理解这件事」，永不作为完成证据。
 
+**模型与引擎的执行契约**：`start_activity` 只提交等长的 `targets` 和 `actions`，逐项配对。模型可读取系统公开的
+路线方式、报价和前置条件以作选择，但不回填价格、报价版本、时长、数量或内部身份。
+引擎从产生该次观察的冻结状态解析对象和动作，并计算执行参数。已结算动作的公开结果属于
+**进度层**：系统写客观结果，人物写主观进展；这不增加上下文层。
+
 ## 权威来源与范围裁决
 
 | 内容 | 权威 |
@@ -50,8 +53,8 @@ flowchart TB
 **范围**：三级结构、会话生命周期、上下文分层与进度层、稳定工具面、决策轮循环与播报节律、
 前置条件前置与前往提醒、并发上限、容量与午夜浓缩、游戏简化。
 
-**不在范围内**：评估与交付（`evaluation/`、`delivery/`）、画像编译（`profile/`）、
-语料构建（`corpora/`）、品类契约（`categories/`）、账本（`resources/`）。本规格对这些模块无任何结论。
+**跨规格边界**：评估、LabelKit 交付、画像、语料、品类与账本的领域规则分别由其规格负责；
+本规格要求交付链读取与实际模型请求一致的公开投影，不能再从原始观察重组一份不同的输入。
 
 ## 三级结构与概念边界
 
@@ -91,9 +94,8 @@ stateDiagram-v2
     [*] --> active: start_activity
     active --> active: 结算边界（每 900 秒）
     active --> paused: pause_activity（带自述）
-    paused --> active: report_status（带自述，继续）
+    paused --> active: report_status（带自述，恢复）
     active --> concluded: conclude_activity（带自述）
-    paused --> concluded: conclude_activity（带自述）
     active --> aborted: 前置条件失效
     concluded --> [*]
     aborted --> [*]
@@ -117,14 +119,16 @@ stateDiagram-v2
 
 ```json
 {
-  "session_id": "session-0007",
+  "session_id": "internal-session-key",
   "agent_id": 1,
   "task_kind": "work_task",
-  "task_ref": "backend-hourly-2026-01-05",
+  "task_ref": "internal-task-key",
+  "task_name": "周会纪要",
+  "session_name": "周会纪要：上午九点在办公室开始的工作",
   "status": "active",
   "started_at": 1767585601,
   "ended_at": null,
-  "targets": ["backend-hourly-2026-01-05"],
+  "targets": ["internal-task-key"],
   "activity_ids": ["activity-...-action:0001"],
   "segments": [[1767585601, 1767590401], [1767591301, 1767594001]],
   "invested_seconds": 7500,
@@ -140,89 +144,125 @@ stateDiagram-v2
 | 字段 | 归属 | 说明 |
 | --- | --- | --- |
 | `session_id` / `agent_id` / `task_kind` / `task_ref` / `status` / `started_at` / `ended_at` | **系统，不可改** | 会话身份与生命周期 |
+| `task_name` / `session_name` | **系统从冻结场景和开始时刻生成** | 分别用于任务归组、模型可读的唯一会话定位 |
 | `targets` / `activity_ids` / `segments` | **系统，不可改** | 承载对象、活动集合、分段区间 |
 | `invested_seconds` / `effective_seconds` / `remaining_contract_seconds` | **系统，不可改** | 由 `segments` 投影的结算证据 |
 | `preconditions_unmet` | **系统，不可改** | 未满足的前置条件与建议动作 |
 | `progress_note` / `note_updated_at` / `note_history` | **模型撰写** | 结论固定标**未经核验** |
 
-**呈现规则**：`scene` 只渲染当前会话的一句话（目标 + 进度短语）；
-结构化字段进 `facts.sessions`；历史自述按上限裁剪后进 `note_history`。
+上例是**引擎私有状态**，字段名和身份不得原样序列化给模型。模型所见的进度层按
+可读任务或会话名称展示当前状态、已结算结果、客观累计进展、未经核验的自述与临近截止提醒。
+`scene` 可以给当前会话一句话概括，不重复完整结果。原始结果、内部身份、活动分段、
+账户状态和检查点只保存在事件与世界状态；模型只得到可理解且允许公开的业务反馈。
 **自述永不出现在「已核验经历」区段。**
 
 | 容量 | 上限 | 承载物 |
 | --- | --- | --- |
-| 单会话进度层 | 4000 字符 | 该会话的全部客观字段与自述合计 |
-| **进展自述** | 500 字符 | **会话级**：`SessionState.progress_note`，由模型在 `report_status` / `pause_activity` / `conclude_activity` 的 `summary` 里撰写 |
-| **目标单句进展** | 500 字符 | **目标级**：`PlanGoal` 上的单句，模型叙述该当日目标推进到哪 |
-| 长期记忆 | 8000 字符 | 人设层派生视图，装配时裁剪，**不删任何记录**（见下） |
+| **进展自述** | 500 字符 | **会话级**：`SessionState.progress_note`，由模型在 `report_status` / `pause_activity` / `conclude_activity` 的对应 `summary[]` 项里撰写 |
+| **目标单句进展** | 500 字符 | **目标级**：关联当日 `PlanGoal.progress_note`；控制工具提交时写入同一段原文，仍是独立字段 |
+| 长期记忆 | 8000 字符 | 人设层派生视图的既定窗口，**不删任何记录**（见下）；与进度层容量触发无关 |
 
-**「进展自述」与「目标单句进展」是两个不同对象，不是同一概念的两个名字**：前者挂在会话上、随会话结束而归档；后者挂在当日目标上、跨日随目标归零。二者恰好共用 500 字符这一上限，但**互不替代**。
+进度层**没有固定的会话数量上限或总字符上限**。其模型可见投影按下文的整次请求 token
+阈值浓缩，权威会话和事件保持完整；不得简单截去旧会话或已结算反馈。
+
+**「进展自述」与「目标单句进展」属于两个独立对象**：前者挂在会话上、随会话结束而归档；后者挂在当日目标上、跨日随目标归零。控制工具遇到关联当日目标的会话时，将对应原文同时写入两个对象；未关联目标时只更新会话。二者恰好共用 500 字符这一上限，客观目标证据仍仅由正时长活动结算推进。
 
 ## 稳定工具面
 
-人物动作工具**一次性收敛为 7 个**：5 个**会话动作**工具 + 2 个当日目标**登记动作**工具。
+人物动作工具**一次性收敛为 9 个**：5 个**会话动作**工具、2 个当日目标**登记动作**工具，
+以及独立的工作交付和消息正文工具。工作成果与通信内容仍由人物创作；它们不挤进
+`start_activity` 的对象与动作选择接口。
 
 **名词定义**：**会话动作**指操纵会话生命周期的五个工具——`start_activity`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity`；**登记动作**指 `plan_day` 与 `revise_day_plan`，它们只登记计划、不启动活动、不消耗生活时间。
 记忆工具与 `finish` 保持原样（它们不是生活动作）。
 
-这 7 个工具名中，`start_activity`、`plan_day`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity` 在当前 `src/` 与 `custom/` 中作为**工具名字符串**出现 **0 次**（`start_activity` 仅作为 `activities.py:120` 的函数标识符存在，不是工具名）；`revise_day_plan` 已是既有工具名。故这是一次**工具面收敛**（17 → 7），不是改名。两类去向分别数清：
-
-| 方向 | 计数 | 明细 |
-| --- | --- | --- |
-| 新工具面 | **7** | **5 个全新**（`start_activity`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity`）+ **2 个沿用**（`plan_day`、`revise_day_plan`，按裁决保留为独立工具） |
-| 旧工具面 | **17** | **2 个整条删除**（`change_playback_speed`、`game_action`）+ **2 个沿用** + **13 个能力收进 `action` 参数** |
-
-原先 17 个工具名分布在 45 个源文件里。
+原 17 个工具里的游戏命令和播放中变速删除；`plan_day`、`revise_day_plan` 继续独立。
+`submit_work` 和 `send_message` 使用独立工具名并复用既有领域处理器；不存在旧工具的兼容入口。
 
 | 工具 | 可见性 | 收 | 语义 |
 | --- | --- | --- | --- |
-| `start_activity` | 永恒可见 | `targets[]`（≤2）、`action`、动作参数 | 开始一个会话；环境判定可行性后启动对应活动 |
-| `recall_task_summary` | 永恒可见 | `task_kind` + `task_ref` 或 `session_id` | 只读回看任一任务或会话的进展；不改变世界 |
-| `report_status` | 有 `active` 会话时 | `session_id[]`、`summary` | 播报进展并**继续**当前会话 |
-| `pause_activity` | 有 `active` 会话时 | `session_id[]`、`summary` | 播报进展并**暂停**当前会话 |
-| `conclude_activity` | 有 `active` 会话时 | `session_id[]`、`summary` | 播报进展并**结束**当前会话 |
+| `start_activity` | 永恒可见 | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动并建立会话；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
+| `recall_task_summary` | 永恒可见 | `task_name: str` | 只读回看可读任务名称或唯一会话名称；不改变世界 |
+| `report_status` | 有 `active` 或 `paused` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；播报进行中会话，已暂停会话恢复进行 |
+| `pause_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；暂停所选会话及其进行中活动 |
+| `conclude_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；只结束选中的进行中会话 |
+| `submit_work` | 可见工作任务满足提交前置条件时 | `task_name: str`、`deliverable: MeetingMinutes` | 提交人物撰写的成果，执行现有验收与返工结算；结果归进度层 |
+| `send_message` | 可联系人物可见时 | `recipient_name: str`、`text: str` | 发送人物撰写的正文，执行现有通讯结算；结果归进度层 |
 | `plan_day` | **清醒**日首且尚无计划时 | `goals[]`（零至八条） | **登记**当日目标；不启动活动、不消耗生活时间 |
 | `revise_day_plan` | 当日已有计划时（**含已提交空清单后追加**） | `goals[]`（替换全部未推进目标） | **修订**当日目标；规则同既有规格 |
 
+`task_name`、`task[]` 中每项与 `recipient_name` 都只能取本轮冻结观察中展示的唯一可读名称。
+同名对象由类型、地点或自然语言开始时间消歧，不能用内部编号、哈希、奇怪字符或索引后缀。
+会话持有基础 `task_name` 与唯一 `session_name`：前者用于同一任务的进度汇总，后者用
+任务名称、自然语言开始时间和必要地点定位具体会话。`recall_task_summary.task_name`
+接受任务名称或唯一会话名称；两类名称共享同一唯一性检查，冲突时不设隐含优先级。
+名称至内部身份的映射只存于私有观察绑定，提交时按原观察解析；名称不存在或不唯一则
+业务拒绝并指出可选名称，绝不任选一个。三个会话控制工具的 `task[]`
+每项可用当前任务名称或唯一会话名称，必须在本轮当前会话范围内唯一解析；同名任务有多个
+当前会话时须使用各自可读的唯一会话名称。两数组顺序一一对应，长度均为一至二且任务不重复。
+`summary` 和 `deliverable` 是人物原创内容，
+不是系统状态回填；`plan_day` / `revise_day_plan` 的目标内容仍由人物撰写。
+播报先校验全部任务名称和阶段，接受进行中或已暂停会话；暂停与结束只接受进行中会话。
+整组通过才依对应关系写入各会话的 `progress_note`，有关联当日目标时把同一原文写入
+该目标独立的 `progress_note`；任一项不合法则整组业务拒绝且世界状态不变。
+播报已暂停会话时同时恢复会话及其暂停活动。结束只取消所选会话仍在进行的活动；
+未选会话保持原状。没有进行中会话时结束工具业务拒绝，已暂停会话须先恢复才能主动结束。
+
 **`plan_day` 与 `revise_day_plan` 保留为独立工具**（用户裁决，2026-09-22）：
 二者是**登记动作**，不启动活动、不消耗生活时间，与「会话动作」语义不同，
-因此不作为 `start_activity` 的 `action` 取值。其请求形状、生命周期与修订规则不变，
+因此不作为 `start_activity` 的 `actions[]` 取值。其请求形状、生命周期与修订规则不变，
 沿用 [当日目标规格](SPEC-day-plan-goals.md) 与 [接口合同](../CONTRACTS.md)「当日目标请求」。
 
-### 动作参数：能力如何收进 `action`
+### 对象与动作选择
 
-原 17 个工具里 **13 个**的能力由**两个通道**承载：多数收进 `action` 取值，`start_parallel_activities` 的「同时启动多项」则由 `targets[]`（≤2）与并发上限取代。**每个交互对象的可用动作在交互对象层罗列**（另 2 个删除、2 个沿用为独立工具，见上表）。
+`facts.interactive_objects` 每行只提供唯一可读的 `object`、对象种类、可读 `actions` 和
+可公开的前置条件。人可以直接理解每个活动，例如「张江办公室」配「步行前往」「乘地铁前往」，
+「午餐套餐」配「到店购买」「配送到当前位置」，「项目周会纪要」配「开始工作」。
+动作短语携带人物真正需要选择的出行方式和履约方式；票价、版本、时长、库存、数量由系统
+告知或内部计算，不成为模型参数。`submit_work` 和 `send_message` 不列为 `start_activity`
+动作；其名称、成果、正文由独立工具处理。
 
 ```mermaid
 flowchart LR
-    O["交互对象层<br/>facts.interactive_objects"] --> E["每个对象带 actions 枚举"]
-    E --> S["start_activity(targets=[…], action=…)"]
-    S --> V["环境按对象 x 动作判定可行性"]
-    V -->|可行| A["启动对应活动 / 会话"]
-    V -->|不可行| R["业务拒绝 + 具体建议"]
+    O["可读对象与动作<br/>模型可见"] --> S["start_activity(targets, actions)<br/>逐项配对"]
+    S --> B["本轮冻结观察的私有绑定"]
+    B --> V["引擎校验资源与前置条件<br/>计算时长、数量、当前报价"]
+    V -->|受理| A["启动活动并结算"]
+    V -->|业务拒绝| R["公开原因及可执行建议<br/>下一次决策继续"]
 ```
 
-| 交互对象 | `actions` 枚举（示例） | 落到的活动 |
-| --- | --- | --- |
-| 地点（`office`） | `travel_to` | `travel` |
-| 工作任务（`backend-hourly-…`） | `work`、`submit` | `work` |
-| 商品 / 供给 | `purchase` | 订单 + 后续 `consume` |
-| 持有食品 | `consume` | `consume` |
-| 内容（`movie-0001`） | `watch` | `watch` |
-| 游戏（`game-…`） | `play` | `play_game` |
-| 同场人物 / 联系人 | `chat`、`call`、`message` | `chat` / `call` |
-| 邮件 | `read` | `read_mail` |
-| 生活活动目录条目 | `do` | `lifestyle:*` |
-| 自身 | `wait`、`sleep` | `wait` / `sleep` |
+冻结观察中的私有 `interaction_bindings` 只供宿主解析：可读对象和动作映射到内部对象身份、
+标准动作、路线方式及该对象的冻结报价。该绑定不进入模型提示或工具返回。
+私有 `session_bindings` 把唯一可读 `session_name` 映射到会话身份与当前生命周期；
+模型仍只见 `facts.progress.sessions[].session_name`。
+对同一个对象的多个合法动作逐一展示；`targets[i]` 与 `actions[i]` 逐项对应，
+每个对象只需支持自己选中的动作。两项可以是不同动作，例如步行与观看；
+引擎验证组合能否并行，任一项不合法则整组不启动。
+每项出行都须对应自己的目的地；每项购买都读取该供给自己的冻结报价，不能把一件商品的
+报价版本套给另一件。所选对象已不在本轮绑定或绑定不唯一，返回业务拒绝，不猜内部身份。
 
-**绑定粒度（用户裁决，2026-09-22）**：`action` 枚举**按对象绑定**——
-每个交互对象只暴露对它自己合法的动作，不给出跨对象的全局动作表。
-因此 `action` 不是一个全局枚举，而是 `facts.interactive_objects[].actions` 的并集投影。
-（取舍：更精确，但每轮需按当前可见对象重建 Schema；全局绑定更简单，代价是给出对该对象不合法的动作。）
+**引擎派生参数政策**：
 
-**Schema 约束**：`start_activity` 的 `action` 取值由**本轮可见对象**绑定为闭集；
-动作专属参数用 `anyOf` 表达（既有 `start_parallel_activities` 是同一先例，
-`life/models.py:876`）。
+| 动作 | 不由模型填写的执行参数 |
+| --- | --- |
+| 前往 | 由所选目的地与方式解析冻结路线，使用路线精确秒数和票价；展示分钟数仅供阅读 |
+| 工作 | 时长取剩余合同秒数、距截止秒数与活动允许上限中的最小值；30 分钟播报边界可在活动进行中唤醒 |
+| 观看 | 正常续看取剩余内容秒数向下取整，重看取完整内容时长；速度固定为 1 倍 |
+| 游戏内容 | 取内容剩余时长；场景游戏取场景 `activity_feedback_seconds` |
+| 生活活动 | 取目录 `typical_duration_minutes` 换算的秒数 |
+| 浏览、阅读邮件、等待 | 取场景 `activity_feedback_seconds` |
+| 交谈、通话 | 取场景 `activity_feedback_seconds` 向下取整到完整分钟，并受领域 120 分钟上限约束 |
+| 睡眠 | 人物当前 `sleep_need_hours × 3600`，按最近整数秒取整 |
+| 购买、食用或使用持有物 | 每个所选对象数量为一份；购买使用各自冻结报价及所选动作对应的履约方式；持有物从目录 `use_modes` 展示「食用」或「使用」，引擎按冻结绑定的 `eat` / `use` 结算；余额、库存、地点和组合相容性在结算时重验 |
+
+时长换算为正整数秒后还须通过领域原有的最短 60 秒、最长 86400 秒、资源、地点、
+截止时间和能量校验；无法成立时返回说明具体约束的业务拒绝，不改用猜测值或静默截短。
+无时长动作不虚构会话时长。领域内部请求仍可带 `planned_duration_seconds`、
+`price_version` 等字段，但由引擎从同一冻结观察填充，模型永不回填。
+
+**Schema 约束**：模型工具只包含 `targets` 与 `actions` 两个必填数组。
+两数组等长一至二项；`actions[i]` 的合法性按 `targets[i]` 对象本轮动作闭集验证，
+不能在模型工具 Schema 中加入动作专属参数。
 
 DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
 `oneOf`、`minLength`、`maxLength`、`minItems`、`maxItems`、`default`。
@@ -232,10 +272,10 @@ DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEP
 `SESSION_LIMIT_EXCEEDED` 由业务规则独立兜住。
 所有属性必须必填（strict 模式要求），不设缺省值（`default` 亦在禁用清单内）。
 
-**一次决策仍只提交一个生活动作**（`SPEC-life-runtime.md` 不变）。
-`targets[]` 是**一个动作的多目标**，不是多个动作；不相容整组拒绝。
-`plan_day` / `revise_day_plan` 作为 `action` 值时**不启动活动**——它们是登记动作，
-与既有语义一致（既有规格已允许咨询类动作不产生活动时间）。
+**一次决策仍只提交一个工具请求**（`SPEC-life-runtime.md` 不变）。
+一个 `start_activity` 请求可逐项启动一至两个活动；两项按既有资源和身体约束共同校验，
+不相容则整组拒绝。`plan_day` / `revise_day_plan` 是独立登记工具，
+**不是** `actions` 的取值。
 
 ### 保护项修订
 
@@ -247,8 +287,11 @@ DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEP
 | 会话的退出通道 | `report_status`、`pause_activity`、`conclude_activity` | **有会话时必须可见**：三者是结束会话的**唯一**手段，剪掉会让会话永久挂起 |
 | 「自身」对象的动作 | `wait`、`sleep` | 不保留则无法等待与睡眠 |
 | 当日目标登记 | `plan_day`、`revise_day_plan` | 不保留则无法登记或修订当日目标；二者的条件可见性不变（**清醒**日首尚无计划时只开放 `plan_day`，已有计划时开放 `revise_day_plan`） |
+| 创作内容出口 | `submit_work`、`send_message` | 可提交工作成果与通信正文，不能由 `start_activity` 捏造内容 |
 
-**地点菜单不再剪裁工具，只剪裁对象的 `actions` 枚举。**
+**地点菜单不再剪裁工具，只剪裁对象的 `actions` 枚举。** `InteractionMenu` 的声明
+只有 `allowed_actions`，地点与人物声明求交集后再与各对象能力结合。九个工具的条件可见性
+由工具层判断，不放进地点菜单，也不恢复 `allowed_tools` 或 `allowed_activity_kinds`。
 
 ## 决策轮循环与播报节律
 
@@ -256,17 +299,17 @@ DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEP
 sequenceDiagram
     participant P as 人物
     participant W as 世界
-    P->>W: start_activity(目标, 动作)
+    P->>W: start_activity(可读目标名称数组, 对应动作数组)
     alt 前置条件不满足
-        W-->>P: 拒绝 + 未满足项 + 建议前往的地点
+        W-->>P: 业务拒绝 + 未满足项 + 建议前往的地点
     else 满足
         W->>W: 建立会话 + 启动活动
         loop 每 1800 秒且会话为 active
             W->>P: progress_report_due 唤醒
-            P->>W: report_status(会话, 自述)
+            P->>W: report_status(可读任务名称数组, 对应自述数组)
         end
         W->>P: planned_end 唤醒（活动结束）
-        P->>W: conclude_activity(会话, 自述)
+        P->>W: conclude_activity(可读任务名称数组, 对应自述数组)
     end
 ```
 
@@ -294,13 +337,18 @@ if snap.is_asleep:
 **播报同时是一次决策机会**：人物可在播报时顺手暂停、切换或结束会话，与「一次决策一个动作」不冲突。
 **沉默边界仍不调用模型**：结算边界照常产生 `activity_progress`，只有唤醒条件命中才提供决策。
 
+**业务拒绝不是运行故障**：地点、资源、余额、库存、提交返工、名称不可解析等拒绝保留
+`ActionStatus.REJECTED` 和公开原因，进入进度层并给人物下一次决策机会。连续拒绝达到既有
+阈值时按场景 `activity_feedback_seconds` 冷却后继续，不能生成 `run_failed`。
+模型协议无效、无法计费或世界不变量损坏仍按各自真正的故障路径处理。
+
 ## 前置条件前置与前往提醒
 
 **规则一：前置条件必须在动作前进入提示**，不靠撞墙学习。
 
 | 前置条件 | 判定处 | 是否已在提示中 |
 | --- | --- | --- |
-| 必需地点 `required_location_id` | `work.py:61` `WORK_LOCATION_REQUIRED` | **否 → 进入 `facts.tasks`** |
+| 必需地点 `required_location_id` | `work.py:61` `WORK_LOCATION_REQUIRED` | 以**地点名称**进入 `facts.tasks` |
 | 必需技能与门槛 | `work.py:59` `WORK_SKILL_INSUFFICIENT` | **否 → 进入** |
 | 合同最长时长 | `work.py:69` `WORK_DURATION_EXCEEDS_CONTRACT` | 部分（`remaining_contract_seconds`） |
 | 地点营业状态 | `basket.py:144-146` | 已在 `scene.reachable_places` |
@@ -312,11 +360,11 @@ if snap.is_asleep:
 
 | 错误码 | `data` 必含 | 说明 |
 | --- | --- | --- |
-| `ACTIVITY_PRECONDITION_UNMET` | `unmet: [...]`、`suggested`（JSON 对象：`"action": "travel_to"`，外加 `destination_id` 与 `destination_name`） | 当未满足项含地点时，`suggested` **必须**给出具体地点 id 与显示名 |
+| `ACTIVITY_PRECONDITION_UNMET` | 引擎私有结果含未满足规则与目的地身份；公开结果含可读原因及 `suggested` 地点名称、可读前往动作 | 未满足项含地点时必须点名具体可到达地点，不能暴露 `destination_id` |
 
 **呈现规则**：
-- `facts.tasks[]` 增加 `required_location_id`、`required_skill`、`minimum_skill`、`maximum_duration_seconds`、`required_effective_seconds`；
-- `facts.interactive_objects[]` 每项带 `actions` 枚举与 `preconditions_met`；
+- `facts.tasks[]` 呈现任务名称、可读必需地点、技能、门槛、剩余工时和截止时间；不呈现任务或地点内部身份；
+- `facts.interactive_objects[]` 每项带可读 `object`、`actions` 与 `preconditions_met`；
 - `scene` 在前置条件未满足时补一句中文说明并点名地点
   （例如「这份工作要在办公室做，先去张江高科技园区办公室」）。
 
@@ -335,7 +383,7 @@ if snap.is_asleep:
 | 启动期 `verify_game_progress`（`engine.py:733-734`） | **删除**（校验对象随 `game_sessions` 消失） |
 | `play_game` 活动 | **保留**：与 `watch` 同形——有目标、有时长、有进度结算、有进展自述 |
 | 游戏内容（30 个 `games` 声明 + 80 条 `game_session` 内容） | **保留**，成为 `play` 动作的合法目标 |
-| `playback_speed` | 开播时由 `action` 参数设定；**播放中改速的能力删除**（`change_playback_speed` 一并删） |
+| `playback_speed` | 固定为 1 倍；**播放中改速的能力删除**（`change_playback_speed` 一并删） |
 
 ## 上下文分层
 
@@ -345,27 +393,76 @@ if snap.is_asleep:
 | 层 | 落点 | 说明 |
 | --- | --- | --- |
 | system | system 消息 | 沿用 `_LIFE_INSTRUCTIONS`；回合预算块不动 |
-| 人设层 | `persona_card` + 记忆段 | 卡片 ≤600 汉字；长期记忆 ≤8000 字符（派生视图） |
-| 目标层 | `facts.day_plan` + `scene` 一句 | 目标对象**增加**单句进展字段，不新增优先级字段。该句是**模型撰写的主观叙述**，**不是**会话客观字段的投影（用户裁决：目标层不吸收会话进展） |
+| 人设层 | `persona_card` + 记忆段 | 卡片与长期记忆沿用各自既定窗口；不参与进度浓缩 |
+| 目标层 | `facts.day_plan` + `scene` 一句 | 目标对象持有独立 `progress_note`，不新增优先级字段；关联目标的会话在控制工具提交时把同一段人物自述写入目标字段。该句属于**未经核验的主观叙述**，不是会话客观字段的投影，也不改变目标结算证据 |
 | 环境层 | `scene` | 体感只给分级（不变），数值仍不进提示 |
-| 交互对象层 | `facts.interactive_objects` | 每个对象带 `actions` 枚举与前置条件状态 |
-| 进度层 | `facts.sessions` + `scene` 一句 | **本规格新增**；层内结构化 |
-| 工具层 | 工具 Schema | 7 工具（5 会话动作 + 2 当日目标登记），`action` 枚举按对象绑定 |
+| 交互对象层 | `facts.interactive_objects` | 每个对象有可读唯一 `object` 与 `actions`、前置条件；私有绑定不进入提示 |
+| 进度层 | `facts.progress` | `sessions`、`results`、`alarms` 同属一层；客观结果与模型自述标明归属 |
+| 工具层 | 工具 Schema | 9 工具；`start_activity` 仅收等长的可读对象名称与动作短语数组 |
 
-**进度层内部结构**（用户裁决）：客观字段与自述字段**同在一层**，客观字段不可改，
-自述字段是自然语言总结；各层内部同样结构化。
+**进度层内部结构**（用户裁决）：`sessions` 提供当前或暂停会话的可读名称、系统核算的
+客观进度、人物自述及其「未经核验」标记；`results` 提供自上次实际发送进度提示以来所有新的公开
+结算结果；`alarms` 提供临近截止等提醒。结果由系统生成并在下一次模型请求中呈现，
+不是人物自述，也不逐条永久追加到会话记录。原始事件永久保留；旧结果可在后续进度浓缩中
+变成带来源的摘要。`scene` 只说明当前环境，不再复制最近一条执行结果。
+模型不见内部身份、哈希、账户、段区间、报价版本和完整世界状态。
+同一条规则适用于 `facts.tasks`、`facts.routes`、`facts.products`、`facts.inventory`、
+`facts.inbox`、目标层和联系人：人物看到名称、地点、方式、时间、费用、数量等业务事实，
+不看到 `task_id`、`route_id`、`supply_id`、`product_id`、`message_id`、
+`contact_id` 等仅供引擎定位的键。全部模型工具根据冻结观察中的可读名称私有绑定解析，
+不得让人物从奇怪字符、编号或索引猜测对象。
+工作任务名称取场景必填的 `WorkTaskConfig.title`，不缺省为内部 `task_id`；
+提交工作时引擎使用冻结观察中的私有绑定定位合同。
+
+`sessions` 的每一行固定为 `task_name`、`session_name`、`phase`、`objective_progress`、
+`subjective_progress`、`subjective_status`；`phase` 用自然语言表达进行中、已暂停、
+已结束或中断，`subjective_status` 固定为「未经核验」。活动秒数、合同余额等可公开的
+计算结果在 `objective_progress` 里写成人能理解的短句。行顺序为进行中、已暂停、
+已结束或中断；终态按结束时间由近到远，同组再按可读名称稳定排序。触发容量浓缩前，
+所有历史会话都有对应行，不能静默取前两条。`results` 以事件顺序包含上次实际发送进度提示后
+全部新公开结果；`alarms` 包含当前仍有效的临近截止提醒。
+
+`results` 每行只含 `occurred_at`、`status`、`error_code`、`message`，有对应事实时加
+`details` 或 `work_review`。`details` 按动作只列可读对象或商品名称、购买份数与实付金额、
+到达地点名称与时间、浏览返回的条目名称等人物需要理解的结果；`work_review` 沿用
+既有 `public_work_review` 的公开判定和理由。`action_id`、`event_id`、`order_id`、
+`product_id`、`supply_id`、`session_id`、`route_id`、`price_version`、账户身份、
+私有评审参考、哈希和完整状态均不进入该行。每条新结果仍占一行，不能因去除内部字段
+而丢失一个动作的反馈。
+容量预检失败时不得推进该人物的结果观察水位；下次成功组装请求时，这些结果仍须出现。
 
 ## 容量、浓缩与遗忘
 
+### 发送前 token 计数与进度浓缩
+
+每次实际模型请求，包括决策自述、行动和只读调用，在发送前按所选模型的上下文窗口计数。
+计数对象是完整请求：最终 system 消息、人物卡、场景、目标、交互对象、进度、其他事实、
+记忆、工具定义、已发生的原生消息与工具返回，加上本次预留的最大输出 token。
+不能用 `facts.sessions` 的字符数代替整次请求 token 数，也不能假定选用模型一定有
+256k 窗口；模型窗口与输出能力须在运行前从实际所用模型的权威元数据确定。
+完整请求计数及达到阈值后浓缩的分界可参考
+[Claude 官方上下文说明](https://platform.claude.com/docs/en/build-with-claude/context-windows)与
+[阈值浓缩说明](https://platform.claude.com/docs/en/build-with-claude/compaction-threshold)；
+本规格的 85% 与只浓缩进度层是本项目自己的裁决，不依赖某供应商专用接口。
+
+当上述总数达到上下文窗口的 **85%** 时，只浓缩本次发送给模型的**进度层派生投影**：
+先把较旧终态会话按可读任务名称合并为带来源的短摘要，保留每组最新客观结论、
+最新人物自述和合并会话数；若重算后仍达阈值，再把这些历史摘要合为一条总体历史摘要，
+保留总会话数及最近客观结论与自述。当前与暂停会话完整行、当前提醒、以及本次尚未回灌的
+`results` **完整公开字段与原顺序**始终保留。合并前后均不让模型产生新的事实。
+浓缩不改 `WorldState.sessions`、原始事件、人物目标或长期记忆；不任意按会话数裁断。
+每步后重新计算整次请求；若最终仍达到 **85%**，或超过模型输入额度，
+以**容量故障**停止该次请求，英文日志记录各层 token 占用与预留输出，
+不静默删除新结果，也不压缩其余层。
+旧 user 40000 字符、system 3000 字符、scene 800 汉字的独立致命容量闸门废止；
+人物自述 500 字符等领域字段限额继续生效。场景按地点合并重复前置条件提醒。
+模型返回的实际 token 用量用于校核预估器；下一次请求仍须先完成全量计数。
+
 ### 午夜浓缩
 
-**新增第四个巩固触发**：模拟时钟跨过当日 `day_end_seconds` 边界时，对该人物的全部会话执行一次浓缩。
-
-| 动作 | 结果 |
-| --- | --- |
-| 逐会话总结 | 写入该会话 `progress_note`，压到 4000 字符内 |
-| 目标层单句更新 | 每个目标一句话，≤500 字符 |
-| 已结束会话归档 | 摘要进入人设层长期记忆 |
+模拟时钟跨过当日 `day_end_seconds` 时，仍执行既定记忆巩固与目标单句更新；
+已结束会话的摘要进入长期记忆派生视图。午夜处理与上述 **85% 发送前进度浓缩**
+是两个不同触发条件，均不得改写客观结算、已核验经历或原始事件。
 
 ### 遗忘是派生视图，不是销毁
 
@@ -381,17 +478,22 @@ if snap.is_asleep:
 硬约束：**SQLite 记录是唯一提交权威，导出时活动会从事件重建并逐字节比对**
 （`footprints/validation.py:33-34`），质量报告也必须能仅从事件复现（`:42-54`）。
 
-**结论：不需要新增事件类型。** 七个工具都是生活动作（两个当日目标登记工具也走既有 `plan_day` / `revise_day_plan` 落库路径），请求随既有 `action_requested` 事件落库
+**结论：不需要新增事件类型。** 九个工具的请求沿用各自既有动作记录路径，
+两个当日目标登记工具继续按既有 `plan_day` / `revise_day_plan` 路径落库；
+人物动作请求随既有 `action_requested` 事件落库
 （含完整 `request` 与 `request_sha256`）：
 
 | 内容 | 审计路径 |
 | --- | --- |
 | 会话的开始 / 暂停 / 继续 / 结束 | `action_requested`（`tool_name` + `request`） |
-| 模型的进展自述 `summary` | 同上，在 `request.summary` 内 |
+| 模型的进展自述 | 同上；播报、暂停、结束都写 `request.task[]` 与等长 `request.summary[]` |
 | 会话的客观结算 | 既有 `activity_progress` |
 | 会话快照与分段区间 | 世界状态，随 `life` 快照保存 |
+| 可读名称至内部身份及冻结报价 | 私有观察绑定与已登记动作证据，不能进入模型提示 |
+| 实际模型请求与交付输入 | 保存同一份最终公开请求视图；交付时不从原始观察重组另一版本 |
 
-**这同时确认**：进展自述一旦提交就永久留在 append-only 记录里，**不可能被遗忘**。
+**这同时确认**：进展自述一旦提交就永久留在 append-only 记录里，提示层的浓缩只改变
+下一次所见，不会删除原始记录。
 
 ## 冻结条款修订
 
@@ -400,182 +502,84 @@ if snap.is_asleep:
 | 1 | `WakeReason` 冻结词表 | 「唤醒原因是冻结词表，成员不可增删」 | **增加成员** `progress_report_due`，并把条款改为「不可改名、不可删除，新增须走版本表」 | **代码同步点共五处**（三处生产代码 + 两处测试），唯一权威定义见[文档影响](research/agent-interaction-document-impact.md)「唤醒词表的五处同步点」节。其中 `footprints/quality.py:384-399` 的「未识别」分桶最易漏——**它不报错，只让质量报告的数字变错**。另需同步 `CONTRACTS` 枚举表与 life-runtime 冻结词表 |
 | 2 | 活动组合准入 | 「活动准入**仅**按占用交集判定」 | 保留占用交集，**追加**并发上限：`active` 会话 ≤2，由场景参数 `max_concurrent_sessions`（缺省 2）给出，超限报 `SESSION_LIMIT_EXCEEDED` | `rules.validate_start`、`interaction_menu`、错误码闭集、场景参数表 |
 | 3 | 主观巩固触发 | 「为**三选一**」 | 改为**四选一**，增加「跨过当日 `day_end_seconds` 边界」 | `should_consolidate`、`SPEC-life-realism.md`「记忆合同」、`CONTRACTS` |
-| 4 | 观察投影三段**与不得进入提示的内容** | 「user 消息由 `persona_card`、`scene`、`facts` 三部分组成」+「不得进入提示的字面键清单见 `CONTRACTS.md`」 | **三段划分不变**；但新增的 `facts.interactive_objects[].actions` **正是**既有禁表里的 `affordance_contract`（`narration.py:59`），故本条**确为真修订**，须显式解禁该形状 | `projection.py`、`narration.py`、`CONTRACTS`「观察投影字段」与「禁止进入提示的字段」 |
+| 4 | 观察投影三段**与不得进入提示的内容** | 「user 消息由 `persona_card`、`scene`、`facts` 三部分组成」+「完整可供性合同不得进入提示」 | **三段划分不变**；只公开逐对象可读 `actions`，私有 `interaction_bindings` 与完整可供性合同仍禁止进入提示 | `projection.py`、`narration.py`、`CONTRACTS`「观察投影字段」与「禁止进入提示的字段」 |
+| 5 | 决策结果回灌 | `SPEC-decision-context.md` 规定最近公开结果独立进入事实清单且场景概括最近一条 | 改为 `facts.progress.results` 归进度层；`scene` 不复制结果；私有观察仍可存原始关联证据 | `projection.py`、`result_projection.py`、`SPEC-decision-context.md`、`CONTRACTS.md` |
+| 6 | 字符预算与超限 | `SPEC-decision-context.md` 以 user 40000 字符、system 3000 字符、scene 800 汉字单独熔断 | 模型调用以完整请求 token 加预留输出计数；达到所用模型窗口 85% 先只浓缩进度派生投影，重算仍达 85% 即报告容量故障；人物自述等字段语义上限另按其合同执行 | `life_context.py`、`life_agent.py`、`narration.py`、`SPEC-decision-context.md`、`CONTRACTS.md` |
+| 7 | 连续业务拒绝 | 业务拒绝连续达到阈值终止整次运行 | 保留拒绝事实与阈值观察，按既有 `activity_feedback_seconds` 冷却再给决策机会；不生成 `run_failed` | `engine.py`、`SPEC-life-runtime.md`、测试 |
 
 **未被修订的既有语义**：只有环境能改世界状态；一次决策一个生活动作；沉默边界不调用模型；
 体感数值不进提示；已核验经历只由已提交事件确定性投影；SQLite 记录是唯一提交权威。
 
 ## 实现顺序
 
-用户裁决：**一次性替换全部 17 个工具**，不分期。
-五个全新工具名**作为工具名**在当前代码中出现 0 次（另 2 个沿用既有工具名），故第 5 步是收敛工具面而非改名；两个待删工具是删除，不是保留。建议的内部顺序（同一变更集内）：
+用户裁决：**一次性替换旧人物工具面**，不分期、不保留兼容入口。
+建议的内部顺序仅描述同一变更集内的依赖：
 
 ```mermaid
 flowchart LR
-    A["1. 三级结构<br/>WorldState.sessions + SessionState"] --> B["2. 进度层<br/>projection + narration"]
-    B --> C["3. 前置条件前置<br/>facts.tasks + interactive_objects + 前往提醒"]
-    C --> D["4. 播报节律<br/>WakeReason + 场景参数"]
-    D --> E["5. 工具面收敛<br/>17 → 7 工具 + action 枚举"]
-    E --> F["6. 删除<br/>game_action / change_playback_speed / GameProgress"]
+    A["三级结构<br/>WorldState.sessions + SessionState"] --> B["进度层<br/>projection + narration"]
+    B --> C["前置条件前置<br/>facts.tasks + interactive_objects + 前往提醒"]
+    C --> D["播报节律<br/>WakeReason + 场景参数"]
+    D --> E["工具面收敛<br/>9 工具，选择与创作分开"]
+    E --> F["删除<br/>game_action / change_playback_speed / GameProgress"]
 ```
 
 ## 与既有文档的一致性核对
 
-**本节只登记不一致，不修改既有文档。** 既有文档的改动需另行裁决；
-本节的作用是让「哪些文档在什么位置与新规格冲突」有唯一清单，供后续逐一处理。
+本规格是交互行为的权威定义；同一变更集必须同步下列合同，不能留下互相矛盾的旧表述。
 
-核对口径：以本规格为一方，以现行文档树为另一方，逐条给出位置与冲突性质。
-
-### 术语冲突（需先裁定，否则改动会互相污染）
-
-| 冲突 | 位置 | 性质 |
-| --- | --- | --- |
-| 「事务」一词两义 | `docs/design/05-recording-engine.md:127`、`:417` 指**数据库事务**；本规格原文用「事务」指交互单元 | **本规格已让步**：改称**「会话」（`session`）**，数据库事务沿用「事务」不动。「会话循环」改称「**决策轮循环**」，沿用 `CONTRACTS.md:285` 既有的 `DecisionRoundState` 说法 |
-| 「会话」一度被占用 | 本规格早期版本用「会话循环」指模型调用轮 | 已腾出；两份新文档与 `docs/INDEX.md` 的登记行已同步为「决策轮循环」 |
-| 「事务」在本提案中的历史用法 | `docs/dev/PROPOSAL-agent-interaction.md`（32 处，含第 54–87 行的**用户原话**） | **不改写**。提案是已裁决的历史证据，逐字引用按「保留原身份」原则不动；阅读时按上面的映射理解 |
-
-### 既有文档与本规格的实体冲突
-
-| # | 位置 | 冲突 | 建议处理 |
-| --- | --- | --- | --- |
-| 1 | `docs/dev/SPEC-life-runtime.md:93` | 「唤醒原因是冻结词表，成员不可增删」 | 已在「冻结条款修订」#1 显式修订 |
-| 2 | `docs/dev/SPEC-life-runtime.md:106` 与 `docs/design/04-simulation-engine.md:509` | **两处都链接到 `05-recording-engine.md#决策节律增量字段`，而该节在 `05` 中不存在**（**69** 个标题无一匹配，grep 计数 0）。`CONTRACTS.md:1260` 记录了该节**曾被新增**（`2026-09-18-revision-2` 行），说明该节随后被移除或改写；`05` 的版本表 5 行（`:819-823`）**均无删除或丢失记录** | **恢复该节或改指两处链接**。规格的修订条款 1 牵连 `rhythm.py` 快照与 `CONTRACTS` 枚举表，其字段级归属正是缺失的那一节——**不能把断链带下去** |
-| 3 | `docs/design/04-simulation-engine.md:292` | 「该动作可以原子启动**两项及以上**兼容持续活动」——无上界枚举 | 改为「至多两个」；与冻结条款修订 #2 同批 |
-| 4 | `docs/design/04-simulation-engine.md:505-506` | 枚举 15 项唤醒条件，缺 `progress_report_due` | 与冻结条款修订 #1 同批 |
-| 5 | `docs/design/04-simulation-engine.md:516` | 「营业变化、报价生效/失效、调价和补货进入既有事件时钟，**不增加周期轮询**」 | 播报节律**正是**周期边界，此句须限定范围，否则读作禁止播报 |
-| 6 | `docs/design/05-recording-engine.md:3` | 自称「**已整合**；原已冻结的接口与行为约束继续有效」，**不是 DRAFT** | 其接口表（表头在 `:340`、`:401`、`:537`、`:618`、`:717`、`:792` 共 **6 处**）因此具备**规范效力**，本轮改动是「已整合文档的冻结条款被修订」，不是「草稿吸收新主张」——**这是全部文档改动的第一件事** |
-| 7 | `docs/design/05-recording-engine.md:549` | 「世界结构版本为 `5`」 | 改为 `6`；每个既有运行目录的检查点都变为不可加载 |
-| 8 | `docs/design/09-io-formats.md:75` | `schema_version` 为 `Literal[5]` | 改为 `Literal[6]` |
-| 9 | `docs/design/09-io-formats.md:60-65` | 「不新增 `WorldState` 或 `AgentState` 字段」 | **这半句已错**：`sessions` 确实新增 `WorldState` 字段；`interaction_menu` 部分仍成立 |
-| 10 | `docs/design/09-io-formats.md:67`、`:206`、`:212` | 三个顶级标题**无编号**，子节却是 `3.1`–`3.4` 与 `9.1`–`9.3`，`2.`–`8.` 父节不存在 | 引用时按标题名而非编号，避免传染该缺陷 |
-| 11 | `docs/design/00-overview.md:11-12` | 「本目录仍为草稿，修订**不改变冻结规格**或实现状态」 | 对本变更**为假**。须改写为承认规格可以修订冻结条款，并写明修订权威在设计目录**之外** |
-| 12 | `docs/design/00-overview.md:177`、`:206` vs `docs/design/01-architecture.md:24` | 前者称 `v1.0 单人物`，后者称人数属运行配置；仓内已有 `multi-person.json` 与 `multi-person-half-day.json` | **既有矛盾，独立于本特性**；`00` 是过时一侧 |
-| 13 | `docs/design/08-configuration.md:10` | `## 版本历史` 在**文首**；其余设计文档在文末或名为「版本表」 | 归一化项 |
-| 14 | `docs/design/08-configuration.md:146-150`、`:169`、`:173`、`:291`、`:312` | 保护项按**类别描述**（已不匹配）；点名 `discover_places` 与 `start_parallel_activities` 两个收敛中的工具 | 须逐项列出收敛后的保护集 |
-| 15 | `docs/CONTRACTS.md:114` | 「删除旧的 `start_activity`、`change_ac…`」历史说明 | 工具面再次收敛后此句须重写 |
-| 16 | `docs/dev/implementation-status.md:215-219` | 「当前世界格式：`WorldState.schema_version` 为 5」 | **本轮不改**：它记录的是**实际已实现状态**，5 就是当前事实。实现落地时才改 |
-| 17 | `docs/dev/ANALYSIS-spec-coverage.md` | 基线 435 条条款、gap 0 | 本规格的每条新条款需补映射（映射义务，非机器判定） |
-| 18 | `evaluation/goal_metrics.py:13` | `EXTERNAL_CONSTRAINT_ERROR_CODES` 是 **13 项闭集**，把业务拒绝分为「外部约束」与「其他」 | **本规格未覆盖的连带面**：新增的 `ACTIVITY_PRECONDITION_UNMET` 本质正是外部约束（地点/技能不满足），**须决定是否进该集合**；不进则外部约束统计会漏记 |
-| 19 | `docs/dev/SPEC-life-realism.md:125` | 「**主观巩固触发**为**三选一**：`importance` 累计到 3.0；待巩固满 10 条；入睡后第一个边界」 | 冻结条款修订 #3 的原文出处，须改为**四选一**（增加「跨过当日 `day_end_seconds` 边界」） |
-| 20 | `docs/dev/SPEC-life-runtime.md` 的「活动组合政策」 | 「活动准入**仅**按占用交集判定」 | 冻结条款修订 #2 的原文出处，须改为「保留占用交集 + 追加并发上限 `max_concurrent_sessions=2`」 |
-| 21 | `docs/dev/PROPOSAL-agent-interaction.md` | 用「事务」「事务循环」 | **不改**；映射见上方术语冲突表 |
-| 22 | `narration.py:59` 与 `docs/CONTRACTS.md:734-737` | **`affordance_contract` 在 `FORBIDDEN_OBSERVATION_KEYS` 内**；`CONTRACTS` 明写「可供性合同**只供宿主生成工具身份枚举与公开名称说明，不随提示下发**」。而本规格要求把每个对象的 `actions` 枚举放进 `facts.interactive_objects` | **确为真修订**（不是扩展）：这正是对「不得进入提示的内容」的改动，故冻结条款修订仍是**四条**。须在该两处显式解禁 `interactive_objects[].actions` 这一形状，并说明它与禁表其余各项（完整活动快照、菜单、能量可行性）的边界 |
-
-### 新规格与代码实况的差距（影响实现，不属于文档一致性）
-
-| # | 事项 | 实况 |
-| --- | --- | --- |
-| 1 | `facts` 的现有键 | **14 个**：`current_time`、`current_epoch`、`location_id`、`people_here`、`contacts`、`inbox`、`tasks`、`routes`、`products`、`inventory`、`day_plan`、`felt`、`drive_summary`、`recent_action_results`（`projection.py:223-236`） |
-| 2 | `interactive_objects` | **不存在**。最接近的是 `facts.products`（供给比较事实）与 `facts.routes`（地点行）；后者的 `ROUTE_ALLOWED_FIELDS` 白名单（`narration.py:103-112`）会**直接拒绝**新增 `actions` 字段 |
-| 3 | 「可用动作」的现有注册表 | `REQUEST_MODELS`（工具名）与 `SURFACE_TOOLS`（`affordances.py:40`，也是工具名）。规格要求的 `travel_to` / `work` / `submit` / `purchase` / `consume` 这批**动作名在源码中出现 0 次** |
-| 4 | 前置条件字段的数据来源 | 五个字段**全部已存在**于 `WorkTaskConfig`（`scenario.py:317`、`:320`、`:321`、`:322`、`:323`），且在事件级 `data["tasks"]` 里已暴露（`observe.py:221-235` 是单任务构造 `_visible_task`，其 `model_dump` 在 `:227`，**排除** `oracle_path`/`oracle_sha256`/`input_path`；`data["tasks"]` 的赋值在 `observe.py:131`）。**缺的不是数据，是 `_task_fact_rows` 没有透传** |
-| 5 | 字符预算 | 常量表在 `narration.py:41-52`（user 40000 / system 3000 / scene 800 汉字 / 卡片 600 / 决策自述 200）。**`facts` 段没有任何独立上限**，唯一约束是 user 消息总预算 40000。规格给的 4000 / 500 / 8000 三档在源码中**无对应常量** |
-| 6 | `progress_note` 的既有可复用通道 | 逐会话跨轮持久的主观字段**当前不存在**。详因与承载物缺口见「本规格自身的内部矛盾」#3（此处不重复登记） |
-| 7 | `session` 命名占用 | 既有 `session` 全在别处且语义不同：游戏会话（`models.py:256`、`engine.py:1169-1171`、`:1356-1376`）、`GameProgress.session_id`（`models.py:224`）、质量统计的**内容观看**会话（`quality.py:220-261` 是 `_contact_summary` + `_watch_repeats`，**与睡眠无关**）与**睡眠**会话（`behavior_metrics.py:454-490`）。**`WorldState.sessions` 无直接冲突**，但游戏那一支要在同一变更里删除 |
-| 8 | 覆盖门禁的接口判定 | 只统计**非下划线开头**的 `def`/`async def`。`SessionState` 作为类本身不触发，但其**公共方法**会——新状态类必须自带测试，不能留 `...` 占位 |
-
-### 术语进一步收窄：「会话」与内容品类字面 `"game_session"` 同词两义
-
-本次 11 路审计中「命名冲突」那一路的结论：**`WorldState.sessions` 与 `SessionState` 在代码里零占用**
-（当前只存在于本规格与影响文档），AS2 层的同名概念一律叫 **workspace**（`runtime.py:530-559`、
-`src/worldmock/footprints/checkpoint.py` 的 `snapshot_directory` 与 `restore_directory`），数据库事务叫「事务」，无需让名。
-
-**但有一处同词两义会随本变更存活**：内容品类字面 `"game_session"` 是既有闭集成员
-（`presentation.py:56` `GAME_CATEGORY`、`observe.py:552-570`、`src/worldmock/validation.py:39`（**注意与同名 `footprints/validation.py` 区分**）、`scenario.py:366`、
-`catalog/affordances.toml:279`），指「一种游戏内容品类」；而本规格的「会话」指「人物视角的交互单元」。
-删掉 `AgentState.game_sessions` **不会**消除这层混淆——30 个 games 声明与 80 条内容按本规格明确保留。
-
-两条出路，冻结前须择一：
-
-| 方案 | 改法 | 代价 |
-| --- | --- | --- |
-| 改品类侧 | 品类字面改为 `play_catalog`（对齐本规格把游戏动作定为 `play`，以及对 `_game_pool` 的既有写法） | 动语料与场景，**会影响 `corpora/manifest.json` 哈希与 80 条内容身份** |
-| 改模型侧 | `SessionState` → `InteractionState`，`WorldState.sessions` → `WorldState.interactions` | 不动语料；`interaction` 是仓内既有词（`interaction_menu`、`InteractionMenu`），不生造 |
-
-### 单句进展字段对冻结 `PlanGoal` 的破坏面
-
-「目标层增加单句进展字段」这条要落地，必须先知道代价。逐行核实的结论：
-
-| 项 | 事实 |
+| 文档 | 必须同步的内容 |
 | --- | --- |
-| `PlanGoal` 合同 | `schedule.py:175-194`；`extra="forbid"`、`frozen=True`（`:178`）；字段 `intent_kind`、`goal`（≤300，`PLAN_GOAL_MAX_CHARS`，`:29`）、`registered_at`、`progressed_at`、`progress_activity_id`；唯一校验器 `_check_progress`（`:185-194`） |
-| 加【可选】字段的破坏面 | **0 处必改**：不撞任何校验器；`DayPlan._check_plan` 的唯一性与 `day_end` 边界不变式都不读它；`progress_day_plan` 的 `model_copy(update=…)`（`:367`）会原样带过 |
-| 加【必填】字段的破坏面 | **2 处源码 + 4 处测试**直接构造点全断（源码 `engine.py:1390`、`:1411`；测试 `test_day_plan.py:21-22` 的 `goal()` 工厂（该文件内引用 **25** 处）、`test_grounded_observation.py:146`、`test_model_input_killpoints.py:144`、`:148`），另有 5 处裸字典夹具缺键。**注意** `schedule.py:221`、`:345`、`:369` 三处是 `DayPlan(...)` 构造而非 `PlanGoal(...)`，加字段本身不断它们 |
-| 500 上限的生效方式 | `model_copy(update=…)` **不重跑校验器**，所以 `Field(max_length=500)` 在这条路径上不生效——**必须自写校验器**，否则上限形同虚设 |
-| `revise_day_plan` 的行为 | 未推进目标**文字一变**，旧对象不再复用，**旧进展句随对象丢掉**；`goal_metrics._revise_goals`（`evaluation/goal_metrics.py:220-229`）的 `discarded` 实例也没有这一列。若要保留，须另立字段 |
-| 与 300 的关系 | `goal` 上限 300 不变；500 的进展句是**并列的第二条文本**，不是放宽 300 |
-| 进不进请求模型 | **绝对不进**。`PlanGoalInput` 加了可选字段会撞 `_validate_deepseek_object`（`models.py:1053-1059`，要求 `set(required) == set(properties)`），而 `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS` 禁用 `maxLength` |
+| `docs/CONTRACTS.md` | 九个模型可见工具的精确字段与可读名称绑定；`facts.progress` 的公开字段；完整请求 token 预算与禁用内部身份；工作评审和新结果回灌 |
+| `docs/dev/SPEC-decision-context.md` | 结果在进度层回灌一次、容量触发只浓缩进度投影、旧字符闸门与新 token 预算关系 |
+| `docs/dev/SPEC-life-runtime.md` | 业务拒绝冷却后继续、引擎派生执行参数、会话状态和播报原因 |
+| `docs/dev/SPEC-life-realism.md` | 午夜记忆巩固仍不篡改事件与已核验经历；游戏命令回路删除 |
+| `docs/dev/SPEC-labelkit-delivery.md` 与 `docs/EXPERIMENT.md` | 交付输入采用实际发送给模型的公开请求视图，保留其记忆与自述来源；不得把私有观察或工作评审请求混进样本 |
+| `docs/design/04-simulation-engine.md` | 对象与动作选择、冻结报价、引擎派生时长和资源前置条件、非致命业务拒绝 |
+| `docs/design/05-recording-engine.md` | 会话和公开结果的事件归属、模型请求及交付输入的可重建性、世界结构版本 |
+| `docs/design/06-delivery.md` | LabelKit 输入只采用实际人物请求的公开视图，私有观察、重复前置状态和独立工作评审请求不混入 |
+| `docs/design/08-configuration.md` | 保护项改为九个工具与当前会话退出通道，场景已有节律参数的归属 |
+| `docs/design/09-io-formats.md` | 模型请求与引擎内部请求分离、私有名称绑定、公开进度结构、世界结构版本 |
+| `docs/design/00-overview.md`、`docs/design/01-architecture.md` | 七层心智模型与三段消息载体的关系、规格修订权威 |
 
-### 本规格自身的内部矛盾（须在冻结前消解）
-
-**计数口径**：表中**待消解缺口**为 **2 条**（#2、#3）——二者都是「规格要求 vs 代码无承载物」的差口，**不是措辞矛盾**；#1 已由裁决 #3 消解，保留在表首作为已闭合记录。
-
-| # | 矛盾 | 状态与说明 |
-| --- | --- | --- |
-| 1 | **「目标层增加单句进展字段」vs「不吸收会话进展」** | **已消解**（裁决 #3，2026-09-22）：目标层那句进展限定为**模型撰写的主观叙述**，不是会话客观字段的投影。限定已写入「上下文分层」目标层行 |
-| 2 | 「facts 段无独立字符上限」vs 规格给的三档容量 | 规格给了 4000 / 500 / 8000，而 `narration.py:41-52` 的常量表里 **facts 段没有独立上限**（唯一约束是 user 消息 40000）。三档容量要么落成新常量，要么明确只是装配时的裁剪目标 |
-| 3 | 「逐会话跨轮持久的主观字段」不存在 | **属性是「规格要求 vs 代码无承载物」**（与 #2 同类，均属需在实现前落定的缺口，非措辞矛盾）。既有持久主观通道只有 memory episode 分区（`life_memory.py`），粒度是 `type`/`epistemic_status` 而非 `session_id`；决策自述（`life_agent.py:785-788`）是单轮实例属性、**不持久**。`progress_note` 需要的「逐会话 + 跨轮 + 持久」在当前代码中没有承载物 |
-
-### 删除游戏命令回路的间接断点（补充）
-
-`_life_snapshot`（`engine.py:1783-1790`）把每个 `GameProgress` dump 进 `{"games": [...]}`，
-经 `:697` 写成 `kind="life_checkpoint"` 素材。关键事实：**该收据只写不读**——
-全仓没有代码回读并比对 `games`。因此删除断的是**文档描述**（`docs/design/09-io-formats.md:133`
-有 `| game_sessions | dict[str, GameProgress] | 是 | 游戏会话 |` 整行、`05-recording-engine.md` 的收据描述），
-**不是校验路径**（`store.py:243-254` 与 `validation.py:110` 只校验键集 `{"life"} ∪ {agent:N}`）。
-
-另需一并收敛的两条**同源但独立**的链路：`engine.py:733-734` 的启动期 `verify_game_progress`；
-以及 `game_boundary` 合同（`engine.py:184`、`:198`、`:202`、`:213`；`catalog/affordances.py:101`、`:275-278`、
-`:444-458`）——后者是「活动继续交互能力」，与命令回路不是一回事，收敛时要分清。
-
-**好消息**：三个游戏错误码（`GAME_SESSION_NOT_ACTIVE`、`GAME_ACTIVITY_NOT_ACTIVE`、`GAME_COMMAND_TOO_EARLY`）
-**不在** `docs/CONTRACTS.md` 的错误码闭集表里（那张表是社交拒绝码与结算拒绝码），所以**没有文档表要减行**。
+原提案和只读审计是历史证据，不再作为最终行为合同。`docs/dev/implementation-status.md`
+记录当前代码实况，仅在行为实现并验证后更新，不能提前写成已落地。
 
 ## 文件修改清单
 
-见 [文档影响与文件修改清单](research/agent-interaction-document-impact.md)。
+| 职责 | 文件 |
+| --- | --- |
+| 模型工具与可读名称绑定 | `custom/agents/life_agent.py`、`src/worldmock/life/models.py`、`src/worldmock/life/observe.py`、`src/worldmock/life/session_actions.py` |
+| 对象、进度和容量投影 | `src/worldmock/life/projection.py`、`src/worldmock/life/narration.py`、`custom/agents/life_context.py` |
+| 结算、失败分类和执行反馈 | `src/worldmock/life/engine.py`、`src/worldmock/life/rules.py`、`src/worldmock/life/result_projection.py` |
+| 交付输入与公开结果一致性 | `src/worldmock/delivery/windows.py`、`training.py`、`pipeline.py` 与 `src/worldmock/evaluation/public_evidence.py`；不新增独立输入副本 |
+| 合同与设计文档 | 上节表中的所有文档，以及 `docs/dev/implementation-status.md` 的实际实现状态 |
+| 验证 | `tests/life/` 的对象绑定、活动参数、非致命拒绝、进度容量测试；`tests/integration/` 的真实人物工具与交付输入往返测试 |
 
 ## 验收台账
 
-| 契约点 | 验收口径 |
+| 契约点 | 必须通过的验证 |
 | --- | --- |
-| 会话生命周期不可由自述推进 | 删除全部 `progress_note` 后，会话状态与数字逐字节不变 |
-| 三级结构 | 任务由多个会话推进时目标证据规则不变；单会话 1–2 活动；单活动多段累积 |
-| 一次决策一个生活动作 | 多动作响应被拒；`start_activity` 多目标被判为一个动作 |
-| 并发上限与占用交集同时生效 | 二者各自独立的拒绝用例 |
-| 睡眠不播报 | 睡眠期跨越多个播报边界，`decision_started` 计数为零 |
-| 沉默边界不调用模型 | 无唤醒条件的边界不产生 `model_request` |
-| 前置条件进提示 | 未满足时 `facts` 含未满足项且 `scene` 点名具体地点 |
-| 前往提醒 | `ACTIVITY_PRECONDITION_UNMET` 的 `suggested.destination_id` 非空且可解析 |
-| 游戏简化 | `play_game` 可启动、按播报节律自述、无命令回路；`game_action` 全链路不存在 |
-| 遗忘是派生视图 | 裁剪后 `episode_counter == len(records)`、`episodes_sha256` 链完整、检查点可恢复 |
-| 午夜浓缩 | 跨日边界产生一次浓缩且不改已核验经历 |
-| 词表修订一致 | **代码同步点五处**（`schedule.py` 枚举；`WAKE_REASON_NAMES` 与写入期校验**合为一处**；`quality.py` 分桶；`test_event_fields.py`；`test_wake_reasons.py`）逐处通过；**文档同步面三处**（本规格修订表、`CONTRACTS` 枚举表、life-runtime 冻结词表）逐字一致。唯一权威定义见[文档影响](research/agent-interaction-document-impact.md)「唤醒词表的五处同步点」 |
-| Schema 禁用键合规 | `deepseek_strict_schema` 生成的 `start_activity` Schema 不含禁用键；字符上限与并发上限由校验器承担 |
-| 播报间隔是场景参数 | `progress_report_interval_seconds` 缺省 **1800**；场景可覆盖；非正整数被拒 |
-| 播报原因不被睡眠吞掉 | 断言 `progress_report_due` **不在** `SLEEP_ALLOWED_REASONS` 内；睡眠期跨越播报边界不产生决策 |
-| `recall_task_summary` 只读 | 调用前后世界状态、账户、库存、活动集合逐字节不变 |
-| 旧检查点被拒 | `schema_version` 为 5 的检查点 `model_validate` 直接失败；不迁移、不降级读取 |
-| 登记工具条件可见性 | **清醒**日首尚无计划时只开放 `plan_day`；已有计划（**含空清单后追加**）开放 `revise_day_plan`；提交空清单后 `plan_day` 关闭。二者都不启动活动、不消耗生活时间 |
-| `action` 按对象绑定 | 对同一轮 `facts.interactive_objects` 逐对象断言：其 `actions` 枚举不含该对象不合法的动作 |
-| 上限由校验器而非 Schema 承担 | `start_activity` 的 Schema **不含**字符上限与「至多 2 个」约束；越界由校验器拒绝并给出业务错误码 |
-| 自述不改写系统字段 | 提交任意内容与长度的 `summary` 后，会话的 `status`、`segments`、`invested_seconds` 等客观字段逐字节不变 |
-| 会话状态闭集 | 断言状态取值落在 `active` / `paused` / `concluded` / `aborted` 内；非法转移被拒 |
-| 不新增事件类型且请求可审计 | `EventType` 仍为 **14** 项；四个会话工具的请求落在 `action_requested`，`request_sha256` 存在且可复算 |
-| 自述不进已核验经历 | `progress_note` 与 `summary` 的任何内容都不出现在 `verified_experiences` 投影区段 |
-
-## 已裁决（2026-09-22）
-
-| # | 事项 | 裁决 | 落地位置 |
-| --- | --- | --- | --- |
-| 1 | `action` 枚举的绑定粒度 | **按对象绑定**：每个交互对象只暴露对它合法的动作 | 「动作参数：能力如何收进 `action`」的「绑定粒度」段 |
-| 2 | `plan_day` / `revise_day_plan` 是否保留为独立工具 | **保留为独立工具**（登记动作不启动活动，与会话动作语义不同） | 「稳定工具面」工具表，共 **7** 个工具；「保护项修订」第三、四类 |
-| 3 | 目标层是否吸收会话进展 | **不吸收**：目标层那句进展是**模型撰写的主观叙述**，不是会话客观字段的投影 | 「上下文分层」目标层行；消解了与「容量、浓缩与遗忘」的表面冲突 |
+| 会话生命周期 | 一个任务经多个会话推进；单会话最多两个兼容活动；三个控制工具的 `task[]` 与 `summary[]` 各项一一对应；播报能恢复暂停会话，暂停与恢复累计活动时段；结束只影响选中的进行中会话，已暂停会话先恢复后才能主动结束；自述不改变客观结算字段 |
+| 目标与会话自述 | 每条播报、暂停或结束摘要各自写入所选 `SessionState.progress_note`；关联当日目标时同一原文也写该目标独立的 `PlanGoal.progress_note`；整组校验失败不部分写入 |
+| 模型工具 Schema | `start_activity` 只含必填且等长的 `targets[]` 与 `actions[]`，不含内部身份、价格、报价版本、时长、数量、正文和成果；`report_status` / `pause_activity` / `conclude_activity` 都只含等长的 `task[]`、`summary[]`；`submit_work` / `send_message` 另有可读名称和原创内容字段 |
+| 名称绑定 | 同名对象由自然语义消歧；所有模型可见对象与动作可被人理解；冻结观察能唯一解析，未知或歧义名称业务拒绝，内部编号不出现在提示、工具参数或公开结果 |
+| 冻结执行参数 | 出行按所选方式使用冻结路线的精确秒数与票价；双供给购买各自使用冻结报价；各活动时长和单份数量按本规格表计算，状态变化时仍经引擎校验 |
+| 工作与消息创作 | `submit_work(task_name, deliverable)` 进入现有工作评审，返工为业务反馈；`send_message(recipient_name, text)` 使用既有通讯结算；二者不经过 `start_activity` 的隐藏内容参数 |
+| 业务拒绝 | 连续超过阈值仍无 `run_failed`，冷却后可继续；真正协议或世界故障保持故障路径；拒绝原因和可执行建议在下一观察的进度层出现 |
+| 进度层归属 | `facts.progress` 同时含客观会话进度、全部本轮新执行结果、当前提醒与标记「未经核验」的人物自述；`scene` 不复制结果；旧两个独立字段不进模型提示 |
+| 完整 token 计数 | 对自述、行动、只读的每次实际请求，计入最终 system、全部 user 片段、记忆、工具定义、历史消息与预留输出；与提供者实际 usage 抽样核对 |
+| 85% 进度浓缩 | 触发前全部历史会话可见；触发后只合并旧终态会话，保留进行中与暂停会话、当前提醒及全部新结果；事件和权威状态字节不变；仍超限则带分层 token 用量报容量故障 |
+| 决策节律 | 播报间隔缺省 1800 秒；睡眠中不因播报唤醒；沉默边界不调用模型；到截止或活动结束提供下一次决策机会 |
+| 前置条件 | 任务所需地点与技能先于动作进入提示；不满足时具体说明去向；并发上限与资源占用交集分别验证 |
+| 游戏与旧接口 | `game_action`、播放中变速和旧模型工具签名全链路不存在，游戏仍可选择、结算和自述 |
+| 记忆与检查点 | 午夜目标单句与长期记忆巩固不改已核验经历；旧世界结构检查点被拒，未做迁移或兼容读取 |
+| 事件与交付 | 人物请求及系统结算可由事件审计；交付输入与实际发送给模型的公开请求视图一致，私有观察和评审模型请求不进入人物样本 |
+| 文档一致性 | 上节每份冻结合同同步；相互链接可解析，旧 7 工具、单会话 4000 字符、只计 user 字符和独立结果层的表述均不存在 |
 
 ## 版本表
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
-| 1.0 | 2026-09-22 | 首次书写（待裁决）：三级结构、七层上下文与进度层、5 工具面与 `action` 参数、播报节律、前置条件前置与前往提醒、并发上限、午夜浓缩、游戏简化；显式修订四条既有冻结条款。**本行的「5 工具面」与「`action` 参数未定绑定粒度」已由 1.1 取代** |
-| 1.1 | 2026-09-22 | 三条阻断项裁决落地：`action` 改为**按对象绑定**；`plan_day` / `revise_day_plan` **保留为独立工具**（工具面 5 → **7**）；目标层进展句限定为**模型叙述、非会话投影**。另查明第四条修订的真因是 `facts.interactive_objects[].actions` 落在既有禁表内（`narration.py:59`），故四条成立 |
-| **1.2** | 2026-09-22 | **提交冻结**：状态由「待裁决（未冻结）」改为 **FROZEN**。本规格显式修订的四条既有冻结条款**随本次冻结生效**；遗留 2 处待消解缺口，均为实现落地项，不改变条款语义。实现与验证状态另记，不以冻结等同已实现 |
+| 1.0–1.2 | 2026-09-22 | 三级结构、七层上下文、旧七工具方案、播报、并发与午夜巩固的历史裁决 |
+| 1.3 | 2026-09-23 | issue #1 后收敛模型与引擎的执行契约；九工具区分选择和原创内容；进度层承载执行结果；整次请求 token 计数与 85% 进度浓缩；业务拒绝不终止运行；交付输入一致性 |

@@ -22,16 +22,17 @@ from agentsociety2.agent.base import (
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
+from worldmock.life.interaction_menu import canonical_action
 from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.prompt_capacity import compare_usage, fit_request
 from worldmock.life.narration import (
     DecisionStatementValidationError,
     compose_user_message,
-    enforce_budgets,
     render_facts,
     render_scene,
     validate_decision_statement,
 )
-from worldmock.life.schedule import DayPlan, INTENT_KINDS, MAX_PLAN_GOALS
+from worldmock.life.schedule import INTENT_KINDS, MAX_PLAN_GOALS
 
 
 #: 决策自述阶段采样参数（模型更换后 temp 1.3 偶发采样脱轨：reasoning 螺旋烧穿、
@@ -52,6 +53,8 @@ DECISION_STATEMENT_REASONING_MAX_TOKENS = 1500
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
+#: 行动阶段明确预留的最大输出，用于发送前完整上下文计数。
+ACTION_MAX_TOKENS = 8000
 
 #: 一次会话至多服务两个交互对象（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」：
 #: targets[] ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
@@ -280,33 +283,34 @@ _ACTION_PROTOCOL = (
 _TOOL_DESCRIPTIONS = {
     "start_activity": (
         _ACTION_PROTOCOL
-        + " Begin one session on at most two interactive objects listed in "
-        "facts.interactive_objects. targets holds their exact object_id values and action must be "
-        "legal for every chosen target. Fill only the parameters this action needs and send null "
-        "for the rest: planned_duration_seconds for a timed action; destination_id and travel_mode "
-        "for travel_to; text for message; quantity for purchase and consume; price_version for "
-        "purchase; deliverable for submit. The world decides feasibility and answers with the "
-        "unmet preconditions when it refuses."),
+        + " Choose one or two named objects from facts.interactive_objects and one offered action "
+        "phrase for each object in the same order. Send exactly targets and actions. "
+        "The world uses the observed quote and derives duration, quantity, travel mode and "
+        "fulfillment. Prices and internal state are information from the world, never inputs."),
+    "submit_work": (
+        _ACTION_PROTOCOL
+        + " Submit authored work for one visible task. Use its task_name and write the deliverable."),
+    "send_message": (
+        _ACTION_PROTOCOL
+        + " Send an authored text message to one visible person or contact by recipient_name."),
     "recall_task_summary": (
         _ACTION_PROTOCOL
-        + " Read back the progress of one session or task without changing anything. "
-        "Send either session_id, or task_kind paired with task_ref, and null for the other group."),
+        + " Read the progress of one visible task or session by task_name without changing the world."),
     "report_status": (
         _ACTION_PROTOCOL
-        + " Report progress in your own words and keep the named session running. "
-        "session_ids holds an active session identity from facts.sessions; "
-        "summary is at most 500 characters."),
+        + " Report one or two visible tasks and keep their sessions running. "
+        "task and summary are equally sized lists paired in order. "
+        "A paused task resumes when reported. Each summary is at most 500 characters."),
     "pause_activity": (
         _ACTION_PROTOCOL
-        + " Report progress in your own words and pause the named session; "
-        "its invested time is kept and it can resume later. "
-        "session_ids holds an active session identity from facts.sessions; "
-        "summary is at most 500 characters."),
+        + " Report one or two visible tasks and pause their running sessions. "
+        "task and summary are equally sized lists paired in order. "
+        "Invested time is kept. Each summary is at most 500 characters."),
     "conclude_activity": (
         _ACTION_PROTOCOL
-        + " Report progress in your own words and end the named session for good. "
-        "session_ids holds an active session identity from facts.sessions; "
-        "summary is at most 500 characters."),
+        + " Report one or two visible tasks and end only their running sessions. "
+        "task and summary are equally sized lists paired in order. "
+        "Each summary is at most 500 characters."),
     "plan_day": (
         _ACTION_PROTOCOL
         + " At the first decision after waking, submit today's ordered goals, "
@@ -393,6 +397,12 @@ class LifeAgent(PersonAgent):
         """@brief 返回注册中心使用的准确职责。"""
         return "LifeAgent: autonomous person using typed life tools through DirectRouter."
 
+    async def _record_model_evidence(self, evidence: ModelCallEvidence) -> None:
+        """@brief 保存模型调用证据并对照实际输入 token 量。"""
+        await super()._record_model_evidence(evidence)
+        if evidence.phase == "response":
+            compare_usage(evidence.request, evidence.response)
+
     @classmethod
     def init_description(cls) -> str:
         """@brief 返回场景人物配置说明。"""
@@ -428,8 +438,10 @@ class LifeAgent(PersonAgent):
             if not hasattr(self, "_life_visible_objects"):
                 raise RuntimeError("LifeAgent visible interactive objects are not prepared")
             _bind_start_activity_schema(schemas, self._life_visible_objects, self._life_allowed_actions)
-            _bind_session_schemas(schemas, self._life_active_sessions)
+            _bind_session_schemas(schemas, self._life_action_contracts["active_task_names"],
+                                  self._life_action_contracts["reportable_names"])
             _bind_plan_goal_schemas(schemas, self._life_action_contracts)
+            _bind_named_action_schemas(schemas, self._life_action_contracts)
         if not readonly and "finish" in models:
             _bind_finish_reference_ids(
                 schemas,
@@ -457,11 +469,12 @@ class LifeAgent(PersonAgent):
             first["content"] += _LOW_BUDGET_SENTENCE.format(phase=budget["phase"])
         first["content"] += _REACT_BUDGET_MARKER + json.dumps(
             budget, ensure_ascii=False, sort_keys=True)
-        enforce_budgets(0, len(first["content"]))
         request = super()._model_request([first, *messages[1:]], tools)
         request["tool_choice"] = ACTION_TOOL_CHOICE
+        request["max_tokens"] = ACTION_MAX_TOKENS
         request["extra_body"] = dict(ACTION_THINKING)
-        return request
+        facts = getattr(self, "_life_facts_for_capacity", None)
+        return fit_request(request, facts, getattr(self, "_life_prompt_layers", None))
 
     def _life_require_turns(self, phase: str, required: int) -> None:
         """@brief 剩余回合不足时明确终止本次决策，不发注定失败的请求。"""
@@ -548,15 +561,20 @@ class LifeAgent(PersonAgent):
         verified = getattr(self, "_life_verified_experiences", [])
         facts_text = "已核验经历（环境事件）：\n" + json.dumps(verified, ensure_ascii=False, sort_keys=True)
         core = compose_user_message(persona, scene, "\n\n".join((facts_text, memory)))
+        self._life_prompt_layers = {"persona": persona, "scene": scene,
+                                    "verified_experiences": facts_text, "memory": memory}
         if not with_facts:
             return core
-        facts = render_facts(_facts_projection(data))
+        self._life_facts_for_capacity = _facts_projection(data)
+        facts = render_facts(self._life_facts_for_capacity)
+        self._life_prompt_layers["progress"] = render_facts(self._life_facts_for_capacity["progress"])
+        self._life_prompt_layers["other_facts"] = render_facts({
+            key: value for key, value in self._life_facts_for_capacity.items() if key != "progress"})
         parts = [core, facts]
         decision_statement = getattr(self, "_life_decision_statement", None)
         if decision_statement:
             parts.append(f"你刚才心里想的是：{decision_statement}")
         user = "\n\n".join(parts)
-        enforce_budgets(len(user), 0)
         return user
 
     def build_react_messages(self, request: ReactLoopRequest) -> list[dict[str, Any]]:
@@ -569,9 +587,10 @@ class LifeAgent(PersonAgent):
             if request.question is not None:
                 sections.append(f"外部只读问题：{request.question}")
             user = "\n\n".join(section for section in sections if section)
+            self._life_prompt_layers = {"persona_and_memory": sections[0],
+                                        "question": request.question or ""}
         else:
             user = self._life_user_sections(request, with_facts=True)
-        enforce_budgets(len(user), len(system))
         return [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -592,8 +611,7 @@ class LifeAgent(PersonAgent):
         system = (_LIFE_INSTRUCTIONS.format(name=self.name or "this person")
                   + _DECISION_STATEMENT_INSTRUCTIONS)
         user = self._life_user_sections(request, with_facts=False)
-        enforce_budgets(len(user), len(system))
-        return {
+        params = {
             "model": self._model_name,
             "messages": [
                 {"role": "system", "content": system},
@@ -608,6 +626,7 @@ class LifeAgent(PersonAgent):
                 "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS},
             },
         }
+        return fit_request(params, layers=getattr(self, "_life_prompt_layers", None))
 
     def receive_prelude_decision_statement(self, request: ReactLoopRequest, decision_statement: str) -> None:
         """@brief 接收已通过协议校验的决策自述文本，供行动阶段消息引用。"""
@@ -689,6 +708,8 @@ class LifeAgent(PersonAgent):
         self._life_readonly = request.readonly
         self._life_request_models = None
         self._life_decision_statement = None
+        self._life_facts_for_capacity = None
+        self._life_prompt_layers = {}
         if request.readonly:
             self._life_interaction_menu = None
             self._life_visible_refs = set()
@@ -948,7 +969,7 @@ def _environment_source_ids(data: dict[str, Any]) -> set[str]:
 
 
 def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
-    """@brief 冻结本轮交互对象层：对象身份 -> 该对象自己的动作枚举。
+    """@brief 冻结本轮交互对象层：可读名称 -> 该对象自己的动作短语。
 
     每个对象只暴露对它自己合法的动作（docs/dev/SPEC-agent-interaction.md
     「动作参数：能力如何收进 action」的绑定粒度裁决），start_activity 的
@@ -961,40 +982,61 @@ def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, .
     for row in rows:
         if not isinstance(row, dict):
             raise RuntimeError("LifeAgent interactive object must be an object")
-        object_id, actions = row.get("object_id"), row.get("actions")
-        if not isinstance(object_id, str) or not object_id.strip() or object_id in objects:
+        name, actions = row.get("object"), row.get("actions")
+        if not isinstance(name, str) or not name.strip() or name in objects:
             raise RuntimeError("LifeAgent interactive object identity is invalid")
         if (not isinstance(actions, list) or not actions
                 or not all(isinstance(item, str) and item.strip() for item in actions)):
             raise RuntimeError("LifeAgent interactive object actions are invalid")
         if not isinstance(row.get("preconditions_met"), bool):
             raise RuntimeError("LifeAgent interactive object preconditions flag is invalid")
-        objects[object_id] = tuple(sorted(set(actions)))
+        objects[name] = tuple(sorted(set(actions)))
     return objects
 
 
 def _visible_sessions(data: dict[str, Any]) -> dict[str, str]:
-    """@brief 冻结本轮本人会话身份与状态（facts.sessions 的进度层合同）。"""
-    rows = _facts_projection(data).get("sessions")
+    """@brief 冻结本轮本人会话名称与阶段（facts.progress.sessions）。"""
+    progress = _facts_projection(data).get("progress")
+    rows = progress.get("sessions") if isinstance(progress, dict) else None
     if not isinstance(rows, list):
         raise RuntimeError("LifeAgent sessions layer must be a list")
     sessions: dict[str, str] = {}
+    phase_states = {"进行中": "active", "已暂停": "paused", "已结束": "concluded", "已中断": "aborted"}
     for row in rows:
-        session_id = row.get("session_id") if isinstance(row, dict) else None
-        status = row.get("status") if isinstance(row, dict) else None
-        if not isinstance(session_id, str) or not session_id.strip() or session_id in sessions:
+        task_name = row.get("session_name") if isinstance(row, dict) else None
+        phase = row.get("phase") if isinstance(row, dict) else None
+        if not isinstance(task_name, str) or not task_name.strip() or task_name in sessions:
             raise RuntimeError("LifeAgent session identity is invalid")
-        if status not in {"active", "paused", "concluded"}:
+        if phase not in phase_states:
             raise RuntimeError("LifeAgent session status is invalid")
-        sessions[session_id] = status
+        sessions[task_name] = phase_states[phase]
     return sessions
 
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结两件登记动作工具的当日目标合同（其余动作由交互对象层承载）。"""
+    """@brief 冻结当日目标合同及内容、回看工具的可见名称。"""
+    bindings = data["interaction_bindings"]
+    tasks = data["task_bindings"]
+    sessions = data["session_bindings"]
+    goals = data["goal_bindings"]
+    current = [row for row in sessions if row["status"] in {"active", "paused"}]
+    task_names = [row["task_name"] for row in current]
+    labels = {row["session_name"]: (row["task_name"] if task_names.count(row["task_name"]) == 1
+                                    else row["session_name"]) for row in current}
     return {
         "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
+        "task_names": tuple(row["task_name"] for row in tasks),
+        "recipient_names": tuple(row["object"] for row in bindings
+                                 if row["kind"] in {"person", "contact"}),
+        "recall_names": tuple([*(row["task_name"] for row in tasks),
+                               *(row["session_name"] for row in sessions),
+                               *(row["task_name"] for row in goals)]),
+        "reportable_names": tuple(labels[row["session_name"]] for row in current),
+        "active_task_names": tuple(labels[row["session_name"]] for row in current
+                                   if row["status"] == "active"),
+        "concludable_names": tuple(labels[row["session_name"]] for row in current
+                                   if row["status"] == "active"),
     }
 
 
@@ -1025,13 +1067,8 @@ def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
     plan = _facts_projection(data).get("day_plan")
     if plan is None:
         return {}
-    try:
-        validated = DayPlan.model_validate(plan)
-    except Exception as exc:
-        logging.error("LifeAgent day plan goals are invalid: %s", exc)
-        raise RuntimeError("LifeAgent day plan goals are invalid") from exc
-    return {"progressed_intents": tuple(goal.intent_kind for goal in validated.goals
-                                        if goal.progressed_at is not None)}
+    return {"progressed_intents": tuple(goal["intent_kind"] for goal in plan["goals"]
+                                        if goal["progressed"])}
 
 
 def _available_action_models(
@@ -1044,8 +1081,16 @@ def _available_action_models(
     active 会话时开放；两件登记动作工具按当日目标合同分别开放。
     """
     names = {"start_activity", "recall_task_summary"}
+    if contracts["task_names"]:
+        names.add("submit_work")
+    if contracts["recipient_names"]:
+        names.add("send_message")
+    if contracts["reportable_names"]:
+        names.add("report_status")
     if active_sessions:
-        names.update(_SESSION_CONTROL_TOOLS)
+        names.add("pause_activity")
+    if contracts["concludable_names"]:
+        names.add("conclude_activity")
     names.update(name for name in ("plan_day", "revise_day_plan") if contracts[name])
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
 
@@ -1061,41 +1106,37 @@ def _validate_prepared_action(
     if action == "start_activity":
         return _validate_start_activity(request, objects)
     if action in _SESSION_CONTROL_TOOLS:
-        if len(request.session_ids) != 1:
-            return f"{action} accepts exactly one session identity"
-        if request.session_ids[0] not in active_sessions:
-            return f"{action} session_ids is not an active session"
+        if not 1 <= len(request.task) <= 2 or len(set(request.task)) != len(request.task):
+            return f"{action} accepts one or two distinct task names"
+        allowed = contracts["reportable_names"] if action == "report_status" else contracts["active_task_names"]
+        if any(name not in allowed for name in request.task):
+            return f"{action} task contains an unavailable session"
         return ""
     if action == "recall_task_summary":
-        return _validate_recall_task_summary(request)
-    if action in contracts:
+        return "" if request.task_name in contracts["recall_names"] else "task_name is not visible"
+    if action == "submit_work":
+        return "" if request.task_name in contracts["task_names"] else "task_name is not visible"
+    if action == "send_message":
+        return "" if request.recipient_name in contracts["recipient_names"] else "recipient_name is not visible"
+    if action in {"plan_day", "revise_day_plan"}:
         return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
     return ""
 
 
 def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[str, ...]]) -> str:
-    """@brief 目标必须是本轮可见交互对象，动作必须对每个目标都合法。"""
-    if not request.targets:
-        return "start_activity requires at least one target"
-    if len(request.targets) > _START_ACTIVITY_MAX_TARGETS:
-        return f"start_activity accepts at most {_START_ACTIVITY_MAX_TARGETS} targets"
+    """@brief 对象与动作逐项对应，并取自本轮可见交互对象。"""
+    if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
+        return f"start_activity accepts one or two targets"
+    if len(request.targets) != len(request.actions):
+        return "start_activity targets and actions must have equal lengths"
     if len(set(request.targets)) != len(request.targets):
         return "start_activity targets must be unique"
-    for target in request.targets:
+    for target, action in zip(request.targets, request.actions):
         actions = objects.get(target)
         if actions is None:
             return "start_activity target is not a visible interactive object"
-        if request.action not in actions:
+        if action not in actions:
             return "start_activity action is not offered by the chosen target"
-    return ""
-
-
-def _validate_recall_task_summary(request: BaseModel) -> str:
-    """@brief 会话身份与任务引用两组参数互斥且必须恰好提交一组。"""
-    by_session = request.session_id is not None
-    by_task = request.task_kind is not None and request.task_ref is not None
-    if by_session == by_task:
-        return "recall_task_summary requires either session_id or task_kind with task_ref"
     return ""
 
 
@@ -1115,16 +1156,31 @@ def _bind_start_activity_schema(
     union = {value for actions in objects.values() for value in actions}
     properties = start["function"]["parameters"]["properties"]
     properties["targets"]["items"]["enum"] = sorted(objects)
-    properties["action"]["enum"] = sorted(union & allowed_actions)
+    properties["actions"]["items"]["enum"] = sorted(
+        label for label in union if canonical_action(label) in allowed_actions)
 
 
-def _bind_session_schemas(schemas: list[dict[str, Any]], active_sessions: tuple[str, ...]) -> None:
-    """@brief 把本轮 active 会话身份绑定到三条会话退出通道的 Schema。"""
-    identities = list(active_sessions)
+def _bind_session_schemas(schemas: list[dict[str, Any]], active_sessions: tuple[str, ...],
+                          reportable_sessions: tuple[str, ...]) -> None:
+    """@brief 将可读当前任务名称绑定到逐项汇报与暂停工具。"""
     for item in schemas:
-        if item["function"]["name"] in _SESSION_CONTROL_TOOLS:
+        name = item["function"]["name"]
+        if name in _SESSION_CONTROL_TOOLS:
             properties = item["function"]["parameters"]["properties"]
-            properties["session_ids"]["items"]["enum"] = identities
+            names = reportable_sessions if name == "report_status" else active_sessions
+            properties["task"]["items"]["enum"] = sorted(names)
+
+
+def _bind_named_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
+    """@brief 给工作提交、通讯和回看工具绑定本轮可见的可读名称。"""
+    fields = {"submit_work": ("task_name", "task_names"),
+              "send_message": ("recipient_name", "recipient_names"),
+              "recall_task_summary": ("task_name", "recall_names")}
+    for item in schemas:
+        name = item["function"]["name"]
+        if name in fields and contracts[fields[name][1]]:
+            field = fields[name][0]
+            item["function"]["parameters"]["properties"][field]["enum"] = sorted(contracts[fields[name][1]])
 
 
 def _bind_plan_goal_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:

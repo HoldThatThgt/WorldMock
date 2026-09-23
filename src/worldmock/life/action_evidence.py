@@ -32,7 +32,9 @@ def _remember_terminal_activity(state: WorldState, result: ActionResult,
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal:
         return state
-    final = _activity_terminal_result(activity, result.occurred_at, title)
+    final = _origin_terminal_result(state, activity, result.occurred_at, title)
+    if final is None:
+        return state
     return state.model_copy(update={"processed_actions": _terminal_action_records(state, final)}, deep=True)
 
 
@@ -68,7 +70,45 @@ def _terminal_after_action(state: WorldState, result: ActionResult,
                 ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
     if activity.status not in terminal or activity.origin_action_id == result.action_id:
         return None
-    return _activity_terminal_draft(activity, result.occurred_at, [request_event_id], title)
+    return _origin_terminal_draft(state, activity, result.occurred_at, [request_event_id], title)
+
+
+def _origin_terminal_result(state: WorldState, activity, occurred_at: int,
+                            title: str | None = None) -> ActionResult | None:
+    """@brief 同一原动作的全部子活动结束后，给原动作写一次完整终态。"""
+    peers = [row for row in state.activities.values() if row.origin_action_id == activity.origin_action_id]
+    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
+                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
+    if any(row.status not in terminal for row in peers):
+        return None
+    if len(peers) == 1:
+        return _activity_terminal_result(activity, occurred_at, title)
+    statuses = {row.status for row in peers}
+    if ActivityStatus.FAILED in statuses:
+        status = ActionStatus.FAILED
+    elif statuses <= {ActivityStatus.COMPLETED}:
+        status = ActionStatus.COMPLETED
+    else:
+        status = ActionStatus.CANCELLED
+    rows = [row.model_dump(mode="json") for row in sorted(peers, key=lambda item: item.activity_id)]
+    return ActionResult(action_id=activity.origin_action_id, agent_id=activity.agent_id,
+                        status=status, occurred_at=occurred_at, message="Activities finished",
+                        data={"activities": rows})
+
+
+def _origin_terminal_draft(state: WorldState, activity, occurred_at: int,
+                           additional_causes: list[str], title: str | None = None) -> EventDraft | None:
+    """@brief 为原动作形成唯一终态事件；未全部结束时只留活动进度事件。"""
+    result = _origin_terminal_result(state, activity, occurred_at, title)
+    if result is None:
+        return None
+    if result.activity_id is not None:
+        return _activity_terminal_draft(activity, occurred_at, additional_causes, title)
+    causes = list(dict.fromkeys([activity.origin_request_event_id, *additional_causes]))
+    return EventDraft(event_type="action_result", occurred_at=occurred_at,
+                      agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
+                      action_id=activity.origin_action_id, caused_by=causes,
+                      data=result.model_dump(mode="json"))
 
 
 def _activity_terminal_result(activity, occurred_at: int,
@@ -105,21 +145,6 @@ def _activity_terminal_draft(activity, occurred_at: int,
                       agent_id=activity.agent_id, decision_id=activity.origin_decision_id,
                       action_id=activity.origin_action_id, activity_id=activity.activity_id,
                       caused_by=causes, data=data)
-
-
-def _decision_failure_drafts(now: int, pending: PendingAction, result: ActionResult,
-                             agent) -> list[EventDraft]:
-    """@brief 连续拒绝到限时记录人物失败并原子形成运行失败。"""
-    data = {"kind": "agent_decision_failed", "consecutive_rejections": agent.consecutive_rejections,
-            "last_error_code": result.error_code, "action_id": pending.action_id}
-    failed = EventDraft(event_type="environment_event", occurred_at=now,
-                        agent_id=pending.agent_id, decision_id=pending.decision_id,
-                        action_id=pending.action_id, caused_by=_pending_causes(pending), data=data)
-    run_failed = EventDraft(event_type="run_failed", occurred_at=now, visibility="system",
-                            caused_by=[failed.event_id], data={"error_type": "DecisionFailure",
-                            "error": result.message, "agent_id": pending.agent_id,
-                            "last_error_code": result.error_code})
-    return [failed, run_failed]
 
 
 def _pending_causes(pending: PendingAction) -> list[str]:

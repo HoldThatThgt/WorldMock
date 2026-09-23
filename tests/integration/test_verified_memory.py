@@ -74,7 +74,7 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
     assert len(first.created_episodes) == 1 and first.merged_episodes == ()
     assert first.verified_event_ids == ("progress-1",)
     assert runtime.store.read_state()["pending_episode_count"] == 1
-    view = runtime.store.memory_md_path.read_text()
+    view = runtime.store.memory_md_path.read_text(encoding='utf-8')
     assert view.count("## 已核验经历") == 1
     identity = view.split("## 身份\n", 1)[1].split("## 已核验经历", 1)[0].strip()
     assert identity == "> 人物画像里的身份"
@@ -87,7 +87,7 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
     assert second.created_episodes == () and second.merged_episodes == ()
     assert second.verified_event_ids == ("progress-2",)
     assert runtime.store.read_state()["pending_episode_count"] == 1
-    assert "progress-2" in runtime.store.memory_md_path.read_text()
+    assert "progress-2" in runtime.store.memory_md_path.read_text(encoding='utf-8')
     assert "progress-1" not in runtime.build_context()["memory_md"]
     third = await runtime.after_step(tick=60, t=_TIME, step_count=3, finish_memories=[])
     assert third.created_episodes == () and third.merged_episodes == ()
@@ -119,7 +119,7 @@ async def test_multi_item_meal_keeps_both_facts_but_references_source_once(tmp_p
         outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[memory])
         assert [item["product_id"] for item in facts] == ["rice", "soup"]
         assert outcome.verified_event_ids == (progress.event_id,)
-        assert runtime.store.memory_md_path.read_text().count(progress.event_id) == 2
+        assert runtime.store.memory_md_path.read_text(encoding='utf-8').count(progress.event_id) == 2
         episode = outcome.created_episodes[0]
         evidence = MemoryUpdateEvidence(
             context=None, operation="append_episodes", created_episode_ids=(episode["id"],),
@@ -203,7 +203,7 @@ async def test_restore_preserves_subjective_identity_and_rejects_status_tamperin
     assert resumed.store.memory_md_path.read_bytes() == persisted_view
     episode = resumed.store.iter_episodes()[0]
     episode["epistemic_status"] = "objective"
-    resumed.store.episodes_path.write_text(json.dumps(episode, ensure_ascii=False) + "\n")
+    resumed.store.episodes_path.write_text(json.dumps(episode, ensure_ascii=False) + "\n", encoding='utf-8')
     with pytest.raises(ValueError, match="epistemic status"):
         WorldMockMemoryRuntime(owner, MemoryRuntimeConfig()).restore_store(tmp_path)
 

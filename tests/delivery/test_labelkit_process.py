@@ -5,7 +5,7 @@ import re
 import shutil
 import threading
 import tomllib
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -22,6 +22,7 @@ from worldmock.delivery.pipeline import (
 from worldmock.delivery.windows import _action_windows, _window_identity
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
+from worldmock.life.models import StartActivityRequest
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
@@ -32,7 +33,7 @@ FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
     "max_items_repaired", "max_items_exhausted", "history_repaired", "history_exhausted",
 ])
 def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, monkeypatch, review_result):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     record = _current_record(tmp_path)
     calls = []
     fixed = copy.deepcopy(fixture['annotation'])
@@ -111,16 +112,17 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         def log_message(self, *_args):
             pass
 
-    server = HTTPServer(('127.0.0.1', 0), Handler)
+    server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
+    monkeypatch.setenv('NO_PROXY', '127.0.0.1,localhost')
     monkeypatch.setattr('worldmock.delivery.pipeline.dotenv_values', lambda _path: {'DEEPSEEK_NODE_KEYS': 'fixture'})
     try:
         workspace = _workspace(tmp_path, record, server.server_port)
         if review_result in {'exhausted', 'max_items_exhausted', 'history_exhausted'}:
             with pytest.raises(IntegrityError, match='exited with status 1'):
                 run_labelkit('action', workspace, ROOT, [record])
-            assert (workspace / 'out/action.jsonl').read_text() == ''
+            assert (workspace / 'out/action.jsonl').read_text(encoding="utf-8") == ''
             records = []
         else:
             receipt = run_labelkit('action', workspace, ROOT, [record])
@@ -154,13 +156,13 @@ def test_real_labelkit_annotate_and_verify_requests_are_target_blind(tmp_path, m
         assert records[0]['target']['facts'] == record['target']
         assert records[0]['provenance']['target_event_ids'] == target_ids
         assert records[0]['provenance']['source_event_ids'] == [
-            'probe-prior-result', 'probe-observation', *target_ids,
+            'probe-prior-result', 'probe-observation', 'probe-prompt', *target_ids,
         ]
         model_input = records[0]['provenance']['model_input']
         assert model_input['labelkit_record_id'] == records[0]['provenance']['labelkit_record_id']
         assert model_input['source_line'] == 1
         assert model_input['trace_path'] == 'labelkit/out/action.trace.jsonl'
-    trace = [json.loads(line) for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
+    trace = [json.loads(line) for line in (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()]
     profiles = [row['payload']['profile'] for row in trace if row.get('ev') == 'llm.call']
     schema_repairs = {'citation_repaired', 'missing_citation_repaired', 'max_items_repaired'}
     expected_profiles = ['default', 'default', 'judge'] if review_result in schema_repairs else [
@@ -279,7 +281,7 @@ def _workspace(tmp_path, record, port):
     (workspace / 'out').mkdir()
     write_model_inputs('action', [record], workspace)
     config = workspace / 'config.toml'
-    config.write_text(config.read_text().replace('https://api.deepseek.com', f'http://127.0.0.1:{port}/v1'))
+    config.write_text(config.read_text(encoding="utf-8").replace('https://api.deepseek.com', f'http://127.0.0.1:{port}/v1'))
     return workspace
 
 
@@ -296,19 +298,32 @@ def _current_record(directory):
     summary = {'event_id': prior['event_id'], 'action_id': prior['action_id'],
                'decision_id': prior['decision_id'], 'occurred_at': prior['occurred_at'],
                'status': 'completed', 'error_code': None, 'message': prior_data['message'], 'result': prior_data}
-    observed = _event('probe-observation', 2, 'observation', {'recent_action_results': [summary]})
-    requested = _event('probe-future-request', 3, 'action_requested',
-                       {'tool_name': 'start_basic_activity', 'secret': 'future-request-canary'}, 'probe-action')
-    accepted = _event('probe-future-accepted', 4, 'action_accepted',
-                      {'status': 'submitted', 'secret': 'future-accepted-canary'}, 'probe-action')
-    result = _event('probe-future-result', 5, 'action_result',
-                    {'status': 'completed', 'secret': 'future-result-canary'}, 'probe-action')
-    rows = (prior, observed, requested, accepted, result)
-    manifest = {'run_id': 'probe-run', 'source_group_id': 'probe-run', 'cutoff_event_seq': 5,
+    observed = _event('probe-observation', 2, 'observation', {
+        'scene': '现在是22:00。你在家中，感到困倦。',
+        'recent_action_results': [summary],
+    })
+    prompt = _event('probe-prompt', 3, 'model_request', {'phase': 'request', 'request': {
+        'model': 'fixture', 'messages': [{'role': 'system', 'content': '身份'},
+                                         {'role': 'user', 'content': '场景与记忆'}],
+        'tools': [{'type': 'function', 'function': {
+            'name': 'start_activity',
+            'parameters': StartActivityRequest.model_json_schema(mode='validation')}}],
+    }})
+    prompt['visibility'] = 'system'
+    requested = _event('probe-future-request', 4, 'action_requested',
+                        {'tool_name': 'start_activity',
+                         'request': {'targets': ['自己'], 'actions': ['等待']},
+                         'secret': 'future-request-canary'}, 'probe-action')
+    accepted = _event('probe-future-accepted', 5, 'action_accepted',
+                       {'status': 'submitted', 'secret': 'future-accepted-canary'}, 'probe-action')
+    result = _event('probe-future-result', 6, 'action_result',
+                     {'status': 'completed', 'secret': 'future-result-canary'}, 'probe-action')
+    rows = (prior, observed, prompt, requested, accepted, result)
+    manifest = {'run_id': 'probe-run', 'source_group_id': 'probe-run', 'cutoff_event_seq': 6,
                 'frozen_run_manifest': {'model_identity': {'requested_model': 'fixture'}}}
     record, _ = _action_windows(
         requested, {'probe-action': [requested, accepted, result]},
-        {'probe-decision': [observed, requested, accepted, result]},
+        {'probe-decision': [observed, prompt, requested, accepted, result]},
         (manifest, directory, {row['event_id']: row for row in rows}),
     )
     record['input']['visible_input_sentinel'] = 'visible-input-sentinel-3f57dd'
@@ -317,7 +332,7 @@ def _current_record(directory):
 
 
 def test_failed_independent_semantic_verdict_blocks_process_output(tmp_path):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     source = _current_record(tmp_path)
     record = _output_row(fixture['annotation'], source, verdict='fail')
     _prepare_verified_sources(tmp_path, [source])
@@ -327,7 +342,7 @@ def test_failed_independent_semantic_verdict_blocks_process_output(tmp_path):
 
 
 def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     source = _current_record(tmp_path)
     invoked = []
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', lambda _path: {'action': [source]})
@@ -346,7 +361,7 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
     with pytest.raises(IntegrityError, match='semantic verification did not pass'):
         deliver(tmp_path / 'source', destination, ROOT)
     assert invoked == ['action']
-    assert json.loads((destination / 'failure.json').read_text())['status'] == 'failed'
+    assert json.loads((destination / 'failure.json').read_text(encoding="utf-8"))['status'] == 'failed'
     assert not (destination / 'manifest.json').exists()
     assert not (destination / 'training.jsonl').exists()
 
@@ -372,7 +387,7 @@ def _output_row(annotation, source, verdict='pass', line_no=1, source_file='acti
     ('wrong_id', 'record identity'),
 ])
 def test_process_rejects_candidate_source_mismatch(tmp_path, mutation, message):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     source = _current_record(tmp_path)
     row = _output_row(fixture['annotation'], source)
     if mutation == 'extra_field':
@@ -390,7 +405,7 @@ def test_process_rejects_candidate_source_mismatch(tmp_path, mutation, message):
 
 
 def test_process_rejects_duplicate_source_line(tmp_path):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     first = _current_record(tmp_path)
     second = copy.deepcopy(first)
     second['input']['boundary_type'] = 'second-decision'
@@ -409,7 +424,7 @@ def test_process_rejects_model_source_tampering_before_cli(tmp_path, monkeypatch
     (tmp_path / 'out').mkdir()
     write_model_inputs('action', [source], tmp_path)
     path = tmp_path / f'data/action.{"source-index." if target == "source_index" else ""}jsonl'
-    row = json.loads(path.read_text())
+    row = json.loads(path.read_text(encoding="utf-8"))
     if target == 'model_input':
         row['input']['boundary_type'] = 'tampered'
     else:
@@ -423,7 +438,7 @@ def test_process_rejects_model_source_tampering_before_cli(tmp_path, monkeypatch
 
 
 def test_process_rejects_trace_changed_after_source_binding(tmp_path):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     source = _current_record(tmp_path)
     _prepare_verified_sources(tmp_path, [source])
     row = _output_row(fixture['annotation'], source)
@@ -497,7 +512,7 @@ def test_trace_binding_requires_successful_lifecycle_and_final_verdicts(tmp_path
         _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
     with pytest.raises(IntegrityError, match=message):
         _bind_source_trace('action', tmp_path)
-    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text(encoding="utf-8"))
     assert 'trace_sha256' not in source_index
 
 
@@ -517,7 +532,7 @@ def test_trace_rejects_model_calls_after_the_final_passing_verdict(tmp_path):
 
     with pytest.raises(IntegrityError, match='after a passing verdict'):
         _bind_source_trace('action', tmp_path)
-    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text(encoding="utf-8"))
     assert 'trace_sha256' not in source_index
 
 
@@ -533,7 +548,7 @@ def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_pa
     write_model_inputs('action', [source], tmp_path)
     _ensure_trace_files('action', tmp_path)
     rows = _successful_trace_rows('action', tmp_path, [source])
-    config = tomllib.loads((tmp_path / 'config.toml').read_text())
+    config = tomllib.loads((tmp_path / 'config.toml').read_text(encoding="utf-8"))
     verdict_index = next(index for index, row in enumerate(rows) if row['ev'] == 'verify.verdict')
     identity = rows[verdict_index]['record_ids'][0]
     repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
@@ -543,7 +558,7 @@ def test_trace_accepts_judge_schema_repair_between_generation_and_verdict(tmp_pa
     _write_trace(tmp_path / 'out/action.trace.jsonl', rows)
 
     digest = _bind_source_trace('action', tmp_path)
-    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text(encoding="utf-8"))
     assert source_index['trace_sha256'] == digest
 
 
@@ -559,7 +574,7 @@ def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, mess
     write_model_inputs('action', [source], tmp_path)
     _ensure_trace_files('action', tmp_path)
     rows = _successful_trace_rows('action', tmp_path, [source])
-    config = tomllib.loads((tmp_path / 'config.toml').read_text())
+    config = tomllib.loads((tmp_path / 'config.toml').read_text(encoding="utf-8"))
     payload = '{"critiques": [], "verdict": "fail"}'
     repair = _schema_repair_call('a' * 12, 'judge', config['llm']['judge']['model'], payload)
     if mutation == 'wrong_model':
@@ -575,7 +590,7 @@ def test_trace_rejects_broken_judge_schema_repair_calls(tmp_path, mutation, mess
 
     with pytest.raises(IntegrityError, match=message):
         _bind_source_trace('action', tmp_path)
-    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text())
+    source_index = json.loads((tmp_path / 'data/action.source-index.jsonl').read_text(encoding="utf-8"))
     assert 'trace_sha256' not in source_index
 
 
@@ -599,7 +614,7 @@ def test_process_rejects_consistently_rewritten_model_source_before_cli(tmp_path
 
 
 def test_process_rejects_another_valid_trace_after_source_binding(tmp_path):
-    fixture = json.loads(FIXTURE.read_text())
+    fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
     source = _current_record(tmp_path)
     _prepare_verified_sources(tmp_path, [source])
     row = _output_row(fixture['annotation'], source)

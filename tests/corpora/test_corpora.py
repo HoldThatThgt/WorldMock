@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 import pytest
@@ -27,8 +26,8 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     # movie-reviews-feed），使场景声明的这五条在语料里有可检索的分区键。
     # 地图发布新增 dataset/routes/supplies/supply-assumptions 四份权威声明。
     assert len(manifest.entries) == 970
-    products = json.loads(Path("corpora/open-food-facts/products.json").read_text())
-    threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text())
+    products = json.loads(Path("corpora/open-food-facts/products.json").read_text(encoding="utf-8"))
+    threads = json.loads(Path("corpora/scenario-mail/threads.json").read_text(encoding="utf-8"))
     assert len(products) == 8
     assert len(threads) == 48
     assert all(2 <= len(thread["messages"]) <= 5 for thread in threads)
@@ -36,12 +35,16 @@ def test_formal_manifest_validates_every_file_and_selected_counts() -> None:
     assert len(scenario.products) == 159
 
 
-def test_manifest_rejects_in_root_symbolic_link_before_resolve(tmp_path: Path) -> None:
-    """指向根内普通文件的符号链接仍被拒绝。"""
+def test_manifest_rejects_in_root_symbolic_link(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """根内文件即使指向安全目标，被标记为符号链接也必须拒绝。"""
     target = tmp_path / "target.json"
-    target.write_text("{}")
+    target.write_text("{}", encoding="utf-8")
     link = tmp_path / "link.json"
-    os.symlink(target.name, link)
+    link.write_bytes(target.read_bytes())
+    original_is_symlink = Path.is_symlink
+    monkeypatch.setattr(Path, "is_symlink", lambda path: path == link or original_is_symlink(path))
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     manifest = {
         "schema_version": 1,
@@ -59,7 +62,7 @@ def test_manifest_rejects_in_root_symbolic_link_before_resolve(tmp_path: Path) -
                        "license": "test", "selector": "test", "fact_cutoff": None},
         }],
     }
-    (tmp_path / "manifest.json").write_text(json.dumps(manifest))
+    (tmp_path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(IntegrityError, match="path is invalid"):
         load_manifest(tmp_path)
 
@@ -69,7 +72,7 @@ def test_sintel_is_subtitle_experience_with_complete_timeline() -> None:
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     item = scenario.contents[0]
     cues = load_subtitles(item, Path("corpora"))
-    identity = json.loads(Path("corpora/sintel/media-identity.json").read_text())
+    identity = json.loads(Path("corpora/sintel/media-identity.json").read_text(encoding="utf-8"))
     assert len(cues) == 26
     assert cues[0].start_seconds < cues[-1].end_seconds <= item.duration_seconds
     assert item.experience_label == "subtitle_experience"
@@ -95,7 +98,7 @@ def test_all_textworld_games_pass_real_hash_and_reset_validation() -> None:
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     for game in scenario.games:
         validate_game(game, Path("corpora"))
-        options = json.loads(Path(f"corpora/textworld/game-{game.seed}-options.json").read_text())
+        options = json.loads(Path(f"corpora/textworld/game-{game.seed}-options.json").read_text(encoding="utf-8"))
         assert options["walkthrough"]
 
 
@@ -105,7 +108,7 @@ def test_ami_inputs_and_hidden_oracles_are_separate() -> None:
     for stage in "abcd":
         source = Path(f"corpora/ami-es2002/inputs/ES2002{stage}.txt")
         oracle = Path(f"corpora/ami-es2002/references/ES2002{stage}.oracle.json")
-        expected = json.loads(oracle.read_text())["expected"]
+        expected = json.loads(oracle.read_text(encoding="utf-8"))["expected"]
         assert source.is_file() and source.stat().st_size > 1000
         assert expected["meeting_id"] == f"ES2002{stage}"
         assert expected["decisions"]

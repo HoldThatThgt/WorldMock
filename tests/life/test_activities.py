@@ -9,7 +9,6 @@ from worldmock.life.activities import (
     ActivityOrigin,
     advance_activity,
     change_activity,
-    continue_activity,
     schedule_feedback,
     start_activity,
     truncate_activity,
@@ -21,8 +20,7 @@ from worldmock.life.models import (
     AgentState,
     BodyState,
     ChangeActivityRequest,
-    ContinueActivityRequest,
-    StartActivityRequest,
+    ActivityStartParams,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -45,7 +43,7 @@ def test_activity_pause_resume_cancel_preserves_actual_progress() -> None:
     scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
     feedback = scenario.activity_feedback_seconds
     person, activity = start_activity(
-        agent(), StartActivityRequest(activity_type=ActivityKind.WAIT,
+        agent(), ActivityStartParams(activity_type=ActivityKind.WAIT,
                                       planned_duration_seconds=2700), 100, origin("a"), scenario.body)
     activity = schedule_feedback(activity, 100, feedback)
     advanced = advance_activity(activity, person, 1000, scenario.body)
@@ -70,17 +68,17 @@ def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() 
     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
     person = agent()
     with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT"):
-        start_activity(person, StartActivityRequest(activity_type="wait", planned_duration_seconds=59),
+        start_activity(person, ActivityStartParams(activity_type="wait", planned_duration_seconds=59),
                        0, origin("short"), config)
     person, _ = start_activity(
-        person, StartActivityRequest(activity_type="wait", planned_duration_seconds=60),
+        person, ActivityStartParams(activity_type="wait", planned_duration_seconds=60),
         0, origin("x"), config)
-    _, sleep = start_activity(person, StartActivityRequest(activity_type="sleep", planned_duration_seconds=60),
+    _, sleep = start_activity(person, ActivityStartParams(activity_type="sleep", planned_duration_seconds=60),
                               0, origin("y"), config)
     assert sleep.kind == ActivityKind.SLEEP
     weak = agent().model_copy(update={"body": BodyState(
         energy_kcal=1, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)})
-    _, work = start_activity(weak, StartActivityRequest(activity_type="work", planned_duration_seconds=3600,
+    _, work = start_activity(weak, ActivityStartParams(activity_type="work", planned_duration_seconds=3600,
                                                         target_id="task"), 0, origin("z"), config)
     assert work.kind == ActivityKind.WORK
 
@@ -89,34 +87,15 @@ def test_completion_and_experiment_truncation_set_ended_at() -> None:
     """自然完成和实验截断具有不同边界并都记录实际结束时刻。"""
     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
     person, activity = start_activity(
-        agent(), StartActivityRequest(activity_type="sleep", planned_duration_seconds=60),
+        agent(), ActivityStartParams(activity_type="sleep", planned_duration_seconds=60),
         10, origin("one"), config)
     completed = advance_activity(activity, person, 70, config)
     assert completed.activity.status == ActivityStatus.COMPLETED
     assert completed.activity.ended_at == 70
     person, activity = start_activity(
-        completed.agent, StartActivityRequest(activity_type="wait", planned_duration_seconds=600),
+        completed.agent, ActivityStartParams(activity_type="wait", planned_duration_seconds=600),
         70, origin("two"), config)
     activity, person = truncate_activity(activity, person, 100)
     assert activity.status == ActivityStatus.TRUNCATED
     assert activity.boundary_type == "experiment_end" and activity.ended_at == 100
     assert activity.interruption_reason == "experiment_end"
-
-
-def test_continue_activity_moves_feedback_strictly_forward_without_releasing_slot() -> None:
-    """继续活动不改变当前时刻或槽位，并在最后一段直接等待完成。"""
-    scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
-    person, activity = start_activity(
-        agent(), StartActivityRequest(activity_type="wait", planned_duration_seconds=2000),
-        0, origin("continue"), scenario.body)
-    activity = schedule_feedback(activity, 0, scenario.activity_feedback_seconds)
-    advanced = advance_activity(activity, person, 900, scenario.body)
-    request = ContinueActivityRequest(activity_id=activity.activity_id)
-    person, activity = continue_activity(
-        advanced.agent, advanced.activity, request, 900, scenario.activity_feedback_seconds)
-    assert activity.status == ActivityStatus.ACTIVE
-    assert activity.next_interaction_at == 1800 and activity.last_settled_at == 900
-    advanced = advance_activity(activity, person, 1800, scenario.body)
-    _, activity = continue_activity(
-        advanced.agent, advanced.activity, request, 1800, scenario.activity_feedback_seconds)
-    assert activity.next_interaction_at is None and activity.planned_end_at == 2000

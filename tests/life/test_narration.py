@@ -1,9 +1,7 @@
 """观察投影与提示合同（worldmock.life.narration）的合同测试。
 
-覆盖docs/dev/SPEC-life-runtime.md「观察投影与提示合同」：场景渲染内容与 800 汉字上限、驱动摘要无数字
-权重、user 40000 / system 3000 字符预算边界、决策自述 200 汉字边界与空串、
-黑名单字段递归校验（含 routes 白名单）、facts 确定性渲染与 user 消息
-三段组装顺序。
+覆盖场景与事实公开边界、进度结果归属、整段渲染不受旧字符闸门阻断，
+以及人物卡片和决策自述各自的字段语义上限。
 """
 
 from __future__ import annotations
@@ -13,16 +11,11 @@ import pytest
 from worldmock.life.narration import (
     DECISION_STATEMENT_HANZI_BUDGET,
     PERSONA_CARD_HANZI_BUDGET,
-    SCENE_HANZI_BUDGET,
-    SYSTEM_MESSAGE_CHAR_BUDGET,
-    USER_MESSAGE_CHAR_BUDGET,
     ForbiddenObservationFieldError,
     DecisionStatementValidationError,
-    PromptBudgetExceededError,
     RenderBudgetExceededError,
     compose_user_message,
     count_hanzi,
-    enforce_budgets,
     enforce_field_blacklist,
     render_drive_summary,
     render_facts,
@@ -55,7 +48,6 @@ def scene_observation() -> dict:
             {"name": "楼下便利店", "opening_status": "closed"},
         ],
         "inventory": ["手机", "工卡", "钱包"],
-        "recent_action_results": ["你完成了通勤，准时到达公司。"],
     }
 
 
@@ -83,9 +75,8 @@ class TestRenderScene:
         assert "公司食堂" in scene and "营业中" in scene
         assert "楼下便利店" in scene and "未营业" in scene
         assert "手机" in scene and "工卡" in scene
-        assert "你完成了通勤，准时到达公司" in scene
+        assert "你完成了通勤，准时到达公司" not in scene
         assert scene.endswith("。")
-        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
 
     def test_time_sentence_keeps_only_current_epoch(self, scene_observation: dict) -> None:
         """当前 epoch 时间合同保留，计划换算锚点不再进入场景。"""
@@ -93,7 +84,6 @@ class TestRenderScene:
         scene = render_scene(scene_observation)
         assert "（Unix epoch：当前 1767568200）" in scene
         assert "今日 00:00" not in scene and "就寝锚点" not in scene
-        assert count_hanzi(scene) <= SCENE_HANZI_BUDGET
 
     def test_empty_plan_is_an_explicit_no_goals_statement(self) -> None:
         """空目标清单仍与尚未提交明确区分。"""
@@ -120,24 +110,21 @@ class TestRenderScene:
         with pytest.raises(ValueError, match="scene language must be zh-CN"):
             render_scene(scene_observation, language="en-US")
 
-    def test_scene_reports_oversized_input_without_truncation(self) -> None:
-        """超 800 汉字是输入侧问题：抛错并在消息中如实报告实际字数。"""
+    def test_scene_above_old_hanzi_limit_is_rendered(self) -> None:
+        """场景超过旧八百汉字闸门时仍完整渲染，容量交给整次 token 预检。"""
         bloated = {
             "current_time": "2026-09-18T08:30:00+00:00",
             "location": "公司工位",
-            "inventory": [f"很贵的重要物品编号甲乙丙丁{i}" for i in range(80)],
+            "inventory": [f"很贵的重要物品甲乙丙丁{i}" for i in range(80)],
         }
-        with pytest.raises(RenderBudgetExceededError) as excinfo:
-            render_scene(bloated)
-        message = str(excinfo.value)
-        assert "exceeds 800 hanzi budget" in message
-        reported = int(message.split("budget: ")[1].split(" hanzi")[0])
-        assert reported > SCENE_HANZI_BUDGET
+        scene = render_scene(bloated)
+        assert count_hanzi(scene) > 800
+        assert "很贵的重要物品甲乙丙丁79" in scene
 
-    def test_scene_exactly_at_hanzi_budget_passes(self) -> None:
-        """恰好八百汉字的场景原样保留，不通过裁剪伪装通过。"""
-        message = "事" * SCENE_HANZI_BUDGET
-        assert render_scene({"recent_action_results": [message]}) == message + "。"
+    def test_scene_never_copies_recent_execution_result(self) -> None:
+        """执行结果只进事实清单里的进度层，场景不重复。"""
+        scene = render_scene({"location": "公司", "recent_action_results": ["刚到达办公室"]})
+        assert "刚到达办公室" not in scene
 
     def test_reachable_places_do_not_render_route_minutes(self) -> None:
         """场景保留地点名和营业状态，不重复事实清单中的路线分钟数。"""
@@ -181,24 +168,6 @@ class TestDriveSummary:
     def test_all_empty_inputs_return_empty_string(self) -> None:
         """三段皆空返回空串，不虚构句子。"""
         assert render_drive_summary({}, "", "") == ""
-
-
-class TestPromptBudgets:
-    """字符预算执行器：恰好等于通过，超一即运行故障。"""
-
-    def test_exactly_at_budgets_passes(self) -> None:
-        """user=40000、system=3000 恰好等于预算：通过且不返回任何值。"""
-        assert enforce_budgets(USER_MESSAGE_CHAR_BUDGET, SYSTEM_MESSAGE_CHAR_BUDGET) is None
-
-    def test_user_over_by_one_raises(self) -> None:
-        """user 超 1 字符即抛 PromptBudgetExceededError 并指明侧别。"""
-        with pytest.raises(PromptBudgetExceededError, match="user message exceeds 40000"):
-            enforce_budgets(USER_MESSAGE_CHAR_BUDGET + 1, SYSTEM_MESSAGE_CHAR_BUDGET)
-
-    def test_system_over_by_one_raises(self) -> None:
-        """system 超 1 字符即抛 PromptBudgetExceededError 并指明侧别。"""
-        with pytest.raises(PromptBudgetExceededError, match="system message exceeds 3000"):
-            enforce_budgets(USER_MESSAGE_CHAR_BUDGET, SYSTEM_MESSAGE_CHAR_BUDGET + 1)
 
 
 class TestDecisionStatement:
@@ -270,6 +239,16 @@ class TestFieldBlacklist:
         ):
             enforce_field_blacklist(payload)
 
+    @pytest.mark.parametrize("internal_key", [
+        "session_id", "activity_id", "task_id", "route_id", "product_id",
+        "supply_id", "order_id", "message_id", "contact_id", "price_version",
+    ])
+    def test_internal_identity_cannot_hide_inside_progress_result(self, internal_key: str) -> None:
+        """结果的任意嵌套层不能重新泄漏引擎身份或报价版本。"""
+        payload = {"progress": {"results": [{"details": {internal_key: "private-7"}}]}}
+        with pytest.raises(ForbiddenObservationFieldError):
+            render_facts(payload)
+
     @pytest.mark.parametrize("geometry_key", [
         "coordinates",
         "geometry",
@@ -281,7 +260,7 @@ class TestFieldBlacklist:
             "destination": "office",
             "mode": "walk",
             "minutes": 12,
-            "fare": 0,
+            "fare_fen": 0,
             "feasible": True,
             geometry_key: [[0, 0], [1, 1]],
         }
@@ -289,29 +268,30 @@ class TestFieldBlacklist:
             enforce_field_blacklist({"routes": [route]})
 
     def test_contract_fact_fields_pass(self) -> None:
-        """docs/dev/SPEC-life-runtime.md「观察投影三部分」facts 合同字段与 routes 五键白名单整体通过。"""
+        """可读名称和进度层字段能通过递归公开校验。"""
         facts = {
             "current_time": "2026-09-18T08:30:00+00:00",
-            "location_id": "office_desk",
+            "location": "公司工位",
             "people_here": ["李雷"],
             "inbox": [{"sender": "张三", "subject": "周报"}],
             "tasks": [{
-                "task_id": "t-1", "title": "写周报", "due": "2026-09-18",
+                "name": "写周报", "due": "2026-09-18",
                 "remaining_contract_hours": 2.0, "new_material_span": [120, 340],
             }],
             "routes": [{
-                "destination": "canteen", "mode": "walk",
-                "minutes": 5, "fare": 0, "feasible": True,
+                "destination": "公司食堂", "mode": "步行",
+                "minutes": 5, "fare_fen": 0, "feasible": True,
             }],
             "products": [{
-                "product_id": "p-1", "name": "牛肉面",
+                "name": "牛肉面",
                 "price": 2800, "calories": 650, "eating_minutes": 20,
             }],
             "inventory": ["手机"],
             "day_plan": {"day_end": 1790000000, "goals": []},
             "felt": {"hunger": "有点饿"},
             "drive_summary": "你有点饿，今天的工作还差两小时。",
-            "recent_action_results": [{"status": "accepted", "message": "开始写周报"}],
+            "progress": {"sessions": [], "results": [
+                {"status": "accepted", "message": "开始写周报"}], "alarms": []},
         }
         enforce_field_blacklist(facts)
 
@@ -321,10 +301,10 @@ class TestRenderFacts:
 
     def test_deterministic_and_unicode_plain(self) -> None:
         """同一字典（任意插入顺序）渲染同一文本，中文不转义。"""
-        first = render_facts({"location_id": "office", "people_here": ["李雷"]})
-        second = render_facts({"people_here": ["李雷"], "location_id": "office"})
+        first = render_facts({"location": "办公室", "people_here": ["李雷"]})
+        second = render_facts({"people_here": ["李雷"], "location": "办公室"})
         assert first == second
-        assert first == '{"location_id":"office","people_here":["李雷"]}'
+        assert first == '{"location":"办公室","people_here":["李雷"]}'
         assert "李雷" in first
 
     def test_rejects_blacklist_before_render(self) -> None:
@@ -340,7 +320,7 @@ class TestComposeUserMessage:
         """persona_card → scene → facts，空行分隔，缺一不可乱序。"""
         persona = "你是张三，二十八岁，产品经理。"
         scene = "现在是二〇二六年九月十八日星期五 08:30。"
-        facts = '{"location_id":"office"}'
+        facts = '{"location":"办公室"}'
         message = compose_user_message(persona, scene, facts)
         parts = message.split("\n\n")
         assert parts == [persona, scene, facts]
@@ -357,10 +337,11 @@ class TestComposeUserMessage:
         message = compose_user_message(persona, "场景。", "{}")
         assert persona in message
 
-    def test_overall_user_budget_enforced(self) -> None:
-        """组装结果超 40000 字符触发运行故障（facts 为超长 JSON 文本）。"""
-        with pytest.raises(PromptBudgetExceededError, match="user message exceeds"):
-            compose_user_message("卡片", "场景。", "a" * (USER_MESSAGE_CHAR_BUDGET + 1))
+    def test_long_user_message_is_assembled_without_old_char_budget_failure(self) -> None:
+        """三段组装不以旧四万字符上限判死，整次请求由 token 预检处理。"""
+        facts = "a" * 40001
+        message = compose_user_message("卡片", "场景。", facts)
+        assert message.endswith(facts)
 
 
 class TestHanziCounter:

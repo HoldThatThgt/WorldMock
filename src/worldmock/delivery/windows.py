@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
+from worldmock.life.narration import render_scene
 
 #: 动作/意图窗口永不进入的私有事件：决策自述仅 dreaming 任务可读（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
@@ -47,21 +48,55 @@ def _action_windows(event: dict, actions: dict, decisions: dict, source: tuple) 
     """@brief 动作答案与动作前输入分开；意图可以读取已经发生的实际结果。"""
     manifest, directory, indexed = source
     decision_rows, action_rows = _validated_action_groups(event, actions, decisions)
+    prompt_source = _decision_prompt_source(event, decision_rows)
     previous = [row for row in decision_rows
                 if row["event_seq"] < event["event_seq"] and row["visibility"] == "agent"
                 and row["event_type"] not in PRIVATE_EVENTS | {"action_requested"}]
     if not previous:
         raise IntegrityError("Action training requires a preceding visible observation")
-    outcomes = [row for row in action_rows if row["event_type"] != "action_requested"]
+    outcomes = [row for row in action_rows if row["event_type"] not in PRIVATE_EVENTS | {"action_requested"}]
     facts = {"request": event, "outcomes": outcomes}
     prerequisite = _prerequisite_state(previous, previous)
     action = _record("action", previous, facts, manifest, prerequisite)
+    _attach_decision_prompt(action, prompt_source)
     _attach_evidence(action, previous, indexed, directory)
     observed = sorted(previous + [event] + [row for row in outcomes if row["visibility"] == "agent"],
                       key=lambda row: row["event_seq"])
     intent = _record("intent", observed, facts, manifest, prerequisite)
+    _attach_decision_prompt(intent, prompt_source)
     _attach_evidence(intent, observed, indexed, directory)
     return action, intent
+
+
+def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
+    """@brief 选择动作前实际发送的最后一份人物行动请求，并核对目标工具。"""
+    candidates = [row for row in rows if row["event_type"] == "model_request"
+                  and row["event_seq"] < action["event_seq"] and row["agent_id"] == action["agent_id"]
+                  and row["data"].get("phase") == "request" and not row["data"].get("purpose")]
+    if not candidates:
+        _invalid_action_group("Action training has no recorded decision prompt")
+    row = max(candidates, key=lambda item: item["event_seq"])
+    request = row["data"].get("request")
+    if not isinstance(request, dict):
+        _invalid_action_group("Action training has an invalid recorded decision prompt")
+    messages, tools = request.get("messages"), request.get("tools")
+    if (not isinstance(messages, list) or not messages or not isinstance(tools, list)
+            or any(not isinstance(message, dict) or "reasoning_content" in message
+                   for message in messages)):
+        _invalid_action_group("Action training has an incomplete recorded decision prompt")
+    names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)
+             and isinstance(item.get("function"), dict)}
+    if action["data"].get("tool_name") not in names:
+        _invalid_action_group("Action training prompt does not expose the requested tool")
+    return row
+
+
+def _attach_decision_prompt(record: dict, source: dict) -> None:
+    """@brief 将实际请求及原事件摘要绑定到窗口，原始目标仍留在独立 target。"""
+    request = source["data"]["request"]
+    record["input"]["decision_prompt"] = request
+    record["provenance"]["decision_prompt_event_id"] = source["event_id"]
+    record["provenance"]["decision_prompt_sha256"] = hashlib.sha256(canonical_json(request)).hexdigest()
 
 
 def _validated_action_groups(event: dict, actions: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
@@ -112,7 +147,8 @@ def _record(task: str, events: list[dict], facts: dict, manifest: dict, prerequi
 
 def _visible_event(event: dict, directory: Path) -> dict:
     """@brief 展开人物当时真正可见的文本素材，保留二进制素材的模态引用。"""
-    result = {key: event[key] for key in ("event_id", "event_type", "occurred_at", "agent_id", "data")}
+    result = {key: event[key] for key in ("event_id", "event_type", "occurred_at", "agent_id")}
+    result["data"] = _public_event_data(event)
     result["materials"] = []
     for reference in event["artifact_refs"]:
         raw = (directory / "assets" / reference["sha256"]).read_bytes()
@@ -123,6 +159,25 @@ def _visible_event(event: dict, directory: Path) -> dict:
             material["content"] = raw.decode("utf-8")
         result["materials"].append(material)
     return result
+
+
+def _public_event_data(event: dict) -> dict:
+    """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。"""
+    data = event["data"]
+    kind = event["event_type"]
+    if kind == "observation":
+        scene = data.get("scene")
+        if isinstance(scene, dict):
+            scene = render_scene(scene)
+        return {"scene": scene} if isinstance(scene, str) else {}
+    if kind == "decision_started":
+        statement = data.get("decision_statement")
+        return {"decision_statement": statement} if isinstance(statement, str) else {}
+    if kind == "action_requested":
+        return {key: data[key] for key in ("tool_name", "request") if key in data}
+    if kind in {"action_result", "action_accepted", "action_rejected", "activity_progress"}:
+        return {key: data[key] for key in ("status", "error_code", "message") if key in data}
+    return {}
 
 
 def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory: Path) -> None:
@@ -140,7 +195,9 @@ def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory:
         {event["activity_id"] for event in expanded if event["activity_id"]}
     )
     record["input"]["activity_boundaries"] = _activity_boundaries(expanded)
-    record["provenance"]["source_event_ids"] = allowed
+    prompt_event_id = record["provenance"].get("decision_prompt_event_id")
+    sources = allowed + ([prompt_event_id] if prompt_event_id else [])
+    record["provenance"]["source_event_ids"] = sources
     record["provenance"]["window_id"] = _window_identity(record["task"], record["input"])
 
 
@@ -239,8 +296,10 @@ def _prerequisite_state(events: list[dict], history: list[dict]) -> dict:
     if not known:
         return {"availability": "unobserved", "event_id": None, "observed_at": None, "state": None}
     latest = max(known, key=lambda event: event["event_seq"])
+    represented = latest["event_id"] == events[0]["event_id"]
     return {"availability": "observed", "event_id": latest["event_id"],
-            "observed_at": latest["occurred_at"], "state": latest["data"]}
+            "observed_at": latest["occurred_at"],
+            "state": None if represented else _public_event_data(latest)}
 
 
 def _activity_boundaries(events: list[dict]) -> list[dict]:

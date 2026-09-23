@@ -24,8 +24,9 @@ def _wrapped_observation(scenario) -> list[dict]:
     current_time = scenario.start_at.isoformat()
     data = {
         'scene': {'current_time': current_time, 'location': '办公室'},
-        'facts': {'current_time': current_time, 'location_id': 'office',
-                  'people_here': [], 'contacts': [], 'inbox': [], 'tasks': []},
+        'facts': {'current_time': current_time, 'location': '办公室',
+                  'people_here': [], 'contacts': [], 'inbox': [], 'tasks': [],
+                  'progress': {'sessions': [], 'results': [], 'alarms': []}},
     }
     return [{'turn': 0, 'action': 'observe', 'ok': True, 'data': data}]
 
@@ -48,7 +49,7 @@ def test_frozen_persona_traits_reach_the_actual_native_agent_prompt():
     # user 消息首段，不再有 JSON 画像整包。
     assert person.name in system and '你不是AI助手' in system
     assert '画像卡片：陈曦，产品经理。' in user
-    assert '你在办公室' in user and '"location_id":"office"' in user
+    assert '你在办公室' in user and '"location":"办公室"' in user
     for stale in ('"profile"', '"trait_source_kind"', '"occupation"'):
         assert stale not in user
     # 冻结画像特征仍在文档层闭合（提示层只渲染实质文本，不泄元字段）。
@@ -57,7 +58,7 @@ def test_frozen_persona_traits_reach_the_actual_native_agent_prompt():
 
 @pytest.mark.parametrize('field', TRAITS)
 def test_persona_traits_cannot_be_silently_omitted(field):
-    value = json.loads(SCENARIO.read_text())
+    value = json.loads(SCENARIO.read_text(encoding='utf-8'))
     del value['agents'][0][field]
     with pytest.raises(ValidationError, match=field):
         LifeScenario.model_validate(value)
@@ -67,7 +68,7 @@ def test_persona_traits_cannot_be_silently_omitted(field):
                                    'consumption_preference', 'risk_preference'))
 def test_deleted_template_fields_stay_out_of_documents(field):
     """docs/dev/SPEC-life-realism.md「画像编译」：四个模板字段删除；文档中再次出现即被封闭模型拒绝。"""
-    value = json.loads(SCENARIO.read_text())
+    value = json.loads(SCENARIO.read_text(encoding='utf-8'))
     value['agents'][0][field] = 'legacy'
     with pytest.raises(ValidationError):
         LifeScenario.model_validate(value)

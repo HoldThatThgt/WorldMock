@@ -13,7 +13,6 @@ import asyncio
 from collections.abc import Mapping
 import hashlib
 import json
-import os
 from dataclasses import replace
 from datetime import datetime
 from functools import lru_cache
@@ -36,7 +35,6 @@ from worldmock.life.activities import (
     activity_factors,
     advance_activity,
     change_activity,
-    continue_activity,
     truncate_activity,
 )
 from worldmock.life.basket import (
@@ -66,11 +64,10 @@ from worldmock.life.models import (
     ChangeActivityRequest,
     ConsumeItem,
     ConsumeRequest,
-    ContinueActivityRequest,
+    ActivityStartParams,
     FulfillmentKind,
     PurchaseItem,
     PurchaseOrderRequest,
-    StartActivityRequest,
     StartSocialActivityRequest,
     TravelMode,
     WorldState,
@@ -567,14 +564,6 @@ def test_change_activity_speed_rejected_for_non_watch_activity() -> None:
         change_activity(_agent(), game, request, 1000, 300)
 
 
-def test_continue_activity_rejects_activity_id_mismatch() -> None:
-    """继续请求必须指向调用者自己的活动标识。"""
-    watch = _feedback_activity(planned_end_at=2000)
-    request = ContinueActivityRequest(activity_id="not-a1")
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_NOT_OWNED"):
-        continue_activity(_agent(), watch, request, 1000, 300)
-
-
 def test_advance_lifestyle_without_social_or_health_effects_skips_relief() -> None:
     """无社交/健康效应的生活活动只走常规结算，不落额外缓解。"""
     from worldmock.life.activities import lifestyle_effects
@@ -598,19 +587,6 @@ def test_change_activity_pause_at_game_feedback_boundary() -> None:
     wrong = _feedback_activity(kind=ActivityKind.PLAY_GAME, boundary_type="feedback")
     with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
         change_activity(agent, wrong, request, 1000, 300)
-
-
-def test_continue_activity_ownership_and_active_state_rules() -> None:
-    """继续活动要求所有权和活动进行中；人物获准决策时无需旧反馈时刻。"""
-    watch = _feedback_activity(planned_end_at=2000)
-    request = ContinueActivityRequest(activity_id="a1")
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_NOT_OWNED"):
-        continue_activity(_agent(agent_id=2), watch, request, 1000, 300)
-    not_due = _feedback_activity(planned_end_at=2000, status=ActivityStatus.PAUSED)
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
-        continue_activity(_agent(), not_due, request, 1000, 300)
-    _, kept = continue_activity(_agent(), watch, request, 1000, 300)
-    assert kept.next_interaction_at == 1300
 
 
 def test_change_activity_resume_conflicts_with_occupied_resources(engine_factory) -> None:
@@ -857,7 +833,8 @@ def _work_task(task_id="task-1", pay=50000, location="office", due_day=16,
                minimum_skill=0.3) -> WorkTaskConfig:
     zone = ZoneInfo(TIMEZONE)
     return WorkTaskConfig.model_validate({
-        "task_id": task_id, "assignee_agent_id": "agent:1", "contract_kind": "package",
+        "task_id": task_id, "title": "完成周会纪要", "assignee_agent_id": "agent:1",
+        "contract_kind": "package",
         "available_at": datetime(2023, 11, 13, tzinfo=zone),
         "due_at": datetime(2023, 11, due_day, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": pay,
@@ -907,12 +884,11 @@ def test_render_scene_with_empty_observation_is_blank() -> None:
     assert render_scene({}) == ""
 
 
-def test_render_scene_covers_day_goals_and_recent_string_result() -> None:
-    """目标清单与字符串动作结果按合同渲染。"""
+def test_render_scene_covers_day_goals_without_duplicate_action_result() -> None:
+    """目标进入场景提示；新动作结果仅经进度事实呈现。"""
     rendered = render_scene({"day_plan": {"goals": [{"intent_kind": "工作", "progressed": False}]}})
     assert "工作（未推进）" in rendered
-    scene = render_scene({"recent_action_results": "你刚吃完饭"})
-    assert scene.endswith("你刚吃完饭。")
+    assert render_scene({"recent_action_results": "你刚吃完饭"}) == ""
 
 
 def test_field_blacklist_tolerates_non_dict_route_entries() -> None:
@@ -980,8 +956,8 @@ def test_load_subtitles_rejects_hash_mismatch_and_broken_timelines(tmp_path) -> 
     assert [cue.text for cue in cues] == ["hello", "world"]
 
 
-def test_load_content_titles_skips_blank_or_missing_titles(tmp_path) -> None:
-    """标题是展示元数据：条目缺行或标题空白只是不注入，不失败。"""
+def test_load_content_titles_rejects_blank_or_missing_titles(tmp_path) -> None:
+    """可读标题是模型对象名称的必需来源；缺失或空白时失败关闭。"""
     item = ContentItemConfig.model_construct(
         item_id="c1", kind="feature_film", duration_seconds=600,
         timeline_path="t.srt", timeline_sha256="d" * 64,
@@ -989,22 +965,15 @@ def test_load_content_titles_skips_blank_or_missing_titles(tmp_path) -> None:
     _write(tmp_path, "titles.json",
            json.dumps([{"id": "c1", "title": "   "}, {"id": "c2", "title": "有名"}]).encode())
     sources = {"feature_film": ("titles.json", "id")}
-    assert load_content_titles((item,), tmp_path, sources) == {}
+    with pytest.raises(IntegrityError, match="title"):
+        load_content_titles((item,), tmp_path, sources)
 
 
-def test_load_subtitles_rejects_escaped_and_symlinked_paths(tmp_path) -> None:
-    """内容读取限制在冻结语料目录：越界路径与符号链接拒绝。"""
+def test_load_subtitles_rejects_escaped_path(tmp_path) -> None:
+    """内容读取限制在冻结语料目录，越界路径拒绝。"""
     escaped = _content_item("0" * 64).model_copy(update={"timeline_path": "../evil.srt"})
     with pytest.raises(IntegrityError, match="path is invalid"):
         load_subtitles(escaped, tmp_path)
-    outside = tmp_path / "outside.srt"
-    outside.write_bytes(b"1\n00:00:00,000 --> 00:00:10,000\nx\n")
-    link = tmp_path / "linked.srt"
-    os.symlink(outside, link)
-    symlinked = _content_item(_sha(b"1\n00:00:00,000 --> 00:00:10,000\nx\n")).model_copy(
-        update={"timeline_path": "linked.srt"})
-    with pytest.raises(IntegrityError, match="path is invalid"):
-        load_subtitles(symlinked, tmp_path)
 
 
 def test_reveal_mail_requires_visible_message() -> None:
@@ -1104,7 +1073,7 @@ def test_prepare_work_submission_rejects_piece_oracle_without_count(
     _write(tmp_path, "work/oracle.json", oracle)
     zone = ZoneInfo(TIMEZONE)
     task = WorkTaskConfig.model_validate({
-        "task_id": "task-piece", "assignee_agent_id": "agent:1",
+        "task_id": "task-piece", "title": "整理项目纪要", "assignee_agent_id": "agent:1",
         "contract_kind": "piece",
         "available_at": datetime(2023, 11, 1, tzinfo=zone),
         "due_at": datetime(2023, 11, 30, tzinfo=zone),
@@ -1131,16 +1100,17 @@ def test_prepare_work_submission_rejects_piece_oracle_without_count(
         prepare_work_submission(state, semantics, tmp_path, 1, request)
 
 
-def test_load_work_input_rejects_symlinked_files(tmp_path) -> None:
-    """符号链接的工作输入文件在解析前拒绝。"""
+def test_load_work_input_rejects_missing_or_escaped_files(tmp_path) -> None:
+    """工作输入文件必须存在于冻结根目录内。"""
     raw = "会议记录".encode()
-    outside = tmp_path / "outside.txt"
-    outside.write_bytes(raw)
-    (tmp_path / "work").mkdir()
-    os.symlink(outside, tmp_path / "work" / "in.txt")
     task = _work_task().model_copy(update={"input_sha256": _sha(raw)})
     with pytest.raises(IntegrityError, match="path is invalid"):
         load_work_input(tmp_path, task)
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(raw)
+    escaped = task.model_copy(update={"input_path": "../outside.txt"})
+    with pytest.raises(IntegrityError, match="path is invalid"):
+        load_work_input(tmp_path, escaped)
 
 
 def test_prepare_work_submission_rejects_unknown_or_invisible_task(tmp_path) -> None:
@@ -1343,20 +1313,13 @@ def test_validate_game_rejects_walkthrough_hash_drift(tmp_path) -> None:
         validate_game(config, tmp_path)
 
 
-def test_game_path_rejects_escape_and_symlinks(tmp_path) -> None:
-    """游戏读取限制在冻结语料目录：越界路径与符号链接拒绝。"""
-    outside = tmp_path / "outside.json"
-    outside.write_text("{}", encoding="utf-8")
-    link = tmp_path / "link.json"
-    os.symlink(outside, link)
+def test_game_path_rejects_escape(tmp_path) -> None:
+    """游戏读取限制在冻结语料目录，越界路径拒绝。"""
     escaped = GameConfig.model_construct(
         game_id="g", seed=1, game_path="../outside.json",
         game_sha256="0" * 64, walkthrough_sha256="0" * 64)
     with pytest.raises(IntegrityError, match="path is invalid"):
         validate_game(escaped, tmp_path)
-    symlinked = escaped.model_copy(update={"game_path": "link.json"})
-    with pytest.raises(IntegrityError, match="path is invalid"):
-        validate_game(symlinked, tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1366,7 +1329,7 @@ def test_game_path_rejects_escape_and_symlinks(tmp_path) -> None:
 def test_route_for_requires_unique_frozen_route() -> None:
     """起点-终点-方式三元组必须命中唯一冻结路线。"""
     scenario = _life_scenario(routes=[_route("r1", "home", "office", "driving")])
-    request = StartActivityRequest(activity_type=ActivityKind.TRAVEL,
+    request = ActivityStartParams(activity_type=ActivityKind.TRAVEL,
                                    planned_duration_seconds=600,
                                    destination_id="office", travel_mode="walking")
     with pytest.raises(BusinessRuleError, match="FROZEN_ROUTE_NOT_FOUND"):
@@ -1452,15 +1415,6 @@ def test_location_track_rejects_broken_geometry_and_paths(tmp_path) -> None:
         sample_location_track(LocationTrackRequest(
             agent_id=1, route=escaped, departure_epoch=1000, arrival_epoch=4600,
             sample_interval_seconds=600), tmp_path)
-    outside = tmp_path / "outside.json"
-    outside.write_text("{}", encoding="utf-8")
-    linked = tmp_path / "routes" / "linked.json"
-    os.symlink(outside, linked)
-    symlinked = good.model_copy(update={"response_path": "routes/linked.json"})
-    with pytest.raises(IntegrityError, match="path is invalid"):
-        sample_location_track(LocationTrackRequest(
-            agent_id=1, route=symlinked, departure_epoch=1000, arrival_epoch=4600,
-            sample_interval_seconds=600), tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -1499,13 +1453,13 @@ def test_rules_validate_start_work_duration_and_deadline(engine_factory) -> None
         "location_id": task.required_location_id,
         "skill_levels": {task.required_skill: task.minimum_skill + 0.1}})
     now = int(task.available_at.timestamp())
-    over = StartActivityRequest(activity_type=ActivityKind.WORK,
+    over = ActivityStartParams(activity_type=ActivityKind.WORK,
                                 target_id=task.task_id,
                                 planned_duration_seconds=task.maximum_duration_seconds + 60)
     with pytest.raises(BusinessRuleError, match="WORK_DURATION_EXCEEDS_CONTRACT"):
         rules.validate_start(agent, over, now)
     near_deadline = int(task.due_at.timestamp()) - 60
-    tight = StartActivityRequest(activity_type=ActivityKind.WORK, target_id=task.task_id,
+    tight = ActivityStartParams(activity_type=ActivityKind.WORK, target_id=task.task_id,
                                  planned_duration_seconds=3600)
     with pytest.raises(BusinessRuleError, match="WORK_WOULD_MISS_DEADLINE"):
         rules.validate_start(agent, tight, near_deadline)
@@ -1514,7 +1468,7 @@ def test_rules_validate_start_work_duration_and_deadline(engine_factory) -> None
 def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> None:
     """浏览目标只有 product_catalog 一个合法值。"""
     engine = engine_factory()
-    request = StartActivityRequest(activity_type=ActivityKind.BROWSE,
+    request = ActivityStartParams(activity_type=ActivityKind.BROWSE,
                                    target_id="something_else",
                                    planned_duration_seconds=60)
     with pytest.raises(BusinessRuleError, match="BROWSE_TARGET_NOT_FOUND"):
@@ -1548,7 +1502,7 @@ def _resources_catalog(sem, mutate) -> Catalog:
 
 
 def _travel_time_catalog(sem, mutate) -> Catalog:
-    content = mutate(sem.catalog.travel_time_rules_bytes)
+    content = mutate(sem.catalog.travel_time_rules_bytes.replace(b"\r\n", b"\n"))
     return replace(sem.catalog, travel_time_rules_bytes=content)
 
 

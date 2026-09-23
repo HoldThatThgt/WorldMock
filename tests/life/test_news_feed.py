@@ -8,14 +8,16 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import wake_by_mail, advance_next, browse_activities, context
+from tests.life.conftest import wake_by_mail, advance_next, context
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
+from worldmock.life.observe import _content_catalog
 from worldmock.life.models import (
     active_activities,
-    SetActivityStateRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
+    ConcludeActivityRequest,
+    PauseActivityRequest,
+    ReportStatusRequest,
+    StartActivityRequest,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -34,15 +36,29 @@ def _act(engine, round_id: str, tool_name: str, request):
     """按真实观察、登记和结算顺序执行一个人物动作。"""
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
+    observed = engine.observe(ctx)
+    if tool_name == "start_activity":
+        canonical_action, target_id = request
+        choice = next((row, action) for row in observed["interaction_bindings"]
+                      for action in row["actions"]
+                      if row["object_id"] == target_id
+                      and action["canonical_action"] == canonical_action)
+        request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", tool_name, request))
     return engine.commit_decision_round(round_id)[0]
+
+
+def _session_name(engine, activity_id: str) -> str:
+    """读取本次活动对应的可读会话名称。"""
+    return next(item.session_name for item in engine.state.sessions.values()
+                if activity_id in item.activity_ids)
 
 
 def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
     """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。"""
     for n in range(rounds):
-        _act(engine, f"wait-{n}", "start_basic_activity",
-             StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=seconds))
+        assert seconds == engine.scenario.activity_feedback_seconds
+        _act(engine, f"wait-{n}", "start_activity", ("wait", "agent:1"))
         advance_next(engine)
 
 
@@ -90,12 +106,12 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
         doc = json.loads(Path(f"scenarios/{name}").read_text(encoding="utf-8"))
         assert all("entertainment_preferences" not in agent for agent in doc["agents"])
     engine = engine_factory()
-    # 分层目录：两个基线条目分属两个品类，各自下钻可见完整字段身份
-    feed_catalog = browse_activities(engine, "browse-feeds", "news_feed")
-    advance_next(engine)
-    sintel_catalog = browse_activities(engine, "browse-sintel", "subtitle_experience")
-    # 娱乐语料扩容后目录还含片库/网文/剧集/段子条目；这里锁定两个基线条目的完整字段身份
-    # （含分段结构：sintel 26 cue、信息流 1000 条；未开始所以没有 progress 键）
+    # 完整目录供引擎形成轮转展示窗口；这里锁定两个基线条目的分段元数据。
+    agent = engine.state.agents[1]
+    catalog = _content_catalog(engine.scenario, engine.rules.subtitles,
+                               engine.rules.content_titles, agent.content_progress)
+    feed_catalog = [row for row in catalog if row["kind"] == "news_feed"]
+    sintel_catalog = [row for row in catalog if row["kind"] == "subtitle_experience"]
     expected_entries = [
         {"item_id": "sintel-en-subtitles", "kind": "subtitle_experience",
          "duration_seconds": 630, "entertainment_relief_per_hour": 0.3,
@@ -103,7 +119,7 @@ def test_both_scenarios_admit_feed_with_fragmentable_catalog_entry(engine_factor
          "segments_total": 26, "typical_segment_seconds": 24.2},
         {"item_id": FEED_ID, "kind": "news_feed",
          "duration_seconds": 38032, "entertainment_relief_per_hour": FEED_RATE,
-         "experience_label": "casual_news_feed_scroll",
+         "experience_label": "casual_news_feed_scroll", "title": "中文新闻流（1000 条标题+摘要）",
          "segments_total": 1000, "typical_segment_seconds": 38.0},
     ]
     assert expected_entries[1] in feed_catalog
@@ -141,13 +157,14 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 900 / 3600)
 
-    _act(engine, "scroll", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
-                                      planned_duration_seconds=planned, playback_speed=1))
+    _act(engine, "scroll", "start_activity", ("watch", FEED_ID))
     activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
+    wake_by_mail(engine, offset=planned)
     advance_next(engine)
+    _act(engine, "scroll-stop", "conclude_activity",
+         ConcludeActivityRequest(task=[_session_name(engine, activity_id)], summary=["阅读到当前段落。"]))
     activity = engine.state.activities[activity_id]
-    assert activity.status.name == "COMPLETED"
+    assert activity.status.name == "CANCELLED"
     revealed = activity.data["revealed"]
     assert [cue["cue_id"] for cue in revealed["cues"]] == [1, 2]
     assert revealed["cues"][0]["text"] == f'{_items()[0]["title"]}\n{_items()[0]["body"]}'
@@ -172,17 +189,27 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
     _wait_awake(engine)
     need_before = engine.state.agents[1].body.entertainment_need
     relief = 0.0
+    idle_growth = 0.0
     for n, duration in enumerate(durations, start=1):
+        if n > 1:
+            before_idle = engine.state.agents[1].body.entertainment_need
+            advance_next(engine)
+            idle_growth += engine.state.agents[1].body.entertainment_need - before_idle
         need_at_step = engine.state.agents[1].body.entertainment_need
-        _act(engine, f"scroll-{n}", "start_targeted_activity",
-             StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
-                                          planned_duration_seconds=duration, playback_speed=1))
+        _act(engine, f"scroll-{n}", "start_activity", ("watch", FEED_ID))
+        activity_id = next(item.activity_id for item in active_activities(engine.state, 1)
+                           if item.kind.value == "watch")
+        wake_by_mail(engine, offset=duration)
         advance_next(engine)
+        _act(engine, f"scroll-stop-{n}", "conclude_activity",
+             ConcludeActivityRequest(task=[_session_name(engine, activity_id)],
+                                     summary=["阅读到当前段落。"]))
         step = (FEED_RATE * FEED_PREFERENCE / n
                 - engine.semantics.body.entertainment_need_per_awake_hour) * (duration / 3600)
         assert need_at_step - engine.state.agents[1].body.entertainment_need == pytest.approx(step)
         relief += step
-    assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(relief)
+    assert need_before - engine.state.agents[1].body.entertainment_need == pytest.approx(
+        relief - idle_growth)
     flat = FEED_RATE * FEED_PREFERENCE * sum(durations) / 3600
     assert relief != pytest.approx(flat)
     progress = engine.state.agents[1].content_progress[FEED_ID]
@@ -202,25 +229,26 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     wait_net = body.entertainment_need_per_awake_hour
     assert need_before == pytest.approx(wait_net * 5400 / 3600)
 
-    _act(engine, "long-scroll", "start_targeted_activity",
-         StartTargetedActivityRequest(activity_type="watch", target_id=FEED_ID,
-                                      planned_duration_seconds=950, playback_speed=1))
+    _act(engine, "long-scroll", "start_activity", ("watch", FEED_ID))
     activity_id = next(item.activity_id for item in active_activities(engine.state, 1) if item.kind.value == "watch")
     wake_by_mail(engine)  # 900 边界经 message_arrival 提供决策（节律合同）
     advance_next(engine)
     assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
-    _act(engine, "pause-scroll", "set_activity_state",
-         SetActivityStateRequest(activity_id=activity_id, operation="pause"))
+    _act(engine, "pause-scroll", "pause_activity",
+         PauseActivityRequest(task=[_session_name(engine, activity_id)], summary=["稍后继续阅读。"]))
     paused_at = engine.state.current_time
     wake_by_mail(engine)
     advance_next(engine)
     assert engine.state.current_time == paused_at + 900
-    _act(engine, "resume-scroll", "set_activity_state",
-         SetActivityStateRequest(activity_id=activity_id, operation="resume"))
+    _act(engine, "resume-scroll", "report_status",
+         ReportStatusRequest(task=[_session_name(engine, activity_id)], summary=["继续阅读。"]))
+    wake_by_mail(engine, offset=50)
     advance_next(engine)
+    _act(engine, "finish-scroll", "conclude_activity",
+         ConcludeActivityRequest(task=[_session_name(engine, activity_id)], summary=["本次阅读结束。"]))
 
     activity = engine.state.activities[activity_id]
-    assert activity.status.name == "COMPLETED"
+    assert activity.status.name == "CANCELLED"
     assert activity.elapsed_seconds == 950
     progress = engine.state.agents[1].content_progress[FEED_ID]
     assert progress.exposure_count == 1

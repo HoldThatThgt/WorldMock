@@ -54,7 +54,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     corpus = load_manifest(corpus_root, scenario.corpus_manifest_sha256)
     schemas = sorted((project_root / "labelkit-projects").rglob("*.json"))
     for path in schemas:
-        Draft202012Validator.check_schema(json.loads(path.read_text()))
+        Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
     versions = {name: importlib.metadata.version(name) for name in
                 ("agentsociety2", "ray", "litellm", "mcp", "datasets", "textworld", "rule-engine")}
     if not (project_root / "vendor/labelkit/.venv/bin/labelkit").is_file():
@@ -82,6 +82,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
 def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
     """@brief 两阶段 model_identity 一致性校验（docs/dev/SPEC-life-realism.md「两阶段决策」，B2 常量单一事实源）。"""
     from custom.agents.life_agent import (
+        ACTION_MAX_TOKENS,
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
         DECISION_STATEMENT_MAX_TOKENS,
@@ -114,7 +115,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
         "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None, "tool_choice": None,
     }
     expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
-                       "tool_choice": ACTION_TOOL_CHOICE}
+                       "tool_choice": ACTION_TOOL_CHOICE,
+                       "max_tokens": ACTION_MAX_TOKENS}
     expected_review = {"thinking": "disabled", "tool_choice": "required"}
     for name, expected in (("decision_statement", expected_decision_statement), ("action", expected_action),
                            ("work_review", expected_review)):

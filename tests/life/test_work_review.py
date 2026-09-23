@@ -1,7 +1,5 @@
 """工作正文揭示、独立语义验收和付款测试。"""
 
-# TODO: ContinueActivityRequest, SetActivityStateRequest removed
-
 from __future__ import annotations
 
 import json
@@ -21,9 +19,11 @@ from tests.life.conftest import advance_until_ready, advance_next, context, subm
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
-    ChangeActivityRequest,
     MeetingMinutes,
+    PauseActivityRequest,
+    ReportStatusRequest,
     StartActivityRequest,
+    SubmitWorkActionRequest,
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
@@ -125,10 +125,11 @@ def _at_task_start(engine) -> None:
 def _complete_required_work(engine) -> None:
     """经实际活动入口完成首个任务所需有效工作时间。"""
     task = engine.scenario.tasks[0]
-    duration = task.maximum_duration_seconds
-    request = StartActivityRequest(
-        activity_type="work", target_id=task.task_id,
-        planned_duration_seconds=duration, playback_speed=1)
+    observed = engine.observe(context(engine, "work-time-preview"))
+    choice = next((row, action) for row in observed["interaction_bindings"]
+                  for action in row["actions"]
+                  if row["object_id"] == task.task_id and action["canonical_action"] == "work")
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "work-time")
     activity_id = results[0].activity_id
     feedback_index = 0
@@ -137,8 +138,15 @@ def _complete_required_work(engine) -> None:
             advance_next(engine)
             continue
         feedback_index += 1
-        request = ContinueActivityRequest(activity_id=activity_id)
-        submit_round(engine, {1: ("continue_activity", request)}, f"work-feedback-{feedback_index}")
+        session = next(item for item in engine.state.sessions.values() if activity_id in item.activity_ids)
+        feedback = ReportStatusRequest(task=[session.session_name], summary=["继续完成工作。"])
+        submit_round(engine, {1: ("report_status", feedback)}, f"work-feedback-{feedback_index}")
+
+
+def _public_submission(engine, request: SubmitWorkRequest) -> SubmitWorkActionRequest:
+    """把领域内部合同身份转换为人物可见任务名。"""
+    return SubmitWorkActionRequest(task_name=engine.rules.task(request.task_id).title,
+                                   deliverable=request.deliverable)
 
 
 def _paraphrased_submission(task_id: str = "task-2026-01-05") -> SubmitWorkRequest:
@@ -174,8 +182,9 @@ async def _submit_with_review(
     engine._work_reviewer = reviewer
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     work = request or _paraphrased_submission()
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", work)
+    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _public_submission(engine, work))
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
     return engine.commit_decision_round(round_id)[0]
@@ -193,23 +202,26 @@ async def test_prepared_work_review_is_private_until_round_settlement(engine_fac
     engine.begin_decision_round([ctx])
     initial = engine.observe(ctx)
     snapshot = engine.state.model_dump(mode="json")
-    call = DirectToolCall(ctx, "action-delayed-review", "submit_work", _paraphrased_submission())
+    call = DirectToolCall(ctx, "action-delayed-review", "submit_work",
+                          _public_submission(engine, _paraphrased_submission()))
     engine.submit_action(call)
     await engine.prepare_pending_work_review(call.action_id)
     assert engine._work_reviewer.calls == 1
     assert engine.state.model_dump(mode="json") == snapshot
-    assert engine._recent_action_results(1) == []
-    assert all(row["action_id"] != call.action_id for row in initial["facts"]["recent_action_results"])
+    assert all(row["action_id"] != call.action_id for row in engine._recent_action_results(1))
+    assert all("work_review" not in row for row in initial["facts"]["progress"]["results"])
     assert not any(event.action_id == call.action_id
                    for event in engine.store.read_agent_events("action_result", 1))
     result = engine.commit_decision_round(ctx.round_id)[0]
     advance_next(engine)
     observed = engine.observe(context(engine, "review-visible"))
-    public = next(row for row in observed["facts"]["recent_action_results"] if row["action_id"] == call.action_id)
+    public = next(row for row in observed["facts"]["progress"]["results"]
+                  if "work_review" in row)
     assert public["work_review"] == json.loads(json.dumps(result.data["work_review"]))
     assert public["work_review"]["accepted"] is accepted
     assert "Supported by the transcript." in render_facts(observed["facts"])
-    assert engine.observe(context(engine, "review-consumed"))["facts"]["recent_action_results"] == []
+    repeated = engine.observe(context(engine, "review-still-pending"))
+    assert repeated["facts"]["progress"]["results"] == observed["facts"]["progress"]["results"]
 
 
 @pytest.mark.asyncio
@@ -242,9 +254,9 @@ async def test_nested_private_fields_in_real_settlement_do_not_enter_public_resu
     await _submit_with_review(engine, StaticReviewer(), "private-review")
     advance_next(engine)
     observed = engine.observe(context(engine, "private-review-visible"))
-    public = next(row for row in observed["facts"]["recent_action_results"]
-                  if row["action_id"] == "action-private-review")
-    assert set(public) == {"action_id", "occurred_at", "status", "error_code", "message", "work_review"}
+    public = next(row for row in observed["facts"]["progress"]["results"]
+                  if "work_review" in row)
+    assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review"}
     assert public["work_review"] == json.loads(json.dumps(expected))
     assert "PRIVATE_SENTINEL" in json.dumps(observed["recent_action_results"])
     rendered = render_facts(observed["facts"])
@@ -259,14 +271,17 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     _at_task_start(engine)
     task = engine.scenario.tasks[0]
     wake_by_mail(engine, offset=900)
-    request = StartActivityRequest(activity_type="work", target_id=task.task_id,
-                                    planned_duration_seconds=task.maximum_duration_seconds,
-                                    playback_speed=1)
+    observed = engine.observe(context(engine, "pause-work-preview"))
+    choice = next((row, action) for row in observed["interaction_bindings"]
+                  for action in row["actions"]
+                  if row["object_id"] == task.task_id and action["canonical_action"] == "work")
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
-    pause = SetActivityStateRequest(activity_id=activity_id, operation="pause")
-    _, paused = submit_round(engine, {1: ("set_activity_state", pause)}, "pause-work")
+    session = next(item for item in engine.state.sessions.values() if activity_id in item.activity_ids)
+    pause = PauseActivityRequest(task=[session.session_name], summary=["工作进行到一半，先暂停。"])
+    _, paused = submit_round(engine, {1: ("pause_activity", pause)}, "pause-work")
     assert paused[0].status == "completed"
     assert advance_until_ready(engine)
     observed = engine.observe(context(engine, "paused-work-observation"))
@@ -311,7 +326,8 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     engine.begin_decision_round([replay_context])
     engine.observe(replay_context)
     engine.submit_action(DirectToolCall(
-        replay_context, "action-accepted-work", "submit_work", _paraphrased_submission()))
+        replay_context, "action-accepted-work", "submit_work",
+        _public_submission(engine, _paraphrased_submission())))
     replay = engine.commit_decision_round("accepted-work-replay")[0]
     assert replay == result and engine.state.accounts == paid_accounts
     canonical = [event for event in engine.store.read_agent_events("action_result", 1)
@@ -328,7 +344,7 @@ async def test_work_material_requires_time_and_paraphrase_can_be_paid(engine_fac
     changed = request.model_copy(update={"deliverable": changed_minutes})
     with pytest.raises(ProtocolError, match="reused with different parameters"):
         engine.submit_action(DirectToolCall(
-            conflict_context, "action-accepted-work", "submit_work", changed))
+            conflict_context, "action-accepted-work", "submit_work", _public_submission(engine, changed)))
     assert engine.state.accounts == paid_accounts and reviewer.calls == 1
 
 
@@ -367,11 +383,9 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
     # 完整证据与公开提示共同保留工作反馈；提示不包含内部参考身份与哈希。
     assert visible == json.loads(json.dumps(feedback))
-    summaries = observation["facts"]["recent_action_results"]
-    assert [row["action_id"] for row in summaries] == [
-        row["action_id"] for row in observation["recent_action_results"]]
-    public = next(row for row in summaries if row["action_id"] == "action-rework")
-    assert set(public) == {"action_id", "occurred_at", "status", "error_code", "message", "work_review"}
+    summaries = observation["facts"]["progress"]["results"]
+    public = next(row for row in summaries if row.get("error_code") == "WORK_REQUIRES_REWORK")
+    assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review"}
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
     assert summaries[-1]["message"] in messages
@@ -383,7 +397,7 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     engine.begin_decision_round([replay])
     engine.observe(replay)
     engine.submit_action(DirectToolCall(
-        replay, "action-rework", "submit_work", _paraphrased_submission()))
+        replay, "action-rework", "submit_work", _public_submission(engine, _paraphrased_submission())))
     repeated = engine.commit_decision_round("rework-replay")[0]
     assert repeated == result and reviewer.calls == 1
     assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
@@ -419,7 +433,9 @@ async def test_review_identity_failure_exhausts_three_calls_and_preserves_respon
     engine._work_reviewer = reviewer
     ctx = context(engine, "bad-schema")
     engine.begin_decision_round([ctx])
-    call = DirectToolCall(ctx, "bad-schema", "submit_work", _paraphrased_submission())
+    engine.observe(ctx)
+    call = DirectToolCall(ctx, "bad-schema", "submit_work",
+                          _public_submission(engine, _paraphrased_submission()))
     engine.submit_action(call)
     balance = dict(engine.state.accounts)
     with pytest.raises(ProtocolError, match="remained invalid after three"):
@@ -435,7 +451,8 @@ async def test_review_identity_failure_exhausts_three_calls_and_preserves_respon
 
 def test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucination() -> None:
     """真实 DeepSeek 工具响应经过当前严格解析器保持正例通过、反例拒绝。"""
-    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text())
+    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
+        encoding="utf-8"))
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
     task = scenario.tasks[0]
     source = load_work_input(Path("corpora"), task)
@@ -455,7 +472,8 @@ def test_frozen_real_deepseek_responses_accept_paraphrase_and_reject_hallucinati
 
 def _prepared_review_and_raw_response():
     """从真实响应夹具和真实工作输入生成可走完整公开链的评审。"""
-    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text())
+    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
+        encoding="utf-8"))
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
     task = scenario.tasks[0]
     case = fixture["cases"][0]
@@ -479,7 +497,9 @@ def _render_public_review_decision(decision, source: str) -> str:
     row = {"action_id": "reviewed-work", "occurred_at": 1767542400, "status": "completed",
            "error_code": None, "message": "Work completed.",
            "result": {"data": {"work_review": public_work_review(decision, source)}}}
-    return render_facts({"recent_action_results": [public_action_result(row)]})
+    projected = public_action_result(row)
+    projected.pop("action_id")
+    return render_facts({"progress": {"sessions": [], "results": [projected], "alarms": []}})
 
 
 def _private_rationale_value(prepared, kind: str) -> str:
@@ -539,7 +559,7 @@ def test_full_legal_rationale_survives_parse_projection_and_render(collection, p
     _replace_rationale(raw, collection, rationale)
     decision = parse_work_review(raw, prepared)
     rendered = _render_public_review_decision(decision, prepared.source)
-    review = json.loads(rendered)["recent_action_results"][0]["work_review"]
+    review = json.loads(rendered)["progress"]["results"][0]["work_review"]
     assert review[public_collection][0]["rationale"] == rationale
 
 
@@ -602,7 +622,8 @@ async def test_private_rationale_exhaustion_never_settles_work_or_leaks_in_error
 
 def test_work_review_request_uses_required_strict_contract() -> None:
     """独立工作验收使用同一 beta strict 参数且本地保留数组非空硬约束。"""
-    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text())
+    fixture = json.loads(Path("tests/life/fixtures/work_review_deepseek_responses.json").read_text(
+        encoding="utf-8"))
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
     task = scenario.tasks[0]
     case = fixture["cases"][0]

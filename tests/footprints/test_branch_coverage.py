@@ -444,15 +444,26 @@ def test_snapshot_directory_skips_directories_and_packs_files(tmp_path):
     assert reference.size_bytes > 0
 
 
-def test_snapshot_directory_rejects_missing_workspace_and_symlinks(tmp_path):
+def test_snapshot_directory_rejects_missing_workspace(tmp_path):
     assets = AssetStore(tmp_path / "assets")
     with pytest.raises(IntegrityError, match="workspace is missing"):
         from worldmock.footprints.checkpoint import snapshot_directory
         snapshot_directory(tmp_path / "absent", assets)
+
+
+def test_snapshot_directory_rejects_symlinks(tmp_path):
+    from worldmock.footprints.checkpoint import snapshot_directory
+
+    assets = AssetStore(tmp_path / "assets")
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "real.txt").write_text("x")
-    os.symlink("real.txt", workspace / "link.txt")
+    try:
+        os.symlink("real.txt", workspace / "link.txt")
+    except OSError as exc:
+        if os.name == "nt" and exc.winerror == 1314:
+            pytest.skip("Windows account cannot create symbolic links")
+        raise
     with pytest.raises(IntegrityError, match="symbolic link"):
         snapshot_directory(workspace, assets)
 

@@ -248,11 +248,14 @@ class ActivitySession:
 **WorldMock 适配器**（`worldmock_public_evidence`）：
 - 读取 `action_requested`、`action_result`、`environment_event`
 - 使用 `action_id` 回链请求与结果
-- 从 `activity` 快照读取真实对象字段（`route_id`、`game_session_id`）
+- `start_activity` 的可读 `targets[]` / `actions[]` 逐项配对；同一请求启动两项活动时，按结果中
+  对应顺序的 `data.activities[]` 快照投影两项证据，不把另一项动作的结果或付款记到本项
+- `report_status`、`pause_activity`、`conclude_activity` 按结果中的 `data.activity_ids[]` 逐会话、逐活动
+  投影；从真实活动快照读取对象身份、状态和交通方式
 - 区分订单、付款、履约三个独立状态
 
 **不变量**：
-- 每个原始事件恰好产生一个共同证据事件
+- 一个原始事件可产生多条共同证据：双活动分别成条，实际付款另成条；每条保留来源事件指针
 - 无法映射的类别使用 `unknown`，不猜测
 - 一方不支持的字段标为 `null`，不填造
 

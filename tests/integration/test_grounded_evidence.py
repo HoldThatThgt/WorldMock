@@ -9,6 +9,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
@@ -21,6 +23,12 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.runtime import runtime_code_sha256
 
 _BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+
+
+@pytest.fixture(autouse=True)
+def _fixed_context_window(monkeypatch):
+    """用固定供应商窗口测试请求持久化，不依赖远程元数据服务。"""
+    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
 
 
 def _request_budget(request: dict[str, Any]) -> dict[str, Any]:
@@ -100,8 +108,11 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     agent._model_name = "deepseek-v4.1-flash"
     wire = agent._model_request([{"role": "user", "content": "Choose a visible activity."}], tools)
     expected = canonical_json(wire)
-    targeted = next(item for item in tools if item["function"]["name"] == "start_targeted_activity")
-    assert "enum" in targeted["function"]["parameters"]["properties"]["target_id"]
+    start = next(item for item in tools if item["function"]["name"] == "start_activity")
+    fields = start["function"]["parameters"]["properties"]
+    assert set(fields) == {"targets", "actions"}
+    assert "enum" in fields["targets"]["items"]
+    assert "enum" in fields["actions"]["items"]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.store.last_event_seq
     directory = engine.store.run_dir
@@ -187,29 +198,18 @@ def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path):
     assert runtime_code_sha256(tmp_path) != before
 
 
-def test_grounded_tool_deduplicates_target_ids_across_catalogs(_engine_factory):  # noqa: F811
-    """不同目录中的相同身份在最终目标枚举中只出现一次。"""
+def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_factory):  # noqa: F811
+    """本轮交互对象名称唯一，工具枚举不泄露内部对象身份。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     ctx = context(engine, "cross-catalog-id")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    observation["tasks"] = [{"task_id": "shared-id", "remaining_contract_seconds": 3600,
-                             "material": {"end_char": 10, "total_chars": 10}}]
-    observation["recent_action_results"] = [{
-        "event_id": "event-browse-shared", "action_id": "action-browse-shared",
-        "decision_id": "decision", "occurred_at": 0, "status": "completed",
-        "error_code": None, "message": "Activity menu browsed",
-        "result": {"status": "completed", "activity_id": None, "error_code": None,
-                   "message": "Activity menu browsed",
-                   "data": {"tool": "browse_activities", "category": "feature_film",
-                            "count": 1, "note": "watch items",
-                            "items": [{"item_id": "shared-id", "kind": "feature_film",
-                                       "duration_seconds": 630}]}},
-    }]
     _, tools = _prepared_tools(observation, ctx.observed_at)
-    targeted = next(item for item in tools if item["function"]["name"] == "start_targeted_activity")
-    ids = targeted["function"]["parameters"]["properties"]["target_id"]["enum"]
+    start = next(item for item in tools if item["function"]["name"] == "start_activity")
+    names = start["function"]["parameters"]["properties"]["targets"]["items"]["enum"]
+    public = [row["object"] for row in observation["facts"]["interactive_objects"]]
+    private = [row["object_id"] for row in observation["interaction_bindings"]]
 
-    assert ids.count("shared-id") == 1
-    assert ids == sorted(set(ids))
+    assert names == sorted(set(public))
+    assert not set(private) & set(names)

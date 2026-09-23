@@ -33,7 +33,7 @@ def create_catalog(record: dict) -> dict:
 
 def verify_generation(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     """@brief 验证成功清单、报告身份、全部字节与行数以及交付摘要。"""
-    manifest = json.loads((directory / "rules.manifest.json").read_text())
+    manifest = json.loads((directory / "rules.manifest.json").read_text(encoding="utf-8"))
     if manifest.get("artifacts_committed") is not True or manifest["schema_version"] != 1:
         raise IntegrityError("LabelKit sequence artifacts were not committed")
     contents = {}

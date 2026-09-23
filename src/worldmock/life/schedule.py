@@ -184,6 +184,7 @@ class PlanGoal(BaseModel):
     registered_at: int = Field(ge=0)
     progressed_at: int | None = Field(default=None, ge=0)
     progress_activity_id: str | None = Field(default=None, min_length=1)
+    progress_note: str = Field(default="", max_length=500)
 
     @model_validator(mode="after")
     def _check_progress(self) -> "PlanGoal":

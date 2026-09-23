@@ -34,9 +34,9 @@ def compile_schedule(scenario: RuntimeScenario, start: int, end: int) -> list[Sc
     for task in scenario.tasks:
         due = int(task.available_at.timestamp())
         if start < due < end:
-            for agent in scenario.agents:
-                rows.append((due, agent.agent_id, ScheduledKind.WORK_AVAILABLE,
-                             {"task_id": task.task_id}, f"work-{task.task_id}-{agent.agent_id}"))
+            agent_id = int(task.assignee_agent_id.removeprefix("agent:"))
+            rows.append((due, agent_id, ScheduledKind.WORK_AVAILABLE,
+                         {"task_id": task.task_id}, f"work-{task.task_id}-{agent_id}"))
         deadline = int(task.due_at.timestamp())
         if start < deadline <= end:
             rows.append((deadline, None, ScheduledKind.TASK_EXPIRED,

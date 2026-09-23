@@ -13,22 +13,15 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from tests.life.conftest import advance_until_ready, advance_next, submit_round, travel_quote
+from agentsociety2.society import DirectToolCall
+
+from tests.life.conftest import advance_until_ready, advance_next, context, stage_day_plan, submit_round
 from worldmock.footprints.models import (
     RESOURCE_FLOWS_FIELD,
     EventDraft,
     validate_resource_flows,
 )
-from worldmock.life.models import (
-    ContinueActivityRequest,
-    FulfillmentKind,
-    PurchaseItem,
-    PurchaseOrderRequest,
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
-    StartTravelRequest,
-    TravelMode,
-)
+from worldmock.life.models import StartActivityRequest
 from worldmock.life.settlement import (
     SCENARIO_ANCHOR_OWNER,
     inject_initial_funds,
@@ -56,8 +49,39 @@ def _stage_open(engine) -> None:
     engine.state = staged
 
 
-def _wait(seconds: int = 60) -> StartBasicActivityRequest:
-    return StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=seconds)
+def _wait() -> StartActivityRequest:
+    """@brief 等待时长由场景反馈间隔派生。"""
+    return StartActivityRequest(targets=["自己"], actions=["等待"])
+
+
+def _choice(observation: dict, action: str, object_id: str | None = None,
+            mode: str | None = None) -> StartActivityRequest:
+    """@brief 在冻结观察中选可读对象和动作，报价与路线参数交给引擎。"""
+    for row in observation["interaction_bindings"]:
+        if object_id is not None and row["object_id"] != object_id:
+            continue
+        for offered in row["actions"]:
+            if offered["canonical_action"] != action:
+                continue
+            if mode is not None and (offered.get("travel_mode") or offered.get("fulfillment")) != mode:
+                continue
+            return StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+    raise AssertionError(f"No observed choice for {action}: {object_id}")
+
+
+def _selected_round(engine, round_id: str, agent_one_action: str,
+                    object_id: str | None = None, mode: str | None = None):
+    """@brief 观察所有就绪人物并提交本轮真实可读选择。"""
+    ready = engine.scheduling_state().ready_agent_ids
+    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
+    engine.begin_decision_round(contexts)
+    observations = {item.agent_id: engine.observe(item) for item in contexts}
+    for item in contexts:
+        request = (_choice(observations[1], agent_one_action, object_id, mode)
+                   if item.agent_id == 1 else _wait())
+        engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}",
+                                            "start_activity", request))
+    return sorted(engine.commit_decision_round(round_id), key=lambda item: item.agent_id)
 
 
 def _transfer_entries(engine) -> list[TransferEntry]:
@@ -81,36 +105,25 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     """一天夹具注资+购买+车费改道后，期末六账户可从足迹分录逐分重放对账。"""
     engine = engine_factory("multi-person.json")
     _stage_open(engine)
-    submit_round(engine, {
-        1: ("start_targeted_activity", StartTargetedActivityRequest(
-            activity_type="browse", target_id="product_catalog",
-            planned_duration_seconds=60, playback_speed=1)),
-        2: ("start_basic_activity", _wait()),
-    }, "browse")
+    stage_day_plan(engine, 1)
+    stage_day_plan(engine, 2)
+    assert _selected_round(engine, "browse", "browse")[0].status == "in_progress"
     advance_next(engine)
-    supply = next(item for item in engine.scenario.supplies
-                  if item.location_id == "market" and item.supply_id in engine.state.agents[1].visible_supply_ids)
-    price = engine.state.supply_quotes[supply.supply_id].price_fen
-    submit_round(engine, {
-        1: ("purchase", PurchaseOrderRequest(
-            items=(PurchaseItem(supply_id=supply.supply_id, quantity=1,
-                                price_version=engine.state.supply_quotes[supply.supply_id].price_version),),
-            fulfillment=FulfillmentKind.DELIVERY, destination_id="home")),
-        2: ("start_basic_activity", _wait()),
-    }, "buy")
+    purchase = _selected_round(engine, "buy", "purchase", mode="delivery")
+    assert purchase[0].status in {"completed", "in_progress"}, purchase[0].error_code
+    order = purchase[0].data["orders"][0]
+    supply = next(item for item in engine.scenario.supplies if item.supply_id == order["supply_id"])
+    price = order["total_price_fen"]
     # 修订决策节律：静默边界不再唤醒；循环推进直到出行发起者获得决策机会
     while 1 not in engine.scheduling_state().ready_agent_ids:
         ready_now = engine.scheduling_state().ready_agent_ids
         if ready_now:
             submit_round(engine, {
-                agent_id: ("start_basic_activity", _wait(3600)) for agent_id in ready_now
+                agent_id: ("start_activity", _wait()) for agent_id in ready_now
             }, f"hold-{engine.state.current_time}")
         assert advance_until_ready(engine), "agent 1 never regained a decision"
-    submit_round(engine, {
-        1: ("start_travel", StartTravelRequest(
-            destination_id="office", travel_mode=TravelMode.DRIVING,
-            planned_duration_seconds=travel_quote(engine, "driving", 216))),
-    }, "to-office")
+    travel = _selected_round(engine, "to-office", "travel_to", "office", "driving")
+    assert travel[0].status == "in_progress", travel[0].error_code
 
     accounts = dict(engine.state.accounts)
     # 修订合同正餐品类新增 merchant:restaurant 商家账户（v2 场景 7 个账本账户）。
@@ -151,8 +164,10 @@ def test_initial_injection_matches_semantics_accounts(engine_factory) -> None:
 def test_shared_body_event_carries_validated_body_flows(engine_factory) -> None:
     """共同身体结算只落一次分录，活动进度引用它且 owner 为人物账户。"""
     engine = engine_factory("multi-person.json")
-    submit_round(engine, {1: ("start_basic_activity", _wait(3600)),
-                          2: ("start_basic_activity", _wait(3600))}, "wait")
+    stage_day_plan(engine, 1)
+    stage_day_plan(engine, 2)
+    submit_round(engine, {1: ("start_activity", _wait()),
+                          2: ("start_activity", _wait())}, "wait")
     advance_next(engine)
     events = engine.store.read_events(engine.store.last_event_seq)
     bodies = [event for event in events if event.event_type == "environment_event"
@@ -176,8 +191,10 @@ def test_shared_body_event_carries_validated_body_flows(engine_factory) -> None:
 def test_non_settlement_events_never_carry_resource_flows(engine_factory) -> None:
     """动作事件和普通环境事件没有身体分录；共同结算事件独占公共身体分录。"""
     engine = engine_factory("multi-person.json")
-    submit_round(engine, {1: ("start_basic_activity", _wait(3600)),
-                          2: ("start_basic_activity", _wait(3600))}, "wait")
+    stage_day_plan(engine, 1)
+    stage_day_plan(engine, 2)
+    submit_round(engine, {1: ("start_activity", _wait()),
+                          2: ("start_activity", _wait())}, "wait")
     advance_next(engine)
     events = engine.store.read_events(engine.store.last_event_seq)
     other = [event for event in events if event.event_type not in {"activity_progress", "environment_event"}
@@ -190,14 +207,14 @@ def test_non_settlement_events_never_carry_resource_flows(engine_factory) -> Non
 def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> None:
     """两个区间各自取走本段分录，amount 与区间身体结算逐段对应。"""
     engine = engine_factory("multi-person.json")
-    submit_round(engine, {1: ("start_basic_activity", _wait(7200)),
-                          2: ("start_basic_activity", _wait(7200))}, "wait")
-    # 重估唤醒（+5400s）后继续，静默边界照常结算
+    stage_day_plan(engine, 1)
+    stage_day_plan(engine, 2)
+    submit_round(engine, {1: ("start_activity", _wait()),
+                          2: ("start_activity", _wait())}, "wait")
+    # 第一段结束后开始下一段，共同身体账跨区间连续。
     assert advance_until_ready(engine)
-    submit_round(engine, {
-        1: ("continue_activity", ContinueActivityRequest(activity_id="activity-action-wait-1")),
-        2: ("continue_activity", ContinueActivityRequest(activity_id="activity-action-wait-2")),
-    }, "keep-waiting")
+    submit_round(engine, {1: ("start_activity", _wait()),
+                          2: ("start_activity", _wait())}, "keep-waiting")
     advance_next(engine)
     bodies = sorted(
         (event for event in engine.store.read_events(engine.store.last_event_seq)

@@ -46,26 +46,24 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 
 ### 人物工具与管理接口
 
-所有模型工具经 `submit_action(call)` 统一登记，宿主附加 `agent_id`、`decision_id`、`action_id`、观察版本与本轮顺序；这些上下文由 runner 与路由绑定，不出现在模型可填写的参数中。工具 Schema 由对应 Pydantic 请求模型直接生成，全部字段必填，没有缺省参数或条件可选字段，数组数量边界由同一模型的本地校验器完整执行，不能静默截取。LifeEnv 不为每个模型工具另建同名 RPC 方法。
+所有模型生活工具经 `submit_action(call)` 统一登记，宿主附加 `agent_id`、`decision_id`、`action_id`、
+观察版本与本轮顺序；这些上下文由 runner 与路由绑定，不出现在模型可填写的参数中。
+工具 Schema 由对应请求模型直接生成，全部字段必填，数组数量边界由本地校验器执行，不能静默截取。
+模型只看人类可理解且能唯一定位的对象名称与动作短语；本轮私有 `interaction_bindings` 将它们绑定到内部身份、
+标准动作、出行方式与冻结报价，绝不进入模型提示。LifeEnv 不为每个模型工具另建同名 RPC 方法。
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
 | `observe` | `context` (宿主只读 RPC) | 当前可见状态、已到达通知和已完成的内容接触结果 |
-| `start_parallel_activities` | `activities` | 至少两项；子项分别符合 StartBasicActivityRequest、StartTargetedActivityRequest、StartTravelRequest、ConsumeRequest 或 StartSocialActivityRequest；禁止瞬时动作和嵌套组合 |
-| `start_basic_activity` | `activity_type`, `planned_duration_seconds` | `status: "submitted"`, `action_id` |
-| `start_targeted_activity` | `target_id`, `activity_type`, `planned_duration_seconds`, `playback_speed` | `status: "submitted"`, `action_id` |
-| `start_travel` | `destination_id`, `travel_mode`, `planned_duration_seconds` | `status: "submitted"`, `action_id` |
-| `set_activity_state` | `activity_id`, `operation` (`pause`/`resume`/`cancel`) | `status: "submitted"` |
-| `continue_activity` | `activity_id` | `status: "submitted"` (只安排后续反馈，不额外推进时间) |
-| `discover_places` | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds`, `cursor`（全部必填，可空边界见下文） | `status: "submitted"`, `action_id`；发现结果结算后进入下一次观察 |
-| `purchase` | `items: List[{supply_id, quantity, price_version}]` (1–5 件), `fulfillment`, `destination_id` | `status: "submitted"`, `action_id` |
-| `consume` | `items: List[{product_id, quantity}]` (食品 1–3 件，非食品使用仅 1 件), `use_mode`, `duration_seconds` | `status: "submitted"` |
-| `submit_work` | `task_id`, `deliverable` | `status: "submitted"` |
-| `browse_activities` | `category` (活动品类摘要的键，取值闭集由当前观察绑定), `cursor` (必填可空，首屏显式为 `null`) | `status: "submitted"`, `action_id` (纯查询，不启动活动、不消耗内容；品类条目清单经 `action_result` 按下方「候选与呈现合同」的「下推返回体」返回) |
+| `start_activity` | `targets: list[str]`、`actions: list[str]`（等长一至二项，逐项为可读对象名称与动作短语） | 一次登记逐项启动活动；系统按冻结绑定决定领域请求及其结算参数，整组原子受理 |
+| `recall_task_summary` | `task_name`（可读任务或会话名） | 立即返回本人进度摘要，不修改世界 |
+| `report_status` | `task: list[str]`, `summary: list[str]`（等长一至两项） | 逐项播报进展，可恢复暂停会话；关联当日目标同步记录各自自述 |
+| `pause_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项） | 逐项播报进展并暂停会话；关联当日目标同步记录各自自述 |
+| `conclude_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项） | 逐项写总结并结束选中的进行中会话；未选中会话继续 |
 | `plan_day` | `goals: List[{intent_kind, goal}]`（零至八条） | `status: "submitted"` |
 | `revise_day_plan` | `goals: List[{intent_kind, goal}]`（替换全部未推进目标） | `status: "submitted"` |
-| `send_message` | `recipient_id`, `text` | `status: "submitted"` |
-| `start_social_activity` | `kind` (`chat`/`call`), `partner_id`, `duration_minutes`（1–120 分钟） | `status: "submitted"` |
+| `submit_work` | `task_name`, `deliverable` | 提交模型撰写的工作成果，任务名称取本轮可见名称 |
+| `send_message` | `recipient_name`, `text` | 发送模型撰写的消息，收件人名称取本轮可见名称 |
 
 #### 交互菜单声明与有效菜单
 
@@ -76,29 +74,26 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 
 ```python
 InteractionMenu = {
-    "allowed_tools": list[str],
-    "allowed_activity_kinds": list[str],
+    "allowed_actions": list[str],
 }
 ```
 
-两个数组都非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
-`allowed_tools` 的闭集是 `worldmock.life.models.REQUEST_MODELS` 注册的工具名，包含 `discover_places` 与 `start_parallel_activities`；
-`allowed_activity_kinds` 的闭集是当前可供性注册表的 `kinds`。
-场景地点类缺项或多项、人物字段缺失、未知名称、错误类型、重复、空数组或缺少保护项均拒绝加载。
+数组非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
+`allowed_actions` 的闭集是 `START_ACTIVITY_ACTIONS`；其中 `wait`、`sleep` 必须存在，
+保证人物在每个地点都能等待与睡觉。场景地点类缺项或多项、人物字段缺失、未知名称、
+错误类型、重复、空数组或缺少保护动作均拒绝加载。
 
-| 保护集合 | 每个非空菜单必须显式包含 |
-| --- | --- |
-| 工具 | `start_basic_activity`、`plan_day`、`revise_day_plan`、`set_activity_state`、`continue_activity` |
-| 活动类型 | `wait`、`sleep` |
+九个模型工具名由 `REQUEST_MODELS` 固定，地点菜单不剪裁工具，只收窄 `start_activity`
+的可读动作选择。工作成果、消息正文和会话退出通道的工具资格由当前领域条件决定。
 
 当前有效菜单按人物权威位置取得地点类菜单，再与人物菜单逐字段求交集并确定性排序；人物菜单为
 `null` 时直接使用地点类菜单。它是现有状态、阶段、能量、可见目标、日首计划和回合预算门控之前的
-准入约束，只能继续收窄工具与参数，不能放宽既有规则。完整活动控制、下钻品类映射和恢复资格见
+准入约束，只能继续收窄动作选择，不能放宽既有规则。完整活动控制、下钻品类映射和恢复资格见
 [交互菜单规格](dev/SPEC-interaction-menu.md#观察与人物工具)。菜单不得删除 `scene`、`facts`、
 `affordance_contract` 或候选，也不得改变候选排除原因、呈现上限和轮转。
 
 实际模型请求 Schema、本地决策校验和环境受理使用同一轮冻结菜单。环境在产生领域副作用前按权威
-状态重验；违反工具、活动类型、下钻品类或恢复资格的请求返回 `INTERACTION_MENU_DENIED`，
+状态重验；违反动作准入的请求返回 `INTERACTION_MENU_DENIED`，
 并沿用 `action_rejected` 与 `action_result` 的公开结果通道。拒绝不得扣款、消费、启动或恢复活动、
 推进游戏、发送消息或调用工作验收。只读人物查询不进入生活观察与菜单，只开放原有记忆工具及只读
 `finish`。完整声明、失败关闭和验收要求以[冻结特性规格](dev/SPEC-interaction-menu.md)为准。
@@ -109,7 +104,11 @@ InteractionMenu = {
 | `commit_decision_round` | `round_id: str` | 按预定顺序结算请求 |
 | `checkpoint` | `request` | 保存共同检查点 |
 
-模型工具名是 LifeAgent 的原生请求合同。删除旧的 `start_activity`、`change_activity` 工具名，不维护别名；领域执行函数可以共享已有活动实现。食物和耐用品使用始终走 `consume`，不能用缺少物品信息的通用活动请求模拟消费。余额调整、天气设定、地点瞬移、验收强制通过和全世界读取不向人物暴露，也不提供通用代码执行接口。`readonly=True` 表示调用不改变生活状态，观察调用本身仍需要留下证据。
+模型工具名是 LifeAgent 的原生请求合同。旧的分领域工具名直接删除，不维护别名；
+领域执行函数继续负责实际结算。食物与耐用品的使用由 `start_activity` 的可读对象和动作定位，
+再由引擎依据冻结绑定选择对应领域请求；模型不填写库存数量、物品内部身份或结算时长。
+余额调整、天气设定、地点瞬移、验收强制通过和全世界读取不向人物暴露，也不提供通用代码执行接口。
+`readonly=True` 表示调用不改变生活状态，观察调用本身仍需要留下证据。
 
 ### 当日目标请求
 
@@ -189,49 +188,41 @@ flowchart LR
 
 ### 请求字段与结算检查
 
-| 请求 | 主要业务字段 | 结算时的关键检查 |
-| --- | --- | --- |
-| 组合启动 | `activities`，至少两项既有严格基础/目标/出行/消费/社交启动请求 | 组合工具显式被菜单允许，全部子项按各自菜单与目标校验，资源相容，整体接受或拒绝 |
-| 启动活动 | `activity_type`, `target_id`, `planned_duration_seconds`, `playback_speed`；出行另有 `destination_id`、`travel_mode` | 内容已可访问、位置合法、没有冲突占用；持续时间取 60–86400 秒 |
-| 修改活动 | `activity_id`, `operation` (`pause`/`resume`/`cancel`)；变速走独立的 `change_playback_speed` 请求，字段为 `activity_id`, `playback_speed` | 活动属于调用者，转换合法；倍速在已声明范围内 |
-| 发现地点 | `product_id`, `business_kind`, `travel_mode`, `max_travel_seconds` | 选择范围、地图身份、道路状态和实际返回信息；只登记生活动作 |
-| 购买 | `items: List[{supply_id, quantity, price_version}]`, `fulfillment`, `destination_id` | 同地点同卖方、无重复供给、有效报价、资金、供给库存、营业、资格和履约范围 |
-| 使用 | `items: List[{product_id, quantity}]`, `use_mode`, `duration_seconds` | 物品已取得、数量足够、用途符合物品定义 |
-| 提交工作 | `task_id`, `deliverable` | 任务归属、进度、截止规则、素材存在及未重复结算 |
-| 游戏动作 | `game_session_id`, `command` | 会话归属、当前局面和游戏进度 |
-| 浏览活动品类 | `category` | 品类是当前观察活动品类摘要的键，未知品类拒绝 |
+| 模型请求 | 结算时的关键检查 |
+| --- | --- |
+| `start_activity` | 对象名称与动作必须在同一冻结观察中唯一匹配；按绑定解析内部身份、方式与报价，检查当前菜单、位置、资源及领域条件；多目标整体接受或拒绝 |
+| `recall_task_summary` | 名称唯一对应本人当前可回看的任务或会话；只读，不修改世界 |
+| `report_status`、`pause_activity`、`conclude_activity` | `task[]` 中每个名称唯一对应本人会话，两数组等长且一至两项；所有状态转换先验证再原子更新，自述另标未经核验 |
+| `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审 |
+| `send_message` | 收件人名称唯一且可见，渠道与文本符合规则 |
+| `plan_day`、`revise_day_plan` | 目标数量、文字、保留已推进目标与领域约束符合当日目标合同 |
+
+出行、购买、消费、内容、社交和生活活动的内部领域请求仍按各自规则检查精确时长、数量、
+报价、余额和占用；模型请求不含这些计算值。系统展示可比较的报价和预计时间，
+结算使用当轮冻结报价与权威状态。报价变化或竞争导致的实际不可行性以具体业务拒绝返回，
+不让模型根据提示中的取整文字回填精确秒数。
 
 ### 请求模型的闭集与字面边界
 
-工具 Schema 由请求模型直接生成，全部字段必填。下列闭集与字面边界在请求模型层声明，与结算检查相互独立；文本身份字段（`target_id`、`destination_id`、`activity_id`、`product_id`、`supply_id`、`task_id`、`game_session_id`、`partner_id`、`recipient_id`、`price_version`）一律要求非空白。
+工具 Schema 由请求模型直接生成，全部字段必填。模型可填写的名称与动作短语必须非空白，
+并在本轮可见投影中唯一；同名对象使用自然语言的地点或起始时间消歧，不生成索引编号。
 
 | 请求 | 字段 | 闭集或边界 |
 | --- | --- | --- |
-| `start_basic_activity` | `activity_type` | 模式 `^(?:wait\|sleep\|lifestyle:[a-z0-9][a-z0-9-]*)$` |
-| `start_basic_activity`、`start_targeted_activity`、`start_travel` | `planned_duration_seconds` | 60–86400 秒 |
-| `start_targeted_activity` | `activity_type` | `work`、`watch`、`play_game`、`read_mail`、`browse` |
-| `start_targeted_activity`、`change_playback_speed` | `playback_speed` | 0.5–2 |
-| `start_travel` | `travel_mode` | `driving`、`walking` |
-| `discover_places` | `product_id`、`business_kind` | 必填可空字符串；非空时不得全为空白，`null` 表示不按该条件筛选 |
-| `discover_places` | `travel_mode` | `driving`、`walking`，必须显式提供 |
-| `discover_places` | `max_travel_seconds` | 必填可空正整数，上限 86400 秒；`null` 表示不加道路时间上限 |
-| `discover_places` | `cursor` | 必填可空字符串；首次为 `null`，后续原样使用 `next_cursor`，不得伪造或跨筛选条件/地图/起点复用 |
-| `purchase` | `items[].supply_id` | 必须是实际呈现过且仍可见的供给身份，整单不得重复 |
-| `purchase` | `items[].quantity` | 1–100 |
-| `purchase` | `fulfillment` | `delivery`、`pickup` |
-| `consume` | `items[].quantity` | 大于零且不超过 100 |
-| `consume` | `use_mode` | `eat`、`use` |
-| `consume` | `duration_seconds` | 60–14400 秒 |
-| `game_action` | `command` | 不超过 200 字符 |
-| `browse_activities` | `category` | 模式 `^[a-z][a-z0-9_]*$` |
-| `browse_activities` | `cursor` | 可空文本；字符串 `"null"`/`"None"` 与纯空白按首屏 `null` 归一；其余非空时必须是上一页返回的 `next_cursor` 原值，不解析其内部结构；载荷不合形状时该次调用以 `BROWSE_CURSOR_INVALID` 拒绝 |
+| `start_activity` | `targets` | 一至两个名称；每个名称均在当轮交互对象中唯一，组合资源相容 |
+| `start_activity` | `actions` | 与 `targets` 等长并逐项对应；每项属于对应对象当轮公开的可读动作闭集；出行方式由对应动作短语表达 |
+| `recall_task_summary`、`submit_work` | `task_name` | 当前冻结观察中的唯一可读任务或会话名称 |
+| `report_status`、`pause_activity`、`conclude_activity` | `task` | 一至两个唯一可读当前任务或会话名称，不重复；用任务名、自然起始时间和地点消歧 |
+| `report_status`、`pause_activity`、`conclude_activity` | `summary` | 与 `task` 等长的逐项非空白模型自述；关联目标同步写对应进度 |
+| `send_message` | `recipient_name` | 当前冻结观察中的唯一可读人物名称 |
 | `send_message` | `text` | 不超过 300 字符 |
-| `start_social_activity` | `duration_minutes` | 1–120 分钟 |
 | `submit_work` | `deliverable` | 会议纪要结构：`summary`、`decisions`、`action_items`，三者均不得为空白 |
 
-**可空与缺省不同**：`browse_activities.cursor` 和发现动作的可空筛选字段都必须显式填写。首屏游标为 `null`，后续屏提交上一页 `next_cursor` 原值；发现筛选的 `null` 表示不增加该筛选。缺字段仍拒绝，不生成隐含条件。首屏游标若被写成字符串 `"null"`/`"None"`（browse_activities 另含纯空白），环境在请求边界归一为 `null`；解析不了的非空游标文本按业务错误拒绝该次调用（browse_activities 为 `BROWSE_CURSOR_INVALID`，发现动作为 `DISCOVERY_CURSOR_INVALID`），不静默从首页重读。
+工作任务的可读名称由场景必填的 `WorkTaskConfig.title` 提供；不得缺省并回退到内部 `task_id`。
+引擎在冻结观察中保存标题到合同身份的私有绑定，模型只使用标题。
 
-请求不能指定任意文件路径让环境读取；引用只允许已经登记且对人物可见的素材，实际文本交付由宿主保存成新素材。请求校验失败返回明确业务错误，环境不自动修改数量、替换商品、改变目的地或选择其他行动。
+请求不能指定任意文件路径让环境读取；工作成果引用只允许已经登记且对人物可见的素材，
+实际文本交付由宿主保存成新素材。请求校验失败返回明确业务错误；环境不替人物选择其他对象或动作。
 
 ### 动作状态与动作结果
 
@@ -342,8 +333,10 @@ ScheduledKind = Literal[
 
 ### 地点发现与购买身份
 
-`discover_places` 接受 `product_id: str | null`、`business_kind: str | null`、
-`travel_mode: walking | driving`、`max_travel_seconds: int | null` 与 `cursor: str | null`，五个字段均必填。
+人物通过 `start_activity` 选择可读地点发现对象与动作；以下筛选值是冻结观察对应的私有绑定，
+不让模型填写内部身份、游标或精确时长。引擎的发现请求保存 `product_id: str | null`、
+`business_kind: str | null`、`travel_mode: walking | driving`、`max_travel_seconds: int | null` 与
+`cursor: str | null`，五个字段均必填。
 分页以实际呈现条数为界，返回 `total/returned/returned_places/next_cursor`；游标绑定地图、选区、筛选与起点，
 时间推进或世界版本更新不使同一查询失效。越界或篡改游标明确拒绝，不自动重启首屏。
 道路范围使用分时路线预计秒数。已知超范围、不可达和资料未知分别表达，未知结果保留地点身份与原因。
@@ -362,7 +355,8 @@ ScheduledKind = Literal[
 人物的余额判断和价格排序也使用该入口计算的一份金额。多份请求必须用原始报价、数量和系数重新求整行金额，不能把已取整的一份金额乘以数量。
 原始报价保持正整数分；明确的 `defined` 配对可以有零系数并产生零额付款，仍正常扣供给库存和履约，不能把 `no_effect` 当作零价购买。
 
-购买每行只用 `supply_id`、`quantity`、`price_version`；整单一至五项，同一地点、同一卖方且无重复供给。
+购买的内部结算行使用 `supply_id`、数量和冻结 `price_version`；整单一至五项，
+同一地点、同一卖方且无重复供给。模型只选择公开供给的可读名称和购买动作。
 消费每行仍用 `product_id`、`quantity`。自提必须在所选门店，不要求配送路线；配送按供给支持、范围及路径验证。
 每个订单行调用 `evaluate_purchase(quote.price_fen, quantity, coefficient)`，以 Decimal 对整行乘积向上取整分，形成该行的 `total_price_fen`；整单 `total_price_fen` 为各行金额之和。不得先对单价取整再乘数量。
 报价身份和值保持原声明，付款账户取人物账户、收款账户取供给 `seller_account_id`；品类配对继续校验，禁止静态商品转账边替代。
@@ -494,8 +488,8 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `current_epoch`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `recent_action_results` | 中文场景渲染输入；`day_plan` 为 `{goals:[{intent_kind,progressed}]}`，按清单顺序显示意图与已推进状态，完整目标在 facts 中保留；当前时刻为通用环境事实 |
-| `facts` | `current_time`, `current_epoch`, `location_id`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `recent_action_results` | 工具事实清单；`day_plan` 为完整当日目标对象或 null；空 goals 仍是已提交 |
+| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary` | 中文场景渲染输入；`day_plan` 按清单顺序显示意图与已推进状态；不复制完整执行结果 |
+| `facts` | `current_time`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `interactive_objects`, `progress` | 目标、交互对象和进度的结构化投影；任务与对象使用可读名称；`day_plan` 为完整当日目标对象或 null |
 
 | `scene` 行 | 字段 |
 | --- | --- |
@@ -506,20 +500,24 @@ flowchart LR
 
 | `facts` 行 | 字段 |
 | --- | --- |
-| `people_here` | `person_id`（不透明身份，工具身份锚点）、`name`、`activity_family`、`can_talk` |
-| `contacts` | `contact_id`, `salutation`, `relation`；联系人是本人的通讯录，亲密度、渠道与回复策略是引擎结算内部参数，不进提示 |
-| `inbox` | `id`, `kind`, `sender_id`, `head`, `read`, `created_at` |
-| `tasks` | `task_id`, `title`, `due_at`, `remaining_contract_seconds`, `new_material_ranges` |
-| `products` | 实际呈现的购买供给包含 `supply_id`、`product_id`、商品名称、地点与卖方身份、原始 `price_fen`/`price_version`/`quote`、`purchase_pairing_state`、`purchase_coefficient`、购买一份的 `purchase_price_fen`、供给库存、营业/资格/履约和来源；同次结果已有该供给时可使用 `supply_id/based_on_action_id/changes` 表达当前差异；持有物使用商品身份与商品效果 |
-| `routes` | `destination`, `mode`, `minutes`, `fare`, `feasible` |
+| `people_here` | 可读人物名称、正在做的事、是否可交谈；内部人物身份只在私有绑定和证据中 |
+| `contacts` | 可读联系人名称、称呼、关系；亲密度、渠道与回复策略是引擎结算内部参数，不进提示 |
+| `inbox` | 可读主题、发送人、时间、种类及已读状态；同名邮件以自然语言上下文消歧 |
+| `tasks` | 唯一可读任务名称、截止时刻、剩余合同时间与新揭示材料范围 |
+| `products` | 实际呈现的供给以可读商品和门店名称展示；系统单向提供报价、可购金额、库存、营业、资格、履约和来源；内部供给、商品与报价版本身份只在私有绑定和证据中 |
+| `routes` | 目的地名称、可读出行方式、预计时间、费用、可行性；精确结算值由私有冻结绑定提供 |
 | `day_plan` | `{day_end, goals}`；目标含意图、文字、登记时刻和推进证据；仅跨日后为 null，空目标与就寝后的清单保持可见 |
-| `recent_action_results` | `action_id`, `occurred_at`, `status`, `error_code`, `message`；包含上次观察后全部公开结果，事件顺序，不设条数裁剪；存在工作公开评审时附 `work_review`；旅行终态公开 `arrival` 的实际地点、进入状态、缺少资格和来源 |
+| `interactive_objects` | 唯一可读对象名称、可读动作短语与前置条件；每个对象只列其合法动作 |
+| `progress` | `sessions`、`results`、`alarms`；会话行为 `{task_name, session_name, phase, objective_progress, subjective_progress, subjective_status}`，阶段为自然语言、自述标为「未经核验」；新结果按事件顺序完整回灌一次，期限提醒按任务名呈现 |
+
+`facts.progress.results[]` 的公开字段为 `occurred_at`、`status`、`error_code`、`message`，
+按动作可附 `details` 和 `work_review`。`details` 只包含可读对象或商品名称、份数、实际付款金额、
+到达地点名称与时间、浏览条目名称等语义值；`work_review` 只保留下述公开评审字段。
+动作、事件、订单、商品、供给、会话、路线、报价版本和账户身份不进入模型结果。
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
-供给差异行的 `based_on_action_id` 引用同次公开结果中的完整供给行，`changes` 按键替换原行对应值。
-`null` 是应替换的实际值，不表示删除或省略；嵌套对象整体替换，不能递归合并旧来源或旧报价。
-无变化的当前行不重复呈现。发现与浏览结果优先占用共同供给窗口，当前事实仅补剩余身份名额；
-差异形式必须能还原完整当前比较事实，原始观察及结算证据仍保存完整行。
+原始观察与结算证据保留完整供给身份、版本及比较行。模型投影中同一供给的当前事实与
+本次结果避免重复呈现；发生报价或库存变化时明确告知新值，不要求模型解析内部差异引用。
 
 事件级工具支持行必须包含 `interaction_menu`，字段形状就是当前人物有效的 `InteractionMenu`。
 它与该观察一起冻结并进入观察事件证据，供实际模型请求 Schema、本地决策校验和宿主派发共用；
@@ -589,16 +587,18 @@ scene.local_food_summary 是当前地点餐食的一句中文说明，依据真�
 | 门店供给可见期 | 只覆盖实际呈现的供给；逐供给记录后超过 1800 秒或离开呈现地点失效，人在门店也不能自动授权未呈现供给 |
 | 工作材料单次揭示上限 | 每任务 2000 字符，只揭示自上次决策以来的新读区间 |
 | 收件箱头展示条数 | 3 |
-| 最近动作结果摘要条数 | 不截断；全部新结果受 user 消息整体预算约束 |
-| user 消息字符预算 | 40000 |
-| system 消息字符预算 | 3000 |
-| 场景段落汉字上限 | 800 |
+| 本轮新执行结果 | 全部在进度层回灌一次，不按条数截断 |
+| 完整模型请求容量 | 每次发送前计数 system、工具定义、人物卡片、场景、事实、记忆、历史消息和预留输出 |
+| 进度层浓缩阈值 | 完整请求达到所用模型上下文窗口的 85% |
 | 人物卡片汉字上限 | 600 |
 | 决策自述汉字上限 | 200 |
 
-user、最终 system、场景与人物卡超出预算即运行故障并记录英文错误日志：不截断、不删字段。
-system 在追加权威回合预算块后检查。决策自述的空与超长属于可重试一次的协议错误；
-收件头是展示选择，材料揭示是增量窗口，门店供给可见期是可见性条件，不属于消息预算故障。
+完整请求达到阈值时，先按可读任务名合并 `facts.progress.sessions` 中较旧的终态会话，
+保留每组最新客观结论、自述和会话数；重算仍达阈值时，再合为一条总体历史摘要，
+保留总会话数和最近结论、自述。进行中与暂停会话、当前期限提醒、本轮新结果、
+权威状态和事件不动，也不压缩其他层。浓缩后仍达到阈值或超过输入额度时记录分层 token 用量，
+明确容量故障与英文错误日志。决策自述的空与超长属于可重试一次的协议错误；
+收件头是展示选择，材料揭示是增量窗口，门店供给可见期是可见性条件，不属于容量故障。
 
 工作公开评审只取 `public_work_review` 定义的字段：`accepted`、`required_fact_total`、
 `required_fact_passed`、`required_fact_missing`、`missing_content_categories`、
@@ -663,7 +663,7 @@ ExclusionReason = Literal[
 
 ### 下推返回体
 
-图鉴与下推类工具（当前为 `browse_activities`）的 `action_result.data` 返回体：
+图鉴与下推动作由 `start_activity` 的可读对象与动作发起；对应的 `action_result.data` 返回体：
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -725,13 +725,14 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、
 `interaction_menu`、`interaction_menus_by_location_kind`、`energy_feasibility`、`observation_event_id`、
-`motivation_hints`、`game_catalog`、
+`interaction_bindings`、`motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与
 `profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，
 发现结果只提供实际返回地点和供给的公开事实，不能复制全量地图或世界库存。
 路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、门店供给、库存物品使用合同、
-可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成工具
-身份枚举与公开名称说明，不随提示下发。
+可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成
+私有绑定、可读对象名称与动作短语，不原样进入提示。`facts.interactive_objects[].actions` 是公开的
+对象动作短语闭集，允许进入提示；它不授予读取完整可供性合同或内部状态的权限。
 
 事件级 `inventory_items` 为当前地点正数持有物的使用合同，覆盖在售商品和独立库存物品；
 每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
@@ -1041,7 +1042,16 @@ JSONL 实际每个对象一行；`input.text_field = "evidence"` 使用 LabelKit
 
 ### 窗口声明与字段字典编码
 
-每个输入窗口声明起止、知识截止、活动身份、边界类型与必要前置状态；上下文超限明确失败，不自动裁正文。文字、动作和意图窗口按请求人物核对其 decision/action 组的可见来源；同一不透明标识关联到其他人物时明确拒绝。
+每个输入窗口声明起止、知识截止、活动身份与边界类型；上下文超限明确失败，不自动裁正文。
+动作和意图窗口以同人物、同决策、动作前最后一次实际 `model_request` 的 `messages`、`tools` 和
+模型可见请求参数作为 prompt 权威来源，并以原请求事件身份和 canonical SHA-256 绑定来源索引。
+只提取实际发给生活人物模型的行动请求；工作评审、画像抽取等私有请求不得进入任何训练输入或目标。
+窗口内其他事件只补实际可见事实与可引用来源，不得据结构化观察反推、替换或增加实际 prompt 中没有的
+人物卡片、记忆或场景。动作窗口的 prompt 截止在目标动作前；意图窗口可以读取已发生的公开结果，
+但目标事实仍与输入分开。观察的禁用键必须在字段级投影后才可进入窗口；任何人物的私有响应或
+`reasoning_content` 均不得混入。前置状态与 `events[0].data` 相同时只保存事件引用，不复制整棵状态。
+文字、动作和意图窗口按请求人物核对其 decision/action 组的可见来源；
+同一不透明标识关联到其他人物时明确拒绝。
 
 模型输入统一采用窗口内字段字典表示，普通窗口和真实重执行窗口经过同一编码入口。字典与表示版本始终显式存在，未共享的字段保留原值。仅同一窗口内重复出现的完整字段值可以共享；是否共享按 canonical JSON 的实际字节计算，只有重复原值的总字节大于全部指针与一份字典项的总字节时才选入，整体收益不足以抵消字典项与指针开销时清空字典、保留字段原值，不裁剪任何内容。
 

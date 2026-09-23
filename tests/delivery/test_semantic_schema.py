@@ -53,7 +53,7 @@ def set_value(value, field, replacement):
 
 
 def test_target_only_schema_accepts_the_declared_boundary():
-    schema = json.loads(SCHEMA_PATH.read_text())
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     value = candidate()
     value['target']['claims'] *= 32
     value['target']['claims'][0]['text'] = 'x' * 512
@@ -71,14 +71,14 @@ def test_target_only_schema_accepts_the_declared_boundary():
 @pytest.mark.parametrize('name,value,keyword', invalid_candidates())
 def test_target_only_schema_rejects_each_declared_boundary(name, value, keyword):
     del name
-    errors = list(Draft202012Validator(json.loads(SCHEMA_PATH.read_text())).iter_errors(value))
+    errors = list(Draft202012Validator(json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))).iter_errors(value))
     assert errors
     assert keyword in {error.validator for error in errors}
 
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
 def test_process_projects_use_target_only_schema_without_postprocessor(task):
-    project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+    project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8"))
 
     assert 'postprocessor' not in project['annotate']
     assert project['output']['schema_path'] == 'schemas/semantic-target.json'
@@ -112,7 +112,7 @@ def test_process_projects_use_target_only_schema_without_postprocessor(task):
 def test_all_process_roles_share_one_identical_semantic_and_pointer_contract():
     instructions = []
     for task in ('action', 'intent', 'dreaming'):
-        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8"))
         common = project['annotate']['instruction'].split('仅输出 target 中的', 1)[1]
         instructions.append(common)
         assert 'input.observation_value_encoding 声明字段字典版本和解码后摘要' in common
@@ -124,7 +124,7 @@ def test_all_process_roles_share_one_identical_semantic_and_pointer_contract():
 def test_all_process_roles_share_one_identical_verify_contract():
     criteria = []
     for task in ('action', 'intent', 'dreaming'):
-        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8"))
         criteria.append(project['verify']['extra_criteria'])
         assert '意见对应的要求在任务指令中无明示依据' in project['verify']['extra_criteria']
         assert '该意见不得作为 fail 的依据' in project['verify']['extra_criteria']
@@ -132,7 +132,7 @@ def test_all_process_roles_share_one_identical_verify_contract():
 
 
 def test_dreaming_specific_counterfactual_hypothesis_canon_is_present():
-    dreaming = tomllib.loads((ROOT / 'labelkit-projects/dreaming.toml').read_text())
+    dreaming = tomllib.loads((ROOT / 'labelkit-projects/dreaming.toml').read_text(encoding="utf-8"))
     instruction = dreaming['annotate']['instruction']
     assert '反事实 hypothesis 是明示合格的形态' in instruction
     assert 'evidence_event_ids 只须支持假设条件' in instruction
@@ -143,13 +143,13 @@ def test_dreaming_specific_counterfactual_hypothesis_canon_is_present():
     assert '不得自行设定未出现的整数阈值' in instruction
     assert '评审也不得以近似数值判失败' in instruction
     for task in ('action', 'intent'):
-        other = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+        other = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8"))
         assert '反事实 hypothesis 是明示合格的形态' not in other['annotate']['instruction']
 
 
 @pytest.mark.parametrize('task', ['action', 'intent', 'dreaming'])
 def test_process_prompt_requires_thematic_aggregation_before_output(task):
-    project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text())
+    project = tomllib.loads((ROOT / f'labelkit-projects/{task}.toml').read_text(encoding="utf-8"))
     instruction = project['annotate']['instruction']
 
     assert '先按活动阶段或因果主题合并证据' in instruction
@@ -173,7 +173,7 @@ def test_process_prompt_requires_thematic_aggregation_before_output(task):
 
 
 def test_default_output_limit_is_a_cap_for_bounded_semantic_summary():
-    config = tomllib.loads((ROOT / 'labelkit-projects/config.toml').read_text())
+    config = tomllib.loads((ROOT / 'labelkit-projects/config.toml').read_text(encoding="utf-8"))
 
     assert config['llm']['default']['max_output_tokens'] == 131072
     assert config['llm']['default']['thinking'] == 'disabled'

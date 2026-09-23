@@ -137,34 +137,29 @@ flowchart TB
 
 ```mermaid
 flowchart LR
-    LOCATION[当前位置的地点菜单] --> BOTH[取共同允许的工具和活动类型]
+    LOCATION[当前位置的地点菜单] --> BOTH[取共同允许的活动动作]
     PERSON[人物菜单；null 表示沿用地点菜单] --> BOTH
     BOTH --> STATE[再核对体力、目标、位置与阶段]
     STATE --> ACTION[本轮实际能做的事情]
 ```
 
-例如在一份原有菜单中同时删除工具 `start_targeted_activity` 与活动类型 `watch`，
-会禁止通过该工具开始新内容活动；是否保留其他由此工具承载的工作或生活活动，需要按自己的目标决定。
-若只想限制看视频，可保留工具并仅移除 `watch`，让工作等活动仍能使用它。
+例如从菜单的 `allowed_actions` 中移除 `watch`，人物在该地点就不能发起观看活动；
+工作等其他动作仍按各自的菜单准入判断。场景配置使用稳定的英文动作名，
+模型在本轮交互对象中看到的是“观看”等可读短语。
 
 下面是完整的最小菜单对象，可作为一个地点类或一个人物的 `interaction_menu` 值。
-它只保留必要控制与等待、睡眠；不适合作为需要正常工作和购物的日常场景菜单。
+它只保留等待、睡眠；不适合作为需要正常工作和购物的日常场景菜单。
 
 ```json
 {
-  "allowed_tools": [
-    "start_basic_activity", "plan_day", "revise_day_plan",
-    "set_activity_state", "continue_activity", "change_playback_speed", "game_action"
-  ],
-  "allowed_activity_kinds": ["wait", "sleep"]
+  "allowed_actions": ["wait", "sleep"]
 }
 ```
 
-这些工具和两种活动是必留保护项。数组必须非空、无重复，名称只能来自现有注册表。
-`discover_places`、`purchase`、`send_message` 等是否允许，需要在菜单中显式保留。
-要允许一次启动多个持续活动，在地点与人物实际有效菜单中显式保留
-`start_parallel_activities`，并同时保留每个子项所需启动工具与活动类型。
-菜单控制行动权限；画像偏好只影响选择和排序，两者独立配置。
+`wait` 和 `sleep` 是每份菜单必须保留的自身动作。数组必须非空、无重复，名称只能来自动作闭集。
+菜单只剪裁 `start_activity` 的可选动作；其他工具由工具层按当前阶段与会话状态开放。
+一次最多选择两个交互对象，`targets[]` 与 `actions[]` 按顺序对应；两个动作都必须在有效菜单中，
+引擎还会整体核验并行时的身体、地点和资源条件。菜单控制动作权限；画像偏好只影响选择和排序。
 
 ## 配置工作任务和消息
 

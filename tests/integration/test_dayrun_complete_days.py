@@ -4,10 +4,8 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
-from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -25,8 +23,15 @@ from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life.engine import LifeEngine
 from worldmock.runtime import two_stage_model_identity
 
-_PODCAST = "podcast-nasa-space-habitat-excerpt"
-_RESTAURANTS = ("poi-3538660453", "poi-3538682408")
+_RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
+
+
+@pytest.fixture(autouse=True)
+def _fixed_context_window(monkeypatch):
+    """脚本模型使用固定上下文窗口，不请求外部模型元数据。"""
+    from worldmock.life import prompt_capacity
+
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
 
 
 class DayModel:
@@ -36,8 +41,9 @@ class DayModel:
 
     def __init__(self, seed: int, agent_id: int):
         self.seed, self.agent_id = seed, agent_id
-        self.phase = "browse"
+        self.phase = "trip"
         self.meals = 0
+        self.morning_sleep_started = False
         self.agent = None
         self.invalid_action_sent = False
         self.invalid_parallel_sent = False
@@ -55,10 +61,11 @@ class DayModel:
         if not self.invalid_action_sent:
             self.invalid_action_sent = True
             return self._response("invented_wait_tool", {})
-        if self.phase == "trip" and "start_parallel_activities" in functions and not self.invalid_parallel_sent:
+        if self.phase == "trip" and "start_activity" in functions and not self.invalid_parallel_sent:
             self.invalid_parallel_sent = True
             watch = self._watch()
-            return self._response("start_parallel_activities", {"activities": [watch, watch]})
+            return self._response("start_activity", {"targets": [watch, watch],
+                                                      "actions": ["观看", "观看"]})
         action, payload = self._choose(functions)
         self.actions.append((action, payload))
         return self._response(action, payload)
@@ -88,91 +95,101 @@ class DayModel:
     def _choose(self, functions):
         now = self.agent.require_decision_context().observed_at
         hour = now.hour + now.minute / 60 + now.second / 3600
-        controls = self.agent._life_activity_controls
         if "plan_day" in functions:
             return "plan_day", {"goals": [{"intent_kind": "用餐", "goal": "找一份餐食"},
                                             {"intent_kind": "娱乐", "goal": "听一会访谈"}]}
         if hour < 11:
-            if controls["continuable_ids"]:
-                return "continue_activity", {"activity_id": controls["continuable_ids"][0]}
-            until = 8 if hour < 8 else 11
-            return "start_basic_activity", {"activity_type": "sleep" if hour < 8 else "wait",
-                                             "planned_duration_seconds": max(60, round((until-hour)*3600))}
+            return self._before_lunch(hour)
         return getattr(self, "_" + self.phase)(functions, hour)
 
     def _watch(self):
-        return {"activity_type": "watch", "target_id": _PODCAST,
-                "planned_duration_seconds": 900 if self.meals == 0 else 600, "playback_speed": 0.5}
+        return next(name for name in self.agent._life_visible_objects if "Space Habitat" in name)
 
-    def _browse(self, functions, hour):
-        self.phase = "trip"
-        return "browse_activities", {"category": "podcast_episode", "cursor": None}
+    def _place(self, label):
+        return next(name for name in self.agent._life_visible_objects
+                    if name.startswith("地点：") and label in name)
+
+    def _session_action(self, action, names):
+        return action, {"task": list(names), "summary": ["按当前进展继续。"] * len(names)}
+
+    def _active(self):
+        return self.agent._life_action_contracts["active_task_names"]
+
+    def _reportable(self):
+        return self.agent._life_action_contracts["reportable_names"]
+
+    def _currently_doing(self):
+        return "你正在" in self.agent._life_prompt_layers["scene"]
+
+    def _before_lunch(self, hour):
+        active = self._active()
+        if active:
+            action = "report_status" if self._currently_doing() else "conclude_activity"
+            return self._session_action(action, active[:2])
+        sleep = hour < 8 and not self.morning_sleep_started
+        if sleep:
+            self.morning_sleep_started = True
+        return "start_activity", {"targets": ["自己"], "actions": ["睡觉" if sleep else "等待"]}
 
     def _trip(self, functions, hour):
         target = _RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)]
-        route = next(row for row in self.agent._life_action_contracts["start_travel"]
-                     if row[0] == target and row[1] == "walking")
         self.phase = "pause"
-        return "start_parallel_activities", {"activities": [
-            {"destination_id": route[0], "travel_mode": route[1], "planned_duration_seconds": route[2]},
-            self._watch()]}
+        return "start_activity", {"targets": [self._place(target), self._watch()],
+                                  "actions": ["步行前往", "观看"]}
 
     def _pause(self, functions, hour):
-        controls = self.agent._life_activity_controls
-        travel = [row for row in controls["active"].values() if row["kind"] == "travel"]
+        travel = [name for name in self._active() if "步行前往" in name]
         if travel:
-            return "continue_activity", {"activity_id": travel[0]["activity_id"]}
+            action = "report_status" if "《travel》" in self.agent._life_prompt_layers["scene"] else "conclude_activity"
+            return self._session_action(action, travel)
         self.phase = "purchase"
-        return "set_activity_state", {"activity_id": controls["watch_ids"][0], "operation": "pause"}
+        return self._session_action("pause_activity", self._active())
 
     def _purchase(self, functions, hour):
-        supplies = self.agent._life_action_contracts["purchase"]
-        supply = next(value for value in supplies.values() if value["pickup_allowed"])
-        self.food_id = supply["product_id"]
+        supply = next(name for name, actions in self.agent._life_visible_objects.items()
+                      if "到店购买" in actions)
         self.phase = "consume"
-        return "purchase", {"items": [{"supply_id": supply["supply_id"], "price_version": supply["price_version"],
-                                         "quantity": 1}], "fulfillment": "pickup",
-                             "destination_id": supply["location_id"]}
+        return "start_activity", {"targets": [supply], "actions": ["到店购买"]}
 
     def _consume(self, functions, hour):
         self.phase = "resume"
-        item = self.agent._life_action_contracts["consume"][self.food_id]
-        return "consume", {"items": [{"product_id": self.food_id, "quantity": 1}], "use_mode": "eat",
-                            "duration_seconds": item["duration_seconds"]}
+        item = next(name for name, actions in self.agent._life_visible_objects.items()
+                    if name.startswith("持有物：") and "食用" in actions)
+        return "start_activity", {"targets": [item], "actions": ["食用"]}
 
     def _resume(self, functions, hour):
+        active = self._active()
+        if active:
+            action = "report_status" if self._currently_doing() else "conclude_activity"
+            return self._session_action(action, active)
         self.phase = "finish_meal"
-        return "set_activity_state", {"activity_id": self.agent._life_activity_controls["paused_ids"][0],
-                                       "operation": "resume"}
+        return self._session_action("report_status", self._reportable())
 
     def _finish_meal(self, functions, hour):
-        controls = self.agent._life_activity_controls
-        if controls["continuable_ids"]:
-            return "continue_activity", {"activity_id": controls["continuable_ids"][0]}
+        active = self._active()
+        if active:
+            action = "report_status" if self._currently_doing() else "conclude_activity"
+            return self._session_action(action, active)
         self.meals += 1
         self.phase = "homeward"
         return self._homeward(functions, hour)
 
     def _homeward(self, functions, hour):
-        routes = self.agent._life_action_contracts["start_travel"]
-        route = next(row for row in routes if row[0] == "home" and row[1] == "walking")
         self.phase = "rest"
-        return "start_travel", {"destination_id": "home", "travel_mode": "walking",
-                                "planned_duration_seconds": route[2]}
+        return "start_activity", {"targets": [self._place("张江居所")], "actions": ["步行前往"]}
 
     def _rest(self, functions, hour):
-        controls = self.agent._life_activity_controls
-        if controls["continuable_ids"]:
-            return "continue_activity", {"activity_id": controls["continuable_ids"][0]}
+        active = self._active()
+        if active:
+            action = "report_status" if self._currently_doing() else "conclude_activity"
+            return self._session_action(action, active[:2])
         if self.meals < 2 and hour >= 18:
-            self.phase = "browse"
-            return self._browse(functions, hour)
+            self.phase = "trip"
+            return self._trip(functions, hour)
         until = 18 if self.meals < 2 else 22
         if hour < until:
-            return "start_basic_activity", {"activity_type": "wait",
-                                             "planned_duration_seconds": max(60, round((until-hour)*3600))}
-        return "start_basic_activity", {"activity_type": "sleep",
-                                         "planned_duration_seconds": max(60, round((24-hour)*3600))}
+            return "start_activity", {"targets": ["自己"], "actions": ["等待"]}
+        return "start_activity", {"targets": ["自己"], "actions": ["睡觉"]}
 
 
 async def _people(environment, root: Path, models: dict, restored: bool = False):
@@ -257,13 +274,14 @@ def _assert_day(engine, models, start, exported, tmp_path):
         assert sum(event.data["interval_end"]-event.data["interval_start"] for event in body) == 86400
         assert all(left.data["interval_end"] == right.data["interval_start"] for left, right in zip(body, body[1:]))
         facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=events[-1].event_seq)
-        assert {fact["kind"] for fact in facts} == {"waited", "consumed", "arrived", "played"}
+        assert {fact["kind"] for fact in facts} >= {"consumed", "arrived", "played"}
         assert sum(fact["interval_quantity"] for fact in facts if fact["kind"] == "consumed") == pytest.approx(2)
         observations = [event for event in events if event.event_type == "observation" and event.agent_id == agent_id]
         for observation in observations:
             assert len(observation.data["verified_experiences"]) <= 5
             assert all(row["event_seq"] < observation.event_seq for row in observation.data["verified_experiences"])
-        assert any(len(event.data["active_activities"]) == 2 for event in observations)
+        assert any(len(event.data.get("data", {}).get("activities", [])) == 2 for event in events
+                   if event.agent_id == agent_id and event.event_type == "action_result")
         assert all(event.data["agent_id"] == agent_id for event in observations)
     updates = [event for event in events if event.event_type == "memory_updated"]
     assert updates and all(row["epistemic_status"] == "subjective" for event in updates

@@ -12,17 +12,18 @@ from agentsociety2.society import DirectToolCall
 
 import worldmock.life.engine as engine_module
 from tests.life.conftest import advance_next, context
-from tests.life.test_export_integration import _stage_final_interval
+from tests.life.test_export_integration import _stage_final_interval, _wait_request
 from tests.life.test_work_review import (
     _at_task_start,
     _complete_required_work,
     _paraphrased_submission,
+    _public_submission,
 )
 from worldmock.errors import ProtocolError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import StartActivityRequest
+from worldmock.life.models import ReportStatusRequest
 
 
 class SequenceReviewer:
@@ -123,7 +124,9 @@ def _stage_submission(engine, reviewer: SequenceReviewer, round_id: str):
     reviewer.run_dir = engine.store.run_dir
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
-    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _paraphrased_submission())
+    engine.observe(ctx)
+    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work",
+                          _public_submission(engine, _paraphrased_submission()))
     engine.submit_action(call)
     return call
 
@@ -303,19 +306,31 @@ async def test_response_persistence_failure_stops_before_correction(engine_facto
 
 def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dict]:
     """将当前真实引擎推进至终点并返回认证导出及质量报告。"""
-    _stage_final_interval(engine, 60)
+    _stage_final_interval(engine, engine.scenario.activity_feedback_seconds)
     ctx = context(engine, "review-export-end")
     engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
+    observation = engine.observe(ctx)
+    request = _wait_request(observation)
     engine.submit_action(DirectToolCall(ctx, "review-export-wait", "start_activity", request))
-    engine.commit_decision_round("review-export-end")
-    advance_next(engine)
+    started = engine.commit_decision_round("review-export-end")[0]
+    session = next(item for item in engine.state.sessions.values()
+                   if started.activity_id in item.activity_ids)
+    while engine.state.current_time < engine.state.end_time:
+        if engine.scheduling_state().ready_agent_ids:
+            ctx = context(engine, f"review-export-progress-{engine.state.current_time}")
+            engine.begin_decision_round([ctx])
+            engine.observe(ctx)
+            engine.submit_action(DirectToolCall(ctx, f"review-export-report-{engine.state.current_time}",
+                                                "report_status", ReportStatusRequest(
+                                                    task=[session.session_name], summary=["继续等待。"])))
+            engine.commit_decision_round(ctx.round_id)
+        else:
+            advance_next(engine)
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "review_protocol_export"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     export_run(engine.store, checkpoint.last_event_seq, destination)
     manifest, events, _ = validate_export(destination)
-    quality = json.loads((destination / "quality.json").read_text())
+    quality = json.loads((destination / "quality.json").read_text(encoding="utf-8"))
     return manifest, events, quality
 
 

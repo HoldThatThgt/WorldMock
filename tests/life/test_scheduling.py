@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -17,10 +18,9 @@ from worldmock.life.models import (
     ModelIdentity,
     PurchaseOrderRequest,
     RunIdentity,
-    ScheduledEvent,
     ScheduledKind,
 )
-from worldmock.life.scenario import LifeScenario, PriceChangeConfig, RuntimeScenario
+from worldmock.life.scenario import LifeScenario, PriceChangeConfig
 from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
 from worldmock.scheduling.compile import compile_schedule
 from tests.life.conftest import advance_next
@@ -29,40 +29,17 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _DUE_TEXT = "2026-01-05T10:00:00+08:00"
 
 
-def _legacy_initial_events(scenario: RuntimeScenario, start: int, end: int) -> list[ScheduledEvent]:
-    """提取前的 engine._initial_events 原文（HEAD b5e2d4b），作为等价对照基准。"""
-    rows = []
-    for message in scenario.messages:
-        due = int(message.sent_at.timestamp())
-        if start < due < end:
-            rows.append((due, message.recipient_agent_id, ScheduledKind.MAIL_ARRIVAL,
-                         {"message_id": message.message_id}, f"mail-{message.message_id}"))
-    for task in scenario.tasks:
-        due = int(task.available_at.timestamp())
-        if start < due < end:
-            for agent in scenario.agents:
-                rows.append((due, agent.agent_id, ScheduledKind.WORK_AVAILABLE,
-                             {"task_id": task.task_id}, f"work-{task.task_id}-{agent.agent_id}"))
-        deadline = int(task.due_at.timestamp())
-        if start < deadline <= end:
-            rows.append((deadline, None, ScheduledKind.TASK_EXPIRED,
-                         {"task_id": task.task_id}, f"expired-{task.task_id}"))
-    rows.sort(key=lambda row: (row[0], row[4]))
-    return [ScheduledEvent(scheduled_id=row[4], kind=row[2], due_at=row[0], sequence=index,
-                           agent_id=row[1], data=row[3]) for index, row in enumerate(rows, start=1)]
-
-
 def _document(base_name: str) -> dict:
     """读入正式场景文档的可变深拷贝。"""
     return json.loads((_PROJECT_ROOT / "scenarios" / base_name).read_text(encoding="utf-8"))
 
 
 def _write_scenario(document: dict, tmp_path: Path) -> Path:
-    """把改写文档落盘到带目录符号链接的隔离结构中并返回路径。"""
+    """把改写文档与冻结目录复制到隔离结构中并返回路径。"""
     document["corpus_root"] = str(_PROJECT_ROOT / "corpora")
     scenarios = tmp_path / "scenarios"
     scenarios.mkdir(parents=True)
-    (tmp_path / "catalog").symlink_to(_PROJECT_ROOT / "catalog")
+    shutil.copytree(_PROJECT_ROOT / "catalog", tmp_path / "catalog")
     path = scenarios / "custom.json"
     path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
     return path
@@ -156,32 +133,21 @@ def _midnight_epoch(date_text: str, timezone: str) -> int:
 # ---------------------------------------------------------------------------
 
 
-def test_default_scenario_compilation_matches_legacy_algorithm() -> None:
-    """缺省场景（无可选段）编译结果与提取前算法逐条一致。
-
-    v2 正式场景补入发薪/房租预排段（docs/dev/SPEC-life-realism.md「文件修改清单与实施顺序」）：docs/design/04-simulation-engine.md「预排事件」五种新事件不参与
-    与提取前算法（HEAD b5e2d4b）的等价对照，先剔除再比对；邮件/任务/日历旗标
-    行为不变。
-    """
-    optional_kinds = {ScheduledKind.BILL_DUE, ScheduledKind.PAYROLL,
-                      ScheduledKind.PRICE_CHANGE, ScheduledKind.PRODUCT_RELEASE, ScheduledKind.SUPPLY_QUOTE_CHANGE}
-    for name, calendar_flags in (("multi-person.json", 0), ("white-collar-12-weeks.json", 16)):
+def test_work_availability_reaches_only_the_assigned_person() -> None:
+    """工作合同到期前只向场景指定的人物发布一次。"""
+    for name in ("multi-person.json", "white-collar-12-weeks.json"):
         semantics, _ = load_runtime_scenario(_PROJECT_ROOT / "scenarios" / name)
         scenario = semantics.scenario
         start = int(scenario.start_at.timestamp())
         end = int(scenario.end_at.timestamp())
-        legacy = _legacy_initial_events(scenario, start, end)
         compiled = compile_schedule(scenario, start, end)
-        non_calendar = [item for item in compiled
-                        if item.kind != ScheduledKind.CALENDAR_FLAG
-                        and item.kind not in optional_kinds]
-        assert len(compiled) - len(non_calendar) == calendar_flags + sum(
-            1 for item in compiled if item.kind in optional_kinds)
-        assert [item.model_dump(exclude={"sequence"}) for item in non_calendar] == \
-            [item.model_dump(exclude={"sequence"}) for item in legacy]
-        if calendar_flags == 0:
-            assert [item.model_dump() for item in compiled] == \
-                [item.model_dump() for item in legacy]
+        available = [event for event in compiled if event.kind == ScheduledKind.WORK_AVAILABLE]
+        for task in scenario.tasks:
+            matches = [event for event in available if event.data["task_id"] == task.task_id]
+            expected_count = int(start < int(task.available_at.timestamp()) < end)
+            assert len(matches) == expected_count
+            if matches:
+                assert matches[0].agent_id == int(task.assignee_agent_id.removeprefix("agent:"))
 
 
 def test_calendar_flags_compile_at_local_midnight() -> None:

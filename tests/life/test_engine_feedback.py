@@ -1,4 +1,4 @@
-"""活动反馈、反应时钟、到期事件与生命周期闭环测试。"""
+"""人物可读动作的反馈、会话控制、业务拒绝与共同调度验收。"""
 
 from __future__ import annotations
 
@@ -9,312 +9,136 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context, wake_by_mail
-from worldmock.errors import ProtocolError
+from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, wake_by_mail
+from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
-    ActivityStatus,
-    ContinueActivityRequest,
-    PlanDayRequest,
-    SetActivityStateRequest,
-    StartActivityRequest,
+    ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, PendingAction,
+    ReportStatusRequest, StartActivityRequest,
 )
 
 
-def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
-    """登记空目标前排定真实邮件事件，让活动控制仍在精确反馈边界发生。"""
-    for offset in offsets:
-        wake_by_mail(engine, offset=offset)
-    return PlanDayRequest(goals=())
-
-
 def _observed_action(engine, round_id: str, tool_name: str, request):
-    """按真实顺序观察、登记并结算单人物动作。"""
-    ctx = context(engine, round_id)
-    engine.begin_decision_round([ctx])
-    observation = engine.observe(ctx)
-    action_id = f"action-{round_id}"
-    engine.submit_action(DirectToolCall(ctx, action_id, tool_name, request))
-    return observation, engine.commit_decision_round(round_id)[0]
+    """@brief 按真实顺序观察、登记并结算单人物动作。"""
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool_name, request))
+    return observed, engine.commit_decision_round(round_id)[0]
 
 
-def _stage_time(engine, epoch: int, pending_events=None) -> None:
-    """为专项边界把隔离夹具移到明确时刻，不改变账户或生产目录。"""
-    staged = engine.state.model_copy(deep=True)
-    staged.current_time = epoch
-    staged.pending_events = list(staged.pending_events if pending_events is None else pending_events)
-    for agent_id, agent in staged.agents.items():
-        staged.agents[agent_id] = agent.model_copy(
-            update={"next_decision_at": epoch, "body_settled_at": epoch}, deep=True)
-    staged.version += 1
-    event = EventDraft(event_type="environment_event", occurred_at=epoch, visibility="system",
-                       source_kind="scenario", data={"kind": "test_clock_position"})
-    engine.store.commit(staged.model_dump(mode="json"), [event])
-    engine.state = staged
+def _start_visible_action(engine, round_id: str, canonical_action: str):
+    """@brief 从本轮冻结对象菜单选择人物可读的合法动作。"""
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    choice = next((row, action) for row in observed["interaction_bindings"]
+                  for action in row["actions"] if action["canonical_action"] == canonical_action)
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
+    return observed, engine.commit_decision_round(round_id)[0]
 
 
-def test_continue_feedback_keeps_slot_and_terminal_result_links_origin(engine_factory) -> None:
-    """长活动在唤醒点显式继续，最终结果回链最初动作且区间不重复。
-
-    静默反馈边界不自动提供决策；真实邮件到达提供继续决策的机会。
-    """
+def test_pause_report_resume_and_conclude_use_current_task_name(engine_factory):
+    """暂停保留已投入时段，逐项播报恢复原活动，结束只触及选中会话。"""
     engine = engine_factory()
-    started = engine.state.current_time
-    _observed_action(engine, "plan", "plan_day",
-                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
-    advance_next(engine)
-    assert engine.state.current_time == started + 900
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=2000)
-    _, result = _observed_action(engine, "long-wait", "start_activity", request)
-    activity_id = result.activity_id
-    assert engine.state.agents[1].next_decision_at == started + 1800
+    stage_day_plan(engine)
+    for offset in (60, 120, 180):
+        wake_by_mail(engine, offset=offset)
+    _, started = _start_visible_action(engine, "start-wait", "wait")
+    assert started.status == "in_progress", started.error_code
+    session = next(item for item in engine.state.sessions.values() if item.activity_ids == [started.activity_id])
 
-    advance_next(engine)
-    assert engine.state.activities[activity_id].elapsed_seconds == 900
-    first = ContinueActivityRequest(activity_id=activity_id)
-    before = engine.state.current_time
-    observation, result = _observed_action(engine, "continue-one", "continue_activity", first)
-    assert observation["active_activities"][0]["elapsed_seconds"] == 900
-    assert engine.state.current_time == before
-    assert result.status == "completed"
-    assert engine.state.activities[activity_id].status == ActivityStatus.ACTIVE
+    assert advance_until_ready(engine)
+    _, paused = _observed_action(engine, "pause-wait", "pause_activity",
+                                 PauseActivityRequest(task=[session.task_name], summary=["先处理来信"]))
+    assert paused.status == "completed", paused.error_code
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.PAUSED
+    assert engine.state.sessions[session.session_id].progress_note == "先处理来信"
 
-    advance_next(engine)
-    _observed_action(engine, "continue-two", "continue_activity", first)
-    advance_next(engine)
-    activity = engine.state.activities[activity_id]
-    assert activity.status == "completed" and activity.elapsed_seconds == 2000
-    assert engine.state.processed_actions["action-long-wait"].result["status"] == "completed"
+    assert advance_until_ready(engine)
+    _, reported = _observed_action(engine, "resume-wait", "report_status",
+                                   ReportStatusRequest(task=[session.task_name], summary=["继续休息"]))
+    assert reported.status == "completed", reported.error_code
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.state.sessions[session.session_id].progress_note == "继续休息"
+
+    assert advance_until_ready(engine)
+    _, concluded = _observed_action(engine, "conclude-wait", "conclude_activity",
+                                    ConcludeActivityRequest(task=[session.task_name],
+                                                            summary=["休息结束"]))
+    assert concluded.status == "completed", concluded.error_code
+    assert engine.state.sessions[session.session_id].status == "concluded"
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.CANCELLED
+
+
+def test_terminal_feedback_keeps_original_action_identity(engine_factory):
+    """自然结束仍把终态回链到最初的 start_activity 动作。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, started = _start_visible_action(engine, "timed-wait", "wait")
+    assert started.status == "in_progress", started.error_code
+    while engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE:
+        advance_next(engine)
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.COMPLETED
+    assert engine.state.processed_actions["action-timed-wait"].result["status"] == "completed"
     terminal = [event for event in engine.store.read_agent_events("action_result", 1)
-                if event.action_id == "action-long-wait"][-1]
+                if event.action_id == "action-timed-wait"][-1]
     requested = [event for event in engine.store.read_agent_events("action_requested", 1)
-                 if event.action_id == "action-long-wait"][0]
-    assert terminal.activity_id == activity_id
-    assert terminal.decision_id == "decision-long-wait-1"
+                 if event.action_id == "action-timed-wait"][0]
+    assert terminal.activity_id == started.activity_id
     assert requested.event_id in terminal.caused_by
 
 
-def test_feedback_boundary_compatible_watch_runs_alongside_wait(
-    engine_factory,
-) -> None:
-    """唤醒边界直接提交观看时，等待保留自己的进度并同步继续。"""
+def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
+    """对象不存在属于可恢复业务反馈；下一轮进度层公开原因。"""
     engine = engine_factory()
-    _observed_action(engine, "plan", "plan_day",
-                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
-    advance_next(engine)
-    _, started = _observed_action(
-        engine, "switch-wait", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=2700))
-    wait_id = started.activity_id
-    advance_next(engine)
-
-    observation, switched = _observed_action(
-        engine, "switch-watch", "start_activity",
-        StartActivityRequest(
-            activity_type="watch", target_id="sintel-en-subtitles",
-            planned_duration_seconds=600, playback_speed=1))
-    watch_id = switched.activity_id
-    assert switched.status == "in_progress"
-    assert observation["active_activities"][0]["activity_id"] == wait_id
-    parallel_wait = engine.state.activities[wait_id]
-    assert parallel_wait.status == "active" and parallel_wait.elapsed_seconds == 900
-    assert "auto_paused_activity" not in switched.data
-    watch = engine.state.activities[watch_id]
-    assert watch.kind.value == "watch" and watch.status == ActivityStatus.ACTIVE
-
-    while engine.state.activities[watch_id].status == ActivityStatus.ACTIVE:
-        advance_until_ready(engine)
-    finished_watch = engine.state.activities[watch_id]
-    assert finished_watch.status == ActivityStatus.COMPLETED
-    assert finished_watch.elapsed_seconds == 600
-    assert finished_watch.media_position_seconds == 600
-    assert engine.state.activities[wait_id].status == "active"
-    _observed_action(engine, "switch-continue", "continue_activity",
-                     ContinueActivityRequest(activity_id=wait_id))
-    assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
-    assert engine.state.activities[wait_id].elapsed_seconds > 900
-
-    while engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
-        advance_until_ready(engine)
-        if engine.state.activities[wait_id].status == ActivityStatus.ACTIVE:
-            _observed_action(
-                engine, f"switch-continue-{engine.state.current_time}",
-                "continue_activity", ContinueActivityRequest(activity_id=wait_id))
-    final_wait = engine.state.activities[wait_id]
-    assert final_wait.status == ActivityStatus.COMPLETED
-    assert final_wait.elapsed_seconds == 2700
-
-
-def test_game_feedback_boundary_rejects_resource_conflict(engine_factory) -> None:
-    """游戏占用位置，直接提交等待被资源冲突拒绝。"""
-    engine = engine_factory()
-    _, started = _observed_action(
-        engine, "game-start", "start_activity",
-        StartActivityRequest(
-            activity_type="play_game", target_id="textworld-1201",
-            planned_duration_seconds=3600, playback_speed=1))
-    assert started.status == "in_progress"
-    advance_next(engine)
+    stage_day_plan(engine)
     _, rejected = _observed_action(
-        engine, "game-switch", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
-    assert rejected.status == "rejected"
-    assert rejected.error_code == "RESOURCE_CONFLICT"
-    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
-
-
-def test_pause_resume_and_cancel_preserve_progress_and_origin_result(engine_factory) -> None:
-    """暂停不结算未来区间，恢复后继续，取消终结最初动作并保留已完成进度。
-
-    暂停、恢复、取消都发生在真实邮件到达的唤醒边界。
-    """
-    engine = engine_factory()
-    _observed_action(engine, "plan", "plan_day",
-                     _goals_with_wake_events(engine, (900, 1800, 2700, 3600, 4500)))
+        engine, "unknown-object", "start_activity",
+        StartActivityRequest(targets=["不存在的对象"], actions=["观看"]))
+    assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time + 1
     advance_next(engine)
-    _, started = _observed_action(
-        engine, "pausable", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=2700))
-    activity_id = started.activity_id
-    advance_next(engine)
-    pause = SetActivityStateRequest(activity_id=activity_id, operation="pause")
-    _observed_action(engine, "pause", "set_activity_state", pause)
-    assert engine.state.activities[activity_id].status == "paused"
-    assert engine.state.activities[activity_id].elapsed_seconds == 900
-
-    advance_until_ready(engine)
-    resume = SetActivityStateRequest(activity_id=activity_id, operation="resume")
-    _observed_action(engine, "resume", "set_activity_state", resume)
-    advance_until_ready(engine)
-    cancel = SetActivityStateRequest(activity_id=activity_id, operation="cancel")
-    _observed_action(engine, "cancel", "set_activity_state", cancel)
-    activity = engine.state.activities[activity_id]
-    assert activity.status == "cancelled" and activity.elapsed_seconds == 1800
-    assert engine.state.processed_actions["action-pausable"].result["status"] == "cancelled"
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
-                if event.action_id == "action-pausable"][-1]
-    cancel_request = [event for event in engine.store.read_agent_events("action_requested", 1)
-                      if event.action_id == "action-cancel"][0]
-    assert cancel_request.event_id in terminal.caused_by
-
-
-def test_rejection_waits_one_second_and_next_observation_reports_once(engine_factory) -> None:
-    """业务拒绝经一秒边界再反馈，人物观察到稳定原因且下一观察不重复旧结果。"""
-    engine = engine_factory()
-    now = engine.state.current_time
-    _, rejected = _observed_action(
-        engine, "missing-content", "start_activity",
-        StartActivityRequest(
-            activity_type="watch", target_id="missing-content",
-            planned_duration_seconds=60, playback_speed=1))
-    assert rejected.status == "rejected" and rejected.error_code == "CONTENT_NOT_FOUND"
-    assert engine.state.agents[1].next_decision_at == now + 1
-    assert engine.scheduling_state().ready_agent_ids == ()
-    advance_next(engine)
-
-    ctx = context(engine, "after-reject")
-    engine.begin_decision_round([ctx])
-    first = engine.observe(ctx)
-    assert first["observation_event_id"]
-    assert [(item["action_id"], item["error_code"]) for item in first["recent_action_results"]] == [
-        ("action-missing-content", "CONTENT_NOT_FOUND")]
-    assert first["facts"]["recent_action_results"][0]["error_code"] == "CONTENT_NOT_FOUND"
-    repeated = engine.observe(ctx)
-    assert repeated["recent_action_results"] == []
-    assert repeated["facts"]["recent_action_results"] == []
-    assert repeated["scene"]["recent_action_results"] == []
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    engine.submit_action(DirectToolCall(ctx, "recovered", "start_activity", request))
-    engine.commit_decision_round("after-reject")
+    decision = context(engine, "after-rejection")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    assert observed["facts"]["progress"]["results"][0]["error_code"] == "ACTION_REQUEST_INVALID"
+    choice = next((row, action) for row in observed["interaction_bindings"]
+                  for action in row["actions"] if action["canonical_action"] == "wait")
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
+    assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"
     assert engine.state.agents[1].consecutive_rejections == 0
 
 
-def test_tenth_consecutive_rejection_fails_agent_and_run(engine_factory) -> None:
-    """连续拒绝预算耗尽形成失败结果和运行失败，不替人物选择任何活动。"""
+def test_tenth_consecutive_rejection_delays_retry_without_failing_run(engine_factory, monkeypatch):
+    """连续业务拒绝进入冷却，人物仍可在下一决策边界选择。"""
     engine = engine_factory()
-    result = None
-    for index in range(10):
-        _, result = _observed_action(
-            engine, f"reject-{index}", "start_activity",
-            StartActivityRequest(
-                activity_type="watch", target_id="missing-content",
-                planned_duration_seconds=60, playback_speed=1))
-        if index < 9:
-            assert result.status == "rejected"
-            advance_next(engine)
-    assert result.status == "failed"
-    assert engine.state.agents[1].decision_failed is True
-    assert engine.state.activities == {}
-    assert engine.scheduling_state().ready_agent_ids == ()
-    failures = [event for event in engine.store.read_events(engine.store.last_event_seq)
-                if event.event_type == "run_failed"]
-    assert len(failures) == 1 and failures[0].data["error_type"] == "DecisionFailure"
+    staged = engine.state.model_copy(deep=True)
+    staged.agents[1].consecutive_rejections = engine.scenario.max_consecutive_rejections - 1
+    pending = PendingAction(
+        run_id=staged.run_id, round_id="reject-limit", decision_id="decision-reject-limit",
+        action_id="action-reject-limit", agent_id=1, observed_at=staged.current_time,
+        world_state_version=staged.version, order=0, tool_name="start_activity",
+        request={}, request_sha256="0" * 64, requested_event_id="request-reject-limit")
+
+    def reject(*_args):
+        """@brief 在领域边界稳定产生一次业务拒绝。"""
+        raise BusinessRuleError("ACTION_REQUEST_INVALID")
+
+    monkeypatch.setattr(engine, "_dispatch", reject)
+    changed, result, drafts = engine._resolve(staged, pending)
+    assert result.status == "rejected"
+    assert changed.agents[1].consecutive_rejections == engine.scenario.max_consecutive_rejections
+    assert changed.agents[1].next_decision_at == (
+        staged.current_time + engine.scenario.activity_feedback_seconds)
+    assert [event.event_type for event in drafts] == ["action_rejected", "action_result"]
 
 
-def test_task_expiry_advances_during_sleep_without_forcing_wake(engine_factory) -> None:
-    """睡眠跨过任务截止时只处理一次到期事实，人物仍睡到计划结束。"""
-    engine = engine_factory()
-    task = engine.scenario.tasks[0]
-    due = int(task.due_at.timestamp())
-    expiry = next(event for event in engine.state.pending_events
-                  if event.scheduled_id == f"expired-{task.task_id}")
-    _stage_time(engine, due - 600, [expiry])
-    _, result = _observed_action(
-        engine, "sleep-over-due", "start_activity",
-        StartActivityRequest(activity_type="sleep", planned_duration_seconds=3600))
-    activity_id = result.activity_id
-    advance_next(engine)
-    assert engine.state.current_time == due
-    assert engine.state.activities[activity_id].status == "active"
-    assert engine.scheduling_state().ready_agent_ids == ()
-    expired = [event for event in engine.store.read_events(engine.store.last_event_seq)
-               if event.data.get("kind") == "task_expired"]
-    assert len(expired) == 1 and expired[0].data["task_id"] == task.task_id
-    advance_next(engine)
-    assert engine.state.activities[activity_id].status == "completed"
-    assert len([event for event in engine.store.read_events(engine.store.last_event_seq)
-                if event.data.get("kind") == "task_expired"]) == 1
-
-
-def test_paused_activity_is_truncated_at_end_with_original_action_identity(engine_factory) -> None:
-    """实验终点截断暂停活动，并把终态写回最初动作而非暂停控制动作。"""
-    engine = engine_factory()
-    end = engine.state.end_time
-    _stage_time(engine, end - 2000, [])
-    _observed_action(engine, "end-plan", "plan_day",
-                     _goals_with_wake_events(engine, (1000, 1200, 1400, 1450, 1550)))
-    advance_next(engine)
-    _, started = _observed_action(
-        engine, "end-wait", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=1800))
-    activity_id = started.activity_id
-    advance_until_ready(engine)
-    _observed_action(
-        engine, "end-pause", "set_activity_state",
-        SetActivityStateRequest(activity_id=activity_id, operation="pause"))
-    advance_until_ready(engine)
-    remaining = end - engine.state.current_time
-    _observed_action(
-        engine, "end-sleep", "start_activity",
-        StartActivityRequest(activity_type="sleep", planned_duration_seconds=remaining))
-    while engine.scheduling_state().next_event_at is not None:
-        advance_next(engine)  # 睡眠期间的静默 tick 一路推进到实验终点
-    activity = engine.state.activities[activity_id]
-    assert activity.status == "truncated" and activity.ended_at == end
-    assert activity.interruption_reason == "experiment_end"
-    assert activity.elapsed_seconds == 200
-    stored = engine.state.processed_actions["action-end-wait"].result
-    assert stored["status"] == "cancelled"
-    assert stored["data"]["activity"]["interruption_reason"] == "experiment_end"
-    terminal = [event for event in engine.store.read_agent_events("action_result", 1)
-                if event.action_id == "action-end-wait"][-1]
-    assert terminal.occurred_at == end and terminal.activity_id == activity_id
-    assert terminal.data["activity"]["interruption_reason"] == "experiment_end"
-
-
-def test_contexts_must_follow_seeded_scheduling_order(engine_factory) -> None:
-    """共同轮使用已公布的种子顺序，不能由调用方传入相反次序覆盖。"""
+def test_contexts_must_follow_seeded_scheduling_order(engine_factory):
+    """@brief 共同轮使用已公布的种子顺序，不能传入相反次序覆盖。"""
     engine = engine_factory("multi-person.json")
     scheduled = engine.scheduling_state().ready_agent_ids
     assert set(scheduled) == {1, 2}
@@ -324,7 +148,7 @@ def test_contexts_must_follow_seeded_scheduling_order(engine_factory) -> None:
 
 
 def _stage_random_seed(engine, seed: int) -> None:
-    """把同一版本的竞争夹具绑定到一个明确随机种子。"""
+    """@brief 把同一版本的竞争夹具绑定到一个明确随机种子。"""
     staged = engine.state.model_copy(deep=True)
     staged.random_seed = seed
     staged.random_state = hashlib.sha256(f"random:{seed}".encode()).hexdigest()
@@ -336,8 +160,8 @@ def _stage_random_seed(engine, seed: int) -> None:
     engine.state = staged
 
 
-def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factory) -> None:
-    """不同冻结种子可改变同秒竞争顺序，共同检查点恢复后顺序完全一致。"""
+def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factory):
+    """@brief 不同冻结种子改变同秒竞争顺序，共同检查点恢复后顺序一致。"""
     first = engine_factory("multi-person.json")
     second = engine_factory("multi-person.json")
     _stage_random_seed(first, 1)
@@ -345,7 +169,6 @@ def test_seed_changes_competition_order_and_checkpoint_restores_it(engine_factor
     first_order = first.scheduling_state().ready_agent_ids
     second_order = second.scheduling_state().ready_agent_ids
     assert first_order == (2, 1) and second_order == (1, 2)
-
     snapshots = {f"agent:{agent_id}": first.store.assets.put_json(
         {"agent_id": agent_id}, {"kind": "seed_restore_test"}) for agent_id in first.state.agents}
     first.checkpoint(snapshots)

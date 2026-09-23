@@ -139,7 +139,7 @@ def test_compiled_objects_preserve_all_scenario_product_bindings() -> None:
 
 def test_food_value_spectrum_survives_native_generation() -> None:
     catalog = load_catalog(CATALOG)
-    supplies = json.loads((ROOT / "corpora/zhangjiang-map/supplies.json").read_text())["supplies"]
+    supplies = json.loads((ROOT / "corpora/zhangjiang-map/supplies.json").read_text(encoding="utf-8"))["supplies"]
     ratios = {
         row["supply_id"]: catalog.objects[row["product_id"]].attributes["energy_kcal_per_serving"]
         / row["quotes"][0]["price_fen"]

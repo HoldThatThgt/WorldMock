@@ -1,15 +1,4 @@
-"""@brief 可供性注册表影子等价测试（M0）与派生事实锚点（M1）。
-
-M0 影子阶段：注册表派生集逐一 == 引擎现行硬编码常量（motivation.FAMILIES、
-semantics.ENGINE_*、activities.FEEDBACK、body.ENERGY_RECOVERY、agent 侧四常量、
-content.TITLE_SOURCES、习惯归并路由、采样常量）——失败即影子不等价。
-
-M1 之后引擎常量本身从注册表派生，"常量侧"断言退化为接线检查；M2 之后
-agent 侧四个字面常量与 content.TITLE_SOURCES 字面字典删除，闭集经观察合同
-（affordance_contract）派生，断言改为"注册表 → 合同 → agent 派生"链条；
-每个断言同时携带行为期望字面值（EXPECTED_*），把现行引擎行为钉死——注册
-表或派生接线任一侧漂移都会在这里红。
-"""
+"""@brief 可供性注册表、引擎与冻结观察合同的闭集接线测试。"""
 
 from __future__ import annotations
 
@@ -58,9 +47,6 @@ EXPECTED_RELIEF_KEYS = frozenset({"watch", "play_game"})
 EXPECTED_RECOVERY_KINDS = frozenset({"sleep", "wait", "consume"})
 EXPECTED_FEEDBACK_KINDS = frozenset({
     "wait", "work", "watch", "travel", "read_mail", "browse", "consume", "lifestyle"})
-EXPECTED_CONTINUABLE_KINDS = frozenset({
-    "wait", "work", "watch", "travel", "read_mail", "browse", "consume", "lifestyle"})
-EXPECTED_TARGETED_ORDER = ("work", "watch", "play_game", "read_mail", "browse")
 EXPECTED_CATALOG_FIELDS = {
     "work": ("tasks", "task_id"),
     "play_game": ("game_catalog", "game_id"),
@@ -82,20 +68,18 @@ EXPECTED_TITLE_SOURCES = {
 #: 现行习惯归并路由（classify_action_event if 链的逐行快照；M4 起
 #: lifestyle:* 前缀自 continue 迁入 lifestyle 家族）。
 EXPECTED_HABIT_ROUTES = [
-    ("continue_activity", None, "continue"),
-    ("start_basic_activity", "sleep", "sleep"),
-    ("start_basic_activity", "wait", "continue"),
-    ("start_basic_activity", "lifestyle:yingyong", "lifestyle"),
-    ("start_basic_activity", "anything-else", "continue"),
-    ("purchase", None, "eat"),
-    ("consume", None, "eat"),
-    ("start_travel", None, "travel"),
-    ("start_targeted_activity", "watch", "entertainment"),
-    ("start_targeted_activity", "play_game", "entertainment"),
-    ("start_targeted_activity", "work", "work"),
-    ("start_targeted_activity", "browse", "browse"),
-    ("start_targeted_activity", "read_mail", None),
-    ("start_targeted_activity", "unknown-kind", None),
+    ("report_status", None, "continue"),
+    ("sleep", "睡觉", "sleep"),
+    ("wait", "等待", "continue"),
+    ("purchase", "到店购买", "eat"),
+    ("consume", "食用", "eat"),
+    ("travel_to", "步行前往", "travel"),
+    ("watch", "观看", "entertainment"),
+    ("play", "游玩", "entertainment"),
+    ("work", "工作", "work"),
+    ("browse", "浏览", "browse"),
+    ("read", "阅读", None),
+    ("do", "进行", "lifestyle"),
     ("submit_work", None, "work"),
     ("nonexistent_tool", None, None),
 ]
@@ -163,51 +147,33 @@ def test_feedback_kinds_match_activities(view) -> None:
     """@brief L5.5：反馈边界闭集 == activities.FEEDBACK_ACTIVITY_KINDS == 行为期望。"""
     assert view.feedback_kinds == EXPECTED_FEEDBACK_KINDS
     assert {kind.value for kind in FEEDBACK_ACTIVITY_KINDS} == EXPECTED_FEEDBACK_KINDS
-    assert view.continuable_kinds == EXPECTED_FEEDBACK_KINDS
 
 
-def test_continuable_matches_agent_derivation(view) -> None:
-    """@brief L4：continue 资格闭集 == agent 侧合同派生（M2：字面常量已删，合同即事实）。"""
-    from custom.agents import life_agent
+def test_feedback_boundary_matches_frozen_observation_contract(view) -> None:
+    """@brief 注册表反馈边界进入冻结观察合同。"""
     from worldmock.life.engine import affordance_contract
 
     contract = affordance_contract(view)
-    assert life_agent._continuable_activity_kinds(contract) == EXPECTED_CONTINUABLE_KINDS
-    assert view.continuable_kinds == EXPECTED_CONTINUABLE_KINDS
-    assert not hasattr(life_agent, "_CONTINUABLE_ACTIVITY_KINDS")
+    assert {name for name, row in contract.items() if row["feedback_eligible"]} == EXPECTED_FEEDBACK_KINDS
 
 
-def test_targeted_order_matches_agent_derivation(view) -> None:
-    """@brief L4：start_targeted_activity 枚举序 == agent 侧合同派生（声明序）。"""
-    from custom.agents import life_agent
+def test_target_catalog_fields_match_observation_contract(view) -> None:
+    """@brief 目标发现字段进入冻结观察合同。"""
     from worldmock.life.engine import affordance_contract
 
     contract = affordance_contract(view)
-    assert life_agent._targeted_activity_kinds(contract) == EXPECTED_TARGETED_ORDER
-    assert view.targeted_activity_kinds == EXPECTED_TARGETED_ORDER
-    assert not hasattr(life_agent, "_TARGETED_ACTIVITY_KINDS")
-
-
-def test_target_catalog_fields_match_agent_derivation(view) -> None:
-    """@brief L4：观察目录直读字段映射 == agent 侧合同派生。"""
-    from custom.agents import life_agent
-    from worldmock.life.engine import affordance_contract
-
-    contract = affordance_contract(view)
-    assert life_agent._target_catalog_fields(contract) == EXPECTED_CATALOG_FIELDS
     assert view.target_catalog_fields == EXPECTED_CATALOG_FIELDS
-    assert not hasattr(life_agent, "_TARGET_CATALOG_FIELDS")
+    assert {name: tuple(row["target_field"]) for name, row in contract.items()
+            if row["target_discovery"] == "catalog_field"} == EXPECTED_CATALOG_FIELDS
 
 
-def test_energy_limit_matches_agent_derivation(view) -> None:
-    """@brief L4：能量投影闭集 == agent 侧合同派生 == 行为期望。"""
-    from custom.agents import life_agent
+def test_energy_limit_matches_observation_contract(view) -> None:
+    """@brief 能量投影闭集进入冻结观察合同。"""
     from worldmock.life.engine import affordance_contract
 
     contract = affordance_contract(view)
-    assert life_agent._energy_limit_kinds(contract) == EXPECTED_ENERGY_LIMIT_KINDS
     assert view.energy_limit_kinds == EXPECTED_ENERGY_LIMIT_KINDS
-    assert not hasattr(life_agent, "_ENERGY_LIMIT_KINDS")
+    assert {name for name, row in contract.items() if row["energy_projection"]} == EXPECTED_ENERGY_LIMIT_KINDS
 
 
 def test_title_sources_match_content(view) -> None:
@@ -272,13 +238,14 @@ def test_attention_required_keys(view) -> None:
     assert set(profile.attention_prior) == view.attention_required_kinds
 
 
-@pytest.mark.parametrize("tool,activity_type,expected", EXPECTED_HABIT_ROUTES)
-def test_habit_routing_matches_classify_action_event(view, tool, activity_type,
+@pytest.mark.parametrize("tool,label,expected", EXPECTED_HABIT_ROUTES)
+def test_habit_routing_matches_classify_action_event(view, tool, label,
                                                      expected) -> None:
-    """@brief L3：习惯归并路由 == classify_action_event == 行为期望（逐事件）。"""
-    request = {"activity_type": activity_type} if activity_type is not None else {}
-    assert view.classify_habit_event(tool, activity_type) == expected
-    assert classify_action_event(tool, request) == expected
+    """@brief 习惯路由逐项使用当前可读动作，不接受旧活动工具字段。"""
+    request = {"actions": [label]} if label is not None else {}
+    tool_name = "start_activity" if label is not None else tool
+    assert view.classify_habit_event(tool) == expected
+    assert classify_action_event(tool_name, request) == (() if expected is None else (expected,))
 
 
 @pytest.mark.parametrize("kind_value,mode", sorted(EXPECTED_RESOURCE_CLAIMS))
@@ -352,13 +319,13 @@ relief = { channel = "none" }
 resource_claims = []
 feedback_boundary = true
 energy_projection = false
-tool = { surface = "basic", activity_type = "wait" }
+action = "wait"
 target_discovery = "none"
 
 [families.continue]
 kinds = ["wait"]
 attention = { kind = "none" }
-habit_members = [{ tool = "start_basic_activity", activity_type = "*" }]
+habit_members = ["wait"]
 candidate = { generator = "continue_current" }
 enumeration_rank = 30
 """
@@ -412,7 +379,7 @@ version = 1
 [families.continue]
 kinds = ["wait"]
 attention = { kind = "none" }
-habit_members = [{ tool = "start_basic_activity", activity_type = "*" }]
+habit_members = ["wait"]
 candidate = { generator = "continue_current" }
 enumeration_rank = 30
 """
@@ -472,10 +439,9 @@ def test_content_attention_without_content_kinds_rejected(tmp_path) -> None:
 
 
 def test_habit_coverage_hole_rejected(tmp_path) -> None:
-    """@brief 规则 5：targeted kind 无 habit_members 覆盖且无 unclassified 即拒绝。"""
+    """@brief 规则 5：活动动作无习惯归并覆盖且无 unclassified 即拒绝。"""
     _load_rejects(tmp_path, MINIMAL_TOML.replace(
-        'tool = { surface = "basic", activity_type = "wait" }',
-        'tool = { surface = "targeted", activity_type = "wait" }'),
+        'habit_members = ["wait"]', 'habit_members = []'),
         "covered by no habit_members")
 
 

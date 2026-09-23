@@ -1,53 +1,38 @@
-"""browse_activities 内容品类结果的 title 注入：电影/剧集/网文/单片带语料标题。"""
+"""内容与游戏对象的人类可读名称合同。"""
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from worldmock.life.content import load_content_titles
 from worldmock.life.scenario import load_scenario
 
-from .conftest import browse_all
 
-
-def _browsed(engine_factory, category: str,
-             scenario_name: str = "white-collar-12-weeks.json") -> list[dict]:
-    """下钻一个内容品类并读取条目（观察只带 activity_summary 计数）。"""
-    engine = engine_factory(scenario_name)
-    return browse_all(engine, category)
-
-
-def test_title_sources_cover_movies_dramas_novels_and_single_experience() -> None:
-    """四类有语料标题的内容按条目注入，信息流与游戏不注入。"""
+def test_every_content_item_has_corpus_title() -> None:
+    """@brief 所有内容品类从语料身份目录取得标题。"""
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
     titles = load_content_titles(scenario.contents, Path("corpora"))
-    by_id = {item.item_id: item.kind for item in scenario.contents}
-    titled_kinds = {by_id[item_id] for item_id in titles}
-    assert titled_kinds == {"feature_film", "drama_series", "podcast_episode", "webnovel_excerpt",
-                            "subtitle_experience"}
+    assert set(titles) == {item.item_id for item in scenario.contents}
     assert titles["podcast-nasa-space-habitat-excerpt"] == "Space Habitat (English interview excerpt)"
     assert titles["sintel-en-subtitles"] == "Sintel"
-    movie_titles = {row["item_id"]: row["title"] for row
-                    in json.loads(Path("corpora/movies/items.json").read_text())}
-    assert titles["movie-0001"] == movie_titles["movie-0001"]
+    assert titles["movie-0001"] == "一球定江山"
+    assert titles["game-0001"] == "Age of Empires II: Definitive Edition"
+    assert titles["news-feed"] == "中文新闻流（1000 条标题+摘要）"
 
 
-def test_browsed_catalog_entries_carry_titles(engine_factory) -> None:
-    """品类下钻条目带 title 字段，查看器不再显示"电影 #0039"。"""
-    movies = _browsed(engine_factory, "feature_film")
-    by_id = {entry["item_id"]: entry for entry in movies}
-    assert by_id["movie-0001"]["title"] == "一球定江山"
-    singles = _browsed(engine_factory, "subtitle_experience")
-    assert {entry["item_id"]: entry for entry in singles}["sintel-en-subtitles"]["title"] == "Sintel"
-    feeds = _browsed(engine_factory, "news_feed")
-    assert all("title" not in entry for entry in feeds)
-    games = _browsed(engine_factory, "game_session")
-    assert all("title" not in entry for entry in games)
+def test_presentation_pools_keep_titles_for_every_content_and_game(engine_factory) -> None:
+    """@brief 呈现窗口的每个内容与游戏候选都有可读名称。"""
+    engine = engine_factory()
+    agent = engine.state.agents[1]
+    for entry in (*engine._content_pool(agent), *engine._game_pool(agent)):
+        assert entry.row["title"].strip()
+        assert entry.row["title"] != entry.object_id
 
 
 def test_multi_person_scenario_titles_match(engine_factory) -> None:
-    """多人物场景的品类下钻结果同样注入标题。"""
-    movies = _browsed(engine_factory, "feature_film", "multi-person.json")
+    """@brief 多人物场景的内容候选同样从语料注入名称。"""
+    engine = engine_factory("multi-person.json")
+    agent = engine.state.agents[1]
+    movies = [entry for entry in engine._content_pool(agent) if entry.category == "feature_film"]
     assert len(movies) == 90
-    assert all(entry.get("title") for entry in movies)
+    assert all(entry.row["title"] for entry in movies)

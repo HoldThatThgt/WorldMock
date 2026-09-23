@@ -13,7 +13,7 @@ from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.map_models import RouteConfig
-from worldmock.life.models import StartActivityRequest
+from worldmock.life.models import ActivityStartParams
 from worldmock.life.travel import route_for, validate_routes
 
 
@@ -66,7 +66,7 @@ def test_route_selection_rejects_explicit_non_reachable_status(engine_factory, s
         fields.update(response_path=None, response_sha256=None)
     route = RouteConfig.model_validate({**original.model_dump(), **fields})
     scenario = engine.scenario.model_copy(update={"routes": (route,)})
-    request = StartActivityRequest(activity_type="travel", planned_duration_seconds=300,
+    request = ActivityStartParams(activity_type="travel", planned_duration_seconds=300,
         destination_id=route.destination_id, travel_mode=route.mode)
     with pytest.raises(BusinessRuleError, match=reason):
         route_for(scenario, route.origin_id, request)

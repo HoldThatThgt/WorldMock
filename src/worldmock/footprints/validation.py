@@ -17,7 +17,7 @@ from worldmock.footprints.quality import build_quality_report
 def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     """@brief 只有完整终态、检查点和所有素材均可信时才返回消费材料。"""
     root = directory.resolve()
-    manifest = json.loads((root / "manifest.json").read_text())
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
     _validate_identity(manifest)
     events = _read_artifact(root, manifest["artifacts"]["events"], "events.jsonl")
     activities = _read_artifact(root, manifest["artifacts"]["activities"], "activities.jsonl")

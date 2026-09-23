@@ -67,7 +67,7 @@ def _style_violations() -> dict[str, dict[str, int]]:
         bucket[kind] = bucket.get(kind, 0) + 1
 
     for path in _production_files():
-        relative = str(path.relative_to(PROJECT_ROOT))
+        relative = path.relative_to(PROJECT_ROOT).as_posix()
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
         if len(lines) > MAX_FILE_LINES:

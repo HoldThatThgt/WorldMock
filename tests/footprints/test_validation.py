@@ -1,6 +1,8 @@
 import hashlib
+import importlib.util
 import json
 import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,12 +19,18 @@ from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.footprints.validation import validate_export
+from worldmock.life.models import StartActivityRequest
 from worldmock.profile.coverage import PersonaCoverageError
 from worldmock.profile.models import HabitSignature, Tastes
 from worldmock.validation import build_coverage_targets, validate_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
+_WINDOWS_WITHOUT_TEXTWORLD = sys.platform == "win32" and importlib.util.find_spec("textworld") is None
+_REQUIRES_TEXTWORLD = pytest.mark.skipif(
+    _WINDOWS_WITHOUT_TEXTWORLD,
+    reason="TextWorld 1.7.0 has no Windows wheel in the project lockfile",
+)
 
 
 def _compiler(card):
@@ -45,10 +53,22 @@ def complete_export(tmp_path):
                 'model_identity': {'name': 'fixture'}, 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
     store = FootprintStore.create(tmp_path / 'run', manifest, {'version': 0, 'current_time': 100})
     observation = EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
-                             data={'energy_kcal': 100})
+                              data={'energy_kcal': 100})
+    model_request = EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
+                               decision_id='decision', visibility='system', data={
+                                   'phase': 'request', 'request': {
+                                       'model': 'fixture',
+                                       'messages': [{'role': 'system', 'content': '身份'},
+                                                    {'role': 'user', 'content': '实际场景与人物记忆'}],
+                                       'tools': [{'type': 'function', 'function': {
+                                           'name': 'start_activity',
+                                           'parameters': StartActivityRequest.model_json_schema(
+                                               mode='validation')}}],
+                                   }})
     request = EventDraft(event_type='action_requested', occurred_at=100, agent_id=1, decision_id='decision',
-                         action_id='request', data={'tool_name': 'start_basic_activity', 'request': {'kind': 'wait'}})
-    store.commit(store.state, [observation, request])
+                         action_id='request', data={'tool_name': 'start_activity', 'request': {
+                             'targets': ['自己'], 'actions': ['等待']}})
+    store.commit(store.state, [observation, model_request, request])
     store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
@@ -61,9 +81,12 @@ def complete_export(tmp_path):
 def test_production_windows_require_and_accept_complete_authenticated_export(complete_export):
     manifest, events, activities = validate_export(complete_export)
     assert manifest['experiment_completed'] is True
-    assert len(events) == 4 and activities == []
+    assert len(events) == 5 and activities == []
     windows = prepare_windows(complete_export)
     assert {task: len(rows) for task, rows in windows.items()} == {'action': 1, 'intent': 1, 'dreaming': 3}
+    assert windows['action'][0]['input']['decision_prompt']['messages'][1]['content'] == \
+        '实际场景与人物记忆'
+    assert windows['action'][0]['provenance']['decision_prompt_event_id'] == events[1]['event_id']
 
 
 @pytest.mark.parametrize('field', ['version', 'committed', 'completed', 'rows', 'path', 'cutoff', 'window',
@@ -102,6 +125,7 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
     with pytest.raises(IntegrityError): validate_export(complete_export)
 
 
+@_REQUIRES_TEXTWORLD
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
     """validate 全链路通过：品类准入+任务受理+两阶段身份+persona_coverage.json。"""
     coverage_out = tmp_path / "persona_coverage.json"
@@ -120,6 +144,7 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
     assert document["agents"][0]["covered_items"] == report["covered_items"]
 
 
+@_REQUIRES_TEXTWORLD
 def test_validate_project_rejects_coverage_below_threshold(tmp_path):
     """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
     uncovered = make_card(
@@ -135,6 +160,7 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path):
     assert "播客" in str(caught.value)
 
 
+@_REQUIRES_TEXTWORLD
 def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
     """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
     import worldmock.validation as validation_module

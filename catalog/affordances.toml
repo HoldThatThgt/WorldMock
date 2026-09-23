@@ -202,7 +202,7 @@ enumeration_rank = 30
 [families.work]
 kinds = ["work"]
 attention = { kind = "none" }
-habit_members = ["work", "submit"]
+habit_members = ["work", "submit_work"]
 # task_slot 原型内含"去任务地点的出行腿"（不在任务地点时先给出行候选）。
 candidate = { generator = "task_slot", max_tasks = 2 }
 enumeration_rank = 40

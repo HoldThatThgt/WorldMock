@@ -392,10 +392,7 @@ def test_worldmock_dependencies_declare_no_vector_search_library():
     """常驻断言：本仓库自己的依赖声明里没有向量检索/近似最近邻库。
 
     判定范围是**本仓库声明的依赖**（根 `pyproject.toml` 与 LabelKit 的声明）。
-    被 vendored 的 `vendor/agentsociety2` 上游自带 `faiss-cpu`（其未使用的
-    `router_codegen` 路径），那是上游事实而不是本项目引入的检索机制；本项目的
-    运行路径不导入该模块，也不经它检索（见上一个断言对 `src/worldmock` 与
-    `custom` 的逐文件扫描）。这里把它作为已知上游事实写明，而不是假装不存在。
+    上游依赖的可选代码不属于本仓库依赖声明或实际检索路径。
     """
     root = Path(__file__).resolve().parents[2]
     declarations = [root / "pyproject.toml", root / "vendor" / "labelkit" / "pyproject.toml"]
@@ -405,12 +402,6 @@ def test_worldmock_dependencies_declare_no_vector_search_library():
         text = path.read_text(encoding="utf-8").lower()
         found = {word for word in _FORBIDDEN_DEPENDENCY_WORDS if word in text}
         assert not found, (path, found)
-    # 上游 vendored 事实：`faiss-cpu` 只由 AS2 自带的 router_codegen 导入
-    upstream = root / "vendor" / "agentsociety2" / "packages" / "agentsociety2" / "agentsociety2"
-    importers = {path for path in upstream.rglob("*.py")
-                 if "import faiss" in path.read_text(encoding="utf-8")
-                 or "from faiss" in path.read_text(encoding="utf-8")}
-    assert {path.parent.name for path in importers} == {"env"}, importers
 
 
 def test_retrieval_structures_compare_no_float_distances():

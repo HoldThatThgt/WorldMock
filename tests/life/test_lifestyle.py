@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
+from agentsociety2.society import DirectToolCall
 
 from worldmock.life.activities import advance_activity, lifestyle_relief_rates
 from worldmock.life.body import last_flows
@@ -21,7 +22,8 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import AgentConfig, load_scenario
 
-from tests.life.conftest import advance_next, submit_round
+from tests.life.conftest import advance_next, context, stage_day_plan
+from tests.life.test_parallel_activities import _advance_with_decisions
 
 ROOT = Path(__file__).resolve().parents[2]
 ITEMS_PATH = ROOT / "corpora/lifestyle/items.json"
@@ -76,75 +78,82 @@ def test_catalog_activity_met_carries_lifestyle_keys() -> None:
     assert len(base) == 10
 
 
-def test_basic_request_pattern_contract() -> None:
-    """start_activity 的 activity_type 只接受 wait/sleep/lifestyle:<slug>。"""
-    for valid in ("wait", "sleep", "lifestyle:yoga", "lifestyle:3d-printing"):
-        StartActivityRequest(activity_type=valid, planned_duration_seconds=120)
-    for invalid in ("work", "lifestyle:", "lifestyle:Yoga", "lifestyle:yoga x", "lifestyle:-bad"):
-        with pytest.raises(ValidationError):
-            StartActivityRequest(activity_type=invalid, planned_duration_seconds=120)
+def test_lifestyle_model_request_only_selects_readable_object_and_action() -> None:
+    """人物只写可读活动名称和动作，内部子类型与时长不可回填。"""
+    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"])
+    assert set(request.model_dump()) == {"targets", "actions"}
+    with pytest.raises(ValidationError):
+        StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"],
+                             planned_duration_seconds=120)
     schema = deepseek_strict_schema(StartActivityRequest)
-    assert schema["properties"]["activity_type"]["type"] == "string"
+    assert set(schema["properties"]) == {"targets", "actions"}
 
 
 def test_start_activity_requires_target_for_lifestyle() -> None:
-    """领域内启动 lifestyle 必须携带目录条目身份。"""
+    """模型入口必须逐项给出可读对象和动作。"""
     with pytest.raises(ValidationError):
-        StartActivityRequest(activity_type=ActivityKind.LIFESTYLE, planned_duration_seconds=120)
-    request = StartActivityRequest(activity_type=ActivityKind.LIFESTYLE,
-                                   planned_duration_seconds=120, target_id="yoga")
-    assert request.target_id == "yoga"
+        StartActivityRequest(actions=["进行"])
+    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"])
+    assert request.targets == ["活动：瑜伽"]
 
 
 def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
-    """未声明子集的世界全局启用：lifestyle:yoga 受理并按目录 MET 结算能量。"""
+    """从当前生活活动窗口选择条目，引擎用目录时长和 MET 结算。"""
     engine = engine_factory()
+    stage_day_plan(engine)
     body = engine.scenario.body
-    met = body.activity_met["lifestyle:yoga"]
-    request = StartActivityRequest(activity_type="lifestyle:yoga",
-                                        planned_duration_seconds=900)
-    _, results = submit_round(engine, {1: ("start_activity", request)}, "lifestyle-yoga")
-    assert results[0].activity_id
-    activity = engine.state.activities[results[0].activity_id]
+    decision = context(engine, "lifestyle-visible")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    binding = next(row for row in observed["interaction_bindings"] if row["kind"] == "lifestyle")
+    item = next(row for row in _items() if row["activity_id"] == binding["object_id"])
+    request = StartActivityRequest(targets=[binding["object"]], actions=["进行"])
+    engine.submit_action(DirectToolCall(decision, "action-lifestyle-visible", "start_activity", request))
+    result = engine.commit_decision_round("lifestyle-visible")[0]
+    assert result.activity_id
+    activity = engine.state.activities[result.activity_id]
     assert activity.kind == ActivityKind.LIFESTYLE
-    assert activity.target_id == "yoga"
+    assert activity.target_id == item["activity_id"]
+    assert activity.planned_duration_seconds == item["typical_duration_minutes"] * 60
+    met = body.activity_met[f"lifestyle:{item['activity_id']}"]
     before = engine.state.agents[1].body.energy_kcal
-    for _ in range(12):
-        if engine.state.activities[results[0].activity_id].status.value != "active":
+    for index in range(100):
+        if engine.state.activities[result.activity_id].status.value != "active":
             break
-        advance_next(engine)
-    activity = engine.state.activities[results[0].activity_id]
-    hours = 900 / 3600
+        _advance_with_decisions(engine, index)
+    activity = engine.state.activities[result.activity_id]
+    hours = activity.planned_duration_seconds / 3600
     expected_cost = (body.basal_kcal_per_hour + max(met - 1, 0) * body.mass_kg) * hours
     assert activity.status.value == "completed"
     assert engine.state.agents[1].body.energy_kcal == pytest.approx(before - expected_cost)
 
 
 def test_engine_rejects_unknown_lifestyle_id(engine_factory) -> None:
-    """目录外条目 id 被业务规则拒绝，而非查表崩溃。"""
+    """人物输入本轮未呈现的生活活动名称时业务拒绝。"""
     engine = engine_factory()
-    request = StartActivityRequest(activity_type="lifestyle:not-in-catalog",
-                                        planned_duration_seconds=120)
-    _, results = submit_round(engine, {1: ("start_activity", request)}, "lifestyle-bad")
-    assert results[0].status.value == "rejected"
-    assert results[0].error_code == "UNKNOWN_LIFESTYLE_ACTIVITY"
+    stage_day_plan(engine)
+    decision = context(engine, "lifestyle-bad")
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    request = StartActivityRequest(targets=["活动：不存在的项目"], actions=["进行"])
+    engine.submit_action(DirectToolCall(decision, "action-lifestyle-bad", "start_activity", request))
+    result = engine.commit_decision_round("lifestyle-bad")[0]
+    assert result.status.value == "rejected"
+    assert result.error_code == "ACTION_REQUEST_INVALID"
 
 
 def test_engine_honors_agent_lifestyle_declaration(engine_factory) -> None:
-    """multi-person 声明了子集：集合外的目录内 id 与未知 id 同口径拒绝。"""
+    """人物生活活动声明之外的目录条目不进入可操作窗口。"""
     engine = engine_factory("multi-person.json")
     declarations = {item.agent_id: item.lifestyle_activities
                     for item in engine.scenario.agents}
     assert declarations[1] is not None and "yoga" in declarations[1]
     assert "sport-badminton" not in declarations[1]
-    badminton = StartActivityRequest(activity_type="lifestyle:sport-badminton",
-                                          planned_duration_seconds=120)
-    other = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
-    _, results = submit_round(engine, {1: ("start_activity", badminton),
-                                       2: ("start_activity", other)},
-                              "lifestyle-undeclared")
-    assert results[0].status.value == "rejected"
-    assert results[0].error_code == "UNKNOWN_LIFESTYLE_ACTIVITY"
+    observed = engine.observe(context(engine, "lifestyle-undeclared"))
+    visible = {row["object_id"] for row in observed["interaction_bindings"]
+               if row["kind"] == "lifestyle"}
+    assert "sport-badminton" not in visible
+    assert visible <= set(declarations[1])
 
 
 def test_scenario_admission_rejects_unknown_lifestyle_declaration() -> None:

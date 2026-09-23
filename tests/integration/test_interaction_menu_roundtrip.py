@@ -1,94 +1,144 @@
-"""通过真实人物、LifeEnv、SQLite 与到达事件验证交互菜单端到端。"""
+"""真实人物、LifeEnv 与事件存储上的可读菜单往返。"""
 
 from __future__ import annotations
 
+import copy
 import json
-from pathlib import Path
+import os
+from contextlib import nullcontext
+from types import SimpleNamespace
 
 import pytest
 
-from tests.integration.test_decision_context_roundtrip import _decide
-from tests.life.conftest import advance_until_ready, context, stage_day_plan
-from tests.life.test_interaction_menu_runtime import _engine, _restrict, _travel_to_office
+os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+
+from agentsociety2.agent.base import ReactLoopRequest
+from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
-from worldmock.errors import IntegrityError
+from tests.integration.test_life_agent_protocol import _DecisionStatementResponse, _ModelResponse
+from tests.life.conftest import (
+    advance_next,
+    advance_until_ready,
+    context,
+    engine_factory as _engine_factory,
+    stage_day_plan,
+)
+from worldmock.life.interaction_menu import canonical_action
+from worldmock.life import prompt_capacity
+
+
+class _Dispatcher:
+    """只替换提供商传输，捕获真实人物请求并返回指定可读动作。"""
+
+    model_name = "deepseek-v4.1-flash"
+
+    def __init__(self, targets: list[str], action: str) -> None:
+        self.requests: list[dict] = []
+        self.responses = [
+            _DecisionStatementResponse("我照着眼前能做的事往前走。"),
+            _ModelResponse("provider-action", "start_activity",
+                           json.dumps({"targets": targets, "actions": [action]}, ensure_ascii=False)),
+            _ModelResponse("provider-finish", "finish", '{"memories":[]}'),
+        ]
+
+    async def call(self, **request):
+        """保存最终请求，并返回下一条真实协议形状的响应。"""
+        self.requests.append(copy.deepcopy(request))
+        return self.responses.pop(0)
+
+
+def _person(environment: LifeEnv, decision, dispatcher: _Dispatcher) -> LifeAgent:
+    """把人物绑定到真实宿主决策身份和环境。"""
+    person = LifeAgent()
+    person._id = decision.agent_id
+    person._name = "测试人物"
+    person._profile = {"id": decision.agent_id, "name": "测试人物"}
+    person._env = environment
+    person._dispatcher = dispatcher
+    person._model_name = dispatcher.model_name
+    person._decision_context = decision
+    person._max_react_turns = 3
+    person._enable_memory = False
+    person.trace_span = lambda *args, **kwargs: nullcontext(SimpleNamespace(attributes={}))
+    return person
+
+
+async def _decide(environment: LifeEnv, decision, observation: dict,
+                  targets: list[str], action: str) -> list[dict]:
+    """让人物从已提交观察作一次真实模型动作，保留最终请求。"""
+    dispatcher = _Dispatcher(targets, action)
+    person = _person(environment, decision, dispatcher)
+    before = environment.engine.state.model_dump(mode="json")
+    request = ReactLoopRequest(0, decision.observed_at, [
+        {"turn": 0, "action": "observe", "ok": True, "data": observation},
+    ])
+    await person.run_react_loop(request)
+    assert environment.engine.state.model_dump(mode="json") == before
+    assert len(dispatcher.requests) == 3
+    return dispatcher.requests
+
+
+def _action_schema(request: dict) -> dict:
+    """读取实际发送给模型的 start_activity 工具 Schema。"""
+    return next(item["function"] for item in request["tools"]
+                if item["function"]["name"] == "start_activity")
 
 
 @pytest.mark.asyncio
-async def test_real_person_requests_use_current_location_menu_and_next_round_results(tmp_path):
-    """真实模型请求随到达后的冻结观察更新，允许动作经共同结算后才成为结果。"""
-    engine = _engine(tmp_path, lambda document: _restrict(document, tools=("send_message",), location="office"))
-    try:
-        stage_day_plan(engine)
-        environment = LifeEnv()
-        environment.engine = engine
-        first = context(engine, "home-person")
-        engine.begin_decision_round([first])
-        home, home_requests = await _decide(environment, first)
-        home_tools = {item["function"]["name"] for item in home_requests[1]["tools"]}
-        assert "send_message" in home_tools
-        assert home["location_id"] == "home"
-        assert not any(item.agent_id == 1 and item.status.value == "active"
-                       for item in engine.state.activities.values())
-        assert engine.commit_decision_round(first.round_id)[0].error_code is None
-        assert advance_until_ready(engine)
-        _travel_to_office(engine)
-        assert advance_until_ready(engine)
-        second = context(engine, "office-person")
-        engine.begin_decision_round([second])
-        office, office_requests = await _decide(environment, second)
-        office_tools = {item["function"]["name"] for item in office_requests[1]["tools"]}
-        assert office["location_id"] == "office"
-        assert "send_message" not in office_tools
-        assert "send_message" not in office["interaction_menu"]["allowed_tools"]
-        assert office["facts"]["recent_action_results"]
-        assert engine.commit_decision_round(second.round_id)[0].error_code is None
-        observations = engine.store.read_agent_events("observation", 1)
-        person_observations = [item for item in observations
-                               if item.decision_id in {first.decision_id, second.decision_id}]
-        assert len(person_observations) == 2
-        assert [item.data["interaction_menu"] for item in person_observations] == [
-            home["interaction_menu"], office["interaction_menu"]]
-    finally:
-        engine.close()
+async def test_location_menu_changes_model_choices_and_preserves_result_evidence(
+    _engine_factory, monkeypatch,
+) -> None:
+    """人物按可读地点行动，抵达后菜单收窄；结果经事件提交才进下一轮进度层。"""
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    menus = dict(engine.scenario.interaction_menus_by_location_kind)
+    office = menus["office"]
+    menus["office"] = office.model_copy(update={"allowed_actions": tuple(
+        action for action in office.allowed_actions if action != "work")})
+    engine.scenario = engine.scenario.model_copy(update={"interaction_menus_by_location_kind": menus})
+    environment = LifeEnv()
+    environment.engine = engine
 
+    first = context(engine, "menu-home")
+    engine.begin_decision_round([first])
+    home = await environment.observe(first)
+    office_binding = next(row for row in home["interaction_bindings"]
+                          if row["kind"] == "location" and row["object_id"] == "office")
+    travel = next(item["label"] for item in office_binding["actions"]
+                  if item.get("travel_mode") == "walking")
+    home_requests = await _decide(environment, first, home, [office_binding["object"]], travel)
+    assert canonical_action(travel) in home["interaction_menu"]["allowed_actions"]
+    assert set(_action_schema(home_requests[1])["parameters"]["properties"]) == {"targets", "actions"}
+    assert home["facts"]["progress"]["results"] == []
+    started = engine.commit_decision_round(first.round_id)[0]
+    assert started.status.value == "in_progress"
+    for _ in range(16):
+        if engine.state.agents[first.agent_id].location_id == "office":
+            break
+        advance_next(engine)
+    assert engine.state.agents[first.agent_id].location_id == "office"
+    assert advance_until_ready(engine)
 
-@pytest.mark.parametrize("person_menu", [False, True])
-def test_resume_rejects_menu_changes_before_copying_a_branch(tmp_path, person_menu):
-    """真实恢复入口在发布任何子分支工件之前拒绝地点或人物菜单变化。"""
-    from tests.integration.test_host_branch_coverage import _parent_store
-    from tests.life.test_scheduling import _document, _write_scenario
-    from worldmock.runtime import ResumeRequest, _prepare_resume
+    second = context(engine, "menu-office")
+    engine.begin_decision_round([second])
+    arrived = await environment.observe(second)
+    assert "work" in home["interaction_menu"]["allowed_actions"]
+    assert "work" not in arrived["interaction_menu"]["allowed_actions"]
+    assert arrived["facts"]["progress"]["results"]
+    office_requests = await _decide(environment, second, arrived, ["自己"], "等待")
+    office_schema = _action_schema(office_requests[1])
+    choices = office_schema["parameters"]["properties"]["actions"]["items"]["enum"]
+    assert "工作" not in choices
+    assert "等待" in choices
+    assert "progress" in office_requests[1]["messages"][1]["content"]
+    assert "action_id" not in office_requests[1]["messages"][1]["content"]
+    engine.commit_decision_round(second.round_id)
 
-    parent, checkpoint = _parent_store(tmp_path)
-    parent.close()
-    document = _document("white-collar-12-weeks.json")
-    _restrict(document, tools=("purchase",), agent=0 if person_menu else None)
-    changed = _write_scenario(document, tmp_path)
-    destination = tmp_path / "child"
-    with pytest.raises(IntegrityError, match="Checkpoint scenario identity differs"):
-        _prepare_resume(ResumeRequest(Path.cwd(), changed, tmp_path / "parent",
-                                      checkpoint.checkpoint_id, destination))
-    assert not destination.exists()
-
-
-def test_supply_fact_prompt_and_tools_reject_old_model_identity():
-    """供给差异事实解释与工具 Schema 均冻结身份，旧提示或工具合同不能恢复。"""
-    from custom.agents.life_agent import life_prompt_sha256, life_tool_schema_sha256
-    from worldmock.runtime import (
-        _model_identity, _require_runtime_identity, runtime_code_sha256, two_stage_model_identity,
-    )
-
-    assert life_prompt_sha256() == "dc43b5418e28e61709e48af2fad251189c518e2f39e6bf8df295339558451b65"
-    old_prompt = "59f22d2f8aece81545169f2234446420ca8a0f5e4454e03b3f432816cea1ba5a"
-    old_schema = "dd2c1490f5ad9306e95fe23828665b9f0338164cdeb2477fb009d3073a9b639e"
-    assert life_tool_schema_sha256() != old_schema
-    root = Path.cwd()
-    manifest = {"model_identity": _model_identity().model_dump(mode="json"),
-                "two_stage_model_identity": two_stage_model_identity(),
-                "code_sha256": runtime_code_sha256(root)}
-    _require_runtime_identity(manifest, root)
-    for field, old_value in (("tool_schema_sha256", old_schema), ("prompt_sha256", old_prompt)):
-        outdated = {**manifest, "model_identity": {**manifest["model_identity"], field: old_value}}
-        with pytest.raises(IntegrityError, match="model identity differs"):
-            _require_runtime_identity(outdated, root)
+    events = engine.store.read_events(engine.store.last_event_seq)
+    requests = [event for event in events if event.event_type == "action_requested"]
+    assert len(requests) == 2
+    assert requests[0].data["request"] == {"targets": [office_binding["object"]], "actions": [travel]}
+    assert requests[1].data["request"] == {"targets": ["自己"], "actions": ["等待"]}

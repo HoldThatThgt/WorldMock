@@ -33,10 +33,10 @@ def _fixture(tmp_path):
     shutil.copytree(ROOT / "catalog", project / "catalog")
     scenarios = project / "scenarios"
     scenarios.mkdir()
-    document = json.loads((ROOT / "scenarios/multi-person-half-day.json").read_text())
+    document = json.loads((ROOT / "scenarios/multi-person-half-day.json").read_text(encoding="utf-8"))
     document["corpus_root"] = str(ROOT / "corpora")
     path = scenarios / "scene.json"
-    path.write_text(json.dumps(document))
+    path.write_text(json.dumps(document), encoding="utf-8")
     return path, project / "catalog"
 
 
@@ -55,9 +55,9 @@ def _create(path, destination):
 
 def _change_category(directory):
     path = directory / "category-contract.json"
-    document = json.loads(path.read_text())
+    document = json.loads(path.read_text(encoding="utf-8"))
     document["categories"][-1]["name"] += " revised"
-    path.write_text(json.dumps(document))
+    path.write_text(json.dumps(document), encoding="utf-8")
     refresh_manifest_identity(directory)
 
 
@@ -88,8 +88,10 @@ def _checkpoint(engine, tmp_path):
         (workspace / "AGENT.json").write_text(json.dumps({
             "schema_version": 1, "agent_class": "LifeAgent", "agent_id": agent.agent_id,
             "initialized_at": None,
-        }))
-        (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
+        }), encoding="utf-8")
+        (workspace / "config.json").write_text(json.dumps({
+            "enable_memory": True, "max_react_turns": 16,
+        }), encoding="utf-8")
         snapshots[f"agent:{agent.agent_id}"] = snapshot_directory(workspace, engine.store.assets)
     return engine.store.checkpoint(engine.store.state, snapshots)
 
@@ -108,8 +110,8 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
-        submit_round(engine, {agent_id: ("start_basic_activity", StartActivityRequest(
-            activity_type="wait", planned_duration_seconds=60)) for agent_id in engine.state.agents}, "wait")
+        submit_round(engine, {agent_id: ("start_activity", StartActivityRequest(
+            targets=["自己"], actions=["等待"])) for agent_id in engine.state.agents}, "wait")
         advance_next(engine)
         cutoff = engine.store.last_event_seq
         first = export_run(engine.store, cutoff, tmp_path / "first-export")
@@ -132,7 +134,7 @@ def test_open_rejects_same_version_changed_content_without_mutating_run(tmp_path
     run = tmp_path / "run"
     _create(path, run).close()
     contract = directory / "category-contract.json"
-    contract.write_text(contract.read_text() + "\n")
+    contract.write_text(contract.read_text(encoding="utf-8") + "\n", encoding="utf-8")
     if refresh:
         refresh_manifest_identity(directory)
     before = _hash_files(run)
@@ -171,7 +173,7 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
         assert _hash_files(run) == before
     else:
         prepared = _prepare_resume(request, intervention)
-        manifest = json.loads((destination / "manifest.json").read_text())
+        manifest = json.loads((destination / "manifest.json").read_text(encoding="utf-8"))
         assert prepared.workspace_mode == "restored"
         assert {key: manifest[key] for key in expected} == expected
         assert manifest["parent_checkpoint_id"] == checkpoint.checkpoint_id
@@ -181,8 +183,8 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
             assert {key: branch.store.manifest[key] for key in expected} == expected
             for agent_id in branch.state.agents:
                 stage_day_plan(branch, agent_id)
-            submit_round(branch, {agent_id: ("start_basic_activity", StartActivityRequest(
-                activity_type="wait", planned_duration_seconds=60)) for agent_id in branch.state.agents}, "branch-wait")
+            submit_round(branch, {agent_id: ("start_activity", StartActivityRequest(
+                targets=["自己"], actions=["等待"])) for agent_id in branch.state.agents}, "branch-wait")
             advance_next(branch)
             exported = export_run(branch.store, branch.store.last_event_seq, tmp_path / "branch-export")
             assert {key: exported["frozen_run_manifest"][key] for key in expected} == expected
@@ -197,8 +199,8 @@ def test_open_rejects_missing_category_identity_fields(tmp_path, field):
     run = tmp_path / "run"
     _create(path, run).close()
     manifest_path = run / "manifest.json"
-    document = json.loads(manifest_path.read_text())
+    document = json.loads(manifest_path.read_text(encoding="utf-8"))
     document.pop(field)
-    manifest_path.write_text(json.dumps(document))
+    manifest_path.write_text(json.dumps(document), encoding="utf-8")
     with pytest.raises(IntegrityError, match="Runtime category contract identity mismatch"):
         LifeEngine.open(path, run)

@@ -1,135 +1,105 @@
-"""通过真实决策轮核验原子并行启动、共同身体时间及独立生命周期。"""
+"""同一可读动作请求启动两条独立生活活动的真实验收。"""
 
 from __future__ import annotations
 
-from pathlib import Path
-from types import SimpleNamespace
-
-import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
-from worldmock.errors import IntegrityError
-from worldmock.footprints.models import EventDraft
-from worldmock.life.engine import LifeEngine
-from worldmock.life.activity_evidence import dedupe_revealed_cues
-from worldmock.life.models import (StartBasicActivityRequest, StartParallelActivitiesRequest,
-                                   StartTargetedActivityRequest)
+from tests.life.conftest import advance_next, context, stage_day_plan, submit_round
+from worldmock.life.models import ReportStatusRequest, StartActivityRequest
 
 
-def _request(duration: int = 120) -> StartParallelActivitiesRequest:
-    """构造资源兼容且结束时刻不同的等待与播放请求。"""
-    return StartParallelActivitiesRequest(activities=(
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=duration),
-        StartTargetedActivityRequest(activity_type="watch", target_id="sintel-en-subtitles",
-                                     planned_duration_seconds=60, playback_speed=1),
-    ))
+def _choice(observation: dict, action: str) -> tuple[str, str]:
+    """@brief 从真实观察中取一个人类可读对象与动作短语。"""
+    return next((row["object"], choice["label"])
+                for row in observation["interaction_bindings"]
+                for choice in row["actions"] if choice["canonical_action"] == action
+                and (action != "travel_to" or choice["travel_mode"] == "walking"))
 
 
-def test_parallel_start_and_first_terminal_share_one_body_interval(engine_factory) -> None:
-    """组合只有一笔共同身体账，先结束的播放不终结等待和原动作。"""
+def _start_pair(engine, first: str, second: str, round_id: str):
+    """@brief 在同一冻结观察中逐对象选择动作并结算一次决策。"""
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    choices = [_choice(observed, action) for action in (first, second)]
+    request = StartActivityRequest(targets=[item[0] for item in choices],
+                                   actions=[item[1] for item in choices])
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
+    return engine.commit_decision_round(round_id)[0]
+
+
+def _advance_with_decisions(engine, index: int) -> None:
+    """@brief 活动反馈唤醒人物时先真实播报，再推进下一环境边界。"""
+    ready = engine.scheduling_state().ready_agent_ids
+    if ready:
+        requests = {}
+        for agent_id in ready:
+            sessions = [item for item in engine.state.sessions.values()
+                        if item.agent_id == agent_id and item.status == "active"]
+            if sessions:
+                requests[agent_id] = ("report_status", ReportStatusRequest(
+                    task=[sessions[0].session_name], summary=["仍在继续"]))
+            else:
+                requests[agent_id] = ("start_activity", StartActivityRequest(
+                    targets=["自己"], actions=["等待"]))
+        submit_round(engine, requests, f"parallel-feedback-{index}")
+        return
+    advance_next(engine)
+
+
+def test_walk_and_watch_start_atomically_with_distinct_activity_ids(engine_factory) -> None:
+    """一条决策允许步行与观看，各有独立活动和会话身份。"""
     engine = engine_factory()
-    ctx = context(engine, "parallel")
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    engine.submit_action(DirectToolCall(ctx, "parallel-one", "start_parallel_activities", _request()))
-    result = engine.commit_decision_round("parallel")[0]
-    assert result.status == "in_progress" and result.activity_id is None
-    assert len(result.data["activities"]) == 2
-    assert {item.kind for item in engine.state.activities.values()} == {"wait", "watch"}
-    watch = next(item for item in engine.state.activities.values() if item.kind == "watch")
-    while engine.state.current_time < watch.planned_end_at:
-        advance_next(engine)
-    events = engine.store.read_events(engine.store.last_event_seq)
-    body = [event for event in events if event.event_type == "environment_event"
-            and event.data.get("kind") == "body_settlement"]
-    progress = [event for event in events if event.event_type == "activity_progress"]
-    assert body and len(progress) == 2 * len(body)
-    assert {row.data["body_settlement_event_id"] for row in progress} == {
-        event.event_id for event in body}
-    assert engine.state.activities[watch.activity_id].status == "completed"
-    assert any(item.status == "active" for item in engine.state.activities.values())
-    assert engine.state.processed_actions["parallel-one"].result["status"] == "in_progress"
+    stage_day_plan(engine)
+    result = _start_pair(engine, "travel_to", "watch", "walk-watch")
+    assert result.status == "in_progress", result.error_code
+    assert result.activity_id is None
+    activities = [item for item in engine.state.activities.values()
+                  if item.origin_action_id == result.action_id]
+    assert len(activities) == 2
+    assert len({item.activity_id for item in activities}) == 2
+    assert {item.kind.value for item in activities} == {"travel", "watch"}
+    ids = {item.activity_id for item in activities}
+    sessions = [item for item in engine.state.sessions.values() if set(item.activity_ids) & ids]
+    assert len(sessions) == 2
+    assert all(len(item.activity_ids) == 1 for item in sessions)
 
 
-def test_parallel_resource_conflict_rejects_whole_group(engine_factory) -> None:
-    """组内两个位置声明冲突时没有部分活动或付款。"""
+def test_pair_failure_rejects_all_without_partial_activity(engine_factory) -> None:
+    """后项资源冲突时，先项也不进入权威世界。"""
     engine = engine_factory()
-    ctx = context(engine, "conflict")
-    engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    request = StartParallelActivitiesRequest(activities=(
-        StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=120),
-        StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=120),
-    ))
-    accounts = dict(engine.state.accounts)
-    engine.submit_action(DirectToolCall(ctx, "parallel-conflict", "start_parallel_activities", request))
-    result = engine.commit_decision_round("conflict")[0]
-    assert result.status == "rejected" and result.error_code == "RESOURCE_CONFLICT"
-    assert engine.state.activities == {} and engine.state.accounts == accounts
+    stage_day_plan(engine)
+    before = engine.state.model_dump(mode="json")
+    result = _start_pair(engine, "watch", "sleep", "watch-sleep-conflict")
+    assert result.status == "rejected", result.error_code
+    assert engine.state.activities == {}
+    assert engine.state.sessions == {}
+    assert engine.state.accounts == before["accounts"]
 
 
-def test_recovery_activity_cannot_sponsor_unaffordable_watch(engine_factory) -> None:
-    """等待的能量下界豁免只属于等待，零能量组合不能偷渡播放。"""
-    from tests.life.test_energy_feasibility import _set_energy
-
+def test_parallel_origin_stays_in_progress_until_both_finish(engine_factory) -> None:
+    """先结束的子项不将原动作提前标记为完成。"""
     engine = engine_factory()
-    _set_energy(engine, 0)
-    ctx = context(engine, "zero-mixed-energy")
-    engine.begin_decision_round([ctx])
-    engine.submit_action(DirectToolCall(ctx, "zero-mixed-energy", "start_parallel_activities", _request()))
-    result = engine.commit_decision_round("zero-mixed-energy")[0]
-    assert result.status == "rejected" and result.error_code == "INSUFFICIENT_ENERGY"
-    assert not engine.state.activities
-
-
-def test_ordinary_long_cue_does_not_repeat_at_next_settlement() -> None:
-    """旧媒体的长字幕跨边界后只在首次相交区间交付。"""
-    cue = {"cue_id": 1, "start_seconds": 0, "end_seconds": 10, "text": "caption"}
-    first = SimpleNamespace(data={"revealed": {"position_before_seconds": 0, "cues": [cue]}})
-    later = SimpleNamespace(data={"revealed": {"position_before_seconds": 5, "cues": [cue]}})
-    dedupe_revealed_cues(first)
-    dedupe_revealed_cues(later)
-    assert first.data["revealed"]["cues"] == [cue]
-    assert later.data["revealed"]["cues"] == []
-
-
-@pytest.mark.parametrize("field,value", [
-    ("resource_claims", []),
-    ("target_id", "not-selected-content"),
-    ("planned_end_at", "before-start"),
-    ("energy_kcal", 0),
-    ("body_settled_at", "future"),
-])
-def test_reopen_rejects_tampered_parallel_activity(engine_factory, field, value) -> None:
-    """真实落盘的资源、目标或时间被篡改后，恢复入口必须拒绝。"""
-    engine = engine_factory()
-    ctx = context(engine, f"tamper-{field}")
-    engine.begin_decision_round([ctx])
-    engine.submit_action(DirectToolCall(ctx, f"action-{field}", "start_parallel_activities", _request()))
-    result = engine.commit_decision_round(f"tamper-{field}")[0]
-    assert result.status == "in_progress"
-    snapshot = engine.state.model_dump(mode="json")
-    watch = next(item for item in snapshot["activities"].values() if item["kind"] == "watch")
-    if field == "body_settled_at":
-        snapshot["agents"][str(watch["agent_id"])]["body_settled_at"] = snapshot["current_time"] + 1
-    elif field == "energy_kcal":
-        snapshot["agents"][str(watch["agent_id"])]["body"]["energy_kcal"] = value
-    else:
-        watch[field] = watch["started_at"] - 1 if value == "before-start" else value
-    snapshot["version"] += 1
-    engine.store.commit(snapshot, [EventDraft(
-        event_type="environment_event", occurred_at=snapshot["current_time"],
-        visibility="system", data={"kind": "test_tampered_activity"})])
-    run_dir = engine.store.run_dir
-    engine.close()
-    with pytest.raises((ValueError, IntegrityError), match="invalid|disagree|exceed|ahead"):
-        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
-
-
-@pytest.mark.parametrize("count", [0, 1])
-def test_parallel_request_requires_multiple_real_children(count):
-    """组合不能以空数组或单项绕过持续活动组合的最小数量合同。"""
-    child = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    with pytest.raises(ValueError, match="at least two"):
-        StartParallelActivitiesRequest(activities=(child,) * count)
+    stage_day_plan(engine)
+    result = _start_pair(engine, "travel_to", "watch", "parallel-terminal")
+    assert result.status == "in_progress", result.error_code
+    action_id = result.action_id
+    for _ in range(100):
+        activities = [item for item in engine.state.activities.values()
+                      if item.origin_action_id == action_id]
+        if any(item.status == "completed" for item in activities):
+            break
+        _advance_with_decisions(engine, _)
+    assert any(item.status == "completed" for item in activities)
+    if any(item.status == "active" for item in activities):
+        assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
+    for _ in range(100):
+        if all(item.status == "completed" for item in activities):
+            break
+        _advance_with_decisions(engine, _ + 100)
+        activities = [engine.state.activities[item.activity_id] for item in activities]
+    assert all(item.status == "completed" for item in activities)
+    assert engine.state.processed_actions[action_id].result["status"] == "completed"
+    events = [event for event in engine.store.read_agent_events("action_result", 1)
+              if event.action_id == action_id and event.data["status"] != "in_progress"]
+    assert len(events) == 1

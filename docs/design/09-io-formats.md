@@ -59,8 +59,8 @@ flowchart TB
 
 场景输入中的 `interaction_menus_by_location_kind` 与 `agents[].interaction_menu` 由
 [配置设计](08-configuration.md#32-交互菜单声明)及[接口合同](../CONTRACTS.md#交互菜单声明与有效菜单)
-定义。每个生活 `observation` 事件的 `data.interaction_menu` 保存两个排序数组
-`allowed_tools` 与 `allowed_activity_kinds`，表示该人物在该冻结观察中的有效菜单；它是事件级工具支持
+定义。每个生活 `observation` 事件的 `data.interaction_menu` 保存排序后的 `allowed_actions`，
+表示该人物在该冻结观察中可选的标准动作；它是事件级工具支持
 证据，不新增 `WorldState` 或 `AgentState` 字段，也不在 user 消息中复制。菜单声明本身由
 `scenario_sha256` 绑定，运行时有效值由观察事件留证。
 
@@ -128,7 +128,6 @@ flowchart TB
 | `delivered_warning_signatures` | set[str] | 是 | 当前持续威胁中已实际交付的签名 |
 | `next_decision_at` | int | 是 | 下次决策时间 |
 | `consecutive_rejections` | int | 是 | 连续拒绝次数 |
-| `decision_failed` | bool | 是 | 决策是否失败 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
 | `read_message_ids` | set[str] | 是 | 已读消息 ID 集合 |
 | `visible_message_ids` | set[str] | 是 | 可见消息 ID 集合 |

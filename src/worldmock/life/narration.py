@@ -1,4 +1,4 @@
-"""@brief 观察投影与提示合同：场景渲染、驱动摘要、字符预算与字段黑名单。
+"""@brief 观察投影与提示合同：场景渲染、驱动摘要与字段黑名单。
 
 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」：给模型的 user 消息由
 persona_card、scene、facts 三部分组成，
@@ -8,11 +8,7 @@ persona_card、scene、facts 三部分组成，
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
   体感分级、当前与暂停活动的进度、今天想推进的目标与推进状态、收件箱头、待办
-  一句话、可达地点与营业状态、手边持有物、最近一次动作结果，上限
-  800 汉字（「字符预算」）；超限按合同是输入侧问题，渲染器如实抛错，
-  不静默截断。
-- user 消息 40000 字符、system 消息 3000 字符；超限是运行故障，
-  不截断、不删字段（「字符预算」）。
+  一句话、可达地点与营业状态、手边持有物。整次请求容量由 prompt_capacity 计量。
 - 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
   二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
 - 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
@@ -28,8 +24,7 @@ location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
 day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
-reachable_places（name/opening_status 列表）、inventory、recent_action_results
-（一句话列表，取最近一条）。
+reachable_places（name/opening_status 列表）、inventory。
 """
 
 from __future__ import annotations
@@ -38,18 +33,10 @@ import json
 import logging
 from datetime import datetime
 
-#: user 消息字符预算（「字符预算」，合同常数，非实验假设）。
-USER_MESSAGE_CHAR_BUDGET = 40000
-#: system 消息字符预算（「字符预算」，合同常数，非实验假设）。
-SYSTEM_MESSAGE_CHAR_BUDGET = 3000
-#: scene 场景段落汉字上限（「字符预算」，合同常数）。
-SCENE_HANZI_BUDGET = 800
 #: persona_card 人物卡片汉字上限（「观察投影与提示合同」，合同常数）。
 PERSONA_CARD_HANZI_BUDGET = 600
 #: 决策自述汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
 DECISION_STATEMENT_HANZI_BUDGET = 200
-#: 单会话进度层字符上限（「进度层」容量表，合同常数）：该会话全部客观字段与自述合计不超过此值。
-SESSION_PROGRESS_LAYER_BUDGET = 4000
 #: 场景文本语言（「观察投影与提示合同」：提示与场景文本使用 language=zh-CN）。
 SCENE_LANGUAGE = "zh-CN"
 
@@ -82,6 +69,18 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "account_id",
     "balance_account_id",
     "balance_fen",
+    "action_id",
+    "event_id",
+    "session_id",
+    "activity_id",
+    "task_id",
+    "route_id",
+    "product_id",
+    "supply_id",
+    "order_id",
+    "message_id",
+    "contact_id",
+    "price_version",
     "resource_changes",
     "energy_kcal",
     "sleep_pressure",
@@ -108,11 +107,10 @@ ROUTE_ALLOWED_FIELDS = frozenset({
     "destination",
     "mode",
     "minutes",
-    "fare",
+    "fare_fen",
     "feasible",
     "status",
     "reason",
-    "distance_meters",
 })
 
 _WEEKDAY_NAMES = (
@@ -120,12 +118,8 @@ _WEEKDAY_NAMES = (
 )
 
 
-class PromptBudgetExceededError(RuntimeError):
-    """@brief user/system 消息超出字符预算的运行故障（合同：不截断、不删字段）。"""
-
-
 class RenderBudgetExceededError(ValueError):
-    """@brief 渲染部件超出汉字上限（scene 800 / persona_card 600），输入侧问题。"""
+    """@brief 人物卡片超出身份段的汉字上限。"""
 
 
 class DecisionStatementValidationError(ValueError):
@@ -243,31 +237,22 @@ def _inventory_sentence(observation: dict) -> str:
 
 
 def _precondition_sentence(observation: dict) -> str:
-    """@brief 前置条件未满足时补一句中文说明，点名具体地点（前置条件前置合同）。
-
-    每条 hint 对应一份工作任务，格式为「这份工作要在{地点}做，先去{地点}」；
-    多个 hint 时每条独立一句。
-    """
+    """@brief 同一地点的工作前置条件只提醒一次。"""
     hints = observation.get("precondition_hints") or []
     sentences = []
+    grouped: dict[str, list[str]] = {}
     for hint in hints:
         title = hint.get("task_title") or ""
         loc_name = hint.get("required_location_name") or ""
         if not loc_name:
             continue
-        if title:
-            sentences.append(_close_sentence(f"「{title}」要在{loc_name}做，先去{loc_name}"))
+        grouped.setdefault(loc_name, []).append(title)
+    for loc_name, titles in grouped.items():
+        if len(titles) == 1 and titles[0]:
+            sentences.append(_close_sentence(f"「{titles[0]}」要在{loc_name}做，先去{loc_name}"))
         else:
-            sentences.append(_close_sentence(f"这份工作要在{loc_name}做，先去{loc_name}"))
+            sentences.append(_close_sentence(f"有{len(titles)}项工作要在{loc_name}做，先去{loc_name}"))
     return "".join(sentences)
-
-
-def _recent_result_sentence(observation: dict) -> str:
-    """@brief 渲染最近一次动作结果的一句话（列表取最近一条，原文照录）。"""
-    results = observation.get("recent_action_results") or []
-    if isinstance(results, str):
-        return _close_sentence(results) if results else ""
-    return _close_sentence(results[-1]) if results else ""
 
 
 def _session_sentences(observation: dict) -> str:
@@ -301,19 +286,16 @@ def _session_sentences(observation: dict) -> str:
 
 
 def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
-    """@brief 渲染中文自然语言场景段落（scene 合同，上限 800 汉字）。
+    """@brief 渲染中文自然语言场景段落。
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
     的进度、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
-    状态、手边持有物、最近一次动作结果；缺失的字段跳过对应句子，渲染器
-    不虚构事实。输出超过 800 汉字按合同是输入侧问题：抛
-    RenderBudgetExceededError 如实报告，不静默截断。
+    状态、手边持有物；缺失的字段跳过对应句子，渲染器不虚构事实。
 
     @param observation 引擎侧计算好的观察字段字典（键名见模块 docstring）
     @param language 场景语言，合同只支持 zh-CN，其他值抛 ValueError
     @return 场景段落文本
     @exception ValueError language 不是 zh-CN
-    @exception RenderBudgetExceededError 渲染结果超过 800 汉字
     @exception ForbiddenObservationFieldError observation 含黑名单字段
     """
     if language != SCENE_LANGUAGE:
@@ -333,16 +315,9 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _places_sentence(observation),
         _inventory_sentence(observation),
         _close_sentence(observation["local_food_summary"]) if observation.get("local_food_summary") else "",
-        _recent_result_sentence(observation),
         _precondition_sentence(observation),
     ]
     scene = "".join(part for part in parts if part)
-    hanzi = count_hanzi(scene)
-    if hanzi > SCENE_HANZI_BUDGET:
-        logging.error("Scene exceeds the Hanzi budget: actual=%s limit=%s", hanzi, SCENE_HANZI_BUDGET)
-        raise RenderBudgetExceededError(
-            f"rendered scene exceeds {SCENE_HANZI_BUDGET} hanzi budget: "
-            f"{hanzi} hanzi; input observation is over-specified")
     return scene
 
 
@@ -379,30 +354,6 @@ def render_drive_summary(
         raise ValueError(
             f"drive summary must not contain digit weights: {digits} in {text!r}")
     return text
-
-
-def enforce_budgets(user_message_len: int, system_message_len: int) -> None:
-    """@brief 执行提示字符预算：user 40000、system 3000，超限即运行故障。
-
-    合同（「字符预算」）：超限是运行故障，不截断、不删字段——本函数只判定并
-    抛错，恰好等于预算视为通过。
-
-    @param user_message_len user 消息字符数
-    @param system_message_len system 消息字符数
-    @exception PromptBudgetExceededError 任一消息超出预算
-    """
-    if user_message_len > USER_MESSAGE_CHAR_BUDGET:
-        logging.error("User message exceeds character budget: actual=%s limit=%s",
-                      user_message_len, USER_MESSAGE_CHAR_BUDGET)
-        raise PromptBudgetExceededError(
-            f"user message exceeds {USER_MESSAGE_CHAR_BUDGET} chars: "
-            f"{user_message_len}")
-    if system_message_len > SYSTEM_MESSAGE_CHAR_BUDGET:
-        logging.error("System message exceeds character budget: actual=%s limit=%s",
-                      system_message_len, SYSTEM_MESSAGE_CHAR_BUDGET)
-        raise PromptBudgetExceededError(
-            f"system message exceeds {SYSTEM_MESSAGE_CHAR_BUDGET} chars: "
-            f"{system_message_len}")
 
 
 def validate_decision_statement(text: str) -> str:
@@ -507,15 +458,13 @@ def compose_user_message(persona_card: str, scene: str, facts: str) -> str:
     """@brief 按 scene 合同顺序组装 user 消息三段：persona_card、scene、facts。
 
     段与段之间以空行分隔，空段跳过；组装前执行 persona_card 600 汉字
-    上限，组装后执行 user 消息 40000 字符预算——两者超限均如实抛错，
-    不截断、不删字段。
+    上限；整次请求容量在发送前统一检查。
 
     @param persona_card 人物卡片渲染文本
     @param scene render_scene 的输出
     @param facts render_facts 的输出
     @return user 消息全文
     @exception RenderBudgetExceededError persona_card 超 600 汉字
-    @exception PromptBudgetExceededError 组装结果超 40000 字符
     """
     hanzi = count_hanzi(persona_card)
     if hanzi > PERSONA_CARD_HANZI_BUDGET:
@@ -524,5 +473,4 @@ def compose_user_message(persona_card: str, scene: str, facts: str) -> str:
             f"persona card exceeds {PERSONA_CARD_HANZI_BUDGET} hanzi budget: "
             f"{hanzi} hanzi")
     message = "\n\n".join(part for part in (persona_card, scene, facts) if part)
-    enforce_budgets(len(message), 0)
     return message

@@ -139,7 +139,7 @@ flowchart LR
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
 | 运行期装配与检索 | **已接入地图输入，独立地图分支已验收**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地，独立地图分支验收通过**：`observe.py` 与 `browse_activities` 经 `presentation.py` 产出实际窗口，`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 5，另外保留共同身体结算时刻与威胁交付状态；持久化供给库存、报价、营业例外和逐供给可见凭据，`presentation_state` 继续保存轮转时刻 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 5`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observe_uses_candidate_contract_and_records_presentation` 断言留痕随下一个提交落盘、留痕条目仍在对象层 |
+| 运行期接线与持久化 | **已落地**：`observe.py` 经 `presentation.py` 产出候选窗口并构造本轮交互对象；`start_activity` 按冻结观察中的私有绑定解析可读对象与动作。`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 6，另保留共同身体结算时刻与威胁交付状态；供给库存、报价、营业例外、逐供给可见凭据和 `presentation_state` 随世界状态持久化 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 6`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps` 断言呈现留痕落盘 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 候选特性历史门禁输出（原命令与关键行）
@@ -195,11 +195,10 @@ $ uv run pytest -q
 `browse_activities` 新增可空 `cursor` 参数、返回体字段由 `count` 改名为 `returned` 并新增 `total` 与 `next_cursor`，
 指纹随之改变。新值 `463c496b09848b9634d0f0f11f9f7fc4af7e06d3c7282088151b48625aa92b89`。
 
-运行期已接线：人物实际看到的候选经 `src/worldmock/life/presentation.py` 装配后产出，
-`docs/VERIFICATION.md`「候选与呈现一致性」的九项判据中，凡判据要求「观察投影」「下推返回体」
-「轮转前后目录与对象状态不变」「两次投影逐字节相同」的项均已可执行，证据见上节表格与
-`tests/life/test_candidate_wiring.py`。规格追溯矩阵 `docs/dev/ANALYSIS-spec-coverage.md`
-的「候选契约与呈现规则」章保留各轮历史计数；后续映射已经清零，不能以早期缺口数描述当前状态。
+这份历史基线当时经 `src/worldmock/life/presentation.py` 接入候选呈现，并验证了旧的下推返回体。
+现行观察仍经该模块装配候选，但人物从本轮交互对象选择可读动作，由 `start_activity` 提交；
+当前呈现留痕测试见 `tests/life/test_candidate_wiring.py`。规格追溯矩阵
+`docs/dev/ANALYSIS-spec-coverage.md` 的旧覆盖计数只保留历史审计身份，不能作为当前工具面的覆盖证明。
 
 ### 已落地的条款：口味权重降级为排序信号
 

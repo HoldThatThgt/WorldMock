@@ -1,932 +1,213 @@
-"""LifeAgent 当前观察目录与原生目标工具 Schema 的一致性测试。"""
+"""冻结观察中的可读对象、逐项动作和生活工具闭集。"""
 
 from __future__ import annotations
 
 import os
-from datetime import datetime, timezone
+from copy import deepcopy
 
 import pytest
-
-from tests.integration.activity_fixtures import occupied_resources, paused_activity
-from tests.integration.storefront_fixtures import supply_row, discovery_catalog
-from jsonschema import Draft202012Validator
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
-from agentsociety2.society import DecisionContext, DirectToolCall
 from custom.agents.life_agent import LifeAgent
-from worldmock.catalog.affordances import default_affordances
-from worldmock.life.engine import affordance_contract
-from worldmock.life.models import (
-    ActionReceipt,
-    REQUEST_MODELS,
-    ChangeActivityRequest,
-    StartActivityRequest,
-)
+from tests.integration.test_life_agent_protocol import _Environment, _context, _observations
+from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
 
 
-_MEMORY_TOOLS = {
-    "memory_recent",
-    "memory_search",
-    "memory_step_range",
-    "memory_tick_range",
-    "memory_time_range",
-    "memory_read",
-}
-
-_FAILED_OBSERVATION_CATALOGS = {
-    "tasks": [],
-    "game_catalog": [{"game_id": f"textworld-{seed}"} for seed in range(1201, 1209)],
-    "messages": [],
-    "browse_targets": ["product_catalog"],
-}
-
-_TARGET_CATALOG_FIELDS_FOR_TEST = ("work", "watch", "play_game", "read_mail", "browse")
-
-#: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
-_AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
-
-_OBSERVED_AT = datetime(2026, 1, 5, 0, 3, 45, tzinfo=timezone.utc)
-_NOW_EPOCH = int(_OBSERVED_AT.timestamp())
-
-#: 两层观察投影的 facts 段（新工具身份来源：day_plan / inbox / people_here）。
-_FACTS = {
-    "current_time": "2026-01-05T00:03:45+00:00",
-    "location_id": "home",
-    "people_here": [],
-    "inbox": [],
-    "tasks": [
-        {"task_id": "task-a", "title": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
-         "remaining_contract_seconds": 3600, "new_material_ranges": []},
-    ],
-    "routes": [{"destination": "office", "mode": "driving", "minutes": 4,
-                "fare": 800, "feasible": True}],
-    "products": [],
-    "inventory": {},
-    "day_plan": None,
-    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "drive_summary": "你有点困。",
-    "recent_action_results": [],
-}
-
-_SCENE = {
-    "current_time": "2026-01-05T00:03:45+00:00",
-    "location": "自己家",
-    "people_here": [],
-    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activities": [],
-    "paused_activities": [],
-    "day_plan": None,
-    "inbox_head": [],
-    "todos_summary": "",
-    "reachable_places": [],
-    "inventory": [],
-    "recent_action_results": [],
-}
+def _data() -> dict:
+    """以真实生活协议观察为基础，提供五类语义对象。"""
+    data = deepcopy(_observations()[0]["data"])
+    public = data["facts"]["interactive_objects"]
+    public.extend([
+        {"object": "内容：纪录片", "actions": ["观看"], "preconditions_met": True},
+        {"object": "地点：公园", "actions": ["步行前往"], "preconditions_met": True},
+        {"object": "人物：小李", "actions": ["交谈"], "preconditions_met": True},
+    ])
+    data["interaction_bindings"].extend([
+        {"object": "内容：纪录片", "kind": "content", "object_id": "content-hidden",
+         "actions": [{"label": "观看", "canonical_action": "watch"}]},
+        {"object": "地点：公园", "kind": "location", "object_id": "park-hidden",
+         "actions": [{"label": "步行前往", "canonical_action": "travel_to", "travel_mode": "walking"}]},
+        {"object": "人物：小李", "kind": "person", "object_id": "agent-hidden",
+         "actions": [{"label": "交谈", "canonical_action": "chat"}]},
+    ])
+    return data
 
 
-def _context() -> DecisionContext:
-    """构造一个带时区的真实宿主决策上下文。"""
-    return DecisionContext(
-        "run", "round", "decision", 2, _OBSERVED_AT, 50
-    )
-
-
-def _catalogs() -> dict:
-    """构造五类均有可见目标的环境目录。"""
-    return {
-        "tasks": [
-            {"task_id": "task-b", "remaining_contract_seconds": 3600,
-             "material": {"end_char": 10, "total_chars": 10}},
-            {"task_id": "task-a", "remaining_contract_seconds": 3600,
-             "material": {"end_char": 10, "total_chars": 10}},
-        ],
-        "game_catalog": [{"game_id": "game-visible"}],
-        "messages": [{"message_id": "message-visible"}],
-        "browse_targets": ["product_catalog"],
-    }
-
-
-def _energy_limits(**overrides: int) -> dict:
-    """形成环境权威投影的五类活动墙钟上限。"""
-    values = {kind: 86_400 for kind in ("work", "watch", "play_game", "read_mail", "browse")}
-    values.update(overrides)
-    return {"maximum_duration_seconds_by_kind": values}
-
-
-def _browse_entry(item_id: str = "content-visible", duration: int = 630,
-                  event_id: str = "event-browse-current") -> dict:
-    """构造一条 browse_activities 动作结果（引擎 ActionResult 转储形状）。"""
-    data = {"tool": "browse_activities", "category": "feature_film", "count": 1,
-            "note": "watch items accept start_targeted_activity with activity_type watch",
-            "items": [{"item_id": item_id, "kind": "feature_film",
-                       "duration_seconds": duration,
-                       "entertainment_relief_per_hour": 0.2,
-                       "experience_label": "feature_film",
-                       "segments_total": 1,
-                       "typical_segment_seconds": float(duration)}]}
-    return {"event_id": event_id, "action_id": "action-browse-current",
-            "decision_id": "decision", "occurred_at": 0, "status": "completed",
-            "error_code": None, "message": "Activity menu browsed",
-            "result": {"status": "completed", "activity_id": None,
-                       "error_code": None, "message": "Activity menu browsed",
-                       "data": data}}
-
-
-def _observations(
-    catalogs: dict,
-    *,
-    active_activity: dict | None = None,
-    paused_activities: list[dict] | None = None,
-    overrides: dict | None = None,
-    browse_results: list[dict] | None = None,
-) -> list[dict]:
-    """把目录包装为 PersonAgent 实际传给 ReAct 的首观察。"""
-    data = {
-        "observation_event_id": "observation-current",
-        "current_time": _NOW_EPOCH,
-        "wake_reasons": [],
-        "scene": dict(_SCENE),
-        "facts": dict(_FACTS),
-        "recent_action_results": (
-            [_browse_entry()] if browse_results is None else browse_results),
-        "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
-        "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
-        "active_activities": [active_activity] if active_activity is not None else [],
-        "paused_activities": paused_activities or [],
-        "energy_feasibility": _energy_limits(),
-        "affordance_contract": _AFFORDANCE_CONTRACT,
-        "interaction_menu": {
-            "allowed_tools": sorted(REQUEST_MODELS),
-            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
-        },
-        "content_progress": {},
-        "products": [{"product_id": "product-visible", "use_modes": ["eat"],
-                      "use_duration_seconds": 300, "required_location_id": None}],
-        "supplies": [supply_row(supply_id="supply-visible", product_id="product-visible")],
-        "discovery_catalog": discovery_catalog("product-visible"),
-        "locations": [{"location_id": "home"}, {"location_id": "office"}],
-        "location_id": "home",
-        "available_inventory": {"product-visible": 1.0},
-        "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
-                             "use_duration_seconds": 300, "required_location_id": None}],
-        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
-                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
-        "games": {},
-        **catalogs,
-    }
-    data["occupied_resources"] = occupied_resources(data["active_activities"])
-    data.update(overrides or {})
-    return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
-
-
-def _prepare(catalogs: dict, **observation_options) -> LifeAgent:
-    """按生产顺序准备一次非只读人物决策。"""
+def _prepare(data: dict | None = None) -> LifeAgent:
+    """将本轮唯一观察冻结到实际 LifeAgent。"""
     agent = LifeAgent()
-    request = ReactLoopRequest(0, _context().observed_at, _observations(catalogs, **observation_options))
-    agent.prepare_react_loop(request)
+    observed = {"turn": 0, "action": "observe", "ok": True, "data": data or _data()}
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, [observed]))
     return agent
 
 
-def _functions(agent: LifeAgent, *, readonly: bool = False) -> dict[str, dict]:
-    """按函数名索引当前实际模型工具 Schema。"""
-    return {
-        item["function"]["name"]: item["function"]
-        for item in agent.build_react_tool_schemas(readonly=readonly)
-    }
+def _functions(agent: LifeAgent, readonly: bool = False) -> dict[str, dict]:
+    """按名称读取人物本轮真实原生工具声明。"""
+    return {item["function"]["name"]: item["function"]
+            for item in agent.build_react_tool_schemas(readonly=readonly)}
 
 
-def _targeted_parameters(agent: LifeAgent) -> dict:
-    """取得当前目标活动工具的参数 Schema。"""
-    return _functions(agent)["start_targeted_activity"]["parameters"]
+def _decision(name: str, **arguments) -> ReactDecision:
+    """构造一次原生工具选择。"""
+    return ReactDecision("", name, arguments, "")
 
 
-class _Environment:
-    """捕获已经通过本地目录校验的宿主绑定动作。"""
-
-    def __init__(self) -> None:
-        self.calls: list[DirectToolCall] = []
-
-    async def submit_action(self, call: DirectToolCall) -> ActionReceipt:
-        """返回与直接调用上下文一致的登记回执。"""
-        self.calls.append(call)
-        return ActionReceipt(
-            action_id=call.action_id,
-            round_id=call.context.round_id,
-            decision_id=call.context.decision_id,
-            request_sha256="a" * 64,
-        )
-
-
-def _active(kind: str, *, session_id: str | None = None) -> dict:
-    """形成一个与反馈边界一致的当前活动投影。"""
-    data = {"game_session_id": session_id} if session_id else {}
-    return {"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "activity_id": f"activity-{kind}", "status": "active", "kind": kind, "data": data}
+def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -> None:
+    """模型只选本轮对象和动作，报价与内部身份留在私有绑定。"""
+    data = _data()
+    functions = _functions(_prepare(data))
+    start = functions["start_activity"]
+    properties = start["parameters"]["properties"]
+    assert start["strict"] is True
+    assert start["parameters"]["additionalProperties"] is False
+    assert set(properties) == {"targets", "actions"}
+    assert properties["targets"]["items"]["enum"] == sorted(
+        row["object"] for row in data["facts"]["interactive_objects"])
+    assert set(properties["actions"]["items"]["enum"]) == {
+        "等待", "睡觉", "工作", "观看", "步行前往", "交谈"}
+    assert "task-visible" not in str(start)
+    assert "park-hidden" not in str(start)
 
 
-def test_prepare_binds_current_catalogs_to_native_strict_schema() -> None:
-    """准备阶段把五个当前目录绑定为排序去重的原生枚举。"""
-    parameters = _targeted_parameters(_prepare(_catalogs()))
-    properties = parameters["properties"]
-
-    assert properties["activity_type"]["enum"] == [
-        "work", "watch", "play_game", "read_mail", "browse",
-    ]
-    assert properties["target_id"]["enum"] == [
-        "content-visible", "game-visible", "message-visible", "product_catalog", "task-a", "task-b",
-    ]
-    assert "work uses tasks[].task_id" in properties["activity_type"]["description"]
-    assert "read_mail = the id of a facts.inbox entry whose kind is mail" in properties["target_id"]["description"]
-    Draft202012Validator.check_schema(parameters)
-
-
-def test_failed_run_observation_removes_unreleased_work_and_invented_target() -> None:
-    """真实失败观察的空任务目录不再允许 work 或虚构 office 目标。"""
-    agent = _prepare(_FAILED_OBSERVATION_CATALOGS,
-                     browse_results=[_browse_entry("sintel-en-subtitles")])
-    parameters = _targeted_parameters(agent)
-    properties = parameters["properties"]
-    payload = {
-        "activity_type": "work",
-        "planned_duration_seconds": 7200,
-        "target_id": "office",
-        "playback_speed": 1,
-    }
-    decision = ReactDecision("", "start_targeted_activity", payload, "")
-
-    assert properties["activity_type"]["enum"] == ["watch", "play_game", "browse"]
-    assert "office" not in properties["target_id"]["enum"]
-    assert list(Draft202012Validator(parameters).iter_errors(payload))
-    assert agent.validate_react_decisions([decision], False) == (
-        "start_targeted_activity target_id is not visible for activity_type"
-    )
+@pytest.mark.parametrize("targets,actions,error", [
+    (["内容：纪录片"], ["步行前往"], "not offered"),
+    (["content-hidden"], ["观看"], "not a visible"),
+    (["内容：纪录片", "地点：公园"], ["观看"], "equal lengths"),
+    (["内容：纪录片", "内容：纪录片"], ["观看", "观看"], "unique"),
+    (["自己", "内容：纪录片", "地点：公园"], ["等待", "观看", "步行前往"], "one or two"),
+])
+def test_start_rejects_invalid_pairs_before_dispatch(targets, actions, error) -> None:
+    """每项动作必须属于对应对象，且整个请求共享一个原子校验边界。"""
+    agent = _prepare()
+    actual = agent.validate_react_decisions([
+        _decision("start_activity", targets=targets, actions=actions)], False)
+    assert error in actual
 
 
-def test_all_empty_catalogs_remove_only_targeted_start_tool() -> None:
-    """全部公开身份为空时仅保留无需目标的基础活动与当日计划工具。"""
-    empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    overrides = {"products": [], "supplies": [], "locations": [], "available_inventory": {}, "inventory_items": [], "routes": [],
-                 "discovery_catalog": {"product_ids": [], "business_kinds": []}}
-    functions = _functions(_prepare(empty, overrides=overrides, browse_results=[]))
-
-    assert "start_targeted_activity" not in functions
-    assert set(functions) == _MEMORY_TOOLS | {
-        "start_basic_activity", "browse_activities", "discover_places", "plan_day"}
+def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
+    """步行和观看分别配对，不再以一个 action 覆盖双活动。"""
+    agent = _prepare()
+    choice = _decision("start_activity", targets=["地点：公园", "内容：纪录片"],
+                       actions=["步行前往", "观看"])
+    assert agent.validate_react_decisions([choice], False) == ""
+    assert agent.validate_react_decisions([choice, choice], False) == (
+        "one model response cannot contain multiple life actions")
 
 
-@pytest.mark.parametrize(
-    ("kind", "expected", "overrides"),
-    [
-        ("wait", {"continue_activity", "set_activity_state", "start_targeted_activity"}, {}),
-        ("watch", {"continue_activity", "set_activity_state", "change_playback_speed",
-                   "start_basic_activity", "consume"}, {}),
-        ("play_game", {"set_activity_state", "game_action"}, {
-            "games": {"session-visible": {
-                "session_id": "session-visible", "admissible_commands": ["look", "inventory"],
-                "won": False, "lost": False,
-            }},
-        }),
-    ],
-)
-def test_active_boundary_keeps_compatible_starts_and_independent_controls(
-    kind, expected, overrides,
-) -> None:
-    """活动中的工具集合按真实资源交集收窄，独立控制与瞬时查询仍保留。"""
-    session_id = "session-visible" if kind == "play_game" else None
-    agent = _prepare(_catalogs(), active_activity=_active(kind, session_id=session_id), overrides=overrides)
-
-    names = set(_functions(agent))
-    assert expected <= names
-    assert names & {"start_basic_activity", "start_targeted_activity", "start_travel",
-                    "consume", "start_social_activity", "start_parallel_activities"} == (
-                        expected & {"start_basic_activity", "start_targeted_activity", "start_travel",
-                                    "consume", "start_social_activity", "start_parallel_activities"})
-    assert {"browse_activities", "discover_places", "plan_day", "purchase", "submit_work"} <= names
-    assert _MEMORY_TOOLS <= names
+def test_frozen_observation_does_not_change_until_next_round() -> None:
+    """提示冻结后修改原字典不能补充对象；下一轮明确观察才能刷新。"""
+    data = _data()
+    agent = _prepare(data)
+    data["facts"]["interactive_objects"].append(
+        {"object": "内容：新电影", "actions": ["观看"], "preconditions_met": True})
+    invalid = _decision("start_activity", targets=["内容：新电影"], actions=["观看"])
+    assert "not a visible" in agent.validate_react_decisions([invalid], False)
+    assert "内容：新电影" not in _functions(agent)["start_activity"]["parameters"]["properties"][
+        "targets"]["items"]["enum"]
+    refreshed = _prepare(data)
+    assert refreshed.validate_react_decisions([invalid], False) == ""
 
 
-def test_finished_activity_refresh_restores_starts_and_removes_old_controls() -> None:
-    """活动完成后的下一轮观察撤下旧身份并恢复可用新动作。"""
-    agent = _prepare(_catalogs(), active_activity=_active("wait"))
-    assert "continue_activity" in _functions(agent)
+def test_duplicate_readable_object_names_fail_closed() -> None:
+    """同名对象必须在观察投影阶段消歧，人物工具不会猜内部身份。"""
+    data = _data()
+    data["facts"]["interactive_objects"].append(
+        {"object": "内容：纪录片", "actions": ["观看"], "preconditions_met": True})
+    with pytest.raises(RuntimeError, match="interactive object identity"):
+        _prepare(data)
 
-    request = ReactLoopRequest(0, _context().observed_at, _observations(_catalogs()))
-    agent.prepare_react_loop(request)
+
+def test_menu_closes_actions_without_removing_stable_tools() -> None:
+    """地点菜单只缩小动作短语，工作提交等工具仍依各自合同开放。"""
+    data = _data()
+    data["interaction_menu"] = {"allowed_actions": ["sleep", "wait"]}
+    agent = _prepare(data)
     functions = _functions(agent)
+    assert {"start_activity", "submit_work", "recall_task_summary"} <= set(functions)
+    assert functions["start_activity"]["parameters"]["properties"]["actions"]["items"]["enum"] == [
+        "睡觉", "等待"]
+    assert "interaction menu" in agent.validate_react_decisions([
+        _decision("start_activity", targets=["整理会议纪要"], actions=["工作"])], False)
 
-    assert "continue_activity" not in functions and "set_activity_state" not in functions
-    assert "start_basic_activity" in functions and "start_targeted_activity" in functions
 
-
-def test_watch_tail_and_work_limit_remove_only_impossible_starts() -> None:
-    """不足最小推进量的媒体尾段和合同尾段不再成为启动目标。"""
-    catalogs = _catalogs()
-    catalogs["tasks"] = [{"task_id": "task-a", "remaining_contract_seconds": 59,
-                          "material": {"end_char": 10, "total_chars": 10}}]
-    progress = {"content-visible": {
-        "item_id": "content-visible", "position_seconds": 621.0,
-        "remaining_media_seconds": 9.0, "exposure_count": 1,
-    }}
-    agent = _prepare(catalogs, overrides={"content_progress": progress})
+def test_visible_task_and_person_names_bind_independent_tools() -> None:
+    """工作成果和消息正文经独立工具提交，只接收可读任务或人物名。"""
+    agent = _prepare()
     functions = _functions(agent)
-    kinds = functions["start_targeted_activity"]["parameters"]["properties"]["activity_type"]["enum"]
-
-    assert "work" not in kinds and "watch" not in kinds
-    assert "submit_work" in functions
-
-
-def test_completed_content_remains_available_for_explicit_repeat() -> None:
-    """完整看完的内容按领域重复规则从开头重新成为合法目标。"""
-    progress = {"content-visible": {
-        "item_id": "content-visible", "position_seconds": 630.0,
-        "remaining_media_seconds": 0.0, "exposure_count": 1,
-    }}
-    parameters = _targeted_parameters(_prepare(
-        _catalogs(), overrides={"content_progress": progress}))
-
-    assert "watch" in parameters["properties"]["activity_type"]["enum"]
+    assert functions["submit_work"]["parameters"]["properties"]["task_name"]["enum"] == [
+        "整理会议纪要"]
+    assert functions["send_message"]["parameters"]["properties"]["recipient_name"]["enum"] == [
+        "人物：小李"]
+    assert "task-visible" not in str(functions["submit_work"])
+    assert "agent-hidden" not in str(functions["send_message"])
+    assert agent.validate_react_decisions([_decision(
+        "send_message", recipient_name="人物：小李", text="你好")], False) == ""
+    assert "not visible" in agent.validate_react_decisions([_decision(
+        "send_message", recipient_name="agent-hidden", text="你好")], False)
 
 
-def test_business_tools_bind_visible_pairs_and_refresh_when_identities_disappear() -> None:
-    """瞬时动作与出行只接受本轮公开配对，并在下一轮按状态撤下。"""
-    agent = _prepare(_catalogs())
+@pytest.mark.parametrize("phase,status,expected", [
+    ("进行中", "active", {"report_status", "pause_activity", "conclude_activity"}),
+    ("已暂停", "paused", {"report_status"}),
+])
+def test_session_controls_bind_current_readable_task(phase, status, expected) -> None:
+    """会话控制逐项写人物自述，状态决定工具可见性。"""
+    data = _data()
+    data["facts"]["progress"]["sessions"] = [
+        {"session_name": "整理会议纪要（上午）", "phase": phase}]
+    data["session_bindings"] = [{"task_name": "整理会议纪要",
+                                 "session_name": "整理会议纪要（上午）",
+                                 "session_id": "session-hidden", "status": status}]
+    agent = _prepare(data)
     functions = _functions(agent)
-    invalid = [
-        ("purchase", {"items": [{"supply_id": 'supply-visible', "quantity": 1,
-                                 "price_version": "wrong"}],
-                      "fulfillment": "delivery", "destination_id": "home"}),
-        ("consume", {"items": [{"product_id": "product-visible", "quantity": 1}],
-                     "use_mode": "use", "duration_seconds": 300}),
-        ("start_travel", {"destination_id": "office", "travel_mode": "driving",
-                          "planned_duration_seconds": 217}),
-    ]
-    assert {"purchase", "consume", "submit_work", "start_travel"} <= set(functions)
-    for action, payload in invalid:
-        assert agent.validate_react_decisions([ReactDecision("", action, payload, "")], False)
-
-    catalogs = _catalogs()
-    catalogs["tasks"][0]["material"] = {"end_char": 9, "total_chars": 10}
-    catalogs["tasks"][1]["material"] = {"end_char": 9, "total_chars": 10}
-    removed = _functions(_prepare(catalogs, overrides={
-        "supplies": [supply_row(current_stock=0, purchase_allowed=False)],
-        "available_inventory": {"product-visible": 0.0},
-        "inventory_items": [],
-        "routes": [],
-    }))
-    assert {"purchase", "consume", "submit_work", "start_travel", "game_action"}.isdisjoint(removed)
-
-
-def test_unavailable_continue_is_rejected_before_valid_start_without_side_effect() -> None:
-    """无当前活动时错误继续不执行，有限纠错后仍可提交一个合法启动。"""
-    agent = _prepare(_catalogs())
-    invalid = ReactDecision("", "continue_activity", {"activity_id": "piece-2026-01-05"}, "")
-    valid = ReactDecision("", "start_targeted_activity", {
-        "activity_type": "work", "planned_duration_seconds": 60,
-        "target_id": "task-a", "playback_speed": 1,
-    }, "")
-
-    assert agent.validate_react_decisions([invalid], False) == (
-        "continue_activity is not available in the current activity state")
-    assert agent._life_action_count == 0
-    assert agent.validate_react_decisions([valid], False) == ""
+    actual = set(functions) & {"report_status", "pause_activity", "conclude_activity"}
+    assert actual == expected
+    for name in actual:
+        assert functions[name]["parameters"]["properties"]["task"]["items"]["enum"] == [
+            "整理会议纪要"]
+        assert agent.validate_react_decisions([_decision(
+            name, task=["整理会议纪要"], summary=["继续推进。"])], False) == ""
+    assert "session-hidden" not in str(functions)
 
 
 @pytest.mark.asyncio
-async def test_invalid_visible_pair_cannot_bypass_validation_through_dispatch() -> None:
-    """直接分派仍复用本轮公开配对校验，错误报价不会触达环境。"""
-    agent = _prepare(_catalogs())
+async def test_valid_start_dispatches_the_same_typed_request() -> None:
+    """本地核对后的对象与动作原样进入宿主有类型请求。"""
+    agent = _prepare()
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    payload = {
-        "items": [{"supply_id": 'supply-visible', "quantity": 1,
-                   "price_version": "wrong"}],
-        "fulfillment": "delivery", "destination_id": "home",
-    }
-
-    with pytest.raises(RuntimeError, match="not a visible pair"):
-        await agent.dispatch_react_tool("purchase", payload)
-    assert environment.calls == [] and agent._life_action_count == 0
-
-
-@pytest.mark.parametrize("missing", ["tasks", "game_catalog", "messages", "browse_targets"])
-def test_prepare_rejects_every_missing_catalog(missing: str) -> None:
-    """任何公开目录缺失都作为协议错误而非空目录处理。"""
-    catalogs = _catalogs()
-    del catalogs[missing]
-
-    with pytest.raises(RuntimeError, match=rf"LifeAgent {missing} catalog must be a list"):
-        _prepare(catalogs)
-
-
-@pytest.mark.parametrize(
-    ("field", "value", "message"),
-    [
-        ("tasks", {}, "tasks catalog must be a list"),
-        ("tasks", ["task"], "tasks catalog item must be an object"),
-        ("tasks", [{"task_id": "task"}], "task remaining contract time"),
-        ("activity_summary", None, "activity summary is unavailable"),
-        ("activity_summary", {}, "activity summary is unavailable"),
-        ("activity_summary", {"feature_film": -1}, "activity summary entry"),
-        ("activity_summary", {" ": 1}, "activity summary entry"),
-        ("game_catalog", [{"game_id": 7}], "game_catalog catalog identity"),
-        ("messages", [{"subject": "missing identity"}], "messages catalog identity"),
-        ("browse_targets", [{"target": "product_catalog"}], "browse_targets catalog identity"),
-    ],
-)
-def test_prepare_rejects_malformed_catalogs(field: str, value, message: str) -> None:
-    """目录类型、项目结构和身份类型必须与环境公开合同一致。"""
-    catalogs = _catalogs()
-    catalogs[field] = value
-
-    with pytest.raises(RuntimeError, match=message):
-        _prepare(catalogs)
-
-
-@pytest.mark.parametrize(
-    ("overrides", "message"),
-    [
-        ({"supplies": [supply_row(current_stock=-1)]}, "supply stock"),
-        ({"available_inventory": {"unknown-product": 1}}, "held product contract"),
-        ({"routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 0}]},
-         "route contract"),
-        ({"content_progress": {"mismatched": {
-            "item_id": "other", "position_seconds": 1,
-            "remaining_media_seconds": 1, "exposure_count": 1,
-        }}}, "content progress identity"),
-        ({"content_progress": {"content-visible": {
-            "item_id": "content-visible", "position_seconds": 100,
-            "remaining_media_seconds": 999, "exposure_count": 1,
-        }}}, "content remaining time"),
-    ],
-)
-def test_prepare_rejects_malformed_business_identity_sources(overrides, message) -> None:
-    """商品、持有物、路线和观看进度损坏时不生成宽松工具 Schema。"""
-    with pytest.raises(RuntimeError, match=message):
-        _prepare(_catalogs(), overrides=overrides)
-
-
-@pytest.mark.parametrize(
-    ("projection", "message"),
-    [
-        (None, "energy feasibility kinds"),
-        ({"maximum_duration_seconds_by_kind": {"work": 60}}, "energy feasibility kinds"),
-        ({"maximum_duration_seconds_by_kind": {
-            "work": True, "watch": 60, "play_game": 60, "read_mail": 60, "browse": 60,
-        }}, "work energy duration limit"),
-    ],
-)
-def test_prepare_rejects_missing_or_malformed_energy_projection(projection, message) -> None:
-    """能量可行性缺失或类型损坏时不得重新暴露宽松动作。"""
-    with pytest.raises(RuntimeError, match=message):
-        _prepare(_catalogs(), overrides={"energy_feasibility": projection})
-
-
-def test_prepare_rejects_terminal_game_as_active_control() -> None:
-    """已经终结的游戏进度不能作为当前命令会话重新开放。"""
-    games = {"session-visible": {
-        "session_id": "session-visible", "admissible_commands": ["look"],
-        "won": True, "lost": False,
-    }}
-    with pytest.raises(RuntimeError, match="game progress is terminal"):
-        _prepare(
-            _catalogs(), active_activity=_active("play_game", session_id="session-visible"),
-            overrides={"games": games})
-
-
-def test_browse_activities_binds_summary_keys_and_rejects_unknown_category() -> None:
-    """菜单查询工具的品类枚举来自 activity_summary 键，未知品类本地拒绝。"""
-    agent = _prepare(_catalogs())
-    functions = _functions(agent)
-    schema = functions["browse_activities"]["parameters"]["properties"]
-
-    assert schema["category"]["enum"] == ["feature_film", "foods", "sport"]
-    valid = ReactDecision("", "browse_activities", {"category": "sport", "cursor": None}, "")
-    invalid = ReactDecision("", "browse_activities",
-                            {"category": "casino", "cursor": None}, "")
-    assert agent.validate_react_decisions([valid], False) == ""
-    assert agent.validate_react_decisions([invalid], False) == (
-        "browse_activities category is not a key of the visible activity_summary")
-
-
-def test_union_enum_still_requires_exact_kind_and_target_pair() -> None:
-    """联合目标枚举不能让内容身份冒充工作任务身份。"""
-    agent = _prepare(_catalogs())
-    payload = {
-        "activity_type": "work",
-        "planned_duration_seconds": 60,
-        "target_id": "content-visible",
-        "playback_speed": 1,
-    }
-
-    assert list(Draft202012Validator(_targeted_parameters(agent)).iter_errors(payload)) == []
-    assert "not visible for activity_type" in agent.validate_react_decisions(
-        [ReactDecision("", "start_targeted_activity", payload, "")], False
-    )
-
-
-def test_memory_observation_does_not_change_frozen_catalog_and_next_round_refreshes() -> None:
-    """记忆工具结果不改变本轮目录，新决策重新读取下一轮首观察。"""
-    first = _catalogs()
-    request = ReactLoopRequest(0, _context().observed_at, _observations(first))
-    agent = LifeAgent()
-    agent.prepare_react_loop(request)
-    first_enum = _targeted_parameters(agent)["properties"]["target_id"]["enum"]
-    request.observations.append({"turn": 1, "action": "memory_recent", "ok": True, "data": {"episodes": []}})
-
-    assert _targeted_parameters(agent)["properties"]["target_id"]["enum"] == first_enum
-
-    second = _catalogs()
-    second["tasks"] = [{"task_id": "task-next-round", "remaining_contract_seconds": 3600,
-                        "material": {"end_char": 10, "total_chars": 10}}]
-    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observations(second)))
-    refreshed = _targeted_parameters(agent)["properties"]["target_id"]["enum"]
-    assert "task-next-round" in refreshed
-    assert "task-a" not in refreshed and "task-b" not in refreshed
-
-
-def test_readonly_needs_no_environment_catalog_and_opens_no_life_action() -> None:
-    """显式只读循环不读取生活目录且只开放记忆与结束工具。"""
-    agent = LifeAgent()
-    request = ReactLoopRequest(0, _context().observed_at, [], "What happened?", True)
-    agent.prepare_react_loop(request)
-
-    assert set(_functions(agent, readonly=True)) == _MEMORY_TOOLS | {"finish"}
-
-
-def test_paused_activity_keeps_resume_control_when_target_catalogs_are_empty() -> None:
-    """目标启动工具撤下时暂停活动仍保留显式恢复控制。"""
-    empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [paused_activity("activity-paused")]
-    agent = _prepare(empty, paused_activities=paused, browse_results=[])
-    functions = _functions(agent)
-    decision = ReactDecision(
-        "", "set_activity_state", {"activity_id": "activity-paused", "operation": "resume"}, ""
-    )
-
-    assert "start_targeted_activity" not in functions
-    assert "resume" in functions["set_activity_state"]["parameters"]["properties"]["operation"]["enum"]
-    assert agent.validate_react_decisions([decision], False) == ""
-
-
-@pytest.mark.asyncio
-async def test_valid_grounded_target_dispatches_same_typed_request() -> None:
-    """通过目录配对校验的目标以同一 Pydantic 请求交给环境。"""
-    agent = _prepare(_catalogs())
-    environment = _Environment()
-    agent._env = environment
-    agent._decision_context = _context()
-    payload = {
-        "activity_type": "work",
-        "planned_duration_seconds": 60,
-        "target_id": "task-a",
-        "playback_speed": 1,
-    }
-    decision = ReactDecision("", "start_targeted_activity", payload, "")
-
-    assert agent.validate_react_decisions([decision], False) == ""
-    result = await agent.dispatch_react_tool("start_targeted_activity", payload)
-
+    payload = {"targets": ["地点：公园", "内容：纪录片"], "actions": ["步行前往", "观看"]}
+    assert agent.validate_react_decisions([_decision("start_activity", **payload)], False) == ""
+    result = await agent.dispatch_react_tool("start_activity", payload)
     assert result.ok is True
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
-    assert environment.calls[0].request.target_id == "task-a"
+    assert environment.calls[0].request.model_dump() == payload
 
 
-@pytest.mark.asyncio
-async def test_paused_resume_dispatch_remains_typed_and_independent_of_catalogs() -> None:
-    """暂停活动恢复动作不依赖目标启动目录并保持原请求类型。"""
-    empty = {key: [] for key in _FAILED_OBSERVATION_CATALOGS}
-    paused = [paused_activity("activity-paused")]
-    agent = _prepare(empty, paused_activities=paused, browse_results=[])
-    environment = _Environment()
-    agent._env = environment
-    agent._decision_context = _context()
-    payload = {"activity_id": "activity-paused", "operation": "resume"}
-    decision = ReactDecision("", "set_activity_state", payload, "")
-
-    assert agent.validate_react_decisions([decision], False) == ""
-    await agent.dispatch_react_tool("set_activity_state", payload)
-
-    assert isinstance(environment.calls[0].request, ChangeActivityRequest)
-    assert environment.calls[0].request.operation == "resume"
+def test_plan_and_revision_follow_current_day_plan() -> None:
+    """登记目标只返回可见意图和正文，不从模型索取内部计时参数。"""
+    data = _data()
+    planning = _functions(_prepare(data))
+    assert "plan_day" in planning and "revise_day_plan" not in planning
+    assert set(planning["plan_day"]["parameters"]["properties"]) == {"goals"}
+    data["facts"]["day_plan"] = {"goals": []}
+    revising = _functions(_prepare(data))
+    assert "revise_day_plan" in revising and "plan_day" not in revising
+    assert set(revising["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
 
 
-@pytest.mark.asyncio
-async def test_energy_limit_binds_schema_and_rejects_sixty_one_seconds_before_dispatch() -> None:
-    """本轮每类能量上限同时约束实际 Schema 与分派前的精确配对。"""
-    maximums = {kind: 0 for kind in _TARGET_CATALOG_FIELDS_FOR_TEST}
-    maximums["work"] = 60
-    maximums["watch"] = 120
-    agent = _prepare(_catalogs(), overrides={
-        "energy_feasibility": _energy_limits(**maximums),
-        "routes": [],
-    })
-    environment = _Environment()
-    agent._env = environment
-    agent._decision_context = _context()
-    parameters = _targeted_parameters(agent)
-    allowed = {"activity_type": "work", "planned_duration_seconds": 60,
-               "target_id": "task-a", "playback_speed": 1}
-    excessive = {**allowed, "planned_duration_seconds": 61}
-    above_global = {"activity_type": "watch", "planned_duration_seconds": 121,
-                    "target_id": "content-visible", "playback_speed": 1}
-
-    assert parameters["properties"]["planned_duration_seconds"]["maximum"] == 120
-    assert list(Draft202012Validator(parameters).iter_errors(allowed)) == []
-    assert list(Draft202012Validator(parameters).iter_errors(excessive)) == []
-    assert list(Draft202012Validator(parameters).iter_errors(above_global))
-    error = agent.validate_react_decisions(
-        [ReactDecision("", "start_targeted_activity", excessive, "")], False)
-    assert "current energy limit" in error
-    with pytest.raises(RuntimeError, match="current energy limit"):
-        await agent.dispatch_react_tool("start_targeted_activity", excessive)
-    assert environment.calls == [] and agent._life_action_count == 0
-
-
-def test_route_schema_keeps_feasible_driving_and_removes_infeasible_walking() -> None:
-    """相同起点的路线按各自方式代谢成本独立形成可见闭集。"""
-    routes = [
-        {"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
-         "minimum_energy_cost_kcal": 6.0, "energy_feasible": True},
-        {"destination_id": "office", "status": "reachable", "mode": "walking", "duration_seconds": 900,
-         "minimum_energy_cost_kcal": 50.0, "energy_feasible": False},
-    ]
-    agent = _prepare(_catalogs(), overrides={"routes": routes})
-    parameters = _functions(agent)["start_travel"]["parameters"]
-    walking = {"destination_id": "office", "travel_mode": "walking",
-               "planned_duration_seconds": 900}
-
-    assert parameters["properties"]["travel_mode"]["enum"] == ["driving"]
-    assert list(Draft202012Validator(parameters).iter_errors(walking))
-    assert "not a visible route" in agent.validate_react_decisions(
-        [ReactDecision("", "start_travel", walking, "")], False)
-
-
-def test_zero_energy_keeps_recovery_and_purchase_then_refreshes_targets() -> None:
-    """零能量撤下耗能目标，但保留恢复与购买；新观察恢复能量后目标重新出现。"""
-    zero = {kind: 0 for kind in _TARGET_CATALOG_FIELDS_FOR_TEST}
-    agent = _prepare(_catalogs(), overrides={
-        "energy_feasibility": _energy_limits(**zero),
-        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
-                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": False}],
-    })
-    names = set(_functions(agent))
-
-    assert "start_targeted_activity" not in names and "start_travel" not in names
-    assert {"start_basic_activity", "consume", "purchase"} <= names
-
-    agent.prepare_react_loop(ReactLoopRequest(
-        0,
-        _context().observed_at,
-        _observations(_catalogs(), overrides={"energy_feasibility": _energy_limits(work=60)}),
-    ))
-    refreshed = _functions(agent)
-    assert "start_targeted_activity" in refreshed and "work" in (
-        refreshed["start_targeted_activity"]["parameters"]["properties"]["activity_type"]["enum"])
-
-
-def test_infeasible_paused_activity_exposes_cancel_without_resume() -> None:
-    """当前能量不足时暂停活动仍可取消，但 Schema 和本地校验都拒绝恢复。"""
-    paused = [paused_activity("activity-paused", remaining_duration_seconds=600,
-                              minimum_energy_cost_kcal=20.0, resume_energy_feasible=False)]
-    agent = _prepare(_catalogs(), paused_activities=paused)
-    function = _functions(agent)["set_activity_state"]
-    resume = ReactDecision(
-        "", "set_activity_state", {"activity_id": "activity-paused", "operation": "resume"}, "")
-    cancel = ReactDecision(
-        "", "set_activity_state", {"activity_id": "activity-paused", "operation": "cancel"}, "")
-
-    assert function["parameters"]["properties"]["operation"]["enum"] == ["cancel"]
-    assert "not valid for the visible activity state" in agent.validate_react_decisions([resume], False)
-    assert agent.validate_react_decisions([cancel], False) == ""
-
-
-def test_paused_resume_pairs_each_identity_with_its_own_feasibility() -> None:
-    """联合活动身份与操作枚举仍由本地校验保持每个暂停活动的能量配对。"""
-    paused = [
-        paused_activity("activity-feasible"),
-        paused_activity("activity-infeasible", remaining_duration_seconds=600,
-                        minimum_energy_cost_kcal=20.0, resume_energy_feasible=False),
-    ]
-    agent = _prepare(_catalogs(), paused_activities=paused)
-    operations = _functions(agent)["set_activity_state"]["parameters"]["properties"]["operation"]["enum"]
-    invalid = ReactDecision(
-        "", "set_activity_state", {"activity_id": "activity-infeasible", "operation": "resume"}, "")
-    valid = ReactDecision(
-        "", "set_activity_state", {"activity_id": "activity-feasible", "operation": "resume"}, "")
-
-    assert operations == ["cancel", "resume"]
-    assert "not valid for the visible activity state" in agent.validate_react_decisions([invalid], False)
-    assert agent.validate_react_decisions([valid], False) == ""
-
-
-def test_plan_day_open_without_plan_and_restricted_at_day_start() -> None:
-    """plan_day 在当日尚无计划时开放（补交不限唤醒原因）；日首无计划撤其他动作工具。
-
-    D6 缺口 6：(a) 跳过首醒的人在当天后续决策仍可补交计划；(b) 日首唤醒
-    （run_start/wake_from_sleep）且当日无计划时只保留 plan_day 动作面
-    （记忆查询与 finish 阶段门不变）——"必须先提交"的工具面强制。
-    """
-    from worldmock.life.schedule import INTENT_KINDS
-
-    ordinary = _functions(_prepare(_catalogs()))  # 非日首、当日无计划
-    assert "plan_day" in ordinary, "当日无计划时 plan_day 必须开放（补交）"
-    assert "start_basic_activity" in ordinary
-
-    day_start = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]}))
-    assert "plan_day" in day_start
-    properties = day_start["plan_day"]["parameters"]["properties"]
-    assert properties["goals"]["items"]["properties"]["intent_kind"]["enum"] == list(
-        INTENT_KINDS)
-    action_tools = set(day_start) - _MEMORY_TOOLS
-    assert action_tools == {"plan_day"}, (
-        f"日首唤醒且当日无计划时动作面只留 plan_day，实际={sorted(action_tools)}")
-
-    woke = _functions(_prepare(_catalogs(), overrides={"wake_reasons": ["wake_from_sleep"]}))
-    assert set(woke) - _MEMORY_TOOLS == {"plan_day"}
-
-    planned = _prepare(_catalogs(), overrides={
-        "wake_reasons": ["run_start"],
-        "facts": {**_FACTS, "day_plan": {
-            "day_end": _NOW_EPOCH + 72000, "goals": []}}})
-    assert "plan_day" not in _functions(planned)
-    assert "revise_day_plan" in _functions(planned)
-    assert "start_basic_activity" in _functions(planned), (
-        "已有计划的日首唤醒不撤其他动作工具")
-
-
-@pytest.mark.parametrize("goals", [
-    [], [{"intent_kind": "工作", "goal": "写报告"}],
-    [{"intent_kind": kind, "goal": "目" * 300}
-     for kind in ("睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交")],
-])
-def test_plan_day_accepts_empty_or_valid_goals(goals) -> None:
-    """空目标和实际目标都可通过人物本地校验。"""
-    agent = _prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]})
-    assert agent.validate_react_decisions([ReactDecision("", "plan_day", {"goals": goals}, "")], False) == ""
-
-
-@pytest.mark.parametrize("payload", [
-    {"segments": []},
-    {"goals": [{"intent_kind": "工作", "goal": " \t"}]},
-    {"goals": [{"intent_kind": "工作", "goal": "目" * 301}]},
-    {"goals": [{"intent_kind": "摸鱼", "goal": "歇会"}]},
-    {"goals": [{"intent_kind": "工作", "goal": "写报告", "start": 0}]},
-    {"goals": [{"intent_kind": "工作", "goal": "写报告"}] * 2},
-    {"goals": [{"intent_kind": kind, "goal": "推进目标"}
-               for kind in ("睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交", "家务")]},
-])
-def test_plan_day_rejects_invalid_goals_or_old_shape(payload) -> None:
-    """非法目标、重复意图和旧时段请求在人物入口拒绝。"""
-    agent = _prepare(_catalogs(), overrides={"wake_reasons": ["run_start"]})
-    assert agent.validate_react_decisions([ReactDecision("", "plan_day", payload, "")], False)
-
-
-def test_revise_day_plan_preserves_progressed_intents_and_combined_capacity() -> None:
-    """修订仅发送未推进目标，不能复用已推进意图或突破合并容量。"""
-    from worldmock.life.schedule import INTENT_KINDS
-
-    progressed = {"intent_kind": "睡眠", "goal": "休息好", "registered_at": _NOW_EPOCH - 100,
-                  "progressed_at": _NOW_EPOCH - 1, "progress_activity_id": "activity-sleep"}
-    plan = {"day_end": _NOW_EPOCH + 72000, "goals": [progressed]}
-    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "day_plan": plan}})
-    def validate(goals):
-        return agent.validate_react_decisions([ReactDecision("", "revise_day_plan", {"goals": goals}, "")], False)
-    schema = _functions(agent)["revise_day_plan"]["parameters"]["properties"]
-    assert "睡眠" not in schema["goals"]["items"]["properties"]["intent_kind"]["enum"]
-    assert validate([]) == ""
-    assert validate([{"intent_kind": "工作", "goal": "先写纪要"}]) == ""
-    assert "cannot resubmit" in validate([{"intent_kind": "睡眠", "goal": "换目标"}])
-    assert "including progressed goals" in validate([
-        {"intent_kind": kind, "goal": "推进目标"} for kind in INTENT_KINDS[1:9]])
-
-
-def test_send_message_binds_visible_inbox_senders_and_local_text_limit() -> None:
-    """send_message 收件人闭集来自本轮 inbox 投影，超长文本本地拒绝。"""
-    empty = _functions(_prepare(_catalogs()))
-    assert "send_message" not in empty
-
-    inbox = [{"id": "m-1", "kind": "direct", "sender_id": "agent:9",
-              "head": "在吗", "read": False, "created_at": _NOW_EPOCH - 60},
-             {"id": "m-2", "kind": "chat_invite", "sender_id": "agent:11",
-              "head": "邀请你交谈", "read": True, "created_at": _NOW_EPOCH - 30}]
-    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "inbox": inbox}})
-    functions = _functions(agent)
-    properties = functions["send_message"]["parameters"]["properties"]
-
-    assert properties["recipient_id"]["enum"] == ["agent:11", "agent:9"]
-    assert agent.validate_react_decisions([ReactDecision("", "send_message", {
-        "recipient_id": "agent:9", "text": "晚上一起吃饭吗"}, "")], False) == ""
-    assert "not visible" in agent.validate_react_decisions([ReactDecision(
-        "", "send_message", {"recipient_id": "agent:42", "text": "在吗"}, "")], False)
-    assert "exceeds 300" in agent.validate_react_decisions([ReactDecision(
-        "", "send_message", {"recipient_id": "agent:9", "text": "饭" * 301}, "")], False)
-    assert "start_social_activity" in functions
-
-
-def test_start_social_activity_binds_partner_closed_set() -> None:
-    """start_social_activity 的伙伴身份只来自本轮可见身份，空集时撤下工具。"""
-    inbox = [{"id": "m-1", "kind": "direct", "sender_id": "agent:9",
-              "head": "在吗", "read": False, "created_at": _NOW_EPOCH - 60}]
-    agent = _prepare(_catalogs(), overrides={"facts": {**_FACTS, "inbox": inbox}})
-    properties = _functions(agent)["start_social_activity"]["parameters"]["properties"]
-
-    assert properties["kind"]["enum"] == ["chat"]
-    assert properties["partner_id"]["enum"] == ["agent:9"]
-    assert agent.validate_react_decisions([ReactDecision("", "start_social_activity", {
-        "kind": "chat", "partner_id": "agent:9", "duration_minutes": 15}, "")], False) == ""
-    assert "not visible" in agent.validate_react_decisions([ReactDecision(
-        "", "start_social_activity", {
-            "kind": "chat", "partner_id": "agent:42", "duration_minutes": 15}, "")], False)
-
-
-def test_purchase_binds_multi_item_enums_and_validates_order_bounds() -> None:
-    """purchase 多件绑定商品/报价/目的地枚举并本地核对件数、库存与同商家。"""
-    agent = _prepare(_catalogs())
-    properties = _functions(agent)["purchase"]["parameters"]["properties"]
-    item_properties = properties["items"]["items"]["properties"]
-
-    assert item_properties["supply_id"]["enum"] == ["supply-visible"]
-    assert item_properties["price_version"]["enum"] == ["price-v1"]
-    assert properties["destination_id"]["enum"] == ["home", "office"]
-    legal = {"items": [{"supply_id": 'supply-visible', "quantity": 2,
-                        "price_version": "price-v1"}],
-             "fulfillment": "delivery", "destination_id": "home"}
-    over_stock = {"items": [{"supply_id": 'supply-visible', "quantity": 3,
-                             "price_version": "price-v1"}],
-                  "fulfillment": "delivery", "destination_id": "home"}
-    six_items = {"items": [
-        {"supply_id": 'supply-visible', "quantity": 1, "price_version": "price-v1"}
-        for _ in range(6)],
-        "fulfillment": "delivery", "destination_id": "home"}
-
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "purchase", legal, "")], False) == ""
-    assert "visible current stock" in agent.validate_react_decisions(
-        [ReactDecision("", "purchase", over_stock, "")], False)
-    assert "one to five items" in agent.validate_react_decisions(
-        [ReactDecision("", "purchase", six_items, "")], False)
-
-
-def test_purchase_rejects_mixed_locations_before_dispatch() -> None:
-    """同一卖方跨地点订单在提交环境前仍被本地拒绝。"""
-    supplies = [supply_row(supply_id="supply-home"),
-                supply_row(supply_id="supply-office", location_id="office", pickup_allowed=False,
-                           price_version="price-v2")]
-    agent = _prepare(_catalogs(), overrides={"supplies": supplies, "available_inventory": {}, "inventory_items": []})
-    mixed = {"items": [
-        {"supply_id": "supply-home", "quantity": 1, "price_version": "price-v1"},
-        {"supply_id": "supply-office", "quantity": 1, "price_version": "price-v2"}],
-        "fulfillment": "delivery", "destination_id": "home"}
-    assert "one location and seller account" in agent.validate_react_decisions(
-        [ReactDecision("", "purchase", mixed, "")], False)
-
-
-def test_consume_multi_item_meal_duration_and_quantity_authority() -> None:
-    """多件进食时长取最长者，件数在本地校验，份数的实际扣量交给环境。"""
-    products = [
-        {"product_id": "food-rice",
-         "use_modes": ["eat"], "use_duration_seconds": 1200,
-         "required_location_id": None},
-        {"product_id": "food-tea",
-         "use_modes": ["eat"], "use_duration_seconds": 300,
-         "required_location_id": None},
-    ]
-    agent = _prepare(_catalogs(), overrides={
-        "products": products,
-        "inventory_items": [
-            {"product_id": "food-rice", "name": "米饭", "use_modes": ["eat"],
-             "use_duration_seconds": 1200, "required_location_id": None},
-            {"product_id": "food-tea", "name": "茶", "use_modes": ["eat"],
-             "use_duration_seconds": 300, "required_location_id": None}],
-        "available_inventory": {"food-rice": 2.0, "food-tea": 1.0}})
-    properties = _functions(agent)["consume"]["parameters"]["properties"]
-
-    assert properties["items"]["items"]["properties"]["product_id"]["enum"] == [
-        "food-rice", "food-tea"]
-    assert properties["duration_seconds"]["enum"] == [300, 1200]
-    legal = {"items": [{"product_id": "food-rice", "quantity": 1},
-                       {"product_id": "food-tea", "quantity": 1}],
-             "use_mode": "eat", "duration_seconds": 1200}
-    wrong_duration = {**legal, "duration_seconds": 300}
-    over_held = {"items": [{"product_id": "food-tea", "quantity": 2}],
-                 "use_mode": "eat", "duration_seconds": 300}
-    four_items = {"items": [
-        {"product_id": "food-rice", "quantity": 1},
-        {"product_id": "food-tea", "quantity": 1},
-        {"product_id": "food-rice", "quantity": 1},
-        {"product_id": "food-tea", "quantity": 1}],
-        "use_mode": "eat", "duration_seconds": 1200}
-
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "consume", legal, "")], False) == ""
-    assert "does not match" in agent.validate_react_decisions(
-        [ReactDecision("", "consume", wrong_duration, "")], False)
-    assert agent.validate_react_decisions(
-        [ReactDecision("", "consume", over_held, "")], False) == ""
-    assert "one to three items" in agent.validate_react_decisions(
-        [ReactDecision("", "consume", four_items, "")], False)
+def test_day_start_and_readonly_keep_their_phase_gates() -> None:
+    """日首先登记计划，只读循环仅开放记忆与结束工具。"""
+    data = _data()
+    data["wake_reasons"] = ["run_start"]
+    assert "start_activity" not in _functions(_prepare(data))
+    assert "plan_day" in _functions(_prepare(data))
+    readonly = LifeAgent()
+    readonly.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, [], "What happened?", True))
+    assert set(_functions(readonly, readonly=True)).isdisjoint(REQUEST_MODELS)

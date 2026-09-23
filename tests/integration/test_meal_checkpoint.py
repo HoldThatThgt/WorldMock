@@ -7,13 +7,12 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from tests.life.conftest import advance_next, advance_until_ready, stage_day_plan, wake_by_mail
-from tests.life.test_dayrun_restaurants import RESTAURANT, MEAL, SUPPLY, _action, _finish
+from tests.life.test_dayrun_restaurants import RESTAURANT, MEAL, SUPPLY, _action, _finish, _start
 from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (ConsumeItem, ConsumeRequest, PurchaseItem, PurchaseOrderRequest,
-                                   ChangeActivityRequest, StartActivityRequest)
+from worldmock.life.models import PauseActivityRequest, ReportStatusRequest
 
 
 def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path: Path):
@@ -24,35 +23,31 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
     engine = _custom_engine("white-collar-12-weeks.json", lunch, tmp_path, "meal-checkpoint")
     try:
         stage_day_plan(engine)
-        route = next(row for row in engine.scenario.routes if row.origin_id == "home"
-                     and row.destination_id == RESTAURANT and row.mode == "walking")
-        duration = engine.semantics.travel_planned_seconds("walking", route.duration_seconds,
-                                                          engine.state.current_time)
-        _, trip = _action(engine, "travel", "start_travel", StartTravelRequest(
-            destination_id=RESTAURANT, travel_mode="walking", planned_duration_seconds=duration))
+        _, trip = _start(engine, "travel", "location", RESTAURANT, "步行前往")
         _finish(engine, trip.activity_id)
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
-        _, wait = _action(engine, "opening", "start_basic_activity", StartActivityRequest(
-            activity_type="wait", planned_duration_seconds=opening - engine.state.current_time))
-        _finish(engine, wait.activity_id)
+        for step in range(16):
+            if engine.state.current_time >= opening:
+                break
+            _, waiting = _start(engine, f"opening-{step}", "self", None, "等待")
+            _finish(engine, waiting.activity_id)
+        assert engine.state.current_time >= opening
         stock = engine.state.supply_stock[SUPPLY]
         balance = engine.state.accounts["agent:1"]
-        _, bought = _action(engine, "buy", "purchase", PurchaseOrderRequest(
-            items=(PurchaseItem(supply_id=SUPPLY, quantity=1,
-                                price_version=engine.state.supply_quotes[SUPPLY].price_version),),
-            fulfillment="pickup", destination_id=RESTAURANT))
+        _, bought = _start(engine, "buy", "supply", SUPPLY, "到店购买")
         paid = bought.data["orders"][0]["total_price_fen"]
         assert advance_until_ready(engine)
         duration = engine.rules.products[MEAL].use_duration_seconds
-        _, meal = _action(engine, "eat", "consume", ConsumeRequest(
-            items=(ConsumeItem(product_id=MEAL, quantity=1),), use_mode="eat", duration_seconds=duration))
+        _, meal = _start(engine, "eat", "holding", MEAL, "食用")
         halfway = wake_by_mail(engine, offset=duration // 2)
         while engine.state.current_time < halfway:
             advance_next(engine)
         eaten = engine.state.activities[meal.activity_id].data["consumed"][MEAL]
         assert 0 < eaten < 1
-        _action(engine, "pause", "change_activity", ChangeActivityRequest(
-            activity_id=meal.activity_id, operation="pause"))
+        session = next(item for item in engine.state.sessions.values()
+                       if meal.activity_id in item.activity_ids)
+        _action(engine, "pause", "pause_activity", PauseActivityRequest(
+            task=[session.session_name], summary=["这顿饭吃到一半，先停一下。"]))
         wake = wake_by_mail(engine, offset=60)
         snapshot = engine.state.model_dump(mode="json")
         run_dir = engine.store.run_dir
@@ -66,8 +61,8 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         while engine.state.current_time < wake:
             advance_next(engine)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == eaten
-        _action(engine, "resume", "change_activity", ChangeActivityRequest(
-            activity_id=meal.activity_id, operation="resume"))
+        _action(engine, "resume", "report_status", ReportStatusRequest(
+            task=[session.session_name], summary=["继续吃完这顿饭。"]))
         _finish(engine, meal.activity_id)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == 1
         assert engine.state.agents[1].inventory[RESTAURANT][MEAL] == pytest.approx(0)

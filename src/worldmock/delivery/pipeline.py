@@ -126,7 +126,8 @@ def run_labelkit(task: str, workspace: Path, project_root: Path, inputs: list[di
         _verify_decoded_sources(encoded, inputs)
     elif inputs is not None:
         _raise_integrity("Non-semantic LabelKit execution cannot receive semantic model inputs")
-    binary = project_root / "vendor/labelkit/.venv/bin/labelkit"
+    binary = (project_root / "vendor/labelkit/.venv/Scripts/labelkit.exe" if os.name == "nt"
+              else project_root / "vendor/labelkit/.venv/bin/labelkit")
     command = [str(binary), "run", "--config", str(workspace / "config.toml"),
                "--project", str(workspace / f"{task}.toml"), "--strict", "--console", "plain"]
     environment = dict(os.environ)
@@ -168,7 +169,7 @@ def write_model_inputs(task: str, inputs: list[dict], workspace: Path) -> dict:
 def verify_process(task: str, workspace: Path, inputs: list[dict]) -> list[dict]:
     """@brief 验证 target-only process 的行身份和评审，再组装事实。"""
     output = workspace / "out" / f"{task}.jsonl"
-    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    rows = [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
     encoded, sources = _load_source_bundle(task, workspace, trace_required=True)
     _verify_decoded_sources(encoded, inputs)
     identities = {record["provenance"]["window_id"] for record in inputs}
@@ -221,13 +222,21 @@ def _model_source(task: str, line_no: int, encoded: dict) -> dict:
     if window_id != _window_identity(task, decoded["input"]):
         _raise_integrity("Encoded model record has an invalid logical window identity")
     model_record_sha256 = hashlib.sha256(canonical_json(encoded)).hexdigest()
-    return {"schema_version": 1, "task": task, "source_line": line_no,
+    source = {"schema_version": 1, "task": task, "source_line": line_no,
             "window_id": window_id,
             "decoded_input_sha256": encoded["input"][ENCODING_FIELD]["decoded_input_sha256"],
             "model_input_sha256": hashlib.sha256(canonical_json(encoded["input"])).hexdigest(),
             "model_record_sha256": model_record_sha256,
             "labelkit_record_id": model_record_sha256[:16],
             "trace_path": f"out/{task}.trace.jsonl"}
+    if task in {"action", "intent"}:
+        provenance = decoded["provenance"]
+        prompt_digest = hashlib.sha256(canonical_json(decoded["input"]["decision_prompt"])).hexdigest()
+        if provenance.get("decision_prompt_sha256") != prompt_digest:
+            _raise_integrity("Decision prompt source digest disagrees with the recorded request")
+        source["decision_prompt_event_id"] = provenance["decision_prompt_event_id"]
+        source["decision_prompt_sha256"] = prompt_digest
+    return source
 
 
 def _load_source_bundle(task: str, workspace: Path, trace_required: bool) -> tuple[list[dict], list[dict]]:
@@ -310,6 +319,9 @@ def _published_model_source(source: dict) -> dict:
         "decoded_input_sha256", "model_input_sha256", "model_record_sha256",
         "labelkit_record_id", "source_line", "trace_path", "trace_sha256",
     )}
+    for key in ("decision_prompt_event_id", "decision_prompt_sha256"):
+        if key in source:
+            result[key] = source[key]
     result["trace_path"] = f"labelkit/{source['trace_path']}"
     return result
 
@@ -317,7 +329,7 @@ def _published_model_source(source: dict) -> dict:
 def _read_jsonl(path: Path) -> list[dict]:
     """@brief 读取 canonical JSONL，缺失或无效行明确终止交付。"""
     try:
-        return [json.loads(line) for line in path.read_text().splitlines()]
+        return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
     except (OSError, json.JSONDecodeError) as error:
         _raise_integrity(f"Cannot read model source file {path.name}: {error}")
 

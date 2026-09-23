@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import copy
 from pathlib import Path
 
 import pytest
@@ -19,7 +20,7 @@ _NEW_PERSONA_FIELDS = ("background_story", "health_habits", "social_style")
 
 def _payload() -> dict:
     """读取正式场景为每个用例提供独立对象。"""
-    return json.loads(_FORMAL.read_text())
+    return json.loads(_FORMAL.read_text(encoding="utf-8"))
 
 
 def test_short_background_story_is_rejected() -> None:
@@ -119,6 +120,7 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
+    from tests.integration.test_life_agent_protocol import _observations
     from worldmock.runtime import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
@@ -130,12 +132,7 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
     agent._name = specification["profile"]["name"]
     agent._profile = specification["profile"]
     agent._enable_memory = False
-    current_time = scenario.start_at.isoformat()
-    observation = {
-        "scene": {"current_time": current_time, "location": "办公室"},
-        "facts": {"current_time": current_time, "location_id": "office",
-                  "people_here": [], "contacts": [], "inbox": [], "tasks": []},
-    }
+    observation = copy.deepcopy(_observations()[0]["data"])
     wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
     messages = agent.build_react_messages(
         ReactLoopRequest(0, scenario.start_at, wrapped))
@@ -193,7 +190,7 @@ def _compiled_from_story(story: str):
     session = _CyclingSession(make_payload())
 
     def fake_extract(text, n_runs=3, **kwargs):
-        return extract_persona(text, n_runs=n_runs, session=session, **kwargs)
+        return extract_persona(text, n_runs=n_runs, api_key="test-key", session=session, **kwargs)
 
     import worldmock.profile.compile as compile_module
     original = compile_module.extract_persona

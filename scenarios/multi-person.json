@@ -27,12 +27,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -46,12 +44,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -65,12 +61,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -84,12 +78,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -103,12 +95,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -122,12 +112,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -141,12 +129,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -160,12 +146,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -179,12 +163,10 @@
         "chat",
         "consume",
         "do",
-        "message",
         "play",
         "purchase",
         "read",
         "sleep",
-        "submit",
         "travel_to",
         "wait",
         "watch",
@@ -1019,6 +1001,7 @@
   "tasks": [
     {
       "task_id": "task-2026-01-05",
+      "title": "1月5日项目会议纪要（包件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "package",
       "available_at": "2026-01-05T09:00:00+08:00",
@@ -1037,6 +1020,7 @@
     },
     {
       "task_id": "hourly-2026-01-05",
+      "title": "1月5日项目会议纪要（按时）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "hourly",
       "available_at": "2026-01-05T09:00:00+08:00",
@@ -1055,6 +1039,7 @@
     },
     {
       "task_id": "piece-2026-01-05",
+      "title": "1月5日项目会议纪要（按件）",
       "assignee_agent_id": "agent:1",
       "contract_kind": "piece",
       "available_at": "2026-01-05T09:00:00+08:00",
@@ -1073,6 +1058,7 @@
     },
     {
       "task_id": "backend-task-2026-01-05",
+      "title": "1月5日项目会议纪要（包件）",
       "contract_kind": "package",
       "maximum_duration_seconds": 28800,
       "pay_fen": 60000,
@@ -1091,6 +1077,7 @@
     },
     {
       "task_id": "backend-hourly-2026-01-05",
+      "title": "1月5日项目会议纪要（按时）",
       "contract_kind": "hourly",
       "maximum_duration_seconds": 7200,
       "pay_fen": 10000,
@@ -1109,6 +1096,7 @@
     },
     {
       "task_id": "backend-piece-2026-01-05",
+      "title": "1月5日项目会议纪要（按件）",
       "contract_kind": "piece",
       "maximum_duration_seconds": 7200,
       "pay_fen": 5000,
@@ -2902,6 +2890,7 @@
   "games": [
     {
       "game_id": "textworld-1201",
+      "title": "洗衣房的餐巾",
       "seed": 1201,
       "game_path": "textworld/game-1201.json",
       "game_sha256": "4e0fc25651a001168e3c20f1b618f7c168a4cfb17e86fce82f40dcb6688cef43",
@@ -2909,6 +2898,7 @@
     },
     {
       "game_id": "textworld-1202",
+      "title": "书架上的昆虫",
       "seed": 1202,
       "game_path": "textworld/game-1202.json",
       "game_sha256": "8650fc541935de21f5ce578e8e873c6b43923a607e90ece51f5c2deb52245d40",
@@ -2916,6 +2906,7 @@
     },
     {
       "game_id": "textworld-1203",
+      "title": "葡萄点心",
       "seed": 1203,
       "game_path": "textworld/game-1203.json",
       "game_sha256": "63812574e4af1941dc19bc22e4caf34a66864488d3861b2b54530b1ee5a6fe3d",
@@ -2923,6 +2914,7 @@
     },
     {
       "game_id": "textworld-1204",
+      "title": "熨斗与柜子",
       "seed": 1204,
       "game_path": "textworld/game-1204.json",
       "game_sha256": "5c5908ed48b4984637ad007e12ddaec2cb69eba87a02bc3a7913f68296e90962",
@@ -2930,6 +2922,7 @@
     },
     {
       "game_id": "textworld-1205",
+      "title": "茶杯与木箱",
       "seed": 1205,
       "game_path": "textworld/game-1205.json",
       "game_sha256": "3999ce32364b320af4bb9a2ab4cd50947395692a3e4bcbd2700a08c472ddce88",
@@ -2937,6 +2930,7 @@
     },
     {
       "game_id": "textworld-1206",
+      "title": "钥匙和宝箱",
       "seed": 1206,
       "game_path": "textworld/game-1206.json",
       "game_sha256": "4038985596035ef215c36b114a9c8cd02c64bf3e2e4e43df78c4f342f57ef1f2",
@@ -2944,6 +2938,7 @@
     },
     {
       "game_id": "textworld-1207",
+      "title": "篮子里的熨斗",
       "seed": 1207,
       "game_path": "textworld/game-1207.json",
       "game_sha256": "f38a969de4c083a4e97962d0c05a601dd9fe7edd64cd92ca125a35fabb243857",
@@ -2951,6 +2946,7 @@
     },
     {
       "game_id": "textworld-1208",
+      "title": "柜台上的昆虫",
       "seed": 1208,
       "game_path": "textworld/game-1208.json",
       "game_sha256": "bbee5ade614b284e132608e46cd138a4daa1b23bb8b49d8d586800c7411ef321",
@@ -2958,6 +2954,7 @@
     },
     {
       "game_id": "textworld-1209",
+      "title": "储物柜里的汉堡",
       "seed": 1209,
       "game_path": "textworld/game-1209.json",
       "game_sha256": "7fa19c95596a5f568732a3692c53489303694904ced8d37375a3571fc941d982",
@@ -2965,6 +2962,7 @@
     },
     {
       "game_id": "textworld-1210",
+      "title": "奶酪火锅",
       "seed": 1210,
       "game_path": "textworld/game-1210.json",
       "game_sha256": "3c1628953f63228fb3031aba42d3d5115714282d802faa490661a2a76259609a",
@@ -2972,6 +2970,7 @@
     },
     {
       "game_id": "textworld-1211",
+      "title": "裤子与展示架",
       "seed": 1211,
       "game_path": "textworld/game-1211.json",
       "game_sha256": "0553379c4eedd0413e04fb9529ef20abc545c007f85bd2ff04387251546cd444",
@@ -2979,6 +2978,7 @@
     },
     {
       "game_id": "textworld-1212",
+      "title": "钥匙和保险箱",
       "seed": 1212,
       "game_path": "textworld/game-1212.json",
       "game_sha256": "712f362348d0b99c1e0da914200f7cdeb84f8be1f64de331984d6cc7369516a4",
@@ -2986,6 +2986,7 @@
     },
     {
       "game_id": "textworld-1213",
+      "title": "钥匙卡与储物柜",
       "seed": 1213,
       "game_path": "textworld/game-1213.json",
       "game_sha256": "a0fc18f9b08ee2c92d626ae99d15d5f93987d3db08891d41896936119c5e2b75",
@@ -2993,6 +2994,7 @@
     },
     {
       "game_id": "textworld-1214",
+      "title": "盒中的餐巾",
       "seed": 1214,
       "game_path": "textworld/game-1214.json",
       "game_sha256": "99bfcff98b6d5bfe81b240ee11885c9a400858c3159016b6a1ee4be9fff7d43a",
@@ -3000,6 +3002,7 @@
     },
     {
       "game_id": "textworld-1215",
+      "title": "锁上的盒子",
       "seed": 1215,
       "game_path": "textworld/game-1215.json",
       "game_sha256": "0f60c77d6057aabb031e2aa5c9e89905bb131fe4213818910297456baafb920e",
@@ -3007,6 +3010,7 @@
     },
     {
       "game_id": "textworld-1216",
+      "title": "异形保险箱",
       "seed": 1216,
       "game_path": "textworld/game-1216.json",
       "game_sha256": "82c9b3366c83b0cc8f7f55aa209fcc9025840b8693964054c86c2443edd91534",
@@ -3014,6 +3018,7 @@
     },
     {
       "game_id": "textworld-1217",
+      "title": "甘草糖点心",
       "seed": 1217,
       "game_path": "textworld/game-1217.json",
       "game_sha256": "20e5d2da321e70470f6900cfa57cc4224289cb8482da88baa0513b2b0ce004ee",
@@ -3021,6 +3026,7 @@
     },
     {
       "game_id": "textworld-1218",
+      "title": "亨德森的宝箱",
       "seed": 1218,
       "game_path": "textworld/game-1218.json",
       "game_sha256": "7846b46ff980b1051b6ba2b1a216f79738fde6326525ae93a08f63986e8781c2",
@@ -3028,6 +3034,7 @@
     },
     {
       "game_id": "textworld-1219",
+      "title": "沙发上的靠垫",
       "seed": 1219,
       "game_path": "textworld/game-1219.json",
       "game_sha256": "e3ca6801078eca3ed843586f08a3f2b2bf10776ee66888f47db1ef90a6d1dd1a",
@@ -3035,6 +3042,7 @@
     },
     {
       "game_id": "textworld-1220",
+      "title": "桌上的面包",
       "seed": 1220,
       "game_path": "textworld/game-1220.json",
       "game_sha256": "45a974a3593f69fb7c6b693515377c899e7a547d783ca143ed1f7da9ddb73c4a",
@@ -3042,6 +3050,7 @@
     },
     {
       "game_id": "textworld-1221",
+      "title": "桌上的影碟",
       "seed": 1221,
       "game_path": "textworld/game-1221.json",
       "game_sha256": "505ac7dbfa985df959e0743e9701ab8b8ed1ed5805e2dc8cce61d100e1b0160d",
@@ -3049,6 +3058,7 @@
     },
     {
       "game_id": "textworld-1222",
+      "title": "长方形盒子",
       "seed": 1222,
       "game_path": "textworld/game-1222.json",
       "game_sha256": "29f4331f901ac646a43c9bb04578380dca4d0f5d9b385d83848e0202e5752c0b",
@@ -3056,6 +3066,7 @@
     },
     {
       "game_id": "textworld-1223",
+      "title": "老鼠和宝箱",
       "seed": 1223,
       "game_path": "textworld/game-1223.json",
       "game_sha256": "6cc4d6e465d60308a611eafd630c48ecc30518198b0f82e785a81d917d6f846f",
@@ -3063,6 +3074,7 @@
     },
     {
       "game_id": "textworld-1224",
+      "title": "每日语录日历",
       "seed": 1224,
       "game_path": "textworld/game-1224.json",
       "game_sha256": "dbdc9ee5e0e09949e33a1852b0df558f62dc7c437b2939fe419cca5b375ae514",
@@ -3070,6 +3082,7 @@
     },
     {
       "game_id": "textworld-1225",
+      "title": "球形宝箱",
       "seed": 1225,
       "game_path": "textworld/game-1225.json",
       "game_sha256": "5bac9eaca0c436e7eb5616629338289aab62d83d8e71809aa456927b1e4cca27",
@@ -3077,6 +3090,7 @@
     },
     {
       "game_id": "textworld-1226",
+      "title": "第四类储物柜",
       "seed": 1226,
       "game_path": "textworld/game-1226.json",
       "game_sha256": "571a0f0d7abadc1068f244ea9ed43d780498d2a85b15e45ac8327c3f95a96ef1",
@@ -3084,6 +3098,7 @@
     },
     {
       "game_id": "textworld-1227",
+      "title": "柜台上的通行钥匙",
       "seed": 1227,
       "game_path": "textworld/game-1227.json",
       "game_sha256": "47288f254716075601427aca8381eb31ae86018301470aad476890437ab58b25",
@@ -3091,6 +3106,7 @@
     },
     {
       "game_id": "textworld-1228",
+      "title": "加拿大式保险箱",
       "seed": 1228,
       "game_path": "textworld/game-1228.json",
       "game_sha256": "f8896a5672aef259eca44db042c28648421f0a63a35f8b2284591bd235f8a48f",
@@ -3098,6 +3114,7 @@
     },
     {
       "game_id": "textworld-1229",
+      "title": "柜台上的钥匙卡",
       "seed": 1229,
       "game_path": "textworld/game-1229.json",
       "game_sha256": "4a228aaea3c1ae397d587b799322a49b5075165385cee6dcd42b21a0185e009a",
@@ -3105,6 +3122,7 @@
     },
     {
       "game_id": "textworld-1230",
+      "title": "无形盒中的汤匙",
       "seed": 1230,
       "game_path": "textworld/game-1230.json",
       "game_sha256": "eeb98664af57d3b8a3306a08b8abad6e83150ec9d04abd70b25b3a87b29b6830",

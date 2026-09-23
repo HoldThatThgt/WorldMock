@@ -182,6 +182,17 @@ def _publication_paths(source: Path, candidate: Path, destination: Path) -> None
 
 def _rename_exclusive(source: Path, destination: Path) -> None:
     """@brief 使用系统排他重命名原子公开目录，任何已有目标均不得被覆盖。"""
+    if sys.platform == "win32":
+        try:
+            os.rename(source, destination)
+        except FileExistsError:
+            _reject("CATEGORY_DESTINATION_EXISTS", "Publication destination already exists")
+        except OSError:
+            _LOG.exception("Exclusive directory publication failed: destination=%s", destination)
+            raise
+        return
+    if sys.platform not in {"darwin", "linux"}:
+        _reject("CATEGORY_ATOMIC_PUBLICATION_UNSUPPORTED", "Exclusive directory rename is unavailable")
     library = ctypes.CDLL(None, use_errno=True)
     paths = os.fsencode(source), os.fsencode(destination)
     if sys.platform == "darwin":
@@ -192,8 +203,6 @@ def _rename_exclusive(source: Path, destination: Path) -> None:
         operation = library.renameat2
         operation.argtypes = (ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint)
         parameters = (-100, paths[0], -100, paths[1], 1)  # AT_FDCWD 与 RENAME_NOREPLACE。
-    else:
-        _reject("CATEGORY_ATOMIC_PUBLICATION_UNSUPPORTED", "Exclusive directory rename is unavailable")
     operation.restype = ctypes.c_int
     if operation(*parameters) == 0:
         return

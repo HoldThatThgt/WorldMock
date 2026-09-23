@@ -45,7 +45,7 @@ def _branch(engine, destination: Path, intervention: CounterfactualIntervention,
     store.close()
     if manifest_updates:
         path = destination / "manifest.json"
-        manifest = json.loads(path.read_text())
+        manifest = json.loads(path.read_text(encoding="utf-8"))
         manifest.update(manifest_updates)
         atomic_write(path, canonical_json(manifest))
     scenario = Path("scenarios") / ("multi-person.json" if len(engine.state.agents) > 1

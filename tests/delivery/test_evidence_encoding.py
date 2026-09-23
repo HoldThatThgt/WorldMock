@@ -151,7 +151,7 @@ def test_wire_bytes_are_identical_across_four_python_hash_seeds(tmp_path):
         'import hashlib,json,sys; '
         'from worldmock.delivery.evidence_encoding import encode_model_input; '
         'from worldmock.footprints.models import canonical_json; '
-        'value=json.load(open(sys.argv[1])); '
+        'value=json.load(open(sys.argv[1], encoding="utf-8")); '
         'print(hashlib.sha256(canonical_json(encode_model_input(value))).hexdigest())'
     )
     digests = []
@@ -197,7 +197,7 @@ def test_multi_entry_dictionary_wire_bytes_are_identical_across_four_python_hash
         'import hashlib,json,sys; '
         'from worldmock.delivery.evidence_encoding import encode_model_input; '
         'from worldmock.footprints.models import canonical_json; '
-        'value=json.load(open(sys.argv[1])); '
+        'value=json.load(open(sys.argv[1], encoding="utf-8")); '
         'print(hashlib.sha256(canonical_json(encode_model_input(value))).hexdigest())'
     )
     digests = []

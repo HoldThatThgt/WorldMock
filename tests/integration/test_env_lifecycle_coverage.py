@@ -197,9 +197,8 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
         await env.record_model_exchange(evidence)
 
         receipt = await env.submit_action(DirectToolCall(
-            contexts[-1], "action-round-1", "start_basic_activity",
-            StartActivityRequest(activity_type="wait",
-                                      planned_duration_seconds=60)))
+            contexts[-1], "action-round-1", "start_activity",
+            StartActivityRequest(targets=["自己"], actions=["等待"])))
         assert receipt.action_id == "action-round-1"
         results = await env.commit_decision_round("round-1")
         assert [item.action_id for item in results] == ["action-round-1"]
@@ -238,9 +237,8 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
             for context in reversed(contexts):
                 await env.submit_action(DirectToolCall(
                     context, f"action-{round_id}-{context.agent_id}",
-                    "start_basic_activity",
-                    StartActivityRequest(activity_type="wait",
-                                              planned_duration_seconds=60)))
+                    "start_activity",
+                    StartActivityRequest(targets=["自己"], actions=["等待"])))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()
             guard += 1

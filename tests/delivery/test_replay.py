@@ -46,7 +46,9 @@ def pair(tmp_path):
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
                                           data={'balance_fen': 50}),
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
-                                          action_id='wait', data={'tool_name': 'start_basic_activity', 'kind': 'wait'})])
+                                          action_id='wait', data={
+                                              'tool_name': 'start_activity',
+                                              'request': {'targets': ['自己'], 'actions': ['等待']}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     finish_export(parent, source_dir)
     finish_export(child, replay_dir)
@@ -62,7 +64,8 @@ def test_completed_actual_branch_binds_hypothesis_checkpoint_and_results(pair):
     record = records[0]
     assert record['input']['counterfactual']['world_kind'] == 'resimulated'
     assert record['input']['counterfactual']['balance_fen'] == 50
-    assert record['input']['prerequisite_state']['state'] == {'balance_fen': 50}
+    assert record['input']['prerequisite_state']['state'] is None
+    assert record['input']['prerequisite_state']['event_id'] == record['input']['events'][0]['event_id']
     binding = record['target']['environment_replay']
     assert binding['parent_run_id'] == 'parent'
     assert binding['intervention_sha256'] == digest
@@ -86,7 +89,7 @@ def test_actual_replay_uses_the_same_versioned_model_input_entry(pair, tmp_path)
     workspace = tmp_path / 'labelkit'
     (workspace / 'data').mkdir(parents=True)
     write_model_inputs('dreaming', [record], workspace)
-    wire = json.loads((workspace / 'data/dreaming.jsonl').read_text())
+    wire = json.loads((workspace / 'data/dreaming.jsonl').read_text(encoding="utf-8"))
 
     assert wire['input']['observation_value_encoding']['schema_version'] == 1
     assert 'observation_value_dictionary' in wire['input']

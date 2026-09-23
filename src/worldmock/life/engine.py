@@ -22,7 +22,8 @@ from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import felt, projection, social_actions
 from worldmock.life.action_evidence import (
-    _activity_terminal_draft, _activity_terminal_result, _decision_failure_drafts,
+    _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
+    _origin_terminal_result,
     _pending_causes, _remember_action, _remember_terminal_activity, _result_draft,
     _result_event_data, _terminal_action_records, _terminal_after_action,
     _work_review_failure_draft, _work_review_request_draft,
@@ -30,6 +31,7 @@ from worldmock.life.action_evidence import (
 )
 from worldmock.life.memory_evidence import _memory_evidence_data
 from worldmock.life.menu_execution import require_interaction_menu
+from worldmock.life.interaction_menu import canonical_action
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
@@ -103,7 +105,7 @@ from worldmock.life.models import (
     ReviseDayPlanRequest,
     RunIdentity,
     SendMessageRequest,
-    StartActivityRequest,
+    SubmitWorkActionRequest,
     StartSocialActivityRequest,
     StoredAction,
     SubmitWorkRequest,
@@ -162,7 +164,7 @@ if TYPE_CHECKING:
     from worldmock.footprints.models import Checkpoint
 
 #: 会话动作的 action 取值到操作日志组件的映射，未列出的动作归属 engine。
-_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit": "review"}
+_OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit_work": "review"}
 
 #: 观察合同条目的六键闭集（LifeAgent 侧严格校验同一形状）。
 AFFORDANCE_CONTRACT_KEYS = frozenset({
@@ -304,11 +306,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         pending = next((item for item in self._round.pending_actions if item.action_id == action_id), None)
         if pending is None:
             raise ProtocolError("Pending work review action does not exist")
-        if pending.tool_name != "start_activity" or pending.reused or pending.work_review is not None:
+        if pending.tool_name != "submit_work" or pending.reused or pending.work_review is not None:
             return
-        start = StartActivityRequest.model_validate(pending.request)
-        if start.action != "submit" or not start.targets or start.deliverable is None:
-            return
+        start = SubmitWorkActionRequest.model_validate(pending.request)
         if any(activity.kind == ActivityKind.WORK
                for activity in active_activities(self.state, pending.agent_id)):
             return
@@ -316,8 +316,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                     if event.action_id == pending.action_id and event.data.get("purpose") == "work_review"]
         if existing:
             raise ProtocolError("Pending work review cannot restart after model evidence was recorded")
-        request = SubmitWorkRequest(task_id=start.targets[0], deliverable=start.deliverable)
         try:
+            task_id = self._task_id_for_name(pending, start.task_name)
+            request = SubmitWorkRequest(task_id=task_id, deliverable=start.deliverable)
             require_interaction_menu(self.scenario, self.state, pending, start)
             submission = prepare_work_submission(
                 self.state, self.semantics, self.corpus_root, pending.agent_id, request)
@@ -442,8 +443,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _ops_action(self, pending: PendingAction, result: ActionResult) -> None:
         """@brief 写动作受理或拒绝与资金变动操作日志；重放动作不重复记资金。"""
-        component = _OPS_COMPONENTS.get(
-            pending.request.get("action") if isinstance(pending.request, dict) else None, "engine")
+        actions = pending.request.get("actions", []) if pending.tool_name == "start_activity" else []
+        components = {_OPS_COMPONENTS.get(canonical_action(action), "engine")
+                      for action in actions if isinstance(action, str)}
+        component = next(iter(components)) if len(components) == 1 else _OPS_COMPONENTS.get(
+            pending.tool_name, "engine")
         accepted = result.status in {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS,
                                      ActionStatus.COMPLETED}
         keys = {"agent_id": pending.agent_id, "decision_id": pending.decision_id,
@@ -820,8 +824,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                   activity_id=activity.activity_id if activity else None,
                                   caused_by=_pending_causes(pending), data=data)
             drafts = [rejected, _result_draft(pending, result, "action_result")]
-            if result.status == ActionStatus.FAILED:
-                drafts.extend(_decision_failure_drafts(state.current_time, pending, result, agent))
             drafts.extend(self._drain_pending_drafts())
             return changed, result, drafts
 
@@ -849,34 +851,33 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝形成一秒反应边界，达到上限时形成致命结果。"""
+        """@brief 业务拒绝反馈后重试；连续拒绝达到阈值时延长反应间隔。"""
         agent = state.agents[pending.agent_id]
-        count = agent.consecutive_rejections + 1
-        failed = count >= self.scenario.max_consecutive_rejections
+        count = min(agent.consecutive_rejections + 1, self.scenario.max_consecutive_rejections)
+        cooldown = count >= self.scenario.max_consecutive_rejections
+        delay = self.scenario.activity_feedback_seconds if cooldown else 1
+        next_decision_at = state.current_time + delay
         pulse_key = ("work_review_returned" if str(error) == "WORK_REQUIRES_REWORK"
                      else "service_refused")
         body = (agent.body if str(error) in {"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"}
                 else apply_mood_pulse(agent.body, pulse_key))
-        changed_agent = agent.model_copy(update={"next_decision_at": state.current_time + 1,
+        changed_agent = agent.model_copy(update={"next_decision_at": next_decision_at,
                                                   "consecutive_rejections": count,
-                                                  "decision_failed": failed,
                                                   "body": body}, deep=True)
         changed = _put_agent_and_defer_feedback(state, changed_agent)
-        status = ActionStatus.FAILED if failed else ActionStatus.REJECTED
-        message = ("Agent decision failed after consecutive rejections: " if failed
-                   else "Action rejected: ") + rejection_reason_text(error)
+        message = "Action rejected: " + rejection_reason_text(error)
         data = {"consecutive_rejections": count,
-                "maximum_rejections": self.scenario.max_consecutive_rejections}
+                "maximum_rejections": self.scenario.max_consecutive_rejections,
+                "next_decision_at": next_decision_at}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
-            if not failed:
-                message = f"Work submission requires rework: {rejection_reason_text(error)}"
+            message = f"Work submission requires rework: {rejection_reason_text(error)}"
         if isinstance(error, PreconditionError):
             data["unmet"] = error.unmet
             if error.suggested is not None:
                 data["suggested"] = error.suggested
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=status, occurred_at=state.current_time,
+                              status=ActionStatus.REJECTED, occurred_at=state.current_time,
                               error_code=str(error), message=message,
                               data=data)
         return changed, result
@@ -885,8 +886,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 从本次系统评审生成可随动作结果公开的人物反馈。"""
         if pending.work_review is None:
             raise ProtocolError("Rejected work submission has no recorded semantic review")
-        request = SubmitWorkRequest.model_validate(pending.request)
-        task = self.rules.task(request.task_id)
+        request = SubmitWorkActionRequest.model_validate(pending.request)
+        task = self.rules.task(self._task_id_for_name(pending, request.task_name))
         source = load_work_input(self.corpus_root, task)
         review = WorkReviewDecision.model_validate(pending.work_review)
         return public_work_review(review, source)
@@ -931,6 +932,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._require_boundary_action(state, pending, request)
         handlers = {
             "start_activity": self._start_activity,
+            "submit_work": self._submit_work_action,
+            "send_message": self._send_message_action,
             "recall_task_summary": self._recall_task_summary,
             "report_status": self._report_status,
             "pause_activity": self._pause_activity,
@@ -969,7 +972,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return payload
 
     def _travel_start_context(self, state: WorldState, agent,
-                              request: StartActivityRequest):
+                              request: ActivityStartParams):
         """@brief 在扣款前完成路线与品类规则复查。"""
         if request.activity_type != ActivityKind.TRAVEL:
             return None
@@ -992,7 +995,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 request.planned_duration_seconds)
         travel_context = self._travel_start_context(state, agent, request)
         self._require_available_resources(state, pending.agent_id, resource_claims(request))
-        origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
+        origin = _activity_origin(state, pending)
         agent, activity = start_activity(agent, request, state.current_time, origin,
                                          self.semantics.body)
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
@@ -1101,7 +1104,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         start = ActivityStartParams(activity_type=ActivityKind.CONSUME,
                                     planned_duration_seconds=duration,
                                     target_id=request.items[0].product_id)
-        origin = ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id)
+        origin = _activity_origin(state, pending)
         self._require_available_resources(state, pending.agent_id, resource_claims(start))
         agent, activity = start_activity(agent, start, state.current_time, origin,
                                          self.semantics.body)
@@ -1275,8 +1278,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                energy_check: bool = True) -> tuple[WorldState, ActionResult]:
         """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         agent = state.agents[pending.agent_id]
-        origin = ActivityOrigin(pending.action_id, pending.decision_id,
-                                pending.requested_event_id)
+        origin = _activity_origin(state, pending)
         if request.kind == "chat":
             # 共同在场/可交谈 ValueError 转业务拒绝：裸异常穿透 _resolve 杀 run（观察层把睡着/游戏中的人也列入 partner_id 枚举）。
             try:
@@ -1403,15 +1405,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return draft, self._terminal_for_progress(state, state.activities[activity.activity_id], target)
 
     def _terminal_for_progress(self, state: WorldState, activity, target: int):
-        """@brief 活动终结即立即产生一次终结结算（并发由会话上限而非组合动作承载）。"""
+        """@brief 原动作的所有活动均终结后写一次聚合结算。"""
         if activity.status not in {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
                                    ActivityStatus.FAILED, ActivityStatus.TRUNCATED}:
             return None
         if activity.origin_action_id not in state.processed_actions:
             raise ProtocolError("Activity origin action is missing from processed actions")
-        result = _activity_terminal_result(activity, target, self._activity_title(activity))
+        result = _origin_terminal_result(state, activity, target, self._activity_title(activity))
+        if result is None:
+            return None
         state.processed_actions = _terminal_action_records(state, result)
-        return result, _activity_terminal_draft(activity, target, [], self._activity_title(activity))
+        return result, _origin_terminal_draft(state, activity, target, [], self._activity_title(activity))
 
     def _apply_activity_effect(self, state: WorldState, activity, completed: bool,
                                before_consumed: dict[str, float]) -> dict:
@@ -1503,9 +1507,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             activity, agent = truncate_activity(activity, state.agents[activity.agent_id], now)
             state.activities[activity_id] = activity
             state.agents[agent.agent_id] = agent
-            result = _activity_terminal_result(activity, now, self._activity_title(activity))
-            state.processed_actions = _terminal_action_records(state, result)
-            drafts.append(_activity_terminal_draft(activity, now, [], self._activity_title(activity)))
+            result = _origin_terminal_result(state, activity, now, self._activity_title(activity))
+            if result is not None:
+                state.processed_actions = _terminal_action_records(state, result)
+                drafts.append(_origin_terminal_draft(state, activity, now, [], self._activity_title(activity)))
         return drafts
 
     def _ready(self, agent_id: int) -> bool:
@@ -1513,7 +1518,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         if self.state.current_time >= self.state.end_time:
             return False
         agent = self.state.agents[agent_id]
-        if agent.decision_failed or agent.next_decision_at > self.state.current_time:
+        if agent.next_decision_at > self.state.current_time:
             return False
         return True
 
@@ -1522,8 +1527,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         candidates = [self.state.end_time]
         candidates.extend(item.due_at for item in self.state.pending_events if item.due_at > self.state.current_time)
         candidates.extend(agent.next_decision_at for agent in self.state.agents.values()
-                          if not agent.decision_failed
-                          and agent.next_decision_at > self.state.current_time)
+                          if agent.next_decision_at > self.state.current_time)
         for activity in self.state.activities.values():
             if activity.status != ActivityStatus.ACTIVE:
                 continue
@@ -1581,7 +1585,9 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
     """@brief 构造人物身体（两过程睡眠反推初值）、可见日历、空进度和注入口味。"""
     from worldmock.life.models import AgentState
 
-    visible_tasks = {item.task_id for item in scenario.tasks if int(item.available_at.timestamp()) <= start}
+    assignee = f"agent:{config.agent_id}"
+    visible_tasks = {item.task_id for item in scenario.tasks
+                     if item.assignee_agent_id == assignee and int(item.available_at.timestamp()) <= start}
     visible_mail = {item.message_id for item in scenario.messages if int(item.sent_at.timestamp()) <= start
                     and item.recipient_agent_id == config.agent_id}
     start_hour = _datetime(start, scenario.timezone).hour + _datetime(start, scenario.timezone).minute / 60
@@ -1633,6 +1639,12 @@ def _put_activity(state: WorldState, agent, activity) -> WorldState:
     activities = dict(state.activities)
     activities[activity.activity_id] = activity
     return state.model_copy(update={"agents": agents, "activities": activities}, deep=True)
+
+
+def _activity_origin(state: WorldState, pending: PendingAction) -> ActivityOrigin:
+    """@brief 同一模型动作内给每条活动分配独立身份，保留共同的原动作归因。"""
+    ordinal = 1 + sum(item.origin_action_id == pending.action_id for item in state.activities.values())
+    return ActivityOrigin(pending.action_id, pending.decision_id, pending.requested_event_id, ordinal)
 
 
 def _put_agent(state: WorldState, agent) -> WorldState:

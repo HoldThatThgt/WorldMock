@@ -84,22 +84,21 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     observation = engine.observe(first_context)
     agent = _prepare_agent(observation, first_context.observed_at)
     supply = next(item for item in observation["supplies"] if item["supply_id"] == supply_id)
-    payload = {
-        "items": [{"supply_id": supply_id, "quantity": 1,
-                   "price_version": supply["price_version"]}],
-        "fulfillment": "delivery",
-        "destination_id": "home",
-    }
-    decision = ReactDecision("", "purchase", payload, "")
+    binding = next(item for item in observation["interaction_bindings"]
+                   if item["kind"] == "supply" and item["object_id"] == supply_id)
+    action = binding["actions"][0]["label"]
+    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+    decision = ReactDecision("", "start_activity", request.model_dump(mode="json"), "")
 
     assert supply["current_stock"] == 1 and "initial_stock" not in supply
     assert observation["available_inventory"][product_id] == 0
-    assert "consume" not in _function_names(agent)
+    assert "start_activity" in _function_names(agent)
+    assert action in next(item["actions"] for item in observation["facts"]["interactive_objects"]
+                          if item["object"] == binding["object"])
     assert agent.validate_react_decisions([decision], False) == ""
 
-    request = PurchaseOrderRequest.model_validate(payload)
     engine.submit_action(DirectToolCall(
-        first_context, "action-purchase-grounded", "purchase", request))
+        first_context, "action-purchase-grounded", "start_activity", request))
     result = engine.commit_decision_round("purchase-grounded")[0]
     assert result.status == "completed"
     assert engine.state.supply_stock[supply_id] == 0
@@ -115,7 +114,9 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     sold_out = next(item for item in refreshed["supplies"] if item["supply_id"] == supply_id)
 
     assert sold_out["current_stock"] == 0 and "initial_stock" not in sold_out
-    assert "purchase" not in _function_names(next_agent)
+    assert all(item["object_id"] != supply_id or not item["actions"]
+               for item in refreshed["interaction_bindings"] if item["kind"] == "supply")
+    assert "start_activity" in _function_names(next_agent)
 
 
 def test_observation_keeps_current_epoch_without_plan_conversion_anchors(engine_factory) -> None:
@@ -138,7 +139,6 @@ def test_observation_keeps_current_epoch_without_plan_conversion_anchors(engine_
 def test_observation_keeps_full_goal_text_without_exceeding_scene_budget(engine_factory) -> None:
     """最大目标文字完整进入事实，场景只显示有序意图和推进状态。"""
     from worldmock.life.schedule import INTENT_KINDS
-    from worldmock.life.narration import count_hanzi, SCENE_HANZI_BUDGET
 
     engine = engine_factory()
     now = engine.state.current_time
@@ -150,11 +150,11 @@ def test_observation_keeps_full_goal_text_without_exceeding_scene_budget(engine_
     ctx = context(engine, "full-goals")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    assert observation["facts"]["day_plan"] == state.agents[1].day_plan.model_dump(mode="json")
-    assert all(item["goal"] == "目" * 300 for item in observation["facts"]["day_plan"]["goals"])
+    assert all(item["task_name"] == f"目标：{item['intent_kind']}：{'目' * 300}"
+               for item in observation["facts"]["day_plan"]["goals"])
     assert observation["scene"]["day_plan"] == {"goals": [
         {"intent_kind": kind, "progressed": False} for kind in INTENT_KINDS[:8]]}
-    assert count_hanzi(render_scene(observation["scene"])) <= SCENE_HANZI_BUDGET
+    assert "目" * 300 not in render_scene(observation["scene"])
     _prepare_agent(observation, ctx.observed_at)
 
 
@@ -167,7 +167,7 @@ def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_f
     day_end = day_end_seconds(now, engine.scenario.timezone)
     agent = engine.state.agents[1]
     agent.day_plan = DayPlan(day_end=day_end, goals=())
-    assert _plan_fact(agent, day_end - 1) == {"day_end": day_end, "goals": []}
+    assert _plan_fact(agent, day_end - 1) == {"goals": []}
     assert _plan_row(agent, day_end - 1) == {"goals": []}
     assert _plan_fact(agent, day_end) is None
     assert _plan_row(agent, day_end) is None
@@ -235,16 +235,20 @@ def test_real_observation_hides_impossible_media_and_work_tail_starts(engine_fac
         item["function"]["name"]: item["function"]
         for item in agent.build_react_tool_schemas(readonly=False)
     }
-    kinds = schemas["start_activity"]["parameters"]["properties"]["activity_type"]["enum"]
+    interactions = observation["facts"]["interactive_objects"]
 
     assert task["remaining_contract_seconds"] == 59
     assert task["worked_seconds"] == engine.scenario.tasks[0].maximum_duration_seconds - 59
     assert task["effective_seconds"] == engine.scenario.tasks[0].required_effective_seconds
     assert task["material"]["end_char"] == task["material"]["total_chars"]
     assert progress["remaining_media_seconds"] == 9
-    assert "work" not in kinds and "watch" not in kinds
+    assert all(item["object_id"] != task["task_id"]
+               for item in observation["interaction_bindings"] if item["kind"] == "work_task")
+    assert all(item["object_id"] != content_id
+               for item in observation["interaction_bindings"] if item["kind"] == "content")
+    assert all(row["actions"] for row in interactions)
     assert "submit_work" in schemas
-    assert set(schemas["submit_work"]["parameters"]["properties"]) == {"task_id", "deliverable"}
+    assert set(schemas["submit_work"]["parameters"]["properties"]) == {"task_name", "deliverable"}
 
 
 def _stage_titled_progress(engine) -> None:
@@ -278,9 +282,9 @@ def test_real_observation_content_progress_titles(engine_factory) -> None:
     assert set(progress["movie-0001"]) == {
         "item_id", "position_seconds", "exposure_count",
         "remaining_media_seconds", "title"}
-    assert "title" not in progress["news-feed"]
+    assert progress["news-feed"]["title"] == "中文新闻流（1000 条标题+摘要）"
     assert set(progress["news-feed"]) == {
-        "item_id", "position_seconds", "exposure_count", "remaining_media_seconds"}
+        "item_id", "position_seconds", "exposure_count", "remaining_media_seconds", "title"}
 
 
 def _events_of(engine, event_type: str) -> list:
@@ -333,7 +337,7 @@ def test_decision_started_written_once_complete_with_decision_statement(engine_f
     # 自述已经持久化，登记动作不重复创建或修改证据。
     engine.submit_action(DirectToolCall(
         ctx, "action-decision_statement", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+        StartActivityRequest(targets=["自己"], actions=["等待"])))
     engine.commit_decision_round("decision_statement-round")
     assert len(_events_of(engine, "decision_started")) == 1
     assert engine.store.connection.execute(
@@ -366,7 +370,7 @@ def test_invalid_decision_statement_is_absent_from_direct_engine_evidence(engine
 
     engine.submit_action(DirectToolCall(
         ctx, "action-decision_statement-invalid", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=900)))
+        StartActivityRequest(targets=["自己"], actions=["等待"])))
     engine.commit_decision_round("decision_statement-invalid")
     starts = _events_of(engine, "decision_started")
     assert len(starts) == 1
@@ -382,45 +386,33 @@ def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -
     profile = config.motivation
     assert profile is not None
     now = engine.state.current_time
-    fresh = EventDraft(
-        event_type="action_requested", occurred_at=now, agent_id=1,
-        decision_id="decision-meal", action_id="action-meal", source_kind="model",
-        data={"tool_name": "consume", "request": {
-            "items": [{"product_id": "food-a", "quantity": 2},
-                      {"product_id": "food-b", "quantity": 1}],
-            "use_mode": "eat", "duration_seconds": 600},
-            "request_sha256": "0" * 64, "reused": False})
-    non_meal = EventDraft(
-        event_type="action_requested", occurred_at=now, agent_id=1,
-        decision_id="decision-use", action_id="action-use", source_kind="model",
-        data={"tool_name": "consume", "request": {
-            "items": [{"product_id": "food-c", "quantity": 1}],
-            "use_mode": "use", "duration_seconds": 600},
-            "request_sha256": "0" * 64, "reused": False})
-    engine.store.commit(engine.state.model_dump(mode="json"), [fresh, non_meal])
+    def consumed_activity(key: str, started_at: int, mode: str, consumed: dict) -> ActivityState:
+        """构造已结算的食用活动，不把模型请求当作已吃下的事实。"""
+        return ActivityState(
+            activity_id=key, agent_id=1, kind="consume", status="completed",
+            started_at=started_at, ended_at=started_at + 600, planned_end_at=started_at + 600,
+            last_settled_at=started_at + 600, elapsed_seconds=600, planned_duration_seconds=600,
+            origin_action_id=key, origin_decision_id=key, origin_request_event_id=key,
+            data={"request": {"use_mode": mode}, "consumed": consumed})
+
+    engine.state.activities = {
+        "fresh": consumed_activity("fresh", now - 600, "eat", {"food-a": 2, "food-b": 1}),
+        "other": consumed_activity("other", now - 600, "use", {"food-c": 1}),
+    }
 
     wired = engine._motivation_context(agent, profile)
     assert wired.recent_meal_counts == {"food-a": 2, "food-b": 1}
     assert wired.lifestyle_enabled == config.lifestyle_activities
     assert wired.taste_weights == {}
-    # 反例（窗口外不计）：直接以 >24h 的合成事件核对聚合窗口边界。
-    from types import SimpleNamespace
-
+    # 边界内的实际结算计入；窗口外和其他人物的活动不计。
     from worldmock.life.observe import _recent_meal_counts
-
-    stale = SimpleNamespace(occurred_at=now - 86_401, data={
-        "tool_name": "consume", "request": {
-            "items": [{"product_id": "food-stale", "quantity": 3}],
-            "use_mode": "eat", "duration_seconds": 600}})
-    boundary = SimpleNamespace(occurred_at=now - 86_400, data={
-        "tool_name": "consume", "request": {
-            "items": [{"product_id": "food-edge", "quantity": 1}],
-            "use_mode": "eat", "duration_seconds": 600}})
-    assert _recent_meal_counts([stale, boundary], now) == {"food-edge": 1}
+    stale = consumed_activity("stale", now - 86_401, "eat", {"food-stale": 3})
+    boundary = consumed_activity("boundary", now - 86_400, "eat", {"food-edge": 1})
+    assert _recent_meal_counts([stale, boundary], 1, now) == {"food-edge": 1}
 
 
 def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -> None:
-    """facts 层携带不透明身份与联系人锚点；scene 层只有姓名，无身体/余额/任务。"""
+    """facts 只给姓名与联系人称谓；身份映射留在私有绑定。"""
     from worldmock.life.narration import render_facts
 
     engine = engine_factory("multi-person.json")
@@ -428,14 +420,13 @@ def test_observation_people_facts_and_contacts_identity_layers(engine_factory) -
     people = data["facts"]["people_here"]
     assert people, "co-located agents must be visible"
     for row in people:
-        assert set(row) == {"person_id", "name", "activity_family", "can_talk"}
-        assert row["person_id"] == "agent:2"
+        assert set(row) == {"name", "can_talk"}
     assert data["scene"]["people_here"] == [row["name"] for row in people]
     contacts = data["facts"]["contacts"]
-    assert contacts and all(set(row) == {"contact_id", "salutation", "relation"}
+    assert contacts and all(set(row) == {"salutation", "relation"}
                             for row in contacts)
     text = render_facts(data["facts"])
-    assert '"person_id":"agent:2"' in text and '"contact_id"' in text
+    assert '"person_id"' not in text and '"contact_id"' not in text
     # 他人隐私闭集（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：身体数值/余额/记忆不进 facts 渲染文本
     # （tasks 是本人可见任务行，属 facts 合同字段，不在禁项之列）。
     for forbidden in ("energy_kcal", "balance_fen", "memory", "sleep_pressure",

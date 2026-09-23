@@ -52,8 +52,8 @@ timeline
 ### 交互菜单与运行身份
 
 正式场景中的 `interaction_menus_by_location_kind` 与每个人物的 `interaction_menu` 是实验条件。
-具体允许的工具及活动类型以 `scenarios/white-collar-12-weeks.json` 的显式声明为准；地点类与人物
-声明求交集后，现有状态、阶段、能量和可见目标规则继续收窄本轮实际工具。字段形状、保护项和拒绝语义
+具体允许的对象动作以 `scenarios/white-collar-12-weeks.json` 的显式声明为准；地点类与人物
+声明求交集后，现有状态、阶段、能量和可见目标规则继续收窄本轮实际动作。字段形状、保护项和拒绝语义
 统一见[交互菜单规格](dev/SPEC-interaction-menu.md)，本文件不另复制一份菜单。
 
 菜单声明属于场景原始 JSON 字节，因而进入 `scenario_sha256`。地点或人物菜单不同就是不同实验条件，

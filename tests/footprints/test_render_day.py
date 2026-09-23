@@ -199,15 +199,18 @@ def test_cli_writes_timeline_file(tmp_path, capsys):
     assert capsys.readouterr().out.startswith("wrote ")
 
 
-def test_inspect_run_brief_reads_tool_name():
-    """inspect_run._brief 从 tool_name 键读取动作名，不再全部显示 ?。"""
+def test_inspect_run_brief_reads_start_activity_request_and_result():
+    """请求显示可读对象与动作；已结算结果用状态和业务反馈表达。"""
     module = _load_script("inspect_run")
     requested = module._brief({"event_type": "action_requested",
-                               "data": {"tool_name": "start_basic_activity",
-                                        "request": {"x": 1}}})
-    assert requested.startswith("start_basic_activity ")
-    accepted = module._brief({"event_type": "action_accepted", "data": {"tool_name": "wait"}})
-    assert accepted == "wait"
-    rejected = module._brief({"event_type": "action_rejected",
-                              "data": {"tool_name": "purchase", "error_code": "SHOP_CLOSED"}})
-    assert rejected == "purchase → SHOP_CLOSED"
+                               "data": {"tool_name": "start_activity",
+                                        "request": {"targets": ["自己"], "actions": ["等待"]}}})
+    assert requested.startswith('start_activity {"targets": ["自己"], "actions": ["等待"]}')
+    accepted = module._brief({"event_type": "action_result",
+                              "data": {"status": "in_progress", "error_code": None,
+                                       "message": "Activity started", "data": {"activity": {"kind": "wait"}}}})
+    assert '"status": "in_progress"' in accepted
+    rejected = module._brief({"event_type": "action_result",
+                              "data": {"status": "rejected", "error_code": "MERCHANT_CLOSED",
+                                       "message": "Merchant closed", "data": {}}})
+    assert '"error_code": "MERCHANT_CLOSED"' in rejected

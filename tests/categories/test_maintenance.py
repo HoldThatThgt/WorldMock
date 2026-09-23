@@ -26,11 +26,11 @@ from worldmock.life.semantics import load_runtime_scenario
 
 
 def _read(path):
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _write(path, value):
-    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n")
+    path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _snapshot(root):
@@ -339,7 +339,7 @@ def test_publish_requires_explicit_assignment_and_next_object_version(valid_cata
     ("requirements", "CATEGORY_REQUIREMENTS_CHANGED"),
     ("review", "review"),
 ])
-def test_publication_rejects_invalid_requests(valid_catalog_dir, tmp_path, case, error):
+def test_publication_rejects_invalid_requests(valid_catalog_dir, tmp_path, case, error, monkeypatch):
     candidate = _candidate(valid_catalog_dir, tmp_path / "candidate")
     destination, assignments, scenarios = tmp_path / "published", {}, (Path("scene"),)
     if case == "destination":
@@ -349,7 +349,10 @@ def test_publication_rejects_invalid_requests(valid_catalog_dir, tmp_path, case,
     elif case == "missing":
         candidate = tmp_path / "missing"
     elif case == "symlink":
-        (candidate / "link").symlink_to(valid_catalog_dir / "objects.jsonl")
+        link = candidate / "link"
+        link.write_bytes((valid_catalog_dir / "objects.jsonl").read_bytes())
+        original_is_symlink = Path.is_symlink
+        monkeypatch.setattr(Path, "is_symlink", lambda path: path == link or original_is_symlink(path))
     elif case == "assignments":
         assignments = {"milk": 1}
     elif case == "unknown":

@@ -12,10 +12,7 @@ from tests.life.conftest import advance_next, advance_until_ready, context, stag
 from tests.life.test_scheduling import _custom_engine
 from worldmock.life.dining import local_food_summary
 from worldmock.life.discovery import DiscoveryContext
-from worldmock.life.models import (
-    ChangeActivityRequest, ConsumeItem, ConsumeRequest, PurchaseItem,
-    PurchaseOrderRequest, StartActivityRequest,
-)
+from worldmock.life.models import ReportStatusRequest, StartActivityRequest
 from worldmock.life.projection import visible_supplies
 
 SCENARIO = "white-collar-12-weeks.json"
@@ -35,14 +32,31 @@ def _action(engine, name: str, tool: str, request):
     return observed, result
 
 
+def _start(engine, name: str, kind: str, object_id: str | None, action: str):
+    """@brief 从冻结观察选取可读对象和动作，让引擎推导领域参数。"""
+    decision = context(engine, name)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    binding = next(row for row in observed["interaction_bindings"]
+                   if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
+                   and any(item["label"] == action for item in row["actions"]))
+    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+    engine.submit_action(DirectToolCall(decision, f"action-{name}", "start_activity", request))
+    result = engine.commit_decision_round(name)[0]
+    assert result.status in {"completed", "in_progress"}, result.error_code
+    return observed, result
+
+
 def _finish(engine, activity_id: str) -> None:
     """@brief 只通过真实时间边界推进持续活动到完成。"""
     for step in range(64):
         if engine.state.activities[activity_id].status == "completed":
             return
         if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"continue-{activity_id}-{step}", "change_activity",
-                    ChangeActivityRequest(activity_id=activity_id, operation="resume"))
+            session = next(item for item in engine.state.sessions.values()
+                           if activity_id in item.activity_ids)
+            _action(engine, f"continue-{activity_id}-{step}", "report_status",
+                    ReportStatusRequest(task=[session.session_name], summary=["继续进行。"]))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
@@ -59,13 +73,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         stage_day_plan(engine)
         agent = engine.state.agents[1]
         assert local_food_summary(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
-        route = next(item for item in engine.scenario.routes
-                     if item.origin_id == "home" and item.destination_id == RESTAURANT
-                     and item.mode.value == "walking")
-        duration = engine.semantics.travel_planned_seconds(
-            "walking", route.duration_seconds, engine.state.current_time)
-        _, started = _action(engine, "to-restaurant", "start_activity", StartActivityRequest(
-            activity_type="travel", destination_id=RESTAURANT, travel_mode="walking", planned_duration_seconds=duration))
+        _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行前往")
         _finish(engine, started.activity_id)
         agent = engine.state.agents[1]
         assert agent.location_id == RESTAURANT
@@ -74,22 +82,20 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         if engine.state.current_time < opening:
             assert local_food_summary(engine._discovery_context(agent)) == (
                 "当前地点有餐食供给，但现在没有可购买餐食。")
-            duration = opening - engine.state.current_time
-            _, waiting = _action(engine, "wait-for-opening", "start_activity",
-                                 StartActivityRequest(activity_type="wait",
-                                                           planned_duration_seconds=duration))
+        for step in range(16):
+            if engine.state.current_time >= opening:
+                break
+            _, waiting = _start(engine, f"wait-for-opening-{step}", "self", None, "等待")
             _finish(engine, waiting.activity_id)
-            agent = engine.state.agents[1]
+        assert engine.state.current_time >= opening
+        agent = engine.state.agents[1]
         assert local_food_summary(engine._discovery_context(agent)).startswith("当前地点有可购买餐食")
-        quote = engine.state.supply_quotes[SUPPLY]
         before_balance = engine.state.accounts[agent.balance_account_id]
         before_stock = engine.state.supply_stock[SUPPLY]
         before_holding = agent.inventory.get(RESTAURANT, {}).get(MEAL, 0)
-        observed, bought = _action(engine, "buy-meal", "purchase", PurchaseOrderRequest(
-            items=(PurchaseItem(supply_id=SUPPLY, quantity=1,
-                                price_version=quote.price_version),),
-            fulfillment="pickup", destination_id=RESTAURANT))
-        assert any(row["supply_id"] == SUPPLY for row in observed["facts"]["products"])
+        observed, bought = _start(engine, "buy-meal", "supply", SUPPLY, "到店购买")
+        offer = next(row for row in observed["interaction_bindings"] if row["object_id"] == SUPPLY)
+        assert any(row["object"] == offer["object"] for row in observed["facts"]["products"])
         assert SUPPLY in engine.state.agents[1].visible_supply_ids
         order = bought.data["orders"][0]
         assert order["status"] == "delivered"
@@ -100,10 +106,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         assert not any(event.data.get("activity", {}).get("data", {}).get("consumed")
                        for event in engine.store.read_agent_events("activity_progress", 1))
         assert advance_until_ready(engine)
-        duration = engine.rules.products[MEAL].use_duration_seconds
-        _, eating = _action(engine, "eat-meal", "consume", ConsumeRequest(
-            items=(ConsumeItem(product_id=MEAL, quantity=1),), use_mode="eat",
-            duration_seconds=duration))
+        _, eating = _start(engine, "eat-meal", "holding", MEAL, "食用")
         _finish(engine, eating.activity_id)
         assert engine.state.activities[eating.activity_id].data["consumed"][MEAL] == 1
         assert engine.state.agents[1].inventory[RESTAURANT].get(MEAL, 0) == before_holding

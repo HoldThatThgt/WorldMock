@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from worldmock.life.models import StartActivityRequest
+
 from worldmock.delivery.evidence_encoding import (
     DICTIONARY_FIELD,
     ENCODING_FIELD,
@@ -93,9 +95,17 @@ def _single_agent_export(tmp_path):
         EventDraft(event_id='fixture-observation-1', event_type='observation', occurred_at=100,
                    agent_id=1, decision_id='decision',
                    data={'balance_fen': 800, 'energy_kcal': 100}),
+        EventDraft(event_id='fixture-prompt-1', event_type='model_request', occurred_at=100,
+                   agent_id=1, decision_id='decision', visibility='agent', data={
+                       'phase': 'request', 'request': {
+                           'messages': [{'role': 'system', 'content': 'Actual prompt'}],
+                           'tools': [{'type': 'function', 'function': {
+                               'name': 'start_activity',
+                               'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
         EventDraft(event_id='fixture-request-1', event_type='action_requested', occurred_at=100,
                    agent_id=1, decision_id='decision', action_id='request',
-                   data={'tool_name': 'start_basic_activity', 'request': {'kind': 'wait'}}),
+                   data={'tool_name': 'start_activity',
+                         'request': {'targets': ['自己'], 'actions': ['等待']}}),
     ]
     store.commit(store.state, drafts)
     store.commit({'version': 1, 'current_time': 200},
@@ -118,9 +128,16 @@ def _replay_export_pair(tmp_path):
     drafts = [
         EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
                    data={'balance_fen': 800}),
+        EventDraft(event_type='model_request', occurred_at=100, agent_id=1, decision_id='decision',
+                   visibility='agent', data={'phase': 'request', 'request': {
+                       'messages': [{'role': 'system', 'content': 'Parent prompt'}],
+                       'tools': [{'type': 'function', 'function': {
+                           'name': 'start_activity',
+                           'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
         EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request',
-                   data={'tool_name': 'start_basic_activity', 'request': {'kind': 'wait'}}),
+                   data={'tool_name': 'start_activity',
+                         'request': {'targets': ['自己'], 'actions': ['等待']}}),
         EventDraft(event_type='action_result', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request', data={'status': 'completed'}),
     ]
@@ -145,8 +162,9 @@ def _replay_export_pair(tmp_path):
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
                                           data={'balance_fen': 50}),
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
-                                          action_id='wait', data={'tool_name': 'start_basic_activity',
-                                                                  'kind': 'wait'})])
+                                          action_id='wait', data={
+                                              'tool_name': 'start_activity',
+                                              'request': {'targets': ['自己'], 'actions': ['等待']}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)
@@ -317,16 +335,19 @@ def test_deliver_success_path_publishes_full_manifest(tmp_path, monkeypatch):
     assert {item['actual']['allowed'] for item in manifest['rule_results']} == {True, False}
     assert (destination / 'manifest.json').is_file()
     assert not (destination / 'failure.json').exists()
+    splits = manifest['training_receipt']['splits']
+    assert len(splits) == 1 and sum(splits.values()) == 5
+    split = next(iter(splits))
     for name in ('training.jsonl', 'rules.jsonl', 'rule-results.json', 'rule-expressions.json',
                  'training-receipt.json', 'labelkit/out/action.jsonl',
                  'labelkit/out/action.trace.jsonl', 'labelkit/out/rules.manifest.json',
-                 'training/dataset/train/state.json', 'training/train.jsonl'):
+                 f'training/dataset/{split}/state.json', f'training/{split}.jsonl'):
         assert name in manifest['files'], name
     assert 'manifest.json' not in manifest['files']
-    assert len((destination / 'training.jsonl').read_text().splitlines()) == 5
-    published = json.loads((destination / 'manifest.json').read_text())
+    assert len((destination / 'training.jsonl').read_text(encoding="utf-8").splitlines()) == 5
+    published = json.loads((destination / 'manifest.json').read_text(encoding="utf-8"))
     assert published['committed'] is True
-    training = json.loads((destination / 'training-receipt.json').read_text())
+    training = json.loads((destination / 'training-receipt.json').read_text(encoding="utf-8"))
     assert training['splits'] and sum(training['splits'].values()) == 5
 
 
@@ -347,7 +368,7 @@ def test_deliver_success_path_binds_counterfactual_replay_export(tmp_path, monke
         (replay_dir / 'manifest.json').read_bytes()).hexdigest()
     assert manifest['source_export']['manifest_sha256'] == hashlib.sha256(
         (source_dir / 'manifest.json').read_bytes()).hexdigest()
-    records = [json.loads(line) for line in (destination / 'training.jsonl').read_text().splitlines()]
+    records = [json.loads(line) for line in (destination / 'training.jsonl').read_text(encoding="utf-8").splitlines()]
     replay_rows = [row for row in records
                    if row['input'].get('boundary_type') == 'counterfactual_replay']
     assert len(replay_rows) == 1
@@ -373,7 +394,12 @@ def test_deliver_rejects_existing_destination_and_duplicate_replay(tmp_path, mon
 def test_file_inventory_rejects_symbolic_artifacts(tmp_path):
     """清单盘点拒绝符号链接文件。"""
     (tmp_path / 'real.json').write_text('data')
-    (tmp_path / 'link.json').symlink_to(tmp_path / 'real.json')
+    try:
+        (tmp_path / 'link.json').symlink_to(tmp_path / 'real.json')
+    except OSError as error:
+        if getattr(error, 'winerror', None) == 1314:
+            pytest.skip('Windows symlink privilege is unavailable')
+        raise
     with pytest.raises(IntegrityError, match='symbolic file'):
         _file_inventory(tmp_path)
 
@@ -438,7 +464,7 @@ def test_verify_process_rejects_row_count_mismatch(tmp_path):
     """输出行数与输入守恒不符时拒绝。"""
     from tests.delivery.test_labelkit_process import _output_row, _prepare_verified_sources
 
-    fixture = json.loads(FIXTURE_ANNOTATION.read_text())
+    fixture = json.loads(FIXTURE_ANNOTATION.read_text(encoding="utf-8"))
     first = _source_record(tmp_path)
     second = copy.deepcopy(first)
     second['input']['boundary_type'] = 'second-decision'
@@ -454,7 +480,7 @@ def test_verify_process_rejects_semantic_violation_after_pass_verdict(tmp_path):
     """评审通过但标注引用越界证据时仍拒绝发布。"""
     from tests.delivery.test_labelkit_process import _output_row, _prepare_verified_sources
 
-    fixture = json.loads(FIXTURE_ANNOTATION.read_text())
+    fixture = json.loads(FIXTURE_ANNOTATION.read_text(encoding="utf-8"))
     record = _source_record(tmp_path)
     annotation = copy.deepcopy(fixture['annotation'])
     annotation['target']['claims'][0]['evidence_event_ids'] = ['forged-event']
@@ -728,7 +754,7 @@ def _trace_arguments(workspace, records):
         encoded = encode_model_record(record)
         identity = hashlib.sha256(canonical_json(encoded)).hexdigest()[:16]
         digests[identity] = hashlib.sha256(canonical_json(encoded['input'])).hexdigest()
-    config = tomllib.loads((workspace / 'config.toml').read_text())
+    config = tomllib.loads((workspace / 'config.toml').read_text(encoding="utf-8"))
     models = {profile: config['llm'][profile]['model'] for profile in ('default', 'judge')}
     return [path, digests,
             'sha256:' + hashlib.sha256((workspace / 'config.toml').read_bytes()).hexdigest(),
@@ -766,7 +792,7 @@ def test_trace_validation_rejects_non_object_rows_and_bad_envelopes(tmp_path):
     record = _source_record(tmp_path)
     workspace = _workspace(tmp_path, [record])
     rows = [json.loads(line)
-            for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
+            for line in (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()]
     arguments = _trace_arguments(workspace, [record])
     path = workspace / 'out/action.trace.jsonl'
 
@@ -790,7 +816,7 @@ def test_trace_validation_rejects_broken_lifecycle(tmp_path):
     record = _source_record(tmp_path)
     workspace = _workspace(tmp_path, [record])
     rows = [json.loads(line)
-            for line in (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
+            for line in (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()]
     arguments = _trace_arguments(workspace, [record])
     path = workspace / 'out/action.trace.jsonl'
 
@@ -815,7 +841,7 @@ def test_trace_validation_accepts_string_content_and_rejects_bad_shapes(tmp_path
     record = _source_record(tmp_path)
     workspace = _workspace(tmp_path, [record])
     rows = _as_strings([json.loads(line) for line in
-                        (workspace / 'out/action.trace.jsonl').read_text().splitlines()])
+                        (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()])
     arguments = _trace_arguments(workspace, [record])
     path = workspace / 'out/action.trace.jsonl'
     _write_rows(path, rows)
@@ -867,7 +893,7 @@ def test_trace_validation_rejects_duplicate_expected_inputs_and_bad_verdicts(tmp
     with pytest.raises(IntegrityError, match='not uniquely traceable'):
         completed_trace_sha256(arguments[0], duplicated, *arguments[2:])
     rows = [json.loads(line) for line in
-            (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
+            (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()]
     skipped = copy.deepcopy(rows)
     verdict = next(row for row in skipped if row['ev'] == 'verify.verdict')
     verdict['payload']['round'] = 5
@@ -881,7 +907,7 @@ def test_trace_validation_rejects_invalid_source_input_markers(tmp_path):
     record = _source_record(tmp_path)
     workspace = _workspace(tmp_path, [record])
     rows = [json.loads(line) for line in
-            (workspace / 'out/action.trace.jsonl').read_text().splitlines()]
+            (workspace / 'out/action.trace.jsonl').read_text(encoding="utf-8").splitlines()]
     arguments = _trace_arguments(workspace, [record])
     path = workspace / 'out/action.trace.jsonl'
 
@@ -932,11 +958,15 @@ def test_action_windows_require_prior_visible_observation(tmp_path):
     """动作训练要求此前存在可见观察。"""
     requested = event('target', 3, 'action_requested', {'tool_name': 'purchase'})
     requested['action_id'] = 'purchase'
+    prompt = event('prompt', 2, 'model_request', {'phase': 'request', 'request': {
+        'messages': [{'role': 'user', 'content': '实际场景'}],
+        'tools': [{'type': 'function', 'function': {'name': 'purchase', 'parameters': {}}}],
+    }}, visibility='system')
     manifest = {'run_id': 'run', 'source_group_id': 'run',
-                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
     with pytest.raises(IntegrityError, match='preceding visible observation'):
-        _action_windows(requested, {'purchase': [requested]}, {'decision': [requested]},
-                        (manifest, tmp_path, {'target': requested}))
+        _action_windows(requested, {'purchase': [requested]}, {'decision': [prompt, requested]},
+                        (manifest, tmp_path, {'prompt': prompt, 'target': requested}))
 
 
 def test_action_groups_reject_requests_without_agent(tmp_path):
@@ -1398,4 +1428,3 @@ def test_generation_fixtures_reject_incomplete_membership(tmp_path):
     catalog, source = _fixture_catalog()
     with pytest.raises(IntegrityError, match='incomplete'):
         generation_fixtures((manifest, main, stream), catalog, source)
-

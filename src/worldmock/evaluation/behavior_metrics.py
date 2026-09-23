@@ -297,7 +297,7 @@ def _is_passive_action(tool_name: str, request: Mapping[str, Any]) -> bool:
     """@brief 判断最终动作是否为播报进展或等待（非自主动作）。"""
     if tool_name == "report_status":
         return True
-    return tool_name == "start_activity" and request.get("action") == "wait"
+    return tool_name == "start_activity" and request.get("actions") == ["等待"]
 
 
 def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -689,28 +689,20 @@ def _persona_distinguishability(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _social(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计交谈/通话分钟与发送/收到的消息数（报告项）。"""
+    """@brief 用实际活动区间统计交谈/通话，用独立消息工具统计发送。"""
     minutes: Counter[str] = Counter()
-    missing_fields = 0
     sent = 0
     received = 0
     for event in events:
         data = event.get("data", {})
-        if event.get("event_type") == "action_requested" and data.get("tool_name") == "start_activity":
-            request = data.get("request", {})
-            action = request.get("action")
-            if action == "message":
-                sent += 1
-            if action in ("chat", "call"):
-                duration = request.get("planned_duration_seconds")
-                if isinstance(duration, (int, float)):
-                    minutes[action] += float(duration) / 60
-                else:
-                    missing_fields += 1
+        if event.get("event_type") == "activity_progress":
+            kind = _snapshot(event).get("kind")
+            if kind in {"chat", "call"}:
+                minutes[kind] += _interval_minutes(event)
+        if event.get("event_type") == "action_requested" and data.get("tool_name") == "send_message":
+            sent += 1
         if event.get("event_type") == "environment_event" and data.get("kind") == "message_arrival":
             received += 1
-    if missing_fields:
-        notes.append(f"{missing_fields} 个 chat/call 动作缺 planned_duration_seconds 字段")
     return {"chat_call_minutes": dict(sorted(minutes.items())),
             "sent_message_count": sent, "received_message_count": received}
 

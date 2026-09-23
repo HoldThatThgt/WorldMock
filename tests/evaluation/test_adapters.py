@@ -20,23 +20,16 @@ from worldmock.evaluation.validation import VerifiedDelivery
 from worldmock.footprints.models import Event
 
 
-REAL_LEGACY = Path(
-    "/Users/atishoo/Project/Dataset-Person/archive/white-collar-12-weeks-deepseek16-glm52"
-)
-FORMAL_SCENARIO = Path(__file__).parents[2] / "scenarios/evaluation.json"
+def test_labelkit_delivery_is_certified_and_conserved(evaluation_fixture) -> None:
+    scenario = load_scenario(evaluation_fixture.scenario_path)
+    view = adapt_labelkit(evaluation_fixture.labelkit_root, scenario)
 
-
-def test_real_labelkit_delivery_is_certified_and_conserved() -> None:
-    scenario = load_scenario(FORMAL_SCENARIO)
-    view = adapt_labelkit(REAL_LEGACY, scenario)
-
-    assert len(view.events) == 16_320
-    assert len(view.activities) == 4_380
-    assert len(view.days) == 84
+    assert view.events
+    assert view.activities
+    assert len(view.days) == 1
     assert view.mapping_report()["dropped_events"] == 0
-    assert view.artifacts["repaired_stream"].sha256 == (
-        "835eae012007f0841e0c831ed696aa3caea4cd77fb552032917cc6a834a58009"
-    )
+    assert view.artifacts["repaired_stream"].sha256 == scenario.expected_labelkit[
+        "repaired_stream_sha256"]
     assert {item.calendar_date for item in view.days} == set(scenario.window.days)
 
 
@@ -123,7 +116,7 @@ def test_activity_segment_elapsed_mismatch_is_rejected(evaluation_fixture) -> No
 def test_actual_activity_progress_at_exclusive_end_is_kept_without_an_extra_day(evaluation_fixture, tmp_path):
     scenario = load_scenario(evaluation_fixture.scenario_path)
     root = tmp_path / "ending-activity"
-    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text()), "end-run", 21)
+    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")), "end-run", 21)
     view = adapt_worldmock(root, scenario)
 
     assert len(view.days) == 1
@@ -197,12 +190,12 @@ def test_consume_category_uses_actual_closed_use_mode_for_evidence_and_duration(
 
     events = [
         _public_event(1, "action_requested", {
-            "tool_name": "consume",
-            "request": {"product_id": "food-private", "use_mode": "eat"},
+            "tool_name": "start_activity",
+            "request": {"targets": ["持有物：午餐"], "actions": ["食用"]},
         }, "eat-action"),
         _public_event(2, "action_requested", {
-            "tool_name": "consume",
-            "request": {"product_id": "umbrella-private", "use_mode": "use"},
+            "tool_name": "start_activity",
+            "request": {"targets": ["持有物：雨伞"], "actions": ["使用"]},
         }, "use-action"),
     ]
     evidence = worldmock_public_evidence(events, [], mapping)
@@ -232,21 +225,20 @@ def test_worldmock_activity_duration_uses_the_same_consume_category(evaluation_f
 
 def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_states() -> None:
     request = _public_event(1, "action_requested", {
-        "tool_name": "purchase",
-        "request": {"product_id": "PRODUCT_CANARY", "fulfillment": "delivery"},
+        "tool_name": "start_activity",
+        "request": {"targets": ["商店出售的午餐"], "actions": ["配送到当前位置"]},
     }, "purchase-action")
     result_data = {
         "status": "completed",
         "data": {
-            "order": {
+            "orders": [{
                 "order_id": "order-private",
                 "status": "pending",
                 "fulfillment": "delivery",
                 "product_name": "RAW_PRODUCT_CANARY",
-            },
+            }],
             "resource_changes": {"account:buyer": -500, "account:merchant": 500},
         },
-        "resource_changes": {"account:buyer": -500, "account:merchant": 500},
     }
     result = _public_event(2, "action_result", result_data, "purchase-action")
     delivered = _public_event(3, "environment_event", {
@@ -264,7 +256,8 @@ def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_s
     ]
     assert {item.object_key for item in evidence} == {"order-private"}
     without_canonical = dict(result_data)
-    without_canonical.pop("resource_changes")
+    without_canonical["data"] = {key: value for key, value in result_data["data"].items()
+                                 if key != "resource_changes"}
     no_payment = worldmock_public_evidence(
         [request, _public_event(2, "action_result", without_canonical, "purchase-action")], [], {}
     )
@@ -279,46 +272,45 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         "travel_mode": None,
         "data": {},
     }
-    active = {"status": "active", "data": {}}
-    paused = {"status": "paused", "data": {}}
     events = [
         _public_event(1, "action_requested", {
-            "tool_name": "continue_activity", "request": {"activity_id": "activity-private"},
+            "tool_name": "report_status",
+            "request": {"task": ["当前浏览会话"], "summary": ["继续浏览。"]},
         }, "continue-action"),
         _public_event(2, "action_result", {
-            "status": "completed", "data": {"activity": active},
+            "status": "completed", "data": {"activity_ids": [["activity-private"]]},
         }, "continue-action", "activity-private"),
         _public_event(3, "action_requested", {
-            "tool_name": "set_activity_state",
-            "request": {"activity_id": "activity-private", "operation": "pause"},
+            "tool_name": "pause_activity",
+            "request": {"task": ["当前浏览会话"], "summary": ["先暂停。"]},
         }, "pause-action"),
         _public_event(4, "action_result", {
-            "status": "completed", "data": {"activity": paused},
+            "status": "completed", "data": {"activity_ids": [["activity-private"]]},
         }, "pause-action", "activity-private"),
         _public_event(5, "action_requested", {
-            "tool_name": "start_targeted_activity",
-            "request": {"activity_type": "play_game", "target_id": "game-private"},
+            "tool_name": "start_activity",
+            "request": {"targets": ["游戏：拼图"], "actions": ["游玩"]},
         }, "game-action"),
         _public_event(6, "action_result", {
-            "status": "in_progress", "data": {"activity": {"status": "active", "data": {}}},
+            "status": "in_progress", "data": {"activity": {
+                "status": "active", "target_id": "game-private", "data": {}}},
         }, "game-action"),
     ]
 
     evidence = worldmock_public_evidence(events, [activity], {"browse": "browsing"})
     states = {(item.interaction, item.state) for item in evidence}
 
-    assert ("continue", "started") in states
+    assert ("report", "started") in states
     assert ("pause", "paused") in states
     assert ("play", "started") in states
-    assert ("continue", "completed") not in states
-    assert ("pause", "completed") not in states
-    controls = [item for item in evidence if item.interaction in {"continue", "pause"}]
+    controls = [item for item in evidence if item.interaction in {"report", "pause"}]
     assert {item.object_type for item in controls} == {"activity"}
     assert {item.object_key for item in controls} == {"activity-private"}
 
     terminal = list(events)
     terminal[-1] = _public_event(6, "action_result", {
-        "status": "completed", "data": {"activity": {"status": "completed", "data": {}}},
+        "status": "completed", "data": {"activity": {
+            "status": "completed", "target_id": "game-private", "data": {}}},
     }, "game-action")
     terminal_states = worldmock_public_evidence(terminal, [activity], {"browse": "browsing"})
     assert ("play", "completed") in {(item.interaction, item.state) for item in terminal_states}
@@ -330,15 +322,16 @@ def test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_in
             "kind": "mail_arrival", "message_id": "message-private", "subject": "SUBJECT_CANARY",
         }),
         _public_event(2, "action_requested", {
-            "tool_name": "start_targeted_activity",
-            "request": {"activity_type": "read_mail", "target_id": "message-private"},
+            "tool_name": "start_activity",
+            "request": {"targets": ["邮件：未读通知"], "actions": ["阅读"]},
         }, "mail-action"),
         _public_event(3, "action_result", {
             "status": "completed",
-            "data": {"activity": {"status": "completed", "data": {"revealed": {"body": "BODY_CANARY"}}}},
+            "data": {"activity": {"status": "completed", "target_id": "message-private",
+                                   "data": {"revealed": {"body": "BODY_CANARY"}}}},
         }, "mail-action", "mail-activity"),
         _public_event(4, "action_requested", {
-            "tool_name": "submit_work", "request": {"task_id": "task-private"},
+            "tool_name": "submit_work", "request": {"task_name": "项目纪要"},
         }, "work-action"),
         _public_event(5, "action_result", {
             "status": "completed",
@@ -356,6 +349,32 @@ def test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_in
     assert not {"expired", "failed", "rejected"} & {item.state for item in evidence}
     public = json.dumps([item.field_values() for item in evidence])
     assert "SUBJECT_CANARY" not in public and "BODY_CANARY" not in public
+
+
+def test_parallel_travel_and_watch_project_two_actual_activities() -> None:
+    """同一人物请求的两项动作分别依真实活动快照形成评估证据。"""
+    requested = _public_event(1, "action_requested", {
+        "tool_name": "start_activity",
+        "request": {"targets": ["地点：公园", "内容：新闻"], "actions": ["驾车前往", "观看"]},
+    }, "parallel-action")
+    settled = _public_event(2, "action_result", {
+        "status": "in_progress",
+        "data": {"activities": [
+            {"kind": "travel", "target_id": "park-private", "travel_mode": "driving",
+             "status": "active", "data": {"route_id": "route-private"}},
+            {"kind": "watch", "target_id": "feed-private", "status": "active", "data": {}},
+        ], "activity_results": [
+            {"resource_changes": {"account:traveler": -100, "account:transit": 100}},
+            {},
+        ]},
+    }, "parallel-action")
+    evidence = worldmock_public_evidence([requested, settled], [], {})
+    assert {(item.interaction, item.state, item.object_key) for item in evidence} == {
+        ("travel", "requested", "route-private"), ("travel", "started", "route-private"),
+        ("view", "requested", "feed-private"), ("view", "started", "feed-private"),
+        ("pay", "paid", "route-private"),
+    }
+    assert all("公园" not in json.dumps(item.field_values(), ensure_ascii=False) for item in evidence)
 
 
 def _legacy_action_row(

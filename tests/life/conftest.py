@@ -93,6 +93,8 @@ def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], ro
     ready = engine.scheduling_state().ready_agent_ids
     contexts = [context(engine, round_id, agent_id) for agent_id in ready]
     engine.begin_decision_round(contexts)
+    for item in contexts:
+        engine.observe(item)
     receipts = []
     for item in reversed(contexts):
         tool_name, request = requests[item.agent_id]
@@ -150,16 +152,10 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
 
 
 def start_activity(action: str, *targets: str, **fields):
-    """构造 start_activity 请求：稳定工具面要求全部字段显式提交，未声明的一律按合同填 null。
-
-    action 取 docs/dev/SPEC-agent-interaction.md「交互对象 x 动作表」的动作闭集，
-    targets 是本次会话服务的可见交互对象身份（至多 2 项）。
-    """
+    """@brief 使用人物可读对象与动作短语构造唯一合法的启动请求。"""
     from worldmock.life.models import StartActivityRequest
 
-    payload = {"targets": list(targets), "action": action, "planned_duration_seconds": None,
-               "destination_id": None, "travel_mode": None, "text": None, "quantity": None,
-               "price_version": None, "deliverable": None, "summary": None}
+    payload = {"targets": list(targets), "actions": [action for _ in targets]}
     payload.update(fields)
     return StartActivityRequest(**payload)
 

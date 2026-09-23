@@ -15,10 +15,10 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理这 7 个工具，多一个或少一个都是漂移。
+#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理九个工具。
 _STABLE_TOOL_SURFACE = frozenset({
     "start_activity", "recall_task_summary", "report_status", "pause_activity",
-    "conclude_activity", "plan_day", "revise_day_plan"})
+    "conclude_activity", "plan_day", "revise_day_plan", "submit_work", "send_message"})
 
 
 class LifeEnv(EnvBase):

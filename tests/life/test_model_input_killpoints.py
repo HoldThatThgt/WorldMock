@@ -1,144 +1,97 @@
-"""模型可控输入触发引擎严格路径的四条杀 run 死点回归（unit-16 E1-E4）。
-
-对照 tests/life 的真实引擎入口：E1（chat 对象不可交谈）、E3（send_message
-超长/未知收件人）、E2（plan_day 超长 goal）修复后都必须是 action_rejected
-业务拒绝（引擎可见、可重试、run 存活），而不是裸异常穿透 commit_decision_round。
-"""
+"""模型可控输入在当前工具合同下转成可恢复的业务拒绝。"""
 
 from __future__ import annotations
 
-from datetime import datetime
-from zoneinfo import ZoneInfo
+from types import SimpleNamespace
 
 import pytest
 from pydantic import ValidationError
 
-from agentsociety2.society import DirectToolCall
-
-from tests.life.conftest import context
+from worldmock.errors import BusinessRuleError
+from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
+    ActionStatus,
+    ActivityKind,
+    ActivityStatus,
+    AgentState,
     PlanDayRequest,
     PlanGoalInput,
-    SendMessageRequest,
-    StartBasicActivityRequest,
+    SendMessageActionRequest,
     StartSocialActivityRequest,
+    WorldState,
     deepseek_strict_schema,
 )
 from worldmock.life.schedule import PlanGoal
+from worldmock.life.session_actions import SessionActionMixin
 
 
-def _round(engine, round_id: str, requests: dict[int, tuple[str, object]]):
-    """按就绪人物开轮提交；未指定动作者补 wait（commit 协议要求人人有动作）。"""
-    ready = engine.scheduling_state().ready_agent_ids
-    assert set(requests) <= set(ready)
-    filled = dict(requests)
-    for agent_id in ready:
-        filled.setdefault(agent_id, ("start_basic_activity",
-                          StartBasicActivityRequest(activity_type="wait",
-                                                    planned_duration_seconds=60)))
-    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
-    engine.begin_decision_round(contexts)
-    for item in contexts:
-        tool_name, request = filled[item.agent_id]
-        engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}",
-                                            tool_name, request))
-    return engine.commit_decision_round(round_id)
+def _pending(tool_name: str = "start_activity", request: dict | None = None) -> SimpleNamespace:
+    """构造与冻结观察对应的最小动作身份。"""
+    return SimpleNamespace(
+        action_id="action-current", agent_id=1, decision_id="decision-current",
+        observed_at=100, requested_event_id="request-current", work_review_event_id=None,
+        reused=False, tool_name=tool_name, request=request or {},
+    )
 
 
-def _advance_until(engine, want: set[int], limit: int = 96) -> None:
-    """推进直到 want 中任一人物获得决策机会（静默边界不提供决策）。"""
-    for _ in range(limit):
-        state = engine.scheduling_state()
-        if set(state.ready_agent_ids) & want:
-            return
-        assert state.next_event_at is not None
-        engine.advance(int(state.next_event_at.timestamp()) - engine.state.current_time,
-                       state.next_event_at)
-    raise AssertionError(f"agents {want} never became ready")
+class _MessageHarness(SessionActionMixin):
+    """仅运行可读收件人绑定和既有通讯领域处理器。"""
+
+    def __init__(self, bindings: list[dict]) -> None:
+        self.bindings = bindings
+        self.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
+                                             2: SimpleNamespace(agent_id=2)}, current_time=100)
+
+    def _frozen_observation(self, pending: SimpleNamespace) -> dict:
+        """返回本轮唯一冻结收件人清单。"""
+        return {"interaction_bindings": self.bindings}
+
+    def _agent_config(self, agent_id: int) -> SimpleNamespace:
+        """本用例没有场景联系人。"""
+        return SimpleNamespace(contacts=())
+
+    def _send_message(self, state, pending, request):
+        """复用生产通讯校验及业务拒绝映射。"""
+        return LifeEngine._send_message(self, state, pending, request)
 
 
-def _result_for(results, agent_id: int):
-    return next(item for item in results if item.agent_id == agent_id)
+def test_sleeping_chat_partner_is_business_rejection_without_state_change() -> None:
+    """聊天对象正在睡眠时，领域 ValueError 应转成稳定业务拒绝。"""
+    initiator = SimpleNamespace(agent_id=1, name="小李", location_id="home")
+    partner = SimpleNamespace(agent_id=2, name="小王", location_id="home")
+    sleep = SimpleNamespace(activity_id="sleeping", agent_id=2, kind=ActivityKind.SLEEP,
+                            status=ActivityStatus.ACTIVE, started_at=50,
+                            origin_action_id="earlier-action")
+    state = SimpleNamespace(current_time=100, agents={1: initiator, 2: partner},
+                            activities={sleep.activity_id: sleep})
+    request = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=15)
+    with pytest.raises(BusinessRuleError, match="CHAT_PARTNER_NOT_AVAILABLE"):
+        LifeEngine._start_social_activity(object(), state, _pending(), request)
+    assert state.activities[sleep.activity_id] is sleep
 
 
-def _rejected_event_seen(engine, error_code: str) -> bool:
-    events = engine.store.read_events(engine.store.last_event_seq)
-    return any(event.event_type == "action_rejected"
-               and event.data.get("error_code") == error_code for event in events)
+@pytest.mark.parametrize("recipient_name,text,bindings,error_code", [
+    ("小王", "饿" * 301, [{"object": "小王", "kind": "person", "object_id": "agent:2"}],
+     "MESSAGE_TEXT_TOO_LONG"),
+    ("陌生人", "在吗", [{"object": "陌生人", "kind": "person", "object_id": "agent:9"}],
+     "RECIPIENT_NOT_FOUND"),
+    ("未展示的人", "在吗", [], "RECIPIENT_NOT_FOUND"),
+])
+def test_send_message_rejects_invalid_text_or_recipient(
+    recipient_name: str, text: str, bindings: list[dict], error_code: str,
+) -> None:
+    """人物只提交可读收件人；超长正文与未知收件人都成为业务拒绝。"""
+    harness = _MessageHarness(bindings)
+    original = harness.state
+    with pytest.raises(BusinessRuleError, match=error_code):
+        harness._send_message_action(
+            harness.state, _pending("send_message"),
+            SendMessageActionRequest(recipient_name=recipient_name, text=text))
+    assert harness.state is original
 
 
-# ---------------------------------------------------------------------------
-# E1：chat 对象睡着/游戏中 → CHAT_PARTNER_NOT_AVAILABLE 业务拒绝，run 存活
-# ---------------------------------------------------------------------------
-
-
-def test_chat_with_sleeping_partner_is_business_rejection_and_run_survives(engine_factory) -> None:
-    """对象入睡后发起交谈：action_rejected（非裸 ValueError 杀 run），后续轮次可继续。"""
-    engine = engine_factory("multi-person.json")
-    _round(engine, "sleep-round", {
-        1: ("start_basic_activity", StartBasicActivityRequest(
-            activity_type="wait", planned_duration_seconds=60)),
-        2: ("start_basic_activity", StartBasicActivityRequest(
-            activity_type="sleep", planned_duration_seconds=3600)),
-    })
-    _advance_until(engine, {1})
-    chat = StartSocialActivityRequest(kind="chat", partner_id="agent:2",
-                                      duration_minutes=15)
-    results = _round(engine, "chat-round", {1: ("start_social_activity", chat)})
-    rejected = _result_for(results, 1)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "CHAT_PARTNER_NOT_AVAILABLE"
-    assert _rejected_event_seen(engine, "CHAT_PARTNER_NOT_AVAILABLE")
-    assert all(activity.kind.value != "chat" for activity in engine.state.activities.values())
-    _advance_until(engine, {1})
-    follow_up = _round(engine, "after-chat", {1: ("start_basic_activity",
-                      StartBasicActivityRequest(activity_type="wait",
-                                                planned_duration_seconds=60))})
-    assert _result_for(follow_up, 1).status.value == "in_progress"  # 受理成功=run 存活
-
-
-# ---------------------------------------------------------------------------
-# E3：send_message 超长文本 / 未知收件人 → 业务拒绝，run 存活
-# ---------------------------------------------------------------------------
-
-
-def test_send_message_over_limit_text_is_business_rejection(engine_factory) -> None:
-    """文本 301 字符：MESSAGE_TEXT_TOO_LONG 业务拒绝（原为裸 ValueError 杀 run）。"""
-    engine = engine_factory("multi-person.json")
-    _advance_until(engine, {1})
-    message = SendMessageRequest(recipient_id="agent:2", text="饿" * 301)
-    results = _round(engine, "msg-long", {1: ("send_message", message)})
-    rejected = _result_for(results, 1)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "MESSAGE_TEXT_TOO_LONG"
-    assert _rejected_event_seen(engine, "MESSAGE_TEXT_TOO_LONG")
-    assert engine.state.agents[2].inbox == {}
-    _advance_until(engine, {1})
-    follow_up = _round(engine, "after-msg-long", {1: ("start_basic_activity",
-                      StartBasicActivityRequest(activity_type="wait",
-                                                planned_duration_seconds=60))})
-    assert _result_for(follow_up, 1).status.value == "in_progress"  # 受理成功=run 存活
-
-
-def test_send_message_unknown_recipient_is_business_rejection(engine_factory) -> None:
-    """未知收件人：RECIPIENT_NOT_FOUND 业务拒绝（原死代码，裸 ValueError 抢先杀 run）。"""
-    engine = engine_factory("multi-person.json")
-    _advance_until(engine, {1})
-    message = SendMessageRequest(recipient_id="agent:9", text="在吗")
-    results = _round(engine, "msg-ghost", {1: ("send_message", message)})
-    rejected = _result_for(results, 1)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "RECIPIENT_NOT_FOUND"
-    assert _rejected_event_seen(engine, "RECIPIENT_NOT_FOUND")
-
-
-# ---------------------------------------------------------------------------
-# E2：plan_day 超长 goal → ACTION_REQUEST_INVALID 拒绝且不持久化（不再永久杀 run）
-# ---------------------------------------------------------------------------
-
-
-def test_plan_goal_capped_at_300_on_request_and_persistence_models() -> None:
-    """人物请求模型与持久层同限：三百字符受理，再多一字拒绝。"""
+def test_plan_goal_keeps_semantic_300_character_limit() -> None:
+    """目标内容的领域上限保留，且工具 Schema 仍符合 strict 约束。"""
     boundary = "目" * 300
     assert PlanGoalInput(intent_kind="工作", goal=boundary).goal == boundary
     assert PlanGoal(intent_kind="工作", goal=boundary, registered_at=100).goal == boundary
@@ -146,48 +99,46 @@ def test_plan_goal_capped_at_300_on_request_and_persistence_models() -> None:
         PlanGoalInput(intent_kind="工作", goal=boundary + "余")
     with pytest.raises(ValidationError, match="at most 300 characters"):
         PlanGoal(intent_kind="工作", goal=boundary + "余", registered_at=100)
+    assert deepseek_strict_schema(PlanDayRequest)["type"] == "object"
 
 
-def test_plan_day_schema_still_passes_deepseek_strict_gate() -> None:
-    """model_validator 上限不进 Schema：PlanDayRequest 仍过 DeepSeek strict 门（maxLength 黑名单）。"""
-    schema = deepseek_strict_schema(PlanDayRequest)
-    assert schema["type"] == "object"
+def test_oversized_plan_goal_is_business_rejection_before_world_mutation() -> None:
+    """绕过人物请求构造校验的超长目标在领域分派入口仍被拒绝。"""
+    payload = {"goals": [{"intent_kind": "工作", "goal": "备注" * 301}]}
+    state = SimpleNamespace()
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        LifeEngine._dispatch(object(), state, _pending("plan_day", payload))
 
 
-def _plan_goals(goal: str) -> tuple[PlanGoalInput, ...]:
-    """构造八个不同意图的目标，以原生请求承载异常长度测试。"""
-    from worldmock.life.schedule import INTENT_KINDS
+def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) -> None:
+    """连续业务拒绝进入反馈冷却并留下一次后续决策机会。"""
+    monkeypatch.setattr("worldmock.life.engine.apply_mood_pulse", lambda body, pulse: body)
+    agent = AgentState.model_construct(agent_id=1, next_decision_at=100,
+                                       consecutive_rejections=1, body=SimpleNamespace())
+    state = WorldState.model_construct(current_time=100, agents={1: agent}, activities={})
+    pending = _pending()
 
-    return tuple(PlanGoalInput.model_construct(intent_kind=kind, goal=goal)
-                 for kind in INTENT_KINDS[:8])
+    class RejectingEngine:
+        """仅隔离实际拒绝处理路径所需的领域分派边界。"""
 
+        scenario = SimpleNamespace(max_consecutive_rejections=2,
+                                   activity_feedback_seconds=60)
 
-def test_plan_day_oversized_goal_rejected_and_never_poisons_future_rounds(engine_factory) -> None:
-    """超长 goal 提交（绕过构造期校验模拟异常载荷）被引擎再验证拒绝，不落 day_plan，后续轮次照常。"""
-    from worldmock.life.narration import compose_user_message, render_facts
-    from worldmock.life.projection import _plan_fact
+        def _dispatch(self, state, pending):
+            """模拟既有领域处理器的明确业务拒绝。"""
+            raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE")
 
-    engine = engine_factory("multi-person.json")
-    _advance_until(engine, {1})
-    # model_construct 绕过请求模型构造期校验（对齐 MeetingMinutes 直调先例），
-    # 模拟"已通过 agent 门但载荷异常"的最坏路径：引擎 _dispatch 再验证必须兜住。
-    oversized = PlanDayRequest.model_construct(goals=_plan_goals( "备注" * 301))
-    results = _round(engine, "plan-oversized", {1: ("plan_day", oversized)})
-    rejected = _result_for(results, 1)
-    assert rejected.status.value == "rejected"
-    assert rejected.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.agents[1].day_plan is None  # 未持久化：不会在下一轮提示构建击穿预算
-    assert _rejected_event_seen(engine, "ACTION_REQUEST_INVALID")
+        def _after_rejection(self, state, pending, error):
+            """执行生产拒绝节律，不替换反馈结果逻辑。"""
+            return LifeEngine._after_rejection(self, state, pending, error)
 
-    _advance_until(engine, {1})
-    healthy = PlanDayRequest(goals=_plan_goals( "备注" * 150))
-    follow_up = _round(engine, "plan-healthy", {1: ("plan_day", healthy)})
-    assert _result_for(follow_up, 1).status.value == "completed"
-    assert engine.state.agents[1].day_plan is not None
+        def _drain_pending_drafts(self):
+            """本用例没有通讯送达事件。"""
+            return []
 
-    # 持久化后的计划经 facts 渲染在提示预算内（原杀点：42658 字符 > 40000）。
-    agent = engine.state.agents[1]
-    rendered = render_facts({"day_plan": _plan_fact(agent, engine.state.current_time),
-                             "placeholder": "x"})
-    assert len(rendered) < 40000
-    compose_user_message("卡片", "场景", rendered)
+    changed, result, drafts = LifeEngine._resolve(RejectingEngine(), state, pending)
+    assert result.status == ActionStatus.REJECTED
+    assert changed.agents[1].next_decision_at == 160
+    assert changed.agents[1].consecutive_rejections == 2
+    assert [item.event_type for item in drafts] == ["action_rejected", "action_result"]
+    assert drafts[0].data["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"

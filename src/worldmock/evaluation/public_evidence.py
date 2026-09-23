@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
 from worldmock.footprints.models import Event
+from worldmock.life.interaction_menu import canonical_action
 
 
 _LEGACY_ACTIONS = {
@@ -74,6 +75,8 @@ class _Action:
     tool_name: str
     request: Mapping[str, Any]
     shape: _Shape
+    action_name: str | None = None
+    index: int = 0
 
 
 def labelkit_public_evidence(
@@ -207,9 +210,11 @@ def worldmock_public_evidence(
     evidence: list[PublicEvidence] = []
     for event in events:
         if event.event_type == "action_requested" and event.action_id in actions:
-            evidence.append(_from_event(event, actions[event.action_id].shape, "requested"))
+            evidence.extend(_from_event(event, action.shape, "requested")
+                            for action in actions[event.action_id])
         elif event.event_type == "action_result" and event.action_id in actions:
-            evidence.extend(_world_result(event, actions[event.action_id]))
+            for action in actions[event.action_id]:
+                evidence.extend(_world_result(event, action))
         elif event.event_type == "environment_event":
             item = _world_environment(event)
             if item is not None:
@@ -221,92 +226,110 @@ def _world_actions(
     events: Sequence[Event],
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
-) -> dict[str, _Action]:
+) -> dict[str, tuple[_Action, ...]]:
     """@brief 以 action_id 回链请求、结果和确实对象字段。"""
     by_action: dict[str, list[Event]] = defaultdict(list)
     for event in events:
         if event.action_id:
             by_action[event.action_id].append(event)
-    result: dict[str, _Action] = {}
+    result: dict[str, tuple[_Action, ...]] = {}
     for action_id, related in by_action.items():
         requested = next((item for item in related if item.event_type == "action_requested"), None)
         if requested is None:
             continue
         tool_name = _string(requested.data.get("tool_name"))
         request = _mapping(requested.data.get("request"))
-        shape = _world_request_shape(tool_name, request, related, activities, activity_map)
-        if tool_name is not None and shape is not None:
-            result[action_id] = _Action(tool_name, request, shape)
+        if tool_name == "start_activity":
+            selected = _start_shapes(request, related)
+        elif tool_name in _SESSION_CONTROL_TOOLS:
+            selected = _control_actions(tool_name, request, related, activities, activity_map)
+        else:
+            shape = _world_request_shape(tool_name, request)
+            selected = (_Action(tool_name, request, shape),) if shape is not None else ()
+        if selected:
+            result[action_id] = selected
     return result
 
 
 def _world_request_shape(
     tool_name: str | None,
     request: Mapping[str, Any],
-    related: Sequence[Event],
-    activities: Mapping[str, JsonObject],
-    activity_map: Mapping[str, str],
 ) -> _Shape | None:
     """@brief 映射一个稳定工具请求并用结果中的对象字段回链。"""
-    if tool_name == "start_activity":
-        return _start_shape(request, related)
-    if tool_name in _SESSION_CONTROL_TOOLS:
-        return _control_shape(tool_name, related, activities, activity_map)
+    if tool_name == "submit_work":
+        return _Shape("work", "submit", "task", _string(request.get("task_name")), {})
+    if tool_name == "send_message":
+        return _Shape("social", "message", "person", _string(request.get("recipient_name")), {})
     return None
 
 
-def _start_shape(request: Mapping[str, Any], related: Sequence[Event]) -> _Shape | None:
-    """@brief 按 start_activity 的动作名映射对象投影；对象身份取 targets 首项。
+def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
+    """@brief 把等长的可读对象和动作数组逐项映射为独立公开证据。"""
+    targets, actions = request.get("targets"), request.get("actions")
+    if (not isinstance(targets, list) or not isinstance(actions, list)
+            or not 1 <= len(targets) == len(actions) <= 2):
+        return ()
+    selected = []
+    for index, (target, label) in enumerate(zip(targets, actions, strict=True)):
+        action = canonical_action(label) if isinstance(label, str) else None
+        shape = _start_shape(action, label, target, related, index)
+        if shape is not None:
+            selected.append(_Action("start_activity", request, shape, action, index))
+    return tuple(selected)
 
-    社交动作保留 object_key=partner_id，渲染端（review._masked_ref）统一转 keyed HMAC
-    （docs/dev/SPEC-life-runtime.md「社交最小可行版」、docs/dev/SPEC-life-realism.md「呈现与导出」）。
-    """
-    action = _string(request.get("action"))
-    targets = request.get("targets")
-    target = _string(targets[0]) if isinstance(targets, list) and targets else None
+
+def _start_shape(action: str | None, label: str, target: Any,
+                 related: Sequence[Event], index: int) -> _Shape | None:
+    """@brief 从真实结果活动取对象身份，未结算时仅保留人物可读名称。"""
+    activity = _related_activity(related, index)
+    key = _string(activity.get("target_id")) or _string(target)
     if action == "travel_to":
-        key = _activity_data_key(related, "route_id")
-        return _Shape("travel", "travel", "route", key, _travel_mode(request.get("travel_mode")))
+        route = _string(_mapping(activity.get("data")).get("route_id"))
+        return _Shape("travel", "travel", "route", route,
+                      _travel_mode(activity.get("travel_mode")))
     if action in _TARGETED_ACTIONS:
         category, interaction, object_type = _TARGETED_ACTIONS[action]
-        return _Shape(category, interaction, object_type, target, {})
+        return _Shape(category, interaction, object_type, key, {})
     if action == "purchase":
-        attributes = _fulfillment("delivery" if request.get("destination_id") else "pickup")
-        return _Shape("purchase", "order", "order", _order_key(related), attributes)
+        return _Shape("purchase", "order", "order", _order_key(related, index), {})
     if action == "consume":
-        return _Shape("eat", "consume", "product", target, {})
-    if action == "submit":
-        return _Shape("work", "submit", "task", target, {})
+        mode = _mapping(_mapping(activity.get("data")).get("request")).get("use_mode")
+        category = "product_use" if mode == "use" or not mode and label == "使用" else "eat"
+        return _Shape(category, "consume", "product", key, {})
     if action in {"chat", "call"}:
-        return _Shape("social", action, "person", target, {})
+        return _Shape("social", action, "person", key, {})
     return None
 
 
-def _control_shape(
+def _control_actions(
     tool_name: str,
+    request: Mapping[str, Any],
     related: Sequence[Event],
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
-) -> _Shape | None:
-    """@brief 将会话控制动作绑定到该会话结果里确实回报的首个活动。"""
-    activity_id = _control_activity_key(related)
-    row = activities.get(activity_id or "")
-    if row is None:
-        return None
-    base = _activity_shape(row, activity_map)
-    if base is None:
-        return None
-    return _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity", activity_id,
-                  base.attributes)
-
-
-def _control_activity_key(events: Sequence[Event]) -> str | None:
-    """@brief 从会话控制结果读取该会话确实涉及的首个活动身份。"""
-    for event in events:
-        ids = _result_payload(event.data).get("activity_ids")
-        if isinstance(ids, list) and ids:
-            return _string(ids[0])
-    return None
+) -> tuple[_Action, ...]:
+    """@brief 将每个受控会话及其活动分别绑定到已回报的真实活动身份。"""
+    selected: list[_Action] = []
+    for event in related:
+        if event.event_type != "action_result":
+            continue
+        groups = _result_payload(event.data).get("activity_ids")
+        if not isinstance(groups, list):
+            continue
+        for index, group in enumerate(groups):
+            if not isinstance(group, list):
+                continue
+            for activity_id in group:
+                key = _string(activity_id)
+                row = activities.get(key) if key is not None else None
+                base = _activity_shape(row, activity_map) if row is not None else None
+                if base is None:
+                    continue
+                shape = _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity",
+                               key, base.attributes)
+                selected.append(_Action(tool_name, request, shape, index=index))
+        break
+    return tuple(selected)
 
 
 def _activity_shape(row: Mapping[str, Any], activity_map: Mapping[str, str]) -> _Shape | None:
@@ -341,11 +364,11 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
     started = _start_action(action)
     if started == "purchase":
         return _purchase_result(event, action)
-    if started == "submit":
+    if action.tool_name == "submit_work":
         return _work_result(event, action)
     state = _result_state(event, action)
     rows = [_from_event(event, action.shape, state)]
-    if started == "travel_to" and _mapping(event.data.get("resource_changes")):
+    if started == "travel_to" and _account_changes(event, action):
         payment = _Shape(action.shape.category, "pay", action.shape.object_type,
                          action.shape.object_key, action.shape.attributes)
         rows.append(_from_event(event, payment, "paid"))
@@ -353,16 +376,15 @@ def _world_result(event: Event, action: _Action) -> list[PublicEvidence]:
 
 
 def _start_action(action: _Action) -> str | None:
-    """@brief 读取 start_activity 请求声明的动作名；其余稳定工具没有动作名。"""
-    if action.tool_name != "start_activity":
-        return None
-    return _string(action.request.get("action"))
+    """@brief 返回逐项解析出的标准动作名。"""
+    return action.action_name
 
 
 def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
     """@brief 仅依据实际订单对象投影订单、付款与履约状态。"""
     payload = _result_payload(event.data)
-    order = _mapping(payload.get("order"))
+    orders = payload.get("orders")
+    order = _mapping(orders[action.index]) if isinstance(orders, list) and action.index < len(orders) else {}
     key = _string(order.get("order_id")) or action.shape.object_key
     attributes = _fulfillment(order.get("fulfillment")) or dict(action.shape.attributes)
     state = order.get("status")
@@ -370,7 +392,7 @@ def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
         state = _result_state(event, action)
     order_shape = _Shape("purchase", "order", "order", key, attributes)
     rows = [_from_event(event, order_shape, str(state) if state is not None else None)]
-    if _mapping(event.data.get("resource_changes")) and event.data.get("status") == "completed":
+    if _account_changes(event, action) and event.data.get("status") == "completed":
         payment = _Shape("purchase", "pay", "order", key, attributes)
         rows.append(_from_event(event, payment, "paid"))
     return rows
@@ -389,8 +411,7 @@ def _work_result(event: Event, action: _Action) -> list[PublicEvidence]:
         state = _result_state(event, action)
     rows = [_from_event(event, action.shape, state)]
     payment = payload.get("payment_fen")
-    resource_changes = _mapping(event.data.get("resource_changes"))
-    if accepted is True and _positive_integer(payment) and resource_changes:
+    if accepted is True and _positive_integer(payment) and _account_changes(event, action):
         paid = _Shape("work", "pay", "task", action.shape.object_key, {})
         rows.append(_from_event(event, paid, "paid"))
     return rows
@@ -401,8 +422,11 @@ def _result_state(event: Event, action: _Action) -> str | None:
     status = _RESULT_STATES.get(event.data.get("status"))
     if status in {"rejected", "cancelled", "failed", "unknown"}:
         return status
+    if action.tool_name in _SESSION_CONTROL_TOOLS:
+        return {"report_status": "started", "pause_activity": "paused",
+                "conclude_activity": "completed"}[action.tool_name]
     started = _start_action(action)
-    activity = _result_activity(event.data)
+    activity = _result_activity_at(event.data, action.index)
     if started in _ACTIVITY_BACKED_ACTIONS:
         status = _ACTIVITY_RESULT_STATES.get(activity.get("status"))
     if status == "completed":
@@ -434,12 +458,15 @@ def _world_environment(event: Event) -> PublicEvidence | None:
     return None
 
 
-def _order_key(events: Sequence[Event]) -> str | None:
+def _order_key(events: Sequence[Event], index: int = 0) -> str | None:
     """@brief 从动作的实际订单结果读取订单身份。"""
     for event in events:
         if event.event_type != "action_result":
             continue
-        key = _string(_mapping(_result_payload(event.data).get("order")).get("order_id"))
+        payload = _result_payload(event.data)
+        orders = payload.get("orders")
+        order = orders[index] if isinstance(orders, list) and index < len(orders) else payload.get("order")
+        key = _string(_mapping(order).get("order_id"))
         if key is not None:
             return key
     return None
@@ -464,6 +491,37 @@ def _result_activity(data: Mapping[str, Any]) -> Mapping[str, Any]:
     """@brief 返回动作结果中的权威活动快照。"""
     direct = _mapping(data.get("activity"))
     return direct or _mapping(_result_payload(data).get("activity"))
+
+
+def _result_activity_at(data: Mapping[str, Any], index: int) -> Mapping[str, Any]:
+    """@brief 读取组合动作中与请求顺序对应的活动快照。"""
+    activities = _result_payload(data).get("activities")
+    if isinstance(activities, list):
+        return _mapping(activities[index]) if index < len(activities) else {}
+    return _result_activity(data) if index == 0 else {}
+
+
+def _account_changes(event: Event, action: _Action) -> bool:
+    """@brief 只在逐项结果确有账户资金变化时投影付款。"""
+    payload = _result_payload(event.data)
+    results = payload.get("activity_results")
+    if isinstance(results, list) and action.index < len(results):
+        row = _mapping(results[action.index])
+        changes = _mapping(row.get("resource_changes"))
+    else:
+        changes = _mapping(payload.get("resource_changes")) or _mapping(event.data.get("resource_changes"))
+    return any(key.startswith("account:") and isinstance(value, (int, float)) and value != 0
+               for key, value in changes.items())
+
+
+def _related_activity(events: Sequence[Event], index: int) -> Mapping[str, Any]:
+    """@brief 从动作结果链提取当前逐项活动的最新快照。"""
+    for event in reversed(events):
+        if event.event_type == "action_result":
+            activity = _result_activity_at(event.data, index)
+            if activity:
+                return activity
+    return {}
 
 
 def _from_event(event: Event, shape: _Shape, state: str | None) -> PublicEvidence:

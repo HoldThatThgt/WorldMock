@@ -114,7 +114,7 @@ def test_production_causal_hard_error_disqualifies_only_its_candidate(
 
 def test_no_shared_observation_returns_not_comparable(evaluation_fixture, tmp_path) -> None:
     root = tmp_path / "physical-export"
-    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text()),
+    _write_canonical(root, json.loads(evaluation_fixture.scenario_path.read_text(encoding="utf-8")),
                      "physical-run", 9, resources=("position",))
     receipt = _prepare(replace(evaluation_fixture, worldmock_root=root))
 

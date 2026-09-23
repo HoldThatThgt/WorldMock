@@ -13,7 +13,7 @@ from worldmock.footprints.models import AssetRef, canonical_json
 
 
 def atomic_write(path: Path, content: bytes) -> None:
-    """@brief fsync 临时文件及父目录后原子发布完整文件。"""
+    """@brief 刷盘临时文件并原子替换；POSIX 再刷盘父目录。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None
     try:
@@ -23,11 +23,12 @@ def atomic_write(path: Path, content: bytes) -> None:
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, path)
-        directory = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        if os.name != "nt":
+            directory = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
     except Exception:
         logging.exception("Atomic artifact publication failed: %s", path.name)
         raise

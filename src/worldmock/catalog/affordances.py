@@ -27,8 +27,8 @@ AFFORDANCES_FILE = "affordances.toml"
 #: start_activity 的动作闭集（docs/dev/SPEC-agent-interaction.md「交互对象 x 动作表」）：
 #: 交互菜单、请求校验与本注册表的 kinds.*.action 共用这一份声明。
 START_ACTIVITY_ACTIONS = frozenset({
-    "travel_to", "work", "submit", "browse", "purchase", "consume", "watch", "play",
-    "chat", "call", "message", "read", "do", "wait", "sleep",
+    "travel_to", "work", "browse", "purchase", "consume", "watch", "play",
+    "chat", "call", "read", "do", "wait", "sleep",
 })
 RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
@@ -38,7 +38,7 @@ ATTENTION_KINDS = frozenset({"none", "content_kind"})
 RESOURCE_CLAIM_SLOTS = frozenset({"position", "attention", "device", "hands", "vehicle"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
 #: 的动作全集，外加会话进展自述这一个独立工具名。
-HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status"}
+HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
 #: 出行方式闭集（与 life.models.TravelMode 一致；"{mode}" 模板的合法展开域）。
 TRAVEL_MODES = frozenset({"driving", "walking"})
 #: 结算通道可引用的资源注册表 id（catalog/resources.jsonl 的四类资源）。

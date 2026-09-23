@@ -40,7 +40,7 @@ _LIFE_SCENARIOS = (
 
 def _payload() -> dict:
     """读取正式场景为每个反例提供独立对象。"""
-    return json.loads(_FORMAL.read_text())
+    return json.loads(_FORMAL.read_text(encoding="utf-8"))
 
 
 def _assert_invalid(payload: dict, message: str) -> None:
@@ -68,7 +68,7 @@ def test_evaluation_scenario_is_not_a_life_scenario_document() -> None:
     窗口与抽样），既不经过 `load_scenario`，也不是 `LifeScenario`；把候选常量塞进
     去会同时破坏那个加载器与评估层的职责边界。
     """
-    evaluation = json.loads(Path("scenarios/evaluation.json").read_text())
+    evaluation = json.loads(Path("scenarios/evaluation.json").read_text(encoding="utf-8"))
 
     assert "candidate_presentation_limit" not in evaluation
     assert "rotation_stale_seconds" not in evaluation

@@ -22,7 +22,7 @@ from worldmock.life.models import (
     AgentState,
     BodyState,
     ContentProgress,
-    StartBasicActivityRequest,
+    StartActivityRequest,
 )
 from worldmock.life.map_models import SupplyConfig
 from worldmock.life.content import load_lifestyle_items
@@ -172,7 +172,7 @@ def _route(route_id, origin, destination, mode="driving", seconds=600, fare=600)
 def _task(task_id="task-1", pay=50000, location="office", required=3600.0) -> WorkTaskConfig:
     zone = ZoneInfo(TIMEZONE)
     return WorkTaskConfig.model_validate({
-        "task_id": task_id, "assignee_agent_id": "agent:1", "contract_kind": "package",
+        "task_id": task_id, "title": "测试工作合同", "assignee_agent_id": "agent:1", "contract_kind": "package",
         "available_at": datetime(2023, 11, 13, tzinfo=zone),
         "due_at": datetime(2023, 11, 16, tzinfo=zone),
         "maximum_duration_seconds": 14400, "pay_fen": pay,
@@ -201,7 +201,7 @@ def _location(location_id="market", open_hour=0, close_hour=24) -> LocationConfi
 
 @lru_cache(maxsize=1)
 def _lifestyle_fixture():
-    payload = json.loads((PROJECT_ROOT / "corpora/lifestyle/items.json").read_text())
+    payload = json.loads((PROJECT_ROOT / "corpora/lifestyle/items.json").read_text(encoding="utf-8"))
     met = {f"lifestyle:{row['activity_id']}": row["met_value"] for row in payload["items"]}
     return load_lifestyle_items(PROJECT_ROOT / "corpora", met)
 
@@ -354,32 +354,34 @@ class TestHomeostatic:
 
 class TestHabit:
     def test_classification_table(self):
-        assert classify_action_event("continue_activity", {}) == "continue"
-        assert classify_action_event("start_basic_activity", {"activity_type": "sleep"}) == "sleep"
-        assert classify_action_event("start_basic_activity", {"activity_type": "wait"}) == "continue"
-        assert classify_action_event("purchase", {}) == "eat"
-        assert classify_action_event("consume", {}) == "eat"
-        assert classify_action_event("start_travel", {}) == "travel"
-        assert classify_action_event("start_targeted_activity",
-                                     {"activity_type": "watch"}) == "entertainment"
-        assert classify_action_event("start_targeted_activity",
-                                     {"activity_type": "work"}) == "work"
-        assert classify_action_event("submit_work", {}) == "work"
-        assert classify_action_event("start_targeted_activity",
-                                     {"activity_type": "browse"}) == "browse"
+        assert classify_action_event("report_status", {}) == ("continue",)
+        assert classify_action_event("start_activity", {"actions": ["睡觉"]}) == ("sleep",)
+        assert classify_action_event("start_activity", {"actions": ["等待"]}) == ("continue",)
+        assert classify_action_event("start_activity", {"actions": ["到店购买"]}) == ("eat",)
+        assert classify_action_event("start_activity", {"actions": ["食用"]}) == ("eat",)
+        assert classify_action_event("start_activity", {"actions": ["步行前往"]}) == ("travel",)
+        assert classify_action_event("start_activity", {"actions": ["观看"]}) == ("entertainment",)
+        assert classify_action_event("start_activity", {"actions": ["工作"]}) == ("work",)
+        assert classify_action_event("submit_work", {}) == ("work",)
+        assert classify_action_event("start_activity", {"actions": ["浏览"]}) == ("browse",)
+        assert classify_action_event("start_activity", {"actions": ["步行前往", "观看"]}) == (
+            "travel", "entertainment")
 
     def test_shares_normalize_and_recency(self):
-        events = [("start_targeted_activity", {"activity_type": "watch"})] * 3
+        events = [("start_activity", {"actions": ["观看"]})] * 3
         shares = habit_shares(events, 0.9)
         assert set(shares) == FAMILIES
         assert shares["entertainment"] == pytest.approx(1.0)
         assert sum(shares.values()) == pytest.approx(1.0)
-        mixed = [("purchase", {}), ("start_targeted_activity", {"activity_type": "watch"}),
-                 ("start_targeted_activity", {"activity_type": "watch"})]
+        mixed = [("start_activity", {"actions": ["到店购买"]}),
+                 ("start_activity", {"actions": ["观看"]}),
+                 ("start_activity", {"actions": ["观看"]})]
         shares = habit_shares(mixed, 0.5)
         # 逆序贴现：最新 watch=1.0、次新 watch=0.5、最早 purchase=0.25。
         assert shares["eat"] == pytest.approx(0.25 / 1.75)
         assert shares["entertainment"] == pytest.approx(1.5 / 1.75)
+        concurrent = habit_shares([("start_activity", {"actions": ["步行前往", "观看"]})], 0.5)
+        assert concurrent["travel"] == concurrent["entertainment"] == pytest.approx(0.5)
 
     def test_empty_footprint_gives_zero_habit(self, transforms):
         context = _context(agent=_agent(energy=455.0), food_offers=(_food_offer(),),
@@ -801,9 +803,8 @@ class TestLifestyleCandidates:
         assert "lifestyle:meditation-improve-focus" in summaries
 
     def test_lifestyle_events_accumulate_own_habit_share(self, transforms):
-        # M4：lifestyle:* 前缀自 continue 迁入 lifestyle 家族——生活活动事件
-        # 累计进自己的习惯份额，不再被 continue 通配吸收。
-        events = (("start_basic_activity", {"activity_type": "lifestyle:jogging"}),)
+        # 生活活动通过人物可读动作进入独立习惯家族。
+        events = (("start_activity", {"actions": ["进行"]}),)
         shares = habit_shares(events, transforms.habit_discount)
         assert shares.get("lifestyle") == pytest.approx(1.0)
         assert shares.get("continue", 0.0) == 0.0
@@ -1104,12 +1105,10 @@ class TestEngineInjection:
     def test_hints_do_not_enter_settlement(self, engine_factory):
         """@brief 有无提示的两个同源运行走同一决策轮，结果与终态逐字节一致。"""
         plain, hinted = engine_factory(), _profiled_engine(engine_factory)
-        request = ("start_basic_activity",
-                   StartBasicActivityRequest(activity_type="sleep", planned_duration_seconds=60))
+        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))
         results = []
         states = []
         for engine in (plain, hinted):
-            engine.observe(round_context(engine, "r-settle", agent_id=1))
             _, committed = submit_round(engine, {1: request}, "r-settle")
             results.append([item.model_dump(mode="json") for item in committed])
             states.append(engine.state.model_dump(mode="json"))
@@ -1156,8 +1155,7 @@ class TestMarketSummary:
 
     def test_summary_stays_public_when_market_opens(self, engine_factory):
         engine = engine_factory()
-        request = ("start_basic_activity", StartBasicActivityRequest(
-            activity_type="sleep", planned_duration_seconds=8 * 3600))
+        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))
         submit_round(engine, {1: request}, "r-mkt-open")
         advance_next(engine)
         data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))

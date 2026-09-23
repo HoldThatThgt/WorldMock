@@ -10,13 +10,14 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from agentsociety2.society import DirectToolCall
+from agentsociety2.agent.base import ModelCallEvidence
 
 from tests.life.conftest import advance_next, context
 from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import SendMessageRequest, StartActivityRequest
+from worldmock.life.models import SendMessageActionRequest, StartActivityRequest
 from worldmock.runtime import settle_pending_model_replies
 
 
@@ -44,9 +45,12 @@ def _send_message_to_model_contact(engine, round_id: str) -> None:
     """真实决策轮：人物 1 向 model 策略老友联系人发送一条消息。"""
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
+    observed = engine.observe(ctx)
+    recipient = next(row["object"] for row in observed["interaction_bindings"]
+                     if row["object_id"] == "contact-chenxi-oldfriend")
     engine.submit_action(DirectToolCall(
         ctx, f"action-{round_id}", "send_message",
-        SendMessageRequest(recipient_id="contact-chenxi-oldfriend", text="周五晚上一起吃饭？")))
+        SendMessageActionRequest(recipient_name=recipient, text="周五晚上一起吃饭？")))
     engine.commit_decision_round(round_id)
 
 
@@ -66,15 +70,34 @@ def _stage_final_interval(engine, seconds: int) -> None:
     engine.state = staged
 
 
+def _wait_request(observation: dict) -> StartActivityRequest:
+    """@brief 从冻结观察选择人物实际可见的等待动作。"""
+    own = next(row for row in observation["interaction_bindings"] if row["kind"] == "self")
+    action = next(row["label"] for row in own["actions"] if row["canonical_action"] == "wait")
+    return StartActivityRequest(targets=[own["object"]], actions=[action])
+
+
 def test_completed_activity_exports_terminal_outcome_and_training_windows(engine_factory, tmp_path: Path) -> None:
     """真实活动终态回链原动作，并通过 export、认证和三类训练窗口消费。"""
     engine = engine_factory()
-    _stage_final_interval(engine, 120)
+    duration = engine.scenario.activity_feedback_seconds
+    _stage_final_interval(engine, duration)
     ctx = context(engine, "final-wait")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
+    recorded_prompt = {'model': 'fixture',
+                       'messages': [{'role': 'system', 'content': '人物身份'},
+                                    {'role': 'user', 'content': '实际场景与记忆'}],
+                       'tools': [{'type': 'function', 'function': {
+                           'name': 'start_activity', 'parameters': {}}}]}
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, 'final-wait-model-call', 'request', 1, recorded_prompt))
+    engine.record_model_exchange(ModelCallEvidence(
+        ctx, 'final-wait-model-call', 'response', 1, recorded_prompt,
+        response={'choices': [{'message': {'tool_calls': [{'function': {
+            'name': 'start_activity', 'arguments': '{}'}}]}}]}))
     action_id = "action-final-wait"
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    request = _wait_request(observation)
     engine.submit_action(DirectToolCall(ctx, action_id, "start_activity", request))
     started = engine.commit_decision_round("final-wait")[0]
     assert started.status == "in_progress"
@@ -103,7 +126,7 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert validated["checkpoint"]["checkpoint_id"] == checkpoint.checkpoint_id
     activity = next(item for item in activities if item["activity_id"] == activity_id)
     assert activity["status"] == "completed"
-    assert activity["segments"] == [{"started_at": engine.state.end_time - 120,
+    assert activity["segments"] == [{"started_at": engine.state.end_time - duration,
                                      "ended_at": engine.state.end_time}]
     action = next(item for item in windows["action"]
                   if item["target"]["request"]["action_id"] == action_id)
@@ -111,6 +134,7 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert any(item["event_id"] == terminal.event_id and item["data"]["status"] == "completed"
                for item in outcomes)
     assert observation["observation_event_id"] in action["provenance"]["source_event_ids"]
+    assert action["input"]["decision_prompt"] == recorded_prompt
     assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
 
 
@@ -119,11 +143,11 @@ def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_pat
     import importlib.util
 
     engine = engine_factory()
-    _stage_final_interval(engine, 120)
+    _stage_final_interval(engine, engine.scenario.activity_feedback_seconds)
     ctx = context(engine, "timeline-wait")
     engine.begin_decision_round([ctx])
-    engine.observe(ctx)
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    observation = engine.observe(ctx)
+    request = _wait_request(observation)
     engine.submit_action(DirectToolCall(ctx, "action-timeline-wait", "start_activity", request))
     engine.commit_decision_round("timeline-wait")
     advance_next(engine)
@@ -157,9 +181,9 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
     _stage_final_interval(engine, 60)
     ctx = context(engine, "truncated-wait")
     engine.begin_decision_round([ctx])
-    engine.observe(ctx)
+    observation = engine.observe(ctx)
     action_id = "action-truncated-wait"
-    request = StartActivityRequest(activity_type="wait", planned_duration_seconds=120)
+    request = _wait_request(observation)
     engine.submit_action(DirectToolCall(ctx, action_id, "start_activity", request))
     started = engine.commit_decision_round("truncated-wait")[0]
     activity_id = started.activity_id

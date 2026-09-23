@@ -15,6 +15,7 @@ def test_run_viewer_recorded_names():
         cwd=test_file.parents[2],
         capture_output=True,
         text=True,
+        encoding='utf-8',
         timeout=60,
         check=False,
     )

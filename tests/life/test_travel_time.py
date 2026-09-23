@@ -1,7 +1,5 @@
 """travel-time 分时系数：查表、结算、报价、快照一致性与存在性准入。"""
 
-# TODO: StartTravelRequest removed - replaced by StartActivityRequest with action="travel_to"
-
 from __future__ import annotations
 
 import json
@@ -24,9 +22,11 @@ from worldmock.life.models import (
     TravelMode,
 )
 from worldmock.life.body import minimum_energy_cost
+from worldmock.footprints.models import EventDraft
 from worldmock.life.scenario import parse_scenario_document
 from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
-from tests.life.conftest import advance_next, submit_round
+from tests.life.conftest import advance_next, context
+from agentsociety2.society import DirectToolCall
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios/white-collar-12-weeks.json"
@@ -93,53 +93,67 @@ def test_walking_duration_is_immune_to_the_factor(semantics) -> None:
         assert semantics.travel_planned_seconds("walking", 900, _epoch(hour)) == 900
 
 
-def test_engine_start_travel_enforces_the_factored_duration(engine_factory) -> None:
-    """引擎层：自由流时长在高峰被拒（ROUTE_DURATION_MISMATCH），报价时长被受理。"""
+def _stage_peak(engine) -> None:
+    """把隔离测试世界移到早高峰并保持身体结算时钟一致。"""
+    staged = engine.state.model_copy(deep=True)
+    staged.current_time = _epoch(8)
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > staged.current_time]
+    for agent_id, agent in staged.agents.items():
+        staged.agents[agent_id] = agent.model_copy(
+            update={"next_decision_at": staged.current_time, "body_settled_at": staged.current_time}, deep=True)
+    staged.version += 1
+    event = EventDraft(event_type="environment_event", occurred_at=staged.current_time,
+                       visibility="system", source_kind="scenario", data={"kind": "test_peak_time"})
+    engine.store.commit(staged.model_dump(mode="json"), [event])
+    engine.state = staged
+
+
+def _start_driving(engine, name: str):
+    """只从本轮冻结观察选择办公室和驾车动作。"""
+    ctx = context(engine, name)
+    engine.begin_decision_round([ctx])
+    observed = engine.observe(ctx)
+    binding = next(row for row in observed["interaction_bindings"]
+                   if row["kind"] == "location" and row["object_id"] == "office")
+    assert any(action["label"] == "驾车前往" for action in binding["actions"])
+    request = StartActivityRequest(targets=[binding["object"]], actions=["驾车前往"])
+    engine.submit_action(DirectToolCall(ctx, f"action-{name}", "start_activity", request))
+    result = engine.commit_decision_round(name)[0]
+    return observed, result
+
+
+def test_engine_start_travel_uses_frozen_factored_duration(engine_factory) -> None:
+    """引擎采用本轮冻结路线时长，人物不填写自由流或报价数值。"""
     engine = engine_factory()
-    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
-    _, sleep_results = submit_round(engine, {1: ("start_activity", sleep)}, "sleep-to-peak")
-    while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
-    assert datetime.fromtimestamp(engine.state.current_time,
-                                  ZoneInfo(engine.scenario.timezone)).hour == 8
+    _stage_peak(engine)
     route = next(item for item in engine.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office"
                  and item.mode == TravelMode.DRIVING)
     quote = engine.semantics.travel_planned_seconds(
         "driving", route.duration_seconds, engine.state.current_time)
     assert quote > route.duration_seconds
-    free_flow = StartTravelRequest(destination_id="office", travel_mode=TravelMode.DRIVING,
-                                   planned_duration_seconds=route.duration_seconds)
-    _, rejected = submit_round(engine, {1: ("start_travel", free_flow)}, "free-flow-rejected")
-    assert rejected[0].error_code == "ROUTE_DURATION_MISMATCH"
-    assert rejected[0].status.value == "rejected"
-    advance_next(engine)  # 业务拒绝形成一秒反应边界，先推进到该边界再重试。
-    quoted = StartTravelRequest(destination_id="office", travel_mode=TravelMode.DRIVING,
-                                planned_duration_seconds=quote)
-    _, accepted = submit_round(engine, {1: ("start_travel", quoted)}, "quoted-accepted")
-    assert accepted[0].status.value == "in_progress"
-    activity = engine.state.activities[accepted[0].activity_id]
+    observed, accepted = _start_driving(engine, "quoted-accepted")
+    observed_quote = next(row for row in observed["routes"]
+                          if row["destination_id"] == "office" and row["mode"] == "driving")
+    assert observed_quote["duration_seconds"] == quote
+    assert accepted.status.value == "in_progress"
+    activity = engine.state.activities[accepted.activity_id]
     assert activity.planned_duration_seconds == quote
 
 
 def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) -> None:
     """路途能量按折算后时长结算（MET 路径），到达后地点更新。"""
     engine = engine_factory()
-    sleep = StartActivityRequest(activity_type="sleep", planned_duration_seconds=28_800)
-    _, sleep_results = submit_round(
-        engine, {1: ("start_activity", sleep)}, "sleep-to-peak-energy")
-    while engine.state.activities[sleep_results[0].activity_id].status == ActivityStatus.ACTIVE:
-        advance_next(engine)
+    _stage_peak(engine)
     route = next(item for item in engine.scenario.routes
                  if item.origin_id == "home" and item.destination_id == "office"
                  and item.mode == TravelMode.DRIVING)
     quote = engine.semantics.travel_planned_seconds(
         "driving", route.duration_seconds, engine.state.current_time)
     before = engine.state.agents[1].body.energy_kcal
-    _, results = submit_round(engine, {1: ("start_travel", StartTravelRequest(
-        destination_id="office", travel_mode=TravelMode.DRIVING,
-        planned_duration_seconds=quote))}, "travel-energy")
-    activity_id = results[0].activity_id
+    _, result = _start_driving(engine, "travel-energy")
+    assert result.status.value == "in_progress"
+    activity_id = result.activity_id
     while engine.state.activities[activity_id].status == ActivityStatus.ACTIVE:
         advance_next(engine)
     met = engine.semantics.body.activity_met["travel:driving"]
@@ -150,17 +164,8 @@ def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) 
 
 def test_observation_quotes_the_factored_duration(engine_factory) -> None:
     """观察层路线报价：duration_seconds 为出发时刻折算值并附自由流时长与系数。"""
-    from agentsociety2.society import DirectToolCall
-    from tests.life.conftest import context
-
     engine = engine_factory()
-    ctx = context(engine, "quote-night")
-    engine.begin_decision_round([ctx])
-    observed = engine.observe(ctx)
-    engine.submit_action(DirectToolCall(
-        ctx, "action-quote-night", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
-    engine.commit_decision_round("quote-night")
+    observed = engine.observe(context(engine, "quote-night"))
     hour = datetime.fromtimestamp(engine.state.current_time,
                                   ZoneInfo(engine.scenario.timezone)).hour
     driving = next(item for item in observed["routes"]

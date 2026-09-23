@@ -1,4 +1,4 @@
-"""@brief 在真实 AS2 请求路径验证决策上下文、登记隔离与各入口提示预算。"""
+"""@brief 在真实 AS2 请求路径验证决策上下文、登记隔离与整次请求容量。"""
 
 from __future__ import annotations
 
@@ -24,15 +24,17 @@ from agentsociety2.society import DecisionContext
 from custom.agents import life_agent
 from custom.agents.life_agent import LifeAgent
 from worldmock.life.models import REQUEST_MODELS
-from worldmock.life.narration import (
-    PromptBudgetExceededError,
-    RenderBudgetExceededError,
-    SYSTEM_MESSAGE_CHAR_BUDGET,
-    USER_MESSAGE_CHAR_BUDGET,
-)
+from worldmock.life import prompt_capacity
+from worldmock.life.narration import RenderBudgetExceededError
 
 
 _STATEMENT = "我有点累，想先歇一分钟。"
+
+
+@pytest.fixture(autouse=True)
+def _fixed_model_context(monkeypatch) -> None:
+    """@brief 集成测试固定模型窗口，避免读取在线供应商元数据。"""
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
 
 
 @pytest.mark.parametrize("template", [
@@ -44,11 +46,11 @@ def test_prompt_fingerprint_binds_every_formal_template(monkeypatch, template: s
     assert life_agent.life_prompt_sha256() != original
 
 
-@pytest.mark.parametrize("description", ["_TARGET_KIND_DESCRIPTION", "_TARGET_ID_DESCRIPTION"])
-def test_tool_fingerprint_binds_runtime_target_descriptions(monkeypatch, description: str) -> None:
-    """@brief 运行期附加的目标字段指路变化也必须被工具指纹捕获。"""
+def test_tool_fingerprint_binds_start_activity_description(monkeypatch) -> None:
+    """@brief 对象与动作选择规则变更会改变实际工具指纹。"""
     original = life_agent.life_tool_schema_sha256()
-    monkeypatch.setattr(life_agent, description, getattr(life_agent, description) + " changed")
+    monkeypatch.setitem(life_agent._TOOL_DESCRIPTIONS, "start_activity",
+                        life_agent._TOOL_DESCRIPTIONS["start_activity"] + " changed")
     assert life_agent.life_tool_schema_sha256() != original
 
 
@@ -73,8 +75,8 @@ class _ScriptedDispatcher:
 def _action_response() -> _ModelResponse:
     """@brief 返回带提供商思考字段的合法生活动作。"""
     return _ModelResponse(
-        "provider-action-call", "start_basic_activity",
-        '{"activity_type":"wait","planned_duration_seconds":60}',
+        "provider-action-call", "start_activity",
+        '{"targets":["自己"],"actions":["等待"]}',
         reasoning_content="I intend to rest; the outcome is not known yet.")
 
 
@@ -115,7 +117,7 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
     await agent.run_react_loop(request)
 
     assert len(environment.calls) == 1
-    host_receipt = next(item for item in request.observations if item["action"] == "start_basic_activity")
+    host_receipt = next(item for item in request.observations if item["action"] == "start_activity")
     assert host_receipt["data"] == {
         "request_sha256": "a" * 64, "status": "submitted",
         "action_id": "private-decision-identity:action:0001",
@@ -274,90 +276,55 @@ async def test_persona_card_budget_applies_to_life_and_readonly_requests(readonl
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("stage", ["decision_statement", "action", "readonly"])
-@pytest.mark.parametrize("extra", [0, 1])
-async def test_user_budget_is_enforced_at_every_model_entry(monkeypatch, stage: str, extra: int) -> None:
-    """@brief 通过真实请求逐一验证自述、行动与只读 user 的四万字符边界。"""
+async def test_each_model_entry_preflights_the_complete_token_request(monkeypatch, stage: str) -> None:
+    """@brief 自述、行动与只读入口达到窗口八成五时都在发送前报容量故障。"""
     readonly = stage == "readonly"
     responses = [_finish_response(readonly=True)] if readonly else [
         _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()]
-    agent, _, dispatcher = _configured(responses, 3)
-    request = _request(readonly=readonly)
-    monkeypatch.setattr(agent, "_build_memory_context", lambda: {"subjective_summary": "", "recent_episodes": []})
-    agent.prepare_react_loop(request)
-    agent._life_decision_statement = _STATEMENT
-    baseline = (agent._life_user_sections(request, with_facts=False) if stage == "decision_statement"
-                else agent.build_react_messages(request)[1]["content"])
-    memory_text = "x" * (USER_MESSAGE_CHAR_BUDGET - len(baseline) - len("主观归纳：\n") - (2 if readonly else 0) + extra)
-    monkeypatch.setattr(agent, "_build_memory_context", lambda: {
-        "subjective_summary": memory_text, "recent_episodes": []})
-    if extra or stage == "decision_statement":
-        with pytest.raises(PromptBudgetExceededError, match="user message exceeds"):
-            await agent.run_react_loop(request)
-    else:
-        await agent.run_react_loop(request)
-    index = 1 if stage == "action" else 0
-    if extra:
-        assert len(dispatcher.requests) == index
-    else:
-        assert len(dispatcher.requests[index]["messages"][1]["content"]) == USER_MESSAGE_CHAR_BUDGET
+    agent, environment, dispatcher = _configured(responses, 3)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
 
+    def measured(request: dict) -> int:
+        """@brief 只让指定入口达到阈值，其他入口维持可发送。"""
+        tools = request.get("tools")
+        if stage == "decision_statement" and not tools:
+            return 85_000
+        if stage == "action" and tools:
+            return 85_000
+        if stage == "readonly" and tools:
+            return 85_000
+        return 1000
 
-def _set_system_budget(monkeypatch, agent: LifeAgent, stage: str, extra: int) -> None:
-    """@brief 依据真实阶段预算块算出固定前言长度，保留生产预算判定。"""
-    if stage == "decision_statement":
-        suffix = life_agent._DECISION_STATEMENT_INSTRUCTIONS
-    else:
-        agent._life_readonly = stage == "readonly"
-        agent._model_call_sequence = 0 if stage == "readonly" else 1
-        budget = agent._react_budget(stage == "readonly")
-        suffix = life_agent._REACT_BUDGET_MARKER + json.dumps(budget, ensure_ascii=False, sort_keys=True)
-        if budget["remaining_model_turns_including_current"] <= 2:
-            suffix = life_agent._LOW_BUDGET_SENTENCE.format(phase=budget["phase"]) + suffix
-    template = "_READONLY_INSTRUCTIONS" if stage == "readonly" else "_LIFE_INSTRUCTIONS"
-    monkeypatch.setattr(life_agent, template, "x" * (SYSTEM_MESSAGE_CHAR_BUDGET - len(suffix) + extra))
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stage", ["decision_statement", "action", "readonly"])
-@pytest.mark.parametrize("extra", [0, 1])
-async def test_system_budget_includes_appended_generation_and_turn_requirements(
-        monkeypatch, stage: str, extra: int) -> None:
-    """@brief 最终 system 包括生成要求或回合预算；边界通过、超限绝不发出。"""
-    readonly = stage == "readonly"
-    responses = [_finish_response(readonly=True)] if readonly else [
-        _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()]
-    agent, _, dispatcher = _configured(responses, 1 if readonly else 3)
-    _set_system_budget(monkeypatch, agent, stage, extra)
-    if extra or stage == "decision_statement":
-        with pytest.raises(PromptBudgetExceededError, match="system message exceeds"):
-            await agent.run_react_loop(_request(readonly=readonly))
-    else:
+    monkeypatch.setattr(prompt_capacity, "request_token_count", measured)
+    with pytest.raises(RuntimeError, match="model request capacity exceeded"):
         await agent.run_react_loop(_request(readonly=readonly))
-    index = 1 if stage == "action" else 0
-    if extra:
-        assert len(dispatcher.requests) == index
-    else:
-        assert len(dispatcher.requests[index]["messages"][0]["content"]) == SYSTEM_MESSAGE_CHAR_BUDGET
+    assert len(dispatcher.requests) == (1 if stage == "action" else 0)
+    assert environment.calls == []
 
 
 @pytest.mark.asyncio
-async def test_read_mail_description_resolves_a_visible_inbox_identity() -> None:
-    """@brief 阅读工具描述与真实提示中的 facts.inbox 邮件身份一致。"""
-    action = _ModelResponse("read-mail", "start_targeted_activity", json.dumps({
-        "activity_type": "read_mail", "target_id": "message-visible",
-        "planned_duration_seconds": 60, "playback_speed": 1}))
+async def test_long_system_message_passes_when_complete_request_is_below_threshold(monkeypatch) -> None:
+    """@brief 旧 system 字符熔断不影响整次请求低于窗口阈值的只读决策。"""
+    monkeypatch.setattr(life_agent, "_READONLY_INSTRUCTIONS",
+                        life_agent._READONLY_INSTRUCTIONS + " context" * 700)
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
+    monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 84_999)
+    agent, _, dispatcher = _configured([_finish_response(readonly=True)], 1)
+    await agent.run_react_loop(_request(readonly=True))
+    assert len(dispatcher.requests[0]["messages"][0]["content"]) > 3000
+
+
+@pytest.mark.asyncio
+async def test_start_activity_schema_uses_readable_target_and_action() -> None:
+    """@brief 真实工具 Schema 只暴露可读目标和动作，执行参数由引擎派生。"""
     agent, environment, dispatcher = _configured([
-        _DecisionStatementResponse("我想先看看这封邮件。"), action, _finish_response()], 3)
-    request = _request()
-    request.observations[0]["data"]["facts"]["inbox"] = [{
-        "kind": "mail", "id": "message-visible", "title": "工作进度", "read": False}]
-    await agent.run_react_loop(request)
-    actual = dispatcher.requests[1]
-    parameters = next(tool["function"]["parameters"]["properties"] for tool in actual["tools"]
-                      if tool["function"]["name"] == "start_targeted_activity")
-    for field in ("activity_type", "target_id"):
-        description = parameters[field]["description"]
-        assert "facts.inbox" in description and "kind is mail" in description
-        assert "messages[].message_id" not in description
-    assert '"id":"message-visible"' in actual["messages"][1]["content"]
-    assert environment.calls[0].request.target_id == "message-visible"
+        _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()], 3)
+    await agent.run_react_loop(_request())
+    action_request = dispatcher.requests[1]
+    start = next(tool["function"] for tool in action_request["tools"]
+                 if tool["function"]["name"] == "start_activity")
+    assert set(start["parameters"]["properties"]) == {"targets", "actions"}
+    assert "facts.interactive_objects" in start["description"]
+    assert "自己" in action_request["messages"][1]["content"]
+    assert environment.calls[0].request.targets == ["自己"]
+    assert environment.calls[0].request.actions == ["等待"]

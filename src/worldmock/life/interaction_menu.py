@@ -14,6 +14,15 @@ from worldmock.life.models import FrozenModel, START_ACTIVITY_ACTIONS
 #: 否则人物在该地点既不能等待也不能睡眠。其余三类保护项是工具可见性，不由地点菜单剪裁。
 PROTECTED_SELF_ACTIONS = frozenset({"wait", "sleep"})
 
+#: 人物所见的动作短语；路线方式是同一内部动作的两项明确选择。
+ACTION_LABELS = {
+    "work": "工作", "browse": "浏览", "consume": "食用",
+    "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
+    "read": "阅读", "do": "进行", "wait": "等待", "sleep": "睡觉",
+}
+TRAVEL_ACTION_LABELS = {"walking": "步行前往", "driving": "驾车前往"}
+PURCHASE_ACTION_LABELS = {"pickup": "到店购买", "delivery": "配送到当前位置"}
+
 #: 稳定工具面里唯一受菜单剪裁的工具：其 action 参数取交互对象的动作枚举。
 MENU_SCOPED_TOOL = "start_activity"
 
@@ -62,7 +71,7 @@ def menu_allows_action(menu: InteractionMenu, tool_name: str, request: Any) -> b
     """@brief 判断本次工具调用是否获菜单允许。
 
     地点菜单不再剪裁工具（「保护项修订」）：除 start_activity 外的稳定工具恒可调用，
-    start_activity 则按其 action 参数落在有效菜单的动作枚举内判定。
+    start_activity 则按其 actions 参数逐项落在有效菜单的动作枚举内判定。
 
     @param menu 当前有效菜单。
     @param tool_name REQUEST_MODELS 中的稳定工具名。
@@ -71,8 +80,33 @@ def menu_allows_action(menu: InteractionMenu, tool_name: str, request: Any) -> b
     """
     if tool_name != MENU_SCOPED_TOOL:
         return True
-    action = _request_value(request, "action")
-    return isinstance(action, str) and action in menu.allowed_actions
+    actions = _request_value(request, "actions")
+    return isinstance(actions, list) and bool(actions) and all(
+        isinstance(action, str) and canonical_action(action) in menu.allowed_actions
+        for action in actions)
+
+
+def action_label(action: str, travel_mode: str | None = None) -> str:
+    """@brief 将内部动作及路线方式投影成人物可读的动作短语。"""
+    if action == "travel_to":
+        return TRAVEL_ACTION_LABELS[travel_mode]
+    return ACTION_LABELS[action]
+
+
+def purchase_action_label(fulfillment: str) -> str:
+    """@brief 将明确的供给履约方式投影成人物可读动作短语。"""
+    return PURCHASE_ACTION_LABELS[fulfillment]
+
+
+def canonical_action(label: str) -> str | None:
+    """@brief 从人物可读动作短语还原内部动作闭集。"""
+    if label in TRAVEL_ACTION_LABELS.values():
+        return "travel_to"
+    if label in PURCHASE_ACTION_LABELS.values():
+        return "purchase"
+    if label == "使用":
+        return "consume"
+    return next((action for action, value in ACTION_LABELS.items() if value == label), None)
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

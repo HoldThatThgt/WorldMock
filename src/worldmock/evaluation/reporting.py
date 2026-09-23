@@ -18,6 +18,9 @@ from worldmock.evaluation.errors import EvaluationError
 
 LOGGER = logging.getLogger(__name__)
 _FONT_PATHS = (
+    Path("C:/Windows/Fonts/NotoSansSC-VF.ttf"),
+    Path("C:/Windows/Fonts/msyh.ttc"),
+    Path("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"),
     Path("/System/Library/Fonts/PingFang.ttc"),
     Path("/System/Library/Fonts/STHeiti Medium.ttc"),
 )

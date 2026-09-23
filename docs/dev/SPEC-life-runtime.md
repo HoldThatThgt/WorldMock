@@ -71,9 +71,9 @@ sequenceDiagram
 2. 人物完成本轮选择后，环境先结算本轮请求
 3. 调度器再计算下一边界：活动完成、内容反馈、通知到达、工作截止、需要重新评估的身体变化、人物选择的等待结束或实验结束
 4. 每次推进严格大于零；即时事件在当前边界按稳定序号处理，避免零时间循环
-5. 本轮业务拒绝形成一秒反应边界：下一次决策机会在当前模拟时刻的下一秒提供，拒绝反馈只出现一次；不能无限占用同一时刻重新请求
+5. 阈值前的业务拒绝形成一秒反应边界：下一次决策机会在当前模拟时刻的下一秒提供，拒绝反馈只出现一次；不能无限占用同一时刻重新请求
 6. 已接受瞬时动作同样安排下一秒反应边界
-7. 场景明确 `max_consecutive_rejections=10`（取值见 `docs/EXPERIMENT.md`「场景参数」章的「活动节奏与拒绝边界」节）；达到连续业务拒绝上限时把该人物记为决策失败并终止运行，成功选择后计数重置，不自动替人物选择等待或其他动作
+7. 场景明确 `max_consecutive_rejections=10`（取值见 `docs/EXPERIMENT.md`「场景参数」章的「活动节奏与拒绝边界」节）；达到连续业务拒绝阈值后，将下次决策推迟到既有活动反馈间隔，计数在阈值处封顶；成功选择后重置。拒绝及下次决策时间保留在动作结果，不替人物选择动作，也不把业务拒绝写成运行失败
 
 **时间约定**：
 - 人物决策收到当前时刻
@@ -161,7 +161,7 @@ WakeReason = Literal[
 - 一单购买可含多件商品、一餐可含多件持有食品，它们仍分别是一个购买或一个进食行动
 - 记忆检索不改变世界
 - 已接受后不能在同一时刻继续免费浏览、工作和进食
-- 拒绝后的重新选择有有限决策预算，耗尽后记为人物决策失败
+- 业务拒绝按已确认节律提供下一次决策机会；重复拒绝不会被记为人物决策失败
 
 ### 并发与占用
 
@@ -483,7 +483,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 来源文件的原始会议标识仍保留为语料元数据
 
 **工作提交**：
-- 只用公开的 `task_id` 绑定合同、来源材料和验收
+- 场景必须为工作合同声明唯一可读的 `WorkTaskConfig.title`；人物只用该标题提交，
+  引擎从冻结观察私下绑定 `task_id`、来源材料和验收，不以内部编号作为展示名
 - 不要求人物再次填写来源内部的 `meeting_id`
 - 不要求人物生成另一个全局唯一的 `submission_id`
 - 宿主动作身份记录每次提交，已付款任务集合防止重复付款
@@ -638,7 +639,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 三部分的字段清单与上限只在 `docs/CONTRACTS.md`「观察投影字段」定义：字段面见「场景段落与事实清单」，汉字与字符上限见「可见期与提示预算」。人物卡片的字段与编译规则见 `docs/dev/SPEC-life-realism.md`「画像编译」。
 
-`scene` 是中文自然语言场景段落，`facts` 是工具需要的精简事实清单；本规格只判定投影的三段划分与不得进入提示的内容，段内字段的取值与上限以 `docs/CONTRACTS.md`「观察投影字段」为准。
+`scene` 是中文自然语言场景段落，`facts` 承载目标、交互对象和进度等结构化投影；
+七层心智模型仍落在原有三段载体中，不增加顶层结果段。结算结果归进度层，
+内部身份、报价版本和状态维护不暴露给模型；段内字段以 `docs/CONTRACTS.md`「观察投影字段」为准。
 
 ### 不进入提示的字段
 
@@ -656,8 +659,9 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **字幕与内容片段**：只交付本次结算新跨过的区间；横跨边界的同一条字幕不重复交付。
 
-**动作结果回灌**：`recent_action_results` 保留上次观察后全部公开结算结果、状态与错误原因，
-工作验收使用已有公开反馈，不含完整活动快照和内部参考。具体边界见
+**动作结果回灌**：上次实际发送进度提示后的公开结算结果归进度层，与会话客观进度和模型自述同层。
+工作验收使用已有公开反馈，不含完整活动快照和内部参考；权威事件保持完整，
+容量浓缩只处理发送给模型的派生投影。具体边界见
 [决策上下文规格](SPEC-decision-context.md#登记确认与结算结果)，字段见接口合同。
 
 场景展示最近三条收件头并提示未展示的未读消息，事实清单保留完整可见收件箱。
@@ -672,10 +676,10 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 地点变化不改写本轮观察，只在下一次观察重新计算。声明形状、交集、保护项和工具参数收窄规则见
 [交互菜单规格](SPEC-interaction-menu.md)。
 
-环境受理时按权威场景、人物位置和当前状态重验菜单。禁止的工具、活动类型、下钻品类或恢复请求在
-领域副作用前以 `INTERACTION_MENU_DENIED` 拒绝，并沿用现有业务拒绝计数、一秒反馈边界、结果回灌
-和幂等规则。工作工具被禁时不得进入独立评审。已开始活动的继续、暂停、取消、调速和游戏指令保留
-原控制规则，恢复仍须满足当前菜单与既有能量、归属和身份检查。
+环境受理时按权威场景、人物位置和当前状态重验菜单。禁止的标准动作在
+领域副作用前以 `INTERACTION_MENU_DENIED` 拒绝，并沿用业务拒绝节律、结果回灌
+和幂等规则。工作提交若不满足领域资格，不得进入独立评审。已开始会话的报告、暂停和结束保留
+独立控制规则，恢复仍须满足当前资源、地点、能量、归属和身份检查。
 
 菜单只控制入口和启动资格，不改变 `affordance_contract`、候选生成、世界事实排除、排除原因计数、
 呈现上限、游标或轮转。候选与呈现仍完整执行本规格的统一合同；菜单不为关闭的入口伪造候选排除原因。
@@ -687,12 +691,14 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 提示中不得出现「评审」「评分」「引擎期望」等把人物置于被评价位置的措辞。地点处境可以由场景描述
 表达；地点允许的行动由显式交互菜单控制，工具描述不得固定写入办公室娱乐偏好或其他人物策略。
 
-### 字符预算
+### 上下文容量
 
-**单次决策限制**：
-- user 消息不超过 40000 字符
-- system 消息不超过 3000 字符
-- 超限是运行故障，不截断、不删字段
+发送每一次实际模型请求前，计算 system、工具定义、人物卡片、场景、全部事实、记忆、
+已追加消息和预留输出的 token 占用。达到所用模型上下文窗口的百分之八十五时，
+先按可读任务名合并模型可见进度层中较旧的终态会话历史，保留每组最新结论、自述与会话数；
+重新计数仍达阈值时再合为一条总历史摘要。进行中与暂停会话、当前期限提醒及本轮新结果
+保持完整，不按会话数量任意截断，
+不修改权威会话状态、原始结算事件或其他层。仍超限则记录分层 token 用量并明确报错。
 
 **正式运行目标**：
 - `quality.json` 报告每次决策的提示词 token 分布
@@ -701,7 +707,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 **语言**：提示与场景文本使用场景 `language=zh-CN`
 
-**验证**：见 `tests/life/test_narration.py`、`tests/life/test_revision_contract.py`、`tests/integration/test_life_agent_protocol.py`。
+**验证**：见 `tests/life/test_narration.py`、`tests/life/test_revision_contract.py`、
+`tests/integration/test_life_agent_protocol.py`；另以跨轮增长、压缩后可恢复决策及其他层超限的测试验收。
 
 ## 候选契约与呈现规则
 
@@ -750,7 +757,8 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - **检索分区池上限**：人物在某分区内「理论可互动」的对象总数上限，只用于计数与下推，不直接进提示。
 - **单次呈现上限**：一次决策放进提示的条数上限，是场景层常量，默认 20 条。
 
-**读到什么算通过**：观察投影的条数不超过场景声明的单次呈现上限；池上限的取值同时出现在 `browse_activities` 返回的 `total` 里，而不是被当成呈现上限把返回体裁短。
+**读到什么算通过**：观察投影的条数不超过场景声明的单次呈现上限；池上限的取值同时出现在
+由 `start_activity` 发起的下推结果 `total` 里，而不是被当成呈现上限把返回体裁短。
 
 **读到什么算失败**：提示里出现的候选条数超过单次呈现上限；或把池上限当成提示条数上限，导致某一次呈现直接塞进池上限条。
 
@@ -894,7 +902,7 @@ flowchart LR
 | 状态归属与生命周期 | 状态类别与修改权限符合 `docs/CONTRACTS.md`「LifeEnv 状态字段」章的「状态归属」节；生命周期各接口的签名与行为符合该章的「生命周期」节；已有运行可恢复；未初始化或缺少场景时接口失败关闭 | `tests/integration/test_env_lifecycle_coverage.py` | 代码层已验证 |
 | 共享时钟 | 模型上下文时间与结算时间一致；错误时刻的上下文被拒绝；反馈边界严格向前且不释放占用 | `tests/life/test_engine_feedback.py`、`tests/life/test_engine_round.py` | 代码层已验证 |
 | 决策节律 | 静默边界不产生决策事件；提供决策的边界记录全部实际唤醒原因；睡眠不被重估间隔打断；体感滞回以上一次实际决策为参照 | `tests/life/test_revision_contract.py`、`tests/life/test_wake_reasons.py` | 代码层已验证 |
-| 业务拒绝节律 | 业务拒绝在下一秒提供一次反馈；第十次连续拒绝记为人物决策失败并停止运行 | `tests/life/test_engine_feedback.py` 的 `test_rejection_waits_one_second_and_next_observation_reports_once`、`test_tenth_consecutive_rejection_fails_agent_and_run` | 代码层已验证 |
+| 业务拒绝节律 | 阈值前业务拒绝在下一秒反馈；达到阈值后按活动反馈间隔再决策，不产生运行失败 | `tests/life/test_engine_feedback.py` 的 `test_rejection_waits_one_second_and_next_observation_reports_once`、`test_tenth_consecutive_rejection_delays_retry_without_failing_run` | 待端到端验证 |
 | 并发与占用 | 颠倒到达顺序不改变结算顺序；种子变化改变竞争顺序且检查点可恢复；异常时不结算该轮未执行的提案 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py` | 代码层已验证 |
 | 运行观测 | 只读查询使用已确认状态且不修改任何运行文件 | `tests/footprints/test_status.py` | 代码层已验证 |
 | 身体语义 | 两过程睡眠阈值与演化逐点符合公式；睡眠不足账与效率曲线的钳制与插值；饥饿、娱乐、社交需要的分级阈值 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 代码层已验证 |
@@ -915,7 +923,7 @@ flowchart LR
 | 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | 显式地点集合的单元证据见 `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py`；正式地图声明与场景引用由地图特性重新验收 | 独立特性及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 检索与反塌缩 | 同一查询在同一（冻结目录、世界状态版本）下返回同一有序结果；静态可达性检查对任意对象给出至少一条到达路径；索引不含浮点距离或随机初始化 | `tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py` | 代码层已验证 |
 | 随身持有与远程订购 | 持有物只在其所在地点可见；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分 | `tests/life/test_storefront_commerce.py` 的 `test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`；`tests/life/test_commerce.py::test_consume_rejects_inventory_held_at_another_location` | 定向及[当前主线完整门禁](research/map-and-storefront-main-verification.md)均已通过 |
-| 提示字符预算 | user 消息 40000 字符与 system 消息 3000 字符的边界通过；超限报错且不截断、不删字段 | `tests/life/test_narration.py` | 代码层已验证 |
+| 完整请求容量 | 实际请求连同预留输出达到窗口 85% 时依次浓缩终态进度历史；仍达阈值或超过输入额度则报容量故障，并留分层 token 用量 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` 的跨轮容量场景 | 待本特性验收 |
 | 社交 | 在场可见字段闭合且交谈要求清醒非游戏；消息汉字上限边界；交谈与通话费率与时长边界；联系人策略为闭集且回复至多一次 | `tests/life/test_social.py` | 代码层已验证 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md` | 待真实运行 |
 

@@ -1,7 +1,5 @@
 """工作合同类型、工时上限、资金和多人任务竞争测试。"""
 
-# TODO: ContinueActivityRequest removed - no direct replacement in 7-tool model
-
 from __future__ import annotations
 
 import hashlib
@@ -19,7 +17,9 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
     MeetingMinutes,
+    ReportStatusRequest,
     StartActivityRequest,
+    SubmitWorkActionRequest,
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
@@ -131,7 +131,8 @@ def test_scenario_material_oracles_load_explicit_json_references() -> None:
                 if item.oracle_path == "scenario-work/references/work-0021.oracle.json")
     source = load_work_input(Path("corpora"), task)
     oracle = load_work_oracle(Path("corpora"), task)
-    reference = json.loads(Path("corpora/scenario-work/references/work-0021.reference.json").read_text())
+    reference = json.loads(Path("corpora/scenario-work/references/work-0021.reference.json").read_text(
+        encoding="utf-8"))
     assert oracle["type"] == "scenario"
     assert oracle["expected"]["summary"] == reference["summary_sentences"]
     assert oracle["expected"]["decisions"] and oracle["expected"]["action_items"]
@@ -251,19 +252,22 @@ def _shared_round(engine, round_id: str, requests: dict[int, tuple[str, object]]
     ready = engine.scheduling_state().ready_agent_ids
     contexts = {agent_id: context(engine, round_id, agent_id) for agent_id in ready}
     engine.begin_decision_round([contexts[agent_id] for agent_id in ready])
-    for ctx in contexts.values():
-        engine.observe(ctx)
+    observations = {agent_id: engine.observe(ctx) for agent_id, ctx in contexts.items()}
     for agent_id in reversed(ready):
         tool, request = requests[agent_id]
+        if callable(request):
+            request = request(observations[agent_id])
         engine.submit_action(DirectToolCall(contexts[agent_id], f"{round_id}-{agent_id}", tool, request))
     return ready
 
 
 def _complete_shared_work(engine, task) -> None:
     """让两个人物通过全部实际反馈边界完成同一任务的最大合同工时。"""
-    start = StartActivityRequest(
-        activity_type="work", target_id=task.task_id,
-        planned_duration_seconds=task.maximum_duration_seconds, playback_speed=1)
+    def start(observed):
+        binding = next(row for row in observed["interaction_bindings"]
+                       if row["kind"] == "work_task" and row["object_id"] == task.task_id)
+        return StartActivityRequest(targets=[binding["object"]], actions=["工作"])
+
     ready = _shared_round(engine, "shared-work", {1: ("start_activity", start),
                                                    2: ("start_activity", start)})
     engine.commit_decision_round("shared-work")
@@ -274,8 +278,11 @@ def _complete_shared_work(engine, task) -> None:
             advance_next(engine)
             continue
         feedback += 1
-        requests = {agent_id: ("continue_activity", ContinueActivityRequest(
-            activity_id=f"activity-shared-work-{agent_id}")) for agent_id in ready}
+        requests = {agent_id: ("report_status", ReportStatusRequest(
+            task=[next(item.session_name for item in engine.state.sessions.values()
+                       if item.agent_id == agent_id
+                       and f"activity-shared-work-{agent_id}" in item.activity_ids)],
+            summary=["继续完成工作。"])) for agent_id in ready}
         _shared_round(engine, f"shared-feedback-{feedback}", requests)
         engine.commit_decision_round(f"shared-feedback-{feedback}")
 
@@ -289,7 +296,8 @@ async def test_same_task_competition_pays_only_seeded_first_settlement(engine_fa
     _complete_shared_work(engine, task)
     reviewer = AcceptingReviewer()
     engine._work_reviewer = reviewer
-    requests = {agent_id: ("submit_work", _submission(task))
+    requests = {agent_id: ("submit_work", SubmitWorkActionRequest(
+        task_name=task.title, deliverable=_submission(task).deliverable))
                 for agent_id in engine.state.agents}
     ready = _shared_round(engine, "shared-submit", requests)
     for agent_id in ready:

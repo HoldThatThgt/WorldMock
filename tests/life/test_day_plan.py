@@ -29,6 +29,7 @@ def activity(kind="work", **changes):
 def act(engine, name, tool, request):
     ctx = context(engine, name)
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(ctx, f"action-{name}", tool, request))
     return engine.commit_decision_round(name)[0]
 
@@ -167,7 +168,7 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     assert registered.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
     advance_until_ready(engine)
     started = act(engine, "rest", "start_activity",
-                  StartActivityRequest(activity_type="wait", planned_duration_seconds=7200))
+                  StartActivityRequest(targets=["自己"], actions=["等待"]))
     advance_next(engine)
     plan = engine.state.agents[1].day_plan
     assert plan.goals[0].progress_activity_id == started.activity_id
@@ -227,14 +228,14 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
     now = engine.state.current_time
     midnight = day_end_seconds(now, engine.scenario.timezone)
     staged = engine.state.model_copy(deep=True)
-    staged.current_time = midnight - 60
+    staged.current_time = midnight - engine.scenario.activity_feedback_seconds
     staged.pending_events = []
     staged.agents[1] = staged.agents[1].model_copy(update={"next_decision_at": staged.current_time,
         "body_settled_at": staged.current_time,
         "day_plan": DayPlan(day_end=midnight, goals=[goal("休息", registered=staged.current_time)])})
     _commit_staged(engine, staged)
     started = act(engine, "last-minute", "start_activity",
-                  StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
+                  StartActivityRequest(targets=["自己"], actions=["等待"]))
     advance_next(engine)
     assert engine.state.current_time == midnight
     assert engine.state.agents[1].day_plan is None
@@ -247,7 +248,7 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
 def test_late_first_submission_does_not_require_a_bedtime_schedule(engine_factory):
     engine = engine_factory()
     act(engine, "before-plan", "start_activity",
-        StartActivityRequest(activity_type="wait", planned_duration_seconds=60))
+        StartActivityRequest(targets=["自己"], actions=["等待"]))
     advance_until_ready(engine)
     registered_at = engine.state.current_time
     result = act(engine, "late-goal", "plan_day", PlanDayRequest(

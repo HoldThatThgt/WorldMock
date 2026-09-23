@@ -102,7 +102,8 @@ def test_locations_cover_all_required_kinds_with_real_osm_coordinates():
     """营业类别独立覆盖，真实 POI 位置仍能追溯原始 OSM 节点。"""
     document = _load("zhangjiang-map/locations.json")
     locations = document["locations"]
-    required = json.loads((ROOT / "catalog/manifest.json").read_text())["category_requirements"]
+    required = json.loads((ROOT / "catalog/manifest.json").read_text(encoding="utf-8"))[
+        "category_requirements"]
     by_kind = {}
     for location in locations:
         by_kind.setdefault(location["business_kind"], []).append(location)

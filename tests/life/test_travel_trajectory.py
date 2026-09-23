@@ -33,7 +33,7 @@ def _route(route_id: str):
 
 def _geometry(route) -> list[tuple[float, float]]:
     """读取冻结响应的 LineString 几何。"""
-    response = json.loads((_CORPUS / route.response_path).read_text())
+    response = json.loads((_CORPUS / route.response_path).read_text(encoding="utf-8"))
     assert response["code"] == "Ok"
     return [(float(lon), float(lat)) for lon, lat in response["routes"][0]["geometry"]["coordinates"]]
 

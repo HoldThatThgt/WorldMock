@@ -10,12 +10,9 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, advance_until_ready, context, submit_round, travel_quote
+from tests.life.conftest import advance_next, advance_until_ready, context, submit_round
 from worldmock.errors import ProtocolError
-from worldmock.life.models import (
-    StartActivityRequest,
-    TravelMode,
-)
+from worldmock.life.models import StartActivityRequest
 
 
 def test_real_wait_round_advances_and_records_complete_activity(engine_factory) -> None:
@@ -24,8 +21,7 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
     ctx = context(engine, "one")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    request = StartActivityRequest(targets=["自己"], actions=["等待"])
     receipt = engine.submit_action(DirectToolCall(ctx, "wait-one", "start_activity", request))
     result = engine.commit_decision_round("one")[0]
     while engine.scheduling_state().next_event_at is not None:
@@ -35,10 +31,10 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
     activity = engine.state.activities[result.activity_id]
     assert "world_state_version" not in observed  # 黑名单字段不再进入观察（docs/dev/SPEC-life-runtime.md「不进入提示的字段」）
     assert receipt.status == "submitted" and result.status == "in_progress"
-    assert activity.status == "completed" and activity.ended_at == activity.started_at + 60
+    assert activity.status == "completed" and activity.ended_at == activity.planned_end_at
     progress = [event for event in engine.store.read_events(engine.store.last_event_seq)
                 if event.event_type == "activity_progress"][-1]
-    assert progress.data["interval_end"] - progress.data["interval_start"] == 60
+    assert progress.data["interval_end"] > progress.data["interval_start"]
     assert progress.data["activity"]["ended_at"] == activity.ended_at
 
 
@@ -47,11 +43,9 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     engine = engine_factory()
     _, results = submit_round(
         engine, {1: ("start_activity", StartActivityRequest(
-            targets=["missing-content"], action="watch",
-            planned_duration_seconds=60, destination_id=None,
-            travel_mode=None, text=None, summary=None))}, "missing-content")
+            targets=["不存在的内容"], actions=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
-    assert results[0].error_code == "CONTENT_NOT_FOUND"
+    assert results[0].error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.activities == {}
     types = [event.event_type for event in engine.store.read_events(engine.store.last_event_seq)]
     assert "action_rejected" in types and "action_result" in types
@@ -60,15 +54,16 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
 def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) -> None:
     """同参数 action_id 不重复产生副作用，参数冲突作为协议故障。"""
     engine = engine_factory()
-    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    request = StartActivityRequest(targets=["自己"], actions=["等待"])
     ctx = context(engine, "first")
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", request))
     engine.commit_decision_round("first")
     advance_until_ready(engine)  # 计划结束唤醒后重放
     ctx = context(engine, "replay")
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", request))
     replay = engine.commit_decision_round("replay")[0]
     assert replay.status == "completed"
@@ -76,8 +71,8 @@ def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) 
     advance_until_ready(engine)
     ctx = context(engine, "conflict")
     engine.begin_decision_round([ctx])
-    changed = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=120,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    engine.observe(ctx)
+    changed = StartActivityRequest(targets=["自己"], actions=["睡觉"])
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", changed))
     engine.abort_decision_round("conflict", "expected conflict")
@@ -88,8 +83,8 @@ def test_abort_preserves_unexecuted_life_state_and_stale_context_fails(engine_fa
     engine = engine_factory()
     ctx = context(engine, "abort")
     engine.begin_decision_round([ctx])
-    request = StartActivityRequest(targets=[], action="sleep", planned_duration_seconds=3600,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    engine.observe(ctx)
+    request = StartActivityRequest(targets=["自己"], actions=["睡觉"])
     engine.submit_action(DirectToolCall(ctx, "never-run", "start_activity", request))
     engine.abort_decision_round("abort", "runner failed")
     assert engine.state.activities == {}
@@ -106,14 +101,15 @@ def test_multi_person_arrival_order_does_not_change_settlement_order(engine_fact
     """人物调用到达顺序颠倒时，结算仍使用 begin 中的共同顺序。"""
     first = engine_factory("multi-person.json")
     second = engine_factory("multi-person.json")
-    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    request = StartActivityRequest(targets=["自己"], actions=["等待"])
     expected_order = first.scheduling_state().ready_agent_ids
     for engine, order in ((first, (2, 1)), (second, (1, 2))):
         contexts = {agent_id: context(engine, "multi", agent_id) for agent_id in (1, 2)}
         scheduled = engine.scheduling_state().ready_agent_ids
         assert scheduled == expected_order
         engine.begin_decision_round([contexts[agent_id] for agent_id in scheduled])
+        for item in contexts.values():
+            engine.observe(item)
         for agent_id in order:
             call = DirectToolCall(
                 contexts[agent_id], f"multi-{agent_id}", "start_activity", request)
@@ -157,19 +153,20 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     ctx = context(engine, "discover")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    # 分层目录：观察只带品类计数，内容明细由 browse_activities 下钻揭示
+    # 内容窗口直接列出可读交互对象，品类数量另行保留为环境事实。
     assert "content_catalog" not in observed
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
     assert observed["activity_summary"]["foods"] == len(engine.scenario.supplies)
     # 修订合同：game_catalog 全表与完整路线不再进入观察（黑名单/坐标几何）；
-    # 游戏身份经 data["games"]（本人会话）与 browse 下钻揭示，地点经 scene 可达集。
+    # 游戏身份经交互对象窗口揭示，地点经 scene 可达集。
     assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
     assert "game_catalog" not in observed["scene"]
     destinations = {item["destination"] for item in observed["facts"]["routes"]}
     # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
     # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
-    expected_destinations = {route.destination_id for route in engine.scenario.routes
+    location_names = {item.location_id: item.name for item in engine.scenario.locations}
+    expected_destinations = {location_names[route.destination_id] for route in engine.scenario.routes
                              if route.origin_id == "home"}
     assert destinations == expected_destinations
     # 可达集按冻结路线推导（observe._reachable_places 只列当前地点的路线终点）。
@@ -182,49 +179,41 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
     assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
-    request = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
-                                   destination_id=None, travel_mode=None, text=None, summary=None)
+    request = StartActivityRequest(targets=["自己"], actions=["等待"])
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))
     engine.commit_decision_round("discover")
 
 
 @pytest.mark.parametrize(
-    ("label", "action_request"),
+    ("label", "kind", "action"),
     (
-        ("watch", StartActivityRequest(
-            targets=["sintel-en-subtitles"], action="watch",
-            planned_duration_seconds=60, destination_id=None,
-            travel_mode=None, text=None, summary=None)),
-        ("game", StartActivityRequest(
-            targets=["textworld-1201"], action="play",
-            planned_duration_seconds=3600, destination_id=None,
-            travel_mode=None, text=None, summary=None)),
-        ("travel", StartActivityRequest(
-            targets=[], action="travel_to", planned_duration_seconds=216,
-            destination_id="office", travel_mode=TravelMode.DRIVING,
-            text=None, summary=None)),
+        ("watch", "content", "观看"),
+        ("game", "game", "游玩"),
+        ("travel", "location", "驾车前往"),
     ),
 )
 def test_first_round_accepts_discovered_content_game_and_route(
-    engine_factory, label, action_request,
+    engine_factory, label, kind, action,
 ) -> None:
     """首轮目录中的三类身份可以直接进入对应真实领域边界。"""
     engine = engine_factory()
-    if label == "travel":
-        # 出行时长按出发时刻分时系数折算（首轮 = 场景起点，夜间小时）。
-        action_request = action_request.model_copy(update={
-            "planned_duration_seconds": travel_quote(engine, "driving", 216)})
     ctx = context(engine, f"first-{label}")
     engine.begin_decision_round([ctx])
-    engine.observe(ctx)
+    observed = engine.observe(ctx)
+    matches = [row for row in observed["interaction_bindings"]
+               if row["kind"] == kind and any(item["label"] == action for item in row["actions"])]
+    assert matches
+    target = matches[0]
+    action_request = StartActivityRequest(targets=[target["object"]], actions=[action])
     call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]
     assert result.status == "in_progress"
     activity = engine.state.activities[result.activity_id]
-    expected_target = action_request.targets[0] if action_request.targets else None
-    assert activity.target_id == expected_target
-    assert activity.destination_id == action_request.destination_id
+    if label == "travel":
+        assert activity.destination_id == target["object_id"]
+    else:
+        assert activity.target_id == target["object_id"]
 
 
 def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factory) -> None:
@@ -244,8 +233,7 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(ModelCallEvidence(ctx, second, "failure", 1, request,
                                                        error="duplicate terminal"))
-    wait = StartActivityRequest(targets=[], action="wait", planned_duration_seconds=60,
-                                destination_id=None, travel_mode=None, text=None, summary=None)
+    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
     engine.submit_action(DirectToolCall(
         ctx, "model-evidence-wait", "start_activity", wait))
     engine.commit_decision_round("model-evidence")

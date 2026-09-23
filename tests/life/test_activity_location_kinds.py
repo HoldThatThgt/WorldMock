@@ -6,7 +6,7 @@ import pytest
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import ActivityOrigin, require_location_kinds, start_activity
-from worldmock.life.models import ActivityKind, AgentState, BodyState, StartActivityRequest
+from worldmock.life.models import ActivityKind, ActivityStartParams, AgentState, BodyState
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import load_scenario
 
@@ -23,7 +23,7 @@ def _agent(location_id):
 
 
 def _request(activity_id=HOME_ACTIVITY):
-    return StartActivityRequest(activity_type='lifestyle', planned_duration_seconds=900,
+    return ActivityStartParams(activity_type='lifestyle', planned_duration_seconds=900,
                                 target_id=activity_id)
 
 

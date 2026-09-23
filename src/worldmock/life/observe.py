@@ -41,21 +41,32 @@ class ObservationMixin:
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
         recent = self._recent_action_results(agent.agent_id)
         rows = self._window_rows(agent, recent)
-        rows["products"] = _current_supply_facts(rows["products"], recent)
         menu = self._menu_windows(agent)
         self._pending_presentation = _presentation_stamps(
             self.state, agent.agent_id,
             rows["window"].presented + tuple(
                 identity for window in menu.values() for identity in window.presented))
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
+        task_rows = tuple(self._visible_task_rows(agent))
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
             recent_results=tuple(recent),
-            task_rows=tuple(self._visible_task_rows(agent)),
+            task_rows=task_rows,
             meal_windows=meal_windows,
             motivation_internal=self._motivation_internal(agent),
             extras=self._projection_extras(agent, rows["products"], menu))
         data = projection.build_observation(inputs)
+        data["task_bindings"] = [{"task_name": row["title"], "task_id": row["task_id"]}
+                                 for row in task_rows]
+        data["session_bindings"] = [
+            {"task_name": item.task_name, "session_name": item.session_name,
+             "session_id": item.session_id, "status": item.status}
+            for item in self.state.sessions.values() if item.agent_id == agent.agent_id]
+        data["goal_bindings"] = [
+            {"task_name": f"目标：{goal.intent_kind}：{goal.goal}",
+             "intent_kind": goal.intent_kind}
+            for goal in agent.day_plan.goals] if agent.day_plan is not None else []
+        _validate_visible_binding_names(data)
         data.update(self._observation_evidence(agent))
         data.update(self._event_tool_support(agent, recent, rows["window"].presented))
         return data
@@ -204,9 +215,8 @@ class ObservationMixin:
             if self.state.current_time > due:
                 continue
             worked, _effective = work_totals(self.state, agent.agent_id, task_id)
-            title = self.rules.content_titles.get(task_id)
             rows.append({
-                "task_id": task_id, "title": title or task.task_id, "due_at": due,
+                "task_id": task_id, "title": task.title, "due_at": due,
                 "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
                 "required_location_id": task.required_location_id,
                 "required_skill": task.required_skill,
@@ -305,8 +315,8 @@ class ObservationMixin:
         return result
 
     def _recent_action_results(self, agent_id: int) -> list[dict]:
-        """@brief 返回该人物上次观察后新产生的动作结算事实摘要。"""
-        cutoff = self.store.last_agent_event_seq("observation", agent_id)
+        """@brief 返回上次实际发送进度提示后产生的动作结算事实。"""
+        cutoff = self.store.last_agent_progress_request_seq(agent_id)
         events = self.store.read_agent_events("action_result", agent_id, after=cutoff)
         results = [event for event in events if event.action_id is not None
                    and event.visibility == "agent"]
@@ -387,7 +397,7 @@ class ObservationMixin:
                               for item_id, cues in self.rules.subtitles.items()},
             taste_weights=weights,
             lifestyle_enabled=config.lifestyle_activities,
-            recent_meal_counts=_recent_meal_counts(requested, now))
+            recent_meal_counts=_recent_meal_counts(self.state.activities.values(), agent.agent_id, now))
 
     def _motivation_evidence(self, agent, now: int) -> tuple:
         """@brief 汇聚可见任务、习惯事件、请求足迹与有效工时总量（动机输入）。"""
@@ -515,6 +525,7 @@ class ObservationMixin:
             agent.content_progress)}
         games = tuple(PoolEntry(object_id=item.game_id, kind="game", bucket=item.game_id,
                                 row={"game_id": item.game_id, "seed": item.seed,
+                                     "title": item.title,
                                      "category": presentation.GAME_CATEGORY},
                                 category=presentation.GAME_CATEGORY)
                       for item in self.scenario.games)
@@ -690,33 +701,33 @@ def _content_catalog(scenario, subtitles: dict, titles: dict,
     return result
 
 
-def _recent_meal_counts(requested_events, now: int) -> dict[str, int]:
-    """@brief 近 24 小时各商品已进食次数（product_id -> n，docs/dev/SPEC-life-realism.md「动机层」）。
+def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
+    """@brief 从近一天实际结算的食用量推导商品重复进食次数。"""
+    from math import ceil
+    from worldmock.life.models import ActivityKind
 
-    从足迹 action_requested 的 consume 动作聚合：targets 逐件按 quantity 累计
-    （一次吃两份计 2 次，Rolls 1981 感官特异性饱足按食用次数降权）。
-    24 小时窗口为规格常数（docs/dev/SPEC-life-realism.md「动机层」"近 24 小时"）。
-    """
     counts: dict[str, int] = {}
-    for event in requested_events:
-        data = event.data if isinstance(event.data, dict) else {}
-        if data.get("tool_name") != "start_activity":
+    for activity in activities:
+        if activity.agent_id != agent_id or activity.kind != ActivityKind.CONSUME:
             continue
-        if not 0 <= now - event.occurred_at <= 86_400:
+        if not 0 <= now - activity.started_at <= 86_400:
             continue
-        request = data.get("request")
-        if not isinstance(request, dict) or request.get("action") != "consume":
+        if activity.data["request"]["use_mode"] != "eat":
             continue
-        targets = request.get("targets")
-        if not isinstance(targets, list):
-            continue
-        quantity = request.get("quantity")
-        units = (quantity if isinstance(quantity, (int, float))
-                 and not isinstance(quantity, bool) and quantity > 0 else 1)
-        for target in targets:
-            if isinstance(target, str):
-                counts[target] = counts.get(target, 0) + int(units)
+        for product_id, consumed in activity.data["consumed"].items():
+            if consumed > 0:
+                counts[product_id] = counts.get(product_id, 0) + ceil(consumed)
     return counts
+
+
+def _validate_visible_binding_names(data: dict[str, Any]) -> None:
+    """@brief 冻结观察前拒绝会让人物名称无法唯一解析的任务或会话。"""
+    names = ([row["task_name"] for row in data["task_bindings"]]
+             + [row["session_name"] for row in data["session_bindings"]]
+             + [row["task_name"] for row in data["goal_bindings"]])
+    if len(names) != len(set(names)):
+        logging.error("Visible task or session names are ambiguous")
+        raise ValueError("visible task or session names must be unique")
 
 
 def _sample_contents(contents, profile, taste_weights) -> tuple:
@@ -779,24 +790,6 @@ def _shared_supply_window(context: discovery.DiscoveryContext, window: Presentat
     excluded.sort(key=lambda item: (item.kind, item.object_id))
     return replace(window, items=tuple(items), presented=shown, excluded=tuple(excluded),
                    deferred=tuple(item.object_id for item in excluded if item.reason == "ROTATION_DEFERRED"))
-
-
-def _current_supply_facts(current: list[dict], recent: list[dict]) -> list[dict]:
-    """@brief 当前供给用完整行或引用本次回灌的差异事实表达，空值按值替换。"""
-    historical = {}
-    for result in recent:
-        for row in _reported_supply_rows([result]):
-            historical[row["supply_id"]] = (result["action_id"], public_supply_row(row))
-    facts = []
-    for row in current:
-        if row["supply_id"] not in historical:
-            facts.append(row)
-            continue
-        action_id, previous = historical[row["supply_id"]]
-        changes = {key: value for key, value in row.items() if key not in previous or value != previous[key]}
-        if changes:
-            facts.append({"supply_id": row["supply_id"], "based_on_action_id": action_id, "changes": changes})
-    return facts
 
 
 def _supply_entries(context: discovery.DiscoveryContext, visible: set[str]) -> tuple[PoolEntry, ...]:

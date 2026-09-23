@@ -1,176 +1,203 @@
-"""门店发现和供给购买在真实 LifeAgent 工具 Schema 与宿主派发边界的一致性。"""
+"""门店供给通过可读对象和动作使用冻结报价。"""
+
+from __future__ import annotations
 
 import copy
 import os
+from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
-from jsonschema import Draft202012Validator
 
-os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
-from agentsociety2.agent.base import ReactDecision
-from custom.agents import life_menu
-from tests.integration.test_grounded_targets import _catalogs, _context, _Environment, _functions, _prepare
-from tests.integration.test_interaction_menu import _menu
-from worldmock.errors import BusinessRuleError
-from worldmock.life import menu_execution
-from worldmock.life.interaction_menu import InteractionMenu
-from worldmock.life.models import DiscoverPlacesRequest
+from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
+from agentsociety2.society import DirectToolCall
+from custom.agents.life_agent import LifeAgent
+from tests.integration.test_life_agent_protocol import _context, _observations
+from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
+from worldmock.life.models import StartActivityRequest
+from worldmock.footprints.models import EventDraft
+from worldmock.life.session_actions import SessionActionMixin
 
 
-def _supply(identity="supply-a", *, place="home", seller="seller", version="v1"):
-    return {"supply_id": identity, "product_id": "product-visible", "location_id": place,
-            "seller_account_id": seller, "price_version": version, "price_fen": 1000,
-            "current_stock": 2, "quote_status": "known", "opening_status": "open",
-            "access_allowed": True, "service_allowed": True, "purchase_allowed": True,
-            "pickup_allowed": place == "home", "fulfillment_modes": ["pickup", "delivery"],
-            "delivery_destination_ids": ["home"]}
+_OFFER = "家门口便利店出售的牛奶"
 
 
-def _agent(*, supplies=None, overrides=None):
-    data = {"supplies": supplies if supplies is not None else [_supply()],
-            "discovery_catalog": {"product_ids": ["product-visible"], "business_kinds": ["convenience"]},
-            "locations": [{"location_id": place} for place in ("home", "office", "store", "other")],
-            "routes": [{"destination_id": "office", "mode": "driving", "duration_seconds": 216,
-                        "minimum_energy_cost_kcal": 6.0, "energy_feasible": True, "status": "reachable"}],
-            **(overrides or {})}
-    return _prepare(_catalogs(), overrides=data)
+def _stage_open_market(engine) -> None:
+    """把隔离运行推进到营业时段，并冻结每条可见供给。"""
+    now = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
+    staged = engine.state.model_copy(deep=True)
+    staged.current_time = now
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
+    agent = staged.agents[1]
+    visible = {row.supply_id for row in engine.scenario.supplies}
+    staged.agents[1] = agent.model_copy(update={
+        "visible_supply_ids": visible,
+        "supply_browsed_at": {identity: now for identity in visible},
+        "supply_browsed_location": {identity: agent.location_id for identity in visible},
+        "next_decision_at": now,
+        "body_settled_at": now,
+    }, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now,
+        visibility="system", data={"kind": "test_open_market"},
+    )])
+    engine.state = staged
 
 
-def _discover(**overrides):
-    return {"product_id": None, "business_kind": None, "travel_mode": "walking",
-            "max_travel_seconds": None, "cursor": None, **overrides}
+def _observed_offer(action_labels=("到店购买", "配送到当前位置")) -> list[dict]:
+    """给真实人物准备可读供给与独立的引擎冻结报价。"""
+    observed = copy.deepcopy(_observations())
+    data = observed[0]["data"]
+    data["facts"]["interactive_objects"].append({
+        "object": _OFFER, "actions": list(action_labels), "preconditions_met": True,
+    })
+    data["facts"]["products"] = [{
+        "object": _OFFER, "product": "牛奶", "place": "家门口便利店",
+        "price_fen": 1000, "quote_status": "known", "current_stock": 2,
+        "purchase_allowed": True, "fulfillment_modes": ["pickup", "delivery"],
+        "delivery_destinations": ["自己家"], "delivery_delay_seconds": 300,
+    }]
+    data["interaction_bindings"].append({
+        "object": _OFFER, "kind": "supply", "object_id": "supply-private",
+        "actions": [
+            {"label": "到店购买", "canonical_action": "purchase", "fulfillment": "pickup"},
+            {"label": "配送到当前位置", "canonical_action": "purchase", "fulfillment": "delivery"},
+        ],
+        "quote": {"price_version": "price-private", "price_fen": 1000, "purchase_price_fen": 1000},
+    })
+    return observed
 
 
-def _purchase(ids=("supply-a",), **overrides):
-    return {"items": [{"supply_id": identity, "quantity": 1, "price_version": "v1"} for identity in ids],
-            "fulfillment": "delivery", "destination_id": "home", **overrides}
+def _prepared_offer(action_labels=("到店购买", "配送到当前位置")) -> LifeAgent:
+    """从一次真实结构化观察准备 LifeAgent 工具合同。"""
+    person = LifeAgent()
+    person.prepare_react_loop(ReactLoopRequest(
+        0, _context().observed_at, _observed_offer(action_labels)))
+    return person
 
 
-def test_real_schema_uses_supply_id_and_nullable_discovery_filters():
-    agent = _agent()
-    functions = _functions(agent)
-    purchase = functions["purchase"]["parameters"]
-    props = purchase["properties"]["items"]["items"]["properties"]
-    assert props["supply_id"]["enum"] == ["supply-a"] and "product_id" not in props
-    discovery = functions["discover_places"]["parameters"]
-    assert set(discovery["required"]) == {"product_id", "business_kind", "travel_mode", "max_travel_seconds", "cursor"}
-    Draft202012Validator(discovery).validate(_discover())
-    Draft202012Validator(discovery).validate(_discover(product_id="product-visible"))
-    invalid = _discover(product_id="unknown-product")
-    assert list(Draft202012Validator(discovery).iter_errors(invalid))
-    assert agent.validate_react_decisions([ReactDecision("", "discover_places", invalid, "")], False)
+def _functions(person: LifeAgent) -> dict[str, dict]:
+    """读取将要发送给模型的工具 Schema。"""
+    return {row["function"]["name"]: row["function"]
+            for row in person.build_react_tool_schemas(readonly=False)}
 
 
-@pytest.mark.parametrize("supplies,payload,error", [
-    ([_supply()], _purchase(("supply-a", "supply-a")), "unique"),
-    ([_supply(), _supply("supply-b", place="other")], _purchase(("supply-a", "supply-b")), "one location"),
-    ([_supply(), _supply("supply-b", seller="other")], _purchase(("supply-a", "supply-b")), "seller account"),
-    ([_supply()], _purchase(("product-visible",)), "visible pair"),
-    ([_supply()], _purchase(destination_id="office"), "delivery scope"),
-    ([_supply(place="store")], _purchase(fulfillment="pickup", destination_id="store"), "not supported"),
-])
-def test_local_validation_preserves_supply_seller_location_and_fulfillment_pairs(supplies, payload, error):
-    agent = _agent(supplies=supplies)
-    rejected = agent.validate_react_decisions([ReactDecision("", "purchase", payload, "")], False)
-    assert error in rejected
+def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
+    """购买模型入参只有对象与可读动作，报价和内部供给身份不进入 Schema。"""
+    person = _prepared_offer()
+    tools = _functions(person)
+    assert "purchase" not in tools and "discover_places" not in tools
+    action = tools["start_activity"]["parameters"]
+    assert set(action["properties"]) == {"targets", "actions"}
+    assert _OFFER in action["properties"]["targets"]["items"]["enum"]
+    assert {"到店购买", "配送到当前位置"} <= set(action["properties"]["actions"]["items"]["enum"])
+    assert person.validate_react_decisions([
+        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
+    ], False) == ""
+    assert "invalid start_activity arguments" in person.validate_react_decisions([
+        ReactDecision("", "start_activity", {
+            "targets": [_OFFER], "actions": ["到店购买"], "price_version": "guessed",
+        }, ""),
+    ], False)
 
 
-def test_closed_unknown_and_unqualified_supply_remain_facts_but_not_purchase_contracts():
-    rows = []
-    for field, value in (("opening_status", "closed"), ("access_allowed", False), ("service_allowed", False)):
-        row = _supply(field)
-        row.update({field: value, "purchase_allowed": False})
-        rows.append(row)
-    unknown = _supply("unknown")
-    unknown.update(quote_status="unknown", price_fen=None, price_version=None, purchase_allowed=False)
-    rows.append(unknown)
-    original = copy.deepcopy(rows)
-    assert life_menu.visible_supply_contracts({"supplies": rows, "locations": [{"location_id": "home"}]}) == {}
-    assert rows == original
-    assert "purchase" not in _functions(_agent(supplies=rows))
+@pytest.mark.parametrize("label", ["未知商店出售的牛奶", "supply-private"])
+def test_unoffered_or_internal_supply_name_cannot_be_selected(label):
+    """模型不能猜未呈现供给，也不能用私有编号绕过可读对象闭集。"""
+    person = _prepared_offer()
+    _functions(person)
+    error = person.validate_react_decisions([
+        ReactDecision("", "start_activity", {"targets": [label], "actions": ["到店购买"]}, ""),
+    ], False)
+    assert "visible interactive object" in error
 
 
-@pytest.mark.parametrize("overrides,error", [
-    ({"supplies": None}, "supplies catalog must be a list"),
-    ({"supplies": [None]}, "supply must be an object"),
-    ({"supplies": [{**_supply(), "supply_id": ""}]}, "supply identity is invalid"),
-    ({"supplies": [_supply(), _supply()]}, "supply identities are duplicated"),
-    ({"supplies": [{**_supply(), "location_id": "undeclared"}]}, "supply references an unknown location"),
-    ({"supplies": [{**_supply(), "delivery_destination_ids": ["undeclared"]}]},
-     "supply references an unknown location"),
-    ({"locations": [{"location_id": ""}]}, "location identities are invalid"),
-    ({"supplies": [{**_supply(), "current_stock": True}]}, "supply stock is invalid"),
-    ({"supplies": [{**_supply(), "quote_status": "missing"}]}, "supply quote status is invalid"),
-    ({"supplies": [{**_supply(), "price_version": None}]}, "known supply quote is invalid"),
-    ({"supplies": [{**_supply(), "price_fen": None}]}, "known supply quote is invalid"),
-    ({"supplies": [{**_supply(), "quote_status": "unknown", "price_version": None}]},
-     "unknown supply quote contains a price"),
-    ({"supplies": [{**_supply(), "quote_status": "unknown", "price_fen": None}]},
-     "unknown supply quote contains a price"),
-    ({"supplies": [{**_supply(), "access_allowed": None}]}, "supply qualification is invalid"),
-    ({"supplies": [{**_supply(), "fulfillment_modes": []}]}, "supply fulfillment is invalid"),
-    ({"supplies": [{**_supply(), "delivery_destination_ids": None}]}, "supply fulfillment is invalid"),
-    ({"supplies": [{**_supply(), "opening_status": "unsure"}]}, "supply opening status is invalid"),
-    ({"supplies": [{**_supply(), "current_stock": 0}]}, "supply purchase qualification is inconsistent"),
-    ({"discovery_catalog": None}, "discovery catalog must be an object"),
-    ({"discovery_catalog": {"product_ids": None, "business_kinds": []}}, "discovery catalog values are invalid"),
-    ({"discovery_catalog": {"product_ids": [7], "business_kinds": []}}, "discovery catalog values are invalid"),
-    ({"discovery_catalog": {"product_ids": [], "business_kinds": [""]}}, "discovery catalog values are invalid"),
-])
-def test_invalid_supply_or_discovery_observation_stops_real_agent_preparation(overrides, error, caplog):
-    """不完整或矛盾的世界观察必须终止宿主准备，不能转成可调用购买或发现工具。"""
-    original = copy.deepcopy(overrides)
-    with caplog.at_level("ERROR"), pytest.raises(RuntimeError, match=error):
-        _agent(overrides=overrides)
-    assert error in caplog.text
-    assert overrides == original
+def test_supply_fulfillment_is_bound_per_visible_object():
+    """仅有配送动作的供给不能被模型改成到店自提。"""
+    person = _prepared_offer(("配送到当前位置",))
+    _functions(person)
+    error = person.validate_react_decisions([
+        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
+    ], False)
+    assert "not offered" in error
 
 
-def test_remote_pickup_only_supply_has_no_executable_purchase_contract():
-    """已知供给在远处且只支持自提时保留事实，但不能生成配送或远程自提合同。"""
-    row = {**_supply(place="store"), "fulfillment_modes": ["pickup"], "delivery_destination_ids": []}
-    original = copy.deepcopy(row)
-    data = {"supplies": [row], "locations": [{"location_id": "home"}, {"location_id": "store"}]}
-    assert life_menu.visible_supply_contracts(data) == {}
-    agent = _agent(supplies=[row])
-    assert "purchase" not in _functions(agent)
-    assert agent.validate_react_decisions([ReactDecision("", "purchase", _purchase(), "")], False)
-    assert row == original
+def test_closed_supply_remains_a_fact_without_a_purchase_action():
+    """不可购买的报价事实仍可见，但本轮不产生可调用对象。"""
+    observed = _observed_offer()
+    data = observed[0]["data"]
+    data["facts"]["products"][0]["purchase_allowed"] = False
+    data["facts"]["interactive_objects"] = [
+        row for row in data["facts"]["interactive_objects"] if row["object"] != _OFFER
+    ]
+    data["interaction_bindings"] = [
+        row for row in data["interaction_bindings"] if row["object"] != _OFFER
+    ]
+    person = LifeAgent()
+    person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
+    _functions(person)
+    assert data["facts"]["products"][0]["object"] == _OFFER
+    assert "visible interactive object" in person.validate_react_decisions([
+        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
+    ], False)
 
 
-def test_unknown_route_cannot_become_a_travel_schema_choice():
-    agent = _agent(overrides={"routes": [{"destination_id": "office", "mode": "walking",
-                                         "status": "unknown", "duration_seconds": None,
-                                         "reason": "profile_not_verified"}]})
-    assert "start_travel" not in _functions(agent)
-    assert "discover_places" in _functions(agent)
+def test_each_selected_supply_keeps_its_own_frozen_quote():
+    """双件购买逐条取观察冻结的报价版本，并由引擎决定每件数量。"""
+    class CapturePurchase(SessionActionMixin):
+        def __init__(self):
+            self.rules = SimpleNamespace(supplies={
+                "supply-a": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
+                "supply-b": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
+            })
+            self.request = None
+
+        def _purchase(self, state, pending, request):
+            self.request = request
+            return state, SimpleNamespace(status="completed")
+
+    runtime = CapturePurchase()
+    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")})
+    pending = SimpleNamespace(agent_id=1)
+    bindings = [
+        {"object_id": identity, "selected_action": {"fulfillment": "pickup"},
+         "quote": {"price_version": version, "price_fen": price}}
+        for identity, version, price in (("supply-a", "quote-a", 1000), ("supply-b", "quote-b", 1600))
+    ]
+    runtime._start_purchase_action(state, pending, bindings)
+    assert [(item.supply_id, item.quantity, item.price_version) for item in runtime.request.items] == [
+        ("supply-a", 1, "quote-a"), ("supply-b", 1, "quote-b"),
+    ]
 
 
-@pytest.mark.asyncio
-async def test_discovery_is_one_pending_life_action_not_a_synchronous_query():
-    agent = _agent()
-    environment = _Environment()
-    agent._env, agent._decision_context = environment, _context()
-    result = await agent.dispatch_react_tool("discover_places", _discover())
-    assert len(environment.calls) == 1
-    call = environment.calls[0]
-    assert call.tool_name == "discover_places" and isinstance(call.request, DiscoverPlacesRequest)
-    assert "places" not in str(result.data)
-    error = agent.validate_react_decisions([ReactDecision("", "purchase", _purchase(), "")], False)
-    assert "already submitted" in error
-
-
-def test_menu_denies_discovery_in_schema_local_validation_and_environment(monkeypatch):
-    declared = _menu(tools={"purchase"}, kinds={"consume"})
-    agent = _agent(overrides={"interaction_menu": declared})
-    assert "discover_places" not in _functions(agent)
-    assert agent.validate_react_decisions([ReactDecision("", "discover_places", _discover(), "")], False)
-    menu = InteractionMenu.model_validate(declared)
-    monkeypatch.setattr(menu_execution, "resolve_interaction_menu", lambda *args: menu)
-    state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1, location_id="home")}, activities={})
-    pending = SimpleNamespace(agent_id=1, tool_name="discover_places")
-    with pytest.raises(BusinessRuleError, match="INTERACTION_MENU_DENIED"):
-        menu_execution.require_interaction_menu(None, state, pending, DiscoverPlacesRequest(**_discover()))
+def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
+    """真实引擎用冻结供给绑定购买，模型请求不含价格、数量和供给编号。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    _stage_open_market(engine)
+    current = context(engine, "readable-storefront")
+    engine.begin_decision_round([current])
+    observed = engine.observe(current)
+    offer = next(row for row in observed["interaction_bindings"]
+                 if row["kind"] == "supply" and row["actions"])
+    action = offer["actions"][0]["label"]
+    request = StartActivityRequest(targets=[offer["object"]], actions=[action])
+    assert set(request.model_dump()) == {"targets", "actions"}
+    before_stock = engine.state.supply_stock[offer["object_id"]]
+    account = engine.state.agents[current.agent_id].balance_account_id
+    before_balance = engine.state.accounts[account]
+    engine.submit_action(DirectToolCall(current, "purchase-readable", "start_activity", request))
+    result = engine.commit_decision_round(current.round_id)[0]
+    assert result.status.value == "completed"
+    assert result.error_code is None
+    assert result.data["total_price_fen"] == offer["quote"]["purchase_price_fen"]
+    assert engine.state.supply_stock[offer["object_id"]] == before_stock - 1
+    assert engine.state.accounts[account] == before_balance - result.data["total_price_fen"]
+    assert offer["object"] in {row["object"] for row in observed["facts"]["products"]}
+    assert all("supply_id" not in row and "price_version" not in row
+               for row in observed["facts"]["products"])

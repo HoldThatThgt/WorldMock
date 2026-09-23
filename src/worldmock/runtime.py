@@ -339,6 +339,7 @@ def two_stage_model_identity() -> dict[str, Any]:
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
+        ACTION_MAX_TOKENS,
         DECISION_STATEMENT_MAX_TOKENS,
         DECISION_STATEMENT_TEMPERATURE,
     )
@@ -363,6 +364,7 @@ def two_stage_model_identity() -> dict[str, Any]:
             "action": {
                 "thinking": ACTION_THINKING["thinking"]["type"],
                 "tool_choice": ACTION_TOOL_CHOICE,
+                "max_tokens": ACTION_MAX_TOKENS,
             },
             "work_review": {
                 "thinking": _WORK_REVIEW_THINKING,

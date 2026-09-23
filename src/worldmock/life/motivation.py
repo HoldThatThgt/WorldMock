@@ -209,14 +209,23 @@ def prospect_value(z: float, transforms: MotivationTransforms, loss_aversion: fl
 # 习惯项：足迹 action_requested 家族频率的贴现计数
 # ---------------------------------------------------------------------------
 
-def classify_action_event(tool_name: str, request: Mapping) -> str | None:
-    """@brief 把一次动作请求归入候选家族；不可判定的动作返回 None。
+def classify_action_event(tool_name: str, request: Mapping) -> tuple[str, ...]:
+    """@brief 将请求中的每个动作逐项归入习惯家族；不可判定项不计数。
 
-    归并键是动作名：start_activity 取请求里的 action，其余稳定工具取工具名本身
+    归并键是动作名：start_activity 逐项取 actions，其余稳定工具取工具名本身
     （归并路由自注册表 families.*.habit_members 展开，docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
     """
-    action = request.get("action") if isinstance(request, Mapping) else None
-    return _AFFORDANCES.classify_habit_event(action or tool_name)
+    from worldmock.life.interaction_menu import canonical_action
+
+    if tool_name == "start_activity":
+        actions = request.get("actions") if isinstance(request, Mapping) else None
+        if not isinstance(actions, list) or not 1 <= len(actions) <= 2:
+            return ()
+        names = [canonical_action(action) for action in actions if isinstance(action, str)]
+    else:
+        names = [tool_name]
+    return tuple(family for name in names
+                 if (family := _AFFORDANCES.classify_habit_event(name)) is not None)
 
 
 def habit_shares(events: Sequence[tuple[str, Mapping]], discount: float) -> dict[str, float]:
@@ -228,12 +237,11 @@ def habit_shares(events: Sequence[tuple[str, Mapping]], discount: float) -> dict
     weights = {family: 0.0 for family in FAMILIES}
     total = 0.0
     for age, (tool_name, request) in enumerate(reversed(events)):
-        family = classify_action_event(tool_name, request)
-        if family is None:
-            continue
+        families = classify_action_event(tool_name, request)
         weight = discount ** age
-        weights[family] += weight
-        total += weight
+        for family in families:
+            weights[family] += weight
+            total += weight
     if total <= 0:
         return weights
     return {family: value / total for family, value in weights.items()}

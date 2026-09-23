@@ -310,6 +310,7 @@ class WorkTaskConfig(FrozenModel):
     """
 
     task_id: str = Field(min_length=1)
+    title: str = Field(min_length=1, pattern=r"\S")
     assignee_agent_id: str = Field(pattern=r"\S")
     contract_kind: ContractKind
     available_at: datetime
@@ -395,6 +396,7 @@ class GameConfig(FrozenModel):
     """@brief 预生成 TextWorld 游戏的不可变身份。"""
 
     game_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
     seed: int = Field(gt=0)
     game_path: str = Field(min_length=1)
     game_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")

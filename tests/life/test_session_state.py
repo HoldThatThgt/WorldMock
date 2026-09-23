@@ -27,6 +27,8 @@ def _active_session(**overrides) -> dict:
     """构造最小合法的 active 会话数据字典。"""
     base = {
         "session_id": "session-0001",
+        "task_name": "等待",
+        "session_name": "等待（上午十点，家中）",
         "agent_id": 1,
         "task_kind": "none",
         "task_ref": None,
@@ -41,6 +43,8 @@ def _concluded_session(**overrides) -> dict:
     """构造最小合法的 concluded 会话数据字典。"""
     base = {
         "session_id": "session-0002",
+        "task_name": "等待",
+        "session_name": "等待（上午十点，家中）",
         "agent_id": 1,
         "task_kind": "none",
         "task_ref": None,
@@ -124,7 +128,7 @@ def test_task_kind_goal_requires_task_ref():
 def test_task_kind_goal_with_task_ref_is_valid():
     """task_kind=goal 且 task_ref 有值通过验证。"""
     s = SessionState.model_validate(
-        _active_session(task_kind="goal", task_ref="工作")
+        _active_session(task_kind="goal", task_ref="工作", plan_goal_intent_kind="工作")
     )
     assert s.task_kind == SessionTaskKind.GOAL
     assert s.task_ref == "工作"
@@ -322,6 +326,8 @@ def test_full_session_state_from_spec():
     """按规格示例 JSON 构造完整会话状态，验证所有字段可正确解析。"""
     data = {
         "session_id": "session-0007",
+        "task_name": "项目工作",
+        "session_name": "项目工作（下午两点，办公室）",
         "agent_id": 1,
         "task_kind": "work_task",
         "task_ref": "backend-hourly-2026-01-05",

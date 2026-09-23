@@ -13,17 +13,14 @@
 
 from __future__ import annotations
 
-import ast
 import os
 import re
-from pathlib import Path
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 
+from custom.agents.life_agent import _TOOL_DESCRIPTIONS  # noqa: E402
+from worldmock.life.models import REQUEST_MODELS  # noqa: E402
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS  # noqa: E402
-
-#: 工具描述常量命名约定（`custom/agents/life_agent.py` 的 `_*_DESCRIPTION`）。
-_DESCRIPTION_SUFFIX = "_DESCRIPTION"
 
 #: 字段引用形状：`名称.字段`、`名称[].字段`、`名称[0].字段` 三类下标变体统一归一化；
 #: 前导边界只排除标识符与点号，不排除 `uses ` 这类正文分隔，否则最典型的漂移形态会漏检。
@@ -36,12 +33,9 @@ _FIELD_REFERENCE = re.compile(
 #: 注意 `game_catalog` 刻意不在表内：它是事件级工具支持字段，绝不进提示，
 #: 描述指路它即是漂移（这正是本条门禁要抓的那一例）。
 DELIVERED_OBSERVATION_KEYS = frozenset({
-    "content_progress", "games", "work_progress", "messages", "products",
-    "market_summary", "recent_action_results", "activity_summary",
-    "pending_deliveries", "inventory", "available_inventory", "tasks", "routes",
-    "browse_targets", "calendar_context", "locations", "agent_id",
-    "current_time", "scene", "facts", "body", "balance_fen", "active_activities", "occupied_resources", "verified_experiences",
-    "paused_activities", "wake_reasons", "decision_index",
+    "current_time", "current_epoch", "location", "people_here", "contacts", "inbox",
+    "tasks", "progress", "interactive_objects", "routes", "products", "inventory",
+    "day_plan", "felt", "drive_summary", "scene", "facts",
 })
 
 #: 非字段引用的点号形态：CamelCase 类型名、常见文件/主机后缀、Python 属性白名单。
@@ -51,25 +45,9 @@ _NOT_A_FIELD_PARENT = frozenset({
 _NOT_A_FIELD_SUFFIX = frozenset({"md", "py", "json", "toml", "txt", "com", "cn", "org"})
 
 
-def _life_agent_source() -> str:
-    """@brief 读取 LifeAgent 生产源文件文本。"""
-    import custom.agents.life_agent as life_agent_module
-
-    return Path(life_agent_module.__file__).read_text(encoding="utf-8")
-
-
-def _description_constants(tree: ast.Module) -> dict[str, str]:
-    """@brief 收集模块级 `_*_DESCRIPTION` 字符串常量（含隐式拼接）。"""
-    constants: dict[str, str] = {}
-    for node in tree.body:
-        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
-            continue
-        target = node.targets[0]
-        if not isinstance(target, ast.Name) or not target.id.endswith(_DESCRIPTION_SUFFIX):
-            continue
-        if isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-            constants[target.id] = node.value.value
-    return constants
+def _action_descriptions() -> dict[str, str]:
+    """@brief 读取实际发送给模型的生活动作工具描述。"""
+    return {name: _TOOL_DESCRIPTIONS[name] for name in REQUEST_MODELS}
 
 
 def _field_references(text: str) -> set[tuple[str, str]]:
@@ -89,8 +67,8 @@ def _blacklisted_delivered_keys() -> frozenset[str]:
 
 def test_tool_description_references_are_delivered_and_not_forbidden() -> None:
     """@brief 工具描述的每个 `*.field` 引用都指向真实下发的非黑名单观察键。"""
-    constants = _description_constants(ast.parse(_life_agent_source()))
-    assert constants, "life_agent must declare at least one _*_DESCRIPTION constant"
+    constants = _action_descriptions()
+    assert constants, "life_agent must describe each life action tool"
     banned = _blacklisted_delivered_keys() | {key.rsplit(".", 1)[-1]
                                               for key in FORBIDDEN_OBSERVATION_KEYS}
     offenders: dict[str, list[str]] = {}
@@ -112,7 +90,7 @@ _HISTORICAL_DRIFT_SAMPLE = " play_game uses game_catalog[].game_id"
 
 def test_tool_description_scan_has_teeth() -> None:
     """@brief 扫描器有牙齿：历史漂移原样与悬空键都被同一条判据抓住。"""
-    constants = _description_constants(ast.parse(_life_agent_source()))
+    constants = _action_descriptions()
     sample = sorted(constants)[0]
     banned = _blacklisted_delivered_keys() | {key.rsplit(".", 1)[-1]
                                               for key in FORBIDDEN_OBSERVATION_KEYS}

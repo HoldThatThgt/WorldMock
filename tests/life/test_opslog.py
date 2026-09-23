@@ -11,10 +11,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import context, submit_round
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (
-    StartBasicActivityRequest,
-    StartTargetedActivityRequest,
-)
+from worldmock.life.models import StartActivityRequest
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
 
 
@@ -95,8 +92,9 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     engine.record_model_exchange(ModelCallEvidence(
         ctx, call_id, "response", 1, request,
         response={"model": "deepseek-v4.1-flash", "usage": {"prompt_tokens": 11, "completion_tokens": 7}}))
-    wait = StartBasicActivityRequest(activity_type="wait", planned_duration_seconds=60)
-    engine.submit_action(DirectToolCall(ctx, "ops-wait", "start_basic_activity", wait))
+    engine.observe(ctx)
+    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
+    engine.submit_action(DirectToolCall(ctx, "ops-wait", "start_activity", wait))
     engine.commit_decision_round("ops")
     records = _records(engine)
     codes = [record["code"] for record in records]
@@ -113,20 +111,19 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     accepted = next(record for record in records if record["code"] == "ACTION_ACCEPTED")
     assert accepted["agent_id"] == ctx.agent_id and accepted["decision_id"] == ctx.decision_id
     assert accepted["round_id"] == "ops" and accepted["action_id"] == "ops-wait"
-    assert accepted["tool_name"] == "start_basic_activity"
+    assert accepted["tool_name"] == "start_activity"
 
 
 def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
     """业务拒绝产生 warn 级 ACTION_REJECTED 记录并携带稳定错误码。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_targeted_activity", StartTargetedActivityRequest(
-            activity_type="watch", target_id="missing-content",
-            planned_duration_seconds=60, playback_speed=1))}, "missing-content")
+        engine, {1: ("start_activity", StartActivityRequest(
+            targets=["missing-content"], actions=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     records = _records(engine)
     rejected = next(record for record in records if record["code"] == "ACTION_REJECTED")
-    assert rejected["level"] == "warn" and rejected["error_code"] == "CONTENT_NOT_FOUND"
+    assert rejected["level"] == "warn" and rejected["error_code"] == "ACTION_REQUEST_INVALID"
     assert rejected["round_id"] == "missing-content" and rejected["agent_id"] == 1
 
 

@@ -24,17 +24,17 @@ from worldmock.catalog import (
 def test_add_object_preserves_manifest_identity_and_contract_fields(catalog_dir: Path) -> None:
     """新增同品类对象只追加 raw 行并完整刷新清单身份。"""
     manifest_path = catalog_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    requirements = json.loads(Path("catalog/manifest.json").read_text())["category_requirements"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    requirements = json.loads(Path("catalog/manifest.json").read_text(encoding="utf-8"))["category_requirements"]
     manifest["category_requirements"] = requirements
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
-    before = json.loads((catalog_dir / "manifest.json").read_text())
+    before = json.loads((catalog_dir / "manifest.json").read_text(encoding="utf-8"))
     frozen_paths = (catalog_dir / "category-contract.json", catalog_dir / "exchange-rules.json")
     frozen_bytes = [path.read_bytes() for path in frozen_paths]
     payload = raw_object("milk-second")
     version = add_object(catalog_dir, ObjectDeclaration.model_validate(payload))
-    after = json.loads((catalog_dir / "manifest.json").read_text())
+    after = json.loads((catalog_dir / "manifest.json").read_text(encoding="utf-8"))
     catalog = load_catalog(catalog_dir)
     assert version == 1
     assert "milk-second" in catalog.objects

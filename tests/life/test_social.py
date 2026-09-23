@@ -203,63 +203,49 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
         finalize_model_reply(request, "好" * 201, "r-3", 1600)
 
 
-def _identity_facts() -> dict:
-    """构造携带不透明身份锚点的 facts 投影（people_here + contacts + inbox）。"""
+def _identity_bindings() -> dict:
+    """构造本轮人名与联系人名称的私有身份绑定。"""
     return {
-        "people_here": [{"person_id": "agent:2", "name": "李凡",
-                         "activity_family": "idle", "can_talk": True}],
-        "contacts": [{"contact_id": "contact-mother", "salutation": "妈妈",
-                      "relation": "家人"}],
-        "inbox": [{"id": "m-1", "kind": "direct", "sender_id": "agent:3",
-                   "head": "在吗", "read": False, "created_at": 1000}],
+        "facts": {"day_plan": None, "progress": {"sessions": [], "results": [], "alarms": []}},
+        "interaction_bindings": [
+            {"object": "李凡", "kind": "person", "object_id": "agent:2",
+             "actions": [{"label": "交谈", "canonical_action": "chat"}]},
+            {"object": "妈妈", "kind": "contact", "object_id": "contact-mother",
+             "actions": [{"label": "通话", "canonical_action": "call"}]},
+        ],
+        "task_bindings": [], "session_bindings": [], "goal_bindings": [],
     }
 
 
 def test_message_recipients_come_from_current_observation_identities() -> None:
-    """send_message 收件人闭集 = 在场人物 ∪ 联系人 ∪ 收件箱发送者（docs/CONTRACTS.md「人物工具与管理接口」）。"""
-    from custom.agents.life_agent import (
-        _visible_message_recipients,
-        _validate_visible_action,
-    )
-    from worldmock.life.models import SendMessageRequest
+    """send_message 只接受本轮可见人物与联系人名称。"""
+    from custom.agents.life_agent import _validate_prepared_action, _visible_action_contracts
+    from worldmock.life.models import SendMessageActionRequest
 
-    recipients = _visible_message_recipients({"facts": _identity_facts()})["recipients"]
-    assert recipients == ("agent:2", "agent:3", "contact-mother")
-    visible = {"send_message": {"recipients": recipients}}
-    ok = SendMessageRequest(recipient_id="contact-mother", text="周末回家吃饭吗")
-    assert _validate_visible_action("send_message", ok, visible) == ""
-    for ghost in ("agent:9", "stranger"):
-        rejected = SendMessageRequest(recipient_id=ghost, text="在吗")
-        assert _validate_visible_action("send_message", rejected, visible) != ""
-    # 反例：三类身份源都为空时撤下工具（不提供不存在合法身份的工具）。
-    empty = {"facts": {"people_here": [], "contacts": [], "inbox": []}}
-    assert _visible_message_recipients(empty) == {}
+    contracts = _visible_action_contracts(_identity_bindings())
+    assert contracts["recipient_names"] == ("李凡", "妈妈")
+    for name in contracts["recipient_names"]:
+        request = SendMessageActionRequest(recipient_name=name, text="周末见面吗")
+        assert _validate_prepared_action("send_message", request, {}, (), contracts) == ""
+    ghost = SendMessageActionRequest(recipient_name="陌生人", text="在吗")
+    assert _validate_prepared_action("send_message", ghost, {}, (), contracts) != ""
+    empty = _identity_bindings()
+    empty["interaction_bindings"] = []
+    assert _visible_action_contracts(empty)["recipient_names"] == ()
 
 
 def test_social_partners_pair_kind_with_identity_source() -> None:
-    """chat 绑在场/发件人身份、call 绑联系人身份；kind 与对象集配对校验。"""
-    from custom.agents.life_agent import (
-        _visible_social_partners,
-        _validate_visible_action,
-    )
-    from worldmock.life.models import StartSocialActivityRequest
+    """交谈与通话由对象本轮动作闭集配对，不能交换对象动作。"""
+    from custom.agents.life_agent import _validate_prepared_action, _visible_action_contracts
+    from worldmock.life.models import StartActivityRequest
 
-    contract = _visible_social_partners({"facts": _identity_facts()})
-    assert contract["chat_partners"] == ("agent:2", "agent:3")
-    assert contract["call_partners"] == ("contact-mother",)
-    contracts = {"start_social_activity": contract}
-    chat = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=15)
-    call = StartSocialActivityRequest(kind="call", partner_id="contact-mother",
-                                      duration_minutes=30)
-    assert _validate_visible_action("start_social_activity", chat, contracts) == ""
-    assert _validate_visible_action("start_social_activity", call, contracts) == ""
-    for mismatch in (
-        StartSocialActivityRequest(kind="chat", partner_id="contact-mother",
-                                   duration_minutes=15),
-        StartSocialActivityRequest(kind="call", partner_id="agent:2", duration_minutes=30),
-        StartSocialActivityRequest(kind="chat", partner_id="agent:9", duration_minutes=15),
-    ):
-        assert _validate_visible_action("start_social_activity", mismatch, contracts) != ""
-    # 反例：无在场人物且无联系人时撤下工具。
-    empty = {"facts": {"people_here": [], "contacts": [], "inbox": []}}
-    assert _visible_social_partners(empty) == {}
+    data = _identity_bindings()
+    contracts = _visible_action_contracts(data)
+    objects = {row["object"]: tuple(action["label"] for action in row["actions"])
+               for row in data["interaction_bindings"]}
+    for target, action in (("李凡", "交谈"), ("妈妈", "通话")):
+        request = StartActivityRequest(targets=[target], actions=[action])
+        assert _validate_prepared_action("start_activity", request, objects, (), contracts) == ""
+    for target, action in (("妈妈", "交谈"), ("李凡", "通话"), ("陌生人", "交谈")):
+        request = StartActivityRequest(targets=[target], actions=[action])
+        assert _validate_prepared_action("start_activity", request, objects, (), contracts) != ""

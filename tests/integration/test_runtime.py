@@ -65,6 +65,7 @@ def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
+        ACTION_MAX_TOKENS,
         DECISION_STATEMENT_MAX_TOKENS,
         DECISION_STATEMENT_TEMPERATURE,
     )
@@ -76,7 +77,7 @@ def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
                                    "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None,
                                    "tool_choice": None}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
-                                "tool_choice": ACTION_TOOL_CHOICE}
+                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS}
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
     assert identity["base_url"].endswith("/v1")
     assert identity["max_retries"] == 0 and identity["strict"] is True
@@ -460,7 +461,7 @@ def _npc_delivery_engine(tmp_path: Path):
 @pytest.mark.asyncio
 async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypatch) -> None:
     """生产采纳点（C1 接缝二）：model 联系人消息在下一轮 commit 后送达收件箱。"""
-    from worldmock.life.models import SendMessageRequest
+    from worldmock.life.models import SendMessageActionRequest
 
     engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
     try:
@@ -470,10 +471,11 @@ async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypa
         env.engine = engine
         ctx = context(engine, "npc-deliver")
         await env.begin_decision_round((ctx,))
+        await env.observe(ctx)
         await env.submit_action(DirectToolCall(
             ctx, "action-npc-deliver", "send_message",
-            SendMessageRequest(recipient_id="contact-chenxi-oldfriend",
-                               text="周五晚上一起吃饭？")))
+            SendMessageActionRequest(recipient_name="联系人：沈昊",
+                                     text="周五晚上一起吃饭？")))
 
         import worldmock.runtime as runtime_module
 
@@ -507,9 +509,10 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         env.engine = engine
         ctx = context(engine, "npc-noop")
         await env.begin_decision_round((ctx,))
+        await env.observe(ctx)
         await env.submit_action(DirectToolCall(
-            ctx, "action-npc-noop", "start_basic_activity",
-            StartActivityRequest(activity_type="wait", planned_duration_seconds=60)))
+            ctx, "action-npc-noop", "start_activity",
+            StartActivityRequest(targets=["自己"], actions=["等待"])))
 
         import worldmock.runtime as runtime_module
 

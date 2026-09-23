@@ -79,7 +79,7 @@ def test_travel_time_bytes_are_captured_at_load(catalog_dir: Path) -> None:
     """运行依赖的出行时间映射以加载时字节快照交给运行层。"""
     path = catalog_dir / "rules/travel-time.toml"
     path.parent.mkdir()
-    path.write_text("[formula.walking]\nfactor = 1\n", encoding="utf-8")
+    path.write_bytes(b"[formula.walking]\nfactor = 1\n")
     refresh_manifest_identity(catalog_dir)
     catalog = load_catalog(catalog_dir)
     snapshot = catalog.travel_time_rules_bytes
@@ -114,8 +114,9 @@ def _prepare_identity_dependencies(catalog_dir: Path) -> None:
     travel_path.parent.mkdir(exist_ok=True)
     travel_path.write_bytes(Path("catalog/rules/travel-time.toml").read_bytes())
     manifest_path = catalog_dir / "manifest.json"
-    manifest = json.loads(manifest_path.read_text())
-    manifest["category_requirements"] = json.loads(Path("catalog/manifest.json").read_text())["category_requirements"]
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["category_requirements"] = json.loads(
+        Path("catalog/manifest.json").read_text(encoding="utf-8"))["category_requirements"]
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
 
@@ -124,10 +125,10 @@ def _tamper_identity_dependency(catalog_dir: Path, dependency: str) -> None:
     """@brief 只改一种合法依赖内容，保留所有版本与旧清单摘要。"""
     path = catalog_dir / dependency
     if dependency == "objects.jsonl":
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["values"]["absolute"]["price_fen"] = 700
     elif dependency == "resources.jsonl":
-        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
         next(row for row in rows if row["resource_id"] == "energy_kcal")["bounds"]["max"] = 3000
         path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
         return
@@ -135,13 +136,13 @@ def _tamper_identity_dependency(catalog_dir: Path, dependency: str) -> None:
         path.parent.mkdir(exist_ok=True)
         payload = {"target_id": "milk", "kind": "object", "at_version": 1, "reason": "retired"}
     elif dependency == "rules/travel-time.toml":
-        content = path.read_text()
+        content = path.read_text(encoding="utf-8")
         assert "walking = 1.0" in content
         path.write_text(content.replace("walking = 1.0", "walking = 1.1", 1), encoding="utf-8")
         return
     else:
         assert dependency == "manifest.json"
-        payload = json.loads(path.read_text())
+        payload = json.loads(path.read_text(encoding="utf-8"))
         payload["category_requirements"]["declared_at"] = "2099-01-01"
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
 
@@ -156,12 +157,12 @@ def test_same_version_dependency_tamper_changes_digest_and_is_rejected_by_loader
     _prepare_identity_dependencies(catalog_dir)
     original = load_catalog(catalog_dir)
     before = compute_catalog_identity(catalog_dir)
-    manifest_before = json.loads((catalog_dir / "manifest.json").read_text())
+    manifest_before = json.loads((catalog_dir / "manifest.json").read_text(encoding="utf-8"))
 
     _tamper_identity_dependency(catalog_dir, dependency)
 
     after = compute_catalog_identity(catalog_dir)
-    manifest_after = json.loads((catalog_dir / "manifest.json").read_text())
+    manifest_after = json.loads((catalog_dir / "manifest.json").read_text(encoding="utf-8"))
     assert after.catalog_content_sha256 != before.catalog_content_sha256
     assert after.category_contract_version == before.category_contract_version
     assert after.category_contract_sha256 == before.category_contract_sha256
@@ -178,7 +179,7 @@ def test_same_version_dependency_tamper_changes_digest_and_is_rejected_by_loader
 def test_unknown_rule_resource_rejected(catalog_dir: Path) -> None:
     """规则引用未声明资源域时目录拒绝加载。"""
     path = catalog_dir / "exchange-rules.json"
-    payload = json.loads(path.read_text())
+    payload = json.loads(path.read_text(encoding="utf-8"))
     payload["rules"][0]["resource_id"] = "unknown"
     path.write_text(json.dumps(payload), encoding="utf-8")
     refresh_manifest_identity(catalog_dir)

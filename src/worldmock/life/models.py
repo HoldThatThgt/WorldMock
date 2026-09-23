@@ -248,6 +248,9 @@ class SessionState(StrictModel):
     """
 
     session_id: str = Field(min_length=1)
+    task_name: str = Field(pattern=r"\S")
+    session_name: str = Field(pattern=r"\S")
+    plan_goal_intent_kind: IntentKind | None = None
     agent_id: int = Field(gt=0)
     task_kind: SessionTaskKind
     task_ref: str | None = None
@@ -272,6 +275,9 @@ class SessionState(StrictModel):
             raise ValueError("task_ref must be null when task_kind is none")
         if self.task_kind != SessionTaskKind.NONE and self.task_ref is None:
             raise ValueError("task_ref required for goal and work_task")
+        if self.task_kind == SessionTaskKind.GOAL and self.plan_goal_intent_kind != self.task_ref:
+            _LOGGER.error("Goal session intent disagrees with its task reference")
+            raise ValueError("goal session intent must match task_ref")
         is_terminal = self.status in _TERMINAL_SESSION_STATUSES
         if is_terminal and self.ended_at is None:
             raise ValueError("terminal session must have ended_at")
@@ -301,7 +307,6 @@ class AgentState(StrictModel):
     delivered_warning_signatures: set[str] = Field(default_factory=set)
     next_decision_at: int = Field(ge=0)
     consecutive_rejections: int = Field(default=0, ge=0)
-    decision_failed: bool = False
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
@@ -839,106 +844,108 @@ class SubmitWorkRequest(FrozenModel):
 SESSION_SUMMARY_MAX_CHARS = 500
 
 class StartActivityRequest(FrozenModel):
-    """@brief 开始一个会话；targets 含至多 2 个可见交互对象，action 绑定本轮对象动作枚举。
+    """@brief 逐项选择至多两个可见对象及其语义动作；执行参数由引擎确定。
 
-    :param targets: 本次会话服务的可见交互对象身份列表，至多 2 项（业务规则执行上限）。
-    :param action: 对 targets 执行的动作名称，由 facts.interactive_objects[].actions 枚举约束。
-    :param planned_duration_seconds: 有时长活动的计划时长；无时长动作提交 null。
-    :param destination_id: travel_to 动作的目的地身份；其他动作提交 null。
-    :param travel_mode: travel_to 动作的出行方式；其他动作提交 null。
-    :param text: message 动作的正文；其他动作提交 null。
-    :param quantity: purchase/consume 动作对 targets[0] 的数量；其他动作提交 null。
-    :param price_version: purchase 动作核对的报价版本（防陈旧）；其他动作提交 null。
-    :param deliverable: submit 动作提交的会议纪要成果；其他动作提交 null。
-    :param summary: 开启会话时的初始自述（可空）。
+    :param targets: 本次活动的可见对象名称，至多两项。
+    :param actions: 与对象逐项对应的可读动作短语。
     """
 
     targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    action: str
-    planned_duration_seconds: int | None
-    destination_id: str | None
-    travel_mode: str | None
-    text: str | None
-    quantity: float | None
-    price_version: str | None
-    deliverable: Annotated[
-        MeetingMinutes | None,
-        WithJsonSchema({"anyOf": [MeetingMinutes.model_json_schema(mode="validation"), {"type": "null"}]}),
-    ]
-    summary: str | None
+    actions: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
-    @model_validator(mode="after")
-    def validate_summary_length(self) -> "StartActivityRequest":
-        """@brief 拒绝超长开启自述（DeepSeek strict 禁 maxLength）。"""
-        if self.summary is not None and len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
-            raise ValueError(f"start_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
-        return self
+
+class SubmitWorkActionRequest(FrozenModel):
+    """@brief 按人物可读任务名称提交工作成果。"""
+
+    task_name: str = Field(pattern=r"\S")
+    deliverable: Annotated[MeetingMinutes, WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation"))]
+
+
+class SendMessageActionRequest(FrozenModel):
+    """@brief 按人物可读收件人名称发送人物撰写的消息。"""
+
+    recipient_name: str = Field(pattern=r"\S")
+    text: str
 
 
 class RecallTaskSummaryRequest(FrozenModel):
-    """@brief 只读回看一个任务或会话的进展；不改变世界状态。
+    """@brief 按本轮可见的任务或会话名称只读回看进展。"""
 
-    :param session_id: 按会话身份回看；与 task_kind/task_ref 互斥（另一组提交 null）。
-    :param task_kind: 按任务类型回看（goal/work_task/none）；与 session_id 互斥。
-    :param task_ref: 与 task_kind 配对的任务引用值。
-    """
-
-    session_id: str | None
-    task_kind: str | None
-    task_ref: str | None
+    task_name: str = Field(pattern=r"\S")
 
 
 class ReportStatusRequest(FrozenModel):
-    """@brief 播报进展并继续当前会话；summary 为本轮人物主观自述。
+    """@brief 按任务逐项播报人物自述并继续当前会话。
 
-    :param session_ids: 本次播报的会话身份列表（当前实现支持 1 项）。
-    :param summary: 会话进展自述，至多 500 字符。
+    :param task: 本次播报的一至两个可读任务名称。
+    :param summary: 与 task 按顺序对应的会话进展自述。
     """
 
-    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    summary: str
+    task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
     @model_validator(mode="after")
-    def validate_summary_length(self) -> "ReportStatusRequest":
-        """@brief 拒绝超长进展自述（DeepSeek strict 禁 maxLength）。"""
-        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
-            raise ValueError(f"report_status summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+    def validate_pairs(self) -> "ReportStatusRequest":
+        """@brief 保证任务与人物自述逐项对应且长度受控。"""
+        if not 1 <= len(self.task) <= 2 or len(self.summary) != len(self.task):
+            _LOGGER.error("Report status task and summary lengths disagree")
+            raise ValueError("report_status requires one or two task and summary pairs")
+        if len(set(self.task)) != len(self.task) or any(not value.strip() for value in self.task):
+            _LOGGER.error("Report status task names are invalid")
+            raise ValueError("report_status task names must be distinct and nonblank")
+        if any(not value.strip() or len(value) > SESSION_SUMMARY_MAX_CHARS for value in self.summary):
+            _LOGGER.error("Report status summary is invalid")
+            raise ValueError("report_status summary must be nonblank and within 500 characters")
         return self
 
 
 class PauseActivityRequest(FrozenModel):
-    """@brief 播报进展并暂停当前会话；summary 为暂停时的人物主观自述。
+    """@brief 按任务逐项播报人物自述并暂停当前会话。
 
-    :param session_ids: 本次暂停的会话身份列表（当前实现支持 1 项）。
-    :param summary: 会话进展自述，至多 500 字符。
+    :param task: 本次暂停的一至两个可读任务名称。
+    :param summary: 与 task 按顺序对应的会话进展自述。
     """
 
-    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    summary: str
+    task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
     @model_validator(mode="after")
-    def validate_summary_length(self) -> "PauseActivityRequest":
-        """@brief 拒绝超长暂停自述（DeepSeek strict 禁 maxLength）。"""
-        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
-            raise ValueError(f"pause_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+    def validate_pairs(self) -> "PauseActivityRequest":
+        """@brief 保证任务与人物自述逐项对应且长度受控。"""
+        if not 1 <= len(self.task) <= 2 or len(self.summary) != len(self.task):
+            _LOGGER.error("Pause activity task and summary lengths disagree")
+            raise ValueError("pause_activity requires one or two task and summary pairs")
+        if len(set(self.task)) != len(self.task) or any(not value.strip() for value in self.task):
+            _LOGGER.error("Pause activity task names are invalid")
+            raise ValueError("pause_activity task names must be distinct and nonblank")
+        if any(not value.strip() or len(value) > SESSION_SUMMARY_MAX_CHARS for value in self.summary):
+            _LOGGER.error("Pause activity summary is invalid")
+            raise ValueError("pause_activity summary must be nonblank and within 500 characters")
         return self
 
 
 class ConcludeActivityRequest(FrozenModel):
-    """@brief 播报进展并结束当前会话；summary 为结束时的人物主观自述。
+    """@brief 逐项播报人物自述并结束所选进行中会话。
 
-    :param session_ids: 本次结束的会话身份列表（当前实现支持 1 项）。
-    :param summary: 会话进展自述，至多 500 字符。
+    :param task: 本次结束的一至两个可读任务名称。
+    :param summary: 与 task 按顺序对应的会话进展自述。
     """
 
-    session_ids: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
-    summary: str
+    task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
     @model_validator(mode="after")
-    def validate_summary_length(self) -> "ConcludeActivityRequest":
-        """@brief 拒绝超长结束自述（DeepSeek strict 禁 maxLength）。"""
-        if len(self.summary) > SESSION_SUMMARY_MAX_CHARS:
-            raise ValueError(f"conclude_activity summary exceeds {SESSION_SUMMARY_MAX_CHARS} characters")
+    def validate_pairs(self) -> "ConcludeActivityRequest":
+        """@brief 保证任务与人物自述逐项对应且长度受控。"""
+        if not 1 <= len(self.task) <= 2 or len(self.summary) != len(self.task):
+            _LOGGER.error("Conclude activity task and summary lengths disagree")
+            raise ValueError("conclude_activity requires one or two task and summary pairs")
+        if len(set(self.task)) != len(self.task) or any(not value.strip() for value in self.task):
+            _LOGGER.error("Conclude activity task names are invalid")
+            raise ValueError("conclude_activity task names must be distinct and nonblank")
+        if any(not value.strip() or len(value) > SESSION_SUMMARY_MAX_CHARS for value in self.summary):
+            _LOGGER.error("Conclude activity summary is invalid")
+            raise ValueError("conclude_activity summary must be nonblank and within 500 characters")
         return self
 
 
@@ -992,6 +999,8 @@ def rejection_reason_text(error: Exception) -> str:
 
 REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "start_activity": StartActivityRequest,
+    "submit_work": SubmitWorkActionRequest,
+    "send_message": SendMessageActionRequest,
     "recall_task_summary": RecallTaskSummaryRequest,
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,

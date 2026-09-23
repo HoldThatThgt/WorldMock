@@ -85,8 +85,7 @@ def load_lifestyle_items(corpus_root: Path, activity_met: dict[str, float]) -> t
 #: 内容条目标题的语料来源（内容类别 → (语料相对路径, 条目身份键)）由可供性
 #: 注册表派生（families.*.content_kinds.*.title_source，M0 影子等价已证与原
 #: 字面字典一致）；身份键为空串表示单记录身份文件（其 title 字段直接适用），
-#: 未列出的类别（news_feed/joke_feed/game_session）以 experience_label /
-#: game_id 自带身份。
+#: 信息流和游戏会话使用时间轴同目录的身份目录，避免对人物展示内部编号。
 
 
 def load_content_titles(
@@ -94,35 +93,49 @@ def load_content_titles(
     corpus_root: Path,
     title_sources: Mapping[str, tuple[str, str]] | None = None,
 ) -> dict[str, str]:
-    """@brief 按内容类别从语料 items.json 读取展示标题。
-
-    标题是观察展示元数据：身份文件缺失/越界仍按 IntegrityError 失败，
-    单条目在 items.json 中缺行或无标题时只是不注入 title（部分元数据合法）。
-    来源映射缺省取仓库默认注册表的 title_sources（M2：字面字典已删，注册表
-    即事实；显式传入时以传入映射为准）。
-    """
+    """@brief 从内容身份目录读取每个内容对象的人类可读名称。"""
     sources = (default_affordances().title_sources
                if title_sources is None else title_sources)
     titles: dict[str, str] = {}
     payloads: dict[str, object] = {}
     for item in items:
-        source = sources.get(item.kind)
-        if source is None:
-            continue
+        source = _content_title_source(item, sources)
         relative, id_key = source
         if relative not in payloads:
             payloads[relative] = json.loads(
                 _safe_file(corpus_root, relative).read_text(encoding="utf-8"))
         payload = payloads[relative]
-        if id_key:
-            entry = next((row for row in payload
-                          if isinstance(row, dict) and row.get(id_key) == item.item_id), None)
-            title = entry.get("title") if entry else None
-        else:
-            title = payload.get("title") if isinstance(payload, dict) else None
-        if isinstance(title, str) and title.strip():
-            titles[item.item_id] = title
+        title = _content_title(payload, id_key, item.item_id)
+        if not isinstance(title, str) or not title.strip():
+            raise IntegrityError(f"Content title is missing for {item.item_id!r}")
+        titles[item.item_id] = title.strip()
     return titles
+
+
+def _content_title_source(
+    item: ContentItemConfig, sources: Mapping[str, tuple[str, str]],
+) -> tuple[str, str]:
+    """@brief 为内容对象定位其身份目录与条目键。"""
+    if item.kind in {"news_feed", "joke_feed"}:
+        return ((Path(item.timeline_path).parent / "feed-items.json").as_posix(), "item_id")
+    if item.kind == "game_session":
+        return ((Path(item.timeline_path).parent / "items.json").as_posix(), "item_id")
+    source = sources.get(item.kind)
+    if source is None:
+        raise IntegrityError(f"Content title source is missing for {item.kind!r}")
+    return source
+
+
+def _content_title(payload: object, id_key: str, item_id: str) -> object:
+    """@brief 从单记录或条目目录取已声明的标题。"""
+    if id_key:
+        if not isinstance(payload, list):
+            raise IntegrityError("Content title catalog must be a list")
+        matches = [row for row in payload if isinstance(row, dict) and row.get(id_key) == item_id]
+        if len(matches) != 1:
+            raise IntegrityError(f"Content title identity is missing or duplicated: {item_id!r}")
+        return matches[0].get("title")
+    return payload.get("title") if isinstance(payload, dict) else None
 
 
 def load_subtitles(item: ContentItemConfig, corpus_root: Path) -> tuple[SubtitleCue, ...]:

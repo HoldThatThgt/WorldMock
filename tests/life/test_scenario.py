@@ -13,7 +13,6 @@ from worldmock.errors import IntegrityError
 from worldmock.life.scenario import InventoryItemConfig, LifeScenario, RuntimeScenario, load_scenario
 from worldmock.life.map_data import load_map_dataset, validate_map_dataset
 from worldmock.life.map_models import MapDataset, RouteConfig
-from worldmock.life.models import ActivityKind
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import assemble_semantics
 from worldmock.scheduling.compile import compile_schedule
@@ -25,7 +24,7 @@ _CATALOG = Path("catalog")
 
 def _payload() -> dict:
     """读取正式场景为每个反例提供独立对象。"""
-    return json.loads(_FORMAL.read_text())
+    return json.loads(_FORMAL.read_text(encoding="utf-8"))
 
 
 def _map(document=None):
@@ -145,8 +144,7 @@ def test_formal_restaurants_select_edible_pickup_meals() -> None:
             assert supply.initial_stock > 0 and "pickup" in supply.fulfillment_modes
             quote = quote_at(supply, int(scenario.start_at.timestamp()))
             assert quote is not None and quote.price_fen > 0
-            assert {"purchase", "consume"} <= set(menu.allowed_tools)
-            assert ActivityKind.CONSUME in menu.allowed_activity_kinds
+            assert {"purchase", "consume"} <= set(menu.allowed_actions)
 
 
 def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
@@ -438,7 +436,7 @@ _EARLY_CHRONOTYPE_MAX = 3.5
 
 def _document(path: Path) -> dict:
     """读取一份场景 JSON 文档。"""
-    return json.loads(path.read_text())
+    return json.loads(path.read_text(encoding="utf-8"))
 
 
 def _agent_of(document: dict, agent_id: int) -> dict:
@@ -546,7 +544,7 @@ def test_payday_and_rent_are_calendar_opportunities_not_obligations() -> None:
 
 def test_location_business_kinds_cover_all_distinct_required_categories() -> None:
     """三场景共享地图，营业类别分别覆盖，地点属性不再复制进场景。"""
-    corpus = json.loads(_LOCATIONS_CORPUS.read_text())
+    corpus = json.loads(_LOCATIONS_CORPUS.read_text(encoding="utf-8"))
     corpus_by_id = {item["location_id"]: item for item in corpus["locations"]}
     for path in _V2_SCENARIOS:
         document = _document(path)
@@ -562,7 +560,7 @@ def test_location_business_kinds_cover_all_distinct_required_categories() -> Non
 
 def test_shared_product_has_independent_market_and_store_supplies() -> None:
     """同一商品拥有多个门店供给，地点分别声明现实环境与营业类别。"""
-    corpus = json.loads(_LOCATIONS_CORPUS.read_text())
+    corpus = json.loads(_LOCATIONS_CORPUS.read_text(encoding="utf-8"))
     market = next(item for item in corpus["locations"] if item["location_id"] == "market")
     assert market["kind"] == "merchant" and market["business_kind"] == "general_retail"
     assert market["location_kinds"] == ["venue"]
@@ -597,7 +595,7 @@ def test_meal_products_resolve_against_the_catalog() -> None:
 
 def test_home_pantry_declares_seven_breakfast_servings() -> None:
     """家的初始储备：语料 7 份早餐全部在场景商品闭集内可解析。"""
-    pantry = json.loads(_PANTRY_CORPUS.read_text())
+    pantry = json.loads(_PANTRY_CORPUS.read_text(encoding="utf-8"))
     items = pantry["items"]
     assert sum(item["quantity"] for item in items) == 7
     catalog = load_catalog(_CATALOG)
@@ -631,7 +629,7 @@ def test_task_assignments_match_persona_occupations() -> None:
 
 def test_work_materials_are_distinct_and_persona_matched() -> None:
     """工作材料 20 份互不重复、按职业面（产品/后端）各 10 份分配到人物。"""
-    corpus = json.loads(_WORK_CORPUS.read_text())
+    corpus = json.loads(_WORK_CORPUS.read_text(encoding="utf-8"))
     materials = corpus["materials"]
     assert len(materials) == 20
     assert len({item["material_id"] for item in materials}) == 20

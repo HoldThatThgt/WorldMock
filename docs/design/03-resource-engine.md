@@ -449,7 +449,7 @@ flowchart LR
 | 检索与可达性 | [life/retrieval.py](../../src/worldmock/life/retrieval.py)已有倒排索引、查询和 facet 纯函数 |
 | 候选与呈现 | [presentation.py](../../src/worldmock/life/presentation.py)与 [rotation.py](../../src/worldmock/life/rotation.py)承载排序、窗口和轮转 |
 | 职责分离差距 | 当前 `presentation.present` 调用 `candidates.recall`，候选链仍包含运行资格判断；设计上资源引擎只消费调用方确定的范围，现有代码尚未完全分开 |
-| 运行接入差距 | `presentation.present` 与 `browse_activities` 尚未调用倒排检索链路，当前浏览结果不能宣称已提供 facet 返回体 |
+| 运行接入差距 | `presentation.present` 与生活浏览动作尚未调用倒排检索链路，当前浏览结果不能宣称已提供 facet 返回体 |
 | 验收 | 相同目录与只读查询输入应产生相同结果；索引与扫描结果一致，轮转不改目录、长期未呈现对象不被永久排除。相关用例见 [tests/life](../../tests/life) |
 
 ## 7. 提供实际接触的内容

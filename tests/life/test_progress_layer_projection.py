@@ -1,397 +1,314 @@
-"""进度层（Track 2）投影合同测试。
-
-覆盖 docs/dev/SPEC-agent-interaction.md「进度层」与「上下文分层」：
-- facts.sessions 结构正确性（含字段存在、note_history 排除）
-- scene.current_sessions 只渲染 active 会话（0/1/2 条）
-- 单会话进度层 4000 字符预算裁剪
-- SESSION_PROGRESS_LAYER_BUDGET 常量存在
-- sessions 键不在 FORBIDDEN_OBSERVATION_KEYS 内
-- current_activities 集合形式（0-2 项）
-"""
+"""进度层公开投影合同：结果、会话、顺序和内部身份隔离。"""
 
 from __future__ import annotations
 
-import pytest
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
-from worldmock.life.models import SessionState, SessionStatus, SessionTaskKind
-from worldmock.life.narration import (
-    FORBIDDEN_OBSERVATION_KEYS,
-    SESSION_PROGRESS_LAYER_BUDGET,
-    render_scene,
+import pytest
+from pydantic import ValidationError
+
+from worldmock.errors import BusinessRuleError
+from worldmock.life import projection
+from worldmock.life.models import (
+    AgentState,
+    ConcludeActivityRequest,
+    PauseActivityRequest,
+    PendingAction,
+    ReportStatusRequest,
+    SessionState,
+    SessionStatus,
+    SessionTaskKind,
+    WorldState,
 )
 from worldmock.life.projection import (
     _active_session_scene_rows,
+    _progress_projection,
+    _progress_result,
     _session_fact_row,
     _session_fact_rows,
 )
+from worldmock.life.schedule import DayPlan, PlanGoal
+from worldmock.life.session_actions import SessionActionMixin
 
 
-# ---------------------------------------------------------------------------
-# 工厂
-# ---------------------------------------------------------------------------
-
-def _make_session(
-    session_id: str = "session-0001",
-    agent_id: int = 1,
+def _session(
+    key: str,
     status: SessionStatus = SessionStatus.ACTIVE,
-    targets: list[str] | None = None,
-    invested_seconds: int = 3600,
-    progress_note: str = "进展顺利",
-    task_kind: SessionTaskKind = SessionTaskKind.WORK_TASK,
-    task_ref: str = "backend-hourly-2026-01-05",
+    agent_id: int = 1,
+    started_at: int = 100,
+    task_name: str = "周会纪要",
 ) -> SessionState:
-    """构造测试用 SessionState。"""
-    ended_at = 1000 if status in (SessionStatus.CONCLUDED, SessionStatus.ABORTED) else None
+    """用不透明内部身份和可读名称构造真实会话模型。"""
+    ended_at = started_at + 60 if status in {SessionStatus.CONCLUDED, SessionStatus.ABORTED} else None
+    start_time = datetime.fromtimestamp(started_at, timezone.utc).strftime("%H:%M:%S")
     return SessionState(
-        session_id=session_id,
+        session_id=key,
         agent_id=agent_id,
-        task_kind=task_kind,
-        task_ref=task_ref,
-        status=status,
-        started_at=100,
-        ended_at=ended_at,
-        targets=targets if targets is not None else ["backend-hourly-2026-01-05"],
-        activity_ids=["activity-0001"],
-        segments=[[100, 700]],
-        invested_seconds=invested_seconds,
-        effective_seconds=600.0,
-        remaining_contract_seconds=14400,
-        preconditions_unmet=[],
-        progress_note=progress_note,
-        note_updated_at=700,
-        note_history=[{"note": "历史自述", "updated_at": 500}],
-    )
-
-
-class _FakeWorldState:
-    """最小世界状态 duck-type，只携带 sessions 字典。"""
-
-    def __init__(self, sessions: dict[str, SessionState]) -> None:
-        """@brief 初始化假世界状态。"""
-        self.sessions = sessions
-
-
-# ---------------------------------------------------------------------------
-# note_history 不出现在 facts 行
-# ---------------------------------------------------------------------------
-
-def test_session_fact_row_excludes_note_history() -> None:
-    """facts 行不含 note_history（进度层合同：只存于内部存储）。"""
-    session = _make_session()
-    row = _session_fact_row(session)
-    assert "note_history" not in row
-
-
-def test_session_fact_row_includes_required_fields() -> None:
-    """facts 行包含进度层合同要求的全部客观字段与自述字段。"""
-    session = _make_session()
-    row = _session_fact_row(session)
-    required = {
-        "session_id", "task_kind", "task_ref", "status",
-        "started_at", "ended_at", "targets", "activity_ids",
-        "segments", "invested_seconds", "effective_seconds",
-        "remaining_contract_seconds", "preconditions_unmet",
-        "progress_note", "note_updated_at",
-    }
-    assert required <= set(row)
-
-
-def test_session_fact_row_values_match_state() -> None:
-    """facts 行字段值与 SessionState 字段一一对应。"""
-    session = _make_session(session_id="session-0099", invested_seconds=7200)
-    row = _session_fact_row(session)
-    assert row["session_id"] == "session-0099"
-    assert row["invested_seconds"] == 7200
-    assert row["status"] == SessionStatus.ACTIVE
-
-
-def test_session_fact_row_preconditions_is_list() -> None:
-    """preconditions_unmet 在 facts 行中保持列表形式。"""
-    session = _make_session()
-    row = _session_fact_row(session)
-    assert isinstance(row["preconditions_unmet"], list)
-
-
-# ---------------------------------------------------------------------------
-# _session_fact_rows 过滤与 agent_id 匹配
-# ---------------------------------------------------------------------------
-
-def test_session_fact_rows_filters_by_agent_id() -> None:
-    """只返回 agent_id 匹配的会话行，其他 agent 的会话不出现。"""
-    s1 = _make_session("s1", agent_id=1)
-    s2 = _make_session("s2", agent_id=2)
-    state = _FakeWorldState({"s1": s1, "s2": s2})
-    rows = _session_fact_rows(state, agent_id=1)
-    assert len(rows) == 1
-    assert rows[0]["session_id"] == "s1"
-
-
-def test_session_fact_rows_empty_when_no_match() -> None:
-    """无匹配会话时返回空列表。"""
-    state = _FakeWorldState({})
-    rows = _session_fact_rows(state, agent_id=1)
-    assert rows == []
-
-
-def test_session_fact_rows_multiple_sessions() -> None:
-    """同一 agent 多个会话全部返回。"""
-    s1 = _make_session("s1", agent_id=1)
-    s2 = _make_session("s2", agent_id=1, status=SessionStatus.PAUSED)
-    state = _FakeWorldState({"s1": s1, "s2": s2})
-    rows = _session_fact_rows(state, agent_id=1)
-    assert len(rows) == 2
-
-
-# ---------------------------------------------------------------------------
-# 单会话进度层 4000 字符预算裁剪
-# ---------------------------------------------------------------------------
-
-def test_session_progress_layer_budget_constant_exists() -> None:
-    """SESSION_PROGRESS_LAYER_BUDGET 常量存在且等于 4000。"""
-    assert SESSION_PROGRESS_LAYER_BUDGET == 4000
-
-
-def test_session_fact_rows_trims_oversized_note() -> None:
-    """progress_note 过长导致单行超 4000 字符时，note 被裁剪至预算内。"""
-    long_note = "进" * 600  # 600 字符，超出 max_length=500 校验，用 model_construct 绕过
-    # 用 model_construct 绕过 max_length 校验以测试裁剪逻辑
-    session = SessionState.model_construct(
-        session_id="s-big",
-        agent_id=1,
         task_kind=SessionTaskKind.WORK_TASK,
-        task_ref="task-x",
-        status=SessionStatus.ACTIVE,
-        started_at=100,
-        ended_at=None,
-        targets=["task-x"],
-        activity_ids=["a-1"],
-        segments=[[100, 700]],
+        task_ref=f"internal-task-{key}",
+        task_name=task_name,
+        session_name=f"{task_name}：{start_time} 在办公室开始的工作",
+        status=status,
+        started_at=started_at,
+        ended_at=ended_at,
+        targets=[f"internal-task-{key}"],
+        activity_ids=[f"internal-activity-{key}"],
+        segments=[[started_at, started_at + 30]],
         invested_seconds=3600,
-        effective_seconds=3600.0,
-        remaining_contract_seconds=None,
+        effective_seconds=2700,
+        remaining_contract_seconds=900,
         preconditions_unmet=[],
-        progress_note=long_note,
-        note_updated_at=700,
-        note_history=[],
+        progress_note="先把接口对齐，下一步检查边界。",
+        note_updated_at=started_at + 30,
+        note_history=[{"note": "旧记录", "updated_at": started_at}],
     )
-    state = _FakeWorldState({"s-big": session})
-    import json
-    rows = _session_fact_rows(state, agent_id=1)
-    assert len(rows) == 1
-    row_json = json.dumps(rows[0], ensure_ascii=False)
-    assert len(row_json) <= SESSION_PROGRESS_LAYER_BUDGET
 
 
-# ---------------------------------------------------------------------------
-# sessions 键不在 FORBIDDEN_OBSERVATION_KEYS
-# ---------------------------------------------------------------------------
-
-def test_sessions_not_in_forbidden_observation_keys() -> None:
-    """facts.sessions 键不属于禁入提示的字段集（进度层合同显式解禁）。"""
-    assert "sessions" not in FORBIDDEN_OBSERVATION_KEYS
+def _state(*sessions: SessionState) -> SimpleNamespace:
+    """只提供投影函数需要的世界状态字段。"""
+    return SimpleNamespace(sessions={session.session_id: session for session in sessions})
 
 
-# ---------------------------------------------------------------------------
-# _active_session_scene_rows：只返回 active 会话
-# ---------------------------------------------------------------------------
-
-def test_active_session_scene_rows_empty_on_no_sessions() -> None:
-    """无会话时返回空列表。"""
-    state = _FakeWorldState({})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert rows == []
-
-
-def test_active_session_scene_rows_excludes_paused() -> None:
-    """paused 会话不出现在 scene 行中。"""
-    s = _make_session("sp", agent_id=1, status=SessionStatus.PAUSED)
-    state = _FakeWorldState({"sp": s})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert rows == []
+@pytest.mark.parametrize("request_type", [ReportStatusRequest, PauseActivityRequest,
+                                          ConcludeActivityRequest])
+def test_selected_session_control_uses_parallel_task_and_summary_lists(request_type) -> None:
+    """每项当前任务各有一条自述；模型接口不接受内部会话定位字段。"""
+    assert set(request_type.model_fields) == {"task", "summary"}
+    request = request_type(task=["周会纪要", "预约体检"], summary=["写完提纲", "约到明早"])
+    assert len(request.task) == len(request.summary) == 2
+    with pytest.raises(ValidationError):
+        request_type(task=["周会纪要", "预约体检"], summary=["只写了一项"])
+    with pytest.raises(ValidationError):
+        request_type(task=[], summary=[])
 
 
-def test_active_session_scene_rows_excludes_concluded() -> None:
-    """concluded 会话不出现在 scene 行中。"""
-    s = _make_session("sc", agent_id=1, status=SessionStatus.CONCLUDED)
-    state = _FakeWorldState({"sc": s})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert rows == []
+class _SessionController(SessionActionMixin):
+    """用冻结会话名称测试控制动作，不加载场景或语料。"""
+
+    def __init__(self, sessions: list[SessionState]) -> None:
+        self.bindings = [{"task_name": session.task_name, "session_name": session.session_name,
+                          "session_id": session.session_id, "status": session.status} for session in sessions]
+
+    def _frozen_observation(self, pending: PendingAction) -> dict:
+        return {"session_bindings": self.bindings}
 
 
-def test_active_session_scene_rows_single_active() -> None:
-    """单个 active 会话正确映射为 scene 行（含 label/invested_seconds/progress_note）。"""
-    s = _make_session("s1", agent_id=1, targets=["后端开发"], invested_seconds=7200,
-                      progress_note="锁粒度那块卡住了")
-    state = _FakeWorldState({"s1": s})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert len(rows) == 1
-    assert rows[0]["label"] == "后端开发"
-    assert rows[0]["invested_seconds"] == 7200
-    assert rows[0]["progress_note"] == "锁粒度那块卡住了"
+def _control_state(*sessions: SessionState) -> WorldState:
+    """构造会话控制需要的最小权威状态与独立目标自述。"""
+    plan = DayPlan(day_end=1000, goals=(PlanGoal(intent_kind="工作", goal="完成纪要", registered_at=1),))
+    agent = AgentState.model_construct(agent_id=1, day_plan=plan)
+    return WorldState.model_construct(current_time=200, agents={1: agent}, activities={},
+                                      sessions={session.session_id: session for session in sessions})
 
 
-def test_active_session_scene_rows_two_active() -> None:
-    """两个 active 会话都出现在 scene 行中（并发上限 2）。"""
-    s1 = _make_session("s1", agent_id=1, targets=["后端开发"])
-    s2 = _make_session("s2", agent_id=1, targets=["文档撰写"])
-    state = _FakeWorldState({"s1": s1, "s2": s2})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert len(rows) == 2
+def _control_pending() -> PendingAction:
+    """控制动作只需人物与动作身份；冻结观察由专属夹具提供。"""
+    return PendingAction.model_construct(action_id="private-action", agent_id=1)
 
 
-def test_active_session_scene_rows_caps_at_two() -> None:
-    """即使有 3 个 active 会话，scene 行最多取 2 条（并发上限合同）。"""
-    sessions = {
-        f"s{i}": _make_session(f"s{i}", agent_id=1, targets=[f"任务{i}"])
-        for i in range(3)
+def test_report_status_maps_each_task_to_its_own_note_and_goal_note() -> None:
+    """摘要数组按顺序写各会话；关联目标只吸收对应会话原文。"""
+    work = _session("work", task_name="完成纪要").model_copy(update={
+        "task_kind": SessionTaskKind.GOAL, "task_ref": "private-goal",
+        "plan_goal_intent_kind": "工作"})
+    leisure = _session("leisure", task_name="看电影")
+    state = _control_state(work, leisure)
+    controller = _SessionController([work, leisure])
+    request = ReportStatusRequest(task=[work.task_name, leisure.task_name],
+                                  summary=["已完成提纲", "刚看到开头"])
+    changed, _ = controller._report_status(state, _control_pending(), request)
+    assert changed.sessions[work.session_id].progress_note == "已完成提纲"
+    assert changed.sessions[leisure.session_id].progress_note == "刚看到开头"
+    assert changed.agents[1].day_plan.goals[0].progress_note == "已完成提纲"
+    assert changed.agents[1].day_plan.goals[0].progressed_at is None
+    assert state.agents[1].day_plan.goals[0].progress_note == ""
+
+
+def test_pause_then_report_resumes_by_readable_session_name() -> None:
+    """暂停会话可通过 report_status 恢复，主观进展保留历史。"""
+    session = _session("paused-work", task_name="完成纪要")
+    controller = _SessionController([session])
+    pending = _control_pending()
+    paused, _ = controller._pause_activity(
+        _control_state(session), pending,
+        PauseActivityRequest(task=[session.session_name], summary=["先处理邮件"]))
+    assert paused.sessions[session.session_id].status == SessionStatus.PAUSED
+    resumed, _ = controller._report_status(
+        paused, pending, ReportStatusRequest(task=[session.session_name], summary=["回到纪要"]))
+    assert resumed.sessions[session.session_id].status == SessionStatus.ACTIVE
+    assert resumed.sessions[session.session_id].progress_note == "回到纪要"
+    assert resumed.sessions[session.session_id].note_history[-1]["note"] == "先处理邮件"
+
+
+def test_current_task_name_must_identify_one_session() -> None:
+    """同一任务有两个当前会话时，使用自然语言会话名消歧。"""
+    first = _session("first", task_name="完成纪要", started_at=100)
+    second = _session("second", task_name="完成纪要", started_at=120)
+    state = _control_state(first, second)
+    controller = _SessionController([first, second])
+    pending = _control_pending()
+    with pytest.raises(BusinessRuleError):
+        controller._report_status(
+            state, pending, ReportStatusRequest(task=["完成纪要"], summary=["已完成提纲"]))
+    assert state.sessions[first.session_id].progress_note == first.progress_note
+    changed, _ = controller._report_status(
+        state, pending, ReportStatusRequest(task=[first.session_name], summary=["已完成提纲"]))
+    assert changed.sessions[first.session_id].progress_note == "已完成提纲"
+    assert changed.sessions[second.session_id].progress_note == second.progress_note
+
+
+def test_conclude_only_ends_selected_active_sessions_and_updates_matching_notes() -> None:
+    """结束工具逐项写入对应摘要，未选中及暂停会话保持原状。"""
+    work = _session("work", task_name="完成纪要").model_copy(update={
+        "task_kind": SessionTaskKind.GOAL, "task_ref": "private-goal",
+        "plan_goal_intent_kind": "工作"})
+    leisure = _session("leisure", task_name="看电影")
+    paused = _session("paused", SessionStatus.PAUSED, task_name="暂停阅读")
+    state = _control_state(work, leisure, paused)
+    controller = _SessionController([work, leisure, paused])
+    changed, _ = controller._conclude_activity(state, _control_pending(),
+                                               ConcludeActivityRequest(task=[work.task_name],
+                                                                      summary=["纪要已收尾"]))
+    assert changed.sessions[work.session_id].status == SessionStatus.CONCLUDED
+    assert changed.sessions[leisure.session_id].status == SessionStatus.ACTIVE
+    assert changed.sessions[paused.session_id].status == SessionStatus.PAUSED
+    assert changed.sessions[work.session_id].progress_note == "纪要已收尾"
+    assert changed.sessions[leisure.session_id].progress_note == leisure.progress_note
+    assert changed.agents[1].day_plan.goals[0].progress_note == "纪要已收尾"
+    both, _ = controller._conclude_activity(state, _control_pending(),
+                                            ConcludeActivityRequest(task=[work.task_name, leisure.task_name],
+                                                                   summary=["纪要已收尾", "影片已看完"]))
+    assert both.sessions[work.session_id].progress_note == "纪要已收尾"
+    assert both.sessions[leisure.session_id].progress_note == "影片已看完"
+    with pytest.raises(BusinessRuleError):
+        controller._conclude_activity(_control_state(paused), _control_pending(),
+                                      ConcludeActivityRequest(task=[paused.task_name],
+                                                              summary=["不能结束暂停项"]))
+
+
+def test_session_row_contains_only_readable_progress_fields() -> None:
+    """内部身份、活动时段和历史原文不能进入人物进度层。"""
+    row = _session_fact_row(_session("session-opaque-7"))
+    assert set(row) == {
+        "task_name", "session_name", "phase", "objective_progress",
+        "subjective_progress", "subjective_status",
     }
-    state = _FakeWorldState(sessions)
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert len(rows) <= 2
+    assert row["task_name"] == "周会纪要"
+    assert row["phase"] == "进行中"
+    assert row["subjective_status"] == "未经核验"
+    assert "3600" in row["objective_progress"]
+    assert "session-opaque-7" not in str(row)
+    assert "internal-task" not in str(row)
+    assert "internal-activity" not in str(row)
 
 
-def test_active_session_scene_rows_label_falls_back_to_session_id() -> None:
-    """无 targets 时 label 退回 session_id。"""
-    s = _make_session("s-no-target", agent_id=1, targets=[])
-    state = _FakeWorldState({"s-no-target": s})
-    rows = _active_session_scene_rows(state, agent_id=1)
-    assert rows[0]["label"] == "s-no-target"
+def test_sessions_are_ordered_and_not_capped_by_count() -> None:
+    """进行中、暂停中、终态依次排列；终态最近优先，历史条数不裁断。"""
+    terminal = [_session(f"done-{index}", SessionStatus.CONCLUDED, started_at=200 + index)
+                for index in range(26)]
+    active = _session("active", SessionStatus.ACTIVE, started_at=50)
+    paused = _session("paused", SessionStatus.PAUSED, started_at=70)
+    outsider = _session("outsider", agent_id=2)
+    rows = _session_fact_rows(_state(*terminal, paused, outsider, active), agent_id=1)
+    assert len(rows) == 28
+    assert [row["phase"] for row in rows[:2]] == ["进行中", "已暂停"]
+    assert rows[2]["session_name"] == terminal[-1].session_name
+    assert rows[-1]["session_name"] == terminal[0].session_name
+    assert all("outsider" not in str(row) for row in rows)
 
 
-# ---------------------------------------------------------------------------
-# scene 渲染：current_sessions 中文短句
-# ---------------------------------------------------------------------------
+def test_scene_uses_readable_current_task_without_session_identity() -> None:
+    """场景短句只取当前会话，不能在目标缺失时退回内部会话编号。"""
+    active = _session("secret-active")
+    paused = _session("secret-paused", SessionStatus.PAUSED)
+    rows = _active_session_scene_rows(_state(active, paused), agent_id=1)
+    assert len(rows) == 1
+    assert rows[0]["label"] == active.task_name
+    assert "secret-active" not in str(rows)
 
-def _minimal_scene_obs(extra: dict | None = None) -> dict:
-    """最小合法 scene observation 字典（不含黑名单键）。"""
-    base: dict = {
-        "current_time": "2026-09-22T09:00:00+08:00",
-        "current_epoch": 1758556800,
-        "location": "公司工位",
-        "people_here": [],
-        "felt": {},
-        "current_activities": [],
-        "paused_activities": [],
-        "day_plan": {"goals": []},
-        "inbox_head": [],
-        "inbox_has_older_unread": False,
-        "reachable_places": [],
-        "inventory": [],
-        "local_food_summary": "",
-        "recent_action_results": [],
+
+def _result(data: dict | None = None) -> dict:
+    """构造事件侧完整结果，公开投影应主动删掉内部身份。"""
+    return {
+        "action_id": "internal-action-42",
+        "occurred_at": 120,
+        "status": "rejected",
+        "error_code": "WORK_REQUIRES_REWORK",
+        "message": "这份工作需要补充结论。",
+        "result": {"data": data or {}},
     }
-    if extra:
-        base.update(extra)
-    return base
 
 
-def test_render_scene_zero_current_sessions() -> None:
-    """无 current_sessions 或空列表时 scene 正常渲染，不含「正在做」。"""
-    obs = _minimal_scene_obs({"current_sessions": []})
-    scene = render_scene(obs)
-    assert "正在做" not in scene
+def test_fresh_result_preserves_feedback_without_action_id() -> None:
+    """进度层保留完整新反馈，不暴露事件或动作定位字段。"""
+    inputs = SimpleNamespace(scenario=SimpleNamespace(products=(), locations=()))
+    public = _progress_result(inputs, _result())
+    assert public == {
+        "occurred_at": 120,
+        "status": "rejected",
+        "error_code": "WORK_REQUIRES_REWORK",
+        "message": "这份工作需要补充结论。",
+    }
+    assert "internal-action-42" not in str(public)
 
 
-def test_render_scene_one_active_session_with_note() -> None:
-    """单个 active 会话含进展自述时，scene 包含「正在做」和进展短语。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "后端开发", "invested_seconds": 7200, "progress_note": "卡在锁粒度"}
-        ]
-    })
-    scene = render_scene(obs)
-    assert "正在做" in scene
-    assert "后端开发" in scene
-    assert "卡在锁粒度" in scene
+def test_all_fresh_results_remain_in_progress_event_order() -> None:
+    """七条新结算全部出现，不能按旧五条限制截掉前面的反馈。"""
+    events = [{**_result(), "action_id": f"private-{index}",
+               "occurred_at": index, "message": f"第{index}条反馈"}
+              for index in range(7)]
+    inputs = SimpleNamespace(
+        scenario=SimpleNamespace(products=(), locations=()),
+        state=SimpleNamespace(sessions={}, current_time=10),
+        agent=SimpleNamespace(agent_id=1),
+        task_rows=[],
+        recent_results=events,
+    )
+    progress = _progress_projection(inputs)
+    assert [row["message"] for row in progress["results"]] == [
+        f"第{index}条反馈" for index in range(7)]
+    assert progress["sessions"] == [] and progress["alarms"] == []
+    assert "private-0" not in str(progress)
 
 
-def test_render_scene_session_without_note() -> None:
-    """无进展自述时 scene 仍包含时间短语，不含空括号。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "阅读", "invested_seconds": 1800, "progress_note": ""}
-        ]
-    })
-    scene = render_scene(obs)
-    assert "正在做" in scene
-    assert "阅读" in scene
-    assert "（，）" not in scene
+def test_facts_exposes_one_progress_field_instead_of_two_old_result_fields(monkeypatch) -> None:
+    """完整事实组装把新结算和会话放在同一个进度层字段。"""
+    for name in ("_contact_rows", "_public_inbox", "_task_fact_rows", "_public_routes",
+                 "_public_products", "_public_inventory"):
+        monkeypatch.setattr(projection, name, lambda *args: [])
+    monkeypatch.setattr(projection, "_plan_fact", lambda *args: {"goals": []})
+    monkeypatch.setattr(projection, "drive_summary", lambda *args: "")
+    inputs = SimpleNamespace(
+        scenario=SimpleNamespace(products=(), locations=(
+            SimpleNamespace(location_id="private-office", name="办公室"),)),
+        state=SimpleNamespace(sessions={}, current_time=10),
+        agent=SimpleNamespace(agent_id=1, location_id="private-office"),
+        task_rows=[], recent_results=[_result()],
+    )
+    facts = projection._facts_projection(
+        inputs, datetime.fromtimestamp(10, timezone.utc), {},
+        {"people": [], "inbox": [], "bindings": []})
+    assert "progress" in facts
+    assert "sessions" not in facts and "recent_action_results" not in facts
+    assert facts["progress"]["results"][0]["message"] == _result()["message"]
+    assert "private-office" not in str(facts)
 
 
-def test_render_scene_two_active_sessions() -> None:
-    """两个 active 会话分别在 scene 中各出现一行。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "后端开发", "invested_seconds": 3600, "progress_note": ""},
-            {"label": "文档撰写", "invested_seconds": 900, "progress_note": ""},
-        ]
-    })
-    scene = render_scene(obs)
-    assert "后端开发" in scene
-    assert "文档撰写" in scene
-
-
-def test_render_scene_hours_formatted() -> None:
-    """投入超过一小时时，短句包含「小时」字样。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "工作", "invested_seconds": 5400, "progress_note": ""}
-        ]
-    })
-    scene = render_scene(obs)
-    assert "小时" in scene
-
-
-def test_render_scene_minutes_formatted_under_one_hour() -> None:
-    """投入不足一小时时，短句包含「分钟」字样。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "工作", "invested_seconds": 1500, "progress_note": ""}
-        ]
-    })
-    scene = render_scene(obs)
-    assert "分钟" in scene
-
-
-def test_render_scene_just_started_label() -> None:
-    """刚开始（0 秒）时，短句包含「刚开始」。"""
-    obs = _minimal_scene_obs({
-        "current_sessions": [
-            {"label": "工作", "invested_seconds": 0, "progress_note": ""}
-        ]
-    })
-    scene = render_scene(obs)
-    assert "刚开始" in scene
-
-
-# ---------------------------------------------------------------------------
-# current_activities 集合形式（0-2 项）
-# ---------------------------------------------------------------------------
-
-def test_render_scene_zero_current_activities() -> None:
-    """无当前活动时 scene 正常渲染（不抛异常）。"""
-    obs = _minimal_scene_obs({"current_activities": []})
-    scene = render_scene(obs)
-    assert isinstance(scene, str)
-
-
-def test_render_scene_one_current_activity() -> None:
-    """单个当前活动在 scene 中渲染进度句。"""
-    obs = _minimal_scene_obs({
-        "current_activities": [{"title": "写周报", "progress": "已完成一半", "verb": "进行"}]
-    })
-    scene = render_scene(obs)
-    assert "写周报" in scene
-
-
-def test_render_scene_two_current_activities() -> None:
-    """两个当前活动（并发上限）均在 scene 中渲染。"""
-    obs = _minimal_scene_obs({
-        "current_activities": [
-            {"title": "写周报", "progress": "一半", "verb": "进行"},
-            {"title": "听播客", "progress": "刚开始", "verb": "收听"},
-        ]
-    })
-    scene = render_scene(obs)
-    assert "写周报" in scene
-    assert "听播客" in scene
+def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
+    """多商品结果各自保留份数与金额，删除报价版本及内部供给身份。"""
+    products = (SimpleNamespace(product_id="p1", name="牛肉面"),
+                SimpleNamespace(product_id="p2", name="豆浆"))
+    inputs = SimpleNamespace(scenario=SimpleNamespace(products=products, locations=()))
+    orders = [
+        {"order_id": "order-1", "product_id": "p1", "supply_id": "s1", "quantity": 1,
+         "price_version": "private-v1", "total_price_fen": 2800},
+        {"order_id": "order-2", "product_id": "p2", "supply_id": "s2", "quantity": 1,
+         "price_version": "private-v2", "total_price_fen": 500},
+    ]
+    public = _progress_result(inputs, _result({"orders": orders}))
+    assert public["details"]["purchases"] == [
+        {"product": "牛肉面", "quantity": 1, "charged_fen": 2800},
+        {"product": "豆浆", "quantity": 1, "charged_fen": 500},
+    ]
+    assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1"))

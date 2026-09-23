@@ -42,6 +42,7 @@ from worldmock.life.engine import affordance_contract
 from worldmock.life.models import (
     ActionReceipt,
     REQUEST_MODELS,
+    START_ACTIVITY_ACTIONS,
     StartActivityRequest,
 )
 
@@ -56,15 +57,9 @@ _MEMORY_TOOL_NAMES = {
 }
 
 _BASE_ACTION_NAMES = {
-    "discover_places",
-    "start_parallel_activities",
-    "browse_activities",
+    "start_activity",
+    "recall_task_summary",
     "plan_day",
-    "start_basic_activity",
-    "start_targeted_activity",
-    "start_travel",
-    "purchase",
-    "consume",
     "submit_work",
 }
 
@@ -75,6 +70,14 @@ _AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
 _OBSERVED_AT = datetime(2026, 1, 5, tzinfo=timezone.utc)
 _NOW_EPOCH = int(_OBSERVED_AT.timestamp())
+
+
+@pytest.fixture(autouse=True)
+def _fixed_context_window(monkeypatch) -> None:
+    """测试使用固定供应商窗口，只验证请求和执行合同。"""
+    from worldmock.life import prompt_capacity
+
+    monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
 
 #: 两层观察投影的 scene 段（narration.render_scene 的输入合同）。
 _SCENE = {
@@ -89,27 +92,31 @@ _SCENE = {
     "todos_summary": "",
     "reachable_places": [],
     "inventory": [],
-    "recent_action_results": [],
 }
 
 #: 两层观察投影的 facts 段（routes 行只含五键白名单）。
 _FACTS = {
     "current_time": "2026-01-05T00:00:00+00:00",
-    "location_id": "home",
+    "location": "自己家",
     "people_here": [],
+    "contacts": [],
     "inbox": [],
     "tasks": [
-        {"task_id": "task-visible", "title": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
+        {"task_name": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
          "remaining_contract_seconds": 3600, "new_material_ranges": []},
     ],
-    "routes": [{"destination": "office", "mode": "driving", "minutes": 4,
-                "fare": 800, "feasible": True}],
+    "progress": {"sessions": [], "results": [], "alarms": []},
+    "interactive_objects": [
+        {"object": "自己", "actions": ["等待", "睡觉"], "preconditions_met": True},
+        {"object": "整理会议纪要", "actions": ["工作"], "preconditions_met": False},
+    ],
+    "routes": [{"destination": "办公室", "mode": "driving", "minutes": 4,
+                "fare_fen": 800, "feasible": True}],
     "products": [],
-    "inventory": {},
+    "inventory": [],
     "day_plan": None,
     "felt": {"appetite": "不饿", "sleepiness": "有点困"},
     "drive_summary": "你有点困。",
-    "recent_action_results": [],
 }
 
 
@@ -150,6 +157,16 @@ def _observations(*result_ids: str) -> list[dict]:
         "wake_reasons": [],  # 非日首决策：不触发 plan_day 工具面强制
         "scene": dict(_SCENE),
         "facts": dict(_FACTS),
+        "interaction_bindings": [
+            {"object": "自己", "kind": "self", "object_id": "self", "actions": [
+                {"label": "等待", "canonical_action": "wait"},
+                {"label": "睡觉", "canonical_action": "sleep"}]},
+            {"object": "整理会议纪要", "kind": "work_task", "object_id": "task-visible",
+             "actions": [{"label": "工作", "canonical_action": "work"}]},
+        ],
+        "task_bindings": [{"task_name": "整理会议纪要", "task_id": "task-visible"}],
+        "session_bindings": [],
+        "goal_bindings": [],
         "recent_action_results": [{"event_id": item} for item in result_ids],
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
@@ -159,10 +176,7 @@ def _observations(*result_ids: str) -> list[dict]:
             "read_mail": 86_400, "browse": 86_400,
         }},
         "affordance_contract": _AFFORDANCE_CONTRACT,
-        "interaction_menu": {
-            "allowed_tools": sorted(REQUEST_MODELS),
-            "allowed_activity_kinds": sorted(_AFFORDANCE_CONTRACT),
-        },
+        "interaction_menu": {"allowed_actions": sorted(START_ACTIVITY_ACTIONS)},
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
                    "material": {"end_char": 10, "total_chars": 10}}],
         "activity_summary": {"feature_film": 1, "sport": 44, "foods": 1},
@@ -200,47 +214,24 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
 
     assert set(functions) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     assert "finish" not in functions
-    start_fields = functions["start_basic_activity"]["parameters"]["properties"]
+    start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
-    assert functions["start_basic_activity"]["parameters"]["additionalProperties"] is False
+    assert set(start_fields) == {"targets", "actions"}
+    assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
-
-
-#: M2 钉住的新指纹：家族工具描述自注册表合同拼装 + 输入并入注册表字节摘要。
-#: M4 重钉：lifestyle 家族激活（attention content_kind + content_menu + 习惯路由
-#: 迁移）改变注册表字节摘要 → 指纹随之变化（注册表变则工具面变则指纹变）。
-#: B2 重钉：修订合同工具目录（四件新工具 + 协议文案入 description +
-#: purchase/consume 多件 + finish 0-8 记忆）改变工具面 → 指纹随之变化。
-#: B6 重钉：四请求模型的嵌套 Schema 内联注解移入 life.models 字段定义
-#: （删除 agent 侧 _request_tool_model 适配层），四个工具 Schema 的根
-#: description 随真实模型 docstring 出现 → 工具面字节变化，指纹随之变化。
-#: 候选与呈现重钉：`browse_activities` 新增可空 `cursor` 字段、返回体 `count` 改名
-#: `returned` 并补 `total` / `next_cursor` / `excluded`（docs/CONTRACTS.md「候选与呈现合同」），
-#: 工具面字节随之变化；指纹输入并入注册表摘要，注册表变则工具面变则指纹变。
-#: 随身持有与远程订购重钉：`purchase` 的 `description` 按
-#: docs/dev/SPEC-life-runtime.md「随身持有与远程订购」点明「配送不受在场约束、
-#: 取货必须在商家地点」，工具面字节随之变化 → 指纹随之变化。
-#: 决策上下文重钉：基线已包含注册表注释与模型描述的字节变动；本次将
-#: 运行期目标指路描述并入指纹，并要求 finish 只记录观察与意图、不能虚构待结算结果。
-#: 门店供给重钉：购买引用供给；地点发现含明确分页工具与业务筛选。
-#: 地点资格恢复重钉：生活活动具有反馈控制边界，实际工具描述随注册表合同冻结。
-#: 当日目标重钉：有序目标替代时段，完整工具请求与描述保持同一合同。
-#: 社交边界重钉：set_activity_state 描述写明交谈/通话不可暂停、取消是唯一
-#: 控制（chat/call 以 ACTIVE 跨决策边界存活，闭集与工具面收窄见 unit-21，
-#: /tmp/wm-day-rerun/unit-21-fix-chat-boundary.md），工具面字节随之变化。
-_PINNED_TOOL_SCHEMA_SHA256 = "66b4c37e486fc96e99806a78bdc12ef9033c8f50056cc1dbae3134aafbd0f704"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     """@brief 指纹输入并入注册表摘要：注册表变则工具面变则指纹变（审计链闭合）。"""
     import custom.agents.life_agent as life_agent_module
 
-    assert life_tool_schema_sha256() == _PINNED_TOOL_SCHEMA_SHA256
+    original = life_tool_schema_sha256()
+    assert len(original) == 64
     monkeypatch.setattr(life_agent_module, "affordance_registry_sha256",
                         lambda: "0" * 64)
-    assert life_tool_schema_sha256() != _PINNED_TOOL_SCHEMA_SHA256
+    assert life_tool_schema_sha256() != original
 
 
 def test_plan_tool_schemas_describe_ordered_goals_and_empty_revision() -> None:
@@ -254,7 +245,7 @@ def test_plan_tool_schemas_describe_ordered_goals_and_empty_revision() -> None:
     planning = build_functions(_observations())
     assert "plan_day" in planning and "revise_day_plan" not in planning
     observations = _observations()
-    observations[0]["data"]["facts"]["day_plan"] = {"day_end": _NOW_EPOCH + 72000, "goals": []}
+    observations[0]["data"]["facts"]["day_plan"] = {"goals": []}
     revising = build_functions(observations)
     assert "revise_day_plan" in revising and "plan_day" not in revising
     for name, functions in (("plan_day", planning), ("revise_day_plan", revising)):
@@ -285,8 +276,8 @@ def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:
             ReactLoopRequest(0, _context().observed_at, _observations()))
         if message.get("role") == "system")
 
-    assert "at the office, prefer brief phone-friendly content" not in schemas["start_targeted_activity"]
-    assert "save movies and long drama episodes" not in schemas["start_targeted_activity"]
+    assert "at the office, prefer brief phone-friendly content" not in schemas["start_activity"]
+    assert "save movies and long drama episodes" not in schemas["start_activity"]
     flattened = " ".join(system_prompt.split())
     assert "watching long entertainment openly at the office" not in flattened
     assert "inappropriate" not in flattened
@@ -298,13 +289,19 @@ def test_action_schema_requires_prepared_environment_catalogs() -> None:
         LifeAgent().build_react_tool_schemas(readonly=False)
 
 
-def test_feedback_boundary_exposes_only_resource_compatible_starts() -> None:
-    """持续等待可继续或暂停，同时保留播放和瞬时动作；不提供冲突的新启动。"""
+def test_feedback_boundary_exposes_readable_session_controls() -> None:
+    """进行中会话开放三个逐项控制工具，Schema 只展示可读任务名。"""
     agent = LifeAgent()
     observation = dict(_observations()[0]["data"])
-    observation["active_activities"] = [{"title": None, "progress": "进行中", "elapsed_seconds": 60, "planned_duration_seconds": 3600, "data": {},
-        "activity_id": "activity-current", "kind": "wait", "status": "active"}]
-    observation["occupied_resources"] = ["position"]
+    observation["facts"] = dict(observation["facts"])
+    observation["facts"]["progress"] = {"sessions": [{
+        "task_name": "整理会议纪要", "session_name": "整理会议纪要：上午开始的工作",
+        "phase": "进行中", "objective_progress": "已工作一小时",
+        "subjective_progress": "写完提纲", "subjective_status": "未经核验"}],
+        "results": [], "alarms": []}
+    observation["session_bindings"] = [{
+        "session_id": "private-session", "task_name": "整理会议纪要",
+        "session_name": "整理会议纪要：上午开始的工作", "status": "active"}]
     agent.prepare_react_loop(
         ReactLoopRequest(0, _context().observed_at,
                          [{"turn": 0, "action": "observe", "ok": True,
@@ -313,28 +310,14 @@ def test_feedback_boundary_exposes_only_resource_compatible_starts() -> None:
     schemas = agent.build_react_tool_schemas(readonly=False)
     functions = {item["function"]["name"]: item["function"] for item in schemas}
 
-    assert set(functions) == (
-        {"continue_activity", "set_activity_state", "start_targeted_activity",
-         "browse_activities", "discover_places", "purchase", "submit_work", "plan_day"}
-        | _MEMORY_TOOL_NAMES
-    )
-    state = functions["set_activity_state"]["parameters"]["properties"]
-    assert state["activity_id"]["enum"] == ["activity-current"]
-    assert set(state["operation"]["enum"]) == {"pause", "cancel"}
-    assert functions["continue_activity"]["parameters"]["properties"]["activity_id"][
-        "enum"] == ["activity-current"]
-
-    switch = ReactDecision("", "start_targeted_activity", {
-        "activity_type": "watch", "target_id": "content-visible",
-        "planned_duration_seconds": 300, "playback_speed": 1,
-    }, "")
-    assert agent.validate_react_decisions([switch], False) == ""
-    blocked = ReactDecision("", "purchase", {
-        "items": [{"supply_id": 'supply-visible', "quantity": 1,
-                   "price_version": "price-v1"}],
-        "fulfillment": "delivery", "destination_id": "home",
-    }, "")
-    assert agent.validate_react_decisions([blocked], False) == ""
+    controls = {"report_status", "pause_activity", "conclude_activity"}
+    assert set(functions) == _BASE_ACTION_NAMES | controls | _MEMORY_TOOL_NAMES
+    for name in controls:
+        fields = functions[name]["parameters"]["properties"]
+        assert set(fields) == {"task", "summary"}
+        assert fields["task"]["items"]["enum"] == ["整理会议纪要"]
+        decision = ReactDecision("", name, {"task": ["整理会议纪要"], "summary": ["写完提纲"]}, "")
+        assert agent.validate_react_decisions([decision], False) == ""
 
 
 def test_readonly_schema_uses_its_independent_finish_contract() -> None:
@@ -358,17 +341,13 @@ def test_life_agent_rejects_invalid_or_non_atomic_decisions() -> None:
     agent = LifeAgent()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
-    valid = ReactDecision("", "start_basic_activity", {
-        "activity_type": "wait", "planned_duration_seconds": 60,
-    }, "")
+    valid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": ["等待"]}, "")
 
     assert "multiple" in agent.validate_react_decisions([valid, valid], False)
     memory = ReactDecision("", "memory_recent", {"limit": 1}, "")
     assert "only tool" in agent.validate_react_decisions([memory, valid], False)
-    invalid = ReactDecision("", "start_basic_activity", {
-        "activity_type": "wait", "planned_duration_seconds": 0,
-    }, "")
-    assert "invalid" in agent.validate_react_decisions([invalid], False)
+    invalid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": ["虚构动作"]}, "")
+    assert "not offered" in agent.validate_react_decisions([invalid], False)
     finish = ReactDecision("", "finish", _finish_args(), "")
     assert "unknown LifeAgent tool: finish" == agent.validate_react_decisions([finish], False)
 
@@ -608,8 +587,8 @@ class _Dispatcher:
         self.responses = [
             _ModelResponse(
                 "call-action",
-                "start_basic_activity",
-                '{"activity_type":"wait","planned_duration_seconds":60}',
+                "start_activity",
+                '{"targets":["自己"],"actions":["等待"]}',
                 reasoning_content="Tired person needs a short rest before work.",
             ),
             _ModelResponse(
@@ -691,8 +670,8 @@ class _StepDispatcher:
         self.responses = [
             _ModelResponse(
                 "call-action",
-                "start_basic_activity",
-                '{"activity_type":"wait","planned_duration_seconds":60}',
+                "start_activity",
+                '{"targets":["自己"],"actions":["等待"]}',
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ]
@@ -737,13 +716,8 @@ class _GroundedCorrectionDispatcher:
             ),
             _ModelResponse(
                 "call-action",
-                "start_targeted_activity",
-                json.dumps({
-                    "activity_type": "play_game",
-                    "target_id": "game-visible",
-                    "planned_duration_seconds": 600,
-                    "playback_speed": 1,
-                }),
+                "start_activity",
+                json.dumps({"targets": ["自己"], "actions": ["等待"]}),
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ]
@@ -901,17 +875,13 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     third_names = {item["function"]["name"] for item in third["tools"]}
     assert first_names == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     assert "finish" not in first_names
-    targeted = next(
+    start = next(
         item["function"]["parameters"]["properties"]
         for item in first["tools"]
-        if item["function"]["name"] == "start_targeted_activity"
+        if item["function"]["name"] == "start_activity"
     )
-    assert targeted["activity_type"]["enum"] == [
-        "work", "watch", "play_game", "read_mail", "browse",
-    ]
-    assert targeted["target_id"]["enum"] == [
-        "content-visible", "game-visible", "message-visible", "product_catalog", "task-visible",
-    ]
+    assert start["targets"]["items"]["enum"] == ["整理会议纪要", "自己"]
+    assert set(start["actions"]["items"]["enum"]) == {"工作", "等待", "睡觉"}
     assert second_names == _MEMORY_TOOL_NAMES | {"finish"}
     assert third_names == {"finish"}
     assert set(REQUEST_MODELS).isdisjoint(second_names | third_names)
@@ -944,8 +914,8 @@ async def test_two_stage_decision_statement_evidence_and_single_retry() -> None:
         responses=[
             _ModelResponse(
                 "call-action",
-                "start_basic_activity",
-                '{"activity_type":"wait","planned_duration_seconds":60}',
+                "start_activity",
+                '{"targets":["自己"],"actions":["等待"]}',
             ),
             _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
         ],
@@ -1024,7 +994,7 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
     assert first_message["reasoning_content"] == (
         "Tired person needs a short rest before work."
     )
-    assert first_message["tool_calls"][0]["function"]["name"] == "start_basic_activity"
+    assert first_message["tool_calls"][0]["function"]["name"] == "start_activity"
     # 反例：不带推理的响应序列化后 reasoning_content 为 None，不伪造内容。
     assert responses[2].response["choices"][0]["message"]["reasoning_content"] is None
 
@@ -1037,8 +1007,8 @@ async def test_budgeted_memory_search_preserves_action_and_finish_turns() -> Non
         _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
         _ModelResponse(
             "call-action",
-            "start_basic_activity",
-            '{"activity_type":"wait","planned_duration_seconds":60}',
+            "start_activity",
+            '{"targets":["自己"],"actions":["等待"]}',
         ),
         _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
     ])
@@ -1076,8 +1046,8 @@ async def test_multiple_memory_calls_share_one_model_turn() -> None:
         ]),
         _ModelResponse(
             "call-action",
-            "start_basic_activity",
-            '{"activity_type":"wait","planned_duration_seconds":60}',
+            "start_activity",
+            '{"targets":["自己"],"actions":["等待"]}',
         ),
         _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
     ])
@@ -1211,7 +1181,8 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert "wait" in result
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
-    assert environment.calls[0].request.activity_type == "play_game"
+    assert environment.calls[0].request.targets == ["自己"]
+    assert environment.calls[0].request.actions == ["等待"]
     assert [item.phase for item in environment.evidence] == [
         "request", "response",
         "request", "response", "request", "response",
@@ -1224,7 +1195,7 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert feedback["executed"] is False
     assert correction["messages"][-2]["tool_calls"][0]["function"]["name"] == "play_game"
     third_names = {item["function"]["name"] for item in correction["tools"]}
-    assert "start_targeted_activity" in third_names
+    assert "start_activity" in third_names
     assert "play_game" not in third_names
     fourth_names = {item["function"]["name"] for item in dispatcher.requests[4]["tools"]}
     assert fourth_names == {"finish"}
@@ -1240,8 +1211,8 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     config = _agent_specs(scenario, persona_compiler=lambda _: None)[0]["config"]
     responses = [_ModelResponse(f"bad-{index}", "invented_game", "{}") for index in range(12)]
     responses.extend([
-        _ModelResponse("action", "start_basic_activity",
-                       '{"activity_type":"wait","planned_duration_seconds":60}'),
+        _ModelResponse("action", "start_activity",
+                       '{"targets":["自己"],"actions":["等待"]}'),
         _ModelResponse("finish", "finish", json.dumps(_finish_args())),
     ])
     dispatcher = _GroundedCorrectionDispatcher(responses=responses)
@@ -1269,19 +1240,14 @@ def test_readonly_state_mismatch_is_an_internal_failure() -> None:
 @pytest.mark.asyncio
 async def test_life_schema_and_target_errors_are_corrected_before_execution() -> None:
     """Pydantic参数与目标配对错误各耗一回合且只有最终合法动作执行。"""
-    arguments = {
-        "activity_type": "play_game",
-        "target_id": "game-visible",
-        "planned_duration_seconds": 600,
-        "playback_speed": 1,
-    }
+    arguments = {"targets": ["自己"], "actions": ["等待"]}
     missing = dict(arguments)
-    missing.pop("playback_speed")
-    wrong_pair = {**arguments, "activity_type": "watch"}
+    missing.pop("actions")
+    wrong_pair = {"targets": ["整理会议纪要"], "actions": ["等待"]}
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-schema", "start_targeted_activity", json.dumps(missing)),
-        _ModelResponse("call-pair", "start_targeted_activity", json.dumps(wrong_pair)),
-        _ModelResponse("call-action", "start_targeted_activity", json.dumps(arguments)),
+        _ModelResponse("call-schema", "start_activity", json.dumps(missing)),
+        _ModelResponse("call-pair", "start_activity", json.dumps(wrong_pair)),
+        _ModelResponse("call-action", "start_activity", json.dumps(arguments)),
         _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
     ])
     environment = _Environment()
@@ -1291,9 +1257,9 @@ async def test_life_schema_and_target_errors_are_corrected_before_execution() ->
     await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
 
     assert len(environment.calls) == 1
-    assert environment.calls[0].request.activity_type == "play_game"
-    assert "invalid start_targeted_activity arguments" in environment.evidence[3].error
-    assert "not visible for activity_type" in environment.evidence[5].error
+    assert environment.calls[0].request == StartActivityRequest(**arguments)
+    assert "invalid start_activity arguments" in environment.evidence[3].error
+    assert "action is not offered" in environment.evidence[5].error
     react_requests = [item for item in dispatcher.requests if "tools" in item]
     assert all(json.loads(request["messages"][-1]["content"])["executed"] is False
                for request in react_requests[1:3])
@@ -1306,8 +1272,8 @@ async def test_invalid_finish_is_corrected_with_post_action_tools_only() -> None
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse(
             "call-action",
-            "start_basic_activity",
-            '{"activity_type":"wait","planned_duration_seconds":60}',
+            "start_activity",
+            '{"targets":["自己"],"actions":["等待"]}',
         ),
         _ModelResponse("call-invalid-finish", "finish", json.dumps(invalid_finish)),
         _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),

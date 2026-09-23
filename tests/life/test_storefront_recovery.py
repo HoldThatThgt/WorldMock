@@ -1,8 +1,5 @@
 """真实门店动作、逐供给呈现凭据和共同检查点恢复的合同验证。"""
 
-# TODO: ContinueActivityRequest, DiscoverPlacesRequest, StartTravelRequest removed
-# Tests using these need refactoring to the new 7-tool model
-
 from __future__ import annotations
 
 import copy
@@ -24,8 +21,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.engine import LifeEngine
 from worldmock.life.map_models import QuoteConfig
 from worldmock.life.models import (
-    ConsumeItem, ConsumeRequest,
-    PurchaseItem, PurchaseOrderRequest, StartActivityRequest,
+    ReportStatusRequest, StartActivityRequest,
 )
 from worldmock.life.projection import visible_supplies
 from worldmock.life.scenario import PriceChangeConfig
@@ -61,7 +57,7 @@ def recovery_engine(tmp_path, request):
         if getattr(request, "param", False):
             document["price_changes"].append({"change_id": "after-purchase-price", "supply_id": SUPPLY,
                 "price_version": "recovery-price-v3", "amount_fen": 1001,
-                "due_at": "2026-01-05T08:00:02+08:00", "source": {
+                "due_at": "2026-01-05T08:15:01+08:00", "source": {
                     **_price_source(), "url": "scenario://storefront-recovery/after-purchase-price"}})
         document["product_releases"] = [{"release_id": "recovery-stock", "supply_id": SUPPLY,
             "stock": 17, "due_at": "2026-01-05T08:00:01+08:00", "source": _price_source()}]
@@ -83,58 +79,61 @@ def _action(engine, name, tool, request):
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observation = engine.observe(decision)
+    if callable(request):
+        request = request(observation)
     engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
     result = engine.commit_decision_round(name)[0]
     assert result.status in {"completed", "in_progress"}, result.error_code
     return observation, result
 
 
+def _choice(observation, action, object_id=None, mode=None):
+    """@brief 从本轮冻结观察中取可读对象及其明确动作。"""
+    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+                for row in observation["interaction_bindings"]
+                if object_id is None or row["object_id"] == object_id
+                for offered in row["actions"] if offered["canonical_action"] == action
+                and (mode is None or (offered.get("travel_mode") or offered.get("fulfillment")) == mode))
+
+
 def _discover(engine, name):
-    """@brief 发现同商品的全部门店，并严格推进到下一秒再观察。"""
-    now = engine.state.current_time
-    _, result = _action(engine, name, "discover_places", DiscoverPlacesRequest(
-        product_id=PRODUCT, business_kind=None, travel_mode="walking", max_travel_seconds=None, cursor=None))
-    assert result.data["next_cursor"] is None and result.data["returned"] == 3
-    rows = {item["supply_id"]: item for place in result.data["places"] for item in place["supplies"]}
-    assert {item["product_id"] for item in rows.values()} == {PRODUCT}
-    assert engine.state.agents[1].visible_supply_ids == set(rows)
-    advance_next(engine)
-    assert engine.state.current_time == now + 1
+    """@brief 通过可读商品目录活动发现当前商品窗口并推进完成。"""
+    _, result = _action(engine, name, "start_activity", lambda observed: _choice(observed, "browse"))
+    assert result.status == "in_progress"
+    _finish_activity(engine, result.activity_id, name)
     observed = engine.observe(context(engine, f"{name}-feedback"))
-    assert set(rows) <= {item["supply_id"] for item in observed["supplies"]}
+    assert SUPPLY in {item["supply_id"] for item in observed["supplies"]}
+    assert SUPPLY in engine.state.agents[1].visible_supply_ids
     return result, observed
 
 
 def _finish_activity(engine, identity, phase):
-    """@brief 仅通过环境边界与明确继续动作完成活动。"""
+    """@brief 通过环境边界与人物进展播报完成活动。"""
     for step in range(64):
         if engine.state.activities[identity].status != "active":
             assert engine.state.activities[identity].status == "completed"
             return
         if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"{phase}-continue-{step}", "continue_activity",
-                    ContinueActivityRequest(activity_id=identity))
+            session = next(item for item in engine.state.sessions.values()
+                           if identity in item.activity_ids)
+            _action(engine, f"{phase}-continue-{step}", "report_status",
+                    ReportStatusRequest(task=[session.session_name], summary=["继续进行。"]))
         else:
             advance_next(engine)
     pytest.fail("Activity did not complete through its declared event boundaries")
 
 
-def _purchase_selected_supply(engine, fulfillment, discovery):
+def _purchase_selected_supply(engine, fulfillment):
     """@brief 到店分支真实旅行并重新发现；配送分支在居所明确下单。"""
     if fulfillment == "pickup":
-        place = next(row for row in discovery.data["places"] if row["location_id"] == STORE)
-        route = place["route"]
-        _, started = _action(engine, "travel-to-store", "start_travel", StartTravelRequest(
-            destination_id=STORE, travel_mode="walking", planned_duration_seconds=route["duration_seconds"]))
+        _, started = _action(engine, "travel-to-store", "start_activity",
+                             lambda observed: _choice(observed, "travel_to", STORE, "walking"))
         _finish_activity(engine, started.activity_id, "travel")
         assert engine.state.agents[1].location_id == STORE
         assert visible_supplies(engine.state, engine.state.agents[1], engine.scenario) == []
         _discover(engine, "discover-after-arrival")
-    destination = STORE if fulfillment == "pickup" else "home"
-    quote = engine.state.supply_quotes[SUPPLY]
-    _, result = _action(engine, "buy-selected", "purchase", PurchaseOrderRequest(
-        items=(PurchaseItem(supply_id=SUPPLY, quantity=1, price_version=quote.price_version),),
-        fulfillment=fulfillment, destination_id=destination))
+    _, result = _action(engine, "buy-selected", "start_activity",
+                        lambda observed: _choice(observed, "purchase", SUPPLY, fulfillment))
     order = result.data["orders"][0]
     assert (order["supply_id"], order["product_id"], order["location_id"]) == (SUPPLY, PRODUCT, STORE)
     assert order["total_price_fen"] == 991 and order["price_version"] == "recovery-price-v2"
@@ -161,20 +160,19 @@ def _directory_snapshot(root):
 
 def _finish_order_and_consume(engine, order_id, phase):
     """@brief 待配送时明确等待真实到达，之后按商品身份消费到完成。"""
-    assert advance_until_ready(engine)
-    order = engine.state.deliveries[order_id]
-    if order.status == "pending":
-        _, started = _action(engine, f"{phase}-await-delivery", "start_activity", StartActivityRequest(
-            activity_type="wait", planned_duration_seconds=order.expected_at - engine.state.current_time))
+    for step in range(64):
+        assert advance_until_ready(engine)
+        if engine.state.deliveries[order_id].status == "delivered":
+            break
+        _, started = _action(engine, f"{phase}-await-delivery-{step}", "start_activity",
+                             lambda observed: _choice(observed, "wait"))
         _finish_activity(engine, started.activity_id, f"{phase}-wait")
     order = engine.state.deliveries[order_id]
     assert order.status == "delivered"
     assert engine.state.agents[1].inventory[order.destination_id][PRODUCT] >= 1
     before = engine.state.agents[1].inventory[order.destination_id][PRODUCT]
-    product = engine.rules.products[PRODUCT]
-    _, started = _action(engine, f"{phase}-consume", "consume", ConsumeRequest(
-        items=(ConsumeItem(product_id=PRODUCT, quantity=1),), use_mode="eat",
-        duration_seconds=product.use_duration_seconds))
+    _, started = _action(engine, f"{phase}-consume", "start_activity",
+                         lambda observed: _choice(observed, "consume", PRODUCT))
     _finish_activity(engine, started.activity_id, f"{phase}-eat")
     assert engine.state.activities[started.activity_id].data["consumed"][PRODUCT] == pytest.approx(1)
     assert engine.state.agents[1].inventory[order.destination_id][PRODUCT] == pytest.approx(before - 1)
@@ -201,7 +199,7 @@ def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidenc
     try:
         assert _business_state(reopened) == expected
         assert reopened.state.agents[1].qualifications == ("test-store-member",)
-        order_id = _purchase_selected_supply(reopened, fulfillment, discovery)
+        order_id = _purchase_selected_supply(reopened, fulfillment)
         expected = _business_state(reopened)
         reference = reopened.store.assets.put_json({"agent_id": 1}, {"kind": "storefront_recovery"})
         checkpoint = reopened.checkpoint({"agent:1": reference})
@@ -379,7 +377,7 @@ def test_reopening_after_price_change_preserves_paid_order_price(recovery_engine
     """@brief 新报价到期后重开核验当前供给，已付款配送仍保持旧成交金额和来源。"""
     engine, scenario_path = recovery_engine
     discovery, _ = _discover(engine, "discover-before-purchase")
-    order_id = _purchase_selected_supply(engine, "delivery", discovery)
+    order_id = _purchase_selected_supply(engine, "delivery")
     paid = engine.state.deliveries[order_id].model_copy(deep=True)
     advance_next(engine)
     assert engine.state.current_time == paid.created_at + 1
@@ -405,10 +403,9 @@ def test_failed_decision_commit_preserves_visible_supply_credentials(recovery_en
     _discover(engine, "before-failed-storefront-commit")
     decision = context(engine, "failed-storefront-commit")
     engine.begin_decision_round([decision])
-    engine.observe(decision)
-    engine.submit_action(DirectToolCall(decision, "failed-storefront-discover", "discover_places",
-        DiscoverPlacesRequest(product_id=PRODUCT, business_kind=None, travel_mode="walking",
-                              max_travel_seconds=None, cursor=None)))
+    observation = engine.observe(decision)
+    engine.submit_action(DirectToolCall(decision, "failed-storefront-discover", "start_activity",
+                                         _choice(observation, "browse")))
     before_state = engine.state.model_dump(mode="json")
     before_store = copy.deepcopy(engine.store.state)
     before_seq = engine.store.last_event_seq
@@ -428,7 +425,7 @@ def test_failed_decision_commit_preserves_visible_supply_credentials(recovery_en
     assert engine._pending_presentation == before_presentation
     engine.store.connection.execute("DROP TRIGGER fail_storefront_commit")
     result = engine.commit_decision_round(decision.round_id)[0]
-    assert result.status == "completed"
+    assert result.status == "in_progress"
     assert engine._pending_visible_supplies == {}
     assert engine._pending_presentation is None
     assert engine.state.accounts == before_state["accounts"]

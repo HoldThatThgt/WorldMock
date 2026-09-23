@@ -29,8 +29,8 @@ class _RoundDispatcher:
         self.responses = [
             _DecisionStatementResponse("我先歇一会儿，再接着做事。"),
             _ModelResponse(
-                "provider-action", "start_basic_activity",
-                '{"activity_type":"wait","planned_duration_seconds":60}',
+                "provider-action", "start_activity",
+                '{"targets":["自己"],"actions":["等待"]}',
                 reasoning_content="The person chooses a short rest.",
             ),
             _ModelResponse("provider-finish", "finish", '{"memories":[]}'),
@@ -83,8 +83,9 @@ async def _decide(environment, ctx):
 
 
 @pytest.mark.asyncio
-async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory):
+async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory, monkeypatch):
     """登记留宿主、结算后回灌和新自述事件通过真实环境与 SQLite 一起验证。"""
+    monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
     engine = _engine_factory()
     stage_day_plan(engine)
     environment = LifeEnv()
@@ -92,7 +93,7 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     first = context(engine, "context-first")
     engine.begin_decision_round([first])
     initial, first_requests = await _decide(environment, first)
-    assert initial["facts"]["recent_action_results"] == []
+    assert initial["facts"]["progress"]["results"] == []
     results = engine.commit_decision_round(first.round_id)
     assert results[0].status.value == "in_progress"
     advance_next(engine)
@@ -100,11 +101,11 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     second = context(engine, "context-second")
     engine.begin_decision_round([second])
     feedback, second_requests = await _decide(environment, second)
-    public = feedback["facts"]["recent_action_results"]
+    public = feedback["facts"]["progress"]["results"]
     assert {row["status"] for row in public} == {"in_progress", "completed"}
-    assert all(row["action_id"] == f"{first.decision_id}:action:0001" for row in public)
-    assert first.decision_id in second_requests[1]["messages"][1]["content"]
-    assert first.decision_id not in first_requests[-1]["messages"][-1]["content"]
+    assert all("action_id" not in row for row in public)
+    assert "in_progress" in second_requests[1]["messages"][1]["content"]
+    assert "in_progress" not in first_requests[-1]["messages"][-1]["content"]
     engine.commit_decision_round(second.round_id)
 
     events = engine.store.read_events(engine.store.last_event_seq)
