@@ -105,7 +105,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
     agent, tools = _prepared_tools(observation, ctx.observed_at)
-    agent._model_name = "deepseek-v4.1-flash"
+    agent._model_name = "deepseek-flash"
     wire = agent._model_request([{"role": "user", "content": "Choose a visible activity."}], tools)
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
@@ -135,7 +135,7 @@ async def _run_persisted_protocol_correction(engine, ctx) -> Path:
     agent._id = ctx.agent_id
     agent._name = "Alice"
     agent._profile = {"id": ctx.agent_id, "name": "Alice"}
-    agent._model_name = "deepseek-v4.1-flash"
+    agent._model_name = "deepseek-flash"
     agent._dispatcher = _CorrectionDispatcher()
     agent._env = _EngineEvidenceEnvironment(engine)
     agent._decision_context = ctx

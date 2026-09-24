@@ -22,6 +22,7 @@ from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field
 
 from worldmock.profile.mapper import load_mapping_config
+from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.profile.models import (
     BIG_FIVE_DIMENSIONS,
     PROMPT_VERSION,
@@ -38,22 +39,15 @@ from worldmock.profile.models import (
     quantize,
 )
 
-#: 端点与模型与 runtime._DEEPSEEK_BASE_URL/_DEEPSEEK_MODEL 同源冻结
-#: （docs/CONTRACTS.md、ModelIdentity Literal）。
-API_URL = "https://openrouter.ai/api/v1/chat/completions"
-DEFAULT_MODEL = "deepseek-v4.1-flash"
+#: 画像抽取使用与运行相同的官方模型端点。
+API_URL = f"{DEEPSEEK_BASE_URL}/chat/completions"
+DEFAULT_MODEL = DEEPSEEK_MODEL
 #: 三次一致性口径：默认 3 次独立采样（docs/dev/SPEC-life-realism.md「画像编译」）。
 DEFAULT_RUNS = 3
 #: 采样温度：要多样性做共识，但保持在低躁区间。
 TEMPERATURE = 0.3
-#: 单次响应补全预算：须覆盖 OpenRouter deepseek-v4.1-flash 每响应必带的
-#: reasoning 耗量（smoke 观测 90-1450+）再叠加 JSON 载荷本身；预算不足时
-#: content 为 None（合同生成参数表「画像抽取」行）。
+#: 单次响应补全预算。
 MAX_COMPLETION_TOKENS = 8000
-#: reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数，请求体顶层）：抽取
-#: reasoning 重尾分布 4916-6916，偶发思考螺旋烧穿全部补全预算（content=None）；
-#: 3000 只切病理尾部、不切正常思考，实测上限被尊重且不伤内容。
-MAX_REASONING_TOKENS = 3000
 #: 单次运行内 JSON 解析/校验失败的重试上限。
 MAX_PARSE_RETRIES = 2
 #: 任一字段众数占比低于该阈值 -> 标黄警告（2/3 与三次口径一致）。
@@ -73,7 +67,8 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
   文本无证据的维度给 4，不要臆测
 - identity：{"age": 整数, "occupation": 职业短语, "living_arrangement": 居住方式短语}
 - relationships：最多 4 条 [{"name_or_appellation": 姓名或称谓, "role": 角色短语,
-  "intimacy": 0-30 整数亲密度, "channels": ["电话","微信","见面"] 最多 3 个渠道}]
+  "intimacy": 0-30 整数亲密度, "channels": ["电话","微信","见面"] 中 1-3 个渠道}]；
+  故事没有说明联系渠道的人不要放进 relationships，不得给 channels 空数组
 - situation：{"busy_this_week": 本周在忙什么（一句话）, "cares_about": 在意什么（一句话）}
 - time_anchors：{"wake","leave_home","lunch","dinner","bedtime"} 各为 "HH:MM-HH:MM" 窗口，
   按时间升序（起床 < 出门 < 午餐 < 晚餐 < 就寝）；就寝窗口可跨午夜，起点必须是当日
@@ -87,7 +82,8 @@ _SYSTEM_PROMPT = """你是人物档案编译助手。根据给出的 background_
 - coping：压力时做什么（一句话）
 - 任何 time_window（锚点与习惯）跨度不超过 12 小时，禁止 "00:00-24:00" 式全天窗口
 - 习惯的 time_window 必须是具体窗口，不写 null；锚点无法确定写 null 由缺省补齐
-全部值用中文（时间与数字除外）；只依据故事证据，不编造故事外事实。"""
+顶层只输出上述字段，不添加说明字段。全部值用中文（时间与数字除外）；
+只依据故事证据，不编造故事外事实。"""
 
 
 class ExtractionError(RuntimeError):
@@ -172,7 +168,7 @@ def _single_run(story: str, model: str, api_key: str, caller: Any,
         ],
         "temperature": TEMPERATURE,
         "max_tokens": MAX_COMPLETION_TOKENS,
-        "reasoning": {"max_tokens": MAX_REASONING_TOKENS},
+        "thinking": {"type": "disabled"},
         "response_format": {"type": "json_object"},
     }
     headers = {"Authorization": f"Bearer {api_key}",
@@ -208,10 +204,11 @@ def _parse_payload(content: str, config: Mapping) -> dict:
         parsed = json.loads(content)
     except json.JSONDecodeError as error:
         raise ValueError(f"non-JSON model output: {content[:120]}") from error
-    if not isinstance(parsed, dict) or set(parsed) != set(PAYLOAD_KEYS):
+    if not isinstance(parsed, dict) or not set(PAYLOAD_KEYS) <= set(parsed):
         raise ValueError(f"unexpected payload keys: "
                          f"{sorted(parsed) if isinstance(parsed, dict) else type(parsed)}")
-    _build_card({key: parsed[key] for key in PAYLOAD_KEYS}, config)
+    parsed = {key: parsed[key] for key in PAYLOAD_KEYS}
+    _build_card(parsed, config)
     BigFiveProfile(**parsed["big_five"])
     return parsed
 

@@ -14,8 +14,12 @@ uv sync --frozen
 uv sync --project vendor/labelkit --frozen
 ```
 
-WorldMock 与 LabelKit 使用各自环境，后者的命令入口在 `vendor/labelkit/.venv/bin/labelkit`。
+WorldMock 与 LabelKit 使用各自环境；LabelKit 的命令入口在 Linux 为
+`vendor/labelkit/.venv/bin/labelkit`，在 Windows 为 `vendor/labelkit/.venv/Scripts/labelkit.exe`。
 完整 `worldmock validate` 也会检查这个入口，不能只安装 WorldMock 的环境。
+Windows 还需要安装[微软官方 Visual C++ v14 x64 运行库](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)；
+Ray 的子进程需要它加载原生模块。`worldmock validate` 会在独立进程中检查 Ray 导入，
+避免到模拟启动时才发现缺少运行库。
 准备依赖可能联网，但安装本身不启动模拟。
 
 ## 填写模型凭据
@@ -45,7 +49,9 @@ chmod 600 ~/.config/worldmock/deepseek.env
 
 ## 哪些模型参数可配置
 
-当前生活模拟固定使用 OpenAI 兼容端点 `https://openrouter.ai/api/v1` 和模型 `deepseek-v4.1-flash`。
+当前生活模拟固定使用 DeepSeek 官方 OpenAI 格式端点 `https://api.deepseek.com` 和模型
+`deepseek-flash`。DeepSeek 的 Anthropic 格式端点使用同一平台密钥，但 WorldMock 的
+AgentSociety2 调度器发送 OpenAI 格式请求，因此必须连接 OpenAI 格式端点。
 启动器会设置仿真和代码角色的模型、端点及请求参数，没有场景级 `model` 或 `base_url` 覆盖字段。
 自行设置 AS2 的同名环境变量会在 WorldMock 启动时被覆盖。
 需要更换模型属于运行合同与代码变更，不能靠向场景 JSON 增加字段实现。
@@ -56,8 +62,8 @@ chmod 600 ~/.config/worldmock/deepseek.env
 | `profile compile`、`profile check`、画像覆盖率校验 | 优先环境变量 `DEEPSEEK_NODE_KEYS`，其次私密文件，取池中第一把密钥 |
 | LabelKit 数据生成 | 使用其项目配置和凭据引用，见[数据生成](delivery.md) |
 
-画像抽取通过独立客户端请求 `https://openrouter.ai/api/v1/chat/completions`，默认模型同为
-`deepseek-v4.1-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
+画像抽取通过独立客户端请求 `https://api.deepseek.com/chat/completions`，默认模型同为
+`deepseek-flash`，只使用密钥池第一把；直接调用抽取接口时可显式传入密钥。
 画像编译可用不等于模拟启动凭据已经齐备，两者的读取顺序与完整文件校验不同。
 当前读取与请求身份依据为[运行启动器](../../src/worldmock/runtime.py)、
 [画像抽取器](../../src/worldmock/profile/extractor.py)和[模型凭据合同](../CONTRACTS.md#人物决策提示与生成参数)。

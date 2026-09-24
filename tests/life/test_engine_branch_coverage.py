@@ -174,8 +174,8 @@ def _run_identity(scn, **updates) -> RunIdentity:
         code_sha256="2" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://openrouter.ai/api/v1",
-            requested_model="deepseek-v4.1-flash",
+            base_url="https://api.deepseek.com",
+            requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",
             max_retries=0,
@@ -869,14 +869,14 @@ def test_maybe_decision_statement_start_swallows_invalid_decision_statement_text
     """空文本/超长决策自述按协议错误返回 None，不抛错不消费草稿。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     request = {"temperature": 1.0, "max_tokens": 8000,
-               "extra_body": {"reasoning": {"max_tokens": 1500}}}
+               "extra_body": {"thinking": {"type": "disabled"}}}
     assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "")) is None
     assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
     assert 1 in pending
 
 
-def test_maybe_decision_statement_start_rejects_missing_reasoning_cap() -> None:
-    """有界生成形状必须含 reasoning 上限：缺 extra_body.reasoning.max_tokens 不消费草稿。"""
+def test_maybe_decision_statement_start_rejects_missing_thinking_mode() -> None:
+    """决策自述形状必须关闭思考，缺失该声明不消费草稿。"""
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     exchange = _exchange({"temperature": 1.0, "max_tokens": 8000}, "我现在很饿，想去找点吃的。")
     assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
@@ -888,7 +888,7 @@ def test_maybe_decision_statement_start_accepts_valid_text_and_pops_pending() ->
     pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
     draft = maybe_decision_statement_start(pending, 1, 42,
                                   _exchange({"temperature": 1.0, "max_tokens": 8000,
-                                             "extra_body": {"reasoning": {"max_tokens": 1500}}},
+                                             "extra_body": {"thinking": {"type": "disabled"}}},
                                             "我现在很饿，想去找点吃的。"))
     assert pending == {}
     assert draft is not None and draft.event_type == "decision_started"
@@ -1031,7 +1031,7 @@ def test_model_exchange_phase_and_duplicate_request_rejected(engine_factory) -> 
     engine = engine_factory()
     ctx = context(engine, "exchange-guard")
     engine.begin_decision_round([ctx])
-    request = {"model": "deepseek-v4.1-flash", "messages": []}
+    request = {"model": "deepseek-flash", "messages": []}
     with pytest.raises(ProtocolError, match="phase or attempt is invalid"):
         engine.record_model_exchange(ModelCallEvidence(ctx, "call-bad", "request", 0, request))
     call_id = f"{ctx.decision_id}:model:0001:attempt:1"

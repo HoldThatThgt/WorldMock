@@ -28,6 +28,7 @@ class CoverageTargets(BaseModel):
     content_genres: tuple[str, ...] = ()
     food_kinds: tuple[str, ...] = ()
     media_kinds: tuple[str, ...] = ()
+    app_names: tuple[str, ...] = ()
 
 
 class MissingEntry(BaseModel):
@@ -65,13 +66,16 @@ def validate_coverage(card: PersonaCard,
     checks: list[tuple[str, str, bool]] = []
     for habit in card.habits:
         checks.append(("habit_response", habit.response,
-                       _keyword_hit(habit.response, targets.habit_response_keywords)))
+                       _keyword_hit(habit.response,
+                                    targets.habit_response_keywords + targets.app_names)))
     for genre in card.tastes.content_genres:
-        checks.append(("content_genre", genre, genre in set(targets.content_genres)))
+        checks.append(("content_genre", genre,
+                       genre in set(targets.content_genres)
+                       or _keyword_hit(genre, targets.app_names)))
     for food in card.tastes.food_preferences:
-        checks.append(("food_preference", food, food in set(targets.food_kinds)))
+        checks.append(("food_preference", food, _keyword_hit(food, targets.food_kinds)))
     for medium in card.tastes.media:
-        checks.append(("media", medium, medium in set(targets.media_kinds)))
+        checks.append(("media", medium, medium in set(targets.media_kinds + targets.app_names)))
     total = len(checks)
     covered = sum(1 for _, _, hit in checks if hit)
     ratio = (covered / total) if total else 1.0

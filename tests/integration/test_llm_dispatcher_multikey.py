@@ -10,13 +10,13 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.config.llm_dispatcher import _build_router
 
-NODE_BASE = "https://openrouter.ai/api/v1"
-NODE_MODEL = "deepseek-v4.1-flash"
+NODE_BASE = "https://api.deepseek.com"
+NODE_MODEL = "deepseek-flash"
 
 
 def _deployments(api_key: str):

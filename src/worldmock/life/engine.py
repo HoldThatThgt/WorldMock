@@ -851,11 +851,15 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝反馈后重试；连续拒绝达到阈值时延长反应间隔。"""
+        """@brief 业务拒绝后安排下次决策；资源占用等待状态实际变化。"""
         agent = state.agents[pending.agent_id]
         count = min(agent.consecutive_rejections + 1, self.scenario.max_consecutive_rejections)
         cooldown = count >= self.scenario.max_consecutive_rejections
         delay = self.scenario.activity_feedback_seconds if cooldown else 1
+        running = active_activities(state, pending.agent_id)
+        if str(error) == "RESOURCE_CONFLICT" and running:
+            remaining = min(item.planned_end_at for item in running) - state.current_time
+            delay = min(self.scenario.activity_feedback_seconds, max(1, remaining))
         next_decision_at = state.current_time + delay
         pulse_key = ("work_review_returned" if str(error) == "WORK_REQUIRES_REWORK"
                      else "service_refused")

@@ -21,6 +21,7 @@ from worldmock.catalog.loader import load_catalog
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPORA = ROOT / "corpora"
+LOCATIONS_PATH = "zhangjiang-map/locations.json"
 #: 可达性校验读取的语料文件闭集（复制进临时树的最小集合）。
 CHECKED_FILES = [
     "meals/items.json",
@@ -70,7 +71,7 @@ def _codes(result) -> set[str]:
 
 def test_real_corpora_satisfy_reachability(real_catalog):
     """真实目录 + 真实语料：可达性两条规则全绿。"""
-    result = validate_world_categories(real_catalog, CORPORA)
+    result = validate_world_categories(real_catalog, CORPORA, LOCATIONS_PATH)
     assert result.ok, [f"{v.code}: {v.detail}" for v in result.violations]
 
 
@@ -80,7 +81,7 @@ def test_content_item_missing_partition_dimension_is_unreachable(real_catalog, t
     root = _copy_corpora(tmp_path)
     _mutate_json(root, "movies/items.json",
                  lambda document: document[0].__setitem__(field, [] if field == "genre" else ""))
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_KEY_MISSING in _codes(result)
 
 
@@ -93,7 +94,7 @@ def test_content_item_missing_duration_dimension_is_unreachable(real_catalog, tm
         document[0].pop("estimated_read_seconds", None)
 
     _mutate_json(root, "novels/items.json", drop_duration)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_KEY_MISSING in _codes(result)
 
 
@@ -105,7 +106,7 @@ def test_read_corpus_duration_falls_back_to_read_seconds(real_catalog, tmp_path)
         document[0].pop("estimated_read_seconds", None)
 
     _mutate_json(root, "jokes/items.json", drop_read_seconds)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_KEY_MISSING in _codes(result)
 
 
@@ -128,7 +129,7 @@ def test_partition_with_no_feasible_place_is_unreachable(real_catalog, tmp_path)
                  lambda document: _declare(document, "locations", ["venue"]))
     _mutate_json(root, "movies/items.json",
                  lambda document: _declare(document, None, ["home"]))
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_LOCATION_INFEASIBLE in _codes(result)
 
 
@@ -143,7 +144,7 @@ def test_location_covering_the_partition_keeps_it_feasible(real_catalog, tmp_pat
     _mutate_json(root, "zhangjiang-map/locations.json", declare_home_only)
     _mutate_json(root, "movies/items.json",
                  lambda document: _declare(document, None, ["home"]))
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_LOCATION_INFEASIBLE not in _codes(result)
 
 
@@ -154,7 +155,7 @@ def test_anywhere_partition_is_always_feasible(real_catalog, tmp_path):
                  lambda document: _declare(document, "locations", ["venue"]))
     _mutate_json(root, "movies/items.json",
                  lambda document: _declare(document, None, ["anywhere"]))
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_PARTITION_LOCATION_INFEASIBLE not in _codes(result)
 
 
@@ -162,8 +163,8 @@ def test_market_location_is_covered_by_place_projection(real_catalog):
     """承载全部商品的 `market` 地点在场景地点集内（不得游离在校验之外）。"""
     from worldmock.life.retrieval import place_kinds
 
-    places = place_kinds(CORPORA)
+    places = place_kinds(CORPORA, "zhangjiang-map/locations.json")
     assert "market" in places
     # market 未声明地点类时按恒可行处理：它至少不构成任何分区的可行性缺口。
-    result = validate_world_categories(real_catalog, CORPORA)
+    result = validate_world_categories(real_catalog, CORPORA, LOCATIONS_PATH)
     assert result.ok

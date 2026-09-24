@@ -295,10 +295,9 @@ def _events_of(engine, event_type: str) -> list:
 
 def _decision_statement_params() -> dict:
     """决策自述阶段的模型请求参数形状（无 tools、温度 1.0、max_tokens 8000、reasoning 上限）。"""
-    return {"model": "deepseek-v4.1-flash", "messages": [{"role": "user", "content": "此刻感受"}],
+    return {"model": "deepseek-flash", "messages": [{"role": "user", "content": "此刻感受"}],
             "stream": False, "temperature": 1.0, "max_tokens": 8000, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"},
-                           "reasoning": {"max_tokens": 1500}}}
+            "extra_body": {"thinking": {"type": "disabled"}}}
 
 
 def test_decision_started_written_once_complete_with_decision_statement(engine_factory) -> None:

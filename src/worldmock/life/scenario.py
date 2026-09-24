@@ -546,6 +546,8 @@ class LifeScenario(FrozenModel):
     retrieval_index_threshold: int = Field(default=1000, gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    phone_simulation_config: str | None = Field(default=None, pattern=r"\S")
+    phone_simulation_config_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     catalog_version: CatalogVersionPin
     accounts: tuple[AccountInstanceConfig, ...] = Field(min_length=1)
     body: BodyInstanceConfig
@@ -572,6 +574,8 @@ class LifeScenario(FrozenModel):
         if self.idle_reconsideration_interval_seconds < self.reconsideration_interval_seconds:
             logging.getLogger(__name__).error("Idle reconsideration interval must not be shorter than regular interval")
             raise ValueError("idle reconsideration interval must not be shorter than regular interval")
+        if (self.phone_simulation_config is None) != (self.phone_simulation_config_sha256 is None):
+            raise ValueError("phone simulation config path and hash must be declared together")
         _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
                                    self.rotation_stale_seconds)
         _aware(self.start_at, "start_at")
@@ -681,6 +685,8 @@ class RuntimeScenario(FrozenModel):
     retrieval_index_threshold: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)
     corpus_root: str = Field(min_length=1)
     corpus_manifest_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    phone_simulation_config: str | None = Field(default=None, pattern=r"\S")
+    phone_simulation_config_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     map_dataset: MapDataset
     body: BodyConfig
     agents: tuple[AgentConfig, ...]
@@ -706,6 +712,8 @@ class RuntimeScenario(FrozenModel):
     @model_validator(mode="after")
     def validate_scenario(self) -> "RuntimeScenario":
         """@brief 核对时区、身份唯一性和全部跨引用。"""
+        if (self.phone_simulation_config is None) != (self.phone_simulation_config_sha256 is None):
+            raise ValueError("phone simulation config path and hash must be declared together")
         _check_candidate_constants(self.candidate_presentation_limit, self.rotation_quota_ratio,
                                    self.rotation_stale_seconds)
         _aware(self.start_at, "start_at")

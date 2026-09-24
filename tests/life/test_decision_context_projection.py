@@ -73,6 +73,18 @@ def test_token_counter_receives_complete_messages_tools_and_output_reserve(monke
     assert calls == [(prompt_capacity.TOKENIZER_MODEL, request["messages"], request["tools"])]
 
 
+def test_memory_model_usage_comparison_does_not_require_output_reserve(monkeypatch, caplog) -> None:
+    """记忆总结没有输出上限时仍可核对供应商的输入 token 用量。"""
+    request = {"model": prompt_capacity.MODEL_ALIAS,
+               "messages": [{"role": "system", "content": "总结主观记忆"},
+                            {"role": "user", "content": "当天感受"}]}
+    monkeypatch.setattr(prompt_capacity, "token_counter", lambda **kwargs: 73)
+    with caplog.at_level(logging.INFO):
+        prompt_capacity.compare_usage(request, {"usage": {"prompt_tokens": 80}})
+    assert any("estimated=73 actual=80 difference=7" in record.message
+               for record in caplog.records)
+
+
 def test_compaction_groups_only_terminal_sessions_and_preserves_source() -> None:
     """按任务合并历史，当前进度、新结果和提醒均保持原样，输入不变。"""
     progress = _facts()["progress"]

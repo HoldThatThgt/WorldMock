@@ -13,6 +13,7 @@ from pydantic import (BaseModel, ConfigDict, Field, WithJsonSchema, field_serial
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
 from worldmock.life.schedule import MAX_PLAN_GOALS, PLAN_GOAL_MAX_CHARS, DayPlan, IntentKind
 from worldmock.life.social import Message
+from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
@@ -40,13 +41,21 @@ class ModelIdentity(FrozenModel):
     """@brief 不包含凭据的冻结模型请求身份。"""
 
     provider: Literal["openai_compatible"]
-    base_url: Literal["https://openrouter.ai/api/v1"]
-    requested_model: Literal["deepseek-v4.1-flash"]
+    base_url: str
+    requested_model: str
     thinking: Literal["disabled", "enabled"]
     tool_choice: Literal["required", "auto"]
     max_retries: Literal[0]
     prompt_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     tool_schema_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_endpoint(self) -> "ModelIdentity":
+        """@brief 冻结模型身份必须使用单一官方端点。"""
+        if self.base_url != DEEPSEEK_BASE_URL or self.requested_model != DEEPSEEK_MODEL:
+            _LOGGER.error("Model identity endpoint does not match the configured DeepSeek model")
+            raise ValueError("Model identity endpoint does not match the configured DeepSeek model")
+        return self
 
 
 class RunIdentity(FrozenModel):

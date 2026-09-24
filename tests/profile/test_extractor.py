@@ -71,6 +71,15 @@ def test_unanimous_consensus_no_warning():
     assert all(share == 1.0 for share in result.per_field.values())
 
 
+def test_extra_explanation_field_does_not_change_persona_payload():
+    """@brief 忽略模型额外说明字段，必需的画像字段仍逐一校验。"""
+    payload = json.loads(make_payload())
+    payload["time_anchors_note"] = "source explanation"
+    session = FakeSession([FakeResponse(content=json.dumps(payload, ensure_ascii=False))])
+    result = extractor.extract_persona("故事", n_runs=1, session=session)
+    assert result.runs == 1
+
+
 def test_low_agreement_field_flags_warning():
     """@brief 某字段三次三个值 -> 众数占比 1/3 < 2/3 -> 标黄。"""
     script = [
@@ -182,7 +191,7 @@ def test_rejects_empty_story_and_bad_runs():
 
 
 def test_request_payload_shape():
-    """@brief 请求载荷：温度 0.3、json_object 输出、system+user 双消息、reasoning 上限。"""
+    """@brief 请求载荷：温度 0.3、json_object 输出、system+user 双消息、思考关闭。"""
     session = FakeSession([FakeResponse(content=make_payload())])
     extractor.extract_persona("某段背景故事", n_runs=1, session=session)
     call = session.calls[0]
@@ -190,8 +199,7 @@ def test_request_payload_shape():
     payload = call["json"]
     assert payload["temperature"] == 0.3
     assert payload["max_tokens"] == extractor.MAX_COMPLETION_TOKENS == 8000
-    assert payload["reasoning"] == {"max_tokens": extractor.MAX_REASONING_TOKENS}
-    assert extractor.MAX_REASONING_TOKENS == 3000
+    assert payload["thinking"] == {"type": "disabled"}
     assert payload["response_format"] == {"type": "json_object"}
     assert payload["messages"][0]["role"] == "system"
     assert "某段背景故事" in payload["messages"][1]["content"]

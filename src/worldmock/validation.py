@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import importlib.metadata
 import json
+import logging
+import os
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -21,11 +25,13 @@ from worldmock.delivery.rules import execute_fixture
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.life.scenario import load_scenario
+from worldmock.model_endpoint import DEEPSEEK_BASE_URL
 from worldmock.profile.coverage import (
     CoverageTargets,
     validate_coverage,
     require_coverage,
 )
+from worldmock.profile.coverage_apps import verified_app_names
 
 #: 媒介品类闭集映射：世界内容目录 kind -> 中文媒介词（与 render_day 标签同口径）。
 _MEDIA_KIND_LABELS = {
@@ -47,6 +53,8 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     新增（修订合同）：世界素材品类准入、任务受理人校验、两阶段
     model_identity 一致性与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
     """
+    from worldmock.runtime import _configure_process
+
     scenario, scenario_sha256 = load_scenario(scenario_path.resolve())
     corpus_root = Path(scenario.corpus_root)
     if not corpus_root.is_absolute():
@@ -56,8 +64,11 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     for path in schemas:
         Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
     versions = {name: importlib.metadata.version(name) for name in
-                ("agentsociety2", "ray", "litellm", "mcp", "datasets", "textworld", "rule-engine")}
-    if not (project_root / "vendor/labelkit/.venv/bin/labelkit").is_file():
+                ("agentsociety2", "ray", "litellm", "mcp", "datasets", "rule-engine")}
+    _require_ray_worker_import()
+    labelkit = (project_root / "vendor/labelkit/.venv/Scripts/labelkit.exe" if os.name == "nt"
+                else project_root / "vendor/labelkit/.venv/bin/labelkit")
+    if not labelkit.is_file():
         raise IntegrityError("The isolated LabelKit CLI environment is not installed")
     fixture = {"initial_state": {"deadline_seconds": 60},
                "events": [{"role": role, "timestamp_seconds": value} for role, value in
@@ -66,8 +77,9 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     execute_fixture(fixture, EXPRESSIONS)
     catalog_dir = scenario_path.resolve().parent.parent / "catalog"
     catalog = load_catalog(catalog_dir)
-    _require_world_categories(catalog, corpus_root)
+    _require_world_categories(catalog, corpus_root, scenario.map_dataset.locations_file.path)
     _require_task_assignees(scenario)
+    _configure_process(project_root)
     identity = validate_two_stage_model_identity()
     coverage = validate_persona_coverage(
         scenario_path, persona_compiler=persona_compiler, coverage_out=coverage_out,
@@ -77,6 +89,21 @@ def validate_project(project_root: Path, scenario_path: Path, *,
             "dependencies": versions, "model_identity": {"stages": sorted(identity["stages"]),
                                                           "consistent": True},
             "persona_coverage": coverage["agents"]}
+
+
+def _require_ray_worker_import() -> None:
+    """@brief 在独立进程中验证 Ray worker 可导入其原生依赖。"""
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", "import ray"], capture_output=True, text=True,
+            timeout=30, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        logging.exception("Ray worker import check could not complete")
+        raise IntegrityError("Ray worker import check failed") from error
+    if result.returncode:
+        logging.error("Ray worker import failed: %s", result.stderr.strip())
+        raise IntegrityError("Ray worker cannot import ray in a clean process")
 
 
 def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -95,8 +122,8 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
     if not isinstance(actual, dict):
         raise IntegrityError("Two-stage model identity must be an object")
     problems: list[str] = []
-    if actual.get("base_url") != "https://openrouter.ai/api/v1":
-        problems.append(f"base_url={actual.get('base_url')!r} must be the frozen openai_compatible OpenRouter endpoint")
+    if actual.get("base_url") != DEEPSEEK_BASE_URL:
+        problems.append(f"base_url={actual.get('base_url')!r} must be the DeepSeek OpenAI endpoint")
     if actual.get("max_retries") != 0:
         problems.append(f"max_retries={actual.get('max_retries')!r} must be 0")
     if type(actual.get("transport_max_retries")) is not int or actual["transport_max_retries"] != TRANSPORT_MAX_RETRIES:
@@ -148,12 +175,13 @@ def validate_persona_coverage(scenario_path: Path, *,
     targets = build_coverage_targets(scenario, load_catalog(catalog_dir), corpus_root)
     compile_story = persona_compiler or _compile_persona
     reports = []
+    checked = []
     for agent in scenario.agents:
         if agent.background_story is None:
             continue
         card = compile_story(agent.background_story).card
         report = validate_coverage(card, targets)
-        require_coverage(report)
+        checked.append(report)
         reports.append({"agent_id": agent.agent_id, **report.model_dump()})
     document = {"schema_version": 1, "scenario_id": scenario.scenario_id,
                 "threshold": 0.8, "agents": reports}
@@ -161,6 +189,8 @@ def validate_persona_coverage(scenario_path: Path, *,
         Path(scenario_path).resolve().parent / "persona_coverage.json")
     atomic_write(destination, (json.dumps(document, ensure_ascii=False, indent=2)
                                + "\n").encode("utf-8"))
+    for report in checked:
+        require_coverage(report)
     return document
 
 
@@ -190,10 +220,11 @@ def build_coverage_targets(scenario: Any, catalog: Any, corpora_root: Path) -> C
     foods += sorted({obj.name for obj in catalog.objects.values()
                      if obj.object_kind == "product" and "eat" in obj.use_modes})
     media = sorted({_MEDIA_KIND_LABELS[kind] for kind in _scenario_content_kinds(scenario)})
+    app_names = verified_app_names(scenario, root)
     return CoverageTargets(habit_response_keywords=tuple(habit_keywords),
                            content_genres=tuple(genres),
                            food_kinds=tuple(foods),
-                           media_kinds=tuple(media))
+                           media_kinds=tuple(media), app_names=app_names)
 
 
 def _scenario_content_kinds(scenario: Any) -> set[str]:
@@ -213,7 +244,8 @@ def _corpus_items(root: Path, relative: str) -> list:
         document = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return []
-    mode = next((mode for candidate, mode in CONTENT_CORPORA if candidate == relative), "list")
+    mode = ("items" if relative in {"lifestyle/items.json", "meals/items.json"} else
+            next((kind for candidate, kind in CONTENT_CORPORA if candidate == relative), "list"))
     if mode == "single":
         return [document]
     if mode == "items":
@@ -221,9 +253,9 @@ def _corpus_items(root: Path, relative: str) -> list:
     return list(document) if isinstance(document, list) else []
 
 
-def _require_world_categories(catalog: Any, corpora_root: Path) -> None:
+def _require_world_categories(catalog: Any, corpora_root: Path, locations_path: str) -> None:
     """@brief 世界素材品类准入：任一品类违例即拒绝（fail-closed，英文错误）。"""
-    result = validate_world_categories(catalog, corpora_root)
+    result = validate_world_categories(catalog, corpora_root, locations_path)
     if not result.ok:
         detail = "; ".join(f"{item.code}: {item.detail}" for item in result.violations)
         raise IntegrityError(f"World category admission rejected: {detail}")

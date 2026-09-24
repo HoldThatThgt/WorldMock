@@ -37,8 +37,8 @@ def engine_factory(tmp_path: Path):
             code_sha256="2" * 64,
             model_identity=ModelIdentity(
                 provider="openai_compatible",
-                base_url="https://openrouter.ai/api/v1",
-                requested_model="deepseek-v4.1-flash",
+                base_url="https://api.deepseek.com",
+                requested_model="deepseek-flash",
                 thinking="enabled",
                 tool_choice="auto",
                 max_retries=0,

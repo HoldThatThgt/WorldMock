@@ -467,6 +467,10 @@ MessageKind = Literal["direct", "chat_invite"]
 | `SOCIAL_ACTIVITY_OPERATION_UNKNOWN` | 交谈或通话的变更操作不在取消与恢复之内 |
 | `ACTIVITY_TOO_SHORT` | 折算后的社交活动时长不足 60 秒 |
 
+交互对象的 `preconditions_met` 使用与执行器相同的活动资源声明检查本人正在执行的活动。
+已有活动造成 `RESOURCE_CONFLICT` 时仍返回公开拒绝结果；下一次决策安排在最早活动结束时刻
+或下一个活动反馈间隔，不再逐秒重复同一冲突。
+
 ## 观察投影字段
 
 引擎在每个观察边界装配一棵观察字典，供宿主渲染提示与生成工具身份枚举。它分三层：进入提示的两层投影 `scene` 与 `facts`、只进事件证据的 `body`、以及只供宿主工具面使用的行数据。三段投影的内容规则、上限与呈现细节归 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」，本节定义字段面。
@@ -783,23 +787,27 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 
 ### 生成参数
 
-| 阶段 | `thinking` | `temperature` | `max_tokens` | `reasoning` 上限 | `tool_choice` | `tools` |
-| --- | --- | --- | --- | --- | --- | --- |
-| 决策自述 | `disabled` | 1.0 | 8000 | 1500 | 不发送 | 不发送 |
-| 行动 | `enabled` | 不发送 | 不发送 | 不发送 | `auto` | 原生生活工具 |
-| 工作验收 | `disabled` | 不发送 | 不发送 | 不发送 | `required` | 单个验收工具 |
-| 联系人回复 | `disabled` | 不发送 | 8000 | 1500 | 不发送 | 不发送 |
-| 画像抽取 | 不发送 | 0.3 | 8000 | 3000 | 不发送 | 不发送 |
+| 阶段 | `thinking` | `temperature` | `max_tokens` | `tool_choice` | `tools` |
+| --- | --- | --- | --- | --- | --- |
+| 决策自述 | `disabled` | 1.0 | 8000 | 不发送 | 不发送 |
+| 行动 | `enabled` | 不发送 | 8000 | `auto` | 原生生活工具 |
+| 工作验收 | `disabled` | 不发送 | 不发送 | `required` | 单个验收工具 |
+| 联系人回复 | `disabled` | 不发送 | 8000 | 不发送 | 不发送 |
+| 画像抽取 | `disabled` | 0.3 | 8000 | 不发送 | 不发送 |
 
-`thinking` 经请求的扩展体发送；三个有界生成调用点（决策自述、联系人回复、画像抽取）的 `reasoning` 上限同为 OpenRouter 扩展参数——前两者经扩展体发送，画像抽取是独立 requests 客户端、直接进请求体顶层。思考模式的服务端拒绝 `tool_choice=required`，行动阶段的工具选择因此固定为 `auto`，模型不产出工具调用时由 ReAct 协议纠错回合兜底。决策自述以 `temperature=1.0` 与 `max_tokens=8000` 作为形状标识：记忆巩固与反思的模型调用既不带工具也不带这两个参数，因此可与决策自述请求区分。`max_tokens` 预算覆盖 OpenRouter `deepseek-v4.1-flash` 每响应必带的 reasoning 耗量（抽取阶段实测峰值 4925-6916），不足则 content 为空；reasoning 上限（决策自述/联系人回复 1500、画像抽取 3000）防偶发 reasoning 思考螺旋烧穿全部 `max_tokens`（`finish=length`、content 为空）——只截断思考不伤内容、只切病理尾部（健康 reasoning 分布 100-2000、抽取重尾 4916-6916），但属软限制：temp 1.3 病态样本实测 reasoning 3587 超 1500 上限，不可依赖为硬保障；`reasoning.effort` 实测破坏输出（content 为空），不发送。决策自述温度 1.0 的依据：模型更换后 temp 1.3 偶发采样脱轨（reasoning 螺旋烧穿/多语言乱码/超长输出，均发于一日模拟 07:30 最富上下文轮次，累计 12 发 5 发病态），同请求 temp 1.0 与 0.8 各 4 发全部正常（8/8），故 1.3→1.0。
+`thinking` 经请求的扩展体发送。决策自述、联系人回复与画像抽取关闭思考；行动阶段开启思考，
+使用 `tool_choice=auto`，模型未产出工具调用时由 ReAct 协议纠错回合处理。
+工作验收关闭思考，使用 `tool_choice=required`。各阶段不发送 OpenRouter 的 `reasoning` 扩展参数。
+决策自述以 `temperature=1.0` 与 `max_tokens=8000` 作为形状标识：记忆巩固与反思的模型调用
+既不带工具也不带这两个参数，因此可与决策自述请求区分。
 
 ### 模型身份
 
 | 键 | 值 |
 | --- | --- |
 | `provider` | `openai_compatible` |
-| `base_url` | `https://openrouter.ai/api/v1` |
-| `requested_model` | `deepseek-v4.1-flash` |
+| `base_url` | `https://api.deepseek.com` |
+| `requested_model` | `deepseek-flash` |
 | `max_retries` | 0；非传输错误不在客户端内重试 |
 | `transport_max_retries` | 3；仿真调度器独立的瞬时传输重试预算 |
 | `max_react_turns` | 16；决策自述、工具纠错与结束共享的有限预算 |

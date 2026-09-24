@@ -39,17 +39,8 @@ from worldmock.life.schedule import INTENT_KINDS, MAX_PLAN_GOALS
 #: 多语言乱码、超长输出，均发于一日模拟 07:30 最富上下文轮次；同请求 temp 1.0
 #: 实测 4/4 正常、0.8 4/4 正常、1.3 累计 12 发 5 发病态，合同「生成参数」定 1.0）。
 DECISION_STATEMENT_TEMPERATURE = 1.0
-#: 决策自述阶段输出上限（两阶段决策合同「生成参数」：8000；OpenRouter deepseek-v4.1-flash
-#: 每响应必带 reasoning 耗 token，抽取阶段实测 reasoning 峰值 4925-6916——2000 预算下
-#: 复杂决策 content 会被 reasoning 烧穿，统一抬到 8000）。
+#: 决策自述阶段输出上限。
 DECISION_STATEMENT_MAX_TOKENS = 8000
-#: 决策自述 reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数）：temp 1.3 下
-#: 偶发 reasoning 长思考螺旋烧穿全部 max_tokens（finish=length、content=None，两次
-#: 一日模拟 07:30 实测；同一请求重放基线仅 142 reasoning，属重尾随机事件）。上限
-#: 只截断思考不伤内容、1500 覆盖健康 reasoning 分布（100-2000），但属软限制——
-#: temp 1.3 病态样本实测 reasoning 3587 超 1500 上限，脱轨主治理靠温度 1.0。
-#: 禁用 reasoning.effort（实测 content=None）。
-DECISION_STATEMENT_REASONING_MAX_TOKENS = 1500
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
@@ -284,7 +275,8 @@ _TOOL_DESCRIPTIONS = {
     "start_activity": (
         _ACTION_PROTOCOL
         + " Choose one or two named objects from facts.interactive_objects and one offered action "
-        "phrase for each object in the same order. Send exactly targets and actions. "
+        "phrase for each object in the same order. Choose only objects whose preconditions_met "
+        "is true. Send exactly targets and actions. "
         "The world uses the observed quote and derives duration, quantity, travel mode and "
         "fulfillment. Prices and internal state are information from the world, never inputs."),
     "submit_work": (
@@ -600,8 +592,7 @@ class LifeAgent(PersonAgent):
         """@brief 两阶段决策的决策自述请求参数；只读决策不启用决策自述。
 
         决策自述 = system 身份前言 + persona_card + scene + 记忆摘要，不带
-        tools；thinking=disabled、temperature=1.0、max_tokens=8000、
-        reasoning 上限 1500（防思考螺旋烧穿）。
+        tools；thinking=disabled、temperature=1.0、max_tokens=8000。
         """
         if request.readonly:
             return None
@@ -621,10 +612,7 @@ class LifeAgent(PersonAgent):
             "temperature": DECISION_STATEMENT_TEMPERATURE,
             "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
             "max_retries": 0,
-            "extra_body": {
-                "thinking": {"type": "disabled"},
-                "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS},
-            },
+            "extra_body": {"thinking": {"type": "disabled"}},
         }
         return fit_request(params, layers=getattr(self, "_life_prompt_layers", None))
 

@@ -71,7 +71,7 @@ class StaticReviewer:
                          for path in prepared.expected_delivery_paths]
         arguments = {"reference_assessments": reference_rows,
                      "delivery_assessments": delivery_rows, "accepted": self.reported_accepted}
-        return {"id": "review-response", "model": "deepseek-v4.1-flash", "usage": {
+        return {"id": "review-response", "model": "deepseek-flash", "usage": {
                     "prompt_tokens": 10, "completion_tokens": 10, "total_tokens": 20},
                 "choices": [{"message": {"tool_calls": [{
                     "id": f"review-tool-{self.calls}", "type": "function", "function": {
@@ -640,7 +640,7 @@ def test_work_review_request_uses_required_strict_contract() -> None:
         load_work_input(Path("corpora"), task),
     )
 
-    prepared = prepare_work_review(submission, "deepseek-v4.1-flash")
+    prepared = prepare_work_review(submission, "deepseek-flash")
     tool = prepared.request["tools"][0]["function"]
 
     assert prepared.request["tool_choice"] == "required"
@@ -662,8 +662,8 @@ def test_work_review_request_uses_required_strict_contract() -> None:
 def _review_model_identity(**updates) -> dict:
     """形成 WorkReviewer 客户端身份测试使用的冻结参数。"""
     identity = {
-        "requested_model": "deepseek-v4.1-flash",
-        "base_url": "https://openrouter.ai/api/v1",
+        "requested_model": "deepseek-flash",
+        "base_url": "https://api.deepseek.com",
         "thinking": "enabled",
         "tool_choice": "auto",
         "max_retries": 0,
@@ -687,8 +687,8 @@ def _bind_review_client(monkeypatch, model_name: str, base_url: str):
 @pytest.mark.parametrize(
     ("model_name", "base_url"),
     [
-        ("deepseek-chat", "https://openrouter.ai/api/v1"),
-        ("deepseek-v4.1-flash", "https://api.deepseek.com"),
+        ("deepseek-chat", "https://api.deepseek.com"),
+        ("deepseek-flash", "https://api.deepseek.com"),
     ],
 )
 def test_work_reviewer_rejects_model_or_full_base_url_mismatch(
@@ -707,8 +707,8 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
     """模型、完整 URL 和既有请求参数全部匹配时接受客户端。"""
     client = _bind_review_client(
         monkeypatch,
-        "deepseek-v4.1-flash",
-        "https://openrouter.ai/api/v1",
+        "deepseek-flash",
+        "https://api.deepseek.com",
     )
 
     reviewer = WorkReviewer(_review_model_identity())
@@ -718,7 +718,7 @@ def test_work_reviewer_accepts_exact_client_and_request_identity(monkeypatch) ->
 
 def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -> None:
     """运行身份记录人物通道思考参数，验收通道自身请求保持 disabled+required。"""
-    _bind_review_client(monkeypatch, "deepseek-v4.1-flash", "https://openrouter.ai/api/v1")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
 
     reviewer = WorkReviewer(_review_model_identity())
 
@@ -727,7 +727,7 @@ def test_work_reviewer_accepts_person_channel_thinking_divergence(monkeypatch) -
 
 def test_work_reviewer_rejects_request_parameter_drift(monkeypatch) -> None:
     """重试参数偏离冻结合同时拒绝。"""
-    _bind_review_client(monkeypatch, "deepseek-v4.1-flash", "https://openrouter.ai/api/v1")
+    _bind_review_client(monkeypatch, "deepseek-flash", "https://api.deepseek.com")
 
     with pytest.raises(ProtocolError, match="parameters disagree"):
         WorkReviewer(_review_model_identity(max_retries=1))

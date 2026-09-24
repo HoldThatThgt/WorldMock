@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactLoopRequest
@@ -32,7 +32,7 @@ from worldmock.life import prompt_capacity
 class _Dispatcher:
     """只替换提供商传输，捕获真实人物请求并返回指定可读动作。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self, targets: list[str], action: str) -> None:
         self.requests: list[dict] = []

@@ -31,6 +31,7 @@ from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.state_commit import commit_state
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.run_identity import require_category_identity
+from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
 
 logger = logging.getLogger(__name__)
@@ -38,20 +39,12 @@ logger = logging.getLogger(__name__)
 #: 自述、工具纠错与结束共享的有限回合预算。
 MAX_REACT_TURNS = 16
 
-_DEEPSEEK_BASE_URL = "https://openrouter.ai/api/v1"
-_DEEPSEEK_MODEL = "deepseek-v4.1-flash"
 #: 工作验收阶段参数（docs/dev/SPEC-life-realism.md「两阶段决策」：独立工作验收保持
 #: disabled/required）。
 _WORK_REVIEW_THINKING = "disabled"
 _WORK_REVIEW_TOOL_CHOICE = "required"
-#: 联系人回复生成的 max_tokens 上限（OpenRouter 模型每响应必带 reasoning 耗 token，512 预算下
-#: content 必空；与决策自述同抬到 8000——reasoning 峰值实测远超 2000；合同生成参数表
-#: 「联系人回复」行）。
+#: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
-#: 联系人回复 reasoning 上限（OpenRouter reasoning.max_tokens 扩展参数，经 extra_body
-#: 透传）：偶发 reasoning 思考螺旋烧穿全部 max_tokens（finish=length、content=None，
-#: 一日模拟实测）；1500 覆盖健康 reasoning 分布（100-2000），只切病理尾部。
-CONTACT_REPLY_REASONING_MAX_TOKENS = 1500
 #: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字）。
 _CONTACT_REPLY_PROMPT = (
     "你是消息收件人通讯录里的一名联系人。根据你的联系人档案与收到的消息，"
@@ -202,11 +195,11 @@ def _configure_process(project_root: Path) -> None:
     variables = {
         "WORKSPACE_PATH": str(root),
         "AGENTSOCIETY_LLM_API_KEY": secret,
-        "AGENTSOCIETY_LLM_API_BASE": _DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_LLM_MODEL": _DEEPSEEK_MODEL,
+        "AGENTSOCIETY_LLM_API_BASE": DEEPSEEK_BASE_URL,
+        "AGENTSOCIETY_LLM_MODEL": DEEPSEEK_MODEL,
         "AGENTSOCIETY_CODER_LLM_API_KEY": secret,
-        "AGENTSOCIETY_CODER_LLM_API_BASE": _DEEPSEEK_BASE_URL,
-        "AGENTSOCIETY_CODER_LLM_MODEL": _DEEPSEEK_MODEL,
+        "AGENTSOCIETY_CODER_LLM_API_BASE": DEEPSEEK_BASE_URL,
+        "AGENTSOCIETY_CODER_LLM_MODEL": DEEPSEEK_MODEL,
         "AGENTSOCIETY_EMBEDDING_MODEL": "",
         "LITELLM_LOCAL_MODEL_COST_MAP": "True",
         "AGENTSOCIETY_LLM_REQUEST_TIMEOUT": "300",
@@ -249,7 +242,7 @@ def _require_loaded_config() -> None:
     """@brief 拒绝进程早先导入的不同 AS2 模型配置。"""
     from agentsociety2.config.config import Config
 
-    expected = (_DEEPSEEK_BASE_URL, _DEEPSEEK_MODEL)
+    expected = (DEEPSEEK_BASE_URL, DEEPSEEK_MODEL)
     default = (Config.LLM_API_BASE, Config.LLM_MODEL)
     coder = (Config.CODER_LLM_API_BASE, Config.CODER_LLM_MODEL)
     if default != expected or coder != expected or Config.EMBEDDING_MODEL:
@@ -319,8 +312,8 @@ def _model_identity() -> ModelIdentity:
 
     return ModelIdentity(
         provider="openai_compatible",
-        base_url=_DEEPSEEK_BASE_URL,
-        requested_model=_DEEPSEEK_MODEL,
+        base_url=DEEPSEEK_BASE_URL,
+        requested_model=DEEPSEEK_MODEL,
         thinking=ACTION_THINKING["thinking"]["type"],
         tool_choice=ACTION_TOOL_CHOICE,
         max_retries=0,
@@ -346,8 +339,8 @@ def two_stage_model_identity() -> dict[str, Any]:
 
     return {
         "provider": "openai_compatible",
-        "base_url": _DEEPSEEK_BASE_URL,
-        "requested_model": _DEEPSEEK_MODEL,
+        "base_url": DEEPSEEK_BASE_URL,
+        "requested_model": DEEPSEEK_MODEL,
         "max_retries": 0,
         "transport_max_retries": TRANSPORT_MAX_RETRIES,
         "max_react_turns": MAX_REACT_TURNS,
@@ -736,8 +729,7 @@ def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
     ]
     return {"model": model_name, "messages": messages, "stream": False,
             "max_tokens": CONTACT_REPLY_MAX_TOKENS, "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"},
-                           "reasoning": {"max_tokens": CONTACT_REPLY_REASONING_MAX_TOKENS}}}
+            "extra_body": {"thinking": {"type": "disabled"}}}
 
 
 def parse_contact_reply(raw: dict[str, Any]) -> str:

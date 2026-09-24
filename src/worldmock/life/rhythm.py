@@ -381,7 +381,8 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
         people_present_before=agent.people_at_last_decision,
         activity_infeasible=bool(facts["infeasible"] - delivered),
-        consecutive_rejections=agent.consecutive_rejections,
+        consecutive_rejections=(agent.consecutive_rejections
+                                if agent.next_decision_at <= now else 0),
         discovery_result_ready=("discovery_result" in agent.pending_wake_reasons
                                 and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),

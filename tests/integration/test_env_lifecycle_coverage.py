@@ -20,7 +20,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import custom.agents.life_agent as life_agent_module
@@ -53,8 +53,8 @@ def _identity(scenario, tag: str) -> RunIdentity:
         code_sha256="4" * 64,
         model_identity=ModelIdentity(
             provider="openai_compatible",
-            base_url="https://openrouter.ai/api/v1",
-            requested_model="deepseek-v4.1-flash",
+            base_url="https://api.deepseek.com",
+            requested_model="deepseek-flash",
             thinking="enabled",
             tool_choice="auto",
             max_retries=0,
@@ -193,7 +193,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
 
         evidence = ModelCallEvidence(
             contexts[-1], f"{contexts[-1].decision_id}:model:0001:attempt:1",
-            "request", 1, {"model": "deepseek-v4.1-flash", "messages": []})
+            "request", 1, {"model": "deepseek-flash", "messages": []})
         await env.record_model_exchange(evidence)
 
         receipt = await env.submit_action(DirectToolCall(

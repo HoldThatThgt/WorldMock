@@ -37,6 +37,7 @@ from worldmock.categories import refresh_manifest_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 CORPORA = ROOT / "corpora"
+LOCATIONS_PATH = "zhangjiang-map/locations.json"
 #: 品类准入读取的语料文件闭集（复制进临时树的最小集合）。
 CHECKED_FILES = [
     "meals/items.json",
@@ -86,14 +87,14 @@ def _codes(result) -> set[str]:
 
 def test_real_catalog_passes_all_category_requirements(real_catalog):
     """真实目录 + 真实语料：品类准入全绿（load_catalog 真目录 + 准入全绿）。"""
-    result = validate_world_categories(real_catalog, CORPORA)
+    result = validate_world_categories(real_catalog, CORPORA, LOCATIONS_PATH)
     assert result.ok, [f"{v.code}: {v.detail}" for v in result.violations]
 
 
 def test_requirements_undeclared_rejects_startup(catalog_dir, tmp_path):
     """manifest 未声明品类要求（v1 形态）时拒绝启动。"""
     legacy_catalog = load_catalog(catalog_dir)
-    result = validate_world_categories(legacy_catalog, tmp_path)
+    result = validate_world_categories(legacy_catalog, tmp_path, LOCATIONS_PATH)
     assert not result.ok
     assert CATEGORY_REQUIREMENTS_UNDECLARED in _codes(result)
 
@@ -101,14 +102,14 @@ def test_requirements_undeclared_rejects_startup(catalog_dir, tmp_path):
 def test_missing_meals_corpus(real_catalog, tmp_path):
     root = _copy_corpora(tmp_path)
     (root / "meals/items.json").unlink()
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_MISSING in _codes(result)
 
 
 def test_meals_below_contract_minimum(real_catalog, tmp_path):
     root = _copy_corpora(tmp_path)
     _mutate_json(root, "meals/items.json", lambda doc: doc.update(items=doc["items"][:3]))
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_BELOW_MIN in _codes(result)
 
 
@@ -119,7 +120,7 @@ def test_meals_missing_energy_source_annotation(real_catalog, tmp_path):
         doc["items"][0]["energy_source"] = {}
 
     _mutate_json(root, "meals/items.json", drop_source)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_SOURCE_MISSING in _codes(result)
 
 
@@ -130,7 +131,7 @@ def test_meals_price_outside_window(real_catalog, tmp_path):
         doc["items"][0]["price_fen"] = 1200
 
     _mutate_json(root, "meals/items.json", bad_price)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_FIELD_INVALID in _codes(result)
 
 
@@ -141,7 +142,7 @@ def test_meals_duration_outside_window(real_catalog, tmp_path):
         doc["items"][1]["meal_duration_minutes"] = 15
 
     _mutate_json(root, "meals/items.json", bad_duration)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_FIELD_INVALID in _codes(result)
 
 
@@ -153,7 +154,7 @@ def test_meals_without_dine_in_or_delivery(real_catalog, tmp_path):
         doc["items"][2]["delivery"] = False
 
     _mutate_json(root, "meals/items.json", nowhere)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_FIELD_INVALID in _codes(result)
 
 
@@ -170,7 +171,7 @@ def test_meals_catalog_object_missing(real_catalog, tmp_path):
     (catalog_dir / "objects.jsonl").write_text("\n".join(objects) + "\n", encoding="utf-8")
     refresh_manifest_identity(catalog_dir)
     stripped = load_catalog(catalog_dir)
-    result = validate_world_categories(stripped, root)
+    result = validate_world_categories(stripped, root, LOCATIONS_PATH)
     assert CATEGORY_MEALS_CATALOG_OBJECT_MISSING in _codes(result)
 
 
@@ -182,7 +183,7 @@ def test_location_required_kind_missing(real_catalog, tmp_path):
                             if loc["business_kind"] != "convenience_store"]
 
     _mutate_json(root, "zhangjiang-map/locations.json", drop_convenience)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_LOCATION_KIND_MISSING in _codes(result)
 
 
@@ -198,7 +199,7 @@ def test_location_restaurant_floor_of_two(real_catalog, tmp_path):
                     loc["business_kind"] = "general_retail"
 
     _mutate_json(root, "zhangjiang-map/locations.json", keep_one_restaurant)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_LOCATION_KIND_MISSING in _codes(result)
 
 
@@ -209,7 +210,7 @@ def test_home_pantry_below_seven_servings(real_catalog, tmp_path):
         doc["items"] = doc["items"][:4]
 
     _mutate_json(root, "scene-stock/home-pantry.json", shrink)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_HOME_AFFORDANCE_MISSING in _codes(result)
 
 
@@ -222,7 +223,7 @@ def test_home_morning_wash_not_fifteen_minutes(real_catalog, tmp_path):
                 item["typical_duration_minutes"] = 20
 
     _mutate_json(root, "lifestyle/items.json", wrong_duration)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_HOME_AFFORDANCE_MISSING in _codes(result)
 
 
@@ -235,7 +236,7 @@ def test_office_affordance_missing(real_catalog, tmp_path):
                 loc["affordances"].pop("pantry_water")
 
     _mutate_json(root, "zhangjiang-map/locations.json", strip_office)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_OFFICE_AFFORDANCE_MISSING in _codes(result)
 
 
@@ -248,7 +249,7 @@ def test_office_pantry_water_not_free(real_catalog, tmp_path):
                 loc["affordances"]["pantry_water"]["cost_fen"] = 200
 
     _mutate_json(root, "zhangjiang-map/locations.json", charge_water)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_OFFICE_AFFORDANCE_MISSING in _codes(result)
 
 
@@ -259,7 +260,7 @@ def test_content_age_rating_eighteen_rejected(real_catalog, tmp_path):
         doc[0]["age_rating"] = 18
 
     _mutate_json(root, "movies/items.json", adult_movie)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_CONTENT_AGE_RATING_REJECTED in _codes(result)
 
 
@@ -270,7 +271,7 @@ def test_content_metadata_field_missing(real_catalog, tmp_path):
         doc[0].pop("genre")
 
     _mutate_json(root, "novels/items.json", strip_genre)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_CONTENT_METADATA_MISSING in _codes(result)
 
 
@@ -281,7 +282,7 @@ def test_drama_corpus_must_be_chinese(real_catalog, tmp_path):
         doc[0]["language"] = "en"
 
     _mutate_json(root, "drama/items.json", english_drama)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_DRAMA_NOT_CHINESE in _codes(result)
 
 
@@ -292,7 +293,7 @@ def test_work_materials_below_twenty(real_catalog, tmp_path):
         doc["materials"] = doc["materials"][:12]
 
     _mutate_json(root, "scenario-work/materials.json", shrink)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_WORK_MATERIALS_BELOW_MIN in _codes(result)
 
 
@@ -303,7 +304,7 @@ def test_work_materials_duplicate_rejected(real_catalog, tmp_path):
         doc["materials"][5]["body"] = doc["materials"][4]["body"]
 
     _mutate_json(root, "scenario-work/materials.json", duplicate)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_WORK_MATERIALS_DUPLICATE in _codes(result)
 
 
@@ -315,7 +316,7 @@ def test_work_ami_metadata_retained_enforced(real_catalog, tmp_path):
                           if not e["path"].startswith("ami-es2002/")]
 
     _mutate_json(root, "manifest.json", drop_ami)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_WORK_AMI_MISSING in _codes(result)
 
 
@@ -326,7 +327,7 @@ def test_lifestyle_v2_field_missing(real_catalog, tmp_path):
         doc["items"][7].pop("effects")
 
     _mutate_json(root, "lifestyle/items.json", strip_fields)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_LIFESTYLE_FIELD_MISSING in _codes(result)
 
 
@@ -337,7 +338,7 @@ def test_lifestyle_time_window_inverted(real_catalog, tmp_path):
         doc["items"][9]["time_window"] = {"start_hour": 22, "end_hour": 6}
 
     _mutate_json(root, "lifestyle/items.json", invert)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_LIFESTYLE_FIELD_MISSING in _codes(result)
 
 
@@ -348,7 +349,7 @@ def test_contacts_below_two_per_persona(real_catalog, tmp_path):
         doc["contacts"] = [c for c in doc["contacts"] if c["persona_id"] == "agent:1"][:2]
 
     _mutate_json(root, "scenario-contacts/contacts.json", shrink)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_CONTACTS_BELOW_MIN in _codes(result)
 
 
@@ -362,7 +363,7 @@ def test_contacts_colleague_mapping_invalid(real_catalog, tmp_path):
                 contact["reply_policy"] = "model"
 
     _mutate_json(root, "scenario-contacts/contacts.json", break_mapping)
-    result = validate_world_categories(real_catalog, root)
+    result = validate_world_categories(real_catalog, root, LOCATIONS_PATH)
     assert CATEGORY_CONTACTS_MAPPING_INVALID in _codes(result)
 
 

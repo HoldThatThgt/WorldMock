@@ -1,5 +1,4 @@
 import hashlib
-import importlib.util
 import json
 import os
 import sys
@@ -9,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.profile.conftest import make_card, make_window
@@ -26,10 +25,10 @@ from worldmock.validation import build_coverage_targets, validate_project
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = PROJECT_ROOT / "scenarios" / "white-collar-12-weeks.json"
-_WINDOWS_WITHOUT_TEXTWORLD = sys.platform == "win32" and importlib.util.find_spec("textworld") is None
-_REQUIRES_TEXTWORLD = pytest.mark.skipif(
-    _WINDOWS_WITHOUT_TEXTWORLD,
-    reason="TextWorld 1.7.0 has no Windows wheel in the project lockfile",
+_LABELKIT_CLI = PROJECT_ROOT / "vendor" / "labelkit" / ".venv" / (
+    "Scripts/labelkit.exe" if sys.platform == "win32" else "bin/labelkit")
+_REQUIRES_LABELKIT = pytest.mark.skipif(
+    not _LABELKIT_CLI.is_file(), reason="The isolated LabelKit CLI is not installed",
 )
 
 
@@ -125,9 +124,10 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
     with pytest.raises(IntegrityError): validate_export(complete_export)
 
 
-@_REQUIRES_TEXTWORLD
-def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
+@_REQUIRES_LABELKIT
+def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
     """validate 全链路通过：品类准入+任务受理+两阶段身份+persona_coverage.json。"""
+    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
     coverage_out = tmp_path / "persona_coverage.json"
     result = validate_project(PROJECT_ROOT, SCENARIO,
                               persona_compiler=_compiler(_covered_card()),
@@ -144,9 +144,10 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path):
     assert document["agents"][0]["covered_items"] == report["covered_items"]
 
 
-@_REQUIRES_TEXTWORLD
-def test_validate_project_rejects_coverage_below_threshold(tmp_path):
+@_REQUIRES_LABELKIT
+def test_validate_project_rejects_coverage_below_threshold(tmp_path, monkeypatch):
     """可执行比例低于 80% 时校验失败并列出缺失项（画像写了世界里没有的东西）。"""
+    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
     uncovered = make_card(
         habits=(HabitSignature(trigger="通勤", response="听播客两集",
                                time_window=make_window(8.0, 9.0)),),
@@ -160,9 +161,10 @@ def test_validate_project_rejects_coverage_below_threshold(tmp_path):
     assert "播客" in str(caught.value)
 
 
-@_REQUIRES_TEXTWORLD
+@_REQUIRES_LABELKIT
 def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
     """世界素材品类准入纳入启动前校验：任一违例即拒绝。"""
+    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
     import worldmock.validation as validation_module
 
     class _Violation:
@@ -171,7 +173,7 @@ def test_validate_project_runs_world_category_admission(tmp_path, monkeypatch):
 
     original = validation_module.validate_world_categories
     monkeypatch.setattr(validation_module, "validate_world_categories",
-                        lambda catalog, root: SimpleNamespace(ok=False,
+                        lambda catalog, root, locations_path: SimpleNamespace(ok=False,
                                                               violations=(_Violation(),)))
     try:
         with pytest.raises(IntegrityError, match="World category admission rejected"):

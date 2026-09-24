@@ -18,14 +18,10 @@ from worldmock.footprints.models import (
 )
 from worldmock.life.narration import DecisionStatementValidationError, validate_decision_statement
 
-#: 决策自述阶段采样参数（温度 1.0：模型更换后 temp 1.3 偶发采样脱轨，1.0 下同请求
-#: 实测 4/4 正常；max_tokens 8000：OpenRouter 模型
-#: 每响应必带 reasoning 耗 token、实测峰值远超 2000，见 docs/CONTRACTS.md「生成参数」；
-#: reasoning 上限 1500：temp 1.3 偶发思考螺旋烧穿全部 max_tokens，上限只切病理尾部）。
+#: 决策自述阶段采样参数，与人物请求保持同值。
 #: 与 custom/agents/life_agent.py 的同名常数同值（agent 层不可被 src 反向导入）。
 _DECISION_STATEMENT_TEMPERATURE = 1.0
 _DECISION_STATEMENT_MAX_TOKENS = 8000
-_DECISION_STATEMENT_REASONING_MAX_TOKENS = 1500
 
 
 def defer_decision_starts(contexts: list[Any], round_id: str,
@@ -72,8 +68,7 @@ def maybe_decision_statement_start(pending: dict[int, dict], agent_id: int, occu
     """@brief 模型交换是有效决策自述响应时取出该人物的 decision_started 草稿。
 
     决策自述响应判定（与 agent 层 prelude_decision_statement_request 的形状一致）：
-    请求不带 tools、temperature=1.0 且 max_tokens=8000，且 extra_body.reasoning.
-    max_tokens=1500（有界生成形状必须含 reasoning 上限）——记忆巩固/反思的
+    请求不带 tools、temperature=1.0、max_tokens=8000 且禁用思考——记忆巩固/反思的
     LLM 调用不带这些参数，行动阶段 ReAct 请求必带 tools，均被排除。
     响应带协议错误（超长/空）或文本不满足决策自述协议时返回 None（等待重试
     或引擎终止本次决策），不抛错。
@@ -85,9 +80,7 @@ def maybe_decision_statement_start(pending: dict[int, dict], agent_id: int, occu
             or request.get("max_tokens") != _DECISION_STATEMENT_MAX_TOKENS):
         return None
     extra_body = request.get("extra_body")
-    reasoning = extra_body.get("reasoning") if isinstance(extra_body, dict) else None
-    if (not isinstance(reasoning, dict)
-            or reasoning.get("max_tokens") != _DECISION_STATEMENT_REASONING_MAX_TOKENS):
+    if not isinstance(extra_body, dict) or extra_body.get("thinking") != {"type": "disabled"}:
         return None
     if getattr(exchange, "error", None) is not None:
         return None

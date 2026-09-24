@@ -57,7 +57,7 @@ def test_tool_fingerprint_binds_start_activity_description(monkeypatch) -> None:
 class _ScriptedDispatcher:
     """@brief 留存真实请求的独立副本，按脚本返回模型响应或传输错误。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self, responses: list) -> None:
         self.responses = list(responses)
@@ -164,8 +164,7 @@ async def test_decision_statement_request_explicitly_describes_generation_contra
     assert "tools" not in request and "tool_choice" not in request
     assert request["temperature"] == 1.0
     assert request["max_tokens"] == 8000
-    assert request["extra_body"] == {"thinking": {"type": "disabled"},
-                                     "reasoning": {"max_tokens": 1500}}
+    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
     system = request["messages"][0]["content"]
     assert all(phrase in system for phrase in ("一至三句", "第一人称中文", "感受和打算", "二百汉字"))
     assert "我" * 200 in dispatcher.requests[1]["messages"][1]["content"]

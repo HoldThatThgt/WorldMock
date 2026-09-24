@@ -510,7 +510,6 @@ CATEGORY_PARTITION_LOCATION_INFEASIBLE = "CATEGORY_PARTITION_LOCATION_INFEASIBLE
 TASK_ASSIGNEE_MISSING = "TASK_ASSIGNEE_MISSING"
 
 MEALS_CORPUS = "meals/items.json"
-LOCATIONS_CORPUS = "zhangjiang-map/locations.json"
 PANTRY_CORPUS = "scene-stock/home-pantry.json"
 CONTACTS_CORPUS = "scenario-contacts/contacts.json"
 WORK_CORPUS = "scenario-work/materials.json"
@@ -569,11 +568,12 @@ def validate_task_assignees(tasks) -> AdmissionResult:
     return AdmissionResult(ok=not violations, violations=tuple(violations))
 
 
-def validate_world_categories(catalog: Catalog, corpora_root) -> AdmissionResult:
+def validate_world_categories(catalog: Catalog, corpora_root, locations_path: str) -> AdmissionResult:
     """@brief 按品类（非条数）校验世界素材：任一要求不满足即拒绝启动。
 
     :param catalog: 已加载的冻结目录视图（含品类要求声明）。
     :param corpora_root: 语料根目录（Path 或 str）。
+    :param locations_path: 场景钉定地图中的地点文件相对路径。
     :returns: ok 为 True 才允许启动；violations 携带品类级稳定错误码。
     """
     violations: list[AdmissionViolation] = []
@@ -586,15 +586,15 @@ def validate_world_categories(catalog: Catalog, corpora_root) -> AdmissionResult
         return AdmissionResult(ok=False, violations=tuple(violations))
     root = Path(corpora_root)
     _check_meals(catalog, root, requirements.meals, violations)
-    _check_locations(root, requirements, violations)
+    _check_locations(root, locations_path, requirements, violations)
     _check_home(catalog, root, requirements.home_pantry, violations)
-    _check_office(root, violations)
+    _check_office(root, locations_path, violations)
     _check_content(root, requirements.content_metadata, violations)
     _check_work(root, requirements.work_materials, violations)
     _check_lifestyle(root, violations)
     _check_contacts(root, requirements.contacts, violations)
     _check_partition_keys(root, violations)
-    _check_partition_feasibility(root, violations)
+    _check_partition_feasibility(root, locations_path, violations)
     return AdmissionResult(ok=not violations, violations=tuple(violations))
 
 
@@ -664,13 +664,13 @@ def _check_meal_entry(catalog: Catalog, meal, requirements, violations) -> None:
             f"{meal_id}: no consumable catalog object for meal"))
 
 
-def _check_locations(root, requirements, violations) -> None:
+def _check_locations(root, locations_path, requirements, violations) -> None:
     """@brief 地点品类：全部必需品类覆盖且达到每类下限（餐馆 ≥2）。"""
-    document = _load_corpus(root, LOCATIONS_CORPUS)
+    document = _load_corpus(root, locations_path)
     if document is None:
         violations.append(AdmissionViolation(
             CATEGORY_LOCATION_CORPUS_MISSING,
-            f"locations corpus {LOCATIONS_CORPUS} missing or malformed"))
+            f"locations corpus {locations_path} missing or malformed"))
         return
     counts: dict[str, int] = {}
     for location in document.get("locations", []):
@@ -713,9 +713,9 @@ def _check_home(catalog: Catalog, root, requirements, violations) -> None:
             f" breakfast_servings={servings}"))
 
 
-def _check_office(root, violations) -> None:
+def _check_office(root, locations_path, violations) -> None:
     """@brief 办公室的可供性：茶水间饮水、会议室与同事在场。"""
-    document = _load_corpus(root, LOCATIONS_CORPUS)
+    document = _load_corpus(root, locations_path)
     offices = []
     if document is not None:
         offices = [loc for loc in document.get("locations", []) if loc.get("kind") == "office"]
@@ -861,7 +861,7 @@ def _check_partition_keys(root, violations) -> None:
                 f" dimensions {list(missing)} (genre/language/duration_bucket)"))
 
 
-def _check_partition_feasibility(root, violations) -> None:
+def _check_partition_feasibility(root, locations_path, violations) -> None:
     """@brief 素材可达性第二半：每个分区必须存在非空的地点可行组合。
 
     分区内至少有一条条目的 `location_kinds` 与场景至少一个地点的
@@ -869,7 +869,7 @@ def _check_partition_feasibility(root, violations) -> None:
     （docs/dev/SPEC-life-realism.md「素材可达性」）。
     """
     entries = _retrieval_entries(root)
-    places = _place_kinds(root)
+    places = _place_kinds(root, locations_path)
     for partition, members in sorted(_partitions_of(entries).items()):
         if any(feasible_kinds(place, member.location_kinds)
                for member in members for place in places):
@@ -889,12 +889,12 @@ def _partitions_of(entries):
     return groups
 
 
-def _place_kinds(root) -> tuple[frozenset[str], ...]:
+def _place_kinds(root, locations_path) -> tuple[frozenset[str], ...]:
     """@brief 地点语料里全部地点的地点类集合。
 
     地点侧缺失活动环境声明属于资料错误；空集合不提供任何活动环境。
     """
-    document = _load_corpus(root, LOCATIONS_CORPUS)
+    document = _load_corpus(root, locations_path)
     if document is None:
         return ()
     places = []

@@ -4,55 +4,44 @@ from __future__ import annotations
 
 import copy
 import logging
-from functools import lru_cache
 from typing import Any
 
-import requests
 from litellm import token_counter
 
 from worldmock.life.narration import render_facts
+from worldmock.model_endpoint import DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MODEL
 
 
 CONTEXT_THRESHOLD = 0.85
-MODEL_METADATA_URL = "https://openrouter.ai/api/v1/model/deepseek/deepseek-v4.1-flash"
-MODEL_ALIAS = "deepseek-v4.1-flash"
-TOKENIZER_MODEL = "openrouter/deepseek/deepseek-v4.1-flash"
+MODEL_ALIAS = DEEPSEEK_MODEL
+TOKENIZER_MODEL = f"deepseek/{DEEPSEEK_MODEL}"
 
 
-@lru_cache(maxsize=1)
 def model_context_length(model: str) -> int:
-    """@brief 从当前模型供应商读取实际上下文窗口，拒绝身份不符。"""
+    """@brief 返回冻结模型合同中的官方上下文长度，拒绝身份不符。"""
     if model != MODEL_ALIAS:
         logging.error("Model context metadata is unavailable for %s", model)
         raise RuntimeError("model context metadata is unavailable")
-    try:
-        response = requests.get(MODEL_METADATA_URL, timeout=15)
-        response.raise_for_status()
-        metadata = response.json()["data"]
-        if metadata["id"] != "deepseek/deepseek-v4.1-flash":
-            raise ValueError("model metadata identity differs from the request")
-        context_length = metadata["context_length"]
-        if not isinstance(context_length, int) or context_length <= 0:
-            raise ValueError("model context length is invalid")
-    except (requests.RequestException, KeyError, TypeError, ValueError) as error:
-        logging.error("Model context metadata lookup failed: %s", error)
-        raise RuntimeError("model context metadata lookup failed") from error
-    return context_length
+    return DEEPSEEK_CONTEXT_LENGTH
 
 
-def request_token_count(request: dict[str, Any]) -> int:
-    """@brief 计入最终消息、工具定义和明确预留的最大输出 token。"""
+def prompt_token_count(request: dict[str, Any]) -> int:
+    """@brief 计量实际发送的消息与工具定义。"""
     try:
-        prompt = token_counter(model=TOKENIZER_MODEL, messages=request["messages"],
-                               tools=request.get("tools"))
+        return token_counter(model=TOKENIZER_MODEL, messages=request["messages"],
+                             tools=request.get("tools"))
     except Exception as error:
         logging.error("Model request token count failed: %s", error)
         raise RuntimeError("model request token count failed") from error
+
+
+def request_token_count(request: dict[str, Any]) -> int:
+    """@brief 容量预检计入输入和明确预留的最大输出 token。"""
     reserve = request.get("max_tokens")
     if not isinstance(reserve, int) or reserve <= 0:
         logging.error("Model request output reserve is missing")
         raise RuntimeError("model request output reserve is missing")
-    return prompt + reserve
+    return prompt_token_count(request) + reserve
 
 
 def _terminal_sessions(progress: dict[str, Any]) -> tuple[list[dict], list[dict]]:
@@ -154,6 +143,6 @@ def compare_usage(request: dict[str, Any], response: dict[str, Any] | None) -> N
     actual = usage.get("prompt_tokens") if isinstance(usage, dict) else None
     if not isinstance(actual, int):
         return
-    estimate = request_token_count(request) - request["max_tokens"]
+    estimate = prompt_token_count(request)
     logging.info("Model prompt token estimate checked: estimated=%s actual=%s difference=%s",
                  estimate, actual, actual - estimate)

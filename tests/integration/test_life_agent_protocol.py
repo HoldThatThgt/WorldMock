@@ -15,7 +15,7 @@ import pytest
 from tests.integration.storefront_fixtures import supply_row, discovery_catalog
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
@@ -32,7 +32,6 @@ from agentsociety2.society import (
 from custom.agents.life_agent import (
     LifeAgent,
     DECISION_STATEMENT_MAX_TOKENS,
-    DECISION_STATEMENT_REASONING_MAX_TOKENS,
     DECISION_STATEMENT_TEMPERATURE,
     life_prompt_sha256,
     life_tool_schema_sha256,
@@ -566,21 +565,19 @@ class _MultipleModelResponse:
 
 
 def _assert_decision_statement_wire(request: dict) -> None:
-    """核对决策自述请求的 wire 形状：无工具、1.0 温度、8000 上限、思考关闭、reasoning 上限。"""
+    """核对决策自述请求的 wire 形状：无工具、1.0 温度、8000 上限、思考关闭。"""
     assert "tools" not in request
     assert "tool_choice" not in request
     assert request["temperature"] == DECISION_STATEMENT_TEMPERATURE
     assert request["max_tokens"] == DECISION_STATEMENT_MAX_TOKENS
     assert request["max_retries"] == 0
-    assert request["extra_body"] == {"thinking": {"type": "disabled"},
-                                     "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS}}
-    assert DECISION_STATEMENT_REASONING_MAX_TOKENS < DECISION_STATEMENT_MAX_TOKENS
+    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
 
 
 class _Dispatcher:
     """按顺序返回决策自述、生活动作、动作后记忆读取和结束调用。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -663,7 +660,7 @@ class _Environment:
 class _StepDispatcher:
     """返回决策自述、一个生活动作和原生 finish。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -688,7 +685,7 @@ class _StepDispatcher:
 class _PrematureFinishDispatcher:
     """在人物提交生活动作前注入未开放的 finish。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self) -> None:
         self.requests = []
@@ -702,7 +699,7 @@ class _PrematureFinishDispatcher:
 class _GroundedCorrectionDispatcher:
     """复现记忆查询后捏造旧游戏工具并自行纠正的响应序列。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self, responses: list[_ModelResponse] | None = None,
                  decision_statements: list[_DecisionStatementResponse] | None = None) -> None:
@@ -815,7 +812,7 @@ def _wire_agent(agent: LifeAgent, environment: _Environment, dispatcher,
     """按协议测试需要装配人物、环境与调度器。"""
     agent._env = environment
     agent._dispatcher = dispatcher
-    agent._model_name = "deepseek-v4.1-flash"
+    agent._model_name = "deepseek-flash"
     agent._id = 7
     agent._name = "Alice"
     agent._profile = {"id": 7, "name": "Alice", "occupation": "engineer"}
@@ -979,11 +976,8 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
 
     requests = [item for item in environment.evidence if item.phase == "request"]
     responses = [item for item in environment.evidence if item.phase == "response"]
-    # 决策自述请求关闭思考并带 reasoning 上限；行动阶段请求钉死思考开启与 DeepSeek thinking 兼容 tool_choice。
-    assert requests[0].request["extra_body"] == {
-        "thinking": {"type": "disabled"},
-        "reasoning": {"max_tokens": DECISION_STATEMENT_REASONING_MAX_TOKENS},
-    }
+    # 决策自述请求关闭思考；行动阶段请求开启思考并采用兼容的工具选择。
+    assert requests[0].request["extra_body"] == {"thinking": {"type": "disabled"}}
     for item in requests[1:]:
         assert item.request["extra_body"] == {"thinking": {"type": "enabled"}}
         assert item.request["tool_choice"] == "auto"

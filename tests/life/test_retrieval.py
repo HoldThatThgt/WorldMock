@@ -154,7 +154,7 @@ def test_place_kinds_rejects_malformed_entries(tmp_path):
         {"location_id": "home", "location_kinds": ["home"]},
     ]}), encoding="utf-8")
     with pytest.raises(ValueError, match="activity kinds declaration"):
-        place_kinds(tmp_path)
+        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
 def test_item_kinds_skips_malformed_entries(tmp_path):
@@ -298,13 +298,13 @@ def test_place_kinds_rejects_undeclared_location_environment(tmp_path):
         {"location_id": "office", "location_kinds": []},
     ]}), encoding="utf-8")
     with pytest.raises(ValueError, match="activity kinds declaration"):
-        place_kinds(tmp_path)
+        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
 def test_place_kinds_missing_file_is_rejected(tmp_path):
     """地点语料缺失必须拒绝。"""
     with pytest.raises(ValueError, match="location corpus is missing"):
-        place_kinds(tmp_path)
+        place_kinds(tmp_path, "zhangjiang-map/locations.json")
 
 
 def test_item_kinds_reads_lifestyle_declarations(tmp_path):
@@ -328,7 +328,7 @@ def test_real_corpus_partitions_are_reachable():
                                      "novels/items.json",
                                      "feed/items.json", "jokes/items.json")
                     for item in json.loads((CORPORA / relative).read_text(encoding="utf-8")))
-    report = reachability_report(entries, tuple(place_kinds(CORPORA).values()))
+    report = reachability_report(entries, tuple(place_kinds(CORPORA, "zhangjiang-map/locations.json").values()))
     assert report["unreachable"] == []
     assert report["partition_count"] > 1
     assert all(row["feasible"] for row in report["partitions"])

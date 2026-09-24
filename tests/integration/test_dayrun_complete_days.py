@@ -37,7 +37,7 @@ def _fixed_context_window(monkeypatch):
 class DayModel:
     """只从当前人物可见合同选脚本行动；模型响应仍经过真实原生协议校验。"""
 
-    model_name = "deepseek-v4.1-flash"
+    model_name = "deepseek-flash"
 
     def __init__(self, seed: int, agent_id: int):
         self.seed, self.agent_id = seed, agent_id

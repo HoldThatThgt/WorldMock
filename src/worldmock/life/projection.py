@@ -23,7 +23,9 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from worldmock.catalog.affordances import default_affordances
 from worldmock.life import felt, narration, social
+from worldmock.life import social_actions
 from worldmock.life.interaction_menu import action_label, purchase_action_label
 from worldmock.life.models import ActivityKind, AgentState, SessionStatus, WorldState, active_activities
 from worldmock.life.result_projection import public_action_result
@@ -503,14 +505,35 @@ def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[
     identity, kind = row["object_id"], row["kind"]
     label = _interaction_object_label(inputs, row)
     actions = _interaction_actions(inputs, row)
+    available = [action for action in actions if _resource_available(inputs, action)]
     result = {"object": label, "kind": kind, "object_id": identity,
-              "actions": actions, "preconditions_met": row["preconditions_met"]}
+              "actions": available or actions,
+              "preconditions_met": row["preconditions_met"] and bool(available)}
     if kind == "supply":
         supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == identity)
         result["quote"] = {"price_version": supply.get("price_version"),
                            "price_fen": supply.get("price_fen"),
                            "purchase_price_fen": supply.get("purchase_price_fen")}
     return result
+
+
+def _resource_available(inputs: ProjectionInputs, action: dict[str, Any]) -> bool:
+    """@brief 按执行器同一资源声明核对交互动作与本人正在执行的活动。"""
+    occupied = set().union(*(item.resource_claims for item in
+                             active_activities(inputs.state, inputs.agent.agent_id)))
+    canonical = action["canonical_action"]
+    if canonical == "purchase":
+        return True
+    if canonical in {"chat", "call"}:
+        claims = social_actions.SOCIAL_RESOURCE_CLAIMS
+    else:
+        affordances = default_affordances()
+        kinds = [name for name, spec in affordances.kinds.items() if spec.action == canonical]
+        if len(kinds) != 1:
+            logging.error("Interaction action has no unique resource declaration: %s", canonical)
+            raise ValueError("interaction action has no unique resource declaration")
+        claims = affordances.resource_claims(kinds[0], action.get("travel_mode"))
+    return not bool(occupied & claims)
 
 
 def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> str:

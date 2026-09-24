@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import pytest
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
-os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://openrouter.ai/api/v1")
+os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.errors import IntegrityError, ProtocolError
@@ -94,7 +94,7 @@ class _Society:
 
     current_time = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
     step_count = 1
-    token_stats = {"deepseek-v4.1-flash": {"calls": 1, "input": 10, "output": 5}}
+    token_stats = {"deepseek-flash": {"calls": 1, "input": 10, "output": 5}}
 
     def __init__(self, fail_run=None, fail_close=None):
         self.calls = []
@@ -226,10 +226,10 @@ def test_require_loaded_config_rejects_diverged_as2_configuration(monkeypatch):
         "LLM_API_BASE", "LLM_MODEL", "CODER_LLM_API_BASE", "CODER_LLM_MODEL",
         "EMBEDDING_MODEL")}
     try:
-        monkeypatch.setattr(Config, "LLM_API_BASE", "https://openrouter.ai/api/v1")
-        monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-v4.1-flash")
-        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://openrouter.ai/api/v1")
-        monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-v4.1-flash")
+        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-flash")
+        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-flash")
         monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
         _require_loaded_config()
         monkeypatch.setattr(Config, "LLM_API_BASE", "https://elsewhere.example")
@@ -259,13 +259,13 @@ def test_configure_process_sets_worker_environment(tmp_path, monkeypatch):
                "AGENTSOCIETY_LLM_REQUEST_TIMEOUT", "MEM0_TELEMETRY", "ANONYMIZED_TELEMETRY")
     saved_env = {name: os.environ.get(name) for name in touched}
     try:
-        monkeypatch.setattr(Config, "LLM_API_BASE", "https://openrouter.ai/api/v1")
-        monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-v4.1-flash")
-        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://openrouter.ai/api/v1")
-        monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-v4.1-flash")
+        monkeypatch.setattr(Config, "LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "LLM_MODEL", "deepseek-flash")
+        monkeypatch.setattr(Config, "CODER_LLM_API_BASE", "https://api.deepseek.com")
+        monkeypatch.setattr(Config, "CODER_LLM_MODEL", "deepseek-flash")
         monkeypatch.setattr(Config, "EMBEDDING_MODEL", "")
         _configure_process(ROOT)
-        assert os.environ["AGENTSOCIETY_LLM_MODEL"] == "deepseek-v4.1-flash"
+        assert os.environ["AGENTSOCIETY_LLM_MODEL"] == "deepseek-flash"
         assert os.environ["AGENTSOCIETY_LLM_API_KEY"] == "secret-a,secret-b"
         entries = os.environ["PYTHONPATH"].split(os.pathsep)
         assert entries[0] == str(ROOT) and entries[1] == str(ROOT / "src")
@@ -641,8 +641,8 @@ def test_persona_payload_skips_and_renders(tmp_path, monkeypatch):
 class _StubAS2Client:
     """AS2 客户端桩：返回脚本化响应形态。"""
 
-    model_name = "deepseek-v4.1-flash"
-    base_url = "https://openrouter.ai/api/v1"
+    model_name = "deepseek-flash"
+    base_url = "https://api.deepseek.com"
 
     def __init__(self, responses):
         self._responses = list(responses)
@@ -655,19 +655,19 @@ def test_contact_reply_client_enforces_manifest_identity(monkeypatch):
     """回复客户端身份必须与运行清单完全一致。"""
     from worldmock.runtime import ContactReplyClient
 
-    identity = {"requested_model": "deepseek-v4.1-flash",
-                "base_url": "https://openrouter.ai/api/v1", "max_retries": 0}
+    identity = {"requested_model": "deepseek-flash",
+                "base_url": "https://api.deepseek.com", "max_retries": 0}
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-v4.1-flash", base_url="https://openrouter.ai/api/v1",
+        model_name="deepseek-flash", base_url="https://api.deepseek.com",
         call=None))
     client = ContactReplyClient(identity)
-    assert client.model_name == "deepseek-v4.1-flash"
+    assert client.model_name == "deepseek-flash"
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="other-model", base_url="https://openrouter.ai/api/v1", call=None))
+        model_name="other-model", base_url="https://api.deepseek.com", call=None))
     with pytest.raises(ProtocolError, match="identity disagrees"):
         ContactReplyClient(identity)
     monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
-        model_name="deepseek-v4.1-flash", base_url="https://openrouter.ai/api/v1", call=None))
+        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
     with pytest.raises(ProtocolError, match="parameters disagree"):
         ContactReplyClient({**identity, "max_retries": 3})
 
@@ -677,8 +677,8 @@ async def test_contact_reply_client_serializes_model_responses(monkeypatch):
     """模型响应按 pydantic/dict 形态序列化，异常形态拒绝。"""
     from worldmock.runtime import ContactReplyClient
 
-    identity = {"requested_model": "deepseek-v4.1-flash",
-                "base_url": "https://openrouter.ai/api/v1", "max_retries": 0}
+    identity = {"requested_model": "deepseek-flash",
+                "base_url": "https://api.deepseek.com", "max_retries": 0}
     as2_client = _StubAS2Client([
         SimpleNamespace(model_dump=lambda mode: {"choices": []}),
         {"choices": []},
@@ -688,7 +688,7 @@ async def test_contact_reply_client_serializes_model_responses(monkeypatch):
     monkeypatch.setattr("agentsociety2.config.build_client_for_role",
                         lambda role: as2_client)
     client = ContactReplyClient(identity)
-    assert await client.call({"model": "deepseek-v4.1-flash"}) == {"choices": []}
+    assert await client.call({"model": "deepseek-flash"}) == {"choices": []}
     assert await client.call({}) == {"choices": []}
     with pytest.raises(ProtocolError, match="not serializable"):
         await client.call({})
@@ -713,10 +713,9 @@ def test_prepare_contact_reply_builds_disabled_thinking_request():
     """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限。"""
     request = SimpleNamespace(contact_id="contact-1", incoming_text="周五晚上一起吃饭？",
                               max_chars=200)
-    payload = prepare_contact_reply(request, None, "deepseek-v4.1-flash")
-    assert payload["model"] == "deepseek-v4.1-flash"
-    assert payload["extra_body"] == {"thinking": {"type": "disabled"},
-                                     "reasoning": {"max_tokens": 1500}}
+    payload = prepare_contact_reply(request, None, "deepseek-flash")
+    assert payload["model"] == "deepseek-flash"
+    assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
     assert payload["max_retries"] == 0 and payload["stream"] is False
     assert payload["max_tokens"] == 8000
     assert [message["role"] for message in payload["messages"]] == ["system", "user"]
@@ -726,7 +725,7 @@ def test_prepare_contact_reply_builds_disabled_thinking_request():
     assert body["reply_char_limit"] == 200
     profile = {"contact_id": "contact-1", "salutation": "老陈", "relation": "old_friend",
                "closeness": 0.8, "channels": ["wechat"]}
-    with_contact = prepare_contact_reply(request, profile, "deepseek-v4.1-flash")
+    with_contact = prepare_contact_reply(request, profile, "deepseek-flash")
     assert json.loads(with_contact["messages"][1]["content"])["contact"] == profile
 
 
@@ -781,7 +780,7 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
     built = []
 
     class RecordingClient:
-        model_name = "deepseek-v4.1-flash"
+        model_name = "deepseek-flash"
 
         def __init__(self, model_identity):
             built.append(model_identity)
@@ -821,7 +820,7 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
         replies = [item for item in engine.state.agents[1].inbox.values()
                    if item.sender_id == "contact-chenxi-oldfriend"]
         assert len(replies) == 1 and replies[0].text == "好啊，老地方见。"
-        assert built and built[0]["requested_model"] == "deepseek-v4.1-flash"
+        assert built and built[0]["requested_model"] == "deepseek-flash"
     finally:
         engine.close()
 
@@ -929,8 +928,8 @@ def test_read_status_decision_boundaries(tmp_path):
 
 def test_two_stage_identity_rejects_retries_and_reasoning_effort():
     """两阶段一致性：重试非零与发送 reasoning_effort 均拒绝。"""
-    identity = {"provider": "deepseek", "base_url": "https://openrouter.ai/api/v1",
-                "requested_model": "deepseek-v4.1-flash", "max_retries": 0, "strict": True,
+    identity = {"provider": "deepseek", "base_url": "https://api.deepseek.com",
+                "requested_model": "deepseek-flash", "max_retries": 0, "strict": True,
                 "reasoning_effort": None,
                 "stages": {"decision_statement": {}, "action": {}, "work_review": {}}}
     from worldmock.runtime import two_stage_model_identity
@@ -969,7 +968,7 @@ def test_validate_persona_coverage_accepts_absolute_corpus_and_skips_plain_agent
     scenario = SimpleNamespace(
         scenario_id="probe", corpus_root="unused",
         agents=[SimpleNamespace(agent_id=1, background_story=None)],
-        locations=(), contents=(), games=None)
+        locations=(), contents=(), games=None, phone_simulation_config=None)
     document = validate_persona_coverage(
         SCENARIO, _scenario=scenario, _corpus_root=ROOT / "corpora",
         coverage_out=tmp_path / "persona_coverage.json")
@@ -1035,7 +1034,7 @@ def _run_result(run_id="identity", run_dir=None):
 
     return RunResult(run_id=run_id, run_dir=run_dir or Path("/tmp/run"),
                      current_time=datetime(2026, 1, 5, tzinfo=timezone.utc),
-                     step_count=2, token_stats={"deepseek-v4.1-flash": {
+                     step_count=2, token_stats={"deepseek-flash": {
                          "calls": 1, "input": 10, "output": 5}})
 
 

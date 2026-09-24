@@ -58,8 +58,7 @@ DEFAULT_RETRIEVAL_INDEX_THRESHOLD = 1000
 #: 检索路径的两种取值：索引命中与线性扫描（同入口、同结果，只用于留痕）。
 RetrievalPath = Literal["INDEXED", "SCANNED"]
 
-#: 地点类声明的两处语料相对路径（地点侧与条目侧，读法相同）。
-LOCATIONS_RELATIVE = "zhangjiang-map/locations.json"
+#: 生活活动语料的相对路径。
 LIFESTYLE_RELATIVE = "lifestyle/items.json"
 
 
@@ -220,7 +219,7 @@ def _matches(entry: RetrievalEntry, query: RetrievalQuery) -> bool:
 
 
 @lru_cache(maxsize=8)
-def place_kinds(corpora_root: Any, relative: str = LOCATIONS_RELATIVE
+def place_kinds(corpora_root: Any, relative: str
                 ) -> Mapping[str, frozenset[str]]:
     """@brief 读取显式地点活动环境；缺文件、缺声明和活动侧通配符均拒绝。"""
     path = corpora_root / relative

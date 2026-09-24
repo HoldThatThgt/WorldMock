@@ -498,6 +498,8 @@ def _runtime_payload(
         "retrieval_index_threshold": document.retrieval_index_threshold,
         "corpus_root": document.corpus_root,
         "corpus_manifest_sha256": document.corpus_manifest_sha256,
+        "phone_simulation_config": document.phone_simulation_config,
+        "phone_simulation_config_sha256": document.phone_simulation_config_sha256,
         "body": body.model_dump(mode="python"),
         "agents": [item.model_dump(mode="python") for item in document.agents],
         "locations": locations,
