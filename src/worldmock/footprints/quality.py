@@ -589,7 +589,7 @@ def _response_tool_calls(event: Event) -> list[tuple[str, dict | None]]:
         for call in calls if isinstance(calls, list) else []:
             function = call.get("function") if isinstance(call, dict) else None
             name = function.get("name") if isinstance(function, dict) else None
-            if isinstance(name, str):
+            if name in {"memory_read", "finish"}:
                 result.append((name, _decode_arguments(function.get("arguments"), event.event_id)))
     return result
 

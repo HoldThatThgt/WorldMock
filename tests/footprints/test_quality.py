@@ -218,6 +218,20 @@ def test_memory_quality_reports_unknown_reference_and_missing_update():
     assert memory["problems"][0]["reference_ids"] == ["absent"]
 
 
+def test_non_memory_tool_json_error_is_counted_without_memory_warning(caplog):
+    """生活工具参数错误归入模型协议错误，不误报为记忆引用问题。"""
+    response = _tool_response("call", [], _usage())
+    response["error"] = "invalid tool arguments for report_status"
+    function = response["response"]["choices"][0]["message"]["tool_calls"][0]["function"]
+    function.update(name="report_status", arguments="{invalid json")
+    event = _event(1, "model_response", agent_id=1, decision_id="decision", data=response)
+    quality = build_quality_report([event], [], _manifest())
+    assert quality["model_usage"]["protocol_error_responses"] == 1
+    assert quality["memory_references"]["problem_count"] == 0
+    assert not any("Memory tool arguments are invalid JSON" in record.message
+                   for record in caplog.records)
+
+
 def test_finish_memory_can_reference_its_observation_and_visible_prior_result():
     events = [_event(1, 'action_result', agent_id=1, action_id='prior', data={'status': 'completed'}),
               _event(2, 'observation', agent_id=1, decision_id='current',
