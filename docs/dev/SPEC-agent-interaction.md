@@ -366,7 +366,8 @@ if snap.is_asleep:
 
 **呈现规则**：
 - `facts.tasks[]` 呈现任务名称、可读必需地点、技能、门槛、剩余工时和截止时间；不呈现任务或地点内部身份；
-- `facts.interactive_objects[]` 每项带可读 `object`、`actions` 与 `preconditions_met`；
+- `facts.interactive_objects[]` 只列当前可执行的对象与动作，每项带可读 `object`、`actions` 与
+  `preconditions_met`；未满足条件的任务仍在 `facts.tasks[]` 说明，不作为可选动作；
 - `scene` 在前置条件未满足时补一句中文说明并点名地点
   （例如「这份工作要在办公室做，先去张江高科技园区办公室」）。
 

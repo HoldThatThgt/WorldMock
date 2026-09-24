@@ -656,6 +656,9 @@ flowchart TD
 | `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
 | `manifest.json` | 运行身份、截止、来源、覆盖、完成状态、各文件摘要与冻结运行清单 |
 
+活动开始时固定 `location_id`，导出活动记录保留该地点；出行活动的 `location_id` 是出发地，
+`destination_id` 是目的地。并行活动分别保留各自的开始地点与执行区间。
+
 | 导出清单字段 | 含义 |
 | --- | --- |
 | `schema_version`、`committed`、`run_id` | 格式版本、已发布标志与所属运行 |

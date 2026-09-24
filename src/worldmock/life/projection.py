@@ -505,9 +505,10 @@ def _interaction_binding(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[
     identity, kind = row["object_id"], row["kind"]
     label = _interaction_object_label(inputs, row)
     actions = _interaction_actions(inputs, row)
-    available = [action for action in actions if _resource_available(inputs, action)]
+    available = ([action for action in actions if _resource_available(inputs, action)]
+                 if row["preconditions_met"] else [])
     result = {"object": label, "kind": kind, "object_id": identity,
-              "actions": available or actions,
+              "actions": available,
               "preconditions_met": row["preconditions_met"] and bool(available)}
     if kind == "supply":
         supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == identity)

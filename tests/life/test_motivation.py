@@ -519,7 +519,7 @@ class TestSoftmaxAndShape:
                          for index in range(1, 11))
         tasks = tuple(_task(f"task-{index}", pay=50_000 - index) for index in range(1, 5))
         activity = ActivityState(
-            activity_id="activity-w1", agent_id=1, kind=ActivityKind.WATCH,
+            activity_id="activity-w1", agent_id=1, location_id="office", kind=ActivityKind.WATCH,
             status=ActivityStatus.ACTIVE, started_at=CURRENT - 600,
             planned_end_at=CURRENT + 1800, last_settled_at=CURRENT - 600, elapsed_seconds=600,
             planned_duration_seconds=2400, target_id="movie-0001", origin_action_id="a",
@@ -571,7 +571,7 @@ class TestEnumerationBoundaries:
 
     def test_continue_candidate_uses_remaining_progress(self, transforms):
         activity = ActivityState(
-            activity_id="activity-a1", agent_id=1, kind=ActivityKind.WATCH,
+            activity_id="activity-a1", agent_id=1, location_id="home", kind=ActivityKind.WATCH,
             status=ActivityStatus.ACTIVE, started_at=CURRENT - 600,
             planned_end_at=CURRENT + 1200, last_settled_at=CURRENT - 600, elapsed_seconds=600,
             planned_duration_seconds=1800, target_id="movie-0001", origin_action_id="a",
@@ -587,7 +587,7 @@ class TestEnumerationBoundaries:
     def test_continue_wait_reports_only_elapsed_awake_time(self, transforms):
         """等待不预测任何未实际播放内容产生的娱乐缓解。"""
         activity = ActivityState(
-            activity_id="activity-w1", agent_id=1, kind=ActivityKind.WAIT,
+            activity_id="activity-w1", agent_id=1, location_id="home", kind=ActivityKind.WAIT,
             status=ActivityStatus.ACTIVE, started_at=CURRENT - 600,
             planned_end_at=CURRENT + 1200, last_settled_at=CURRENT - 600, elapsed_seconds=600,
             planned_duration_seconds=1800, origin_action_id="a",

@@ -126,6 +126,7 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert validated["checkpoint"]["checkpoint_id"] == checkpoint.checkpoint_id
     activity = next(item for item in activities if item["activity_id"] == activity_id)
     assert activity["status"] == "completed"
+    assert activity["location_id"] == observation["location_id"]
     assert activity["segments"] == [{"started_at": engine.state.end_time - duration,
                                      "ended_at": engine.state.end_time}]
     action = next(item for item in windows["action"]

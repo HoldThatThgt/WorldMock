@@ -56,7 +56,8 @@ class ObservationMixin:
             motivation_internal=self._motivation_internal(agent),
             extras=self._projection_extras(agent, rows["products"], menu))
         data = projection.build_observation(inputs)
-        data["task_bindings"] = [{"task_name": row["title"], "task_id": row["task_id"]}
+        data["task_bindings"] = [{"task_name": row["title"], "task_id": row["task_id"],
+                                  "submission_ready": row["submission_ready"]}
                                  for row in task_rows]
         data["session_bindings"] = [
             {"task_name": item.task_name, "session_name": item.session_name,
@@ -207,6 +208,8 @@ class ObservationMixin:
     def _visible_task_rows(self, agent) -> list[dict]:
         """@brief 可见任务的 facts 行：task_id/标题/截止/剩余合同工时及五项前置条件字段。"""
         rows = []
+        running = {activity.target_id for activity in active_activities(self.state, agent.agent_id)
+                   if activity.kind == ActivityKind.WORK}
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
                 continue
@@ -214,10 +217,11 @@ class ObservationMixin:
             due = int(task.due_at.timestamp())
             if self.state.current_time > due:
                 continue
-            worked, _effective = work_totals(self.state, agent.agent_id, task_id)
+            worked, effective = work_totals(self.state, agent.agent_id, task_id)
             rows.append({
                 "task_id": task_id, "title": task.title, "due_at": due,
                 "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
+                "submission_ready": effective >= task.required_effective_seconds and task_id not in running,
                 "required_location_id": task.required_location_id,
                 "required_skill": task.required_skill,
                 "minimum_skill": task.minimum_skill,

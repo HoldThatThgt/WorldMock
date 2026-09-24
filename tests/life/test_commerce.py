@@ -145,7 +145,8 @@ def test_food_progress_persists_partial_quantity_across_pause_and_completion(eng
     request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
                              duration_seconds=product.use_duration_seconds)
     activity = ActivityState(
-        activity_id="food-progress", agent_id=1, kind="consume", status=ActivityStatus.ACTIVE,
+        activity_id="food-progress", agent_id=1, location_id=agent.location_id,
+        kind="consume", status=ActivityStatus.ACTIVE,
         started_at=0, planned_end_at=900, last_settled_at=450, elapsed_seconds=450,
         planned_duration_seconds=900, target_id=product.product_id,
         origin_action_id="eat", origin_decision_id="eat-decision",

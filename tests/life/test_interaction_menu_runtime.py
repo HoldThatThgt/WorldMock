@@ -34,6 +34,7 @@ def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_
     assert all(set(row) == {"object", "actions", "preconditions_met"} for row in rows)
     assert all("object_id" not in row and "price_version" not in row for row in rows)
     assert all(row["object"] and all(action for action in row["actions"]) for row in rows)
+    assert all(row["preconditions_met"] is True for row in rows)
     assert {row["object"] for row in rows} == {
         row["object"] for row in observed["interaction_bindings"]}
     travel = _binding(observed, "location", "travel_to")

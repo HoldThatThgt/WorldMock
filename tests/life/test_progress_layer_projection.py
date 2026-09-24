@@ -15,6 +15,7 @@ from worldmock.life.models import (
     ConcludeActivityRequest,
     PauseActivityRequest,
     PendingAction,
+    RecallTaskSummaryRequest,
     ReportStatusRequest,
     SessionState,
     SessionStatus,
@@ -156,6 +157,39 @@ def test_current_task_name_must_identify_one_session() -> None:
         state, pending, ReportStatusRequest(task=[first.session_name], summary=["已完成提纲"]))
     assert changed.sessions[first.session_id].progress_note == "已完成提纲"
     assert changed.sessions[second.session_id].progress_note == second.progress_note
+
+
+def test_recall_work_task_uses_latest_session_note_without_removed_agent_field() -> None:
+    """回看工作任务读取会话自述，回看具体会话读取该会话状态。"""
+    first = _session("first", started_at=100).model_copy(update={
+        "progress_note": "先整理提纲", "note_updated_at": 130})
+    second = _session("second", started_at=200).model_copy(update={
+        "task_ref": first.task_ref, "progress_note": "已经核对正文", "note_updated_at": 230})
+    state = _control_state(first, second)
+
+    class RecallController(SessionActionMixin):
+        """只提供回看动作需要的冻结绑定与任务目录。"""
+
+        rules = SimpleNamespace(task=lambda _identity: SimpleNamespace(
+            task_id=first.task_ref, required_skill="writing",
+            due_at=datetime.fromtimestamp(1000, timezone.utc)))
+
+        def _frozen_observation(self, _pending: PendingAction) -> dict:
+            return {"session_bindings": [
+                {"session_name": session.session_name, "session_id": session.session_id}
+                for session in (first, second)],
+                "task_bindings": [{"task_name": first.task_name, "task_id": first.task_ref,
+                                   "submission_ready": False}],
+                "goal_bindings": []}
+
+    controller = RecallController()
+    _, task_result = controller._recall_task_summary(
+        state, _control_pending(), RecallTaskSummaryRequest(task_name=first.task_name))
+    assert task_result.data["task"]["progress_note"] == "已经核对正文"
+
+    _, session_result = controller._recall_task_summary(
+        state, _control_pending(), RecallTaskSummaryRequest(task_name=first.session_name))
+    assert session_result.data["session"]["subjective_progress"] == "先整理提纲"
 
 
 def test_conclude_only_ends_selected_active_sessions_and_updates_matching_notes() -> None:

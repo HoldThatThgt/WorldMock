@@ -62,7 +62,7 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `conclude_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项） | 逐项写总结并结束选中的进行中会话；未选中会话继续 |
 | `plan_day` | `goals: List[{intent_kind, goal}]`（零至八条） | `status: "submitted"` |
 | `revise_day_plan` | `goals: List[{intent_kind, goal}]`（替换全部未推进目标） | `status: "submitted"` |
-| `submit_work` | `task_name`, `deliverable` | 提交模型撰写的工作成果，任务名称取本轮可见名称 |
+| `submit_work` | `task_name`, `deliverable` | 有效工作量达到合同要求后开放；任务名称取本轮可见名称 |
 | `send_message` | `recipient_name`, `text` | 发送模型撰写的消息，收件人名称取本轮可见名称 |
 
 #### 交互菜单声明与有效菜单
@@ -467,7 +467,8 @@ MessageKind = Literal["direct", "chat_invite"]
 | `SOCIAL_ACTIVITY_OPERATION_UNKNOWN` | 交谈或通话的变更操作不在取消与恢复之内 |
 | `ACTIVITY_TOO_SHORT` | 折算后的社交活动时长不足 60 秒 |
 
-交互对象的 `preconditions_met` 使用与执行器相同的活动资源声明检查本人正在执行的活动。
+交互对象使用与执行器相同的活动资源声明检查本人正在执行的活动；前置条件不满足或资源被占用的
+动作不列入本轮可选对象，`facts.tasks` 与场景提醒仍说明任务要求。
 已有活动造成 `RESOURCE_CONFLICT` 时仍返回公开拒绝结果；下一次决策安排在最早活动结束时刻
 或下一个活动反馈间隔，不再逐秒重复同一冲突。
 
@@ -1056,8 +1057,10 @@ JSONL 实际每个对象一行；`input.text_field = "evidence"` 使用 LabelKit
 只提取实际发给生活人物模型的行动请求；工作评审、画像抽取等私有请求不得进入任何训练输入或目标。
 窗口内其他事件只补实际可见事实与可引用来源，不得据结构化观察反推、替换或增加实际 prompt 中没有的
 人物卡片、记忆或场景。动作窗口的 prompt 截止在目标动作前；意图窗口可以读取已发生的公开结果，
-但目标事实仍与输入分开。观察的禁用键必须在字段级投影后才可进入窗口；任何人物的私有响应或
-`reasoning_content` 均不得混入。前置状态与 `events[0].data` 相同时只保存事件引用，不复制整棵状态。
+但目标事实仍与输入分开。观察的禁用键必须在字段级投影后才可进入窗口；私有响应不得混入。
+`decision_prompt` 必须保留实际请求中的 assistant `reasoning_content`，因为工具调用后模型确实收到该字段；
+窗口的其他事件和目标不得额外混入 `reasoning_content`。前置状态与 `events[0].data` 相同时只保存事件引用，
+不复制整棵状态。
 文字、动作和意图窗口按请求人物核对其 decision/action 组的可见来源；
 同一不透明标识关联到其他人物时明确拒绝。
 

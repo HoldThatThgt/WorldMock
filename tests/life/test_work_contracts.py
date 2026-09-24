@@ -77,7 +77,8 @@ def _completed_work_state(engine, task, worked: int, effective: float, agent_id:
         update={"location_id": task.required_location_id, "visible_task_ids": visible,
                 "next_decision_at": now, "body_settled_at": now}, deep=True)
     activity = ActivityState(
-        activity_id=f"completed-{task.task_id}-{agent_id}", agent_id=agent_id, kind="work",
+        activity_id=f"completed-{task.task_id}-{agent_id}", agent_id=agent_id,
+        location_id=task.required_location_id, kind="work",
         status="completed", started_at=now - worked, ended_at=now, planned_end_at=now,
         last_settled_at=now, elapsed_seconds=worked, planned_duration_seconds=worked,
         effective_work_seconds=effective, target_id=task.task_id,

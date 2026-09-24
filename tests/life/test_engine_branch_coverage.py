@@ -394,7 +394,7 @@ def test_counterfactual_sources_must_be_unique_and_hypothesis_nonblank() -> None
 
 def _activity_state(**updates) -> ActivityState:
     """构造合法活动状态并可覆盖字段。"""
-    fields = dict(activity_id="activity-x", agent_id=1, kind=ActivityKind.WAIT,
+    fields = dict(activity_id="activity-x", agent_id=1, location_id="home", kind=ActivityKind.WAIT,
                   status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=100,
                   last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=100,
                   origin_action_id="action-x", origin_decision_id="decision-x",

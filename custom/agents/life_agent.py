@@ -1014,7 +1014,7 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
-        "task_names": tuple(row["task_name"] for row in tasks),
+        "task_names": tuple(row["task_name"] for row in tasks if row["submission_ready"]),
         "recipient_names": tuple(row["object"] for row in bindings
                                  if row["kind"] in {"person", "contact"}),
         "recall_names": tuple([*(row["task_name"] for row in tasks),

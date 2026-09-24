@@ -90,7 +90,8 @@ def test_shared_energy_duration_matches_actual_settlement_at_limit() -> None:
 def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
     """构造直接公共进度接口所需的有效活动。"""
     claims = {"position", "attention"} if kind in {ActivityKind.CHAT, ActivityKind.CALL} else {"position"}
-    return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1, kind=kind,
+    return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1,
+                         location_id="home", kind=kind,
                          status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration,
                          last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=duration,
                          resource_claims=claims, origin_action_id="action", origin_decision_id="decision",

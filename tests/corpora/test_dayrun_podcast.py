@@ -37,7 +37,7 @@ def _agent() -> AgentState:
 
 def _activity(item: ContentItemConfig) -> ActivityState:
     """@brief 创建具有真实媒体时钟的播客播放活动。"""
-    return ActivityState(activity_id="listen", agent_id=1, kind="watch", status="active",
+    return ActivityState(activity_id="listen", agent_id=1, location_id="home", kind="watch", status="active",
                          started_at=0, planned_end_at=item.duration_seconds,
                          last_settled_at=0, elapsed_seconds=0,
                          planned_duration_seconds=item.duration_seconds,

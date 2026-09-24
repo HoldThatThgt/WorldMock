@@ -688,7 +688,7 @@ def _bind_review_client(monkeypatch, model_name: str, base_url: str):
     ("model_name", "base_url"),
     [
         ("deepseek-chat", "https://api.deepseek.com"),
-        ("deepseek-flash", "https://api.deepseek.com"),
+        ("deepseek-flash", "https://api.deepseek.com/beta"),
     ],
 )
 def test_work_reviewer_rejects_model_or_full_base_url_mismatch(

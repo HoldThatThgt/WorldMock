@@ -34,6 +34,7 @@ def _world_state() -> WorldState:
     activity = ActivityState(
         activity_id="activity-1",
         agent_id=1,
+        location_id="home",
         kind="wait",
         status="active",
         started_at=1,

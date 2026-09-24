@@ -139,6 +139,8 @@ def test_engine_start_travel_uses_frozen_factored_duration(engine_factory) -> No
     assert accepted.status.value == "in_progress"
     activity = engine.state.activities[accepted.activity_id]
     assert activity.planned_duration_seconds == quote
+    assert activity.location_id == "home"
+    assert activity.destination_id == "office"
 
 
 def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) -> None:

@@ -367,6 +367,8 @@ class ActivityState(StrictModel):
 
     activity_id: str = Field(min_length=1)
     agent_id: int = Field(gt=0)
+    # 活动开始时的地点；出行活动记录出发地，目的地另由 destination_id 表达。
+    location_id: str = Field(min_length=1)
     kind: ActivityKind
     status: ActivityStatus
     started_at: int = Field(ge=0)

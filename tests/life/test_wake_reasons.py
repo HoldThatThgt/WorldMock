@@ -142,7 +142,8 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     assert _has_commitments(visible, inputs)
     state.paid_task_ids.add("task")
     assert not _has_commitments(visible, inputs)
-    item = ActivityState(activity_id="a", agent_id=1, kind=ActivityKind.WAIT,
+    item = ActivityState(activity_id="a", agent_id=1, location_id=agent.location_id,
+        kind=ActivityKind.WAIT,
         status=ActivityStatus.PAUSED, started_at=now, planned_end_at=now + 600,
         last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=600,
         origin_action_id="act", origin_decision_id="dec", origin_request_event_id="evt")

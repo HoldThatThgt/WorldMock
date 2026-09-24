@@ -255,6 +255,7 @@ def test_apply_recipe_returns_same_state_when_activity_was_already_applied() -> 
     activity = ActivityState(
         activity_id="consume-1",
         agent_id=1,
+        location_id=agent.location_id,
         kind="consume",
         status="completed",
         started_at=1,
@@ -278,7 +279,7 @@ def _finished_recipe() -> ActivityState:
     plan = InventoryRecipePlan("open-item", "sealed-item", "opened-item", Decimal(1), Decimal(1),
                                "inventory_closed", "item")
     return ActivityState(
-        activity_id="consume-1", agent_id=1, kind="consume", status="completed",
+        activity_id="consume-1", agent_id=1, location_id="home", kind="consume", status="completed",
         started_at=1, ended_at=61, planned_end_at=61, last_settled_at=61,
         elapsed_seconds=60, planned_duration_seconds=60, origin_action_id="action-1",
         origin_decision_id="decision-1", origin_request_event_id="request-1",

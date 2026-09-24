@@ -205,7 +205,8 @@ class TestLifestyleRelief:
                                           sleep_deficit_hours=1.0,
                                           entertainment_need=0.5, social_need=0.6))
         activity = ActivityState(
-            activity_id="a-jog", agent_id=1, kind=ActivityKind.LIFESTYLE,
+            activity_id="a-jog", agent_id=1, location_id=agent.location_id,
+            kind=ActivityKind.LIFESTYLE,
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
             target_id="jogging", origin_action_id="a", origin_decision_id="d",
@@ -244,7 +245,8 @@ class TestLifestyleRelief:
         scenario, _ = load_scenario(ROOT / "scenarios/white-collar-12-weeks.json")
         assert engine.semantics.body == scenario.body  # 引擎语义体即场景身体配置
         activity = ActivityState(
-            activity_id="a-jog", agent_id=1, kind=ActivityKind.LIFESTYLE,
+            activity_id="a-jog", agent_id=1, location_id=engine.state.agents[1].location_id,
+            kind=ActivityKind.LIFESTYLE,
             status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=1800,
             last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=1800,
             target_id="jogging", origin_action_id="a", origin_decision_id="d",

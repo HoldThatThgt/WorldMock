@@ -81,8 +81,7 @@ def _decision_prompt_source(action: dict, rows: list[dict]) -> dict:
         _invalid_action_group("Action training has an invalid recorded decision prompt")
     messages, tools = request.get("messages"), request.get("tools")
     if (not isinstance(messages, list) or not messages or not isinstance(tools, list)
-            or any(not isinstance(message, dict) or "reasoning_content" in message
-                   for message in messages)):
+            or any(not isinstance(message, dict) for message in messages)):
         _invalid_action_group("Action training has an incomplete recorded decision prompt")
     names = {item.get("function", {}).get("name") for item in tools if isinstance(item, dict)
              and isinstance(item.get("function"), dict)}

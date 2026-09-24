@@ -397,9 +397,14 @@ class SessionActionMixin:
             data = {"session": _session_fact_row(session)}
         elif tasks:
             task = self.rules.task(tasks[0]["task_id"])
+            notes = [session for session in state.sessions.values()
+                     if session.agent_id == pending.agent_id and session.task_kind == SessionTaskKind.WORK_TASK
+                     and session.task_ref == task.task_id and session.progress_note]
+            latest = max(notes, key=lambda session: (session.note_updated_at or session.started_at,
+                                                     session.started_at), default=None)
             data = {"task": {"task_name": request.task_name, "required_skill": task.required_skill,
                               "due_at": task.due_at.isoformat(),
-                              "progress_note": agent.task_progress.get(task.task_id, "")}}
+                              "progress_note": latest.progress_note if latest else ""}}
         else:
             if agent.day_plan is None:
                 raise BusinessRuleError("PLAN_NOT_FOUND")

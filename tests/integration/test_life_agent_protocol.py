@@ -163,7 +163,8 @@ def _observations(*result_ids: str) -> list[dict]:
             {"object": "整理会议纪要", "kind": "work_task", "object_id": "task-visible",
              "actions": [{"label": "工作", "canonical_action": "work"}]},
         ],
-        "task_bindings": [{"task_name": "整理会议纪要", "task_id": "task-visible"}],
+        "task_bindings": [{"task_name": "整理会议纪要", "task_id": "task-visible",
+                           "submission_ready": True}],
         "session_bindings": [],
         "goal_bindings": [],
         "recent_action_results": [{"event_id": item} for item in result_ids],
@@ -220,6 +221,18 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert all(function["strict"] is True for function in functions.values())
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
+
+
+def test_incomplete_work_can_be_recalled_but_cannot_be_submitted() -> None:
+    """合同有效工时未完成时，模型仍能查看任务，但提交工具不开放。"""
+    observations = _observations()
+    observations[0]["data"]["task_bindings"][0]["submission_ready"] = False
+    agent = LifeAgent()
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
+    names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
+    assert "recall_task_summary" in names
+    assert "start_activity" in names
+    assert "submit_work" not in names
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:

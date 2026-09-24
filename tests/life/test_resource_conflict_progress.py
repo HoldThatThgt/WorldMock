@@ -26,9 +26,9 @@ def test_active_work_is_marked_unavailable_and_conflict_waits_for_progress(engin
                                                   2: ("start_activity", work_request)})
     engine.commit_decision_round("resource-lock-start")
     observed = engine._observation_data(engine.state.agents[1])
-    task_row = next(row for row in observed["facts"]["interactive_objects"]
-                    if row["object"] == f"工作：{task.title}")
-    assert task_row["preconditions_met"] is False
+    assert all(row["object"] != f"工作：{task.title}"
+               for row in observed["facts"]["interactive_objects"])
+    assert all(row["object_id"] != task.task_id for row in observed["interaction_bindings"])
 
     pending = SimpleNamespace(agent_id=1, action_id="repeat-work")
     changed, result = engine._after_rejection(

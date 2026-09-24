@@ -127,6 +127,7 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int, or
     activity = ActivityState(
         activity_id=activity_id,
         agent_id=agent.agent_id,
+        location_id=agent.location_id,
         kind=request.activity_type,
         status=ActivityStatus.ACTIVE,
         started_at=now,

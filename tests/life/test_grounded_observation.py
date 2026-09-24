@@ -200,6 +200,7 @@ def _stage_progress_limits(engine) -> None:
     activity = ActivityState(
         activity_id="completed-work-limit",
         agent_id=1,
+        location_id=task.required_location_id,
         kind="work",
         status="completed",
         started_at=now - worked,
@@ -388,7 +389,8 @@ def test_motivation_context_wires_enabled_set_and_recent_meals(engine_factory) -
     def consumed_activity(key: str, started_at: int, mode: str, consumed: dict) -> ActivityState:
         """构造已结算的食用活动，不把模型请求当作已吃下的事实。"""
         return ActivityState(
-            activity_id=key, agent_id=1, kind="consume", status="completed",
+            activity_id=key, agent_id=1, location_id=engine.state.agents[1].location_id,
+            kind="consume", status="completed",
             started_at=started_at, ended_at=started_at + 600, planned_end_at=started_at + 600,
             last_settled_at=started_at + 600, elapsed_seconds=600, planned_duration_seconds=600,
             origin_action_id=key, origin_decision_id=key, origin_request_event_id=key,

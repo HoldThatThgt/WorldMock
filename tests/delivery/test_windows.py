@@ -371,6 +371,12 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
     requested['action_id'] = 'selected-action'
     prompt = decision_prompt(requested, (observed, requested))
     prompt['data']['request']['messages'][1]['content'] = '人物卡：安。场景：办公室。记忆：昨天写了报告。'
+    prompt['data']['request']['messages'].extend([
+        {'role': 'assistant', 'content': None, 'reasoning_content': '先查看刚才的工具反馈。',
+         'tool_calls': [{'id': 'call-1', 'type': 'function',
+                         'function': {'name': 'memory_recent', 'arguments': '{}'}}]},
+        {'role': 'tool', 'tool_call_id': 'call-1', 'content': '没有找到新记忆。'},
+    ])
     private_review = event('private-review', 5, 'model_request', {
         'phase': 'request', 'purpose': 'work_review', 'request': {'hidden_answer': 'private'}}, 'system')
     private_review['action_id'] = requested['action_id']
@@ -385,6 +391,7 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
                                      (manifest, tmp_path, {row['event_id']: row for row in rows}))
 
     assert action['input']['decision_prompt'] == prompt['data']['request']
+    assert action['input']['decision_prompt']['messages'][2]['reasoning_content'] == '先查看刚才的工具反馈。'
     assert '人物卡：安' in action['input']['decision_prompt']['messages'][1]['content']
     assert action['input']['prerequisite_state']['state'] is None
     assert action['target']['outcomes'] == [completed]
