@@ -77,7 +77,9 @@ function viewer(events) {
   return {
     state, errors, run, get,
     activities() { run('renderActivities()'); return get('#act-body').innerHTML; },
+    body() { run('renderBodyCurves()'); return get('#bd-body').innerHTML; },
     economy() { run('renderEconomy()'); return get('#eco-body').innerHTML; },
+    memory() { run('renderMemory()'); return get('#mem-body').innerHTML; },
     summary(sequence) { return state.events.find(event => event.seq === sequence).sum; },
     reload(nextEvents) {
       get('#btn-reload').onclick();
@@ -122,8 +124,8 @@ test('locations accumulate across people and replace fixed home office market la
   ];
   const events = [event('observation', {locations}), event('observation', {locations: []}, {agent_id: 2})];
   for (const place of locations) {
-    events.push(event('action_requested', {tool_name: 'start_travel', request: {
-      destination_id: place.location_id, travel_mode: 'walking', planned_duration_seconds: 600,
+    events.push(event('action_requested', {tool_name: 'start_activity', request: {
+      targets: [place.name], actions: ['步行前往'],
     }}));
     events.push(activity('action_accepted', `go-${place.location_id}`, {
       kind: 'travel', destination_id: place.location_id,
@@ -146,10 +148,10 @@ test('products mail and tasks remain named after later sparse observations', t =
     event('observation', {
       products: [{product_id: 'breakfast-custom', name: '红烧牛肉面'}],
       messages: [{message_id: 'mail-team', subject: '项目周会通知'}],
-      tasks: [{task_id: 'hourly-2026-01-05', remaining_contract_seconds: 3600}],
-      facts: {tasks: [{task_id: 'hourly-2026-01-05', title: '梳理客户访谈记录'}]},
+      tasks: [{task_id: 'hourly-2026-01-05', title: '梳理客户访谈记录',
+        remaining_contract_seconds: 3600}],
     }),
-    event('observation', {products: [], messages: [], tasks: [], facts: {tasks: []}}, {agent_id: 2}),
+    event('observation', {products: [], messages: [], tasks: []}, {agent_id: 2}),
     ...[
       ['consume', 'breakfast-custom'], ['read_mail', 'mail-team'], ['work', 'hourly-2026-01-05'],
     ].map(([kind, target_id]) => activity('action_accepted', kind, {kind, target_id})),
@@ -179,8 +181,8 @@ test('browse results name movies dramas novels games and lifestyle activities wi
   const events = [browse(rows)];
   for (const row of rows) {
     const target_id = row.item_id || row.activity_id;
-    events.push(event('action_requested', {tool_name: 'start_targeted_activity', request: {
-      activity_type: row.kind, target_id, planned_duration_seconds: 600,
+    events.push(event('action_requested', {tool_name: 'start_activity', request: {
+      targets: [row.title || row.name], actions: ['开始'],
     }}));
     events.push(activity('action_accepted', `do-${target_id}`, {kind: row.kind, target_id}));
   }
@@ -215,8 +217,8 @@ test('each activity keeps its last nonempty title instead of another activity or
 test('progress-only activity titles name both activity rows and request summaries', t => {
   const title = '华语短剧台词选段（源编号 16013）';
   const view = viewer([
-    event('action_requested', {tool_name: 'start_targeted_activity', request: {
-      activity_type: 'watch', target_id: 'drama-0007', planned_duration_seconds: 600,
+    event('action_requested', {tool_name: 'start_activity', request: {
+      targets: [title], actions: ['观看'],
     }}),
     activity('activity_progress', 'only-progress', {kind: 'watch', target_id: 'drama-0007', title}),
   ]);
@@ -227,17 +229,47 @@ test('progress-only activity titles name both activity rows and request summarie
   assert.deepEqual(view.errors, []);
 });
 
-test('delivery request destinations use recorded locations', t => {
+test('start activity request displays semantic objects and actions', t => {
   const view = viewer([
     event('observation', {locations: [{location_id: 'home', name: '张江公寓'}],
       products: [{product_id: 'food-rice', name: '菜饭'}]}),
-    event('action_requested', {tool_name: 'purchase', request: {
-      product_id: 'food-rice', quantity: 1, fulfillment: 'delivery', destination_id: 'home',
+    event('action_requested', {tool_name: 'start_activity', request: {
+      targets: ['菜饭'], actions: ['外送到张江公寓'],
     }}),
   ]);
   t.after(() => view.close());
   assert.ok(view.summary(2).includes('张江公寓'));
   assert.ok(view.summary(2).includes('菜饭'));
+  assert.ok(!view.summary(2).includes('food-rice'));
+});
+
+test('interaction bindings name catalog activity without overriding a recorded title', t => {
+  const view = viewer([
+    event('observation', {interaction_bindings: [
+      {object_id: 'product_catalog', object: '商品目录'},
+      {object_id: 'drama-0001', object: '内容：目录说明'},
+    ]}),
+    activity('action_accepted', 'browse', {kind: 'browse', target_id: 'product_catalog'}),
+    activity('action_accepted', 'watch', {kind: 'watch', target_id: 'drama-0001', title: '本次选段'}),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(targets(view.activities()), ['商品目录', '本次选段']);
+  assert.deepEqual(view.errors, []);
+});
+
+test('session requests display each task with its own progress sentence', t => {
+  const view = viewer([
+    event('action_requested', {tool_name: 'report_status', request: {
+      task: ['整理访谈', '准备周会'], summary: ['完成提纲', '列出议题'],
+    }}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {
+      task: ['整理访谈'], summary: ['已经提交纪要'],
+    }}),
+  ]);
+  t.after(() => view.close());
+  assert.ok(view.summary(1).includes('整理访谈：完成提纲；准备周会：列出议题'));
+  assert.ok(view.summary(2).includes('结束活动 · 整理访谈：已经提交纪要'));
+  assert.ok(!view.summary(1).includes('task='));
 });
 
 test('unknown names are explicit and logged in English while basic activities have no invented target', t => {
@@ -269,7 +301,7 @@ test('empty names are reported and cannot erase earlier recorded names', t => {
         {location_id: 'poi-empty', name: ''}, {location_id: 'poi-space', name: ' \t '}],
       products: [{product_id: 'food-empty', name: ''}],
       messages: [{message_id: 'mail-space', subject: '   '}],
-      facts: {tasks: [{task_id: 'task-space', title: ' \t '}]},
+      tasks: [{task_id: 'task-space', title: ' \t '}],
     }),
     browse([{item_id: 'movie-keep', title: '海边的清晨'},
       {item_id: 'movie-empty', title: ''}, {item_id: 'movie-space', title: '   '}]),
@@ -315,7 +347,7 @@ test('identifiers repeated as names or titles remain explicit missing names', t 
       locations: [{location_id: 'poi-raw', name: 'poi-raw'}],
       products: [{product_id: 'food-raw', name: 'food-raw'}],
       messages: [{message_id: 'mail-raw', subject: 'mail-raw'}],
-      facts: {tasks: [{task_id: 'task-raw', title: 'task-raw'}]},
+      tasks: [{task_id: 'task-raw', title: 'task-raw'}],
     }),
     browse([{item_id: 'movie-raw', title: 'movie-raw'}]),
     ...['food-raw', 'mail-raw', 'task-raw', 'movie-raw'].map(target_id =>
@@ -376,4 +408,73 @@ test('directory loading ignores external items.json names', async t => {
   await view.run('loadMemFiles')([entry]);
   assert.equal(reads, 0);
   assert.deepEqual(targets(view.activities()), ['名称缺失（movie-0001）']);
+});
+
+test('body curves read current observation values rather than obsolete body fields', t => {
+  const view = viewer([
+    event('observation', {balance_fen: 1000, body: {values: {
+      energy_kcal: 1356.25, sleep_deficit_hours: 1.875, entertainment_need: 0.3,
+    }}, active_activities: [{kind: 'watch'}, {kind: 'wait'}]}),
+    event('observation', {balance_fen: 900, body: {values: {
+      energy_kcal: 1230, sleep_deficit_hours: 2.5, entertainment_need: 0.5,
+    }}}, {occurred_at: epoch + 60}),
+  ]);
+  t.after(() => view.close());
+  assert.deepEqual(JSON.parse(JSON.stringify(view.state.obs.map(({en, sl, et}) => [en, sl, et]))), [
+    [1356.25, 1.875, 0.3], [1230, 2.5, 0.5],
+  ]);
+  assert.ok(view.body().includes('睡眠缺口 sleep_deficit_hours'));
+  assert.ok(view.summary(1).includes('1356kcal'));
+  assert.ok(view.summary(1).includes('进行中：观看、等待'));
+});
+
+test('memory page shows stored episode text without requiring a directory upload', t => {
+  const view = viewer([
+    event('memory_updated', {operation: 'append_episodes',
+      created_episode_ids: ['m-1', 'm-2'], merged_episode_ids: [], episodes: [
+      {id: 'm-1', type: 'routine', text: '今天先完成工作。'},
+      {id: 'm-2', type: 'preference', text: '<img src=x onerror=alert(1)>'},
+    ]}),
+  ]);
+  t.after(() => view.close());
+  const markup = view.memory();
+  assert.ok(markup.includes('今天先完成工作。'));
+  assert.ok(markup.includes('&lt;img src=x onerror=alert(1)&gt;'));
+  assert.ok(!markup.includes('<img'));
+  assert.ok(markup.includes('人物记忆正文（2 条）'));
+  assert.ok(!markup.includes('展开 episode ID'));
+  assert.ok(view.summary(1).includes('2 段记忆'));
+});
+
+test('activity lanes preserve simultaneous work and pauses using settled intervals', t => {
+  const first = 'work-a', second = 'wait-b';
+  const view = viewer([
+    activity('action_accepted', first, {kind: 'work', started_at: epoch + 60},
+      {occurred_at: epoch + 60}),
+    activity('action_accepted', second, {kind: 'wait', started_at: epoch + 90},
+      {occurred_at: epoch + 90}),
+    activity('activity_progress', first, {kind: 'work', started_at: epoch + 60},
+      {occurred_at: epoch + 180, data: {activity: {
+        activity_id: first, kind: 'work', started_at: epoch + 60,
+      }, interval_start: epoch + 60, interval_end: epoch + 180}}),
+    activity('activity_progress', second, {kind: 'wait', started_at: epoch + 90},
+      {occurred_at: epoch + 150, data: {activity: {
+        activity_id: second, kind: 'wait', started_at: epoch + 90,
+      }, interval_start: epoch + 90, interval_end: epoch + 150}}),
+    activity('activity_progress', first, {kind: 'work', started_at: epoch + 60},
+      {occurred_at: epoch + 240, data: {activity: {
+        activity_id: first, kind: 'work', started_at: epoch + 60,
+      }, interval_start: epoch + 210, interval_end: epoch + 240}}),
+  ]);
+  t.after(() => view.close());
+  const work = view.state.acts.find(row => row.aid === first);
+  const wait = view.state.acts.find(row => row.aid === second);
+  assert.equal(work.actualSeconds, 150);
+  assert.equal(wait.actualSeconds, 60);
+  assert.deepEqual(JSON.parse(JSON.stringify(work.intervals)),
+    [[epoch + 60, epoch + 180], [epoch + 210, epoch + 240]]);
+  assert.deepEqual(JSON.parse(JSON.stringify(wait.intervals)), [[epoch + 90, epoch + 150]]);
+  const markup = view.activities();
+  assert.equal((markup.match(/class="act-lane-bar"/g) || []).length, 3);
+  assert.ok(markup.includes('同一时间轴上的条块表示实际执行区间'));
 });

@@ -51,6 +51,13 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .nav-item:hover{color:var(--fg);background:var(--bg3)}
 .nav-item.on{color:var(--fg);background:var(--bg3);border-left-color:var(--accent)}
 #main{flex:1;overflow:auto;padding:16px 20px;min-width:0}
+@media(max-width:700px){
+  #layout{flex-direction:column}
+  #sidebar{width:100%;flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:0}
+  .nav-item{width:auto;flex:none;white-space:nowrap;border-left:0;border-bottom:2px solid transparent;padding:8px 10px}
+  .nav-item.on{border-left-color:transparent;border-bottom-color:var(--accent)}
+  #main{padding:12px}
+}
 .view{display:none}
 .view.on{display:block}
 .view h2{font-size:16px;font-weight:600;margin-bottom:12px}
@@ -97,6 +104,17 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
 .act-table th:hover{color:var(--fg)}
 .act-table th .arrow{font-size:10px;margin-left:3px;color:var(--accent)}
 .act-kind{display:inline-block;padding:1px 8px;border-radius:3px;font-size:11px}
+.act-lanes{overflow:auto;margin-bottom:14px}
+.act-lanes-inner{min-width:900px}
+.act-lane{display:flex;align-items:center;min-height:30px;border-top:1px solid var(--line)}
+.act-lane-label{width:240px;flex:none;padding:4px 8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.act-lane-track{position:relative;flex:1;height:28px;background:repeating-linear-gradient(to right,
+  transparent 0,transparent calc(25% - 1px),var(--line) calc(25% - 1px),var(--line) 25%)}
+.act-lane-bar{position:absolute;top:6px;height:16px;min-width:2px;border-radius:3px}
+.act-lane-axis{display:flex;margin-left:240px;justify-content:space-between;color:var(--fg-dim);font:11px var(--mono)}
+.memory-entry{border-left:3px solid var(--accent);padding:8px 12px;margin:8px 0;background:var(--bg3);border-radius:3px}
+.memory-entry .meta{color:var(--fg-dim);font-size:11px;margin-bottom:4px}
+.memory-entry .text{white-space:pre-wrap;overflow-wrap:anywhere}
 .pager{display:flex;align-items:center;gap:10px;justify-content:flex-end;padding:8px 2px;color:var(--fg-dim);font-size:12px}
 .pager button:disabled{opacity:.4;cursor:default}
 
@@ -143,7 +161,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
   <div id="drop-box" role="button" tabindex="0">
     <h1>拖入 footprints.sqlite</h1>
     <p>将运行产生的 SQLite 足迹文件拖到此处，或点击选择文件。<br>
-       也可以把 sqlite 文件与整个 run 目录一起拖入（目录含 <code>as2/agents/*/MEMORY.md</code>）以加载记忆文件；<br>
+       记忆正文从 SQLite 事件读取；拖入整个 run 目录还可读取人物的 <code>MEMORY.md</code> 总结。<br>
        地点名称和活动标题直接读取运行记录。<br>
        所有数据只在本地浏览器内解析，不会上传。</p>
   </div>
@@ -169,7 +187,7 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
       <section class="view" data-view="overview"><h2>总览</h2><div id="ov-body"></div></section>
       <section class="view" data-view="timeline"><h2>时间线</h2><div id="tl-body"></div></section>
       <section class="view" data-view="day"><h2>一天</h2><div id="day-body"></div></section>
-      <section class="view" data-view="activities"><h2>活动表格</h2><div id="act-body"></div></section>
+      <section class="view" data-view="activities"><h2>活动泳道</h2><div id="act-body"></div></section>
       <section class="view" data-view="body"><h2>身体曲线</h2><div id="bd-body"></div></section>
       <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
       <section class="view" data-view="memory"><h2>记忆</h2><div id="mem-body"></div></section>
@@ -298,20 +316,22 @@ const KIND_LABELS = {
   purchase:'购买', travel:'出行', read_mail:'读邮件', browse:'浏览', play_game:'玩游戏',
 };
 const TOOL_LABELS = {
-  start_basic_activity:'开始基础活动', start_travel:'开始出行',
-  start_targeted_activity:'开始定向活动', continue_activity:'继续活动',
-  purchase:'购买', consume:'进食', set_activity_state:'调整活动状态',
-  submit_work:'提交工作', game_action:'游戏操作',
+  start_activity:'开始活动', submit_work:'提交工作', send_message:'发送消息',
+  recall_task_summary:'回看任务', report_status:'播报进展', pause_activity:'暂停活动',
+  conclude_activity:'结束活动', plan_day:'制定当日目标', revise_day_plan:'调整当日目标',
 };
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
 const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈' };
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
   delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期' };
 const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
+const MEMORY_TYPE_LABELS = {
+  reflection:'反思', routine:'日常', goal:'目标', relationship:'关系',
+  commitment:'承诺', preference:'偏好', resolution:'决定',
+};
 const ERR_LABELS = { WORK_REQUIRES_REWORK:'工作需返工' };
 const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'商家·通用',
   'merchant:grocery':'商家·杂货', 'transport:service':'交通服务' };
-const TRAVEL_MODES = { driving:'驾车', walking:'步行', transit:'公交', bicycle:'骑行' };
 const typeLabel = t => TYPE_LABELS[t]||t;
 const kindLabel = k => k==null?'':(KIND_LABELS[k]||k);
 const toolLabel = t => t==null?'—':(TOOL_LABELS[t]||t);
@@ -391,7 +411,7 @@ function buildNameIndex(){
   const sources = [
     ['locations', 'location_id', 'name', locations],
     ['products', 'product_id', 'name', targets],
-    ['facts.tasks', 'task_id', 'title', targets],
+    ['tasks', 'task_id', 'title', targets],
   ];
   for (const [path, id, label, names] of sources){
     collectNames(q(`SELECT json_extract(item.value,'$.${id}') AS id,
@@ -415,6 +435,14 @@ function buildNameIndex(){
     json_extract(body,'$.data.activity.title') AS label FROM events
     WHERE json_extract(body,'$.event_type') IN ('action_accepted','activity_progress')
     ORDER BY event_seq`), targets);
+  const bindings = q(`SELECT json_extract(item.value,'$.object_id') AS id,
+    json_extract(item.value,'$.object') AS label
+    FROM events e, json_each(e.body,'$.data.interaction_bindings') item
+    WHERE json_extract(e.body,'$.event_type')='observation' ORDER BY e.event_seq`);
+  for (const row of bindings){
+    if (row.id && typeof row.label==='string' && row.label.trim() && row.label!==row.id
+        && !targets.has(row.id)) targets.set(row.id,row.label);
+  }
   S.nameIdx = {locations, targets};
 }
 
@@ -447,14 +475,16 @@ function buildIndex(){
   typeQuery('decision_started', ['$.data.round_order'], r=>{
     S.summaries.set(r.seq,{round:r['$.data.round_order']});
   });
-  typeQuery('observation', ['$.data.balance_fen','$.data.body.energy_kcal','$.data.body.sleep_debt_hours',
-                            '$.data.body.entertainment_need','$.data.active_activity.kind','$.data.calendar_context.date'],
+  typeQuery('observation', ['$.data.balance_fen','$.data.body.values.energy_kcal',
+                            '$.data.body.values.sleep_deficit_hours','$.data.body.values.entertainment_need',
+                            '$.data.active_activities','$.data.calendar_context.date'],
   r=>{
-    S.summaries.set(r.seq,{bal:r['$.data.balance_fen'],en:r['$.data.body.energy_kcal'],
-      sl:r['$.data.body.sleep_debt_hours'],et:r['$.data.body.entertainment_need'],
-      act:r['$.data.active_activity.kind'],date:r['$.data.calendar_context.date']});
+    S.summaries.set(r.seq,{bal:r['$.data.balance_fen'],en:r['$.data.body.values.energy_kcal'],
+      sl:r['$.data.body.values.sleep_deficit_hours'],et:r['$.data.body.values.entertainment_need'],
+      acts:parseJArr(r['$.data.active_activities']),date:r['$.data.calendar_context.date']});
     S.obs.push({seq:r.seq, t:null, agent:null, bal:r['$.data.balance_fen'],
-      en:r['$.data.body.energy_kcal'], sl:r['$.data.body.sleep_debt_hours'], et:r['$.data.body.entertainment_need']});
+      en:r['$.data.body.values.energy_kcal'], sl:r['$.data.body.values.sleep_deficit_hours'],
+      et:r['$.data.body.values.entertainment_need']});
   });
   typeQuery('action_requested', ['$.data.tool_name','$.data.request'], r=>{
     S.summaries.set(r.seq,{tool:r['$.data.tool_name'], req:r['$.data.request']});
@@ -474,13 +504,14 @@ function buildIndex(){
   typeQuery('activity_progress', ['$.activity_id','$.data.activity.kind','$.data.activity.status','$.data.activity.started_at',
                                   '$.data.activity.ended_at','$.data.activity.planned_end_at','$.data.activity.elapsed_seconds',
                                   '$.data.activity.boundary_type','$.data.activity.target_id','$.data.activity.destination_id',
-                                  '$.data.activity.title'],
+                                  '$.data.activity.title','$.data.interval_start','$.data.interval_end'],
   r=>{
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],status:r['$.data.activity.status'],
       start:r['$.data.activity.started_at'],end:r['$.data.activity.ended_at'],
       pend:r['$.data.activity.planned_end_at'],elapsed:r['$.data.activity.elapsed_seconds'],
       bnd:r['$.data.activity.boundary_type'],tg:r['$.data.activity.target_id'],
-      dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title']});
+      dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title'],
+      from:r['$.data.interval_start'],to:r['$.data.interval_end']});
   });
   typeQuery('model_request', ['$.data.request.model','$.data.attempt'], r=>{
     S.summaries.set(r.seq,{model:r['$.data.request.model'],attempt:r['$.data.attempt']});
@@ -491,8 +522,10 @@ function buildIndex(){
     S.summaries.set(r.seq,{model:r['$.data.response.model'],pt:r['$.data.response.usage.prompt_tokens'],
       ct:r['$.data.response.usage.completion_tokens'],tt:r['$.data.response.usage.total_tokens']});
   });
-  typeQuery('memory_updated', ['$.data.operation','$.data.episode_ids','$.data.consolidated'], r=>{
-    S.summaries.set(r.seq,{op:r['$.data.operation'],ep:r['$.data.episode_ids'],cons:r['$.data.consolidated']});
+  typeQuery('memory_updated', ['$.data.operation','$.data.created_episode_ids',
+                               '$.data.merged_episode_ids','$.data.consolidated'], r=>{
+    S.summaries.set(r.seq,{op:r['$.data.operation'],created:r['$.data.created_episode_ids'],
+      merged:r['$.data.merged_episode_ids'],cons:r['$.data.consolidated']});
   });
   typeQuery('checkpoint_created', ['$.data.checkpoint_id'], r=>{
     S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
@@ -534,49 +567,54 @@ function buildIndex(){
   log(`· 索引完成：${S.events.length} 事件 / ${S.agentIds.length} agent / ${S.obs.length} 观测 / ${S.acts.length} 活动段`);
 }
 
+/** @brief 将会话工具的任务和逐项自述配对展示。 */
+function pairedSummaries(req){
+  return (req.task||[]).map((task,i)=>`${task}：${(req.summary||[])[i]||''}`).join('；');
+}
+
 /* 把 action_requested 的 request 参数渲染成可读中文（隐藏技术编号） */
 function readableReq(tool, reqRaw){
   let req = null;
-  try{ req = typeof reqRaw==='string'? JSON.parse(reqRaw) : reqRaw; }catch(_){}
+  try{ req = typeof reqRaw==='string'? JSON.parse(reqRaw) : reqRaw; }
+  catch(error){ console.error('Invalid action request JSON:', error); return ''; }
   if (!req || typeof req!=='object') return '';
   switch (tool){
-    case 'start_basic_activity':
-      return `${kindLabel(req.activity_type)} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
-    case 'start_travel':
-      return `${locLabel(req.destination_id)} · ${TRAVEL_MODES[req.travel_mode]||req.travel_mode||''} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
-    case 'start_targeted_activity':
-      return `${actTypeLabel(req.activity_type, req.target_id)} ${targetLabel(req.target_id)} · 计划 ${fmtDur(req.planned_duration_seconds)}`;
-    case 'continue_activity':
-      return '继续当前活动';
-    case 'purchase':
-      return `${targetLabel(req.product_id)} ×${req.quantity??1} · ${req.fulfillment==='pickup'?'到店自提':'外送'} · 送往${locLabel(req.destination_id)}`;
-    case 'consume':
-      return `${targetLabel(req.product_id)} ×${req.quantity??1}`;
-    case 'set_activity_state':
-      return req.operation==='resume'?'恢复活动':(req.operation==='pause'?'暂停活动':(req.operation||''));
+    case 'start_activity':
+      return (req.targets||[]).map((target,i)=>`${target} · ${(req.actions||[])[i]||''}`).join('；');
+    case 'recall_task_summary':
+      return req.task_name||'';
+    case 'report_status':
+    case 'pause_activity':
+    case 'conclude_activity':
+      return pairedSummaries(req);
+    case 'send_message':
+      return `${req.recipient_name||''} · ${req.text||''}`;
+    case 'plan_day':
+    case 'revise_day_plan':
+      return `${(req.goals||[]).length} 项目标`;
     case 'submit_work': {
       const d = req.deliverable;
       if (d && typeof d==='object'){
         const nA = Array.isArray(d.action_items)? d.action_items.length : 0;
         const nD = Array.isArray(d.decisions)? d.decisions.length : 0;
-        return `交付物：${nD} 项决议 · ${nA} 项行动`;
+        return `${req.task_name||''} · 交付物：${nD} 项决议 · ${nA} 项行动`;
       }
-      return '提交工作交付物';
+      return req.task_name||'';
     }
-    case 'game_action':
-      return `游戏指令「${req.command||''}」`;
-    default: {
-      const HIDE = new Set(['activity_id','game_session_id','price_version']);
-      return Object.entries(req).filter(([k])=>!HIDE.has(k))
-        .map(([k,v])=>`${k}=${typeof v==='object'?JSON.stringify(v).slice(0,60):v}`).join(' ').slice(0,120);
-    }
+    default: return '';
   }
 }
 function makeSummary(e){
   const s = S.summaries.get(e.seq)||{};
   switch(e.type){
     case 'decision_started': return `决策开始 · 第 ${s.round??'?'} 轮`;
-    case 'observation': return `余额 ¥${fmtFen(s.bal)} · 能量 ${s.en==null?'—':Math.round(s.en)}kcal · 睡眠债 ${s.sl==null?'—':(+s.sl).toFixed(1)}h · 娱乐需求 ${s.et==null?'—':(+s.et).toFixed(2)}${s.act?' · 进行中：'+kindLabel(s.act):''}`;
+    case 'observation': {
+      const active = (s.acts||[]).map(a=>kindLabel(a.kind)).filter(Boolean);
+      return `余额 ¥${fmtFen(s.bal)} · 能量 ${s.en==null?'—':Math.round(s.en)}kcal` +
+        ` · 睡眠缺口 ${s.sl==null?'—':(+s.sl).toFixed(1)}h` +
+        ` · 娱乐需求 ${s.et==null?'—':(+s.et).toFixed(2)}` +
+        (active.length?' · 进行中：'+active.join('、'):'');
+    }
     case 'model_request': return `模型请求 ${s.model||''} · 第${s.attempt??'?'}次尝试`;
     case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}`;
@@ -594,7 +632,7 @@ function makeSummary(e){
       return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' '+actTargetText(s):''}` +
         ` · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+BND_LABELS[s.bnd]:''}`;
     case 'memory_updated': {
-      let n = 0; try{ n = Array.isArray(s.ep)? s.ep.length : (s.ep?JSON.parse(s.ep).length:0); }catch(_){}
+      const n = parseJArr(s.created||'[]').length + parseJArr(s.merged||'[]').length;
       return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆${s.cons?' · 已巩固':''}`;
     }
     case 'checkpoint_created': return '存档';
@@ -602,6 +640,17 @@ function makeSummary(e){
     case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
     default: return '';
   }
+}
+
+/** @brief 合并同一活动的实际结算区间，保留暂停造成的空档。 */
+function mergeIntervals(intervals){
+  const merged = [];
+  for (const [start,end] of intervals.sort((a,b)=>a[0]-b[0])){
+    const last = merged[merged.length-1];
+    if (last && start<=last[1]) last[1] = Math.max(last[1],end);
+    else merged.push([start,end]);
+  }
+  return merged;
 }
 
 /* 活动段合并：同一 activity_id 取最新状态（受理与进展按真实 activity_id 归并） */
@@ -613,21 +662,23 @@ function buildActivities(){
     if (!s || !s.kind) continue;   /* 无 data.activity 的受理（如购买）不构成活动段 */
     const aid = s.aid || `(accepted@${e.seq})`;
     let a = map.get(aid);
-    if (!a){ a = {aid, agent:e.agent, kind:s.kind||'?', start:s.start??e.t, end:null, pend:s.pend??null,
-                   status:s.status||'active', elapsed:0, tg:null, dest:null, title:null};
+    if (!a){ a = {aid, agent:e.agent, kind:s.kind||'?', start:s.start??e.t, end:null,
+                   status:s.status||'active', elapsed:0, tg:null, dest:null, title:null, intervals:[]};
              map.set(aid,a); }
     if (s.kind) a.kind = s.kind;
     if (s.start!=null && s.start < a.start) a.start = s.start;
     if (s.end!=null) a.end = Math.max(a.end??0, s.end);
-    if (s.pend!=null) a.pend = s.pend;
     if (s.status) a.status = s.status;
     if (s.elapsed!=null) a.elapsed = Math.max(a.elapsed, s.elapsed);
     if (a.tg==null && s.tg!=null && s.tg!=='') a.tg = s.tg;
     if (a.dest==null && s.dest!=null && s.dest!=='') a.dest = s.dest;
     if (typeof s.title==='string' && s.title.trim() && s.title.trim()!==s.tg) a.title = s.title;
+    if (e.type==='activity_progress' && s.from!=null && s.to>s.from) a.intervals.push([s.from,s.to]);
   }
   for (const a of map.values()){
-    if (a.end==null) a.end = a.pend!=null? Math.min(a.pend,S.t1) : Math.min(a.start+a.elapsed,S.t1);
+    a.intervals = mergeIntervals(a.intervals);
+    a.actualSeconds = a.intervals.reduce((total,[start,end])=>total+end-start,0);
+    if (a.end==null) a.end = a.intervals.at(-1)?.[1] ?? a.start;
     if (a.end < a.start) a.end = a.start;
   }
   S.acts = [...map.values()].sort((x,y)=> x.agent-y.agent || x.start-y.start);
@@ -661,7 +712,7 @@ const VIEWS = [
   {id:'overview', name:'总览'},
   {id:'timeline', name:'时间线'},
   {id:'day', name:'一天'},
-  {id:'activities', name:'活动表格'},
+  {id:'activities', name:'活动泳道'},
   {id:'body', name:'身体曲线'},
   {id:'economy', name:'经济流水'},
   {id:'memory', name:'记忆'},
@@ -882,6 +933,28 @@ function actTargetText(a){
   if (a.dest) return `→ ${locLabel(a.dest)}`;
   return '—';
 }
+/** @brief 按同一时间轴绘制人物的活动泳道，条块只取已结算区间。 */
+function renderActivityLanes(activities){
+  const span = Math.max(1,S.t1-S.t0);
+  const ticks = [0,.25,.5,.75,1].map(f=>`<span>${fmtHM(S.t0+span*f)}</span>`).join('');
+  const agents = [...new Set(activities.map(a=>a.agent))];
+  const groups = agents.map(agent=>{
+    const rows = activities.filter(a=>a.agent===agent).sort((a,b)=>a.start-b.start);
+    return `<h3>${esc(agentName(agent))}</h3>${rows.map(a=>{
+      const label = `${actTypeLabel(a.kind,a.tg)} ${actTargetText(a)}`.trim();
+      const bars = a.intervals.map(([start,end])=>{
+        const left = (start-S.t0)/span*100, width = (end-start)/span*100;
+        return `<span class="act-lane-bar" style="left:${left}%;width:${width}%;background:${kindColor(a.kind)}"
+          title="${esc(fmtT(start)+'–'+fmtT(end)+' · '+label)}"></span>`;
+      }).join('');
+      return `<div class="act-lane"><div class="act-lane-label" title="${esc(label)}">${esc(label)}</div>
+        <div class="act-lane-track">${bars}</div></div>`;
+    }).join('')}`;
+  }).join('');
+  return `<div class="card act-lanes"><div class="act-lanes-inner">
+    <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。</div>
+    <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
+}
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
@@ -905,18 +978,21 @@ function renderActivities(){
     `<th data-sk="${k}" class="${extra||''}">${label}${arrow(k)}</th>`;
 
   el.innerHTML = `
+  ${renderActivityLanes(AT.filtered)}
   <div class="legend" style="margin-bottom:10px">${kinds.map(k=>`<span><span class="sw" style="background:${kindColor(k)}"></span>${esc(actTypeLabel(k,null))}</span>`).join('')}
     <span style="margin-left:auto;color:var(--fg-faint)">共 ${AT.filtered.length} 段活动 · 点击表头排序</span></div>
   <div class="card" style="padding:0 0 0 0">
     <table class="act-table">
-      <thead><tr>${th('start','时刻')}${th('agent','人物')}${th('kind','活动类型')}<th>目标</th><th class="num">持续时长</th></tr></thead>
+      <thead><tr>${th('start','开始')}${th('agent','人物')}${th('kind','活动类型')}
+        <th>目标</th><th>结束</th><th class="num">实际时长</th></tr></thead>
       <tbody>
       ${view.map(a=>`<tr>
         <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.start)}</td>
         <td style="white-space:nowrap"><span class="tl-agent ${agentCls(a.agent)}">${esc(agentName(a.agent))}</span></td>
         <td><span class="act-kind" style="background:${kindColor(a.kind)}33;color:${kindColor(a.kind)}">${esc(actTypeLabel(a.kind,a.tg))}</span></td>
         <td>${esc(actTargetText(a))}</td>
-        <td class="num">${fmtDur(a.end-a.start)}</td></tr>`).join('')}
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(a.end)}</td>
+        <td class="num">${a.actualSeconds?fmtDur(a.actualSeconds):'—'}</td></tr>`).join('')}
       </tbody>
     </table>
     <div class="pager">
@@ -1025,7 +1101,8 @@ function renderBodyCurves(){
     <div class="legend">${agents.map((a,i)=>`<span><span class="sw" style="background:${palette[i%palette.length]}"></span>${esc(agentName(a))}</span>`).join('')}
       <span style="margin-left:auto;color:var(--fg-faint)">共 ${obs.length} 个观测点 · 悬停读取数值</span></div>
     <div class="chart-block"><div class="chart-title"><span>能量 energy_kcal</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-en"></canvas></div>
-    <div class="chart-block"><div class="chart-title"><span>睡眠债 sleep_debt_hours</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-sl"></canvas></div>
+    <div class="chart-block"><div class="chart-title"><span>睡眠缺口 sleep_deficit_hours</span>
+      <span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-sl"></canvas></div>
     <div class="chart-block"><div class="chart-title"><span>娱乐需求 entertainment_need</span><span class="hover-readout" style="font-family:var(--mono)"></span></div><canvas id="cv-et"></canvas></div>
   </div>`;
   requestAnimationFrame(()=>{
@@ -1122,44 +1199,33 @@ function renderEconomy(){
 function renderMemory(){
   const el = $('#mem-body');
   const agent = agentFilterVal();
-  const mus = S.events.filter(e=>e.type==='memory_updated' && (!agent || String(e.agent)===agent));
-  let filesHtml='';
-  for (const [aid,m] of Object.entries(S.memFiles)){
-    if (agent && aid!==agent) continue;
-    filesHtml += `<div class="mem-file"><h4>${esc(agentName(aid))} · MEMORY.md</h4>
-      <pre>${esc(m.memoryMd||'（空）')}</pre></div>`;
-    if (m.episodes && m.episodes.length){
-      filesHtml += `<div class="mem-file"><h4>${esc(agentName(aid))} · episodes（${m.episodes.length} 条）</h4>
-        <table><tr><th>时间</th><th>类型</th><th class="num">重要度</th><th>关键词</th><th>内容</th></tr>
-        ${m.episodes.map(ep=>`<tr>
-          <td style="white-space:nowrap;font-size:12px">${esc(ep.time||'')}</td>
-          <td>${esc(ep.type||'')}</td><td class="num">${ep.importance??''}</td>
-          <td style="color:var(--fg-dim)">${esc((ep.keywords||[]).join('、'))}</td>
-          <td style="max-width:420px"><details><summary style="cursor:pointer;color:var(--accent)">展开</summary>
-            <div style="white-space:pre-wrap;font-size:12px;color:var(--fg-dim);padding-top:4px">${esc(ep.text||'')}</div></details></td></tr>`).join('')}
-        </table></div>`;
+  const rows = q(`SELECT event_seq AS seq, json_extract(body,'$.data.episodes') AS episodes
+    FROM events WHERE json_extract(body,'$.event_type')='memory_updated' ORDER BY event_seq DESC`);
+  const events = new Map(S.events.map(e=>[e.seq,e]));
+  const entries = rows.flatMap(row=>{
+    const event = events.get(row.seq);
+    if (!event || (agent && String(event.agent)!==agent)) return [];
+    let episodes;
+    try{ episodes = JSON.parse(row.episodes||'[]'); }
+    catch(error){ console.error('Invalid memory episode JSON:', error); throw error; }
+    if (!Array.isArray(episodes)){
+      console.error('Memory episodes must be an array');
+      throw new Error('Memory episodes must be an array');
     }
-  }
-  const hint = Object.keys(S.memFiles).length? '' :
-    `<div class="hint">这里展示事件流中的记忆更新记录。<br>若把 sqlite 文件与整个 run 目录一起拖入（目录含 <code>as2/agents/*/MEMORY.md</code> 与 <code>memory/episodes.jsonl</code>），还会在此渲染完整记忆文件与 episode 列表。</div>`;
-  el.innerHTML = `
-  ${hint}
-  ${filesHtml}
-  <div class="card">
-    <h3 style="margin-top:0">记忆更新事件（${mus.length} 条）</h3>
-    <div style="max-height:460px;overflow:auto">
-    <table><tr><th>时间</th><th>人物</th><th>操作</th><th class="num">记忆段数</th><th>巩固</th><th>原始数据</th></tr>
-    ${mus.map(e=>{ const s=S.summaries.get(e.seq)||{};
-      let eps=[]; try{ eps = Array.isArray(s.ep)? s.ep : JSON.parse(s.ep||'[]'); }catch(_){}
-      return `<tr><td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtT(e.t)}</td>
-        <td><span class="tl-agent ${agentCls(e.agent)}">${e.agent==null?'系统':esc(agentName(e.agent))}</span></td>
-        <td>${esc(MEMOP_LABELS[s.op]||s.op||'—')}</td><td class="num">${eps.length}</td>
-        <td>${s.cons?'是':'—'}</td>
-        <td><details>${eps.length?`<summary style="cursor:pointer;color:var(--accent)">展开 episode ID</summary>
-          <div style="font-family:var(--mono);font-size:11px;color:var(--fg-dim);white-space:pre-wrap">${esc(eps.join('\n'))}</div>`:'—'}</details></td></tr>`;
-    }).join('')}
-    </table></div>
-  </div>`;
+    return episodes.map(episode=>({event, episode}));
+  });
+  const summaries = Object.entries(S.memFiles).filter(([aid])=>!agent || aid===agent)
+    .filter(([,memory])=>memory.memoryMd).map(([aid,memory])=>
+      `<div class="mem-file"><h4>${esc(agentName(aid))} · 主观总结</h4>
+        <pre>${esc(memory.memoryMd)}</pre></div>`).join('');
+  el.innerHTML = `${summaries}
+    <div class="card"><h3 style="margin-top:0">人物记忆正文（${entries.length} 条）</h3>
+    <div class="hint">按写入时间从新到旧展示。人物记忆是主观自述，不能直接当作已核验事实。</div>
+    ${entries.map(({event,episode})=>`<div class="memory-entry">
+      <div class="meta">${esc(fmtT(event.t))} · ${esc(agentName(event.agent))} ·
+        ${esc(MEMORY_TYPE_LABELS[episode.type]||episode.type||'记忆')}</div>
+      <div class="text">${esc(episode.text||'')}</div></div>`).join('') ||
+      '<div class="empty">没有记忆正文</div>'}</div>`;
 }
 
 /* ---------- 思考记录 ---------- */
