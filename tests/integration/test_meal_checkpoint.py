@@ -12,7 +12,7 @@ from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import PauseActivityRequest, ReportStatusRequest
+from worldmock.life.models import ConcludeActivityRequest, PauseActivityRequest, ReportStatusRequest
 
 
 def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path: Path):
@@ -48,6 +48,8 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
                        if meal.activity_id in item.activity_ids)
         _action(engine, "pause", "pause_activity", PauseActivityRequest(
             task=[session.session_name], summary=["这顿饭吃到一半，先停一下。"]))
+        # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）。
+        _, waited = _start(engine, "wait-paused-meal", "self", None, "等待")
         wake = wake_by_mail(engine, offset=60)
         snapshot = engine.state.model_dump(mode="json")
         run_dir = engine.store.run_dir
@@ -61,6 +63,10 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         while engine.state.current_time < wake:
             advance_next(engine)
         assert engine.state.activities[meal.activity_id].data["consumed"][MEAL] == eaten
+        wait_session = next(item for item in engine.state.sessions.values()
+                            if waited.activity_id in item.activity_ids)
+        _action(engine, "end-wait", "conclude_activity", ConcludeActivityRequest(
+            task=[wait_session.session_name], summary=["不等了，回去吃饭。"]))
         _action(engine, "resume", "report_status", ReportStatusRequest(
             task=[session.session_name], summary=["继续吃完这顿饭。"]))
         _finish(engine, meal.activity_id)

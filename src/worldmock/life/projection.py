@@ -27,7 +27,8 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.life import felt, narration, social
 from worldmock.life import social_actions
 from worldmock.life.interaction_menu import action_label, purchase_action_label
-from worldmock.life.models import ActivityKind, AgentState, SessionStatus, WorldState, active_activities
+from worldmock.life.models import (ActivityKind, AgentState, SameMomentStage, SessionStatus, WorldState,
+                                   active_activities)
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import RuntimeScenario
@@ -39,6 +40,8 @@ SUPPLY_VISIBILITY_TTL_SECONDS = 1800
 MATERIAL_REVEAL_CHAR_CAP = 2000
 #: 收件箱头在 scene 中展示的条数上限（收件箱头合同，防溢出）。
 INBOX_HEAD_LIMIT = 3
+#: 同刻上限受限轮的场景说明句（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：可读、不写次数。
+SAME_MOMENT_NOTE = "你已经想了好几轮，先定下一件事。"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +205,7 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
 
 def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
                       people: list[dict], inbox: list[dict]) -> dict[str, Any]:
-    """@brief 组装场景事实，最近收件头与完整收件事实分开选择。"""
+    """@brief 组装场景事实，最近收件头与完整收件事实分开选择；受限轮另加一句说明（不写次数）。"""
     agent, now = inputs.agent, inputs.state.current_time
     location = _location_index(inputs.scenario).get(agent.location_id)
     activity_rows = inputs.extras["activity_rows"]
@@ -226,6 +229,8 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "local_food_summary": inputs.extras["local_food_summary"],
         "current_sessions": _active_session_scene_rows(inputs.state, agent.agent_id),
         "precondition_hints": _precondition_hints(inputs),
+        "same_moment_note": (SAME_MOMENT_NOTE if agent.same_moment_stage != SameMomentStage.OPEN
+                             else ""),
     }
 
 

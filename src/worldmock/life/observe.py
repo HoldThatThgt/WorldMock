@@ -14,7 +14,7 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.life import discovery, felt, presentation, projection
-from worldmock.life.models import ActivityStatus, ContentProgress
+from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_shared_energy_duration, shared_energy_cost
 from worldmock.life.activities import active_energy_entries, activity_factors
@@ -35,17 +35,20 @@ class ObservationMixin:
 
         黑名单字段不进 scene/facts 提示路径；事件级工具支持行（完整任务/路线/
         商品、能量可行性、可供性合同、游戏目录）供宿主工具 Schema 使用。商品
-        事实清单经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据。
+        事实清单经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，
+        同一秒各轮沿用该秒首轮的呈现窗口与置顶的浏览结果（docs/dev/SPEC-time-and-energy.md 第一章
+        「同一秒内的呈现与「刚才」」）。
         """
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
         recent = self._recent_action_results(agent.agent_id)
-        rows = self._window_rows(agent, recent)
+        pinned = self._pinned_supply_ids(agent.agent_id, recent)
+        rows = self._window_rows(agent, pinned)
         menu = self._menu_windows(agent)
-        self._pending_presentation = _presentation_stamps(
-            self.state, agent.agent_id,
-            rows["window"].presented + tuple(
-                identity for window in menu.values() for identity in window.presented))
+        presented = rows["window"].presented + tuple(
+            identity for window in menu.values() for identity in window.presented)
+        self._pending_presentation[agent.agent_id] = SameMomentPresentation(
+            stamps=_presentation_stamps(self.state, presented), pinned_supply_ids=pinned)
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
         task_rows = tuple(self._visible_task_rows(agent))
         inputs = projection.ProjectionInputs(
@@ -90,7 +93,11 @@ class ObservationMixin:
         }
 
     def _observation_evidence(self, agent) -> dict:
-        """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。"""
+        """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。
+
+        same_moment_stage 是同刻上限受限轮的阶段（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」），
+        宿主据此收窄世界请求工具与名称枚举；它不进 scene 与 facts。
+        """
         from worldmock.footprints.experiences import recent_verified_experiences
 
         return {
@@ -103,12 +110,20 @@ class ObservationMixin:
             "verified_experiences": recent_verified_experiences(
                 self.store, agent.agent_id, self.store.last_event_seq),
             "wake_reasons": list(agent.pending_wake_reasons),
+            "same_moment_stage": agent.same_moment_stage.value,
             "location_id": agent.location_id,
             "hour_of_day": projection.hour_of_day(self.state.current_time, self.scenario.timezone),
         }
 
-    def _window_rows(self, agent, recent: list[dict]) -> dict:
-        """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）。"""
+    def _pinned_supply_ids(self, agent_id: int, recent: list[dict]) -> tuple[str, ...]:
+        """@brief 本秒置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存，首轮取本次回灌的供给身份。"""
+        staged = self.state.same_moment_presentation.get(agent_id)
+        if staged is not None:
+            return staged.pinned_supply_ids
+        return tuple(dict.fromkeys(row["supply_id"] for row in _reported_supply_rows(recent)))
+
+    def _window_rows(self, agent, pinned: tuple[str, ...]) -> dict:
+        """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）；pinned 为本秒置顶的浏览结果。"""
         context = self._presentation_context(agent)
         entries = self._product_pool(agent)
         sources = presentation.entry_sources(entries, on_site=_on_site_supplies(self, agent))
@@ -116,7 +131,7 @@ class ObservationMixin:
             context, sources, moment=False, rotation_offset=self._rotation_offset(agent.agent_id),
             last_presented_at=self._last_presented(agent.agent_id))
         window = presentation.present(entries, inputs, "product", None)
-        window = _shared_supply_window(self._discovery_context(agent), window, recent)
+        window = _shared_supply_window(self._discovery_context(agent), window, pinned)
         products = [public_supply_row(row) for row in window.items]
         return {"products": products, "window": window}
 
@@ -386,7 +401,7 @@ class ObservationMixin:
             active_activities=active_activities(self.state, agent.agent_id),
             habit_events=habit,
             consecutive_rejections=agent.consecutive_rejections,
-            max_consecutive_rejections=self.scenario.max_consecutive_rejections,
+            max_same_moment_decisions=self.scenario.max_same_moment_decisions,
             total_effective_seconds=effective_total,
             current_time=now,
             end_time=self.state.end_time,
@@ -778,9 +793,8 @@ def _reported_supply_rows(recent: list[dict]) -> list[dict]:
 
 
 def _shared_supply_window(context: discovery.DiscoveryContext, window: PresentationWindow,
-                          recent: list[dict]) -> PresentationWindow:
-    """@brief 回灌与当前事实共用供给窗口，只有实际呈现身份更新凭据及轮转时间。"""
-    identities = tuple(dict.fromkeys(row["supply_id"] for row in _reported_supply_rows(recent)))
+                          identities: tuple[str, ...]) -> PresentationWindow:
+    """@brief 回灌与当前事实共用供给窗口，只有实际呈现身份更新凭据及轮转时间；identities 为置顶的浏览结果。"""
     if not identities:
         return window
     current = {entry.object_id: entry.row for entry in _supply_entries(context, set(identities))}
@@ -818,36 +832,32 @@ def _on_site_supplies(engine, agent) -> frozenset[str]:
                      if item.location_id == agent.location_id)
 
 
-def _presentation_stamps(state, agent_id: int, presented: tuple[str, ...]) -> dict:
-    """@brief 计算本次呈现要写入 `presentation_state` 的留痕（按人物与对象标识记时刻）。
+def _presentation_stamps(state, presented: tuple[str, ...]) -> dict[str, int]:
+    """@brief 计算本次呈现的留痕：本人实际进入窗口的对象标识 → 当前时刻。
 
     轮转的判据是「上次呈现时刻」，所以每次呈现都要留痕；留痕是新的派生量取值，但**不
     允许在观察边界直接落盘**——`store._validate_state` 只允许同版本追加事件，因此引擎
-    把结果暂存到本属性，在下一个状态提交（决策轮或时钟推进）里随世界状态一起落盘。这
-    里不改目录、不改对象状态、不产生下架事件（docs/dev/SPEC-life-runtime.md「曝光轮转」
+    把结果按人物暂存，决策轮提交时写入世界状态的本秒暂存，时钟推进时才并入 `presentation_state`。
+    这里不改目录、不改对象状态、不产生下架事件（docs/dev/SPEC-life-runtime.md「曝光轮转」
     「禁止永久退役」）。
 
     @param state 当前世界状态。
-    @param agent_id 被呈现的对象所属人物。
     @param presented 本轮实际进入窗口的对象身份（可跨多个分区窗口拼接）。
-    @return 写入后的 `presentation_state` 取值；本次没有呈现任何对象时返回空字典。
+    @return 对象标识 → 当前时刻；本次没有呈现任何对象时为空字典。
     """
-    if not presented:
-        return {}
-    recorded = dict(state.presentation_state.get(agent_id, {}))
-    for object_id in presented:
-        recorded[object_id] = int(state.current_time)
-    return {**state.presentation_state, agent_id: recorded}
+    return {object_id: int(state.current_time) for object_id in presented}
 
 
 def _stage_presentation(state, agent_id: int, window: PresentationWindow):
-    """@brief 把本次呈现的留痕写进状态副本（下钻在提交路径上，故可当场落盘）。
+    """@brief 把本次呈现的留痕并入该人物的 `presentation_state`（浏览完成在时钟推进路径上，故可当场落盘）。
 
     @param state 本次提交的世界状态。
     @param agent_id 被呈现的对象所属人物。
     @param window 本次呈现窗口。
     @return 写入留痕后的世界状态副本。
     """
-    stamps = _presentation_stamps(state, agent_id, window.presented)
-    return state if not stamps else state.model_copy(
-        update={"presentation_state": stamps}, deep=True)
+    stamps = _presentation_stamps(state, window.presented)
+    if not stamps:
+        return state
+    presented = {**state.presentation_state, agent_id: {**state.presentation_state.get(agent_id, {}), **stamps}}
+    return state.model_copy(update={"presentation_state": presented}, deep=True)

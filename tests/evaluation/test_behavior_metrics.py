@@ -81,8 +81,9 @@ def _model_request(
     purpose: str | None = None,
     usage: dict[str, int] | None = None,
     code_sha256: str = CODE_A,
+    decision_id: str | None = None,
 ) -> dict[str, Any]:
-    """@brief 构造决策 model_request 事件（messages 只含 user 消息）。"""
+    """@brief 构造决策 model_request 事件（messages 只含 user 消息；决策身份缺省取 call_id）。"""
     data: dict[str, Any] = {
         "phase": "request", "call_id": call_id, "attempt": 1,
         "request": {"model": "test-model",
@@ -94,7 +95,7 @@ def _model_request(
     if usage:
         data["usage"] = usage
     return _event("model_request", _clock(0, 8) + event_seq, agent_id=agent_id, data=data,
-                  decision_id=call_id, event_seq=event_seq, code_sha256=code_sha256)
+                  decision_id=decision_id or call_id, event_seq=event_seq, code_sha256=code_sha256)
 
 
 def _model_response(event_seq: int, call_id: str, prompt_tokens: int) -> dict[str, Any]:
@@ -128,7 +129,7 @@ def _report(events: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
 
 
 def test_observation_repetition_gate_pass_and_fail() -> None:
-    """@brief 同一 user 观察文本出现两次时门禁必须失败，全唯一时通过。"""
+    """@brief 门禁按 decision_id 计：同一 user 观察文本出现在两个决策的请求中必须失败，各决策文本不同时通过。"""
     distinct = [
         _model_request(1, "d1", ["观察 A：天气晴朗"]),
         _model_request(2, "d2", ["观察 B：收到邮件"]),
@@ -136,14 +137,39 @@ def test_observation_repetition_gate_pass_and_fail() -> None:
     gate = _report(distinct)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
     assert gate["duplicated_observation_count"] == 0
+    assert gate["user_message_count"] == 2
 
     duplicated = [
-        _model_request(1, "d1", ["观察 A：天气晴朗"]),
-        _model_request(2, "d2", ["观察 A：天气晴朗"]),
+        _model_request(1, "call-1", ["观察 A：天气晴朗"], decision_id="d1"),
+        _model_request(2, "call-2", ["观察 A：天气晴朗"], decision_id="d2"),
     ]
     gate = _report(duplicated)["gates"]["observation_repetition"]
     assert gate["value"] == 2 and gate["pass"] is False
     assert gate["duplicated_observation_count"] == 1
+
+
+def test_observation_gate_counts_action_loop_resend_once() -> None:
+    """@brief 同一决策的行动循环内重发同一观察只计一次（E7-1、VF2）。"""
+    events = [_model_request(seq, f"call-{seq}", ["观察 A：天气晴朗"], decision_id="d1")
+              for seq in (1, 2, 3)]
+    gate = _report(events)["gates"]["observation_repetition"]
+    assert gate["value"] == 1 and gate["pass"] is True
+    assert gate["duplicated_observation_count"] == 0
+    assert gate["user_message_count"] == 3
+
+
+def test_observation_gate_same_moment_rounds_are_separate_decisions() -> None:
+    """@brief 同一秒的两轮决策各有 decision_id，观察文本不同时门禁通过。"""
+    second = _clock(0, 8)
+    rounds = [
+        _model_request(1, "call-1", ["观察：刚醒，还没有进行中的活动"], decision_id="round-1"),
+        _model_request(2, "call-2", ["观察：上一轮开始被拒，仍没有进行中的活动"], decision_id="round-2"),
+    ]
+    for event in rounds:
+        event["occurred_at"] = second
+    gate = _report(rounds)["gates"]["observation_repetition"]
+    assert gate["value"] == 1 and gate["pass"] is True
+    assert gate["duplicated_observation_count"] == 0
 
 
 def test_observation_gate_fails_closed_without_user_messages() -> None:
@@ -223,6 +249,27 @@ def test_wake_reason_distribution_counts() -> None:
     assert report["counts"] == {"person_arrived": 1, "commitment_threatened": 2}
     assert report["events_with_wake_reasons"] == 2
     assert report["body_settlement_events"] == 3
+
+
+def test_wake_reason_distribution_counts_same_moment_round_reasons() -> None:
+    """@brief 同刻轮次不写共同身体结算，其原因只从 decision_started 计数；边界计数不受影响。"""
+    second = _clock(0, 8)
+    boundaries = [
+        _body(1, _clock(0, 7), second, ["w1"], wake_reasons=["no_active_activity"]),
+        _body(2, _clock(0, 7), second, ["w2"], wake_reasons=[]),
+    ]
+    rounds = [
+        _event("decision_started", second, decision_id=f"d{seq}", event_seq=seq,
+               data={"wake_reasons": reasons})
+        for seq, reasons in ((3, ["run_start"]), (4, ["no_active_activity"]), (5, ["rejection_feedback"]))
+    ]
+    report = _report(boundaries + rounds)["reports"]["wake_reason_distribution"]
+    assert report["counts"] == {"no_active_activity": 1}
+    assert report["events_with_wake_reasons"] == 2
+    assert report["body_settlement_events"] == 2
+    assert report["decision_started_counts"] == {
+        "no_active_activity": 1, "rejection_feedback": 1, "run_start": 1}
+    assert report["decision_started_events_with_wake_reasons"] == 3
 
 
 def test_wait_minutes_and_early_arrival() -> None:

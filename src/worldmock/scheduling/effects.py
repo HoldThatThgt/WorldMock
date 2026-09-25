@@ -13,6 +13,7 @@ from worldmock.life.models import WorldState
 from worldmock.life.opening_hours import quote_at
 from worldmock.life.semantics import ScenarioSemantics
 from worldmock.life.settlement import settle_money_transfer
+from worldmock.life.social import Message
 from worldmock.life.storefront_state import changed_quote, effective_quote, quote_state
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
@@ -42,6 +43,8 @@ def apply_scheduled_effect(state: WorldState, event: ScheduledEvent,
         return _quote_change(state, event, semantics)
     if event.kind == ScheduledKind.PRODUCT_RELEASE:
         return _product_release(state, event)
+    if event.kind == ScheduledKind.MESSAGE_ARRIVAL:
+        return _deliver_message(state, event)
     return _reveal_event(state, event)
 
 
@@ -60,6 +63,18 @@ def _reveal_event(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
     agents[agent.agent_id] = agent
     changed = state.model_copy(update={"agents": agents}, deep=True)
     return ScheduledOutcome(changed, dict(event.data))
+
+
+def _deliver_message(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:
+    """@brief 预排送达的联系人回复到期写入收件人收件箱，返回 message_arrival 送达记录（docs/CONTRACTS.md「联系人回复」）。"""
+    message = Message.model_validate(event.data["message"])
+    agent = state.agents[event.agent_id]
+    agent = agent.model_copy(update={"inbox": {**agent.inbox, message.message_id: message}}, deep=True)
+    agents = dict(state.agents)
+    agents[agent.agent_id] = agent
+    changed = state.model_copy(update={"agents": agents}, deep=True)
+    return ScheduledOutcome(changed, {"message_id": message.message_id, "recipient_id": message.recipient_id,
+                                      "occurred_at": event.due_at})
 
 
 def _deliver_orders(state: WorldState, event: ScheduledEvent) -> ScheduledOutcome:

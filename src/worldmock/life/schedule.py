@@ -30,7 +30,7 @@ PLAN_GOAL_MAX_CHARS = 300
 
 
 class WakeReason(str, Enum):
-    """@brief 唤醒原因冻结枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」，成员集不可增删）。"""
+    """@brief 唤醒原因冻结枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」，成员不可改名、不可删除，新增走版本表）。"""
 
     PLANNED_END = "planned_end"
     FELT_BAND_CHANGE = "felt_band_change"
@@ -50,12 +50,15 @@ class WakeReason(str, Enum):
     WAKE_FROM_SLEEP = "wake_from_sleep"
     RUN_START = "run_start"
     PROGRESS_REPORT_DUE = "progress_report_due"
+    NO_ACTIVE_ACTIVITY = "no_active_activity"
+    PLAN_REMINDER_DUE = "plan_reminder_due"
 
 
 SLEEP_ALLOWED_REASONS = frozenset(
-    {WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START}
+    {WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START,
+     WakeReason.PLAN_REMINDER_DUE}
 )
-"""睡眠期间仍可提供决策的唤醒原因：仅计划结束与唤醒事件（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
+"""睡眠期间仍可提供决策的唤醒原因：计划结束、唤醒事件与当日目标提醒（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
 
 
 INTENT_KINDS: tuple[str, ...] = (
@@ -137,11 +140,12 @@ class WakeSnapshot(BaseModel):
     people_present_now: frozenset[str] = frozenset()
     people_present_before: frozenset[str] = frozenset()
     activity_infeasible: bool = False
-    consecutive_rejections: int = 0
     discovery_result_ready: bool = False
     wake_from_sleep: bool = False
     run_start: bool = False
     progress_report_due: bool = False
+    #: 边界兜底（docs/dev/SPEC-time-and-energy.md 第一章规则 5）：结算后没有进行中活动。
+    no_active_activity: bool = False
     is_asleep: bool = False
 
 
@@ -260,8 +264,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     """@brief 判定某结算边界命中的全部唤醒原因（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     输出按 WakeReason 枚举声明顺序排列；无命中即静默边界
-    （decision_offered=false、wake_reasons=[]）。睡眠期间只保留计划结束与唤醒
-    事件（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），其余命中一律忽略。
+    （decision_offered=false、wake_reasons=[]）。睡眠期间只保留 SLEEP_ALLOWED_REASONS（不含边界兜底
+    no_active_activity；docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），其余命中一律忽略。
 
     @param snapshot 该结算边界处的世界摘要
     @return 唤醒判定结果
@@ -295,8 +299,6 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.PERSON_LEFT)
     if snap.activity_infeasible:
         reasons.append(WakeReason.ACTIVITY_INFEASIBLE)
-    if snap.consecutive_rejections > 0:
-        reasons.append(WakeReason.REJECTION_FEEDBACK)
     if snap.discovery_result_ready:
         reasons.append(WakeReason.DISCOVERY_RESULT)
     if snap.wake_from_sleep:
@@ -305,6 +307,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.RUN_START)
     if snap.progress_report_due:
         reasons.append(WakeReason.PROGRESS_REPORT_DUE)
+    if snap.no_active_activity:
+        reasons.append(WakeReason.NO_ACTIVE_ACTIVITY)
     if snap.is_asleep:
         reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)

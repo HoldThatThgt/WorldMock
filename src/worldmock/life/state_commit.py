@@ -12,7 +12,7 @@ docs/CONTRACTS.md「数字足迹存储接口」判定校验责任在生活模型
 from __future__ import annotations
 
 from worldmock.errors import IntegrityError
-from worldmock.life.models import WorldState
+from worldmock.life.models import SameMomentPresentation, WorldState
 
 
 def validated_payload(state: WorldState) -> dict:
@@ -43,20 +43,42 @@ def commit_state(store, state: WorldState, drafts: list) -> list:
     return store.commit(validated_payload(state), drafts)
 
 
-def flush_presentation(state: WorldState, stamps: dict | None) -> WorldState:
-    """@brief 把观察边界暂存的呈现留痕并入世界状态（提交路径上的唯一写状态处）。
+def stage_presentation(state: WorldState, pending: dict[int, SameMomentPresentation]) -> WorldState:
+    """@brief 把本轮各人物观察的呈现留痕写入世界状态中的本秒暂存（决策轮提交路径）。
 
-    观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此
-    呈现留痕在观察时暂存为 `presentation_state` 的完整取值，随下一个状态提交一起落盘。
-    这里只覆盖派生量字段，不改目录、不改对象状态、不产生下架事件。
+    观察边界不允许同版本改状态（`store._validate_state` 只允许同版本追加事件），因此观察先把留痕
+    记在引擎内存，随本轮提交按人物写入 `same_moment_presentation`；同一秒已有暂存的人物合并对象时刻，
+    保留该秒首轮置顶的浏览结果（docs/dev/SPEC-time-and-energy.md 第一章「同一秒内的呈现与「刚才」」）。
 
-    @param state 当前世界状态。
-    @param stamps 暂存的 `presentation_state` 取值；None 或空字典表示没有留痕。
-    @return 并入留痕后的世界状态（无留痕时即原状态）。
+    @param state 本轮提交的世界状态。
+    @param pending 本轮观察产生的人物→呈现暂存；空字典表示没有留痕。
+    @return 写入暂存后的世界状态（没有留痕时即原状态）。
     """
-    if not stamps:
+    if not pending:
         return state
-    return state.model_copy(update={"presentation_state": stamps}, deep=True)
+    staging = dict(state.same_moment_presentation)
+    for agent_id, entry in pending.items():
+        earlier = staging.get(agent_id)
+        staging[agent_id] = entry if earlier is None else SameMomentPresentation(
+            stamps={**earlier.stamps, **entry.stamps}, pinned_supply_ids=earlier.pinned_supply_ids)
+    return state.model_copy(update={"same_moment_presentation": staging}, deep=True)
+
+
+def flush_presentation(state: WorldState) -> WorldState:
+    """@brief 时钟推进时把本秒暂存的呈现留痕逐人并入 `presentation_state` 并清空暂存。
+
+    这里只覆盖派生量字段，不改目录、不改对象状态、不产生下架事件；多人同轮观察各自保留留痕，
+    后观察者不覆盖前者。
+
+    @param state 推进前的世界状态。
+    @return 并入留痕后的世界状态（没有暂存时即原状态）。
+    """
+    if not state.same_moment_presentation:
+        return state
+    presented = dict(state.presentation_state)
+    for agent_id, entry in state.same_moment_presentation.items():
+        presented[agent_id] = {**presented.get(agent_id, {}), **entry.stamps}
+    return state.model_copy(update={"presentation_state": presented, "same_moment_presentation": {}}, deep=True)
 
 
 def flush_supply_visibility(state: WorldState, presented: dict[int, set[str]]) -> WorldState:

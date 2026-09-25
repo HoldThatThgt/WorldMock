@@ -527,14 +527,15 @@ class LifeScenario(FrozenModel):
     start_at: datetime
     end_at: datetime
     random_seed: int
-    activity_feedback_seconds: int = Field(gt=0, le=86_400)
+    activity_feedback_seconds: int = Field(ge=60, le=86_400)
     # 决策节律（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：距上一次实际决策满该秒数触发重估唤醒。
     reconsideration_interval_seconds: int = Field(default=RECONSIDERATION_INTERVAL_SECONDS,
                                                   gt=0, le=86_400)
     idle_reconsideration_interval_seconds: int = Field(default=10800, gt=0, le=86_400)
-    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「播报节律」）：活跃对话距上次报告满该秒数唤醒人物。
+    #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「决策轮循环与播报节律」）：活跃对话距上次报告满该秒数唤醒人物。
     progress_report_interval_seconds: int = Field(default=1800, gt=0)
-    max_consecutive_rejections: int = Field(gt=0)
+    #: 同刻决策上限（docs/dev/SPEC-time-and-energy.md 第一章「场景参数」）：同一人物同一模拟秒的决策轮数上限。
+    max_same_moment_decisions: int = Field(default=3, gt=0)
     # 候选与呈现常量（docs/CONTRACTS.md「候选与呈现合同」的「场景常量」一节）。
     # 刻意落在场景层而非 catalog/manifest.json：目录常量的一次增量会触发目录版本 major 变更。
     candidate_presentation_limit: int = Field(default=20, gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
@@ -675,8 +676,8 @@ class RuntimeScenario(FrozenModel):
     start_at: datetime
     end_at: datetime
     random_seed: int
-    activity_feedback_seconds: int = Field(gt=0, le=86_400)
-    max_consecutive_rejections: int = Field(gt=0)
+    activity_feedback_seconds: int = Field(ge=60, le=86_400)
+    max_same_moment_decisions: int = Field(gt=0)
     # 候选与呈现常量：由 _runtime_payload 从瘦身文档原样搬运（docs/CONTRACTS.md「场景常量」）。
     candidate_presentation_limit: int = Field(gt=0, le=CANDIDATE_PRESENTATION_LIMIT_MAX)
     candidate_pool_limit: int = Field(gt=0, le=CANDIDATE_POOL_LIMIT_MAX)

@@ -342,6 +342,14 @@ _TOOL_DESCRIPTIONS = {
 #: 有 active 会话时才开放的三条会话退出通道（docs/dev/SPEC-agent-interaction.md「保护项修订」）。
 _SESSION_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 
+#: 同刻上限受限轮按阶段开放的世界请求工具（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：
+#: open 不收窄；start_or_resume 只开放开始或恢复一项持续活动；wait_only 只开放等待。记忆查询不受影响。
+_SAME_MOMENT_TOOLS: dict[str, frozenset[str] | None] = {
+    "open": None,
+    "start_or_resume": frozenset({"start_activity", "report_status"}),
+    "wait_only": frozenset({"start_activity"}),
+}
+
 #: 身份前言（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）：以人物与情境为主，工具协议、引用规则
 #: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
 #: 地点礼仪由场景段落表达，不在此出现禁令句；回合预算只在剩余回合 ≤2 时
@@ -724,20 +732,26 @@ class LifeAgent(PersonAgent):
             False, budget["memory_tools_available"])
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装菜单、交互对象层、会话身份和稳定工具面。"""
+        """@brief 从一次冻结观察组装菜单、交互对象层、会话身份和稳定工具面。
+
+        同刻上限的受限轮按观察私有证据 same_moment_stage 收窄世界请求工具、交互对象与会话名称，
+        Schema 枚举、本地校验与引擎复核因此按同一阶段判定（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。
+        """
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
         self._life_visible_refs = _environment_source_ids(data)
-        self._life_visible_objects = _visible_interactive_objects(data)
+        stage = _visible_same_moment_stage(data)
+        self._life_visible_objects = _same_moment_objects(
+            stage, _visible_interactive_objects(data), data["interaction_bindings"])
         self._life_allowed_actions = frozenset(self._life_interaction_menu.allowed_actions)
         sessions = _visible_sessions(data)
         self._life_known_sessions = tuple(sorted(sessions))
         self._life_active_sessions = tuple(
             sorted(key for key, status in sessions.items() if status == "active"))
-        self._life_action_contracts = _visible_action_contracts(data)
+        self._life_action_contracts = _same_moment_contracts(stage, _visible_action_contracts(data))
         self._life_action_models = _available_action_models(
-            self._life_active_sessions, self._life_action_contracts)
+            self._life_active_sessions, self._life_action_contracts, _SAME_MOMENT_TOOLS[stage])
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
         """@brief 冻结本轮本人事件事实窗口，模型和记忆不能写入该窗口。"""
@@ -1023,11 +1037,47 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
                                *(row["session_name"] for row in sessions),
                                *(row["task_name"] for row in goals)]),
         "reportable_names": tuple(labels[row["session_name"]] for row in current),
+        "resumable_names": tuple(labels[row["session_name"]] for row in current
+                                 if row["status"] == "paused"),
         "active_task_names": tuple(labels[row["session_name"]] for row in current
                                    if row["status"] == "active"),
         "concludable_names": tuple(labels[row["session_name"]] for row in current
                                    if row["status"] == "active"),
     }
+
+
+def _visible_same_moment_stage(data: dict[str, Any]) -> str:
+    """@brief 读取观察私有证据中的同刻受限轮阶段；不在收窄表中的取值是损坏的宿主观察。"""
+    stage = data.get("same_moment_stage")
+    if not isinstance(stage, str) or stage not in _SAME_MOMENT_TOOLS:
+        logging.error("LifeAgent same-moment stage is invalid: %r", stage)
+        raise RuntimeError("LifeAgent same-moment stage is invalid")
+    return stage
+
+
+def _same_moment_objects(stage: str, objects: dict[str, tuple[str, ...]],
+                         bindings: list[dict[str, Any]]) -> dict[str, tuple[str, ...]]:
+    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉到店购买与远程下单，wait_only 只留等待。
+
+    动作短语到内部标准动作的对应取本轮私有绑定；收窄后没有动作的对象不再列出。
+    """
+    if stage == "open":
+        return objects
+    canonical = {(row["object"], action["label"]): action["canonical_action"]
+                 for row in bindings for action in row["actions"]}
+    wanted = (lambda action: action != "purchase") if stage == "start_or_resume" else (
+        lambda action: action == "wait")
+    narrowed = {name: tuple(label for label in labels if wanted(canonical.get((name, label))))
+                for name, labels in objects.items()}
+    return {name: labels for name, labels in narrowed.items() if labels}
+
+
+def _same_moment_contracts(stage: str, contracts: dict[str, Any]) -> dict[str, Any]:
+    """@brief 受限轮的会话名称：start_or_resume 只可恢复暂停的活动，wait_only 不开放会话控制。"""
+    if stage == "open":
+        return contracts
+    resumable = contracts["resumable_names"] if stage == "start_or_resume" else ()
+    return {**contracts, "reportable_names": resumable, "active_task_names": (), "concludable_names": ()}
 
 
 def _plan_required_before_other_actions(
@@ -1064,11 +1114,13 @@ def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
 def _available_action_models(
     active_sessions: tuple[str, ...],
     contracts: dict[str, Any],
+    allowed_tools: frozenset[str] | None,
 ) -> dict[str, type[BaseModel]]:
     """@brief 稳定工具面的可见性规则（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
 
     start_activity 与 recall_task_summary 永恒可见；三条会话退出通道只在有
-    active 会话时开放；两件登记动作工具按当日目标合同分别开放。
+    active 会话时开放；两件登记动作工具按当日目标合同分别开放。同刻上限的受限轮
+    另与该阶段开放的工具求交（allowed_tools 为 None 表示不收窄）。
     """
     names = {"start_activity", "recall_task_summary"}
     if contracts["task_names"]:
@@ -1082,6 +1134,8 @@ def _available_action_models(
     if contracts["concludable_names"]:
         names.add("conclude_activity")
     names.update(name for name in ("plan_day", "revise_day_plan") if contracts[name])
+    if allowed_tools is not None:
+        names &= allowed_tools
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
 
 

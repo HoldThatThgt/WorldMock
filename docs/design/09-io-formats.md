@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.5
+> **版本**：v1.6
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -92,6 +92,7 @@ flowchart TB
 | `processed_actions` | dict[str, StoredAction] | 是 | 已处理动作映射 |
 | `paid_task_ids` | set[str] | 是 | 已结算任务集合（JSON 编码为排序列表） |
 | `presentation_state` | dict[int, dict[str, int]] | 是 | 呈现派生量（人物→对象→时刻） |
+| `same_moment_presentation` | dict[int, {stamps: dict[str, int], pinned_supply_ids: list[str]}] | 是 | 按人物暂存的本秒呈现留痕（对象→时刻）；同一秒各轮沿用该秒首轮的呈现窗口，本秒首轮置顶的浏览结果（`pinned_supply_ids`）随暂存保存；时钟推进时由 `flush_presentation` 逐人并入 `presentation_state` 并清空；随世界结构版本 7 |
 | `random_seed` | int | 是 | 随机种子 |
 | `random_state` | str | 是 | 随机状态 |
 
@@ -127,8 +128,11 @@ flowchart TB
 | `active_effects` | set[str] | 是 | 活跃效果（JSON 编码为排序列表） |
 | `body_settled_at` | int | 是 | 本人身体已结算到的共同世界时刻 |
 | `delivered_warning_signatures` | set[str] | 是 | 当前持续威胁中已实际交付的签名 |
-| `next_decision_at` | int | 是 | 下次决策时间 |
-| `consecutive_rejections` | int | 是 | 连续拒绝次数 |
+| `next_decision_at` | int | 是 | 下次决策时间；等于当前时刻即同一秒再决策 |
+| `consecutive_rejections` | int | 是 | 连续业务拒绝次数，受理即归零；只作动机层挫败感的输入，不参与唤醒与冷却 |
+| `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，时钟推进归零 |
+| `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`；时钟推进复位为 `open` |
+| `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
 | `read_message_ids` | set[str] | 是 | 已读消息 ID 集合 |
 | `visible_message_ids` | set[str] | 是 | 可见消息 ID 集合 |
@@ -278,3 +282,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.3 | 2026-09-20 | 增加场景交互菜单与观察事件有效菜单的格式导航，明确它们不新增世界或人物状态字段 |
 | v1.4 | 2026-09-24 | 按时间与能量规格：观察留证的 `allowed_actions` 为内部标准动作名，人物所选动词与方式映射后判定，途中按出发地菜单解析并由出行方式收窄 |
 | v1.5 | 2026-09-25 | 按时间与能量规格第九章：世界结构版本 7；ActivityState 补 `location_id`（开始地点，结算不覆盖） |
+| v1.6 | 2026-09-25 | 按时间与能量规格阶段 1：AgentState 的 `next_decision_at` 注明等于当前时刻即同一秒再决策，`consecutive_rejections` 只作挫败感输入；增 `same_moment_rounds`、`same_moment_stage` 与 `pending_wake_reasons`（同刻轮次按本轮替换）；WorldState 增按人物暂存的本秒呈现留痕 `same_moment_presentation`（同一秒沿用首轮窗口，时钟推进时并入 `presentation_state`） |

@@ -460,8 +460,10 @@ def _npc_delivery_engine(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypatch) -> None:
-    """生产采纳点（C1 接缝二）：model 联系人消息在下一轮 commit 后送达收件箱。"""
+    """生产采纳点（C1 接缝二）：model 联系人消息在本轮 commit 后生成回复并登记预排送达，
+    CONTACT_REPLY_DELAY_SECONDS 之后才进入收件箱（裁决 #21）。"""
     from worldmock.life.models import SendMessageActionRequest
+    from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
 
     engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
     try:
@@ -483,14 +485,16 @@ async def test_life_env_commit_settles_model_reply_into_inbox(tmp_path, monkeypa
         results = await env.commit_decision_round("npc-deliver")
 
         assert results[0].status == "completed"
-        inbox = engine.state.agents[1].inbox
-        replies = [item for item in inbox.values()
-                   if item.sender_id == "contact-chenxi-oldfriend"]
-        assert len(replies) == 1 and replies[0].text == "好啊，老地方见。"
+        assert not [item for item in engine.state.agents[1].inbox.values()
+                    if item.sender_id == "contact-chenxi-oldfriend"]
+        scheduled = [item for item in engine.state.pending_events if item.kind == "message_arrival"]
+        assert len(scheduled) == 1 and scheduled[0].agent_id == 1
+        assert scheduled[0].due_at == engine.state.current_time + CONTACT_REPLY_DELAY_SECONDS
+        reply = scheduled[0].data["message"]
+        assert reply["sender_id"] == "contact-chenxi-oldfriend" and reply["text"] == "好啊，老地方见。"
         events = engine.store.read_events(engine.store.last_event_seq)
-        arrivals = [item for item in events if item.data.get("kind") == "message_arrival"
-                    and item.data.get("message_id") == replies[0].message_id]
-        assert len(arrivals) == 1 and arrivals[0].agent_id == 1
+        assert not [item for item in events if item.data.get("kind") == "message_arrival"
+                    and item.data.get("message_id") == reply["message_id"]]
         evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
         assert len(evidence) == 1
     finally:

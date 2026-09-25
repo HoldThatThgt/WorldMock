@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, start_activity, submit_round
 from tests.life.test_category_runtime import (
     _engine, _formal_fixture, _read_json, _replace_map_file, _save_fixture,
     _scenario_source, _set_pairing_coefficient, _set_pairing_undefined,
@@ -87,7 +87,7 @@ def test_independent_quotes_use_each_supply_frozen_price_in_real_engine(priced_e
     seen_sellers = set()
     for index, (identity, price) in enumerate(PRICES.items()):
         if index:
-            advance_next(engine)
+            # 下单是瞬时动作，第二家门店在同一秒的再决策轮中购买（时间与能量规格第一章规则 2）。
             _stage_open_market(engine)
         supply = engine.rules.supplies[identity]
         before_accounts = dict(engine.state.accounts)
@@ -151,10 +151,14 @@ def test_defined_zero_coefficient_purchase_has_no_account_transfer(priced_engine
     assert engine.state.accounts == accounts
     assert engine.state.supply_stock[identity] == stock - 1
     order_id = result.data["orders"][0]["order_id"]
-    for _ in range(32):
+    for step in range(32):
         if engine.state.deliveries[order_id].status == "delivered":
             break
-        advance_next(engine)
+        # 没有进行中活动时时钟不推进（时间与能量规格第一章规则 1）：等配送时以等待度过。
+        if engine.scheduling_state().ready_agent_ids:
+            submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"await-{step}")
+        else:
+            advance_next(engine)
     assert engine.state.deliveries[order_id].status == "delivered"
     assert engine.state.agents[1].inventory["home"][PRODUCT] >= 1
     assert engine.state.accounts == accounts

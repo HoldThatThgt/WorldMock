@@ -15,7 +15,7 @@ from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import (
-    advance_next, advance_until_ready, context, start_activity, stage_day_plan, wake_by_mail,
+    advance_next, advance_until_ready, context, start_activity, stage_day_plan, submit_round, wake_by_mail,
 )
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
@@ -105,6 +105,8 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     result = engine.commit_decision_round("purchase-grounded")[0]
     assert result.status == "completed"
     assert engine.state.supply_stock[supply_id] == 0
+    # 购买是瞬时动作：没有进行中活动就在同一秒再决策（时间与能量规格第一章规则 2），先开始等待时钟才推进。
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "purchase-then-wait")
 
     # 下一决策钉在浏览可见期内（+900 < 1800 秒，docs/dev/SPEC-life-runtime.md「观察投影行为规则」）：售罄商品仍在
     # 可见目录中报告 current_stock=0，购买工具按库存闭集撤下。

@@ -115,7 +115,7 @@ def test_formal_and_multi_person_scenarios_are_valid() -> None:
         assert len(digest) == 64
         assert scenario.body.work_notes_multiplier == 1.1
         assert scenario.body.basal_kcal_per_hour == 65
-        assert scenario.max_consecutive_rejections == 10
+        assert scenario.max_same_moment_decisions == 3
         assert scenario.transport_account_id == "transport:service"
         assert all(route.fare_source_kind == "scenario" for route in scenario.routes)
 
@@ -168,7 +168,8 @@ def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
         (("body", "mass_kg"), 0, "greater than 0"),
         (("body", "initial_entertainment_need"), 1.5, "less than or equal to 1"),
         (("body", "initial_energy_kcal"), -1, "greater than or equal to 0"),
-        (("max_consecutive_rejections",), 0, "greater than 0"),
+        (("max_same_moment_decisions",), 0, "greater than 0"),
+        (("activity_feedback_seconds",), 59, "greater than or equal to 60"),
         (("catalog_version", "minor"), -1, "greater than or equal to 0"),
         (("supplies", 0, "initial_stock"), -1, "greater than or equal to 0"),
     ],
@@ -176,7 +177,7 @@ def test_motivation_attention_prior_must_equal_registry_kinds() -> None:
 def test_body_instance_and_rejection_ranges_are_enforced(
     path: tuple[str | int, ...], value: object, message: str
 ) -> None:
-    """身体实例初值、目录钉扎、库存覆盖与拒绝预算都有明确范围。"""
+    """身体实例初值、目录钉扎、库存覆盖、同刻上限与结算间隔下限（60 秒）都有明确范围。"""
     _assert_invalid(_replace(path, value), message)
 
 

@@ -18,7 +18,7 @@ from __future__ import annotations
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
-STAGES_DONE = frozenset({"0"})
+STAGES_DONE = frozenset({"0", "1"})
 
 _GREEN_BASELINE_TESTS = [
     "tests/life/test_dayrun_inventory_regressions.py::"
@@ -48,12 +48,85 @@ _DELIVERY_TESTS = [
     "tests/delivery/test_publication.py::test_delivery_checks_world_schema_before_preparing_windows",
 ]
 
+_SAME_MOMENT = "tests/life/test_same_moment_decisions.py::"
+
+#: 阶段 1 预先登记：同刻决策行由阶段 4 完成（「刚才」、交谈对方结束与名额、待收尾各支在阶段 3–4）。
+_SAME_MOMENT_TESTS = [
+    _SAME_MOMENT + name for name in (
+        "test_run_start_and_instant_action_redecide_in_same_second",
+        "test_activity_end_boundary_offers_no_active_activity_and_redecides",
+        "test_business_rejection_redecides_in_same_second_with_rejection_feedback",
+        "test_rejection_with_active_activity_retries_until_limit_then_follows_rhythm",
+        "test_restricted_rounds_open_start_then_wait_only",
+        "test_out_of_bounds_request_is_rejected_and_counted",
+        "test_start_or_resume_accepts_start_and_resume_but_not_other_reports",
+        "test_replay_round_counts_toward_same_moment_rounds",
+        "test_clock_advances_only_when_everyone_has_an_active_activity",
+        "test_report_with_active_activity_does_not_redecide_in_same_second",
+        "test_wake_reasons_replaced_per_round_single_bedtime_reflection",
+        "test_sleep_does_not_wake_for_no_active_activity",
+        "test_service_refused_pulse_at_most_once_per_second",
+        "test_motivation_internal_survives_parameter_swap",
+        "test_scenario_with_max_consecutive_rejections_is_rejected",
+        "test_restricted_stage_check_and_ladder_units",
+        "test_restricted_observation_carries_stage_and_scene_note",
+        "test_start_or_resume_schema_matches_engine_dispatch",
+        "test_awake_recipient_gets_same_second_opportunity",
+        "test_recipient_in_same_round_is_not_overwritten_by_its_own_success",
+        "test_recipient_at_limit_gets_message_at_next_boundary",
+        "test_sleeping_recipient_is_not_woken_by_person_message",
+        "test_contact_reply_arrival_filtered_during_sleep",
+        "test_same_second_rounds_keep_presentation_window_and_rotation",
+        "test_browse_results_stay_pinned_in_later_same_second_rounds",
+        "test_two_agents_same_round_keep_their_presentation_stamps",
+    )
+] + [
+    "tests/life/test_scenario.py::test_body_instance_and_rejection_ranges_are_enforced",
+    "tests/life/test_engine_feedback.py::test_business_rejection_is_reported_in_progress_and_run_continues",
+    "tests/life/test_engine_branch_coverage.py::test_rework_rejection_at_limit_keeps_review_feedback",
+    "tests/life/test_motivation.py::TestEmotion::test_frustration_lifts_comfort_candidates",
+    "tests/integration/test_agent_branch_coverage.py::test_corrupt_observation_fails_before_any_model_tool",
+    "tests/integration/test_agent_branch_coverage.py::test_start_or_resume_stage_narrows_tools_and_enums",
+    "tests/integration/test_agent_branch_coverage.py::test_wait_only_stage_offers_only_wait",
+    "tests/life/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence",
+    "tests/life/test_export_integration.py::test_model_npc_reply_at_most_once_per_message",
+    "tests/integration/test_runtime.py::test_life_env_commit_settles_model_reply_into_inbox",
+    "tests/life/test_wake_reasons.py::test_unread_inbox_message_yields_message_arrival_then_is_marked_read",
+]
+
+#: 阶段 1 预先登记：候选时刻行由阶段 2 完成（困意、饥饿预测与餐时窗口）。
+_CANDIDATE_TIME_TESTS = [
+    _SAME_MOMENT + "test_first_decision_includes_reconsideration_candidate",
+    _SAME_MOMENT + "test_idle_interval_only_while_waiting_without_commitments",
+    "tests/life/test_wake_reasons.py::test_commitments_exclude_messages_history_and_completed_activities",
+]
+
+#: 阶段 1 预先登记：唤醒词表行由阶段 2 完成（activity_infeasible 不再产生、commitment_threatened 的来源）。
+_WAKE_VOCABULARY_TESTS = [
+    "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_is_the_frozen_spec_set",
+    "tests/footprints/test_event_fields.py::test_wake_reason_vocabulary_matches_the_engine_side_enum",
+    "tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_decision_started_write",
+    "tests/footprints/test_event_fields.py::test_unknown_wake_reason_is_rejected_on_body_settlement_write",
+    "tests/footprints/test_event_fields.py::test_new_wake_reasons_are_accepted_by_validation",
+    "tests/life/test_wake_reasons.py::test_frozen_wake_and_intent_names",
+    "tests/life/test_wake_reasons.py::test_sleep_allowed_reasons_add_only_plan_reminder_due",
+    "tests/footprints/test_quality.py::test_decision_rhythm_counts_same_moment_rounds",
+    "tests/evaluation/test_behavior_metrics.py::test_wake_reason_distribution_counts_same_moment_round_reasons",
+]
+
+#: 阶段 1 预先登记：无新增故障行由阶段 7 完成。
+_NO_NEW_FAULT_TESTS = [
+    _SAME_MOMENT + "test_feedback_interval_60_bounds_same_second_rounds",
+    _SAME_MOMENT + "test_same_moment_state_survives_reopen",
+    _SAME_MOMENT + "test_presentation_staging_survives_reopen",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
-    "同刻决策": {"stage": "4", "tests": []},
-    "候选时刻": {"stage": "2", "tests": []},
-    "唤醒词表": {"stage": "2", "tests": []},
+    "同刻决策": {"stage": "4", "tests": _SAME_MOMENT_TESTS},
+    "候选时刻": {"stage": "2", "tests": _CANDIDATE_TIME_TESTS},
+    "唤醒词表": {"stage": "2", "tests": _WAKE_VOCABULARY_TESTS},
     "能量感知": {"stage": "2", "tests": []},
     "能量不拦人": {"stage": "4", "tests": []},
     "零点计划与提醒": {"stage": "5", "tests": []},
@@ -62,7 +135,7 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "会话、活动与记忆": {"stage": "4", "tests": []},
     "本机运行修复": {"stage": "7", "tests": []},
     "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
-    "无新增故障": {"stage": "7", "tests": []},
+    "无新增故障": {"stage": "7", "tests": _NO_NEW_FAULT_TESTS},
     "真实复验": {"stage": "8", "tests": []},
     "文档一致性": {"stage": "7", "tests": []},
     "工程门禁": {"stage": "7", "tests": []},
@@ -74,6 +147,9 @@ _MODELS = "src/worldmock/life/models.py"
 _SESSION_ACTIONS = "src/worldmock/life/session_actions.py"
 _CONTRACTS = "docs/CONTRACTS.md"
 _RECORDING = "docs/design/05-recording-engine.md"
+_SCHEDULE = "src/worldmock/life/schedule.py"
+_FOOTPRINT_MODELS = "src/worldmock/footprints/models.py"
+_IO_FORMATS = "docs/design/09-io-formats.md"
 
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
 REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
@@ -96,6 +172,19 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"世界结构 `4` 独立冻结", ["docs/EXPERIMENT.md"]),
         (r"`schema_version=5`", ["docs/VERIFICATION.md"]),
     ],
+    "1": [
+        (r"max_consecutive_rejections", ["src", "custom", "scenarios"]),
+        (r"maximum_rejections", ["src", "custom"]),
+        (r"def _after_unknown", [_ENGINE]),
+        (r'str\(error\) == "RESOURCE_CONFLICT" and running', [_ENGINE]),
+        (r'"next_decision_at": state\.current_time \+ 1\b', [_ENGINE]),
+        (r"_put_agent_and_defer_feedback", ["src"]),
+        (r"consecutive_rejections", [_SCHEDULE, "src/worldmock/life/rhythm.py"]),
+        (r"成员(?:集)?不可增删", [_SCHEDULE, _FOOTPRINT_MODELS]),
+        (r"self\._pending_presentation = _presentation_stamps", ["src/worldmock/life/observe.py"]),
+        (r"inbox\[reply\.message\.message_id\] = reply\.message", ["src/worldmock/runtime.py"]),
+        (r'"max_consecutive_rejections": 10', ["docs/manual/scenarios.md"]),
+    ],
 }
 
 #: 阶段 → 完成后必须在每个列出路径中出现的符号（正则, 路径或目录列表）。
@@ -109,5 +198,22 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"Literal\[7\]", ["docs/design/09-io-formats.md"]),
         (r"state\.schema_version", ["docs/design/06-delivery.md"]),
         (r"世界结构版本为 `7`", [_CONTRACTS, _RECORDING]),
+    ],
+    "1": [
+        (r"max_same_moment_decisions", ["src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",
+                                       "src/worldmock/life/motivation.py", _CONTRACTS,
+                                       "docs/design/08-configuration.md", "docs/manual/scenarios.md"]),
+        (r"activity_feedback_seconds: int = Field\(ge=60", ["src/worldmock/life/scenario.py"]),
+        (r'NO_ACTIVE_ACTIVITY = "no_active_activity"', [_SCHEDULE]),
+        (r'PLAN_REMINDER_DUE = "plan_reminder_due"', [_SCHEDULE]),
+        (r'"no_active_activity"', [_FOOTPRINT_MODELS]),
+        (r'"plan_reminder_due"', [_FOOTPRINT_MODELS]),
+        (r"SAME_MOMENT_ACTION_RESTRICTED", ["src/worldmock/life/same_moment.py", _CONTRACTS]),
+        (r"same_moment_rounds", [_MODELS, _CONTRACTS, _IO_FORMATS, _RECORDING]),
+        (r"same_moment_stage", [_MODELS, "src/worldmock/life/observe.py", _AGENT, _CONTRACTS]),
+        (r"same_moment_presentation", [_MODELS, "src/worldmock/life/state_commit.py", _IO_FORMATS]),
+        (r"validate_decision_rhythm", ["src/worldmock/life/decision_start.py", "src/worldmock/life/rhythm.py"]),
+        (r"CONTACT_REPLY_DELAY_SECONDS", ["src/worldmock/life/social.py", "src/worldmock/runtime.py", _CONTRACTS]),
+        (r"def test_", ["tests/life/test_same_moment_decisions.py"]),
     ],
 }

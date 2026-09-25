@@ -685,7 +685,7 @@ def _context(**overrides) -> MotivationContext:
         lifestyle_items=(), activity_location_kinds={},
         locations={}, routes=(), tasks=(),
         task_totals={}, contents=(), content_progress={}, active_activities=(),
-        habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
+        habit_events=(), consecutive_rejections=0, max_same_moment_decisions=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
         planned_travel_seconds=lambda mode, base, departure: base,

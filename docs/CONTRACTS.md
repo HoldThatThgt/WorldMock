@@ -13,7 +13,7 @@
 | 世界 | `simulation_time`, `locations`, `weather`, `corpus_version`, `calendar`, `scheduled_events` | 环境规则 |
 | 人物身体 | `available_energy_kcal`, `sleep_deficit_hours`, `entertainment_need`, `recent_activities`, `physiological_state` | 时间推进、进食、睡眠和活动结算 |
 | 人物资产 | `account_balance`, `inventory`, `consumables_count`, `access_rights` | 交易、交付、使用与合同结算 |
-| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`, `pause_reason`, `end_reason` | 人物申请，环境验证并执行 |
+| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
 | 工作 | `task`, `materials`, `deadline`, `deliverable`, `review_result`, `contract`, `payment_status` | 任务来源、人物交付与独立验收规则 |
 | 内容接触 | `visible_catalog`, `read_emails`, `played_segments`, `game_state`, `material_ranges` | 实际接触行为与内容提供过程 |
 | 记忆 | AS2 人物记忆及其版本、`source_event`, `retrieval_results` | 人物记忆流程 |
@@ -180,7 +180,16 @@ flowchart LR
 
 场景沿用 `reconsideration_interval_seconds`（默认 5400 秒），并增加
 `idle_reconsideration_interval_seconds`（默认 10800 秒）；两者为不超过 86400 的正整数，
-空闲间隔不能短于常规间隔。选择与威胁条件见 [目标决策节律](dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
+空闲间隔不能短于常规间隔。进行中的等待不算在手承诺；人物只在等待、且没有未推进目标、可见未完成任务、
+暂停活动或其他进行中活动时用空闲间隔，其余清醒情形用常规间隔。选择与威胁条件见 [目标决策节律](dev/SPEC-day-plan-goals.md#事件驱动的决策节律)。
+
+决策节律场景参数：
+
+| 场景键 | 取值 | 含义 |
+| --- | --- | --- |
+| `max_same_moment_decisions` | 正整数，缺省 3 | 同一人物同一模拟秒的决策轮数上限，时钟推进即归零；达到上限后进入受限轮，只开放一类动作（时间与能量规格第一章规则 3） |
+| `activity_feedback_seconds` | 整数秒，60–86400 | 身体、进度与内容的结算间隔；等待的计划时长取它 |
+| `progress_report_interval_seconds` | 正整数秒，缺省 1800 | 进行中活动的播报间隔 |
 
 质量输出 `quality.json.day_plan_metrics` 按代码摘要分组，来源是同一认证截止的事件，
 摘要从冻结 manifest 注入。每组包含 `habitual_consistency`、`external_constraints`、
@@ -211,6 +220,7 @@ flowchart LR
 | 错误码 | 触发条件 |
 | --- | --- |
 | `WORK_TASK_IN_PROGRESS` | `submit_work` 提交的任务本人正在做（有以它为目标的进行中工作活动）；评审准备与结算共用这一判定，不调用评审模型。做别的任务时提交已达标的任务照常评审与付款 |
+| `SAME_MOMENT_ACTION_RESTRICTED` | 达到同刻上限后的受限轮中，请求不属于本轮开放的动作类；只在绕过本地校验时出现；计入同刻轮数 |
 
 ### 请求模型的闭集与字面边界
 
@@ -253,6 +263,8 @@ ActionStatus = Literal[
 
 模型的 `finish` 必须单独返回，不能与购买、游戏或其他工具出现在同一批调用中。生活决策开始时只开放生活动作和记忆查询；实际提交一个生活动作后，才开放 `finish`，并撤下生活动作工具，结束前仍可查询记忆。显式只读人物查询保持其独立的只读结束合同；当前未开放的工具必须拒绝执行。冲突响应保存原文和协议错误，整批不执行，在现有 ReAct 剩余回合内把错误反馈给模型自行重新提交。每次非法响应消耗一个回合，预算耗尽才终止人物决策。
 
+达到同刻上限（场景 `max_same_moment_decisions`）后，按观察私有证据 `same_moment_stage` 的受限轮阶段收窄世界请求工具与名称枚举，记忆查询照常；越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 业务拒绝并计入同刻轮数（[时间与能量规格](dev/SPEC-time-and-energy.md)第一章「实现约定」）。
+
 ### 领域枚举
 
 活动类型与状态、活动变更、履约方式、出行方式与计酬方式在源码中以 `StrEnum` 声明，取值如下。
@@ -291,6 +303,7 @@ ScheduledKind = Literal[
     "mail_arrival", "delivery_arrival", "work_available",
     "task_expired", "calendar_flag", "bill_due", "payroll",
     "price_change", "supply_quote_change", "product_release",
+    "message_arrival",  # 联系人回复的预排送达（「联系人回复」）
 ]
 ```
 
@@ -322,7 +335,7 @@ ScheduledKind = Literal[
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
 当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 7。
-这些版本分别约束不同输入，不能相互替代。旧商品门店字段、旧场景内嵌地点和旧世界状态直接拒绝，
+这些版本分别约束不同输入，不能相互替代。场景结构保持 3；含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。旧商品门店字段、旧场景内嵌地点和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
 ### 营业与报价声明
@@ -455,12 +468,13 @@ MessageKind = Literal["direct", "chat_invite"]
 | 回复文本上限 | 200 字符 |
 | 回复消息身份 | `reply-<被回复消息身份>` |
 | 回复影响 | 只进入收件方收件箱，不改变任何资源或任务 |
+| 送达时刻 | 回复在生成后登记为预排送达事件（世界状态 `pending_events`，类型 `message_arrival`），延迟为实验常量 `CONTACT_REPLY_DELAY_SECONDS`（缺省 300 秒）；到期写入收件箱并留 `message_arrival` 送达记录，收件人以 `message_arrival` 唤醒，睡眠中过滤 |
 | 回复落库标记 | 域记录的 `source_kind` 为 `model_npc`；足迹事件的 `source_kind` 闭集取 `environment`、`model`、`scenario`、`external`，不含该值，落库映射为 `model`，原值保留在事件 `data.source_kind` |
 
 | 回复事件 | 形状 |
 | --- | --- |
 | 待回复登记 | `environment_event`，`data.kind` 取 `model_npc_reply_pending`，携带 `request`（`model` 回复请求字段面） |
-| 回复完成 | `environment_event`，`data.kind` 取 `model_npc_reply`，携带 `source_kind`、`reply_to_message_id`、`request`、`response`、`usage`、`reply` |
+| 回复完成 | `environment_event`，`data.kind` 取 `model_npc_reply`，携带 `source_kind`、`reply_to_message_id`、`request`、`response`、`usage`、`reply`；在回复生成时写入，收件箱条目在预排送达到期时才出现 |
 
 ### 社交拒绝错误码
 
@@ -504,7 +518,7 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary` | 中文场景渲染输入；`day_plan` 按清单顺序显示意图与已推进状态；不复制完整执行结果 |
+| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `same_moment_note` | 中文场景渲染输入；`day_plan` 按清单顺序显示意图与已推进状态；`same_moment_note` 在同刻上限的受限轮中是一句可读说明、不写次数，其余轮次为空串；不复制完整执行结果 |
 | `facts` | `current_time`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `interactive_objects`, `progress` | 目标、交互对象和进度的结构化投影；任务与对象使用可读名称；`day_plan` 为完整当日目标对象或 null |
 
 | `scene` 行 | 字段 |
@@ -1316,3 +1330,4 @@ RunPhase = Literal[
 | `2026-09-24-issue-1` | 2026-09-24 | 补登 `778beca`：`submit_work` 在有效工作量达到合同要求后开放；前置条件不满足或资源被占用的动作不列入交互对象；LabelKit `decision_prompt` 保留实际请求中的 assistant `reasoning_content` |
 | `2026-09-24-time-and-energy` | 2026-09-24 | [时间与能量规格](dev/SPEC-time-and-energy.md)冻结，按其冻结作业改写：`available_energy` 非负，结算以 0 截断，不阻止任何活动；有效菜单删能量与日首计划门控，条件未满足的动作照常列出并附说明，唯一的状态性收窄是同刻上限的受限轮；当日计划由零点计划生成，`plan_day` 不是人物工具，只有 `remind_time` 触发定时决策；浏览是活动，删「下一秒」回灌，`discovery_result` 当前无触发来源；交谈、通话占用 `voice`、`ears`，时长由 `activity_feedback_seconds` 派生后截取，补交谈接受与对方同秒结束（`partner_ended`）；交互对象不剪裁，业务拒绝后在同一秒再决策，删按最早活动结束排期；已核验经历只以句子给模型，饥饿为「饿」及以上时 `local_food_summary` 为吃饭途径句；进度浓缩单位改为较旧会话中已收尾的活动。补登上列实施计划 C38 所列九个提交。工具面、错误码、枚举、结构版本与场景参数随各实施阶段落地，届时另追加版本行 |
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：交互对象层可以为空（「场景段落与事实清单」）；世界状态结构版本改为 7（「领域枚举」「冻结地图与场景引用」「持久化当下事实」），旧检查点以版本不符拒绝；新增「活动受理拒绝码」并登记 `WORK_TASK_IN_PROGRESS`；`submit_work` 对全部可见未付款任务开放 |
+| `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：「状态归属」的人物活动加同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`（六个取值）；「当日目标的配置与质量输出」改为进行中的等待不算在手承诺，只在等待且没有其他在手承诺时用空闲间隔，并增「决策节律场景参数」：`max_same_moment_decisions`（缺省 3，时钟推进即归零），补登 `activity_feedback_seconds`（60–86400，等待时长取它）与 `progress_report_interval_seconds`（缺省 1800）；「活动受理拒绝码」增 `SAME_MOMENT_ACTION_RESTRICTED`；「冻结地图与场景引用」写明场景结构保持 3，含旧键的场景按未知字段拒绝；「动作状态与动作结果」写明达到同刻上限后按受限轮阶段收窄世界请求工具与名称枚举（记忆查询照常），越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝；「场景段落与事实清单」的 `scene` 增 `same_moment_note`（受限轮的一句说明，不写次数）；「联系人回复」增送达时刻：回复登记为 `CONTACT_REPLY_DELAY_SECONDS`（缺省 300 秒）后到期的预排送达，到期写入收件箱并以 `message_arrival` 唤醒、睡眠中过滤，「回复完成」注明模型回复证据在生成时写入；「领域枚举」的 `ScheduledKind` 增 `message_arrival` |

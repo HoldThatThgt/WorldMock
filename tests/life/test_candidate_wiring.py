@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import context
+from tests.life.conftest import advance_next, context
 from worldmock.life.models import StartActivityRequest
 
 
 def test_observation_commits_presented_object_stamps(engine_factory) -> None:
-    """@brief 本轮看过的对象在决策提交后写入轮转凭据。"""
+    """@brief 本轮看过的对象随决策提交写入本秒暂存，时钟推进时才并入轮转凭据（时间与能量规格第一章「同一秒内的呈现」）。"""
     engine = engine_factory()
     decision = context(engine, "candidate-wiring")
     engine.begin_decision_round([decision])
@@ -22,6 +22,11 @@ def test_observation_commits_presented_object_stamps(engine_factory) -> None:
     request = StartActivityRequest(targets=["自己"], actions=["等待"])
     engine.submit_action(DirectToolCall(decision, "candidate-wait", "start_activity", request))
     engine.commit_decision_round("candidate-wiring")
+    assert engine.state.presentation_state == {}
+    staged = engine.state.same_moment_presentation[1].stamps
+    assert presented <= set(staged)
+    advance_next(engine)
+    assert engine.state.same_moment_presentation == {}
     recorded = engine.state.presentation_state[1]
     assert presented <= set(recorded)
     assert all(recorded[item] == decision.observed_at.timestamp() for item in presented)

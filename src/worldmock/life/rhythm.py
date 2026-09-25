@@ -17,7 +17,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.life.opening_hours import next_opening_change, opening_status
-from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD
+from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, validate_decision_rhythm
 from worldmock.life import felt
 from worldmock.life import schedule as rhythm_schedule
 from worldmock.life.body import (
@@ -90,7 +90,7 @@ class RhythmBoundary:
 
 
 def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, AgentRhythm]]:
-    """@brief 对每个人物执行边界节律：情绪账、唤醒判定与下一决策时刻。"""
+    """@brief 对每个人物执行边界节律：情绪账、唤醒判定与下一决策时刻；共同身体结算的唤醒原因写入时经闭集校验。"""
     state = inputs.state
     rhythms: dict[int, AgentRhythm] = {}
     agents = {}
@@ -102,6 +102,9 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
         delivered = set(agent.delivered_warning_signatures) & current
         verdict = rhythm_schedule.evaluate_wake_reasons(
             _wake_snapshot(agent, inputs, warning_facts, delivered))
+        # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）：
+        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。
+        agent = _read_new_messages(agent)
         if _game_turn_due(inputs.state, agent):
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
@@ -111,6 +114,7 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
             if data.get("kind") == "body_settlement":
                 data[DECISION_OFFERED_FIELD] = verdict.decision_offered
                 data[WAKE_REASONS_FIELD] = [reason.value for reason in verdict.wake_reasons]
+                validate_decision_rhythm(data)
             else:
                 data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan else None
         offered = verdict.decision_offered
@@ -169,12 +173,14 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
 
 
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
-    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+
+    新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（_read_new_messages）。
+    """
     now = inputs.state.current_time
     if agent.mood_updated_at is not None:
         agent = agent.model_copy(update={
             "body": decay_mood(agent.body, (now - agent.mood_updated_at) / 60)}, deep=True)
-    agent = _read_new_messages(agent)
     agent = _apply_awake_social_ledger(agent, inputs)
     levels = felt.summarize_felt_levels(
         **felt_values(agent, local_hour(now, inputs.scenario.timezone),
@@ -197,7 +203,10 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
 
 
 def _read_new_messages(agent: AgentState) -> AgentState:
-    """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+    """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+
+    在本边界的唤醒判定之后调用，使未读消息先成立 message_arrival（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
+    """
     fresh = [message for message_id, message in agent.inbox.items()
              if message_id not in agent.read_inbox_ids]
     if not fresh:
@@ -274,7 +283,11 @@ def _goal_and_deadline_pulses(agent: AgentState, inputs: RhythmInputs) -> AgentS
 
 
 def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
-    """@brief 在手承诺包含未推进目标、可见未完成任务及当前或暂停活动。"""
+    """@brief 在手承诺：未推进目标、可见未完成任务、暂停活动或等待之外的进行中活动。
+
+    进行中的等待不算在手承诺（docs/dev/SPEC-time-and-energy.md 第一章「拒绝的情绪代价与重估间隔」）：
+    只在等待（或无活动）且没有其余各项时返回假，此时用空闲重估间隔。
+    """
     plan = agent.day_plan
     if (plan is not None and not rhythm_schedule.day_plan_expired(plan, inputs.state.current_time)
             and any(goal.progressed_at is None for goal in plan.goals)):
@@ -282,7 +295,8 @@ def _has_commitments(agent: AgentState, inputs: RhythmInputs) -> bool:
     if any(task_id not in inputs.state.paid_task_ids for task_id in agent.visible_task_ids):
         return True
     return any(activity.agent_id == agent.agent_id
-               and activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}
+               and (activity.status == ActivityStatus.PAUSED
+                    or activity.status == ActivityStatus.ACTIVE and activity.kind != ActivityKind.WAIT)
                for activity in inputs.state.activities.values())
 
 
@@ -381,13 +395,12 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
         people_present_before=agent.people_at_last_decision,
         activity_infeasible=bool(facts["infeasible"] - delivered),
-        consecutive_rejections=(agent.consecutive_rejections
-                                if agent.next_decision_at <= now else 0),
         discovery_result_ready=("discovery_result" in agent.pending_wake_reasons
                                 and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),
         run_start=agent.last_decision_time is None,
         progress_report_due=_progress_report_due(agent, state, inputs.progress_report_interval_seconds),
+        no_active_activity=not activities,
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 

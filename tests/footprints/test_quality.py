@@ -332,6 +332,42 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_stat
     assert rhythm["decision_started_missing_decision_statement"] == 1
 
 
+def test_decision_rhythm_counts_same_moment_rounds():
+    """时间与能量规格第一章：同刻轮数按（人物, 模拟秒）计 decision_started，轮次原因取 decision_started。"""
+    first, later = 200, 300
+
+    def started(sequence, agent_id, occurred_at, reasons):
+        return _event(sequence, "decision_started", occurred_at=occurred_at, agent_id=agent_id,
+                      decision_id=f"decision-{sequence}", data={WAKE_REASONS_FIELD: reasons})
+
+    events = [
+        started(1, 1, first, ["run_start"]),
+        started(2, 1, first, ["no_active_activity"]),
+        started(3, 1, first, ["rejection_feedback"]),
+        started(4, 2, first, ["run_start"]),
+        _event(5, "environment_event", occurred_at=later, agent_id=1,
+               data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
+                     WAKE_REASONS_FIELD: ["no_active_activity"]}),
+        started(6, 1, later, ["planned_end"]),
+        _event(7, "run_ended", occurred_at=1100),
+    ]
+
+    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+
+    assert rhythm["same_moment_round_counts"] == {"1": 2, "3": 1}
+    assert rhythm["decision_started_events"] == 5
+    assert rhythm["decision_started_wake_reason_counts"] == {
+        "no_active_activity": 1, "planned_end": 1, "rejection_feedback": 1, "run_start": 2}
+    assert rhythm["wake_reason_counts"] == {"no_active_activity": 1}
+    assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {}
+    assert rhythm["unrecognized_wake_reason_counts"] == {}
+
+    foreign = events[:-1] + [started(7, 2, later, ["mystery"]), _event(8, "run_ended", occurred_at=1100)]
+    rhythm = build_quality_report(foreign, [], _manifest())["decision_rhythm"]
+    assert rhythm["same_moment_round_counts"] == {"1": 3, "3": 1}
+    assert rhythm["unrecognized_decision_started_wake_reason_counts"] == {"mystery": 1}
+
+
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     events = [_event(1, "environment_event", data={"kind": "body_settlement"}),
               _event(2, "decision_started", agent_id=1, decision_id="decision-1", data={}),

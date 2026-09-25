@@ -192,8 +192,13 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
     idle_growth = 0.0
     for n, duration in enumerate(durations, start=1):
         if n > 1:
+            # 结束刷屏后没有进行中活动时同一秒再决策（时间与能量规格第一章规则 2）：两次刷屏之间以等待度过，
+            # 下一次决策边界上先结束等待，刷屏仍单独结算。
             before_idle = engine.state.agents[1].body.entertainment_need
+            waited = _act(engine, f"between-scrolls-{n}", "start_activity", ("wait", "agent:1"))
             advance_next(engine)
+            _act(engine, f"between-scrolls-end-{n}", "conclude_activity",
+                 ConcludeActivityRequest(task=[_session_name(engine, waited.activity_id)], summary=["等够了。"]))
             idle_growth += engine.state.agents[1].body.entertainment_need - before_idle
         need_at_step = engine.state.agents[1].body.entertainment_need
         _act(engine, f"scroll-{n}", "start_activity", ("watch", FEED_ID))
@@ -237,6 +242,8 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     _act(engine, "pause-scroll", "pause_activity",
          PauseActivityRequest(task=[_session_name(engine, activity_id)], summary=["稍后继续阅读。"]))
     paused_at = engine.state.current_time
+    # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）。
+    _act(engine, "wait-while-paused", "start_activity", ("wait", "agent:1"))
     wake_by_mail(engine)
     advance_next(engine)
     assert engine.state.current_time == paused_at + 900

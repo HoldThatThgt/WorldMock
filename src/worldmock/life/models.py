@@ -297,6 +297,20 @@ class SessionState(StrictModel):
         return self
 
 
+class SameMomentStage(StrEnum):
+    """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-time-and-energy.md 第一章「规则」3 与「实现约定」）。
+
+    未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
+    """
+
+    OPEN = "open"
+    CONCLUDE_PENDING = "conclude_pending"
+    START_OR_RESUME = "start_or_resume"
+    RESUME_OR_CONCLUDE = "resume_or_conclude"
+    CONCLUDE_ONLY = "conclude_only"
+    WAIT_ONLY = "wait_only"
+
+
 class AgentState(StrictModel):
     """@brief 一个人物的全部生活状态。"""
 
@@ -315,7 +329,11 @@ class AgentState(StrictModel):
     body_settled_at: int = Field(ge=0)
     delivered_warning_signatures: set[str] = Field(default_factory=set)
     next_decision_at: int = Field(ge=0)
+    # 连续业务拒绝次数：只作动机层挫败感的输入，不参与唤醒与冷却。
     consecutive_rejections: int = Field(default=0, ge=0)
+    # 同刻决策（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：本秒已进行的决策轮数与受限轮阶段，时钟推进归零。
+    same_moment_rounds: int = Field(default=0, ge=0)
+    same_moment_stage: SameMomentStage = SameMomentStage.OPEN
     content_progress: dict[str, ContentProgress] = Field(default_factory=dict)
     read_message_ids: set[str] = Field(default_factory=set)
     visible_message_ids: set[str] = Field(default_factory=set)
@@ -500,6 +518,17 @@ class SupplyQuoteState(StrictModel):
         return self
 
 
+class SameMomentPresentation(StrictModel):
+    """@brief 一个人物本秒的呈现暂存（docs/dev/SPEC-time-and-energy.md 第一章「同一秒内的呈现与「刚才」」）。
+
+    stamps 为本秒各轮实际呈现的对象→时刻，时钟推进时才并入 presentation_state；pinned_supply_ids 为本秒首轮
+    置顶的浏览结果，同一秒后续各轮继续置顶。
+    """
+
+    stamps: dict[str, int]
+    pinned_supply_ids: tuple[str, ...] = ()
+
+
 class WorldState(StrictModel):
     """@brief 提交到 FootprintStore 的完整世界状态。"""
 
@@ -526,6 +555,8 @@ class WorldState(StrictModel):
     #: 呈现派生量（docs/CONTRACTS.md「派生量字段」）：按（人物, 对象标识）记录上次呈现
     #: 时刻（UTC 纪元秒），是曝光轮转的判据，不含任何偏好推断。
     presentation_state: dict[int, dict[str, int]] = Field(default_factory=dict)
+    #: 按人物暂存的本秒呈现留痕：同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时逐人并入 presentation_state 并清空。
+    same_moment_presentation: dict[int, SameMomentPresentation] = Field(default_factory=dict)
     random_seed: int
     random_state: str = Field(min_length=1)
 

@@ -348,10 +348,11 @@ def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty
 
 
 def _decision_rhythm_quality(events: list[Event]) -> dict:
-    """@brief 统计静默边界、唤醒原因分布与决策自述存在情况，只透传原始计数。
+    """@brief 统计静默边界、唤醒原因分布、同刻轮次与决策自述存在情况，只透传原始计数。
 
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
-    （缺省增量字段）计入缺失分母，不被当作任何一种边界。
+    （缺省增量字段）计入缺失分母，不被当作任何一种边界。边界的唤醒原因取共同身体结算，
+    决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。
     """
     boundaries = _body_settlement_events(events)
     offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in boundaries)
@@ -359,6 +360,7 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(boundaries)
     started = [event for event in events if event.event_type == "decision_started"]
     with_decision_statement = sum(isinstance(event.data.get(DECISION_STATEMENT_FIELD), str) for event in started)
+    started_known, started_unrecognized, _ = _wake_reason_distribution(started)
     return {
         "body_settlement_events": len(boundaries),
         "boundaries_with_decision_field": offered + silent,
@@ -371,8 +373,18 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "decision_started_events": len(started),
         "decision_started_with_decision_statement": with_decision_statement,
         "decision_started_missing_decision_statement": len(started) - with_decision_statement,
+        "same_moment_round_counts": _same_moment_round_counts(started),
+        "decision_started_wake_reason_counts": dict(sorted(started_known.items())),
+        "unrecognized_decision_started_wake_reason_counts": dict(sorted(started_unrecognized.items())),
         "method": "Raw counts from shared body settlement and decision started events",
     }
+
+
+def _same_moment_round_counts(started: list[Event]) -> dict[str, int]:
+    """@brief 同刻轮数分布：按（人物, 模拟秒）计 decision_started 轮数，返回 {轮数: 出现次数}，按轮数升序。"""
+    rounds = Counter((event.agent_id, event.occurred_at) for event in started)
+    distribution = Counter(rounds.values())
+    return {str(count): distribution[count] for count in sorted(distribution)}
 
 
 def _body_settlement_events(events: list[Event]) -> list[Event]:

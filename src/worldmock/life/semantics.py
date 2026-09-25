@@ -490,7 +490,7 @@ def _runtime_payload(
         "end_at": document.end_at,
         "random_seed": document.random_seed,
         "activity_feedback_seconds": document.activity_feedback_seconds,
-        "max_consecutive_rejections": document.max_consecutive_rejections,
+        "max_same_moment_decisions": document.max_same_moment_decisions,
         "candidate_presentation_limit": document.candidate_presentation_limit,
         "candidate_pool_limit": document.candidate_pool_limit,
         "rotation_quota_ratio": document.rotation_quota_ratio,

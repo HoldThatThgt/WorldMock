@@ -745,13 +745,13 @@ def parse_contact_reply(raw: dict[str, Any]) -> str:
 
 
 async def settle_pending_model_replies(engine: Any, client: Any | None = None) -> list[dict]:
-    """@brief 执行引擎登记的联系人 model 回复并送达收件箱（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
+    """@brief 执行引擎登记的联系人 model 回复并登记预排送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
 
     每轮结算后调用：从足迹库取未结算的 model_npc_reply_pending 请求，经
     独立 DeepSeek 调用生成不超过 200 汉字的回复，请求/原始响应/用量保存为
-    事件证据，回复经 social.finalize_model_reply 只进入收件箱（不改资源或
-    任务）。传输与结构异常按运行故障传播（与工作验收同边界）；同一消息
-    最多回复一次（幂等键 reply_to_message_id）。
+    事件证据，回复经 social.finalize_model_reply 登记为 CONTACT_REPLY_DELAY_SECONDS
+    后到期的预排送达，到期只进入收件箱（不改资源或任务）。传输与结构异常按运行故障传播
+    （与工作验收同边界）；同一消息最多回复一次（幂等键 reply_to_message_id）。
     """
     from worldmock.life import social as social_domain
 
@@ -806,13 +806,22 @@ def _contact_profile(engine: Any, request: Any) -> dict[str, Any] | None:
 
 def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
                           raw: dict, reply: Any) -> dict:
-    """@brief 一次事务提交回复证据与收件箱送达（版本 +1，资源零变动）。"""
+    """@brief 一次事务提交回复证据并登记预排送达（版本 +1，资源零变动）。
+
+    回复生成时即留 model_npc_reply 证据；收件箱条目在 CONTACT_REPLY_DELAY_SECONDS 后由预排事件
+    message_arrival 送达，收件人届时以 message_arrival 唤醒、睡眠中过滤（docs/CONTRACTS.md「联系人回复」）。
+    """
+    from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
+    from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
+
     recipient = int(reply.message.recipient_id.split(":", 1)[1])
     staged = engine.state.model_copy(deep=True)
-    agent = staged.agents[recipient]
-    inbox = dict(agent.inbox)
-    inbox[reply.message.message_id] = reply.message
-    staged.agents[recipient] = agent.model_copy(update={"inbox": inbox}, deep=True)
+    sequence = max((item.sequence for item in staged.pending_events), default=0) + 1
+    staged.pending_events.append(ScheduledEvent(
+        scheduled_id=f"contact-reply:{reply.message.message_id}", kind=ScheduledKind.MESSAGE_ARRIVAL,
+        due_at=staged.current_time + CONTACT_REPLY_DELAY_SECONDS, sequence=sequence, agent_id=recipient,
+        data={"message": reply.message.model_dump(mode="json")}))
+    staged.pending_events.sort(key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
     staged.version = engine.state.version + 1
     drafts = [
         EventDraft(event_type="environment_event", occurred_at=staged.current_time,
@@ -823,11 +832,6 @@ def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
                          "request": model_request, "response": raw,
                          "usage": raw.get("usage"),
                          "reply": reply.message.model_dump(mode="json")}),
-        EventDraft(event_type="environment_event", occurred_at=staged.current_time,
-                   agent_id=recipient, source_kind="environment",
-                   data={"kind": "message_arrival", "message_id": reply.message.message_id,
-                         "recipient_id": reply.message.recipient_id,
-                         "occurred_at": staged.current_time}),
     ]
     commit_state(engine.store, staged, drafts)
     engine.state = staged

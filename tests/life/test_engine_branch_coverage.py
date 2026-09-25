@@ -74,6 +74,7 @@ from worldmock.life.models import (
     ConcludeActivityRequest,
     ReviseDayPlanRequest,
     RunIdentity,
+    SameMomentStage,
     SendMessageActionRequest,
     StartActivityRequest,
     SubmitWorkActionRequest,
@@ -1069,6 +1070,7 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
     engine.begin_decision_round([ctx])
     with pytest.raises(ProtocolError, match="during an open decision round"):
         engine.advance(900, target)
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-advance-guard", "start_activity",
         StartActivityRequest(targets=["自己"], actions=["等待"])))
@@ -1090,6 +1092,7 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
     zone = ZoneInfo(engine.scenario.timezone)
     ctx = context(engine, "boundary-jump")
     engine.begin_decision_round([ctx])
+    engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-boundary-jump", "start_activity",
         StartActivityRequest(targets=["自己"], actions=["等待"])))
@@ -1259,12 +1262,13 @@ def test_submit_work_guards_review_presence_and_identity(engine_factory) -> None
 
 
 def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None:
-    """达到连续拒绝阈值的返工仍是业务结果，并公开评审反馈。"""
+    """达到同刻上限的返工仍是业务结果并公开评审反馈；没有进行中活动时同一秒再决策并进入受限轮。"""
     engine = engine_factory()
     _at_task_start(engine)
     _complete_required_work(engine)
-    limit = engine.scenario.max_consecutive_rejections
-    _stage_agent(engine, consecutive_rejections=limit - 1)
+    limit = engine.scenario.max_same_moment_decisions
+    assert not active_activities(engine.state, 1)
+    _stage_agent(engine, same_moment_rounds=limit - 1)
     engine._work_reviewer = _AcceptingReviewer(rejected=True)
     round_id = "rework-limit"
     ctx = context(engine, round_id)
@@ -1278,8 +1282,13 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
     assert result.error_code == "WORK_REQUIRES_REWORK"
     assert "work_review" in result.data
     assert result.message == "Work submission requires rework: WORK_REQUIRES_REWORK"
-    assert engine.state.agents[1].next_decision_at == (
-        engine.state.current_time + engine.scenario.activity_feedback_seconds)
+    assert result.data["same_moment_round"] == limit
+    assert result.data["max_same_moment_decisions"] == limit
+    assert result.data["next_decision_at"] == engine.state.current_time
+    agent = engine.state.agents[1]
+    assert agent.next_decision_at == engine.state.current_time
+    assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME
+    assert agent.pending_wake_reasons == ["rejection_feedback", "no_active_activity"]
 
 
 # ---------------------------------------------------------------------------

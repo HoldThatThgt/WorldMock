@@ -25,7 +25,8 @@ FROZEN = (
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available",
     "task_due_soon", "work_review_result", "commitment_threatened", "reconsideration_interval",
     "location_hours_change", "person_arrived", "person_left", "activity_infeasible", "rejection_feedback",
-    "discovery_result", "wake_from_sleep", "run_start", "progress_report_due",
+    "discovery_result", "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity",
+    "plan_reminder_due",
 )
 
 
@@ -36,6 +37,15 @@ def reasons(**values):
 def test_frozen_wake_and_intent_names():
     assert tuple(item.value for item in WakeReason) == FROZEN
     assert tuple(get_args(IntentKind)) == INTENT_KINDS
+
+
+def test_sleep_allowed_reasons_add_only_plan_reminder_due():
+    """时间与能量规格第一章规则 6：睡眠允许集合只新增 plan_reminder_due，no_active_activity 不进入。"""
+    assert SLEEP_ALLOWED_REASONS == {
+        WakeReason.PLANNED_END, WakeReason.WAKE_FROM_SLEEP, WakeReason.RUN_START,
+        WakeReason.PLAN_REMINDER_DUE,
+    }
+    assert WakeReason.NO_ACTIVE_ACTIVITY not in SLEEP_ALLOWED_REASONS
 
 
 @pytest.mark.parametrize("fields,expected", [
@@ -52,10 +62,10 @@ def test_frozen_wake_and_intent_names():
     ({"people_present_now": {"person"}}, ["person_arrived"]),
     ({"people_present_before": {"person"}}, ["person_left"]),
     ({"activity_infeasible": True}, ["commitment_threatened", "activity_infeasible"]),
-    ({"consecutive_rejections": 1}, ["rejection_feedback"]),
     ({"discovery_result_ready": True}, ["discovery_result"]),
     ({"wake_from_sleep": True}, ["wake_from_sleep"]),
     ({"run_start": True}, ["run_start"]),
+    ({"no_active_activity": True}, ["no_active_activity"]),
 ])
 def test_concrete_wake_reasons_are_preserved(fields, expected):
     assert reasons(**fields) == expected
@@ -108,6 +118,7 @@ def test_sleep_accepts_only_existing_sleep_reasons():
     assert not evaluate_wake_reasons(snapshot).decision_offered
     assert reasons(is_asleep=True, planned_end=NOW, wake_from_sleep=True, run_start=True) == [
         "planned_end", "wake_from_sleep", "run_start"]
+    assert reasons(is_asleep=True, no_active_activity=True) == []
     query = NextDecisionQuery(now=NOW, is_asleep=True, planned_end=NOW + 20000,
                               last_decision_time=NOW, has_commitments=True)
     assert next_decision_time(query) == NOW + 20000
@@ -151,6 +162,52 @@ def test_commitments_exclude_messages_history_and_completed_activities(engine_fa
     assert _has_commitments(agent, inputs)
     state.activities["a"] = item.model_copy(update={"status": ActivityStatus.COMPLETED})
     assert not _has_commitments(agent, inputs)
+    # 时间与能量规格第一章：进行中的等待不算在手承诺；等待加暂停活动、或等待之外的进行中活动仍算。
+    state.activities["a"] = item.model_copy(update={"status": ActivityStatus.ACTIVE})
+    assert not _has_commitments(agent, inputs)
+    state.activities["b"] = item.model_copy(update={"activity_id": "b"})
+    assert _has_commitments(agent, inputs)
+    state.activities["b"] = item.model_copy(update={"activity_id": "b", "status": ActivityStatus.ACTIVE,
+                                                    "kind": ActivityKind.WATCH})
+    assert _has_commitments(agent, inputs)
+
+
+def test_unread_inbox_message_yields_message_arrival_then_is_marked_read(engine_factory):
+    """收件箱在唤醒判定之后才记为已读：未读消息在边界成立 message_arrival，判定后记为已读（时间与能量规格第一章「人物之间的消息」）。"""
+    from worldmock.life.rhythm import apply_decision_rhythm
+    from worldmock.life.social import Message
+
+    engine = engine_factory()
+    state = engine.state.model_copy(deep=True)
+    state.agents[1].last_decision_time = state.current_time
+    message = Message(message_id="message-unread", kind="direct", sender_id="agent:2", recipient_id="agent:1",
+                      text="到家了吗", created_at=state.current_time)
+    state.agents[1].inbox = {message.message_id: message}
+    changed, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    assert "message_arrival" in rhythms[1].wake_reasons
+    assert "message-unread" in changed.agents[1].read_inbox_ids
+    _, again = apply_decision_rhythm(engine_rhythm_inputs(engine, changed))
+    assert "message_arrival" not in again[1].wake_reasons
+
+
+def test_game_turn_due_offers_decision_on_an_otherwise_silent_boundary(engine_factory):
+    """游戏保持逐回合反馈：交互边界到期即提供决策，不经唤醒条件枚举（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。"""
+    from worldmock.life.rhythm import apply_decision_rhythm
+
+    engine = engine_factory()
+    state = engine._snapshot_decision_references(engine.state.model_copy(deep=True), [1])
+    now = state.current_time
+    game = ActivityState(activity_id="game", agent_id=1, location_id=state.agents[1].location_id,
+                         kind=ActivityKind.PLAY_GAME, status=ActivityStatus.ACTIVE, started_at=now,
+                         planned_end_at=now + 3600, last_settled_at=now, elapsed_seconds=0,
+                         planned_duration_seconds=3600, next_interaction_at=now + 600,
+                         origin_action_id="act", origin_decision_id="dec", origin_request_event_id="evt")
+    state.activities["game"] = game
+    _, quiet = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    assert not quiet[1].offered and quiet[1].wake_reasons == []
+    state.activities["game"] = game.model_copy(update={"next_interaction_at": now})
+    changed, due = apply_decision_rhythm(engine_rhythm_inputs(engine, state))
+    assert due[1].offered and due[1].wake_reasons == [] and changed.agents[1].next_decision_at == now
 
 
 def test_engine_schedules_exact_task_warning_and_appends_threat_reason(engine_factory):
@@ -260,6 +317,7 @@ def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
                    if started.activity_id in item.activity_ids)
     act(engine, "first-warning-ack", "conclude_activity",
         ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
+    act(engine, "first-warning-rest", "start_activity", start_activity("等待", "自己"))
     while engine.state.current_time < due - 1700:
         advance_next(engine)
     assert engine.state.current_time == due - 1700
@@ -303,6 +361,7 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
                    if started.activity_id in item.activity_ids)
     act(engine, "checkpoint-ack", "conclude_activity",
         ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
+    act(engine, "checkpoint-rest", "start_activity", start_activity("等待", "自己"))
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.checkpoint_id

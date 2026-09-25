@@ -125,11 +125,15 @@ def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> No
     assert all("resource_changes" not in event.data
                for event in engine.store.read_agent_events("action_accepted", 1))
 
-    advance_next(engine)
+    # 下单是瞬时动作：没有进行中活动，同一秒再决策；重放轮计入同刻轮数，按存档结果仍在同一秒再决策（第一章规则 2、9）。
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.state.agents[1].same_moment_rounds == 1
     snapshot = (dict(engine.state.accounts), dict(engine.state.supply_stock), dict(engine.state.deliveries))
     _observed_action(engine, "buy-replay", "start_activity", request, action_id="action-buy")
     assert (engine.state.accounts, engine.state.supply_stock, engine.state.deliveries) == snapshot
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time + 1
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.state.agents[1].same_moment_rounds == 2
+    assert engine.state.agents[1].pending_wake_reasons == ["no_active_activity"]
     all_money = [event for event in engine.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-buy" and event.data.get("resource_changes")]
     assert len(all_money) == 1

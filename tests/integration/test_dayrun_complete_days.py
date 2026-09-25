@@ -132,6 +132,10 @@ class DayModel:
         return "start_activity", {"targets": ["自己"], "actions": ["睡觉" if sleep else "等待"]}
 
     def _trip(self, functions, hour):
+        active = self._active()
+        if active:
+            # 出发前先结束仍在进行的等待（被消息唤醒时等待还没到点）；结束是瞬时动作，同一秒再决策出发。
+            return self._session_action("conclude_activity", active[:2])
         target = _RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)]
         self.phase = "pause"
         return "start_activity", {"targets": [self._place(target), self._watch()],
@@ -210,6 +214,10 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed):
     document = _document("multi-person.json")
     document["random_seed"] = seed
+    # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，
+    # 会话按播报节律汇报；等待时长取结算间隔，结算间隔与播报间隔都放长到两小时，使整日决策轮数与运行时长保持有界。
+    document["activity_feedback_seconds"] = 7200
+    document["progress_report_interval_seconds"] = 7200
     for identity in (1, 2):
         document["messages"].append({
             **document["messages"][0], "message_id": f"walking-check-{identity}",

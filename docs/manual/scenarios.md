@@ -39,7 +39,7 @@ flowchart TB
 | 字段组 | 必填情况与用途 |
 | --- | --- |
 | `schema_version`、`scenario_id`、`timezone`、`start_at`、`end_at`、`random_seed` | 必填；格式版本、场景身份、时间与随机种子 |
-| `activity_feedback_seconds`、`max_consecutive_rejections`、`rotation_stale_seconds` | 必填；反馈间隔、连续拒绝上限与长期未呈现阈值 |
+| `activity_feedback_seconds`、`rotation_stale_seconds` | 必填；反馈间隔与长期未呈现阈值 |
 | `corpus_root`、`corpus_manifest_sha256`、`catalog_version`、`map_dataset` | 必填；语料、目录版本和地图身份 |
 | `accounts` | 必填非空数组；商家、雇主、出行服务和外部账户 |
 | `body`、`agents`、`interaction_menus_by_location_kind` | 必填；身体初值、人物和每个地点类的菜单 |
@@ -63,7 +63,7 @@ flowchart TB
   "activity_feedback_seconds": 900,
   "reconsideration_interval_seconds": 5400,
   "idle_reconsideration_interval_seconds": 10800,
-  "max_consecutive_rejections": 10,
+  "max_same_moment_decisions": 3,
   "candidate_presentation_limit": 20,
   "candidate_pool_limit": 1000,
   "rotation_quota_ratio": 0.15,
@@ -78,10 +78,11 @@ flowchart TB
 
 | 参数 | 单位与约束 | 如何理解 |
 | --- | --- | --- |
-| `activity_feedback_seconds` | 秒，正整数且不超过 86400 | 活动反馈参数，不是保证每隔这些秒都会重新决策 |
-| `reconsideration_interval_seconds` | 秒，默认 5400，范围 1–86400 | 清醒且有在手承诺时的常规重估间隔；其他更早事件仍能触发决策 |
-| `idle_reconsideration_interval_seconds` | 秒，默认 10800，范围 1–86400，不能短于常规间隔 | 没有在手承诺时的空闲重估间隔；调大常规间隔时也要检查此值 |
-| `max_consecutive_rejections` | 正整数 | 连续行动拒绝达到上限时，将人物标记为决策失败 |
+| `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待、浏览、交谈的计划时长；不是保证每隔这些秒都会重新决策 |
+| `reconsideration_interval_seconds` | 秒，默认 5400，范围 1–86400 | 清醒且有在手承诺时的常规重估间隔（进行中的等待不算在手承诺）；其他更早事件仍能触发决策 |
+| `idle_reconsideration_interval_seconds` | 秒，默认 10800，范围 1–86400，不能短于常规间隔 | 人物只在等待、且没有其他在手承诺时的空闲重估间隔；调大常规间隔时也要检查此值 |
+| `max_same_moment_decisions` | 正整数，缺省 3 | 同一秒内的决策轮数上限；达到上限后只开放开始或恢复（等待始终可选），开始被拒后只开放等待；不标失败 |
+| `progress_report_interval_seconds` | 秒，缺省 1800 | 进行中活动的播报间隔 |
 | `candidate_presentation_limit` | 默认 20，范围 1–1000 | 单次候选呈现上限 |
 | `candidate_pool_limit` | 默认 1000，范围 1–100000 | 候选池上限 |
 | `rotation_quota_ratio` | 默认 0.15，严格在 0 与 1 之间 | 为轮换呈现预留的比例；呈现上限乘比例向下取整必须至少为 1 |
@@ -89,7 +90,7 @@ flowchart TB
 | `retrieval_index_threshold` | 默认 1000，范围 1–100000 | 切换检索索引策略的规模阈值 |
 
 不要把反馈间隔当作“人物每十五分钟行动一次”。时间根据活动完成、消息、任务、身体变化和其他事件推进。
-在手承诺包括尚未推进的当日目标、可见的未完成工作任务、当前或暂停的未完成活动；
+在手承诺包括尚未推进的当日目标、可见的未完成工作任务、暂停的活动与进行中的活动（等待除外）；
 睡眠继续遵守专用唤醒条件。人物只提交有序目标，不填写时间段，规则见[当日目标规格](../dev/SPEC-day-plan-goals.md)。
 
 ## 修改人物、身体与账户
@@ -257,6 +258,7 @@ flowchart LR
 | `work task is outside the scenario interval` | 同步调整任务开放和截止时间，或移除窗口外任务和有关消息 |
 | `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
 | `candidate_presentation_limit and rotation_quota_ratio leave no rotation quota` | 调整二者，保证乘积向下取整至少为 1 |
+| 旧场景含 `max_consecutive_rejections` 被拒（未知字段） | 删掉该键（同刻上限取缺省 3），或改写为 `max_same_moment_decisions` |
 | 修改配置后不能恢复旧运行 | 用新目录新建运行；恢复不是应用新配置的入口 |
 
 字段的最终边界见[场景加载器](../../src/worldmock/life/scenario.py)、

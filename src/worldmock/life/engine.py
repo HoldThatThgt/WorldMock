@@ -20,7 +20,7 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import felt, projection, social_actions
+from worldmock.life import felt, projection, same_moment, social_actions
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
@@ -104,7 +104,10 @@ from worldmock.life.models import (
     rejection_reason_text,
     ReviseDayPlanRequest,
     RunIdentity,
+    SameMomentPresentation,
+    SameMomentStage,
     SendMessageRequest,
+    SessionStatus,
     SubmitWorkActionRequest,
     StartSocialActivityRequest,
     StoredAction,
@@ -131,7 +134,8 @@ from worldmock.life.schedule import (PlanGoal, WakeReason,
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.session_actions import SessionActionMixin
 from worldmock.life.settlement import inject_initial_funds
-from worldmock.life.state_commit import commit_state, flush_presentation, flush_supply_visibility, validated_payload
+from worldmock.life.state_commit import (commit_state, flush_presentation, flush_supply_visibility, stage_presentation,
+                                         validated_payload)
 from worldmock.life.storefront_runtime import StorefrontRuntimeMixin, record_arrival_access
 from worldmock.life.storefront_state import initial_supply_state, map_provenance, validate_storefront_state
 from worldmock.life.travel import pay_travel_fare, route_for, update_travel, validate_routes
@@ -176,6 +180,7 @@ _SCHEDULED_WAKE_FLAGS = {
     "delivery_arrival": "delivery_arrival",
     "delivery_ready": "delivery_arrival",
     "mail_arrival": "message_arrival",
+    "message_arrival": "message_arrival",
     "work_available": "task_available",
 }
 
@@ -222,7 +227,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._pending_decision_starts: dict[int, dict] = {}
         self._model_request_events: dict[tuple[str, str], str] = {}
         self._pending_event_drafts: list[EventDraft] = []
-        self._pending_presentation: dict | None = None
+        self._pending_presentation: dict[int, SameMomentPresentation] = {}
         self._pending_visible_supplies: dict[int, set[str]] = {}
         self._work_reviewer: WorkReviewer | None = None
         self.ops = OpsLogger(store.run_dir, self.scenario.timezone)
@@ -405,12 +410,16 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return receipt
 
     def commit_decision_round(self, round_id: str) -> list[ActionResult]:
-        """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。"""
+        """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
+
+        人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
+        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖。
+        """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
         if submitted != set(current.expected_agent_ids):
             raise ProtocolError("Decision round does not contain every expected agent")
-        staged = flush_presentation(self.state, self._pending_presentation).model_copy(deep=True)
+        staged = stage_presentation(self.state, self._pending_presentation).model_copy(deep=True)
         staged = flush_supply_visibility(staged, self._pending_visible_supplies)
         drafts: list[EventDraft] = flush_decision_starts(self._pending_decision_starts, self.state.current_time)
         results = []
@@ -421,11 +430,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             drafts.extend(action_drafts)
             if not pending.reused:
                 staged = _remember_action(staged, pending, result)
+        recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
+                      and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
+        staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.state.version + 1
         events = commit_state(self.store, staged, drafts)
         self.state = staged
-        self._pending_presentation = None
+        self._pending_presentation = {}
         self._pending_visible_supplies = {}
         self._round = None
         self._ops_committed(round_id, results, events)
@@ -585,9 +597,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         if tick <= 0 or target_epoch - self.state.current_time != tick or target_epoch != self._next_epoch():
             raise ProtocolError("World advance must match the next scheduling boundary")
         interval = target_epoch - self.state.current_time
-        staged = flush_presentation(self.state, self._pending_presentation)
+        staged = flush_presentation(stage_presentation(self.state, self._pending_presentation))
         staged = flush_supply_visibility(staged, self._pending_visible_supplies)
         staged = staged.model_copy(update={"current_time": target_epoch}, deep=True)
+        staged = same_moment.reset_same_moment(staged)
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
@@ -602,7 +615,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         staged.version = self.state.version + 1
         commit_state(self.store, staged, drafts)
         self.state = staged
-        self._pending_presentation = None
+        self._pending_presentation = {}
         self._pending_visible_supplies = {}
         return results
 
@@ -825,50 +838,53 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             return changed, result, drafts
 
     def _after_success(self, state: WorldState, agent_id: int, tool_name: str) -> WorldState:
-        """@brief 成功选择重置拒绝计数并按节律计算下一次合法决策时刻。"""
-        agent = state.agents[agent_id]
-        activity = next((item for item in active_activities(state, agent_id)
-                         if item.kind == ActivityKind.PLAY_GAME), None)
-        if activity is not None and activity.kind == ActivityKind.PLAY_GAME:
-            # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策。
-            next_at = activity.next_interaction_at or activity.planned_end_at
-        else:
-            candidate = next_decision_candidates(agent, engine_rhythm_inputs(self, state))
-            # 修订决策节律：下一决策时刻只由唤醒候选决定（计划结束、体感分级
-            # 跨越、排定通知、承诺威胁、重估间隔、营业变化）；900 秒反馈
-            # 边界只是结算粒度，不再构成决策时刻。
-            next_at = candidate if candidate is not None else (
-                state.current_time + self.scenario.activity_feedback_seconds)
+        """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""
+        agent = same_moment.count_round(state.agents[agent_id])
+        game = next((item for item in active_activities(state, agent_id)
+                     if item.kind == ActivityKind.PLAY_GAME), None)
+        # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策。
+        game_turn = (lambda: game.next_interaction_at or game.planned_end_at) if game is not None else None
+        next_at, reasons, stage = self._round_schedule(state, agent, False, game_turn)
         changed = agent.model_copy(update={"next_decision_at": next_at,
                                            "consecutive_rejections": 0,
-                                           "pending_wake_reasons": []}, deep=True)
-        agents = dict(state.agents)
-        agents[agent_id] = changed
-        return state.model_copy(update={"agents": agents}, deep=True)
+                                           "pending_wake_reasons": reasons,
+                                           "same_moment_stage": stage}, deep=True)
+        return _put_agent(state, changed)
+
+    def _round_schedule(self, state: WorldState, agent, rejected: bool,
+                        rhythm_next=None) -> tuple[int, list[str], SameMomentStage]:
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。"""
+        now = state.current_time
+
+        def by_rhythm() -> int:
+            """@brief 节律候选以本次决策时刻为上次决策时刻（规则 7）；无候选取结算间隔。"""
+            candidate = next_decision_candidates(agent.model_copy(update={"last_decision_time": now}),
+                                                 engine_rhythm_inputs(self, state))
+            return candidate if candidate is not None else now + self.scenario.activity_feedback_seconds
+
+        outcome = same_moment.RoundOutcome(now=now, agent=agent,
+                                           active=bool(active_activities(state, agent.agent_id)),
+                                           rejected=rejected, limit=self.scenario.max_same_moment_decisions)
+        return same_moment.schedule_after_round(outcome, rhythm_next or by_rhythm)
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
-        """@brief 业务拒绝后安排下次决策；资源占用等待状态实际变化。"""
-        agent = state.agents[pending.agent_id]
-        count = min(agent.consecutive_rejections + 1, self.scenario.max_consecutive_rejections)
-        cooldown = count >= self.scenario.max_consecutive_rejections
-        delay = self.scenario.activity_feedback_seconds if cooldown else 1
-        running = active_activities(state, pending.agent_id)
-        if str(error) == "RESOURCE_CONFLICT" and running:
-            remaining = min(item.planned_end_at for item in running) - state.current_time
-            delay = min(self.scenario.activity_feedback_seconds, max(1, remaining))
-        next_decision_at = state.current_time + delay
-        pulse_key = ("work_review_returned" if str(error) == "WORK_REQUIRES_REWORK"
-                     else "service_refused")
-        body = (agent.body if str(error) in {"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"}
-                else apply_mood_pulse(agent.body, pulse_key))
+        """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。"""
+        agent = same_moment.count_round(state.agents[pending.agent_id])
+        next_decision_at, reasons, stage = self._round_schedule(state, agent, True)
+        pulse_key = same_moment.refusal_pulse_key(str(error))
+        if pulse_key == same_moment.SERVICE_REFUSED and same_moment.refusal_pulse_applied(state, agent.agent_id):
+            pulse_key = None
+        body = agent.body if pulse_key is None else apply_mood_pulse(agent.body, pulse_key)
         changed_agent = agent.model_copy(update={"next_decision_at": next_decision_at,
-                                                  "consecutive_rejections": count,
+                                                  "consecutive_rejections": agent.consecutive_rejections + 1,
+                                                  "pending_wake_reasons": reasons,
+                                                  "same_moment_stage": stage,
                                                   "body": body}, deep=True)
-        changed = _put_agent_and_defer_feedback(state, changed_agent)
+        changed = _put_agent_and_defer_game_turn(state, changed_agent)
         message = "Action rejected: " + rejection_reason_text(error)
-        data = {"consecutive_rejections": count,
-                "maximum_rejections": self.scenario.max_consecutive_rejections,
+        data = {"same_moment_round": changed_agent.same_moment_rounds,
+                "max_same_moment_decisions": self.scenario.max_same_moment_decisions,
                 "next_decision_at": next_decision_at}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
@@ -893,15 +909,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         review = WorkReviewDecision.model_validate(pending.work_review)
         return public_work_review(review, source)
 
-    def _after_unknown(self, state: WorldState, agent_id: int) -> WorldState:
-        """@brief 未知游戏结果保留拒绝计数并设置下一秒重试边界。"""
-        agent = state.agents[agent_id]
-        changed = agent.model_copy(update={"next_decision_at": state.current_time + 1}, deep=True)
-        return _put_agent_and_defer_feedback(state, changed)
-
     def _reused_result(self, state: WorldState,
                        pending: PendingAction) -> tuple[WorldState, ActionResult, list[EventDraft]]:
-        """@brief 返回持久终态结果并只记录本次重放证据。"""
+        """@brief 返回持久终态结果并只记录本次重放证据；重放计入同刻轮数，按存档结果排期，不重做领域动作与脉冲（规则 9）。"""
         stored = state.processed_actions[pending.action_id]
         result = ActionResult.model_validate(stored.result)
         accepted_statuses = {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS, ActionStatus.COMPLETED}
@@ -916,9 +926,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                             agent_id=pending.agent_id, decision_id=pending.decision_id,
                             action_id=pending.action_id, activity_id=result.activity_id,
                             caused_by=[pending.requested_event_id], data=data)
-        agent = state.agents[pending.agent_id].model_copy(
-            update={"next_decision_at": state.current_time + 1}, deep=True)
-        changed = _put_agent_and_defer_feedback(state, agent)
+        agent = same_moment.count_round(state.agents[pending.agent_id])
+        next_at, reasons, stage = self._round_schedule(state, agent, result.status == ActionStatus.REJECTED)
+        agent = agent.model_copy(update={"next_decision_at": next_at, "pending_wake_reasons": reasons,
+                                         "same_moment_stage": stage}, deep=True)
+        changed = _put_agent_and_defer_game_turn(state, agent)
         return changed, result, [first, second]
 
     def _dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
@@ -945,9 +957,26 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return handlers[pending.tool_name](state, pending, request)
 
     def _require_boundary_action(self, state: WorldState, pending: PendingAction, request) -> None:
-        """@brief 人物在已获准的共同决策边界可选择或控制任意合法活动。"""
-        if state.agents[pending.agent_id].next_decision_at > state.current_time:
+        """@brief 决策须已到期；达到同刻上限后的受限轮只接受本轮开放的动作类（第一章「实现约定」）。"""
+        agent = state.agents[pending.agent_id]
+        if agent.next_decision_at > state.current_time:
             raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
+        if agent.same_moment_stage != SameMomentStage.OPEN:
+            same_moment.require_stage_action(agent.same_moment_stage,
+                                             self._same_moment_request_kind(state, pending, request))
+
+    def _same_moment_request_kind(self, state: WorldState, pending: PendingAction, request) -> str:
+        """@brief 受限轮复核的请求类：只等待、开始持续活动（不含到店购买与远程下单）、恢复暂停活动或其他。"""
+        if pending.tool_name == "start_activity":
+            actions = [row["selected_action"]["canonical_action"]
+                       for row in self._resolve_interaction_bindings(pending, request)]
+            if actions == ["wait"]:
+                return "wait"
+            return "other" if "purchase" in actions else "start"
+        if pending.tool_name == "report_status":
+            sessions = self._sessions_for_names(state, pending, request.task)
+            return "resume" if all(item.status == SessionStatus.PAUSED for item in sessions) else "other"
+        return "other"
 
     def _activity_title(self, activity) -> str | None:
         """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
@@ -1233,7 +1262,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _register_delivered_message(self, state: WorldState, agent, contacts,
                                     request: SendMessageRequest, sent) -> WorldState:
-        """@brief 送达登记：收件方 inbox、model 联系人回复待办与 message_arrival 事件。"""
+        """@brief 送达登记：收件方 inbox、model 联系人回复待办与 message_arrival 事件。
+
+        同世界收件人的 message_arrival 草稿登记其同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
+        （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
+        """
         drafts: list[EventDraft] = []
         recipient_agent = next((item for item in state.agents.values()
                                 if f"agent:{item.agent_id}" == request.recipient_id), None)
@@ -1316,7 +1349,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return matches[0]
 
     def _deliver_social_message(self, state: WorldState, sent) -> None:
-        """@brief 把交谈邀请送达对方 inbox 并留 message_arrival 事件草稿。"""
+        """@brief 把交谈邀请送达对方 inbox 并留 message_arrival 事件草稿。
+
+        该草稿登记清醒收件人的同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
+        （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
+        """
         recipient = next((item for item in state.agents.values()
                           if f"agent:{item.agent_id}" == sent.message.recipient_id), None)
         if recipient is not None:
@@ -1514,7 +1551,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return drafts
 
     def _ready(self, agent_id: int) -> bool:
-        """@brief 无主活动或任一显式交互边界到达的人物可进行决策。"""
+        """@brief next_decision_at 已到的人物就绪（同刻机会只由其等于当前时刻表达，第一章规则 8）。"""
         if self.state.current_time >= self.state.end_time:
             return False
         agent = self.state.agents[agent_id]
@@ -1654,13 +1691,13 @@ def _put_agent(state: WorldState, agent) -> WorldState:
     return state.model_copy(update={"agents": agents}, deep=True)
 
 
-def _put_agent_and_defer_feedback(state: WorldState, agent) -> WorldState:
-    """@brief 保存人物一秒反应边界，并让到期活动保持连续等待选择。"""
+def _put_agent_and_defer_game_turn(state: WorldState, agent) -> WorldState:
+    """@brief 保存人物，并把本秒到期的游戏回合顺延一秒：防止达到同刻上限后游戏回合让人物在同一秒再就绪。"""
     agents = dict(state.agents)
     agents[agent.agent_id] = agent
     activities = dict(state.activities)
     for activity in active_activities(state, agent.agent_id):
-        if activity.next_interaction_at == state.current_time:
+        if activity.kind == ActivityKind.PLAY_GAME and activity.next_interaction_at == state.current_time:
             activities[activity.activity_id] = activity.model_copy(
                 update={"next_interaction_at": state.current_time + 1}, deep=True)
     return state.model_copy(update={"agents": agents, "activities": activities}, deep=True)

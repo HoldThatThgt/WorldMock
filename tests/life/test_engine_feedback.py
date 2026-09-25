@@ -10,11 +10,11 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, wake_by_mail
-from worldmock.errors import BusinessRuleError, ProtocolError
+from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
-    ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, PendingAction,
+    ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
     ReportStatusRequest, StartActivityRequest,
 )
 
@@ -92,15 +92,17 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
 
 
 def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
-    """对象不存在属于可恢复业务反馈；下一轮进度层公开原因。"""
+    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因（时间与能量规格第一章规则 2）。"""
     engine = engine_factory()
     stage_day_plan(engine)
+    before = engine.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
         StartActivityRequest(targets=["不存在的对象"], actions=["观看"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
-    assert engine.state.agents[1].next_decision_at == engine.state.current_time + 1
-    advance_next(engine)
+    assert engine.state.current_time == before
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    assert engine.scheduling_state().ready_agent_ids == (1,)
     decision = context(engine, "after-rejection")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
@@ -110,31 +112,10 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
     assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"
+    assert engine.state.current_time == before
     assert engine.state.agents[1].consecutive_rejections == 0
-
-
-def test_tenth_consecutive_rejection_delays_retry_without_failing_run(engine_factory, monkeypatch):
-    """连续业务拒绝进入冷却，人物仍可在下一决策边界选择。"""
-    engine = engine_factory()
-    staged = engine.state.model_copy(deep=True)
-    staged.agents[1].consecutive_rejections = engine.scenario.max_consecutive_rejections - 1
-    pending = PendingAction(
-        run_id=staged.run_id, round_id="reject-limit", decision_id="decision-reject-limit",
-        action_id="action-reject-limit", agent_id=1, observed_at=staged.current_time,
-        world_state_version=staged.version, order=0, tool_name="start_activity",
-        request={}, request_sha256="0" * 64, requested_event_id="request-reject-limit")
-
-    def reject(*_args):
-        """@brief 在领域边界稳定产生一次业务拒绝。"""
-        raise BusinessRuleError("ACTION_REQUEST_INVALID")
-
-    monkeypatch.setattr(engine, "_dispatch", reject)
-    changed, result, drafts = engine._resolve(staged, pending)
-    assert result.status == "rejected"
-    assert changed.agents[1].consecutive_rejections == engine.scenario.max_consecutive_rejections
-    assert changed.agents[1].next_decision_at == (
-        staged.current_time + engine.scenario.activity_feedback_seconds)
-    assert [event.event_type for event in drafts] == ["action_rejected", "action_result"]
+    assert engine.state.agents[1].same_moment_rounds == 2
+    assert engine.state.agents[1].next_decision_at > engine.state.current_time
 
 
 def test_contexts_must_follow_seeded_scheduling_order(engine_factory):

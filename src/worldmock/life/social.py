@@ -37,6 +37,9 @@ CALL_RELIEF_PER_HOUR = 0.4
 REPLY_SOURCE_KIND = "model_npc"
 #: template 策略的占位回复文本；正式模板渲染由引擎与语料层完成。
 TEMPLATE_REPLY_TEXT = "（模板自动回复）"
+#: experiment_assumption：联系人回复生成后到送达收件人的延迟（秒，实验常量；docs/dev/SPEC-time-and-energy.md
+#: 第一章「人物之间的消息」，裁决 #21）。回复登记为预排送达事件，到期写入收件箱并以 message_arrival 唤醒。
+CONTACT_REPLY_DELAY_SECONDS = 300
 
 
 class _SocialModel(BaseModel):

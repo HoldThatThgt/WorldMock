@@ -12,12 +12,13 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, start_activity, submit_round
 from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.validation import validate_export
 from worldmock.life.models import SendMessageActionRequest, StartActivityRequest
+from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
 from worldmock.runtime import settle_pending_model_replies
 
 
@@ -52,6 +53,13 @@ def _send_message_to_model_contact(engine, round_id: str) -> None:
         ctx, f"action-{round_id}", "send_message",
         SendMessageActionRequest(recipient_name=recipient, text="周五晚上一起吃饭？")))
     engine.commit_decision_round(round_id)
+
+
+def _wait_until_reply_due(engine, due: int) -> None:
+    """人物在发消息的同一秒开始等待（瞬时动作后同秒再决策），时钟随后推进到回复送达时刻。"""
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"reply-wait-{due}")
+    while engine.state.current_time < due:
+        advance_next(engine)
 
 
 def _stage_final_interval(engine, seconds: int) -> None:
@@ -212,9 +220,12 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
 
 @pytest.mark.asyncio
 async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_factory) -> None:
-    """成功回复：独立调用参数正确、证据事件齐全、只进收件箱不改资源。"""
+    """成功回复：独立调用参数正确、证据在生成时写入；回复预排在 CONTACT_REPLY_DELAY_SECONDS 后送达，到期才进收件箱，
+    留 message_arrival 送达记录并以 message_arrival 唤醒清醒的收件人；不改资源（裁决 #21）。"""
     engine = engine_factory()
     _send_message_to_model_contact(engine, "npc-reply")
+    sent_at = engine.state.current_time
+    due = sent_at + CONTACT_REPLY_DELAY_SECONDS
 
     client = _StubReplyClient(texts=["好啊，老地方见。"])
     settled = await settle_pending_model_replies(engine, client=client)
@@ -228,24 +239,34 @@ async def test_model_npc_reply_loop_delivers_to_inbox_with_evidence(engine_facto
     assert "周五晚上一起吃饭" in request_payload["messages"][1]["content"]
 
     reply_id = settled[0]["reply_message_id"]
-    inbox = engine.state.agents[1].inbox
-    assert reply_id in inbox
-    assert inbox[reply_id].text == "好啊，老地方见。"
-    assert inbox[reply_id].sender_id == "contact-chenxi-oldfriend"
-    assert len(inbox[reply_id].text) <= 200
+    assert reply_id not in engine.state.agents[1].inbox
+    scheduled = [item for item in engine.state.pending_events if item.kind == "message_arrival"]
+    assert [(item.agent_id, item.due_at) for item in scheduled] == [(1, due)]
 
     events = engine.store.read_events(engine.store.last_event_seq)
     evidence = [item for item in events if item.data.get("kind") == "model_npc_reply"]
-    assert len(evidence) == 1
+    assert len(evidence) == 1 and evidence[0].occurred_at == sent_at
     assert evidence[0].data["source_kind"] == "model_npc"
     assert evidence[0].data["request"] == request_payload
     assert evidence[0].data["usage"]["prompt_tokens"] == 21
     assert evidence[0].data["response"]["model"] == "deepseek-flash"
     pending = [item for item in events if item.data.get("kind") == "model_npc_reply_pending"]
     assert len(pending) == 1 and evidence[0].caused_by == [pending[0].event_id]
+    assert not [item for item in events if item.data.get("kind") == "message_arrival"
+                and item.data.get("message_id") == reply_id]
+
+    _wait_until_reply_due(engine, due)
+    assert engine.state.current_time == due
+    inbox = engine.state.agents[1].inbox
+    assert inbox[reply_id].text == "好啊，老地方见。"
+    assert inbox[reply_id].sender_id == "contact-chenxi-oldfriend"
+    assert len(inbox[reply_id].text) <= 200
+    events = engine.store.read_events(engine.store.last_event_seq)
     arrivals = [item for item in events if item.data.get("kind") == "message_arrival"
                 and item.data.get("message_id") == reply_id]
-    assert len(arrivals) == 1 and arrivals[0].agent_id == 1
+    assert len(arrivals) == 1 and arrivals[0].agent_id == 1 and arrivals[0].occurred_at == due
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    assert "message_arrival" in engine.state.agents[1].pending_wake_reasons
     # 只进收件箱：回复证据与送达事件不携带任何资源分录。
     assert not [item for item in [*evidence, *arrivals] if item.data.get("resource_changes")]
 
@@ -277,5 +298,7 @@ async def test_model_npc_reply_at_most_once_per_message(engine_factory) -> None:
 
     assert len(first) == 1 and second == []
     assert len(client.calls) == 1
+    assert len([item for item in engine.state.pending_events if item.kind == "message_arrival"]) == 1
+    _wait_until_reply_due(engine, engine.state.current_time + CONTACT_REPLY_DELAY_SECONDS)
     inbox_ids = list(engine.state.agents[1].inbox)
     assert len(inbox_ids) == len(set(inbox_ids)) == 1

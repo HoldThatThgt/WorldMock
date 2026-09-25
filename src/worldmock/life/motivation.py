@@ -277,7 +277,8 @@ class MotivationContext:
     active_activities: tuple[ActivityState, ...]
     habit_events: tuple[tuple[str, Mapping], ...]
     consecutive_rejections: int
-    max_consecutive_rejections: int
+    #: 同刻决策上限（场景 max_same_moment_decisions）：受挫度的分母。
+    max_same_moment_decisions: int
     total_effective_seconds: float
     current_time: int
     end_time: int
@@ -375,14 +376,14 @@ def evaluate_motivation(context: MotivationContext, profile: MotivationProfile,
 def _emotion_state(context: MotivationContext, profile: MotivationProfile) -> tuple[float, float]:
     """@brief v1 简化情绪评估：受挫度与目标缺口，各自线性落在 [0,1]。
 
-    受挫度 = 连续拒绝次数 / 上限；目标缺口 = 1 - 有效工时进度比（累计口径，
-    按日切窗需要日粒度足迹聚合，v1 先用累计对单日志向的比值，注明简化）。
+    受挫度 = 连续拒绝次数 / 同刻上限，截到 1（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）；
+    目标缺口 = 1 - 有效工时进度比（累计口径，按日切窗需要日粒度足迹聚合，v1 先用累计对单日志向的比值，注明简化）。
     """
-    frustration = (context.consecutive_rejections / context.max_consecutive_rejections
-                   if context.max_consecutive_rejections > 0 else 0.0)
+    frustration = (min(1.0, context.consecutive_rejections / context.max_same_moment_decisions)
+                   if context.max_same_moment_decisions > 0 else 0.0)
     aspiration_seconds = max(1.0, float(profile.aspiration["daily_effective_work_seconds"]))
     progress = min(1.0, context.total_effective_seconds / aspiration_seconds)
-    return min(1.0, frustration), 1.0 - progress
+    return frustration, 1.0 - progress
 
 
 def _work_efficiency_snapshot(body: BodyConfig, energy_kcal: float,

@@ -817,9 +817,12 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
         monkeypatch.setattr(runtime, "ContactReplyClient", RecordingClient)
         results = await env.commit_decision_round("settle-direct")
         assert results[0].status == "completed"
-        replies = [item for item in engine.state.agents[1].inbox.values()
-                   if item.sender_id == "contact-chenxi-oldfriend"]
-        assert len(replies) == 1 and replies[0].text == "好啊，老地方见。"
+        # 回复登记为预排送达（裁决 #21）：本轮提交后尚未进入收件箱。
+        assert not [item for item in engine.state.agents[1].inbox.values()
+                    if item.sender_id == "contact-chenxi-oldfriend"]
+        replies = [item.data["message"] for item in engine.state.pending_events if item.kind == "message_arrival"]
+        assert len(replies) == 1 and replies[0]["text"] == "好啊，老地方见。"
+        assert replies[0]["sender_id"] == "contact-chenxi-oldfriend"
         assert built and built[0]["requested_model"] == "deepseek-flash"
     finally:
         engine.close()

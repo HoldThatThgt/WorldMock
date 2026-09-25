@@ -143,6 +143,8 @@ flowchart TB
 其中事件级工具支持字段 `interaction_menu` 保存本轮按地点类与人物声明求得的有效菜单，供核对实际
 模型 Schema、本地校验和环境派发；它不进入人物 user 消息，也不保存其他人物或全部地点的原始声明。
 地点变化后的新菜单由下一次观察另行记录，既有观察不回写。
+观察私有证据另记 `same_moment_stage`（本轮开放的动作类，同刻上限的受限轮阶段），同样用于核对实际模型 Schema、
+本地校验和环境派发；它不进入 `scene` 与 `facts`。
 人物提示如何包装观察见[人物决策提示合同](../CONTRACTS.md#请求组成)。
 
 请求同一动作的重试沿用动作标识；真实重复观看或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同素材的哈希当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
@@ -161,6 +163,8 @@ flowchart TB
 
 记录引擎校验引用身份、人物、区间与事件顺序；具体身体演化和唤醒条件仍由模拟引擎计算。
 静默边界也写共同身体证据，不能因没有人物决策而漏记身体时间。
+同刻轮次（同一模拟秒内的再决策轮）没有区间，不写共同身体结算；其唤醒原因只记于
+`decision_started.data.wake_reasons` 与观察。边界兜底的 `no_active_activity` 属于边界判定，照常写入结算。
 唤醒原因闭集、睡眠允许的原因与触发条件统一见
 [生活运行时规格的决策节律](../dev/SPEC-life-runtime.md#决策节律结算边界与唤醒条件分离)。
 
@@ -196,7 +200,7 @@ EventType = Literal[
 | `decision_started` | 保留当时实际产生的决策信息：`data` 含 `round_id`、`round_order`、`world_state_version`、本轮唤醒原因 `wake_reasons` 与决策自述 `decision_statement`（引擎直驱路径可缺）；决策自述属于模型自述。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
 | `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查 |
-| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`，受理时不重复声明最终支付 |
+| `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
 | `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因 |
@@ -553,6 +557,9 @@ flowchart TD
 检查点事件与检查点记录同事务提交，世界状态必须等于当前已提交状态，不增加世界版本。
 
 世界结构版本为 `7`（`WorldState.schema_version`）；版本不符的旧状态（含版本 6）直接拒绝，不迁移。
+检查点封存的世界状态必须包含每个人物的同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`：
+受限轮阶段依赖上一受限轮的结果，从检查点恢复后在同一秒按原阶段继续；还须包含按人物暂存的本秒呈现留痕
+（`same_moment_presentation`），同一秒恢复后沿用该秒首轮的呈现窗口与置顶的浏览结果。
 
 数据库记录是检查点提交的唯一依据。记录存在、状态一致、所有参与者齐备且引用均可验证，才算完整检查点。
 独立 JSON 或 `SOCIETY_STEP.json` 写成功不能证明共同检查点完成。
@@ -730,7 +737,10 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `activities.known_elapsed_seconds` 是各活动自身时间之和；同人并行时另以共同身体结算区间并集报告
 `activities.person_elapsed_seconds_by_agent`，不能将前者冒充人物一天的经过时长。决策节律中，
 边界计数与边界的唤醒原因只从每人每区间唯一的共同身体结算读取，决策轮的唤醒原因从 `decision_started` 读取，
-两份唤醒原因分列；食品与工作效率读取对应活动自身进度。
+两份唤醒原因分列：`decision_rhythm` 另按人物与模拟秒统计 `decision_started` 的同刻轮数分布
+（`same_moment_round_counts`，键为同一人物同一秒的轮数，值为出现次数），并按 `decision_started.data.wake_reasons`
+统计轮次原因（`decision_started_wake_reason_counts`，闭集外成员计入
+`unrecognized_decision_started_wake_reason_counts`）；食品与工作效率读取对应活动自身进度。
 进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
 商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
@@ -856,3 +866,4 @@ flowchart LR
 | `2026-09-20-interaction-menu` | 2026-09-20 | 明确观察事件保存本轮有效菜单、菜单拒绝错误及场景与工具模板身份的恢复边界 |
 | `2026-09-24-time-and-energy` | 2026-09-24 | 对齐时间与能量特性规格：必须保存的内容增零点计划后台任务与同一秒内的轮序；列出 `decision_started` 的字段与同刻轮数口径；结束、暂停与恢复逐活动写带快照的 `environment_event`，主动结束按自然结束的路径写终态；会话切换与提醒到期不另写事件；提示中的供给行写完整行；活动快照的 `location_id` 为开始地点，结算不改写；零点计划不产生事实，模型只见经历句子；记忆写入点为 `conclude_activity` 与就寝反思，来源由系统登记；代码身份覆盖实际导入的 AS2；导出与质量报告按零点计划、记忆来源与两份唤醒原因改写；登记本规格的实现差距。世界结构版本 5→6 漏登，随绿色基线直接改为 7 |
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：世界结构版本句移到「检查点创建」并改为 7，版本不符的旧状态（含版本 6）直接拒绝、不迁移；「地图与供给的恢复身份」改为引用该句 |
+| `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：质量报告 `decision_rhythm` 增同刻轮次统计，按人物与模拟秒计 `decision_started` 的轮数分布，并按 `decision_started.data.wake_reasons` 统计轮次原因（E5-18）；同刻轮次不写共同身体结算，唤醒原因只记于 `decision_started` 与观察，边界兜底的 `no_active_activity` 照常写入结算（E5-4）；受限轮越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED` 并计入同刻轮数（E5-6）；检查点封存 `same_moment_rounds`、`same_moment_stage` 与按人物暂存的本秒呈现留痕 `same_moment_presentation`（E5-13）；观察私有证据另记 `same_moment_stage`，与实际 Schema、环境派发核对，不进 `scene` 与 `facts`（E5-3） |

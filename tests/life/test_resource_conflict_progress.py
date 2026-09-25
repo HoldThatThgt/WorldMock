@@ -10,8 +10,8 @@ from worldmock.life.models import StartActivityRequest
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
 
 
-def test_active_work_is_marked_unavailable_and_conflict_waits_for_progress(engine_factory) -> None:
-    """同一工作仍在进行时，重启请求不会导致逐秒模型重试。"""
+def test_active_work_is_marked_unavailable_and_conflict_redecides_in_same_second(engine_factory) -> None:
+    """同一工作仍在进行时不列入交互对象；绕过后的资源冲突拒绝未达同刻上限时同一秒再决策，不按最早结束延后。"""
     engine = engine_factory("multi-person.json")
     _stage_shared_work(engine)
     task = engine.scenario.tasks[0]
@@ -30,19 +30,20 @@ def test_active_work_is_marked_unavailable_and_conflict_waits_for_progress(engin
                for row in observed["facts"]["interactive_objects"])
     assert all(row["object_id"] != task.task_id for row in observed["interaction_bindings"])
 
+    assert any(item.agent_id == 1 and item.status == "active" for item in engine.state.activities.values())
+    rounds = engine.state.agents[1].same_moment_rounds
+    assert rounds < engine.scenario.max_same_moment_decisions - 1
     pending = SimpleNamespace(agent_id=1, action_id="repeat-work")
     changed, result = engine._after_rejection(
         engine.state, pending, BusinessRuleError("RESOURCE_CONFLICT"))
-    activity = next(item for item in engine.state.activities.values() if item.agent_id == 1)
-    expected = min(engine.scenario.activity_feedback_seconds,
-                   activity.planned_end_at - engine.state.current_time)
     assert result.error_code == "RESOURCE_CONFLICT"
-    assert changed.agents[1].next_decision_at == engine.state.current_time + expected
-    assert expected > 1
+    assert changed.agents[1].next_decision_at == engine.state.current_time
+    assert changed.agents[1].same_moment_rounds == rounds + 1
+    assert changed.agents[1].pending_wake_reasons == ["rejection_feedback"]
 
 
-def test_rejection_feedback_waits_until_next_decision_boundary(engine_factory) -> None:
-    """后台身体边界不得抢在已安排的拒绝反馈决策之前唤醒人物。"""
+def test_boundary_never_yields_rejection_feedback(engine_factory) -> None:
+    """rejection_feedback 只由同刻规则写入：边界判定即使在拒绝后的决策到期时也不产生它（第一章规则 6）。"""
     engine = engine_factory()
     state = engine.state.model_copy(deep=True)
     state.current_time += 1
@@ -60,4 +61,5 @@ def test_rejection_feedback_waits_until_next_decision_boundary(engine_factory) -
     due.current_time = state.agents[1].next_decision_at
     due.agents[1].body_settled_at = due.current_time
     _, rhythms = apply_decision_rhythm(engine_rhythm_inputs(engine, due))
-    assert "rejection_feedback" in rhythms[1].wake_reasons
+    assert "rejection_feedback" not in rhythms[1].wake_reasons
+    assert "no_active_activity" in rhythms[1].wake_reasons

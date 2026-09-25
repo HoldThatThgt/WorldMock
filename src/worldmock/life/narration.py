@@ -8,7 +8,8 @@ persona_card、scene、facts 三部分组成，
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
   体感分级、当前与暂停活动的进度、今天想推进的目标与推进状态、收件箱头、待办
-  一句话、可达地点与营业状态、手边持有物。整次请求容量由 prompt_capacity 计量。
+  一句话、可达地点与营业状态、手边持有物，以及同刻上限受限轮的一句说明（不写次数，
+  docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。整次请求容量由 prompt_capacity 计量。
 - 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
   二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
 - 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
@@ -24,7 +25,7 @@ location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
 day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
-reachable_places（name/opening_status 列表）、inventory。
+reachable_places（name/opening_status 列表）、inventory、same_moment_note（受限轮说明句，其余轮次为空串）。
 """
 
 from __future__ import annotations
@@ -290,7 +291,8 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
     的进度、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
-    状态、手边持有物；缺失的字段跳过对应句子，渲染器不虚构事实。
+    状态、手边持有物，同刻上限的受限轮末尾另加一句说明；缺失或为空的字段跳过对应句子，
+    渲染器不虚构事实。
 
     @param observation 引擎侧计算好的观察字段字典（键名见模块 docstring）
     @param language 场景语言，合同只支持 zh-CN，其他值抛 ValueError
@@ -316,6 +318,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _inventory_sentence(observation),
         _close_sentence(observation["local_food_summary"]) if observation.get("local_food_summary") else "",
         _precondition_sentence(observation),
+        _close_sentence(observation["same_moment_note"]) if observation.get("same_moment_note") else "",
     ]
     scene = "".join(part for part in parts if part)
     return scene

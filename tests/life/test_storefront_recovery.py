@@ -379,6 +379,8 @@ def test_reopening_after_price_change_preserves_paid_order_price(recovery_engine
     discovery, _ = _discover(engine, "discover-before-purchase")
     order_id = _purchase_selected_supply(engine, "delivery")
     paid = engine.state.deliveries[order_id].model_copy(deep=True)
+    # 下单是瞬时动作：人物先在同一秒开始等待（时间与能量规格第一章规则 2），时钟才推进到调价边界。
+    _action(engine, "wait-after-order", "start_activity", lambda observed: _choice(observed, "wait"))
     advance_next(engine)
     assert engine.state.current_time == paid.created_at + 1
     quote = engine.state.supply_quotes[SUPPLY]
@@ -427,6 +429,8 @@ def test_failed_decision_commit_preserves_visible_supply_credentials(recovery_en
     result = engine.commit_decision_round(decision.round_id)[0]
     assert result.status == "in_progress"
     assert engine._pending_visible_supplies == {}
-    assert engine._pending_presentation is None
+    # 呈现留痕随提交写入世界状态的本秒暂存（时间与能量规格第一章「同一秒内的呈现」），引擎缓存清空。
+    assert engine._pending_presentation == {}
+    assert engine.state.same_moment_presentation[1] == before_presentation[1]
     assert engine.state.accounts == before_state["accounts"]
     assert engine.state.supply_stock == before_state["supply_stock"]

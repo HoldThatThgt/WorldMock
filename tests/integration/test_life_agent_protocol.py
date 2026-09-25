@@ -154,6 +154,7 @@ def _observations(*result_ids: str) -> list[dict]:
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
         "wake_reasons": [],  # 非日首决策：不触发 plan_day 工具面强制
+        "same_moment_stage": "open",  # 未达同刻上限：不收窄世界请求
         "scene": dict(_SCENE),
         "facts": dict(_FACTS),
         "interaction_bindings": [

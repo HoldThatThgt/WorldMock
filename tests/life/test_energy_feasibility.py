@@ -8,6 +8,7 @@ from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import advance_next, context, stage_day_plan, travel_quote
+from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.models import ActivityKind, PlanDayRequest, StartActivityRequest
@@ -42,8 +43,8 @@ def _observed_action(engine, round_id: str, action: str, object_id: str | None =
     return observed, engine.commit_decision_round(round_id)[0]
 
 
-def test_zero_energy_idle_time_settles_after_instant_action(engine_factory) -> None:
-    """零能量瞬时登记后，空白时段仍正常结算清醒身体。"""
+def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
+    """零能量瞬时登记后同一秒再决策，不产生空白区间；随后的等待照常结算清醒身体（时间与能量规格第一章规则 1、2）。"""
     engine = engine_factory()
     _set_energy(engine, 0)
     decision = context(engine, "zero-energy-plan")
@@ -53,6 +54,11 @@ def test_zero_energy_idle_time_settles_after_instant_action(engine_factory) -> N
         decision, "action-zero-energy-plan", "plan_day", PlanDayRequest(goals=())))
     result = engine.commit_decision_round("zero-energy-plan")[0]
     assert result.status == "completed" and not engine.state.activities
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    with pytest.raises(ProtocolError, match="decision is due"):
+        advance_next(engine)
+    _, waited = _observed_action(engine, "zero-energy-wait", "wait")
+    assert waited.status == "in_progress", waited.error_code
     before = engine.state.agents[1].body
     advance_next(engine)
     after = engine.state.agents[1].body
@@ -60,8 +66,9 @@ def test_zero_energy_idle_time_settles_after_instant_action(engine_factory) -> N
     assert after.sleep_pressure > before.sleep_pressure
     assert after.entertainment_need > before.entertainment_need
     events = engine.store.read_agent_events("environment_event", 1)
-    assert any(item.data.get("kind") == "body_settlement" and not item.data["activity_ids"]
-               for item in events)
+    settlements = [item for item in events if item.data.get("kind") == "body_settlement"]
+    assert settlements and all(item.data["activity_ids"] for item in settlements)
+    assert waited.activity_id in settlements[-1].data["activity_ids"]
 
 
 def test_zero_energy_observation_retains_recovery_choices(engine_factory) -> None:

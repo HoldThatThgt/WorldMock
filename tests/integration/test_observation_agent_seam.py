@@ -18,7 +18,6 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.life.conftest import (  # noqa: E402
-    advance_next,
     advance_until_ready,
     wake_by_mail,
     context,
@@ -51,7 +50,7 @@ def _observe_active_wait(engine) -> tuple[dict, object]:
     """用真实邮件事件唤醒仍在等待的人物，验证非空活动控制行。"""
     _submit(engine, "seam-plan", "plan_day",
             PlanDayRequest(goals=(PlanGoalInput(intent_kind="休息", goal="稍作休息"),)))
-    advance_next(engine)
+    # 登记计划是瞬时动作：没有进行中活动，同一秒再决策（时间与能量规格第一章规则 2）。
     wake_by_mail(engine, offset=300)
     _submit(engine, "seam-wait", "start_activity",
             StartActivityRequest(targets=["自己"], actions=["等待"]))
@@ -114,7 +113,6 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     """观察中已播放字幕的嵌套列表必须隔离，调用者修改它不能篡改世界进度。"""
     engine = _engine_factory()
     _submit(engine, "copy-plan", "plan_day", PlanDayRequest(goals=()))
-    advance_next(engine)
     wake_by_mail(engine, offset=600)
     shown = engine._observation_data(engine.state.agents[1])
     subtitle = next(row for row in shown["interaction_bindings"]
@@ -166,7 +164,6 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
 
     engine = _engine_factory()
     _submit(engine, "game-plan", "plan_day", PlanDayRequest(goals=()))
-    advance_next(engine)
     shown = engine._observation_data(engine.state.agents[1])
     game = next(row for row in shown["interaction_bindings"]
                 if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
@@ -205,7 +202,6 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert engine.state.current_time == submitted_at
     assert engine.state.agents[1].day_plan.goals == ()
     assert initial.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
-    advance_next(engine)
     before_revision, revision, tools = await _agent_action(
         engine, "goals-append", "revise_day_plan",
         {"goals": [{"intent_kind": "休息", "goal": "缓一缓"}]})
@@ -213,7 +209,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert before_revision["facts"]["day_plan"]["goals"] == []
     assert before_revision["scene"]["day_plan"] == {"goals": []}
     assert revision.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
-    advance_next(engine)
+    assert engine.state.current_time == submitted_at
     _, started, _ = await _agent_action(
         engine, "goals-wait", "start_activity",
         {"targets": ["自己"], "actions": ["等待"]})

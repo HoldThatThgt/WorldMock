@@ -113,9 +113,12 @@ def test_memory_entries_and_finish_keep_content_limits() -> None:
     (lambda data: data["facts"]["interactive_objects"].append(
         dict(data["facts"]["interactive_objects"][0])), "interactive object identity"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
+    (lambda data: data.pop("same_moment_stage"), "same-moment stage"),
+    (lambda data: data.update(same_moment_stage="conclude_only"), "same-moment stage"),
+    (lambda data: data.update(same_moment_stage="bogus"), "same-moment stage"),
 ])
 def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """损坏的来源、进度、对象或菜单不能转成模型工具。"""
+    """损坏的来源、进度、对象、菜单或同刻阶段不能转成模型工具（本阶段引擎只产生 open、start_or_resume、wait_only）。"""
     data = copy.deepcopy(_observations()[0]["data"])
     change(data)
     with pytest.raises(RuntimeError, match=match):
@@ -171,6 +174,80 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     properties = start["parameters"]["properties"]
     assert "enum" not in properties["targets"]["items"]
     assert "enum" not in properties["actions"]["items"]
+
+
+_MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_step_range", "memory_tick_range",
+                 "memory_time_range", "memory_read"}
+_SUPPLY = "便利店出售的饭团"
+
+
+def _restricted_data(stage: str) -> dict:
+    """构造一项进行中、一项暂停会话与一家可购买门店的观察，并标上同刻受限轮阶段。"""
+    data = copy.deepcopy(_observations()[0]["data"])
+    data["same_moment_stage"] = stage
+    data["facts"]["interactive_objects"] += [
+        {"object": _SUPPLY, "actions": ["到店购买", "配送到当前位置"], "preconditions_met": True},
+        {"object": "商品目录", "actions": ["浏览"], "preconditions_met": True}]
+    data["interaction_bindings"] += [
+        {"object": _SUPPLY, "kind": "supply", "object_id": "supply-visible", "actions": [
+            {"label": "到店购买", "canonical_action": "purchase"},
+            {"label": "配送到当前位置", "canonical_action": "purchase"}]},
+        {"object": "商品目录", "kind": "catalog", "object_id": "catalog",
+         "actions": [{"label": "浏览", "canonical_action": "browse"}]}]
+    sessions = (("整理会议纪要（1月5日 09:00 起）", "整理会议纪要", "进行中", "active"),
+                ("看书（1月5日 08:00 起）", "看书", "已暂停", "paused"))
+    data["facts"]["progress"] = {"sessions": [
+        {"session_name": name, "task_name": task, "phase": phase} for name, task, phase, _ in sessions],
+        "results": [], "alarms": []}
+    data["session_bindings"] = [
+        {"session_name": name, "session_id": f"session-{status}", "task_name": task, "status": status}
+        for name, task, _, status in sessions]
+    return data
+
+
+def _enum(functions: dict[str, dict], tool: str, field: str) -> list[str]:
+    """读取工具 Schema 中数组参数的名称枚举。"""
+    return functions[tool]["parameters"]["properties"][field]["items"]["enum"]
+
+
+def test_start_or_resume_stage_narrows_tools_and_enums() -> None:
+    """start_or_resume 只开放开始或恢复：不含到店购买与远程下单，播报只列暂停的活动，记忆查询照常（第一章规则 3）。"""
+    opened = _functions(_prepared(_restricted_data("open")))
+    assert {"pause_activity", "conclude_activity", "recall_task_summary"} <= set(opened)
+    assert _SUPPLY in _enum(opened, "start_activity", "targets")
+    assert {"到店购买", "配送到当前位置"} <= set(_enum(opened, "start_activity", "actions"))
+    person = _prepared(_restricted_data("start_or_resume"))
+    functions = _functions(person)
+    assert set(functions) - _MEMORY_TOOLS == {"start_activity", "report_status"}
+    assert _MEMORY_TOOLS & set(functions)
+    assert _enum(functions, "start_activity", "targets") == sorted(["自己", "整理会议纪要", "商品目录"])
+    assert sorted(_enum(functions, "start_activity", "actions")) == sorted(["等待", "睡觉", "工作", "浏览"])
+    assert _enum(functions, "report_status", "task") == ["看书"]
+    assert "not a visible interactive object" in person.validate_react_decisions([
+        _decision("start_activity", {"targets": [_SUPPLY], "actions": ["到店购买"]})], False)
+    assert "unavailable session" in person.validate_react_decisions([
+        _decision("report_status", {"task": ["整理会议纪要"], "summary": ["继续。"]})], False)
+    assert "not available in the current activity state" in person.validate_react_decisions([
+        _decision("pause_activity", {"task": ["整理会议纪要"], "summary": ["先停。"]})], False)
+    assert person.validate_react_decisions([
+        _decision("report_status", {"task": ["看书"], "summary": ["接着看。"]})], False) == ""
+    assert person.validate_react_decisions([
+        _decision("start_activity", {"targets": ["商品目录"], "actions": ["浏览"]})], False) == ""
+
+
+def test_wait_only_stage_offers_only_wait() -> None:
+    """wait_only 只开放等待：start_activity 的对象与动作枚举只剩「自己」与「等待」，会话控制与回看都撤下。"""
+    person = _prepared(_restricted_data("wait_only"))
+    functions = _functions(person)
+    assert set(functions) - _MEMORY_TOOLS == {"start_activity"}
+    assert _enum(functions, "start_activity", "targets") == ["自己"]
+    assert _enum(functions, "start_activity", "actions") == ["等待"]
+    assert "not offered by the chosen target" in person.validate_react_decisions([
+        _decision("start_activity", {"targets": ["自己"], "actions": ["睡觉"]})], False)
+    assert "not available in the current activity state" in person.validate_react_decisions([
+        _decision("report_status", {"task": ["看书"], "summary": ["接着看。"]})], False)
+    assert person.validate_react_decisions([
+        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]})], False) == ""
 
 
 def test_tool_visibility_uses_current_named_tasks_and_sessions() -> None:

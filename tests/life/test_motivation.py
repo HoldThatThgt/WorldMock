@@ -220,7 +220,7 @@ def _context(**overrides) -> MotivationContext:
         opening_exceptions={key: {} for key in overrides.get("locations", {})}, locations={"home": _location("home").model_copy(
             update={"location_kinds": ("home", "office", "outdoor", "fitness", "venue")})}, routes=(), tasks=(),
         task_totals={}, contents=(), content_progress={}, active_activities=(),
-        habit_events=(), consecutive_rejections=0, max_consecutive_rejections=3,
+        habit_events=(), consecutive_rejections=0, max_same_moment_decisions=3,
         total_effective_seconds=0.0, current_time=CURRENT,
         end_time=CURRENT + 86400, timezone=TIMEZONE,
         planned_travel_seconds=lambda mode, base, departure: base,
@@ -422,6 +422,11 @@ class TestEmotion:
         frustrated_sleep = next(item for item in frustrated if item.candidate.family == "sleep")
         assert calm_sleep.components["emotion"] == 0.0
         assert frustrated_sleep.components["emotion"] == pytest.approx(0.3 * 1.0)
+        # 时间与能量规格第一章「实现约定」：受挫度分母为同刻上限，连续拒绝超过上限时截到 1。
+        capped = evaluate_motivation(
+            _context(consecutive_rejections=7, **base), _profile(), transforms)
+        capped_sleep = next(item for item in capped if item.candidate.family == "sleep")
+        assert capped_sleep.components["emotion"] == pytest.approx(frustrated_sleep.components["emotion"])
 
     def test_goal_deficit_lifts_work_candidates(self, transforms):
         context = _context(agent=_agent(location="office"), tasks=(_task(),),

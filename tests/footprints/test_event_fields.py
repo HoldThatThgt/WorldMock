@@ -1,6 +1,8 @@
 import pytest
+from types import SimpleNamespace
 from typing import get_args
 
+from tests.life.conftest import context, engine_factory  # noqa: F401  (engine_factory 为 pytest 夹具)
 from worldmock.footprints.models import (
     CHAT_INVITE_KIND,
     DECISION_OFFERED_FIELD,
@@ -21,10 +23,10 @@ _SPEC_WAKE_REASONS = frozenset({
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due",
+    "progress_report_due", "no_active_activity", "plan_reminder_due",
 })
 
-#: 规格事件类型冻结枚举 14 类（`docs/CONTRACTS.md`「事件类型枚举」逐字）。
+#: 规格事件类型冻结枚举 14 类（`docs/design/05-recording-engine.md`「事件类型枚举」逐字）。
 _SPEC_EVENT_TYPES = (
     "observation", "decision_started", "model_request", "model_response", "action_requested",
     "action_accepted", "action_rejected", "activity_progress", "action_result",
@@ -88,6 +90,66 @@ def test_non_boolean_decision_offered_is_rejected(offered):
 def test_wake_reasons_outside_the_frozen_vocabulary_are_rejected(reasons):
     with pytest.raises(ValueError):
         validate_decision_rhythm({DECISION_OFFERED_FIELD: True, WAKE_REASONS_FIELD: reasons})
+
+
+def test_new_wake_reasons_are_accepted_by_validation():
+    """时间与能量规格第一章规则 6：追加在 progress_report_due 之后的两员属于冻结闭集。"""
+    validate_decision_rhythm({WAKE_REASONS_FIELD: ["no_active_activity", "plan_reminder_due"]})
+    validate_decision_rhythm({DECISION_OFFERED_FIELD: True,
+                              WAKE_REASONS_FIELD: ["progress_report_due", "no_active_activity"]})
+
+
+def _with_pending_reasons(engine, reasons):
+    """把人物 1 的待处理唤醒原因改为给定列表，其余世界状态沿用引擎当前状态。"""
+    state = engine.state.model_copy(deep=True)
+    state.agents[1] = state.agents[1].model_copy(update={"pending_wake_reasons": reasons}, deep=True)
+    return state
+
+
+def test_unknown_wake_reason_is_rejected_on_decision_started_write(engine_factory):
+    """decision_started 的唤醒原因在写入时经闭集校验：未知原因被拒，新成员照常写入。"""
+    from worldmock.life.decision_start import defer_decision_starts
+
+    engine = engine_factory()
+    contexts = [context(engine, "round-1")]
+    with pytest.raises(ValueError, match="frozen wake reasons"):
+        defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, ["bogus"]))
+    for reasons in (["no_active_activity"], ["plan_reminder_due"]):
+        starts = defer_decision_starts(contexts, "round-1", _with_pending_reasons(engine, reasons))
+        assert starts[1]["decision_id"] == contexts[0].decision_id
+        assert starts[1]["data"][WAKE_REASONS_FIELD] == reasons
+
+
+def _settlement_rhythm(engine, monkeypatch, verdict):
+    """以一份共同身体结算草稿驱动 apply_decision_rhythm，verdict 非空时替换唤醒判定结果。"""
+    from worldmock.life import rhythm
+
+    if verdict is not None:
+        monkeypatch.setattr(rhythm.rhythm_schedule, "evaluate_wake_reasons", lambda snapshot: verdict)
+    now = engine.state.current_time
+    settlement = {"kind": "body_settlement", "interval_start": now, "interval_end": now}
+    rhythm.apply_decision_rhythm(rhythm.engine_rhythm_inputs(
+        engine, engine.state, progress_data={1: [settlement]}))
+    return settlement
+
+
+def test_unknown_wake_reason_is_rejected_on_body_settlement_write(engine_factory, monkeypatch):
+    """共同身体结算注解唤醒原因时经闭集校验：未知原因被拒，新成员与真实判定结果照常写入。"""
+    from worldmock.life.schedule import WakeReason, WakeVerdict
+
+    engine = engine_factory()
+    unpatched = _settlement_rhythm(engine, monkeypatch, None)
+    assert isinstance(unpatched[DECISION_OFFERED_FIELD], bool)
+    assert set(unpatched[WAKE_REASONS_FIELD]) <= WAKE_REASON_NAMES
+
+    new_members = WakeVerdict(decision_offered=True, wake_reasons=[
+        WakeReason.NO_ACTIVE_ACTIVITY, WakeReason.PLAN_REMINDER_DUE])
+    accepted = _settlement_rhythm(engine, monkeypatch, new_members)
+    assert accepted[WAKE_REASONS_FIELD] == ["no_active_activity", "plan_reminder_due"]
+
+    bogus = SimpleNamespace(decision_offered=True, wake_reasons=[SimpleNamespace(value="bogus")])
+    with pytest.raises(ValueError, match="frozen wake reasons"):
+        _settlement_rhythm(engine, monkeypatch, bogus)
 
 
 def test_decision_statement_field_type_contract():

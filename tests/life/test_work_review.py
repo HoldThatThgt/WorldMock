@@ -222,7 +222,6 @@ async def test_prepared_work_review_is_private_until_round_settlement(engine_fac
     assert not any(event.action_id == call.action_id
                    for event in engine.store.read_agent_events("action_result", 1))
     result = engine.commit_decision_round(ctx.round_id)[0]
-    advance_next(engine)
     observed = engine.observe(context(engine, "review-visible"))
     public = next(row for row in observed["facts"]["progress"]["results"]
                   if "work_review" in row)
@@ -261,7 +260,6 @@ async def test_nested_private_fields_in_real_settlement_do_not_enter_public_resu
 
     monkeypatch.setattr(engine, "_dispatch", inject_private_fields)
     await _submit_with_review(engine, StaticReviewer(), "private-review")
-    advance_next(engine)
     observed = engine.observe(context(engine, "private-review-visible"))
     public = next(row for row in observed["facts"]["progress"]["results"]
                   if "work_review" in row)
@@ -377,7 +375,6 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert "reference_id" not in json.dumps(feedback)
     assert "oracle_sha256" not in json.dumps(feedback)
 
-    advance_next(engine)
     ctx = context(engine, "rework-feedback")
     observation = engine.observe(ctx)
     visible_result = next(
@@ -411,7 +408,6 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert repeated == result and reviewer.calls == 1
     assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
 
-    advance_next(engine)
     revised_minutes = _paraphrased_submission().deliverable.model_copy(
         update={"summary": "The source supports the remote-control project, price, cost, and ownership."})
     revised = _paraphrased_submission().model_copy(update={"deliverable": revised_minutes})
@@ -690,7 +686,6 @@ async def test_private_rationale_retries_preserve_evidence_and_publish_only_corr
     assert reviewer.private_value in json.dumps(responses[0].data["response"])
     assert any(record.levelno == logging.ERROR for record in caplog.records)
     assert reviewer.private_value not in caplog.text
-    advance_next(engine)
     observed = engine.observe(context(engine, "corrected-review-visible"))
     rendered = render_facts(observed["facts"])
     assert "Supported by the transcript." in rendered

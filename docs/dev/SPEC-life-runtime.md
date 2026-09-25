@@ -100,7 +100,7 @@ sequenceDiagram
 
 **是否提供决策机会，只由唤醒条件决定**。
 
-唤醒条件和原因闭集由模拟引擎维护。唤醒原因是冻结词表，成员不可增删：
+唤醒条件和原因闭集由模拟引擎维护。唤醒原因是冻结词表，成员不可改名、不可删除，新增走版本表：
 
 ```python
 WakeReason = Literal[
@@ -108,17 +108,18 @@ WakeReason = Literal[
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
+    "progress_report_due", "no_active_activity", "plan_reminder_due",
 ]
 ```
 
-睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep` 与 `run_start`。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。
+睡眠期间仍可提供决策的只有 `planned_end`、`wake_from_sleep`、`run_start` 与 `plan_reminder_due`。存储层登记同源的 `WAKE_REASON_NAMES` 词表，与 `life.schedule.WakeReason` 由测试互锁防漂移。
 
 记录引擎原样保存本次判定，增量字段见[共同身体结算与决策证据](../design/05-recording-engine.md#共同身体结算与决策证据)；
 缺字段时的判定口径见 `docs/VERIFICATION.md`「协议门禁」。下表把闭集成员对应到触发条件：
 
 | 唤醒原因 | 触发条件 |
 | --- | --- |
-| `planned_end` | 当前活动到达人物提交的计划持续时间 |
+| `planned_end` | 活动由世界结束：到达引擎派生的计划时长、被提醒结束睡眠，或交谈对方结束（`partner_ended`）；交谈对方结束而本人仍有其他进行中活动时，同刻轮也记此原因 |
 | `felt_band_change` | 任一体感分级与上一次实际提供决策时的分级不同 |
 | `message_arrival`、`delivery_arrival` | 新消息或配送到达本人 |
 | `task_available`、`task_due_soon`、`work_review_result` | 新任务可见、任务截止前 30 分钟、工作验收结果返回 |
@@ -127,8 +128,10 @@ WakeReason = Literal[
 | `location_hours_change` | 有在手承诺时当前地点即将闭店（提前 15 分钟），或地点已开门；承诺口径见当日目标规格 |
 | `person_arrived`、`person_left` | 同一地点的在场人物集合变化 |
 | `activity_infeasible` | 能量或位置条件已不允许当前活动继续 |
-| `discovery_result` | 发现门店结果已提交，下一秒进入合法决策轮并回灌比较事实 |
-| `rejection_feedback`、`wake_from_sleep`、`run_start` | 沿用现有语义 |
+| `discovery_result` | 保留名称，当前无触发来源；浏览是活动，结果随浏览结束或下一次观察回灌 |
+| `rejection_feedback` | 同一秒业务拒绝后的再决策轮，只由同刻规则写入；边界判定不产生它 |
+| `wake_from_sleep`、`run_start` | 沿用现有语义 |
+| `no_active_activity` | 边界结算后没有进行中活动的人物必获决策，同刻再决策轮也记它，不进睡眠允许集合 |
 
 **唤醒条件是判定规则，唤醒原因是本次命中的成员**：上表列出全部唤醒条件；某次结算边界实际命中的成员构成该次边界的唤醒原因。只有命中的边界才提供决策机会并记录这些原因。
 
@@ -1030,3 +1033,4 @@ flowchart LR
 | `2026-09-21-concurrent-activities` | 2026-09-21 | 补记 `d998a31` 的就地改动：活动组合政策改为活动集合由 `WorldState.activities` 唯一保存、按显式占用交集准入，播放可与步行、等待、进食并行；活动控制逐项独立，不允许的组合整组拒绝 |
 | `2026-09-24-activity-execution` | 2026-09-24 | 补记 `2913546` 的就地改动：业务拒绝达到连续阈值后推迟到活动反馈间隔、不记运行失败，取代原失败终止；「字符预算」改为「上下文容量」（整次请求 token 计数与 85% 进度浓缩）；工作提交按可读标题私下绑定任务；动作结果回灌归进度层；交互菜单的运行边界与两级上限的下推判据按新工具面改写；验收矩阵同步 |
 | `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md#冻结条款修订)修订 2–11 与修订 30（裁决 #22 采纳）改写：决策不消耗时间，没有进行中活动或有待收尾活动时同一秒再决策，同刻上限与受限轮取代一秒反应边界与连续拒绝冷却；静默边界与零点计划 `plan_day` 的留证；下一次决策机会的候选与空闲间隔口径；初始睡眠压力按惯常起床时刻反推；低能量两档饥饿显示；能量以 0 截断，不参与受理、路线与恢复，工作效率乘能量效率；接触次数只在首次与从头重看时加一；占用按注册表重列，另按准入事实判定，每人两个活动名额，控制集合含待收尾活动；活动结束同一秒收尾，暂停的活动只在开始地点恢复；进度层按会话分组，系统提示含「怎样过一天」；社交按同秒消息机会、交谈接受与结束、通话派生时长与预排的联系人回复改写；他处持有物可知、只能在当地使用；验收矩阵改动行记「本次离线验收待执行」。唤醒闭集新成员与触发表的改动随对应代码落地 |
+| `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1（LR5、LR7）：唤醒原因闭集改为不可改名、不可删除，新增走版本表；词表依次写全 `progress_report_due` 并追加 `no_active_activity`、`plan_reminder_due`；睡眠期间仍可提供决策的原因加 `plan_reminder_due`，不加 `no_active_activity`；触发表的 `planned_end` 改为活动由世界结束（含交谈对方结束），`discovery_result` 删「下一秒」、当前无触发来源，`rejection_feedback` 单列为同一秒业务拒绝后的再决策轮、只由同刻规则写入，增 `no_active_activity` 行（边界兜底与同刻再决策轮） |

@@ -28,15 +28,15 @@ DECISION_OFFERED_FIELD = "decision_offered"
 #: 决策节律增量字段（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：提供决策的边界记录实际命中的全部唤醒原因。
 WAKE_REASONS_FIELD = "wake_reasons"
 
-#: 唤醒原因冻结词表（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」表格的枚举名闭集，成员不可增删）。与
-#: life.schedule.WakeReason 同源；footprints 是存储合同层、不依赖 life 层，
+#: 唤醒原因冻结词表（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」表格的枚举名闭集，
+#: 成员不可改名、不可删除，新增走版本表）。与 life.schedule.WakeReason 同源；footprints 是存储合同层、不依赖 life 层，
 #: 故在此登记足迹侧词表，两侧由测试互锁防漂移。
 WAKE_REASON_NAMES = frozenset({
     "planned_end", "felt_band_change", "message_arrival", "delivery_arrival",
     "task_available", "task_due_soon", "work_review_result", "commitment_threatened",
     "reconsideration_interval", "location_hours_change", "person_arrived", "person_left",
     "activity_infeasible", "rejection_feedback", "discovery_result", "wake_from_sleep", "run_start",
-    "progress_report_due",
+    "progress_report_due", "no_active_activity", "plan_reminder_due",
 })
 
 #: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：决策自述文本写入 decision_started.data；
@@ -74,9 +74,11 @@ def validate_resource_flows(payload: Any) -> list[dict[str, Any]]:
 
 
 def validate_decision_rhythm(data: dict[str, Any]) -> None:
-    """@brief 校验 activity_progress.data 的决策节律增量字段，缺省视为旧事件不拒收。
+    """@brief 校验决策节律增量字段：decision_started.data 与共同身体结算 body_settlement 的 data（及旧 activity_progress.data）。
 
-    :param data: activity_progress 事件的 data 字典。
+    写入路径在落库前调用，闭集外的唤醒原因在写入时拒绝；缺省字段视为旧事件不拒收。
+
+    :param data: decision_started、body_settlement 或旧 activity_progress 事件的 data 字典。
     :raises ValueError: decision_offered 非布尔或 wake_reasons 违反冻结词表时 fail-closed。
     """
     if DECISION_OFFERED_FIELD in data and not isinstance(data[DECISION_OFFERED_FIELD], bool):

@@ -111,7 +111,7 @@ def test_oversized_plan_goal_is_business_rejection_before_world_mutation() -> No
 
 
 def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) -> None:
-    """连续业务拒绝进入反馈冷却并留下一次后续决策机会。"""
+    """业务拒绝留下结果并计入同刻轮数；没有进行中活动时在同一秒再给决策机会（时间与能量规格第一章规则 2）。"""
     monkeypatch.setattr("worldmock.life.engine.apply_mood_pulse", lambda body, pulse: body)
     agent = AgentState.model_construct(agent_id=1, next_decision_at=100,
                                        consecutive_rejections=1, body=SimpleNamespace())
@@ -121,7 +121,7 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
     class RejectingEngine:
         """仅隔离实际拒绝处理路径所需的领域分派边界。"""
 
-        scenario = SimpleNamespace(max_consecutive_rejections=2,
+        scenario = SimpleNamespace(max_same_moment_decisions=2,
                                    activity_feedback_seconds=60)
 
         def _dispatch(self, state, pending):
@@ -132,13 +132,19 @@ def test_business_rejection_emits_result_and_keeps_world_available(monkeypatch) 
             """执行生产拒绝节律，不替换反馈结果逻辑。"""
             return LifeEngine._after_rejection(self, state, pending, error)
 
+        def _round_schedule(self, state, agent, rejected, rhythm_next=None):
+            """执行生产同刻排期。"""
+            return LifeEngine._round_schedule(self, state, agent, rejected, rhythm_next)
+
         def _drain_pending_drafts(self):
             """本用例没有通讯送达事件。"""
             return []
 
     changed, result, drafts = LifeEngine._resolve(RejectingEngine(), state, pending)
     assert result.status == ActionStatus.REJECTED
-    assert changed.agents[1].next_decision_at == 160
+    assert changed.agents[1].next_decision_at == 100
     assert changed.agents[1].consecutive_rejections == 2
+    assert changed.agents[1].same_moment_rounds == 1
+    assert result.data["same_moment_round"] == 1 and result.data["next_decision_at"] == 100
     assert [item.event_type for item in drafts] == ["action_rejected", "action_result"]
     assert drafts[0].data["error_code"] == "CHAT_PARTNER_NOT_AVAILABLE"

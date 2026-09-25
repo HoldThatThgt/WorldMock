@@ -136,6 +136,13 @@ class TestRenderScene:
         scene = render_scene({"inbox_head": ["今晚见面"], "inbox_has_older_unread": False})
         assert scene == "收件箱最新消息：今晚见面。"
 
+    def test_same_moment_note_closes_the_scene_only_in_restricted_rounds(self) -> None:
+        """同刻上限的受限轮在场景末尾加一句说明（不写次数）；其余轮次为空串，不渲染（时间与能量规格第一章「实现约定」）。"""
+        note = "你已经想了好几轮，先定下一件事"
+        scene = render_scene({"location": "公司", "same_moment_note": note})
+        assert scene.endswith(note + "。") and scene.count(note) == 1
+        assert render_scene({"location": "公司", "same_moment_note": ""}) == render_scene({"location": "公司"})
+
 
 class TestDriveSummary:
     """驱动摘要：一句中文、无数字权重。"""

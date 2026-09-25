@@ -149,7 +149,8 @@ def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None
     rejected = _act(engine, "invalid-plan", "plan_day", invalid)
     assert rejected.status.value == "rejected"
     assert rejected.error_code == "ACTION_REQUEST_INVALID"
-    advance_next(engine)
+    # 业务拒绝后在同一秒再决策（时间与能量规格第一章规则 2），进度层即公开拒绝结果。
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
     data = _observe_current(engine, "rejection-result")
     rows = data["facts"]["progress"]["results"]
     assert rows[-1]["error_code"] == "ACTION_REQUEST_INVALID"
@@ -175,7 +176,7 @@ def test_revise_day_plan_preserves_progressed_goal(engine_factory) -> None:
     rejected = _act(engine, "rewrite", "revise_day_plan", ReviseDayPlanRequest(
         goals=(PlanGoalInput(intent_kind="休息", goal="改写休息"),)))
     assert rejected.error_code == "PLAN_GOAL_ALREADY_PROGRESSED"
-    advance_next(engine)
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
     result = _act(engine, "append", "revise_day_plan", ReviseDayPlanRequest(
         goals=(PlanGoalInput(intent_kind="工作", goal="写报告"),)))
     assert result.status.value == "completed"

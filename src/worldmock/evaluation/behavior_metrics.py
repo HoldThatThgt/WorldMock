@@ -187,22 +187,27 @@ def _message_text(message: Mapping[str, Any]) -> str | None:
 
 
 def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计 user 消息中同一观察文本的最大出现次数；门禁必须为 1。"""
-    texts: Counter[str] = Counter()
+    """@brief 统计同一 user 观察文本出现于不同 decision_id 请求中的最大数目；门禁必须为 1。
+
+    同一决策的行动循环内重发同一观察只计一次；同刻多轮各有自己的 decision_id，分别计数。
+    工作验收请求不属于决策请求，不参与统计。
+    """
+    decisions: dict[str, set[str]] = {}
+    user_messages = 0
     for event in _decision_model_requests(events):
         messages = event.get("data", {}).get("request", {}).get("messages", [])
         for message in messages if isinstance(messages, list) else []:
             text = _message_text(message) if isinstance(message, Mapping) else None
             if text is not None:
-                texts[text] += 1
-    if not texts:
+                user_messages += 1
+                decisions.setdefault(text, set()).add(str(event.get("decision_id")))
+    if not decisions:
         notes.append("决策 model_request 无 user 消息，观察重复率无法计算")
         return _gate(None, "==", 1)
-    duplicated = sorted(text for text, count in texts.items() if count > 1)
-    value = max(texts.values())
-    entry = _gate(value, "==", 1)
-    entry["duplicated_observation_count"] = len(duplicated)
-    entry["user_message_count"] = sum(texts.values())
+    counts = [len(identities) for identities in decisions.values()]
+    entry = _gate(max(counts), "==", 1)
+    entry["duplicated_observation_count"] = sum(1 for count in counts if count > 1)
+    entry["user_message_count"] = user_messages
     return entry
 
 
@@ -319,21 +324,32 @@ def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _wake_reason_distribution(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计共同身体结算内各唤醒原因的计数（报告项）。"""
-    counts: Counter[str] = Counter()
-    with_reasons = 0
-    for event in _body_settlement_events(events):
-        reasons = event.get("data", {}).get("wake_reasons")
-        if isinstance(reasons, list) and reasons:
-            with_reasons += 1
-            counts.update(str(reason) for reason in reasons)
-        elif isinstance(reasons, list):
-            with_reasons += 1
-    total = len(_body_settlement_events(events))
+    """@brief 统计唤醒原因计数（报告项），分两份：边界取共同身体结算，决策轮取 decision_started。
+
+    同刻轮次不写共同身体结算，其原因只在 decision_started.data.wake_reasons 中计数。
+    """
+    boundaries = _body_settlement_events(events)
+    counts, with_reasons = _reason_counts(boundaries)
+    started = [event for event in events if event.get("event_type") == "decision_started"]
+    started_counts, started_with_reasons = _reason_counts(started)
     if with_reasons == 0:
         notes.append("body_settlement.data.wake_reasons 未提供，唤醒原因分布为空")
     return {"counts": dict(sorted(counts.items())), "events_with_wake_reasons": with_reasons,
-            "body_settlement_events": total}
+            "body_settlement_events": len(boundaries),
+            "decision_started_counts": dict(sorted(started_counts.items())),
+            "decision_started_events_with_wake_reasons": started_with_reasons}
+
+
+def _reason_counts(events: list[dict[str, Any]]) -> tuple[Counter[str], int]:
+    """@brief 汇总事件 data.wake_reasons 的成员计数，并数出以列表携带该字段的事件数。"""
+    counts: Counter[str] = Counter()
+    with_reasons = 0
+    for event in events:
+        reasons = event.get("data", {}).get("wake_reasons")
+        if isinstance(reasons, list):
+            with_reasons += 1
+            counts.update(str(reason) for reason in reasons)
+    return counts, with_reasons
 
 
 def _interval_minutes(event: Mapping[str, Any]) -> float:
