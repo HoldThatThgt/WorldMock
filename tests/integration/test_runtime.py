@@ -168,6 +168,14 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
     (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
+def test_imported_as2_is_the_locked_8768e14_source() -> None:
+    """实际导入的 AS2（按 MA10 安装）不打补丁即通过锁定核对。"""
+    files = require_locked_as2()
+
+    assert files and all(label.startswith("agentsociety2/") for label, _ in files)
+    assert "agentsociety2/__init__.py" in {label for label, _ in files}
+
+
 def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_factory) -> None:
     """同一工程与同一 AS2 包重复计算得到相同代码身份（AS2 取临时包，不依赖本机安装）。"""
     project = write_project(tmp_path / "project")
@@ -280,6 +288,29 @@ def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_pat
         runtime_code_sha256(project)
 
 
+@pytest.mark.parametrize("failure", ["vanished", "unreadable"])
+def test_as2_file_read_failure_is_an_identity_refusal(failure, monkeypatch, tmp_path) -> None:
+    """核对时 AS2 文件已消失或不可读：按 AS2 身份不符拒绝，只用规格的唯一拒绝文案。"""
+    path = tmp_path / "agentsociety2" / "society.py"
+    if failure == "unreadable":
+        path.parent.mkdir()
+        path.write_bytes(b"def step():\n    return 1\n")
+        original = Path.read_bytes
+
+        def deny(self):
+            if self == path:
+                raise PermissionError(13, "Permission denied", str(self))
+            return original(self)
+
+        monkeypatch.setattr(Path, "read_bytes", deny)
+    monkeypatch.setattr(runtime_module, "_as2_source_files", lambda: [("agentsociety2/society.py", path)])
+
+    with pytest.raises(IntegrityError, match=f"^{_AS2_REFUSAL}$") as caught:
+        require_locked_as2()
+
+    assert isinstance(caught.value.__cause__, IntegrityError if failure == "vanished" else PermissionError)
+
+
 def test_experiment_registers_the_locked_as2_source_digest_verbatim() -> None:
     """EXPERIMENT「AS2 基线与框架依赖」登记的 AS2 源码摘要与代码常量逐字相同（EX3）。"""
     text = (ROOT / "docs" / "EXPERIMENT.md").read_text(encoding="utf-8")
@@ -320,13 +351,13 @@ def _committed_project(root: Path) -> tuple[Path, str]:
     return root, _git(root, "rev-parse", "HEAD")
 
 
-def test_git_state_records_head_and_dirty_flag_only_at_checkout_top_level(
-        monkeypatch, tmp_path_factory) -> None:
+def test_git_state_records_head_and_dirty_flag_of_the_checkout(monkeypatch, tmp_path_factory) -> None:
     """git_commit 取 HEAD；git_dirty 取 git status --porcelain 是否非空（含未跟踪文件、不含忽略文件）；
-    非检出顶层或非 Git 目录时二者为 null。"""
+    项目根在检出的子目录中时同样记录该检出，非 Git 目录时二者为 null。"""
     _hermetic_git(monkeypatch, tmp_path_factory)
     repository, head = _committed_project(tmp_path_factory.mktemp("checkout"))
     assert _git_state(repository) == (head, False)
+    assert _git_state(repository / "src") == (head, False)
 
     (repository / "debug.log").write_text("ignored\n", encoding="utf-8")
     assert _git_state(repository) == (head, False)
@@ -336,8 +367,8 @@ def test_git_state_records_head_and_dirty_flag_only_at_checkout_top_level(
     (repository / "notes.txt").unlink()
     (repository / "uv.lock").write_text("version = 2\n", encoding="utf-8")
     assert _git_state(repository) == (head, True)
+    assert _git_state(repository / "src") == (head, True)
 
-    assert _git_state(repository / "src") == (None, None)
     assert _git_state(tmp_path_factory.mktemp("plain")) == (None, None)
 
 
@@ -355,7 +386,7 @@ def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, 
     def status_fails(command, **kwargs):
         commands.append(command)
         head = "rev-parse" in command
-        return SimpleNamespace(returncode=0 if head else 128, stdout=b"\n" + b"a" * 40 + b"\n" if head else b"")
+        return SimpleNamespace(returncode=0 if head else 128, stdout=b"a" * 40 + b"\n" if head else b"")
 
     monkeypatch.setattr(runtime_module.subprocess, "run", status_fails)
     assert _git_state(tmp_path) == (None, None)

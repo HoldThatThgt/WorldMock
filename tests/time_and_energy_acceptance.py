@@ -50,12 +50,14 @@ _DELIVERY_TESTS = [
 
 #: 「本机运行修复」行中阶段 6（运行身份）的部分：AS2 缺失、为空或摘要不符即拒绝启动，清单含 git_commit 与 git_dirty。
 _RUN_IDENTITY_TESTS = [
+    "tests/integration/test_runtime.py::test_imported_as2_is_the_locked_8768e14_source",
     "tests/integration/test_runtime.py::test_code_identity_covers_every_imported_as2_file_except_pycache",
     "tests/integration/test_runtime.py::test_as2_identity_is_independent_of_install_location",
     "tests/integration/test_runtime.py::test_unlocked_as2_refuses_run_resume_replay_and_validate",
     "tests/integration/test_runtime.py::test_as2_lookup_failures_are_identity_refusals",
+    "tests/integration/test_runtime.py::test_as2_file_read_failure_is_an_identity_refusal",
     "tests/integration/test_runtime.py::test_experiment_registers_the_locked_as2_source_digest_verbatim",
-    "tests/integration/test_runtime.py::test_git_state_records_head_and_dirty_flag_only_at_checkout_top_level",
+    "tests/integration/test_runtime.py::test_git_state_records_head_and_dirty_flag_of_the_checkout",
     "tests/integration/test_runtime.py::test_git_state_is_null_when_git_is_unavailable_or_status_fails",
     "tests/integration/test_runtime.py::test_run_manifest_records_git_commit_and_dirty_flag",
     "tests/integration/test_run_manifest.py::test_run_identity_records_git_state_as_a_pair",

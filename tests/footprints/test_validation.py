@@ -11,6 +11,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+from tests.integration.as2_fixtures import use_fake_as2
 from tests.profile.conftest import make_card, make_window
 from worldmock.delivery.windows import prepare_windows
 from worldmock.errors import IntegrityError
@@ -30,6 +31,12 @@ _LABELKIT_CLI = PROJECT_ROOT / "vendor" / "labelkit" / ".venv" / (
 _REQUIRES_LABELKIT = pytest.mark.skipif(
     not _LABELKIT_CLI.is_file(), reason="The isolated LabelKit CLI is not installed",
 )
+
+
+@pytest.fixture(autouse=True)
+def _locked_fake_as2(monkeypatch, tmp_path_factory):
+    """validate_project 先核对 AS2：本文件解析到锁定的临时 AS2 包，不依赖本机实际安装的 AS2。"""
+    return use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
 
 def _compiler(card):

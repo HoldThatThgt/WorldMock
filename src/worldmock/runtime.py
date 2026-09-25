@@ -459,10 +459,15 @@ def runtime_code_sha256(project_root: Path) -> str:
 def require_locked_as2() -> list[tuple[str, Path]]:
     """@brief 核对实际导入的 AS2 包与锁定提交 8768e14 的源码摘要，返回其（标签, 路径）文件表。
 
-    包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；run、resume、replay 与 validate 共用。
+    包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；读取或哈希 AS2 文件时的任何失败（条目缺失、
+    不安全或不可读）同样按摘要不符拒绝，只用规格的唯一拒绝文案。run、resume、replay 与 validate 共用。
     """
     files = _as2_source_files()
-    if _labeled_sha256(files) != AS2_LOCKED_SOURCE_SHA256:
+    try:
+        digest = _labeled_sha256(files)
+    except (IntegrityError, OSError) as error:
+        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
+    if digest != AS2_LOCKED_SOURCE_SHA256:
         raise IntegrityError(_AS2_IDENTITY_ERROR)
     return files
 
@@ -505,18 +510,17 @@ def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
 
 
 def _git_state(project_root: Path) -> tuple[str | None, bool | None]:
-    """@brief 项目根是 Git 检出的顶层时返回（HEAD 提交, 是否有未提交改动），否则二者为 None。
+    """@brief 返回项目根所在 Git 检出的（HEAD 提交, 是否有未提交改动）；非 Git 检出或 git 失败时二者为 None。
 
     未提交标志取 git status --porcelain 是否非空（显式含未跟踪文件，不含忽略文件）；二者只记录，不参与恢复比对。
     """
-    head = _git_output(project_root, "rev-parse", "--show-prefix", "HEAD")
-    lines = head.splitlines() if head is not None else []
-    if len(lines) != 2 or lines[0]:
+    head = _git_output(project_root, "rev-parse", "HEAD")
+    if head is None:
         return None, None
     status = _git_output(project_root, "status", "--porcelain", "--untracked-files=normal")
     if status is None:
         return None, None
-    return lines[1].decode("ascii"), bool(status.strip())
+    return head.strip().decode("ascii"), bool(status.strip())
 
 
 def _git_output(project_root: Path, *arguments: str) -> bytes | None:
