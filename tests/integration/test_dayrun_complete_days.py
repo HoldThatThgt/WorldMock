@@ -135,7 +135,8 @@ class DayModel:
     def _trip(self, functions, hour):
         active = self._active()
         if active:
-            # 出发前先结束仍在进行的等待（被消息唤醒时等待还没到点）；结束是瞬时动作，同一秒再决策出发。
+            # 消息、饥饿跨档与餐时窗口起止都会在进行中的等待里提供决策（时间与能量规格第一、三章）：
+            # 出发前先结束仍在进行的等待；结束是瞬时动作，同一秒再决策出发。
             return self._session_action("conclude_activity", active[:2])
         target = _RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)]
         self.phase = "pause"

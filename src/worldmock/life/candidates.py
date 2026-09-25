@@ -58,7 +58,6 @@ ExclusionReason = Literal[
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
-    "ELIGIBILITY_ENERGY_INSUFFICIENT",
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
@@ -77,7 +76,6 @@ EXCLUSION_REASONS: tuple[ExclusionReason, ...] = (
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
-    "ELIGIBILITY_ENERGY_INSUFFICIENT",
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
@@ -92,7 +90,7 @@ CANDIDATE_WINDOW_SECONDS = 86_400
 #: 生成段的来源顺序（合并序，也是确定性的一部分）。
 _SOURCE_ORDER: tuple[CandidateSource, ...] = ("on_site", "browsed", "carried", "activated")
 
-#: 候选类别 → 活动类型（能量判据所需），无对应活动类型则为 None。
+#: 候选类别 → 活动类型（资源占用判据按注册表取该类型的显式占用）。
 _ACTIVITY_OF_KIND: dict[str, ActivityKind | None] = {
     "product": ActivityKind.CONSUME,
     "lifestyle": ActivityKind.LIFESTYLE,
@@ -153,7 +151,7 @@ class CandidateEntry:
     enabled: bool = True
     #: 口味权重的查找键（缺省取 object_id）。
     bucket: str | None = None
-    #: 能量判据的代谢当量：生活活动等按条目查表的活动在此给出；None 表示按活动类型查表。
+    #: 条目声明的代谢当量：生活活动等按条目查表的活动在此给出；None 表示按活动类型查表。
     met: float | None = None
 
 
@@ -176,10 +174,6 @@ class CandidateInputs:
     current_time: int = 0
     #: 候选自足的窗口末端（UTC 纪元秒）。
     window_end_time: int = 0
-    #: 人物身体能量（kcal），能量判据的输入。
-    energy_kcal: float = 0.0
-    #: 身体配置（能量成本函数的参数）。
-    body: Any = None
     #: 口味权重（画像编译 v2 的 `taste_weights`，键为对象标识）；缺项与 0 同义。
     taste_weights: Mapping[str, Any] = field(default_factory=dict)
     #: 注意力先验（检索分区键 → 数值）；缺项与 0 同义。
@@ -399,7 +393,7 @@ def _exclusion_reason(item: GeneratedCandidate,
     """
     entry = item.entry
     for check in (_location_reason, _hours_reason, _stock_reason, _retired_reason,
-                  _enabled_reason, _resource_reason, _duration_reason, _energy_reason):
+                  _enabled_reason, _resource_reason, _duration_reason):
         reason = check(entry, inputs)
         if reason is not None:
             return reason
@@ -491,31 +485,6 @@ def _duration_bounds(entry: CandidateEntry, inputs: CandidateInputs) -> int | No
     if high < low:
         return None
     return max(0, high)
-
-
-def _energy_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 能量不允许：当前能量连受理所需的最短时长都撑不住。
-
-    按条目声明的代谢当量或按活动类型以同一完整成本函数求解可受理的最大秒数；
-    两者都取不到代谢当量时不判定，缺省视为能量不构成约束。
-    """
-    bounds = _duration_bounds(entry, inputs)
-    if bounds is None:
-        return None
-    kind = _ACTIVITY_OF_KIND.get(entry.kind)
-    if kind is None or inputs.body is None:
-        return None
-    met = entry.met
-    if met is None and kind.value not in getattr(inputs.body, "activity_met", {}):
-        return None
-    from worldmock.life.body import maximum_energy_duration_seconds
-
-    affordable = maximum_energy_duration_seconds(
-        kind, float(inputs.energy_kcal), inputs.body, met=met,
-        limit_seconds=max(1, int(bounds)))
-    if affordable >= max(1, int(entry.minimum_seconds)):
-        return None
-    return "ELIGIBILITY_ENERGY_INSUFFICIENT"
 
 
 __all__ = [

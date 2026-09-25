@@ -8,9 +8,18 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import pytest
 
+from tests.life.conftest import context
+from tests.life.test_scheduling import _custom_engine
+from worldmock.life import felt, projection
+from worldmock.life.body import (ActivityFactors, BoundaryClock, initial_body,
+                                 next_shared_body_boundary_seconds, settle_shared_body)
+from worldmock.life.engine import _initial_agent
+from worldmock.life.models import ActivityKind, AgentState, BodyState
+from worldmock.life.scenario import load_scenario
 from worldmock.life.sleep import (
     DEFAULT_CHRONOTYPE_MIDSLEEP_H,
     EfficiencyCurvePoint,
@@ -435,3 +444,105 @@ class TestCurveValidation:
     def test_valid_curve_passes_validation(self):
         validate_efficiency_curve(WORK_EFFICIENCY_CURVE)
         validate_efficiency_curve(FOOD_UTILIZATION_CURVE)
+
+
+# ---------------------------------------------------------------------------
+# 作息初值与困意跨档预测（docs/dev/SPEC-time-and-energy.md 第八章「作息初值」「节律」）
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def body_config():
+    """读取正式场景组装后的身体配置。"""
+    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+
+
+def raw_initial(hour: float, need: float, midsleep: float) -> float:
+    """测试侧独立推导：睡满后于惯常起床时刻醒来，此后一直清醒到起点的睡眠压力。"""
+    wake = (midsleep + need / 2.0) % 24.0
+    awake = (hour - wake) % 24.0
+    at_wake = raw_h(wake - need, midsleep) * math.exp(-need / 4.2)
+    return 1.0 - (1.0 - at_wake) * math.exp(-awake / 18.2)
+
+
+class TestInitialBodyFromUsualWake:
+    """起点身体按惯常起床时刻反推，不假定起点前刚睡满。"""
+
+    def test_pressure_counts_awake_hours_since_the_most_recent_usual_wake(self, body_config):
+        # 默认作息惯常 07:45 起床：00:00 起点已清醒 16.25 小时。
+        body = initial_body(body_config, 0.0, 7.5, 4.0)
+        at_wake = raw_h(0.25) * math.exp(-7.5 / 4.2)
+        assert body.sleep_pressure == pytest.approx(1 - (1 - at_wake) * math.exp(-16.25 / 18.2), rel=1e-9)
+        assert body.sleep_pressure == pytest.approx(raw_initial(0.0, 7.5, 4.0), rel=1e-9)
+        assert body.energy_kcal == body_config.initial_energy_kcal
+
+    def test_usual_wake_hour_wraps_modulo_24(self, body_config):
+        # 时型 23.0、需要 9 小时：23 + 4.5 = 27.5，取模后 03:30 起床。
+        late = initial_body(body_config, 2.0, 9.0, 23.0)
+        early = initial_body(body_config, 4.0, 9.0, 23.0)
+        assert late.sleep_pressure == pytest.approx(raw_initial(2.0, 9.0, 23.0), rel=1e-9)
+        assert early.sleep_pressure == pytest.approx(raw_initial(4.0, 9.0, 23.0), rel=1e-9)
+        assert early.sleep_pressure == pytest.approx(pressure_after_awake(initial_sleep_pressure(3.5, 9.0, 23.0), 0.5))
+        assert late.sleep_pressure > 0.5 > early.sleep_pressure
+
+    def test_start_inside_usual_sleep_is_drowsy_and_after_waking_is_alert(self, body_config):
+        # 默认作息的惯常睡眠时段为 00:15–07:45：午夜起点困倦，08:00 起点清醒。
+        midnight = initial_body(body_config, 0.0)
+        morning = initial_body(body_config, 8.0)
+        assert felt.sleepiness_level(sleepiness(midnight.sleep_pressure, 0.0)) in {"困", "很困", "撑不住"}
+        assert felt.sleepiness_level(sleepiness(morning.sleep_pressure, 8.0)) == "清醒"
+
+    def test_lianqiu_midnight_start_first_observation_is_at_least_sleepy(self, tmp_path: Path):
+        """练秋湖作息（中点 04:45、睡 8 小时）的 00:00 起点：首个观察的困意为「困」或以上；不读就寝窗口。"""
+        def lianqiu(document: dict) -> None:
+            document["agents"][0].update(chronotype_midsleep=4.75, sleep_need_hours=8.0,
+                                         bedtime_window=[23.5, 24.5])
+
+        engine = _custom_engine("white-collar-12-weeks.json", lianqiu, tmp_path, run_id="lianqiu-start")
+        try:
+            assert engine.scenario.start_at.hour == 0 and engine.scenario.start_at.minute == 0
+            decision = context(engine, "first-look")
+            engine.begin_decision_round([decision])
+            observed = engine.observe(decision)
+            assert observed["body"]["levels"]["sleepiness"] in {"困", "很困", "撑不住"}
+            assert observed["facts"]["felt"]["sleepiness"] == observed["body"]["levels"]["sleepiness"]
+            config = engine.scenario.agents[0]
+            start = int(engine.scenario.start_at.timestamp())
+            other = config.model_copy(update={"bedtime_window": (21.0, 22.0)})
+            assert _initial_agent(other, engine.scenario, "agent:1", start, {}).body == (
+                _initial_agent(config, engine.scenario, "agent:1", start, {}).body)
+        finally:
+            engine.close()
+
+
+def _levels_after(body: BodyState, config, clock: BoundaryClock, seconds: int) -> dict:
+    """清醒等待 seconds 秒后按真实共同结算得到的体感分级（与观察同一投影）。"""
+    after = settle_shared_body(body, ((ActivityKind.WAIT, ActivityFactors(1.0)),), seconds, config).after
+    person = AgentState(agent_id=1, name="作息", location_id="home", balance_account_id="agent:1",
+                        body=after, body_settled_at=0, next_decision_at=0)
+    return projection.body_projection(person, (clock.hour_of_day + seconds / 3600) % 24, config)["levels"]
+
+
+class TestSleepinessCrossingPrediction:
+    """困意跨档从当前压力扫描：候选恰为真实结算首次变档的整秒，升档、降档都有。"""
+
+    @pytest.mark.parametrize(("hour", "pressure", "midsleep", "expected"), [
+        (20.0, 0.45, 4.0, ("清醒", "有点乏")),
+        (7.0, 0.6, 4.0, ("撑不住", "很困")),
+        (0.0, 0.13, 4.75, ("清醒", "有点乏")),
+    ])
+    def test_prediction_from_current_pressure_is_not_later_than_actual(self, body_config, hour, pressure,
+                                                                        midsleep, expected):
+        quiet = body_config.model_copy(update={"entertainment_need_per_awake_hour": 0})
+        body = BodyState(energy_kcal=2400, sleep_pressure=pressure, chronotype_midsleep=midsleep,
+                         entertainment_need=0, social_need=1.0)
+        clock = BoundaryClock(hour)
+        predicted = next_shared_body_boundary_seconds(
+            body, ((ActivityKind.WAIT, ActivityFactors(1.0)),), quiet, clock)
+        before = _levels_after(body, quiet, clock, 0)
+        assert _levels_after(body, quiet, clock, predicted - 1) == before
+        after = _levels_after(body, quiet, clock, predicted)
+        assert (before["sleepiness"], after["sleepiness"]) == expected
+        if hour == 0.0:
+            # 本机运行的症状：旧近似在 00:00 预测 08:44 才「有点乏」，从当前压力扫描得到凌晨的实际时刻。
+            assert predicted < 5 * 3600
+

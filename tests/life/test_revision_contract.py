@@ -111,8 +111,9 @@ def test_public_observation_excludes_private_fields_and_supply_expires(engine_fa
     assert "end_time" not in data and "world_state_version" not in data
     for route in data["facts"]["routes"]:
         assert set(route) <= {
-            "destination", "mode", "minutes", "fare_fen", "feasible", "status", "reason",
+            "destination", "mode", "minutes", "fare_fen", "effort", "feasible", "status", "reason",
         }
+        assert route["effort"] in {"轻松", "一般", "费力"}
     browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
     assert browse.status.value == "in_progress"
     assert advance_until_ready(engine)

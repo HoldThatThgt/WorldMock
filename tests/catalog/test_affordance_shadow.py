@@ -167,13 +167,14 @@ def test_target_catalog_fields_match_observation_contract(view) -> None:
             if row["target_discovery"] == "catalog_field"} == EXPECTED_CATALOG_FIELDS
 
 
-def test_energy_limit_matches_observation_contract(view) -> None:
-    """@brief 能量投影闭集进入冻结观察合同。"""
+def test_energy_limit_stays_out_of_observation_contract(view) -> None:
+    """@brief 冻结观察合同不带能量投影键：能量不参与受理（docs/dev/SPEC-time-and-energy.md「删除的机制」）；
+    注册表中的能量投影闭集仍按原声明解析。"""
     from worldmock.life.engine import affordance_contract
 
     contract = affordance_contract(view)
     assert view.energy_limit_kinds == EXPECTED_ENERGY_LIMIT_KINDS
-    assert {name for name, row in contract.items() if row["energy_projection"]} == EXPECTED_ENERGY_LIMIT_KINDS
+    assert all("energy_projection" not in row for row in contract.values())
 
 
 def test_title_sources_match_content(view) -> None:

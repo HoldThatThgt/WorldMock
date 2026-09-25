@@ -15,6 +15,7 @@ from pydantic import Field, model_validator
 
 from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import IntegrityError
+from worldmock.life.felt import APPETITE_STARVING_KCAL
 from worldmock.life.interaction_menu import InteractionMenu
 from worldmock.life.models import (
     ContractKind,
@@ -78,11 +79,17 @@ class BodyConfig(FrozenModel):
 
     @model_validator(mode="after")
     def validate_body(self) -> "BodyConfig":
-        """@brief 拒绝不可插值的曲线和自相矛盾阈值。"""
+        """@brief 拒绝不可插值的曲线和自相矛盾阈值。
+
+        阈值次序为「饿得发慌」上界 < 紧急阈值 < 饥饿阈值 ≤ 能量上限：紧急阈值同时是「至少饿得难受」的
+        下限，不高于 APPETITE_STARVING_KCAL 时两条低能量规则会重叠（docs/dev/SPEC-time-and-energy.md
+        「饥饿在低能量时不失灵」）。
+        """
         if self.initial_energy_kcal > self.maximum_energy_kcal:
             raise ValueError("initial energy exceeds maximum energy")
-        if not self.emergency_threshold_kcal < self.hunger_threshold_kcal <= self.maximum_energy_kcal:
-            raise ValueError("body thresholds must be ordered within maximum energy")
+        if not (APPETITE_STARVING_KCAL < self.emergency_threshold_kcal
+                < self.hunger_threshold_kcal <= self.maximum_energy_kcal):
+            raise ValueError("body thresholds must be ordered within maximum energy and above the starving floor")
         _validate_curve(self.food_efficiency_curve)
         for factor in self.work_efficiency_factors:
             _validate_curve(factor.curve)

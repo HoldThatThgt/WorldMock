@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.6
+> **版本**：v1.7
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -104,7 +104,8 @@ flowchart TB
 `SupplyQuoteState` 保存 `price_fen`、`price_version`、UTC 秒制的半开 `effective_from/effective_to` 与 `source`。
 来源按 `DataSource` 全字段校验，不能用空字典代替真实资料或场景假设声明。
 `opening_exceptions` 的日期键保存不重叠的分钟区间并保留声明顺序，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
-公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；模型提示 `facts.products` 仍是实际呈现的供给行。
+公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；模型提示 `facts.products` 仍是实际呈现的供给行，按可读商品与门店名称公开：
+食品带每份热量 `energy`（按 5 进位取整到 10 千卡的中文短语），配送写人读送达时刻 `delivery_eta`，不给原始配送秒数。
 供给行公开原始 `price_fen/price_version/quote`、`purchase_pairing_state`、`purchase_coefficient` 和一份的 `purchase_price_fen`；
 非定义配对保留原始报价，系数及实际金额为空且不允许购买；报价未知时价格字段也保留 `null`。订单行 `total_price_fen` 按原价、数量、系数的整行乘积取整，整单同名字段保存各行合计，
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
@@ -283,3 +284,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.4 | 2026-09-24 | 按时间与能量规格：观察留证的 `allowed_actions` 为内部标准动作名，人物所选动词与方式映射后判定，途中按出发地菜单解析并由出行方式收窄 |
 | v1.5 | 2026-09-25 | 按时间与能量规格第九章：世界结构版本 7；ActivityState 补 `location_id`（开始地点，结算不覆盖） |
 | v1.6 | 2026-09-25 | 按时间与能量规格阶段 1：AgentState 的 `next_decision_at` 注明等于当前时刻即同一秒再决策，`consecutive_rejections` 只作挫败感输入；增 `same_moment_rounds`、`same_moment_stage` 与 `pending_wake_reasons`（同刻轮次按本轮替换；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`）；WorldState 增按人物暂存的本秒呈现留痕 `same_moment_presentation`（同一秒沿用首轮窗口，时钟推进时并入 `presentation_state`） |
+| v1.7 | 2026-09-25 | 按时间与能量规格阶段 2（第二章与第八章「呈现」）：`facts.products` 按可读名称公开，食品带每份热量 `energy`，配送写人读送达时刻 `delivery_eta` |

@@ -141,7 +141,6 @@ class ScenarioSemantics:
     refs: ScenarioCatalogRefs
     accounts: Mapping[str, int]
     travel_time_profile: TravelTimeProfile
-    alert_codes: Mapping[str, str] = field(default_factory=dict)
     motivation_transforms: MotivationTransforms | None = None
     #: 可供性注册表派生视图（assemble_semantics 按场景目录加载并挂入；
     #: 下游各层经 semantics 访问，不直接读注册表文件）。
@@ -321,9 +320,6 @@ def assemble_semantics(document: LifeScenario, catalog: Catalog, map_dataset: Ma
         refs=_catalog_refs(document, catalog, scenario),
         accounts=_ledger_accounts(document, services),
         travel_time_profile=parse_travel_time_profile(catalog.travel_time_rules_bytes),
-        alert_codes={rule.code: rule.code.lower()
-                     for resource in (catalog.resources[ENERGY_RESOURCE],)
-                     for rule in resource.alert_rules},
         motivation_transforms=motivation_transforms,
         affordances=view,
     )

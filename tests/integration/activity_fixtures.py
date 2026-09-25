@@ -18,8 +18,7 @@ def occupied_resources(rows: list[dict]) -> list[str]:
 def paused_activity(activity_id: str, kind: str = "work", **overrides) -> dict:
     """从实际活动资源声明构造一条可恢复状态投影。"""
     row = {"activity_id": activity_id, "status": "paused", "kind": kind,
-           "remaining_duration_seconds": 60, "minimum_energy_cost_kcal": 2.0,
-           "resume_energy_feasible": True,
+           "remaining_duration_seconds": 60,
            "resource_claims": occupied_resources([{"kind": kind}])}
     row.update(overrides)
     return row

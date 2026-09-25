@@ -201,7 +201,7 @@ flowchart LR
 
 | 模型请求 | 结算时的关键检查 |
 | --- | --- |
-| `start_activity` | 对象名称与动作必须在同一冻结观察中唯一匹配；按绑定解析内部身份、方式与报价，检查当前菜单、位置、资源及领域条件；多目标整体接受或拒绝 |
+| `start_activity` | 对象名称与动作必须在同一冻结观察中唯一匹配；按绑定解析内部身份、方式与报价，检查当前菜单、位置、资源及领域条件，能量不参与；多目标整体接受或拒绝 |
 | `recall_task_summary` | 名称唯一对应本人当前可回看的任务或会话；只读，不修改世界 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task[]` 中每个名称唯一对应本人会话，两数组等长且一至两项；所有状态转换先验证再原子更新，自述另标未经核验 |
 | `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审；被提交的任务本身不在进行中（否则 `WORK_TASK_IN_PROGRESS`） |
@@ -518,7 +518,7 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `same_moment_note` | 中文场景渲染输入；`day_plan` 按清单顺序显示意图与已推进状态；`same_moment_note` 在同刻上限的受限轮中是一句可读说明、不写次数，其余轮次为空串；不复制完整执行结果 |
+| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `same_moment_note` | 中文场景渲染输入；`day_plan` 按清单顺序显示意图与已推进状态；`local_food_summary` 的含义见「已核验经历与当地餐食」（饥饿为「饿」及以上时是吃饭途径句）；`same_moment_note` 在同刻上限的受限轮中是一句可读说明、不写次数，其余轮次为空串；不复制完整执行结果 |
 | `facts` | `current_time`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `interactive_objects`, `progress` | 目标、交互对象和进度的结构化投影；任务与对象使用可读名称；`day_plan` 为完整当日目标对象或 null |
 
 | `scene` 行 | 字段 |
@@ -534,9 +534,11 @@ flowchart LR
 | `contacts` | 可读联系人名称、称呼、关系；亲密度、渠道与回复策略是引擎结算内部参数，不进提示 |
 | `inbox` | 可读主题、发送人、时间、种类及已读状态；同名邮件以自然语言上下文消歧 |
 | `tasks` | 唯一可读任务名称、截止时刻、剩余合同时间与新揭示材料范围 |
-| `products` | 实际呈现的供给以可读商品和门店名称展示；系统单向提供报价、可购金额、库存、营业、资格、履约和来源；内部供给、商品与报价版本身份只在私有绑定和证据中 |
-| `routes` | 目的地名称、可读出行方式、预计时间、费用、可行性；精确结算值由私有冻结绑定提供 |
+| `products` | 实际呈现的供给以可读商品和门店名称展示；系统单向提供报价、可购金额、库存、营业、资格、履约和来源；食品（`use_modes` 含 `eat`）另带 `energy`，写「每份约 N 千卡」，N 为每份热量按 5 进位取整到 10，不足 5 千卡写「几乎不含热量」，非食品不带；支持配送时以 `delivery_eta` 写人读送达时刻（例如「约 13 小时后送达，明天 11:16」），送达地不在可配送目的地或配送路线未知、不可达时写「暂时送不到这里」，不给原始秒数；内部供给、商品与报价版本身份只在私有绑定和证据中 |
+| `routes` | 目的地名称、可读出行方式、预计时间、费用、费力 `effort` 与可行性；`effort` 按出行方式的代谢当量取「轻松」（MET < 2）、「一般」（2 ≤ MET < 3）或「费力」（MET ≥ 3），未核实的路线也给；`feasible` 只表示可达（`status` 为 `reachable`），不按能量计算；精确结算值由私有冻结绑定提供 |
+| `inventory` | 地点名称、商品名称、正数数量；食品带 `energy`（与 `products` 同口径）；他处持有物带所在地点列出，并以 `note` 注明只能在当地使用，不算手边可用 |
 | `day_plan` | `{day_end, goals}`；目标含意图、文字、登记时刻和推进证据；仅跨日后为 null，空目标与就寝后的清单保持可见 |
+| `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 | `interactive_objects` | 唯一可读对象名称、可读动作短语与前置条件；每个对象只列其合法动作；列表可以为空：空列表是合法状态，决策照常，`start_activity` 照常开放，工具 Schema 不绑定空枚举，所填名称不在本轮对象中时按协议错误在本轮重试 |
 | `progress` | `sessions`、`results`、`alarms`；会话行为 `{task_name, session_name, phase, objective_progress, subjective_progress, subjective_status}`，阶段为自然语言、自述标为「未经核验」；新结果按事件顺序完整回灌一次，期限提醒按任务名呈现 |
 
@@ -544,7 +546,6 @@ flowchart LR
 按动作可附 `details` 和 `work_review`。`details` 只包含可读对象或商品名称、份数、实际付款金额、
 到达地点名称与时间、浏览条目名称等语义值；`work_review` 只保留下述公开评审字段。
 动作、事件、订单、商品、供给、会话、路线、报价版本和账户身份不进入模型结果。
-| `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
 
 原始观察与结算证据保留完整供给身份、版本及比较行。模型投影中同一供给的当前事实与
 本次结果避免重复呈现；发生报价或库存变化时明确告知新值，不要求模型解析内部差异引用。
@@ -579,8 +580,8 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 | `planned_duration_seconds` | 计划整数秒 |
 | `data` | 独立深拷贝；游戏保留真实 game_session_id，与同次观察会话一致 |
 
-`paused_activities` 仍提供暂停活动的完整记录及 remaining_duration_seconds、
-minimum_energy_cost_kcal、resume_energy_feasible。每项按独立生命周期控制；
+`paused_activities` 仍提供暂停活动的完整记录及 remaining_duration_seconds；恢复不查能量。
+每项按独立生命周期控制；
 不从列表第一项猜测目标，不隐式暂停未点名活动，缺失或非法控制结构明确失败。
 scene 的 `current_activities` 必须表达集合，每项为 title、progress、verb；
 播客的 verb 为“听取”，其余为“进行”。不能把其中一项描述为人物的全部活动。
@@ -674,7 +675,6 @@ ExclusionReason = Literal[
     "ELIGIBILITY_OUT_OF_STOCK",           # 库存为零
     "ELIGIBILITY_DELISTED",               # 目录级下架（墓碑语义，保留可读）
     "ELIGIBILITY_RESOURCE_CONFLICT",      # 资源占用冲突
-    "ELIGIBILITY_ENERGY_INSUFFICIENT",    # 能量不允许
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",  # 时长越界
     "ELIGIBILITY_DISABLED",               # 不在本人启用集内
     "ROTATION_DEFERRED",                  # 本次呈现名额已满
@@ -756,13 +756,13 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 ### 禁止进入提示的字段
 
 观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、
-`interaction_menu`、`interaction_menus_by_location_kind`、`energy_feasibility`、`observation_event_id`、
+`interaction_menu`、`interaction_menus_by_location_kind`、`observation_event_id`、
 `interaction_bindings`、`motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），以及嵌套的 `profile.motivation` 与
-`profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价与是否可行，
+`profile.entertainment_preferences`。`routes` 条目只保留目的地、方式、分钟、票价、费力与是否可达，
 发现结果只提供实际返回地点和供给的公开事实，不能复制全量地图或世界库存。
 路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、门店供给、库存物品使用合同、
-可供性合同、游戏目录、内容进度、工作进度、邮件头、能量可行性、日历与地点目录）只供宿主生成
+可供性合同、游戏目录、内容进度、工作进度、邮件头、日历与地点目录）只供宿主生成
 私有绑定、可读对象名称与动作短语，不原样进入提示。`facts.interactive_objects[].actions` 是公开的
 对象动作短语闭集，允许进入提示；它不授予读取完整可供性合同或内部状态的权限。
 
@@ -1331,3 +1331,4 @@ RunPhase = Literal[
 | `2026-09-24-time-and-energy` | 2026-09-24 | [时间与能量规格](dev/SPEC-time-and-energy.md)冻结，按其冻结作业改写：`available_energy` 非负，结算以 0 截断，不阻止任何活动；有效菜单删能量与日首计划门控，条件未满足的动作照常列出并附说明，唯一的状态性收窄是同刻上限的受限轮；当日计划由零点计划生成，`plan_day` 不是人物工具，只有 `remind_time` 触发定时决策；浏览是活动，删「下一秒」回灌，`discovery_result` 当前无触发来源；交谈、通话占用 `voice`、`ears`，时长由 `activity_feedback_seconds` 派生后截取，补交谈接受与对方同秒结束（`partner_ended`）；交互对象不剪裁，业务拒绝后在同一秒再决策，删按最早活动结束排期；已核验经历只以句子给模型，饥饿为「饿」及以上时 `local_food_summary` 为吃饭途径句；进度浓缩单位改为较旧会话中已收尾的活动。补登上列实施计划 C38 所列九个提交。工具面、错误码、枚举、结构版本与场景参数随各实施阶段落地，届时另追加版本行 |
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：交互对象层可以为空（「场景段落与事实清单」）；世界状态结构版本改为 7（「领域枚举」「冻结地图与场景引用」「持久化当下事实」），旧检查点以版本不符拒绝；新增「活动受理拒绝码」并登记 `WORK_TASK_IN_PROGRESS`；`submit_work` 对全部可见未付款任务开放 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：「状态归属」的人物活动加同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`（六个取值）；「当日目标的配置与质量输出」改为进行中的等待不算在手承诺，只在等待且没有其他在手承诺时用空闲间隔，并增「决策节律场景参数」：`max_same_moment_decisions`（缺省 3，时钟推进即归零），补登 `activity_feedback_seconds`（60–86400，等待时长取它）与 `progress_report_interval_seconds`（缺省 1800）；「活动受理拒绝码」增 `SAME_MOMENT_ACTION_RESTRICTED`；「冻结地图与场景引用」写明场景结构保持 3，含旧键的场景按未知字段拒绝；「动作状态与动作结果」写明达到同刻上限后按受限轮阶段收窄世界请求工具与名称枚举（记忆查询照常），越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝；「场景段落与事实清单」的 `scene` 增 `same_moment_note`（受限轮的一句说明，不写次数）；「联系人回复」增送达时刻：回复登记为 `CONTACT_REPLY_DELAY_SECONDS`（缺省 300 秒）后到期的预排送达，到期写入收件箱并以 `message_arrival` 唤醒、睡眠中过滤，「回复完成」注明模型回复证据在生成时写入；「领域枚举」的 `ScheduledKind` 增 `message_arrival` |
+| `2026-09-25-time-and-energy-stage-2` | 2026-09-25 | 时间与能量规格阶段 2（身体与能量）：`start_activity` 的结算检查中能量不参与（「请求字段与结算检查」）；`local_food_summary` 的含义指向「已核验经历与当地餐食」；`facts.products` 的食品带 `energy`，配送以人读送达时刻 `delivery_eta` 取代原始秒数，`facts.routes` 带 `effort`、`feasible` 只表示可达，新增 `facts.inventory` 行（他处持有物注明只能在当地使用），`drive_summary` 行归位（「场景段落与事实清单」）；暂停控制行删 `minimum_energy_cost_kcal`、`resume_energy_feasible`（「活动控制行」）；排除原因码删 `ELIGIBILITY_ENERGY_INSUFFICIENT`（「排除原因码」）；禁止进入提示的字段删 `energy_feasibility`，`routes` 条目加费力，事件级工具支持行删能量可行性（「禁止进入提示的字段」） |

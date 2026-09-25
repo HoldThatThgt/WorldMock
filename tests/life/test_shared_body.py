@@ -10,12 +10,9 @@ import pytest
 
 from tests.life.conftest import advance_next, context
 from worldmock.errors import BusinessRuleError
-from worldmock.life.activities import (active_energy_entries, advance_activity_shared,
-                                       combined_energy_cost, maximum_combined_duration)
-from worldmock.life.body import (ActivityFactors, last_flows, maximum_shared_energy_duration,
-                                 settle_shared_body, shared_energy_cost)
-from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityState, ActivityStatus,
-                                   BodyState)
+from worldmock.life.activities import activity_factors, advance_activity_shared, shared_activity_factors
+from worldmock.life.body import ActivityFactors, last_flows, settle_shared_body
+from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState
 from worldmock.life.scenario import load_scenario
 from worldmock.life.social_actions import (CALL_MET, CHAT_MET, advance_social_shared,
                                            social_activity_change)
@@ -65,26 +62,19 @@ from worldmock.life.social_actions import (CALL_MET, CHAT_MET, advance_social_sh
 #     assert before - after == pytest.approx(expected)
 
 
-def test_shared_energy_duration_matches_actual_settlement_at_limit() -> None:
-    """组合预测的最长整秒可行时长与每段实际结算使用同一最大 MET。"""
+def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
+    """共同结算对任何活动集合都以 0 截断：步行加等待的成本超过余额时只扣掉余额，不报错。"""
     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
-    existing = ((1800, config.activity_met["wait"]),)
-    met = config.activity_met["travel:walking"]
-    budget = shared_energy_cost(existing + ((1200, met),), config)
-    accepted = maximum_shared_energy_duration(existing, met, budget, config, 3600)
-    assert accepted == 1200
-    assert shared_energy_cost(existing + ((accepted + 1, met),), config) > budget
-    body = BodyState(energy_kcal=budget + 1, entertainment_need=0.3)
-    first = settle_shared_body(body, ((ActivityKind.WAIT, ActivityFactors(config.activity_met["wait"])),
-                                      (ActivityKind.TRAVEL, ActivityFactors(met))), accepted, config)
+    walking = config.activity_met["travel:walking"]
     last_flows()
-    remaining = 1800 - accepted
-    second = settle_shared_body(first.after,
-                                ((ActivityKind.WAIT, ActivityFactors(config.activity_met["wait"])),),
-                                remaining, config)
-    last_flows()
-    assert body.energy_kcal - second.after.energy_kcal == pytest.approx(budget)
-    assert second.after.energy_kcal == pytest.approx(1)
+    body = BodyState(energy_kcal=5, entertainment_need=0.3)
+    settled = settle_shared_body(body, ((ActivityKind.WAIT, ActivityFactors(config.activity_met["wait"])),
+                                        (ActivityKind.TRAVEL, ActivityFactors(walking))), 1800, config)
+    energy = [flow for flow in last_flows() if flow.resource == "energy_kcal"]
+    assert settled.after.energy_kcal == 0
+    assert [flow.amount for flow in energy] == [pytest.approx(5)]
+    assert settled.basal_energy_kcal + settled.extra_energy_kcal == pytest.approx(
+        (config.basal_kcal_per_hour + (walking - 1) * config.mass_kg) / 2)
 
 
 def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
@@ -98,23 +88,20 @@ def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
                          origin_request_event_id="request")
 
 
-def test_combined_energy_public_predictors_include_social_met_and_candidate(engine_factory) -> None:
-    """共同剩余预测读取每项社交 MET，候选与现有任务使用同一分段成本。"""
+def test_shared_activity_factors_use_social_met_and_declared_factors(engine_factory) -> None:
+    """结算与边界预测共用的单项系数：交谈、通话取社交常量 MET，其余活动与声明系数一致。"""
     engine = engine_factory()
     config = engine.scenario.body
+    agent = engine.state.agents[1]
     now = engine.state.current_time
     for kind, met in ((ActivityKind.CHAT, CHAT_MET), (ActivityKind.CALL, CALL_MET)):
-        state = engine.state.model_copy(update={"activities": {kind.value: _active(kind, now)}}, deep=True)
-        assert active_energy_entries(state, 1, config) == ((60, met),)
-        assert combined_energy_cost(state, 1, config) == pytest.approx(shared_energy_cost(((60, met),), config))
-        candidate = ActivityStartParams(activity_type=ActivityKind.WAIT, planned_duration_seconds=120)
-        expected = shared_energy_cost(((60, met), (120, config.activity_met["wait"])), config)
-        assert combined_energy_cost(state, 1, config, candidate) == pytest.approx(expected)
-        assert maximum_combined_duration(state, 1, config, candidate, 120) == 120
+        assert shared_activity_factors(_active(kind, now), agent, config) == ActivityFactors(met)
+    wait = _active(ActivityKind.WAIT, now)
+    assert shared_activity_factors(wait, agent, config) == activity_factors(wait, agent, config)
 
 
 def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine_factory) -> None:
-    """负区间、耗尽非恢复活动与暂停推进均在公共边界拒绝。"""
+    """负区间与暂停推进在公共边界拒绝；能量耗尽的非恢复活动照常结算到 0。"""
     engine = engine_factory()
     config = engine.scenario.body
     agent = engine.state.agents[1]
@@ -131,10 +118,8 @@ def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine
     with pytest.raises(ValueError, match="negative"):
         settle_shared_body(agent.body, (), -1, config)
     empty = agent.body.model_copy(update={"energy_kcal": 0})
-    with pytest.raises(ValueError, match="exhaust"):
-        settle_shared_body(empty, ((ActivityKind.WATCH, ActivityFactors(1.3)),), 60, config)
-    with pytest.raises(ValueError, match="inputs are invalid"):
-        maximum_shared_energy_duration((), 1.3, -1, config, 60)
+    watched = settle_shared_body(empty, ((ActivityKind.WATCH, ActivityFactors(1.3)),), 60, config)
+    assert watched.after.energy_kcal == 0
 
 
 def test_social_shared_progress_and_control_public_boundaries(engine_factory) -> None:

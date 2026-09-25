@@ -60,7 +60,7 @@ def _observed_offer(action_labels=("到店购买", "配送到当前位置")) -> 
         "object": _OFFER, "product": "牛奶", "place": "家门口便利店",
         "price_fen": 1000, "quote_status": "known", "current_stock": 2,
         "purchase_allowed": True, "fulfillment_modes": ["pickup", "delivery"],
-        "delivery_destinations": ["自己家"], "delivery_delay_seconds": 300,
+        "delivery_destinations": ["自己家"], "delivery_eta": "约 5 分钟后送达，今天 00:05",
     }]
     data["interaction_bindings"].append({
         "object": _OFFER, "kind": "supply", "object_id": "supply-private",

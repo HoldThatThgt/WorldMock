@@ -21,6 +21,7 @@ from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIE
 from worldmock.life import felt
 from worldmock.life import schedule as rhythm_schedule
 from worldmock.life.body import (
+    BoundaryClock,
     apply_discomfort_pulse,
     apply_mood_pulse,
     apply_social_ledger,
@@ -32,13 +33,14 @@ from worldmock.life.models import (ActivityKind, ActivityStatus, AgentState, Wor
 from worldmock.life.projection import felt_values
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 
-#: 饥饿不适档（docs/dev/SPEC-life-runtime.md「其他体感分级」连续两小时以上饿）：appetite 分级达到"饿"及以上。
-HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受"})
+#: 饥饿不适档（docs/dev/SPEC-life-runtime.md「其他体感分级」连续两小时以上饿）：appetite 分级达到"饿"及以上，
+#: 含只由能量决定的第六档「饿得发慌」。
+HUNGRY_BANDS = frozenset({"饿", "很饿", "饿得难受", felt.APPETITE_STARVING_LEVEL})
 #: 困倦不适档：sleepiness 分级达到"困"及以上。
 SLEEPY_BANDS = frozenset({"困", "很困", "撑不住"})
 
 #: 分级文本 → 序数表（WakeSnapshot 以 int 比较分级，序数保序即可）。
-_BAND_ORDER = ("不饿", "有点想吃", "饿", "很饿", "饿得难受", "清醒", "有点乏", "困",
+_BAND_ORDER = ("不饿", "有点想吃", "饿", "很饿", "饿得难受", felt.APPETITE_STARVING_LEVEL, "清醒", "有点乏", "困",
                "很困", "撑不住", "不闷", "有点想放松", "很想放松", "不想找人",
                "想和人说说话", "有点孤单", "很烦", "有点烦", "平静", "挺好", "很开心")
 
@@ -56,8 +58,6 @@ class RhythmInputs:
     interval_seconds: int
     #: 距上一次实际决策的重估间隔（场景参数，缺省 5400）。
     reconsideration_interval_seconds: int
-    #: 能量投影可穿透下界的恢复活动闭集（sleep/wait/consume）。
-    recovery_kinds: frozenset
     #: 没有在手承诺时的较长重估间隔。
     idle_reconsideration_interval_seconds: int = rhythm_schedule.IDLE_RECONSIDERATION_INTERVAL_SECONDS
     #: 播报节律间隔（docs/dev/SPEC-agent-interaction.md「播报节律」）：活跃对话距上次报告满该秒数触发唤醒。
@@ -141,16 +141,9 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
     state = inputs.state
     activities = active_activities(state, agent.agent_id)
     felt_crossings: list[int] = []
-    if not any(item.kind in {ActivityKind.CHAT, ActivityKind.CALL,
-                             ActivityKind.PLAY_GAME, ActivityKind.SLEEP} for item in activities):
-        from worldmock.life.activities import activity_factors
-        hour = local_hour(state.current_time, inputs.scenario.timezone)
-        factors = tuple((item.kind, activity_factors(item, agent, inputs.body_config))
-                        for item in activities)
-        seconds = next_shared_body_boundary_seconds(agent.body, factors,
-                                                    inputs.body_config, hour)
-        if seconds is not None:
-            felt_crossings.append(state.current_time + seconds)
+    seconds = _body_boundary_seconds(agent, activities, inputs)
+    if seconds is not None:
+        felt_crossings.append(state.current_time + seconds)
     arrivals = [item.due_at for item in state.pending_events
                 if item.due_at > state.current_time and item.agent_id == agent.agent_id]
     return rhythm_schedule.next_decision_time(rhythm_schedule.NextDecisionQuery(
@@ -172,6 +165,17 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
     ))
 
 
+def _body_boundary_seconds(agent: AgentState, activities: list, inputs: RhythmInputs) -> int | None:
+    """@brief 体感跨档、餐时窗口与能量阈值的下一候选（与引擎共同结算同源系数，交谈、通话照常预测）。"""
+    from worldmock.life.activities import shared_activity_factors
+
+    factors = tuple((item.kind, shared_activity_factors(item, agent, inputs.body_config))
+                    for item in activities)
+    clock = BoundaryClock(local_hour(inputs.state.current_time, inputs.scenario.timezone),
+                          inputs.meal_windows_by_agent.get(agent.agent_id))
+    return next_shared_body_boundary_seconds(agent.body, factors, inputs.body_config, clock)
+
+
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
@@ -182,9 +186,7 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
         agent = agent.model_copy(update={
             "body": decay_mood(agent.body, (now - agent.mood_updated_at) / 60)}, deep=True)
     agent = _apply_awake_social_ledger(agent, inputs)
-    levels = felt.summarize_felt_levels(
-        **felt_values(agent, local_hour(now, inputs.scenario.timezone),
-                      inputs.meal_windows_by_agent.get(agent.agent_id)))
+    levels = _felt_levels(agent, inputs)
     uncomfortable = levels["appetite"] in HUNGRY_BANDS or levels["sleepiness"] in SLEEPY_BANDS
     if uncomfortable:
         started = agent.discomfort_started_at if agent.discomfort_started_at is not None else now
@@ -326,7 +328,7 @@ def _next_task_due(agent: AgentState, inputs: RhythmInputs,
 
 
 def _warning_signatures(agent: AgentState, inputs: RhythmInputs) -> dict[str, set[str]]:
-    """@brief 从当前威胁事实生成任务、闭店和不可行签名。"""
+    """@brief 从当前威胁事实生成任务与闭店签名（能量不构成不可行，docs/dev/SPEC-time-and-energy.md「删除的机制」）。"""
     now = inputs.state.current_time
     task = {_task_signature(task_id, due) for task_id, due in inputs.task_due.items()
             if task_id in agent.visible_task_ids and task_id not in inputs.state.paid_task_ids
@@ -337,8 +339,7 @@ def _warning_signatures(agent: AgentState, inputs: RhythmInputs) -> dict[str, se
         for commitment in _commitment_signatures(agent, inputs):
             closing.add(json.dumps(["closing", agent.location_id, close_at, commitment],
                                    ensure_ascii=False, separators=(",", ":")))
-    return {"task": task, "closing": closing,
-            "infeasible": _activity_infeasible_signatures(agent, inputs)}
+    return {"task": task, "closing": closing}
 
 
 def _commitment_signatures(agent: AgentState, inputs: RhythmInputs) -> set[str]:
@@ -359,8 +360,6 @@ def _delivered_warning_signatures(facts: dict[str, set[str]],
         delivered.update(facts["task"])
     if rhythm_schedule.WakeReason.LOCATION_HOURS_CHANGE in reasons:
         delivered.update(facts["closing"])
-    if rhythm_schedule.WakeReason.ACTIVITY_INFEASIBLE in reasons:
-        delivered.update(facts["infeasible"])
     return delivered
 
 
@@ -373,9 +372,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
     completed_now = any(item.agent_id == agent.agent_id
                         and item.status in {ActivityStatus.COMPLETED, ActivityStatus.FAILED}
                         and item.ended_at == now for item in state.activities.values())
-    levels = felt.summarize_felt_levels(
-        **felt_values(agent, local_hour(now, inputs.scenario.timezone),
-                      inputs.meal_windows_by_agent.get(agent.agent_id)))
+    levels = _felt_levels(agent, inputs)
     flags = inputs.arrival_flags.get(agent.agent_id, set())
     return rhythm_schedule.WakeSnapshot(
         now=now,
@@ -399,7 +396,6 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         location_just_opened=_just_opened(agent, inputs),
         people_present_now=frozenset(item["name"] for item in _people_here(state, agent)),
         people_present_before=agent.people_at_last_decision,
-        activity_infeasible=bool(facts["infeasible"] - delivered),
         discovery_result_ready=("discovery_result" in agent.pending_wake_reasons
                                 and agent.next_decision_at <= now),
         wake_from_sleep=_woke_from_sleep(state, agent.agent_id, now),
@@ -415,6 +411,14 @@ def _people_here(state: WorldState, agent: AgentState) -> list[dict[str, Any]]:
     from worldmock.life import projection as projection_module
 
     return projection_module.people_here_views(state, agent)
+
+
+def _felt_levels(agent: AgentState, inputs: RhythmInputs) -> dict[str, str]:
+    """@brief 边界时刻的体感分级：饥饿按同一能量与紧急阈值叠加低能量规则，与观察的决策参照同源。"""
+    values = felt_values(agent, local_hour(inputs.state.current_time, inputs.scenario.timezone),
+                         inputs.meal_windows_by_agent.get(agent.agent_id))
+    return felt.summarize_felt_levels(
+        values, felt.EnergyReading(agent.body.energy_kcal, inputs.body_config.emergency_threshold_kcal))
 
 
 def _band_index(level: str) -> int:
@@ -463,24 +467,6 @@ def _location_change_times(agent: AgentState, inputs: RhythmInputs) -> list[int]
     change = next_opening_change(location, inputs.state.current_time, inputs.scenario.timezone,
                                  inputs.state.opening_exceptions[location.location_id])
     return [change] if change is not None else []
-
-
-def _activity_infeasible_signatures(agent: AgentState, inputs: RhythmInputs) -> set[str]:
-    """@brief 用共同剩余成本和离散原因标识当前不可行活动。"""
-    from worldmock.life.activities import active_energy_entries
-    from worldmock.life.body import shared_energy_cost
-
-    activities = active_activities(inputs.state, agent.agent_id)
-    candidates = [item for item in activities if item.kind not in inputs.recovery_kinds
-                  and item.kind not in {ActivityKind.PLAY_GAME, ActivityKind.CHAT, ActivityKind.CALL}
-                  and item.planned_duration_seconds - item.elapsed_seconds >= 60]
-    if not candidates:
-        return set()
-    cost = shared_energy_cost(active_energy_entries(inputs.state, agent.agent_id,
-                                                    inputs.body_config), inputs.body_config)
-    if cost <= agent.body.energy_kcal:
-        return set()
-    return {f"infeasible:{item.activity_id}:insufficient_energy" for item in candidates}
 
 
 def _game_turn_due(state: WorldState, agent: AgentState) -> bool:
@@ -555,7 +541,7 @@ def local_hour(epoch: int, timezone_name: str) -> float:
 def engine_rhythm_inputs(engine, state, interval: int = 0,
                          arrival_flags: dict | None = None,
                          progress_data: dict | None = None) -> RhythmInputs:
-    """@brief 引擎侧装配决策节律输入束（任务截止表、重估间隔与恢复闭集）。"""
+    """@brief 引擎侧装配决策节律输入束（任务截止表、重估间隔与餐时窗口）。"""
     return RhythmInputs(
         state=state, scenario=engine.scenario, body_config=engine.semantics.body,
         task_due={task_id: int(task.due_at.timestamp())
@@ -564,7 +550,6 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
         reconsideration_interval_seconds=engine.semantics.document.reconsideration_interval_seconds,
         idle_reconsideration_interval_seconds=engine.semantics.document.idle_reconsideration_interval_seconds,
         progress_report_interval_seconds=engine.semantics.document.progress_report_interval_seconds,
-        recovery_kinds=engine.recovery_kinds,
         meal_windows_by_agent=engine.meal_windows_by_agent(),
         arrival_flags=arrival_flags or {},
         progress_data=progress_data or {})

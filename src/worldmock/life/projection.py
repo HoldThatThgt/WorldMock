@@ -4,10 +4,12 @@
 渲染（life.narration 渲染，不调用模型）；本模块只负责从世界状态计算两层投影
 的输入字典与 body 数值/分级两组证据（数值只进事件供评估，分级进提示，docs/dev/SPEC-life-runtime.md「数值与分级的分离」）。
 
-黑名单字段（world_state_version、end_time、affordance_contract、energy_
-feasibility、observation_event_id、motivation_hints、game_catalog 全表、完整
-活动快照、路线坐标与几何）在本层就不再产生——narration 的 enforce_field_
-blacklist 是第二道防线，不是第一道。
+黑名单字段（world_state_version、end_time、affordance_contract、observation_
+event_id、motivation_hints、game_catalog 全表、完整活动快照、路线坐标与几何）
+在本层就不再产生——narration 的 enforce_field_blacklist 是第二道防线，不是第一道。
+能量只以饥饿分级、食品每份热量与路线费力的可读标签出现，身体数值不进提示；
+饥饿为「饿」及以上时，场景的 local_food_summary 在饥饿分级得出之后生成吃饭途径句
+（docs/dev/SPEC-time-and-energy.md「能量感知」「让人物趁早吃」）。
 
 供给可见期：仅实际呈现的供给具有购买凭据，位置未变且呈现后未超 1800 秒；
 供给身份与商品身份分别保留。工作材料只揭示自上次决策以来新读区间、单次至多 2000
@@ -18,20 +20,21 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.catalog.affordances import default_affordances
-from worldmock.life import felt, narration, social
+from worldmock.life import dining, felt, narration, social
 from worldmock.life import social_actions
 from worldmock.life.interaction_menu import action_label, purchase_action_label
 from worldmock.life.models import (ActivityKind, AgentState, SameMomentStage, SessionStatus, WorldState,
                                    active_activities)
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.retrieval import feasible_kinds
-from worldmock.life.scenario import RuntimeScenario
+from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
 #: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
@@ -42,6 +45,14 @@ MATERIAL_REVEAL_CHAR_CAP = 2000
 INBOX_HEAD_LIMIT = 3
 #: 同刻上限受限轮的场景说明句（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：可读、不写次数。
 SAME_MOMENT_NOTE = "你已经想了好几轮，先定下一件事。"
+#: 路线费力分档的代谢当量分界：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」。
+#: experiment_assumption：登记在 docs/EXPERIMENT.md「能量感知标签」。
+ROUTE_EFFORT_MODERATE_MET = 2.0
+ROUTE_EFFORT_STRENUOUS_MET = 3.0
+#: 食品每份热量的取整粒度与「几乎不含热量」的上界（千卡）：按 5 进位取整到 10 千卡。
+#: experiment_assumption：登记在 docs/EXPERIMENT.md「能量感知标签」。
+FOOD_ENERGY_ROUNDING_KCAL = 10
+FOOD_ENERGY_NEGLIGIBLE_KCAL = 5.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,11 +116,16 @@ def people_here_views(state: WorldState, agent: AgentState) -> list[dict[str, An
     return [view.model_dump(mode="json") for view in views]
 
 
-def body_projection(agent: AgentState, hour: float,
+def body_projection(agent: AgentState, hour: float, body: BodyConfig,
                     meal_windows: felt.MealWindows | None = None) -> dict[str, Any]:
-    """@brief body 两组投影：levels 分级（进提示）与 values 数值（只进事件）。"""
+    """@brief body 两组投影：levels 分级（进提示）与 values 数值（只进事件）。
+
+    饥饿分级按当前能量与身体配置的紧急阈值叠加两条低能量规则；决策参照快照与唤醒判定
+    传入同一身体配置，保证分级同源（docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。
+    """
     values = felt_values(agent, hour, meal_windows)
-    levels = felt.summarize_felt_levels(**values)
+    levels = felt.summarize_felt_levels(
+        values, felt.EnergyReading(agent.body.energy_kcal, body.emergency_threshold_kcal))
     return {"levels": levels, "values": {**values, "sleep_pressure": agent.body.sleep_pressure,
                                          "energy_kcal": agent.body.energy_kcal,
                                          "sleep_deficit_hours": agent.body.sleep_deficit_hours}}
@@ -124,6 +140,23 @@ def felt_values(agent: AgentState, hour: float,
             "entertainment_need": agent.body.entertainment_need,
             "social_need": agent.body.social_need,
             "mood_valence": agent.body.mood_valence}
+
+
+def route_effort(met: float) -> str:
+    """@brief 按出行方式的代谢当量给路线费力标签（docs/dev/SPEC-time-and-energy.md「商品热量与路线费力」）。"""
+    if met >= ROUTE_EFFORT_STRENUOUS_MET:
+        return "费力"
+    if met >= ROUTE_EFFORT_MODERATE_MET:
+        return "一般"
+    return "轻松"
+
+
+def food_energy_label(kcal_per_unit: float) -> str:
+    """@brief 食品每份热量的可读标签：按 5 进位取整到 10 千卡，不足 5 千卡写「几乎不含热量」。"""
+    if kcal_per_unit < FOOD_ENERGY_NEGLIGIBLE_KCAL:
+        return "几乎不含热量"
+    rounded = math.floor(kcal_per_unit / FOOD_ENERGY_ROUNDING_KCAL + 0.5) * FOOD_ENERGY_ROUNDING_KCAL
+    return f"每份约 {rounded} 千卡"
 
 
 def new_material_ranges(agent: AgentState) -> dict[str, list[dict[str, Any]]]:
@@ -182,7 +215,7 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     now = state.current_time
     hour = hour_of_day(now, scenario.timezone)
     local = local_datetime(now, scenario.timezone)
-    body_data = body_projection(agent, hour, inputs.meal_windows)
+    body_data = body_projection(agent, hour, scenario.body, inputs.meal_windows)
     levels = body_data["levels"]
     people = people_here_views(state, agent)
     inbox = _inbox_rows(inputs)
@@ -226,7 +259,7 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "todos_summary": _todos_summary(inputs.task_rows, now),
         "reachable_places": reachable_scene,
         "inventory": _inventory_names(agent, inputs.scenario),
-        "local_food_summary": inputs.extras["local_food_summary"],
+        "local_food_summary": _local_food_summary(inputs, levels["appetite"]),
         "current_sessions": _active_session_scene_rows(inputs.state, agent.agent_id),
         "precondition_hints": _precondition_hints(inputs),
         "same_moment_note": (SAME_MOMENT_NOTE if agent.same_moment_stage != SameMomentStage.OPEN
@@ -370,35 +403,130 @@ def _public_inbox(inputs: ProjectionInputs, rows: list[dict[str, Any]]) -> list[
 
 
 def _public_routes(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 路线按地点名称公开，时长和票价仍由系统告知。"""
+    """@brief 路线按地点名称公开，时长、票价与费力由系统告知；feasible 只表示可达。"""
     places = _location_index(inputs.scenario)
     return [{"destination": places[row["destination"]].name, "mode": row["mode"],
-             "minutes": row["minutes"], "fare_fen": row["fare"],
+             "minutes": row["minutes"], "fare_fen": row["fare"], "effort": row["effort"],
              "feasible": row["feasible"], "status": row["status"], "reason": row["reason"]}
             for row in inputs.extras.get("route_rows", [])]
 
 
 def _public_products(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 供给只公开购物决策所需名称、报价与履约事实。"""
+    """@brief 供给只公开购物决策所需名称、报价与履约事实；食品带每份热量，配送写人读送达时刻。"""
     places = _location_index(inputs.scenario)
-    return [{"object": _interaction_object_label(inputs, {"kind": "supply", "name": row["name"],
-                                                    "object_id": row["supply_id"]}),
-             "product": row["name"], "place": row["location_name"],
-             "price_fen": row["purchase_price_fen"], "quote_status": row["quote_status"],
-             "current_stock": row["current_stock"], "purchase_allowed": row["purchase_allowed"],
-             "fulfillment_modes": row["fulfillment_modes"],
-             "delivery_destinations": [places[item].name for item in row["delivery_destination_ids"]],
-             "delivery_delay_seconds": row["delivery_delay_seconds"]}
-            for row in inputs.extras.get("product_rows", [])]
+    foods = _food_items(inputs.scenario)
+    arrivals = inputs.extras.get("delivery_expected_at", {})
+    rows = []
+    for row in inputs.extras.get("product_rows", []):
+        public = {"object": _interaction_object_label(inputs, {"kind": "supply", "name": row["name"],
+                                                               "object_id": row["supply_id"]}),
+                  "product": row["name"], "place": row["location_name"],
+                  "price_fen": row["purchase_price_fen"], "quote_status": row["quote_status"],
+                  "current_stock": row["current_stock"], "purchase_allowed": row["purchase_allowed"],
+                  "fulfillment_modes": row["fulfillment_modes"],
+                  "delivery_destinations": [places[item].name for item in row["delivery_destination_ids"]]}
+        if row["product_id"] in foods:
+            public["energy"] = food_energy_label(foods[row["product_id"]].energy_kcal_per_unit)
+        if "delivery" in row["fulfillment_modes"]:
+            public["delivery_eta"] = _delivery_eta(inputs, arrivals.get(row["supply_id"]))
+        rows.append(public)
+    return rows
+
+
+def _delivery_eta(inputs: ProjectionInputs, expected_at: int | None) -> str:
+    """@brief 人读送达时刻，例如「约 13 小时后送达，明天 11:16」；送不到当前地点时写「暂时送不到这里」。"""
+    if expected_at is None:
+        return "暂时送不到这里"
+    now = inputs.state.current_time
+    when = dining.readable_clock(now, expected_at, inputs.scenario.timezone)
+    return f"{dining.readable_duration(expected_at - now)}后送达，{when}"
 
 
 def _public_inventory(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 库存按地点和商品名称公开正数持有量。"""
+    """@brief 持有物按地点和商品名称公开正数持有量；食品带每份热量，他处持有物注明只能在当地使用。"""
     places = _location_index(inputs.scenario)
-    products = _product_names(inputs.scenario)
-    return [{"place": places[place_id].name, "product": products[product_id], "quantity": quantity}
-            for place_id, holding in sorted(inputs.agent.inventory.items())
-            for product_id, quantity in sorted(holding.items()) if quantity > 0]
+    items = {item.product_id: item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)}
+    rows = []
+    for place_id, holding in sorted(inputs.agent.inventory.items()):
+        for product_id, quantity in sorted(holding.items()):
+            if quantity <= 0:
+                continue
+            item, place = items[product_id], places[place_id].name
+            row: dict[str, Any] = {"place": place, "product": item.name, "quantity": quantity}
+            if "eat" in item.use_modes:
+                row["energy"] = food_energy_label(item.energy_kcal_per_unit)
+            if place_id != inputs.agent.location_id:
+                row["note"] = f"不在手边，只能在{place}使用"
+            rows.append(row)
+    return rows
+
+
+def _food_items(scenario: RuntimeScenario) -> dict[str, Any]:
+    """@brief 食品（use_modes 含 eat）的商品身份索引，覆盖在售商品与独立库存物品。"""
+    return {item.product_id: item for item in (*scenario.products, *scenario.inventory_items)
+            if "eat" in item.use_modes}
+
+
+def _local_food_summary(inputs: ProjectionInputs, hunger: str) -> str:
+    """@brief 场景的当地餐食句或吃饭途径句：饥饿分级得出后生成，只引用本轮观察的事实。"""
+    facts = dining.FoodPathFacts(
+        now=inputs.state.current_time, timezone=inputs.scenario.timezone,
+        local_sentence=inputs.extras["local_meal_sentence"],
+        on_hand=_meals_on_hand(inputs), pending=_meals_on_the_way(inputs),
+        here=_meals_here(inputs), deliverable=_meals_deliverable_here(inputs),
+        nearby=_food_nearby(inputs), browse_available=_browse_available(inputs))
+    return dining.local_food_summary(hunger, facts)
+
+
+def _meals_on_hand(inputs: ProjectionInputs) -> tuple[dining.MealOption, ...]:
+    """@brief 手边能吃的：现场地点正数持有的食品（与场景手边持有物同一判定）。"""
+    foods = _food_items(inputs.scenario)
+    return tuple(dining.MealOption(foods[product_id].name, foods[product_id].energy_kcal_per_unit)
+                 for product_id in sorted(_holding_ids(inputs.agent)) if product_id in foods)
+
+
+def _meals_on_the_way(inputs: ProjectionInputs) -> tuple[dining.PendingMeal, ...]:
+    """@brief 在路上的：本人待送达的食品订单（state.deliveries，与观察事件 pending_deliveries 同源）。"""
+    foods, places, agent = _food_items(inputs.scenario), _location_index(inputs.scenario), inputs.agent
+    return tuple(dining.PendingMeal(foods[item.product_id].name, item.expected_at,
+                                    None if item.destination_id == agent.location_id
+                                    else places[item.destination_id].name)
+                 for item in inputs.state.deliveries.values()
+                 if item.agent_id == agent.agent_id and item.status == "pending" and item.product_id in foods)
+
+
+def _meals_here(inputs: ProjectionInputs) -> tuple[dining.MealOption, ...]:
+    """@brief 这里就能买的：现场地点本轮已呈现、可购买且可到店取得的食品供给。"""
+    foods = _food_items(inputs.scenario)
+    return tuple(dining.MealOption(row["name"], foods[row["product_id"]].energy_kcal_per_unit)
+                 for row in inputs.extras.get("product_rows", [])
+                 if row["product_id"] in foods and row["purchase_allowed"] and row["pickup_allowed"])
+
+
+def _meals_deliverable_here(inputs: ProjectionInputs) -> tuple[int, ...]:
+    """@brief 能送到这里的：本轮呈现、可购买、含配送且能送到当前地点的食品的预计送达时刻。"""
+    foods = _food_items(inputs.scenario)
+    arrivals = inputs.extras.get("delivery_expected_at", {})
+    return tuple(arrivals[row["supply_id"]] for row in inputs.extras.get("product_rows", [])
+                 if row["product_id"] in foods and row["purchase_allowed"]
+                 and arrivals.get(row["supply_id"]) is not None)
+
+
+def _food_nearby(inputs: ProjectionInputs) -> tuple[dining.NearbyFood, ...]:
+    """@brief 附近能买的：本轮已呈现供给所在、此刻营业且能到店买到食品的地点，取可达路线的分钟数。"""
+    foods = _food_items(inputs.scenario)
+    stores = {row["location_id"] for row in inputs.extras.get("product_rows", [])
+              if row["product_id"] in foods and row["purchase_allowed"] and "pickup" in row["fulfillment_modes"]}
+    places = _location_index(inputs.scenario)
+    return tuple(dining.NearbyFood(places[route["destination"]].name, route["minutes"], route["mode"])
+                 for route in inputs.extras.get("route_rows", [])
+                 if route["destination"] in stores and route["status"] == "reachable")
+
+
+def _browse_available(inputs: ProjectionInputs) -> bool:
+    """@brief 本轮能否浏览商品：有效菜单允许浏览、有目录对象，且浏览与进行中活动的占用不冲突。"""
+    return bool(inputs.extras.get("browse_allowed") and inputs.extras.get("browse_targets")
+                and _resource_available(inputs, {"canonical_action": "browse", "travel_mode": None}))
 
 
 def _inbox_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:

@@ -32,15 +32,13 @@ from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.life import felt, projection, rhythm
 from worldmock.life.body import (
     ActivityFactors,
+    BoundaryClock,
     apply_food,
-    felt_levels,
-    felt_values,
     interpolate,
     maximum_energy_duration_seconds,
     next_body_boundary_seconds,
     settle_body,
 )
-from worldmock.life.body import body_observation
 from worldmock.life.decision_start import maybe_decision_statement_start
 from worldmock.life.engine import (
     LifeEngine,
@@ -291,11 +289,18 @@ def felt_body(energy_kcal: float = 1600, **updates):
     return BodyState(**fields)
 
 
+def felt_agent(body):
+    """把身体状态装进最小人物状态，供观察投影的体感函数使用。"""
+    from worldmock.life.models import AgentState
+    return AgentState(agent_id=1, name="体感", location_id="home", balance_account_id="agent:1",
+                      body=body, body_settled_at=0, next_decision_at=0)
+
+
 def test_felt_values_expose_five_numeric_signals(body_config) -> None:
     """体感数值组含五项信号，餐时窗口只放大食欲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
-    body = felt_body(1600, social_need=0.4, mood_valence=0.2)
-    plain = felt_values(body, 22.0)
-    in_window = felt_values(body, 12.5, felt.MealWindows(lunch=(12.0, 13.5)))
+    agent = felt_agent(felt_body(1600, social_need=0.4, mood_valence=0.2))
+    plain = projection.felt_values(agent, 22.0)
+    in_window = projection.felt_values(agent, 12.5, felt.MealWindows(lunch=(12.0, 13.5)))
     assert set(plain) == {"appetite", "sleepiness", "entertainment_need",
                           "social_need", "mood_valence"}
     assert plain["social_need"] == 0.4 and plain["mood_valence"] == 0.2
@@ -304,29 +309,24 @@ def test_felt_values_expose_five_numeric_signals(body_config) -> None:
     assert plain["sleepiness"] > 0
 
 
-def test_felt_levels_render_five_band_texts(body_config) -> None:
-    """体感分级组输出五项中文分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）。"""
+def test_body_projection_renders_five_band_texts_and_numeric_values(body_config) -> None:
+    """观察投影分级/数值两组：分级五项进提示，数值只进事件；低能量按紧急阈值与 100 kcal 两档显示饥饿
+    （docs/dev/SPEC-life-runtime.md「数值与分级的分离」，docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。"""
     body = felt_body(1600, social_need=0.7, mood_valence=0.5, entertainment_need=0.7)
-    levels = felt_levels(body, 20.0)
+    levels = projection.body_projection(felt_agent(body), 20.0, body_config)["levels"]
     assert set(levels) == {"appetite", "sleepiness", "entertainment", "social", "mood"}
     assert levels["social"] == "有点孤单"
     assert levels["mood"] == "很开心"
     assert levels["entertainment"] == "很想放松"
-
-
-def test_body_observation_alert_ladder_and_two_group_projection(body_config) -> None:
-    """观察投影分级/数值两组；能量告警按 400/800 阈值分档（docs/dev/SPEC-life-runtime.md「其他体感分级」「数值与分级的分离」）。"""
-    emergency = body_observation(felt_body(300), body_config, 12.0)
-    hungry = body_observation(felt_body(600), body_config, 12.0)
-    calm = body_observation(felt_body(1600), body_config, 12.0)
-    assert emergency["alert"] == "emergency_energy"
-    assert hungry["alert"] == "hungry"
-    assert calm["alert"] is None
-    for observation in (emergency, hungry, calm):
-        assert set(observation["levels"]) == {"appetite", "sleepiness",
-                                              "entertainment", "social", "mood"}
-        assert set(observation["values"]) == {"energy_kcal", "sleep_pressure", "sleepiness",
-                                              "sleep_deficit_hours", "entertainment_need",
+    emergency = projection.body_projection(felt_agent(felt_body(300)), 8.0, body_config)
+    starving = projection.body_projection(felt_agent(felt_body(60)), 8.0, body_config)
+    calm = projection.body_projection(felt_agent(felt_body(1600)), 8.0, body_config)
+    assert emergency["levels"]["appetite"] == "饿得难受"
+    assert starving["levels"]["appetite"] == "饿得发慌"
+    assert calm["levels"]["appetite"] == "不饿"
+    for observation in (emergency, starving, calm):
+        assert set(observation["values"]) == {"appetite", "sleep_pressure", "sleepiness",
+                                              "energy_kcal", "sleep_deficit_hours", "entertainment_need",
                                               "social_need", "mood_valence"}
     assert emergency["values"]["energy_kcal"] == 300
 
@@ -361,20 +361,24 @@ def test_negative_work_factors_are_rejected(body_config) -> None:
 
 
 def test_next_body_boundary_skips_zero_rates_when_nothing_due(body_config) -> None:
-    """无曲线活动+娱乐速率 0+能量已低于全部阈值+无昼夜输入→无身体边界。"""
+    """300 kcal 时仍给出跌破 100 kcal 的候选；能量已低于全部三个阈值且无昼夜输入时才没有身体边界。"""
     quiet = body_config.model_copy(update={"entertainment_need_per_awake_hour": 0})
+    burn = quiet.basal_kcal_per_hour + (quiet.activity_met["wait"] - 1) * quiet.mass_kg
     body = felt_body(300, social_need=1.0)
-    assert next_body_boundary_seconds(body, ActivityKind.WAIT, quiet, None, None) is None
+    assert next_body_boundary_seconds(body, ActivityKind.WAIT, quiet, None, None) == (
+        math.floor((300 - felt.APPETITE_STARVING_KCAL) * 3600 / burn) + 1)
+    starving = felt_body(60, social_need=1.0)
+    assert next_body_boundary_seconds(starving, ActivityKind.WAIT, quiet, None, None) is None
     # 娱乐速率 0 的资源在昼夜输入存在时也不产生候选（跳过continue 分支）。
     with_hour = next_body_boundary_seconds(felt_body(1600, social_need=1.0),
-                                           ActivityKind.WAIT, quiet, None, 12.0)
+                                           ActivityKind.WAIT, quiet, None, BoundaryClock(12.0))
     assert with_hour is not None and with_hour > 0
 
 
 def test_next_body_boundary_covers_entertainment_band_edges(body_config) -> None:
     """正常清醒等待给出首个娱乐分级边界（正例）。"""
     seconds = next_body_boundary_seconds(felt_body(1600, entertainment_need=0.0),
-                                         ActivityKind.WAIT, body_config, None, 12.0)
+                                         ActivityKind.WAIT, body_config, None, BoundaryClock(12.0))
     assert seconds is not None and seconds > 0
 
 

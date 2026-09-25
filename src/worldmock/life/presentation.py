@@ -56,7 +56,7 @@ FOOD_CATEGORY = "foods"
 GAME_CATEGORY = "game_session"
 TASK_CATEGORY = "work_contract"
 
-#: 候选类别 → 活动类型（能量判据与反塌缩子类标签所需）。
+#: 候选类别 → 活动类型（反塌缩子类标签所需）。
 ACTIVITY_OF_KIND: dict[str, ActivityKind] = {
     "product": ActivityKind.CONSUME,
     "lifestyle": ActivityKind.LIFESTYLE,
@@ -83,7 +83,7 @@ class PoolEntry:
     location_kinds: frozenset[str] = frozenset()
     #: 目录级库存；0 表示缺货（世界事实）。
     stock: int = 1
-    #: 生活活动按条目的代谢当量判断能量。
+    #: 生活活动按条目声明的代谢当量。
     met: float | None = None
     #: 目录级下架（墓碑语义：保留可读、拒绝新场景引用）。
     retired: bool = False
@@ -476,13 +476,13 @@ def candidate_inputs(context: PresentationContext, sources: dict,
 
     只有世界事实进资格段；口味权重取人物持久化映射、注意力先验取场景声明的画像，
     两者都只进排序键。`moment` 区分两个观察面：观察投影问「此刻能不能做」，因此施加
-    全部可行性事实（地点、营业时段、资源占用、能量）；目录下钻是菜单级视角，只施加
+    全部可行性事实（地点、营业时段、资源占用）；目录下钻是菜单级视角，只施加
     目录级事实（库存、下架、启用集、时长窗口、地点类与具体地点实例），不把「现在正在
-    忙」当成条目不存在。
+    忙」当成条目不存在。能量不构成排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
 
     @param context 只读世界切片。
     @param sources 生成段的四来源映射（`entry_sources` 的产物）。
-    @param moment 是否施加当下可行性事实（地点、营业时段、资源占用、能量）。
+    @param moment 是否施加当下可行性事实（地点、营业时段、资源占用）。
     @param rotation_offset 该人物在该分区的轮转游标位置（沿池单向绕回，只前进）。
     @param last_presented_at 按对象标识记录的上次呈现时刻（纪元秒），即轮转的判据。
     @return 候选契约的完整输入。
@@ -500,8 +500,6 @@ def candidate_inputs(context: PresentationContext, sources: dict,
         occupied_resources=occupied,
         local_hour=(local_hour(context) if moment else None), current_time=now,
         window_end_time=now + candidates.CANDIDATE_WINDOW_SECONDS,
-        energy_kcal=float(context.agent.body.energy_kcal),
-        body=context.semantics.body if moment else None,
         taste_weights=dict(context.agent.taste_weights),
         attention_priors=dict(getattr(motivation, "attention_prior", {}) or {}),
         presentation_limit=int(constants.presentation_limit),

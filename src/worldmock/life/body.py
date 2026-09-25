@@ -8,13 +8,15 @@
 social_need_ledger）与情绪脉冲/衰减（felt.apply_mood_pulse / decay_mood_
 valence）由引擎在结算边界调用本模块的包装函数驱动。
 
-body_observation 返回分级与数值两组：数值只进事件供评估与导出，分级才进
-提示（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。
+能量不阻止任何活动：所有活动集合的结算都以 0 截断、不报错；低能量的代价只是饥饿上升与
+工作变慢（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。边界预测对困意与饥饿做同一种
+跨档扫描，并把餐时窗口起止列为候选（同规格第八章「节律」）。
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from worldmock.catalog.affordances import default_affordances
@@ -30,8 +32,9 @@ from worldmock.resources.models import (
 )
 
 
-#: 能量投影可穿透下界的活动闭集（sleep/wait/consume）——自可供性注册表
-#: kinds.*.energy_floor_exempt 派生（M1：字面常量已删，注册表即事实）。
+#: 恢复类活动闭集（sleep/wait/consume）——自可供性注册表 kinds.*.energy_floor_exempt 派生。
+#: 只供内部动机评分按能量取舍（maximum_energy_duration_seconds），不代表世界规则：结算对所有活动
+#: 集合都以 0 截断（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
 ENERGY_RECOVERY_ACTIVITY_KINDS = frozenset(
     ActivityKind(name) for name in default_affordances().energy_recovery_kinds)
 
@@ -111,6 +114,20 @@ class ActivityFactors:
     food_energy_kcal_per_hour: float = 0
 
 
+#: 困意与饥饿跨档扫描的最大步长与扫描上限（秒）；步点变档后在该步内二分到整秒
+#: （docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
+FELT_SCAN_STEP_SECONDS = 900
+FELT_SCAN_HORIZON_SECONDS = 86_400
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryClock:
+    """@brief 边界预测的时刻输入：场景本地小时与人物的午餐、晚餐窗口。"""
+
+    hour_of_day: float
+    meal_windows: felt.MealWindows | None = None
+
+
 def interpolate(points: tuple[CurvePoint, ...], value: float) -> float:
     """@brief 在线性节点间插值，并在两端钳制。"""
     if value <= points[0].input_value:
@@ -131,8 +148,9 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
 
     sleep_pressure 与 sleep_deficit_hours 按 life.sleep 的纯函数直接演化
     （不进 ResourceLedger——两者不是 open level 资源，钳制语义由纯函数承载）；
-    能量与娱乐需要维持分录证据流。社交需要与情绪由引擎侧 apply_social_ledger
-    与 apply_mood_* 在同一结算边界另行推进。
+    能量与娱乐需要维持分录证据流。能量消耗超过余额时以 0 截断，任何活动都不因
+    透支报错。社交需要与情绪由引擎侧 apply_social_ledger 与 apply_mood_* 在同一
+    结算边界另行推进。
     """
     if seconds < 0:
         raise ValueError("settlement duration cannot be negative")
@@ -141,10 +159,6 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
     met = factors.met if factors else config.activity_met[kind.value]
     extra = max(met - 1, 0) * config.mass_kg * hours
     cost = minimum_energy_cost(kind, seconds, config, met)
-    projected = body.energy_kcal - cost
-    close_to_zero = math.isclose(projected, 0, rel_tol=0, abs_tol=1e-9)
-    if projected < 0 and not close_to_zero and kind not in ENERGY_RECOVERY_ACTIVITY_KINDS:
-        raise ValueError("activity would exhaust available energy")
     relief = factors.entertainment_relief_per_hour if factors else 0
     entertainment_entries, entertainment_capped = _entertainment_entries(
         kind, body.entertainment_need, hours, config, relief)
@@ -174,7 +188,11 @@ def settle_body(body: BodyState, kind: ActivityKind, seconds: int, config: BodyC
 
 def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
                        seconds: int, config: BodyConfig) -> BodySettlement:
-    """@brief 一个人物真实区间只结算一次基础消耗，运动负荷取最大值。"""
+    """@brief 一个人物真实区间只结算一次基础消耗，运动负荷取最大值。
+
+    消耗超过余额时能量以 0 截断：任何活动集合都照常结算，不因透支报错
+    （docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+    """
     if seconds < 0:
         raise ValueError("settlement duration cannot be negative")
     hours = seconds / 3600
@@ -183,9 +201,6 @@ def settle_shared_body(body: BodyState, activities: tuple[tuple[ActivityKind, Ac
     basal = config.basal_kcal_per_hour * hours
     extra = max(met - 1, 0) * config.mass_kg * hours
     cost = basal + extra
-    exempt = not activities or all(kind in ENERGY_RECOVERY_ACTIVITY_KINDS for kind, _ in activities)
-    if cost > body.energy_kcal + 1e-9 and not exempt:
-        raise ValueError("activity would exhaust available energy")
     entries = _shared_entries(body, activities, hours, cost, config)
     energy, _deficit, entertainment = _settle_via_ledger(config, body, entries)
     if sleeping:
@@ -224,34 +239,6 @@ def _shared_entries(body: BodyState, activities: tuple[tuple[ActivityKind, Activ
     return entries
 
 
-def shared_energy_cost(activities: tuple[tuple[int, float], ...], config: BodyConfig) -> float:
-    """@brief 按每个剩余结束点切分，用共同最大 MET 预测能量预算。"""
-    endpoints = sorted({seconds for seconds, _ in activities if seconds > 0})
-    previous = 0
-    total = 0.0
-    for endpoint in endpoints:
-        met = max((value for seconds, value in activities if seconds > previous), default=1.0)
-        hours = (endpoint - previous) / 3600
-        total += (config.basal_kcal_per_hour + max(met - 1, 0) * config.mass_kg) * hours
-        previous = endpoint
-    return total
-
-
-def maximum_shared_energy_duration(entries: tuple[tuple[int, float], ...], candidate_met: float,
-                                   energy: float, config: BodyConfig, limit_seconds: int) -> int:
-    """@brief 使用共同分段成本函数求候选最长可行整秒时长。"""
-    if energy < 0 or limit_seconds < 0:
-        raise ValueError("shared energy duration inputs are invalid")
-    low, high = 0, limit_seconds
-    while low < high:
-        middle = (low + high + 1) // 2
-        if shared_energy_cost(entries + ((middle, candidate_met),), config) <= energy:
-            low = middle
-        else:
-            high = middle - 1
-    return low
-
-
 def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySettlement:
     """@brief 以进食开始时睡眠不足账计算食品利用效率（sleep.food_utilization）。"""
     if calories < 0:
@@ -276,7 +263,7 @@ def apply_food(body: BodyState, calories: float, config: BodyConfig) -> BodySett
 
 def minimum_energy_cost(kind: ActivityKind, seconds: int, config: BodyConfig,
                         met: float | None = None) -> float:
-    """@brief 计算受理活动前能够确定的完整能量成本。"""
+    """@brief 计算一段活动的完整能量成本（结算与内部动机评分共用；受理不查能量）。"""
     hours = seconds / 3600
     activity_met = config.activity_met[kind.value] if met is None else met
     return (config.basal_kcal_per_hour + max(activity_met - 1, 0) * config.mass_kg) * hours
@@ -289,7 +276,11 @@ def maximum_energy_duration_seconds(
     met: float | None = None,
     limit_seconds: int = 86_400,
 ) -> int:
-    """@brief 以同一完整成本函数求当前能量能够受理的最大整数墙钟秒数。"""
+    """@brief 以同一完整成本函数求当前能量能够覆盖的最大整数墙钟秒数。
+
+    只供内部动机评分（motivation_internal）按能量取舍；恢复类活动不受能量限制。
+    受理、结算与恢复都不调用本函数（docs/dev/SPEC-time-and-energy.md「删除的机制」）。
+    """
     if energy_kcal < 0:
         raise ValueError("available energy cannot be negative")
     if limit_seconds < 0:
@@ -304,49 +295,6 @@ def maximum_energy_duration_seconds(
         else:
             high = middle - 1
     return low
-
-
-def felt_values(body: BodyState, hour_of_day: float,
-                meal_windows: felt.MealWindows | None = None) -> dict[str, float]:
-    """@brief 计算五个体感信号数值（appetite 含昼夜与餐时项，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    appetite = felt.compute_appetite(body.energy_kcal, hour_of_day, meal_windows)
-    sleepiness = sleep.sleepiness(body.sleep_pressure, hour_of_day,
-                                   body.chronotype_midsleep)
-    return {"appetite": appetite, "sleepiness": sleepiness,
-            "entertainment_need": body.entertainment_need, "social_need": body.social_need,
-            "mood_valence": body.mood_valence}
-
-
-def felt_levels(body: BodyState, hour_of_day: float,
-                meal_windows: felt.MealWindows | None = None) -> dict[str, str]:
-    """@brief 计算五个体感分级文本（滞回判定与提示渲染的输入，「身体语义：两过程睡眠、睡眠不足账、体感分级」）。"""
-    values = felt_values(body, hour_of_day, meal_windows)
-    return felt.summarize_felt_levels(**values)
-
-
-def body_observation(body: BodyState, config: BodyConfig, hour_of_day: float = 12.0,
-                     meal_windows: felt.MealWindows | None = None) -> dict:
-    """@brief 生成不替人物做决定的身体投影：分级与数值两组（「身体语义：两过程睡眠、睡眠不足账、体感分级」）。
-
-    数值（values）只进观察事件供评估与导出；分级（levels）才进提示。
-    hour_of_day 缺省正午仅供结构稳定调用方（引擎始终传场景本地时刻）。
-    """
-    if body.energy_kcal < config.emergency_threshold_kcal:
-        alert = "emergency_energy"
-    elif body.energy_kcal < config.hunger_threshold_kcal:
-        alert = "hungry"
-    else:
-        alert = None
-    return {"levels": felt_levels(body, hour_of_day, meal_windows),
-            "values": {"energy_kcal": body.energy_kcal,
-                       "sleep_pressure": body.sleep_pressure,
-                       "sleepiness": sleep.sleepiness(body.sleep_pressure, hour_of_day,
-                                                      body.chronotype_midsleep),
-                       "sleep_deficit_hours": body.sleep_deficit_hours,
-                       "entertainment_need": body.entertainment_need,
-                       "social_need": body.social_need,
-                       "mood_valence": body.mood_valence},
-            "alert": alert}
 
 
 def apply_social_ledger(body: BodyState, exposure: felt.SocialExposure) -> BodyState:
@@ -382,14 +330,17 @@ def initial_body(config: BodyConfig, hour_of_day: float,
                  sleep_need_hours: float = sleep.DEFAULT_SLEEP_NEED_H,
                  chronotype_midsleep: float = sleep.DEFAULT_CHRONOTYPE_MIDSLEEP_H,
                  neuroticism_norm: float = 0.0) -> BodyState:
-    """@brief 构造场景起点身体：初始睡眠不足账与反推的初始 sleep_pressure。
+    """@brief 构造场景起点身体：初始睡眠不足账与按作息反推的初始 sleep_pressure。
 
-    初始 sleep_pressure 由场景起点时刻按已睡时长反推（「身体语义：两过程睡眠、睡眠不足账、体感分级」）：experiment_
-    assumption——缺省假设人物起点前刚睡满一个睡眠需要量（已睡 = sleep_need_hours，
-    即正常睡醒），起点落在夜间时该假设同样确定性适用。
+    experiment_assumption（docs/dev/SPEC-time-and-energy.md「作息初值」）：人物自起点之前最近一次惯常
+    起床时刻 t_wake = (chronotype_midsleep + sleep_need_hours / 2) mod 24 起一直清醒。起床时刻的压力取
+    睡满一个睡眠需要量后的衰减值（sleep.initial_sleep_pressure），此后按清醒过程推进到起点；不读
+    bedtime_window，不预置任何活动。起点落在惯常睡眠时段内或接近它时，人物以困倦状态开始。
     """
-    pressure = sleep.initial_sleep_pressure(hour_of_day, sleep_need_hours,
-                                            chronotype_midsleep)
+    wake_hour = (chronotype_midsleep + sleep_need_hours / 2) % 24
+    awake_hours = (hour_of_day - wake_hour) % 24
+    at_wake = sleep.initial_sleep_pressure(wake_hour, sleep_need_hours, chronotype_midsleep)
+    pressure = sleep.pressure_after_awake(at_wake, awake_hours)
     return BodyState(energy_kcal=config.initial_energy_kcal, sleep_pressure=pressure,
                      sleep_deficit_hours=config.initial_sleep_debt_hours,
                      sleep_need_hours=sleep_need_hours,
@@ -400,31 +351,35 @@ def initial_body(config: BodyConfig, hour_of_day: float,
 
 def next_body_boundary_seconds(body: BodyState, kind: ActivityKind, config: BodyConfig,
                                factors: ActivityFactors | None = None,
-                               hour_of_day: float | None = None) -> int | None:
-    """@brief 预测能量阈值、体感分级或效率曲线的首个未来整秒边界。
+                               clock: BoundaryClock | None = None) -> int | None:
+    """@brief 预测能量阈值、体感分级、餐时窗口或效率曲线的首个未来整秒边界。
 
-    体感分级跨越候选覆盖困意（以当前时刻的昼夜阈值近似解 S(t') 跨越下一档，
-    experiment_assumption 的确定性近似）与娱乐/社交分级边界；效率曲线沿用
-    sleep_deficit_hours 轴上的节点。hour_of_day 为 None 时跳过昼夜相关候选。
+    能量阈值为饥饿、紧急阈值与 felt.APPETITE_STARVING_KCAL（800、400、100 kcal）；困意与饥饿从当前状态
+    做跨档扫描（升档、降档都给候选），午餐、晚餐窗口的起止是候选，娱乐与社交按清醒增长速率求下一档；
+    效率曲线沿用 sleep_deficit_hours 轴上的节点（docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、
+    第八章「节律」）。clock 为 None 或睡眠时跳过依赖时刻的体感候选。
     """
     actual = factors or ActivityFactors(config.activity_met[kind.value])
-    burn = config.basal_kcal_per_hour + max(actual.met - 1, 0) * config.mass_kg
-    net_burn = burn - actual.food_energy_kcal_per_hour
+    net_burn = _net_burn_per_hour(actual, config)
     candidates = _energy_boundaries(body.energy_kcal, net_burn, config)
     deficit_rate = (-1.0 if kind == ActivityKind.SLEEP
                     else body.sleep_need_hours / (24.0 - body.sleep_need_hours))
     candidates.extend(_curve_boundaries(body.sleep_deficit_hours, deficit_rate,
                                          _deficit_curve_points(kind)))
-    candidates.extend(_felt_band_boundaries(body, kind, hour_of_day, config))
+    if clock is not None and kind != ActivityKind.SLEEP:
+        candidates.extend(_felt_band_boundaries(_FeltProjection(body, net_burn, clock, config)))
     return min(candidates) if candidates else None
 
 
 def next_shared_body_boundary_seconds(body: BodyState,
                                       activities: tuple[tuple[ActivityKind, ActivityFactors], ...],
-                                      config: BodyConfig, hour_of_day: float) -> int | None:
-    """@brief 以实际共同结算的最大 MET 和合并效果预测下一个阈值。"""
-    if any(kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME,
-                    ActivityKind.CHAT, ActivityKind.CALL} for kind, _ in activities):
+                                      config: BodyConfig, clock: BoundaryClock) -> int | None:
+    """@brief 以实际共同结算的最大 MET 和合并效果预测下一个身体边界。
+
+    交谈、通话照常预测（调用方按 CHAT_MET、CALL_MET 给出系数）；游戏按回合、睡眠按睡眠允许原因处理，
+    不另做预测（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」）。
+    """
+    if any(kind in {ActivityKind.SLEEP, ActivityKind.PLAY_GAME} for kind, _ in activities):
         return None
     factors = ActivityFactors(max((item.met for _, item in activities), default=1.0),
                               entertainment_relief_per_hour=sum(
@@ -434,7 +389,13 @@ def next_shared_body_boundary_seconds(body: BodyState,
     kinds = {kind for kind, _ in activities}
     kind = (ActivityKind.WORK if ActivityKind.WORK in kinds
             else ActivityKind.CONSUME if ActivityKind.CONSUME in kinds else ActivityKind.WAIT)
-    return next_body_boundary_seconds(body, kind, config, factors, hour_of_day)
+    return next_body_boundary_seconds(body, kind, config, factors, clock)
+
+
+def _net_burn_per_hour(factors: ActivityFactors, config: BodyConfig) -> float:
+    """@brief 共同净消耗（千卡/小时）：基础代谢加 MET 增量，减去进食的每小时净可用热量。"""
+    burn = config.basal_kcal_per_hour + max(factors.met - 1, 0) * config.mass_kg
+    return burn - factors.food_energy_kcal_per_hour
 
 
 def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
@@ -448,21 +409,80 @@ def _deficit_curve_points(kind: ActivityKind) -> tuple[CurvePoint, ...]:
     return ()
 
 
-def _felt_band_boundaries(body: BodyState, kind: ActivityKind,
-                          hour_of_day: float | None, config: BodyConfig) -> list[int]:
-    """@brief 体感分级预计跨越时刻：困意/娱乐/社交（awake 活动才有意义）。"""
-    if kind == ActivityKind.SLEEP or hour_of_day is None:
+@dataclass(frozen=True, slots=True)
+class _FeltProjection:
+    """@brief 从当前状态外推的体感：能量按当前共同净消耗推进，睡眠压力按清醒过程推进。"""
+
+    body: BodyState
+    net_burn_per_hour: float
+    clock: BoundaryClock
+    config: BodyConfig
+
+    def hour_after(self, seconds: int) -> float:
+        """@brief 距现在 seconds 秒后的场景本地小时（按 24 小时取模）。"""
+        return (self.clock.hour_of_day + seconds / 3600) % 24
+
+    def sleepiness_level(self, seconds: int) -> str:
+        """@brief 清醒 seconds 秒后的困意分级：当前压力按清醒过程推进，阈值取那一刻的昼夜相位。"""
+        pressure = sleep.pressure_after_awake(self.body.sleep_pressure, seconds / 3600)
+        return felt.sleepiness_level(
+            sleep.sleepiness(pressure, self.hour_after(seconds), self.body.chronotype_midsleep))
+
+    def appetite_level(self, seconds: int) -> str:
+        """@brief seconds 秒后的饥饿分级：含昼夜项、餐时项与 400、100 千卡两个保底档。"""
+        energy = min(max(self.body.energy_kcal - self.net_burn_per_hour * seconds / 3600, 0.0),
+                     self.config.maximum_energy_kcal)
+        appetite = felt.compute_appetite(energy, self.hour_after(seconds), self.clock.meal_windows)
+        return felt.appetite_level(appetite, energy, self.config.emergency_threshold_kcal)
+
+
+def _felt_band_boundaries(projection: _FeltProjection) -> list[int]:
+    """@brief 体感分级预计跨越时刻：困意与饥饿的跨档扫描、餐时窗口起止，以及娱乐与社交的下一档。"""
+    candidates = [seconds for seconds in (_first_band_change(projection.sleepiness_level),
+                                          _first_band_change(projection.appetite_level))
+                  if seconds is not None]
+    candidates.extend(_meal_window_boundaries(projection.clock))
+    candidates.extend(_need_band_boundaries(projection.body, projection.config))
+    return candidates
+
+
+def _first_band_change(level_at: Callable[[int], str]) -> int | None:
+    """@brief 以不超过 900 秒的步长正向扫描至多 24 小时，取首个分级变化的步点后在该步内二分到整秒。
+
+    升档、降档都算变化；扫描范围内分级不变时没有候选（docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
+    """
+    current = level_at(0)
+    previous = 0
+    for step_end in range(FELT_SCAN_STEP_SECONDS, FELT_SCAN_HORIZON_SECONDS + 1, FELT_SCAN_STEP_SECONDS):
+        if level_at(step_end) != current:
+            low, high = previous, step_end
+            while high - low > 1:
+                middle = (low + high) // 2
+                if level_at(middle) == current:
+                    low = middle
+                else:
+                    high = middle
+            return high
+        previous = step_end
+    return None
+
+
+def _meal_window_boundaries(clock: BoundaryClock) -> list[int]:
+    """@brief 午餐、晚餐窗口起止的下一次到来（严格晚于现在的整秒），食欲的餐时项在这些时刻跳变。"""
+    windows = clock.meal_windows
+    if windows is None:
         return []
+    candidates = []
+    for window in (windows.lunch, windows.dinner):
+        for edge in window or ():
+            seconds = math.ceil(((edge - clock.hour_of_day) % 24) * 3600 - 1e-6)
+            candidates.append(seconds if seconds > 0 else FELT_SCAN_HORIZON_SECONDS)
+    return candidates
+
+
+def _need_band_boundaries(body: BodyState, config: BodyConfig) -> list[int]:
+    """@brief 娱乐与社交需要按清醒增长速率到达更高一档的整秒。"""
     candidates: list[int] = []
-    low = sleep.wake_threshold(hour_of_day, body.chronotype_midsleep)
-    span = sleep.sleep_onset_threshold(hour_of_day, body.chronotype_midsleep) - low
-    for edge in (sleep.GRADE_TIRED_MIN, sleep.GRADE_SLEEPY_MIN,
-                 sleep.GRADE_VERY_SLEEPY_MIN, sleep.GRADE_CANNOT_STAY_AWAKE_MIN):
-        pressure = min(max(edge, 0.0), sleep.SLEEPINESS_CLIP_MAX) * span + low
-        hours = -math.log(1.0 - pressure) * sleep.AWAKE_TIME_CONSTANT_H \
-            if 0.0 <= pressure < 1.0 else None
-        if hours is not None and hours > 0:
-            candidates.append(max(1, math.ceil(hours * 3600)))
     rates = ((body.entertainment_need, felt.ENTERTAINMENT_BANDS,
               config.entertainment_need_per_awake_hour),
              (body.social_need, felt.SOCIAL_BANDS, felt.SOCIAL_NEED_AWAKE_RATE))
@@ -476,10 +496,11 @@ def _felt_band_boundaries(body: BodyState, kind: ActivityKind,
 
 
 def _energy_boundaries(energy: float, burn_per_hour: float, config: BodyConfig) -> list[int]:
-    """@brief 返回首次严格低于尚未越过能量阈值的整秒数。"""
+    """@brief 返回首次严格低于尚未越过的能量阈值（饥饿、紧急与「饿得发慌」三档）的整秒数。"""
     if burn_per_hour <= 0:
         return []
-    thresholds = (config.hunger_threshold_kcal, config.emergency_threshold_kcal)
+    thresholds = (config.hunger_threshold_kcal, config.emergency_threshold_kcal,
+                  felt.APPETITE_STARVING_KCAL)
     return [math.floor((energy - threshold) * 3600 / burn_per_hour) + 1
             for threshold in thresholds if energy >= threshold]
 
