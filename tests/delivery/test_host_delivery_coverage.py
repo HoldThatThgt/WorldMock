@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from worldmock.life.models import StartActivityRequest
+from worldmock.life.models import WORLD_SCHEMA_VERSION, StartActivityRequest
 
 from worldmock.delivery.evidence_encoding import (
     DICTIONARY_FIELD,
@@ -90,7 +90,8 @@ def _single_agent_export(tmp_path):
                 'model_identity': {'name': 'fixture'},
                 'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    store = FootprintStore.create(tmp_path / 'run', manifest, {'version': 0, 'current_time': 100})
+    initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
+    store = FootprintStore.create(tmp_path / 'run', manifest, initial_state)
     drafts = [
         EventDraft(event_id='fixture-observation-1', event_type='observation', occurred_at=100,
                    agent_id=1, decision_id='decision',
@@ -108,7 +109,7 @@ def _single_agent_export(tmp_path):
                          'request': {'targets': ['自己'], 'actions': ['等待']}}),
     ]
     store.commit(store.state, drafts)
-    store.commit({'version': 1, 'current_time': 200},
+    store.commit({'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
                  [EventDraft(event_id='fixture-run-end-1', event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})
@@ -124,7 +125,8 @@ def _replay_export_pair(tmp_path):
                 'model_identity': {'name': 'fixture'},
                 'map_dataset': map_provenance(load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario),
                 'window': {'start': 100, 'end': 200, 'timezone': 'UTC'}}
-    parent = FootprintStore.create(tmp_path / 'parent', manifest, {'version': 0, 'current_time': 100})
+    initial_state = {'schema_version': WORLD_SCHEMA_VERSION, 'version': 0, 'current_time': 100}
+    parent = FootprintStore.create(tmp_path / 'parent', manifest, initial_state)
     drafts = [
         EventDraft(event_type='observation', occurred_at=100, agent_id=1, decision_id='decision',
                    data={'balance_fen': 800}),
@@ -175,7 +177,7 @@ def _replay_export_pair(tmp_path):
 
 def _finish_export(store, directory):
     """补终态事件与最终检查点后形成正式导出。"""
-    store.commit({'version': store.state['version'] + 1, 'current_time': 200},
+    store.commit(dict(store.state, version=store.state['version'] + 1, current_time=200),
                  [EventDraft(event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'complete': True}, {'kind': 'fixture'})
     point = store.checkpoint(store.state, {'agent:1': reference, 'life': reference})

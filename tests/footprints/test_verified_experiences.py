@@ -44,7 +44,7 @@ def test_recent_window_only_projects_own_committed_progress_before_observation(s
                 "position_before_seconds": 0, "position_after_seconds": 10}},
         }),
         _progress("travel", "travel-1", activity={
-            "status": "completed", "destination_id": "office", "location_id": "office",
+            "status": "completed", "destination_id": "office", "location_id": "home",
             "data": {"arrival": {"location_id": "office", "access_status": "allowed"}},
         }),
     ]
@@ -151,10 +151,28 @@ def test_zero_playback_and_unfinished_travel_do_not_become_completed_facts(store
         project_verified_experiences([backwards], agent_id=1, cutoff_seq=2)
     missing_arrival = events[1].model_copy(update={"data": {
         **events[1].data, "activity": {"kind": "travel", "status": "completed",
-                                      "destination_id": "office", "location_id": "office"},
+                                      "destination_id": "office", "location_id": "home"},
     }})
     with pytest.raises(IntegrityError, match="arrival"):
         project_verified_experiences([missing_arrival], agent_id=1, cutoff_seq=2)
+
+
+def test_arrival_snapshot_at_origin_still_projects_arrived(store):
+    """出行快照 location_id 是出发地；到达事实只取 arrival.location_id，且须等于目的地。"""
+    arrived = _progress("travel", "route", activity={
+        "status": "completed", "destination_id": "office", "location_id": "home",
+        "data": {"arrival": {"location_id": "office", "access_status": "allowed"}},
+    })
+    event = store.commit(store.state, [arrived])[0]
+    facts = project_verified_experiences([event], agent_id=1, cutoff_seq=event.event_seq)
+    assert [(row["kind"], row["location_id"], row["access_status"]) for row in facts] == [
+        ("arrived", "office", "allowed")]
+    elsewhere = event.model_copy(update={"data": {**event.data, "activity": {
+        **event.data["activity"],
+        "data": {"arrival": {"location_id": "cafe", "access_status": "allowed"}},
+    }}})
+    with pytest.raises(IntegrityError, match="arrival location"):
+        project_verified_experiences([elsewhere], agent_id=1, cutoff_seq=event.event_seq)
 
 
 @pytest.mark.parametrize("count", [8, 40])

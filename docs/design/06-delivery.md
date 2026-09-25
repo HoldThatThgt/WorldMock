@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 数据交付
 
 > **状态**：DRAFT  
-> **日期**：2026-09-24  
-> **版本**：v1.3
+> **日期**：2026-09-25  
+> **版本**：v1.4
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -59,6 +59,7 @@ flowchart TB
 记录引擎负责固定截止、事件与素材导出、共同检查点和导出完整性认证，
 格式与发布流程统一见[记录引擎的固定截止导出](05-recording-engine.md#固定截止导出)。
 交付模块只消费认证快照；不完整导出用于诊断，不能进入正式交付。
+交付先核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`，不符即拒绝，不构造窗口：交付时用当前代码的场景渲染重建已存观察，旧结构的场景不能按新渲染解释。
 交付从下面的证据窗口开始，训练记录和规则夹具属于 LabelKit 加工产物。
 
 ## 3. 证据窗口
@@ -559,6 +560,7 @@ def deliver(
     """
     if destination.exists():
         raise IntegrityError("Delivery destination already exists")
+    _require_current_world_schema(export_dir)  # 最终检查点 state.schema_version 必须等于 WORLD_SCHEMA_VERSION
     
     # 构造窗口
     windows = prepare_windows(export_dir)
@@ -597,7 +599,9 @@ def deliver(
 flowchart TB
     A[开始交付] --> B{目标已存在?}
     B -->|是| Z[失败：拒绝覆盖]
-    B -->|否| C[创建目标目录]
+    B -->|否| V{最终检查点世界结构版本等于当前?}
+    V -->|否| Y[失败：版本不符，拒绝交付]
+    V -->|是| C[创建目标目录]
     C --> D[准备窗口]
     D --> E[调用 LabelKit]
     E --> F[语义校验]
@@ -779,6 +783,7 @@ def split_by_source_group(records: list[dict], splits: dict[str, float]) -> dict
 | 校验项 | 时机 | 失败行为 |
 | --- | --- | --- |
 | 目标不存在 | deliver 开始 | 拒绝执行 |
+| 最终检查点世界结构版本 | deliver 开始（准备窗口前） | 抛出 IntegrityError，不构造窗口 |
 | 导出认证 | prepare_windows | 抛出 IntegrityError |
 | 跨人物分组 | 窗口构造 | 拒绝证据分组 |
 | 编码往返 | encode_model_input | 断言失败 |
@@ -933,6 +938,7 @@ flowchart TB
 | v1.1 | 2026-09-20 | 身体事实示例改为实际可见的体感分级，明确内部数值的交付边界 |
 | v1.2 | 2026-09-20 | 足迹导出的流程与格式归入记录引擎，本文从认证快照的消费开始 |
 | v1.3 | 2026-09-24 | 按时间与能量规格：意图与 dreaming 输入裁去 `conclude_activity.memories`，动作目标保留完整请求；零点计划的请求与登记不进窗口，零点起归入新一日；观察中不得整棵复制的内容由能量可行性改为内部身份（旧导出另含能量可行性） |
+| v1.4 | 2026-09-25 | 按时间与能量规格第九章：交付先核对导出最终检查点的世界结构版本，不符即拒绝，不构造窗口 |
 
 ---
 

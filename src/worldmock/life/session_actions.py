@@ -408,7 +408,7 @@ class SessionActionMixin:
         else:
             if agent.day_plan is None:
                 raise BusinessRuleError("PLAN_NOT_FOUND")
-            goal = next((g for g in agent.day_plan.goals if g.kind == goals[0]["intent_kind"]), None)
+            goal = next((g for g in agent.day_plan.goals if g.intent_kind == goals[0]["intent_kind"]), None)
             if goal is None:
                 raise BusinessRuleError("PLAN_NOT_FOUND")
             data = {"goal": {"task_name": goal.goal, "intent_kind": goal.intent_kind,

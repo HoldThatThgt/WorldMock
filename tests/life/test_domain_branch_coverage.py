@@ -268,7 +268,7 @@ def _activity(**overrides) -> ActivityState:
         status=ActivityStatus.ACTIVE, started_at=0, planned_end_at=600,
         last_settled_at=0, elapsed_seconds=0, planned_duration_seconds=600,
         origin_action_id="act", origin_decision_id="dec", origin_request_event_id="req",
-        data={})
+        location_id="home", data={})
     payload.update(overrides)
     return ActivityState.model_construct(**payload)
 

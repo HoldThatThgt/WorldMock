@@ -48,7 +48,7 @@ def _world_state() -> WorldState:
         origin_request_event_id="request-1",
     )
     return WorldState(
-        schema_version=6,
+        schema_version=7,
         version=1,
         current_time=1,
         end_time=10,

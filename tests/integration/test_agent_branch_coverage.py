@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 
 import pytest
@@ -25,8 +26,16 @@ from custom.agents.life_agent import (
     MemoryTimeRangeRequest,
     ReadonlyFinishRequest,
 )
-from tests.integration.test_life_agent_protocol import _context, _observations
-from worldmock.life.models import REQUEST_MODELS
+from tests.integration.test_life_agent_protocol import (
+    _Environment,
+    _GroundedCorrectionDispatcher,
+    _ModelResponse,
+    _context,
+    _finish_args,
+    _observations,
+    _wire_agent,
+)
+from worldmock.life.models import REQUEST_MODELS, RecallTaskSummaryRequest
 
 
 def _prepared(data: dict | None = None, *, readonly: bool = False) -> LifeAgent:
@@ -100,7 +109,7 @@ def test_memory_entries_and_finish_keep_content_limits() -> None:
     (lambda data: data.update(recent_action_results="broken"), "recent action results"),
     (lambda data: data["facts"].update(progress={"sessions": "broken", "results": [], "alarms": []}),
      "sessions layer"),
-    (lambda data: data["facts"].update(interactive_objects=[]), "interactive objects"),
+    (lambda data: data["facts"].update(interactive_objects="broken"), "interactive objects layer"),
     (lambda data: data["facts"]["interactive_objects"].append(
         dict(data["facts"]["interactive_objects"][0])), "interactive object identity"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
@@ -111,6 +120,57 @@ def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> 
     change(data)
     with pytest.raises(RuntimeError, match=match):
         _prepared(data)
+
+
+def _empty_layer_observations() -> list[dict]:
+    """构造交互对象层与私有对象绑定都为空的当前观察。"""
+    observations = copy.deepcopy(_observations())
+    observations[0]["data"]["facts"]["interactive_objects"] = []
+    observations[0]["data"]["interaction_bindings"] = []
+    return observations
+
+
+def test_empty_interactive_layer_binds_no_empty_enum() -> None:
+    """空对象层合法：start_activity 照常开放，不绑定空枚举，所填名称按协议错误重试。"""
+    person = _prepared(_empty_layer_observations()[0]["data"])
+    functions = _functions(person)
+    assert "start_activity" in functions
+    properties = functions["start_activity"]["parameters"]["properties"]
+    assert "enum" not in properties["targets"]["items"]
+    assert "enum" not in properties["actions"]["items"]
+    assert "not a visible interactive object" in person.validate_react_decisions([
+        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+    ], False)
+
+
+@pytest.mark.asyncio
+async def test_empty_interactive_layer_decision_continues_without_failure() -> None:
+    """空对象层时决策照常完成：不可见名称在本轮纠正，改提交其他动作且不终止运行。"""
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("call-unseen", "start_activity",
+                       json.dumps({"targets": ["自己"], "actions": ["等待"]})),
+        _ModelResponse("call-recall", "recall_task_summary",
+                       json.dumps({"task_name": "整理会议纪要"}, ensure_ascii=False)),
+        _ModelResponse("call-finish", "finish", json.dumps(_finish_args())),
+    ])
+    environment = _Environment()
+    agent = LifeAgent()
+    _wire_agent(agent, environment, dispatcher, 5, memory=False)
+
+    await agent.run_react_loop(ReactLoopRequest(
+        0, _context().observed_at, _empty_layer_observations()))
+
+    assert len(environment.calls) == 1
+    assert environment.calls[0].request == RecallTaskSummaryRequest(task_name="整理会议纪要")
+    action_responses = [item for item in environment.evidence
+                        if item.phase == "response" and item.request.get("tools")]
+    assert "not a visible interactive object" in action_responses[0].error
+    first_tools = next(item for item in dispatcher.requests if "tools" in item)["tools"]
+    start = next(item["function"] for item in first_tools
+                 if item["function"]["name"] == "start_activity")
+    properties = start["parameters"]["properties"]
+    assert "enum" not in properties["targets"]["items"]
+    assert "enum" not in properties["actions"]["items"]
 
 
 def test_tool_visibility_uses_current_named_tasks_and_sessions() -> None:

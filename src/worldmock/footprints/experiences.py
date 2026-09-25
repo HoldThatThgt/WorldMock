@@ -249,7 +249,10 @@ def _played(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _arrival(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
-    """@brief 路线进度终态携实际到达位置才形成到达事实。"""
+    """@brief 路线进度终态携实际到达位置才形成到达事实。
+
+    快照 ``location_id`` 是出发地，到达地点只取 ``arrival.location_id``。
+    """
     status = activity.get("status")
     if status not in {"completed", "failed"}:
         return None
@@ -262,7 +265,6 @@ def _arrival(event: Event, activity: dict[str, Any]) -> dict[str, Any] | None:
     location_id = arrival.get("location_id")
     if (not isinstance(location_id, str) or not location_id
             or location_id != activity.get("destination_id")
-            or activity.get("location_id") != location_id
             or arrival.get("access_status") not in {"allowed", "denied"}):
         _invalid("Travel arrival location or access state is invalid")
     return {**_base(event, "arrived"), "location_id": location_id,

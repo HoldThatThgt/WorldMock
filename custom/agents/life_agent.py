@@ -960,12 +960,14 @@ def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, .
     """@brief 冻结本轮交互对象层：可读名称 -> 该对象自己的动作短语。
 
     每个对象只暴露对它自己合法的动作（docs/dev/SPEC-agent-interaction.md
-    「动作参数：能力如何收进 action」的绑定粒度裁决），start_activity 的
+    「对象与动作选择」的绑定粒度裁决），start_activity 的
     action 取值即这些枚举的并集投影，不是一张全局动作表。
+    空列表是合法状态（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条），
+    start_activity 照常可见；缺失或非列表的对象层仍是损坏的宿主观察。
     """
     rows = _facts_projection(data).get("interactive_objects")
-    if not isinstance(rows, list) or not rows:
-        raise RuntimeError("LifeAgent interactive objects layer is unavailable")
+    if not isinstance(rows, list):
+        raise RuntimeError("LifeAgent interactive objects layer must be a list")
     objects: dict[str, tuple[str, ...]] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -1014,7 +1016,7 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     return {
         "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
-        "task_names": tuple(row["task_name"] for row in tasks if row["submission_ready"]),
+        "task_names": tuple(row["task_name"] for row in tasks),
         "recipient_names": tuple(row["object"] for row in bindings
                                  if row["kind"] in {"person", "contact"}),
         "recall_names": tuple([*(row["task_name"] for row in tasks),
@@ -1136,16 +1138,21 @@ def _bind_start_activity_schema(
     """@brief 把本轮交互对象身份与菜单允许的动作并集绑定到 start_activity Schema。
 
     地点菜单只剪裁动作枚举（docs/dev/SPEC-agent-interaction.md「保护项修订」），
-    因此绑定值是对象动作并集与菜单允许集合的交集。
+    因此绑定值是对象动作并集与菜单允许集合的交集。对象层为空（或交集为空）时
+    省略对应的 enum 键，不绑定空枚举；所填名称不在本轮对象中时由本地校验按协议错误
+    在本轮重试（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条）。
     """
     start = next((item for item in schemas if item["function"]["name"] == "start_activity"), None)
     if start is None:
         return
     union = {value for actions in objects.values() for value in actions}
     properties = start["function"]["parameters"]["properties"]
-    properties["targets"]["items"]["enum"] = sorted(objects)
-    properties["actions"]["items"]["enum"] = sorted(
-        label for label in union if canonical_action(label) in allowed_actions)
+    targets = sorted(objects)
+    actions = sorted(label for label in union if canonical_action(label) in allowed_actions)
+    if targets:
+        properties["targets"]["items"]["enum"] = targets
+    if actions:
+        properties["actions"]["items"]["enum"] = actions
 
 
 def _bind_session_schemas(schemas: list[dict[str, Any]], active_sessions: tuple[str, ...],

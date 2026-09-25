@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
 > **状态**：DRAFT  
-> **日期**：2026-09-24  
-> **版本**：v1.4
+> **日期**：2026-09-25  
+> **版本**：v1.5
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -73,7 +73,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[5] | 是 | 活动集合与共同身体时刻的世界结构版本；旧状态直接拒绝 |
+| `schema_version` | Literal[7] | 是 | 世界结构版本；版本不符的旧状态（含版本 6）直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |
@@ -179,6 +179,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `activity_id` | str | 是 | 活动 ID |
 | `agent_id` | int | 是 | 人物 ID |
+| `location_id` | str | 是 | 开始地点（出行为出发地）；结算不覆盖，到达地点见 `data.arrival.location_id` |
 | `kind` | ActivityKind | 是 | 活动类型 |
 | `status` | ActivityStatus | 是 | 活动状态 |
 | `started_at` | int | 是 | 开始时间 |
@@ -276,3 +277,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.2 | 2026-09-20 | 事件、检查点、素材、足迹导出、质量报告与日志格式归入记录引擎；保留领域状态与交付格式入口 |
 | v1.3 | 2026-09-20 | 增加场景交互菜单与观察事件有效菜单的格式导航，明确它们不新增世界或人物状态字段 |
 | v1.4 | 2026-09-24 | 按时间与能量规格：观察留证的 `allowed_actions` 为内部标准动作名，人物所选动词与方式映射后判定，途中按出发地菜单解析并由出行方式收窄 |
+| v1.5 | 2026-09-25 | 按时间与能量规格第九章：世界结构版本 7；ActivityState 补 `location_id`（开始地点，结算不覆盖） |

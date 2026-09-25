@@ -14,11 +14,20 @@ import agentsociety2.config as agentsociety_config
 from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
+from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import advance_until_ready, advance_next, context, submit_round, stage_day_plan, wake_by_mail
+from tests.life.test_work_contracts import (
+    AcceptingReviewer,
+    _completed_work_state,
+    _shared_round,
+    _stage_shared_work,
+    _submission,
+)
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
+    active_activities,
     MeetingMinutes,
     PauseActivityRequest,
     ReportStatusRequest,
@@ -421,6 +430,97 @@ async def test_incomplete_work_skips_model_review_and_is_business_rejection(engi
     result = await _submit_with_review(engine, reviewer, "incomplete")
     assert reviewer.calls == 0
     assert result.status == "rejected" and result.error_code == "WORK_INCOMPLETE"
+
+
+_WAIT = ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
+
+
+def _stage_second_task_ready(engine) -> None:
+    """多人夹具开放后两人在办公室；人物 1 已有达到合同有效工时的计时任务乙。"""
+    _stage_shared_work(engine)
+    hourly = engine.rules.task("hourly-2026-01-05")
+    staged = _completed_work_state(engine, hourly, 3600, hourly.required_effective_seconds)
+    done = next(item for item in staged.activities.values() if item.target_id == hourly.task_id)
+    staged.activities[done.activity_id] = done.model_copy(
+        update={"resource_claims": set(default_affordances().resource_claims("work"))})
+    now = staged.current_time
+    staged.pending_events = [event for event in staged.pending_events if event.due_at > now]
+    staged.agents[2] = staged.agents[2].model_copy(
+        update={"next_decision_at": now, "body_settled_at": now}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system",
+        source_kind="scenario", data={"kind": "test_second_task_ready"})])
+    engine.state = staged
+
+
+def _working_on_first_task(engine) -> str:
+    """人物 1 经真实 start_activity 做任务甲、人物 2 等待，推进到人物 1 做甲期间的决策机会。"""
+    first = engine.scenario.tasks[0]
+
+    def start(observed):
+        binding = next(row for row in observed["interaction_bindings"]
+                       if row["kind"] == "work_task" and row["object_id"] == first.task_id)
+        return StartActivityRequest(targets=[binding["object"]], actions=["工作"])
+
+    _shared_round(engine, "first-task-start", {1: ("start_activity", start), 2: _WAIT})
+    started = {result.agent_id: result for result in engine.commit_decision_round("first-task-start")}
+    assert started[1].status == "in_progress"
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert 1 in engine.scheduling_state().ready_agent_ids
+    assert engine.state.activities[started[1].activity_id].status == "active"
+    return started[1].activity_id
+
+
+def _submit_action(task) -> tuple[str, SubmitWorkActionRequest]:
+    """用本轮可见任务名与公开交付 Schema 构造提交动作。"""
+    return "submit_work", SubmitWorkActionRequest(task_name=task.title, deliverable=_submission(task).deliverable)
+
+
+@pytest.mark.asyncio
+async def test_submitting_ready_task_while_working_on_another_reviews_and_pays(engine_factory) -> None:
+    """做甲任务时提交已达标的乙任务：评审照常、结算付款、甲继续（时间与能量规格「仍须修复」第 4 条）。"""
+    engine = engine_factory("multi-person.json")
+    _stage_second_task_ready(engine)
+    first, hourly = engine.scenario.tasks[0], engine.rules.task("hourly-2026-01-05")
+    work_id = _working_on_first_task(engine)
+    reviewer = AcceptingReviewer()
+    engine._work_reviewer = reviewer
+    _shared_round(engine, "second-task-submit", {1: _submit_action(hourly), 2: _WAIT})
+    await engine.prepare_pending_work_review("second-task-submit-1")
+    assert reviewer.calls == 1
+    before = dict(engine.state.accounts)
+    balance = engine.state.agents[1].balance_account_id
+    results = {result.agent_id: result for result in engine.commit_decision_round("second-task-submit")}
+    assert results[1].status == "completed" and results[1].data["payment_fen"] == 10_000
+    assert engine.state.accounts[balance] == before[balance] + 10_000
+    assert engine.state.accounts[hourly.employer_account_id] == before[hourly.employer_account_id] - 10_000
+    assert hourly.task_id in engine.state.paid_task_ids
+    working = active_activities(engine.state, 1)
+    assert [item.activity_id for item in working] == [work_id]
+    assert working[0].kind == "work" and working[0].target_id == first.task_id
+
+
+@pytest.mark.asyncio
+async def test_submitting_task_in_progress_is_rejected_with_work_task_in_progress(engine_factory) -> None:
+    """提交本人正在做的任务是业务拒绝 WORK_TASK_IN_PROGRESS，不调用评审模型，工作继续。"""
+    engine = engine_factory("multi-person.json")
+    _stage_shared_work(engine)
+    first = engine.scenario.tasks[0]
+    work_id = _working_on_first_task(engine)
+    reviewer = AcceptingReviewer()
+    engine._work_reviewer = reviewer
+    _shared_round(engine, "busy-task-submit", {1: _submit_action(first), 2: _WAIT})
+    await engine.prepare_pending_work_review("busy-task-submit-1")
+    before = dict(engine.state.accounts)
+    results = {result.agent_id: result for result in engine.commit_decision_round("busy-task-submit")}
+    assert reviewer.calls == 0
+    assert not [event for event in engine.store.read_agent_events("model_request", 1)
+                if event.data.get("purpose") == "work_review"]
+    assert results[1].status == "rejected" and results[1].error_code == "WORK_TASK_IN_PROGRESS"
+    assert engine.state.accounts == before and first.task_id not in engine.state.paid_task_ids
+    assert [item.activity_id for item in active_activities(engine.state, 1)] == [work_id]
 
 
 @pytest.mark.asyncio

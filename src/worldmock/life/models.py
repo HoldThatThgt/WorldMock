@@ -18,9 +18,9 @@ from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 # 预排事件类型与载荷模型已迁至 scheduling.events；此处再导出维持既有导入路径。
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
-#: 世界状态结构版本（docs/dev/SPEC-life-realism.md「产品行为」）：旧检查点缺该字段即拒绝加载。
-#: 版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions 字段，直接拒绝旧检查点。
-WORLD_SCHEMA_VERSION = 6
+#: 世界状态结构版本：版本不符的检查点直接拒绝；版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions；
+#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点，其后新增字段都并入 7。
+WORLD_SCHEMA_VERSION = 7
 
 _LOGGER = logging.getLogger(__name__)
 

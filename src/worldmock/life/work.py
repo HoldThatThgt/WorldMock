@@ -10,7 +10,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
-from worldmock.life.models import ActivityKind, ActivityStatus, AgentState, SubmitWorkRequest, WorldState
+from worldmock.life.models import (
+    ActivityKind,
+    ActivityStatus,
+    AgentState,
+    SubmitWorkRequest,
+    WorldState,
+    active_activities,
+)
 from worldmock.life.scenario import RuntimeScenario, WorkTaskConfig
 from worldmock.life.settlement import settle_money_transfer
 
@@ -150,13 +157,16 @@ def _validate_submission_contract(
     agent: AgentState,
     task: WorkTaskConfig,
 ) -> None:
-    """@brief 拒绝已付款、不可见或迟交的任务。"""
+    """@brief 拒绝已付款、不可见、迟交或正在做的任务；评审准备与提交共用（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条）。"""
     if task.task_id in state.paid_task_ids:
         raise BusinessRuleError("WORK_TASK_ALREADY_PAID")
     if task.task_id not in agent.visible_task_ids:
         raise BusinessRuleError("WORK_TASK_NOT_VISIBLE")
     if state.current_time > int(task.due_at.timestamp()):
         raise BusinessRuleError("WORK_SUBMISSION_LATE")
+    if any(item.kind == ActivityKind.WORK and item.target_id == task.task_id
+           for item in active_activities(state, agent.agent_id)):
+        raise BusinessRuleError("WORK_TASK_IN_PROGRESS")
 
 
 def _task(scenario: RuntimeScenario, task_id: str) -> WorkTaskConfig:

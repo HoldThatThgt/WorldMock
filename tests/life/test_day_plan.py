@@ -10,7 +10,9 @@ from pydantic import ValidationError
 from tests.life.conftest import advance_next, advance_until_ready, context, wake_by_mail
 from agentsociety2.society import DirectToolCall
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, StartActivityRequest
+from worldmock.life.models import (
+    PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest, StartActivityRequest,
+)
 from worldmock.life.rhythm import _goal_and_deadline_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
     INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds, day_plan_expired,
@@ -186,6 +188,32 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
         assert restored.state.agents[1].day_plan == plan
     finally:
         restored.close()
+
+
+def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
+    """按目标名称回看返回目标与推进状态，未知名称是业务拒绝（时间与能量规格「仍须修复」第 3 条）。"""
+    engine = engine_factory()
+    registered = act(engine, "recall-goals", "plan_day",
+                     PlanDayRequest(goals=[{"intent_kind": "休息", "goal": "歇一歇"}]))
+    assert registered.status == "completed"
+    assert advance_until_ready(engine)
+    recall = RecallTaskSummaryRequest(task_name="目标：休息：歇一歇")
+    before = act(engine, "recall-before", "recall_task_summary", recall)
+    assert before.status == "completed"
+    assert before.data["goal"] == {"task_name": "歇一歇", "intent_kind": "休息", "progressed": False}
+    assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
+    assert advance_until_ready(engine)
+    act(engine, "recall-rest", "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
+    advance_next(engine)
+    assert engine.state.agents[1].day_plan.goals[0].progressed_at is not None
+    assert advance_until_ready(engine)
+    after = act(engine, "recall-after", "recall_task_summary", recall)
+    assert after.status == "completed"
+    assert after.data["goal"] == {"task_name": "歇一歇", "intent_kind": "休息", "progressed": True}
+    assert advance_until_ready(engine)
+    unknown = act(engine, "recall-unknown", "recall_task_summary",
+                  RecallTaskSummaryRequest(task_name="目标：休息：睡个午觉"))
+    assert unknown.status == "rejected" and unknown.error_code == "TASK_NOT_FOUND"
 
 
 def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):

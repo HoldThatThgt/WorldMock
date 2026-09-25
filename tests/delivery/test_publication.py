@@ -1,9 +1,11 @@
 import hashlib
+import json
 
 import pytest
 
 from worldmock.delivery.pipeline import _file_inventory, deliver
 from worldmock.errors import IntegrityError
+from worldmock.life.models import WORLD_SCHEMA_VERSION
 
 
 def test_manifest_inventory_binds_every_gate_and_consumer_file(tmp_path):
@@ -27,4 +29,31 @@ def test_invalid_source_never_creates_delivery_or_runs_model(tmp_path, monkeypat
     monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', reject)
     monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', unexpected)
     with pytest.raises(IntegrityError): deliver(tmp_path / 'source', tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+
+
+def _write_final_checkpoint(source, schema_version):
+    source.mkdir(parents=True)
+    manifest = {'checkpoint': {'state': {'schema_version': schema_version}}}
+    (source / 'manifest.json').write_text(json.dumps(manifest), encoding='utf-8')
+
+
+def test_delivery_rejects_export_whose_final_checkpoint_has_another_world_schema_version(tmp_path, monkeypatch):
+    def unexpected(*args): pytest.fail('An export of another world schema version reached window construction')
+    source = tmp_path / 'source'
+    _write_final_checkpoint(source, WORLD_SCHEMA_VERSION - 1)
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
+    monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', unexpected)
+    with pytest.raises(IntegrityError, match='world schema version'):
+        deliver(source, tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+
+
+def test_delivery_checks_world_schema_before_preparing_windows(tmp_path, monkeypatch):
+    def reached(_directory): raise IntegrityError('windows reached')
+    source = tmp_path / 'source'
+    _write_final_checkpoint(source, WORLD_SCHEMA_VERSION)
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', reached)
+    with pytest.raises(IntegrityError, match='windows reached'):
+        deliver(source, tmp_path / 'out', tmp_path)
     assert not (tmp_path / 'out').exists()

@@ -62,7 +62,7 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 | `conclude_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项） | 逐项写总结并结束选中的进行中会话；未选中会话继续 |
 | `plan_day` | `goals: List[{intent_kind, goal}]`（零至八条） | `status: "submitted"` |
 | `revise_day_plan` | `goals: List[{intent_kind, goal}]`（替换全部未推进目标） | `status: "submitted"` |
-| `submit_work` | `task_name`, `deliverable` | 有效工作量达到合同要求后开放；任务名称取本轮可见名称 |
+| `submit_work` | `task_name`, `deliverable` | 有可见的未付款任务时开放；任务名称取本轮可见名称，未达标的提交以 `WORK_INCOMPLETE`、正在做的任务以 `WORK_TASK_IN_PROGRESS` 业务拒绝 |
 | `send_message` | `recipient_name`, `text` | 发送模型撰写的消息，收件人名称取本轮可见名称 |
 
 #### 交互菜单声明与有效菜单
@@ -195,7 +195,7 @@ flowchart LR
 | `start_activity` | 对象名称与动作必须在同一冻结观察中唯一匹配；按绑定解析内部身份、方式与报价，检查当前菜单、位置、资源及领域条件；多目标整体接受或拒绝 |
 | `recall_task_summary` | 名称唯一对应本人当前可回看的任务或会话；只读，不修改世界 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task[]` 中每个名称唯一对应本人会话，两数组等长且一至两项；所有状态转换先验证再原子更新，自述另标未经核验 |
-| `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审 |
+| `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审；被提交的任务本身不在进行中（否则 `WORK_TASK_IN_PROGRESS`） |
 | `send_message` | 收件人名称唯一且可见，渠道与文本符合规则 |
 | `plan_day`、`revise_day_plan` | 目标数量、文字、保留已推进目标与领域约束符合当日目标合同 |
 
@@ -203,6 +203,14 @@ flowchart LR
 报价、余额和占用；模型请求不含这些计算值。系统展示可比较的报价和预计时间，
 结算使用当轮冻结报价与权威状态。报价变化或竞争导致的实际不可行性以具体业务拒绝返回，
 不让模型根据提示中的取整文字回填精确秒数。
+
+#### 活动受理拒绝码
+
+活动受理与工作提交的业务拒绝以 `action_result` 登记，不终止运行。
+
+| 错误码 | 触发条件 |
+| --- | --- |
+| `WORK_TASK_IN_PROGRESS` | `submit_work` 提交的任务本人正在做（有以它为目标的进行中工作活动）；评审准备与结算共用这一判定，不调用评审模型。做别的任务时提交已达标的任务照常评审与付款 |
 
 ### 请求模型的闭集与字面边界
 
@@ -274,7 +282,7 @@ ContractKind = Literal["package", "hourly", "piece"]
 | --- | --- |
 | 订单状态 `DeliveryState.status` | `pending`、`ready`、`delivered`、`cancelled` |
 | 决策轮状态 `DecisionRoundState.status` | `open`、`committed`、`aborted` |
-| 世界状态结构版本 `WorldState.schema_version` | 5 |
+| 世界状态结构版本 `WorldState.schema_version` | 7 |
 
 环境自主到期事件（世界状态 `pending_events`）的类型闭集：
 
@@ -313,7 +321,7 @@ ScheduledKind = Literal[
 商品没有卖方、门店、购买报价、库存或配送处理时长；商品效果与取得后的持有仍按 `product_id`。
 运行时 `ProductConfig` 继承 `InventoryItemConfig`，共享 `category_id`、`inventory_unit` 和使用语义；购买可供性由独立供给补充。
 
-当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 5。
+当前版本边界为地图文件结构 1、商品目录 major 4、品类契约版本 2、交换规则绑定版本 2、场景结构 3、世界状态结构 7。
 这些版本分别约束不同输入，不能相互替代。旧商品门店字段、旧场景内嵌地点和旧世界状态直接拒绝，
 不保留迁移脚本、兼容解析或回退数据源。
 
@@ -375,7 +383,7 @@ ScheduledKind = Literal[
 | `opening_exceptions` | 地点身份到日期开放区间的世界覆盖；与冻结定义共同求值 |
 | `presentation_state` | 购买呈现按人物与供给身份记录，持有使用保留商品身份 |
 
-世界结构版本为 `5`，旧购买请求、旧场景和旧检查点直接拒绝。人物的 `visible_supply_ids`、
+世界结构版本为 `7`，旧购买请求与旧场景直接拒绝，旧检查点（含版本 6）以版本不符拒绝。人物的 `visible_supply_ids`、
 `supply_browsed_at`、`supply_browsed_location` 分别保存实际可见供给集合及逐供给的呈现时刻、呈现地点映射。
 三者的供给键集必须一致；只更新本次实际呈现行，不延长未呈现供给的可见期。资格、库存、
 报价、营业例外和轮转状态随共同检查点往返；地图或代码身份改变后不能打开或恢复为同一运行。
@@ -515,7 +523,7 @@ flowchart LR
 | `products` | 实际呈现的供给以可读商品和门店名称展示；系统单向提供报价、可购金额、库存、营业、资格、履约和来源；内部供给、商品与报价版本身份只在私有绑定和证据中 |
 | `routes` | 目的地名称、可读出行方式、预计时间、费用、可行性；精确结算值由私有冻结绑定提供 |
 | `day_plan` | `{day_end, goals}`；目标含意图、文字、登记时刻和推进证据；仅跨日后为 null，空目标与就寝后的清单保持可见 |
-| `interactive_objects` | 唯一可读对象名称、可读动作短语与前置条件；每个对象只列其合法动作 |
+| `interactive_objects` | 唯一可读对象名称、可读动作短语与前置条件；每个对象只列其合法动作；列表可以为空：空列表是合法状态，决策照常，`start_activity` 照常开放，工具 Schema 不绑定空枚举，所填名称不在本轮对象中时按协议错误在本轮重试 |
 | `progress` | `sessions`、`results`、`alarms`；会话行为 `{task_name, session_name, phase, objective_progress, subjective_progress, subjective_status}`，阶段为自然语言、自述标为「未经核验」；新结果按事件顺序完整回灌一次，期限提醒按任务名呈现 |
 
 `facts.progress.results[]` 的公开字段为 `occurred_at`、`status`、`error_code`、`message`，
@@ -1307,3 +1315,4 @@ RunPhase = Literal[
 | `2026-09-24-scenario-validation` | 2026-09-24 | 补登 `eee89fc`：交互对象的 `preconditions_met` 按执行器的资源声明检查进行中活动，`RESOURCE_CONFLICT` 后下一次决策排到最早活动结束或下一反馈间隔；生成参数删 `reasoning` 上限列与说明，行动阶段 `max_tokens` 为 8000，画像抽取关闭思考；模型身份 `base_url` 改 `https://api.deepseek.com`、`requested_model` 改 `deepseek-flash` |
 | `2026-09-24-issue-1` | 2026-09-24 | 补登 `778beca`：`submit_work` 在有效工作量达到合同要求后开放；前置条件不满足或资源被占用的动作不列入交互对象；LabelKit `decision_prompt` 保留实际请求中的 assistant `reasoning_content` |
 | `2026-09-24-time-and-energy` | 2026-09-24 | [时间与能量规格](dev/SPEC-time-and-energy.md)冻结，按其冻结作业改写：`available_energy` 非负，结算以 0 截断，不阻止任何活动；有效菜单删能量与日首计划门控，条件未满足的动作照常列出并附说明，唯一的状态性收窄是同刻上限的受限轮；当日计划由零点计划生成，`plan_day` 不是人物工具，只有 `remind_time` 触发定时决策；浏览是活动，删「下一秒」回灌，`discovery_result` 当前无触发来源；交谈、通话占用 `voice`、`ears`，时长由 `activity_feedback_seconds` 派生后截取，补交谈接受与对方同秒结束（`partner_ended`）；交互对象不剪裁，业务拒绝后在同一秒再决策，删按最早活动结束排期；已核验经历只以句子给模型，饥饿为「饿」及以上时 `local_food_summary` 为吃饭途径句；进度浓缩单位改为较旧会话中已收尾的活动。补登上列实施计划 C38 所列九个提交。工具面、错误码、枚举、结构版本与场景参数随各实施阶段落地，届时另追加版本行 |
+| `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：交互对象层可以为空（「场景段落与事实清单」）；世界状态结构版本改为 7（「领域枚举」「冻结地图与场景引用」「持久化当下事实」），旧检查点以版本不符拒绝；新增「活动受理拒绝码」并登记 `WORK_TASK_IN_PROGRESS`；`submit_work` 对全部可见未付款任务开放 |

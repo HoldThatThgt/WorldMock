@@ -7,9 +7,13 @@ task_kind/task_ref 约束、WorldState.sessions 默认工厂、以及 schema_ver
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
+from worldmock.footprints.models import EventDraft
+from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     WORLD_SCHEMA_VERSION,
     SessionState,
@@ -61,9 +65,9 @@ def _concluded_session(**overrides) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_world_schema_version_is_6():
-    """WORLD_SCHEMA_VERSION 必须为 6，标志会话层加入。"""
-    assert WORLD_SCHEMA_VERSION == 6
+def test_world_schema_version_is_7():
+    """WORLD_SCHEMA_VERSION 必须为 7（时间与能量规格第九章「仍须修复」：世界结构版本 7）。"""
+    assert WORLD_SCHEMA_VERSION == 7
 
 
 # ---------------------------------------------------------------------------
@@ -365,14 +369,14 @@ def test_extra_fields_are_rejected():
 
 
 # ---------------------------------------------------------------------------
-# WorldState.sessions 字段与 schema_version=6
+# WorldState.sessions 字段与 schema_version=7
 # ---------------------------------------------------------------------------
 
 
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 6,
+        "schema_version": 7,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
@@ -392,20 +396,47 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_6_is_valid():
-    """schema_version=6 的 WorldState 通过验证。"""
+def test_world_state_schema_version_7_is_valid():
+    """schema_version=7 的 WorldState 通过验证。"""
     from worldmock.life.models import WorldState
 
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 6
+    assert ws.schema_version == 7
 
 
-def test_world_state_schema_version_5_is_rejected():
-    """schema_version=5 的旧检查点被直接拒绝，不迁移不降级。"""
+#: 时间与能量规格之前的世界结构版本；其检查点必须以版本不符拒绝。
+_VERSION_6_WORLD_SCHEMA = 6
+
+
+def _assert_only_schema_version_mismatch(error: ValidationError) -> None:
+    """断言唯一的校验错误是 schema_version 版本不符，而不是缺字段或其他结构问题。"""
+    assert [(item["loc"], item["type"]) for item in error.errors()] == [
+        (("schema_version",), "literal_error")]
+
+
+def test_world_state_schema_version_6_is_rejected():
+    """版本 6 的旧世界状态以版本不符直接拒绝，不迁移不降级。"""
     from worldmock.life.models import WorldState
 
-    with pytest.raises(ValidationError):
-        WorldState.model_validate(_minimal_world_state_dict(schema_version=5))
+    with pytest.raises(ValidationError) as caught:
+        WorldState.model_validate(_minimal_world_state_dict(schema_version=_VERSION_6_WORLD_SCHEMA))
+    _assert_only_schema_version_mismatch(caught.value)
+
+
+def test_run_with_version_6_world_state_is_rejected_on_open(engine_factory):
+    """已落盘的版本 6 世界状态在重新打开运行时以版本不符拒绝，不迁移（时间与能量规格第九章）。"""
+    engine = engine_factory()
+    payload = engine.state.model_dump(mode="json")
+    payload["schema_version"] = _VERSION_6_WORLD_SCHEMA
+    payload["version"] += 1
+    engine.store.commit(payload, [EventDraft(
+        event_type="environment_event", occurred_at=payload["current_time"],
+        visibility="system", data={"kind": "test_version_6_world_state"})])
+    run_dir = engine.store.run_dir
+    engine.close()
+    with pytest.raises(ValidationError, match="schema_version") as caught:
+        LifeEngine.open(Path("scenarios/white-collar-12-weeks.json"), run_dir)
+    _assert_only_schema_version_mismatch(caught.value)
 
 
 def test_world_state_schema_version_missing_is_rejected():

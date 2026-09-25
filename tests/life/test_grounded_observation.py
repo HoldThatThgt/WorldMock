@@ -14,10 +14,13 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context, wake_by_mail, stage_day_plan
+from tests.life.conftest import (
+    advance_next, advance_until_ready, context, start_activity, stage_day_plan, wake_by_mail,
+)
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
+    ActivityStatus,
     ContentProgress,
     PurchaseOrderRequest,
     StartActivityRequest,
@@ -286,6 +289,55 @@ def test_real_observation_content_progress_titles(engine_factory) -> None:
     assert progress["news-feed"]["title"] == "中文新闻流（1000 条标题+摘要）"
     assert set(progress["news-feed"]) == {
         "item_id", "position_seconds", "exposure_count", "remaining_media_seconds", "title"}
+
+
+def _start_active_activity(engine, kind: str) -> str:
+    """经真实 start_activity 入口开始工作、驾车或浏览，返回进行中活动身份。"""
+    from tests.life.test_revision_contract import _act
+    from tests.life.test_travel_time import _stage_peak, _start_driving
+    from tests.life.test_work_review import _at_task_start
+
+    if kind == "drive":
+        _stage_peak(engine)
+        stage_day_plan(engine)
+        return _start_driving(engine, "active-drive")[1].activity_id
+    if kind == "work":
+        _at_task_start(engine)
+        stage_day_plan(engine)
+        task_id = engine.scenario.tasks[0].task_id
+        observed = engine.observe(context(engine, "active-work-preview"))
+        binding, action = next((row, action) for row in observed["interaction_bindings"]
+                               for action in row["actions"]
+                               if row["object_id"] == task_id and action["canonical_action"] == "work")
+        request = StartActivityRequest(targets=[binding["object"]], actions=[action["label"]])
+    else:
+        stage_day_plan(engine)
+        request = start_activity("浏览", "商品目录")
+    return _act(engine, f"active-{kind}", "start_activity", request).activity_id
+
+
+@pytest.mark.parametrize("kind", ["work", "drive", "browse"])
+def test_real_observation_during_active_activity_keeps_decision_open(engine_factory, kind: str) -> None:
+    """工作、驾车、浏览进行中被唤醒时决策照常准备，start_activity 可见且不绑定空枚举。"""
+    engine = engine_factory()
+    activity_id = _start_active_activity(engine, kind)
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert engine.state.activities[activity_id].status == ActivityStatus.ACTIVE
+    round_id = f"open-during-{kind}"
+    observed_context = context(engine, round_id)
+    engine.begin_decision_round([observed_context])
+    observation = engine.observe(observed_context)
+    agent = _prepare_agent(observation, observed_context.observed_at)
+    schemas = {item["function"]["name"]: item["function"]
+               for item in agent.build_react_tool_schemas(readonly=False)}
+
+    assert "start_activity" in schemas
+    properties = schemas["start_activity"]["parameters"]["properties"]
+    for field in ("targets", "actions"):
+        enum = properties[field]["items"].get("enum")
+        assert enum is None or (isinstance(enum, list) and enum)
+    engine.abort_decision_round(round_id, "test teardown")
 
 
 def _events_of(engine, event_type: str) -> list:

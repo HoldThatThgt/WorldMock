@@ -309,9 +309,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         if pending.tool_name != "submit_work" or pending.reused or pending.work_review is not None:
             return
         start = SubmitWorkActionRequest.model_validate(pending.request)
-        if any(activity.kind == ActivityKind.WORK
-               for activity in active_activities(self.state, pending.agent_id)):
-            return
         existing = [event for event in self.store.read_agent_events("model_request", pending.agent_id)
                     if event.action_id == pending.action_id and event.data.get("purpose") == "work_review"]
         if existing:
@@ -1396,7 +1393,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         data = {"interval_start": activity.last_settled_at, "interval_end": target,
                 "activity": self._activity_snapshot(state.activities[activity.activity_id]),
                 "body_settlement_event_id": body_event_id, **effects}
-        data["activity"]["location_id"] = state.agents[activity.agent_id].location_id
         if activity.kind == ActivityKind.WORK:
             data["activity_efficiency"] = settlement.work_efficiency
         flows = _resource_flows_data(activity.agent_id, target)

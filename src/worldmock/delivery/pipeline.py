@@ -36,6 +36,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.export import write_jsonl
 from worldmock.footprints.models import canonical_json
+from worldmock.life.models import WORLD_SCHEMA_VERSION
 
 SEMANTIC_TASKS = frozenset({"action", "intent", "dreaming"})
 
@@ -45,6 +46,7 @@ def deliver(export_dir: Path, destination: Path, project_root: Path, replay_expo
     destination = destination.resolve()
     if destination.exists():
         raise IntegrityError("Delivery destination already exists")
+    _require_current_world_schema(export_dir)
     windows = prepare_windows(export_dir)
     if len({path.resolve() for path in replay_exports}) != len(replay_exports):
         raise IntegrityError("Delivery repeats a counterfactual replay export")
@@ -66,6 +68,17 @@ def deliver(export_dir: Path, destination: Path, project_root: Path, replay_expo
         failure = {"status": "failed", "error_type": type(error).__name__}
         atomic_write(destination / "failure.json", canonical_json(failure))
         raise
+
+
+def _require_current_world_schema(export_dir: Path) -> None:
+    """@brief 构造窗口前核对导出最终检查点的世界结构版本等于当前代码，旧结构场景不按新渲染解释。"""
+    try:
+        manifest = json.loads((export_dir / "manifest.json").read_bytes())
+        schema_version = manifest["checkpoint"]["state"]["schema_version"]
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise IntegrityError("Delivery source export has no final checkpoint state") from error
+    if schema_version != WORLD_SCHEMA_VERSION:
+        raise IntegrityError("Delivery source export world schema version does not match the current code")
 
 
 def _export_reference(path: Path) -> dict:

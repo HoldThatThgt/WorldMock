@@ -22,7 +22,7 @@ from worldmock.delivery.pipeline import (
 from worldmock.delivery.windows import _action_windows, _window_identity
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
-from worldmock.life.models import StartActivityRequest
+from worldmock.life.models import WORLD_SCHEMA_VERSION, StartActivityRequest
 
 ROOT = Path(__file__).resolve().parents[2]
 FIXTURE = Path(__file__).parent / 'fixtures/labelkit-action.json'
@@ -358,6 +358,9 @@ def test_failed_semantic_gate_never_publishes_delivery(tmp_path, monkeypatch):
 
     monkeypatch.setattr('worldmock.delivery.pipeline.run_labelkit', rejected_process)
     destination = tmp_path / 'delivery'
+    (tmp_path / 'source').mkdir()
+    final_checkpoint = {'checkpoint': {'state': {'schema_version': WORLD_SCHEMA_VERSION}}}
+    (tmp_path / 'source/manifest.json').write_text(json.dumps(final_checkpoint), encoding='utf-8')
     with pytest.raises(IntegrityError, match='semantic verification did not pass'):
         deliver(tmp_path / 'source', destination, ROOT)
     assert invoked == ['action']

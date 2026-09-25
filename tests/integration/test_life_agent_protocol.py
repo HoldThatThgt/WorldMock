@@ -223,16 +223,23 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
 
 
-def test_incomplete_work_can_be_recalled_but_cannot_be_submitted() -> None:
-    """合同有效工时未完成时，模型仍能查看任务，但提交工具不开放。"""
+def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
+    """合同有效工时未完成的可见未付款任务仍可提交；环境以 WORK_INCOMPLETE 业务拒绝说明原因。
+
+    任务名枚举不按 submission_ready 剪裁（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条）。
+    """
     observations = _observations()
     observations[0]["data"]["task_bindings"][0]["submission_ready"] = False
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
-    names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
-    assert "recall_task_summary" in names
-    assert "start_activity" in names
-    assert "submit_work" not in names
+    functions = {item["function"]["name"]: item["function"]
+                 for item in agent.build_react_tool_schemas(readonly=False)}
+    assert {"recall_task_summary", "start_activity", "submit_work"} <= set(functions)
+    task_name = functions["submit_work"]["parameters"]["properties"]["task_name"]
+    assert task_name["enum"] == ["整理会议纪要"]
+    deliverable = {"summary": "整理了会议要点。", "decisions": ["按计划推进。"], "action_items": ["下周复盘。"]}
+    submit = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
+    assert agent.validate_react_decisions([submit], False) == ""
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:

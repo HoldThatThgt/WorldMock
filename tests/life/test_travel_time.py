@@ -22,6 +22,7 @@ from worldmock.life.models import (
     TravelMode,
 )
 from worldmock.life.body import minimum_energy_cost
+from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.life.scenario import parse_scenario_document
 from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
@@ -162,6 +163,27 @@ def test_engine_travel_settles_energy_for_the_factored_duration(engine_factory) 
     expected = minimum_energy_cost(ActivityKind.TRAVEL, quote, engine.semantics.body, met)
     assert engine.state.agents[1].body.energy_kcal == pytest.approx(before - expected)
     assert engine.state.agents[1].location_id == "office"
+
+
+def test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified(engine_factory) -> None:
+    """出行进度快照 location_id 始终为出发地；到达地点只在 arrival 中，并投影为已核验到达经历。"""
+    engine = engine_factory()
+    _stage_peak(engine)
+    _, result = _start_driving(engine, "travel-origin")
+    activity_id = result.activity_id
+    while engine.state.activities[activity_id].status == ActivityStatus.ACTIVE:
+        advance_next(engine)
+    events = engine.store.read_events(engine.store.last_event_seq)
+    progress = [event for event in events
+                if event.event_type == "activity_progress" and event.activity_id == activity_id]
+    assert progress
+    assert all(event.data["activity"]["location_id"] == "home" for event in progress)
+    assert progress[-1].data["activity"]["data"]["arrival"]["location_id"] == "office"
+    assert engine.state.activities[activity_id].location_id == "home"
+    assert engine.state.agents[1].location_id == "office"
+    facts = project_verified_experiences(events, agent_id=1, cutoff_seq=engine.store.last_event_seq)
+    assert any(row["kind"] == "arrived" and row["location_id"] == "office"
+               and row["activity_id"] == activity_id for row in facts)
 
 
 def test_observation_quotes_the_factored_duration(engine_factory) -> None:
