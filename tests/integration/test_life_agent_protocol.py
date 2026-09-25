@@ -93,7 +93,7 @@ _SCENE = {
     "inventory": [],
 }
 
-#: 两层观察投影的 facts 段（routes 行只含五键白名单）。
+#: 两层观察投影的 facts 段（routes 行只含白名单键：目的地、方式、分钟、票价、费力与是否可达）。
 _FACTS = {
     "current_time": "2026-01-05T00:00:00+00:00",
     "location": "自己家",
@@ -110,7 +110,7 @@ _FACTS = {
         {"object": "整理会议纪要", "actions": ["工作"], "preconditions_met": False},
     ],
     "routes": [{"destination": "办公室", "mode": "driving", "minutes": 4,
-                "fare_fen": 800, "feasible": True}],
+                "fare_fen": 800, "effort": "轻松", "feasible": True, "status": "reachable", "reason": None}],
     "products": [],
     "inventory": [],
     "day_plan": None,
@@ -171,10 +171,6 @@ def _observations(*result_ids: str) -> list[dict]:
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
         "paused_activities": [],
-        "energy_feasibility": {"maximum_duration_seconds_by_kind": {
-            "work": 86_400, "watch": 86_400, "play_game": 86_400,
-            "read_mail": 86_400, "browse": 86_400,
-        }},
         "affordance_contract": _AFFORDANCE_CONTRACT,
         "interaction_menu": {"allowed_actions": sorted(START_ACTIVITY_ACTIONS)},
         "tasks": [{"task_id": "task-visible", "remaining_contract_seconds": 3600,
@@ -196,8 +192,8 @@ def _observations(*result_ids: str) -> list[dict]:
         "available_inventory": {"product-visible": 1.0},
         "inventory_items": [{"product_id": "product-visible", "name": "现有食品", "use_modes": ["eat"],
                              "use_duration_seconds": 300, "required_location_id": None}],
-        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving", "duration_seconds": 216,
-                    "minimum_energy_cost_kcal": 6.0, "energy_feasible": True}],
+        "routes": [{"destination_id": "office", "status": "reachable", "mode": "driving",
+                    "duration_seconds": 216}],
         "games": {},
     }
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
@@ -509,7 +505,7 @@ def test_blacklisted_observation_fields_never_enter_messages() -> None:
     text = "\n".join(item["content"] for item in messages)
 
     for banned in ("motivation_internal", "motivation_hints", "world_state_version",
-                   "end_time", "affordance_contract", "energy_feasibility",
+                   "end_time", "affordance_contract",
                    "observation_event_id", "game_catalog"):
         assert banned not in text
 

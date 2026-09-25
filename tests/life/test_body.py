@@ -10,6 +10,7 @@ from worldmock.life.body import (
     ActivityFactors,
     apply_food,
     interpolate,
+    last_flows,
     maximum_energy_duration_seconds,
     minimum_energy_cost,
     settle_body,
@@ -62,27 +63,31 @@ def test_food_uses_sleep_debt_curve_and_energy_cap(body_config) -> None:
     assert result.after.energy_kcal == 2400
 
 
-def test_non_recovery_activity_rejects_negative_energy(body_config) -> None:
-    """普通活动不能把可用能量投影到负数。"""
+def test_overdrawn_work_settles_to_zero_energy_without_error(body_config) -> None:
+    """能量不拦人：工作一小时的成本远超余额时照常结算，能量以 0 截断，只扣掉余额。"""
     body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    with pytest.raises(ValueError, match="exhaust"):
-        settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    last_flows()
+    result = settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    assert result.after.energy_kcal == 0
+    assert result.basal_energy_kcal + result.extra_energy_kcal == pytest.approx(97.5)
+    drains = [flow for flow in last_flows() if flow.resource == "energy_kcal"]
+    assert [flow.amount for flow in drains] == [pytest.approx(10)]
+    # 清醒过程照常推进：透支不影响睡眠压力与不足账的演化。
+    assert result.after.sleep_deficit_hours == pytest.approx(7.5 / 16.5)
+    assert result.after.sleep_pressure > body.sleep_pressure
 
 
-def test_non_recovery_activity_clamps_only_fixed_near_zero_precision(body_config) -> None:
-    """非恢复活动仅把固定精度内的浮点负值归零。"""
+@pytest.mark.parametrize("kind", [ActivityKind.BROWSE, ActivityKind.WORK, ActivityKind.TRAVEL,
+                                  ActivityKind.WAIT, ActivityKind.SLEEP])
+def test_every_activity_truncates_at_zero(body_config, kind) -> None:
+    """恢复类与非恢复类活动同样以 0 截断；刚好不够或远远不够都不报错。"""
+    factors = ActivityFactors(3.5) if kind == ActivityKind.TRAVEL else None
     cost = minimum_energy_cost(ActivityKind.BROWSE, 60, body_config)
-    boundary = cost - 1e-9
-    near = BodyState(
-        energy_kcal=math.nextafter(boundary, math.inf),
-        sleep_pressure=0.0, sleep_deficit_hours=0,
-        entertainment_need=0,
-    )
-    insufficient = BodyState(energy_kcal=cost - 1e-8, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-
-    assert settle_body(near, ActivityKind.BROWSE, 60, body_config).after.energy_kcal == 0
-    with pytest.raises(ValueError, match="exhaust"):
-        settle_body(insufficient, ActivityKind.BROWSE, 60, body_config)
+    for energy in (math.nextafter(cost - 1e-9, math.inf), cost - 1e-8, 0.0):
+        body = BodyState(energy_kcal=max(energy, 0.0), sleep_pressure=0.0, sleep_deficit_hours=0,
+                         entertainment_need=0)
+        settled = settle_body(body, kind, 3600, body_config, factors)
+        assert settled.after.energy_kcal == 0
 
 
 @pytest.mark.parametrize("duration", [901, 902, 1801])

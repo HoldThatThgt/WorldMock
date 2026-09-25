@@ -35,7 +35,6 @@ from worldmock.life.candidates import (
     generate_candidates,
     source_counts,
 )
-from worldmock.life.scenario import BodyConfig
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = PROJECT_ROOT / "src" / "worldmock" / "life" / "candidates.py"
@@ -51,7 +50,6 @@ CONTRACT_REASONS = (
     "ELIGIBILITY_OUT_OF_STOCK",
     "ELIGIBILITY_DELISTED",
     "ELIGIBILITY_RESOURCE_CONFLICT",
-    "ELIGIBILITY_ENERGY_INSUFFICIENT",
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
@@ -78,32 +76,6 @@ def _frame(page) -> str:
     return json.dumps(_dump(page), sort_keys=True)
 
 
-def _body() -> BodyConfig:
-    """与正式场景同形的身体配置（能量成本函数的最小完整声明）。"""
-    return BodyConfig.model_validate({
-        "mass_kg": 65, "initial_energy_kcal": 1600, "maximum_energy_kcal": 2400,
-        "initial_sleep_debt_hours": 0,
-        "basal_kcal_per_hour": 65, "awake_sleep_debt_per_hour": 0.125,
-        "sleep_recovery_per_hour": 0.125, "entertainment_need_per_awake_hour": 0.02,
-        "hunger_threshold_kcal": 800, "emergency_threshold_kcal": 400,
-        "work_efficiency_factors": [
-            {"input_resource": "sleep_debt_hours",
-             "curve": [{"input_value": 0, "output_value": 1.0},
-                       {"input_value": 16, "output_value": 0.5}]},
-            {"input_resource": "energy_kcal",
-             "curve": [{"input_value": 0, "output_value": 0.5},
-                       {"input_value": 400, "output_value": 0.8},
-                       {"input_value": 800, "output_value": 1.0}]}],
-        "food_efficiency_curve": [{"input_value": 0, "output_value": 1.0},
-                                  {"input_value": 16, "output_value": 0.5}],
-        "activity_met": {"wait": 1.0, "sleep": 1.0, "work": 1.5, "watch": 1.2,
-                         "play_game": 1.3, "travel:driving": 1.5, "travel:walking": 2.5,
-                         "read_mail": 1.1, "browse": 1.2, "consume": 1.3,
-                         "lifestyle:walking-trip": 3.0},
-        "entertainment_relief_per_hour": {"watch": 0.15, "play_game": 0.2},
-        "work_notes_multiplier": 1.2, "source_kind": "test"})
-
-
 def _inputs(**overrides) -> CandidateInputs:
     """一份五类齐全的基准输入：四个来源各带条目，全部默认可行。"""
     defaults = dict(
@@ -126,7 +98,6 @@ def _inputs(**overrides) -> CandidateInputs:
         },
         occupied_resources=frozenset(), local_hour=12.0, current_time=1_700_000_000,
         window_end_time=1_700_000_000 + CANDIDATE_WINDOW_SECONDS,
-        energy_kcal=1600.0, body=_body(),
         taste_weights={"food-1": 0.5, "movie-0001": 0.25, "trip-1": 0.75,
                        "game-1": 0.1, "task-1": 0.9},
         attention_priors={"food-1": 0.4, "feature_film": 0.8, "trip-1": 0.3,
@@ -397,26 +368,21 @@ class TestExclusionDiscipline:
         assert busy.retained == ()
         assert {item.reason for item in busy.excluded} == {"ELIGIBILITY_RESOURCE_CONFLICT"}
 
-    def test_energy_insufficiency_is_reachable(self) -> None:
-        long_entry = CandidateEntry(object_id="movie-long", kind="content",
-                                    minimum_seconds=3600, maximum_seconds=14_400)
-        drained = recall(_inputs(sources={"browsed": (long_entry,)}, energy_kcal=0.0))
-        assert drained.retained == ()
-        assert {item.reason for item in drained.excluded} == {
-            "ELIGIBILITY_ENERGY_INSUFFICIENT"}
-
-    def test_lifestyle_met_comes_from_the_entry_and_gates_energy(self) -> None:
-        entry = CandidateEntry(object_id="trip-1", kind="lifestyle", met=3.0,
-                               minimum_seconds=3600, maximum_seconds=14_400)
-        drained = recall(_inputs(sources={"carried": (entry,)}, energy_kcal=0.0))
-        assert {item.reason for item in drained.excluded} == {
-            "ELIGIBILITY_ENERGY_INSUFFICIENT"}
-
-    def test_abundant_energy_does_not_exclude_a_long_candidate(self) -> None:
-        entry = CandidateEntry(object_id="movie-long", kind="content",
-                               minimum_seconds=3600, maximum_seconds=14_400)
-        page = recall(_inputs(sources={"browsed": (entry,)}, energy_kcal=1600.0))
-        assert [item.object_id for item in page.retained] == ["movie-long"]
+    def test_energy_is_not_an_exclusion_fact(self) -> None:
+        # 能量不构成候选排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）：闭集与输入都没有能量项，
+        # 长时内容、高 MET 生活活动与食品照常保留。
+        assert not any("ENERGY" in reason for reason in EXCLUSION_REASONS)
+        fields = {item.name for item in dataclasses.fields(CandidateInputs)}
+        assert not {"energy_kcal", "body"} & fields
+        entries = {"browsed": (CandidateEntry(object_id="movie-long", kind="content",
+                                              minimum_seconds=3600, maximum_seconds=14_400),),
+                   "carried": (CandidateEntry(object_id="trip-1", kind="lifestyle", met=3.0,
+                                              minimum_seconds=3600, maximum_seconds=14_400),),
+                   "on_site": (CandidateEntry(object_id="food-1", kind="product",
+                                              minimum_seconds=3600, maximum_seconds=14_400),)}
+        page = recall(_inputs(sources=entries))
+        assert sorted(item.object_id for item in page.retained) == ["food-1", "movie-long", "trip-1"]
+        assert page.excluded == ()
 
     def test_business_hours_are_judged_at_the_entry_own_place(self) -> None:
         entry = CandidateEntry(object_id="food-1", kind="product",
@@ -457,13 +423,6 @@ class TestExclusionDiscipline:
                             opening_status="open",
                             minimum_seconds=60, maximum_seconds=7200)})
         assert [item.object_id for item in recall(roomy).retained] == ["movie-long"]
-
-    def test_energy_recovering_kind_is_never_excluded_for_energy(self) -> None:
-        # 进食与睡眠按域内口径是能量恢复活动，能量不构成它们的排除理由。
-        entry = CandidateEntry(object_id="food-1", kind="product",
-                               minimum_seconds=3600, maximum_seconds=14_400)
-        page = recall(_inputs(sources={"on_site": (entry,)}, energy_kcal=0.0))
-        assert [item.object_id for item in page.retained] == ["food-1"]
 
     def test_missing_location_excludes_everything_with_a_stable_code(self) -> None:
         page = recall(_inputs(location=None))

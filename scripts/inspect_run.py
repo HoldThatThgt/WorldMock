@@ -122,7 +122,7 @@ def cmd_money(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
 
 
 def cmd_body(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
-    """@brief 打印身体轨迹（时间/能量/睡眠债/告警）。"""
+    """@brief 打印身体轨迹（时间/能量/睡眠不足账/饥饿与困意分级），读观察事件的 body.values 与 body.levels。"""
     where = "json_extract(body,'$.event_type')='observation'"
     args: tuple = ()
     if a.agent is not None:
@@ -131,12 +131,14 @@ def cmd_body(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     prev = None
     for r in _rows(conn, where, args):
         b = r["data"].get("body") or {}
-        cur = (b.get("energy_kcal"), b.get("sleep_debt_hours"), b.get("alert"))
-        if cur == prev:
+        values, levels = b.get("values") or {}, b.get("levels") or {}
+        cur = (values.get("energy_kcal"), values.get("sleep_deficit_hours"),
+               levels.get("appetite"), levels.get("sleepiness"))
+        if cur == prev or cur[0] is None:
             continue
         prev = cur
-        flag = f" ⚠{b['alert']}" if b.get("alert") else ""
-        print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} a{r['agent_id']}  能量={cur[0]:>7.1f}  睡眠债={cur[1]:>5.2f}h{flag}")
+        print(f"[{r['seq']:>5}] {_t(r['occurred_at'])} a{r['agent_id']}  能量={cur[0]:>7.1f}  "
+              f"睡眠不足={cur[1]:>5.2f}h  饥饿={cur[2]}  困意={cur[3]}")
 
 
 def cmd_flows(conn: sqlite3.Connection, a: argparse.Namespace) -> None:

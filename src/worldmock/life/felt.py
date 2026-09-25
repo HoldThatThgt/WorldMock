@@ -16,15 +16,22 @@ from __future__ import annotations
 import math
 from bisect import bisect_right
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 #: 饥饿锚定热量（场景参数默认值，docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 #: experiment_assumption：规格冻结的场景默认，无文献出处。
 APPETITE_ANCHOR_KCAL_DEFAULT = 1200.0
-#: 公式分母下限热量（800/400 kcal 作为世界事实记录，不进分级文本，docs/dev/SPEC-life-runtime.md「其他体感分级」）。
+#: 食欲公式的分母下限热量（只用于 appetite 数值公式）。低能量分级的 400 kcal 保底档取身体配置的
+#: 紧急阈值，不复用本常量（docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。
 #: experiment_assumption：规格冻结值，无文献出处。
 APPETITE_KCAL_FLOOR = 400.0
+#: 「饿得发慌」档的能量上界：能量低于该值时饥饿分级只由能量决定（约 1.5 小时基础消耗，不进目录）。
+#: experiment_assumption：登记在 docs/EXPERIMENT.md「实验假设声明」。
+APPETITE_STARVING_KCAL = 100.0
+#: 第六档饥饿分级文本（只由能量决定，不进 APPETITE_BANDS）。
+APPETITE_STARVING_LEVEL = "饿得发慌"
 #: 昼夜项振幅（峰 1.17 / 谷 0.83，峰谷差 17%）。
 #: 出处：Scheer、Morris 与 Shea 2013 内源饥饿节律（08:00 低谷、20:00 峰值）。
 APPETITE_CIRCADIAN_AMPLITUDE = 0.17
@@ -34,7 +41,9 @@ APPETITE_CIRCADIAN_PEAK_HOUR = 20.0
 #: 属实验假设。
 APPETITE_MEAL_WINDOW_BONUS = 0.15
 
-#: 饥饿分级阈值表（(下界, 分级文本)，区间 [lo, hi)，顶档 ≥ 末下界）。
+#: 饥饿分级阈值表（(下界, 分级文本)，区间 [lo, hi)，顶档 ≥ 末下界），按 appetite 数值分级。
+#: 两条低能量规则叠加在表外（appetite_level）：能量低于紧急阈值至少为顶档「饿得难受」，
+#: 低于 APPETITE_STARVING_KCAL 为第六档「饿得发慌」。
 #: experiment_assumption：docs/dev/SPEC-life-runtime.md「其他体感分级」冻结阈值，无文献出处。
 APPETITE_BANDS: tuple[tuple[float, str], ...] = (
     (0.15, "有点想吃"),
@@ -229,8 +238,25 @@ def compute_appetite(
     )
 
 
-def appetite_level(appetite: float) -> str:
-    """@brief 饥饿分级文本（docs/dev/SPEC-life-runtime.md「其他体感分级」）：不饿/有点想吃/饿/很饿/饿得难受。"""
+@dataclass(frozen=True, slots=True)
+class EnergyReading:
+    """@brief 饥饿分级的能量输入：当前能量与身体配置的紧急阈值（两条低能量规则的判据）。"""
+
+    energy_kcal: float
+    emergency_kcal: float
+
+
+def appetite_level(appetite: float, energy_kcal: float, emergency_kcal: float) -> str:
+    """@brief 饥饿分级文本：不饿/有点想吃/饿/很饿/饿得难受/饿得发慌。
+
+    先按 appetite 数值取五档（docs/dev/SPEC-life-runtime.md「其他体感分级」），再叠加两条低能量规则
+    （docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）：能量低于紧急阈值时至少「饿得难受」，
+    低于 APPETITE_STARVING_KCAL 时为「饿得发慌」；两条都只看能量，不受昼夜项与餐时项影响。
+    """
+    if energy_kcal < APPETITE_STARVING_KCAL:
+        return APPETITE_STARVING_LEVEL
+    if energy_kcal < emergency_kcal:
+        return APPETITE_BANDS[-1][1]
     return _band_level(appetite, APETITE_BASE_LEVEL, APPETITE_BANDS)
 
 
@@ -254,20 +280,18 @@ def mood_level(valence: float) -> str:
     return _band_level(valence, MOOD_BASE_LEVEL, MOOD_BANDS)
 
 
-def summarize_felt_levels(
-    appetite: float,
-    sleepiness: float,
-    entertainment_need: float,
-    social_need: float,
-    mood_valence: float,
-) -> dict[str, str]:
-    """@brief 汇总五个体感信号为分级文本字典（滞回判定与提示渲染的输入）。"""
+def summarize_felt_levels(values: Mapping[str, float], energy: EnergyReading) -> dict[str, str]:
+    """@brief 汇总五个体感信号为分级文本字典（滞回判定与提示渲染的输入）。
+
+    values 取 appetite、sleepiness、entertainment_need、social_need、mood_valence 五个数值；
+    饥饿分级另按 energy 叠加两条低能量规则，因此观察与唤醒判定须传入同一能量与紧急阈值。
+    """
     return {
-        "appetite": appetite_level(appetite),
-        "sleepiness": sleepiness_level(sleepiness),
-        "entertainment": entertainment_need_level(entertainment_need),
-        "social": social_need_level(social_need),
-        "mood": mood_level(mood_valence),
+        "appetite": appetite_level(values["appetite"], energy.energy_kcal, energy.emergency_kcal),
+        "sleepiness": sleepiness_level(values["sleepiness"]),
+        "entertainment": entertainment_need_level(values["entertainment_need"]),
+        "social": social_need_level(values["social_need"]),
+        "mood": mood_level(values["mood_valence"]),
     }
 
 

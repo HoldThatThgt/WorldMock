@@ -60,10 +60,9 @@ def test_contract_math_matches_the_engine_settlement(semantics) -> None:
     assert semantics.contract_payment(task, 0, None) == task.pay_fen
 
 
-def test_alert_codes_map_catalog_uppercase_to_engine_lowercase(semantics) -> None:
-    """目录 HUNGRY/EMERGENCY_ENERGY 映射为引擎现行小写告警码。"""
-    assert dict(semantics.alert_codes) == {
-        "HUNGRY": "hungry", "EMERGENCY_ENERGY": "emergency_energy"}
+def test_energy_thresholds_come_from_catalog_alert_rules(semantics) -> None:
+    """目录 alert_rules 的 HUNGRY/EMERGENCY_ENERGY 仍是 800、400 kcal 阈值的来源；语义不另存告警码。"""
+    assert not hasattr(semantics, "alert_codes")
     assert semantics.body.hunger_threshold_kcal == 800
     assert semantics.body.emergency_threshold_kcal == 400
     assert semantics.body.maximum_energy_kcal == 2400

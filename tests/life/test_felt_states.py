@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import math
+import shutil
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from worldmock.categories.identity import refresh_manifest_identity
+from worldmock.errors import IntegrityError
 from worldmock.life.felt import (
     APPETITE_ANCHOR_KCAL_DEFAULT,
+    APPETITE_BANDS,
+    APPETITE_STARVING_KCAL,
+    APPETITE_STARVING_LEVEL,
     MOOD_DISCOMFORT_TRIGGER_HOURS,
     MOOD_PULSES,
+    EnergyReading,
     MealWindows,
     SocialExposure,
     appetite_circadian_multiplier,
@@ -30,11 +39,31 @@ from worldmock.life.felt import (
     social_need_level,
     summarize_felt_levels,
 )
+from worldmock.life.scenario import BodyConfig, load_scenario
+from worldmock.life.semantics import load_runtime_scenario
+
+#: 身体配置的紧急阈值（正式目录 EMERGENCY_ENERGY）；能量不低于它时分级只看 appetite。
+EMERGENCY_KCAL = 400.0
+_ROOT = Path(__file__).resolve().parents[2]
 
 
 def circadian_reference(time_hour: float) -> float:
     """测试内独立复算的昼夜因子（同公式重写，交叉核对实现）。"""
     return 1.0 + 0.17 * math.cos(2.0 * math.pi * (time_hour - 20.0) / 24.0)
+
+
+def _values(appetite: float, sleepiness: float, entertainment: float, social: float,
+            mood: float) -> dict[str, float]:
+    """按 projection.felt_values 的键名组装五个体感数值。"""
+    return {"appetite": appetite, "sleepiness": sleepiness, "entertainment_need": entertainment,
+            "social_need": social, "mood_valence": mood}
+
+
+def _summary(appetite: float, sleepiness: float, entertainment: float, social: float,
+             mood: float, energy_kcal: float = 800.0) -> dict[str, str]:
+    """以不低于紧急阈值的能量汇总分级（低能量规则不介入，原锚点结论不变）。"""
+    return summarize_felt_levels(_values(appetite, sleepiness, entertainment, social, mood),
+                                 EnergyReading(energy_kcal, EMERGENCY_KCAL))
 
 
 class TestAppetiteFormula:
@@ -44,13 +73,13 @@ class TestAppetiteFormula:
         # 手算：base=(1200-800)/(1200-400)=0.5；20:00 因子=1.17；0.5×1.17=0.585。
         appetite = compute_appetite(800.0, 20.0)
         assert appetite == pytest.approx(0.585)
-        assert appetite_level(appetite) == "饿"
+        assert appetite_level(appetite, 800.0, EMERGENCY_KCAL) == "饿"
 
     def test_anchor_400kcal_at_20h_is_unbearable(self) -> None:
         # 手算：base=1.0；1.0×1.17=1.17 ≥ 0.85。
         appetite = compute_appetite(400.0, 20.0)
         assert appetite == pytest.approx(1.17)
-        assert appetite_level(appetite) == "饿得难受"
+        assert appetite_level(appetite, 400.0, EMERGENCY_KCAL) == "饿得难受"
 
     def test_circadian_peak_trough_and_midpoint(self) -> None:
         # Scheer 2013：20:00 峰 1.17、08:00 谷 0.83、正午前中点约 1.0。
@@ -72,19 +101,19 @@ class TestAppetiteFormula:
         # 手算：0.5×0.83=0.415，仍在 [0.35, 0.6)。
         appetite = compute_appetite(800.0, 8.0)
         assert appetite == pytest.approx(0.415)
-        assert appetite_level(appetite) == "饿"
+        assert appetite_level(appetite, 800.0, EMERGENCY_KCAL) == "饿"
 
     def test_satiated_above_anchor_is_zero(self) -> None:
         for hour in [8.0, 14.0, 20.0]:
             assert compute_appetite(1500.0, hour) == pytest.approx(0.0)
-            assert appetite_level(compute_appetite(1500.0, hour)) == "不饿"
+            assert appetite_level(compute_appetite(1500.0, hour), 1500.0, EMERGENCY_KCAL) == "不饿"
 
     def test_meal_window_inside_and_outside(self) -> None:
         windows = MealWindows(lunch=(11.5, 13.5), dinner=(18.0, 20.0))
         # 手算：12:00 因子=1+0.17×cos(−2π/3)=0.915；0.5×0.915=0.4575；+0.15=0.6075。
         in_window = compute_appetite(800.0, 12.0, windows)
         assert in_window == pytest.approx(0.6075)
-        assert appetite_level(in_window) == "很饿"
+        assert appetite_level(in_window, 800.0, EMERGENCY_KCAL) == "很饿"
         assert meal_window_bonus(12.0, windows) == pytest.approx(0.15)
         # 14:00 在窗口外：餐时项为 0。
         out_window = compute_appetite(800.0, 14.0, windows)
@@ -104,7 +133,7 @@ class TestAppetiteFormula:
         # 吃饱（base=0）但在午餐窗口：0+0.15 恰在首档下界 → 有点想吃。
         appetite = compute_appetite(1200.0, 12.0, MealWindows(lunch=(11.5, 13.5)))
         assert appetite == pytest.approx(0.15)
-        assert appetite_level(appetite) == "有点想吃"
+        assert appetite_level(appetite, 1200.0, EMERGENCY_KCAL) == "有点想吃"
 
     def test_default_anchor_is_1200(self) -> None:
         assert APPETITE_ANCHOR_KCAL_DEFAULT == 1200.0
@@ -116,7 +145,7 @@ class TestAppetiteFormula:
         # anchor=1000：base=(1000-600)/600≈0.6667；20:00 → 0.6667×1.17≈0.78。
         appetite = compute_appetite(600.0, 20.0, None, 1000.0)
         assert appetite == pytest.approx((1000.0 - 600.0) / 600.0 * 1.17)
-        assert appetite_level(appetite) == "很饿"
+        assert appetite_level(appetite, 600.0, EMERGENCY_KCAL) == "很饿"
 
     def test_appetite_input_validation(self) -> None:
         with pytest.raises(ValueError, match="anchor"):
@@ -174,7 +203,84 @@ class TestMealWindowsValidation:
     ],
 )
 def test_appetite_level_boundaries(appetite: float, expected: str) -> None:
-    assert appetite_level(appetite) == expected
+    assert appetite_level(appetite, 1200.0, EMERGENCY_KCAL) == expected
+
+
+class TestLowEnergyAppetite:
+    """两条低能量规则（docs/dev/SPEC-time-and-energy.md「饥饿在低能量时不失灵」）。"""
+
+    @pytest.mark.parametrize("hour", [8.0, 20.0])
+    def test_below_emergency_threshold_is_at_least_unbearable(self, hour: float) -> None:
+        # 399 kcal 在 08:00 谷底按公式只到 1.0×0.83=0.83（很饿），规则抬到「饿得难受」。
+        appetite = compute_appetite(399.0, hour)
+        assert appetite_level(appetite, 399.0, EMERGENCY_KCAL) == "饿得难受"
+
+    def test_emergency_floor_ignores_meal_and_circadian_terms(self) -> None:
+        windows = MealWindows(lunch=(11.5, 13.5))
+        for hour in (3.0, 8.0, 12.0, 15.0, 20.0):
+            appetite = compute_appetite(250.0, hour, windows)
+            assert appetite_level(appetite, 250.0, EMERGENCY_KCAL) == "饿得难受"
+
+    @pytest.mark.parametrize("hour", [8.0, 20.0])
+    @pytest.mark.parametrize("energy", [99.99, 50.0, 0.0])
+    def test_below_starving_constant_is_starving(self, hour: float, energy: float) -> None:
+        # 0 kcal 在旧规则下只显示「很饿」（08:00）；现在只由能量决定为第六档。
+        appetite = compute_appetite(energy, hour)
+        assert appetite_level(appetite, energy, EMERGENCY_KCAL) == APPETITE_STARVING_LEVEL == "饿得发慌"
+
+    def test_threshold_edges_are_half_open(self) -> None:
+        # 恰为 100 kcal 不算「饿得发慌」；恰为紧急阈值不触发保底，按公式分级。
+        assert APPETITE_STARVING_KCAL == 100.0
+        assert appetite_level(compute_appetite(100.0, 8.0), 100.0, EMERGENCY_KCAL) == "饿得难受"
+        assert appetite_level(0.1, EMERGENCY_KCAL, EMERGENCY_KCAL) == "不饿"
+        assert appetite_level(0.1, EMERGENCY_KCAL - 0.01, EMERGENCY_KCAL) == "饿得难受"
+
+    def test_starving_is_not_an_appetite_band(self) -> None:
+        assert APPETITE_STARVING_LEVEL not in {level for _, level in APPETITE_BANDS}
+
+    def test_summary_applies_the_same_rules(self) -> None:
+        summary = summarize_felt_levels(_values(0.2, 0.1, 0.0, 0.0, 0.0), EnergyReading(80.0, EMERGENCY_KCAL))
+        assert summary["appetite"] == "饿得发慌"
+        summary = summarize_felt_levels(_values(0.2, 0.1, 0.0, 0.0, 0.0), EnergyReading(300.0, EMERGENCY_KCAL))
+        assert summary["appetite"] == "饿得难受"
+
+
+def _formal_body() -> BodyConfig:
+    """读取正式场景组装后的身体配置。"""
+    return load_scenario("scenarios/white-collar-12-weeks.json")[0].body
+
+
+@pytest.mark.parametrize("emergency", [100.0, 60.0])
+def test_body_config_rejects_emergency_threshold_not_above_starving(emergency: float) -> None:
+    payload = _formal_body().model_copy(update={"emergency_threshold_kcal": emergency}).model_dump()
+    with pytest.raises(ValidationError, match="above the starving floor"):
+        BodyConfig.model_validate(payload)
+    accepted = _formal_body().model_copy(update={"emergency_threshold_kcal": 100.5}).model_dump()
+    assert BodyConfig.model_validate(accepted).emergency_threshold_kcal == 100.5
+
+
+def test_scenario_with_emergency_threshold_at_starving_constant_fails_to_load(tmp_path: Path) -> None:
+    """目录紧急阈值改为 100 kcal 后，场景加载在组装身体配置时被拒。"""
+    catalog = tmp_path / "catalog"
+    shutil.copytree(_ROOT / "catalog", catalog)
+    lines = (catalog / "resources.jsonl").read_text(encoding="utf-8").splitlines()
+    changed = []
+    for line in lines:
+        record = json.loads(line)
+        for rule in record.get("alert_rules") or []:
+            if rule.get("code") == "EMERGENCY_ENERGY":
+                rule["below"] = 100
+        changed.append(json.dumps(record, ensure_ascii=False))
+    (catalog / "resources.jsonl").write_text("\n".join(changed) + "\n", encoding="utf-8")
+    refresh_manifest_identity(catalog)
+    scenarios = tmp_path / "scenarios"
+    scenarios.mkdir()
+    document = json.loads((_ROOT / "scenarios" / "white-collar-12-weeks.json").read_text(encoding="utf-8"))
+    document["corpus_root"] = str(_ROOT / "corpora")
+    path = scenarios / "low-emergency.json"
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    with pytest.raises((ValidationError, IntegrityError), match="above the starving floor"):
+        load_runtime_scenario(path)
 
 
 @pytest.mark.parametrize(
@@ -400,7 +506,7 @@ class TestSummarizeAndHysteresis:
     """分级汇总与滞回判定（决策参照，非结算参照，docs/dev/SPEC-life-runtime.md「滞回规则」）。"""
 
     def test_summarize_felt_levels(self) -> None:
-        summary = summarize_felt_levels(0.585, 0.8, 0.4, 0.65, 0.2)
+        summary = _summary(0.585, 0.8, 0.4, 0.65, 0.2)
         assert summary == {
             "appetite": "饿",
             "sleepiness": "困",
@@ -434,11 +540,11 @@ class TestSummarizeAndHysteresis:
 
     def test_full_flow_settlement_wiggle_does_not_wake(self) -> None:
         # 决策时快照 → 结算中途波动 → 当前回落：以决策快照为参照无变化。
-        at_decision = summarize_felt_levels(0.585, 0.8, 0.4, 0.2, 0.1)
-        mid_settlement = summarize_felt_levels(0.61, 0.8, 0.4, 0.2, 0.1)
-        current = summarize_felt_levels(0.59, 0.8, 0.4, 0.2, 0.1)
+        at_decision = _summary(0.585, 0.8, 0.4, 0.2, 0.1)
+        mid_settlement = _summary(0.61, 0.8, 0.4, 0.2, 0.1)
+        current = _summary(0.59, 0.8, 0.4, 0.2, 0.1)
         assert changed_felt_levels(mid_settlement, at_decision) == ["appetite"]
         assert changed_felt_levels(current, at_decision) == []
         # 真实越档（0.59 → 0.9）才构成唤醒条件。
-        crossed = summarize_felt_levels(0.9, 0.8, 0.4, 0.2, 0.1)
+        crossed = _summary(0.9, 0.8, 0.4, 0.2, 0.1)
         assert changed_felt_levels(crossed, at_decision) == ["appetite"]

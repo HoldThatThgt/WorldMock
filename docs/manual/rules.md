@@ -374,9 +374,9 @@ bedtime = "23:00-24:00"
 | 想改变的身体因素 | 权威位置 | 单位或约束 |
 | --- | --- | --- |
 | 体重、初始能量、初始睡眠债 | 场景 `body` | 千克、千卡、小时；见场景手册的初值限制 |
-| 最大能量、饥饿与紧急阈值 | `resources.jsonl` 的 `energy_kcal.bounds/alert_rules` | 千卡；紧急阈值 < 饥饿阈值 ≤ 上限 |
-| 基础代谢、活动 MET | 能量资源的 `drain_rules` | 千卡/小时、活动强度；参与实际耗能 |
-| 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数 |
+| 最大能量、饥饿与紧急阈值 | `resources.jsonl` 的 `energy_kcal.bounds/alert_rules` | 千卡；100 < 紧急阈值 < 饥饿阈值 ≤ 上限（100 为代码常量 `APPETITE_STARVING_KCAL`，不满足时加载拒绝）；紧急阈值同时是饥饿「至少饿得难受」的下限，能量低于 100 千卡时显示「饿得发慌」 |
+| 基础代谢、活动 MET | 能量资源的 `drain_rules` | 千卡/小时、活动强度；参与实际耗能；出行方式的 MET（`travel:<方式>`）决定路线标签：MET < 2 为「轻松」，2 ≤ MET < 3 为「一般」，≥ 3 为「费力」 |
+| 睡眠需要与昼夜节律 | 人物 `sleep_need_hours`、`chronotype_midsleep` | 当前两过程睡眠算法消费这些人物参数；起点困意由这两项按惯常起床时刻反推，见[人物画像](personas.md#在场景中填写人物) |
 | 目录中的睡眠变化率 | `sleep_debt_hours.drain_rules` | 仍要求正数并装配，但 `awake_sleep_debt_per_hour`、`sleep_recovery_per_hour` 不能覆盖当前睡眠算法 |
 | 目录中的 `food_efficiency_curve` | 能量资源的 `drain_rules` | 仍要求合法曲线并装配，但实际食品利用率由睡眠模型计算，不读取这张目录曲线 |
 | 娱乐需要增长、活动缓解率 | `entertainment_need.drain_rules` | 0–1 的每小时变化率；缓解键与活动声明匹配 |

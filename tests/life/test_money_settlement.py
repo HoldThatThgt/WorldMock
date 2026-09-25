@@ -226,7 +226,9 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
         drained = sum(flow["amount"] for flow in event.data[RESOURCE_FLOWS_FIELD]
                       if flow["resource"] == "energy_kcal" and flow["direction"] == "drain")
         settlement = event.data["body_settlement"]
-        assert drained == settlement["before"]["energy_kcal"] - settlement["after"]["energy_kcal"]
+        # 期初减期末是浮点减法；区间长度随体感跨档与餐时窗口边界变化，逐位相等只是巧合，按 1e-9 对应。
+        assert drained == pytest.approx(
+            settlement["before"]["energy_kcal"] - settlement["after"]["energy_kcal"], abs=1e-9)
     first, second = bodies[0], bodies[1]
     assert first.data["interval_end"] == second.data["interval_start"]
 

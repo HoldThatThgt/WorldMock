@@ -8,14 +8,15 @@ persona_card、scene、facts 三部分组成，
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
   体感分级、当前与暂停活动的进度、今天想推进的目标与推进状态、收件箱头、待办
-  一句话、可达地点与营业状态、手边持有物。整次请求容量由 prompt_capacity 计量。
+  一句话、可达地点与营业状态、手边持有物、当地餐食句（饥饿为「饿」及以上时是
+  吃饭途径句，可带一条途径的人读时长或送达时刻）。整次请求容量由 prompt_capacity 计量。
 - 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
   二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
 - 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
-  affordance_contract、energy_feasibility、observation_event_id、
+  affordance_contract、observation_event_id、
   motivation_hints、profile.motivation、profile.entertainment_preferences、
   game_catalog 全表、完整活动快照（activity_snapshot/activities）、
-  路线坐标与几何（routes 条目仅保留目的地/方式/分钟/票价/是否可行）。
+  路线坐标与几何（routes 条目仅保留目的地/方式/分钟/票价/费力/是否可达）。
 - drive_summary 只含体感分级与文字摘要，不含数字权重（「观察投影与提示合同」）。
 
 观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
@@ -24,7 +25,7 @@ location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
 day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
-reachable_places（name/opening_status 列表）、inventory。
+reachable_places（name/opening_status 列表）、inventory、local_food_summary（当地餐食句或吃饭途径句）。
 """
 
 from __future__ import annotations
@@ -50,7 +51,6 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "affordance_contract",
     "interaction_menu",
     "interaction_menus_by_location_kind",
-    "energy_feasibility",
     "observation_event_id",
     "motivation_hints",
     "profile.motivation",
@@ -101,13 +101,15 @@ FORBIDDEN_PROFILE_FIELDS = frozenset({
     ("profile", "entertainment_preferences"),
 })
 
-#: routes 条目白名单：目的地/方式/分钟/票价/是否可行（「观察投影与提示合同」、
-#: 「不进入提示的字段」的路线坐标与几何不得进入提示）。键名与 facts 合同英文口径一致。
+#: routes 条目白名单：目的地/方式/分钟/票价/费力/是否可达（「观察投影与提示合同」、
+#: 「不进入提示的字段」的路线坐标与几何不得进入提示）。键名与 facts 合同英文口径一致；
+#: effort 是按出行方式 MET 给出的可读费力标签（docs/dev/SPEC-time-and-energy.md「商品热量与路线费力」）。
 ROUTE_ALLOWED_FIELDS = frozenset({
     "destination",
     "mode",
     "minutes",
     "fare_fen",
+    "effort",
     "feasible",
     "status",
     "reason",
@@ -290,7 +292,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
     的进度、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
-    状态、手边持有物；缺失的字段跳过对应句子，渲染器不虚构事实。
+    状态、手边持有物、当地餐食句或吃饭途径句；缺失的字段跳过对应句子，渲染器不虚构事实。
 
     @param observation 引擎侧计算好的观察字段字典（键名见模块 docstring）
     @param language 场景语言，合同只支持 zh-CN，其他值抛 ValueError
@@ -392,7 +394,7 @@ def _raise_if_forbidden(key: str, path: str, parent_key: str | None) -> None:
 
 
 def _check_route_entries(value: object, path: str) -> None:
-    """@brief 检查 routes 条目只含目的地/方式/分钟/票价/是否可行五键。"""
+    """@brief 检查 routes 条目只含白名单键（目的地/方式/分钟/票价/费力/是否可达及状态与原因）。"""
     entries = value if isinstance(value, (list, tuple)) else [value]
     for index, entry in enumerate(entries):
         if not isinstance(entry, dict):
@@ -428,11 +430,11 @@ def enforce_field_blacklist(payload: dict) -> None:
     """@brief 校验渲染输入字典不含黑名单字段（多层递归，含列表内嵌套）。
 
     覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、
-    end_time、affordance_contract、energy_feasibility、observation_event_id、
+    end_time、affordance_contract、observation_event_id、
     motivation_hints、game_catalog、activity_snapshot/activities 即完整活动
     快照）、工作隐藏参考与答案、哈希、内部账户与数值身体状态、profile
     嵌套键与点号扁平键、以及 routes 条目只保留目的地/方式/分钟/票价/
-    是否可行（路线坐标与几何不得进入提示）。通过时静默返回。
+    费力/是否可达（路线坐标与几何不得进入提示）。通过时静默返回。
 
     @param payload 渲染输入字典（observation 或 facts）
     @exception ForbiddenObservationFieldError 命中任一禁项，消息含完整路径

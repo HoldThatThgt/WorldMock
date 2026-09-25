@@ -13,13 +13,9 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life import felt
 from worldmock.life.body import (
-    ENERGY_RECOVERY_ACTIVITY_KINDS,
     ActivityFactors,
     BodySettlement,
-    minimum_energy_cost,
     settle_body,
-    shared_energy_cost,
-    maximum_shared_energy_duration,
 )
 from worldmock.life.models import (
     ActivityChange,
@@ -29,8 +25,6 @@ from worldmock.life.models import (
     AgentState,
     ActivityStartParams,
     ChangeActivityRequest,
-    WorldState,
-    active_activities,
 )
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import BodyConfig
@@ -119,7 +113,7 @@ def require_location_kinds(place_location_kinds: frozenset[str], needed: frozens
 
 def start_activity(agent: AgentState, request: ActivityStartParams, now: int, origin: ActivityOrigin,
                    config: BodyConfig) -> tuple[AgentState, ActivityState]:
-    """@brief 受理一个主活动，并拒绝地点不可行、资源冲突或不可完成能量预算。"""
+    """@brief 受理一个主活动（最短 60 秒）；能量不参与受理（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。"""
     if request.planned_duration_seconds < 60:
         raise BusinessRuleError("ACTIVITY_TOO_SHORT")
     suffix = f":{origin.activity_ordinal:04d}" if origin.activity_ordinal > 1 else ""
@@ -253,41 +247,16 @@ def resource_claims(request: ActivityStartParams) -> set[str]:
         travel_mode=request.travel_mode.value if request.travel_mode is not None else None))
 
 
-def active_energy_entries(state: WorldState, agent_id: int,
-                          config: BodyConfig) -> tuple[tuple[int, float], ...]:
-    """@brief 返回全部正在执行活动的剩余秒数与冻结 MET。"""
+def shared_activity_factors(activity: ActivityState, agent: AgentState,
+                            config: BodyConfig) -> ActivityFactors:
+    """@brief 共同身体结算与边界预测共用的单项系数：交谈、通话取社交常量 MET，其余复用活动声明系数。"""
     from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
-    entries = []
-    for activity in active_activities(state, agent_id):
-        if activity.kind == ActivityKind.CHAT:
-            met = CHAT_MET
-        elif activity.kind == ActivityKind.CALL:
-            met = CALL_MET
-        else:
-            met = _activity_met(activity.kind, activity.travel_mode, config, activity.target_id)
-        entries.append((activity.planned_duration_seconds - activity.elapsed_seconds, met))
-    return tuple(entries)
-
-
-def combined_energy_cost(state: WorldState, agent_id: int, config: BodyConfig,
-                         candidate: ActivityStartParams | None = None) -> float:
-    """@brief 与实际共同结算同式预测全部剩余活动及候选的分段能量成本。"""
-    entries = active_energy_entries(state, agent_id, config)
-    if candidate is not None:
-        met = _activity_met(candidate.activity_type, candidate.travel_mode, config,
-                            candidate.target_id)
-        entries += ((candidate.planned_duration_seconds, met),)
-    return shared_energy_cost(entries, config)
-
-
-def maximum_combined_duration(state: WorldState, agent_id: int, config: BodyConfig,
-                              candidate: ActivityStartParams, limit_seconds: int) -> int:
-    """@brief 二分搜索可与现有活动同人共用能量的候选最长整秒时长。"""
-    entries = active_energy_entries(state, agent_id, config)
-    met = _activity_met(candidate.activity_type, candidate.travel_mode, config, candidate.target_id)
-    return maximum_shared_energy_duration(entries, met, state.agents[agent_id].body.energy_kcal,
-                                          config, limit_seconds)
+    if activity.kind == ActivityKind.CHAT:
+        return ActivityFactors(CHAT_MET)
+    if activity.kind == ActivityKind.CALL:
+        return ActivityFactors(CALL_MET)
+    return activity_factors(activity, agent, config)
 
 
 def activity_factors(activity: ActivityState, agent: AgentState, config: BodyConfig) -> ActivityFactors:

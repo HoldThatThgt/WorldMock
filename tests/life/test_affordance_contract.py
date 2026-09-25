@@ -6,22 +6,22 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, context
 from worldmock.catalog.affordances import default_affordances
-from worldmock.life.engine import affordance_contract
+from worldmock.life.engine import AFFORDANCE_CONTRACT_KEYS, affordance_contract
 from worldmock.life.models import StartActivityRequest
 
 
 def test_contract_shape_matches_registry_one_to_one() -> None:
-    """@brief 内部冻结合同只保留动作、发现、能量、反馈和游戏边界。"""
+    """@brief 内部冻结合同只保留动作、发现、目标字段、反馈和游戏边界五键；能量不参与受理，不带能量投影。"""
     view = default_affordances()
     contract = affordance_contract(view)
     assert list(contract) == list(view.kinds)
+    assert AFFORDANCE_CONTRACT_KEYS == {"action", "target_discovery", "target_field",
+                                        "feedback_eligible", "game_boundary"}
     for name, spec in view.kinds.items():
         entry = contract[name]
-        assert set(entry) == {"action", "target_discovery", "target_field",
-                              "energy_projection", "feedback_eligible", "game_boundary"}
+        assert set(entry) == AFFORDANCE_CONTRACT_KEYS
         assert entry["action"] == spec.action
         assert entry["target_discovery"] == spec.target_discovery
-        assert entry["energy_projection"] == spec.energy_projection
         assert entry["feedback_eligible"] == (name in view.feedback_kinds)
         assert entry["game_boundary"] == (name in view.game_boundary_kinds)
 

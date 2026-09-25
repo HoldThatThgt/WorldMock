@@ -132,6 +132,11 @@ class DayModel:
         return "start_activity", {"targets": ["自己"], "actions": ["睡觉" if sleep else "等待"]}
 
     def _trip(self, functions, hour):
+        active = self._active()
+        if active:
+            # 饥饿跨档与餐时窗口起止会在进行中的活动里提供决策（时间与能量规格第三章）：先让手头的活动接着做。
+            action = "report_status" if self._currently_doing() else "conclude_activity"
+            return self._session_action(action, active[:2])
         target = _RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)]
         self.phase = "pause"
         return "start_activity", {"targets": [self._place(target), self._watch()],

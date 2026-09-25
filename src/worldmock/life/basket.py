@@ -150,18 +150,39 @@ def _order_fulfillment(state: WorldState, semantics: ScenarioSemantics,
                        request: PurchaseOrderRequest, rows: tuple[_OrderRow, ...]) -> _Fulfillment:
     """@brief 自提即时交付；配送按最慢备货和真实出发时刻的道路时长安排一次到达。"""
     scenario = semantics.scenario
-    origin = rows[0].supply.location_id
     if request.destination_id not in {item.location_id for item in scenario.locations}:
         raise BusinessRuleError("DESTINATION_NOT_FOUND")
     if request.fulfillment == FulfillmentKind.PICKUP:
         return _Fulfillment(state.current_time, state.current_time, None)
-    if any(request.destination_id not in row.supply.delivery_destination_ids for row in rows):
+    plan = plan_delivery(semantics, tuple(row.supply for row in rows), request.destination_id,
+                         state.current_time)
+    return _Fulfillment(state.current_time, plan.expected_at, plan.route)
+
+
+def plan_delivery(semantics: ScenarioSemantics, supplies: tuple[SupplyConfig, ...],
+                  destination_id: str, now: int) -> _Fulfillment:
+    """@brief 纯函数：整单最慢备货后出发，加出发时刻的驾车规划时长即预计送达时刻。
+
+    购买结算、观察投影与吃饭途径句共用这一算法（docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
+    送达地不在任一供给的可配送目的地时以 DELIVERY_DESTINATION_NOT_SUPPORTED 拒绝；道路缺失、
+    不可达或未知时按 `_delivery_route` 的业务拒绝码拒绝。
+    """
+    if any(destination_id not in supply.delivery_destination_ids for supply in supplies):
         raise BusinessRuleError("DELIVERY_DESTINATION_NOT_SUPPORTED")
-    departure = state.current_time + max(row.supply.delivery_delay_seconds for row in rows)
-    route = _delivery_route(scenario, origin, request.destination_id)
+    departure = now + max(supply.delivery_delay_seconds for supply in supplies)
+    route = _delivery_route(semantics.scenario, supplies[0].location_id, destination_id)
     duration = (semantics.travel_planned_seconds("driving", route.duration_seconds, departure)
                 if route is not None else 0)
-    return _Fulfillment(state.current_time, departure + duration, route)
+    return _Fulfillment(now, departure + duration, route)
+
+
+def delivery_expected_at(semantics: ScenarioSemantics, supply: SupplyConfig,
+                         destination_id: str, now: int) -> int | None:
+    """@brief 单项供给现在下单送到指定地点的预计送达时刻；送不到这里（目的地不支持、道路未知或不可达）时为 None。"""
+    try:
+        return plan_delivery(semantics, (supply,), destination_id, now).expected_at
+    except BusinessRuleError:
+        return None
 
 
 def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) -> RouteConfig | None:

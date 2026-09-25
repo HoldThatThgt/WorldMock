@@ -16,15 +16,14 @@ from typing import Any
 from worldmock.life import discovery, felt, presentation, projection
 from worldmock.life.models import ActivityStatus, ContentProgress
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
-from worldmock.life.body import maximum_shared_energy_duration, shared_energy_cost
-from worldmock.life.activities import active_energy_entries, activity_factors
+from worldmock.life.basket import delivery_expected_at
 from worldmock.life.models import ActivityKind, active_activities, paused_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import work_totals
 from worldmock.life.result_projection import public_supply_row
-from worldmock.life.dining import local_food_summary
+from worldmock.life.dining import local_meal_sentence
 
 
 class ObservationMixin:
@@ -34,7 +33,7 @@ class ObservationMixin:
         """@brief 两层观察投影：scene 场景输入 + facts 精简结构 + body 数值证据。
 
         黑名单字段不进 scene/facts 提示路径；事件级工具支持行（完整任务/路线/
-        商品、能量可行性、可供性合同、游戏目录）供宿主工具 Schema 使用。商品
+        商品、可供性合同、游戏目录）供宿主工具 Schema 使用。商品
         事实清单经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据。
         """
         config = self._agent_config(agent.agent_id)
@@ -74,14 +73,21 @@ class ObservationMixin:
 
     def _projection_extras(self, agent, product_rows: list[dict],
                            menu: dict[str, PresentationWindow]) -> dict:
-        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源）。"""
+        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源）。
+
+        吃饭途径句要等投影得出饥饿分级后才生成，这里只备好它引用的本轮事实：原当地餐食句、
+        配送预计送达时刻与浏览是否在有效菜单内（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」）。
+        """
         return {
             "scenario_messages": self.rules.messages,
             "route_rows": self._route_rows(agent),
             "reachable_places": self._reachable_places(agent),
             "product_rows": product_rows,
             "activity_rows": self._activity_rows(agent),
-            "local_food_summary": local_food_summary(self._discovery_context(agent)),
+            "local_meal_sentence": local_meal_sentence(self._discovery_context(agent)),
+            "delivery_expected_at": self._delivery_expected_at(agent, product_rows),
+            "browse_allowed": "browse" in resolve_interaction_menu(
+                self.scenario, agent.agent_id, agent.location_id).allowed_actions,
             "content_rows": list(menu["content"].items),
             "game_rows": list(menu["game"].items),
             "lifestyle_rows": list(menu["lifestyle"].items),
@@ -89,13 +95,20 @@ class ObservationMixin:
             "browse_targets": BROWSE_TARGETS,
         }
 
+    def _delivery_expected_at(self, agent, product_rows: list[dict]) -> dict[str, int | None]:
+        """@brief 本轮呈现的可配送供给送到本人所在地点的预计送达时刻（与购买结算同一算法，送不到为 None）。"""
+        supplies = {item.supply_id: item for item in self.scenario.supplies}
+        return {row["supply_id"]: delivery_expected_at(self.semantics, supplies[row["supply_id"]],
+                                                       agent.location_id, self.state.current_time)
+                for row in product_rows if "delivery" in row["fulfillment_modes"]}
+
     def _observation_evidence(self, agent) -> dict:
         """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。"""
         from worldmock.footprints.experiences import recent_verified_experiences
 
         return {
             "paused_activities": [
-                _paused_activity_observation(item, self.state, self.semantics.body) for item in sorted(
+                _paused_activity_observation(item) for item in sorted(
                     self.state.activities.values(), key=lambda value: value.activity_id)
                 if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED],
             "occupied_resources": sorted({claim for item in active_activities(self.state, agent.agent_id)
@@ -143,15 +156,13 @@ class ObservationMixin:
 
     def _event_tool_support(self, agent, recent: list, presented: tuple[str, ...]) -> dict:
         """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
-        # 完整任务/路线/商品、能量可行性、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
+        # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
         data: dict[str, Any] = {}
         data["interaction_menu"] = resolve_interaction_menu(
             self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
         data["content_progress"] = self._content_progress(agent)
         data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = _mail_headers(agent, self.rules.messages)
-        data["energy_feasibility"] = _activity_energy_feasibility(
-            self.state, agent.agent_id, self.semantics.body, self._affordance_contract)
         data["affordance_contract"] = self._affordance_contract
         visible = set(projection.visible_supplies(self.state, agent, self.scenario)) | set(presented)
         context = self._discovery_context(agent)
@@ -192,7 +203,7 @@ class ObservationMixin:
         return next(item for item in self.scenario.agents if item.agent_id == agent_id)
 
     def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（docs/dev/SPEC-life-runtime.md「活动组合政策」既有口径）。"""
+        """@brief 工作目录：已投入/有效/合同剩余工时（docs/CONTRACTS.md「场景段落与事实清单」）。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
@@ -231,11 +242,13 @@ class ObservationMixin:
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief 路线事实保留未知与不可达，只有已核实路线计算时长和能量。"""
+        """@brief 路线事实保留未知与不可达，只有已核实路线计算时长；可达即 feasible，费力按出行方式给出。"""
         rows = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
+        met = self.semantics.body.activity_met
         return [{"destination": row["destination_id"], "mode": row["mode"],
                  "minutes": round(row["duration_seconds"] / 60) if row["status"] == "reachable" else None,
-                 "fare": row["fare_fen"], "feasible": row["energy_feasible"],
+                 "fare": row["fare_fen"], "feasible": row["status"] == "reachable",
+                 "effort": projection.route_effort(met[f"travel:{row['mode']}"]),
                  "status": row["status"], "reason": row["reason"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
@@ -566,7 +579,7 @@ class ObservationMixin:
             hour = projection.hour_of_day(staged.current_time, self.scenario.timezone)
             config = self._agent_config(agent_id)
             windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
-            levels = projection.body_projection(agent, hour, windows)["levels"]
+            levels = projection.body_projection(agent, hour, self.semantics.body, windows)["levels"]
             people = frozenset(item["name"] for item in
                                projection.people_here_views(staged, agent))
             agents[agent_id] = agent.model_copy(update={
@@ -597,9 +610,8 @@ def _mail_headers(agent, messages) -> list[dict]:
 
 
 def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]:
-    """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级）。"""
-    agent, body, now = state.agents[agent_id], semantics.body, state.current_time
-    entries = active_energy_entries(state, agent_id, body)
+    """@brief 返回人物当前位置出发的冻结路线身份和出发时刻报价（事件级；路线与恢复都不查能量）。"""
+    agent, now = state.agents[agent_id], state.current_time
     fields = {"route_id", "origin_id", "destination_id", "mode", "status", "reason",
               "distance_meters", "duration_seconds", "fare_fen", "fare_source_kind"}
     result = []
@@ -607,44 +619,19 @@ def _route_catalog(routes: tuple, state, agent_id: int, semantics) -> list[dict]
         if item.origin_id != agent.location_id:
             continue
         data = item.model_dump(mode="json", include=fields)
-        data.update(free_flow_duration_seconds=item.duration_seconds,
-                    minimum_energy_cost_kcal=None, energy_feasible=False)
+        data.update(free_flow_duration_seconds=item.duration_seconds)
         if item.status == "reachable":
             planned = semantics.travel_planned_seconds(item.mode.value, item.duration_seconds, now)
-            met = body.activity_met[f"travel:{item.mode.value}"]
-            cost = shared_energy_cost(entries + ((planned, met),), body)
-            data.update(duration_seconds=planned, minimum_energy_cost_kcal=cost,
-                        travel_time_factor=semantics.travel_time_factor(item.mode.value, now),
-                        energy_feasible=cost <= agent.body.energy_kcal)
+            data.update(duration_seconds=planned,
+                        travel_time_factor=semantics.travel_time_factor(item.mode.value, now))
         result.append(data)
     return result
 
 
-def _activity_energy_feasibility(state, agent_id: int, body, contract: dict) -> dict:
-    """@brief 以全部现有活动与候选的分段最大 MET 预测同一能量预算。"""
-    entries = active_energy_entries(state, agent_id, body)
-    energy = state.agents[agent_id].body.energy_kcal
-    maximums = {
-        kind: maximum_shared_energy_duration(entries, body.activity_met[kind], energy, body, 86_400)
-        for kind, entry in contract.items() if entry["energy_projection"]
-    }
-    return {"maximum_duration_seconds_by_kind": maximums}
-
-
-def _paused_activity_observation(activity, state, body) -> dict:
-    """@brief 暂停恢复与现有活动共享剩余能量，暂停区间不重复扣费。"""
-    from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
-
-    agent = state.agents[activity.agent_id]
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    factors = activity_factors(activity, agent, body)
-    entries = active_energy_entries(state, activity.agent_id, body)
-    cost = shared_energy_cost(entries + ((remaining, factors.met),), body)
-    feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
+def _paused_activity_observation(activity) -> dict:
+    """@brief 暂停活动的完整记录与剩余墙钟时长；恢复不查能量（docs/dev/SPEC-time-and-energy.md「删除的机制」）。"""
     data = activity.model_dump(mode="json")
-    data.update({"remaining_duration_seconds": remaining,
-                 "minimum_energy_cost_kcal": cost,
-                 "resume_energy_feasible": feasible})
+    data["remaining_duration_seconds"] = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
     return data
 
 

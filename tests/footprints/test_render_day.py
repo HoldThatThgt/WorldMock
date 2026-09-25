@@ -1,5 +1,8 @@
 """@brief render_day 投影与 inspect_run._brief 工具名修正的单元测试。"""
+import argparse
 import importlib.util
+import json
+import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -214,3 +217,26 @@ def test_inspect_run_brief_reads_start_activity_request_and_result():
                               "data": {"status": "rejected", "error_code": "MERCHANT_CLOSED",
                                        "message": "Merchant closed", "data": {}}})
     assert '"error_code": "MERCHANT_CLOSED"' in rejected
+
+
+def test_inspect_run_body_reads_values_and_levels(capsys):
+    """身体轨迹读观察事件的 body.values 与 body.levels（不再读已删除的告警字段），同值相邻行只打印一次。"""
+    module = _load_script("inspect_run")
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE events (event_seq INTEGER PRIMARY KEY, body TEXT)")
+
+    def observation(seq, energy, appetite, agent=1):
+        body = {"values": {"energy_kcal": energy, "sleep_deficit_hours": 1.5},
+                "levels": {"appetite": appetite, "sleepiness": "困"}}
+        return seq, json.dumps({"event_type": "observation", "agent_id": agent, "occurred_at": DAY0 + seq,
+                                "data": {"body": body}}, ensure_ascii=False)
+
+    rows = [observation(1, 350.0, "饿得难受"), observation(2, 350.0, "饿得难受"),
+            observation(3, 80.0, "饿得发慌"), observation(4, 900.0, "不饿", agent=2)]
+    conn.executemany("INSERT INTO events VALUES (?, ?)", rows)
+    module.cmd_body(conn, argparse.Namespace(agent=1))
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2
+    assert "能量=  350.0" in lines[0] and "饥饿=饿得难受" in lines[0] and "困意=困" in lines[0]
+    assert "睡眠不足= 1.50h" in lines[0]
+    assert "饥饿=饿得发慌" in lines[1]

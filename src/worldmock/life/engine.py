@@ -35,17 +35,17 @@ from worldmock.life.interaction_menu import canonical_action
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
-from worldmock.life.activity_validation import validate_activity_energy, validate_activity_targets
+from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_decision_statement_start, pop_decision_start)
 from worldmock.life.activities import (
     ActivityAdvance,
     ActivityOrigin,
-    activity_factors,
     advance_activity_shared,
     change_activity,
     resource_claims,
     schedule_feedback,
+    shared_activity_factors,
     start_activity,
     truncate_activity,
 )
@@ -57,8 +57,8 @@ from worldmock.life.basket import (
     validate_meal_inventory, validate_meal_use,
 )
 from worldmock.life.body import (
-    ENERGY_RECOVERY_ACTIVITY_KINDS,
     ActivityFactors,
+    BoundaryClock,
     decay_mood,
     apply_discomfort_pulse,
     apply_mood_pulse,
@@ -66,12 +66,9 @@ from worldmock.life.body import (
     initial_body,
     interpolate,
     last_flows,
-    maximum_energy_duration_seconds,
-    minimum_energy_cost,
     next_body_boundary_seconds,
     next_shared_body_boundary_seconds,
     settle_shared_body,
-    shared_energy_cost,
 )
 from worldmock.life.content import (
     LifestyleItem,
@@ -166,10 +163,9 @@ if TYPE_CHECKING:
 #: 会话动作的 action 取值到操作日志组件的映射，未列出的动作归属 engine。
 _OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit_work": "review"}
 
-#: 观察合同条目的六键闭集（LifeAgent 侧严格校验同一形状）。
+#: 观察合同条目的五键闭集（LifeAgent 侧严格校验同一形状）；能量不参与受理，合同不带能量投影键。
 AFFORDANCE_CONTRACT_KEYS = frozenset({
-    "action", "target_discovery", "target_field", "energy_projection",
-    "feedback_eligible", "game_boundary"})
+    "action", "target_discovery", "target_field", "feedback_eligible", "game_boundary"})
 
 #: 预排事件种类 → 决策节律唤醒旗标（到达类事件在处理 tick 标记对应人物）。
 _SCHEDULED_WAKE_FLAGS = {
@@ -194,7 +190,6 @@ def affordance_contract(view: AffordanceView) -> dict[str, dict]:
             "target_discovery": spec.target_discovery,
             "target_field": ([spec.target_field, spec.target_id_key]
                              if spec.target_discovery == "catalog_field" else None),
-            "energy_projection": spec.energy_projection,
             "feedback_eligible": name in feedback,
             "game_boundary": name in game,
         }
@@ -713,7 +708,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             validate_two_stage_model_identity(identity)
         require_category_identity(self.store.manifest, self.semantics)
         validate_activity_targets(self.state, self.rules, self.scenario)
-        validate_activity_energy(self.state, self.semantics.body)
         validate_storefront_state(self.state, self.scenario, self.store.manifest)
         validate_routes(self.scenario, self.corpus_root)
         for config in self.scenario.games:
@@ -768,11 +762,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         if self._round is None or self._round.round_id != round_id:
             raise ProtocolError("Decision round is not open")
         return self._round
-
-    @property
-    def recovery_kinds(self) -> frozenset:
-        """@brief 能量可穿透下界的恢复活动闭集（注册表派生）。"""
-        return ENERGY_RECOVERY_ACTIVITY_KINDS
 
     def meal_windows_by_agent(self) -> dict[int, "felt.MealWindows"]:
         """@brief 人物档案餐时窗口索引（观察与滞回判定同源）。"""
@@ -986,7 +975,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return route, match
 
     def _start(self, state: WorldState, pending: PendingAction,
-               request: ActivityStartParams, energy_check: bool = True) -> tuple[WorldState, ActionResult]:
+               request: ActivityStartParams) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
         agent = state.agents[pending.agent_id]
         data = self.rules.validate_start(agent, request, state.current_time)
@@ -1009,8 +998,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         activity.data.update(data)
         if request.activity_type == ActivityKind.WATCH:
             activity.media_position_seconds = data["start_position_seconds"]
-        if energy_check:
-            self._require_energy_plan(changed_state, agent, activity)
         changed = _put_activity(changed_state, agent, activity)
         result_data = {"activity": self._activity_snapshot(activity)}
         if payment is not None:
@@ -1029,26 +1016,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                  if item.activity_id != exclude_id))
         if occupied & claims:
             raise BusinessRuleError("RESOURCE_CONFLICT")
-
-    def _require_energy_plan(self, state: WorldState, agent, candidate=None) -> None:
-        """@brief 按各结束点最大 MET 校验活动集合的共同剩余能量。"""
-        activities = (*active_activities(state, agent.agent_id), *((candidate,) if candidate else ()))
-        durations = tuple((item.planned_duration_seconds - item.elapsed_seconds,
-                           self._activity_met(item)) for item in activities)
-        projected = shared_energy_cost(durations, self.semantics.body)
-        if (projected > agent.body.energy_kcal + 1e-9
-                and not all(item.kind in ENERGY_RECOVERY_ACTIVITY_KINDS for item in activities)):
-            raise BusinessRuleError("INSUFFICIENT_ENERGY")
-
-    def _activity_met(self, activity) -> float:
-        """@brief 使用冻结声明与社交常量读取单项 MET。"""
-        if activity.kind == ActivityKind.CHAT:
-            return social_actions.CHAT_MET
-        if activity.kind == ActivityKind.CALL:
-            return social_actions.CALL_MET
-        key = self.semantics.affordances.met_lookup_key(
-            activity.kind.value, travel_mode=activity.travel_mode, target_id=activity.target_id)
-        return self.semantics.body.activity_met[key]
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -1077,8 +1044,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 raise BusinessRuleError("CONTENT_END_EXCEEDED")
         agent, activity = change_activity(agent, current, request, state.current_time,
                                           self.scenario.activity_feedback_seconds)
-        if request.operation == ActivityChange.RESUME:
-            self._require_energy_plan(state, agent, activity)
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=agent.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
@@ -1087,7 +1052,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return changed, result
 
     def _consume(self, state: WorldState, pending: PendingAction,
-                 request: ConsumeRequest, energy_check: bool = True) -> tuple[WorldState, ActionResult]:
+                 request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。"""
         agent = state.agents[pending.agent_id]
         products = self.rules.items
@@ -1117,8 +1082,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                              food_energy_kcal_per_hour=food_rate)
         if recipe is not None:
             activity.data["inventory_recipe"] = recipe.payload()
-        if energy_check:
-            self._require_energy_plan(state, agent, activity)
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
@@ -1275,8 +1238,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             received_at=message.created_at))
 
     def _start_social_activity(self, state: WorldState, pending: PendingAction,
-                               request: StartSocialActivityRequest,
-                               energy_check: bool = True) -> tuple[WorldState, ActionResult]:
+                               request: StartSocialActivityRequest) -> tuple[WorldState, ActionResult]:
         """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
@@ -1295,8 +1257,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             except ValueError as error:
                 raise BusinessRuleError("CALL_DURATION_OUT_OF_RANGE") from error
         self._require_available_resources(state, pending.agent_id, started.activity.resource_claims)
-        if energy_check:
-            self._require_energy_plan(state, started.agent, started.activity)
         if started.invite is not None:
             self._deliver_social_message(state, started.invite)
         changed = _put_activity(state, started.agent, started.activity)
@@ -1367,10 +1327,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return drafts, results
 
     def _shared_factors(self, activity, agent) -> ActivityFactors:
-        """@brief 社交活动用冻结常量，其余活动复用自身声明系数。"""
-        if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
-            return ActivityFactors(self._activity_met(activity))
-        return activity_factors(activity, agent, self.semantics.body)
+        """@brief 社交活动用冻结常量，其余活动复用自身声明系数（与边界预测同源）。"""
+        return shared_activity_factors(activity, agent, self.semantics.body)
 
     def _advance_one_activity(self, state: WorldState, activity, target: int,
                               settlement, body_event_id: str):
@@ -1541,13 +1499,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return min(candidates)
 
     def _body_boundary_at(self, agent_id: int) -> int | None:
-        """@brief 按同人活动集合预测首个共同身体阈值，空闲仍使用静息。"""
+        """@brief 按同人活动集合预测首个共同身体边界（含体感跨档与餐时窗口），空闲仍使用静息。"""
         agent = self.state.agents[agent_id]
         activities = active_activities(self.state, agent_id)
         current = self.state.current_time
-        hour = projection.hour_of_day(current, self.scenario.timezone)
+        clock = BoundaryClock(projection.hour_of_day(current, self.scenario.timezone),
+                              self.meal_windows_by_agent()[agent_id])
         factors = tuple((item.kind, self._shared_factors(item, agent)) for item in activities)
-        seconds = next_shared_body_boundary_seconds(agent.body, factors, self.semantics.body, hour)
+        seconds = next_shared_body_boundary_seconds(agent.body, factors, self.semantics.body, clock)
         if seconds is None:
             return None
         candidate = current + seconds
@@ -1733,13 +1692,3 @@ def _failure_draft(occurred_at: int, error: Exception | str, round_id: str | Non
     error_type = type(error).__name__ if isinstance(error, Exception) else "RuntimeError"
     return EventDraft(event_type="run_failed", occurred_at=occurred_at, visibility="system",
                       data={"error_type": error_type, "error": str(error), "round_id": round_id})
-
-
-def _remaining_activity_energy(activity, agent, body) -> dict:
-    """@brief 以暂停活动剩余墙钟时长计算当前恢复能量合同。"""
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    factors = activity_factors(activity, agent, body)
-    cost = minimum_energy_cost(activity.kind, remaining, body, factors.met)
-    feasible = activity.kind in ENERGY_RECOVERY_ACTIVITY_KINDS or cost <= agent.body.energy_kcal
-    return {"remaining_duration_seconds": remaining, "minimum_energy_cost_kcal": cost,
-            "resume_energy_feasible": feasible}

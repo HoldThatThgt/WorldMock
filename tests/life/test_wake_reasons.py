@@ -51,7 +51,6 @@ def test_frozen_wake_and_intent_names():
     ({"location_just_opened": True}, ["location_hours_change"]),
     ({"people_present_now": {"person"}}, ["person_arrived"]),
     ({"people_present_before": {"person"}}, ["person_left"]),
-    ({"activity_infeasible": True}, ["commitment_threatened", "activity_infeasible"]),
     ({"consecutive_rejections": 1}, ["rejection_feedback"]),
     ({"discovery_result_ready": True}, ["discovery_result"]),
     ({"wake_from_sleep": True}, ["wake_from_sleep"]),
@@ -104,7 +103,7 @@ def test_warning_candidates_are_exact_not_feedback_aligned(field, deadline, expe
 def test_sleep_accepts_only_existing_sleep_reasons():
     snapshot = WakeSnapshot(now=NOW, is_asleep=True, has_commitments=True,
                             last_decision_time=NOW - 20000, next_task_due_at=NOW + 100,
-                            location_closing_at=NOW + 100, message_arrived=True, activity_infeasible=True)
+                            location_closing_at=NOW + 100, message_arrived=True)
     assert not evaluate_wake_reasons(snapshot).decision_offered
     assert reasons(is_asleep=True, planned_end=NOW, wake_from_sleep=True, run_start=True) == [
         "planned_end", "wake_from_sleep", "run_start"]
@@ -397,39 +396,53 @@ def test_changed_closing_time_and_new_local_commitment_warn_independently(engine
     assert "commitment_threatened" not in reasons
 
 
-@pytest.mark.parametrize("resolution", ["energy", "paused", "completed"])
-def test_infeasibility_warns_once_clears_and_can_reappear(engine_factory, resolution):
-    """持续同因不重报；能量恢复、暂停或终态解除威胁，重新不可行时重新交付。"""
+def test_activity_infeasible_has_no_source_and_threat_only_from_deadline_or_closing():
+    """activity_infeasible 保留名称但没有来源：快照不再有该字段，全部标志齐开也不产生它。"""
+    assert WakeReason.ACTIVITY_INFEASIBLE.value == "activity_infeasible"
+    assert "activity_infeasible" not in WakeSnapshot.model_fields
+    everything = reasons(planned_end=NOW, felt_bands_now={"appetite": 1}, message_arrived=True,
+                         delivery_arrived=True, task_newly_visible=True, work_review_returned=True,
+                         location_just_opened=True, people_present_now={"person"},
+                         consecutive_rejections=1, discovery_result_ready=True, wake_from_sleep=True,
+                         run_start=True, progress_report_due=True)
+    assert "activity_infeasible" not in everything
+    assert "commitment_threatened" not in everything
+    assert "commitment_threatened" in reasons(next_task_due_at=NOW + 1800)
+    assert "commitment_threatened" in reasons(has_commitments=True, location_closing_at=NOW + 900)
+
+
+def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine_factory):
+    """能量为 0 时进行中的观看照常继续：不产生不可行预警，也不构成承诺威胁。"""
     engine = engine_factory()
-    started = act(engine, "infeasible-watch", "start_activity",
+    started = act(engine, "zero-energy-watch", "start_activity",
                   start_activity("观看", "内容：Sintel"))
     assert started.status == "in_progress"
     state = engine.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0
     state.agents[1].visible_task_ids = set()
     state.agents[1].last_decision_time = state.current_time
-    state, reasons = _warning_step(engine, state)
-    expected = {f"infeasible:{started.activity_id}:insufficient_energy"}
-    assert state.agents[1].delivered_warning_signatures == expected
-    assert "activity_infeasible" in reasons and "commitment_threatened" in reasons
-    state.activities[started.activity_id].elapsed_seconds += 1
-    state, reasons = _warning_step(engine, state)
-    assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
-    assert state.agents[1].delivered_warning_signatures == expected
-    activity = state.activities[started.activity_id]
-    if resolution == "energy":
-        state.agents[1].body.energy_kcal = 2000
-    else:
-        activity.status = ActivityStatus(resolution)
-    state, reasons = _warning_step(engine, state)
-    assert not state.agents[1].delivered_warning_signatures
-    assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
-    if resolution != "completed":
-        state.activities[started.activity_id].status = ActivityStatus.ACTIVE
-        state.agents[1].body.energy_kcal = 0
+    for _ in range(2):
         state, reasons = _warning_step(engine, state)
-        assert state.agents[1].delivered_warning_signatures == expected
-        assert "activity_infeasible" in reasons and "commitment_threatened" in reasons
+        assert "activity_infeasible" not in reasons and "commitment_threatened" not in reasons
+        assert not state.agents[1].delivered_warning_signatures
+        assert state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+        state.activities[started.activity_id].elapsed_seconds += 1
+
+
+@pytest.mark.parametrize(("energy", "band"), [(300.0, "饿得难受"), (60.0, "饿得发慌")])
+def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, band):
+    """低能量下决策参照快照与唤醒判定传入同一能量与紧急阈值：分级同源，不误报 felt_band_change。
+    08:00 昼夜谷底按公式只有「很饿」，两档都只能来自低能量规则。"""
+    from tests.life.test_energy_feasibility import _stage_morning
+
+    engine = engine_factory()
+    _stage_morning(engine, energy)
+    started = act(engine, "low-energy-watch", "start_activity", start_activity("观看", "内容：Sintel"))
+    assert started.status == "in_progress"
+    assert engine.state.agents[1].felt_bands_at_last_decision["appetite"] == band
+    state = engine.state.model_copy(deep=True)
+    state, reasons = _warning_step(engine, state)
+    assert "felt_band_change" not in reasons
 
 
 def test_progress_report_due_is_in_enum_and_not_in_sleep_allowed():

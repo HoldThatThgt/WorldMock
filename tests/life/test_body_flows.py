@@ -224,13 +224,15 @@ def test_last_flows_returns_each_settlement_exactly_once(body_config) -> None:
         ENERGY_RESOURCE, SLEEP_DEFICIT_RESOURCE, ENTERTAINMENT_RESOURCE}
 
 
-def test_rejected_energy_settlement_emits_no_flows(body_config) -> None:
-    """能量不足被拒绝的结算不留下任何分录。"""
+def test_overdrawn_settlement_drains_only_the_remaining_energy(body_config) -> None:
+    """透支结算不报错：能量分录只扣掉余额，期末以 0 截断（docs/dev/SPEC-time-and-energy.md「能量不拦人」）。"""
+    last_flows()
     body = BodyState(energy_kcal=10, sleep_pressure=0.0, sleep_deficit_hours=0, entertainment_need=0)
-    with pytest.raises(ValueError, match="exhaust"):
-        settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
+    result = settle_body(body, ActivityKind.WORK, 3600, body_config, ActivityFactors(1.5))
 
-    assert last_flows() == ()
+    energy = [flow for flow in last_flows() if flow.resource == ENERGY_RESOURCE]
+    assert [flow.amount for flow in energy] == [pytest.approx(10)]
+    assert result.after.energy_kcal == 0
 
 
 def test_zero_duration_settlement_emits_no_flows(body_config) -> None:

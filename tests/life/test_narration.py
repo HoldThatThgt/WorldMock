@@ -13,6 +13,7 @@ from worldmock.life.narration import (
     PERSONA_CARD_HANZI_BUDGET,
     ForbiddenObservationFieldError,
     DecisionStatementValidationError,
+    ROUTE_ALLOWED_FIELDS,
     RenderBudgetExceededError,
     compose_user_message,
     count_hanzi,
@@ -206,7 +207,6 @@ class TestFieldBlacklist:
         "world_state_version",
         "end_time",
         "affordance_contract",
-        "energy_feasibility",
         "observation_event_id",
         "motivation_hints",
         "profile.motivation",
@@ -233,7 +233,7 @@ class TestFieldBlacklist:
 
     def test_deeply_nested_key_inside_list_raises(self) -> None:
         """列表内多层数据包藏的禁键同样被递归查出，路径含索引。"""
-        payload = {"a": {"b": [{"energy_feasibility": {"levels": [1, 2]}}]}}
+        payload = {"a": {"b": [{"affordance_contract": {"levels": [1, 2]}}]}}
         with pytest.raises(
             ForbiddenObservationFieldError, match=r"observation\.a\.b\[0\]",
         ):
@@ -255,17 +255,26 @@ class TestFieldBlacklist:
         "waypoints",
     ])
     def test_route_geometry_fields_raise(self, geometry_key: str) -> None:
-        """routes 条目混入坐标/几何字段即抛错（只允许合同五键）。"""
+        """routes 条目混入坐标/几何字段即抛错（只允许合同白名单键）。"""
         route = {
             "destination": "office",
             "mode": "walk",
             "minutes": 12,
             "fare_fen": 0,
+            "effort": "费力",
             "feasible": True,
             geometry_key: [[0, 0], [1, 1]],
         }
         with pytest.raises(ForbiddenObservationFieldError, match="non-contract fields"):
             enforce_field_blacklist({"routes": [route]})
+
+    def test_route_whitelist_includes_effort_label(self) -> None:
+        """路线白名单含费力标签 effort（docs/CONTRACTS.md「禁止进入提示的字段」），渲染不因它抛错。"""
+        assert ROUTE_ALLOWED_FIELDS == frozenset({
+            "destination", "mode", "minutes", "fare_fen", "effort", "feasible", "status", "reason"})
+        route = {"destination": "好德便利店", "mode": "walking", "minutes": 8, "fare_fen": 0,
+                 "effort": "费力", "feasible": True, "status": "reachable", "reason": None}
+        assert '"effort":"费力"' in render_facts({"routes": [route]})
 
     def test_contract_fact_fields_pass(self) -> None:
         """可读名称和进度层字段能通过递归公开校验。"""
@@ -280,7 +289,8 @@ class TestFieldBlacklist:
             }],
             "routes": [{
                 "destination": "公司食堂", "mode": "步行",
-                "minutes": 5, "fare_fen": 0, "feasible": True,
+                "minutes": 5, "fare_fen": 0, "effort": "费力", "feasible": True,
+                "status": "reachable", "reason": None,
             }],
             "products": [{
                 "name": "牛肉面",

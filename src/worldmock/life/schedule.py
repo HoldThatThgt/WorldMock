@@ -136,7 +136,6 @@ class WakeSnapshot(BaseModel):
     location_just_opened: bool = False
     people_present_now: frozenset[str] = frozenset()
     people_present_before: frozenset[str] = frozenset()
-    activity_infeasible: bool = False
     consecutive_rejections: int = 0
     discovery_result_ready: bool = False
     wake_from_sleep: bool = False
@@ -283,7 +282,7 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     if snap.work_review_returned:
         reasons.append(WakeReason.WORK_REVIEW_RESULT)
     closing_threat = snap.has_commitments and _closing_soon(snap.now, snap.location_closing_at)
-    if _task_due_soon(snap.now, snap.next_task_due_at) or closing_threat or snap.activity_infeasible:
+    if _task_due_soon(snap.now, snap.next_task_due_at) or closing_threat:
         reasons.append(WakeReason.COMMITMENT_THREATENED)
     if _reconsideration_due(snap):
         reasons.append(WakeReason.RECONSIDERATION_INTERVAL)
@@ -293,8 +292,6 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.PERSON_ARRIVED)
     if snap.people_present_before - snap.people_present_now:
         reasons.append(WakeReason.PERSON_LEFT)
-    if snap.activity_infeasible:
-        reasons.append(WakeReason.ACTIVITY_INFEASIBLE)
     if snap.consecutive_rejections > 0:
         reasons.append(WakeReason.REJECTION_FEEDBACK)
     if snap.discovery_result_ready:

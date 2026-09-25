@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan
 from tests.life.test_scheduling import _custom_engine
-from worldmock.life.dining import local_food_summary
-from worldmock.life.discovery import DiscoveryContext
+from worldmock.footprints.models import EventDraft
+from worldmock.life import dining, projection
+from worldmock.life.basket import delivery_expected_at
+from worldmock.life.dining import FoodPathFacts, MealOption, NearbyFood, PendingMeal, local_meal_sentence
+from worldmock.life.discovery import DiscoveryContext, supply_row
 from worldmock.life.models import ReportStatusRequest, StartActivityRequest
 from worldmock.life.projection import visible_supplies
+from worldmock.life.result_projection import public_supply_row
 
 SCENARIO = "white-collar-12-weeks.json"
 RESTAURANT = "poi-3538660453"
@@ -72,7 +78,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
     try:
         stage_day_plan(engine)
         agent = engine.state.agents[1]
-        assert local_food_summary(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
+        assert local_meal_sentence(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
         _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行前往")
         _finish(engine, started.activity_id)
         agent = engine.state.agents[1]
@@ -80,7 +86,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         assert visible_supplies(engine.state, agent, engine.scenario) == []
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
         if engine.state.current_time < opening:
-            assert local_food_summary(engine._discovery_context(agent)) == (
+            assert local_meal_sentence(engine._discovery_context(agent)) == (
                 "当前地点有餐食供给，但现在没有可购买餐食。")
         for step in range(16):
             if engine.state.current_time >= opening:
@@ -89,7 +95,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
             _finish(engine, waiting.activity_id)
         assert engine.state.current_time >= opening
         agent = engine.state.agents[1]
-        assert local_food_summary(engine._discovery_context(agent)).startswith("当前地点有可购买餐食")
+        assert local_meal_sentence(engine._discovery_context(agent)).startswith("当前地点有可购买餐食")
         before_balance = engine.state.accounts[agent.balance_account_id]
         before_stock = engine.state.supply_stock[SUPPLY]
         before_holding = agent.inventory.get(RESTAURANT, {}).get(MEAL, 0)
@@ -114,7 +120,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         sold_out.supply_stock[SUPPLY] = 0
         empty_context = DiscoveryContext(sold_out, engine.scenario, engine.semantics,
                                          sold_out.agents[1])
-        assert local_food_summary(empty_context) == "当前地点有餐食供给，但现在没有可购买餐食。"
+        assert local_meal_sentence(empty_context) == "当前地点有餐食供给，但现在没有可购买餐食。"
     finally:
         engine.close()
 
@@ -130,8 +136,194 @@ def test_restaurant_without_selected_supply_is_a_valid_empty_menu(tmp_path: Path
     try:
         agent = engine.state.agents[1].model_copy(update={"location_id": RESTAURANT}, deep=True)
         local = DiscoveryContext(engine.state, engine.scenario, engine.semantics, agent)
-        assert local_food_summary(local) == "当前地点没有餐食供给。"
+        assert local_meal_sentence(local) == "当前地点没有餐食供给。"
         assert any(item.location_id == RESTAURANT for item in engine.scenario.locations)
         assert not any(item.location_id == RESTAURANT for item in engine.scenario.supplies)
     finally:
         engine.close()
+
+
+# ---------------------------------------------------------------------------
+# 饿时的吃饭途径句与人读配送时刻（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」、第八章「呈现」）
+# ---------------------------------------------------------------------------
+
+NOW = 1_767_571_200  # 2026-01-05 08:00 Asia/Shanghai
+ZONE = "Asia/Shanghai"
+
+
+def _facts(**fields) -> FoodPathFacts:
+    """@brief 以 08:00 为现在、原当地餐食句为「当前地点没有餐食供给。」构造途径事实。"""
+    return FoodPathFacts(now=NOW, timezone=ZONE, local_sentence="当前地点没有餐食供给。", **fields)
+
+
+ALL_PATHS = dict(on_hand=(MealOption("番茄炒蛋", 300),), pending=(PendingMeal("五指毛桃鸡煲", NOW + 1800),),
+                 here=(MealOption("牛肉面", 650),), deliverable=(NOW + 1800,),
+                 nearby=(NearbyFood("好德便利店", 8, "walking"),), browse_available=True)
+
+
+def test_below_hungry_keeps_the_local_meal_sentence() -> None:
+    """@brief 饥饿低于「饿」时保留原当地餐食句，即使本轮有吃饭途径。"""
+    for hunger in ("不饿", "有点想吃"):
+        assert dining.local_food_summary(hunger, _facts(**ALL_PATHS)) == "当前地点没有餐食供给。"
+
+
+@pytest.mark.parametrize("dropped, expected", [
+    ((), "你手边有番茄炒蛋，可以直接吃。"),
+    (("on_hand",), "你点的五指毛桃鸡煲预计今天 08:30 送到。"),
+    (("on_hand", "pending"), "这里就能买到牛肉面。"),
+    (("on_hand", "pending", "here"), "列出的餐食里，有一样能送到这里，约 30 分钟。"),
+    (("on_hand", "pending", "here", "deliverable"), "最近能买到吃的是好德便利店，步行约 8 分钟。"),
+    (("on_hand", "pending", "here", "deliverable", "nearby"), "现在不知道附近哪里有吃的，可以浏览商品看看。"),
+])
+def test_food_path_takes_the_first_path_that_holds(dropped, expected) -> None:
+    """@brief 六档依次为手边、在路上、这里能买、能送到、附近能买、都没有，取第一条成立的。"""
+    fields = {key: value for key, value in ALL_PATHS.items() if key not in dropped}
+    for hunger in ("饿", "很饿", "饿得难受", "饿得发慌"):
+        assert dining.local_food_summary(hunger, _facts(**fields)) == expected
+
+
+def test_food_path_choices_within_a_tier_are_deterministic() -> None:
+    """@brief 同档内热量高者优先、同分按名称；在途取最早一单；附近取最短分钟、同分按地点名。"""
+    facts = _facts(here=(MealOption("馒头", 220), MealOption("牛肉面", 650), MealOption("拉面", 650)))
+    assert dining.local_food_summary("饿", facts) == "这里就能买到拉面。"
+    facts = _facts(on_hand=(MealOption("饼干", 480), MealOption("苹果", 80)))
+    assert dining.local_food_summary("饿", facts) == "你手边有饼干，可以直接吃。"
+    facts = _facts(nearby=(NearbyFood("好德便利店", 8, "walking"), NearbyFood("全家便利店", 8, "driving"),
+                           NearbyFood("便利蜂", 15, "walking")))
+    assert "全家便利店" < "好德便利店"  # 同分按地点名（码位序）
+    assert dining.local_food_summary("饿", facts) == "最近能买到吃的是全家便利店，驾车约 8 分钟。"
+    facts = _facts(deliverable=(NOW + 5400, NOW + 1800, NOW + 3600))
+    assert dining.local_food_summary("饿", facts) == "列出的餐食里，有几样能送到这里，最快约 30 分钟。"
+    facts = _facts(pending=(PendingMeal("晚饭", NOW + 7200, "家"), PendingMeal("午饭", NOW + 600, "办公室")))
+    assert dining.local_food_summary("饿", facts) == "你点的午饭预计今天 08:10 送到办公室。"
+    assert dining.local_food_summary("饿", _facts()) == "现在不知道附近哪里有吃的。"
+
+
+def test_late_delivery_adds_the_first_nearer_alternative() -> None:
+    """@brief 在途送达晚于 3600 秒时另补第 3、4、5 档中第一条成立的；恰好 3600 秒或没有替代途径时不补。"""
+    late = PendingMeal("五指毛桃鸡煲", NOW + 27 * 3600 + 960)
+    expected = "你点的五指毛桃鸡煲预计明天 11:16 送到。"
+    assert dining.local_food_summary("很饿", _facts(pending=(late,), deliverable=(NOW + 1800,),
+                                                  nearby=ALL_PATHS["nearby"])) == (
+        expected + "列出的餐食里，有一样能送到这里，约 30 分钟。")
+    assert dining.local_food_summary("很饿", _facts(pending=(late,), nearby=ALL_PATHS["nearby"])) == (
+        expected + "最近能买到吃的是好德便利店，步行约 8 分钟。")
+    assert dining.local_food_summary("很饿", _facts(pending=(late,))) == expected
+    on_time = PendingMeal("盒饭", NOW + 3600)
+    assert dining.local_food_summary("饿", _facts(pending=(on_time,), here=ALL_PATHS["here"])) == (
+        "你点的盒饭预计今天 09:00 送到。")
+
+
+def test_readable_duration_and_clock() -> None:
+    """@brief 人读时长与时刻：不到一分钟、分钟、小时；今天、明天、后天或月日。"""
+    assert dining.readable_duration(59) == "不到 1 分钟"
+    assert dining.readable_duration(60) == "约 1 分钟"
+    assert dining.readable_duration(1790) == "约 30 分钟"
+    assert dining.readable_duration(3599) == "约 1 小时"
+    assert dining.readable_duration(13 * 3600) == "约 13 小时"
+    assert dining.readable_clock(NOW, NOW + 60, ZONE) == "今天 08:01"
+    assert dining.readable_clock(NOW, NOW + 86_400, ZONE) == "明天 08:00"
+    assert dining.readable_clock(NOW, NOW + 2 * 86_400, ZONE) == "后天 08:00"
+    assert dining.readable_clock(NOW, NOW + 3 * 86_400, ZONE) == "1月8日 08:00"
+
+
+def _stage(engine, location: str, energy: float, inventory: dict | None = None) -> None:
+    """@brief 把人物放到指定地点、能量与持有物并持久提交（营业时段内的首日 10:30）。"""
+    staged = engine.state.model_copy(deep=True)
+    now = int(engine.scenario.start_at.timestamp()) + 10 * 3600 + 1800
+    staged.current_time = now
+    staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
+    agent = staged.agents[1]
+    body = agent.body.model_copy(update={"energy_kcal": energy}, deep=True)
+    staged.agents[1] = agent.model_copy(update={
+        "location_id": location, "body": body, "body_settled_at": now, "next_decision_at": now,
+        "inventory": inventory or {}}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system",
+        data={"kind": "test_food_path_position"})])
+    engine.state = staged
+
+
+def test_scene_food_path_quotes_only_this_observation(engine_factory) -> None:
+    """@brief 饿时场景的途径句引用本轮观察：手边持有的食品、这里呈现的供给，或都没有时提示浏览。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    meal = next(item for item in engine.scenario.products if item.product_id == MEAL)
+    _stage(engine, RESTAURANT, 700)
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["body"]["levels"]["appetite"] in dining.FOOD_PATH_LEVELS
+    assert observed["scene"]["local_food_summary"] == f"这里就能买到{meal.name}。"
+    assert meal.name in {row["product"] for row in observed["facts"]["products"]}
+    _stage(engine, "home", 700, {"home": {MEAL: 1}})
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["scene"]["local_food_summary"] == f"你手边有{meal.name}，可以直接吃。"
+    assert meal.name in observed["scene"]["inventory"]
+    _stage(engine, "home", 700, {RESTAURANT: {MEAL: 1}})
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["scene"]["local_food_summary"] == "现在不知道附近哪里有吃的，可以浏览商品看看。"
+    _stage(engine, "home", 1500)
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["body"]["levels"]["appetite"] not in dining.FOOD_PATH_LEVELS
+    assert observed["scene"]["local_food_summary"] == "当前地点没有餐食供给。"
+
+
+def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) -> None:
+    """@brief 配送行给出人读送达时刻，与下单后的实际送达时刻一致；饿时在途订单进入途径句。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _stage(engine, "market", 700)
+    observed, bought = _start(engine, "deliver-home", "supply", None, "配送到当前位置")
+    row = next(item for item in observed["facts"]["products"]
+               if item["object"] == next(binding["object"] for binding in observed["interaction_bindings"]
+                                         if binding["object_id"] == bought.data["orders"][0]["supply_id"]))
+    order = bought.data["orders"][0]
+    now = observed["current_time"]
+    assert "delivery_delay_seconds" not in row
+    assert row["delivery_eta"] == (f"{dining.readable_duration(order['expected_at'] - now)}后送达，"
+                                   f"{dining.readable_clock(now, order['expected_at'], ZONE)}")
+    assert engine.state.deliveries[order["order_id"]].expected_at == order["expected_at"]
+    product = next(item for item in engine.scenario.products if item.product_id == order["product_id"])
+    scene = engine._observation_data(engine.state.agents[1])["scene"]
+    if "eat" in product.use_modes:
+        assert scene["local_food_summary"].startswith(f"你点的{product.name}预计")
+    # 实际送达：沿真实边界推进（人物其间只等待），订单在预计送达的那一秒转为已送达。
+    assert order["expected_at"] > now and engine.state.deliveries[order["order_id"]].status == "pending"
+    for step in range(64):
+        if engine.state.deliveries[order["order_id"]].status != "pending":
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _action(engine, f"wait-delivery-{step}", "start_activity",
+                    StartActivityRequest(targets=["自己"], actions=["等待"]))
+        else:
+            advance_next(engine)
+    assert engine.state.deliveries[order["order_id"]].status == "delivered"
+    assert engine.state.current_time == order["expected_at"]
+
+
+def test_delivery_is_unavailable_here_without_destination_or_route(engine_factory) -> None:
+    """@brief 送达地不在可配送目的地、或配送道路未知时没有预计送达时刻，投影写「暂时送不到这里」。"""
+    engine = engine_factory()
+    supply = next(item for item in engine.scenario.supplies
+                  if item.location_id == "market" and "delivery" in item.fulfillment_modes)
+    now = engine.state.current_time
+    assert delivery_expected_at(engine.semantics, supply, "home", now) is not None
+    narrowed = supply.model_copy(update={"delivery_destination_ids": ("office",)})
+    assert delivery_expected_at(engine.semantics, narrowed, "home", now) is None
+    route = next(item for item in engine.scenario.routes if item.origin_id == "market"
+                 and item.destination_id == "home" and item.mode.value == "driving")
+    blocked = route.model_copy(update={"status": "unknown", "distance_meters": None, "duration_seconds": None,
+                                       "fare_fen": None, "reason": "no_route_record"})
+    scenario = engine.scenario.model_copy(update={"routes": tuple(
+        blocked if item.route_id == route.route_id else item for item in engine.scenario.routes)})
+    engine.semantics = dataclasses.replace(engine.semantics, scenario=scenario)
+    engine.scenario = scenario
+    assert delivery_expected_at(engine.semantics, supply, "home", now) is None
+    agent = engine.state.agents[1]
+    row = public_supply_row(supply_row(engine._discovery_context(agent), supply))
+    etas = engine._delivery_expected_at(agent, [row])
+    assert etas == {supply.supply_id: None}
+    inputs = projection.ProjectionInputs(state=engine.state, scenario=scenario, agent=agent, recent_results=(),
+                                         task_rows=(), extras={"product_rows": [row], "delivery_expected_at": etas})
+    assert projection._public_products(inputs)[0]["delivery_eta"] == "暂时送不到这里"
+

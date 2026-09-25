@@ -5,10 +5,7 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import IntegrityError
-from worldmock.life.activities import combined_energy_cost
-from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
-from worldmock.life.models import (ActivityKind, ActivityState, ConsumeRequest,
-                                   WorldState, active_activities)
+from worldmock.life.models import ActivityKind, ActivityState, ConsumeRequest, WorldState
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,17 +18,6 @@ def validate_activity_targets(state: WorldState, rules, scenario) -> None:
         if not _target_is_valid(activity, state, rules, routes, people):
             _LOGGER.error("Persisted activity target is invalid: %s", activity.activity_id)
             raise IntegrityError("Persisted activity target is invalid")
-
-
-def validate_activity_energy(state: WorldState, config) -> None:
-    """@brief 恢复时用同一分段预测拒绝能量不足的进行中集合。"""
-    for agent_id, agent in state.agents.items():
-        activities = active_activities(state, agent_id)
-        if not activities or all(item.kind in ENERGY_RECOVERY_ACTIVITY_KINDS for item in activities):
-            continue
-        if combined_energy_cost(state, agent_id, config) > agent.body.energy_kcal + 1e-9:
-            _LOGGER.error("Persisted active activities exceed available energy: %s", agent_id)
-            raise IntegrityError("Persisted active activities exceed available energy")
 
 
 def _target_is_valid(activity: ActivityState, state: WorldState, rules,
