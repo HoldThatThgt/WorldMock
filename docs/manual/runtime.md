@@ -10,9 +10,13 @@
 在仓库根目录执行，使用 Python 3.12 和项目锁定的依赖：
 
 ```bash
+git submodule update --init vendor/agentsociety2 vendor/labelkit
 uv sync --frozen
 uv sync --project vendor/labelkit --frozen
 ```
+
+AS2 必须是子模块指针锁定的提交 `8768e14`。启动时核对实际导入的 AS2 包：包目录为空、无法导入或源码摘要
+与锁定值不符时，`run`、`resume`、`replay` 与 `validate` 都拒绝启动，不能用别处安装的其他 AS2 版本代替。
 
 WorldMock 与 LabelKit 使用各自环境；LabelKit 的命令入口在 Linux 为
 `vendor/labelkit/.venv/bin/labelkit`，在 Windows 为 `vendor/labelkit/.venv/Scripts/labelkit.exe`。
@@ -120,7 +124,7 @@ uv run worldmock resume \
   --output runs/my-persona-day-resumed
 ```
 
-恢复必须匹配父运行的场景、代码、模型及资源身份；仅修改 JSON 空白也会改变场景字节哈希。
+恢复必须匹配父运行的场景、代码（代码身份含实际导入的 AS2）、模型及资源身份；仅修改 JSON 空白也会改变场景字节哈希。
 新画像、不同时间窗或菜单应通过新建运行使用。恢复时人物记忆与卡片来自检查点，不重新编译。
 没有检查点或标识不属于该父运行时，不能用猜测的名字代替。
 
@@ -176,8 +180,9 @@ uv run worldmock replay \
 | `DeepSeek credential file is missing or unsafe` | 文件路径、是否为普通文件、是否为符号链接 |
 | `DeepSeek credential file has an invalid schema` | 是否只有 `DEEPSEEK_NODE_KEYS`，值或逗号分隔的密钥段是否为空 |
 | `The isolated LabelKit CLI environment is not installed` | 是否安装了 LabelKit 的独立环境 |
+| `AS2 runtime identity differs from the locked source` | 是否按「准备环境」把 `vendor/agentsociety2` 初始化到锁定提交并重新同步依赖；实际导入的 AS2 包是否为空、无法导入或被改动 |
 | 只设置环境变量，模拟仍报凭据缺失 | 模拟启动器读取私密文件；画像抽取的读取顺序不同 |
 | 输出目录已经存在 | 改用新的运行或导出目录，保留原记录 |
-| 改了场景或代码后恢复被拒绝 | 使用匹配身份的原始配置恢复，或为新条件新建运行 |
+| 改了场景或代码后恢复被拒绝 | 使用匹配身份的原始配置恢复，或为新条件新建运行；升级代码后旧检查点不能恢复 |
 
 命令参数以[命令入口](../../src/worldmock/cli.py)为准；更多数据生成与评估步骤见对应手册页。

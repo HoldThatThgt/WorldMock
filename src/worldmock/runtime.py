@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime
@@ -43,6 +45,12 @@ MAX_REACT_TURNS = 16
 #: disabled/required）。
 _WORK_REVIEW_THINKING = "disabled"
 _WORK_REVIEW_TOOL_CHOICE = "required"
+#: 运行身份覆盖的 AS2 导入包名；包目录由 importlib.util.find_spec 按实际导入解析
+#: （docs/dev/SPEC-time-and-energy.md「运行身份」）。
+_AS2_PACKAGE = "agentsociety2"
+#: AS2 锁定提交 8768e14 的源码摘要，与 docs/EXPERIMENT.md「AS2 基线与框架依赖」登记的值逐字相同。
+AS2_LOCKED_SOURCE_SHA256 = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334"
+_AS2_IDENTITY_ERROR = "AS2 runtime identity differs from the locked source"
 #: 联系人回复的生成上限。
 CONTACT_REPLY_MAX_TOKENS = 8000
 #: 联系人回复的 system 提示（docs/dev/SPEC-life-runtime.md「社交最小可行版」：独立调用、中文、不超过 200 汉字）。
@@ -187,10 +195,14 @@ async def replay_world(request: CounterfactualRequest) -> RunResult:
 
 
 def _configure_process(project_root: Path) -> None:
-    """@brief 从唯一私密文件配置显式 DeepSeek 角色和 worker 导入路径。"""
+    """@brief 核对实际导入的 AS2 与锁定源码一致后，从唯一私密文件配置显式 DeepSeek 角色和 worker 导入路径。
+
+    AS2 身份在读取凭据、改写进程环境与导入任何 AS2 模块之前核对，run、resume、replay 共用。
+    """
     root = Path(project_root).resolve()
     if not (root / "custom" / "agents" / "life_agent.py").is_file():
         raise FileNotFoundError("WorldMock project root is incomplete")
+    require_locked_as2()
     secret = _read_deepseek_key()
     variables = {
         "WORKSPACE_PATH": str(root),
@@ -276,7 +288,9 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
 
 
 def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity:
-    """@brief 形成与场景和当前 LifeAgent 合同绑定的运行身份。"""
+    """@brief 形成与场景、当前 LifeAgent 合同和代码（含锁定的 AS2）绑定的运行身份，另记检出的 Git 状态。"""
+    root = Path(request.project_root)
+    git_commit, git_dirty = _git_state(root)
     return RunIdentity(
         run_id=request.run_id,
         source_group_id=request.source_group_id,
@@ -285,7 +299,9 @@ def _run_identity(request: RunRequest, scenario: RuntimeScenario) -> RunIdentity
         end_at=scenario.end_at.isoformat(),
         timezone=scenario.timezone,
         model_identity=_model_identity(),
-        code_sha256=runtime_code_sha256(Path(request.project_root)),
+        code_sha256=runtime_code_sha256(root),
+        git_commit=git_commit,
+        git_dirty=git_dirty,
     )
 
 
@@ -415,7 +431,10 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
 
 
 def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
-    """@brief 拒绝用不同代码、端点、模型、提示或工具恢复父运行。"""
+    """@brief 拒绝用不同代码（含实际导入的 AS2）、端点、模型、提示或工具恢复父运行。
+
+    清单的 git_commit 与 git_dirty 只记录，不参与比对。
+    """
     expected = _model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
@@ -426,23 +445,89 @@ def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> N
 
 
 def runtime_code_sha256(project_root: Path) -> str:
-    """@brief 哈希全部生产 Python 源码与根依赖锁定文件。"""
+    """@brief 哈希全部生产 Python 源码、根依赖锁定文件与实际导入的 AS2 包（docs/dev/SPEC-time-and-energy.md「运行身份」）。
+
+    AS2 文件以 agentsociety2/<相对路径> 为标签，与安装位置无关；AS2 未通过锁定核对时拒绝给出代码身份。
+    """
     root = Path(project_root).resolve()
-    package = root / "vendor" / "agentsociety2" / "packages" / "agentsociety2" / "agentsociety2"
-    directories = (root / "src", root / "custom", package)
-    files = [path for directory in directories for path in directory.rglob("*.py")]
-    files.extend((root / "pyproject.toml", root / "uv.lock"))
+    files = [(path.relative_to(root).as_posix(), path)
+             for directory in (root / "src", root / "custom") for path in directory.rglob("*.py")]
+    files.extend((name, root / name) for name in ("pyproject.toml", "uv.lock"))
+    return _labeled_sha256([*files, *require_locked_as2()])
+
+
+def require_locked_as2() -> list[tuple[str, Path]]:
+    """@brief 核对实际导入的 AS2 包与锁定提交 8768e14 的源码摘要，返回其（标签, 路径）文件表。
+
+    包目录为空、导入失败或摘要不符时以 IntegrityError 拒绝；run、resume、replay 与 validate 共用。
+    """
+    files = _as2_source_files()
+    if _labeled_sha256(files) != AS2_LOCKED_SOURCE_SHA256:
+        raise IntegrityError(_AS2_IDENTITY_ERROR)
+    return files
+
+
+def _as2_source_files() -> list[tuple[str, Path]]:
+    """@brief 列出实际导入的 AS2 包目录下除 __pycache__ 外的全部文件，标签为 agentsociety2/<相对路径>。
+
+    包目录取 importlib.util.find_spec 解析出的唯一目录；解析失败、不是唯一包目录或目录为空即拒绝。
+    """
+    try:
+        spec = importlib.util.find_spec(_AS2_PACKAGE)
+    except (ImportError, ValueError) as error:
+        raise IntegrityError(_AS2_IDENTITY_ERROR) from error
+    locations = list(spec.submodule_search_locations or ()) if spec is not None else []
+    if len(locations) != 1:
+        raise IntegrityError(_AS2_IDENTITY_ERROR)
+    package = Path(locations[0]).resolve()
+    files = [(f"agentsociety2/{path.relative_to(package).as_posix()}", path)
+             for path in package.rglob("*")
+             if "__pycache__" not in path.relative_to(package).parts
+             and (path.is_symlink() or not path.is_dir())]
+    if not files:
+        raise IntegrityError(_AS2_IDENTITY_ERROR)
+    return files
+
+
+def _labeled_sha256(files: list[tuple[str, Path]]) -> str:
+    """@brief 按标签排序，逐文件写入标签长度、标签、内容长度与内容；缺失或不安全的来源即拒绝。"""
     digest = hashlib.sha256()
-    for path in sorted(files, key=lambda item: item.relative_to(root).as_posix()):
+    for label, path in sorted(files, key=lambda item: item[0]):
         if not path.is_file() or path.is_symlink():
             raise IntegrityError("Runtime identity source is missing or unsafe")
-        label = path.relative_to(root).as_posix().encode()
+        encoded = label.encode()
         content = path.read_bytes()
-        digest.update(len(label).to_bytes(8, "big"))
-        digest.update(label)
+        digest.update(len(encoded).to_bytes(8, "big"))
+        digest.update(encoded)
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
+
+
+def _git_state(project_root: Path) -> tuple[str | None, bool | None]:
+    """@brief 项目根是 Git 检出的顶层时返回（HEAD 提交, 是否有未提交改动），否则二者为 None。
+
+    未提交标志取 git status --porcelain 是否非空（显式含未跟踪文件，不含忽略文件）；二者只记录，不参与恢复比对。
+    """
+    head = _git_output(project_root, "rev-parse", "--show-prefix", "HEAD")
+    lines = head.splitlines() if head is not None else []
+    if len(lines) != 2 or lines[0]:
+        return None, None
+    status = _git_output(project_root, "status", "--porcelain", "--untracked-files=normal")
+    if status is None:
+        return None, None
+    return lines[1].decode("ascii"), bool(status.strip())
+
+
+def _git_output(project_root: Path, *arguments: str) -> bytes | None:
+    """@brief 在项目根执行一条只读 git 命令并返回标准输出；git 不可用或命令失败时返回 None。"""
+    command = ["git", "-C", str(project_root), *arguments]
+    try:
+        result = subprocess.run(command, capture_output=True, check=False,
+                                env={**os.environ, "GIT_OPTIONAL_LOCKS": "0"})
+    except OSError:
+        return None
+    return result.stdout if result.returncode == 0 else None
 
 
 def _ops_log(run_dir: Path, timezone_name: str, sim_time: int | datetime | None,

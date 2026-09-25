@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import copy
+import importlib.util
 import json
 import hashlib
 import os
+import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -17,24 +21,47 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+import worldmock.runtime as runtime_module
+from tests.integration.as2_fixtures import (
+    FAKE_AS2_FILES,
+    expected_as2_sha256,
+    use_fake_as2,
+    write_fake_as2,
+    write_project,
+)
 from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.models import CounterfactualIntervention, StartActivityRequest
 from worldmock.runtime import (
+    AS2_LOCKED_SOURCE_SHA256,
+    CounterfactualRequest,
+    ResumeRequest,
+    RunRequest,
     _agent_specs,
     _build_society,
     _execute,
+    _git_state,
     _intervention_sha256,
     _model_identity,
     _no_persona_compilation,
+    _prepare_new_run,
     _require_run_shell,
     _restore_branch,
+    replay_world,
+    require_locked_as2,
+    resume_world,
+    run_world,
     runtime_code_sha256,
     two_stage_model_identity,
 )
-from worldmock.validation import validate_two_stage_model_identity
+from worldmock.validation import validate_project, validate_two_stage_model_identity
+
+ROOT = Path(__file__).resolve().parents[2]
+SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+#: 规格第八章「运行身份」规定的 AS2 身份拒绝文案。
+_AS2_REFUSAL = "AS2 runtime identity differs from the locked source"
 
 
 def test_model_identity_freezes_complete_strict_endpoint_and_request() -> None:
@@ -141,15 +168,225 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
     (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
 
 
-def test_runtime_code_identity_is_deterministic() -> None:
-    """同一精确 checkout 重复计算得到相同代码身份。"""
-    root = Path(__file__).resolve().parents[2]
+def test_runtime_code_identity_is_deterministic(monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """同一工程与同一 AS2 包重复计算得到相同代码身份（AS2 取临时包，不依赖本机安装）。"""
+    project = write_project(tmp_path / "project")
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
-    first = runtime_code_sha256(root)
-    second = runtime_code_sha256(root)
+    first = runtime_code_sha256(project)
+    second = runtime_code_sha256(project)
 
     assert len(first) == 64
     assert first == second
+
+
+def test_code_identity_covers_every_imported_as2_file_except_pycache(
+        monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """AS2 包内任一文件（含非 Python 文件与新增文件）字节变化都改变 code_sha256，__pycache__ 不计入；
+    未改锁定摘要时字节变化即按摘要不符拒绝。"""
+    project = write_project(tmp_path / "project")
+    package = use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
+    seen = {runtime_code_sha256(project)}
+
+    (package / "__pycache__" / "__init__.cpython-312.pyc").write_bytes(b"\x00recompiled")
+    (package / "__pycache__" / "extra.cpython-312.pyc").write_bytes(b"\x00new")
+    assert runtime_code_sha256(project) in seen
+
+    for relative in ("society/society.py", "agent/skills/guide/SKILL.md", "data/added.json"):
+        path = package / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes((path.read_bytes() if path.exists() else b"") + b"#")
+        with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
+            runtime_code_sha256(project)
+        monkeypatch.setattr(runtime_module, "AS2_LOCKED_SOURCE_SHA256", expected_as2_sha256(package))
+        changed = runtime_code_sha256(project)
+        assert changed not in seen
+        seen.add(changed)
+
+
+def test_as2_identity_is_independent_of_install_location(monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """同一份 AS2 源码装在不同位置：find_spec 解析到哪个目录都得到相同标签、通过同一锁定摘要、code_sha256 相同。"""
+    project = write_project(tmp_path / "project")
+    name = f"worldmock_fake_as2_{uuid4().hex}"
+    first = write_fake_as2(tmp_path_factory.mktemp("site-a"), name)
+    second = write_fake_as2(tmp_path_factory.mktemp("site-b") / "deeper" / "install", name)
+    monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", name)
+    monkeypatch.setattr(runtime_module, "AS2_LOCKED_SOURCE_SHA256", expected_as2_sha256(first))
+
+    identities = []
+    for package in (first, second):
+        monkeypatch.syspath_prepend(str(package.parent))
+        assert Path(importlib.util.find_spec(name).origin).resolve().parent == package.resolve()
+        labels = sorted(label for label, _ in require_locked_as2())
+        identities.append((labels, runtime_code_sha256(project)))
+
+    assert identities[0] == identities[1]
+    assert identities[0][0] == sorted(
+        f"agentsociety2/{relative}" for relative in FAKE_AS2_FILES if "__pycache__" not in relative)
+
+
+def _break_as2(condition: str, monkeypatch, site: Path) -> None:
+    """把运行身份解析到的 AS2 置为缺失（导入失败）、为空或与锁定摘要不符。"""
+    if condition == "missing":
+        monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", f"worldmock_absent_as2_{uuid4().hex}")
+    elif condition == "empty":
+        use_fake_as2(monkeypatch, site, {"__pycache__/stale.cpython-312.pyc": b"\x00"}, locked=False)
+    else:
+        use_fake_as2(monkeypatch, site, locked=False)
+
+
+@pytest.mark.parametrize("condition", ["missing", "empty", "mismatch"])
+async def test_unlocked_as2_refuses_run_resume_replay_and_validate(
+        condition, monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """AS2 包目录缺失、为空或摘要不符时，四个入口在读凭据、改进程环境与写运行目录之前以 IntegrityError 拒绝。"""
+    _break_as2(condition, monkeypatch, tmp_path_factory.mktemp("as2-site"))
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    environment = dict(os.environ)
+    resume = ResumeRequest(ROOT, SCENARIO, tmp_path / "parent", "checkpoint", tmp_path / "child")
+    intervention = CounterfactualIntervention(
+        kind="set_balance_fen", agent_id=1, balance_fen=0, hypothesis="h", source_event_ids=("e",))
+    entries = (lambda: run_world(RunRequest(ROOT, SCENARIO, tmp_path / "run", "identity", "identity")),
+               lambda: resume_world(resume),
+               lambda: replay_world(CounterfactualRequest(resume, intervention)))
+
+    for entry in entries:
+        with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
+            await entry()
+    with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
+        validate_project(ROOT, SCENARIO)
+
+    assert not (tmp_path / "run").exists() and not (tmp_path / "child").exists()
+    assert dict(os.environ) == environment
+
+
+@pytest.mark.parametrize("variant", ["blocked", "no_spec", "not_a_package"])
+def test_as2_lookup_failures_are_identity_refusals(variant, monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """导入被阻断、已导入对象没有 spec、同名对象不是包：都按 AS2 身份不符拒绝，也不给出代码身份。"""
+    project = write_project(tmp_path / "project")
+    name = f"worldmock_fake_as2_{uuid4().hex}"
+    monkeypatch.setattr(runtime_module, "_AS2_PACKAGE", name)
+    if variant == "blocked":
+        monkeypatch.setitem(sys.modules, name, None)
+    elif variant == "no_spec":
+        monkeypatch.setitem(sys.modules, name, ModuleType(name))
+    else:
+        site = tmp_path_factory.mktemp("as2-site")
+        (site / f"{name}.py").write_text("VALUE = 1\n", encoding="utf-8")
+        monkeypatch.syspath_prepend(str(site))
+
+    with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
+        require_locked_as2()
+    with pytest.raises(IntegrityError, match=_AS2_REFUSAL):
+        runtime_code_sha256(project)
+
+
+def test_experiment_registers_the_locked_as2_source_digest_verbatim() -> None:
+    """EXPERIMENT「AS2 基线与框架依赖」登记的 AS2 源码摘要与代码常量逐字相同（EX3）。"""
+    text = (ROOT / "docs" / "EXPERIMENT.md").read_text(encoding="utf-8")
+    section = text.split("### AS2 基线与框架依赖", 1)[1].split("\n### ", 1)[0]
+    rows = [[cell.strip() for cell in line.strip().strip("|").split("|")]
+            for line in section.splitlines() if line.startswith("| AS2 源码摘要 |")]
+
+    assert len(rows) == 1
+    assert rows[0][1] == f"`{AS2_LOCKED_SOURCE_SHA256}`"
+    assert "`8768e14`" in rows[0][2]
+
+
+def _hermetic_git(monkeypatch, tmp_path_factory) -> None:
+    """本测试内的 git 只读一份空的全局配置、不读系统配置，并使用固定的提交身份。"""
+    config = tmp_path_factory.mktemp("git-config") / "gitconfig"
+    config.write_text("", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for role in ("AUTHOR", "COMMITTER"):
+        monkeypatch.setenv(f"GIT_{role}_NAME", "WorldMock Test")
+        monkeypatch.setenv(f"GIT_{role}_EMAIL", "test@example.invalid")
+
+
+def _git(repository: Path, *arguments: str) -> str:
+    """在测试仓库执行一条 git 命令并返回去掉首尾空白的标准输出。"""
+    result = subprocess.run(["git", "-C", str(repository), *arguments],
+                            capture_output=True, text=True, check=True)
+    return result.stdout.strip()
+
+
+def _committed_project(root: Path) -> tuple[Path, str]:
+    """建一个已提交的最小工程仓库（忽略 *.log），返回仓库目录与 HEAD 提交。"""
+    write_project(root)
+    (root / ".gitignore").write_text("*.log\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "fixture")
+    return root, _git(root, "rev-parse", "HEAD")
+
+
+def test_git_state_records_head_and_dirty_flag_only_at_checkout_top_level(
+        monkeypatch, tmp_path_factory) -> None:
+    """git_commit 取 HEAD；git_dirty 取 git status --porcelain 是否非空（含未跟踪文件、不含忽略文件）；
+    非检出顶层或非 Git 目录时二者为 null。"""
+    _hermetic_git(monkeypatch, tmp_path_factory)
+    repository, head = _committed_project(tmp_path_factory.mktemp("checkout"))
+    assert _git_state(repository) == (head, False)
+
+    (repository / "debug.log").write_text("ignored\n", encoding="utf-8")
+    assert _git_state(repository) == (head, False)
+    _git(repository, "config", "status.showUntrackedFiles", "no")
+    (repository / "notes.txt").write_text("untracked\n", encoding="utf-8")
+    assert _git_state(repository) == (head, True)
+    (repository / "notes.txt").unlink()
+    (repository / "uv.lock").write_text("version = 2\n", encoding="utf-8")
+    assert _git_state(repository) == (head, True)
+
+    assert _git_state(repository / "src") == (None, None)
+    assert _git_state(tmp_path_factory.mktemp("plain")) == (None, None)
+
+
+def test_git_state_is_null_when_git_is_unavailable_or_status_fails(monkeypatch, tmp_path) -> None:
+    """git 不可执行，或 HEAD 可读而 status 失败时，二者为 null，不阻断启动。"""
+    commands = []
+
+    def missing_git(command, **kwargs):
+        commands.append(command)
+        raise FileNotFoundError("git")
+
+    monkeypatch.setattr(runtime_module.subprocess, "run", missing_git)
+    assert _git_state(tmp_path) == (None, None)
+
+    def status_fails(command, **kwargs):
+        commands.append(command)
+        head = "rev-parse" in command
+        return SimpleNamespace(returncode=0 if head else 128, stdout=b"\n" + b"a" * 40 + b"\n" if head else b"")
+
+    monkeypatch.setattr(runtime_module.subprocess, "run", status_fails)
+    assert _git_state(tmp_path) == (None, None)
+    assert commands[-1][3:] == ["status", "--porcelain", "--untracked-files=normal"]
+
+
+async def test_run_manifest_records_git_commit_and_dirty_flag(monkeypatch, tmp_path, tmp_path_factory) -> None:
+    """新建运行经 runtime、LifeEnv 与引擎写入清单：Git 检出记 HEAD 与未提交标志，非 Git 检出二者为 null；
+    Git 状态不进入 code_sha256。"""
+    from custom.envs.life_env import LifeEnv
+
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
+    _hermetic_git(monkeypatch, tmp_path_factory)
+    checkout, head = _committed_project(tmp_path_factory.mktemp("checkout"))
+    (checkout / "notes.txt").write_text("uncommitted\n", encoding="utf-8")
+    plain = write_project(tmp_path_factory.mktemp("plain"))
+
+    manifests = []
+    for project, run_dir in ((checkout, tmp_path / "git-run"), (plain, tmp_path / "plain-run")):
+        prepared = _prepare_new_run(RunRequest(project, SCENARIO, run_dir, "identity", "identity"))
+        env = LifeEnv(**prepared.env_kwargs)
+        await env.init(prepared.start_time)
+        try:
+            manifests.append(env.engine.store.manifest)
+        finally:
+            await env.close()
+
+    assert (manifests[0]["git_commit"], manifests[0]["git_dirty"]) == (head, True)
+    assert {"git_commit", "git_dirty"} <= manifests[1].keys()
+    assert (manifests[1]["git_commit"], manifests[1]["git_dirty"]) == (None, None)
+    assert manifests[0]["code_sha256"] == manifests[1]["code_sha256"]
 
 
 def test_run_shell_allows_only_status_file(tmp_path) -> None:

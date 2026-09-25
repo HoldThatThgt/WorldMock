@@ -45,9 +45,13 @@ flowchart LR
 使用 Python 3.12 和 uv。AS2 与 LabelKit 的 protobuf 依赖范围互斥，分别使用固定源码及各自环境。
 
 ```sh
+git submodule update --init vendor/agentsociety2 vendor/labelkit
 uv sync --frozen
 uv sync --project vendor/labelkit --frozen
 ```
+
+AS2 必须是子模块指针锁定的提交 `8768e14`；实际导入的 AS2 包目录为空、无法导入或源码摘要不符时，
+`run`、`resume`、`replay` 与 `validate` 拒绝启动。
 
 DeepSeek 凭据保存于用户目录 `~/.config/worldmock/deepseek.env`，文件仅含 `DEEPSEEK_NODE_KEYS`，
 填写单把或逗号分隔的多把密钥。建议权限为 `0600`；完整格式及各入口的读取方式见[运行配置](docs/manual/runtime.md#填写模型凭据)。
