@@ -1,7 +1,7 @@
 # WorldMock 验收标准
 
 > 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。
-> 日期：2026-09-21
+> 日期：2026-09-24
 > 范围：放行门禁、report-only 边界、测试矩阵、验收原则、交付阶段与结论边界
 > 记录位置：实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md`；本文件只定义判定方式与当前状态，不重复断言其通过
 
@@ -136,13 +136,23 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 
 完整范围见 [当日目标特性规格](dev/SPEC-day-plan-goals.md)。同一被测源码必须覆盖目标输入闭集、
 空计划与跨日、修订证据保留、正时长首次推进、重复活动和恢复防重、午夜最后结算、
-两档重估与精确任务/闭店威胁、真实人物工具与引擎闭环、三层度量与实际质量导出。
+两档重估与精确任务/闭店威胁、真实人物工具（限 `revise_day_plan`）与引擎闭环、三层度量与实际质量导出；
+还须覆盖 `remind_time` 的换算与拒绝（`PLAN_REMIND_TIME_INVALID`）、零点计划同一本地日只生成一次、提醒只触发一次、
+修订取消旧提醒、恢复后不重复生成与提醒。
 删除旧时段合同，不保留兼容、迁移、占位或本特性 skip/xfail。
 
 工程放行要求全量测试、分支与公共接口覆盖、风格、文档链接通过；
-还要在同一干净提交的隔离 worktree 上用 Uncle Bob 语义突变检验空计划门控、修订保护、
-活动证据、防重复脉冲、威胁与间隔、报告分母和质量接线。存活突变必须补测后以原补丁复验。
-证据统一见 [本特性验收记录](dev/research/day-plan-goals-verification.md)。
+还要在同一干净提交的隔离 worktree 上用 Uncle Bob 语义突变检验空计划门控（日首计划门控已由时间与能量规格删除，
+本项只对应当日目标特性验收时的源码）、修订保护、活动证据、防重复脉冲、威胁与间隔、报告分母和质量接线。
+存活突变必须补测后以原补丁复验。证据统一见 [本特性验收记录](dev/research/day-plan-goals-verification.md)。
+
+### 时间与能量特性门禁
+
+完整判据见 [时间与能量特性规格](dev/SPEC-time-and-energy.md#验收台账)的验收台账，本节不复述。
+issue #1 绿色基线是实施前置：`uv run pytest tests` 全量无失败之后，才开始该规格第一章以后的改动。
+工程放行要求全量测试、分支与公共接口覆盖、风格、文档链接通过；还要在同一干净提交的隔离 worktree 上
+用 Uncle Bob 语义突变检验同刻上限、能量截断、唤醒闭集、提醒只触发一次、名额释放与内部身份不进提示。
+存活突变必须补测后以原补丁复验。练秋湖与 r14 场景的真实复验只报告，不作门禁。
 
 ### 工程门禁
 
@@ -171,8 +181,8 @@ LabelKit 完整自然日交付对应「真实端到端」。三行状态均未�
 | 地点与人物 | 地点菜单和人物菜单逐字段取交集并确定性排序；同内容换地点、同地点换人物都产生预期差异，菜单不能增加任一来源未允许的工具或活动类型 |
 | 冻结观察 | `observation.data.interaction_menu` 保存本轮有效菜单；同一决策重试不重取，换地点后只在下一次观察更新；原始人物和地点声明不进入 user 消息 |
 | 菜单执行 | 实际模型 Schema、本地校验、直接宿主派发与环境结算落实同一菜单资格；工具、活动类型、下钻品类及恢复请求不能绕过；宿主本地校验与直接派发以英文 `RuntimeError` 失败关闭并留错误日志，环境菜单拒绝返回 `INTERACTION_MENU_DENIED` |
-| 既有门控 | 日首计划、单动作阶段、回合预算、可见目标、能量和活动控制继续收窄；休息、睡眠与既有活动收尾可用，禁止的暂停活动仍可取消但不能恢复 |
-| 副作用 | 菜单拒绝不扣款、不消费、不启动或恢复活动、不推进游戏、不发送消息；被禁工作不调用独立评审；幂等重放不重做领域动作、不重复增加拒绝计数，重放证据标记 `reused=true` |
+| 既有门控 | 单动作阶段、回合预算、可见目标与活动控制照常收窄；不按人物状态与能量隐藏动作，没有日首计划；有待收尾活动时先收尾；只有同刻上限的受限轮另行收窄；休息、睡眠与既有活动收尾可用，禁止的暂停活动仍可取消但不能恢复 |
+| 副作用 | 菜单拒绝不扣款、不消费、不启动或恢复活动、不推进游戏、不发送消息；被禁工作不调用独立评审；幂等重放不重做领域动作、不重复增加拒绝计数，重放轮计入同刻轮数，重放证据标记 `reused=true` |
 | 候选不变 | 菜单不删除候选、事实或 `affordance_contract`，不改变排除原因计数、呈现上限、游标及轮转；只影响下钻入口和启动资格 |
 | 身份与恢复 | 菜单变化改变场景身份；固定办公室散文删除改变静态工具模板身份而不改变 system 模板身份；场景、代码或工具身份漂移均拒绝打开和恢复 |
 | 真实边界 | LifeAgent、LifeEngine、SQLite 与跨轮观察实际贯通，含允许动作、禁止直接请求和到达新地点后的菜单刷新 |
@@ -271,7 +281,7 @@ flowchart LR
 | 排除留痕 | 每个被排除项携带原因码，原因码取自闭集；地点不可行与资源冲突是两个可区分的原因码；被地点门挡下的条目在观察里带原因码出现 | 任一条目被排除而不带原因码；原因码自由拼字符串、非常量；被挡项从列表里静默消失；「没显示」与「不存在」在观察里不可区分 | 协议门禁（放行条件） |
 | 呈现上限 | 单次呈现条数不超过场景常量；池规模上限与单次呈现上限是两个独立的量，池上限不直接充当呈现条数 | 呈现条数超限而未被判为运行故障；超限时静默截断到上限；呈现条数直接取池规模上限或更大的数 | 协议门禁（放行条件） |
 | 下推游标 | 逐页取尽后的序列与一次性全量取出的有序序列逐项相同，无重无漏；游标只由 `(冻结目录, 世界状态版本, 排序键版本, 游标)` 决定 | 分页出现重复项或缺项；游标是偏移量式页码且在深分页时不稳定；游标依赖运行时刻或缓存 | 协议门禁（放行条件） |
-| 最大未呈现间隔 | 给定池规模 `N`、每次名额 `k`、每天决策点 `D`，实测最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D`；断言使用该精确形式上界，可达率小于一的分区按有效决策点 `D × 可达率` 计算 | 实测最坏间隔超过闭式上界；断言写成连续松弛 `N ÷ (k × D)` 或硬编码天数；只按理论决策点计算而忽略可达率 | 协议门禁（放行条件） |
+| 最大未呈现间隔 | 给定池规模 `N`、每次名额 `k`、每天决策点 `D`（有 `decision_started` 的不同模拟秒数，每人物每天；同一秒的多轮沿用首轮呈现窗口，只计一次，见 `docs/EXPERIMENT.md`「决策点节奏」；同刻轮次出现前两种计法相同），实测最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D`；断言使用该精确形式上界，可达率小于一的分区按有效决策点 `D × 可达率` 计算 | 实测最坏间隔超过闭式上界；断言写成连续松弛 `N ÷ (k × D)` 或硬编码天数；只按理论决策点计算而忽略可达率 | 协议门禁（放行条件） |
 | 轮转非破坏性 | 轮转前后目录逐字节不变；世界状态里对象状态不变；不产生下架事件；两次投影里同一会话内可乱序，但同一输入两次投影逐字节相同 | 轮转产生目录变更或下架事件；轮转改写任一对象状态；轮转结果不可复现；轮转判据读取互动次数或任何偏好估计量 | 协议门禁（放行条件） |
 | 工具描述与提示黑名单一致 | 工具描述文本里出现的字段引用（形如 `名称.字段`）全部不在观察黑名单内 | 工具描述里出现黑名单字段引用（当前实存一例：`play_game uses game_catalog[].game_id`，而 `game_catalog` 在黑名单里）；描述与观察合同指向的字段不一致 | 协议门禁（放行条件） |
 | 文档链接可解析 | 仓库内文档互相引用的路径全部存在 | 任一被引用的仓库内路径不存在；引用指向已删除的文件 | 协议门禁（放行条件） |
@@ -290,9 +300,9 @@ flowchart LR
 
 | 报告项键 | 说明 |
 | --- | --- |
-| `decision_prompt_token_median` | 决策 `model_request` 的 prompt token 中位数；随附 `target_reference` 15000 只作对照 |
-| `effective_autonomous_decision_rate` | 最终动作既非 continue 也非 wait 的决策占比 |
-| `wake_reason_distribution` | 各 `wake_reason` 计数 |
+| `decision_prompt_token_median` | 决策 `model_request` 的 prompt token 中位数，排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求；随附 `target_reference` 15000 只作对照 |
+| `effective_autonomous_decision_rate` | 最终动作既非 continue 也非等待的决策占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 |
+| `wake_reason_distribution` | 各 `wake_reason` 计数，分两份：边界取共同身体结算，决策轮取 `decision_started` |
 | `wait_minutes` | wait 活动总分钟 |
 | `early_arrival_minutes` | 到达地点早于开门的分钟 |
 | `sleep_schedule` | 就寝与起床时刻、睡眠时长，与人物卡片就寝窗口比较 |
@@ -304,13 +314,15 @@ flowchart LR
 | `deliberate_goals` | 家族活动证据支持的目标推进率，含修订丢弃项；只报告，缺外部参照为 null |
 | `external_constraints` | 受阻错误码分布与已判定动作接受率；受阻次数另进入质量门禁 |
 | `partition_reachability` | 逐条目的可检索分区归属与不可达条目清单；准入判定本身是全有或全无的门禁（见「工程门禁」的候选与呈现一致性），本键只是把判定过程留在报告里，不额外判定 |
-| `rotation_wait_interval` | 每个检索分区的实测最坏未展示间隔、闭式上界 `⌈N ÷ k⌉ ÷ D` 与可达率取值；上界对照的门禁判定见「工程门禁」，本键只把逐分区取值留在报告里 |
+| `rotation_wait_interval` | 每个检索分区的实测最坏未展示间隔、闭式上界 `⌈N ÷ k⌉ ÷ D` 与可达率取值，`D` 为有 `decision_started` 的不同模拟秒数（每人物每天；同一秒的多轮沿用首轮呈现窗口，只计一次，见 `docs/EXPERIMENT.md`「决策点节奏」；同刻轮次出现前两种计法相同）；上界对照的门禁判定见「工程门禁」，本键只把逐分区取值留在报告里 |
 
 三层的分组、分母、去重和缺样本合同见 [当日目标规格](dev/SPEC-day-plan-goals.md#度量输出合同)。
 `external_constraint_block_count` 是新增运行质量门禁：完整证据且受阻次数等于零才通过；
 正确的环境拒绝也是运行受阻，不能因此报告为引擎实现错误。目标推进不证明文字目标已完成。
+引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入
+`other_rejections`，不计外部约束受阻。
 
-活动分布的口径固定为：外出并入通勤，wait 计入休息，consume 计入用餐（含 use 模式），
+活动分布的口径固定为：外出并入通勤，wait 计入休息，consume 仅在有 eat 正实际进度时计入用餐，use 模式未归类，
 参照的看电视与休闲娱乐合并为屏幕娱乐 165 分钟，休息与家务并入无参照桶。
 
 外部参照仅为 2018 年全国时间利用调查公报，各项口径不同、均为居民均值：
@@ -354,23 +366,24 @@ flowchart LR
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | AS2 接入 | 真实注册、实例化、工具 Schema、人物观察和动作调用 | `tests/integration/`、AS2 vendor `test_direct_router.py` 与真实短窗口运行 | 离线覆盖，真实运行待执行 |
-| 时间一致 | 更早结束与多人睡眠、同秒事件、媒体倍速、实验截断 | `tests/life/test_engine_feedback.py`、`tests/life/test_activities.py`、AS2 vendor `test_society_decision_round.py` | 离线覆盖 |
+| 时间一致 | 更早结束与多人睡眠、同秒事件、媒体倍速、实验截断、决策不耗时、同秒多轮不推进 | `tests/life/test_engine_feedback.py`、`tests/life/test_activities.py`、AS2 vendor `test_society_decision_round.py` | 离线验收待执行 |
 | 自主选择 | 拒绝不改写选择、重复观看、反馈后继续或退出 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py`、`tests/life/test_content_game.py` | 离线覆盖 |
-| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py` | 离线覆盖 |
+| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款、能量 0 截断 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py` | 离线验收待执行 |
 | 工作生产 | 原始材料、独立语义验收、有限协议纠正、返工、套餐、计时与计件 | `tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py`、`tests/life/test_work_contracts.py` 与真实 DeepSeek 正反工作审阅收据 | 离线覆盖，真实运行待执行 |
 | 内容知识 | 邮件到达、未来字幕隔离、隐藏参考、游戏恢复 | `tests/life/test_content_game.py`、`tests/corpora/test_corpora.py` | 离线覆盖 |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints/`、`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py` | 离线覆盖 |
-| 决策协议 | 有限回合错误反馈、原子拒绝、合法 finish、非法引用、完整证据、致命异常不返工 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` | 离线覆盖 |
+| 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束、记忆无 refs、完整证据、致命异常不返工 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` | 离线验收待执行 |
 | 共同恢复 | 世界、人物、记忆和游戏一致，坏快照拒绝，父目录不变 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py` 与实际 resume／replay | 离线覆盖，真实运行待执行 |
-| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py` | 离线覆盖 |
+| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口不含 `conclude_activity.memories`，动作窗口保留完整请求；检查点结构版本与当前不符时交付被拒 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py` | 离线验收待执行 |
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation/`、`tests/footprints/test_quality.py`、实际十二周 export／quality 与评估报告 | 离线覆盖，真实运行待执行 |
-| 决策节律 | 无唤醒条件的边界不调用模型且留痕、每类唤醒条件各触发一次、常规与空闲间隔、精确威胁边界、睡眠不被打断 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py` | 离线覆盖 |
-| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线覆盖 |
-| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` | 离线覆盖 |
-| 两阶段决策 | 决策自述阶段无工具且落库、行动阶段回传 `reasoning_content`、决策自述进入行动请求、finish 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_agent_react_validation.py` | 离线覆盖 |
-| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、交谈需共同在场、社交需要结算 | `tests/life/test_social.py` | 离线覆盖 |
+| 决策节律 | 无唤醒条件的边界不调用人物决策模型且留痕、每类有触发来源的唤醒条件各触发一次（`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生）、常规与空闲间隔、精确威胁边界、睡眠只被睡眠允许原因打断、计划提醒与进行中活动的播报 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py` | 离线验收待执行 |
+| 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变 | `tests/life/test_same_moment_decisions.py` | 离线验收待执行 |
+| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减、低能量两档饥饿显示、作息初值 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线验收待执行 |
+| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败、商品热量与路线费力标签、饿时吃饭途径句、提示无内部身份 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` | 离线验收待执行 |
+| 两阶段决策 | 决策自述阶段无工具且落库、行动阶段回传 `reasoning_content`、决策自述进入行动请求、`conclude_activity` 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_agent_react_validation.py` | 离线验收待执行 |
+| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、社交需要结算；交谈要求双方在场且都不在途中，对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复；联系人回复预排送达 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py` | 离线验收待执行 |
 | 画像编译 | 卡片字段完备、关系与时间锚点、覆盖率不足拒绝、大五与随机浮点不进提示 | `tests/profile/`、`tests/integration/test_persona_profile.py` | 离线覆盖 |
 | 行为指标 | 指标可复现、按代码摘要分组、协议门禁阈值、行为分布只报告不裁定 | `tests/evaluation/test_behavior_metrics.py` | 离线覆盖 |
 | 候选与呈现一致性 | 候选确定性、软偏好不出局、排除留痕、呈现上限、下推游标、最大未呈现间隔、轮转非破坏性、工具描述与提示黑名单一致、文档链接可解析、素材可达性 | `tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_wiring.py`、`test_candidate_contract_boundaries.py`、`test_retrieval.py`、`tests/catalog/test_reachability_admission.py`、`tests/test_documentation_gate.py` | 离线覆盖 |
@@ -421,7 +434,7 @@ flowchart LR
     F --> H
 ```
 
-适配保留的层次依次为证据事件、活动会话与自然日，每条原始事件恰好映射一次。不把一个会话里的多个屏幕帧当成多个生活行为，
+适配保留的层次依次为证据事件、活动（评估代码名 `ActivitySession`，与地点会话无关）与自然日，每条原始事件恰好映射一次。不把一项活动里的多个屏幕帧当成多个生活行为，
 不把没有记录直接认定为睡眠。缺失渠道与未知类别进入明确的支持掩码和覆盖分母，不能计为零质量，更不能自动补齐。
 WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评分或盲评。
 
@@ -502,3 +515,10 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | `2026-09-18-revision-2` | 2026-09-18 | 消除与其他文档的逐字复述：合同与条款原文改为按章节名引用（`docs/CONTRACTS.md`「人物工具与管理接口」「资金事件字段」「数据集字段与划分」、`docs/design/05-recording-engine.md`「事务与失败处理」「失败分类」「导出认证」「重放与重新调用的区别」、`docs/dev/SPEC-labelkit-delivery.md`「来源关联」），验收判据改用本文件自己的可观察表述；门禁集合、阈值、测试矩阵的证据位置与状态列语义不变 |
 | `2026-09-19-revision-1` | 2026-09-19 | 「工程门禁」补「候选与呈现一致性」节：候选确定性、软偏好不出局、排除留痕、呈现上限、下推游标、最大未呈现间隔、轮转非破坏性、工具描述与提示黑名单一致、文档链接可解析九项判据逐条给出通过与失败判据并标为协议门禁；补素材可达性与画像覆盖率的独立判定说明；「报告项」补 `partition_reachability` 与 `rotation_wait_interval` 两个报告键；测试矩阵补一行。依据为 `.work/object-model-reanalysis/REPORT.md`「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」与同目录 `LOCATION-GRANULARITY.md` |
 | `2026-09-20-interaction-menu` | 2026-09-20 | 新增交互菜单完整工程门禁与测试矩阵；按现有实现及追溯证据移除候选与呈现“待落地”的过期状态 |
+| `2026-09-20-decision-context` | 2026-09-20 | 补登 `32e815e`、`f8a55e2`、`6659b00`：「工程门禁」新增「决策上下文」门禁并链接其验收记录；文件头状态句与日期改写；测试矩阵「两阶段决策」行的「独白」改为「决策自述」 |
+| `2026-09-20-category-contract` | 2026-09-20 | 补登 `c582330`、`02a54dd`：新增「品类契约特性门禁」；文件头状态句改为各特性工程门禁的执行结果以对应验证记录为准，日期改写 |
+| `2026-09-20-interaction-menu-verified` | 2026-09-20 | 补登 `b9e0dc2`：测试矩阵「交互菜单」行状态改为离线验收通过，证据改指主线验收记录 |
+| `2026-09-20-map-and-storefront` | 2026-09-20 | 补登 `2bce358`、`7c634a7`、`70af9a7`、`761241c`：新增「地图与门店供给」门禁及其验收记录链接；合并时补「品类与供给组合」行；主线组合验收后补「提交失败与重试」行与主线组合验收链接；放行图离线层改为按特性和源码身份验证；测试矩阵增「地图与门店供给」行，「交互菜单」行状态随组合验收改写；「实施顺序」的世界状态版本改为 4 并拒绝旧格式 |
+| `2026-09-21-day-plan-goals` | 2026-09-21 | 补登 `2d97d3d`：新增「当日目标特性门禁」；协议门禁说明改为既有四项未整体接入生产质量导出，当日目标度量进入 `quality.json.day_plan_metrics`；报告项删 `plan_actual_deviation`，增 `habitual_consistency`、`deliberate_goals`、`external_constraints` 与外部约束门禁说明；测试矩阵「决策节律」行与「实施顺序」的日程骨架改为当日目标口径 |
+| `2026-09-21-dayrun-behavior` | 2026-09-21 | 补登 `d998a31`：新增「一日行为可信性特性门禁」；`silent_boundary_ratio` 判定对象改为每人唯一共同身体结算的清醒边界；「地图与门店供给」与「实施顺序」的世界版本改为 5；文件头日期改写 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](dev/SPEC-time-and-energy.md)冻结：当日目标特性门禁补 `remind_time`、零点计划与提醒的覆盖面，人物工具闭环限 `revise_day_plan`，空计划门控注明只对应当时源码；新增「时间与能量特性门禁」；交互菜单「既有门控」改为不按状态与能量隐藏、无日首计划、待收尾先收尾、只有同刻上限的受限轮另行收窄，重放轮计入同刻轮数；报告项的决策统计排除零点计划请求，被动轮与控制轮分列，唤醒原因分边界与决策轮两份，引导性拒绝计入 `other_rejections`，consume 用餐口径对齐源码；轮转上界的 `D` 按有 `decision_started` 的不同模拟秒计；测试矩阵按新行为改写并增「同刻决策」行，改动行记离线验收待执行（联系人回复按裁决 #21 预排送达）；真实性评估的「活动会话」改为「活动」。协议门禁口径、「地图与门店供给」与「实施顺序」的版本措辞随对应实施阶段落地，届时另追加版本行 |

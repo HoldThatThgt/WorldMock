@@ -100,13 +100,13 @@ flowchart LR
 
 **窗口构造规则**：
 
-- 动作窗口使用目标动作前同人物、同决策的最后一条实际行动 `model_request`，保存模型真正收到的 system、user、工具定义和历史消息；原请求事件身份与 canonical 摘要随窗口发布。缺失或不匹配时失败，不从观察字典猜测 prompt。
+- 动作窗口使用目标动作前同人物、同决策的最后一条实际行动 `model_request`，保存模型真正收到的 system、user、工具定义和历史消息；原请求事件身份与 canonical 摘要随窗口发布。缺失或不匹配时失败，不从观察字典猜测 prompt。带 `purpose="plan_day"` 的零点计划请求不作动作 prompt。
 - 意图窗口沿用同一实际请求作为当时决策的上下文，知识截止可以包含后来已经发生且公开的结果；请求后的未来目标与私有模型输出不进入输入。
 - 前置状态只在窗口开始前已经观察过时给出；若同一观察已在 `events` 中，只保留引用，不复制 `events[0].data`；没有可依据的观察时明确标为未观察。
 - 边界类型区分活动完成、容量切断与实验结束，不从未来目标推测边界；窗口内的活动边界只保留真正观察到的完成、取消、失败与截断原因。
 - 人物可见的素材引用在此展开为实际内容；文本与结构化素材给出正文，二进制素材保留模态引用；内容与引用摘要不符时立即失败。
-- 动作与意图窗口仅从上述实际人物请求提取模型可见输入，不把原始私有事件、人物响应、reasoning、记忆更新或工作评审请求整体复制进证据；dreaming 窗口按当日可见经历读取决策自述与观察场景。
-- 观察事件按字段级公开投影，禁用的菜单、能量可行性、可供性合同、游戏目录与内部状态不能因事件 `visibility=agent` 而进入输入。目标 `outcomes` 只收动作相关的公开结算事件，排除全部私有事件。
+- 动作与意图窗口仅从上述实际人物请求提取模型可见输入，不把原始私有事件、人物响应、reasoning、记忆更新或工作评审请求整体复制进证据；dreaming 窗口按当日可见经历读取决策自述与观察场景。`conclude_activity.memories` 不进意图与 `dreaming` 输入，动作目标保留完整参数。
+- 观察事件按字段级公开投影，禁用的菜单、可供性合同、游戏目录与内部状态（旧导出另含能量可行性）不能因事件 `visibility=agent` 而进入输入。目标 `outcomes` 只收动作相关的公开结算事件，排除全部私有事件。
 - 追溯性证据只并入当前观察明示暴露的先前结果，并且必须以截止前同人物可见的权威结果为准；引用不得指向观察本身或截止之后。
 - 可见来源按请求人物核对，同一不透明标识跨人物复用时的判定见 `docs/CONTRACTS.md`「窗口声明与字段字典编码」；不依赖标识字符串的组成方式代替人物字段校验，也不静默删掉冲突来源后继续发布。
 - 自然日归属由场景时区决定；排他实验终点的结算事件归入最后一天，不产生额外空白自然日。
@@ -225,7 +225,7 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | 输入范围与认证导出 | 只有通过完成标志、运行身份、文件哈希、行数与因果引用的导出才进入加工；不完整或被篡改的导出永不进入 LabelKit | `tests/footprints/test_validation.py` 的 `test_production_windows_require_and_accept_complete_authenticated_export`、`test_incomplete_or_tampered_export_never_reaches_labelkit`；`tests/delivery/test_publication.py` 的 `test_invalid_source_never_creates_delivery_or_runs_model` | 复跑通过 |
 | 知识截止与未来泄漏 | 动作输入看不到下一步动作的答案，意图截止时刻显式声明；被观察到的先前结果以直接证据并入而不移动截止；公开窗口身份不由未来目标决定 | `tests/delivery/test_windows.py` 的 `test_action_history_never_sees_future_answer_and_intent_cutoff_is_explicit`、`test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cutoff`、`test_action_public_identity_is_independent_of_the_future_target` | 复跑通过 |
 | 跨人物来源隔离 | 同一不透明标识跨人物复用时明确拒绝；不同人物分组与系统事实正常受理 | `tests/delivery/test_windows.py` 的 `test_authenticated_export_rejects_cross_agent_action_group`、`test_authenticated_export_accepts_distinct_agent_groups_and_system_facts` | 复跑通过 |
-| 私有载体边界 | 动作与意图窗口不含决策自述载体；dreaming 窗口读取当日决策自述与观察场景 | `tests/delivery/test_windows.py` 的 `test_dreaming_window_reads_decision_statement_and_scene`、`test_action_and_intent_windows_still_exclude_the_decision_statement_carrier` | 复跑通过 |
+| 私有载体边界 | 动作与意图窗口不含决策自述载体；dreaming 窗口读取当日决策自述与观察场景；意图与 `dreaming` 输入不含 `conclude_activity.memories` 正文，动作目标保留完整请求 | `tests/delivery/test_windows.py` 的 `test_dreaming_window_reads_decision_statement_and_scene`、`test_action_and_intent_windows_still_exclude_the_decision_statement_carrier`；同文件新增用例「带记忆的 `conclude_activity` 不泄露记忆正文」（随时间与能量规格实施计划阶段 3 落地） | 复跑通过 |
 | 观察结果引用的合法性 | 被引用的结果必须解析到同人物可见、且在观察之前的权威事件；摘要与权威事件不一致时拒绝 | `tests/delivery/test_windows.py` 的 `test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event`、`test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself` | 复跑通过 |
 | 自然日归属 | 排他实验终点的结算不产生额外训练日 | `tests/delivery/test_windows.py` 的 `test_midnight_experiment_end_does_not_create_an_extra_training_day` | 复跑通过 |
 | 语义候选与真值分离 | 生成与评审请求对目标盲视；候选不得包含未来事实或原始字段；四字段组装发生在评审通过之后 | `tests/delivery/test_labelkit_process.py` 的 `test_real_labelkit_annotate_and_verify_requests_are_target_blind`；`tests/delivery/test_training.py` 的 `test_candidate_cannot_include_future_facts_or_original_fields`、`test_target_candidate_is_validated_before_four_field_assembly`、`test_target_event_identities_are_added_only_after_semantic_review` | 复跑通过 |
@@ -253,3 +253,4 @@ LabelKit 的固定文件、进程内跨计算组处理与跨独立执行恢复�
 | `2026-09-18-revision-2` | 2026-09-18 | 复述去重：窗口编码收益判定、编码身份绑定、连通组划分、候选组装时机、动作目标与调用配置句改为引用 `docs/CONTRACTS.md` 对应章节；导出原则、来源关联、语义评审与返工、假设标签、反事实材料与夹具备注改写为本规格措辞；验收矩阵列头保留与 `docs/VERIFICATION.md`、`docs/design/05-recording-engine.md` 一致的骨架形式。技术结论、参数、阈值与验收判定标准未变。 |
 | `2026-09-18-revision-3` | 2026-09-18 | 降阈回声清扫：前几轮探针阈值（十二字符、八汉字）以下的合同复述句改为按 `docs/CONTRACTS.md` 章节名引用——运行报告口径、原始真值暴露时机、编码身份绑定、超限的失败口径、语义返工的独立评审要求、反事实干预的施加时机、指针取值形式、交付命令的失败状态与发布边界；本规格自有的评审要求（身份字段反推禁则）换用本文件措辞。技术结论、参数、阈值与验收判定标准未变。 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 27 行只作澄清，不改条款语义：带 `purpose="plan_day"` 的零点计划请求不作动作 prompt；`conclude_activity.memories` 不进意图与 `dreaming` 输入，动作目标保留完整参数；能量可行性只见于旧导出；验收矩阵的私有载体边界补同一口径。补记未入表的就地改动：2913546（动作与意图窗口以认证导出中的实际行动 `model_request` 为 prompt 权威来源，前置状态不复制已在 `events` 中的观察，观察事件按字段级公开投影，来源索引绑定实际请求身份与摘要） |

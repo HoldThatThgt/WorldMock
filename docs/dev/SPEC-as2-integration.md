@@ -2,7 +2,7 @@
 
 > 状态：FROZEN——条款已裁决并冻结；AS2 分支改动与确定性测试守卫均已落地，正式 DeepSeek 十二周运行仍待真实运行（测试基线与收据见 `docs/dev/implementation-status.md`）
 > 日期：2026-09-18
-> 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（`849bac78`，基线提交 `670c94ff`）
+> 实施基线：WorldMock `9b7fbc8`；AS2 分支 `vendor/agentsociety2` 的 `worldmock-life`（锁定提交 `8768e14`，基线提交 `670c94ff`）
 > 范围：WorldMock 对 AgentSociety 2（下称 AS2）的选型理由与复用边界、分层职责，以及 AS2 核心链路为本次场景必须发生的确定性改动
 
 本文定义 WorldMock 对 AS2 的改动行为与改动理由。接口签名、字段、枚举与提示词模板只在
@@ -61,7 +61,7 @@ flowchart TD
     TOOL --> MSG[观察记录单写：同一观察不重复出现]
     MSG --> MEM[记忆运行时：空列表、巩固触发、相似合并]
     MEM --> ADV[时间推进：按接口的时间对账推进]
-    ADV --> CK[恢复与检查点：完整推进边界，父目录不变]
+    ADV --> CK[恢复与检查点：决策轮或推进边界，父目录不变]
     ACT -.致命异常.-> FAIL[失败传播：向上报告并停止运行]
     ACT -.任务出口.-> LIFE[模型客户端生命周期：关闭 Router 回调]
 ```
@@ -74,19 +74,25 @@ flowchart TD
 
 **改动行为**：
 1. 环境用 `scheduling_state()` 给出可决策人物与下一个事件时刻
-2. Society 只执行就绪人物的 batch
-3. 收齐动作提案后环境有序结算
-4. Society 查询新的下一时间边界并推进
+2. 有人就绪就执行一轮：Society 只执行就绪人物的 batch，收齐动作提案后环境有序结算
+3. 结算后再查询；仍有人就绪则不推进，同一时刻再执行一轮
+4. 无人就绪时才取下一时间边界并 `env.step`；每步形成共同检查点
+
+锁定的 AS2 `8768e14`（`society/society.py:224-240`）已如此实现。
 
 **算法**：
 ```
 while 未到场景终点:
     sync_time_and_wait_completion()
     ready_agents = env.scheduling_state().decidable_agents
-    execute_batch(ready_agents)
-    env.commit_decision_round(round_id)
+    if ready_agents:
+        execute_batch(ready_agents)
+        env.commit_decision_round(round_id)
+        checkpoint()
+        continue  # 再查询；仍有人就绪则不推进
     next_time = env.scheduling_state().next_event_time
     env.step(tick=next_time - current_time, t=next_time)
+    checkpoint()
 ```
 
 **验证**：睡眠人物不反复调用模型；新活动的较早结束时间不会被跨过。接口见 `docs/CONTRACTS.md`「生命周期」。
@@ -135,7 +141,7 @@ result = env.submit_action(call, context=context, action_id=action_id)
 **改动行为**：
 1. 保存失败、必要观察失败、人物执行失败向上报告并停止运行
 2. 删除合成结束结果和只保留 `finish` 的路径
-3. 决策预算用尽即失败；`finish` 不得与其他工具同批返回
+3. 生活决策在世界请求登记后由 LifeAgent 覆写的 `_run_react_turn` 结束本轮，AS2 锁定提交不改；回合预算耗尽仍无登记的世界请求即失败。只读问答保留 `finish`，`finish` 不得与其他工具同批返回
 4. 记忆校验失败、必要归纳失败与保存失败向上传播
 5. 必要观察和证据保存的致命异常穿过原有 catch 分支传播，不把空观察或持久化故障转换成可继续的普通工具结果
 
@@ -149,13 +155,17 @@ except Exception as e:
     # 改后：raise，终止运行并保存失败证据
     raise RuntimeError(f"Environment save failed: {e}")
 
-# ReAct 预算耗尽
-if remaining_turns == 0 and not has_valid_finish:
+# 生活决策：LifeAgent 覆写 _run_react_turn，世界请求登记即结束本轮
+if world_request_registered:
+    return end_turn()
+
+# ReAct 预算耗尽：生活决策无登记的世界请求，只读问答无有效 finish
+if remaining_turns == 0 and not (world_request_registered or has_valid_finish):
     # 改前：synthesize_result()
     # 改后：raise DecisionBudgetExhausted
-    raise DecisionBudgetExhausted("No valid finish within budget")
+    raise DecisionBudgetExhausted("No registered world request or valid finish within budget")
 
-# finish 与其他工具冲突
+# 只读问答：finish 与其他工具冲突
 if 'finish' in tool_calls and len(tool_calls) > 1:
     # 改前：keep_only_finish()
     # 改后：reject_all_with_protocol_error()
@@ -175,7 +185,7 @@ if 'finish' in tool_calls and len(tool_calls) > 1:
 1. `society/society.py` 的恢复入口改为接收父运行检查点与新的目标目录
 2. 全部恢复成功才启动
 3. 删除恢复失败后新建环境继续的路径
-4. 每个完整推进边界收一个共同检查点；恢复时校验世界、人物和时钟
+4. 每个决策轮或推进边界收一个共同检查点；恢复时校验世界、人物和时钟
 
 共同检查点材料、存储校验与分支保存以[记录引擎](../design/05-recording-engine.md#恢复与反事实分支)为准；
 参与者恢复、启动顺序与失败停止属于[模拟引擎的恢复编排](../design/04-simulation-engine.md#9-恢复与反事实运行编排)，
@@ -217,7 +227,7 @@ def restore(workspace_path):
 **问题**：AS2 原实现把空记忆列表当作错误，巩固触发只认单条偏好记忆，巩固提示携带示例身份，相似的同类记忆被重复追加。
 
 **改动行为**：记忆规则本身见 `docs/dev/SPEC-life-realism.md`「记忆合同」，本节只登记 AS2 侧改动：
-1. `agent/memory_runtime.py`、`agent/memory.py` 允许 `finish` 提交空记忆列表
+1. AS2 侧不再为时间与能量特性改动：`conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 原路径写入，空数组合法（`agent/memory_runtime.py`、`agent/memory.py` 已允许空记忆列表）
 2. 巩固触发改按「记忆合同」的条件判定，不再由单条偏好记忆触发
 3. 巩固提示改传人物卡片、改用人物语言、去掉示例身份
 4. 写入前改按「记忆合同」的相似度窗口合并
@@ -325,9 +335,12 @@ observation_record = {
 - 使用现有环境注册、工具声明、共享 actor 和生命周期
 
 **不做的事**：
-- 不代替 AS2 管理模型调用
+- 不代替 AS2 管理人物的模型调用
 - 不维护独立的人物工作区
 - 不重写决策循环
+
+零点计划 `plan_day` 与联系人回复一样，是运行时的后台模型调用，由 LifeEnv 在推进之后、启动路径的检查点之后与普通恢复的
+`init` 中调用，不经人物、不改人物工作区。
 
 ### LifeAgent 职责
 
@@ -350,15 +363,15 @@ observation_record = {
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 决策调度 | 只对就绪人物执行 batch；收齐动作后按环境顺序结算，再取下一时间边界；下一边界必须是未来时刻且不含重复人物 | `AS2 分支测试目录/test_society_decision_round.py`（`test_society_uses_environment_order_then_commits`、`test_society_redecides_before_advancing_when_agent_remains_ready`）、`AS2 分支测试目录/test_decision_round.py`（`test_scheduling_state_requires_future_boundary`、`test_scheduling_state_rejects_duplicate_agents`） | 代码层已验证 |
+| 决策调度 | 只对就绪人物执行 batch；收齐动作后按环境顺序结算；有人就绪不推进，无人就绪才取下一时间边界；下一边界必须是未来时刻且不含重复人物 | `AS2 分支测试目录/test_society_decision_round.py`（`test_society_uses_environment_order_then_commits`、`test_society_redecides_before_advancing_when_agent_remains_ready`）、`AS2 分支测试目录/test_decision_round.py`（`test_scheduling_state_requires_future_boundary`、`test_scheduling_state_rejects_duplicate_agents`） | 代码层已验证 |
 | 时间约定统一 | 推进同时满足三条：`tick` 严格为正、**时间对账成立**（见 `docs/CONTRACTS.md`「生命周期」）、且命中下一个调度边界 | `tests/life/test_engine_branch_coverage.py::test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary`、`tests/integration/test_env_lifecycle_coverage.py`（`env.step(tick, next_event_at)` 调用形） | 代码层已验证 |
 | 确定性工具调用与身份绑定 | 决策上下文不可变且身份完整；直接工具调用必须携带已校验请求；一次决策只提交一个宿主绑定动作，宿主字段不出现在工具 Schema | `tests/integration/test_life_agent_protocol.py`（`test_native_react_submits_one_host_bound_life_action`、`test_life_agent_schema_is_closed_and_host_fields_are_hidden`）、`AS2 分支测试目录/test_decision_round.py`（`test_decision_context_is_immutable_and_complete`、`test_direct_tool_call_requires_validated_request`） | 代码层已验证 |
 | 工具面与证据回调 | 只暴露生活与记忆工具，工具 Schema 指纹与注册表摘要绑定；一次决策的模型消息为三段，观察写一次 | `tests/integration/test_life_agent_protocol.py`（`test_life_tool_schema_fingerprint_pins_registry_digest`、`test_react_messages_are_three_parts_and_observation_written_once`） | 代码层已验证 |
-| 失败传播 | 预算耗尽、工具执行失败、证据写入失败均致命且不触发新的模型调用；`finish` 与其他工具同批时整批拒绝且无部分执行 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_loop_exhaustion_is_fatal`、`test_finish_mixed_with_action_is_rejected_atomically`、`test_mixed_batch_is_rejected_without_partial_execution`、`test_tool_execution_failure_is_fatal_without_new_model_call`）、`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit` | 代码层已验证 |
+| 失败传播 | 回合预算耗尽仍无登记的世界请求、工具执行失败、证据写入失败均致命且不触发新的模型调用；只读问答的 `finish` 与其他工具同批时整批拒绝且无部分执行 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_loop_exhaustion_is_fatal`、`test_finish_mixed_with_action_is_rejected_atomically`、`test_mixed_batch_is_rejected_without_partial_execution`、`test_tool_execution_failure_is_fatal_without_new_model_call`）、`tests/integration/test_life_agent_protocol.py::test_memory_persistence_failure_aborts_society_before_commit` | 代码层已验证 |
 | 必要观察与证据保存 | 响应证据写入失败是致命错误且不再发起模型调用；空观察或持久化故障不转换成可继续的普通工具结果 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_response_evidence_failure_is_fatal_without_new_model_call`、`test_unserializable_response_is_fatal_without_protocol_feedback`） | 代码层已验证 |
 | 恢复与检查点 | 缺少快照、校验失败或记忆损坏时立即终止，不发布子分支；完整检查点保留父目录与精确工作区 | `tests/integration/test_runtime.py`（`test_restore_rejects_corrupt_used_memory_before_branch_publish`、`test_counterfactual_branch_freezes_intervention_before_publish`）、`tests/footprints/test_store.py`（`test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`、`test_incomplete_checkpoint_never_creates_child`）、`tests/life/test_counterfactual.py` | 代码层已验证 |
 | 决策自述与推理内容保留 | 默认钩子正常路径发起一次无工具调用；LifeAgent 对空白或超长自述最多重试一次；带 `tools` 的后续请求与协议反馈保留 `reasoning_content`；无推理时省略该键；自述文本作为模型响应证据落库 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_prelude_decision_statement_hook_runs_one_toolless_call`、`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence`、`tests/integration/test_decision_context_protocol.py` | 代码层已验证 |
-| 记忆运行时改动 | 空记忆列表合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`） | 代码层已验证 |
+| 记忆运行时改动 | `conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 写入，空数组合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`）；`conclude_activity.memories` 路径的用例随时间与能量规格实施计划阶段 3 落地 | 代码层已验证 |
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `AS2 分支测试目录/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_three_parts_and_observation_written_once`、`AS2 分支测试目录/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message` | 代码层已验证 |
 | 与 LabelKit 的进程隔离 | 交付程序校验独立环境 CLI 的调用生命周期与最终判定，产物清单与来源绑定不匹配时拒绝交付 | `tests/delivery/test_labelkit_process.py`（`test_trace_binding_requires_successful_lifecycle_and_final_verdicts`、`test_process_rejects_candidate_source_mismatch`）、`tests/delivery/test_host_delivery_coverage.py`（`test_deliver_success_path_publishes_full_manifest`、`test_file_inventory_rejects_symbolic_artifacts`） | 代码层已验证 |
@@ -374,3 +387,4 @@ observation_record = {
 | 4 | 2026-09-18 | 时间对账不再复述接口原文：时间约定统一的对账条件改按本规格措辞描述，接口表述引用 `docs/CONTRACTS.md`「生命周期」。改动归属、技术结论与验收标准未变。 |
 | 5 | 2026-09-18 | 代码围栏与验收矩阵内不再复述接口原文：分层职责图的观察行与动作接收行改按本规格措辞描述，时间推进流程图节点改为描述性措辞并在图邻近文字引用 `docs/CONTRACTS.md`「生命周期」，验收矩阵的时间约定统一观察项以「时间对账成立」承载同一条义务。改动归属、技术结论与验收标准未变。 |
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 26 行修订：实施基线改为锁定提交 `8768e14`；有人就绪就执行一轮，不推进，每个决策轮或推进边界收一个共同检查点；LifeAgent 覆写 `_run_react_turn`，世界请求登记后结束本轮，只读问答保留 `finish`，AS2 锁定提交不改；`conclude_activity` 可提交空记忆数组；零点计划 `plan_day` 是运行时后台任务（同联系人回复），不经人物，LifeEnv 不代替 AS2 管理人物的模型调用；验收矩阵相应改写 |

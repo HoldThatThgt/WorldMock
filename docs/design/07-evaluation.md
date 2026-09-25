@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 行为评估
 
 > **状态**：DRAFT  
-> **日期**：2026-09-20  
-> **版本**：v1.1\
+> **日期**：2026-09-24  
+> **版本**：v1.2\
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -95,9 +95,9 @@ flowchart TB
 
 | 报告项键 | 说明 | 目标参照 |
 | --- | --- | --- |
-| `decision_prompt_token_median` | 决策 prompt token 中位数 | 15000（对照值） |
-| `effective_autonomous_decision_rate` | 最终动作非 continue/wait 的占比 | 无固定阈值 |
-| `wake_reason_distribution` | 各唤醒原因计数 | 覆盖所有唤醒类型 |
+| `decision_prompt_token_median` | 决策 prompt token 中位数；排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求 | 15000（对照值） |
+| `effective_autonomous_decision_rate` | 最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 | 无固定阈值 |
+| `wake_reason_distribution` | 各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 `decision_started` | 覆盖所有唤醒类型 |
 | `wait_minutes` | 本人真实等待活动的实际区间累计分钟 | 只报告，不设占比上限 |
 | `unknown_wait_minutes` | 未有可核验原因的等待活动实际区间累计分钟 | 不根据自由叙述推断目的 |
 | `content_contact_minutes` | 实际 watch 播放活动的执行区间累计分钟 | 不把等待或开始播放计为已接触 |
@@ -108,8 +108,8 @@ flowchart TB
 | `persona_distinguishability` | 留一最近邻人物识别准确率 | ≥3 次运行、≥2 人 |
 | `social` | 交谈/通话分钟、消息数 | 人物社交需求 |
 | `habitual_consistency` | 同人物地点与本地小时的活动家族一致率 | 只报告情境重复性，不识别心理习惯 |
-| `deliberate_goals` | 曾登记目标中的家族实际推进率，保留丢弃条目 | 只报告，外部参照未接入时为 null |
-| `external_constraints` | 去重后的外部约束受阻与动作接受率 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
+| `deliberate_goals` | 曾登记目标中的家族实际推进率，保留丢弃条目；登记来源为零点计划的 `day_plan_generated` 与修订结果 | 只报告，外部参照未接入时为 null |
+| `external_constraints` | 去重后的外部约束受阻与动作接受率；引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`；外部约束闭集不含 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -128,7 +128,7 @@ flowchart TB
 **口径约定**：
 - 外出(outing)并入通勤(commute)
 - wait 计入休息(rest)
-- consume 计入用餐（含 use 模式）
+- consume 仅在有 eat 正实际进度时计入用餐；use 模式未归类
 - 参照的看电视与休闲娱乐合并为屏幕娱乐 165m
 - 休息与家务无参照项，并入无参照桶
 
@@ -190,7 +190,7 @@ $$
 | 层级 | 必需字段 | 统计用途 |
 | --- | --- | --- |
 | **证据事件** | `occurred_at`, `category`, `interaction`, `object_type`, `state` | 完整性、渠道覆盖、时间检查 |
-| **活动会话** | `started_at`, `ended_at`, `category`, `status`, `segments` | 节律、时长、转换、因果 |
+| **活动** | `started_at`, `ended_at`, `category`, `status`, `segments` | 节律、时长、转换、因果 |
 | **自然日** | `date`, `calendar_class`, 活动向量 | 配对比较、自助法 |
 
 #### 证据事件（PublicEvidence）
@@ -216,20 +216,20 @@ class PublicEvidence:
 - `object_type`: order, route, workplace, content, game, product, task, message, ...
 - `state`: requested, started, completed, received, paid, delivered, cancelled, failed, ...
 
-#### 活动会话（ActivitySession）
+#### 活动（ActivitySession）
+
+代码名 `ActivitySession` 沿用，与地点会话无关。
 
 ```python
 @dataclass(frozen=True)
 class ActivitySession:
-    """一个活动会话，可能跨多个时间段"""
+    """一项活动，可能跨多个时间段"""
     activity_id: str
     started_at: datetime
     ended_at: datetime
     category: str  # 活动类别（十类闭集）
     status: str  # 终态：completed, interrupted, ongoing
     segments: tuple[tuple[datetime, datetime], ...] | None  # 分段区间
-    location_id: str | None  # 地点（新增字段）
-    partner_id: str | None  # 同伴（新增字段，匿名化）
 ```
 
 **十类活动家族**：
@@ -248,10 +248,11 @@ class ActivitySession:
 **WorldMock 适配器**（`worldmock_public_evidence`）：
 - 读取 `action_requested`、`action_result`、`environment_event`
 - 使用 `action_id` 回链请求与结果
-- `start_activity` 的可读 `targets[]` / `actions[]` 逐项配对；同一请求启动两项活动时，按结果中
-  对应顺序的 `data.activities[]` 快照投影两项证据，不把另一项动作的结果或付款记到本项
-- `report_status`、`pause_activity`、`conclude_activity` 按结果中的 `data.activity_ids[]` 逐会话、逐活动
-  投影；从真实活动快照读取对象身份、状态和交通方式
+- `start_activity` 的可读 `targets[]` 与 `actions[]`（动词）、`ways[]`（方式）逐项配对；细分交互取结果中
+  活动快照的 `kind`；同一请求启动两项活动时，按结果中对应顺序的 `data.activities[]` 快照投影两项证据，
+  不把另一项动作的结果或付款记到本项
+- `report_status`、`pause_activity`、`conclude_activity` 按请求的 `task[]` 逐活动投影；从真实活动快照读取
+  对象身份、状态和交通方式；结束状态取活动的实际终态（完成、失败或已取消）
 - 区分订单、付款、履约三个独立状态
 
 **不变量**：
@@ -654,7 +655,7 @@ $$
 
 ## 3. 适配报告
 - 证据事件：左 16,320，右 15,487
-- 活动会话：左 4,380，右 4,102
+- 活动：左 4,380，右 4,102
 - 共同字段支持：{category: [fields]}
 
 ## 4. 量化指标对比
@@ -765,3 +766,4 @@ plt.savefig('review-preference-heatmap.png')
 | --- | --- | --- |
 | v1.0 | 2026-09-20 | 初版：模块概述、指标定义、对比协议、盲评流程、评估流程、统计方法、结论边界、报告生成 |
 | v1.1 | 2026-09-20 | 区分行为合理性评估与资源结算的确定性核验 |
+| v1.2 | 2026-09-24 | 按时间与能量规格：决策统计排除零点计划请求，被动轮与控制轮分列，唤醒原因分边界与决策轮两份；目标登记来源改为零点计划与修订；引导性拒绝计入 `other_rejections`；consume 用餐口径对齐源码；「活动会话」改称「活动」并删未实现字段；适配器按动词与方式配对、控制工具逐活动投影 |

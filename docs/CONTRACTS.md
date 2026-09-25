@@ -26,7 +26,7 @@
 | --- | --- | --- | --- |
 | `time` | UTC 整数秒 | seconds | 场景时区，同秒事件有严格序号 |
 | `money` | 整数 | 最小货币单位 (分) | 避免浮点累计误差 |
-| `available_energy` | 浮点 | kcal | 实验中的可用能量状态 |
+| `available_energy` | 浮点 | kcal | 实验中的可用能量状态；非负；结算以 0 截断，不阻止任何活动 |
 | `sleep_deficit` | 浮点 | hours | 与食品能量独立 |
 | `entertainment_need` | 浮点 | 归一化 [0,1] | 随生活积累 |
 | `work_need` | 复合对象 | - | `deadline`, `contract`, `task`, `economic_goal` |
@@ -87,8 +87,9 @@ InteractionMenu = {
 的可读动作选择。工作成果、消息正文和会话退出通道的工具资格由当前领域条件决定。
 
 当前有效菜单按人物权威位置取得地点类菜单，再与人物菜单逐字段求交集并确定性排序；人物菜单为
-`null` 时直接使用地点类菜单。它是现有状态、阶段、能量、可见目标、日首计划和回合预算门控之前的
-准入约束，只能继续收窄动作选择，不能放宽既有规则。完整活动控制、下钻品类映射和恢复资格见
+`null` 时直接使用地点类菜单。它是现有状态、阶段、可见目标和回合预算门控之前的
+准入约束，只能继续收窄动作选择，不能放宽既有规则。条件未满足的动作照常列出并附说明，不剪裁；
+唯一的状态性收窄是同刻上限的受限轮。完整活动控制、下钻品类映射和恢复资格见
 [交互菜单规格](dev/SPEC-interaction-menu.md#观察与人物工具)。菜单不得删除 `scene`、`facts`、
 `affordance_contract` 或候选，也不得改变候选排除原因、呈现上限和轮转。
 
@@ -134,7 +135,7 @@ InteractionMenu = {
 
 ```mermaid
 flowchart LR
-    A[清醒后提交有序目标] --> B[环境登记目标清单]
+    A[零点计划生成有序目标（可带提醒）] --> B[环境登记目标清单]
     B --> C[人物选择具体活动]
     C --> D[环境实际结算并记录目标推进]
     D --> E[人物修订尚未推进的目标]
@@ -158,9 +159,10 @@ flowchart LR
 生活活动家族来自目录 `category`，活动快照原样保存该类别。同一活动在同一人物当日
 最多推进一项目标，按未推进清单顺序匹配，不把重叠家族当成两份进展。
 
-工具开放与生命周期：清醒日首尚无计划时只开放 `plan_day`；已有空清单也关闭该工具。
+工具开放与生命周期：`plan_day` 不是人物工具。
 存在当日计划即可开放 `revise_day_plan`，包括空清单后追加目标。计划只在本地日界清除，
-不因就寝隐藏。环境不按清单执行活动，不从目标文字推导时刻。
+不因就寝隐藏。环境不按清单执行活动，不从目标文字推导时刻；只有 `remind_time` 触发定时决策，
+提醒可结束睡眠。
 
 | 结算拒绝错误码 | 触发条件 |
 | --- | --- |
@@ -345,7 +347,8 @@ ScheduledKind = Literal[
 既不能伪造 `unreachable`，也不能用漏项隐式表达 `unknown`。
 
 发现结果经 `action_result` 和下一次观察返回，包含实际筛选条件及有序地点/供给结果。
-成功发现登记 `discovery_result` 唤醒，在下一秒合法决策回灌；同轮不允许再选择生活动作。
+浏览是活动，结果随浏览结束或下一次观察回灌；没有进行中活动时同一秒再决策。
+`discovery_result` 保留名称，当前无触发来源。
 每行公开实际返回的路线、分时路程和费用、营业、资格、报价及版本、库存、履约和来源；不得注入未返回供给。
 完整记录结构见[地图与门店供给证据](design/05-recording-engine.md#地图与门店供给证据)。
 
@@ -427,12 +430,12 @@ MessageKind = Literal["direct", "chat_invite"]
 | 量 | 值 |
 | --- | --- |
 | 交谈请求 | `kind=chat`，要求双方共同在场且对方可交谈（对方清醒且未在主动游戏） |
-| 交谈时长 | 请求模型取 1–120 分钟；域只要求时长为正，活动通道另要求折算后不少于 60 秒 |
+| 交谈时长 | 由场景 `activity_feedback_seconds` 派生后截取到 60–7200 秒，受理结果写明计划时长 |
 | 通话请求 | `kind=call`，`partner_id` 取场景联系人身份 |
-| 通话时长 | 10–60 分钟闭区间，越界即拒绝 |
+| 通话时长 | 由场景 `activity_feedback_seconds` 派生后截取到 600–3600 秒，受理结果写明计划时长 |
 | 社交需要缓解速率 | 交谈被接受：双方各 0.5/小时；交谈被拒绝：发起方 0.2/小时；通话：0.4/小时 |
-| 接受判定 | 对方存在以发起方为伙伴标识的进行中交谈活动 |
-| 资源占用 | 交谈与通话恒占位置与注意力；不可暂停，取消任意时刻允许并保留已结算进度 |
+| 接受判定 | 发起人正有以对方为伙伴标识的进行中交谈活动时，对方对发起人选择交谈即接受，对方交谈的计划结束时刻对齐发起人；一方结束时，对方以其为伙伴的进行中交谈同秒结束（`partner_ended`） |
+| 资源占用 | 交谈、通话占用 `voice`、`ears`（[时间与能量规格](dev/SPEC-time-and-energy.md#并行准入)）；交谈要求双方在场且都不在途中，通话可与驾车并行；不可暂停，取消任意时刻允许并保留已结算进度 |
 
 ### 联系人回复
 
@@ -462,15 +465,15 @@ MessageKind = Literal["direct", "chat_invite"]
 | `CONTACT_NOT_FOUND` | 通话对象不是本人声明的联系人 |
 | `CALL_DURATION_OUT_OF_RANGE` | 通话时长超出 10–60 分钟 |
 | `CONTACT_REPLY_NOT_MODEL` | 对非 `model` 策略的联系人登记模型回复 |
-| `RESOURCE_CONFLICT` | 新建或恢复活动的个人独占资源与本人 ACTIVE 活动冲突，或组合内部冲突 |
+| `RESOURCE_CONFLICT` | 新建或恢复活动的个人独占资源与本人 ACTIVE 活动冲突，或组合内部冲突；占用按[时间与能量规格](dev/SPEC-time-and-energy.md#并行准入)重列 |
 | `SOCIAL_ACTIVITY_CANNOT_PAUSE` | 对交谈或通话发起暂停 |
 | `SOCIAL_ACTIVITY_OPERATION_UNKNOWN` | 交谈或通话的变更操作不在取消与恢复之内 |
 | `ACTIVITY_TOO_SHORT` | 折算后的社交活动时长不足 60 秒 |
 
-交互对象使用与执行器相同的活动资源声明检查本人正在执行的活动；前置条件不满足或资源被占用的
-动作不列入本轮可选对象，`facts.tasks` 与场景提醒仍说明任务要求。
-已有活动造成 `RESOURCE_CONFLICT` 时仍返回公开拒绝结果；下一次决策安排在最早活动结束时刻
-或下一个活动反馈间隔，不再逐秒重复同一冲突。
+交互对象照常列出，不剪裁；使用与执行器相同的活动资源声明检查本人正在执行的活动，
+条件未满足或占用冲突的动作附一句可读说明。
+业务拒绝（含 `RESOURCE_CONFLICT`）后按[时间与能量规格](dev/SPEC-time-and-energy.md#规则)第一章
+在同一秒再决策，受 `max_same_moment_decisions` 约束。
 
 ## 观察投影字段
 
@@ -498,7 +501,7 @@ flowchart LR
 
 | `scene` 行 | 字段 |
 | --- | --- |
-| `reachable_places` | 地点名称及 `open/closed/unknown` 营业状态；路线分钟数只保留在 facts 与工具支持行，不把未知写为闭店 |
+| `reachable_places` | 地点名称及 `open/closed/unknown` 营业状态；路线分钟数只保留在 facts 与工具支持行，不把未知写为闭店；例外：`local_food_summary` 的吃饭途径句可带一条途径的人读时长或送达时刻 |
 | `inbox_head` | 按 `created_at`、`id` 排序后最近 3 条收件头，展示保持时间先后 |
 | `inbox_has_older_unread` | bool；未展示集合存在未读项时为 true |
 | `todos_summary` | 待办一句话，无待办时为空串 |
@@ -570,12 +573,14 @@ scene 的 `current_activities` 必须表达集合，每项为 title、progress�
 
 observation.data.verified_experiences 是本人在该观察事件之前已提交的最近五条已核验经历，
 按 event_seq 正序；每项包含 kind、agent_id、activity_id、source_event_id、event_seq、
-occurred_at 和种类载荷。模型不能写入它，来源与事件正文由
-[记录引擎设计](design/05-recording-engine.md)维护。本轮 observation_event_id 绑定截止，
-只有实际展示过的 source_event_id 可作为本轮人物自述的引用。
+occurred_at 和种类载荷。这些字段保留在观察事件中作证据，模型只见由同一窗口写成的句子。
+模型不能写入它，来源与事件正文由[记录引擎设计](design/05-recording-engine.md)维护。
 
-scene.local_food_summary 是当前地点餐食的一句中文说明，依据真实本地供给及当时购买条件。
-无可购餐食时如实说明；不能从有限窗口为空推出全店无食物，也不因该摘要授权未呈现供给。
+饥饿低于「饿」时，scene.local_food_summary 是当前地点餐食的一句中文说明，依据真实本地供给及
+当时购买条件。无可购餐食时如实说明；不能从有限窗口为空推出全店无食物，也不因该摘要授权未呈现供给。
+饥饿为「饿」及以上时，同一字段改为吃饭途径句：按手边能吃的、在路上的、这里就能买的、能送到这里的、
+附近能买的、都没有六档，取第一条成立的；只引用本轮观察的事实，不授权未呈现的供给；在途送达距现在
+晚于 3600 秒时另补一条。六档的取数与例句见[时间与能量规格](dev/SPEC-time-and-energy.md#让人物趁早吃)。
 正式餐馆覆盖与音频片段合同见 [一日行为规格](dev/SPEC-dayrun-behavior.md)。
 内容品类增加 podcast_episode，沿用 watch 播放活动及内容进度；官方段落全部播放后才揭示文本。
 
@@ -598,9 +603,9 @@ scene.local_food_summary 是当前地点餐食的一句中文说明，依据真�
 | 人物卡片汉字上限 | 600 |
 | 决策自述汉字上限 | 200 |
 
-完整请求达到阈值时，先按可读任务名合并 `facts.progress.sessions` 中较旧的终态会话，
-保留每组最新客观结论、自述和会话数；重算仍达阈值时，再合为一条总体历史摘要，
-保留总会话数和最近结论、自述。进行中与暂停会话、当前期限提醒、本轮新结果、
+完整请求达到阈值时，先按会话合并 `facts.progress.sessions` 中较旧会话里已收尾的活动，
+保留每组最新客观结论、自述和活动数；重算仍达阈值时，再合为一条总体历史摘要，
+保留总活动数和最近结论、自述。进行中、暂停中与待收尾的活动完整保留；当前期限提醒、本轮新结果、
 权威状态和事件不动，也不压缩其他层。浓缩后仍达到阈值或超过输入额度时记录分层 token 用量，
 明确容量故障与英文错误日志。决策自述的空与超长属于可重试一次的协议错误；
 收件头是展示选择，材料揭示是增量窗口，门店供给可见期是可见性条件，不属于容量故障。
@@ -1292,3 +1297,13 @@ RunPhase = Literal[
 | `2026-09-20-plan-epoch-disclosure` | 2026-09-20 | 日程骨架单位披露合同：schema 一直要求 epoch 秒但提示只给 ISO 本地时间，模型猜成"当日分钟数"烧掉 33/83≈40% 模型调用直至 ReAct 预算耗尽（unit-11 审计 §6）。plan_day/revise_day_plan 工具描述与 `PlanSegmentInput.start/end` 字段描述写明绝对 Unix epoch 秒（UTC）；scene/facts 在 `current_time` 旁披露 `current_epoch` 与 `day_start_epoch`，时间句内并排渲染。工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
 | `2026-09-20-day-end-disclosure` | 2026-09-20 | 日程骨架披露第三个锚点 `day_end_epoch`（当日结束，即场景时区次日 00:00）：与 `day_end_seconds`/DayPlan 校验拒绝边界同源（段 `end` 越过即 `PLAN_SEGMENTS_INVALID`）。此前只披露 `current_epoch`/`day_start_epoch`，模型规划末段只能猜当日结束边界，猜过线即拒且拒绝消息不含边界值，run10 一日模拟 agent 2 连续 10 次被拒触发 fail-closed 死亡（unit-18）。scene/facts 键表、时间句、`PlanSegmentInput.end` 字段描述与 plan_day/revise_day_plan 工具描述硬规则同步；工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
 | `2026-09-20-bedtime-epoch-disclosure` | 2026-09-20 | 日程骨架披露第四个锚点 `bedtime_epoch`（当日就寝锚点，人物特有）：与 `bedtime_anchor`/DayPlan 校验就寝覆盖边界同源（最末段 `end` 低于它即 `PLAN_SEGMENTS_INVALID` "plan does not cover until bedtime"，修订同校验）。`day_end_epoch` 只救跨午夜钳制型；就寝不跨午夜的人物（陈曦型 bedtime 23.5 < day_end）在"最后一段规划到就寝"路径仍要猜就寝时刻（unit-18 残余风险）。per-agent 注入经 `AgentConfig.bedtime_window` 末端（与 `engine._plan_day` 同一取值链）；scene/facts 键表、时间句、`PlanSegmentInput.end` 字段描述与 plan_day/revise_day_plan 工具描述硬规则同步；工具 Schema 指纹随之重钉（`life_prompt_sha256` 输入不含工具描述，不变） |
+| `2026-09-21-daily-goals` | 2026-09-21 | 补登 `2d97d3d`：「日程骨架请求」改为「当日目标请求」，`plan_day`、`revise_day_plan` 改为 `{goals: [{intent_kind, goal}]}`（零至八条有序目标），`DayPlan` 为 `{day_end, goals}` 并附登记与推进证据；错误码改为 `PLAN_GOALS_INVALID`、`PLAN_GOAL_ALREADY_PROGRESSED`，删段式错误码；新增「当日目标的配置与质量输出」；scene 与 facts 删日首、日末、就寝换算锚点，`day_plan` 改为目标清单；版本表加历史说明句 |
+| `2026-09-21-daily-goals-merge` | 2026-09-21 | 补登 `db7d629`：合并时改写「人格与卡片字段」的 `TimeWindow` 段，删日程骨架就寝锚点句，改为作息字段不构成当日目标的时间计划 |
+| `2026-09-21-dayrun-resilience` | 2026-09-21 | 补登 `fa150fb`：活动控制行改为八键（加 `data`，游戏保留真实 `game_session_id`）；「下推返回体」补浏览游标解码校验，无效游标只拒绝当前动作；「模型身份」加 `transport_max_retries`（3）与 `max_react_turns`（16），写明仿真调度器的瞬时传输重试（退避 2、4、8 秒，与 `max_retries` 分开计数） |
+| `2026-09-21-concurrent-activities` | 2026-09-21 | 补登 `d998a31`：新增组合启动工具 `start_parallel_activities` 及其菜单与结算检查；`RESOURCE_CONFLICT` 改为新建或恢复活动的个人独占资源与本人 ACTIVE 活动冲突，或组合内部冲突；世界状态结构版本 4 改 5；scene 改 `current_activities` 并增 `local_food_summary`；活动控制行改为 `active_activities` 集合，补暂停活动与 `occupied_resources` 说明；新增「已核验经历与当地餐食」；「记忆字段」改为人物自述口径（`epistemic_status=subjective`，删模型可写的 `event`、`observation` 类型，增 `reflection`）；`2026-09-20-active-activity` 行注明已被取代 |
+| `2026-09-21-world-schema-5` | 2026-09-21 | 补登 `aa22dc8`：「持久化当下事实」的世界结构版本 4 改 5，与领域枚举一致 |
+| `2026-09-23-agent-interaction` | 2026-09-23 | 补登 `3880738`：删 `change_playback_speed`、`game_action` 工具行及其菜单保护项 |
+| `2026-09-24-activity-execution` | 2026-09-24 | 补登 `2913546`：工具面收敛为九个按可读名称填写的工具（`start_activity(targets, actions)`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity`、`plan_day`、`revise_day_plan`、`submit_work`、`send_message`），私有 `interaction_bindings` 绑定内部身份；交互菜单改为 `allowed_actions`（闭集 `START_ACTIVITY_ACTIONS`，保护 `wait`、`sleep`）；请求检查、闭集与字面边界按新工具重写，工作任务标题必填；发现与购买的筛选值改为私有绑定；scene 与 facts 删 `current_epoch` 与内部身份（facts 删 `location_id`），facts 增 `interactive_objects`、`progress`，取代 `recent_action_results`；提示预算改为整次请求计数与 85% 进度浓缩；禁止进入提示的字段加 `interaction_bindings`；LabelKit 动作与意图窗口以实际 `model_request` 为 prompt 权威来源 |
+| `2026-09-24-scenario-validation` | 2026-09-24 | 补登 `eee89fc`：交互对象的 `preconditions_met` 按执行器的资源声明检查进行中活动，`RESOURCE_CONFLICT` 后下一次决策排到最早活动结束或下一反馈间隔；生成参数删 `reasoning` 上限列与说明，行动阶段 `max_tokens` 为 8000，画像抽取关闭思考；模型身份 `base_url` 改 `https://api.deepseek.com`、`requested_model` 改 `deepseek-flash` |
+| `2026-09-24-issue-1` | 2026-09-24 | 补登 `778beca`：`submit_work` 在有效工作量达到合同要求后开放；前置条件不满足或资源被占用的动作不列入交互对象；LabelKit `decision_prompt` 保留实际请求中的 assistant `reasoning_content` |
+| `2026-09-24-time-and-energy` | 2026-09-24 | [时间与能量规格](dev/SPEC-time-and-energy.md)冻结，按其冻结作业改写：`available_energy` 非负，结算以 0 截断，不阻止任何活动；有效菜单删能量与日首计划门控，条件未满足的动作照常列出并附说明，唯一的状态性收窄是同刻上限的受限轮；当日计划由零点计划生成，`plan_day` 不是人物工具，只有 `remind_time` 触发定时决策；浏览是活动，删「下一秒」回灌，`discovery_result` 当前无触发来源；交谈、通话占用 `voice`、`ears`，时长由 `activity_feedback_seconds` 派生后截取，补交谈接受与对方同秒结束（`partner_ended`）；交互对象不剪裁，业务拒绝后在同一秒再决策，删按最早活动结束排期；已核验经历只以句子给模型，饥饿为「饿」及以上时 `local_food_summary` 为吃饭途径句；进度浓缩单位改为较旧会话中已收尾的活动。补登上列实施计划 C38 所列九个提交。工具面、错误码、枚举、结构版本与场景参数随各实施阶段落地，届时另追加版本行 |

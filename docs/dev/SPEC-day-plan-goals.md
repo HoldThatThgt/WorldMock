@@ -1,23 +1,25 @@
 # 当日目标特性开发规格
 
 > 状态：已实现并通过本特性确定性验收；行为合同已冻结，证据见文末台账。日期：2026-09-21。
+> 生成方式、提醒与部分节律由[时间与能量规格](SPEC-time-and-energy.md)修订；修订条款验收前，台账对应行只代表旧行为。
 > 来源：[语义改造提案](PROPOSAL-day-plan-goals.md)。本规格取代原「日程骨架」行为；
 > 字段与错误码由 [接口合同](../CONTRACTS.md) 承载，设计职责由既有设计文档承载。
 
 ## 心智模型与范围
 
-人物表达今天想推进什么，环境掌握时间与实际活动。`plan_day`、`revise_day_plan`、
-`day_plan` 保留同一组名称，含义统一为当日目标清单。清单不是全天时刻表，也不驱动活动自动执行。
+当日目标清单由零点计划 `plan_day` 生成，人物可 `revise_day_plan` 修订；只有 `remind_time` 产生提醒边界。
+清单不是全天时刻表，也不驱动活动自动执行。
 列表顺序就是优先级，不增加另一套优先级字段。环境只证明相关活动实际推进，不能证明自然语言目标完成。
 
 ```mermaid
 flowchart LR
-    P[人物提交有序目标] --> R[环境登记当日目标]
+    P[零点计划生成有序目标] --> R[环境登记当日目标]
     R --> O[观察显示目标及已推进证据]
     O --> A[人物选择具体活动]
     A --> S[环境结算实际活动]
     S --> G[首次匹配目标记为已推进]
     E[环境任务截止与营业变化] --> W[提供决策机会]
+    R -->|remind_time 到期| W
     W --> A
     S --> Q[三层报告与外部约束门禁]
 ```
@@ -30,17 +32,21 @@ flowchart LR
 
 ### 提交与修订
 
-- 每天第一次清醒决策先提交清单；允许空清单，表示今天没有刻意目标。迟交和被拒绝后的重试继续允许。
+- 场景本地零点先结算旧日、使旧计划失效，再由零点后台任务 `plan_day` 生成；中途启动时在首个决策前生成；
+  同日一次（`plan_submitted_dates`）；允许空清单，表示今天没有刻意目标。
 - 初次及修订后清单均为零至八条；上限沿用已有提示容量边界，不宣称是人的目标数量基率。
-- 条目仅接受 `intent_kind` 与 `goal`。`intent_kind` 沿用十一值意图闭集；同一清单每种意图最多一条。
-  `goal` 为非空白文本，最多三百字符；不另设备注。条目禁止绝对时刻、时长和旧字段。
-- 当日只允许一次成功 `plan_day`。空清单仍保留 DayPlan 对象，不能被视为未提交。
-- 环境附加 `registered_at`、`progressed_at`、`progress_activity_id`。后两项同时为空表示未推进，
-  同时有值表示已推进；登记时刻与推进证据属于环境事实，不是人物的时间计划。
+- 条目接受 `intent_kind`、`goal` 与可空 `remind_time`。`intent_kind` 沿用十一值意图闭集；同一清单每种意图最多一条。
+  `goal` 为非空白文本，最多三百字符；不另设备注。`remind_time`（场景本地 `HH:MM`，须晚于生成或修订时刻、
+  早于次日零点）是条目唯一的时刻字段；禁止时长和旧字段；`goal` 可写粗略时段。
+- 环境附加 `registered_at`、`progressed_at`、`progress_activity_id`，以及提醒时刻 `remind_at`（无提醒时为空）
+  与提醒状态 `reminded_at`（未触发时为空）。`progressed_at` 与 `progress_activity_id` 同时为空表示未推进，
+  同时有值表示已推进；登记时刻与推进证据属于环境事实，不是人物的时间计划。提醒与推进无关：到点触发一次，
+  只在修订替换或删除该目标、或当日结束时失效。
 - 修订请求替换全部未推进条目。已推进条目按原相对顺序保留在前，不能删除、改写或重复提交；
   请求条目依列表顺序接在其后，合并后仍满足条数上限与意图唯一性。
-- 尚未推进且 `intent_kind`、`goal` 均未变化的条目保留原登记时刻；改变文字、删除或重新加入表示
-  替换或新承诺，旧未推进条目在报告中保留为丢弃，不能靠修订删除统计分母。
+- `intent_kind`、`goal`、`remind_time` 完全相同的未推进条目保留登记时刻与提醒状态，不重校时刻；只改
+  `remind_time` 的条目保留登记时刻并换成新提醒；改变文字、删除或重新加入表示替换或新承诺，旧提醒取消，
+  旧未推进条目在报告中保留为丢弃，不能靠修订删除统计分母。
 - 计划在场景本地次日零点失效，不在就寝后隐藏。环境保存 `day_end` 用于生命周期；
   不再校验覆盖就寝、重叠或时段顺序。旧检查点形状直接拒绝。
 
@@ -55,16 +61,17 @@ flowchart LR
   不因活动集合顺序重复产生情绪脉冲。
 - 首次推进原子保存推进时刻和活动标识，并产生一次 `+0.05` 情绪脉冲。原「完成计划段」脉冲删除，
   跨结算、修订、保存恢复均不得重复奖励。
-- 结算事件携带目标推进后的当日清单，登记/修订 action_result 也保存完整清单；所有写入与世界状态
-  使用既有事务边界，不创建新的事件类型。跨日结算先归属旧日的有效区间，再清除过期计划。
+- 结算事件携带目标推进后的当日清单；零点计划的登记 `environment_event`（`data.kind="day_plan_generated"`）
+  与修订的 action_result 也保存完整清单；所有写入与世界状态使用既有事务边界，不创建新的事件类型。
+  零点先结算旧日的有效区间、清除过期计划，再执行零点计划。
 
 ## 事件驱动的决策节律
 
 `plan_block_boundary` 与所有段起点候选删除。保留既有具体唤醒原因，新增
 `commitment_threatened` 表达在手承诺受到已有环境约束威胁，不取代具体原因。
 
-在手承诺包括未推进当日目标、未完成且可见的工作任务、当前或暂停的未完成活动；
-单纯消息、历史目标与已完成活动不构成在手承诺。常规重估沿用场景参数
+在手承诺包括未推进当日目标、未完成且可见的工作任务、暂停活动与进行中活动（进行中的等待除外）；
+单纯消息、历史目标与已完成活动不构成在手承诺。人物只在等待且没有上述承诺时用空闲间隔。常规重估沿用场景参数
 `reconsideration_interval_seconds`（默认五千四百秒）；新增
 `idle_reconsideration_interval_seconds`（默认一万零八百秒），必须大于等于常规间隔。
 均为环境场景参数，不进入人物工具请求。
@@ -73,29 +80,30 @@ flowchart LR
 | --- | --- |
 | 已有工作任务进入截止前三十分钟 | 精确在预警边界唤醒，保留 task_due_soon，追加 commitment_threatened |
 | 当前地点进入闭店前十五分钟，且有绑定本地点的未完成任务或闭店会使其失去准入的活动 | 精确在预警边界唤醒，保留 location_hours_change，追加 commitment_threatened |
-| 当前活动失去可行性 | 保留 activity_infeasible，追加 commitment_threatened |
+| 当前活动失去可行性 | `activity_infeasible` 保留名称，当前无来源 |
+| `remind_time` 到期 | 精确在提醒时刻唤醒，记 `plan_reminder_due`，同时到期的合并；睡眠中结束睡眠 |
 | 有在手承诺而无威胁 | 使用常规间隔，其他更早事件仍先发生 |
 | 无在手承诺 | 使用较长间隔，身体、消息、配送、营业、到达等现有事件仍先发生 |
 
-临近截止、临近闭店与活动不可行只在新事实首次实际提供给人物时提醒。签名分别包含任务及
-截止、地点及本次闭店和受威胁承诺、活动及离散不可行原因。自由文字目标和其他地点任务不证明本地点闭店威胁。持续成立不重复；消失后再次成立
+临近截止与临近闭店只在新事实首次实际提供给人物时提醒。签名分别包含任务及
+截止、地点及本次闭店和受威胁承诺。自由文字目标和其他地点任务不证明本地点闭店威胁。持续成立不重复；消失后再次成立
 重新提醒。所有可见未完成任务均参加判定，睡眠过滤未交付理由不消耗签名。完整规则见
 [一日行为可信性规格](SPEC-dayrun-behavior.md#持续活动与必要唤醒)。
 
 下一决策候选和实际唤醒判定必须使用同一间隔与威胁边界。不得把重估定时当成轮询唯一来源，
-也不得虚构通用预约或同行人承诺。睡眠继续仅接受既有睡眠允许原因，不被目标或重估唤醒。
+也不得虚构通用预约或同行人承诺。睡眠只接受睡眠允许原因（含 `plan_reminder_due`），不被重估唤醒。
 游戏保留逐回合反馈。提交清单、修订和目标推进本身不推进世界时钟。
 
 ## 人物可见内容与工具
 
-- 观察 `day_plan` 披露有序目标及是否已推进；空清单仍以对象表示，跨日后才为 null。
+- 观察 `day_plan` 披露有序目标、提醒时刻及是否已推进；空清单仍以对象表示，跨日后才为 null。
 - 场景叙述按顺序只显示意图与已推进状态，完整目标文字和环境证据在 facts 保留；遵守既有场景预算。
   不出现当前计划段、不暗示全文目标已完成。
 - 移除只为计划换算而存在的 `day_start_epoch`、`day_end_epoch`、`bedtime_epoch` 提示锚点；
   `current_epoch` 保留给现有时间合同，人物卡片的作息与环境营业时刻继续保留。
 - 实际模型工具 Schema、工具说明、本地校验、环境请求模型和冻结观察必须完全一致。
-  成功提交空清单后关闭 plan_day；有计划即开放 revise_day_plan，允许空清单后追加目标。
-- 原生 LifeAgent 到 LifeEngine、SQLite、下一次观察、检查点恢复必须有完整路径测试；
+  人物工具只有 `revise_day_plan`，有清单即开放，可改提醒，允许空清单后追加目标。
+- 零点计划与 LifeAgent 修订各自到 LifeEngine、SQLite、下一次观察、检查点恢复必须有完整路径测试；
   只检查纯函数或字符串不算贯通。
 
 ## 三层度量与质量导出
@@ -148,19 +156,21 @@ flowchart LR
   | lifestyle:household、lifestyle:pet | chore |
   | lifestyle:sport | exercise |
 
-- `deliberate_goals` 回放成功计划结果与活动推进后的清单。用首次登记事件与意图区别目标实例；
-  完全相同的未推进条目保留实例；文字改变或删除使旧实例成为 `discarded`，再加入产生新实例。
+- `deliberate_goals` 回放零点计划的登记事件（`day_plan_generated`）、修订结果与活动推进后的清单。
+  用首次登记事件与意图区别目标实例；完全相同的未推进条目保留实例；只改 `remind_time` 的条目保留原实例，
+  不产生新实例，也不记为丢弃；文字改变或删除使旧实例成为 `discarded`，再加入产生新实例。
   推进必须关联真实正时长结算事件和 `progress_activity_id`，不能相信孤立的状态字段。
   输出 `per_agent_day`（键含 run_id）、`summary`、`reference=null` 和口径说明；
   每组保留 `goals`（首次优先级、登记及推进事件、pending/progressed/discarded）、
   `goal_count`、`progressed_count`、`discarded_count`、`family_progress_rate`、`by_priority`。
   空目标分母为零且比率为 null。
 - `external_constraints` 从 `action_rejected` 及动作终态按 `(run_id, action_id)` 去重；
-  外部约束错误码闭集为 `MERCHANT_CLOSED`、`MERCHANT_OPENING_UNKNOWN`、`LOCATION_ACCESS_DENIED`、
-  `WORK_LOCATION_REQUIRED`、`WORK_TASK_NOT_AVAILABLE`、`WORK_SUBMISSION_LATE`、
+  外部约束错误码闭集只保留营业、到达准入、路线与工作可用性：`MERCHANT_CLOSED`、`MERCHANT_OPENING_UNKNOWN`、
+  `LOCATION_ACCESS_DENIED`、`WORK_TASK_NOT_AVAILABLE`、`WORK_SUBMISSION_LATE`、
   `FROZEN_ROUTE_NOT_FOUND`、`ROUTE_UNREACHABLE`、`ROUTE_INFORMATION_UNKNOWN`、
-  `DELIVERY_ROUTE_NOT_FOUND`、`DELIVERY_ROUTE_UNREACHABLE`、`DELIVERY_ROUTE_INFORMATION_UNKNOWN`、
-  `PICKUP_LOCATION_REQUIRED`。其他协议或参数拒绝列为 `other_rejections`，不冒充外部约束。
+  `DELIVERY_ROUTE_NOT_FOUND`、`DELIVERY_ROUTE_UNREACHABLE`、`DELIVERY_ROUTE_INFORMATION_UNKNOWN`。
+  引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED`
+  与其他协议或参数拒绝列为 `other_rejections`，不冒充外部约束。
   输出 `block_count`、`by_error_code`、`source_event_ids`、`evidence_complete`、
   `observed_action_acceptance_rate`。接受率的分母为有确定终态的唯一动作，分子为其中未被拒绝的动作；
   无动作时为 null。拒绝缺 action_id 或 error_code 时证据不完整，门禁 value=null、pass=false；
@@ -192,9 +202,9 @@ flowchart LR
 | 要求 | 验证证据 | 状态 |
 | --- | --- | --- |
 | 目标闭集、零至八条、文本长度、拒绝旧形状 | 请求 Schema、领域模型、环境拒绝测试 | 通过 |
-| 空计划、一次提交、迟交、跨日、修订冻结 | 真实引擎与保存恢复测试 | 通过 |
+| 零点计划生成、同日一次、跨日、修订与提醒 | 真实引擎与保存恢复测试 | 待重验 |
 | 正时长推进、身份隔离、一次活动一次目标、一次脉冲 | 结算与组合反例测试 | 通过 |
-| 威胁精确边界、双间隔、睡眠与游戏不回归 | 调度纯函数和引擎测试 | 通过 |
+| 威胁精确边界、双间隔（进行中的等待不算在手承诺）、睡眠与游戏不回归 | 调度纯函数和引擎测试 | 待重验 |
 | 冻结观察、工具与环境贯通 | 原生人物工具到 SQLite 与下一观察 | 通过 |
 | 三层度量与质量导出 | 确定性报告、错误码闭集与实际导出 | 通过 |
 | 文档单一权威与全部旧语义移除 | 文档一致性审查、链接门禁、生产代码引用扫描 | 通过 |
@@ -204,3 +214,10 @@ flowchart LR
 
 本特性所有行都必须有实现与测试，禁止 skip、xfail、占位或延期。已有十二周正式运行、
 盲评与完整自然日 LabelKit 交付仍属项目总体验收，不能由本特性离线门禁替代。
+
+## 版本表
+
+| 版本 | 日期 | 修订内容 |
+| --- | --- | --- |
+| `2026-09-21-dayrun-behavior` | 2026-09-21 | 补记 `d998a31` 的就地改动（当时未入表）：「实际推进与情绪」补同一真实区间并行推进的每条活动各自提供目标证据；闭店预警条件由「存在在手承诺」改为「有绑定本地点的未完成任务或闭店会使其失去准入的活动」；补预警签名与首次提醒规则 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 新增版本表。按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 22 行修订：当日计划由零点后台任务 `plan_day` 生成，同一人物同一本地日一次，允许空清单；目标可带 `remind_time`，提醒与推进无关，到期以 `plan_reminder_due` 唤醒并可结束睡眠；人物工具只有 `revise_day_plan`；进行中的等待不算在手承诺；`activity_infeasible` 当前无来源，删活动不可行签名；外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与 `WORK_LOCATION_REQUIRED`（代码中为 `ACTIVITY_PRECONDITION_UNMET`，属既有漂移），引导性拒绝归 `other_rejections`；台账两行改待重验 |
