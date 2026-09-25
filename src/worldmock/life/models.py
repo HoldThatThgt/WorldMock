@@ -7,7 +7,7 @@ from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Literal
 
-from pydantic import (BaseModel, ConfigDict, Field, WithJsonSchema, field_serializer,
+from pydantic import (BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
                       field_validator, model_validator)
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
@@ -59,7 +59,11 @@ class ModelIdentity(FrozenModel):
 
 
 class RunIdentity(FrozenModel):
-    """@brief 由 runtime 显式分配并与场景交叉验证的运行身份。"""
+    """@brief 由 runtime 显式分配并与场景交叉验证的运行身份。
+
+    git_commit 与 git_dirty 记录启动时的检出状态，非 Git 检出时二者为 null；只记录，不参与恢复比对
+    （docs/dev/SPEC-time-and-energy.md「运行身份」）。
+    """
 
     run_id: str = Field(min_length=1)
     source_group_id: str = Field(min_length=1)
@@ -69,6 +73,15 @@ class RunIdentity(FrozenModel):
     timezone: str = Field(min_length=1)
     code_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     model_identity: ModelIdentity
+    git_commit: str | None = Field(default=None, pattern=r"^[a-f0-9]{40}(?:[a-f0-9]{24})?$")
+    git_dirty: StrictBool | None = None
+
+    @model_validator(mode="after")
+    def validate_git_state(self) -> "RunIdentity":
+        """@brief Git 提交与未提交标志同时记录，或在非 Git 检出时同时为 null。"""
+        if (self.git_commit is None) != (self.git_dirty is None):
+            raise ValueError("git_commit and git_dirty must both be recorded or both be null")
+        return self
 
 
 class CounterfactualIntervention(FrozenModel):

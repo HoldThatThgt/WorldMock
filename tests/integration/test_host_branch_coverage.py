@@ -57,9 +57,16 @@ from worldmock.runtime import (
 )
 from worldmock.status import read_status, write_status
 from worldmock.validation import validate_two_stage_model_identity
+from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
+
+
+@pytest.fixture(autouse=True)
+def _locked_fake_as2(monkeypatch, tmp_path_factory):
+    """本文件的运行身份一律解析到临时 AS2 包并以其摘要为锁定值，不依赖本机实际安装的 AS2。"""
+    return use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
 
 # ---------------------------------------------------------------------------
@@ -434,28 +441,40 @@ def test_prepare_resume_counterfactual_binds_intervention(tmp_path):
         parent.close()
 
 
-def test_require_runtime_identity_rejects_diverged_manifest(tmp_path):
-    """父清单模型或代码身份偏离时拒绝恢复。"""
+def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatch):
+    """父清单模型或代码身份（含实际导入的 AS2）偏离时拒绝恢复；git_commit 与 git_dirty 只记录，不参与比对。"""
     from worldmock.runtime import two_stage_model_identity
 
-    _, _checkpoint = _parent_store(tmp_path)
+    parent, _checkpoint = _parent_store(tmp_path)
+    parent.close()
     wrong_model = {"model_identity": {"provider": "other"}, "code_sha256": "0" * 64}
     with pytest.raises(IntegrityError, match="model identity differs"):
         _require_runtime_identity(wrong_model, ROOT)
-    current = _model_identity().model_dump(mode="json")
+    current = {"model_identity": _model_identity().model_dump(mode="json"),
+               "two_stage_model_identity": two_stage_model_identity()}
     with pytest.raises(IntegrityError, match="code identity differs"):
+        _require_runtime_identity({**current, "code_sha256": "0" * 64}, ROOT)
+    parent_code = runtime_code_sha256(ROOT)
+    for git_commit, git_dirty in ((None, None), ("f" * 40, True), ("0" * 40, False)):
         _require_runtime_identity(
-            {"model_identity": current, "two_stage_model_identity": two_stage_model_identity(),
-             "code_sha256": "0" * 64}, ROOT)
-    _require_runtime_identity(
-        {"model_identity": current, "two_stage_model_identity": two_stage_model_identity(),
-         "code_sha256": runtime_code_sha256(ROOT)}, ROOT)
+            {**current, "code_sha256": parent_code, "git_commit": git_commit, "git_dirty": git_dirty}, ROOT)
+    other_as2 = {"__init__.py": b"VERSION = 'other'\n", "society/society.py": b"def step():\n    return 2\n"}
+    use_fake_as2(monkeypatch, tmp_path / "other-as2-site", other_as2)
+    with pytest.raises(IntegrityError, match="code identity differs"):
+        _require_runtime_identity({**current, "code_sha256": parent_code}, ROOT)
 
 
-def test_runtime_code_sha256_requires_complete_sources(tmp_path):
-    """代码身份源缺失或不安全时拒绝。"""
+def test_runtime_code_sha256_requires_complete_sources(tmp_path, monkeypatch):
+    """代码身份源缺失或不安全时拒绝；实际导入的 AS2 无法解析时同样拒绝给出代码身份。"""
+    import worldmock.runtime as runtime
+
     with pytest.raises(IntegrityError, match="missing or unsafe"):
         runtime_code_sha256(tmp_path)
+    project = write_project(tmp_path / "project")
+    assert len(runtime_code_sha256(project)) == 64
+    monkeypatch.setattr(runtime, "_AS2_PACKAGE", "worldmock_absent_as2_package")
+    with pytest.raises(IntegrityError, match="AS2 runtime identity differs from the locked source"):
+        runtime_code_sha256(project)
 
 
 def test_run_shell_rejects_non_directory_and_foreign_files(tmp_path):

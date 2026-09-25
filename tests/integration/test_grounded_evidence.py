@@ -21,6 +21,7 @@ from tests.life.conftest import (context, engine_factory as _engine_factory,  # 
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
 from worldmock.runtime import runtime_code_sha256
+from tests.integration.as2_fixtures import use_fake_as2
 
 _BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
 
@@ -184,8 +185,9 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         reopened.close()
 
 
-def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path):
-    """只改变人物实现字节就必须改变整个运行身份。"""
+def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path, monkeypatch, tmp_path_factory):
+    """只改变人物实现字节就必须改变整个运行身份（AS2 取锁定的临时包，不依赖本机安装）。"""
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     for name in ("pyproject.toml", "uv.lock"):
         (tmp_path / name).write_text("frozen dependency fixture\n")
     source = tmp_path / "custom" / "agents" / "life_agent.py"

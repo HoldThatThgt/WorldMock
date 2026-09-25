@@ -385,7 +385,7 @@ flowchart LR
 
 ```
 run/
-  manifest.json                 # 运行身份与代码、模型、提示、规则、数据版本
+  manifest.json                 # 运行身份与代码（含实际导入的 AS2）、模型、提示、规则、数据版本及 Git 状态
   footprints.sqlite             # 事件、当前结算状态、素材索引与检查点
   assets/<sha256>               # 实际内容、模型证据、人物状态快照与交付物
   exports/<export-id>/          # 固定输入、来源索引和导出清单
@@ -402,6 +402,12 @@ run/
 同版本异内容拒绝执行。检查点已有的 `manifest_sha256` 覆盖这些字段，
 足迹导出的 `frozen_run_manifest` 原样保留它们，不从导出时的目录重建。
 字段含义见[品类接口合同](../CONTRACTS.md#品类契约与目录字段)，行为见[品类契约规格](../dev/SPEC-category-contract.md)。
+
+运行清单冻结的 `code_sha256` 覆盖 `src`、`custom`、`pyproject.toml`、`uv.lock` 与实际导入的 AS2 包
+（包目录内除 `__pycache__` 外的全部文件，标签与安装位置无关）。AS2 包目录缺失、为空或与锁定提交 `8768e14`
+的源码摘要不符时，运行宿主拒绝启动，不写运行清单。清单另记 `git_commit` 与 `git_dirty`（`git status --porcelain`
+是否非空，含未跟踪文件、不含忽略文件；非 Git 检出时二者为 null），二者只记录，不参与恢复比对。
+规则见[时间与能量规格](../dev/SPEC-time-and-energy.md)「运行身份」。
 
 成功动作的首条 `action_result.data.category_matches` 记录实际命中的 `category_id`、`rule_id`、`action`。
 维护工具按这些记录统计触达次数；活动完成和幂等重试不重复登记命中。
@@ -867,3 +873,4 @@ flowchart LR
 | `2026-09-24-time-and-energy` | 2026-09-24 | 对齐时间与能量特性规格：必须保存的内容增零点计划后台任务与同一秒内的轮序；列出 `decision_started` 的字段与同刻轮数口径；结束、暂停与恢复逐活动写带快照的 `environment_event`，主动结束按自然结束的路径写终态；会话切换与提醒到期不另写事件；提示中的供给行写完整行；活动快照的 `location_id` 为开始地点，结算不改写；零点计划不产生事实，模型只见经历句子；记忆写入点为 `conclude_activity` 与就寝反思，来源由系统登记；代码身份覆盖实际导入的 AS2；导出与质量报告按零点计划、记忆来源与两份唤醒原因改写；登记本规格的实现差距。世界结构版本 5→6 漏登，随绿色基线直接改为 7 |
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：世界结构版本句移到「检查点创建」并改为 7，版本不符的旧状态（含版本 6）直接拒绝、不迁移；「地图与供给的恢复身份」改为引用该句 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：质量报告 `decision_rhythm` 增同刻轮次统计，按人物与模拟秒计 `decision_started` 的轮数分布，并按 `decision_started.data.wake_reasons` 统计轮次原因（E5-18）；同刻轮次不写共同身体结算，唤醒原因只记于 `decision_started` 与观察，边界兜底的 `no_active_activity` 照常写入结算（E5-4）；受限轮越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED` 并计入同刻轮数（E5-6）；检查点封存 `same_moment_rounds`、`same_moment_stage` 与按人物暂存的本秒呈现留痕 `same_moment_presentation`（E5-13）；观察私有证据另记 `same_moment_stage`，与实际 Schema、环境派发核对，不进 `scene` 与 `facts`（E5-3） |
+| `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |

@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
+from pydantic import ValidationError
 
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-key")
 os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
@@ -20,6 +21,7 @@ from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.scenario import load_scenario
 from worldmock.runtime import _model_identity, _require_runtime_identity, runtime_code_sha256, two_stage_model_identity
 from worldmock.validation import validate_two_stage_model_identity
+from tests.integration.as2_fixtures import use_fake_as2
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 
@@ -137,8 +139,9 @@ def test_engine_create_rejects_retired_stage_before_writing_run_artifacts(tmp_pa
     assert not (run_dir / "footprints.sqlite").exists()
 
 
-def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches() -> None:
-    """恢复入口独立验证阶段身份，不能只依赖源码哈希间接拒绝旧清单。"""
+def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches(monkeypatch, tmp_path_factory) -> None:
+    """恢复入口独立验证阶段身份，不能只依赖源码哈希间接拒绝旧清单（AS2 取锁定的临时包）。"""
+    use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     root = Path(__file__).resolve().parents[2]
     stages = two_stage_model_identity()
     stages["stages"]["monologue"] = stages["stages"].pop("decision_statement")
@@ -147,6 +150,19 @@ def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches()
 
     with pytest.raises(IntegrityError, match="decision stage identity differs"):
         _require_runtime_identity(manifest, root)
+
+
+def test_run_identity_records_git_state_as_a_pair() -> None:
+    """git_commit 与 git_dirty 同时记录或在非 Git 检出时同时为 null；提交须为完整十六进制身份，标志须为布尔。"""
+    scenario, _ = load_scenario(_SCENARIO)
+    base = _run_identity(scenario).model_dump()
+    assert (base["git_commit"], base["git_dirty"]) == (None, None)
+    recorded = RunIdentity.model_validate({**base, "git_commit": "a" * 40, "git_dirty": False})
+    assert (recorded.git_commit, recorded.git_dirty) == ("a" * 40, False)
+    for fields in ({"git_commit": "a" * 40, "git_dirty": None}, {"git_commit": None, "git_dirty": True},
+                   {"git_commit": "HEAD", "git_dirty": False}, {"git_commit": "a" * 40, "git_dirty": "yes"}):
+        with pytest.raises(ValidationError):
+            RunIdentity.model_validate({**base, **fields})
 
 
 def test_engine_created_without_two_stage_identity_keeps_null_slot(tmp_path) -> None:

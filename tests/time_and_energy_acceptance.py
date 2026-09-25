@@ -18,7 +18,7 @@ from __future__ import annotations
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
-STAGES_DONE = frozenset({"0", "1"})
+STAGES_DONE = frozenset({"0", "1", "6"})
 
 _GREEN_BASELINE_TESTS = [
     "tests/life/test_dayrun_inventory_regressions.py::"
@@ -121,6 +121,22 @@ _NO_NEW_FAULT_TESTS = [
     _SAME_MOMENT + "test_presentation_staging_survives_reopen",
 ]
 
+#: 「本机运行修复」行中阶段 6（运行身份）的部分：AS2 缺失、为空或摘要不符即拒绝启动，清单含 git_commit 与 git_dirty。
+_RUN_IDENTITY_TESTS = [
+    "tests/integration/test_runtime.py::test_imported_as2_is_the_locked_8768e14_source",
+    "tests/integration/test_runtime.py::test_code_identity_covers_every_imported_as2_file_except_pycache",
+    "tests/integration/test_runtime.py::test_as2_identity_is_independent_of_install_location",
+    "tests/integration/test_runtime.py::test_unlocked_as2_refuses_run_resume_replay_and_validate",
+    "tests/integration/test_runtime.py::test_as2_lookup_failures_are_identity_refusals",
+    "tests/integration/test_runtime.py::test_as2_file_read_failure_is_an_identity_refusal",
+    "tests/integration/test_runtime.py::test_experiment_registers_the_locked_as2_source_digest_verbatim",
+    "tests/integration/test_runtime.py::test_git_state_records_head_and_dirty_flag_of_the_checkout",
+    "tests/integration/test_runtime.py::test_git_state_is_null_when_git_is_unavailable_or_status_fails",
+    "tests/integration/test_runtime.py::test_run_manifest_records_git_commit_and_dirty_flag",
+    "tests/integration/test_run_manifest.py::test_run_identity_records_git_state_as_a_pair",
+    "tests/integration/test_host_branch_coverage.py::test_require_runtime_identity_rejects_diverged_manifest",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
@@ -133,7 +149,7 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "五个动词与并行": {"stage": "4", "tests": []},
     "常驻提示": {"stage": "5", "tests": []},
     "会话、活动与记忆": {"stage": "4", "tests": []},
-    "本机运行修复": {"stage": "7", "tests": []},
+    "本机运行修复": {"stage": "7", "tests": _RUN_IDENTITY_TESTS},
     "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
     "无新增故障": {"stage": "7", "tests": _NO_NEW_FAULT_TESTS},
     "真实复验": {"stage": "8", "tests": []},
@@ -150,6 +166,10 @@ _RECORDING = "docs/design/05-recording-engine.md"
 _SCHEDULE = "src/worldmock/life/schedule.py"
 _FOOTPRINT_MODELS = "src/worldmock/footprints/models.py"
 _IO_FORMATS = "docs/design/09-io-formats.md"
+_RUNTIME = "src/worldmock/runtime.py"
+_EXPERIMENT = "docs/EXPERIMENT.md"
+_MANUAL_RUNTIME = "docs/manual/runtime.md"
+_AS2_LOCKED_DIGEST = "65a902ec66df42296d4e4c85e424bce3512e437133fc6be9fa597766fc30a334"
 
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
 REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
@@ -185,6 +205,11 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"inbox\[reply\.message\.message_id\] = reply\.message", ["src/worldmock/runtime.py"]),
         (r'"max_consecutive_rejections": 10', ["docs/manual/scenarios.md"]),
     ],
+    "6": [
+        (r'"vendor" / "agentsociety2"', [_RUNTIME]),
+        (r"哈希全部生产 Python 源码与根依赖锁定文件。", [_RUNTIME]),
+        (r"`vendor/agentsociety2` 的维护分支 `worldmock-life` \|", [_EXPERIMENT]),
+    ],
 }
 
 #: 阶段 → 完成后必须在每个列出路径中出现的符号（正则, 路径或目录列表）。
@@ -215,5 +240,21 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"validate_decision_rhythm", ["src/worldmock/life/decision_start.py", "src/worldmock/life/rhythm.py"]),
         (r"CONTACT_REPLY_DELAY_SECONDS", ["src/worldmock/life/social.py", "src/worldmock/runtime.py", _CONTRACTS]),
         (r"def test_", ["tests/life/test_same_moment_decisions.py"]),
+    ],
+    "6": [
+        (rf'AS2_LOCKED_SOURCE_SHA256 = "{_AS2_LOCKED_DIGEST}"', [_RUNTIME]),
+        (rf"\| AS2 源码摘要 \| `{_AS2_LOCKED_DIGEST}` \|", [_EXPERIMENT]),
+        (r'_AS2_PACKAGE = "agentsociety2"', [_RUNTIME]),
+        (r"importlib\.util\.find_spec\(_AS2_PACKAGE\)", [_RUNTIME]),
+        (r"AS2 runtime identity differs from the locked source", [_RUNTIME, _MANUAL_RUNTIME]),
+        (r"require_locked_as2\(\)", [_RUNTIME, "src/worldmock/validation.py"]),
+        (r"git_commit", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
+        (r"git_dirty", [_MODELS, _ENGINE, _RUNTIME, _RECORDING, _EXPERIMENT]),
+        (r"--untracked-files=normal", [_RUNTIME]),
+        (r"git submodule update --init vendor/agentsociety2 vendor/labelkit", ["README.md", _MANUAL_RUNTIME]),
+        (r"\*\*锁定提交\*\*：`8768e14`（子模块指针，运行身份按它的源码摘要比对）", ["docs/dev/SPEC-as2-integration.md"]),
+        (r"运行清单冻结的 `code_sha256` 覆盖", [_RECORDING]),
+        (r"代码身份含实际导入的 AS2", [_MANUAL_RUNTIME]),
+        (r"升级代码后旧检查点不能恢复", [_MANUAL_RUNTIME]),
     ],
 }

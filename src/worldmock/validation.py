@@ -52,9 +52,12 @@ def validate_project(project_root: Path, scenario_path: Path, *,
 
     新增（修订合同）：世界素材品类准入、任务受理人校验、两阶段
     model_identity 一致性与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
+    先核对实际导入的 AS2：包目录为空、导入失败或与锁定源码摘要不符即以 IntegrityError 拒绝
+    （docs/dev/SPEC-time-and-energy.md「运行身份」）。
     """
-    from worldmock.runtime import _configure_process
+    from worldmock.runtime import _configure_process, require_locked_as2
 
+    require_locked_as2()
     scenario, scenario_sha256 = load_scenario(scenario_path.resolve())
     corpus_root = Path(scenario.corpus_root)
     if not corpus_root.is_absolute():

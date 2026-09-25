@@ -23,9 +23,16 @@ from worldmock.runtime import (
     runtime_code_sha256,
     two_stage_model_identity,
 )
+from tests.integration.as2_fixtures import use_fake_as2
 from tests.life.conftest import advance_next, stage_day_plan, submit_round
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def _locked_fake_as2(monkeypatch, tmp_path_factory):
+    """运行与恢复的代码身份解析到临时 AS2 包并以其摘要为锁定值，不依赖本机实际安装的 AS2。"""
+    return use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
 
 
 def _fixture(tmp_path):

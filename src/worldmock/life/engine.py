@@ -1642,7 +1642,7 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 
 def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
                   two_stage_identity: dict | None = None) -> dict:
-    """@brief 绑定新运行的场景、内容、人物身份与两阶段请求形状。"""
+    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与两阶段请求形状。"""
     if two_stage_identity is not None:
         from worldmock.validation import validate_two_stage_model_identity
         validate_two_stage_model_identity(two_stage_identity)
@@ -1652,6 +1652,7 @@ def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: 
             "scenario_id": scenario.scenario_id, "map_dataset": map_provenance(scenario),
             "scenario_sha256": scenario_sha256, "corpus_manifest_sha256": scenario.corpus_manifest_sha256,
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
+            "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
             "model_identity": identity.model_identity.model_dump(mode="json"),
             "two_stage_model_identity": two_stage_identity,
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
