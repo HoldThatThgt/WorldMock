@@ -74,7 +74,9 @@ _SAME_MOMENT_TESTS = [
         "test_awake_recipient_gets_same_second_opportunity",
         "test_recipient_in_same_round_is_not_overwritten_by_its_own_success",
         "test_recipient_at_limit_gets_message_at_next_boundary",
+        "test_restricted_round_does_not_use_up_message_opportunity",
         "test_sleeping_recipient_is_not_woken_by_person_message",
+        "test_rejected_paired_start_leaves_no_chat_invite",
         "test_contact_reply_arrival_filtered_during_sleep",
         "test_same_second_rounds_keep_presentation_window_and_rotation",
         "test_browse_results_stay_pinned_in_later_same_second_rounds",
@@ -92,12 +94,16 @@ _SAME_MOMENT_TESTS = [
     "tests/life/test_export_integration.py::test_model_npc_reply_at_most_once_per_message",
     "tests/integration/test_runtime.py::test_life_env_commit_settles_model_reply_into_inbox",
     "tests/life/test_wake_reasons.py::test_unread_inbox_message_yields_message_arrival_then_is_marked_read",
+    # 整日运行的不变式：同一秒的轮数不超过上限加三，每个结算区间都有进行中活动。
+    "tests/integration/test_dayrun_complete_days.py::"
+    "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
 ]
 
 #: 阶段 1 预先登记：候选时刻行由阶段 2 完成（困意、饥饿预测与餐时窗口）。
 _CANDIDATE_TIME_TESTS = [
     _SAME_MOMENT + "test_first_decision_includes_reconsideration_candidate",
     _SAME_MOMENT + "test_idle_interval_only_while_waiting_without_commitments",
+    _SAME_MOMENT + "test_game_start_follows_decision_rhythm",
     "tests/life/test_wake_reasons.py::test_commitments_exclude_messages_history_and_completed_activities",
 ]
 

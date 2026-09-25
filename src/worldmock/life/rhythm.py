@@ -104,7 +104,7 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
             _wake_snapshot(agent, inputs, warning_facts, delivered))
         # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）：
         # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。
-        agent = _read_new_messages(agent)
+        agent = read_new_messages(agent)
         if _game_turn_due(inputs.state, agent):
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
@@ -175,7 +175,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
 def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     """@brief 边界情绪账：先按半衰期衰减，再叠加本区间事件脉冲（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
-    新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（_read_new_messages）。
+    新收件箱消息的已读与脉冲不在此处，而在唤醒判定之后结算（read_new_messages）。
     """
     now = inputs.state.current_time
     if agent.mood_updated_at is not None:
@@ -202,13 +202,18 @@ def _settle_mood(agent: AgentState, inputs: RhythmInputs) -> AgentState:
     return agent.model_copy(update={"mood_updated_at": now}, deep=True)
 
 
-def _read_new_messages(agent: AgentState) -> AgentState:
+def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentState:
     """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
-    在本边界的唤醒判定之后调用，使未读消息先成立 message_arrival（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
+    边界在唤醒判定之后调用，使未读消息先成立 message_arrival
+    （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察展示过的
+    消息（轮前收件箱）：看过的消息不在其后的边界再次唤醒，本轮内送达的消息仍未读。
+
+    :param agent: 人物状态
+    :param only: 只读这些消息身份；None 表示全部未读消息
     """
     fresh = [message for message_id, message in agent.inbox.items()
-             if message_id not in agent.read_inbox_ids]
+             if message_id not in agent.read_inbox_ids and (only is None or message_id in only)]
     if not fresh:
         return agent
     body = apply_social_ledger(agent.body, felt.SocialExposure(messages_read=len(fresh)))

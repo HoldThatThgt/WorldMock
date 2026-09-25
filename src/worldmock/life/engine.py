@@ -413,7 +413,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
 
         人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
-        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖。
+        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察展示过的消息记为已读，
+        其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages）。
         """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
@@ -432,6 +433,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 staged = _remember_action(staged, pending, result)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
+        staged = same_moment.read_observed_messages(staged, self.state, current.expected_agent_ids)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.state.version + 1
@@ -841,9 +843,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 受理计入同刻轮数并清零连续拒绝，按同刻规则或决策节律安排下一次决策（第一章规则 2、4、7）。"""
         agent = same_moment.count_round(state.agents[agent_id])
         game = next((item for item in active_activities(state, agent_id)
-                     if item.kind == ActivityKind.PLAY_GAME), None)
-        # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策。
-        game_turn = (lambda: game.next_interaction_at or game.planned_end_at) if game is not None else None
+                     if item.kind == ActivityKind.PLAY_GAME and item.next_interaction_at is not None), None)
+        # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：有交互边界时
+        # 到期即提供决策；没有交互边界时按决策节律（规则 7），游戏的计划结束已在节律候选之中。
+        game_turn = (lambda: game.next_interaction_at) if game is not None else None
         next_at, reasons, stage = self._round_schedule(state, agent, False, game_turn)
         changed = agent.model_copy(update={"next_decision_at": next_at,
                                            "consecutive_rejections": 0,
@@ -1331,7 +1334,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         if energy_check:
             self._require_energy_plan(state, started.agent, started.activity)
         if started.invite is not None:
-            self._deliver_social_message(state, started.invite)
+            state = self._deliver_social_message(state, started.invite)
         changed = _put_activity(state, started.agent, started.activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
@@ -1348,25 +1351,25 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             raise BusinessRuleError("CONTACT_NOT_FOUND")
         return matches[0]
 
-    def _deliver_social_message(self, state: WorldState, sent) -> None:
-        """@brief 把交谈邀请送达对方 inbox 并留 message_arrival 事件草稿。
+    def _deliver_social_message(self, state: WorldState, sent) -> WorldState:
+        """@brief 把交谈邀请送达对方 inbox 并留 message_arrival 事件草稿，返回新的世界副本。
 
+        不就地改动传入的状态：整组开始被拒时连同暂存草稿一起丢弃，对方不会收到幽灵邀请。
         该草稿登记清醒收件人的同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
         （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
         """
         recipient = next((item for item in state.agents.values()
                           if f"agent:{item.agent_id}" == sent.message.recipient_id), None)
         if recipient is not None:
-            inbox = dict(state.agents[recipient.agent_id].inbox)
-            inbox[sent.message.message_id] = sent.message
-            state.agents[recipient.agent_id] = state.agents[recipient.agent_id].model_copy(
-                update={"inbox": inbox}, deep=True)
+            inbox = {**recipient.inbox, sent.message.message_id: sent.message}
+            state = _put_agent(state, recipient.model_copy(update={"inbox": inbox}, deep=True))
         self._pending_event_drafts.append(EventDraft(
             event_type="environment_event", occurred_at=state.current_time,
             agent_id=recipient.agent_id if recipient else None, source_kind="environment",
             data={"kind": "message_arrival", "message_id": sent.message.message_id,
                   "recipient_id": sent.message.recipient_id,
                   "occurred_at": sent.arrival.occurred_at}))
+        return state
 
     def _advance_activities(self, state: WorldState, target: int) -> tuple[list[EventDraft], list[ActionResult]]:
         """@brief 每个人先结算共同身体，再独立推进全部正在执行的活动。"""

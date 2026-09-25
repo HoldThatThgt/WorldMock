@@ -4,7 +4,8 @@
 再决策（规则 2）；同一人物同一秒的决策轮数由场景 max_same_moment_decisions 封顶，达到上限后每个受限轮只开放一类
 动作（规则 3）；有进行中活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
 唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且
-未达上限的收件人在同一秒获得机会（「人物之间的消息」）。引擎只接线，计数与阶梯都在本模块。
+未达上限的收件人在同一秒获得机会，决策轮观察展示过的消息随本轮提交记为已读（「人物之间的消息」）。引擎只接线，
+计数与阶梯都在本模块。
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from dataclasses import dataclass
 from worldmock.errors import BusinessRuleError
 from worldmock.life.models import (ActionStatus, ActivityKind, AgentState, SameMomentStage, WorldState,
                                    active_activities)
+from worldmock.life.rhythm import read_new_messages
 from worldmock.life.schedule import WakeReason
 
 #: 业务拒绝对应的情绪脉冲键：工作返工单独计，两种品类配对说明不施加脉冲，其余都是服务拒绝。
@@ -140,6 +142,30 @@ def reset_same_moment(state: WorldState) -> WorldState:
                                                  "same_moment_stage": SameMomentStage.OPEN}, deep=True)
               for agent_id, agent in state.agents.items()}
     return state.model_copy(update={"agents": agents}, deep=True)
+
+
+def read_observed_messages(state: WorldState, observed: WorldState, agent_ids: Iterable[int]) -> WorldState:
+    """@brief 决策轮提交时，把本轮观察展示过的消息记为已读（第一章「人物之间的消息」）。
+
+    本轮观察取自轮前状态 observed：只读其中已在收件箱的消息，看过的消息不在其后的边界再以 message_arrival 唤醒；
+    本轮内送达的消息仍未读，由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）
+    回应不了消息，不记已读：已达同刻上限的收件人照常在下一边界获得消息机会。
+
+    :param state: 本轮全部动作结算后的世界副本
+    :param observed: 本轮观察所用的轮前世界状态
+    :param agent_ids: 本轮的全部人物
+    """
+    read = {}
+    for agent_id in agent_ids:
+        before = observed.agents[agent_id]
+        if before.same_moment_stage != SameMomentStage.OPEN:
+            continue
+        agent = read_new_messages(state.agents[agent_id], only=set(before.inbox))
+        if agent is not state.agents[agent_id]:
+            read[agent_id] = agent
+    if not read:
+        return state
+    return state.model_copy(update={"agents": {**state.agents, **read}}, deep=True)
 
 
 def merge_message_readiness(state: WorldState, recipient_ids: Iterable[int], limit: int) -> WorldState:

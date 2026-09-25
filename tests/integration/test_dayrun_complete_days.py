@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -214,8 +215,9 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed):
     document = _document("multi-person.json")
     document["random_seed"] = seed
-    # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，
-    # 会话按播报节律汇报；等待时长取结算间隔，结算间隔与播报间隔都放长到两小时，使整日决策轮数与运行时长保持有界。
+    # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，会话按播报节律汇报。
+    # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
+    # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
     document["activity_feedback_seconds"] = 7200
     document["progress_report_interval_seconds"] = 7200
     for identity in (1, 2):
@@ -276,11 +278,17 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert engine.state.current_time - start == 86400
     assert all(model.meals == 2 and model.invalid_parallel_sent for model in models.values())
     assert all(agent.body_settled_at == engine.state.end_time for agent in engine.state.agents.values())
+    # 同刻上限（规则 3）：同一人物同一秒的决策轮数不超过上限加三。
+    same_second = Counter((event.agent_id, event.occurred_at) for event in events
+                          if event.event_type == "decision_started")
+    assert max(same_second.values()) <= engine.scenario.max_same_moment_decisions + 3
     for agent_id in (1, 2):
         body = [event for event in events if event.agent_id == agent_id
                 and event.event_type == "environment_event" and event.data.get("kind") == "body_settlement"]
         assert sum(event.data["interval_end"]-event.data["interval_start"] for event in body) == 86400
         assert all(left.data["interval_end"] == right.data["interval_start"] for left, right in zip(body, body[1:]))
+        # 时钟只在人人有事时推进（规则 1）：每个结算区间都有进行中活动，没有空闲区间。
+        assert all(event.data["activity_ids"] for event in body)
         facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=events[-1].event_seq)
         assert {fact["kind"] for fact in facts} >= {"consumed", "arrived", "played"}
         assert sum(fact["interval_quantity"] for fact in facts if fact["kind"] == "consumed") == pytest.approx(2)

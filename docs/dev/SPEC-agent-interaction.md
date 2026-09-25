@@ -179,8 +179,8 @@ stateDiagram-v2
 
 | 工具 | 可见性 | 收 | 语义 |
 | --- | --- | --- | --- |
-| `start_activity` | 永恒可见 | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动并建立会话；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
-| `recall_task_summary` | 永恒可见 | `task_name: str` | 只读回看可读任务名称或唯一会话名称；不改变世界 |
+| `start_activity` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动并建立会话；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
+| `recall_task_summary` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `task_name: str` | 只读回看可读任务名称或唯一会话名称；不改变世界 |
 | `report_status` | 有 `active` 或 `paused` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；播报进行中会话，已暂停会话恢复进行 |
 | `pause_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；暂停所选会话及其进行中活动 |
 | `conclude_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；只结束选中的进行中会话 |
@@ -292,10 +292,16 @@ DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEP
 由工具层判断，不放进地点菜单，也不恢复 `allowed_tools` 或 `allowed_activity_kinds`。
 
 **同刻上限的受限轮收窄。** 同一人物同一模拟秒的决策轮数达到场景 `max_same_moment_decisions`
-后，宿主按观察私有证据 `same_moment_stage` 只开放一类世界请求：`start_or_resume` 开始或恢复一项持续活动
-（等待始终可选，不含到店购买与远程下单）；`wait_only` 只开放等待。名称枚举只列当下可执行项，记忆查询照常；
-形状错误按协议错误在本轮重试，不计轮数；引擎以同一判定复核，越界请求以 `SAME_MOMENT_ACTION_RESTRICTED`
-业务拒绝并计入同刻轮数。阶段取值见[时间与能量规格](SPEC-time-and-energy.md)第一章「实现约定」。
+后，宿主按观察私有证据 `same_moment_stage` 只开放一类世界请求：
+- `conclude_pending`（有待收尾活动）只开放 `conclude_activity`，名称枚举只列待收尾活动，须一次点名全部待收尾活动；
+- `start_or_resume` 开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单）；
+- `resume_or_conclude`（两个名额都被暂停的活动占着）恢复或结束其中一项；
+- `conclude_only`（上一受限轮的开始或恢复在名额满时被拒）只开放结束，名称枚举只列占名额的活动，此后只开放等待；
+- `wait_only` 只开放等待。
+
+名称枚举只列当下可执行项，记忆查询照常；形状错误按协议错误在本轮重试，不计轮数；引擎以同一判定复核，越界请求以
+`SAME_MOMENT_ACTION_RESTRICTED` 业务拒绝并计入同刻轮数。阶段取值见[时间与能量规格](SPEC-time-and-energy.md)
+第一章「规则」第 3 条与「实现约定」。
 
 ## 决策轮循环与播报节律
 
@@ -592,4 +598,4 @@ flowchart LR
 | 1.0–1.2 | 2026-09-22 | 三级结构、七层上下文、旧七工具方案、播报、并发与午夜巩固的历史裁决 |
 | 1.3 | 2026-09-23 | issue #1 后收敛模型与引擎的执行契约；九工具区分选择和原创内容；进度层承载执行结果；整次请求 token 计数与 85% 进度浓缩；业务拒绝不终止运行；交付输入一致性 |
 | 1.4 | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 17–21 行修订，修订部分待实现：三级结构改为当日目标 → 地点会话 → 活动，进度与自述挂在活动上，会话字段按该规格第七章重写；`start_activity` 为 `targets`、`actions`、`ways` 三个等长数组；播报只针对进行中活动，唤醒表增 `no_active_activity`、`plan_reminder_due`，业务拒绝后同一秒再决策；能量不是前置条件，交互对象照常列出并带说明；进度层按会话分组列活动，浓缩单位改为会话与已收尾活动；前置条件表的判定处按代码更正为 `ACTIVITY_PRECONDITION_UNMET`（既有漂移，原文 `WORK_LOCATION_REQUIRED`、`WORK_SKILL_INSUFFICIENT`），并刷新 `models.py`、`schedule.py`、`work.py` 行号；system 加「怎样过一天」，饿时补吃饭途径句；游戏为 `interact` 的合法目标；验收台账相应改写；修订 #2 改为常量名额，修订 #7 被取代；人物工具八个。「稳定工具面」「保护项修订」「对象与动作选择」「事件与重建约束」随代码修订。补记未入表的就地改动：`eee89fc` 在「决策轮循环与播报节律」加入 `RESOURCE_CONFLICT` 的延迟排期与按执行器资源声明检查占用；`778beca` 在「前置条件前置与前往提醒」改为交互对象只列当前可执行的对象与动作；二者由本版取代 |
-| 1.5 | 2026-09-25 | 按时间与能量规格阶段 1（AI8）：「保护项修订」注明永恒可见的两件工具在同刻上限的受限轮中例外，新增受限轮收窄一段：按观察私有证据 `same_moment_stage`，`start_or_resume` 只开放开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单），`wait_only` 只开放等待；名称枚举只列当下可执行项，记忆查询照常，形状错误按协议错误在本轮重试；越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝并计入同刻轮数 |
+| 1.5 | 2026-09-25 | 按时间与能量规格阶段 1（AI8）：「保护项修订」注明永恒可见的两件工具在同刻上限的受限轮中例外，新增受限轮收窄一段：按观察私有证据 `same_moment_stage`，`start_or_resume` 只开放开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单），`wait_only` 只开放等待；依赖名额与待收尾的三个阶段按最终行为写明：`conclude_pending` 只开放 `conclude_activity`，名称只列待收尾活动且须一次点名全部，`resume_or_conclude` 在两个名额都被暂停活动占着时恢复或结束其中一项，`conclude_only` 在名额满时开始或恢复被拒后只开放结束（名称只列占名额的活动）、此后只开放等待；名称枚举只列当下可执行项，记忆查询照常，形状错误按协议错误在本轮重试；越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝并计入同刻轮数；「稳定工具面」表中 `start_activity`、`recall_task_summary` 的「永恒可见」注明受限轮除外 |

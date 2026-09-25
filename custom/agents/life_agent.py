@@ -54,7 +54,7 @@ _START_ACTIVITY_MAX_TARGETS = 2
 _HEX_IDENTITY_MIN_CHARS = 8
 #: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
 #: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
-#: 拒绝重试边界的唤醒原因是 rejection_feedback，不属日首，不触发强制。
+#: 同刻再决策轮的唤醒原因按轮替换（no_active_activity、rejection_feedback），不属日首，不触发强制。
 _DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
 
 _HEX_IDENTITY_PATTERN = re.compile(r"[0-9a-fA-F]{%d,}" % _HEX_IDENTITY_MIN_CHARS)
@@ -1089,7 +1089,7 @@ def _plan_required_before_other_actions(
     日首闭集。这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才
     合法"的顺序（与"提交动作后才开放 finish"的阶段门同构，docs/CONTRACTS.md「动作状态与动作结果」工具集合
     不替人物选择指的是不代选内容）；人物仍可提交计划后 finish 跳过当天，
-    或被拒绝后在一秒重试边界拿回其他动作工具。
+    或被拒绝后在同一秒的再决策轮拿回其他动作工具。
     """
     return ("plan_day" in action_models
             and bool(_DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data))))

@@ -21,12 +21,13 @@ from worldmock.life.body import apply_mood_pulse
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, PlanDayRequest, PlanGoalInput,
-    ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, active_activities,
+    ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
+    active_activities,
 )
 from worldmock.life.narration import render_scene
 from worldmock.life.projection import SAME_MOMENT_NOTE
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
-from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
+from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.scenario import LifeScenario, load_scenario
 from worldmock.life.schedule import WakeSnapshot, evaluate_wake_reasons
 
@@ -460,6 +461,35 @@ def test_idle_interval_only_while_waiting_without_commitments(tmp_path) -> None:
         engine.close()
 
 
+def _game_intervals(document: dict) -> None:
+    """@brief 结算间隔一小时、重估十分钟、播报半小时：游戏开始后的节律候选早于游戏的计划结束。"""
+    document["activity_feedback_seconds"] = 3600
+    document["reconsideration_interval_seconds"] = 600
+    document["idle_reconsideration_interval_seconds"] = 1200
+    document["progress_report_interval_seconds"] = 1800
+
+
+def test_game_start_follows_decision_rhythm(tmp_path) -> None:
+    """开始游戏后下一决策按决策节律（规则 7）：重估与播报候选照常，不被游戏的计划结束取代。"""
+    engine = _custom_engine("white-collar-12-weeks.json", _game_intervals, tmp_path, "game-rhythm")
+    try:
+        stage_day_plan(engine)
+        observed = engine.observe(context(engine, "game-rhythm-preview"))
+        target, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
+                             for action in row["actions"] if action["canonical_action"] == "play")
+        now = engine.state.current_time
+        played = _act(engine, "game-rhythm-play", "start_activity", start_activity(label, target))
+        agent = engine.state.agents[1]
+        rhythm = next_decision_candidates(agent.model_copy(update={"last_decision_time": now}),
+                                          engine_rhythm_inputs(engine, engine.state))
+        assert played.status == "in_progress" and agent.next_decision_at == rhythm == now + 600
+        assert engine.state.activities[played.activity_id].planned_end_at > now + 1800
+        assert advance_until_ready(engine) and engine.state.current_time == now + 600
+        assert engine.state.agents[1].pending_wake_reasons == ["reconsideration_interval"]
+    finally:
+        engine.close()
+
+
 def test_service_refused_pulse_at_most_once_per_second(engine_factory) -> None:
     """同一人物同一模拟秒至多施加一次 service_refused 脉冲；下一秒照常施加（拒绝的情绪代价）。"""
     engine = engine_factory()
@@ -636,7 +666,10 @@ def _end_wait(engine: LifeEngine, agent_id: int) -> tuple[str, ConcludeActivityR
 
 
 def test_awake_recipient_gets_same_second_opportunity(engine_factory) -> None:
-    """清醒的收件人在消息送达的同一秒获得机会，原因为 message_arrival，并计入其同刻轮数（「人物之间的消息」）。"""
+    """清醒的收件人在消息送达的同一秒获得机会，原因为 message_arrival，并计入其同刻轮数（「人物之间的消息」）。
+
+    该轮观察展示过的消息随本轮提交记为已读：其后无关的边界不再以 message_arrival 第二次唤醒收件人。
+    """
     engine = engine_factory("multi-person.json")
     now = _both_waiting(engine, woken=(1,))
     _act(engine, "person-end-wait", *_end_wait(engine, 1))
@@ -644,13 +677,24 @@ def test_awake_recipient_gets_same_second_opportunity(engine_factory) -> None:
     sent = _act(engine, "person-send", *_message_to(engine, 2, "晚上一起吃饭吗"))
     assert sent.status == "completed"
     recipient = engine.state.agents[2]
+    message_id = sent.data["message_id"]
     assert recipient.next_decision_at == now and recipient.pending_wake_reasons == ["message_arrival"]
     assert recipient.same_moment_rounds == 0 and sorted(engine.scheduling_state().ready_agent_ids) == [1, 2]
+    assert message_id in recipient.inbox and message_id not in recipient.read_inbox_ids
     report = ReportStatusRequest(task=[_running_session(engine, 2)], summary=["看到消息了。"])
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
                  "person-read")
     assert _decision_reasons(engine, 2)[-1] == ["message_arrival"]
     assert engine.state.agents[2].same_moment_rounds == 1 and engine.state.current_time == now
+    assert message_id in engine.state.agents[2].read_inbox_ids
+    wake_by_mail(engine, agent_id=1, offset=45)
+    advance_next(engine)
+    assert engine.state.current_time == now + 45 and engine.scheduling_state().ready_agent_ids == (1,)
+    assert engine.state.agents[2].pending_wake_reasons == []
+    settlement = [event for event in engine.store.read_agent_events("environment_event", 2)
+                  if event.data.get("kind") == "body_settlement"][-1]
+    assert settlement.data["interval_end"] == now + 45 and settlement.data["decision_offered"] is False
+    assert "message_arrival" not in settlement.data["wake_reasons"]
 
 
 def test_recipient_in_same_round_is_not_overwritten_by_its_own_success(engine_factory) -> None:
@@ -689,6 +733,28 @@ def test_recipient_at_limit_gets_message_at_next_boundary(engine_factory) -> Non
     assert "message_arrival" in recipient.pending_wake_reasons and message_id in recipient.read_inbox_ids
 
 
+def test_restricted_round_does_not_use_up_message_opportunity(engine_factory) -> None:
+    """已达上限的收件人在同秒受限轮里看到消息也回应不了：不记已读，下一边界照常以 message_arrival 提供机会。"""
+    engine = engine_factory("multi-person.json")
+    now = _both_waiting(engine, woken=(1, 2))
+    submit_round(engine, {1: _end_wait(engine, 1), 2: _end_wait(engine, 2)}, "restricted-both-end")
+    _stage_agent(engine, 2, same_moment_rounds=engine.scenario.max_same_moment_decisions,
+                 same_moment_stage=SameMomentStage.START_OR_RESUME)
+    _, results = submit_round(engine, {1: _message_to(engine, 2, "看到回我"),
+                                       2: ("start_activity", start_activity("观看", "不存在的对象"))},
+                              "restricted-send")
+    message_id = next(item.data["message_id"] for item in results if item.agent_id == 1)
+    assert engine.state.agents[2].same_moment_stage == SameMomentStage.WAIT_ONLY
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
+                          2: ("start_activity", start_activity("等待", "自己"))}, "restricted-wait")
+    assert message_id not in engine.state.agents[2].read_inbox_ids
+    wake_by_mail(engine, agent_id=1, offset=45)
+    advance_next(engine)
+    recipient = engine.state.agents[2]
+    assert engine.state.current_time == now + 45 and 2 in engine.scheduling_state().ready_agent_ids
+    assert "message_arrival" in recipient.pending_wake_reasons and message_id in recipient.read_inbox_ids
+
+
 def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> None:
     """同轮开始睡觉的收件人不因人物消息在同一秒或其后的边界被唤醒（「人物之间的消息」，睡眠中过滤）。"""
     engine = engine_factory("multi-person.json")
@@ -704,6 +770,25 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
                   if event.data.get("kind") == "body_settlement"][-1]
     assert settlement.data["decision_offered"] is False and settlement.data["wake_reasons"] == []
     assert 2 not in engine.scheduling_state().ready_agent_ids
+
+
+def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
+    """交谈与等待整组开始被拒时，交谈邀请随整组撤回：对方收件箱不变，同秒与其后的边界都不以 message_arrival 唤醒对方。"""
+    engine = engine_factory("multi-person.json")
+    now = _both_waiting(engine, woken=(1,))
+    _act(engine, "paired-end-wait", *_end_wait(engine, 1))
+    inbox = dict(engine.state.agents[2].inbox)
+    request = StartActivityRequest(targets=[_person_name(engine, 1, 2), "自己"], actions=["交谈", "等待"])
+    assert _act(engine, "paired-start", "start_activity", request).status == "rejected"
+    partner = engine.state.agents[2]
+    assert partner.inbox == inbox and partner.next_decision_at > now and partner.pending_wake_reasons == []
+    assert not [event for event in engine.store.read_agent_events("environment_event", 2)
+                if event.data.get("kind") == "message_arrival"]
+    _wait(engine, "paired-sender-wait")
+    wake_by_mail(engine, agent_id=1, offset=30)
+    advance_next(engine)
+    assert engine.state.current_time == now + 30 and engine.scheduling_state().ready_agent_ids == (1,)
+    assert engine.state.agents[2].inbox == inbox and engine.state.agents[2].pending_wake_reasons == []
 
 
 @pytest.mark.asyncio
