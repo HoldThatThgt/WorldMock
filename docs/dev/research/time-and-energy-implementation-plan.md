@@ -2,14 +2,13 @@
 
 > 状态：**未冻结提案**。规格冻结后本文改为 `实施台账`，每个阶段合入后记下合入提交。
 > 日期：2026-09-24
-> 依据：[时间与能量特性规格](../SPEC-time-and-energy.md)（v0.12）。行为以规格为准；本文只写落地顺序、已提交文档的同步作业与文件改动，不另定行为。
+> 依据：[时间与能量特性规格](../SPEC-time-and-energy.md)（v0.13）。行为以规格为准；本文只写落地顺序、已提交文档的同步作业与文件改动，不另定行为。
 > 口径：
 > - 代码与已提交文档的行号取 `778beca`；行号随实施漂移时以函数名或章节标题为准。
 > - 已提交文档在规格冻结前不改；下列作业在冻结时或随对应代码落地。
-> - 批次标记：【冻】规格冻结时落地，先于任何代码；【同】与对应代码同一变更集；【后】实现并验证后落地；【条·#N】整项取决于规格「裁决记录」中仍为「待确认」的第 N 行（#19–#25），按推荐写，裁定为另一方案时按该项所写改动或不落地。只有部分内容取决于待确认裁决时，在该部分前标〔#N〕。
-> - 待确认裁决：#19 超长派生时长，#20 方式载体，#21 联系人回复何时送达，#22 他处持有物，#23 并行准入载体，#24 Dreaming 执行位置，#25 `catalog_version`。
+> - 批次标记：【冻】规格冻结时落地，先于任何代码；【同】与对应代码同一变更集；【后】实现并验证后落地；【条·#N】整项取决于规格「裁决记录」中仍为「待确认」的第 N 行（#19–#23、#25），按推荐写，裁定为另一方案时按该项所写改动或不落地。只有部分内容取决于待确认裁决时，在该部分前标〔#N〕。
+> - 待确认裁决：#19 超长派生时长，#20 方式载体，#21 联系人回复何时送达，#22 他处持有物，#23 并行准入载体，#25 `catalog_version`。
 > - 「第 X 章」指规格正文章节；「修订 N」指规格「冻结条款修订」第 N 行；「一·引擎」这类标签指本文「文件修改清单」的职责列。
-> - 术语：「运行中 Dreaming」指模拟运行在场景本地零点或启动路径为人物生成当日计划、补写记忆的后台任务，机器键为 `day_planning`；「离线 `dreaming`」指交付阶段经 LabelKit 做的归纳与推演。二者不共用事件用途、模型阶段键与名称。
 
 ## 实施阶段
 
@@ -19,13 +18,13 @@
 
 | 阶段 | 内容 | 先落地的文档作业（作业编号） | 完成判据 |
 | --- | --- | --- | --- |
-| 冻结 | 裁定 #19–#25；规格改 FROZEN；本计划改为实施台账；不动代码 | 全部【冻】；C38、E4-21、E5-19 的冻结部分；IX1–IX4、IX6；【条·#22】LR28；【条·#24】AS9 | 文档门禁通过；冻结条款修订逐行对上作业；变更集只含文档 |
+| 冻结 | 裁定 #19–#23、#25；规格改 FROZEN；本计划改为实施台账；不动代码 | 全部【冻】；C38、E4-21、E5-19 的冻结部分；IX1–IX4、IX6；【条·#22】LR28 | 文档门禁通过；冻结条款修订逐行对上作业；变更集只含文档 |
 | 0 绿色基线 | 第九章：空层合法、夹具、版本 7、快照地点、目标回看、跨任务提交、交付版本核对 | 【同】C19、C20、C21、C23、C28、C38、E3-1、E3-2、E5-13、E6-5、E8-2、E9-2、E9-4、EX10、VF1、VF10 | `pytest tests` 全绿，原 50 项失败转绿；版本 6 检查点被拒；四处抛错点消失 |
 | 1 同刻决策 | 第一章（「刚才」与依赖名额、待收尾的受限轮分支除外）；唤醒词表加两员；同刻轮次度量；删旧场景参数 | 【同】C1、C14、C18、C19、C21、C38、LR5、LR7、AI8、E5-3、E5-4、E5-6、E5-13、E5-18、E7-1、E8-1、E8-2、E9-2、E9-3、VF2、MA1、MA2、MA5；〔#21〕C25 | 同秒轮数不超过上限加三；推进时人人有进行中活动且没有待收尾活动；四处唤醒词表成员一致；旧键场景被拒 |
 | 2 身体与能量 | 第二章；第三章（目录除外）；第八章节律、作息初值、配送时刻 | 【同】C15、C27、C28、C30、C32、C33、C38、E9-2、LR7、MA3、MA7、MA9、MA13 | 0 kcal 下活动全受理且无 `ValueError`；跨档预测不晚于实际；代码无能量闸门符号 |
 | 3 活动、会话与记忆 | 第七章（接着看除外）；第八章播报、进度、终态与自述不当事实；取消 `finish`；交付裁去记忆；第一章受限轮中依赖名额与待收尾的三支（`conclude_pending`、`resume_or_conclude`、`conclude_only`） | 【同】C1、C4、C6、C15、C17、C18、C19、C20、C27、C28、C30、C33、C34、C35、C37、C38、AI6、AI8、AI15、E5-5、E5-11、E5-13、E5-18、E8-2、E9-2、E9-3、E9-4、LR7、MA4 | 会话随出行切换；待收尾同秒收尾；每轮恰好一个世界请求；提示无内部身份；导出等于检查点 |
 | 4 生活动作与并行准入 | 第五章；「刚才」；接着看；开工 60 秒与「做不完」标记；唯一一次目录变更与数据集重建 | 【同】C1、C3、C4、C5、C15、C16、C17、C19、C20、C25、C27、C28、C30、C32、C33、C38、AI6、AI7、AI8、E9-3、E9-4、MA4、MA8、MA13；【条·#25】C39、E3-3、E8-7、EX13 | 组合表逐行成立；「自己」恒在；选错得原因与下一步；目录核对通过 |
-| 5 运行中 Dreaming、提醒与常驻提示 | 第四章；第六章 | 【同】C4、C6、C8–C11、C13、C15、C17、C20、C28、C34、C35、C38、AI6、AI8、AI15、E5-5、E5-6、E5-13、E7-1、E8-1、E8-2、E9-2、E9-3、E9-4、LR7、VF2、MA2、MA6、MA11、MA14 | 同日只生成一次；提醒只触发一次；人物工具 8 个；Dreaming 不进决策统计与交付 |
+| 5 零点计划、提醒与常驻提示 | 第四章；第六章 | 【同】C4、C6、C8–C11、C13、C15、C17、C20、C28、C34、C35、C38、AI6、AI8、AI15、E5-5、E5-6、E5-13、E7-1、E8-1、E8-2、E9-2、E9-3、E9-4、LR7、VF2、MA2、MA6、MA11 | 同日只生成一次；提醒只触发一次；人物工具 8 个；零点计划不进决策统计与交付 |
 | 6 运行身份 | 第八章运行身份；与阶段 1–5 并行 | 【同】AS6、E5-12、EX2、EX3、MA10、MA11、MA12、RM1 | AS2 缺失或不符即拒绝启动；清单含 `git_commit`、`git_dirty` |
 | 7 查看器与全量门禁 | 查看器；复验统计子命令；全量门禁与突变测试 | 无新增作业；执行 VF4；验收记录建档 | 全部门禁通过；覆盖率报告重新生成并提交 |
 | 8 真实复验 | 练秋湖与 r14 复跑，只报告 | 无 | 八项指标写入验收记录；不作门禁 |
@@ -39,18 +38,18 @@
   - `scripts/coverage_gate.py`：分支覆盖率不低于 85%，未覆盖公共接口为零（`scripts/coverage_gate.py:24`）。门禁每次运行都重写 `docs/dev/coverage-report.json`，该文件只在阶段 7 提交；
   - `scripts/documentation_gate.py`。
 - **风格。** 行宽不超过 120，函数不超过 50 行且不超过 5 个参数，文件不超过 2000 行，生产函数 docstring 含中文；新增违规为零。改到 `_OUTSTANDING`（`tests/test_style_gate.py:29-38`）中有记账的文件时，修掉的存量违规同步减记账，计数不符同样失败。涉及的文件：`life/schedule.py`（阶段 1、2、5）、`life/motivation.py`（1、4）、`evaluation/behavior_metrics.py`（1、4、5）、`life/social_actions.py`（4）、`catalog/affordances.py`（4）、`runtime.py`（5、6）。
-- **`engine.py` 行数。** 现为 1749 行，风格门禁的 2000 行上限即判据。同刻计数与受限轮阶梯、地点会话切换与待收尾、Dreaming 调度与提醒都放在新模块，引擎只接线。
-- **世界结构版本 7。** 阶段 0 把 `WORLD_SCHEMA_VERSION`（`src/worldmock/life/models.py:23`）由 6 升为 7，只升这一次。阶段 1（同刻计数、受限轮阶段、按人物暂存的呈现留痕）、阶段 3（地点会话，活动的 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与移来的自述字段）、阶段 5（提醒字段、`dreamed_dates`）新增的世界结构字段都并入版本 7；E5-13、E8-2、E9-2、E9-3、E9-4 的字段说明随各阶段补写。阶段 5 合入前产生的 7 版检查点不作恢复承诺，真实复验只用最终代码产生的运行。版本 6 的检查点一律以版本不符拒绝。
-- **不新增故障路径。** `_resolve` 只捕获 `BusinessRuleError`（`src/worldmock/life/engine.py:814`）。每阶段逐条审查差异中新增的 `raise`：模型输入或世界状态能触发的情形一律表达为业务拒绝或状态转换，`ProtocolError` 只留给协议违约。各阶段须消除的既有抛错点写在该阶段的完成判据里。运行中 Dreaming 的协议错误与模型故障按第四章处理，不属业务情形。
+- **`engine.py` 行数。** 现为 1749 行，风格门禁的 2000 行上限即判据。同刻计数与受限轮阶梯、地点会话切换与待收尾、零点计划与提醒都放在新模块，引擎只接线。
+- **世界结构版本 7。** 阶段 0 把 `WORLD_SCHEMA_VERSION`（`src/worldmock/life/models.py:23`）由 6 升为 7，只升这一次。阶段 1（同刻计数、受限轮阶段、按人物暂存的呈现留痕）、阶段 3（地点会话，活动的 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与移来的自述字段）、阶段 5（提醒字段）新增的世界结构字段都并入版本 7；E5-13、E8-2、E9-2、E9-3、E9-4 的字段说明随各阶段补写。阶段 5 合入前产生的 7 版检查点不作恢复承诺，真实复验只用最终代码产生的运行。版本 6 的检查点一律以版本不符拒绝。
+- **不新增故障路径。** `_resolve` 只捕获 `BusinessRuleError`（`src/worldmock/life/engine.py:814`）。每阶段逐条审查差异中新增的 `raise`：模型输入或世界状态能触发的情形一律表达为业务拒绝或状态转换，`ProtocolError` 只留给协议违约。各阶段须消除的既有抛错点写在该阶段的完成判据里。零点计划 `plan_day` 的协议错误与模型故障按第四章处理，不属业务情形。
 - **测试推进。** 同秒有人就绪时 `engine.advance` 拒绝推进（`engine.py:585-586`）；测试用 `advance_until_ready`，或先开始等待。
-- **热点文件。** 四个文件的改动按阶段分到不同函数，下表列各阶段的主要改动面。同一函数跨阶段改动的有七处，每次只改其中一个独立分支：`_visible_action_contracts`（阶段 0 的任务名、3 的控制工具、5 的 `plan_day`）、`_available_action_models`（3、5）、`prepare_react_loop`（1 的收窄、5 识别 Dreaming 轮）、`_run_react_turn`（3 的覆写、5 的 Dreaming 分支）、`_recall_task_summary`（0、3）、`commit_decision_round` 与 `advance`（1 的呈现暂存与同刻归零、5 的 Dreaming 轮与零点）。
+- **热点文件。** 四个文件的改动按阶段分到不同函数，下表列各阶段的主要改动面。同一函数跨阶段改动的有五处，每次只改其中一个独立分支：`_visible_action_contracts`（阶段 0 的任务名、3 的控制工具、5 的 `plan_day`）、`_available_action_models`（3、5）、`prepare_react_loop`（1 的收窄、5 删日首门控 :717-721）、`_recall_task_summary`（0、3）、`advance`（1 的呈现暂存与同刻归零、5 的零点节律判定段后移）。
 
   | 文件 | 阶段与改动面 |
   | --- | --- |
-  | `src/worldmock/life/engine.py` | 0：`_advance_one_activity`（`:1399`）、评审准备（`:312-314`）与提交（`:1138-1139`）。1：`_after_success`、`_after_rejection`、`_reused_result`、删 `_after_unknown`、`_put_agent_and_defer_feedback`、`_require_boundary_action`、`_deliver_social_message`、`_register_delivered_message`、`commit_decision_round` 与 `advance` 的呈现暂存和同刻归零。2：删 `_require_energy_plan` 及其调用、`recovery_kinds`、删 `_remaining_activity_energy`、`AFFORDANCE_CONTRACT_KEYS` 与 `affordance_contract`、`_body_boundary_at`、`_initial_agent`。3：出发与到达的会话切换接线、`_resolve` 的终态记录、`record_memory_update`。4：`_ops_action`、`_advance_activities` 的交谈缓解。5：`_next_epoch`、`advance`、`_dispatch` 与 `_plan_day`、`_revise_day_plan`、`commit_decision_round`、`observe`、`record_model_exchange`、`_ready`。6：`_run_manifest` |
+  | `src/worldmock/life/engine.py` | 0：`_advance_one_activity`（`:1399`）、评审准备（`:312-314`）与提交（`:1138-1139`）。1：`_after_success`、`_after_rejection`、`_reused_result`、删 `_after_unknown`、`_put_agent_and_defer_feedback`、`_require_boundary_action`、`_deliver_social_message`、`_register_delivered_message`、`commit_decision_round` 与 `advance` 的呈现暂存和同刻归零。2：删 `_require_energy_plan` 及其调用、`recovery_kinds`、删 `_remaining_activity_energy`、`AFFORDANCE_CONTRACT_KEYS` 与 `affordance_contract`、`_body_boundary_at`、`_initial_agent`。3：出发与到达的会话切换接线、`_resolve` 的终态记录、`record_memory_update`。4：`_ops_action`、`_advance_activities` 的交谈缓解。5：`_next_epoch`（零点与未触发的提醒候选）、`advance`（零点边界的节律移到计划提交之后）、`_dispatch` 与 `_plan_day`（改为系统登记入口）、`_revise_day_plan`。6：`_run_manifest` |
   | `src/worldmock/life/session_actions.py` | 0：`_recall_task_summary`（`:411`）。3：`_start_activity`（名额与形状错误码）、`_open_session`、`_report_status`、`_pause_activity`、`_conclude_activity`、`_sessions_for_names`、`_recall_task_summary`、`_with_goal_summaries`。4：`_resolve_interaction_bindings`、`_dispatch_start_action`、`_targeted_duration`、`_start_lifestyle_action`、到店取得与送达地 |
-  | `custom/agents/life_agent.py` | 0：`_visible_interactive_objects`（`:966`）、`submit_work` 任务名枚举（`:1017`）。1：`prepare_react_loop` 的受限轮收窄。3：删 `finish` 与 `memory_read`、覆写 `_run_react_turn`、`_react_budget` 与决策自述的回合预算、`_visible_action_contracts` 与 `_available_action_models` 的控制工具部分、删来源身份枚举、经历句子渲染、`_dispatch_strict_memory`。4：`_bind_start_activity_schema`、`_validate_start_activity`、`menu_action_error` 的调用处、`start_activity` 工具文案。5：删 `plan_day` 与日首门控、`prepare_react_loop` 识别 Dreaming 轮、`_run_react_turn` 的 Dreaming 分支、`prelude_decision_statement_request`、`life_prompt_sha256` 与 `life_tool_schema_sha256`、`revise_day_plan` 的 Schema、`_LIFE_INSTRUCTIONS` |
-  | `src/worldmock/life/projection.py` | 1：受限轮的 `scene` 说明。2：`_public_products`、`_public_inventory`、`_public_routes`、`body_projection`、`build_observation` 之后的途径句装配。3：`_session_fact_rows`、`_session_fact_row`、`_active_session_scene_rows`（删 `current_sessions`）。4：`_interaction_bindings`、`_interaction_binding`、`_resource_available`、`_task_object_rows`、`_content_object_rows`、`_person_object_rows`、`_mail_object_rows`、`_inbox_rows`、`_task_fact_rows`、`_progress_result` 与 `_progress_result_details`、手边持有物与他人在场。5：`_plan_row`、`_plan_fact`、`_progress_alarms`、Dreaming 轮的观察装配 |
+  | `custom/agents/life_agent.py` | 0：`_visible_interactive_objects`（`:966`）、`submit_work` 任务名枚举（`:1017`）。1：`prepare_react_loop` 的受限轮收窄。3：删 `finish` 与 `memory_read`、覆写 `_run_react_turn`、`_react_budget` 与决策自述的回合预算、`_visible_action_contracts` 与 `_available_action_models` 的控制工具部分、删来源身份枚举、经历句子渲染、`_dispatch_strict_memory`。4：`_bind_start_activity_schema`、`_validate_start_activity`、`menu_action_error` 的调用处、`start_activity` 工具文案。5：删 `plan_day` 与日首门控、`revise_day_plan` 的 Schema、`_LIFE_INSTRUCTIONS` |
+  | `src/worldmock/life/projection.py` | 1：受限轮的 `scene` 说明。2：`_public_products`、`_public_inventory`、`_public_routes`、`body_projection`、`build_observation` 之后的途径句装配。3：`_session_fact_rows`、`_session_fact_row`、`_active_session_scene_rows`（删 `current_sessions`）。4：`_interaction_bindings`、`_interaction_binding`、`_resource_available`、`_task_object_rows`、`_content_object_rows`、`_person_object_rows`、`_mail_object_rows`、`_inbox_rows`、`_task_fact_rows`、`_progress_result` 与 `_progress_result_details`、手边持有物与他人在场。5：`_plan_row`、`_plan_fact`、`_progress_alarms` |
 
 - **待确认裁决。** 冻结前由用户裁定。下表「本计划所按」即裁决记录中的推荐：
 
@@ -61,32 +60,30 @@
   | #21 联系人回复何时送达 | 预排送达，延迟为实验常量，送达时以 `message_arrival` 唤醒，睡眠中过滤 | 保持当秒送达；阶段 1 不改回复时序，也不改写锁定当秒送达的用例 | 冻结、1 |
   | #22 他处持有物 | 人物知道他处持有物及地点，只能在当地使用；LR28 随冻结落地 | `facts.inventory` 只列当前地点；LR28 不落地 | 冻结、2 |
   | #23 并行准入载体 | 保留注册表占用交集判定，按第五章重列占用 | 删 `resource_claims`、`occupied_resources`、`RESOURCE_CONFLICT`、`ELIGIBILITY_RESOURCE_CONFLICT`，按准入事实判定，并改写 `_validate_activity_collection` 与 `_expected_activity_claims` | 冻结、4 |
-  | #24 Dreaming 执行位置 | 人物侧借用决策轮，`dreaming_due` 标记，LifeEnv 提供登记入口 | 运行时后台结算，沿用 `runtime.py` 的 `settle_pending_model_replies`；LifeAgent 不增 Dreaming 路径 | 冻结、5 |
   | #25 `catalog_version` | 按 `catalog/affordances.toml` 自身约定升版，三份场景与两个数据集场景同步 | 沿用 `2913546` 的先例，只刷新 `catalog/manifest.json` 摘要 | 4 |
 
 ### 冻结：规格定稿与【冻】作业
 
 **目标。** 规格定稿，全部【冻】作业在一个只含文档的变更集中落地；此后代码按已冻结的文本实施。
 
-**前置。** 裁决记录 #19–#25 由用户裁定；规格 v0.12 与本计划的冻结前修订完成。
+**前置。** 裁决记录 #19–#23、#25 由用户裁定；规格 v0.13 与本计划的冻结前修订完成。
 
 **先落地的合同与文档同步作业。**
 - 【冻】全部：
-  - `docs/CONTRACTS.md`：C2、C7、C12、C22、C24、C26、C29、C31、C36。C38 是【同】作业，其中补登未入表提交与追加冻结行两项随本变更集落地，其余版本行随各阶段追加。
-  - 冻结规格：LR1–LR4、LR6、LR8–LR27、LR29–LR32；DR1–DR12；AI1–AI5、AI9–AI14、AI16–AI19；DP1–DP9；RL1–RL5、RL7、RL8；DC1–DC9；IM1–IM9；MS1–MS4；AS1–AS5、AS7、AS8；LK1–LK3；CC1（核对，不改）。
-  - 设计文档：E4-1–E4-20、E4-22、E4-23；E5-1、E5-2、E5-6–E5-10（E5-6 的 :196、:198 两句除外，随阶段 5、1 的【同】）、E5-14–E5-17；E6-1–E6-4；E7-2–E7-5；E8-3–E8-6；E9-1、E9-5；E0-1–E0-7；E1-1–E1-10；E2-1–E2-6；ER1–ER3；ES1–ES3。
-  - 实验、验收与架构：EX1、EX4–EX7、EX8a、EX8b、EX9、EX11、EX12；VF3–VF5、VF7–VF9、VF11、VF13、VF14；AR1–AR7。
+  - `docs/CONTRACTS.md`：C2、C7、C12、C22、C24、C26、C29、C31。C38 是【同】作业，其中补登未入表提交与追加冻结行两项随本变更集落地，其余版本行随各阶段追加。
+  - 冻结规格：LR1–LR4、LR6、LR8–LR27、LR29–LR32；DR1–DR12；AI1–AI5、AI9–AI13、AI16–AI19；DP1–DP9；RL1–RL3、RL5、RL7、RL8；DC1–DC9；IM1–IM9；MS1–MS4；AS1–AS5、AS7–AS9；LK2、LK3；CC1（核对，不改）。
+  - 设计文档：E4-1–E4-20、E4-22、E4-23；E5-1、E5-2、E5-6–E5-10（E5-6 的 :196、:198 两句除外，随阶段 5、1 的【同】）、E5-14–E5-17；E6-1–E6-4；E7-2–E7-5；E8-3–E8-6；E9-1、E9-5；E0-2–E0-7；E1-1、E1-3–E1-6、E1-8–E1-10；E2-1–E2-6；ER1–ER3；ES1–ES3。
+  - 实验、验收与架构：EX1、EX5–EX7、EX8a、EX8b、EX9、EX11、EX12；VF3–VF5、VF7、VF9、VF11、VF13、VF14；AR2–AR7。
   - 根 README：RM2。用户手册描述当前可用的配置，手册作业都标【同】，随所述行为的代码落地。
 - 【冻→后】的冻结部分：E4-21 补「时间与能量规格尚未实现，以绿色基线为前提」；E5-19 补本规格的实现差距行。
 - INDEX：IX1（本规格改 `FROZEN`，本计划改 `实施台账`）、IX2（版本行）、IX3（数字人交互规格一行的工具数与修订条数）、IX4（当日目标规格一行注明部分条款被修订、待实现；文档地图中词表外的状态值改为词表取值）、IX6（「按任务读」中突发事件一行的闭集指向）。
 - 本计划状态头由「未冻结提案」改为「实施台账」。
-- 【条·#22】LR28：采纳时与规格「冻结条款修订」中 life-runtime「随身持有与远程订购」的修订随本变更集落地。【条·#24】AS9 按推荐随本变更集落地。【条·#23】RL6、VF6 按推荐方案不改。C25 的〔#21〕部分在阶段 1 处理；【条·#25】C39、E3-3、E8-7、EX13 在阶段 4 处理。
+- 【条·#22】LR28：采纳时与规格「冻结条款修订」中 life-runtime「随身持有与远程订购」的修订随本变更集落地。【条·#23】RL6、VF6 按推荐方案不改。C25 的〔#21〕部分在阶段 1 处理；【条·#25】C39、E3-3、E8-7、EX13 在阶段 4 处理。
 - 依赖待确认裁决的【冻】作业按裁定写（依赖裁决的【同】作业在所属阶段注明）：
   - 〔#19〕E2-2、E4-11 中派生时长上限的写法；
   - 〔#20〕AI2、AI12、DR5、DC3、IM2、IM3、IM5、E1-1、E4-7、E4-11、E7-4、E8-3、E9-1 中「五个动词」与方式的写法；
   - 〔#21〕LR30 中联系人回复的句子、EX11 的联系人回复延迟一行；
-  - 〔#23〕C24、C26、LR2、LR12、LR20、LR24、LR27、LR30、DR2、DR4、DR5、AI9、E1-4、E2-1、E4-11、E8-4、AR2 中占用的写法；
-  - 〔#24〕E4-2、E4-3、E4-10、E1-3、E5-19、RL4 中 Dreaming 由谁执行的写法（【同】作业 E5-11 见阶段 3；AS9 整项为【条·#24】）。
+  - 〔#23〕C24、C26、LR2、LR12、LR20、LR24、LR27、LR30、DR2、DR4、DR5、AI9、E1-4、E2-1、E4-11、E8-4、AR2 中占用的写法。
 
 **代码与测试。** 无。
 
@@ -175,7 +172,7 @@
 - 不新增故障路径：受限轮的收尾、结束与等待都不会被业务拒绝；`validate_decision_rhythm` 只校验系统写入的原因。
 - 通则中的各门禁通过。
 
-**与其他阶段的依赖。** 阶段 3（待收尾在同秒收尾）、阶段 4（撤回剪裁后的逐秒重试由同刻上限兜住）、阶段 5（Dreaming 轮不计同刻轮数，提醒到期同秒决策）依赖本阶段。阶段 2 与本阶段没有逻辑依赖，因共改 `rhythm.py`、`engine.py`、`projection.py` 而排在其后合入。
+**与其他阶段的依赖。** 阶段 3（待收尾在同秒收尾）、阶段 4（撤回剪裁后的逐秒重试由同刻上限兜住）、阶段 5（提醒到期同秒决策）依赖本阶段。阶段 2 与本阶段没有逻辑依赖，因共改 `rhythm.py`、`engine.py`、`projection.py` 而排在其后合入。
 
 ### 阶段 2：身体与能量
 
@@ -220,13 +217,13 @@
 **前置。** 阶段 1（待收尾依赖同秒再决策与受限轮）；阶段 2（合入顺序）。
 
 **先落地的合同与文档同步作业。**
-- 【冻】（本阶段兑现）：C29（经历只以句子给模型）、C31；LR2（名额与地点会话）、LR13、LR20（控制集合含待收尾）、LR21、LR23（进度层按会话分组）、LR24（恢复须回开始地点）、LR26、LR29；DR5（取消 `finish`、点名活动、恢复只在开始地点、路上的活动不能暂停、到达时一并结束）、DR7（到达收尾那一秒）、DR8、DR9（记忆写入与来源）；AI2–AI5、AI9（以活动为单位的播报）、AI12（进度层）、AI13、AI16（名额常量）、AI17（会话、自述、三数组、名额）；RL1、RL2、RL3、RL7（记忆部分）；DC1、DC2、DC5、DC6；IM5（名称与控制对象）；MS2（恢复只在开始地点）、MS4；AS3、AS5、AS7（失败与记忆）；LK2（`memories` 不进意图与离线 `dreaming` 输入）；E4-7（进度层与一次请求）、E4-8（到达同秒）、E4-9、E4-11（出发前与刚结束先收尾）、E4-13、E4-14（出行行）、E4-15、E4-16、E4-17（记忆写入时机）；E5-6（结束与暂停留记录）、E5-9（到达地点与句子）、E5-10、E5-15、E5-17（记忆来源检查）；E6-1（裁去 `memories`）；E7-2（控制轮单列）、E7-3、E7-4（控制工具）；E1-3、E1-4（记忆写入点）；VF5（刚结束先收尾）、VF9（世界请求登记即结束、记忆无 refs、无内部身份、空记忆、LabelKit 输入不含记忆正文）、VF14；AR5、AR6（生活决策无 `finish`）。
+- 【冻】（本阶段兑现）：C29（经历只以句子给模型）、C31；LR2（名额与地点会话）、LR13、LR20（控制集合含待收尾）、LR21、LR23（进度层按会话分组）、LR24（恢复须回开始地点）、LR26、LR29；DR5（取消 `finish`、点名活动、恢复只在开始地点、路上的活动不能暂停、到达时一并结束）、DR7（到达收尾那一秒）、DR8、DR9（记忆写入与来源）；AI2–AI5、AI9（以活动为单位的播报）、AI12（进度层）、AI13、AI16（名额常量）、AI17（会话、自述、三数组、名额）；RL1、RL2、RL3、RL7；DC1、DC2、DC5、DC6；IM5（名称与控制对象）；MS2（恢复只在开始地点）、MS4；AS3、AS5、AS7（失败与记忆）；LK2（`memories` 不进意图与 `dreaming` 输入）；E4-7（进度层与一次请求）、E4-8（到达同秒）、E4-9、E4-11（出发前与刚结束先收尾）、E4-13、E4-14（出行行）、E4-15、E4-16、E4-17（记忆写入时机）；E5-6（结束与暂停留记录）、E5-9（到达地点与句子）、E5-10、E5-15、E5-17（记忆来源检查）；E6-1（裁去 `memories`）；E7-2（控制轮单列）、E7-3、E7-4（控制工具）；E1-3、E1-4（记忆写入点）；VF5（刚结束先收尾）、VF9（世界请求登记即结束、记忆无 refs、无内部身份、空记忆、LabelKit 输入不含记忆正文）、VF14；AR5、AR6（生活决策无 `finish`）。
 - 【同】：
   - C1（活动名额、地点会话）；C4（回看、恢复、暂停、结束四行，含 `memories`）；C6（「活动控制工具」）；C15、C17（名称指向活动、三数组等长、`memories` 行）；C18（`finish` 段其余，含回合预算）；
   - C19（`ACTIVITY_CONCLUSION_REQUIRED`、`ACTIVITY_PAUSE_UNAVAILABLE`；`SESSION_LIMIT_EXCEEDED` 改为名额语义，形状错误改报 `ACTION_REQUEST_INVALID`；`ACTIVITY_PRECONDITION_UNMET` 用于出发前与别处恢复）；C20（`boundary_type` 闭集、`route_ended`、`interruption_reason`）；
   - C27（`current_activities` 只列进行中活动，「刚结束」一行）；C28（`progress` 行、身份列表加「活动」）；C30（控制行含待收尾）；C33（禁止进入提示的身份键）；C34（两次请求、行动工具）；C35（返回不含条目身份、删「与结束」）；C37；C38（版本行）；
   - AI6（取消 `finish`、控制对象改为活动）；AI8（活动退出通道）；AI15（活动的暂停、恢复与结束留记录）；
-  - E5-5（`activity_concluded`、`activity_paused`、`activity_resumed` 复用 `environment_event`）；E5-11（`memory_updated.data.trigger` 的列表形状与三个取值一次定全，含阶段 5 才写入的 `day_planning`；其中运行中 Dreaming 轮的观察取法依赖〔#24〕）；E5-13（地点会话与名额）；E5-18（`memory_references` 与问题码）；E8-2、E9-2（`sessions`）、E9-3（名额）、E9-4（活动新字段）；LR7（`progress_report_due` 行）；MA4（名额）。
+  - E5-5（`activity_concluded`、`activity_paused`、`activity_resumed` 复用 `environment_event`）；E5-11（`memory_updated.data.trigger` 的列表形状与两个取值一次定全）；E5-13（地点会话与名额）；E5-18（`memory_references` 与问题码）；E8-2、E9-2（`sessions`）、E9-3（名额）、E9-4（活动新字段）；LR7（`progress_report_due` 行）；MA4（名额）。
 - 【后】E5-19 的差距行删除留到阶段 9。
 
 **代码与测试。**
@@ -243,8 +240,8 @@
   - `after_step` 沿用 AS2 签名，宿主把 `memories` 按 `task` 展平后经原路径写入；登记后结算被拒的 `conclude_activity`，其记忆作为人物自述保留。
   - 删 `memory_read`；记忆查询只返回 {type, text, time, epistemic_status}；删 `finish` Schema 中的来源身份枚举。
   - 已核验经历在 `observe` 与 `projection` 渲染成句子，结构行仍是私有证据。
-  - 质量报告按 `trigger` 列出的每个写入点分别核对；`day_planning` 的写入不按决策观察窗口核对（阶段 5 才产生）。
-- 「交付窗口」的记忆部分：`delivery/windows.py` 的 `_public_event_data`（`:175-176`）对意图与离线 `dreaming` 输入裁去 `request.memories`，动作窗口保留完整请求；`tests/delivery/test_windows.py` 增「带记忆的 `conclude_activity` 不泄露记忆正文」。数据集侧 `prepare_labelkit_input.py` 同样裁去 `memories`（「数据集侧·交接」）；`simulate_phone.py` 按导出的 `activity_type` 与购买结果形状核对，形状变化即同批修改。
+  - 质量报告按 `trigger` 列出的每个写入点分别核对。
+- 「交付窗口」的记忆部分：`delivery/windows.py` 的 `_public_event_data`（`:175-176`）对意图与 `dreaming` 输入裁去 `request.memories`，动作窗口保留完整请求；`tests/delivery/test_windows.py` 增「带记忆的 `conclude_activity` 不泄露记忆正文」。数据集侧 `prepare_labelkit_input.py` 同样裁去 `memories`（「数据集侧·交接」）；`simulate_phone.py` 按导出的 `activity_type` 与购买结果形状核对，形状变化即同批修改。
 - 「五·测试夹具」中 `tests/life/test_export_integration.py` 补一次带记忆的 `conclude_activity`。
 - 「引用修正」：`rhythm.py` 三处「播报节律」引用与 `tests/footprints/test_branch_coverage.py` 的「资金守恒验证」引用随本阶段改。
 
@@ -257,7 +254,7 @@
 - 不新增故障路径：可见名称重名（`observe.py:727-735`）、会话层解析（`life_agent.py:989-999`）与进度层活动行的渲染禁键（`narration.py:61`）不再抛错；跨日重名、到达被拒、途中结束出行无 `run_failed`。
 - 通则中的各门禁通过。
 
-**与其他阶段的依赖。** 阶段 4 依赖本阶段的名额、活动名与待收尾；阶段 5 依赖本阶段的记忆写入点、`trigger` 闭集与待收尾（提醒结束的睡眠成为待收尾）。
+**与其他阶段的依赖。** 阶段 4 依赖本阶段的名额、活动名与待收尾；阶段 5 依赖本阶段的待收尾（提醒结束的睡眠成为待收尾）与 `conclude_activity.memories`（零点计划的输入）。
 
 ### 阶段 4：生活动作与并行准入
 
@@ -306,38 +303,37 @@
 
 **与其他阶段的依赖。** 阶段 5 的常驻提示文案依赖本阶段的动词、方式与「出发时一并开始」；阶段 7 的查看器按本阶段的请求形状显示；阶段 8 使用本阶段重建的数据集。
 
-### 阶段 5：运行中 Dreaming、计划提醒与常驻提示
+### 阶段 5：零点计划、计划提醒与常驻提示
 
-**目标。** 实现第四章〔#24〕：`plan_day` 移出人物工具；场景本地零点与启动路径为每个人物运行 Dreaming（归纳记忆、为瞬时动作补写记忆、生成当日计划），它不是决策；目标带 `remind_time`，提醒到点只触发一次，可结束睡眠。实现第六章：系统提示加「怎样过一天」一节，两阶段同文，删过时的供给差异句。
+**目标。** 实现第四章：`plan_day` 移出人物工具；场景本地零点与启动路径由运行时的独立后台任务 `plan_day` 为每个人物生成当日计划（照搬联系人回复的后台调用方式），不经人物、不是决策，人物工作区与记忆不变；目标带 `remind_time`，提醒到点只触发一次，可结束睡眠。实现第六章：系统提示加「怎样过一天」一节，两阶段同文，删过时的供给差异句。
 
-**前置。** 阶段 3（记忆写入点与 `trigger`、待收尾）；阶段 4（常驻提示描述的行为）；阶段 1。
+**前置。** 阶段 3（待收尾；`conclude_activity.memories` 是零点计划的输入）；阶段 4（常驻提示描述的行为）；阶段 1。
 
 **先落地的合同与文档同步作业。**
-- 【冻】（本阶段兑现）：C12、C36；LR2（计划与提醒）、LR4（零点与提醒边界）、LR8（零点例外）、LR9（提醒候选）、LR11（零点例外）、LR25；DR6（边界来源）、DR9（Dreaming 写入）、DR10（静默边界的 Dreaming 例外）；AI9（`plan_reminder_due` 行、静默边界的 Dreaming 例外）、AI12（system 与自述）、AI14、AI16、AI17（Dreaming 不改已核验经历）、AI19；DP1–DP4、DP5（提醒与睡眠集合）、DP6、DP8、DP9；RL1、RL2（system 与删日首计划）、RL4、RL5、RL7（离线 `dreaming` 与触发集合）；DC4、DC8；IM2、IM5、IM7、IM9（`plan_day` 后台化）；MS3；【条·#24】AS9；LK1、LK2（带 `purpose` 的请求不作 prompt）；E4-2、E4-3、E4-5（启动流程与恢复）、E4-7（system）、E4-10、E4-12（边界来源）、E4-14（睡眠行）、E4-17（Dreaming 保存）、E4-18（零点与提醒）、E4-19（恢复不重复生成、两种 Dreaming）、E4-20（Dreaming 失败）；E5-2（后台任务）、E5-6（环境事件）、E5-7、E5-9（Dreaming 不产生事实）、E5-16、E5-17（`model_usage` 按 `purpose` 分列）；E6-1、E6-3；E7-2（排除 Dreaming、登记来源）；E0-1、E0-3；E1-1、E1-2、E1-3、E1-6、E1-7；EX4、EX9；VF3、VF8、VF9（提醒与播报）；AR1、AR3。
+- 【冻】（本阶段兑现）：C12；LR2（计划与提醒）、LR4（零点与提醒边界）、LR8（零点计划说明）、LR9（提醒候选）、LR25；DR6（边界来源）、DR10（零点计划说明）；AI9（`plan_reminder_due` 行）、AI12（system 与自述）、AI16、AI19；DP1–DP4、DP5（提醒与睡眠集合）、DP6、DP8、DP9；RL1（零点计划生成目标）、RL2（system 与删日首计划）、RL5；DC4、DC8；IM2、IM5、IM7、IM9（`plan_day` 后台化）；MS3；AS9；LK2（带 `purpose` 的请求不作 prompt）；E4-2、E4-3、E4-5（启动流程与恢复）、E4-7（system）、E4-10、E4-12（边界来源）、E4-14（睡眠行）、E4-17（零点计划保存）、E4-18（零点与提醒）、E4-19（恢复不重复生成）、E4-20（零点计划失败）；E5-2（后台任务）、E5-6（环境事件）、E5-7、E5-9（零点计划不产生事实）、E5-16、E5-17（`model_usage` 按 `purpose` 分列）；E6-1、E6-3；E7-2（排除零点计划请求、登记来源）；E0-3；E1-1、E1-3、E1-6；EX9；VF3、VF9（提醒与播报）；AR3。
 - 【同】：
-  - C38（版本行）；E7-1、VF2（观察重复门禁排除带 `purpose` 的请求）；MA6、MA11（运行中 Dreaming 调用模型，计划、提醒与 `dreamed_dates` 来自检查点）、MA14；
-  - C4（删 `plan_day` 行，`revise_day_plan` 加 `remind_time`）；C6（「八个」）；C8–C11；C13（删 `PLAN_ALREADY_SUBMITTED`，增 `PLAN_REMIND_TIME_INVALID`）；C15、C17（`plan_day` 与 `remind_time`）；C20（`plan_reminder`）；C28（`day_plan`）；C34（「怎样过一天」、只读不含、Dreaming 请求组成）；C35（生成参数的 Dreaming 行、按 `purpose` 区分请求、阶段键 `day_planning`）；
-  - AI6（删 `plan_day`）；AI8（八个工具）；AI15（Dreaming 审计行）；
-  - E5-5（`day_plan_generated` 复用 `environment_event`）；E5-6（:196 Dreaming 请求与响应带 `purpose="day_planning"`）；E5-13（计划、提醒与 `dreamed_dates`）；E8-1（目标条目只收 `remind_time`）；E8-2、E9-3（提醒）；E9-2（提示不用增量引用）；E9-4（`plan_reminder`）；LR7（`plan_reminder_due` 行）；MA2（Dreaming 与 `remind_time` 的说明）。
+  - C38（版本行）；E7-1、VF2（观察重复门禁排除带 `purpose` 的请求）；MA6、MA11（零点计划调用模型，计划、提醒与 `plan_submitted_dates` 来自检查点）；
+  - C4（删 `plan_day` 行，`revise_day_plan` 加 `remind_time`）；C6（「八个」）；C8–C11；C13（删 `PLAN_ALREADY_SUBMITTED`，增 `PLAN_REMIND_TIME_INVALID`）；C15、C17（`plan_day` 与 `remind_time`）；C20（`plan_reminder`）；C28（`day_plan`）；C34（「怎样过一天」、只读不含、零点计划请求组成）；C35（生成参数的零点计划行、按 `purpose` 区分请求）；
+  - AI6（删 `plan_day`）；AI8（八个工具）；AI15（零点计划审计行）；
+  - E5-5（`day_plan_generated` 复用 `environment_event`）；E5-6（:196 零点计划请求与响应带 `purpose="plan_day"`）；E5-13（计划与提醒）；E8-1（目标条目只收 `remind_time`）；E8-2、E9-3（提醒与幂等键）；E9-2（提示不用增量引用）；E9-4（`plan_reminder`）；LR7（`plan_reminder_due` 行）；MA2（零点计划与 `remind_time` 的说明）。
 - 【后】无。
 
 **代码与测试。**
-- 「四·环境」「四·阶段身份」「四·观察」「四·引擎」「四·计划模型」「四·节律」「四·睡眠终止」「四·呈现」「四·宿主」「四·记忆」「四·回灌截止」「四·度量」「四·测试夹具」「四·改写」「四·新增」「四·新增（宿主）」「四·新增（记录侧）」。「四·阶段身份」为必做：阶段键 `day_planning` 进入 `validation.py` 的阶段闭集与 `runtime.two_stage_model_identity`，不用离线任务名 `dreaming`。
-- 执行位置〔#24〕：零点或启动边界，环境用与 `next_decision_at` 分开的 `dreaming_due` 把当日未做过 Dreaming 的人物报为就绪；AS2 照常执行一轮，观察 `data.purpose = "day_planning"`；LifeAgent 在 `prepare_react_loop`（同步方法）中识别 Dreaming 轮并收起生活工具，在覆写的 `_run_react_turn` 中只发 Dreaming 请求，不写决策自述；计划经 `custom/envs/life_env.py` 的 Dreaming 登记入口提交（走 AS2 已有的 `submit_action` 通道，保留工具名 `day_planning`，见「四·环境」），不产生 `action_requested`；补写的记忆由宿主写入；本轮照常形成共同检查点。
-- 引擎只接线：`_next_epoch` 加入场景本地零点；`advance` 在零点结算旧日、使旧计划失效后标记 `dreaming_due`；`_plan_day` 移出 `_dispatch`，成为登记入口；`begin_decision_round` 不为 Dreaming 人物登记延迟的 `decision_started`；计划登记先暂存，由 `commit_decision_round` 一并提交，它对 Dreaming 人物跳过 `_snapshot_decision_references` 与 `_after_success`，并为每个 Dreaming 人物返回一条非 `failed` 的结果（满足锁定 AS2 的 `_require_committed_results`），不写 `action_*` 事件；Dreaming 轮不写 `decision_started`，不计同刻轮数；`observe` 为它写 `visibility=system`、带 `purpose` 的观察，`record_model_exchange` 为它的请求与响应写 `purpose`，不走决策自述起点。调度与提醒逻辑放新模块。
-- `dreamed_dates` 取代 `plan_submitted_dates`，随版本 7。运行终点恰为零点时不执行；恢复与反事实分支按 `dreamed_dates` 不重复执行。
+- 「四·环境」「四·后台任务」「四·引擎」「四·计划模型」「四·节律」「四·睡眠终止」「四·呈现」「四·宿主」「四·回灌截止」「四·度量」「四·测试夹具」「四·改写」「四·新增」「四·新增（宿主）」「四·新增（记录侧）」。
+- 执行位置：`src/worldmock/runtime.py` 新增与 `settle_pending_model_replies`（:747）并列的后台任务，照搬联系人回复的后台调用方式；LifeEnv 在 `step` 推进之后、启动路径的检查点之后与普通恢复的 `init` 末尾 await 它，挂点不同于联系人回复的 `commit_decision_round`（原因见「四·环境」）；独立客户端取清单中的模型身份；不经 LifeAgent，不读写人物工作区与记忆运行时（`custom/agents/life_memory.py` 不因零点计划改动），不产生 `observation`、`decision_started`、`memory_updated`；计划经引擎的系统登记入口写入；本边界照常形成共同检查点。
+- 引擎只接线：`_next_epoch` 加入场景本地零点与未触发的提醒；零点边界（不是终点）的 `advance` 先结算旧日区间（含节律的结算段：情绪账、按旧计划计的目标推进与活动进度中的 `day_plan` 快照），再使旧计划失效（:599-600）并提交；该秒节律的判定段（唤醒原因与 `next_decision_at`）在零点计划提交之后执行（见「四·引擎」）；`_plan_day` 移出 `_dispatch`，改为系统登记入口：校验目标，写 `day_plan` 与 `plan_submitted_dates`，与 `day_plan_generated` 及模型证据一次提交；`begin_decision_round`、`commit_decision_round`、`observe`、`record_model_exchange`、`_ready` 不改。调度与提醒逻辑放新模块。
+- 沿用既有字段 `plan_submitted_dates`（`models.py:332`），不新增字段。运行终点恰为零点时不执行；恢复、重放与反事实分支按它不重复执行。
 - 提醒：`PlanGoal` 加 `remind_at` 与 `reminded_at`；修订按第四章保留、替换或取消提醒；到期结束睡眠时 `status=completed`，`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，睡眠成为待收尾。`facts.day_plan` 的目标行带提醒时刻，人物自述标「你自己记下的，未经核验」；`facts.progress.alarms` 加提醒句。
-- 记录：`environment_event.data.kind="day_plan_generated"`，`model_request` 与 `model_response` 带 `purpose`，`memory_updated.data.trigger` 含 `day_planning`，不新增事件类型。`footprints/store.py` 的 `last_agent_progress_request_seq` 排除带 `purpose` 的请求；`goal_metrics._plan_snapshot` 以登记事件为来源；`behavior_metrics._decision_model_requests` 排除 Dreaming 请求。
-- 「交付窗口」的 Dreaming 部分：Dreaming 登记不走 `action_requested`；`tests/delivery/test_windows.py` 增「同一决策含 Dreaming 请求时仍选中人物的行动请求」。
+- 记录：`environment_event.data.kind="day_plan_generated"`，`model_request` 与 `model_response` 带 `data.purpose="plan_day"` 并计入 `model_usage`，不新增事件类型，不写 `memory_updated`。`footprints/store.py` 的 `last_agent_progress_request_seq` 排除带 `purpose` 的请求；`goal_metrics._plan_snapshot` 以登记事件为来源；`behavior_metrics._decision_model_requests` 排除带 `purpose` 的请求。
 - 「六·常驻提示」「六·测试」：`_LIFE_INSTRUCTIONS` 追加「怎样过一天」，决策自述与动作两阶段共用；删过时的供给差异句；只读问答不含该节。
 
 **完成判据。**
-- `tests/life/test_day_planning.py`（引擎测试用确定性 Dreaming 桩，不调用模型）：零点边界；跨零点的长睡眠中没有生活决策；场景在本地日中途启动；同一人物同日只生成一次，恢复、重放与反事实分支不重复；终点为零点的场景没有 Dreaming 请求，`run_ended` 之后没有事件；Dreaming 前后重估候选、体感参照与在场参照不变；空提醒不唤醒；提醒准确唤醒且只唤醒一次，同时到期的合并；计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发；带提醒的目标被睡眠或等待推进后提醒仍按时触发；修订取消旧提醒，原样重发已触发的目标不被拒绝；提醒结束睡眠并按实际时刻结算，被提醒叫醒后做一次就寝后反思；非睡眠活动不被停止；Dreaming 输入含当日记忆与已核验经历句子；输出不合法时在回合预算内重试，耗尽为运行故障并保留请求、响应与错误证据。
-- 运行记录以 `purpose` 区分 Dreaming 与人物决策；交付窗口、决策 token 统计与协议门禁不含 Dreaming 请求；`goal_metrics` 以 `day_plan_generated` 为登记来源。
-- 人物工具面 8 个，`life_env` 的工具面校验通过；运行清单冻结四个阶段键，`tests/integration/test_run_manifest.py`、`tests/life/test_restored_model_identity.py`、`tests/integration/test_host_branch_coverage.py`、`tests/footprints/test_validation.py` 改写后通过。
+- `tests/life/test_day_planning.py`（确定性客户端桩经后台任务的 `client` 参数注入，同 `runtime.py:747`，不调用模型）：零点边界（该秒的唤醒与决策在计划提交之后判定）；跨零点前最后一个区间的活动按旧计划推进目标，零点边界 `activity_progress.data.day_plan` 为旧计划；跨零点的长睡眠中没有生活决策；场景在本地日中途启动；从计划尚未生成的初始检查点普通恢复时在首次决策之前生成；同一人物同日只生成一次，恢复、重放与反事实分支不重复；终点为零点的场景没有 `plan_day` 请求，`run_ended` 之后没有事件；`plan_day` 前后重估候选、体感参照与在场参照不变；空提醒不唤醒；提醒准确唤醒且只唤醒一次，同时到期的合并；计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发；带提醒的目标被睡眠或等待推进后提醒仍按时触发；修订取消旧提醒，原样重发已触发的目标不被拒绝；提醒结束睡眠并按实际时刻结算，被提醒叫醒后做一次就寝后反思；非睡眠活动不被停止；输入含当日已核验经历句子与当日 `conclude_activity` 的 `summary`、`memories`，不含人物主观记忆库；输出不合法时附回错误重试（次数按第四章），耗尽或传输失败为运行故障并保留请求、响应与错误证据。
+- 运行记录以 `purpose="plan_day"` 区分零点计划与人物决策，`model_usage` 计入零点计划；交付窗口、决策 token 统计与协议门禁不含零点计划请求；`goal_metrics` 以 `day_plan_generated` 为登记来源。
+- 人物工具面 8 个，`life_env` 的工具面校验通过；运行清单阶段键仍为三个，`validation.py`、`runtime.two_stage_model_identity` 及其测试不改。
 - 第六章：两阶段 system 含同一节；`tests/integration/test_life_agent_protocol.py` 的禁用词与中文句子占比检查通过；只读问答不含该节；过时的供给句不在提示中。
-- Dreaming 轮提交后 AS2 的结果覆盖全轮，无 `run_failed`。「路径可发现、选择有据」在阶段 8 观察。
-- 不新增故障路径：提醒与计划结束同秒、终点为零点、Dreaming 与决策同秒都无 `run_failed`。
+- `plan_day` 不调用 LifeAgent；人物工作区与记忆字节不变；不产生 `observation`、`decision_started`、`memory_updated`；无 `run_failed`。「路径可发现、选择有据」在阶段 8 观察。
+- 不新增故障路径：提醒与计划结束同秒、终点为零点、零点计划与决策同秒都无 `run_failed`。
 - 通则中的各门禁通过。
 
 **与其他阶段的依赖。** 阶段 7 依赖本阶段（事件形状定稿）。
@@ -384,7 +380,7 @@
 - 文档一致性：「冻结条款修订」与【冻】【同】作业逐条完成；已提交文档中旧工具面、`finish`、能量闸门、一秒边界的表述全部消失。
 - 突变测试（VF4）：在干净提交上覆盖同刻上限、能量截断、唤醒闭集、提醒一次、名额释放、身份不进提示六项，每项突变都被测试杀死。
 - 全量门禁、覆盖率、突变结果与源码身份已写入本特性验收记录。
-- 不新增故障路径：阶段 0–5 列出的既有抛错点全部消除；验收台账「无新增故障」行的用例全部通过（能量为 0、对象全被挡、提醒与活动结束同秒、出发与到达同秒、检查点恢复、交谈对方结束、反馈间隔为 60 秒、跨日重名、到达被拒、途中结束出行、Dreaming 与决策同秒）。
+- 不新增故障路径：阶段 0–5 列出的既有抛错点全部消除；验收台账「无新增故障」行的用例全部通过（能量为 0、对象全被挡、提醒与活动结束同秒、出发与到达同秒、检查点恢复、交谈对方结束、反馈间隔为 60 秒、跨日重名、到达被拒、途中结束出行、零点计划与决策同秒）。
 
 **与其他阶段的依赖。** 阶段 8 在本阶段合入后的干净提交上运行。
 
@@ -453,7 +449,7 @@ flowchart TB
     S1 -->|同刻上限兜住逐秒重试| S4["4 生活动作与并行准入"]
     S2 -->|目录能量键、手边判定| S4
     S3 -->|名额、活动名、待收尾| S4
-    S3 -->|记忆写入点、待收尾| S5["5 运行中 Dreaming、提醒与常驻提示"]
+    S3 -->|待收尾、收尾记忆| S5["5 零点计划、提醒与常驻提示"]
     S4 -->|常驻提示文案| S5
     S5 --> S7["7 查看器与全量门禁"]
     S6 --> S7
@@ -469,17 +465,17 @@ flowchart TB
 
 | # | 文档 | 作业 | 冻结条款修订 | 说明 |
 | --- | --- | --- | --- | --- |
-| 1 | `docs/CONTRACTS.md` | C1–C39 | 修订 1 | 唤醒闭集与饥饿分级不在接口合同（`docs/design/05-recording-engine.md`「共同身体结算与决策证据」:163-164 指向 life-runtime），落在作业 2；`max_consecutive_rejections` 与 `INSUFFICIENT_ENERGY` 在接口合同中本不存在，改为新增「决策节律场景参数」（C14）与「活动受理拒绝码」（C19）；C39 为【条·#25】 |
+| 1 | `docs/CONTRACTS.md` | C1–C35、C37–C39 | 修订 1 | 唤醒闭集与饥饿分级不在接口合同（`docs/design/05-recording-engine.md`「共同身体结算与决策证据」:163-164 指向 life-runtime），落在作业 2；`max_consecutive_rejections` 与 `INSUFFICIENT_ENERGY` 在接口合同中本不存在，改为新增「决策节律场景参数」（C14）与「活动受理拒绝码」（C19）；C39 为【条·#25】 |
 | 2 | `docs/dev/SPEC-life-runtime.md` | LR1–LR32 | 修订 2–11；〔#22〕修订 30 | LR28 为【条·#22】 |
 | 3 | `docs/dev/SPEC-dayrun-behavior.md` | DR1–DR12 | 修订 12–15 | 无版本表，DR12 新增 |
-| 4 | `docs/dev/SPEC-agent-interaction.md` | AI1–AI19 | 修订 17–21 | 该规格修订 #2 改为常量名额，#3 由运行中 Dreaming 取代 |
+| 4 | `docs/dev/SPEC-agent-interaction.md` | AI1–AI13、AI15–AI19 | 修订 17–21 | 该规格修订 #2 改为常量名额 |
 | 5 | `docs/dev/SPEC-day-plan-goals.md` | DP1–DP9 | 修订 22 | 无版本表，DP9 新增 |
-| 6 | `docs/dev/SPEC-life-realism.md` | RL1–RL8 | 修订 16 | RL6 为【条·#23】 |
+| 6 | `docs/dev/SPEC-life-realism.md` | RL1–RL3、RL5–RL8 | 修订 16 | RL6 为【条·#23】 |
 | 7 | `docs/dev/SPEC-decision-context.md` | DC1–DC9 | 修订 23 | |
 | 8 | `docs/dev/SPEC-interaction-menu.md` | IM1–IM9 | 修订 24 | |
 | 9 | `docs/dev/SPEC-map-and-storefront.md` | MS1–MS4 | 修订 25 | 无版本表，MS1 新增 |
-| 10 | `docs/dev/SPEC-as2-integration.md` | AS1–AS9 | 修订 26 | AS2 锁定提交不改；AS9 为【条·#24】 |
-| 11 | `docs/dev/SPEC-labelkit-delivery.md` | LK1–LK3 | 修订 27 | 只澄清 |
+| 10 | `docs/dev/SPEC-as2-integration.md` | AS1–AS9 | 修订 26 | AS2 锁定提交不改 |
+| 11 | `docs/dev/SPEC-labelkit-delivery.md` | LK2、LK3 | 修订 27 | 只澄清 |
 | 12 | `docs/dev/SPEC-category-contract.md` | CC1 | — | 【冻】核对，不改 |
 | 13 | `docs/design/04-simulation-engine.md` | E4-1–E4-24 | — | |
 | 14 | `docs/design/05-recording-engine.md` | E5-1–E5-20 | — | 记录引擎接口与行为的权威 |
@@ -487,16 +483,16 @@ flowchart TB
 | 16 | `docs/design/07-evaluation.md` | E7-1–E7-5 | — | |
 | 17 | `docs/design/08-configuration.md` | E8-1–E8-7 | — | E8-7 为【条·#25】 |
 | 18 | `docs/design/09-io-formats.md` | E9-1–E9-5 | — | |
-| 19 | `docs/design/00-overview.md` | E0-1–E0-7 | — | |
-| 20 | `docs/design/01-architecture.md` | E1-1–E1-10 | — | |
+| 19 | `docs/design/00-overview.md` | E0-2–E0-7 | — | |
+| 20 | `docs/design/01-architecture.md` | E1-1、E1-3–E1-6、E1-8–E1-10 | — | |
 | 21 | `docs/design/02-exchange-engine.md` | E2-1–E2-6 | — | |
 | 22 | `docs/design/03-resource-engine.md` | E3-1–E3-3 | — | E3-3 为【条·#25】 |
 | 23 | `docs/design/README.md` | ER1–ER3 | — | |
 | 24 | `docs/design/SUMMARY.md` | ES1–ES3 | — | |
-| 25 | `docs/EXPERIMENT.md` | EX1–EX7、EX8a、EX8b、EX9–EX13 | 修订 28 | EX13 为【条·#25】 |
-| 26 | `docs/VERIFICATION.md` | VF1–VF14 | — | VF6 为【条·#23】 |
-| 27 | `docs/ARCHITECTURE.md` | AR1–AR7 | 修订 29 | |
-| 28 | `docs/manual/` 下 `scenarios.md`、`personas.md`、`rules.md`、`runtime.md`、`resources.md`、`delivery.md`；根 `README.md` | MA1–MA14、RM1–RM2 | — | `scenarios/*.json` 与数据集场景见「文件修改清单」 |
+| 25 | `docs/EXPERIMENT.md` | EX1–EX3、EX5–EX7、EX8a、EX8b、EX9–EX13 | 修订 28 | EX13 为【条·#25】 |
+| 26 | `docs/VERIFICATION.md` | VF1–VF7、VF9–VF14 | — | VF6 为【条·#23】 |
+| 27 | `docs/ARCHITECTURE.md` | AR2–AR7 | 修订 29 | |
+| 28 | `docs/manual/` 下 `scenarios.md`、`personas.md`、`rules.md`、`runtime.md`、`resources.md`；根 `README.md` | MA1–MA13、RM1–RM2 | — | `scenarios/*.json` 与数据集场景见「文件修改清单」 |
 | 29 | `docs/INDEX.md` | IX1–IX6 | — | 本规格与本计划的登记行随规格草稿提交，不在作业内 |
 | 30 | `docs/dev/ANALYSIS-spec-coverage.md`、`docs/dev/coverage-baseline.md`、`docs/dev/implementation-status.md` | AN1、CB1、IS1 | — | 阶段 9 落地，`implementation-status.md` 最后 |
 
@@ -513,12 +509,12 @@ flowchart TB
 | C5【同】 | 「交互菜单声明与有效菜单」:82-84 | 写明 `allowed_actions` 的闭集 `START_ACTIVITY_ACTIONS` 是内部标准动作，不是人物词表，场景文件不改；人物所选（对象，动词，方式）经私有绑定映射为内部动作后按菜单判定；保护项 `wait`、`sleep` 分别对应 `interact`（自己）与 `sleep` | 五 |
 | C6【同】 | 同节 :86-87 | 「九个」改「八个」；「会话退出通道」改「活动控制工具」 | 四、七 |
 | C7【冻】 | 同节 :89-91 | 门控列表删「能量、」「日首计划、」；补「条件未满足的动作照常列出并附说明，不剪裁；唯一的状态性收窄是同刻上限的受限轮」 | 一、三、四、五 |
-| C8【同】 | 「当日目标请求」:115-116 | 改为「运行中 Dreaming 生成当日计划，人物以 `revise_day_plan` 修订」；「两个字段」改「三个字段」 | 四；修订 1 |
+| C8【同】 | 「当日目标请求」:115-116 | 改为「零点后台任务 `plan_day` 生成当日计划，人物以 `revise_day_plan` 修订」；「两个字段」改「三个字段」 | 四；修订 1 |
 | C9【同】 | 同节字段表 :120-123 | 增 `remind_time`（`str \| null`，必填可空，场景本地 `HH:MM`）：换算为当日绝对时刻，须晚于生成或修订时刻、早于次日零点。`goal` 说明补「可写粗略时段，文字不驱动活动」 | 四 |
-| C10【同】 | 同节 :125-127 | :125 保留「清单零至八条，数组顺序就是优先级」；后半句「首次清单可以为空；当日只允许一次成功提交」改为「同一人物同一本地日只生成一次（幂等键 `dreamed_dates`），可为空；恢复与重放不重复生成」。:127 三个字段完全相同的条目保留登记时刻与提醒状态，不重校时刻；只改 `remind_time` 的条目保留登记时刻并换成新提醒；被替换或删除的目标，旧提醒取消 | 四 |
-| C11【同】 | 同节 :129-133 | `PlanGoal` 加 `remind_at`、`reminded_at`（`int \| null`）。写明计划登记载体：运行中 Dreaming 写 `environment_event`（`visibility=system`，`data.source_event_ids` 为输入来源），`data.kind="day_plan_generated"`，`data.day_plan` 与修订结果同形，目标的 `registered_at` 为该事件时刻 | 四 |
-| C12【冻】 | 同节流程图 :137、工具开放段 :161-163 | 流程图起点改「运行中 Dreaming 生成有序目标（可带提醒）」。工具开放段改为：`plan_day` 不是人物工具；有当日计划即开放 `revise_day_plan`；只有 `remind_time` 触发定时决策，提醒可结束睡眠 | 四 |
-| C13【同】 | 同节错误表 :165-171 | 删 `PLAN_ALREADY_SUBMITTED` 行：`plan_day` 不再是人物工具，同日重复生成由 `dreamed_dates` 幂等拦下，不以业务拒绝返回。增 `PLAN_REMIND_TIME_INVALID`：`remind_time` 换算后不晚于生成或修订时刻，或不早于次日零点；格式错误归 `ACTION_REQUEST_INVALID` | 四、九 |
+| C10【同】 | 同节 :125-127 | :125 保留「清单零至八条，数组顺序就是优先级」；后半句「首次清单可以为空；当日只允许一次成功提交」改为「同一人物同一本地日只生成一次（幂等键 `plan_submitted_dates`），可为空；恢复与重放不重复生成」。:127 三个字段完全相同的条目保留登记时刻与提醒状态，不重校时刻；只改 `remind_time` 的条目保留登记时刻并换成新提醒；被替换或删除的目标，旧提醒取消 | 四 |
+| C11【同】 | 同节 :129-133 | `PlanGoal` 加 `remind_at`、`reminded_at`（`int \| null`）。写明计划登记载体：零点计划写 `environment_event`（`visibility=system`，`data.source_event_ids` 为输入来源），`data.kind="day_plan_generated"`，`data.day_plan` 与修订结果同形，目标的 `registered_at` 为该事件时刻 | 四 |
+| C12【冻】 | 同节流程图 :137、工具开放段 :161-163 | 流程图起点改「零点计划生成有序目标（可带提醒）」。工具开放段改为：`plan_day` 不是人物工具；有当日计划即开放 `revise_day_plan`；只有 `remind_time` 触发定时决策，提醒可结束睡眠 | 四 |
+| C13【同】 | 同节错误表 :165-171 | 删 `PLAN_ALREADY_SUBMITTED` 行：`plan_day` 不再是人物工具，同日重复生成在调用前由 `plan_submitted_dates` 拦下，不以业务拒绝返回。增 `PLAN_REMIND_TIME_INVALID`：`remind_time` 换算后不晚于生成或修订时刻，或不早于次日零点；格式错误归 `ACTION_REQUEST_INVALID` | 四、九 |
 | C14【同】 | 「当日目标的配置与质量输出」:179-181 | 两种间隔的适用对象改为：进行中的等待不算在手承诺；人物只在等待、且没有未推进目标、可见未完成任务、暂停活动或其他进行中活动时用空闲间隔。其后增「决策节律场景参数」：`max_same_moment_decisions`（正整数，缺省 3，取代 `max_consecutive_rejections`；合同原本就没有后者）；补登代码已有、合同未登记的 `activity_feedback_seconds`（整数秒，60–86400；下限由代码现行的 1 提到 60，等待时长取它）与 `progress_report_interval_seconds`（缺省 1800） | 一、八 |
 | C15【同】 | 「请求字段与结算检查」:193-198 | :193 检查项改为当前菜单（按映射后的内部动作）、名额、注册表占用〔#23〕、目标在场、实际地点、出行方式、物品状态及其余领域条件，能量不参与。:194 `recall_task_summary` 的名称唯一对应本人可回看的任务、当日目标、活动或会话（会话名为地点加开始时刻）；只读。:195 `task[]` 每项唯一对应本人进行中、暂停中或待收尾的活动（活动名为「做什么＋对象＋开始时刻」），`conclude_activity` 三数组等长。删 :198 的 `plan_day`，`revise_day_plan` 加 `remind_time` 校验 | 五、七 |
 | C16【同】 | 同节 :200-203 | 「报价、余额和占用」保留，占用按第五章重列〔#23〕。补：观看、游戏内容与生活活动的派生时长超过 86400 秒时按 86400 秒受理，并在结果写明计划时长〔#19〕；出行超限仍以 `ROUTE_DURATION_INVALID` 拒绝 | 五 |
@@ -533,16 +529,15 @@ flowchart TB
 | C25【同】 | 「联系人回复」:441-452；「社交拒绝错误码」:463-464 | :441 改为「`none`：消息照常送达、不回复；`template`：落一条占位回复文本；`model`：触发一次独立模型调用；给非 `model` 策略联系人发消息不再被拒绝」。:463 注明派生时长不再触发 `CALL_DURATION_OUT_OF_RANGE`。删 :464 `CONTACT_REPLY_NOT_MODEL`（代码中唯一来源 `engine.py:1274` 随第五章去掉）。表中增 `CHAT_ALREADY_ACTIVE`（同一对人物重复发起交谈）。〔#21〕采纳时 :441-452 另增：联系人回复登记为预排送达，延迟为实验常量（缺省 300 秒），送达时以 `message_arrival` 唤醒，睡眠中过滤 | 一、五 |
 | C26【冻】 | 「社交拒绝错误码」:465、:470-473 | :465 `RESOURCE_CONFLICT` 保留，占用按第五章重列〔#23〕。:470-471 改为：交互对象照常列出，条件未满足或占用冲突的动作附一句可读说明，不剪裁。:472-473 改为：业务拒绝（含 `RESOURCE_CONFLICT`）后按第一章在同一秒再决策，受 `max_same_moment_decisions` 约束；删按最早活动结束时刻排期 | 一、五；修订 18 |
 | C27【同】 | 「场景段落与事实清单」:496 | `scene` 增 `just_now`（同刻轮次写上一轮本人世界请求的公开结果，每秒首轮为空串）；`local_food_summary` 的含义见 C29；`current_activities` 只列进行中活动，待收尾活动写「刚结束：<活动名>」 | 一、三、七 |
-| C28【同】 | 同节 facts 行 :511-522 | :511 tasks 增 `completion_outlook`「到截止前做不完」，只在时长上界不足时出现。:512 products 食品加 `energy`（每份约 N 千卡，按 5 进位取整到 10；不足 5 千卡写「几乎不含热量」）；配送以 `delivery_eta` 写人读送达时刻，不给原始秒数。:513 routes 加 `effort`（轻松、一般、费力），`feasible` 只表示可达。:513 后新增 `inventory` 行：地点名称、商品名称、数量；食品带 `energy`（与 products 同口径）；〔#22〕采纳时另写「列出他处持有物及其所在地点，只能在当地使用」，不采纳时只列当前地点的持有物。:514 day_plan 由运行中 Dreaming 生成，目标行显示提醒时刻，自述标「你自己记下的，未经核验」。:515 interactive_objects 列出可见的全部对象，动作为 `{action, note}`，不按状态剪裁；内容方式写「接着看」「从头再看」及时长；「自己」恒在，列表为空也合法。:516 progress 改为按会话（地点停留或一段路）分组的活动行，客观进度写人读时长，自述标「你自己记下的，未经核验」；`alarms` 另含计划提醒触发句，在同一秒后续同刻轮次中保留，直到人物有进行中活动。:518-520 `details` 加受理的计划时长、`reason`、`next_step` 与 `recall`。:521 身份列表加「活动」。:522 `drive_summary` 移回表内。:497 `facts` 字段列表增 `experiences`；:522 后增 `experiences` 行：本人最近五条已核验经历写成的中文句子（例如「14:17 开车到了张江办公室」），与私有 `data.verified_experiences` 同一窗口与顺序，不含任何内部身份 | 二、三、五、七、八 |
+| C28【同】 | 同节 facts 行 :511-522 | :511 tasks 增 `completion_outlook`「到截止前做不完」，只在时长上界不足时出现。:512 products 食品加 `energy`（每份约 N 千卡，按 5 进位取整到 10；不足 5 千卡写「几乎不含热量」）；配送以 `delivery_eta` 写人读送达时刻，不给原始秒数。:513 routes 加 `effort`（轻松、一般、费力），`feasible` 只表示可达。:513 后新增 `inventory` 行：地点名称、商品名称、数量；食品带 `energy`（与 products 同口径）；〔#22〕采纳时另写「列出他处持有物及其所在地点，只能在当地使用」，不采纳时只列当前地点的持有物。:514 day_plan 由零点计划生成，目标行显示提醒时刻，自述标「你自己记下的，未经核验」。:515 interactive_objects 列出可见的全部对象，动作为 `{action, note}`，不按状态剪裁；内容方式写「接着看」「从头再看」及时长；「自己」恒在，列表为空也合法。:516 progress 改为按会话（地点停留或一段路）分组的活动行，客观进度写人读时长，自述标「你自己记下的，未经核验」；`alarms` 另含计划提醒触发句，在同一秒后续同刻轮次中保留，直到人物有进行中活动。:518-520 `details` 加受理的计划时长、`reason`、`next_step` 与 `recall`。:521 身份列表加「活动」。:522 `drive_summary` 移回表内。:497 `facts` 字段列表增 `experiences`；:522 后增 `experiences` 行：本人最近五条已核验经历写成的中文句子（例如「14:17 开车到了张江办公室」），与私有 `data.verified_experiences` 同一窗口与顺序，不含任何内部身份 | 二、三、五、七、八 |
 | C29【冻】 | 同节 :501；「已核验经历与当地餐食」:571-578 | :571-575 观察事件保留原字段作证据，模型只见句子；删「可作为本轮人物自述的引用」一句。:577-578 饥饿为「饿」及以上时改为吃饭途径句：六档取第一条成立的，只引用本轮观察的事实，不授权未呈现的供给，在途送达晚于 3600 秒时另补一条；不饿时保留原当地餐食句。:501 加例外：吃饭途径句可带一条途径的人读时长或送达时刻 | 三、七 |
 | C30【同】 | 「活动控制行」:544-563 | :557-558 删 `minimum_energy_cost_kcal`、`resume_energy_feasible`。:562-563 `occupied_resources` 保留，占用名按第五章重列〔#23〕；:563 改为「候选与环境准入按同一注册表资源交集判定；交互对象与人物工具 Schema 不按占用剪裁，冲突的动作照常列出并带说明，选了由环境以 `RESOURCE_CONFLICT` 业务拒绝」。待收尾活动（状态为 `completed`、`failed` 或 `cancelled` 且 `concluded_at` 为空的活动；`truncated` 不收尾）另列一组控制行，只接受 `conclude_activity`；:550「恒为 active」只约束进行中一组 | 三、七 |
 | C31【冻】 | 「可见期与提示预算」:601-604 | 浓缩单位改为较旧会话中已收尾的活动；进行中、暂停中与待收尾的活动完整保留 | 七 |
 | C32【同】 | 「排除原因码」:649-650 | :649 `ELIGIBILITY_RESOURCE_CONFLICT` 保留，按重列的占用判定〔#23〕。:650 删 `ELIGIBILITY_ENERGY_INSUFFICIENT` | 三、五 |
 | C33【同】 | 「禁止进入提示的字段」:732-740 | :732 删 `energy_feasibility`（与 `narration.py` 禁用键同步），增 `agent_id`、`activity_id`、`source_event_id`、`event_seq`、`product_id`、`location_id`、`destination_id`、`content_id`（与第七章「发给模型的内容不含内部身份」一致）。:734「完整活动快照（`activity_snapshot`、`activities`）」后注明：`progress.sessions[].activities` 是活动进度行，不是完整快照，允许进入提示。:735 routes 改为「目的地、方式、分钟、票价、费力与是否可达」。:738 删「能量可行性、」。:739-740 actions 改为「动词加方式的短语与说明（`{action, note}`）」 | 二、三、七 |
-| C34【同】 | 「人物决策提示与生成参数」:757；「请求组成」:765-768 | :757 改为自述与动作两次请求。:765 system 加固定一节「怎样过一天」，两阶段同文。:766 行动工具改为「八个人物工具与预算内记忆查询；世界请求登记即结束本轮」。:768 后登记「怎样过一天」全文，只读不含。增运行中 Dreaming 的请求组成行：观察 `data.purpose="day_planning"`，输入按第四章「输入、调用、失败与记录」，输出 `{goals: [{intent_kind, goal, remind_time}], memories: [Memory]}` 的中文模板与 Schema | 四、六、七 |
-| C35【同】 | 「工具返回通道」:779；「生成参数」:791-803；「模型身份」:814、:830 | :779 记忆查询只返回 {type, text, time, epistemic_status}，不含条目身份。生成参数表增运行中 Dreaming 行，给出 `max_tokens`。:802-803 改为按 `purpose` 区分请求。:814 删「与结束」，回合预算按去掉 `finish` 后的流程重算。:830 阶段键增 `day_planning`，四个阶段键一同冻结进运行清单 | 四、七 |
-| C36【冻】 | 「决策自述证据」:838 | 「只允许 dreaming 任务读取」改为「只允许离线 `dreaming` 任务读取」；补「运行中 Dreaming 不读取决策自述」 | 四 |
-| C37【同】 | 「记忆字段」:986-1016 | :986 `conclude_activity.memories` 逐项对应 `task[]`，合计零至八条。:995 `source` 由系统按写入点固定为 `activity_conclusion`、`day_planning` 或 `reflection`（与 `memory_updated.data.trigger` 同一组取值）。删 :996 `refs` 行，改为「来源由系统登记（`action_result.data.memory_sources`）」。:1000 返回不含条目身份。:1009 巩固触发三选一保留；结束活动与运行中 Dreaming 写入的条目计入待巩固条数，就寝反思不计；运行中 Dreaming 取代数字人交互规格修订 #3 的跨日触发。:1014 反思对输入记忆身份的引用属系统内部 | 七 |
+| C34【同】 | 「人物决策提示与生成参数」:757；「请求组成」:765-768 | :757 改为自述与动作两次请求。:765 system 加固定一节「怎样过一天」，两阶段同文。:766 行动工具改为「八个人物工具与预算内记忆查询；世界请求登记即结束本轮」。:768 后登记「怎样过一天」全文，只读不含。增零点计划的请求组成行（运行时后台请求，同联系人回复：不在决策机会中发出，不调用人物，不含记忆摘要）：输入按第四章「输入、调用、失败与记录」，输出 `{goals: [{intent_kind, goal, remind_time}]}` 的中文模板与 Schema | 四、六、七 |
+| C35【同】 | 「工具返回通道」:779；「生成参数」:791-803；「模型身份」:814 | :779 记忆查询只返回 {type, text, time, epistemic_status}，不含条目身份。生成参数表增零点计划行（与「联系人回复」行 :796 同形），给出 `max_tokens` 与附回重试的有限次数，不进清单阶段键。:802-803 改为按 `purpose` 区分请求。:814 删「与结束」，回合预算按去掉 `finish` 后的流程重算 | 四、七 |
+| C37【同】 | 「记忆字段」:986-1016 | :986 `conclude_activity.memories` 逐项对应 `task[]`，合计零至八条。:995 `source` 由系统按写入点固定为 `activity_conclusion` 或 `reflection`（与 `memory_updated.data.trigger` 同一组取值）。删 :996 `refs` 行，改为「来源由系统登记（`action_result.data.memory_sources`）」。:1000 返回不含条目身份。:1009 结束活动写入的条目计入待巩固条数，就寝反思不计。:1014 反思对输入记忆身份的引用属系统内部 | 七 |
 | C38【同】 | 「版本表」:1274-1294 | 追加 `<冻结日>-time-and-energy` 行。补登以下提交未入表的改动：db7d629（合并时改写「人格与卡片字段」的 `TimeWindow` 段，删日程骨架就寝锚点句）、2d97d3d、d998a31、fa150fb、aa22dc8、3880738、2913546、eee89fc、778beca | 修订 1 |
 | C39【条·#25】 | 「品类契约与目录字段」:870 | 「当前原生目录为 `4.0`」改为阶段 4 升版后的目录版本；契约与交换规则版本 `2` 不变；随阶段 4 的目录变更同批。#25 选只刷新摘要时不改 | 五；修订 1 |
 
@@ -553,16 +548,16 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | LR1【冻】 | 文件头 :3-7 | 状态行加「按时间与能量规格修订 2–11（裁决 #22 采纳时另含修订 30），受影响条款须重新验收」；更新日期 | 修订 2–11；〔#22〕修订 30 |
-| LR2【冻】 | 「状态归属规则」:25 | 「占用资源」改为「占用资源与名额」〔#23〕；增「地点会话｜环境随出发与到达开始和结束」「当日计划与提醒｜运行中 Dreaming 生成，人物清醒时修订」两行 | 四、七；修订 8 |
+| LR2【冻】 | 「状态归属规则」:25 | 「占用资源」改为「占用资源与名额」〔#23〕；增「地点会话｜环境随出发与到达开始和结束」「当日计划与提醒｜零点计划生成，人物清醒时修订」两行 | 四、七；修订 8 |
 | LR3【冻】 | 「共享时钟」时序图 :53-66 | :62 后加分支 `alt 仍有人物没有进行中活动或有待收尾活动（仍有人物就绪）`：形成共同检查点，不推进，回到「同步当前时间」；`else` 保留 :63-65。图下注「同一秒可有多轮决策，每轮各形成检查点」 | 一；修订 2 |
 | LR4【冻】 | 同节 **时间推进规则** :72-76 | 第 3 条加前提「无人就绪时」，边界列表加「场景本地零点、当日目标提醒」。第 4 条保留前半，尾句改为「同一秒的再决策不推进时钟，轮数受同刻上限约束」。第 5–7 条替换为三条：同刻再决策；上限取值引 EXPERIMENT「活动节奏与同刻决策上限」；有进行中活动时的规则 | 一；修订 2 |
 | LR5【同】 | 「决策节律：结算边界与唤醒条件分离」:93-104 | :93 改为「不可改名、不可删除，新增走版本表」。:96-101 末尾追加 `"progress_report_due", "no_active_activity", "plan_reminder_due"`。:104 睡眠允许集合加 `plan_reminder_due` | 一、四；修订 3 |
 | LR6【冻】 | 同节 :106 | 锚点改为 `05-recording-engine.md#共同身体结算与决策证据`；缺字段的口径改引 VERIFICATION「协议门禁」:119、:127 | 修订 3 |
 | LR7【同】 | 同节触发表 :108-120 | :110 `planned_end` 改为「活动由世界结束：到达引擎派生的计划时长、被提醒结束睡眠，或交谈对方结束（`partner_ended`）；交谈对方结束而本人仍有其他进行中活动时，同刻轮也记此原因」。:114 删「或当前活动不可行」。:118 改为「保留名称，当前无触发来源」。:119 删「下一秒」，改为「保留名称，当前无触发来源；浏览是活动，结果随浏览结束或下一次观察回灌」。:120 拆出 `rejection_feedback`：同一秒业务拒绝后的再决策轮，只由同刻规则写入。增三行：`progress_report_due` 只计进行中活动，锚点为活动的 `report_anchor_at`（开始、恢复或对该活动播报时写入）；`no_active_activity` 边界结算后没有进行中活动的人物必获决策，同刻再决策轮也记它，不进睡眠允许集合；`plan_reminder_due` 提醒到期，同时到期的合并，睡眠中结束睡眠，该边界唤醒原因为 `planned_end`、`wake_from_sleep`、`plan_reminder_due` | 一、四、八；修订 3 |
-| LR8【冻】 | 同节 **静默边界** :124-129 | 加例外：场景本地零点与启动路径为人物执行运行中 Dreaming，它不提供决策，不写 `decision_started`，不计同刻轮数；它的观察（`visibility=system`）与模型请求带 `data.purpose="day_planning"`，补写的记忆写 `memory_updated`，`data.trigger` 含 `day_planning`，按记录引擎设计留证。:126「不调用模型」改「不调用人物决策模型」。:128 写入者改为「本区间共同身体结算（`environment_event.data.kind=body_settlement`）」。:129「提交的计划持续时间」改「开始的活动」 | 一、四；修订 4 |
+| LR8【冻】 | 同节 **静默边界** :124-129 | 补：场景本地零点与启动路径由运行时后台任务 `plan_day` 为人物生成当日计划（同联系人回复），不调用人物，不提供决策，不写 `decision_started`，不计同刻轮数；其模型请求与响应带 `data.purpose="plan_day"`，计划写 `environment_event`（`data.kind="day_plan_generated"`），按记录引擎设计留证。:126「不调用模型」改「不调用人物决策模型」。:127 注明带 `purpose="plan_day"` 的 `model_request` 例外。:128 写入者改为「本区间共同身体结算（`environment_event.data.kind=body_settlement`）」。:129「提交的计划持续时间」改「开始的活动」 | 一、四；修订 4 |
 | LR9【冻】 | 同节 **下一次决策机会** :134-145 | 首句：没有进行中活动的人物取当前时刻。候选加 100 kcal 阈值、午晚餐窗口起止、当日目标提醒（睡眠中也计入）、进行中活动的播报到期。:136 困意与饥饿都从当前状态扫描预测（步长不超过 900 秒、最多 24 小时，二分到整秒；饥饿含昼夜项与餐时项，交谈、通话同样预测）。以本次决策时刻作为上次决策时刻。:142-145 空闲间隔的适用对象改为：进行中的等待不算在手承诺；人物只在等待、且没有未推进目标、可见未完成任务、暂停活动或其他进行中活动时用空闲间隔 | 一、四、八；修订 5 |
 | LR10【冻】 | 同节 **验证** :147 | 测试名改 `test_sleep_accepts_only_existing_sleep_reasons`（`test_wake_reasons.py:104`）；补同刻决策与提醒测试 | 修订 3 |
-| LR11【冻】 | 「决策机会规则」:157、:160-164 | :157 加运行中 Dreaming 例外。:160 改为「一轮只提交一个世界请求，`start_activity` 至多同时开始两项」。:163 改为「同一轮内不能在已登记请求之外再免费浏览、工作或进食；下一轮何时提供按时间推进规则」。:164 业务拒绝按第 5–7 条 | 一、五；修订 4 |
+| LR11【冻】 | 「决策机会规则」:160-164 | :160 改为「一轮只提交一个世界请求，`start_activity` 至多同时开始两项」。:163 改为「同一轮内不能在已登记请求之外再免费浏览、工作或进食；下一轮何时提供按时间推进规则」。:164 业务拒绝按第 5–7 条 | 一、五；修订 4 |
 | LR12【冻】 | 「并发与占用」:168-172 | :168 改为：占用由注册表显式声明，占用名与声明表按第五章重列〔#23〕；准入另按目标在场、实际地点、出行方式与物品状态判定。:170-172 规则示例改为：驾车只容播客与免提通话；工作可与食用、观看、播客并行，身体只结算一次，各活动分别累计，不默认折半。保留「不同人物可以并行」 | 五；修订 8 |
 | LR13【冻】 | 「运行观测」:202 | 「记忆引用问题」改「记忆写入与来源登记问题」 | 七；修订 11 |
 | LR14【冻】 | 「两过程睡眠模型」**参数** :229、示例 :239 | 初始压力改为：假定自惯常起床时刻（`chronotype_midsleep + sleep_need_hours/2`）起一直清醒反推，不预置活动。:239 后补一个 00:00 起点的示例 | 八；修订 6 |
@@ -599,8 +594,8 @@ flowchart TB
 | DR6【冻】 | 「共同时间与身体结算」:111、:113-118 | :111 边界来源加计划提醒、餐时窗口起止、场景本地零点。:113 改为「时钟只在人人有进行中活动时推进，不产生空白区间」。:114-115 改为「零能量不限制任何活动」。:117 删「准入、…不可行性」。删 :118 | 一、三；修订 14 |
 | DR7【冻】 | 「餐馆的实际进食路径」:136-139 | :136-137 改为「到达收尾那一秒起呈现本店可购供给」。:139 后补吃饭途径句（第三章） | 三、七；修订 15 |
 | DR8【冻】 | 「事件投影」:151-154 | 身份只留在私有观察；发给模型写成句子。:154 删「记忆引用有效」 | 七；修订 15 |
-| DR9【冻】 | 「主观记忆与巩固」:169-190 | :169 改为 `conclude_activity.memories[i]` 对应 `task[i]`，合计 ≤8。:173-174 来源由系统登记。删 :181-183 的可见引用集合。:186 触发加运行中 Dreaming。:187 起补：运行中 Dreaming 的写入同样留 `memory_updated` 证据，`data.trigger` 含 `day_planning` | 七；修订 15 |
-| DR10【冻】 | 「持续活动与必要唤醒」:194-195、:204-205 | :194 首句改为「静默边界推进全部活动，不调用人物决策模型、不提供决策；场景本地零点与启动路径的运行中 Dreaming 例外，其系统可见观察、模型请求与记忆写入按时间与能量规格第四章留证」。:194-195 次句改为：边界首轮一次决策；没有进行中活动、有待收尾活动或业务拒绝之后，同一秒可再决策，受 `max_same_moment_decisions` 约束。:204-205 改为「`activity_infeasible` 保留名称，当前无来源」 | 一、三；修订 15 |
+| DR9【冻】 | 「主观记忆与巩固」:169-190 | :169 改为 `conclude_activity.memories[i]` 对应 `task[i]`，合计 ≤8。:173-174 来源由系统登记。删 :181-183 的可见引用集合 | 七；修订 15 |
+| DR10【冻】 | 「持续活动与必要唤醒」:194-195、:204-205 | :194 首句改为「静默边界推进全部活动，不调用人物决策模型、不提供决策、不生成观察、不写人物记忆；场景本地零点与启动路径由运行时后台任务 `plan_day` 生成当日计划，按时间与能量规格第四章留证」。:194-195 次句改为：边界首轮一次决策；没有进行中活动、有待收尾活动或业务拒绝之后，同一秒可再决策，受 `max_same_moment_decisions` 约束。:204-205 改为「`activity_infeasible` 保留名称，当前无来源」 | 一、三；修订 15 |
 | DR11【冻】 | 「实现顺序与完整验收」:219 | 「允许组合」改「时间与能量规格第五章的组合」 | 五；修订 15 |
 | DR12【冻】 | 文末新增「版本表」 | 补记 2913546 就地对齐工具面；登记本次修订 | INDEX FROZEN 规则 |
 
@@ -611,22 +606,21 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | AI1【冻】 | 文件头 :3 | 补「按时间与能量规格修订，修订部分待实现」 | 修订 17–21 |
-| AI2【冻】 | 「心智模型」:16-32、:35 | 三级结构图改为：当日目标（运行中 Dreaming 生成）→会话（地点停留或一段路，系统开始与结束）→活动（占一个名额）。:32 改为「活动的状态由系统字段推出；会话随出发与到达切换」。:35 改为「`start_activity` 只提交等长的 `targets`、`actions`、`ways`，逐项配对；`actions[i]` 取五个动词，`ways[i]` 取对象列出的方式」〔#20〕 | 七；修订 17 |
+| AI2【冻】 | 「心智模型」:16-32、:35 | 三级结构图改为：当日目标（零点计划生成）→会话（地点停留或一段路，系统开始与结束）→活动（占一个名额）。:32 改为「活动的状态由系统字段推出；会话随出发与到达切换」。:35 改为「`start_activity` 只提交等长的 `targets`、`actions`、`ways`，逐项配对；`actions[i]` 取五个动词，`ways[i]` 取对象列出的方式」〔#20〕 | 七；修订 17 |
 | AI3【冻】 | 「权威来源与范围裁决」:53-54 | 「会话生命周期」改「活动生命周期」 | 七；修订 17 |
-| AI4【冻】 | 「三级结构与概念边界」:63-67；「任务与会话的关系」:71-81；「会话与活动的关系」:85-104；「会话的状态位置」:114 | 表格与状态图按修订 17 改写；:65 任务行「谁创建」改为「运行中 Dreaming（人物可 `revise_day_plan` 修订）」；`task_kind`、`task_ref` 移到活动；:104 会话闭集改为 `active`、`ended`（`kind` 取 `stay`、`transit`）；名额句改为「每人两个名额，进行中、暂停中与待收尾的活动各占一个」。:114 引用改 `models.py:23`，注「时间与能量规格升为 7」，原「5→6」记录保留 | 七；修订 17 |
+| AI4【冻】 | 「三级结构与概念边界」:63-67；「任务与会话的关系」:71-81；「会话与活动的关系」:85-104；「会话的状态位置」:114 | 表格与状态图按修订 17 改写；:65 任务行「谁创建」改为「零点计划 `plan_day`（人物可 `revise_day_plan` 修订）」；`task_kind`、`task_ref` 移到活动；:104 会话闭集改为 `active`、`ended`（`kind` 取 `stay`、`transit`）；名额句改为「每人两个名额，进行中、暂停中与待收尾的活动各占一个」。:114 引用改 `models.py:23`，注「时间与能量规格升为 7」，原「5→6」记录保留 | 七；修订 17 |
 | AI5【冻】 | 「会话字段」:118-168 | 按第七章「会话与活动的字段」重写 JSON 例与字段表：会话取 `stay` 或 `transit`，字段为 `session_id`、`agent_id`、`kind`、`location_id`（或 `origin_id`、`destination_id`）、`status`、`started_at`、`ended_at`、`activity_ids`、`name`。删会话上的 `segments`、`invested_seconds`、`effective_seconds`、`remaining_contract_seconds`、`preconditions_unmet`，进度改挂活动。:155 删 `scene` 会话概括。:161、:167-168 自述改为活动级（500 字符）。:162 `PlanGoal.progress_note` 保留，只在 `facts.day_plan` 的目标行出现，标「你自己记下的，未经核验」 | 七、八；修订 17 |
 | AI6【同】 | 「稳定工具面」:172-214 | :172 改为 8 个工具（`finish` 本来不在九个之内）。:176-179 登记动作只剩 `revise_day_plan`，生活决策无 `finish`。:184 删「并建立会话」，「收」列改为 `targets: list[str]`、`actions: list[str]`、`ways: list[str]`（等长 1–2 项）〔#20〕。:184、:185 可见性列「永恒可见」补「（同刻上限的受限轮除外，见时间与能量规格第一章规则 3）」。:186 `report_status` 在有进行中或暂停的活动时可见：播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点。:187 `pause_activity` 在有进行中活动时可见，路上的活动不能暂停。:188 `conclude_activity` 在有进行中、暂停或待收尾的活动时可见，收 `memories`。删 :191 `plan_day` 行；:192 可见性改为「当日已有计划时（含空清单）」。:194-202 名称规则改为：三个控制工具的 `task[]` 只取活动名（「做什么＋对象＋开始时刻」）；`recall_task_summary.task_name` 取任务、当日目标、活动或会话名；`submit_work.task_name` 仍取任务名；名称冲突仍不设隐含优先级。:204 删 `plan_day`。:205 改为「播报先校验全部活动名与阶段，接受进行中或暂停中的活动；暂停只接受进行中的活动，路上的活动除外；结束接受进行中、暂停中或待收尾的活动」。:206「各会话的 `progress_note`」改为「各活动的 `progress_note`」。:208 改为「播报暂停中的活动即在其开始地点恢复它；结束只结束所选活动，未选活动保持原状」。:209 改为「没有可结束的活动时结束工具业务拒绝」，删「已暂停会话须先恢复才能主动结束」。:211-214 注「已由时间与能量规格第四章取代」 | 四、七；修订 18 |
 | AI7【同】 | 「对象与动作选择」:218-278 | :218-223 示例改为动词加方式〔#20〕。:229「资源」保留，补「准入事实」。:236-237 绑定改为活动名与会话名。:249 补「距截止与剩余合同都不少于 60 秒才开工」。:250-252 超过 86400 秒取上限〔#19〕。:254 交谈、通话时长由 `activity_feedback_seconds` 派生后截取（通话 600–3600 秒、交谈 60–7200 秒），不再受请求模型 120 分钟上限约束。:258-261 改为：非出行活动最短 60 秒；观看、游戏内容与生活活动超过 86400 秒按 86400 秒受理并在结果写明计划时长〔#19〕；出行超限以 `ROUTE_DURATION_INVALID` 拒绝；能量不参与。:263-265「Schema 约束」改为 `targets`、`actions`、`ways` 三个必填数组〔#20〕。:267 行号改 `models.py:1024`。:270-272 补「memories 数量与长度上限只由校验兜住」。:276-278 准入按第五章，删 `plan_day` | 三、五、七；修订 19 |
 | AI8【同】 | 「保护项修订」:282-294 | :282「四类」改「五类」。:286 注明同刻上限的受限轮是例外。:287 改为「活动退出通道：有进行中、暂停或待收尾的活动时可见」。:288 成员保留内部标准动作 `wait`、`sleep`（场景 `allowed_actions` 与菜单保护项沿用内部名），补注「人物所见分别为 `interact` 的『自己』对象（方式『等待』）与动词 `sleep`」。:289 改为「当日目标登记｜`revise_day_plan`｜不保留则无法修订当日目标与提醒；当日已有计划时可见」，删去 `plan_day`。:293 改「八个工具」。新增一段写受限轮收窄（阶段取值见第一章「实现约定」） | 一、四、七；修订 18 |
-| AI9【冻】 | 「决策轮循环与播报节律」:298-345 | 时序图以活动为单位：`planned_end` 后同一秒 `conclude_activity`。:307 改为「每 1800 秒且活动进行中」。:338 改为「沉默边界不调用人物决策模型（运行中 Dreaming 例外）」。触发表 :318、:321 改为活动；增 `no_active_activity`、`plan_reminder_due` 两行。:324 行号改 `schedule.py:55-57`、`:308-309`，睡眠集合 4 项。:337「会话」改「活动」。:340-343 替换：业务拒绝后按第一章在同一秒再决策，受 `max_same_moment_decisions` 约束；删连续拒绝冷却与 `RESOURCE_CONFLICT` 延迟排期。:344 改为「占用检查的结果写成动作说明，不剪裁对象」〔#23〕 | 一、四、八；修订 20 |
+| AI9【冻】 | 「决策轮循环与播报节律」:298-345 | 时序图以活动为单位：`planned_end` 后同一秒 `conclude_activity`。:307 改为「每 1800 秒且活动进行中」。:338 改为「沉默边界不调用人物决策模型」。触发表 :318、:321 改为活动；增 `no_active_activity`、`plan_reminder_due` 两行。:324 行号改 `schedule.py:55-57`、`:308-309`，睡眠集合 4 项。:337「会话」改「活动」。:340-343 替换：业务拒绝后按第一章在同一秒再决策，受 `max_same_moment_decisions` 约束；删连续拒绝冷却与 `RESOURCE_CONFLICT` 延迟排期。:344 改为「占用检查的结果写成动作说明，不剪裁对象」〔#23〕 | 一、四、八；修订 20 |
 | AI10【冻】 | 「前置条件前置与前往提醒」:353-355、:358、:363-372 | 删 :358 能量行（所引 `engine.py:1205` 已过时，HEAD 上在 :1044），表后补「能量不是前置条件」。:353 更正错误码漂移：代码为 `ACTIVITY_PRECONDITION_UNMET`（`work.py:64`）。:354 同样更正为 `ACTIVITY_PRECONDITION_UNMET`（`work.py:58-64`，`unmet` 含 `required_skill`）；:355 行号改 `work.py:72`。:365 的 `suggested` 可点名要先处理的活动。:369-370 改为照常列出并带说明 | 三、五；修订 20 |
 | AI11【冻】 | 「游戏简化」:388 | 「`play` 动作」改「`interact` 的合法目标」 | 五；修订 21 |
 | AI12【冻】 | 「上下文分层」:398-426 | :398 system 加「怎样过一天」。:400 目标层改为 `facts.day_plan` 的目标行，删「`scene` 一句」；`PlanGoal.progress_note` 保留，标「你自己记下的，未经核验」。:401 补吃饭途径句。:402 改为不剪裁，动作为 `{action, note}`，「自己」恒在，层可为空。:404 改为 8 个工具、五个动词〔#20〕。:406-426 sessions 行改为按会话分组的活动行 | 六、七、八；修订 21 |
 | AI13【冻】 | 「发送前 token 计数与进度浓缩」:451-455 | 浓缩单位改为会话与已收尾活动 | 七；修订 21 |
-| AI14【冻】 | 「午夜浓缩」:464-468 | 改为运行中 Dreaming：场景本地零点（或启动路径）为人物归纳记忆、以会话为段落补写瞬时动作的记忆、生成当日计划；与 85% 浓缩是两个触发；不改客观结算、已核验经历或原始事件。标题保留 | 四；修订 21 |
-| AI15【同】 | 「事件与重建约束」:481-497 | :484「不需要新增事件类型」保留，「九个工具」改「八个工具」。:485 改为「`revise_day_plan` 走既有动作路径；运行中 Dreaming 的计划登记写 `environment_event`（`data.kind="day_plan_generated"`），不产生 `action_requested`」。:491 会话由系统随出发与到达开始和结束，只进世界状态（同 :494）；活动的暂停、恢复与结束写 `action_requested`，并逐活动写 `environment_event`（`activity_paused`、`activity_resumed`、`activity_concluded`，带活动快照）。:493 改为「活动的客观结算」。审计表加运行中 Dreaming 行：`observation`、`model_request`、`model_response` 带 `purpose="day_planning"`，计划写 `day_plan_generated`，补写的记忆写 `memory_updated`（`data.trigger` 含 `day_planning`） | 四、七、八；修订 21 |
-| AI16【冻】 | 「冻结条款修订」:505-511、:513 | #1 注明本次再增 `no_active_activity`、`plan_reminder_due`。#2 改为「进行中、暂停中与待收尾合计 ≤2（常量）」，删 `max_concurrent_sessions`，「保留占用交集」不变。#3 注「已由运行中 Dreaming 取代」。#7 注「已由时间与能量规格修订 2 取代」。:513「沉默边界不调用模型」改「沉默边界不调用人物决策模型（运行中 Dreaming 例外）」 | 修订 21 |
-| AI17【冻】 | 「验收台账」:566-581 | :566 改为会话自动切换、两个名额、可直接结束暂停的活动。:567 改为活动级自述。:568 改为三数组。:572 改为同刻上限、无 `run_failed`。:575 改为「触发前全部会话可见；触发后按会话合并较旧的已收尾活动，保留进行中、暂停中与待收尾的活动、当前提醒及全部新结果；事件和权威状态字节不变；仍超限则带分层 token 用量报容量故障」。:576「沉默边界不调用模型」改「沉默边界不调用人物决策模型（运行中 Dreaming 例外）」。:577 改为名额与准入分别验证。:579 改为运行中 Dreaming 不改已核验经历 | 验收台账；修订 21 |
+| AI15【同】 | 「事件与重建约束」:481-497 | :484「不需要新增事件类型」保留，「九个工具」改「八个工具」。:485 改为「`revise_day_plan` 走既有动作路径；零点计划 `plan_day` 的计划登记写 `environment_event`（`data.kind="day_plan_generated"`），不产生 `action_requested`」。:491 会话由系统随出发与到达开始和结束，只进世界状态（同 :494）；活动的暂停、恢复与结束写 `action_requested`，并逐活动写 `environment_event`（`activity_paused`、`activity_resumed`、`activity_concluded`，带活动快照）。:493 改为「活动的客观结算」。审计表加零点计划行：`model_request`、`model_response` 带 `purpose="plan_day"`，计划写 `day_plan_generated` | 四、七、八；修订 21 |
+| AI16【冻】 | 「冻结条款修订」:505-511、:513 | #1 注明本次再增 `no_active_activity`、`plan_reminder_due`。#2 改为「进行中、暂停中与待收尾合计 ≤2（常量）」，删 `max_concurrent_sessions`，「保留占用交集」不变。#7 注「已由时间与能量规格修订 2 取代」。:513「沉默边界不调用模型」改「沉默边界不调用人物决策模型」 | 修订 21 |
+| AI17【冻】 | 「验收台账」:566-581 | :566 改为会话自动切换、两个名额、可直接结束暂停的活动。:567 改为活动级自述。:568 改为三数组。:572 改为同刻上限、无 `run_failed`。:575 改为「触发前全部会话可见；触发后按会话合并较旧的已收尾活动，保留进行中、暂停中与待收尾的活动、当前提醒及全部新结果；事件和权威状态字节不变；仍超限则带分层 token 用量报容量故障」。:576「沉默边界不调用模型」改「沉默边界不调用人物决策模型」。:577 改为名额与准入分别验证 | 验收台账；修订 21 |
 | AI18【冻】 | 「版本表」:583-588 | 加 1.4 行；补记 eee89fc、778beca 在 :343-344、:369-370 的就地改动 | 修订 17–21 |
 | AI19【冻】 | 「实现顺序」:526；「与既有文档的一致性核对」:536、:544 | :526「9 工具」改「8 工具」。:536「九个模型可见工具」改「八个人物工具」。:544 改为「保护项改为八个工具与活动控制工具」 | 四、七；修订 21 |
 
@@ -637,13 +631,13 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | DP1【冻】 | 文件头 :3 | 追加「生成方式、提醒与部分节律由时间与能量规格修订；修订条款验收前，台账对应行只代表旧行为」 | 修订 22 |
-| DP2【冻】 | 「心智模型与范围」:9-11、:13-22 | :9-10 改为「当日目标清单由运行中 Dreaming 生成，人物可 `revise_day_plan` 修订；只有 `remind_time` 产生提醒边界」。流程图起点改「运行中 Dreaming 生成有序目标」，加提醒边 | 四；修订 22 |
-| DP3【冻】 | 「提交与修订」:33、:35-43 | :33 改为「场景本地零点先结算旧日、使旧计划失效，再由运行中 Dreaming 生成；中途启动时在首个决策前生成；同日一次（`dreamed_dates`）；允许空清单」。:35「条目仅接受 `intent_kind` 与 `goal`」改为「条目接受 `intent_kind`、`goal` 与可空 `remind_time`」。:36「条目禁止绝对时刻、时长和旧字段」改为「`remind_time`（场景本地 `HH:MM`，须晚于生成或修订时刻、早于次日零点）是条目唯一的时刻字段；禁止时长和旧字段；`goal` 可写粗略时段」。删 :37。:38-39 加提醒时刻与状态。:42-43 改为：`intent_kind`、`goal`、`remind_time` 完全相同的未推进条目保留登记时刻与提醒状态，不重校时刻；只改 `remind_time` 的条目保留登记时刻并换成新提醒；改变文字、删除或重新加入表示替换，旧提醒取消 | 四；修订 22 |
-| DP4【冻】 | 「实际推进与情绪」:58-59 | 登记载体改为运行中 Dreaming 的 `environment_event`（`data.kind="day_plan_generated"`）与修订的 `action_result`，仍不创建新事件类型；零点先结算旧日，再执行运行中 Dreaming | 四；修订 22 |
+| DP2【冻】 | 「心智模型与范围」:9-11、:13-22 | :9-10 改为「当日目标清单由零点计划 `plan_day` 生成，人物可 `revise_day_plan` 修订；只有 `remind_time` 产生提醒边界」。流程图起点改「零点计划生成有序目标」，加提醒边 | 四；修订 22 |
+| DP3【冻】 | 「提交与修订」:33、:35-43 | :33 改为「场景本地零点先结算旧日、使旧计划失效，再由零点后台任务 `plan_day` 生成；中途启动时在首个决策前生成；同日一次（`plan_submitted_dates`）；允许空清单」。:35「条目仅接受 `intent_kind` 与 `goal`」改为「条目接受 `intent_kind`、`goal` 与可空 `remind_time`」。:36「条目禁止绝对时刻、时长和旧字段」改为「`remind_time`（场景本地 `HH:MM`，须晚于生成或修订时刻、早于次日零点）是条目唯一的时刻字段；禁止时长和旧字段；`goal` 可写粗略时段」。删 :37。:38-39 加提醒时刻与状态。:42-43 改为：`intent_kind`、`goal`、`remind_time` 完全相同的未推进条目保留登记时刻与提醒状态，不重校时刻；只改 `remind_time` 的条目保留登记时刻并换成新提醒；改变文字、删除或重新加入表示替换，旧提醒取消 | 四；修订 22 |
+| DP4【冻】 | 「实际推进与情绪」:58-59 | 登记载体改为零点计划的 `environment_event`（`data.kind="day_plan_generated"`）与修订的 `action_result`，仍不创建新事件类型；零点先结算旧日，再执行零点计划 | 四；修订 22 |
 | DP5【冻】 | 「事件驱动的决策节律」:63-70、:72-78、:80-81、:85-87 | :66-67 在手承诺改为：未推进当日目标、可见未完成工作任务、暂停活动与进行中活动（进行中的等待除外）；人物只在等待且没有上述承诺时用空闲间隔。表加「`remind_time` 到期｜精确在提醒时刻唤醒，记 `plan_reminder_due`，同时到期的合并；睡眠中结束睡眠」行。:76 改为「`activity_infeasible` 保留名称，当前无来源」。:80-81 删活动不可行签名。:86 改为「睡眠只接受睡眠允许原因（含 `plan_reminder_due`）」 | 一、三、四；修订 22 |
-| DP6【冻】 | 「人物可见内容与工具」:91、:96-98 | :91 披露提醒时刻。:97 改为「人物工具只有 `revise_day_plan`，有清单即开放，可改提醒」。:98 贯通测试改为「运行中 Dreaming 与 LifeAgent 修订，各自到 LifeEngine、SQLite、下一观察、恢复」 | 四；修订 22 |
-| DP7【冻】 | 「度量输出合同」:151、:158-163 | :151 改为回放运行中 Dreaming 的登记事件（`day_plan_generated`）、修订结果与活动推进。:151-152 补：只改 `remind_time` 的条目保留原实例，不产生新实例，也不记为丢弃。:159-163 外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与 `WORK_LOCATION_REQUIRED`（后者在代码中是 `ACTIVITY_PRECONDITION_UNMET`，`goal_metrics.py:13-19`，属既有漂移），只保留营业、到达准入、路线与工作可用性。引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 归 `other_rejections` | 四、五；修订 22 |
-| DP8【冻】 | 「验收台账」:195、:197 | :195 改为「运行中 Dreaming 生成、同日一次、跨日、修订与提醒」。:197「双间隔」改为「双间隔（进行中的等待不算在手承诺）」，状态改待重验 | 四；修订 22 |
+| DP6【冻】 | 「人物可见内容与工具」:91、:96-98 | :91 披露提醒时刻。:97 改为「人物工具只有 `revise_day_plan`，有清单即开放，可改提醒」。:98 贯通测试改为「零点计划与 LifeAgent 修订，各自到 LifeEngine、SQLite、下一观察、恢复」 | 四；修订 22 |
+| DP7【冻】 | 「度量输出合同」:151、:158-163 | :151 改为回放零点计划的登记事件（`day_plan_generated`）、修订结果与活动推进。:151-152 补：只改 `remind_time` 的条目保留原实例，不产生新实例，也不记为丢弃。:159-163 外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与 `WORK_LOCATION_REQUIRED`（后者在代码中是 `ACTIVITY_PRECONDITION_UNMET`，`goal_metrics.py:13-19`，属既有漂移），只保留营业、到达准入、路线与工作可用性。引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 归 `other_rejections` | 四、五；修订 22 |
+| DP8【冻】 | 「验收台账」:195、:197 | :195 改为「零点计划生成、同日一次、跨日、修订与提醒」。:197「双间隔」改为「双间隔（进行中的等待不算在手承诺）」，状态改待重验 | 四；修订 22 |
 | DP9【冻】 | 文末新增「版本表」 | 补记 d998a31 在 :54-55（并行活动各自提供目标证据）、:75（闭店预警条件）、:80-83（预警签名）的就地改动；登记本次修订 | INDEX FROZEN 规则 |
 
 ### 6. `docs/dev/SPEC-life-realism.md`
@@ -652,13 +646,12 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| RL1【冻】 | 「产品行为」:16-21 | :17「再 finish」改「登记即结束」。:17-18「dreaming」改「离线 `dreaming`」。:18-19 改为运行中 Dreaming 生成目标，可带提醒，清醒时可修订。:19-21 改为结束活动时写记忆；巩固触发保留；运行中 Dreaming 另做归纳并补写瞬时动作的记忆 | 四、七；修订 16 |
+| RL1【冻】 | 「产品行为」:16-21 | :17「再 finish」改「登记即结束」。:18-19 改为零点计划 `plan_day` 生成目标，可带提醒，清醒时可修订。:19-21 改为结束活动时写记忆；巩固触发保留 | 四、七；修订 16 |
 | RL2【冻】 | 「两阶段决策」:89、:94-95、:106-107 | :89 改两次请求。:94 system 加「怎样过一天」。:95 改为「恰好一个世界请求，登记即结束」。:106 改为「无 finish，记忆随 `conclude_activity.memories`，允许空」。:107 删「日首计划」，补「动作不按状态隐藏」 | 六、七；修订 16 |
-| RL3【冻】 | 「记忆合同」:116-117、:121、:125、:133-134、:137-141 | :116-117 改为 `conclude_activity.memories`；播报与暂停不带记忆。:121 改为「无 `refs`，来源由系统登记」。:125 保留三选一，另加运行中 Dreaming 为归纳入口。:133-134 保留「每条引用支持它的记忆身份」，补注：这是记忆运行时后台调用对 AS2 条目身份的内部引用（时间与能量规格第七章「发给模型的内容不含内部身份」所列例外），不进人物决策提示。:139-140 改为「系统登记的来源不证明自由文字属实」 | 七；修订 16 |
-| RL4【冻】 | 「dreaming 边界」:147-151；「默认裁决与备选」:435 | :149 后加：运行中 Dreaming 属人物运行时，在人物侧借用决策轮执行〔#24〕，写回记忆与计划，不读决策自述；与离线 `dreaming` 不共用事件用途、模型阶段键与名称。本规格其余「dreaming」都指离线。:435 改「仅离线 `dreaming` 可读」 | 四；修订 16 |
-| RL5【冻】 | 「当日目标」:177-183、:185 | 流程图改为 `DREAM[运行中 Dreaming] --> GOALS[生成有序目标，可带提醒]`，加提醒边。:185 改为「作息只经运行中 Dreaming 影响目标与可选提醒；提醒只给一次决策机会，不驱动活动」 | 四；修订 16 |
+| RL3【冻】 | 「记忆合同」:116-117、:121、:133-134、:137-141 | :116-117 改为 `conclude_activity.memories`；播报与暂停不带记忆。:121 改为「无 `refs`，来源由系统登记」。:133-134 保留「每条引用支持它的记忆身份」，补注：这是记忆运行时后台调用对 AS2 条目身份的内部引用（时间与能量规格第七章「发给模型的内容不含内部身份」所列例外），不进人物决策提示。:139-140 改为「系统登记的来源不证明自由文字属实」 | 七；修订 16 |
+| RL5【冻】 | 「当日目标」:177-183、:185 | 流程图改为 `PLAN[零点计划 plan_day] --> GOALS[生成有序目标，可带提醒]`，加提醒边。:185 改为「作息只经零点计划影响目标与可选提醒；提醒只给一次决策机会，不驱动活动」 | 四；修订 16 |
 | RL6【条·#23】 | 「`location_kinds` 的运行期强制语义」:214-215 | 按推荐方案不改：占用交集判定保留，「地点不可行」与「资源冲突」仍是两个可区分的原因码。#23 选删除占用时，改为「地点不可行必须带独立原因码」，删资源冲突一方 | 五；修订 16 |
-| RL7【冻】 | 「验收矩阵」:486-488 | :486「dreaming」改「离线 `dreaming`」。:487 改为「`conclude_activity.memories` 空数组合法」。:488 按新触发集合写，状态改待重验 | 验收台账；修订 16 |
+| RL7【冻】 | 「验收矩阵」:487-488 | :487 改为「`conclude_activity.memories` 空数组合法」。:488 触发条件不变，补「待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计」，状态改待重验 | 验收台账；修订 16 |
 | RL8【冻】 | 「版本表」:546-562 | 追加 `<冻结日>-time-and-energy` 行；补记 2026-09-21 以来未入表的就地改动：2d97d3d、4ae28c7、fa150fb、d998a31、8df4045、2913546 | 修订 16 |
 
 ### 7. `docs/dev/SPEC-decision-context.md`
@@ -670,11 +663,11 @@ flowchart TB
 | DC1【冻】 | 「心智模型」:19-29 | 时序图删 :23 的「可选记忆查询后 finish」，记忆查询移到动作前；:22 改为「登记确认，本次决策结束」。:28-29 改为两次请求 | 七；修订 23 |
 | DC2【冻】 | 「权威来源与裁决」:40、:43 | 只改裁决列。:40 改为「动作登记受理即结束本次决策」。:43 改为「生活决策无 finish；只读问答保留只读 finish」 | 七；修订 23 |
 | DC3【冻】 | 「地点发现与供给比较」:69 | 「动作短语」改「动词与方式」 | 五；修订 23 |
-| DC4【冻】 | 「上下文与阶段相互独立」:87、:89 | :87 改为「行动工具先受冻结观察中的有效交互菜单约束，再由阶段、同刻上限与预算继续收窄」（删「状态、」「可见引用、」「日首计划、」）。:89 改为「当日目标由运行中 Dreaming 生成，不开放 `plan_day`；世界请求登记后决策结束」。:92 保留 | 一、四；修订 23 |
+| DC4【冻】 | 「上下文与阶段相互独立」:87、:89 | :87 改为「行动工具先受冻结观察中的有效交互菜单约束，再由阶段、同刻上限与预算继续收窄」（删「状态、」「可见引用、」「日首计划、」）。:89 改为「当日目标由零点计划生成，不开放 `plan_day`；世界请求登记后决策结束」。:92 保留 | 一、四；修订 23 |
 | DC5【冻】 | 「登记确认与结算结果」:104、:107、:122-124 | :104 改为「记忆不带来源引用，来源由系统登记」。:107 改「活动客观进度」。:122-124 浓缩按会话合并已收尾活动 | 七；修订 23 |
 | DC6【冻】 | 「验收台账」:171 | 改为「动作前可有记忆查询，动作登记后决策结束，生活决策无 finish」 | 七；修订 23 |
 | DC7【冻】 | 「版本表」:182-188 | 追加第 4 行；补记 2026-09-21 以来未入表的就地改动：2d97d3d、d998a31、2913546 | 修订 23 |
-| DC8【冻】 | 「当日目标边界」:192-193 | 改为「当日目标由运行中 Dreaming 生成，人物只可修订未推进目标及其提醒」 | 四；修订 23 |
+| DC8【冻】 | 「当日目标边界」:192-193 | 改为「当日目标由零点计划生成，人物只可修订未推进目标及其提醒」 | 四；修订 23 |
 | DC9【冻】 | 「场景信息」:129 | 句末加例外：「饥饿为『饿』及以上时，`scene.local_food_summary` 的吃饭途径句可带一条途径的人读时长或送达时刻，只引用本轮观察已有的事实；可达地点仍只保留名称与营业状态」 | 三；修订 23 |
 
 ### 8. `docs/dev/SPEC-interaction-menu.md`
@@ -689,9 +682,9 @@ flowchart TB
 | IM4【冻】 | 「地图地点与发现工具」:83 | 发现改为 `interact` 的浏览对象，菜单仍以 `browse` 限制 | 五；修订 24 |
 | IM5【冻】 | 「观察与人物工具」:103、:105-106、:111、:114-116、:120-126 | :103 删「日首计划」，加同刻上限。:105 名称含活动名。:106 控制对象改活动，可结束暂停中的活动。:111 改为「暂停的活动仍在观察与回看选项中可见；播报可在其开始地点恢复它，另核对当前资源〔#23〕与地点条件，能量不参与」。:116 改为「活动控制按可读活动名（做什么＋对象＋开始时刻）分别开放；恢复须回到活动开始的地点，另核对当前资源〔#23〕与地点条件，能量不参与」。:114 改为「动作登记即结束」。:115「相容」改「按第五章准入」。:120 表头注明领域动作与动词的对应 | 三、四、五、七；修订 24 |
 | IM6【冻】 | 「环境执行与拒绝」:141 | 删「及能量要求」 | 三；修订 24 |
-| IM7【冻】 | 「验收台账」:186-187 | :186 改为「当日计划由运行中 Dreaming 生成；等待/睡眠入口保留；活动控制保留，恢复须回到开始地点并受资源〔#23〕与资格约束；世界请求登记即结束本轮，只读阶段保持原规则」。:187 删「能量」 | 三、四；修订 24 |
+| IM7【冻】 | 「验收台账」:186-187 | :186 改为「当日计划由零点计划生成；等待/睡眠入口保留；活动控制保留，恢复须回到开始地点并受资源〔#23〕与资格约束；世界请求登记即结束本轮，只读阶段保持原规则」。:187 删「能量」 | 三、四；修订 24 |
 | IM8【冻】 | 「版本表」:196-200 | 追加第 2 行；补记 2026-09-21 以来未入表的就地改动：2d97d3d、d998a31、2913546 | 修订 24 |
-| IM9【冻】 | 「当日目标保护项」:202-206 | 改为「`revise_day_plan` 名称与保护资格保留；`plan_day` 不在人物工具与菜单中，当日计划由运行中 Dreaming 经 LifeEnv 的登记入口提交」 | 四；修订 24 |
+| IM9【冻】 | 「当日目标保护项」:202-206 | 改为「`revise_day_plan` 名称与保护资格保留；`plan_day` 不在人物工具与菜单中，当日计划由零点后台任务 `plan_day` 经引擎的系统登记入口写入」 | 四；修订 24 |
 
 ### 9. `docs/dev/SPEC-map-and-storefront.md`
 
@@ -718,7 +711,7 @@ flowchart TB
 | AS6【同】 | 「AS2 基线与分支」:281-285 | :281 上游基线不改。:283 后补「锁定提交：`8768e14`（子模块指针，运行身份按它的源码摘要比对）」；补「运行身份哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动」 | 八；修订 26 |
 | AS7【冻】 | 「验收矩阵」:353、:357、:361 | :353 改为「有人就绪不推进」。:357 改为「回合预算耗尽仍无登记的世界请求即致命；只读 finish 同批拒绝」。:361 改为 `conclude_activity` 的记忆路径 | 一、七；修订 26 |
 | AS8【冻】 | 「版本表」:367-376 | 追加第 6 行 | 修订 26 |
-| AS9【条·#24】 | 「决策调度改动」:76-79；「LifeEnv 职责」:320-330；「LifeAgent 职责」:332-343 | 按推荐随冻结落地。#24 选运行时后台结算时，改为在「LifeEnv 职责」:327-330 删「不代替 AS2 管理模型调用」并写明 LifeEnv 经 `settle_pending_model_replies` 执行运行中 Dreaming，其余两处不改。按推荐：「决策调度改动」补「环境把当日未做运行中 Dreaming 的人物以与 `next_decision_at` 分开的 `dreaming_due` 报为就绪，AS2 照常执行一轮并形成检查点」。「LifeEnv 职责」补「提供运行中 Dreaming 的计划登记入口，仍不代替 AS2 管理模型调用」。「LifeAgent 职责」补「看到 `dreaming_due` 时只发运行中 Dreaming 请求（`purpose="day_planning"`），不写决策自述、不开放生活工具」 | 四；修订 26 |
+| AS9【冻】 | 「LifeEnv 职责」:327-330 | :328「不代替 AS2 管理模型调用」改为「不代替 AS2 管理人物的模型调用」，补「零点计划 `plan_day` 与联系人回复一样，是运行时的后台模型调用，由 LifeEnv 在推进之后、启动路径的检查点之后与普通恢复的 `init` 中调用，不经人物、不改人物工作区」。「决策调度改动」与「LifeAgent 职责」不改 | 四；修订 26 |
 
 ### 11. `docs/dev/SPEC-labelkit-delivery.md`
 
@@ -726,8 +719,7 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| LK1【冻】 | 「确定输入范围与加工责任」:77、:81 | 「dreaming」写明为离线 `dreaming`；运行中 Dreaming 属模拟，不单独成为交付窗口 | 四；修订 27 |
-| LK2【冻】 | 「证据窗口与输入结构」:103、:108、:109；「验收矩阵」:228 | :103 注明带 `purpose="day_planning"` 的请求不作动作 prompt。:108 补「`conclude_activity.memories` 不进意图与离线 `dreaming` 输入，动作目标保留完整参数」。:109 改为「…可供性合同、游戏目录与内部状态（旧导出另含能量可行性）」。:106 的边界类型已覆盖提醒结束与到达结束，不改。:228「私有载体边界」补「意图与离线 `dreaming` 输入不含 `conclude_activity.memories` 正文，动作目标保留完整请求」，验证列补「交付窗口」行新增的 `tests/delivery/test_windows.py` 用例名 | 四、七；修订 27 |
+| LK2【冻】 | 「证据窗口与输入结构」:103、:108、:109；「验收矩阵」:228 | :103 注明带 `purpose="plan_day"` 的零点计划请求不作动作 prompt。:108 补「`conclude_activity.memories` 不进意图与 `dreaming` 输入，动作目标保留完整参数」。:109 改为「…可供性合同、游戏目录与内部状态（旧导出另含能量可行性）」。:106 的边界类型已覆盖提醒结束与到达结束，不改。:228「私有载体边界」补「意图与 `dreaming` 输入不含 `conclude_activity.memories` 正文，动作目标保留完整请求」，验证列补「交付窗口」行新增的 `tests/delivery/test_windows.py` 用例名 | 四、七；修订 27 |
 | LK3【冻】 | 「版本表」:247-255 | 追加一行；补记 2026-09-21 以来未入表的就地改动：2913546 | 修订 27 |
 
 ### 12. `docs/dev/SPEC-category-contract.md`
@@ -744,28 +736,28 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| E4-1【冻】 | 文件头 :3-6 | 更新日期；版本 v1.6；范围行加「同刻决策、活动名额与生命周期、运行中 Dreaming」 | 更新约定 |
-| E4-2【冻】 | 「项目框架映射」:29-78 | 加实线边 `CLOCK -->\|场景本地零点：标记 dreaming_due\| OBSERVE`（不用虚线，:78 规定虚线只表示结果回灌）；:58 边标签改为「观察与决策机会；运行中 Dreaming 轮只给系统观察，不是决策机会」；启动路径见 E4-5。:59 边标签改「一次请求，登记即结束决策」。:69、:76 的「离线 Dreaming」改「离线 `dreaming`」。:77 后补「运行中 Dreaming 由本引擎在场景本地零点与启动路径编排，人物模块借用决策轮执行〔#24〕」 | 四 |
-| E4-3【冻】 | 「与其他模块的分工」:84、:88、:93 | 人物模块的职责补运行中 Dreaming，协作补「环境以 `dreaming_due` 报就绪，人物模块执行并经 LifeEnv 登记入口提交〔#24〕」。:88 改「离线 `dreaming`」。:93 后补「沿用同一调度与检查点」 | 四 |
+| E4-1【冻】 | 文件头 :3-6 | 更新日期；版本 v1.6；范围行加「同刻决策、活动名额与生命周期、零点计划」 | 更新约定 |
+| E4-2【冻】 | 「项目框架映射」:29-78 | :47 的 `SETTLE --> WAKE` 注明零点计划（例如 `SETTLE -->\|场景本地零点：plan_day 登记当日计划\| WAKE`），不连向 `PERSON`，不加虚线（:78 规定虚线只表示结果回灌）；启动路径见 E4-5。:59 边标签改「一次请求，登记即结束决策」。:77 后补「零点计划由运行时在场景本地零点与启动路径执行（同联系人回复），不经人物模块」 | 四 |
+| E4-3【冻】 | 「与其他模块的分工」:93 | :93 后补「零点计划 `plan_day` 是运行时后台任务（同联系人回复），不经人物调用链，计划由其后的共同检查点封存」 | 四 |
 | E4-4【冻】 | 「设计依据」:97-101 | 补数字人交互规格与时间与能量规格 | 权威 |
-| E4-5【冻】 | 「输入与启动流程」:112-123、:127、:135 | 流程图 C 与 A 之间插入「生成当日计划（运行中 Dreaming 启动路径）」。:127「初始活动」改「身体初值（不预置活动，按作息反推，算法见 life-runtime）」。:135 后补「恢复按 `dreamed_dates` 不重复生成计划与提醒」 | 四、八 |
+| E4-5【冻】 | 「输入与启动流程」:112-123、:127、:135 | 流程图 C 与 A 之间插入「生成当日计划（零点计划启动路径）」。:127「初始活动」改「身体初值（不预置活动，按作息反推，算法见 life-runtime）」。:135 后补「恢复按 `plan_submitted_dates` 不重复生成计划与提醒」 | 四、八 |
 | E4-6【冻】 | 「提供当前可见的处境」:160-161 | 补饥饿分级在低能量不被钳住、商品热量与路线费力、饿时的吃饭途径句（确定性生成）；数值与阈值引 life-runtime | 二、三 |
 | E4-7【冻】 | 「人物所见与可做之事」:174-177、:188、:195-198、:206-210 | :174-175 进度层按会话分组，写活动客观进度，自述标未经核验，Schema 与返回不含内部身份。:176-177 改为「冻结菜单收窄 `start_activity` 的动作选项，再由可见对象与剩余回合收窄；不按人物当前活动、能量或日首计划剪裁，唯一的状态性收窄是同刻上限的受限轮」。:188 改「剩余回合与同刻轮数」。:195-196 合并为「按预算查询记忆后提交恰好一个世界请求，登记即结束」。:198 system 含「怎样过一天」。:206-207 改五个动词与方式〔#20〕。:208-210 按会话合并已收尾活动 | 一、三–七 |
 | E4-8【冻】 | 「发现与比较门店供给」:215、:228-231 | :215 改为：浏览是占名额的活动，筛选与分页结果随浏览结束（`browse_result`）或在下一次观察时回灌；`discovery_result` 保留在唤醒闭集中，当前没有触发来源，不另排下一秒。:228 改为「暂停的活动只在开始地点恢复；在别处恢复以 `ACTIVITY_PRECONDITION_UNMET` 拒绝并点名地点，保留暂停进度；在别处可以直接结束」。:229-230 保留访问失败的语义，补「到达同一秒出行与路上开始的活动结束、会话切换并收尾」。:230 的「旅途中事件边界的剩余能量判断复用当前活动实际方式的 MET」改为「旅途中的身体结算与阈值预测复用当前活动实际方式的 MET」；:231「不能用不存在的通用 `travel` 或 `lifestyle` 费率替代驾车、步行或具体生活活动」保留 | 一、三、七 |
 | E4-9【冻】 | 「调用并等待人物决策」:248-252、:262、:264-266 | :248-249 改为提交恰好一个请求，登记即结束。删 :250 的 finish 注记，:251-252 保留。:262 后补记忆写入点。:264-266 改两次请求 | 七 |
-| E4-10【冻】 | 「接收当日目标并记录实际推进」:273-275 | 改为：场景本地零点先结算旧日、使旧计划失效，再〔#24〕以 `dreaming_due` 请人物模块执行运行中 Dreaming，计划经 LifeEnv 登记入口提交并写 `environment_event`（`data.kind="day_plan_generated"`）；`remind_time` 登记为一次性提醒边界（`plan_reminder_due`，睡眠中结束睡眠，结束原因 `plan_reminder`）；修订按第四章保留、替换或取消提醒 | 四 |
+| E4-10【冻】 | 「接收当日目标并记录实际推进」:273-275 | 改为：场景本地零点先结算旧日、使旧计划失效，再由运行时后台任务 `plan_day`（同联系人回复）为每个人物生成计划，经引擎的系统登记入口写入世界状态并写 `environment_event`（`data.kind="day_plan_generated"`）；`remind_time` 登记为一次性提醒边界（`plan_reminder_due`，睡眠中结束睡眠，结束原因 `plan_reminder`）；修订按第四章保留、替换或取消提醒 | 四 |
 | E4-11【冻】 | 「校验与占用安排」:294-296、:302-308 | :295 恢复检查删「能量」，「资源」保留〔#23〕，补「恢复只在开始地点」。:302-305 改为：一轮提交一个世界请求，`start_activity` 取五个动词〔#20〕、至多开始两项；两个名额；注册表占用与准入事实；出发前先结束或暂停进行中的活动（否则 `ACTIVITY_PRECONDITION_UNMET`），刚结束的活动先 `conclude_activity`（否则 `ACTIVITY_CONCLUSION_REQUIRED`）；派生时长上限〔#19〕；删「共同能量」。:307-308 改指同刻上限 | 一、三、五、七 |
 | E4-12【冻】 | 「一轮运行」:314-333、:335-344 | 流程图 R 改为「是否有人物无进行中活动、有待收尾活动或获同刻机会」，K 注 `no_active_activity`、`rejection_feedback`。:335 补「决策不耗时」。:338「计划起点」改「计划提醒、活动播报、场景本地零点」。:342-344 替换为同刻再决策与上限 | 一、四 |
 | E4-13【冻】 | 「活动生命周期」:373-383 | 换为：名额、播报、暂停、刚结束同秒 `conclude_activity`、释放名额。拒绝节点指向第 5 节 | 七 |
 | E4-14【冻】 | 「实际区间、身体变化与效率」:399-406、:413-418 | 工作行补进度累加与 60 秒开工。睡眠行补提醒结束。出行行补会话切换与到达同秒结束。:413 后补能量 0 截断、边界预测覆盖全部饥饿阈值；阈值数值引 life-runtime | 三、七、八 |
 | E4-15【冻】 | 「反馈、续行与结束」:425、:429 | :425 播报只针对进行中活动，锚点为活动的 `report_anchor_at`。:429 补：计划结束或提醒结束时同一秒收尾；结束、暂停与恢复逐活动写 `environment_event`；原始动作的全部子活动终结时写一次终态；暂停不是终态 | 七、八 |
 | E4-16【冻】 | 「将真实结果交还人物」:459-461 | 补：经历写成句子；记忆查询返回与 Schema 不含内部身份 | 七 |
-| E4-17【冻】 | 「每轮保存与确认」:465-466 | 补：运行中 Dreaming 在该边界的共同检查点前保存并留证；`conclude_activity` 的记忆在登记的同一轮由宿主经 `after_step` 写入，环境只校验形状并随 `action_requested` 留证 | 四、七 |
-| E4-18【冻】 | 「结算边界与决策机会」:505-520 | 表增「同刻再决策」「场景本地零点」两行。:507、:514 加运行中 Dreaming 例外。:510 补计划提醒。:516-517 改为引用闭集，只点名 `no_active_activity`、`plan_reminder_due` 与播报到期；「活动不可行」改为「`activity_infeasible` 保留名称，当前无来源」；写明边界后没有进行中活动的人物必获决策。:520 锚点改 `#共同身体结算与决策证据` | 一、四、八（与修订 3 同口径） |
-| E4-19【冻】 | 「9. 恢复与反事实运行编排」:547、:550、:560-561 | :547 代码身份含实际导入的 AS2，并记 `git_commit` 与 `git_dirty`。:550 后补世界版本 7；恢复与反事实分支按 `dreamed_dates` 判定：当日已执行运行中 Dreaming 的不重复生成计划与提醒，未执行的在反事实干预之后、首次决策之前执行。:560-561 区分离线 `dreaming` 与运行中 Dreaming | 四、八、九 |
-| E4-20【冻】 | 「失败处理」:570-573 | :570-571 改为业务拒绝后同一秒再决策，受同刻上限约束。增「能量为 0｜照常受理与结算，以 0 截断」「交互对象为空｜合法状态，决策照常」两行。:573 注明空交互对象层不属于必需观察不可用。增「运行中 Dreaming 输出不合法｜附英文错误在回合预算内重试；耗尽为运行故障，保留请求、响应与错误证据」行 | 一、三、四、五、九 |
+| E4-17【冻】 | 「每轮保存与确认」:465-466 | 补：零点计划在该边界的共同检查点前，与计划、提醒同一次提交并留证；`conclude_activity` 的记忆在登记的同一轮由宿主经 `after_step` 写入，环境只校验形状并随 `action_requested` 留证 | 四、七 |
+| E4-18【冻】 | 「结算边界与决策机会」:505-520 | 表增「同刻再决策」「场景本地零点」两行。:507「不调用模型」改「不调用人物决策模型」，注明零点计划的后台调用不是人物调用；:514 注明带 `purpose="plan_day"` 的 `model_request` 例外。:510 补计划提醒。:516-517 改为引用闭集，只点名 `no_active_activity`、`plan_reminder_due` 与播报到期；「活动不可行」改为「`activity_infeasible` 保留名称，当前无来源」；写明边界后没有进行中活动的人物必获决策。:520 锚点改 `#共同身体结算与决策证据` | 一、四、八（与修订 3 同口径） |
+| E4-19【冻】 | 「9. 恢复与反事实运行编排」:547、:550 | :547 代码身份含实际导入的 AS2，并记 `git_commit` 与 `git_dirty`。:550 后补世界版本 7；恢复与反事实分支按 `plan_submitted_dates` 判定：当日已生成零点计划的不重复生成计划与提醒，未生成的在首次决策之前执行（反事实分支在干预检查点之后，普通恢复在 `init` 中） | 四、八、九 |
+| E4-20【冻】 | 「失败处理」:570-573 | :570-571 改为业务拒绝后同一秒再决策，受同刻上限约束。增「能量为 0｜照常受理与结算，以 0 截断」「交互对象为空｜合法状态，决策照常」两行。:573 注明空交互对象层不属于必需观察不可用。增「零点计划输出不合法｜附回错误重试（有限次数，按时间与能量规格第四章）；耗尽或传输失败为运行故障，保留请求、响应与错误证据」行 | 一、三、四、五、九 |
 | E4-21【冻→后】 | 「当前实现边界」:595-597 | 冻结时补「时间与能量规格尚未实现，以绿色基线为前提」；实现后删除 | 九 |
-| E4-22【冻】 | 「验收重点」:604、:608、:610 | :604 改为「原生人物调用每次只读取一次观察；自述、行动和只读输入边界清楚；初始上下文固定；工具面不按人物状态剪裁（同刻上限的受限轮除外），只随阶段与预算变化；生活决策无 `finish`（只读问答保留）」。:608 补「决策不耗时、推进时人人有进行中活动且没有待收尾活动、同秒轮数有上界」。:610 改为「静默边界不调用人物决策模型（运行中 Dreaming 除外），实际唤醒原因完整；边界结算后没有进行中活动的人物必获决策；计划提醒准确唤醒且只一次，可结束睡眠；运行中 Dreaming 不提供决策；睡眠与游戏遵守各自边界」。增「身体与能量」「活动与会话」两行 | 验收台账 |
+| E4-22【冻】 | 「验收重点」:604、:608、:610 | :604 改为「原生人物调用每次只读取一次观察；自述、行动和只读输入边界清楚；初始上下文固定；工具面不按人物状态剪裁（同刻上限的受限轮除外），只随阶段与预算变化；生活决策无 `finish`（只读问答保留）」。:608 补「决策不耗时、推进时人人有进行中活动且没有待收尾活动、同秒轮数有上界」。:610 改为「静默边界不调用人物决策模型，实际唤醒原因完整；边界结算后没有进行中活动的人物必获决策；计划提醒准确唤醒且只一次，可结束睡眠；零点计划不提供决策；睡眠与游戏遵守各自边界」。增「身体与能量」「活动与会话」两行 | 验收台账 |
 | E4-23【冻】 | 「版本历史」:621-630 | 追加 v1.6 行；补记 v1.5 之后未入表的正文改动：2bce358（地图与供给初始化、发现与比较门店供给、门店营业与报价事件；预排事件的调价与整单配送；恢复加载供给状态）、2d97d3d（当日目标）、d998a31（同人活动集合与共同身体结算）、2913546（活动执行与进度层） | 更新约定 |
 | E4-24【后】 | 「验收重点」:617 后 | 仿 :617-618 补「时间与能量的逐条证据见时间与能量验收记录」，链接到本特性验收记录（`dev/research/time-and-energy-verification.md`） | 验收台账 |
 
@@ -776,24 +768,24 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | E5-1【冻】 | 文件头 :4；「版本表」:818-826 | 追加 `<冻结日>-time-and-energy` 行，版本号按本文惯例不改；注明结构版本 5→6 漏登，现直接改为 7 | 更新约定 |
-| E5-2【冻】 | 「必须保存的内容」:111-118 | 增「后台任务」行：运行中 Dreaming 的观察、请求与响应（`purpose="day_planning"`）、计划与提醒、补写的记忆及其来源；须能与人物决策、离线 `dreaming` 区分。「人物决策」行补同一秒内的轮序 | 四 |
+| E5-2【冻】 | 「必须保存的内容」:111-118 | 增「后台任务」行：零点计划 `plan_day` 的请求与响应（`purpose="plan_day"`）、计划与提醒及其来源；须能与人物决策区分。「人物决策」行补同一秒内的轮序 | 四 |
 | E5-3【同】 | 「事件字段」:141-145 | 阶段 1，与 C1、E9-3 同批。受限轮的观察私有证据另记 `same_moment_stage`（本轮开放的动作类），并与实际 Schema、环境派发核对 | 一 |
 | E5-4【同】 | 「共同身体结算与决策证据」:153-164 | :162 后补：同刻轮次没有区间，不写共同身体结算；唤醒原因只记于 `decision_started.data.wake_reasons` 与观察；边界兜底的 `no_active_activity` 照常写入结算 | 一 |
-| E5-5【同】 | 「事件类型枚举」:166-185；「事件正文与资源证据」:201 | 闭集不变。注明复用：结束、暂停与恢复写 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`）；运行中 Dreaming 的计划登记写 `environment_event`（`data.kind="day_plan_generated"`）。这四个 `data.kind` 登记在 :201。`day_plan_generated` 取 `visibility=system`，`data.day_plan` 与修订结果同形（目标的 `registered_at` 为该事件时刻），`data.source_event_ids` 为输入来源事件；`activity_concluded`、`activity_paused`、`activity_resumed` 带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by` | 四、八 |
-| E5-6【冻】（:196、:198 两句【同】） | 「事件正文与资源证据」:195-201 | :195 列 `decision_started` 的 `data` 字段（含 `wake_reasons`），同刻轮数按每秒的 `decision_started` 计。【同】（阶段 5，与 C35 同批）:196 运行中 Dreaming 的 `model_request`、`model_response` 带 `purpose="day_planning"`，与人物决策请求区分。【同】（阶段 1，与 C19 同批）:198 补「同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数」。:199 注明结束、暂停与恢复不写 `activity_progress`，逐活动另写 `environment_event`（带活动快照，名称登记见 E5-5）；暂停不是终态。:200 补「主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照」。:201 的 `data.kind` 登记见 E5-5；会话切换只进世界状态，提醒到期记于唤醒原因 | 一、四、七、八 |
+| E5-5【同】 | 「事件类型枚举」:166-185；「事件正文与资源证据」:201 | 闭集不变。注明复用：结束、暂停与恢复写 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`）；零点计划的计划登记写 `environment_event`（`data.kind="day_plan_generated"`）。这四个 `data.kind` 登记在 :201。`day_plan_generated` 取 `visibility=system`，`data.day_plan` 与修订结果同形（目标的 `registered_at` 为该事件时刻），`data.source_event_ids` 为输入来源事件；`activity_concluded`、`activity_paused`、`activity_resumed` 带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by` | 四、八 |
+| E5-6【冻】（:196、:198 两句【同】） | 「事件正文与资源证据」:195-201 | :195 列 `decision_started` 的 `data` 字段（含 `wake_reasons`），同刻轮数按每秒的 `decision_started` 计。【同】（阶段 5，与 C35 同批）:196 零点计划的 `model_request`、`model_response` 带 `purpose="plan_day"`，与人物决策请求区分。【同】（阶段 1，与 C19 同批）:198 补「同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数」。:199 注明结束、暂停与恢复不写 `activity_progress`，逐活动另写 `environment_event`（带活动快照，名称登记见 E5-5）；暂停不是终态。:200 补「主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照」。:201 的 `data.kind` 登记见 E5-5；会话切换只进世界状态，提醒到期记于唤醒原因 | 一、四、七、八 |
 | E5-7【冻】 | 「地图与门店供给证据」:233-235 | 提示中不用 `based_on_action_id/changes`，一律写完整行 | 七 |
 | E5-8【冻】 | 「activity_progress 事件」:244-245 | 注明快照 `location_id` 为开始地点（出行为出发地），结算不改写；到达地点取 `data.arrival.location_id`，不另设「当前地点」字段 | 九 |
-| E5-9【冻】 | 「已核验经历与主观记忆」:260-269 | :261 到达取 `arrival.location_id`。:265 加「运行中 Dreaming 不能产生事实」。:266-267 改为「模型只见确定性句子」；运行中 Dreaming 读当日已核验经历的句子 | 四、七、九 |
-| E5-10【冻】 | 同节 :271-279 | :271 改为：记忆写入点为 `conclude_activity`、运行中 Dreaming 补写与就寝反思三处（`trigger` 字段与取值见 E5-11，随阶段 3）；`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。删「合法 `refs`…」；来源由系统登记（第四、七章） | 七 |
-| E5-11【同】 | 同节 `memory_updated.data` 表 :281-295 | 增 `trigger` 与 `decision_id`。`trigger` 是本步写入点的有序列表（顺序为 `activity_conclusion`、`day_planning`、`reflection`）：一次 `after_step` 可以同时写入收尾记忆与就寝反思（醒来那一轮睡眠待收尾，人物带记忆收尾，同一步又做就寝后反思），AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导（见「七·写入与证据」）。结束活动的来源另记于 `action_result.data.memory_sources`（活动、会话与已核验经历身份）。:288 `observation_event_id` 为本轮观察，〔#24〕运行中 Dreaming 轮取其 `visibility=system` 的观察。:289 `verified_event_ids` 改为系统登记的来源。:294-295 按 `trigger` 中的每个写入点分别核对：`day_planning` 的来源为输入来源事件，不按决策观察窗口核对 | 四、七 |
+| E5-9【冻】 | 「已核验经历与主观记忆」:260-269 | :261 到达取 `arrival.location_id`。:265 加「零点计划不能产生事实」。:266-267 改为「模型只见确定性句子」；零点计划读当日已核验经历的句子 | 四、七、九 |
+| E5-10【冻】 | 同节 :271-279 | :271 改为：记忆写入点为 `conclude_activity` 与就寝反思两处，阈值巩固不变（`trigger` 字段与取值见 E5-11，随阶段 3）；`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。删「合法 `refs`…」；来源由系统登记（第四、七章） | 七 |
+| E5-11【同】 | 同节 `memory_updated.data` 表 :281-295 | 增 `trigger` 与 `decision_id`。`trigger` 是本步写入点的有序列表（顺序为 `activity_conclusion`、`reflection`）：一次 `after_step` 可以同时写入收尾记忆与就寝反思（醒来那一轮睡眠待收尾，人物带记忆收尾，同一步又做就寝后反思），AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导（见「七·写入与证据」）。结束活动的来源另记于 `action_result.data.memory_sources`（活动、会话与已核验经历身份）。:288 `observation_event_id` 为本轮观察。:289 `verified_event_ids` 改为系统登记的来源。:294-295 按 `trigger` 中的每个写入点分别核对 | 七 |
 | E5-12【同】 | 「持久化结构」:361、:373-377 | 清单冻结的 `code_sha256` 覆盖实际导入的 AS2；清单记 `git_commit` 与 `git_dirty`，二者不参与恢复比对；AS2 缺失、为空或不符即拒绝 | 八 |
-| E5-13【同】 | 「地图与供给的恢复身份」:549 | 版本句移到「检查点创建」，改为 7，旧状态直接拒绝。另列检查点必须封存的内容：`same_moment_rounds`、`same_moment_stage`、按人物暂存的本秒呈现留痕、计划与提醒状态、`dreamed_dates`、地点会话与名额 | 九 |
+| E5-13【同】 | 「地图与供给的恢复身份」:549 | 版本句移到「检查点创建」，改为 7，旧状态直接拒绝。另列检查点必须封存的内容：`same_moment_rounds`、`same_moment_stage`、按人物暂存的本秒呈现留痕、计划与提醒状态（`plan_submitted_dates` 为既有字段）、地点会话与名额 | 九 |
 | E5-14【冻】 | 「分支状态与发布」:606 | 代码身份覆盖实际导入的 AS2 | 八 |
 | E5-15【冻】 | 「导出行为」:653、:659-660 | 主动结束与暂停也写快照，导出与世界状态逐项一致；结算不改写 `location_id` | 八、九 |
-| E5-16【冻】 | 「质量报告」:696-699 | 改为运行中 Dreaming 的 `day_plan_generated`、修订结果与结算事件保存完整清单（含 `remind_time`）；恢复不重复生成 | 四 |
-| E5-17【冻】 | 同节 :702-706 | 「记忆引用检查」改「记忆来源检查」。重复观看只计从头重看。唤醒原因分两份：边界取共同身体结算，决策轮取 `decision_started`。`model_usage` 含运行中 Dreaming，按 `purpose` 分列 | 一、四、七 |
-| E5-18【同】 | 同节分组 :712-714 | `memory_references` 分组保留名称，内容改为按写入点 `trigger` 核对系统登记的来源。问题码改为按写入点：`finish_without_memory_update` 改为 `conclusion_without_memory_update`，含义是带非空 `memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_successful_finish` 改为 `memory_update_without_source`，含义是 `memory_updated` 的某个写入点找不到对应登记（`activity_conclusion` 没有同一决策的 `conclude_activity` 请求，`day_planning` 没有 `day_plan_generated`）；删 `unknown_memory_reference`。`decision_rhythm` 增同刻轮次统计（按人物与模拟秒计 `decision_started`） | 一、七 |
-| E5-19【冻→后】 | 「固定截止导出的实现差距」:730-736；新增「记录生活全过程的实现差距」 | 冻结时加两行：结束与暂停无快照（`session_actions.py:504-564`，`_pause_activity`、`_conclude_activity`）；结算改写出行 `location_id`（`engine.py:1399`）。另列同刻证据、〔#24〕运行中 Dreaming 登记入口、记忆来源、经历句子化的差距；验收表对应行记「待实现」。实现后删差距行 | 七、九 |
+| E5-16【冻】 | 「质量报告」:696-699 | 改为零点计划的 `day_plan_generated`、修订结果与结算事件保存完整清单（含 `remind_time`）；恢复不重复生成 | 四 |
+| E5-17【冻】 | 同节 :702-706 | 「记忆引用检查」改「记忆来源检查」。重复观看只计从头重看。唤醒原因分两份：边界取共同身体结算，决策轮取 `decision_started`。`model_usage` 含零点计划，按 `purpose` 分列 | 一、四、七 |
+| E5-18【同】 | 同节分组 :712-714 | `memory_references` 分组保留名称，内容改为按写入点 `trigger` 核对系统登记的来源。问题码改为按写入点：`finish_without_memory_update` 改为 `conclusion_without_memory_update`，含义是带非空 `memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_successful_finish` 改为 `memory_update_without_source`，含义是 `memory_updated` 的某个写入点找不到对应登记（`activity_conclusion` 没有同一决策的 `conclude_activity` 请求）；删 `unknown_memory_reference`。`decision_rhythm` 增同刻轮次统计（按人物与模拟秒计 `decision_started`） | 一、七 |
+| E5-19【冻→后】 | 「固定截止导出的实现差距」:730-736；新增「记录生活全过程的实现差距」 | 冻结时加两行：结束与暂停无快照（`session_actions.py:504-564`，`_pause_activity`、`_conclude_activity`）；结算改写出行 `location_id`（`engine.py:1399`）。另列同刻证据、零点计划后台任务与系统登记入口、记忆来源、经历句子化的差距；验收表对应行记「待实现」。实现后删差距行 | 七、九 |
 | E5-20【后】 | 「调试工具」:775；「运行查询与诊断的实现差距」:809 | 实现后删 :809；:775 改为「显示 `body.values` 与 `body.levels`」 | 二 |
 
 ### 15. `docs/design/06-delivery.md`
@@ -802,9 +794,9 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| E6-1【冻】 | 「3.3 动作窗口提取规则」:112、:115、:117 | :112 补「`conclude_activity.memories` 属记忆写入，意图与离线 `dreaming` 输入裁去该参数」，「dreaming」改「离线 `dreaming`」。:115 补「运行中 Dreaming 的请求带 `purpose="day_planning"`，不作窗口 prompt」。:117 补「动作窗口的目标保留完整请求（含 `conclude_activity.memories`），记忆更新事件仍不进 `target.outcomes`」 | 四、七 |
+| E6-1【冻】 | 「3.3 动作窗口提取规则」:112、:115、:117 | :112 补「`conclude_activity.memories` 属记忆写入，意图与 `dreaming` 输入裁去该参数」。:115 补「零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt」。:117 补「动作窗口的目标保留完整请求（含 `conclude_activity.memories`），记忆更新事件仍不进 `target.outcomes`」 | 四、七 |
 | E6-2【冻】 | 同节 :123-125 | 「能量可行性」改为「内部身份（旧导出另含已删除的能量可行性）」 | 三 |
-| E6-3【冻】 | 「3.4 dreaming 窗口提取规则」:138-140 | 标题保留，00:136 与 04:561 依赖此锚点。:138「离线 Dreaming」改「离线 `dreaming`」，:140「Dreaming 专用合同」改「离线 `dreaming` 专用合同」；首段补一句：离线 `dreaming` 不同于运行中 Dreaming；运行中 Dreaming 的系统观察、模型交换、`day_plan_generated` 登记与记忆写入都不进任何窗口；零点及其后的事件归入新一日 | 四 |
+| E6-3【冻】 | 「3.4 dreaming 窗口提取规则」:138-140 | 标题保留，00:136 与 04:561 依赖此锚点。首段补一句：零点计划的模型交换与 `day_plan_generated` 登记（系统可见）不进任何窗口；零点及其后的事件归入新一日 | 四 |
 | E6-4【冻】 | 文件头 :3-5；「版本历史」:927-933 | v1.3 | 更新约定 |
 | E6-5【同】 | 「2. 接收记录引擎导出」:59-62；「7.1 deliver 命令」:559-563；「7.2 原子性保证」流程图 | :61 后补「交付先核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`，不符即拒绝，不构造窗口」；deliver 伪代码与流程图在准备窗口前加这一核对 | 九 |
 
@@ -814,8 +806,8 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| E7-1【同】 | 「2.1 协议门禁（Gates）」:83、:84 | 门禁语义以源码为准，随「一·度量」的 `_observation_gate` 改动落地（排除 Dreaming 请求的部分随阶段 5）。:83 判定对象改为「同一观察文本出现于不同 `decision_id` 请求中的最大数目」，排除 `work_review` 与 `purpose="day_planning"` 的请求。:84 补「同刻轮次不进分母」 | 一、四 |
-| E7-2【冻】 | 「2.2 报告项（Reports）」:98-100、:111-112、:131 | :98 同 E7-1 的排除。:99 continue 与等待仍算被动（等待按结果活动 `kind=wait` 判定）；只做结束、暂停或修订的控制轮单列。:100 分边界与决策轮两份计数。:111 登记来源为运行中 Dreaming 的 `day_plan_generated` 与修订结果。:112 引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`，外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符。:131「consume 计入用餐（含 use 模式）」改为「consume 仅在有 eat 正实际进度时计入用餐；use 模式未归类」（既有漂移，以 `evaluation/behavior_metrics.py:31`、`:71` 为准） | 一、四、五、七 |
+| E7-1【同】 | 「2.1 协议门禁（Gates）」:83、:84 | 门禁语义以源码为准，随「一·度量」的 `_observation_gate` 改动落地（排除零点计划请求的部分随阶段 5）。:83 判定对象改为「同一观察文本出现于不同 `decision_id` 请求中的最大数目」，排除 `work_review` 与 `purpose="plan_day"` 的请求。:84 补「同刻轮次不进分母」 | 一、四 |
+| E7-2【冻】 | 「2.2 报告项（Reports）」:98-100、:111-112、:131 | :98 同 E7-1 的排除。:99 continue 与等待仍算被动（等待按结果活动 `kind=wait` 判定）；只做结束、暂停或修订的控制轮单列。:100 分边界与决策轮两份计数。:111 登记来源为零点计划的 `day_plan_generated` 与修订结果。:112 引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`，外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符。:131「consume 计入用餐（含 use 模式）」改为「consume 仅在有 eat 正实际进度时计入用餐；use 模式未归类」（既有漂移，以 `evaluation/behavior_metrics.py:31`、`:71` 为准） | 一、四、五、七 |
 | E7-3【冻】 | 「3.1 三层数据模型」:193；「活动会话（ActivitySession）」:219-233；「8.1 报告结构」:657 | 术语「活动会话」改「活动」，注「代码名沿用，与地点会话无关」。字段块对齐 `evaluation/models.py:152-169`：删未实现的 `location_id`、`partner_id` | 七 |
 | E7-4【冻】 | 「3.2 适配器职责」:248-255 | 〔#20〕动词与方式配对；细分交互取结果快照 `kind`；控制工具按 `task[]` 逐活动投影；结束状态取实际终态（完成或已取消） | 五、七 |
 | E7-5【冻】 | 文件头 :3-5；「版本历史」:762-767 | v1.2 | 更新约定 |
@@ -827,7 +819,7 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | E8-1【同】 | 「3.1 文件位置与合同」:120-123 | :120-122 两种间隔的适用对象：进行中的等待不算在手承诺，人物只在等待且没有其他在手承诺时用空闲间隔。:123 改为「目标条目只接收 `remind_time`（必填、可为 null，场景本地 `HH:MM`），不接收时长或其他调度参数」。其后补 `max_same_moment_decisions`（缺省 3）与 `activity_feedback_seconds` 下限 60，写明含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝 | 一、四 |
-| E8-2【同】 | 同节版本表 :134-135 | :134 生活场景 `schema_version` 保持 3，说明补「含旧键 `max_consecutive_rejections` 拒绝」。:135 世界状态 5 改 7（HEAD 代码已是 6），说明补地点会话、活动开始地点、同刻计数、按人物暂存的呈现留痕、提醒与 `dreamed_dates` | 一、九 |
+| E8-2【同】 | 同节版本表 :134-135 | :134 生活场景 `schema_version` 保持 3，说明补「含旧键 `max_consecutive_rejections` 拒绝」。:135 世界状态 5 改 7（HEAD 代码已是 6），说明补地点会话、活动开始地点、同刻计数、按人物暂存的呈现留痕、提醒 | 一、九 |
 | E8-3【冻】 | 「3.2 交互菜单声明」:147-149、:152 | :147-149 写明 `allowed_actions` 取内部标准动作闭集，不是人物动词；人物所选（对象，动词，方式）〔#20〕经私有绑定映射为内部动作后按菜单判定，场景文件不改。:152 补「途中按出发地菜单解析，再由出行方式的准入收窄」 | 五 |
 | E8-4【冻】 | 「地图引用与门店供给初值」:174-176 | 改为两个名额都须空闲；逐项按注册表占用〔#23〕与准入事实判定，能量不参与；名额不足报 `SESSION_LIMIT_EXCEEDED` | 五、七 |
 | E8-5【冻】 | 「3.4 人物差异与衍生体感」:211 | 「由场景开始时刻和人物睡眠参数计算」改为「按惯常起床时刻反推」 | 八 |
@@ -842,7 +834,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | E9-1【冻】 | 「记录引擎的数据格式」:62-63 | `allowed_actions` 为内部标准动作名；人物所选（对象，动词，方式）〔#20〕映射为内部动作后判定；途中按出发地菜单解析，再由出行方式的准入收窄 | 五 |
 | E9-2【同】 | 「3.1 WorldState（世界状态）」:75、:88 后、:93 后、:105-112；3.1 表后 | :75 改 `Literal[7]`。补 `sessions` 行（dict[str, SessionState]；一段地点停留或一段路，`kind` 取 `stay`、`transit`，由系统随出发与到达开始和结束）。3.1 表后补 SessionState 字段表，逐字段列出 `session_id`、`agent_id`、`kind`（`stay`、`transit`）、`location_id`（停留时）、`origin_id` 与 `destination_id`（路上时）、`status`（`active`、`ended`）、`started_at`、`ended_at`、`activity_ids`、`name`（名称格式按时间与能量规格第七章「会话与活动的字段」），随世界结构版本 7，与 C1、E5-13 同批定名。:93 `presentation_state` 行后补按人物暂存的本秒呈现留痕一行（人物→对象→时刻，同一秒各轮沿用该秒首轮的呈现窗口，时钟推进时由 `flush_presentation` 逐人并入 `presentation_state`），字段名与 C1、E5-13 同批定名，随世界结构版本 7。:105-106 按名称公开，食品带 `energy`，配送写人读时刻。:110-111 改为「提示不用增量引用」，:107-109 保留 | 一、二、七、九 |
-| E9-3【同】 | 「3.2 AgentState（人物状态）」:120、:129-130、:140、:143-147 | :120 补「出行中仍为出发地」。:129 注「等于当前时刻即同一秒再决策」。:130 `consecutive_rejections` 保留，注明只作动机层挫败感的输入；其后增 `same_moment_rounds`、`same_moment_stage`（六个取值）与 `dreamed_dates`（取代 `plan_submitted_dates`）。:140 目标带 `remind_at`、`reminded_at`。:143-147 改为两个名额（进行中、暂停与待收尾各占一个）；`occupied_resources` 保留，占用名按第五章重列〔#23〕。表中补 `pending_wake_reasons` 行（list[str]，本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；上一轮原因不带入） | 一、四、五、七 |
+| E9-3【同】 | 「3.2 AgentState（人物状态）」:120、:129-130、:140、:143-147 | :120 补「出行中仍为出发地」。:129 注「等于当前时刻即同一秒再决策」。:130 `consecutive_rejections` 保留，注明只作动机层挫败感的输入；其后增 `same_moment_rounds`、`same_moment_stage`（六个取值）。:140 目标带 `remind_at`、`reminded_at`。:140 后补 `plan_submitted_dates` 行（set[str]，已生成当日计划的场景本地日期；零点计划 `plan_day` 的幂等键，既有字段 `models.py:332`，恢复、重放与反事实分支据此不重复生成）。:143-147 改为两个名额（进行中、暂停与待收尾各占一个）；`occupied_resources` 保留，占用名按第五章重列〔#23〕。表中补 `pending_wake_reasons` 行（list[str]，本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；上一轮原因不带入） | 一、四、五、七 |
 | E9-4【同】 | 「3.4 ActivityState（活动状态）」:177-202 | 补 `location_id`（开始地点，不被覆盖）、`next_interaction_at`、`concluded_at`、`report_anchor_at`、`session_ids`、`name`，以及从会话移来的 `task_kind`、`task_ref`、`plan_goal_intent_kind`、`progress_note`、`note_updated_at`、`note_history`。:200-201 `boundary_type`、`interruption_reason` 列取值（同 C20）：两列都新增 `plan_reminder`、`route_ended`、`partner_ended`；`interruption_reason` 现有取值为 `agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`。:196 `resource_claims` 保留，占用名按第五章〔#23〕。注明进度随结算累加 | 四、七、八、九 |
 | E9-5【冻】 | 文件头 :3-5；「版本历史」:269-276 | v1.4 | 更新约定 |
 
@@ -852,9 +844,8 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| E0-1【冻】 | 「2.1 核心术语」:84 | 改为「离线 `dreaming`」；增「运行中 Dreaming」术语行：模拟运行在场景本地零点或启动时为人物生成当日计划、补写记忆的后台任务 | 四 |
 | E0-2【冻】 | 「3.1 核心原则」:102 | 加「引导而不拦截；能量不阻断任何活动」 | 心智模型、三 |
-| E0-3【冻】 | 「4. 需求映射表」:135-136 | :135 改为「决策不耗时，时间只在人人有进行中活动且没有待收尾活动时推进」，加引本规格。:136 前增运行中 Dreaming 行；原行改「离线 `dreaming`」 | 一、四 |
+| E0-3【冻】 | 「4. 需求映射表」:135-136 | :135 改为「决策不耗时，时间只在人人有进行中活动且没有待收尾活动时推进」，加引本规格。:136 前增「零点计划」行 | 一、四 |
 | E0-4【冻】 | 「5. 算法与工程背书总表」:152 | 补低能量显示与「能量不阻断」，背书引第三章，分界引 EXPERIMENT | 二、三 |
 | E0-5【冻】 | 「6. 设计决策」:169 | 改为「决策不耗时；没有进行中活动或有待收尾活动者同一秒再决策，人人有事且无待收尾后按下一事件推进」 | 一 |
 | E0-6【冻】 | 文件头 :4-5；「版本历史」:224-229 | v1.2 | 更新约定 |
@@ -867,12 +858,10 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | E1-1【冻】 | 「1.1 系统定位」:35、:37 | :35「九个」改为「八个人物工具（取消 `finish`，`plan_day` 移出人物工具，〔#20〕`start_activity` 取五个动词）；工具数以接口合同为准」。:37 补「两个活动名额」 | 四、五、七 |
-| E1-2【冻】 | 「2.1 总体架构」:73 | 改「离线 `dreaming`」 | 四 |
-| E1-3【冻】 | 「2.2 职责与交接」:87、:90、:95-97 | 数字人职责补结束活动时的记忆与运行中 Dreaming 内容（借用决策轮执行〔#24〕）；模拟引擎补零点触发、计划与提醒、会话切换。:95-97 区分离线 `dreaming` 与运行中 Dreaming | 四、七 |
-| E1-4【冻】 | 「2.3 状态归属与写入边界」:106-107、:114-118 | :106 对象补计划、提醒、会话。:107 补记忆的三个写入点。:114 改为两个名额、注册表占用〔#23〕与准入事实。:116 补「来源由系统登记」 | 五、七 |
+| E1-3【冻】 | 「2.2 职责与交接」:87、:90 | 数字人职责补结束活动时的记忆；模拟引擎补零点计划（运行时后台任务 `plan_day`，不经人物）、计划与提醒、会话切换 | 四、七 |
+| E1-4【冻】 | 「2.3 状态归属与写入边界」:106-107、:114-118 | :106 对象补计划、提醒、会话。:107 补记忆的写入点：`conclude_activity` 与就寝反思两处（阈值巩固不变）。:114 改为两个名额、注册表占用〔#23〕与准入事实。:116 补「来源由系统登记」 | 五、七 |
 | E1-5【冻】 | 「3.2 观察、行动与执行」:172-190、:195、:198 | 时序图 :178 后加 `alt` 分支：没有进行中活动、有待收尾活动或被拒绝时，同一秒再给机会。:195 删「状态…能量」，阶段收窄保留。:198 改为「决策不耗时；有进行中活动且无唤醒条件才静默续行」 | 一、三、五 |
 | E1-6【冻】 | 「3.3 事件驱动的时间推进」:203-205、:207-218、:221 | 正文与流程图改为：人人有进行中活动且没有待收尾活动才推进，边界含计划提醒与场景本地零点；`DECIDE` 后判断本人是否有进行中活动且没有待收尾活动，不满足就同一秒回到决策（受同刻上限约束）。:221 加引本规格 | 一、四 |
-| E1-7【冻】 | 「3.5 数据交付与评估」:243、:249 | 改「离线 `dreaming`」；:249 后补指向 2.2 | 四 |
 | E1-8【冻】 | 「4. 已采用的设计决策」:258 | 时间推进改为决策不耗时加同刻再决策 | 一 |
 | E1-9【冻】 | 「6.2 状态与记录」:313 | 补商品热量与路线费力，发给模型的内容不含内部身份 | 二、七 |
 | E1-10【冻】 | 「7.2 一致性与交付验收」:338；文件头 :4-5；「版本历史」:349-356 | :338 权威补本规格；头部改 v1.4，追加版本行 | 更新约定 |
@@ -906,7 +895,7 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| ER1【冻】 | 「文档清单」:26 | 04 职责改为「…动作受理与同刻再决策、共享时间、活动名额与地点会话、共同身体结算、运行中 Dreaming 与计划提醒、威胁唤醒和恢复编排」 | 一、四、七 |
+| ER1【冻】 | 「文档清单」:26 | 04 职责改为「…动作受理与同刻再决策、共享时间、活动名额与地点会话、共同身体结算、零点计划与计划提醒、威胁唤醒和恢复编排」 | 一、四、七 |
 | ER2【冻】 | 「按任务读」:73-88 | 增「理解时间如何流动、何时决策、能量如何影响人物」行；:79 接着读补本规格第二、三章 | 权威 |
 | ER3【冻】 | 文件头 :4；「更新约定」:141；「版本」:143-152 | 文件头日期改为冻结日；追加 1.6。「更新约定」:141 改为「重大修订需要更新文件头的日期与版本，并在该文档的版本表记录修订内容；记录引擎设计沿用以特性标识命名的版本行，版本号不变」：现行字面要求版本表在文档开头，只有 08 如此，其余文档与 E2-6、E3-2 新增的表都在文末 | 更新约定 |
 
@@ -917,7 +906,7 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | ES1【冻】 | 「资源与身体模型修订」:42 | 补「也不以能量阻断或停止活动」 | 三 |
-| ES2【冻】 | 「04-simulation-engine.md」:136；文件头 :3 | :136 改「离线 `dreaming`」，亮点补同刻再决策、运行中 Dreaming 与提醒、地点会话与名额；头部日期更新 | 一、四、七 |
+| ES2【冻】 | 「04-simulation-engine.md」:131-136；文件头 :3 | :135 后补亮点：同刻再决策、零点计划与提醒、地点会话与名额；:136 不改；头部日期更新 | 一、四、七 |
 | ES3【冻】 | 「后续维护建议」:189 前新增「时间与能量修订」 | 列出本次同步的设计文档，注明文档同步不等于已实现 | — |
 
 ### 25. `docs/EXPERIMENT.md`
@@ -929,7 +918,6 @@ flowchart TB
 | EX1【冻】 | 「交互菜单与运行身份」:55-57 | 改为「地点类与人物声明求交集后，可见目标、决策阶段、回合预算与同刻上限的受限轮收窄本轮实际动作；不按人物状态或能量隐藏，当前不可行的动作照常列出并附说明；没有日首计划阶段」 | 一、三、四、五；修订 28 |
 | EX2【同】 | 同节 :61-63 | 代码身份含实际导入的 AS2；记 Git 提交与未提交标志；AS2 缺失或不符即拒绝。提示与工具面变化使 `prompt_sha256`、`tool_schema_sha256` 改变，与旧运行不可合并比较 | 六、八；修订 28 |
 | EX3【同】 | 「AS2 基线与框架依赖」:69 | 位置列加锁定提交 `8768e14`（子模块指针）；表增一行「AS2 源码摘要｜<阶段 6 登记的代码常量值>｜`8768e14` 的源码摘要，运行身份按它比对」，与该常量同一变更集，值逐字相同 | 八；修订 28 |
-| EX4【冻】 | 「训练与规则消费」:129 | 改「离线 `dreaming`」；运行中 Dreaming 属模拟，不是交付项目 | 四；修订 28 |
 | EX5【冻】 | 「身体初始值」:138-145 | 增「初始睡眠压力｜按惯常起床时刻反推｜-｜实验假设」（四列）；注明起点落在惯常睡眠时段内或接近它时，人物以困倦开始 | 八；修订 28 |
 | EX6【冻】 | 「效率曲线」:162-165 | 增行「工作效率（能量）｜`energy_kcal`｜(0, 0.5)、(399.9, 0.5)、(400, 0.8)、(800, 1.0)｜线性」（四列，节点取品类契约的 `work_efficiency_factors`） | 三；修订 28 |
 | EX7【冻】 | 「需求状态」:171；新增「能量感知标签」 | :171 加两条低能量规则。新表：商品热量取整到 10 千卡；路线费力按 MET 分三档（<2、2–3、≥3） | 二；修订 28 |
@@ -948,14 +936,13 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | VF1【同】 | 「地图与门店供给」:92、:94 | :94「世界版本 5」注明是该特性验收时的版本，现行版本见接口合同；:92「目录 4.0」同样注明是该特性验收时的身份 | 九 |
-| VF2【同】 | 「协议门禁」:114、:127 | 阶段 1：:114 按 `decision_id` 计，:127 同刻轮次不进分母；阶段 5：:114 排除 `purpose="day_planning"` 的请求。门禁语义以源码为准，与 E7-1 同批。:114 同 E7-1。:127 补「同刻轮次不写共同身体结算，不进分母」 | 一、四 |
-| VF3【冻】 | 「当日目标特性门禁」:137-140、:143 | 覆盖 `remind_time` 换算与拒绝（`PLAN_REMIND_TIME_INVALID`）、运行中 Dreaming 同日一次、提醒只一次、修订取消旧提醒、恢复不重复；人物工具闭环限 `revise_day_plan`。:143「空计划门控」后注「（日首计划门控已由时间与能量规格删除，本项只对应当日目标特性验收时的源码）」 | 四 |
+| VF2【同】 | 「协议门禁」:114、:127 | 阶段 1：:114 按 `decision_id` 计，:127 同刻轮次不进分母；阶段 5：:114 排除 `purpose="plan_day"` 的请求。门禁语义以源码为准，与 E7-1 同批。:114 同 E7-1。:127 补「同刻轮次不写共同身体结算，不进分母」 | 一、四 |
+| VF3【冻】 | 「当日目标特性门禁」:137-140、:143 | 覆盖 `remind_time` 换算与拒绝（`PLAN_REMIND_TIME_INVALID`）、零点计划同日一次、提醒只一次、修订取消旧提醒、恢复不重复；人物工具闭环限 `revise_day_plan`。:143「空计划门控」后注「（日首计划门控已由时间与能量规格删除，本项只对应当日目标特性验收时的源码）」 | 四 |
 | VF4【冻】 | 新增「时间与能量特性门禁」（:145 后） | 引本规格验收台账，不复述；绿色基线是实施前置；全量测试、覆盖、风格、链接；在干净提交上做 Uncle Bob 突变，覆盖同刻上限、能量截断、唤醒闭集、提醒一次、名额释放、身份不进提示；真实复验只报告 | 验收台账 |
 | VF5【冻】 | 「工程门禁」交互菜单表 :174、:175 | :174 改为：单动作阶段、回合预算、可见目标与活动控制照常；不按状态与能量隐藏；无日首计划；待收尾时先收尾；仅同刻上限的受限轮收窄。:175「不重复增加拒绝计数」后补「重放轮计入同刻轮数」 | 一、三、四、五、七 |
 | VF6【条·#23】 | 「工程门禁」候选与呈现一致性 :271 | 按推荐方案不改：「地点不可行与资源冲突是两个可区分的原因码」仍成立。#23 选删除占用时，删去资源冲突一方 | 五 |
-| VF7【冻】 | 「报告项（Report-Only）」:293-295、:309-311、:313 | :293 同 E7-2 :98：判定对象为排除 `purpose="work_review"` 与 `purpose="day_planning"` 的决策 `model_request`。:294 同 E7-2 :99。:295 分边界与决策轮两份。:309-311 补：引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`，不计外部约束受阻。:313 同 E7-2 :131 | 一、五 |
-| VF8【冻】 | 「交付阶段与通过条件」:336 | 改「离线 `dreaming` 项目」 | 四 |
-| VF9【冻】 | 「测试矩阵」:357、:359、:363、:365、:369-373 | :357 补「决策不耗时、同秒多轮不推进」。:359 补能量 0 截断。:363 删「合法 finish、非法引用」，改为「世界请求登记即结束、记忆无 refs」。:365 补「意图与离线 `dreaming` 窗口不含 `conclude_activity.memories`，动作窗口保留完整请求；检查点结构版本与当前不符时交付被拒」。:369「无唤醒条件的边界不调用模型且留痕」改为「无唤醒条件的边界不调用人物决策模型且留痕（场景本地零点与启动路径的运行中 Dreaming 例外）」；「每类唤醒条件各触发一次」改为「每类有触发来源的唤醒条件各触发一次；`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生」；删「睡眠不被打断」，改「只被睡眠允许原因打断」，并加提醒与播报。:370 补低能量两档与作息初值。:371 补标签、吃饭途径句、无内部身份。:372 改为「`conclude_activity` 允许空记忆」。:373「社交」补「交谈要求双方在场且都不在途中；对发起人选择交谈即接受，不再发邀请；一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复」，〔#21〕采纳时另补「联系人回复预排送达」，测试列加 `tests/life/test_social_rounds.py`。增「同刻决策」行。以上改写与新增的行，状态都记「离线验收待执行」（:351 词表） | 一、三、四、五；验收台账 |
+| VF7【冻】 | 「报告项（Report-Only）」:293-295、:309-311、:313 | :293 同 E7-2 :98：判定对象为排除 `purpose="work_review"` 与 `purpose="plan_day"` 的决策 `model_request`。:294 同 E7-2 :99。:295 分边界与决策轮两份。:309-311 补：引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`，不计外部约束受阻。:313 同 E7-2 :131 | 一、五 |
+| VF9【冻】 | 「测试矩阵」:357、:359、:363、:365、:369-373 | :357 补「决策不耗时、同秒多轮不推进」。:359 补能量 0 截断。:363 删「合法 finish、非法引用」，改为「世界请求登记即结束、记忆无 refs」。:365 补「意图与 `dreaming` 窗口不含 `conclude_activity.memories`，动作窗口保留完整请求；检查点结构版本与当前不符时交付被拒」。:369「无唤醒条件的边界不调用模型且留痕」改为「无唤醒条件的边界不调用人物决策模型且留痕」；「每类唤醒条件各触发一次」改为「每类有触发来源的唤醒条件各触发一次；`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生」；删「睡眠不被打断」，改「只被睡眠允许原因打断」，并加提醒与播报。:370 补低能量两档与作息初值。:371 补标签、吃饭途径句、无内部身份。:372 改为「`conclude_activity` 允许空记忆」。:373「社交」补「交谈要求双方在场且都不在途中；对发起人选择交谈即接受，不再发邀请；一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复」，〔#21〕采纳时另补「联系人回复预排送达」，测试列加 `tests/life/test_social_rounds.py`。增「同刻决策」行。以上改写与新增的行，状态都记「离线验收待执行」（:351 词表） | 一、三、四、五；验收台账 |
 | VF10【同】 | 「实施顺序」:480 | 改为「使用当前世界状态版本（见接口合同）」，不写死数字 | 九 |
 | VF11【冻】 | 文件头 :4；「版本表」:496-504 | 追加 `<冻结日>-time-and-energy` 行；补登未入表的修订：32e815e、f8a55e2、6659b00（「决策上下文」门禁、文件头与测试矩阵措辞），c582330、02a54dd（「品类契约特性门禁」与文件头），b9e0dc2（测试矩阵「交互菜单」行状态），2bce358、7c634a7、70af9a7、761241c（地图与门店供给门禁），2d97d3d（当日目标特性门禁），d998a31（一日行为可信性特性门禁） | — |
 | VF12【后】 | 「时间与能量特性门禁」；「测试矩阵」 | 门禁末尾补「证据统一见本特性验收记录」并链接 `dev/research/time-and-energy-verification.md`（仿 :145）；VF9 改动的各行按验收记录把状态改回「离线覆盖」。VF4 在冻结时不写该路径（文档链接门禁要求反引号路径存在） | 验收台账 |
@@ -968,9 +955,8 @@ flowchart TB
 
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
-| AR1【冻】 | 前言 :11 | **dreaming** 限定为交付阶段的离线任务；另起「运行中 Dreaming」：模拟运行中为人物生成当日计划、补写记忆的后台任务，属于模拟 | 四；修订 29 |
 | AR2【冻】 | 「活动与经历的唯一归属」:40-41 | 改为「每人两个活动名额；能否同时进行按注册表声明的占用〔#23〕与目标、地点、出行方式判定，能量不参与」 | 五；修订 29 |
-| AR3【冻】 | 「必须达到的行为」:56 | 改为「按运行中 Dreaming 为其生成、可自行修订的当日计划」 | 四；修订 29 |
+| AR3【冻】 | 「必须达到的行为」:56 | 改为「按零点计划为其生成、可自行修订的当日计划」 | 四；修订 29 |
 | AR4【冻】 | 「核心决策」:73、:75 | :75 补「决策不消耗模拟时间，没有进行中活动者同一秒再决策」，理由「时间线不留空」。:73 理由补「能量不构成可行性约束；动作照常列出，选错由业务拒绝说明」 | 一、三、五；修订 29 |
 | AR5【冻】 | 「整体架构」:98 | 边标签「记忆引用」改「记忆」 | 七；修订 29 |
 | AR6【冻】 | 「必须修改的核心行为」:137-138、:141 | :138 补「有人就绪时同一时刻可连续多轮，无人就绪才推进」。:141 补「生活决策已取消 finish，本条只约束只读问答」 | 一、七；修订 29 |
@@ -983,19 +969,18 @@ flowchart TB
 | # | 章节锚点（标题，行号@778beca） | 改什么 | 依据（规格章节 / 修订 N） |
 | --- | --- | --- | --- |
 | MA1【同】 | `manual/scenarios.md`「看懂场景的组成」:42 | 必填组删 `max_consecutive_rejections` | 一 |
-| MA2【同】 | `manual/scenarios.md`「修改日期与模拟节奏」:66、:79-84、:91-93 | 阶段 1：场景参数与模拟节奏（:66、:79-84、:91-92 的在手承诺）；阶段 5：:91-93 的运行中 Dreaming、`remind_time` 与睡眠唤醒。:66 改为 `"max_same_moment_decisions": 3`。:81 约束改为「秒，60–86400」，说明改为「结算间隔，也是等待、浏览、交谈的计划时长」。:82-83 在手承诺按新口径：进行中的等待不算在手承诺。:84 换为同刻上限行（不标失败；名额被暂停活动占满时只开放恢复或结束）。表增 `progress_report_interval_seconds`。:91-93 改为决策不耗时、运行中 Dreaming 生成目标、`remind_time` 与睡眠唤醒，在手承诺改为「未推进目标、可见未完成任务、暂停活动与进行中活动（等待除外）」 | 一、四 |
+| MA2【同】 | `manual/scenarios.md`「修改日期与模拟节奏」:66、:79-84、:91-93 | 阶段 1：场景参数与模拟节奏（:66、:79-84、:91-92 的在手承诺）；阶段 5：:91-93 的零点计划、`remind_time` 与睡眠唤醒。:66 改为 `"max_same_moment_decisions": 3`。:81 约束改为「秒，60–86400」，说明改为「结算间隔，也是等待、浏览、交谈的计划时长」。:82-83 在手承诺按新口径：进行中的等待不算在手承诺。:84 换为同刻上限行（不标失败；名额被暂停活动占满时只开放恢复或结束）。表增 `progress_report_interval_seconds`。:91-93 改为决策不耗时、零点计划生成目标、`remind_time` 与睡眠唤醒，在手承诺改为「未推进目标、可见未完成任务、暂停活动与进行中活动（等待除外）」 | 一、四 |
 | MA3【同】 | 同文件「修改人物、身体与账户」:114-117 | 阶段 2。补：起点困意按作息反推（链接 personas）；能量不阻止活动；两档低能量饥饿，阈值来自目录的紧急阈值与代码常量 100 kcal | 二、三、八 |
 | MA4【同】 | 同文件「限制人物可以做什么」:142、:146-148、:159-162 | 名额部分随阶段 3，其余随阶段 4。:142 删「体力」，改为「列出菜单内全部动作，受理时按占用、目标、地点与出行方式核验」。:147-148 场景配置用内部英文动作名；模型看到五个动词与方式〔#20〕，经私有绑定映射回内部动作。:160 改为「不因状态隐藏；阶段与同刻上限照常收窄」。:161-162 改为「一次最多选择两个交互对象，`targets[]`、`actions[]` 与 `ways[]`〔#20〕按顺序一一对应，所选动作都须在有效菜单中；每人两个名额；按注册表占用〔#23〕与准入事实核验，能量不参与」 | 三、五、七 |
 | MA5【同】 | 同文件「校验自己的场景」:253-260 | 增一行：旧场景含 `max_consecutive_rejections` 被拒时的处理 | 一 |
-| MA6【同】 | `manual/personas.md`「写出一个能够生活的人」:27；「正文与实际世界条件要一致」:128-130 | 阶段 5。必须准点的事写明时刻；运行中 Dreaming 可据此设提醒，提醒能叫醒睡着的人。系统不从文字推断时刻，提醒是否设置由生成结果决定 | 四、八 |
+| MA6【同】 | `manual/personas.md`「写出一个能够生活的人」:27；「正文与实际世界条件要一致」:128-130 | 阶段 5。必须准点的事写明时刻；零点计划可据此设提醒，提醒能叫醒睡着的人。系统不从文字推断时刻，提醒是否设置由生成结果决定 | 四、八 |
 | MA7【同】 | 同文件「在场景中填写人物」:106-108、:116-119 | 阶段 2。:116 后补惯常起床时刻公式与起点困意（公式只在此处写一次）；惯常睡眠时段是惯常起床时刻之前的 `sleep_need_hours` 小时；起点困意不读 `bedtime_window`。:108 补「窗口起止是食欲跳变的预测时刻，跨档才给决策」 | 八 |
 | MA8【同】 | `manual/rules.md`「活动声明」:186-190、:197、:203 | 阶段 4。:187「能量豁免」注明只供内部动机评分。:197 `resource_claims` 的取值改为第五章的占用名〔#23〕。:203 `habit_members` 注明归并键是内部动作名，不是模型动词 | 三、五 |
 | MA9【同】 | 同文件「身体规则」:377-379 | 阶段 2，与阈值校验同批。:377 约束列改为「100 < 紧急阈值 < 饥饿阈值 ≤ 上限（100 为代码常量 `APPETITE_STARVING_KCAL`，不满足时加载拒绝）」，并补「紧急阈值同时是『至少饿得难受』的下限」。:378 补 MET 决定路线标签。:379 补起点困意 | 二、八 |
 | MA10【同】 | `manual/runtime.md`「准备环境」:12-15 | 命令前加 `git submodule update --init vendor/agentsociety2 vendor/labelkit`；说明 AS2 须为锁定提交，不符即拒绝启动 | 八 |
-| MA11【同】 | 同文件「从校验到新建运行」:94-96；「从检查点恢复」:123-124 | 阶段 5：:94 补「运行中 Dreaming 也调用模型」；:123-124 补「计划、提醒与 `dreamed_dates` 来自检查点」。阶段 6：:123-124 补「代码身份含实际导入的 AS2」，与 MA10、MA12 同批 | 四、八 |
+| MA11【同】 | 同文件「从校验到新建运行」:94-96；「从检查点恢复」:123-124 | 阶段 5：:94 补「零点计划也调用模型」；:123-124 补「计划、提醒与 `plan_submitted_dates` 来自检查点」。阶段 6：:123-124 补「代码身份含实际导入的 AS2」，与 MA10、MA12 同批 | 四、八 |
 | MA12【同】 | 同文件「常见错误」:174-181 | 增 AS2 身份不符一行（报错文案按第八章）；:181 补「升级代码后旧检查点不能恢复」 | 八 |
 | MA13【同】 | `manual/resources.md`「编写门店供给与商品」:189；「新增商品对象」:246-252；「编写内容与工作材料」:342-345 | 阶段 2：:189 补人读送达时刻；:252 后补「每份热量取整后显示」。阶段 4：:345 补 86400 上限〔#19〕与「接着看 / 从头再看」 | 二、五、八 |
-| MA14【同】 | `manual/delivery.md`「文件怎么分工」:27 | 阶段 5。注明这里的 `dreaming` 是离线任务，不同于运行中 Dreaming | 四 |
 | RM1【同】 | `README.md`「安装」:47-49 | 同 MA10 | 八 |
 | RM2【冻】 | `README.md`「主文档集」:21 | 「已定稿的特性实施规格」改为「特性实施规格；是否冻结以文件抬头与 `docs/INDEX.md` 为准」 | INDEX「状态与变更约定」 |
 
@@ -1039,7 +1024,7 @@ flowchart TB
 | 九·目标回看 | `src/worldmock/life/session_actions.py`；`tests/life/test_day_plan.py` | :411 `g.kind` 改为 `g.intent_kind`；新增按目标名称回看的往返用例 |
 | 九·跨任务提交 | `src/worldmock/life/engine.py`；`src/worldmock/life/work.py`；`custom/agents/life_agent.py`；`tests/life/test_work_review.py`；`tests/integration/test_life_agent_protocol.py` | 评审准备（engine.py:312-314）与提交（:1138-1139）改用同一判定「被提交的任务本身不在进行中」（`observe.py:224` 的 `submission_ready` 已是此判定），判定放在 work.py 的 `_validate_submission_contract`（:148）；被提交的任务正在进行时报 `WORK_TASK_IN_PROGRESS`；:1138-1139 的 `ProtocolError` 只留给应评审而未评审。`submit_work` 的任务名枚举（life_agent.py:1017）列出全部可见的未付款任务，未达标的以 `WORK_INCOMPLETE` 说明。新增用例：做甲任务时提交已达标的乙任务，进入评审、结算付款、甲继续；提交正在做的任务被拒。`tests/life/test_engine_branch_coverage.py` 的 `test_prepare_pending_work_review_during_independent_wait`（:958）与 `test_submit_work_guards_review_presence_and_identity`（:1234）不改。`test_life_agent_protocol.py` 的 `test_incomplete_work_can_be_recalled_but_cannot_be_submitted`（:226-235）改写：未达标的任务仍列在 `submit_work` 的名称枚举中，提交以 `WORK_INCOMPLETE` 业务拒绝 |
 | 九·交付版本 | `src/worldmock/delivery/pipeline.py`；`tests/delivery/` | `deliver`（:43）核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`，不符即拒绝：交付用交付时刻的 `narration.render_scene` 重新渲染已存场景（`delivery/windows.py:167-171`）。增对应用例 |
-| 一·引擎 | `src/worldmock/life/engine.py`；`src/worldmock/life/same_moment.py`（新增） | `_after_success`（:830-850）：无进行中活动或有待收尾活动时 `next_decision_at` 取当前时刻；候选以本次决策时刻为上次决策时刻（现 :427 → `observe.py:561-577` 在写入前取值）。`_after_rejection`（:852-887）：删冷却，删 `RESOURCE_CONFLICT` 按最早结束时刻延后（:856-862）；未达同刻上限时 `next_decision_at` 取当前时刻；有进行中活动、没有待收尾活动且达到上限时按 `next_decision_candidates` 取候选；无进行中活动或有待收尾活动且达到上限时进入受限轮；`service_refused` 脉冲（:864-867）同一人物同一秒至多一次；结果 `data`（:873-875）以 `same_moment_round`、`max_same_moment_decisions`、`next_decision_at` 取代 `consecutive_rejections`、`maximum_rejections`。删无调用方的 `_after_unknown`（:899-903）；`_reused_result`（:905-926）删无条件加一秒；`_put_agent_and_defer_feedback`（:1661）只保留游戏回合顺延，改名并改文档串；`_require_boundary_action`（:950）按受限轮阶段复核，越界报 `SAME_MOMENT_ACTION_RESTRICTED`；`_ready`（:1520-1527）文档串阶段 1 改为「`next_decision_at` 已到的人物就绪」，阶段 5 按第一章规则 8 改为全文（见「四·观察」）。`_deliver_social_message`（:1321）、`_register_delivered_message`（:1237）登记清醒收件人同秒就绪，在本轮全部动作结算后合并。交谈一方结束、对方同秒结束时（阶段 4 接通），对方 `next_decision_at` 取当前时刻，计入其同刻轮数；`pending_wake_reasons` 在对方仍有其他进行中活动时记 `planned_end`，否则记 `no_active_activity`；与收件人登记一样在本轮全部动作结算后合并，不被对方本轮的 `_after_success` 覆盖。`_after_success`、`_after_rejection`、`_reused_result` 安排同秒再决策时，把 `pending_wake_reasons` 替换为本轮原因：无进行中活动记 `no_active_activity`，业务拒绝记 `rejection_feedback`，两者都成立时按枚举顺序记两项，不保留上一轮原因（现 `_after_success` 在 :847 清空，`_after_rejection` 不改它）。`advance`（:581）推进时钟时把 `same_moment_rounds` 归零，`same_moment_stage` 复位为 `open`。计数与受限轮阶梯放新模块 `src/worldmock/life/same_moment.py`，引擎只接线 |
+| 一·引擎 | `src/worldmock/life/engine.py`；`src/worldmock/life/same_moment.py`（新增） | `_after_success`（:830-850）：无进行中活动或有待收尾活动时 `next_decision_at` 取当前时刻；候选以本次决策时刻为上次决策时刻（现 :427 → `observe.py:561-577` 在写入前取值）。`_after_rejection`（:852-887）：删冷却，删 `RESOURCE_CONFLICT` 按最早结束时刻延后（:856-862）；未达同刻上限时 `next_decision_at` 取当前时刻；有进行中活动、没有待收尾活动且达到上限时按 `next_decision_candidates` 取候选；无进行中活动或有待收尾活动且达到上限时进入受限轮；`service_refused` 脉冲（:864-867）同一人物同一秒至多一次；结果 `data`（:873-875）以 `same_moment_round`、`max_same_moment_decisions`、`next_decision_at` 取代 `consecutive_rejections`、`maximum_rejections`。删无调用方的 `_after_unknown`（:899-903）；`_reused_result`（:905-926）删无条件加一秒；`_put_agent_and_defer_feedback`（:1661）只保留游戏回合顺延，改名并改文档串；`_require_boundary_action`（:950）按受限轮阶段复核，越界报 `SAME_MOMENT_ACTION_RESTRICTED`；`_ready`（:1520-1527）文档串改为「`next_decision_at` 已到的人物就绪」。`_deliver_social_message`（:1321）、`_register_delivered_message`（:1237）登记清醒收件人同秒就绪，在本轮全部动作结算后合并。交谈一方结束、对方同秒结束时（阶段 4 接通），对方 `next_decision_at` 取当前时刻，计入其同刻轮数；`pending_wake_reasons` 在对方仍有其他进行中活动时记 `planned_end`，否则记 `no_active_activity`；与收件人登记一样在本轮全部动作结算后合并，不被对方本轮的 `_after_success` 覆盖。`_after_success`、`_after_rejection`、`_reused_result` 安排同秒再决策时，把 `pending_wake_reasons` 替换为本轮原因：无进行中活动记 `no_active_activity`，业务拒绝记 `rejection_feedback`，两者都成立时按枚举顺序记两项，不保留上一轮原因（现 `_after_success` 在 :847 清空，`_after_rejection` 不改它）。`advance`（:581）推进时钟时把 `same_moment_rounds` 归零，`same_moment_stage` 复位为 `open`。计数与受限轮阶梯放新模块 `src/worldmock/life/same_moment.py`，引擎只接线 |
 | 一·节律 | `src/worldmock/life/schedule.py`；`src/worldmock/life/rhythm.py`；`tests/life/test_wake_reasons.py` | `WakeSnapshot`（:114-147）与 `evaluate_wake_reasons`（:259-312）增加边界兜底 `no_active_activity`，由 `rhythm._wake_snapshot`（:348-393）置位；删 `WakeSnapshot.consecutive_rejections` 及其派生（rhythm.py:384-385）；`rejection_feedback` 只由同刻规则写入（schedule.py:140、:298 的边界来源删除）；`next_decision_time`（schedule.py:313-341）不改，仍只取严格晚于当前时刻的候选；重估候选不再过期，靠「一·引擎」以本次决策时刻为上次决策时刻计算候选。`rhythm._read_new_messages`（:199）移到唤醒判定之后。`_has_commitments`（rhythm.py:276-286）：进行中的等待不算在手承诺；人物只在等待，且没有未推进目标、可见未完成任务、暂停活动或其他进行中活动时返回假。`tests/life/test_wake_reasons.py:127-153` 补一例：只有进行中等待时不算承诺 |
 | 一·状态 | `src/worldmock/life/models.py`；`src/worldmock/life/observe.py` | `AgentState` 增 `same_moment_rounds` 与 `same_moment_stage`（`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`），随版本 7。`consecutive_rejections`（:318）保留，只作动机层挫败感的输入，不再参与唤醒与冷却。`WorldState` 增按人物暂存的本秒呈现留痕，随版本 7。`observe._observation_evidence`（observe.py:92-108）增 `same_moment_stage`，只作私有证据，不进 `scene` 与 `facts` |
 | 一·呈现 | `src/worldmock/life/observe.py`；`src/worldmock/life/state_commit.py`；`src/worldmock/life/projection.py`；`src/worldmock/life/narration.py`；`src/worldmock/life/engine.py`；`src/worldmock/life/models.py` | `observe.py:45` 的单份呈现暂存改为按人物暂存在世界状态中；同一秒各轮沿用首轮的呈现窗口。`commit_decision_round` 不再在 engine.py:416 把留痕并入 `presentation_state`，改为按人物写入世界状态中的本秒呈现暂存，删 :431 的清空；`advance`（:591）推进时钟时由 `flush_presentation`（state_commit.py:46-59）逐人并入 `presentation_state` 并清空暂存。本秒首轮 `_shared_supply_window`（observe.py:780-790）置顶的供给身份随暂存保存；同一秒后续各轮从暂存取回置顶项，不依赖 `_recent_action_results`（:321-331，它的截止点是上一轮进度请求）。受限轮的 `scene` 加一句可读说明，不写次数；`render_scene`（narration.py:288-321）为它加一句，模块文档 :10-11 的句子清单同步。「刚才」（`scene.just_now`）在阶段 4 实现，见「一·刚才」 |
@@ -1077,23 +1062,21 @@ flowchart TB
 | 三·装配 | `src/worldmock/life/observe.py`；`src/worldmock/life/projection.py`；`src/worldmock/life/narration.py` | `_projection_extras`（:75-90）现在只凭 `DiscoveryContext` 算这句话（:84），改为传入本轮商品行、路线行与待送达订单。饥饿分级要到 `projection.build_observation`（:182-183）才得出，途径句须在其后生成，再写进 `scene` |
 | 三·跨档预测 | `src/worldmock/life/body.py`；`src/worldmock/life/rhythm.py` | `_felt_band_boundaries`（:451-475）增食欲档位扫描：能量按当前共同净消耗推进，逐时刻计入昼夜项与餐时项，取首个分级变化的整秒，含 400、100 两个保底档。交谈、通话期间同样预测（代谢当量取 `CHAT_MET`、`CALL_MET`）；游戏按回合、睡眠按睡眠允许原因处理，不另做预测。改 `next_shared_body_boundary_seconds`（:422-437）与 `rhythm.next_decision_candidates`（rhythm.py:140-149） |
 | 三·改写/新增 | `tests/life/test_dayrun_restaurants.py`；`tests/life/test_activity_effects.py` | `test_dayrun_restaurants.py`：改写 :13、:75-133 的旧文案断言。<br>`test_activity_effects.py`：改写 `test_body_boundary_uses_curve_node_and_food_net_energy`（:137-161）：401 kcal、12:00 进食净增能量时，食欲约 0.91（饿得难受），约 500 秒后降到「很饿」，食欲降档成为最早候选，`consume_seconds` 改为断言等于食欲降档扫描给出的整秒，娱乐跨档（13500 秒）改由 `_felt_band_boundaries` 的返回值断言；`test_body_boundary_predicts_first_energy_threshold_second`（:123-135）不传 `hour_of_day`，不改。<br>新增：按顺序取第一条成立的途径，只引用观察中已有的事实；食欲跨档候选不晚于实际，升档、降档都有候选 |
-| 四·环境 | `custom/envs/life_env.py` | `_STABLE_TOOL_SURFACE`（:19-21）去掉 `plan_day`，注释「九个」改为「八个」；`_validate_registered_tool_surface`（:68-84）要求 `REQUEST_MODELS`、稳定工具面与人物动作工具三者一致。〔#24〕增 Dreaming 登记入口，经 AS2 已有的 `submit_action` 通道进入：正式运行中 LifeAgent 的 `self._env` 是 `EnvRouterProxy`，背后是 `DirectEnvActor`（`runtime.py:652-659`），二者只逐个转发一组固定方法（决策轮方法为 `DIRECT_ENVIRONMENT_METHODS`，AS2 `env/router_direct.py:12-24`；`env/env_router_proxy.py:83-165`），锁定版本下人物侧调不到 LifeEnv 新增的方法。`DirectToolCall.tool_name` 用保留名 `day_planning`，该名不在 `REQUEST_MODELS` 中，也不在人物工具面中；`LifeEnv.submit_action`（:97-102）在调用 `engine.submit_action` 之前识别该名，转交引擎的 Dreaming 登记，接收计划与补写记忆的来源，不写 `action_requested`，不调用 `prepare_pending_work_review`；`engine._validate_call`（:750-752）不改。零点与启动边界按 `dreaming_due` 把当日未做 Dreaming 的人物报为就绪；`commit_decision_round`（:104）对 Dreaming 轮同样调用引擎的 `commit_decision_round`，由引擎按轮次类型分支 |
-| 四·阶段身份 | `src/worldmock/validation.py`；`src/worldmock/runtime.py` | 阶段闭集（validation.py:137-151）与 `two_stage_model_identity`（runtime.py:325-368）加 `day_planning`，与 `decision_statement`、`action`、`work_review` 一同冻结进运行清单；键名不用离线任务名 `dreaming`。`day_planning` 阶段带 `max_tokens`，`validation.py:140-151` 同步其期望参数。改写 `tests/integration/test_run_manifest.py:81`、`tests/life/test_restored_model_identity.py:124`、`tests/integration/test_host_branch_coverage.py:934`、`tests/footprints/test_validation.py:137` |
-| 四·观察 | `src/worldmock/life/engine.py`；`src/worldmock/life/observe.py`；`src/worldmock/life/projection.py`；`src/worldmock/life/prompt_capacity.py` | 〔#24〕`engine.observe`（:261-269）对 `dreaming_due` 人物写 `visibility=system`、`data.purpose="day_planning"` 的观察（现在 `EventDraft` 缺省 `visibility="agent"`，会进入离线 `dreaming` 窗口）。`_observation_data`（observe.py:33-73）为它另走装配：只含人物卡片与 `background_story`；当日已核验经历句子，另带私有 `verified_experiences` 窗口与 `observation_event_id`（供 `life_agent._prepare_verified_experiences`:742-749 与 `life_memory._current_facts`:85-100 使用，不进提示；缺了二者即抛 `RuntimeError`）；当日会话及其活动的自述（`progress_note`、`note_history`，标「你自己记下的，未经核验」），按会话分段；本人当日已结算的公开动作结果；零点事实子集（可见任务、收件箱、在途订单及预计送达、联系人、旧日目标推进）。不含身体数值、交互对象与私有绑定，不暂存呈现窗口（:45-49）。`scheduling_state`（engine.py:490）、`_ready_agent_ids`（:501）与 `_ready`（:1520）把 `dreaming_due` 人物报为就绪，`_ready` 文档串改为第一章规则 8 的全文「`next_decision_at` 已到、或 `dreaming_due` 为真的人物就绪；`dreaming_due` 为真时该轮是 Dreaming 轮（第四章）」，`begin_decision_round`（:281-283）据此核对；启动路径在 `create`（:232）的初始检查点之后、反事实分支在 `apply_counterfactual`（:624）之后按 `dreamed_dates` 置位。`fit_request`（prompt_capacity.py:118）对 Dreaming 请求达到 85% 时先裁较早的当日经历句子 |
-| 四·引擎 | `src/worldmock/life/engine.py`；`src/worldmock/life/models.py` | 〔#24〕`_next_epoch`（:1529-1545）加入场景本地零点。`advance`（:581）在零点结算旧日、使旧计划失效（:599）后标记 `dreaming_due`。`_plan_day`（:1165-1189）移出 `_dispatch`（:927），改为登记入口，写 `environment_event`（`data.kind="day_plan_generated"`），`visibility=system`，带 `data.day_plan` 与 `data.source_event_ids`；`dreamed_dates` 取代 `plan_submitted_dates`（models.py:332、:355）。`_revise_day_plan`（:1190 起）支持 `remind_time`，按第四章保留、替换或取消提醒；处理提醒到期结算。`begin_decision_round`（:287）对 Dreaming 人物不调用 `defer_decision_starts`，否则 `commit_decision_round`（:418）与 `abort_decision_round`（:470）的 `flush_decision_starts` 会补写不含自述的 `decision_started`。`commit_decision_round`（:410）中「每个预期人物都已提交动作」的核对（:413-415）对 Dreaming 人物改为核对已暂存计划登记，其余人物照常；Dreaming 登记在 `submit_action` 时只暂存，到 `commit_decision_round` 才与 `dreamed_dates`、`day_plan_generated` 一并提交并加一个版本号，提前提交会使本轮随后的 `record_model_exchange`、`record_memory_update` 在 `_validate_context`（:733-736）以版本过期被拒。`commit_decision_round` 对 Dreaming 人物跳过 `_snapshot_decision_references`（:427）与 `_after_success`，不写 `decision_started`、不计同刻轮数。`commit_decision_round` 现只为 `current.pending_actions` 生成结果（:419-426）；改为同时为每个 Dreaming 人物按其在 `expected_agent_ids` 中的顺序返回一条 `ActionResult`（`status=completed`，`action_id` 取 Dreaming 登记的 action_id），不写 `action_accepted`、`action_rejected`、`action_result` 事件，满足锁定 AS2 的 `_require_committed_results`（`society/society.py:334-352`），否则每个 Dreaming 轮都因结果数少于上下文数失败。`record_model_exchange`（:509-540）对 Dreaming 轮（该 `decision_id` 的观察带 `purpose`）的 `model_request`、`model_response` 写 `data.purpose="day_planning"`（现在 :524-526 只写固定六个键），不调用 `maybe_decision_statement_start`（:537-540）。不写 `action_requested`，不新增事件类型（否则牵动 `footprints/models.py:107` 与 `evaluation/adapters.py:57-73`）。调度与提醒逻辑放新模块 |
-| 四·计划模型 | `src/worldmock/life/schedule.py`；`src/worldmock/life/models.py` | `PlanGoal`（:178-200）加 `remind_at`、`reminded_at`（`int \| null`），`DayPlan`（:201-222）随之；`revise_day_plan`（:344-355）按第四章保留、替换或取消提醒。`PlanGoalInput`（models.py:773-787）加 `remind_time`（必填可空，`HH:MM`）；`PlanDayRequest`（:788-808）移出 `REQUEST_MODELS`（:1019）。`remind_time` 格式错误报 `ACTION_REQUEST_INVALID`，时刻不合法报 `PLAN_REMIND_TIME_INVALID`；删 `PLAN_ALREADY_SUBMITTED`（engine.py:1172-1173） |
+| 四·环境 | `custom/envs/life_env.py` | `_STABLE_TOOL_SURFACE`（:19-21）去掉 `plan_day`，注释「九个」改为「八个」；`_validate_registered_tool_surface`（:68-84）要求 `REQUEST_MODELS`、稳定工具面与人物动作工具三者一致。零点计划任务（「四·后台任务」）的调用照搬 `commit_decision_round`（:104-111）在 :109-110 await `settle_pending_model_replies` 的方式，但挂点不同：联系人回复挂在 `commit_decision_round`，零点推进时若无人就绪不经过该处（AS2 `society/society.py:232-238` 只在有人就绪时开决策轮，否则只经 `_advance`），启动路径也须在首次决策之前生成；为满足第四章「零点先生成计划、再判定该秒的唤醒与决策」与「首次决策之前生成」，改挂以下三处，`life_env.py` 因此除删 `plan_day` 工具面外另增这些调用：<br>- `step`（:148-153）在 `engine.advance` 之后 await 它，零点边界随后调用引擎的零点节律入口（见「四·引擎」）；<br>- `checkpoint`（:129-133）在检查点提交之后 await 它，覆盖新建运行的初始检查点与反事实分支的干预检查点（反事实干预要求版本恰好加一，AS2 `society/society.py:193-194`，不能放进 `apply_counterfactual`）；<br>- 普通恢复（子清单 `branch_kind` 为 `resume`，`footprints/checkpoint.py:118` 写入；engine.py:655 按同一字段认反事实分支）由 `init`（:46-66）在引擎打开与既有核对之后 await 它：AS2 在 restored 模式不形成初始检查点（society.py:167-168），首轮决策又先于 `step`（society.py:232-240），从计划尚未生成的检查点（例如新建运行的初始检查点）普通恢复时，首次决策之前只经过这里。该调用早于 AS2 `Society.init` 登记故障的 `try`（society.py:162、:164），任务异常由 `init` 先经 `engine.fail_run` 登记运行故障再抛出。<br>无人缺当日计划时任务在构造客户端之前返回，其余检查点与恢复不受影响。不增登记入口；`submit_action`、`commit_decision_round`、`scheduling_state` 不改 |
+| 四·后台任务 | `src/worldmock/runtime.py` | 新增与 `settle_pending_model_replies`（:747-772）并列的零点计划任务，调用点见「四·环境」：按 `AgentState.plan_submitted_dates`（models.py:332）找出缺当日计划的人物（按编号排序），`current_time >= end_time` 时不执行，无人缺计划时在构造客户端之前返回；客户端取清单 `model_identity`，身份与参数核对同 `ContactReplyClient`（:685-716），类名独立，免得替换 `ContactReplyClient` 的既有用例截获零点计划调用；保留可注入的 `client` 参数。请求参数（`max_tokens`、中文模板、输出 Schema `{goals: [{intent_kind, goal, remind_time}]}`）为模块常量，登记在接口合同「请求组成」「生成参数」，由 `code_sha256` 覆盖，不进清单阶段键：`validation.py:138-139` 与 `two_stage_model_identity` 不改。输入按第四章只读世界状态与足迹记录，不读人物工作区与记忆运行时，装配放新模块；达到窗口 85% 时先裁较早的当日经历句子。输出不合法时附回错误重试，次数按第四章。每次请求与响应写 `model_request`、`model_response`（`data.purpose="plan_day"`，带 `call_id`、`attempt`、`phase`，形状同工作验收 `action_evidence.py:158-199`），成功时经引擎的系统登记入口与计划、`day_plan_generated` 一次提交；重试耗尽或传输失败时先提交已有尝试的证据再抛出，按先例成为运行故障：推进路径经 `Society.run`，启动路径经 `Society.init` 或 `Society.apply_counterfactual` 的 `_report_run_failure`（AS2 society.py:169-170、:197-198），普通恢复经 `LifeEnv.init` 的 `engine.fail_run`（见「四·环境」） |
+| 四·引擎 | `src/worldmock/life/engine.py`；`src/worldmock/life/models.py` | `_next_epoch`（:1529-1545）加入场景本地零点，以及各人物 `day_plan` 中未触发、晚于当前时刻的 `remind_at`（提醒不依赖人物的 `next_decision_at` 进入边界候选）。零点边界（不是终点）按第四章「运行时机」先结算旧日、再 `plan_day`、后判定唤醒，`apply_engine_rhythm`（:597-598）在该边界拆成结算段与判定段：`advance`（:581-610）仍在旧计划失效（:599-600）之前执行结算段，即情绪账与按旧计划计的目标推进（rhythm.py:99 的 `_settle_mood`，含 :195 调用的 `_goal_and_deadline_pulses`，:253-273）以及活动进度草稿的 `day_plan` 标注（:114-115），活动进度草稿随 `advance` 提交：旧日末段的推进计入旧计划，`goal_metrics._plan_snapshot`（goal_metrics.py:200-201）读到旧计划快照，零点计划读得到末段经历与旧日目标的推进情况。判定段即唤醒判定、`next_decision_at`、`pending_wake_reasons` 与 `delivered_warning_signatures`（rhythm.py:100-109、:116-131），活动反馈对齐（:570-577），以及共同身体结算草稿的唤醒字段（:111-113），连同该草稿留给零点节律入口；后台任务提交计划后，LifeEnv.step 调用引擎新增的零点节律入口，只执行判定段并提交，判定该秒的唤醒原因与 `next_decision_at`（在手承诺按新计划计，新计划的提醒进入候选），然后才提供决策。零点节律入口不再执行 `_settle_mood`，否则 `_read_new_messages` 与 `_apply_awake_social_ledger` 会重复记账。终点恰为零点时不执行 `plan_day`，`advance` 照旧执行整个节律。`_plan_day`（:1165-1189）移出 `_dispatch`（:927，handler :945），改为系统登记入口：接收目标、来源与模型证据，校验目标（校验拆成纯函数，供后台任务的附回重试使用），写 `day_plan` 与 `plan_submitted_dates`（models.py:332），与 `environment_event`（`data.kind="day_plan_generated"`，`visibility=system`，带 `data.day_plan` 与 `data.source_event_ids`）及模型证据一次提交，`version+1`；当日已登记时为 `ProtocolError`，调用方先按 `plan_submitted_dates` 拦下。`_revise_day_plan`（:1190 起）支持 `remind_time`，按第四章保留、替换或取消提醒；处理提醒到期结算。`begin_decision_round`、`commit_decision_round`、`observe`、`record_model_exchange`、`_ready` 不改。不写 `action_requested`，不新增事件类型（否则牵动 `footprints/models.py:107` 与 `evaluation/adapters.py:57-73`）。调度与提醒逻辑放新模块 |
+| 四·计划模型 | `src/worldmock/life/schedule.py`；`src/worldmock/life/models.py` | `PlanGoal`（:178-200）加 `remind_at`、`reminded_at`（`int \| null`），`DayPlan`（:201-222）随之；`revise_day_plan`（:344-355）按第四章保留、替换或取消提醒。`PlanGoalInput`（models.py:773-787）加 `remind_time`（必填可空，`HH:MM`）；`PlanDayRequest`（:788-808）移出 `REQUEST_MODELS`（:1019），复用为零点计划输出的校验模型。`remind_time` 格式错误报 `ACTION_REQUEST_INVALID`，时刻不合法报 `PLAN_REMIND_TIME_INVALID`；删 `PLAN_ALREADY_SUBMITTED`（engine.py:1172-1173） |
 | 四·节律 | `src/worldmock/life/rhythm.py`；`src/worldmock/life/schedule.py` | 当日未触发的提醒时刻经 `NextDecisionQuery`（schedule.py:155-176）的新字段进入 `next_decision_time`（:313-341），睡眠中不剔除；`WakeSnapshot`（:114-146）增加提醒到期标志，由 `rhythm._wake_snapshot`（:348-392）置位，`evaluate_wake_reasons`（:259-310）命中时记 `plan_reminder_due`，同时到期的只计一次；`rhythm.next_decision_candidates`（:135-168）传入提醒时刻 |
 | 四·睡眠终止 | `src/worldmock/life/activities.py` | 新增提醒截断睡眠的路径：`status=completed`，`ended_at` 为提醒时刻，`boundary_type` 与 `interruption_reason` 都记 `plan_reminder`，按实际时长结算，睡眠成为待收尾；计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发。现在只有 `_advanced_activity`（:373）写 `planned_end` |
 | 四·呈现 | `src/worldmock/life/projection.py`；`src/worldmock/life/narration.py` | `_plan_row` 与 `_plan_fact`（:428-447）带提醒时刻；`_progress_alarms`（:258-262）加提醒句；更新 `_plan_sentence`（narration.py:200-211） |
-| 四·宿主 | `custom/agents/life_agent.py` | 删 `plan_day` 工具：文案 :306、`_visible_action_contracts` :1015、`_visible_plan_day_contract` :1046、`_available_action_models` :1082、`_validate_prepared_action` :1109。删日首门控：`_DAY_START_WAKE_REASONS` :58、:715-721、`_plan_required_before_other_actions` :1031-1043。`revise_day_plan` 的 Schema 加 `remind_time`，并改写 `_TOOL_DESCRIPTIONS["revise_day_plan"]`（:314-321）：删「Do not provide times or durations」，说明每条目标必须给出 `remind_time`（场景本地 HH:MM 或 null），原样保留的条目连同提醒保持登记。Dreaming 路径〔#24〕：`prepare_react_loop`（:692）是同步方法，AS2 在自述前奏与 ReAct 回合之前同步调用它，这里不能 await 模型调用或环境，所以它只识别观察的 `data.purpose="day_planning"`，置 Dreaming 模式并收起生活工具；Dreaming 请求、按回合预算的重试，以及经 `await self._env.submit_action(DirectToolCall(context, action_id, "day_planning", <计划请求模型>))` 的登记（见「四·环境」），都在「七·AS2 决策循环」覆写的 `_run_react_turn` 中执行，登记后结束本轮，不写决策自述；补写的记忆经与 `conclude_activity.memories` 相同的宿主路径，以 `after_step` 的 `finish_memories` 参数写入（见「七·记忆运行时」）。Dreaming 请求带主观记忆摘要与当日新增条目（与 `_memory_prompt_section`，:523 同源）；`prelude_decision_statement_request`（:591）对这类观察返回 None。Dreaming 的中文模板并入 `life_prompt_sha256`（:1238-1246）的模板表；输出 Schema `{goals: [{intent_kind, goal, remind_time}], memories: [Memory]}` 并入 `life_tool_schema_sha256`（:1258-1270），使二者进入「模型身份」 |
-| 四·记忆 | `custom/agents/life_memory.py`；`src/worldmock/life/memory_evidence.py`；`src/worldmock/life/engine.py` | 〔#24〕Dreaming 补写的记忆经 `after_step`（:55-83）原路径写入，`memory_updated.data.trigger` 含 `day_planning`，绑定 Dreaming 轮观察；归纳沿用 `_consolidate_subjective`（:128-150）的调用口径。`_memory_evidence_data`（memory_evidence.py:15-45）与 `record_memory_update`（engine.py:553-580）接受这类写入，来源为输入来源事件，不按决策观察窗口核对 |
-| 四·回灌截止 | `src/worldmock/footprints/store.py` | `last_agent_progress_request_seq`（:185-192）排除带 `purpose` 的请求。否则含进度层的 Dreaming 请求会被当成截止点，`observe._recent_action_results`（:321-331）就会丢掉新结果 |
-| 四·度量 | `src/worldmock/evaluation/goal_metrics.py`；`src/worldmock/evaluation/behavior_metrics.py` | `_plan_snapshot`（:194-207）现在只认已完成的 `action_result`，改为同时把 `environment_event.data.kind="day_plan_generated"` 识别为登记；`_deliberate_goals`（:281-296）随之调整，`quality.json.day_plan_metrics`（quality.py:74）与之同源。`_decision_model_requests`（behavior_metrics.py:168-172）按 `purpose` 排除 Dreaming 请求 |
-| 四·测试夹具 | `tests/life/conftest.py` | `stage_day_plan`（:68-81）保留为预置计划，另加可注入的确定性 Dreaming 桩；引擎测试不调用模型 |
-| 四·改写 | `tests/life/test_day_plan.py`、`test_revision_contract.py`、`test_engine_branch_coverage.py`、`test_model_input_killpoints.py`、`test_energy_feasibility.py`；`tests/integration/test_life_agent_protocol.py`、`test_observation_agent_seam.py`、`test_grounded_targets.py`、`test_activity_schema.py`、`test_interaction_menu.py`、`test_dayrun_complete_days.py`；`tests/footprints/test_goal_export.py`；`tests/evaluation/test_goal_metrics.py` | 这些测试把 `plan_day` 当人物工具提交或断言它可见，改为经 Dreaming 登记或直接置 `day_plan`：<br>- `test_day_plan.py`：:166、:193-201、:254<br>- `test_revision_contract.py:144-170`<br>- `test_engine_branch_coverage.py:1370-1392`<br>- `test_model_input_killpoints.py:110`<br>- `test_energy_feasibility.py:53`<br>- `test_life_agent_protocol.py`：:61、:156、:258-272<br>- `test_observation_agent_seam.py`：:52-246<br>- `test_grounded_targets.py:197-210`<br>- `test_activity_schema.py`：:29、:144<br>- `test_interaction_menu.py:94`<br>- `test_dayrun_complete_days.py:98-99`<br>- `test_goal_export.py:70-104`（:84 登记，:88-89 等待）<br>- `test_goal_metrics.py:38-41`（`plan_result` 夹具补 Dreaming 登记事件）<br>- `remind_time` 必填可空后，未给该键的目标构造补 `"remind_time": null`：`test_day_plan.py`：:56、:196-197、:272-273；`test_revision_contract.py`：:54、:169、:175-180；`test_engine_branch_coverage.py:1396-1397`；`test_model_input_killpoints.py:96`；负例 `test_day_plan.py` 的 :44、:50、:60、:64、:71 与 `test_model_input_killpoints.py:99` 补 `"remind_time": null`，使其仍只因原条件失败（缺字段时字段错误先于 after 校验器抛出，:99 的 `match="exceeds 300 characters"` 不再命中）；`test_observation_agent_seam.py`：:53、:210；`test_activity_schema.py:150` 的目标字段集加 `remind_time`<br>`tests/delivery/test_windows.py:317` 是合成夹具，不必改 |
-| 四·新增 | `tests/life/test_day_planning.py` | 引擎测试用确定性 Dreaming 桩，不调用模型。覆盖：<br>- 零点边界；场景在本地日中途启动；终点为零点时不执行；<br>- 跨零点的长睡眠中没有生活决策；运行中 Dreaming 之后睡眠中的人物 `next_decision_at` 不变；<br>- 计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发，此后不再触发；<br>- 同一人物同日只生成一次；恢复、重放与反事实分支不重复；Dreaming 前后重估候选、体感参照与在场参照不变；<br>- 输出不合法时在回合预算内重试，耗尽为运行故障并保留证据；<br>- 空提醒不唤醒；提醒准确唤醒且只唤醒一次，同时到期的合并；被睡眠或等待推进后的目标仍按时提醒；修订取消旧提醒，原样重发已触发的目标不被拒绝；<br>- `remind_time` 格式错误报 `ACTION_REQUEST_INVALID`；换算后不晚于生成或修订时刻、或不早于次日零点，报 `PLAN_REMIND_TIME_INVALID`；<br>- 提醒结束睡眠并按实际时刻结算，被叫醒后做一次就寝后反思；非睡眠活动不被停止；<br>- 呈现：`facts.day_plan` 的目标行带「提醒 08:15」；提醒触发那一秒 `facts.progress.alarms` 出现「到了你给『<目标>』定的 08:15」，在同一秒后续的同刻轮次中保留，人物有进行中活动后消失；场景目标句（`narration._plan_sentence`）同步 |
-| 四·新增（宿主） | `tests/integration/test_dreaming_round.py` | 〔#24〕Dreaming 轮的观察、请求与响应带 `purpose`；无 `decision_started`、无决策自述请求、无 `action_requested`；输出不合法时在回合预算内重试，耗尽为运行故障；Dreaming 轮提交后 AS2 结果覆盖全轮，无 `run_failed` |
-| 四·新增（记录侧） | `tests/footprints/test_store.py`；`tests/evaluation/test_behavior_metrics.py`；`tests/footprints/test_quality.py` | `test_store.py`：含进度层且带 `purpose="day_planning"` 的 `model_request` 不成为 `last_agent_progress_request_seq` 的截止点；`test_behavior_metrics.py`：`_decision_model_requests` 与决策 token 中位数不计 `purpose="day_planning"` 的请求；`test_quality.py`：`trigger` 含 `day_planning` 的 `memory_updated` 按 `day_plan_generated` 登记核对来源，不报 `invalid_memory_update_source_window` |
+| 四·宿主 | `custom/agents/life_agent.py` | 删 `plan_day` 工具：文案 :306、`_visible_action_contracts` :1015、`_visible_plan_day_contract` :1046、`_available_action_models` :1082、`_validate_prepared_action` :1109。删日首门控：`_DAY_START_WAKE_REASONS` :58、:717-721、`_plan_required_before_other_actions` :1031-1043。`revise_day_plan` 的 Schema 加 `remind_time`，并改写 `_TOOL_DESCRIPTIONS["revise_day_plan"]`（:314-321）：删「Do not provide times or durations」，说明每条目标必须给出 `remind_time`（场景本地 HH:MM 或 null），原样保留的条目连同提醒保持登记 |
+| 四·回灌截止 | `src/worldmock/footprints/store.py` | `last_agent_progress_request_seq`（:185-192）排除带 `purpose` 的请求。否则含进度层的零点计划请求会被当成截止点，`observe._recent_action_results`（:321-331）就会丢掉新结果 |
+| 四·度量 | `src/worldmock/evaluation/goal_metrics.py`；`src/worldmock/evaluation/behavior_metrics.py` | `_plan_snapshot`（:194-207）现在只认已完成的 `action_result`，改为同时把 `environment_event.data.kind="day_plan_generated"` 识别为登记；`_deliberate_goals`（:281-296）随之调整，`quality.json.day_plan_metrics`（quality.py:74）与之同源。`_decision_model_requests`（behavior_metrics.py:168-172，现只排 `work_review`）排除任一带 `purpose` 的请求 |
+| 四·测试夹具 | `tests/life/conftest.py` | `stage_day_plan`（:68-81）保留为预置计划，另加确定性零点计划客户端桩，经后台任务的 `client` 参数注入（同 `settle_pending_model_replies`）；引擎测试不调用模型。联系人回复在没有待回复请求时提前返回（runtime.py:758-760），零点计划在新建运行中人人缺当日计划，不会提前返回：经 LifeEnv 驱动（`init`、`step`、`checkpoint`）的测试在 `worldmock.runtime` 上替换零点计划客户端类（同 test_runtime.py:482 替换 `ContactReplyClient`），或预置当日 `plan_submitted_dates`；`stage_day_plan` 现在只置 `day_plan`，用于 LifeEnv 调用之前时同时写入当日日期 |
+| 四·改写 | `tests/life/test_day_plan.py`、`test_revision_contract.py`、`test_engine_branch_coverage.py`、`test_model_input_killpoints.py`、`test_energy_feasibility.py`；`tests/integration/test_life_agent_protocol.py`、`test_observation_agent_seam.py`、`test_grounded_targets.py`、`test_activity_schema.py`、`test_interaction_menu.py`、`test_dayrun_complete_days.py`、`test_env_lifecycle_coverage.py`；`tests/footprints/test_goal_export.py`；`tests/evaluation/test_goal_metrics.py` | 这些测试把 `plan_day` 当人物工具提交或断言它可见，改为经零点计划的系统登记入口或直接置 `day_plan`；经 LifeEnv 驱动的按「四·测试夹具」注入零点计划桩：<br>- `test_day_plan.py`：:166、:193-201、:254<br>- `test_revision_contract.py:144-170`<br>- `test_engine_branch_coverage.py:1370-1392`<br>- `test_model_input_killpoints.py:110`<br>- `test_energy_feasibility.py:53`<br>- `test_life_agent_protocol.py`：:61、:156、:258-272<br>- `test_observation_agent_seam.py`：:52-246<br>- `test_grounded_targets.py:197-210`<br>- `test_activity_schema.py`：:29、:144<br>- `test_interaction_menu.py:94`<br>- `test_dayrun_complete_days.py`：:98-99；:234 的推进路径注入零点计划桩<br>- `test_env_lifecycle_coverage.py`：:225 对新建运行的 `env.checkpoint` 与 :248 的 `env.step` 会触发零点计划任务，注入零点计划桩<br>- `test_goal_export.py:70-104`（:84 登记，:88-89 等待）<br>- `test_goal_metrics.py:38-41`（`plan_result` 夹具补 `day_plan_generated` 登记事件）<br>- `remind_time` 必填可空后，未给该键的目标构造补 `"remind_time": null`：`test_day_plan.py`：:56、:196-197、:272-273；`test_revision_contract.py`：:54、:169、:175-180；`test_engine_branch_coverage.py:1396-1397`；`test_model_input_killpoints.py:96`；负例 `test_day_plan.py` 的 :44、:50、:60、:64、:71 与 `test_model_input_killpoints.py:99` 补 `"remind_time": null`，使其仍只因原条件失败（缺字段时字段错误先于 after 校验器抛出，:99 的 `match="exceeds 300 characters"` 不再命中）；`test_observation_agent_seam.py`：:53、:210；`test_activity_schema.py:150` 的目标字段集加 `remind_time`<br>`tests/delivery/test_windows.py:317` 是合成夹具，不必改 |
+| 四·新增 | `tests/life/test_day_planning.py` | 零点后台任务 `plan_day` 的用例，确定性客户端桩经 `client` 参数注入，不调用模型。覆盖：<br>- 零点边界：先结算旧日、旧计划失效，再生成，然后才判定该秒的唤醒原因与 `next_decision_at`（在手承诺按新计划计，新计划的提醒进入候选）；跨零点前最后一个区间的活动按旧计划推进目标，零点的 `activity_progress.data.day_plan` 为旧计划，零点计划输入含该区间的经历；场景在本地日中途启动时在初始检查点之后、首次决策之前生成；起点恰为零点时只按启动路径生成一次；终点为零点时不执行，节律照旧在 `advance` 内判定；从新建运行的初始检查点普通恢复，首次决策前已有当日计划且不重复生成；<br>- 跨零点的长睡眠中没有生活决策，睡眠不被零点打断；`plan_day` 本身不改 `next_decision_at`；<br>- 不调用 LifeAgent；人物工作区与记忆字节不变；不产生 `observation`、`decision_started`、`memory_updated`；运行清单阶段键仍为三个；无人缺当日计划时不构造客户端；<br>- 输入含人物卡片与 `background_story`、当日已核验经历句子、本人当日公开动作结果、当日 `conclude_activity` 的 `summary` 与 `memories`，不含身体数值、决策自述与人物主观记忆库；<br>- 计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发，此后不再触发；<br>- 同一人物同日只生成一次；恢复、重放与反事实分支不重复；零点计划前后重估候选、体感参照与在场参照不变；<br>- 输出不合法时附回错误重试（次数按第四章），耗尽或传输失败为运行故障，请求、响应与错误证据保留，`model_request`、`model_response` 带 `purpose="plan_day"`；<br>- 空提醒不唤醒；提醒准确唤醒且只唤醒一次，同时到期的合并；被睡眠或等待推进后的目标仍按时提醒；修订取消旧提醒，原样重发已触发的目标不被拒绝；<br>- `remind_time` 格式错误报 `ACTION_REQUEST_INVALID`；换算后不晚于生成或修订时刻、或不早于次日零点，报 `PLAN_REMIND_TIME_INVALID`；<br>- 提醒结束睡眠并按实际时刻结算，被叫醒后做一次就寝后反思；非睡眠活动不被停止；<br>- 呈现：`facts.day_plan` 的目标行带「提醒 08:15」；提醒触发那一秒 `facts.progress.alarms` 出现「到了你给『<目标>』定的 08:15」，在同一秒后续的同刻轮次中保留，人物有进行中活动后消失；场景目标句（`narration._plan_sentence`）同步 |
+| 四·新增（宿主） | `tests/integration/test_runtime.py`；`tests/integration/test_host_branch_coverage.py` | 仿联系人回复的宿主用例（test_runtime.py:462、:501；test_host_branch_coverage.py:654、:676、:772）：`LifeEnv.step` 推进到场景本地零点后调用零点计划任务，计划在本步检查点之前提交；新建运行在初始检查点之后、首次决策之前生成；从计划尚未生成的初始检查点普通恢复：`LifeEnv.init` 在首次决策之前生成一次，不重复；无人缺当日计划时不构造客户端；客户端身份或参数与清单不符即 `ProtocolError`；异常成为运行故障：推进路径经 `Society.run`，启动路径经 `Society.init` 或 `Society.apply_counterfactual`，普通恢复由 `LifeEnv.init` 经 `engine.fail_run` 登记 |
+| 四·新增（记录侧） | `tests/footprints/test_store.py`；`tests/evaluation/test_behavior_metrics.py`；`tests/footprints/test_quality.py` | `test_store.py`：含进度层且带 `purpose="plan_day"` 的 `model_request` 不成为 `last_agent_progress_request_seq` 的截止点；`test_behavior_metrics.py`：`_decision_model_requests` 与决策 token 中位数不计 `purpose="plan_day"` 的请求；`test_quality.py`：`model_usage` 计入 `purpose="plan_day"` 的请求与响应 |
 | 五·请求 | `src/worldmock/life/models.py` | `StartActivityRequest`（:857-867）增 `ways: list[str]`〔#20〕，三数组等长一至二项；`actions[]` 取五个动词；`ways[i]` 取对象本轮列出的方式短语（步行、驾车；工作、观看、游玩、交谈、通话、阅读、浏览、进行、等待；到店、远程下单、制作；食用、使用；接着看、从头再看、接着听、从头再听；睡觉）。Schema 的枚举不含内部身份 |
 | 五·内部闭集 | `src/worldmock/catalog/affordances.py` | 不改：`START_ACTIVITY_ACTIONS`（:27-30）保留为内部标准动作闭集，供菜单、习惯归并与证据使用，不是人物词表。场景与数据集的 `allowed_actions`、toml 的 `action` 与 `habit_members`、保护项 `wait`、`sleep` 都沿用内部名 |
 | 五·动作解析 | `src/worldmock/life/interaction_menu.py`；`src/worldmock/life/menu_execution.py`；`custom/agents/life_menu.py`；`custom/agents/life_agent.py` | 动作短语表（interaction_menu.py:17-24）改为动词与方式短语，加「接着看」「从头再看」「接着听」「从头再听」（都映射为观看）。`canonical_action`（:101-109）与 `menu_allows_action`（:70-87）改为按私有绑定解析：按标签反解时 `interact` 得到 None，所有 `start_activity` 都会报 `INTERACTION_MENU_DENIED`（menu_execution.py:9-15）。同步 `life_menu.menu_action_error`（:31-41）及其调用处（life_agent.py:787、:845），以及 `_bind_start_activity_schema`（:1131-1148）与 `_validate_start_activity`（:1114-1130）。映射不唯一或不在本轮闭集时报 `ACTION_REQUEST_INVALID` |
@@ -1128,10 +1111,10 @@ flowchart TB
 | 七·请求 | `src/worldmock/life/models.py` | `ConcludeActivityRequest`（:938-960）增 `memories: list[list[Memory]]`，`Memory` 的四个字段内联（strict Schema 用 `WithJsonSchema`）；本地校验三数组等长、记忆总数不超过 8、`text` 非空、不超过 1000 字符、不含八位以上十六进制身份、`keywords` 不超过 12 个（现由 `LifeMemoryEpisode.validate_local_limits`，life_agent.py:173-174 承担，随其删除移到此处）、`importance` 取 0–1 |
 | 七·宿主 | `custom/agents/life_agent.py` | 删生活决策的 `finish`：`_TOOL_MODELS` :241-244、`life_action_tool_names` :263 中的扣除、:437、`_budgeted_tool_models` 的 :507-508（只读分支 :505-506 保留）、:791；文案 :328-338 改写为只读问答专用的 finish 描述（只说明 answer），不删键（只读 Schema 经 `_tool_schema` 的 `descriptions[name]`，:1196，取同一键）。删 `_life_visible_refs` 的维护（:528-530、:703、:731、:888）与 `_episode_ids`（:1225-1235）。回合预算按去掉 `finish` 后重算：`_react_budget`（:482-497）行动前只需 1 个回合，删去 `after_action` 阶段；决策自述前的 `_life_require_turns("decision_statement", 3)`（:638）改为 2。删 `memory_read`：请求模型（:136-146）、文案（:327）、`_MEMORY_TOOL_MODELS` 的 `memory_read`（:238）、`_MEMORY_RUNTIME_ACTIONS` 的 `memory_read`（:253）与 `_dispatch_strict_memory` 的 memory_read 分支（:880-887）；记忆查询由 `_dispatch_strict_memory`（:865）投影为 {type, text, time, epistemic_status}。随 `finish` 删 `LifeMemoryEpisode`、`FinishRequest`（:149-205）与 `_validate_finish`（:799-805），`ReadonlyFinishRequest`（:208）保留。删来源身份枚举：`_environment_source_ids` :942-956、`_bind_finish_reference_ids` :1203-1211。已核验经历只渲染观察给出的句子（见「七·经历」；现在 :553-554 把整行 JSON 写进用户消息）。工具返回（`_append_react_tool_result`，:859-863）不含身份 |
 | 七·记忆运行时 | `custom/agents/life_memory.py` | `after_step`（:55-83）签名不改（AS2 不改），`finish_memories` 参数承载展平后的 `conclude_activity.memories`；`_validate_subjective_memories`（:102-113）按新形状校验，`source` 由系统按写入点填写；阈值巩固的载荷只传 {type, text, time}。阈值触发不再调用 AS2 `store.should_consolidate`（:68-71）判定条数与重要度：`after_step` 按 `store.unconsolidated()` 中 `source` 不为 `reflection` 的条目自行计条数与重要度，阈值取 `MemoryConsolidationConfig`（10 条、3.0）；就寝边界触发不变 |
-| 七·写入与证据 | `src/worldmock/life/session_actions.py`；`src/worldmock/life/memory_evidence.py`；`src/worldmock/life/engine.py` | `_conclude_activity`（:535-564）接收 `memories`，环境只校验形状并随 `action_requested` 留证；`action_result.data` 增私有字段 `memory_sources: [{task, activity_id, session_id, verified_event_ids}]`；`memory_updated.data` 增 `trigger` 与 `decision_id`。`trigger` 取本步写入点的有序列表（顺序为 `activity_conclusion`、`day_planning`、`reflection`）：一次 `after_step` 可同时写入收尾记忆与就寝反思（`life_memory.py:66-67`、`:75-76`），AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎在 `record_memory_update`（engine.py:553-580）中推导：绑定观察带 `purpose="day_planning"` 时含 `day_planning`；同一 `decision_id` 已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`；绑定观察的 `wake_reasons` 含 `wake_from_sleep` 时含 `reflection`。`_memory_evidence_data`（memory_evidence.py:15-45）与 `record_memory_update` 按 `trigger` 中的每个写入点分别核对来源。登记后结算被拒的 `conclude_activity`，其记忆作为人物自述保留，来源标为该动作 |
+| 七·写入与证据 | `src/worldmock/life/session_actions.py`；`src/worldmock/life/memory_evidence.py`；`src/worldmock/life/engine.py` | `_conclude_activity`（:535-564）接收 `memories`，环境只校验形状并随 `action_requested` 留证；`action_result.data` 增私有字段 `memory_sources: [{task, activity_id, session_id, verified_event_ids}]`；`memory_updated.data` 增 `trigger` 与 `decision_id`。`trigger` 取本步写入点的有序列表（顺序为 `activity_conclusion`、`reflection`）：一次 `after_step` 可同时写入收尾记忆与就寝反思（`life_memory.py:66-67`、`:75-76`），AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎在 `record_memory_update`（engine.py:553-580）中推导：同一 `decision_id` 已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`；绑定观察的 `wake_reasons` 含 `wake_from_sleep` 时含 `reflection`。`_memory_evidence_data`（memory_evidence.py:15-45）与 `record_memory_update` 按 `trigger` 中的每个写入点分别核对来源。登记后结算被拒的 `conclude_activity`，其记忆作为人物自述保留，来源标为该动作 |
 | 七·经历 | `src/worldmock/life/observe.py`；`src/worldmock/life/projection.py`；`custom/agents/life_agent.py` | `data.verified_experiences`（observe.py:103-104）与 `footprints/experiences.py` 产出的结构行不变，仍是私有证据（该文件只按「九·`location_id`」改 `_arrival`）；`projection` 按同样五条窗口与顺序，用场景的地点、商品与内容名称生成 `facts.experiences` 句子（例如「14:17 开车到了张江办公室」），出行方式取自所属出行活动；`life_agent._life_user_sections`（:553-554）只渲染这些句子，不再写整行 JSON |
-| 七·质量 | `src/worldmock/footprints/quality.py` | 改 `_memory_quality`（:402-429）、`_inspect_memory_response`（:431-458）、`_inspect_memory_update`（:502-528）、`_response_tool_calls`（:580-596）、`_memory_references`（:611-627）：<br>- 按 `trigger` 中的每个写入点分别核对来源（收尾与反思同在一步时两项都核对）：`activity_conclusion` 对应已登记的 `conclude_activity`，`day_planning` 对应 `day_plan_generated` 登记，`reflection` 沿用；<br>- 删 `refs` 与 `memory_read` 身份核对；问题码按 E5-18 改为按写入点：`finish_without_memory_update`（:421）改为 `conclusion_without_memory_update`（带非空 `memories` 的 `conclude_activity` 请求在同一 `decision_id` 下没有 `trigger` 含 `activity_conclusion` 的 `memory_updated`；登记后结算被拒时记忆照写），`memory_update_without_successful_finish`（:527）改为 `memory_update_without_source`（写入点找不到对应登记），删 `unknown_memory_reference`（:451）；`tests/footprints/test_quality.py` 与 `tests/footprints/test_branch_coverage.py` 相应用例同步（见「七·记忆改写」）；<br>- `day_planning` 的写入不按决策观察窗口核对，否则每条都会报 `invalid_memory_update_source_window`；<br>- 分组 `memory_references` 保留名称 |
-| 七·记忆改写 | `tests/integration/test_life_agent_protocol.py`、`test_decision_context_protocol.py`、`test_decision_context_roundtrip.py`、`test_verified_memory.py`、`test_agent_branch_coverage.py`、`test_activity_schema.py`、`test_dayrun_complete_days.py`、`test_grounded_evidence.py`、`test_interaction_menu_roundtrip.py`、`test_category_inventory_protocol.py`；`tests/footprints/test_quality.py`、`test_branch_coverage.py`；`tests/life/test_memory_evidence.py` | 以下用例依赖 `finish`、`refs` 或 `finish_memories`：<br>- `test_life_agent_protocol.py`：:55 删 `memory_read`；`_finish_args`（:129-142）改为 `conclude_activity.memories` 形状（无 `refs`）；删 `test_finish_accepts_only_current_visible_environment_refs`（:367）与 `test_finish_schema_contains_only_sources_shown_this_decision`（:393）；桩 `_Dispatcher`（:590-608）、`_StepDispatcher`（:673）、`_PrematureFinishDispatcher`（:698）、`_GroundedCorrectionDispatcher`（:712）去掉生活决策的 `finish` 响应；:844、:1010、:1047、:1144、:1177、:1212、:1248、:1276 各用例按「世界请求登记即结束、回合预算去掉 `finish`」改写；:1088-1109、:1159-1174 锁定旧预算报错文本（「requires 2 model turns but only 1 remain」「requires 3 model turns but only 2 remain」），按新预算（自述前 2、行动前 1）改写；:1306、:1419 改为经 `conclude_activity.memories` 写入；只读问答的 :335 与 :1113 不改<br>- `test_decision_context_protocol.py`：:86、:149-152、:203（旧预算报错文本）、:251-255<br>- `test_decision_context_roundtrip.py:36`<br>- `test_verified_memory.py:56-220`<br>- `test_agent_branch_coverage.py:78-95`<br>- `test_activity_schema.py`：:20、:61、:173-198<br>- `test_dayrun_complete_days.py`：:59、:80-93<br>- `test_grounded_evidence.py`：:65-78、:149-185 测只读问答的 `finish`，不改<br>- `test_interaction_menu_roundtrip.py:43`；`test_category_inventory_protocol.py:39`<br>- `test_quality.py`：:32-45、:206-302<br>- `tests/footprints/test_branch_coverage.py`：:60、:244、:279<br>- `test_memory_evidence.py:14-26`：观察窗口拒绝；Dreaming 写入另立口径<br>- 删 `memory_read` 后：`test_agent_branch_coverage.py`：:20、:91-93、:156-175；`test_activity_schema.py`：:20、:161-164；`tests/footprints/test_branch_coverage.py:241-253` |
+| 七·质量 | `src/worldmock/footprints/quality.py` | 改 `_memory_quality`（:402-429）、`_inspect_memory_response`（:431-458）、`_inspect_memory_update`（:502-528）、`_response_tool_calls`（:580-596）、`_memory_references`（:611-627）：<br>- 按 `trigger` 中的每个写入点分别核对来源（收尾与反思同在一步时两项都核对）：`activity_conclusion` 对应已登记的 `conclude_activity`，`reflection` 沿用；<br>- 删 `refs` 与 `memory_read` 身份核对；问题码按 E5-18 改为按写入点：`finish_without_memory_update`（:421）改为 `conclusion_without_memory_update`（带非空 `memories` 的 `conclude_activity` 请求在同一 `decision_id` 下没有 `trigger` 含 `activity_conclusion` 的 `memory_updated`；登记后结算被拒时记忆照写），`memory_update_without_successful_finish`（:527）改为 `memory_update_without_source`（写入点找不到对应登记），删 `unknown_memory_reference`（:451）；`tests/footprints/test_quality.py` 与 `tests/footprints/test_branch_coverage.py` 相应用例同步（见「七·记忆改写」）；<br>- 分组 `memory_references` 保留名称 |
+| 七·记忆改写 | `tests/integration/test_life_agent_protocol.py`、`test_decision_context_protocol.py`、`test_decision_context_roundtrip.py`、`test_verified_memory.py`、`test_agent_branch_coverage.py`、`test_activity_schema.py`、`test_dayrun_complete_days.py`、`test_grounded_evidence.py`、`test_interaction_menu_roundtrip.py`、`test_category_inventory_protocol.py`；`tests/footprints/test_quality.py`、`test_branch_coverage.py`；`tests/life/test_memory_evidence.py` | 以下用例依赖 `finish`、`refs` 或 `finish_memories`：<br>- `test_life_agent_protocol.py`：:55 删 `memory_read`；`_finish_args`（:129-142）改为 `conclude_activity.memories` 形状（无 `refs`）；删 `test_finish_accepts_only_current_visible_environment_refs`（:367）与 `test_finish_schema_contains_only_sources_shown_this_decision`（:393）；桩 `_Dispatcher`（:590-608）、`_StepDispatcher`（:673）、`_PrematureFinishDispatcher`（:698）、`_GroundedCorrectionDispatcher`（:712）去掉生活决策的 `finish` 响应；:844、:1010、:1047、:1144、:1177、:1212、:1248、:1276 各用例按「世界请求登记即结束、回合预算去掉 `finish`」改写；:1088-1109、:1159-1174 锁定旧预算报错文本（「requires 2 model turns but only 1 remain」「requires 3 model turns but only 2 remain」），按新预算（自述前 2、行动前 1）改写；:1306、:1419 改为经 `conclude_activity.memories` 写入；只读问答的 :335 与 :1113 不改<br>- `test_decision_context_protocol.py`：:86、:149-152、:203（旧预算报错文本）、:251-255<br>- `test_decision_context_roundtrip.py:36`<br>- `test_verified_memory.py:56-220`<br>- `test_agent_branch_coverage.py:78-95`<br>- `test_activity_schema.py`：:20、:61、:173-198<br>- `test_dayrun_complete_days.py`：:59、:80-93<br>- `test_grounded_evidence.py`：:65-78、:149-185 测只读问答的 `finish`，不改<br>- `test_interaction_menu_roundtrip.py:43`；`test_category_inventory_protocol.py:39`<br>- `test_quality.py`：:32-45、:206-302<br>- `tests/footprints/test_branch_coverage.py`：:60、:244、:279<br>- `test_memory_evidence.py:14-26`：观察窗口拒绝<br>- 删 `memory_read` 后：`test_agent_branch_coverage.py`：:20、:91-93、:156-175；`test_activity_schema.py`：:20、:161-164；`tests/footprints/test_branch_coverage.py:241-253` |
 | 七·记忆新增 | `tests/integration/test_conclude_memories.py` | 一轮决策恰好一个世界请求且没有 `finish`；`memories` 与 `task` 等长，总数不超过 8，字段受限；来源由系统登记；发给人物模型的系统提示、用户消息、Schema（含枚举）与工具返回中都没有内部身份（扫描八位以上十六进制串与 `*_id` 键）；回合预算耗尽仍无登记的世界请求即运行故障；只读问答的 `finish` 与其他工具同批被拒；结束活动写满 10 条、重要度合计低于 3.0 时恰好触发一次巩固，此前写入的就寝反思条目不影响触发 |
 | 八·困意与餐时 | `src/worldmock/life/body.py`；`src/worldmock/life/rhythm.py`；`src/worldmock/life/engine.py` | `_felt_band_boundaries`（:457-465）改为从当前压力求解，并复核昼夜阈值。`next_body_boundary_seconds`（:401-419，现有 5 个参数）与 `next_shared_body_boundary_seconds`（:422-437）的餐时窗口经一个参数对象传入（`_felt_band_boundaries` 同样处理），不越过风格门禁的 5 个参数上限，两处调用方都要传入：`rhythm.next_decision_candidates`（:146，`inputs.meal_windows_by_agent` 已在 :550 备好）与 `engine._body_boundary_at`（:1547-1559，从 :780 取） |
 | 八·作息初值 | `src/worldmock/life/body.py`；`src/worldmock/life/sleep.py`；`src/worldmock/life/engine.py` | `initial_body`（:381-398）改为从惯常起床时刻反推；`initial_sleep_pressure`（sleep.py:131-146）是纯函数，可以复用；调用处在 engine.py:1598-1599 |
@@ -1143,8 +1126,8 @@ flowchart TB
 | 八·运行身份 | `src/worldmock/runtime.py`；`src/worldmock/validation.py`；`src/worldmock/life/models.py`；`src/worldmock/life/engine.py` | `runtime_code_sha256`（:428-445）现在哈希 `vendor/agentsociety2/...` 下的 `*.py`（:431、:433），而本机该子模块为空；改为哈希 `importlib.util.find_spec("agentsociety2")` 所在包目录下除 `__pycache__` 外的全部文件，标签 `agentsociety2/<相对路径>`，与安装位置无关；为空、导入失败或与锁定版本不符即拒绝启动。同步 `_run_identity`（:278-289）与 `_require_runtime_identity`（:417-425）。`validate_project`（validation.py:49）同样核对 AS2 身份，为空、导入失败或不符时以 `IntegrityError` 拒绝。`RunIdentity`（models.py:61-71）增 `git_commit` 与 `git_dirty`，由 `_run_manifest`（engine.py:1610-1625）写入。runtime.py 增常量 `AS2_LOCKED_SOURCE_SHA256`（按 `8768e14` 源码算得，与 EXPERIMENT「AS2 基线与框架依赖」中的值相同，EX3）；`git_commit`、`git_dirty` 为 `str \| None`、`bool \| None`，非 Git 检出时为 null，不参与恢复比对 |
 | 八·改写 | `tests/life/test_progress_layer_projection.py`、`test_session_state.py`、`test_engine_feedback.py`；`tests/integration/test_runtime.py`、`test_host_branch_coverage.py`、`test_grounded_evidence.py`、`test_category_identity.py`、`test_run_manifest.py` | `test_progress_layer_projection.py:224-263`：改为从活动取值、人读时长<br>`test_session_state.py:296-360`：随字段删除改写<br>`test_engine_feedback.py:43-73`：断言结束时写入原始动作的终态结果与活动快照<br>运行身份相关（按新规则改写，或替换 AS2 定位）：`test_runtime.py:143-151`、`test_host_branch_coverage.py`（:364、:448-458）、`test_grounded_evidence.py:187-198`、`test_category_identity.py:51`、`test_run_manifest.py:140-150` |
 | 八·新增 | `tests/life/test_sleep_two_process.py`、`test_activity_effects.py`、`test_wake_reasons.py`、`test_export_integration.py`、`test_work_review.py`、`test_dayrun_restaurants.py`、`test_news_feed.py`；`tests/integration/test_runtime.py` | - 工作：距截止或剩余合同不足 60 秒时开工动作照常列出，带「离截止不到一分钟，来不及开始」，选了以 `ACTIVITY_DURATION_INVALID` 返回原因与 `next_step`；`completion_outlook` 只在时长上界不足时出现；已过截止的任务照旧不列出（`test_engine_branch_coverage.py:804-816` 不改）。<br>- 呈现：`facts.products[].delivery_eta` 与实际送达一致，送不到时写「暂时送不到这里」；内容已看完或剩余不足 60 秒给「从头再看」并按全长派生，未看完给「接着看」与剩余时长。<br> - 作息初值：从惯常起床反推、跨午夜取模 24、练秋湖 00:00 起点的首个观察为「困」或以上；`TestInitialSleepPressure`（:246-276）测的是纯函数，不改。<br>- 预测：从当前压力预测，候选不晚于实际；餐时窗口起止是候选。<br>- 播报：只对进行中活动；锚点正确；暂停与睡眠之后不再播报。<br>- 导出：结束得 `cancelled`、暂停得 `paused`，`activities.jsonl` 逐项等于最终检查点。<br>- 运行身份：AS2 字节变化改变 `code_sha256`；缺失或不符即拒绝；安装位置不同摘要相同；清单含 `git_commit` 与 `git_dirty` |
-| 查看器 | `tools/run-viewer.html`；`tests/tools/run_viewer.test.cjs` | `TOOL_LABELS`（:318-322）与 `readableReq`（:592-594）删 `plan_day`；`start_activity` 显示动词与方式（:582-583）〔#20〕；`conclude_activity` 显示记忆条数；`BND_LABELS`（:324）补 `plan_reminder`、`route_ended`、`partner_ended`、`paused`、`cancelled`；`ENVK_LABELS`（:325-326）补 `day_plan_generated`、`activity_concluded`、`activity_paused`、`activity_resumed`；拒绝行（:498-499、:624）不再显示「连续拒绝」，改显示同刻轮次；`decision_started`（:475-476）显示唤醒原因；显示地点会话；`model_request` 摘要（:516、:618）读取 `$.data.purpose`，`day_planning` 显示为「Dreaming 模型请求」。测试改写 :127-237 的动作短语（:428 测活动类型标签，不改），并补齐以上各项 |
-| 交付窗口 | `src/worldmock/delivery/windows.py`；`tests/delivery/test_windows.py` | `_public_event_data`（:163-179）对 `action_requested` 整体透传请求（:175-176），意图与离线 `dreaming` 输入裁去 `conclude_activity.memories`，动作窗口保留完整请求。Dreaming 登记不走 `action_requested`，否则 `prepare_windows`（:35-40）会为它建动作窗口并在 :76-77 失败（Dreaming 请求带 `purpose`，被 :75 排除后没有可选的决策提示）。新增用例：带记忆的 `conclude_activity` 不泄露记忆正文；同一决策含 Dreaming 请求时仍选中人物的行动请求 |
+| 查看器 | `tools/run-viewer.html`；`tests/tools/run_viewer.test.cjs` | `TOOL_LABELS`（:318-322）与 `readableReq`（:592-594）删 `plan_day`；`start_activity` 显示动词与方式（:582-583）〔#20〕；`conclude_activity` 显示记忆条数；`BND_LABELS`（:324）补 `plan_reminder`、`route_ended`、`partner_ended`、`paused`、`cancelled`；`ENVK_LABELS`（:325-326）补 `day_plan_generated`、`activity_concluded`、`activity_paused`、`activity_resumed`；拒绝行（:498-499、:624）不再显示「连续拒绝」，改显示同刻轮次；`decision_started`（:475-476）显示唤醒原因；显示地点会话；`model_request` 摘要（:516、:618）读取 `$.data.purpose`，`plan_day` 显示为「零点计划模型请求」。测试改写 :127-237 的动作短语（:428 测活动类型标签，不改），并补齐以上各项 |
+| 交付窗口 | `src/worldmock/delivery/windows.py`；`tests/delivery/test_windows.py` | `_public_event_data`（:163-179）对 `action_requested` 整体透传请求（:175-176），意图与 `dreaming` 输入裁去 `conclude_activity.memories`，动作窗口保留完整请求。新增用例：带记忆的 `conclude_activity` 不泄露记忆正文 |
 | 数据集侧·场景 | `0001-white-collar-lianqiu/scenarios/qingpu-lianqiu-white-collar.json` | 删 :5 的 `max_consecutive_rejections`。:56 的 `background_story` 补「工作日 08:00 闹钟叫醒，08:20 出门，08:55 前在北二门打卡」，内容取自 ISSUE.md（它是原文快照，哈希被 `corpora/phone-simulation.json:7` 钉住，不改）。:48-51 的 `catalog_version` 按〔#25〕跟随目录副本；:562 起的五个基础地点类菜单不改（内部动作名不变） |
 | 数据集侧·场景 | `0002-business-sales-zhaoming/scenarios/shanghai-zhaoming-business-2026-09-28.json` | `build_scenario.py:152` 以 0001 场景为模板生成，0001 删 :5 后重跑即去掉该键，不手改 JSON；与 WorldMock 的 `scenario.py` 同批 |
 | 数据集侧·生成器 | `0001-white-collar-lianqiu/build_runtime_dataset.py` | 生成器会读取并写回场景（:536、:562），重新生成非基础地点菜单、目录钉扎与合成供给，只改场景 JSON 会被覆盖。须改：<br>- 主流程在 :543 读入供给后覆盖 `build_map.py` 的基础供给（:543 原样保留非生成供给）：`supply-coffee-beverage-iced-americano` 与 `supply-lunch-meal-0007` 的 `delivery_destination_ids` 加 `home`（后者也是 :639、:666、:681 的模板，派生供给随之带 home）；5 条 `supply-grocery-*` 的 `delivery_delay_seconds` 改为场景假设值，与 :621 的盒马合成供给取同一值；<br>- :621 覆盖盒马的 `delivery_delay_seconds`；<br>- :639、:666、:681 由午餐模板派生的外卖供给，送达地加 `home`；<br>- `complete_routes`（:345-364）为已存在但状态为 `unknown` 的 `coffee→home`、`lunch→home` 生成合成可达路线（配送要求唯一可达的驾车路线，`basket.py:165-178`）；<br>- 主流程覆盖基础 `lunch` 地点与 :272 复制出的模拟商户的营业日历，补晚餐时段；基础 `lunch` 承载 :681 由午餐模板派生的外卖供给，现各日只营业 600–900 分钟（取自 `build_map.py:64-65`）。覆盖值写在 `build_runtime_dataset.py` 中，不重跑 `build_map.py`；<br>- :711、:714 不写死 4.2：:711 同时写 `version_major`，两处的主版本取自 WorldMock `catalog/manifest.json` 升版后的主版本，次版本为 WorldMock 次版本加 2（现为 4.0 → 4.2），具体版本号随 #25 裁定写入；<br>- :207-228（`product_object`）、:634（`add_menu`）、:657-661（`add_unpriced_merchants`）的外卖菜品，以及 :618（`add_hema`）经 :39 `ENERGY_BY_CATEGORY` 取值的盒马熟食，都按一份餐的标准份量与能量计；包装食品保持每 100 g，并写明份量；<br>- :728-733 的菜单不改（内部动作名不变） |
@@ -1159,7 +1142,7 @@ flowchart TB
 
 - **先文档后代码。** 冻结变更集只含文档，落全部【冻】作业；此后每个阶段先提交本阶段的【同】作业，再改代码（`docs/INDEX.md`「状态与变更约定」:288）。
 - **阶段顺序。** 阶段 0（issue #1）先行；`uv run pytest tests` 全绿后，再开始阶段 1 以后的各阶段。依赖与合入顺序见「实施阶段」的阶段依赖图。
-- **世界结构版本 7 只升一次。** 阶段 0 把 `WORLD_SCHEMA_VERSION`（`src/worldmock/life/models.py:23`）由 6 升到 7。此后各阶段对 `WorldState` 及其子模型的改动都在发布前并入版本 7，不逐阶段升版：同刻计数与受限轮阶段、按人物暂存的呈现留痕、地点会话、活动的 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与移来的自述字段、提醒字段与 `dreamed_dates`、重列的占用名。版本 6 的检查点一律拒绝；阶段 5 合入前产生的 7 版检查点不作恢复承诺。
+- **世界结构版本 7 只升一次。** 阶段 0 把 `WORLD_SCHEMA_VERSION`（`src/worldmock/life/models.py:23`）由 6 升到 7。此后各阶段对 `WorldState` 及其子模型的改动都在发布前并入版本 7，不逐阶段升版：同刻计数与受限轮阶段、按人物暂存的呈现留痕、地点会话、活动的 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与移来的自述字段、提醒字段、重列的占用名。版本 6 的检查点一律拒绝；阶段 5 合入前产生的 7 版检查点不作恢复承诺。
 - **同批提交。** 以下各组改动必须同批提交：
   - 删 `scenario.py` 的 `max_consecutive_rejections`，与三份场景、两个数据集场景同批（`extra="forbid"`）；
   - 改 `catalog/affordances.toml`，与 `catalog/manifest.json` 摘要、数据集目录副本同批；全特性只改一次（阶段 4）。`catalog/affordances.toml` 在工作树中为混合换行（`core.autocrlf=true`；`.gitattributes` 在 `catalog/` 下只约束 `catalog/snapshots/traffic/**`，另有 `corpora/**`，`catalog/affordances.toml` 不受约束）：同批给 `.gitattributes` 增 `catalog/** text eol=lf`，在 LF 工作树重算 `catalog/manifest.json`，并通过 `scripts/build_catalog.py --check`；
@@ -1175,8 +1158,8 @@ flowchart TB
   - `runtime.py`（PARAMS 1）
 
   修掉存量违规时须同步减少记账，计数不符同样会失败。参数上限（`MAX_PARAMETERS = 5`，:24）：`body.next_body_boundary_seconds`（`src/worldmock/life/body.py:401-403`）与 `felt.summarize_felt_levels`（`src/worldmock/life/felt.py:257-263`）现各 5 个参数，二者不在 `_OUTSTANDING` 中；本特性为它们加入的餐时窗口、能量与紧急阈值改为经一个参数对象传入（边界预测一个、体感分级一个），`_felt_band_boundaries` 同样处理，任何函数不越过 5 个参数（见「二·饥饿显示」「八·困意与餐时」）。`rhythm._wake_snapshot`（`src/worldmock/life/rhythm.py:348-392`）与 `engine.prepare_pending_work_review`（`src/worldmock/life/engine.py:304-348`）现各 45 行，本特性都要改；改动抽成辅助函数，不越过 50 行上限。
-- **`engine.py` 行数。** 现为 1749 行，上限 2000。同刻计数与受限轮阶梯、Dreaming 调度与提醒、地点会话切换、待收尾都放进其他模块，引擎只接线。
-- **不新增故障路径。** `_resolve` 只捕获 `BusinessRuleError`（`src/worldmock/life/engine.py:814`）。模型输入或世界状态能触发的情形一律表达为业务拒绝或状态转换，`ProtocolError` 只留给协议违约；运行中 Dreaming 的协议错误与模型故障按第四章处理，不属业务情形。本特性会触发的既有抛错点，在所属阶段改掉：
+- **`engine.py` 行数。** 现为 1749 行，上限 2000。同刻计数与受限轮阶梯、零点计划与提醒、地点会话切换、待收尾都放进其他模块，引擎只接线。
+- **不新增故障路径。** `_resolve` 只捕获 `BusinessRuleError`（`src/worldmock/life/engine.py:814`）。模型输入或世界状态能触发的情形一律表达为业务拒绝或状态转换，`ProtocolError` 只留给协议违约；零点计划 `plan_day` 的协议错误与模型故障按第四章处理，不属业务情形。本特性会触发的既有抛错点，在所属阶段改掉：
   - 空交互对象层（`custom/agents/life_agent.py:966-968`，阶段 0）；
   - 到达核对（`src/worldmock/footprints/experiences.py` 的 `_arrival`，:262-267，阶段 0）；
   - 目标回看（`src/worldmock/life/session_actions.py:411`，阶段 0）；
@@ -1200,4 +1183,5 @@ flowchart TB
 
 | 版本 | 日期 | 修订内容 |
 | --- | --- | --- |
-| 0.1 | 2026-09-24 | 初稿：从规格 v0.11 拆出实施阶段、逐文档的文档同步作业（作业编号沿用审计结果，前置裁决并入规格正文）与文件修改清单；按规格 v0.12 的裁决改写并行准入、Dreaming 执行位置、错误码与事件口径 |
+| 0.1 | 2026-09-24 | 初稿：从规格 v0.11 拆出实施阶段、逐文档的文档同步作业（作业编号沿用审计结果，前置裁决并入规格正文）与文件修改清单；按规格 v0.12 的裁决改写并行准入、当日计划的执行位置、错误码与事件口径 |
+| 0.2 | 2026-09-24 | 随规格 v0.13 按用户裁定改当日计划：零点计划 `plan_day` 是运行时的独立后台任务，照搬联系人回复的后台调用方式（`runtime.py:747`），不是决策轮，不经人物、不改人物工作区与记忆；裁决 #24 已定，AS9 由【条·#24】改为【冻】。阶段 5 的作业、文件行与测试随之改写：LifeEnv 在 `step` 推进之后、启动路径的检查点之后与普通恢复的 `init` 末尾调用（联系人回复挂在 `commit_decision_round`，零点无人就绪时与首次决策之前都不经过该处，所以挂点不同，`life_env.py` 除删 `plan_day` 工具面外另增这些调用），零点边界的节律拆成两段，结算段（含按旧计划计的目标推进）仍在旧计划失效之前，唤醒判定段移到计划提交之后，引擎 `_plan_day` 改为系统登记入口，沿用 `plan_submitted_dates`，不新增阶段键；删零点的记忆补写与归纳，`trigger` 只剩 `activity_conclusion`、`reflection`，数字人交互规格的午夜浓缩与修订 #3 不改。删作业 C36、AI14、RL4、LK1、MA14、E0-1、E1-2、E1-7、EX4、VF8、AR1（其余编号不变），删 E0-3、E1-3、E4-2、E4-3、E4-19、E6-1、E6-3、RL1、RL7、ES2 中的命名部分，`dreaming` 不再加「离线」限定 |

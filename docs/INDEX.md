@@ -73,7 +73,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/PROPOSAL-agent-interaction.md` | **已裁决并冻结**：数字人交互的原始问题、心智模型逐条对账与取舍记录；行为定义已由 `SPEC-agent-interaction.md` 承载 | FROZEN |
 | `docs/dev/SPEC-agent-interaction.md` | **FROZEN**：会话层与生命周期、七层上下文与进度层、稳定工具面（7 个工具）、决策轮循环与播报节律、前置条件前置、并发上限、午夜浓缩；显式修订四条既有冻结条款并随冻结生效；遗留 2 处实现落地缺口，不改变条款语义 | FROZEN |
 | `docs/dev/research/agent-interaction-document-impact.md` | 文档影响与文件修改清单：爆炸半径实测、五处词表同步点、导出重建约束、冻结规格与设计文档修订清单 | 调研证据 |
-| `docs/dev/SPEC-time-and-energy.md` | 时间与能量特性规格：决策不耗时与同刻再决策、饥饿低能量显示与商品热量及路线费力、能量不阻断而让人物趁早吃、运行中 Dreaming 与计划提醒、五个动词与并行准入、动作照常列出并带条件说明、派生时长上限、常驻「怎样过一天」提示、地点会话与两个活动名额、`finish` 并入 `conclude_activity`、提示不含内部身份、本机运行修复与 issue #1 复核；列出对既有冻结条款的修订，随冻结生效 | 未冻结提案 |
+| `docs/dev/SPEC-time-and-energy.md` | 时间与能量特性规格：决策不耗时与同刻再决策、饥饿低能量显示与商品热量及路线费力、能量不阻断而让人物趁早吃、零点计划与计划提醒、五个动词与并行准入、动作照常列出并带条件说明、派生时长上限、常驻「怎样过一天」提示、地点会话与两个活动名额、`finish` 并入 `conclude_activity`、提示不含内部身份、本机运行修复与 issue #1 复核；列出对既有冻结条款的修订，随冻结生效 | 未冻结提案 |
 | `docs/dev/research/time-and-energy-implementation-plan.md` | 时间与能量实施计划：实施阶段与门禁、逐文档逐条款的文档同步作业、文件修改清单与工程约束；随规格冻结后作为实施台账维护 | 未冻结提案 |
 | `docs/dev/PROPOSAL-decision-context.md` | 已裁决的心智模型与取舍记录；行为与开发验收由 `SPEC-decision-context.md` 承载 | 调研证据 |
 | `docs/dev/PROPOSAL-interaction-menu.md` | 交互菜单的原始问题、方案比较与取舍记录；行为与验收由 `SPEC-interaction-menu.md` 承载 | 调研证据 |
@@ -153,7 +153,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 配置或修改地点类与人物交互菜单 | `docs/dev/SPEC-interaction-menu.md` | `docs/design/08-configuration.md` 取配置，`docs/design/04-simulation-engine.md` 取执行链路 |
 | 查历史调研、审计与根因结论 | `docs/dev/research/` | 对应 SPEC 看结论如何落地为条款 |
 | 了解数字人交互的设计依据与取舍 | `docs/dev/PROPOSAL-agent-interaction.md` | 已裁决：行为定义看 `docs/dev/SPEC-agent-interaction.md`；差距审计引用 `docs/CONTRACTS.md` 与各 SPEC 取证 |
-| 审查时间与能量（冻结后据此实现）：同刻决策、能量不阻断、运行中 Dreaming 与提醒、五个动词、地点会话与活动名额 | `docs/dev/SPEC-time-and-energy.md` | 「冻结条款修订」取被改写的既有冻结条款，`docs/dev/research/time-and-energy-implementation-plan.md` 取实施阶段、文档同步作业与文件修改清单 |
+| 审查时间与能量（冻结后据此实现）：同刻决策、能量不阻断、零点计划与提醒、五个动词、地点会话与活动名额 | `docs/dev/SPEC-time-and-energy.md` | 「冻结条款修订」取被改写的既有冻结条款，`docs/dev/research/time-and-energy-implementation-plan.md` 取实施阶段、文档同步作业与文件修改清单 |
 | 实现或审查数字人交互（会话、上下文分层、稳定工具面） | `docs/dev/SPEC-agent-interaction.md` | `docs/dev/research/agent-interaction-document-impact.md` 取文件清单与爆炸半径，`docs/CONTRACTS.md` 取字段与 Schema |
 | 设计突发事件类世界事件（事故、疾病、升迁、丧亲） | `docs/dev/research/exogenous-incidents.md` | `docs/dev/SPEC-life-realism.md` 取现有行为边界，`docs/CONTRACTS.md` 取事件与唤醒闭集 |
 | 查看资源、内容与语料的统一设计 | `docs/design/03-resource-engine.md` | 资源定义、来源、版本、内容提供与实现差距 |
@@ -303,5 +303,5 @@ flowchart TB
 | `2026-09-21-exogenous-incidents` | 2026-09-21 | 登记突发事件机制调研：外生事件的选择与结算分层、可复现随机性手段及引证核实结果，供后续设计裁决引用 |
 | `2026-09-22-agent-interaction` | 2026-09-22 | 登记数字人交互未冻结提案：上下文分层与稳定工具面心智模型、骨架/血肉边界，以及十七类表达层失配与门禁缺口审计 |
 | `2026-09-22-agent-interaction-spec` | 2026-09-22 | 登记数字人交互特性规格（2026-09-22 提交冻结）：会话层、七层上下文与进度层、稳定工具面（7 个工具，`action` 按对象绑定）、播报节律、前置条件前置、并发上限、午夜浓缩；显式修订四条既有冻结条款；登记文档影响与文件修改清单 |
-| `2026-09-24-time-and-energy` | 2026-09-24 | 登记时间与能量特性规格（未冻结）：同刻再决策、能量不阻断、跨日 Dreaming 与提醒、五个动词、地点会话与两个活动名额、`finish` 并入 `conclude_activity`；列出对既有冻结条款的修订，随冻结生效；补实现阅读路径；「未冻结提案」同时适用于草稿规格 |
-| `2026-09-24-time-and-energy-plan` | 2026-09-24 | 规格修订至 0.12 并登记实施计划（未冻结）：计划列出实施阶段与门禁、文档同步作业与文件修改清单；登记行改称运行中 Dreaming；阅读路径改为审查入口并指向实施计划；「未冻结提案」同时适用于草稿规格的实施计划 |
+| `2026-09-24-time-and-energy` | 2026-09-24 | 登记时间与能量特性规格（未冻结）：同刻再决策、能量不阻断、跨日当日计划与提醒、五个动词、地点会话与两个活动名额、`finish` 并入 `conclude_activity`；列出对既有冻结条款的修订，随冻结生效；补实现阅读路径；「未冻结提案」同时适用于草稿规格 |
+| `2026-09-24-time-and-energy-plan` | 2026-09-24 | 规格修订至 0.12 并登记实施计划（未冻结）：计划列出实施阶段与门禁、文档同步作业与文件修改清单；登记行改称零点计划；阅读路径改为审查入口并指向实施计划；「未冻结提案」同时适用于草稿规格的实施计划 |
