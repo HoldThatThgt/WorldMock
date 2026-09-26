@@ -22,7 +22,7 @@ from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_ENDED, PHASE_PAUSED, PHASE_PENDING
-from worldmock.life.interaction_menu import canonical_action
+from worldmock.life.interaction_menu import LIFE_VERBS, VERB_WAY_SEPARATOR, WAYS
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage,
                                    deepseek_strict_schema)
 from worldmock.life.prompt_capacity import compare_usage, fit_request
@@ -49,8 +49,8 @@ ACTION_TOOL_CHOICE = "auto"
 #: 行动阶段明确预留的最大输出，用于发送前完整上下文计数。
 ACTION_MAX_TOKENS = 8000
 
-#: 一次会话至多服务两个交互对象（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」：
-#: targets[] ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
+#: 一次请求至多选择两个交互对象（docs/dev/SPEC-agent-interaction.md「对象与动作选择」：targets[]、actions[]、ways[]
+#: 等长且 ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
 _START_ACTIVITY_MAX_TARGETS = 2
 #: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
 #: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
@@ -203,9 +203,10 @@ _ACTION_PROTOCOL = (
 _TOOL_DESCRIPTIONS = {
     "start_activity": (
         _ACTION_PROTOCOL
-        + " Choose one or two named objects from facts.interactive_objects and one offered action "
-        "phrase for each object in the same order. Choose only objects whose preconditions_met "
-        "is true. Send exactly targets and actions. "
+        + " Choose one or two named objects from facts.interactive_objects and, for each object in the same "
+        "order, one of its offered actions. Each offered action reads verb：way; send the verb in actions "
+        "and the way in ways, so targets, actions and ways are equally sized. An action with a note has a "
+        "condition that is not met yet; the world explains the reason and the next step if you choose it. "
         "The world uses the observed quote and derives duration, quantity, travel mode and "
         "fulfillment. Prices and internal state are information from the world, never inputs."),
     "submit_work": (
@@ -650,8 +651,7 @@ class LifeAgent(PersonAgent):
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
         stage = _visible_same_moment_stage(data)
-        self._life_visible_objects = _same_moment_objects(
-            stage, _visible_interactive_objects(data), data["interaction_bindings"])
+        self._life_visible_objects = _same_moment_objects(stage, _visible_interactive_objects(data))
         self._life_allowed_actions = frozenset(self._life_interaction_menu.allowed_actions)
         self._life_action_contracts = _same_moment_contracts(stage, _visible_action_contracts(data))
         self._life_action_models = _available_action_models(self._life_action_contracts, STAGE_TOOLS[stage])
@@ -704,7 +704,8 @@ class LifeAgent(PersonAgent):
                     return error
                 if decision.action in REQUEST_MODELS:
                     error = life_menu.menu_action_error(
-                        self._life_interaction_menu, decision.action, validated)
+                        self._life_interaction_menu, decision.action,
+                        _selected_actions(decision.action, validated, self._life_visible_objects))
                     if error:
                         return error
             except Exception as exc:
@@ -762,7 +763,8 @@ class LifeAgent(PersonAgent):
         error = _validate_prepared_action(action, request, self._life_visible_objects, self._life_action_contracts)
         if error:
             raise RuntimeError(error)
-        error = life_menu.menu_action_error(self._life_interaction_menu, action, request)
+        error = life_menu.menu_action_error(self._life_interaction_menu, action,
+                                            _selected_actions(action, request, self._life_visible_objects))
         if error:
             raise RuntimeError(error)
         action_id = f"{context.decision_id}:action:0001"
@@ -873,32 +875,41 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
             for group in request.memories for memory in group]
 
 
-def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
-    """@brief 冻结本轮交互对象层：可读名称 -> 该对象自己的动作短语。
+def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[tuple[str, str, str], ...]]:
+    """@brief 冻结本轮交互对象层：可读名称 -> 该对象自己的（动词，方式，内部标准动作）。
 
-    每个对象只暴露对它自己合法的动作（docs/dev/SPEC-agent-interaction.md
-    「对象与动作选择」的绑定粒度裁决），start_activity 的
-    action 取值即这些枚举的并集投影，不是一张全局动作表。
-    空列表是合法状态（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条），
-    start_activity 照常可见；缺失或非列表的对象层仍是损坏的宿主观察。
+    公开行为 {object, actions: [{action, note}]}，action 是「动词：方式」（docs/dev/SPEC-time-and-energy.md
+    第五章「动作照常列出，做错了再说明」）；内部标准动作取本轮私有绑定，用于菜单与受限轮收窄。按世界事实过滤后
+    没有动作的对象以空列表列出，不进 start_activity 的 targets 枚举。空对象层是合法状态（「仍须修复」第 1 条），
+    start_activity 照常可见；缺失、非列表或与私有绑定不符的对象层是损坏的宿主观察。
     """
     rows = _facts_projection(data).get("interactive_objects")
-    if not isinstance(rows, list):
+    bindings = data.get("interaction_bindings")
+    if not isinstance(rows, list) or not isinstance(bindings, list):
         raise RuntimeError("LifeAgent interactive objects layer must be a list")
-    objects: dict[str, tuple[str, ...]] = {}
+    canonical = {(row.get("object"), action.get("verb"), action.get("label")): action.get("canonical_action")
+                 for row in bindings if isinstance(row, dict) for action in row.get("actions", [])}
+    objects: dict[str, tuple[tuple[str, str, str], ...]] = {}
     for row in rows:
         if not isinstance(row, dict):
             raise RuntimeError("LifeAgent interactive object must be an object")
         name, actions = row.get("object"), row.get("actions")
-        if not isinstance(name, str) or not name.strip() or name in objects:
+        if not isinstance(name, str) or not name.strip() or name in objects or not isinstance(actions, list):
             raise RuntimeError("LifeAgent interactive object identity is invalid")
-        if (not isinstance(actions, list) or not actions
-                or not all(isinstance(item, str) and item.strip() for item in actions)):
-            raise RuntimeError("LifeAgent interactive object actions are invalid")
-        if not isinstance(row.get("preconditions_met"), bool):
-            raise RuntimeError("LifeAgent interactive object preconditions flag is invalid")
-        objects[name] = tuple(sorted(set(actions)))
+        objects[name] = tuple(sorted(_visible_action(name, item, canonical) for item in actions))
     return objects
+
+
+def _visible_action(name: str, item: Any, canonical: dict[tuple, Any]) -> tuple[str, str, str]:
+    """@brief 解析一个公开动作「动词：方式」与说明，并取私有绑定的内部标准动作。"""
+    if (not isinstance(item, dict) or set(item) != {"action", "note"}
+            or not isinstance(item["action"], str) or not (item["note"] is None or isinstance(item["note"], str))):
+        raise RuntimeError("LifeAgent interactive object actions are invalid")
+    verb, _, way = item["action"].partition(VERB_WAY_SEPARATOR)
+    bound = canonical.get((name, verb, way))
+    if verb not in LIFE_VERBS or WAYS.get(way, ("",))[0] != verb or not isinstance(bound, str):
+        raise RuntimeError("LifeAgent interactive object action is not bound")
+    return verb, way, bound
 
 
 def _visible_progress(data: dict[str, Any]) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -974,12 +985,12 @@ def _visible_same_moment_stage(data: dict[str, Any]) -> SameMomentStage:
     return SameMomentStage(stage)
 
 
-def _same_moment_objects(stage: SameMomentStage, objects: dict[str, tuple[str, ...]],
-                         bindings: list[dict[str, Any]]) -> dict[str, tuple[str, ...]]:
-    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉受限轮排除的动作（到店购买与远程下单），
+def _same_moment_objects(stage: SameMomentStage, objects: dict[str, tuple[tuple[str, str, str], ...]]
+                         ) -> dict[str, tuple[tuple[str, str, str], ...]]:
+    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉受限轮排除的动作（到店与远程下单），
     wait_only 只留等待，不开放 start_activity 的阶段不列对象。
 
-    动作短语到内部标准动作的对应取本轮私有绑定；收窄后没有动作的对象不再列出。
+    动作到内部标准动作的对应取本轮私有绑定；收窄后没有动作的对象不再列出。
     """
     if stage == SameMomentStage.OPEN:
         return objects
@@ -988,11 +999,8 @@ def _same_moment_objects(stage: SameMomentStage, objects: dict[str, tuple[str, .
     wanted = filters.get(stage)
     if wanted is None:
         return {}
-    canonical = {(row["object"], action["label"]): action["canonical_action"]
-                 for row in bindings for action in row["actions"]}
-    narrowed = {name: tuple(label for label in labels if wanted(canonical.get((name, label))))
-                for name, labels in objects.items()}
-    return {name: labels for name, labels in narrowed.items() if labels}
+    narrowed = {name: tuple(item for item in actions if wanted(item[2])) for name, actions in objects.items()}
+    return {name: actions for name, actions in narrowed.items() if actions}
 
 
 def _same_moment_contracts(stage: SameMomentStage, contracts: dict[str, Any]) -> dict[str, Any]:
@@ -1109,46 +1117,54 @@ def _validate_prepared_action(
     return ""
 
 
-def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[str, ...]]) -> str:
-    """@brief 对象与动作逐项对应，并取自本轮可见交互对象。"""
+def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> str:
+    """@brief 对象、动词与方式逐项对应，并取自本轮可见交互对象列出的动作。"""
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
-        return f"start_activity accepts one or two targets"
-    if len(request.targets) != len(request.actions):
-        return "start_activity targets and actions must have equal lengths"
+        return "start_activity accepts one or two targets"
+    if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
+        return "start_activity targets, actions and ways must have equal lengths"
     if len(set(request.targets)) != len(request.targets):
         return "start_activity targets must be unique"
-    for target, action in zip(request.targets, request.actions):
+    for target, verb, way in zip(request.targets, request.actions, request.ways):
         actions = objects.get(target)
         if actions is None:
             return "start_activity target is not a visible interactive object"
-        if action not in actions:
-            return "start_activity action is not offered by the chosen target"
+        if not any(item[:2] == (verb, way) for item in actions):
+            return "start_activity verb and way are not offered by the chosen target"
     return ""
+
+
+def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
+                      ) -> list[str]:
+    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入）。"""
+    if action != "start_activity":
+        return []
+    return [item[2] for target, verb, way in zip(request.targets, request.actions, request.ways)
+            for item in objects.get(target, ()) if item[:2] == (verb, way)]
 
 
 def _bind_start_activity_schema(
     schemas: list[dict[str, Any]],
-    objects: dict[str, tuple[str, ...]],
+    objects: dict[str, tuple[tuple[str, str, str], ...]],
     allowed_actions: frozenset[str],
 ) -> None:
-    """@brief 把本轮交互对象身份与菜单允许的动作并集绑定到 start_activity Schema。
+    """@brief 把本轮交互对象身份、动词与方式绑定到 start_activity Schema。
 
-    地点菜单只剪裁动作枚举（docs/dev/SPEC-agent-interaction.md「保护项修订」），
-    因此绑定值是对象动作并集与菜单允许集合的交集。对象层为空（或交集为空）时
-    省略对应的 enum 键，不绑定空枚举；所填名称不在本轮对象中时由本地校验按协议错误
-    在本轮重试（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条）。
+    地点菜单按映射后的内部动作判定（docs/dev/SPEC-agent-interaction.md「保护项修订」），绑定值只取内部动作落在
+    菜单内的动作；没有这样动作的对象不进 targets 枚举。对象层为空（或交集为空）时省略对应的 enum 键，不绑定空枚举；
+    所填名称不在本轮对象中时由本地校验按协议错误在本轮重试（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条）。
     """
     start = next((item for item in schemas if item["function"]["name"] == "start_activity"), None)
     if start is None:
         return
-    union = {value for actions in objects.values() for value in actions}
+    offered = {name: [item for item in actions if item[2] in allowed_actions] for name, actions in objects.items()}
     properties = start["function"]["parameters"]["properties"]
-    targets = sorted(objects)
-    actions = sorted(label for label in union if canonical_action(label) in allowed_actions)
-    if targets:
-        properties["targets"]["items"]["enum"] = targets
-    if actions:
-        properties["actions"]["items"]["enum"] = actions
+    targets = sorted(name for name, actions in offered.items() if actions)
+    verbs = sorted({item[0] for actions in offered.values() for item in actions})
+    ways = sorted({item[1] for actions in offered.values() for item in actions})
+    for key, values in (("targets", targets), ("actions", verbs), ("ways", ways)):
+        if values:
+            properties[key]["items"]["enum"] = values
 
 
 def _bind_control_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:

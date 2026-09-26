@@ -1,4 +1,4 @@
-"""正式 4.0 目录数据、原生对象增量与可复现身份的验收。"""
+"""正式 4.1 目录数据、原生对象增量与可复现身份的验收。"""
 
 import hashlib
 import json
@@ -82,7 +82,7 @@ def test_raw_objects_are_native_deltas_and_preserve_population() -> None:
 
 def test_real_catalog_compiles_all_objects_and_rules() -> None:
     catalog = load_catalog(CATALOG)
-    assert (catalog.version_major, catalog.version_minor) == (4, 0)
+    assert (catalog.version_major, catalog.version_minor) == (4, 1)
     assert catalog.category_contract_version == 2
     assert len(catalog.raw_objects) == len(catalog.objects) == 163
     assert len(catalog.category_contract.categories) == 23
@@ -199,7 +199,7 @@ def test_life_scenarios_bind_catalog_four_and_explicit_empty_recipes() -> None:
         payload = json.loads(path.read_text(encoding="utf-8"))
         if payload.get("schema_version") != 3:
             continue
-        assert payload["catalog_version"] == {"major": 4, "minor": 0}
+        assert payload["catalog_version"] == {"major": 4, "minor": 1}
         assert payload["recipe_output_bindings"] == {}
 
 

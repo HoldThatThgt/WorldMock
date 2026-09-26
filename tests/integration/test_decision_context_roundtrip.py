@@ -82,8 +82,8 @@ async def _decide(environment, ctx, choose):
 
 
 def _wait(observation: dict) -> tuple[str, dict]:
-    """开始一段等待。"""
-    return "start_activity", {"targets": ["自己"], "actions": ["等待"]}
+    """对「自己」选择 interact：等待，开始一段等待。"""
+    return "start_activity", {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
 
 
 def _conclude_just_ended(observation: dict) -> tuple[str, dict]:

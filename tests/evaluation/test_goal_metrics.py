@@ -12,13 +12,19 @@ from worldmock.footprints.models import canonical_json
 
 CODE = "a" * 64
 ZONE = ZoneInfo("Asia/Shanghai")
+#: 外部约束闭集只保留营业、到达准入、路线与工作可用性（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，
+#: 做错了再说明」：删去 PICKUP_LOCATION_REQUIRED 与工作地点、技能不符的 ACTIVITY_PRECONDITION_UNMET）。
 FROZEN_EXTERNAL_CODES = {
     "MERCHANT_CLOSED", "MERCHANT_OPENING_UNKNOWN", "LOCATION_ACCESS_DENIED",
-    "ACTIVITY_PRECONDITION_UNMET", "WORK_TASK_NOT_AVAILABLE", "WORK_SUBMISSION_LATE",
+    "WORK_TASK_NOT_AVAILABLE", "WORK_SUBMISSION_LATE",
     "FROZEN_ROUTE_NOT_FOUND", "ROUTE_UNREACHABLE", "ROUTE_INFORMATION_UNKNOWN",
     "DELIVERY_ROUTE_NOT_FOUND", "DELIVERY_ROUTE_UNREACHABLE", "DELIVERY_ROUTE_INFORMATION_UNKNOWN",
-    "PICKUP_LOCATION_REQUIRED",
 }
+#: 人物选了带说明的动作而被拒绝：三个引导性拒绝码、占用冲突与已移出闭集的到店地点码，都计入 other_rejections。
+GUIDED_REJECTION_CODES = (
+    "ACTIVITY_PRECONDITION_UNMET", "ACTIVITY_CONCLUSION_REQUIRED", "SESSION_LIMIT_EXCEEDED",
+    "RESOURCE_CONFLICT", "PICKUP_LOCATION_REQUIRED",
+)
 
 
 def clock(day=0, hour=8, minute=0):
@@ -343,6 +349,31 @@ def test_terminal_action_replay_does_not_turn_cancelled_activity_into_rejection(
 
 def test_external_constraint_error_vocabulary_is_the_frozen_spec_set():
     assert EXTERNAL_CONSTRAINT_ERROR_CODES == FROZEN_EXTERNAL_CODES
+    assert not EXTERNAL_CONSTRAINT_ERROR_CODES & set(GUIDED_REJECTION_CODES)
+
+
+def test_guided_rejections_count_as_other_rejections_not_external_constraints():
+    """引导性拒绝（需要在某地或先结束手上的事、先收尾、名额已满）与占用冲突是人物选了带说明的动作：
+    逐动作计入 other_rejections，不计为外部约束，外部约束门禁仍通过（第五章「动作照常列出，做错了再说明」）。"""
+    events = []
+    for index, code in enumerate(GUIDED_REJECTION_CODES):
+        action = f"guided-{index}"
+        events += [
+            event(3 * index + 1, "action_rejected", clock(), {"error_code": code}, action_id=action),
+            event(3 * index + 2, "action_result", clock(), {"status": "rejected", "error_code": code},
+                  action_id=action),
+            event(3 * index + 3, "action_rejected", clock(), {"error_code": code, "reused": True}, action_id=action),
+        ]
+    metrics = report(events)
+    external = metrics["external_constraints"]
+    assert external["block_count"] == 0 and external["by_error_code"] == {}
+    assert external["other_rejections"] == {
+        "count": len(GUIDED_REJECTION_CODES),
+        "by_error_code": {code: 1 for code in sorted(GUIDED_REJECTION_CODES)},
+        "source_event_ids": sorted(f"e{3 * index + 1}" for index in range(len(GUIDED_REJECTION_CODES)))}
+    assert external["evidence_complete"] is True and external["observed_action_acceptance_rate"] == 0
+    assert metrics["gates"]["external_constraint_block_count"]["value"] == 0
+    assert metrics["gates"]["external_constraint_block_count"]["pass"] is True
 
 
 @pytest.mark.parametrize("status", ["rejected", "failed"])

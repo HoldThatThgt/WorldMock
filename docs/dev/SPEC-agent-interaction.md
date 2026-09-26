@@ -179,7 +179,7 @@ stateDiagram-v2
 
 | 工具 | 可见性 | 收 | 语义 |
 | --- | --- | --- | --- |
-| `start_activity` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动，每项占一个名额；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
+| `start_activity` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `targets: list[str]`、`actions: list[str]`、`ways: list[str]`（等长 1–2 项；`actions[i]` 取五个动词，`ways[i]` 取对象列出的方式） | 逐项启动活动，每项占一个名额；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
 | `recall_task_summary` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `task_name: str` | 只读回看可读的任务、当日目标、活动或会话名称；结果在下一次观察的 `facts.progress.results[].details.recall` 中呈现；不改变世界 |
 | `report_status` | 有进行中或暂停的活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项活动；播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点 |
 | `pause_activity` | 有进行中活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项进行中活动；暂停所选活动，暂停仍占名额；路上的活动不能暂停 |
@@ -211,27 +211,27 @@ stateDiagram-v2
 
 ### 对象与动作选择
 
-`facts.interactive_objects` 每行只提供唯一可读的 `object`、对象种类、可读 `actions` 和
-可公开的前置条件。人可以直接理解每个活动，例如「张江办公室」配「步行前往」「乘地铁前往」，
-「午餐套餐」配「到店购买」「配送到当前位置」，「项目周会纪要」配「开始工作」。
-动作短语携带人物真正需要选择的出行方式和履约方式；票价、版本、时长、库存、数量由系统
+`facts.interactive_objects` 每行只提供唯一可读的 `object` 与 `actions: [{action, note}]`：`action` 是「动词：方式」的
+可读短语，`note` 是未满足条件的一句说明（没有时为 null）。人可以直接理解每个活动，例如「地点：张江办公室」配
+「travel：步行」「travel：驾车」，「门店出售的午餐套餐」配「obtain：到店」「obtain：远程下单」，「工作：项目周会纪要」配
+「interact：工作」，「内容：Sintel」配「interact：接着看」。方式携带人物真正需要选择的出行方式和履约方式；票价、版本、时长、库存、数量由系统
 告知或内部计算，不成为模型参数。`submit_work` 和 `send_message` 不列为 `start_activity`
 动作；其名称、成果、正文由独立工具处理。
 
 ```mermaid
 flowchart LR
-    O["可读对象与动作<br/>模型可见"] --> S["start_activity(targets, actions)<br/>逐项配对"]
+    O["可读对象、动词与方式<br/>模型可见"] --> S["start_activity(targets, actions, ways)<br/>逐项配对"]
     S --> B["本轮冻结观察的私有绑定"]
-    B --> V["引擎校验资源与前置条件<br/>计算时长、数量、当前报价"]
+    B --> V["引擎校验占用与准入事实<br/>计算时长、数量、当前报价"]
     V -->|受理| A["启动活动并结算"]
     V -->|业务拒绝| R["公开原因及可执行建议<br/>下一次决策继续"]
 ```
 
-冻结观察中的私有 `interaction_bindings` 只供宿主解析：可读对象和动作映射到内部对象身份、
-标准动作、路线方式及该对象的冻结报价。该绑定不进入模型提示或工具返回。
+冻结观察中的私有 `interaction_bindings` 只供宿主解析：（可读对象，动词，方式）映射到内部对象身份、
+标准动作、路线方式、履约方式、`use_mode` 及该对象的冻结报价；映射不唯一或不在本轮闭集中时报 `ACTION_REQUEST_INVALID`。该绑定不进入模型提示或工具返回。
 私有 `activity_bindings` 与 `session_bindings` 把本轮可读的活动名与会话名映射到内部身份（活动绑定另带阶段，
 同一轮重名时追加「（第二次）」这类序号）；模型只见 `facts.progress.sessions[]` 中的会话名与活动名。
-对同一个对象的多个合法动作逐一展示；`targets[i]` 与 `actions[i]` 逐项对应，
+对同一个对象的多个合法动作逐一展示；`targets[i]`、`actions[i]` 与 `ways[i]` 逐项对应，
 每个对象只需支持自己选中的动作。两项可以是不同动作，例如步行与观看；
 引擎验证组合能否并行，任一项不合法则整组不启动。
 每项出行都须对应自己的目的地；每项购买都读取该供给自己的冻结报价，不能把一件商品的
@@ -242,46 +242,48 @@ flowchart LR
 | 动作 | 不由模型填写的执行参数 |
 | --- | --- |
 | 前往 | 由所选目的地与方式解析冻结路线，使用路线精确秒数和票价；展示分钟数仅供阅读 |
-| 工作 | 时长取剩余合同秒数、距截止秒数与活动允许上限中的最小值；30 分钟播报边界可在活动进行中唤醒 |
-| 观看 | 正常续看取剩余内容秒数向下取整，重看取完整内容时长；速度固定为 1 倍 |
-| 游戏内容 | 取内容剩余时长；场景游戏取场景 `activity_feedback_seconds` |
-| 生活活动 | 取目录 `typical_duration_minutes` 换算的秒数 |
+| 工作 | 时长取剩余合同秒数、距截止秒数与活动允许上限中的最小值；距截止与剩余合同都不少于 60 秒才开工；30 分钟播报边界可在活动进行中唤醒 |
+| 观看 | 「接着看」取剩余内容秒数；已看完或剩余不足 60 秒时为「从头再看」，取完整内容时长；超过 86400 秒按 86400 秒受理；速度固定为 1 倍 |
+| 游戏内容 | 取内容剩余时长，超过 86400 秒按 86400 秒受理；场景游戏取场景 `activity_feedback_seconds` |
+| 生活活动 | 取目录 `typical_duration_minutes` 换算的秒数，超过 86400 秒按 86400 秒受理 |
 | 浏览、阅读邮件、等待 | 取场景 `activity_feedback_seconds` |
-| 交谈、通话 | 取场景 `activity_feedback_seconds` 向下取整到完整分钟，并受领域 120 分钟上限约束 |
+| 交谈、通话 | 由场景 `activity_feedback_seconds` 派生后截取（通话 600–3600 秒、交谈 60–7200 秒）并取整到完整分钟，不再受请求模型 120 分钟上限约束 |
 | 睡眠 | 人物当前 `sleep_need_hours × 3600`，按最近整数秒取整 |
 | 购买、食用或使用持有物 | 每个所选对象数量为一份；购买使用各自冻结报价及所选动作对应的履约方式；持有物从目录 `use_modes` 展示「食用」或「使用」，引擎按冻结绑定的 `eat` / `use` 结算；余额、库存、地点和组合相容性在结算时重验 |
 
-时长换算为正整数秒后还须通过领域原有的最短 60 秒、最长 86400 秒、资源、地点、
-截止时间和能量校验；无法成立时返回说明具体约束的业务拒绝，不改用猜测值或静默截短。
+时长换算为正整数秒后，非出行活动最短 60 秒；观看、游戏内容与生活活动超过 86400 秒按 86400 秒受理并在结果写明
+计划时长；出行超限以 `ROUTE_DURATION_INVALID` 拒绝；占用、地点、截止时间等准入事实照常校验，能量不参与。
+无法成立时返回说明具体约束的业务拒绝（带原因与下一步），不改用猜测值。
 无时长动作不虚构会话时长。领域内部请求仍可带 `planned_duration_seconds`、
 `price_version` 等字段，但由引擎从同一冻结观察填充，模型永不回填。
 
-**Schema 约束**：模型工具只包含 `targets` 与 `actions` 两个必填数组。
-两数组等长一至二项；`actions[i]` 的合法性按 `targets[i]` 对象本轮动作闭集验证，
-不能在模型工具 Schema 中加入动作专属参数。
+**Schema 约束**：模型工具只包含 `targets`、`actions` 与 `ways` 三个必填数组。
+三数组等长一至二项；`actions[i]` 取五个动词，（`actions[i]`，`ways[i]`）的合法性按 `targets[i]` 对象本轮列出的动作
+验证，不能在模型工具 Schema 中加入动作专属参数。
 
-DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
+DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1161` `_DEEPSEEK_UNSUPPORTED_SCHEMA_KEYS`）：
 `oneOf`、`minLength`、`maxLength`、`minItems`、`maxItems`、`default`。
 
 由此产生一条硬约束：**字符上限与「至多 2 个」的并发上限都不能写在工具 Schema 里**，
 只能在提示词与业务规则中表达。故并发上限的 Schema 侧无约束，
 `SESSION_LIMIT_EXCEEDED` 由业务规则独立兜住。
-所有属性必须必填（strict 模式要求），不设缺省值（`default` 亦在禁用清单内）。
+所有属性必须必填（strict 模式要求），不设缺省值（`default` 亦在禁用清单内）；`conclude_activity.memories` 的数量与
+长度上限同样只由本地校验兜住。
 
 **一次决策仍只提交一个工具请求**（`SPEC-life-runtime.md` 不变）。
-一个 `start_activity` 请求可逐项启动一至两个活动；两项按既有资源和身体约束共同校验，
-不相容则整组拒绝。`plan_day` / `revise_day_plan` 是独立登记工具，
-**不是** `actions` 的取值。
+一个 `start_activity` 请求可逐项启动一至两个活动；两项按[时间与能量规格](SPEC-time-and-energy.md)第五章「并行准入」
+共同校验（名额、目标在场与实际地点、出行方式、注册表占用、物品状态，能量不参与），任一项不成立则整组拒绝。
+`revise_day_plan` 是独立登记工具，**不是** `actions` 的取值。
 
 ### 保护项修订
 
-保护集随工具面收敛为四类：
+保护集随工具面收敛为五类：
 
 | 类别 | 成员 | 为什么必须保护 |
 | --- | --- | --- |
 | 永恒可见 | `start_activity`、`recall_task_summary` | 不保留则人物无法开始任何事、无法回看进展；同刻上限的受限轮是例外（见本节末段） |
 | 活动退出通道 | `report_status`、`pause_activity`、`conclude_activity` | **有进行中、暂停或待收尾的活动时可见**（各自按活动阶段开放）：三者是恢复、暂停与结束活动的**唯一**手段，剪掉会让活动永久占着名额 |
-| 「自身」对象的动作 | `wait`、`sleep` | 不保留则无法等待与睡眠 |
+| 「自身」对象的动作 | `wait`、`sleep`（内部标准动作；场景 `allowed_actions` 与菜单保护项沿用内部名，人物所见分别为 `interact` 的「自己」对象（方式「等待」）与动词 `sleep`） | 不保留则无法等待与睡眠 |
 | 当日目标登记 | `plan_day`、`revise_day_plan` | 不保留则无法登记或修订当日目标；二者的条件可见性不变（**清醒**日首尚无计划时只开放 `plan_day`，已有计划时开放 `revise_day_plan`） |
 | 创作内容出口 | `submit_work`、`send_message` | 可提交工作成果与通信正文，不能由 `start_activity` 捏造内容 |
 
@@ -599,3 +601,4 @@ flowchart LR
 | 1.4 | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 17–21 行修订，修订部分待实现：三级结构改为当日目标 → 地点会话 → 活动，进度与自述挂在活动上，会话字段按该规格第七章重写；`start_activity` 为 `targets`、`actions`、`ways` 三个等长数组；播报只针对进行中活动，唤醒表增 `no_active_activity`、`plan_reminder_due`，业务拒绝后同一秒再决策；能量不是前置条件，交互对象照常列出并带说明；进度层按会话分组列活动，浓缩单位改为会话与已收尾活动；前置条件表的判定处按代码更正为 `ACTIVITY_PRECONDITION_UNMET`（既有漂移，原文 `WORK_LOCATION_REQUIRED`、`WORK_SKILL_INSUFFICIENT`），并刷新 `models.py`、`schedule.py`、`work.py` 行号；system 加「怎样过一天」，饿时补吃饭途径句；游戏为 `interact` 的合法目标；验收台账相应改写；修订 #2 改为常量名额，修订 #7 被取代；人物工具八个。「稳定工具面」「保护项修订」「对象与动作选择」「事件与重建约束」随代码修订。补记未入表的就地改动：`eee89fc` 在「决策轮循环与播报节律」加入 `RESOURCE_CONFLICT` 的延迟排期与按执行器资源声明检查占用；`778beca` 在「前置条件前置与前往提醒」改为交互对象只列当前可执行的对象与动作；二者由本版取代 |
 | 1.5 | 2026-09-25 | 按时间与能量规格阶段 1（AI8）：「保护项修订」注明永恒可见的两件工具在同刻上限的受限轮中例外，新增受限轮收窄一段：按观察私有证据 `same_moment_stage`，`start_or_resume` 只开放开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单），`wait_only` 只开放等待；依赖名额与待收尾的三个阶段按最终行为写明：`conclude_pending` 只开放 `conclude_activity`，名称只列待收尾活动且须一次点名全部，`resume_or_conclude` 在两个名额都被暂停活动占着时恢复或结束其中一项，`conclude_only` 在名额满时开始或恢复被拒后只开放结束（名称只列占名额的活动）、此后只开放等待；名称枚举只列当下可执行项，记忆查询照常，形状错误按协议错误在本轮重试；越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝并计入同刻轮数；「稳定工具面」表中 `start_activity`、`recall_task_summary` 的「永恒可见」注明受限轮除外 |
 | 1.6 | 2026-09-25 | 按时间与能量规格阶段 3（AI6、AI8、AI15）：「稳定工具面」的五个工具改称活动动作，控制对象由会话改为活动（`task[]` 只取活动名，回看可取任务、当日目标、活动或会话名，结果在下一次观察的 `details.recall` 中呈现），`report_status` 在有进行中或暂停的活动时可见并在开始地点恢复暂停的活动，`pause_activity` 不暂停路上的活动，`conclude_activity` 收 `memories` 并可结束进行中、暂停或待收尾的活动，生活决策没有 `finish`；「保护项修订」的退出通道改为活动退出通道；「对象与动作选择」的私有名称绑定改为活动绑定与会话绑定；「事件与重建约束」写明会话由系统开始和结束、只进世界状态，暂停、恢复与结束逐活动写 `environment_event` |
+| 1.7 | 2026-09-25 | 按时间与能量规格阶段 4（AI6、AI7、AI8）：`start_activity` 收 `targets`、`actions`、`ways` 三个等长数组，`actions` 取五个动词；「对象与动作选择」的公开行改为 `{object, actions: [{action, note}]}`、示例改为动词加方式，私有绑定另记履约方式与 `use_mode`，引擎按占用与准入事实校验；派生参数表补开工 60 秒、「接着看 / 从头再看」、86400 秒上限与交谈、通话的截取区间；「Schema 约束」改为三个必填数组；保护项为五类，`wait`、`sleep` 注明人物所见的动词与方式 |

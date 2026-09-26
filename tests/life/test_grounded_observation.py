@@ -89,15 +89,16 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     supply = next(item for item in observation["supplies"] if item["supply_id"] == supply_id)
     binding = next(item for item in observation["interaction_bindings"]
                    if item["kind"] == "supply" and item["object_id"] == supply_id)
-    action = binding["actions"][0]["label"]
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+    choice = binding["actions"][0]
+    request = StartActivityRequest(targets=[binding["object"]], actions=[choice["verb"]], ways=[choice["label"]])
     decision = ReactDecision("", "start_activity", request.model_dump(mode="json"), "")
 
     assert supply["current_stock"] == 1 and "initial_stock" not in supply
     assert observation["available_inventory"][product_id] == 0
     assert "start_activity" in _function_names(agent)
-    assert action in next(item["actions"] for item in observation["facts"]["interactive_objects"]
-                          if item["object"] == binding["object"])
+    assert choice["verb"] == "obtain" and choice["canonical_action"] == "purchase"
+    assert {"action": f"obtain：{choice['label']}", "note": None} in next(
+        item["actions"] for item in observation["facts"]["interactive_objects"] if item["object"] == binding["object"])
     assert agent.validate_react_decisions([decision], False) == ""
 
     engine.submit_action(DirectToolCall(
@@ -121,7 +122,13 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     assert sold_out["current_stock"] == 0 and "initial_stock" not in sold_out
     assert all(item["object_id"] != supply_id or not item["actions"]
                for item in refreshed["interaction_bindings"] if item["kind"] == "supply")
+    # 售罄是世界事实（不出售的供给不列取得方式）：人物所见没有它的任何动作，它也不进 start_activity 的对象枚举。
+    assert all(not row["actions"] for row in refreshed["facts"]["interactive_objects"]
+               if row["object"] == binding["object"])
     assert "start_activity" in _function_names(next_agent)
+    start = next(item["function"] for item in next_agent.build_react_tool_schemas(readonly=False)
+                 if item["function"]["name"] == "start_activity")
+    assert binding["object"] not in start["parameters"]["properties"]["targets"]["items"].get("enum", [])
 
 
 def test_observation_keeps_current_epoch_without_plan_conversion_anchors(engine_factory) -> None:
@@ -178,10 +185,10 @@ def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_f
     assert _plan_row(agent, day_end) is None
 
 
-def _stage_progress_limits(engine) -> None:
-    """形成工作合同剩余五十九秒和全部内容媒体剩余九秒的真实状态。"""
+def _stage_progress_limits(engine, tail: str = "contract") -> None:
+    """形成工作合同剩余五十九秒和全部内容媒体剩余九秒的真实状态；tail 为 deadline 时另把时刻放在截止前五十九秒。"""
     task = engine.scenario.tasks[0]
-    now = int(task.available_at.timestamp())
+    now = int(task.available_at.timestamp()) if tail == "contract" else int(task.due_at.timestamp()) - 59
     worked = task.maximum_duration_seconds - 59
     state = engine.state.model_copy(deep=True)
     state.current_time = now
@@ -212,11 +219,12 @@ def _stage_progress_limits(engine) -> None:
         ended_at=now,
         planned_end_at=now,
         last_settled_at=now,
+        concluded_at=now,
         elapsed_seconds=worked,
         planned_duration_seconds=worked,
         effective_work_seconds=task.required_effective_seconds,
         target_id=task.task_id,
-        resource_claims={"position", "attention", "device", "hands"},
+        resource_claims={"work", "idle"},
         origin_action_id="work-limit-action",
         origin_decision_id="work-limit-decision",
         origin_request_event_id="work-limit-request",
@@ -225,36 +233,60 @@ def _stage_progress_limits(engine) -> None:
     _commit_test_state(engine, state, "test_progress_limits")
 
 
-def test_real_observation_hides_impossible_media_and_work_tail_starts(engine_factory) -> None:
-    """环境公开同一结算进度，Schema 撤下尾段启动但保留已完成工作提交。"""
+@pytest.mark.parametrize(("tail", "note"), [
+    ("contract", "这项工作的合同工时只剩不到一分钟，来不及开始"),
+    ("deadline", "离截止不到一分钟，来不及开始"),
+], ids=["contract", "deadline"])
+def test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note(
+        engine_factory, tail: str, note: str) -> None:
+    """不按人物状态剪裁（第五章、第八章「工作」「呈现」）：剩余不足 60 秒的内容列为「从头再看」并写全长；
+    距截止或剩余合同不足 60 秒的任务照常列出工作动作并带说明，选了以 ACTIVITY_DURATION_INVALID 返回同一原因与
+    下一步；已完成工作的提交照常可用。"""
+    from worldmock.life.activity_control import readable_duration
+
     engine = engine_factory()
     stage_day_plan(engine)
-    _stage_progress_limits(engine)
+    _stage_progress_limits(engine, tail)
     observed_context = context(engine, "progress-limits")
     engine.begin_decision_round([observed_context])
     observation = engine.observe(observed_context)
     agent = _prepare_agent(observation, observed_context.observed_at)
     task = observation["tasks"][0]
-    content_id = engine.scenario.contents[0].item_id
-    progress = observation["content_progress"][content_id]
     schemas = {
         item["function"]["name"]: item["function"]
         for item in agent.build_react_tool_schemas(readonly=False)
     }
-    interactions = observation["facts"]["interactive_objects"]
+    public = {row["object"]: row["actions"] for row in observation["facts"]["interactive_objects"]}
 
     assert task["remaining_contract_seconds"] == 59
     assert task["worked_seconds"] == engine.scenario.tasks[0].maximum_duration_seconds - 59
     assert task["effective_seconds"] == engine.scenario.tasks[0].required_effective_seconds
     assert task["material"]["end_char"] == task["material"]["total_chars"]
-    assert progress["remaining_media_seconds"] == 9
-    assert all(item["object_id"] != task["task_id"]
-               for item in observation["interaction_bindings"] if item["kind"] == "work_task")
-    assert all(item["object_id"] != content_id
-               for item in observation["interaction_bindings"] if item["kind"] == "content")
-    assert all(row["actions"] for row in interactions)
+    assert {row["remaining_media_seconds"] for row in observation["content_progress"].values()} == {9}
+    work = next(row for row in observation["interaction_bindings"]
+                if row["kind"] == "work_task" and row["object_id"] == task["task_id"])
+    assert public[work["object"]] == [{"action": "interact：工作", "note": note}]
+    contents = {item.item_id: item for item in engine.scenario.contents}
+    listed = [row for row in observation["interaction_bindings"] if row["kind"] == "content"]
+    assert listed
+    for row in listed:
+        item = contents[row["object_id"]]
+        way = "从头再听" if item.kind == "podcast_episode" else "从头再看"
+        assert public[row["object"]] == [{"action": f"interact：{way}",
+                                          "note": f"全长{readable_duration(item.duration_seconds)}"}]
+    properties = schemas["start_activity"]["parameters"]["properties"]
+    assert work["object"] in properties["targets"]["items"]["enum"]
+    assert {"工作", "从头再看"} <= set(properties["ways"]["items"]["enum"])
+    assert "接着看" not in properties["ways"]["items"]["enum"]
     assert "submit_work" in schemas
     assert set(schemas["submit_work"]["parameters"]["properties"]) == {"task_name", "deliverable"}
+
+    engine.submit_action(DirectToolCall(observed_context, "action-progress-limits", "start_activity",
+                                        start_activity("工作", work["object"])))
+    result = engine.commit_decision_round("progress-limits")[0]
+    assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
+    assert (result.data["reason"], result.data["next_step"]) == (note, "提交已完成的部分")
+    assert not any(item.kind == "work" and item.status == "active" for item in engine.state.activities.values())
 
 
 def _stage_titled_progress(engine) -> None:
@@ -311,7 +343,7 @@ def _start_active_activity(engine, kind: str) -> str:
         binding, action = next((row, action) for row in observed["interaction_bindings"]
                                for action in row["actions"]
                                if row["object_id"] == task_id and action["canonical_action"] == "work")
-        request = StartActivityRequest(targets=[binding["object"]], actions=[action["label"]])
+        request = StartActivityRequest(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
     else:
         stage_day_plan(engine)
         request = start_activity("浏览", "商品目录")
@@ -320,7 +352,7 @@ def _start_active_activity(engine, kind: str) -> str:
 
 @pytest.mark.parametrize("kind", ["work", "drive", "browse"])
 def test_real_observation_during_active_activity_keeps_decision_open(engine_factory, kind: str) -> None:
-    """工作、驾车、浏览进行中被唤醒时决策照常准备，start_activity 可见且不绑定空枚举。"""
+    """工作、驾车、浏览进行中被唤醒时决策照常准备，start_activity 可见且对象、动词与方式都不绑定空枚举。"""
     engine = engine_factory()
     activity_id = _start_active_activity(engine, kind)
     wake_by_mail(engine, offset=60)
@@ -336,7 +368,7 @@ def test_real_observation_during_active_activity_keeps_decision_open(engine_fact
 
     assert "start_activity" in schemas
     properties = schemas["start_activity"]["parameters"]["properties"]
-    for field in ("targets", "actions"):
+    for field in ("targets", "actions", "ways"):
         enum = properties[field]["items"].get("enum")
         assert enum is None or (isinstance(enum, list) and enum)
     engine.abort_decision_round(round_id, "test teardown")
@@ -390,8 +422,7 @@ def test_decision_started_written_once_complete_with_decision_statement(engine_f
 
     # 自述已经持久化，登记动作不重复创建或修改证据。
     engine.submit_action(DirectToolCall(
-        ctx, "action-decision_statement", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        ctx, "action-decision_statement", "start_activity", start_activity("等待", "自己")))
     engine.commit_decision_round("decision_statement-round")
     assert len(_events_of(engine, "decision_started")) == 1
     assert engine.store.connection.execute(
@@ -423,8 +454,7 @@ def test_invalid_decision_statement_is_absent_from_direct_engine_evidence(engine
     assert _events_of(engine, "decision_started") == []
 
     engine.submit_action(DirectToolCall(
-        ctx, "action-decision_statement-invalid", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        ctx, "action-decision_statement-invalid", "start_activity", start_activity("等待", "自己")))
     engine.commit_decision_round("decision_statement-invalid")
     starts = _events_of(engine, "decision_started")
     assert len(starts) == 1

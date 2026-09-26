@@ -130,7 +130,7 @@ def _advance_until_agent_ready(engine, agent_id: int = 1, limit: int = 96) -> No
             advance_next(engine)
             continue
         submit_round(engine, {rid: ("start_activity",
-                                    StartActivityRequest(targets=["自己"], actions=["等待"]))
+                                    StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
                               for rid in ready}, f"filler-{index}")
 
 
@@ -141,7 +141,7 @@ def _act_ready(engine, round_id: str, tool_name: str, request, agent_id: int = 1
     for rid in ready:
         requests[rid] = (tool_name, request) if rid == agent_id else (
             "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["等待"]))
+            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
     _, results = submit_round(engine, requests, round_id)
     return next(item for item in results if item.agent_id == agent_id)
 
@@ -424,7 +424,7 @@ def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None
     """活动集合中人物归属未知时世界状态拒绝恢复。"""
     engine = engine_factory()
     started = _act(engine, "owner-wait", "start_activity",
-                   StartActivityRequest(targets=["自己"], actions=["等待"]))
+                   StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
     staged = engine.state.model_copy(deep=True)
     staged.activities[started.activity_id] = staged.activities[started.activity_id].model_copy(
         update={"agent_id": 999}, deep=True)
@@ -913,7 +913,7 @@ def test_begin_decision_round_rejects_double_open_and_bad_contexts(engine_factor
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
         ctx, "action-one", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="cannot be started"):
         engine.begin_decision_round([ctx])
     with pytest.raises(ProtocolError, match="cannot be started"):
@@ -934,13 +934,13 @@ def test_same_round_resubmit_is_idempotent_and_parameter_conflict_fails(engine_f
     engine = engine_factory()
     ctx = context(engine, "replay-round")
     engine.begin_decision_round([ctx])
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
     call = DirectToolCall(ctx, "same-action", "start_activity", request)
     first = engine.submit_action(call)
     second = engine.submit_action(call)
     assert second == first
     assert len(engine._round.pending_actions) == 1
-    changed = StartActivityRequest(targets=["自己"], actions=["睡觉"])
+    changed = StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"])
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(ctx, "same-action", "start_activity", changed))
 
@@ -952,7 +952,7 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
         ctx, "action-review-missing", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="does not exist"):
         await engine.prepare_pending_work_review("ghost-action")
     # 非工作提交的挂起动作不进入评审（静默返回，不记录评审）。
@@ -973,14 +973,14 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
         _at_task_start(engine)
         stage_day_plan(engine)
     if kind == "wait":
-        request = StartActivityRequest(targets=["自己"], actions=["等待"])
+        request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
         tool = "start_activity"
     else:
         task_id = engine.scenario.tasks[0].task_id
         row = next(item for item in engine._visible_task_rows(engine.state.agents[1])
                    if item["task_id"] == task_id)
         request = StartActivityRequest(
-            targets=[f"工作：{row['title']}"], actions=["工作"])
+            targets=[f"工作：{row['title']}"], actions=["interact"], ways=["工作"])
         tool = "start_activity"
     started = _act(engine, "busy-work-or-wait", tool, request)
     assert started.status == "in_progress"
@@ -1013,7 +1013,7 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
     engine.begin_decision_round(contexts)
     engine.submit_action(DirectToolCall(
         contexts[0], "action-partial", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="every expected agent"):
         engine.commit_decision_round("partial")
 
@@ -1021,7 +1021,7 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
 def test_abort_decision_round_skips_memory_for_reused_action(engine_factory) -> None:
     """中止轮对重放动作不重复写入幂等记忆。"""
     engine = engine_factory()
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
     _act(engine, "abort-first", "start_activity", request)
     advance_until_ready(engine)
     ctx = context(engine, "abort-replay")
@@ -1080,7 +1080,7 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
     engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-advance-guard", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("advance-guard")
     with pytest.raises(ProtocolError, match="next scheduling boundary"):
         engine.advance(601, datetime.fromtimestamp(engine.state.current_time + 600, zone))
@@ -1102,7 +1102,7 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
     engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-boundary-jump", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"])))
+        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("boundary-jump")
     now = engine.state.current_time
     next_epoch = engine._next_epoch()
@@ -1216,7 +1216,7 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
         engine.begin_decision_round([versioned])
 
     ctx = context(engine, "call-guards")
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
     with pytest.raises(ProtocolError, match="requires an open decision round"):
         engine.submit_action(DirectToolCall(ctx, "a-1", "start_activity", request))
     engine.begin_decision_round([ctx])
@@ -1312,8 +1312,8 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     _, results = submit_round(engine, {
-        1: ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])),
-        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))}, "own-start")
+        1: ("start_activity", StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])),
+        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))}, "own-start")
     assert {item.agent_id: item.status.value for item in results} == {1: "in_progress", 2: "in_progress"}
     other = next(item.activity_id for item in results if item.agent_id == 2)
     wake_by_mail(engine, agent_id=1, offset=60)
@@ -1359,7 +1359,7 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
     ctx = context(engine, "buy-invisible")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    object_name, action = "不存在的供给", "配送到当前位置"
+    object_name, way = "不存在的供给", "远程下单"
     if existing:
         shown = set(engine._pending_visible_supplies[1])
         discovery = engine._discovery_context(engine.state.agents[1])
@@ -1374,9 +1374,9 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
                        if item.product_id == supply.product_id)
         place = next(item for item in engine.scenario.locations
                      if item.location_id == supply.location_id)
-        object_name, action = f"{place.name}出售的{product.name}", "到店购买"
+        object_name, way = f"{place.name}出售的{product.name}", "到店"
     before = engine.state.model_copy(deep=True)
-    request = StartActivityRequest(targets=[object_name], actions=[action])
+    request = StartActivityRequest(targets=[object_name], actions=["obtain"], ways=[way])
     engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
     result = engine.commit_decision_round("buy-invisible")[0]
     assert result.status.value == "rejected"
@@ -1427,8 +1427,9 @@ def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
     assert result.error_code == "PLAN_NOT_FOUND"
 
 
-def test_send_message_rejects_unknown_recipient_and_non_model_contact(engine_factory) -> None:
-    """未知收件人业务拒绝（引擎边界转换，非裸 ValueError 杀 run）；非模型回复策略联系人拒绝登记回复请求。"""
+def test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_contact(engine_factory) -> None:
+    """未知收件人业务拒绝（引擎边界转换，非裸 ValueError 杀 run）；给 none 策略联系人的消息照常送达、不回复：
+    不登记模型回复请求，也不预排回复（第五章「动作照常列出，做错了再说明」，不再以 CONTACT_REPLY_NOT_MODEL 拒绝）。"""
     engine = engine_factory()
     rejected = _act(engine, "say-ghost", "send_message",
                     SendMessageActionRequest(recipient_name="不存在的联系人", text="hi"))
@@ -1436,19 +1437,28 @@ def test_send_message_rejects_unknown_recipient_and_non_model_contact(engine_fac
     assert rejected.error_code == "RECIPIENT_NOT_FOUND"
 
     multi = engine_factory("multi-person.json")
+    contact = next(item for item in multi.scenario.agents[0].contacts if item.contact_id == "contact-chenxi-colleague")
+    assert contact.reply_policy == "none"
     observed = multi.observe(context(multi, "colleague-preview"))
     colleague = next(row for row in observed["interaction_bindings"]
                      if row["object_id"] == "contact-chenxi-colleague")
-    refused = _act_ready(multi, "say-colleague", "send_message",
-                         SendMessageActionRequest(recipient_name=colleague["object"], text="hi"))
-    assert refused.error_code == "CONTACT_REPLY_NOT_MODEL"
+    delivered = _act_ready(multi, "say-colleague", "send_message",
+                           SendMessageActionRequest(recipient_name=colleague["object"], text="hi"))
+    assert delivered.status.value == "completed" and delivered.error_code is None
+    assert delivered.data["recipient_id"] == "contact-chenxi-colleague"
+    events = multi.store.read_events(multi.store.last_event_seq)
+    assert [event.data["recipient_id"] for event in events if event.data.get("kind") == "message_arrival"
+            and event.data.get("message_id") == delivered.data["message_id"]] == ["contact-chenxi-colleague"]
+    assert not [event for event in events if event.data.get("kind") == "model_npc_reply_pending"]
+    assert not [item for item in multi.state.pending_events if item.kind == "message_arrival"]
+    assert not multi.state.agents[1].inbox
 
 
 def test_call_rejects_unknown_contact(engine_factory) -> None:
     """未声明联系人的通话被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "call-ghost", "start_activity",
-                  StartActivityRequest(targets=["联系人：不存在的人"], actions=["通话"]))
+                  StartActivityRequest(targets=["联系人：不存在的人"], actions=["interact"], ways=["通话"]))
     assert result.status.value == "rejected"
     assert result.error_code == "ACTION_REQUEST_INVALID"
 
@@ -1492,8 +1502,9 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    requests = {1: ("start_activity", StartActivityRequest(targets=["人物：李凡"], actions=["交谈"])),
-        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))}
+    requests = {1: ("start_activity", StartActivityRequest(targets=["人物：李凡"], actions=["interact"],
+                                                           ways=["交谈"])),
+        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))}
     _, results = submit_round(engine, requests, "chat-start")
     chat = next(item for item in results if item.agent_id == 1)
     assert chat.status.value == "in_progress"

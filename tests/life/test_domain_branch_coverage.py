@@ -112,9 +112,11 @@ from worldmock.life.semantics import (
     load_runtime_scenario,
 )
 from worldmock.life.social_actions import (
+    SOCIAL_RESOURCE_CLAIMS,
     advance_social,
-    chat_accepted,
+    end_partner_chats,
     partner_presence,
+    shared_chat_seconds,
     social_activity_change,
     start_call,
     start_chat,
@@ -434,9 +436,10 @@ def test_social_actions_partner_presence_rejects_unknown_partner() -> None:
 
 
 def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(engine_factory) -> None:
-    """社交启动声明注意力资源，引擎对已有播放逐项拒绝冲突。"""
+    """交谈、通话占用说与听（voice、ears）；正在看的视频占 eyes、ears，引擎按 ears 的交集逐项拒绝
+    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）。"""
     busy = _agent()
-    watch = _activity(resource_claims={"attention", "device"})
+    watch = _activity(resource_claims={"eyes", "ears"})
     state = _social_state(busy, activities={watch.activity_id: watch})
     state.agents[2] = _agent(agent_id=2, location_id="home")
     request = StartSocialActivityRequest(kind="chat", partner_id="agent:2",
@@ -447,31 +450,96 @@ def test_social_actions_start_chat_and_call_conflict_with_occupied_resources(eng
     call = start_call(busy, contact, request, _origin(), CURRENT)
     engine = engine_factory()
     for started in (chat, call):
-        assert "attention" in started.activity.resource_claims
+        assert started.activity.resource_claims == SOCIAL_RESOURCE_CLAIMS == {"voice", "ears"}
         with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
             engine._require_available_resources(state, busy.agent_id, started.activity.resource_claims)
 
 
-def test_social_actions_chat_accepted_detects_partner_chat_activity() -> None:
-    """接受语义（「社交最小可行版」）：对方存在以本方为伙伴的进行中 CHAT 活动即已接受。"""
-    accepted = _activity(activity_id="a2", agent_id=2, kind=ActivityKind.CHAT,
-                         data={"partner_id": "agent:1", "accepted": False})
-    assert chat_accepted(_social_state(_agent(), activities={"a2": accepted}), 1) is True
-    assert chat_accepted(_social_state(_agent()), 1) is False
+def _chat(activity_id: str, agent_id: int, partner: int, **overrides) -> ActivityState:
+    """以另一人物为伙伴的进行中交谈（默认 0 秒开始、600 秒计划结束、尚未结算）。"""
+    return _activity(activity_id=activity_id, agent_id=agent_id, kind=ActivityKind.CHAT,
+                     data={"partner_id": f"agent:{partner}"}, **overrides)
+
+
+def test_social_actions_choosing_chat_with_the_inviter_accepts() -> None:
+    """对方正以本人为伙伴交谈时，对其选择交谈即接受：不再发邀请，计划结束对齐发起方；同一对人物再次发起以
+    CHAT_ALREADY_ACTIVE 拒绝（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    invitation = _chat("a2", 2, 1, started_at=CURRENT - 60, last_settled_at=CURRENT, planned_end_at=CURRENT + 540)
+    state = _social_state(_agent(), activities={"a2": invitation})
+    state.agents[2] = _agent(agent_id=2, name="B")
+    request = StartSocialActivityRequest(kind="chat", partner_id="agent:2", duration_minutes=10)
+    accepted = start_chat(state, state.agents[1], request, _origin(), "m1")
+    assert accepted.invite is None
+    assert accepted.activity.planned_end_at == invitation.planned_end_at
+    assert accepted.activity.data == {"partner_id": "agent:2", "accepted": True}
+    assert accepted.accepted.activity_id == "a2" and accepted.accepted.data["accepted"] is True
+    state.activities[accepted.activity.activity_id] = accepted.activity
+    with pytest.raises(BusinessRuleError, match="CHAT_ALREADY_ACTIVE"):
+        start_chat(state, state.agents[1], request, _origin(), "m2")
+    # 接受以共同在场为前提：准入已先按目标在场拒绝，领域层遇到不在一处的接受是程序错误。
+    apart = _social_state(_agent(), activities={"a2": invitation})
+    apart.agents[2] = _agent(agent_id=2, name="B", location_id="office")
+    with pytest.raises(ValueError, match="co-presence"):
+        start_chat(apart, apart.agents[1], request, _origin(), "m3")
+
+
+def test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap() -> None:
+    """接受带来的缓解按区间内双方交谈同时进行的秒数：对方以本人为伙伴的交谈在区间起点进行中才算，止于双方较早的
+    结束；以推进前的状态判定，两人谁先推进结果都一样（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    mine, partner = _chat("a1", 1, 2), _chat("a2", 2, 1)
+
+    def shared(other: ActivityState | None, target: int = 300) -> int:
+        activities = {"a1": mine} if other is None else {"a1": mine, "a2": other}
+        return shared_chat_seconds(_social_state(_agent(), activities=activities), mine, target)
+
+    both = _social_state(_agent(), activities={"a1": mine, "a2": partner})
+    assert shared_chat_seconds(both, mine, 300) == shared_chat_seconds(both, partner, 300) == 300
+    assert shared(partner, 900) == 600  # 本人的计划结束封顶
+    assert shared(partner.model_copy(update={"planned_end_at": 200})) == 200
+    # 对方在本次推进中先结算完成的，按其结束时刻计。
+    assert shared(partner.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 250})) == 250
+    assert shared(partner.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 0})) == 0
+    assert shared(partner.model_copy(update={"started_at": 100})) == 0  # 区间起点时还没有接受
+    assert shared(_chat("a2", 2, 3)) == 0  # 对方在和别人交谈
+    assert shared(None) == 0
+    call = _activity(kind=ActivityKind.CALL, data={"contact_id": "c1"})
+    assert shared_chat_seconds(both, call, 300) == 0
+
+
+def test_social_actions_ending_a_chat_ends_the_partner_chat_the_same_second() -> None:
+    """一方的交谈结束时，对方以其为伙伴的进行中交谈同秒结束：completed，boundary_type 与 interruption_reason
+    都记 partner_ended（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）；没有这样的对方交谈时世界不变。"""
+    mine, partner = _chat("a1", 1, 2), _chat("a2", 2, 1)
+    ended = mine.model_copy(update={"status": ActivityStatus.CANCELLED, "ended_at": 300})
+    before = _world(_agent(), activities={"a1": mine, "a2": partner}, current_time=300)
+    changed, partners = end_partner_chats(before, before.model_copy(update={"activities": {"a1": ended,
+                                                                                          "a2": partner}}))
+    closed = changed.activities["a2"]
+    assert partners == [2] and changed.activities["a1"] == ended
+    assert (closed.status, closed.ended_at, closed.boundary_type, closed.interruption_reason) == (
+        ActivityStatus.COMPLETED, 300, "partner_ended", "partner_ended")
+    alone = _world(_agent(), activities={"a1": mine}, current_time=300)
+    after = alone.model_copy(update={"activities": {"a1": ended}})
+    assert end_partner_chats(alone, after) == (after, [])
+    # 没有人物伙伴的交谈结束时不牵连任何人。
+    stray = _activity(activity_id="a3", kind=ActivityKind.CHAT, data={})
+    lone = _world(_agent(), activities={"a3": stray, "a2": partner}, current_time=300)
+    finished = lone.model_copy(update={"activities": {
+        "a3": stray.model_copy(update={"status": ActivityStatus.CANCELLED, "ended_at": 300}), "a2": partner}})
+    assert end_partner_chats(lone, finished) == (finished, [])
 
 
 def test_social_actions_advance_rejects_backwards_settlement_time() -> None:
     """社交活动结算时间倒流是程序错误，不是业务拒绝。"""
     backwards = _activity(kind=ActivityKind.CHAT, last_settled_at=900)
     with pytest.raises(ValueError, match="moved backwards"):
-        advance_social(backwards, _agent(), 600, _body(), accepted=False)
+        advance_social(backwards, _agent(), 600, _body(), shared_seconds=0)
 
 
 def test_social_actions_advance_skips_non_active_activity() -> None:
     """暂停的交谈推进为无结算空转，保留既有进度。"""
     paused = _activity(kind=ActivityKind.CHAT, status=ActivityStatus.PAUSED)
-    result = advance_social(paused, _agent(), 600, _body(),
-                            accepted=False)
+    result = advance_social(paused, _agent(), 600, _body(), shared_seconds=0)
     assert result.settlement is None and result.completed is False
     assert result.activity.status == ActivityStatus.PAUSED
 
@@ -479,27 +547,30 @@ def test_social_actions_advance_skips_non_active_activity() -> None:
 def test_social_actions_advance_completes_chat_without_agent_activity_slot() -> None:
     """到计划终点完成交谈；终态归活动，人物不保存旧主活动槽。"""
     finishing = _activity(kind=ActivityKind.CHAT)
-    result = advance_social(finishing, _agent(), 600, _body(),
-                            accepted=False)
+    result = advance_social(finishing, _agent(), 600, _body(), shared_seconds=0)
     assert result.completed is True
     assert result.activity.status == ActivityStatus.COMPLETED
     assert result.activity.boundary_type == "planned_end"
     assert result.agent.agent_id == 1 and result.agent.body_settled_at == 600
 
 
-@pytest.mark.parametrize(("kind", "accepted"), ((ActivityKind.CALL, False),
-                                                (ActivityKind.CHAT, True)))
-def test_social_actions_advance_applies_felt_ledger_by_activity(kind, accepted) -> None:
-    """通话/被接受的交谈按 felt 账本速率结算社交需要（「社交最小可行版」）。"""
-    activity = _activity(kind=kind, data={"partner_id": "agent:2"})
-    result = advance_social(activity, _agent(), 3600, _body(), accepted=accepted)
-    start_need = _agent().body.social_need
-    hours = 1.0
+@pytest.mark.parametrize(("kind", "shared_seconds"), ((ActivityKind.CALL, 0), (ActivityKind.CHAT, 3600),
+                                                      (ActivityKind.CHAT, 1800), (ActivityKind.CHAT, 0)))
+def test_social_actions_advance_applies_felt_ledger_by_shared_seconds(kind, shared_seconds) -> None:
+    """通话按通话账本；交谈中双方同时进行的秒数按交谈账本缓解，其余秒数按发起方 0.2/小时
+    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
+    start_need = 0.8
+    agent = _agent(body=_agent().body.model_copy(update={"social_need": start_need}))
+    activity = _activity(kind=kind, planned_end_at=3600, planned_duration_seconds=3600,
+                         data={"partner_id": "agent:2"})
+    result = advance_social(activity, agent, 3600, _body(), shared_seconds=shared_seconds)
+    hours, shared = 1.0, shared_seconds / 3600
     if kind == ActivityKind.CALL:
-        exposure = felt.SocialExposure(awake_hours=hours, call_hours=hours)
+        expected = felt.apply_social_need_ledger(start_need, felt.SocialExposure(awake_hours=hours, call_hours=hours))
     else:
-        exposure = felt.SocialExposure(awake_hours=hours, conversation_hours=hours)
-    expected = felt.apply_social_need_ledger(start_need, exposure)
+        exposure = felt.SocialExposure(awake_hours=hours, conversation_hours=shared)
+        expected = (felt.apply_social_need_ledger(start_need, exposure)
+                    - social.CHAT_RELIEF_DECLINED_PER_HOUR * (hours - shared))
     assert result.agent.body.social_need == pytest.approx(expected)
 
 
@@ -590,9 +661,9 @@ def test_change_activity_pause_at_game_feedback_boundary() -> None:
 
 
 def test_change_activity_resume_conflicts_with_occupied_resources(engine_factory) -> None:
-    """恢复前引擎校验同人的活动资源交集，冲突时暂停进度不变。"""
-    paused = _activity(status=ActivityStatus.PAUSED, resource_claims={"attention", "device"})
-    active = _activity(activity_id="occupied", resource_claims={"attention", "device"})
+    """恢复前引擎校验同人的活动占用交集（两段观看都占 eyes、ears），冲突时暂停进度不变。"""
+    paused = _activity(status=ActivityStatus.PAUSED, resource_claims={"eyes", "ears"})
+    active = _activity(activity_id="occupied", resource_claims={"eyes", "ears"})
     state = _world(_agent(), activities={"a1": paused, "occupied": active})
     engine = engine_factory()
     with pytest.raises(BusinessRuleError, match="RESOURCE_CONFLICT"):
@@ -1009,7 +1080,17 @@ def test_mail_headers_show_body_only_for_read_messages() -> None:
 def test_validate_work_start_requires_visible_task() -> None:
     """不可见任务不能开始工作。"""
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_VISIBLE"):
-        validate_work_start(_agent(visible_task_ids=set()), _work_task(), CURRENT)
+        validate_work_start(_agent(visible_task_ids=set()), _work_task(), CURRENT, "office")
+
+
+def test_validate_work_start_en_route_is_not_at_the_workplace() -> None:
+    """开工要人在任务地点；途中（现场地点为 None）不算在任何地点，location_id 仍是出发地的办公室也不行
+    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」的实际地点）。"""
+    agent = _agent(location_id="office", visible_task_ids={"task-1"})
+    validate_work_start(agent, _work_task(), CURRENT, "office")
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as caught:
+        validate_work_start(agent, _work_task(), CURRENT, None)
+    assert caught.value.unmet == ["required_location_id"]
 
 
 def test_load_work_input_rejects_hash_mismatch_and_non_utf8(tmp_path) -> None:
@@ -1457,12 +1538,12 @@ def test_rules_validate_start_work_duration_and_deadline(engine_factory) -> None
                                 target_id=task.task_id,
                                 planned_duration_seconds=task.maximum_duration_seconds + 60)
     with pytest.raises(BusinessRuleError, match="WORK_DURATION_EXCEEDS_CONTRACT"):
-        rules.validate_start(agent, over, now)
+        rules.validate_start(agent, over, now, task.required_location_id)
     near_deadline = int(task.due_at.timestamp()) - 60
     tight = ActivityStartParams(activity_type=ActivityKind.WORK, target_id=task.task_id,
                                  planned_duration_seconds=3600)
     with pytest.raises(BusinessRuleError, match="WORK_WOULD_MISS_DEADLINE"):
-        rules.validate_start(agent, tight, near_deadline)
+        rules.validate_start(agent, tight, near_deadline, task.required_location_id)
 
 
 def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> None:
@@ -1471,10 +1552,11 @@ def test_rules_validate_start_browse_target_must_be_catalog(engine_factory) -> N
     request = ActivityStartParams(activity_type=ActivityKind.BROWSE,
                                    target_id="something_else",
                                    planned_duration_seconds=60)
+    agent = engine.state.agents[1]
     with pytest.raises(BusinessRuleError, match="BROWSE_TARGET_NOT_FOUND"):
-        engine.rules.validate_start(engine.state.agents[1], request, CURRENT)
+        engine.rules.validate_start(agent, request, CURRENT, agent.location_id)
     fine = request.model_copy(update={"target_id": "product_catalog"})
-    assert engine.rules.validate_start(engine.state.agents[1], fine, CURRENT) == {
+    assert engine.rules.validate_start(agent, fine, CURRENT, agent.location_id) == {
         "catalog": "all_products"}
 
 

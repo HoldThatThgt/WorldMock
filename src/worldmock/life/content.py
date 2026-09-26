@@ -37,6 +37,15 @@ class LifestyleItem:
     met_value: float
 
 
+#: 「接着看」的最短剩余：已看完或剩余不足 60 秒的内容给全长并从头派生（docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
+CONTENT_RESUME_MINIMUM_SECONDS = 60
+
+
+def restarts_from_beginning(position_seconds: float, duration_seconds: float) -> bool:
+    """@brief 内容是否从头再看：已看完或剩余不足 60 秒；否则接着看，从上次位置开始、时长取剩余。"""
+    return duration_seconds - position_seconds < CONTENT_RESUME_MINIMUM_SECONDS
+
+
 #: 生活活动目录语料路径（相对 corpus root）。
 LIFESTYLE_ITEMS_PATH = "lifestyle/items.json"
 

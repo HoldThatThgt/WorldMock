@@ -20,7 +20,7 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import activity_control, felt, projection, same_moment, sessions, social_actions
+from worldmock.life import activity_control, admission, felt, projection, same_moment, sessions, social_actions
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
@@ -31,7 +31,8 @@ from worldmock.life.action_evidence import (
 )
 from worldmock.life.memory_evidence import _memory_evidence_data, memory_write_points
 from worldmock.life.menu_execution import require_interaction_menu
-from worldmock.life.interaction_menu import canonical_action
+from worldmock.life.guidance import guided, rejection_guidance
+from worldmock.life.interaction_menu import WAYS
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
@@ -315,7 +316,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         try:
             task_id = self._task_id_for_name(pending, start.task_name)
             request = SubmitWorkRequest(task_id=task_id, deliverable=start.deliverable)
-            require_interaction_menu(self.scenario, self.state, pending, start)
+            require_interaction_menu(self.scenario, self.state, pending, [])
+            admission.require_hands_free(self._admission_context(self.state, pending.agent_id), "提交成果")
             submission = prepare_work_submission(
                 self.state, self.semantics, self.corpus_root, pending.agent_id, request)
         except BusinessRuleError:
@@ -429,6 +431,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
         staged = same_moment.read_observed_messages(staged, self.state, current.expected_agent_ids)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
+        staged = same_moment.merge_partner_endings(self.state, staged, self.scenario.max_same_moment_decisions)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
         staged.version = self.state.version + 1
         events = commit_state(self.store, staged, drafts)
@@ -447,10 +450,13 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                      event_seq_last=events[-1].event_seq if events else None)
 
     def _ops_action(self, pending: PendingAction, result: ActionResult) -> None:
-        """@brief 写动作受理或拒绝与资金变动操作日志；重放动作不重复记资金。"""
-        actions = pending.request.get("actions", []) if pending.tool_name == "start_activity" else []
-        components = {_OPS_COMPONENTS.get(canonical_action(action), "engine")
-                      for action in actions if isinstance(action, str)}
+        """@brief 写动作受理或拒绝与资金变动操作日志；重放动作不重复记资金。
+
+        start_activity 的组件按私有绑定的方式闭集（WAYS）映射的内部标准动作取，不按动词或短语反解。
+        """
+        ways = pending.request.get("ways", []) if pending.tool_name == "start_activity" else []
+        components = {_OPS_COMPONENTS.get(WAYS[way][1], "engine") for way in ways
+                      if isinstance(way, str) and way in WAYS}
         component = next(iter(components)) if len(components) == 1 else _OPS_COMPONENTS.get(
             pending.tool_name, "engine")
         accepted = result.status in {ActionStatus.ACCEPTED, ActionStatus.IN_PROGRESS,
@@ -801,6 +807,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             return self._reused_result(state, pending)
         try:
             changed, result = self._dispatch(state, pending)
+            changed, _ = social_actions.end_partner_chats(state, changed)
             changed = self._after_success(changed, pending.agent_id, pending.tool_name)
             changed, records = activity_control.record_changes(state, changed, pending, self._record_context)
             resolved = changed.activities.get(result.activity_id) if result.activity_id else None
@@ -880,7 +887,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         message = "Action rejected: " + rejection_reason_text(error)
         data = {"same_moment_round": changed_agent.same_moment_rounds,
                 "max_same_moment_decisions": self.scenario.max_same_moment_decisions,
-                "next_decision_at": next_decision_at}
+                "next_decision_at": next_decision_at, **rejection_guidance(error)}
         if str(error) == "WORK_REQUIRES_REWORK":
             data["work_review"] = self._public_work_review(pending)
             message = f"Work submission requires rework: {rejection_reason_text(error)}"
@@ -936,7 +943,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         except ValueError as error:
             # 请求再验证失败（绕过构造期校验的载荷，如超长 goal）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
             raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
-        require_interaction_menu(self.scenario, state, pending, request)
+        menu_actions = self._menu_actions(pending, request)
+        if menu_actions is not None:
+            require_interaction_menu(self.scenario, state, pending, menu_actions)
         self._require_boundary_action(state, pending, request)
         waiting = activity_control.pending_conclusions(state, pending.agent_id)
         if waiting and pending.tool_name != "conclude_activity":
@@ -1018,16 +1027,19 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                request: ActivityStartParams) -> tuple[WorldState, ActionResult]:
         """@brief 启动普通活动并初始化内容、路线或游戏身份。"""
         agent = state.agents[pending.agent_id]
-        data = self.rules.validate_start(agent, request, state.current_time)
+        data = self.rules.validate_start(agent, request, state.current_time,
+                                         admission.present_location(state, pending.agent_id))
         if request.activity_type == ActivityKind.WORK:
             validate_work_duration(
                 state, self.rules.task(request.target_id), pending.agent_id,
                 request.planned_duration_seconds)
         travel_context = self._travel_start_context(state, agent, request)
-        self._require_available_resources(state, pending.agent_id, resource_claims(request))
+        claims = resource_claims(request, data.get("content_kind"))
+        self._require_available_resources(state, pending.agent_id, claims)
         origin = _activity_origin(state, pending)
         agent, activity = start_activity(agent, request, state.current_time, origin,
                                          self.semantics.body)
+        activity.resource_claims = claims
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
         changed_state = state
         payment = None
@@ -1051,11 +1063,13 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _require_available_resources(self, state: WorldState, agent_id: int,
                                      claims: set[str], exclude_id: str | None = None) -> None:
-        """@brief 以全部 ACTIVE 活动显式声明校验同人资源交集。"""
-        occupied = set().union(*(item.resource_claims for item in active_activities(state, agent_id)
-                                 if item.activity_id != exclude_id))
-        if occupied & claims:
-            raise BusinessRuleError("RESOURCE_CONFLICT")
+        """@brief 以全部 ACTIVE 活动显式声明校验同人资源交集；冲突时点名占着的活动。"""
+        blocking = [item.name for item in active_activities(state, agent_id)
+                    if item.activity_id != exclude_id and item.resource_claims & claims]
+        if blocking:
+            listed = "、".join(blocking)
+            raise guided("RESOURCE_CONFLICT", f"和正在做的{listed}不能同时进行", f"先结束或暂停{listed}",
+                         ["resource_claims"])
 
     def _change(self, state: WorldState, pending: PendingAction,
                 request: ChangeActivityRequest) -> tuple[WorldState, ActionResult]:
@@ -1065,7 +1079,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         agent = state.agents[pending.agent_id]
         current = state.activities[request.activity_id]
         if request.operation == ActivityChange.RESUME:
-            self.rules.validate_activity_location(agent, current.kind, current.target_id)
+            self.rules.validate_activity_location(agent, current.kind, current.target_id,
+                                                  admission.present_location(state, pending.agent_id))
             self._require_available_resources(state, pending.agent_id, current.resource_claims,
                                               current.activity_id)
         if current.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
@@ -1093,7 +1108,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _consume(self, state: WorldState, pending: PendingAction,
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。"""
+        """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。
+
+        占用先于物品状态核对（第五章「并行准入」的判定顺序）；途中没有可用的持有物。
+        """
         agent = state.agents[pending.agent_id]
         products = self.rules.items
         action = Action(f"consume:{request.use_mode}")
@@ -1101,17 +1119,19 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             self.semantics.catalog, products,
             (item.product_id for item in request.items), action)
         validate_meal_use(agent, products, request)
+        duration = meal_duration(products, request)
+        start = ActivityStartParams(activity_type=ActivityKind.CONSUME,
+                                    planned_duration_seconds=duration,
+                                    target_id=request.items[0].product_id)
+        self._require_available_resources(state, pending.agent_id, resource_claims(start))
+        if admission.en_route(state, pending.agent_id):
+            raise guided("PRODUCT_NOT_HELD", "路上没有可用的持有物", "到达后再用")
         recipe = prepare_inventory_recipe(
             agent, RecipeContext(self.semantics.catalog, products, self.scenario.recipe_output_bindings),
             request, matches[0])
         if recipe is None:
             validate_meal_inventory(agent, request)
-        duration = meal_duration(products, request)
-        start = ActivityStartParams(activity_type=ActivityKind.CONSUME,
-                                    planned_duration_seconds=duration,
-                                    target_id=request.items[0].product_id)
         origin = _activity_origin(state, pending)
-        self._require_available_resources(state, pending.agent_id, resource_claims(start))
         agent, activity = start_activity(agent, start, state.current_time, origin,
                                          self.semantics.body)
         activity = schedule_feedback(activity, state.current_time, self.scenario.activity_feedback_seconds)
@@ -1250,12 +1270,15 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             state = _put_agent(state, state.agents[recipient_agent.agent_id].model_copy(
                 update={"inbox": inbox}, deep=True))
         elif any(contact.contact_id == request.recipient_id for contact in contacts):
-            reply_request = self._contact_reply_request(sent.message, contacts)
-            drafts.append(EventDraft(
-                event_type="environment_event", occurred_at=state.current_time,
-                agent_id=agent.agent_id, source_kind="model", visibility="system",
-                data={"kind": "model_npc_reply_pending",
-                      "request": reply_request.model_dump(mode="json")}))
+            contact = next(item for item in contacts if item.contact_id == request.recipient_id)
+            if contact.reply_policy == "model":
+                drafts.append(EventDraft(
+                    event_type="environment_event", occurred_at=state.current_time,
+                    agent_id=agent.agent_id, source_kind="model", visibility="system",
+                    data={"kind": "model_npc_reply_pending",
+                          "request": self._contact_reply_request(sent.message, contact).model_dump(mode="json")}))
+            elif contact.reply_policy == "template":
+                state = social_actions.schedule_template_reply(state, sent.message, contact)
         else:
             raise BusinessRuleError("RECIPIENT_NOT_FOUND")
         arrival = EventDraft(event_type="environment_event", occurred_at=state.current_time,
@@ -1269,13 +1292,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._pending_event_drafts.extend(drafts)
         return state
 
-    def _contact_reply_request(self, message, contacts):
-        """@brief model 策略联系人的回复请求（待宿主执行的外部调用登记）。"""
+    def _contact_reply_request(self, message, contact):
+        """@brief model 策略联系人的回复请求（待宿主执行的外部调用登记）；none 照常送达不回复，template 落占位回复。"""
         from worldmock.life import social as social_domain
 
-        contact = next(item for item in contacts if item.contact_id == message.recipient_id)
-        if contact.reply_policy != "model":
-            raise BusinessRuleError("CONTACT_REPLY_NOT_MODEL")
         return social_domain.model_reply_request(social_domain.IncomingMessage(
             message_id=message.message_id, sender_id=message.sender_id,
             contact_id=contact.contact_id, text=message.text,
@@ -1283,7 +1303,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _start_social_activity(self, state: WorldState, pending: PendingAction,
                                request: StartSocialActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 受理交谈（共同在场）或通话（联系人，10-60 分钟）（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+        """@brief 受理交谈（共同在场；对方正以本人为伙伴交谈即接受）或通话（联系人）（第五章「交谈」）。"""
         agent = state.agents[pending.agent_id]
         origin = _activity_origin(state, pending)
         if request.kind == "chat":
@@ -1294,15 +1314,14 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             except ValueError as error:
                 raise BusinessRuleError("CHAT_PARTNER_NOT_AVAILABLE") from error
         else:
-            contact = self._contact(request.partner_id, agent.agent_id)
-            try:
-                started = social_actions.start_call(agent, contact, request, origin,
-                                                    state.current_time)
-            except ValueError as error:
-                raise BusinessRuleError("CALL_DURATION_OUT_OF_RANGE") from error
+            started = social_actions.start_call(agent, self._contact(request.partner_id, agent.agent_id),
+                                                request, origin, state.current_time)
         self._require_available_resources(state, pending.agent_id, started.activity.resource_claims)
         if started.invite is not None:
             state = self._deliver_social_message(state, started.invite)
+        if started.accepted is not None:
+            state = state.model_copy(update={"activities": {**state.activities,
+                                                            started.accepted.activity_id: started.accepted}})
         changed = _put_activity(state, started.agent, started.activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
@@ -1393,8 +1412,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         before_consumed = dict(activity.data.get("consumed", {}))
         if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
             advanced = social_actions.advance_social_shared(
-                activity, agent, target, settlement,
-                social_actions.chat_accepted(state, activity.agent_id))
+                activity, agent, target, settlement, social_actions.shared_chat_seconds(state, activity, target))
         else:
             advanced = advance_activity_shared(activity, agent, target, settlement)
         if advanced.completed:

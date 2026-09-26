@@ -10,7 +10,10 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import BusinessRuleError, PreconditionError
-from worldmock.life import activity_control, sessions
+from worldmock.life import activity_control, admission, sessions
+from worldmock.life.content import restarts_from_beginning
+from worldmock.life.guidance import guided
+from worldmock.life.interaction_menu import activity_phrase, merged_selection, resolve_selection
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -41,9 +44,14 @@ from worldmock.life.models import (
 )
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
 from worldmock.life.travel import route_for
-from worldmock.life.work import work_totals
+from worldmock.life.social_actions import social_duration_seconds
+from worldmock.life.work import work_start_blocker, work_start_seconds, work_totals
 
 _LOGGER = logging.getLogger(__name__)
+#: 冻结观察缓存的容量（按人物、决策与观察时刻缓存；满了整体清空）。
+_OBSERVATION_CACHE_SIZE = 64
+#: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
+DERIVED_DURATION_CAP_SECONDS = 86_400
 
 
 class SessionActionMixin:
@@ -56,22 +64,48 @@ class SessionActionMixin:
 
     def _start_activity(self, state: WorldState, pending: PendingAction,
                         request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 逐项解析冻结对象动作，判定名额与出发前条件后原子开始；新活动命名并归入会话。"""
-        if (not 1 <= len(request.targets) <= 2 or len(request.targets) != len(request.actions)
-                or len(set(request.targets)) != len(request.targets)):
-            _LOGGER.error("Start activity targets are invalid")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        """@brief 按「动词＋对象＋方式」解析冻结绑定，整组准入后原子开始；新活动命名并归入会话。
+
+        整组先按名额、目标在场与实际地点、出行方式、占用、物品状态的顺序判定（docs/dev/SPEC-time-and-energy.md
+        第五章「并行准入」），再逐项派发，结果与组内先后无关。
+        """
         bindings = self._resolve_interaction_bindings(pending, request)
         actions = [row["selected_action"]["canonical_action"] for row in bindings]
         labels = [row["selected_action"]["label"] for row in bindings]
-        activity_control.require_start_admission(state, pending.agent_id, (actions, labels),
-                                                 self._control_names(pending))
-        if len(bindings) == 1 or len(set(labels)) == 1 and actions[0] in {"purchase", "consume"}:
+        names = self._control_names(pending)
+        activity_control.require_start_admission(state, pending.agent_id, (actions, labels), names)
+        admission.require_group(self._admission_context(state, pending.agent_id, names),
+                                [admission.selection_item(row, row["selected_action"], self._world_facts)
+                                 for row in bindings])
+        if merged_selection(actions, labels):
             targets = [item["object_id"] for item in bindings]
             changed, result = self._dispatch_start_action(state, pending, actions[0], targets, bindings)
         else:
             changed, result = self._start_parallel_actions(state, pending, bindings)
         return self._adopt_started(changed, pending, bindings, result)
+
+    @property
+    def _world_facts(self) -> admission.WorldFacts:
+        """@brief 准入判定用的冻结目录：任务、供给、可持有物与内容。"""
+        return admission.WorldFacts(tasks=self.rules.tasks, supplies=self.rules.supplies,
+                                    items=self.rules.items, contents=self.rules.contents)
+
+    def _admission_context(self, state: WorldState, agent_id: int,
+                           names: dict[str, str] | None = None) -> admission.Context:
+        """@brief 准入判定的世界与可读名称（地点名、本轮活动名）。"""
+        return admission.Context(state=state, agent_id=agent_id, place_names=self._place_names,
+                                 activity_names=names or {})
+
+    def _menu_actions(self, pending: PendingAction, request) -> list[str] | None:
+        """@brief 菜单判定用的内部标准动作：start_activity 各项经本轮私有绑定映射，其他工具为空。
+
+        选择在本轮闭集内解析不出时为 None：不作菜单判定，待收尾要求之后由 start_activity 以 ACTION_REQUEST_INVALID 拒绝。
+        """
+        if pending.tool_name != "start_activity":
+            return []
+        selected = resolve_selection(self._frozen_observation(pending).get("interaction_bindings"),
+                                     request.targets, request.actions, request.ways)
+        return None if selected is None else [row["selected_action"]["canonical_action"] for row in selected]
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction,
                                 bindings: list[dict]) -> tuple[WorldState, ActionResult]:
@@ -95,9 +129,7 @@ class SessionActionMixin:
         return changed, ActionResult(
             action_id=pending.action_id, agent_id=pending.agent_id,
             status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
-            message="Activities started", data={
-                "activities": [result.data["activity"] for result in results],
-                "activity_results": [result.data for result in results]})
+            message="Activities started", data=_parallel_result_data(results))
 
     def _adopt_started(self, state: WorldState, pending: PendingAction, bindings: list[dict],
                        result: ActionResult) -> tuple[WorldState, ActionResult]:
@@ -110,7 +142,7 @@ class SessionActionMixin:
         groups = [bindings] if len(started) == 1 else [[binding] for binding in bindings]
         for activity_id, group in zip(started, groups, strict=True):
             objects = "、".join(activity_control.object_display_name(item) for item in group)
-            name = activity_control.activity_name(group[0]["selected_action"]["label"], objects,
+            name = activity_control.activity_name(activity_phrase(group[0]["selected_action"]), objects,
                                                   state.current_time, self.scenario.timezone)
             activities[activity_id] = activities[activity_id].model_copy(
                 update={"name": name, **self._task_link(state, pending.agent_id, activities[activity_id])},
@@ -145,14 +177,16 @@ class SessionActionMixin:
 
     def _submit_work_action(self, state: WorldState, pending: PendingAction,
                             request: SubmitWorkActionRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 将人物可读任务名称映射为合同身份，交给独立工作验收路径。"""
+        """@brief 将人物可读任务名称映射为合同身份，交给独立工作验收路径；驾车时不能提交成果（第五章「并行准入」）。"""
+        admission.require_hands_free(self._admission_context(state, pending.agent_id), "提交成果")
         task_id = self._task_id_for_name(pending, request.task_name)
         return self._submit_work(state, pending, SubmitWorkRequest(task_id=task_id,
                                                                    deliverable=request.deliverable))
 
     def _send_message_action(self, state: WorldState, pending: PendingAction,
                               request: SendMessageActionRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 将人物可读收件人名称映射为联系人身份并发送正文。"""
+        """@brief 将人物可读收件人名称映射为联系人身份并发送正文；驾车时不能发消息，步行途中照常（第五章「并行准入」）。"""
+        admission.require_hands_free(self._admission_context(state, pending.agent_id), "发消息")
         rows = self._frozen_observation(pending)["interaction_bindings"]
         matches = [row for row in rows if row["object"] == request.recipient_name
                    and row["kind"] in {"person", "contact"}]
@@ -172,34 +206,40 @@ class SessionActionMixin:
         return matches[0]["task_id"]
 
     def _frozen_observation(self, pending: PendingAction) -> dict:
-        """@brief 读取当前决策的已提交观察事件，作为名称与报价的唯一解析来源。"""
-        events = self.store.read_agent_events("observation", pending.agent_id)
-        matches = [event for event in events if event.decision_id == pending.decision_id
-                   and event.occurred_at == pending.observed_at]
-        if len(matches) != 1:
-            _LOGGER.error("Decision observation is missing or ambiguous")
-            raise BusinessRuleError("OBSERVATION_NOT_FOUND")
-        return matches[0].data
+        """@brief 读取当前决策的已提交观察事件，作为名称与报价的唯一解析来源。
+
+        已提交的观察不再改变，按（人物，决策，观察时刻）缓存，菜单、受限轮复核与受理共用一次读取。
+        """
+        cache = getattr(self, "_frozen_observations", None)
+        if cache is None:
+            cache = self._frozen_observations = {}
+        key = (pending.agent_id, pending.decision_id, pending.observed_at)
+        if key not in cache:
+            events = self.store.read_agent_events("observation", pending.agent_id)
+            matches = [event for event in events if event.decision_id == pending.decision_id
+                       and event.occurred_at == pending.observed_at]
+            if len(matches) != 1:
+                _LOGGER.error("Decision observation is missing or ambiguous")
+                raise BusinessRuleError("OBSERVATION_NOT_FOUND")
+            if len(cache) >= _OBSERVATION_CACHE_SIZE:
+                cache.clear()
+            cache[key] = matches[0].data
+        return cache[key]
 
     def _resolve_interaction_bindings(self, pending: PendingAction,
                                       request: StartActivityRequest) -> list[dict]:
-        """@brief 把本轮人物所见名称与动作短语解析成内部对象、方式和冻结报价。"""
-        rows = self._frozen_observation(pending).get("interaction_bindings")
-        if not isinstance(rows, list):
-            _LOGGER.error("Decision interaction bindings are unavailable")
+        """@brief 按本轮私有绑定把（对象，动词，方式）解析成内部对象、标准动作、执行方式和冻结报价。
+
+        数组不合法、不等长、目标重复，或映射不唯一、不在本轮闭集时业务拒绝 ACTION_REQUEST_INVALID。
+        """
+        if len(set(request.targets)) != len(request.targets):
+            _LOGGER.error("Start activity targets repeat")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
-        selected = []
-        for name, action in zip(request.targets, request.actions):
-            matches = [row for row in rows if row.get("object") == name]
-            if len(matches) != 1:
-                _LOGGER.error("Interactive object name is missing or ambiguous")
-                raise BusinessRuleError("ACTION_REQUEST_INVALID")
-            binding = matches[0]
-            actions = [row for row in binding["actions"] if row.get("label") == action]
-            if len(actions) != 1:
-                _LOGGER.error("Interactive action is unavailable for selected object")
-                raise BusinessRuleError("ACTION_REQUEST_INVALID")
-            selected.append({**binding, "selected_action": actions[0]})
+        selected = resolve_selection(self._frozen_observation(pending).get("interaction_bindings"),
+                                     request.targets, request.actions, request.ways)
+        if selected is None:
+            _LOGGER.error("Start activity selection is not offered in this round")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
         return selected
 
     def _dispatch_start_action(self, state: WorldState, pending: PendingAction, action: str,
@@ -249,25 +289,31 @@ class SessionActionMixin:
 
     def _targeted_duration(self, state: WorldState, agent_id: int,
                             kind: ActivityKind, target: str) -> int:
-        """@brief 从合同剩余量、内容进度或场景反馈间隔派生目标活动时长。"""
+        """@brief 从合同剩余量、内容进度或场景反馈间隔派生目标活动时长。
+
+        工作要距截止与剩余合同都不少于 60 秒，否则以 ACTIVITY_DURATION_INVALID 返回原因与下一步（第八章「工作」）；
+        观看已看完或剩余不足 60 秒时取全长（从头再看），否则取剩余（接着看）；观看与游戏内容超过 86400 秒按 86400
+        秒受理（裁决 #19）。
+        """
         if kind == ActivityKind.WORK:
             task = self.rules.task(target)
             worked, _ = work_totals(state, agent_id, target)
-            duration = min(task.maximum_duration_seconds - worked,
-                           int(task.due_at.timestamp()) - state.current_time, 86_400)
-        elif kind == ActivityKind.WATCH:
+            blocker = work_start_blocker(task, worked, state.current_time)
+            if blocker is not None:
+                _LOGGER.error("Work start is closer than one minute to its deadline or contract end")
+                raise guided("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
+            return work_start_seconds(task, worked, state.current_time)
+        if kind == ActivityKind.WATCH:
             item = self.rules.content(target)
             progress = state.agents[agent_id].content_progress.get(target)
             position = progress.position_seconds if progress else 0
-            duration = item.duration_seconds - position if position < item.duration_seconds else item.duration_seconds
+            restart = restarts_from_beginning(position, item.duration_seconds)
+            duration = item.duration_seconds if restart else item.duration_seconds - position
         elif kind == ActivityKind.PLAY_GAME and target in self.rules.contents:
             duration = self.rules.content(target).duration_seconds
         else:
             duration = self.scenario.activity_feedback_seconds
-        if duration < 60 or duration > 86_400:
-            _LOGGER.error("Derived activity duration is outside domain bounds")
-            raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
-        return duration
+        return _capped_duration(duration)
 
     def _feedback_duration(self) -> int:
         """@brief 使用场景的结算间隔作为无独立时长合同活动的精确时长。"""
@@ -292,10 +338,7 @@ class SessionActionMixin:
         if item is None:
             _LOGGER.error("Lifestyle item was not found in the frozen catalog")
             raise BusinessRuleError("LIFESTYLE_ACTIVITY_NOT_FOUND")
-        duration = item.typical_duration_minutes * 60
-        if not 60 <= duration <= 86_400:
-            _LOGGER.error("Derived lifestyle duration is outside domain bounds")
-            raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
+        duration = _capped_duration(item.typical_duration_minutes * 60)
         params = ActivityStartParams(activity_type=ActivityKind.LIFESTYLE, planned_duration_seconds=duration,
                                      target_id=target)
         return self._start(state, pending, params)
@@ -311,13 +354,9 @@ class SessionActionMixin:
 
     def _start_social_action(self, state: WorldState, pending: PendingAction,
                               action: str, target: str) -> tuple[WorldState, ActionResult]:
-        """@brief 启动 chat/call 动作对应的社交活动。"""
-        duration = self._feedback_duration()
-        if not 600 <= duration <= 7200 and action == "call":
-            _LOGGER.error("Derived call duration is outside domain bounds")
-            raise BusinessRuleError("CALL_DURATION_OUT_OF_RANGE")
-        social = StartSocialActivityRequest(kind=action, partner_id=target,
-                                            duration_minutes=duration // 60)
+        """@brief 启动 chat/call 动作对应的社交活动：时长由场景反馈间隔派生后截取（通话 600–3600 秒，交谈 60–7200 秒）。"""
+        duration = social_duration_seconds(action, self.scenario.activity_feedback_seconds)
+        social = StartSocialActivityRequest(kind=action, partner_id=target, duration_minutes=duration // 60)
         return self._start_social_activity(state, pending, social)
 
     def _start_purchase_action(self, state: WorldState, pending: PendingAction,
@@ -330,7 +369,8 @@ class SessionActionMixin:
             _LOGGER.error("Purchase fulfillment selection is invalid")
             raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
         fulfillment = bindings[0]["selected_action"]["fulfillment"]
-        valid = all(item.location_id == agent.location_id and "pickup" in item.fulfillment_modes
+        present = admission.present_location(state, pending.agent_id)
+        valid = all(item.location_id == present and "pickup" in item.fulfillment_modes
                     for item in supplies) if fulfillment == "pickup" else all(
                         "delivery" in item.fulfillment_modes
                         and agent.location_id in item.delivery_destination_ids for item in supplies)
@@ -601,3 +641,27 @@ def _self_report(note: str) -> dict:
     if not note:
         return {}
     return {"progress_note": note, "subjective_status": activity_control.SELF_REPORT_MARK}
+
+
+def _capped_duration(duration: int) -> int:
+    """@brief 非出行活动的派生时长：不足 60 秒以 ACTIVITY_DURATION_INVALID 拒绝，超过 86400 秒按 86400 秒受理。"""
+    if duration < 60:
+        _LOGGER.error("Derived activity duration is below the domain minimum")
+        raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
+    return min(duration, DERIVED_DURATION_CAP_SECONDS)
+
+
+def _parallel_result_data(results: list[ActionResult]) -> dict:
+    """@brief 并行开始的合并结果：逐项活动与结果，资金变动与品类命中汇总到顶层（驾车票价与另一项同时开始时入账）。"""
+    changes: dict[str, int] = {}
+    for result in results:
+        for account, amount in result.data.get("resource_changes", {}).items():
+            changes[account] = changes.get(account, 0) + amount
+    data = {"activities": [result.data["activity"] for result in results],
+            "activity_results": [result.data for result in results]}
+    if changes:
+        data["resource_changes"] = changes
+    matches = [match for result in results for match in result.data.get("category_matches", [])]
+    if matches:
+        data["category_matches"] = matches
+    return data

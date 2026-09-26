@@ -16,7 +16,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
-from tests.integration.test_life_agent_protocol import _context, _observations
+from tests.integration.test_life_agent_protocol import (
+    _add_objects, _context, _observations, _offer, _visible_object,
+)
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
 from worldmock.life.models import StartActivityRequest
 from worldmock.footprints.models import EventDraft
@@ -24,6 +26,8 @@ from worldmock.life.session_actions import SessionActionMixin
 
 
 _OFFER = "家门口便利店出售的牛奶"
+#: 取得方式短语 → 私有绑定的履约方式（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）。
+_FULFILLMENT = {"到店": "pickup", "远程下单": "delivery"}
 
 
 def _stage_open_market(engine) -> None:
@@ -49,35 +53,28 @@ def _stage_open_market(engine) -> None:
     engine.state = staged
 
 
-def _observed_offer(action_labels=("到店购买", "配送到当前位置")) -> list[dict]:
-    """给真实人物准备可读供给与独立的引擎冻结报价。"""
+def _observed_offer(ways=("到店", "远程下单")) -> list[dict]:
+    """给真实人物准备可读供给（取得：到店、远程下单）与独立的引擎冻结报价。"""
     observed = copy.deepcopy(_observations())
     data = observed[0]["data"]
-    data["facts"]["interactive_objects"].append({
-        "object": _OFFER, "actions": list(action_labels), "preconditions_met": True,
-    })
     data["facts"]["products"] = [{
         "object": _OFFER, "product": "牛奶", "place": "家门口便利店",
         "price_fen": 1000, "quote_status": "known", "current_stock": 2,
         "purchase_allowed": True, "fulfillment_modes": ["pickup", "delivery"],
         "delivery_destinations": ["自己家"], "delivery_eta": "约 5 分钟后送达，今天 00:05",
     }]
-    data["interaction_bindings"].append({
-        "object": _OFFER, "kind": "supply", "object_id": "supply-private",
-        "actions": [
-            {"label": "到店购买", "canonical_action": "purchase", "fulfillment": "pickup"},
-            {"label": "配送到当前位置", "canonical_action": "purchase", "fulfillment": "delivery"},
-        ],
-        "quote": {"price_version": "price-private", "price_fen": 1000, "purchase_price_fen": 1000},
-    })
+    _add_objects(data, _visible_object(
+        _OFFER, "supply", "supply-private",
+        *(_offer("obtain", way, "purchase", fulfillment=_FULFILLMENT[way]) for way in ways),
+        quote={"price_version": "price-private", "price_fen": 1000, "purchase_price_fen": 1000}))
     return observed
 
 
-def _prepared_offer(action_labels=("到店购买", "配送到当前位置")) -> LifeAgent:
+def _prepared_offer(ways=("到店", "远程下单")) -> LifeAgent:
     """从一次真实结构化观察准备 LifeAgent 工具合同。"""
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(
-        0, _context().observed_at, _observed_offer(action_labels)))
+        0, _context().observed_at, _observed_offer(ways)))
     return person
 
 
@@ -87,22 +84,29 @@ def _functions(person: LifeAgent) -> dict[str, dict]:
             for row in person.build_react_tool_schemas(readonly=False)}
 
 
+def _obtain(target: str, way: str = "到店", **extra) -> ReactDecision:
+    """对一个对象选择取得（obtain）及其方式的 start_activity 决定。"""
+    return ReactDecision("", "start_activity", {"targets": [target], "actions": ["obtain"], "ways": [way], **extra}, "")
+
+
 def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
-    """购买模型入参只有对象与可读动作，报价和内部供给身份不进入 Schema。"""
+    """购买模型入参只有对象、动词与方式，报价、履约方式和内部供给身份不进入 Schema。"""
     person = _prepared_offer()
     tools = _functions(person)
     assert "purchase" not in tools and "discover_places" not in tools
     action = tools["start_activity"]["parameters"]
-    assert set(action["properties"]) == {"targets", "actions"}
+    assert set(action["properties"]) == {"targets", "actions", "ways"}
     assert _OFFER in action["properties"]["targets"]["items"]["enum"]
-    assert {"到店购买", "配送到当前位置"} <= set(action["properties"]["actions"]["items"]["enum"])
-    assert person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
-    ], False) == ""
+    assert "obtain" in action["properties"]["actions"]["items"]["enum"]
+    assert {"到店", "远程下单"} <= set(action["properties"]["ways"]["items"]["enum"])
+    assert not any(text in str(action) for text in ("pickup", "delivery", "price-private", "supply-private"))
+    for way in ("到店", "远程下单"):
+        assert person.validate_react_decisions([_obtain(_OFFER, way)], False) == ""
+    assert "not offered" in person.validate_react_decisions([
+        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["consume"], "ways": ["到店"]}, ""),
+    ], False)
     assert "invalid start_activity arguments" in person.validate_react_decisions([
-        ReactDecision("", "start_activity", {
-            "targets": [_OFFER], "actions": ["到店购买"], "price_version": "guessed",
-        }, ""),
+        _obtain(_OFFER, price_version="guessed"),
     ], False)
 
 
@@ -111,40 +115,31 @@ def test_unoffered_or_internal_supply_name_cannot_be_selected(label):
     """模型不能猜未呈现供给，也不能用私有编号绕过可读对象闭集。"""
     person = _prepared_offer()
     _functions(person)
-    error = person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [label], "actions": ["到店购买"]}, ""),
-    ], False)
+    error = person.validate_react_decisions([_obtain(label)], False)
     assert "visible interactive object" in error
 
 
 def test_supply_fulfillment_is_bound_per_visible_object():
-    """仅有配送动作的供给不能被模型改成到店自提。"""
-    person = _prepared_offer(("配送到当前位置",))
+    """仅有远程下单的供给不能被模型改成到店取得。"""
+    person = _prepared_offer(("远程下单",))
     _functions(person)
-    error = person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
-    ], False)
-    assert "not offered" in error
+    assert "not offered" in person.validate_react_decisions([_obtain(_OFFER, "到店")], False)
+    assert person.validate_react_decisions([_obtain(_OFFER, "远程下单")], False) == ""
 
 
 def test_closed_supply_remains_a_fact_without_a_purchase_action():
-    """不可购买的报价事实仍可见，但本轮不产生可调用对象。"""
-    observed = _observed_offer()
+    """不可购买的供给按世界事实过滤掉取得动作：对象照常列出、动作为空，不进对象枚举，选它在本轮按协议错误纠正
+    （docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。"""
+    observed = _observed_offer(())
     data = observed[0]["data"]
     data["facts"]["products"][0]["purchase_allowed"] = False
-    data["facts"]["interactive_objects"] = [
-        row for row in data["facts"]["interactive_objects"] if row["object"] != _OFFER
-    ]
-    data["interaction_bindings"] = [
-        row for row in data["interaction_bindings"] if row["object"] != _OFFER
-    ]
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
-    _functions(person)
+    targets = _functions(person)["start_activity"]["parameters"]["properties"]["targets"]["items"]["enum"]
+    assert {"object": _OFFER, "actions": []} in data["facts"]["interactive_objects"]
     assert data["facts"]["products"][0]["object"] == _OFFER
-    assert "visible interactive object" in person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["到店购买"]}, ""),
-    ], False)
+    assert _OFFER not in targets and "自己" in targets
+    assert "not offered by the chosen target" in person.validate_react_decisions([_obtain(_OFFER)], False)
 
 
 def test_each_selected_supply_keeps_its_own_frozen_quote():
@@ -162,7 +157,7 @@ def test_each_selected_supply_keeps_its_own_frozen_quote():
             return state, SimpleNamespace(status="completed")
 
     runtime = CapturePurchase()
-    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")})
+    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     pending = SimpleNamespace(agent_id=1)
     bindings = [
         {"object_id": identity, "selected_action": {"fulfillment": "pickup"},
@@ -183,11 +178,12 @@ def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
     current = context(engine, "readable-storefront")
     engine.begin_decision_round([current])
     observed = engine.observe(current)
-    offer = next(row for row in observed["interaction_bindings"]
-                 if row["kind"] == "supply" and row["actions"])
-    action = offer["actions"][0]["label"]
-    request = StartActivityRequest(targets=[offer["object"]], actions=[action])
-    assert set(request.model_dump()) == {"targets", "actions"}
+    offer, action = next((row, action) for row in observed["interaction_bindings"]
+                         if row["kind"] == "supply" for action in row["actions"] if action["note"] is None)
+    assert (action["verb"], action["canonical_action"]) == ("obtain", "purchase")
+    assert action["label"] in {"到店", "远程下单"}
+    request = StartActivityRequest(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
+    assert set(request.model_dump()) == {"targets", "actions", "ways"}
     before_stock = engine.state.supply_stock[offer["object_id"]]
     account = engine.state.agents[current.agent_id].balance_account_id
     before_balance = engine.state.accounts[account]

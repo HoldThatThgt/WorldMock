@@ -38,15 +38,15 @@ def _action(engine, name: str, tool: str, request):
     return observed, result
 
 
-def _start(engine, name: str, kind: str, object_id: str | None, action: str):
-    """@brief 从冻结观察选取可读对象和动作，让引擎推导领域参数。"""
+def _start(engine, name: str, kind: str, object_id: str | None, way: str):
+    """@brief 从冻结观察选取可读对象与它列出的方式（动词取同一项私有绑定），让引擎推导领域参数。"""
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    binding = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
-                   and any(item["label"] == action for item in row["actions"]))
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+    binding, verb = next((row, item["verb"]) for row in observed["interaction_bindings"]
+                         if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
+                         for item in row["actions"] if item["label"] == way)
+    request = StartActivityRequest(targets=[binding["object"]], actions=[verb], ways=[way])
     engine.submit_action(DirectToolCall(decision, f"action-{name}", "start_activity", request))
     result = engine.commit_decision_round(name)[0]
     assert result.status in {"completed", "in_progress"}, result.error_code
@@ -84,7 +84,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
     engine = _custom_engine("white-collar-12-weeks.json", lunch, tmp_path, "meal-checkpoint")
     try:
         stage_day_plan(engine)
-        _, trip = _start(engine, "travel", "location", RESTAURANT, "步行前往")
+        _, trip = _start(engine, "travel", "location", RESTAURANT, "步行")
         _run_out(engine, trip.activity_id)
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
         for step in range(16):
@@ -95,7 +95,7 @@ def test_paid_meal_pause_checkpoint_resume_preserves_actual_consumption(tmp_path
         assert engine.state.current_time >= opening
         stock = engine.state.supply_stock[SUPPLY]
         balance = engine.state.accounts["agent:1"]
-        _, bought = _start(engine, "buy", "supply", SUPPLY, "到店购买")
+        _, bought = _start(engine, "buy", "supply", SUPPLY, "到店")
         paid = bought.data["orders"][0]["total_price_fen"]
         assert advance_until_ready(engine)
         duration = engine.rules.products[MEAL].use_duration_seconds

@@ -118,7 +118,7 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
         submit_round(engine, {agent_id: ("start_activity", StartActivityRequest(
-            targets=["自己"], actions=["等待"])) for agent_id in engine.state.agents}, "wait")
+            targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in engine.state.agents}, "wait")
         advance_next(engine)
         cutoff = engine.store.last_event_seq
         first = export_run(engine.store, cutoff, tmp_path / "first-export")
@@ -191,7 +191,8 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
             for agent_id in branch.state.agents:
                 stage_day_plan(branch, agent_id)
             submit_round(branch, {agent_id: ("start_activity", StartActivityRequest(
-                targets=["自己"], actions=["等待"])) for agent_id in branch.state.agents}, "branch-wait")
+                targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in branch.state.agents},
+                "branch-wait")
             advance_next(branch)
             exported = export_run(branch.store, branch.store.last_event_seq, tmp_path / "branch-export")
             assert {key: exported["frozen_run_manifest"][key] for key in expected} == expected

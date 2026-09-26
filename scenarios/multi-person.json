@@ -16,7 +16,7 @@
   "corpus_manifest_sha256": "965c9fafd40845e40a449e497f1ed40b97f20c8a064ed5526c910f81254ff5bf",
   "catalog_version": {
     "major": 4,
-    "minor": 0
+    "minor": 1
   },
   "interaction_menus_by_location_kind": {
     "home": {

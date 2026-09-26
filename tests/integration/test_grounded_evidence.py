@@ -111,9 +111,10 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"targets", "actions"}
-    assert "enum" in fields["targets"]["items"]
-    assert "enum" in fields["actions"]["items"]
+    assert set(fields) == {"targets", "actions", "ways"}
+    for field in ("targets", "actions", "ways"):
+        assert "enum" in fields[field]["items"]
+    assert set(fields["actions"]["items"]["enum"]) <= {"travel", "interact", "obtain", "consume", "sleep"}
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.store.last_event_seq
     directory = engine.store.run_dir
@@ -201,7 +202,7 @@ def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path, monke
 
 
 def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_factory):  # noqa: F811
-    """本轮交互对象名称唯一，工具枚举不泄露内部对象身份。"""
+    """本轮交互对象名称唯一，工具枚举只列有动作的对象（动作为空的对象照常列出但不可选），不泄露内部对象身份。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     ctx = context(engine, "cross-catalog-id")
@@ -210,8 +211,10 @@ def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_f
     _, tools = _prepared_tools(observation, ctx.observed_at)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     names = start["function"]["parameters"]["properties"]["targets"]["items"]["enum"]
-    public = [row["object"] for row in observation["facts"]["interactive_objects"]]
+    rows = observation["facts"]["interactive_objects"]
+    public = [row["object"] for row in rows]
     private = [row["object_id"] for row in observation["interaction_bindings"]]
 
-    assert names == sorted(set(public))
+    assert len(public) == len(set(public))
+    assert names == sorted(row["object"] for row in rows if row["actions"])
     assert not set(private) & set(names)

@@ -137,8 +137,8 @@ class SentMessage(_SocialModel):
 class ChatStart(_SocialModel):
     """@brief 交谈发起结果：按发起方的前台活动结算（引擎活动通道执行）。
 
-    对方在其下一次决策决定是否开始与发起方交谈（接受/拒绝），
-    数值结算见 chat_settlement。
+    对方对发起方选择交谈即接受（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）；缓解按双方交谈同时进行的秒数
+    由 social_actions 结算。
     """
 
     activity_kind: Literal["chat"] = "chat"
@@ -146,13 +146,6 @@ class ChatStart(_SocialModel):
     duration_minutes: int
     invite_message: Message
     arrival: MessageArrivalEvent
-
-
-class SocialRelief(_SocialModel):
-    """@brief 社交需要缓解速率（单位/小时）；按活动时长折算由引擎结算。"""
-
-    initiator_per_hour: float
-    partner_per_hour: float
 
 
 class CallStart(_SocialModel):
@@ -249,8 +242,8 @@ def start_chat(initiator_location: str, partner: AgentPresence,
                duration_minutes: int, invite: OutgoingMessage) -> ChatStart:
     """@brief 交谈域校验：共同在场且对方可交谈；产出前台活动与邀请。
 
-    邀请以 chat_invite 消息送达对方（「社交最小可行版」）；接受/拒绝后的社交需要
-    数值结算见 chat_settlement，活动本体按发起方前台活动由引擎结算。
+    邀请以 chat_invite 消息送达对方（「社交最小可行版」）；对方对发起方选择交谈即接受，缓解按双方交谈同时进行的
+    秒数结算（docs/dev/SPEC-time-and-energy.md 第五章「交谈」），活动本体按发起方前台活动由引擎结算。
     """
     if partner.location != initiator_location:
         raise ValueError(
@@ -275,19 +268,6 @@ def start_chat(initiator_location: str, partner: AgentPresence,
         duration_minutes=duration_minutes,
         invite_message=invite_message,
         arrival=arrival,
-    )
-
-
-def chat_settlement(accepted: bool) -> SocialRelief:
-    """@brief 交谈社交需要结算速率：接受双方各 0.5/小时，拒绝发起方 0.2/小时。"""
-    if accepted:
-        return SocialRelief(
-            initiator_per_hour=CHAT_RELIEF_ACCEPTED_PER_HOUR,
-            partner_per_hour=CHAT_RELIEF_ACCEPTED_PER_HOUR,
-        )
-    return SocialRelief(
-        initiator_per_hour=CHAT_RELIEF_DECLINED_PER_HOUR,
-        partner_per_hour=0.0,
     )
 
 

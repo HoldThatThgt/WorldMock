@@ -10,7 +10,9 @@ from pydantic import ValidationError
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import change_activity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_PAUSED, PHASE_PENDING, activity_phase
-from worldmock.life.interaction_menu import action_label, canonical_action, purchase_action_label
+from worldmock.life.interaction_menu import (
+    LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, WAYS, binding_action,
+)
 from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
     ReportStatusRequest, SessionTaskKind, StartActivityRequest,
@@ -101,32 +103,98 @@ def _bindings(*activities, **extra):
                                    "phase": activity_phase(item)} for item in activities], **extra}
 
 
+#: 第五章「请求形状与菜单」的方式短语闭集，按动词分组（只有一种方式的对象也要照填）。
+SPEC_WAYS_BY_VERB = {
+    "travel": {"步行", "驾车"},
+    "interact": {"工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待",
+                 "接着看", "从头再看", "接着听", "从头再听"},
+    "obtain": {"到店", "远程下单", "制作"},
+    "consume": {"食用", "使用"},
+    "sleep": {"睡觉"},
+}
+
+
+def _office_and_self_bindings() -> list[dict]:
+    """@brief 本轮私有绑定：可步行前往的城西办公室与「自己」（等待）。"""
+    return [{"object": "城西办公室", "object_id": "office", "kind": "location",
+             "actions": [binding_action("步行", "travel_to", travel_mode="walking")]},
+            {"object": "自己", "object_id": "agent:1", "kind": "self",
+             "actions": [binding_action("等待", "wait")]}]
+
+
 def test_start_activity_schema_rejects_model_supplied_calculation():
-    """人物不能回填金额、版本、精确时长或内部目的地。"""
-    request = StartActivityRequest(targets=["城西办公室"], actions=["步行前往"])
-    assert set(request.model_dump()) == {"targets", "actions"}
+    """人物只提交对象、动词与方式三个数组；方式必填，不能回填金额、版本、精确时长或内部目的地。"""
+    request = StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"])
+    assert set(request.model_dump()) == {"targets", "actions", "ways"}
+    with pytest.raises(ValidationError):
+        StartActivityRequest(targets=["城西办公室"], actions=["travel"])
     for field, value in {"price_version": "v1", "planned_duration_seconds": 600,
                          "destination_id": "office", "quantity": 2}.items():
         with pytest.raises(ValidationError):
-            StartActivityRequest(targets=["城西办公室"], actions=["步行前往"], **{field: value})
+            StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"], **{field: value})
+
+
+def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
+    """五个生活动词与方式短语闭集逐项对应第五章；旧的整句短语（步行前往、到店购买、配送到当前位置）不再是方式。"""
+    assert LIFE_VERBS == ("travel", "interact", "obtain", "consume", "sleep")
+    assert {verb: {way for way, (owner, _) in WAYS.items() if owner == verb} for verb in LIFE_VERBS} == (
+        SPEC_WAYS_BY_VERB)
+    assert not {"步行前往", "驾车前往", "到店购买", "配送到当前位置"} & set(WAYS)
+    assert {WAYS[way] for way in TRAVEL_WAYS.values()} == {("travel", "travel_to")}
+    assert {WAYS[way] for way in PURCHASE_WAYS.values()} == {("obtain", "purchase")}
+    assert {WAYS[way] for way in USE_WAYS.values()} == {("consume", "consume")}
+    assert WAYS["制作"] == ("obtain", "consume")
+
+
+@pytest.mark.parametrize("targets,actions,ways", [
+    (["城西办公室"], ["travel", "travel"], ["步行"]),
+    (["城西办公室"], ["travel"], ["步行", "步行"]),
+    (["城西办公室", "城西办公室"], ["travel", "travel"], ["步行", "步行"]),
+    ([], [], []),
+    (["城西办公室", "自己", "城东公园"], ["travel", "interact", "travel"], ["步行", "等待", "步行"]),
+    (["城东公园"], ["travel"], ["步行"]),
+    (["城西办公室"], ["interact"], ["步行"]),
+    (["城西办公室"], ["travel"], ["驾车"]),
+    (["城西办公室"], ["travel"], ["步行前往"]),
+    (["自己"], ["sleep"], ["等待"]),
+], ids=["fewer-ways", "fewer-verbs", "duplicate-target", "empty", "three-items", "unlisted-object",
+        "verb-not-offered", "way-not-offered", "retired-phrase", "verb-way-mismatch"])
+def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions, ways):
+    """三数组不等长、目标重复、项数不在一至二、对象未列出或（动词，方式）不在本轮闭集，都报 ACTION_REQUEST_INVALID。"""
+    harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        harness._resolve_interaction_bindings(
+            _pending(), StartActivityRequest(targets=targets, actions=actions, ways=ways))
+
+
+def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
+    """两项逐项映射到各自的绑定行与内部标准动作，顺序与请求一致。"""
+    harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
+    selected = harness._resolve_interaction_bindings(_pending(), StartActivityRequest(
+        targets=["自己", "城西办公室"], actions=["interact", "travel"], ways=["等待", "步行"]))
+    assert [(row["object_id"], row["selected_action"]["verb"], row["selected_action"]["label"],
+             row["selected_action"]["canonical_action"]) for row in selected] == [
+        ("agent:1", "interact", "等待", "wait"), ("office", "travel", "步行", "travel_to")]
 
 
 def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatch):
-    """路线短语决定方式；展示给人物的分钟数不能成为执行时长。"""
+    """所选方式经私有绑定决定出行方式；展示给人物的分钟数不能成为执行时长。"""
     row = {"object": "城西办公室", "object_id": "office", "kind": "location",
-           "actions": [{"label": "步行前往", "canonical_action": "travel_to", "travel_mode": "walking"}]}
+           "actions": [binding_action("步行", "travel_to", travel_mode="walking"),
+                       binding_action("驾车", "travel_to", travel_mode="driving")]}
     harness = _ActionHarness({"interaction_bindings": [row]})
     harness.scenario = SimpleNamespace()
     harness.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
     monkeypatch.setattr("worldmock.life.session_actions.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, current_time=100)
     selected = harness._resolve_interaction_bindings(
-        _pending(), StartActivityRequest(targets=["城西办公室"], actions=["步行前往"]))
+        _pending(), StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"]))
+    assert selected[0]["selected_action"]["canonical_action"] == "travel_to"
     harness._start_travel_action(state, _pending(), selected[0]["object_id"], selected[0])
     assert harness.calls[0].planned_duration_seconds == 673
     assert harness.calls[0].destination_id == "office"
     assert harness.calls[0].travel_mode == "walking"
-    assert canonical_action(action_label("travel_to", "walking")) == "travel_to"
+    assert TRAVEL_WAYS["walking"] == "步行" and TRAVEL_WAYS["driving"] == "驾车"
 
 
 def test_purchase_uses_each_observed_quote_and_single_unit():
@@ -135,8 +203,8 @@ def test_purchase_uses_each_observed_quote_and_single_unit():
     supply = SimpleNamespace(location_id="shop", fulfillment_modes=("delivery",),
                              delivery_destination_ids=("home",))
     harness.rules = SimpleNamespace(supplies={"first": supply, "second": supply})
-    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")})
-    selected = {"label": "配送到当前位置", "canonical_action": "purchase", "fulfillment": "delivery"}
+    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
+    selected = binding_action(PURCHASE_WAYS["delivery"], "purchase", fulfillment="delivery")
     bindings = [{"object_id": "first", "selected_action": selected,
                  "quote": {"price_version": "first-v2", "price_fen": 200}},
                 {"object_id": "second", "selected_action": selected,
@@ -147,7 +215,7 @@ def test_purchase_uses_each_observed_quote_and_single_unit():
         ("first", 1, "first-v2"), ("second", 1, "second-v7")]
     assert request.fulfillment == "delivery"
     assert request.destination_id == "home"
-    assert canonical_action(purchase_action_label("delivery")) == "purchase"
+    assert selected["label"] == "远程下单" and selected["verb"] == "obtain"
 
 
 def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available():
@@ -156,9 +224,8 @@ def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available():
     supply = SimpleNamespace(location_id="home", fulfillment_modes=("pickup", "delivery"),
                              delivery_destination_ids=("home",))
     harness.rules = SimpleNamespace(supplies={"offer": supply})
-    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")})
-    binding = {"object_id": "offer", "selected_action": {"label": "到店购买",
-               "canonical_action": "purchase", "fulfillment": "pickup"},
+    state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
+    binding = {"object_id": "offer", "selected_action": binding_action("到店", "purchase", fulfillment="pickup"),
                "quote": {"price_version": "current-v3", "price_fen": 350}}
     harness._start_purchase_action(state, _pending(), [binding])
     assert harness.calls[0].fulfillment == "pickup"
@@ -170,12 +237,12 @@ def test_nonfood_object_uses_catalog_mode_and_one_unit():
     harness = _ActionHarness()
     harness.rules = SimpleNamespace(items={
         "umbrella": SimpleNamespace(use_modes=("use",), use_duration_seconds=300)})
-    bindings = [{"selected_action": {"label": "使用", "canonical_action": "consume", "use_mode": "use"}}]
+    bindings = [{"selected_action": binding_action(USE_WAYS["use"], "consume", use_mode="use")}]
     harness._start_consume_action(_State({}), _pending(), ["umbrella"], bindings)
     request = harness.calls[0]
     assert request.use_mode == "use"
     assert request.items[0].quantity == 1
-    assert canonical_action("使用") == "consume"
+    assert bindings[0]["selected_action"]["label"] == "使用"
 
 
 def test_report_two_activities_validates_all_before_updating_anything():

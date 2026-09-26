@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, advance_until_ready, context, submit_round
+from tests.life.conftest import advance_next, advance_until_ready, context, start_activity, submit_round
 from worldmock.errors import ProtocolError
 from worldmock.life.models import StartActivityRequest
 
@@ -21,7 +21,7 @@ def test_real_wait_round_advances_and_records_complete_activity(engine_factory) 
     ctx = context(engine, "one")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     receipt = engine.submit_action(DirectToolCall(ctx, "wait-one", "start_activity", request))
     result = engine.commit_decision_round("one")[0]
     while engine.scheduling_state().next_event_at is not None:
@@ -43,7 +43,7 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     engine = engine_factory()
     _, results = submit_round(
         engine, {1: ("start_activity", StartActivityRequest(
-            targets=["不存在的内容"], actions=["观看"]))}, "missing-content")
+            targets=["不存在的内容"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     assert results[0].error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.activities == {}
@@ -54,7 +54,7 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
 def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) -> None:
     """同参数 action_id 不重复产生副作用，参数冲突作为协议故障。"""
     engine = engine_factory()
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     ctx = context(engine, "first")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
@@ -72,7 +72,7 @@ def test_same_action_reuses_result_and_parameter_conflict_fails(engine_factory) 
     ctx = context(engine, "conflict")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    changed = StartActivityRequest(targets=["自己"], actions=["睡觉"])
+    changed = start_activity("睡觉", "自己")
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(ctx, "stable-action", "start_activity", changed))
     engine.abort_decision_round("conflict", "expected conflict")
@@ -84,7 +84,7 @@ def test_abort_preserves_unexecuted_life_state_and_stale_context_fails(engine_fa
     ctx = context(engine, "abort")
     engine.begin_decision_round([ctx])
     engine.observe(ctx)
-    request = StartActivityRequest(targets=["自己"], actions=["睡觉"])
+    request = start_activity("睡觉", "自己")
     engine.submit_action(DirectToolCall(ctx, "never-run", "start_activity", request))
     engine.abort_decision_round("abort", "runner failed")
     assert engine.state.activities == {}
@@ -101,7 +101,7 @@ def test_multi_person_arrival_order_does_not_change_settlement_order(engine_fact
     """人物调用到达顺序颠倒时，结算仍使用 begin 中的共同顺序。"""
     first = engine_factory("multi-person.json")
     second = engine_factory("multi-person.json")
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     expected_order = first.scheduling_state().ready_agent_ids
     for engine, order in ((first, (2, 1)), (second, (1, 2))):
         contexts = {agent_id: context(engine, "multi", agent_id) for agent_id in (1, 2)}
@@ -179,32 +179,33 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
     assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))
     engine.commit_decision_round("discover")
 
 
 @pytest.mark.parametrize(
-    ("label", "kind", "action"),
+    ("label", "kind", "verb", "way"),
     (
-        ("watch", "content", "观看"),
-        ("game", "game", "游玩"),
-        ("travel", "location", "驾车前往"),
+        ("watch", "content", "interact", "接着看"),
+        ("game", "game", "interact", "游玩"),
+        ("travel", "location", "travel", "驾车"),
     ),
+    ids=("watch", "game", "travel"),
 )
 def test_first_round_accepts_discovered_content_game_and_route(
-    engine_factory, label, kind, action,
+    engine_factory, label, kind, verb, way,
 ) -> None:
-    """首轮目录中的三类身份可以直接进入对应真实领域边界。"""
+    """首轮目录中的三类身份可以直接进入对应真实领域边界：从未看过的内容列为「接着看」，出行方式为「驾车」。"""
     engine = engine_factory()
     ctx = context(engine, f"first-{label}")
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     matches = [row for row in observed["interaction_bindings"]
-               if row["kind"] == kind and any(item["label"] == action for item in row["actions"])]
+               if row["kind"] == kind and any((item["verb"], item["label"]) == (verb, way) for item in row["actions"])]
     assert matches
     target = matches[0]
-    action_request = StartActivityRequest(targets=[target["object"]], actions=[action])
+    action_request = StartActivityRequest(targets=[target["object"]], actions=[verb], ways=[way])
     call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]
@@ -233,7 +234,7 @@ def test_model_calls_require_one_request_and_one_terminal_evidence(engine_factor
     with pytest.raises(ProtocolError, match="no recorded request"):
         engine.record_model_exchange(ModelCallEvidence(ctx, second, "failure", 1, request,
                                                        error="duplicate terminal"))
-    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
+    wait = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(
         ctx, "model-evidence-wait", "start_activity", wait))
     engine.commit_decision_round("model-evidence")

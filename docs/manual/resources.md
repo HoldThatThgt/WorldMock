@@ -345,6 +345,9 @@ uv run python scripts/build_catalog.py --check
 `subtitle_experience`、`game_session`。时长为正整数秒，娱乐缓解率为每小时 0–1。
 时间轴使用 SRT：片段编号、`HH:MM:SS,mmm --> HH:MM:SS,mmm`、正文，片段间空行；必须非空且不重叠。
 人物按实际接触进度看到正文，不会直接看到整份文件。
+内容对象的方式为「接着看」或「从头再看」（播客为「接着听」或「从头再听」）：未看完的从上次位置接着看、时长取剩余，
+接触次数不变；已看完或剩余不足 60 秒的从头再看、时长取全长，接触次数加一。派生时长超过 86400 秒的条目（例如超过一天的
+信息流）按 86400 秒受理，受理结果写明计划时长，不再因过长被拒绝。
 
 现有 NASA `podcast_episode` 使用 Houston We Have a Podcast — Space Habitat 的
 00:01:52–00:14:58 英文访谈选段，选段媒体时长 786 秒。

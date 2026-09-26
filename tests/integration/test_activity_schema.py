@@ -18,7 +18,9 @@ from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
-from tests.integration.test_life_agent_protocol import _OBSERVED_AT, _WAIT, _memory, _observations, _with_activities
+from tests.integration.test_life_agent_protocol import (
+    _OBSERVED_AT, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
+)
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import MeetingMinutes, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.work_review import WorkReviewResponse
@@ -35,12 +37,7 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
     """用本轮公开事实及私有身份绑定准备实际人物工具（当前停留里有一项进行中的等待）。"""
     observations = deepcopy(_observations())
     data = observations[0]["data"]
-    data["facts"]["interactive_objects"].append(
-        {"object": "同事", "actions": ["交谈"], "preconditions_met": True})
-    data["interaction_bindings"].append({
-        "object": "同事", "kind": "person", "object_id": "agent:9",
-        "actions": [{"label": "交谈", "canonical_action": "chat"}],
-    })
+    _add_objects(data, _visible_object("同事", "person", "agent:9", _offer("interact", "交谈", "chat")))
     _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
         data["facts"]["day_plan"] = {"goals": []}
@@ -96,18 +93,25 @@ def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
 
 
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """模型只选择公开对象和动作；并列动作逐项配对。"""
+    """模型只选择公开对象、动词和方式；并列动作逐项配对，动词取五个生活动词，方式取对象列出的短语（第五章）。"""
     schema = _function("start_activity")["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions"}
+    assert set(schema["properties"]) == {"targets", "actions", "ways"}
+    assert schema["required"] == ["targets", "actions", "ways"]
     assert schema["properties"]["targets"]["items"]["enum"] == ["同事", "整理会议纪要", "自己"]
-    assert schema["properties"]["actions"]["items"]["enum"] == ["交谈", "工作", "睡觉", "等待"]
+    assert schema["properties"]["actions"]["items"]["enum"] == ["interact", "sleep"]
+    assert schema["properties"]["ways"]["items"]["enum"] == sorted(["交谈", "工作", "睡觉", "等待"])
     assert {"agent_id", "decision_id", "action_id", "target_id", "planned_duration_seconds",
-            "price_fen", "price_version", "quantity"}.isdisjoint(schema["properties"])
-    valid = {"targets": ["自己", "整理会议纪要"], "actions": ["等待", "工作"]}
+            "price_fen", "price_version", "quantity", "travel_mode", "fulfillment"}.isdisjoint(schema["properties"])
+    valid = {"targets": ["自己", "整理会议纪要"], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
-    assert list(Draft202012Validator(schema).iter_errors(
-        {"targets": ["internal:task:1"], "actions": ["工作"]}))
+    for invalid in ({"targets": ["internal:task:1"], "actions": ["interact"], "ways": ["工作"]},
+                    {"targets": ["自己"], "actions": ["等待"], "ways": ["等待"]},
+                    {"targets": ["自己"], "actions": ["interact"], "ways": ["interact"]},
+                    {"targets": ["自己"], "actions": ["interact"]}):
+        assert list(Draft202012Validator(schema).iter_errors(invalid))
+    with pytest.raises(ValidationError):
+        REQUEST_MODELS["start_activity"].model_validate({"targets": ["自己"], "actions": ["interact"]})
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])

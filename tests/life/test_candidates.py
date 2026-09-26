@@ -55,6 +55,9 @@ CONTRACT_REASONS = (
     "ELIGIBILITY_DISABLED",
     "ROTATION_DEFERRED",
 )
+#: 占用表（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）中睡眠与驾车两行：睡眠占全部七个槽位。
+SLEEP_CLAIMS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
+DRIVING_CLAIMS = frozenset({"travel", "idle", "eyes", "hands"})
 
 
 def _dump(value):
@@ -369,9 +372,24 @@ class TestExclusionDiscipline:
         assert {item.reason for item in page.excluded} == {"ELIGIBILITY_CLOSED_HOURS"}
 
     def test_resource_conflict_is_reachable(self) -> None:
-        busy = recall(_inputs(occupied_resources=frozenset({"position", "attention", "device", "hands"})))
+        busy = recall(_inputs(occupied_resources=SLEEP_CLAIMS))
         assert busy.retained == ()
         assert {item.reason for item in busy.excluded} == {"ELIGIBILITY_RESOURCE_CONFLICT"}
+
+    def test_driving_keeps_only_the_podcast_candidate(self) -> None:
+        """驾车占用下只有播客留下：播客只占 ears；视频另占 eyes，食品、生活活动占 hands，游戏占 eyes、hands，
+        工作占 idle，都与驾车占用相交（第五章组合表「驾车与播客受理，与视频、游戏、食用拒绝」）。"""
+        sources = dict(_inputs().sources)
+        film = dataclasses.replace(sources["browsed"][0], content_kind="feature_film")
+        podcast = CandidateEntry(object_id="podcast-1", kind="content", bucket="podcast_episode",
+                                 content_kind="podcast_episode", minimum_seconds=600, maximum_seconds=3600)
+        sources["browsed"] = (film, podcast)
+        page = recall(_inputs(sources=sources, occupied_resources=DRIVING_CLAIMS))
+        assert [item.object_id for item in page.retained] == ["podcast-1"]
+        assert {item.object_id: item.reason for item in page.excluded} == dict.fromkeys(
+            ("food-1", "movie-0001", "trip-1", "task-1", "game-1"), "ELIGIBILITY_RESOURCE_CONFLICT")
+        listening = recall(_inputs(sources=sources, occupied_resources=frozenset({"ears"})))
+        assert {item.object_id for item in listening.excluded} == {"movie-0001", "podcast-1"}
 
     def test_energy_is_not_an_exclusion_fact(self) -> None:
         # 能量不构成候选排除（docs/dev/SPEC-time-and-energy.md「删除的机制」）：闭集与输入都没有能量项，
@@ -452,7 +470,7 @@ class TestExclusionDiscipline:
         assert {item.reason for item in rejected.excluded} == {"ELIGIBILITY_LOCATION_KIND_MISMATCH"}
 
     def test_every_exclusion_reason_is_inside_the_closed_set(self) -> None:
-        inputs = _inputs(location=None, occupied_resources=frozenset({"position", "attention", "device", "hands"}))
+        inputs = _inputs(location=None, occupied_resources=SLEEP_CLAIMS)
         page = recall(inputs)
         assert page.excluded
         for item in page.excluded:

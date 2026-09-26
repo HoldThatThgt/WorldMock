@@ -106,7 +106,7 @@ def _single_agent_export(tmp_path):
         EventDraft(event_id='fixture-request-1', event_type='action_requested', occurred_at=100,
                    agent_id=1, decision_id='decision', action_id='request',
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['等待']}}),
+                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
     ]
     store.commit(store.state, drafts)
     store.commit({'schema_version': WORLD_SCHEMA_VERSION, 'version': 1, 'current_time': 200},
@@ -139,7 +139,7 @@ def _replay_export_pair(tmp_path):
         EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request',
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['等待']}}),
+                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
         EventDraft(event_type='action_result', occurred_at=100, agent_id=1,
                    decision_id='decision', action_id='request', data={'status': 'completed'}),
     ]
@@ -166,7 +166,8 @@ def _replay_export_pair(tmp_path):
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                                           action_id='wait', data={
                                               'tool_name': 'start_activity',
-                                              'request': {'targets': ['自己'], 'actions': ['等待']}})])
+                                              'request': {'targets': ['自己'], 'actions': ['interact'],
+                                                          'ways': ['等待']}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     _finish_export(parent, source_dir)
     _finish_export(child, replay_dir)

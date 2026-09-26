@@ -18,8 +18,9 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
-from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
+from worldmock.life.guidance import Refusal, guided
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
@@ -178,31 +179,36 @@ def concluded(activity: ActivityState, summary: str, now: int) -> ActivityState:
 
 
 def conclusion_required(activities: Iterable[ActivityState], names: dict[str, str]) -> BusinessRuleError:
-    """@brief 有待收尾活动时做别的：ACTIVITY_CONCLUSION_REQUIRED，原因点名刚结束的活动。"""
+    """@brief 有待收尾活动时做别的：ACTIVITY_CONCLUSION_REQUIRED，原因与下一步点名刚结束的活动。"""
     listed = "、".join(names.get(item.activity_id, item.name) for item in activities)
-    error = BusinessRuleError("ACTIVITY_CONCLUSION_REQUIRED")
-    error.__cause__ = ValueError(f"先给刚结束的{listed}收尾")
-    return error
+    return guided("ACTIVITY_CONCLUSION_REQUIRED", f"先给刚结束的{listed}收尾", f"给{listed}收尾")
 
 
 def require_start_admission(state: WorldState, agent_id: int, request: tuple[list[str], list[str]],
                             names: dict[str, str]) -> None:
     """@brief 开始请求的名额与出发前判定：名额不足报 SESSION_LIMIT_EXCEEDED，出发前仍有进行中活动报前置条件。
 
-    :param request: (内部标准动作列表, 动作短语列表)，与请求 targets 逐项对应。
-    :param names: 活动身份→本轮可读名称，用于在原因中点名要先处理的活动。
+    :param request: (内部标准动作列表, 方式短语列表)，与请求 targets 逐项对应。
+    :param names: 活动身份→本轮可读名称，用于在原因与下一步中点名要先处理的活动。
     """
+    refusal = start_admission_refusal(state, agent_id, request, names)
+    if refusal is not None:
+        raise refusal.error()
+
+
+def start_admission_refusal(state: WorldState, agent_id: int, request: tuple[list[str], list[str]],
+                            names: dict[str, str]) -> Refusal | None:
+    """@brief require_start_admission 的判定本身：不成立时返回原因与下一步，成立时为 None（交互对象层据此写说明）。"""
     actions, labels = request
     if new_activity_count(actions, labels) > free_slots(state, agent_id):
         listed = "、".join(names.get(item.activity_id, item.name) for item in slot_activities(state, agent_id))
-        error = BusinessRuleError("SESSION_LIMIT_EXCEEDED")
-        raise error from ValueError(f"两个名额都占着，先结束一项：{listed}")
+        return Refusal("SESSION_LIMIT_EXCEEDED", f"两件事都在做，先结束一件：{listed}", f"先结束一项：{listed}")
     running = [item for item in _agent_activities(state, agent_id, _is_active)]
     if "travel_to" in actions and running:
         listed = [names.get(item.activity_id, item.name) for item in running]
-        error = PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=["activities_before_departure"],
-                                  suggested={"conclude_or_pause": listed})
-        raise error from ValueError(f"出发前先结束或暂停：{'、'.join(listed)}")
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"需要先结束或暂停手上的事：{'、'.join(listed)}",
+                       unmet=("activities_before_departure",), suggested={"conclude_or_pause": listed})
+    return None
 
 
 def record_changes(before: WorldState, after: WorldState, pending: PendingAction,

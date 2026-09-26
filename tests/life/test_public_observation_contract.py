@@ -7,6 +7,7 @@ import json
 import pytest
 
 from worldmock.life import projection
+from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.narration import render_facts, render_scene
 
 
@@ -14,7 +15,12 @@ from worldmock.life.narration import render_facts, render_scene
     "white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json",
 ])
 def test_real_observation_uses_readable_objects_and_private_bindings(engine_factory, scenario_name: str) -> None:
-    """@brief 人物只见语义名称；引擎在同一观察里保留独立的身份绑定。"""
+    """@brief 人物只见语义名称；引擎在同一观察里保留独立的身份绑定。
+
+    公开行为 {object, actions: [{action, note}]}：action 是「动词：方式」，note 是未满足条件的一句说明（没有时为
+    null），不再有 preconditions_met；私有绑定逐项记同一动词与方式及其内部标准动作（docs/dev/SPEC-time-and-energy.md
+    第五章「请求形状与菜单」「动作照常列出，做错了再说明」）。「自己」恒列等待与睡觉。
+    """
     engine = engine_factory(scenario_name)
     agent_id = engine.scenario.agents[0].agent_id
     observed = engine._observation_data(engine.state.agents[agent_id])
@@ -26,15 +32,27 @@ def test_real_observation_uses_readable_objects_and_private_bindings(engine_fact
     assert len(public) == len(bindings)
     assert [row["object"] for row in public] == [row["object"] for row in bindings]
     assert len({row["object"] for row in public}) == len(public)
-    assert all(set(row) == {"object", "actions", "preconditions_met"} for row in public)
+    assert all(set(row) == {"object", "actions"} for row in public)
     assert all("object_id" in row for row in bindings)
+    for row, binding in zip(public, bindings):
+        assert row["actions"] == [{"action": f"{item['verb']}：{item['label']}", "note": item["note"]}
+                                  for item in binding["actions"]]
+        for item in binding["actions"]:
+            assert item["verb"] in LIFE_VERBS
+            assert WAYS[item["label"]] == (item["verb"], item["canonical_action"])
+            assert item["note"] is None or isinstance(item["note"], str) and item["note"]
+    own = next(row for row in public if row["object"] == "自己")
+    assert {"interact：等待", "sleep：睡觉"} <= {item["action"] for item in own["actions"]}
+    ways = {"person": {"交谈"}, "contact": {"通话"}}  # 同场人物只列交谈，通话只对通讯录联系人开放
+    for binding in bindings:
+        assert {item["label"] for item in binding["actions"]} <= ways.get(binding["kind"], set(WAYS))
     assert set(facts["progress"]) == {"sessions", "results", "alarms"}
 
     text = render_facts(facts)
     encoded = json.loads(text)
     assert encoded == facts
     for hidden in ("object_id", "session_id", "task_id", "product_id", "supply_id",
-                   "price_version", "recent_action_results"):
+                   "price_version", "recent_action_results", "preconditions_met", "canonical_action"):
         assert f'"{hidden}"' not in text
     for task in engine.scenario.tasks:
         assert task.task_id not in text

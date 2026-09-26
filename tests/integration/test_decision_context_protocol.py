@@ -15,6 +15,7 @@ from tests.integration.test_life_agent_protocol import (
     _ModelResponse,
     _PRIOR_EPISODE,
     _PRIOR_PROJECTION,
+    _WAIT_CHOICE,
     _context,
     _observations,
     _wire_agent,
@@ -76,8 +77,7 @@ class _ScriptedDispatcher:
 def _action_response() -> _ModelResponse:
     """@brief 返回带提供商思考字段的合法生活动作（世界请求登记即结束本轮）。"""
     return _ModelResponse(
-        "provider-action-call", "start_activity",
-        '{"targets":["自己"],"actions":["等待"]}',
+        "provider-action-call", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False),
         reasoning_content="I intend to rest; the outcome is not known yet.")
 
 
@@ -317,15 +317,19 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
 
 @pytest.mark.asyncio
 async def test_start_activity_schema_uses_readable_target_and_action() -> None:
-    """@brief 真实工具 Schema 只暴露可读目标和动作，执行参数由引擎派生。"""
+    """@brief 真实工具 Schema 只暴露可读目标、动词和方式，执行参数由引擎派生；描述说明「动词：方式」与说明文字，
+    不再要求只选前置条件已满足的对象（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。"""
     agent, environment, dispatcher = _configured([
         _DecisionStatementResponse(_STATEMENT), _action_response()], 3)
     await agent.run_react_loop(_request())
     action_request = dispatcher.requests[1]
     start = next(tool["function"] for tool in action_request["tools"]
                  if tool["function"]["name"] == "start_activity")
-    assert set(start["parameters"]["properties"]) == {"targets", "actions"}
-    assert "facts.interactive_objects" in start["description"]
+    assert set(start["parameters"]["properties"]) == {"targets", "actions", "ways"}
+    description = start["description"]
+    assert "facts.interactive_objects" in description
+    assert "preconditions_met" not in description and "Choose only objects" not in description
+    assert "verb：way" in description and "note" in description
+    assert all(field in description for field in ("targets", "actions", "ways"))
     assert "自己" in action_request["messages"][1]["content"]
-    assert environment.calls[0].request.targets == ["自己"]
-    assert environment.calls[0].request.actions == ["等待"]
+    assert environment.calls[0].request.model_dump() == _WAIT_CHOICE

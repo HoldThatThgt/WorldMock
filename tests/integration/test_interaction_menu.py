@@ -1,4 +1,4 @@
-"""交互菜单只剪裁可读对象动作，工具仍由各自业务条件开放。"""
+"""交互菜单按私有绑定映射后的内部动作剪裁可读对象动作，工具仍由各自业务条件开放。"""
 
 from __future__ import annotations
 
@@ -18,15 +18,21 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.agents.life_menu import menu_action_error, parse_interaction_menu
 from tests.integration.test_life_agent_protocol import (
-    _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _context, _observations, _wire_agent,
+    _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _SELF_OBJECT, _WAIT_CHOICE, _add_objects,
+    _context, _observations, _offer, _visible_object, _wire_agent,
 )
 from worldmock.life.interaction_menu import (
+    WAYS,
     InteractionMenu,
-    canonical_action,
     menu_allows_action,
     resolve_interaction_menu,
+    resolve_selection,
 )
-from worldmock.life.models import REQUEST_MODELS, SendMessageActionRequest, StartActivityRequest
+from worldmock.life.models import REQUEST_MODELS
+
+#: 条件已满足（没有说明）的工作对象：菜单剪裁与条件说明无关。
+_TASK = _visible_object("整理会议纪要", "work_task", "task-visible", _offer("interact", "工作", "work"))
+_WORK_CHOICE = {"targets": ["整理会议纪要"], "actions": ["interact"], "ways": ["工作"]}
 
 
 def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
@@ -34,17 +40,9 @@ def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
     observations = copy.deepcopy(_observations())
     data = observations[0]["data"]
     data["interaction_menu"] = {"allowed_actions": sorted(allowed_actions)}
-    data["facts"]["interactive_objects"] = [
-        {"object": "自己", "actions": ["等待", "睡觉"], "preconditions_met": True},
-        {"object": "整理会议纪要", "actions": ["工作"], "preconditions_met": True},
-    ]
-    data["interaction_bindings"] = [
-        {"object": "自己", "kind": "self", "object_id": "self", "actions": [
-            {"label": "等待", "canonical_action": "wait"},
-            {"label": "睡觉", "canonical_action": "sleep"}]},
-        {"object": "整理会议纪要", "kind": "work_task", "object_id": "task-visible",
-         "actions": [{"label": "工作", "canonical_action": "work"}]},
-    ]
+    data["facts"]["interactive_objects"] = []
+    data["interaction_bindings"] = []
+    _add_objects(data, _SELF_OBJECT, _TASK)
     return observations
 
 
@@ -91,40 +89,57 @@ def test_effective_menu_intersects_location_and_person_actions() -> None:
 
 
 def test_actual_tool_schema_limits_action_phrases_without_removing_other_tools() -> None:
-    """地点菜单只剪裁 start_activity 动作枚举，工作提交等工具保持条件可见。"""
+    """地点菜单只剪裁 start_activity 的对象、动词与方式枚举（没有菜单内动作的对象不进枚举），工作提交等工具保持条件可见。"""
     agent = _prepared_agent(("sleep", "wait"))
     functions = _functions(agent)
     assert {"start_activity", "submit_work", "recall_task_summary", "plan_day"} <= set(functions)
-    assert set(functions["start_activity"]["parameters"]["properties"]) == {"targets", "actions"}
-    choices = functions["start_activity"]["parameters"]["properties"]["actions"]["items"]["enum"]
-    assert set(choices) == {"等待", "睡觉"}
-    assert all(canonical_action(label) in {"sleep", "wait"} for label in choices)
+    properties = functions["start_activity"]["parameters"]["properties"]
+    assert set(properties) == {"targets", "actions", "ways"}
+    assert properties["targets"]["items"]["enum"] == ["自己"]
+    assert properties["actions"]["items"]["enum"] == ["interact", "sleep"]
+    ways = properties["ways"]["items"]["enum"]
+    assert set(ways) == {"等待", "睡觉"}
+    assert all(WAYS[way][1] in {"sleep", "wait"} for way in ways)
+    opened = _functions(_prepared_agent(("sleep", "wait", "work")))["start_activity"]["parameters"]["properties"]
+    assert opened["targets"]["items"]["enum"] == ["整理会议纪要", "自己"]
+    assert set(opened["ways"]["items"]["enum"]) == {"等待", "睡觉", "工作"}
 
 
 @pytest.mark.asyncio
 async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
-    """可见工作对象仍不能绕过地点菜单调用被剪裁的工作动作。"""
+    """可见工作对象仍不能绕过地点菜单调用被剪裁的工作动作（映射后的内部动作不在菜单内）。"""
     agent = _prepared_agent(("sleep", "wait"))
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    payload = {"targets": ["整理会议纪要"], "actions": ["工作"]}
-    decision = ReactDecision("", "start_activity", payload, "")
+    decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "interaction menu" in agent.validate_react_decisions([decision], False)
+    two = {"targets": ["自己", "整理会议纪要"], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
+    assert "interaction menu" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
+                                                                False)
     with pytest.raises(RuntimeError, match="interaction menu"):
-        await agent.dispatch_react_tool("start_activity", payload)
+        await agent.dispatch_react_tool("start_activity", _WORK_CHOICE)
     assert environment.calls == []
 
 
 def test_menu_checks_only_start_activity_and_requires_human_action() -> None:
-    """菜单按动作短语判断启动；正文工具由自身业务条件校验。"""
+    """菜单按私有绑定映射后的内部动作逐项判定启动（整组都要在菜单内），不按短语反解；正文工具由自身业务条件校验。"""
     menu = InteractionMenu(allowed_actions=("sleep", "wait"))
-    assert menu_allows_action(menu, "start_activity",
-                              StartActivityRequest(targets=["自己"], actions=["等待"]))
-    assert not menu_allows_action(menu, "start_activity",
-                                  StartActivityRequest(targets=["整理会议纪要"], actions=["工作"]))
-    message = SendMessageActionRequest(recipient_name="小王", text="今晚见")
-    assert menu_action_error(menu, "send_message", message) == ""
+    bindings = _observed_menu(("sleep", "wait"))[0]["data"]["interaction_bindings"]
+    [waiting] = resolve_selection(bindings, ["自己"], ["interact"], ["等待"])
+    [working] = resolve_selection(bindings, ["整理会议纪要"], ["interact"], ["工作"])
+    assert waiting["selected_action"]["canonical_action"] == "wait"
+    assert working["selected_action"]["canonical_action"] == "work"
+    assert resolve_selection(bindings, ["整理会议纪要"], ["interact"], ["等待"]) is None
+    assert menu_allows_action(menu, "start_activity", ["wait"])
+    assert menu_allows_action(menu, "start_activity", ["wait", "sleep"])
+    assert not menu_allows_action(menu, "start_activity", ["work"])
+    assert not menu_allows_action(menu, "start_activity", ["wait", "work"])
+    assert not menu_allows_action(menu, "start_activity", [])
+    assert menu_action_error(menu, "start_activity", ["work"]) == "interaction menu denies start_activity"
+    assert menu_action_error(menu, "start_activity", ["sleep"]) == ""
+    assert menu_allows_action(menu, "send_message", [])
+    assert menu_action_error(menu, "send_message", []) == ""
 
 
 @pytest.mark.parametrize("broken", [
@@ -151,7 +166,7 @@ async def test_readonly_and_post_action_phases_do_not_reopen_business_tools() ->
     readonly.prepare_react_loop(ReactLoopRequest(
         0, _context().observed_at, [], "What happened?", True))
     assert set(_functions(readonly, readonly=True)).isdisjoint(REQUEST_MODELS)
-    wait = {"targets": ["自己"], "actions": ["等待"]}
+    wait = _WAIT_CHOICE
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-action", "start_activity", json.dumps(wait, ensure_ascii=False))])
     agent, environment = LifeAgent(), _Environment()

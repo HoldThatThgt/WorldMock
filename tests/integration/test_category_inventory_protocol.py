@@ -30,12 +30,11 @@ class _Dispatcher:
 
     model_name = "deepseek-flash"
 
-    def __init__(self, target: str, action: str) -> None:
+    def __init__(self, arguments: dict) -> None:
         self.requests: list[dict] = []
         self.responses = [
             _DecisionStatementResponse("我使用眼前的物品。"),
-            _ModelResponse("provider-action", "start_activity",
-                           json.dumps({"targets": [target], "actions": [action]}, ensure_ascii=False)),
+            _ModelResponse("provider-action", "start_activity", json.dumps(arguments, ensure_ascii=False)),
         ]
 
     async def call(self, **request):
@@ -69,7 +68,7 @@ def _recipe_path(tmp_path, required_location=None):
 
 
 async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
-    """让真实人物按冻结观察中的持有物名称提交一次使用动作。"""
+    """让真实人物按冻结观察中的持有物名称提交它唯一列出的动作（配方为 obtain 的「制作」，否则 consume 的「使用」）。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     environment = LifeEnv()
     environment.engine = engine
@@ -78,7 +77,9 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     observation = await environment.observe(current)
     binding = next(row for row in observation["interaction_bindings"]
                    if row["kind"] == "holding" and row["object_id"] == product_id)
-    dispatcher = _Dispatcher(binding["object"], "使用")
+    [offered] = binding["actions"]
+    choice = {"targets": [binding["object"]], "actions": [offered["verb"]], "ways": [offered["label"]]}
+    dispatcher = _Dispatcher(choice)
     person = _person(environment, current, dispatcher)
     before = engine.state.model_dump(mode="json")
     request = ReactLoopRequest(0, current.observed_at, [
@@ -88,7 +89,7 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     assert engine.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 2
     action_request = dispatcher.requests[1]
-    assert set(_action_schema(action_request)["parameters"]["properties"]) == {"targets", "actions"}
+    assert set(_action_schema(action_request)["parameters"]["properties"]) == {"targets", "actions", "ways"}
     assert binding["object"] in action_request["messages"][1]["content"]
     assert product_id not in action_request["messages"][1]["content"]
     return observation, engine.commit_decision_round(round_id)[0]
@@ -96,13 +97,14 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_path, monkeypatch):
-    """人物只选持有物与使用，领域规则完成配方转换；用完当秒收尾后，下一轮提供产物。"""
+    """人物只选持有物与方式：配方输入列 obtain 的「制作」，领域规则完成配方转换；用完当秒收尾后，下一轮的产物
+    列 consume 的「使用」（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）。"""
     path = _recipe_path(tmp_path)
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
         before, started = await _use_held_item(engine, "recipe-input", _INPUT_OBJECT, monkeypatch)
         assert before["scene"]["inventory"] == ["密封工具盒"]
-        assert {"object": "持有物：密封工具盒", "actions": ["使用"], "preconditions_met": True} \
+        assert {"object": "持有物：密封工具盒", "actions": [{"action": "obtain：制作", "note": None}]} \
             in before["facts"]["interactive_objects"]
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
@@ -111,7 +113,8 @@ async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_
         assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
         assert after["scene"]["inventory"] == ["拆封工具盒"]
-        assert any(row["object"] == "持有物：拆封工具盒" for row in after["facts"]["interactive_objects"])
+        assert {"object": "持有物：拆封工具盒", "actions": [{"action": "consume：使用", "note": None}]} \
+            in after["facts"]["interactive_objects"]
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
         assert "package_opened" in engine.state.agents[1].active_effects
@@ -134,8 +137,10 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == product_id)
-        assert [action["label"] for action in held["actions"]] == ["食用"]
-        assert held["object"] in {row["object"] for row in observed["facts"]["interactive_objects"]}
+        assert [(action["verb"], action["label"], action["use_mode"]) for action in held["actions"]] == [
+            ("consume", "食用", "eat")]
+        assert {"object": held["object"], "actions": [{"action": "consume：食用", "note": None}]} \
+            in observed["facts"]["interactive_objects"]
         assert all(row["object"] != held["object"] for row in observed["facts"]["products"])
     finally:
         engine.close()
@@ -143,7 +148,8 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
 
 @pytest.mark.parametrize("required_location", [None, "home", "office"])
 def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
-    """地点条件仍由领域结算判断，模型看到的动作不承载地点编号。"""
+    """地点条件仍由领域结算判断：只能在别处用的持有物照常列出「制作」，带一句点名地点名称的说明；模型看到的动作
+    不承载地点编号（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。"""
     path = _recipe_path(tmp_path, required_location=required_location)
     engine = _engine(tmp_path, path, f"location-{required_location}")
     try:
@@ -152,8 +158,18 @@ def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == _INPUT_OBJECT)
-        assert [action["label"] for action in held["actions"]] == ["使用"]
+        assert [(action["verb"], action["label"], action["canonical_action"], action["use_mode"])
+                for action in held["actions"]] == [("obtain", "制作", "consume", "use")]
+        [row] = [row for row in observed["facts"]["interactive_objects"] if row["object"] == held["object"]]
+        [action] = row["actions"]
+        assert action["action"] == "obtain：制作"
+        if required_location == "office":
+            office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
+            assert action["note"] is not None and office in action["note"]
+        else:
+            assert action["note"] is None
         assert all("product_id" not in row for row in observed["facts"]["inventory"])
         assert all("required_location_id" not in row for row in observed["facts"]["interactive_objects"])
+        assert "office" not in json.dumps(observed["facts"]["interactive_objects"], ensure_ascii=False)
     finally:
         engine.close()

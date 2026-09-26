@@ -499,7 +499,7 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
     """能量为 0 时进行中的观看照常继续：不产生不可行预警，也不构成承诺威胁。"""
     engine = engine_factory()
     started = act(engine, "zero-energy-watch", "start_activity",
-                  start_activity("观看", "内容：Sintel"))
+                  start_activity("接着看", "内容：Sintel"))
     assert started.status == "in_progress"
     state = engine.state.model_copy(deep=True)
     state.agents[1].body.energy_kcal = 0
@@ -521,7 +521,7 @@ def test_low_energy_bands_match_the_decision_reference(engine_factory, energy, b
 
     engine = engine_factory()
     _stage_morning(engine, energy)
-    started = act(engine, "low-energy-watch", "start_activity", start_activity("观看", "内容：Sintel"))
+    started = act(engine, "low-energy-watch", "start_activity", start_activity("接着看", "内容：Sintel"))
     assert started.status == "in_progress"
     assert engine.state.agents[1].felt_bands_at_last_decision["appetite"] == band
     state = engine.state.model_copy(deep=True)

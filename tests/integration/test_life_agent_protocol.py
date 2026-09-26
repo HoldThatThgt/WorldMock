@@ -83,7 +83,40 @@ _NOW_EPOCH = int(_OBSERVED_AT.timestamp())
 _HOME_SESSION = "自己家（1月4日 18:00 起）"
 _WAIT = "等待（1月4日 23:45 起）"
 _WORK = "工作整理会议纪要（1月4日 21:00 起）"
-_NEWS = "观看晚间新闻（1月4日 20:00 起）"
+_NEWS = "接着看晚间新闻（1月4日 20:00 起）"
+
+
+def _offer(verb: str, way: str, canonical: str, note: str | None = None, **execution) -> dict:
+    """私有绑定的一项动作，与引擎投影同形：动词、方式（label）、内部标准动作、出行方式、说明与执行参数。"""
+    return {"verb": verb, "label": way, "canonical_action": canonical,
+            "travel_mode": execution.pop("travel_mode", None), "note": note, **execution}
+
+
+def _visible_object(name: str, kind: str, object_id: str, *offers: dict, **binding) -> tuple[dict, dict]:
+    """同一可见对象的公开行与私有绑定（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
+
+    公开行只有 {object, actions: [{action: "动词：方式", note}]}；私有绑定另带对象种类、内部身份与 binding 附加项。
+    """
+    public = {"object": name, "actions": [{"action": f"{item['verb']}：{item['label']}", "note": item["note"]}
+                                          for item in offers]}
+    return public, {"object": name, "kind": kind, "object_id": object_id, "actions": list(offers), **binding}
+
+
+def _add_objects(data: dict, *objects: tuple[dict, dict]) -> dict:
+    """把可见对象的公开行与私有绑定分别追加到观察的交互对象层与 interaction_bindings。"""
+    for public, binding in objects:
+        data["facts"]["interactive_objects"].append(copy.deepcopy(public))
+        data["interaction_bindings"].append(copy.deepcopy(binding))
+    return data
+
+
+#: 「自己」恒在对象层（等待、睡觉）；在家时办公室工作照常列出，带未满足条件的一句说明（第五章）。
+_SELF_OBJECT = _visible_object("自己", "self", "self",
+                               _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep"))
+_TASK_OBJECT = _visible_object("整理会议纪要", "work_task", "task-visible",
+                               _offer("interact", "工作", "work", "工作整理会议纪要需要在办公室"))
+#: 对「自己」选择等待：对象、动词与方式三数组逐项对应（第五章「请求形状与菜单」）。
+_WAIT_CHOICE = {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
 
 
 @pytest.fixture(autouse=True)
@@ -121,10 +154,7 @@ _FACTS = {
          "remaining_contract_seconds": 3600, "new_material_ranges": []},
     ],
     "progress": {"sessions": [{"name": _HOME_SESSION, "activities": []}], "results": [], "alarms": []},
-    "interactive_objects": [
-        {"object": "自己", "actions": ["等待", "睡觉"], "preconditions_met": True},
-        {"object": "整理会议纪要", "actions": ["工作"], "preconditions_met": False},
-    ],
+    "interactive_objects": [_SELF_OBJECT[0], _TASK_OBJECT[0]],
     "routes": [{"destination": "办公室", "mode": "driving", "minutes": 4,
                 "fare_fen": 800, "effort": "轻松", "feasible": True, "status": "reachable", "reason": None}],
     "products": [],
@@ -175,13 +205,7 @@ def _observations(*result_ids: str) -> list[dict]:
         "same_moment_stage": "open",  # 未达同刻上限：不收窄世界请求
         "scene": copy.deepcopy(_SCENE),
         "facts": copy.deepcopy(_FACTS),
-        "interaction_bindings": [
-            {"object": "自己", "kind": "self", "object_id": "self", "actions": [
-                {"label": "等待", "canonical_action": "wait"},
-                {"label": "睡觉", "canonical_action": "sleep"}]},
-            {"object": "整理会议纪要", "kind": "work_task", "object_id": "task-visible",
-             "actions": [{"label": "工作", "canonical_action": "work"}]},
-        ],
+        "interaction_bindings": copy.deepcopy([_SELF_OBJECT[1], _TASK_OBJECT[1]]),
         "task_bindings": [{"task_name": "整理会议纪要", "task_id": "task-visible",
                            "submission_ready": True}],
         "activity_bindings": [],
@@ -263,7 +287,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert "finish" not in functions
     start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
-    assert set(start_fields) == {"targets", "actions"}
+    assert set(start_fields) == {"targets", "actions", "ways"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
     assert len(life_prompt_sha256()) == 64
@@ -397,13 +421,14 @@ def test_life_agent_rejects_invalid_or_non_atomic_decisions() -> None:
     agent = LifeAgent()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
-    valid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": ["等待"]}, "")
+    valid = ReactDecision("", "start_activity", _WAIT_CHOICE, "")
 
     assert "multiple" in agent.validate_react_decisions([valid, valid], False)
     memory = ReactDecision("", "memory_recent", {"limit": 1}, "")
     assert "only tool" in agent.validate_react_decisions([memory, valid], False)
-    invalid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": ["虚构动作"]}, "")
-    assert "not offered" in agent.validate_react_decisions([invalid], False)
+    for verb, way in (("interact", "虚构方式"), ("sleep", "等待"), ("虚构动词", "等待")):
+        invalid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": [verb], "ways": [way]}, "")
+        assert "not offered" in agent.validate_react_decisions([invalid], False)
     finish = ReactDecision("", "finish", {"memories": []}, "")
     assert "unknown LifeAgent tool: finish" == agent.validate_react_decisions([finish], False)
 
@@ -610,7 +635,7 @@ class _Dispatcher:
             _ModelResponse(
                 "call-action",
                 "start_activity",
-                '{"targets":["自己"],"actions":["等待"]}',
+                json.dumps(_WAIT_CHOICE, ensure_ascii=False),
                 reasoning_content="Tired person needs a short rest before work.",
             ),
         ]
@@ -717,7 +742,7 @@ class _GroundedCorrectionDispatcher:
             _ModelResponse(
                 "call-action",
                 "start_activity",
-                json.dumps({"targets": ["自己"], "actions": ["等待"]}),
+                json.dumps(_WAIT_CHOICE, ensure_ascii=False),
             ),
         ]
         self.responses = list(responses) if responses is not None else defaults
@@ -872,7 +897,8 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
         if item["function"]["name"] == "start_activity"
     )
     assert start["targets"]["items"]["enum"] == ["整理会议纪要", "自己"]
-    assert set(start["actions"]["items"]["enum"]) == {"工作", "等待", "睡觉"}
+    assert start["actions"]["items"]["enum"] == ["interact", "sleep"]
+    assert start["ways"]["items"]["enum"] == sorted(["工作", "等待", "睡觉"])
     assert [_request_budget(item)["remaining_model_turns_including_current"]
             for item in (first, second)] == [3, 2]
     assert [_request_budget(item)["phase"] for item in (first, second)] == ["before_action", "before_action"]
@@ -897,7 +923,7 @@ async def test_two_stage_decision_statement_evidence_and_single_retry() -> None:
             _ModelResponse(
                 "call-action",
                 "start_activity",
-                '{"targets":["自己"],"actions":["等待"]}',
+                json.dumps(_WAIT_CHOICE, ensure_ascii=False),
             ),
         ],
         decision_statements=[
@@ -986,7 +1012,7 @@ async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
         _ModelResponse(
             "call-action",
             "start_activity",
-            '{"targets":["自己"],"actions":["等待"]}',
+            json.dumps(_WAIT_CHOICE, ensure_ascii=False),
         ),
     ])
     environment = _Environment()
@@ -1023,7 +1049,7 @@ async def test_multiple_memory_calls_share_one_model_turn() -> None:
         _ModelResponse(
             "call-action",
             "start_activity",
-            '{"targets":["自己"],"actions":["等待"]}',
+            json.dumps(_WAIT_CHOICE, ensure_ascii=False),
         ),
     ])
     environment = _Environment()
@@ -1111,7 +1137,7 @@ async def test_second_world_request_in_one_decision_is_refused() -> None:
     agent._decision_context = _context()
     agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
 
-    receipt = await agent.dispatch_react_tool("start_activity", {"targets": ["自己"], "actions": ["等待"]})
+    receipt = await agent.dispatch_react_tool("start_activity", _WAIT_CHOICE)
 
     assert receipt.ok is True
     recall = {"task_name": "整理会议纪要"}
@@ -1155,8 +1181,7 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert result == "start_activity registered"
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
-    assert environment.calls[0].request.targets == ["自己"]
-    assert environment.calls[0].request.actions == ["等待"]
+    assert environment.calls[0].request.model_dump() == _WAIT_CHOICE
     assert [item.phase for item in environment.evidence] == ["request", "response"] * 4
     assert "unknown native tool calls" in environment.evidence[5].error
     assert len(dispatcher.requests) == 4
@@ -1181,7 +1206,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     config = _agent_specs(scenario, persona_compiler=lambda _: None)[0]["config"]
     responses = [_ModelResponse(f"bad-{index}", "invented_game", "{}") for index in range(12)]
     responses.append(_ModelResponse("action", "start_activity",
-                                    '{"targets":["自己"],"actions":["等待"]}'))
+                                    json.dumps(_WAIT_CHOICE, ensure_ascii=False)))
     dispatcher = _GroundedCorrectionDispatcher(responses=responses)
     environment = _Environment()
     agent = LifeAgent()
@@ -1206,15 +1231,15 @@ def test_readonly_state_mismatch_is_an_internal_failure() -> None:
 
 @pytest.mark.asyncio
 async def test_life_schema_and_target_errors_are_corrected_before_execution() -> None:
-    """Pydantic参数与目标配对错误各耗一回合且只有最终合法动作执行。"""
-    arguments = {"targets": ["自己"], "actions": ["等待"]}
+    """Pydantic参数与目标配对错误各耗一回合且只有最终合法动作执行：缺少方式数组、方式不属于所选对象都在本轮纠正。"""
+    arguments = dict(_WAIT_CHOICE)
     missing = dict(arguments)
-    missing.pop("actions")
-    wrong_pair = {"targets": ["整理会议纪要"], "actions": ["等待"]}
+    missing.pop("ways")
+    wrong_pair = {"targets": ["整理会议纪要"], "actions": ["interact"], "ways": ["等待"]}
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-schema", "start_activity", json.dumps(missing)),
-        _ModelResponse("call-pair", "start_activity", json.dumps(wrong_pair)),
-        _ModelResponse("call-action", "start_activity", json.dumps(arguments)),
+        _ModelResponse("call-schema", "start_activity", json.dumps(missing, ensure_ascii=False)),
+        _ModelResponse("call-pair", "start_activity", json.dumps(wrong_pair, ensure_ascii=False)),
+        _ModelResponse("call-action", "start_activity", json.dumps(arguments, ensure_ascii=False)),
     ])
     environment = _Environment()
     agent = LifeAgent()
@@ -1225,7 +1250,8 @@ async def test_life_schema_and_target_errors_are_corrected_before_execution() ->
     assert len(environment.calls) == 1
     assert environment.calls[0].request == StartActivityRequest(**arguments)
     assert "invalid start_activity arguments" in environment.evidence[3].error
-    assert "action is not offered" in environment.evidence[5].error
+    assert "ways" in environment.evidence[3].error
+    assert "verb and way are not offered by the chosen target" in environment.evidence[5].error
     react_requests = [item for item in dispatcher.requests if "tools" in item]
     assert len(react_requests) == 3
     assert all(json.loads(request["messages"][-1]["content"])["executed"] is False

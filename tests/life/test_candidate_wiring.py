@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
-from worldmock.life.models import StartActivityRequest
+from tests.life.conftest import advance_next, context, start_activity
 
 
 def test_observation_commits_presented_object_stamps(engine_factory) -> None:
@@ -19,9 +18,9 @@ def test_observation_commits_presented_object_stamps(engine_factory) -> None:
     assert presented
     assert engine.state.presentation_state == {}
 
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(decision, "candidate-wait", "start_activity", request))
-    engine.commit_decision_round("candidate-wiring")
+    assert engine.commit_decision_round("candidate-wiring")[0].status == "in_progress"
     assert engine.state.presentation_state == {}
     staged = engine.state.same_moment_presentation[1].stamps
     assert presented <= set(staged)

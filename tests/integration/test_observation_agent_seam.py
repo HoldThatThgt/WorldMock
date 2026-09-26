@@ -55,7 +55,7 @@ def _observe_active_wait(engine) -> tuple[dict, object]:
     # 登记计划是瞬时动作：没有进行中活动，同一秒再决策（时间与能量规格第一章规则 2）。
     wake_by_mail(engine, offset=300)
     _submit(engine, "seam-wait", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["等待"]))
+            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
     assert advance_until_ready(engine)
     ctx = context(engine, "seam-observe")
     engine.begin_decision_round([ctx])
@@ -121,8 +121,10 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
     shown = engine._observation_data(engine.state.agents[1])
     subtitle = next(row for row in shown["interaction_bindings"]
                     if row["kind"] == "content" and row["object_id"] == "sintel-en-subtitles")
+    [way] = [item["label"] for item in subtitle["actions"] if item["canonical_action"] == "watch"]
+    assert way == "接着看"
     _submit(engine, "copy-watch", "start_activity", StartActivityRequest(
-        targets=[subtitle["object"]], actions=["观看"]))
+        targets=[subtitle["object"]], actions=["interact"], ways=[way]))
     assert advance_until_ready(engine)
     ctx = context(engine, "copy-observe")
     engine.begin_decision_round([ctx])
@@ -173,7 +175,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
                 if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
     observation, result, schemas = await _agent_action(
         engine, "game-start", "start_activity",
-        {"targets": [game["object"]], "actions": ["游玩"]})
+        {"targets": [game["object"]], "actions": ["interact"], "ways": ["游玩"]})
     assert game["object"] in schemas["start_activity"]["parameters"]["properties"][
         "targets"]["items"]["enum"]
     assert game["object_id"] not in str(schemas["start_activity"])
@@ -218,7 +220,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert engine.state.current_time == submitted_at
     _, started, _ = await _agent_action(
         engine, "goals-wait", "start_activity",
-        {"targets": ["自己"], "actions": ["等待"]})
+        {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]})
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     progressed = engine.state.agents[1].day_plan.model_dump(mode="json")

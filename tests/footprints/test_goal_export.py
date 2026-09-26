@@ -86,7 +86,7 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     assert registered.status == "completed"
     _stage_midnight_round(engine, midnight - 120)
     started = _submit(engine, "start_activity", StartActivityRequest(
-        targets=["自己"], actions=["等待"]), "midnight-rest")
+        targets=["自己"], actions=["interact"], ways=["等待"]), "midnight-rest")
     assert started.status == "in_progress"
     advance_next(engine)
     assert engine.state.current_time == midnight

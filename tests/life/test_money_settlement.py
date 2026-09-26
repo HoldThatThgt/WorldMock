@@ -52,12 +52,12 @@ def _stage_open(engine) -> None:
 
 def _wait() -> StartActivityRequest:
     """@brief 等待时长由场景反馈间隔派生。"""
-    return StartActivityRequest(targets=["自己"], actions=["等待"])
+    return StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
 
 
 def _choice(observation: dict, action: str, object_id: str | None = None,
             mode: str | None = None) -> StartActivityRequest:
-    """@brief 在冻结观察中选可读对象和动作，报价与路线参数交给引擎。"""
+    """@brief 在冻结观察中选可读对象、动词与方式，报价与路线参数交给引擎。"""
     for row in observation["interaction_bindings"]:
         if object_id is not None and row["object_id"] != object_id:
             continue
@@ -66,7 +66,7 @@ def _choice(observation: dict, action: str, object_id: str | None = None,
                 continue
             if mode is not None and (offered.get("travel_mode") or offered.get("fulfillment")) != mode:
                 continue
-            return StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+            return StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
     raise AssertionError(f"No observed choice for {action}: {object_id}")
 
 

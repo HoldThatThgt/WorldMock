@@ -9,8 +9,8 @@ from pathlib import Path
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names,
-                                 submit_round)
+from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, stage_day_plan,
+                                 start_activity, submit_round)
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import StartActivityRequest
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
@@ -94,7 +94,7 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
         ctx, call_id, "response", 1, request,
         response={"model": "deepseek-flash", "usage": {"prompt_tokens": 11, "completion_tokens": 7}}))
     engine.observe(ctx)
-    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
+    wait = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
     engine.submit_action(DirectToolCall(ctx, "ops-wait", "start_activity", wait))
     engine.commit_decision_round("ops")
     records = _records(engine)
@@ -112,7 +112,25 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
     accepted = next(record for record in records if record["code"] == "ACTION_ACCEPTED")
     assert accepted["agent_id"] == ctx.agent_id and accepted["decision_id"] == ctx.decision_id
     assert accepted["round_id"] == "ops" and accepted["action_id"] == "ops-wait"
-    assert accepted["tool_name"] == "start_activity"
+    assert accepted["tool_name"] == "start_activity" and accepted["component"] == "engine"
+
+
+def test_opslog_component_follows_the_internal_action_of_the_chosen_way(engine_factory) -> None:
+    """start_activity 的操作日志组件按方式闭集（WAYS）映射的内部动作取：「驾车」即出行，受理与车费都记在 travel。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    ctx = context(engine, "ops-drive")
+    engine.begin_decision_round([ctx])
+    observed = engine.observe(ctx)
+    target = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "location"
+                  and any(item["travel_mode"] == "driving" for item in row["actions"]))
+    engine.submit_action(DirectToolCall(ctx, "ops-drive", "start_activity", start_activity("驾车", target)))
+    result = engine.commit_decision_round("ops-drive")[0]
+    assert result.status == "in_progress", result.error_code
+    records = [record for record in _records(engine) if record.get("action_id") == "ops-drive"]
+    assert [(record["code"], record["component"]) for record in records] == [
+        ("ACTION_ACCEPTED", "travel"), ("FUNDS_CHANGED", "travel")]
+    assert records[1]["account_changes"] == result.data["resource_changes"]
 
 
 def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
@@ -120,7 +138,7 @@ def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
     engine = engine_factory()
     _, results = submit_round(
         engine, {1: ("start_activity", StartActivityRequest(
-            targets=["missing-content"], actions=["观看"]))}, "missing-content")
+            targets=["missing-content"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     records = _records(engine)
     rejected = next(record for record in records if record["code"] == "ACTION_REJECTED")
@@ -131,7 +149,7 @@ def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
 def test_opslog_records_memory_update(engine_factory) -> None:
     """记忆更新记录带人物与决策关联键及 episode 数量；写入点是同一决策登记的带记忆 conclude_activity（规格第七章）。"""
     engine = engine_factory()
-    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
+    wait = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
     submit_round(engine, {1: ("start_activity", wait)}, "memory-wait")
     assert advance_until_ready(engine)
     ctx = context(engine, "memory-ops")

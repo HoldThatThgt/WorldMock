@@ -18,7 +18,7 @@ from __future__ import annotations
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
-STAGES_DONE = frozenset({"0", "1", "2", "3", "6"})
+STAGES_DONE = frozenset({"0", "1", "2", "3", "4", "6"})
 
 _GREEN_BASELINE_TESTS = [
     "tests/life/test_dayrun_inventory_regressions.py::"
@@ -345,6 +345,141 @@ _NO_NEW_FAULT_TESTS += [
     _LOCATION + "test_sessions_and_pending_conclusion_survive_reopen",
 ]
 
+_ADMISSION = "tests/life/test_parallel_admission.py::"
+_SOCIAL_ROUNDS = "tests/life/test_social_rounds.py::"
+_SHADOW = "tests/catalog/test_affordance_shadow.py::"
+_DOMAIN = "tests/life/test_domain_branch_coverage.py::"
+_MENU_INVARIANTS = "tests/life/test_interaction_menu_invariants.py::"
+_CONTRACT = "tests/test_start_activity_contract.py::"
+_NEWS_FEED = "tests/life/test_news_feed.py::"
+_WORK_REVIEW = "tests/life/test_work_review.py::"
+_PARALLEL_REJECTION = "tests/integration/test_parallel_rejection_contract.py::"
+
+#: 阶段 4 完成同刻决策行：「刚才」写上一轮本人世界请求的公开结果；交谈对方同秒结束时，本人仍有其他进行中活动则原因为
+#: planned_end，已达上限则按规则 3 的阶梯从收尾一支重新开始、每次至多另加三轮；业务拒绝后同秒再决策并带说明。
+_SAME_MOMENT_TESTS += [
+    _SAME_MOMENT + name for name in (
+        "test_just_now_writes_the_previous_own_request_result_and_is_empty_in_first_rounds",
+        "test_just_now_names_the_order_after_a_purchase",
+        "test_partner_ended_chat_redecides_same_second_with_planned_end",
+        "test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion",
+    )
+] + [
+    _SOCIAL_ROUNDS + "test_one_side_ending_ends_the_partner_chat_in_the_same_second",
+    _SOCIAL_ROUNDS + "test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_woken",
+    "tests/life/test_resource_conflict_progress.py::"
+    "test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second",
+]
+
+#: 阶段 4 完成能量不拦人行：可供性注册表删 energy_projection，观察合同键为五个。
+_STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
+    _SHADOW + "test_energy_projection_is_gone_from_registry_and_observation_contract",
+]
+
+#: 阶段 4 完成的「五个动词与并行」行：第五章验收（并行组合、途中投影与菜单、订单与取得的先后、共同身体只结算一次、
+#: 非法组合整组拒绝、互斥只由注册表占用判定、交谈的接受与结束、三种反馈间隔、列出的动作都有可满足的状态），
+#: 以及动作照常列出带说明、选错给 reason 与 next_step、引导性拒绝不计外部约束、86400 秒上限、请求数组校验、
+#: 联系人回复策略与交谈缓解的双方同时秒数。
+_FIVE_VERBS_TESTS = [
+    _ADMISSION + name for name in (
+        "test_driving_with_podcast_or_hands_free_call_is_accepted_and_ends_at_arrival",
+        "test_driving_with_eyes_or_hands_activities_is_a_resource_conflict_in_either_order",
+        "test_driving_with_office_work_pickup_or_face_chat_fails_target_presence",
+        "test_work_with_eating_watching_or_podcast_is_accepted_and_settles_one_shared_body",
+        "test_overlapping_pairs_are_resource_conflicts",
+        "test_driving_rejects_messages_remote_orders_and_submissions",
+        "test_walking_accepts_messages_and_remote_orders_delivered_to_the_origin",
+        "test_en_route_person_is_nowhere_with_nothing_at_hand",
+        "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
+        "test_zero_stock_supply_is_listed_without_actions_and_left_out_of_the_targets_enum",
+        "test_listed_actions_are_menu_allowed_and_self_is_always_offered",
+        "test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwise",
+        "test_content_beyond_one_day_is_accepted_with_the_86400_second_cap",
+    )
+] + [
+    _SOCIAL_ROUNDS + name for name in (
+        "test_choosing_chat_with_the_inviter_accepts_without_a_new_invite",
+        "test_repeated_chat_between_the_same_pair_is_chat_already_active",
+        "test_one_side_ending_ends_the_partner_chat_in_the_same_second",
+        "test_accepted_chat_relief_uses_seconds_both_chats_run_regardless_of_order",
+        "test_people_on_the_road_are_not_present_and_cannot_be_invited",
+        "test_none_policy_delivers_without_reply_and_template_policy_posts_a_placeholder",
+        "test_chat_call_and_wait_run_without_failure_at_any_feedback_interval",
+    )
+] + [
+    _CONTRACT + "test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb",
+    _CONTRACT + "test_unresolvable_selection_is_rejected_as_invalid_request",
+    _CONTRACT + "test_two_offered_selections_resolve_item_by_item_to_internal_actions",
+    _MENU_INVARIANTS + "test_every_way_maps_to_one_verb_and_covers_every_internal_action",
+    _MENU_INVARIANTS + "test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private",
+    _MENU_INVARIANTS + "test_merged_selection_combines_one_order_or_one_meal_only",
+    _MENU_INVARIANTS + "test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions",
+    _SHADOW + "test_claim_slots_are_the_seven_spec_slots_and_retired_names_are_rejected",
+    _SHADOW + "test_conditional_claims_reject_unknown_dimension_and_undeclared_content_kind",
+    _SHADOW + "test_resource_claims_match_activities",
+    _SHADOW + "test_habit_routes_cover_every_way",
+    _SHADOW + "test_habit_routing_reads_ways_not_verbs_or_retired_phrases",
+    "tests/evaluation/test_goal_metrics.py::test_guided_rejections_count_as_other_rejections_not_external_constraints",
+    "tests/evaluation/test_adapters.py::test_digital_interaction_follows_activity_type_regardless_of_claim_names",
+    "tests/evaluation/test_adapters.py::test_start_items_follow_the_started_activity_kind_then_the_order_then_the_way",
+    "tests/evaluation/test_behavior_metrics.py::test_wait_is_judged_by_the_started_activity_kind_not_the_request",
+    "tests/life/test_candidates.py::TestExclusionDiscipline::test_driving_keeps_only_the_podcast_candidate",
+    "tests/life/test_activity_location_kinds.py::test_en_route_is_no_place_for_a_lifestyle_activity",
+    _DOMAIN + "test_social_actions_choosing_chat_with_the_inviter_accepts",
+    _DOMAIN + "test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap",
+    _DOMAIN + "test_social_actions_ending_a_chat_ends_the_partner_chat_the_same_second",
+    _DOMAIN + "test_social_actions_advance_applies_felt_ledger_by_shared_seconds",
+    _DOMAIN + "test_validate_work_start_en_route_is_not_at_the_workplace",
+    "tests/life/test_engine_branch_coverage.py::"
+    "test_send_message_rejects_unknown_recipient_and_delivers_to_none_policy_contact",
+    _NEWS_FEED + "test_content_longer_than_a_day_is_accepted_for_one_day",
+    "tests/life/test_parallel_acceptance.py::test_incompatible_pair_is_rejected_without_partial_state",
+    "tests/life/test_opslog.py::test_opslog_component_follows_the_internal_action_of_the_chosen_way",
+    _PARALLEL_REJECTION + "test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person",
+    _PARALLEL_REJECTION + "test_menu_denies_the_whole_group_when_one_item_is_outside_it",
+    _PARALLEL_REJECTION + "test_location_menu_denies_actions_outside_its_closed_set",
+    _PARALLEL_REJECTION + "test_protected_self_actions_remain_usable",
+    "tests/integration/test_grounded_targets.py::test_start_rejects_invalid_pairs_before_dispatch",
+    _AGENT_BRANCHES + "test_empty_interactive_layer_decision_continues_without_failure",
+    _AGENT_BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
+    "tests/integration/test_storefront_tools.py::test_closed_supply_remains_a_fact_without_a_purchase_action",
+    "tests/integration/test_decision_context_protocol.py::test_start_activity_schema_uses_readable_target_and_action",
+    "tests/life/test_interaction_menu_runtime.py::"
+    "test_observation_exposes_semantic_choices_and_keeps_bindings_private",
+    "tests/life/test_interaction_menu_runtime.py::test_menu_rejects_unoffered_semantic_action_before_travel",
+    "tests/life/test_public_observation_contract.py::"
+    "test_real_observation_uses_readable_objects_and_private_bindings",
+    "tests/life/test_parallel_acceptance.py::test_watch_can_share_time_with_compatible_activity",
+    "tests/life/test_parallel_acceptance.py::test_parallel_progress_uses_one_shared_body_interval",
+    "tests/life/test_work_contracts.py::test_work_start_rejects_skill_location_and_deadline_boundaries",
+    "tests/life/test_content_game.py::test_arrived_mail_is_read_through_its_object",
+]
+
+#: 阶段 4 完成会话、活动与记忆行的剩余两支：接着看同一内容不增加接触次数（从头再看才加一，质量报告只把从头再看计为重看）；
+#: 名额未满而有进行中活动时选择出行，以 ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动并给出下一步。
+_SESSIONS_AND_MEMORY_TESTS += [
+    _NEWS_FEED + "test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one",
+    _NEWS_FEED + "test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate",
+    "tests/life/test_motivation.py::TestEntertainmentSegmentSlots::test_resume_keeps_exposures_and_restart_adds_one",
+    "tests/footprints/test_quality.py::test_repeat_watch_counts_only_sessions_restarted_from_the_beginning",
+    _ADMISSION + "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
+]
+
+#: 阶段 4 对「本机运行修复」行（阶段 7 收尾）的预先登记：截止前不足 60 秒的开工带说明且选择时业务拒绝、
+#: 「做不完」只在时长上界不足时出现、内容按「接着看」与「从头再看」列出并给对应时长。
+_STAGE4_LOCAL_RUN_FIX_TESTS = [
+    _WORK_REVIEW + "test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_and_next_step",
+    _WORK_REVIEW + "test_completion_outlook_appears_only_when_the_time_upper_bound_is_short",
+    _NEWS_FEED + "test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_position",
+    "tests/life/test_grounded_observation.py::test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note",
+]
+
+#: 阶段 4 对「无新增故障」行（阶段 7 收尾）的预先登记：交谈对方结束与反馈间隔为 60 秒时无 run_failed。
+_STAGE4_NO_NEW_FAULT_TESTS = [
+    _SAME_MOMENT + "test_partner_ended_chat_redecides_same_second_with_planned_end",
+    _SOCIAL_ROUNDS + "test_chat_call_and_wait_run_without_failure_at_any_feedback_interval",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
@@ -352,15 +487,17 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "候选时刻": {"stage": "2", "tests": _CANDIDATE_TIME_TESTS + _STAGE2_CANDIDATE_TIME_TESTS},
     "唤醒词表": {"stage": "2", "tests": _WAKE_VOCABULARY_TESTS + _STAGE2_WAKE_VOCABULARY_TESTS},
     "能量感知": {"stage": "2", "tests": _STAGE2_ENERGY_PERCEPTION_TESTS},
-    "能量不拦人": {"stage": "4", "tests": _STAGE2_ENERGY_NEVER_BLOCKS_TESTS},
+    "能量不拦人": {"stage": "4", "tests": _STAGE2_ENERGY_NEVER_BLOCKS_TESTS + _STAGE4_ENERGY_NEVER_BLOCKS_TESTS},
     "零点计划与提醒": {"stage": "5", "tests": []},
-    "五个动词与并行": {"stage": "4", "tests": []},
+    "五个动词与并行": {"stage": "4", "tests": _FIVE_VERBS_TESTS},
     "常驻提示": {"stage": "5", "tests": []},
     "会话、活动与记忆": {"stage": "4", "tests": _SESSIONS_AND_MEMORY_TESTS},
     "本机运行修复": {"stage": "7",
-               "tests": _RUN_IDENTITY_TESTS + _STAGE2_LOCAL_RUN_FIX_TESTS + _LOCAL_RUN_FIX_TESTS},
+               "tests": _RUN_IDENTITY_TESTS + _STAGE2_LOCAL_RUN_FIX_TESTS + _LOCAL_RUN_FIX_TESTS
+               + _STAGE4_LOCAL_RUN_FIX_TESTS},
     "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
-    "无新增故障": {"stage": "7", "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS},
+    "无新增故障": {"stage": "7",
+              "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS + _STAGE4_NO_NEW_FAULT_TESTS},
     "真实复验": {"stage": "8", "tests": []},
     "文档一致性": {"stage": "7", "tests": []},
     "工程门禁": {"stage": "7", "tests": []},
@@ -383,6 +520,9 @@ _BODY = "src/worldmock/life/body.py"
 _RHYTHM = "src/worldmock/life/rhythm.py"
 _PROJECTION = "src/worldmock/life/projection.py"
 _LIFE_RUNTIME = "docs/dev/SPEC-life-runtime.md"
+_INTERACTION_MENU = "src/worldmock/life/interaction_menu.py"
+_ADMISSION_MODULE = "src/worldmock/life/admission.py"
+_SOCIAL_ACTIONS = "src/worldmock/life/social_actions.py"
 
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
 REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
@@ -458,6 +598,22 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
          [_AGENT]),
         (r"finish\.memories 仍为零至八条|会话退出通道|\| refs \|", [_CONTRACTS]),
         (r"动作后为记忆查询与 `finish`", [_CONTRACTS]),
+    ],
+    "4": [
+        (r"energy_projection|energy_limit_kinds", ["src", "custom", "catalog", "scripts"]),
+        (r"def canonical_action\(|\bACTION_LABELS\b|def (?:purchase_)?action_label\(", ["src", "custom"]),
+        (r"preconditions_met", ["src", "custom"]),
+        (r"chat_settlement|SocialRelief|chat_accepted", ["src", "custom"]),
+        (r"CONTACT_REPLY_NOT_MODEL", ["src", "custom"]),
+        (r"\| `CONTACT_REPLY_NOT_MODEL` \|", [_CONTRACTS]),
+        (r"CALL_DURATION_OUT_OF_RANGE", ["src", "custom"]),
+        (r"_DIGITAL_RESOURCES", ["src/worldmock/evaluation/adapters.py"]),
+        (r'"(?:PICKUP_LOCATION_REQUIRED|ACTIVITY_PRECONDITION_UNMET)"', ["src/worldmock/evaluation/goal_metrics.py"]),
+        (r'resource_claims = \[[^\]\n]*"(?:position|attention|device|vehicle)"', ["catalog/affordances.toml"]),
+        # 派生时长超过 86400 秒不再拒绝（裁决 #19）：旧的上下界拒绝式消失，改为取上限。
+        (r"duration < 60 or duration > 86_400|if not 60 <= duration <= 86_400", [_SESSION_ACTIONS]),
+        # 撤回 778beca 的剪裁：条件未满足的对象不再清空动作，也不再以条件不满足改写动作列表。
+        (r'if row\["preconditions_met"\] else \[\]|"actions": available or actions', [_PROJECTION]),
     ],
     "6": [
         (r'"vendor" / "agentsociety2"', [_RUNTIME]),
@@ -549,6 +705,39 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"\| `sessions` \| dict\[str, SessionState\]", [_IO_FORMATS]),
         (r"\| 地点会话 \| `sessions`", [_CONTRACTS]),
         (r"def test_", ["tests/life/test_location_sessions.py", "tests/integration/test_conclude_memories.py"]),
+    ],
+    "4": [
+        (r'LIFE_VERBS = \("travel", "interact", "obtain", "consume", "sleep"\)', [_INTERACTION_MENU]),
+        (r"WAYS: dict\[str, tuple\[str, str\]\]", [_INTERACTION_MENU]),
+        (r'VERB_WAY_SEPARATOR = "："', [_INTERACTION_MENU]),
+        (r"def resolve_selection|def binding_action|def public_action", [_INTERACTION_MENU]),
+        (r"    ways: Annotated\[list\[str\]", [_MODELS]),
+        (r"ways: list\[str\]", [_CONTRACTS]),
+        (r'RESOURCE_CLAIM_SLOTS = frozenset\(\{"idle", "travel", "eyes", "ears", "hands", "voice", "work"\}\)',
+         ["src/worldmock/catalog/affordances.py"]),
+        (r'when = "content_kind:', ["catalog/affordances.toml"]),
+        (r"def require_group|def en_route|def present_location", [_ADMISSION_MODULE]),
+        (r"CHAT_ALREADY_ACTIVE", [_ADMISSION_MODULE, _CONTRACTS]),
+        (r"def rejection_guidance|def guided", ["src/worldmock/life/guidance.py"]),
+        (r'SOCIAL_RESOURCE_CLAIMS = frozenset\(\{"voice", "ears"\}\)', [_SOCIAL_ACTIONS]),
+        (r"CHAT_DURATION_BOUNDS = \(60, 7200\)", [_SOCIAL_ACTIONS]),
+        (r"CALL_DURATION_BOUNDS = \(600, 3600\)", [_SOCIAL_ACTIONS]),
+        (r"def shared_chat_seconds|def end_partner_chats|def pair_chat", [_SOCIAL_ACTIONS]),
+        (r"partner_ended", [_SOCIAL_ACTIONS, "src/worldmock/life/same_moment.py", _CONTRACTS, _IO_FORMATS]),
+        (r"just_now", [_PROJECTION, "src/worldmock/life/narration.py", _CONTRACTS]),
+        (r"DERIVED_DURATION_CAP_SECONDS = 86_400", [_SESSION_ACTIONS]),
+        (r"WORK_START_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/work.py"]),
+        (r'COMPLETION_OUTLOOK_SHORT = "到截止前做不完"', ["src/worldmock/life/work.py"]),
+        (r"completion_outlook", ["src/worldmock/life/work.py", _PROJECTION, _CONTRACTS]),
+        (r"CONTENT_RESUME_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/content.py"]),
+        (r"def restarts_from_beginning", ["src/worldmock/life/content.py"]),
+        (r'"version_major": 4,\s*"version_minor": 1\b', ["catalog/manifest.json"]),
+        (r'"catalog_version": \{\s*"major": 4,\s*"minor": 1\s*\}',
+         ["scenarios/multi-person.json", "scenarios/multi-person-half-day.json",
+          "scenarios/white-collar-12-weeks.json"]),
+        (r"catalog/\*\* text=auto eol=lf", [".gitattributes"]),
+        (r"2026-09-25-time-and-energy-stage-4", [_CONTRACTS, _EXPERIMENT]),
+        (r"def test_", ["tests/life/test_parallel_admission.py", "tests/life/test_social_rounds.py"]),
     ],
     "6": [
         (rf'AS2_LOCKED_SOURCE_SHA256 = "{_AS2_LOCKED_DIGEST}"', [_RUNTIME]),

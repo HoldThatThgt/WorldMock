@@ -71,7 +71,9 @@ _WORLD_SOURCE_CHANNELS = {
     "run_ended": "lifecycle",
     "run_failed": "lifecycle",
 }
-_DIGITAL_RESOURCES = {"device", "internet", "phone"}
+#: 记为数字交互的活动类型：占用重列前声明 device 占用的五类（工作、观看、游戏、读信、浏览），保持既有分类
+#: （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」重列占用后，数字交互改按活动类型判定）。
+_DIGITAL_ACTIVITY_TYPES = frozenset({"work", "watch", "play_game", "read_mail", "browse"})
 _RIGHT_BOUNDARY_EVENTS = {"checkpoint_created", "run_ended", "run_failed"}
 
 
@@ -541,7 +543,7 @@ def _adapt_world_activity(
         activity_type, row.get("data"), scenario.worldmock_activity_map
     )
     resources = _string_list(row.get("resource_claims"), f"activity line {line_number} resource_claims")
-    digital = bool(set(resources) & _DIGITAL_RESOURCES)
+    digital = activity_type in _DIGITAL_ACTIVITY_TYPES
     channels = ("digital_interaction",) if digital else ("physical_activity",)
     duration_kind = "world_internet_session" if digital else "world_activity"
     domains = set(scenario.official_domain_map.get(category, ()))

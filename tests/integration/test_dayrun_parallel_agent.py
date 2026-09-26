@@ -1,4 +1,4 @@
-"""人物用一组可读对象和逐项动作启动兼容的并行活动。"""
+"""人物用一组可读对象和逐项的动词与方式启动兼容的并行活动（docs/dev/SPEC-time-and-energy.md 第五章）。"""
 
 from __future__ import annotations
 
@@ -14,59 +14,61 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
-from tests.integration.test_life_agent_protocol import _context, _observations
+from tests.integration.test_life_agent_protocol import (
+    _add_objects, _context, _observations, _offer, _visible_object,
+)
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
 from worldmock.life import sessions
 from worldmock.life.activity_control import object_display_name
 from worldmock.life.models import SessionKind, SessionStatus, StartActivityRequest
 from worldmock.life.sessions import moment_label
 
+_PLACE = "地点：办公室"
+_NEWS = "内容：午间新闻"
+
 
 def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点与内容对象。"""
+    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看，说明写全长）。"""
     observed = copy.deepcopy(_observations())
-    data = observed[0]["data"]
-    data["facts"]["interactive_objects"].extend([
-        {"object": "地点：办公室", "actions": ["步行前往"], "preconditions_met": True},
-        {"object": "内容：午间新闻", "actions": ["观看"], "preconditions_met": True},
-    ])
-    data["interaction_bindings"].extend([
-        {"object": "地点：办公室", "kind": "location", "object_id": "office",
-         "actions": [{"label": "步行前往", "canonical_action": "travel_to", "travel_mode": "walking"}]},
-        {"object": "内容：午间新闻", "kind": "content", "object_id": "content-visible",
-         "actions": [{"label": "观看", "canonical_action": "watch"}]},
-    ])
+    _add_objects(observed[0]["data"],
+                 _visible_object(_PLACE, "location", "office",
+                                 _offer("travel", "步行", "travel_to", travel_mode="walking")),
+                 _visible_object(_NEWS, "content", "content-visible",
+                                 _offer("interact", "接着看", "watch", "全长约10分钟")))
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     return person
 
 
-def _decision(targets: list[str], actions: list[str]) -> ReactDecision:
-    """构造一次真实 ReAct 工具决定。"""
-    return ReactDecision("", "start_activity", {"targets": targets, "actions": actions}, "")
+def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactDecision:
+    """构造一次真实 ReAct 工具决定：对象、动词与方式三个数组。"""
+    return ReactDecision("", "start_activity", {"targets": targets, "actions": actions, "ways": ways}, "")
 
 
 def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
-    """单工具接收等长逐项对象动作，拒绝错配和重复对象。"""
+    """单工具接收等长逐项的对象、动词与方式，拒绝不等长、错配和重复对象。"""
     person = _prepared()
     functions = {row["function"]["name"]: row["function"]
                  for row in person.build_react_tool_schemas(readonly=False)}
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions"}
-    assert {"地点：办公室", "内容：午间新闻"} <= set(schema["properties"]["targets"]["items"]["enum"])
-    assert {"步行前往", "观看"} <= set(schema["properties"]["actions"]["items"]["enum"])
+    assert set(schema["properties"]) == {"targets", "actions", "ways"}
+    assert {_PLACE, _NEWS} <= set(schema["properties"]["targets"]["items"]["enum"])
+    assert {"travel", "interact"} <= set(schema["properties"]["actions"]["items"]["enum"])
+    assert {"步行", "接着看"} <= set(schema["properties"]["ways"]["items"]["enum"])
     assert person.validate_react_decisions([
-        _decision(["地点：办公室", "内容：午间新闻"], ["步行前往", "观看"]),
+        _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),
     ], False) == ""
-    assert "equal lengths" in person.validate_react_decisions([
-        _decision(["地点：办公室", "内容：午间新闻"], ["步行前往"]),
-    ], False)
-    assert "not offered" in person.validate_react_decisions([
-        _decision(["地点：办公室", "内容：午间新闻"], ["观看", "步行前往"]),
-    ], False)
+    for actions, ways in ((["travel"], ["步行", "接着看"]), (["travel", "interact"], ["步行"])):
+        assert "equal lengths" in person.validate_react_decisions([
+            _decision([_PLACE, _NEWS], actions, ways),
+        ], False)
+    for actions, ways in ((["interact", "travel"], ["接着看", "步行"]), (["travel", "travel"], ["步行", "步行"])):
+        assert "not offered" in person.validate_react_decisions([
+            _decision([_PLACE, _NEWS], actions, ways),
+        ], False)
     assert "unique" in person.validate_react_decisions([
-        _decision(["地点：办公室", "地点：办公室"], ["步行前往", "步行前往"]),
+        _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
     ], False)
 
 
@@ -86,8 +88,10 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
                        action["canonical_action"] == "watch" for action in row["actions"]))
     travel = next(action["label"] for action in place["actions"]
                   if action.get("travel_mode") == "walking")
+    watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "watch")
+    assert travel == "步行" and watch in {"接着看", "接着听"}
     request = StartActivityRequest(
-        targets=[place["object"], content["object"]], actions=[travel, "观看"])
+        targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch])
     before = engine.state.model_dump(mode="json")
     engine.submit_action(DirectToolCall(current, "parallel-readable", "start_activity", request))
     assert engine.state.model_dump(mode="json") == before
@@ -96,7 +100,8 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
     assert len(engine.state.activities) == 2
     started = moment_label(engine.state.current_time, engine.scenario.timezone)
     assert {activity.name for activity in engine.state.activities.values()} == {
-        f"{travel}{object_display_name(place)}（{started} 起）", f"观看{object_display_name(content)}（{started} 起）",
+        f"步行前往{object_display_name(place)}（{started} 起）",
+        f"{watch}{object_display_name(content)}（{started} 起）",
     }
     road = sessions.current_session(engine.state, 1)
     assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.state.activities)

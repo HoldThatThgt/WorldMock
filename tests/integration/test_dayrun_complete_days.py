@@ -70,8 +70,8 @@ class DayModel:
         if self.phase == "trip" and "start_activity" in functions and not self.invalid_parallel_sent:
             self.invalid_parallel_sent = True
             watch = self._watch()
-            return self._response("start_activity", {"targets": [watch, watch],
-                                                      "actions": ["观看", "观看"]})
+            way = self._way(watch, "watch")
+            return self._response(*self._start((watch, "interact", way), (watch, "interact", way)))
         action, payload = self._choose(functions)
         self.actions.append((action, payload))
         return self._response(action, payload)
@@ -109,16 +109,29 @@ class DayModel:
     def _running(self):
         return self._contracts()["pausable_names"]
 
+    def _objects(self):
+        """本轮冻结的交互对象层：可读名称 → （动词，方式，内部标准动作）。"""
+        return self.agent._life_visible_objects
+
+    def _way(self, name, canonical):
+        """对象列出的、映射为给定内部动作的方式短语（内容按进度是「接着看」「从头再看」等）。"""
+        return next(way for _, way, action in self._objects()[name] if action == canonical)
+
+    @staticmethod
+    def _start(*items):
+        """由（对象，动词，方式）逐项构造 start_activity 参数。"""
+        return "start_activity", {"targets": [item[0] for item in items], "actions": [item[1] for item in items],
+                                  "ways": [item[2] for item in items]}
+
     def _watch(self):
-        return next(name for name in self.agent._life_visible_objects if "Space Habitat" in name)
+        return next(name for name in self._objects() if "Space Habitat" in name)
 
     def _content(self):
-        return next(name for name, actions in self.agent._life_visible_objects.items()
-                    if name.startswith("内容：") and "观看" in actions)
+        return next(name for name, actions in self._objects().items()
+                    if name.startswith("内容：") and any(action == "watch" for _, _, action in actions))
 
     def _place(self, label):
-        return next(name for name in self.agent._life_visible_objects
-                    if name.startswith("地点：") and label in name)
+        return next(name for name in self._objects() if name.startswith("地点：") and label in name)
 
     def _control(self, action, names):
         return action, {"task": list(names), "summary": ["按当前进展继续。"] * len(names)}
@@ -140,7 +153,7 @@ class DayModel:
         sleep = hour < 8 and not self.morning_sleep_started
         if sleep:
             self.morning_sleep_started = True
-        return "start_activity", {"targets": ["自己"], "actions": ["睡觉" if sleep else "等待"]}
+        return self._start(("自己", "sleep", "睡觉") if sleep else ("自己", "interact", "等待"))
 
     def _trip(self, functions, hour):
         running = self._running()
@@ -152,23 +165,24 @@ class DayModel:
         self.phase = "walk"
         if self._contracts()["reportable_names"]:
             # 暂停的等待仍占一个名额，只步行前往。
-            return "start_activity", {"targets": [target], "actions": ["步行前往"]}
-        return "start_activity", {"targets": [target, self._content()], "actions": ["步行前往", "观看"]}
+            return self._start((target, "travel", "步行"))
+        content = self._content()
+        return self._start((target, "travel", "步行"), (content, "interact", self._way(content, "watch")))
 
     def _walk(self, functions, hour):
         running = self._running()
         if running:
             return self._control("report_status", running)
         self.phase = "consume"
-        supply = next(name for name, actions in self.agent._life_visible_objects.items()
-                      if "到店购买" in actions)
-        return "start_activity", {"targets": [supply], "actions": ["到店购买"]}
+        supply = next(name for name, actions in self._objects().items()
+                      if any(way == "到店" for _, way, _ in actions))
+        return self._start((supply, "obtain", "到店"))
 
     def _consume(self, functions, hour):
         self.phase = "eat"
-        item = next(name for name, actions in self.agent._life_visible_objects.items()
-                    if name.startswith("持有物：") and "食用" in actions)
-        return "start_activity", {"targets": [item], "actions": ["食用"]}
+        item = next(name for name, actions in self._objects().items()
+                    if name.startswith("持有物：") and any(way == "食用" for _, way, _ in actions))
+        return self._start((item, "consume", "食用"))
 
     def _eat(self, functions, hour):
         running = self._running()
@@ -176,7 +190,7 @@ class DayModel:
             return self._control("report_status", running)
         self.meals += 1
         self.phase = "rest"
-        return "start_activity", {"targets": [self._place("张江居所")], "actions": ["步行前往"]}
+        return self._start((self._place("张江居所"), "travel", "步行"))
 
     def _rest(self, functions, hour):
         if self.meals < 2 and hour >= 18:
@@ -191,8 +205,8 @@ class DayModel:
             return self._control("report_status", resumable)
         until = 18 if self.meals < 2 else 22
         if hour < until:
-            return "start_activity", {"targets": ["自己"], "actions": ["等待"]}
-        return "start_activity", {"targets": ["自己"], "actions": ["睡觉"]}
+            return self._start(("自己", "interact", "等待"))
+        return self._start(("自己", "sleep", "睡觉"))
 
 
 async def _people(environment, root: Path, models: dict, restored: bool = False):

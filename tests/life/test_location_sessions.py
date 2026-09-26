@@ -39,9 +39,9 @@ def _round(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1)
 
 
 def _pick(observed: dict, canonical: str, *, mode: str | None = None, kind: str | None = None,
-          place: str | None = None) -> tuple[str, str]:
-    """@brief 从本轮冻结观察取一个对象名与动作短语。"""
-    return next((row["object"], action["label"]) for row in observed["interaction_bindings"]
+          place: str | None = None) -> tuple[str, str, str]:
+    """@brief 从本轮冻结观察取一个对象名、动词与方式。"""
+    return next((row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
                 if (kind is None or row["kind"] == kind) and (place is None or row["object_id"] == place)
                 for action in row["actions"] if action["canonical_action"] == canonical
                 and (mode is None or action.get("travel_mode") == mode))
@@ -52,18 +52,19 @@ def _preview(engine: LifeEngine, name: str) -> dict:
     return engine.observe(context(engine, f"preview-{name}"))
 
 
-def _start(engine: LifeEngine, name: str, *choices: tuple[str, str]):
-    """@brief 以可读对象与动作短语开始一到两项活动。"""
-    request = StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices])
+def _start(engine: LifeEngine, name: str, *choices: tuple[str, str, str]):
+    """@brief 以可读对象、动词与方式开始一到两项活动。"""
+    request = StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
+                                   ways=[item[2] for item in choices])
     return _round(engine, name, "start_activity", request)[1]
 
 
 def _wait(engine: LifeEngine, name: str):
     """@brief 以「自己」开始一段等待。"""
-    return _start(engine, name, ("自己", "等待"))
+    return _start(engine, name, ("自己", "interact", "等待"))
 
 
-def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str], destination: str = "office"):
+def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str, str], destination: str = "office"):
     """@brief 步行前往目的地，可在同一请求中一并开始路上的其他活动。"""
     route = _pick(_preview(engine, name), "travel_to", mode="walking", place=destination)
     return _start(engine, name, route, *companions)
@@ -219,7 +220,7 @@ def _wake(engine: LifeEngine, offset: int = 60) -> int:
 def _two_parallel(engine: LifeEngine, name: str) -> list[str]:
     """@brief 同一请求开始等待与观看（占用互不冲突），两个名额都被进行中活动占着。"""
     content = _pick(_preview(engine, name), "watch", kind="content")
-    started = _start(engine, name, ("自己", "等待"), content)
+    started = _start(engine, name, ("自己", "interact", "等待"), content)
     assert started.status == "in_progress", started.error_code
     return _started_ids(started)
 
@@ -231,16 +232,23 @@ def _lifecycle_events(engine: LifeEngine) -> list:
 
 
 def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -> None:
-    """名额未满而有进行中活动时选择出行：ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动；暂停后出发被受理，暂停的活动留在原地。"""
+    """名额未满而有进行中活动时选择出行：出行照常列出并带说明；选了以 ACTIVITY_PRECONDITION_UNMET 返回原因「需要先
+    结束或暂停手上的事：<活动名>」与下一步；暂停后出发被受理，暂停的活动留在原地。"""
     engine = engine_factory()
     stage_day_plan(engine)
     watched = _start(engine, "home-watch", _pick(_preview(engine, "home-watch"), "watch", kind="content"))
     _wake(engine)
-    rejected = _depart(engine, "blocked-depart")
     name = _name(engine, watched.activity_id)
+    observed = _preview(engine, "listed-depart")
+    office = _pick(observed, "travel_to", mode="walking", place="office")[0]
+    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == office)
+    assert {"action": "travel：步行", "note": f"需要先结束或暂停手上的事：{name}"} in public["actions"]
+    rejected = _depart(engine, "blocked-depart")
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert rejected.data["unmet"] == ["activities_before_departure"]
     assert rejected.data["suggested"] == {"conclude_or_pause": [name]}
+    assert rejected.data["reason"] == f"需要先结束或暂停手上的事：{name}"
+    assert rejected.data["next_step"] == f"先结束或暂停{name}"
     assert name in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
     paused = _round(engine, "pause-before-leaving", "pause_activity", PauseActivityRequest(
@@ -593,13 +601,15 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
 
 
 def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) -> None:
-    """名额计数（到店购买与远程下单不占名额，同短语的两份食用合成一餐）、人读时长、会话辅助函数的边界。"""
+    """名额计数（到店与远程下单不占名额，方式相同的两份食用合成一餐）、人读时长、会话辅助函数的边界。"""
     from worldmock.life import activity_control
 
-    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店购买", "到店购买"]) == 0
-    assert activity_control.new_activity_count(["consume", "consume"], ["吃", "吃"]) == 1
-    assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行前往", "配送到当前位置"]) == 1
-    assert activity_control.new_activity_count(["travel_to", "watch"], ["步行前往", "观看"]) == 2
+    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店", "到店"]) == 0
+    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店", "远程下单"]) == 0
+    assert activity_control.new_activity_count(["consume", "consume"], ["食用", "食用"]) == 1
+    assert activity_control.new_activity_count(["consume", "consume"], ["食用", "使用"]) == 2
+    assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行", "远程下单"]) == 1
+    assert activity_control.new_activity_count(["travel_to", "watch"], ["步行", "接着听"]) == 2
     assert [activity_control.readable_duration(value) for value in (59, 600, 5400)] == [
         "不到1分钟", "约10分钟", "约1.5小时"]
     engine = engine_factory()

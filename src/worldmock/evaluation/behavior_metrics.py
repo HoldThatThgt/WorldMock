@@ -298,11 +298,25 @@ def _final_action_by_decision(events: list[dict[str, Any]]) -> dict[str, Mapping
     return final
 
 
-def _is_passive_action(tool_name: str, request: Mapping[str, Any]) -> bool:
-    """@brief 判断最终动作是否为播报进展或等待（非自主动作）。"""
+def _started_kinds(events: list[dict[str, Any]]) -> dict[str, list[str]]:
+    """@brief 按动作身份取受理时开始的活动 kind 列表（action_accepted 的活动快照）。"""
+    kinds: dict[str, list[str]] = {}
+    for event in events:
+        if event.get("event_type") != "action_accepted":
+            continue
+        data = event.get("data", {})
+        rows = [data["activity"]] if isinstance(data.get("activity"), dict) else data.get("data", {}).get(
+            "activities", [])
+        kinds[str(event.get("action_id"))] = [str(row.get("kind")) for row in rows if isinstance(row, dict)]
+    return kinds
+
+
+def _is_passive_action(action: Mapping[str, Any], kinds: Mapping[str, list[str]]) -> bool:
+    """@brief 判断最终动作是否为播报进展或等待（非自主动作）：等待按实际开始的活动 kind=wait 判定。"""
+    tool_name = action.get("data", {}).get("tool_name")
     if tool_name == "report_status":
         return True
-    return tool_name == "start_activity" and request.get("actions") == ["等待"]
+    return tool_name == "start_activity" and kinds.get(str(action.get("action_id"))) == ["wait"]
 
 
 #: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md「2.2 报告项」）。
@@ -313,6 +327,7 @@ def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
     """@brief 计算最终动作既非 continue 也非 wait 的决策占比（报告项）；控制轮单列，不进占比。"""
     decisions = [event for event in events if event.get("event_type") == "decision_started"]
     final = _final_action_by_decision(events)
+    kinds = _started_kinds(events)
     decided = [decision for decision in decisions if str(decision.get("decision_id")) in final]
     autonomous, control = 0, 0
     for decision in decided:
@@ -320,7 +335,7 @@ def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
         tool_name = str(action.get("data", {}).get("tool_name"))
         if tool_name in _CONTROL_TOOLS:
             control += 1
-        elif not _is_passive_action(tool_name, action.get("data", {}).get("request", {})):
+        elif not _is_passive_action(action, kinds):
             autonomous += 1
     counted = len(decided) - control
     if not counted:

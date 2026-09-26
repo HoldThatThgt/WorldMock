@@ -224,7 +224,7 @@ def _content_quality(activities: list[dict]) -> dict:
             "repeated_sessions": sum(item["repeated_sessions"] for item in repeats),
             "groups": repeats,
             "watch_sessions_missing_target": missing_targets,
-            "method": "Distinct activity sessions after the first session for the same agent and target",
+            "method": "Watch sessions that restarted the same content from the beginning (repeat=true)",
         },
     }
 
@@ -244,8 +244,10 @@ def _contact_summary(rows: list[dict]) -> dict:
 
 
 def _watch_repeats(rows: list[dict]) -> tuple[list[dict], int]:
-    """@brief 保持恢复后的同一 activity 为一个会话，只比较独立观看会话。"""
+    """@brief 按人物与内容汇总观看会话，只把从头重看（data.repeat 为 true）计为重复观看；接着看不计
+    （docs/dev/SPEC-time-and-energy.md 第七章「接着看」）。恢复后的同一 activity 仍是一个会话。"""
     groups: dict[tuple[Any, str], list[str]] = defaultdict(list)
+    repeats: dict[tuple[Any, str], list[str]] = defaultdict(list)
     missing = 0
     for row in rows:
         if row.get("activity_type") != "watch":
@@ -255,12 +257,13 @@ def _watch_repeats(rows: list[dict]) -> tuple[list[dict], int]:
             missing += 1
             continue
         groups[(row.get("agent_id"), target)].append(row["activity_id"])
+        data = row.get("data")
+        if isinstance(data, dict) and data.get("repeat") is True:
+            repeats[(row.get("agent_id"), target)].append(row["activity_id"])
     repeated = []
-    for (agent_id, target), identities in sorted(groups.items(), key=lambda item: (str(item[0][0]), item[0][1])):
-        if len(identities) > 1:
-            repeated.append({"agent_id": agent_id, "target_id": target, "sessions": len(identities),
-                             "repeated_sessions": len(identities) - 1,
-                             "activity_ids": sorted(identities)})
+    for key, identities in sorted(repeats.items(), key=lambda item: (str(item[0][0]), item[0][1])):
+        repeated.append({"agent_id": key[0], "target_id": key[1], "sessions": len(groups[key]),
+                         "repeated_sessions": len(identities), "activity_ids": sorted(identities)})
     return repeated, missing
 
 

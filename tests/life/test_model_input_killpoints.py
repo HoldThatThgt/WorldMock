@@ -35,12 +35,13 @@ def _pending(tool_name: str = "start_activity", request: dict | None = None) -> 
 
 
 class _MessageHarness(SessionActionMixin):
-    """仅运行可读收件人绑定和既有通讯领域处理器。"""
+    """仅运行可读收件人绑定和既有通讯领域处理器；人物没有进行中的活动（不在驾车途中，发消息不受出行方式限制）。"""
 
     def __init__(self, bindings: list[dict]) -> None:
         self.bindings = bindings
+        self.scenario = SimpleNamespace(locations=())
         self.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
-                                             2: SimpleNamespace(agent_id=2)}, current_time=100)
+                                             2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
 
     def _frozen_observation(self, pending: SimpleNamespace) -> dict:
         """返回本轮唯一冻结收件人清单。"""

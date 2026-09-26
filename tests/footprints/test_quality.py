@@ -115,8 +115,9 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
         _event(16, "run_ended", occurred_at=1100, wall_ms=100_000),
     ]
     activities = [
-        _activity("watch-1", "watch", 600, target_id="show"),
-        _activity("watch-2", "watch", 300, "cancelled", target_id="show", interruption_reason="bored"),
+        _activity("watch-1", "watch", 600, target_id="show", data={"repeat": False}),
+        _activity("watch-2", "watch", 300, "cancelled", target_id="show", interruption_reason="bored",
+                  data={"repeat": True}),
         _activity("game-1", "play_game", 200),
         _activity("work-1", "work", 100),
         _activity("meal-1", "consume", 50, "truncated", interruption_reason="cutoff"),
@@ -142,6 +143,28 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     }
     assert report["model_usage"]["estimated_cost"]["complete_estimate_usd"] == 0.00008448
     assert report["acceleration"]["speedup"] == 10.0
+
+
+def test_repeat_watch_counts_only_sessions_restarted_from_the_beginning():
+    """同一内容的两段观看：第二段是接着看（data.repeat=false）时不算重复观看，从头再看（repeat=true）时算一次。
+
+    时间与能量规格第七章「接着看」：从上次的位置接着放不算新的一次接触，只有第一次和从头重看才增加接触次数。
+    """
+    events = [_event(1, "run_ended", occurred_at=1100)]
+    first = _activity("watch-1", "watch", 600, target_id="sintel", data={"repeat": False})
+    resumed = _activity("watch-2", "watch", 300, target_id="sintel", data={"repeat": False})
+    restarted = _activity("watch-2", "watch", 300, target_id="sintel", data={"repeat": True})
+
+    resumed_report = build_quality_report(events, [first, resumed], _manifest())["content_contact"]
+    restarted_report = build_quality_report(events, [first, restarted], _manifest())["content_contact"]
+
+    assert resumed_report["session_count"] == restarted_report["session_count"] == 2
+    assert resumed_report["repeat_watch"]["repeated_sessions"] == 0
+    assert resumed_report["repeat_watch"]["groups"] == []
+    assert restarted_report["repeat_watch"]["repeated_sessions"] == 1
+    assert restarted_report["repeat_watch"]["groups"] == [{
+        "agent_id": 1, "target_id": "sintel", "sessions": 2, "repeated_sessions": 1,
+        "activity_ids": ["watch-2"]}]
 
 
 def test_missing_measurements_remain_unknown_instead_of_becoming_zero():

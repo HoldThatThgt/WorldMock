@@ -37,7 +37,8 @@ def _start_visible_action(engine, round_id: str, canonical_action: str):
     observed = engine.observe(decision)
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == canonical_action)
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+                                   ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
 
@@ -127,13 +128,13 @@ def test_terminal_feedback_keeps_original_action_identity(engine_factory):
 
 
 def test_business_rejection_is_reported_in_progress_and_run_continues(engine_factory):
-    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因（时间与能量规格第一章规则 2）。"""
+    """对象不存在属于可恢复业务反馈；同一秒再决策，进度层公开原因与下一步（时间与能量规格第一章规则 2、第五章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
-        StartActivityRequest(targets=["不存在的对象"], actions=["观看"]))
+        StartActivityRequest(targets=["不存在的对象"], actions=["interact"], ways=["观看"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.current_time == before
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
@@ -141,10 +142,16 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     decision = context(engine, "after-rejection")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    assert observed["facts"]["progress"]["results"][0]["error_code"] == "ACTION_REQUEST_INVALID"
+    shown = observed["facts"]["progress"]["results"][0]
+    assert shown["error_code"] == "ACTION_REQUEST_INVALID"
+    assert shown["details"] == {"reason": "所选的对象或方式不在这一轮列出的范围内",
+                                "next_step": "从本轮列出的对象和方式里选"}
+    assert observed["scene"]["just_now"] == ("刚才的请求没有成功：所选的对象或方式不在这一轮列出的范围内；"
+                                             "下一步：从本轮列出的对象和方式里选。")
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+                                   ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
     assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"
     assert engine.state.current_time == before

@@ -11,7 +11,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import (activity_name, advance_next, context, stage_day_plan, submit_round,
+from tests.life.conftest import (activity_name, advance_next, context, stage_day_plan, start_activity, submit_round,
                                travel_quote, wake_by_mail)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
@@ -41,16 +41,15 @@ def _set_energy(engine, energy_kcal: float) -> None:
 
 
 def _observed_action(engine, round_id: str, action: str, object_id: str | None = None):
-    """@brief 从冻结观察的私有绑定取可读对象和动作并执行。"""
+    """@brief 从冻结观察的私有绑定取映射到该内部动作的可读对象、动词与方式并执行。"""
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     binding = next(row for row in observed["interaction_bindings"]
                    if object_id is None or row["object_id"] == object_id
                    if any(item["canonical_action"] == action for item in row["actions"]))
-    label = next(item["label"] for item in binding["actions"]
-                 if item["canonical_action"] == action)
-    request = StartActivityRequest(targets=[binding["object"]], actions=[label])
+    chosen = next(item for item in binding["actions"] if item["canonical_action"] == action)
+    request = StartActivityRequest(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
 
@@ -95,9 +94,12 @@ def test_zero_energy_observation_offers_every_action_without_energy_projection(e
     agent.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, wrapped))
     tool_names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
     assert "start_activity" in tool_names
-    objects = {item["object"]: item["actions"] for item in observed["facts"]["interactive_objects"]}
-    assert {"等待", "睡觉"} <= set(objects["自己"])
-    assert "观看" in objects["内容：Sintel"] and "浏览" in objects["商品目录"]
+    objects = {item["object"]: {row["action"]: row["note"] for row in item["actions"]}
+               for item in observed["facts"]["interactive_objects"]}
+    # 能量不是准入事实，也就不写进说明：自身动作与浏览没有说明，内容只写时长（「全长…」）。
+    assert objects["自己"] == {"interact：等待": None, "sleep：睡觉": None}
+    assert objects["商品目录"] == {"interact：浏览": None}
+    assert objects["内容：Sintel"]["interact：接着看"].startswith("全长")
     assert "energy_feasibility" not in observed
     assert all("energy_projection" not in entry for entry in observed["affordance_contract"].values())
     assert observed["body"]["levels"]["appetite"] == "饿得发慌"
@@ -179,7 +181,8 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     decision = context(engine, "watch-and-wait")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    request = StartActivityRequest(targets=["内容：Sintel", "自己"], actions=["观看", "等待"])
+    request = StartActivityRequest(targets=["内容：Sintel", "自己"], actions=["interact", "interact"],
+                                   ways=["接着看", "等待"])
     engine.submit_action(DirectToolCall(decision, "action-watch-and-wait", "start_activity", request))
     assert engine.commit_decision_round("watch-and-wait")[0].status == "in_progress"
     watch = next(item.activity_id for item in engine.state.activities.values() if item.kind == ActivityKind.WATCH)
@@ -286,8 +289,8 @@ def test_hunger_band_crossing_wakes_during_chat(engine_factory) -> None:
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
     now = _stage_morning(engine, 405.0)
-    wait = ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
-    requests = {1: ("start_activity", StartActivityRequest(targets=["人物：李凡"], actions=["交谈"])), 2: wait}
+    wait = ("start_activity", start_activity("等待", "自己"))
+    requests = {1: ("start_activity", start_activity("交谈", "人物：李凡")), 2: wait}
     _, results = submit_round(engine, requests, "hungry-chat")
     chat = next(item for item in results if item.agent_id == 1)
     assert chat.status == "in_progress", chat.error_code

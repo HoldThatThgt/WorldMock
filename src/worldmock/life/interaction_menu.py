@@ -1,8 +1,13 @@
-"""@brief 地点类与人物交互菜单的声明、交集和统一动作准入判断。"""
+"""@brief 地点类与人物交互菜单的声明、交集，人物动词与方式的词表，以及按私有绑定解析的统一动作准入判断。
+
+人物所选的（对象，动词，方式）经本轮观察的私有绑定映射为内部标准动作（docs/dev/SPEC-time-and-energy.md 第五章
+「请求形状与菜单」）；菜单、习惯归并与证据都按映射后的内部动作判定，不按短语反解。
+"""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
 from pydantic import Field, model_validator
@@ -11,19 +16,37 @@ from worldmock.errors import IntegrityError
 from worldmock.life.models import FrozenModel, START_ACTIVITY_ACTIONS
 
 #: 「自身」对象的动作（docs/dev/SPEC-agent-interaction.md「保护项修订」）：每份菜单必须保留，
-#: 否则人物在该地点既不能等待也不能睡眠。其余三类保护项是工具可见性，不由地点菜单剪裁。
+#: 否则人物在该地点既不能等待也不能睡眠。人物所见分别是动词 interact 的「自己」对象（方式「等待」）与动词 sleep。
 PROTECTED_SELF_ACTIONS = frozenset({"wait", "sleep"})
 
-#: 人物所见的动作短语；路线方式是同一内部动作的两项明确选择。
-ACTION_LABELS = {
-    "work": "工作", "browse": "浏览", "consume": "食用",
-    "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
+#: 人物的五个生活动词（docs/dev/SPEC-time-and-energy.md 第五章「人物选择什么」）。
+LIFE_VERBS = ("travel", "interact", "obtain", "consume", "sleep")
+#: 方式短语闭集 → （动词，内部标准动作）；同一方式只属于一个动词。内容对象的四个续看方式都映射为观看。
+WAYS: dict[str, tuple[str, str]] = {
+    "步行": ("travel", "travel_to"), "驾车": ("travel", "travel_to"),
+    "工作": ("interact", "work"), "观看": ("interact", "watch"), "游玩": ("interact", "play"),
+    "交谈": ("interact", "chat"), "通话": ("interact", "call"), "阅读": ("interact", "read"),
+    "浏览": ("interact", "browse"), "进行": ("interact", "do"), "等待": ("interact", "wait"),
+    "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "制作": ("obtain", "consume"),
+    "食用": ("consume", "consume"), "使用": ("consume", "consume"),
+    "接着看": ("interact", "watch"), "从头再看": ("interact", "watch"),
+    "接着听": ("interact", "watch"), "从头再听": ("interact", "watch"),
+    "睡觉": ("sleep", "sleep"),
+}
+#: 内部标准动作的缺省方式（出行、购买、使用与内容续看另有专门方式）。
+ACTION_WAYS = {
+    "work": "工作", "browse": "浏览", "watch": "观看", "play": "游玩", "chat": "交谈", "call": "通话",
     "read": "阅读", "do": "进行", "wait": "等待", "sleep": "睡觉",
 }
-TRAVEL_ACTION_LABELS = {"walking": "步行前往", "driving": "驾车前往"}
-PURCHASE_ACTION_LABELS = {"pickup": "到店购买", "delivery": "配送到当前位置"}
+TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
+PURCHASE_WAYS = {"pickup": "到店", "delivery": "远程下单"}
+USE_WAYS = {"eat": "食用", "use": "使用"}
+#: 内容续看方式：（播客？，从头？）→ 方式短语。
+CONTENT_WAYS = {(False, False): "接着看", (False, True): "从头再看", (True, False): "接着听", (True, True): "从头再听"}
+#: 公开动作短语中动词与方式的分隔符：「travel：驾车」。
+VERB_WAY_SEPARATOR = "："
 
-#: 稳定工具面里唯一受菜单剪裁的工具：其 action 参数取交互对象的动作枚举。
+#: 稳定工具面里唯一受菜单剪裁的工具：其对象的动作按映射后的内部动作由菜单判定。
 MENU_SCOPED_TOOL = "start_activity"
 
 
@@ -67,46 +90,72 @@ def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str) -> 
     return InteractionMenu(allowed_actions=tuple(sorted(actions)))
 
 
-def menu_allows_action(menu: InteractionMenu, tool_name: str, request: Any) -> bool:
+def menu_allows_action(menu: InteractionMenu, tool_name: str, canonical_actions: Sequence[str]) -> bool:
     """@brief 判断本次工具调用是否获菜单允许。
 
-    地点菜单不再剪裁工具（「保护项修订」）：除 start_activity 外的稳定工具恒可调用，
-    start_activity 则按其 actions 参数逐项落在有效菜单的动作枚举内判定。
+    地点菜单不再剪裁工具（「保护项修订」）：除 start_activity 外的稳定工具恒可调用；start_activity 的各项先经本轮
+    私有绑定映射为内部标准动作（resolve_selection），再逐项落在有效菜单的动作闭集内判定。
 
     @param menu 当前有效菜单。
     @param tool_name REQUEST_MODELS 中的稳定工具名。
-    @param request 已通过对应请求模型解析的参数。
+    @param canonical_actions start_activity 各项映射后的内部标准动作（其他工具为空）。
     @return 菜单允许时返回 true；领域可行性仍由原校验负责。
     """
     if tool_name != MENU_SCOPED_TOOL:
         return True
-    actions = _request_value(request, "actions")
-    return isinstance(actions, list) and bool(actions) and all(
-        isinstance(action, str) and canonical_action(action) in menu.allowed_actions
-        for action in actions)
+    return bool(canonical_actions) and all(action in menu.allowed_actions for action in canonical_actions)
 
 
-def action_label(action: str, travel_mode: str | None = None) -> str:
-    """@brief 将内部动作及路线方式投影成人物可读的动作短语。"""
-    if action == "travel_to":
-        return TRAVEL_ACTION_LABELS[travel_mode]
-    return ACTION_LABELS[action]
+def binding_action(way: str, canonical: str, **execution: Any) -> dict[str, Any]:
+    """@brief 私有绑定的一项动作：动词、方式、内部标准动作与执行参数（出行方式、履约方式、use_mode），说明另填。
+
+    :param way: 方式短语闭集 WAYS 中的一项；动词由方式唯一确定。
+    :param canonical: 映射后的内部标准动作（须与方式的内部动作一致）。
+    """
+    verb, expected = WAYS[way]
+    if expected != canonical:
+        _integrity_error("Interaction way does not map to the bound internal action")
+    return {"verb": verb, "label": way, "canonical_action": canonical,
+            "travel_mode": execution.pop("travel_mode", None), "note": None, **execution}
 
 
-def purchase_action_label(fulfillment: str) -> str:
-    """@brief 将明确的供给履约方式投影成人物可读动作短语。"""
-    return PURCHASE_ACTION_LABELS[fulfillment]
+def public_action(action: dict[str, Any]) -> dict[str, Any]:
+    """@brief 交互对象公开行的一项动作：「动词：方式」的可读短语与未满足条件的一句说明（没有时为 null）。"""
+    return {"action": f"{action['verb']}{VERB_WAY_SEPARATOR}{action['label']}", "note": action["note"]}
 
 
-def canonical_action(label: str) -> str | None:
-    """@brief 从人物可读动作短语还原内部动作闭集。"""
-    if label in TRAVEL_ACTION_LABELS.values():
-        return "travel_to"
-    if label in PURCHASE_ACTION_LABELS.values():
-        return "purchase"
-    if label == "使用":
-        return "consume"
-    return next((action for action, value in ACTION_LABELS.items() if value == label), None)
+def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
+    """@brief 按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作；映射不唯一或不在本轮闭集时返回 None。
+
+    :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
+    """
+    if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
+        return None
+    if not 1 <= len(targets) <= 2 or len(targets) != len(actions) or len(actions) != len(ways):
+        return None
+    selected = []
+    for name, verb, way in zip(targets, actions, ways):
+        rows = [row for row in bindings if isinstance(row, dict) and row.get("object") == name]
+        choices = [item for item in rows[0].get("actions", []) if item.get("verb") == verb
+                   and item.get("label") == way] if len(rows) == 1 else []
+        if len(choices) != 1:
+            return None
+        selected.append({**rows[0], "selected_action": choices[0]})
+    return selected
+
+
+def activity_phrase(action: dict[str, Any]) -> str:
+    """@brief 活动名称里的「做什么」：出行写「步行前往」「驾车前往」，其余取所选方式短语。"""
+    return f"{action['label']}前往" if action["canonical_action"] == "travel_to" else action["label"]
+
+
+def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
+    """@brief 两项是否合成一次动作：同为取得（购买）合成一单，同为方式相同的使用合成一餐（沿用同短语合并）。"""
+    if len(canonical) == 1:
+        return True
+    if canonical[0] == canonical[1] == "purchase":
+        return True
+    return canonical[0] == canonical[1] == "consume" and ways[0] == ways[1]
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:
@@ -118,11 +167,6 @@ def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str
     unknown = set(values) - allowed
     if unknown:
         _reject(f"interaction menu contains unknown {label} names: {sorted(unknown)}")
-
-
-def _request_value(request: Any, field: str) -> Any:
-    """@brief 从已解析模型或测试用映射读取一个请求字段。"""
-    return request.get(field) if isinstance(request, dict) else getattr(request, field, None)
 
 
 def _unique_item(items: tuple[Any, ...], field: str, value: Any, label: str) -> Any:

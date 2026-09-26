@@ -79,35 +79,38 @@ def test_catalog_activity_met_carries_lifestyle_keys() -> None:
 
 
 def test_lifestyle_model_request_only_selects_readable_object_and_action() -> None:
-    """人物只写可读活动名称和动作，内部子类型与时长不可回填。"""
-    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"])
-    assert set(request.model_dump()) == {"targets", "actions"}
+    """人物只写可读活动名称、动词与方式，内部子类型与时长不可回填。"""
+    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
+    assert set(request.model_dump()) == {"targets", "actions", "ways"}
     with pytest.raises(ValidationError):
-        StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"],
+        StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"],
                              planned_duration_seconds=120)
     schema = deepseek_strict_schema(StartActivityRequest)
-    assert set(schema["properties"]) == {"targets", "actions"}
+    assert set(schema["properties"]) == {"targets", "actions", "ways"}
 
 
 def test_start_activity_requires_target_for_lifestyle() -> None:
-    """模型入口必须逐项给出可读对象和动作。"""
+    """模型入口必须逐项给出可读对象、动词和方式；只有一种方式的对象也要照填方式。"""
     with pytest.raises(ValidationError):
-        StartActivityRequest(actions=["进行"])
-    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["进行"])
+        StartActivityRequest(actions=["interact"], ways=["进行"])
+    with pytest.raises(ValidationError):
+        StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"])
+    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
     assert request.targets == ["活动：瑜伽"]
 
 
 def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
-    """从当前生活活动窗口选择条目，引擎用目录时长和 MET 结算。"""
+    """从当前生活活动窗口选择此处能做（动作没有说明）的条目，引擎用目录时长和 MET 结算。"""
     engine = engine_factory()
     stage_day_plan(engine)
     body = engine.scenario.body
     decision = context(engine, "lifestyle-visible")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    binding = next(row for row in observed["interaction_bindings"] if row["kind"] == "lifestyle")
+    binding = next(row for row in observed["interaction_bindings"]
+                   if row["kind"] == "lifestyle" and row["actions"][0]["note"] is None)
     item = next(row for row in _items() if row["activity_id"] == binding["object_id"])
-    request = StartActivityRequest(targets=[binding["object"]], actions=["进行"])
+    request = StartActivityRequest(targets=[binding["object"]], actions=["interact"], ways=["进行"])
     engine.submit_action(DirectToolCall(decision, "action-lifestyle-visible", "start_activity", request))
     result = engine.commit_decision_round("lifestyle-visible")[0]
     assert result.activity_id
@@ -135,7 +138,7 @@ def test_engine_rejects_unknown_lifestyle_id(engine_factory) -> None:
     decision = context(engine, "lifestyle-bad")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    request = StartActivityRequest(targets=["活动：不存在的项目"], actions=["进行"])
+    request = StartActivityRequest(targets=["活动：不存在的项目"], actions=["interact"], ways=["进行"])
     engine.submit_action(DirectToolCall(decision, "action-lifestyle-bad", "start_activity", request))
     result = engine.commit_decision_round("lifestyle-bad")[0]
     assert result.status.value == "rejected"

@@ -1,4 +1,4 @@
-"""交互菜单只约束可读活动动作，不接收过时的内容提交动作。"""
+"""交互菜单按映射后的内部动作准入；人物只用五个动词与方式短语，旧的细分动作短语不留兼容入口（第五章）。"""
 
 from __future__ import annotations
 
@@ -7,27 +7,80 @@ from pathlib import Path
 import pytest
 
 from worldmock.catalog.affordances import START_ACTIVITY_ACTIONS
+from worldmock.errors import IntegrityError
 from worldmock.life.interaction_menu import (
-    InteractionMenu, action_label, canonical_action, menu_allows_action, purchase_action_label,
+    ACTION_WAYS, CONTENT_WAYS, LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, VERB_WAY_SEPARATOR, WAYS,
+    InteractionMenu, activity_phrase, binding_action, menu_allows_action, merged_selection, public_action,
+    resolve_selection,
 )
-from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
+from worldmock.life.models import REQUEST_MODELS
 from worldmock.life.scenario import load_scenario
 
 
-def test_every_visible_action_round_trips_to_a_canonical_menu_action():
-    """人物可读短语覆盖当前全部启动动作，路线方式分别可选。"""
+def _bindings() -> list[dict]:
+    """本轮私有绑定：一个地点（步行、驾车）与「自己」（等待、睡觉）。"""
+    return [
+        {"object": "地点：办公室", "kind": "location", "object_id": "office",
+         "actions": [binding_action("步行", "travel_to", travel_mode="walking"),
+                     binding_action("驾车", "travel_to", travel_mode="driving")]},
+        {"object": "自己", "kind": "self", "object_id": "agent:1",
+         "actions": [binding_action("等待", "wait"), binding_action("睡觉", "sleep")]},
+    ]
+
+
+def test_every_way_maps_to_one_verb_and_covers_every_internal_action():
+    """方式闭集覆盖全部内部标准动作与五个动词；各类专门方式都回到各自的内部动作，旧短语不在闭集中。"""
     assert "submit" not in START_ACTIVITY_ACTIONS
     assert "message" not in START_ACTIVITY_ACTIONS
-    for action in START_ACTIVITY_ACTIONS - {"travel_to", "purchase"}:
-        assert canonical_action(action_label(action)) == action
-    assert canonical_action("步行前往") == canonical_action("驾车前往") == "travel_to"
-    assert canonical_action(purchase_action_label("pickup")) == "purchase"
-    assert canonical_action(purchase_action_label("delivery")) == "purchase"
-    assert canonical_action("使用") == "consume"
+    assert {canonical for _, canonical in WAYS.values()} == START_ACTIVITY_ACTIONS
+    assert {verb for verb, _ in WAYS.values()} == set(LIFE_VERBS)
+    assert LIFE_VERBS == ("travel", "interact", "obtain", "consume", "sleep")
+    for action, way in ACTION_WAYS.items():
+        assert WAYS[way][1] == action
+    assert {WAYS[way] for way in TRAVEL_WAYS.values()} == {("travel", "travel_to")}
+    assert {WAYS[way] for way in PURCHASE_WAYS.values()} == {("obtain", "purchase")}
+    assert {WAYS[way] for way in USE_WAYS.values()} == {("consume", "consume")}
+    assert WAYS["制作"] == ("obtain", "consume")
+    assert WAYS["睡觉"] == ("sleep", "sleep") and WAYS["等待"] == ("interact", "wait")
+    assert set(CONTENT_WAYS.values()) == {"接着看", "从头再看", "接着听", "从头再听"}
+    assert {WAYS[way] for way in CONTENT_WAYS.values()} == {("interact", "watch")}
+    for retired in ("步行前往", "驾车前往", "到店购买", "配送到当前位置", "travel_to", "wait"):
+        assert retired not in WAYS
+
+
+def test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_private():
+    """私有绑定带内部动作与执行参数；公开只给「动词：方式」与说明；方式与内部动作不符是完整性错误。"""
+    drive = binding_action("驾车", "travel_to", travel_mode="driving")
+    assert drive == {"verb": "travel", "label": "驾车", "canonical_action": "travel_to",
+                     "travel_mode": "driving", "note": None}
+    assert public_action(drive) == {"action": f"travel{VERB_WAY_SEPARATOR}驾车", "note": None}
+    assert public_action({**drive, "note": "需要先结束或暂停手上的事"}) == {
+        "action": "travel：驾车", "note": "需要先结束或暂停手上的事"}
+    delivery = binding_action("远程下单", "purchase", fulfillment="delivery")
+    assert delivery["fulfillment"] == "delivery" and delivery["travel_mode"] is None
+    assert public_action(delivery) == {"action": "obtain：远程下单", "note": None}
+    cook = binding_action("制作", "consume", use_mode="use")
+    assert cook["use_mode"] == "use" and public_action(cook)["action"] == "obtain：制作"
+    assert public_action(binding_action("接着看", "watch"))["action"] == "interact：接着看"
+    with pytest.raises(IntegrityError):
+        binding_action("步行", "wait")
+    assert activity_phrase(drive) == "驾车前往"
+    assert activity_phrase(binding_action("步行", "travel_to", travel_mode="walking")) == "步行前往"
+    assert activity_phrase(binding_action("从头再看", "watch")) == "从头再看"
+
+
+def test_merged_selection_combines_one_order_or_one_meal_only():
+    """两项同为取得合成一单，同为方式相同的使用合成一餐；其余两项各自开始。"""
+    assert merged_selection(["watch"], ["接着看"])
+    assert merged_selection(["purchase", "purchase"], ["到店", "到店"])
+    assert merged_selection(["consume", "consume"], ["食用", "食用"])
+    assert not merged_selection(["consume", "consume"], ["食用", "使用"])
+    assert not merged_selection(["travel_to", "watch"], ["驾车", "接着听"])
+    assert not merged_selection(["work", "consume"], ["工作", "食用"])
 
 
 def test_scenario_menus_admit_only_current_start_actions():
-    """场景菜单使用当前闭集，内容提交和消息发送是独立工具。"""
+    """场景菜单使用当前内部闭集，内容提交和消息发送是独立工具。"""
     scenario, _ = load_scenario(Path("scenarios/white-collar-12-weeks.json"))
     for menu in scenario.interaction_menus_by_location_kind.values():
         assert set(menu.allowed_actions) <= START_ACTIVITY_ACTIONS
@@ -35,13 +88,29 @@ def test_scenario_menus_admit_only_current_start_actions():
     assert {"submit_work", "send_message"} <= set(REQUEST_MODELS)
 
 
-def test_menu_checks_semantic_route_choice_without_accepting_internal_action_name():
-    """人物请求只能使用可读动作短语；菜单仍按内部闭集准入。"""
+def test_selection_resolves_only_offered_verb_and_way_and_menu_judges_internal_actions():
+    """（对象，动词，方式）只按本轮绑定映射：内部动作名、旧短语、动词不符都不解析；菜单按映射后的内部动作判定。"""
+    bindings = _bindings()
+    walked = resolve_selection(bindings, ["地点：办公室"], ["travel"], ["步行"])
+    assert [row["selected_action"]["canonical_action"] for row in walked] == ["travel_to"]
+    assert walked[0]["selected_action"]["travel_mode"] == "walking" and walked[0]["object_id"] == "office"
+    pair = resolve_selection(bindings, ["地点：办公室", "自己"], ["travel", "interact"], ["驾车", "等待"])
+    assert [row["selected_action"]["label"] for row in pair] == ["驾车", "等待"]
+    for targets, verbs, ways in (
+            (["地点：办公室"], ["travel"], ["步行前往"]), (["地点：办公室"], ["travel"], ["travel_to"]),
+            (["地点：办公室"], ["interact"], ["步行"]), (["地点：公园"], ["travel"], ["步行"]),
+            (["自己"], ["interact"], ["睡觉"]), (["自己"], ["interact", "sleep"], ["等待", "睡觉"]),
+            (["自己", "自己", "自己"], ["sleep"] * 3, ["睡觉"] * 3), ([], [], [])):
+        assert resolve_selection(bindings, targets, verbs, ways) is None
+    assert resolve_selection(None, ["自己"], ["sleep"], ["睡觉"]) is None
+    assert resolve_selection(bindings, "自己", ["sleep"], ["睡觉"]) is None
     menu = InteractionMenu(allowed_actions=("sleep", "wait"))
-    denied = StartActivityRequest(targets=["地点：办公室"], actions=["步行前往"])
-    allowed = StartActivityRequest(targets=["自己"], actions=["等待"])
-    assert not menu_allows_action(menu, "start_activity", denied)
-    assert menu_allows_action(menu, "start_activity", allowed)
-    assert menu_allows_action(menu, "submit_work", object())
+    assert not menu_allows_action(menu, "start_activity", ["travel_to"])
+    assert not menu_allows_action(menu, "start_activity", ["wait", "travel_to"])
+    assert not menu_allows_action(menu, "start_activity", [])
+    assert menu_allows_action(menu, "start_activity", ["wait"])
+    assert menu_allows_action(menu, "submit_work", [])
     with pytest.raises(ValueError):
         InteractionMenu(allowed_actions=("sleep", "submit", "wait"))
+    with pytest.raises(ValueError):
+        InteractionMenu(allowed_actions=("travel_to", "wait"))

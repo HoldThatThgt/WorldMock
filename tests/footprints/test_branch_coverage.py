@@ -188,17 +188,25 @@ def test_action_result_status_buckets_report_missing_and_unrecognized():
 
 
 def test_watch_repeat_report_missing_targets_and_single_session_groups():
+    """只有目标完整、data.repeat 恰为 true 的观看会话计为从头重看；缺目标的会话单独计数，游戏会话不参与。"""
     activities = [
         _activity("watch-1", "watch", 60, target_id="show-a"),
-        _activity("watch-2", "watch", 60, target_id=None),
+        _activity("watch-2", "watch", 60, target_id=None, data={"repeat": True}),
         _activity("watch-3", "watch", 60, target_id=""),
-        _activity("game-1", "play_game", 30),
+        _activity("watch-4", "watch", 60, target_id="show-a", data={"repeat": "true"}),
+        _activity("watch-5", "watch", 60, target_id="show-a", data=["repeat"]),
+        _activity("game-1", "play_game", 30, target_id="show-a", data={"repeat": True}),
     ]
     events = [_event(1, "run_ended", occurred_at=200)]
     repeats = _run_report(events, activities, _manifest(end=200))["content_contact"]["repeat_watch"]
     assert repeats["repeated_sessions"] == 0
     assert repeats["groups"] == []
     assert repeats["watch_sessions_missing_target"] == 2
+    restarted = _activity("watch-6", "watch", 60, target_id="show-a", data={"repeat": True})
+    repeats = _run_report(events, [*activities, restarted], _manifest(end=200))["content_contact"]["repeat_watch"]
+    assert repeats["repeated_sessions"] == 1
+    assert repeats["groups"] == [{"agent_id": 1, "target_id": "show-a", "sessions": 4, "repeated_sessions": 1,
+                                  "activity_ids": ["watch-6"]}]
 
 
 def test_efficiency_reports_missing_and_partial_samples():

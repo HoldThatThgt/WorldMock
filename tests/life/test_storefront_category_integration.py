@@ -20,7 +20,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import purchase_order
 from worldmock.life.map_models import QuoteConfig
-from worldmock.life.models import PurchaseItem, PurchaseOrderRequest, StartActivityRequest, SupplyQuoteState
+from worldmock.life.models import PurchaseItem, PurchaseOrderRequest, SupplyQuoteState
 
 
 PRODUCT = "food-6923644266066"
@@ -64,12 +64,12 @@ def _offer(engine, identity: str, round_id: str):
 
 
 def _buy(engine, identity: str, round_id: str):
-    """人物仅选商品供给和配送动作，由引擎采用冻结报价与单件数量。"""
+    """人物仅选商品供给与取得方式「远程下单」（obtain），由引擎采用冻结报价与单件数量。"""
     current, observed, binding, public = _offer(engine, identity, round_id)
-    assert "配送到当前位置" in [row["label"] for row in binding["actions"]]
-    request = StartActivityRequest(
-        targets=[binding["object"]], actions=["配送到当前位置"])
-    engine.submit_action(DirectToolCall(current, f"buy-{round_id}", "start_activity", request))
+    assert ("obtain", "远程下单", "delivery") in [
+        (row["verb"], row["label"], row["fulfillment"]) for row in binding["actions"]]
+    engine.submit_action(DirectToolCall(current, f"buy-{round_id}", "start_activity",
+                                        start_activity("远程下单", binding["object"])))
     return observed, binding, public, engine.commit_decision_round(round_id)[0]
 
 

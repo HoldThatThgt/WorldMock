@@ -11,7 +11,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 stage_day_plan)
+                                 stage_day_plan, start_activity)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.models import EventDraft
 from worldmock.life import dining, projection
@@ -19,7 +19,7 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.dining import FoodPathFacts, MealOption, NearbyFood, PendingMeal, local_meal_sentence
 from worldmock.life.discovery import DiscoveryContext, supply_row
-from worldmock.life.models import ReportStatusRequest, StartActivityRequest, active_activities
+from worldmock.life.models import ReportStatusRequest, active_activities
 from worldmock.life.projection import visible_supplies
 from worldmock.life.result_projection import public_supply_row
 
@@ -40,15 +40,15 @@ def _action(engine, name: str, tool: str, request):
     return observed, result
 
 
-def _start(engine, name: str, kind: str, object_id: str | None, action: str):
-    """@brief 从冻结观察选取可读对象和动作，让引擎推导领域参数。"""
+def _start(engine, name: str, kind: str, object_id: str | None, way: str):
+    """@brief 从冻结观察选取列出该方式的可读对象，按「动词＋对象＋方式」启动，让引擎推导领域参数。"""
     decision = context(engine, name)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
-                   and any(item["label"] == action for item in row["actions"]))
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+                   and any(item["label"] == way for item in row["actions"]))
+    request = start_activity(way, binding["object"])
     engine.submit_action(DirectToolCall(decision, f"action-{name}", "start_activity", request))
     result = engine.commit_decision_round(name)[0]
     assert result.status in {"completed", "in_progress"}, result.error_code
@@ -92,7 +92,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         stage_day_plan(engine)
         agent = engine.state.agents[1]
         assert local_meal_sentence(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
-        _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行前往")
+        _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行")
         _run_to_end(engine, started.activity_id)
         agent = engine.state.agents[1]
         assert agent.location_id == RESTAURANT
@@ -114,7 +114,7 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         before_balance = engine.state.accounts[agent.balance_account_id]
         before_stock = engine.state.supply_stock[SUPPLY]
         before_holding = agent.inventory.get(RESTAURANT, {}).get(MEAL, 0)
-        observed, bought = _start(engine, "buy-meal", "supply", SUPPLY, "到店购买")
+        observed, bought = _start(engine, "buy-meal", "supply", SUPPLY, "到店")
         offer = next(row for row in observed["interaction_bindings"] if row["object_id"] == SUPPLY)
         assert any(row["object"] == offer["object"] for row in observed["facts"]["products"])
         assert SUPPLY in engine.state.agents[1].visible_supply_ids
@@ -288,7 +288,7 @@ def _hungry_after_browsing_at_home(engine) -> None:
     stage_day_plan(engine)
     _stage(engine, "home", 700)
     _, browsing = _action(engine, "browse-at-home", "start_activity",
-                          StartActivityRequest(targets=["商品目录"], actions=["浏览"]))
+                          start_activity("浏览", "商品目录"))
     _finish(engine, browsing.activity_id)
     assert engine.state.agents[1].location_id == "home" and not engine.state.deliveries
 
@@ -351,7 +351,7 @@ def _keep_waiting(engine) -> tuple[str, object]:
     if running:
         return "report_status", ReportStatusRequest(task=[activity_name(engine, running[0].activity_id)],
                                                     summary=["接着等。"])
-    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+    return "start_activity", start_activity("等待", "自己")
 
 
 def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) -> None:
@@ -359,7 +359,7 @@ def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) ->
     engine = engine_factory()
     stage_day_plan(engine)
     _stage(engine, "market", 700)
-    observed, bought = _start(engine, "deliver-home", "supply", None, "配送到当前位置")
+    observed, bought = _start(engine, "deliver-home", "supply", None, "远程下单")
     row = next(item for item in observed["facts"]["products"]
                if item["object"] == next(binding["object"] for binding in observed["interaction_bindings"]
                                          if binding["object_id"] == bought.data["orders"][0]["supply_id"]))
