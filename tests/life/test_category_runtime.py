@@ -12,14 +12,14 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan
+from tests.life.conftest import advance_next, context, stage_day_plan, start_activity
 from worldmock.categories import refresh_manifest_identity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life.engine import LifeEngine
+from worldmock.life.interaction_menu import WAYS
 from worldmock.life.models import (
     ModelIdentity,
     RunIdentity,
-    StartActivityRequest,
 )
 from worldmock.life.scenario import parse_scenario_document
 
@@ -343,14 +343,21 @@ def _engine(tmp_path: Path, scenario_path: Path, suffix: str) -> LifeEngine:
     return engine
 
 
-def _consume(engine: LifeEngine, round_id: str, action_id: str = "recipe-action"):
-    """人物只选择可读持有物与使用，领域推导数量和时长。"""
+def _consume(engine: LifeEngine, round_id: str, way: str = "制作", action_id: str = "recipe-action"):
+    """人物只选择可读持有物与方式，领域推导数量和时长。
+
+    持有物的 consume:use 规则是库存转换配方时只列动词 obtain 的「制作」，否则列 consume 的「使用」
+    （docs/dev/SPEC-time-and-energy.md 第五章「请求形状与菜单」）；两者都映射回内部动作 consume。
+    """
     current = context(engine, round_id)
     engine.begin_decision_round([current])
     observed = engine.observe(current)
     binding = next(item for item in observed["interaction_bindings"]
                    if item["kind"] == "holding" and item["object_id"] == _INPUT_OBJECT)
-    request = StartActivityRequest(targets=[binding["object"]], actions=["使用"])
+    offered = [(item["verb"], item["label"], item["canonical_action"], item["use_mode"])
+               for item in binding["actions"]]
+    assert offered == [(WAYS[way][0], way, "consume", "use")]
+    request = start_activity(way, binding["object"])
     engine.submit_action(DirectToolCall(current, action_id, "start_activity", request))
     return request, engine.commit_decision_round(round_id)[0]
 
@@ -371,7 +378,7 @@ def _start(engine: LifeEngine, round_id: str, target_kind: str, action: str,
                    if item["kind"] == target_kind and
                    (object_id is None or item["object_id"] == object_id)
                    and any(row["label"] == action for row in item["actions"]))
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action])
+    request = start_activity(action, binding["object"])
     engine.submit_action(DirectToolCall(
         current, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
@@ -413,12 +420,12 @@ def test_recipe_fixture_loads_with_output_category_binding(tmp_path: Path) -> No
 
 
 def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
-    """人物选择使用后，配方在活动结束时恰好转换一次。"""
+    """人物选择「obtain：制作」后，配方在活动结束时恰好转换一次。"""
     path = _fixture(tmp_path)
     engine = _engine(tmp_path, path, "complete")
     try:
         request, started = _consume(engine, "start")
-        assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["使用"]}
+        assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"]}
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)
@@ -522,12 +529,12 @@ def test_food_coefficient_changes_body_settlement(tmp_path: Path) -> None:
 
 
 def test_no_effect_use_rejects_without_inventory_change(tmp_path: Path) -> None:
-    """已审核无作用的耐用品可装配，但使用不改变库存。"""
+    """已审核无作用的耐用品可装配，列 consume 的「使用」而非「制作」，但使用不改变库存。"""
     path = _fixture(tmp_path, input_state="no_effect")
     engine = _engine(tmp_path, path, "no-effect")
     try:
         before = engine.state.agents[1].inventory.copy()
-        _, result = _consume(engine, "no-effect")
+        _, result = _consume(engine, "no-effect", way="使用")
         assert result.status.value == "rejected"
         assert result.error_code == "CATEGORY_PAIRING_NO_EFFECT"
         assert engine.state.agents[1].inventory == before

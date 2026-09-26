@@ -1,65 +1,17 @@
 """并行活动共同身体分段公式与真实引擎事件一致。"""
 
-# TODO: parallel activities removed from spec - most tests in this file are for parallel mechanics
-# The shared body mechanics tested here (shared_energy_cost, settle_shared_body, etc.) were designed
-# specifically for parallel activity execution, which is no longer in the 7-tool model.
-
 from __future__ import annotations
 
 import pytest
 
-from tests.life.conftest import advance_next, context
+from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import activity_factors, advance_activity_shared, shared_activity_factors
 from worldmock.life.body import ActivityFactors, last_flows, settle_shared_body
 from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, BodyState
 from worldmock.life.scenario import load_scenario
-from worldmock.life.social_actions import (CALL_MET, CHAT_MET, advance_social_shared,
+from worldmock.life.social_actions import (CALL_MET, CHAT_MET, SOCIAL_RESOURCE_CLAIMS, advance_social_shared,
                                            social_activity_change)
-
-
-# TODO: parallel activities removed from spec
-# def _watch_wait(reverse: bool = False) -> StartParallelActivitiesRequest:
-#     """构造同资源集合、相反顺序的两项活动。"""
-#     rows = [StartActivityRequest(activity_type="wait", planned_duration_seconds=120),
-#             StartActivityRequest(activity_type="watch", target_id="sintel-en-subtitles",
-#                                  planned_duration_seconds=60, playback_speed=1)]
-#     return StartParallelActivitiesRequest(activities=tuple(reversed(rows) if reverse else rows))
-
-
-# TODO: parallel activities removed from spec
-# def _first_body(engine, reverse: bool) -> dict:
-#     """真实决策启动组合后推进至首个播放结束点。"""
-#     ctx = context(engine, f"shared-{reverse}")
-#     engine.begin_decision_round([ctx])
-#     engine.observe(ctx)
-#     engine.submit_action(DirectToolCall(ctx, f"parallel-{reverse}",
-#                                         "start_parallel_activities", _watch_wait(reverse)))
-#     accepted = engine.commit_decision_round(ctx.round_id)[0]
-#     assert accepted.status == "in_progress"
-#     while engine.state.current_time < min(item.planned_end_at for item in engine.state.activities.values()):
-#         advance_next(engine)
-#     events = engine.store.read_agent_events("environment_event", 1)
-#     return next(event.data for event in events if event.data.get("kind") == "body_settlement")
-
-
-# TODO: parallel activities removed from spec
-# def test_real_parallel_body_uses_maximum_met_and_is_order_independent(engine_factory) -> None:
-#     """两种提交顺序都只扣一次基础能量，最大 MET 与共同身体状态一致。"""
-#     first = _first_body(engine_factory(), False)
-#     second = _first_body(engine_factory(), True)
-#     config = load_scenario("scenarios/white-collar-12-weeks.json")[0].body
-#     expected = shared_energy_cost(((60, config.activity_met["wait"]),
-#                                    (60, config.activity_met["watch"])), config)
-#     assert first["body_settlement"] == second["body_settlement"]
-#     assert first["body_settlement"]["basal_energy_kcal"] == pytest.approx(
-#         config.basal_kcal_per_hour / 60)
-#     assert first["body_settlement"]["extra_energy_kcal"] == pytest.approx(
-#         (max(config.activity_met["wait"], config.activity_met["watch"]) - 1) * config.mass_kg / 60,
-#         abs=0.01)
-#     before = first["body_settlement"]["before"]["energy_kcal"]
-#     after = first["body_settlement"]["after"]["energy_kcal"]
-#     assert before - after == pytest.approx(expected)
 
 
 def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
@@ -78,8 +30,9 @@ def test_shared_settlement_truncates_overdrawn_activity_sets_at_zero() -> None:
 
 
 def _active(kind: ActivityKind, now: int, duration: int = 60) -> ActivityState:
-    """构造直接公共进度接口所需的有效活动。"""
-    claims = {"position", "attention"} if kind in {ActivityKind.CHAT, ActivityKind.CALL} else {"position"}
+    """构造直接公共进度接口所需的有效活动；占用取第五章占用表（交谈、通话占说与听，其余按注册表）。"""
+    social = kind in {ActivityKind.CHAT, ActivityKind.CALL}
+    claims = set(SOCIAL_RESOURCE_CLAIMS) if social else set(default_affordances().resource_claims(kind.value))
     return ActivityState(activity_id=f"activity-{kind.value}", agent_id=1,
                          location_id="home", kind=kind,
                          status=ActivityStatus.ACTIVE, started_at=now, planned_end_at=now + duration,
@@ -123,18 +76,27 @@ def test_shared_settlement_and_activity_progress_reject_invalid_intervals(engine
 
 
 def test_social_shared_progress_and_control_public_boundaries(engine_factory) -> None:
-    """社交共同推进完成和非法控制使用同一生命周期。"""
+    """社交共同推进完成和非法控制使用同一生命周期；缓解按双方交谈同时进行的秒数结算（第五章「交谈」）。
+
+    同时进行的秒数按交谈账本（每小时 0.5），其余秒数按发起方 0.2/小时，清醒增长照常累计。
+    """
     engine = engine_factory()
     config = engine.scenario.body
     agent = engine.state.agents[1]
+    agent = agent.model_copy(update={"body": agent.body.model_copy(update={"social_need": 0.5})}, deep=True)
     now = engine.state.current_time
     chat = _active(ActivityKind.CHAT, now)
     settlement = settle_shared_body(agent.body, ((ActivityKind.CHAT, ActivityFactors(CHAT_MET)),), 60, config)
-    finished = advance_social_shared(chat, agent, now + 60, settlement, True)
+    finished = advance_social_shared(chat, agent, now + 60, settlement, 60)
     assert finished.activity.status == ActivityStatus.COMPLETED
-    assert finished.agent.body.social_need <= agent.body.social_need
+    hour = 60 / 3600
+    relief = {shared: advance_social_shared(chat, agent, now + 60, settlement, shared).agent.body.social_need
+              for shared in (0, 30, 60)}
+    assert finished.agent.body.social_need == relief[60] == pytest.approx(0.5 + (0.04 - 0.5) * hour)
+    assert relief[0] == pytest.approx(0.5 + (0.04 - 0.2) * hour)
+    assert relief[30] == pytest.approx(0.5 + (0.04 - 0.5 / 2 - 0.2 / 2) * hour)
     with pytest.raises(ValueError, match="interval is invalid"):
-        advance_social_shared(chat, agent, now - 1, settlement, False)
+        advance_social_shared(chat, agent, now - 1, settlement, 0)
     with pytest.raises(BusinessRuleError, match="ACTIVITY_ALREADY_TERMINAL"):
         social_activity_change(agent, finished.activity, "cancel", now + 60)
     with pytest.raises(BusinessRuleError, match="SOCIAL_ACTIVITY_CANNOT_PAUSE"):

@@ -41,9 +41,9 @@ def _round(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1)
 
 
 def _pick(observed: dict, canonical: str, *, mode: str | None = None, kind: str | None = None,
-          place: str | None = None) -> tuple[str, str]:
-    """@brief 从本轮冻结观察取一个对象名与动作短语。"""
-    return next((row["object"], action["label"]) for row in observed["interaction_bindings"]
+          place: str | None = None) -> tuple[str, str, str]:
+    """@brief 从本轮冻结观察取一个对象名、动词与方式。"""
+    return next((row["object"], action["verb"], action["label"]) for row in observed["interaction_bindings"]
                 if (kind is None or row["kind"] == kind) and (place is None or row["object_id"] == place)
                 for action in row["actions"] if action["canonical_action"] == canonical
                 and (mode is None or action.get("travel_mode") == mode))
@@ -54,18 +54,19 @@ def _preview(engine: LifeEngine, name: str) -> dict:
     return engine.observe(context(engine, f"preview-{name}"))
 
 
-def _start(engine: LifeEngine, name: str, *choices: tuple[str, str]):
-    """@brief 以可读对象与动作短语开始一到两项活动。"""
-    request = StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices])
+def _start(engine: LifeEngine, name: str, *choices: tuple[str, str, str]):
+    """@brief 以可读对象、动词与方式开始一到两项活动。"""
+    request = StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
+                                   ways=[item[2] for item in choices])
     return _round(engine, name, "start_activity", request)[1]
 
 
 def _wait(engine: LifeEngine, name: str):
     """@brief 以「自己」开始一段等待。"""
-    return _start(engine, name, ("自己", "等待"))
+    return _start(engine, name, ("自己", "interact", "等待"))
 
 
-def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str], destination: str = "office"):
+def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str, str], destination: str = "office"):
     """@brief 步行前往目的地，可在同一请求中一并开始路上的其他活动。"""
     route = _pick(_preview(engine, name), "travel_to", mode="walking", place=destination)
     return _start(engine, name, route, *companions)
@@ -191,7 +192,7 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     conclude_activity 点名这段睡眠并被受理（第七章「活动一结束就要结束它」：收尾之前做别的都以
     ACTIVITY_CONCLUSION_REQUIRED 拒绝）。"""
     engine = engine_factory()
-    slept = _start(engine, "no-plan-sleep", ("自己", "睡觉"))
+    slept = _start(engine, "no-plan-sleep", ("自己", "sleep", "睡觉"))
     assert advance_until_ready(engine, limit=200)
     sleep = engine.state.activities[slept.activity_id]
     assert sleep.status == ActivityStatus.COMPLETED and sleep.concluded_at is None
@@ -248,7 +249,7 @@ def _wake(engine: LifeEngine, offset: int = 60) -> int:
 def _two_parallel(engine: LifeEngine, name: str) -> list[str]:
     """@brief 同一请求开始等待与观看（占用互不冲突），两个名额都被进行中活动占着。"""
     content = _pick(_preview(engine, name), "watch", kind="content")
-    started = _start(engine, name, ("自己", "等待"), content)
+    started = _start(engine, name, ("自己", "interact", "等待"), content)
     assert started.status == "in_progress", started.error_code
     return _started_ids(started)
 
@@ -260,16 +261,23 @@ def _lifecycle_events(engine: LifeEngine) -> list:
 
 
 def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -> None:
-    """名额未满而有进行中活动时选择出行：ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动；暂停后出发被受理，暂停的活动留在原地。"""
+    """名额未满而有进行中活动时选择出行：出行照常列出并带说明；选了以 ACTIVITY_PRECONDITION_UNMET 返回原因「需要先
+    结束或暂停手上的事：<活动名>」与下一步；暂停后出发被受理，暂停的活动留在原地。"""
     engine = engine_factory()
     stage_day_plan(engine)
     watched = _start(engine, "home-watch", _pick(_preview(engine, "home-watch"), "watch", kind="content"))
     _wake(engine)
-    rejected = _depart(engine, "blocked-depart")
     name = _name(engine, watched.activity_id)
+    observed = _preview(engine, "listed-depart")
+    office = _pick(observed, "travel_to", mode="walking", place="office")[0]
+    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == office)
+    assert {"action": "travel：步行", "note": f"需要先结束或暂停手上的事：{name}"} in public["actions"]
+    rejected = _depart(engine, "blocked-depart")
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert rejected.data["unmet"] == ["activities_before_departure"]
     assert rejected.data["suggested"] == {"conclude_or_pause": [name]}
+    assert rejected.data["reason"] == f"需要先结束或暂停手上的事：{name}"
+    assert rejected.data["next_step"] == f"先结束或暂停{name}"
     assert name in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
     paused = _round(engine, "pause-before-leaving", "pause_activity", PauseActivityRequest(
@@ -398,7 +406,7 @@ def test_two_slots_full_block_new_activities_until_conclusion(engine_factory) ->
 
 def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_factory) -> None:
     """只剩一个名额（另一个被暂停的活动占着）却要同时开始两项：SESSION_LIMIT_EXCEEDED，原因说只剩一个名额、不能同时
-    开始两项并点名占着名额的活动；只开始一项被受理（第五章「并行准入」）。"""
+    开始两项并点名占着名额的活动，下一步是先结束它；只开始一项被受理（第五章「并行准入」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "one-slot-wait")
@@ -406,49 +414,57 @@ def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_fac
     name = _name(engine, waited.activity_id)
     _round(engine, "one-slot-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停。"]))
     content = _pick(_preview(engine, "one-slot"), "watch", kind="content")
-    blocked = _start(engine, "one-slot-two", ("自己", "等待"), content)
+    blocked = _start(engine, "one-slot-two", ("自己", "interact", "等待"), content)
     assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
     assert "只剩一个名额，不能同时开始两项" in blocked.message and name in blocked.message
-    assert "两个名额都占着" not in blocked.message
+    assert "两件事都在做" not in blocked.message
+    assert blocked.data["reason"] == f"只剩一个名额，不能同时开始两项（{name}占着一个）"
+    assert blocked.data["next_step"] == f"先结束一项：{name}"
     assert _start(engine, "one-slot-one", content).status == "in_progress"
 
 
 def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check(engine_factory) -> None:
-    """名额已满且仍有进行中活动时选择出行：名额判定在出发前判定之前，以 SESSION_LIMIT_EXCEEDED 拒绝（两个名额都占着、
-    先结束一项，点名两项），不报 ACTIVITY_PRECONDITION_UNMET，人仍停留在原地（第五章判定顺序）。
+    """名额已满且仍有进行中活动时选择出行：名额判定在出发前判定之前，以 SESSION_LIMIT_EXCEEDED 拒绝（两件事都在做、
+    先结束一件，点名两项），不报 ACTIVITY_PRECONDITION_UNMET，人仍停留在原地（第五章判定顺序）。
 
-    两项都在进行时，本阶段的交互对象层按占用不列出行；受理判定仍先看名额。暂停等待之后观看仍在进行、名额仍满，
-    出行照常列出，经真实决策轮得到同一拒绝。
+    两项都在进行时受理判定先看名额，不带出发前的未满足条件；暂停等待之后观看仍在进行、名额仍满，出行照常列出并带
+    名额说明（第五章「动作照常列出，做错了再说明」），经真实决策轮得到同一拒绝。
     """
     engine = engine_factory()
     stage_day_plan(engine)
     waited, watched = _two_parallel(engine, "running-pair")
     with pytest.raises(BusinessRuleError, match="^SESSION_LIMIT_EXCEEDED$") as raised:
-        activity_control.require_start_admission(engine.state, 1, (["travel_to"], ["步行前往"]), {})
-    assert type(raised.value) is BusinessRuleError
+        activity_control.require_start_admission(engine.state, 1, (["travel_to"], ["步行"]), {})
+    assert raised.value.unmet == []
     _wake(engine)
     _round(engine, "pause-the-wait", "pause_activity", PauseActivityRequest(
         task=[_name(engine, waited)], summary=["先停。"]))
     _wake(engine)
+    observed = _preview(engine, "listed-full-depart")
+    office = _pick(observed, "travel_to", mode="walking", place="office")[0]
+    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == office)
+    walk = next(item for item in public["actions"] if item["action"] == "travel：步行")
+    assert walk["note"].startswith("两件事都在做，先结束一件：") and _name(engine, watched) in walk["note"]
     rejected = _depart(engine, "depart-with-full-slots")
     assert rejected.status == "rejected" and rejected.error_code == "SESSION_LIMIT_EXCEEDED"
-    assert "两个名额都占着，先结束一项" in rejected.message
+    assert "两件事都在做，先结束一件" in rejected.message
     assert _name(engine, waited) in rejected.message and _name(engine, watched) in rejected.message
     assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
     assert engine.state.activities[watched].status == ActivityStatus.ACTIVE
 
 
-@pytest.mark.parametrize("targets,actions", [
-    (["自己"], ["等待", "睡觉"]),
-    (["自己", "自己"], ["等待", "睡觉"]),
-    (["自己", "商品目录", "内容：Sintel"], ["等待", "浏览", "观看"]),
+@pytest.mark.parametrize("targets,actions,ways", [
+    (["自己"], ["interact", "sleep"], ["等待", "睡觉"]),
+    (["自己", "自己"], ["interact", "sleep"], ["等待", "睡觉"]),
+    (["自己", "商品目录", "内容：Sintel"], ["interact", "interact", "interact"], ["等待", "浏览", "接着看"]),
 ], ids=["unequal-lengths", "duplicate-targets", "three-targets"])
-def test_start_request_shape_errors_are_action_request_invalid(engine_factory, targets, actions) -> None:
+def test_start_request_shape_errors_are_action_request_invalid(engine_factory, targets, actions, ways) -> None:
     """start_activity 的数组不等长、目标重复或超过两项：以 ACTION_REQUEST_INVALID 业务拒绝（不报 SESSION_LIMIT_EXCEEDED），
     不开始任何活动，运行继续（第五章「并行准入」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    rejected = _round(engine, "shape", "start_activity", StartActivityRequest(targets=targets, actions=actions))[1]
+    request = StartActivityRequest(targets=targets, actions=actions, ways=ways)
+    rejected = _round(engine, "shape", "start_activity", request)[1]
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.activities == {}
     assert _wait(engine, "after-shape").status == "in_progress"
@@ -744,11 +760,13 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
 
 
 def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) -> None:
-    """名额计数（到店购买与远程下单不占名额，同短语的两份食用合成一餐）、人读时长、会话辅助函数的边界。"""
-    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店购买", "到店购买"]) == 0
-    assert activity_control.new_activity_count(["consume", "consume"], ["吃", "吃"]) == 1
-    assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行前往", "配送到当前位置"]) == 1
-    assert activity_control.new_activity_count(["travel_to", "watch"], ["步行前往", "观看"]) == 2
+    """名额计数（到店与远程下单不占名额，方式相同的两份食用合成一餐）、人读时长、会话辅助函数的边界。"""
+    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店", "到店"]) == 0
+    assert activity_control.new_activity_count(["purchase", "purchase"], ["到店", "远程下单"]) == 0
+    assert activity_control.new_activity_count(["consume", "consume"], ["食用", "食用"]) == 1
+    assert activity_control.new_activity_count(["consume", "consume"], ["食用", "使用"]) == 2
+    assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行", "远程下单"]) == 1
+    assert activity_control.new_activity_count(["travel_to", "watch"], ["步行", "接着听"]) == 2
     assert [activity_control.readable_duration(value) for value in (59, 600, 5400)] == [
         "不到1分钟", "约10分钟", "约1.5小时"]
     engine = engine_factory()

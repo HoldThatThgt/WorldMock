@@ -14,21 +14,23 @@ version = 1
 # 字段语义（规范「可供性与活动声明」）：
 #   met_key             MET 查表键；参数化键写模板：travel 用 "{mode}"（封闭展开域
 #                       见 met_key_modes），lifestyle 用 "{item_id}"（开放命名空间前缀）。
-#   energy_floor_exempt 能量投影可穿透下界的活动（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS）。
+#   energy_floor_exempt 能量豁免：只供内部动机评分（派生 body.ENERGY_RECOVERY_ACTIVITY_KINDS），
+#                       能量不参与受理、准入与结算截断（docs/dev/SPEC-time-and-energy.md 第三章）。
 #   sleep_channel       recovery = 清债 | awake = 累积（body 结算分支）。
 #   relief.channel      娱乐缓解通道三选一：none | preference_rate（play_game：偏好 x 目录费率）|
 #                       content_rate（watch：条目费率 x 偏好 / 接触次数）。
-#   resource_claims     全部资源锁均显式声明；travel 用
-#                       conditional 子句表达 driving 条件锁。
+#   resource_claims     全部占用均显式声明，槽位闭集 idle、travel、eyes、ears、hands、voice、work
+#                       （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）；conditional 子句按
+#                       mode:<出行方式> 或 content_kind:<内容品类> 追加占用：驾车另占 eyes、hands，
+#                       播客（podcast_episode）之外的观看另占 eyes。
 #   feedback_boundary   到期反馈边界资格（派生 activities.FEEDBACK_ACTIVITY_KINDS，
 #                       即 report_status 能播报进展的活动闭集）。
 #   game_boundary       play_game 专用 game_feedback 边界（真值时 feedback_boundary 必须为假；
 #                       其游戏交互走 game_action，不经到期反馈边界）。
-#   energy_projection   能量可行性投影覆盖的活动（派生 agent 侧 _ENERGY_LIMIT_KINDS）。
 #   unclassified        显式声明：该 kind 的动作刻意不归入任何习惯家族（防拼写静默漏网）。
-#   action              start_activity 的 action 取值（docs/dev/SPEC-agent-interaction.md
-#                       「交互对象 x 动作表」）：该活动类型由这一个动作启动，"none" 表示
-#                       不经 start_activity 启动。
+#   action              启动该活动类型的内部标准动作（docs/dev/SPEC-agent-interaction.md
+#                       「对象与动作选择」）："none" 表示不经 start_activity 启动；人物所见是五个
+#                       动词与方式，经私有绑定映射回这里的内部名。
 #   target_discovery    观察目录直读 catalog_field（field/id_key）| 下钻结果 browse_result | none。
 
 [kinds.wait]
@@ -36,9 +38,8 @@ met_key = "wait"
 energy_floor_exempt = true
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["position"]
+resource_claims = ["idle"]
 feedback_boundary = true
-energy_projection = false
 action = "wait"
 target_discovery = "none"
 
@@ -47,9 +48,8 @@ met_key = "sleep"
 energy_floor_exempt = true
 sleep_channel = "recovery"
 relief = { channel = "none" }
-resource_claims = ["position", "attention"]
+resource_claims = ["idle", "travel", "eyes", "ears", "hands", "voice", "work"]
 feedback_boundary = false
-energy_projection = false
 action = "sleep"
 target_discovery = "none"
 
@@ -58,9 +58,8 @@ met_key = "work"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["position", "attention", "device", "hands"]
+resource_claims = ["work", "idle"]
 feedback_boundary = true
-energy_projection = true
 action = "work"
 target_discovery = { source = "catalog_field", field = "tasks", id_key = "task_id" }
 
@@ -69,21 +68,31 @@ met_key = "watch"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "content_rate" }
-resource_claims = ["attention", "device"]
 feedback_boundary = true
-energy_projection = true
 action = "watch"
 target_discovery = "browse_result"
+
+# 播客只占 ears；其余内容品类的观看另占 eyes。
+[kinds.watch.resource_claims]
+base = ["ears"]
+conditional = [
+  { when = "content_kind:feature_film", add = ["eyes"] },
+  { when = "content_kind:drama_series", add = ["eyes"] },
+  { when = "content_kind:webnovel_excerpt", add = ["eyes"] },
+  { when = "content_kind:news_feed", add = ["eyes"] },
+  { when = "content_kind:joke_feed", add = ["eyes"] },
+  { when = "content_kind:subtitle_experience", add = ["eyes"] },
+  { when = "content_kind:game_session", add = ["eyes"] },
+]
 
 [kinds.play_game]
 met_key = "play_game"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "preference_rate" }
-resource_claims = ["position", "attention", "device", "hands"]
+resource_claims = ["eyes", "hands"]
 feedback_boundary = false
 game_boundary = true
-energy_projection = true
 action = "play"
 target_discovery = { source = "catalog_field", field = "game_catalog", id_key = "game_id" }
 
@@ -95,9 +104,8 @@ met_key_modes = ["driving", "walking"]
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = { base = ["position"], conditional = [{ when = "mode:driving", add = ["attention", "hands", "vehicle"] }] }
+resource_claims = { base = ["travel", "idle"], conditional = [{ when = "mode:driving", add = ["eyes", "hands"] }] }
 feedback_boundary = true
-energy_projection = false
 action = "travel_to"
 target_discovery = "none"
 
@@ -106,9 +114,8 @@ met_key = "read_mail"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["position", "attention", "device"]
+resource_claims = ["eyes", "hands"]
 feedback_boundary = true
-energy_projection = true
 # 现状显式化：read_mail 不参与习惯份额（classify_action_event 返回 None）。
 unclassified = true
 action = "read"
@@ -119,9 +126,8 @@ met_key = "browse"
 energy_floor_exempt = false
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["position", "attention", "device"]
+resource_claims = ["eyes", "hands"]
 feedback_boundary = true
-energy_projection = true
 action = "browse"
 target_discovery = { source = "catalog_field", field = "browse_targets" }
 
@@ -130,9 +136,8 @@ met_key = "consume"
 energy_floor_exempt = true
 sleep_channel = "awake"
 relief = { channel = "none" }
-resource_claims = ["position", "hands"]
+resource_claims = ["hands"]
 feedback_boundary = true
-energy_projection = false
 action = "consume"
 target_discovery = "none"
 
@@ -148,9 +153,8 @@ sleep_channel = "awake"
 # resources.jsonl 增加 lifestyle 费率键（目录数据属 A10 波次），届时 effects
 # 分支让位注册表通道（activities._entertainment_relief 的分支序）。
 relief = { channel = "none" }
-resource_claims = ["position"]
+resource_claims = ["hands"]
 feedback_boundary = true
-energy_projection = false
 action = "do"
 target_discovery = "browse_result"
 # 183 条、9 品类；与 MET 生活方式键一一对应（content.py 的 fail-closed 身份核对）。

@@ -24,8 +24,8 @@ from worldmock.errors import IntegrityError
 #: 注册表文件名（位于目录顶层，与 resources.jsonl/objects.jsonl 平级）。
 AFFORDANCES_FILE = "affordances.toml"
 
-#: start_activity 的动作闭集（docs/dev/SPEC-agent-interaction.md「交互对象 x 动作表」）：
-#: 交互菜单、请求校验与本注册表的 kinds.*.action 共用这一份声明。
+#: 内部标准动作闭集（docs/dev/SPEC-agent-interaction.md「对象与动作选择」）：交互菜单、习惯归并、证据与本注册表的
+#: kinds.*.action 共用这一份声明；它不是人物词表，人物所见的五个动词与方式经私有绑定映射回这里的内部名。
 START_ACTIVITY_ACTIONS = frozenset({
     "travel_to", "work", "browse", "purchase", "consume", "watch", "play",
     "chat", "call", "read", "do", "wait", "sleep",
@@ -34,8 +34,11 @@ RELIEF_CHANNELS = frozenset({"none", "preference_rate", "content_rate"})
 SLEEP_CHANNELS = frozenset({"recovery", "awake"})
 TARGET_DISCOVERY_SOURCES = frozenset({"none", "browse_result", "catalog_field"})
 ATTENTION_KINDS = frozenset({"none", "content_kind"})
-#: 所有个人资源均由各活动显式声明，position 不再由引擎暗中添加。
-RESOURCE_CLAIM_SLOTS = frozenset({"position", "attention", "device", "hands", "vehicle"})
+#: 占用槽位闭集（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」占用表）：各活动显式声明，引擎不暗中添加；
+#: 同一人物进行中活动的占用交集非空即 RESOURCE_CONFLICT。
+RESOURCE_CLAIM_SLOTS = frozenset({"idle", "travel", "eyes", "ears", "hands", "voice", "work"})
+#: 条件占用的维度：mode:<出行方式> 与 content_kind:<内容品类>（后者须是某家族声明的内容品类）。
+_CLAIM_CONDITION_DIMENSIONS = frozenset({"mode", "content_kind"})
 #: 习惯归并路由认识的动作名闭集（classify_action_event 的取值域）：start_activity
 #: 的动作全集，外加会话进展自述这一个独立工具名。
 HABIT_ACTIONS = START_ACTIVITY_ACTIONS | {"report_status", "submit_work"}
@@ -64,7 +67,7 @@ PROTOTYPE_GENERATORS: dict[str, Callable[..., list]] = {}
 #: kinds 层允许的字段键（未知键拒绝，防拼写静默失效）。
 _KIND_KEYS = frozenset({
     "met_key", "met_key_modes", "energy_floor_exempt", "sleep_channel", "relief",
-    "resource_claims", "feedback_boundary", "game_boundary", "energy_projection",
+    "resource_claims", "feedback_boundary", "game_boundary",
     "unclassified", "action", "target_discovery", "target_corpus",
 })
 #: families 层允许的字段键。
@@ -93,7 +96,6 @@ class KindSpec:
     conditional_claims: tuple[tuple[str, tuple[str, ...]], ...] = ()
     feedback_boundary: bool = False
     game_boundary: bool = False
-    energy_projection: bool = False
     unclassified: bool = False
     action: str = "none"
     target_discovery: str = "none"
@@ -225,18 +227,23 @@ class AffordanceView:
 
     @property
     def energy_recovery_kinds(self) -> frozenset[str]:
-        """@brief 能量投影可穿透下界的活动类型（energy_floor_exempt）。"""
+        """@brief 能量豁免的活动类型（energy_floor_exempt）：只供内部动机评分，不参与受理与结算。"""
         return frozenset(name for name, spec in self.kinds.items()
                          if spec.energy_floor_exempt)
 
-    def resource_claims(self, kind_value: str, travel_mode: Any = None) -> frozenset[str]:
-        """@brief 活动类型的显式资源锁集合，含条件锁。"""
+    def resource_claims(self, kind_value: str, travel_mode: Any = None,
+                        content_kind: str | None = None) -> frozenset[str]:
+        """@brief 活动类型的显式占用集合，含按出行方式与内容品类追加的条件占用。
+
+        :param travel_mode: 出行方式（mode:<方式> 条件的取值）；非出行活动为 None。
+        :param content_kind: 观看内容的品类（content_kind:<品类> 条件的取值）；非观看活动为 None。
+        """
         spec = self.kinds[kind_value]
         claims = set(spec.resource_claims)
-        mode = getattr(travel_mode, "value", travel_mode) if travel_mode is not None else None
+        values = {"mode": getattr(travel_mode, "value", travel_mode), "content_kind": content_kind}
         for condition, extra in spec.conditional_claims:
             dimension, _, value = condition.partition(":")
-            if dimension == "mode" and mode == value:
+            if values[dimension] == value:
                 claims.update(extra)
         return frozenset(claims)
 
@@ -260,12 +267,6 @@ class AffordanceView:
         return {name: (spec.target_field, spec.target_id_key)
                 for name, spec in self.kinds.items()
                 if spec.target_discovery == "catalog_field"}
-
-    @property
-    def energy_limit_kinds(self) -> frozenset[str]:
-        """@brief 能量可行性投影覆盖的活动闭集（energy_projection = true）。"""
-        return frozenset(name for name, spec in self.kinds.items()
-                         if spec.energy_projection)
 
     # ----- L2 观察层 -----
 
@@ -322,6 +323,7 @@ def load_affordances(path: Path, corpora_root: Path | None = None) -> Affordance
                                  for name, body in families_raw.items()})
     view = _build_view(kinds, families)
     _check_habit_coverage(view)
+    _check_claim_content_kinds(view)
     if corpora_root is not None:
         _check_corpus_references(view, Path(corpora_root))
     return view
@@ -410,7 +412,6 @@ def _parse_kind(name: str, body: Mapping) -> KindSpec:
         conditional_claims=conditional,
         feedback_boundary=feedback,
         game_boundary=game,
-        energy_projection=_require_bool(name, body, "energy_projection"),
         unclassified=_require_bool(name, body, "unclassified"),
         action=action,
         target_discovery=discovery_source,
@@ -450,8 +451,9 @@ def _parse_resource_claims(
             raise IntegrityError(
                 f"Affordance kind {name!r} conditional clause needs exactly when/add")
         when = clause["when"]
-        dimension, _, value = when.partition(":")
-        if dimension != "mode" or value not in TRAVEL_MODES:
+        dimension, _, value = when.partition(":") if isinstance(when, str) else ("", "", "")
+        if (dimension not in _CLAIM_CONDITION_DIMENSIONS or not value
+                or dimension == "mode" and value not in TRAVEL_MODES):
             raise IntegrityError(
                 f"Affordance kind {name!r} conditional when {when!r} is invalid")
         if any(slot not in RESOURCE_CLAIM_SLOTS for slot in clause["add"]):
@@ -637,6 +639,17 @@ def _check_habit_coverage(view: AffordanceView) -> None:
             raise IntegrityError(
                 f"Affordance kind {name!r} ({spec.action}) is covered by no habit_members "
                 f"and declares no unclassified flag")
+
+
+def _check_claim_content_kinds(view: AffordanceView) -> None:
+    """@brief 条件占用 content_kind:<品类> 只能引用某家族声明的内容品类（防拼写静默不生效）。"""
+    declared = {kind.name for family in view.families.values() for kind in family.content_kinds}
+    for spec in view.kinds.values():
+        for condition, _ in spec.conditional_claims:
+            dimension, _, value = condition.partition(":")
+            if dimension == "content_kind" and value not in declared:
+                raise IntegrityError(
+                    f"Affordance kind {spec.name!r} conditional content kind {value!r} is not declared")
 
 
 def _check_corpus_references(view: AffordanceView, corpora_root: Path) -> None:

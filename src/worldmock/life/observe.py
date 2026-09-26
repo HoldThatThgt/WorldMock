@@ -20,6 +20,7 @@ from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.models import ActivityKind, active_activities, paused_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
+from worldmock.life.inventory_recipe import is_inventory_recipe
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import work_totals
@@ -53,15 +54,15 @@ class ObservationMixin:
         task_rows = tuple(self._visible_task_rows(agent))
         bindings = self._name_bindings(agent, task_rows)
         experiences = recent_verified_experiences(self.store, agent.agent_id, self.store.last_event_seq)
+        context = {"visible_names": bindings.pop("names"), "verified_experiences": experiences,
+                   "previous_request_result": self._previous_request_result(agent, recent)}
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
             recent_results=tuple(recent),
             task_rows=task_rows,
             meal_windows=meal_windows,
             motivation_internal=self._motivation_internal(agent),
-            extras=self._projection_extras(agent, rows["products"], menu,
-                                           {"visible_names": bindings.pop("names"),
-                                            "verified_experiences": experiences}))
+            extras=self._projection_extras(agent, rows["products"], menu, context))
         data = projection.build_observation(inputs)
         data.update(bindings)
         data.update(self._observation_evidence(agent, experiences))
@@ -97,9 +98,14 @@ class ObservationMixin:
 
         吃饭途径句要等投影得出饥饿分级后才生成，这里只备好它引用的本轮事实：原当地餐食句、
         配送预计送达时刻与浏览是否在有效菜单内（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」）。
+        交互对象层另取有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）与同刻轮次
+        上一轮本人世界请求的结果（「刚才」）。
         """
+        interaction_menu = resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id)
         return {
             **context,
+            "interaction_menu": interaction_menu,
+            "recipe_product_ids": self._recipe_product_ids(agent),
             "content_titles": self.rules.content_titles,
             "scenario_messages": self.rules.messages,
             "route_rows": self._route_rows(agent),
@@ -108,14 +114,33 @@ class ObservationMixin:
             "activity_rows": self._activity_rows(agent),
             "local_meal_sentence": local_meal_sentence(self._discovery_context(agent)),
             "delivery_expected_at": self._delivery_expected_at(agent, product_rows),
-            "browse_allowed": "browse" in resolve_interaction_menu(
-                self.scenario, agent.agent_id, agent.location_id).allowed_actions,
+            "browse_allowed": "browse" in interaction_menu.allowed_actions,
             "content_rows": list(menu["content"].items),
             "game_rows": list(menu["game"].items),
             "lifestyle_rows": list(menu["lifestyle"].items),
             "lifestyle_location_kinds": self.rules.activity_location_kinds,
             "browse_targets": BROWSE_TARGETS,
         }
+
+    def _recipe_product_ids(self, agent) -> frozenset[str]:
+        """@brief 人物各地持有物中 consume:use 规则是库存转换配方的物品（交互对象层据此列 obtain 的「制作」）。"""
+        held = {product_id for holding in agent.inventory.values() for product_id, quantity in holding.items()
+                if quantity > 0 and product_id in self.rules.items}
+        return frozenset(product_id for product_id in held
+                         if is_inventory_recipe(self.semantics.catalog, self.rules.items[product_id]))
+
+    def _previous_request_result(self, agent, recent: list[dict]) -> dict | None:
+        """@brief 同刻轮次上一轮本人世界请求的结算结果（「刚才」的来源）；每秒首轮或本秒没有请求时为 None。"""
+        if agent.same_moment_rounds == 0:
+            return None
+        cutoff = self.store.last_agent_progress_request_seq(agent.agent_id)
+        requests = [event for event in self.store.read_agent_events("action_requested", agent.agent_id, after=cutoff)
+                    if event.occurred_at == self.state.current_time]
+        if not requests:
+            return None
+        last = requests[-1]
+        return next((row for row in recent
+                     if row["action_id"] == last.action_id and row["decision_id"] == last.decision_id), None)
 
     def _delivery_expected_at(self, agent, product_rows: list[dict]) -> dict[str, int | None]:
         """@brief 本轮呈现的可配送供给送到本人所在地点的预计送达时刻（与购买结算同一算法，送不到为 None）。"""

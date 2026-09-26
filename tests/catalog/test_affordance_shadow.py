@@ -16,6 +16,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from worldmock.catalog.affordances import (
     PROTOTYPE_GENERATORS,
+    RESOURCE_CLAIM_SLOTS,
     default_affordances,
     load_affordances,
 )
@@ -26,6 +27,7 @@ from worldmock.life.activities import (
     resource_claims,
 )
 from worldmock.life.body import ENERGY_RECOVERY_ACTIVITY_KINDS
+from worldmock.life.interaction_menu import WAYS
 from worldmock.life.models import ActivityKind, TravelMode
 from worldmock.life.motivation import (
     ENTERTAINMENT_PER_KIND,
@@ -53,7 +55,6 @@ EXPECTED_CATALOG_FIELDS = {
     "read_mail": ("messages", "message_id"),
     "browse": ("browse_targets", None),
 }
-EXPECTED_ENERGY_LIMIT_KINDS = frozenset({"work", "watch", "play_game", "read_mail", "browse"})
 EXPECTED_TITLE_SOURCES = {
     "feature_film": ("movies/items.json", "item_id"),
     "drama_series": ("drama/items.json", "item_id"),
@@ -65,37 +66,51 @@ EXPECTED_TITLE_SOURCES = {
         "sport", "hobby", "outdoor", "wellness", "household", "learning",
         "pet", "social", "volunteer")},
 }
-#: 现行习惯归并路由（classify_action_event if 链的逐行快照；M4 起
-#: lifestyle:* 前缀自 continue 迁入 lifestyle 家族）。
+#: 现行习惯归并路由：（内部标准动作或工具名，人物所选方式，习惯家族）。start_activity 逐项按方式经私有绑定的
+#: 方式闭集（interaction_menu.WAYS）映射为内部动作再归并（docs/dev/SPEC-time-and-energy.md 第五章「请求形状与
+#: 菜单」），其余稳定工具取工具名；M4 起 lifestyle:* 前缀自 continue 迁入 lifestyle 家族。
 EXPECTED_HABIT_ROUTES = [
     ("report_status", None, "continue"),
     ("sleep", "睡觉", "sleep"),
     ("wait", "等待", "continue"),
-    ("purchase", "到店购买", "eat"),
+    ("purchase", "到店", "eat"),
+    ("purchase", "远程下单", "eat"),
+    ("consume", "制作", "eat"),
     ("consume", "食用", "eat"),
-    ("travel_to", "步行前往", "travel"),
+    ("consume", "使用", "eat"),
+    ("travel_to", "步行", "travel"),
+    ("travel_to", "驾车", "travel"),
     ("watch", "观看", "entertainment"),
+    ("watch", "接着看", "entertainment"),
+    ("watch", "从头再看", "entertainment"),
+    ("watch", "接着听", "entertainment"),
+    ("watch", "从头再听", "entertainment"),
     ("play", "游玩", "entertainment"),
     ("work", "工作", "work"),
     ("browse", "浏览", "browse"),
     ("read", "阅读", None),
+    ("chat", "交谈", None),
+    ("call", "通话", None),
     ("do", "进行", "lifestyle"),
     ("submit_work", None, "work"),
     ("nonexistent_tool", None, None),
 ]
-#: 现行资源锁矩阵（position 只由需要固定地点的活动占用）。
+#: 占用表（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）：键为（活动类型, 出行方式, 内容品类）。
 EXPECTED_RESOURCE_CLAIMS = {
-    ("wait", None): {"position"},
-    ("sleep", None): {"position", "attention"},
-    ("work", None): {"position", "attention", "device", "hands"},
-    ("watch", None): {"attention", "device"},
-    ("play_game", None): {"position", "attention", "device", "hands"},
-    ("travel", "driving"): {"position", "attention", "hands", "vehicle"},
-    ("travel", "walking"): {"position"},
-    ("read_mail", None): {"position", "attention", "device"},
-    ("browse", None): {"position", "attention", "device"},
-    ("consume", None): {"position", "hands"},
-    ("lifestyle", None): {"position"},
+    ("wait", None, None): {"idle"},
+    ("sleep", None, None): {"idle", "travel", "eyes", "ears", "hands", "voice", "work"},
+    ("work", None, None): {"work", "idle"},
+    ("watch", None, "feature_film"): {"eyes", "ears"},
+    ("watch", None, "joke_feed"): {"eyes", "ears"},
+    ("watch", None, "game_session"): {"eyes", "ears"},
+    ("watch", None, "podcast_episode"): {"ears"},
+    ("play_game", None, None): {"eyes", "hands"},
+    ("travel", "driving", None): {"travel", "idle", "eyes", "hands"},
+    ("travel", "walking", None): {"travel", "idle"},
+    ("read_mail", None, None): {"eyes", "hands"},
+    ("browse", None, None): {"eyes", "hands"},
+    ("consume", None, None): {"hands"},
+    ("lifestyle", None, None): {"hands"},
 }
 
 
@@ -167,14 +182,19 @@ def test_target_catalog_fields_match_observation_contract(view) -> None:
             if row["target_discovery"] == "catalog_field"} == EXPECTED_CATALOG_FIELDS
 
 
-def test_energy_limit_stays_out_of_observation_contract(view) -> None:
-    """@brief 冻结观察合同不带能量投影键：能量不参与受理（docs/dev/SPEC-time-and-energy.md「删除的机制」）；
-    注册表中的能量投影闭集仍按原声明解析。"""
+def test_energy_projection_is_gone_from_registry_and_observation_contract(view, tmp_path) -> None:
+    """@brief 能量不参与受理（docs/dev/SPEC-time-and-energy.md 第三章「删除的机制」）：注册表与冻结观察合同都没有
+    能量投影；仍声明 energy_projection 的旧注册表以未知键拒绝，能量豁免只供内部动机评分保留。"""
     from worldmock.life.engine import affordance_contract
 
     contract = affordance_contract(view)
-    assert view.energy_limit_kinds == EXPECTED_ENERGY_LIMIT_KINDS
     assert all("energy_projection" not in row for row in contract.values())
+    assert not hasattr(view, "energy_limit_kinds")
+    assert all(not hasattr(spec, "energy_projection") for spec in view.kinds.values())
+    assert view.energy_recovery_kinds == ENERGY_RECOVERY_ACTIVITY_KINDS
+    _load_rejects(tmp_path, MINIMAL_TOML.replace(
+        'target_discovery = "none"', 'target_discovery = "none"\nenergy_projection = false', 1),
+        "unknown keys")
 
 
 def test_title_sources_match_content(view) -> None:
@@ -239,24 +259,69 @@ def test_attention_required_keys(view) -> None:
     assert set(profile.attention_prior) == view.attention_required_kinds
 
 
-@pytest.mark.parametrize("tool,label,expected", EXPECTED_HABIT_ROUTES)
-def test_habit_routing_matches_classify_action_event(view, tool, label,
+@pytest.mark.parametrize("tool,way,expected", EXPECTED_HABIT_ROUTES)
+def test_habit_routing_matches_classify_action_event(view, tool, way,
                                                      expected) -> None:
-    """@brief 习惯路由逐项使用当前可读动作，不接受旧活动工具字段。"""
-    request = {"actions": [label]} if label is not None else {}
-    tool_name = "start_activity" if label is not None else tool
+    """@brief 习惯路由逐项按方式映射出的内部标准动作归并，与注册表的 habit_members 一致。"""
+    request = {"targets": ["对象"], "actions": [WAYS[way][0]], "ways": [way]} if way is not None else {}
+    tool_name = "start_activity" if way is not None else tool
+    if way is not None:
+        assert WAYS[way][1] == tool
     assert view.classify_habit_event(tool) == expected
     assert classify_action_event(tool_name, request) == (() if expected is None else (expected,))
 
 
-@pytest.mark.parametrize("kind_value,mode", sorted(EXPECTED_RESOURCE_CLAIMS))
-def test_resource_claims_match_activities(view, kind_value, mode) -> None:
-    """@brief L5：资源锁查表 == activities.resource_claims == if 链快照（逐类型）。"""
-    expected = EXPECTED_RESOURCE_CLAIMS[(kind_value, mode)]
-    assert view.resource_claims(kind_value, travel_mode=mode) == frozenset(expected)
+def test_habit_routes_cover_every_way() -> None:
+    """@brief 路由表覆盖方式闭集的每一项，新增方式必须先登记归并结果。"""
+    assert {way for _, way, _ in EXPECTED_HABIT_ROUTES if way is not None} == set(WAYS)
+
+
+def test_habit_routing_reads_ways_not_verbs_or_retired_phrases() -> None:
+    """@brief 两项逐项归并；只有动词、旧整句短语（步行前往、到店购买）或项数越界时不计数。"""
+    parallel = {"targets": ["城西办公室", "播客"], "actions": ["travel", "interact"], "ways": ["驾车", "接着听"]}
+    assert classify_action_event("start_activity", parallel) == ("travel", "entertainment")
+    assert classify_action_event("start_activity", {"targets": ["城西办公室"], "actions": ["travel"]}) == ()
+    assert classify_action_event("start_activity", {"actions": ["travel"], "ways": ["步行前往"]}) == ()
+    assert classify_action_event("start_activity", {"actions": ["obtain"], "ways": ["到店购买"]}) == ()
+    assert classify_action_event("start_activity", {"ways": ["步行", "等待", "睡觉"]}) == ()
+    assert classify_action_event("start_activity", {"ways": []}) == ()
+
+
+@pytest.mark.parametrize("kind_value,mode,content_kind", sorted(EXPECTED_RESOURCE_CLAIMS, key=str))
+def test_resource_claims_match_activities(view, kind_value, mode, content_kind) -> None:
+    """@brief L5：占用查表 == activities.resource_claims == 第五章占用表（逐类型；观看按内容品类，播客只占 ears）。"""
+    expected = EXPECTED_RESOURCE_CLAIMS[(kind_value, mode, content_kind)]
+    assert view.resource_claims(kind_value, travel_mode=mode, content_kind=content_kind) == frozenset(expected)
     travel_mode = TravelMode(mode) if mode is not None else None
     request = SimpleNamespace(activity_type=ActivityKind(kind_value), travel_mode=travel_mode)
-    assert resource_claims(request) == expected
+    assert resource_claims(request, content_kind) == expected
+
+
+@pytest.mark.parametrize("retired", ["position", "attention", "device", "vehicle"])
+def test_claim_slots_are_the_seven_spec_slots_and_retired_names_are_rejected(tmp_path, retired) -> None:
+    """@brief 占用槽位闭集是第五章占用表的七个；旧槽位名写在槽位列表、base 或条件追加里都在加载期拒绝。"""
+    assert RESOURCE_CLAIM_SLOTS == {"idle", "travel", "eyes", "ears", "hands", "voice", "work"}
+    assert set().union(*EXPECTED_RESOURCE_CLAIMS.values()) == RESOURCE_CLAIM_SLOTS
+    declarations = {
+        f'resource_claims = ["{retired}"]': "resource_claims must be within",
+        f'resource_claims = {{ base = ["{retired}"] }}': "resource_claims base must be within",
+        ('resource_claims = { base = ["idle"], conditional = '
+         f'[{{ when = "mode:driving", add = ["{retired}"] }}] }}'): "conditional add must be within",
+    }
+    for declaration, match in declarations.items():
+        _load_rejects(tmp_path, MINIMAL_TOML.replace("resource_claims = []", declaration), match)
+
+
+def test_conditional_claims_reject_unknown_dimension_and_undeclared_content_kind(tmp_path) -> None:
+    """@brief 条件占用只接受 mode:<出行方式> 与已声明的 content_kind:<品类>，拼写错误在加载期拒绝。"""
+    base = MINIMAL_TOML.replace(
+        "resource_claims = []",
+        'resource_claims = { base = ["idle"], conditional = [{ when = "WHEN", add = ["eyes"] }] }')
+    _load_rejects(tmp_path, base.replace("WHEN", "weather:rain"), "conditional when")
+    _load_rejects(tmp_path, base.replace("WHEN", "mode:flying"), "conditional when")
+    _load_rejects(tmp_path, base.replace("WHEN", "content_kind:"), "conditional when")
+    _load_rejects(tmp_path, base.replace("WHEN", "content_kind:opera"), "content kind 'opera' is not declared")
+    _load_rejects(tmp_path, base.replace('when = "WHEN"', "when = 3"), "conditional when")
 
 
 def test_met_lookup_keys_match_activities(view) -> None:
@@ -319,7 +384,6 @@ sleep_channel = "awake"
 relief = { channel = "none" }
 resource_claims = []
 feedback_boundary = true
-energy_projection = false
 action = "wait"
 target_discovery = "none"
 

@@ -88,7 +88,7 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     registered = engine.store.read_agent_events("environment_event", 1)[-1]
     assert registered.data["kind"] == "day_plan_generated"
     started = _submit(engine, "start_activity", StartActivityRequest(
-        targets=["自己"], actions=["等待"]), "midnight-rest")
+        targets=["自己"], actions=["interact"], ways=["等待"]), "midnight-rest")
     assert started.status == "in_progress"
     advance_next(engine)
     assert engine.state.current_time == midnight

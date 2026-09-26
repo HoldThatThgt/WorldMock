@@ -17,7 +17,7 @@ from custom.agents.life_agent import LifeAgent
 from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
-                                 stage_day_plan, submit_round, wake_by_mail)
+                                 stage_day_plan, start_activity, submit_round, wake_by_mail)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -29,6 +29,7 @@ from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     active_activities,
+    ActivityState,
     MeetingMinutes,
     PauseActivityRequest,
     ReportStatusRequest,
@@ -139,7 +140,8 @@ def _complete_required_work(engine) -> None:
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"]
                   if row["object_id"] == task.task_id and action["canonical_action"] == "work")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+                                   ways=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "work-time")
     activity_id = results[0].activity_id
     feedback_index = 0
@@ -284,7 +286,8 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"]
                   if row["object_id"] == task.task_id and action["canonical_action"] == "work")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["label"]])
+    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+                                   ways=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
@@ -392,9 +395,12 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert visible == json.loads(json.dumps(feedback))
     summaries = observation["facts"]["progress"]["results"]
     public = next(row for row in summaries if row.get("error_code") == "WORK_REQUIRES_REWORK")
-    assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review"}
+    assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review", "details"}
     assert public["work_review"] == visible
     assert public["error_code"] == "WORK_REQUIRES_REWORK"
+    # 返工拒绝同样带一句原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
+    assert public["details"] == {"reason": "提交的成果还需要返工", "next_step": "按评审意见修改后再提交"}
+    assert (result.data["reason"], result.data["next_step"]) == ("提交的成果还需要返工", "按评审意见修改后再提交")
     assert summaries[-1]["message"] in messages
     assert "Supported by the transcript." in messages
     assert "source_excerpt" in messages and "Hi , I'm David" in messages
@@ -434,7 +440,104 @@ async def test_incomplete_work_skips_model_review_and_is_business_rejection(engi
     assert result.status == "rejected" and result.error_code == "WORK_INCOMPLETE"
 
 
-_WAIT = ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
+def _work_moment(engine, now: int, worked: int = 0, effective: float = 0.0):
+    """人物在办公室、首个任务可见的指定时刻；worked 大于 0 时另有一段已收尾的该任务工作（按活动字段表达）。"""
+    task = engine.scenario.tasks[0]
+    staged = engine.state.model_copy(deep=True)
+    staged.current_time = now
+    staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(update={
+        "location_id": task.required_location_id, "visible_task_ids": {*agent.visible_task_ids, task.task_id},
+        "next_decision_at": now, "body_settled_at": now}, deep=True)
+    if worked:
+        done = ActivityState(
+            activity_id="activity-done-work", agent_id=1, location_id=task.required_location_id, kind="work",
+            status="completed", started_at=now - worked, ended_at=now, planned_end_at=now, last_settled_at=now,
+            elapsed_seconds=worked, planned_duration_seconds=worked, effective_work_seconds=effective,
+            target_id=task.task_id, concluded_at=now,
+            resource_claims=set(default_affordances().resource_claims("work")),
+            origin_action_id="done-work", origin_decision_id="done-work-decision",
+            origin_request_event_id="done-work-request")
+        staged.activities[done.activity_id] = done
+    return staged
+
+
+@pytest.mark.parametrize(("limit", "reason"), [
+    pytest.param("deadline", "离截止不到一分钟，来不及开始", id="deadline"),
+    pytest.param("contract", "这项工作的合同工时只剩不到一分钟，来不及开始", id="contract"),
+])
+def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_and_next_step(
+    engine_factory, limit: str, reason: str,
+) -> None:
+    """开工条件是距截止与剩余合同都不少于 60 秒：恰好 60 秒时开工动作不带说明；不足 60 秒时照常列出并带说明，选了以
+    业务拒绝 ACTIVITY_DURATION_INVALID 返回同一原因与下一步「提交已完成的部分」，不开始活动，也不产生 run_failed
+    （docs/dev/SPEC-time-and-energy.md 第八章「工作」）。"""
+    engine = engine_factory()
+    task = engine.scenario.tasks[0]
+    due, start = int(task.due_at.timestamp()), int(task.available_at.timestamp())
+
+    def moment(left: int):
+        """距截止（或剩余合同）还剩 left 秒的办公室时刻；合同一支已做的工作尚未达到要求的有效秒数。"""
+        if limit == "deadline":
+            return _work_moment(engine, due - left)
+        worked = task.maximum_duration_seconds - left
+        return _work_moment(engine, start + worked, worked, task.required_effective_seconds - 400)
+
+    def work_row(observed: dict) -> dict:
+        """本轮交互对象层中这项工作的公开行。"""
+        return next(row for row in observed["facts"]["interactive_objects"] if row["object"] == f"工作：{task.title}")
+
+    engine.state = moment(60)
+    assert work_row(engine._observation_data(engine.state.agents[1]))["actions"] == [
+        {"action": "interact：工作", "note": None}]
+    staged = moment(59)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        source_kind="scenario", data={"kind": "test_late_work_start"})])
+    engine.state = staged
+    ctx = context(engine, f"late-work-{limit}")
+    engine.begin_decision_round([ctx])
+    row = work_row(engine.observe(ctx))
+    assert row["actions"] == [{"action": "interact：工作", "note": reason}]
+    engine.submit_action(DirectToolCall(ctx, f"action-late-work-{limit}", "start_activity",
+                                        start_activity("工作", row["object"])))
+    result = engine.commit_decision_round(ctx.round_id)[0]
+    assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
+    assert not active_activities(engine.state, 1)
+    public = engine.observe(context(engine, f"late-work-{limit}-feedback"))["facts"]["progress"]["results"][-1]
+    assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
+    assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分"}
+    assert not any(event.event_type == "run_failed"
+                   for event in engine.store.read_events(engine.store.last_event_seq))
+
+
+def test_completion_outlook_appears_only_when_the_time_upper_bound_is_short(engine_factory) -> None:
+    """剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时 facts.tasks[] 才带 completion_outlook「到截止前做不完」，
+    相等或更宽裕时省略该字段（docs/dev/SPEC-time-and-energy.md 第八章「工作」）。"""
+    engine = engine_factory()
+    task = engine.scenario.tasks[0]
+    due, start = int(task.due_at.timestamp()), int(task.available_at.timestamp())
+    required = task.required_effective_seconds
+    worked = task.maximum_duration_seconds - 3600
+    assert due - (start + worked) > 3600  # 下面两例由剩余合同 3600 秒约束，截止更宽裕
+    cases = [
+        (start, 0, 0.0, False),  # 刚开放：剩余合同与截止都宽裕
+        (due - int(required), 0, 0.0, False),  # 距截止恰好等于剩余要求
+        (due - int(required) + 1, 0, 0.0, True),  # 距截止少一秒
+        (start + worked, worked, required - 3600, False),  # 剩余合同恰好等于剩余要求
+        (start + worked, worked, required - 3601, True),  # 剩余要求多一秒
+    ]
+    for now, done, effective, short in cases:
+        engine.state = _work_moment(engine, now, done, effective)
+        facts = engine._observation_data(engine.state.agents[1])["facts"]
+        row = next(item for item in facts["tasks"] if item["task_name"] == task.title)
+        assert ("completion_outlook" in row) is short, (now, done, effective)
+        assert row.get("completion_outlook", "到截止前做不完") == "到截止前做不完"
+
+
+_WAIT =("start_activity", start_activity("等待", "自己"))
 
 
 def _stage_second_task_ready(engine) -> None:
@@ -463,7 +566,7 @@ def _working_on_first_task(engine) -> str:
     def start(observed):
         binding = next(row for row in observed["interaction_bindings"]
                        if row["kind"] == "work_task" and row["object_id"] == first.task_id)
-        return StartActivityRequest(targets=[binding["object"]], actions=["工作"])
+        return start_activity("工作", binding["object"])
 
     _shared_round(engine, "first-task-start", {1: ("start_activity", start), 2: _WAIT})
     started = {result.agent_id: result for result in engine.commit_decision_round("first-task-start")}

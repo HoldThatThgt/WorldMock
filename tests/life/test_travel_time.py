@@ -18,7 +18,6 @@ from worldmock.life.map_data import load_map_dataset
 from worldmock.life.models import (
     ActivityKind,
     ActivityStatus,
-    StartActivityRequest,
     TravelMode,
 )
 from worldmock.life.body import minimum_energy_cost
@@ -26,7 +25,7 @@ from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
 from worldmock.life.scenario import parse_scenario_document
 from worldmock.life.semantics import assemble_semantics, load_runtime_scenario
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, start_activity
 from agentsociety2.society import DirectToolCall
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -110,14 +109,15 @@ def _stage_peak(engine) -> None:
 
 
 def _start_driving(engine, name: str):
-    """只从本轮冻结观察选择办公室和驾车动作。"""
+    """只从本轮冻结观察选择办公室，动词 travel、方式「驾车」。"""
     ctx = context(engine, name)
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == "location" and row["object_id"] == "office")
-    assert any(action["label"] == "驾车前往" for action in binding["actions"])
-    request = StartActivityRequest(targets=[binding["object"]], actions=["驾车前往"])
+    assert ("travel", "驾车", "driving") in [
+        (action["verb"], action["label"], action["travel_mode"]) for action in binding["actions"]]
+    request = start_activity("驾车", binding["object"])
     engine.submit_action(DirectToolCall(ctx, f"action-{name}", "start_activity", request))
     result = engine.commit_decision_round(name)[0]
     return observed, result

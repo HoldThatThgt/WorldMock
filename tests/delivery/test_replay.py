@@ -48,7 +48,8 @@ def pair(tmp_path):
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
                                           action_id='wait', data={
                                               'tool_name': 'start_activity',
-                                              'request': {'targets': ['自己'], 'actions': ['等待']}})])
+                                              'request': {'targets': ['自己'], 'actions': ['interact'],
+                                                          'ways': ['等待']}})])
     source_dir, replay_dir = tmp_path / 'source-export', tmp_path / 'replay-export'
     finish_export(parent, source_dir)
     finish_export(child, replay_dir)

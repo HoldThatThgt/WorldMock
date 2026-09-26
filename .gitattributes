@@ -1,2 +1,2 @@
 corpora/** text=auto eol=lf
-catalog/snapshots/traffic/** text=auto eol=lf
+catalog/** text=auto eol=lf

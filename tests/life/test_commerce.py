@@ -9,7 +9,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, conclude_pending, context, stage_day_plan
+from tests.life.conftest import (advance_next, advance_until_ready, conclude_pending, context, stage_day_plan,
+                                 start_activity)
 from tests.life.test_money_settlement import _conclude_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import deliver_order
@@ -56,8 +57,8 @@ def _observed_action(engine, round_id: str, tool_name: str, request, action_id: 
 
 def _choice(observation: dict, action: str, object_id: str | None = None,
             mode: str | None = None) -> StartActivityRequest:
-    """@brief 只从本轮冻结观察取可读对象与动作短语。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+    """@brief 只从本轮冻结观察取可读对象、动词与方式（按私有绑定的内部动作与履约方式挑选）。"""
+    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observation["interaction_bindings"]
                 if object_id is None or row["object_id"] == object_id
                 for offered in row["actions"]
@@ -192,7 +193,7 @@ def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) ->
     observed = engine.observe(context(engine, "remote-preview"))
     assert not any(row["kind"] == "holding" and row["object_id"] == product.product_id
                    for row in observed["interaction_bindings"])
-    request = StartActivityRequest(targets=["家里的食物"], actions=["食用"])
+    request = start_activity("食用", "家里的食物")
     _, result = _observed_action(engine, "remote-eat", "start_activity", request)
     assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.agents[1].inventory["home"][product.product_id] == 1
@@ -289,7 +290,7 @@ def test_pending_delivery_is_private_to_its_owner(engine_factory) -> None:
     supply_id = sorted(_delivery_supply_ids(observations[1]))[0]
     requests = {1: ("start_activity", _choice(
                     observations[1], "purchase", supply_id, "delivery")),
-                2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))}
+                2: ("start_activity", start_activity("等待", "自己"))}
     for agent_id in reversed(ready):
         tool, request = requests[agent_id]
         engine.submit_action(DirectToolCall(contexts[agent_id], f"private-{agent_id}", tool, request))

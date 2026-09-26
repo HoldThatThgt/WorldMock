@@ -11,14 +11,13 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import activity_name, advance_next, conclude_request, context
+from tests.life.conftest import activity_name, advance_next, conclude_request, context, start_activity
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
     MeetingMinutes,
     ReportStatusRequest,
-    StartActivityRequest,
     SubmitWorkActionRequest,
     SubmitWorkRequest,
 )
@@ -110,19 +109,26 @@ def test_hourly_and_piece_contracts_use_actual_time_and_frozen_piece_count(
 
 
 def test_work_start_rejects_skill_location_and_deadline_boundaries(engine_factory) -> None:
-    """技能、位置和有效期分别形成稳定业务拒绝。"""
+    """技能、位置和有效期分别形成稳定业务拒绝；位置按现场地点判定，途中不在任何地点（第五章「并行准入」实际地点）。"""
     engine = engine_factory("multi-person.json")
     task = engine.scenario.tasks[0]
     now = int(task.available_at.timestamp())
     agent = engine.state.agents[1].model_copy(update={"visible_task_ids": {task.task_id}}, deep=True)
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET"):
-        validate_work_start(agent, task, now)
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as elsewhere:
+        validate_work_start(agent, task, now, agent.location_id)
+    assert elsewhere.value.unmet == ["required_location_id"]
     at_office = agent.model_copy(update={"location_id": task.required_location_id}, deep=True)
+    assert validate_work_start(at_office, task, now, task.required_location_id) is None
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as en_route:
+        validate_work_start(at_office, task, now, None)
+    assert en_route.value.unmet == ["required_location_id"]
     unskilled = at_office.model_copy(update={"skill_levels": {task.required_skill: 0.1}}, deep=True)
-    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET"):
-        validate_work_start(unskilled, task, now)
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_PRECONDITION_UNMET") as skill:
+        validate_work_start(unskilled, task, now, task.required_location_id)
+    assert skill.value.unmet == ["required_skill"]
     with pytest.raises(BusinessRuleError, match="WORK_TASK_NOT_AVAILABLE"):
-        validate_work_start(at_office, task, int((task.due_at + timedelta(seconds=1)).timestamp()))
+        validate_work_start(at_office, task, int((task.due_at + timedelta(seconds=1)).timestamp()),
+                            task.required_location_id)
 
 
 def test_scenario_material_oracles_load_explicit_json_references() -> None:
@@ -270,7 +276,7 @@ def _shared_work_control(engine, activity_id: str) -> tuple[str, object]:
         return "report_status", ReportStatusRequest(task=[name], summary=["继续完成工作。"])
     if activity.concluded_at is None:
         return "conclude_activity", conclude_request(name, summary="工作做完了。")
-    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+    return "start_activity", start_activity("等待", "自己")
 
 
 def _complete_shared_work(engine, task) -> None:
@@ -278,7 +284,7 @@ def _complete_shared_work(engine, task) -> None:
     def start(observed):
         binding = next(row for row in observed["interaction_bindings"]
                        if row["kind"] == "work_task" and row["object_id"] == task.task_id)
-        return StartActivityRequest(targets=[binding["object"]], actions=["工作"])
+        return start_activity("工作", binding["object"])
 
     ready = _shared_round(engine, "shared-work", {1: ("start_activity", start),
                                                    2: ("start_activity", start)})

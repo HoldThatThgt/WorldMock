@@ -11,6 +11,7 @@ from worldmock.evaluation.behavior_metrics import (
     behavior_metrics_report,
 )
 from worldmock.footprints.models import canonical_json
+from worldmock.life.interaction_menu import WAYS
 
 ZONE = ZoneInfo("Asia/Shanghai")
 CODE_A = "a" * 64
@@ -107,12 +108,34 @@ def _model_response(event_seq: int, call_id: str, prompt_tokens: int) -> dict[st
 
 
 def _action(event_seq: int, decision_id: str, tool_name: str,
-            request: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 构造 action_requested 事件。"""
-    return _event("action_requested", _clock(0, 8, event_seq),
-                  data={"tool_name": tool_name, "request": request or {}, "request_sha256": "0" * 64,
-                        "reused": False},
-                  decision_id=decision_id, event_seq=event_seq)
+            request: dict[str, Any] | None = None, action_id: str | None = None) -> dict[str, Any]:
+    """@brief 构造 action_requested 事件（动作身份缺省为 None，受理事件按身份回链）。"""
+    event = _event("action_requested", _clock(0, 8, event_seq),
+                   data={"tool_name": tool_name, "request": request or {}, "request_sha256": "0" * 64,
+                         "reused": False},
+                   decision_id=decision_id, event_seq=event_seq)
+    event["action_id"] = action_id
+    return event
+
+
+def _start(event_seq: int, decision_id: str, action_id: str, way: str, target: str) -> dict[str, Any]:
+    """@brief 构造一项 start_activity 请求：对象、动词与方式三数组（动词由方式唯一确定）。"""
+    request = {"targets": [target], "actions": [WAYS[way][0]], "ways": [way]}
+    return _action(event_seq, decision_id, "start_activity", request, action_id)
+
+
+def _accepted(event_seq: int, decision_id: str, action_id: str, *kinds: str) -> dict[str, Any]:
+    """@brief 构造 action_accepted 事件：一项时带 activity 快照，两项时带 data.activities（与引擎受理事件同形）。"""
+    snapshots = [{"activity_id": f"{action_id}-{index}", "kind": kind} for index, kind in enumerate(kinds)]
+    data: dict[str, Any] = {"status": "in_progress", "data": {}}
+    if len(snapshots) == 1:
+        data["activity"] = snapshots[0]
+    else:
+        data["data"] = {"activities": snapshots}
+    event = _event("action_accepted", _clock(0, 8, event_seq), data=data, decision_id=decision_id,
+                   event_seq=event_seq)
+    event["action_id"] = action_id
+    return event
 
 
 def _memory(episodes: list[dict[str, str]], *, event_seq: int = 90) -> dict[str, Any]:
@@ -239,20 +262,43 @@ def test_plan_day_requests_are_not_decision_requests() -> None:
 
 
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
-    """@brief 最终动作为进度播报或等待的决策不计入自主决策。"""
+    """@brief 最终动作为进度播报或等待的决策不计入自主决策；等待按受理时实际开始的活动 kind=wait 判定
+    （docs/design/07-evaluation.md「2.2 报告项」），不按请求里的动词或方式。"""
     events = [
         _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
         _action(2, "d1", "report_status", {"task": ["当前会话"], "summary": ["继续。"]}),
         _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
-        _action(4, "d2", "start_activity", {"targets": ["自己"], "actions": ["等待"]}),
-        _event("decision_started", _clock(0, 8, 5), decision_id="d3"),
-        _action(6, "d3", "start_activity", {"targets": ["内容：节目"], "actions": ["观看"]}),
-        _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
+        _start(4, "d2", "a2", "等待", "自己"),
+        _accepted(5, "d2", "a2", "wait"),
+        _event("decision_started", _clock(0, 8, 6), decision_id="d3"),
+        _start(7, "d3", "a3", "接着看", "内容：节目"),
+        _accepted(8, "d3", "a3", "watch"),
+        _event("decision_started", _clock(0, 8, 9), decision_id="d4"),
     ]
     report = _report(events)["reports"]["effective_autonomous_decision_rate"]
     assert report["value"] == 1 / 3
     assert report["decision_count"] == 4 and report["decisions_with_action"] == 3
     assert report["autonomous_decisions"] == 1
+
+
+def test_wait_is_judged_by_the_started_activity_kind_not_the_request() -> None:
+    """@brief 选了等待但被拒绝（没有开始等待）不算被动；等待与出行一起开始也不是只在等待，二者都计自主。"""
+    events = [
+        _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
+        _start(2, "d1", "a1", "等待", "自己"),
+        _event("action_rejected", _clock(0, 8, 3), decision_id="d1", event_seq=3,
+               data={"error_code": "ACTIVITY_CONCLUSION_REQUIRED"}) | {"action_id": "a1"},
+        _event("decision_started", _clock(0, 8, 4), decision_id="d2"),
+        _action(5, "d2", "start_activity", {"targets": ["城西办公室", "自己"], "actions": ["travel", "interact"],
+                                            "ways": ["步行", "等待"]}, "a2"),
+        _accepted(6, "d2", "a2", "travel", "wait"),
+        _event("decision_started", _clock(0, 8, 7), decision_id="d3"),
+        _start(8, "d3", "a3", "等待", "自己"),
+        _accepted(9, "d3", "a3", "wait"),
+    ]
+    report = _report(events)["reports"]["effective_autonomous_decision_rate"]
+    assert report == {"value": 2 / 3, "decision_count": 3, "decisions_with_action": 3,
+                      "autonomous_decisions": 2, "control_decisions": 0}
 
 
 def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
@@ -271,9 +317,11 @@ def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
     ]
     events = control + [
         _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
-        _action(8, "d4", "start_activity", {"targets": ["内容：节目"], "actions": ["观看"]}),
-        _event("decision_started", _clock(0, 8, 9), decision_id="d5"),
-        _action(10, "d5", "start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+        _start(8, "d4", "a4", "接着看", "内容：节目"),
+        _accepted(9, "d4", "a4", "watch"),
+        _event("decision_started", _clock(0, 8, 10), decision_id="d5"),
+        _start(11, "d5", "a5", "等待", "自己"),
+        _accepted(12, "d5", "a5", "wait"),
     ]
     report = _report(events)["reports"]["effective_autonomous_decision_rate"]
     assert report == {"value": 0.5, "decision_count": 5, "decisions_with_action": 5,
@@ -485,8 +533,8 @@ def test_persona_distinguishability_leave_one_out() -> None:
 def test_social_minutes_and_message_counts() -> None:
     """@brief 交谈/通话按真实结算区间累计；消息按独立工具与到达事件计数。"""
     events = [
-        _action(1, "d1", "start_activity", {"targets": ["人物：同事"], "actions": ["交谈"]}),
-        _action(2, "d2", "start_activity", {"targets": ["联系人：朋友"], "actions": ["通话"]}),
+        _start(1, "d1", "a1", "交谈", "人物：同事"),
+        _start(2, "d2", "a2", "通话", "联系人：朋友"),
         _progress(3, _clock(0, 9), _clock(0, 9, 30), "chat"),
         _progress(4, _clock(0, 10), _clock(0, 10, 15), "call"),
         _action(5, "d3", "send_message", {"recipient_name": "同事", "text": "在忙吗"}),

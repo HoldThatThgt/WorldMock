@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Any
 
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from worldmock.life.interaction_menu import InteractionMenu, menu_allows_action
 
@@ -28,15 +29,16 @@ def parse_interaction_menu(data: dict[str, Any]) -> InteractionMenu:
     return menu
 
 
-def menu_action_error(menu: InteractionMenu, action: str, request: BaseModel) -> str:
+def menu_action_error(menu: InteractionMenu, action: str, canonical_actions: Sequence[str]) -> str:
     """@brief 在本地校验与直接派发边界复用一次冻结菜单。
 
-    地点菜单只剪裁 start_activity 的 action 枚举，其余稳定工具恒可调用
-    （docs/dev/SPEC-agent-interaction.md「保护项修订」）。
+    地点菜单只剪裁 start_activity 各项映射后的内部标准动作，其余稳定工具恒可调用
+    （docs/dev/SPEC-agent-interaction.md「保护项修订」）；映射取本轮私有绑定，不按短语反解。
 
+    @param canonical_actions start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空）。
     @return 允许时为空字符串，禁止时为英文协议错误。
     """
-    if not menu_allows_action(menu, action, request):
+    if not menu_allows_action(menu, action, canonical_actions):
         return _denied(f"interaction menu denies {action}")
     return ""
 

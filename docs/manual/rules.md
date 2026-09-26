@@ -184,7 +184,7 @@ uv run worldmock category publish \
 此处是已有能力的配置，不是插件接口。`ActivityKind`、工具协议、生成器原型、支持资源和出行方式仍受代码闭集约束。
 
 **独立 `catalog/` 副本中的活动声明目前不能完整切换运行行为。** 场景装配会读取并校验该副本，
-但反馈类型、资源锁、娱乐缓解通道、MET 模板、能量豁免，以及内部动机家族和候选参数，
+但反馈类型、资源锁、娱乐缓解通道、MET 模板、能量豁免（只供内部动机评分，不参与受理与结算），以及内部动机家族和候选参数，
 仍有消费者在导入时从仓库默认 `catalog/affordances.toml` 读取并缓存。
 例如只修改副本的 `resource_claims` 或 `candidate.max_tasks`，不能保证实际执行采用副本值。
 下表介绍声明格式；涉及这些运行参数时，当前有效入口仍是仓库默认文件，并需要启动新进程重新加载。
@@ -194,13 +194,13 @@ uv run worldmock category publish \
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
 | `relief.channel` | `none`、`intrinsic`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配 |
-| `resource_claims` | `attention`、`device`、`hands`、`vehicle`；位置资源由引擎占用，无需重复声明 |
+| `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-time-and-energy.md)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
 | `tool.surface` | `basic`、`targeted`、`travel`、`commerce`、`game`、`none` |
 | `target_discovery` | `none`、`browse_result` 或带 `field/id_key` 的 `catalog_field` 声明 |
 | `families.<家族>.candidate` | 已登记生成器及其允许参数；未知生成器或参数会拒绝 |
 | `attention`、`content_kinds` | 采样限额、需要的注意力键、标题元数据位置；与人物 `attention_prior` 一致 |
-| `habit_members` | 工具和活动类型的习惯归组；精确匹配优先于前缀和通配匹配 |
+| `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；精确匹配优先于前缀和通配匹配 |
 
 例如以下是现有 `families.work` 中的**局部替换行**：
 

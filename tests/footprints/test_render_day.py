@@ -203,12 +203,13 @@ def test_cli_writes_timeline_file(tmp_path, capsys):
 
 
 def test_inspect_run_brief_reads_start_activity_request_and_result():
-    """请求显示可读对象与动作；已结算结果用状态和业务反馈表达。"""
+    """请求显示可读对象、动词与方式；已结算结果用状态和业务反馈表达。"""
     module = _load_script("inspect_run")
     requested = module._brief({"event_type": "action_requested",
                                "data": {"tool_name": "start_activity",
-                                        "request": {"targets": ["自己"], "actions": ["等待"]}}})
-    assert requested.startswith('start_activity {"targets": ["自己"], "actions": ["等待"]}')
+                                        "request": {"targets": ["自己"], "actions": ["interact"],
+                                                    "ways": ["等待"]}}})
+    assert requested.startswith('start_activity {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}')
     accepted = module._brief({"event_type": "action_result",
                               "data": {"status": "in_progress", "error_code": None,
                                        "message": "Activity started", "data": {"activity": {"kind": "wait"}}}})

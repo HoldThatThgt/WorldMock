@@ -29,10 +29,14 @@ from tests.integration.test_life_agent_protocol import (
     _ModelResponse,
     _NEWS,
     _WAIT,
+    _WAIT_CHOICE,
     _WORK,
+    _add_objects,
     _context,
     _memory,
     _observations,
+    _offer,
+    _visible_object,
     _wire_agent,
     _with_activities,
 )
@@ -121,14 +125,31 @@ def test_memory_entries_and_finish_keep_content_limits() -> None:
     (lambda data: _with_activities(data, (_NEWS, PHASE_PAUSED))["activity_bindings"][0].pop("resumable"),
      "activity bindings"),
     (lambda data: data["facts"].update(interactive_objects="broken"), "interactive objects layer"),
+    (lambda data: data.pop("interaction_bindings"), "interactive objects layer"),
     (lambda data: data["facts"]["interactive_objects"].append(
         dict(data["facts"]["interactive_objects"][0])), "interactive object identity"),
+    (lambda data: data["facts"]["interactive_objects"][0].pop("actions"), "interactive object identity"),
+    (lambda data: data["facts"]["interactive_objects"][0].update(actions=["等待", "睡觉"]),
+     "interactive object actions are invalid"),
+    (lambda data: data["facts"]["interactive_objects"][0]["actions"][0].pop("note"),
+     "interactive object actions are invalid"),
+    (lambda data: data["facts"]["interactive_objects"][0]["actions"][0].update(note=1),
+     "interactive object actions are invalid"),
+    (lambda data: data["facts"]["interactive_objects"][0]["actions"][0].update(action="sleep：等待"),
+     "interactive object action is not bound"),
+    (lambda data: data["facts"]["interactive_objects"][0]["actions"][0].update(action="interact：观看"),
+     "interactive object action is not bound"),
+    (lambda data: data["interaction_bindings"][0]["actions"].pop(0), "interactive object action is not bound"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
     (lambda data: data.pop("same_moment_stage"), "same-moment stage"),
     (lambda data: data.update(same_moment_stage="bogus"), "same-moment stage"),
 ])
 def test_corrupt_observation_fails_before_any_model_tool(change, match: str) -> None:
-    """损坏的进度层、活动绑定、对象、菜单或同刻阶段不能转成模型工具；闭集之外的同刻阶段是损坏的宿主观察。"""
+    """损坏的进度层、活动绑定、对象、菜单或同刻阶段不能转成模型工具；闭集之外的同刻阶段是损坏的宿主观察。
+
+    公开动作只能是 {action: "动词：方式", note}（旧的动作短语列表、缺说明或说明非文本都是损坏的对象层）；
+    动词须与方式所属的动词一致，且（对象，动词，方式）须有本轮私有绑定。
+    """
     data = copy.deepcopy(_observations()[0]["data"])
     change(data)
     with pytest.raises(RuntimeError, match=match):
@@ -144,15 +165,16 @@ def _empty_layer_observations() -> list[dict]:
 
 
 def test_empty_interactive_layer_binds_no_empty_enum() -> None:
-    """空对象层合法：start_activity 照常开放，不绑定空枚举，所填名称按协议错误重试。"""
+    """空对象层合法：start_activity 照常开放，对象、动词与方式三个数组都不绑定空枚举，所填名称按协议错误重试。"""
     person = _prepared(_empty_layer_observations()[0]["data"])
     functions = _functions(person)
     assert "start_activity" in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert "enum" not in properties["targets"]["items"]
-    assert "enum" not in properties["actions"]["items"]
+    assert set(properties) == {"targets", "actions", "ways"}
+    for field in ("targets", "actions", "ways"):
+        assert "enum" not in properties[field]["items"]
     assert "not a visible interactive object" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+        _decision("start_activity", _WAIT_CHOICE),
     ], False)
 
 
@@ -160,8 +182,7 @@ def test_empty_interactive_layer_binds_no_empty_enum() -> None:
 async def test_empty_interactive_layer_decision_continues_without_failure() -> None:
     """空对象层时决策照常完成：不可见名称在本轮纠正，改提交其他动作，登记即结束本轮且不终止运行。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-unseen", "start_activity",
-                       json.dumps({"targets": ["自己"], "actions": ["等待"]})),
+        _ModelResponse("call-unseen", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
         _ModelResponse("call-recall", "recall_task_summary",
                        json.dumps({"task_name": "整理会议纪要"}, ensure_ascii=False)),
     ])
@@ -183,8 +204,8 @@ async def test_empty_interactive_layer_decision_continues_without_failure() -> N
     start = next(item["function"] for item in first_tools
                  if item["function"]["name"] == "start_activity")
     properties = start["parameters"]["properties"]
-    assert "enum" not in properties["targets"]["items"]
-    assert "enum" not in properties["actions"]["items"]
+    for field in ("targets", "actions", "ways"):
+        assert "enum" not in properties[field]["items"]
 
 
 _MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_step_range", "memory_tick_range",
@@ -192,24 +213,30 @@ _MEMORY_TOOLS = {"memory_recent", "memory_search", "memory_step_range", "memory_
 _SUPPLY = "便利店出售的饭团"
 #: 两项同时刚结束、待收尾的活动（到达时出行与路上开始的播客一并结束，第七章「会话切换的边界情形」）。
 _WALK = "步行前往公园（1月4日 23:30 起）"
-_PODCAST = "收听晚间播客（1月4日 23:30 起）"
+_PODCAST = "接着听晚间播客（1月4日 23:30 起）"
+#: 两个名额都占满时，开始新活动的说明（第五章「动作照常列出，做错了再说明」）。
+_SLOTS_FULL = "两件事都在做，先结束一件"
 
 
 def _restricted_data(stage: str, *activities: tuple[str, str], elsewhere: tuple[str, ...] = ()) -> dict:
-    """构造标上同刻受限轮阶段的观察：缺省一项进行中、一项暂停的活动占满两个名额，另有一家可购买门店。"""
+    """构造标上同刻受限轮阶段的观察：缺省一项进行中、一项暂停的活动占满两个名额，另有一家可购买门店。
+
+    门店的到店与远程下单是瞬时的取得，不占名额，没有说明；浏览要占名额，带名额已满的说明但照常列出。
+    """
     data = copy.deepcopy(_observations()[0]["data"])
     data["same_moment_stage"] = stage
-    data["facts"]["interactive_objects"] += [
-        {"object": _SUPPLY, "actions": ["到店购买", "配送到当前位置"], "preconditions_met": True},
-        {"object": "商品目录", "actions": ["浏览"], "preconditions_met": True}]
-    data["interaction_bindings"] += [
-        {"object": _SUPPLY, "kind": "supply", "object_id": "supply-visible", "actions": [
-            {"label": "到店购买", "canonical_action": "purchase"},
-            {"label": "配送到当前位置", "canonical_action": "purchase"}]},
-        {"object": "商品目录", "kind": "catalog", "object_id": "catalog",
-         "actions": [{"label": "浏览", "canonical_action": "browse"}]}]
+    _add_objects(data, _visible_object(_SUPPLY, "supply", "supply-visible",
+                                       _offer("obtain", "到店", "purchase", fulfillment="pickup"),
+                                       _offer("obtain", "远程下单", "purchase", fulfillment="delivery")),
+                 _visible_object("商品目录", "catalog", "catalog",
+                                 _offer("interact", "浏览", "browse", _SLOTS_FULL)))
     return _with_activities(data, *(activities or ((_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))),
                             elsewhere=elsewhere)
+
+
+def _choice(target: str, verb: str, way: str) -> dict:
+    """对一个对象选择一项「动词：方式」的 start_activity 参数。"""
+    return {"targets": [target], "actions": [verb], "ways": [way]}
 
 
 def _enum(functions: dict[str, dict], tool: str, field: str) -> list[str]:
@@ -222,21 +249,44 @@ def _conclusion(*names: str) -> dict:
     return {"task": list(names), "summary": ["先收尾。" for _ in names], "memories": [[] for _ in names]}
 
 
+def test_visible_objects_freeze_verb_way_and_bound_internal_action() -> None:
+    """对象层冻结为「名称 → （动词，方式，私有绑定的内部标准动作）」；带说明的动作照常可选，按世界事实过滤后动作为空
+    的对象照常冻结但不进 targets 枚举，选它按协议错误纠正（docs/dev/SPEC-time-and-energy.md 第五章）。"""
+    data = copy.deepcopy(_observations()[0]["data"])
+    _add_objects(data, _visible_object(_SUPPLY, "supply", "supply-closed"))
+    person = _prepared(data)
+    assert person._life_visible_objects == {
+        "自己": (("interact", "等待", "wait"), ("sleep", "睡觉", "sleep")),
+        "整理会议纪要": (("interact", "工作", "work"),),
+        _SUPPLY: (),
+    }
+    assert data["facts"]["interactive_objects"][1]["actions"][0]["note"]
+    functions = _functions(person)
+    assert _enum(functions, "start_activity", "targets") == ["整理会议纪要", "自己"]
+    assert person.validate_react_decisions([
+        _decision("start_activity", _choice("整理会议纪要", "interact", "工作"))], False) == ""
+    assert "not offered by the chosen target" in person.validate_react_decisions([
+        _decision("start_activity", _choice(_SUPPLY, "obtain", "到店"))], False)
+
+
 def test_start_or_resume_stage_narrows_tools_and_enums() -> None:
-    """start_or_resume 只开放开始或恢复：不含到店购买与远程下单，播报只列此处可恢复的暂停活动，记忆查询照常（第一章规则 3）。"""
+    """start_or_resume 只开放开始或恢复：不含到店与远程下单，播报只列此处可恢复的暂停活动，记忆查询照常（第一章规则 3）。"""
     opened = _functions(_prepared(_restricted_data("open")))
     assert {"pause_activity", "conclude_activity", "recall_task_summary"} <= set(opened)
     assert _SUPPLY in _enum(opened, "start_activity", "targets")
-    assert {"到店购买", "配送到当前位置"} <= set(_enum(opened, "start_activity", "actions"))
+    assert "obtain" in _enum(opened, "start_activity", "actions")
+    assert {"到店", "远程下单"} <= set(_enum(opened, "start_activity", "ways"))
     person = _prepared(_restricted_data("start_or_resume"))
     functions = _functions(person)
     assert set(functions) - _MEMORY_TOOLS == {"start_activity", "report_status"}
     assert _MEMORY_TOOLS & set(functions)
     assert _enum(functions, "start_activity", "targets") == sorted(["自己", "整理会议纪要", "商品目录"])
-    assert sorted(_enum(functions, "start_activity", "actions")) == sorted(["等待", "睡觉", "工作", "浏览"])
+    assert _enum(functions, "start_activity", "actions") == ["interact", "sleep"]
+    assert _enum(functions, "start_activity", "ways") == sorted(["等待", "睡觉", "工作", "浏览"])
     assert _enum(functions, "report_status", "task") == [_NEWS]
-    assert "not a visible interactive object" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": [_SUPPLY], "actions": ["到店购买"]})], False)
+    for way in ("到店", "远程下单"):
+        assert "not a visible interactive object" in person.validate_react_decisions([
+            _decision("start_activity", _choice(_SUPPLY, "obtain", way))], False)
     assert "task contains an unavailable activity" in person.validate_react_decisions([
         _decision("report_status", {"task": [_WORK], "summary": ["继续。"]})], False)
     assert "not available in the current activity state" in person.validate_react_decisions([
@@ -244,7 +294,7 @@ def test_start_or_resume_stage_narrows_tools_and_enums() -> None:
     assert person.validate_react_decisions([
         _decision("report_status", {"task": [_NEWS], "summary": ["接着看。"]})], False) == ""
     assert person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["商品目录"], "actions": ["浏览"]})], False) == ""
+        _decision("start_activity", _choice("商品目录", "interact", "浏览"))], False) == ""
 
 
 def test_paused_activity_elsewhere_is_not_resumable_in_restricted_rounds() -> None:
@@ -280,7 +330,7 @@ def test_conclude_pending_stage_requires_concluding_every_just_ended_activity() 
     assert person.validate_react_decisions([_decision("conclude_activity", _conclusion(_WALK, _PODCAST))],
                                            False) == ""
     assert "not available in the current activity state" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]})], False)
+        _decision("start_activity", _WAIT_CHOICE)], False)
     person = _prepared(_restricted_data("conclude_pending", (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_PENDING)))
     assert _enum(_functions(person), "conclude_activity", "task") == [_WAIT]
     assert "task contains an unavailable activity" in person.validate_react_decisions([
@@ -300,7 +350,7 @@ def test_resume_or_conclude_stage_offers_resume_or_conclusion_only() -> None:
     assert person.validate_react_decisions([
         _decision("report_status", {"task": [_NEWS], "summary": ["接着看。"]})], False) == ""
     assert person.validate_react_decisions([_decision("conclude_activity", _conclusion(_WORK))], False) == ""
-    for tool, arguments in (("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+    for tool, arguments in (("start_activity", _WAIT_CHOICE),
                             ("pause_activity", {"task": [_WORK], "summary": ["先停。"]})):
         assert "not available in the current activity state" in person.validate_react_decisions([
             _decision(tool, arguments)], False)
@@ -315,7 +365,7 @@ def test_conclude_only_stage_offers_only_conclusion_of_slot_activities() -> None
     assert person.validate_react_decisions([_decision("conclude_activity", _conclusion(_NEWS))], False) == ""
     assert person.validate_react_decisions([_decision("conclude_activity", _conclusion(_WORK, _NEWS))],
                                            False) == ""
-    for tool, arguments in (("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+    for tool, arguments in (("start_activity", _WAIT_CHOICE),
                             ("report_status", {"task": [_NEWS], "summary": ["接着看。"]}),
                             ("recall_task_summary", {"task_name": "整理会议纪要"})):
         assert "not available in the current activity state" in person.validate_react_decisions([
@@ -323,18 +373,20 @@ def test_conclude_only_stage_offers_only_conclusion_of_slot_activities() -> None
 
 
 def test_wait_only_stage_offers_only_wait() -> None:
-    """wait_only 只开放等待：start_activity 的对象与动作枚举只剩「自己」与「等待」，活动控制与回看都撤下。"""
+    """wait_only 只开放等待：start_activity 的对象、动词与方式枚举只剩「自己」「interact」「等待」，活动控制与回看都撤下。"""
     person = _prepared(_restricted_data("wait_only"))
     functions = _functions(person)
     assert set(functions) - _MEMORY_TOOLS == {"start_activity"}
     assert _enum(functions, "start_activity", "targets") == ["自己"]
-    assert _enum(functions, "start_activity", "actions") == ["等待"]
+    assert _enum(functions, "start_activity", "actions") == ["interact"]
+    assert _enum(functions, "start_activity", "ways") == ["等待"]
     assert "not offered by the chosen target" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["睡觉"]})], False)
+        _decision("start_activity", _choice("自己", "sleep", "睡觉"))], False)
+    assert "not a visible interactive object" in person.validate_react_decisions([
+        _decision("start_activity", _choice("商品目录", "interact", "浏览"))], False)
     assert "not available in the current activity state" in person.validate_react_decisions([
         _decision("report_status", {"task": [_NEWS], "summary": ["接着看。"]})], False)
-    assert person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]})], False) == ""
+    assert person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False) == ""
 
 
 def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
@@ -353,21 +405,23 @@ def test_tool_visibility_uses_current_named_tasks_and_activities() -> None:
 
 
 def test_action_validation_rejects_unseen_object_wrong_action_and_second_action() -> None:
-    """对象与逐项动作闭集、单次动作限制在分派前执行。"""
+    """对象、逐项动词与方式的闭集、三数组等长与单次动作限制在分派前执行。"""
     person = _prepared()
     _functions(person)
-    assert person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
-    ], False) == ""
+    assert person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False) == ""
     assert "visible interactive object" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["object-private"], "actions": ["等待"]}),
+        _decision("start_activity", _choice("object-private", "interact", "等待")),
     ], False)
-    assert "not offered" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["工作"]}),
+    for verb, way in (("interact", "工作"), ("sleep", "等待"), ("interact", "睡觉")):
+        assert "not offered" in person.validate_react_decisions([
+            _decision("start_activity", _choice("自己", verb, way)),
+        ], False)
+    assert "equal lengths" in person.validate_react_decisions([
+        _decision("start_activity", {**_WAIT_CHOICE, "ways": ["等待", "睡觉"]}),
     ], False)
     person._life_action_count = 1
     assert "already submitted" in person.validate_react_decisions([
-        _decision("start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+        _decision("start_activity", _WAIT_CHOICE),
     ], False)
 
 
@@ -407,11 +461,9 @@ async def test_life_agent_host_guards_fail_closed_on_unprepared_or_wrong_state()
     person = _prepared()
     person._life_request_models = None
     with pytest.raises(RuntimeError, match="request tool schemas are not prepared"):
-        person.validate_react_decisions([_decision("start_activity", {"targets": ["自己"], "actions": ["等待"]})],
-                                        False)
+        person.validate_react_decisions([_decision("start_activity", _WAIT_CHOICE)], False)
     with pytest.raises(RuntimeError, match="disabled in readonly mode"):
-        await person.dispatch_react_tool("start_activity", {"targets": ["自己"], "actions": ["等待"]},
-                                         readonly=True)
+        await person.dispatch_react_tool("start_activity", _WAIT_CHOICE, readonly=True)
     with pytest.raises(RuntimeError, match="Unsupported LifeAgent tool dispatch"):
         await person.dispatch_react_tool("finish", {"answer": "不存在的生活决策结束工具"})
     person._model_name = None

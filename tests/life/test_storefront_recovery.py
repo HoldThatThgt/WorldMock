@@ -88,8 +88,8 @@ def _action(engine, name, tool, request):
 
 
 def _choice(observation, action, object_id=None, mode=None):
-    """@brief 从本轮冻结观察中取可读对象及其明确动作。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+    """@brief 从本轮冻结观察中取可读对象及其明确的动词与方式（按内部标准动作与出行、履约方式选定）。"""
+    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observation["interaction_bindings"]
                 if object_id is None or row["object_id"] == object_id
                 for offered in row["actions"] if offered["canonical_action"] == action
@@ -196,7 +196,8 @@ def _finish_order_and_consume(engine, order_id, phase):
 
 
 @pytest.mark.parametrize("fulfillment", ["pickup", "delivery"])
-def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidence(recovery_engine, tmp_path, fulfillment):
+def test_discovery_purchase_consumption_and_recovery_preserve_storefront_evidence(
+        recovery_engine, tmp_path, fulfillment):
     """@brief 实际发现与下一秒新报价、购买、消费在关库重开和共同分支保持同一事实。"""
     original, scenario_path = recovery_engine
     discovery, observed = _discover(original, "discover-initial")

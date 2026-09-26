@@ -217,7 +217,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
 
         receipt = await env.submit_action(DirectToolCall(
             contexts[-1], "action-round-1", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["等待"])))
+            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
         assert receipt.action_id == "action-round-1"
         results = await env.commit_decision_round("round-1")
         assert [item.action_id for item in results] == ["action-round-1"]
@@ -272,7 +272,7 @@ async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> Non
                 await env.submit_action(DirectToolCall(
                     context, f"action-{round_id}-{context.agent_id}",
                     "start_activity",
-                    StartActivityRequest(targets=["自己"], actions=["等待"])))
+                    StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
             await env.commit_decision_round(round_id)
             state = await env.scheduling_state()
             guard += 1

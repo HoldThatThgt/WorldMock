@@ -191,16 +191,21 @@ def test_consume_category_uses_actual_closed_use_mode_for_evidence_and_duration(
     events = [
         _public_event(1, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["持有物：午餐"], "actions": ["食用"]},
+            "request": {"targets": ["持有物：午餐"], "actions": ["consume"], "ways": ["食用"]},
         }, "eat-action"),
         _public_event(2, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["持有物：雨伞"], "actions": ["使用"]},
+            "request": {"targets": ["持有物：雨伞"], "actions": ["consume"], "ways": ["使用"]},
         }, "use-action"),
+        _public_event(3, "action_requested", {
+            "tool_name": "start_activity",
+            "request": {"targets": ["持有物：面粉"], "actions": ["obtain"], "ways": ["制作"]},
+        }, "make-action"),
     ]
     evidence = worldmock_public_evidence(events, [], mapping)
     assert [(item.category, item.state) for item in evidence] == [
         ("eat", "requested"),
+        ("product_use", "requested"),
         ("product_use", "requested"),
     ]
 
@@ -223,10 +228,75 @@ def test_worldmock_activity_duration_uses_the_same_consume_category(evaluation_f
     assert product_use.duration_seconds == eating.duration_seconds == 7_200
 
 
+@pytest.mark.parametrize("activity_type,claims,digital", [
+    ("watch", ["ears", "eyes"], True),
+    ("watch", ["ears"], True),
+    ("work", ["idle", "work"], True),
+    ("play_game", ["eyes", "hands"], True),
+    ("read_mail", ["eyes", "hands"], True),
+    ("browse", [], True),
+    ("consume", ["hands"], False),
+    ("travel", ["eyes", "hands", "idle", "travel"], False),
+    ("chat", ["ears", "voice"], False),
+    ("wait", ["device", "internet", "phone"], False),
+])
+def test_digital_interaction_follows_activity_type_regardless_of_claim_names(
+    evaluation_fixture, activity_type, claims, digital,
+) -> None:
+    """数字交互只按活动类型判定（工作、观看、游戏、读信、浏览），与占用名无关：占用重列后播客只占 ears、
+    驾车也占 eyes 与 hands（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）；占用原样保留为来源通道。"""
+    scenario = load_scenario(evaluation_fixture.scenario_path)
+    delivery = VerifiedDelivery(
+        "world-run", "world-dataset", scenario.window, Path("events.jsonl"),
+        Path("activities.jsonl"), {}, {}, ("world-run",),
+    )
+    row, _ = _world_activity("world-run", 1, scenario.window.start + timedelta(hours=9))
+    row.update(activity_type=activity_type, resource_claims=claims)
+    if activity_type == "consume":
+        row["data"] = {"request": {"use_mode": "eat"}}
+
+    session = _adapt_world_activity(row, 1, delivery, scenario)
+
+    assert session.channels == (("digital_interaction",) if digital else ("physical_activity",))
+    assert session.duration_kind == ("world_internet_session" if digital else "world_activity")
+    assert ("internet_use" in session.official_domains) is digital
+    assert session.source_channels == tuple(sorted(claims))
+
+
+def test_start_items_follow_the_started_activity_kind_then_the_order_then_the_way() -> None:
+    """start_activity 逐项证据先按结果里实际开始的活动 kind 分类，其次按实际订单，最后才按所选方式在
+    方式闭集（WAYS）中的内部动作；三者都没有时不产生证据，不按动词或短语反解。"""
+    def requested(way: str, target: str, verb: str = "interact") -> dict[str, Any]:
+        return _public_event(1, "action_requested", {"tool_name": "start_activity", "request": {
+            "targets": [target], "actions": [verb], "ways": [way]}}, "start-action")
+
+    rejected = _public_event(2, "action_result", {
+        "status": "rejected", "error_code": "RESOURCE_CONFLICT", "data": {}}, "start-action")
+    started = _public_event(2, "action_result", {"status": "in_progress", "data": {"activity": {
+        "kind": "watch", "status": "active", "target_id": "feed-private", "data": {}}}}, "start-action")
+    ordered = _public_event(2, "action_result", {"status": "completed", "data": {"orders": [
+        {"order_id": "order-private", "status": "pending", "fulfillment": "pickup"}]}}, "start-action")
+
+    def shapes(events: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
+        return [(item.category, item.interaction, item.state, item.object_key)
+                for item in worldmock_public_evidence(events, [], {})]
+
+    assert shapes([requested("随便看看", "内容：新闻"), started]) == [
+        ("entertainment", "view", "requested", "feed-private"),
+        ("entertainment", "view", "started", "feed-private")]
+    assert shapes([requested("买一份", "商店出售的午餐", "obtain"), ordered]) == [
+        ("purchase", "order", "requested", "order-private"),
+        ("purchase", "order", "pending", "order-private")]
+    assert shapes([requested("从头再看", "内容：影片"), rejected]) == [
+        ("entertainment", "view", "requested", "内容：影片"),
+        ("entertainment", "view", "rejected", "内容：影片")]
+    assert shapes([requested("随便看看", "内容：影片"), rejected]) == []
+
+
 def test_purchase_payment_uses_canonical_resource_changes_and_preserves_actual_states() -> None:
     request = _public_event(1, "action_requested", {
         "tool_name": "start_activity",
-        "request": {"targets": ["商店出售的午餐"], "actions": ["配送到当前位置"]},
+        "request": {"targets": ["商店出售的午餐"], "actions": ["obtain"], "ways": ["远程下单"]},
     }, "purchase-action")
     result_data = {
         "status": "completed",
@@ -290,11 +360,11 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         }, "pause-action", "activity-private"),
         _public_event(5, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["游戏：拼图"], "actions": ["游玩"]},
+            "request": {"targets": ["游戏：拼图"], "actions": ["interact"], "ways": ["游玩"]},
         }, "game-action"),
         _public_event(6, "action_result", {
             "status": "in_progress", "data": {"activity": {
-                "status": "active", "target_id": "game-private", "data": {}}},
+                "kind": "play_game", "status": "active", "target_id": "game-private", "data": {}}},
         }, "game-action"),
     ]
 
@@ -311,7 +381,7 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
     terminal = list(events)
     terminal[-1] = _public_event(6, "action_result", {
         "status": "completed", "data": {"activity": {
-            "status": "completed", "target_id": "game-private", "data": {}}},
+            "kind": "play_game", "status": "completed", "target_id": "game-private", "data": {}}},
     }, "game-action")
     terminal_states = worldmock_public_evidence(terminal, [activity], {"browse": "browsing"})
     assert ("play", "completed") in {(item.interaction, item.state) for item in terminal_states}
@@ -324,11 +394,11 @@ def test_mail_and_work_deadline_keep_public_facts_without_raw_text_or_failure_in
         }),
         _public_event(2, "action_requested", {
             "tool_name": "start_activity",
-            "request": {"targets": ["邮件：未读通知"], "actions": ["阅读"]},
+            "request": {"targets": ["邮件：未读通知"], "actions": ["interact"], "ways": ["阅读"]},
         }, "mail-action"),
         _public_event(3, "action_result", {
             "status": "completed",
-            "data": {"activity": {"status": "completed", "target_id": "message-private",
+            "data": {"activity": {"kind": "read_mail", "status": "completed", "target_id": "message-private",
                                    "data": {"revealed": {"body": "BODY_CANARY"}}}},
         }, "mail-action", "mail-activity"),
         _public_event(4, "action_requested", {
@@ -356,7 +426,8 @@ def test_parallel_travel_and_watch_project_two_actual_activities() -> None:
     """同一人物请求的两项动作分别依真实活动快照形成评估证据。"""
     requested = _public_event(1, "action_requested", {
         "tool_name": "start_activity",
-        "request": {"targets": ["地点：公园", "内容：新闻"], "actions": ["驾车前往", "观看"]},
+        "request": {"targets": ["地点：公园", "内容：新闻"], "actions": ["travel", "interact"],
+                    "ways": ["驾车", "接着看"]},
     }, "parallel-action")
     settled = _public_event(2, "action_result", {
         "status": "in_progress",

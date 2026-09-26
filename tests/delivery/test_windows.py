@@ -98,7 +98,8 @@ def test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cuto
     prior.update(action_id='prior-action', decision_id='prior-decision')
     observed = event('visible', 2, 'observation', {'recent_action_results': [result_summary(prior)]})
     requested = event('target', 3, 'action_requested', {
-        'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['等待']}})
+        'tool_name': 'start_activity',
+        'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}})
     requested['action_id'] = 'current-action'
     completed = event('current-result', 4, 'action_result', {'status': 'completed'})
     completed['action_id'] = 'current-action'
@@ -226,7 +227,7 @@ def _agent_action_drafts(agent_id, decision_id, action_id):
         EventDraft(event_type='action_requested', occurred_at=100, agent_id=agent_id,
                    decision_id=decision_id, action_id=action_id,
                    data={'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['等待']}}),
+                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}}),
         EventDraft(event_type='action_result', occurred_at=100, agent_id=agent_id,
                    decision_id=decision_id, action_id=action_id, data={'status': 'completed'}),
     ]

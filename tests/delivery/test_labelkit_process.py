@@ -312,7 +312,7 @@ def _current_record(directory):
     prompt['visibility'] = 'system'
     requested = _event('probe-future-request', 4, 'action_requested',
                         {'tool_name': 'start_activity',
-                         'request': {'targets': ['自己'], 'actions': ['等待']},
+                         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
                          'secret': 'future-request-canary'}, 'probe-action')
     accepted = _event('probe-future-accepted', 5, 'action_accepted',
                        {'status': 'submitted', 'secret': 'future-accepted-canary'}, 'probe-action')

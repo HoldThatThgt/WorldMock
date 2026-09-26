@@ -81,10 +81,11 @@ def _stage_final_interval(engine, seconds: int) -> None:
 
 
 def _wait_request(observation: dict) -> StartActivityRequest:
-    """@brief 从冻结观察选择人物实际可见的等待动作。"""
+    """@brief 从冻结观察选择人物实际可见的等待动作：「自己」对象的动词 interact 与方式「等待」。"""
     own = next(row for row in observation["interaction_bindings"] if row["kind"] == "self")
-    action = next(row["label"] for row in own["actions"] if row["canonical_action"] == "wait")
-    return StartActivityRequest(targets=[own["object"]], actions=[action])
+    action = next(row for row in own["actions"] if row["canonical_action"] == "wait")
+    assert (action["verb"], action["label"]) == ("interact", "等待")
+    return StartActivityRequest(targets=[own["object"]], actions=[action["verb"]], ways=[action["label"]])
 
 
 _MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"]}
@@ -272,8 +273,8 @@ def _named(observed: dict, activity_id: str) -> str:
 
 
 def _offered(observed: dict, action: str, mode: str | None = None) -> StartActivityRequest:
-    """@brief 从冻结观察选一个提供该动作的对象（出行按方式筛选）。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+    """@brief 从冻结观察选一个提供该动作的对象，照填其动词与方式（出行按方式筛选）。"""
+    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observed["interaction_bindings"] for offered in row["actions"]
                 if offered["canonical_action"] == action and (mode is None or offered.get("travel_mode") == mode))
 

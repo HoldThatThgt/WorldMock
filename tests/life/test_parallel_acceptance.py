@@ -5,15 +5,29 @@ from __future__ import annotations
 import pytest
 
 from tests.life.conftest import stage_day_plan
-from tests.life.test_parallel_activities import _advance_with_decisions, _start_pair
+from tests.life.test_parallel_activities import _advance_with_decisions, _start_pair, _start_pair_with_choices
+from worldmock.catalog.affordances import default_affordances
+
+#: 所选动作的内部标准动作 → 注册表活动类型（占用按类型声明，docs/dev/SPEC-time-and-energy.md 第五章占用表）。
+_KINDS = {"wait": "wait", "do": "lifestyle", "travel_to": "travel", "sleep": "sleep", "play": "play_game"}
+
+
+def _registry_claims(engine, choice: tuple[dict, dict]) -> frozenset[str]:
+    """@brief 所选动作按注册表重列的占用：观看按内容品类，出行按出行方式。"""
+    row, action = choice
+    view = default_affordances()
+    if action["canonical_action"] == "watch":
+        contents = {item.item_id: item for item in engine.scenario.contents}
+        return view.resource_claims("watch", content_kind=contents[row["object_id"]].kind)
+    return view.resource_claims(_KINDS[action["canonical_action"]], travel_mode=action["travel_mode"])
 
 
 @pytest.mark.parametrize("partner", ["wait", "do", "travel_to"])
 def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: str) -> None:
-    """观看与等待、生活方式或步行均可同轮启动，并保留独立身份。"""
+    """观看（眼睛、耳朵）与等待（idle）、生活活动（手）或步行（出行、idle）的占用不相交，可同轮启动并保留独立身份。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    result = _start_pair(engine, "watch", partner, f"watch-{partner}")
+    result, choices = _start_pair_with_choices(engine, "watch", partner, f"watch-{partner}")
     assert result.status == "in_progress", result.error_code
     activities = [item for item in engine.state.activities.values()
                   if item.origin_action_id == result.action_id]
@@ -21,17 +35,28 @@ def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: 
     assert len({item.activity_id for item in activities}) == 2
     assert all(item.status == "active" for item in activities)
     assert len(result.data["activities"]) == 2
+    watch, other = (_registry_claims(engine, choice) for choice in choices)
+    assert watch == {"eyes", "ears"} and not watch & other
+    assert {frozenset(item.resource_claims) for item in activities} == {watch, other}
 
 
-@pytest.mark.parametrize("partner", ["sleep", "play"])
-def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, partner: str) -> None:
-    """注意力或位置冲突拒绝整组，不留下首项活动；会话只剩运行开始的停留会话且未改动（第七章）。"""
+@pytest.mark.parametrize(("partner", "overlap"), [pytest.param("sleep", {"eyes", "ears"}, id="sleep"),
+                                                  pytest.param("play", {"eyes"}, id="play")])
+def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, partner: str, overlap: set[str]) -> None:
+    """观看与睡眠（全部占用）或游戏（眼睛、手）的注册表占用相交：整组以 RESOURCE_CONFLICT 拒绝并写明原因与下一步，
+    不留下首项活动；会话只剩运行开始的停留会话且未改动（第五章「并行准入」、第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.model_dump(mode="json")
-    result = _start_pair(engine, "watch", partner, f"watch-{partner}-conflict")
+    result, choices = _start_pair_with_choices(engine, "watch", partner, f"watch-{partner}-conflict")
     assert result.status == "rejected"
     assert result.error_code == "RESOURCE_CONFLICT"
+    watch, other = (_registry_claims(engine, choice) for choice in choices)
+    assert watch & other == overlap
+    names = [f"{action['label']}{row['object'].partition('：')[2]}" for row, action in choices]
+    assert result.data["reason"] == f"{names[0]}和{names[1]}不能同时进行"
+    assert result.data["next_step"] == "一次只选其中一件"
+    assert result.data["unmet"] == ["resource_claims"]
     assert engine.state.activities == {}
     sessions = list(engine.state.sessions.values())
     assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]

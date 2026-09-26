@@ -4,10 +4,9 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import advance_next, context, start_activity
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.engine import AFFORDANCE_CONTRACT_KEYS, affordance_contract
-from worldmock.life.models import StartActivityRequest
 
 
 def test_contract_shape_matches_registry_one_to_one() -> None:
@@ -43,9 +42,9 @@ def test_engine_contract_remains_frozen_across_decisions(engine_factory) -> None
     first = engine.observe(first_context)
     contract = first["affordance_contract"]
 
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
+    request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(first_context, "contract-wait", "start_activity", request))
-    engine.commit_decision_round("contract-first")
+    assert engine.commit_decision_round("contract-first")[0].status == "in_progress"
     advance_next(engine)
 
     next_context = context(engine, "contract-second")

@@ -24,6 +24,11 @@ from worldmock.life.settlement import settle_money_transfer
 if TYPE_CHECKING:
     from worldmock.life.semantics import ScenarioSemantics
 
+#: 开工的最短时长：距截止与剩余合同都不少于 60 秒（docs/dev/SPEC-time-and-energy.md 第八章「工作」）。
+WORK_START_MINIMUM_SECONDS = 60
+#: facts.tasks[].completion_outlook 的唯一取值，只在时长上界不足时出现。
+COMPLETION_OUTLOOK_SHORT = "到截止前做不完"
+
 
 @dataclass(frozen=True, slots=True)
 class WorkOutcome:
@@ -56,8 +61,11 @@ class WorkSubmission:
     source: str
 
 
-def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int) -> None:
-    """@brief 只有已可见、有效期内且技能合格、且在指定地点的工作才能开始。"""
+def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int, present_location: str | None) -> None:
+    """@brief 只有已可见、有效期内且技能合格、且人在指定地点（途中不算）的工作才能开始。
+
+    :param present_location: 人物的现场地点；有进行中出行（途中）时为 None。
+    """
     if task.task_id not in agent.visible_task_ids:
         raise BusinessRuleError("WORK_TASK_NOT_VISIBLE")
     if not _within(task, now):
@@ -65,10 +73,34 @@ def validate_work_start(agent: AgentState, task: WorkTaskConfig, now: int) -> No
     unmet = []
     if agent.skill_levels.get(task.required_skill, 0) < task.minimum_skill:
         unmet.append("required_skill")
-    if agent.location_id != task.required_location_id:
+    if present_location != task.required_location_id:
         unmet.append("required_location_id")
     if unmet:
         raise PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=unmet)
+
+
+def work_start_seconds(task: WorkTaskConfig, worked_seconds: int, now: int) -> int:
+    """@brief 开工的派生时长：剩余合同秒数、距截止秒数与活动上限 86400 秒中的最小值。"""
+    return min(task.maximum_duration_seconds - worked_seconds, int(task.due_at.timestamp()) - now, 86_400)
+
+
+def work_start_blocker(task: WorkTaskConfig, worked_seconds: int, now: int) -> str | None:
+    """@brief 开工条件「距截止与剩余合同都不少于 60 秒」不成立时的一句原因，成立时为 None（第八章「工作」）。"""
+    if int(task.due_at.timestamp()) - now < WORK_START_MINIMUM_SECONDS:
+        return "离截止不到一分钟，来不及开始"
+    if task.maximum_duration_seconds - worked_seconds < WORK_START_MINIMUM_SECONDS:
+        return "这项工作的合同工时只剩不到一分钟，来不及开始"
+    return None
+
+
+def completion_outlook(task: WorkTaskConfig, worked_seconds: int, effective_seconds: float, now: int) -> str | None:
+    """@brief 「到截止前做不完」：剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时给出，否则为 None。
+
+    按时长上界判定（有效秒数不超过实际做的秒数），不暴露效率。
+    """
+    needed = task.required_effective_seconds - effective_seconds
+    available = min(int(task.due_at.timestamp()) - now, task.maximum_duration_seconds - worked_seconds)
+    return COMPLETION_OUTLOOK_SHORT if needed > available else None
 
 
 def validate_work_duration(state: WorldState, task: WorkTaskConfig, agent_id: int,

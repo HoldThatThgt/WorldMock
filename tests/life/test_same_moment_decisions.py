@@ -25,6 +25,7 @@ from worldmock.life import same_moment
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.engine import LifeEngine
+from worldmock.life.interaction_menu import WAYS
 from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanGoalInput,
     ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
@@ -283,7 +284,7 @@ def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_f
         activity_name(engine, second.activity_id), summary="不等了。")).status == "completed"
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
-    watched = _act(engine, "resume-watch", "start_activity", start_activity("观看", "内容：Sintel"))
+    watched = _act(engine, "resume-watch", "start_activity", start_activity("接着看", "内容：Sintel"))
     assert watched.status == "in_progress"
 
 
@@ -636,15 +637,15 @@ def test_start_or_resume_schema_matches_engine_dispatch(engine_factory) -> None:
     opened = engine.observe(context(engine, "schema-open"))
     target, label = next((row["object"], action["label"]) for row in opened["interaction_bindings"]
                          for action in row["actions"] if action["canonical_action"] == "purchase")
-    assert label in dict(_start_enums(_prepare_agent(opened, context(engine, "x").observed_at)))["actions"]
+    assert label in dict(_start_enums(_prepare_agent(opened, context(engine, "x").observed_at)))["ways"]
     _reach_limit(engine)
     decision = context(engine, "schema-restricted")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     assert any(row["object"] == target for row in observed["interaction_bindings"])
     enums = dict(_start_enums(_prepare_agent(observed, decision.observed_at)))
-    assert target not in enums["targets"] and label not in enums["actions"]
-    assert "等待" in enums["actions"] and "自己" in enums["targets"]
+    assert target not in enums["targets"] and not {"到店", "远程下单"} & set(enums["ways"])
+    assert "等待" in enums["ways"] and "interact" in enums["actions"] and "自己" in enums["targets"]
     engine.submit_action(DirectToolCall(decision, "action-schema-bypass", "start_activity",
                                         start_activity(label, target)))
     result = engine.commit_decision_round("schema-restricted")[0]
@@ -653,11 +654,11 @@ def test_start_or_resume_schema_matches_engine_dispatch(engine_factory) -> None:
 
 
 def _start_enums(agent) -> list[tuple[str, list[str]]]:
-    """读取宿主实际发给模型的 start_activity 对象与动作枚举。"""
+    """读取宿主实际发给模型的 start_activity 对象、动词与方式枚举。"""
     start = next(item["function"] for item in agent.build_react_tool_schemas(readonly=False)
                  if item["function"]["name"] == "start_activity")
     properties = start["parameters"]["properties"]
-    return [(field, properties[field]["items"].get("enum", [])) for field in ("targets", "actions")]
+    return [(field, properties[field]["items"].get("enum", [])) for field in ("targets", "actions", "ways")]
 
 
 def _pick(observed: dict, canonical: str, *, kind: str | None = None, place: str | None = None) -> tuple[str, str]:
@@ -671,7 +672,8 @@ def _pick(observed: dict, canonical: str, *, kind: str | None = None, place: str
 def _start(engine: LifeEngine, name: str, *choices: tuple[str, str]) -> list[str]:
     """@brief 以可读对象与动作短语开始一到两项活动，返回开始的活动身份（按请求顺序）。"""
     started = _act(engine, name, "start_activity", StartActivityRequest(
-        targets=[item[0] for item in choices], actions=[item[1] for item in choices]))
+        targets=[item[0] for item in choices], actions=[WAYS[item[1]][0] for item in choices],
+        ways=[item[1] for item in choices]))
     assert started.status == "in_progress", started.error_code
     return [started.activity_id] if started.activity_id else [row["activity_id"] for row in started.data["activities"]]
 
@@ -1087,7 +1089,7 @@ def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factor
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     target, action = _content(engine, "unread-content")
-    both = StartActivityRequest(targets=["自己", target], actions=["等待", action])
+    both = StartActivityRequest(targets=["自己", target], actions=["interact", WAYS[action][0]], ways=["等待", action])
     submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))},
                  "unread-start")
     watch = next(item for item in active_activities(engine.state, 1) if item.kind == ActivityKind.WATCH)
@@ -1142,13 +1144,17 @@ def test_sleeping_recipient_is_not_woken_by_person_message(engine_factory) -> No
 
 
 def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
-    """交谈与等待整组开始被拒时，交谈邀请随整组撤回：对方收件箱不变，同秒与其后的边界都不以 message_arrival 唤醒对方。"""
+    """交谈与观看整组开始被拒（都占 ears，RESOURCE_CONFLICT）时，交谈邀请随整组撤回：对方收件箱不变，同秒与其后的
+    边界都不以 message_arrival 唤醒对方。"""
     engine = engine_factory("multi-person.json")
     now = _both_waiting(engine, woken=(1,))
     _act(engine, "paired-end-wait", *_end_wait(engine, 1))
     inbox = dict(engine.state.agents[2].inbox)
-    request = StartActivityRequest(targets=[_person_name(engine, 1, 2), "自己"], actions=["交谈", "等待"])
-    assert _act(engine, "paired-start", "start_activity", request).status == "rejected"
+    content, way = _content(engine, "paired-content")
+    request = StartActivityRequest(targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"],
+                                   ways=["交谈", way])
+    rejected = _act(engine, "paired-start", "start_activity", request)
+    assert rejected.status == "rejected" and rejected.error_code == "RESOURCE_CONFLICT"
     partner = engine.state.agents[2]
     assert partner.inbox == inbox and partner.next_decision_at > now and partner.pending_wake_reasons == []
     assert not [event for event in engine.store.read_agent_events("environment_event", 2)
@@ -1219,7 +1225,8 @@ def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory
 
 
 def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) -> None:
-    """本秒首轮回灌的浏览结果在同一秒后续各轮继续置顶且可选；进度层截止点前移后也不丢（「同一秒内的呈现」）。"""
+    """本秒首轮回灌的浏览结果在同一秒后续各轮继续置顶，动作与首轮相同（可选的仍可选，按世界事实没有取得方式的照常列出、
+    动作为空）；进度层截止点前移后也不丢（「同一秒内的呈现」、第五章「动作照常列出」）。"""
     from agentsociety2.agent.base import ModelCallEvidence
     from tests.life.test_commerce import _choice, _stage_open
 
@@ -1233,7 +1240,8 @@ def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) 
     pins = [row["supply_id"] for row in engine.state.activities[browse.activity_id].data["revealed"]["items"]]
     decision = context(engine, "pin-first")
     engine.begin_decision_round([decision])
-    order = _supply_order(engine.observe(decision))
+    first = engine.observe(decision)
+    order = _supply_order(first)
     shown = [pin for pin in pins if pin in order]
     assert shown and order[:len(shown)] == shown
     # 宿主本轮发出含进度层的请求：之后的观察不再从进度层回灌这次浏览结果。
@@ -1248,8 +1256,15 @@ def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) 
     assert not any("browse_result" in row["result"]["data"] for row in engine._recent_action_results(1))
     second, _ = _observed_act(engine, "pin-second", "start_activity", start_activity("等待", "自己"))
     assert _supply_order(second) == order
-    selectable = {row["object"]: row["actions"] for row in second["facts"]["interactive_objects"]}
-    assert all(selectable.get(row["object"]) for row in second["interaction_bindings"] if row["object_id"] in shown)
+
+    def pinned_actions(observed: dict) -> dict[str, list]:
+        """@brief 置顶浏览结果的公开动作（按可读对象名）。"""
+        public = {row["object"]: row["actions"] for row in observed["facts"]["interactive_objects"]}
+        return {row["object"]: public[row["object"]] for row in observed["interaction_bindings"]
+                if row["object_id"] in shown}
+
+    assert pinned_actions(second) == pinned_actions(first) and len(pinned_actions(second)) == len(shown)
+    assert any(pinned_actions(second).values())
 
 
 def test_two_agents_same_round_keep_their_presentation_stamps(engine_factory) -> None:
@@ -1282,3 +1297,112 @@ def test_presentation_staging_survives_reopen(engine_factory) -> None:
         assert second["facts"]["interactive_objects"] == first["facts"]["interactive_objects"]
     finally:
         restored.close()
+
+
+def _contact_message(observed: dict) -> SendMessageActionRequest:
+    """@brief 发给本轮可见的一位通讯录联系人的消息请求。"""
+    contact = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "contact")
+    return SendMessageActionRequest(recipient_name=contact, text="今天有空吗")
+
+
+def test_just_now_writes_the_previous_own_request_result_and_is_empty_in_first_rounds(engine_factory) -> None:
+    """同刻轮次的 scene.just_now 用一句中文写上一轮本人世界请求的公开结果：被拒绝写原因与下一步，消息写已送出，
+    其余受理写已受理；每秒首轮为空串，不含内部身份，并进入渲染后的场景（第一章「同一秒内的呈现与「刚才」」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    first, rejected = _observed_act(engine, "now-reject", "start_activity", start_activity("观看", "不存在的对象"))
+    assert first["scene"]["just_now"] == "" and rejected.status == "rejected"
+    second, sent = _observed_act(engine, "now-message", "send_message", _contact_message(first))
+    expected = f"刚才的请求没有成功：{rejected.data['reason']}；下一步：{rejected.data['next_step']}。"
+    assert second["scene"]["just_now"] == expected and expected in render_scene(second["scene"])
+    assert sent.status == "completed"
+    third, revised = _observed_act(engine, "now-revise", "revise_day_plan", ReviseDayPlanRequest(
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
+    assert third["scene"]["just_now"] == "刚才的消息已送出。" and revised.status == "completed"
+    fourth, waited = _observed_act(engine, "now-wait", "start_activity", start_activity("等待", "自己"))
+    assert fourth["scene"]["just_now"] == "刚才的请求已受理。" and waited.status == "in_progress"
+    for observed in (second, third, fourth):
+        assert "agent:" not in observed["scene"]["just_now"] and "activity-" not in observed["scene"]["just_now"]
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    later = engine.observe(context(engine, "now-next-second"))
+    assert later["scene"]["just_now"] == "" and engine.state.agents[1].same_moment_rounds == 0
+
+
+def test_just_now_names_the_order_after_a_purchase(engine_factory) -> None:
+    """购买是瞬时动作，同一秒的下一轮 just_now 写「刚才已下单：<商品名>」，不含供给或订单身份。"""
+    from tests.life.test_category_runtime import _stage_open_market
+
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _stage_open_market(engine)
+    observed = engine.observe(context(engine, "order-preview"))
+    row, action = next((row, action) for row in observed["interaction_bindings"] if row["kind"] == "supply"
+                       for action in row["actions"] if action["canonical_action"] == "purchase"
+                       and action["note"] is None)
+    bought = _act(engine, "order-buy", "start_activity", start_activity(action["label"], row["object"]))
+    assert bought.status == "completed", bought.error_code
+    after = engine.observe(context(engine, "order-after"))
+    product = next(item.name for item in engine.scenario.products
+                   if item.product_id == engine.rules.supplies[row["object_id"]].product_id)
+    assert after["scene"]["just_now"] == f"刚才已下单：{product}。"
+
+
+def test_partner_ended_chat_redecides_same_second_with_planned_end(engine_factory) -> None:
+    """交谈一方结束时，对方以其为伙伴的交谈在同一秒结束（completed，boundary_type 与 interruption_reason 都记
+    partner_ended）并成为待收尾；对方在同一秒获得机会，仍有其他进行中活动时本轮原因为 planned_end（第五章「交谈」，
+    第一章规则 6），收尾后照常继续。"""
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    submit_round(engine, {1: ("start_activity", start_activity("交谈", _person_name(engine, 1, 2))),
+                          2: ("start_activity", start_activity("等待", "自己"))}, "partner-invite")
+    assert engine.scheduling_state().ready_agent_ids == (2,)
+    submit_round(engine, {2: ("start_activity", start_activity("交谈", _person_name(engine, 2, 1)))}, "partner-accept")
+    chats = {item.agent_id: item for item in engine.state.activities.values() if item.kind == ActivityKind.CHAT}
+    assert chats[2].status == ActivityStatus.ACTIVE and chats[2].planned_end_at == chats[1].planned_end_at
+    wake_by_mail(engine, agent_id=1, offset=60)
+    assert advance_until_ready(engine) and engine.scheduling_state().ready_agent_ids == (1,)
+    ended_at = engine.state.current_time
+    _act(engine, "partner-end", "conclude_activity", conclude_request(activity_name(engine, chats[1].activity_id)))
+    partner = engine.state.activities[chats[2].activity_id]
+    assert partner.status == ActivityStatus.COMPLETED and partner.ended_at == ended_at
+    assert partner.boundary_type == partner.interruption_reason == "partner_ended"
+    agent = engine.state.agents[2]
+    assert agent.next_decision_at == ended_at and agent.pending_wake_reasons == ["planned_end"]
+    assert set(engine.scheduling_state().ready_agent_ids) == {1, 2}
+    names = pending_names(engine.observe(context(engine, "partner-pending", 2)))
+    assert names == [activity_name(engine, partner.activity_id)]
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
+                          2: ("conclude_activity", conclude_request(*names))}, "partner-conclude")
+    assert _decision_reasons(engine, 2)[-1] == ["planned_end"]
+    assert engine.state.activities[partner.activity_id].concluded_at == ended_at
+    assert not pending_conclusions(engine.state, 2) and active_activities(engine.state, 2)
+
+
+def test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion(engine_factory) -> None:
+    """对方在同刻上限之后才同秒结束交谈时，本人的新待收尾按规则 3 的阶梯从收尾一支重新开始（conclude_pending），
+    同一秒另加的轮数不超过三轮，收尾不被业务拒绝（第一章规则 3、第五章「交谈」）。"""
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    submit_round(engine, {1: ("start_activity", start_activity("交谈", _person_name(engine, 1, 2))),
+                          2: ("start_activity", start_activity("等待", "自己"))}, "ladder-invite")
+    submit_round(engine, {2: ("start_activity", start_activity("交谈", _person_name(engine, 2, 1)))}, "ladder-accept")
+    chats = {item.agent_id: item for item in engine.state.activities.values() if item.kind == ActivityKind.CHAT}
+    wake_by_mail(engine, agent_id=1, offset=60)
+    assert advance_until_ready(engine) and engine.scheduling_state().ready_agent_ids == (1,)
+    moment = engine.state.current_time
+    limit = engine.scenario.max_same_moment_decisions
+    _stage_agent(engine, 2, same_moment_rounds=limit)
+    _act(engine, "ladder-end", "conclude_activity", conclude_request(activity_name(engine, chats[1].activity_id)))
+    partner = engine.state.agents[2]
+    assert partner.same_moment_stage == SameMomentStage.CONCLUDE_PENDING and partner.next_decision_at == moment
+    observed = engine.observe(context(engine, "ladder-pending", 2))
+    assert observed["same_moment_stage"] == "conclude_pending"
+    names = pending_names(observed)
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")),
+                                       2: ("conclude_activity", conclude_request(*names))}, "ladder-conclude")
+    assert all(result.status in {"completed", "in_progress"} for result in results)
+    assert not pending_conclusions(engine.state, 2) and 2 not in engine.scheduling_state().ready_agent_ids
+    assert engine.state.agents[2].same_moment_rounds <= limit + 3

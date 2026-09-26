@@ -100,7 +100,8 @@ class PoolEntry:
                               minimum_seconds=self.minimum_seconds,
                               maximum_seconds=self.maximum_seconds,
                               stock=self.stock, retired=self.retired,
-                              enabled=self.enabled, bucket=self.bucket, met=self.met)
+                              enabled=self.enabled, bucket=self.bucket, met=self.met,
+                              content_kind=self.category if self.kind == "content" else None)
 
 
 @dataclass(frozen=True, slots=True)

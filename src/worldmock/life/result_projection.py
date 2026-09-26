@@ -51,6 +51,14 @@ def public_action_result(row: dict[str, Any]) -> dict[str, Any]:
     if "recall" in data:
         # 回看结果由处理器以名称与人读时长写成，不含内部身份，原样进入下一次观察的 details.recall。
         result["recall"] = data["recall"]
+    for key in ("reason", "next_step"):
+        # 业务拒绝的公开原因与下一步由 life.guidance 确定性生成，只含可读名称。
+        if key in data:
+            result[key] = data[key]
+    if row["status"] == "in_progress":
+        started = [data["activity"]] if "activity" in data else data.get("activities", [])
+        result["planned"] = [{"name": item.get("name"), "planned_seconds": item["planned_duration_seconds"]}
+                             for item in started]
     return result
 
 

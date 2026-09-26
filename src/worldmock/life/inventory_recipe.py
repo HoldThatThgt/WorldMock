@@ -8,9 +8,10 @@ import logging
 import math
 from typing import Any, Mapping
 
-from worldmock.categories import Action, CategoryError, InventoryTransformRule, scale_inventory_recipe
+from worldmock.categories import (Action, CategoryError, InventoryTransformRule, PairingState,
+                                  scale_inventory_recipe)
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life.category_contract import RuntimeCategoryRule, require_runtime_rule
+from worldmock.life.category_contract import PERSON_CATEGORY_ID, RuntimeCategoryRule, require_runtime_rule
 from worldmock.life.models import ActivityState, AgentState, ConsumeRequest
 from worldmock.life.scenario import InventoryItemConfig
 from worldmock.resources import ConvertEntry, ResourceLedger, ResourceLedgerError, ResourceMeta
@@ -64,6 +65,23 @@ class InventoryRecipePlan:
             )
         except (InvalidOperation, KeyError, ValueError) as error:
             raise IntegrityError("Inventory recipe activity payload is invalid") from error
+
+
+def is_inventory_recipe(catalog: Any, product: InventoryItemConfig) -> bool:
+    """@brief 物品的 consume:use 规则是否为库存转换配方（与 prepare_inventory_recipe 同一判据）。
+
+    是则交互对象层列动词 obtain 的方式「制作」，否则列 consume 的「使用」（docs/dev/SPEC-time-and-energy.md 第五章
+    「请求形状与菜单」）；不支持使用方式或没有已定义 consume:use 配对的物品不是配方。只读配对，不抛业务拒绝。
+    """
+    if "use" not in product.use_modes:
+        return False
+    try:
+        resolution = catalog.pairing(PERSON_CATEGORY_ID, product.category_id, Action("consume:use"))
+    except CategoryError as error:
+        raise IntegrityError(f"Runtime category pairing failed: {error.code}") from error
+    if resolution.state != PairingState.DEFINED or resolution.rule_id is None:
+        return False
+    return isinstance(catalog.exchange_rules.require(resolution.rule_id), InventoryTransformRule)
 
 
 def prepare_inventory_recipe(

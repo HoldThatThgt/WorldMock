@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.9
+> **版本**：v1.10
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -138,7 +138,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `agent_id` | int | 是 | 人物 ID，gt=0 |
 | `name` | str | 是 | 姓名 |
-| `location_id` | str | 是 | 当前位置 ID |
+| `location_id` | str | 是 | 当前位置 ID；出行中仍为出发地（路线身份与菜单解析用），现场资格按进行中的出行判定为途中 |
 | `balance_account_id` | str | 是 | 账户 ID |
 | `skill_levels` | dict[str, float] | 是 | 技能等级 |
 | `taste_weights` | dict[str, float] | 是 | 口味权重 |
@@ -167,7 +167,8 @@ flowchart TB
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
 活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（终态且 `concluded_at` 为空）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
 观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
-每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量。
+每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量；占用名按[时间与能量规格](../dev/SPEC-time-and-energy.md)
+第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`。
 事实窗口 `verified_experiences` 由截止前已提交事件确定；记录格式与共同身体结算引用由
 [记录引擎](05-recording-engine.md)定义，人物自述不得写入该事实窗口。
 超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，
@@ -219,12 +220,12 @@ flowchart TB
 | `destination_id` | str \| None | 否 | 目的地 ID |
 | `travel_mode` | TravelMode \| None | 否 | 出行方式 |
 | `playback_speed` | float | 是 | 播放速度，[0.5, 2] |
-| `resource_claims` | set[str] | 是 | 资源占用 |
+| `resource_claims` | set[str] | 是 | 资源占用，取第五章占用名（`idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`）；观看另按 `data.content_kind`（播客只占 `ears`），恢复时按注册表核对 |
 | `origin_action_id` | str | 是 | 源动作 ID |
 | `origin_decision_id` | str | 是 | 源决策 ID |
 | `origin_request_event_id` | str | 是 | 源请求事件 ID |
-| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
-| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`plan_reminder` |
+| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`partner_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
+| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`partner_ended`（交谈对方结束，本人交谈同秒结束）、`plan_reminder` |
 | `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
 | `data` | dict | 是 | 活动数据 |
 | `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
@@ -314,4 +315,5 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.6 | 2026-09-25 | 按时间与能量规格阶段 1：AgentState 的 `next_decision_at` 注明等于当前时刻即同一秒再决策，`consecutive_rejections` 只作挫败感输入；增 `same_moment_rounds`、`same_moment_stage` 与 `pending_wake_reasons`（同刻轮次按本轮替换；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`）；WorldState 增按人物暂存的本秒呈现留痕 `same_moment_presentation`（同一秒沿用首轮窗口，时钟推进时并入 `presentation_state`） |
 | v1.7 | 2026-09-25 | 按时间与能量规格阶段 2（第二章与第八章「呈现」）：`facts.products` 按可读名称公开，食品带每份热量 `energy`，配送写人读送达时刻 `delivery_eta` |
 | v1.8 | 2026-09-25 | 按时间与能量规格阶段 3：WorldState 增 `sessions` 与 `SessionState` 字段表（地点停留或一段路，系统随出发与到达开始和结束）；AgentState 注明每人两个名额（进行中、暂停与待收尾各占一个）与待收尾控制行；ActivityState 补 `next_interaction_at`、`concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述字段，`boundary_type`、`interruption_reason` 列出取值（加 `route_ended`），注明进度随结算累加 |
-| v1.9 | 2026-09-25 | 按时间与能量规格阶段 5：AgentState 的 `day_plan` 注明由零点计划生成，目标带提醒 `remind_at`、`reminded_at`，增 `plan_submitted_dates` 行（零点计划的幂等键，既有字段）；ActivityState 的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；供给行改为提示不用增量引用，有变化时写完整行 |
+| v1.9 | 2026-09-25 | 按时间与能量规格阶段 4：AgentState 的 `location_id` 注明出行中仍为出发地、现场资格按途中判定；`occupied_resources` 与 ActivityState 的 `resource_claims` 取第五章重列的占用名（观看按内容品类）；`boundary_type`、`interruption_reason` 加 `partner_ended` |
+| v1.10 | 2026-09-25 | 按时间与能量规格阶段 5：AgentState 的 `day_plan` 注明由零点计划生成，目标带提醒 `remind_at`、`reminded_at`，增 `plan_submitted_dates` 行（零点计划的幂等键，既有字段）；ActivityState 的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；供给行改为提示不用增量引用，有变化时写完整行 |

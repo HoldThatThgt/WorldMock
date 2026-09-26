@@ -41,6 +41,7 @@ from tests.integration.test_life_agent_protocol import (
     _StepDispatcher,
     _StepEnvironment,
     _WAIT,
+    _WAIT_CHOICE,
     _WORK,
     _conclude_args,
     _create_step_workspace,
@@ -126,7 +127,7 @@ async def test_registered_world_request_ends_the_decision_and_memory_queries_do_
         _ModelResponse("call-finish", "finish", json.dumps({"memories": []})),
         _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
         _ModelResponse("call-conclude", "conclude_activity", json.dumps(conclusion, ensure_ascii=False)),
-        _ModelResponse("call-never-requested", "start_activity", '{"targets":["自己"],"actions":["等待"]}'),
+        _ModelResponse("call-never-requested", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False)),
     ])
     environment = _Environment()
     agent = LifeAgent()
@@ -152,9 +153,8 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
     second = _memory("下次要早点动笔。", kind="goal", importance=0.4, keywords=("写作", "计划"))
     third = _memory("等人的时候心里有点急。", kind="conflict", importance=0.3)
     conclusion = _conclude_args(_WORK, _WAIT, memories=[[first, second], [third]])
-    wait = {"targets": ["自己"], "actions": ["等待"]}
     written = []
-    for tool, arguments in (("conclude_activity", conclusion), ("start_activity", wait)):
+    for tool, arguments in (("conclude_activity", conclusion), ("start_activity", _WAIT_CHOICE)):
         dispatcher = _GroundedCorrectionDispatcher(responses=[
             _ModelResponse("call-action", tool, json.dumps(arguments, ensure_ascii=False))])
         agent = LifeAgent()
@@ -320,9 +320,9 @@ def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, Lif
     engine = engine_factory()
     stage_day_plan(engine)
     shown = engine._observation_data(engine.state.agents[1])
-    content = next(row["object"] for row in shown["interaction_bindings"]
-                   if row["kind"] == "content" and any(item["label"] == "观看" for item in row["actions"]))
-    watch = _settle(engine, "watch", "start_activity", start_activity("观看", content))
+    content, way = next((row["object"], item["label"]) for row in shown["interaction_bindings"]
+                        if row["kind"] == "content" for item in row["actions"] if item["canonical_action"] == "watch")
+    watch = _settle(engine, "watch", "start_activity", start_activity(way, content))
     wake_by_mail(engine, offset=300)
     assert advance_until_ready(engine)
     watch_name = activity_name(engine, watch.activity_id)

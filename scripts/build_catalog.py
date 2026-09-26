@@ -3,7 +3,8 @@
 @file build_catalog.py
 @note 输入为已冻结的场景快照、食品白名单、原始食品记录及语料；不读取 scenarios/。
       正式输出为 5 个资源、163 个对象（121 食品、30 正餐、8 耐用品、1 服务、3 合同）
-      与绑定品类契约、闭集交换规则和世界素材品类要求的 4.0 目录清单。
+      与绑定品类契约、闭集交换规则和世界素材品类要求的 4.1 目录清单；
+      全部输出以 LF 换行写出，目录内容摘要与检出方式无关（.gitattributes 的 catalog/** eol=lf）。
       数值来源必须逐项覆盖；生成器不执行任意文本公式。
 
 品类契约、交换规则、数值出行时长、其他规则与可供性声明由审核后的维护流程管理。
@@ -852,10 +853,10 @@ def build_objects(data: dict) -> list[dict]:
 
 
 def manifest_base() -> dict:
-    """@brief 构造不含内容摘要的 4.0 清单声明。"""
+    """@brief 构造不含内容摘要的 4.1 清单声明。"""
     return {
         "version_major": 4,
-        "version_minor": 0,
+        "version_minor": 1,
         "category_requirements": CATEGORY_REQUIREMENTS,
     }
 
@@ -872,10 +873,10 @@ def staged_manifest(outputs: dict[str, str]) -> str:
         for relative, content in outputs.items():
             target = staged / relative.removeprefix("catalog/")
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(content, encoding="utf-8", newline="\n")
         manifest = staged / "manifest.json"
         manifest.write_text(
-            json.dumps(manifest_base(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            json.dumps(manifest_base(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
         refresh_manifest_identity(staged)
         return manifest.read_text(encoding="utf-8")
 
@@ -975,7 +976,7 @@ def main(argv: list[str]) -> int:
             status.append(f"OK    {relative} (byte-identical)")
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
+            target.write_text(content, encoding="utf-8", newline="\n")
             status.append(f"WROTE {relative} ({len(content.splitlines())} lines)")
     for line in status:
         print(line)

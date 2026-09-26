@@ -13,7 +13,7 @@
 | 世界 | `simulation_time`, `locations`, `weather`, `corpus_version`, `calendar`, `scheduled_events` | 环境规则 |
 | 人物身体 | `available_energy_kcal`, `sleep_deficit_hours`, `entertainment_need`, `recent_activities`, `physiological_state` | 时间推进、进食、睡眠和活动结算 |
 | 人物资产 | `account_balance`, `inventory`, `consumables_count`, `access_rights` | 交易、交付、使用与合同结算 |
-| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`）；活动名额为常量 2（进行中、暂停中与待收尾的活动各占一个，`conclude_activity` 之后释放） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
+| 人物活动 | `activity_type`, `start_time`, `progress`, `next_decision_time`, `occupied_resources`（占用名为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`，按[时间与能量规格](dev/SPEC-time-and-energy.md)第五章「并行准入」由注册表声明）, `pause_reason`, `end_reason`, `same_moment_rounds`（本秒已进行的决策轮数）, `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`）；活动名额为常量 2（进行中、暂停中与待收尾的活动各占一个，`conclude_activity` 之后释放） | 人物申请，环境验证并执行；同刻计数与受限轮阶段由环境随决策轮与时钟推进维护 |
 | 地点会话 | `sessions`：一段地点停留或两地之间的一段路（`kind` 取 `stay`、`transit`，`status` 取 `active`、`ended`），名称为地点或路段加开始时刻，例如「在家（1月5日 00:00 起）」「去张江办公室的路上（1月5日 14:17 起）」 | 环境随出发与到达开始和结束；人物不手动开始或结束会话 |
 | 工作 | `task`, `materials`, `deadline`, `deliverable`, `review_result`, `contract`, `payment_status` | 任务来源、人物交付与独立验收规则 |
 | 内容接触 | `visible_catalog`, `read_emails`, `played_segments`, `game_state`, `material_ranges` | 实际接触行为与内容提供过程 |
@@ -50,13 +50,13 @@ AS2 的环境扫描要求自定义环境类直接定义在 `custom/envs/*.py`；
 所有模型生活工具经 `submit_action(call)` 统一登记，宿主附加 `agent_id`、`decision_id`、`action_id`、
 观察版本与本轮顺序；这些上下文由 runner 与路由绑定，不出现在模型可填写的参数中。
 工具 Schema 由对应请求模型直接生成，全部字段必填，数组数量边界由本地校验器执行，不能静默截取。
-模型只看人类可理解且能唯一定位的对象名称与动作短语；本轮私有 `interaction_bindings` 将它们绑定到内部身份、
-标准动作、出行方式与冻结报价，绝不进入模型提示。LifeEnv 不为每个模型工具另建同名 RPC 方法。
+模型只看人类可理解且能唯一定位的对象名称、五个动词与方式；本轮私有 `interaction_bindings` 将（对象，动词，方式）
+绑定到内部身份、标准动作、出行方式、履约方式与冻结报价，绝不进入模型提示。LifeEnv 不为每个模型工具另建同名 RPC 方法。
 
 | 工具 | 参数 | 返回 |
 | --- | --- | --- |
 | `observe` | `context` (宿主只读 RPC) | 当前可见状态、已到达通知和已完成的内容接触结果 |
-| `start_activity` | `targets: list[str]`、`actions: list[str]`（等长一至二项，逐项为可读对象名称与动作短语） | 一次登记逐项启动活动；系统按冻结绑定决定领域请求及其结算参数，整组原子受理 |
+| `start_activity` | `targets: list[str]`、`actions: list[str]`、`ways: list[str]`（三个数组等长一至二项，逐项对应；`actions[i]` 取 `travel`、`interact`、`obtain`、`consume`、`sleep`，`ways[i]` 取 `targets[i]` 本轮列出的方式短语） | 一次登记逐项启动活动；系统按冻结绑定把（对象，动词，方式）映射为内部标准动作与结算参数，整组按第五章准入原子受理 |
 | `recall_task_summary` | `task_name`（可读任务、当日目标、活动或会话名；会话名为地点加开始时刻） | 只读回看本人进度，不修改世界；结果在下一次观察的 `facts.progress.results[].details.recall` 中呈现 |
 | `report_status` | `task: list[str]`, `summary: list[str]`（等长一至两项，逐项点名活动） | 逐项播报进行中活动的进展；点名暂停的活动即在其开始地点恢复它；关联当日目标同步记录各自自述 |
 | `pause_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项，逐项点名进行中活动） | 逐项写自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停；关联当日目标同步记录各自自述 |
@@ -79,8 +79,10 @@ InteractionMenu = {
 ```
 
 数组非空、无重复且只接受非空白字符串，菜单对象不接受未知字段。
-`allowed_actions` 的闭集是 `START_ACTIVITY_ACTIONS`；其中 `wait`、`sleep` 必须存在，
-保证人物在每个地点都能等待与睡觉。场景地点类缺项或多项、人物字段缺失、未知名称、
+`allowed_actions` 的闭集是 `START_ACTIVITY_ACTIONS`：它是内部标准动作，不是人物词表，场景文件不改；
+人物所选（对象，动词，方式）经本轮私有绑定映射为内部动作后按菜单判定（[时间与能量规格](dev/SPEC-time-and-energy.md)
+第五章「请求形状与菜单」）。其中 `wait`、`sleep` 必须存在，保证人物在每个地点都能等待与睡觉；二者分别对应动词
+`interact` 的「自己」对象（方式「等待」）与动词 `sleep`。场景地点类缺项或多项、人物字段缺失、未知名称、
 错误类型、重复、空数组或缺少保护动作均拒绝加载。
 
 八个模型工具名由 `REQUEST_MODELS` 固定，地点菜单不剪裁工具，只收窄 `start_activity`
@@ -211,7 +213,7 @@ flowchart LR
 
 | 模型请求 | 结算时的关键检查 |
 | --- | --- |
-| `start_activity` | 对象名称与动作必须在同一冻结观察中唯一匹配；按绑定解析内部身份、方式与报价，检查当前菜单、名额（进行中、暂停中与待收尾的活动各占一个，常量 2）、位置、资源及领域条件，能量不参与；多目标整体接受或拒绝 |
+| `start_activity` | 对象名称、动词与方式必须在同一冻结观察中唯一匹配；按绑定解析内部身份、标准动作、方式与报价，依次检查当前菜单（按映射后的内部动作）、名额（进行中、暂停中与待收尾的活动各占一个，常量 2）、目标在场与实际地点、出行方式、注册表占用、物品状态及其余领域条件，能量不参与；多条不成立时报第一条，结果与组内先后无关；多目标整体接受或拒绝 |
 | `recall_task_summary` | 名称唯一对应本人可回看的任务、当日目标、活动或会话（会话名为地点加开始时刻）；只读，不修改世界 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task[]` 中每个名称唯一对应本人进行中、暂停中或待收尾的活动（活动名为「做什么＋对象＋开始时刻」），数组等长且一至两项（`conclude_activity` 的 `task`、`summary`、`memories` 三数组等长）；所有状态转换先验证再原子更新，自述另标未经核验 |
 | `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审；被提交的任务本身不在进行中（否则 `WORK_TASK_IN_PROGRESS`） |
@@ -219,7 +221,9 @@ flowchart LR
 | `revise_day_plan` | 目标数量、文字、保留已推进目标与领域约束符合当日目标合同；`remind_time` 格式不合法报 `ACTION_REQUEST_INVALID`，新登记或改了提醒的条目换算后须晚于修订时刻、早于次日零点，否则报 `PLAN_REMIND_TIME_INVALID` |
 
 出行、购买、消费、内容、社交和生活活动的内部领域请求仍按各自规则检查精确时长、数量、
-报价、余额和占用；模型请求不含这些计算值。系统展示可比较的报价和预计时间，
+报价、余额和占用（占用名按[时间与能量规格](dev/SPEC-time-and-energy.md)第五章「并行准入」重列）；模型请求不含这些计算值。
+观看、游戏内容与生活活动的派生时长超过 86400 秒时按 86400 秒受理，并在受理结果写明计划时长（下一次观察的
+`facts.progress.results[].details.planned`）；出行超限仍以 `ROUTE_DURATION_INVALID` 拒绝。系统展示可比较的报价和预计时间，
 结算使用当轮冻结报价与权威状态。报价变化或竞争导致的实际不可行性以具体业务拒绝返回，
 不让模型根据提示中的取整文字回填精确秒数。
 
@@ -229,14 +233,21 @@ flowchart LR
 
 | 错误码 | 触发条件 |
 | --- | --- |
+| `ACTIVITY_DURATION_INVALID` | 非出行活动的派生时长不足 60 秒：开工时距截止或剩余合同不足 60 秒（原因「离截止不到一分钟，来不及开始」，下一步「提交已完成的部分」）、进食时长越出 60–14400 秒；观看、游戏内容与生活活动超过 86400 秒按 86400 秒受理，不以此拒绝 |
+| `ROUTE_DURATION_INVALID` | 出行的派生时长越出 1–86400 秒 |
 | `WORK_TASK_IN_PROGRESS` | `submit_work` 提交的任务本人正在做（有以它为目标的进行中工作活动）；评审准备与结算共用这一判定，不调用评审模型。做别的任务时提交已达标的任务照常评审与付款 |
 | `SAME_MOMENT_ACTION_RESTRICTED` | 达到同刻上限后的受限轮中，请求不属于本轮开放的动作类；只在绕过本地校验时出现；计入同刻轮数 |
-| `SESSION_LIMIT_EXCEEDED` | 名额超限：进行中、暂停中与待收尾的活动已占满两个名额（或本次开始的活动放不下），原因中点名占名额的活动：占满时提示先结束一项，只剩一个名额却要同时开始两项时说明只剩一个名额、不能同时开始两项；两个名额都被暂停活动占满时选择出行同样以此拒绝 |
-| `ACTIVITY_PRECONDITION_UNMET` | 前置条件未满足，附 `unmet` 与 `suggested`：需要在某地；出发前仍有进行中活动（点名要先结束或暂停的活动）；暂停的活动在开始地点以外恢复（点名该地点，人在别处可以直接结束它） |
+| `SESSION_LIMIT_EXCEEDED` | 名额超限：进行中、暂停中与待收尾的活动已占满两个名额（或本次开始的活动放不下），原因中点名占名额的活动并提示先结束一项：占满时说两件事都在做、先结束一件，只剩一个名额却要同时开始两项时说明只剩一个名额、不能同时开始两项；两个名额都被暂停活动占满时选择出行同样以此拒绝 |
+| `ACTIVITY_PRECONDITION_UNMET` | 前置条件未满足，附 `unmet` 与 `suggested`（可读名称，不含身份）：需要在某地（办公室工作、到店取得、当面交谈、限地点使用；途中与同一请求出发都不算在场）；出发前仍有进行中活动（点名要先结束或暂停的活动）；暂停的活动在开始地点以外恢复（点名该地点，人在别处可以直接结束它）；驾车时需要手动操作的瞬时动作（发消息、远程下单、提交成果） |
 | `ACTIVITY_CONCLUSION_REQUIRED` | 有刚结束、待收尾的活动时做别的事（包括只结束其他活动）；原因为「先给刚结束的某事收尾」，点名待收尾活动 |
 | `ACTIVITY_PAUSE_UNAVAILABLE` | 暂停路上的活动（回不到那段路）；可以直接结束。交谈、通话沿用 `SOCIAL_ACTIVITY_CANNOT_PAUSE` |
 
-`start_activity` 的数组不合法、`targets` 与 `actions` 不等长或目标重复，报 `ACTION_REQUEST_INVALID`。
+`start_activity` 的数组不合法、`targets`、`actions`、`ways` 不等长、目标重复，或（对象，动词，方式）映射不唯一、
+不在本轮闭集中，报 `ACTION_REQUEST_INVALID`。每次业务拒绝的结果 `data` 另带 `reason`（一句中文原因）与 `next_step`
+（可读的下一步：要先处理的活动名、要去的地点名或做法，不含内部身份），由确定性代码从拒绝生成，并在下一次观察的
+`facts.progress.results[].details` 中呈现；占用冲突 `RESOURCE_CONFLICT` 同样带原因与下一步。引导性拒绝码
+`ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 是人物选了带说明的动作，
+计入当日目标度量的 `other_rejections`，不入外部约束闭集。合同本无 `INSUFFICIENT_ENERGY`，删除只发生在代码。
 
 ### 请求模型的闭集与字面边界
 
@@ -245,8 +256,9 @@ flowchart LR
 
 | 请求 | 字段 | 闭集或边界 |
 | --- | --- | --- |
-| `start_activity` | `targets` | 一至两个名称；每个名称均在当轮交互对象中唯一，组合资源相容 |
-| `start_activity` | `actions` | 与 `targets` 等长并逐项对应；每项属于对应对象当轮公开的可读动作闭集；出行方式由对应动作短语表达 |
+| `start_activity` | `targets` | 一至两个名称；每个名称均在当轮交互对象中唯一；组合按第五章准入：注册表占用交集与准入事实（目标在场与实际地点、出行方式、物品状态） |
+| `start_activity` | `actions` | 与 `targets` 等长并逐项对应；闭集为五个动词 `travel`、`interact`、`obtain`、`consume`、`sleep` |
+| `start_activity` | `ways` | 与 `targets` 等长并逐项对应；取对应对象本轮列出的方式短语（步行、驾车；工作、观看、游玩、交谈、通话、阅读、浏览、进行、等待；到店、远程下单、制作；食用、使用；接着看、从头再看、接着听、从头再听；睡觉），只有一种方式也要照填；出行方式与履约方式由方式表达 |
 | `recall_task_summary` | `task_name` | 当前冻结观察中唯一的可读任务、当日目标、活动或会话名称 |
 | `submit_work` | `task_name` | 当前冻结观察中唯一的可读任务名称 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task` | 一至两个唯一的可读活动名称，不重复；活动名为「做什么＋对象＋开始时刻」（开始时刻用绝对日期），同一轮可见的名称重复时追加「（第二次）」这类序号 |
@@ -314,8 +326,8 @@ ContractKind = Literal["package", "hourly", "piece"]
 | 订单状态 `DeliveryState.status` | `pending`、`ready`、`delivered`、`cancelled` |
 | 决策轮状态 `DecisionRoundState.status` | `open`、`committed`、`aborted` |
 | 世界状态结构版本 `WorldState.schema_version` | 7 |
-| 活动边界 `ActivityState.boundary_type` | `planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`（路上开始的活动随到达或途中结束出行由世界结束）、`plan_reminder`（当日目标提醒到点结束睡眠；睡眠的计划结束与提醒同秒时记 `planned_end`） |
-| 活动中断原因 `ActivityState.interruption_reason` | `agent_cancelled`（人物主动结束）、`experiment_end`、`LOCATION_ACCESS_DENIED`（到达准入失败）、`route_ended`、`plan_reminder`（提醒结束睡眠） |
+| 活动边界 `ActivityState.boundary_type` | `planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`（路上开始的活动随到达或途中结束出行由世界结束）、`partner_ended`（交谈对方结束，本人以其为伙伴的进行中交谈在同一秒结束，状态为 `completed` 并成为待收尾）、`plan_reminder`（当日目标提醒到点结束睡眠；睡眠的计划结束与提醒同秒时记 `planned_end`） |
+| 活动中断原因 `ActivityState.interruption_reason` | `agent_cancelled`（人物主动结束）、`experiment_end`、`LOCATION_ACCESS_DENIED`（到达准入失败）、`route_ended`、`partner_ended`、`plan_reminder`（提醒结束睡眠） |
 | 地点会话 `SessionState.kind` / `SessionState.status` | `stay`、`transit` / `active`、`ended` |
 
 环境自主到期事件（世界状态 `pending_events`）的类型闭集：
@@ -484,7 +496,7 @@ MessageKind = Literal["direct", "chat_invite"]
 
 | 量 | 值 |
 | --- | --- |
-| 策略行为 | `none` 不回复；`template` 落一条占位回复文本；`model` 触发一次独立模型调用 |
+| 策略行为 | `none`：消息照常送达、不回复；`template`：落一条占位回复文本（与模型回复同样预排送达）；`model`：触发一次独立模型调用；给非 `model` 策略联系人发消息不再被拒绝 |
 | 幂等 | 每条收到的消息最多回复一次，幂等键为收件消息的 `message_id` |
 | `model` 回复请求字段 | `contact_id`, `reply_to_message_id`, `recipient_id`, `incoming_text`；`thinking` 固定 `disabled`，`max_chars` 固定 200 |
 | 回复文本上限 | 200 字符 |
@@ -507,8 +519,8 @@ MessageKind = Literal["direct", "chat_invite"]
 | `CHAT_PARTNER_NOT_AVAILABLE` | 发起交谈时对方不在同一地点或不可交谈（睡眠/主动游戏中） |
 | `SOCIAL_PARTNER_NOT_FOUND` | 交谈对象不在世界人物中 |
 | `CONTACT_NOT_FOUND` | 通话对象不是本人声明的联系人 |
-| `CALL_DURATION_OUT_OF_RANGE` | 通话时长超出 10–60 分钟 |
-| `CONTACT_REPLY_NOT_MODEL` | 对非 `model` 策略的联系人登记模型回复 |
+| `CALL_DURATION_OUT_OF_RANGE` | 通话时长超出 10–60 分钟；派生时长按区间截取（通话 600–3600 秒、交谈 60–7200 秒），不再触发 |
+| `CHAT_ALREADY_ACTIVE` | 同一对人物已有进行中交谈时再次发起交谈；在目标判定这一步报出，先于占用判定 |
 | `RESOURCE_CONFLICT` | 新建或恢复活动的个人独占资源与本人 ACTIVE 活动冲突，或组合内部冲突；占用按[时间与能量规格](dev/SPEC-time-and-energy.md#并行准入)重列 |
 | `SOCIAL_ACTIVITY_CANNOT_PAUSE` | 对交谈或通话发起暂停 |
 | `SOCIAL_ACTIVITY_OPERATION_UNKNOWN` | 交谈或通话的变更操作不在取消与恢复之内 |
@@ -540,7 +552,7 @@ flowchart LR
 
 | 层 | 字段 | 说明 |
 | --- | --- | --- |
-| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `just_ended`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `same_moment_note` | 中文场景渲染输入；`current_activities` 只列进行中活动（「正在做」只来自它）；`just_ended` 列刚结束、待收尾的活动名，渲染为「刚结束：<活动名>」；`day_plan` 按清单顺序显示意图与已推进状态，设了提醒的目标另带 `reminder`（「提醒 09:30」），渲染为「今天想推进：工作（未推进，提醒 09:30）」；`local_food_summary` 的含义见「已核验经历与当地餐食」（饥饿为「饿」及以上时是吃饭途径句）；`same_moment_note` 在同刻上限的受限轮中是一句可读说明、不写次数，其余轮次为空串；人物自述不进 scene；不复制完整执行结果 |
+| `scene` | `current_time`, `location`, `people_here`, `felt`, `current_activities`, `paused_activities`, `just_ended`, `just_now`, `day_plan`, `inbox_head`, `inbox_has_older_unread`, `todos_summary`, `reachable_places`, `inventory`, `local_food_summary`, `same_moment_note` | 中文场景渲染输入；`just_now` 在同刻轮次用一句中文写上一轮本人世界请求的公开结果（已受理；被拒绝的原因与下一步；消息已送出；已下单），每秒首轮为空串，不含内部身份；`current_activities` 只列进行中活动（「正在做」只来自它）；`just_ended` 列刚结束、待收尾的活动名，渲染为「刚结束：<活动名>」；`day_plan` 按清单顺序显示意图与已推进状态，设了提醒的目标另带 `reminder`（「提醒 09:30」），渲染为「今天想推进：工作（未推进，提醒 09:30）」；`local_food_summary` 的含义见「已核验经历与当地餐食」（饥饿为「饿」及以上时是吃饭途径句）；`same_moment_note` 在同刻上限的受限轮中是一句可读说明、不写次数，其余轮次为空串；人物自述不进 scene；不复制完整执行结果 |
 | `facts` | `current_time`, `people_here`, `contacts`, `inbox`, `tasks`, `routes`, `products`, `inventory`, `day_plan`, `felt`, `drive_summary`, `interactive_objects`, `progress`, `experiences` | 目标、交互对象和进度的结构化投影；任务、活动、会话与对象使用可读名称；`day_plan` 为完整当日目标对象或 null |
 
 | `scene` 行 | 字段 |
@@ -555,19 +567,20 @@ flowchart LR
 | `people_here` | 可读人物名称、正在做的事、是否可交谈；内部人物身份只在私有绑定和证据中 |
 | `contacts` | 可读联系人名称、称呼、关系；亲密度、渠道与回复策略是引擎结算内部参数，不进提示 |
 | `inbox` | 可读主题、发送人、时间、种类及已读状态；同名邮件以自然语言上下文消歧 |
-| `tasks` | 唯一可读任务名称、截止时刻、剩余合同时间与新揭示材料范围 |
+| `tasks` | 唯一可读任务名称、截止时刻、剩余合同时间与新揭示材料范围；剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时另带 `completion_outlook`「到截止前做不完」，否则省略（按时长上界判定，不暴露效率） |
 | `products` | 实际呈现的供给以可读商品和门店名称展示；系统单向提供报价、可购金额、库存、营业、资格、履约和来源；食品（`use_modes` 含 `eat`）另带 `energy`，写「每份约 N 千卡」，N 为每份热量按 5 进位取整到 10，不足 5 千卡写「几乎不含热量」，非食品不带；支持配送时以 `delivery_eta` 写人读送达时刻（例如「约 13 小时后送达，明天 11:16」），送达地不在可配送目的地或配送路线未知、不可达时写「暂时送不到这里」，不给原始秒数；内部供给、商品与报价版本身份只在私有绑定和证据中 |
 | `routes` | 目的地名称、可读出行方式、预计时间、费用、费力 `effort` 与可行性；`effort` 按出行方式的代谢当量取「轻松」（MET < 2）、「一般」（2 ≤ MET < 3）或「费力」（MET ≥ 3），未核实的路线也给；`feasible` 只表示可达（`status` 为 `reachable`），不按能量计算；精确结算值由私有冻结绑定提供 |
 | `inventory` | 地点名称、商品名称、正数数量；食品带 `energy`（与 `products` 同口径）；他处持有物带所在地点列出，并以 `note` 注明只能在当地使用，不算手边可用 |
 | `day_plan` | 由零点计划生成、人物以 `revise_day_plan` 修订的当日目标；目标行按清单顺序给名称（「目标：<意图>：<文字>」）、意图、是否已推进，设了提醒的另带 `reminder`（「提醒 09:30」），人物写的 `progress_note` 标「你自己记下的，未经核验」；内部活动证据不进提示。当日计划生成之前为 null，空目标与就寝后的清单保持可见 |
 | `drive_summary` | 由体感分级、今日工作缺口与待办拼成的一句中文，不含数字权重 |
-| `interactive_objects` | 唯一可读对象名称、可读动作短语与前置条件；每个对象只列其合法动作；列表可以为空：空列表是合法状态，决策照常，`start_activity` 照常开放，工具 Schema 不绑定空枚举，所填名称不在本轮对象中时按协议错误在本轮重试 |
+| `interactive_objects` | 每行 `{object, actions: [{action, note}]}`：唯一可读对象名称；`action` 是「动词：方式」的可读短语（如「travel：驾车」「interact：接着看」），`note` 是未满足条件的一句说明，没有时为 null；列出可见的全部对象与菜单内的动作，不按人物状态剪裁，条件未满足的照常列出并带说明（与选了之后的拒绝原因一致）；按世界事实过滤后没有动作的对象以空动作列表列出，不进 `start_activity` 的名称枚举；内容对象的方式为「接着看」「从头再看」（播客为「接着听」「从头再听」），说明写全长或剩余时长；「自己」（等待、睡觉）恒在；列表可以为空：空列表是合法状态，决策照常，`start_activity` 照常开放，工具 Schema 不绑定空枚举，所填名称不在本轮对象中时按协议错误在本轮重试 |
 | `progress` | `sessions`、`results`、`alarms`；`sessions` 按会话（一段地点停留或一段路）分组、按开始时刻排序，每行为会话名加 `activities[]`；活动行为 `{name, phase, objective_progress, subjective_progress, subjective_status}`，阶段为自然语言（进行中、已暂停、刚结束、已收尾、已结束），客观进度从活动的已做与有效时长及任务累计写成人读时长（例如「已做约2小时，有效约1.5小时，还差约2小时」），有自述时标「你自己记下的，未经核验」；新结果按事件顺序完整回灌一次，期限提醒按任务名呈现；`alarms` 另含当日目标提醒的触发句「到了你给『<目标>』定的 09:30」，在提醒触发的那一秒写出，同一秒后续的同刻轮次中保留，直到人物有进行中活动 |
 | `experiences` | 本人最近五条已核验经历写成的中文句子（例如「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」），与私有 `data.verified_experiences` 同一窗口与顺序，用场景的地点、商品与内容名称，出行方式取自所属出行活动，不含任何内部身份 |
 
 `facts.progress.results[]` 的公开字段为 `occurred_at`、`status`、`error_code`、`message`，
 按动作可附 `details` 和 `work_review`。`details` 只包含可读对象或商品名称、份数、实际付款金额、
-到达地点名称与时间、浏览条目名称、回看结果 `recall` 等语义值；`work_review` 只保留下述公开评审字段。
+到达地点名称与时间、浏览条目名称、回看结果 `recall`、受理的计划时长 `planned`（`[{name, duration}]`，活动名与人读时长）、
+业务拒绝的 `reason`（一句中文原因）与 `next_step`（可读的下一步，不含身份）等语义值；`work_review` 只保留下述公开评审字段。
 `recall` 按回看对象分四种：任务给 {名称, 截止, 最近自述}；目标给 {目标, 意图, 是否已推进}；活动给
 {名称, 地点, 已做与有效时长, 状态, 自述}；会话给 {地点, 起止, 活动名列表}；自述都标「你自己记下的，未经核验」。
 动作、事件、订单、商品、供给、会话、活动、路线、报价版本和账户身份不进入模型结果。
@@ -612,8 +625,10 @@ WorldState.activities 是唯一活动事实源；人物另外持久保存 body_s
 不从列表第一项猜测目标，不隐式暂停未点名活动，缺失或非法控制结构明确失败。
 scene 的 `current_activities` 必须表达集合，每项为 title、progress、verb；
 播客的 verb 为“听取”，其余为“进行”。不能把其中一项描述为人物的全部活动。
-观察 `occupied_resources` 是这些 ACTIVE 显式资源声明的排序并集；不另存状态，
-候选、人物工具 Schema、本地验证及环境准入均按同一注册表资源交集判定。
+观察 `occupied_resources` 是这些 ACTIVE 显式资源声明的排序并集（占用名按[时间与能量规格](dev/SPEC-time-and-energy.md)
+第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`）；不另存状态。
+候选与环境准入按同一注册表资源交集判定；交互对象与人物工具 Schema 不按占用剪裁，冲突的动作照常列出并带说明，
+选了由环境以 `RESOURCE_CONFLICT` 业务拒绝。
 
 组合启动结果 data.activities 提供各独立活动记录，顶层 activity_id 为 null。
 单项动作仍引用它自己的 activity_id。组合请求只在全部子活动终结后产生一次动作聚合终态，
@@ -701,7 +716,7 @@ ExclusionReason = Literal[
     "ELIGIBILITY_OPENING_UNKNOWN",        # 当前营业声明未知，不能当作闭店
     "ELIGIBILITY_OUT_OF_STOCK",           # 库存为零
     "ELIGIBILITY_DELISTED",               # 目录级下架（墓碑语义，保留可读）
-    "ELIGIBILITY_RESOURCE_CONFLICT",      # 资源占用冲突
+    "ELIGIBILITY_RESOURCE_CONFLICT",      # 资源占用冲突（按重列的占用判定，观看另按内容品类）
     "ELIGIBILITY_DURATION_OUT_OF_RANGE",  # 时长越界
     "ELIGIBILITY_DISABLED",               # 不在本人启用集内
     "ROTATION_DEFERRED",                  # 本次呈现名额已满
@@ -794,7 +809,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 路线坐标与几何不得进入提示。事件级工具支持行（当前有效菜单、完整任务、路线、商品、门店供给、库存物品使用合同、
 可供性合同、游戏目录、内容进度、工作进度、邮件头、日历与地点目录）只供宿主生成
 私有绑定、可读对象名称与动作短语，不原样进入提示。`facts.interactive_objects[].actions` 是公开的
-对象动作短语闭集，允许进入提示；它不授予读取完整可供性合同或内部状态的权限。
+动词加方式的短语与说明（`{action, note}`），允许进入提示；它不授予读取完整可供性合同或内部状态的权限。
 
 事件级 `inventory_items` 为当前地点正数持有物的使用合同，覆盖在售商品和独立库存物品；
 每行只含 `product_id`、`name`、`use_modes`、`use_duration_seconds`、`required_location_id`。
@@ -997,7 +1012,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 ## 品类契约与目录字段
 
 行为规则由 [品类契约规格](dev/SPEC-category-contract.md) 定义；本节固定文件字段与命令输入。
-当前原生目录为 `4.0`，品类契约及交换规则的 `contract_version` 均为 `2`；格式版本与运行结构版本分别校验。
+当前原生目录为 `4.1`（时间与能量规格阶段 4 改可供性注册表后升次版本），品类契约及交换规则的 `contract_version`
+均为 `2`；格式版本与运行结构版本分别校验。
 原始对象声明、解析后的运行视图与人物浏览使用的活动品类是不同层次，不能混用其字段。
 
 | 文件 | 顶层字段 |
@@ -1442,4 +1458,5 @@ RunPhase = Literal[
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：「状态归属」的人物活动加同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`（六个取值）；「当日目标的配置与质量输出」改为进行中的等待不算在手承诺，只在等待且没有其他在手承诺时用空闲间隔，并增「决策节律场景参数」：`max_same_moment_decisions`（缺省 3，时钟推进即归零），补登 `activity_feedback_seconds`（60–86400，等待时长取它）与 `progress_report_interval_seconds`（缺省 1800）；「活动受理拒绝码」增 `SAME_MOMENT_ACTION_RESTRICTED`；「冻结地图与场景引用」写明场景结构保持 3，含旧键的场景按未知字段拒绝；「动作状态与动作结果」写明达到同刻上限后按受限轮阶段收窄世界请求工具与名称枚举（记忆查询照常），越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝；「场景段落与事实清单」的 `scene` 增 `same_moment_note`（受限轮的一句说明，不写次数）；「联系人回复」增送达时刻：回复登记为 `CONTACT_REPLY_DELAY_SECONDS`（缺省 300 秒）后到期的预排送达，到期写入收件箱并以 `message_arrival` 唤醒、睡眠中过滤，「回复完成」注明模型回复证据在生成时写入；「领域枚举」的 `ScheduledKind` 增 `message_arrival` |
 | `2026-09-25-time-and-energy-stage-2` | 2026-09-25 | 时间与能量规格阶段 2（身体与能量）：`start_activity` 的结算检查中能量不参与（「请求字段与结算检查」）；`local_food_summary` 的含义指向「已核验经历与当地餐食」；`facts.products` 的食品带 `energy`，配送以人读送达时刻 `delivery_eta` 取代原始秒数，`facts.routes` 带 `effort`、`feasible` 只表示可达，新增 `facts.inventory` 行（他处持有物注明只能在当地使用），`drive_summary` 行归位（「场景段落与事实清单」）；暂停控制行删 `minimum_energy_cost_kcal`、`resume_energy_feasible`（「活动控制行」）；排除原因码删 `ELIGIBILITY_ENERGY_INSUFFICIENT`（「排除原因码」）；禁止进入提示的字段删 `energy_feasibility`，`routes` 条目加费力，事件级工具支持行删能量可行性（「禁止进入提示的字段」） |
 | `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（活动、会话与记忆）：「状态归属」加活动名额（常量 2）与「地点会话」一行（`sessions` 由环境随出发与到达开始和结束）；「人物工具与管理接口」的回看、播报、暂停与结束改为点名活动，`conclude_activity` 加 `memories` 并可结束进行中、暂停或待收尾的活动，工具资格改称活动控制工具；「请求字段与结算检查」与「请求模型的闭集与字面边界」的名称指向活动（回看可取任务、当日目标、活动或会话名），加名额检查与 `memories` 行；「活动受理拒绝码」登记 `SESSION_LIMIT_EXCEEDED`（名额；原因按占满与只剩一个名额两种说法点名占名额的活动）、`ACTIVITY_PRECONDITION_UNMET`（出发前与别处恢复）、`ACTIVITY_CONCLUSION_REQUIRED`、`ACTIVITY_PAUSE_UNAVAILABLE`，形状错误报 `ACTION_REQUEST_INVALID`；「动作状态与动作结果」取消生活决策的 `finish`，一轮决策恰好一个世界请求、登记即结束，只读问答保留只读 `finish`；「领域枚举」登记 `boundary_type`、`interruption_reason`（加 `route_ended`）与会话的种类和状态；scene 加 `just_ended`、`current_activities` 只列进行中活动，facts 的 `progress` 按会话分组列活动行、增 `experiences` 句子，结果 `details` 加 `recall`；「活动控制行」另列待收尾一组 `pending_conclusions`；「禁止进入提示的字段」加内部身份键并放行进度层活动行；请求组成、工具返回通道、回合预算与模型身份按去掉 `finish` 改写，记忆查询不返回条目身份；「记忆字段」改为经 `conclude_activity.memories` 写入、来源由系统登记（删 `refs`），巩固只计结束活动写入的条目 |
+| `2026-09-25-time-and-energy-stage-4` | 2026-09-25 | 时间与能量规格阶段 4（生活动作与并行准入）：「状态归属」的`occupied_resources` 占用名重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`；「人物工具与管理接口」的 `start_activity` 改为 `targets`、`actions`、`ways` 三个等长数组，`actions` 取五个动词，私有绑定另记履约方式；「交互菜单声明与有效菜单」写明 `allowed_actions` 是内部标准动作、按映射后的内部动作判定；「请求字段与结算检查」按第五章准入顺序检查（名额、目标在场与实际地点、出行方式、占用、物品状态），观看、游戏内容与生活活动超过 86400 秒按 86400 秒受理；「活动受理拒绝码」登记 `ACTIVITY_DURATION_INVALID`、`ROUTE_DURATION_INVALID`，`ACTIVITY_PRECONDITION_UNMET` 加驾车时手动操作，业务拒绝带 `reason` 与 `next_step`，引导性拒绝计入 `other_rejections`；「请求模型的闭集与字面边界」增 `ways` 行；「领域枚举」的结束原因加 `partner_ended`；「联系人回复」改为 `none` 照常送达不回复、`template` 落占位回复，「社交拒绝错误码」删 `CONTACT_REPLY_NOT_MODEL`、增 `CHAT_ALREADY_ACTIVE`；scene 增 `just_now`，facts 的 `tasks` 增 `completion_outlook`，`interactive_objects` 改为 `{object, actions: [{action, note}]}` 不剪裁，结果 `details` 加 `planned`、`reason`、`next_step`；「活动控制行」写明 Schema 不按占用剪裁；「排除原因码」按重列的占用判定；「禁止进入提示的字段」的动作改为动词加方式与说明；当前原生目录升为 `4.1` |
 | `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（零点计划、计划提醒与常驻提示）：「人物工具与管理接口」删 `plan_day` 行，`revise_day_plan` 的条目加 `remind_time`；「交互菜单声明与有效菜单」的模型工具名改为八个；「当日目标请求」改为零点后台任务 `plan_day` 生成当日计划、人物以 `revise_day_plan` 修订，条目为三个字段（增必填可空的 `remind_time`：场景本地 `HH:MM`，换算后须晚于生成或修订时刻、早于次日零点），同一人物同一本地日只生成一次（幂等键 `plan_submitted_dates`，恢复与重放不重复），修订时三个字段完全相同的条目保留登记与提醒状态、只改提醒的换成新提醒、替换或删除的取消旧提醒，`PlanGoal` 加 `remind_at`、`reminded_at`，零点计划的登记写 `environment_event`（`data.kind="day_plan_generated"`，`visibility=system`，带 `data.day_plan` 与 `data.source_event_ids`）；错误表删 `PLAN_ALREADY_SUBMITTED`，增 `PLAN_REMIND_TIME_INVALID`，`remind_time` 格式错误归 `ACTION_REQUEST_INVALID`；「请求字段与结算检查」与「请求模型的闭集与字面边界」删 `plan_day`，加 `remind_time` 校验；「领域枚举」的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；scene 与 facts 的 `day_plan` 目标行带「提醒 HH:MM」，facts 的 `day_plan` 行按实际投影改写，`progress.alarms` 加提醒触发句；「请求组成」的两阶段 system 加固定一节「怎样过一天」并登记全文（只读问答不含），新增零点计划的请求组成（JSON 输入键、回顾时段、容量裁剪、中文模板与 `submit_day_plan` 输出 Schema）；「生成参数」增零点计划行（`max_tokens` 8000，`tool_choice=required`，输出不合法时附回错误至多重试 3 次，与传输预算分开计数，不进清单阶段键），模型请求按 `data.purpose` 区分。复核补正：零点计划输入的 `人物` 是规格「人物卡片与场景的人物背景原文」的落地口径，人物卡片取场景声明的人物档案（名字、背景原文、健康习惯、社交风格与作息窗口），编译后的卡片只存于人物工作区，零点计划不读工作区；`收尾记录` 只列已受理的 `conclude_activity` 请求（被拒与重放的不列）；`DayPlan.day_end` 所说的场景本地零点按本地日期变更判定（夏令时在零点拨快的日子为 01:00） |

@@ -8,7 +8,8 @@ persona_card、scene、facts 三部分组成，
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
   体感分级、当前（只来自进行中活动）与暂停活动的进度、刚结束待收尾的活动（「刚结束：<活动名>」，
-  docs/dev/SPEC-time-and-energy.md 第七章）、今天想推进的目标与推进状态、收件箱头、待办
+  docs/dev/SPEC-time-and-energy.md 第七章）、同刻轮次的「刚才」（上一轮本人世界请求的公开结果，每秒首轮为空串，
+  第一章「同一秒内的呈现与「刚才」」）、今天想推进的目标与推进状态、收件箱头、待办
   一句话、可达地点与营业状态、手边持有物、当地餐食句（饥饿为「饿」及以上时是
   吃饭途径句，可带一条途径的人读时长或送达时刻），以及同刻上限受限轮的一句说明（不写次数，
   docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。人物自述不进 scene。整次请求容量由 prompt_capacity 计量。
@@ -31,7 +32,8 @@ just_ended（刚结束待收尾的活动名列表）、day_plan（goals 中的 i
 inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
 reachable_places（name/opening_status 列表）、inventory、local_food_summary（当地餐食句或吃饭途径句）、
-same_moment_note（受限轮说明句，其余轮次为空串）。
+same_moment_note（受限轮说明句，其余轮次为空串）、just_now（同刻轮次写上一轮本人世界请求的公开结果，
+每秒首轮为空串）。
 """
 
 from __future__ import annotations
@@ -286,7 +288,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
     """@brief 渲染中文自然语言场景段落。
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
-    的进度、刚结束待收尾的活动、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
+    的进度、刚结束待收尾的活动、「刚才」、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
     状态、手边持有物、当地餐食句或吃饭途径句，同刻上限的受限轮末尾另加一句说明；
     缺失或为空的字段跳过对应句子，渲染器不虚构事实。
 
@@ -307,6 +309,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _felt_sentence(observation),
         _activity_sentences(observation),
         _just_ended_sentence(observation),
+        _close_sentence(observation["just_now"]) if observation.get("just_now") else "",
         _plan_sentence(observation),
         _inbox_sentence(observation),
         _close_sentence(todos) if todos else "",

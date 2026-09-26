@@ -228,8 +228,12 @@ def _legacy_audit(run_id: str, digest: str, main_rows: int, stream_rows: int) ->
     }
 
 
+#: 夹具活动类型的占用（docs/dev/SPEC-time-and-energy.md 第五章「并行准入」的占用表）；数字交互只按活动类型判定。
+ACTIVITY_CLAIMS = {"browse": ["eyes", "hands"], "wait": ["idle"]}
+
+
 def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: int,
-                     resources: tuple[str, ...] = ("attention", "device", "position")) -> None:
+                     activity_type: str = "browse") -> None:
     start = datetime.fromisoformat(scenario["window"]["start"])
     end = datetime.fromisoformat(scenario["window"]["end"])
     frozen = {"run_id": run_id, "source_group_id": run_id, "agent_ids": [1],
@@ -239,11 +243,11 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
                                   {"version": 0, "current_time": int(start.timestamp())})
     for day_offset in range((end.date() - start.date()).days):
         activity_start = start + timedelta(days=day_offset, hours=hour)
-        activity, rows = _world_activity(run_id, store.last_event_seq + 1, activity_start)
+        activity, rows = _world_activity(run_id, store.last_event_seq + 1, activity_start, activity_type)
         for index, row in enumerate(rows):
             snapshot = {key: value for key, value in activity.items()
                         if key not in {"activity_type", "segments", "source_event_ids"}}
-            snapshot.update(kind=activity["activity_type"], resource_claims=list(resources))
+            snapshot.update(kind=activity["activity_type"])
             if index == 0:
                 snapshot.update(status="active", ended_at=None, elapsed_seconds=3600,
                                 last_settled_at=row["occurred_at"])
@@ -267,7 +271,8 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     store.close()
 
 
-def _world_activity(run_id: str, sequence: int, start: datetime) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+def _world_activity(run_id: str, sequence: int, start: datetime,
+                    activity_type: str = "browse") -> tuple[dict[str, Any], list[dict[str, Any]]]:
     first_start = int(start.timestamp())
     first_end = first_start + 3_600
     second_start = first_end + 3_600
@@ -277,7 +282,7 @@ def _world_activity(run_id: str, sequence: int, start: datetime) -> tuple[dict[s
     activity = {
         "activity_id": activity_id,
         "agent_id": 1,
-        "activity_type": "browse",
+        "activity_type": activity_type,
         "status": "completed",
         "started_at": first_start,
         "ended_at": second_end,
@@ -293,7 +298,7 @@ def _world_activity(run_id: str, sequence: int, start: datetime) -> tuple[dict[s
         "destination_id": None,
         "travel_mode": None,
         "playback_speed": 1,
-        "resource_claims": ["attention", "device", "position"],
+        "resource_claims": list(ACTIVITY_CLAIMS[activity_type]),
         "boundary_type": "planned_end",
         "interruption_reason": None,
         "data": {},

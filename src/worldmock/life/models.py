@@ -704,8 +704,10 @@ def _expected_activity_claims(activity: ActivityState) -> set[str]:
     from worldmock.catalog.affordances import default_affordances
 
     mode = activity.travel_mode.value if activity.travel_mode is not None else None
+    content_kind = activity.data.get("content_kind") if activity.kind == ActivityKind.WATCH else None
     try:
-        return set(default_affordances().resource_claims(activity.kind.value, travel_mode=mode))
+        return set(default_affordances().resource_claims(activity.kind.value, travel_mode=mode,
+                                                         content_kind=content_kind))
     except (KeyError, ValueError) as error:
         _LOGGER.error("World activity kind or travel mode has no resource declaration")
         raise ValueError("world activity resource declaration is invalid") from error
@@ -907,7 +909,8 @@ class SendMessageRequest(FrozenModel):
 
 
 class StartSocialActivityRequest(FrozenModel):
-    """@brief 发起交谈（共同在场）或通话（联系人，10-60 分钟，docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+    """@brief 发起交谈（共同在场）或通话（联系人）；时长由场景反馈间隔派生后截取：交谈 1–120 分钟，通话 10–60 分钟
+    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。"""
 
     kind: Literal["chat", "call"]
     partner_id: str = Field(pattern=r"\S")
@@ -944,14 +947,19 @@ class SubmitWorkRequest(FrozenModel):
 SESSION_SUMMARY_MAX_CHARS = 500
 
 class StartActivityRequest(FrozenModel):
-    """@brief 逐项选择至多两个可见对象及其语义动作；执行参数由引擎确定。
+    """@brief 逐项选择至多两个可见对象、动词与方式；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md 第五章）。
+
+    三个数组等长、一至二项，逐项对应；私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝
+    ACTION_REQUEST_INVALID。
 
     :param targets: 本次活动的可见对象名称，至多两项。
-    :param actions: 与对象逐项对应的可读动作短语。
+    :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
+    :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。
     """
 
     targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     actions: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    ways: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
 
 class SubmitWorkActionRequest(FrozenModel):

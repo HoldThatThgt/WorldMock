@@ -26,7 +26,7 @@ from tests.life.conftest import (
     pending_names,
     stage_day_plan,
 )
-from worldmock.life.interaction_menu import canonical_action
+from worldmock.life.interaction_menu import WAYS
 from worldmock.life import prompt_capacity
 
 
@@ -106,12 +106,13 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     home = await environment.observe(first)
     office_binding = next(row for row in home["interaction_bindings"]
                           if row["kind"] == "location" and row["object_id"] == "office")
-    travel = next(item["label"] for item in office_binding["actions"]
-                  if item.get("travel_mode") == "walking")
-    home_requests = await _decide(environment, first, home, "start_activity",
-                                  {"targets": [office_binding["object"]], "actions": [travel]})
-    assert canonical_action(travel) in home["interaction_menu"]["allowed_actions"]
-    assert set(_action_schema(home_requests[1])["parameters"]["properties"]) == {"targets", "actions"}
+    travel = next(item for item in office_binding["actions"] if item.get("travel_mode") == "walking")
+    assert (travel["verb"], travel["label"], travel["canonical_action"]) == ("travel", "步行", "travel_to")
+    assert WAYS[travel["label"]] == ("travel", travel["canonical_action"])
+    walk = {"targets": [office_binding["object"]], "actions": ["travel"], "ways": ["步行"]}
+    home_requests = await _decide(environment, first, home, "start_activity", walk)
+    assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
+    assert set(_action_schema(home_requests[1])["parameters"]["properties"]) == {"targets", "actions", "ways"}
     assert home["facts"]["progress"]["results"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
@@ -132,9 +133,11 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     conclusion = {"task": [walked], "summary": ["到公司了。"], "memories": [[]]}
     office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
     office_schema = _action_schema(office_requests[1])
-    choices = office_schema["parameters"]["properties"]["actions"]["items"]["enum"]
+    choices = office_schema["parameters"]["properties"]["ways"]["items"]["enum"]
     assert "工作" not in choices
     assert "等待" in choices
+    listed = [item["action"] for row in arrived["facts"]["interactive_objects"] for item in row["actions"]]
+    assert "interact：工作" not in listed and "interact：等待" in listed
     user = office_requests[1]["messages"][1]["content"]
     assert "progress" in user
     assert f"刚结束：{walked}。" in user
@@ -144,5 +147,5 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     events = engine.store.read_events(engine.store.last_event_seq)
     requests = [event for event in events if event.event_type == "action_requested"]
     assert len(requests) == 2
-    assert requests[0].data["request"] == {"targets": [office_binding["object"]], "actions": [travel]}
+    assert requests[0].data["request"] == walk
     assert requests[1].data["request"] == conclusion

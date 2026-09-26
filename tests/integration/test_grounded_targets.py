@@ -1,4 +1,4 @@
-"""冻结观察中的可读对象、逐项动作和生活工具闭集。"""
+"""冻结观察中的可读对象、逐项的动词与方式和生活工具闭集（docs/dev/SPEC-time-and-energy.md 第五章）。"""
 
 from __future__ import annotations
 
@@ -14,30 +14,23 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import (
-    _Environment, _WORK, _context, _observations, _with_activities,
+    _Environment, _WORK, _add_objects, _context, _observations, _offer, _visible_object, _with_activities,
 )
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
 
+_FILM = "内容：纪录片"
+_PARK = "地点：公园"
+
 
 def _data() -> dict:
-    """以真实生活协议观察为基础，提供五类语义对象。"""
+    """以真实生活协议观察为基础，提供五类语义对象：自己、工作任务、内容、地点与同场人物。"""
     data = deepcopy(_observations()[0]["data"])
-    public = data["facts"]["interactive_objects"]
-    public.extend([
-        {"object": "内容：纪录片", "actions": ["观看"], "preconditions_met": True},
-        {"object": "地点：公园", "actions": ["步行前往"], "preconditions_met": True},
-        {"object": "人物：小李", "actions": ["交谈"], "preconditions_met": True},
-    ])
-    data["interaction_bindings"].extend([
-        {"object": "内容：纪录片", "kind": "content", "object_id": "content-hidden",
-         "actions": [{"label": "观看", "canonical_action": "watch"}]},
-        {"object": "地点：公园", "kind": "location", "object_id": "park-hidden",
-         "actions": [{"label": "步行前往", "canonical_action": "travel_to", "travel_mode": "walking"}]},
-        {"object": "人物：小李", "kind": "person", "object_id": "agent-hidden",
-         "actions": [{"label": "交谈", "canonical_action": "chat"}]},
-    ])
-    return data
+    return _add_objects(
+        data,
+        _visible_object(_FILM, "content", "content-hidden", _offer("interact", "接着看", "watch", "全长约1小时")),
+        _visible_object(_PARK, "location", "park-hidden", _offer("travel", "步行", "travel_to", travel_mode="walking")),
+        _visible_object("人物：小李", "person", "agent-hidden", _offer("interact", "交谈", "chat")))
 
 
 def _prepare(data: dict | None = None) -> LifeAgent:
@@ -60,42 +53,46 @@ def _decision(name: str, **arguments) -> ReactDecision:
 
 
 def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -> None:
-    """模型只选本轮对象和动作，报价与内部身份留在私有绑定。"""
+    """模型只选本轮对象、动词和方式，报价与内部身份留在私有绑定。"""
     data = _data()
     functions = _functions(_prepare(data))
     start = functions["start_activity"]
     properties = start["parameters"]["properties"]
     assert start["strict"] is True
     assert start["parameters"]["additionalProperties"] is False
-    assert set(properties) == {"targets", "actions"}
+    assert set(properties) == {"targets", "actions", "ways"}
     assert properties["targets"]["items"]["enum"] == sorted(
         row["object"] for row in data["facts"]["interactive_objects"])
-    assert set(properties["actions"]["items"]["enum"]) == {
-        "等待", "睡觉", "工作", "观看", "步行前往", "交谈"}
+    assert properties["actions"]["items"]["enum"] == ["interact", "sleep", "travel"]
+    assert properties["ways"]["items"]["enum"] == sorted(["等待", "睡觉", "工作", "接着看", "步行", "交谈"])
     assert "task-visible" not in str(start)
     assert "park-hidden" not in str(start)
+    assert "travel_to" not in str(start) and "walking" not in str(start)
 
 
-@pytest.mark.parametrize("targets,actions,error", [
-    (["内容：纪录片"], ["步行前往"], "not offered"),
-    (["content-hidden"], ["观看"], "not a visible"),
-    (["内容：纪录片", "地点：公园"], ["观看"], "equal lengths"),
-    (["内容：纪录片", "内容：纪录片"], ["观看", "观看"], "unique"),
-    (["自己", "内容：纪录片", "地点：公园"], ["等待", "观看", "步行前往"], "one or two"),
+@pytest.mark.parametrize("targets,actions,ways,error", [
+    ([_FILM], ["travel"], ["步行"], "not offered"),
+    ([_FILM], ["interact"], ["观看"], "not offered"),
+    ([_FILM], ["travel"], ["接着看"], "not offered"),
+    (["content-hidden"], ["interact"], ["接着看"], "not a visible"),
+    ([_FILM, _PARK], ["interact"], ["接着看"], "equal lengths"),
+    ([_FILM, _PARK], ["interact", "travel"], ["接着看"], "equal lengths"),
+    ([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"], "unique"),
+    (["自己", _FILM, _PARK], ["interact", "interact", "travel"], ["等待", "接着看", "步行"], "one or two"),
 ])
-def test_start_rejects_invalid_pairs_before_dispatch(targets, actions, error) -> None:
-    """每项动作必须属于对应对象，且整个请求共享一个原子校验边界。"""
+def test_start_rejects_invalid_pairs_before_dispatch(targets, actions, ways, error) -> None:
+    """每项动词与方式必须属于对应对象，三个数组等长，且整个请求共享一个原子校验边界。"""
     agent = _prepare()
     actual = agent.validate_react_decisions([
-        _decision("start_activity", targets=targets, actions=actions)], False)
+        _decision("start_activity", targets=targets, actions=actions, ways=ways)], False)
     assert error in actual
 
 
 def test_parallel_start_accepts_two_independent_human_readable_pairs() -> None:
-    """步行和观看分别配对，不再以一个 action 覆盖双活动。"""
+    """步行和接着看分别配对，不再以一个 action 覆盖双活动。"""
     agent = _prepare()
-    choice = _decision("start_activity", targets=["地点：公园", "内容：纪录片"],
-                       actions=["步行前往", "观看"])
+    choice = _decision("start_activity", targets=[_PARK, _FILM], actions=["travel", "interact"],
+                       ways=["步行", "接着看"])
     assert agent.validate_react_decisions([choice], False) == ""
     assert agent.validate_react_decisions([choice, choice], False) == (
         "one model response cannot contain multiple life actions")
@@ -105,9 +102,9 @@ def test_frozen_observation_does_not_change_until_next_round() -> None:
     """提示冻结后修改原字典不能补充对象；下一轮明确观察才能刷新。"""
     data = _data()
     agent = _prepare(data)
-    data["facts"]["interactive_objects"].append(
-        {"object": "内容：新电影", "actions": ["观看"], "preconditions_met": True})
-    invalid = _decision("start_activity", targets=["内容：新电影"], actions=["观看"])
+    _add_objects(data, _visible_object("内容：新电影", "content", "content-new",
+                                       _offer("interact", "接着看", "watch", "全长约2小时")))
+    invalid = _decision("start_activity", targets=["内容：新电影"], actions=["interact"], ways=["接着看"])
     assert "not a visible" in agent.validate_react_decisions([invalid], False)
     assert "内容：新电影" not in _functions(agent)["start_activity"]["parameters"]["properties"][
         "targets"]["items"]["enum"]
@@ -118,23 +115,24 @@ def test_frozen_observation_does_not_change_until_next_round() -> None:
 def test_duplicate_readable_object_names_fail_closed() -> None:
     """同名对象必须在观察投影阶段消歧，人物工具不会猜内部身份。"""
     data = _data()
-    data["facts"]["interactive_objects"].append(
-        {"object": "内容：纪录片", "actions": ["观看"], "preconditions_met": True})
+    data["facts"]["interactive_objects"].append(deepcopy(data["facts"]["interactive_objects"][-1]))
     with pytest.raises(RuntimeError, match="interactive object identity"):
         _prepare(data)
 
 
 def test_menu_closes_actions_without_removing_stable_tools() -> None:
-    """地点菜单只缩小动作短语，工作提交等工具仍依各自合同开放。"""
+    """地点菜单按映射后的内部动作缩小对象、动词与方式的枚举，工作提交等工具仍依各自合同开放。"""
     data = _data()
     data["interaction_menu"] = {"allowed_actions": ["sleep", "wait"]}
     agent = _prepare(data)
-    functions = _functions(agent)
-    assert {"start_activity", "submit_work", "recall_task_summary"} <= set(functions)
-    assert functions["start_activity"]["parameters"]["properties"]["actions"]["items"]["enum"] == [
-        "睡觉", "等待"]
-    assert "interaction menu" in agent.validate_react_decisions([
-        _decision("start_activity", targets=["整理会议纪要"], actions=["工作"])], False)
+    properties = _functions(agent)["start_activity"]["parameters"]["properties"]
+    assert {"start_activity", "submit_work", "recall_task_summary"} <= set(_functions(agent))
+    assert properties["targets"]["items"]["enum"] == ["自己"]
+    assert properties["actions"]["items"]["enum"] == ["interact", "sleep"]
+    assert properties["ways"]["items"]["enum"] == sorted(["睡觉", "等待"])
+    for target, verb, way in (("整理会议纪要", "interact", "工作"), (_PARK, "travel", "步行")):
+        assert "interaction menu" in agent.validate_react_decisions([
+            _decision("start_activity", targets=[target], actions=[verb], ways=[way])], False)
 
 
 def test_visible_task_and_person_names_bind_independent_tools() -> None:
@@ -180,7 +178,7 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    payload = {"targets": ["地点：公园", "内容：纪录片"], "actions": ["步行前往", "观看"]}
+    payload = {"targets": [_PARK, _FILM], "actions": ["travel", "interact"], "ways": ["步行", "接着看"]}
     assert agent.validate_react_decisions([_decision("start_activity", **payload)], False) == ""
     result = await agent.dispatch_react_tool("start_activity", payload)
     assert result.ok is True

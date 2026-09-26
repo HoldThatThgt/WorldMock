@@ -153,6 +153,8 @@ class CandidateEntry:
     bucket: str | None = None
     #: 条目声明的代谢当量：生活活动等按条目查表的活动在此给出；None 表示按活动类型查表。
     met: float | None = None
+    #: 内容条目的内容品类（占用按它判定：播客只占 ears）；非内容条目为 None。
+    content_kind: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -455,9 +457,9 @@ def _enabled_reason(entry: CandidateEntry, inputs: CandidateInputs) -> Exclusion
 
 
 def _resource_reason(entry: CandidateEntry, inputs: CandidateInputs) -> ExclusionReason | None:
-    """@brief 候选与全部 ACTIVE 活动按同一注册表的显式资源交集判定。"""
+    """@brief 候选与全部 ACTIVE 活动按同一注册表的显式占用交集判定（内容条目按内容品类的条件占用）。"""
     kind = _ACTIVITY_OF_KIND[entry.kind]
-    claims = default_affordances().resource_claims(kind.value)
+    claims = default_affordances().resource_claims(kind.value, content_kind=entry.content_kind)
     return "ELIGIBILITY_RESOURCE_CONFLICT" if claims & inputs.occupied_resources else None
 
 

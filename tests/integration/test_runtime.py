@@ -784,7 +784,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         await env.observe(ctx)
         await env.submit_action(DirectToolCall(
             ctx, "action-npc-noop", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["等待"])))
+            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
 
         import worldmock.runtime as runtime_module
 

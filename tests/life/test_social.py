@@ -14,7 +14,6 @@ from worldmock.life.social import (
     OutgoingMessage,
     PersonView,
     can_talk,
-    chat_settlement,
     finalize_model_reply,
     model_reply_request,
     needs_reply,
@@ -131,16 +130,6 @@ def test_start_chat_registers_foreground_activity_with_invite() -> None:
     assert chat.arrival.kind == "message_arrival"
 
 
-def test_chat_settlement_rates_for_accept_and_decline() -> None:
-    """接受则双方各 0.5/小时；拒绝则发起方 0.2/小时、对方 0。"""
-    accepted = chat_settlement(True)
-    assert accepted.initiator_per_hour == pytest.approx(0.5)
-    assert accepted.partner_per_hour == pytest.approx(0.5)
-    declined = chat_settlement(False)
-    assert declined.initiator_per_hour == pytest.approx(0.2)
-    assert declined.partner_per_hour == pytest.approx(0.0)
-
-
 def test_call_duration_boundaries_10_and_60_minutes() -> None:
     """通话时长闭区间：10 与 60 分钟受理，9 与 61 拒绝。"""
     for minutes in (10, 60):
@@ -204,14 +193,21 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
 
 
 def _identity_bindings() -> dict:
-    """构造本轮人名与联系人名称的私有身份绑定；本轮没有活动，活动绑定为空（规格第七章「私有绑定」）。"""
+    """构造本轮人名与联系人名称的公开对象行与私有身份绑定；本轮没有活动，活动绑定为空（规格第七章「私有绑定」）。
+
+    同场人物只列交谈、通话只对通讯录联系人开放（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）；
+    公开行为 {object, actions: [{action: 「动词：方式」, note}]}，私有绑定逐项记动词、方式与内部标准动作。
+    """
+    people = (("李凡", "person", "agent:2", "交谈", "chat"), ("妈妈", "contact", "contact-mother", "通话", "call"))
     return {
-        "facts": {"day_plan": None, "progress": {"sessions": [], "results": [], "alarms": []}},
+        "facts": {"day_plan": None, "progress": {"sessions": [], "results": [], "alarms": []},
+                  "interactive_objects": [{"object": name, "actions": [{"action": f"interact：{way}", "note": None}]}
+                                          for name, _, _, way, _ in people]},
         "interaction_bindings": [
-            {"object": "李凡", "kind": "person", "object_id": "agent:2",
-             "actions": [{"label": "交谈", "canonical_action": "chat"}]},
-            {"object": "妈妈", "kind": "contact", "object_id": "contact-mother",
-             "actions": [{"label": "通话", "canonical_action": "call"}]},
+            {"object": name, "kind": kind, "object_id": identity,
+             "actions": [{"verb": "interact", "label": way, "canonical_action": canonical,
+                          "travel_mode": None, "note": None}]}
+            for name, kind, identity, way, canonical in people
         ],
         "task_bindings": [], "session_bindings": [], "goal_bindings": [], "activity_bindings": [],
     }
@@ -235,17 +231,19 @@ def test_message_recipients_come_from_current_observation_identities() -> None:
 
 
 def test_social_partners_pair_kind_with_identity_source() -> None:
-    """交谈与通话由对象本轮动作闭集配对，不能交换对象动作。"""
-    from custom.agents.life_agent import _validate_prepared_action, _visible_action_contracts
+    """交谈与通话由对象本轮动作闭集配对，不能交换对象的方式；动词须与方式一致（第五章「请求形状与菜单」）。"""
+    from custom.agents.life_agent import (_validate_prepared_action, _visible_action_contracts,
+                                          _visible_interactive_objects)
     from worldmock.life.models import StartActivityRequest
 
     data = _identity_bindings()
     contracts = _visible_action_contracts(data)
-    objects = {row["object"]: tuple(action["label"] for action in row["actions"])
-               for row in data["interaction_bindings"]}
-    for target, action in (("李凡", "交谈"), ("妈妈", "通话")):
-        request = StartActivityRequest(targets=[target], actions=[action])
+    objects = _visible_interactive_objects(data)
+    assert objects == {"李凡": (("interact", "交谈", "chat"),), "妈妈": (("interact", "通话", "call"),)}
+    for target, way in (("李凡", "交谈"), ("妈妈", "通话")):
+        request = StartActivityRequest(targets=[target], actions=["interact"], ways=[way])
         assert _validate_prepared_action("start_activity", request, objects, contracts) == ""
-    for target, action in (("妈妈", "交谈"), ("李凡", "通话"), ("陌生人", "交谈")):
-        request = StartActivityRequest(targets=[target], actions=[action])
+    for target, verb, way in (("妈妈", "interact", "交谈"), ("李凡", "interact", "通话"),
+                              ("陌生人", "interact", "交谈"), ("李凡", "obtain", "交谈")):
+        request = StartActivityRequest(targets=[target], actions=[verb], ways=[way])
         assert _validate_prepared_action("start_activity", request, objects, contracts) != ""

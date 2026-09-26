@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from worldmock.evaluation.errors import EvaluationError
 from worldmock.evaluation.models import JsonObject, PublicEvidence
 from worldmock.footprints.models import Event
-from worldmock.life.interaction_menu import canonical_action
+from worldmock.life.interaction_menu import WAYS
 
 
 _LEGACY_ACTIONS = {
@@ -28,6 +28,12 @@ _TARGETED_ACTIONS = {
     "play": ("entertainment", "play", "game"),
     "read": ("work", "read", "message"),
     "browse": ("browsing", "browse", "content"),
+}
+#: 结果活动快照的 kind → 内部标准动作（start_activity 逐项证据按实际开始的活动分类）。
+_ACTION_OF_KIND = {
+    "travel": "travel_to", "work": "work", "watch": "watch", "play_game": "play", "read_mail": "read",
+    "browse": "browse", "consume": "consume", "chat": "chat", "call": "call", "lifestyle": "do",
+    "wait": "wait", "sleep": "sleep",
 }
 #: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」），按 task[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
@@ -265,18 +271,32 @@ def _world_request_shape(
 
 
 def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple[_Action, ...]:
-    """@brief 把等长的可读对象和动作数组逐项映射为独立公开证据。"""
-    targets, actions = request.get("targets"), request.get("actions")
-    if (not isinstance(targets, list) or not isinstance(actions, list)
-            or not 1 <= len(targets) == len(actions) <= 2):
+    """@brief 把等长的可读对象、动词与方式数组逐项映射为独立公开证据。
+
+    内部动作按结果中的活动快照 kind 分类（购买按实际订单）；没有结果活动的请求（如被拒绝）按私有绑定的方式闭集
+    （WAYS）映射，不按动词或短语反解。
+    """
+    targets, ways = request.get("targets"), request.get("ways")
+    if (not isinstance(targets, list) or not isinstance(ways, list)
+            or not 1 <= len(targets) == len(ways) <= 2):
         return ()
     selected = []
-    for index, (target, label) in enumerate(zip(targets, actions, strict=True)):
-        action = canonical_action(label) if isinstance(label, str) else None
-        shape = _start_shape(action, label, target, related, index)
+    for index, (target, way) in enumerate(zip(targets, ways, strict=True)):
+        action = _started_action(related, index, way)
+        shape = _start_shape(action, way, target, related, index)
         if shape is not None:
             selected.append(_Action("start_activity", request, shape, action, index))
     return tuple(selected)
+
+
+def _started_action(related: Sequence[Event], index: int, way: Any) -> str | None:
+    """@brief 逐项的内部标准动作：结果活动快照的 kind，其次实际订单（购买），最后是方式在 WAYS 中的内部动作。"""
+    kind = _string(_related_activity(related, index).get("kind"))
+    if kind in _ACTION_OF_KIND:
+        return _ACTION_OF_KIND[kind]
+    if _order_key(related, index) is not None:
+        return "purchase"
+    return WAYS[way][1] if isinstance(way, str) and way in WAYS else None
 
 
 def _start_shape(action: str | None, label: str, target: Any,
@@ -295,7 +315,7 @@ def _start_shape(action: str | None, label: str, target: Any,
         return _Shape("purchase", "order", "order", _order_key(related, index), {})
     if action == "consume":
         mode = _mapping(_mapping(activity.get("data")).get("request")).get("use_mode")
-        category = "product_use" if mode == "use" or not mode and label == "使用" else "eat"
+        category = "product_use" if mode == "use" or not mode and label in {"使用", "制作"} else "eat"
         return _Shape(category, "consume", "product", key, {})
     if action in {"chat", "call"}:
         return _Shape("social", action, "person", key, {})

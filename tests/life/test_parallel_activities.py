@@ -4,29 +4,46 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, conclude_request, context, pending_names, stage_day_plan
+from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
+                                 start_activity)
 from worldmock.life.activity_control import PHASE_ACTIVE
+from worldmock.life.interaction_menu import CONTENT_WAYS
 from worldmock.life.models import ReportStatusRequest, StartActivityRequest
 
+#: 播客的续听方式：只占耳朵，本文件的「观看」只取占眼睛和耳朵的内容（第五章占用表）。
+_LISTEN_WAYS = frozenset({CONTENT_WAYS[(True, False)], CONTENT_WAYS[(True, True)]})
 
-def _choice(observation: dict, action: str) -> tuple[str, str]:
-    """@brief 从真实观察中取一个人类可读对象与动作短语。"""
-    return next((row["object"], choice["label"])
+
+def _met(note: str | None) -> bool:
+    """@brief 动作说明里没有未满足的条件：说明为空，或内容对象只写了时长（「全长…」「还剩…」，第五章）。"""
+    return note is None or note.startswith(("全长", "还剩"))
+
+
+def _choice(observation: dict, action: str) -> tuple[dict, dict]:
+    """@brief 从真实观察中取一个条件已满足的对象行与所选动作（内部标准动作为 action，出行只取步行）。"""
+    return next((row, choice)
                 for row in observation["interaction_bindings"]
-                for choice in row["actions"] if choice["canonical_action"] == action
-                and (action != "travel_to" or choice["travel_mode"] == "walking"))
+                for choice in row["actions"] if choice["canonical_action"] == action and _met(choice["note"])
+                and (action != "travel_to" or choice["travel_mode"] == "walking")
+                and (action != "watch" or choice["label"] not in _LISTEN_WAYS))
 
 
-def _start_pair(engine, first: str, second: str, round_id: str):
-    """@brief 在同一冻结观察中逐对象选择动作并结算一次决策。"""
+def _start_pair_with_choices(engine, first: str, second: str, round_id: str):
+    """@brief 在同一冻结观察中逐对象选择（对象，动词，方式）并结算一次决策；返回结果与所选的对象行和动作。"""
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     choices = [_choice(observed, action) for action in (first, second)]
-    request = StartActivityRequest(targets=[item[0] for item in choices],
-                                   actions=[item[1] for item in choices])
+    request = StartActivityRequest(targets=[row["object"] for row, _ in choices],
+                                   actions=[choice["verb"] for _, choice in choices],
+                                   ways=[choice["label"] for _, choice in choices])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
-    return engine.commit_decision_round(round_id)[0]
+    return engine.commit_decision_round(round_id)[0], choices
+
+
+def _start_pair(engine, first: str, second: str, round_id: str):
+    """@brief 在同一冻结观察中逐对象选择动作并结算一次决策。"""
+    return _start_pair_with_choices(engine, first, second, round_id)[0]
 
 
 def _control_request(observed: dict) -> tuple[str, object]:
@@ -37,7 +54,7 @@ def _control_request(observed: dict) -> tuple[str, object]:
     running = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
     if running:
         return "report_status", ReportStatusRequest(task=running[:1], summary=["仍在继续"])
-    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+    return "start_activity", start_activity("等待", "自己")
 
 
 def _advance_with_decisions(engine, index: int) -> None:
@@ -88,6 +105,7 @@ def test_pair_failure_rejects_all_without_partial_activity(engine_factory) -> No
     before = engine.state.model_dump(mode="json")
     result = _start_pair(engine, "watch", "sleep", "watch-sleep-conflict")
     assert result.status == "rejected", result.error_code
+    assert result.error_code == "RESOURCE_CONFLICT"
     assert engine.state.activities == {}
     sessions = list(engine.state.sessions.values())
     assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]

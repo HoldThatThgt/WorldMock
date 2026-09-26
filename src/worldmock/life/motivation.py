@@ -46,6 +46,7 @@ from worldmock.life.body import (
 )
 from worldmock.life.content import (
     LifestyleItem,
+    restarts_from_beginning,
 )
 from worldmock.life.models import (
     ActivityKind,
@@ -212,16 +213,17 @@ def prospect_value(z: float, transforms: MotivationTransforms, loss_aversion: fl
 def classify_action_event(tool_name: str, request: Mapping) -> tuple[str, ...]:
     """@brief 将请求中的每个动作逐项归入习惯家族；不可判定项不计数。
 
-    归并键是动作名：start_activity 逐项取 actions，其余稳定工具取工具名本身
-    （归并路由自注册表 families.*.habit_members 展开，docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
+    归并键是内部标准动作名，不是模型动词：start_activity 逐项取 ways，经私有绑定的方式闭集（WAYS）映射为内部
+    动作，其余稳定工具取工具名本身（归并路由自注册表 families.*.habit_members 展开，
+    docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
     """
-    from worldmock.life.interaction_menu import canonical_action
+    from worldmock.life.interaction_menu import WAYS
 
     if tool_name == "start_activity":
-        actions = request.get("actions") if isinstance(request, Mapping) else None
-        if not isinstance(actions, list) or not 1 <= len(actions) <= 2:
+        ways = request.get("ways") if isinstance(request, Mapping) else None
+        if not isinstance(ways, list) or not 1 <= len(ways) <= 2:
             return ()
-        names = [canonical_action(action) for action in actions if isinstance(action, str)]
+        names = [WAYS[way][1] for way in ways if isinstance(way, str) and way in WAYS]
     else:
         names = [tool_name]
     return tuple(family for name in names
@@ -971,9 +973,12 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
     segments_total = len(boundaries) or 1
     typical = item.duration_seconds / segments_total
     remaining = item.duration_seconds - position
-    if remaining <= 0:  # 看完的内容重复观看从头开始
+    # 已看完或剩余不足 60 秒的从头再看，接触次数加一；接着看从上次位置开始，不算新的一次接触（第七章「接着看」）。
+    restart = progress is None or restarts_from_beginning(position, item.duration_seconds)
+    if restarts_from_beginning(position, item.duration_seconds):
         position = 0.0
         remaining = item.duration_seconds
+    divisor = exposures + 1 if restart else max(exposures, 1)
     outer_cap = min(remaining,
                     maximum_energy_duration_seconds(ActivityKind.WATCH,
                                                     agent.body.energy_kcal, context.body),
@@ -984,8 +989,7 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
         return None
     summary, lead = _watch_texts(item, position, typical, boundaries, slot)
     hours = slot / 3600
-    relief_rate = (item.entertainment_relief_per_hour * _preference(context, item.item_id)
-                   / (exposures + 1))
+    relief_rate = item.entertainment_relief_per_hour * _preference(context, item.item_id) / divisor
     relief = min(relief_rate * hours, agent.body.entertainment_need)
     fun_after = agent.body.entertainment_need - relief
     burn = minimum_energy_cost(ActivityKind.WATCH, slot, context.body)

@@ -42,7 +42,7 @@ def _world_state() -> WorldState:
         last_settled_at=1,
         elapsed_seconds=0,
         planned_duration_seconds=9,
-        resource_claims={"position"},
+        resource_claims={"idle"},
         origin_action_id="action-1",
         origin_decision_id="decision-1",
         origin_request_event_id="request-1",

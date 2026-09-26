@@ -20,6 +20,7 @@ from worldmock.life.models import (ActionStatus, ActivityKind, ActivityState, Ac
                                    SameMomentStage, WorldState, active_activities)
 from worldmock.life.rhythm import read_new_messages
 from worldmock.life.schedule import WakeReason
+from worldmock.life.social_actions import PARTNER_ENDED
 
 #: 业务拒绝对应的情绪脉冲键：工作返工单独计，两种品类配对说明不施加脉冲，其余都是服务拒绝。
 SERVICE_REFUSED = "service_refused"
@@ -249,6 +250,33 @@ def merge_message_readiness(state: WorldState, recipient_ids: Iterable[int], lim
         ready[agent_id] = agent.model_copy(update={
             "next_decision_at": state.current_time,
             "pending_wake_reasons": [reason.value for reason in WakeReason if reason.value in reasons]}, deep=True)
+    if not ready:
+        return state
+    return state.model_copy(update={"agents": {**state.agents, **ready}}, deep=True)
+
+
+def merge_partner_endings(before: WorldState, state: WorldState, limit: int) -> WorldState:
+    """@brief 交谈对方结束、本人交谈在同一秒结束（partner_ended）而待收尾的人物，在同一秒再获得机会（第五章「交谈」）。
+
+    在本轮全部动作结算后合并，不被对方本轮的受理排期覆盖：next_decision_at 取当前时刻；pending_wake_reasons
+    替换为本轮原因，仍有其他进行中活动记 planned_end，否则记 no_active_activity；已达同刻上限时按规则 3 的阶梯从
+    收尾一支重新开始（conclude_pending），每次至多另加三轮。轮数在其决策时照常计入。
+
+    :param before: 本轮之前的世界（判定哪些交谈是本轮由对方结束的）。
+    :param state: 本轮全部动作结算后的世界副本。
+    """
+    ready = {}
+    for activity in sorted(state.activities.values(), key=lambda item: item.activity_id):
+        previous = before.activities.get(activity.activity_id)
+        if (activity.boundary_type != PARTNER_ENDED or previous is None
+                or previous.status != ActivityStatus.ACTIVE or activity.concluded_at is not None):
+            continue
+        agent = state.agents[activity.agent_id]
+        reason = WakeReason.PLANNED_END if active_activities(state, agent.agent_id) else WakeReason.NO_ACTIVE_ACTIVITY
+        stage = SameMomentStage.CONCLUDE_PENDING if agent.same_moment_rounds >= limit else agent.same_moment_stage
+        ready[agent.agent_id] = agent.model_copy(update={
+            "next_decision_at": state.current_time, "pending_wake_reasons": [reason.value],
+            "same_moment_stage": stage}, deep=True)
     if not ready:
         return state
     return state.model_copy(update={"agents": {**state.agents, **ready}}, deep=True)

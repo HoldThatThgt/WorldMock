@@ -8,15 +8,20 @@ from tests.life.conftest import advance_next, context
 from worldmock.life.models import StartActivityRequest
 
 
+def _executable(action: dict) -> bool:
+    """@brief 动作此刻没有未满足的条件：说明为空；内容对象的说明只写时长（「全长…」或「还剩…」），没有前缀原因。"""
+    note = action["note"]
+    return note is None or note.startswith(("全长", "还剩"))
+
+
 def _start_visible(engine, round_id: str, kind: str):
-    """@brief 从真实观察选一项当前可执行对象并启动。"""
+    """@brief 从真实观察的私有绑定选一项当前可执行的对象与方式，按「动词＋对象＋方式」启动。"""
     decision = context(engine, round_id)
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    binding = next(row for row in observed["interaction_bindings"]
-                   if row["kind"] == kind and row["preconditions_met"] and row["actions"])
-    request = StartActivityRequest(targets=[binding["object"]],
-                                   actions=[binding["actions"][0]["label"]])
+    binding, action = next((row, action) for row in observed["interaction_bindings"] if row["kind"] == kind
+                           for action in row["actions"] if _executable(action))
+    request = StartActivityRequest(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return binding, engine.commit_decision_round(round_id)[0]
 

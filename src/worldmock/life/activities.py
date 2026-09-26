@@ -257,11 +257,15 @@ def truncate_activity(activity: ActivityState, agent: AgentState, now: int) -> t
     return changed, agent.model_copy(deep=True)
 
 
-def resource_claims(request: ActivityStartParams) -> set[str]:
-    """@brief 从注册表取得活动显式资源锁及驾驶条件锁。"""
+def resource_claims(request: ActivityStartParams, content_kind: str | None = None) -> set[str]:
+    """@brief 从注册表取得活动显式占用及条件占用（驾车按出行方式，观看按内容品类：播客只占 ears）。
+
+    :param content_kind: 观看内容的品类（rules.validate_start 从场景内容取得并写入 activity.data）；其余活动为 None。
+    """
     return set(_AFFORDANCES.resource_claims(
         request.activity_type.value,
-        travel_mode=request.travel_mode.value if request.travel_mode is not None else None))
+        travel_mode=request.travel_mode.value if request.travel_mode is not None else None,
+        content_kind=content_kind))
 
 
 def shared_activity_factors(activity: ActivityState, agent: AgentState,

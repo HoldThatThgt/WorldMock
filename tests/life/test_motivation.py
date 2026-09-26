@@ -352,35 +352,44 @@ class TestHomeostatic:
         assert eat.candidate.energy_delta < 100  # 2400 上限截断 + 进食自身代谢
 
 
+def _start(*pairs: tuple[str, str]) -> tuple[str, dict]:
+    """@brief 一条 start_activity 请求足迹：逐项的动词与方式（对象名不参与习惯归并）。"""
+    return ("start_activity", {"targets": [f"对象{index}" for index, _ in enumerate(pairs)],
+                               "actions": [verb for verb, _ in pairs], "ways": [way for _, way in pairs]})
+
+
 class TestHabit:
     def test_classification_table(self):
+        """start_activity 逐项按方式闭集（WAYS）映射的内部动作归并，不按动词；其余工具取工具名本身。"""
         assert classify_action_event("report_status", {}) == ("continue",)
-        assert classify_action_event("start_activity", {"actions": ["睡觉"]}) == ("sleep",)
-        assert classify_action_event("start_activity", {"actions": ["等待"]}) == ("continue",)
-        assert classify_action_event("start_activity", {"actions": ["到店购买"]}) == ("eat",)
-        assert classify_action_event("start_activity", {"actions": ["食用"]}) == ("eat",)
-        assert classify_action_event("start_activity", {"actions": ["步行前往"]}) == ("travel",)
-        assert classify_action_event("start_activity", {"actions": ["观看"]}) == ("entertainment",)
-        assert classify_action_event("start_activity", {"actions": ["工作"]}) == ("work",)
+        table = {("sleep", "睡觉"): ("sleep",), ("interact", "等待"): ("continue",),
+                 ("obtain", "到店"): ("eat",), ("obtain", "远程下单"): ("eat",), ("consume", "食用"): ("eat",),
+                 ("travel", "步行"): ("travel",), ("travel", "驾车"): ("travel",),
+                 ("interact", "观看"): ("entertainment",), ("interact", "接着看"): ("entertainment",),
+                 ("interact", "从头再听"): ("entertainment",), ("interact", "工作"): ("work",),
+                 ("interact", "浏览"): ("browse",)}
+        for pair, families in table.items():
+            assert classify_action_event(*_start(pair)) == families, pair
         assert classify_action_event("submit_work", {}) == ("work",)
-        assert classify_action_event("start_activity", {"actions": ["浏览"]}) == ("browse",)
-        assert classify_action_event("start_activity", {"actions": ["步行前往", "观看"]}) == (
+        assert classify_action_event(*_start(("travel", "步行"), ("interact", "接着听"))) == (
             "travel", "entertainment")
+        # 只有动词、旧短语或不在闭集的方式都不可判定，不计数。
+        assert classify_action_event("start_activity", {"actions": ["sleep"]}) == ()
+        assert classify_action_event(*_start(("travel", "步行前往"))) == ()
+        assert classify_action_event(*_start(("interact", "到店购买"))) == ()
 
     def test_shares_normalize_and_recency(self):
-        events = [("start_activity", {"actions": ["观看"]})] * 3
+        events = [_start(("interact", "接着看"))] * 3
         shares = habit_shares(events, 0.9)
         assert set(shares) == FAMILIES
         assert shares["entertainment"] == pytest.approx(1.0)
         assert sum(shares.values()) == pytest.approx(1.0)
-        mixed = [("start_activity", {"actions": ["到店购买"]}),
-                 ("start_activity", {"actions": ["观看"]}),
-                 ("start_activity", {"actions": ["观看"]})]
+        mixed = [_start(("obtain", "到店")), _start(("interact", "接着看")), _start(("interact", "从头再看"))]
         shares = habit_shares(mixed, 0.5)
         # 逆序贴现：最新 watch=1.0、次新 watch=0.5、最早 purchase=0.25。
         assert shares["eat"] == pytest.approx(0.25 / 1.75)
         assert shares["entertainment"] == pytest.approx(1.5 / 1.75)
-        concurrent = habit_shares([("start_activity", {"actions": ["步行前往", "观看"]})], 0.5)
+        concurrent = habit_shares([_start(("travel", "步行"), ("interact", "接着听"))], 0.5)
         assert concurrent["travel"] == concurrent["entertainment"] == pytest.approx(0.5)
 
     def test_empty_footprint_gives_zero_habit(self, transforms):
@@ -687,6 +696,29 @@ class TestEntertainmentSegmentSlots:
         assert keep.candidate.duration_seconds == pytest.approx(600.0)
         assert keep.candidate.summary == "Watch segment 1 of news-feed (~10 min)"
 
+    def test_resume_keeps_exposures_and_restart_adds_one(self, transforms):
+        """缓解按接触次数摊薄（第七章「接着看」）：接着看不算新的一次接触，按已有次数摊薄；第一次观看与从头再看
+        （已看完或剩余不足 60 秒）各算一次新的接触。"""
+        movie = _content("movie-0001", "feature_film", 6780, 0.35)
+
+        def watch(position: float | None):
+            progress = {} if position is None else {"movie-0001": ContentProgress(
+                item_id="movie-0001", position_seconds=position, exposure_count=2)}
+            context = _context(agent=_agent(need=1.0, preferences={"movie-0001": 0.8}), contents=(movie,),
+                               taste_weights={"movie-0001": 0.8}, content_progress=progress)
+            candidate = self._entertainment(context, transforms).candidate
+            return candidate, -candidate.entertainment_delta * 3600 / candidate.duration_seconds
+
+        first, first_rate = watch(None)
+        resumed, resumed_rate = watch(1800)
+        finished, finished_rate = watch(6780)
+        tail, tail_rate = watch(6780 - 30)
+        assert first_rate == pytest.approx(0.35 * 0.8)
+        assert resumed_rate == pytest.approx(0.35 * 0.8 / 2)
+        assert resumed.summary == "Continue movie-0001 from minute 30 (~83 min)"
+        assert finished_rate == pytest.approx(0.35 * 0.8 / 3) and tail_rate == pytest.approx(0.35 * 0.8 / 3)
+        assert first.summary == finished.summary == tail.summary == "Watch movie-0001 (~113 min)"
+
     def test_finished_novel_restarts_from_chapter_one(self, transforms):
         typical = self.NOVEL_SECONDS / self.NOVEL_SEGMENTS
         context = _context(
@@ -809,7 +841,7 @@ class TestLifestyleCandidates:
 
     def test_lifestyle_events_accumulate_own_habit_share(self, transforms):
         # 生活活动通过人物可读动作进入独立习惯家族。
-        events = (("start_activity", {"actions": ["进行"]}),)
+        events = (_start(("interact", "进行")),)
         shares = habit_shares(events, transforms.habit_discount)
         assert shares.get("lifestyle") == pytest.approx(1.0)
         assert shares.get("continue", 0.0) == 0.0
@@ -1110,7 +1142,7 @@ class TestEngineInjection:
     def test_hints_do_not_enter_settlement(self, engine_factory):
         """@brief 有无提示的两个同源运行走同一决策轮，结果与终态逐字节一致。"""
         plain, hinted = engine_factory(), _profiled_engine(engine_factory)
-        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))
+        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
         results = []
         states = []
         for engine in (plain, hinted):
@@ -1160,7 +1192,7 @@ class TestMarketSummary:
 
     def test_summary_stays_public_when_market_opens(self, engine_factory):
         engine = engine_factory()
-        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))
+        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
         submit_round(engine, {1: request}, "r-mkt-open")
         advance_next(engine)
         data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))

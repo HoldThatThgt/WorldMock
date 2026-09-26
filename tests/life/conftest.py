@@ -213,11 +213,12 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     return at
 
 
-def start_activity(action: str, *targets: str, **fields):
-    """@brief 使用人物可读对象与动作短语构造唯一合法的启动请求。"""
+def start_activity(way: str, *targets: str, **fields):
+    """@brief 按「动词＋对象＋方式」构造启动请求：每个对象取同一方式短语，动词由方式唯一确定（第五章）。"""
+    from worldmock.life.interaction_menu import WAYS
     from worldmock.life.models import StartActivityRequest
 
-    payload = {"targets": list(targets), "actions": [action for _ in targets]}
+    payload = {"targets": list(targets), "actions": [WAYS[way][0] for _ in targets], "ways": [way for _ in targets]}
     payload.update(fields)
     return StartActivityRequest(**payload)
 
@@ -254,30 +255,3 @@ def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
                                         conclude_request(*names)))
     return engine.commit_decision_round(round_id)[0]
-
-
-def presented_rows(engine: LifeEngine, round_id: str, kind: str, agent_id: int = 1,
-                   rounds: int = 8) -> list[dict]:
-    """累计连续几轮呈现窗口里出现过的某类交互对象行（object_id 去重，保持首见序）。
-
-    目录下钻工具已随稳定工具面收敛删除，呈现窗口是内容/游戏/生活活动的唯一可见通道
-    （docs/dev/SPEC-life-runtime.md「曝光轮转」）。轮转游标只在决策轮提交或世界推进时
-    落盘，因此每观察一轮都要真正走完一轮，才能看到下一批身份。
-    """
-    rows: dict[str, dict] = {}
-    for step in range(rounds):
-        ready = list(engine.scheduling_state().ready_agent_ids)
-        if agent_id not in ready:
-            if not advance_until_ready(engine):
-                break
-            ready = list(engine.scheduling_state().ready_agent_ids)
-            if agent_id not in ready:
-                break
-        data = engine.observe(context(engine, f"{round_id}-{step}", agent_id))
-        for row in data["facts"]["interactive_objects"]:
-            if row["kind"] == kind:
-                rows.setdefault(row["object_id"], row)
-        requests = {item: ("start_activity", start_activity("wait", planned_duration_seconds=60))
-                    for item in ready}
-        submit_round(engine, requests, f"{round_id}-{step}")
-    return list(rows.values())

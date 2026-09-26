@@ -73,7 +73,7 @@ def complete_export(tmp_path):
                                    }})
     request = EventDraft(event_type='action_requested', occurred_at=100, agent_id=1, decision_id='decision',
                          action_id='request', data={'tool_name': 'start_activity', 'request': {
-                             'targets': ['自己'], 'actions': ['等待']}})
+                             'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}})
     store.commit(store.state, [observation, model_request, request])
     store.commit({'version': 1, 'current_time': 200}, [EventDraft(event_type='run_ended', occurred_at=200)])
     reference = store.assets.put_json({'saved': 'complete'}, {'kind': 'fixture'})

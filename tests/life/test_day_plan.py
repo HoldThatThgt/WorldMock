@@ -9,13 +9,13 @@ from pydantic import ValidationError
 
 from tests.life.conftest import (
     StubPlanDayClient, advance_next, advance_until_ready, conclude_pending, context, drive, settle_day_plans,
-    wake_by_mail,
+    start_activity, wake_by_mail,
 )
 from agentsociety2.society import DirectToolCall
 from worldmock.errors import ProtocolError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
-    PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest, StartActivityRequest,
+    PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest,
 )
 from worldmock.life.rhythm import _goal_and_deadline_pulses, engine_rhythm_inputs
 from worldmock.life.schedule import (
@@ -184,7 +184,7 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
     assert engine.state.agents[1].day_plan.goals[0].registered_at == now
     assert advance_until_ready(engine)
     started = act(engine, "rest", "start_activity",
-                  StartActivityRequest(targets=["自己"], actions=["等待"]))
+                  start_activity("等待", "自己"))
     advance_next(engine)
     plan = engine.state.agents[1].day_plan
     assert plan.goals[0].progress_activity_id == started.activity_id
@@ -219,7 +219,7 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     assert {"recall": expected} in [row.get("details") for row in shown]
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
-    act(engine, "recall-rest", "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
+    act(engine, "recall-rest", "start_activity", start_activity("等待", "自己"))
     advance_next(engine)
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is not None
     # 等待按计划结束即成待收尾：当秒收尾之后才做别的（第七章「活动一结束就要结束它」）。
@@ -287,7 +287,7 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
         "day_plan": DayPlan(day_end=midnight, goals=[goal("休息", registered=staged.current_time)])})
     _commit_staged(engine, staged)
     started = act(engine, "last-minute", "start_activity",
-                  StartActivityRequest(targets=["自己"], actions=["等待"]))
+                  start_activity("等待", "自己"))
     boundary = engine.scheduling_state().next_event_at
     assert int(boundary.timestamp()) == midnight
     engine.advance(midnight - engine.state.current_time, boundary)
@@ -309,7 +309,7 @@ def test_late_plan_generation_registers_now_without_retroactive_progress(engine_
     （第四章：目标的 registered_at 为登记事件时刻）。"""
     engine = engine_factory()
     act(engine, "before-plan", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["等待"]))
+        start_activity("等待", "自己"))
     assert advance_until_ready(engine)
     # 等待按计划结束即成待收尾，当秒收尾后才生成当日计划（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "before-plan-end").status == "completed"
