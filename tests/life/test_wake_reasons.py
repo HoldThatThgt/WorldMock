@@ -13,8 +13,11 @@ from tests.life.conftest import (
     activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, start_activity,
     wake_by_mail,
 )
+from tests.life.test_commerce import _stage_open
 from tests.life.test_day_plan import act, goal
+from tests.life.test_same_moment_decisions import _finish, _observed_act, _supply_order
 from tests.life.test_scheduling import _custom_engine
+from worldmock.life import schedule as schedule_module
 from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
@@ -511,6 +514,126 @@ def test_zero_energy_during_activity_raises_neither_infeasible_nor_threat(engine
         assert not state.agents[1].delivered_warning_signatures
         assert state.activities[started.activity_id].status == ActivityStatus.ACTIVE
         state.activities[started.activity_id].elapsed_seconds += 1
+
+
+def _assert_rhythm_scheduled(engine) -> None:
+    """@brief 有进行中活动时动作成功之后：下一次决策取决策节律的候选时刻（第一章规则 4、7），不另排下一秒，
+    也不留待处理的唤醒原因。"""
+    agent, now = engine.state.agents[1], engine.state.current_time
+    assert agent.pending_wake_reasons == [] and agent.next_decision_at > now + 1
+    assert agent.next_decision_at == next_decision_candidates(
+        agent.model_copy(update={"last_decision_time": now}), engine_rhythm_inputs(engine, engine.state))
+
+
+def _start_browse(engine, name: str) -> tuple[dict, str]:
+    """@brief 开始一次商品目录浏览（浏览是占名额的活动），返回该轮观察与活动身份。"""
+    observed, result = _observed_act(engine, name, "start_activity", start_activity("浏览", "商品目录"))
+    assert result.status == "in_progress", result.error_code
+    _assert_rhythm_scheduled(engine)
+    return observed, result.activity_id
+
+
+def _conclude(engine, name: str, activity_id: str) -> dict:
+    """@brief 一轮只结束点名的活动，返回该轮观察。"""
+    observed, result = _observed_act(engine, name, "conclude_activity",
+                                     conclude_request(activity_name(engine, activity_id)))
+    assert result.status == "completed", result.error_code
+    return observed
+
+
+def _pinned(engine, observed: dict, browse_id: str) -> list[str]:
+    """@brief 浏览结果回灌到观察：该次浏览返回的供给全部呈现，且排在未经浏览返回的供给之前（置顶）；返回置顶的前缀。
+
+    直驱引擎没有宿主请求推进进度层截止点，更早的浏览结果仍在近期结果中，一并置顶。"""
+    browsed = {row["supply_id"] for item in engine.state.activities.values() if item.kind == ActivityKind.BROWSE
+               for row in item.data.get("revealed", {}).get("items", [])}
+    order = _supply_order(observed)
+    head = order[:next((index for index, supply_id in enumerate(order) if supply_id not in browsed), len(order))]
+    returned = {row["supply_id"] for row in engine.state.activities[browse_id].data["revealed"]["items"]}
+    assert returned and returned <= set(head)
+    return head
+
+
+def _browse_alone_to_its_end(engine) -> str:
+    """@brief 独自浏览到计划结束：结束边界以 planned_end 唤醒并置顶结果；收尾后同一秒以 no_active_activity 再决策，
+    该轮观察仍置顶同一批结果，并在该轮再开始一次浏览，返回其活动身份。"""
+    _, browse_id = _start_browse(engine, "alone")
+    _finish(engine, browse_id, "alone")
+    assert engine.state.current_time == engine.state.activities[browse_id].planned_end_at
+    ended = _conclude(engine, "alone-end", browse_id)
+    assert ended["wake_reasons"] == ["planned_end", "no_active_activity"]
+    pinned = _pinned(engine, ended, browse_id)
+    assert engine.state.agents[1].next_decision_at == engine.state.current_time
+    again, next_id = _start_browse(engine, "alone-again")
+    assert again["wake_reasons"] == ["no_active_activity"] and _supply_order(again)[:len(pinned)] == pinned
+    return next_id
+
+
+def _end_browse_early(engine, browse_id: str) -> None:
+    """@brief 本人提前结束浏览：浏览取消、没有结果，同一秒以 no_active_activity 再决策。"""
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    assert _conclude(engine, "early-end", browse_id)["wake_reasons"] == ["message_arrival"]
+    assert engine.state.activities[browse_id].status == ActivityStatus.CANCELLED
+    assert "revealed" not in engine.state.activities[browse_id].data
+    agent = engine.state.agents[1]
+    assert agent.pending_wake_reasons == ["no_active_activity"] and agent.next_decision_at == engine.state.current_time
+
+
+def _browse_beside_a_wait(engine) -> None:
+    """@brief 在进行中的等待旁浏览：浏览先到计划结束，以 planned_end 唤醒并在该边界的观察置顶结果；收尾后等待仍在
+    进行，下一次决策按决策节律，不在同一秒或下一秒；等待结束的边界以 planned_end 与 no_active_activity 唤醒。"""
+    _, browse_id = _start_browse(engine, "beside")
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    _, waiting = _observed_act(engine, "beside-wait", "start_activity", start_activity("等待", "自己"))
+    assert waiting.status == "in_progress"
+    _finish(engine, browse_id, "beside")
+    assert engine.state.current_time == engine.state.activities[browse_id].planned_end_at
+    ended = _conclude(engine, "beside-end", browse_id)
+    assert ended["wake_reasons"] == ["planned_end"]
+    _pinned(engine, ended, browse_id)
+    _assert_rhythm_scheduled(engine)
+    _finish(engine, waiting.activity_id, "wait")
+    assert _conclude(engine, "wait-end", waiting.activity_id)["wake_reasons"] == ["planned_end", "no_active_activity"]
+
+
+def _recorded_wake_reasons(engine) -> dict[str, list[list[str]]]:
+    """@brief 人物 1 在决策开始、观察与共同身体结算中留下的全部唤醒原因。"""
+    events = engine.store.read_agent_events
+    return {
+        "decision_started": [event.data["wake_reasons"] for event in events("decision_started", 1)],
+        "observation": [event.data["wake_reasons"] for event in events("observation", 1)],
+        "body_settlement": [event.data["wake_reasons"] for event in events("environment_event", 1)
+                            if event.data.get("kind") == "body_settlement"],
+    }
+
+
+def test_browse_results_return_in_observation_never_as_discovery_result(engine_factory, monkeypatch):
+    """discovery_result 保留在闭集中、当前没有触发来源（docs/dev/SPEC-time-and-energy.md 第一章规则 6）：浏览是活动，
+    结果随浏览结束回灌到随后的观察，不另排下一秒。独自浏览到计划结束、本人提前结束、在进行中的等待旁浏览三种情形里，
+    决策开始、观察与共同身体结算的唤醒原因都不含它；判定函数仍把置位的标志映射为该原因（闭集保留），
+    而节律为每个边界装配的判定输入从不置位。"""
+    evaluated = []
+
+    def recording(snapshot):
+        verdict = evaluate_wake_reasons(snapshot)
+        evaluated.append((snapshot, verdict))
+        return verdict
+
+    monkeypatch.setattr(schedule_module, "evaluate_wake_reasons", recording)
+    engine = engine_factory()
+    _stage_open(engine)
+    stage_day_plan(engine)
+    _end_browse_early(engine, _browse_alone_to_its_end(engine))
+    _browse_beside_a_wait(engine)
+    recorded = _recorded_wake_reasons(engine)
+    assert all(recorded.values())
+    assert not [reasons for rows in recorded.values() for reasons in rows if "discovery_result" in reasons]
+    assert len(evaluated) >= len(recorded["body_settlement"]) > 0
+    assert not [snapshot for snapshot, verdict in evaluated
+                if snapshot.discovery_result_ready or WakeReason.DISCOVERY_RESULT in verdict.wake_reasons]
+    assert reasons(discovery_result_ready=True) == ["discovery_result"]
 
 
 @pytest.mark.parametrize(("energy", "band"), [(300.0, "饿得难受"), (60.0, "饿得发慌")])

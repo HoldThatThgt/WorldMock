@@ -10,7 +10,7 @@
 新增特性各有独立完整台账，仍不得把历史比例当作当前全规格覆盖率。
 
 > 状态：分析文档，不拥有规范权威——本文件只回答「每条规格要求是否有测试覆盖、缺口在哪」，不定义、不裁决规格；条款的内容与判定以现行文档树为准
-> 日期：2026-09-21（增量修订；原基线 2026-09-18）
+> 日期：2026-09-26（增量修订；原基线 2026-09-18）
 > 审计：本轮只读审计；终态：独立复核
 > 范围：`tests/`（九个子目录 + 根）与 `vendor/agentsociety2/packages/agentsociety2/tests/`（含 worldmock hooks）的测试函数与现行文档树条款的映射
 
@@ -31,6 +31,53 @@
 与品类契约主线组合后的源码身份和全仓门禁见
 [交互菜单主线合并验收](research/interaction-menu-main-verification.md)，各独立审查保留原快照边界。
 
+
+## 时间与能量增量映射
+
+[时间与能量特性规格](SPEC-time-and-energy.md)（FROZEN）的行为已在实施阶段 0–7 全部实现，逐条判据见其
+[验收台账](SPEC-time-and-energy.md#验收台账)；台账各行的证据测试登记在 `tests/time_and_energy_acceptance.py`，由
+`tests/test_time_and_energy_completeness.py` 逐行判定。源码身份、全量门禁、覆盖率、源码突变与文档一致性的结果统一见
+[本特性验收记录](research/time-and-energy-verification.md)。新增范围包括决策不耗时与同刻上限、低能量饥饿显示与能量不拦人、
+零点计划与计划提醒、五个动词与并行准入、常驻「怎样过一天」、地点会话与活动名额、`finish` 并入 `conclude_activity`
+以及发给人物模型的内容不含内部身份。
+
+固定被测提交 `ef13dc5` 的覆盖率门禁全量运行为 3978 passed、8 项既有平台跳过；分支 94.57%，未覆盖公共接口为零。
+干净提交上的 Uncle Bob 源码语义突变覆盖同刻上限、能量截断、唤醒闭集、提醒一次、名额释放与身份不进提示六项，
+共 29 个，全部被测试杀死。练秋湖与 r14 场景的真实复验只报告、不作门禁，执行情况见验收记录。
+
+该规格经「冻结条款修订」改写了下表各行依据的条款：这些行的条款表述、测试映射与 `covered` 判定只代表当时的审计快照，
+不再代表现行条款。历史行原样保留、不改；现行条款以规格正文为准，现行证据以规格「验收台账」和本特性验收记录为准，
+新条款不混入本文旧统计分母。表中「第 X 章」指规格正文章节，「修订 N」指规格「冻结条款修订」第 N 行。
+
+| 历史行 | 当时的条款（简述） | 取代它的现行条款 |
+| --- | --- | --- |
+| A5 | 预算耗尽失败；禁止 `finish` 混批 | 第七章「`finish` 并入 `conclude_activity`」：生活决策没有 `finish`，一轮恰好一个世界请求、登记即结束；修订 26 |
+| A14 | `finish` 空记忆；巩固触发与提示；相似合并 | 第七章「`finish` 并入 `conclude_activity`」：`conclude_activity` 可提交空记忆，巩固只计收尾条目；修订 26 |
+| E3 | 环境不代写人物记忆（映射取 `finish` 记忆引用观察） | 第七章「`finish` 并入 `conclude_activity`」：记忆随 `conclude_activity.memories` 写入，无 `refs`，来源由系统登记；修订 1、16 |
+| E14 | `start_basic_activity`（睡眠、等待） | 第五章「人物选择什么」：`sleep` 单列为动词，等待属 `interact` 的「自己」；修订 1、19 |
+| E16 | `start_travel`（计划时长、目的地、方式） | 第五章「人物选择什么」「派生时长上限」；第二章「商品热量与路线费力」：`feasible` 只看是否可达；修订 1、19 |
+| E18 | `change_playback_speed`（倍速观看按能量限时） | 第三章：能量不限制观看；第五章「派生时长上限」；修订 1、19 |
+| E24 | `plan_day` 提交零至八条有序目标，空清单仍已提交 | 第四章「运行时机」「计划与提醒」：`plan_day` 改为零点后台任务，不再是人物工具；修订 1、18、22 |
+| R6 | `finish` 单独返回，提交动作后才开放 | 第七章「`finish` 并入 `conclude_activity`」：一轮恰好一个世界请求，登记即结束；修订 18、23 |
+| R8 | 冲突响应整批不执行；不沿用只保留 `finish` | 第七章「`finish` 并入 `conclude_activity`」；修订 18、26 |
+| C7 | 规则只限可行性（映射含零能量收窄目标） | 第三章：能量不构成可行性约束；第五章「动作照常列出，做错了再说明」；修订 7、10 |
+| C8 | 能量变化公式（映射含非恢复活动透支拒绝） | 第三章「删除的机制」：能量对所有活动以 0 截断、不报错；修订 7 |
+| T4 | 最小反应间隔一秒；连续拒绝 10 次失败停止 | 第一章「规则」「场景参数」：决策不耗时，`max_same_moment_decisions` 取代 `max_consecutive_rejections`；修订 2 |
+| T7 | 唤醒条件才提供决策；静默边界记录未提供决策 | 第一章「规则」：没有进行中活动或有待收尾活动时同一秒再决策，边界兜底记 `no_active_activity`；修订 3、4 |
+| X9 | 协议不符在剩余回合反馈；`finish` 记忆不合法即致命 | 第七章「`finish` 并入 `conclude_activity`」：收尾记忆越界由本地校验拒绝，在本轮重试；修订 26 |
+| DEV38 | 唤醒条件决定决策机会；继续请求不零时间循环 | 第一章「规则」：同一秒再决策，由同刻上限与受限轮防止无限循环；修订 2、4 |
+| DEV39 | 睡眠只在计划结束或唤醒事件提供决策 | 第一章「规则」与第四章「计划与提醒」：睡眠允许原因增 `plan_reminder_due`，提醒可结束睡眠；修订 3 |
+| DEV43 | 身体参数冻结值；超精度不足仍失败 | 第三章「删除的机制」：能量以 0 截断、不报错；修订 7 |
+| DEV48 | 前台主活动互斥；可控集合与工具声明随当前合法动作 | 第五章「并行准入」「动作照常列出，做错了再说明」；第七章「活动的生命周期」；修订 8、18 |
+| DEV49 | 能量投影 `minimum_energy_cost` 与恢复判定 | 第三章「删除的机制」：删 `energy_projection`、`minimum_energy_cost_kcal`、`resume_energy_feasible`；修订 7、10 |
+| RC1 | `wake_reason` 闭集 17 类 | 第一章「规则」：闭集追加 `no_active_activity`、`plan_reminder_due`，`activity_infeasible`、`discovery_result` 保留而当前无来源；修订 3 |
+| RC3 | 常规与空闲重估间隔 | 第一章「拒绝的情绪代价与重估间隔」：进行中的等待不算在手承诺；修订 5 |
+| RC11 | 饥饿五级与 800/400 世界事实 | 第二章「饥饿在低能量时不失灵」：低能量两条规则与第六档「饿得发慌」；修订 6 |
+| RC17 | 禁入字段清单（含 `energy_feasibility`） | 第三章「删除的机制」；第七章「发给模型的内容不含内部身份」；修订 10 |
+| RC28 | `finish.memories` 允许空列表 | 第七章「`finish` 并入 `conclude_activity`」：`conclude_activity.memories` 可为空；修订 16、26 |
+| RC30 | 记忆零至八条，引用放 `refs` | 第七章「`finish` 并入 `conclude_activity`」：`memories[][]` 按活动分组，无 `refs`，来源由系统登记；修订 1、16 |
+| CC10 | 地点不可行、资源冲突与能量不足三个原因码 | 第三章「删除的机制」：删 `ELIGIBILITY_ENERGY_INSUFFICIENT`，能量不构成排除；修订 11、16 |
+| 「抽样自验（20/20）」第 4 条 | E24 抽样：日首无计划时动作面只留 `plan_day` | 第四章：`plan_day` 移出人物工具，去掉日首只有 `plan_day` 的一轮；修订 18、23 |
 
 ## 一日行为增量映射
 
@@ -972,6 +1019,7 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
 | 新增章映射 | 2026-09-19 | 补入「候选契约与呈现规则」章 44 行（`CC1`…`CC44`），覆盖 `docs/dev/SPEC-life-runtime.md`「候选契约与呈现规则」章与 `docs/dev/SPEC-life-realism.md` 的「`location_kinds` 的运行期强制语义」「素材可达性」「素材淘汰与检索机制的禁止项」「候选与呈现」四节；条款总数由 391 重算为 435，覆盖率由 100.0%（391/391）重算为 96.1%（418/435）；新增行中 27 行按纯函数层测试记 `covered`（`tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_constants.py`，99 测实测全绿），17 行因运行期接线与持久化未落地记 `gap`；`CC12` 一行映射 `tests/life/test_motivation.py` 的两个既有测试（实测 2 passed） |
 | 新增章复判 | 2026-09-19 | 该章整章落地后逐行复判 44 行：`CC16`、`CC22`、`CC30`、`CC33`、`CC36`、`CC39`、`CC41`、`CC42` 由 `gap` 改判 `covered`（运行期装配 `src/worldmock/life/presentation.py`、检索与可达性 `src/worldmock/life/retrieval.py`、准入侧分区校验 `src/worldmock/catalog/admission.py`、地点类运行期强制 `src/worldmock/life/activities.py`、持久化 `WorldState.presentation_state` 与 `WORLD_SCHEMA_VERSION = 3`），`CC34` 映射扩容到运行期强制侧；仍余 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）；`CC43` 与 `CC44` 经复判由 `gap` 改判 `covered`，逐条原因见该章。条款总数 435 不变，covered 由 404 重算为 **414**，gap 由 17 收窄为 **7**，覆盖率由 96.1% 重算为 **98.4%**（428/435 = covered 414 + exempt 14）。复判证据：八个测试文件合计 `165 passed`（`test_candidates.py` 49、`test_rotation.py` 20、`test_candidate_constants.py` 32、`test_candidate_wiring.py` 9、`test_retrieval.py` 31、`test_reachability_admission.py` 9、`test_activity_location_kinds.py` 9、`test_documentation_gate.py` 6）；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：`CC32` 原映射引用 `ELIGIBILITY_RETIRED`，该常量在 `src/worldmock/life/candidates.py` 的 `EXCLUSION_REASONS` 闭集内并不存在，属名实不符，已据实改述并保留 `gap`；另如实记录一项与本矩阵无关的独立缺陷：`scripts/check_reachability.py --scenario` 对正式场景退出码 1（86 条场景内容条目落不进分区），未解决 |
 | 缺口清零 | 2026-09-19 | 为「候选契约与呈现规则」章余下的 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）逐行补入真实性测试并改判 `covered`，**未改动任何生产代码**。新增与加固共 19 个测试函数：新建 `tests/life/test_candidate_contract_boundaries.py`（9 测，经生产接口建普通分支比对候选集、呈现上限不取 `MAX_CANDIDATES`、下推两层与游标载荷形状），`tests/life/test_candidates.py` 增 2 测（`anywhere` 三形区分、墓碑目录里下架条目出局且仍可读 + 无删除条目的通路扫描），`tests/life/test_retrieval.py` 增 2 测并加固 1 测（禁止 ANN 库与浮点距离的常驻断言），`tests/life/test_rotation.py` 增 6 测（`D` 取实测区间而非单一估计值，不硬编码天数）。条款总数 435 不变，covered 由 414 重算为 **421**，gap 由 7 收窄为 **0**，覆盖率由 98.4% 重算为 **100.0%**（435/435 = covered 421 + exempt 14）。实测证据：全量 `2747 passed`；相关八个测试文件 `180 passed`；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`test_style_gate.py` 1 passed；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：正文原写「复判后仍余九行 `gap`」，与矩阵表的去重终态（8 行，`CC34` 已改判）不符，已按表改正。**如实记录的边界**：`CC29` 断言核对的是「缺省值落在实测区间内」与「上界随 `D` 精确变化」，不钉死某个特定缺省数值；`CC40` 的依赖侧断言范围是本项目自己的依赖声明，vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu`（只由上游未使用的 `env/router_codegen.py` 导入）作为已知上游事实写明，本项目运行路径不经它检索 |
+| 时间与能量增量映射 | 2026-09-26 | 时间与能量规格阶段 9（AN1）：新增「时间与能量增量映射」节，列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 26 行（A5、A14、E3、E14、E16、E18、E24、R6、R8、C7、C8、T4、T7、X9、DEV38、DEV39、DEV43、DEV48、DEV49、RC1、RC3、RC11、RC17、RC28、RC30、CC10）与「抽样自验（20/20）」第 4 条，逐行注明取代它的规格章节与修订编号；历史行原样保留，新条款不混入旧统计分母；现行证据指向规格「验收台账」与本特性验收记录；文件头日期改写 |
 
 ## 当日目标特性追溯
 

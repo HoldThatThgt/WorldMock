@@ -2,7 +2,7 @@
 
 @file     test_time_and_energy_completeness.py
 @brief    以 tests/time_and_energy_acceptance.py 为数据源，对照 docs/dev/SPEC-time-and-energy.md
-          「验收台账」逐条判定：登记表恰好覆盖台账各行；已完成阶段的行列出可解析、未被跳过的测试；
+          「验收台账」逐条判定：登记表恰好覆盖台账各行；实施阶段 0–7 全部完成；已完成阶段的行列出可解析、未被跳过的测试；
           生产目录与登记引用的测试文件中没有延期标记；已完成阶段的删除符号已消失、新增符号已出现。
 @note     延期标记的正则由字符串片段拼成，本文件自身不含任何标记字面量。
 """
@@ -52,6 +52,9 @@ _SKIP_ALLOWLIST = frozenset({
 })
 
 PRODUCTION_ROOTS = ("src", "custom", "scripts", "tools")
+
+#: 改代码与测试的实施阶段 0–7；阶段 8 是只报告的真实复验，阶段 9 是实现后文档。
+IMPLEMENTATION_STAGES = frozenset(str(n) for n in range(8))
 _NODE_ID = re.compile(r"^tests/[\w./-]+\.py::(?:\w+::)?\w+(?:\[.*\])?$")
 
 
@@ -197,6 +200,18 @@ def test_registry_entries_name_known_stages() -> None:
         for pattern, paths in (item for items in table.values() for item in items):
             re.compile(pattern)
             assert paths and all(isinstance(path, str) for path in paths), pattern
+
+
+def test_every_implementation_stage_is_done() -> None:
+    """实施阶段 0–7 全部在 STAGES_DONE 中，其台账行、删除与新增符号都由本守卫判定。
+
+    阶段 8 是真实复验（练秋湖与 r14 复跑），只报告、不作门禁；阶段 9 是实现后文档（实现状态文档最后提交）。
+    二者不改代码与测试，不要求进入 STAGES_DONE。
+    """
+    assert IMPLEMENTATION_STAGES < STAGE_IDS
+    assert STAGE_IDS - IMPLEMENTATION_STAGES == {"8", "9"}
+    missing = sorted(IMPLEMENTATION_STAGES - STAGES_DONE)
+    assert not missing, f"implementation stages not done: {missing}"
 
 
 def test_done_rows_list_resolvable_unskipped_tests() -> None:

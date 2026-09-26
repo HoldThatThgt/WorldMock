@@ -1,7 +1,7 @@
 # WorldMock 验收标准
 
 > 状态：整体实现 **NOT-COMPLETE**。正式 DeepSeek 十二周运行、三次隔离盲评与 LabelKit 完整自然日交付尚未完成，未完成项不得以离线测试通过替代。各特性及合并后的工程门禁按具体源码身份留证。
-> 日期：2026-09-25
+> 日期：2026-09-26
 > 范围：放行门禁、report-only 边界、测试矩阵、验收原则、交付阶段与结论边界
 > 记录位置：实际通过的源码身份、命令与收据集中记录在 `docs/dev/implementation-status.md`；本文件只定义判定方式与当前状态，不重复断言其通过
 
@@ -153,6 +153,7 @@ issue #1 绿色基线是实施前置：`uv run pytest tests` 全量无失败之�
 工程放行要求全量测试、分支与公共接口覆盖、风格、文档链接通过；还要在同一干净提交的隔离 worktree 上
 用 Uncle Bob 语义突变检验同刻上限、能量截断、唤醒闭集、提醒只触发一次、名额释放与内部身份不进提示。
 存活突变必须补测后以原补丁复验。练秋湖与 r14 场景的真实复验只报告，不作门禁。
+证据统一见 [本特性验收记录](dev/research/time-and-energy-verification.md)。
 
 ### 工程门禁
 
@@ -366,24 +367,24 @@ flowchart LR
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
 | AS2 接入 | 真实注册、实例化、工具 Schema、人物观察和动作调用 | `tests/integration/`、AS2 vendor `test_direct_router.py` 与真实短窗口运行 | 离线覆盖，真实运行待执行 |
-| 时间一致 | 更早结束与多人睡眠、同秒事件、媒体倍速、实验截断、决策不耗时、同秒多轮不推进 | `tests/life/test_engine_feedback.py`、`tests/life/test_activities.py`、AS2 vendor `test_society_decision_round.py` | 离线验收待执行 |
+| 时间一致 | 更早结束与多人睡眠、同秒事件、媒体倍速、实验截断、决策不耗时、同秒多轮不推进 | `tests/life/test_engine_feedback.py`、`tests/life/test_activities.py`、AS2 vendor `test_society_decision_round.py` | 离线覆盖 |
 | 自主选择 | 拒绝不改写选择、重复观看、反馈后继续或退出 | `tests/life/test_engine_round.py`、`tests/life/test_engine_feedback.py`、`tests/life/test_content_game.py` | 离线覆盖 |
-| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款、能量 0 截断 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py` | 离线验收待执行 |
+| 资源结算 | 余额、库存、睡眠与食物、部分消费、重复付款、能量 0 截断 | `tests/life/test_body.py`、`tests/life/test_commerce.py`、`tests/life/test_export_integration.py`、`tests/footprints/test_ledger.py` | 离线覆盖 |
 | 工作生产 | 原始材料、独立语义验收、有限协议纠正、返工、套餐、计时与计件 | `tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py`、`tests/life/test_work_contracts.py` 与真实 DeepSeek 正反工作审阅收据 | 离线覆盖，真实运行待执行 |
 | 内容知识 | 邮件到达、未来字幕隔离、隐藏参考、游戏恢复 | `tests/life/test_content_game.py`、`tests/corpora/test_corpora.py` | 离线覆盖 |
 | 存储完整 | 素材损坏、事务中断、保存失败、模型未知结果 | `tests/footprints/`、`tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_direct_runner_failures.py` | 离线覆盖 |
-| 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束、记忆无 refs、完整证据、致命异常不返工 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` | 离线验收待执行 |
+| 决策协议 | 有限回合错误反馈、原子拒绝、世界请求登记即结束、记忆无 refs、完整证据、致命异常不返工 | `tests/integration/test_life_agent_protocol.py`、`tests/integration/test_grounded_evidence.py`、AS2 vendor `test_agent_react_validation.py`、`test_llm_dispatcher_no_retry.py` | 离线覆盖 |
 | 共同恢复 | 世界、人物、记忆和游戏一致，坏快照拒绝，父目录不变 | `tests/integration/test_runtime.py`、`tests/life/test_counterfactual.py`、`tests/footprints/test_store.py` 与实际 resume／replay | 离线覆盖，真实运行待执行 |
-| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口不含 `conclude_activity.memories`，动作窗口保留完整请求；检查点结构版本与当前不符时交付被拒 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py` | 离线验收待执行 |
+| LabelKit 输入 | 前置状态、知识截止、活动和自然日边界；意图与 `dreaming` 窗口不含 `conclude_activity.memories`，动作窗口保留完整请求；检查点结构版本与当前不符时交付被拒 | `tests/delivery/test_windows.py`、`tests/delivery/test_replay.py`、`tests/footprints/test_validation.py`、`tests/delivery/test_publication.py` | 离线覆盖 |
 | 语义质量 | 独立 verify、目标盲审、原始事实守恒、失败不发布 | `tests/delivery/test_labelkit_process.py`、`tests/delivery/test_training.py` 和真实模型 trace | 离线覆盖，真实运行待执行 |
 | 目标数据 | DatasetDict 保存重载、独立规则预期、来源分组 | `tests/delivery/test_training.py`、`tests/delivery/test_generation.py`、`tests/delivery/test_rules.py` 和完整真实 deliver | 离线覆盖，真实运行待执行 |
 | 长期有效性 | 84 天、多人、行为、失败、吞吐、成本和盲评 | `tests/evaluation/`、`tests/footprints/test_quality.py`、实际十二周 export／quality 与评估报告 | 离线覆盖，真实运行待执行 |
-| 决策节律 | 无唤醒条件的边界不调用人物决策模型且留痕、每类有触发来源的唤醒条件各触发一次（`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生）、常规与空闲间隔、精确威胁边界、睡眠只被睡眠允许原因打断、计划提醒与进行中活动的播报 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py` | 离线验收待执行 |
-| 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变 | `tests/life/test_same_moment_decisions.py` | 离线验收待执行 |
-| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减、低能量两档饥饿显示、作息初值 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线验收待执行 |
-| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败、商品热量与路线费力标签、饿时吃饭途径句、提示无内部身份 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py` | 离线验收待执行 |
-| 两阶段决策 | 决策自述阶段无工具且落库、行动阶段回传 `reasoning_content`、决策自述进入行动请求、`conclude_activity` 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_agent_react_validation.py` | 离线验收待执行 |
-| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、社交需要结算；交谈要求双方在场且都不在途中，对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复；联系人回复预排送达 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py` | 离线验收待执行 |
+| 决策节律 | 无唤醒条件的边界不调用人物决策模型且留痕、每类有触发来源的唤醒条件各触发一次（`activity_infeasible`、`discovery_result` 保留在闭集中、当前无来源，验证其不产生）、常规与空闲间隔、精确威胁边界、睡眠只被睡眠允许原因打断、计划提醒与进行中活动的播报 | `tests/life/test_wake_reasons.py`、`tests/life/test_engine_feedback.py`、`tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`；`discovery_result` 不产生见 `tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result` | 离线覆盖 |
+| 同刻决策 | 运行开始、活动结束、瞬时动作与业务拒绝之后同秒再决策；同秒轮数不超过上限加三；受限轮逐级开放，收尾、结束与等待不被业务拒绝；时钟推进时人人有进行中活动且没有待收尾活动；重放轮计入同刻轮数；同一秒各轮的呈现窗口不变 | `tests/life/test_same_moment_decisions.py` | 离线覆盖 |
+| 身体语义 | 两过程常数与阈值、睡眠不足账、体感分级以上次决策为参照的滞回、饥饿昼夜因子、社交需要与情绪衰减、低能量两档饥饿显示、作息初值 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 离线覆盖 |
+| 观察投影 | 观察不重复序列化、引擎字段不进提示、商品可见期、材料增量、字幕只交付新跨过区间、字符预算超限失败、商品热量与路线费力标签、饿时吃饭途径句、提示无内部身份 | `tests/life/test_narration.py`、`tests/integration/test_life_agent_protocol.py`、`tests/life/test_public_observation_contract.py`、`tests/life/test_dayrun_restaurants.py` | 离线覆盖 |
+| 两阶段决策 | 决策自述阶段无工具且落库、行动阶段回传 `reasoning_content`、决策自述进入行动请求、`conclude_activity` 允许空记忆 | `tests/integration/test_life_agent_protocol.py`、AS2 vendor `test_agent_react_validation.py` | 离线覆盖 |
+| 社交 | 在场可见、消息送达顺序、联系人回复来源标记、社交需要结算；交谈要求双方在场且都不在途中，对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒收件人同秒获得机会；给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落占位回复；联系人回复预排送达 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py` | 离线覆盖 |
 | 画像编译 | 卡片字段完备、关系与时间锚点、覆盖率不足拒绝、大五与随机浮点不进提示 | `tests/profile/`、`tests/integration/test_persona_profile.py` | 离线覆盖 |
 | 行为指标 | 指标可复现、按代码摘要分组、协议门禁阈值、行为分布只报告不裁定 | `tests/evaluation/test_behavior_metrics.py` | 离线覆盖 |
 | 候选与呈现一致性 | 候选确定性、软偏好不出局、排除留痕、呈现上限、下推游标、最大未呈现间隔、轮转非破坏性、工具描述与提示黑名单一致、文档链接可解析、素材可达性 | `tests/life/test_candidates.py`、`test_rotation.py`、`test_candidate_wiring.py`、`test_candidate_contract_boundaries.py`、`test_retrieval.py`、`tests/catalog/test_reachability_admission.py`、`tests/test_documentation_gate.py` | 离线覆盖 |
@@ -525,3 +526,4 @@ WorldMock 内部模型思考、私有记忆与隐藏身体值不进入共同评�
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0：「地图与门店供给」的世界版本 5 与目录 4.0 注明为该特性验收时的身份，现行版本见接口合同「领域枚举」；「实施顺序」的引擎与状态行改为使用当前世界状态版本，不写死数字 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1（VF2）：「协议门禁」的观察重复门禁改按 `decision_id` 计，同一 user 观察文本出现于不同决策请求中的最大数目，同一决策内重发只计一次；静默边界占比注明同刻轮次不写共同身体结算，不进分母 |
 | `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（VF2）：「协议门禁」的观察重复门禁排除带 `purpose` 的系统请求，除 `purpose="work_review"` 外也排除零点计划 `purpose="plan_day"` 的请求，与源码 `behavior_metrics._decision_model_requests` 一致 |
+| `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格阶段 9（VF12）：「时间与能量特性门禁」末尾补「证据统一见本特性验收记录」并链接该记录；测试矩阵中冻结时改写或新增、记为离线验收待执行的「时间一致」「资源结算」「决策协议」「LabelKit 输入」「同刻决策」「身体语义」「观察投影」「两阶段决策」「社交」九行按本特性验收记录改回离线覆盖，其中「LabelKit 输入」的证据位置补 `tests/delivery/test_publication.py`（检查点结构版本不符时交付被拒），「观察投影」补 `tests/life/test_public_observation_contract.py`（商品热量与路线费力标签）与 `tests/life/test_dayrun_restaurants.py`（饿时吃饭途径句）；「决策节律」行补 `discovery_result` 不产生的引擎级用例 `tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result`（浏览独自进行到计划结束、被本人提前结束、在进行中的等待旁进行，决策开始、观察与共同身体结算的唤醒原因都不含它，浏览结果置顶于随后的观察），证据位置补 `tests/life/test_day_planning.py`、`tests/life/test_same_moment_decisions.py`，同样改回离线覆盖；文件头日期改写 |

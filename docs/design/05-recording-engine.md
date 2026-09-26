@@ -320,21 +320,16 @@ EventType = Literal[
 
 ### 记录生活全过程的实现差距
 
-| 设计要求 | 当前实现与差距 | 核查位置 |
-| --- | --- | --- |
-| 同刻决策证据：同一人物同一秒可有多轮决策，逐轮由 `decision_started` 记录本轮唤醒原因 | 决策后至少隔一秒才有下一次决策：成功后按唤醒候选排期，业务拒绝排在下一秒或冷却之后，重放无条件加一秒，没有同刻轮次；`decision_started` 与共同身体结算写入时未经 `validate_decision_rhythm` 校验 | `src/worldmock/life/engine.py`（`_after_success`、`_after_rejection`、`_reused_result`）、`src/worldmock/footprints/models.py`（`validate_decision_rhythm`） |
-| 零点计划后台任务与系统登记入口：计划由运行时后台任务生成，经引擎的系统登记入口写入，模型请求与响应能与人物决策区分 | `plan_day` 仍是人物工具，经 `_dispatch` 处理并产生 `action_requested`；没有零点后台任务与系统登记入口 | `src/worldmock/life/engine.py`（`_dispatch`、`_plan_day`）、`src/worldmock/runtime.py`、`custom/envs/life_env.py` |
-| 记忆来源由系统登记：写入点为 `conclude_activity` 与就寝反思，模型不填身份 | 人物决策中的记忆随 `finish.memories` 写入，来源是人物填写的 `refs`；质量报告按 `refs` 核对记忆引用 | `custom/agents/life_agent.py`、`custom/agents/life_memory.py`、`src/worldmock/footprints/quality.py`（`_memory_quality`） |
-| 经历以句子交给模型：模型只见已核验经历的确定性句子，结构行与来源身份留在私有观察和事件库 | 观察中的已核验经历结构行以 JSON 原样写入人物用户消息，含 `source_event_id`、`activity_id`、`event_seq` 等身份 | `custom/agents/life_agent.py:553-554`、`src/worldmock/life/observe.py:103-104`、`src/worldmock/footprints/experiences.py:134-149` |
+本主题当前没有未闭合的实现差距：时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)。
 
 ### 记录生活全过程的验收
 
 | 要求 | 必须通过的观察 | 证据位置 | 本次核验状态 |
 | --- | --- | --- | --- |
-| 同刻决策证据 | 同刻轮次逐轮写 `decision_started`，唤醒原因只含本轮原因，写入时经唤醒闭集校验；同刻轮数按同一模拟秒内的 `decision_started` 计 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「同刻决策」「唤醒词表」行 | 待实现 |
-| 零点计划留证 | 零点计划的模型请求与响应按 `purpose` 与人物决策区分；计划、提醒、来源与模型证据同一次提交；同一人物同一本地日只生成一次，恢复与分支不重复生成 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「零点计划与提醒」行 | 待实现 |
-| 记忆来源 | 人物决策中的记忆只经 `conclude_activity` 写入，此外只有就寝反思与阈值巩固；来源由系统登记，模型不填身份 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 待实现 |
-| 经历句子 | 发给模型的已核验经历是不含内部身份的确定性句子，私有观察仍保存结构行 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 待实现 |
+| 同刻决策证据 | 同刻轮次逐轮写 `decision_started`，唤醒原因只含本轮原因，写入时经唤醒闭集校验；同刻轮数按同一模拟秒内的 `decision_started` 计 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「同刻决策」「唤醒词表」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
+| 零点计划留证 | 零点计划的模型请求与响应按 `purpose` 与人物决策区分；计划、提醒、来源与模型证据同一次提交；同一人物同一本地日只生成一次，恢复与分支不重复生成 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「零点计划与提醒」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
+| 记忆来源 | 人物决策中的记忆只经 `conclude_activity` 写入，此外只有就寝反思与阈值巩固；来源由系统登记，模型不填身份 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
+| 经历句子 | 发给模型的已核验经历是不含内部身份的确定性句子，私有观察仍保存结构行 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
 
 ## 保存与关联证据
 
@@ -804,8 +799,6 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 | --- | --- | --- |
 | 所有导出视图受同一截止约束 | 事件和活动按截止读取；时间线仍把完整数据库连接交给渲染器，可能读到截止后的同日事件 | `src/worldmock/footprints/export.py`、`scripts/render_day.py` |
 | 消费端验证全部导出文件 | 时间线在清单中有摘要，但当前认证流程未验证 `manifest.timeline` 的文件 | `src/worldmock/footprints/validation.py` |
-| 主动结束与暂停写活动快照，导出与世界状态逐项一致 | 结束与暂停只改世界状态，不写活动快照；导出按最后一次快照重建，主动结束或暂停的活动仍显示此前的状态 | `src/worldmock/life/session_actions.py:504-564`（`_pause_activity`、`_conclude_activity`） |
-| 结算不改写活动快照的 `location_id` | 结算把活动快照的 `location_id` 改写为人物当前地点，出行到达后快照记为目的地 | `src/worldmock/life/engine.py:1399`（`_advance_one_activity`） |
 
 
 时间线缺口需要以后续实现和反例验证闭合，不能以现有完整性测试通过替代。
@@ -818,7 +811,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 | --- | --- | --- | --- |
 | 导出完整性与导出认证 | 导出以固定截止事件及该事件当时的状态为唯一输入，产物按 本文「持久化结构」落定；完成标志、运行与覆盖身份、主文件哈希与行数、事件全序与因果引用、唯一结束、最终共同检查点全数通过后才可进入正式交付；导出保留原始事件身份与来源位置 | `tests/footprints/test_validation.py` 的 `test_production_windows_require_and_accept_complete_authenticated_export`、`test_incomplete_or_tampered_export_never_reaches_labelkit`；`tests/footprints/test_export.py` 的 `test_export_writes_hash_bound_timeline_projections` | 保留要求，本次未复跑 |
 | 质量报告的确定性与未知口径 | 同一份认证输入逐字节确定；测不到的指标如实留作未知，不落成零；估算价格不得称为供应商账单；消费端先核对报告字节摘要，再顺同一批事件独立重算 | `tests/footprints/test_quality.py` 的 `test_quality_report_is_deterministic_for_the_same_authenticated_input`、`test_missing_measurements_remain_unknown_instead_of_becoming_zero`；`tests/footprints/test_validation.py` 的 `test_quality_report_requires_bytes_and_actual_event_recomputation` | 保留要求，本次未复跑 |
-| 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「绿色基线」「本机运行修复」行 | 待实现 |
+| 活动快照与开始地点 | 主动结束与暂停写活动快照，导出的活动与最终共同检查点逐项一致；出行活动的 `location_id` 为出发地，结算不改写，到达经历照常产生 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「绿色基线」「本机运行修复」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
 
 ## 运行查询与诊断
 
@@ -841,12 +834,18 @@ python3 scripts/inspect_run.py runs/white-collar summary
 python3 scripts/inspect_run.py runs/white-collar events --type action_result --agent 0 --tail 20
 python3 scripts/inspect_run.py runs/white-collar event 100
 python3 scripts/inspect_run.py runs/white-collar money
+python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
+python3 scripts/inspect_run.py runs/white-collar rerun
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
 
 示例运行目录、人物和日期需替换为实际值。浏览工具只读打开 SQLite，不推进世界或修改事件。
-`events --full` 显示完整事件；`body --agent <id>` 入口存在，但身体字段适配尚有缺口，见「运行查询与诊断的实现差距」。
+`events --full` 显示完整事件；`body --agent <id>` 显示观察事件中的 `body.values` 与 `body.levels`，
+逐行打印能量 `energy_kcal`、睡眠不足 `sleep_deficit_hours` 与饥饿、困意分级（`appetite`、`sleepiness`），与上一行相同或缺能量值的观察不打印。
+`rerun` 只读计算[时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)「真实复验」行的八项指标
+（无进行中活动总时长、同刻轮数分布、播报唤醒占比、最低饥饿分级、首次进食前最低能量、进食次数、步行占比、
+零点计划是否含早于 08:30 的提醒），逐项打印中文报告，缺少可计算记录的项标「不适用」；只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
 中文时间线用于阅读，英文日志用于故障定位，投影不能充当人物当时的观察。
 
@@ -878,10 +877,7 @@ flowchart LR
 
 ### 运行查询与诊断的实现差距
 
-| 设计要求 | 当前实现与差距 | 核查位置 |
-| --- | --- | --- |
-| 身体浏览显示当前身体模型 | 浏览脚本还读取旧的 `energy_kcal`、`sleep_debt_hours`、`alert`，未适配当前 `body.levels` 与 `body.values` | `scripts/inspect_run.py` |
-
+本主题当前没有未闭合的实现差距：身体浏览已按当前身体模型读取 `body.values` 与 `body.levels`，见[调试工具](#调试工具)。
 
 ### 运行查询与诊断的验收
 
@@ -905,3 +901,4 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（零点计划与计划提醒）：事件类型闭集不变，零点计划的计划登记复用 `environment_event`（`data.kind="day_plan_generated"`，`visibility=system`，`data.day_plan` 与修订结果同形、目标的 `registered_at` 为该事件时刻，`data.source_event_ids` 为输入来源事件，经系统登记入口与模型证据、计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`）（E5-5）；零点计划的 `model_request`、`model_response` 带 `data.purpose="plan_day"`，不带 `decision_id` 与 `action_id`，按 `call_id`、`attempt`、`phase` 留证，与人物决策请求区分（E5-6）；检查点封存计划与提醒状态（目标的 `remind_at`、`reminded_at`）与既有字段 `plan_submitted_dates`，恢复、重放与分支据此不重复生成（E5-13）；「共同身体结算与决策证据」补零点边界的两次提交：旧日结算（带旧计划快照的 `activity_progress` 与终态结果）先于零点计划提交，该边界的共同身体结算连同唤醒字段在 `day_plan_generated` 之后由零点节律入口提交，所以零点的 `activity_progress` 以 `data.body_settlement_event_id` 指向它而不列入 `caused_by`；质量报告的 `model_usage.by_purpose` 写明分列字段 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格文档一致性核对：「质量报告」中零点计划、修订结果与结算事件保存的目标清单写明提醒字段 `remind_at` 与 `reminded_at`（原写请求参数名 `remind_time`，与已保存的 `day_plan` 不符）（E5-16） |
+| `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后文档（阶段 9）：按最终代码与测试核对差距已闭合后，删去本规格的实现差距行：「固定截止导出的实现差距」中冻结时补的结束与暂停无快照、结算改写出行 `location_id` 两行，「记录生活全过程的实现差距」中同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四行，该节改为一句「本主题当前没有未闭合的实现差距」；「记录生活全过程的验收」四行与「固定截止导出的验收」的「活动快照与开始地点」行由「待实现」改为「已实现」并链接时间与能量验收记录（E5-19）；「调试工具」写明 `body --agent <id>` 显示观察事件中的 `body.values` 与 `body.levels`（能量、睡眠不足与饥饿、困意分级），补示例与只读子命令 `rerun`（计算时间与能量规格验收台账「真实复验」行的八项指标，只报告，不作门禁），删「运行查询与诊断的实现差距」中已兑现的身体浏览行，该节同样改为一句（E5-20） |

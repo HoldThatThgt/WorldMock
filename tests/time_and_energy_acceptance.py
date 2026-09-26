@@ -18,7 +18,7 @@ from __future__ import annotations
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
-STAGES_DONE = frozenset({"0", "1", "2", "3", "4", "5", "6"})
+STAGES_DONE = frozenset({"0", "1", "2", "3", "4", "5", "6", "7"})
 
 _GREEN_BASELINE_TESTS = [
     "tests/life/test_dayrun_inventory_regressions.py::"
@@ -160,12 +160,14 @@ _STAGE2_CANDIDATE_TIME_TESTS = [
 ]
 
 #: 阶段 2 为「唤醒词表」行登记：activity_infeasible 不再产生，commitment_threatened 只来自临近截止与临近闭店；
-#: 新成员、写入校验与冻结名称由阶段 1 登记在同一行。
+#: 新成员、写入校验与冻结名称由阶段 1 登记在同一行。末项为阶段 9 补登：discovery_result 保留在闭集中而不产生，
+#: 浏览结果随浏览结束回灌到随后的观察（第一章规则 6，验收标准测试矩阵「决策节律」行）。
 _STAGE2_WAKE_VOCABULARY_TESTS = [
     "tests/life/test_wake_reasons.py::test_activity_infeasible_has_no_source_and_threat_only_from_deadline_or_closing",
     "tests/life/test_wake_reasons.py::test_zero_energy_during_activity_raises_neither_infeasible_nor_threat",
     "tests/life/test_wake_reasons.py::test_engine_schedules_exact_task_warning_and_appends_threat_reason",
     "tests/life/test_wake_reasons.py::test_engine_schedules_closing_warning_only_for_local_task",
+    "tests/life/test_wake_reasons.py::test_browse_results_return_in_observation_never_as_discovery_result",
 ]
 
 #: 阶段 2 完成的「能量感知」行：两档低能量饥饿、阈值次序校验、提示不含身体数值、食品热量与路线费力标签。
@@ -628,6 +630,38 @@ _RERUN_TESTS = [
     _RERUN + "test_rerun_command_reports_not_applicable_metrics_for_a_run_without_records",
 ]
 
+#: 阶段 7 对「无新增故障」行的收尾登记：台账所列情形中此前只登记在其他行的几种，补入本行，使每种情形在本行都有用例——
+#: 能量为 0（出行、工作与恢复照常受理）、对象全被挡（工作、驾车、浏览进行中交互对象层为空时决策继续）、
+#: 出发与到达同秒（到达当秒出行与路上的活动一并结束并切换会话，收尾前时钟不推进）、同轮可见名称重复（同名活动追加序号）。
+_STAGE7_NO_NEW_FAULT_TESTS = [
+    "tests/life/test_energy_feasibility.py::test_zero_energy_travel_and_work_are_accepted",
+    "tests/life/test_energy_feasibility.py::test_zero_energy_resume_is_accepted",
+    _AGENT_BRANCHES + "test_empty_interactive_layer_decision_continues_without_failure",
+    "tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open",
+    _LOCATION + "test_departure_and_arrival_switch_sessions_and_end_road_activities",
+    _SAME_MOMENT + "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",
+    _LOCATION + "test_same_named_activities_get_ordinals_instead_of_failing",
+]
+
+#: 阶段 7 完成的「文档一致性」行：文档门禁在真实仓库上通过；各阶段登记的文档符号（旧工具面、生活决策的 finish、
+#: 能量闸门、一秒边界等表述已删，新条款已写入）由本守卫逐条判定。冻结条款修订与文档同步作业的逐条核对、
+#: 「标题」引用与锚点的一次性核对结果写在本特性验收记录（docs/dev/research/time-and-energy-verification.md）。
+_DOCUMENT_CONSISTENCY_TESTS = [
+    "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve",
+    "tests/test_time_and_energy_completeness.py::test_removed_symbols_of_done_stages_are_absent",
+    "tests/test_time_and_energy_completeness.py::test_required_symbols_of_done_stages_are_present",
+]
+
+#: 阶段 7 完成的「工程门禁」行：风格门禁零新增违规、文档门禁通过、覆盖率门禁的阈值与未覆盖公共接口判定、查看器回归；
+#: 覆盖率门禁在最终代码上的运行结果（重新生成并提交的 docs/dev/coverage-report.json）写在本特性验收记录。
+_ENGINEERING_GATE_TESTS = [
+    "tests/test_style_gate.py::test_style_gate_admits_no_new_violations",
+    "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve",
+    "tests/test_coverage_gate.py::test_branch_threshold_boundary",
+    "tests/test_coverage_gate.py::test_uncovered_public_interface_detection",
+    "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
@@ -645,10 +679,11 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
                + _STAGE4_LOCAL_RUN_FIX_TESTS + _STAGE7_LOCAL_RUN_FIX_TESTS},
     "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
     "无新增故障": {"stage": "7",
-              "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS + _STAGE4_NO_NEW_FAULT_TESTS},
+              "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS + _STAGE4_NO_NEW_FAULT_TESTS
+              + _STAGE7_NO_NEW_FAULT_TESTS},
     "真实复验": {"stage": "8", "tests": _RERUN_TESTS},
-    "文档一致性": {"stage": "7", "tests": []},
-    "工程门禁": {"stage": "7", "tests": []},
+    "文档一致性": {"stage": "7", "tests": _DOCUMENT_CONSISTENCY_TESTS},
+    "工程门禁": {"stage": "7", "tests": _ENGINEERING_GATE_TESTS},
 }
 
 _AGENT = "custom/agents/life_agent.py"
@@ -672,6 +707,7 @@ _INTERACTION_MENU = "src/worldmock/life/interaction_menu.py"
 _ADMISSION_MODULE = "src/worldmock/life/admission.py"
 _SOCIAL_ACTIONS = "src/worldmock/life/social_actions.py"
 _VIEWER = "tools/run-viewer.html"
+_VERIFICATION_RECORD = "docs/dev/research/time-and-energy-verification.md"
 
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
 REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
@@ -984,5 +1020,11 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"plan_reminder:|route_ended:|partner_ended:", [_VIEWER]),
         (r"day_plan_generated:.*activity_concluded:", [_VIEWER]),
         (r'sub\.add_parser\("rerun"\)', ["scripts/inspect_run.py"]),
+        # 本特性验收记录：状态、被测源码身份、覆盖率门禁结果、VF4 突变合计与「无新增故障」逐项登记。
+        (r"> 状态：\*\*验收记录\*\*", [_VERIFICATION_RECORD]),
+        (r"`ef13dc58770af52000a1c2e81883561e85a0c904`", [_VERIFICATION_RECORD]),
+        (r"3978 passed、8 skipped.*94\.57%.*未覆盖公共接口 0", [_VERIFICATION_RECORD]),
+        (r"\| \*\*合计\*\* \| \*\*29\*\* \| \*\*29\*\* \| \*\*0\*\* \|", [_VERIFICATION_RECORD]),
+        (r"## 无新增故障", [_VERIFICATION_RECORD]),
     ],
 }
