@@ -272,6 +272,12 @@ _SESSIONS_AND_MEMORY_TESTS = [
         "test_recall_by_task_activity_and_session_names_reaches_the_next_observation",
         "test_lifecycle_records_and_export_match_the_final_checkpoint",
         "test_slot_counting_durations_and_session_helpers_are_pure",
+        "test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion",
+        "test_two_item_start_with_one_free_slot_says_only_one_slot_is_left",
+        "test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check",
+        "test_start_request_shape_errors_are_action_request_invalid",
+        "test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity",
+        "test_recall_of_content_started_with_a_walk_names_the_road",
     )
 ] + [
     _MEMORIES + name for name in (
@@ -313,6 +319,7 @@ _SESSIONS_AND_MEMORY_TESTS = [
     "tests/life/test_narration.py::TestFieldBlacklist::test_progress_layer_activity_rows_render",
     "tests/life/test_narration.py::TestFieldBlacklist::test_activities_outside_progress_sessions_are_still_rejected",
     "tests/life/test_engine_feedback.py::test_pause_report_resume_and_conclude_name_the_activity",
+    "tests/life/test_engine_branch_coverage.py::test_prepare_pending_work_review_while_the_wait_awaits_conclusion",
 ]
 
 _WAKE = "tests/life/test_wake_reasons.py::"
@@ -328,7 +335,8 @@ _LOCAL_RUN_FIX_TESTS = [
     "tests/life/test_narration.py::TestRenderScene::test_scene_never_renders_session_rows_or_self_reports",
     _LOCATION + "test_self_report_stays_out_of_the_scene_and_is_marked_unverified",
     _LOCATION + "test_lifecycle_records_and_export_match_the_final_checkpoint",
-    "tests/life/test_export_integration.py::test_lifecycle_records_and_mid_run_export_match_the_final_checkpoint",
+    "tests/life/test_export_integration.py::test_lifecycle_records_and_export_match_the_final_checkpoint",
+    _LOCATION + "test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity",
 ]
 
 #: 阶段 3 完成交付行：带记忆的 conclude_activity 进入意图与 dreaming 窗口时不含 memories。
@@ -538,6 +546,8 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"memory_update_without_source", ["src/worldmock/footprints/quality.py", _RECORDING]),
         (r"activity_concluded", ["src/worldmock/life/activity_control.py", _RECORDING,
                                  "docs/dev/SPEC-agent-interaction.md"]),
+        (r"activity_truncated", ["src/worldmock/life/activity_control.py", _RECORDING,
+                                 "docs/dev/SPEC-agent-interaction.md", _LIFE_RUNTIME]),
         (r"async def _run_react_turn", [_AGENT]),
         (r"_consolidation_due", ["custom/agents/life_memory.py"]),
         (r"pending_conclusions", ["src/worldmock/life/projection.py", _CONTRACTS]),

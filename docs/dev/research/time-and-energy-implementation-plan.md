@@ -180,6 +180,8 @@
 
 ### 阶段 2：身体与能量
 
+合入提交：`8e70d31`（评审修复 `317bf14`）。
+
 **目标。** 实现第二章（低能量两档饥饿显示、商品热量、路线费力）、第三章（能量不阻断任何活动、结算以 0 截断、饥饿跨档预测、吃饭途径句），以及第八章「节律」（困意从当前压力扫描、餐时窗口起止入候选）、「作息初值」与「呈现」中的人读配送时刻。第三章要求删除的目录键 `energy_projection` 并入阶段 4 的唯一一次目录变更。
 
 **前置。** 阶段 1（合入顺序）。
@@ -216,6 +218,8 @@
 
 ### 阶段 3：活动、会话与记忆
 
+合入提交：`80b5fdd`（合并 `40c8675`；评审修复另见后续提交）。
+
 **目标。** 实现第七章（接着看除外）：会话改为地点停留与路上，由系统随出发与到达切换；每人两个活动名额；活动一结束成为待收尾，同秒 `conclude_activity`；取消 `finish`，记忆随 `conclude_activity.memories` 写入，来源由系统登记；发给人物模型的内容不含内部身份。同批实现第八章「活动」（播报锚点、客观进度、结束暂停恢复留记录、自述不当事实）与第九章交付链中裁去 `conclude_activity.memories` 的一处。取消 `finish`、`conclude_activity.memories`、记忆质量解析与交付窗口裁剪在同一变更集。
 
 **前置。** 阶段 1（待收尾依赖同秒再决策与受限轮）；阶段 2（合入顺序）。
@@ -227,7 +231,7 @@
   - C19（`ACTIVITY_CONCLUSION_REQUIRED`、`ACTIVITY_PAUSE_UNAVAILABLE`；`SESSION_LIMIT_EXCEEDED` 改为名额语义，形状错误改报 `ACTION_REQUEST_INVALID`；`ACTIVITY_PRECONDITION_UNMET` 用于出发前与别处恢复）；C20（`boundary_type` 闭集、`route_ended`、`interruption_reason`）；
   - C27（`current_activities` 只列进行中活动，「刚结束」一行）；C28（`progress` 行、身份列表加「活动」）；C30（控制行含待收尾）；C33（禁止进入提示的身份键）；C34（两次请求、行动工具）；C35（返回不含条目身份、删「与结束」）；C37；C38（版本行）；
   - AI6（取消 `finish`、控制对象改为活动）；AI8（活动退出通道）；AI15（活动的暂停、恢复与结束留记录）；
-  - E5-5（`activity_concluded`、`activity_paused`、`activity_resumed` 复用 `environment_event`）；E5-11（`memory_updated.data.trigger` 的列表形状与两个取值一次定全）；E5-13（地点会话与名额）；E5-18（`memory_references` 与问题码）；E8-2、E9-2（`sessions`）、E9-3（名额）、E9-4（活动新字段）；LR7（`progress_report_due` 行）；MA2（:84 名额满的受限轮分支：名额被暂停活动占满时只开放恢复或结束）；MA4（名额）。
+  - E5-5（`activity_concluded`、`activity_paused`、`activity_resumed` 与实验截止的 `activity_truncated` 复用 `environment_event`）；E5-11（`memory_updated.data.trigger` 的列表形状与两个取值一次定全）；E5-13（地点会话与名额）；E5-18（`memory_references` 与问题码）；E8-2、E9-2（`sessions`）、E9-3（名额）、E9-4（活动新字段）；LR7（`progress_report_due` 行）；MA2（:84 名额满的受限轮分支：名额被暂停活动占满时只开放恢复或结束）；MA4（名额）。
 - 【后】E5-19 的差距行删除留到阶段 9。
 
 **代码与测试。**
@@ -777,7 +781,7 @@ flowchart TB
 | E5-2【冻】 | 「必须保存的内容」:111-118 | 增「后台任务」行：零点计划 `plan_day` 的请求与响应（`purpose="plan_day"`）、计划与提醒及其来源；须能与人物决策区分。「人物决策」行补同一秒内的轮序 | 四 |
 | E5-3【同】 | 「事件字段」:141-145 | 阶段 1，与 C1、E9-3 同批。受限轮的观察私有证据另记 `same_moment_stage`（本轮开放的动作类），并与实际 Schema、环境派发核对 | 一 |
 | E5-4【同】 | 「共同身体结算与决策证据」:153-164 | :162 后补：同刻轮次没有区间，不写共同身体结算；唤醒原因只记于 `decision_started.data.wake_reasons` 与观察；边界兜底的 `no_active_activity` 照常写入结算 | 一 |
-| E5-5【同】 | 「事件类型枚举」:166-185；「事件正文与资源证据」:201 | 闭集不变。注明复用：结束、暂停与恢复写 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`）；零点计划的计划登记写 `environment_event`（`data.kind="day_plan_generated"`）。这四个 `data.kind` 登记在 :201。`day_plan_generated` 取 `visibility=system`，`data.day_plan` 与修订结果同形（目标的 `registered_at` 为该事件时刻），`data.source_event_ids` 为输入来源事件；`activity_concluded`、`activity_paused`、`activity_resumed` 带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by` | 四、八 |
+| E5-5【同】 | 「事件类型枚举」:166-185；「事件正文与资源证据」:201 | 闭集不变。注明复用：结束、暂停与恢复写 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`）；实验截止时每项被截断的活动（进行中或暂停）写 `environment_event`（`data.kind="activity_truncated"`）；零点计划的计划登记写 `environment_event`（`data.kind="day_plan_generated"`）。这五个 `data.kind` 登记在 :201。`day_plan_generated` 取 `visibility=system`，`data.day_plan` 与修订结果同形（目标的 `registered_at` 为该事件时刻），`data.source_event_ids` 为输入来源事件；`activity_concluded`、`activity_paused`、`activity_resumed` 带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by`；`activity_truncated` 带 `activity_id`、截断后的活动快照 `data.activity` 与开始该活动的请求事件 `caused_by`（同源两项的聚合终态不带快照，导出据逐活动快照与最终检查点逐项一致） | 四、八 |
 | E5-6【冻】（:196、:198 两句【同】） | 「事件正文与资源证据」:195-201 | :195 列 `decision_started` 的 `data` 字段（含 `wake_reasons`），同刻轮数按每秒的 `decision_started` 计。【同】（阶段 5，与 C35 同批）:196 零点计划的 `model_request`、`model_response` 带 `purpose="plan_day"`，与人物决策请求区分。【同】（阶段 1，与 C19 同批）:198 补「同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数」。:199 注明结束、暂停与恢复不写 `activity_progress`，逐活动另写 `environment_event`（带活动快照，名称登记见 E5-5）；暂停不是终态。:200 补「主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照」。:201 的 `data.kind` 登记见 E5-5；会话切换只进世界状态，提醒到期记于唤醒原因 | 一、四、七、八 |
 | E5-7【冻】 | 「地图与门店供给证据」:233-235 | 提示中不用 `based_on_action_id/changes`，一律写完整行 | 七 |
 | E5-8【冻】 | 「activity_progress 事件」:244-245 | 注明快照 `location_id` 为开始地点（出行为出发地），结算不改写；到达地点取 `data.arrival.location_id`，不另设「当前地点」字段 | 九 |

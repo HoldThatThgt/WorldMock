@@ -364,9 +364,9 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
     assert "memory_sources" not in facts and ids["wait"] not in facts
 
 
-def test_lifecycle_records_and_mid_run_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:
-    """结束、暂停与恢复逐活动各写一条带快照的 environment_event；会话切换不写事件；中途导出的
-    activities.jsonl 逐项等于最终检查点：人物结束的为 cancelled，暂停的为 paused（规格第七章、第八章「活动」）。"""
+def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:
+    """结束、暂停与恢复逐活动各写一条带快照的 environment_event；会话切换不写事件；在最后一次检查点导出的
+    activities.jsonl 逐项等于该最终检查点：人物结束的为 cancelled，暂停的为 paused（规格第七章、第八章「活动」）。"""
     engine = engine_factory()
     ids, _ = _lifecycle_run(engine)
     events = engine.store.read_events(engine.store.last_event_seq)

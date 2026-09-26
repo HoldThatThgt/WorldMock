@@ -10,14 +10,16 @@ import json
 from pathlib import Path
 
 import pytest
+from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
+from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, wake_by_mail
 from tests.life.test_export_integration import _stage_final_interval
-from worldmock.errors import ProtocolError
+from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
-from worldmock.life import sessions
+from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.narration import render_scene
 from worldmock.life.models import (
@@ -182,6 +184,31 @@ def test_just_ended_requires_conclusion_in_the_same_second(engine_factory) -> No
     assert _wait(engine, "third-wait").status == "in_progress"
     assert engine.state.current_time == now
     advance_next(engine)
+
+
+def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_factory) -> None:
+    """当日没有计划时一觉醒来：睡眠待收尾，LifeAgent 不按日首唤醒只开放 plan_day，conclude_activity 点名这段睡眠并被
+    受理（第七章「活动一结束就要结束它」：收尾之前做别的都以 ACTIVITY_CONCLUSION_REQUIRED 拒绝）。"""
+    engine = engine_factory()
+    slept = _start(engine, "no-plan-sleep", ("自己", "睡觉"))
+    assert advance_until_ready(engine, limit=200)
+    sleep = engine.state.activities[slept.activity_id]
+    assert sleep.status == ActivityStatus.COMPLETED and sleep.concluded_at is None
+    assert engine.state.agents[1].day_plan is None
+    assert "wake_from_sleep" in engine.state.agents[1].pending_wake_reasons
+    decision = context(engine, "wake-no-plan")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    person = LifeAgent()
+    person.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, [
+        {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
+    functions = {row["function"]["name"]: row["function"] for row in person.build_react_tool_schemas(readonly=False)}
+    assert {"conclude_activity", "plan_day", "start_activity"} <= set(functions)
+    assert functions["conclude_activity"]["parameters"]["properties"]["task"]["items"]["enum"] == [sleep.name]
+    engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", ConcludeActivityRequest(
+        task=[sleep.name], summary=["睡醒了。"], memories=[[]])))
+    assert engine.commit_decision_round("wake-no-plan")[0].status == "completed"
+    assert engine.state.activities[slept.activity_id].concluded_at == engine.state.current_time
 
 
 def test_other_activity_keeps_running_while_the_ended_one_is_concluded(engine_factory) -> None:
@@ -367,6 +394,64 @@ def test_two_slots_full_block_new_activities_until_conclusion(engine_factory) ->
     assert _wait(engine, "third-after").status == "in_progress"
 
 
+def test_two_item_start_with_one_free_slot_says_only_one_slot_is_left(engine_factory) -> None:
+    """只剩一个名额（另一个被暂停的活动占着）却要同时开始两项：SESSION_LIMIT_EXCEEDED，原因说只剩一个名额、不能同时
+    开始两项并点名占着名额的活动；只开始一项被受理（第五章「并行准入」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited = _wait(engine, "one-slot-wait")
+    _wake(engine)
+    name = _name(engine, waited.activity_id)
+    _round(engine, "one-slot-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停。"]))
+    content = _pick(_preview(engine, "one-slot"), "watch", kind="content")
+    blocked = _start(engine, "one-slot-two", ("自己", "等待"), content)
+    assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert "只剩一个名额，不能同时开始两项" in blocked.message and name in blocked.message
+    assert "两个名额都占着" not in blocked.message
+    assert _start(engine, "one-slot-one", content).status == "in_progress"
+
+
+def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check(engine_factory) -> None:
+    """名额已满且仍有进行中活动时选择出行：名额判定在出发前判定之前，以 SESSION_LIMIT_EXCEEDED 拒绝（两个名额都占着、
+    先结束一项，点名两项），不报 ACTIVITY_PRECONDITION_UNMET，人仍停留在原地（第五章判定顺序）。
+
+    两项都在进行时，本阶段的交互对象层按占用不列出行；受理判定仍先看名额。暂停等待之后观看仍在进行、名额仍满，
+    出行照常列出，经真实决策轮得到同一拒绝。
+    """
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited, watched = _two_parallel(engine, "running-pair")
+    with pytest.raises(BusinessRuleError, match="^SESSION_LIMIT_EXCEEDED$") as raised:
+        activity_control.require_start_admission(engine.state, 1, (["travel_to"], ["步行前往"]), {})
+    assert type(raised.value) is BusinessRuleError
+    _wake(engine)
+    _round(engine, "pause-the-wait", "pause_activity", PauseActivityRequest(
+        task=[_name(engine, waited)], summary=["先停。"]))
+    _wake(engine)
+    rejected = _depart(engine, "depart-with-full-slots")
+    assert rejected.status == "rejected" and rejected.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert "两个名额都占着，先结束一项" in rejected.message
+    assert _name(engine, waited) in rejected.message and _name(engine, watched) in rejected.message
+    assert sessions.current_session(engine.state, 1).kind == SessionKind.STAY
+    assert engine.state.activities[watched].status == ActivityStatus.ACTIVE
+
+
+@pytest.mark.parametrize("targets,actions", [
+    (["自己"], ["等待", "睡觉"]),
+    (["自己", "自己"], ["等待", "睡觉"]),
+    (["自己", "商品目录", "内容：Sintel"], ["等待", "浏览", "观看"]),
+], ids=["unequal-lengths", "duplicate-targets", "three-targets"])
+def test_start_request_shape_errors_are_action_request_invalid(engine_factory, targets, actions) -> None:
+    """start_activity 的数组不等长、目标重复或超过两项：以 ACTION_REQUEST_INVALID 业务拒绝（不报 SESSION_LIMIT_EXCEEDED），
+    不开始任何活动，运行继续（第五章「并行准入」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    rejected = _round(engine, "shape", "start_activity", StartActivityRequest(targets=targets, actions=actions))[1]
+    assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
+    assert engine.state.activities == {}
+    assert _wait(engine, "after-shape").status == "in_progress"
+
+
 def test_both_paused_redecide_same_second_until_one_resumes(engine_factory) -> None:
     """两项都暂停时同一秒再决策；结束其一后仍同秒再决策；恢复其一后时钟可推进。"""
     engine = engine_factory()
@@ -418,6 +503,54 @@ def test_experiment_end_ends_every_session_without_conclusion(engine_factory) ->
     activity = engine.state.activities[waited.activity_id]
     assert activity.status == ActivityStatus.TRUNCATED and activity.concluded_at is None
     assert engine.scheduling_state().ready_agent_ids == ()
+
+
+def _final_export(engine: LifeEngine, directory: Path) -> tuple[dict[str, dict], dict[str, dict]]:
+    """@brief 实验截止后在最终检查点导出，返回（导出的活动行, 最终检查点的活动快照）。"""
+    agent_ref = engine.store.assets.put_json({"agent_id": 1}, {"kind": "location_sessions_final_export"})
+    checkpoint = engine.checkpoint({"agent:1": agent_ref})
+    manifest = export_run(engine.store, checkpoint.last_event_seq, directory)
+    assert manifest["experiment_completed"] is True
+    lines = (directory / "activities.jsonl").read_text(encoding="utf-8").splitlines()
+    return {row["activity_id"]: row for row in map(json.loads, lines)}, checkpoint.state["activities"]
+
+
+@pytest.mark.parametrize("peer", ["running", "concluded"])
+def test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity(
+        engine_factory, tmp_path: Path, peer: str) -> None:
+    """同一请求开始的两项中一项暂停，另一项仍在进行（或已由人物结束、另开了一段等待）时跑到实验截止：每项被截断的
+    活动（含暂停的）写一条带截断快照、回链开始请求的 activity_truncated；同源两项的聚合终态不带快照，导出的
+    activities.jsonl 仍逐行等于最终检查点（第八章「活动」）。"""
+    engine = engine_factory()
+    _stage_final_interval(engine, 600)
+    stage_day_plan(engine)
+    waited, watched = _two_parallel(engine, "end-pair")
+    _wake(engine)
+    _round(engine, "end-pause", "pause_activity", PauseActivityRequest(
+        task=[_name(engine, watched)], summary=["先停。"]))
+    running = waited
+    if peer == "concluded":
+        _wake(engine)
+        assert _conclude(engine, "end-conclude", waited).status == "completed"
+        running = _wait(engine, "end-wait-again").activity_id
+    _until_ended(engine, running, "end-run")
+    assert engine.state.current_time == engine.state.end_time
+    truncated = sorted(key for key, item in engine.state.activities.items() if item.status == ActivityStatus.TRUNCATED)
+    assert truncated == sorted({watched, running})
+    records = _environment_kinds(engine, "activity_truncated")
+    assert sorted(event.activity_id for event in records) == truncated
+    for event in records:
+        activity = engine.state.activities[event.activity_id]
+        expected = activity.model_dump(mode="json")
+        assert event.occurred_at == engine.state.end_time and event.data["activity_id"] == event.activity_id
+        assert {key: event.data["activity"][key] for key in expected} == expected
+        assert event.caused_by == [activity.origin_request_event_id]
+    exported, final = _final_export(engine, tmp_path / "final-export")
+    assert exported.keys() == final.keys()
+    for activity_id, snapshot in final.items():
+        row = {**exported[activity_id], "kind": exported[activity_id]["activity_type"]}
+        assert {key: row[key] for key in snapshot} == snapshot
+    assert (exported[watched]["status"], exported[running]["status"]) == ("truncated", "truncated")
 
 
 def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -> None:
@@ -540,6 +673,22 @@ def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(
         assert not {key for key in recall if key.endswith("_id")}
 
 
+def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) -> None:
+    """边走边看：和步行同一请求开始的内容，回看的地点是它所属的那段路「去<目的地>的路上」，不是出发地；
+    到达收尾后仍是那段路（第七章 recall_task_summary「活动给 {名称, 地点, …}」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    content = _pick(_preview(engine, "road-recall"), "watch", kind="content")
+    travel_id, watch_id = _started_ids(_depart(engine, "road-recall", content))
+    road = f"去{engine._place_names['office']}的路上"
+    assert _recall(engine, "recall-road-content", _name(engine, watch_id))["place"] == road
+    assert _recall(engine, "recall-road-walk", _name(engine, travel_id))["place"] == road
+    _until_ended(engine, travel_id, "road-recall-walk")
+    assert _conclude(engine, "road-recall-arrive", travel_id, watch_id).status == "completed"
+    after = _recall(engine, "recall-road-content-after", _name(engine, watch_id))
+    assert (after["place"], after["phase"]) == (road, "已收尾")
+
+
 def test_sessions_and_pending_conclusion_survive_reopen(engine_factory) -> None:
     """地点会话与待收尾随世界状态保存；重开后仍须在同一秒收尾。"""
     engine = engine_factory()
@@ -594,8 +743,6 @@ def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory,
 
 def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) -> None:
     """名额计数（到店购买与远程下单不占名额，同短语的两份食用合成一餐）、人读时长、会话辅助函数的边界。"""
-    from worldmock.life import activity_control
-
     assert activity_control.new_activity_count(["purchase", "purchase"], ["到店购买", "到店购买"]) == 0
     assert activity_control.new_activity_count(["consume", "consume"], ["吃", "吃"]) == 1
     assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行前往", "配送到当前位置"]) == 1

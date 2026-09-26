@@ -631,8 +631,8 @@ class LifeAgent(PersonAgent):
             return
         data = _environment_observation_data(request.observations)
         self._prepare_life_action_state(data)
-        if _plan_required_before_other_actions(data, self._life_action_models):
-            # 日首唤醒且当日无计划：撤下其他生活动作工具，只留 plan_day。
+        if _plan_required_before_other_actions(data, self._life_action_models, self._life_action_contracts):
+            # 日首唤醒、当日无计划且没有待收尾活动：撤下其他生活动作工具，只留 plan_day。
             self._life_action_models = {
                 name: model for name, model in self._life_action_models.items()
                 if name == "plan_day"}
@@ -1018,17 +1018,18 @@ def _same_moment_contracts(stage: SameMomentStage, contracts: dict[str, Any]) ->
 
 
 def _plan_required_before_other_actions(
-    data: dict[str, Any], action_models: dict[str, type[BaseModel]]
+    data: dict[str, Any], action_models: dict[str, type[BaseModel]], contracts: dict[str, Any]
 ) -> bool:
-    """@brief 日首唤醒（run_start/wake_from_sleep）且当日无计划时要求先提交计划。
+    """@brief 日首唤醒（run_start/wake_from_sleep）、当日无计划且没有待收尾活动时要求先提交计划。
 
-    判据 = plan_day 在本轮动作面开放（即 facts.day_plan 为空）且唤醒原因含
-    日首闭集。这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才
-    合法"的顺序（与"提交动作后才开放 finish"的阶段门同构，docs/CONTRACTS.md「动作状态与动作结果」工具集合
-    不替人物选择指的是不代选内容）；人物仍可提交计划后 finish 跳过当天，
-    或被拒绝后在同一秒的再决策轮拿回其他动作工具。
+    判据 = plan_day 在本轮动作面开放（即 facts.day_plan 为空）、唤醒原因含日首闭集，且本轮没有待收尾活动：
+    刚结束的活动（例如醒来时的睡眠）须先 conclude_activity，引擎在收尾前以 ACTIVITY_CONCLUSION_REQUIRED
+    拒绝其他请求（docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」），所以这时不收窄工具面。
+    这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才合法"的顺序（docs/CONTRACTS.md「动作状态与动作结果」
+    工具集合不替人物选择指的是不代选内容）；计划登记即结束本轮，人物在同一秒的再决策轮拿回其他动作工具，
+    计划被拒绝后同样如此。
     """
-    return ("plan_day" in action_models
+    return ("plan_day" in action_models and not contracts["pending_names"]
             and bool(_DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data))))
 
 

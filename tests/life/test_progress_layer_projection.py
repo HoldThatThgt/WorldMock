@@ -213,8 +213,9 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> 
 
 
 def test_recall_reads_task_activity_and_session_without_identities() -> None:
-    """回看工作任务取最近一条相关活动自述；回看活动给地点、阶段、人读进度与自述；回看会话给地点、起止与活动名；
-    自述标「你自己记下的，未经核验」，结果不带内部身份并原样进入下一次观察的 details.recall（第七章）。"""
+    """回看工作任务取最近一条相关活动自述；回看活动给地点（最近所属会话的地点，未归入会话的取开始地点）、阶段、
+    人读进度与自述；回看会话给地点、起止与活动名；自述标「你自己记下的，未经核验」，结果不带内部身份并原样进入
+    下一次观察的 details.recall（第七章）。"""
     task = SimpleNamespace(task_id="internal-task", required_effective_seconds=14400.0,
                            due_at=datetime.fromtimestamp(_START + 64800, timezone.utc))
     work = {"kind": ActivityKind.WORK, "target_id": task.task_id, "task_kind": SessionTaskKind.WORK_TASK,
@@ -227,7 +228,8 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
                        sessions=("afternoon",), **work)
     morning = _session("morning", (first,), ended_at=_START + 3600)
     afternoon = _session("afternoon", (second,), started_at=_START + 7200)
-    state = _world([first, second], [morning, afternoon], now=_START + 10200)
+    unassigned = _activity("unassigned", "等待", started_at=_START + 60, sessions=())
+    state = _world([first, second, unassigned], [morning, afternoon], now=_START + 10200)
 
     class RecallController(SessionActionMixin):
         """只提供回看需要的冻结绑定、任务目录与地点名。"""
@@ -264,6 +266,7 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
         "progress_note": "先整理提纲", "subjective_status": SELF_REPORT_MARK}
     assert by_session["recall"] == {"kind": "session", "place": "办公室", "started_at": "1月5日 02:00",
                                     "ended_at": None, "activity_names": [second.name]}
+    assert recall(unassigned.name)["recall"]["place"] == "办公室"
     with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
         recall("不存在的名称")
     assert "internal-" not in str([by_task, by_activity, by_session])

@@ -301,11 +301,16 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return self._queue_action(call, request_sha, reused=False)
 
     async def prepare_pending_work_review(self, action_id: str) -> None:
-        """@brief 为通过前置条件的工作提交执行有限次独立语义验收。"""
+        """@brief 为通过前置条件的工作提交执行有限次独立语义验收。
+
+        有待收尾活动时结算必以 ACTIVITY_CONCLUSION_REQUIRED 拒绝（与 _dispatch 同一判定），不调用验收模型。
+        """
         pending = next((item for item in self._round.pending_actions if item.action_id == action_id), None)
         if pending is None:
             raise ProtocolError("Pending work review action does not exist")
         if pending.tool_name != "submit_work" or pending.reused or pending.work_review is not None:
+            return
+        if activity_control.pending_conclusions(self.state, pending.agent_id):
             return
         start = SubmitWorkActionRequest.model_validate(pending.request)
         existing = [event for event in self.store.read_agent_events("model_request", pending.agent_id)
@@ -1514,7 +1519,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return state, drafts, arrivals
 
     def _truncate(self, state: WorldState, now: int) -> list[EventDraft]:
-        """@brief 在实验终点标记所有仍活动的会话并保留实际进度。"""
+        """@brief 在实验终点截断仍进行或暂停的活动并保留实际进度：逐项写截断快照，原始动作全部终结时写一次终态。"""
         drafts = []
         for activity_id, activity in state.activities.items():
             if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
@@ -1522,6 +1527,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             activity, agent = truncate_activity(activity, state.agents[activity.agent_id], now)
             state.activities[activity_id] = activity
             state.agents[agent.agent_id] = agent
+            drafts.append(activity_control.truncation_record(activity, self._activity_snapshot(activity), now))
             result = _origin_terminal_result(state, activity, now, self._activity_title(activity))
             if result is not None:
                 state.processed_actions = _terminal_action_records(state, result)

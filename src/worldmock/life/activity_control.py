@@ -7,7 +7,9 @@
 - 进度层写活动客观进度的人读时长，自述标「你自己记下的，未经核验」；
 - conclude_activity、pause_activity 与 report_status 的恢复每改变一项活动就写一条 environment_event
   （activity_concluded、activity_paused、activity_resumed，带活动快照与含本次请求事件的 caused_by）；
-  原始动作的全部子活动都终结时按自然结束的同一路径写一次终态并更新 processed_actions。
+  原始动作的全部子活动都终结时按自然结束的同一路径写一次终态并更新 processed_actions；
+- 实验截止截断的每项活动（进行中或暂停）写一条带截断快照的 environment_event（activity_truncated）：同源两项的
+  聚合终态不带快照，导出据逐项快照重建，与最终检查点逐项一致。
 引导性拒绝（ACTIVITY_CONCLUSION_REQUIRED、SESSION_LIMIT_EXCEEDED、ACTIVITY_PRECONDITION_UNMET、
 ACTIVITY_PAUSE_UNAVAILABLE）以链式原因写出要先处理的活动或地点，拒绝消息据此点名。引擎只接线。
 """
@@ -37,6 +39,8 @@ PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
 #: 控制工具 → 其改变活动时写的 environment_event 种类（播报只在恢复暂停活动时留记录）。
 _LIFECYCLE_KINDS = {"conclude_activity": "activity_concluded", "pause_activity": "activity_paused",
                     "report_status": "activity_resumed"}
+#: 实验截止截断活动时逐项写的 environment_event 种类。
+TRUNCATED_KIND = "activity_truncated"
 _TERMINAL_STATUSES = frozenset({*CONCLUDABLE_TERMINAL_STATUSES, ActivityStatus.TRUNCATED})
 _CHINESE_DIGITS = "零一二三四五六七八九"
 
@@ -189,14 +193,20 @@ def require_start_admission(state: WorldState, agent_id: int, request: tuple[lis
                             names: dict[str, str]) -> None:
     """@brief 开始请求的名额与出发前判定：名额不足报 SESSION_LIMIT_EXCEEDED，出发前仍有进行中活动报前置条件。
 
+    名额不足的原因分两种说法：两个名额都占着时请人物先结束一项；只剩一个名额却要同时开始两项时说明只剩一个名额
+    （docs/dev/SPEC-time-and-energy.md 第五章「并行准入」）。两种都点名占着名额的活动。
+
     :param request: (内部标准动作列表, 动作短语列表)，与请求 targets 逐项对应。
     :param names: 活动身份→本轮可读名称，用于在原因中点名要先处理的活动。
     """
     actions, labels = request
-    if new_activity_count(actions, labels) > free_slots(state, agent_id):
+    free = free_slots(state, agent_id)
+    if new_activity_count(actions, labels) > free:
         listed = "、".join(names.get(item.activity_id, item.name) for item in slot_activities(state, agent_id))
+        reason = (f"只剩一个名额，不能同时开始两项（{listed}占着一个）" if free > 0
+                  else f"两个名额都占着，先结束一项：{listed}")
         error = BusinessRuleError("SESSION_LIMIT_EXCEEDED")
-        raise error from ValueError(f"两个名额都占着，先结束一项：{listed}")
+        raise error from ValueError(reason)
     running = [item for item in _agent_activities(state, agent_id, _is_active)]
     if "travel_to" in actions and running:
         listed = [names.get(item.activity_id, item.name) for item in running]
@@ -211,6 +221,20 @@ def record_changes(before: WorldState, after: WorldState, pending: PendingAction
     drafts = _lifecycle_drafts(before, after, pending, context.snapshot)
     changed, terminal = _terminal_records(before, after, pending.requested_event_id, context.title)
     return changed, drafts + terminal
+
+
+def truncation_record(activity: ActivityState, snapshot: dict, now: int) -> EventDraft:
+    """@brief 实验截止截断的一项活动（此前进行中或暂停）写一条带截断快照的 environment_event。
+
+    同源两项的聚合终态不带快照，暂停的活动此前只有暂停时的快照；逐项写截断快照，导出的活动才与最终检查点逐项一致
+    （docs/dev/SPEC-time-and-energy.md 第八章「活动」）。原因回链开始该活动的请求事件。
+
+    :param snapshot: 截断后的活动权威快照（引擎的活动快照投影）。
+    """
+    return EventDraft(event_type="environment_event", occurred_at=now, agent_id=activity.agent_id,
+                      activity_id=activity.activity_id, caused_by=[activity.origin_request_event_id],
+                      source_kind="environment",
+                      data={"kind": TRUNCATED_KIND, "activity_id": activity.activity_id, "activity": snapshot})
 
 
 def _lifecycle_drafts(before: WorldState, after: WorldState, pending: PendingAction,

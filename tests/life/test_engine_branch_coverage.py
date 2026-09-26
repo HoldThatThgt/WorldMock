@@ -1005,6 +1005,43 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
     engine.abort_decision_round(round_id, "test teardown")
 
 
+async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engine_factory) -> None:
+    """同一场景晚到 900 秒：等待在决策机会前已结束、待收尾，这时提交工作不调用验收模型（与 _dispatch 同一判定），
+    结算以 ACTIVITY_CONCLUSION_REQUIRED 拒绝（第七章「活动一结束就要结束它」）。"""
+    engine = engine_factory()
+    _stage_submission(engine)
+    engine.abort_decision_round("cover-submit", "busy-agent teardown")
+    advance_until_ready(engine)
+    started = _act(engine, "wait-before-submit", "start_activity",
+                   StartActivityRequest(targets=["自己"], actions=["等待"]))
+    assert started.status == "in_progress"
+    wake_by_mail(engine, offset=900)
+    for step in range(16):
+        if engine.state.activities[started.activity_id].status != ActivityStatus.ACTIVE:
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _act(engine, f"keep-waiting-{step}", "report_status", ReportStatusRequest(
+                task=[activity_name(engine, started.activity_id)], summary=["继续等。"]))
+        else:
+            advance_next(engine)
+    waited = engine.state.activities[started.activity_id]
+    assert waited.status == ActivityStatus.COMPLETED and waited.concluded_at is None
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    round_id = "submit-while-pending"
+    ctx = context(engine, round_id)
+    engine.begin_decision_round([ctx])
+    engine.observe(ctx)
+    call = DirectToolCall(ctx, f"action-{round_id}", "submit_work", _submission_action(engine))
+    engine.submit_action(call)
+    await engine.prepare_pending_work_review(call.action_id)
+    pending = next(item for item in engine._round.pending_actions if item.action_id == call.action_id)
+    assert pending.work_review is None and engine._work_reviewer.calls == 0
+    result = engine.commit_decision_round(round_id)[0]
+    assert (result.status, result.error_code) == ("rejected", "ACTIVITY_CONCLUSION_REQUIRED")
+    assert not [event for event in engine.store.read_agent_events("model_request", 1)
+                if event.data.get("purpose") == "work_review"]
+
+
 def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> None:
     """缺少人物提交的决策轮提交被拒绝。"""
     engine = engine_factory("multi-person.json")

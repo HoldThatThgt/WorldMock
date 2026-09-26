@@ -665,7 +665,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 - 身体与活动进度按实际推进区间结算；每项活动的投入秒数与有效秒数随每次结算累加
 - 暂停不计算活动产出
 - 退出保留已完成部分
-- 实验结束保留截断标识
+- 实验结束保留截断标识；每项被截断的活动（进行中或暂停）写一条 `environment_event`（`data.kind` 取 `activity_truncated`，带截断后的活动快照），导出据此与最终检查点逐项一致
 - 主动结束、暂停与恢复逐活动各写一条 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`）
 
 ### 资金与合同
@@ -1036,4 +1036,4 @@ flowchart LR
 | `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md#冻结条款修订)修订 2–11 与修订 30（裁决 #22 采纳）改写：决策不消耗时间，没有进行中活动或有待收尾活动时同一秒再决策，同刻上限与受限轮取代一秒反应边界与连续拒绝冷却；静默边界与零点计划 `plan_day` 的留证；下一次决策机会的候选与空闲间隔口径；初始睡眠压力按惯常起床时刻反推；低能量两档饥饿显示；能量以 0 截断，不参与受理、路线与恢复，工作效率乘能量效率；接触次数只在首次与从头重看时加一；占用按注册表重列，另按准入事实判定，每人两个活动名额，控制集合含待收尾活动；活动结束同一秒收尾，暂停的活动只在开始地点恢复；进度层按会话分组，系统提示含「怎样过一天」；社交按同秒消息机会、交谈接受与结束、通话派生时长与预排的联系人回复改写；他处持有物可知、只能在当地使用；验收矩阵改动行记「本次离线验收待执行」。唤醒闭集新成员与触发表的改动随对应代码落地 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1（LR5、LR7）：唤醒原因闭集改为不可改名、不可删除，新增走版本表；词表依次写全 `progress_report_due` 并追加 `no_active_activity`、`plan_reminder_due`；睡眠期间仍可提供决策的原因加 `plan_reminder_due`，不加 `no_active_activity`；触发表的 `planned_end` 改为活动由世界结束（含交谈对方结束），`discovery_result` 删「下一秒」、当前无触发来源，`rejection_feedback` 单列为同一秒业务拒绝后的再决策轮、只由同刻规则写入，增 `no_active_activity` 行（边界兜底与同刻再决策轮） |
 | `2026-09-25-time-and-energy-stage-2` | 2026-09-25 | 时间与能量规格阶段 2（身体与能量）随代码落地触发表的改动：`commitment_threatened` 只来自任务截止与闭店预警，删「或当前活动不可行」；`activity_infeasible` 保留名称，当前无触发来源 |
-| `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（LR7）：触发表增 `progress_report_due` 行：只计本人进行中活动，锚点为活动的 `report_anchor_at`（开始、恢复以及对该活动播报时写入） |
+| `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（LR7）：触发表增 `progress_report_due` 行：只计本人进行中活动，锚点为活动的 `report_anchor_at`（开始、恢复以及对该活动播报时写入）；「活动进度的结算口径」写明实验结束时每项被截断的活动（进行中或暂停）写一条 `activity_truncated`（带截断后的活动快照），导出据此与最终检查点逐项一致 |

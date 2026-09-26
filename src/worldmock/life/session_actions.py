@@ -432,11 +432,15 @@ class SessionActionMixin:
         return {"goal": goal.goal, "intent_kind": goal.intent_kind, "progressed": goal.progressed_at is not None}
 
     def _recall_activity(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
-        """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。"""
+        """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。
+
+        地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
+        未归入会话的活动取开始地点。
+        """
         del pending, observed
         activity = state.activities[row["activity_id"]]
         places = self._place_names
-        place = (f"去{places[activity.destination_id]}的路上" if activity.kind == ActivityKind.TRAVEL
+        place = (sessions.place_label(state.sessions[activity.session_ids[-1]], places) if activity.session_ids
                  else places[activity.location_id])
         required = {task_id: task.required_effective_seconds for task_id, task in self.rules.tasks.items()}
         view = {"name": row["name"], "place": place, "phase": activity_control.activity_phase(activity),
