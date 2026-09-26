@@ -318,12 +318,29 @@ const KIND_LABELS = {
 const TOOL_LABELS = {
   start_activity:'开始活动', submit_work:'提交工作', send_message:'发送消息',
   recall_task_summary:'回看任务', report_status:'播报进展', pause_activity:'暂停活动',
-  conclude_activity:'结束活动', plan_day:'制定当日目标', revise_day_plan:'调整当日目标',
+  conclude_activity:'结束活动', revise_day_plan:'调整当日目标',
 };
+/* start_activity 的五个动词（方式短语本身就是中文，原样显示） */
+const VERB_LABELS = { travel:'出行', interact:'交互', obtain:'取得', consume:'使用', sleep:'睡眠' };
 const STATUS_LABELS = { active:'进行中', completed:'已完成', in_progress:'进行中', rejected:'被拒绝', cancelled:'已取消' };
-const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈' };
+const BND_LABELS = { planned_end:'按计划结束', feedback:'反馈中断', game_feedback:'游戏反馈',
+  plan_reminder:'计划提醒结束', route_ended:'随出行结束', partner_ended:'对方结束交谈',
+  paused:'已暂停', cancelled:'主动结束' };
 const ENVK_LABELS = { initial_funds_injected:'初始资金注入', mail_arrival:'邮件到达',
-  delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期' };
+  delivery_arrival:'外卖送达', work_available:'工作可做', task_expired:'任务过期',
+  day_plan_generated:'零点计划生成', activity_concluded:'活动收尾', activity_paused:'活动暂停',
+  activity_resumed:'活动恢复', activity_truncated:'活动截断' };
+/* decision_started.data.wake_reasons 的唤醒原因闭集 */
+const WAKE_LABELS = {
+  planned_end:'计划结束', felt_band_change:'体感变化', message_arrival:'消息到达', delivery_arrival:'配送送达',
+  task_available:'任务可做', task_due_soon:'任务临近截止', work_review_result:'工作审阅结果',
+  commitment_threatened:'承诺受威胁', reconsideration_interval:'重估间隔', location_hours_change:'营业时间变化',
+  person_arrived:'有人到来', person_left:'有人离开', activity_infeasible:'活动不可行',
+  rejection_feedback:'拒绝反馈', discovery_result:'发现结果', wake_from_sleep:'睡醒', run_start:'运行开始',
+  progress_report_due:'该播报进展', no_active_activity:'没有进行中的活动', plan_reminder_due:'计划提醒到点',
+};
+const SESSION_KIND_LABELS = { stay:'停留', transit:'路上' };
+const SESSION_STATUS_LABELS = { active:'进行中', ended:'已结束' };
 const MEMOP_LABELS = { append_episodes:'追加记忆片段' };
 const MEMORY_TYPE_LABELS = {
   reflection:'反思', routine:'日常', goal:'目标', relationship:'关系',
@@ -333,6 +350,9 @@ const ERR_LABELS = { WORK_REQUIRES_REWORK:'工作需返工' };
 const ACCT_LABELS = { 'employer:zhangjiang':'雇主张江', 'merchant:general':'商家·通用',
   'merchant:grocery':'商家·杂货', 'transport:service':'交通服务' };
 const typeLabel = t => TYPE_LABELS[t]||t;
+const bndLabel = b => BND_LABELS[b]||b;
+const envkLabel = k => ENVK_LABELS[k]||k;
+const wakeLabels = reasons => (Array.isArray(reasons)?reasons:[]).map(r=>WAKE_LABELS[r]||r).join('、');
 const kindLabel = k => k==null?'':(KIND_LABELS[k]||k);
 const toolLabel = t => t==null?'—':(TOOL_LABELS[t]||t);
 const statusLabel = s => s==null?'—':(STATUS_LABELS[s]||s);
@@ -472,8 +492,8 @@ function buildIndex(){
     for (const r of rows) fn(r);
   };
 
-  typeQuery('decision_started', ['$.data.round_order'], r=>{
-    S.summaries.set(r.seq,{round:r['$.data.round_order']});
+  typeQuery('decision_started', ['$.data.round_order','$.data.wake_reasons'], r=>{
+    S.summaries.set(r.seq,{round:r['$.data.round_order'],wake:parseJArr(r['$.data.wake_reasons'])});
   });
   typeQuery('observation', ['$.data.balance_fen','$.data.body.values.energy_kcal',
                             '$.data.body.values.sleep_deficit_hours','$.data.body.values.entertainment_need',
@@ -495,8 +515,10 @@ function buildIndex(){
     S.summaries.set(r.seq,{aid:r['$.activity_id'],kind:r['$.data.activity.kind'],dur:r['$.data.activity.planned_duration_seconds'],
       tg:r['$.data.activity.target_id'],dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title']});
   });
-  typeQuery('action_rejected', ['$.data.error_code','$.data.consecutive_rejections'], r=>{
-    S.summaries.set(r.seq,{err:r['$.data.error_code'],nrej:r['$.data.consecutive_rejections']});
+  typeQuery('action_rejected', ['$.data.error_code','$.data.same_moment_round',
+                                '$.data.max_same_moment_decisions'], r=>{
+    S.summaries.set(r.seq,{err:r['$.data.error_code'],smr:r['$.data.same_moment_round'],
+      smmax:r['$.data.max_same_moment_decisions']});
   });
   typeQuery('action_result', ['$.data.status','$.data.message','$.data.error_code','$.data.order'], r=>{
     S.summaries.set(r.seq,{status:r['$.data.status'],msg:r['$.data.message'],err:r['$.data.error_code'],order:r['$.data.order']});
@@ -513,8 +535,9 @@ function buildIndex(){
       dest:r['$.data.activity.destination_id'],title:r['$.data.activity.title'],
       from:r['$.data.interval_start'],to:r['$.data.interval_end']});
   });
-  typeQuery('model_request', ['$.data.request.model','$.data.attempt'], r=>{
-    S.summaries.set(r.seq,{model:r['$.data.request.model'],attempt:r['$.data.attempt']});
+  typeQuery('model_request', ['$.data.request.model','$.data.attempt','$.data.purpose'], r=>{
+    S.summaries.set(r.seq,{model:r['$.data.request.model'],attempt:r['$.data.attempt'],
+      purpose:r['$.data.purpose']});
   });
   typeQuery('model_response', ['$.data.response.model','$.data.response.usage.prompt_tokens',
                                '$.data.response.usage.completion_tokens','$.data.response.usage.total_tokens'],
@@ -530,8 +553,10 @@ function buildIndex(){
   typeQuery('checkpoint_created', ['$.data.checkpoint_id'], r=>{
     S.summaries.set(r.seq,{cp:r['$.data.checkpoint_id']});
   });
-  typeQuery('environment_event', ['$.data.kind','$.data.resource_changes'], r=>{
-    S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes']});
+  typeQuery('environment_event', ['$.data.kind','$.data.resource_changes','$.data.activity.name',
+                                  '$.data.day_plan.goals'], r=>{
+    S.summaries.set(r.seq,{ekind:r['$.data.kind'],rc:r['$.data.resource_changes'],
+      aname:r['$.data.activity.name'],goals:r['$.data.day_plan.goals']});
   });
   typeQuery('run_ended', ['$.data.end_time','$.wall_elapsed_ms'], r=>{
     S.summaries.set(r.seq,{end:r['$.data.end_time'],wall:r['$.wall_elapsed_ms']});
@@ -571,6 +596,23 @@ function buildIndex(){
 function pairedSummaries(req){
   return (req.task||[]).map((task,i)=>`${task}：${(req.summary||[])[i]||''}`).join('；');
 }
+/** @brief start_activity 逐项显示「对象 · 动词：方式」；缺方式的旧请求只显示动作短语。 */
+function verbWay(verb, way){
+  const label = VERB_LABELS[verb]||verb||'';
+  return way? `${label}：${way}` : label;
+}
+/** @brief conclude_activity 随收尾写下的记忆条数（memories 与 task 等长，逐项零至多条）。 */
+function memoryCount(req){
+  if (!Array.isArray(req.memories)) return '';
+  const n = req.memories.reduce((total,group)=>total+(Array.isArray(group)?group.length:0),0);
+  return ` · 记忆 ${n} 条`;
+}
+/** @brief 零点计划的目标数与提醒时刻（场景时区）。 */
+function dayPlanText(goalsRaw){
+  const goals = parseJArr(goalsRaw||'[]');
+  const reminders = goals.filter(g=>g && g.remind_at!=null).map(g=>fmtHM(g.remind_at));
+  return ` · ${goals.length} 项目标${reminders.length?' · 提醒 '+reminders.join('、'):''}`;
+}
 
 /* 把 action_requested 的 request 参数渲染成可读中文（隐藏技术编号） */
 function readableReq(tool, reqRaw){
@@ -580,16 +622,17 @@ function readableReq(tool, reqRaw){
   if (!req || typeof req!=='object') return '';
   switch (tool){
     case 'start_activity':
-      return (req.targets||[]).map((target,i)=>`${target} · ${(req.actions||[])[i]||''}`).join('；');
+      return (req.targets||[]).map((target,i)=>
+        `${target} · ${verbWay((req.actions||[])[i], (req.ways||[])[i])}`).join('；');
     case 'recall_task_summary':
       return req.task_name||'';
     case 'report_status':
     case 'pause_activity':
-    case 'conclude_activity':
       return pairedSummaries(req);
+    case 'conclude_activity':
+      return pairedSummaries(req) + memoryCount(req);
     case 'send_message':
       return `${req.recipient_name||''} · ${req.text||''}`;
-    case 'plan_day':
     case 'revise_day_plan':
       return `${(req.goals||[]).length} 项目标`;
     case 'submit_work': {
@@ -607,7 +650,10 @@ function readableReq(tool, reqRaw){
 function makeSummary(e){
   const s = S.summaries.get(e.seq)||{};
   switch(e.type){
-    case 'decision_started': return `决策开始 · 第 ${s.round??'?'} 轮`;
+    case 'decision_started': {
+      const wake = wakeLabels(s.wake);
+      return `决策开始 · 第 ${s.round??'?'} 轮${wake?' · 唤醒：'+wake:''}`;
+    }
     case 'observation': {
       const active = (s.acts||[]).map(a=>kindLabel(a.kind)).filter(Boolean);
       return `余额 ¥${fmtFen(s.bal)} · 能量 ${s.en==null?'—':Math.round(s.en)}kcal` +
@@ -615,13 +661,16 @@ function makeSummary(e){
         ` · 娱乐需求 ${s.et==null?'—':(+s.et).toFixed(2)}` +
         (active.length?' · 进行中：'+active.join('、'):'');
     }
-    case 'model_request': return `模型请求 ${s.model||''} · 第${s.attempt??'?'}次尝试`;
+    case 'model_request':
+      return `${s.purpose==='plan_day'?'零点计划模型请求':'模型请求'} ${s.model||''} · 第${s.attempt??'?'}次尝试`;
     case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
     case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}`;
     case 'action_accepted':
       return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+actTargetText(s):''}` +
         ` · 计划 ${fmtDur(s.dur)}`;
-    case 'action_rejected': return `被拒绝 · ${ERR_LABELS[s.err]||s.err||'—'} · 连续拒绝 ${s.nrej??'?'} 次`;
+    case 'action_rejected':
+      return `被拒绝 · ${ERR_LABELS[s.err]||s.err||'—'} · 同刻第 ${s.smr??'?'} 轮` +
+        (s.smmax!=null?`（上限 ${s.smmax}）`:'');
     case 'action_result': {
       let ord='';
       if (s.order && typeof s.order==='string'){ try{ const o=JSON.parse(s.order);
@@ -630,13 +679,15 @@ function makeSummary(e){
     }
     case 'activity_progress':
       return `活动段 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' '+actTargetText(s):''}` +
-        ` · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+BND_LABELS[s.bnd]:''}`;
+        ` · ${statusLabel(s.status)} · 已进行 ${fmtDur(s.elapsed)}${s.bnd?' · '+bndLabel(s.bnd):''}`;
     case 'memory_updated': {
       const n = parseJArr(s.created||'[]').length + parseJArr(s.merged||'[]').length;
       return `记忆更新 · ${MEMOP_LABELS[s.op]||s.op||'—'} · ${n} 段记忆${s.cons?' · 已巩固':''}`;
     }
     case 'checkpoint_created': return '存档';
-    case 'environment_event': return `世界事件 · ${ENVK_LABELS[s.ekind]||s.ekind||'—'}`;
+    case 'environment_event':
+      return `世界事件 · ${envkLabel(s.ekind)||'—'}${s.aname?' · '+s.aname:''}` +
+        (s.ekind==='day_plan_generated'?dayPlanText(s.goals):'');
     case 'run_ended': return `运行结束 · 模拟时间 ${fmtT(s.end)} · 墙钟 ${fmtDur(Math.round((s.wall||0)/1000))}`;
     default: return '';
   }
@@ -955,6 +1006,27 @@ function renderActivityLanes(activities){
     <div class="hint">同一时间轴上的条块表示实际执行区间；空白表示尚无结算记录。</div>
     <div class="act-lane-axis">${ticks}</div>${groups}</div></div>`;
 }
+/** @brief 地点会话（一段停留或一段路）只存于世界状态，按开始时刻列出其名称、种类与所含活动。 */
+function renderSessions(agent){
+  const acts = S.world?.activities||{};
+  const rows = Object.values(S.world?.sessions||{})
+    .filter(s=>SESSION_KIND_LABELS[s.kind] && (!agent || String(s.agent_id)===agent))
+    .sort((x,y)=>x.started_at-y.started_at);
+  if (!rows.length) return '';
+  const members = s => (s.activity_ids||[]).map(id=>acts[id]?.name).filter(Boolean).join('、')
+    || `${(s.activity_ids||[]).length} 项活动`;
+  return `<h3>地点会话</h3><div class="card" style="padding:0">
+    <table class="session-table">
+      <thead><tr><th>开始</th><th>人物</th><th>会话</th><th>种类</th><th>结束</th><th>状态</th><th>活动</th></tr></thead>
+      <tbody>${rows.map(s=>`<tr>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.started_at)}</td>
+        <td style="white-space:nowrap"><span class="tl-agent ${agentCls(s.agent_id)}">${esc(agentName(s.agent_id))}</span></td>
+        <td>${esc(s.name||'')}</td><td>${SESSION_KIND_LABELS[s.kind]}</td>
+        <td style="white-space:nowrap;font-family:var(--mono);font-size:12px">${fmtHM(s.ended_at)}</td>
+        <td>${SESSION_STATUS_LABELS[s.status]||esc(s.status)}</td><td>${esc(members(s))}</td></tr>`).join('')}
+      </tbody>
+    </table></div>`;
+}
 function renderActivities(){
   const el = $('#act-body');
   const agent = agentFilterVal();
@@ -1000,7 +1072,8 @@ function renderActivities(){
       <button id="at-prev" ${AT.page===0?'disabled':''}>上一页</button>
       <button id="at-next" ${AT.page>=pages-1?'disabled':''}>下一页</button>
     </div>
-  </div>`;
+  </div>
+  ${renderSessions(agent)}`;
 
   $$('#act-body th[data-sk]').forEach(h=>{
     h.onclick = ()=>{

@@ -560,6 +560,22 @@ _NO_NEW_FAULT_TESTS += [
     _PLANNING + "test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended",
 ]
 
+#: 阶段 7 对「本机运行修复」行的收尾登记：查看器按最终事件形状显示（经 Node 执行 tests/tools/run_viewer.test.cjs：
+#: 动词与方式、结束活动的记忆条数、结束原因、零点计划与活动控制的环境事件、拒绝行的同刻轮次、决策的唤醒原因、
+#: 地点会话与零点计划模型请求）。
+_STAGE7_LOCAL_RUN_FIX_TESTS = [
+    "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
+]
+
+_RERUN = "tests/life/test_rerun_metrics.py::"
+
+#: 阶段 7 对「真实复验」行（阶段 8 只报告）的预先登记：inspect_run 的 rerun 子命令在合成运行库上只读计算八项指标。
+_RERUN_TESTS = [
+    _RERUN + "test_rerun_metrics_on_a_real_engine_day",
+    _RERUN + "test_rerun_metrics_on_a_stored_run_with_gaps_driving_only_and_missed_meals",
+    _RERUN + "test_rerun_command_reports_not_applicable_metrics_for_a_run_without_records",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
@@ -574,11 +590,11 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "会话、活动与记忆": {"stage": "4", "tests": _SESSIONS_AND_MEMORY_TESTS},
     "本机运行修复": {"stage": "7",
                "tests": _RUN_IDENTITY_TESTS + _STAGE2_LOCAL_RUN_FIX_TESTS + _LOCAL_RUN_FIX_TESTS
-               + _STAGE4_LOCAL_RUN_FIX_TESTS},
+               + _STAGE4_LOCAL_RUN_FIX_TESTS + _STAGE7_LOCAL_RUN_FIX_TESTS},
     "交付": {"stage": "3", "tests": _DELIVERY_TESTS},
     "无新增故障": {"stage": "7",
               "tests": _NO_NEW_FAULT_TESTS + _STAGE2_NO_NEW_FAULT_TESTS + _STAGE4_NO_NEW_FAULT_TESTS},
-    "真实复验": {"stage": "8", "tests": []},
+    "真实复验": {"stage": "8", "tests": _RERUN_TESTS},
     "文档一致性": {"stage": "7", "tests": []},
     "工程门禁": {"stage": "7", "tests": []},
 }
@@ -603,6 +619,7 @@ _LIFE_RUNTIME = "docs/dev/SPEC-life-runtime.md"
 _INTERACTION_MENU = "src/worldmock/life/interaction_menu.py"
 _ADMISSION_MODULE = "src/worldmock/life/admission.py"
 _SOCIAL_ACTIONS = "src/worldmock/life/social_actions.py"
+_VIEWER = "tools/run-viewer.html"
 
 #: 阶段 → 完成后必须从列出路径中消失的符号（正则, 路径或目录列表）。
 REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
@@ -708,6 +725,10 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r'"vendor" / "agentsociety2"', [_RUNTIME]),
         (r"哈希全部生产 Python 源码与根依赖锁定文件。", [_RUNTIME]),
         (r"`vendor/agentsociety2` 的维护分支 `worldmock-life` \|", [_EXPERIMENT]),
+    ],
+    "7": [
+        (r"plan_day:'制定当日目标'|case 'plan_day':", [_VIEWER]),
+        (r"consecutive_rejections|连续拒绝", [_VIEWER]),
     ],
 }
 
@@ -874,5 +895,15 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"运行清单冻结的 `code_sha256` 覆盖", [_RECORDING]),
         (r"代码身份含实际导入的 AS2", [_MANUAL_RUNTIME]),
         (r"升级代码后旧检查点不能恢复", [_MANUAL_RUNTIME]),
+    ],
+    "7": [
+        (r"\$\.data\.same_moment_round", [_VIEWER]),
+        (r"\$\.data\.wake_reasons", [_VIEWER]),
+        (r"\$\.data\.purpose", [_VIEWER]),
+        (r"零点计划模型请求", [_VIEWER]),
+        (r"S\.world\?\.sessions", [_VIEWER]),
+        (r"plan_reminder:|route_ended:|partner_ended:", [_VIEWER]),
+        (r"day_plan_generated:.*activity_concluded:", [_VIEWER]),
+        (r'sub\.add_parser\("rerun"\)', ["scripts/inspect_run.py"]),
     ],
 }

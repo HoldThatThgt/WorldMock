@@ -26,8 +26,8 @@ function element() {
   };
 }
 
-/** @brief 用真实 SQLite 实现 sql.js 查询接口，SQL 原样执行。 */
-function database(events) {
+/** @brief 用真实 SQLite 实现 sql.js 查询接口，SQL 原样执行；world 覆盖最终世界状态的字段（如地点会话）。 */
+function database(events, world = {}) {
   const db = new DatabaseSync(':memory:');
   db.exec('CREATE TABLE events(event_seq INTEGER PRIMARY KEY, body TEXT NOT NULL)');
   db.exec('CREATE TABLE world_state(body TEXT NOT NULL)');
@@ -36,7 +36,7 @@ function database(events) {
     run_id: 'viewer-test-run', occurred_at: epoch + index * 60, agent_id: 1, ...event,
   })));
   db.prepare('INSERT INTO world_state(body) VALUES (?)').run(JSON.stringify({
-    timezone: 'Asia/Shanghai', agents: {1: {name: '陈曦'}, 2: {name: '李明'}},
+    timezone: 'Asia/Shanghai', agents: {1: {name: '陈曦'}, 2: {name: '李明'}}, ...world,
   }));
   return {
     close: () => db.close(),
@@ -53,7 +53,7 @@ function database(events) {
 }
 
 /** @brief 执行整段页面脚本并暴露真实索引和渲染结果。 */
-function viewer(events) {
+function viewer(events, world = {}) {
   const nodes = new Map();
   const errors = [];
   const get = selector => {
@@ -72,7 +72,7 @@ function viewer(events) {
   for (const script of scripts) vm.runInContext(script, context, {filename: 'run-viewer.html'});
   const run = source => vm.runInContext(source, context);
   const state = run('S');
-  state.db = database(events);
+  state.db = database(events, world);
   run('buildIndex()');
   return {
     state, errors, run, get,
@@ -108,11 +108,25 @@ function browse(items) {
   return event('action_accepted', {status: 'completed', data: {tool: 'browse_activities', items}});
 }
 
-/** @brief 提取活动表的目标列，防止页面其他文字造成假阳性。 */
-function targets(markup) {
-  return [...markup.matchAll(/<tbody>([\s\S]*?)<\/tbody>/g)].flatMap(body =>
+/** @brief 按表格类名提取表体各行的单元格文字，防止页面其他文字造成假阳性。 */
+function tableRows(markup, className) {
+  const table = new RegExp(`<table class="${className}">[\\s\\S]*?<tbody>([\\s\\S]*?)<\\/tbody>`, 'g');
+  return [...markup.matchAll(table)].flatMap(body =>
     [...body[1].matchAll(/<tr>([\s\S]*?)<\/tr>/g)].map(row =>
-      [...row[1].matchAll(/<td(?:\s[^>]*)?>([\s\S]*?)<\/td>/g)][3][1]));
+      [...row[1].matchAll(/<td(?:\s[^>]*)?>([\s\S]*?)<\/td>/g)].map(cell => cell[1])));
+}
+
+/** @brief 提取活动表的目标列。 */
+function targets(markup) {
+  return tableRows(markup, 'act-table').map(cells => cells[3]);
+}
+
+/** @brief 构造 start_activity 请求：对象、动词与方式三个等长数组（第五章「请求形状与菜单」）。 */
+function startRequest(...items) {
+  return event('action_requested', {tool_name: 'start_activity', request: {
+    targets: items.map(([target]) => target), actions: items.map(([, verb]) => verb),
+    ways: items.map(([, , way]) => way),
+  }});
 }
 
 test('locations accumulate across people and replace fixed home office market labels', t => {
@@ -124,9 +138,7 @@ test('locations accumulate across people and replace fixed home office market la
   ];
   const events = [event('observation', {locations}), event('observation', {locations: []}, {agent_id: 2})];
   for (const place of locations) {
-    events.push(event('action_requested', {tool_name: 'start_activity', request: {
-      targets: [place.name], actions: ['步行前往'],
-    }}));
+    events.push(startRequest([place.name, 'travel', '步行']));
     events.push(activity('action_accepted', `go-${place.location_id}`, {
       kind: 'travel', destination_id: place.location_id,
     }));
@@ -139,6 +151,7 @@ test('locations accumulate across people and replace fixed home office market la
   assert.deepEqual(targets(view.activities()), locations.map(place => `→ ${place.name}`));
   locations.forEach((place, index) => {
     for (const offset of [3, 4, 5]) assert.ok(view.summary(index * 3 + offset).includes(place.name));
+    assert.ok(view.summary(index * 3 + 3).endsWith(`${place.name} · 出行：步行`));
   });
   assert.deepEqual(view.errors, []);
 });
@@ -172,24 +185,23 @@ test('products mail and tasks remain named after later sparse observations', t =
 
 test('browse results name movies dramas novels games and lifestyle activities without external catalogs', t => {
   const rows = [
-    {item_id: 'movie-0001', title: '海边的清晨', kind: 'feature_film'},
-    {item_id: 'drama-0007', title: '华语短剧台词选段（源编号 16013）', kind: 'short_drama'},
-    {item_id: 'novel-0003', title: '老城故事', kind: 'online_novel'},
-    {item_id: 'textworld-0004', title: '森林迷宫', kind: 'text_game'},
-    {activity_id: 'stretch-evening', name: '晚间舒展', kind: 'exercise'},
+    {item_id: 'movie-0001', title: '海边的清晨', kind: 'feature_film', way: '观看'},
+    {item_id: 'drama-0007', title: '华语短剧台词选段（源编号 16013）', kind: 'short_drama', way: '接着看'},
+    {item_id: 'novel-0003', title: '老城故事', kind: 'online_novel', way: '阅读'},
+    {item_id: 'textworld-0004', title: '森林迷宫', kind: 'text_game', way: '游玩'},
+    {activity_id: 'stretch-evening', name: '晚间舒展', kind: 'exercise', way: '进行'},
   ];
   const events = [browse(rows)];
   for (const row of rows) {
     const target_id = row.item_id || row.activity_id;
-    events.push(event('action_requested', {tool_name: 'start_activity', request: {
-      targets: [row.title || row.name], actions: ['开始'],
-    }}));
+    events.push(startRequest([row.title || row.name, 'interact', row.way]));
     events.push(activity('action_accepted', `do-${target_id}`, {kind: row.kind, target_id}));
   }
   const view = viewer(events);
   t.after(() => view.close());
   assert.deepEqual(targets(view.activities()), rows.map(row => row.title || row.name));
-  rows.forEach((row, index) => assert.ok(view.summary(index * 2 + 2).includes(row.title || row.name)));
+  rows.forEach((row, index) => assert.ok(view.summary(index * 2 + 2).endsWith(
+    `${row.title || row.name} · 交互：${row.way}`)));
   assert.doesNotMatch(view.activities(), /剧集 #|电影 #|小说 #|游戏 #|第\d+段/);
   assert.deepEqual(view.errors, []);
 });
@@ -217,9 +229,7 @@ test('each activity keeps its last nonempty title instead of another activity or
 test('progress-only activity titles name both activity rows and request summaries', t => {
   const title = '华语短剧台词选段（源编号 16013）';
   const view = viewer([
-    event('action_requested', {tool_name: 'start_activity', request: {
-      targets: [title], actions: ['观看'],
-    }}),
+    startRequest([title, 'interact', '观看']),
     activity('activity_progress', 'only-progress', {kind: 'watch', target_id: 'drama-0007', title}),
   ]);
   t.after(() => view.close());
@@ -229,18 +239,35 @@ test('progress-only activity titles name both activity rows and request summarie
   assert.deepEqual(view.errors, []);
 });
 
-test('start activity request displays semantic objects and actions', t => {
+test('start activity request displays each object with its verb and way', t => {
   const view = viewer([
     event('observation', {locations: [{location_id: 'home', name: '张江公寓'}],
       products: [{product_id: 'food-rice', name: '菜饭'}]}),
-    event('action_requested', {tool_name: 'start_activity', request: {
-      targets: ['菜饭'], actions: ['外送到张江公寓'],
-    }}),
+    startRequest(['菜饭', 'obtain', '远程下单'], ['自己', 'interact', '等待']),
+    startRequest(['张江公寓', 'travel', '驾车']),
+    startRequest(['家里的菜饭', 'consume', '食用']),
+    startRequest(['自己', 'sleep', '睡觉']),
   ]);
   t.after(() => view.close());
-  assert.ok(view.summary(2).includes('张江公寓'));
-  assert.ok(view.summary(2).includes('菜饭'));
-  assert.ok(!view.summary(2).includes('food-rice'));
+  assert.equal(view.summary(2), '请求 开始活动 · 菜饭 · 取得：远程下单；自己 · 交互：等待');
+  assert.equal(view.summary(3), '请求 开始活动 · 张江公寓 · 出行：驾车');
+  assert.equal(view.summary(4), '请求 开始活动 · 家里的菜饭 · 使用：食用');
+  assert.equal(view.summary(5), '请求 开始活动 · 自己 · 睡眠：睡觉');
+  for (const sequence of [2, 3, 4, 5]) {
+    assert.doesNotMatch(view.summary(sequence), /food-rice|obtain|interact|travel|consume|sleep/);
+  }
+});
+
+test('plan_day is no longer a person tool while day plan revisions keep their label', t => {
+  const view = viewer([
+    event('action_requested', {tool_name: 'plan_day', request: {goals: [{goal: '上班'}]}}),
+    event('action_requested', {tool_name: 'revise_day_plan', request: {goals: [{goal: '上班'}, {goal: '买菜'}]}}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.run("TOOL_LABELS.plan_day"), undefined);
+  assert.equal(view.summary(1), '请求 plan_day · ');
+  assert.doesNotMatch(view.summary(1), /当日目标|项目标/);
+  assert.equal(view.summary(2), '请求 调整当日目标 · 2 项目标');
 });
 
 test('interaction bindings name catalog activity without overriding a recorded title', t => {
@@ -258,18 +285,158 @@ test('interaction bindings name catalog activity without overriding a recorded t
 });
 
 test('session requests display each task with its own progress sentence', t => {
+  const memory = text => ({type: 'routine', text});
   const view = viewer([
     event('action_requested', {tool_name: 'report_status', request: {
       task: ['整理访谈', '准备周会'], summary: ['完成提纲', '列出议题'],
     }}),
     event('action_requested', {tool_name: 'conclude_activity', request: {
-      task: ['整理访谈'], summary: ['已经提交纪要'],
+      task: ['整理访谈'], summary: ['已经提交纪要'], memories: [[memory('纪要要当天交'), memory('先列提纲')]],
+    }}),
+    event('action_requested', {tool_name: 'conclude_activity', request: {
+      task: ['准备周会', '午饭'], summary: ['议题定了', '吃完了'], memories: [[], [memory('菜饭偏咸')]],
+    }}),
+    event('action_requested', {tool_name: 'pause_activity', request: {
+      task: ['准备周会'], summary: ['先放一放'],
     }}),
   ]);
   t.after(() => view.close());
-  assert.ok(view.summary(1).includes('整理访谈：完成提纲；准备周会：列出议题'));
-  assert.ok(view.summary(2).includes('结束活动 · 整理访谈：已经提交纪要'));
+  assert.equal(view.summary(1), '请求 播报进展 · 整理访谈：完成提纲；准备周会：列出议题');
+  assert.equal(view.summary(2), '请求 结束活动 · 整理访谈：已经提交纪要 · 记忆 2 条');
+  assert.equal(view.summary(3), '请求 结束活动 · 准备周会：议题定了；午饭：吃完了 · 记忆 1 条');
+  assert.equal(view.summary(4), '请求 暂停活动 · 准备周会：先放一放');
   assert.ok(!view.summary(1).includes('task='));
+});
+
+test('activity end reasons name reminders route and partner endings pauses and cancellations', t => {
+  const reasons = [
+    ['plan_reminder', '计划提醒结束'], ['route_ended', '随出行结束'], ['partner_ended', '对方结束交谈'],
+    ['paused', '已暂停'], ['cancelled', '主动结束'], ['planned_end', '按计划结束'],
+  ];
+  const view = viewer([
+    ...reasons.map(([boundary_type], index) => activity('activity_progress', `ended-${index}`, {
+      kind: 'wait', status: 'completed', boundary_type,
+    })),
+    activity('activity_progress', 'truncated', {kind: 'wait', status: 'truncated', boundary_type: 'experiment_end'}),
+  ]);
+  t.after(() => view.close());
+  reasons.forEach(([, label], index) => assert.ok(view.summary(index + 1).endsWith(` · ${label}`)));
+  assert.ok(view.summary(reasons.length + 1).endsWith(' · experiment_end'));
+  for (const item of view.state.events) assert.doesNotMatch(item.sum, /undefined/);
+});
+
+test('environment events name midnight plans and activity lifecycle records', t => {
+  const remindAt = Date.parse('2026-01-05T08:00:00+08:00') / 1000;
+  const lifecycle = [
+    ['activity_concluded', '活动收尾'], ['activity_paused', '活动暂停'],
+    ['activity_resumed', '活动恢复'], ['activity_truncated', '活动截断'],
+  ];
+  const view = viewer([
+    event('environment_event', {kind: 'day_plan_generated', day_plan: {day_end: epoch + 86400, goals: [
+      {intent_kind: '工作', goal: '按时上班', registered_at: epoch, remind_at: remindAt},
+      {intent_kind: '生活', goal: '买菜', registered_at: epoch, remind_at: null},
+    ]}}, {visibility: 'system'}),
+    event('environment_event', {kind: 'day_plan_generated', day_plan: {day_end: epoch + 86400, goals: []}}),
+    ...lifecycle.map(([kind]) => event('environment_event', {kind, activity_id: 'act-1', activity: {
+      activity_id: 'act-1', kind: 'wait', name: '等待（1月5日 06:00 起）',
+    }})),
+    event('environment_event', {kind: 'body_settlement'}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '世界事件 · 零点计划生成 · 2 项目标 · 提醒 01/05 08:00');
+  assert.equal(view.summary(2), '世界事件 · 零点计划生成 · 0 项目标');
+  lifecycle.forEach(([, label], index) => assert.equal(
+    view.summary(index + 3), `世界事件 · ${label} · 等待（1月5日 06:00 起）`));
+  assert.equal(view.summary(lifecycle.length + 3), '世界事件 · body_settlement');
+});
+
+test('rejections show the same-moment round instead of consecutive rejections', t => {
+  const view = viewer([
+    event('action_rejected', {error_code: 'ACTION_REQUEST_INVALID', same_moment_round: 2,
+      max_same_moment_decisions: 3, next_decision_at: epoch, reason: '所选的对象不在本轮列出的范围内'}),
+    event('action_rejected', {error_code: 'WORK_REQUIRES_REWORK', consecutive_rejections: 4,
+      maximum_rejections: 10}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '被拒绝 · ACTION_REQUEST_INVALID · 同刻第 2 轮（上限 3）');
+  assert.equal(view.summary(2), '被拒绝 · 工作需返工 · 同刻第 ? 轮');
+  for (const sequence of [1, 2]) assert.doesNotMatch(view.summary(sequence), /连续拒绝/);
+});
+
+test('decision starts show their wake reasons from the frozen vocabulary', t => {
+  const models = readFileSync(path.join(__dirname, '../../src/worldmock/footprints/models.py'), 'utf8');
+  const vocabulary = models.match(/WAKE_REASON_NAMES = frozenset\(\{([\s\S]*?)\}\)/)[1];
+  const names = [...vocabulary.matchAll(/"([a-z_]+)"/g)].map(match => match[1]);
+  assert.equal(names.length, 20);
+  const view = viewer([
+    event('decision_started', {round_order: 0, wake_reasons: ['run_start']}),
+    event('decision_started', {round_order: 0, wake_reasons: [
+      'no_active_activity', 'plan_reminder_due', 'progress_report_due']}),
+    event('decision_started', {round_order: 1, wake_reasons: []}),
+    event('decision_started', {round_order: 0}),
+    event('decision_started', {round_order: 0, wake_reasons: names}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '决策开始 · 第 0 轮 · 唤醒：运行开始');
+  assert.equal(view.summary(2), '决策开始 · 第 0 轮 · 唤醒：没有进行中的活动、计划提醒到点、该播报进展');
+  assert.equal(view.summary(3), '决策开始 · 第 1 轮');
+  assert.equal(view.summary(4), '决策开始 · 第 0 轮');
+  const labels = view.summary(5).split(' · 唤醒：')[1].split('、');
+  assert.equal(labels.length, names.length);
+  labels.forEach((label, index) => assert.match(label, /^[一-鿿]+$/, names[index]));
+});
+
+test('midnight plan model requests are named by their recorded purpose', t => {
+  const request = {model: 'deepseek-flash', messages: []};
+  const view = viewer([
+    event('model_request', {phase: 'request', purpose: 'plan_day', attempt: 2, request}),
+    event('model_request', {phase: 'request', attempt: 1, request}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '零点计划模型请求 deepseek-flash · 第2次尝试');
+  assert.equal(view.summary(2), '模型请求 deepseek-flash · 第1次尝试');
+});
+
+test('activities page lists location sessions from the final world state', t => {
+  const session = (id, fields) => ({session_id: id, agent_id: 1, status: 'ended', activity_ids: [], ...fields});
+  const world = {
+    activities: {'act-sleep': {name: '睡觉（1月5日 00:00 起）'}, 'act-walk': {name: '步行前往菜饭骨头汤（1月5日 07:30 起）'},
+      'act-podcast': {name: '听播客<节目>（1月5日 07:30 起）'}},
+    sessions: {
+      'session-1-0002': session('session-1-0002', {kind: 'transit', origin_id: 'home', destination_id: 'poi-1',
+        name: '去菜饭骨头汤的路上（1月5日 07:30 起）', started_at: epoch + 5400, ended_at: epoch + 6000,
+        activity_ids: ['act-walk', 'act-podcast']}),
+      'session-1-0001': session('session-1-0001', {kind: 'stay', location_id: 'home',
+        name: '张江公寓（1月5日 00:00 起）', started_at: epoch, ended_at: epoch + 5400, activity_ids: ['act-sleep']}),
+      'session-1-0003': session('session-1-0003', {kind: 'stay', location_id: 'poi-1', status: 'active',
+        name: '菜饭骨头汤（1月5日 07:40 起）', started_at: epoch + 6000, ended_at: null, activity_ids: ['act-gone']}),
+      'session-2-0001': session('session-2-0001', {agent_id: 2, kind: 'stay', location_id: 'home',
+        name: '李明的家（1月5日 00:00 起）', started_at: epoch, ended_at: null, status: 'active'}),
+      'legacy-task-session': {session_id: 'legacy-task-session', agent_id: 1, session_name: '旧的任务会话',
+        status: 'active', started_at: epoch},
+    },
+  };
+  const view = viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'}),
+    activity('action_accepted', 'act-wait-2', {kind: 'wait'}, {agent_id: 2})], world);
+  t.after(() => view.close());
+  const rows = tableRows(view.activities(), 'session-table');
+  assert.deepEqual(rows.map(cells => [cells[2], cells[3], cells[5], cells[6]]), [
+    ['张江公寓（1月5日 00:00 起）', '停留', '已结束', '睡觉（1月5日 00:00 起）'],
+    ['李明的家（1月5日 00:00 起）', '停留', '进行中', '0 项活动'],
+    ['去菜饭骨头汤的路上（1月5日 07:30 起）', '路上', '已结束',
+      '步行前往菜饭骨头汤（1月5日 07:30 起）、听播客&lt;节目&gt;（1月5日 07:30 起）'],
+    ['菜饭骨头汤（1月5日 07:40 起）', '停留', '进行中', '1 项活动'],
+  ]);
+  assert.ok(!view.activities().includes('旧的任务会话'));
+  view.get('#agent-filter').value = '2';
+  assert.deepEqual(tableRows(view.activities(), 'session-table').map(cells => cells[2]),
+    ['李明的家（1月5日 00:00 起）']);
+});
+
+test('runs without location sessions render no session table', t => {
+  const view = viewer([activity('action_accepted', 'act-sleep', {kind: 'sleep'})]);
+  t.after(() => view.close());
+  assert.ok(!view.activities().includes('地点会话'));
 });
 
 test('unknown names are explicit and logged in English while basic activities have no invented target', t => {
