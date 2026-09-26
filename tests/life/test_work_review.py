@@ -16,7 +16,8 @@ from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 from worldmock.catalog.affordances import default_affordances
 
-from tests.life.conftest import advance_until_ready, advance_next, context, submit_round, stage_day_plan, wake_by_mail
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
+                                 stage_day_plan, submit_round, wake_by_mail)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -132,7 +133,7 @@ def _at_task_start(engine) -> None:
 
 
 def _complete_required_work(engine) -> None:
-    """经实际活动入口完成首个任务所需有效工作时间。"""
+    """经实际活动入口完成首个任务所需有效工作时间；工作按计划结束即成待收尾，当秒收尾（规格第七章「活动的生命周期」）。"""
     task = engine.scenario.tasks[0]
     observed = engine.observe(context(engine, "work-time-preview"))
     choice = next((row, action) for row in observed["interaction_bindings"]
@@ -147,9 +148,10 @@ def _complete_required_work(engine) -> None:
             advance_next(engine)
             continue
         feedback_index += 1
-        session = next(item for item in engine.state.sessions.values() if activity_id in item.activity_ids)
-        feedback = ReportStatusRequest(task=[session.session_name], summary=["继续完成工作。"])
+        feedback = ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续完成工作。"])
         submit_round(engine, {1: ("report_status", feedback)}, f"work-feedback-{feedback_index}")
+    assert conclude_pending(engine, "work-time-end").status == "completed"
+    assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
 
 
 def _public_submission(engine, request: SubmitWorkRequest) -> SubmitWorkActionRequest:
@@ -286,8 +288,7 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id
     assert advance_until_ready(engine)
-    session = next(item for item in engine.state.sessions.values() if activity_id in item.activity_ids)
-    pause = PauseActivityRequest(task=[session.session_name], summary=["工作进行到一半，先暂停。"])
+    pause = PauseActivityRequest(task=[activity_name(engine, activity_id)], summary=["工作进行到一半，先暂停。"])
     _, paused = submit_round(engine, {1: ("pause_activity", pause)}, "pause-work")
     assert paused[0].status == "completed"
     assert advance_until_ready(engine)
@@ -408,6 +409,11 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
     assert repeated == result and reviewer.calls == 1
     assert engine.state.accounts[engine.state.agents[1].balance_account_id] == balance
 
+    # 工作结束的这一秒已用满同刻轮数（收尾、提交、重放）：受限轮里先开始等待，时钟推进后在下一次机会重交（第一章规则 3）。
+    _, waited = submit_round(engine, {1: _WAIT}, "rework-wait")
+    assert waited[0].status == "in_progress"
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
     revised_minutes = _paraphrased_submission().deliverable.model_copy(
         update={"summary": "The source supports the remote-control project, price, cost, and ownership."})
     revised = _paraphrased_submission().model_copy(update={"deliverable": revised_minutes})

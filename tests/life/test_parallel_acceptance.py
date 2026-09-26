@@ -25,7 +25,7 @@ def test_watch_can_share_time_with_compatible_activity(engine_factory, partner: 
 
 @pytest.mark.parametrize("partner", ["sleep", "play"])
 def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, partner: str) -> None:
-    """注意力或位置冲突拒绝整组，不留下首项活动与会话。"""
+    """注意力或位置冲突拒绝整组，不留下首项活动；会话只剩运行开始的停留会话且未改动（第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.model_dump(mode="json")
@@ -33,7 +33,9 @@ def test_incompatible_pair_is_rejected_without_partial_state(engine_factory, par
     assert result.status == "rejected"
     assert result.error_code == "RESOURCE_CONFLICT"
     assert engine.state.activities == {}
-    assert engine.state.sessions == {}
+    sessions = list(engine.state.sessions.values())
+    assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]
+    assert engine.state.model_dump(mode="json")["sessions"] == before["sessions"]
     assert engine.state.accounts == before["accounts"]
 
 

@@ -1,19 +1,24 @@
-"""@brief 稳定工具面的 5 个会话动作处理器：启动、回看、播报、暂停、结束会话。"""
+"""@brief 稳定工具面的活动动作处理器：开始、回看、播报（含恢复）、暂停与结束活动。
+
+活动是生命周期单位（docs/dev/SPEC-time-and-energy.md 第七章）：每人两个名额；播报、暂停与结束逐项点名活动
+（「做什么＋对象＋开始时刻」）；会话是一段地点停留或一段路，由系统随出发与到达切换（life.sessions）。
+名额、待收尾、名称与控制记录的规则在 life.activity_control，本模块只做处理器接线。
+"""
 
 from __future__ import annotations
 
-import hashlib
 import logging
-from datetime import datetime
-from zoneinfo import ZoneInfo
 
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, PreconditionError
+from worldmock.life import activity_control, sessions
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
     ActivityChange,
     ActivityKind,
     ActivityStartParams,
+    ActivityState,
+    ActivityStatus,
     ChangeActivityRequest,
     ConcludeActivityRequest,
     ConsumeItem,
@@ -27,8 +32,6 @@ from worldmock.life.models import (
     ReportStatusRequest,
     SendMessageActionRequest,
     SendMessageRequest,
-    SessionState,
-    SessionStatus,
     SessionTaskKind,
     StartActivityRequest,
     StartSocialActivityRequest,
@@ -44,25 +47,31 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class SessionActionMixin:
-    """@brief 稳定工具面的 5 个会话动作：启动、回看、播报、暂停、结束都在此落地。"""
+    """@brief 稳定工具面的活动动作：开始、回看、播报、暂停、结束都在此落地。"""
+
+    @property
+    def _place_names(self) -> dict[str, str]:
+        """@brief 地点身份→场景中的可读地点名。"""
+        return {item.location_id: item.name for item in self.scenario.locations}
 
     def _start_activity(self, state: WorldState, pending: PendingAction,
                         request: StartActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 逐项解析冻结对象动作；兼容活动在同一临时状态中原子启动。"""
+        """@brief 逐项解析冻结对象动作，判定名额与出发前条件后原子开始；新活动命名并归入会话。"""
         if (not 1 <= len(request.targets) <= 2 or len(request.targets) != len(request.actions)
                 or len(set(request.targets)) != len(request.targets)):
             _LOGGER.error("Start activity targets are invalid")
-            raise BusinessRuleError("SESSION_LIMIT_EXCEEDED")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
         bindings = self._resolve_interaction_bindings(pending, request)
         actions = [row["selected_action"]["canonical_action"] for row in bindings]
-        labels = {row["selected_action"]["label"] for row in bindings}
-        if len(bindings) == 1 or len(labels) == 1 and actions[0] in {"purchase", "consume"}:
+        labels = [row["selected_action"]["label"] for row in bindings]
+        activity_control.require_start_admission(state, pending.agent_id, (actions, labels),
+                                                 self._control_names(pending))
+        if len(bindings) == 1 or len(set(labels)) == 1 and actions[0] in {"purchase", "consume"}:
             targets = [item["object_id"] for item in bindings]
             changed, result = self._dispatch_start_action(state, pending, actions[0], targets, bindings)
-            session = self._open_session(pending, bindings, result, changed)
-            sessions = {**changed.sessions, session.session_id: session}
-            return changed.model_copy(update={"sessions": sessions}, deep=True), result
-        return self._start_parallel_actions(state, pending, bindings)
+        else:
+            changed, result = self._start_parallel_actions(state, pending, bindings)
+        return self._adopt_started(changed, pending, bindings, result)
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction,
                                 bindings: list[dict]) -> tuple[WorldState, ActionResult]:
@@ -78,9 +87,6 @@ class SessionActionMixin:
                 if result.activity_id is None:
                     _LOGGER.error("Parallel action did not start a timed activity")
                     raise BusinessRuleError("ACTION_REQUEST_INVALID")
-                session = self._open_session(pending, [binding], result, changed)
-                changed = changed.model_copy(update={
-                    "sessions": {**changed.sessions, session.session_id: session}}, deep=True)
                 results.append(result)
         except Exception:
             _LOGGER.error("Parallel activity start was rejected")
@@ -92,6 +98,50 @@ class SessionActionMixin:
             message="Activities started", data={
                 "activities": [result.data["activity"] for result in results],
                 "activity_results": [result.data for result in results]})
+
+    def _adopt_started(self, state: WorldState, pending: PendingAction, bindings: list[dict],
+                       result: ActionResult) -> tuple[WorldState, ActionResult]:
+        """@brief 新开始的活动：命名、关联任务或目标并归入当前会话；出行被受理即出发，同一请求的活动归入路上。"""
+        started = [result.activity_id] if result.activity_id else [
+            row["activity_id"] for row in result.data.get("activities", [])]
+        if not started:
+            return state, result
+        activities = dict(state.activities)
+        groups = [bindings] if len(started) == 1 else [[binding] for binding in bindings]
+        for activity_id, group in zip(started, groups, strict=True):
+            objects = "、".join(activity_control.object_display_name(item) for item in group)
+            name = activity_control.activity_name(group[0]["selected_action"]["label"], objects,
+                                                  state.current_time, self.scenario.timezone)
+            activities[activity_id] = activities[activity_id].model_copy(
+                update={"name": name, **self._task_link(state, pending.agent_id, activities[activity_id])},
+                deep=True)
+        changed = state.model_copy(update={"activities": activities})
+        travel = next((activities[item] for item in started if activities[item].kind == ActivityKind.TRAVEL), None)
+        if travel is not None:
+            changed = sessions.begin_transit(changed, pending.agent_id, travel.destination_id, self._place_names)
+        current = sessions.current_session(changed, pending.agent_id)
+        changed = sessions.assign(changed, current.session_id, started)
+        return changed, self._refreshed_result(changed, result)
+
+    def _task_link(self, state: WorldState, agent_id: int, activity: ActivityState) -> dict:
+        """@brief 活动关联的任务：工作任务或当日首个匹配目标（按既有活动家族规则），否则不关联。"""
+        goal = self._plan_goal_for_activity(state, agent_id, activity.activity_id)
+        if activity.kind == ActivityKind.WORK and activity.target_id in self.rules.tasks:
+            return {"task_kind": SessionTaskKind.WORK_TASK, "task_ref": activity.target_id,
+                    "plan_goal_intent_kind": goal}
+        if goal is not None:
+            return {"task_kind": SessionTaskKind.GOAL, "task_ref": goal, "plan_goal_intent_kind": goal}
+        return {}
+
+    def _refreshed_result(self, state: WorldState, result: ActionResult) -> ActionResult:
+        """@brief 受理结果中的活动快照换成命名与归入会话之后的权威快照。"""
+        data = dict(result.data)
+        if result.activity_id is not None:
+            data["activity"] = self._activity_snapshot(state.activities[result.activity_id])
+        if "activities" in data:
+            data["activities"] = [self._activity_snapshot(state.activities[row["activity_id"]])
+                                  for row in data["activities"]]
+        return result.model_copy(update={"data": data})
 
     def _submit_work_action(self, state: WorldState, pending: PendingAction,
                             request: SubmitWorkActionRequest) -> tuple[WorldState, ActionResult]:
@@ -318,50 +368,9 @@ class SessionActionMixin:
         consume = ConsumeRequest(items=items, use_mode=mode, duration_seconds=max(durations))
         return self._consume(state, pending, consume)
 
-    def _open_session(self, pending: PendingAction, bindings: list[dict],
-                       result: ActionResult, state: WorldState) -> SessionState:
-        """@brief 由启动结果派生稳定 SessionState；任务类型由 targets[0] 对照冻结目录推断。"""
-        now = state.current_time
-        session_id = hashlib.sha256(
-            f"session:{pending.action_id}:{now}:{bindings[0]['object_id']}".encode()).hexdigest()
-        targets = [binding["object_id"] for binding in bindings]
-        target = targets[0]
-        goal_kind = self._plan_goal_for_activity(state, pending.agent_id, result.activity_id)
-        if target and target in self.rules.tasks:
-            task_kind, task_ref = SessionTaskKind.WORK_TASK, target
-        elif goal_kind is not None:
-            task_kind, task_ref = SessionTaskKind.GOAL, goal_kind
-        else:
-            task_kind, task_ref = SessionTaskKind.NONE, None
-        started = datetime.fromtimestamp(now, ZoneInfo(self.scenario.timezone)).strftime("%Y-%m-%d %H:%M:%S")
-        label = bindings[0]["selected_action"]["label"]
-        names = "、".join(binding["object"] for binding in bindings)
-        session_name = f"{label} {names}（{started}）"
-        if task_kind == SessionTaskKind.WORK_TASK:
-            matches = [row for row in self._frozen_observation(pending)["task_bindings"]
-                       if row["task_id"] == target]
-            if len(matches) != 1:
-                _LOGGER.error("Work session task binding is unavailable or ambiguous")
-                raise BusinessRuleError("WORK_TASK_NOT_FOUND")
-            task_name = matches[0]["task_name"]
-        elif goal_kind is not None:
-            plan = state.agents[pending.agent_id].day_plan
-            goal = next(item for item in plan.goals if item.intent_kind == goal_kind)
-            task_name = f"目标：{goal_kind}：{goal.goal}"
-        else:
-            task_name = f"{label} {names}"
-        return SessionState(session_id=session_id, task_name=task_name, session_name=session_name,
-                            plan_goal_intent_kind=goal_kind,
-                            agent_id=pending.agent_id,
-                            task_kind=task_kind, task_ref=task_ref,
-                            status=SessionStatus.ACTIVE if result.activity_id else SessionStatus.CONCLUDED,
-                            started_at=now, ended_at=None if result.activity_id else now,
-                            targets=list(targets),
-                            activity_ids=[result.activity_id] if result.activity_id else [])
-
     def _plan_goal_for_activity(self, state: WorldState, agent_id: int,
                                 activity_id: str | None) -> str | None:
-        """@brief 按既有活动家族规则将新会话绑定到当日首个匹配目标。"""
+        """@brief 按既有活动家族规则将新活动绑定到当日首个匹配目标。"""
         plan = state.agents[agent_id].day_plan
         if plan is None or activity_id is None or state.current_time >= plan.day_end:
             return None
@@ -380,185 +389,215 @@ class SessionActionMixin:
 
     def _recall_task_summary(self, state: WorldState, pending: PendingAction,
                               request: RecallTaskSummaryRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 只读回看会话或任务进展；不改变世界状态。"""
-        agent = state.agents[pending.agent_id]
-        data: dict = {}
+        """@brief 只读回看任务、当日目标、活动或会话；结果随下一次观察进入 details.recall，不带身份。"""
         observed = self._frozen_observation(pending)
-        sessions = [row for row in observed["session_bindings"] if row["session_name"] == request.task_name]
-        tasks = [row for row in observed["task_bindings"] if row["task_name"] == request.task_name]
-        goals = [row for row in observed["goal_bindings"] if row["task_name"] == request.task_name]
-        if len(sessions) + len(tasks) + len(goals) != 1:
+        name = request.task_name
+        candidates = ([("task", row) for row in observed["task_bindings"] if row["task_name"] == name]
+                      + [("goal", row) for row in observed["goal_bindings"] if row["task_name"] == name]
+                      + [("activity", row) for row in observed["activity_bindings"] if row["name"] == name]
+                      + [("session", row) for row in observed["session_bindings"] if row["name"] == name])
+        if len(candidates) != 1:
             _LOGGER.error("Recalled task name is unavailable or ambiguous")
             raise BusinessRuleError("TASK_NOT_FOUND")
-        if sessions:
-            from worldmock.life.projection import _session_fact_row
-
-            session = state.sessions[sessions[0]["session_id"]]
-            data = {"session": _session_fact_row(session)}
-        elif tasks:
-            task = self.rules.task(tasks[0]["task_id"])
-            notes = [session for session in state.sessions.values()
-                     if session.agent_id == pending.agent_id and session.task_kind == SessionTaskKind.WORK_TASK
-                     and session.task_ref == task.task_id and session.progress_note]
-            latest = max(notes, key=lambda session: (session.note_updated_at or session.started_at,
-                                                     session.started_at), default=None)
-            data = {"task": {"task_name": request.task_name, "required_skill": task.required_skill,
-                              "due_at": task.due_at.isoformat(),
-                              "progress_note": latest.progress_note if latest else ""}}
-        else:
-            if agent.day_plan is None:
-                raise BusinessRuleError("PLAN_NOT_FOUND")
-            goal = next((g for g in agent.day_plan.goals if g.intent_kind == goals[0]["intent_kind"]), None)
-            if goal is None:
-                raise BusinessRuleError("PLAN_NOT_FOUND")
-            data = {"goal": {"task_name": goal.goal, "intent_kind": goal.intent_kind,
-                             "progressed": goal.progressed_at is not None}}
+        kind, row = candidates[0]
+        views = {"task": self._recall_task, "goal": self._recall_goal,
+                 "activity": self._recall_activity, "session": self._recall_session}
+        recall = views[kind](state, pending, row, observed)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Task summary retrieved", data=data)
+                              message="Task summary retrieved", data={"recall": {"kind": kind, **recall}})
         return state, result
 
-    def _sessions_for_names(self, state: WorldState, pending: PendingAction,
-                            names: list[str]) -> list[SessionState]:
-        """@brief 将一至两个可见会话名称绑定到人物自己的权威会话。"""
-        if not 1 <= len(names) <= 2 or len(set(names)) != len(names):
-            _LOGGER.error("Session control requires one or two distinct session names")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
-        rows = [row for row in self._frozen_observation(pending)["session_bindings"]
-                if row["status"] in {SessionStatus.ACTIVE, SessionStatus.PAUSED}]
-        sessions = []
-        for name in names:
-            matches = [row for row in rows if row["session_name"] == name or row["task_name"] == name]
-            if len(matches) != 1:
-                _LOGGER.error("Session name is unavailable or ambiguous")
-                raise BusinessRuleError("SESSION_NOT_FOUND")
-            session = state.sessions.get(matches[0]["session_id"])
-            if session is None or session.agent_id != pending.agent_id:
-                _LOGGER.error("Session identity is unavailable for agent")
-                raise BusinessRuleError("SESSION_NOT_FOUND")
-            sessions.append(session)
-        return sessions
+    def _recall_task(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+        """@brief 任务回看：名称、截止与最近一条相关活动自述。"""
+        del observed
+        task = self.rules.task(row["task_id"])
+        notes = [item for item in state.activities.values()
+                 if item.agent_id == pending.agent_id and item.task_kind == SessionTaskKind.WORK_TASK
+                 and item.task_ref == task.task_id and item.progress_note]
+        latest = max(notes, key=lambda item: (item.note_updated_at or item.started_at, item.started_at),
+                     default=None)
+        view = {"name": row["task_name"],
+                "due_at": sessions.moment_label(int(task.due_at.timestamp()), self.scenario.timezone)}
+        return {**view, **_self_report(latest.progress_note if latest else "")}
 
-    def _session_with_summary(self, session: SessionState, summary: str, now: int,
-                              status: SessionStatus | None = None) -> SessionState:
-        """@brief 保留前次自述并写入新的主观进展；可同时变更会话阶段。"""
-        history = list(session.note_history)
-        if session.progress_note:
-            history.append({"note": session.progress_note, "updated_at": session.note_updated_at})
-        update = {"progress_note": summary, "note_updated_at": now, "note_history": history}
-        if status is not None:
-            update["status"] = status
-        if status == SessionStatus.CONCLUDED:
-            update["ended_at"] = now
-        return session.model_copy(update=update, deep=True)
+    def _recall_goal(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+        """@brief 目标回看：目标文字、意图与是否已推进。"""
+        del observed
+        plan = state.agents[pending.agent_id].day_plan
+        goal = None if plan is None else next(
+            (item for item in plan.goals if item.intent_kind == row["intent_kind"]), None)
+        if goal is None:
+            raise BusinessRuleError("PLAN_NOT_FOUND")
+        return {"goal": goal.goal, "intent_kind": goal.intent_kind, "progressed": goal.progressed_at is not None}
+
+    def _recall_activity(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+        """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。"""
+        del pending, observed
+        activity = state.activities[row["activity_id"]]
+        places = self._place_names
+        place = (f"去{places[activity.destination_id]}的路上" if activity.kind == ActivityKind.TRAVEL
+                 else places[activity.location_id])
+        required = {task_id: task.required_effective_seconds for task_id, task in self.rules.tasks.items()}
+        view = {"name": row["name"], "place": place, "phase": activity_control.activity_phase(activity),
+                "objective_progress": activity_control.objective_progress(
+                    activity, activity_control.remaining_required(state, activity, required))}
+        return {**view, **_self_report(activity.progress_note)}
+
+    def _recall_session(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
+        """@brief 会话回看：地点、起止与本段里的活动名。"""
+        del pending
+        session = state.sessions[row["session_id"]]
+        names = {item["activity_id"]: item["name"] for item in observed["activity_bindings"]}
+        timezone = self.scenario.timezone
+        return {"place": sessions.place_label(session, self._place_names),
+                "started_at": sessions.moment_label(session.started_at, timezone),
+                "ended_at": (sessions.moment_label(session.ended_at, timezone)
+                             if session.ended_at is not None else None),
+                "activity_names": [names.get(item, state.activities[item].name) for item in session.activity_ids]}
+
+    def _control_names(self, pending: PendingAction) -> dict[str, str]:
+        """@brief 本轮冻结观察中人物所见的活动名（活动身份→名称），用于点名要先处理的活动。"""
+        return {row["activity_id"]: row["name"]
+                for row in self._frozen_observation(pending).get("activity_bindings", [])}
+
+    def _activities_for_names(self, state: WorldState, pending: PendingAction,
+                              names: list[str]) -> list[ActivityState]:
+        """@brief 将一至两个本轮可见的活动名唯一解析为人物自己的权威活动。"""
+        rows = self._frozen_observation(pending).get("activity_bindings", [])
+        selected = []
+        for name in names:
+            matches = [row for row in rows if row["name"] == name]
+            activity = state.activities.get(matches[0]["activity_id"]) if len(matches) == 1 else None
+            if activity is None or activity.agent_id != pending.agent_id:
+                _LOGGER.error("Activity name is unavailable or ambiguous")
+                raise BusinessRuleError("ACTION_REQUEST_INVALID")
+            selected.append(activity)
+        return selected
+
+    def _with_notes(self, state: WorldState, selected: list[ActivityState], summaries: list[str],
+                    anchor: bool = False) -> WorldState:
+        """@brief 把逐项自述写到活动（前一条推入历史），并同步到关联的当日目标。"""
+        activities = dict(state.activities)
+        for activity, summary in zip(selected, summaries, strict=True):
+            activities[activity.activity_id] = activity_control.with_note(
+                activities[activity.activity_id], summary, state.current_time, anchor)
+        changed = state.model_copy(update={"activities": activities})
+        return self._with_goal_summaries(changed, list(zip(selected, summaries, strict=True)))
 
     def _with_goal_summaries(self, state: WorldState,
-                             pairs: list[tuple[SessionState, str]]) -> WorldState:
-        """@brief 将同一模型原文写入相关当日目标，保留客观推进证据。"""
-        agent_id = pairs[0][0].agent_id
-        agent = state.agents[agent_id]
+                             pairs: list[tuple[ActivityState, str]]) -> WorldState:
+        """@brief 将同一模型原文写入活动关联的当日目标，保留客观推进证据。"""
+        agent = state.agents[pairs[0][0].agent_id]
         plan = agent.day_plan
-        if plan is None:
-            return state
-        notes = {session.plan_goal_intent_kind: summary for session, summary in pairs
-                 if session.plan_goal_intent_kind is not None}
-        if not notes:
+        notes = {activity.plan_goal_intent_kind: summary for activity, summary in pairs
+                 if activity.plan_goal_intent_kind is not None}
+        if plan is None or not notes:
             return state
         goals = tuple(goal.model_copy(update={"progress_note": notes[goal.intent_kind]})
                       if goal.intent_kind in notes else goal for goal in plan.goals)
         changed_agent = agent.model_copy(update={"day_plan": plan.model_copy(update={"goals": goals})}, deep=True)
-        agents = dict(state.agents)
-        agents[agent_id] = changed_agent
-        return state.model_copy(update={"agents": agents}, deep=True)
+        return state.model_copy(update={"agents": {**state.agents, agent.agent_id: changed_agent}}, deep=True)
+
+    def _control_result(self, state: WorldState, pending: PendingAction, message: str,
+                        names: list[str], selected: list[ActivityState]) -> ActionResult:
+        """@brief 控制动作的结果：逐项的可读活动名与活动身份（私有），供评估逐活动投影。"""
+        return ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
+                            status=ActionStatus.COMPLETED, occurred_at=state.current_time, message=message,
+                            data={"task": list(names), "activity_ids": [item.activity_id for item in selected]})
 
     def _report_status(self, state: WorldState, pending: PendingAction,
                         request: ReportStatusRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 逐项播报进展，暂停会话及活动在此恢复继续。"""
-        selected = self._sessions_for_names(state, pending, request.task)
-        if any(session.status not in {SessionStatus.ACTIVE, SessionStatus.PAUSED} for session in selected):
-            _LOGGER.error("Reported session is not active or paused")
-            raise BusinessRuleError("SESSION_NOT_ACTIVE")
+        """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。"""
+        selected = self._activities_for_names(state, pending, request.task)
+        if any(item.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED} for item in selected):
+            _LOGGER.error("Reported activity is neither active nor paused")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
         changed = state
-        for session in selected:
-            if session.status != SessionStatus.PAUSED:
-                continue
-            for activity_id in session.activity_ids:
-                activity = changed.activities.get(activity_id)
-                if activity is not None and activity.status.value == "paused":
-                    changed, _ = self._change(changed, pending,
-                                              ChangeActivityRequest(activity_id=activity_id,
-                                                                    operation=ActivityChange.RESUME))
-        sessions = dict(changed.sessions)
-        for session, summary in zip(selected, request.summary, strict=True):
-            sessions[session.session_id] = self._session_with_summary(
-                session, summary, state.current_time, SessionStatus.ACTIVE)
-        changed = changed.model_copy(update={"sessions": sessions}, deep=True)
-        changed = self._with_goal_summaries(changed, list(zip(selected, request.summary, strict=True)))
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Session status reported",
-                              data={"task": list(request.task),
-                                    "activity_ids": [list(item.activity_ids) for item in selected]})
-        return changed, result
+        for activity in selected:
+            if activity.status == ActivityStatus.PAUSED:
+                changed = self._resume_at_start_location(changed, pending, activity)
+        changed = self._with_notes(changed, selected, request.summary, anchor=True)
+        return changed, self._control_result(state, pending, "Activity status reported", request.task, selected)
+
+    def _resume_at_start_location(self, state: WorldState, pending: PendingAction,
+                                  activity: ActivityState) -> WorldState:
+        """@brief 暂停的活动只在开始地点恢复（重验地点与占用），并归入那里的当前停留会话。"""
+        if not sessions.at_stay(state, pending.agent_id, activity.location_id):
+            place = self._place_names[activity.location_id]
+            name = self._control_names(pending).get(activity.activity_id, activity.name)
+            error = PreconditionError("ACTIVITY_PRECONDITION_UNMET", unmet=["activity_location"],
+                                      suggested={"travel_to": place})
+            raise error from ValueError(f"{name}要回到{place}才能接着做，在别处可以直接结束")
+        changed, _ = self._change(state, pending, ChangeActivityRequest(
+            activity_id=activity.activity_id, operation=ActivityChange.RESUME))
+        current = sessions.current_session(changed, pending.agent_id)
+        return sessions.assign(changed, current.session_id, [activity.activity_id])
 
     def _pause_activity(self, state: WorldState, pending: PendingAction,
                          request: PauseActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 播报进展并暂停会话所有活动；会话状态设为 paused。"""
-        selected = self._sessions_for_names(state, pending, request.task)
-        if any(session.status != SessionStatus.ACTIVE for session in selected):
-            _LOGGER.error("Paused session is not active")
-            raise BusinessRuleError("SESSION_NOT_ACTIVE")
+        """@brief 暂停所选进行中活动（仍占名额）并写入自述；路上的活动不能暂停。"""
+        selected = self._activities_for_names(state, pending, request.task)
+        if any(item.status != ActivityStatus.ACTIVE for item in selected):
+            _LOGGER.error("Paused activity is not active")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        road = [name for name, item in zip(request.task, selected) if sessions.on_road(state, item)]
+        if road:
+            error = BusinessRuleError("ACTIVITY_PAUSE_UNAVAILABLE")
+            raise error from ValueError(f"路上的{'、'.join(road)}不能暂停，可以直接结束")
         changed = state
-        paused = 0
-        for session in selected:
-            for activity_id in session.activity_ids:
-                activity = changed.activities.get(activity_id)
-                if activity is not None and activity.status.value == "active":
-                    changed, _ = self._change(changed, pending,
-                                              ChangeActivityRequest(activity_id=activity_id,
-                                                                    operation=ActivityChange.PAUSE))
-                    paused += 1
-        sessions = dict(changed.sessions)
-        for session, summary in zip(selected, request.summary, strict=True):
-            sessions[session.session_id] = self._session_with_summary(
-                session, summary, state.current_time, SessionStatus.PAUSED)
-        changed = changed.model_copy(update={"sessions": sessions}, deep=True)
-        changed = self._with_goal_summaries(changed, list(zip(selected, request.summary, strict=True)))
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Session paused",
-                              data={"task": list(request.task),
-                                    "activity_ids": [list(item.activity_ids) for item in selected],
-                                    "paused_activities": paused})
-        return changed, result
+        for activity in selected:
+            changed, _ = self._change(changed, pending, ChangeActivityRequest(
+                activity_id=activity.activity_id, operation=ActivityChange.PAUSE))
+        changed = self._with_notes(changed, selected, request.summary)
+        return changed, self._control_result(state, pending, "Activity paused", request.task, selected)
 
     def _conclude_activity(self, state: WorldState, pending: PendingAction,
                             request: ConcludeActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 逐项播报进展并结束所选进行中会话及其活动。"""
-        selected = self._sessions_for_names(state, pending, request.task)
-        if any(session.status != SessionStatus.ACTIVE for session in selected):
-            _LOGGER.error("Concluded session is not active")
-            raise BusinessRuleError("SESSION_NOT_ACTIVE")
-        changed = state
-        cancelled = 0
-        for session in selected:
-            for activity_id in session.activity_ids:
-                activity = changed.activities.get(activity_id)
-                if activity is not None and activity.status.value in {"active", "paused"}:
-                    changed, _ = self._change(changed, pending,
-                                              ChangeActivityRequest(activity_id=activity_id,
-                                                                    operation=ActivityChange.CANCEL))
-                    cancelled += 1
-        sessions = dict(changed.sessions)
-        for session, summary in zip(selected, request.summary, strict=True):
-            sessions[session.session_id] = self._session_with_summary(
-                session, summary, state.current_time, SessionStatus.CONCLUDED)
-        changed = changed.model_copy(update={"sessions": sessions}, deep=True)
-        changed = self._with_goal_summaries(changed, list(zip(selected, request.summary, strict=True)))
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=state.current_time,
-                              message="Session concluded",
-                              data={"task": list(request.task),
-                                    "activity_ids": [list(item.activity_ids) for item in selected],
-                                    "cancelled_activities": cancelled})
-        return changed, result
+        """@brief 结束所选活动并写下总结，释放名额；途中结束出行时路上的其他活动随之结束。
+
+        进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
+        有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
+        并在结果中登记私有来源 memory_sources。
+        """
+        selected = self._activities_for_names(state, pending, request.task)
+        if not all(activity_control.occupies_slot(item) for item in selected):
+            _LOGGER.error("Concluded activity is not active, paused or awaiting conclusion")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        waiting = activity_control.pending_conclusions(state, pending.agent_id)
+        if waiting and not {item.activity_id for item in waiting} & {item.activity_id for item in selected}:
+            raise activity_control.conclusion_required(waiting, self._control_names(pending))
+        changed, departed = state, False
+        for activity in selected:
+            if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
+                departed = departed or activity.kind == ActivityKind.TRAVEL and sessions.on_road(state, activity)
+                changed, _ = self._change(changed, pending, ChangeActivityRequest(
+                    activity_id=activity.activity_id, operation=ActivityChange.CANCEL))
+        activities = dict(changed.activities)
+        for activity, summary in zip(selected, request.summary, strict=True):
+            activities[activity.activity_id] = activity_control.concluded(
+                activities[activity.activity_id], summary, state.current_time)
+        changed = self._with_goal_summaries(changed.model_copy(update={"activities": activities}),
+                                            list(zip(selected, request.summary, strict=True)))
+        if departed:
+            changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names)
+        result = self._control_result(state, pending, "Activities concluded", request.task, selected)
+        sources = self._memory_sources(pending, request.task, selected)
+        return changed, result.model_copy(update={"data": {**result.data, "memory_sources": sources}})
+
+    def _memory_sources(self, pending: PendingAction, names: list[str],
+                        selected: list[ActivityState]) -> list[dict]:
+        """@brief 系统登记的记忆来源：逐项的活动、所属会话与本轮观察中该活动的已核验经历（模型不填身份）。"""
+        experiences = self._frozen_observation(pending).get("verified_experiences", [])
+        return [{"task": name, "activity_id": activity.activity_id,
+                 "session_id": activity.session_ids[-1] if activity.session_ids else None,
+                 "verified_event_ids": list(dict.fromkeys(row["source_event_id"] for row in experiences
+                                                          if row["activity_id"] == activity.activity_id))}
+                for name, activity in zip(names, selected, strict=True)]
+
+
+def _self_report(note: str) -> dict:
+    """@brief 回看中的人物自述：有自述时带「你自己记下的，未经核验」标注。"""
+    if not note:
+        return {}
+    return {"progress_note": note, "subjective_status": activity_control.SELF_REPORT_MARK}

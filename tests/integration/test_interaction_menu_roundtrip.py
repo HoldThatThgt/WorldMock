@@ -23,6 +23,7 @@ from tests.life.conftest import (
     advance_until_ready,
     context,
     engine_factory as _engine_factory,
+    pending_names,
     stage_day_plan,
 )
 from worldmock.life.interaction_menu import canonical_action
@@ -30,17 +31,15 @@ from worldmock.life import prompt_capacity
 
 
 class _Dispatcher:
-    """只替换提供商传输，捕获真实人物请求并返回指定可读动作。"""
+    """只替换提供商传输，捕获真实人物请求并返回指定的唯一世界请求（登记即结束本轮）。"""
 
     model_name = "deepseek-flash"
 
-    def __init__(self, targets: list[str], action: str) -> None:
+    def __init__(self, tool_name: str, arguments: dict) -> None:
         self.requests: list[dict] = []
         self.responses = [
             _DecisionStatementResponse("我照着眼前能做的事往前走。"),
-            _ModelResponse("provider-action", "start_activity",
-                           json.dumps({"targets": targets, "actions": [action]}, ensure_ascii=False)),
-            _ModelResponse("provider-finish", "finish", '{"memories":[]}'),
+            _ModelResponse("provider-action", tool_name, json.dumps(arguments, ensure_ascii=False)),
         ]
 
     async def call(self, **request):
@@ -66,9 +65,9 @@ def _person(environment: LifeEnv, decision, dispatcher: _Dispatcher) -> LifeAgen
 
 
 async def _decide(environment: LifeEnv, decision, observation: dict,
-                  targets: list[str], action: str) -> list[dict]:
-    """让人物从已提交观察作一次真实模型动作，保留最终请求。"""
-    dispatcher = _Dispatcher(targets, action)
+                  tool_name: str, arguments: dict) -> list[dict]:
+    """让人物从已提交观察作一次真实模型动作（自述与世界请求各一次请求），保留发送的请求。"""
+    dispatcher = _Dispatcher(tool_name, arguments)
     person = _person(environment, decision, dispatcher)
     before = environment.engine.state.model_dump(mode="json")
     request = ReactLoopRequest(0, decision.observed_at, [
@@ -76,7 +75,7 @@ async def _decide(environment: LifeEnv, decision, observation: dict,
     ])
     await person.run_react_loop(request)
     assert environment.engine.state.model_dump(mode="json") == before
-    assert len(dispatcher.requests) == 3
+    assert len(dispatcher.requests) == 2
     return dispatcher.requests
 
 
@@ -90,7 +89,7 @@ def _action_schema(request: dict) -> dict:
 async def test_location_menu_changes_model_choices_and_preserves_result_evidence(
     _engine_factory, monkeypatch,
 ) -> None:
-    """人物按可读地点行动，抵达后菜单收窄；结果经事件提交才进下一轮进度层。"""
+    """人物按可读地点行动，抵达后菜单收窄；到达的出行当秒收尾，结果经事件提交才进下一轮进度层。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -109,7 +108,8 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
                           if row["kind"] == "location" and row["object_id"] == "office")
     travel = next(item["label"] for item in office_binding["actions"]
                   if item.get("travel_mode") == "walking")
-    home_requests = await _decide(environment, first, home, [office_binding["object"]], travel)
+    home_requests = await _decide(environment, first, home, "start_activity",
+                                  {"targets": [office_binding["object"]], "actions": [travel]})
     assert canonical_action(travel) in home["interaction_menu"]["allowed_actions"]
     assert set(_action_schema(home_requests[1])["parameters"]["properties"]) == {"targets", "actions"}
     assert home["facts"]["progress"]["results"] == []
@@ -128,17 +128,21 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert "work" in home["interaction_menu"]["allowed_actions"]
     assert "work" not in arrived["interaction_menu"]["allowed_actions"]
     assert arrived["facts"]["progress"]["results"]
-    office_requests = await _decide(environment, second, arrived, ["自己"], "等待")
+    [walked] = pending_names(arrived)
+    conclusion = {"task": [walked], "summary": ["到公司了。"], "memories": [[]]}
+    office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
     office_schema = _action_schema(office_requests[1])
     choices = office_schema["parameters"]["properties"]["actions"]["items"]["enum"]
     assert "工作" not in choices
     assert "等待" in choices
-    assert "progress" in office_requests[1]["messages"][1]["content"]
-    assert "action_id" not in office_requests[1]["messages"][1]["content"]
-    engine.commit_decision_round(second.round_id)
+    user = office_requests[1]["messages"][1]["content"]
+    assert "progress" in user
+    assert f"刚结束：{walked}。" in user
+    assert "action_id" not in user
+    assert engine.commit_decision_round(second.round_id)[0].status.value == "completed"
 
     events = engine.store.read_events(engine.store.last_event_seq)
     requests = [event for event in events if event.event_type == "action_requested"]
     assert len(requests) == 2
     assert requests[0].data["request"] == {"targets": [office_binding["object"]], "actions": [travel]}
-    assert requests[1].data["request"] == {"targets": ["自己"], "actions": ["等待"]}
+    assert requests[1].data["request"] == conclusion

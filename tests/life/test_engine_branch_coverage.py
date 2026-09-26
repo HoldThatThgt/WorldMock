@@ -25,7 +25,9 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context, submit_round, wake_by_mail
+from tests.life.conftest import (
+    activity_name, advance_next, advance_until_ready, conclude_request, context, submit_round, wake_by_mail,
+)
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
 from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -71,7 +73,6 @@ from worldmock.life.models import (
     PurchaseOrderRequest,
     PauseActivityRequest,
     ReportStatusRequest,
-    ConcludeActivityRequest,
     ReviseDayPlanRequest,
     RunIdentity,
     SameMomentStage,
@@ -979,8 +980,10 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
         tool = "start_activity"
     started = _act(engine, "busy-work-or-wait", tool, request)
     assert started.status == "in_progress"
-    wake_by_mail(engine)
+    # 在等待（或工作）仍进行时给一次决策机会：播报只针对进行中活动的锚点，等待结束那一秒它已是待收尾。
+    wake_by_mail(engine, offset=60)
     advance_until_ready(engine)
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
     round_id = "busy-submit"
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
@@ -1297,28 +1300,40 @@ def test_rework_rejection_at_limit_keeps_review_feedback(engine_factory) -> None
 
 
 def test_boundary_action_requires_owned_current_activity(engine_factory) -> None:
-    """反馈边界上不可见的任务名称不能操纵已有会话。"""
-    engine = engine_factory()
-    request = StartActivityRequest(targets=["自己"], actions=["等待"])
-    _act(engine, "own-wait", "start_activity", request)
-    wake_by_mail(engine)
-    advance_next(engine)
-    wrong_owner = _act(engine, "own-wrong", "pause_activity",
-                       PauseActivityRequest(task=["不存在的任务"], summary=["先暂停"]))
-    assert wrong_owner.status.value == "rejected"
-    assert wrong_owner.error_code == "SESSION_NOT_FOUND"
+    """控制工具只能点名本轮可见的本人活动：未知名称与他人的活动名都以 ACTION_REQUEST_INVALID 业务拒绝，
+    已有活动照常进行（时间与能量规格第七章「播报与控制都作用于活动」）。"""
+    from tests.life.conftest import stage_day_plan
+
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    _, results = submit_round(engine, {
+        1: ("start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])),
+        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["睡觉"]))}, "own-start")
+    assert {item.agent_id: item.status.value for item in results} == {1: "in_progress", 2: "in_progress"}
+    other = next(item.activity_id for item in results if item.agent_id == 2)
+    wake_by_mail(engine, agent_id=1, offset=60)
+    _advance_until_agent_ready(engine, 1)
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    for index, name in enumerate(("不存在的活动", activity_name(engine, other))):
+        wrong_owner = _act(engine, f"own-wrong-{index}", "pause_activity",
+                           PauseActivityRequest(task=[name], summary=["先暂停"]))
+        assert wrong_owner.status.value == "rejected"
+        assert wrong_owner.error_code == "ACTION_REQUEST_INVALID"
+    assert {item.status for item in engine.state.activities.values()} == {ActivityStatus.ACTIVE}
 
 
-def test_unknown_session_controls_reject_when_idle(engine_factory) -> None:
-    """空闲人物对未知任务的播报与结束均按未找到拒绝。"""
+def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
+    """空闲人物播报、暂停或结束未知活动名都以 ACTION_REQUEST_INVALID 业务拒绝，并在同一秒再决策（第一章规则 2）。"""
     engine = engine_factory()
-    ghost_change = _act(engine, "own-missing", "report_status",
-                        ReportStatusRequest(task=["不存在的任务"], summary=["还在进行"]))
-    assert ghost_change.error_code == "SESSION_NOT_FOUND"
-    advance_until_ready(engine)  # 拒绝后的一秒反应边界
-    conclude_ghost = _act(engine, "own-conclude", "conclude_activity",
-                          ConcludeActivityRequest(task=["不存在的任务"], summary=["已结束"]))
-    assert conclude_ghost.error_code == "SESSION_NOT_FOUND"
+    start = engine.state.current_time
+    requests = [("report_status", ReportStatusRequest(task=["不存在的活动"], summary=["还在进行"])),
+                ("pause_activity", PauseActivityRequest(task=["不存在的活动"], summary=["先暂停"])),
+                ("conclude_activity", conclude_request("不存在的活动", summary="已结束"))]
+    for index, (tool, request) in enumerate(requests):
+        ghost = _act(engine, f"own-missing-{index}", tool, request)
+        assert ghost.status.value == "rejected" and ghost.error_code == "ACTION_REQUEST_INVALID"
+        assert engine.state.current_time == start and engine.scheduling_state().ready_agent_ids == (1,)
 
 
 @pytest.mark.parametrize("existing", [False, True])
@@ -1479,13 +1494,13 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     chat = next(item for item in results if item.agent_id == 1)
     assert chat.status.value == "in_progress"
     activity_id = chat.activity_id
-    session = next(item for item in engine.state.sessions.values() if activity_id in item.activity_ids)
     wake_by_mail(engine, offset=60)
     _advance_until_agent_ready(engine, 1)
     hung_up = _act_ready(engine, "chat-cancel", "conclude_activity",
-                         ConcludeActivityRequest(task=[session.task_name], summary=["聊完了"]))
+                         conclude_request(activity_name(engine, activity_id), summary="聊完了"))
     assert hung_up.status.value == "completed"
     activity = engine.state.activities[activity_id]
     assert activity.status == ActivityStatus.CANCELLED
-    assert activity.boundary_type == "cancelled"
+    assert activity.boundary_type == "cancelled" and activity.interruption_reason == "agent_cancelled"
+    assert activity.concluded_at == engine.state.current_time
     assert not active_activities(engine.state, 1)

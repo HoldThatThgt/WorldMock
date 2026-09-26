@@ -13,7 +13,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan
+from tests.life.conftest import advance_next, advance_until_ready, conclude_request, context, stage_day_plan
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
@@ -107,20 +107,36 @@ def _discover(engine, name):
     return result, observed
 
 
-def _finish_activity(engine, identity, phase):
-    """@brief 通过环境边界与人物进展播报完成活动。"""
+def _named(identity, build):
+    """@brief 按本轮观察私有绑定中该活动的可读名称（同轮重名时带序号）构造控制请求。"""
+    return lambda observed: build(next(row["name"] for row in observed["activity_bindings"]
+                                       if row["activity_id"] == identity))
+
+
+def _run_activity(engine, identity, phase):
+    """@brief 通过环境边界与按活动名的进展播报把活动推进到完成。"""
     for step in range(64):
         if engine.state.activities[identity].status != "active":
             assert engine.state.activities[identity].status == "completed"
             return
         if engine.scheduling_state().ready_agent_ids:
-            session = next(item for item in engine.state.sessions.values()
-                           if identity in item.activity_ids)
-            _action(engine, f"{phase}-continue-{step}", "report_status",
-                    ReportStatusRequest(task=[session.session_name], summary=["继续进行。"]))
+            _action(engine, f"{phase}-continue-{step}", "report_status", _named(
+                identity, lambda name: ReportStatusRequest(task=[name], summary=["继续进行。"])))
         else:
             advance_next(engine)
     pytest.fail("Activity did not complete through its declared event boundaries")
+
+
+def _conclude(engine, identity, phase):
+    """@brief 活动按计划结束即成待收尾，人物在同一秒给它收尾（规格第七章「活动一结束就要结束它」）。"""
+    _action(engine, f"{phase}-end-{identity}", "conclude_activity", _named(identity, conclude_request))
+    assert engine.state.activities[identity].concluded_at == engine.state.current_time
+
+
+def _finish_activity(engine, identity, phase):
+    """@brief 推进活动到完成并当秒收尾。"""
+    _run_activity(engine, identity, phase)
+    _conclude(engine, identity, phase)
 
 
 def _purchase_selected_supply(engine, fulfillment):
@@ -128,9 +144,10 @@ def _purchase_selected_supply(engine, fulfillment):
     if fulfillment == "pickup":
         _, started = _action(engine, "travel-to-store", "start_activity",
                              lambda observed: _choice(observed, "travel_to", STORE, "walking"))
-        _finish_activity(engine, started.activity_id, "travel")
+        _run_activity(engine, started.activity_id, "travel")
         assert engine.state.agents[1].location_id == STORE
         assert visible_supplies(engine.state, engine.state.agents[1], engine.scenario) == []
+        _conclude(engine, started.activity_id, "travel")
         _discover(engine, "discover-after-arrival")
     _, result = _action(engine, "buy-selected", "start_activity",
                         lambda observed: _choice(observed, "purchase", SUPPLY, fulfillment))

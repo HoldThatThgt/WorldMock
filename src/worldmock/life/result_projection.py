@@ -48,6 +48,9 @@ def public_action_result(row: dict[str, Any]) -> dict[str, Any]:
         result["browse_result"] = _public_browse(data["browse_result"])
     if "activity" in data and "data" in data["activity"] and "arrival" in data["activity"]["data"]:
         result["arrival"] = _public_arrival(data["activity"]["data"]["arrival"])
+    if "recall" in data:
+        # 回看结果由处理器以名称与人读时长写成，不含内部身份，原样进入下一次观察的 details.recall。
+        result["recall"] = data["recall"]
     return result
 
 

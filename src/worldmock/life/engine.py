@@ -20,16 +20,16 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import felt, projection, same_moment, social_actions
+from worldmock.life import activity_control, felt, projection, same_moment, sessions, social_actions
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
-    _pending_causes, _remember_action, _remember_terminal_activity, _result_draft,
-    _result_event_data, _terminal_action_records, _terminal_after_action,
+    _pending_causes, _remember_action, _result_draft,
+    _result_event_data, _terminal_action_records,
     _work_review_failure_draft, _work_review_request_draft,
     _work_review_response_draft,
 )
-from worldmock.life.memory_evidence import _memory_evidence_data
+from worldmock.life.memory_evidence import _memory_evidence_data, memory_write_points
 from worldmock.life.menu_execution import require_interaction_menu
 from worldmock.life.interaction_menu import canonical_action
 from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_revealed_cues,
@@ -107,7 +107,6 @@ from worldmock.life.models import (
     SameMomentPresentation,
     SameMomentStage,
     SendMessageRequest,
-    SessionStatus,
     SubmitWorkActionRequest,
     StartSocialActivityRequest,
     StoredAction,
@@ -560,20 +559,25 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                      tokens_out=usage.get("completion_tokens"))
 
     def record_memory_update(self, evidence: Any) -> None:
-        """@brief 保存人物已落盘记忆的枚举操作和内容身份。"""
+        """@brief 保存人物已落盘记忆的枚举操作、内容身份与本步写入点（trigger，由引擎按登记推导）。"""
         self._validate_context(evidence.context)
+        agent_id, decision_id = evidence.context.agent_id, evidence.context.decision_id
         try:
             data = _memory_evidence_data(evidence)
-            observations = self.store.read_agent_events("observation", evidence.context.agent_id)
+            observations = self.store.read_agent_events("observation", agent_id)
             observation = next((event for event in reversed(observations)
                                 if event.event_id == evidence.observation_event_id
-                                and event.decision_id == evidence.context.decision_id), None)
+                                and event.decision_id == decision_id), None)
             if observation is None:
                 raise ProtocolError("Memory update observation is invalid")
             visible_ids = {row["source_event_id"]
                            for row in observation.data.get("verified_experiences", [])}
             if set(evidence.verified_event_ids) != visible_ids:
                 raise ProtocolError("Memory update source window is invalid")
+            requests = self.store.read_agent_events("action_requested", agent_id)
+            written = bool(data["created_episode_ids"] or data["merged_episode_ids"])
+            data.update(trigger=memory_write_points(requests, decision_id, observation, written),
+                        decision_id=decision_id)
         except (ProtocolError, KeyError, AttributeError, TypeError) as exc:
             logging.error("Memory update evidence rejected: %s", exc)
             raise ProtocolError("Memory update evidence is invalid") from exc
@@ -610,6 +614,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         if target_epoch == staged.end_time:
             drafts.extend(self._truncate(staged, target_epoch))
+            staged = sessions.end_all(staged)
             drafts.append(EventDraft(event_type="run_ended", occurred_at=target_epoch,
                                      visibility="system", data={"end_time": target_epoch}))
         staged.version = self.state.version + 1
@@ -806,19 +811,15 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         try:
             changed, result = self._dispatch(state, pending)
             changed = self._after_success(changed, pending.agent_id, pending.tool_name)
+            changed, records = activity_control.record_changes(state, changed, pending, self._record_context)
             resolved = changed.activities.get(result.activity_id) if result.activity_id else None
             resolved_title = self._activity_title(resolved) if resolved is not None else None
-            changed = _remember_terminal_activity(changed, result, resolved_title)
             accepted = EventDraft(event_type="action_accepted", occurred_at=state.current_time,
                                   agent_id=pending.agent_id, decision_id=pending.decision_id,
                                   action_id=pending.action_id, activity_id=result.activity_id,
                                   caused_by=_pending_causes(pending),
                                   data=_result_event_data(result, changed, resolved_title))
-            drafts = [accepted, _result_draft(pending, result, "action_result")]
-            terminal = _terminal_after_action(changed, result, pending.requested_event_id,
-                                              resolved_title)
-            if terminal is not None:
-                drafts.append(terminal)
+            drafts = [accepted, _result_draft(pending, result, "action_result"), *records]
             drafts.extend(self._drain_pending_drafts())
             return changed, result, drafts
         except BusinessRuleError as error:
@@ -862,9 +863,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                                  engine_rhythm_inputs(self, state))
             return candidate if candidate is not None else now + self.scenario.activity_feedback_seconds
 
-        outcome = same_moment.RoundOutcome(now=now, agent=agent,
-                                           active=bool(active_activities(state, agent.agent_id)),
-                                           rejected=rejected, limit=self.scenario.max_same_moment_decisions)
+        outcome = same_moment.RoundOutcome(
+            now=now, agent=agent, active=bool(active_activities(state, agent.agent_id)),
+            rejected=rejected, limit=self.scenario.max_same_moment_decisions,
+            pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
+            slots_full=activity_control.free_slots(state, agent.agent_id) == 0)
         return same_moment.schedule_after_round(outcome, rhythm_next or by_rhythm)
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
@@ -943,6 +946,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
         require_interaction_menu(self.scenario, state, pending, request)
         self._require_boundary_action(state, pending, request)
+        waiting = activity_control.pending_conclusions(state, pending.agent_id)
+        if waiting and pending.tool_name != "conclude_activity":
+            raise activity_control.conclusion_required(waiting, self._control_names(pending))
         handlers = {
             "start_activity": self._start_activity,
             "submit_work": self._submit_work_action,
@@ -966,17 +972,19 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                              self._same_moment_request_kind(state, pending, request))
 
     def _same_moment_request_kind(self, state: WorldState, pending: PendingAction, request) -> str:
-        """@brief 受限轮复核的请求类：只等待、开始持续活动（不含到店购买与远程下单）、恢复暂停活动或其他。"""
-        if pending.tool_name == "start_activity":
-            actions = [row["selected_action"]["canonical_action"]
-                       for row in self._resolve_interaction_bindings(pending, request)]
-            if actions == ["wait"]:
-                return "wait"
-            return "other" if "purchase" in actions else "start"
-        if pending.tool_name == "report_status":
-            sessions = self._sessions_for_names(state, pending, request.task)
-            return "resume" if all(item.status == SessionStatus.PAUSED for item in sessions) else "other"
-        return "other"
+        """@brief 解析本请求的对象与点名活动，交给 same_moment.request_kind 判定受限轮请求类。"""
+        actions = ([row["selected_action"]["canonical_action"]
+                    for row in self._resolve_interaction_bindings(pending, request)]
+                   if pending.tool_name == "start_activity" else [])
+        named = (self._activities_for_names(state, pending, request.task)
+                 if pending.tool_name in {"report_status", "conclude_activity"} else [])
+        waiting = frozenset(item.activity_id for item in activity_control.pending_conclusions(state, pending.agent_id))
+        return same_moment.request_kind(pending.tool_name, actions, named, waiting)
+
+    @property
+    def _record_context(self) -> activity_control.RecordContext:
+        """@brief 写活动记录所用的快照与标题投影。"""
+        return activity_control.RecordContext(snapshot=self._activity_snapshot, title=self._activity_title)
 
     def _activity_title(self, activity) -> str | None:
         """@brief 解析有内容目标活动的展示标题，无标题活动返回 None。"""
@@ -1401,7 +1409,15 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                     result, event = terminal
                     results.append(result)
                     drafts.append(event)
+            self._switch_session_on_arrival(state, agent_id, target)
         return drafts, results
+
+    def _switch_session_on_arrival(self, state: WorldState, agent_id: int, target: int) -> None:
+        """@brief 到达（含到达被拒）的边界：结束路上会话，在所到地点开始停留会话（就地写入本次推进的世界副本）。"""
+        if sessions.arriving_transit(state, agent_id, target) is None:
+            return
+        changed, _ = sessions.end_transit(state, agent_id, self._place_names)
+        state.sessions, state.activities = changed.sessions, changed.activities
 
     def _shared_factors(self, activity, agent) -> ActivityFactors:
         """@brief 社交活动用冻结常量，其余活动复用自身声明系数。"""
@@ -1427,6 +1443,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         state.activities[activity.activity_id] = advanced.activity
         effects = self._apply_activity_effect(state, advanced.activity, advanced.completed,
                                               before_consumed)
+        state.activities[activity.activity_id] = sessions.arrival_route_end(state, activity.activity_id, target)
         data = {"interval_start": activity.last_settled_at, "interval_end": target,
                 "activity": self._activity_snapshot(state.activities[activity.activity_id]),
                 "body_settlement_event_id": body_event_id, **effects}
@@ -1610,12 +1627,16 @@ def _initial_state(semantics: ScenarioSemantics, scenario_sha256: str, run_id: s
         agents[config.agent_id] = _initial_agent(config, scenario, account_id, start, taste_weights)
     pending = compile_schedule(scenario, start, end)
     random_state = hashlib.sha256(f"random:{scenario.random_seed}".encode()).hexdigest()
-    return WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
-                      end_time=end, run_id=run_id,
-                      timezone=scenario.timezone, scenario_sha256=scenario_sha256,
-                      content_manifest_sha256=scenario.corpus_manifest_sha256, agents=agents,
-                      accounts=accounts, **initial_supply_state(scenario, start),
-                      pending_events=pending, random_seed=scenario.random_seed, random_state=random_state)
+    state = WorldState(schema_version=WORLD_SCHEMA_VERSION, version=0, current_time=start,
+                       end_time=end, run_id=run_id,
+                       timezone=scenario.timezone, scenario_sha256=scenario_sha256,
+                       content_manifest_sha256=scenario.corpus_manifest_sha256, agents=agents,
+                       accounts=accounts, **initial_supply_state(scenario, start),
+                       pending_events=pending, random_seed=scenario.random_seed, random_state=random_state)
+    place_names = {item.location_id: item.name for item in scenario.locations}
+    for agent_id in sorted(agents):
+        state = sessions.open_stay(state, agent_id, place_names)
+    return state
 
 
 def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: int, taste_weights: dict):

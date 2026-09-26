@@ -8,13 +8,13 @@ from pathlib import Path
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import wake_by_mail, advance_next, context
+from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
+                                 wake_by_mail)
 from worldmock.corpora import load_manifest
 from worldmock.life.content import load_subtitles
 from worldmock.life.observe import _content_catalog
 from worldmock.life.models import (
     active_activities,
-    ConcludeActivityRequest,
     PauseActivityRequest,
     ReportStatusRequest,
     StartActivityRequest,
@@ -48,18 +48,16 @@ def _act(engine, round_id: str, tool_name: str, request):
     return engine.commit_decision_round(round_id)[0]
 
 
-def _session_name(engine, activity_id: str) -> str:
-    """读取本次活动对应的可读会话名称。"""
-    return next(item.session_name for item in engine.state.sessions.values()
-                if activity_id in item.activity_ids)
-
-
 def _wait_awake(engine, rounds: int = 1, seconds: int = 900) -> None:
-    """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。"""
+    """用完成的 wait 活动积累娱乐需要（边等边刷：净累积=清醒累积−被动缓解）。
+
+    等待按计划结束即成待收尾，人物在同一秒给它收尾后再做别的（时间与能量规格第七章「活动一结束就要结束它」）。
+    """
     for n in range(rounds):
         assert seconds == engine.scenario.activity_feedback_seconds
         _act(engine, f"wait-{n}", "start_activity", ("wait", "agent:1"))
         advance_next(engine)
+        assert conclude_pending(engine, f"wait-{n}-end").status == "completed"
 
 
 def test_feed_corpus_freeze_matches_manifest_and_timeline() -> None:
@@ -162,7 +160,7 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
     wake_by_mail(engine, offset=planned)
     advance_next(engine)
     _act(engine, "scroll-stop", "conclude_activity",
-         ConcludeActivityRequest(task=[_session_name(engine, activity_id)], summary=["阅读到当前段落。"]))
+         conclude_request(activity_name(engine, activity_id), summary="阅读到当前段落。"))
     activity = engine.state.activities[activity_id]
     assert activity.status.name == "CANCELLED"
     revealed = activity.data["revealed"]
@@ -198,7 +196,7 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
             waited = _act(engine, f"between-scrolls-{n}", "start_activity", ("wait", "agent:1"))
             advance_next(engine)
             _act(engine, f"between-scrolls-end-{n}", "conclude_activity",
-                 ConcludeActivityRequest(task=[_session_name(engine, waited.activity_id)], summary=["等够了。"]))
+                 conclude_request(activity_name(engine, waited.activity_id), summary="等够了。"))
             idle_growth += engine.state.agents[1].body.entertainment_need - before_idle
         need_at_step = engine.state.agents[1].body.entertainment_need
         _act(engine, f"scroll-{n}", "start_activity", ("watch", FEED_ID))
@@ -207,8 +205,7 @@ def test_repeated_short_feed_watches_keep_existing_repeat_dilution(engine_factor
         wake_by_mail(engine, offset=duration)
         advance_next(engine)
         _act(engine, f"scroll-stop-{n}", "conclude_activity",
-             ConcludeActivityRequest(task=[_session_name(engine, activity_id)],
-                                     summary=["阅读到当前段落。"]))
+             conclude_request(activity_name(engine, activity_id), summary="阅读到当前段落。"))
         step = (FEED_RATE * FEED_PREFERENCE / n
                 - engine.semantics.body.entertainment_need_per_awake_hour) * (duration / 3600)
         assert need_at_step - engine.state.agents[1].body.entertainment_need == pytest.approx(step)
@@ -240,19 +237,21 @@ def test_interrupted_feed_watch_accumulates_flat_rate_over_total_contact(engine_
     advance_next(engine)
     assert engine.state.current_time == int(engine.scenario.start_at.timestamp()) + 5400 + 900
     _act(engine, "pause-scroll", "pause_activity",
-         PauseActivityRequest(task=[_session_name(engine, activity_id)], summary=["稍后继续阅读。"]))
+         PauseActivityRequest(task=[activity_name(engine, activity_id)], summary=["稍后继续阅读。"]))
     paused_at = engine.state.current_time
     # 暂停后没有进行中活动：同一秒开始等待，时钟才推进（时间与能量规格第一章规则 1、2）。
     _act(engine, "wait-while-paused", "start_activity", ("wait", "agent:1"))
     wake_by_mail(engine)
     advance_next(engine)
     assert engine.state.current_time == paused_at + 900
+    # 等待在这一边界按计划结束：先当秒收尾，再恢复暂停的刷屏（第七章「活动一结束就要结束它」）。
+    assert conclude_pending(engine, "wait-while-paused-end").status == "completed"
     _act(engine, "resume-scroll", "report_status",
-         ReportStatusRequest(task=[_session_name(engine, activity_id)], summary=["继续阅读。"]))
+         ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续阅读。"]))
     wake_by_mail(engine, offset=50)
     advance_next(engine)
     _act(engine, "finish-scroll", "conclude_activity",
-         ConcludeActivityRequest(task=[_session_name(engine, activity_id)], summary=["本次阅读结束。"]))
+         conclude_request(activity_name(engine, activity_id), summary="本次阅读结束。"))
 
     activity = engine.state.activities[activity_id]
     assert activity.status.name == "CANCELLED"

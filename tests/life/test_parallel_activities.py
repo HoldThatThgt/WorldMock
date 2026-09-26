@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan, submit_round
+from tests.life.conftest import advance_next, conclude_request, context, pending_names, stage_day_plan
+from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import ReportStatusRequest, StartActivityRequest
 
 
@@ -28,29 +29,38 @@ def _start_pair(engine, first: str, second: str, round_id: str):
     return engine.commit_decision_round(round_id)[0]
 
 
+def _control_request(observed: dict) -> tuple[str, object]:
+    """@brief 按本轮观察选控制：刚结束的活动当秒收尾，否则按活动名播报一项进行中活动，没有活动时等待。"""
+    pending = pending_names(observed)
+    if pending:
+        return "conclude_activity", conclude_request(*pending)
+    running = [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_ACTIVE]
+    if running:
+        return "report_status", ReportStatusRequest(task=running[:1], summary=["仍在继续"])
+    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+
+
 def _advance_with_decisions(engine, index: int) -> None:
-    """@brief 活动反馈唤醒人物时先真实播报，再推进下一环境边界。"""
+    """@brief 人物获得决策机会时按本轮观察真实决策（第七章：活动一结束就要结束它），否则推进下一环境边界。"""
     ready = engine.scheduling_state().ready_agent_ids
-    if ready:
-        requests = {}
-        for agent_id in ready:
-            sessions = [item for item in engine.state.sessions.values()
-                        if item.agent_id == agent_id and item.status == "active"]
-            if sessions:
-                requests[agent_id] = ("report_status", ReportStatusRequest(
-                    task=[sessions[0].session_name], summary=["仍在继续"]))
-            else:
-                requests[agent_id] = ("start_activity", StartActivityRequest(
-                    targets=["自己"], actions=["等待"]))
-        submit_round(engine, requests, f"parallel-feedback-{index}")
+    if not ready:
+        advance_next(engine)
         return
-    advance_next(engine)
+    round_id = f"parallel-feedback-{index}"
+    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
+    engine.begin_decision_round(contexts)
+    requests = {item.agent_id: _control_request(engine.observe(item)) for item in contexts}
+    for item in reversed(contexts):
+        tool_name, request = requests[item.agent_id]
+        engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}", tool_name, request))
+    engine.commit_decision_round(round_id)
 
 
 def test_walk_and_watch_start_atomically_with_distinct_activity_ids(engine_factory) -> None:
-    """一条决策允许步行与观看，各有独立活动和会话身份。"""
+    """一条决策允许步行与观看，各有独立活动身份；出发结束运行开始的停留会话，两项同归一段路上会话（第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
+    stay = next(iter(engine.state.sessions.values()))
     result = _start_pair(engine, "travel_to", "watch", "walk-watch")
     assert result.status == "in_progress", result.error_code
     assert result.activity_id is None
@@ -60,45 +70,61 @@ def test_walk_and_watch_start_atomically_with_distinct_activity_ids(engine_facto
     assert len({item.activity_id for item in activities}) == 2
     assert {item.kind.value for item in activities} == {"travel", "watch"}
     ids = {item.activity_id for item in activities}
-    sessions = [item for item in engine.state.sessions.values() if set(item.activity_ids) & ids]
-    assert len(sessions) == 2
-    assert all(len(item.activity_ids) == 1 for item in sessions)
+    ended = engine.state.sessions[stay.session_id]
+    assert ended.kind == "stay" and ended.status == "ended" and ended.activity_ids == []
+    assert ended.ended_at == engine.state.current_time
+    road = [item for item in engine.state.sessions.values() if set(item.activity_ids) & ids]
+    assert len(road) == 1 and road[0].kind == "transit" and road[0].status == "active"
+    travel = next(item for item in activities if item.kind.value == "travel")
+    assert (road[0].origin_id, road[0].destination_id) == (stay.location_id, travel.destination_id)
+    assert set(road[0].activity_ids) == ids
+    assert all(item.session_ids == [road[0].session_id] for item in activities)
 
 
 def test_pair_failure_rejects_all_without_partial_activity(engine_factory) -> None:
-    """后项资源冲突时，先项也不进入权威世界。"""
+    """后项资源冲突时，先项也不进入权威世界；会话只剩运行开始的停留会话且未改动。"""
     engine = engine_factory()
     stage_day_plan(engine)
     before = engine.state.model_dump(mode="json")
     result = _start_pair(engine, "watch", "sleep", "watch-sleep-conflict")
     assert result.status == "rejected", result.error_code
     assert engine.state.activities == {}
-    assert engine.state.sessions == {}
+    sessions = list(engine.state.sessions.values())
+    assert [(item.kind, item.status, item.activity_ids) for item in sessions] == [("stay", "active", [])]
+    assert engine.state.model_dump(mode="json")["sessions"] == before["sessions"]
     assert engine.state.accounts == before["accounts"]
 
 
 def test_parallel_origin_stays_in_progress_until_both_finish(engine_factory) -> None:
-    """先结束的子项不将原动作提前标记为完成。"""
+    """先结束的子项当秒收尾而不把原动作提前标记为完成，另一项照常继续；全部结束才写唯一终态（第七章）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    result = _start_pair(engine, "travel_to", "watch", "parallel-terminal")
+    result = _start_pair(engine, "watch", "wait", "parallel-terminal")
     assert result.status == "in_progress", result.error_code
     action_id = result.action_id
-    for _ in range(100):
-        activities = [item for item in engine.state.activities.values()
-                      if item.origin_action_id == action_id]
-        if any(item.status == "completed" for item in activities):
+    ids = sorted(item.activity_id for item in engine.state.activities.values()
+                 if item.origin_action_id == action_id)
+    for index in range(100):
+        if any(engine.state.activities[item].status == "completed" for item in ids):
             break
-        _advance_with_decisions(engine, _)
-    assert any(item.status == "completed" for item in activities)
-    if any(item.status == "active" for item in activities):
-        assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
-    for _ in range(100):
-        if all(item.status == "completed" for item in activities):
+        _advance_with_decisions(engine, index)
+    first = [engine.state.activities[item] for item in ids if engine.state.activities[item].status == "completed"]
+    assert [item.kind.value for item in first] == ["wait"] and first[0].concluded_at is None
+    watch = next(engine.state.activities[item] for item in ids if item != first[0].activity_id)
+    assert watch.status == "active"
+    assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    now = engine.state.current_time
+    _advance_with_decisions(engine, 100)
+    assert engine.state.current_time == now
+    assert engine.state.activities[first[0].activity_id].concluded_at == now
+    assert engine.state.activities[watch.activity_id].status == "active"
+    assert engine.state.processed_actions[action_id].result["status"] == "in_progress"
+    for index in range(101, 300):
+        if all(engine.state.activities[item].status == "completed" for item in ids):
             break
-        _advance_with_decisions(engine, _ + 100)
-        activities = [engine.state.activities[item.activity_id] for item in activities]
-    assert all(item.status == "completed" for item in activities)
+        _advance_with_decisions(engine, index)
+    assert all(engine.state.activities[item].status == "completed" for item in ids)
     assert engine.state.processed_actions[action_id].result["status"] == "completed"
     events = [event for event in engine.store.read_agent_events("action_result", 1)
               if event.action_id == action_id and event.data["status"] != "in_progress"]

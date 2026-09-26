@@ -11,7 +11,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 import worldmock.life.engine as engine_module
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import activity_name, advance_next, context
 from tests.life.test_export_integration import _stage_final_interval, _wait_request
 from tests.life.test_work_review import (
     _at_task_start,
@@ -305,7 +305,7 @@ async def test_response_persistence_failure_stops_before_correction(engine_facto
 
 
 def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dict]:
-    """将当前真实引擎推进至终点并返回认证导出及质量报告。"""
+    """将当前真实引擎推进至终点并返回认证导出及质量报告；途中按等待活动的名称播报（规格第七章）。"""
     _stage_final_interval(engine, engine.scenario.activity_feedback_seconds)
     ctx = context(engine, "review-export-end")
     engine.begin_decision_round([ctx])
@@ -313,8 +313,7 @@ def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dic
     request = _wait_request(observation)
     engine.submit_action(DirectToolCall(ctx, "review-export-wait", "start_activity", request))
     started = engine.commit_decision_round("review-export-end")[0]
-    session = next(item for item in engine.state.sessions.values()
-                   if started.activity_id in item.activity_ids)
+    waiting = activity_name(engine, started.activity_id)
     while engine.state.current_time < engine.state.end_time:
         if engine.scheduling_state().ready_agent_ids:
             ctx = context(engine, f"review-export-progress-{engine.state.current_time}")
@@ -322,7 +321,7 @@ def _finish_and_export(engine, destination: Path) -> tuple[dict, list[dict], dic
             engine.observe(ctx)
             engine.submit_action(DirectToolCall(ctx, f"review-export-report-{engine.state.current_time}",
                                                 "report_status", ReportStatusRequest(
-                                                    task=[session.session_name], summary=["继续等待。"])))
+                                                    task=[waiting], summary=["继续等待。"])))
             engine.commit_decision_round(ctx.round_id)
         else:
             advance_next(engine)

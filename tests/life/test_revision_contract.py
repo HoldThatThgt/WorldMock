@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import advance_next, advance_until_ready, context, start_activity
+from tests.life.conftest import advance_next, advance_until_ready, conclude_pending, context, start_activity
 from worldmock.life import projection
 from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, WorldState
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS
@@ -172,6 +172,8 @@ def test_revise_day_plan_preserves_progressed_goal(engine_factory) -> None:
     assert advance_until_ready(engine)
     _act(engine, "rest", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
+    # 等待按计划结束即成待收尾，当秒收尾后再修订（规格第七章「活动一结束就要结束它」）。
+    assert conclude_pending(engine, "rest-end").status == "completed"
     original = engine.state.agents[1].day_plan.goals[0]
     rejected = _act(engine, "rewrite", "revise_day_plan", ReviseDayPlanRequest(
         goals=(PlanGoalInput(intent_kind="休息", goal="改写休息"),)))

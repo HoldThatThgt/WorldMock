@@ -272,20 +272,21 @@ def test_control_and_game_results_use_object_state_instead_of_receipt_status() -
         "travel_mode": None,
         "data": {},
     }
+    browsing = "浏览资讯（1月5日 09:00 起）"
     events = [
         _public_event(1, "action_requested", {
             "tool_name": "report_status",
-            "request": {"task": ["当前浏览会话"], "summary": ["继续浏览。"]},
+            "request": {"task": [browsing], "summary": ["继续浏览。"]},
         }, "continue-action"),
         _public_event(2, "action_result", {
-            "status": "completed", "data": {"activity_ids": [["activity-private"]]},
+            "status": "completed", "data": {"task": [browsing], "activity_ids": ["activity-private"]},
         }, "continue-action", "activity-private"),
         _public_event(3, "action_requested", {
             "tool_name": "pause_activity",
-            "request": {"task": ["当前浏览会话"], "summary": ["先暂停。"]},
+            "request": {"task": [browsing], "summary": ["先暂停。"]},
         }, "pause-action"),
         _public_event(4, "action_result", {
-            "status": "completed", "data": {"activity_ids": [["activity-private"]]},
+            "status": "completed", "data": {"task": [browsing], "activity_ids": ["activity-private"]},
         }, "pause-action", "activity-private"),
         _public_event(5, "action_requested", {
             "tool_name": "start_activity",

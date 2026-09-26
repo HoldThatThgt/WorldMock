@@ -103,7 +103,7 @@ def _social_activity(agent: AgentState, kind: ActivityKind, duration_seconds: in
         last_settled_at=now, elapsed_seconds=0, planned_duration_seconds=duration_seconds,
         target_id=None, resource_claims=set(SOCIAL_RESOURCE_CLAIMS),
         origin_action_id=origin.action_id, origin_decision_id=origin.decision_id,
-        origin_request_event_id=origin.request_event_id, data=dict(data))
+        origin_request_event_id=origin.request_event_id, data=dict(data), report_anchor_at=now)
 
 
 def chat_accepted(state: WorldState, initiator_id: int) -> bool:

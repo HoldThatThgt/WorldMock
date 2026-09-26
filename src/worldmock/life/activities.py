@@ -143,6 +143,7 @@ def start_activity(agent: AgentState, request: ActivityStartParams, now: int, or
         origin_action_id=origin.action_id,
         origin_decision_id=origin.decision_id,
         origin_request_event_id=origin.request_event_id,
+        report_anchor_at=now,
     )
     return agent.model_copy(deep=True), activity
 
@@ -389,13 +390,13 @@ def _pause(agent: AgentState, activity: ActivityState) -> tuple[AgentState, Acti
 
 
 def _resume(agent: AgentState, activity: ActivityState, now: int) -> tuple[AgentState, ActivityState]:
-    """@brief 从保留进度恢复活动并形成新的结束边界。"""
+    """@brief 从保留进度恢复活动并形成新的结束边界；恢复即重置播报锚点。"""
     if activity.status != ActivityStatus.PAUSED:
         raise BusinessRuleError("ACTIVITY_NOT_PAUSED")
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
     changed = activity.model_copy(update={"status": ActivityStatus.ACTIVE, "last_settled_at": now,
                                           "planned_end_at": now + remaining,
-                                          "boundary_type": None}, deep=True)
+                                          "boundary_type": None, "report_anchor_at": now}, deep=True)
     return agent.model_copy(deep=True), changed
 
 

@@ -13,7 +13,8 @@ from copy import deepcopy
 from dataclasses import replace
 from typing import Any
 
-from worldmock.life import discovery, felt, presentation, projection
+from worldmock.footprints.experiences import recent_verified_experiences
+from worldmock.life import activity_control, discovery, felt, presentation, projection
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.body import maximum_shared_energy_duration, shared_energy_cost
@@ -51,34 +52,52 @@ class ObservationMixin:
             stamps=_presentation_stamps(self.state, presented), pinned_supply_ids=pinned)
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
         task_rows = tuple(self._visible_task_rows(agent))
+        bindings = self._name_bindings(agent, task_rows)
+        experiences = recent_verified_experiences(self.store, agent.agent_id, self.store.last_event_seq)
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent,
             recent_results=tuple(recent),
             task_rows=task_rows,
             meal_windows=meal_windows,
             motivation_internal=self._motivation_internal(agent),
-            extras=self._projection_extras(agent, rows["products"], menu))
+            extras=self._projection_extras(agent, rows["products"], menu,
+                                           {"visible_names": bindings.pop("names"),
+                                            "verified_experiences": experiences}))
         data = projection.build_observation(inputs)
-        data["task_bindings"] = [{"task_name": row["title"], "task_id": row["task_id"],
-                                  "submission_ready": row["submission_ready"]}
-                                 for row in task_rows]
-        data["session_bindings"] = [
-            {"task_name": item.task_name, "session_name": item.session_name,
-             "session_id": item.session_id, "status": item.status}
-            for item in self.state.sessions.values() if item.agent_id == agent.agent_id]
-        data["goal_bindings"] = [
-            {"task_name": f"目标：{goal.intent_kind}：{goal.goal}",
-             "intent_kind": goal.intent_kind}
-            for goal in agent.day_plan.goals] if agent.day_plan is not None else []
-        _validate_visible_binding_names(data)
-        data.update(self._observation_evidence(agent))
+        data.update(bindings)
+        data.update(self._observation_evidence(agent, experiences))
         data.update(self._event_tool_support(agent, recent, rows["window"].presented))
         return data
 
-    def _projection_extras(self, agent, product_rows: list[dict],
-                           menu: dict[str, PresentationWindow]) -> dict:
-        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源）。"""
+    def _name_bindings(self, agent, task_rows: tuple[dict, ...]) -> dict:
+        """@brief 本轮可读名称到内部身份的私有绑定：任务、当日目标、活动与会话（活动与会话名重名时追加序号）。
+
+        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复（受限轮的恢复枚举只列这些活动）。
+        """
+        goals = [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}", "intent_kind": goal.intent_kind}
+                 for goal in agent.day_plan.goals] if agent.day_plan is not None else []
+        names = activity_control.visible_names(
+            self.state, agent.agent_id, [row["title"] for row in task_rows] + [row["task_name"] for row in goals])
+        activities = self.state.activities
         return {
+            "names": names,
+            "task_bindings": [{"task_name": row["title"], "task_id": row["task_id"],
+                               "submission_ready": row["submission_ready"]} for row in task_rows],
+            "goal_bindings": goals,
+            "activity_bindings": [{"name": name, "activity_id": activity_id,
+                                   "phase": activity_control.activity_phase(activities[activity_id]),
+                                   "resumable": activity_control.resumable_here(self.state, activities[activity_id])}
+                                  for activity_id, name in names["activities"].items()],
+            "session_bindings": [{"name": name, "session_id": session_id}
+                                 for session_id, name in names["sessions"].items()],
+        }
+
+    def _projection_extras(self, agent, product_rows: list[dict],
+                           menu: dict[str, PresentationWindow], context: dict) -> dict:
+        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源；context 为可见名称与已核验经历）。"""
+        return {
+            **context,
+            "content_titles": self.rules.content_titles,
             "scenario_messages": self.rules.messages,
             "route_rows": self._route_rows(agent),
             "reachable_places": self._reachable_places(agent),
@@ -92,14 +111,13 @@ class ObservationMixin:
             "browse_targets": BROWSE_TARGETS,
         }
 
-    def _observation_evidence(self, agent) -> dict:
+    def _observation_evidence(self, agent, experiences: list[dict]) -> dict:
         """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。
 
         same_moment_stage 是同刻上限受限轮的阶段（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」），
-        宿主据此收窄世界请求工具与名称枚举；它不进 scene 与 facts。
+        宿主据此收窄世界请求工具与名称枚举；它不进 scene 与 facts。verified_experiences 是已核验经历的结构行，
+        仍是私有证据；模型只见 facts.experiences 中由同一窗口写成的句子。
         """
-        from worldmock.footprints.experiences import recent_verified_experiences
-
         return {
             "paused_activities": [
                 _paused_activity_observation(item, self.state, self.semantics.body) for item in sorted(
@@ -107,8 +125,7 @@ class ObservationMixin:
                 if item.agent_id == agent.agent_id and item.status == ActivityStatus.PAUSED],
             "occupied_resources": sorted({claim for item in active_activities(self.state, agent.agent_id)
                                           for claim in item.resource_claims}),
-            "verified_experiences": recent_verified_experiences(
-                self.store, agent.agent_id, self.store.last_event_seq),
+            "verified_experiences": experiences,
             "wake_reasons": list(agent.pending_wake_reasons),
             "same_moment_stage": agent.same_moment_stage.value,
             "location_id": agent.location_id,
@@ -268,23 +285,27 @@ class ObservationMixin:
         return self._window_rows(agent, self._recent_action_results(agent.agent_id))["products"]
 
     def _activity_rows(self, agent) -> dict:
-        """@brief 按共同活动集合生成独立场景进度与完整控制行。"""
-        current, controls = [], []
+        """@brief 按共同活动集合生成独立场景进度与完整控制行；待收尾活动另列一组控制行（只接受收尾）。"""
+        current = []
         for item in active_activities(self.state, agent.agent_id):
-            title = self._activity_title(item)
-            progress = _activity_progress_phrase(item)
             label = "听取" if (item.kind == ActivityKind.WATCH
                                and self.rules.content(item.target_id).kind == "podcast_episode") else "进行"
-            current.append({"title": title or item.kind.value, "progress": progress, "verb": label})
-            controls.append({"activity_id": item.activity_id, "kind": item.kind.value,
-                             "status": item.status.value, "title": title, "progress": progress,
-                             "elapsed_seconds": item.elapsed_seconds,
-                             "planned_duration_seconds": item.planned_duration_seconds,
-                             "data": deepcopy(item.data)})
-        return {"current": current, "control": controls,
+            current.append({"title": self._activity_title(item) or item.kind.value,
+                            "progress": _activity_progress_phrase(item), "verb": label})
+        return {"current": current,
+                "control": [self._control_row(item) for item in active_activities(self.state, agent.agent_id)],
+                "pending": [self._control_row(item)
+                            for item in activity_control.pending_conclusions(self.state, agent.agent_id)],
                 "paused": [{"title": self._activity_title(item) or item.kind.value,
                             "progress": _activity_progress_phrase(item)}
                            for item in paused_activities(self.state, agent.agent_id)]}
+
+    def _control_row(self, item) -> dict:
+        """@brief 一项活动的八键控制行：身份、种类、实际状态、标题、进度短语、已做与计划秒数、数据深拷贝。"""
+        return {"activity_id": item.activity_id, "kind": item.kind.value, "status": item.status.value,
+                "title": self._activity_title(item), "progress": _activity_progress_phrase(item),
+                "elapsed_seconds": item.elapsed_seconds, "planned_duration_seconds": item.planned_duration_seconds,
+                "data": deepcopy(item.data)}
 
     def _market_summary(self) -> dict | None:
         """@brief 仅报告市场存在性，不从未呈现供给泄露报价或购买凭据。"""
@@ -737,16 +758,6 @@ def _recent_meal_counts(activities, agent_id: int, now: int) -> dict[str, int]:
             if consumed > 0:
                 counts[product_id] = counts.get(product_id, 0) + ceil(consumed)
     return counts
-
-
-def _validate_visible_binding_names(data: dict[str, Any]) -> None:
-    """@brief 冻结观察前拒绝会让人物名称无法唯一解析的任务或会话。"""
-    names = ([row["task_name"] for row in data["task_bindings"]]
-             + [row["session_name"] for row in data["session_bindings"]]
-             + [row["task_name"] for row in data["goal_bindings"]])
-    if len(names) != len(set(names)):
-        logging.error("Visible task or session names are ambiguous")
-        raise ValueError("visible task or session names must be unique")
 
 
 def _sample_contents(contents, profile, taste_weights) -> tuple:

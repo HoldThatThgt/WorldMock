@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 stage_day_plan)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.life.dining import local_food_summary
 from worldmock.life.discovery import DiscoveryContext
@@ -47,19 +48,30 @@ def _start(engine, name: str, kind: str, object_id: str | None, action: str):
     return observed, result
 
 
-def _finish(engine, activity_id: str) -> None:
-    """@brief 只通过真实时间边界推进持续活动到完成。"""
+def _run_to_end(engine, activity_id: str) -> None:
+    """@brief 只通过真实时间边界推进持续活动到完成，途中按活动名播报。"""
     for step in range(64):
         if engine.state.activities[activity_id].status == "completed":
             return
         if engine.scheduling_state().ready_agent_ids:
-            session = next(item for item in engine.state.sessions.values()
-                           if activity_id in item.activity_ids)
             _action(engine, f"continue-{activity_id}-{step}", "report_status",
-                    ReportStatusRequest(task=[session.session_name], summary=["继续进行。"]))
+                    ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续进行。"]))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
+
+
+def _conclude(engine, activity_id: str) -> None:
+    """@brief 活动结束的那一秒当即收尾（规格第七章「活动一结束就要结束它」）。"""
+    _action(engine, f"conclude-{activity_id}", "conclude_activity",
+            conclude_request(activity_name(engine, activity_id)))
+    assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
+
+
+def _finish(engine, activity_id: str) -> None:
+    """@brief 推进持续活动到完成并当秒收尾。"""
+    _run_to_end(engine, activity_id)
+    _conclude(engine, activity_id)
 
 
 def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path: Path) -> None:
@@ -74,10 +86,12 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         agent = engine.state.agents[1]
         assert local_food_summary(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
         _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行前往")
-        _finish(engine, started.activity_id)
+        _run_to_end(engine, started.activity_id)
         agent = engine.state.agents[1]
         assert agent.location_id == RESTAURANT
         assert visible_supplies(engine.state, agent, engine.scenario) == []
+        # 到达当秒先给出行收尾；这一轮就是到店后的首次观察（第七章「活动一结束就要结束它」）。
+        _conclude(engine, started.activity_id)
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
         if engine.state.current_time < opening:
             assert local_food_summary(engine._discovery_context(agent)) == (

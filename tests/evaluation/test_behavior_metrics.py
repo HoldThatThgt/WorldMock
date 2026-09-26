@@ -237,6 +237,34 @@ def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     assert report["autonomous_decisions"] == 1
 
 
+def test_autonomous_decision_rate_lists_control_rounds_separately() -> None:
+    """@brief 只做结束、暂停或修订的控制轮单列计数，既不算自主也不算被动（docs/design/07-evaluation.md「2.2 报告项」）。
+
+    待收尾活动当秒 conclude_activity 的收尾轮（时间与能量规格第七章）因此不稀释自主决策占比。
+    """
+    control = [
+        _event("decision_started", _clock(0, 8, 1), decision_id="d1"),
+        _action(2, "d1", "conclude_activity", {"task": ["等待（1月5日 08:00 起）"], "summary": ["等完了。"],
+                                               "memories": [[]]}),
+        _event("decision_started", _clock(0, 8, 3), decision_id="d2"),
+        _action(4, "d2", "pause_activity", {"task": ["观看节目（1月5日 08:00 起）"], "summary": ["先停一下。"]}),
+        _event("decision_started", _clock(0, 8, 5), decision_id="d3"),
+        _action(6, "d3", "revise_day_plan", {"goals": []}),
+    ]
+    events = control + [
+        _event("decision_started", _clock(0, 8, 7), decision_id="d4"),
+        _action(8, "d4", "start_activity", {"targets": ["内容：节目"], "actions": ["观看"]}),
+        _event("decision_started", _clock(0, 8, 9), decision_id="d5"),
+        _action(10, "d5", "start_activity", {"targets": ["自己"], "actions": ["等待"]}),
+    ]
+    report = _report(events)["reports"]["effective_autonomous_decision_rate"]
+    assert report == {"value": 0.5, "decision_count": 5, "decisions_with_action": 5,
+                      "autonomous_decisions": 1, "control_decisions": 3}
+    only_control = _report(control)["reports"]["effective_autonomous_decision_rate"]
+    assert only_control == {"value": None, "decision_count": 3, "decisions_without_action": 0,
+                            "control_decisions": 3}
+
+
 def test_wake_reason_distribution_counts() -> None:
     """@brief 唤醒原因按出现次数累计；sleep 的事件也参与统计。"""
     events = [

@@ -15,7 +15,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_until_ready, advance_next, context, stage_day_plan, submit_round
+from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, pending_names,
+                                 stage_day_plan, submit_round)
 from worldmock.footprints.models import (
     RESOURCE_FLOWS_FIELD,
     EventDraft,
@@ -84,6 +85,21 @@ def _selected_round(engine, round_id: str, agent_one_action: str,
     return sorted(engine.commit_decision_round(round_id), key=lambda item: item.agent_id)
 
 
+def _conclude_round(engine, round_id: str) -> list:
+    """@brief 全部就绪人物在活动结束的那一秒给各自刚结束的活动收尾（规格第七章「活动一结束就要结束它」）。"""
+    ready = engine.scheduling_state().ready_agent_ids
+    contexts = [context(engine, round_id, agent_id) for agent_id in ready]
+    engine.begin_decision_round(contexts)
+    names = {item.agent_id: pending_names(engine.observe(item)) for item in contexts}
+    assert ready and all(names.values()), names
+    for item in contexts:
+        engine.submit_action(DirectToolCall(item, f"action-{round_id}-{item.agent_id}", "conclude_activity",
+                                            conclude_request(*names[item.agent_id])))
+    results = engine.commit_decision_round(round_id)
+    assert all(item.status == "completed" for item in results)
+    return results
+
+
 def _transfer_entries(engine) -> list[TransferEntry]:
     """把足迹资金事件改写为双边转账分录（单一付款方、逐对金额相等）。"""
     events = [event for event in engine.store.read_events(engine.store.last_event_seq)
@@ -109,6 +125,7 @@ def test_one_day_fixture_reconciles_six_accounts_against_ledger(engine_factory) 
     stage_day_plan(engine, 2)
     assert _selected_round(engine, "browse", "browse")[0].status == "in_progress"
     advance_next(engine)
+    _conclude_round(engine, "browse-end")
     purchase = _selected_round(engine, "buy", "purchase", mode="delivery")
     assert purchase[0].status in {"completed", "in_progress"}, purchase[0].error_code
     order = purchase[0].data["orders"][0]
@@ -211,8 +228,9 @@ def test_advance_intervals_keep_flows_attributed_per_event(engine_factory) -> No
     stage_day_plan(engine, 2)
     submit_round(engine, {1: ("start_activity", _wait()),
                           2: ("start_activity", _wait())}, "wait")
-    # 第一段结束后开始下一段，共同身体账跨区间连续。
+    # 第一段结束后当秒收尾再开始下一段（规格第七章），共同身体账跨区间连续。
     assert advance_until_ready(engine)
+    _conclude_round(engine, "wait-end")
     submit_round(engine, {1: ("start_activity", _wait()),
                           2: ("start_activity", _wait())}, "keep-waiting")
     advance_next(engine)

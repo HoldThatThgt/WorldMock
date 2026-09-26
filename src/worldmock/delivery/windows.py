@@ -161,7 +161,11 @@ def _visible_event(event: dict, directory: Path) -> dict:
 
 
 def _public_event_data(event: dict) -> dict:
-    """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。"""
+    """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。
+
+    conclude_activity.memories 属于记忆写入：意图与 dreaming 窗口输入中的动作请求裁去 request.memories，
+    只保留 task 与 summary；动作窗口的目标仍保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章）。
+    """
     data = event["data"]
     kind = event["event_type"]
     if kind == "observation":
@@ -173,7 +177,10 @@ def _public_event_data(event: dict) -> dict:
         statement = data.get("decision_statement")
         return {"decision_statement": statement} if isinstance(statement, str) else {}
     if kind == "action_requested":
-        return {key: data[key] for key in ("tool_name", "request") if key in data}
+        public = {key: data[key] for key in ("tool_name", "request") if key in data}
+        if data.get("tool_name") == "conclude_activity" and isinstance(public.get("request"), dict):
+            public["request"] = {key: value for key, value in public["request"].items() if key != "memories"}
+        return public
     if kind in {"action_result", "action_accepted", "action_rejected", "activity_progress"}:
         return {key: data[key] for key in ("status", "error_code", "message") if key in data}
     return {}

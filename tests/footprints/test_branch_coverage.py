@@ -57,7 +57,12 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
             "elapsed_seconds": elapsed, "status": status, **fields}
 
 
-def _tool_response(call_id, arguments, name="finish", usage=None, error=None, model="deepseek-flash"):
+def _conclusion(*memories):
+    """结束一项活动的 conclude_activity 参数：task、summary 与 memories 三数组等长（生活决策没有 finish）。"""
+    return {"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+
+
+def _tool_response(call_id, arguments, name="conclude_activity", usage=None, error=None, model="deepseek-flash"):
     response = {
         "phase": "response", "call_id": call_id, "attempt": 1, "error": error,
         "response": {
@@ -230,67 +235,69 @@ def test_efficiency_reports_missing_and_partial_samples():
 
 
 def test_memory_quality_reports_each_problem_code():
-    def update_data(identity):
-        return {"operation": "append_episodes", "created_episode_ids": [identity],
-                "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
+    """记忆质量的问题码闭集按写入点核对（docs/dev/SPEC-time-and-energy.md 第七章「来源由系统记录」）。
+
+    记忆不再带引用、没有 memory_read 与 finish，依赖它们的问题码（unknown_memory_reference、
+    finish_without_memory_update、memory_update_without_successful_finish、invalid_memory_tool_arguments、
+    invalid_memory_reference_shape）不再出现；trigger 或 decision_id 畸形归入 invalid_memory_update。
+    """
+    def update_data(identity, decision_id, trigger=("activity_conclusion",), merged=()):
+        return {"operation": "append_episodes", "created_episode_ids": [] if merged else [identity],
+                "merged_episode_ids": list(merged), "episodes": [{"id": identity, "type": "goal",
                 "text": "我想出门", "epistemic_status": "subjective"}],
                 "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
                 "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
                 "consolidated": False, "observation_event_id": "observation-absent",
-                "verified_event_ids": []}
-    bad_json = _tool_response("call-1", "{not json", name="memory_read")
-    not_a_list = _tool_response("call-2", {"ids": "not-a-list"}, name="memory_read")
-    memories_not_list = _tool_response("call-3", {"memories": "nope"})
-    bad_refs = _tool_response("call-4", {"memories": [{"refs": [1]}]})
-    other_tool = _tool_response("call-5", {"query": "x"}, name="search")
-    no_name = {
-        "phase": "response", "call_id": "call-6", "attempt": 1, "error": None,
-        "response": {"model": "deepseek-flash", "usage": _usage(),
-                     "choices": [{"message": {"tool_calls": [
-                         {"function": {"arguments": "{}"}}]}}]},
-    }
-    dict_arguments = _tool_response("call-7", {"ids": []}, name="memory_read")
-    none_arguments = _tool_response("call-8", 42, name="memory_read")
+                "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
+    memory_item = {"type": "goal", "text": "我想出门", "importance": 0.5, "keywords": ["出门"]}
     events = [
-        _event(1, "model_response", agent_id=1, decision_id="d1", data=bad_json),
-        _event(2, "model_response", agent_id=1, decision_id="d1", data=not_a_list),
-        _event(3, "model_response", agent_id=1, decision_id="d1", data=memories_not_list),
-        _event(4, "model_response", agent_id=1, decision_id="d1", data=bad_refs),
-        _event(5, "model_response", agent_id=1, decision_id="d1", data=other_tool),
-        _event(6, "model_response", agent_id=1, decision_id="d1", data=no_name),
-        _event(7, "model_response", agent_id=1, decision_id="d1", data=dict_arguments),
-        _event(8, "model_response", agent_id=1, decision_id="d1", data=none_arguments),
-        _event(9, "model_response", agent_id=1, decision_id="d1",
-               data={"phase": "response", "call_id": "call-9", "error": "memory tool failed"}),
-        _event(10, "memory_updated", agent_id=1, decision_id="d1", data={"episode_ids": "bad"}),
-        _event(11, "memory_updated", agent_id=1, decision_id="d2",
-               data=update_data("m1")),
-        _event(12, "memory_updated", agent_id=1, decision_id="d2",
-               data=update_data("m1")),
-        _event(13, "run_failed", occurred_at=200, data={"error": "memories corrupted"}),
+        _event(1, "model_response", agent_id=1, decision_id="d1",
+               data=_tool_response("call-1", "{not json", error="invalid conclude_activity arguments: memories")),
+        _event(2, "model_response", agent_id=1, decision_id="d1",
+               data=_tool_response("call-2", {"query": "x"}, name="search", usage=_usage())),
+        _event(3, "memory_updated", agent_id=1, decision_id="d1", data={"episode_ids": "bad"}),
+        _event(4, "action_requested", agent_id=1, decision_id="d2", action_id="a2",
+               data={"tool_name": "conclude_activity", "request": _conclusion(memory_item)}),
+        _event(5, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m1", "d2")),
+        _event(6, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m1", "d2")),
+        _event(7, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m2", "d2", ("finish",))),
+        _event(8, "memory_updated", agent_id=1, decision_id="d2", data=update_data("m3", "another")),
+        _event(9, "memory_updated", agent_id=1, decision_id="d3",
+               data=update_data("absent", "d3", ("reflection",), merged=("absent",))),
+        _event(10, "action_requested", agent_id=1, decision_id="d4", action_id="a4",
+               data={"tool_name": "conclude_activity", "request": _conclusion(memory_item)}),
+        _event(11, "run_failed", occurred_at=200, data={"error": "memories corrupted"}),
     ]
     memory = _run_report(events, [], _manifest(end=200))["memory_references"]
-    codes = [problem["code"] for problem in memory["problems"]]
-    assert "invalid_memory_tool_arguments" in codes
-    assert "invalid_memory_reference_shape" in codes
-    assert "memory_protocol_error" in codes
-    assert "invalid_memory_update" in codes
-    assert "duplicate_memory_episode_id" in codes
-    assert "memory_update_without_successful_finish" in codes
-    assert "memory_run_failure" in codes
+    codes = [(problem["code"], problem["event_id"]) for problem in memory["problems"]]
+    assert codes == [
+        ("memory_protocol_error", "event-1"),
+        ("invalid_memory_update", "event-3"),
+        ("invalid_memory_update_source_window", "event-5"),
+        ("duplicate_memory_episode_id", "event-6"),
+        ("invalid_memory_update_source_window", "event-6"),
+        ("invalid_memory_update", "event-7"),
+        ("invalid_memory_update", "event-8"),
+        ("unknown_merged_memory_episode_id", "event-9"),
+        ("invalid_memory_update_source_window", "event-9"),
+        ("memory_update_without_source", "event-9"),
+        ("memory_run_failure", "event-11"),
+        ("conclusion_without_memory_update", "event-10"),
+    ]
+    assert memory["write_points_checked"] == 3
 
 
 def test_model_usage_reports_cost_breakdown_rejections_and_pending_calls():
     naive_time = "2026-09-15T07:00:00"
-    bad_tokens = _tool_response("call-1", {"memories": []},
+    bad_tokens = _tool_response("call-1", _conclusion(),
                                 usage={"prompt_tokens": "x", "completion_tokens": 2,
                                        "total_tokens": 3, "prompt_cache_hit_tokens": 0,
                                        "prompt_cache_miss_tokens": 100})
-    disagree = _tool_response("call-2", {"memories": []}, usage=_usage(prompt_cache_hit_tokens=50))
+    disagree = _tool_response("call-2", _conclusion(), usage=_usage(prompt_cache_hit_tokens=50))
     events = [
         _event(1, "model_request", recorded_at=naive_time, data={"call_id": "call-0"}),
         _event(2, "model_response", recorded_at=naive_time,
-               data=_tool_response("call-0", {"memories": []}, usage=_usage())),
+               data=_tool_response("call-0", _conclusion(), usage=_usage())),
         _event(3, "model_request", data={"call_id": "call-1"}),
         _event(4, "model_response", data=bad_tokens),
         _event(5, "model_request", data={"call_id": "call-2"}),
@@ -822,7 +829,7 @@ def test_account_transition_rejects_unbalanced_changes_and_bad_types():
 
 
 def test_account_transition_rejects_nonzero_sum_counterparty_event():
-    """资金零和守恒（docs/dev/SPEC-footprints.md「资金守恒验证」）：每笔转账必须指名双方且合计为零。
+    """资金零和守恒（docs/design/05-recording-engine.md「资金守恒验证」）：每笔转账必须指名双方且合计为零。
 
     双边金额不抵消的事件（{a:-5, b:+4}，合计 -1）即使账户差额与事件逐项
     一致，也必须被 `sum(money.values()) != 0` 子句拒绝——`len(money) < 2`

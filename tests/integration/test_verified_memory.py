@@ -1,4 +1,7 @@
-"""WorldMock 人物记忆的已核验事实和主观自述隔离。"""
+"""WorldMock 人物记忆的已核验事实和主观自述隔离。
+
+主观条目只经 conclude_activity.memories 写入，宿主按 task 展平并由系统固定来源（docs/dev/SPEC-time-and-energy.md 第七章）。
+"""
 
 import hashlib
 import json
@@ -13,6 +16,7 @@ os.environ.setdefault("AGENTSOCIETY_LLM_API_BASE", "https://api.deepseek.com")
 
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
 from agentsociety2.agent.base.react import MemoryUpdateEvidence
+from custom.agents.life_agent import _conclusion_memories
 from custom.agents.life_memory import WorldMockMemoryRuntime, render_memory_view
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import EventDraft
@@ -42,6 +46,14 @@ def _runtime(tmp_path, dispatch=None):
     return runtime, owner
 
 
+def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
+               keywords: tuple[str, ...] = ()) -> list[dict]:
+    """结束一项活动时写下的一条记忆，经宿主按 task 展平（来源 activity_conclusion，认知状态 subjective）。"""
+    memory = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
+    return _conclusion_memories("conclude_activity", {
+        "task": ["等待（9月21日 16:00 起）"], "summary": ["收尾。"], "memories": [[memory]]})
+
+
 def _wait_fact(event_id="progress-1", seq=1):
     return {"kind": "waited", "agent_id": 1, "activity_id": "waiting", "source_event_id": event_id,
             "event_seq": seq, "occurred_at": 100, "interval_start": 90, "interval_end": 100,
@@ -67,11 +79,10 @@ def test_oversized_fact_view_fails_instead_of_truncating_verified_evidence():
 async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjective_counter(tmp_path):
     runtime, owner = _runtime(tmp_path)
     owner._life_verified_experiences = [_wait_fact()]
-    subjective = {"type": "goal", "importance": 0.7, "keywords": ["饭"],
-                  "text": "我已经吃完三顿饭", "source": "decision_observation", "refs": ["observation-1"],
-                  "epistemic_status": "subjective"}
-    first = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[subjective])
+    subjective = _concluded("我已经吃完三顿饭", importance=0.7, keywords=("饭",))
+    first = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=subjective)
     assert len(first.created_episodes) == 1 and first.merged_episodes == ()
+    assert first.created_episodes[0]["source"] == "activity_conclusion"
     assert first.verified_event_ids == ("progress-1",)
     assert runtime.store.read_state()["pending_episode_count"] == 1
     view = runtime.store.memory_md_path.read_text(encoding='utf-8')
@@ -113,10 +124,8 @@ async def test_multi_item_meal_keeps_both_facts_but_references_source_once(tmp_p
         facts = project_verified_experiences([progress], agent_id=1, cutoff_seq=progress.event_seq)
         runtime, owner = _runtime(tmp_path / "memory")
         owner._life_verified_experiences = facts
-        memory = {"type": "goal", "importance": 0.5, "text": "想再来一碗汤",
-                  "source": "decision_observation", "refs": ["observation-1"],
-                  "epistemic_status": "subjective"}
-        outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[memory])
+        outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1,
+                                           finish_memories=_concluded("想再来一碗汤"))
         assert [item["product_id"] for item in facts] == ["rice", "soup"]
         assert outcome.verified_event_ids == (progress.event_id,)
         assert runtime.store.memory_md_path.read_text(encoding='utf-8').count(progress.event_id) == 2
@@ -156,16 +165,16 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
 
     runtime, owner = _runtime(tmp_path, dispatch)
     holder["runtime"] = runtime
-    memory = {"type": "relationship", "importance": 0.6, "text": "想多联系朋友",
-              "source": "decision_observation", "refs": ["observation-1"],
-              "epistemic_status": "subjective"}
     outcome = await runtime.after_step(
-        tick=60, t=_TIME, step_count=1, finish_memories=[memory], sleep_boundary=True)
+        tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6),
+        sleep_boundary=True)
     assert holder["calls"] == 2
     assert len(outcome.created_episodes) == 2
     reflection = next(item for item in outcome.created_episodes if item["type"] == "reflection")
     assert reflection["epistemic_status"] == "subjective"
     assert reflection["source"] == "reflection"
+    conclusion = next(item for item in outcome.created_episodes if item["type"] == "relationship")
+    assert conclusion["source"] == "activity_conclusion"
     assert outcome.consolidated is True
     assert runtime.store.read_subjective_summary() == "我想和朋友保持联系。"
 
@@ -179,22 +188,17 @@ def test_memory_tool_returns_explicit_subjective_label_even_when_empty(tmp_path)
 def test_memory_store_results_cannot_mutate_persisted_nested_episode_data(tmp_path):
     runtime, _ = _runtime(tmp_path)
     store = runtime.store
-    store.append_episodes([{"type": "goal", "importance": 0.5, "text": "愿意去散步",
-                            "keywords": ["散步"], "refs": ["observation-1"],
-                            "epistemic_status": "subjective"}], tick=60, t=_TIME, step_count=1)
+    store.append_episodes(_concluded("愿意去散步", keywords=("散步",)), tick=60, t=_TIME, step_count=1)
     retrieved = store.iter_episodes()
-    retrieved[0]["refs"].append("fabricated")
-    assert store.iter_episodes()[0]["refs"] == ["observation-1"]
+    retrieved[0]["keywords"].append("fabricated")
+    assert store.iter_episodes()[0]["keywords"] == ["散步"]
 
 
 @pytest.mark.asyncio
 async def test_restore_preserves_subjective_identity_and_rejects_status_tampering(tmp_path):
     runtime, owner = _runtime(tmp_path)
     owner._life_verified_experiences = [_wait_fact()]
-    memory = {"type": "goal", "importance": 0.5, "text": "想休息",
-              "source": "decision_observation", "refs": ["observation-1"],
-              "epistemic_status": "subjective"}
-    outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[memory])
+    outcome = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想休息"))
     identity = outcome.created_episodes[0]["id"]
     persisted_view = runtime.store.memory_md_path.read_bytes()
     resumed = WorldMockMemoryRuntime(owner, MemoryRuntimeConfig())
@@ -212,12 +216,10 @@ async def test_restore_preserves_subjective_identity_and_rejects_status_tamperin
 async def test_repeated_subjective_memory_reports_merge_identity_without_duplicate(tmp_path):
     """相似记忆合并沿用旧身份，并在本次更新结果明确报告合并。"""
     runtime, _ = _runtime(tmp_path)
-    memory = {"type": "goal", "importance": 0.5, "text": "想去附近散步",
-              "source": "decision_observation", "refs": ["observation-1"],
-              "epistemic_status": "subjective"}
-    first = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=[memory])
+    memory = _concluded("想去附近散步")
+    first = await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=memory)
     identity = first.created_episodes[0]["id"]
-    second = await runtime.after_step(tick=120, t=_TIME, step_count=2, finish_memories=[memory])
+    second = await runtime.after_step(tick=120, t=_TIME, step_count=2, finish_memories=memory)
     assert second.created_episodes == ()
     assert [row["id"] for row in second.merged_episodes] == [identity]
     assert second.merged_episodes[0]["epistemic_status"] == "subjective"

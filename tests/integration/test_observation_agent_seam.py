@@ -1,4 +1,4 @@
-"""真实引擎观察与 LifeAgent 的可读会话、活动和目标接缝。"""
+"""真实引擎观察与 LifeAgent 的可读会话、活动和目标接缝（进度层按会话分组列活动，控制工具点名活动）。"""
 
 from __future__ import annotations
 
@@ -18,7 +18,9 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.life.conftest import (  # noqa: E402
+    activity_name,
     advance_until_ready,
+    conclude_pending,
     wake_by_mail,
     context,
     engine_factory as _engine_factory,  # noqa: F401
@@ -29,7 +31,7 @@ from worldmock.life.models import (  # noqa: E402
     StartActivityRequest,
 )
 
-#: 引擎事件级活动控制行字段闭集，模型只读取 facts.progress 的可读会话。
+#: 引擎事件级活动控制行字段闭集，模型只读取 facts.progress 按会话分组的可读活动行。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
     "activity_id", "kind", "status", "title", "progress",
     "elapsed_seconds", "planned_duration_seconds", "data",
@@ -66,7 +68,7 @@ def _observation_records(observation: dict) -> list[dict]:
 
 
 def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> None:
-    """真实活动与会话投影形成可读控制名，人物工具只读取会话。"""
+    """真实活动投影形成可读活动名，人物的活动控制工具只读取进度层活动行，不见内部身份。"""
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
 
@@ -83,28 +85,30 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
                for item in agent.build_react_tool_schemas(readonly=False)}
     assert {"report_status", "pause_activity", "conclude_activity"} <= set(schemas)
     [session] = observation["facts"]["progress"]["sessions"]
-    assert session["phase"] == "进行中"
-    assert session["session_name"] in schemas["report_status"]["parameters"]["properties"][
-        "task"]["items"]["enum"] or session["task_name"] in schemas["report_status"]["parameters"][
-            "properties"]["task"]["items"]["enum"]
+    [activity] = session["activities"]
+    assert activity["phase"] == "进行中"
+    assert activity["name"] == activity_name(engine, control["activity_id"])
+    for tool in ("report_status", "pause_activity", "conclude_activity"):
+        assert schemas[tool]["parameters"]["properties"]["task"]["items"]["enum"] == [activity["name"]]
     assert control["activity_id"] not in str(schemas)
+    assert observation["session_bindings"][0]["session_id"] not in str(schemas)
     control["data"]["observer_write"] = "must stay outside the world"
     assert "observer_write" not in engine.state.activities[control["activity_id"]].data
 
 
-def test_life_agent_rejects_session_without_valid_phase(
+def test_life_agent_rejects_activity_without_valid_phase(
     _engine_factory,
 ) -> None:
-    """模型可见会话阶段缺失或非法时，人物工具构建失败关闭。"""
+    """模型可见活动阶段缺失或非法时，人物工具构建失败关闭。"""
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
-    assert observation["facts"]["progress"]["sessions"][0]["phase"] == "进行中"
+    assert observation["facts"]["progress"]["sessions"][0]["activities"][0]["phase"] == "进行中"
 
     for invalid in (None, "未知阶段"):
         damaged = copy.deepcopy(observation)
-        damaged["facts"]["progress"]["sessions"][0]["phase"] = invalid
+        damaged["facts"]["progress"]["sessions"][0]["activities"][0]["phase"] = invalid
         agent = LifeAgent()
-        with pytest.raises(RuntimeError, match="session status is invalid"):
+        with pytest.raises(RuntimeError, match="activity phase is invalid"):
             agent.prepare_react_loop(ReactLoopRequest(
                 0, ctx.observed_at, _observation_records(damaged)))
 
@@ -185,7 +189,9 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
     try:
         assert restored.state.activities[activity.activity_id].target_id == game["object_id"]
         visible = restored._observation_data(restored.state.agents[1])
-        assert any(row["session_name"] for row in visible["facts"]["progress"]["sessions"])
+        rows = visible["facts"]["progress"]["sessions"]
+        assert all(row["name"] for row in rows)
+        assert activity.name in [item["name"] for row in rows for item in row["activities"]]
     finally:
         restored.close()
 
@@ -215,15 +221,19 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
         {"targets": ["自己"], "actions": ["等待"]})
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
-    expected = engine.state.agents[1].day_plan.model_dump(mode="json")
-    goal = expected["goals"][0]
+    progressed = engine.state.agents[1].day_plan.model_dump(mode="json")
+    goal = progressed["goals"][0]
     assert goal["goal"] == "缓一缓"
     assert goal["progressed_at"] > goal["registered_at"]
     assert goal["progress_activity_id"] == started.data["activity"]["activity_id"]
     records = [json.loads(row[0]) for row in engine.store.connection.execute("SELECT body FROM events")]
-    assert any(row["event_type"] == "action_result" and row["data"].get("day_plan") == expected
+    assert any(row["event_type"] == "action_result" and row["data"].get("day_plan") == progressed
                for row in records) or any(
-        row["event_type"] == "activity_progress" and row["data"].get("day_plan") == expected for row in records)
+        row["event_type"] == "activity_progress" and row["data"].get("day_plan") == progressed for row in records)
+    # 等待到点即刚结束，人物当秒收尾（第七章「活动一结束就要结束它」），收尾自述写入关联目标。
+    assert conclude_pending(engine, "goals-conclude").status.value == "completed"
+    expected = engine.state.agents[1].day_plan.model_dump(mode="json")
+    assert expected["goals"][0] == {**goal, "progress_note": "收尾。"}
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "goal_tools_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.last_event_seq > 0

@@ -9,7 +9,8 @@ from pathlib import Path
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import context, submit_round
+from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names,
+                                 submit_round)
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import StartActivityRequest
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
@@ -128,18 +129,28 @@ def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
 
 
 def test_opslog_records_memory_update(engine_factory) -> None:
-    """记忆更新记录带人物与决策关联键及 episode 数量。"""
+    """记忆更新记录带人物与决策关联键及 episode 数量；写入点是同一决策登记的带记忆 conclude_activity（规格第七章）。"""
     engine = engine_factory()
+    wait = StartActivityRequest(targets=["自己"], actions=["等待"])
+    submit_round(engine, {1: ("start_activity", wait)}, "memory-wait")
+    assert advance_until_ready(engine)
     ctx = context(engine, "memory-ops")
+    engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
+    memory = {"type": "routine", "text": "记得今天的事", "importance": 0.3, "keywords": ["等待"]}
+    engine.submit_action(DirectToolCall(ctx, "action-memory-ops", "conclude_activity",
+                                        conclude_request(*pending_names(observation), memories=[[memory]])))
     evidence = MemoryUpdateEvidence(
         context=ctx, operation="append_episodes", created_episode_ids=("episode-1",),
-        merged_episode_ids=(), episodes=({"id": "episode-1", "type": "reflection",
+        merged_episode_ids=(), episodes=({"id": "episode-1", "type": "routine",
                                           "text": "记得今天的事", "epistemic_status": "subjective"},),
         memory_before_sha256="0" * 64, memory_sha256="a" * 64,
         episodes_sha256="b" * 64, state_sha256="c" * 64, consolidated=False,
-        observation_event_id=observation["observation_event_id"], verified_event_ids=())
+        observation_event_id=observation["observation_event_id"],
+        verified_event_ids=tuple(dict.fromkeys(row["source_event_id"]
+                                               for row in observation["verified_experiences"])))
     engine.record_memory_update(evidence)
+    assert engine.commit_decision_round("memory-ops")[0].status == "completed"
     records = _records(engine)
     updated = next(record for record in records if record["code"] == "MEMORY_UPDATED")
     assert updated["component"] == "memory" and updated["level"] == "info"

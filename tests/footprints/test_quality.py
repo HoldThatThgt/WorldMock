@@ -29,17 +29,25 @@ def _manifest(start=100, end=1100):
             "window": {"start": start, "end": end, "timezone": "Asia/Shanghai"}}
 
 
-def _tool_response(call_id, references, usage=None):
-    memory = {"text": "summary", "type": "observation", "importance": 0.5}
-    if references is not None:
-        memory["refs"] = references
-    arguments = {"memories": [memory]}
+def _memory(text="我以为自己已经吃过一顿饭。"):
+    """人物结束活动时写下的一条主观记忆：{type, text, importance, keywords}，不带任何身份。"""
+    return {"type": "reflection", "text": text, "importance": 0.2, "keywords": ["吃饭"]}
+
+
+def _conclusion(*memories):
+    """结束一项活动的 conclude_activity 请求；memories 与 task 等长，空组表示这次不写记忆。"""
+    return {"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
+
+
+def _tool_response(call_id, usage=None):
+    """生活决策的模型响应：恰好一个世界请求（没有 finish，记忆随 conclude_activity.memories 提交）。"""
+    arguments = _conclusion(_memory())
     return {
         "phase": "response", "call_id": call_id, "attempt": 1, "error": None,
         "response": {
             "model": "deepseek-flash", "usage": usage,
             "choices": [{"message": {"tool_calls": [{
-                "function": {"name": "finish", "arguments": json.dumps(arguments)},
+                "function": {"name": "conclude_activity", "arguments": json.dumps(arguments, ensure_ascii=False)},
             }]}}],
         },
     }
@@ -50,14 +58,22 @@ def _usage():
             "prompt_cache_hit_tokens": 40, "prompt_cache_miss_tokens": 60}
 
 
-def _memory_update(identity, observation_id):
+def _memory_update(identity, observation_id, decision_id, trigger=("activity_conclusion",)):
+    """引擎写出的 memory_updated.data：写入点 trigger 与所属决策 decision_id 由引擎按登记推导。"""
     return {"operation": "append_episodes", "created_episode_ids": [identity],
             "merged_episode_ids": [], "episodes": [{"id": identity, "type": "goal",
             "text": "想继续生活", "epistemic_status": "subjective"}],
             "memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64,
             "episodes_sha256": "c" * 64, "state_sha256": "d" * 64,
             "consolidated": False, "observation_event_id": observation_id,
-            "verified_event_ids": []}
+            "verified_event_ids": [], "trigger": list(trigger), "decision_id": decision_id}
+
+
+def _concluded(sequence, decision_id, *memories, action_id=None):
+    """一条已登记的 conclude_activity 请求事件。"""
+    return _event(sequence, "action_requested", agent_id=1, decision_id=decision_id,
+                  action_id=action_id or f"action-{decision_id}",
+                  data={"tool_name": "conclude_activity", "request": _conclusion(*memories)})
 
 
 def _activity(identity, kind, elapsed, status="completed", **fields):
@@ -66,24 +82,25 @@ def _activity(identity, kind, elapsed, status="completed", **fields):
 
 
 def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
+    """整份质量报告；两次收尾各在同一决策写出收尾记忆，第二次登记后结算被拒，记忆照写，不报问题。"""
     events = [
         _event(1, "observation", agent_id=1, decision_id="decision-1", data={"verified_experiences": []}),
         _event(2, "model_request", agent_id=1, decision_id="decision-1", data={"call_id": "call-1"}),
         _event(3, "model_response", agent_id=1, decision_id="decision-1",
-               data=_tool_response("call-1", None, _usage())),
-        _event(4, "memory_updated", agent_id=1, decision_id="decision-1",
-               data=_memory_update("memory-1", "event-1")),
-        _event(5, "observation", agent_id=1, decision_id="decision-2", data={"verified_experiences": []}),
-        _event(6, "model_request", agent_id=1, decision_id="decision-2", data={"call_id": "call-2"}),
-        _event(7, "model_response", agent_id=1, decision_id="decision-2",
-               data=_tool_response("call-2", ["memory-1"], _usage())),
-        _event(8, "memory_updated", agent_id=1, decision_id="decision-2",
-               data=_memory_update("memory-2", "event-5")),
-        _event(9, "action_requested", agent_id=1, action_id="action-1"),
-        _event(10, "action_result", agent_id=1, action_id="action-1", data={"status": "completed"}),
-        _event(11, "action_requested", agent_id=1, action_id="action-2"),
+               data=_tool_response("call-1", _usage())),
+        _concluded(4, "decision-1", _memory(), action_id="action-1"),
+        _event(5, "memory_updated", agent_id=1, decision_id="decision-1",
+               data=_memory_update("memory-1", "event-1", "decision-1")),
+        _event(6, "action_result", agent_id=1, action_id="action-1", data={"status": "completed"}),
+        _event(7, "observation", agent_id=1, decision_id="decision-2", data={"verified_experiences": []}),
+        _event(8, "model_request", agent_id=1, decision_id="decision-2", data={"call_id": "call-2"}),
+        _event(9, "model_response", agent_id=1, decision_id="decision-2",
+               data=_tool_response("call-2", _usage())),
+        _concluded(10, "decision-2", _memory("我想早点回家。"), action_id="action-2"),
+        _event(11, "memory_updated", agent_id=1, decision_id="decision-2",
+               data=_memory_update("memory-2", "event-7", "decision-2")),
         _event(12, "action_rejected", agent_id=1, action_id="action-2",
-               data={"error_code": "RESOURCE_BUSY"}),
+               data={"error_code": "ACTIVITY_CONCLUSION_REQUIRED"}),
         _event(13, "action_result", agent_id=1, action_id="action-2", data={"status": "rejected"}),
         _event(14, "activity_progress", data={
             "activity": {"kind": "work"},
@@ -109,7 +126,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
 
     assert report["run_outcome"]["status"] == "completed"
     assert report["actions"]["result_status_counts"]["rejected"] == 1
-    assert report["actions"]["business_rejection_codes"] == {"RESOURCE_BUSY": 1}
+    assert report["actions"]["business_rejection_codes"] == {"ACTIVITY_CONCLUSION_REQUIRED": 1}
     assert report["activities"]["completed_activities"] == 3
     assert report["activities"]["terminal_interruptions"] == 2
     assert report["content_contact"]["contact_seconds"] == 1100
@@ -118,7 +135,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
     assert report["conversion_efficiency"]["food"]["weighted_mean"] == 0.9
     assert report["memory_references"] == {
         "memory_update_events": 2, "persisted_episode_ids": 2,
-        "references_checked": 1, "problem_count": 0, "problems": [],
+        "write_points_checked": 2, "problem_count": 0, "problems": [],
     }
     assert report["model_usage"]["token_usage"]["complete_tokens"] == {
         "input_tokens": 200, "output_tokens": 40, "total_tokens": 240,
@@ -130,7 +147,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
 def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     events = [
         _event(1, "model_request", data={"call_id": "call"}),
-        _event(2, "model_response", data=_tool_response("call", [], None)),
+        _event(2, "model_response", data=_tool_response("call")),
         _event(3, "run_ended", occurred_at=200),
     ]
     activities = [_activity("watch-known", "watch", 20, target_id="show"),
@@ -153,7 +170,7 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
 
 
 def test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost():
-    response = _tool_response("call", [], _usage())
+    response = _tool_response("call", _usage())
     response["response"]["model"] = "another-model"
     events = [_event(1, "model_request", data={"call_id": "call"}),
               _event(2, "model_response", data=response),
@@ -194,7 +211,7 @@ def test_cost_band_uses_request_time_when_response_crosses_boundary():
     events = [
         _event(1, "model_request", recorded_at=request_time, data={"call_id": "call"}),
         _event(2, "model_response", recorded_at=response_time,
-               data=_tool_response("call", [], _usage())),
+               data=_tool_response("call", _usage())),
         _event(3, "run_ended", occurred_at=200),
     ]
 
@@ -203,24 +220,27 @@ def test_cost_band_uses_request_time_when_response_crosses_boundary():
     assert usage["estimated_cost"]["complete_estimate_usd"] == 0.00004224
 
 
-def test_memory_quality_reports_unknown_reference_and_missing_update():
-    events = [_event(1, "model_request", agent_id=1, decision_id="decision", data={"call_id": "call"}),
-              _event(2, "model_response", agent_id=1, decision_id="decision",
-                     data=_tool_response("call", ["absent"], _usage())),
-              _event(3, "run_ended", occurred_at=200)]
+def test_memory_quality_reports_conclusion_without_memory_update():
+    """带非空 memories 的 conclude_activity 在同一决策没有收尾写入点的 memory_updated 时报
+    conclusion_without_memory_update；memories 全是空组的收尾不要求写记忆（时间与能量规格第七章「来源由系统记录」）。"""
+    events = [_event(1, "observation", agent_id=1, decision_id="quiet", data={"verified_experiences": []}),
+              _concluded(2, "quiet"),
+              _event(3, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
+              _event(4, "model_request", agent_id=1, decision_id="decision", data={"call_id": "call"}),
+              _event(5, "model_response", agent_id=1, decision_id="decision", data=_tool_response("call", _usage())),
+              _concluded(6, "decision", _memory()),
+              _event(7, "run_ended", occurred_at=200)]
 
     memory = build_quality_report(events, [], _manifest(end=200))["memory_references"]
 
-    assert memory["references_checked"] == 1
-    assert [problem["code"] for problem in memory["problems"]] == [
-        "unknown_memory_reference", "finish_without_memory_update",
-    ]
-    assert memory["problems"][0]["reference_ids"] == ["absent"]
+    assert memory == {"memory_update_events": 0, "persisted_episode_ids": 0, "write_points_checked": 0,
+                      "problem_count": 1, "problems": [
+                          {"code": "conclusion_without_memory_update", "event_id": "event-6", "agent_id": 1}]}
 
 
-def test_non_memory_tool_json_error_is_counted_without_memory_warning(caplog):
-    """生活工具参数错误归入模型协议错误，不误报为记忆引用问题。"""
-    response = _tool_response("call", [], _usage())
+def test_non_memory_tool_json_error_is_counted_without_memory_warning():
+    """生活工具参数错误归入模型协议错误，不误报为记忆问题；conclude_activity.memories 的本地校验错误才是记忆协议错误。"""
+    response = _tool_response("call", _usage())
     response["error"] = "invalid tool arguments for report_status"
     function = response["response"]["choices"][0]["message"]["tool_calls"][0]["function"]
     function.update(name="report_status", arguments="{invalid json")
@@ -228,37 +248,91 @@ def test_non_memory_tool_json_error_is_counted_without_memory_warning(caplog):
     quality = build_quality_report([event], [], _manifest())
     assert quality["model_usage"]["protocol_error_responses"] == 1
     assert quality["memory_references"]["problem_count"] == 0
-    assert not any("Memory tool arguments are invalid JSON" in record.message
-                   for record in caplog.records)
+
+    oversized = _tool_response("call", _usage())
+    oversized["error"] = "invalid conclude_activity arguments: memories exceed eight entries in total"
+    event = _event(1, "model_response", agent_id=1, decision_id="decision", data=oversized)
+    memory = build_quality_report([event], [], _manifest())["memory_references"]
+    assert memory["problems"] == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
 
 
-def test_finish_memory_can_reference_its_observation_and_visible_prior_result():
-    events = [_event(1, 'action_result', agent_id=1, action_id='prior', data={'status': 'completed'}),
-              _event(2, 'observation', agent_id=1, decision_id='current',
-                 data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
-              _event(3, 'model_request', agent_id=1, decision_id='current', data={'call_id': 'call'}),
-              _event(4, 'model_response', agent_id=1, decision_id='current',
-                     data=_tool_response('call', ['event-1', 'event-2'], _usage())),
-              _event(5, 'memory_updated', agent_id=1, decision_id='current',
-                     data=_memory_update('m1', 'event-2'))]
-    memory = build_quality_report(events, [], _manifest())['memory_references']
-    assert memory['references_checked'] == 2
-    assert memory['problems'] == []
+def test_conclusion_and_reflection_in_one_step_are_each_matched_to_their_registration():
+    """醒来那一轮的收尾记忆与就寝反思同在一步：trigger 按顺序列两项，逐项对上登记（收尾请求、醒来的观察）。"""
+    events = [
+        _event(1, "observation", agent_id=1, decision_id="woke",
+               data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep", "planned_end"]}),
+        _concluded(2, "woke", _memory("睡得不太踏实。")),
+        _event(3, "memory_updated", agent_id=1, decision_id="woke",
+               data=_memory_update("m1", "event-1", "woke", ("activity_conclusion", "reflection"))),
+        _event(4, "observation", agent_id=1, decision_id="rested",
+               data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep"]}),
+        _event(5, "memory_updated", agent_id=1, decision_id="rested",
+               data=_memory_update("m2", "event-4", "rested", ("reflection",))),
+    ]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert memory == {"memory_update_events": 2, "persisted_episode_ids": 2, "write_points_checked": 3,
+                      "problem_count": 0, "problems": []}
+
+
+@pytest.mark.parametrize("wake_reasons,registered,trigger", [
+    (["planned_end"], False, ("activity_conclusion",)),
+    (["planned_end"], True, ("activity_conclusion", "reflection")),
+    (["planned_end"], False, ()),
+])
+def test_memory_update_whose_write_point_has_no_registration_has_no_source(wake_reasons, registered, trigger):
+    """写入点找不到对应登记即 memory_update_without_source：收尾写入点没有同一决策的 conclude_activity、反思写入点
+    不在醒来那一轮，或写入了条目却没有任何写入点。"""
+    events = [_event(1, "observation", agent_id=1, decision_id="decision",
+                     data={"verified_experiences": [], "wake_reasons": wake_reasons}),
+              *([_concluded(2, "decision", _memory())] if registered else []),
+              _event(3, "memory_updated", agent_id=1, decision_id="decision",
+                     data=_memory_update("m1", "event-1", "decision", trigger))]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert memory["write_points_checked"] == len(trigger)
+    assert memory["problems"] == [{"code": "memory_update_without_source", "event_id": "event-3", "agent_id": 1}]
+
+
+@pytest.mark.parametrize("change", [
+    {"trigger": "activity_conclusion"}, {"trigger": ["finish"]}, {"trigger": ["reflection", "activity_conclusion"]},
+    {"trigger": ["activity_conclusion", "activity_conclusion"]}, {"decision_id": "another-decision"},
+    {"decision_id": None},
+])
+def test_malformed_trigger_or_decision_is_an_invalid_memory_update(change):
+    """trigger 须是写入点闭集按序、无重复的列表，decision_id 须等于事件所属决策；否则整条记为 invalid_memory_update。"""
+    events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
+              _concluded(2, "decision", _memory()),
+              _event(3, "memory_updated", agent_id=1, decision_id="decision",
+                     data={**_memory_update("m1", "event-1", "decision"), **change})]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert memory["memory_update_events"] == 0
+    assert [item["code"] for item in memory["problems"]] == [
+        "invalid_memory_update", "conclusion_without_memory_update"]
+
+
+def test_memory_update_must_carry_its_observation_fact_window():
+    """记忆证据的观察身份与已核验经历窗口须等于同一决策绑定的观察，否则报 invalid_memory_update_source_window。"""
+    events = [_event(1, "observation", agent_id=1, decision_id="decision", data={"verified_experiences": []}),
+              _concluded(2, "decision", _memory()),
+              _event(3, "memory_updated", agent_id=1, decision_id="decision",
+                     data=_memory_update("m1", "event-absent", "decision"))]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert [item["code"] for item in memory["problems"]] == ["invalid_memory_update_source_window"]
 
 
 def test_merged_memory_identity_is_not_reported_as_a_duplicate():
-    first = _memory_update('m1', 'event-1')
-    merged = {**_memory_update('m1', 'event-4'), 'created_episode_ids': [],
+    first = _memory_update('m1', 'event-1', 'first')
+    merged = {**_memory_update('m1', 'event-4', 'second'), 'created_episode_ids': [],
               'merged_episode_ids': ['m1']}
     events = [
         _event(1, 'observation', agent_id=1, decision_id='first', data={'verified_experiences': []}),
-        _event(2, 'model_response', agent_id=1, decision_id='first',
-               data=_tool_response('first', ['event-1'], _usage())),
-        _event(3, 'memory_updated', agent_id=1, decision_id='first', data=first),
-        _event(4, 'observation', agent_id=1, decision_id='second', data={'verified_experiences': []}),
-        _event(5, 'model_response', agent_id=1, decision_id='second',
-               data=_tool_response('second', ['m1'], _usage())),
-        _event(6, 'memory_updated', agent_id=1, decision_id='second', data=merged),
+        _event(2, 'model_response', agent_id=1, decision_id='first', data=_tool_response('first', _usage())),
+        _concluded(3, 'first', _memory()),
+        _event(4, 'memory_updated', agent_id=1, decision_id='first', data=first),
+        _event(5, 'observation', agent_id=1, decision_id='second', data={'verified_experiences': []}),
+        _event(6, 'model_response', agent_id=1, decision_id='second', data=_tool_response('second', _usage())),
+        _concluded(7, 'second', _memory()),
+        _event(8, 'memory_updated', agent_id=1, decision_id='second',
+               data={**merged, 'observation_event_id': 'event-5'}),
     ]
     memory = build_quality_report(events, [], _manifest())['memory_references']
     assert memory['persisted_episode_ids'] == 1
@@ -279,26 +353,15 @@ def test_valid_looking_observed_fact_must_equal_its_committed_source():
 
 
 @pytest.mark.parametrize('source_agent,visibility', [(2, 'agent'), (1, 'system')])
-def test_finish_rejects_environment_refs_unavailable_to_this_person(source_agent, visibility):
+def test_observed_result_must_be_this_persons_visible_prior_result(source_agent, visibility):
+    """观察回灌的上轮结果须是本人可见、更早提交的动作结果；记忆不再带引用，只报观察一侧的问题。"""
     events = [_event(1, 'action_result', agent_id=source_agent, visibility=visibility),
               _event(2, 'observation', agent_id=1, decision_id='current',
-                 data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
+                     data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
               _event(3, 'model_response', agent_id=1, decision_id='current',
-                     data=_tool_response('call', ['event-1'], _usage()))]
+                     data=_tool_response('call', _usage()))]
     memory = build_quality_report(events, [], _manifest())['memory_references']
-    assert {item['code'] for item in memory['problems']} == {
-        'invalid_observed_result_reference', 'unknown_memory_reference', 'finish_without_memory_update'}
-
-
-def test_environment_event_cannot_be_used_as_a_memory_read_episode():
-    response = _tool_response('call', [], _usage())
-    function = response['response']['choices'][0]['message']['tool_calls'][0]['function']
-    function.update(name='memory_read', arguments=json.dumps({'ids': ['event-1']}))
-    events = [_event(1, 'observation', agent_id=1, decision_id='current',
-                     data={'verified_experiences': []}),
-              _event(2, 'model_response', agent_id=1, decision_id='current', data=response)]
-    memory = build_quality_report(events, [], _manifest())['memory_references']
-    assert [item['code'] for item in memory['problems']] == ['unknown_memory_reference']
+    assert [item['code'] for item in memory['problems']] == ['invalid_observed_result_reference']
 
 
 def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_statements():

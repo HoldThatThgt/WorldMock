@@ -1,10 +1,48 @@
-"""@brief 已落盘主观记忆更新的封闭证据校验。"""
+"""@brief 已落盘主观记忆更新的封闭证据校验与写入点推导。
+
+记忆写入点只有两处（docs/dev/SPEC-time-and-energy.md 第七章「finish 并入 conclude_activity」）：结束活动
+（activity_conclusion）与就寝反思（reflection），阈值巩固不是写入点。AS2 的 MemoryUpdateEvidence 不带写入点，
+由引擎按登记推导 memory_updated.data.trigger：同一决策已登记带非空 memories 的 conclude_activity 时含
+activity_conclusion；绑定观察的唤醒原因含 wake_from_sleep 时含 reflection；顺序固定。
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
 from worldmock.errors import ProtocolError
+
+#: 记忆写入点闭集，按此顺序列出本步实际发生的写入点。
+MEMORY_WRITE_POINTS = ("activity_conclusion", "reflection")
+
+
+def conclusion_has_memories(request: Any) -> bool:
+    """@brief conclude_activity 请求是否带至少一条记忆。"""
+    groups = request.get("memories") if isinstance(request, dict) else None
+    return isinstance(groups, list) and any(isinstance(group, list) and group for group in groups)
+
+
+def memory_write_points(requests: list, decision_id: str, observation: Any, written: bool) -> list[str]:
+    """@brief 推导本步的记忆写入点列表（顺序为 activity_conclusion、reflection），并按写入点核对来源。
+
+    每个写入点都要有登记：结束活动对应同一决策已登记的带记忆 conclude_activity，就寝反思对应醒来那一轮的观察；
+    本步写入了条目却找不到任何写入点，就是宿主越过写入点写记忆，按协议违约拒绝。
+
+    :param requests: 本人已持久化的 action_requested 事件。
+    :param decision_id: 本步所属决策。
+    :param observation: 本步绑定的观察事件。
+    :param written: 本步是否新增或合并了主观条目。
+    :raises ProtocolError: 写入了条目却没有任何写入点。
+    """
+    points = []
+    if any(event.decision_id == decision_id and event.data.get("tool_name") == "conclude_activity"
+           and conclusion_has_memories(event.data.get("request")) for event in requests):
+        points.append(MEMORY_WRITE_POINTS[0])
+    if "wake_from_sleep" in observation.data.get("wake_reasons", []):
+        points.append(MEMORY_WRITE_POINTS[1])
+    if written and not points:
+        raise ProtocolError("Memory update has no registered write point")
+    return points
 
 
 def _is_sha256(value: Any) -> bool:

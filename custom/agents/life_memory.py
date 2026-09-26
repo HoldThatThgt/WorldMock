@@ -18,6 +18,8 @@ _SUBJECTIVE_TYPES = frozenset({
     "commitment", "relationship", "preference", "goal", "conflict",
     "resolution", "identity", "routine", "reflection",
 })
+#: 结束活动写入点的记忆来源（系统固定，与 memory_updated.data.trigger 同一组取值）。
+_CONCLUSION_SOURCE = "activity_conclusion"
 _SUBJECTIVE_PROMPT = (
     "Summarize only this person's subjective feelings, intentions, relationships and preferences in Chinese. "
     "The output is a subjective self-report, even when the person believes a concrete event occurred. "
@@ -56,7 +58,11 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         self, *, tick: int, t: datetime, step_count: int,
         finish_memories: list[dict[str, Any]] | None = None, sleep_boundary: bool = False,
     ) -> MemoryStepOutcome:
-        """@brief 保存主观条目、按阈值归纳，再确定性渲染当前事实窗口。"""
+        """@brief 保存结束活动写下的主观条目、按阈值归纳，再确定性渲染当前事实窗口。
+
+        finish_memories 承载宿主按 task 展平的 conclude_activity.memories（签名沿用 AS2，不改锁定提交）；
+        阈值巩固只计结束活动写入的条目，就寝反思的条目不计（docs/dev/SPEC-time-and-energy.md 第七章）。
+        """
         store = self.store
         if store is None:
             return MemoryStepOutcome((), (), None)
@@ -65,10 +71,7 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         known = {str(item["id"]) for item in store.iter_episodes()}
         memories = self._validate_subjective_memories(finish_memories)
         written = await self._append_subjective(memories, tick=tick, t=t, step_count=step_count)
-        should, reason = await asyncio.to_thread(
-            store.should_consolidate, written, step_count=step_count,
-            config=self.config.consolidation, sleep_boundary=sleep_boundary,
-        )
+        should, reason = await asyncio.to_thread(self._consolidation_due, sleep_boundary)
         consolidated = False
         if should:
             consolidated = await self._consolidate_subjective(tick, t, step_count, reason)
@@ -99,17 +102,33 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
             raise RuntimeError("Current verified experience order is invalid")
         return facts, observation_id
 
+    def _consolidation_due(self, sleep_boundary: bool) -> tuple[bool, str]:
+        """@brief 阈值巩固判定：就寝边界照常触发；否则只按未巩固条目中来源不是就寝反思的条目计条数与重要度。
+
+        阈值沿用 MemoryConsolidationConfig（10 条、重要度合计 3.0）；不调用 AS2 的 should_consolidate，因为它把
+        反思条目也计入待巩固条数与重要度。
+        """
+        if sleep_boundary:
+            return True, "sleep boundary"
+        config = self.config.consolidation
+        pending = [item for item in self._require_store().unconsolidated() if item.get("source") != "reflection"]
+        if sum(float(item.get("importance") or 0.0) for item in pending) >= config.importance_accumulation_threshold:
+            return True, "importance accumulation threshold"
+        if len(pending) >= config.pending_threshold:
+            return True, "pending episode threshold"
+        return False, ""
+
     def _validate_subjective_memories(self, raw: Any) -> list[dict[str, Any]]:
-        """@brief 拒绝已删除的事实型模型记忆和伪造的客观状态。"""
+        """@brief 只接受结束活动写下的主观条目：九种主观类型、subjective、来源由系统固定为 activity_conclusion。"""
         try:
             memories = self._validate_finish_memories(raw)
         except (TypeError, ValueError):
-            logging.error("WorldMock finish memory payload is invalid")
+            logging.error("WorldMock conclusion memory payload is invalid")
             raise
         if any(item["type"] not in _SUBJECTIVE_TYPES or item["epistemic_status"] != "subjective"
-               for item in memories):
-            logging.error("WorldMock finish memory must be subjective")
-            raise ValueError("WorldMock finish memory must be subjective")
+               or item["source"] != _CONCLUSION_SOURCE for item in memories):
+            logging.error("WorldMock conclusion memory must be subjective and system-sourced")
+            raise ValueError("WorldMock conclusion memory must be subjective and system-sourced")
         return memories
 
     async def _append_subjective(
@@ -136,7 +155,8 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         payload = {"reason": reason, "tick": tick, "time": t.isoformat(),
                    "persona_card": self._owner._persona_card_text(),
                    "current_subjective_summary": store.read_subjective_summary(),
-                   "new_subjective_episodes": episodes[-30:]}
+                   "new_subjective_episodes": [{key: item.get(key) for key in ("type", "text", "time")}
+                                               for item in episodes[-30:]]}
         response = await self._dispatch_llm(
             model=self._require_model_name(),
             messages=[{"role": "system", "content": _SUBJECTIVE_PROMPT},

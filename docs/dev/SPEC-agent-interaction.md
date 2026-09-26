@@ -167,23 +167,23 @@ stateDiagram-v2
 
 ## 稳定工具面
 
-人物动作工具**一次性收敛为 9 个**：5 个**会话动作**工具、2 个当日目标**登记动作**工具，
+人物动作工具**一次性收敛为 9 个**：5 个**活动动作**工具、2 个当日目标**登记动作**工具，
 以及独立的工作交付和消息正文工具。工作成果与通信内容仍由人物创作；它们不挤进
 `start_activity` 的对象与动作选择接口。
 
-**名词定义**：**会话动作**指操纵会话生命周期的五个工具——`start_activity`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity`；**登记动作**指 `plan_day` 与 `revise_day_plan`，它们只登记计划、不启动活动、不消耗生活时间。
-记忆工具与 `finish` 保持原样（它们不是生活动作）。
+**名词定义**：**活动动作**指开始、回看、播报、暂停与结束活动的五个工具——`start_activity`、`recall_task_summary`、`report_status`、`pause_activity`、`conclude_activity`（会话是地点停留或一段路，由系统随出发与到达开始和结束，人物不手动开始或结束会话，见[时间与能量规格](SPEC-time-and-energy.md)第七章）；**登记动作**指 `plan_day` 与 `revise_day_plan`，它们只登记计划、不启动活动、不消耗生活时间。
+记忆工具保持原样（它们不是生活动作）。生活决策没有 `finish`：一轮决策恰好一个世界请求，登记即结束本轮；人物的只读问答保留 AS2 的 `finish`。
 
 原 17 个工具里的游戏命令和播放中变速删除；`plan_day`、`revise_day_plan` 继续独立。
 `submit_work` 和 `send_message` 使用独立工具名并复用既有领域处理器；不存在旧工具的兼容入口。
 
 | 工具 | 可见性 | 收 | 语义 |
 | --- | --- | --- | --- |
-| `start_activity` | 永恒可见 | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动并建立会话；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
-| `recall_task_summary` | 永恒可见 | `task_name: str` | 只读回看可读任务名称或唯一会话名称；不改变世界 |
-| `report_status` | 有 `active` 或 `paused` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；播报进行中会话，已暂停会话恢复进行 |
-| `pause_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；暂停所选会话及其进行中活动 |
-| `conclude_activity` | 有 `active` 会话时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项当前任务或会话；只结束选中的进行中会话 |
+| `start_activity` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `targets: list[str]`、`actions: list[str]`（等长 1–2 项，各对象与动作均可读） | 逐项启动活动，每项占一个名额；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
+| `recall_task_summary` | 永恒可见（同刻上限的受限轮除外，见「保护项修订」） | `task_name: str` | 只读回看可读的任务、当日目标、活动或会话名称；结果在下一次观察的 `facts.progress.results[].details.recall` 中呈现；不改变世界 |
+| `report_status` | 有进行中或暂停的活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项活动；播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点 |
+| `pause_activity` | 有进行中活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项进行中活动；暂停所选活动，暂停仍占名额；路上的活动不能暂停 |
+| `conclude_activity` | 有进行中、暂停或待收尾的活动时 | `task: list[str]`、`summary: list[str]`、`memories: list[list[Memory]]`（三数组等长，1–2 项；记忆合计不超过八条） | 各项对应一项活动；结束所选活动并写总结与记忆，释放名额；未选活动保持原状 |
 | `submit_work` | 可见工作任务满足提交前置条件时 | `task_name: str`、`deliverable: MeetingMinutes` | 提交人物撰写的成果，执行现有验收与返工结算；结果归进度层 |
 | `send_message` | 可联系人物可见时 | `recipient_name: str`、`text: str` | 发送人物撰写的正文，执行现有通讯结算；结果归进度层 |
 | `plan_day` | **清醒**日首且尚无计划时 | `goals[]`（零至八条） | **登记**当日目标；不启动活动、不消耗生活时间 |
@@ -191,20 +191,18 @@ stateDiagram-v2
 
 `task_name`、`task[]` 中每项与 `recipient_name` 都只能取本轮冻结观察中展示的唯一可读名称。
 同名对象由类型、地点或自然语言开始时间消歧，不能用内部编号、哈希、奇怪字符或索引后缀。
-会话持有基础 `task_name` 与唯一 `session_name`：前者用于同一任务的进度汇总，后者用
-任务名称、自然语言开始时间和必要地点定位具体会话。`recall_task_summary.task_name`
-接受任务名称或唯一会话名称；两类名称共享同一唯一性检查，冲突时不设隐含优先级。
+三个活动控制工具的 `task[]` 只取活动名（「做什么＋对象＋开始时刻」，开始时刻用绝对日期；同一轮可见的名称重复时
+追加「（第二次）」这类序号）；`recall_task_summary.task_name` 取任务、当日目标、活动或会话名（会话名为地点或路段
+加开始时刻）；`submit_work.task_name` 仍取任务名；各类名称共享同一唯一性检查，冲突时不设隐含优先级。
 名称至内部身份的映射只存于私有观察绑定，提交时按原观察解析；名称不存在或不唯一则
-业务拒绝并指出可选名称，绝不任选一个。三个会话控制工具的 `task[]`
-每项可用当前任务名称或唯一会话名称，必须在本轮当前会话范围内唯一解析；同名任务有多个
-当前会话时须使用各自可读的唯一会话名称。两数组顺序一一对应，长度均为一至二且任务不重复。
+业务拒绝并指出可选名称，绝不任选一个。数组顺序一一对应，长度均为一至二且活动不重复。
 `summary` 和 `deliverable` 是人物原创内容，
 不是系统状态回填；`plan_day` / `revise_day_plan` 的目标内容仍由人物撰写。
-播报先校验全部任务名称和阶段，接受进行中或已暂停会话；暂停与结束只接受进行中会话。
-整组通过才依对应关系写入各会话的 `progress_note`，有关联当日目标时把同一原文写入
+播报先校验全部活动名与阶段，接受进行中或暂停中的活动；暂停只接受进行中的活动，路上的活动除外；结束接受
+进行中、暂停中或待收尾的活动。整组通过才依对应关系写入各活动的 `progress_note`，有关联当日目标时把同一原文写入
 该目标独立的 `progress_note`；任一项不合法则整组业务拒绝且世界状态不变。
-播报已暂停会话时同时恢复会话及其暂停活动。结束只取消所选会话仍在进行的活动；
-未选会话保持原状。没有进行中会话时结束工具业务拒绝，已暂停会话须先恢复才能主动结束。
+播报暂停中的活动即在其开始地点恢复它；结束只结束所选活动，未选活动保持原状。
+没有可结束的活动时结束工具业务拒绝。
 
 **`plan_day` 与 `revise_day_plan` 保留为独立工具**（用户裁决，2026-09-22）：
 二者是**登记动作**，不启动活动、不消耗生活时间，与「会话动作」语义不同，
@@ -231,8 +229,8 @@ flowchart LR
 
 冻结观察中的私有 `interaction_bindings` 只供宿主解析：可读对象和动作映射到内部对象身份、
 标准动作、路线方式及该对象的冻结报价。该绑定不进入模型提示或工具返回。
-私有 `session_bindings` 把唯一可读 `session_name` 映射到会话身份与当前生命周期；
-模型仍只见 `facts.progress.sessions[].session_name`。
+私有 `activity_bindings` 与 `session_bindings` 把本轮可读的活动名与会话名映射到内部身份（活动绑定另带阶段，
+同一轮重名时追加「（第二次）」这类序号）；模型只见 `facts.progress.sessions[]` 中的会话名与活动名。
 对同一个对象的多个合法动作逐一展示；`targets[i]` 与 `actions[i]` 逐项对应，
 每个对象只需支持自己选中的动作。两项可以是不同动作，例如步行与观看；
 引擎验证组合能否并行，任一项不合法则整组不启动。
@@ -282,7 +280,7 @@ DeepSeek strict 模式**禁用六个 Schema 键**（`life/models.py:1015` `_DEEP
 | 类别 | 成员 | 为什么必须保护 |
 | --- | --- | --- |
 | 永恒可见 | `start_activity`、`recall_task_summary` | 不保留则人物无法开始任何事、无法回看进展；同刻上限的受限轮是例外（见本节末段） |
-| 会话的退出通道 | `report_status`、`pause_activity`、`conclude_activity` | **有会话时必须可见**：三者是结束会话的**唯一**手段，剪掉会让会话永久挂起 |
+| 活动退出通道 | `report_status`、`pause_activity`、`conclude_activity` | **有进行中、暂停或待收尾的活动时可见**（各自按活动阶段开放）：三者是恢复、暂停与结束活动的**唯一**手段，剪掉会让活动永久占着名额 |
 | 「自身」对象的动作 | `wait`、`sleep` | 不保留则无法等待与睡眠 |
 | 当日目标登记 | `plan_day`、`revise_day_plan` | 不保留则无法登记或修订当日目标；二者的条件可见性不变（**清醒**日首尚无计划时只开放 `plan_day`，已有计划时开放 `revise_day_plan`） |
 | 创作内容出口 | `submit_work`、`send_message` | 可提交工作成果与通信正文，不能由 `start_activity` 捏造内容 |
@@ -493,10 +491,11 @@ if snap.is_asleep:
 
 | 内容 | 审计路径 |
 | --- | --- |
-| 会话的开始 / 暂停 / 继续 / 结束 | `action_requested`（`tool_name` + `request`） |
-| 模型的进展自述 | 同上；播报、暂停、结束都写 `request.task[]` 与等长 `request.summary[]` |
-| 会话的客观结算 | 既有 `activity_progress` |
-| 会话快照与分段区间 | 世界状态，随 `life` 快照保存 |
+| 会话的开始与结束 | 由系统随出发与到达开始和结束，只进世界状态（`WorldState.sessions`，随 `life` 快照保存），不写事件；活动所属会话由活动快照的 `session_ids` 记录 |
+| 活动的开始 / 暂停 / 恢复 / 结束 | `action_requested`（`tool_name` + `request`）；暂停、恢复与结束另逐活动写一条 `environment_event`（`data.kind` 取 `activity_paused`、`activity_resumed`、`activity_concluded`，带活动快照 `data.activity`，`caused_by` 含本次请求事件） |
+| 模型的进展自述 | 同上；播报、暂停、结束都写 `request.task[]` 与等长 `request.summary[]`（结束另带等长 `request.memories[]`） |
+| 活动的客观结算 | 既有 `activity_progress` |
+| 会话快照 | 世界状态，随 `life` 快照保存 |
 | 可读名称至内部身份及冻结报价 | 私有观察绑定与已登记动作证据，不能进入模型提示 |
 | 实际模型请求与交付输入 | 保存同一份最终公开请求视图；交付时不从原始观察重组另一版本 |
 
@@ -593,3 +592,4 @@ flowchart LR
 | 1.3 | 2026-09-23 | issue #1 后收敛模型与引擎的执行契约；九工具区分选择和原创内容；进度层承载执行结果；整次请求 token 计数与 85% 进度浓缩；业务拒绝不终止运行；交付输入一致性 |
 | 1.4 | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 17–21 行修订，修订部分待实现：三级结构改为当日目标 → 地点会话 → 活动，进度与自述挂在活动上，会话字段按该规格第七章重写；`start_activity` 为 `targets`、`actions`、`ways` 三个等长数组；播报只针对进行中活动，唤醒表增 `no_active_activity`、`plan_reminder_due`，业务拒绝后同一秒再决策；能量不是前置条件，交互对象照常列出并带说明；进度层按会话分组列活动，浓缩单位改为会话与已收尾活动；前置条件表的判定处按代码更正为 `ACTIVITY_PRECONDITION_UNMET`（既有漂移，原文 `WORK_LOCATION_REQUIRED`、`WORK_SKILL_INSUFFICIENT`），并刷新 `models.py`、`schedule.py`、`work.py` 行号；system 加「怎样过一天」，饿时补吃饭途径句；游戏为 `interact` 的合法目标；验收台账相应改写；修订 #2 改为常量名额，修订 #7 被取代；人物工具八个。「稳定工具面」「保护项修订」「对象与动作选择」「事件与重建约束」随代码修订。补记未入表的就地改动：`eee89fc` 在「决策轮循环与播报节律」加入 `RESOURCE_CONFLICT` 的延迟排期与按执行器资源声明检查占用；`778beca` 在「前置条件前置与前往提醒」改为交互对象只列当前可执行的对象与动作；二者由本版取代 |
 | 1.5 | 2026-09-25 | 按时间与能量规格阶段 1（AI8）：「保护项修订」注明永恒可见的两件工具在同刻上限的受限轮中例外，新增受限轮收窄一段：按观察私有证据 `same_moment_stage`，`start_or_resume` 只开放开始或恢复一项持续活动（等待始终可选，不含到店购买与远程下单），`wait_only` 只开放等待；名称枚举只列当下可执行项，记忆查询照常，形状错误按协议错误在本轮重试；越界请求以 `SAME_MOMENT_ACTION_RESTRICTED` 拒绝并计入同刻轮数 |
+| 1.6 | 2026-09-25 | 按时间与能量规格阶段 3（AI6、AI8、AI15）：「稳定工具面」的五个工具改称活动动作，控制对象由会话改为活动（`task[]` 只取活动名，回看可取任务、当日目标、活动或会话名，结果在下一次观察的 `details.recall` 中呈现），`report_status` 在有进行中或暂停的活动时可见并在开始地点恢复暂停的活动，`pause_activity` 不暂停路上的活动，`conclude_activity` 收 `memories` 并可结束进行中、暂停或待收尾的活动，生活决策没有 `finish`；「保护项修订」的退出通道改为活动退出通道；「对象与动作选择」的私有名称绑定改为活动绑定与会话绑定；「事件与重建约束」写明会话由系统开始和结束、只进世界状态，暂停、恢复与结束逐活动写 `environment_event` |

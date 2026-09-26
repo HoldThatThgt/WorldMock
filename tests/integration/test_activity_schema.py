@@ -17,8 +17,9 @@ from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
-from custom.agents.life_agent import FinishRequest, LifeAgent, MemoryReadRequest, MemorySearchRequest
-from tests.integration.test_life_agent_protocol import _OBSERVED_AT, _observations
+from custom.agents.life_agent import LifeAgent, MemorySearchRequest
+from tests.integration.test_life_agent_protocol import _OBSERVED_AT, _WAIT, _memory, _observations, _with_activities
+from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import MeetingMinutes, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.work_review import WorkReviewResponse
 
@@ -31,7 +32,7 @@ _ACTION_TOOLS = {
 
 
 def _prepared_agent(revise: bool = False) -> LifeAgent:
-    """用本轮公开事实及私有身份绑定准备实际人物工具。"""
+    """用本轮公开事实及私有身份绑定准备实际人物工具（当前停留里有一项进行中的等待）。"""
     observations = deepcopy(_observations())
     data = observations[0]["data"]
     data["facts"]["interactive_objects"].append(
@@ -40,14 +41,7 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
         "object": "同事", "kind": "person", "object_id": "agent:9",
         "actions": [{"label": "交谈", "canonical_action": "chat"}],
     })
-    data["facts"]["progress"]["sessions"] = [{
-        "task_name": "等待", "session_name": "等待（上午十点，家中）", "phase": "进行中",
-        "objective_progress": "已等待一分钟", "subjective_progress": "", "subjective_status": "",
-    }]
-    data["session_bindings"] = [{
-        "task_name": "等待", "session_name": "等待（上午十点，家中）",
-        "session_id": "session-visible", "status": "active",
-    }]
+    _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
         data["facts"]["day_plan"] = {"goals": []}
     agent = LifeAgent()
@@ -58,8 +52,6 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
 def _function(name: str) -> dict[str, Any]:
     """取得模型本轮真正可见的函数声明。"""
     agent = _prepared_agent(revise=name == "revise_day_plan")
-    if name == "finish":
-        agent._life_action_count = 1
     return next(item["function"] for item in agent.build_react_tool_schemas(readonly=False)
                 if item["function"]["name"] == name)
 
@@ -78,6 +70,14 @@ def _assert_closed(node: Any) -> None:
         assert node["additionalProperties"] is False
     for item in node.values():
         _assert_closed(item)
+
+
+def _control_payload(name: str, tasks: list[str], summaries: list[str]) -> dict[str, Any]:
+    """活动控制参数：结束工具另带与 task 等长的逐项记忆，播报与暂停不带记忆。"""
+    payload: dict[str, Any] = {"task": tasks, "summary": summaries}
+    if name == "conclude_activity":
+        payload["memories"] = [[] for _ in tasks]
+    return payload
 
 
 def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
@@ -111,18 +111,19 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
-def test_session_control_schemas_use_paired_readable_task_and_summary(name: str) -> None:
-    """三条会话控制工具均要求逐项任务与人物自述。"""
+def test_activity_control_schemas_use_paired_readable_activity_and_summary(name: str) -> None:
+    """三条活动控制工具均逐项点名可读活动并写人物自述；只有结束工具另带逐项记忆（第七章）。"""
     schema = _function(name)["parameters"]
-    assert set(schema["properties"]) == {"task", "summary"}
-    assert schema["properties"]["task"]["items"]["enum"] == ["等待"]
+    expected = {"task", "summary", "memories"} if name == "conclude_activity" else {"task", "summary"}
+    assert set(schema["properties"]) == expected
+    assert schema["properties"]["task"]["items"]["enum"] == [_WAIT]
     assert schema["properties"]["summary"]["items"]["type"] == "string"
-    valid = {"task": ["等待"], "summary": ["我还想等一会儿。"]}
+    valid = _control_payload(name, [_WAIT], ["我还想等一会儿。"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS[name].model_validate(valid)
-    for invalid in ({"task": ["等待"], "summary": []},
-                    {"task": ["等待", "等待"], "summary": ["a", "b"]},
-                    {"task": ["等待"], "summary": [" "]}):
+    for invalid in (_control_payload(name, [_WAIT], []),
+                    _control_payload(name, [_WAIT, _WAIT], ["a", "b"]),
+                    _control_payload(name, [_WAIT], [" "])):
         with pytest.raises(ValidationError):
             REQUEST_MODELS[name].model_validate(invalid)
 
@@ -138,7 +139,7 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     assert set(message["properties"]) == {"recipient_name", "text"}
     assert message["properties"]["recipient_name"]["enum"] == ["同事"]
     assert set(recall["properties"]) == {"task_name"}
-    assert "整理会议纪要" in recall["properties"]["task_name"]["enum"]
+    assert {"整理会议纪要", _WAIT} <= set(recall["properties"]["task_name"]["enum"])
 
 
 @pytest.mark.parametrize("name", ["plan_day", "revise_day_plan"])
@@ -152,32 +153,37 @@ def test_day_plan_schema_inlines_goal_without_timing_fields(name: str) -> None:
 
 
 def test_provider_array_cardinality_gap_is_locally_rejected() -> None:
-    """供应商不支持数组长度约束时，本地模型仍拒绝越界请求。"""
+    """供应商不支持数组长度约束时，本地模型仍拒绝越界请求（含收尾记忆的等长与八条上限）。"""
     schema = _function("report_status")["parameters"]
     invalid = {"task": [], "summary": []}
     assert list(Draft202012Validator(schema).iter_errors(invalid)) == []
     with pytest.raises(ValidationError):
         REQUEST_MODELS["report_status"].model_validate(invalid)
-    memory = {"ids": []}
-    assert list(Draft202012Validator(_function("memory_read")["parameters"]).iter_errors(memory)) == []
-    with pytest.raises(ValidationError):
-        MemoryReadRequest.model_validate(memory)
+    conclude = _function("conclude_activity")["parameters"]
+    for memories in ([], [[_memory(f"第{index}件想记住的事。") for index in range(9)]]):
+        payload = {"task": [_WAIT], "summary": ["收尾。"], "memories": memories}
+        assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
+        with pytest.raises(ValidationError):
+            REQUEST_MODELS["conclude_activity"].model_validate(payload)
     search = {"query": "q" * 201, "limit": 1}
     assert list(Draft202012Validator(_function("memory_search")["parameters"]).iter_errors(search)) == []
     with pytest.raises(ValidationError):
         MemorySearchRequest.model_validate(search)
 
 
-def test_finish_and_work_review_nested_schemas_remain_strict() -> None:
-    """结束记忆和工作评审的嵌套数据仍由原生严格 Schema 约束。"""
-    finish = _function("finish")["parameters"]
-    assert list(Draft202012Validator(finish).iter_errors({"memories": []})) == []
-    FinishRequest.model_validate({"memories": []})
+def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> None:
+    """收尾记忆与工作评审的嵌套数据仍由原生严格 Schema 内联约束，没有引用与未知字段。"""
+    conclude = _function("conclude_activity")["parameters"]
+    memory_item = conclude["properties"]["memories"]["items"]["items"]
+    assert set(memory_item["properties"]) == {"type", "text", "importance", "keywords"}
+    _assert_closed(memory_item)
+    payload = {"task": [_WAIT], "summary": ["收尾。"], "memories": [[_memory()]]}
+    assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
+    REQUEST_MODELS["conclude_activity"].model_validate(payload)
     agent = _prepared_agent()
-    agent._life_action_count = 1
     agent.build_react_tool_schemas(readonly=False)
     assert agent.validate_react_decisions(
-        [ReactDecision("", "finish", {"memories": []}, "")], False) == ""
+        [ReactDecision("", "conclude_activity", payload, "")], False) == ""
     review = deepseek_strict_schema(WorkReviewResponse)
     _assert_closed(review)
     assert "$ref" not in json.dumps(review)
@@ -187,12 +193,10 @@ def test_finish_and_work_review_nested_schemas_remain_strict() -> None:
 
 
 @pytest.mark.parametrize("retired_type", ["event", "observation"])
-def test_finish_rejects_fact_like_memory_types(retired_type: str) -> None:
-    """人物记忆不接受事实型事件记录。"""
-    memory = {"type": retired_type, "epistemic_status": "subjective", "importance": 0.5,
-              "keywords": ["生活"], "text": "我以为今天已经吃过饭", "source": "decision_observation",
-              "refs": ["observation-current"]}
-    payload = {"memories": [memory]}
-    assert list(Draft202012Validator(_function("finish")["parameters"]).iter_errors(payload))
+def test_conclusion_memory_rejects_fact_like_memory_types(retired_type: str) -> None:
+    """人物记忆不接受事实型事件记录：Schema 枚举与本地请求模型都拒绝。"""
+    payload = {"task": [_WAIT], "summary": ["收尾。"],
+               "memories": [[_memory("我以为今天已经吃过饭", kind=retired_type)]]}
+    assert list(Draft202012Validator(_function("conclude_activity")["parameters"]).iter_errors(payload))
     with pytest.raises(ValidationError):
-        FinishRequest.model_validate(payload)
+        REQUEST_MODELS["conclude_activity"].model_validate(payload)

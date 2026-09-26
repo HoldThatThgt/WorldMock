@@ -334,6 +334,48 @@ def test_dreaming_window_reads_decision_statement_and_scene(tmp_path):
                    and '清晨在家' in str(row['data'].get('scene')) for row in rows)
 
 
+def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
+    """带记忆的 conclude_activity 不泄露记忆正文（docs/dev/SPEC-time-and-energy.md 第九章交付链；交付设计「证据窗口与输入结构」）。
+
+    意图与 dreaming 窗口输入里的动作请求裁去 request.memories，只保留 task 与 summary；动作窗口的目标保留完整请求，
+    写入记忆的 memory_updated 仍是私有事件，既不进输入也不进 target.outcomes。
+    """
+    secret = '其实我一直在想辞职的事。'
+    request = {'task': ['工作写会议纪要（1月5日 09:00 起）'], 'summary': ['纪要写完了。'],
+               'memories': [[{'type': 'reflection', 'text': secret, 'importance': 0.6, 'keywords': ['辞职']}]]}
+    observed = event('visible', 1, 'observation', {'scene': '办公室里很安静。'})
+    requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
+    requested['action_id'] = 'conclude'
+    written = event('memory', 3, 'memory_updated', {
+        'operation': 'append_episodes', 'trigger': ['activity_conclusion'], 'decision_id': 'decision',
+        'episodes': [{'id': 'm1', 'type': 'reflection', 'text': secret, 'epistemic_status': 'subjective'}]},
+        visibility='system')
+    completed = event('completed', 4, 'action_result', {'status': 'completed', 'message': 'Activities concluded'})
+    completed['action_id'] = 'conclude'
+    prompt = decision_prompt(requested, (observed, requested, written, completed))
+    rows = (observed, prompt, requested, written, completed)
+    indexed = {row['event_id']: row for row in rows}
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': completed['event_seq'],
+                'window': {'start': '1970-01-01T08:00:00+08:00', 'end': '1970-01-02T08:00:00+08:00',
+                           'timezone': 'Asia/Shanghai'},
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
+                                     (manifest, tmp_path, indexed))
+    dreams = _dream_windows([observed, requested, written, completed], manifest, tmp_path, indexed)
+
+    assert action['target']['request'] == requested
+    assert action['target']['request']['data']['request']['memories'][0][0]['text'] == secret
+    assert action['target']['outcomes'] == [completed]
+    trimmed = {'tool_name': 'conclude_activity', 'request': {'task': request['task'], 'summary': request['summary']}}
+    assert len(dreams) == 3
+    for record in (intent, *dreams):
+        shown = next(row for row in record['input']['events'] if row['event_id'] == 'target')
+        assert shown['data'] == trimmed
+    for record in (action, intent, *dreams):
+        assert secret not in str(record['input'])
+
+
 def test_action_and_intent_windows_still_exclude_the_decision_statement_carrier(tmp_path):
     """信息范围合同：决策自述仅 dreaming 可读，动作/意图可见输入仍排除（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
     from worldmock.delivery.windows import PRIVATE_EVENTS
