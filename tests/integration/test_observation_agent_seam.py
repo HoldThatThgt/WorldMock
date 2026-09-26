@@ -18,18 +18,16 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.life.conftest import (  # noqa: E402
+    StubPlanDayClient,
     activity_name,
     advance_until_ready,
     conclude_pending,
+    settle_day_plans,
     wake_by_mail,
     context,
     engine_factory as _engine_factory,  # noqa: F401
 )
-from worldmock.life.models import (  # noqa: E402
-    PlanDayRequest,
-    PlanGoalInput,
-    StartActivityRequest,
-)
+from worldmock.life.models import StartActivityRequest  # noqa: E402
 
 #: 引擎事件级活动控制行字段闭集，模型只读取 facts.progress 按会话分组的可读活动行。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
@@ -50,9 +48,8 @@ def _submit(engine, round_id: str, tool_name: str, request) -> None:
 
 def _observe_active_wait(engine) -> tuple[dict, object]:
     """用真实邮件事件唤醒仍在等待的人物，验证非空活动控制行。"""
-    _submit(engine, "seam-plan", "plan_day",
-            PlanDayRequest(goals=(PlanGoalInput(intent_kind="休息", goal="稍作休息"),)))
-    # 登记计划是瞬时动作：没有进行中活动，同一秒再决策（时间与能量规格第一章规则 2）。
+    # 启动路径的零点计划后台任务（确定性桩）登记当日计划，不占决策；首个决策仍带 run_start（时间与能量规格第四章）。
+    settle_day_plans(engine, StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "稍作休息", "remind_time": None}]))
     wake_by_mail(engine, offset=300)
     _submit(engine, "seam-wait", "start_activity",
             StartActivityRequest(targets=["自己"], actions=["等待"]))
@@ -116,7 +113,7 @@ def test_life_agent_rejects_activity_without_valid_phase(
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
     """观察中已播放字幕的嵌套列表必须隔离，调用者修改它不能篡改世界进度。"""
     engine = _engine_factory()
-    _submit(engine, "copy-plan", "plan_day", PlanDayRequest(goals=()))
+    settle_day_plans(engine)
     wake_by_mail(engine, offset=600)
     shown = engine._observation_data(engine.state.agents[1])
     subtitle = next(row for row in shown["interaction_bindings"]
@@ -167,7 +164,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
-    _submit(engine, "game-plan", "plan_day", PlanDayRequest(goals=()))
+    settle_day_plans(engine)
     shown = engine._observation_data(engine.state.agents[1])
     game = next(row for row in shown["interaction_bindings"]
                 if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
@@ -198,20 +195,25 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
 
 @pytest.mark.asyncio
 async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_engine_factory) -> None:
-    """原生人物经过环境、SQLite和恢复观察，完整贯通空清单、追加与实际推进。"""
+    """零点计划登记的空清单经原生人物修订、环境、SQLite和恢复观察，完整贯通追加与实际推进（时间与能量规格第四章）。"""
     from worldmock.life.engine import LifeEngine
 
     engine = _engine_factory()
     submitted_at = engine.state.current_time
-    _, initial, initial_tools = await _agent_action(engine, "goals-empty", "plan_day", {"goals": []})
-    assert set(initial_tools["plan_day"]["parameters"]["properties"]) == {"goals"}
+    # 启动路径：零点计划后台任务（确定性桩）经系统登记入口写入空清单，不是人物动作，不推进时间。
+    assert settle_day_plans(engine) == [{"agent_id": 1, "date": "2026-01-05", "goals": 0}]
     assert engine.state.current_time == submitted_at
     assert engine.state.agents[1].day_plan.goals == ()
-    assert initial.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
+    generated = [event.data["day_plan"] for event in engine.store.read_events(engine.store.last_event_seq)
+                 if event.event_type == "environment_event" and event.data.get("kind") == "day_plan_generated"]
+    assert generated == [engine.state.agents[1].day_plan.model_dump(mode="json")]
     before_revision, revision, tools = await _agent_action(
         engine, "goals-append", "revise_day_plan",
-        {"goals": [{"intent_kind": "休息", "goal": "缓一缓"}]})
-    assert "plan_day" not in tools and "revise_day_plan" in tools
+        {"goals": [{"intent_kind": "休息", "goal": "缓一缓", "remind_time": None}]})
+    # 运行开始的首个决策照常开放生活工具与修订，没有先登记计划的门控。
+    assert "run_start" in before_revision["wake_reasons"]
+    assert "plan_day" not in tools and {"start_activity", "revise_day_plan"} <= set(tools)
+    assert set(tools["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
     assert before_revision["facts"]["day_plan"]["goals"] == []
     assert before_revision["scene"]["day_plan"] == {"goals": []}
     assert revision.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")

@@ -5,14 +5,14 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from tests.life.conftest import advance_next, context, engine_factory
+from tests.life.conftest import StubPlanDayClient, advance_next, context, engine_factory, settle_day_plans
 
 from agentsociety2.society import DirectToolCall
 from worldmock.cli import main
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import PlanDayRequest, StartActivityRequest
+from worldmock.life.models import StartActivityRequest
 
 CODE = "a" * 64
 
@@ -78,13 +78,15 @@ def _submit(engine, name, request, round_id):
 
 
 def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_factory, tmp_path):
+    """零点计划经系统登记入口写下的 day_plan_generated 是导出报告的目标登记来源；终点零点结算的末段推进计入旧日
+    （docs/dev/SPEC-time-and-energy.md 第四章「输入、调用、失败与记录」）。"""
     engine = engine_factory()
     midnight = engine.state.end_time
     _stage_midnight_round(engine, midnight - 120)
-    registered = _submit(engine, "plan_day", PlanDayRequest(goals=[
-        {"intent_kind": "休息", "goal": "睡前休息"}]), "midnight-plan")
-    assert registered.status == "completed"
-    _stage_midnight_round(engine, midnight - 120)
+    client = StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "睡前休息", "remind_time": None}])
+    assert settle_day_plans(engine, client)[0]["goals"] == 1
+    registered = engine.store.read_agent_events("environment_event", 1)[-1]
+    assert registered.data["kind"] == "day_plan_generated"
     started = _submit(engine, "start_activity", StartActivityRequest(
         targets=["自己"], actions=["等待"]), "midnight-rest")
     assert started.status == "in_progress"
@@ -104,5 +106,6 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     day = datetime.fromtimestamp(midnight - 1, ZoneInfo(engine.scenario.timezone)).date().isoformat()
     goals = metrics["deliberate_goals"]["per_agent_day"][f"{engine.state.run_id}:1:{day}"]
     assert goals["progressed_count"] == 1 and goals["family_progress_rate"] == 1
+    assert goals["goals"][0]["registration_event_id"] == registered.event_id
     assert goals["goals"][0]["progress_event_id"] == evidence.event_id
     assert goals["goals"][0]["progressed_at"] == midnight

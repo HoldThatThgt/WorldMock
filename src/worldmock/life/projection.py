@@ -28,13 +28,14 @@ from zoneinfo import ZoneInfo
 
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life import activity_control, dining, felt, narration, social
-from worldmock.life import social_actions
+from worldmock.life import reminders, social_actions
 from worldmock.life.interaction_menu import action_label, purchase_action_label
 from worldmock.life.models import (ActivityKind, AgentState, SameMomentStage, TravelMode, WorldState,
                                    active_activities)
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.retrieval import feasible_kinds
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
+from worldmock.life.schedule import remind_clock
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
 #: 供给浏览可见期（秒）：距浏览超过该值清空（docs/dev/SPEC-life-runtime.md「观察投影行为规则」）。
@@ -260,7 +261,7 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "paused_activities": activity_rows["paused"],
         "just_ended": [names[item.activity_id]
                        for item in activity_control.pending_conclusions(inputs.state, agent.agent_id)],
-        "day_plan": _plan_row(agent, now),
+        "day_plan": _plan_row(agent, now, inputs.scenario.timezone),
         "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
         "inbox_has_older_unread": any(not entry["read"] for entry in inbox[:-INBOX_HEAD_LIMIT]),
         "todos_summary": _todos_summary(inputs.task_rows, now),
@@ -339,10 +340,12 @@ def _clock(epoch: int, timezone_name: str) -> str:
 
 
 def _progress_alarms(inputs: ProjectionInputs) -> list[str]:
-    """@brief 由任务截止事实生成本轮临近截止提醒。"""
+    """@brief 本轮临近截止提醒，以及当日目标提醒触发那一秒的「到了你给『<目标>』定的 HH:MM」（第四章）。"""
     now = inputs.state.current_time
-    return [f"{row['title']}即将截止" for row in inputs.task_rows
-            if row.get("due_at") is not None and 0 < int(row["due_at"]) - now <= 7200]
+    deadlines = [f"{row['title']}即将截止" for row in inputs.task_rows
+                 if row.get("due_at") is not None and 0 < int(row["due_at"]) - now <= 7200]
+    return deadlines + [reminders.alarm_sentence(goal, inputs.scenario.timezone)
+                        for goal in reminders.alarm_goals(inputs.state, inputs.agent)]
 
 
 def _progress_projection(inputs: ProjectionInputs) -> dict[str, Any]:
@@ -402,7 +405,7 @@ def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "routes": _public_routes(inputs),
         "products": _public_products(inputs),
         "inventory": _public_inventory(inputs),
-        "day_plan": _plan_fact(agent, now),
+        "day_plan": _plan_fact(agent, now, inputs.scenario.timezone),
         "felt": levels,
         "drive_summary": drive_summary(levels, inputs.task_rows, now),
         "experiences": _experience_sentences(inputs),
@@ -588,24 +591,30 @@ def _todos_summary(task_rows: tuple[dict[str, Any], ...], now: int) -> str:
             else "有待办任务可以推进")
 
 
-def _plan_row(agent: AgentState, now: int) -> dict[str, Any] | None:
-    """@brief 场景按目标顺序展示意图和推进状态，完整文字只进入事实。"""
+def _reminder(goal: Any, timezone_name: str) -> dict[str, str]:
+    """@brief 目标行的提醒时刻「提醒 HH:MM」（没有提醒的目标不写）。"""
+    return {"reminder": f"提醒 {remind_clock(goal.remind_at, timezone_name)}"} if goal.remind_at is not None else {}
+
+
+def _plan_row(agent: AgentState, now: int, timezone_name: str) -> dict[str, Any] | None:
+    """@brief 场景按目标顺序展示意图、推进状态与提醒时刻，完整文字只进入事实。"""
     plan = agent.day_plan
     if plan is None or plan.day_end <= now:
         return None
     return {"goals": [{"intent_kind": goal.intent_kind,
-                       "progressed": goal.progressed_at is not None}
+                       "progressed": goal.progressed_at is not None, **_reminder(goal, timezone_name)}
                       for goal in plan.goals]}
 
 
-def _plan_fact(agent: AgentState, now: int) -> dict[str, Any] | None:
-    """@brief 事实保留当日目标文字和推进状态，隐藏内部活动证据。"""
+def _plan_fact(agent: AgentState, now: int, timezone_name: str) -> dict[str, Any] | None:
+    """@brief 事实保留当日目标文字、推进状态与提醒时刻，隐藏内部活动证据；目标由零点计划生成，自述标未经核验。"""
     plan = agent.day_plan
     if plan is None or plan.day_end <= now:
         return None
     return {"goals": [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}",
                        "intent_kind": goal.intent_kind,
                        "progressed": goal.progressed_at is not None,
+                       **_reminder(goal, timezone_name),
                        "progress_note": goal.progress_note,
                        "subjective_status": activity_control.SELF_REPORT_MARK}
                       for goal in plan.goals]}

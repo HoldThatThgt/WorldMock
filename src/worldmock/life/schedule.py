@@ -114,6 +114,30 @@ def day_end_seconds(now: int, timezone_name: str) -> int:
     return int((midnight + timedelta(days=1)).timestamp())
 
 
+def remind_epoch(remind_time: str | None, now: int, timezone_name: str) -> int | None:
+    """@brief 把场景本地 HH:MM 换算为 now 所在本地日的绝对时刻；None 表示不设提醒（docs/dev/SPEC-time-and-energy.md 第四章）。"""
+    if remind_time is None:
+        return None
+    hour, minute = (int(part) for part in remind_time.split(":"))
+    local = datetime.fromtimestamp(now, ZoneInfo(timezone_name))
+    return int(local.replace(hour=hour, minute=minute, second=0, microsecond=0).timestamp())
+
+
+def remind_clock(remind_at: int, timezone_name: str) -> str:
+    """@brief 提醒时刻的场景本地 HH:MM（呈现与修订比对用）。"""
+    return f"{datetime.fromtimestamp(remind_at, ZoneInfo(timezone_name)):%H:%M}"
+
+
+class RemindTimeInvalid(ValueError):
+    """@brief remind_time 换算后不晚于生成或修订时刻，或不早于次日零点（业务码 PLAN_REMIND_TIME_INVALID）。"""
+
+
+def registered_goals(goals: Sequence[Any], now: int, timezone_name: str) -> tuple["PlanGoal", ...]:
+    """@brief 以 now 登记请求目标（intent_kind、goal、remind_time），提醒换算为该本地日的绝对时刻。"""
+    return tuple(PlanGoal(intent_kind=goal.intent_kind, goal=goal.goal, registered_at=now,
+                          remind_at=remind_epoch(goal.remind_time, now, timezone_name)) for goal in goals)
+
+
 class WakeSnapshot(BaseModel):
     """@brief 某一结算边界处的世界摘要，唤醒条件判定的全部输入。
 
@@ -145,6 +169,8 @@ class WakeSnapshot(BaseModel):
     progress_report_due: bool = False
     #: 边界兜底（docs/dev/SPEC-time-and-energy.md 第一章规则 5）：结算后没有进行中活动。
     no_active_activity: bool = False
+    #: 当日目标提醒到点（docs/dev/SPEC-time-and-energy.md 第四章）：同时到期的合并为一项。
+    plan_reminder_due: bool = False
     is_asleep: bool = False
 
 
@@ -175,11 +201,13 @@ class NextDecisionQuery(BaseModel):
     next_task_due_at: int | None = None
     location_closing_at: int | None = None
     next_progress_report_at: int | None = None
+    #: 当日未触发的提醒时刻（睡眠中不剔除，docs/dev/SPEC-time-and-energy.md 第四章）。
+    plan_reminder_times: tuple[int, ...] = ()
     is_asleep: bool = False
 
 
 class PlanGoal(BaseModel):
-    """@brief 已登记的当日目标；推进时刻与活动标识是环境证据。"""
+    """@brief 已登记的当日目标；推进时刻与活动标识是环境证据，remind_at/reminded_at 是提醒及其触发时刻。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     intent_kind: IntentKind
@@ -188,16 +216,21 @@ class PlanGoal(BaseModel):
     progressed_at: int | None = Field(default=None, ge=0)
     progress_activity_id: str | None = Field(default=None, min_length=1)
     progress_note: str = Field(default="", max_length=500)
+    remind_at: int | None = Field(default=None, ge=0)
+    reminded_at: int | None = Field(default=None, ge=0)
 
     @model_validator(mode="after")
     def _check_progress(self) -> "PlanGoal":
-        """@brief 推进证据必须成对存在，且不能早于登记。"""
+        """@brief 推进证据必须成对存在，且不能早于登记；只有设了提醒的目标才有触发时刻，且不早于提醒时刻。"""
         if (self.progressed_at is None) != (self.progress_activity_id is None):
             _LOGGER.error("Goal progress evidence is incomplete")
             raise ValueError("goal progress evidence must be present together")
         if self.progressed_at is not None and self.progressed_at <= self.registered_at:
             _LOGGER.error("Goal progress must follow registration")
             raise ValueError("goal progress must follow registration")
+        if self.reminded_at is not None and (self.remind_at is None or self.reminded_at < self.remind_at):
+            _LOGGER.error("Goal reminder trigger precedes its reminder")
+            raise ValueError("goal reminder trigger requires an earlier reminder")
         return self
 
 
@@ -217,15 +250,25 @@ class DayPlan(BaseModel):
             _LOGGER.error("Day plan contains duplicate intent or activity evidence")
             raise ValueError("day plan intent and activity evidence must be unique")
         if any(goal.registered_at >= self.day_end or
-               (goal.progressed_at is not None and goal.progressed_at > self.day_end) for goal in self.goals):
+               (goal.progressed_at is not None and goal.progressed_at > self.day_end)
+               or (goal.remind_at is not None and goal.remind_at >= self.day_end) for goal in self.goals):
             _LOGGER.error("Day plan goal evidence exceeds its local day")
             raise ValueError("goal evidence exceeds day_end")
         return self
 
 
+def require_remind_window(goal: PlanGoal, now: int, day_end: int) -> PlanGoal:
+    """@brief 新登记或改了提醒的目标：提醒须晚于生成或修订时刻、早于次日零点，否则 RemindTimeInvalid。"""
+    if goal.remind_at is not None and not now < goal.remind_at < day_end:
+        _LOGGER.error("Goal reminder is outside the rest of its local day")
+        raise RemindTimeInvalid("remind_time must be later than the plan time and earlier than the next midnight")
+    return goal
+
+
 def initial_day_plan(goals: Sequence[PlanGoal], day_end: int) -> DayPlan:
-    """@brief 登记初次有序目标清单，所有容量和证据约束由领域模型校验。"""
-    return DayPlan(day_end=day_end, goals=tuple(goals))
+    """@brief 登记初次有序目标清单：提醒须晚于登记时刻、早于 day_end，其余容量和证据约束由领域模型校验。"""
+    return DayPlan(day_end=day_end, goals=tuple(require_remind_window(goal, goal.registered_at, day_end)
+                                                for goal in goals))
 
 
 def _task_due_soon(now: int, due_at: int | None) -> bool:
@@ -262,12 +305,8 @@ def reconsideration_interval(query: WakeSnapshot | NextDecisionQuery) -> int:
 def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
     """@brief 判定某结算边界命中的全部唤醒原因（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
-    输出按 WakeReason 枚举声明顺序排列；无命中即静默边界
-    （decision_offered=false、wake_reasons=[]）。睡眠期间只保留 SLEEP_ALLOWED_REASONS（不含边界兜底
-    no_active_activity；docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），其余命中一律忽略。
-
-    @param snapshot 该结算边界处的世界摘要
-    @return 唤醒判定结果
+    输出按 WakeReason 枚举声明顺序排列；无命中即静默边界（decision_offered=false、wake_reasons=[]）。
+    睡眠期间只保留 SLEEP_ALLOWED_REASONS（含当日目标提醒，不含边界兜底 no_active_activity），其余命中一律忽略。
     """
     snap = snapshot
     reasons: list[WakeReason] = []
@@ -306,6 +345,8 @@ def evaluate_wake_reasons(snapshot: WakeSnapshot) -> WakeVerdict:
         reasons.append(WakeReason.PROGRESS_REPORT_DUE)
     if snap.no_active_activity:
         reasons.append(WakeReason.NO_ACTIVE_ACTIVITY)
+    if snap.plan_reminder_due:
+        reasons.append(WakeReason.PLAN_REMINDER_DUE)
     if snap.is_asleep:
         reasons = [r for r in reasons if r in SLEEP_ALLOWED_REASONS]
     return WakeVerdict(decision_offered=bool(reasons), wake_reasons=reasons)
@@ -315,9 +356,10 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
     """@brief 计算下一决策时刻：各项候选的最小值（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）。
 
     候选=计划结束、体感分级预计跨越、已排定通知与配送、承诺威胁边界、重估间隔
-    到期、地点营业变化；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
-    睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），is_asleep 时剔除该项；无任何候选返回
-    None。游戏模式保持逐回合反馈，不经过本函数。
+    到期、地点营业变化与当日未触发的提醒；只取严格晚于 now 的时刻，本边界已判定的机会不重复计。
+    睡眠不受重估间隔影响（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」），is_asleep 时剔除该项；
+    提醒在睡眠中不剔除（docs/dev/SPEC-time-and-energy.md 第四章）。无任何候选返回 None。游戏模式保持逐回合反馈，
+    不经过本函数。
 
     @param query 各候选时刻的汇总输入
     @return 下一决策时刻（UTC epoch 秒），无候选时为 None
@@ -338,20 +380,38 @@ def next_decision_time(query: NextDecisionQuery) -> int | None:
         candidates.append(query.location_closing_at - CLOSING_WARNING_SECONDS)
     if query.next_progress_report_at is not None:
         candidates.append(query.next_progress_report_at)
+    candidates.extend(query.plan_reminder_times)
     future = [moment for moment in candidates if moment > query.now]
     return min(future) if future else None
 
 
 def revise_day_plan(plan: DayPlan, now: int, new_goals: Sequence[PlanGoal]) -> DayPlan:
-    """@brief 保留已推进目标，整体替换未推进目标，未改写条目保留登记时刻。"""
+    """@brief 保留已推进目标，整体替换未推进目标（docs/dev/SPEC-time-and-energy.md 第四章「计划与提醒」）。
+
+    与原条目意图、文字、提醒完全相同的条目保留登记时刻与提醒状态，不重校时刻（原样重发已触发的目标不被拒绝）；
+    只改了提醒的条目保留登记时刻，换成新提醒；被替换或删除的目标，旧提醒随之取消。新登记与改了提醒的条目
+    经 require_remind_window 校验。
+
+    @param plan 当日计划
+    @param now 修订时刻
+    @param new_goals 以修订时刻登记、提醒已换算为绝对时刻的新未推进目标
+    """
     kept = tuple(goal for goal in plan.goals if goal.progressed_at is not None)
     progressed_kinds = {goal.intent_kind for goal in kept}
     if any(goal.intent_kind in progressed_kinds for goal in new_goals):
         _LOGGER.error("A progressed day goal cannot be resubmitted")
         raise ValueError("goal already progressed")
     pending = {(goal.intent_kind, goal.goal): goal for goal in plan.goals if goal.progressed_at is None}
-    changed = tuple(pending.get((goal.intent_kind, goal.goal), goal) for goal in new_goals)
-    return DayPlan(day_end=plan.day_end, goals=kept + changed)
+    changed = []
+    for goal in new_goals:
+        old = pending.get((goal.intent_kind, goal.goal))
+        if old is not None and old.remind_at == goal.remind_at:
+            changed.append(old)
+            continue
+        require_remind_window(goal, now, plan.day_end)
+        changed.append(goal if old is None else old.model_copy(
+            update={"remind_at": goal.remind_at, "reminded_at": None}))
+    return DayPlan(day_end=plan.day_end, goals=kept + tuple(changed))
 
 
 def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> DayPlan:
@@ -382,8 +442,8 @@ def progress_day_plan(plan: DayPlan, activity: dict, start: int, end: int) -> Da
 def day_plan_expired(plan: DayPlan, now: int) -> bool:
     """@brief 判定目标清单是否跨日残留：now 越过计划自带的 day_end 即属前一天。
 
-    引擎在跨日边界据此把 day_plan 归零，使"每天第一次醒来的决策必须先提交
-    plan_day"在第二天重新成立；判定不做时区换算，day_end 即提交日的次日
+    引擎在零点边界据此把 day_plan 归零，随后由零点计划为新的一天生成计划
+    （docs/dev/SPEC-time-and-energy.md 第四章）；判定不做时区换算，day_end 即生成日的次日
     本地零点（修订沿用原计划的 day_end，判定对修订结果稳定）。
 
     @param plan 当日目标

@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.3\
+> **版本**：v1.4\
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -80,7 +80,7 @@ flowchart TB
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
-| `observation_repetition` | 同一 user 观察文本出现于不同 `decision_id` 请求中的最大数目（同一决策内重发只计一次；排除 `purpose=work_review` 的请求） | `==` | 1 | 观察被重复序列化 |
+| `observation_repetition` | 同一 user 观察文本出现于不同 `decision_id` 请求中的最大数目（同一决策内重发只计一次；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"`） | `==` | 1 | 观察被重复序列化 |
 | `silent_boundary_ratio` | 每人唯一共同身体结算的清醒边界中 `decision_offered=false` 的占比；同刻轮次不写共同身体结算，不进分母 | `>=` | 0.5 | 人物决策机会不足 |
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
 | `memory_md_identity_residue` | MEMORY.md 命中示例身份的人物数 | `==` | 0 | 示例身份残留 |
@@ -768,3 +768,4 @@ plt.savefig('review-preference-heatmap.png')
 | v1.1 | 2026-09-20 | 区分行为合理性评估与资源结算的确定性核验 |
 | v1.2 | 2026-09-24 | 按时间与能量规格：决策统计排除零点计划请求，被动轮与控制轮分列，唤醒原因分边界与决策轮两份；目标登记来源改为零点计划与修订；引导性拒绝计入 `other_rejections`；consume 用餐口径对齐源码；「活动会话」改称「活动」并删未实现字段；适配器按动词与方式配对、控制工具逐活动投影 |
 | v1.3 | 2026-09-25 | 按时间与能量规格阶段 1：观察重复门禁改按 `decision_id` 计，同一决策内重发只计一次；静默边界占比注明同刻轮次不写共同身体结算、不进分母 |
+| v1.4 | 2026-09-25 | 按时间与能量规格阶段 5：观察重复门禁排除带 `purpose` 的系统请求，除工作验收外也排除零点计划 `purpose="plan_day"` 的请求 |

@@ -189,24 +189,31 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
     assert environment.calls[0].request.model_dump() == payload
 
 
-def test_plan_and_revision_follow_current_day_plan() -> None:
-    """登记目标只返回可见意图和正文，不从模型索取内部计时参数。"""
+def test_revision_follows_current_day_plan_without_plan_tool() -> None:
+    """当日计划由零点后台任务生成，人物工具面没有 plan_day；当日已有计划（含空清单）时才开放修订，
+    目标只收意图、正文与必填可空的 remind_time，不从模型索取内部计时参数（时间与能量规格第四章）。"""
     data = _data()
-    planning = _functions(_prepare(data))
-    assert "plan_day" in planning and "revise_day_plan" not in planning
-    assert set(planning["plan_day"]["parameters"]["properties"]) == {"goals"}
+    unplanned = _functions(_prepare(data))
+    assert "plan_day" not in unplanned and "revise_day_plan" not in unplanned
     data["facts"]["day_plan"] = {"goals": []}
     revising = _functions(_prepare(data))
     assert "revise_day_plan" in revising and "plan_day" not in revising
-    assert set(revising["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
+    parameters = revising["revise_day_plan"]["parameters"]
+    assert set(parameters["properties"]) == {"goals"}
+    assert set(parameters["properties"]["goals"]["items"]["properties"]) == {"intent_kind", "goal", "remind_time"}
 
 
-def test_day_start_and_readonly_keep_their_phase_gates() -> None:
-    """日首先登记计划，只读循环仅开放记忆与结束工具。"""
-    data = _data()
-    data["wake_reasons"] = ["run_start"]
-    assert "start_activity" not in _functions(_prepare(data))
-    assert "plan_day" in _functions(_prepare(data))
+def test_day_start_offers_the_normal_tools_and_readonly_keeps_its_gate() -> None:
+    """运行开始与醒来的决策不再先登记计划：工具面与其他决策相同（第四章）；只读循环仅开放记忆与结束工具。"""
+    ordinary = set(_functions(_prepare()))
+    assert {"start_activity", "recall_task_summary", "submit_work", "send_message"} <= ordinary
+    assert "plan_day" not in ordinary
+    for reasons in (["run_start"], ["wake_from_sleep"], ["run_start", "wake_from_sleep"]):
+        data = _data()
+        data["wake_reasons"] = reasons
+        assert set(_functions(_prepare(data))) == ordinary
+        data["facts"]["day_plan"] = {"goals": []}
+        assert set(_functions(_prepare(data))) == ordinary | {"revise_day_plan"}
     readonly = LifeAgent()
     readonly.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, [], "What happened?", True))
     assert set(_functions(readonly, readonly=True)).isdisjoint(REQUEST_MODELS)

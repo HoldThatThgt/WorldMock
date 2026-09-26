@@ -220,6 +220,24 @@ def test_decision_token_median_from_paired_response() -> None:
     assert report["target_reference"] == 15000
 
 
+def test_plan_day_requests_are_not_decision_requests() -> None:
+    """@brief 零点计划 plan_day 的请求不是人物决策：不进决策 token 中位数，也不进观察重复门禁（即便文本相同）。"""
+    events = [
+        _model_request(1, "d1", ["观察 1"]),
+        _model_response(2, "d1", 100),
+        _model_request(3, "plan-day:1:2026-01-05:attempt:1", ["观察 1"], purpose="plan_day"),
+        _model_response(4, "plan-day:1:2026-01-05:attempt:1", 99999),
+        _model_request(5, "plan-day:1:2026-01-06:attempt:1", ["观察 1"], purpose="plan_day"),
+    ]
+
+    report = _report(events)
+
+    assert report["reports"]["decision_prompt_token_median"]["sample_size"] == 1
+    assert report["reports"]["decision_prompt_token_median"]["value"] == 100
+    gate = report["gates"]["observation_repetition"]
+    assert gate["value"] == 1 and gate["user_message_count"] == 1
+
+
 def test_autonomous_decision_rate_counts_continue_and_wait_as_passive() -> None:
     """@brief 最终动作为进度播报或等待的决策不计入自主决策。"""
     events = [

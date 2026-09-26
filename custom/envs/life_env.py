@@ -15,10 +15,11 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import CounterfactualIntervention, REQUEST_MODELS, RunIdentity
 from worldmock.status import write_status
 
-#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理九个工具。
+#: 稳定工具面（docs/dev/SPEC-agent-interaction.md「稳定工具面」）：环境侧必须恰好受理八个工具；
+#: 零点计划 plan_day 是运行时后台任务，不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
 _STABLE_TOOL_SURFACE = frozenset({
     "start_activity", "recall_task_summary", "report_status", "pause_activity",
-    "conclude_activity", "plan_day", "revise_day_plan", "submit_work", "send_message"})
+    "conclude_activity", "revise_day_plan", "submit_work", "send_message"})
 
 
 class LifeEnv(EnvBase):
@@ -44,7 +45,12 @@ class LifeEnv(EnvBase):
                 "open_existing=true only for an existing immutable run directory.")
 
     async def init(self, start_datetime: datetime) -> None:
-        """@brief 校验起始时钟并创建或明确打开运行。"""
+        """@brief 校验起始时钟并创建或明确打开运行；普通恢复在首次决策之前补齐缺失的当日计划。
+
+        锁定的 AS2 在恢复模式不形成初始检查点、首轮决策又先于推进，从计划尚未生成的检查点普通恢复时，
+        零点计划只能在这里执行（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）；此调用早于 AS2 登记
+        运行故障的范围，任务异常先经 engine.fail_run 登记再抛出。反事实分支在干预检查点之后执行。
+        """
         await super().init(start_datetime)
         if self.scenario_path is None or self.run_dir is None:
             raise ProtocolError("LifeEnv init requires scenario_path and run_dir")
@@ -64,6 +70,18 @@ class LifeEnv(EnvBase):
             raise ProtocolError("LifeEnv start time disagrees with the scenario")
         self._validate_registered_tool_surface()
         self._workspace_root = self.run_dir
+        if self.open_existing and self.engine.store.manifest.get("branch_kind") == "resume":
+            await self._settle_day_plans_on_resume(self.engine)
+
+    async def _settle_day_plans_on_resume(self, engine: LifeEngine) -> None:
+        """@brief 普通恢复时执行零点计划后台任务；异常先登记运行故障再抛出。"""
+        from worldmock.runtime import settle_pending_day_plans
+
+        try:
+            await settle_pending_day_plans(engine)
+        except Exception as error:
+            engine.fail_run(repr(error))
+            raise
 
     def _validate_registered_tool_surface(self) -> None:
         """@brief 核对环境与人物两侧登记的完整新工具 Schema 闭集。
@@ -127,10 +145,17 @@ class LifeEnv(EnvBase):
         self._require_engine().record_memory_update(evidence)
 
     async def checkpoint(self, request: Any):
-        """@brief 对全部人物工作区取不可变快照并提交共同检查点。"""
+        """@brief 对全部人物工作区取不可变快照并提交共同检查点，随后为缺当日计划的人物执行零点计划。
+
+        覆盖新建运行的初始检查点与反事实分支的干预检查点（启动路径，docs/dev/SPEC-time-and-energy.md 第四章）；
+        新计划由下一个共同检查点封存。无人缺当日计划时任务不构造客户端即返回。
+        """
         engine = self._require_engine()
         write_status(engine.store.run_dir, "running", "checkpointing")
-        return self._checkpoint(engine, request)
+        committed = self._checkpoint(engine, request)
+        from worldmock.runtime import settle_pending_day_plans
+        await settle_pending_day_plans(engine)
+        return committed
 
     def _checkpoint(self, engine: LifeEngine, request: Any):
         """@brief 校验共同身份并为每个人物工作区形成素材快照。"""
@@ -146,10 +171,14 @@ class LifeEnv(EnvBase):
         return engine.checkpoint(snapshots)
 
     async def step(self, tick: int, t: datetime) -> None:
-        """@brief 直接推进到 Society 已选定的下一个严格边界。"""
+        """@brief 直接推进到 Society 已选定的下一个严格边界；零点边界先生成当日计划，再判定该秒的唤醒与决策。"""
         engine = self._require_engine()
         write_status(engine.store.run_dir, "running", "advancing")
         engine.advance(tick, t)
+        if engine.midnight_rhythm_pending:
+            from worldmock.runtime import settle_pending_day_plans
+            await settle_pending_day_plans(engine)
+            engine.decide_midnight_rhythm()
         self.t = t
 
     async def fail_run(self, error: str) -> None:

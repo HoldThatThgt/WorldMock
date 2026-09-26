@@ -166,10 +166,10 @@ def _gate(value: Any, comparison: str, threshold: Any, note: str | None = None) 
 
 
 def _decision_model_requests(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 取决策类模型请求事件（排除工作验收请求）。"""
+    """@brief 取人物决策的模型请求事件：排除任一带 purpose 的系统请求（工作验收、零点计划 plan_day）。"""
     return [event for event in events if event.get("event_type") == "model_request"
             and event.get("data", {}).get("phase") == "request"
-            and event.get("data", {}).get("purpose") != "work_review"]
+            and not event.get("data", {}).get("purpose")]
 
 
 def _message_text(message: Mapping[str, Any]) -> str | None:
@@ -190,7 +190,7 @@ def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[st
     """@brief 统计同一 user 观察文本出现于不同 decision_id 请求中的最大数目；门禁必须为 1。
 
     同一决策的行动循环内重发同一观察只计一次；同刻多轮各有自己的 decision_id，分别计数。
-    工作验收请求不属于决策请求，不参与统计。
+    带 purpose 的系统请求（工作验收、零点计划）不属于决策请求，不参与统计。
     """
     decisions: dict[str, set[str]] = {}
     user_messages = 0

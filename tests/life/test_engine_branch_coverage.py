@@ -26,7 +26,8 @@ from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall
 
 from tests.life.conftest import (
-    activity_name, advance_next, advance_until_ready, conclude_request, context, submit_round, wake_by_mail,
+    StubPlanDayClient, activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
+    settle_day_plans, submit_round, wake_by_mail,
 )
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
 from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
@@ -89,6 +90,7 @@ from worldmock.life.scenario import (
     load_scenario,
 )
 from worldmock.footprints.models import EventDraft, DECISION_STATEMENT_FIELD
+from worldmock.runtime import settle_pending_day_plans
 
 
 # ---------------------------------------------------------------------------
@@ -447,9 +449,9 @@ def test_playback_speed_only_for_change_speed_operation() -> None:
 def test_plan_goal_rejects_blank_text_and_old_time_fields() -> None:
     """目标必须有文字，旧绝对时段请求严格拒绝。"""
     with pytest.raises(ValidationError, match="pattern"):
-        PlanGoalInput(intent_kind="工作", goal=" ")
+        PlanGoalInput(intent_kind="工作", goal=" ", remind_time=None)
     with pytest.raises(ValidationError, match="extra_forbidden"):
-        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "start": 100})
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "推进资料整理", "remind_time": None, "start": 100})
 
 
 def test_meeting_minutes_fields_reject_whitespace_only_text() -> None:
@@ -1396,33 +1398,39 @@ def _goals_with_wake_events(engine, offsets: tuple[int, ...]) -> PlanDayRequest:
 
 
 def test_plan_day_rejects_duplicate_and_invalid_goals(engine_factory) -> None:
-    """空清单仍禁止重复提交，绕过构造器的非法目标在环境严格边界拒绝。"""
+    """零点计划的空清单也只登记一次：同日醒来后不再生成，系统入口的重复登记是协议错误；绕过构造器的非法目标在
+    环境严格边界拒绝：人物修订为 ACTION_REQUEST_INVALID，系统入口为协议错误且不落盘（第四章）。"""
     engine = engine_factory()
-    plan = PlanDayRequest(goals=())
-    ok = _act(engine, "plan-ok", "plan_day", plan)
-    assert ok.status.value == "completed"
+    assert settle_day_plans(engine)[0]["goals"] == 0
     staged = engine.state.model_copy(deep=True)
     staged.agents[1] = staged.agents[1].model_copy(
         update={"pending_wake_reasons": ["wake_from_sleep"],
                 "next_decision_at": staged.current_time}, deep=True)
     _commit_staged(engine, staged)
-    duplicate = _act(engine, "plan-dup", "plan_day", plan)
-    assert duplicate.error_code == "PLAN_ALREADY_SUBMITTED"
-
-    fresh = engine_factory()
-    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标")
-    forged = PlanDayRequest.model_construct(goals=(invalid_goal,))
-    invalid = _act(fresh, "plan-invalid", "plan_day", forged)
+    again = StubPlanDayClient()
+    assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
+    with pytest.raises(ProtocolError, match="already generated"):
+        engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+    invalid_goal = PlanGoalInput.model_construct(intent_kind="unknown", goal="推进目标", remind_time=None)
+    forged = ReviseDayPlanRequest.model_construct(goals=(invalid_goal,))
+    invalid = _act(engine, "revise-invalid", "revise_day_plan", forged)
     assert invalid.status.value == "rejected"
     assert invalid.error_code == "ACTION_REQUEST_INVALID"
-    assert fresh.state.agents[1].day_plan is None
+    assert engine.state.agents[1].day_plan.goals == ()
+
+    fresh = engine_factory()
+    committed = fresh.store.last_event_seq
+    with pytest.raises(ProtocolError, match="Generated day plan is invalid"):
+        fresh.register_day_plan(1, PlanDayRequest.model_construct(goals=(invalid_goal,)), [], [])
+    assert fresh.state.agents[1].day_plan is None and not fresh.state.agents[1].plan_submitted_dates
+    assert fresh.store.last_event_seq == committed
 
 
 def test_revise_day_plan_requires_existing_plan(engine_factory) -> None:
     """无当日目标时修订被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "revise-none", "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿"),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一会儿", remind_time=None),)))
     assert result.status.value == "rejected"
     assert result.error_code == "PLAN_NOT_FOUND"
 

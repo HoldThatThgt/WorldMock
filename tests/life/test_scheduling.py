@@ -177,7 +177,11 @@ def test_calendar_flags_compile_at_local_midnight() -> None:
 
 
 def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> None:
-    """日历旗标到点零状态变更，只追加审计环境事件；观察侧注入路径保持。"""
+    """日历旗标到点零状态变更，只追加审计环境事件；观察侧注入路径保持。
+
+    旗标在本地零点到期，该边界同时是零点计划边界：零点计划为每个人物登记新一天的计划
+    （docs/dev/SPEC-time-and-energy.md 第四章），除这项登记外世界不变。
+    """
     engine = _custom_engine("white-collar-12-weeks.json", lambda doc: None, tmp_path)
     assert _environment_events(engine, "calendar_flag") == []
     due = _stage(engine, "calendar-2026-01-24")
@@ -192,7 +196,19 @@ def test_calendar_flag_dispatch_is_zero_state_audit_event(tmp_path: Path) -> Non
     assert len(events) == 1
     assert events[0].data["flags"] == ["overtime_opportunity"]
     assert events[0].data["scheduled_id"] == "calendar-2026-01-24"
-    assert _bare_world(engine) == before
+    registered = _environment_events(engine, "day_plan_generated")
+    assert [(event.agent_id, event.occurred_at) for event in registered] == [
+        (identity, due) for identity in sorted(engine.state.agents)]
+    next_midnight = _midnight_epoch("2026-01-25", engine.scenario.timezone)
+    for agent in engine.state.agents.values():
+        assert agent.plan_submitted_dates == {"2026-01-24"}
+        assert agent.day_plan.day_end == next_midnight and agent.day_plan.goals == ()
+    after = _bare_world(engine)
+    for world in (before, after):
+        for agent in world["agents"].values():
+            agent.pop("day_plan")
+            agent.pop("plan_submitted_dates")
+    assert after == before
     observation = engine._observation_data(engine.state.agents[1])
     assert observation["calendar_context"]["overtime_opportunity"] is True
     assert observation["calendar_context"]["spring_festival"] is False

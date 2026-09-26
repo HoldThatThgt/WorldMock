@@ -65,21 +65,81 @@ def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionCon
                            agent_id, observed, engine.state.version)
 
 
-def stage_day_plan(engine: LifeEngine, agent_id: int = 1) -> None:
-    """给非目标测试登记空清单，解除日首提交要求并保持存储版本连续。"""
+def stage_day_plan(engine: LifeEngine, agent_id: int = 1, goals: tuple = (), submitted: bool = False) -> None:
+    """预置当日计划（只置 day_plan）并保持存储版本连续；submitted 时同时写入当日日期（零点计划的幂等键）。
+
+    用于经 LifeEnv 驱动的测试之前时传 submitted=True，零点计划后台任务就不再为该人物生成计划。
+    """
     from worldmock.footprints.models import EventDraft
+    from worldmock.life.day_planning import plan_date
     from worldmock.life.schedule import DayPlan, day_end_seconds
 
     now = engine.state.current_time
     day_end = day_end_seconds(now, engine.scenario.timezone)
     staged = engine.state.model_copy(deep=True)
-    staged.agents[agent_id] = staged.agents[agent_id].model_copy(
-        update={"day_plan": DayPlan(day_end=day_end, goals=())}, deep=True)
+    agent = staged.agents[agent_id]
+    dates = set(agent.plan_submitted_dates) | ({plan_date(now, engine.scenario.timezone)} if submitted else set())
+    staged.agents[agent_id] = agent.model_copy(
+        update={"day_plan": DayPlan(day_end=day_end, goals=tuple(goals)), "plan_submitted_dates": dates}, deep=True)
     staged.version += 1
     engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
         event_type="environment_event", occurred_at=staged.current_time,
         visibility="system", data={"kind": "test_day_plan_staged"})])
     engine.state = staged
+
+
+def plan_day_response(goals: list[dict] | None = None, arguments: str | None = None) -> dict:
+    """零点计划模型的确定性原始响应：唯一 submit_day_plan 调用（arguments 覆盖时原样作为参数文本）。"""
+    import json
+
+    text = arguments if arguments is not None else json.dumps({"goals": goals or []}, ensure_ascii=False)
+    return {"model": "deepseek-flash",
+            "choices": [{"message": {"role": "assistant", "content": None, "tool_calls": [
+                {"id": "call-plan-day", "type": "function",
+                 "function": {"name": "submit_day_plan", "arguments": text}}]}}],
+            "usage": {"prompt_tokens": 30, "completion_tokens": 9, "total_tokens": 39}}
+
+
+class StubPlanDayClient:
+    """确定性零点计划客户端桩（经后台任务的 client 参数注入，同联系人回复）：按脚本依次返回响应并记录请求。
+
+    脚本用尽后按 goals（缺省为空清单）返回合法计划；raises 非空时下一次调用抛出该异常（模拟传输失败）。
+    """
+
+    model_name = "deepseek-flash"
+
+    def __init__(self, model_identity: dict | None = None, goals: list[dict] | None = None,
+                 responses: list[dict] | None = None, raises: BaseException | None = None):
+        self.calls: list[dict] = []
+        self.goals = goals or []
+        self.responses = list(responses or [])
+        self.raises = raises
+
+    async def call(self, request: dict) -> dict:
+        self.calls.append(request)
+        if self.raises is not None:
+            raise self.raises
+        return self.responses.pop(0) if self.responses else plan_day_response(self.goals)
+
+
+def drive(coroutine):
+    """不经事件循环驱动只含立即完成的 await 的协程（确定性客户端桩），同步与异步用例都能调用。"""
+    try:
+        coroutine.send(None)
+    except StopIteration as stop:
+        return stop.value
+    coroutine.close()
+    raise AssertionError("coroutine suspended on a real await")
+
+
+def settle_day_plans(engine: LifeEngine, client=None) -> list[dict]:
+    """执行零点计划后台任务（确定性桩），零点边界随后执行零点节律入口；返回登记摘要。"""
+    from worldmock.runtime import settle_pending_day_plans
+
+    registered = drive(settle_pending_day_plans(engine, client=client or StubPlanDayClient()))
+    if engine.midnight_rhythm_pending:
+        engine.decide_midnight_rhythm()
+    return registered
 
 
 def travel_quote(engine: LifeEngine, mode: str, base_seconds: int) -> int:
@@ -104,10 +164,12 @@ def submit_round(engine: LifeEngine, requests: dict[int, tuple[str, object]], ro
 
 
 def advance_next(engine: LifeEngine) -> None:
-    """推进到环境报告的下一个严格未来边界。"""
+    """推进到环境报告的下一个严格未来边界；零点边界照 LifeEnv.step 先生成当日计划（确定性空清单桩）再判定节律。"""
     state = engine.scheduling_state()
     assert state.next_event_at is not None
     engine.advance(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
+    if engine.midnight_rhythm_pending:
+        settle_day_plans(engine)
 
 
 def advance_until_ready(engine: LifeEngine, limit: int = 64) -> bool:

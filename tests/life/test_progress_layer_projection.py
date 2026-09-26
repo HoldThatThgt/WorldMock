@@ -85,7 +85,8 @@ def _world(activities, sessions=(), *, now: int = _START + 600, plan: DayPlan | 
 
 def _inputs(state: WorldState, tasks: tuple = ()) -> SimpleNamespace:
     """投影输入束：本轮可见名称由 activity_control.visible_names 分配（重名追加序号）。"""
-    return SimpleNamespace(state=state, agent=SimpleNamespace(agent_id=1), scenario=SimpleNamespace(tasks=tasks),
+    return SimpleNamespace(state=state, agent=SimpleNamespace(agent_id=1, day_plan=None),
+                           scenario=SimpleNamespace(tasks=tasks),
                            extras={"visible_names": visible_names(state, 1, [])})
 
 
@@ -457,7 +458,7 @@ def test_all_fresh_results_remain_in_progress_event_order() -> None:
     inputs = SimpleNamespace(
         scenario=SimpleNamespace(products=(), locations=(), tasks=()),
         state=SimpleNamespace(sessions={}, activities={}, current_time=10),
-        agent=SimpleNamespace(agent_id=1),
+        agent=SimpleNamespace(agent_id=1, day_plan=None),
         task_rows=[],
         recent_results=events,
         extras=_empty_names(),
@@ -477,10 +478,10 @@ def test_facts_exposes_one_progress_field_instead_of_two_old_result_fields(monke
     monkeypatch.setattr(projection, "_plan_fact", lambda *args: {"goals": []})
     monkeypatch.setattr(projection, "drive_summary", lambda *args: "")
     inputs = SimpleNamespace(
-        scenario=SimpleNamespace(products=(), tasks=(), locations=(
+        scenario=SimpleNamespace(products=(), tasks=(), timezone=_ZONE, locations=(
             SimpleNamespace(location_id="private-office", name="办公室"),)),
         state=SimpleNamespace(sessions={}, activities={}, current_time=10),
-        agent=SimpleNamespace(agent_id=1, location_id="private-office"),
+        agent=SimpleNamespace(agent_id=1, location_id="private-office", day_plan=None),
         task_rows=[], recent_results=[_result()], extras=_empty_names(),
     )
     facts = projection._facts_projection(

@@ -91,10 +91,15 @@ def test_effective_menu_intersects_location_and_person_actions() -> None:
 
 
 def test_actual_tool_schema_limits_action_phrases_without_removing_other_tools() -> None:
-    """地点菜单只剪裁 start_activity 动作枚举，工作提交等工具保持条件可见。"""
-    agent = _prepared_agent(("sleep", "wait"))
+    """地点菜单只剪裁 start_activity 动作枚举，工作提交与修订当日目标等工具保持条件可见；
+    plan_day 是零点后台任务，不在人物工具面（时间与能量规格第四章）。"""
+    observations = _observed_menu(("sleep", "wait"))
+    observations[0]["data"]["facts"]["day_plan"] = {"goals": []}
+    agent = LifeAgent()
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
     functions = _functions(agent)
-    assert {"start_activity", "submit_work", "recall_task_summary", "plan_day"} <= set(functions)
+    assert {"start_activity", "submit_work", "recall_task_summary", "revise_day_plan"} <= set(functions)
+    assert "plan_day" not in functions
     assert set(functions["start_activity"]["parameters"]["properties"]) == {"targets", "actions"}
     choices = functions["start_activity"]["parameters"]["properties"]["actions"]["items"]["enum"]
     assert set(choices) == {"等待", "睡觉"}

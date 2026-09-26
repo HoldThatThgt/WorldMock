@@ -459,3 +459,34 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
                                   window_id=_window_identity('action', tampered['input']))
     with pytest.raises(IntegrityError, match='source digest'):
         _model_source('action', 1, encode_model_record(tampered))
+
+
+def test_plan_day_request_never_becomes_a_decision_prompt_or_window_input(tmp_path):
+    """零点计划 plan_day 的请求带 purpose，即便晚于人物行动请求也不作窗口 prompt；其证据与计划登记是系统事件，不进窗口。"""
+    observed = event('observed', 1, 'observation', {'scene': '办公室里还有半小时空闲。'})
+    requested = event('requested', 5, 'action_requested', {'tool_name': 'start_activity'})
+    requested['action_id'] = 'selected-action'
+    prompt = decision_prompt(requested, ())
+    prompt['event_seq'] = 2
+    plan_request = event('plan-request', 3, 'model_request', {
+        'phase': 'request', 'purpose': 'plan_day', 'call_id': 'plan-day:1:2026-01-05:attempt:1',
+        'request': {'model': 'fixture', 'messages': [{'role': 'user', 'content': '零点计划输入'}],
+                    'tools': [{'type': 'function', 'function': {'name': 'start_activity', 'parameters': {}}}]}},
+        'system')
+    plan_request['decision_id'] = None
+    registered = event('plan-registered', 4, 'environment_event', {
+        'kind': 'day_plan_generated', 'day_plan': {'day_end': 1000, 'goals': []}, 'source_event_ids': []}, 'system')
+    completed = event('completed', 6, 'action_result', {'status': 'completed', 'message': 'Done'})
+    completed['action_id'] = requested['action_id']
+    rows = (observed, prompt, plan_request, registered, requested, completed)
+    manifest = {'run_id': 'run', 'source_group_id': 'run',
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {requested['action_id']: [requested, completed]},
+                                     {'decision': list(rows)},
+                                     (manifest, tmp_path, {row['event_id']: row for row in rows}))
+
+    assert action['input']['decision_prompt'] == prompt['data']['request']
+    assert action['provenance']['decision_prompt_event_id'] == prompt['event_id']
+    for record in (action, intent):
+        assert '零点计划输入' not in str(record['input']) and 'day_plan_generated' not in str(record['input'])

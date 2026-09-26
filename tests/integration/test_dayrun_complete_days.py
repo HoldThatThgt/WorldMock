@@ -13,10 +13,12 @@ import pytest
 os.environ.setdefault("AGENTSOCIETY_LLM_API_KEY", "test-only")
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
+import worldmock.runtime as runtime_module
+from agentsociety2.society import SocietyCheckpointRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _DecisionStatementResponse
-from tests.life.conftest import context
+from tests.life.conftest import StubPlanDayClient, context
 from tests.life.test_scheduling import _document, _write_scenario, _identity
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
@@ -26,6 +28,16 @@ from worldmock.life.models import ActivityStatus
 from worldmock.runtime import two_stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
+#: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
+_DAY_GOALS = [{"intent_kind": "用餐", "goal": "找一份餐食", "remind_time": None},
+              {"intent_kind": "娱乐", "goal": "听一会访谈", "remind_time": None}]
+
+
+class _PlanDayClient(StubPlanDayClient):
+    """替换 worldmock.runtime.PlanDayClient 的确定性桩：LifeEnv 的检查点与零点推进经它生成当日计划。"""
+
+    def __init__(self, model_identity):
+        super().__init__(model_identity, goals=_DAY_GOALS)
 
 
 @pytest.fixture(autouse=True)
@@ -93,9 +105,6 @@ class DayModel:
     def _choose(self, functions):
         now = self.agent.require_decision_context().observed_at
         hour = now.hour + now.minute / 60 + now.second / 3600
-        if "plan_day" in functions:
-            return "plan_day", {"goals": [{"intent_kind": "用餐", "goal": "找一份餐食"},
-                                            {"intent_kind": "娱乐", "goal": "听一会访谈"}]}
         pending = self._contracts()["pending_names"]
         if pending:
             return self._conclude(pending)
@@ -210,7 +219,8 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("seed", [17, 54])
-async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed):
+async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed, monkeypatch):
+    monkeypatch.setattr(runtime_module, "PlanDayClient", _PlanDayClient)
     document = _document("multi-person.json")
     document["random_seed"] = seed
     # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
@@ -235,6 +245,11 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
     restored = False
     rounds = 0
     try:
+        # 启动路径（时间与能量规格第四章「执行位置」）：同 AS2 Society.init，初始共同检查点经 LifeEnv.checkpoint
+        # 提交之后，零点计划后台任务在首个 run_start 决策之前为每个人物生成当日计划。
+        await environment.checkpoint(SocietyCheckpointRequest(
+            engine.state.run_id, "initial", engine.scheduling_state().current_time,
+            tuple((key, str(people_root / f"agent_{key:04d}")) for key in sorted(people))))
         while engine.state.current_time < engine.state.end_time:
             scheduling = engine.scheduling_state()
             if not scheduling.ready_agent_ids:
@@ -280,6 +295,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
     same_second = Counter((event.agent_id, event.occurred_at) for event in events
                           if event.event_type == "decision_started")
     assert max(same_second.values()) <= engine.scenario.max_same_moment_decisions + 3
+    _assert_start_day_plans(events, start)
     paused = 0
     for agent_id in (1, 2):
         body = [event for event in events if event.agent_id == agent_id
@@ -308,16 +324,31 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert (tmp_path / "export" / "quality.json").is_file()
 
 
+def _assert_start_day_plans(events, start):
+    """第四章：启动路径的零点计划在首个决策之前为每人生成一次当日计划（从检查点恢复不重复），首个决策仍带
+    run_start；运行终点恰为零点，不再生成。"""
+    generated = [event for event in events if event.event_type == "environment_event"
+                 and event.data.get("kind") == "day_plan_generated"]
+    assert sorted(event.agent_id for event in generated) == [1, 2]
+    for event in generated:
+        assert event.occurred_at == start
+        assert [goal["intent_kind"] for goal in event.data["day_plan"]["goals"]] == ["用餐", "娱乐"]
+        first = next(item for item in events
+                     if item.event_type == "decision_started" and item.agent_id == event.agent_id)
+        assert event.event_seq < first.event_seq and "run_start" in first.data["wake_reasons"]
+
+
 def _assert_activity_protocol(engine, events, agent_id):
-    """第七章：生活决策没有 finish；唯一主观记忆经 conclude_activity.memories 写入并由收尾写入点对上；
-    刚结束的活动都在结束那一秒收尾，暂停的等待回到开始地点后恢复，结束、暂停与恢复逐项留记录。
+    """第七章：生活决策没有 finish（第四章：也没有 plan_day）；唯一主观记忆经 conclude_activity.memories 写入并由
+    收尾写入点对上；刚结束的活动都在结束那一秒收尾，暂停的等待回到开始地点后恢复，结束、暂停与恢复逐项留记录。
 
     :returns: 本人暂停（随后都已恢复）的次数。
     """
     own = [event for event in events if event.agent_id == agent_id]
     offered = [{tool["function"]["name"] for tool in event.data["request"]["tools"]} for event in own
-               if event.event_type == "model_request" and event.data["request"].get("tools")]
-    assert offered and all("finish" not in names for names in offered)
+               if event.event_type == "model_request" and event.data.get("purpose") != "plan_day"
+               and event.data["request"].get("tools")]
+    assert offered and all({"finish", "plan_day"}.isdisjoint(names) for names in offered)
     written = [event for event in own if event.event_type == "memory_updated"
                and any(row["text"] == "我以为自己已经吃过一顿饭。" for row in event.data["episodes"])]
     assert written and written[0].data["trigger"][0] == "activity_conclusion"

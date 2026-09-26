@@ -11,16 +11,16 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import (activity_name, advance_next, context, stage_day_plan, submit_round,
-                               travel_quote, wake_by_mail)
+from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan,
+                               submit_round, travel_quote, wake_by_mail)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, PlanDayRequest,
-                                   ReportStatusRequest, StartActivityRequest)
+from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, ReportStatusRequest,
+                                   ReviseDayPlanRequest, StartActivityRequest)
 from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -56,14 +56,16 @@ def _observed_action(engine, round_id: str, action: str, object_id: str | None =
 
 
 def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
-    """零能量瞬时登记后同一秒再决策，不产生空白区间；随后的等待照常结算清醒身体（时间与能量规格第一章规则 1、2）。"""
+    """零能量瞬时修订当日目标后同一秒再决策，不产生空白区间；随后的等待照常结算清醒身体（时间与能量规格第一章规则 1、2）。
+    当日计划由启动路径的零点计划登记（第四章）。"""
     engine = engine_factory()
+    settle_day_plans(engine)
     _set_energy(engine, 0)
     decision = context(engine, "zero-energy-plan")
     engine.begin_decision_round([decision])
     engine.observe(decision)
     engine.submit_action(DirectToolCall(
-        decision, "action-zero-energy-plan", "plan_day", PlanDayRequest(goals=())))
+        decision, "action-zero-energy-plan", "revise_day_plan", ReviseDayPlanRequest(goals=())))
     result = engine.commit_decision_round("zero-energy-plan")[0]
     assert result.status == "completed" and not engine.state.activities
     assert engine.scheduling_state().ready_agent_ids == (1,)

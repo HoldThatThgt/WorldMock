@@ -30,6 +30,8 @@ _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal
                               "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 _WRITE_POINTS = ("activity_conclusion", "reflection")
+#: 模型用量按用途分列时，无 purpose 的请求（人物决策的自述与动作）的分组名。
+_DECISION_PURPOSE = "decision"
 _PRICING = {
     "source": "https://api-docs.deepseek.com/quick_start/pricing/",
     "checked_at": "2026-09-15",
@@ -647,6 +649,7 @@ def _model_quality(events: list[Event]) -> dict:
         "token_usage": _aggregate_tokens(usage, reported, missing_responses + len(pending)),
         "estimated_cost": _aggregate_cost(usage, estimated, missing_responses, pending),
         "by_actual_model": _usage_by_model(usage),
+        "by_purpose": _usage_by_purpose(requests, usage),
         "pricing_snapshot": _PRICING,
     }
 
@@ -666,6 +669,7 @@ def _usage_entry(event: Event, request_recorded_at: str | None) -> dict:
     cost, band, reason = _estimate_cost(model, usage, request_recorded_at)
     return {
         "event_id": event.event_id,
+        "purpose": event.data.get("purpose") or _DECISION_PURPOSE,
         "model": model,
         "tokens": tokens,
         "estimated_cost_usd": cost,
@@ -780,6 +784,18 @@ def _usage_by_model(usage: list[dict]) -> list[dict]:
             "estimated_responses": len(estimated),
         })
     return result
+
+
+def _usage_by_purpose(requests: list[Event], usage: list[dict]) -> list[dict]:
+    """@brief 按请求用途分列：人物决策（无 purpose）、工作验收与零点计划 plan_day 各自的请求、响应与已知 token。"""
+    counts = Counter(event.data.get("purpose") or _DECISION_PURPOSE for event in requests)
+    groups: dict[str, list[dict]] = defaultdict(list)
+    for item in usage:
+        groups[item["purpose"]].append(item)
+    return [{"purpose": purpose, "request_events": counts[purpose], "provider_responses": len(groups[purpose]),
+             "token_usage": _aggregate_tokens(groups[purpose],
+                                              [item for item in groups[purpose] if item["tokens"] is not None])}
+            for purpose in sorted(set(counts) | set(groups))]
 
 
 def _acceleration(events: list[Event], manifest: dict) -> dict:
