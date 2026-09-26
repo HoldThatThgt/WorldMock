@@ -84,6 +84,8 @@ class _Action:
     action_name: str | None = None
     index: int = 0
     activity_status: str | None = None
+    #: 该项实际开始的活动身份（start_activity 逐项；没有活动或未知时为 None，按位置对应）。
+    activity_key: str | None = None
 
 
 def labelkit_public_evidence(
@@ -285,7 +287,8 @@ def _start_shapes(request: Mapping[str, Any], related: Sequence[Event]) -> tuple
         action = _started_action(related, index, way)
         shape = _start_shape(action, way, target, related, index)
         if shape is not None:
-            selected.append(_Action("start_activity", request, shape, action, index))
+            key = _string(_related_activity(related, index).get("activity_id"))
+            selected.append(_Action("start_activity", request, shape, action, index, activity_key=key))
     return tuple(selected)
 
 
@@ -400,10 +403,15 @@ def _start_action(action: _Action) -> str | None:
 
 
 def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
-    """@brief 仅依据实际订单对象投影订单、付款与履约状态。"""
+    """@brief 仅依据实际订单对象投影订单、付款与履约状态。
+
+    与持续活动同一请求的取得：只由带着本项订单的结果投影；同一动作之后只描述活动的终态结果不是这项订单的结果，
+    不投影（组合请求中瞬时的取得当场成单并付款，组合结果仍是进行中）。
+    """
     payload = _result_payload(event.data)
-    orders = payload.get("orders")
-    order = _mapping(orders[action.index]) if isinstance(orders, list) and action.index < len(orders) else {}
+    order = _item_order(payload, action.index)
+    if not order and ("activity" in payload or "activities" in payload):
+        return []
     key = _string(order.get("order_id")) or action.shape.object_key
     attributes = _fulfillment(order.get("fulfillment")) or dict(action.shape.attributes)
     state = order.get("status")
@@ -411,7 +419,7 @@ def _purchase_result(event: Event, action: _Action) -> list[PublicEvidence]:
         state = _result_state(event, action)
     order_shape = _Shape("purchase", "order", "order", key, attributes)
     rows = [_from_event(event, order_shape, str(state) if state is not None else None)]
-    if _account_changes(event, action) and event.data.get("status") == "completed":
+    if _account_changes(event, action) and event.data.get("status") in {"completed", "in_progress"}:
         payment = _Shape("purchase", "pay", "order", key, attributes)
         rows.append(_from_event(event, payment, "paid"))
     return rows
@@ -447,7 +455,8 @@ def _result_state(event: Event, action: _Action) -> str | None:
     if action.tool_name in _SESSION_CONTROL_TOOLS:
         return {"report_status": "started", "pause_activity": "paused"}[action.tool_name]
     started = _start_action(action)
-    activity = _result_activity_at(event.data, action.index)
+    activity = (_activity_with_identity(event.data, action.activity_key) if action.activity_key is not None
+                else _result_activity_at(event.data, action.index))
     if started in _ACTIVITY_BACKED_ACTIONS:
         status = _ACTIVITY_RESULT_STATES.get(activity.get("status"))
     if status == "completed":
@@ -484,13 +493,30 @@ def _order_key(events: Sequence[Event], index: int = 0) -> str | None:
     for event in events:
         if event.event_type != "action_result":
             continue
-        payload = _result_payload(event.data)
-        orders = payload.get("orders")
-        order = orders[index] if isinstance(orders, list) and index < len(orders) else payload.get("order")
-        key = _string(_mapping(order).get("order_id"))
+        key = _string(_item_order(_result_payload(event.data), index).get("order_id"))
         if key is not None:
             return key
     return None
+
+
+def _item_result(payload: Mapping[str, Any], index: int) -> Mapping[str, Any] | None:
+    """@brief 逐项派发的组合结果中与请求第 index 项对应的逐项结果（activity_results 中带活动快照或订单的一项）。
+
+    合成一单或一餐、单项请求与终态结果没有逐项结果，返回 None，沿用按位置对应。
+    """
+    results = payload.get("activity_results")
+    item = _mapping(results[index]) if isinstance(results, list) and index < len(results) else {}
+    return item if "activity" in item or "orders" in item else None
+
+
+def _item_order(payload: Mapping[str, Any], index: int) -> Mapping[str, Any]:
+    """@brief 请求第 index 项的实际订单：组合结果取该项自己的订单，合成的一单按位置取，没有时为空对象。"""
+    item = _item_result(payload, index)
+    if item is not None:
+        orders = item.get("orders")
+        return _mapping(orders[0]) if isinstance(orders, list) and orders else {}
+    orders = payload.get("orders")
+    return _mapping(orders[index] if isinstance(orders, list) and index < len(orders) else payload.get("order"))
 
 
 def _activity_data_key(events: Sequence[Event], field: str) -> str | None:
@@ -515,11 +541,22 @@ def _result_activity(data: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _result_activity_at(data: Mapping[str, Any], index: int) -> Mapping[str, Any]:
-    """@brief 读取组合动作中与请求顺序对应的活动快照。"""
+    """@brief 读取组合动作中与请求顺序对应的活动快照：逐项结果优先（瞬时的取得没有活动），其次按位置对应。"""
+    item = _item_result(_result_payload(data), index)
+    if item is not None:
+        return _mapping(item.get("activity"))
     activities = _result_payload(data).get("activities")
     if isinstance(activities, list):
         return _mapping(activities[index]) if index < len(activities) else {}
     return _result_activity(data) if index == 0 else {}
+
+
+def _activity_with_identity(data: Mapping[str, Any], identity: str) -> Mapping[str, Any]:
+    """@brief 一条动作结果中身份为 identity 的活动快照（单项、逐项列表或逐项结果），没有时为空对象。"""
+    payload = _result_payload(data)
+    rows = [_result_activity(data), *(payload.get("activities") or []),
+            *(_mapping(item).get("activity") for item in payload.get("activity_results") or [])]
+    return next((_mapping(row) for row in rows if _mapping(row).get("activity_id") == identity), {})
 
 
 def _account_changes(event: Event, action: _Action) -> bool:
@@ -536,10 +573,19 @@ def _account_changes(event: Event, action: _Action) -> bool:
 
 
 def _related_activity(events: Sequence[Event], index: int) -> Mapping[str, Any]:
-    """@brief 从动作结果链提取当前逐项活动的最新快照。"""
+    """@brief 从动作结果链提取当前逐项活动的最新快照。
+
+    逐项派发的组合结果记明了每一项的活动身份，之后的结果（如只含一项活动的终态）按身份对应；瞬时的取得没有活动。
+    """
+    item = next((found for event in events if event.event_type == "action_result"
+                 for found in [_item_result(_result_payload(event.data), index)] if found is not None), None)
+    identity = _string(_mapping(item.get("activity")).get("activity_id")) if item is not None else None
+    if item is not None and identity is None:
+        return {}
     for event in reversed(events):
         if event.event_type == "action_result":
-            activity = _result_activity_at(event.data, index)
+            activity = (_activity_with_identity(event.data, identity) if identity is not None
+                        else _result_activity_at(event.data, index))
             if activity:
                 return activity
     return {}

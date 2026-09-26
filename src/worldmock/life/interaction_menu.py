@@ -150,12 +150,12 @@ def activity_phrase(action: dict[str, Any]) -> str:
 
 
 def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
-    """@brief 两项是否合成一次动作：同为取得（购买）合成一单，同为方式相同的使用合成一餐（沿用同短语合并）。"""
+    """@brief 两项是否合成一次动作（沿用同短语合并）：同为方式相同的取得（都到店或都远程下单）合成一单，同为方式相同的
+    食用或使用合成一餐；「制作」按一份库存转换配方执行，一次只做一件，不合并；其余两项各自受理。"""
     if len(canonical) == 1:
         return True
-    if canonical[0] == canonical[1] == "purchase":
-        return True
-    return canonical[0] == canonical[1] == "consume" and ways[0] == ways[1]
+    same = canonical[0] == canonical[1] and ways[0] == ways[1]
+    return same and canonical[0] in {"purchase", "consume"} and ways[0] != "制作"
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

@@ -379,9 +379,16 @@ _SAME_MOMENT_TESTS += [
     "test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second",
 ]
 
+#: 阶段 4 评审修复，同刻决策：同一轮里刚受理的交谈被对方结束，也在同一秒收尾，收尾前时钟不推进（第一章规则 1、2）。
+_SAME_MOMENT_TESTS += [
+    _SOCIAL_ROUNDS + "test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves",
+]
+
 #: 阶段 4 完成能量不拦人行：可供性注册表删 energy_projection，观察合同键为五个。
 _STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
     _SHADOW + "test_energy_projection_is_gone_from_registry_and_observation_contract",
+    # 评审修复：手边两件食品合成一餐照常开始，不因组内两项都占 hands 而被拒。
+    _ADMISSION + "test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order",
 ]
 
 #: 阶段 4 完成的「五个动词与并行」行：第五章验收（并行组合、途中投影与菜单、订单与取得的先后、共同身体只结算一次、
@@ -463,6 +470,34 @@ _FIVE_VERBS_TESTS = [
     "tests/life/test_content_game.py::test_arrived_mail_is_read_through_its_object",
 ]
 
+#: 阶段 4 评审修复，五个动词与并行：合成一单或一餐只在方式相同时（「制作」不合并）；要停在一个地点做的事按整组开始
+#: 之后人在哪里判定、与组内先后无关；到店与远程下单不按人物所在剪裁（不在店里、此地送不到时带说明并引导）；瞬时的
+#: 取得可与持续活动同一请求（评估证据逐项对应）；驾车与远程下单同一请求「先下单，再出发」；接受时对方交谈快结束以
+#: ACTIVITY_TOO_SHORT 引导；只能观看的游戏会话与内容同一呈现；说明给时长或未满足的条件；公开原因只取引导性拒绝写明的
+#: 那一句；交谈邀请、人物消息与联系人回复不是阅读对象；名称只从本决策唯一的观察解析、不缓存。
+_FIVE_VERBS_TESTS += [
+    _ADMISSION + name for name in (
+        "test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order",
+        "test_two_makes_are_not_merged_and_two_uses_are_refused_with_a_reason",
+        "test_holding_or_lifestyle_with_a_walk_is_refused_in_either_order",
+        "test_pickup_and_remote_order_stay_listed_away_from_the_store",
+        "test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_where_to_go",
+        "test_an_instant_obtain_joins_a_timed_activity_in_one_request",
+        "test_making_with_a_pickup_at_the_store_places_the_order_and_starts_the_making",
+        "test_driving_with_a_remote_order_in_one_request_says_order_first",
+        "test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_length",
+        "test_malformed_request_gets_the_default_reason_without_the_validation_text",
+        "test_a_repeated_observation_of_one_decision_is_ambiguous_on_every_read",
+    )
+] + [
+    _SOCIAL_ROUNDS + "test_late_acceptance_is_noted_and_refused_with_a_reason_and_next_step",
+    _SOCIAL_ROUNDS + "test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves",
+    "tests/integration/test_decision_context_protocol.py::"
+    "test_start_activity_description_says_notes_give_length_or_unmet_condition",
+    "tests/life/test_content_game.py::"
+    "test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_mail_objects",
+]
+
 #: 阶段 4 完成会话、活动与记忆行的剩余两支：接着看同一内容不增加接触次数（从头再看才加一，质量报告只把从头再看计为重看）；
 #: 名额未满而有进行中活动时选择出行，以 ACTIVITY_PRECONDITION_UNMET 点名要先处理的活动并给出下一步。
 _SESSIONS_AND_MEMORY_TESTS += [
@@ -471,6 +506,14 @@ _SESSIONS_AND_MEMORY_TESTS += [
     "tests/life/test_motivation.py::TestEntertainmentSegmentSlots::test_resume_keeps_exposures_and_restart_adds_one",
     "tests/footprints/test_quality.py::test_repeat_watch_counts_only_sessions_restarted_from_the_beginning",
     _ADMISSION + "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
+]
+
+#: 阶段 4 评审修复，会话、活动与记忆：出发的同一请求不能做要停在一个地点做的事；瞬时的取得不占名额，活动按自己的绑定
+#: 命名并归入会话。路上的活动不能暂停、在别处恢复暂停的活动带引导性原因与下一步，由已登记的会话用例
+#: （test_pausing_an_activity_on_the_road_is_unavailable、test_paused_activity_resumes_only_at_its_start_location）断言。
+_SESSIONS_AND_MEMORY_TESTS += [
+    _ADMISSION + "test_holding_or_lifestyle_with_a_walk_is_refused_in_either_order",
+    _ADMISSION + "test_an_instant_obtain_joins_a_timed_activity_in_one_request",
 ]
 
 #: 阶段 4 对「本机运行修复」行（阶段 7 收尾）的预先登记：截止前不足 60 秒的开工带说明且选择时业务拒绝、
@@ -486,6 +529,9 @@ _STAGE4_LOCAL_RUN_FIX_TESTS = [
 _STAGE4_NO_NEW_FAULT_TESTS = [
     _SAME_MOMENT + "test_partner_ended_chat_redecides_same_second_with_planned_end",
     _SOCIAL_ROUNDS + "test_chat_call_and_wait_run_without_failure_at_any_feedback_interval",
+    # 评审修复：本轮才受理的交谈被对方结束、接受时对方交谈快结束，都不产生 run_failed。
+    _SOCIAL_ROUNDS + "test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves",
+    _SOCIAL_ROUNDS + "test_late_acceptance_is_noted_and_refused_with_a_reason_and_next_step",
 ]
 
 _PLANNING = "tests/life/test_day_planning.py::"
@@ -694,6 +740,22 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"duration < 60 or duration > 86_400|if not 60 <= duration <= 86_400", [_SESSION_ACTIONS]),
         # 撤回 778beca 的剪裁：条件未满足的对象不再清空动作，也不再以条件不满足改写动作列表。
         (r'if row\["preconditions_met"\] else \[\]|"actions": available or actions', [_PROJECTION]),
+        # 评审修复：到店与远程下单不按人物所在剪裁；facts.inventory 按现场地点注明不在手边。
+        (r'inputs\.agent\.location_id in supply\["delivery_destination_ids"\]', [_PROJECTION]),
+        (r"if place_id != inputs\.agent\.location_id", [_PROJECTION]),
+        # 评审修复：冻结观察不缓存；公开原因只取引导性拒绝写明的那一句，不读链式底层异常。
+        (r"_OBSERVATION_CACHE_SIZE|_frozen_observations|def _menu_actions|def _resolve_interaction_bindings",
+         ["src", "custom"]),
+        (r"raise error from ValueError\(", [_SESSION_ACTIONS]),
+        (r"_CJK|= error\.__cause__", ["src/worldmock/life/guidance.py"]),
+        # 评审修复：本轮才受理、被对方结束的交谈同样在同一秒收尾。
+        (r"previous is None", ["src/worldmock/life/same_moment.py"]),
+        # 评审修复：说明也可以是内容的时长；引用指向存在的标题。
+        (r"An action with a note has a|next step if you choose it", [_AGENT]),
+        (r"第七章「接着看」", ["src/worldmock/life/rules.py", "src/worldmock/footprints/quality.py",
+                            "src/worldmock/life/motivation.py", "tests/footprints/test_quality.py",
+                            "tests/life/test_motivation.py", "tests/life/test_news_feed.py"]),
+        (r"\| `ACTIVITY_TOO_SHORT` \| 折算后的社交活动时长不足 60 秒 \|", [_CONTRACTS]),
     ],
     "5": [
         (r'"plan_day"', [_AGENT, "custom/envs/life_env.py", _MODELS, _ENGINE]),
@@ -829,6 +891,17 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"catalog/\*\* text=auto eol=lf", [".gitattributes"]),
         (r"2026-09-25-time-and-energy-stage-4", [_CONTRACTS, _EXPERIMENT]),
         (r"def test_", ["tests/life/test_parallel_admission.py", "tests/life/test_social_rounds.py"]),
+        # 评审修复：送达地判定、迟到的接受、显式公开原因、游戏会话的观看行与合入提交的台账行。
+        (r"暂时送不到这里", [_ADMISSION_MODULE, _PROJECTION, _CONTRACTS]),
+        (r"def late_acceptance_refusal", [_SOCIAL_ACTIONS]),
+        (r"对方的交谈快结束了", [_SOCIAL_ACTIONS, _CONTRACTS]),
+        (r"public_reason", ["src/worldmock/life/guidance.py", "src/worldmock/errors.py"]),
+        (r"def _watch_row", [_PROJECTION]),
+        (r"2026-09-26-time-and-energy-stage-4-review", [_CONTRACTS]),
+        (r"合入提交：`4013df3`（合并 `922d74e`；评审修复另见后续提交）。",
+         ["docs/dev/research/time-and-energy-implementation-plan.md"]),
+        (r"合入提交：`ecdc130`（合并 `11f61ac`；评审修复 `811fadd`）。",
+         ["docs/dev/research/time-and-energy-implementation-plan.md"]),
     ],
     "5": [
         (r"async def settle_pending_day_plans\(engine: Any, client: Any \| None = None\)", [_RUNTIME]),

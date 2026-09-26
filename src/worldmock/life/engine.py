@@ -1001,15 +1001,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         except ValueError as error:
             # 请求再验证失败（绕过构造期校验的载荷，如超长 goal）转业务拒绝：裸 ValidationError 穿透 _resolve 杀 run（unit-16 E2 深层防御）。
             raise BusinessRuleError("ACTION_REQUEST_INVALID") from error
-        menu_actions = self._menu_actions(pending, request)
-        if menu_actions is not None:
-            require_interaction_menu(self.scenario, state, pending, menu_actions)
-        self._require_boundary_action(state, pending, request)
+        selection = self._start_selection(pending, request)
+        if selection is not None:
+            require_interaction_menu(self.scenario, state, pending,
+                                     [row["selected_action"]["canonical_action"] for row in selection])
+        self._require_boundary_action(state, pending, request, selection)
         waiting = activity_control.pending_conclusions(state, pending.agent_id)
         if waiting and pending.tool_name != "conclude_activity":
             raise activity_control.conclusion_required(waiting, self._control_names(pending))
+        if pending.tool_name == "start_activity":
+            return self._start_activity(state, pending, selection)
         handlers = {
-            "start_activity": self._start_activity,
             "submit_work": self._submit_work_action,
             "send_message": self._send_message_action,
             "recall_task_summary": self._recall_task_summary,
@@ -1020,20 +1022,29 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         }
         return handlers[pending.tool_name](state, pending, request)
 
-    def _require_boundary_action(self, state: WorldState, pending: PendingAction, request) -> None:
-        """@brief 决策须已到期；达到同刻上限后的受限轮只接受本轮开放的动作类（第一章「实现约定」）。"""
+    def _require_boundary_action(self, state: WorldState, pending: PendingAction, request,
+                                 selection: list[dict] | None) -> None:
+        """@brief 决策须已到期；达到同刻上限后的受限轮只接受本轮开放的动作类（第一章「实现约定」）。
+
+        :param selection: 派发时解析的 start_activity 绑定行（其他工具为空，解析不出时为 None）。
+        """
         agent = state.agents[pending.agent_id]
         if agent.next_decision_at > state.current_time:
             raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
         if agent.same_moment_stage != SameMomentStage.OPEN:
             same_moment.require_stage_action(agent.same_moment_stage,
-                                             self._same_moment_request_kind(state, pending, request))
+                                             self._same_moment_request_kind(state, pending, request, selection))
 
-    def _same_moment_request_kind(self, state: WorldState, pending: PendingAction, request) -> str:
-        """@brief 解析本请求的对象与点名活动，交给 same_moment.request_kind 判定受限轮请求类。"""
-        actions = ([row["selected_action"]["canonical_action"]
-                    for row in self._resolve_interaction_bindings(pending, request)]
-                   if pending.tool_name == "start_activity" else [])
+    def _same_moment_request_kind(self, state: WorldState, pending: PendingAction, request,
+                                  selection: list[dict] | None) -> str:
+        """@brief 按已解析的对象与点名活动，交给 same_moment.request_kind 判定受限轮请求类。
+
+        start_activity 的选择解析不出时以 ACTION_REQUEST_INVALID 拒绝（与受理同一判定）。
+        """
+        if selection is None:
+            logging.error("Start activity selection is not offered in this round")
+            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        actions = [row["selected_action"]["canonical_action"] for row in selection]
         named = (self._activities_for_names(state, pending, request.task)
                  if pending.tool_name in {"report_status", "conclude_activity"} else [])
         waiting = frozenset(item.activity_id for item in activity_control.pending_conclusions(state, pending.agent_id))

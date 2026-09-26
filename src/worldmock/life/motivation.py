@@ -973,7 +973,7 @@ def _watch_candidate(context: MotivationContext, item: ContentItemConfig,
     segments_total = len(boundaries) or 1
     typical = item.duration_seconds / segments_total
     remaining = item.duration_seconds - position
-    # 已看完或剩余不足 60 秒的从头再看，接触次数加一；接着看从上次位置开始，不算新的一次接触（第七章「接着看」）。
+    # 已看完或剩余不足 60 秒的从头再看，接触次数加一（第八章「呈现」）；接着看从上次位置开始，不算新的一次接触（第七章「三层结构」）。
     restart = progress is None or restarts_from_beginning(position, item.duration_seconds)
     if restarts_from_beginning(position, item.duration_seconds):
         position = 0.0

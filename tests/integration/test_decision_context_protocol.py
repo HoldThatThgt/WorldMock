@@ -333,3 +333,20 @@ async def test_start_activity_schema_uses_readable_target_and_action() -> None:
     assert all(field in description for field in ("targets", "actions", "ways"))
     assert "自己" in action_request["messages"][1]["content"]
     assert environment.calls[0].request.model_dump() == _WAIT_CHOICE
+
+
+@pytest.mark.asyncio
+async def test_start_activity_description_says_notes_give_length_or_unmet_condition() -> None:
+    """@brief 动作的说明可以是内容的时长（全长或还剩多少），也可以是尚未满足的条件：实际发出的工具描述两种都讲明，
+    并且只把「选了条件未满足的动作」说成由世界给出原因与下一步，不把时长说明当成未满足的条件
+    （docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」、第八章「呈现」）。"""
+    agent, _, dispatcher = _configured([_DecisionStatementResponse(_STATEMENT), _action_response()], 3)
+    await agent.run_react_loop(_request())
+    description = next(tool["function"]["description"] for tool in dispatcher.requests[1]["tools"]
+                       if tool["function"]["name"] == "start_activity")
+    assert description == life_agent._TOOL_DESCRIPTIONS["start_activity"]
+    note = next(sentence for sentence in re.split(r"(?<=\.)\s+", description) if "note" in sentence)
+    gives, choosing = note.split(";", 1)
+    assert "length" in gives and "condition that is not met" in gives
+    assert "condition is not met" in choosing
+    assert "reason" in choosing and "next step" in choosing

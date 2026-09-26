@@ -21,6 +21,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life import felt, social
 from worldmock.life.activities import ActivityAdvance, ActivityOrigin
 from worldmock.life.body import ActivityFactors, settle_body
+from worldmock.life.guidance import Refusal
 from worldmock.life.models import (
     ActivityKind,
     ActivityState,
@@ -84,9 +85,24 @@ def pair_chat(state: WorldState, agent_id: int, partner_id: str) -> ActivityStat
                  if activity.kind == ActivityKind.CHAT and activity.data.get("partner_id") == partner_id), None)
 
 
+def late_acceptance_refusal(state: WorldState, agent_id: int, partner_id: str) -> Refusal | None:
+    """@brief 接受交谈时发起方的交谈只剩不足一分钟：对齐后的交谈短于最短时长，以 ACTIVITY_TOO_SHORT 引导性拒绝。
+
+    对方没有以本人为伙伴的进行中交谈（这次不是接受）时为 None；发起方结束后再对其发起交谈就是新邀请
+    （docs/dev/SPEC-time-and-energy.md 第五章「交谈」）。交互对象层的交谈说明与受理用同一判定。
+    """
+    invitation = pair_chat(state, int(partner_id.split(":", 1)[1]), f"agent:{agent_id}")
+    if invitation is None or invitation.planned_end_at - state.current_time >= CHAT_DURATION_BOUNDS[0]:
+        return None
+    return Refusal("ACTIVITY_TOO_SHORT", "对方的交谈快结束了", "等对方结束后再发起新的交谈")
+
+
 def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivityRequest,
                origin: ActivityOrigin, message_id: str) -> SocialStart:
-    """@brief 受理交谈：共同在场且对方可交谈；对方正以本人为伙伴交谈时即接受，不再发邀请、计划结束对齐发起方。"""
+    """@brief 受理交谈：共同在场且对方可交谈；对方正以本人为伙伴交谈时即接受，不再发邀请、计划结束对齐发起方。
+
+    接受时发起方的交谈只剩不足一分钟，以 ACTIVITY_TOO_SHORT 返回原因与下一步（late_acceptance_refusal）。
+    """
     partner = partner_presence(state, request.partner_id)
     if pair_chat(state, agent.agent_id, request.partner_id) is not None:
         raise BusinessRuleError("CHAT_ALREADY_ACTIVE")
@@ -95,6 +111,9 @@ def start_chat(state: WorldState, agent: AgentState, request: StartSocialActivit
     if invitation is not None:
         if partner.location != agent.location_id:
             raise ValueError("chat acceptance requires co-presence")
+        late = late_acceptance_refusal(state, agent.agent_id, request.partner_id)
+        if late is not None:
+            raise late.error()
         activity = _social_activity(agent, ActivityKind.CHAT, invitation.planned_end_at - state.current_time,
                                     origin, state.current_time,
                                     {"partner_id": request.partner_id, "accepted": True})

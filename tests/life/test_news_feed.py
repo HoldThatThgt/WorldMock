@@ -185,7 +185,7 @@ def test_single_feed_watch_reveals_items_and_settles_by_contact_seconds(engine_f
 
 def test_repeated_short_feed_resumes_add_no_exposure_and_keep_the_full_rate(engine_factory) -> None:
     """多次独立短刷屏都是「接着看」：不算新的一次接触，接触次数保持 1，每次都按现行费率不摊薄地结算，合计等于
-    总接触时长乘费率（docs/dev/SPEC-time-and-energy.md 第七章「接着看」）。"""
+    总接触时长乘费率（docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）。"""
     ests = [item["estimated_read_seconds"] for item in _items()]
     durations = [ests[0] + ests[1], ests[2] + ests[3], ests[4] + ests[5]]
     engine = engine_factory()
@@ -359,8 +359,8 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
 ], ids=["first-watch", "resume", "restart-finished", "restart-under-a-minute-left"])
 def test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one(
         engine_factory, progress: tuple[tuple[str, int], int] | None, way: str, settled: tuple[int, int]) -> None:
-    """接着看不算新的一次接触（第七章「接着看」，裁决 #18）：第一次观看把接触次数记为 1；接着看从上次位置放，
-    结算后接触次数不变；从头再看（已看完或剩余不足 60 秒）从 0 放，接触次数加一。"""
+    """接着看不算新的一次接触（第七章「三层结构」，裁决 #18）：第一次观看把接触次数记为 1；接着看从上次位置放，
+    结算后接触次数不变；从头再看（已看完或剩余不足 60 秒，第八章「呈现」）从 0 放，接触次数加一。"""
     item_id = "sintel-en-subtitles"
     engine = engine_factory()
     stage_day_plan(engine)

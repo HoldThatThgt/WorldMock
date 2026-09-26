@@ -82,8 +82,9 @@ class _State:
 
 
 def _pending():
-    """@brief 返回与冻结观察对应的动作身份。"""
-    return SimpleNamespace(agent_id=1, decision_id="decision", observed_at=100, action_id="action")
+    """@brief 返回与冻结观察对应的 start_activity 动作身份。"""
+    return SimpleNamespace(agent_id=1, decision_id="decision", observed_at=100, action_id="action",
+                           tool_name="start_activity")
 
 
 def _activity(identity, name, status=ActivityStatus.ACTIVE, **fields):
@@ -162,15 +163,16 @@ def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
 def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions, ways):
     """三数组不等长、目标重复、项数不在一至二、对象未列出或（动词，方式）不在本轮闭集，都报 ACTION_REQUEST_INVALID。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
+    selection = harness._start_selection(_pending(), StartActivityRequest(targets=targets, actions=actions, ways=ways))
+    assert selection is None
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
-        harness._resolve_interaction_bindings(
-            _pending(), StartActivityRequest(targets=targets, actions=actions, ways=ways))
+        harness._start_activity(None, _pending(), selection)
 
 
 def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
     """两项逐项映射到各自的绑定行与内部标准动作，顺序与请求一致。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
-    selected = harness._resolve_interaction_bindings(_pending(), StartActivityRequest(
+    selected = harness._start_selection(_pending(), StartActivityRequest(
         targets=["自己", "城西办公室"], actions=["interact", "travel"], ways=["等待", "步行"]))
     assert [(row["object_id"], row["selected_action"]["verb"], row["selected_action"]["label"],
              row["selected_action"]["canonical_action"]) for row in selected] == [
@@ -187,7 +189,7 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatc
     harness.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
     monkeypatch.setattr("worldmock.life.session_actions.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, current_time=100)
-    selected = harness._resolve_interaction_bindings(
+    selected = harness._start_selection(
         _pending(), StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"]))
     assert selected[0]["selected_action"]["canonical_action"] == "travel_to"
     harness._start_travel_action(state, _pending(), selected[0]["object_id"], selected[0])

@@ -89,7 +89,7 @@ class LifeRuleEngine:
     def _validate_watch(self, agent: AgentState, request: ActivityStartParams) -> dict:
         """@brief 观看校验：已看完或剩余不足 60 秒记 repeat、从 0 起播，否则接着看、从上次位置开始。
 
-        接触次数只在首次与从头重看时加一，接着看不加（docs/dev/SPEC-time-and-energy.md 第七章「接着看」）；
+        接触次数只在首次与从头重看时加一，接着看不加（docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）；
         内容品类写进活动数据，占用按它判定（播客只占 ears）。
         """
         item = self.content(request.target_id)

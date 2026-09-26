@@ -515,9 +515,13 @@ def _delivery_eta(inputs: ProjectionInputs, expected_at: int | None) -> str:
 
 
 def _public_inventory(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 持有物按地点和商品名称公开正数持有量；食品带每份热量，他处持有物注明只能在当地使用。"""
+    """@brief 持有物按地点和商品名称公开正数持有量；食品带每份热量，不在现场地点的持有物注明只能在当地使用。
+
+    现场地点取 admission.present_location：途中不在任何地点，出发地的持有物同样不在手边（第五章「并行准入」物品状态）。
+    """
     places = _location_index(inputs.scenario)
     items = {item.product_id: item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)}
+    present = admission.present_location(inputs.state, inputs.agent.agent_id)
     rows = []
     for place_id, holding in sorted(inputs.agent.inventory.items()):
         for product_id, quantity in sorted(holding.items()):
@@ -527,7 +531,7 @@ def _public_inventory(inputs: ProjectionInputs) -> list[dict[str, Any]]:
             row: dict[str, Any] = {"place": place, "product": item.name, "quantity": quantity}
             if "eat" in item.use_modes:
                 row["energy"] = food_energy_label(item.energy_kcal_per_unit)
-            if place_id != inputs.agent.location_id:
+            if place_id != present:
                 row["note"] = f"不在手边，只能在{place}使用"
             rows.append(row)
     return rows
@@ -830,7 +834,7 @@ def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[
                 for mode in product.use_modes]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
-    if row["kind"] == "content":
+    if row.get("way") is not None:
         return [binding_action(row["way"], "watch")]
     return [binding_action(ACTION_WAYS[action], action) for action in row["actions"]]
 
@@ -843,17 +847,14 @@ def _use_way(mode: str, recipe: bool) -> str:
 
 
 def _supply_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 供给的取得方式：不可购买（未营业、缺货、无报价等世界事实）时不列；到店与远程下单按履约方式列出。"""
+    """@brief 供给的取得方式：不可购买（未营业、缺货、无报价等世界事实）时不列；供给支持到店就列「到店」，支持配送
+    就列「远程下单」，不按人物此刻在哪里剪裁（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）：人不在店里、
+    此地送不到时由准入判定写说明（「需要在<店>」「暂时送不到这里」），选了以 ACTIVITY_PRECONDITION_UNMET 返回下一步。"""
     supply = next(item for item in inputs.extras["product_rows"] if item["supply_id"] == row["object_id"])
     if not supply["purchase_allowed"]:
         return []
-    actions = []
-    if supply["pickup_allowed"]:
-        actions.append(binding_action(PURCHASE_WAYS["pickup"], "purchase", fulfillment="pickup"))
-    if ("delivery" in supply["fulfillment_modes"]
-            and inputs.agent.location_id in supply["delivery_destination_ids"]):
-        actions.append(binding_action(PURCHASE_WAYS["delivery"], "purchase", fulfillment="delivery"))
-    return actions
+    return [binding_action(PURCHASE_WAYS[mode], "purchase", fulfillment=mode)
+            for mode in ("pickup", "delivery") if mode in supply["fulfillment_modes"]]
 
 
 def _public_interaction(binding: dict[str, Any]) -> dict[str, Any]:
@@ -952,32 +953,33 @@ def _content_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
     已看完或剩余不足 60 秒的给全长并从头派生，否则给剩余时长；时长写在说明里，不放进方式短语
     （docs/dev/SPEC-time-and-energy.md 第八章「呈现」）。
     """
-    rows = []
     contents = {item.item_id: item for item in inputs.scenario.contents}
-    for row in inputs.extras.get("content_rows", []):
-        item = contents[row["item_id"]]
-        progress = inputs.agent.content_progress.get(item.item_id)
-        position = progress.position_seconds if progress else 0
-        restart = restarts_from_beginning(position, item.duration_seconds)
-        seconds = item.duration_seconds if restart else item.duration_seconds - position
-        duration = readable_duration(seconds)
-        rows.append({"object_id": item.item_id, "kind": "content", "name": row["title"],
-                     "actions": ["watch"], "way": CONTENT_WAYS[(item.kind == "podcast_episode", restart)],
-                     "duration_note": f"全长{duration}" if restart or position == 0 else f"还剩{duration}"})
-    return rows
+    return [{**_watch_row(inputs, contents[row["item_id"]]), "kind": "content", "name": row["title"]}
+            for row in inputs.extras.get("content_rows", [])]
+
+
+def _watch_row(inputs: ProjectionInputs, item: Any) -> dict[str, Any]:
+    """@brief 一条可观看内容的动作与时长说明：「接着看」或「从头再看」（播客为「接着听」或「从头再听」），映射为观看；
+    已看完或剩余不足 60 秒的写全长并从头派生，未看过的写全长，其余写剩余时长（第八章「呈现」）。"""
+    progress = inputs.agent.content_progress.get(item.item_id)
+    position = progress.position_seconds if progress else 0
+    restart = restarts_from_beginning(position, item.duration_seconds)
+    duration = readable_duration(item.duration_seconds if restart else item.duration_seconds - position)
+    return {"object_id": item.item_id, "actions": ["watch"],
+            "way": CONTENT_WAYS[(item.kind == "podcast_episode", restart)],
+            "duration_note": f"全长{duration}" if restart or position == 0 else f"还剩{duration}"}
 
 
 def _game_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 本轮呈现的游戏对象：只接受游玩动作，场景声明身份与内容侧会话同池。"""
+    """@brief 本轮呈现的游戏对象：可玩的游戏只接受游玩；内容侧的游戏会话只能观看，方式与时长说明同内容对象
+    （「接着看」或「从头再看」，全长或剩余时长）。场景声明身份与内容侧会话同池。"""
+    contents = {item.item_id: item for item in inputs.scenario.contents}
     rows = []
     for row in inputs.extras.get("game_rows", []):
-        playable = "game_id" in row
-        rows.append({
-            "object_id": row["game_id"] if playable else row["item_id"],
-            "kind": "game",
-            "name": row["title"],
-            "actions": ["play"] if playable else ["watch"],
-        })
+        if "game_id" in row:
+            rows.append({"object_id": row["game_id"], "kind": "game", "name": row["title"], "actions": ["play"]})
+        else:
+            rows.append({**_watch_row(inputs, contents[row["item_id"]]), "kind": "game", "name": row["title"]})
     return rows
 
 

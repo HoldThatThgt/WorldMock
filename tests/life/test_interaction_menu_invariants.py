@@ -70,10 +70,14 @@ def test_binding_action_projects_verb_and_way_publicly_and_keeps_execution_priva
 
 
 def test_merged_selection_combines_one_order_or_one_meal_only():
-    """两项同为取得合成一单，同为方式相同的使用合成一餐；其余两项各自开始。"""
+    """两项同为方式相同的取得合成一单，同为方式相同的使用合成一餐；到店与远程下单不合成一单，「制作」一次只做一件、
+    不合并；其余两项各自开始。"""
     assert merged_selection(["watch"], ["接着看"])
     assert merged_selection(["purchase", "purchase"], ["到店", "到店"])
+    assert merged_selection(["purchase", "purchase"], ["远程下单", "远程下单"])
+    assert not merged_selection(["purchase", "purchase"], ["到店", "远程下单"])
     assert merged_selection(["consume", "consume"], ["食用", "食用"])
+    assert not merged_selection(["consume", "consume"], ["制作", "制作"])
     assert not merged_selection(["consume", "consume"], ["食用", "使用"])
     assert not merged_selection(["travel_to", "watch"], ["驾车", "接着听"])
     assert not merged_selection(["work", "consume"], ["工作", "食用"])

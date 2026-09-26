@@ -202,8 +202,9 @@ _TOOL_DESCRIPTIONS = {
         _ACTION_PROTOCOL
         + " Choose one or two named objects from facts.interactive_objects and, for each object in the same "
         "order, one of its offered actions. Each offered action reads verb：way; send the verb in actions "
-        "and the way in ways, so targets, actions and ways are equally sized. An action with a note has a "
-        "condition that is not met yet; the world explains the reason and the next step if you choose it. "
+        "and the way in ways, so targets, actions and ways are equally sized. A note on an action gives the "
+        "content's length, a condition that is not met yet, or both; if you choose an action whose condition "
+        "is not met, the world explains the reason and the next step. "
         "The world uses the observed quote and derives duration, quantity, travel mode and "
         "fulfillment. Prices and internal state are information from the world, never inputs."),
     "submit_work": (

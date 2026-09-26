@@ -260,16 +260,18 @@ def merge_partner_endings(before: WorldState, state: WorldState, limit: int) -> 
 
     在本轮全部动作结算后合并，不被对方本轮的受理排期覆盖：next_decision_at 取当前时刻；pending_wake_reasons
     替换为本轮原因，仍有其他进行中活动记 planned_end，否则记 no_active_activity；已达同刻上限时按规则 3 的阶梯从
-    收尾一支重新开始（conclude_pending），每次至多另加三轮。轮数在其决策时照常计入。
+    收尾一支重新开始（conclude_pending），每次至多另加三轮。轮数在其决策时照常计入。本轮才受理（接受）、又在本轮
+    被对方结束的交谈同样在这一秒收尾，收尾前时钟不推进（第一章规则 1、2）。
 
-    :param before: 本轮之前的世界（判定哪些交谈是本轮由对方结束的）。
+    :param before: 本轮之前的世界（判定哪些交谈是本轮由对方结束的：本轮之前已结束的不算）。
     :param state: 本轮全部动作结算后的世界副本。
     """
     ready = {}
     for activity in sorted(state.activities.values(), key=lambda item: item.activity_id):
         previous = before.activities.get(activity.activity_id)
-        if (activity.boundary_type != PARTNER_ENDED or previous is None
-                or previous.status != ActivityStatus.ACTIVE or activity.concluded_at is not None):
+        if (activity.boundary_type != PARTNER_ENDED or activity.concluded_at is not None
+                or activity.ended_at != state.current_time
+                or previous is not None and previous.status != ActivityStatus.ACTIVE):
             continue
         agent = state.agents[activity.agent_id]
         reason = WakeReason.PLANNED_END if active_activities(state, agent.agent_id) else WakeReason.NO_ACTIVE_ACTIVITY

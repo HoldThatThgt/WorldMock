@@ -247,7 +247,7 @@ def _contact_summary(rows: list[dict]) -> dict:
 
 def _watch_repeats(rows: list[dict]) -> tuple[list[dict], int]:
     """@brief 按人物与内容汇总观看会话，只把从头重看（data.repeat 为 true）计为重复观看；接着看不计
-    （docs/dev/SPEC-time-and-energy.md 第七章「接着看」）。恢复后的同一 activity 仍是一个会话。"""
+    （docs/dev/SPEC-time-and-energy.md 第七章「三层结构」）。恢复后的同一 activity 仍是一个会话。"""
     groups: dict[tuple[Any, str], list[str]] = defaultdict(list)
     repeats: dict[tuple[Any, str], list[str]] = defaultdict(list)
     missing = 0

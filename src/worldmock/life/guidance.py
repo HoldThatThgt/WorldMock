@@ -1,19 +1,18 @@
 """@brief 业务拒绝的公开原因与下一步（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
 
 拒绝结果的 data.reason（一句中文原因）与 data.next_step（可读的活动名、地点名或做法，不含内部身份）由本模块从拒绝
-确定性生成：引导性拒绝在抛出处用 guided() 写明原因与下一步（或以可读名称写 suggested），其余错误码按码取中文默认
-原因。两者经公开结果投影进入 facts.progress.results[].details，并由同刻轮次的 scene.just_now 引用。
+确定性生成：引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步（或以可读名称写 suggested），原因记在
+错误的 public_reason 上；其余错误码按码取中文默认原因，从不取链式底层异常的文字（其中可能是请求模型的校验转储）。
+两者经公开结果投影进入 facts.progress.results[].details，并由同刻轮次的 scene.just_now 引用。
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 
 from worldmock.errors import BusinessRuleError, PreconditionError
 
-_CJK = re.compile(r"[一-鿿]")
 #: 没有专门说明的业务拒绝的通用原因。
 GENERIC_REASON = "这件事现在做不了"
 #: 抛出处没有写明原因时按错误码取的中文原因（只写世界事实，不含内部身份）。
@@ -65,16 +64,17 @@ class Refusal:
     suggested: dict | None = None
 
     def error(self) -> PreconditionError:
-        """@brief 换成可抛出的业务拒绝：原因作为链式底层原因，建议或下一步写进 suggested。"""
+        """@brief 换成可抛出的业务拒绝：原因写在 public_reason 上（也作链式底层原因进入结果消息），建议或下一步写进
+        suggested。"""
         suggested = self.suggested if self.suggested is not None else (
             {"next_step": self.next_step} if self.next_step else None)
-        error = PreconditionError(self.code, unmet=list(self.unmet), suggested=suggested)
+        error = PreconditionError(self.code, unmet=list(self.unmet), suggested=suggested, public_reason=self.reason)
         error.__cause__ = ValueError(self.reason)
         return error
 
 
 def guided(code: str, reason: str, next_step: str = "", unmet: Sequence[str] = ()) -> PreconditionError:
-    """@brief 构造带公开原因与下一步的业务拒绝：原因作为链式底层原因，下一步写进 suggested（可读，不含身份）。
+    """@brief 构造带公开原因与下一步的业务拒绝：原因写在 public_reason 上，下一步写进 suggested（可读，不含身份）。
 
     :param code: 业务错误码（接口合同登记的闭集）。
     :param reason: 一句中文原因。
@@ -87,13 +87,11 @@ def guided(code: str, reason: str, next_step: str = "", unmet: Sequence[str] = (
 def rejection_guidance(error: BusinessRuleError) -> dict[str, str]:
     """@brief 从一次业务拒绝确定性生成公开的 reason 与 next_step。
 
-    原因取抛出处写明的中文底层原因，否则按错误码取默认原因；下一步取 suggested 中的可读下一步、要去的地点或要先
-    处理的活动名，否则按错误码取默认做法，没有则为空串。
+    原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
+    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。
     """
     code = str(error)
-    cause = error.__cause__
-    text = " ".join(str(cause).split()) if cause is not None else ""
-    reason = text if _CJK.search(text) else _DEFAULT_REASONS.get(code, GENERIC_REASON)
+    reason = getattr(error, "public_reason", None) or _DEFAULT_REASONS.get(code, GENERIC_REASON)
     suggested = getattr(error, "suggested", None) or {}
     return {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, "")}
 

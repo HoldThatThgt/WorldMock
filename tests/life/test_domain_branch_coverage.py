@@ -481,6 +481,13 @@ def test_social_actions_choosing_chat_with_the_inviter_accepts() -> None:
     apart.agents[2] = _agent(agent_id=2, name="B", location_id="office")
     with pytest.raises(ValueError, match="co-presence"):
         start_chat(apart, apart.agents[1], request, _origin(), "m3")
+    # 发起方的交谈只剩不足一分钟：对齐后不足最短时长，以带原因与下一步的 ACTIVITY_TOO_SHORT 拒绝。
+    late = _social_state(_agent(), activities={"a2": invitation.model_copy(update={"planned_end_at": CURRENT + 59})})
+    late.agents[2] = _agent(agent_id=2, name="B")
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_TOO_SHORT") as refused:
+        start_chat(late, late.agents[1], request, _origin(), "m4")
+    assert (refused.value.public_reason, refused.value.suggested) == (
+        "对方的交谈快结束了", {"next_step": "等对方结束后再发起新的交谈"})
 
 
 def test_social_actions_shared_chat_seconds_counts_the_reciprocal_overlap() -> None:

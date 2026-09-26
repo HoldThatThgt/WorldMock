@@ -89,7 +89,9 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
     supply = next(item for item in observation["supplies"] if item["supply_id"] == supply_id)
     binding = next(item for item in observation["interaction_bindings"]
                    if item["kind"] == "supply" and item["object_id"] == supply_id)
-    choice = binding["actions"][0]
+    # 到店不按人物所在剪裁：人在办公室时照常列出并带「需要在<店>」说明；可直接成交的是没有说明的远程下单。
+    assert [(item["label"], item["note"] is None) for item in binding["actions"]] == [("到店", False), ("远程下单", True)]
+    choice = next(item for item in binding["actions"] if item["note"] is None)
     request = StartActivityRequest(targets=[binding["object"]], actions=[choice["verb"]], ways=[choice["label"]])
     decision = ReactDecision("", "start_activity", request.model_dump(mode="json"), "")
 

@@ -306,6 +306,8 @@ def test_paused_activity_resumes_only_at_its_start_location(engine_factory) -> N
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert elsewhere.data["suggested"] == {"travel_to": home}
+    assert (elsewhere.data["reason"], elsewhere.data["next_step"]) == (
+        f"{name}要回到{home}才能接着做，在别处可以直接结束", f"去{home}")
     assert home in elsewhere.message and name in elsewhere.message
     assert engine.state.activities[waited.activity_id].status == ActivityStatus.PAUSED
     back = _depart(engine, "back-home", destination="home")
@@ -342,7 +344,8 @@ def test_paused_activity_can_be_concluded_elsewhere(engine_factory) -> None:
 
 
 def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
-    """路上的活动（出行本身与路上开始的活动）不能暂停：ACTIVITY_PAUSE_UNAVAILABLE，活动照常进行。"""
+    """路上的活动（出行本身与路上开始的活动）不能暂停：ACTIVITY_PAUSE_UNAVAILABLE 带原因与下一步（可以直接结束），
+    活动照常进行。"""
     engine = engine_factory()
     stage_day_plan(engine)
     content = _pick(_preview(engine, "road-content"), "watch", kind="content")
@@ -352,7 +355,9 @@ def test_pausing_an_activity_on_the_road_is_unavailable(engine_factory) -> None:
         rejected = _round(engine, f"road-pause-{index}", "pause_activity", PauseActivityRequest(
             task=[_name(engine, activity_id)], summary=["停一下。"]))[1]
         assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PAUSE_UNAVAILABLE"
-        assert _name(engine, activity_id) in rejected.message
+        name = _name(engine, activity_id)
+        assert name in rejected.message
+        assert (rejected.data["reason"], rejected.data["next_step"]) == (f"路上的{name}不能暂停", f"可以直接结束{name}")
         assert engine.state.activities[activity_id].status == ActivityStatus.ACTIVE
 
 

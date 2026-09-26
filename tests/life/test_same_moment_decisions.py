@@ -1226,7 +1226,7 @@ def test_same_second_rounds_keep_presentation_window_and_rotation(engine_factory
 
 def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) -> None:
     """本秒首轮回灌的浏览结果在同一秒后续各轮继续置顶，动作与首轮相同（可选的仍可选，按世界事实没有取得方式的照常列出、
-    动作为空）；进度层截止点前移后也不丢（「同一秒内的呈现」、第五章「动作照常列出」）。"""
+    动作为空）；进度层截止点前移后也不丢（「同一秒内的呈现」、第五章「动作照常列出，做错了再说明」）。"""
     from agentsociety2.agent.base import ModelCallEvidence
     from tests.life.test_commerce import _choice, _stage_open
 

@@ -697,8 +697,8 @@ class TestEntertainmentSegmentSlots:
         assert keep.candidate.summary == "Watch segment 1 of news-feed (~10 min)"
 
     def test_resume_keeps_exposures_and_restart_adds_one(self, transforms):
-        """缓解按接触次数摊薄（第七章「接着看」）：接着看不算新的一次接触，按已有次数摊薄；第一次观看与从头再看
-        （已看完或剩余不足 60 秒）各算一次新的接触。"""
+        """缓解按接触次数摊薄（第七章「三层结构」）：接着看不算新的一次接触，按已有次数摊薄；第一次观看与从头再看
+        （已看完或剩余不足 60 秒，第八章「呈现」）各算一次新的接触。"""
         movie = _content("movie-0001", "feature_film", 6780, 0.35)
 
         def watch(position: float | None):

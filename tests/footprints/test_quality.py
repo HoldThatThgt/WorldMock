@@ -148,7 +148,7 @@ def test_quality_report_covers_run_behavior_usage_cost_and_speedup():
 def test_repeat_watch_counts_only_sessions_restarted_from_the_beginning():
     """同一内容的两段观看：第二段是接着看（data.repeat=false）时不算重复观看，从头再看（repeat=true）时算一次。
 
-    时间与能量规格第七章「接着看」：从上次的位置接着放不算新的一次接触，只有第一次和从头重看才增加接触次数。
+    时间与能量规格第七章「三层结构」：从上次的位置接着放不算新的一次接触，只有第一次和从头重看才增加接触次数。
     """
     events = [_event(1, "run_ended", occurred_at=1100)]
     first = _activity("watch-1", "watch", 600, target_id="sintel", data={"repeat": False})

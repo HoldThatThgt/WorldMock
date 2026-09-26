@@ -181,7 +181,7 @@ def test_people_on_the_road_are_not_present_and_cannot_be_invited(engine_factory
 
 def test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_woken(engine_factory) -> None:
     """交谈邀请送达时，清醒的收件人在同一秒以 message_arrival 获得机会；人物消息送达睡着的收件人时不唤醒，睡着的人物
-    照常列出、交谈带「对方现在不方便交谈」（第一章「人物之间的消息」、第五章「动作照常列出」）。"""
+    照常列出、交谈带「对方现在不方便交谈」（第一章「人物之间的消息」、第五章「动作照常列出，做错了再说明」）。"""
     engine = engine_factory("multi-person.json")
     _people(engine)
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "awake-invite")
@@ -218,7 +218,7 @@ def _contact_name(engine: LifeEngine, policy: str) -> str:
 
 def test_none_policy_delivers_without_reply_and_template_policy_posts_a_placeholder(tmp_path) -> None:
     """给 none 策略联系人发消息照常送达、不回复；template 策略落一条占位回复，在 CONTACT_REPLY_DELAY_SECONDS 后送达
-    收件箱（不再以 CONTACT_REPLY_NOT_MODEL 拒绝，第五章「动作照常列出」）。"""
+    收件箱（不再以 CONTACT_REPLY_NOT_MODEL 拒绝，第五章「动作照常列出，做错了再说明」）。"""
     engine = _custom_engine("multi-person.json", _template_contact, tmp_path, "template-reply")
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
@@ -267,4 +267,64 @@ def test_chat_call_and_wait_run_without_failure_at_any_feedback_interval(tmp_pat
     assert _chats(engine)[1].planned_duration_seconds == chat and calls[0].planned_duration_seconds == call
     assert waits[0].planned_duration_seconds == seconds
     assert advance_until_ready(engine)
+    assert not engine.store.read_agent_events("run_failed", 1) and not engine.store.read_agent_events("run_failed", 2)
+
+
+def _invited_and_busy(engine: LifeEngine) -> object:
+    """@brief 人物 1 发起交谈，人物 2 先等待并播报继续（不接受）；返回人物 1 的交谈。"""
+    submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "invite")
+    waiting = activity_name(engine, active_activities(engine.state, 2)[0].activity_id)
+    submit_round(engine, {2: ("report_status", ReportStatusRequest(task=[waiting], summary=["等会儿。"]))}, "later")
+    return _chats(engine)[1]
+
+
+def test_late_acceptance_is_noted_and_refused_with_a_reason_and_next_step(engine_factory) -> None:
+    """发起方的交谈只剩不足一分钟时，对其选择交谈对齐后不足最短时长：交谈动作照常列出并带说明「对方的交谈快结束了」，
+    选了以 ACTIVITY_TOO_SHORT 返回同一原因与下一步「等对方结束后再发起新的交谈」，不开始交谈、不产生 run_failed
+    （第五章「交谈」与「动作照常列出，做错了再说明」）。"""
+    engine = engine_factory("multi-person.json")
+    _people(engine)
+    invite = _invited_and_busy(engine)
+    wake_by_mail(engine, agent_id=2, offset=invite.planned_end_at - 30 - engine.state.current_time)
+    assert advance_until_ready(engine) and engine.state.current_time == invite.planned_end_at - 30
+    assert engine.scheduling_state().ready_agent_ids == (2,)
+    observed = engine.observe(context(engine, "late-preview", 2))
+    assert [action["note"] for row in observed["interaction_bindings"] if row["object_id"] == "agent:1"
+            for action in row["actions"] if action["label"] == "交谈"] == ["对方的交谈快结束了"]
+    _, results = submit_round(engine, {2: _chat(engine, 2, 1)}, "accept-late")
+    assert (results[0].status, results[0].error_code) == ("rejected", "ACTIVITY_TOO_SHORT")
+    assert (results[0].data["reason"], results[0].data["next_step"]) == ("对方的交谈快结束了", "等对方结束后再发起新的交谈")
+    assert 2 not in _chats(engine) and not engine.store.read_agent_events("run_failed", 2)
+
+
+def test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves(
+        engine_factory) -> None:
+    """同一轮里接受方先受理（接受）、发起方随后结束交谈：接受方这项本轮才开始的交谈在同一秒以 partner_ended 结束、
+    成为待收尾，并在同一秒获得收尾机会，收尾前时钟不推进（第一章规则 1、2，第五章「交谈」）。"""
+    from tests.life.conftest import pending_names
+
+    for offset in range(120, 180):
+        engine = engine_factory("multi-person.json")
+        _people(engine)
+        invite = _invited_and_busy(engine)
+        wake_by_mail(engine, agent_id=1, offset=offset)
+        wake_by_mail(engine, agent_id=2, offset=offset)
+        assert advance_until_ready(engine)
+        if engine.scheduling_state().ready_agent_ids == (2, 1):
+            break
+    assert engine.scheduling_state().ready_agent_ids == (2, 1)
+    now = engine.state.current_time
+    submit_round(engine, {2: _chat(engine, 2, 1),
+                          1: ("conclude_activity", conclude_request(activity_name(engine, invite.activity_id)))},
+                 "accept-and-end")
+    accepted = _chats(engine)[2]
+    assert accepted.started_at == now and accepted.status == ActivityStatus.COMPLETED
+    assert (accepted.boundary_type, accepted.interruption_reason, accepted.ended_at) == (
+        "partner_ended", "partner_ended", now)
+    assert engine.state.agents[2].next_decision_at == now and 2 in engine.scheduling_state().ready_agent_ids
+    requests = {2: ("conclude_activity", conclude_request(activity_name(engine, accepted.activity_id)))}
+    requests.update({agent_id: _wait() for agent_id in engine.scheduling_state().ready_agent_ids if agent_id != 2})
+    assert pending_names(engine.observe(context(engine, "partner-pending", 2))) == [accepted.name]
+    submit_round(engine, requests, "conclude-accepted")
+    assert engine.state.current_time == now and engine.state.activities[accepted.activity_id].concluded_at == now
     assert not engine.store.read_agent_events("run_failed", 1) and not engine.store.read_agent_events("run_failed", 2)
