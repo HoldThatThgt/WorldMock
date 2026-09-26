@@ -56,6 +56,21 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
     assert any('events_agent_type' in row[-1] for row in plan)
 
 
+def test_progress_request_cutoff_skips_system_requests_with_a_purpose(store):
+    """回灌截止点只取实际发给人物模型、含进度层的请求；带 purpose 的零点计划请求即便含进度层也不算。"""
+    def request(content: str, **data) -> EventDraft:
+        messages = [{'role': 'system', 'content': '身份'}, {'role': 'user', 'content': content}]
+        return EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
+                          data={'phase': 'request', 'request': {'messages': messages}, **data})
+
+    store.commit(store.state, [request('{"progress": {"results": []}}'),
+                               request('{"facts": {}}'),
+                               request('{"progress": {"results": []}}', purpose='plan_day', call_id='plan-day')])
+
+    assert store.last_agent_progress_request_seq(1) == 1
+    assert store.last_agent_progress_request_seq(2) == 0
+
+
 def test_world_change_without_any_event_cannot_be_committed(store):
     with pytest.raises(IntegrityError):
         store.commit({'version': 1, 'current_time': 200, 'balance': 900}, [])

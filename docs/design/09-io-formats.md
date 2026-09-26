@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.8
+> **版本**：v1.9
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -128,8 +128,8 @@ flowchart TB
 非定义配对保留原始报价，系数及实际金额为空且不允许购买；报价未知时价格字段也保留 `null`。订单行 `total_price_fen` 按原价、数量、系数的整行乘积取整，整单同名字段保存各行合计，
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
 已持有但未上架的物品仍可按使用合同消费或转换，不要求补造供给。
-同次发现或浏览结果优先占用共同呈现窗口；当前供给改变时可表示为 `supply_id/based_on_action_id/changes`。
-根据引用动作的完整行按键替换即可还原：`null` 是值，嵌套对象整体替换，未变行不重复。
+同次发现或浏览结果优先占用共同呈现窗口；提示不用增量引用：当前供给行与同次结果一致时不重复，
+有变化时一律写完整行，不用 `based_on_action_id/changes` 引用结果，系统提示也不再说明这种格式。
 这种公开格式不裁剪原始观察、动作和结算中的完整证据；窗口外身份也不会因此获得可见凭据。
 
 ### 3.2 AgentState（人物状态）
@@ -161,7 +161,8 @@ flowchart TB
 | `supply_browsed_at` | 供给到时刻映射 | 是 | 各供给实际呈现时刻 |
 | `supply_browsed_location` | 供给到地点映射 | 是 | 各供给实际呈现地点 |
 | `inbox` | dict[str, Message] | 是 | 收件箱 |
-| `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`；空清单仍为已提交，条目含环境推进证据，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
+| `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`，由零点计划生成，人物可修订；空清单仍为已提交，条目含环境推进证据与提醒 `remind_at`、`reminded_at`（`int \| None`：提醒的当日绝对时刻与触发时刻，只触发一次），旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
+| `plan_submitted_dates` | set[str] | 是 | 已生成当日计划的场景本地日期（ISO 日期，JSON 编码为排序列表）；零点计划 `plan_day` 的幂等键，既有字段；恢复、重放与反事实分支据此不重复生成 |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
 活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（终态且 `concluded_at` 为空）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
@@ -222,8 +223,8 @@ flowchart TB
 | `origin_action_id` | str | 是 | 源动作 ID |
 | `origin_decision_id` | str | 是 | 源决策 ID |
 | `origin_request_event_id` | str | 是 | 源请求事件 ID |
-| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended` |
-| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended` |
+| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
+| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`plan_reminder` |
 | `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
 | `data` | dict | 是 | 活动数据 |
 | `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
@@ -313,3 +314,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.6 | 2026-09-25 | 按时间与能量规格阶段 1：AgentState 的 `next_decision_at` 注明等于当前时刻即同一秒再决策，`consecutive_rejections` 只作挫败感输入；增 `same_moment_rounds`、`same_moment_stage` 与 `pending_wake_reasons`（同刻轮次按本轮替换；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`）；WorldState 增按人物暂存的本秒呈现留痕 `same_moment_presentation`（同一秒沿用首轮窗口，时钟推进时并入 `presentation_state`） |
 | v1.7 | 2026-09-25 | 按时间与能量规格阶段 2（第二章与第八章「呈现」）：`facts.products` 按可读名称公开，食品带每份热量 `energy`，配送写人读送达时刻 `delivery_eta` |
 | v1.8 | 2026-09-25 | 按时间与能量规格阶段 3：WorldState 增 `sessions` 与 `SessionState` 字段表（地点停留或一段路，系统随出发与到达开始和结束）；AgentState 注明每人两个名额（进行中、暂停与待收尾各占一个）与待收尾控制行；ActivityState 补 `next_interaction_at`、`concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述字段，`boundary_type`、`interruption_reason` 列出取值（加 `route_ended`），注明进度随结算累加 |
+| v1.9 | 2026-09-25 | 按时间与能量规格阶段 5：AgentState 的 `day_plan` 注明由零点计划生成，目标带提醒 `remind_at`、`reminded_at`，增 `plan_submitted_dates` 行（零点计划的幂等键，既有字段）；ActivityState 的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；供给行改为提示不用增量引用，有变化时写完整行 |

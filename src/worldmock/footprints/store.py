@@ -183,10 +183,11 @@ class FootprintStore:
         return row[0] if row[0] is not None else 0
 
     def last_agent_progress_request_seq(self, agent_id: int) -> int:
-        """@brief 找到最近一次实际发给人物模型且包含进度层的请求。"""
+        """@brief 找到最近一次实际发给人物模型且包含进度层的请求（带 purpose 的系统请求，如零点计划，不算）。"""
         row = self.connection.execute("""
             SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')='model_request'
+            AND json_extract(body,'$.data.purpose') IS NULL
             AND instr(json_extract(body,'$.data.request.messages[1].content'), '"progress":') > 0
         """, (agent_id,)).fetchone()
         return row[0] if row[0] is not None else 0

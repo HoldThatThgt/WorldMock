@@ -800,6 +800,198 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         engine.close()
 
 
+class _RecordingPlanDayClient:
+    """零点计划客户端桩：记录构造身份与请求，返回脚本化的合法计划（替换 worldmock.runtime.PlanDayClient）。"""
+
+    model_name = "deepseek-flash"
+    built: list = []
+    goals: list = []
+
+    def __init__(self, model_identity):
+        type(self).built.append(model_identity)
+        self.calls = []
+
+    async def call(self, request):
+        from tests.life.conftest import plan_day_response
+
+        self.calls.append(request)
+        return plan_day_response(type(self).goals)
+
+
+def _plan_day_client(monkeypatch, goals: list | None = None) -> type:
+    """把零点计划客户端类替换为记录桩（同替换 ContactReplyClient），返回该类。"""
+    client = type("PlanDayClientStub", (_RecordingPlanDayClient,), {"built": [], "goals": goals or []})
+    monkeypatch.setattr(runtime_module, "PlanDayClient", client)
+    return client
+
+
+def _forbid_plan_day_client(monkeypatch) -> None:
+    """断言零点计划任务不构造客户端。"""
+    def forbidden(model_identity):
+        raise AssertionError("plan day client must not be built")
+
+    monkeypatch.setattr(runtime_module, "PlanDayClient", forbidden)
+
+
+def _checkpoint_request(engine, tmp_path: Path, round_id: str):
+    """全部人物工作区的共同检查点请求（工作区只放一个档案文件）。"""
+    from agentsociety2.society import SocietyCheckpointRequest
+
+    workspaces = []
+    for agent_id in engine.store.manifest["agent_ids"]:
+        workspace = tmp_path / f"ws-{round_id}-{agent_id}"
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / "AGENT.json").write_text('{"agent_id": %d}' % agent_id, encoding="utf-8")
+        workspaces.append((agent_id, str(workspace)))
+    now = datetime.fromtimestamp(engine.state.current_time, ZoneInfo(engine.scenario.timezone))
+    return SocietyCheckpointRequest(engine.state.run_id, round_id, now, tuple(workspaces))
+
+
+@pytest.mark.asyncio
+async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpoint(tmp_path, monkeypatch) -> None:
+    """启动路径：新建运行的初始检查点之后、首次决策之前生成当日计划；工作区字节不变，不产生人物事件。"""
+    from custom.envs.life_env import LifeEnv
+
+    engine, context, _DecisionContext, _DirectToolCall = _npc_delivery_engine(tmp_path)
+    try:
+        env = LifeEnv()
+        env.engine = engine
+        client = _plan_day_client(monkeypatch, [{"intent_kind": "工作", "goal": "上午把周报写完",
+                                                 "remind_time": "09:30"}])
+        request = _checkpoint_request(engine, tmp_path, "initial")
+        before = {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces}
+
+        checkpoint = await env.checkpoint(request)
+
+        assert checkpoint.state["agents"]["1"]["day_plan"] is None
+        assert engine.state.agents[1].day_plan.goals[0].goal == "上午把周报写完"
+        assert client.built == [engine.store.manifest["model_identity"]]
+        events = engine.store.read_events(engine.store.last_event_seq)
+        order = [event.event_type if event.event_type != "environment_event" else event.data["kind"]
+                 for event in events]
+        assert order.index("checkpoint_created") < order.index("day_plan_generated")
+        assert not {"observation", "decision_started", "memory_updated"} & set(order)
+        assert {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces} == before
+        assert set(two_stage_model_identity()["stages"]) == {"decision_statement", "action", "work_review"}
+        _forbid_plan_day_client(monkeypatch)
+        await env.checkpoint(_checkpoint_request(engine, tmp_path, "again"))
+    finally:
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_life_env_step_plans_midnight_before_the_step_checkpoint(tmp_path, monkeypatch) -> None:
+    """零点：LifeEnv.step 在 engine.advance 之后 await 零点计划任务、再执行零点节律入口；计划在本步检查点之前提交。"""
+    from custom.envs.life_env import LifeEnv
+    from tests.life.conftest import settle_day_plans, start_activity, submit_round
+    from tests.life.test_day_planning import _late_engine
+
+    engine = _late_engine(tmp_path, "2026-01-05T23:45:00+08:00", "env-midnight")
+    try:
+        settle_day_plans(engine)
+        submit_round(engine, {1: ("start_activity", start_activity("睡觉", "自己"))}, "bedtime")
+        env = LifeEnv()
+        env.engine = engine
+        client = _plan_day_client(monkeypatch, [{"intent_kind": "晨间例程", "goal": "起床洗漱",
+                                                 "remind_time": "07:00"}])
+        state = await env.scheduling_state()
+
+        await env.step(int(state.next_event_at.timestamp()) - engine.state.current_time, state.next_event_at)
+
+        assert env.t == state.next_event_at and not engine.midnight_rhythm_pending
+        assert engine.state.agents[1].plan_submitted_dates == {"2026-01-05", "2026-01-06"}
+        assert len(client.built) == 1 and not (await env.scheduling_state()).ready_agent_ids
+        checkpoint = await env.checkpoint(_checkpoint_request(engine, tmp_path, "advance"))
+        assert checkpoint.state["agents"]["1"]["day_plan"]["goals"][0]["goal"] == "起床洗漱"
+        assert len(client.built) == 1
+    finally:
+        engine.close()
+
+
+def _resume_branch(tmp_path: Path, planned: bool, metadata: dict | None = None) -> Path:
+    """从新建运行的检查点恢复子分支（planned 为假时取计划尚未生成的初始检查点），返回子运行目录。"""
+    from tests.life.conftest import settle_day_plans
+
+    engine, _context, _DecisionContext, _DirectToolCall = _npc_delivery_engine(tmp_path)
+    try:
+        if planned:
+            settle_day_plans(engine)
+        workspace = tmp_path / "parent-ws"
+        workspace.mkdir(exist_ok=True)
+        (workspace / "AGENT.json").write_text("{}", encoding="utf-8")
+        checkpoint = engine.checkpoint({"agent:1": snapshot_directory(workspace, engine.store.assets)})
+        child = tmp_path / ("planned-child" if planned else "child")
+        engine.store.restore(checkpoint.checkpoint_id, child, metadata).close()
+        return child
+    finally:
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_plain_resume_plans_the_missing_day_in_init_once(tmp_path, monkeypatch) -> None:
+    """从计划尚未生成的初始检查点普通恢复：LifeEnv.init 在首次决策之前生成一次；已生成的检查点恢复时不重复。"""
+    from custom.envs.life_env import LifeEnv
+
+    scenario = Path("scenarios/white-collar-12-weeks.json")
+    child = _resume_branch(tmp_path, planned=False)
+    client = _plan_day_client(monkeypatch)
+    env = LifeEnv(scenario_path=str(scenario), run_dir=str(child), open_existing=True)
+    await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
+    try:
+        assert env.engine.store.manifest["branch_kind"] == "resume"
+        assert env.engine.state.agents[1].plan_submitted_dates == {"2026-01-05"} and len(client.built) == 1
+        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        assert not [event for event in events if event.event_type == "decision_started"]
+    finally:
+        await env.close()
+    (tmp_path / "second").mkdir()
+    planned_child = _resume_branch(tmp_path / "second", planned=True)
+    _forbid_plan_day_client(monkeypatch)
+    again = LifeEnv(scenario_path=str(scenario), run_dir=str(planned_child), open_existing=True)
+    await again.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
+    await again.close()
+
+
+@pytest.mark.asyncio
+async def test_counterfactual_init_waits_for_the_intervention_checkpoint(tmp_path, monkeypatch) -> None:
+    """反事实分支的 init 不执行零点计划（在干预检查点之后执行），不构造客户端。"""
+    from custom.envs.life_env import LifeEnv
+
+    child = _resume_branch(tmp_path, planned=False,
+                           metadata={"branch_kind": "counterfactual", "intervention_sha256": "a" * 64})
+    _forbid_plan_day_client(monkeypatch)
+    env = LifeEnv(scenario_path="scenarios/white-collar-12-weeks.json", run_dir=str(child), open_existing=True)
+    await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
+    try:
+        assert env.engine.state.agents[1].day_plan is None
+    finally:
+        await env.close()
+
+
+@pytest.mark.asyncio
+async def test_plan_day_failure_during_resume_init_is_registered_before_raising(tmp_path, monkeypatch) -> None:
+    """普通恢复中零点计划失败：init 先经 engine.fail_run 登记运行故障再抛出（AS2 的故障登记范围之外）。"""
+    from custom.envs.life_env import LifeEnv
+
+    child = _resume_branch(tmp_path, planned=False)
+
+    class FailingClient(_RecordingPlanDayClient):
+        async def call(self, request):
+            raise ConnectionError("plan day transport down")
+
+    monkeypatch.setattr(runtime_module, "PlanDayClient", FailingClient)
+    env = LifeEnv(scenario_path="scenarios/white-collar-12-weeks.json", run_dir=str(child), open_existing=True)
+    with pytest.raises(ConnectionError, match="transport down"):
+        await env.init(datetime.fromisoformat("2026-01-05T00:00:00+08:00"))
+    try:
+        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        assert events[-1].event_type == "run_failed" and "transport down" in events[-1].data["error"]
+        assert [event.data["phase"] for event in events if event.data.get("purpose") == "plan_day"] == [
+            "request", "failure"]
+    finally:
+        await env.close()
+
+
 def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
     """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
     import worldmock.runtime as runtime_module

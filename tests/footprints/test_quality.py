@@ -169,6 +169,25 @@ def test_missing_measurements_remain_unknown_instead_of_becoming_zero():
     assert report["conversion_efficiency"]["food"]["weighted_mean"] is None
 
 
+def test_model_usage_counts_plan_day_and_lists_it_by_purpose():
+    """model_usage 计入零点计划 plan_day 的请求与响应，并按 purpose 与人物决策、工作验收分列。"""
+    plan = {"phase": "response", "purpose": "plan_day", "call_id": "plan", "attempt": 1, "error": None,
+            "response": {"model": "deepseek-flash", "usage": _usage(), "choices": []}}
+    events = [_event(1, "model_request", data={"call_id": "decision", "phase": "request"}),
+              _event(2, "model_response", data=_tool_response("decision", _usage())),
+              _event(3, "model_request", data={"call_id": "plan", "phase": "request", "purpose": "plan_day"}),
+              _event(4, "model_response", data=plan),
+              _event(5, "run_ended", occurred_at=200)]
+
+    usage = build_quality_report(events, [], _manifest(end=200))["model_usage"]
+
+    assert usage["request_events"] == 2 and usage["provider_responses"] == 2
+    assert usage["token_usage"]["complete_tokens"]["total_tokens"] == 240
+    assert [(row["purpose"], row["request_events"], row["provider_responses"],
+             row["token_usage"]["known_tokens"]["total_tokens"]) for row in usage["by_purpose"]] == [
+        ("decision", 1, 1, 120), ("plan_day", 1, 1, 120)]
+
+
 def test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost():
     response = _tool_response("call", _usage())
     response["response"]["model"] = "another-model"

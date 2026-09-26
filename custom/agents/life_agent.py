@@ -52,10 +52,6 @@ ACTION_MAX_TOKENS = 8000
 #: 一次会话至多服务两个交互对象（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」：
 #: targets[] ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
 _START_ACTIVITY_MAX_TARGETS = 2
-#: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
-#: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
-#: 同刻再决策轮的唤醒原因按轮替换（no_active_activity、rejection_feedback），不属日首，不触发强制。
-_DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
 #: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 
@@ -165,7 +161,8 @@ _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "memory_time_range": MemoryTimeRangeRequest,
 }
 
-#: 生活决策的工具面：八个人物工具（plan_day 暂未移出，见阶段 5）与预算内记忆查询；没有 finish。
+#: 生活决策的工具面：八个人物工具与预算内记忆查询；没有 finish。当日计划由零点后台任务 plan_day 生成，
+#: 不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
     **_MEMORY_TOOL_MODELS,
@@ -238,22 +235,15 @@ _TOOL_DESCRIPTIONS = {
         "about task[i], at most eight in total, written in the person's own words as subjective "
         "self-report; never put identifiers or hexadecimal strings in memory text, and use at most "
         "twelve keywords per memory."),
-    "plan_day": (
-        _ACTION_PROTOCOL
-        + " At the first decision after waking, submit today's ordered goals, "
-        "from zero to eight entries. An empty list means no deliberate goals today. "
-        "Each intent_kind must be unique and belong to the closed enum; each goal "
-        "must contain non-whitespace text of at most 300 characters. List order "
-        "expresses priority. Do not provide times or durations. Activity evidence "
-        "can show progress, but does not establish that the written goal is complete."),
     "revise_day_plan": (
         _ACTION_PROTOCOL
         + " Replace all pending goals by sending the complete new pending list, "
         "which may be empty. Progressed goals stay unchanged at the front; do not "
         "resubmit their intent_kind. The combined list accepts at most eight unique "
         "intent kinds. Each goal must contain non-whitespace text of at most 300 "
-        "characters. Keep an unchanged pending goal verbatim to preserve its "
-        "registration. Do not provide times or durations."),
+        "characters. Every goal must give remind_time: a scene-local HH:MM later than now and "
+        "before midnight when you want a reminder at that moment, or null. Keep an unchanged "
+        "pending goal verbatim, including its remind_time, to preserve its registration and reminder."),
     "memory_recent": "Read the person's most recent subjective durable memory episodes.",
     "memory_search": "Search the person's subjective durable memory episodes by keyword.",
     "memory_step_range": "Read subjective durable memory episodes within an inclusive decision-step range.",
@@ -284,9 +274,20 @@ _LIFE_INSTRUCTIONS = """
 场景段落是你此刻的真实处境：什么时间、在哪儿、身边有谁、身体感觉如何、
 手头正有什么事。
 事实清单是此刻对你有用的信息。
-供给行若有 based_on_action_id，就继承该动作结果中相同 supply_id 的完整供给行，
-再用 changes 按键替换；未列字段保持不变，null 是该字段的当前值，嵌套对象整项替换。
 凭你自己的性子和眼下的处境拿主意，像一个真实的人那样过日子。
+
+怎样过一天：
+你的一天由你自己安排。时间只在你做着某件事时流逝，所以每次想好之后都要落到一件具体的事上，哪怕只是歇一会儿或去睡觉。
+一件事做完了，先给它收个尾，说说做得怎样、有什么想记住的，再开始下一件。
+你手上最多同时挂两件事，暂停的也算；暂停的事只能回到原来的地方接着做，在别处可以直接收尾。
+要出门，先把手上的事收尾或暂停；交谈和通话不能暂停，只能先结束。路上想听点什么、打个电话，出发时一并开始，到了再收尾，到了地方还可以接着听。
+有的事一时做不了，世界会告诉你原因和该先做什么，照着调整就好。
+困了就去睡。想在某个时刻起来，就在当天的目标里写上提醒时间；要到明天才起的，睡前收尾时说清几点起。睡着时只有提醒或睡够了才会醒。
+工作要在要求的地方做，留意截止时间和已经做了多少；来不及做完时，想清楚先做哪部分。
+你会饿、会困、会累。力气来自吃下去的东西，饿着或困着做事会慢，走路比坐车更费力。饿了就趁早去弄吃的，别拖到饿得发慌。
+感到饿，或到了你的用餐时段，就把吃饭和手头的事一起考虑：先看手边能吃的和已经在路上的餐食；手边没有时，看看列出的餐食，需要时浏览商品。当前地点没有卖吃的，不代表不能送到这里。下单后要等送到，拿到手才能吃。
+花钱量力而行；有人找你时，按你们的关系和当时的情况回应。
+说打算做、说已经做过，都不等于真的做了，只有实际开始并完成的事才算数。你可以暂缓一件事，下次有机会时再随身体和处境重新权衡。
 """.strip()
 
 _READONLY_INSTRUCTIONS = """
@@ -631,11 +632,6 @@ class LifeAgent(PersonAgent):
             return
         data = _environment_observation_data(request.observations)
         self._prepare_life_action_state(data)
-        if _plan_required_before_other_actions(data, self._life_action_models, self._life_action_contracts):
-            # 日首唤醒、当日无计划且没有待收尾活动：撤下其他生活动作工具，只留 plan_day。
-            self._life_action_models = {
-                name: model for name, model in self._life_action_models.items()
-                if name == "plan_day"}
         budget = self._react_budget(False)
         self._life_request_models = self._budgeted_tool_models(
             False, budget["memory_tools_available"])
@@ -949,7 +945,6 @@ def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
     by_phase = {phase: tuple(name for name, value in activities.items() if value == phase)
                 for phase in ("active", "paused", "pending")}
     return {
-        "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
         "task_names": tuple(row["task_name"] for row in tasks),
         "recipient_names": tuple(row["object"] for row in bindings
@@ -1017,29 +1012,6 @@ def _same_moment_contracts(stage: SameMomentStage, contracts: dict[str, Any]) ->
     return {**contracts, **names}
 
 
-def _plan_required_before_other_actions(
-    data: dict[str, Any], action_models: dict[str, type[BaseModel]], contracts: dict[str, Any]
-) -> bool:
-    """@brief 日首唤醒（run_start/wake_from_sleep）、当日无计划且没有待收尾活动时要求先提交计划。
-
-    判据 = plan_day 在本轮动作面开放（即 facts.day_plan 为空）、唤醒原因含日首闭集，且本轮没有待收尾活动：
-    刚结束的活动（例如醒来时的睡眠）须先 conclude_activity，引擎在收尾前以 ACTIVITY_CONCLUSION_REQUIRED
-    拒绝其他请求（docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」），所以这时不收窄工具面。
-    这是门控协议而非替人物选择：工具集合只表达"此刻先做什么才合法"的顺序（docs/CONTRACTS.md「动作状态与动作结果」
-    工具集合不替人物选择指的是不代选内容）；计划登记即结束本轮，人物在同一秒的再决策轮拿回其他动作工具，
-    计划被拒绝后同样如此。
-    """
-    return ("plan_day" in action_models and not contracts["pending_names"]
-            and bool(_DAY_START_WAKE_REASONS.intersection(_visible_wake_reasons(data))))
-
-
-def _visible_plan_day_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 当日尚未提交时开放目标清单；空清单同样表示已提交。"""
-    if _facts_projection(data).get("day_plan") is not None:
-        return {}
-    return {"progressed_intents": ()}
-
-
 def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
     """@brief 任何已提交清单都可修订未推进部分，空清单也允许追加目标。"""
     plan = _facts_projection(data).get("day_plan")
@@ -1056,8 +1028,8 @@ def _available_action_models(
     """@brief 稳定工具面的可见性规则（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
 
     start_activity 与 recall_task_summary 永恒可见；播报在有进行中或暂停的活动时可见，暂停在有进行中活动时
-    可见，结束在有进行中、暂停或待收尾的活动时可见；两件登记动作工具按当日目标合同分别开放。同刻上限的受限轮
-    另与该阶段开放的工具求交（allowed_tools 为 None 表示不收窄）。
+    可见，结束在有进行中、暂停或待收尾的活动时可见；修订当日目标在当日已有计划（含空清单）时开放。同刻上限的
+    受限轮另与该阶段开放的工具求交（allowed_tools 为 None 表示不收窄）。
     """
     names = {"start_activity", "recall_task_summary"}
     if contracts["task_names"]:
@@ -1070,7 +1042,8 @@ def _available_action_models(
         names.add("pause_activity")
     if contracts["concludable_names"]:
         names.add("conclude_activity")
-    names.update(name for name in ("plan_day", "revise_day_plan") if contracts[name])
+    if contracts["revise_day_plan"]:
+        names.add("revise_day_plan")
     if allowed_tools is not None:
         names &= allowed_tools
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
@@ -1105,7 +1078,7 @@ def _validate_prepared_action(
         return "" if request.task_name in contracts["task_names"] else "task_name is not visible"
     if action == "send_message":
         return "" if request.recipient_name in contracts["recipient_names"] else "recipient_name is not visible"
-    if action in {"plan_day", "revise_day_plan"}:
+    if action == "revise_day_plan":
         return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
     return ""
 
@@ -1174,7 +1147,7 @@ def _bind_named_action_schemas(schemas: list[dict[str, Any]], contracts: dict[st
 
 
 def _bind_plan_goal_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 把尚未推进的意图闭集绑定到两件登记动作工具的目标 Schema。"""
+    """@brief 把尚未推进的意图闭集绑定到修订当日目标工具的目标 Schema。"""
     for item in schemas:
         name = item["function"]["name"]
         if name not in contracts or not contracts[name]:

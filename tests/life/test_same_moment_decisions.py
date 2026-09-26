@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from tests.life.conftest import (
     activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, pending_names,
-    stage_day_plan, start_activity, submit_round, wake_by_mail,
+    settle_day_plans, stage_day_plan, start_activity, submit_round, wake_by_mail,
 )
 from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -26,7 +26,7 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanDayRequest, PlanGoalInput,
+    ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanGoalInput,
     ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
     active_activities,
 )
@@ -60,7 +60,7 @@ def _invalid_start(engine: LifeEngine, name: str, agent_id: int = 1):
 def _revise(engine: LifeEngine, name: str):
     """@brief 修订当日目标：一次成功的瞬时动作。"""
     return _act(engine, name, "revise_day_plan", ReviseDayPlanRequest(
-        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),)))
+        goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))
 
 
 def _stage_agent(engine: LifeEngine, agent_id: int = 1, **updates) -> None:
@@ -106,12 +106,15 @@ def _rounds_at(engine: LifeEngine, moment: int, agent_id: int = 1) -> int:
 
 
 def test_run_start_and_instant_action_redecide_in_same_second(engine_factory) -> None:
-    """运行开始与瞬时动作之后同一秒再决策；第二轮只记 no_active_activity（规则 2、6）。"""
+    """运行开始与瞬时动作之后同一秒再决策；第二轮只记 no_active_activity（规则 2、6）。启动路径的零点计划不是决策，
+    之后的首个决策仍带 run_start（第四章「运行时机」）。"""
     engine = engine_factory()
     start = engine.state.current_time
+    settle_day_plans(engine)
     assert engine.state.agents[1].pending_wake_reasons == ["run_start"]
-    planned = _act(engine, "run-start-plan", "plan_day", PlanDayRequest(goals=()))
-    assert planned.status == "completed"
+    assert engine.state.agents[1].next_decision_at == start
+    revised = _revise(engine, "run-start-revise")
+    assert revised.status == "completed"
     agent = engine.state.agents[1]
     assert engine.state.current_time == start and agent.next_decision_at == start
     assert agent.same_moment_rounds == 1 and agent.pending_wake_reasons == ["no_active_activity"]
@@ -687,7 +690,8 @@ def _content(engine: LifeEngine, name: str) -> tuple[str, str]:
 def _other_requests() -> tuple[tuple[str, object], ...]:
     """@brief 两种「做别的」：开始等待与修订当日目标。"""
     return (("start_activity", start_activity("等待", "自己")),
-            ("revise_day_plan", ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),))))
+            ("revise_day_plan", ReviseDayPlanRequest(
+                goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))))
 
 
 def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three(engine_factory) -> None:

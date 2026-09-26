@@ -164,18 +164,27 @@ def test_observation_keeps_full_goal_text_without_exceeding_scene_budget(engine_
 
 
 def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_factory) -> None:
-    """清单在就寝后仍显示，恰到本地次日零点才失效。"""
+    """清单在就寝后仍显示（目标行带场景本地「提醒 HH:MM」，不设提醒的不写），恰到本地次日零点才失效。"""
     from worldmock.life.projection import _plan_fact, _plan_row
 
     engine = engine_factory()
     now = engine.state.current_time
-    day_end = day_end_seconds(now, engine.scenario.timezone)
+    zone = engine.scenario.timezone
+    day_end = day_end_seconds(now, zone)
     agent = engine.state.agents[1]
     agent.day_plan = DayPlan(day_end=day_end, goals=())
-    assert _plan_fact(agent, day_end - 1) == {"goals": []}
-    assert _plan_row(agent, day_end - 1) == {"goals": []}
-    assert _plan_fact(agent, day_end) is None
-    assert _plan_row(agent, day_end) is None
+    assert _plan_fact(agent, day_end - 1, zone) == {"goals": []}
+    assert _plan_row(agent, day_end - 1, zone) == {"goals": []}
+    assert _plan_fact(agent, day_end, zone) is None
+    assert _plan_row(agent, day_end, zone) is None
+    agent.day_plan = DayPlan(day_end=day_end, goals=(
+        PlanGoal(intent_kind="睡眠", goal="十一点前睡下", registered_at=now, remind_at=day_end - 3600),
+        PlanGoal(intent_kind="休息", goal="睡前歇一会儿", registered_at=now)))
+    assert _plan_row(agent, day_end - 1, zone) == {"goals": [
+        {"intent_kind": "睡眠", "progressed": False, "reminder": "提醒 23:00"},
+        {"intent_kind": "休息", "progressed": False}]}
+    assert [row.get("reminder") for row in _plan_fact(agent, day_end - 1, zone)["goals"]] == ["提醒 23:00", None]
+    assert _plan_fact(agent, day_end, zone) is None and _plan_row(agent, day_end, zone) is None
 
 
 def _stage_progress_limits(engine) -> None:

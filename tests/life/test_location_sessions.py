@@ -187,8 +187,9 @@ def test_just_ended_requires_conclusion_in_the_same_second(engine_factory) -> No
 
 
 def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_factory) -> None:
-    """当日没有计划时一觉醒来：睡眠待收尾，LifeAgent 不按日首唤醒只开放 plan_day，conclude_activity 点名这段睡眠并被
-    受理（第七章「活动一结束就要结束它」：收尾之前做别的都以 ACTIVITY_CONCLUSION_REQUIRED 拒绝）。"""
+    """当日没有计划时一觉醒来：睡眠待收尾，人物工具面没有 plan_day（当日计划由零点后台任务生成，第四章），
+    conclude_activity 点名这段睡眠并被受理（第七章「活动一结束就要结束它」：收尾之前做别的都以
+    ACTIVITY_CONCLUSION_REQUIRED 拒绝）。"""
     engine = engine_factory()
     slept = _start(engine, "no-plan-sleep", ("自己", "睡觉"))
     assert advance_until_ready(engine, limit=200)
@@ -203,7 +204,8 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     person.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
     functions = {row["function"]["name"]: row["function"] for row in person.build_react_tool_schemas(readonly=False)}
-    assert {"conclude_activity", "plan_day", "start_activity"} <= set(functions)
+    assert {"conclude_activity", "start_activity"} <= set(functions)
+    assert "plan_day" not in functions
     assert functions["conclude_activity"]["parameters"]["properties"]["task"]["items"]["enum"] == [sleep.name]
     engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", ConcludeActivityRequest(
         task=[sleep.name], summary=["睡醒了。"], memories=[[]])))

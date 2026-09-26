@@ -7,8 +7,12 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, advance_until_ready, conclude_pending, context, wake_by_mail
+from tests.life.conftest import (
+    StubPlanDayClient, advance_next, advance_until_ready, conclude_pending, context, drive, settle_day_plans,
+    wake_by_mail,
+)
 from agentsociety2.society import DirectToolCall
+from worldmock.errors import ProtocolError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     PlanDayRequest, PlanGoalInput, RecallTaskSummaryRequest, ReviseDayPlanRequest, StartActivityRequest,
@@ -18,10 +22,16 @@ from worldmock.life.schedule import (
     INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds, day_plan_expired,
     expired_plan_agent_ids, initial_day_plan, progress_day_plan, revise_day_plan,
 )
+from worldmock.runtime import settle_pending_day_plans
 
 
 def goal(kind="工作", text="推进手头工作", registered=100, **evidence):
     return PlanGoal(intent_kind=kind, goal=text, registered_at=registered, **evidence)
+
+
+def planned(kind, text):
+    """零点计划客户端桩：生成只含一条不设提醒的目标的当日计划。"""
+    return StubPlanDayClient(goals=[{"intent_kind": kind, "goal": text, "remind_time": None}])
 
 
 def activity(kind="work", **changes):
@@ -42,35 +52,37 @@ def test_empty_and_eight_goals_are_valid_and_ninth_is_rejected():
     assert len(initial_day_plan(goals, 1000).goals) == 8
     with pytest.raises(ValidationError):
         initial_day_plan(goals + (goal(INTENT_KINDS[8]),), 1000)
-    with pytest.raises(ValidationError):
-        PlanDayRequest(goals=[{"intent_kind": kind, "goal": "想推进"} for kind in INTENT_KINDS[:9]])
+    with pytest.raises(ValidationError, match="at most eight unique intents"):
+        PlanDayRequest(goals=[{"intent_kind": kind, "goal": "想推进", "remind_time": None}
+                              for kind in INTENT_KINDS[:9]])
 
 
 @pytest.mark.parametrize("text", ["", " ", "\n\t", "字" * 301])
 def test_goal_text_bounds_apply_to_input_and_persisted_state(text):
-    with pytest.raises(ValidationError):
-        PlanGoalInput(intent_kind="工作", goal=text)
+    with pytest.raises(ValidationError, match="pattern|exceeds 300 characters"):
+        PlanGoalInput(intent_kind="工作", goal=text, remind_time=None)
     with pytest.raises(ValidationError):
         goal(text=text)
 
 
 def test_goal_text_limit_and_closed_intents():
-    assert PlanGoalInput(intent_kind="工作", goal="字" * 300).goal == "字" * 300
+    assert PlanGoalInput(intent_kind="工作", goal="字" * 300, remind_time=None).goal == "字" * 300
     assert goal(text="字" * 300).goal == "字" * 300
-    for model in (PlanGoalInput, PlanGoal):
-        with pytest.raises(ValidationError):
-            model(intent_kind="阅读", goal="看书", registered_at=100)
+    for model, fields in ((PlanGoalInput, {"remind_time": None}), (PlanGoal, {"registered_at": 100})):
+        with pytest.raises(ValidationError, match="literal_error"):
+            model(intent_kind="阅读", goal="看书", **fields)
     with pytest.raises(ValidationError):
         DayPlan(day_end=1000, goals=[goal(), goal()])
-    with pytest.raises(ValidationError):
-        PlanDayRequest(goals=[{"intent_kind": "工作", "goal": "甲"}, {"intent_kind": "工作", "goal": "乙"}])
+    with pytest.raises(ValidationError, match="at most eight unique intents"):
+        PlanDayRequest(goals=[{"intent_kind": "工作", "goal": "甲", "remind_time": None},
+                              {"intent_kind": "工作", "goal": "乙", "remind_time": None}])
 
 
 @pytest.mark.parametrize("extra", [{"start": 100}, {"end": 300}, {"note": "备注"},
                                   {"duration_seconds": 60}, {"progressed_at": 200}])
 def test_input_rejects_old_fields_and_environment_owned_fields(extra):
-    with pytest.raises(ValidationError):
-        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "写报告", **extra})
+    with pytest.raises(ValidationError, match="extra_forbidden"):
+        PlanGoalInput.model_validate({"intent_kind": "工作", "goal": "写报告", "remind_time": None, **extra})
 
 
 def test_old_checkpoint_and_request_shapes_are_rejected():
@@ -162,13 +174,15 @@ def test_day_boundary_expiry_and_agent_isolation():
 
 
 def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
+    """零点计划经系统登记入口登记（不耗时，登记事件带完整计划），实际活动推进目标，检查点恢复后保持（第四章）。"""
     engine = engine_factory()
     now = engine.state.current_time
-    request = PlanDayRequest(goals=[{"intent_kind": "休息", "goal": "歇一歇"}])
-    registered = act(engine, "goals", "plan_day", request)
-    assert registered.status == "completed" and engine.state.current_time == now
+    assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
+    registered = engine.store.read_agent_events("environment_event", 1)[-1]
+    assert registered.data["kind"] == "day_plan_generated" and engine.state.current_time == now
     assert registered.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
-    advance_until_ready(engine)
+    assert engine.state.agents[1].day_plan.goals[0].registered_at == now
+    assert advance_until_ready(engine)
     started = act(engine, "rest", "start_activity",
                   StartActivityRequest(targets=["自己"], actions=["等待"]))
     advance_next(engine)
@@ -194,9 +208,7 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     """按目标名称回看返回目标与推进状态，结果随下一次观察进入 details.recall；未知名称是业务拒绝
     （时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary）。"""
     engine = engine_factory()
-    registered = act(engine, "recall-goals", "plan_day",
-                     PlanDayRequest(goals=[{"intent_kind": "休息", "goal": "歇一歇"}]))
-    assert registered.status == "completed"
+    assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
     assert advance_until_ready(engine)
     recall = RecallTaskSummaryRequest(task_name="目标：休息：歇一歇")
     before = act(engine, "recall-before", "recall_task_summary", recall)
@@ -222,16 +234,22 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
 
 
 def test_empty_plan_is_registered_once_and_can_be_revised(engine_factory):
+    """零点计划的空清单也是当日登记：人物可用 revise_day_plan 补目标；同一本地日不再生成（后台任务不调用客户端），
+    系统登记入口的重复登记是协议错误，计划保持修订后的样子（第四章「输入、调用、失败与记录」）。"""
     engine = engine_factory()
-    first = act(engine, "empty", "plan_day", PlanDayRequest(goals=[]))
-    assert first.status == "completed" and engine.state.agents[1].day_plan.goals == ()
-    advance_until_ready(engine)
+    assert settle_day_plans(engine)[0]["goals"] == 0
+    assert engine.state.agents[1].day_plan.goals == ()
+    assert engine.state.agents[1].plan_submitted_dates == {"2026-01-05"}
     revised = act(engine, "add", "revise_day_plan", ReviseDayPlanRequest(
-        goals=[{"intent_kind": "工作", "goal": "写报告"}]))
+        goals=[{"intent_kind": "工作", "goal": "写报告", "remind_time": None}]))
     assert revised.status == "completed"
-    advance_until_ready(engine)
-    duplicate = act(engine, "again", "plan_day", PlanDayRequest(goals=[]))
-    assert duplicate.error_code == "PLAN_ALREADY_SUBMITTED"
+    plan = engine.state.agents[1].day_plan
+    assert [item.goal for item in plan.goals] == ["写报告"]
+    again = StubPlanDayClient()
+    assert drive(settle_pending_day_plans(engine, client=again)) == [] and again.calls == []
+    with pytest.raises(ProtocolError, match="already generated"):
+        engine.register_day_plan(1, PlanDayRequest(goals=()), [], [])
+    assert engine.state.agents[1].day_plan == plan
 
 
 def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine_factory):
@@ -256,6 +274,7 @@ def test_goal_pulse_requires_actual_own_positive_evidence_and_is_one_time(engine
 
 
 def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factory):
+    """零点边界先按旧计划结算末段、旧计划随即失效，零点计划之后才为新的一天登记（第四章「运行时机」）。"""
     from tests.life.test_revision_contract import _commit_staged
     engine = engine_factory()
     now = engine.state.current_time
@@ -269,26 +288,33 @@ def test_midnight_final_interval_progresses_old_plan_before_expiry(engine_factor
     _commit_staged(engine, staged)
     started = act(engine, "last-minute", "start_activity",
                   StartActivityRequest(targets=["自己"], actions=["等待"]))
-    advance_next(engine)
-    assert engine.state.current_time == midnight
+    boundary = engine.scheduling_state().next_event_at
+    assert int(boundary.timestamp()) == midnight
+    engine.advance(midnight - engine.state.current_time, boundary)
+    assert engine.state.current_time == midnight and engine.midnight_rhythm_pending
     assert engine.state.agents[1].day_plan is None
     progress = engine.store.read_agent_events("activity_progress", 1)[-1].data["day_plan"]
     assert progress["day_end"] == midnight
     assert progress["goals"][0]["progressed_at"] == midnight
     assert progress["goals"][0]["progress_activity_id"] == started.activity_id
+    settle_day_plans(engine, planned("休息", "新的一天先歇一歇"))
+    fresh = engine.state.agents[1].day_plan
+    assert fresh.day_end == day_end_seconds(midnight, engine.scenario.timezone)
+    assert [(item.goal, item.registered_at, item.progressed_at) for item in fresh.goals] == [
+        ("新的一天先歇一歇", midnight, None)]
 
 
-def test_late_first_submission_does_not_require_a_bedtime_schedule(engine_factory):
+def test_late_plan_generation_registers_now_without_retroactive_progress(engine_factory):
+    """人物不需要先有当日计划就能行动；稍后才生成的计划以生成时刻登记，此前结算的同家族活动不回溯推进它
+    （第四章：目标的 registered_at 为登记事件时刻）。"""
     engine = engine_factory()
     act(engine, "before-plan", "start_activity",
         StartActivityRequest(targets=["自己"], actions=["等待"]))
     assert advance_until_ready(engine)
-    # 等待按计划结束即成待收尾，当秒收尾后再补交当日目标（第七章「活动一结束就要结束它」）。
+    # 等待按计划结束即成待收尾，当秒收尾后才生成当日计划（第七章「活动一结束就要结束它」）。
     assert conclude_pending(engine, "before-plan-end").status == "completed"
     registered_at = engine.state.current_time
-    result = act(engine, "late-goal", "plan_day", PlanDayRequest(
-        goals=[{"intent_kind": "工作", "goal": "推进报告"}]))
-    assert result.status == "completed"
+    settle_day_plans(engine, planned("休息", "歇一歇"))
     assert engine.state.agents[1].day_plan.goals[0].registered_at == registered_at
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
 
@@ -305,6 +331,6 @@ def test_revision_merged_limit_returns_domain_error_and_preserves_plan(engine_fa
     _commit_staged(engine, staged)
     original = engine.state.agents[1].day_plan
     result = act(engine, "too-many", "revise_day_plan", ReviseDayPlanRequest(
-        goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条"}]))
+        goals=[{"intent_kind": INTENT_KINDS[8], "goal": "多一条", "remind_time": None}]))
     assert result.error_code == "PLAN_GOALS_INVALID"
     assert engine.state.agents[1].day_plan == original

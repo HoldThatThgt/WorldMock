@@ -207,6 +207,22 @@ def advance_activity_shared(activity: ActivityState, agent: AgentState, now: int
     return ActivityAdvance(changed, changed_agent, settlement, completed)
 
 
+def end_sleep_by_reminder(advance: ActivityAdvance, now: int) -> ActivityAdvance:
+    """@brief 当日目标提醒到点结束睡眠（docs/dev/SPEC-time-and-energy.md 第四章「计划与提醒」）。
+
+    按实际时长结算后 status=completed，ended_at 为提醒时刻，boundary_type 与 interruption_reason 都记
+    plan_reminder，睡眠随即成为待收尾。计划结束与提醒同秒时睡眠已按 planned_end 完成，保持不变；
+    非睡眠活动不被提醒停止。
+    """
+    activity = advance.activity
+    if advance.completed or activity.kind != ActivityKind.SLEEP:
+        return advance
+    ended = activity.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": now,
+                                        "boundary_type": "plan_reminder", "interruption_reason": "plan_reminder",
+                                        "next_interaction_at": None}, deep=True)
+    return ActivityAdvance(ended, advance.agent, advance.settlement, True)
+
+
 def _apply_lifestyle_felt_relief(agent: AgentState, activity: ActivityState,
                                  seconds: int) -> AgentState:
     """@brief 生活活动 effects 的社交缓解与健康情绪脉冲（docs/dev/SPEC-life-realism.md「动机层」）。

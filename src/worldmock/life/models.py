@@ -859,10 +859,11 @@ class ConsumeRequest(FrozenModel):
 
 
 class PlanGoalInput(FrozenModel):
-    """@brief 人物提交的当日目标；不接受时刻、时长或环境推进字段。"""
+    """@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。"""
 
     intent_kind: IntentKind
     goal: str = Field(pattern=r"\S")
+    remind_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
 
     @model_validator(mode="after")
     def validate_goal_length(self) -> "PlanGoalInput":
@@ -874,7 +875,7 @@ class PlanGoalInput(FrozenModel):
 
 
 class PlanDayRequest(FrozenModel):
-    """@brief 提交当日有序目标；允许空清单，同一意图最多一条。"""
+    """@brief 当日有序目标清单：零到八条，同一意图最多一条；零点计划的输出与修订请求共用这一形状。"""
 
     goals: Annotated[
         tuple[PlanGoalInput, ...],
@@ -1094,7 +1095,7 @@ class ConcludeActivityRequest(FrozenModel):
 ActionRequest = Annotated[
     StartActivityRequest | RecallTaskSummaryRequest |
     ReportStatusRequest | PauseActivityRequest | ConcludeActivityRequest |
-    PlanDayRequest | ReviseDayPlanRequest,
+    ReviseDayPlanRequest,
     Field(union_mode="left_to_right"),
 ]
 
@@ -1145,7 +1146,6 @@ REQUEST_MODELS: dict[str, type[FrozenModel]] = {
     "report_status": ReportStatusRequest,
     "pause_activity": PauseActivityRequest,
     "conclude_activity": ConcludeActivityRequest,
-    "plan_day": PlanDayRequest,
     "revise_day_plan": ReviseDayPlanRequest,
 }
 

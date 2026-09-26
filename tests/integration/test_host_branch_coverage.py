@@ -848,6 +848,89 @@ async def test_settle_pending_model_replies_builds_client_from_manifest(tmp_path
 
 
 # ---------------------------------------------------------------------------
+# 零点计划客户端与后台任务（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）
+# ---------------------------------------------------------------------------
+
+
+def test_plan_day_client_enforces_manifest_identity(monkeypatch):
+    """零点计划客户端身份与参数必须与运行清单完全一致（核对同联系人回复，类名独立）。"""
+    from worldmock.runtime import PlanDayClient
+
+    identity = {"requested_model": "deepseek-flash",
+                "base_url": "https://api.deepseek.com", "max_retries": 0}
+    monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
+        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
+    assert PlanDayClient(identity).model_name == "deepseek-flash"
+    monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
+        model_name="deepseek-flash", base_url="https://example.invalid", call=None))
+    with pytest.raises(ProtocolError, match="Plan day client identity disagrees"):
+        PlanDayClient(identity)
+    monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: SimpleNamespace(
+        model_name="deepseek-flash", base_url="https://api.deepseek.com", call=None))
+    with pytest.raises(ProtocolError, match="Plan day request parameters disagree"):
+        PlanDayClient({**identity, "max_retries": 3})
+
+
+@pytest.mark.asyncio
+async def test_plan_day_client_serializes_model_responses(monkeypatch):
+    """零点计划模型响应按 pydantic/dict 形态序列化，异常形态拒绝。"""
+    from worldmock.runtime import PlanDayClient
+
+    identity = {"requested_model": "deepseek-flash",
+                "base_url": "https://api.deepseek.com", "max_retries": 0}
+    as2_client = _StubAS2Client([
+        SimpleNamespace(model_dump=lambda mode: {"choices": []}),
+        {"choices": []},
+        12345,
+        SimpleNamespace(model_dump=lambda mode: ["not-an-object"]),
+    ])
+    monkeypatch.setattr("agentsociety2.config.build_client_for_role", lambda role: as2_client)
+    client = PlanDayClient(identity)
+    assert await client.call({"model": "deepseek-flash"}) == {"choices": []}
+    assert await client.call({}) == {"choices": []}
+    with pytest.raises(ProtocolError, match="not serializable"):
+        await client.call({})
+    with pytest.raises(ProtocolError, match="not a serialized object"):
+        await client.call({})
+
+
+@pytest.mark.asyncio
+async def test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed(tmp_path, monkeypatch):
+    """有人缺当日计划且未注入客户端时按清单构造客户端；运行到终点或无人缺计划时不构造、零副作用。"""
+    import worldmock.runtime as runtime
+    from tests.life.conftest import StubPlanDayClient
+    from worldmock.life.engine import LifeEngine
+    from worldmock.life.models import RunIdentity
+    from worldmock.life.scenario import load_scenario
+
+    built = []
+
+    class RecordingClient(StubPlanDayClient):
+        def __init__(self, model_identity):
+            super().__init__()
+            built.append(model_identity)
+
+    scenario, _ = load_scenario(SCENARIO)
+    identity = RunIdentity(
+        run_id="plan-direct", source_group_id="group-plan-direct",
+        agent_ids=tuple(item.agent_id for item in scenario.agents),
+        start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
+        timezone=scenario.timezone, code_sha256="4" * 64, model_identity=_model_identity())
+    engine = LifeEngine.create(SCENARIO, tmp_path / "run", identity)
+    try:
+        monkeypatch.setattr(runtime, "PlanDayClient", RecordingClient)
+        assert await runtime.settle_pending_day_plans(engine) == [{"agent_id": 1, "date": "2026-01-05", "goals": 0}]
+        assert built == [engine.store.manifest["model_identity"]]
+        assert await runtime.settle_pending_day_plans(engine) == []
+        ended = SimpleNamespace(state=engine.state.model_copy(update={"current_time": engine.state.end_time}),
+                                scenario=engine.scenario)
+        assert await runtime.settle_pending_day_plans(ended) == []
+        assert len(built) == 1
+    finally:
+        engine.close()
+
+
+# ---------------------------------------------------------------------------
 # opslog 边界
 # ---------------------------------------------------------------------------
 

@@ -20,7 +20,8 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import activity_control, felt, projection, same_moment, sessions, social_actions
+from worldmock.life import (activity_control, day_planning, felt, projection, reminders, same_moment, sessions,
+                            social_actions)
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
@@ -43,6 +44,7 @@ from worldmock.life.activities import (
     ActivityOrigin,
     advance_activity_shared,
     change_activity,
+    end_sleep_by_reminder,
     resource_claims,
     schedule_feedback,
     shared_activity_factors,
@@ -118,15 +120,17 @@ from worldmock.life.observe import ObservationMixin
 from worldmock.life.rhythm import (
     RhythmBoundary,
     apply_engine_rhythm,
+    decide_engine_rhythm,
     engine_rhythm_inputs,
+    hold_body_settlements,
     next_decision_candidates,
+    settle_engine_rhythm,
 )
 from worldmock.life.run_identity import category_identity, open_category_validated_store, require_category_identity
 from worldmock.life.rules import LifeRuleEngine
 from worldmock.life.scenario import RuntimeScenario
-from worldmock.life.schedule import (PlanGoal, WakeReason,
-                                     day_end_seconds, day_plan_expired, expired_plan_agent_ids,
-                                     initial_day_plan, revise_day_plan)
+from worldmock.life.schedule import (DayPlan, RemindTimeInvalid, WakeReason, day_plan_expired,
+                                     expired_plan_agent_ids, registered_goals, revise_day_plan)
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.session_actions import SessionActionMixin
 from worldmock.life.settlement import inject_initial_funds
@@ -224,6 +228,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._pending_presentation: dict[int, SameMomentPresentation] = {}
         self._pending_visible_supplies: dict[int, set[str]] = {}
         self._work_reviewer: WorkReviewer | None = None
+        #: 零点边界留给零点节律入口的判定段（第四章「运行时机」）：到达事实与共同身体结算草稿。
+        self._midnight: RhythmBoundary | None = None
         self.ops = OpsLogger(store.run_dir, self.scenario.timezone)
         self._validate_runtime()
 
@@ -501,6 +507,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 返回 AS2 使用的带时区当前时刻、就绪人物和下一边界。"""
         from agentsociety2.society import SchedulingState
 
+        self._require_midnight_decided()
         current = _datetime(self.state.current_time, self.scenario.timezone)
         if self.state.current_time >= self.state.end_time:
             return SchedulingState(current, (), None, self.state.version)
@@ -597,6 +604,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 精确推进到下一事件边界并结算连续活动、后台事件与决策节律。"""
         if self._round is not None:
             raise ProtocolError("World time cannot advance during an open decision round")
+        self._require_midnight_decided()
         if any(self._ready(agent_id) for agent_id in self.state.agents):
             raise ProtocolError("World time cannot advance while an agent decision is due")
         target_epoch = int(target.timestamp())
@@ -610,8 +618,12 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         drafts, results = self._advance_activities(staged, target_epoch)
         staged, background, arrivals = self._process_scheduled(staged, target_epoch)
         drafts.extend(background)
-        staged = apply_engine_rhythm(self, staged,
-                                     RhythmBoundary(target_epoch, interval, arrivals, drafts))
+        boundary = RhythmBoundary(target_epoch, interval, arrivals, drafts)
+        if reminders.defers_rhythm(staged, target_epoch, self.scenario.timezone):
+            staged = settle_engine_rhythm(self, staged, boundary)
+            drafts, self._midnight = hold_body_settlements(boundary)
+        else:
+            staged = apply_engine_rhythm(self, staged, boundary)
         for agent_id in expired_plan_agent_ids(staged):
             staged = _put_agent(staged, staged.agents[agent_id].model_copy(update={"day_plan": None}, deep=True))
         if target_epoch == staged.end_time:
@@ -625,6 +637,46 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._pending_presentation = {}
         self._pending_visible_supplies = {}
         return results
+
+    @property
+    def midnight_rhythm_pending(self) -> bool:
+        """@brief 零点边界已结算提交、判定段尚待零点计划提交之后执行。"""
+        return self._midnight is not None
+
+    def decide_midnight_rhythm(self) -> None:
+        """@brief 零点节律入口（docs/dev/SPEC-time-and-energy.md 第四章「运行时机」）：零点计划提交之后只执行判定段。
+
+        判定该秒的唤醒原因与 next_decision_at（在手承诺按新计划计，新计划的提醒进入候选），写共同身体结算的唤醒字段，
+        并与活动反馈对齐一次提交；不再执行结算段的情绪账，已读消息与社交账不会重复记账。
+        """
+        boundary = self._midnight
+        if boundary is None:
+            raise ProtocolError("No midnight rhythm is pending")
+        staged = decide_engine_rhythm(self, self.state.model_copy(deep=True), boundary)
+        staged.version = self.state.version + 1
+        commit_state(self.store, staged, list(boundary.drafts))
+        self.state = staged
+        self._midnight = None
+
+    def register_day_plan(self, agent_id: int, request: PlanDayRequest, sources: list[str],
+                          evidence: list[EventDraft]) -> DayPlan:
+        """@brief 零点计划的系统登记入口（第四章）：不进人物工具面，不写 action_requested。
+
+        校验目标，写 day_plan 与 plan_submitted_dates，与 day_plan_generated（带 data.day_plan 与 data.source_event_ids）
+        及本次的模型证据一次提交；当日已登记为协议错误，调用方先按 plan_submitted_dates 拦下。
+        """
+        causes = [evidence[-1].event_id] if evidence else []
+        staged, plan, draft = day_planning.registration(
+            self.state, agent_id, request, (sources, causes), self.scenario.timezone)
+        staged.version = self.state.version + 1
+        commit_state(self.store, staged, [*evidence, draft])
+        self.state = staged
+        return plan
+
+    def _require_midnight_decided(self) -> None:
+        """@brief 零点判定段未执行时拒绝调度、推进与检查点（半结算的边界不能提供决策或封存）。"""
+        if self._midnight is not None:
+            raise ProtocolError("Midnight rhythm must be decided after the day plans are registered")
 
     def fail_run(self, error: str) -> None:
         """@brief 追加唯一 run_failed，使后续故障覆盖先前完成候选。"""
@@ -699,6 +751,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def checkpoint(self, agent_snapshots: dict[str, AssetRef]) -> "Checkpoint":
         """@brief 合并全部人物和 life 快照后提交一个共同检查点。"""
+        self._require_midnight_decided()
         expected = {f"agent:{agent_id}" for agent_id in self.store.manifest["agent_ids"]}
         if set(agent_snapshots) != expected:
             raise IntegrityError("Checkpoint agent snapshot set is incomplete")
@@ -954,7 +1007,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             "report_status": self._report_status,
             "pause_activity": self._pause_activity,
             "conclude_activity": self._conclude_activity,
-            "plan_day": self._plan_day,
             "revise_day_plan": self._revise_day_plan,
         }
         return handlers[pending.tool_name](state, pending, request)
@@ -1167,40 +1219,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                               message="Work accepted and paid", data=data)
         return outcome_state, result
 
-    def _plan_day(self, state: WorldState, pending: PendingAction,
-                  request: PlanDayRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 登记当日有序目标；成功登记每天至多一次，迟交与拒绝重试均允许。"""
-        agent = state.agents[pending.agent_id]
-        now = state.current_time
-        date = _datetime(now, self.scenario.timezone).date().isoformat()
-        planned_today = agent.day_plan is not None and not day_plan_expired(agent.day_plan, now)
-        if date in agent.plan_submitted_dates or planned_today:
-            raise BusinessRuleError("PLAN_ALREADY_SUBMITTED")
-        day_end = day_end_seconds(now, self.scenario.timezone)
-        try:
-            goals = tuple(PlanGoal(**goal.model_dump(), registered_at=now) for goal in request.goals)
-            plan = initial_day_plan(goals, day_end)
-        except ValueError as error:
-            raise BusinessRuleError("PLAN_GOALS_INVALID") from error
-        changed_agent = agent.model_copy(
-            update={"day_plan": plan, "plan_submitted_dates": set(agent.plan_submitted_dates) | {date}},
-            deep=True)
-        changed = _put_agent(state, changed_agent)
-        result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
-                              status=ActionStatus.COMPLETED, occurred_at=now,
-                              message="Day plan registered as self-commitment",
-                              data={"day_plan": plan.model_dump(mode="json")})
-        return changed, result
-
     def _revise_day_plan(self, state: WorldState, pending: PendingAction,
                          request: ReviseDayPlanRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 替换未推进的当日目标，已推进目标保持不变。"""
+        """@brief 替换未推进的当日目标及其提醒，已推进目标保持不变（第四章「计划与提醒」）。"""
         agent = state.agents[pending.agent_id]
         if agent.day_plan is None or day_plan_expired(agent.day_plan, state.current_time):
             raise BusinessRuleError("PLAN_NOT_FOUND")
         try:
-            goals = tuple(PlanGoal(**goal.model_dump(), registered_at=state.current_time) for goal in request.goals)
+            goals = registered_goals(request.goals, state.current_time, self.scenario.timezone)
             plan = revise_day_plan(agent.day_plan, state.current_time, goals)
+        except RemindTimeInvalid as error:
+            raise BusinessRuleError("PLAN_REMIND_TIME_INVALID") from error
         except ValueError as error:
             raise BusinessRuleError("PLAN_GOAL_ALREADY_PROGRESSED" if "already progressed" in str(error)
                                     else "PLAN_GOALS_INVALID") from error
@@ -1402,6 +1431,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 social_actions.chat_accepted(state, activity.agent_id))
         else:
             advanced = advance_activity_shared(activity, agent, target, settlement)
+        if reminders.reminder_due(agent, target):
+            advanced = end_sleep_by_reminder(advanced, target)
         if advanced.completed:
             advanced = ActivityAdvance(advanced.activity, advanced.agent.model_copy(
                 update={"next_decision_at": target}, deep=True), settlement, True)
@@ -1544,8 +1575,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return True
 
     def _next_epoch(self) -> int:
-        """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界。"""
-        candidates = [self.state.end_time]
+        """@brief 选择严格晚于当前时刻的最近活动、后台或节律边界，含场景本地零点与未触发的提醒（第四章）。"""
+        candidates = [self.state.end_time, *reminders.boundary_candidates(self.state, self.scenario.timezone)]
         candidates.extend(item.due_at for item in self.state.pending_events if item.due_at > self.state.current_time)
         candidates.extend(agent.next_decision_at for agent in self.state.agents.values()
                           if agent.next_decision_at > self.state.current_time)

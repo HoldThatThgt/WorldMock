@@ -27,7 +27,8 @@ persona_card、scene、facts 三部分组成，
 current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
 location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
-just_ended（刚结束待收尾的活动名列表）、day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
+just_ended（刚结束待收尾的活动名列表）、day_plan（goals 中的 intent_kind/progressed/可选 reminder）、
+inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
 reachable_places（name/opening_status 列表）、inventory、local_food_summary（当地餐食句或吃饭途径句）、
 same_moment_note（受限轮说明句，其余轮次为空串）。
@@ -214,15 +215,15 @@ def _activity_sentences(observation: dict) -> str:
 
 
 def _plan_sentence(observation: dict) -> str:
-    """@brief 按意图和推进状态描述当天目标，不宣称文字目标已完成。"""
+    """@brief 按意图、推进状态与提醒时刻（「提醒 HH:MM」）描述当天目标，不宣称文字目标已完成。"""
     day_plan = observation.get("day_plan")
     if day_plan is None:
         return ""
     goals = day_plan["goals"]
     if not goals:
         return "今天没有刻意目标。"
-    labels = [f"{goal['intent_kind']}（{'已推进' if goal['progressed'] else '未推进'}）"
-              for goal in goals]
+    labels = [f"{goal['intent_kind']}（{'已推进' if goal['progressed'] else '未推进'}"
+              f"{'，' + goal['reminder'] if goal.get('reminder') else ''}）" for goal in goals]
     return _close_sentence(f"今天想推进：{'、'.join(labels)}")
 
 

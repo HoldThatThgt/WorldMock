@@ -929,6 +929,106 @@ def _commit_contact_reply(engine: Any, pending_event: Any, model_request: dict,
             "source_kind": reply.source_kind}
 
 
+class PlanDayClient:
+    """@brief 零点计划 plan_day 的独立 DeepSeek 客户端（身份与参数核对同联系人回复，类名独立）。
+
+    不重试协议错误（plan_day 的附回重试由后台任务自行计数）；瞬时传输错误使用调度器独立的三次重试预算。
+    """
+
+    def __init__(self, model_identity: dict[str, Any]):
+        """@brief 建立与运行 manifest 完全相同的 DeepSeek 客户端。"""
+        from agentsociety2.config import build_client_for_role
+
+        client = build_client_for_role("default")
+        if (client.model_name != model_identity["requested_model"]
+                or client.base_url != model_identity["base_url"]):
+            raise ProtocolError("Plan day client identity disagrees with the run manifest")
+        if model_identity["max_retries"] != 0:
+            raise ProtocolError("Plan day request parameters disagree with the run manifest")
+        self._client = client
+        self.model_name = model_identity["requested_model"]
+
+    async def call(self, request: dict[str, Any]) -> dict[str, Any]:
+        """@brief 发出一次无内部重试的实际请求并返回可持久化原始响应。"""
+        response = await self._client.call(**copy.deepcopy(request))
+        if hasattr(response, "model_dump"):
+            payload = response.model_dump(mode="json")
+        elif isinstance(response, dict):
+            payload = dict(response)
+        else:
+            raise ProtocolError("Plan day model response is not serializable")
+        if not isinstance(payload, dict):
+            raise ProtocolError("Plan day model response is not a serialized object")
+        return payload
+
+
+async def settle_pending_day_plans(engine: Any, client: Any | None = None) -> list[dict]:
+    """@brief 零点计划后台任务（docs/dev/SPEC-time-and-energy.md 第四章「执行位置」）：为缺当日计划的人物生成当日计划。
+
+    与联系人回复并列：LifeEnv 在零点推进之后、启动检查点之后与普通恢复的 init 中 await 它。不经 LifeAgent，
+    不读写人物工作区与记忆运行时，不产生 observation、decision_started、memory_updated。按
+    plan_submitted_dates 找出缺当日计划的人物（按编号），运行已到终点或无人缺计划时在构造客户端之前返回。
+    输出不合法时附回英文错误重试，至多 3 次；重试耗尽或传输失败时先提交已有尝试的证据再抛出（运行故障）。
+    """
+    from worldmock.life import day_planning
+
+    missing = day_planning.agents_missing_plan(engine.state, engine.scenario.timezone)
+    if not missing:
+        return []
+    caller = client if client is not None else PlanDayClient(engine.store.manifest["model_identity"])
+    registered = []
+    for agent_id in missing:
+        registered.append(await _generate_day_plan(engine, caller, agent_id))
+    return registered
+
+
+async def _generate_day_plan(engine: Any, caller: Any, agent_id: int) -> dict:
+    """@brief 为一个人物生成并登记当日计划：请求与响应逐次留证，合法输出经引擎系统登记入口与证据一次提交。"""
+    from worldmock.life import day_planning
+    from worldmock.life.day_plan_inputs import plan_inputs
+
+    now, timezone_name = engine.state.current_time, engine.scenario.timezone
+    inputs = plan_inputs(engine, agent_id)
+    sentences = [sentence for sentence, _ in inputs.experiences]
+    original, kept = day_planning.fit_plan_day(inputs.payload, sentences, caller.model_name)
+    sources = [*(source for _, source in inputs.experiences[len(sentences) - kept:]), *inputs.sources]
+    date = day_planning.plan_date(now, timezone_name)
+    request, evidence, previous, attempt = original, [], None, 1
+    while True:
+        call_id = f"plan-day:{agent_id}:{date}:attempt:{attempt}"
+        evidence.append(day_planning.request_draft(now, agent_id, (call_id, attempt, previous), request))
+        link = (call_id, attempt, evidence[-1].event_id)
+        raw = await _call_plan_day(engine, caller, request, (evidence, link, agent_id))
+        try:
+            parsed = day_planning.parse_plan_day(raw, now, timezone_name)
+        except day_planning.PlanDayOutputError as error:
+            evidence.append(day_planning.response_draft(now, agent_id, link, raw, error))
+            if attempt > day_planning.PLAN_DAY_VALIDATION_RETRIES:
+                commit_state(engine.store, engine.state, evidence)
+                raise ProtocolError("plan_day output remained invalid after three retries") from error
+            attempt, previous = attempt + 1, evidence[-1].event_id
+            request = day_planning.prepare_plan_day_correction(original, raw, error)
+            continue
+        evidence.append(day_planning.response_draft(now, agent_id, link, raw, None))
+        break
+    plan = engine.register_day_plan(agent_id, parsed, sources, evidence)
+    return {"agent_id": agent_id, "date": date, "goals": len(plan.goals)}
+
+
+async def _call_plan_day(engine: Any, caller: Any, request: dict, context: tuple[list, tuple, int]) -> dict:
+    """@brief 发出一次零点计划请求；传输或配置失败时先提交已有尝试的证据与失败证据再抛出。"""
+    from worldmock.life import day_planning
+
+    evidence, link, agent_id = context
+    try:
+        return await caller.call(request)
+    except BaseException as error:
+        logger.error("Plan day model request failed: %s", type(error).__name__)
+        evidence.append(day_planning.failure_draft(engine.state.current_time, agent_id, link, error))
+        commit_state(engine.store, engine.state, evidence)
+        raise
+
+
 def _require_custom_modules(project_root: Path) -> None:
     """@brief 经实际 AS2 scanner 核对 LifeAgent 与 LifeEnv 均被接受。"""
     from agentsociety2.registry import scan_and_register_custom_modules

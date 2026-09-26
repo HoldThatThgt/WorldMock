@@ -18,7 +18,7 @@ from __future__ import annotations
 STAGE_IDS = frozenset(str(n) for n in range(10))
 
 #: 已完成的阶段；每个阶段收尾时把自己的编号加入。
-STAGES_DONE = frozenset({"0", "1", "2", "3", "6"})
+STAGES_DONE = frozenset({"0", "1", "2", "3", "5", "6"})
 
 _GREEN_BASELINE_TESTS = [
     "tests/life/test_dayrun_inventory_regressions.py::"
@@ -353,6 +353,69 @@ _NO_NEW_FAULT_TESTS += [
     _LOCATION + "test_sessions_and_pending_conclusion_survive_reopen",
 ]
 
+_PLANNING = "tests/life/test_day_planning.py::"
+_RUNTIME_HOST = "tests/integration/test_runtime.py::"
+_HOST_BRANCHES = "tests/integration/test_host_branch_coverage.py::"
+
+#: 阶段 5 完成的「零点计划与提醒」行（第四章验收）：零点后台任务的启动路径、零点边界与普通恢复挂点，同日只生成一次，
+#: 输出不合法时附回重试、耗尽与传输失败留证后作运行故障，提醒只触发一次并可结束睡眠，修订保留、替换与取消提醒，
+#: 呈现与输入口径，以及记录侧按 purpose 区分零点计划请求。
+_DAY_PLANNING_TESTS = [
+    _PLANNING + name for name in (
+        "test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched",
+        "test_mid_day_start_attaches_the_error_and_retries_invalid_output",
+        "test_invalid_output_after_three_retries_is_a_run_fault_with_evidence",
+        "test_system_entry_refuses_a_second_registration_and_an_invalid_plan",
+        "test_transport_failure_is_a_run_fault_after_the_evidence_is_kept",
+        "test_midnight_settles_the_old_day_then_plans_then_judges_the_second",
+        "test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once",
+        "test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end",
+        "test_reminders_wake_once_merge_and_fire_after_the_goal_progressed",
+        "test_revision_keeps_replaces_and_cancels_reminders",
+        "test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind",
+        "test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended",
+        "test_resume_and_counterfactual_branches_follow_plan_submitted_dates",
+    )
+] + [
+    _RUNTIME_HOST + "test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpoint",
+    _RUNTIME_HOST + "test_life_env_step_plans_midnight_before_the_step_checkpoint",
+    _RUNTIME_HOST + "test_plain_resume_plans_the_missing_day_in_init_once",
+    _RUNTIME_HOST + "test_counterfactual_init_waits_for_the_intervention_checkpoint",
+    _RUNTIME_HOST + "test_plan_day_failure_during_resume_init_is_registered_before_raising",
+    _HOST_BRANCHES + "test_plan_day_client_enforces_manifest_identity",
+    _HOST_BRANCHES + "test_plan_day_client_serializes_model_responses",
+    _HOST_BRANCHES + "test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed",
+    "tests/integration/test_life_agent_protocol.py::test_plan_day_is_no_person_tool_and_revision_carries_remind_time",
+    "tests/footprints/test_store.py::test_progress_request_cutoff_skips_system_requests_with_a_purpose",
+    "tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests",
+    "tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose",
+    "tests/delivery/test_windows.py::test_plan_day_request_never_becomes_a_decision_prompt_or_window_input",
+    "tests/evaluation/test_goal_metrics.py::test_zero_point_plan_event_registers_goals_that_revisions_keep",
+    "tests/footprints/test_goal_export.py::test_real_engine_midnight_settlement_exports_old_day_goal_progress",
+    "tests/life/test_day_plan.py::test_midnight_final_interval_progresses_old_plan_before_expiry",
+    "tests/life/test_day_plan.py::test_empty_plan_is_registered_once_and_can_be_revised",
+    "tests/life/test_revision_contract.py::test_plan_day_registration_and_retry_after_rejection",
+    "tests/integration/test_activity_schema.py::"
+    "test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time",
+    "tests/integration/test_grounded_targets.py::test_day_start_offers_the_normal_tools_and_readonly_keeps_its_gate",
+    "tests/integration/test_env_lifecycle_coverage.py::test_full_round_drives_engine_interfaces",
+]
+
+#: 阶段 5 完成的「常驻提示」行（第六章验收）：两阶段同一节「怎样过一天」、只读不含、禁用词与中文句子占比照旧；
+#: 「路径可发现、选择有据」在阶段 8 的真实复验中观察。
+_RESIDENT_PROMPT_TESTS = [
+    "tests/integration/test_life_agent_protocol.py::"
+    "test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages",
+    "tests/integration/test_life_agent_protocol.py::test_system_prompt_is_identity_first_with_word_share",
+]
+
+#: 阶段 5 预先登记：提醒与活动结束同秒、零点计划与决策同秒、终点为零点时无 run_failed。
+_NO_NEW_FAULT_TESTS += [
+    _PLANNING + "test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end",
+    _PLANNING + "test_midnight_settles_the_old_day_then_plans_then_judges_the_second",
+    _PLANNING + "test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended",
+]
+
 #: 验收台账行（首列原文）→ 归属阶段与证据测试节点。
 ACCEPTANCE: dict[str, dict[str, object]] = {
     "绿色基线": {"stage": "0", "tests": _GREEN_BASELINE_TESTS},
@@ -361,9 +424,9 @@ ACCEPTANCE: dict[str, dict[str, object]] = {
     "唤醒词表": {"stage": "2", "tests": _WAKE_VOCABULARY_TESTS + _STAGE2_WAKE_VOCABULARY_TESTS},
     "能量感知": {"stage": "2", "tests": _STAGE2_ENERGY_PERCEPTION_TESTS},
     "能量不拦人": {"stage": "4", "tests": _STAGE2_ENERGY_NEVER_BLOCKS_TESTS},
-    "零点计划与提醒": {"stage": "5", "tests": []},
+    "零点计划与提醒": {"stage": "5", "tests": _DAY_PLANNING_TESTS},
     "五个动词与并行": {"stage": "4", "tests": []},
-    "常驻提示": {"stage": "5", "tests": []},
+    "常驻提示": {"stage": "5", "tests": _RESIDENT_PROMPT_TESTS},
     "会话、活动与记忆": {"stage": "4", "tests": _SESSIONS_AND_MEMORY_TESTS},
     "本机运行修复": {"stage": "7",
                "tests": _RUN_IDENTITY_TESTS + _STAGE2_LOCAL_RUN_FIX_TESTS + _LOCAL_RUN_FIX_TESTS},
@@ -467,6 +530,15 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"finish\.memories 仍为零至八条|会话退出通道|\| refs \|", [_CONTRACTS]),
         (r"动作后为记忆查询与 `finish`", [_CONTRACTS]),
     ],
+    "5": [
+        (r'"plan_day"', [_AGENT, "custom/envs/life_env.py", _MODELS, _ENGINE]),
+        (r"_DAY_START_WAKE_REASONS|_plan_required_before_other_actions|_visible_plan_day_contract", ["custom"]),
+        (r"def _plan_day\b|PLAN_ALREADY_SUBMITTED", ["src", "custom"]),
+        (r"based_on_action_id|Do not provide times or durations", [_AGENT]),
+        (r"九个工具|九个人物工具", ["custom/envs/life_env.py", _AGENT]),
+        (r"\| `PLAN_ALREADY_SUBMITTED` \||\| `plan_day` \| `goals:|九个模型工具名", [_CONTRACTS]),
+        (r"\| `plan_day`、`revise_day_plan` \|", [_CONTRACTS]),
+    ],
     "6": [
         (r'"vendor" / "agentsociety2"', [_RUNTIME]),
         (r"哈希全部生产 Python 源码与根依赖锁定文件。", [_RUNTIME]),
@@ -559,6 +631,35 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"\| `sessions` \| dict\[str, SessionState\]", [_IO_FORMATS]),
         (r"\| 地点会话 \| `sessions`", [_CONTRACTS]),
         (r"def test_", ["tests/life/test_location_sessions.py", "tests/integration/test_conclude_memories.py"]),
+    ],
+    "5": [
+        (r"async def settle_pending_day_plans\(engine: Any, client: Any \| None = None\)", [_RUNTIME]),
+        (r"class PlanDayClient", [_RUNTIME]),
+        (r"settle_pending_day_plans", ["custom/envs/life_env.py"]),
+        (r"def register_day_plan|def decide_midnight_rhythm", [_ENGINE]),
+        (r'PLAN_DAY_PURPOSE = "plan_day"', ["src/worldmock/life/day_planning.py"]),
+        (r"PLAN_DAY_VALIDATION_RETRIES = 3\b", ["src/worldmock/life/day_planning.py"]),
+        (r'"kind": "day_plan_generated"', ["src/worldmock/life/day_planning.py"]),
+        (r"day_plan_generated", ["src/worldmock/evaluation/goal_metrics.py"]),
+        (r"PLAN_REMIND_TIME_INVALID", [_ENGINE]),
+        (r"remind_at: int \| None|reminded_at: int \| None", [_SCHEDULE]),
+        (r"remind_time: Annotated\[str, Field\(pattern=", [_MODELS]),
+        (r"plan_reminder_times", [_SCHEDULE, _RHYTHM]),
+        (r'"plan_reminder"', ["src/worldmock/life/activities.py"]),
+        (r"def boundary_candidates|def defers_rhythm|def alarm_goals", ["src/worldmock/life/reminders.py"]),
+        (r"怎样过一天：", [_AGENT]),
+        (r"\$\.data\.purpose'\) IS NULL", ["src/worldmock/footprints/store.py"]),
+        (r'not event\.get\("data", \{\}\)\.get\("purpose"\)', ["src/worldmock/evaluation/behavior_metrics.py"]),
+        (r'"by_purpose"', ["src/worldmock/footprints/quality.py"]),
+        (r"def test_", ["tests/life/test_day_planning.py"]),
+        (r"PLAN_REMIND_TIME_INVALID", [_CONTRACTS]),
+        (r"day_plan_generated", [_CONTRACTS, _RECORDING, "docs/dev/SPEC-agent-interaction.md"]),
+        (r"怎样过一天", [_CONTRACTS]),
+        (r"submit_day_plan", [_CONTRACTS]),
+        (r"2026-09-25-time-and-energy-stage-5", [_CONTRACTS, _LIFE_RUNTIME]),
+        (r"remind_at", [_IO_FORMATS]),
+        (r"plan_submitted_dates", [_IO_FORMATS, _MANUAL_RUNTIME]),
+        (r"plan_reminder_due", [_LIFE_RUNTIME]),
     ],
     "6": [
         (rf'AS2_LOCKED_SOURCE_SHA256 = "{_AS2_LOCKED_DIGEST}"', [_RUNTIME]),

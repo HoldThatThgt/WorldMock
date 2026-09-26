@@ -35,10 +35,15 @@ def goal(kind="工作", text="推进报告", registered_at=None, **fields):
             "progressed_at": None, "progress_activity_id": None, **fields}
 
 
-def plan_result(sequence, goals, at=None, day=0, **fields):
-    return event(sequence, "action_result", at or clock(day),
-                 {"status": "completed", "data": {"day_plan": {
-                     "day_end": clock(day + 1, 0), "goals": goals}}}, action_id=f"plan-{sequence}", **fields)
+def plan_result(sequence, goals, at=None, day=0, generated=False, **fields):
+    """当日目标登记：generated 为零点计划的 day_plan_generated 环境事件，否则为修订的已完成动作结果。"""
+    plan = {"day_end": clock(day + 1, 0), "goals": goals}
+    if generated:
+        return event(sequence, "environment_event", at or clock(day),
+                     {"kind": "day_plan_generated", "day_plan": plan, "source_event_ids": []},
+                     visibility="system", **fields)
+    return event(sequence, "action_result", at or clock(day), {"status": "completed", "data": {"day_plan": plan}},
+                 action_id=f"plan-{sequence}", **fields)
 
 
 def progress(sequence, start, end, kind="work", goals=None, day=0, activity_id=None, **fields):
@@ -63,7 +68,7 @@ def test_revision_history_preserves_denominator_and_initial_priority():
     initial = [goal(), goal("运动", "慢跑")]
     unchanged = [initial[1], initial[0]]
     edited = [goal("工作", "提交报告", clock(0, 9)), initial[1]]
-    events = [plan_result(1, initial), plan_result(2, unchanged, clock(0, 8, 30)),
+    events = [plan_result(1, initial, generated=True), plan_result(2, unchanged, clock(0, 8, 30)),
               plan_result(3, edited, clock(0, 9)), plan_result(4, [initial[1]], clock(0, 10)),
               plan_result(5, [initial[1], goal(registered_at=clock(0, 11))], clock(0, 11))]
     final = [initial[1], progressed_goal(clock(0, 12), "work", registered_at=clock(0, 11))]
@@ -77,7 +82,27 @@ def test_revision_history_preserves_denominator_and_initial_priority():
     assert day["by_priority"]["2"]["family_progress_rate"] == 0.5
     assert day["goals"][-1]["registration_event_id"] == "e5"
     assert day["goals"][-1]["progress_event_id"] == "e6"
+    assert day["goals"][1]["registration_event_id"] == "e1"
     assert result["reference"] is None
+
+
+def test_zero_point_plan_event_registers_goals_that_revisions_keep():
+    """零点计划的 day_plan_generated 环境事件本身就是登记来源：目标按初始优先级登记并可被实际推进；此后原样保留的
+    修订不另建实例，改写的目标记为丢弃；其他环境事件即使带当日计划也不是登记（第四章「输入、调用、失败与记录」）。"""
+    generated = plan_result(1, [goal(), goal("运动", "慢跑")], generated=True)
+    day = report([generated])["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
+    assert [(item["goal"], item["initial_priority"], item["registration_event_id"], item["registered_at"])
+            for item in day["goals"]] == [("推进报告", 1, "e1", clock()), ("慢跑", 2, "e1", clock())]
+    settled = [progressed_goal(clock(0, 9), "work"), goal("运动", "慢跑")]
+    revised = plan_result(3, [settled[0], goal("运动", "夜跑", clock(0, 10))], clock(0, 10))
+    events = [generated, progress(2, clock(), clock(0, 9), goals=settled, activity_id="work"), revised]
+    day = report(events)["deliberate_goals"]["per_agent_day"]["run:1:2026-09-21"]
+    assert [(item["goal"], item["status"], item["registration_event_id"]) for item in day["goals"]] == [
+        ("推进报告", "progressed", "e1"), ("慢跑", "discarded", "e1"), ("夜跑", "pending", "e3")]
+    assert day["goals"][0]["progress_event_id"] == "e2"
+    other = deepcopy(generated)
+    other["data"]["kind"] = "test_day_plan_staged"
+    assert report([other])["deliberate_goals"]["per_agent_day"] == {}
 
 
 def test_progressed_goal_survives_revisions_and_idempotent_replay():
@@ -100,7 +125,7 @@ def test_progressed_goal_survives_revisions_and_idempotent_replay():
 ])
 def test_goal_progress_requires_matching_actual_positive_settlement(change):
     settled = progressed_goal(clock(0, 9), "work")
-    registration = plan_result(1, [goal()])
+    registration = plan_result(1, [goal()], generated=True)
     actual = progress(2, clock(), clock(0, 9), goals=[settled], activity_id="work")
     data, snapshot = actual["data"], actual["data"]["activity"]
     if change == "zero_duration":
@@ -317,7 +342,7 @@ def test_empty_samples_are_explicit_and_shared_behavior_entrypoint_matches():
 
 def test_registration_cannot_claim_a_different_local_day_and_order_is_deterministic():
     invalid = plan_result(1, [goal()], clock(1), day=0)
-    events = [invalid, plan_result(2, [], clock(1), day=1)]
+    events = [invalid, plan_result(3, [goal()], clock(1), day=0, generated=True), plan_result(2, [], clock(1), day=1)]
     metrics = report(events)
     assert list(metrics["deliberate_goals"]["per_agent_day"]) == ["run:1:2026-09-22"]
     assert canonical_json(report(events)) == canonical_json(report(list(reversed(events))))

@@ -192,10 +192,13 @@ def _external_constraints(events: list[dict]) -> dict:
 
 
 def _plan_snapshot(event: dict) -> tuple[dict | None, bool]:
-    """@brief 读取登记结果或结算后的完整当日目标对象，排除幂等重放。"""
+    """@brief 读取登记（零点计划的 day_plan_generated 与修订的动作结果）或结算后的完整当日目标对象，排除幂等重放。"""
     data = event.get("data", {})
-    registration = event.get("event_type") == "action_result" and data.get("status") == "completed"
-    if registration and not data.get("reused"):
+    generated = event.get("event_type") == "environment_event" and data.get("kind") == "day_plan_generated"
+    registration = generated or event.get("event_type") == "action_result" and data.get("status") == "completed"
+    if generated:
+        plan = data.get("day_plan")
+    elif registration and not data.get("reused"):
         plan = data.get("data", {}).get("day_plan")
     elif event.get("event_type") == "activity_progress":
         plan = data.get("day_plan")

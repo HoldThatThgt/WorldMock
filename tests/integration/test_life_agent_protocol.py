@@ -40,6 +40,7 @@ from custom.agents.life_agent import (
     DECISION_STATEMENT_TEMPERATURE,
     _ACTION_REGISTRATION_CONFIRMATION,
     _conclusion_memories,
+    life_action_tool_names,
     life_prompt_sha256,
     life_tool_schema_sha256,
 )
@@ -67,7 +68,6 @@ _MEMORY_TOOL_NAMES = {
 _BASE_ACTION_NAMES = {
     "start_activity",
     "recall_task_summary",
-    "plan_day",
     "submit_work",
 }
 
@@ -171,7 +171,7 @@ def _observations(*result_ids: str) -> list[dict]:
     data = {
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
-        "wake_reasons": [],  # 非日首决策：不触发 plan_day 工具面强制
+        "wake_reasons": [],  # 唤醒原因只进私有证据，不改变工具面
         "same_moment_stage": "open",  # 未达同刻上限：不收窄世界请求
         "scene": copy.deepcopy(_SCENE),
         "facts": copy.deepcopy(_FACTS),
@@ -300,31 +300,67 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
     assert life_tool_schema_sha256() != original
 
 
-def test_plan_tool_schemas_describe_ordered_goals_and_empty_revision() -> None:
-    """实际模型工具只接收目标，空清单仍关闭提交并开放修订。"""
+def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
+    """当日计划由零点后台任务生成，人物工具面没有 plan_day，醒来与运行开始也不收窄工具面；
+    当日已有计划（含空清单）时开放修订，条目必须给出可为 null 的 remind_time（第四章「计划与提醒」）。"""
     def build_functions(observations: list[dict]) -> dict[str, dict]:
         agent = LifeAgent()
         agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
         return {item["function"]["name"]: item["function"]
                 for item in agent.build_react_tool_schemas(readonly=False)}
 
-    planning = build_functions(_observations())
-    assert "plan_day" in planning and "revise_day_plan" not in planning
+    from custom.envs.life_env import _STABLE_TOOL_SURFACE
+
+    assert len(_STABLE_TOOL_SURFACE) == 8 and "plan_day" not in _STABLE_TOOL_SURFACE
+    assert life_action_tool_names() == frozenset(REQUEST_MODELS) == _STABLE_TOOL_SURFACE
+    waking = _observations()
+    waking[0]["data"]["wake_reasons"] = ["run_start", "wake_from_sleep"]
+    assert set(build_functions(waking)) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
     observations = _observations()
     observations[0]["data"]["facts"]["day_plan"] = {"goals": []}
     revising = build_functions(observations)
-    assert "revise_day_plan" in revising and "plan_day" not in revising
-    for name, functions in (("plan_day", planning), ("revise_day_plan", revising)):
-        tool = functions[name]
-        assert "at most 300 characters" in tool["description"]
-        assert "Do not provide times or durations" in tool["description"]
-        assert set(tool["parameters"]["properties"]) == {"goals"}
-        fields = tool["parameters"]["properties"]["goals"]["items"]["properties"]
-        assert set(fields) == {"intent_kind", "goal"}
-        assert fields["goal"]["pattern"] == r"\S"
-        assert "day_start_epoch" not in json.dumps(tool)
-    assert "empty list" in planning["plan_day"]["description"]
-    assert "Progressed goals stay unchanged" in revising["revise_day_plan"]["description"]
+    assert "plan_day" not in revising and "revise_day_plan" in revising
+    tool = revising["revise_day_plan"]
+    assert "at most 300 characters" in tool["description"]
+    assert "Progressed goals stay unchanged" in tool["description"]
+    assert "remind_time" in tool["description"] and "Do not provide times or durations" not in tool["description"]
+    assert set(tool["parameters"]["properties"]) == {"goals"}
+    fields = tool["parameters"]["properties"]["goals"]["items"]["properties"]
+    assert set(fields) == {"intent_kind", "goal", "remind_time"}
+    assert fields["goal"]["pattern"] == r"\S"
+    assert fields["remind_time"]["anyOf"] == [{"pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", "type": "string"},
+                                              {"type": "null"}]
+    assert "day_start_epoch" not in json.dumps(tool)
+
+
+def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
+    """第六章：决策自述与动作两阶段的 system 含同一节「怎样过一天」；只读问答不含该节；过时的供给差异句已删。"""
+    agent = LifeAgent()
+    agent._id = 7
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent._enable_memory = False
+    agent._model_name = "deepseek-flash"
+    request = ReactLoopRequest(0, _context().observed_at, _observations())
+    agent.prepare_react_loop(request)
+    action_system = agent.build_react_messages(request)[0]["content"]
+    statement_system = agent.prelude_decision_statement_request(request)["messages"][0]["content"]
+    readonly = ReactLoopRequest(0, _context().observed_at, [], "How was today?", True)
+    readonly_system = agent.build_react_messages(readonly)[0]["content"]
+
+    sections = [re.search(r"怎样过一天：\n.*?重新权衡。", system, re.S) for system in (action_system, statement_system)]
+    assert all(sections) and sections[0].group(0) == sections[1].group(0)
+    section = sections[0].group(0)
+    for sentence in ("你的一天由你自己安排。", "你手上最多同时挂两件事，暂停的也算",
+                     "睡着时只有提醒或睡够了才会醒。", "当前地点没有卖吃的，不代表不能送到这里。",
+                     "只有实际开始并完成的事才算数。"):
+        assert sentence in section
+    assert len(section.splitlines()) == 12
+    assert "怎样过一天" not in readonly_system
+    for system in (action_system, statement_system):
+        assert "based_on_action_id" not in system and "supply_id" not in system
+        for banned in ("评审", "评分", "引擎期望", "tool", "finish", "回合", "budget"):
+            assert banned not in system
 
 
 def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:

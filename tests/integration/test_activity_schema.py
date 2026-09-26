@@ -25,9 +25,10 @@ from worldmock.life.work_review import WorkReviewResponse
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
+#: 稳定工具面的八件人物动作工具；当日计划由零点后台任务 plan_day 生成，不是人物工具（时间与能量规格第四章）。
 _ACTION_TOOLS = {
     "start_activity", "submit_work", "send_message", "recall_task_summary",
-    "report_status", "pause_activity", "conclude_activity", "plan_day", "revise_day_plan",
+    "report_status", "pause_activity", "conclude_activity", "revise_day_plan",
 }
 
 
@@ -81,7 +82,7 @@ def _control_payload(name: str, tasks: list[str], summaries: list[str]) -> dict[
 
 
 def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
-    """全部九件动作工具采用同一请求模型，身份与执行参数不进工具面。"""
+    """全部八件动作工具采用同一请求模型，身份与执行参数不进工具面。"""
     assert set(REQUEST_MODELS) == _ACTION_TOOLS
     for name, model in REQUEST_MODELS.items():
         function = _function(name)
@@ -142,14 +143,29 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     assert {"整理会议纪要", _WAIT} <= set(recall["properties"]["task_name"]["enum"])
 
 
-@pytest.mark.parametrize("name", ["plan_day", "revise_day_plan"])
-def test_day_plan_schema_inlines_goal_without_timing_fields(name: str) -> None:
-    """目标仅接收意图和文字，不向模型索要时长。"""
-    schema = _function(name)["parameters"]
+def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
+    """人物工具面没有 plan_day；修订的目标内联意图、文字与必填可空的场景本地 HH:MM 提醒，
+    不向模型索要时长或内部时刻（时间与能量规格第四章「计划与提醒」）。"""
+    agent = _prepared_agent(revise=True)
+    tools = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
+    assert "revise_day_plan" in tools and "plan_day" not in tools
+    schema = _function("revise_day_plan")["parameters"]
     assert set(schema["properties"]) == {"goals"}
     item = schema["properties"]["goals"]["items"]
-    assert set(item["properties"]) == {"intent_kind", "goal"}
+    assert set(item["properties"]) == set(item["required"]) == {"intent_kind", "goal", "remind_time"}
     assert item["properties"]["goal"]["pattern"] == r"\S"
+    assert {"remind_at", "reminded_at", "registered_at", "planned_duration_seconds"}.isdisjoint(item["properties"])
+    model = REQUEST_MODELS["revise_day_plan"]
+    for remind_time in (None, "00:00", "08:15", "23:59"):
+        valid = {"goals": [{"intent_kind": "休息", "goal": "歇一会儿", "remind_time": remind_time}]}
+        assert list(Draft202012Validator(schema).iter_errors(valid)) == []
+        model.model_validate(valid)
+    for goal in ({"intent_kind": "休息", "goal": "歇一会儿"},
+                 *({"intent_kind": "休息", "goal": "歇一会儿", "remind_time": text}
+                   for text in ("8:15", "24:00", "12:60", "08:15:00"))):
+        assert list(Draft202012Validator(schema).iter_errors({"goals": [goal]}))
+        with pytest.raises(ValidationError):
+            model.model_validate({"goals": [goal]})
 
 
 def test_provider_array_cardinality_gap_is_locally_rejected() -> None:

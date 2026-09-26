@@ -11,7 +11,7 @@ decision_offered=false 与 wake_reasons=[]；提供决策的边界记录实际�
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from worldmock.life.opening_hours import next_opening_change, opening_status
 from worldmock.footprints.models import DECISION_OFFERED_FIELD, WAKE_REASONS_FIELD, validate_decision_rhythm
 from worldmock.life import felt
+from worldmock.life import reminders
 from worldmock.life import schedule as rhythm_schedule
 from worldmock.life.activity_control import is_pending_conclusion
 from worldmock.life.body import (
@@ -91,21 +92,43 @@ class RhythmBoundary:
 
 
 def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, AgentRhythm]]:
-    """@brief 对每个人物执行边界节律：情绪账、唤醒判定与下一决策时刻；共同身体结算的唤醒原因写入时经闭集校验。"""
+    """@brief 对每个人物执行边界节律：先结算段（情绪账与目标推进），再判定段（唤醒与下一决策时刻）。"""
+    settled = settle_decision_rhythm(inputs)
+    return decide_decision_rhythm(replace(inputs, state=settled))
+
+
+def settle_decision_rhythm(inputs: RhythmInputs) -> WorldState:
+    """@brief 边界节律的结算段：情绪账、按当前计划计的目标推进，并给本人活动进度草稿标注 day_plan 快照。
+
+    零点边界（docs/dev/SPEC-time-and-energy.md 第四章「运行时机」）只在 advance 内执行本段，旧日末段的推进计入旧计划；
+    判定段在零点计划提交之后由零点节律入口执行，不再重复本段的记账。
+    """
+    state = inputs.state
+    agents = {}
+    for agent_id in sorted(state.agents):
+        agent = _settle_mood(state.agents[agent_id], inputs)
+        for data in inputs.progress_data.get(agent_id, []):
+            if data.get("kind") != "body_settlement":
+                data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan else None
+        agents[agent_id] = agent
+    return state.model_copy(update={"agents": agents}, deep=True)
+
+
+def decide_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, AgentRhythm]]:
+    """@brief 边界节律的判定段：唤醒判定、提醒记账与下一决策时刻；共同身体结算的唤醒原因写入时经闭集校验。"""
     state = inputs.state
     rhythms: dict[int, AgentRhythm] = {}
     agents = {}
     for agent_id in sorted(state.agents):
         agent = state.agents[agent_id]
-        agent = _settle_mood(agent, inputs)
         warning_facts = _warning_signatures(agent, inputs)
         current = set().union(*warning_facts.values())
         delivered = set(agent.delivered_warning_signatures) & current
         verdict = rhythm_schedule.evaluate_wake_reasons(
             _wake_snapshot(agent, inputs, warning_facts, delivered))
         # 收件箱在唤醒判定之后才记为已读（docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）：
-        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。
-        agent = read_new_messages(agent)
+        # 未读消息在本边界成立 message_arrival，睡眠中由判定过滤。到点的提醒记为已触发，只触发一次。
+        agent = reminders.mark_reminded(read_new_messages(agent), state.current_time)
         if _game_turn_due(inputs.state, agent):
             # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：交互边界到期即提供决策，
             # 不经唤醒条件枚举；wake_reasons 记录实际命中的（通常为空）。
@@ -116,8 +139,6 @@ def apply_decision_rhythm(inputs: RhythmInputs) -> tuple[WorldState, dict[int, A
                 data[DECISION_OFFERED_FIELD] = verdict.decision_offered
                 data[WAKE_REASONS_FIELD] = [reason.value for reason in verdict.wake_reasons]
                 validate_decision_rhythm(data)
-            else:
-                data["day_plan"] = agent.day_plan.model_dump(mode="json") if agent.day_plan else None
         offered = verdict.decision_offered
         reasons = [reason.value for reason in verdict.wake_reasons]
         if offered:
@@ -162,6 +183,7 @@ def next_decision_candidates(agent: AgentState, inputs: RhythmInputs) -> int | N
                              if _commitment_signatures(agent, inputs) else None),
         next_progress_report_at=_next_progress_report_at(
             agent, state, inputs.progress_report_interval_seconds),
+        plan_reminder_times=reminders.reminder_times(agent, state.current_time),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     ))
 
@@ -403,6 +425,7 @@ def _wake_snapshot(agent: AgentState, inputs: RhythmInputs, facts: dict[str, set
         run_start=agent.last_decision_time is None,
         progress_report_due=_progress_report_due(agent, state, inputs.progress_report_interval_seconds),
         no_active_activity=not activities,
+        plan_reminder_due=reminders.reminder_due(agent, now),
         is_asleep=any(item.kind == ActivityKind.SLEEP for item in activities),
     )
 
@@ -546,21 +569,49 @@ def engine_rhythm_inputs(engine, state, interval: int = 0,
         progress_data=progress_data or {})
 
 
-def apply_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
-    """@brief 边界节律：唤醒判定、静默留痕，并让被唤醒的活动对齐决策边界。"""
-    from worldmock.life.engine import _put_activity
-    from worldmock.life.models import ActivityStatus
-
+def _boundary_progress_data(boundary: RhythmBoundary) -> dict[int, list[dict]]:
+    """@brief 本边界待注解的本人活动进度与唯一共同身体结算草稿（按人物归组，注解就地写入草稿）。"""
     progress_data: dict[int, list[dict]] = {}
     for draft in boundary.drafts:
         if (draft.event_type == "activity_progress"
                 or draft.event_type == "environment_event"
                 and draft.data.get("kind") == "body_settlement") and draft.agent_id is not None:
             progress_data.setdefault(draft.agent_id, []).append(draft.data)
-    staged, rhythms = apply_decision_rhythm(engine_rhythm_inputs(
-        engine, staged, boundary.interval, boundary.arrivals, progress_data))
-    from worldmock.life.activities import schedule_feedback
+    return progress_data
 
+
+def hold_body_settlements(boundary: RhythmBoundary) -> tuple[list[EventDraft], RhythmBoundary]:
+    """@brief 零点边界：共同身体结算草稿连同唤醒字段留给零点节律入口，其余草稿随 advance 提交。
+
+    该草稿在零点计划之后才提交，本边界的活动进度不能把它列为直接原因（caused_by 只指已提交事件），
+    data.body_settlement_event_id 仍指向它。
+    """
+    held = [draft for draft in boundary.drafts
+            if draft.event_type == "environment_event" and draft.data.get("kind") == "body_settlement"]
+    held_ids = {draft.event_id for draft in held}
+    committed = [draft.model_copy(update={"caused_by": [cause for cause in draft.caused_by if cause not in held_ids]})
+                 for draft in boundary.drafts if draft.event_id not in held_ids]
+    return committed, replace(boundary, drafts=held)
+
+
+def apply_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
+    """@brief 边界节律：结算段后接判定段（唤醒判定、静默留痕，并让被唤醒的活动对齐决策边界）。"""
+    return decide_engine_rhythm(engine, settle_engine_rhythm(engine, staged, boundary), boundary)
+
+
+def settle_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
+    """@brief 引擎侧结算段：情绪账、按当前计划计的目标推进与活动进度草稿的 day_plan 快照。"""
+    return settle_decision_rhythm(engine_rhythm_inputs(
+        engine, staged, boundary.interval, boundary.arrivals, _boundary_progress_data(boundary)))
+
+
+def decide_engine_rhythm(engine, staged, boundary: RhythmBoundary) -> "WorldState":
+    """@brief 引擎侧判定段：唤醒判定与共同身体结算草稿的唤醒字段，并让被唤醒的活动对齐决策边界。"""
+    from worldmock.life.activities import schedule_feedback
+    from worldmock.life.engine import _put_activity
+
+    staged, rhythms = decide_decision_rhythm(engine_rhythm_inputs(
+        engine, staged, boundary.interval, boundary.arrivals, _boundary_progress_data(boundary)))
     for agent_id in rhythms:
         agent = staged.agents[agent_id]
         for activity in active_activities(staged, agent_id):

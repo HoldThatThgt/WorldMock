@@ -25,9 +25,11 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import custom.agents.life_agent as life_agent_module
 import custom.envs.life_env as life_env_module
+import worldmock.runtime as runtime_module
 from agentsociety2.agent.base import ModelCallEvidence, MemoryUpdateEvidence
 from agentsociety2.society import DecisionContext, DirectToolCall, SocietyCheckpointRequest
 from custom.envs.life_env import LifeEnv
+from tests.life.conftest import StubPlanDayClient
 from worldmock.errors import ProtocolError
 from worldmock.life.models import (
     CounterfactualIntervention,
@@ -87,6 +89,22 @@ def _context_for(env: LifeEnv, round_id: str, agent_id: int = 1) -> DecisionCont
     return DecisionContext(env.engine.state.run_id, round_id,
                            f"decision-{round_id}-{agent_id}", agent_id,
                            observed, env.engine.state.version)
+
+
+def _inject_plan_day_client(monkeypatch) -> list[StubPlanDayClient]:
+    """在 worldmock.runtime 上替换零点计划客户端类（同替换 ContactReplyClient），返回按构造顺序记录的桩。
+
+    LifeEnv 的检查点（启动路径）与零点推进经它生成确定性空清单，不调用真实模型（时间与能量规格第四章）。
+    """
+    built: list[StubPlanDayClient] = []
+
+    class PlanDayStub(StubPlanDayClient):
+        def __init__(self, model_identity):
+            super().__init__(model_identity)
+            built.append(self)
+
+    monkeypatch.setattr(runtime_module, "PlanDayClient", PlanDayStub)
+    return built
 
 
 # ---------------------------------------------------------------------------
@@ -177,8 +195,9 @@ async def test_life_interfaces_require_initialized_engine() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
-    """一轮真实决策覆盖 begin/observe/submit/commit/abort/记录/检查点/推进。"""
+async def test_full_round_drives_engine_interfaces(tmp_path, monkeypatch) -> None:
+    """一轮真实决策覆盖 begin/observe/submit/commit/abort/记录/检查点/推进；检查点之后执行零点计划后台任务。"""
+    plan_clients = _inject_plan_day_client(monkeypatch)
     env = await _new_env(tmp_path, "round")
     engine = env.engine
     try:
@@ -232,10 +251,15 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
             (workspace / "MEMORY.md").write_text("# round memory\n", encoding="utf-8")
         now = datetime.fromtimestamp(engine.state.current_time,
                                      ZoneInfo(engine.scenario.timezone))
+        assert plan_clients == []  # init 与决策轮都不执行零点计划
         checkpoint = await env.checkpoint(SocietyCheckpointRequest(
             run_id=engine.state.run_id, round_id="round-1", current_time=now,
             agent_workspaces=workspaces))
         assert checkpoint.checkpoint_id
+        # 新建运行的检查点提交之后，零点计划为缺当日计划的每个人物生成一次（新计划不进本次检查点）。
+        assert [len(client.calls) for client in plan_clients] == [len(engine.state.agents)]
+        assert all(agent.day_plan is not None for agent in engine.state.agents.values())
+        assert all(agent["day_plan"] is None for agent in checkpoint.state["agents"].values())
 
         state = await env.scheduling_state()
         guard = 0

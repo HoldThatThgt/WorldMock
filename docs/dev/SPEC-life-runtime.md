@@ -133,6 +133,7 @@ WakeReason = Literal[
 | `wake_from_sleep`、`run_start` | 沿用现有语义 |
 | `progress_report_due` | 本人某项进行中活动距其播报锚点已满播报间隔（`progress_report_interval_seconds`）；只计进行中活动，暂停、待收尾与已收尾的活动不播报；锚点为活动的 `report_anchor_at`，在开始、恢复以及对该活动播报时写入当前时刻 |
 | `no_active_activity` | 边界结算后没有进行中活动的人物必获决策，同刻再决策轮也记它，不进睡眠允许集合 |
+| `plan_reminder_due` | 当日目标的 `remind_time` 到点：同时到期的合并，只计一次，每条提醒只触发一次；非睡眠活动继续进行。睡眠中到点即结束睡眠（`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，按实际时长结算，睡眠成为待收尾），该边界的唤醒原因为 `planned_end`、`wake_from_sleep`、`plan_reminder_due`，睡眠结束后没有其他进行中活动时另含 `no_active_activity`（不按睡眠允许集合过滤）；睡眠的计划结束与提醒同秒时记 `boundary_type=planned_end`，提醒记为已触发 |
 
 **唤醒条件是判定规则，唤醒原因是本次命中的成员**：上表列出全部唤醒条件；某次结算边界实际命中的成员构成该次边界的唤醒原因。只有命中的边界才提供决策机会并记录这些原因。
 
@@ -1037,3 +1038,4 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1（LR5、LR7）：唤醒原因闭集改为不可改名、不可删除，新增走版本表；词表依次写全 `progress_report_due` 并追加 `no_active_activity`、`plan_reminder_due`；睡眠期间仍可提供决策的原因加 `plan_reminder_due`，不加 `no_active_activity`；触发表的 `planned_end` 改为活动由世界结束（含交谈对方结束），`discovery_result` 删「下一秒」、当前无触发来源，`rejection_feedback` 单列为同一秒业务拒绝后的再决策轮、只由同刻规则写入，增 `no_active_activity` 行（边界兜底与同刻再决策轮） |
 | `2026-09-25-time-and-energy-stage-2` | 2026-09-25 | 时间与能量规格阶段 2（身体与能量）随代码落地触发表的改动：`commitment_threatened` 只来自任务截止与闭店预警，删「或当前活动不可行」；`activity_infeasible` 保留名称，当前无触发来源 |
 | `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（LR7）：触发表增 `progress_report_due` 行：只计本人进行中活动，锚点为活动的 `report_anchor_at`（开始、恢复以及对该活动播报时写入）；「活动进度的结算口径」写明实验结束时每项被截断的活动（进行中或暂停）写一条 `activity_truncated`（带截断后的活动快照），导出据此与最终检查点逐项一致 |
+| `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（LR7）：触发表增 `plan_reminder_due` 行：当日目标提醒到点，同时到期的合并、只计一次，每条提醒只触发一次，非睡眠活动继续；睡眠中到点即结束睡眠（`boundary_type` 与 `interruption_reason` 记 `plan_reminder`，按实际时长结算，成为待收尾），该边界的唤醒原因为 `planned_end`、`wake_from_sleep`、`plan_reminder_due`，没有其他进行中活动时另含 `no_active_activity`；计划结束与提醒同秒时记 `planned_end`，提醒记为已触发。`planned_end` 行「被提醒结束睡眠」的措辞阶段 1 已写入，不改 |

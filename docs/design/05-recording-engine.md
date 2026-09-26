@@ -161,6 +161,12 @@ flowchart TB
 `activity_progress.data.body_settlement_event_id` 引用这条已提交事件；各自只保存本活动的
 进度、效率、消费和内容接触，不复制共同身体变化或将联合代谢成本分摊给某条活动。
 
+场景本地零点（不是运行终点）的边界分两次提交：推进先提交旧日的结算，即带旧计划快照 `data.day_plan` 的
+`activity_progress` 与终态结果，随后由零点计划为人物登记新计划（`day_plan_generated`）；该边界的共同身体结算
+连同其 `decision_offered` 与 `wake_reasons` 留给零点节律入口，在 `day_plan_generated` 之后与该秒的唤醒判定一起提交。
+所以零点边界的各 `activity_progress` 仍以 `data.body_settlement_event_id` 指向这条结算，但不把它列入 `caused_by`
+（直接原因只能是已提交事件）。零点节律入口提交之前，该秒不提供决策，也不形成共同检查点。
+
 记录引擎校验引用身份、人物、区间与事件顺序；具体身体演化和唤醒条件仍由模拟引擎计算。
 静默边界也写共同身体证据，不能因没有人物决策而漏记身体时间。
 同刻轮次（同一模拟秒内的再决策轮）没有区间，不写共同身体结算；其唤醒原因只记于
@@ -189,7 +195,9 @@ EventType = Literal[
 ]
 ```
 
-闭集不变。活动的结束、暂停、恢复与实验截止的截断复用 `environment_event`，以 `data.kind` 区分（取值登记在下表 `environment_event` 行）。
+闭集不变。活动的结束、暂停、恢复与实验截止的截断，以及零点计划的计划登记，都复用 `environment_event`，以 `data.kind` 区分
+（`activity_concluded`、`activity_paused`、`activity_resumed`、`activity_truncated`、`day_plan_generated`，登记在下表 `environment_event` 行）；
+零点计划的模型请求与响应复用 `model_request`、`model_response`，以 `data.purpose` 区分。
 
 #### 事件正文与资源证据
 
@@ -200,12 +208,12 @@ EventType = Literal[
 | --- | --- |
 | `observation` | `data` 就是结构化观察投影，不额外保存一份 JSON 字符串副本 |
 | `decision_started` | 保留当时实际产生的决策信息：`data` 含 `round_id`、`round_order`、`world_state_version`、本轮唤醒原因 `wake_reasons` 与决策自述 `decision_statement`（引擎直驱路径可缺）；决策自述属于模型自述。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
-| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功 |
+| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
 | `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
-| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件 |
+| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`，`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested` |
 | `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
@@ -574,6 +582,10 @@ flowchart TD
 检查点还须封存地点会话与名额所依赖的状态：`WorldState.sessions`（每段地点停留或路上的会话及其活动），以及活动的
 `concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述；待收尾的活动（终态且
 `concluded_at` 为空）从检查点恢复后仍占名额，人物在同一秒照常收尾。
+检查点还须封存计划与提醒状态：每个人物的 `day_plan`（目标的 `remind_at`、`reminded_at`）与既有字段
+`plan_submitted_dates`（已生成当日计划的场景本地日期，零点计划的幂等键）。恢复、重放与反事实分支据此判定：当日已生成的
+不重复生成计划与提醒，已触发的提醒不再触发；未生成的在首次决策之前生成。零点边界的计划在该边界的共同检查点之前提交；
+启动路径的计划在初始或反事实干预检查点之后、普通恢复的计划在 `LifeEnv.init` 中提交，都由下一个共同检查点封存。
 
 数据库记录是检查点提交的唯一依据。记录存在、状态一致、所有参与者齐备且引用均可验证，才算完整检查点。
 独立 JSON 或 `SOCIETY_STEP.json` 写成功不能证明共同检查点完成。
@@ -747,7 +759,9 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 
 
 `quality.json` 是同一批冻结事实的只读统计：动作结果计数、已记录活动与内容接触区间汇总（重复观看只计从头重看）、
-已记录转换效率的摘要、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列）、冻结价格估算和实测加速比。
+已记录转换效率的摘要、记忆来源检查、实际模型用量（含零点计划，按 `purpose` 分列：`model_usage.by_purpose` 逐项给出
+`purpose`、`request_events`、`provider_responses` 与 `token_usage`；人物决策中发出的请求不带 `purpose`，记为 `decision`，
+另有 `work_review` 与 `plan_day`）、冻结价格估算和实测加速比。
 `activities.known_elapsed_seconds` 是各活动自身时间之和；同人并行时另以共同身体结算区间并集报告
 `activities.person_elapsed_seconds_by_agent`，不能将前者冒充人物一天的经过时长。决策节律中，
 边界计数与边界的唤醒原因只从每人每区间唯一的共同身体结算读取，决策轮的唤醒原因从 `decision_started` 读取，
@@ -888,4 +902,5 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：世界结构版本句移到「检查点创建」并改为 7，版本不符的旧状态（含版本 6）直接拒绝、不迁移；「地图与供给的恢复身份」改为引用该句 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：质量报告 `decision_rhythm` 增同刻轮次统计，按人物与模拟秒计 `decision_started` 的轮数分布，并按 `decision_started.data.wake_reasons` 统计轮次原因（E5-18）；同刻轮次不写共同身体结算，唤醒原因只记于 `decision_started` 与观察，边界兜底的 `no_active_activity` 照常写入结算（E5-4）；受限轮越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED` 并计入同刻轮数（E5-6）；检查点封存 `same_moment_rounds`、`same_moment_stage` 与按人物暂存的本秒呈现留痕 `same_moment_presentation`（E5-13）；观察私有证据另记 `same_moment_stage`，与实际 Schema、环境派发核对，不进 `scene` 与 `facts`（E5-3） |
 | `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（活动、会话与记忆）：事件类型闭集不变，活动的结束、暂停与恢复复用 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`，带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by`）；实验截止时每项被截断的活动（进行中或暂停）另写一条 `activity_truncated`（带截断后的活动快照，`caused_by` 为开始该活动的请求事件），同源两项的聚合终态不带快照，`activities.jsonl` 据逐活动快照重建、与最终检查点逐项一致；`memory_updated.data` 增写入点 `trigger`（`activity_conclusion`、`reflection` 的有序列表，由引擎推导）与 `decision_id`，结束活动的来源另记于 `action_result.data.memory_sources`，按每个写入点分别核对来源；检查点封存地点会话与活动的收尾、播报锚点、会话归属与名称；质量报告 `memory_references` 按写入点核对，问题码改为 `conclusion_without_memory_update`、`memory_update_without_source`，删除条目引用核对 |
+| `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（零点计划与计划提醒）：事件类型闭集不变，零点计划的计划登记复用 `environment_event`（`data.kind="day_plan_generated"`，`visibility=system`，`data.day_plan` 与修订结果同形、目标的 `registered_at` 为该事件时刻，`data.source_event_ids` 为输入来源事件，经系统登记入口与模型证据、计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`）（E5-5）；零点计划的 `model_request`、`model_response` 带 `data.purpose="plan_day"`，不带 `decision_id` 与 `action_id`，按 `call_id`、`attempt`、`phase` 留证，与人物决策请求区分（E5-6）；检查点封存计划与提醒状态（目标的 `remind_at`、`reminded_at`）与既有字段 `plan_submitted_dates`，恢复、重放与分支据此不重复生成（E5-13）；「共同身体结算与决策证据」补零点边界的两次提交：旧日结算（带旧计划快照的 `activity_progress` 与终态结果）先于零点计划提交，该边界的共同身体结算连同唤醒字段在 `day_plan_generated` 之后由零点节律入口提交，所以零点的 `activity_progress` 以 `data.body_settlement_event_id` 指向它而不列入 `caused_by`；质量报告的 `model_usage.by_purpose` 写明分列字段 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |
