@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 数据交付
 
 > **状态**：DRAFT  
-> **日期**：2026-09-25  
-> **版本**：v1.4
+> **日期**：2026-09-26  
+> **版本**：v1.5
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -169,9 +169,10 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
     
     windows = []
     for (agent_id, day), day_events in by_agent_day.items():
-        # 过滤 dreaming 不可见的私有事件
-        visible = [e for e in day_events 
-                   if e["event_type"] not in DREAMING_PRIVATE_EVENTS]
+        # 只取人物可见事件，并过滤 dreaming 不可见的私有事件
+        visible = [e for e in day_events
+                   if e["visibility"] == "agent"
+                   and e["event_type"] not in DREAMING_PRIVATE_EVENTS]
         window = _record("dreaming", visible, {}, manifest, {})
         windows.append(window)
     
@@ -939,6 +940,7 @@ flowchart TB
 | v1.2 | 2026-09-20 | 足迹导出的流程与格式归入记录引擎，本文从认证快照的消费开始 |
 | v1.3 | 2026-09-24 | 按时间与能量规格：意图与 dreaming 输入裁去 `conclude_activity.memories`，动作目标保留完整请求；零点计划的请求与登记不进窗口，零点起归入新一日；观察中不得整棵复制的内容由能量可行性改为内部身份（旧导出另含能量可行性） |
 | v1.4 | 2026-09-25 | 按时间与能量规格第九章：交付先核对导出最终检查点的世界结构版本，不符即拒绝，不构造窗口 |
+| v1.5 | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：dreaming 窗口示意代码补人物可见性过滤，与零点计划登记等系统可见事件不进窗口一致 |
 
 ---
 

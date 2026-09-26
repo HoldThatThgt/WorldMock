@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
 > **状态**：DRAFT  
-> **日期**：2026-09-25  
-> **版本**：v1.10
+> **日期**：2026-09-26  
+> **版本**：v1.11
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -165,7 +165,7 @@ flowchart TB
 | `plan_submitted_dates` | set[str] | 是 | 已生成当日计划的场景本地日期（ISO 日期，JSON 编码为排序列表）；零点计划 `plan_day` 的幂等键，既有字段；恢复、重放与反事实分支据此不重复生成 |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
-活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（终态且 `concluded_at` 为空）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
+活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（`completed`、`failed` 或 `cancelled` 而 `concluded_at` 为空；`truncated` 不收尾）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
 观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
 每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量；占用名按[时间与能量规格](../dev/SPEC-time-and-energy.md)
 第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`。
@@ -317,3 +317,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.8 | 2026-09-25 | 按时间与能量规格阶段 3：WorldState 增 `sessions` 与 `SessionState` 字段表（地点停留或一段路，系统随出发与到达开始和结束）；AgentState 注明每人两个名额（进行中、暂停与待收尾各占一个）与待收尾控制行；ActivityState 补 `next_interaction_at`、`concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述字段，`boundary_type`、`interruption_reason` 列出取值（加 `route_ended`），注明进度随结算累加 |
 | v1.9 | 2026-09-25 | 按时间与能量规格阶段 4：AgentState 的 `location_id` 注明出行中仍为出发地、现场资格按途中判定；`occupied_resources` 与 ActivityState 的 `resource_claims` 取第五章重列的占用名（观看按内容品类）；`boundary_type`、`interruption_reason` 加 `partner_ended` |
 | v1.10 | 2026-09-25 | 按时间与能量规格阶段 5：AgentState 的 `day_plan` 注明由零点计划生成，目标带提醒 `remind_at`、`reminded_at`，增 `plan_submitted_dates` 行（零点计划的幂等键，既有字段）；ActivityState 的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；供给行改为提示不用增量引用，有变化时写完整行 |
+| v1.11 | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对：AgentState 名额说明中的待收尾限定为 `completed`、`failed`、`cancelled` 且未收尾，`truncated` 不收尾、不占名额 |

@@ -88,11 +88,10 @@ while 未到场景终点:
     if ready_agents:
         execute_batch(ready_agents)
         env.commit_decision_round(round_id)
-        checkpoint()
-        continue  # 再查询；仍有人就绪则不推进
-    next_time = env.scheduling_state().next_event_time
-    env.step(tick=next_time - current_time, t=next_time)
-    checkpoint()
+    if not env.scheduling_state().decidable_agents:  # 再查询；仍有人就绪则不推进
+        next_time = env.scheduling_state().next_event_time
+        env.step(tick=next_time - current_time, t=next_time)
+    checkpoint()  # 每步一个共同检查点
 ```
 
 **验证**：睡眠人物不反复调用模型；新活动的较早结束时间不会被跨过。接口见 `docs/CONTRACTS.md`「生命周期」。
@@ -375,7 +374,7 @@ observation_record = {
 | 必要观察与证据保存 | 响应证据写入失败是致命错误且不再发起模型调用；空观察或持久化故障不转换成可继续的普通工具结果 | `AS2 分支测试目录/test_agent_react_validation.py`（`test_response_evidence_failure_is_fatal_without_new_model_call`、`test_unserializable_response_is_fatal_without_protocol_feedback`） | 代码层已验证 |
 | 恢复与检查点 | 缺少快照、校验失败或记忆损坏时立即终止，不发布子分支；完整检查点保留父目录与精确工作区 | `tests/integration/test_runtime.py`（`test_restore_rejects_corrupt_used_memory_before_branch_publish`、`test_counterfactual_branch_freezes_intervention_before_publish`）、`tests/footprints/test_store.py`（`test_complete_checkpoint_branch_preserves_parent_and_exact_workspace`、`test_incomplete_checkpoint_never_creates_child`）、`tests/life/test_counterfactual.py` | 代码层已验证 |
 | 决策自述与推理内容保留 | 默认钩子正常路径发起一次无工具调用；LifeAgent 对空白或超长自述最多重试一次；带 `tools` 的后续请求与协议反馈保留 `reasoning_content`；无推理时省略该键；自述文本作为模型响应证据落库 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_prelude_decision_statement_hook_runs_one_toolless_call`、`test_reasoning_content_survives_into_followup_request`、`test_reasoning_content_survives_protocol_feedback_request`、`test_assistant_message_without_reasoning_omits_key`）、`tests/integration/test_life_agent_protocol.py::test_reasoning_content_is_persisted_in_model_response_evidence`、`tests/integration/test_decision_context_protocol.py` | 代码层已验证 |
-| 记忆运行时改动 | `conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 写入，空数组合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`）；`conclude_activity.memories` 路径的用例随时间与能量规格实施计划阶段 3 落地 | 代码层已验证 |
+| 记忆运行时改动 | `conclude_activity.memories` 由宿主按 `task` 展平后经 `after_step` 写入，空数组合法；三种巩固触发条件各自生效而单条偏好不触发；巩固提示携带人物卡片且不含示例身份；相似同类记忆在窗口内合并只增加计数 | `AS2 分支测试目录/test_worldmock_life_hooks.py`（`test_step_finish_with_empty_memories_is_legal`、`test_after_step_accepts_empty_memory_list`、`test_consolidation_triggers_importance_accumulation`、`test_consolidation_triggers_pending_threshold`、`test_consolidation_triggers_sleep_boundary`、`test_single_preference_does_not_trigger_consolidation`、`test_consolidation_prompt_carries_persona_card_without_example_identity`、`test_similar_same_type_memory_merges_within_window`）；`tests/integration/test_conclude_memories.py::test_conclusion_memories_flatten_by_task_with_system_source`、`tests/integration/test_life_agent_protocol.py::test_person_step_records_conclusion_memory_update` | 代码层已验证 |
 | 模型客户端生命周期 | 连续超过一百轮 worker 任务后不残留 Router 回调；任务异常与取消同样经过清理；跨事件循环重建只丢弃前一个 Router | `AS2 分支测试目录/test_llm_callback_lifecycle.py`（`test_more_than_one_hundred_task_loops_leave_no_router_callbacks`、`test_worker_task_cleanup_covers_failure_and_cancellation`、`test_cross_loop_rebuild_discards_only_previous_router`） | 代码层已验证 |
 | 观察记录单写 | 一次决策的 user 消息中同一结构化观察只出现一次，不再额外出现 JSON 字符串副本 | `tests/integration/test_life_agent_protocol.py::test_react_messages_are_three_parts_and_observation_written_once`、`AS2 分支测试目录/test_worldmock_life_hooks.py::test_structured_observation_appears_once_in_user_message` | 代码层已验证 |
 | 与 LabelKit 的进程隔离 | 交付程序校验独立环境 CLI 的调用生命周期与最终判定，产物清单与来源绑定不匹配时拒绝交付 | `tests/delivery/test_labelkit_process.py`（`test_trace_binding_requires_successful_lifecycle_and_final_verdicts`、`test_process_rejects_candidate_source_mismatch`）、`tests/delivery/test_host_delivery_coverage.py`（`test_deliver_success_path_publishes_full_manifest`、`test_file_inventory_rejects_symbolic_artifacts`） | 代码层已验证 |
@@ -393,3 +392,4 @@ observation_record = {
 | `2026-09-20-decision-context` | 2026-09-20 | 对齐决策上下文特性规格：统一决策自述命名，明确登记与结算结果的通道、场景信息和预算边界 |
 | `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 26 行修订：实施基线改为锁定提交 `8768e14`；有人就绪就执行一轮，不推进，每个决策轮或推进边界收一个共同检查点；LifeAgent 覆写 `_run_react_turn`，世界请求登记后结束本轮，只读问答保留 `finish`，AS2 锁定提交不改；`conclude_activity` 可提交空记忆数组；零点计划 `plan_day` 是运行时后台任务（同联系人回复），不经人物，LifeEnv 不代替 AS2 管理人物的模型调用；验收矩阵相应改写 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 按时间与能量规格阶段 6（运行身份）落地修订第 26 行的「AS2 基线与分支」：补锁定提交 `8768e14`（子模块指针，运行身份按它的源码摘要比对）；运行身份哈希实际导入的 AS2 包目录（除 `__pycache__` 外的全部文件），为空、导入失败或与锁定提交不符即拒绝启动。上游基线不改 |
+| `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：「决策调度改动」算法按锁定 AS2 `society/society.py:224-240` 改为每步一个共同检查点（执行一轮后再查询，无人就绪才在同一步推进）；验收矩阵「记忆运行时改动」的证据位置由阶段 3 占位说明改为已落地用例。改动归属、技术结论与验收标准未变 |

@@ -1,7 +1,7 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
 > **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出  
-> **日期**：2026-09-25  
+> **日期**：2026-09-26  
 > **版本**：v1.2  
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
@@ -752,7 +752,7 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 ### 质量报告
 
 当日目标的登记、修订和实际推进由模拟引擎裁决。记录引擎在零点计划的 `day_plan_generated`、修订的动作结果和结算事件中
-保存完整目标清单（含 `remind_time`），与世界状态原子提交；目标的活动证据、登记时刻与推进时刻进入共同检查点，
+保存完整目标清单（含各目标的 `remind_at` 与 `reminded_at`），与世界状态原子提交；目标的活动证据、登记时刻与推进时刻进入共同检查点，
 恢复不得重复生成零点计划，也不得重复发放推进脉冲。
 `quality.json.day_plan_metrics` 保存按代码摘要分组的习惯、外部约束、刻意目标三层度量及受阻门禁，
 只读取本批已认证截止事件；字段与判据见 [当日目标规格](../dev/SPEC-day-plan-goals.md#度量输出合同)。
@@ -904,3 +904,4 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（活动、会话与记忆）：事件类型闭集不变，活动的结束、暂停与恢复复用 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`，带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by`）；实验截止时每项被截断的活动（进行中或暂停）另写一条 `activity_truncated`（带截断后的活动快照，`caused_by` 为开始该活动的请求事件），同源两项的聚合终态不带快照，`activities.jsonl` 据逐活动快照重建、与最终检查点逐项一致；`memory_updated.data` 增写入点 `trigger`（`activity_conclusion`、`reflection` 的有序列表，由引擎推导）与 `decision_id`，结束活动的来源另记于 `action_result.data.memory_sources`，按每个写入点分别核对来源；检查点封存地点会话与活动的收尾、播报锚点、会话归属与名称；质量报告 `memory_references` 按写入点核对，问题码改为 `conclusion_without_memory_update`、`memory_update_without_source`，删除条目引用核对 |
 | `2026-09-25-time-and-energy-stage-5` | 2026-09-25 | 时间与能量规格阶段 5（零点计划与计划提醒）：事件类型闭集不变，零点计划的计划登记复用 `environment_event`（`data.kind="day_plan_generated"`，`visibility=system`，`data.day_plan` 与修订结果同形、目标的 `registered_at` 为该事件时刻，`data.source_event_ids` 为输入来源事件，经系统登记入口与模型证据、计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`）（E5-5）；零点计划的 `model_request`、`model_response` 带 `data.purpose="plan_day"`，不带 `decision_id` 与 `action_id`，按 `call_id`、`attempt`、`phase` 留证，与人物决策请求区分（E5-6）；检查点封存计划与提醒状态（目标的 `remind_at`、`reminded_at`）与既有字段 `plan_submitted_dates`，恢复、重放与分支据此不重复生成（E5-13）；「共同身体结算与决策证据」补零点边界的两次提交：旧日结算（带旧计划快照的 `activity_progress` 与终态结果）先于零点计划提交，该边界的共同身体结算连同唤醒字段在 `day_plan_generated` 之后由零点节律入口提交，所以零点的 `activity_progress` 以 `data.body_settlement_event_id` 指向它而不列入 `caused_by`；质量报告的 `model_usage.by_purpose` 写明分列字段 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |
+| `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格文档一致性核对：「质量报告」中零点计划、修订结果与结算事件保存的目标清单写明提醒字段 `remind_at` 与 `reminded_at`（原写请求参数名 `remind_time`，与已保存的 `day_plan` 不符）（E5-16） |

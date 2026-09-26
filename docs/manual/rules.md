@@ -193,14 +193,14 @@ uv run worldmock category publish \
 | --- | --- |
 | `kinds.<活动>.met_key` | 资源目录 MET 键；出行允许尾部 `{mode}`，生活活动允许尾部 `{item_id}` |
 | `sleep_channel` | 解析值为 `recovery` 或 `awake`；当前身体结算仍按实际 `sleep` 活动分支执行，不靠改该字段切换睡眠行为 |
-| `relief.channel` | `none`、`intrinsic`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配 |
+| `relief.channel` | `none`、`preference_rate`、`content_rate`；需与娱乐缓解费率表匹配 |
 | `resource_claims` | 占用名 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`（[时间与能量规格](../dev/SPEC-time-and-energy.md)第五章「并行准入」占用表）；`conditional` 子句按 `mode:<出行方式>` 或 `content_kind:<内容品类>` 追加占用；同一人物进行中活动的占用相交即 `RESOURCE_CONFLICT` |
 | `feedback_boundary`、`game_boundary` | 普通活动反馈与游戏反馈，不能同时开启 |
-| `tool.surface` | `basic`、`targeted`、`travel`、`commerce`、`game`、`none` |
+| `action` | 启动该活动的内部标准动作名（动作闭集之一），`none` 表示不经 `start_activity` 启动；人物工具面固定，不按活动另设工具 |
 | `target_discovery` | `none`、`browse_result` 或带 `field/id_key` 的 `catalog_field` 声明 |
 | `families.<家族>.candidate` | 已登记生成器及其允许参数；未知生成器或参数会拒绝 |
 | `attention`、`content_kinds` | 采样限额、需要的注意力键、标题元数据位置；与人物 `attention_prior` 一致 |
-| `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；精确匹配优先于前缀和通配匹配 |
+| `habit_members` | 工具和活动类型的习惯归组；归并键是内部标准动作名（如 `travel_to`、`watch`），不是模型看到的五个动词；按名精确归并，每个动作名至多归一个家族 |
 
 例如以下是现有 `families.work` 中的**局部替换行**：
 
