@@ -384,6 +384,12 @@ _SAME_MOMENT_TESTS += [
     _SOCIAL_ROUNDS + "test_chat_accepted_and_ended_by_the_partner_in_one_round_is_concluded_before_the_clock_moves",
 ]
 
+#: 变异补强，同刻决策：一项活动待收尾、另一项仍在进行时做别的被拒到同刻上限，人物仍在当秒就绪、时钟不推进，
+#: 收尾后按决策节律推进（第一章规则 2、3，第七章「活动一结束就要结束它」）。
+_SAME_MOMENT_TESTS += [
+    _SAME_MOMENT + "test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_limit",
+]
+
 #: 阶段 4 完成能量不拦人行：可供性注册表删 energy_projection，观察合同键为五个。
 _STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
     _SHADOW + "test_energy_projection_is_gone_from_registry_and_observation_contract",

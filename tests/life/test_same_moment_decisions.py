@@ -758,6 +758,41 @@ def test_conclude_pending_stage_accepts_only_concluding_every_pending_activity(e
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
 
 
+def test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_limit(engine_factory) -> None:
+    """同一请求开始等待与观看，等待先到点待收尾、观看仍在进行：做别的屡次以 ACTIVITY_CONCLUSION_REQUIRED 拒绝，
+    达到同刻上限的那次拒绝也不按决策节律排期（虽有进行中活动），人物仍在当秒就绪、推进被拒，阶段转入 conclude_pending；
+    收尾后只剩进行中的观看，按决策节律排期，时钟随即推进（第一章规则 2、3，第七章「活动一结束就要结束它」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    wait_id, watch_id = _start(engine, "beside-start", ("自己", "等待"), _content(engine, "beside"))
+    _finish(engine, wait_id, "beside")
+    ended, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    assert engine.state.activities[watch_id].status == ActivityStatus.ACTIVE
+    assert [item.activity_id for item in pending_conclusions(engine.state, 1)] == [wait_id]
+    name = activity_name(engine, wait_id)
+    for index in range(1, limit + 1):
+        rejected = _act(engine, f"beside-other-{index}", *_other_requests()[index % 2])
+        assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_CONCLUSION_REQUIRED"
+        assert name in rejected.message
+        agent = engine.state.agents[1]
+        assert (agent.same_moment_rounds, agent.next_decision_at, engine.state.current_time) == (index, ended, ended)
+        assert engine.scheduling_state().ready_agent_ids == (1,)
+        with pytest.raises(ProtocolError, match="decision is due"):
+            advance_next(engine)
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    concluded = _act(engine, "beside-conclude", "conclude_activity", conclude_request(name))
+    assert concluded.status == "completed" and engine.state.activities[wait_id].concluded_at == ended
+    assert engine.state.activities[watch_id].status == ActivityStatus.ACTIVE
+    agent = engine.state.agents[1]
+    assert agent.next_decision_at > ended and agent.pending_wake_reasons == []
+    assert agent.same_moment_rounds == _rounds_at(engine, ended) == limit + 1
+    assert engine.scheduling_state().ready_agent_ids == ()
+    advance_next(engine)
+    agent = engine.state.agents[1]
+    assert engine.state.current_time > ended
+    assert (agent.same_moment_rounds, agent.same_moment_stage) == (0, SameMomentStage.OPEN)
+
+
 def _two_paused(engine: LifeEngine, name: str) -> tuple[str, str, int]:
     """@brief 同一请求开始等待与观看，一分钟后同时暂停两项：两个名额都被暂停活动占着；返回两项身份与当时时刻。"""
     first, second = _start(engine, f"{name}-start", ("自己", "等待"), _content(engine, name))

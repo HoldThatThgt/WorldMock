@@ -12,6 +12,7 @@ import json
 import os
 import re
 from collections import Counter
+from collections.abc import Callable
 from datetime import timedelta
 from itertools import islice
 from pathlib import Path
@@ -272,7 +273,10 @@ async def test_memory_runtime_accepts_only_system_sourced_conclusion_memories(tm
 
 
 class _ScriptedModel:
-    """脚本化人物模型：自述请求答固定自述，行动请求按序返回脚本工具调用，留存发出的每个请求。"""
+    """脚本化人物模型：自述请求答固定自述，行动请求按序返回脚本工具调用，留存发出的每个请求。
+
+    可调用的脚本项按本次实际请求构造响应（例如从工具 Schema 的枚举取名）。
+    """
 
     model_name = "deepseek-flash"
 
@@ -285,7 +289,26 @@ class _ScriptedModel:
         self.requests.append(copy.deepcopy(request))
         if "tools" not in request:
             return _DecisionStatementResponse("等了一刻钟，该收个尾了。")
-        return self.responses.pop(0)
+        response = self.responses.pop(0)
+        return response(request) if callable(response) else response
+
+
+def _conclude_enum(request: dict) -> list[str]:
+    """一次模型请求里 conclude_activity 的 task 枚举：宿主实际列给模型的活动名。"""
+    [function] = [tool["function"] for tool in request["tools"] if tool["function"]["name"] == "conclude_activity"]
+    return function["parameters"]["properties"]["task"]["items"]["enum"]
+
+
+def _naming_offered(call_id: str, arguments: Callable[[str], dict]) -> Callable[[dict], _ModelResponse]:
+    """脚本项：取本次请求 conclude_activity 枚举里唯一的活动名，按它构造收尾调用。
+
+    名称不在脚本里写死：宿主列出的名称即使混进内部身份，模型照样点名、收尾照样完成，扫描一直走到身份断言。
+    """
+    def respond(request: dict) -> _ModelResponse:
+        [offered] = _conclude_enum(request)
+        return _ModelResponse(call_id, "conclude_activity", json.dumps(arguments(offered), ensure_ascii=False))
+
+    return respond
 
 
 def _settle(engine, round_id: str, tool: str, request):
@@ -464,17 +487,17 @@ def _identity_leaks(text: str, private: set[str], now: int) -> list[str]:
 
 @pytest.mark.asyncio
 async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_engine_factory, tmp_path) -> None:
-    """系统提示、用户消息、工具 Schema（含枚举）与工具返回（记忆查询、协议纠错、登记确认）中都没有内部身份（第七章）。"""
+    """系统提示、用户消息、工具 Schema（含枚举）与工具返回（记忆查询、协议纠错、登记确认）中都没有内部身份（第七章）。
+
+    模型按实际收到的枚举点名收尾，名称里混进的内部身份由身份断言检出，而不是让脚本对话提前中断。"""
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
         _ModelResponse("call-search", "memory_search", json.dumps({"query": "散步", "limit": 5}, ensure_ascii=False)),
-        _ModelResponse("call-mismatch", "conclude_activity",
-                       json.dumps({"task": [name], "summary": ["等完了。"], "memories": []}, ensure_ascii=False)),
-        _ModelResponse("call-conclude", "conclude_activity", json.dumps(
-            _conclude_args(name, memories=[[_memory("等完这一刻钟，决定出门散步。", importance=0.2)]]),
-            ensure_ascii=False)),
+        _naming_offered("call-mismatch", lambda offered: {"task": [offered], "summary": ["等完了。"], "memories": []}),
+        _naming_offered("call-conclude", lambda offered: _conclude_args(
+            offered, memories=[[_memory("等完这一刻钟，决定出门散步。", importance=0.2)]])),
     ])
     person = await _person(environment, tmp_path / "agent_0001", model)
     store = person._memory_runtime.store
@@ -505,6 +528,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     assert all(set(episode) == {"type", "text", "time", "epistemic_status"} for episode in episodes)
     assert any(payload.get("executed") is False for payload in returned)
     assert f"刚结束：{name}。" in model.requests[1]["messages"][1]["content"]
+    assert [_conclude_enum(request) for request in model.requests[3:]] == [[name], [name]]
 
 
 def _society(monkeypatch, tmp_path: Path, environment: _StepEnvironment, dispatcher) -> AgentSociety:
