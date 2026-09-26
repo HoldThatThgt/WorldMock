@@ -1,9 +1,22 @@
 # WorldMock 实现状态
 
-> 状态：一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
-> 日期：2026-09-21（增量修订；既有验收记录保留各自基线）
+> 状态：时间与能量特性已在 main 实现并通过离线验收（阶段 8 真实复验未执行）；一日行为、当日目标独立分支与既有地图/品类主线组合各自通过离线验收；历史证据保留，三项项目级真实验收仍未完成
+> 日期：2026-09-26（增量修订；既有验收记录保留各自基线）
 > 历史基线：工作树 HEAD `9b7fbc84d4429c2f05ec4b526df53539f0ed5d78`（另含当时未提交的文档重构与候选呈现代码）；除新增特性验收记录外，下文旧测试数字和真实运行描述均为该次实测快照，不代表新版本已重新完成真实运行
 > 口径：接口与字段以 `docs/CONTRACTS.md` 为准，验收门禁与证据规则以 `docs/VERIFICATION.md` 为准，覆盖率口径见 `docs/dev/coverage-baseline.md`；当前特性结论与带身份的历史验收分开记录，变更过程由 Git 承载
+
+## 时间与能量开发状态
+
+[时间与能量特性规格](SPEC-time-and-energy.md)（v1.0，FROZEN，冻结于 `e560cfc`）已在 main 实现：阶段 0–7 与阶段 9 完成，阶段 8 未执行（见下）。
+实施基线为 `778becae4271fb29d167dbdd51a811a15ec3ec60`；每个阶段合入后由 2–3 名互相独立的只读评审核对，发现的缺陷在后续提交中修复并补测。
+正式覆盖率门禁在最终代码提交 `ef13dc58770af52000a1c2e81883561e85a0c904`（`ef13dc5`）上运行：3978 passed、8 skipped（均为既有的平台或产物条件跳过，本特性新增与改写的用例无跳过）；
+分支覆盖率 94.57%（7104/7512），未覆盖公共接口为零；门禁报告随 `82e1698` 提交，此后不改生产代码。
+VF4 在干净提交的隔离工作树上覆盖同刻上限、能量截断、唤醒闭集、提醒一次、名额释放、身份不进提示六项，29 个语义突变全部 killed、零存活。
+世界结构版本随本特性升为 7，6→7 的字段变化见「当前世界格式」节；能量不再阻断活动，见「已冻结条款与确定性证据」的「能量不阻断」行。
+阶段 8 真实复验（只报告、不作门禁）未执行：本机没有模型凭据，r14 的运行数据在另一台机器上；
+执行步骤与对照基线见[验收记录](research/time-and-energy-verification.md)「真实复验（阶段 8，只报告）」，结果待执行后补入该记录。
+逐行台账登记、评审修复、全量门禁、突变台账与文档一致性核对见[时间与能量验收记录](research/time-and-energy-verification.md)，阶段划分与文档同步作业见[实施台账](research/time-and-energy-implementation-plan.md)。
+本节只确认本特性离线验收，不改写项目级真实十二周、LabelKit 与盲评的未完成状态。
 
 ## 一日行为可信性开发状态
 
@@ -139,7 +152,7 @@ flowchart LR
 | 场景常量声明 | **已落地**：`candidate_presentation_limit`、`candidate_pool_limit`、`rotation_quota_ratio`、`rotation_stale_seconds`、`retrieval_index_threshold` 已在三份生活场景声明并在 `src/worldmock/life/scenario.py` 建模、`semantics.py` 装配 | `tests/life/test_candidate_constants.py`（含缺 `rotation_stale_seconds` 即拒绝、比例与上限的边界与上界）；`scenarios/white-collar-12-weeks.json` 等 |
 | 纯函数层 | **已落地**：统一三段式（生成/资格/排序）、排除纪律与闭集原因码、稳定排序键与游标派生、曝光轮转与闭式上界均在 `src/worldmock/life/candidates.py` 与 `src/worldmock/life/rotation.py` 实现，两模块为纯函数、不写世界状态、不做 IO、不调模型 | `tests/life/test_candidates.py`（49 测）、`tests/life/test_rotation.py`（20 测）、`tests/life/test_candidate_constants.py`（32 测），实测全绿 |
 | 运行期装配与检索 | **已接入地图输入，独立地图分支已验收**：`LocationConfig.location_kinds` 在冻结地图必填且非空，正式场景引用解析后的地点；`presentation.py`、`retrieval.py` 和 `activities.py` 读取该声明，候选、启动和恢复活动分别验证。分区键与分区可行性仍由目录准入校验 | `tests/life/test_candidate_wiring.py`、`test_retrieval.py`、`test_activity_location_kinds.py`、`tests/catalog/test_reachability_admission.py`；输入边界见 `docs/dev/SPEC-life-realism.md` |
-| 运行期接线与持久化 | **已落地**：`observe.py` 经 `presentation.py` 产出候选窗口并构造本轮交互对象；`start_activity` 按冻结观察中的私有绑定解析可读对象与动作。`engine.py` 经 `state_commit.flush_presentation` 把观察边界暂存的留痕并入世界状态；当前世界版本为 6，另保留共同身体结算时刻与威胁交付状态；供给库存、报价、营业例外、逐供给可见凭据和 `presentation_state` 随世界状态持久化 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 6`、`WorldState.presentation_state`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps` 断言呈现留痕落盘 |
+| 运行期接线与持久化 | **已落地**：`observe.py` 经 `presentation.py` 产出候选窗口并构造本轮交互对象；`start_activity` 按本轮观察的私有绑定把所选（对象，动词，方式）解析为内部标准动作。同一秒各轮沿用该秒首轮的呈现窗口，留痕按人物暂存于 `WorldState.same_moment_presentation`，时钟推进时 `engine.py` 经 `state_commit.flush_presentation` 逐人并入 `presentation_state` 并清空；当前世界版本为 7，另保留共同身体结算时刻与威胁交付状态；6→7 新增同刻计数（`same_moment_rounds`、`same_moment_stage`）、本秒呈现暂存（`same_moment_presentation`）、地点会话、活动的收尾与播报锚点及会话归属、当日目标提醒（逐字段见「当前世界格式」节）；供给库存、报价、营业例外、逐供给可见凭据和 `presentation_state` 随世界状态持久化 | `src/worldmock/life/models.py`（`WORLD_SCHEMA_VERSION = 7`、`WorldState.presentation_state`、`WorldState.same_moment_presentation`）、`src/worldmock/life/state_commit.py`（`flush_presentation`）；`tests/life/test_candidate_wiring.py::test_observation_commits_presented_object_stamps` 断言呈现留痕随决策提交写入本秒暂存、时钟推进时才并入 `presentation_state`，`tests/life/test_same_moment_decisions.py::test_presentation_staging_survives_reopen` 断言本秒暂存随检查点恢复 |
 | 离线门禁 | **已落地**：三项门禁实测见下节。`docs/VERIFICATION.md`「候选与呈现一致性」九项判据里，「文档链接可解析」由 `scripts/documentation_gate.py` 守护；其余判据的可执行判定是候选与呈现各测试文件与 `scripts/coverage_gate.py` | `scripts/documentation_gate.py`、`scripts/coverage_gate.py`、`tests/test_documentation_gate.py`（6 测）、`tests/test_style_gate.py` |
 
 ### 候选特性历史门禁输出（原命令与关键行）
@@ -211,11 +224,21 @@ $ uv run pytest -q
 - 纯函数层同口径的测试：`tests/life/test_candidates.py::TestSoftPreferenceOnlyReorders` 四测。
 - 该行在 `docs/dev/SPEC-life-realism.md` 验收矩阵中的状态已由「待落地」改记「代码层已验证」（两处观察均有断言）。
 
-### 当前世界格式：`WorldState.schema_version` 为 5
+### 当前世界格式：`WorldState.schema_version` 为 7
 
-候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据。本次活动集合、共同身体时刻和威胁交付状态将版本提升至 5。生产模型使用严格版本常量，旧格式由当前代码直接拒绝，不转换旧检查点，也不保留迁移脚本。
+候选呈现阶段曾以版本 3 引入 `presentation_state`；地图与门店供给以版本 4 加入供给库存、报价、营业例外、人物资格和逐供给可见凭据；活动集合、共同身体时刻和威胁交付状态将版本提升至 5；数字人交互规格以版本 6 引入任务、会话与活动三级结构及 `WorldState.sessions`。时间与能量特性在阶段 0 把版本由 6 升为 7，且只升这一次：其后各阶段新增的世界结构字段与阶段 4 重列的占用名都并入版本 7。生产模型使用严格版本常量，旧格式（含版本 6）由当前代码直接拒绝（`tests/life/test_session_state.py::test_world_state_schema_version_6_is_rejected`），不转换旧检查点，也不保留迁移脚本；交付核对导出最终检查点的 `state.schema_version`，不等于当前版本即拒绝。
 
-打开、共同检查点恢复与分支必须使用版本 5 的状态以及一致的场景、地图、语料和代码身份。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在本次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
+6→7 的结构变化如下，字段名以 `src/worldmock/life/models.py` 与 `src/worldmock/life/schedule.py` 为准，逐字段说明见 `docs/design/09-io-formats.md`「3.1 WorldState（世界状态）」「3.2 AgentState（人物状态）」「3.4 ActivityState（活动状态）」：
+
+| 模型 | 6→7 变化 |
+| --- | --- |
+| `AgentState` | 新增 `same_moment_rounds`（本秒已进行的决策轮数）与 `same_moment_stage`（受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`），时钟推进时两者归零 |
+| `WorldState` | 新增 `same_moment_presentation`：按人物暂存的本秒呈现留痕（`stamps`、`pinned_supply_ids`），时钟推进时并入 `presentation_state` 并清空；`sessions` 改存地点会话 |
+| `SessionState`（地点会话） | 改为一段停留或一段路，由系统随出发与到达开始和结束：`kind`（`stay`、`transit`）、`location_id`（停留时）或 `origin_id` 与 `destination_id`（路上时）、`status`（`active`、`ended`）、`started_at`、`ended_at`、`activity_ids`、`name`；删去原任务会话的 `task_name`、`session_name`、`targets`、`segments`、`invested_seconds`、`effective_seconds`、`remaining_contract_seconds`、`preconditions_unmet` 与会话状态 `paused`、`concluded`、`aborted` |
+| `ActivityState` | 新增 `concluded_at`（收尾时刻，终态且为空即待收尾）、`report_anchor_at`（播报锚点）、`session_ids`（先后所属的地点会话）、`name`；从原会话移来任务关联 `task_kind`、`task_ref`、`plan_goal_intent_kind` 与人物自述 `progress_note`、`note_updated_at`、`note_history`；`location_id` 固定为开始地点，结算不再以人物当前地点覆盖 |
+| `PlanGoal`（`AgentState.day_plan` 的当日目标） | 新增 `remind_at`（提醒时刻）与 `reminded_at`（提醒实际触发时刻） |
+
+打开、共同检查点恢复与分支必须使用版本 7 的状态以及一致的场景、地图、语料和代码身份；阶段 5 合入前（世界结构字段全部落地前）产生的 7 版检查点不作恢复承诺。历史文件仍保留原始字节，旧状态不可被当前代码当作新格式读取；新验收从当前格式建立运行和父检查点。同刻计数与呈现暂存、地点会话与待收尾随检查点恢复由时间与能量特性的完整门禁验证（`tests/life/test_same_moment_decisions.py::test_same_moment_state_survives_reopen`、`::test_presentation_staging_survives_reopen`，`tests/life/test_location_sessions.py::test_sessions_and_pending_conclusion_survive_reopen`）。独立地图分支已通过实际新建、打开、恢复、分支及父目录保护的门禁与独立审查；组合后的目录与品类身份已在该次完整门禁和独立漏验突变中重验通过，见 [主线组合验收](research/map-and-storefront-main-verification.md)。
 
 ## 已完成的确定性范围
 
@@ -271,7 +294,7 @@ $ uv run pytest -q
 
 | 条款 | 当前实现与边界 | 收据 |
 | --- | --- | --- |
-| 能量可行性 | 环境公开各类活动时长上限与路线成本，工具按同一观察限制，恢复前重新核验能量；精确足额活动按固定近零精度分段结算，真实不足仍拒绝 | `.work/verification/energy-feasibility-implementation/implementation-receipt.json` |
+| 能量不阻断 | 能量不拒绝、不停止任何活动：任何能量下活动都能开始、继续与恢复，结算对所有活动集合以 0 为下限截断；原受理闸门、恢复前的能量核验、拒绝码 `INSUFFICIENT_ENERGY` 与可供性及观察中的 `energy_projection` 已从代码删除。进食由饥饿每跨一档唤醒、饿时场景的吃饭途径句与常驻生活提示引导 | [时间与能量验收记录](research/time-and-energy-verification.md)「验收台账逐行登记」的「能量不拦人」行（登记用例以 `tests/time_and_energy_acceptance.py` 为准）；原「能量可行性」闸门的 `.work/verification/energy-feasibility-implementation/implementation-receipt.json` 是能量闸门时期的收据，不证明本条 |
 | 工作评审协议 | 最多初次加两次输出纠正，原响应先持久化，语义拒绝与基础设施异常不重评 | `.work/verification/work-review-protocol/receipt.json` |
 | 无损模型输入 | 同窗口重复完整字段使用 RFC 6901 单跳字典，最终训练恢复完整输入；逻辑窗口、编码行与实际 trace 分别绑定 | `.work/verification/evidence-encoding/capacity-receipt.json` |
 | 语义合同 | 三任务共享证据、分类及聚合要求，保留不同因果主题，32 条是上限；完整真实语义交付另行验收 | `labelkit-projects/` 三份项目配置与实际请求合同测试 |
@@ -308,7 +331,7 @@ $ uv run pytest -q
 | 普通恢复 | run `cc9049d5b64946b789bda7a85efe6d1a`：从 07:00 的非初始共同检查点恢复到次日零点，CLI 与导出成功，父目录逐字节不变 | 同目录 `resume-export`、`parent-after-resume.json` |
 | 反事实失败 | run `5bc2ccb3c1a5474da9b0c61504505451`：17:16 工作评审漏必填字段，414 对模型记录保留，CLI 退出码 1，无完整导出，父目录不变 | 同目录 `counterfactual-failure/receipt.json` |
 | 实际回合预算 | 188 次生活决策共 453 次带预算请求，每次最多 5 轮；610 次响应无回调上限警告；真实运行未触及预算临界值 | 同目录 `actual-budget-and-callback-receipt.json` |
-| 实际生活行为 | 人物二 34 次零能量拒绝均有正确反馈，23:00 前存在可行配送进食路径；工资 95000 分、食品 1300 分、交通 2110 分逐事件对账 | 同目录 `energy-audit/report.md` |
+| 实际生活行为 | 能量闸门时期的收据（时间与能量特性删除能量闸门之前的代码）：人物二 34 次零能量拒绝均有正确反馈，23:00 前存在可行配送进食路径；工资 95000 分、食品 1300 分、交通 2110 分逐事件对账。现行代码不以能量拒绝活动（见「能量不阻断」行），零能量拒绝不再出现 | 同目录 `energy-audit/report.md` |
 | 完整候选模型对照 | 相同完整输入与候选只更换模型，Flash 与 Pro 都拒绝，且都漏掉一项已确认问题 | `.work/verification/complete-candidate-judge-model-comparison/` |
 | 最近一次完整自然日加工 | action 扫描 69 条、68 条通过，256 次调用传输全部成功，语义仍不合格；未执行 intent、dreaming、规则与训练加载，无最终交付清单 | `.work/verification/day-reasoned-citations/failure-receipt.json` |
 | 历史真实小时消费 | 真实小时数字足迹的 5 条语义数据、规则 4 分支 11 事件及 DatasetDict 保存重载均经过实际消费者验证 | `.work/verification/deepseek-hour-real-rules.json`、`.work/verification/deepseek-hour-hf-lossless/receipt.json` |
