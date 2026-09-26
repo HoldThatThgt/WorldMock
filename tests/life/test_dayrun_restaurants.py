@@ -268,6 +268,65 @@ def test_scene_food_path_quotes_only_this_observation(engine_factory) -> None:
     assert observed["scene"]["local_food_summary"] == "当前地点没有餐食供给。"
 
 
+def _hungry_after_browsing_at_home(engine) -> None:
+    """@brief 饿着在家浏览商品目录直到浏览结束：手边没有食品、没有在途订单、家里没有供给。"""
+    stage_day_plan(engine)
+    _stage(engine, "home", 700)
+    _, browsing = _action(engine, "browse-at-home", "start_activity",
+                          StartActivityRequest(targets=["商品目录"], actions=["浏览"]))
+    _finish(engine, browsing.activity_id)
+    assert engine.state.agents[1].location_id == "home" and not engine.state.deliveries
+
+
+def _listed_food_rows(observed: dict) -> list[dict]:
+    """@brief 本轮 facts.products 中可购买的食品行（食品行带每份热量）。"""
+    return [row for row in observed["facts"]["products"] if "energy" in row and row["purchase_allowed"]]
+
+
+def test_scene_food_path_names_the_fastest_delivery_to_here(engine_factory) -> None:
+    """@brief 第 4 档：在家浏览后，途径句的分钟数取列出的食品中最早送达的一项（与下单结算同一算法）。"""
+    engine = engine_factory()
+    _hungry_after_browsing_at_home(engine)
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["body"]["levels"]["appetite"] in dining.FOOD_PATH_LEVELS
+    now = observed["current_time"]
+    supplies = {item.supply_id: item for item in engine.scenario.supplies}
+    listed = {row["object"]: row["object_id"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
+    arrivals = {row["object"]: delivery_expected_at(engine.semantics, supplies[listed[row["object"]]], "home", now)
+                for row in _listed_food_rows(observed) if "delivery" in row["fulfillment_modes"]}
+    arrivals = {name: moment for name, moment in arrivals.items() if moment is not None}
+    assert len(arrivals) > 1
+    fastest = min(arrivals.values())
+    assert observed["scene"]["local_food_summary"] == (
+        f"列出的餐食里，有几样能送到这里，最快{dining.readable_duration(fastest - now)}。")
+    assert any(row["delivery_eta"] == f"{dining.readable_duration(fastest - now)}后送达，"
+                                      f"{dining.readable_clock(now, fastest, ZONE)}"
+               for row in observed["facts"]["products"] if arrivals.get(row["object"]) == fastest)
+
+
+def test_scene_food_path_names_the_nearest_store_when_nothing_delivers_here(engine_factory) -> None:
+    """@brief 第 5 档：列出的食品都送不到当前地点时，途径句取 facts.routes 中可达路线分钟数最短的有食品营业地点。"""
+    engine = engine_factory()
+    _hungry_after_browsing_at_home(engine)
+    supplies = tuple(item.model_copy(update={"delivery_destination_ids": tuple(
+        place for place in item.delivery_destination_ids if place != "home")}) for item in engine.scenario.supplies)
+    scenario = engine.scenario.model_copy(update={"supplies": supplies})
+    engine.semantics = dataclasses.replace(engine.semantics, scenario=scenario)
+    engine.scenario = scenario
+    observed = engine._observation_data(engine.state.agents[1])
+    assert observed["body"]["levels"]["appetite"] in dining.FOOD_PATH_LEVELS
+    foods = _listed_food_rows(observed)
+    delivery_etas = [row["delivery_eta"] for row in foods if "delivery" in row["fulfillment_modes"]]
+    assert delivery_etas and set(delivery_etas) == {"暂时送不到这里"}
+    stores = {row["place"] for row in foods if "pickup" in row["fulfillment_modes"]}
+    nearest = min((route for route in observed["facts"]["routes"]
+                   if route["destination"] in stores and route["status"] == "reachable"),
+                  key=lambda route: (route["minutes"], route["destination"]))
+    mode = {"walking": "步行", "driving": "驾车"}[nearest["mode"]]
+    assert observed["scene"]["local_food_summary"] == (
+        f"最近能买到吃的是{nearest['destination']}，{mode}约 {nearest['minutes']} 分钟。")
+
+
 def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) -> None:
     """@brief 配送行给出人读送达时刻，与下单后的实际送达时刻一致；饿时在途订单进入途径句。"""
     engine = engine_factory()

@@ -15,6 +15,7 @@ from tests.life.conftest import advance_next, context, stage_day_plan, submit_ro
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
+from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, PlanDayRequest,
@@ -236,10 +237,10 @@ def test_checkpoint_with_overdrawn_activity_restores(engine_factory) -> None:
         restored.close()
 
 
-def _stage_morning(engine, energy_kcal: float) -> int:
-    """@brief 把全部人物放到首日 08:00、困意稳定在「清醒」，人物 1 的能量取指定值，返回当前时刻。"""
+def _stage_morning(engine, energy_kcal: float, seconds_of_day: int = 8 * 3600) -> int:
+    """@brief 把全部人物放到首日 seconds_of_day（默认 08:00）、困意稳定在「清醒」，人物 1 的能量取指定值，返回当前时刻。"""
     staged = engine.state.model_copy(deep=True)
-    now = int(engine.scenario.start_at.timestamp()) + 8 * 3600
+    now = int(engine.scenario.start_at.timestamp()) + seconds_of_day
     staged.current_time = now
     staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
     for agent_id, agent in staged.agents.items():
@@ -309,6 +310,36 @@ def test_hunger_band_crossing_wakes_during_chat(engine_factory) -> None:
     assert "felt_band_change" in engine.state.agents[1].pending_wake_reasons
     assert engine.state.agents[1].felt_bands_at_last_decision["appetite"] == "很饿"
     decision = context(engine, "after-chat", 1)
+    engine.begin_decision_round([decision])
+    assert engine.observe(decision)["body"]["levels"]["appetite"] == "饿得难受"
+
+
+def test_hunger_crossing_just_before_lunch_end_wakes_during_wait(engine_factory) -> None:
+    """13:20 起等待，第 480 秒（午餐窗口 13:30 结束之前）升到「饿得难受」：那一秒提供决策，原因含 felt_band_change。
+
+    窗口终点餐时项跳变，分级又降回「很饿」；预测不晚于实际，不能把这段跨档推迟到窗口终点而跳过
+    （docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、第八章「节律」）。
+    """
+    engine = engine_factory()
+    stage_day_plan(engine)
+    energy = 637.685
+    now = _stage_morning(engine, energy, 13 * 3600 + 20 * 60)
+    observed, started = _observed_action(engine, "hungry-wait", "wait")
+    assert started.status == "in_progress", started.error_code
+    assert observed["body"]["levels"]["appetite"] == "很饿"
+    body, windows = engine.scenario.body, engine.meal_windows_by_agent()[1]
+    burn = body.basal_kcal_per_hour + (body.activity_met["wait"] - 1) * body.mass_kg
+    at_lunch_end = energy - burn * 600 / 3600
+    assert windows.lunch is not None and windows.lunch[1] == 13.5
+    assert felt.appetite_level(felt.compute_appetite(at_lunch_end, 13.5, windows), at_lunch_end,
+                               body.emergency_threshold_kcal) == "很饿"
+    assert engine.scheduling_state().next_event_at.timestamp() == now + 480
+    advance_next(engine)
+    assert engine.state.current_time == now + 480
+    assert engine.state.activities[started.activity_id].status == ActivityStatus.ACTIVE
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    assert "felt_band_change" in engine.state.agents[1].pending_wake_reasons
+    decision = context(engine, "after-hungry-wait")
     engine.begin_decision_round([decision])
     assert engine.observe(decision)["body"]["levels"]["appetite"] == "饿得难受"
 

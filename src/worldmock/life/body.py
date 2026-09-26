@@ -16,7 +16,7 @@ valence）由引擎在结算边界调用本模块的包装函数驱动。
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
 from worldmock.catalog.affordances import default_affordances
@@ -437,23 +437,32 @@ class _FeltProjection:
 
 
 def _felt_band_boundaries(projection: _FeltProjection) -> list[int]:
-    """@brief 体感分级预计跨越时刻：困意与饥饿的跨档扫描、餐时窗口起止，以及娱乐与社交的下一档。"""
+    """@brief 体感分级预计跨越时刻：困意与饥饿的跨档扫描、餐时窗口起止，以及娱乐与社交的下一档。
+
+    饥饿扫描以餐时窗口起止为跳变点：食欲的餐时项只在这些时刻跳变，困意没有跳变点。
+    """
+    meal_edges = _meal_window_boundaries(projection.clock)
     candidates = [seconds for seconds in (_first_band_change(projection.sleepiness_level),
-                                          _first_band_change(projection.appetite_level))
+                                          _first_band_change(projection.appetite_level, meal_edges))
                   if seconds is not None]
-    candidates.extend(_meal_window_boundaries(projection.clock))
+    candidates.extend(meal_edges)
     candidates.extend(_need_band_boundaries(projection.body, projection.config))
     return candidates
 
 
-def _first_band_change(level_at: Callable[[int], str]) -> int | None:
+def _first_band_change(level_at: Callable[[int], str], breakpoints: Sequence[int] = ()) -> int | None:
     """@brief 以不超过 900 秒的步长正向扫描至多 24 小时，取首个分级变化的步点后在该步内二分到整秒。
 
-    升档、降档都算变化；扫描范围内分级不变时没有候选（docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
+    breakpoints 是分级可能跳变的时刻（距现在的整秒）：跳变前一秒与跳变那一秒也作步点，二分区间不跨跳变，
+    跳变之前刚发生、又被跳变抵消的跨档也能扫到。升档、降档都算变化；扫描范围内分级不变时没有候选
+    （docs/dev/SPEC-time-and-energy.md 第八章「节律」）。
     """
     current = level_at(0)
     previous = 0
-    for step_end in range(FELT_SCAN_STEP_SECONDS, FELT_SCAN_HORIZON_SECONDS + 1, FELT_SCAN_STEP_SECONDS):
+    step_ends = sorted({*range(FELT_SCAN_STEP_SECONDS, FELT_SCAN_HORIZON_SECONDS + 1, FELT_SCAN_STEP_SECONDS),
+                        *(point for edge in breakpoints for point in (edge - 1, edge)
+                          if 0 < point <= FELT_SCAN_HORIZON_SECONDS)})
+    for step_end in step_ends:
         if level_at(step_end) != current:
             low, high = previous, step_end
             while high - low > 1:

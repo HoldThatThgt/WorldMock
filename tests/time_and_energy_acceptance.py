@@ -151,6 +151,8 @@ _STAGE2_CANDIDATE_TIME_TESTS = [
     "test_prediction_from_current_pressure_is_not_later_than_actual",
     "tests/life/test_activity_effects.py::test_hunger_upward_crossing_is_not_later_than_actual",
     "tests/life/test_activity_effects.py::test_hunger_downward_crossing_at_meal_window_end",
+    "tests/life/test_activity_effects.py::test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped",
+    "tests/life/test_energy_feasibility.py::test_hunger_crossing_just_before_lunch_end_wakes_during_wait",
     "tests/life/test_activity_effects.py::test_body_boundary_uses_curve_node_and_food_net_energy",
     "tests/life/test_activity_effects.py::test_meal_window_edges_are_boundary_candidates",
     "tests/life/test_activity_effects.py::test_chat_and_call_are_predicted_but_sleep_and_game_are_not",
@@ -203,6 +205,8 @@ _STAGE2_ENERGY_NEVER_BLOCKS_TESTS = [
     "tests/life/test_dayrun_restaurants.py::test_late_delivery_adds_the_first_nearer_alternative",
     "tests/life/test_dayrun_restaurants.py::test_below_hungry_keeps_the_local_meal_sentence",
     "tests/life/test_dayrun_restaurants.py::test_scene_food_path_quotes_only_this_observation",
+    "tests/life/test_dayrun_restaurants.py::test_scene_food_path_names_the_fastest_delivery_to_here",
+    "tests/life/test_dayrun_restaurants.py::test_scene_food_path_names_the_nearest_store_when_nothing_delivers_here",
     "tests/life/test_affordance_contract.py::test_contract_shape_matches_registry_one_to_one",
 ]
 

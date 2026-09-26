@@ -227,6 +227,26 @@ def test_hunger_downward_crossing_at_meal_window_end(body_config) -> None:
     assert (before["appetite"], at["appetite"]) == ("很饿", "饿")
 
 
+def test_hunger_crossing_reverted_by_meal_window_end_is_not_skipped(body_config) -> None:
+    """午餐窗口终点前 231 秒升档、终点处餐时项跳变又降回：预测恰为升档的整秒，不推迟到窗口终点。
+
+    升档与降回都落在同一个 900 秒步内，只在步点比较分级时看不到这一段；窗口终点的前一秒与那一秒作步点后，
+    扫描在升档所在的步内二分到整秒（docs/dev/SPEC-time-and-energy.md 第三章「让人物趁早吃」、第八章「节律」）。
+    """
+    config = _quiet(body_config)
+    body = BodyState(energy_kcal=661.448507, sleep_pressure=0.2296, chronotype_midsleep=3.0,
+                     sleep_deficit_hours=0, entertainment_need=0, social_need=1.0)
+    clock = BoundaryClock(13 + 42 / 3600, felt.MealWindows(lunch=(11.5, 13.5), dinner=(18.0, 20.0)))
+    activities = ((ActivityKind.WAIT, ActivityFactors(1.3)),)
+    predicted, before, at = _crossing(config, body, activities, clock)
+    assert predicted == 1527
+    assert (before["appetite"], at["appetite"]) == ("很饿", "饿得难受")
+    lunch_end = min(_meal_window_boundaries(clock))
+    assert lunch_end == 1758
+    assert _levels_after(body, activities, config, clock, lunch_end - 1)["appetite"] == "饿得难受"
+    assert _levels_after(body, activities, config, clock, lunch_end)["appetite"] == "很饿"
+
+
 def test_chat_and_call_are_predicted_but_sleep_and_game_are_not(body_config) -> None:
     """交谈、通话期间同样预测饥饿跨档（按社交 MET）；睡眠、游戏不另做预测。"""
     config = _quiet(body_config)
