@@ -205,13 +205,23 @@ async def test_full_round_drives_engine_interfaces(tmp_path) -> None:
 
         from dataclasses import replace
         memory_context = replace(contexts[-1], world_state_version=engine.state.version)
+        files = {"memory_before_sha256": "a" * 64, "memory_sha256": "b" * 64, "episodes_sha256": "c" * 64,
+                 "state_sha256": "d" * 64, "consolidated": False,
+                 "observation_event_id": data["observation_event_id"], "verified_event_ids": ()}
+        # 开始等待不是记忆写入点（时间与能量规格第七章：只在结束活动与就寝反思时写记忆）：写入条目按协议违约拒绝，
+        # 只刷新摘要照常留证，写入点列表为空。
+        with pytest.raises(ProtocolError, match="Memory update evidence is invalid"):
+            await env.record_memory_update(MemoryUpdateEvidence(
+                context=memory_context, operation="append_episodes", created_episode_ids=("m-round-1",),
+                merged_episode_ids=(), episodes=({"id": "m-round-1", "type": "reflection",
+                                               "text": "我想休息一下。", "epistemic_status": "subjective"},),
+                **files))
         await env.record_memory_update(MemoryUpdateEvidence(
-            context=memory_context, operation="append_episodes", created_episode_ids=("m-round-1",),
-            merged_episode_ids=(), episodes=({"id": "m-round-1", "type": "reflection",
-                                           "text": "我想休息一下。", "epistemic_status": "subjective"},),
-            memory_before_sha256="a" * 64, memory_sha256="b" * 64, episodes_sha256="c" * 64,
-            state_sha256="d" * 64, consolidated=False, observation_event_id=data["observation_event_id"],
-            verified_event_ids=()))
+            context=memory_context, operation="refresh_summary", created_episode_ids=(),
+            merged_episode_ids=(), episodes=(), **files))
+        updated = engine.store.read_agent_events("memory_updated", memory_context.agent_id)
+        assert [(event.data["operation"], event.data["trigger"], event.data["decision_id"])
+                for event in updated] == [("refresh_summary", [], memory_context.decision_id)]
 
         workspaces = tuple(
             (agent_id, str(tmp_path / f"round-ws-{agent_id}"))

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import re
@@ -29,6 +28,8 @@ _INTERRUPTED_STATUSES = {"cancelled", "failed", "truncated"}
 _CONTENT_TYPES = {"watch", "read_mail", "play_game", "browse"}
 _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal", "conflict",
                               "resolution", "identity", "routine", "reflection"})
+#: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
+_WRITE_POINTS = ("activity_conclusion", "reflection")
 _PRICING = {
     "source": "https://api-docs.deepseek.com/quick_start/pricing/",
     "checked_at": "2026-09-15",
@@ -412,67 +413,59 @@ def _wake_reason_distribution(progresses: list[Event]) -> tuple[Counter, Counter
 
 
 def _memory_quality(events: list[Event]) -> dict:
-    """@brief 逐事件检查模型记忆引用、持久 episode 身份和完成关联。"""
+    """@brief 按写入点（trigger）核对系统登记的记忆来源、持久 episode 身份与观察事实窗口。
+
+    写入点只有结束活动（activity_conclusion，对应同一决策已登记的 conclude_activity）与就寝反思（reflection，
+    对应醒来那一轮的观察）；收尾与反思同在一步时两项都核对（docs/design/05-recording-engine.md「质量报告」）。
+    """
     state = {
-        "known": defaultdict(set), "finishes": {}, "updates": set(), "problems": [],
-        "references_checked": 0, "episodes": 0, "update_events": 0, "visible": {}, "events": {},
-        "windows": {},
+        "known": defaultdict(set), "conclusions": {}, "requests": set(), "reflections": set(),
+        "concluded": set(), "problems": [], "write_points": 0, "episodes": 0, "update_events": 0,
+        "events": {}, "windows": {},
     }
+    inspectors = {"observation": _inspect_memory_observation, "action_requested": _inspect_conclusion_request,
+                  "model_response": _inspect_memory_response, "memory_updated": _inspect_memory_update,
+                  "run_failed": _inspect_memory_failure}
     for event in events:
-        if event.event_type == "observation":
-            _inspect_memory_observation(event, state)
-        elif event.event_type == "model_response":
-            _inspect_memory_response(event, state)
-        elif event.event_type == "memory_updated":
-            _inspect_memory_update(event, state)
-        elif event.event_type == "run_failed":
-            _inspect_memory_failure(event, state)
+        inspector = inspectors.get(event.event_type)
+        if inspector is not None:
+            inspector(event, state)
         state["events"][event.event_id] = event
-    for key, finish in state["finishes"].items():
-        if key not in state["updates"] and finish[1]:
-            _add_memory_problem(state, "finish_without_memory_update", finish[0], key[0], [])
+    for key, event_id in state["conclusions"].items():
+        if key not in state["concluded"]:
+            _add_memory_problem(state, "conclusion_without_memory_update", event_id, key[0], [])
     return {
         "memory_update_events": state["update_events"],
         "persisted_episode_ids": state["episodes"],
-        "references_checked": state["references_checked"],
+        "write_points_checked": state["write_points"],
         "problem_count": len(state["problems"]),
         "problems": state["problems"],
     }
 
 
-def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 检索只引用 episode；结束记忆还可引用本次实际观察到的环境事件。"""
+def _inspect_conclusion_request(event: Event, state: dict) -> None:
+    """@brief 登记每个决策的 conclude_activity 请求；带非空 memories 的应在同一决策写出收尾记忆。"""
+    if event.data.get("tool_name") != "conclude_activity":
+        return
     key = (event.agent_id, event.decision_id)
-    calls = _response_tool_calls(event)
-    for name, arguments in calls:
-        if name not in {"memory_read", "finish"}:
-            continue
-        if arguments is None:
-            _add_memory_problem(state, "invalid_memory_tool_arguments", event.event_id, event.agent_id, [])
-            continue
-        references = _memory_references(name, arguments)
-        if references is None:
-            _add_memory_problem(state, "invalid_memory_reference_shape", event.event_id, event.agent_id, [])
-            continue
-        state["references_checked"] += len(references)
-        allowed = state["known"][event.agent_id]
-        if name == "finish":
-            allowed = allowed | state["visible"].get(key, set())
-        missing = sorted(set(references) - allowed)
-        if missing:
-            _add_memory_problem(state, "unknown_memory_reference", event.event_id, event.agent_id, missing)
-        if name == "finish" and event.data.get("error") is None:
-            state["finishes"][key] = (event.event_id, bool(arguments.get("memories")))
+    state["requests"].add(key)
+    request = event.data.get("request")
+    groups = request.get("memories") if isinstance(request, dict) else None
+    if isinstance(groups, list) and any(isinstance(group, list) and group for group in groups):
+        state["conclusions"].setdefault(key, event.event_id)
+
+
+def _inspect_memory_response(event: Event, state: dict) -> None:
+    """@brief 模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。"""
     error = event.data.get("error")
     if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])
 
 
 def _inspect_memory_observation(event: Event, state: dict) -> None:
-    """@brief 环境来源必须是本轮观察自身或其中真实可见且已经发生的本人结果。"""
+    """@brief 观察中的事实窗口与上轮结果必须真实可见且已经发生；记下本决策的窗口与是否醒来（就寝反思来源）。"""
     if event.visibility != "agent" or event.agent_id is None:
         return
-    allowed = {event.event_id}
     try:
         facts = validate_verified_experiences(
             event.data.get("verified_experiences"), event.agent_id, event.occurred_at)
@@ -484,8 +477,6 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
         if not _verified_source_matches(source, fact, event):
             _add_memory_problem(state, "invalid_verified_experience_source", event.event_id,
                                 event.agent_id, [fact["source_event_id"]])
-        else:
-            allowed.add(source.event_id)
     for result in event.data.get("recent_action_results", []):
         identity = result.get("event_id") if isinstance(result, dict) else None
         source = state["events"].get(identity)
@@ -493,11 +484,11 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
                 or source.visibility != "agent" or source.event_seq >= event.event_seq):
             _add_memory_problem(state, "invalid_observed_result_reference", event.event_id, event.agent_id,
                                 [identity] if isinstance(identity, str) else [])
-        else:
-            allowed.add(identity)
-    state["visible"][(event.agent_id, event.decision_id)] = allowed
-    state["windows"][(event.agent_id, event.decision_id)] = (
-        event.event_id, {item["source_event_id"] for item in facts})
+    key = (event.agent_id, event.decision_id)
+    state["windows"][key] = (event.event_id, {item["source_event_id"] for item in facts})
+    wake_reasons = event.data.get("wake_reasons")
+    if isinstance(wake_reasons, list) and "wake_from_sleep" in wake_reasons:
+        state["reflections"].add(key)
 
 
 def _verified_source_matches(source: Event | None, fact: dict, observation: Event) -> bool:
@@ -512,11 +503,10 @@ def _verified_source_matches(source: Event | None, fact: dict, observation: Even
 
 
 def _inspect_memory_update(event: Event, state: dict) -> None:
-    """@brief 区分本次新增、合法合并和事实视图刷新。"""
+    """@brief 区分本次新增、合法合并和事实视图刷新，并按写入点核对来源登记。"""
     data = event.data
     created, merged = data.get("created_episode_ids"), data.get("merged_episode_ids")
-    episodes = data.get("episodes")
-    if not _valid_memory_update_payload(data):
+    if not _valid_memory_update_payload(data) or not _valid_write_points(data, event):
         _add_memory_problem(state, "invalid_memory_update", event.event_id, event.agent_id, [])
         return
     duplicates = sorted(set(created) & state["known"][event.agent_id])
@@ -530,13 +520,40 @@ def _inspect_memory_update(event: Event, state: dict) -> None:
     state["episodes"] += len(created)
     state["update_events"] += 1
     key = (event.agent_id, event.decision_id)
-    state["updates"].add(key)
     window = state["windows"].get(key)
     if (window is None or data.get("observation_event_id") != window[0]
             or set(data.get("verified_event_ids", [])) != window[1]):
         _add_memory_problem(state, "invalid_memory_update_source_window", event.event_id, event.agent_id, [])
-    if key not in state["finishes"]:
-        _add_memory_problem(state, "memory_update_without_successful_finish", event.event_id, event.agent_id, [])
+    _check_write_points(event, key, state)
+
+
+def _valid_write_points(data: dict, event: Event) -> bool:
+    """@brief trigger 是写入点闭集的有序无重复子列表，decision_id 与事件所属决策一致。"""
+    trigger = data.get("trigger")
+    if not isinstance(trigger, list) or any(point not in _WRITE_POINTS for point in trigger):
+        return False
+    ordered = sorted(trigger, key=_WRITE_POINTS.index)
+    return (trigger == ordered and len(set(trigger)) == len(trigger)
+            and isinstance(event.decision_id, str) and data.get("decision_id") == event.decision_id)
+
+
+def _check_write_points(event: Event, key: tuple, state: dict) -> None:
+    """@brief 每个写入点都要有对应登记：结束活动对应同一决策的 conclude_activity，反思对应醒来那一轮。
+
+    写入了条目却没有任何写入点同样找不到来源。
+    """
+    trigger, data = event.data["trigger"], event.data
+    state["write_points"] += len(trigger)
+    missing = not trigger and bool(data["created_episode_ids"] or data["merged_episode_ids"])
+    if "activity_conclusion" in trigger:
+        if key in state["requests"]:
+            state["concluded"].add(key)
+        else:
+            missing = True
+    if "reflection" in trigger and key not in state["reflections"]:
+        missing = True
+    if missing:
+        _add_memory_problem(state, "memory_update_without_source", event.event_id, event.agent_id, [])
 
 
 def _valid_memory_update_payload(data: dict) -> bool:
@@ -587,54 +604,6 @@ def _inspect_memory_failure(event: Event, state: dict) -> None:
     error = event.data.get("error")
     if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
         _add_memory_problem(state, "memory_run_failure", event.event_id, event.agent_id, [])
-
-
-def _response_tool_calls(event: Event) -> list[tuple[str, dict | None]]:
-    """@brief 从已保存 OpenAI-compatible 响应读取实际工具名和参数。"""
-    response = event.data.get("response")
-    if not isinstance(response, dict) or not isinstance(response.get("choices"), list):
-        return []
-    result = []
-    for choice in response["choices"]:
-        message = choice.get("message") if isinstance(choice, dict) else None
-        calls = message.get("tool_calls") if isinstance(message, dict) else None
-        for call in calls if isinstance(calls, list) else []:
-            function = call.get("function") if isinstance(call, dict) else None
-            name = function.get("name") if isinstance(function, dict) else None
-            if name in {"memory_read", "finish"}:
-                result.append((name, _decode_arguments(function.get("arguments"), event.event_id)))
-    return result
-
-
-def _decode_arguments(value: Any, event_id: str) -> dict | None:
-    """@brief 接受提供商保存的对象或 JSON 字符串，解析错误形成可报告缺失。"""
-    if isinstance(value, dict):
-        return value
-    if not isinstance(value, str):
-        return None
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError:
-        logging.error("Memory tool arguments are invalid JSON for event %s", event_id)
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
-def _memory_references(name: str, arguments: dict) -> list[str] | None:
-    """@brief 提取 memory_read 或 finish 中明确声明的 episode 引用。"""
-    if name == "memory_read":
-        values = arguments.get("ids")
-        return list(values) if isinstance(values, list) and all(isinstance(item, str) for item in values) else None
-    memories = arguments.get("memories")
-    if not isinstance(memories, list):
-        return None
-    references = []
-    for memory in memories:
-        values = memory.get("refs", []) if isinstance(memory, dict) else None
-        if not isinstance(values, list) or not all(isinstance(item, str) for item in values):
-            return None
-        references.extend(values)
-    return references
 
 
 def _add_memory_problem(state: dict, code: str, event_id: str, agent_id: Any, references: list[str]) -> None:

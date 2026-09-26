@@ -16,7 +16,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _action_schema, _person
 from tests.integration.test_life_agent_protocol import _DecisionStatementResponse, _ModelResponse
-from tests.life.conftest import context
+from tests.life.conftest import conclude_pending, context
 from tests.life.test_category_runtime import (
     _INPUT_OBJECT, _OUTPUT_CATEGORY, _OUTPUT_OBJECT, _advance_to_completion,
     _engine, _fixture, _read_json, _write_json,
@@ -26,7 +26,7 @@ from worldmock.life import prompt_capacity
 
 
 class _Dispatcher:
-    """只替换模型传输，保持人物、环境和事件结算真实。"""
+    """只替换模型传输，保持人物、环境和事件结算真实；世界请求登记即结束本轮，没有 finish。"""
 
     model_name = "deepseek-flash"
 
@@ -36,7 +36,6 @@ class _Dispatcher:
             _DecisionStatementResponse("我使用眼前的物品。"),
             _ModelResponse("provider-action", "start_activity",
                            json.dumps({"targets": [target], "actions": [action]}, ensure_ascii=False)),
-            _ModelResponse("provider-finish", "finish", '{"memories":[]}'),
         ]
 
     async def call(self, **request):
@@ -87,7 +86,7 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     ])
     await person.run_react_loop(request)
     assert engine.state.model_dump(mode="json") == before
-    assert len(dispatcher.requests) == 3
+    assert len(dispatcher.requests) == 2
     action_request = dispatcher.requests[1]
     assert set(_action_schema(action_request)["parameters"]["properties"]) == {"targets", "actions"}
     assert binding["object"] in action_request["messages"][1]["content"]
@@ -97,7 +96,7 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_path, monkeypatch):
-    """人物只选持有物与使用，领域规则完成配方转换并在下一轮提供产物。"""
+    """人物只选持有物与使用，领域规则完成配方转换；用完当秒收尾后，下一轮提供产物。"""
     path = _recipe_path(tmp_path)
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
@@ -109,6 +108,7 @@ async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
+        assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
         assert after["scene"]["inventory"] == ["拆封工具盒"]
         assert any(row["object"] == "持有物：拆封工具盒" for row in after["facts"]["interactive_objects"])

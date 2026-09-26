@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, advance_until_ready, context, wake_by_mail
+from tests.life.conftest import advance_next, advance_until_ready, conclude_pending, context, wake_by_mail
 from agentsociety2.society import DirectToolCall
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
@@ -191,7 +191,8 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
 
 
 def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
-    """按目标名称回看返回目标与推进状态，未知名称是业务拒绝（时间与能量规格「仍须修复」第 3 条）。"""
+    """按目标名称回看返回目标与推进状态，结果随下一次观察进入 details.recall；未知名称是业务拒绝
+    （时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary）。"""
     engine = engine_factory()
     registered = act(engine, "recall-goals", "plan_day",
                      PlanDayRequest(goals=[{"intent_kind": "休息", "goal": "歇一歇"}]))
@@ -200,16 +201,20 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     recall = RecallTaskSummaryRequest(task_name="目标：休息：歇一歇")
     before = act(engine, "recall-before", "recall_task_summary", recall)
     assert before.status == "completed"
-    assert before.data["goal"] == {"task_name": "歇一歇", "intent_kind": "休息", "progressed": False}
+    expected = {"kind": "goal", "goal": "歇一歇", "intent_kind": "休息", "progressed": False}
+    assert before.data["recall"] == expected
+    shown = engine.observe(context(engine, "recall-shown"))["facts"]["progress"]["results"]
+    assert {"recall": expected} in [row.get("details") for row in shown]
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     act(engine, "recall-rest", "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"]))
     advance_next(engine)
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is not None
-    assert advance_until_ready(engine)
+    # 等待按计划结束即成待收尾：当秒收尾之后才做别的（第七章「活动一结束就要结束它」）。
+    assert conclude_pending(engine, "recall-rest-end").status == "completed"
     after = act(engine, "recall-after", "recall_task_summary", recall)
     assert after.status == "completed"
-    assert after.data["goal"] == {"task_name": "歇一歇", "intent_kind": "休息", "progressed": True}
+    assert after.data["recall"] == {**expected, "progressed": True}
     assert advance_until_ready(engine)
     unknown = act(engine, "recall-unknown", "recall_task_summary",
                   RecallTaskSummaryRequest(task_name="目标：休息：睡个午觉"))
@@ -277,7 +282,9 @@ def test_late_first_submission_does_not_require_a_bedtime_schedule(engine_factor
     engine = engine_factory()
     act(engine, "before-plan", "start_activity",
         StartActivityRequest(targets=["自己"], actions=["等待"]))
-    advance_until_ready(engine)
+    assert advance_until_ready(engine)
+    # 等待按计划结束即成待收尾，当秒收尾后再补交当日目标（第七章「活动一结束就要结束它」）。
+    assert conclude_pending(engine, "before-plan-end").status == "completed"
     registered_at = engine.state.current_time
     result = act(engine, "late-goal", "plan_day", PlanDayRequest(
         goals=[{"intent_kind": "工作", "goal": "推进报告"}]))

@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT  
 > **日期**：2026-09-25  
-> **版本**：v1.7
+> **版本**：v1.8
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -87,6 +87,7 @@ flowchart TB
 | `supply_quotes` | dict[str, quote 或 null] | 是 | 供给身份到当前报价；未知为空，恢复不重载初值 |
 | `opening_exceptions` | 地点到日期区间映射 | 是 | 世界营业覆盖；空日期区间明确闭店 |
 | `activities` | dict[str, ActivityState] | 是 | 活动状态映射 |
+| `sessions` | dict[str, SessionState] | 是 | 地点会话映射：一段地点停留或一段路（`kind` 取 `stay`、`transit`），由系统随出发与到达开始和结束；每人至多一个进行中会话 |
 | `deliveries` | dict[str, DeliveryState] | 是 | 订单状态映射 |
 | `pending_events` | list[ScheduledEvent] | 是 | 预排事件列表 |
 | `processed_actions` | dict[str, StoredAction] | 是 | 已处理动作映射 |
@@ -95,6 +96,23 @@ flowchart TB
 | `same_moment_presentation` | dict[int, {stamps: dict[str, int], pinned_supply_ids: list[str]}] | 是 | 按人物暂存的本秒呈现留痕（对象→时刻）；同一秒各轮沿用该秒首轮的呈现窗口，本秒首轮置顶的浏览结果（`pinned_supply_ids`）随暂存保存；时钟推进时由 `flush_presentation` 逐人并入 `presentation_state` 并清空；随世界结构版本 7 |
 | `random_seed` | int | 是 | 随机种子 |
 | `random_state` | str | 是 | 随机状态 |
+
+`SessionState`（地点会话）字段如下，随世界结构版本 7：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `session_id` | str | 是 | 会话身份 |
+| `agent_id` | int | 是 | 人物 ID |
+| `kind` | str | 是 | `stay`（地点停留）或 `transit`（两地之间的一段路） |
+| `location_id` | str \| None | 停留时必填 | 停留地点；路上为空 |
+| `origin_id`、`destination_id` | str \| None | 路上时必填 | 这段路的出发地与目的地；停留为空 |
+| `status` | str | 是 | `active` 或 `ended`；`ended` 必须带 `ended_at` |
+| `started_at` | int | 是 | 开始时刻 |
+| `ended_at` | int \| None | 否 | 结束时刻，不早于开始时刻 |
+| `activity_ids` | list[str] | 是 | 归入本会话的活动：这段停留或路上开始的活动，以及回到该地点时归入的暂停活动 |
+| `name` | str | 是 | 可读名称，结束后不改：停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（<M月D日> HH:MM 起）」（格式见[时间与能量规格](../dev/SPEC-time-and-energy.md)第七章「会话与活动的字段」） |
+
+运行开始时每人按初始地点开始首个停留会话；出发时结束停留、开始路上；到达（含到达被拒）或途中结束出行时结束路上、在人物所在地点开始停留；实验截止时所有会话结束。会话的开始与结束只写入世界状态，不写事件。
 
 世界状态采用确定性 JSON 编码，完整字段由生产模型校验；这里不再提供缺字段或摘要截断的伪完整示例。
 人物持有物仍是地点到商品数量的嵌套映射，购买呈现身份则是供给。
@@ -146,8 +164,8 @@ flowchart TB
 | `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`；空清单仍为已提交，条目含环境推进证据，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
-活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。
-观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合；
+活动身份只存在于 `WorldState.activities`，人物不另存当前活动槽或活动身份列表。每人两个名额：进行中、暂停中与待收尾（终态且 `concluded_at` 为空）的活动各占一个，`conclude_activity` 之后释放；名额由活动集合派生，不另存。
+观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
 每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量。
 事实窗口 `verified_experiences` 由截止前已提交事件确定；记录格式与共同身体结算引用由
 [记录引擎](05-recording-engine.md)定义，人物自述不得写入该事实窗口。
@@ -204,9 +222,18 @@ flowchart TB
 | `origin_action_id` | str | 是 | 源动作 ID |
 | `origin_decision_id` | str | 是 | 源决策 ID |
 | `origin_request_event_id` | str | 是 | 源请求事件 ID |
-| `boundary_type` | str \| None | 否 | 边界类型 |
-| `interruption_reason` | str \| None | 否 | 中断原因 |
+| `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended` |
+| `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended` |
+| `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
 | `data` | dict | 是 | 活动数据 |
+| `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
+| `report_anchor_at` | int \| None | 否 | 播报锚点：开始、恢复以及对该活动播报时写入当前时刻 |
+| `session_ids` | list[str] | 是 | 先后所属的地点会话 |
+| `name` | str | 是 | 可读名称「<做什么><对象>（<M月D日> HH:MM 起）」，结束后不改 |
+| `task_kind`、`task_ref`、`plan_goal_intent_kind` | str、str \| None、str \| None | 是 | 从原会话移来：活动服务的任务（`goal`、`work_task` 或 `none`）及引用，`goal` 时意图等于引用 |
+| `progress_note`、`note_updated_at`、`note_history` | str、int \| None、list | 是 | 从原会话移来的人物自述：`report_status`、`pause_activity`、`conclude_activity` 的 `summary` 写入 `progress_note`（至多 500 字符），前一条推入 `note_history` |
+
+`elapsed_seconds`、`effective_work_seconds`、`media_position_seconds` 等进度随每次结算累加；进度层的客观进度从这些字段与任务累计读取。
 
 ## LabelKit 交付格式
 
@@ -285,3 +312,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.5 | 2026-09-25 | 按时间与能量规格第九章：世界结构版本 7；ActivityState 补 `location_id`（开始地点，结算不覆盖） |
 | v1.6 | 2026-09-25 | 按时间与能量规格阶段 1：AgentState 的 `next_decision_at` 注明等于当前时刻即同一秒再决策，`consecutive_rejections` 只作挫败感输入；增 `same_moment_rounds`、`same_moment_stage` 与 `pending_wake_reasons`（同刻轮次按本轮替换；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`）；WorldState 增按人物暂存的本秒呈现留痕 `same_moment_presentation`（同一秒沿用首轮窗口，时钟推进时并入 `presentation_state`） |
 | v1.7 | 2026-09-25 | 按时间与能量规格阶段 2（第二章与第八章「呈现」）：`facts.products` 按可读名称公开，食品带每份热量 `energy`，配送写人读送达时刻 `delivery_eta` |
+| v1.8 | 2026-09-25 | 按时间与能量规格阶段 3：WorldState 增 `sessions` 与 `SessionState` 字段表（地点停留或一段路，系统随出发与到达开始和结束）；AgentState 注明每人两个名额（进行中、暂停与待收尾各占一个）与待收尾控制行；ActivityState 补 `next_interaction_at`、`concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述字段，`boundary_type`、`interruption_reason` 列出取值（加 `route_ended`），注明进度随结算累加 |

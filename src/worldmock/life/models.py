@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import date
 from enum import StrEnum
 from typing import Annotated, Any, Literal
@@ -241,70 +242,58 @@ class ContentProgress(StrictModel):
 
 
 class SessionStatus(StrEnum):
-    """@brief 会话生命周期状态闭集。"""
+    """@brief 地点会话的生命周期状态闭集（docs/dev/SPEC-time-and-energy.md 第七章「会话与活动的字段」）。"""
 
     ACTIVE = "active"
-    PAUSED = "paused"
-    CONCLUDED = "concluded"
-    ABORTED = "aborted"
+    ENDED = "ended"
+
+
+class SessionKind(StrEnum):
+    """@brief 地点会话的种类：一段地点停留（stay）或两地之间的一段路（transit）。"""
+
+    STAY = "stay"
+    TRANSIT = "transit"
 
 
 class SessionTaskKind(StrEnum):
-    """@brief 会话关联的任务类型闭集。"""
+    """@brief 活动关联的任务类型闭集（从原会话移到活动）。"""
 
     GOAL = "goal"
     WORK_TASK = "work_task"
     NONE = "none"
 
 
-_TERMINAL_SESSION_STATUSES = frozenset({SessionStatus.CONCLUDED, SessionStatus.ABORTED})
-
-
 class SessionState(StrictModel):
-    """@brief 一个 Task→Session 的完整状态，含时段积累与进展自述。
+    """@brief 一段地点停留或一段路；由系统随出发与到达开始和结束，人物不手动开始或结束会话。
 
-    :param task_kind: 会话所服务的任务类型；none 时 task_ref 必须为 null。
-    :param task_ref: 关联任务的外部身份；goal/work_task 时必填。
-    :param status: 生命周期状态；终态（concluded/aborted）必须含 ended_at。
-    :param segments: 实际运行的时段列表，每项 [start_epoch, end_epoch]。
+    :param kind: stay 停留时带 location_id；transit 路上时带 origin_id 与 destination_id。
+    :param status: active 或 ended；ended 必须含 ended_at。
+    :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
+    :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
     """
 
     session_id: str = Field(min_length=1)
-    task_name: str = Field(pattern=r"\S")
-    session_name: str = Field(pattern=r"\S")
-    plan_goal_intent_kind: IntentKind | None = None
     agent_id: int = Field(gt=0)
-    task_kind: SessionTaskKind
-    task_ref: str | None = None
+    kind: SessionKind
+    location_id: str | None = None
+    origin_id: str | None = None
+    destination_id: str | None = None
     status: SessionStatus
     started_at: int = Field(ge=0)
     ended_at: int | None = Field(default=None, ge=0)
-    targets: list[str] = Field(default_factory=list)
     activity_ids: list[str] = Field(default_factory=list)
-    segments: list[list[int]] = Field(default_factory=list)
-    invested_seconds: int = Field(default=0, ge=0)
-    effective_seconds: float = Field(default=0.0, ge=0.0)
-    remaining_contract_seconds: int | None = Field(default=None, ge=0)
-    preconditions_unmet: list[str] = Field(default_factory=list)
-    progress_note: str = Field(default="", max_length=500)
-    note_updated_at: int | None = Field(default=None, ge=0)
-    note_history: list[dict] = Field(default_factory=list)
+    name: str = Field(pattern=r"\S")
 
     @model_validator(mode="after")
     def validate_session(self) -> "SessionState":
-        """@brief 验证任务类型与引用配对、生命周期终态与时间顺序。"""
-        if self.task_kind == SessionTaskKind.NONE and self.task_ref is not None:
-            raise ValueError("task_ref must be null when task_kind is none")
-        if self.task_kind != SessionTaskKind.NONE and self.task_ref is None:
-            raise ValueError("task_ref required for goal and work_task")
-        if self.task_kind == SessionTaskKind.GOAL and self.plan_goal_intent_kind != self.task_ref:
-            _LOGGER.error("Goal session intent disagrees with its task reference")
-            raise ValueError("goal session intent must match task_ref")
-        is_terminal = self.status in _TERMINAL_SESSION_STATUSES
-        if is_terminal and self.ended_at is None:
-            raise ValueError("terminal session must have ended_at")
-        if not is_terminal and self.ended_at is not None:
-            raise ValueError("non-terminal session must not have ended_at")
+        """@brief 验证种类与地点字段配对、生命周期终态与时间顺序。"""
+        stay_fields = self.location_id is not None and self.origin_id is None and self.destination_id is None
+        transit_fields = self.location_id is None and self.origin_id is not None and self.destination_id is not None
+        if not (stay_fields if self.kind == SessionKind.STAY else transit_fields):
+            _LOGGER.error("Session place fields disagree with its kind")
+            raise ValueError("session place fields disagree with its kind")
+        if (self.status == SessionStatus.ENDED) != (self.ended_at is not None):
+            raise ValueError("session ended_at disagrees with its status")
         if self.ended_at is not None and self.ended_at < self.started_at:
             raise ValueError("ended_at must not be before started_at")
         return self
@@ -423,6 +412,19 @@ class ActivityState(StrictModel):
     boundary_type: str | None = None
     interruption_reason: str | None = None
     data: dict[str, Any] = Field(default_factory=dict)
+    # 生命周期（docs/dev/SPEC-time-and-energy.md 第七章「活动的生命周期」）：终态且 concluded_at 为空即待收尾；
+    # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
+    concluded_at: int | None = Field(default=None, ge=0)
+    report_anchor_at: int | None = Field(default=None, ge=0)
+    session_ids: list[str] = Field(default_factory=list)
+    name: str = ""
+    # 从原会话移来的任务关联与人物自述：summary 写入 progress_note，前一条推入 note_history。
+    task_kind: SessionTaskKind = SessionTaskKind.NONE
+    task_ref: str | None = None
+    plan_goal_intent_kind: IntentKind | None = None
+    progress_note: str = Field(default="", max_length=500)
+    note_updated_at: int | None = Field(default=None, ge=0)
+    note_history: list[dict] = Field(default_factory=list)
 
     @field_serializer("resource_claims", when_used="json")
     def serialize_resource_claims(self, value: set[str]) -> list[str]:
@@ -431,7 +433,7 @@ class ActivityState(StrictModel):
 
     @model_validator(mode="after")
     def validate_lifecycle(self) -> "ActivityState":
-        """@brief 要求终态具有结束时刻，暂停和活动态没有结束时刻。"""
+        """@brief 要求终态具有结束时刻，暂停和活动态没有结束时刻；收尾只属于非截断终态。"""
         terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
                     ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
         if (self.status in terminal) != (self.ended_at is not None):
@@ -442,7 +444,28 @@ class ActivityState(StrictModel):
                 or self.ended_at is not None and self.ended_at < self.last_settled_at):
             _LOGGER.error("Activity progress interval is invalid")
             raise ValueError("activity progress interval is invalid")
+        if self.concluded_at is not None and (self.status not in CONCLUDABLE_TERMINAL_STATUSES
+                                              or self.concluded_at < self.ended_at):
+            _LOGGER.error("Activity conclusion disagrees with its lifecycle")
+            raise ValueError("activity concluded_at disagrees with lifecycle status")
+        _validate_task_reference(self.task_kind, self.task_ref, self.plan_goal_intent_kind)
         return self
+
+
+#: 需要人物收尾的终态（截断不收尾）：状态属于此集合且 concluded_at 为空的活动即待收尾。
+CONCLUDABLE_TERMINAL_STATUSES = frozenset({ActivityStatus.COMPLETED, ActivityStatus.FAILED,
+                                           ActivityStatus.CANCELLED})
+
+
+def _validate_task_reference(kind: SessionTaskKind, reference: str | None, intent: str | None) -> None:
+    """@brief 活动的任务类型与引用配对：none 时无引用，goal/work_task 必带引用，goal 的意图等于引用。"""
+    if kind == SessionTaskKind.NONE and reference is not None:
+        raise ValueError("task_ref must be null when task_kind is none")
+    if kind != SessionTaskKind.NONE and reference is None:
+        raise ValueError("task_ref required for goal and work_task")
+    if kind == SessionTaskKind.GOAL and intent != reference:
+        _LOGGER.error("Goal activity intent disagrees with its task reference")
+        raise ValueError("goal activity intent must match task_ref")
 
 
 class DeliveryState(StrictModel):
@@ -601,6 +624,7 @@ class WorldState(StrictModel):
                 raise ValueError("agent inventory quantity cannot be negative")
             _validate_supply_visibility(agent, self)
         _validate_activity_collection(self)
+        _validate_session_collection(self)
         _validate_opening_exceptions(self.opening_exceptions)
         return self
 
@@ -649,6 +673,26 @@ def _validate_activity_collection(state: WorldState) -> None:
                 _LOGGER.error("World active activities claim the same resource")
                 raise ValueError("world active activities claim the same resource")
             claimed.update(activity.resource_claims)
+
+
+def _validate_session_collection(state: WorldState) -> None:
+    """@brief 恢复时拒绝会话身份、归属或时序矛盾：每人至多一个进行中会话，活动只指向已有会话。"""
+    active_owners: list[int] = []
+    for session_id, session in state.sessions.items():
+        if (session_id != session.session_id or session.agent_id not in state.agents
+                or session.started_at > state.current_time
+                or any(activity_id not in state.activities for activity_id in session.activity_ids)):
+            _LOGGER.error("World session identity, owner or activities are invalid")
+            raise ValueError("world session identity, owner or activities are invalid")
+        if session.status == SessionStatus.ACTIVE:
+            active_owners.append(session.agent_id)
+    if len(active_owners) != len(set(active_owners)):
+        _LOGGER.error("An agent has more than one active session")
+        raise ValueError("an agent has more than one active session")
+    if any(session_id not in state.sessions for activity in state.activities.values()
+           for session_id in activity.session_ids):
+        _LOGGER.error("An activity refers to an unknown session")
+        raise ValueError("an activity refers to an unknown session")
 
 
 def _expected_activity_claims(activity: ActivityState) -> set[str]:
@@ -924,16 +968,16 @@ class SendMessageActionRequest(FrozenModel):
 
 
 class RecallTaskSummaryRequest(FrozenModel):
-    """@brief 按本轮可见的任务或会话名称只读回看进展。"""
+    """@brief 按本轮可见的任务、当日目标、活动或会话名称只读回看进展。"""
 
     task_name: str = Field(pattern=r"\S")
 
 
 class ReportStatusRequest(FrozenModel):
-    """@brief 按任务逐项播报人物自述并继续当前会话。
+    """@brief 逐项播报进行中活动的人物自述；点名暂停的活动即在其开始地点恢复它。
 
-    :param task: 本次播报的一至两个可读任务名称。
-    :param summary: 与 task 按顺序对应的会话进展自述。
+    :param task: 本次播报的一至两个可读活动名称（做什么＋对象＋开始时刻）。
+    :param summary: 与 task 按顺序对应的活动进展自述。
     """
 
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
@@ -955,10 +999,10 @@ class ReportStatusRequest(FrozenModel):
 
 
 class PauseActivityRequest(FrozenModel):
-    """@brief 按任务逐项播报人物自述并暂停当前会话。
+    """@brief 逐项播报人物自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停。
 
-    :param task: 本次暂停的一至两个可读任务名称。
-    :param summary: 与 task 按顺序对应的会话进展自述。
+    :param task: 本次暂停的一至两个可读活动名称。
+    :param summary: 与 task 按顺序对应的活动进展自述。
     """
 
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
@@ -979,28 +1023,71 @@ class PauseActivityRequest(FrozenModel):
         return self
 
 
-class ConcludeActivityRequest(FrozenModel):
-    """@brief 逐项播报人物自述并结束所选进行中会话。
+#: 一次 conclude_activity 写入的记忆合计上限、单条文字字符上限与关键词个数上限（docs/dev/SPEC-time-and-energy.md
+#: 第七章「finish 并入 conclude_activity」；DeepSeek strict 禁 maxItems/maxLength，由本地校验兜住）。
+CONCLUSION_MEMORIES_MAX = 8
+MEMORY_TEXT_MAX_CHARS = 1000
+MEMORY_KEYWORDS_MAX = 12
+#: 记忆文字中不允许出现的十六进制身份（八位以上）。
+_MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 
-    :param task: 本次结束的一至两个可读任务名称。
-    :param summary: 与 task 按顺序对应的会话进展自述。
+
+class ConclusionMemory(FrozenModel):
+    """@brief 结束活动时写下的一条人物记忆；来源与认知状态（subjective）由系统固定，模型不填任何身份。"""
+
+    type: Literal["commitment", "relationship", "preference", "goal", "conflict",
+                  "resolution", "identity", "routine", "reflection"]
+    text: str = Field(pattern=r"\S")
+    importance: float = Field(ge=0, le=1)
+    keywords: list[Annotated[str, Field(pattern=r"\S")]]
+
+    @model_validator(mode="after")
+    def validate_limits(self) -> "ConclusionMemory":
+        """@brief 文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
+        if len(self.text) > MEMORY_TEXT_MAX_CHARS:
+            _LOGGER.error("Conclusion memory text exceeds its character limit")
+            raise ValueError("memory text exceeds 1000 characters")
+        if _MEMORY_HEX_IDENTITY.search(self.text):
+            _LOGGER.error("Conclusion memory text contains a hexadecimal identifier")
+            raise ValueError("memory text contains a hexadecimal identifier")
+        if len(self.keywords) > MEMORY_KEYWORDS_MAX:
+            _LOGGER.error("Conclusion memory has too many keywords")
+            raise ValueError("memory has more than twelve keywords")
+        return self
+
+
+class ConcludeActivityRequest(FrozenModel):
+    """@brief 逐项写下自述与记忆并结束所选活动（进行中、暂停中或刚结束待收尾），结束后释放名额。
+
+    :param task: 本次结束的一至两个可读活动名称。
+    :param summary: 与 task 按顺序对应的活动进展自述。
+    :param memories: 与 task 等长；memories[i] 是关于 task[i] 的零至多条记忆，合计不超过八条。
     """
 
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    memories: Annotated[
+        list[list[ConclusionMemory]],
+        WithJsonSchema({"type": "array", "items": {
+            "type": "array", "items": ConclusionMemory.model_json_schema(mode="validation")}}),
+    ]
 
     @model_validator(mode="after")
     def validate_pairs(self) -> "ConcludeActivityRequest":
-        """@brief 保证任务与人物自述逐项对应且长度受控。"""
-        if not 1 <= len(self.task) <= 2 or len(self.summary) != len(self.task):
-            _LOGGER.error("Conclude activity task and summary lengths disagree")
-            raise ValueError("conclude_activity requires one or two task and summary pairs")
+        """@brief 保证任务、人物自述与记忆三数组逐项对应且数量与长度受控。"""
+        if (not 1 <= len(self.task) <= 2 or len(self.summary) != len(self.task)
+                or len(self.memories) != len(self.task)):
+            _LOGGER.error("Conclude activity task, summary and memories lengths disagree")
+            raise ValueError("conclude_activity requires one or two equally sized task, summary and memories")
         if len(set(self.task)) != len(self.task) or any(not value.strip() for value in self.task):
             _LOGGER.error("Conclude activity task names are invalid")
             raise ValueError("conclude_activity task names must be distinct and nonblank")
         if any(not value.strip() or len(value) > SESSION_SUMMARY_MAX_CHARS for value in self.summary):
             _LOGGER.error("Conclude activity summary is invalid")
             raise ValueError("conclude_activity summary must be nonblank and within 500 characters")
+        if sum(len(group) for group in self.memories) > CONCLUSION_MEMORIES_MAX:
+            _LOGGER.error("Conclude activity carries too many memories")
+            raise ValueError("conclude_activity memories exceed eight entries in total")
         return self
 
 
@@ -1042,8 +1129,6 @@ def rejection_reason_text(error: Exception) -> str:
     修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
     等），不含任何十六进制事件/请求身份。
     """
-    import re
-
     reason = str(error)
     cause = error.__cause__
     if cause is not None:

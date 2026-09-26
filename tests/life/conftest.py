@@ -160,6 +160,40 @@ def start_activity(action: str, *targets: str, **fields):
     return StartActivityRequest(**payload)
 
 
+def activity_name(engine: LifeEngine, activity_id: str) -> str:
+    """活动的可读名称「做什么＋对象（M月D日 HH:MM 起）」；控制工具的 task[] 按它点名活动。
+
+    同一轮可见的名称重复时观察另加「（第二次）」这类序号，这类用例改从观察的 activity_bindings 取名。
+    """
+    return engine.state.activities[activity_id].name
+
+
+def conclude_request(*names: str, summary: str = "收尾。", memories=None):
+    """结束所点名活动的请求：task、summary 与 memories 三数组等长，默认不写记忆。"""
+    from worldmock.life.models import ConcludeActivityRequest
+
+    return ConcludeActivityRequest(task=list(names), summary=[summary for _ in names],
+                                   memories=memories if memories is not None else [[] for _ in names])
+
+
+def pending_names(observed: dict) -> list[str]:
+    """本轮观察中刚结束、待收尾的活动名（私有绑定的阶段为「刚结束」）。"""
+    from worldmock.life.activity_control import PHASE_PENDING
+
+    return [row["name"] for row in observed["activity_bindings"] if row["phase"] == PHASE_PENDING]
+
+
+def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
+    """单个就绪人物当秒给全部待收尾活动收尾（第七章「活动一结束就要结束它」），返回本轮动作结果。"""
+    decision = context(engine, round_id, agent_id)
+    engine.begin_decision_round([decision])
+    names = pending_names(engine.observe(decision))
+    assert names, "no activity is awaiting conclusion"
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
+                                        conclude_request(*names)))
+    return engine.commit_decision_round(round_id)[0]
+
+
 def presented_rows(engine: LifeEngine, round_id: str, kind: str, agent_id: int = 1,
                    rounds: int = 8) -> list[dict]:
     """累计连续几轮呈现窗口里出现过的某类交互对象行（object_id 去重，保持首见序）。

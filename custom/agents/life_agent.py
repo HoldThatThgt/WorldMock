@@ -5,12 +5,11 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
-import re
 from datetime import datetime
 from pathlib import Path
-from typing import Annotated, Any, Literal, Mapping
+from typing import Any, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from agentsociety2.agent import PersonAgent
 from agentsociety2.agent.base import (
@@ -22,9 +21,12 @@ from agentsociety2.agent.base import (
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import decision_statement_content, persona_card_text
+from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_ENDED, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.interaction_menu import canonical_action
-from worldmock.life.models import ActionReceipt, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage,
+                                   deepseek_strict_schema)
 from worldmock.life.prompt_capacity import compare_usage, fit_request
+from worldmock.life.same_moment import RESTRICTED_EXCLUDED_ACTIONS, STAGE_TOOLS
 from worldmock.life.narration import (
     DecisionStatementValidationError,
     compose_user_message,
@@ -50,14 +52,12 @@ ACTION_MAX_TOKENS = 8000
 #: 一次会话至多服务两个交互对象（docs/dev/SPEC-agent-interaction.md「动作参数：能力如何收进 action」：
 #: targets[] ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
 _START_ACTIVITY_MAX_TARGETS = 2
-#: 记忆文本中不允许出现的十六进制身份最小长度（事件/请求哈希防御）。
-_HEX_IDENTITY_MIN_CHARS = 8
 #: 日首唤醒原因闭集（docs/dev/SPEC-day-plan-goals.md「提交与修订」）：run_start/wake_from_sleep。当天首次
 #: 醒来且当日尚无计划时，动作工具面只保留 plan_day（"必须先提交"的强制）；
 #: 同刻再决策轮的唤醒原因按轮替换（no_active_activity、rejection_feedback），不属日首，不触发强制。
 _DAY_START_WAKE_REASONS = frozenset({"run_start", "wake_from_sleep"})
-
-_HEX_IDENTITY_PATTERN = re.compile(r"[0-9a-fA-F]{%d,}" % _HEX_IDENTITY_MIN_CHARS)
+#: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
+_CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 
 
 class _ToolRequest(BaseModel):
@@ -133,78 +133,6 @@ class MemoryTimeRangeRequest(_ToolRequest):
         return self
 
 
-class MemoryReadRequest(_ToolRequest):
-    """@brief 按稳定身份读取明确记忆。"""
-
-    ids: list[Annotated[str, Field(pattern=r"\S")]]
-
-    @model_validator(mode="after")
-    def validate_ids(self) -> "MemoryReadRequest":
-        """@brief 保留服务端不支持表达的身份数量和非空约束。"""
-        if not 1 <= len(self.ids) <= 20 or any(not item.strip() for item in self.ids):
-            raise ValueError("memory read requires one to twenty nonblank ids")
-        return self
-
-
-class LifeMemoryEpisode(_ToolRequest):
-    """@brief finish 工具保存的一条严格人物记忆。"""
-
-    type: Literal[
-        "commitment",
-        "relationship",
-        "preference",
-        "goal",
-        "conflict",
-        "resolution",
-        "identity",
-        "routine",
-        "reflection",
-    ]
-    epistemic_status: Literal["subjective"]
-    importance: float = Field(ge=0, le=1)
-    keywords: list[Annotated[str, Field(pattern=r"\S")]]
-    text: str = Field(pattern=r"\S")
-    source: str = Field(pattern=r"^decision_observation$")
-    refs: list[Annotated[str, Field(pattern=r"\S")]]
-
-    @model_validator(mode="after")
-    def validate_local_limits(self) -> "LifeMemoryEpisode":
-        """@brief 保留服务端不支持表达的文本、身份与数组数量约束。"""
-        if len(self.keywords) > 12:
-            raise ValueError("memory episode has more than twelve keywords")
-        if len(self.text) > 1000:
-            raise ValueError("memory episode text exceeds 1000 characters")
-        if _HEX_IDENTITY_PATTERN.search(self.text):
-            raise ValueError("memory episode text contains a hexadecimal identifier")
-        if not 1 <= len(self.refs) <= 8:
-            raise ValueError("memory episode requires one to eight refs")
-        return self
-
-
-class FinishRequest(_ToolRequest):
-    """@brief 在一个生活动作后结束当前人物决策并保存记忆。
-
-    记忆合同（docs/dev/SPEC-life-realism.md「记忆合同」）：memories 为 0-8 条，没有值得记录的
-    新事件时允许空列表；每条 text 使用人物语言，不得含事件标识或十六进制
-    身份（LifeMemoryEpisode 本地校验拒绝）。
-    """
-
-    memories: Annotated[
-        list[LifeMemoryEpisode],
-        WithJsonSchema({
-            "type": "array",
-            "items": LifeMemoryEpisode.model_json_schema(mode="validation"),
-        }),
-    ]
-
-    @model_validator(mode="after")
-    def validate_memory_count(self) -> "FinishRequest":
-        """@brief 保留服务端不支持表达的记忆条目数量约束（允许空列表）。"""
-        if not 0 <= len(self.memories) <= 8:
-            raise ValueError("finish requires zero to eight memories")
-        return self
-
-
 class ReadonlyFinishRequest(_ToolRequest):
     """@brief 结束明确只读人物查询。"""
 
@@ -235,13 +163,12 @@ _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "memory_step_range": MemoryStepRangeRequest,
     "memory_tick_range": MemoryTickRangeRequest,
     "memory_time_range": MemoryTimeRangeRequest,
-    "memory_read": MemoryReadRequest,
 }
 
+#: 生活决策的工具面：八个人物工具（plan_day 暂未移出，见阶段 5）与预算内记忆查询；没有 finish。
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
     **_MEMORY_TOOL_MODELS,
-    "finish": FinishRequest,
 }
 
 _MEMORY_RUNTIME_ACTIONS = {
@@ -250,23 +177,25 @@ _MEMORY_RUNTIME_ACTIONS = {
     "memory_step_range": "memory_range",
     "memory_tick_range": "memory_range",
     "memory_time_range": "memory_range",
-    "memory_read": "memory_read",
 }
 
-#: 需要内联嵌套子模型 Schema 的四个工具字段已在 life.models 的字段定义
+#: 记忆查询返回给模型的字段（不含条目身份，docs/dev/SPEC-time-and-energy.md 第七章「发给模型的内容不含内部身份」）。
+_MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
+
+#: 需要内联嵌套子模型 Schema 的工具字段已在 life.models 的字段定义
 #: 以 WithJsonSchema 内联（strict 合同禁嵌套引用键，docs/CONTRACTS.md「人物工具与管理接口」）；
 #: 本侧直接使用 REQUEST_MODELS 的原始模型，无第二套适配层。
 
 
 def life_action_tool_names() -> frozenset[str]:
     """@brief 返回 LifeAgent 实际开放的全部生活动作工具名（env 侧核对用）。"""
-    return frozenset(_TOOL_MODELS) - frozenset(_MEMORY_TOOL_MODELS) - {"finish"}
+    return frozenset(_TOOL_MODELS) - frozenset(_MEMORY_TOOL_MODELS)
 
 
-#: 阶段规则前缀：一次决策恰好一个生活动作，且必须是响应中唯一调用。
+#: 阶段规则前缀：一次决策恰好一个世界请求，必须是响应中唯一调用，登记即结束本次决策。
 _ACTION_PROTOCOL = (
-    "During one decision submit exactly one life action, and it must be the only "
-    "tool call in its model response.")
+    "During one decision submit exactly one life action; it must be the only "
+    "tool call in its model response, and registering it ends the decision.")
 
 #: 稳定工具面的静态工具文案（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
 #: 动作枚举与对象身份每轮由交互对象层绑定进 Schema，不写进这里的文字。
@@ -287,22 +216,28 @@ _TOOL_DESCRIPTIONS = {
         + " Send an authored text message to one visible person or contact by recipient_name."),
     "recall_task_summary": (
         _ACTION_PROTOCOL
-        + " Read the progress of one visible task or session by task_name without changing the world."),
+        + " Read one visible task, day goal, activity or session by task_name without changing the world; "
+        "the result appears in the next observation."),
     "report_status": (
         _ACTION_PROTOCOL
-        + " Report one or two visible tasks and keep their sessions running. "
+        + " Report one or two visible activities by their names and keep them running. "
         "task and summary are equally sized lists paired in order. "
-        "A paused task resumes when reported. Each summary is at most 500 characters."),
+        "Reporting a paused activity resumes it, only at the place where it started. "
+        "Each summary is at most 500 characters."),
     "pause_activity": (
         _ACTION_PROTOCOL
-        + " Report one or two visible tasks and pause their running sessions. "
+        + " Pause one or two running activities by their names; a paused activity still holds one of "
+        "your two activity slots, and activities on the road cannot be paused. "
         "task and summary are equally sized lists paired in order. "
         "Invested time is kept. Each summary is at most 500 characters."),
     "conclude_activity": (
         _ACTION_PROTOCOL
-        + " Report one or two visible tasks and end only their running sessions. "
-        "task and summary are equally sized lists paired in order. "
-        "Each summary is at most 500 characters."),
+        + " End one or two activities by their names: running, paused, or just ended and waiting to be "
+        "wrapped up; this frees their slots. task, summary and memories are equally sized lists paired "
+        "in order. Each summary is at most 500 characters. memories[i] holds zero or more memories "
+        "about task[i], at most eight in total, written in the person's own words as subjective "
+        "self-report; never put identifiers or hexadecimal strings in memory text, and use at most "
+        "twelve keywords per memory."),
     "plan_day": (
         _ACTION_PROTOCOL
         + " At the first decision after waking, submit today's ordered goals, "
@@ -324,31 +259,18 @@ _TOOL_DESCRIPTIONS = {
     "memory_step_range": "Read subjective durable memory episodes within an inclusive decision-step range.",
     "memory_tick_range": "Read subjective durable memory episodes within an inclusive duration range.",
     "memory_time_range": "Read subjective durable memory episodes within an inclusive ISO time range.",
-    "memory_read": "Read subjective durable memory episodes by exact stable identifiers.",
     "finish": (
-        "Finish after exactly one submitted life action; finish must be the only tool "
-        "call in its response. memories holds zero to eight episodes written in the "
-        "person's own words; never put event identifiers, request hashes, or any "
-        "hexadecimal identifier inside memory text. Every episode is subjective self-report: "
-        "feelings, intentions, preferences or reflection. Verified experiences are supplied by the environment. "
-        "Every ref must use an allowed "
-        "source ID from this schema: the current observation_event_id, current "
-        "recent_action_results[].event_id, verified_experiences[].source_event_id, or a durable episode ID shown in "
-        "this decision. Never use action_id, decision_id, round_id, request hashes, "
-        "tool_call_id, product IDs, activity IDs, or any other identifier as a ref."),
+        "Answer the external read-only question with answer; finish must be the only tool call "
+        "in its response."),
 }
 
 
-#: 有 active 会话时才开放的三条会话退出通道（docs/dev/SPEC-agent-interaction.md「保护项修订」）。
-_SESSION_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
+#: 活动控制工具（docs/dev/SPEC-agent-interaction.md「保护项修订」）：按活动名逐项播报、暂停与结束。
+_ACTIVITY_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 
-#: 同刻上限受限轮按阶段开放的世界请求工具（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）：
-#: open 不收窄；start_or_resume 只开放开始或恢复一项持续活动；wait_only 只开放等待。记忆查询不受影响。
-_SAME_MOMENT_TOOLS: dict[str, frozenset[str] | None] = {
-    "open": None,
-    "start_or_resume": frozenset({"start_activity", "report_status"}),
-    "wait_only": frozenset({"start_activity"}),
-}
+#: 进度层活动阶段的人读说法 → 阶段标识（进行中、已暂停、刚结束待收尾、已收尾、截止结束）。
+_ACTIVITY_PHASES = {PHASE_ACTIVE: "active", PHASE_PAUSED: "paused", PHASE_PENDING: "pending",
+                    PHASE_CONCLUDED: "concluded", PHASE_ENDED: "ended"}
 
 #: 身份前言（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）：以人物与情境为主，工具协议、引用规则
 #: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
@@ -422,7 +344,7 @@ class LifeAgent(PersonAgent):
         return await self._env.observe(self.require_decision_context())
 
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
-        """@brief 按只读、动作前和动作后阶段生成当前闭集工具 Schema。"""
+        """@brief 按只读与生活决策阶段生成当前闭集工具 Schema；生活决策没有 finish。"""
         budget = self._react_budget(readonly)
         models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
         self._life_request_models = models
@@ -438,15 +360,9 @@ class LifeAgent(PersonAgent):
             if not hasattr(self, "_life_visible_objects"):
                 raise RuntimeError("LifeAgent visible interactive objects are not prepared")
             _bind_start_activity_schema(schemas, self._life_visible_objects, self._life_allowed_actions)
-            _bind_session_schemas(schemas, self._life_action_contracts["active_task_names"],
-                                  self._life_action_contracts["reportable_names"])
+            _bind_control_schemas(schemas, self._life_action_contracts)
             _bind_plan_goal_schemas(schemas, self._life_action_contracts)
             _bind_named_action_schemas(schemas, self._life_action_contracts)
-        if not readonly and "finish" in models:
-            _bind_finish_reference_ids(
-                schemas,
-                getattr(self, "_life_visible_refs", set()),
-            )
         return schemas
 
     def _model_request(
@@ -488,10 +404,12 @@ class LifeAgent(PersonAgent):
             raise RuntimeError(message)
 
     def _react_budget(self, readonly: bool) -> dict[str, Any]:
-        """@brief 从本决策实际模型调用序号取得当前请求预算。"""
-        phase = "readonly" if readonly else (
-            "after_action" if getattr(self, "_life_action_count", 0) else "before_action")
-        required = 1 if phase in {"readonly", "after_action"} else 2
+        """@brief 从本决策实际模型调用序号取得当前请求预算。
+
+        生活决策的世界请求登记即结束本轮，行动前只需为它保留 1 个回合；只读问答为 finish 保留 1 个回合。
+        """
+        phase = "readonly" if readonly else "before_action"
+        required = 1
         self._life_require_turns(phase, required)
         remaining = self._max_react_turns - self._model_call_sequence
         return {
@@ -512,8 +430,6 @@ class LifeAgent(PersonAgent):
         memory = _MEMORY_TOOL_MODELS if memory_tools_available else {}
         if readonly:
             return {**memory, "finish": ReadonlyFinishRequest}
-        if getattr(self, "_life_action_count", 0):
-            return {**memory, "finish": FinishRequest}
         if not hasattr(self, "_life_action_models"):
             raise RuntimeError("LifeAgent activity controls are not prepared")
         return {**self._life_action_models, **memory}
@@ -529,13 +445,10 @@ class LifeAgent(PersonAgent):
         return WorldMockMemoryRuntime(self, config)
 
     def _memory_prompt_section(self) -> str:
-        """@brief 渲染持久记忆摘要段并冻结其可见记忆身份。"""
+        """@brief 渲染持久记忆摘要段：只写主观归纳与最近自述的正文，不带条目身份。"""
         if not self._enable_memory:
             return ""
         memory = self._build_memory_context()
-        self._life_visible_refs.update(
-            _episode_ids(memory.get("recent_episodes", []))
-        )
         parts = []
         summary = memory.get("subjective_summary")
         if isinstance(summary, str) and summary.strip():
@@ -548,21 +461,20 @@ class LifeAgent(PersonAgent):
         return "\n\n".join(parts)
 
     def _life_user_sections(self, request: ReactLoopRequest, *, with_facts: bool) -> str:
-        """@brief 组装三段 user 消息文本（persona + scene + 记忆 [+ facts + 决策自述]）。
+        """@brief 组装三段 user 消息文本（persona + scene + [已核验经历句子] + 记忆 [+ facts + 决策自述]）。
 
-        决策自述阶段只取 persona + scene + 记忆摘要；行动阶段再追加 facts 与
-        "你刚才心里想的是"（docs/dev/SPEC-life-realism.md「两阶段决策」）。scene/facts 由
-        narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本。
+        决策自述阶段只取 persona + scene + 已核验经历句子 + 记忆摘要；行动阶段的经历句子随 facts.experiences 出现，
+        再追加 facts 与"你刚才心里想的是"（docs/dev/SPEC-life-realism.md「两阶段决策」）。scene/facts 由
+        narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本，已核验经历只以句子出现，不带内部身份。
         """
         data = _environment_observation_data(request.observations)
         persona = self._persona_card_text()
         scene = render_scene(_scene_projection(data))
         memory = self._memory_prompt_section()
-        verified = getattr(self, "_life_verified_experiences", [])
-        facts_text = "已核验经历（环境事件）：\n" + json.dumps(verified, ensure_ascii=False, sort_keys=True)
-        core = compose_user_message(persona, scene, "\n\n".join((facts_text, memory)))
+        experiences = "" if with_facts else _experience_text(data)
+        core = compose_user_message(persona, scene, "\n\n".join(part for part in (experiences, memory) if part))
         self._life_prompt_layers = {"persona": persona, "scene": scene,
-                                    "verified_experiences": facts_text, "memory": memory}
+                                    "verified_experiences": experiences, "memory": memory}
         if not with_facts:
             return core
         self._life_facts_for_capacity = _facts_projection(data)
@@ -643,7 +555,7 @@ class LifeAgent(PersonAgent):
             raise RuntimeError("Prelude decision_statement request must not expose tools")
         last_error: DecisionStatementValidationError | None = None
         for _attempt in (1, 2):
-            self._life_require_turns("decision_statement", 3)
+            self._life_require_turns("decision_statement", 2)
             decision_statement, last_error = await self._decision_statement_once(params)
             if decision_statement is not None:
                 self.receive_prelude_decision_statement(request, decision_statement)
@@ -698,7 +610,7 @@ class LifeAgent(PersonAgent):
         return "wake_from_sleep" in getattr(self, "_life_wake_reasons", frozenset())
 
     def prepare_react_loop(self, request: ReactLoopRequest) -> None:
-        """@brief 重置当前决策动作计数并冻结可见来源事件。"""
+        """@brief 重置当前决策动作计数并冻结本轮观察给出的对象、活动与工具面。"""
         super().prepare_react_loop(request)
         self._life_action_count = 0
         self._life_readonly = request.readonly
@@ -708,11 +620,8 @@ class LifeAgent(PersonAgent):
         self._life_prompt_layers = {}
         if request.readonly:
             self._life_interaction_menu = None
-            self._life_visible_refs = set()
             self._life_visible_objects = {}
             self._life_allowed_actions = frozenset()
-            self._life_active_sessions = ()
-            self._life_known_sessions = ()
             self._life_action_contracts = {}
             self._life_action_models = {}
             self._life_wake_reasons = frozenset()
@@ -732,35 +641,36 @@ class LifeAgent(PersonAgent):
             False, budget["memory_tools_available"])
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装菜单、交互对象层、会话身份和稳定工具面。
+        """@brief 从一次冻结观察组装菜单、交互对象层、活动名称和稳定工具面。
 
-        同刻上限的受限轮按观察私有证据 same_moment_stage 收窄世界请求工具、交互对象与会话名称，
+        同刻上限的受限轮按观察私有证据 same_moment_stage 收窄世界请求工具、交互对象与活动名称，
         Schema 枚举、本地校验与引擎复核因此按同一阶段判定（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。
         """
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
-        self._life_visible_refs = _environment_source_ids(data)
         stage = _visible_same_moment_stage(data)
         self._life_visible_objects = _same_moment_objects(
             stage, _visible_interactive_objects(data), data["interaction_bindings"])
         self._life_allowed_actions = frozenset(self._life_interaction_menu.allowed_actions)
-        sessions = _visible_sessions(data)
-        self._life_known_sessions = tuple(sorted(sessions))
-        self._life_active_sessions = tuple(
-            sorted(key for key, status in sessions.items() if status == "active"))
         self._life_action_contracts = _same_moment_contracts(stage, _visible_action_contracts(data))
-        self._life_action_models = _available_action_models(
-            self._life_active_sessions, self._life_action_contracts, _SAME_MOMENT_TOOLS[stage])
+        self._life_action_models = _available_action_models(self._life_action_contracts, STAGE_TOOLS[stage])
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
-        """@brief 冻结本轮本人事件事实窗口，模型和记忆不能写入该窗口。"""
+        """@brief 冻结本轮本人事件事实窗口与观察身份（本步记忆更新的来源截止），模型和记忆不能写入该窗口。
+
+        观察身份缺失是损坏的宿主观察，在任何模型调用之前失败，不等到记忆写入时才暴露。
+        """
         from worldmock.footprints.experiences import validate_verified_experiences
 
         now = _observation_now(data)
         self._life_verified_experiences = validate_verified_experiences(
             data.get("verified_experiences"), data.get("agent_id"), now)
-        self._life_observation_event_id = data.get("observation_event_id")
+        observation_event_id = data.get("observation_event_id")
+        if not isinstance(observation_event_id, str) or not observation_event_id:
+            logging.error("LifeAgent observation event identity is invalid")
+            raise RuntimeError("LifeAgent observation event identity is invalid")
+        self._life_observation_event_id = observation_event_id
 
     def validate_react_decisions(
         self,
@@ -789,12 +699,7 @@ class LifeAgent(PersonAgent):
             try:
                 validated = _validate_request(model, decision.args)
                 error = _validate_prepared_action(
-                    decision.action,
-                    validated,
-                    self._life_visible_objects,
-                    self._life_active_sessions,
-                    self._life_action_contracts,
-                )
+                    decision.action, validated, self._life_visible_objects, self._life_action_contracts)
                 if error:
                     return error
                 if decision.action in REQUEST_MODELS:
@@ -802,21 +707,28 @@ class LifeAgent(PersonAgent):
                         self._life_interaction_menu, decision.action, validated)
                     if error:
                         return error
-                if decision.action == "finish" and not readonly:
-                    error = self._validate_finish(validated)
-                    if error:
-                        return error
             except Exception as exc:
                 return f"invalid {decision.action} arguments: {exc}"
         return ""
 
-    def _validate_finish(self, request: BaseModel) -> str:
-        """@brief 要求动作已提交且全部记忆引用存在。"""
-        if self._life_action_count != 1:
-            return "finish requires exactly one submitted life action"
-        refs = {ref for memory in request.memories for ref in memory.refs}
-        unresolved = refs - self._life_visible_refs
-        return "" if not unresolved else "finish contains an unknown memory reference"
+    async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
+        """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
+
+        记忆查询是观察，不结束本轮；世界请求登记后，conclude_activity 的 memories 按 task 展平交给本步
+        after_step 写入（其余请求写入空列表）。只读问答沿用 AS2 的 finish 回合。
+        """
+        if request.readonly:
+            return await super()._run_react_turn(request, turn)
+        decisions = await self._call_react_llm(request)
+        for decision in decisions:
+            result = await self._execute_react_tool(decision, readonly=False)
+            self._append_react_tool_result(decision, result)
+            request.observations.append({"turn": turn, "action": decision.action, "ok": result.ok,
+                                         "observation": result.observation, "data": result.data})
+            if decision.action in REQUEST_MODELS:
+                self._last_finish_memories = _conclusion_memories(decision.action, decision.args)
+                return f"{decision.action} registered"
+        return None
 
     async def dispatch_react_tool(
         self,
@@ -847,13 +759,7 @@ class LifeAgent(PersonAgent):
             raise RuntimeError("Life action is unavailable in the prepared activity state")
         request = _validate_request(REQUEST_MODELS[action], args)
         context = self.require_decision_context()
-        error = _validate_prepared_action(
-            action,
-            request,
-            self._life_visible_objects,
-            self._life_active_sessions,
-            self._life_action_contracts,
-        )
+        error = _validate_prepared_action(action, request, self._life_visible_objects, self._life_action_contracts)
         if error:
             raise RuntimeError(error)
         error = life_menu.menu_action_error(self._life_interaction_menu, action, request)
@@ -881,26 +787,19 @@ class LifeAgent(PersonAgent):
         action: str,
         args: dict[str, Any],
     ) -> ReactToolResult:
-        """@brief 验证记忆请求并拒绝缺失的明确引用。"""
+        """@brief 验证记忆查询并把结果投影为 {type, text, time, epistemic_status}，不含条目身份。"""
         model = _TOOL_MODELS[action]
         request = _validate_request(model, args)
         payload = request.model_dump(mode="json", exclude_none=True)
         runtime_action = _MEMORY_RUNTIME_ACTIONS[action]
         ok, observation, data = self._memory_runtime.dispatch_tool(runtime_action, payload)
-        # 工具失败必须以 ReactToolResult(False) 反馈给模型重试（对齐 finish refs
-        # 预检语义）；raise 会穿透无 try/except 的 dispatch_react_tool 覆写杀 run。
+        # 工具失败必须以 ReactToolResult(False) 反馈给模型重试；raise 会穿透无 try/except 的
+        # dispatch_react_tool 覆写杀 run。
         if not ok:
             return ReactToolResult(False, observation, {"error": observation})
-        if action == "memory_read":
-            requested = set(request.ids)
-            found = {str(item["id"]) for item in data["episodes"]}
-            if found != requested:
-                unresolved = sorted(requested - found)
-                detail = (f"memory_read contains unknown episode ids: "
-                          f"{', '.join(unresolved)}")
-                return ReactToolResult(False, detail, {"unknown_ids": unresolved})
-        self._life_visible_refs.update(_episode_ids(data.get("episodes", [])))
-        return ReactToolResult(True, observation, data)
+        episodes = [{key: item.get(key) for key in _MEMORY_RESULT_FIELDS} for item in data.get("episodes", [])]
+        projected = {"epistemic_status": "subjective", "episodes": episodes}
+        return ReactToolResult(True, json.dumps(projected, ensure_ascii=False), projected)
 
 
 def _validate_request(model: type[BaseModel], values: dict[str, Any]) -> BaseModel:
@@ -953,21 +852,25 @@ def _visible_wake_reasons(data: dict[str, Any]) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def _environment_source_ids(data: dict[str, Any]) -> set[str]:
-    """@brief 从当前结构化观察冻结人物实际看见的环境事件身份。"""
-    observation_id = data.get("observation_event_id")
-    if not isinstance(observation_id, str) or not observation_id:
-        raise RuntimeError("LifeAgent observation event identity is unavailable")
-    result_ids = []
-    results = data.get("recent_action_results", [])
-    if not isinstance(results, list):
-        raise RuntimeError("LifeAgent recent action results are invalid")
-    for result in results:
-        event_id = result.get("event_id") if isinstance(result, dict) else None
-        if not isinstance(event_id, str) or not event_id:
-            raise RuntimeError("LifeAgent action result event identity is invalid")
-        result_ids.append(event_id)
-    return {observation_id, *result_ids, *(item["source_event_id"] for item in data["verified_experiences"])}
+def _experience_text(data: dict[str, Any]) -> str:
+    """@brief 已核验经历的句子段（取 facts.experiences，不含任何内部身份）；没有经历时为空串。"""
+    sentences = _facts_projection(data).get("experiences")
+    if not isinstance(sentences, list) or any(not isinstance(item, str) for item in sentences):
+        raise RuntimeError("LifeAgent verified experience sentences are invalid")
+    return "已核验经历：\n" + "\n".join(sentences) if sentences else ""
+
+
+def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """@brief 把 conclude_activity.memories 按 task 展平为本步写入的记忆；其余世界请求不写记忆。
+
+    来源由系统按写入点固定为 activity_conclusion，认知状态固定为 subjective，模型不填、不选任何身份。
+    """
+    if action != "conclude_activity":
+        return []
+    request = _validate_request(ConcludeActivityRequest, args)
+    return [{**memory.model_dump(mode="json"), "source": _CONCLUSION_MEMORY_SOURCE,
+             "epistemic_status": "subjective"}
+            for group in request.memories for memory in group]
 
 
 def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, ...]]:
@@ -998,86 +901,120 @@ def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[str, .
     return objects
 
 
-def _visible_sessions(data: dict[str, Any]) -> dict[str, str]:
-    """@brief 冻结本轮本人会话名称与阶段（facts.progress.sessions）。"""
+def _visible_progress(data: dict[str, Any]) -> tuple[tuple[str, ...], dict[str, str]]:
+    """@brief 冻结本轮进度层（facts.progress.sessions）：会话名称与各活动的名称和阶段。
+
+    :returns: (会话名称, 活动名称→阶段标识)；阶段标识取 active、paused、pending、concluded、ended。
+    """
     progress = _facts_projection(data).get("progress")
     rows = progress.get("sessions") if isinstance(progress, dict) else None
     if not isinstance(rows, list):
         raise RuntimeError("LifeAgent sessions layer must be a list")
-    sessions: dict[str, str] = {}
-    phase_states = {"进行中": "active", "已暂停": "paused", "已结束": "concluded", "已中断": "aborted"}
+    sessions: list[str] = []
+    activities: dict[str, str] = {}
     for row in rows:
-        task_name = row.get("session_name") if isinstance(row, dict) else None
-        phase = row.get("phase") if isinstance(row, dict) else None
-        if not isinstance(task_name, str) or not task_name.strip() or task_name in sessions:
+        name = row.get("name") if isinstance(row, dict) else None
+        items = row.get("activities") if isinstance(row, dict) else None
+        if not isinstance(name, str) or not name.strip() or name in sessions or not isinstance(items, list):
             raise RuntimeError("LifeAgent session identity is invalid")
-        if phase not in phase_states:
-            raise RuntimeError("LifeAgent session status is invalid")
-        sessions[task_name] = phase_states[phase]
-    return sessions
+        sessions.append(name)
+        for item in items:
+            label = item.get("name") if isinstance(item, dict) else None
+            phase = item.get("phase") if isinstance(item, dict) else None
+            if not isinstance(label, str) or not label.strip() or label in activities:
+                raise RuntimeError("LifeAgent activity identity is invalid")
+            if phase not in _ACTIVITY_PHASES:
+                raise RuntimeError("LifeAgent activity phase is invalid")
+            activities[label] = _ACTIVITY_PHASES[phase]
+    return tuple(sessions), activities
+
+
+def _visible_resumable(data: dict[str, Any], paused: tuple[str, ...]) -> tuple[str, ...]:
+    """@brief 此刻能在开始地点恢复的暂停活动名（私有活动绑定的 resumable 标记；受限轮的恢复枚举只列这些）。"""
+    rows = data.get("activity_bindings")
+    if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("name"), str)
+            or not isinstance(row.get("resumable"), bool) for row in rows):
+        raise RuntimeError("LifeAgent activity bindings are invalid")
+    here = {row["name"] for row in rows if row["resumable"]}
+    return tuple(name for name in paused if name in here)
 
 
 def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结当日目标合同及内容、回看工具的可见名称。"""
+    """@brief 冻结当日目标合同、活动控制名称及内容、回看工具的可见名称。"""
     bindings = data["interaction_bindings"]
     tasks = data["task_bindings"]
-    sessions = data["session_bindings"]
     goals = data["goal_bindings"]
-    current = [row for row in sessions if row["status"] in {"active", "paused"}]
-    task_names = [row["task_name"] for row in current]
-    labels = {row["session_name"]: (row["task_name"] if task_names.count(row["task_name"]) == 1
-                                    else row["session_name"]) for row in current}
+    sessions, activities = _visible_progress(data)
+    by_phase = {phase: tuple(name for name, value in activities.items() if value == phase)
+                for phase in ("active", "paused", "pending")}
     return {
         "plan_day": _visible_plan_day_contract(data),
         "revise_day_plan": _visible_revise_plan_contract(data),
         "task_names": tuple(row["task_name"] for row in tasks),
         "recipient_names": tuple(row["object"] for row in bindings
                                  if row["kind"] in {"person", "contact"}),
-        "recall_names": tuple([*(row["task_name"] for row in tasks),
-                               *(row["session_name"] for row in sessions),
-                               *(row["task_name"] for row in goals)]),
-        "reportable_names": tuple(labels[row["session_name"]] for row in current),
-        "resumable_names": tuple(labels[row["session_name"]] for row in current
-                                 if row["status"] == "paused"),
-        "active_task_names": tuple(labels[row["session_name"]] for row in current
-                                   if row["status"] == "active"),
-        "concludable_names": tuple(labels[row["session_name"]] for row in current
-                                   if row["status"] == "active"),
+        "recall_names": tuple([*(row["task_name"] for row in tasks), *(row["task_name"] for row in goals),
+                               *activities, *sessions]),
+        "reportable_names": by_phase["active"] + by_phase["paused"],
+        "resumable_names": _visible_resumable(data, by_phase["paused"]),
+        "pausable_names": by_phase["active"],
+        "concludable_names": by_phase["active"] + by_phase["paused"] + by_phase["pending"],
+        "pending_names": by_phase["pending"],
+        "conclude_all_pending": False,
     }
 
 
-def _visible_same_moment_stage(data: dict[str, Any]) -> str:
-    """@brief 读取观察私有证据中的同刻受限轮阶段；不在收窄表中的取值是损坏的宿主观察。"""
+def _visible_same_moment_stage(data: dict[str, Any]) -> SameMomentStage:
+    """@brief 读取观察私有证据中的同刻受限轮阶段；闭集之外的取值是损坏的宿主观察。"""
     stage = data.get("same_moment_stage")
-    if not isinstance(stage, str) or stage not in _SAME_MOMENT_TOOLS:
+    if not isinstance(stage, str) or stage not in {item.value for item in SameMomentStage}:
         logging.error("LifeAgent same-moment stage is invalid: %r", stage)
         raise RuntimeError("LifeAgent same-moment stage is invalid")
-    return stage
+    return SameMomentStage(stage)
 
 
-def _same_moment_objects(stage: str, objects: dict[str, tuple[str, ...]],
+def _same_moment_objects(stage: SameMomentStage, objects: dict[str, tuple[str, ...]],
                          bindings: list[dict[str, Any]]) -> dict[str, tuple[str, ...]]:
-    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉到店购买与远程下单，wait_only 只留等待。
+    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉受限轮排除的动作（到店购买与远程下单），
+    wait_only 只留等待，不开放 start_activity 的阶段不列对象。
 
     动作短语到内部标准动作的对应取本轮私有绑定；收窄后没有动作的对象不再列出。
     """
-    if stage == "open":
+    if stage == SameMomentStage.OPEN:
         return objects
+    filters = {SameMomentStage.START_OR_RESUME: lambda action: action not in RESTRICTED_EXCLUDED_ACTIONS,
+               SameMomentStage.WAIT_ONLY: lambda action: action == "wait"}
+    wanted = filters.get(stage)
+    if wanted is None:
+        return {}
     canonical = {(row["object"], action["label"]): action["canonical_action"]
                  for row in bindings for action in row["actions"]}
-    wanted = (lambda action: action != "purchase") if stage == "start_or_resume" else (
-        lambda action: action == "wait")
     narrowed = {name: tuple(label for label in labels if wanted(canonical.get((name, label))))
                 for name, labels in objects.items()}
     return {name: labels for name, labels in narrowed.items() if labels}
 
 
-def _same_moment_contracts(stage: str, contracts: dict[str, Any]) -> dict[str, Any]:
-    """@brief 受限轮的会话名称：start_or_resume 只可恢复暂停的活动，wait_only 不开放会话控制。"""
-    if stage == "open":
+def _same_moment_contracts(stage: SameMomentStage, contracts: dict[str, Any]) -> dict[str, Any]:
+    """@brief 受限轮的活动名称枚举（docs/dev/SPEC-time-and-energy.md 第一章规则 3）。
+
+    conclude_pending 只列待收尾活动且须一次点名全部；start_or_resume 只可恢复此刻在开始地点的暂停活动；
+    resume_or_conclude 可恢复这些活动或结束占名额的活动；conclude_only 只可结束占名额的活动；wait_only 不开放活动控制。
+    名称枚举只列当下可执行的活动（第一章规则 3）。
+    """
+    if stage == SameMomentStage.OPEN:
         return contracts
-    resumable = contracts["resumable_names"] if stage == "start_or_resume" else ()
-    return {**contracts, "reportable_names": resumable, "active_task_names": (), "concludable_names": ()}
+    slots = contracts["reportable_names"] + contracts["pending_names"]
+    names = {"reportable_names": (), "pausable_names": (), "concludable_names": (), "conclude_all_pending": False}
+    if stage == SameMomentStage.CONCLUDE_PENDING:
+        names.update(concludable_names=contracts["pending_names"], conclude_all_pending=True)
+    elif stage == SameMomentStage.START_OR_RESUME:
+        names.update(reportable_names=contracts["resumable_names"])
+    elif stage == SameMomentStage.RESUME_OR_CONCLUDE:
+        names.update(reportable_names=contracts["resumable_names"], concludable_names=slots)
+    elif stage == SameMomentStage.CONCLUDE_ONLY:
+        names.update(concludable_names=slots)
+    return {**contracts, **names}
 
 
 def _plan_required_before_other_actions(
@@ -1112,14 +1049,13 @@ def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
 
 
 def _available_action_models(
-    active_sessions: tuple[str, ...],
     contracts: dict[str, Any],
     allowed_tools: frozenset[str] | None,
 ) -> dict[str, type[BaseModel]]:
     """@brief 稳定工具面的可见性规则（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
 
-    start_activity 与 recall_task_summary 永恒可见；三条会话退出通道只在有
-    active 会话时开放；两件登记动作工具按当日目标合同分别开放。同刻上限的受限轮
+    start_activity 与 recall_task_summary 永恒可见；播报在有进行中或暂停的活动时可见，暂停在有进行中活动时
+    可见，结束在有进行中、暂停或待收尾的活动时可见；两件登记动作工具按当日目标合同分别开放。同刻上限的受限轮
     另与该阶段开放的工具求交（allowed_tools 为 None 表示不收窄）。
     """
     names = {"start_activity", "recall_task_summary"}
@@ -1129,7 +1065,7 @@ def _available_action_models(
         names.add("send_message")
     if contracts["reportable_names"]:
         names.add("report_status")
-    if active_sessions:
+    if contracts["pausable_names"]:
         names.add("pause_activity")
     if contracts["concludable_names"]:
         names.add("conclude_activity")
@@ -1139,22 +1075,28 @@ def _available_action_models(
     return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
 
 
+#: 活动控制工具 → 其名称枚举所在的合同键。
+_CONTROL_NAME_KEYS = {"report_status": "reportable_names", "pause_activity": "pausable_names",
+                      "conclude_activity": "concludable_names"}
+
+
 def _validate_prepared_action(
     action: str,
     request: BaseModel,
     objects: dict[str, tuple[str, ...]],
-    active_sessions: tuple[str, ...],
     contracts: dict[str, Any],
 ) -> str:
     """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
     if action == "start_activity":
         return _validate_start_activity(request, objects)
-    if action in _SESSION_CONTROL_TOOLS:
+    if action in _ACTIVITY_CONTROL_TOOLS:
         if not 1 <= len(request.task) <= 2 or len(set(request.task)) != len(request.task):
-            return f"{action} accepts one or two distinct task names"
-        allowed = contracts["reportable_names"] if action == "report_status" else contracts["active_task_names"]
-        if any(name not in allowed for name in request.task):
-            return f"{action} task contains an unavailable session"
+            return f"{action} accepts one or two distinct activity names"
+        if any(name not in contracts[_CONTROL_NAME_KEYS[action]] for name in request.task):
+            return f"{action} task contains an unavailable activity"
+        if (action == "conclude_activity" and contracts["conclude_all_pending"]
+                and set(request.task) != set(contracts["pending_names"])):
+            return "conclude_activity must name every activity that just ended"
         return ""
     if action == "recall_task_summary":
         return "" if request.task_name in contracts["recall_names"] else "task_name is not visible"
@@ -1209,15 +1151,13 @@ def _bind_start_activity_schema(
         properties["actions"]["items"]["enum"] = actions
 
 
-def _bind_session_schemas(schemas: list[dict[str, Any]], active_sessions: tuple[str, ...],
-                          reportable_sessions: tuple[str, ...]) -> None:
-    """@brief 将可读当前任务名称绑定到逐项汇报与暂停工具。"""
+def _bind_control_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
+    """@brief 将本轮可控制的活动名分别绑定到播报、暂停与结束工具的名称枚举。"""
     for item in schemas:
         name = item["function"]["name"]
-        if name in _SESSION_CONTROL_TOOLS:
+        if name in _ACTIVITY_CONTROL_TOOLS:
             properties = item["function"]["parameters"]["properties"]
-            names = reportable_sessions if name == "report_status" else active_sessions
-            properties["task"]["items"]["enum"] = sorted(names)
+            properties["task"]["items"]["enum"] = sorted(contracts[_CONTROL_NAME_KEYS[name]])
 
 
 def _bind_named_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
@@ -1261,17 +1201,6 @@ def _tool_schema(
     }
 
 
-def _bind_finish_reference_ids(
-    schemas: list[dict[str, Any]],
-    reference_ids: set[str],
-) -> None:
-    """@brief 把本轮实际可见来源身份写入 finish 原生 Schema。"""
-    finish = next(item for item in schemas if item["function"]["name"] == "finish")
-    parameters = finish["function"]["parameters"]
-    episode = parameters["properties"]["memories"]["items"]
-    episode["properties"]["refs"]["items"]["enum"] = sorted(reference_ids)
-
-
 def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str:
     """@brief 修订仅包含未推进目标，合并后保持容量和意图唯一性。"""
     if len(goals) + len(progressed_intents) > MAX_PLAN_GOALS:
@@ -1281,19 +1210,6 @@ def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str
         logging.error("Day plan revision resubmits a progressed intent")
         return "revise_day_plan cannot resubmit progressed goals"
     return ""
-
-
-def _episode_ids(episodes: Any) -> set[str]:
-    """@brief 从实际展示的记忆记录提取稳定身份。"""
-    if not isinstance(episodes, list):
-        raise RuntimeError("Visible memory episodes must be a list")
-    ids: set[str] = set()
-    for episode in episodes:
-        episode_id = episode.get("id") if isinstance(episode, dict) else None
-        if not isinstance(episode_id, str) or not episode_id:
-            raise RuntimeError("Visible memory episode identity is unavailable")
-        ids.add(episode_id)
-    return ids
 
 
 def life_prompt_sha256() -> str:

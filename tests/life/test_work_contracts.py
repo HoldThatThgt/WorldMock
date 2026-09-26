@@ -11,7 +11,7 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context
+from tests.life.conftest import activity_name, advance_next, conclude_request, context
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
@@ -66,7 +66,7 @@ def _submission(task) -> SubmitWorkRequest:
 
 
 def _completed_work_state(engine, task, worked: int, effective: float, agent_id: int = 1):
-    """形成已通过真实活动字段表达的完成工作状态供合同纯函数验证。"""
+    """形成已通过真实活动字段表达的完成工作状态供合同纯函数验证；这段工作人物已经收尾（concluded_at）。"""
     state = engine.state.model_copy(deep=True)
     now = int(task.available_at.timestamp()) + worked
     state.current_time = now
@@ -81,7 +81,7 @@ def _completed_work_state(engine, task, worked: int, effective: float, agent_id:
         location_id=task.required_location_id, kind="work",
         status="completed", started_at=now - worked, ended_at=now, planned_end_at=now,
         last_settled_at=now, elapsed_seconds=worked, planned_duration_seconds=worked,
-        effective_work_seconds=effective, target_id=task.task_id,
+        effective_work_seconds=effective, target_id=task.task_id, concluded_at=now,
         origin_action_id=f"work-{agent_id}", origin_decision_id=f"work-decision-{agent_id}",
         origin_request_event_id=f"work-request-{agent_id}")
     state.activities[activity.activity_id] = activity
@@ -262,8 +262,19 @@ def _shared_round(engine, round_id: str, requests: dict[int, tuple[str, object]]
     return ready
 
 
+def _shared_work_control(engine, activity_id: str) -> tuple[str, object]:
+    """按活动名控制本人的工作：进行中就播报，刚结束就当秒收尾，已收尾则等待（规格第七章「活动的生命周期」）。"""
+    activity = engine.state.activities[activity_id]
+    name = activity_name(engine, activity_id)
+    if activity.status == "active":
+        return "report_status", ReportStatusRequest(task=[name], summary=["继续完成工作。"])
+    if activity.concluded_at is None:
+        return "conclude_activity", conclude_request(name, summary="工作做完了。")
+    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+
+
 def _complete_shared_work(engine, task) -> None:
-    """让两个人物通过全部实际反馈边界完成同一任务的最大合同工时。"""
+    """让两个人物通过全部实际反馈边界完成同一任务的最大合同工时，工作结束的那一秒各自收尾。"""
     def start(observed):
         binding = next(row for row in observed["interaction_bindings"]
                        if row["kind"] == "work_task" and row["object_id"] == task.task_id)
@@ -272,20 +283,17 @@ def _complete_shared_work(engine, task) -> None:
     ready = _shared_round(engine, "shared-work", {1: ("start_activity", start),
                                                    2: ("start_activity", start)})
     engine.commit_decision_round("shared-work")
+    work_ids = {agent_id: f"activity-shared-work-{agent_id}" for agent_id in ready}
     feedback = 0
-    while any(engine.state.activities[f"activity-shared-work-{agent_id}"].status == "active"
-              for agent_id in ready):
+    while any(engine.state.activities[item].concluded_at is None for item in work_ids.values()):
         if not engine.scheduling_state().ready_agent_ids:
             advance_next(engine)
             continue
         feedback += 1
-        requests = {agent_id: ("report_status", ReportStatusRequest(
-            task=[next(item.session_name for item in engine.state.sessions.values()
-                       if item.agent_id == agent_id
-                       and f"activity-shared-work-{agent_id}" in item.activity_ids)],
-            summary=["继续完成工作。"])) for agent_id in ready}
+        requests = {agent_id: _shared_work_control(engine, work_ids[agent_id]) for agent_id in ready}
         _shared_round(engine, f"shared-feedback-{feedback}", requests)
         engine.commit_decision_round(f"shared-feedback-{feedback}")
+    assert all(engine.state.activities[item].status == "completed" for item in work_ids.values())
 
 
 @pytest.mark.asyncio

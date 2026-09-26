@@ -305,22 +305,30 @@ def _is_passive_action(tool_name: str, request: Mapping[str, Any]) -> bool:
     return tool_name == "start_activity" and request.get("actions") == ["等待"]
 
 
+#: 只做结束、暂停或修订的控制轮：单列计数，不计入自主或被动（docs/design/07-evaluation.md「2.2 报告项」）。
+_CONTROL_TOOLS = frozenset({"conclude_activity", "pause_activity", "revise_day_plan"})
+
+
 def _autonomous_decision_rate(events: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 计算最终动作既非 continue 也非 wait 的决策占比（报告项）。"""
+    """@brief 计算最终动作既非 continue 也非 wait 的决策占比（报告项）；控制轮单列，不进占比。"""
     decisions = [event for event in events if event.get("event_type") == "decision_started"]
     final = _final_action_by_decision(events)
     decided = [decision for decision in decisions if str(decision.get("decision_id")) in final]
-    autonomous = 0
+    autonomous, control = 0, 0
     for decision in decided:
         action = final[str(decision.get("decision_id"))]
-        request = action.get("data", {}).get("request", {})
-        if not _is_passive_action(str(action.get("data", {}).get("tool_name")), request):
+        tool_name = str(action.get("data", {}).get("tool_name"))
+        if tool_name in _CONTROL_TOOLS:
+            control += 1
+        elif not _is_passive_action(tool_name, action.get("data", {}).get("request", {})):
             autonomous += 1
-    if not decided:
+    counted = len(decided) - control
+    if not counted:
         return {"value": None, "decision_count": len(decisions), "decisions_without_action":
-                len(decisions)}
-    return {"value": autonomous / len(decided), "decision_count": len(decisions),
-            "decisions_with_action": len(decided), "autonomous_decisions": autonomous}
+                len(decisions) - len(decided), "control_decisions": control}
+    return {"value": autonomous / counted, "decision_count": len(decisions),
+            "decisions_with_action": len(decided), "autonomous_decisions": autonomous,
+            "control_decisions": control}
 
 
 def _wake_reason_distribution(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:

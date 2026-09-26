@@ -13,8 +13,9 @@ from tests.integration.test_life_agent_protocol import (
     _Environment,
     _MEMORY_TOOL_NAMES,
     _ModelResponse,
+    _PRIOR_EPISODE,
+    _PRIOR_PROJECTION,
     _context,
-    _finish_args,
     _observations,
     _wire_agent,
 )
@@ -73,17 +74,16 @@ class _ScriptedDispatcher:
 
 
 def _action_response() -> _ModelResponse:
-    """@brief 返回带提供商思考字段的合法生活动作。"""
+    """@brief 返回带提供商思考字段的合法生活动作（世界请求登记即结束本轮）。"""
     return _ModelResponse(
         "provider-action-call", "start_activity",
         '{"targets":["自己"],"actions":["等待"]}',
         reasoning_content="I intend to rest; the outcome is not known yet.")
 
 
-def _finish_response(*, readonly: bool = False) -> _ModelResponse:
-    """@brief 通过真实 finish Schema 结束生活或只读请求。"""
-    args = {"answer": "I remember waiting."} if readonly else _finish_args()
-    return _ModelResponse("provider-finish-call", "finish", json.dumps(args))
+def _finish_response() -> _ModelResponse:
+    """@brief 通过只读 finish Schema 结束只读请求（生活决策没有 finish）。"""
+    return _ModelResponse("provider-finish-call", "finish", json.dumps({"answer": "I remember waiting."}))
 
 
 def _configured(responses: list, max_turns: int = 6) -> tuple:
@@ -102,11 +102,13 @@ def _request(*, readonly: bool = False) -> ReactLoopRequest:
 
 @pytest.mark.asyncio
 async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initial_user() -> None:
-    """@brief 原生后续请求无宿主回执，记忆即时可用、原生配对与思考字段保持。"""
-    memory = lambda identity: _ModelResponse(identity, "memory_recent", '{"limit":1}')
+    """@brief 记忆查询结果即时可用且原生配对、思考字段保持；登记回执与条目身份都不进入发给模型的内容。"""
     agent, environment, dispatcher = _configured([
-        _DecisionStatementResponse(_STATEMENT), memory("memory-before"), _action_response(),
-        memory("memory-after"), _finish_response(),
+        _DecisionStatementResponse(_STATEMENT),
+        _ModelResponse("memory-first", "memory_recent", '{"limit":1}',
+                       reasoning_content="I should recall what I did yesterday."),
+        _ModelResponse("memory-second", "memory_recent", '{"limit":1}'),
+        _action_response(),
     ], 5)
     context = _context()
     agent._decision_context = DecisionContext(
@@ -114,51 +116,50 @@ async def test_followup_requests_hide_receipts_and_keep_memory_pairing_and_initi
         context.agent_id, context.observed_at, context.world_state_version)
     request = _request()
 
-    await agent.run_react_loop(request)
+    assert await agent.run_react_loop(request) == "start_activity registered"
 
     assert len(environment.calls) == 1
+    assert len(dispatcher.requests) == 4
     host_receipt = next(item for item in request.observations if item["action"] == "start_activity")
     assert host_receipt["data"] == {
         "request_sha256": "a" * 64, "status": "submitted",
         "action_id": "private-decision-identity:action:0001",
         "round_id": "private-round-identity", "decision_id": "private-decision-identity"}
     assert json.loads(host_receipt["observation"]) == host_receipt["data"]
-    followup = dispatcher.requests[-1]["messages"]
-    action_tool = next(item for item in followup if item.get("tool_call_id") == "provider-action-call")
+    history = agent._react_messages
+    action_tool = next(item for item in history if item.get("tool_call_id") == "provider-action-call")
     assert json.loads(action_tool["content"]) == {
         "ok": True, "observation": life_agent._ACTION_REGISTRATION_CONFIRMATION, "data": {}}
+    sent = json.dumps([item["messages"] for item in dispatcher.requests] + [history], ensure_ascii=False)
     for forbidden in (
         "request_sha256", "run_id", "round_id", "decision_id", "agent_id", "action_id", "submitted",
         "private-run-identity", "private-round-identity", "private-decision-identity", "a" * 64,
+        _PRIOR_EPISODE["id"],
     ):
-        # 检查完整协议身份，供给差异事实中的 based_on_action_id 说明不是宿主回执泄露。
-        assert re.search(rf"(?<!\w){re.escape(forbidden)}(?!\w)", json.dumps(followup, ensure_ascii=False)) is None
+        # 检查完整协议身份与记忆条目身份；身份前言里的供给差异说明（based_on_action_id）不是宿主回执泄露。
+        assert re.search(rf"(?<!\w){re.escape(forbidden)}(?!\w)", sent) is None
+    followup = dispatcher.requests[-1]["messages"]
     assistant = next(item for item in followup if item.get("reasoning_content"))
-    assert assistant["reasoning_content"] == "I intend to rest; the outcome is not known yet."
-    assert assistant["tool_calls"][0]["id"] == action_tool["tool_call_id"]
+    assert assistant["reasoning_content"] == "I should recall what I did yesterday."
+    assert assistant["tool_calls"][0]["id"] == "memory-first"
     memory_tools = [item for item in followup if item.get("tool_call_id", "").startswith("memory-")]
     assert len(memory_tools) == len(agent._memory_runtime.calls) == 2
-    assert all(json.loads(item["content"])["data"]["episodes"][0]["id"] == "m_prior"
-               for item in memory_tools)
+    assert all(json.loads(item["content"])["data"]["episodes"] == [_PRIOR_PROJECTION] for item in memory_tools)
     users = [item["messages"][1]["content"].encode() for item in dispatcher.requests[1:]]
     assert all(user == users[0] for user in users)
     assert '"tasks"' not in dispatcher.requests[0]["messages"][1]["content"]
     assert all(b'"tasks"' in user for user in users)
-    for index, item in enumerate(dispatcher.requests[1:]):
+    for item in dispatcher.requests[1:]:
         names = {tool["function"]["name"] for tool in item["tools"]}
-        assert ("finish" in names) == (index >= 2)
-        assert not (set(REQUEST_MODELS) & names) if index >= 2 else set(REQUEST_MODELS) & names
-    finish = next(tool["function"] for tool in dispatcher.requests[-1]["tools"]
-                  if tool["function"]["name"] == "finish")
-    assert "Every episode is subjective self-report" in finish["description"]
-    assert "Verified experiences are supplied by the environment" in finish["description"]
+        assert "finish" not in names
+        assert set(REQUEST_MODELS) & names
 
 
 @pytest.mark.asyncio
 async def test_decision_statement_request_explicitly_describes_generation_contract() -> None:
     """@brief 显式自述要求随真实无工具请求发送，边界二百汉字可继续行动。"""
     agent, _, dispatcher = _configured([
-        _DecisionStatementResponse("我" * 200), _action_response(), _finish_response()], 3)
+        _DecisionStatementResponse("我" * 200), _action_response()], 3)
     await agent.run_react_loop(_request())
     request = dispatcher.requests[0]
     assert "tools" not in request and "tool_choice" not in request
@@ -176,9 +177,9 @@ async def test_invalid_decision_statement_retries_once_with_same_context(invalid
     """@brief 空或超长自述消耗真实回合，仅重试一次并保留同一输入。"""
     agent, environment, dispatcher = _configured([
         _DecisionStatementResponse(invalid), _DecisionStatementResponse(_STATEMENT),
-        _action_response(), _finish_response()], 4)
+        _action_response()], 4)
     await agent.run_react_loop(_request())
-    assert len(dispatcher.requests) == agent._model_call_sequence == 4
+    assert len(dispatcher.requests) == agent._model_call_sequence == 3
     assert dispatcher.requests[0] == dispatcher.requests[1]
     assert environment.evidence[1].error is not None
     assert environment.evidence[3].error is None
@@ -197,10 +198,10 @@ async def test_invalid_decision_statement_twice_stops_before_world_action(invali
 
 
 @pytest.mark.asyncio
-async def test_decision_statement_retry_requires_remaining_action_and_finish_turns() -> None:
-    """@brief 协议失败之后，回合不足以完成行动时不再发注定失败的自述请求。"""
-    agent, environment, dispatcher = _configured([_DecisionStatementResponse("")], 3)
-    with pytest.raises(RuntimeError, match="requires 3 model turns but only 2 remain"):
+async def test_decision_statement_retry_requires_remaining_statement_and_action_turns() -> None:
+    """@brief 协议失败之后，剩余回合不够再自述一次并登记世界请求（自述前须剩 2 个回合）时不再发注定失败的请求。"""
+    agent, environment, dispatcher = _configured([_DecisionStatementResponse("")], 2)
+    with pytest.raises(RuntimeError, match="decision_statement requires 2 model turns but only 1 remain"):
         await agent.run_react_loop(_request())
     assert len(dispatcher.requests) == 1
     assert environment.calls == []
@@ -231,15 +232,15 @@ async def test_decision_statement_transport_and_evidence_failures_are_logged_wit
     assert len(dispatcher.requests) == (0 if failure_phase == "request" else 1)
     assert environment.calls == []
     assert errors
-    assert all(not any("\u4e00" <= char <= "\u9fff" for char in str(error)) for error in errors)
+    assert all(not any("一" <= char <= "鿿" for char in str(error)) for error in errors)
 
 
 @pytest.mark.asyncio
 async def test_readonly_loop_uses_only_card_memory_and_question() -> None:
-    """@brief 只读请求跳过自述和观察，查询结果即时返回且不写世界或记忆。"""
+    """@brief 只读请求跳过自述和观察，查询结果即时返回（不带条目身份）且不写世界或记忆。"""
     agent, environment, dispatcher = _configured([
         _ModelResponse("readonly-memory", "memory_recent", '{"limit":1}'),
-        _finish_response(readonly=True)], 2)
+        _finish_response()], 2)
     agent._profile["persona_card"] = "我是一个爱散步的人。"
     result = await agent.run_react_loop(_request(readonly=True))
     assert result == "I remember waiting."
@@ -251,6 +252,7 @@ async def test_readonly_loop_uses_only_card_memory_and_question() -> None:
         _MEMORY_TOOL_NAMES | {"finish"})
     assert {tool["function"]["name"] for tool in dispatcher.requests[1]["tools"]} == {"finish"}
     assert "I waited yesterday." in dispatcher.requests[1]["messages"][-1]["content"]
+    assert _PRIOR_EPISODE["id"] not in dispatcher.requests[1]["messages"][-1]["content"]
     assert environment.calls == environment.memory_updates == []
     assert agent._last_finish_memories is None
 
@@ -260,8 +262,8 @@ async def test_readonly_loop_uses_only_card_memory_and_question() -> None:
 @pytest.mark.parametrize("hanzi", [600, 601])
 async def test_persona_card_budget_applies_to_life_and_readonly_requests(readonly: bool, hanzi: int) -> None:
     """@brief 人物卡上限两种入口相同，等于上限通过、超限时模型零请求。"""
-    responses = [_finish_response(readonly=True)] if readonly else [
-        _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()]
+    responses = [_finish_response()] if readonly else [
+        _DecisionStatementResponse(_STATEMENT), _action_response()]
     agent, environment, dispatcher = _configured(responses, 3)
     agent._profile["persona_card"] = "人" * hanzi
     if hanzi > 600:
@@ -278,8 +280,8 @@ async def test_persona_card_budget_applies_to_life_and_readonly_requests(readonl
 async def test_each_model_entry_preflights_the_complete_token_request(monkeypatch, stage: str) -> None:
     """@brief 自述、行动与只读入口达到窗口八成五时都在发送前报容量故障。"""
     readonly = stage == "readonly"
-    responses = [_finish_response(readonly=True)] if readonly else [
-        _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()]
+    responses = [_finish_response()] if readonly else [
+        _DecisionStatementResponse(_STATEMENT), _action_response()]
     agent, environment, dispatcher = _configured(responses, 3)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
 
@@ -308,7 +310,7 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
                         life_agent._READONLY_INSTRUCTIONS + " context" * 700)
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 100_000)
     monkeypatch.setattr(prompt_capacity, "request_token_count", lambda request: 84_999)
-    agent, _, dispatcher = _configured([_finish_response(readonly=True)], 1)
+    agent, _, dispatcher = _configured([_finish_response()], 1)
     await agent.run_react_loop(_request(readonly=True))
     assert len(dispatcher.requests[0]["messages"][0]["content"]) > 3000
 
@@ -317,7 +319,7 @@ async def test_long_system_message_passes_when_complete_request_is_below_thresho
 async def test_start_activity_schema_uses_readable_target_and_action() -> None:
     """@brief 真实工具 Schema 只暴露可读目标和动作，执行参数由引擎派生。"""
     agent, environment, dispatcher = _configured([
-        _DecisionStatementResponse(_STATEMENT), _action_response(), _finish_response()], 3)
+        _DecisionStatementResponse(_STATEMENT), _action_response()], 3)
     await agent.run_react_loop(_request())
     action_request = dispatcher.requests[1]
     start = next(tool["function"] for tool in action_request["tools"]

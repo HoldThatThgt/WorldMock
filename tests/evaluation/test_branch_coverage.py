@@ -1934,15 +1934,17 @@ def test_game_and_targeted_keys_come_from_actual_activity_data() -> None:
 
 
 def test_control_actions_bind_to_real_activities_and_closed_operations() -> None:
+    """活动控制工具按 task[] 点名活动，结果 data.activity_ids 是逐项对应的扁平活动身份，只绑定导出中的真实活动。"""
+    browsing = "浏览资讯站（1月5日 09:00 起）"
     activity = {"activity_id": "act-1", "activity_type": "browse", "target_id": "content-1",
-                "travel_mode": None, "data": {}}
+                "travel_mode": None, "status": "active", "data": {}}
     missing = _public_event(1, "action_requested",
                             {"tool_name": "report_status",
-                             "request": {"task": ["不存在的会话"], "summary": ["继续。"]}}, "control-1")
+                             "request": {"task": ["不存在的活动"], "summary": ["继续。"]}}, "control-1")
     assert worldmock_public_evidence([missing], [activity], {}) == ()
     invalid = _public_event(1, "action_requested",
                             {"tool_name": "pause_activity",
-                             "request": {"task": ["当前会话"], "summary": ["暂停。"]}},
+                             "request": {"task": [browsing], "summary": ["暂停。"]}},
                             "control-2")
     assert worldmock_public_evidence([invalid], [activity], {}) == ()
     deleted_tool = worldmock_public_evidence(
@@ -1952,41 +1954,67 @@ def test_control_actions_bind_to_real_activities_and_closed_operations() -> None
         [activity], {"browse": "browsing"},
     )
     assert deleted_tool == ()
+    report = _public_event(1, "action_requested",
+                           {"tool_name": "report_status",
+                            "request": {"task": [browsing], "summary": ["继续。"]}}, "control-4")
+    unexported = _public_event(2, "action_result",
+                               {"status": "completed",
+                                "data": {"task": [browsing], "activity_ids": ["act-absent"]}}, "control-4")
+    assert worldmock_public_evidence([report, unexported], [activity], {"browse": "browsing"}) == ()
     evidence = worldmock_public_evidence(
-        [_public_event(1, "action_requested",
-                       {"tool_name": "report_status",
-                        "request": {"task": ["当前会话"], "summary": ["继续。"]}}, "control-4"),
+        [report,
          _public_event(2, "action_result",
-                       {"status": "completed", "data": {"activity_ids": [["act-1"]]}}, "control-4")],
+                       {"status": "completed", "data": {"task": [browsing], "activity_ids": ["act-1"]}},
+                       "control-4")],
         [activity], {"browse": "browsing"},
     )
-    assert [(item.interaction, item.object_type, item.object_key) for item in evidence] == [
-        ("report", "activity", "act-1"), ("report", "activity", "act-1"),
+    assert [(item.interaction, item.state, item.object_type, item.object_key) for item in evidence] == [
+        ("report", "requested", "activity", "act-1"), ("report", "started", "activity", "act-1"),
     ]
 
 
-def test_control_actions_project_each_selected_session_activity() -> None:
+def test_control_actions_project_each_selected_activity() -> None:
+    """一次控制点名两项活动时逐活动投影；结束的公开状态取该活动在导出中的实际终态，而不是按工具名推断。"""
     activities = [
-        {"activity_id": "act-watch", "activity_type": "watch", "target_id": "film-1", "data": {}},
-        {"activity_id": "act-browse", "activity_type": "browse", "target_id": "site-1", "data": {}},
+        {"activity_id": "act-watch", "activity_type": "watch", "target_id": "film-1", "status": "paused",
+         "data": {}},
+        {"activity_id": "act-browse", "activity_type": "browse", "target_id": "site-1", "status": "paused",
+         "data": {}},
     ]
+    names = ["观看电影（1月5日 09:00 起）", "浏览网页（1月5日 09:05 起）"]
     request = _public_event(
         1, "action_requested",
-        {"tool_name": "pause_activity",
-         "request": {"task": ["看电影", "浏览网页"], "summary": ["暂停。", "暂停。"]}},
+        {"tool_name": "pause_activity", "request": {"task": names, "summary": ["暂停。", "暂停。"]}},
         "control-both",
     )
     result = _public_event(
         2, "action_result",
-        {"status": "completed", "data": {"activity_ids": [["act-watch"], ["act-browse"]]}},
+        {"status": "completed", "data": {"task": names, "activity_ids": ["act-watch", "act-browse"]}},
         "control-both",
     )
-    evidence = worldmock_public_evidence(
-        [request, result], activities, {"watch": "entertainment", "browse": "browsing"},
-    )
+    activity_map = {"watch": "entertainment", "browse": "browsing"}
+    evidence = worldmock_public_evidence([request, result], activities, activity_map)
     assert {(item.state, item.object_key) for item in evidence} == {
         ("requested", "act-watch"), ("paused", "act-watch"),
         ("requested", "act-browse"), ("paused", "act-browse"),
+    }
+
+    ended = [{**activities[0], "status": "completed"}, {**activities[1], "status": "cancelled"}]
+    conclude = _public_event(
+        1, "action_requested",
+        {"tool_name": "conclude_activity",
+         "request": {"task": names, "summary": ["看完了。", "不看了。"], "memories": [[], []]}},
+        "conclude-both",
+    )
+    concluded = _public_event(
+        2, "action_result",
+        {"status": "completed", "data": {"task": names, "activity_ids": ["act-watch", "act-browse"]}},
+        "conclude-both",
+    )
+    evidence = worldmock_public_evidence([conclude, concluded], ended, activity_map)
+    assert {(item.interaction, item.state, item.object_key) for item in evidence} == {
+        ("conclude", "requested", "act-watch"), ("conclude", "completed", "act-watch"),
+        ("conclude", "requested", "act-browse"), ("conclude", "cancelled", "act-browse"),
     }
 
 

@@ -1,4 +1,8 @@
-"""同刻决策（docs/dev/SPEC-time-and-energy.md 第一章）：决策不耗时，同一秒再决策、同刻上限与受限轮阶梯。"""
+"""同刻决策（docs/dev/SPEC-time-and-energy.md 第一章）：决策不耗时，同一秒再决策、同刻上限与受限轮阶梯。
+
+第一章规则 3 的收尾与名额三支（conclude_pending、resume_or_conclude、conclude_only）依赖第七章的待收尾与两个名额：
+活动一结束就要当秒收尾，收尾前时钟不推进；两个名额都被暂停活动占着时同一秒再决策。
+"""
 
 from __future__ import annotations
 
@@ -11,16 +15,18 @@ from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
 from tests.life.conftest import (
-    advance_next, advance_until_ready, context, stage_day_plan, start_activity, submit_round, wake_by_mail,
+    activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, pending_names,
+    stage_day_plan, start_activity, submit_round, wake_by_mail,
 )
 from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
-from worldmock.errors import IntegrityError, ProtocolError
+from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import same_moment
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.body import apply_mood_pulse
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
-    ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, PlanDayRequest, PlanGoalInput,
+    ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanDayRequest, PlanGoalInput,
     ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
     active_activities,
 )
@@ -68,12 +74,6 @@ def _stage_agent(engine: LifeEngine, agent_id: int = 1, **updates) -> None:
     engine.state = staged
 
 
-def _session_name(engine: LifeEngine, activity_id: str) -> str:
-    """@brief 读取活动所在会话的可读名称。"""
-    return next(item.session_name for item in engine.state.sessions.values()
-                if activity_id in item.activity_ids)
-
-
 def _decision_reasons(engine: LifeEngine, agent_id: int = 1) -> list[list[str]]:
     """@brief 按写入顺序读取人物每轮 decision_started 的唤醒原因。"""
     return [event.data["wake_reasons"] for event in engine.store.read_agent_events("decision_started", agent_id)]
@@ -88,16 +88,21 @@ def _reach_limit(engine: LifeEngine) -> None:
 
 
 def _finish(engine: LifeEngine, activity_id: str, name: str) -> None:
-    """@brief 经真实边界推进到活动结束；中途的决策机会以播报继续。"""
+    """@brief 经真实边界推进到活动结束（结束后待收尾）；中途的决策机会以播报继续。"""
     for step in range(64):
         if engine.state.activities[activity_id].status != ActivityStatus.ACTIVE:
             return
         if engine.scheduling_state().ready_agent_ids:
             _act(engine, f"{name}-continue-{step}", "report_status", ReportStatusRequest(
-                task=[_session_name(engine, activity_id)], summary=["继续。"]))
+                task=[activity_name(engine, activity_id)], summary=["继续。"]))
         else:
             advance_next(engine)
     pytest.fail("Activity did not end at its declared boundaries")
+
+
+def _rounds_at(engine: LifeEngine, moment: int, agent_id: int = 1) -> int:
+    """@brief 人物在某一模拟秒内写下的决策轮数（decision_started 条数）。"""
+    return [event.occurred_at for event in engine.store.read_agent_events("decision_started", agent_id)].count(moment)
 
 
 def test_run_start_and_instant_action_redecide_in_same_second(engine_factory) -> None:
@@ -122,7 +127,8 @@ def test_run_start_and_instant_action_redecide_in_same_second(engine_factory) ->
 
 
 def test_activity_end_boundary_offers_no_active_activity_and_redecides(engine_factory) -> None:
-    """活动结束的边界兜底 no_active_activity 写入共同身体结算，之后的瞬时动作同秒再决策（规则 2、5）。"""
+    """活动结束的边界兜底 no_active_activity 写入共同身体结算；当秒先给刚结束的活动收尾，之后的瞬时动作同秒再决策
+    （规则 2、5；第七章「活动一结束就要结束它」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "end-wait")
@@ -133,14 +139,17 @@ def test_activity_end_boundary_offers_no_active_activity_and_redecides(engine_fa
     assert settlement.data["interval_end"] == end
     assert {"planned_end", "no_active_activity"} <= set(settlement.data["wake_reasons"])
     assert engine.scheduling_state().ready_agent_ids == (1,)
+    assert conclude_pending(engine, "end-conclude").status == "completed"
+    assert engine.state.activities[waited.activity_id].concluded_at == end
+    assert engine.state.agents[1].next_decision_at == end
     revised = _revise(engine, "end-revise")
     assert revised.status == "completed"
     assert engine.state.agents[1].next_decision_at == end
     _wait(engine, "end-rest")
     assert engine.state.current_time == end
     reasons = _decision_reasons(engine)
-    assert {"planned_end", "no_active_activity"} <= set(reasons[-2])
-    assert reasons[-1] == ["no_active_activity"]
+    assert {"planned_end", "no_active_activity"} <= set(reasons[-3])
+    assert reasons[-2] == reasons[-1] == ["no_active_activity"]
     # 同刻轮次没有结算区间：该秒只有边界那一条共同身体结算，再决策轮的原因只记于 decision_started。
     assert [event.data["interval_end"] for event in engine.store.read_agent_events("environment_event", 1)
             if event.data.get("kind") == "body_settlement"].count(end) == 1
@@ -238,27 +247,28 @@ def test_out_of_bounds_request_is_rejected_and_counted(engine_factory) -> None:
 
 
 def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_factory) -> None:
-    """start_or_resume 接受开始持续活动与恢复暂停活动；点名未暂停会话的播报越界（规则 3）。"""
+    """start_or_resume 接受开始持续活动与恢复暂停活动；点名未暂停活动（已收尾的活动）的播报越界（规则 3）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     first = _wait(engine, "resume-first-wait")
     _finish(engine, first.activity_id, "resume-first")
+    assert conclude_pending(engine, "resume-first-conclude").status == "completed"
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
     ended = _act(engine, "resume-ended-report", "report_status", ReportStatusRequest(
-        task=[_session_name(engine, first.activity_id)], summary=["结束了。"]))
+        task=[activity_name(engine, first.activity_id)], summary=["结束了。"]))
     assert ended.status == "rejected" and ended.error_code == _RESTRICTED
     second = _wait(engine, "resume-second-wait")
     assert second.status == "in_progress"
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
     paused = _act(engine, "resume-pause", "pause_activity", PauseActivityRequest(
-        task=[_session_name(engine, second.activity_id)], summary=["先停一下。"]))
+        task=[activity_name(engine, second.activity_id)], summary=["先停一下。"]))
     assert paused.status == "completed" and not active_activities(engine.state, 1)
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
     resumed = _act(engine, "resume-report", "report_status", ReportStatusRequest(
-        task=[_session_name(engine, second.activity_id)], summary=["继续等。"]))
+        task=[activity_name(engine, second.activity_id)], summary=["继续等。"]))
     assert resumed.status == "completed"
     assert engine.state.activities[second.activity_id].status == ActivityStatus.ACTIVE
     agent = engine.state.agents[1]
@@ -266,9 +276,8 @@ def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_f
     assert agent.next_decision_at > engine.state.current_time
     wake_by_mail(engine, offset=60)
     assert advance_until_ready(engine)
-    session = _session_name(engine, second.activity_id)
-    _act(engine, "resume-conclude", "conclude_activity",
-         ConcludeActivityRequest(task=[session], summary=["不等了。"]))
+    assert _act(engine, "resume-conclude", "conclude_activity", conclude_request(
+        activity_name(engine, second.activity_id), summary="不等了。")).status == "completed"
     _stage_agent(engine, same_moment_rounds=engine.scenario.max_same_moment_decisions,
                  same_moment_stage=SameMomentStage.START_OR_RESUME)
     watched = _act(engine, "resume-watch", "start_activity", start_activity("观看", "内容：Sintel"))
@@ -276,7 +285,8 @@ def test_start_or_resume_accepts_start_and_resume_but_not_other_reports(engine_f
 
 
 def test_feedback_interval_60_bounds_same_second_rounds(tmp_path) -> None:
-    """结算间隔 60 秒时屡次拒绝也不死循环：每人每秒的决策轮数不超过上限加三，运行不失败（规则 3）。"""
+    """结算间隔 60 秒时屡次拒绝也不死循环：每次等待结束先被要求收尾（屡做别的以 ACTIVITY_CONCLUSION_REQUIRED 拒绝），
+    按受限轮开放的动作收尾、再被拒后只开放等待；每人每秒的决策轮数不超过上限加三，运行不失败（规则 3）。"""
     def feedback_60(document: dict) -> None:
         """@brief 等待的计划时长取最小的结算间隔。"""
         document["activity_feedback_seconds"] = 60
@@ -285,22 +295,27 @@ def test_feedback_interval_60_bounds_same_second_rounds(tmp_path) -> None:
     try:
         stage_day_plan(engine)
         limit = engine.scenario.max_same_moment_decisions
-        waits = 0
+        waits, codes = 0, Counter()
         for step in range(200):
             if waits == 4:
                 break
             if not engine.scheduling_state().ready_agent_ids:
                 advance_next(engine)
                 continue
-            if engine.state.agents[1].same_moment_stage == SameMomentStage.WAIT_ONLY:
+            stage = engine.state.agents[1].same_moment_stage
+            if stage == SameMomentStage.CONCLUDE_PENDING:
+                assert conclude_pending(engine, f"f60-conclude-{step}").status == "completed"
+            elif stage == SameMomentStage.WAIT_ONLY:
                 assert _wait(engine, f"f60-wait-{step}").status == "in_progress"
                 waits += 1
             else:
-                _invalid_start(engine, f"f60-reject-{step}")
+                codes[_invalid_start(engine, f"f60-reject-{step}").error_code] += 1
         assert waits == 4
+        # 后三段等待各在结束那一秒先被拒 limit 次（收尾前做别的），之后收尾、开始被拒、等待：恰好上限加三轮。
+        assert codes["ACTIVITY_CONCLUSION_REQUIRED"] == 3 * limit
         rounds = Counter((event.agent_id, event.occurred_at)
                          for event in engine.store.read_agent_events("decision_started", 1))
-        assert len(rounds) >= 4 and max(rounds.values()) <= limit + 3
+        assert len(rounds) >= 4 and max(rounds.values()) == limit + 3
         events = engine.store.read_events(engine.store.last_event_seq)
         assert not any(event.event_type == "run_failed" for event in events)
     finally:
@@ -326,8 +341,20 @@ def test_replay_round_counts_toward_same_moment_rounds(engine_factory) -> None:
     assert len(replayed) == 1
 
 
+def _keep_going(engine: LifeEngine, agent_id: int) -> tuple[str, object]:
+    """@brief 就绪人物的下一请求：先给刚结束的活动收尾，有进行中活动就播报，否则开始等待。"""
+    waiting = pending_conclusions(engine.state, agent_id)
+    if waiting:
+        return "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id) for item in waiting))
+    running = active_activities(engine.state, agent_id)
+    if running:
+        return "report_status", ReportStatusRequest(task=[activity_name(engine, running[0].activity_id)],
+                                                    summary=["继续。"])
+    return "start_activity", start_activity("等待", "自己")
+
+
 def test_clock_advances_only_when_everyone_has_an_active_activity(engine_factory) -> None:
-    """时钟只在人人都有进行中活动时推进；有人同秒就绪时推进是协议错误（规则 1）。"""
+    """时钟只在人人都有进行中活动且没有待收尾活动时推进；有人同秒就绪时推进是协议错误（规则 1）。"""
     engine = engine_factory("multi-person.json")
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
@@ -336,24 +363,23 @@ def test_clock_advances_only_when_everyone_has_an_active_activity(engine_factory
     assert engine.scheduling_state().ready_agent_ids == (2,)
     with pytest.raises(ProtocolError, match="decision is due"):
         advance_next(engine)
-    advances = 0
-    for step in range(1, 40):
-        if advances == 4:
+    advances, pending_rounds = 0, 0
+    for step in range(1, 60):
+        if advances >= 4 and pending_rounds:
             break
         ready = engine.scheduling_state().ready_agent_ids
         if not ready:
-            assert all(active_activities(engine.state, agent_id) for agent_id in engine.state.agents)
+            assert all(active_activities(engine.state, agent_id) and not pending_conclusions(engine.state, agent_id)
+                       for agent_id in engine.state.agents)
             advance_next(engine)
             advances += 1
             continue
-        requests = {}
-        for agent_id in ready:
-            running = active_activities(engine.state, agent_id)
-            requests[agent_id] = (("report_status", ReportStatusRequest(
-                task=[_session_name(engine, running[0].activity_id)], summary=["继续。"]))
-                if running else ("start_activity", start_activity("等待", "自己")))
-        submit_round(engine, requests, f"clock-{step}")
-    assert advances == 4
+        if any(pending_conclusions(engine.state, agent_id) for agent_id in engine.state.agents):
+            pending_rounds += 1  # 待收尾的人物同秒就绪：收尾前时钟不推进
+            with pytest.raises(ProtocolError, match="decision is due"):
+                advance_next(engine)
+        submit_round(engine, {agent_id: _keep_going(engine, agent_id) for agent_id in ready}, f"clock-{step}")
+    assert advances >= 4 and pending_rounds > 0
 
 
 def test_report_with_active_activity_does_not_redecide_in_same_second(engine_factory) -> None:
@@ -365,7 +391,7 @@ def test_report_with_active_activity_does_not_redecide_in_same_second(engine_fac
     assert advance_until_ready(engine)
     now = engine.state.current_time
     reported = _act(engine, "report-continue", "report_status", ReportStatusRequest(
-        task=[_session_name(engine, waited.activity_id)], summary=["还在等。"]))
+        task=[activity_name(engine, waited.activity_id)], summary=["还在等。"]))
     assert reported.status == "completed"
     agent = engine.state.agents[1]
     assert agent.next_decision_at > now and agent.pending_wake_reasons == []
@@ -374,7 +400,7 @@ def test_report_with_active_activity_does_not_redecide_in_same_second(engine_fac
 
 
 def test_wake_reasons_replaced_per_round_single_bedtime_reflection(engine_factory) -> None:
-    """醒来那一秒只有首轮带 wake_from_sleep，之后的同刻轮次按本轮替换原因（规则 6）。"""
+    """醒来那一秒只有首轮（给睡眠收尾）带 wake_from_sleep，之后的同刻轮次按本轮替换原因（规则 6）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     slept = _act(engine, "reflection-sleep", "start_activity", start_activity("睡觉", "自己"))
@@ -384,7 +410,8 @@ def test_wake_reasons_replaced_per_round_single_bedtime_reflection(engine_factor
         advance_next(engine)
     woke = engine.state.current_time
     assert "wake_from_sleep" in engine.state.agents[1].pending_wake_reasons
-    _revise(engine, "reflection-first")
+    assert conclude_pending(engine, "reflection-first").status == "completed"
+    assert engine.state.activities[slept.activity_id].concluded_at == woke
     assert engine.state.agents[1].pending_wake_reasons == ["no_active_activity"]
     _wait(engine, "reflection-second")
     assert engine.state.current_time == woke
@@ -435,7 +462,7 @@ def test_first_decision_includes_reconsideration_candidate(tmp_path) -> None:
         assert later == first + 1200
         assert engine.state.agents[1].pending_wake_reasons == ["reconsideration_interval"]
         _act(engine, "reconsider-report", "report_status", ReportStatusRequest(
-            task=[_session_name(engine, waited.activity_id)], summary=["接着等。"]))
+            task=[activity_name(engine, waited.activity_id)], summary=["接着等。"]))
         assert engine.state.agents[1].next_decision_at == later + 1200
     finally:
         engine.close()
@@ -630,6 +657,299 @@ def _start_enums(agent) -> list[tuple[str, list[str]]]:
     return [(field, properties[field]["items"].get("enum", [])) for field in ("targets", "actions")]
 
 
+def _pick(observed: dict, canonical: str, *, kind: str | None = None, place: str | None = None) -> tuple[str, str]:
+    """@brief 从本轮冻结观察取一个对象名与动作短语（出行取步行）。"""
+    return next((row["object"], action["label"]) for row in observed["interaction_bindings"]
+                if (kind is None or row["kind"] == kind) and (place is None or row["object_id"] == place)
+                for action in row["actions"] if action["canonical_action"] == canonical
+                and action.get("travel_mode") in (None, "walking"))
+
+
+def _start(engine: LifeEngine, name: str, *choices: tuple[str, str]) -> list[str]:
+    """@brief 以可读对象与动作短语开始一到两项活动，返回开始的活动身份（按请求顺序）。"""
+    started = _act(engine, name, "start_activity", StartActivityRequest(
+        targets=[item[0] for item in choices], actions=[item[1] for item in choices]))
+    assert started.status == "in_progress", started.error_code
+    return [started.activity_id] if started.activity_id else [row["activity_id"] for row in started.data["activities"]]
+
+
+def _depart(engine: LifeEngine, name: str, *companions: tuple[str, str]) -> list[str]:
+    """@brief 步行去办公室，可在同一请求中一并开始路上的其他活动；返回活动身份（出行在前）。"""
+    route = _pick(engine.observe(context(engine, f"{name}-preview")), "travel_to", place="office")
+    return _start(engine, name, route, *companions)
+
+
+def _content(engine: LifeEngine, name: str) -> tuple[str, str]:
+    """@brief 本轮可以观看的一项内容（对象名与动作短语）。"""
+    return _pick(engine.observe(context(engine, f"{name}-content")), "watch", kind="content")
+
+
+def _other_requests() -> tuple[tuple[str, object], ...]:
+    """@brief 两种「做别的」：开始等待与修订当日目标。"""
+    return (("start_activity", start_activity("等待", "自己")),
+            ("revise_day_plan", ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),))))
+
+
+def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three(engine_factory) -> None:
+    """到达当秒出行与路上的观看都刚结束：做别的屡次以 ACTIVITY_CONCLUSION_REQUIRED 拒绝并点名，收尾前时钟不推进；
+    达到上限后只开放收尾（conclude_pending），只点名一部分待收尾活动以 SAME_MOMENT_ACTION_RESTRICTED 拒绝；
+    按受限轮开放的动作走完，同一秒的轮数不超过上限加三（第一章规则 1–3，第七章「活动一结束就要结束它」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    travel_id, watch_id = _depart(engine, "pending-depart", _content(engine, "pending-depart"))
+    _finish(engine, travel_id, "pending-walk")
+    arrived, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    names = [activity_name(engine, travel_id), activity_name(engine, watch_id)]
+    assert pending_names(engine.observe(context(engine, "pending-preview"))) == names
+    for index in range(1, limit + 1):
+        rejected = _act(engine, f"pending-other-{index}", *_other_requests()[index % 2])
+        assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_CONCLUSION_REQUIRED"
+        assert all(name in rejected.message for name in names)
+        agent = engine.state.agents[1]
+        assert (agent.same_moment_rounds, agent.next_decision_at, engine.state.current_time) == (
+            index, arrived, arrived)
+        with pytest.raises(ProtocolError, match="decision is due"):
+            advance_next(engine)
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    assert engine.observe(context(engine, "pending-stage"))["same_moment_stage"] == "conclude_pending"
+    assert same_moment.STAGE_TOOLS[SameMomentStage.CONCLUDE_PENDING] == {"conclude_activity"}
+    partial = _act(engine, "pending-partial", "conclude_activity", conclude_request(names[0]))
+    assert partial.status == "rejected" and partial.error_code == _RESTRICTED
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    assert [item.activity_id for item in pending_conclusions(engine.state, 1)] == [travel_id, watch_id]
+    assert _act(engine, "pending-all", "conclude_activity", conclude_request(*names)).status == "completed"
+    assert all(engine.state.activities[key].concluded_at == arrived for key in (travel_id, watch_id))
+    agent = engine.state.agents[1]
+    assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME and agent.next_decision_at == arrived
+    assert _wait(engine, "pending-wait").status == "in_progress"
+    assert engine.state.agents[1].same_moment_rounds == _rounds_at(engine, arrived) == limit + 3
+    advance_next(engine)
+    agent = engine.state.agents[1]
+    assert engine.state.current_time > arrived
+    assert (agent.same_moment_rounds, agent.same_moment_stage) == (0, SameMomentStage.OPEN)
+
+
+def test_conclude_pending_stage_accepts_only_concluding_every_pending_activity(engine_factory) -> None:
+    """conclude_pending 只接受一次点名全部待收尾活动的 conclude_activity：开始、播报与修订计划都以
+    SAME_MOMENT_ACTION_RESTRICTED 拒绝（受限轮复核先于收尾要求），计入同刻轮数，阶段不变，时钟不推进（第一章规则 3）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited = _wait(engine, "only-conclude-wait")
+    _finish(engine, waited.activity_id, "only-conclude")
+    now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    name = activity_name(engine, waited.activity_id)
+    _stage_agent(engine, same_moment_rounds=limit, same_moment_stage=SameMomentStage.CONCLUDE_PENDING)
+    requests = (*_other_requests(), ("report_status", ReportStatusRequest(task=[name], summary=["等完了。"])))
+    for index, (tool, request) in enumerate(requests, start=1):
+        result = _act(engine, f"only-conclude-{index}", tool, request)
+        assert result.status == "rejected" and result.error_code == _RESTRICTED
+        agent = engine.state.agents[1]
+        assert agent.same_moment_rounds == limit + index
+        assert agent.same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+        assert agent.next_decision_at == now == engine.state.current_time
+    assert engine.state.activities[waited.activity_id].concluded_at is None
+    assert _act(engine, "only-conclude-all", "conclude_activity", conclude_request(name)).status == "completed"
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.START_OR_RESUME
+
+
+def _two_paused(engine: LifeEngine, name: str) -> tuple[str, str, int]:
+    """@brief 同一请求开始等待与观看，一分钟后同时暂停两项：两个名额都被暂停活动占着；返回两项身份与当时时刻。"""
+    first, second = _start(engine, f"{name}-start", ("自己", "等待"), _content(engine, name))
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    paused = _act(engine, f"{name}-pause", "pause_activity", PauseActivityRequest(
+        task=[activity_name(engine, first), activity_name(engine, second)], summary=["先停一下。", "也停。"]))
+    assert paused.status == "completed" and not active_activities(engine.state, 1)
+    agent = engine.state.agents[1]
+    assert agent.next_decision_at == engine.state.current_time
+    assert agent.pending_wake_reasons == ["no_active_activity"]
+    return first, second, engine.state.current_time
+
+
+def _blocked_until_limit(engine: LifeEngine, name: str) -> None:
+    """@brief 名额满时开始新活动以 SESSION_LIMIT_EXCEEDED 拒绝，同一秒反复直到达到同刻上限，进入 resume_or_conclude。"""
+    while engine.state.agents[1].same_moment_rounds < engine.scenario.max_same_moment_decisions:
+        blocked = _wait(engine, f"{name}-blocked-{engine.state.agents[1].same_moment_rounds}")
+        assert blocked.status == "rejected" and blocked.error_code == "SESSION_LIMIT_EXCEEDED"
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.RESUME_OR_CONCLUDE
+    assert engine.observe(context(engine, f"{name}-stage"))["same_moment_stage"] == "resume_or_conclude"
+
+
+@pytest.mark.parametrize("first_move", ["resume", "conclude"])
+def test_both_slots_paused_open_resume_or_conclude(engine_factory, first_move) -> None:
+    """两个名额都被暂停活动占着：没有进行中活动，同一秒再决策；达到上限后只开放恢复或结束（resume_or_conclude）。
+    恢复其一即有进行中活动，时钟可推进；结束其一只释放名额，同一秒继续决策并转入 start_or_resume，恢复另一项后
+    时钟推进；同一秒的轮数不超过上限加三（第一章规则 2、3，第七章「两项都暂停时」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    first, second, now = _two_paused(engine, "ladder")
+    limit = engine.scenario.max_same_moment_decisions
+    _blocked_until_limit(engine, "ladder")
+    assert same_moment.STAGE_TOOLS[SameMomentStage.RESUME_OR_CONCLUDE] == {"report_status", "conclude_activity"}
+    if first_move == "conclude":
+        ended = _act(engine, "ladder-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
+        assert ended.status == "completed"
+        assert engine.state.activities[first].status == ActivityStatus.CANCELLED
+        agent = engine.state.agents[1]
+        assert (agent.same_moment_stage, agent.next_decision_at, engine.state.current_time) == (
+            SameMomentStage.START_OR_RESUME, now, now)
+        assert agent.pending_wake_reasons == ["no_active_activity"]
+    resumed = _act(engine, "ladder-resume", "report_status", ReportStatusRequest(
+        task=[activity_name(engine, second)], summary=["接着看。"]))
+    assert resumed.status == "completed"
+    assert engine.state.activities[second].status == ActivityStatus.ACTIVE
+    agent = engine.state.agents[1]
+    assert agent.next_decision_at > now and agent.pending_wake_reasons == []
+    expected = limit + (2 if first_move == "conclude" else 1)
+    assert agent.same_moment_rounds == _rounds_at(engine, now) == expected <= limit + 3
+    advance_next(engine)
+    assert engine.state.current_time > now
+
+
+def test_other_request_in_resume_or_conclude_narrows_to_conclude_only_then_wait_only(engine_factory) -> None:
+    """resume_or_conclude 中开始新活动越界（SAME_MOMENT_ACTION_RESTRICTED）；名额仍满，下一轮只开放结束（conclude_only），
+    结束一项后只开放等待（wait_only）；等待被受理，另一项仍暂停，同一秒的轮数恰为上限加三（第一章规则 3）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    first, second, now = _two_paused(engine, "narrow")
+    limit = engine.scenario.max_same_moment_decisions
+    _blocked_until_limit(engine, "narrow")
+    outside = _wait(engine, "narrow-outside")
+    assert outside.status == "rejected" and outside.error_code == _RESTRICTED
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_ONLY
+    assert engine.observe(context(engine, "narrow-stage"))["same_moment_stage"] == "conclude_only"
+    ended = _act(engine, "narrow-conclude", "conclude_activity", conclude_request(activity_name(engine, first)))
+    assert ended.status == "completed"
+    agent = engine.state.agents[1]
+    assert agent.same_moment_stage == SameMomentStage.WAIT_ONLY and agent.next_decision_at == now
+    assert _wait(engine, "narrow-wait").status == "in_progress"
+    assert engine.state.activities[second].status == ActivityStatus.PAUSED
+    agent = engine.state.agents[1]
+    assert agent.next_decision_at > now
+    assert agent.same_moment_rounds == _rounds_at(engine, now) == limit + 3
+    advance_next(engine)
+    assert engine.state.current_time > now
+
+
+def test_rejected_resume_with_full_slots_opens_conclude_only_then_wait_only(engine_factory) -> None:
+    """两个名额都被暂停活动占着，在开始地点以外恢复被拒（ACTIVITY_PRECONDITION_UNMET）：下一受限轮先只开放结束，
+    在别处结束那项暂停活动后只开放等待；同一秒的轮数恰为上限加三（第一章规则 3「上一受限轮的开始或恢复被拒绝时」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    (home,) = _start(engine, "away-home-wait", ("自己", "等待"))
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    home_name = activity_name(engine, home)
+    assert _act(engine, "away-pause-home", "pause_activity", PauseActivityRequest(
+        task=[home_name], summary=["先出门。"])).status == "completed"
+    (travel,) = _depart(engine, "away-depart")
+    _finish(engine, travel, "away-walk")
+    assert conclude_pending(engine, "away-arrive").status == "completed"
+    (office,) = _start(engine, "away-office-wait", ("自己", "等待"))
+    wake_by_mail(engine, offset=60)
+    assert advance_until_ready(engine)
+    now, limit = engine.state.current_time, engine.scenario.max_same_moment_decisions
+    assert _act(engine, "away-pause-office", "pause_activity", PauseActivityRequest(
+        task=[activity_name(engine, office)], summary=["停一下。"])).status == "completed"
+    _blocked_until_limit(engine, "away")
+    elsewhere = _act(engine, "away-resume-home", "report_status", ReportStatusRequest(
+        task=[home_name], summary=["想接着等。"]))
+    assert elsewhere.status == "rejected" and elsewhere.error_code == "ACTIVITY_PRECONDITION_UNMET"
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_ONLY
+    ended = _act(engine, "away-conclude-home", "conclude_activity", conclude_request(home_name))
+    assert ended.status == "completed" and engine.state.activities[home].concluded_at == now
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.WAIT_ONLY
+    assert _wait(engine, "away-wait").status == "in_progress"
+    assert engine.state.agents[1].same_moment_rounds == _rounds_at(engine, now) == limit + 3
+    advance_next(engine)
+    assert engine.state.current_time > now
+
+
+def _unit_activity(key: str, status: ActivityStatus, *, concluded: bool = False) -> ActivityState:
+    """@brief 受限轮复核用的最小活动；终态在 1900 秒结束，concluded 表示已收尾。"""
+    running = status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}
+    return ActivityState(
+        activity_id=key, agent_id=1, location_id="home", kind=ActivityKind.WAIT, status=status, started_at=1000,
+        ended_at=None if running else 1900, planned_end_at=1900, last_settled_at=1000 if running else 1900,
+        elapsed_seconds=0 if running else 900, planned_duration_seconds=900, origin_action_id=f"action-{key}",
+        origin_decision_id="decision", origin_request_event_id="event", concluded_at=1900 if concluded else None)
+
+
+#: 受限轮各阶段开放的请求类（第一章规则 3）：收尾一支只收一次点名全部待收尾活动的结束，名额满只开放恢复或结束，
+#: 被拒后只开放结束，有空名额开始或恢复（等待始终可选），最后只开放等待。
+_STAGE_OPENS = {
+    SameMomentStage.CONCLUDE_PENDING: {"conclude_pending"},
+    SameMomentStage.RESUME_OR_CONCLUDE: {"resume", "conclude", "conclude_pending"},
+    SameMomentStage.CONCLUDE_ONLY: {"conclude", "conclude_pending"},
+    SameMomentStage.START_OR_RESUME: {"start", "resume", "wait"},
+    SameMomentStage.WAIT_ONLY: {"wait"},
+}
+
+
+def test_restricted_conclusions_endings_and_waits_pass_the_stage_check() -> None:
+    """受限轮复核的收尾与名额分支：一次点名全部待收尾活动记 conclude_pending，结束占名额的活动（含只点名一部分待收尾
+    活动）记 conclude；resume_or_conclude 与 conclude_only 都接受二者，conclude_pending 只接受前者，所以受限轮的收尾、
+    结束与等待不会被业务拒绝（第一章规则 3）。"""
+    just_ended, road = _unit_activity("a", ActivityStatus.COMPLETED), _unit_activity("b", ActivityStatus.CANCELLED)
+    paused, running = _unit_activity("p", ActivityStatus.PAUSED), _unit_activity("x", ActivityStatus.ACTIVE)
+    done, pending, none = _unit_activity("d", ActivityStatus.COMPLETED, concluded=True), frozenset("ab"), frozenset()
+    cases = [
+        (("conclude_activity", [], [just_ended, road], pending), "conclude_pending"),
+        (("conclude_activity", [], [just_ended], pending), "conclude"),
+        (("conclude_activity", [], [paused, running], none), "conclude"),
+        (("conclude_activity", [], [done], none), "other"),
+        (("report_status", [], [paused], none), "resume"),
+        (("report_status", [], [paused, running], none), "other"),
+        (("start_activity", ["wait"], [], none), "wait"),
+        (("start_activity", ["wait", "watch"], [], none), "start"),
+        (("start_activity", ["purchase"], [], none), "other"),
+        (("send_message", [], [], none), "other"),
+    ]
+    for arguments, expected in cases:
+        assert same_moment.request_kind(*arguments) == expected
+    for stage, opened in _STAGE_OPENS.items():
+        for arguments, kind in cases:
+            if kind in opened:
+                same_moment.require_stage_action(stage, same_moment.request_kind(*arguments))
+            else:
+                with pytest.raises(BusinessRuleError, match=_RESTRICTED):
+                    same_moment.require_stage_action(stage, same_moment.request_kind(*arguments))
+    assert same_moment.STAGE_TOOLS[SameMomentStage.RESUME_OR_CONCLUDE] == {"report_status", "conclude_activity"}
+    assert (same_moment.STAGE_TOOLS[SameMomentStage.CONCLUDE_ONLY]
+            == same_moment.STAGE_TOOLS[SameMomentStage.CONCLUDE_PENDING] == {"conclude_activity"})
+
+
+def test_conclusion_and_slot_branches_of_the_ladder() -> None:
+    """受限轮阶梯的收尾与名额分支（第一章规则 3）：有待收尾即从收尾一支开始（含交谈对方在同一秒结束造成的新待收尾），
+    收尾后按名额分流；名额满时恢复或结束，开始或恢复被拒后只开放结束，结束后只开放等待；有进行中活动时阶段不变；
+    有待收尾时同一秒再决策，不按决策节律。"""
+    open_, pending_stage = SameMomentStage.OPEN, SameMomentStage.CONCLUDE_PENDING
+    resume_or_conclude, start_or_resume = SameMomentStage.RESUME_OR_CONCLUDE, SameMomentStage.START_OR_RESUME
+    ladder = [
+        (open_, 2, {"pending": True}, open_),
+        (open_, 3, {"pending": True}, pending_stage),
+        (SameMomentStage.WAIT_ONLY, 5, {"pending": True, "active": True}, pending_stage),
+        (pending_stage, 4, {}, start_or_resume),
+        (pending_stage, 4, {"slots_full": True}, resume_or_conclude),
+        (open_, 3, {"slots_full": True}, resume_or_conclude),
+        (resume_or_conclude, 4, {}, start_or_resume),
+        (resume_or_conclude, 4, {"slots_full": True}, SameMomentStage.CONCLUDE_ONLY),
+        (start_or_resume, 4, {"slots_full": True}, SameMomentStage.CONCLUDE_ONLY),
+        (SameMomentStage.CONCLUDE_ONLY, 5, {}, SameMomentStage.WAIT_ONLY),
+        (resume_or_conclude, 4, {"active": True}, resume_or_conclude),
+    ]
+    for stage, rounds, flags, expected in ladder:
+        agent = AgentState.model_construct(same_moment_rounds=rounds, same_moment_stage=stage)
+        outcome = same_moment.RoundOutcome(now=100, agent=agent, active=flags.get("active", False), rejected=False,
+                                           limit=3, pending=flags.get("pending", False),
+                                           slots_full=flags.get("slots_full", False))
+        assert same_moment.next_stage(outcome) == expected, (stage, rounds, flags)
+    agent = AgentState.model_construct(same_moment_rounds=1, same_moment_stage=open_)
+    waiting = same_moment.RoundOutcome(now=100, agent=agent, active=True, rejected=False, limit=3, pending=True)
+    assert same_moment.schedule_after_round(waiting, lambda: pytest.fail("pending conclusion must redecide now")) == (
+        100, [], open_)
+
+
 def _person_name(engine: LifeEngine, observer: int, target: int) -> str:
     """@brief 读取 observer 在同一地点看到的另一位人物的可读名称。"""
     observed = engine.observe(context(engine, f"person-{observer}-{target}-{engine.state.version}", observer))
@@ -655,14 +975,14 @@ def _message_to(engine: LifeEngine, target: int, text: str) -> tuple[str, SendMe
     return "send_message", SendMessageActionRequest(recipient_name=_person_name(engine, 1, target), text=text)
 
 
-def _running_session(engine: LifeEngine, agent_id: int) -> str:
-    """@brief 人物唯一进行中活动所在会话的可读名称。"""
-    return _session_name(engine, active_activities(engine.state, agent_id)[0].activity_id)
+def _running_name(engine: LifeEngine, agent_id: int) -> str:
+    """@brief 人物唯一进行中活动的可读名称。"""
+    return activity_name(engine, active_activities(engine.state, agent_id)[0].activity_id)
 
 
-def _end_wait(engine: LifeEngine, agent_id: int) -> tuple[str, ConcludeActivityRequest]:
+def _end_wait(engine: LifeEngine, agent_id: int) -> tuple[str, object]:
     """@brief 结束人物正在进行的等待（瞬时动作：没有进行中活动时同一秒再决策，才看得到可交谈的同伴）。"""
-    return "conclude_activity", ConcludeActivityRequest(task=[_running_session(engine, agent_id)], summary=["不等了。"])
+    return "conclude_activity", conclude_request(_running_name(engine, agent_id), summary="不等了。")
 
 
 def test_awake_recipient_gets_same_second_opportunity(engine_factory) -> None:
@@ -681,7 +1001,7 @@ def test_awake_recipient_gets_same_second_opportunity(engine_factory) -> None:
     assert recipient.next_decision_at == now and recipient.pending_wake_reasons == ["message_arrival"]
     assert recipient.same_moment_rounds == 0 and sorted(engine.scheduling_state().ready_agent_ids) == [1, 2]
     assert message_id in recipient.inbox and message_id not in recipient.read_inbox_ids
-    report = ReportStatusRequest(task=[_running_session(engine, 2)], summary=["看到消息了。"])
+    report = ReportStatusRequest(task=[_running_name(engine, 2)], summary=["看到消息了。"])
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
                  "person-read")
     assert _decision_reasons(engine, 2)[-1] == ["message_arrival"]
@@ -752,6 +1072,51 @@ def test_restricted_round_does_not_use_up_message_opportunity(engine_factory) ->
     advance_next(engine)
     recipient = engine.state.agents[2]
     assert engine.state.current_time == now + 45 and 2 in engine.scheduling_state().ready_agent_ids
+    assert "message_arrival" in recipient.pending_wake_reasons and message_id in recipient.read_inbox_ids
+
+
+def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factory) -> None:
+    """有待收尾活动的轮次只能收尾、回应不了消息：收件人在这一轮看到同秒早先送达的消息也不记已读；收尾后另一项活动
+    仍在进行、按决策节律排期，下一边界照常以 message_arrival 提供机会（第一章「人物之间的消息」，第七章「活动一结束
+    就要结束它」）。"""
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    target, action = _content(engine, "unread-content")
+    both = StartActivityRequest(targets=["自己", target], actions=["等待", action])
+    submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))},
+                 "unread-start")
+    watch = next(item for item in active_activities(engine.state, 1) if item.kind == ActivityKind.WATCH)
+    staged = engine.state.model_copy(deep=True)
+    ends = staged.current_time + 300
+    staged.activities[watch.activity_id] = watch.model_copy(
+        update={"planned_end_at": ends, "planned_duration_seconds": 300}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time,
+        visibility="system", data={"kind": "test_same_moment_staged"})])
+    engine.state = staged
+    wake_by_mail(engine, agent_id=2, offset=300)
+    assert advance_until_ready(engine) and engine.state.current_time == ends
+    assert sorted(engine.scheduling_state().ready_agent_ids) == [1, 2]
+    other = ("start_activity", start_activity("等待", "自己"))
+    _, freed = submit_round(engine, {1: other, 2: _end_wait(engine, 2)}, "unread-free")
+    sender = SendMessageActionRequest(recipient_name=_person_name(engine, 2, 1), text="看到回我")
+    _, sent = submit_round(engine, {1: other, 2: ("send_message", sender)}, "unread-send")
+    assert [item.error_code for item in freed + sent if item.agent_id == 1] == ["ACTIVITY_CONCLUSION_REQUIRED"] * 2
+    message_id = next(item.data["message_id"] for item in sent if item.agent_id == 2)
+    recipient = engine.state.agents[1]
+    assert message_id in recipient.inbox and message_id not in recipient.read_inbox_ids
+    assert recipient.next_decision_at == ends and recipient.same_moment_rounds == 2
+    conclude = conclude_request(activity_name(engine, watch.activity_id))
+    _, last = submit_round(engine, {1: ("conclude_activity", conclude), 2: other}, "unread-conclude")
+    assert all(item.status in {"completed", "in_progress"} for item in last) and active_activities(engine.state, 1)
+    recipient = engine.state.agents[1]
+    assert recipient.next_decision_at > ends and message_id not in recipient.read_inbox_ids
+    wake_by_mail(engine, agent_id=2, offset=45)
+    advance_next(engine)
+    recipient = engine.state.agents[1]
+    assert engine.state.current_time == ends + 45 and 1 in engine.scheduling_state().ready_agent_ids
     assert "message_arrival" in recipient.pending_wake_reasons and message_id in recipient.read_inbox_ids
 
 
@@ -873,9 +1238,9 @@ def test_browse_results_stay_pinned_in_later_same_second_rounds(engine_factory) 
     engine.record_model_exchange(ModelCallEvidence(decision, "pin-call", "request", 1, request))
     engine.record_model_exchange(ModelCallEvidence(decision, "pin-call", "response", 1, request,
                                                    response={"choices": []}))
-    engine.submit_action(DirectToolCall(decision, "action-pin-first", "conclude_activity", ConcludeActivityRequest(
-        task=[_session_name(engine, browse.activity_id)], summary=["看完了。"])))
-    engine.commit_decision_round("pin-first")
+    engine.submit_action(DirectToolCall(decision, "action-pin-first", "conclude_activity", conclude_request(
+        activity_name(engine, browse.activity_id), summary="看完了。")))
+    assert engine.commit_decision_round("pin-first")[0].status == "completed"
     assert not any("browse_result" in row["result"]["data"] for row in engine._recent_action_results(1))
     second, _ = _observed_act(engine, "pin-second", "start_activity", start_activity("等待", "自己"))
     assert _supply_order(second) == order

@@ -189,6 +189,8 @@ EventType = Literal[
 ]
 ```
 
+闭集不变。活动的结束、暂停与恢复复用 `environment_event`，以 `data.kind` 区分（取值登记在下表 `environment_event` 行）。
+
 #### 事件正文与资源证据
 
 `data` 承载具体事件的结构化正文；`artifact_refs` 指向较大或需要保留原始字节的素材。
@@ -203,8 +205,8 @@ EventType = Literal[
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
 | `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
-| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因 |
-| `memory_updated` | 实际记忆写入或视图刷新、来源截止与文件哈希；写盘失败不宣称完成 |
+| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动 |
+| `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
 
@@ -294,13 +296,16 @@ EventType = Literal[
 | `operation` | `append_episodes` 或 `refresh_summary`；追加时有新建或合并身份，纯视图刷新时无身份且文件内容确有变化 |
 | `created_episode_ids`、`merged_episode_ids` | 本次新建及相似合并的稳定身份；两组互斥且各自不重复 |
 | `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective` |
-| `observation_event_id` | 本次决策中实际交付给该人物的观察身份 |
-| `verified_event_ids` | 本轮事实窗口的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
+| `observation_event_id` | 本轮观察：本次决策中实际交付给该人物的观察身份 |
+| `verified_event_ids` | 系统登记的来源：本轮事实窗口的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
+| `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
+| `decision_id` | 本步所属决策，与事件顶层一致 |
 | `memory_before_sha256`、`memory_sha256` | 写入前和写入后 `MEMORY.md` 的内容身份 |
 | `episodes_sha256`、`state_sha256` | 写入后主观条目文件和记忆状态文件的内容身份 |
 | `consolidated` | 该步是否实际执行主观巩固，不代表已核验事实发生变化 |
 
-记录入口与质量重算均要求来源身份集合与该观察可见的事实窗口严格相等。
+结束活动的来源另记于该 `conclude_activity` 的 `action_result.data.memory_sources`（`[{task, activity_id, session_id, verified_event_ids}]`，私有，不进提示）。
+记录入口与质量重算均要求来源身份集合与该观察可见的事实窗口严格相等，并按 `trigger` 中的每个写入点分别核对来源：`activity_conclusion` 对应同一决策已登记的 `conclude_activity`，`reflection` 对应醒来那一轮的观察。
 来源身份重复、越窗、跨人物或把人物自述快照写成客观状态均不能作为合法记忆更新导出。
 
 事件全序与状态关联的验收见[一致性保存与校验的验收](#一致性保存与校验的验收)，原始素材留证见[保存与关联证据的验收](#保存与关联证据的验收)。
@@ -566,6 +571,9 @@ flowchart TD
 检查点封存的世界状态必须包含每个人物的同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`：
 受限轮阶段依赖上一受限轮的结果，从检查点恢复后在同一秒按原阶段继续；还须包含按人物暂存的本秒呈现留痕
 （`same_moment_presentation`），同一秒恢复后沿用该秒首轮的呈现窗口与置顶的浏览结果。
+检查点还须封存地点会话与名额所依赖的状态：`WorldState.sessions`（每段地点停留或路上的会话及其活动），以及活动的
+`concluded_at`、`report_anchor_at`、`session_ids`、`name` 与从会话移来的任务关联和自述；待收尾的活动（终态且
+`concluded_at` 为空）从检查点恢复后仍占名额，人物在同一秒照常收尾。
 
 数据库记录是检查点提交的唯一依据。记录存在、状态一致、所有参与者齐备且引用均可验证，才算完整检查点。
 独立 JSON 或 `SOCIETY_STEP.json` 写成功不能证明共同检查点完成。
@@ -755,6 +763,12 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 当前报告按 `event_range`、`run_outcome`、`actions`、`activities`、`content_contact`、
 `conversion_efficiency`、`decision_rhythm`、`memory_references`、`model_usage`、`acceleration` 分组，
 统计从事实事件计算，不能简单把受理次数当作完成次数。
+`memory_references` 分组保留名称，内容按 `memory_updated.data.trigger` 中的每个写入点核对系统登记的来源（收尾与反思
+同在一步时两项都核对；`write_points_checked` 为核对的写入点总数）：`activity_conclusion` 对应同一决策已登记的
+`conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指带非空
+`memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
+`trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_source` 指 `memory_updated` 的某个写入点
+找不到对应登记（写入了条目却没有写入点同样计入）。记忆不再带模型填写的引用，不核对条目身份引用。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 
@@ -873,4 +887,5 @@ flowchart LR
 | `2026-09-24-time-and-energy` | 2026-09-24 | 对齐时间与能量特性规格：必须保存的内容增零点计划后台任务与同一秒内的轮序；列出 `decision_started` 的字段与同刻轮数口径；结束、暂停与恢复逐活动写带快照的 `environment_event`，主动结束按自然结束的路径写终态；会话切换与提醒到期不另写事件；提示中的供给行写完整行；活动快照的 `location_id` 为开始地点，结算不改写；零点计划不产生事实，模型只见经历句子；记忆写入点为 `conclude_activity` 与就寝反思，来源由系统登记；代码身份覆盖实际导入的 AS2；导出与质量报告按零点计划、记忆来源与两份唤醒原因改写；登记本规格的实现差距。世界结构版本 5→6 漏登，随绿色基线直接改为 7 |
 | `2026-09-25-time-and-energy-stage-0` | 2026-09-25 | 时间与能量规格阶段 0（绿色基线，issue #1）：世界结构版本句移到「检查点创建」并改为 7，版本不符的旧状态（含版本 6）直接拒绝、不迁移；「地图与供给的恢复身份」改为引用该句 |
 | `2026-09-25-time-and-energy-stage-1` | 2026-09-25 | 时间与能量规格阶段 1：质量报告 `decision_rhythm` 增同刻轮次统计，按人物与模拟秒计 `decision_started` 的轮数分布，并按 `decision_started.data.wake_reasons` 统计轮次原因（E5-18）；同刻轮次不写共同身体结算，唤醒原因只记于 `decision_started` 与观察，边界兜底的 `no_active_activity` 照常写入结算（E5-4）；受限轮越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED` 并计入同刻轮数（E5-6）；检查点封存 `same_moment_rounds`、`same_moment_stage` 与按人物暂存的本秒呈现留痕 `same_moment_presentation`（E5-13）；观察私有证据另记 `same_moment_stage`，与实际 Schema、环境派发核对，不进 `scene` 与 `facts`（E5-3） |
+| `2026-09-25-time-and-energy-stage-3` | 2026-09-25 | 时间与能量规格阶段 3（活动、会话与记忆）：事件类型闭集不变，活动的结束、暂停与恢复复用 `environment_event`（`data.kind` 取 `activity_concluded`、`activity_paused`、`activity_resumed`，带 `activity_id`、活动快照 `data.activity` 与含本次请求事件的 `caused_by`）；`memory_updated.data` 增写入点 `trigger`（`activity_conclusion`、`reflection` 的有序列表，由引擎推导）与 `decision_id`，结束活动的来源另记于 `action_result.data.memory_sources`，按每个写入点分别核对来源；检查点封存地点会话与活动的收尾、播报锚点、会话归属与名称；质量报告 `memory_references` 按写入点核对，问题码改为 `conclusion_without_memory_update`、`memory_update_without_source`，删除条目引用核对 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |

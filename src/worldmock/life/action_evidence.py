@@ -22,22 +22,6 @@ def _remember_action(state: WorldState, pending: PendingAction, result: ActionRe
     return state.model_copy(update={"processed_actions": actions}, deep=True)
 
 
-def _remember_terminal_activity(state: WorldState, result: ActionResult,
-                                title: str | None = None) -> WorldState:
-    """@brief 控制动作终结活动时同步更新最初动作的幂等终态。"""
-    if result.activity_id is None or result.activity_id not in state.activities:
-        return state
-    activity = state.activities[result.activity_id]
-    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
-                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-    if activity.status not in terminal:
-        return state
-    final = _origin_terminal_result(state, activity, result.occurred_at, title)
-    if final is None:
-        return state
-    return state.model_copy(update={"processed_actions": _terminal_action_records(state, final)}, deep=True)
-
-
 def _terminal_action_records(state: WorldState, result: ActionResult) -> dict[str, StoredAction]:
     """@brief 以活动最终结果替换最初动作的持久幂等结果。"""
     if result.action_id not in state.processed_actions:
@@ -58,19 +42,6 @@ def _result_draft(pending: PendingAction, result: ActionResult, event_type: str)
                       decision_id=pending.decision_id, action_id=pending.action_id,
                       activity_id=result.activity_id, caused_by=_pending_causes(pending),
                       data=data)
-
-
-def _terminal_after_action(state: WorldState, result: ActionResult,
-                           request_event_id: str, title: str | None = None) -> EventDraft | None:
-    """@brief 在控制动作终结另一原始活动时补齐原动作最终结果。"""
-    if result.activity_id is None or result.activity_id not in state.activities:
-        return None
-    activity = state.activities[result.activity_id]
-    terminal = {ActivityStatus.COMPLETED, ActivityStatus.CANCELLED,
-                ActivityStatus.FAILED, ActivityStatus.TRUNCATED}
-    if activity.status not in terminal or activity.origin_action_id == result.action_id:
-        return None
-    return _origin_terminal_draft(state, activity, result.occurred_at, [request_event_id], title)
 
 
 def _origin_terminal_result(state: WorldState, activity, occurred_at: int,

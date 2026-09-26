@@ -10,14 +10,16 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from agentsociety2.society import DirectToolCall
-from agentsociety2.agent.base import ModelCallEvidence
+from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 
-from tests.life.conftest import advance_next, context, start_activity, submit_round
+from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
+                                 start_activity, submit_round, wake_by_mail)
 from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.validation import validate_export
-from worldmock.life.models import SendMessageActionRequest, StartActivityRequest
+from worldmock.life.models import (PauseActivityRequest, ReportStatusRequest, SendMessageActionRequest,
+                                   StartActivityRequest)
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
 from worldmock.runtime import settle_pending_model_replies
 
@@ -85,28 +87,55 @@ def _wait_request(observation: dict) -> StartActivityRequest:
     return StartActivityRequest(targets=[own["object"]], actions=[action])
 
 
-def test_completed_activity_exports_terminal_outcome_and_training_windows(engine_factory, tmp_path: Path) -> None:
-    """真实活动终态回链原动作，并通过 export、认证和三类训练窗口消费。"""
-    engine = engine_factory()
-    duration = engine.scenario.activity_feedback_seconds
-    _stage_final_interval(engine, duration)
-    ctx = context(engine, "final-wait")
+_MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"]}
+_LIFECYCLE_KINDS = ("activity_concluded", "activity_paused", "activity_resumed")
+
+
+def _recorded_round(engine, round_id: str, tool_name: str, build) -> tuple:
+    """@brief 真实决策轮：冻结观察，记录一次实际发给模型的行动请求（窗口的决策提示来源），再登记请求。
+
+    :returns: (上下文, 本轮观察, 记录的模型请求)；由调用方在写入记忆证据后提交本轮。
+    """
+    ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    recorded_prompt = {'model': 'fixture',
-                       'messages': [{'role': 'system', 'content': '人物身份'},
-                                    {'role': 'user', 'content': '实际场景与记忆'}],
-                       'tools': [{'type': 'function', 'function': {
-                           'name': 'start_activity', 'parameters': {}}}]}
-    engine.record_model_exchange(ModelCallEvidence(
-        ctx, 'final-wait-model-call', 'request', 1, recorded_prompt))
-    engine.record_model_exchange(ModelCallEvidence(
-        ctx, 'final-wait-model-call', 'response', 1, recorded_prompt,
-        response={'choices': [{'message': {'tool_calls': [{'function': {
-            'name': 'start_activity', 'arguments': '{}'}}]}}]}))
+    prompt = {"model": "fixture",
+              "messages": [{"role": "system", "content": "人物身份"}, {"role": "user", "content": "实际场景与记忆"}],
+              "tools": [{"type": "function", "function": {"name": tool_name, "parameters": {}}}]}
+    call_id = f"{round_id}-model-call"
+    engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, prompt))
+    engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, prompt, response={
+        "choices": [{"message": {"tool_calls": [{"function": {"name": tool_name, "arguments": "{}"}}]}}]}))
+    engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", tool_name, build(observation)))
+    return ctx, observation, prompt
+
+
+def _conclusion_memory_evidence(ctx, observation: dict) -> MemoryUpdateEvidence:
+    """@brief 宿主写入收尾记忆后的落盘证据：一条主观条目，来源窗口取本轮观察的全部已核验经历。"""
+    episode = {"id": "episode-conclusion", "type": _MEMORY["type"], "text": _MEMORY["text"],
+               "epistemic_status": "subjective"}
+    return MemoryUpdateEvidence(
+        context=ctx, operation="append_episodes", created_episode_ids=(episode["id"],), merged_episode_ids=(),
+        episodes=(episode,), memory_before_sha256="0" * 64, memory_sha256="a" * 64, episodes_sha256="b" * 64,
+        state_sha256="c" * 64, consolidated=False, observation_event_id=observation["observation_event_id"],
+        verified_event_ids=tuple(dict.fromkeys(row["source_event_id"] for row in observation["verified_experiences"])))
+
+
+def test_completed_activity_exports_terminal_outcome_and_training_windows(engine_factory, tmp_path: Path) -> None:
+    """真实活动终态回链原动作，并通过 export、认证和三类训练窗口消费；链上有一次带记忆的收尾：动作窗口目标保留
+    完整请求，意图与 dreaming 窗口输入不含记忆正文（规格第七章「finish 并入 conclude_activity」、第九章交付链）。"""
+    engine = engine_factory()
+    duration = engine.scenario.activity_feedback_seconds
+    _stage_final_interval(engine, 2 * duration)
+    _recorded_round(engine, "first-wait", "start_activity", _wait_request)
+    assert engine.commit_decision_round("first-wait")[0].status == "in_progress"
+    advance_next(engine)
+    conclusion, seen, _ = _recorded_round(engine, "wait-end", "conclude_activity", lambda observed: conclude_request(
+        *pending_names(observed), memories=[[_MEMORY]]))
+    engine.record_memory_update(_conclusion_memory_evidence(conclusion, seen))
+    assert engine.commit_decision_round("wait-end")[0].status == "completed"
+    ctx, observation, recorded_prompt = _recorded_round(engine, "final-wait", "start_activity", _wait_request)
     action_id = "action-final-wait"
-    request = _wait_request(observation)
-    engine.submit_action(DirectToolCall(ctx, action_id, "start_activity", request))
     started = engine.commit_decision_round("final-wait")[0]
     assert started.status == "in_progress"
     activity_id = started.activity_id
@@ -145,6 +174,13 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     assert observation["observation_event_id"] in action["provenance"]["source_event_ids"]
     assert action["input"]["decision_prompt"] == recorded_prompt
     assert windows["intent"] and windows["dreaming"] and events[-1]["event_type"] == "checkpoint_created"
+    concluded = next(item for item in windows["action"] if item["target"]["request"]["action_id"] == "action-wait-end")
+    assert concluded["target"]["request"]["data"]["request"]["memories"] == [[_MEMORY]]
+    updated = [event for event in events if event["event_type"] == "memory_updated"]
+    assert [(event["decision_id"], event["data"]["trigger"]) for event in updated] == [
+        (conclusion.decision_id, ["activity_conclusion"])]
+    inputs = json.dumps([item["input"] for item in windows["intent"] + windows["dreaming"]], ensure_ascii=False)
+    assert _MEMORY["text"] not in inputs and "memories" not in inputs
 
 
 def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_path: Path) -> None:
@@ -216,6 +252,163 @@ def test_truncated_activity_exports_experiment_end_reason(engine_factory, tmp_pa
     assert exported["interruption_reason"] == "experiment_end"
     assert quality["activities"]["interruptions_missing_reason"] == 0
     assert quality["activities"]["interruption_reason_counts"] == {"experiment_end": 1}
+
+
+def _round(engine, name: str, tool_name: str, build) -> tuple[dict, object]:
+    """@brief 单人真实决策轮：冻结观察后按观察构造请求（活动名取自本轮私有绑定），登记并结算。"""
+    decision = context(engine, name)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    request = build(observed) if callable(build) else build
+    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool_name, request))
+    result = engine.commit_decision_round(name)[0]
+    assert result.status in {"completed", "in_progress"}, result.error_code
+    return observed, result
+
+
+def _named(observed: dict, activity_id: str) -> str:
+    """@brief 本轮观察私有绑定里该活动的可读名称（做什么＋对象＋开始时刻）。"""
+    return next(row["name"] for row in observed["activity_bindings"] if row["activity_id"] == activity_id)
+
+
+def _offered(observed: dict, action: str, mode: str | None = None) -> StartActivityRequest:
+    """@brief 从冻结观察选一个提供该动作的对象（出行按方式筛选）。"""
+    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["label"]])
+                for row in observed["interaction_bindings"] for offered in row["actions"]
+                if offered["canonical_action"] == action and (mode is None or offered.get("travel_mode") == mode))
+
+
+def _next_opportunity(engine, offset: int = 60) -> None:
+    """@brief 以受控邮件到达把下一次决策机会钉在 offset 秒后并推进到那里。"""
+    due = wake_by_mail(engine, offset=offset)
+    while engine.state.current_time < due:
+        advance_next(engine)
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+
+
+def _control(activity_id: str, model, summary: str):
+    """@brief 按本轮可见活动名点名一项活动的播报或暂停请求。"""
+    return lambda observed: model(task=[_named(observed, activity_id)], summary=[summary])
+
+
+def _lifecycle_run(engine) -> tuple[dict[str, str], dict[str, dict]]:
+    """@brief 真实控制链：观看→暂停→等待→恢复→带记忆结束等待→播报→再暂停→步行出发→到达当秒收尾。
+
+    :returns: (活动身份, 各轮冻结观察)；观看在导出时仍暂停在家，等待由人物结束，出行到达后收尾。
+    """
+    stage_day_plan(engine)
+    observed = {}
+    _, watch = _round(engine, "watch", "start_activity", lambda seen: _offered(seen, "watch"))
+    ids = {"watch": watch.activity_id}
+    _next_opportunity(engine)
+    _round(engine, "pause", "pause_activity", _control(ids["watch"], PauseActivityRequest, "先停一下。"))
+    _, waited = _round(engine, "wait", "start_activity", _wait_request)
+    ids["wait"] = waited.activity_id
+    _next_opportunity(engine)
+    _round(engine, "resume", "report_status", _control(ids["watch"], ReportStatusRequest, "接着看。"))
+    _next_opportunity(engine)
+    observed["conclude"], _ = _round(engine, "conclude", "conclude_activity", lambda seen: conclude_request(
+        _named(seen, ids["wait"]), summary="不等了。", memories=[[_MEMORY]]))
+    _next_opportunity(engine)
+    _round(engine, "report", "report_status", _control(ids["watch"], ReportStatusRequest, "还在看。"))
+    _next_opportunity(engine)
+    _round(engine, "pause-again", "pause_activity", _control(ids["watch"], PauseActivityRequest, "出门前停下。"))
+    _, travel = _round(engine, "depart", "start_activity", lambda seen: _offered(seen, "travel_to", "walking"))
+    ids["travel"] = travel.activity_id
+    for step in range(64):
+        if engine.state.activities[ids["travel"]].status != "active":
+            break
+        if engine.scheduling_state().ready_agent_ids:
+            _round(engine, f"road-{step}", "report_status", _control(ids["travel"], ReportStatusRequest, "在路上。"))
+        else:
+            advance_next(engine)
+    observed["arrive"], _ = _round(engine, "arrive", "conclude_activity",
+                                   lambda seen: conclude_request(*pending_names(seen), summary="到了。"))
+    return ids, observed
+
+
+def _events(engine, event_type: str, action_id: str) -> list:
+    """@brief 本人某动作的同类已提交事件。"""
+    return [event for event in engine.store.read_agent_events(event_type, 1) if event.action_id == action_id]
+
+
+def test_person_conclusion_keeps_memories_in_request_and_registers_private_sources(engine_factory) -> None:
+    """人物带记忆结束进行中的等待：请求事件保留完整 memories，结果登记私有 memory_sources，活动记为 cancelled
+    并写一次原始动作终态（规格第七章「finish 并入 conclude_activity」、第八章「活动」）。"""
+    engine = engine_factory()
+    ids, observed = _lifecycle_run(engine)
+    waited = engine.state.activities[ids["wait"]]
+    name = _named(observed["conclude"], ids["wait"])
+    requested = _events(engine, "action_requested", "action-conclude")
+    assert len(requested) == 1
+    assert requested[0].data["request"] == conclude_request(
+        name, summary="不等了。", memories=[[_MEMORY]]).model_dump(mode="json")
+    assert requested[0].data["request"]["memories"] == [[_MEMORY]]
+    result = next(event for event in _events(engine, "action_result", "action-conclude")
+                  if event.data["status"] == "completed")
+    verified = list(dict.fromkeys(row["source_event_id"] for row in observed["conclude"]["verified_experiences"]
+                                  if row["activity_id"] == ids["wait"]))
+    assert verified
+    assert result.data["data"]["memory_sources"] == [{
+        "task": name, "activity_id": ids["wait"], "session_id": waited.session_ids[-1],
+        "verified_event_ids": verified}]
+    assert result.data["data"]["activity_ids"] == [ids["wait"]] and result.data["data"]["task"] == [name]
+    assert (waited.status, waited.interruption_reason) == ("cancelled", "agent_cancelled")
+    assert waited.concluded_at == result.occurred_at
+    terminal = [event for event in _events(engine, "action_result", "action-wait")
+                if event.data["status"] != "in_progress"]
+    assert [event.data["status"] for event in terminal] == ["cancelled"]
+    assert requested[0].event_id in terminal[0].caused_by
+    assert engine.state.processed_actions["action-wait"].result["status"] == "cancelled"
+    facts = json.dumps(observed["arrive"]["facts"], ensure_ascii=False)
+    assert "memory_sources" not in facts and ids["wait"] not in facts
+
+
+def test_lifecycle_records_and_mid_run_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:
+    """结束、暂停与恢复逐活动各写一条带快照的 environment_event；会话切换不写事件；中途导出的
+    activities.jsonl 逐项等于最终检查点：人物结束的为 cancelled，暂停的为 paused（规格第七章、第八章「活动」）。"""
+    engine = engine_factory()
+    ids, _ = _lifecycle_run(engine)
+    events = engine.store.read_events(engine.store.last_event_seq)
+    lifecycle = [event for event in events if event.event_type == "environment_event"
+                 and event.data.get("kind") in _LIFECYCLE_KINDS]
+    expected = [("activity_paused", "watch", "action-pause", "paused"),
+                ("activity_resumed", "watch", "action-resume", "active"),
+                ("activity_concluded", "wait", "action-conclude", "cancelled"),
+                ("activity_paused", "watch", "action-pause-again", "paused"),
+                ("activity_concluded", "travel", "action-arrive", "completed")]
+    assert [(event.data["kind"], event.activity_id, event.action_id, event.data["activity"]["status"])
+            for event in lifecycle] == [(kind, ids[key], action, status) for kind, key, action, status in expected]
+    for event in lifecycle:
+        request = _events(engine, "action_requested", event.action_id)[0]
+        assert request.event_id in event.caused_by
+        assert event.data["activity_id"] == event.data["activity"]["activity_id"] == event.activity_id
+        concluded = event.data["activity"]["concluded_at"]
+        assert concluded == (event.occurred_at if event.data["kind"] == "activity_concluded" else None)
+    assert not [event for event in events if "session" in str(event.data.get("kind", ""))]
+    sessions = sorted(engine.state.sessions.values(), key=lambda item: item.started_at)
+    travel = engine.state.activities[ids["travel"]]
+    assert [(item.kind, item.status) for item in sessions] == [("stay", "ended"), ("transit", "ended"),
+                                                              ("stay", "active")]
+    assert sessions[0].ended_at == sessions[1].started_at == travel.started_at
+    assert sessions[1].ended_at == sessions[2].started_at == travel.ended_at
+    assert sessions[2].location_id == travel.destination_id and travel.session_ids == [sessions[1].session_id]
+    reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "lifecycle_export_test"})
+    checkpoint = engine.checkpoint({"agent:1": reference})
+    export_dir = tmp_path / "lifecycle-export"
+    manifest = export_run(engine.store, checkpoint.last_event_seq, export_dir)
+    assert manifest["experiment_completed"] is False
+    exported = {row["activity_id"]: row for row in (
+        json.loads(line) for line in (export_dir / "activities.jsonl").read_text(encoding="utf-8").splitlines())}
+    final = checkpoint.state["activities"]
+    assert set(exported) == set(final) == set(ids.values())
+    for activity_id, snapshot in final.items():
+        row = exported[activity_id]
+        assert row["activity_type"] == snapshot["kind"]
+        assert {key: row[key] for key in snapshot if key != "kind"} == {
+            key: value for key, value in snapshot.items() if key != "kind"}
+    assert {key: exported[ids[key]]["status"] for key in ids} == {
+        "watch": "paused", "wait": "cancelled", "travel": "completed"}
 
 
 @pytest.mark.asyncio

@@ -10,14 +10,16 @@ from zoneinfo import ZoneInfo
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan
+from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
+                                 stage_day_plan)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.footprints.models import EventDraft
 from worldmock.life import dining, projection
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.dining import FoodPathFacts, MealOption, NearbyFood, PendingMeal, local_meal_sentence
 from worldmock.life.discovery import DiscoveryContext, supply_row
-from worldmock.life.models import ReportStatusRequest, StartActivityRequest
+from worldmock.life.models import ReportStatusRequest, StartActivityRequest, active_activities
 from worldmock.life.projection import visible_supplies
 from worldmock.life.result_projection import public_supply_row
 
@@ -53,19 +55,30 @@ def _start(engine, name: str, kind: str, object_id: str | None, action: str):
     return observed, result
 
 
-def _finish(engine, activity_id: str) -> None:
-    """@brief 只通过真实时间边界推进持续活动到完成。"""
+def _run_to_end(engine, activity_id: str) -> None:
+    """@brief 只通过真实时间边界推进持续活动到完成，途中按活动名播报。"""
     for step in range(64):
         if engine.state.activities[activity_id].status == "completed":
             return
         if engine.scheduling_state().ready_agent_ids:
-            session = next(item for item in engine.state.sessions.values()
-                           if activity_id in item.activity_ids)
             _action(engine, f"continue-{activity_id}-{step}", "report_status",
-                    ReportStatusRequest(task=[session.session_name], summary=["继续进行。"]))
+                    ReportStatusRequest(task=[activity_name(engine, activity_id)], summary=["继续进行。"]))
         else:
             advance_next(engine)
     raise AssertionError("Activity did not complete within its event boundaries")
+
+
+def _conclude(engine, activity_id: str) -> None:
+    """@brief 活动结束的那一秒当即收尾（规格第七章「活动一结束就要结束它」）。"""
+    _action(engine, f"conclude-{activity_id}", "conclude_activity",
+            conclude_request(activity_name(engine, activity_id)))
+    assert engine.state.activities[activity_id].concluded_at == engine.state.current_time
+
+
+def _finish(engine, activity_id: str) -> None:
+    """@brief 推进持续活动到完成并当秒收尾。"""
+    _run_to_end(engine, activity_id)
+    _conclude(engine, activity_id)
 
 
 def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path: Path) -> None:
@@ -80,10 +93,12 @@ def test_restaurant_arrival_immediately_exposes_pickup_and_consumption(tmp_path:
         agent = engine.state.agents[1]
         assert local_meal_sentence(engine._discovery_context(agent)) == "当前地点没有餐食供给。"
         _, started = _start(engine, "to-restaurant", "location", RESTAURANT, "步行前往")
-        _finish(engine, started.activity_id)
+        _run_to_end(engine, started.activity_id)
         agent = engine.state.agents[1]
         assert agent.location_id == RESTAURANT
         assert visible_supplies(engine.state, agent, engine.scenario) == []
+        # 到达当秒先给出行收尾；这一轮就是到店后的首次观察（第七章「活动一结束就要结束它」）。
+        _conclude(engine, started.activity_id)
         opening = int(datetime(2026, 1, 5, 10, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp())
         if engine.state.current_time < opening:
             assert local_meal_sentence(engine._discovery_context(agent)) == (
@@ -327,6 +342,18 @@ def test_scene_food_path_names_the_nearest_store_when_nothing_delivers_here(engi
         f"最近能买到吃的是{nearest['destination']}，{mode}约 {nearest['minutes']} 分钟。")
 
 
+def _keep_waiting(engine) -> tuple[str, object]:
+    """@brief 就绪时的下一请求：先给刚结束的等待收尾（规格第七章「活动一结束就要结束它」），在等就播报，否则开始等待。"""
+    waiting = pending_conclusions(engine.state, 1)
+    if waiting:
+        return "conclude_activity", conclude_request(*(activity_name(engine, item.activity_id) for item in waiting))
+    running = active_activities(engine.state, 1)
+    if running:
+        return "report_status", ReportStatusRequest(task=[activity_name(engine, running[0].activity_id)],
+                                                    summary=["接着等。"])
+    return "start_activity", StartActivityRequest(targets=["自己"], actions=["等待"])
+
+
 def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) -> None:
     """@brief 配送行给出人读送达时刻，与下单后的实际送达时刻一致；饿时在途订单进入途径句。"""
     engine = engine_factory()
@@ -352,8 +379,7 @@ def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) ->
         if engine.state.deliveries[order["order_id"]].status != "pending":
             break
         if engine.scheduling_state().ready_agent_ids:
-            _action(engine, f"wait-delivery-{step}", "start_activity",
-                    StartActivityRequest(targets=["自己"], actions=["等待"]))
+            _action(engine, f"wait-delivery-{step}", *_keep_waiting(engine))
         else:
             advance_next(engine)
     assert engine.state.deliveries[order["order_id"]].status == "delivered"

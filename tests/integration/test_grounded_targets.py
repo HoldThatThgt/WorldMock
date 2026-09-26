@@ -13,7 +13,10 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
-from tests.integration.test_life_agent_protocol import _Environment, _context, _observations
+from tests.integration.test_life_agent_protocol import (
+    _Environment, _WORK, _context, _observations, _with_activities,
+)
+from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
 
 
@@ -150,28 +153,24 @@ def test_visible_task_and_person_names_bind_independent_tools() -> None:
         "send_message", recipient_name="agent-hidden", text="你好")], False)
 
 
-@pytest.mark.parametrize("phase,status,expected", [
-    ("进行中", "active", {"report_status", "pause_activity", "conclude_activity"}),
-    ("已暂停", "paused", {"report_status"}),
+@pytest.mark.parametrize("phase,expected", [
+    (PHASE_ACTIVE, {"report_status", "pause_activity", "conclude_activity"}),
+    (PHASE_PAUSED, {"report_status", "conclude_activity"}),
+    (PHASE_PENDING, {"conclude_activity"}),
 ])
-def test_session_controls_bind_current_readable_task(phase, status, expected) -> None:
-    """会话控制逐项写人物自述，状态决定工具可见性。"""
-    data = _data()
-    data["facts"]["progress"]["sessions"] = [
-        {"session_name": "整理会议纪要（上午）", "phase": phase}]
-    data["session_bindings"] = [{"task_name": "整理会议纪要",
-                                 "session_name": "整理会议纪要（上午）",
-                                 "session_id": "session-hidden", "status": status}]
-    agent = _prepare(data)
+def test_activity_controls_bind_current_readable_activity(phase, expected) -> None:
+    """活动控制逐项点名可读活动并写人物自述，活动阶段决定工具可见性：刚结束的活动只能收尾（第七章）。"""
+    agent = _prepare(_with_activities(_data(), (_WORK, phase)))
     functions = _functions(agent)
     actual = set(functions) & {"report_status", "pause_activity", "conclude_activity"}
     assert actual == expected
     for name in actual:
-        assert functions[name]["parameters"]["properties"]["task"]["items"]["enum"] == [
-            "整理会议纪要"]
+        assert functions[name]["parameters"]["properties"]["task"]["items"]["enum"] == [_WORK]
+        memories = {"memories": [[]]} if name == "conclude_activity" else {}
         assert agent.validate_react_decisions([_decision(
-            name, task=["整理会议纪要"], summary=["继续推进。"])], False) == ""
-    assert "session-hidden" not in str(functions)
+            name, task=[_WORK], summary=["继续推进。"], **memories)], False) == ""
+    assert "activity-private-1" not in str(functions)
+    assert "session-7-0001" not in str(functions)
 
 
 @pytest.mark.asyncio

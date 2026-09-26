@@ -27,10 +27,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.catalog.affordances import default_affordances
-from worldmock.life import dining, felt, narration, social
+from worldmock.life import activity_control, dining, felt, narration, social
 from worldmock.life import social_actions
 from worldmock.life.interaction_menu import action_label, purchase_action_label
-from worldmock.life.models import (ActivityKind, AgentState, SameMomentStage, SessionStatus, WorldState,
+from worldmock.life.models import (ActivityKind, AgentState, SameMomentStage, TravelMode, WorldState,
                                    active_activities)
 from worldmock.life.result_projection import public_action_result
 from worldmock.life.retrieval import feasible_kinds
@@ -230,6 +230,7 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
         "body": body_data, "balance_fen": state.accounts[agent.balance_account_id],
         "active_activities": activity_rows["control"],
         "paused_activities": activity_rows.get("paused_control"),
+        "pending_conclusions": activity_rows["pending"],
     }
     if inputs.motivation_internal is not None:
         data["motivation_internal"] = inputs.motivation_internal
@@ -238,13 +239,17 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
 
 def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
                       people: list[dict], inbox: list[dict]) -> dict[str, Any]:
-    """@brief 组装场景事实，最近收件头与完整收件事实分开选择；受限轮另加一句说明（不写次数）。"""
+    """@brief 组装场景事实，最近收件头与完整收件事实分开选择；待收尾活动写「刚结束」，受限轮另加一句说明（不写次数）。
+
+    「正在做」只来自进行中活动（current_activities）；人物自述不进场景，只在事实清单的进度层与目标行出现。
+    """
     agent, now = inputs.agent, inputs.state.current_time
     location = _location_index(inputs.scenario).get(agent.location_id)
     activity_rows = inputs.extras["activity_rows"]
     # 场景层只暴露展示名与营业状态，去掉 location_id（location_id 仅供交互对象层使用）
     reachable_scene = [{"name": r["name"], "opening_status": r["opening_status"]}
                        for r in inputs.extras.get("reachable_places", [])]
+    names = inputs.extras["visible_names"]["activities"]
     return {
         "current_time": local.isoformat(),
         "current_epoch": now,
@@ -253,6 +258,8 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "felt": levels,
         "current_activities": activity_rows["current"],
         "paused_activities": activity_rows["paused"],
+        "just_ended": [names[item.activity_id]
+                       for item in activity_control.pending_conclusions(inputs.state, agent.agent_id)],
         "day_plan": _plan_row(agent, now),
         "inbox_head": [entry["head"] for entry in inbox[-INBOX_HEAD_LIMIT:]],
         "inbox_has_older_unread": any(not entry["read"] for entry in inbox[:-INBOX_HEAD_LIMIT]),
@@ -260,37 +267,75 @@ def _scene_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "reachable_places": reachable_scene,
         "inventory": _inventory_names(agent, inputs.scenario),
         "local_food_summary": _local_food_summary(inputs, levels["appetite"]),
-        "current_sessions": _active_session_scene_rows(inputs.state, agent.agent_id),
         "precondition_hints": _precondition_hints(inputs),
         "same_moment_note": (SAME_MOMENT_NOTE if agent.same_moment_stage != SameMomentStage.OPEN
                              else ""),
     }
 
 
-def _session_fact_row(session: Any) -> dict[str, Any]:
-    """@brief 只向人物呈现会话名称、结算进度和注明来源的自述。"""
-    phase = {SessionStatus.ACTIVE: "进行中", SessionStatus.PAUSED: "已暂停",
-             SessionStatus.CONCLUDED: "已结束", SessionStatus.ABORTED: "已中断"}
-    objective = f"已投入{session.invested_seconds}秒，有效进度{session.effective_seconds:g}秒"
-    if session.remaining_contract_seconds is not None:
-        objective += f"，剩余合同时间{session.remaining_contract_seconds}秒"
-    if session.preconditions_unmet:
-        objective += f"，待满足条件：{'、'.join(session.preconditions_unmet)}"
-    return {"task_name": session.task_name, "session_name": session.session_name,
-            "phase": phase[session.status],
-            "objective_progress": objective, "subjective_progress": session.progress_note,
-            "subjective_status": "未经核验"}
+def _activity_fact_row(inputs: ProjectionInputs, activity: Any, name: str) -> dict[str, Any]:
+    """@brief 进度层的一行活动：名称、阶段、客观进度（人读时长）与标注「你自己记下的，未经核验」的自述。"""
+    required = {task.task_id: task.required_effective_seconds for task in inputs.scenario.tasks}
+    remaining = activity_control.remaining_required(inputs.state, activity, required)
+    row = {"name": name, "phase": activity_control.activity_phase(activity),
+           "objective_progress": activity_control.objective_progress(activity, remaining)}
+    if activity.progress_note:
+        row.update(subjective_progress=activity.progress_note,
+                   subjective_status=activity_control.SELF_REPORT_MARK)
+    return row
 
 
-def _session_fact_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
-    """@brief 当前与历史会话均按语义名称呈现，容量压缩在请求边界执行。"""
-    sessions = [session for session in state.sessions.values() if session.agent_id == agent_id]
-    order = {SessionStatus.ACTIVE: 0, SessionStatus.PAUSED: 1,
-             SessionStatus.CONCLUDED: 2, SessionStatus.ABORTED: 2}
-    sessions.sort(key=lambda item: (order[item.status],
-                                    -item.started_at if order[item.status] == 2 else item.started_at,
-                                    item.task_name))
-    return [_session_fact_row(session) for session in sessions]
+def _session_fact_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
+    """@brief 进度层按会话（地点停留或一段路）分组，会话按开始时刻排序；活动列在其最近所属的会话下。
+
+    容量压缩在请求边界执行（life.prompt_capacity 按会话合并已收尾活动）。
+    """
+    state, agent_id = inputs.state, inputs.agent.agent_id
+    names = inputs.extras["visible_names"]
+    grouped: dict[str, list] = {session_id: [] for session_id in names["sessions"]}
+    for activity_id, name in names["activities"].items():
+        activity = state.activities[activity_id]
+        if activity.session_ids:
+            grouped[activity.session_ids[-1]].append((activity, name))
+    sessions = sorted((state.sessions[session_id] for session_id in grouped),
+                      key=lambda item: (item.started_at, item.session_id))
+    return [{"name": names["sessions"][session.session_id],
+             "activities": [_activity_fact_row(inputs, activity, name)
+                            for activity, name in grouped[session.session_id]]}
+            for session in sessions if session.agent_id == agent_id]
+
+
+def _experience_sentences(inputs: ProjectionInputs) -> list[str]:
+    """@brief 本人最近五条已核验经历写成的中文句子（与私有 verified_experiences 同一窗口与顺序，不含内部身份）。
+
+    例：「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」；地点、商品与内容取场景名称，出行方式取自所属出行活动。
+    """
+    return [_experience_sentence(inputs, fact) for fact in inputs.extras.get("verified_experiences", [])]
+
+
+def _experience_sentence(inputs: ProjectionInputs, fact: dict[str, Any]) -> str:
+    """@brief 一条已核验经历的确定性句子：等待、食用、播放带起止时刻，到达带到达时刻与方式。"""
+    zone = inputs.scenario.timezone
+    if fact["kind"] == "arrived":
+        travel = inputs.state.activities[fact["activity_id"]]
+        mode = "走路" if travel.travel_mode == TravelMode.WALKING else "开车"
+        place = _location_index(inputs.scenario)[fact["location_id"]].name
+        denied = "，但没能进去" if fact["access_status"] == "denied" else ""
+        return f"{_clock(fact['occurred_at'], zone)} {mode}到了{place}{denied}"
+    span = f"{_clock(fact['interval_start'], zone)}–{_clock(fact['interval_end'], zone)}"
+    if fact["kind"] == "waited":
+        return f"{span} 等待了{activity_control.readable_duration(fact['duration_seconds'])}"
+    if fact["kind"] == "consumed":
+        return f"{span} 吃了{_product_names(inputs.scenario)[fact['product_id']]}"
+    podcast = any(item.item_id == fact["content_id"] and item.kind == "podcast_episode"
+                  for item in inputs.scenario.contents)
+    title = inputs.extras["content_titles"][fact["content_id"]]
+    return f"{span} {'听了' if podcast else '看了'}《{title}》"
+
+
+def _clock(epoch: int, timezone_name: str) -> str:
+    """@brief 场景时区的本地时刻 HH:MM。"""
+    return f"{local_datetime(epoch, timezone_name):%H:%M}"
 
 
 def _progress_alarms(inputs: ProjectionInputs) -> list[str]:
@@ -301,8 +346,8 @@ def _progress_alarms(inputs: ProjectionInputs) -> list[str]:
 
 
 def _progress_projection(inputs: ProjectionInputs) -> dict[str, Any]:
-    """@brief 将会话进度、最新结算和截止提醒归入同一个进度层。"""
-    return {"sessions": _session_fact_rows(inputs.state, inputs.agent.agent_id),
+    """@brief 将按会话分组的活动进度、最新结算和截止提醒归入同一个进度层。"""
+    return {"sessions": _session_fact_rows(inputs),
             "results": [_progress_result(inputs, row) for row in inputs.recent_results],
             "alarms": _progress_alarms(inputs)}
 
@@ -319,7 +364,7 @@ def _progress_result(inputs: ProjectionInputs, row: dict[str, Any]) -> dict[str,
 
 
 def _progress_result_details(inputs: ProjectionInputs, public: dict[str, Any]) -> dict[str, Any]:
-    """@brief 把订单、到达和浏览结果转为名称与金额，省去所有内部身份。"""
+    """@brief 把订单、到达、浏览与回看结果转为名称与金额，省去所有内部身份。"""
     details: dict[str, Any] = {}
     products = {item.product_id: item.name for item in inputs.scenario.products}
     places = {item.location_id: item.name for item in inputs.scenario.locations}
@@ -334,25 +379,9 @@ def _progress_result_details(inputs: ProjectionInputs, public: dict[str, Any]) -
     if "browse_result" in public:
         items = public["browse_result"].get("items", [])
         details["browse_items"] = [products[item["product_id"]] for item in items]
+    if "recall" in public:
+        details["recall"] = public["recall"]
     return details
-
-
-def _active_session_scene_rows(state: WorldState, agent_id: int) -> list[dict[str, Any]]:
-    """@brief 取当前 agent 的 active 会话渲染为 scene 短句所需的最小行（至多 2 条）。"""
-    rows = []
-    for session in state.sessions.values():
-        if session.agent_id != agent_id:
-            continue
-        if session.status != SessionStatus.ACTIVE:
-            continue
-        rows.append({
-            "label": session.task_name,
-            "invested_seconds": session.invested_seconds,
-            "progress_note": session.progress_note,
-        })
-        if len(rows) >= 2:
-            break
-    return rows
 
 
 def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
@@ -376,6 +405,7 @@ def _facts_projection(inputs: ProjectionInputs, local: datetime, levels: dict,
         "day_plan": _plan_fact(agent, now),
         "felt": levels,
         "drive_summary": drive_summary(levels, inputs.task_rows, now),
+        "experiences": _experience_sentences(inputs),
     }
 
 
@@ -576,7 +606,8 @@ def _plan_fact(agent: AgentState, now: int) -> dict[str, Any] | None:
     return {"goals": [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}",
                        "intent_kind": goal.intent_kind,
                        "progressed": goal.progressed_at is not None,
-                       "progress_note": goal.progress_note, "subjective_status": "未经核验"}
+                       "progress_note": goal.progress_note,
+                       "subjective_status": activity_control.SELF_REPORT_MARK}
                       for goal in plan.goals]}
 
 

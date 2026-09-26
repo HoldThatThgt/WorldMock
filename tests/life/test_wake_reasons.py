@@ -9,11 +9,21 @@ from typing import get_args
 import pytest
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, context, start_activity, wake_by_mail
+from tests.life.conftest import (
+    activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, start_activity,
+    wake_by_mail,
+)
 from tests.life.test_day_plan import act, goal
+from tests.life.test_scheduling import _custom_engine
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest
-from worldmock.life.rhythm import _has_commitments, engine_rhythm_inputs, next_decision_candidates
+from worldmock.life.models import (
+    ActivityKind, ActivityState, ActivityStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
+    ReviseDayPlanRequest, active_activities,
+)
+from worldmock.life.rhythm import (
+    _has_commitments, _next_progress_report_at, _progress_report_due, engine_rhythm_inputs, next_decision_candidates,
+)
 from worldmock.life.scenario import LifeScenario
 from worldmock.life.schedule import (
     INTENT_KINDS, SLEEP_ALLOWED_REASONS, DayPlan, IntentKind, NextDecisionQuery, WakeReason,
@@ -262,12 +272,29 @@ def test_engine_schedules_closing_warning_only_for_local_task(engine_factory, bo
             engine.state.agents[1].pending_wake_reasons)
     else:
         assert engine.scheduling_state().next_event_at.timestamp() != closing - 900
+        step = 0
         while engine.state.current_time < closing:
             if engine.scheduling_state().ready_agent_ids:
-                act(engine, "closing-continue", "start_activity", start_activity("等待", "自己"))
+                step += 1
+                _keep_waiting(engine, f"closing-continue-{step}")
             else:
                 advance_next(engine)
         assert "commitment_threatened" not in engine.state.agents[1].pending_wake_reasons
+
+
+def _keep_waiting(engine, name: str) -> None:
+    """就绪时先给刚结束的活动收尾（第七章「活动一结束就要结束它」），有进行中活动就播报，否则开始下一段等待。"""
+    waiting = pending_conclusions(engine.state, 1)
+    running = active_activities(engine.state, 1)
+    if waiting:
+        request = ("conclude_activity", conclude_request(*(activity_name(engine, item.activity_id)
+                                                           for item in waiting)))
+    elif running:
+        request = ("report_status", ReportStatusRequest(
+            task=[activity_name(engine, item.activity_id) for item in running], summary=["继续。"] * len(running)))
+    else:
+        request = ("start_activity", start_activity("等待", "自己"))
+    assert act(engine, name, *request).status in {"completed", "in_progress"}
 
 
 def _stage_task_warning(engine, task_ids: set[str], due: int, lead_seconds: int = 1901) -> None:
@@ -312,11 +339,10 @@ def test_second_task_new_warning_is_not_hidden_by_first(engine_factory) -> None:
     advance_next(engine)
     assert engine.state.current_time == due - 1800
     assert _task_warning_ids(engine.state.agents[1]) == {first.task_id}
-    session = next(item for item in engine.state.sessions.values()
-                   if started.activity_id in item.activity_ids)
-    act(engine, "first-warning-ack", "conclude_activity",
-        ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
-    act(engine, "first-warning-rest", "start_activity", start_activity("等待", "自己"))
+    ended = act(engine, "first-warning-ack", "conclude_activity",
+                conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
+    assert ended.status == "completed"
+    assert act(engine, "first-warning-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
     while engine.state.current_time < due - 1700:
         advance_next(engine)
     assert engine.state.current_time == due - 1700
@@ -356,11 +382,10 @@ def test_checkpoint_restore_does_not_redeliver_same_task_warning(engine_factory)
                   start_activity("等待", "自己"))
     advance_next(engine)
     assert _task_warning_ids(engine.state.agents[1]) == {task.task_id}
-    session = next(item for item in engine.state.sessions.values()
-                   if started.activity_id in item.activity_ids)
-    act(engine, "checkpoint-ack", "conclude_activity",
-        ConcludeActivityRequest(task=[session.session_name], summary=["结束等待。"]))
-    act(engine, "checkpoint-rest", "start_activity", start_activity("等待", "自己"))
+    ended = act(engine, "checkpoint-ack", "conclude_activity",
+                conclude_request(activity_name(engine, started.activity_id), summary="结束等待。"))
+    assert ended.status == "completed"
+    assert act(engine, "checkpoint-rest", "start_activity", start_activity("等待", "自己")).status == "in_progress"
     reference = engine.store.assets.put_json({"agent_id": 1}, {"kind": "warning_restore_test"})
     checkpoint = engine.checkpoint({"agent:1": reference})
     assert checkpoint.checkpoint_id
@@ -564,3 +589,135 @@ def test_next_progress_report_at_competes_with_other_candidates():
                               has_commitments=False,
                               next_progress_report_at=NOW + 300)
     assert next_decision_time(query) == NOW + 300
+
+
+def test_progress_report_due_counts_only_active_activities_from_their_anchor(engine_factory):
+    """播报只针对本人进行中的活动：锚点 report_anchor_at（未经受理路径构造的活动取开始时刻）距今满间隔才到期；
+    暂停、刚结束与他人的活动不参与；下一播报候选是进行中活动锚点加间隔中严格晚于现在的最早者（第八章「活动」）。"""
+    engine = engine_factory("multi-person.json")
+    state = engine.state.model_copy(deep=True)
+    now, agent = state.current_time, state.agents[1]
+    interval = engine.semantics.document.progress_report_interval_seconds
+
+    def activity(key: str, anchor: int | None, *, status: ActivityStatus = ActivityStatus.ACTIVE,
+                 agent_id: int = 1, started: int = now - 3600) -> ActivityState:
+        """本人或他人的一段等待，锚点与状态可设。"""
+        ended = now - 10 if status == ActivityStatus.COMPLETED else None
+        return ActivityState(
+            activity_id=key, agent_id=agent_id, location_id=state.agents[agent_id].location_id,
+            kind=ActivityKind.WAIT, status=status, started_at=started, ended_at=ended, planned_end_at=now + 3600,
+            last_settled_at=ended or started, elapsed_seconds=0, planned_duration_seconds=7200,
+            origin_action_id=f"act-{key}", origin_decision_id="dec", origin_request_event_id="evt",
+            report_anchor_at=anchor)
+
+    state.activities = {"paused": activity("paused", now - 5000, status=ActivityStatus.PAUSED),
+                        "ended": activity("ended", now - 5000, status=ActivityStatus.COMPLETED),
+                        "other": activity("other", now - 5000, agent_id=2),
+                        "reported": activity("reported", now - interval + 1)}
+    assert not _progress_report_due(agent, state, interval)
+    assert _next_progress_report_at(agent, state, interval) == now + 1
+    _, reasons = _warning_step(engine, state)
+    assert "progress_report_due" not in reasons
+    state.activities["reported"].report_anchor_at = now - interval
+    assert _progress_report_due(agent, state, interval)
+    assert _next_progress_report_at(agent, state, interval) is None
+    _, reasons = _warning_step(engine, state)
+    assert "progress_report_due" in reasons
+    state.activities["fresh"] = activity("fresh", None, started=now - 600)
+    assert _next_progress_report_at(agent, state, interval) == now - 600 + interval
+
+
+def _report_every_ten_minutes(document: dict) -> None:
+    """@brief 播报间隔 10 分钟，等待一小时，使播报在等待期间多次到期。"""
+    document["progress_report_interval_seconds"] = 600
+    document["activity_feedback_seconds"] = 3600
+
+
+_REVISE = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇"),))
+
+
+def _wake_at(engine, moment: int, name: str) -> list[str]:
+    """@brief 推进到 moment 的决策机会并返回其唤醒原因；途中的其他机会以修订目标应答（不动播报锚点）。"""
+    for step in range(32):
+        if engine.scheduling_state().ready_agent_ids:
+            if engine.state.current_time == moment:
+                return list(engine.state.agents[1].pending_wake_reasons)
+            assert act(engine, f"{name}-{step}", "revise_day_plan", _REVISE).status == "completed"
+        else:
+            assert engine.state.current_time < moment
+            advance_next(engine)
+    pytest.fail("No decision was offered at the expected moment")
+
+
+def test_report_anchor_moves_on_start_report_and_resume_and_paused_activity_never_reports(tmp_path):
+    """播报锚点在开始、对该活动播报与恢复时写入当前时刻，暂停不动锚点；progress_report_due 只由进行中活动距其锚点
+    满间隔触发，暂停的活动不再播报（第八章「活动」，第七章「播报与控制都作用于活动」）。"""
+    engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-anchor")
+    try:
+        stage_day_plan(engine)
+        start = engine.state.current_time
+        wait_id = act(engine, "anchor-wait", "start_activity", start_activity("等待", "自己")).activity_id
+        assert engine.state.activities[wait_id].report_anchor_at == start
+        wake_by_mail(engine, offset=300)
+        assert _wake_at(engine, start + 300, "anchor-first") == ["message_arrival"]
+        observed = engine.observe(context(engine, "anchor-content"))
+        target, label = next((row["object"], action["label"]) for row in observed["interaction_bindings"]
+                             if row["kind"] == "content" for action in row["actions"]
+                             if action["canonical_action"] == "watch")
+        watched = act(engine, "anchor-watch", "start_activity", start_activity(label, target))
+        assert watched.status == "in_progress"
+        watch_id = watched.activity_id
+        assert engine.state.activities[watch_id].report_anchor_at == start + 300
+        assert _wake_at(engine, start + 600, "anchor-due") == ["progress_report_due"]
+        names = [activity_name(engine, wait_id), activity_name(engine, watch_id)]
+        assert act(engine, "anchor-pause", "pause_activity", PauseActivityRequest(
+            task=[names[0]], summary=["先停下。"])).status == "completed"
+        assert engine.state.activities[wait_id].report_anchor_at == start
+        wake_by_mail(engine, offset=100)
+        assert _wake_at(engine, start + 700, "anchor-paused") == ["message_arrival"]
+        agent = engine.state.agents[1]
+        assert not _progress_report_due(agent, engine.state, 600)
+        assert _next_progress_report_at(agent, engine.state, 600) == start + 900
+        assert act(engine, "anchor-note", "revise_day_plan", _REVISE).status == "completed"
+        assert _wake_at(engine, start + 900, "anchor-watch-due") == ["progress_report_due"]
+        resumed = act(engine, "anchor-resume", "report_status", ReportStatusRequest(
+            task=names, summary=["接着等。", "接着看。"]))
+        assert resumed.status == "completed"
+        now = engine.state.current_time
+        assert engine.state.activities[wait_id].status == ActivityStatus.ACTIVE
+        assert {engine.state.activities[key].report_anchor_at for key in (wait_id, watch_id)} == {now}
+        assert _next_progress_report_at(engine.state.agents[1], engine.state, 600) == now + 600
+    finally:
+        engine.close()
+
+
+def test_sleeping_person_gets_no_progress_report_wakeups(tmp_path):
+    """睡眠是进行中活动，播报锚点照常到期，但睡眠中的边界不因 progress_report_due 提供决策；醒来时睡眠已结束待收尾，
+    也不再为它播报（第八章「活动」，第一章不变项）。"""
+    engine = _custom_engine("white-collar-12-weeks.json", _report_every_ten_minutes, tmp_path, "report-sleep")
+    try:
+        stage_day_plan(engine)
+        start = engine.state.current_time
+        sleep_id = act(engine, "report-sleep", "start_activity", start_activity("睡觉", "自己")).activity_id
+        assert engine.state.activities[sleep_id].report_anchor_at == start
+        due_while_asleep = []
+        for _ in range(96):
+            if engine.state.activities[sleep_id].status != ActivityStatus.ACTIVE:
+                break
+            assert engine.scheduling_state().ready_agent_ids == ()
+            advance_next(engine)
+            if engine.state.activities[sleep_id].status == ActivityStatus.ACTIVE:
+                due_while_asleep.append(_progress_report_due(engine.state.agents[1], engine.state, 600))
+        woke = engine.state.current_time
+        assert engine.state.activities[sleep_id].status == ActivityStatus.COMPLETED
+        assert any(due_while_asleep)  # 播报在睡眠中到期
+        settlements = [event.data for event in engine.store.read_agent_events("environment_event", 1)
+                       if event.data.get("kind") == "body_settlement" and start < event.data["interval_end"] < woke]
+        assert settlements and all(not data["decision_offered"] and data["wake_reasons"] == []
+                                   for data in settlements)
+        reasons = engine.state.agents[1].pending_wake_reasons
+        assert "wake_from_sleep" in reasons and "progress_report_due" not in reasons
+        assert not _progress_report_due(engine.state.agents[1], engine.state, 600)
+        assert _next_progress_report_at(engine.state.agents[1], engine.state, 600) is None
+    finally:
+        engine.close()

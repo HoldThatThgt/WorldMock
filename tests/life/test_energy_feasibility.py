@@ -11,7 +11,8 @@ from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
 from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, context, stage_day_plan, submit_round, travel_quote, wake_by_mail
+from tests.life.conftest import (activity_name, advance_next, context, stage_day_plan, submit_round,
+                               travel_quote, wake_by_mail)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
@@ -170,12 +171,6 @@ def test_zero_energy_travel_and_work_are_accepted(engine_factory) -> None:
     assert worker.state.agents[1].body.energy_kcal == 0
 
 
-def _session_of(engine, activity_id: str) -> str:
-    """@brief 取活动所在会话的可读名称。"""
-    return next(item.session_name for item in engine.state.sessions.values()
-                if activity_id in item.activity_ids)
-
-
 def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     """零能量时暂停的观看照常恢复：恢复只重验地点与占用，不查能量。"""
     engine = engine_factory()
@@ -191,13 +186,13 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     paused = _act(engine, "pause-watch", "pause_activity",
-                  PauseActivityRequest(task=[_session_of(engine, watch)], summary=["先停一下。"]))
+                  PauseActivityRequest(task=[activity_name(engine, watch)], summary=["先停一下。"]))
     assert paused.status == "completed" and engine.state.activities[watch].status == ActivityStatus.PAUSED
     wake_by_mail(engine, offset=300)
     advance_next(engine)
     assert engine.state.agents[1].body.energy_kcal == 0
     resumed = _act(engine, "resume-watch", "report_status",
-                   ReportStatusRequest(task=[_session_of(engine, watch)], summary=["接着看。"]))
+                   ReportStatusRequest(task=[activity_name(engine, watch)], summary=["接着看。"]))
     assert resumed.status == "completed", resumed.error_code
     assert engine.state.activities[watch].status == ActivityStatus.ACTIVE
 

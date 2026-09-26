@@ -16,7 +16,10 @@ from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import _context, _observations
 from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
-from worldmock.life.models import StartActivityRequest
+from worldmock.life import sessions
+from worldmock.life.activity_control import object_display_name
+from worldmock.life.models import SessionKind, SessionStatus, StartActivityRequest
+from worldmock.life.sessions import moment_label
 
 
 def _prepared() -> LifeAgent:
@@ -68,7 +71,8 @@ def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
 
 
 def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
-    """真实引擎从同一观察启动出行与观看，留下两条独立会话。"""
+    """真实引擎从同一观察原子启动出行与观看：两项活动各占一个名额、按「做什么＋对象＋开始时刻」命名，
+    出发结束运行开始的停留会话，两项活动同属新开始的路上会话（时间与能量规格第七章「会话与活动的字段」）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     current = context(engine, "parallel-walk-watch")
@@ -89,8 +93,12 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
     assert engine.state.model_dump(mode="json") == before
     result = engine.commit_decision_round(current.round_id)[0]
     assert result.status.value == "in_progress"
-    assert len(engine.state.sessions) == 2
     assert len(engine.state.activities) == 2
-    assert {session.session_name.split(" ", 1)[0] for session in engine.state.sessions.values()} == {
-        travel, "观看",
+    started = moment_label(engine.state.current_time, engine.scenario.timezone)
+    assert {activity.name for activity in engine.state.activities.values()} == {
+        f"{travel}{object_display_name(place)}（{started} 起）", f"观看{object_display_name(content)}（{started} 起）",
     }
+    road = sessions.current_session(engine.state, 1)
+    assert road.kind == SessionKind.TRANSIT and set(road.activity_ids) == set(engine.state.activities)
+    assert [item.status for item in engine.state.sessions.values() if item.kind == SessionKind.STAY] == [
+        SessionStatus.ENDED]

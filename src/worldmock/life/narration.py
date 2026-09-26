@@ -7,16 +7,19 @@ persona_card、scene、facts 三部分组成，
 
 本模块逐条执行的合同要点：
 - scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
-  体感分级、当前与暂停活动的进度、今天想推进的目标与推进状态、收件箱头、待办
+  体感分级、当前（只来自进行中活动）与暂停活动的进度、刚结束待收尾的活动（「刚结束：<活动名>」，
+  docs/dev/SPEC-time-and-energy.md 第七章）、今天想推进的目标与推进状态、收件箱头、待办
   一句话、可达地点与营业状态、手边持有物、当地餐食句（饥饿为「饿」及以上时是
   吃饭途径句，可带一条途径的人读时长或送达时刻），以及同刻上限受限轮的一句说明（不写次数，
-  docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。整次请求容量由 prompt_capacity 计量。
+  docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。人物自述不进 scene。整次请求容量由 prompt_capacity 计量。
 - 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
   二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
 - 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
   affordance_contract、observation_event_id、
   motivation_hints、profile.motivation、profile.entertainment_preferences、
-  game_catalog 全表、完整活动快照（activity_snapshot/activities）、
+  game_catalog 全表、完整活动快照（activity_snapshot/activities；进度层 sessions[].activities 是活动进度行，
+  不是完整快照，允许进入）、内部身份键（agent_id、activity_id、source_event_id、event_seq、product_id、
+  location_id、destination_id、content_id 等）、
   路线坐标与几何（routes 条目仅保留目的地/方式/分钟/票价/费力/是否可达）。
 - drive_summary 只含体感分级与文字摘要，不含数字权重（「观察投影与提示合同」）。
 
@@ -24,7 +27,7 @@ persona_card、scene、facts 三部分组成，
 current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
 location（地点显示名）、people_here
 （在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
-day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
+just_ended（刚结束待收尾的活动名列表）、day_plan（goals 中的 intent_kind/progressed）、inbox_head（收件箱头字符串列表）、
 inbox_has_older_unread、todos_summary、
 reachable_places（name/opening_status 列表）、inventory、local_food_summary（当地餐食句或吃饭途径句）、
 same_moment_note（受限轮说明句，其余轮次为空串）。
@@ -90,7 +93,16 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "chronotype_midsleep",
     "sleep_need_hours",
     "taste_weights",
+    "agent_id",
+    "source_event_id",
+    "event_seq",
+    "location_id",
+    "destination_id",
+    "content_id",
 })
+
+#: 嵌套放行：(父键, 子键)。进度层 sessions[].activities 是按会话分组的活动进度行，不是完整活动快照。
+ALLOWED_NESTED_KEYS = frozenset({("sessions", "activities")})
 
 #: 体感分级允许进入提示，同名的数值身体状态禁止进入。
 BODY_VALUE_KEYS = frozenset({
@@ -259,41 +271,21 @@ def _precondition_sentence(observation: dict) -> str:
     return "".join(sentences)
 
 
-def _session_sentences(observation: dict) -> str:
-    """@brief 渲染当前 active 会话的中文进度短句（至多 2 条，进度层合同）。
+def _just_ended_sentence(observation: dict) -> str:
+    """@brief 渲染刚结束、要先收尾的活动：「刚结束：<活动名>。」（docs/dev/SPEC-time-and-energy.md 第七章）。
 
-    每条格式为"正在做：{标签}（已投入X小时，{进展自述}）"；无进展自述时省略后半。
-    只渲染 active 会话，不渲染 paused/concluded/aborted（进度层合同）。
-
-    @param observation 引擎侧计算好的观察字段字典（含 current_sessions 键）
-    @return 进度短句文本；无 active 会话时返回空串
+    @param observation 引擎侧计算好的观察字段字典（just_ended 为待收尾活动名列表）
+    @return 句子文本；没有待收尾活动时返回空串
     """
-    sessions = observation.get("current_sessions") or []
-    sentences = []
-    for session in sessions[:2]:
-        label = session.get("label") or ""
-        invested = int(session.get("invested_seconds") or 0)
-        note = session.get("progress_note") or ""
-        hours = invested // 3600
-        minutes = (invested % 3600) // 60
-        if hours > 0:
-            time_str = f"已投入{hours}小时"
-        elif minutes > 0:
-            time_str = f"已投入{minutes}分钟"
-        else:
-            time_str = "刚开始"
-        if note:
-            sentences.append(_close_sentence(f"正在做：{label}（{time_str}，{note}）"))
-        else:
-            sentences.append(_close_sentence(f"正在做：{label}（{time_str}）"))
-    return "".join(sentences)
+    names = [name for name in (observation.get("just_ended") or []) if name]
+    return _close_sentence(f"刚结束：{'、'.join(names)}") if names else ""
 
 
 def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
     """@brief 渲染中文自然语言场景段落。
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
-    的进度、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
+    的进度、刚结束待收尾的活动、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
     状态、手边持有物、当地餐食句或吃饭途径句，同刻上限的受限轮末尾另加一句说明；
     缺失或为空的字段跳过对应句子，渲染器不虚构事实。
 
@@ -313,7 +305,7 @@ def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
         _location_sentence(observation),
         _felt_sentence(observation),
         _activity_sentences(observation),
-        _session_sentences(observation),
+        _just_ended_sentence(observation),
         _plan_sentence(observation),
         _inbox_sentence(observation),
         _close_sentence(todos) if todos else "",
@@ -385,7 +377,9 @@ def validate_decision_statement(text: str) -> str:
 
 
 def _raise_if_forbidden(key: str, path: str, parent_key: str | None) -> None:
-    """@brief 按字面键集与 (父键, 子键) 嵌套规则检查单个键，违规即抛错。"""
+    """@brief 按字面键集与 (父键, 子键) 嵌套规则检查单个键，违规即抛错；进度层的活动行按嵌套规则放行。"""
+    if (parent_key, key) in ALLOWED_NESTED_KEYS:
+        return
     if key in FORBIDDEN_OBSERVATION_KEYS or key.endswith("_sha256"):
         logging.error("Forbidden observation field rejected: %s", path)
         raise ForbiddenObservationFieldError(

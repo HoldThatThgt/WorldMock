@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import json
+import os
 import subprocess
 import sys
 from collections.abc import Mapping
@@ -210,18 +211,22 @@ class TestDeterminism:
         assert _frame(recall(_inputs())) == before
 
     def test_hash_seed_does_not_change_the_result(self) -> None:
+        # 子进程必须导入本检出的 src（PYTHONPATH 用平台分隔符）；否则会回落到已安装的另一份 worldmock。
         script = (
+            "import worldmock.life.candidates as module;"
             "from tests.life.test_candidates import _frame, _inputs;"
-            "from worldmock.life.candidates import recall;"
-            "print(_frame(recall(_inputs())))")
+            "print(module.__file__);"
+            "print(_frame(module.recall(_inputs())))")
         digests = []
         for seed in ("0", "31337"):
             completed = subprocess.run([sys.executable, "-c", script],
                                        cwd=PROJECT_ROOT, capture_output=True, text=True,
                                        env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin",
-                                            "PYTHONPATH": "src:."})
+                                            "PYTHONPATH": os.pathsep.join(("src", "."))})
             assert completed.returncode == 0, completed.stderr
-            digests.append(completed.stdout.strip())
+            module_file, digest = completed.stdout.strip().splitlines()
+            assert Path(module_file).resolve() == MODULE_PATH.resolve()
+            digests.append(digest)
         assert digests[0] == digests[1] != ""
 
     def test_module_uses_hashlib_and_never_the_builtin_hash(self) -> None:

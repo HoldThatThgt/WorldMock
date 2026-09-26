@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
 from types import SimpleNamespace
 
@@ -16,7 +17,9 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactDecision, ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.agents.life_menu import menu_action_error, parse_interaction_menu
-from tests.integration.test_life_agent_protocol import _Environment, _context, _observations
+from tests.integration.test_life_agent_protocol import (
+    _Environment, _GroundedCorrectionDispatcher, _ModelResponse, _context, _observations, _wire_agent,
+)
 from worldmock.life.interaction_menu import (
     InteractionMenu,
     canonical_action,
@@ -141,15 +144,25 @@ def test_broken_observation_menu_fails_closed_and_logs(broken, caplog) -> None:
     assert "interaction menu" in caplog.text
 
 
-def test_readonly_and_post_action_phases_do_not_reopen_business_tools() -> None:
-    """只读与已提交动作后的阶段门仍独立于地点菜单。"""
+@pytest.mark.asyncio
+async def test_readonly_and_post_action_phases_do_not_reopen_business_tools() -> None:
+    """只读问答不开放业务工具；生活决策登记一个世界请求即结束，没有重开业务工具的动作后阶段，与地点菜单无关。"""
     readonly = LifeAgent()
     readonly.prepare_react_loop(ReactLoopRequest(
         0, _context().observed_at, [], "What happened?", True))
     assert set(_functions(readonly, readonly=True)).isdisjoint(REQUEST_MODELS)
-    agent = _prepared_agent(("sleep", "wait"))
-    agent._life_action_count = 1
-    assert set(_functions(agent)).isdisjoint(REQUEST_MODELS)
+    wait = {"targets": ["自己"], "actions": ["等待"]}
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("call-action", "start_activity", json.dumps(wait, ensure_ascii=False))])
+    agent, environment = LifeAgent(), _Environment()
+    _wire_agent(agent, environment, dispatcher, 4, memory=False)
+    result = await agent.run_react_loop(ReactLoopRequest(
+        0, _context().observed_at, _observed_menu(("sleep", "wait"))))
+    assert result == "start_activity registered"
+    assert len(dispatcher.requests) == 2
+    assert len(environment.calls) == 1
+    assert "already submitted" in agent.validate_react_decisions([
+        ReactDecision("", "start_activity", wait, "")], False)
 
 
 def test_menu_parser_rejects_unsorted_observation() -> None:

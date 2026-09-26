@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import advance_next, context, start_activity, submit_round
+from tests.life.conftest import advance_next, conclude_pending, context, start_activity, submit_round
 from tests.life.test_category_runtime import (
     _engine, _formal_fixture, _read_json, _replace_map_file, _save_fixture,
     _scenario_source, _set_pairing_coefficient, _set_pairing_undefined,
@@ -17,6 +17,7 @@ from tests.life.test_category_runtime import (
 )
 from worldmock.categories import load_category_contract
 from worldmock.errors import BusinessRuleError
+from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import purchase_order
 from worldmock.life.map_models import QuoteConfig
 from worldmock.life.models import PurchaseItem, PurchaseOrderRequest, StartActivityRequest, SupplyQuoteState
@@ -151,11 +152,14 @@ def test_defined_zero_coefficient_purchase_has_no_account_transfer(priced_engine
     assert engine.state.accounts == accounts
     assert engine.state.supply_stock[identity] == stock - 1
     order_id = result.data["orders"][0]["order_id"]
-    for step in range(32):
+    for step in range(64):
         if engine.state.deliveries[order_id].status == "delivered":
             break
-        # 没有进行中活动时时钟不推进（时间与能量规格第一章规则 1）：等配送时以等待度过。
-        if engine.scheduling_state().ready_agent_ids:
+        # 没有进行中活动时时钟不推进（时间与能量规格第一章规则 1）：等配送时以等待度过；
+        # 等待按计划结束的那一秒先给它收尾（第七章「活动一结束就要结束它」）。
+        if pending_conclusions(engine.state, 1):
+            conclude_pending(engine, f"await-end-{step}")
+        elif engine.scheduling_state().ready_agent_ids:
             submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, f"await-{step}")
         else:
             advance_next(engine)

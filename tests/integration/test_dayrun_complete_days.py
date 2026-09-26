@@ -22,6 +22,7 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life.engine import LifeEngine
+from worldmock.life.models import ActivityStatus
 from worldmock.runtime import two_stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
@@ -36,7 +37,13 @@ def _fixed_context_window(monkeypatch):
 
 
 class DayModel:
-    """只从当前人物可见合同选脚本行动；模型响应仍经过真实原生协议校验。"""
+    """只从当前人物可见合同选脚本行动；模型响应仍经过真实原生协议校验。
+
+    生活决策没有 finish（时间与能量规格第七章「finish 并入 conclude_activity」）：一轮决策恰好登记一个世界请求，
+    登记即结束本轮。刚结束的活动当秒用 conclude_activity 收尾（第七章「活动一结束就要结束它」），唯一一条主观记忆
+    随第一次收尾的 memories 写入。出发前先处理手上的事：午饭前暂停等待（暂停的活动留在家里占一个名额，回家后在
+    开始地点接着等），晚饭前直接结束它，两个名额都空着时边走边看。
+    """
 
     model_name = "deepseek-flash"
 
@@ -57,8 +64,6 @@ class DayModel:
         if "tools" not in request:
             return self._text(request)
         functions = {item["function"]["name"]: item["function"] for item in request["tools"]}
-        if "finish" in functions and not any(name in functions for name in self.agent._life_action_models):
-            return self._finish()
         if not self.invalid_action_sent:
             self.invalid_action_sent = True
             return self._response("invented_wait_tool", {})
@@ -72,7 +77,8 @@ class DayModel:
         return self._response(action, payload)
 
     def _response(self, action, payload):
-        return _ModelResponse(f"call-{self.agent_id}-{self.requests}", action, json.dumps(payload))
+        return _ModelResponse(f"call-{self.agent_id}-{self.requests}", action,
+                              json.dumps(payload, ensure_ascii=False))
 
     def _text(self, request):
         user = request["messages"][-1]["content"]
@@ -84,114 +90,105 @@ class DayModel:
             return _DecisionStatementResponse("我希望把想法与实际经历分开。")
         return _DecisionStatementResponse("我按眼前的情况决定接下来做什么。")
 
-    def _finish(self):
-        memories = []
-        if not self.subjective_written:
-            memories = [{"type": "reflection", "epistemic_status": "subjective", "importance": 0.2,
-                         "keywords": ["猜想"], "text": "我以为自己已经吃过一顿饭。",
-                         "source": "decision_observation", "refs": [self.agent._life_observation_event_id]}]
-            self.subjective_written = True
-        return self._response("finish", {"memories": memories})
-
     def _choose(self, functions):
         now = self.agent.require_decision_context().observed_at
         hour = now.hour + now.minute / 60 + now.second / 3600
         if "plan_day" in functions:
             return "plan_day", {"goals": [{"intent_kind": "用餐", "goal": "找一份餐食"},
                                             {"intent_kind": "娱乐", "goal": "听一会访谈"}]}
+        pending = self._contracts()["pending_names"]
+        if pending:
+            return self._conclude(pending)
         if hour < 11:
             return self._before_lunch(hour)
         return getattr(self, "_" + self.phase)(functions, hour)
 
+    def _contracts(self):
+        return self.agent._life_action_contracts
+
+    def _running(self):
+        return self._contracts()["pausable_names"]
+
     def _watch(self):
         return next(name for name in self.agent._life_visible_objects if "Space Habitat" in name)
+
+    def _content(self):
+        return next(name for name, actions in self.agent._life_visible_objects.items()
+                    if name.startswith("内容：") and "观看" in actions)
 
     def _place(self, label):
         return next(name for name in self.agent._life_visible_objects
                     if name.startswith("地点：") and label in name)
 
-    def _session_action(self, action, names):
+    def _control(self, action, names):
         return action, {"task": list(names), "summary": ["按当前进展继续。"] * len(names)}
 
-    def _active(self):
-        return self.agent._life_action_contracts["active_task_names"]
-
-    def _reportable(self):
-        return self.agent._life_action_contracts["reportable_names"]
-
-    def _currently_doing(self):
-        return "你正在" in self.agent._life_prompt_layers["scene"]
+    def _conclude(self, names):
+        """收尾点名的活动；第一次收尾顺带写下唯一一条主观记忆（来源由系统登记，记忆不带任何身份）。"""
+        memories = [[] for _ in names]
+        if not self.subjective_written:
+            memories[0] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
+                            "text": "我以为自己已经吃过一顿饭。"}]
+            self.subjective_written = True
+        return "conclude_activity", {"task": list(names), "summary": ["这件事先到这里。"] * len(names),
+                                     "memories": memories}
 
     def _before_lunch(self, hour):
-        active = self._active()
-        if active:
-            action = "report_status" if self._currently_doing() else "conclude_activity"
-            return self._session_action(action, active[:2])
+        running = self._running()
+        if running:
+            return self._control("report_status", running)
         sleep = hour < 8 and not self.morning_sleep_started
         if sleep:
             self.morning_sleep_started = True
         return "start_activity", {"targets": ["自己"], "actions": ["睡觉" if sleep else "等待"]}
 
     def _trip(self, functions, hour):
-        active = self._active()
-        if active:
-            # 消息、饥饿跨档与餐时窗口起止都会在进行中的等待里提供决策（时间与能量规格第一、三章）：
-            # 出发前先结束仍在进行的等待；结束是瞬时动作，同一秒再决策出发。
-            return self._session_action("conclude_activity", active[:2])
-        target = _RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)]
-        self.phase = "pause"
-        return "start_activity", {"targets": [self._place(target), self._watch()],
-                                  "actions": ["步行前往", "观看"]}
+        running = self._running()
+        if running:
+            # 消息、饥饿跨档与餐时窗口起止都会在进行中的等待里提供决策（时间与能量规格第一、三章）：出发前要先结束或
+            # 暂停手上的事：午饭前暂停等待（留在家里，回来接着等），晚饭前直接结束；二者都是瞬时动作，同一秒再决策出发。
+            return self._conclude(running) if self.meals else self._control("pause_activity", running)
+        target = self._place(_RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)])
+        self.phase = "walk"
+        if self._contracts()["reportable_names"]:
+            # 暂停的等待仍占一个名额，只步行前往。
+            return "start_activity", {"targets": [target], "actions": ["步行前往"]}
+        return "start_activity", {"targets": [target, self._content()], "actions": ["步行前往", "观看"]}
 
-    def _pause(self, functions, hour):
-        travel = [name for name in self._active() if "步行前往" in name]
-        if travel:
-            action = "report_status" if "《travel》" in self.agent._life_prompt_layers["scene"] else "conclude_activity"
-            return self._session_action(action, travel)
-        self.phase = "purchase"
-        return self._session_action("pause_activity", self._active())
-
-    def _purchase(self, functions, hour):
+    def _walk(self, functions, hour):
+        running = self._running()
+        if running:
+            return self._control("report_status", running)
+        self.phase = "consume"
         supply = next(name for name, actions in self.agent._life_visible_objects.items()
                       if "到店购买" in actions)
-        self.phase = "consume"
         return "start_activity", {"targets": [supply], "actions": ["到店购买"]}
 
     def _consume(self, functions, hour):
-        self.phase = "resume"
+        self.phase = "eat"
         item = next(name for name, actions in self.agent._life_visible_objects.items()
                     if name.startswith("持有物：") and "食用" in actions)
         return "start_activity", {"targets": [item], "actions": ["食用"]}
 
-    def _resume(self, functions, hour):
-        active = self._active()
-        if active:
-            action = "report_status" if self._currently_doing() else "conclude_activity"
-            return self._session_action(action, active)
-        self.phase = "finish_meal"
-        return self._session_action("report_status", self._reportable())
-
-    def _finish_meal(self, functions, hour):
-        active = self._active()
-        if active:
-            action = "report_status" if self._currently_doing() else "conclude_activity"
-            return self._session_action(action, active)
+    def _eat(self, functions, hour):
+        running = self._running()
+        if running:
+            return self._control("report_status", running)
         self.meals += 1
-        self.phase = "homeward"
-        return self._homeward(functions, hour)
-
-    def _homeward(self, functions, hour):
         self.phase = "rest"
         return "start_activity", {"targets": [self._place("张江居所")], "actions": ["步行前往"]}
 
     def _rest(self, functions, hour):
-        active = self._active()
-        if active:
-            action = "report_status" if self._currently_doing() else "conclude_activity"
-            return self._session_action(action, active[:2])
         if self.meals < 2 and hour >= 18:
             self.phase = "trip"
             return self._trip(functions, hour)
+        running = self._running()
+        if running:
+            return self._control("report_status", running)
+        resumable = self._contracts()["resumable_names"]
+        if resumable:
+            # 回到家，在开始地点恢复出门前暂停的等待（report_status 点名暂停的活动即恢复它）。
+            return self._control("report_status", resumable)
         until = 18 if self.meals < 2 else 22
         if hour < until:
             return "start_activity", {"targets": ["自己"], "actions": ["等待"]}
@@ -216,7 +213,7 @@ async def _people(environment, root: Path, models: dict, restored: bool = False)
 async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tmp_path, seed):
     document = _document("multi-person.json")
     document["random_seed"] = seed
-    # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，会话按播报节律汇报。
+    # 决策不耗时（时间与能量规格第一章）：人物总有进行中活动，等待结束即同秒收尾再开始下一段等待，进行中的活动按播报节律汇报。
     # 结算间隔（也是等待时长）与播报间隔放长到两小时只是运行时长的取舍：按场景原有节奏，两颗种子各要跑约 330–430 秒，
     # 又同在一个分片。它们不给同刻轮数设界：同一秒的轮数上限与无空闲区间由 _assert_day 的不变式断言。
     document["activity_feedback_seconds"] = 7200
@@ -283,6 +280,7 @@ def _assert_day(engine, models, start, exported, tmp_path):
     same_second = Counter((event.agent_id, event.occurred_at) for event in events
                           if event.event_type == "decision_started")
     assert max(same_second.values()) <= engine.scenario.max_same_moment_decisions + 3
+    paused = 0
     for agent_id in (1, 2):
         body = [event for event in events if event.agent_id == agent_id
                 and event.event_type == "environment_event" and event.data.get("kind") == "body_settlement"]
@@ -300,9 +298,37 @@ def _assert_day(engine, models, start, exported, tmp_path):
         assert any(len(event.data.get("data", {}).get("activities", [])) == 2 for event in events
                    if event.agent_id == agent_id and event.event_type == "action_result")
         assert all(event.data["agent_id"] == agent_id for event in observations)
+        paused += _assert_activity_protocol(engine, events, agent_id)
+    assert paused, "a wait paused before departure must be resumed at home"
     updates = [event for event in events if event.event_type == "memory_updated"]
     assert updates and all(row["epistemic_status"] == "subjective" for event in updates
                            for row in event.data["episodes"])
     assert any(event.event_type == "model_response" and event.data.get("error") for event in events)
     assert exported["experiment_completed"]
     assert (tmp_path / "export" / "quality.json").is_file()
+
+
+def _assert_activity_protocol(engine, events, agent_id):
+    """第七章：生活决策没有 finish；唯一主观记忆经 conclude_activity.memories 写入并由收尾写入点对上；
+    刚结束的活动都在结束那一秒收尾，暂停的等待回到开始地点后恢复，结束、暂停与恢复逐项留记录。
+
+    :returns: 本人暂停（随后都已恢复）的次数。
+    """
+    own = [event for event in events if event.agent_id == agent_id]
+    offered = [{tool["function"]["name"] for tool in event.data["request"]["tools"]} for event in own
+               if event.event_type == "model_request" and event.data["request"].get("tools")]
+    assert offered and all("finish" not in names for names in offered)
+    written = [event for event in own if event.event_type == "memory_updated"
+               and any(row["text"] == "我以为自己已经吃过一顿饭。" for row in event.data["episodes"])]
+    assert written and written[0].data["trigger"][0] == "activity_conclusion"
+    kinds = Counter(event.data["kind"] for event in own if event.event_type == "environment_event"
+                    and event.data.get("kind") in {"activity_concluded", "activity_paused", "activity_resumed"})
+    assert kinds["activity_paused"] == kinds["activity_resumed"] and kinds["activity_concluded"] > 2
+    for activity in (item for item in engine.state.activities.values() if item.agent_id == agent_id):
+        if activity.status == ActivityStatus.TRUNCATED:
+            assert activity.concluded_at is None
+        elif activity.interruption_reason != "agent_cancelled":
+            assert activity.concluded_at == activity.ended_at, activity.name
+        else:
+            assert activity.concluded_at is not None, activity.name
+    return kinds["activity_paused"]

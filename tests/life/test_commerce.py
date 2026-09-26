@@ -9,7 +9,8 @@ import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan
+from tests.life.conftest import advance_next, advance_until_ready, conclude_pending, context, stage_day_plan
+from tests.life.test_money_settlement import _conclude_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import deliver_order
 from worldmock.life.models import (
@@ -72,11 +73,13 @@ def _delivery_supply_ids(observation: dict) -> set[str]:
 
 
 def _browse(engine) -> None:
-    """通过可读商品目录浏览活动取得具体门店供给。"""
+    """通过可读商品目录浏览活动取得具体门店供给；浏览按计划结束即成待收尾，当秒收尾（规格第七章）。"""
     _, result = _observed_action(engine, "browse", "start_activity",
                                  lambda observed: _choice(observed, "browse"))
     assert result.status == "in_progress", result.error_code
     advance_next(engine)
+    assert engine.state.activities[result.activity_id].status == "completed"
+    assert conclude_pending(engine, "browse-end").status == "completed"
 
 
 def _selected_supply(engine, product_id: str):
@@ -125,14 +128,15 @@ def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> No
     assert all("resource_changes" not in event.data
                for event in engine.store.read_agent_events("action_accepted", 1))
 
-    # 下单是瞬时动作：没有进行中活动，同一秒再决策；重放轮计入同刻轮数，按存档结果仍在同一秒再决策（第一章规则 2、9）。
+    # 下单是瞬时动作：没有进行中活动，同一秒再决策；浏览收尾轮、下单轮与重放轮各计一轮同刻轮数，
+    # 重放按存档结果仍在同一秒再决策（第一章规则 2、9；第七章「这一轮计入同刻轮数」）。
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
-    assert engine.state.agents[1].same_moment_rounds == 1
+    assert engine.state.agents[1].same_moment_rounds == 2
     snapshot = (dict(engine.state.accounts), dict(engine.state.supply_stock), dict(engine.state.deliveries))
     _observed_action(engine, "buy-replay", "start_activity", request, action_id="action-buy")
     assert (engine.state.accounts, engine.state.supply_stock, engine.state.deliveries) == snapshot
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
-    assert engine.state.agents[1].same_moment_rounds == 2
+    assert engine.state.agents[1].same_moment_rounds == 3
     assert engine.state.agents[1].pending_wake_reasons == ["no_active_activity"]
     all_money = [event for event in engine.store.read_agent_events("action_result", 1)
                  if event.action_id == "action-buy" and event.data.get("resource_changes")]
@@ -227,6 +231,7 @@ def _multi_browse(engine) -> None:
     results = engine.commit_decision_round("multi-browse")
     assert all(result.status == "in_progress" for result in results)
     advance_next(engine)
+    _conclude_round(engine, "multi-browse-end")
 
 
 def _compete_for_last_item(engine, arrival_order: tuple[int, int]) -> tuple[int, int, dict[int, str]]:

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from worldmock.life.narration import (
@@ -137,6 +139,21 @@ class TestRenderScene:
         scene = render_scene({"inbox_head": ["今晚见面"], "inbox_has_older_unread": False})
         assert scene == "收件箱最新消息：今晚见面。"
 
+    def test_just_ended_activities_render_one_sentence_after_current_activities(self, scene_observation: dict) -> None:
+        """刚结束、待收尾的活动写成一句「刚结束：<活动名>。」，列在当前活动之后、目标之前；没有时不写
+        （时间与能量规格第七章「活动一结束就要结束它」）。"""
+        names = ["步行张江高科技园区办公室（1月5日 14:17 起）", "观看Space Habitat（1月5日 14:17 起）"]
+        scene = render_scene({**scene_observation, "just_ended": names})
+        sentence = f"刚结束：{names[0]}、{names[1]}。"
+        assert scene.count(sentence) == 1
+        assert scene.index("《写周报》") < scene.index(sentence) < scene.index("今天想推进")
+        assert "刚结束" not in render_scene({**scene_observation, "just_ended": []})
+
+    def test_scene_never_renders_session_rows_or_self_reports(self) -> None:
+        """「正在做」只来自进行中活动；旧的会话行与其中的人物自述不再进入场景（时间与能量规格第八章「自述不当事实」）。"""
+        stale = {"current_sessions": [{"label": "写周报", "invested_seconds": 3600, "progress_note": "我已经写完了"}]}
+        assert render_scene(stale) == ""
+
     def test_same_moment_note_closes_the_scene_only_in_restricted_rounds(self) -> None:
         """同刻上限的受限轮在场景末尾加一句说明（不写次数）；其余轮次为空串，不渲染（时间与能量规格第一章「实现约定」）。"""
         note = "你已经想了好几轮，先定下一件事"
@@ -249,6 +266,7 @@ class TestFieldBlacklist:
     @pytest.mark.parametrize("internal_key", [
         "session_id", "activity_id", "task_id", "route_id", "product_id",
         "supply_id", "order_id", "message_id", "contact_id", "price_version",
+        "agent_id", "source_event_id", "event_seq", "location_id", "destination_id", "content_id",
     ])
     def test_internal_identity_cannot_hide_inside_progress_result(self, internal_key: str) -> None:
         """结果的任意嵌套层不能重新泄漏引擎身份或报价版本。"""
@@ -282,6 +300,41 @@ class TestFieldBlacklist:
         route = {"destination": "好德便利店", "mode": "walking", "minutes": 8, "fare_fen": 0,
                  "effort": "费力", "feasible": True, "status": "reachable", "reason": None}
         assert '"effort":"费力"' in render_facts({"routes": [route]})
+
+    def test_progress_layer_activity_rows_render(self) -> None:
+        """进度层 sessions[].activities 是按会话分组的活动进度行，不是完整活动快照：整份进度层照常渲染，不丢字段
+        （时间与能量规格第七章「会话与活动的字段」）。"""
+        facts = {"progress": {"sessions": [
+            {"name": "张江办公室（1月5日 14:34 起）", "activities": [
+                {"name": "工作1月5日项目会议纪要（1月5日 14:40 起）", "phase": "进行中",
+                 "objective_progress": "已做约2小时，有效约1.5小时，还差约2小时",
+                 "subjective_progress": "锁粒度那块卡住了", "subjective_status": "你自己记下的，未经核验"},
+                {"name": "较早收尾的2项活动", "phase": "历史摘要", "activity_count": 2,
+                 "latest_objective_progress": "已做约10分钟"},
+            ]},
+            {"name": "去张江办公室的路上（1月5日 14:17 起）", "activities": []},
+        ], "results": [], "alarms": []}}
+        enforce_field_blacklist(facts)
+        assert json.loads(render_facts(facts)) == facts
+
+    @pytest.mark.parametrize("payload", [
+        {"activities": [{"name": "等待（1月5日 00:00 起）"}]},
+        {"progress": {"activities": [{"name": "等待（1月5日 00:00 起）"}]}},
+        {"progress": {"results": [{"details": {"activities": [{"name": "等待（1月5日 00:00 起）"}]}}]}},
+        {"progress": {"sessions": [{"name": "家（1月5日 00:00 起）", "activities": [{"activities": []}]}]}},
+    ])
+    def test_activities_outside_progress_sessions_are_still_rejected(self, payload: dict) -> None:
+        """activities 只在父键为 sessions 时放行；在顶层、其他父键下或活动行里再嵌套，仍按完整活动快照拒绝。"""
+        with pytest.raises(ForbiddenObservationFieldError, match="activities"):
+            render_facts(payload)
+
+    @pytest.mark.parametrize("internal_key", ["activity_id", "session_id", "agent_id", "location_id"])
+    def test_progress_activity_rows_cannot_carry_internal_identities(self, internal_key: str) -> None:
+        """放行进度层活动行不等于放行其中的内部身份（时间与能量规格第七章「发给模型的内容不含内部身份」）。"""
+        facts = {"progress": {"sessions": [{"name": "家（1月5日 00:00 起）", "activities": [
+            {"name": "等待（1月5日 00:00 起）", "phase": "进行中", internal_key: "private-7"}]}]}}
+        with pytest.raises(ForbiddenObservationFieldError, match=internal_key):
+            render_facts(facts)
 
     def test_contract_fact_fields_pass(self) -> None:
         """可读名称和进度层字段能通过递归公开校验。"""

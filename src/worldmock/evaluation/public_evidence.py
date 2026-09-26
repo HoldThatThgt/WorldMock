@@ -29,7 +29,7 @@ _TARGETED_ACTIONS = {
     "read": ("work", "read", "message"),
     "browse": ("browsing", "browse", "content"),
 }
-#: 会话控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」）。
+#: 活动控制工具 -> 公开交互动词（docs/dev/SPEC-agent-interaction.md「稳定工具面」），按 task[] 逐活动投影。
 _SESSION_CONTROL_TOOLS = {
     "report_status": "report",
     "pause_activity": "pause",
@@ -77,6 +77,7 @@ class _Action:
     shape: _Shape
     action_name: str | None = None
     index: int = 0
+    activity_status: str | None = None
 
 
 def labelkit_public_evidence(
@@ -308,26 +309,24 @@ def _control_actions(
     activities: Mapping[str, JsonObject],
     activity_map: Mapping[str, str],
 ) -> tuple[_Action, ...]:
-    """@brief 将每个受控会话及其活动分别绑定到已回报的真实活动身份。"""
+    """@brief 按请求 task[] 逐活动投影：结果逐项回报的活动身份绑定到导出的真实活动快照。"""
     selected: list[_Action] = []
     for event in related:
         if event.event_type != "action_result":
             continue
-        groups = _result_payload(event.data).get("activity_ids")
-        if not isinstance(groups, list):
+        identities = _result_payload(event.data).get("activity_ids")
+        if not isinstance(identities, list):
             continue
-        for index, group in enumerate(groups):
-            if not isinstance(group, list):
+        for index, activity_id in enumerate(identities):
+            key = _string(activity_id)
+            row = activities.get(key) if key is not None else None
+            base = _activity_shape(row, activity_map) if row is not None else None
+            if base is None:
                 continue
-            for activity_id in group:
-                key = _string(activity_id)
-                row = activities.get(key) if key is not None else None
-                base = _activity_shape(row, activity_map) if row is not None else None
-                if base is None:
-                    continue
-                shape = _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity",
-                               key, base.attributes)
-                selected.append(_Action(tool_name, request, shape, index=index))
+            shape = _Shape(base.category, _SESSION_CONTROL_TOOLS[tool_name], "activity",
+                           key, base.attributes)
+            selected.append(_Action(tool_name, request, shape, index=index,
+                                    activity_status=_string(row.get("status"))))
         break
     return tuple(selected)
 
@@ -422,9 +421,11 @@ def _result_state(event: Event, action: _Action) -> str | None:
     status = _RESULT_STATES.get(event.data.get("status"))
     if status in {"rejected", "cancelled", "failed", "unknown"}:
         return status
+    if action.tool_name == "conclude_activity":
+        # 结束状态取活动的实际终态（完成、失败或已取消），不按工具名推断。
+        return _ACTIVITY_RESULT_STATES.get(action.activity_status)
     if action.tool_name in _SESSION_CONTROL_TOOLS:
-        return {"report_status": "started", "pause_activity": "paused",
-                "conclude_activity": "completed"}[action.tool_name]
+        return {"report_status": "started", "pause_activity": "paused"}[action.tool_name]
     started = _start_action(action)
     activity = _result_activity_at(event.data, action.index)
     if started in _ACTIVITY_BACKED_ACTIONS:
