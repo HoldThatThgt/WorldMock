@@ -2,19 +2,19 @@
 
 输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
 回顾时段里已核验经历的句子（第七章口径）、本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收）、
-回顾时段里 conclude_activity 请求记下的 summary 与 memories（标「你自己记下的，未经核验」），以及此刻可见的
-事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。不读身体数值、交互对象、
-私有绑定、未到期的预排事件、决策自述与人物的主观记忆库，也不含内部身份。
+回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（标「你自己记下的，未经核验」；被拒与重放的
+请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
+不读身体数值、交互对象、私有绑定、未到期的预排事件、决策自述与人物的主观记忆库，也不含内部身份。
 
 回顾时段自 day_start 至 now：零点边界上是刚结束的本地日（前一日零点至本次零点），启动路径上是生成时刻所在
-本地日里生成时刻之前的部分。动作结果与收尾按发生时刻取闭区间；经历按结算区间的结束时刻取左开右闭，
+本地日里生成时刻之前的部分（起点恰为零点时为空）。动作结果与收尾按发生时刻取闭区间；经历按结算区间的结束时刻取左开右闭，
 day_start 那一刻结束的区间属于前一日，本次零点结束的末段属于刚结束的这一日。
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -64,7 +64,7 @@ class _Window:
 def plan_inputs(engine: Any, agent_id: int) -> PlanInputs:
     """@brief 为一个人物装配零点计划输入（只读引擎的世界状态、场景与足迹库，不产生任何事件）。"""
     state, zone = engine.state, engine.scenario.timezone
-    window = _review_window(state.current_time, zone)
+    window = _review_window(state.current_time, zone, engine.midnight_rhythm_pending)
     agent = state.agents[agent_id]
     experiences = _experience_sentences(engine, agent_id, window)
     results, result_sources = _result_sentences(engine, agent_id, window)
@@ -88,11 +88,12 @@ def plan_inputs(engine: Any, agent_id: int) -> PlanInputs:
     return PlanInputs(payload, experiences, (*result_sources, *conclusion_sources, *goal_sources))
 
 
-def _review_window(now: int, timezone_name: str) -> _Window:
-    """@brief 自前一刻所在本地日的零点至 now：零点边界回顾前一日，其余时刻回顾当日已过去的部分。"""
-    zone = ZoneInfo(timezone_name)
-    before = datetime.fromtimestamp(now, zone) - timedelta(seconds=1)
-    start = before.replace(hour=0, minute=0, second=0, microsecond=0)
+def _review_window(now: int, timezone_name: str, midnight_boundary: bool) -> _Window:
+    """@brief 回顾时段：零点边界（engine.midnight_rhythm_pending）回顾刚结束的前一日，自前一日零点至 now；
+    启动路径（新建、恢复与反事实分支）回顾生成时刻所在本地日中生成时刻之前的部分，起点恰为零点时为空时段。
+    """
+    local = datetime.fromtimestamp(now - 1 if midnight_boundary else now, ZoneInfo(timezone_name))
+    start = local.replace(hour=0, minute=0, second=0, microsecond=0, fold=0)
     return _Window(int(start.timestamp()), now, timezone_name)
 
 
@@ -177,10 +178,17 @@ def _place(engine: Any, location_id: str) -> str:
 
 
 def _conclusion_records(engine: Any, agent_id: int, window: _Window) -> tuple[list[dict], list[str]]:
-    """@brief 回顾时段里 conclude_activity 请求记下的 summary 与 memories（人物自述，未经核验）。"""
+    """@brief 回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（人物自述，未经核验）。
+
+    只取结果为 completed 的首次请求：被拒的请求与重放（reused）的请求不列，与动作结果的口径一致。
+    """
+    store = engine.store
+    completed = {event.action_id for event in store.read_agent_events("action_result", agent_id)
+                 if event.data.get("status") == "completed" and not event.data.get("reused")}
     records, sources = [], []
-    for event in engine.store.read_agent_events("action_requested", agent_id):
-        if event.data.get("tool_name") != "conclude_activity" or not window.covers(event.occurred_at):
+    for event in store.read_agent_events("action_requested", agent_id):
+        if (event.data.get("tool_name") != "conclude_activity" or event.data.get("reused")
+                or event.action_id not in completed or not window.covers(event.occurred_at)):
             continue
         body = event.data["request"]
         for task, summary, memories in zip(body["task"], body["summary"], body["memories"]):

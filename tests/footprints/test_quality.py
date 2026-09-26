@@ -188,6 +188,28 @@ def test_model_usage_counts_plan_day_and_lists_it_by_purpose():
         ("decision", 1, 1, 120), ("plan_day", 1, 1, 120)]
 
 
+def test_plan_day_response_naming_memories_is_no_memory_problem():
+    """零点计划不是记忆写入点：它的输出多带 memories 字段时，本地校验错误不记为记忆协议问题；
+    同一句错误出现在人物决策的响应里照旧记入。"""
+    from worldmock.life.day_planning import PlanDayOutputError, parse_plan_day
+
+    arguments = json.dumps({"goals": [], "memories": ["明早七点起床"]}, ensure_ascii=False)
+    raw = {"model": "deepseek-flash", "choices": [{"message": {"tool_calls": [
+        {"function": {"name": "submit_day_plan", "arguments": arguments}}]}}]}
+    with pytest.raises(PlanDayOutputError, match="memories") as caught:
+        parse_plan_day(raw, 100, "Asia/Shanghai")
+    plan = {"phase": "response", "purpose": "plan_day", "call_id": "plan", "attempt": 1,
+            "error": str(caught.value), "response": raw}
+    decision = {key: value for key, value in plan.items() if key != "purpose"}
+
+    def problems(data):
+        event = _event(1, "model_response", agent_id=1, data=data)
+        return build_quality_report([event], [], _manifest())["memory_references"]["problems"]
+
+    assert problems(plan) == []
+    assert problems(decision) == [{"code": "memory_protocol_error", "event_id": "event-1", "agent_id": 1}]
+
+
 def test_actual_unpriced_model_keeps_tokens_but_does_not_invent_cost():
     response = _tool_response("call", _usage())
     response["response"]["model"] = "another-model"

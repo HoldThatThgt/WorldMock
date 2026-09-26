@@ -458,7 +458,12 @@ def _inspect_conclusion_request(event: Event, state: dict) -> None:
 
 
 def _inspect_memory_response(event: Event, state: dict) -> None:
-    """@brief 模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。"""
+    """@brief 人物决策的模型响应的协议错误提到记忆时记为记忆协议问题（记忆不再带引用，不核对身份）。
+
+    带 purpose 的系统请求（工作验收、零点计划 plan_day）不是记忆写入点，其响应错误不计入记忆问题。
+    """
+    if event.data.get("purpose"):
+        return
     error = event.data.get("error")
     if isinstance(error, str) and any(word in error.lower() for word in ("memory", "memories")):
         _add_memory_problem(state, "memory_protocol_error", event.event_id, event.agent_id, [])

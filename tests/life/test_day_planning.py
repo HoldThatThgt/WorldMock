@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -18,7 +20,7 @@ import worldmock.runtime as runtime_module
 from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_ready, conclude_request, context,
                                  drive, pending_names, plan_day_response, settle_day_plans, stage_day_plan,
                                  start_activity, submit_round)
-from tests.life.test_scheduling import _custom_engine
+from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.life import day_planning, narration, reminders
@@ -27,7 +29,7 @@ from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (PlanDayRequest, PlanGoalInput, ReportStatusRequest, ReviseDayPlanRequest,
                                    SendMessageActionRequest)
-from worldmock.life.schedule import PlanGoal
+from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_time
 from worldmock.runtime import settle_pending_day_plans
 
 SCENARIO = "white-collar-12-weeks.json"
@@ -63,6 +65,38 @@ def _late_engine(tmp_path, start: str, run_id: str, base: str = SCENARIO, **para
         document.update(params)
 
     return _custom_engine(base, mutate, tmp_path, run_id=run_id)
+
+
+def _beirut_engine(tmp_path: Path) -> LifeEngine:
+    """场景时区换成 Asia/Beirut、在 2026-03-28 23:45 启动的隔离运行（次日零点夏令时拨快，那天没有 00:00）。
+
+    地图数据集的时区须与场景一致：复制语料、改写数据集时区并刷新内容身份。场景时刻须带声明时区的偏移：终点换成
+    同一时刻的贝鲁特写法，带东八区偏移的任务、邮件、账单与工资不保留。
+    """
+    corpus = tmp_path / "corpora"
+    shutil.copytree(Path(__file__).resolve().parents[2] / "corpora", corpus)
+    dataset = corpus / "zhangjiang-map" / "dataset.json"
+    dataset.write_text(json.dumps({**json.loads(dataset.read_text(encoding="utf-8")), "timezone": "Asia/Beirut"},
+                                  ensure_ascii=False), encoding="utf-8")
+    manifest = corpus / "manifest.json"
+    entries = json.loads(manifest.read_text(encoding="utf-8"))
+    for entry in entries["entries"]:
+        if entry["path"] == "zhangjiang-map/dataset.json":
+            entry.update(sha256=_sha256(dataset), size_bytes=dataset.stat().st_size)
+    manifest.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+    document = _document(SCENARIO)
+    document.update(timezone="Asia/Beirut", start_at="2026-03-28T23:45:00+02:00", end_at="2026-03-29T19:00:00+03:00",
+                    tasks=[], messages=[], bills=[], payrolls=[])
+    document["map_dataset"]["sha256"] = _sha256(dataset)
+    path = _write_scenario(document, tmp_path)
+    document.update(corpus_root=str(corpus), corpus_manifest_sha256=_sha256(manifest))
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    return LifeEngine.create(path, tmp_path / "run-beirut", _identity(document, "beirut"))
+
+
+def _sha256(path: Path) -> str:
+    """文件字节的 SHA-256。"""
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def _events(engine: LifeEngine, after: int = 0) -> list:
@@ -290,6 +324,37 @@ def test_midnight_settles_the_old_day_then_plans_then_judges_the_second(tmp_path
         assert _decide(engine, "midnight-report")[1].status == "completed"
 
 
+def test_midnight_is_the_local_date_change_when_dst_skips_00_00(tmp_path):
+    """夏令时在零点拨快的日子没有 00:00（Asia/Beirut 2026-03-29 从 01:00 开始）：本地日期变更的那一秒就是零点边界，
+    推进把该秒的节律判定留到零点计划之后，零点计划为新的一日生成一次；零点回拨后重复出现的 00:00 不是零点。
+    """
+    beirut = ZoneInfo("Asia/Beirut")
+    engine = _beirut_engine(tmp_path)
+    try:
+        settle_day_plans(engine)
+        slept = _start(engine, "睡觉", "bedtime")
+        boundary = engine.scheduling_state().next_event_at
+        assert boundary == datetime(2026, 3, 29, 1, 0, tzinfo=beirut)
+
+        engine.advance(int(boundary.timestamp()) - engine.state.current_time, boundary)
+
+        assert engine.midnight_rhythm_pending
+        client = StubPlanDayClient(goals=[_goal("晨间例程", "起床洗漱", "07:00")])
+        settle_day_plans(engine, client)
+        agent = engine.state.agents[1]
+        assert agent.plan_submitted_dates == {"2026-03-28", "2026-03-29"}
+        assert agent.day_plan.day_end == int(datetime(2026, 3, 30, tzinfo=beirut).timestamp())
+        assert agent.day_plan.goals[0].remind_at == int(datetime(2026, 3, 29, 7, 0, tzinfo=beirut).timestamp())
+        payload = json.loads(client.calls[0]["messages"][1]["content"])
+        assert payload["回顾时段"] == "3月28日 00:00 至 3月29日 01:00"
+        assert engine.state.activities[slept].status == "active" and not engine.scheduling_state().ready_agent_ids
+    finally:
+        engine.close()
+    fall_back = int(datetime(2026, 11, 1, tzinfo=ZoneInfo("America/Havana")).timestamp())
+    assert reminders.is_local_midnight(fall_back, "America/Havana")
+    assert not reminders.is_local_midnight(fall_back + 3600, "America/Havana")
+
+
 def test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once(tmp_path):
     """跨零点的长睡眠中没有生活决策；新计划的提醒进入候选，到点结束睡眠并按实际时长结算，只触发一次。"""
     engine = _late_engine(tmp_path, "2026-01-05T23:45:00+08:00", "night")
@@ -339,6 +404,37 @@ def test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end(engine_factor
     assert agent.day_plan.goals[0].reminded_at == end
     assert {"planned_end", "wake_from_sleep", "plan_reminder_due"} <= set(agent.pending_wake_reasons)
     assert reminders.reminder_times(agent, end) == () and not reminders.reminder_due(agent, end + 1)
+
+
+def test_sleep_keeps_the_reminder_among_the_next_decision_candidates():
+    """睡眠中重估间隔与截止预警被剔除，当日未触发的提醒不剔除：下一决策时刻是提醒，早于睡眠的计划结束。"""
+    query = NextDecisionQuery(now=_at(5, 0), planned_end=_at(5, 8), last_decision_time=_at(5, 0),
+                              next_task_due_at=_at(5, 3), plan_reminder_times=(_at(5, 7),), is_asleep=True)
+
+    assert next_decision_time(query) == _at(5, 7)
+    assert next_decision_time(query.model_copy(update={"plan_reminder_times": ()})) == _at(5, 8)
+
+
+def test_reminder_staged_without_a_rhythm_pass_is_the_next_boundary_and_ends_the_sleep(engine_factory):
+    """提醒进入推进边界候选不依赖人物的 next_decision_at（恢复与反事实分支按世界状态里的计划推进）：只置计划、
+    不经节律重算时，下一边界仍是提醒时刻，推进到点结束睡眠（boundary_type=plan_reminder）。
+    """
+    engine = engine_factory()
+    settle_day_plans(engine)
+    slept = _start(engine, "睡觉", "sleep")
+    remind = engine.state.activities[slept].started_at + 60
+    stage_day_plan(engine, goals=(PlanGoal(intent_kind="晨间例程", goal="起床", registered_at=engine.state.current_time,
+                                           remind_at=remind),))
+    assert engine.state.agents[1].next_decision_at > remind
+
+    assert int(engine.scheduling_state().next_event_at.timestamp()) == remind
+    advance_next(engine)
+
+    sleep = engine.state.activities[slept]
+    assert (engine.state.current_time, sleep.status, sleep.ended_at, sleep.boundary_type) == (
+        remind, "completed", remind, "plan_reminder")
+    agent = engine.state.agents[1]
+    assert agent.day_plan.goals[0].reminded_at == remind and "plan_reminder_due" in agent.pending_wake_reasons
 
 
 def test_reminders_wake_once_merge_and_fire_after_the_goal_progressed(engine_factory):
@@ -446,6 +542,57 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
     monkeypatch.setattr(day_planning, "request_token_count", lambda request: 10_000)
     with pytest.raises(RuntimeError, match="capacity exceeded"):
         day_planning.fit_plan_day({"x": "y"}, ["a"], "deepseek-flash")
+
+
+def test_plan_inputs_list_only_accepted_conclusions_once(engine_factory):
+    """收尾记录只取已受理的 conclude_activity 请求：被拒请求里写下的话不进输入，重放的同一请求不重复列出。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited = _start(engine, "等待", "first-wait")
+    assert advance_until_ready(engine)
+    name = engine.state.activities[waited].name
+    rejected = ("conclude_activity", conclude_request("根本没有这件事", summary="明早七点起。",
+                                                      memories=[[{**_MEMORY, "text": "明早七点起床"}]]))
+    accepted = ("conclude_activity", conclude_request(name, summary="歇好了，明早七点半起床。", memories=[[_MEMORY]]))
+    assert _decide(engine, "bad-conclude", rejected)[1].status == "rejected"
+    assert _decide(engine, "good-conclude", accepted)[1].status == "completed"
+    replay = context(engine, "replay")
+    engine.begin_decision_round([replay])
+    engine.observe(replay)
+    engine.submit_action(DirectToolCall(replay, "action-good-conclude", *accepted))
+    engine.commit_decision_round("replay")
+
+    inputs = plan_inputs(engine, 1)
+
+    assert [(row["活动"], row["收尾说明"], row["想记住的"]) for row in inputs.payload["收尾记录"]] == [
+        (name, "歇好了，明早七点半起床。", ["明早七点半起床"])]
+    requests = [event for event in _events(engine)
+                if event.event_type == "action_requested" and event.data["tool_name"] == "conclude_activity"]
+    assert [event.data["reused"] for event in requests] == [False, False, True]
+    assert [event.event_id in inputs.sources for event in requests] == [False, True, False]
+
+
+def test_review_window_is_empty_at_a_midnight_start_and_the_old_day_at_a_midnight_boundary(engine_factory, tmp_path):
+    """回顾时段：起点恰为零点的启动路径只回顾生成时刻之前的当日部分，即空时段，不回顾运行没有经历的前一日；
+    零点边界上才回顾刚结束的前一日（前一日零点至本次零点）。
+    """
+    engine = engine_factory()
+    client = StubPlanDayClient()
+    settle_day_plans(engine, client)
+    assert json.loads(client.calls[0]["messages"][1]["content"])["回顾时段"] == "1月5日 00:00 至 1月5日 00:00"
+
+    late = _late_engine(tmp_path, "2026-01-05T23:45:00+08:00", "window")
+    try:
+        settle_day_plans(late)
+        _start(late, "睡觉", "bedtime")
+        boundary = late.scheduling_state().next_event_at
+        assert int(boundary.timestamp()) == _at(6, 0)
+        late.advance(int(boundary.timestamp()) - late.state.current_time, boundary)
+
+        assert late.midnight_rhythm_pending
+        assert plan_inputs(late, 1).payload["回顾时段"] == "1月5日 00:00 至 1月6日 00:00"
+    finally:
+        late.close()
 
 
 def test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended(tmp_path, monkeypatch):

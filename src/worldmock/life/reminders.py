@@ -1,6 +1,6 @@
 """@brief 场景本地零点与当日目标提醒（docs/dev/SPEC-time-and-energy.md 第四章「运行时机」「计划与提醒」）。
 
-引擎只接线，本模块给出：零点与未触发的提醒作为下一边界候选（不依赖人物的 next_decision_at）；
+引擎只接线，本模块给出：零点（本地日期变更的那一秒）与未触发的提醒作为下一边界候选（不依赖人物的 next_decision_at）；
 零点边界（不是终点）把该秒的唤醒判定留到零点计划提交之后；提醒到点的判定、只触发一次的记账，
 以及提醒触发那一秒的进度提醒句。提醒与推进无关，只在修订替换或删除该目标、或当日结束时失效。
 """
@@ -15,9 +15,13 @@ from worldmock.life.schedule import PlanGoal, day_end_seconds, day_plan_expired,
 
 
 def is_local_midnight(epoch: int, timezone_name: str) -> bool:
-    """@brief 该时刻是否恰为场景本地 00:00:00。"""
-    local = datetime.fromtimestamp(epoch, ZoneInfo(timezone_name))
-    return (local.hour, local.minute, local.second) == (0, 0, 0)
+    """@brief 该时刻是否为场景本地零点：本地日期恰在这一秒变更（与前一秒的本地日期不同）。
+
+    按日期变更而不按钟面 00:00:00 判定：夏令时在零点拨快的日子（如 Asia/Beirut 2026-03-29）没有 00:00，
+    新的一日从 01:00 开始，day_end_seconds 给出的正是这一刻；零点回拨后重复出现的 00:00 不是新的一日。
+    """
+    zone = ZoneInfo(timezone_name)
+    return datetime.fromtimestamp(epoch, zone).date() != datetime.fromtimestamp(epoch - 1, zone).date()
 
 
 def defers_rhythm(state: WorldState, target: int, timezone_name: str) -> bool:

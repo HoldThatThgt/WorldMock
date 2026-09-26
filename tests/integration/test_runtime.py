@@ -992,6 +992,129 @@ async def test_plan_day_failure_during_resume_init_is_registered_before_raising(
         await env.close()
 
 
+def _failing_plan_day_client(monkeypatch) -> None:
+    """零点计划客户端桩：按清单身份照常构造，每次请求都以传输失败抛出（替换 worldmock.runtime.PlanDayClient）。"""
+    class FailingClient(_RecordingPlanDayClient):
+        built: list = []
+
+        async def call(self, request):
+            raise ConnectionError("plan day transport down")
+
+    monkeypatch.setattr(runtime_module, "PlanDayClient", FailingClient)
+
+
+def _society_config(env, identity, run_dir: Path, window: tuple[datetime, datetime], mode: str):
+    """真实 AgentSociety 接真实 LifeEnv 的运行配置（同 test_life_agent_protocol 的 Society 装配，不经 Ray 与模型）。
+
+    环境路由是 AS2 的 DirectEnvActor 与它持有的 DirectRouter（生产链路去掉 Ray 代理与模块扫描）；
+    identity 带 run_id 与 agent_ids；window 为（起点, 终点）。
+    """
+    from agentsociety2.env.direct_env_actor import DirectEnvActor
+    from agentsociety2.env.router_direct import DirectRouter
+    from agentsociety2.society import AgentSocietyConfig
+
+    actor = object.__new__(DirectEnvActor)
+    actor._router = DirectRouter(env_modules=[env], llm_clients_spec={"coder": "unused", "default": "unused"})
+    actor._replay_proxy = None
+    return AgentSocietyConfig(
+        run_id=identity.run_id, agent_class_name="LifeAgent", env_router=actor, service_proxy=None,
+        agent_specs=tuple({"id": agent_id, "profile": {}, "config": {}} for agent_id in identity.agent_ids),
+        start_time=window[0], end_time=window[1], run_dir=run_dir,
+        custom_root=Path(__file__).resolve().parents[2], workspace_mode=mode)
+
+
+@pytest.mark.asyncio
+async def test_plan_day_failure_at_a_midnight_step_is_one_run_failure_through_society_run(
+        tmp_path, monkeypatch) -> None:
+    """零点推进中零点计划失败：异常经 LifeEnv.step 传到 Society.run，登记唯一 run_failed 后原样抛出，不成异常组；
+    零点的请求与失败证据先于 run_failed 保留。"""
+    from agentsociety2.society import AgentSociety
+    from custom.envs.life_env import LifeEnv
+    from tests.life.conftest import settle_day_plans, start_activity, submit_round
+    from tests.life.test_day_planning import _late_engine
+
+    engine = _late_engine(tmp_path, "2026-01-05T23:45:00+08:00", "society-midnight")
+    try:
+        settle_day_plans(engine)
+        submit_round(engine, {1: ("start_activity", start_activity("睡觉", "自己"))}, "bedtime")
+        env = LifeEnv()
+        env.engine = engine
+        _failing_plan_day_client(monkeypatch)
+        zone = ZoneInfo(engine.scenario.timezone)
+        window = (datetime.fromtimestamp(engine.state.current_time, zone),
+                  datetime.fromtimestamp(engine.state.end_time, zone))
+        identity = SimpleNamespace(run_id=engine.state.run_id, agent_ids=tuple(sorted(engine.state.agents)))
+        society = AgentSociety(_society_config(env, identity, tmp_path, window, "restored"))
+        society._initialized = True
+        society._environment_started = True
+        midnight = int(datetime(2026, 1, 6, tzinfo=zone).timestamp())
+        seq = engine.store.last_event_seq
+
+        with pytest.raises(ConnectionError, match="transport down") as caught:
+            await society.run()
+
+        assert not isinstance(caught.value, BaseExceptionGroup) and society.current_time == window[0]
+        events = [event for event in engine.store.read_events(engine.store.last_event_seq) if event.event_seq > seq]
+        assert events[-1].event_type == "run_failed" and "transport down" in events[-1].data["error"]
+        assert [event.event_type for event in events].count("run_failed") == 1
+        assert [(event.data["phase"], event.occurred_at) for event in events
+                if event.data.get("purpose") == "plan_day"] == [("request", midnight), ("failure", midnight)]
+    finally:
+        engine.close()
+
+
+@pytest.mark.asyncio
+async def test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_through_society_init(
+        tmp_path, monkeypatch) -> None:
+    """新建运行的启动路径：初始检查点之后零点计划失败，在 Society.init 登记故障的范围内登记唯一 run_failed 后原样抛出；
+    检查点、零点计划的请求与失败证据依次保留。"""
+    import agentsociety2.society.society as society_module
+    from agentsociety2.config import llm_dispatcher
+    from agentsociety2.society import AgentSociety
+    from custom.envs.life_env import LifeEnv
+    from worldmock.life.models import RunIdentity
+    from worldmock.life.scenario import load_scenario
+
+    async def no_dispatchers():
+        return None
+
+    async def create_workspaces(request):
+        for item in request.items:
+            workspace = Path(request.workspace_root) / f"agent_{int(item['id']):04d}"
+            workspace.mkdir(parents=True)
+            (workspace / "AGENT.json").write_text('{"agent_id": %d}' % int(item["id"]), encoding="utf-8")
+
+    monkeypatch.setattr(llm_dispatcher, "init_dispatchers", no_dispatchers)
+    monkeypatch.setattr(society_module, "create_direct_agents_batch", SimpleNamespace(remote=create_workspaces))
+    _failing_plan_day_client(monkeypatch)
+    scenario_path = Path("scenarios/white-collar-12-weeks.json")
+    scenario, _ = load_scenario(scenario_path)
+    identity = RunIdentity(
+        run_id="society-init", source_group_id="group-society-init",
+        agent_ids=tuple(item.agent_id for item in scenario.agents),
+        start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
+        timezone=scenario.timezone, code_sha256="4" * 64, model_identity=_model_identity())
+    run_dir = tmp_path / "run"
+    env = LifeEnv(scenario_path=str(scenario_path), run_dir=str(run_dir),
+                  run_identity=identity.model_dump(mode="json"))
+    zone = ZoneInfo(scenario.timezone)
+    window = (scenario.start_at.astimezone(zone), scenario.end_at.astimezone(zone))
+    society = AgentSociety(_society_config(env, identity, run_dir, window, "create"))
+
+    with pytest.raises(ConnectionError, match="transport down") as caught:
+        await society.init()
+
+    try:
+        assert not isinstance(caught.value, BaseExceptionGroup)
+        events = env.engine.store.read_events(env.engine.store.last_event_seq)
+        order = [event.event_type if event.data.get("purpose") != "plan_day" else event.data["phase"]
+                 for event in events]
+        assert order[-4:] == ["checkpoint_created", "request", "failure", "run_failed"]
+        assert "transport down" in events[-1].data["error"] and order.count("run_failed") == 1
+    finally:
+        await env.close()
+
+
 def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) -> None:
     """装配侧由同一次编译的卡片口味计算确定性权重（docs/dev/SPEC-life-realism.md「画像编译」）。"""
     import worldmock.runtime as runtime_module

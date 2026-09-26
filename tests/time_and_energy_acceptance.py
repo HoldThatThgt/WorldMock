@@ -357,9 +357,10 @@ _PLANNING = "tests/life/test_day_planning.py::"
 _RUNTIME_HOST = "tests/integration/test_runtime.py::"
 _HOST_BRANCHES = "tests/integration/test_host_branch_coverage.py::"
 
-#: 阶段 5 完成的「零点计划与提醒」行（第四章验收）：零点后台任务的启动路径、零点边界与普通恢复挂点，同日只生成一次，
-#: 输出不合法时附回重试、耗尽与传输失败留证后作运行故障，提醒只触发一次并可结束睡眠，修订保留、替换与取消提醒，
-#: 呈现与输入口径，以及记录侧按 purpose 区分零点计划请求。
+#: 阶段 5 完成的「零点计划与提醒」行（第四章验收）：零点后台任务的启动路径、零点边界（按本地日期变更，含夏令时）
+#: 与普通恢复挂点，同日只生成一次，输出不合法时附回重试、耗尽与传输失败留证后作运行故障（宿主经 Society.run 与
+#: Society.init 登记），提醒只触发一次并可结束睡眠（睡眠中的候选与推进边界），修订保留、替换与取消提醒，
+#: 呈现与输入口径（回顾时段、只取已受理的收尾），以及记录侧按 purpose 区分零点计划请求。
 _DAY_PLANNING_TESTS = [
     _PLANNING + name for name in (
         "test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched",
@@ -368,11 +369,16 @@ _DAY_PLANNING_TESTS = [
         "test_system_entry_refuses_a_second_registration_and_an_invalid_plan",
         "test_transport_failure_is_a_run_fault_after_the_evidence_is_kept",
         "test_midnight_settles_the_old_day_then_plans_then_judges_the_second",
+        "test_midnight_is_the_local_date_change_when_dst_skips_00_00",
         "test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once",
         "test_sleep_ending_as_planned_at_the_reminder_keeps_planned_end",
+        "test_sleep_keeps_the_reminder_among_the_next_decision_candidates",
+        "test_reminder_staged_without_a_rhythm_pass_is_the_next_boundary_and_ends_the_sleep",
         "test_reminders_wake_once_merge_and_fire_after_the_goal_progressed",
         "test_revision_keeps_replaces_and_cancels_reminders",
         "test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind",
+        "test_plan_inputs_list_only_accepted_conclusions_once",
+        "test_review_window_is_empty_at_a_midnight_start_and_the_old_day_at_a_midnight_boundary",
         "test_run_ending_at_midnight_runs_no_plan_day_and_nothing_follows_run_ended",
         "test_resume_and_counterfactual_branches_follow_plan_submitted_dates",
     )
@@ -382,6 +388,8 @@ _DAY_PLANNING_TESTS = [
     _RUNTIME_HOST + "test_plain_resume_plans_the_missing_day_in_init_once",
     _RUNTIME_HOST + "test_counterfactual_init_waits_for_the_intervention_checkpoint",
     _RUNTIME_HOST + "test_plan_day_failure_during_resume_init_is_registered_before_raising",
+    _RUNTIME_HOST + "test_plan_day_failure_at_a_midnight_step_is_one_run_failure_through_society_run",
+    _RUNTIME_HOST + "test_plan_day_failure_at_the_initial_checkpoint_is_one_run_failure_through_society_init",
     _HOST_BRANCHES + "test_plan_day_client_enforces_manifest_identity",
     _HOST_BRANCHES + "test_plan_day_client_serializes_model_responses",
     _HOST_BRANCHES + "test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed",
@@ -389,6 +397,7 @@ _DAY_PLANNING_TESTS = [
     "tests/footprints/test_store.py::test_progress_request_cutoff_skips_system_requests_with_a_purpose",
     "tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests",
     "tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose",
+    "tests/footprints/test_quality.py::test_plan_day_response_naming_memories_is_no_memory_problem",
     "tests/delivery/test_windows.py::test_plan_day_request_never_becomes_a_decision_prompt_or_window_input",
     "tests/evaluation/test_goal_metrics.py::test_zero_point_plan_event_registers_goals_that_revisions_keep",
     "tests/footprints/test_goal_export.py::test_real_engine_midnight_settlement_exports_old_day_goal_progress",
