@@ -22,7 +22,7 @@ def prepare_map(destination: Path, frozen_root: Path) -> MapDatasetReference:
     """@brief 复制已审阅的地点和供给，按其完整路线范围重新取得路由响应。"""
     source = Path(frozen_root).resolve()
     declaration_path = source / "zhangjiang-map/dataset.json"
-    declaration = MapDatasetDeclaration.model_validate(json.loads(declaration_path.read_text()))
+    declaration = MapDatasetDeclaration.model_validate(json.loads(declaration_path.read_text(encoding="utf-8")))
     reference = MapDatasetReference(dataset_id=declaration.dataset_id, version=declaration.version,
                                     path="zhangjiang-map/dataset.json", sha256=_sha(declaration_path))
     dataset = load_map_dataset(source, reference)

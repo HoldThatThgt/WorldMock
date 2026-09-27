@@ -394,7 +394,7 @@ E7-4：设计文档写的终态含「失败」，与作业原文不同；以代�
 
 下列问题在实施与评审中发现，不属于本规格，未修：
 
-- `src/worldmock/corpora/map_prepare.py:25` 与 `src/worldmock/corpora/fetch.py:269` 以不带编码参数的 `read_text()` 读 UTF-8 JSON，在区域编码为 cp936 的 Windows 上有解码失败风险。
+- `src/worldmock/corpora/map_prepare.py:25` 与 `src/worldmock/corpora/fetch.py:269` 以不带编码参数的 `read_text()` 读 UTF-8 JSON，在区域编码为 cp936 的 Windows 上有解码失败风险。**本记录之后已修复**：两处改为显式 `encoding="utf-8"`；`tests/corpora/test_text_encoding.py` 在模拟的 GBK 区域设置下核对发布的 `dataset.json` 署名（「©」）与路线清单来源逐字不变，并核对 corpora 包内全部文本读写都显式给出编码。
 - WorldMock 源码部分的 `code_sha256` 随检出的换行（CRLF 或 LF）而变；AS2 部分按锁定源码摘要比对，不受影响。
 - 每轮开销随运行时长增长（例如联系人回复结算每轮重读全部事件），同刻轮次又提高了轮数；长运行的耗时须另行关注。
 - `docs/dev/SPEC-map-and-storefront.md` 第 49 行仍写「当前组合发布为目录 4.0」：按 MS1 保留该发布说明。

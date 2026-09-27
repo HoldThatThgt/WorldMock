@@ -266,7 +266,7 @@ def _manifest_entry(root: Path, path: Path, retrieved_at: datetime) -> CorpusEnt
     relative = path.relative_to(root).as_posix()
     source, purpose = _source_for(relative, retrieved_at)
     if relative.startswith("zhangjiang-map/routes/"):
-        route_rows = json.loads((root / "zhangjiang-map/routes.json").read_text())["routes"]
+        route_rows = json.loads((root / "zhangjiang-map/routes.json").read_text(encoding="utf-8"))["routes"]
         route = next(item for item in route_rows if item["response_path"] == relative)
         declared = route["source"]
         source = CorpusSource(kind="external_geodata", url=declared["url"],
