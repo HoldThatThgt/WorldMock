@@ -1,6 +1,6 @@
 # 人物 Prompt 七层字段与来源
 
-> 本轮仅更新设计，生产 Prompt 链路不变。唯一方案入口是[人物 Prompt 七层重整方案](../PROPOSAL-decision-context.md)。
+> 本轮仅更新设计，生产 Prompt 链路不变。唯一方案入口是[人物 Prompt 与交互修复方案](../PROPOSAL-decision-context.md)。
 > [交互图示 HTML](persona-prompt-framework.html)与[完整字段设计](../PROPOSAL-decision-context.md#七层-json-字段设计)均已在仓库留档。
 
 ## 七层字段
@@ -96,4 +96,6 @@ pause/conclude 本身不结束 session；session 仍是一段地点停留或路�
 | Anthropic：[Effective context engineering for AI agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)，2025-09-29 | 清晰分区、减少重复上下文。本项目只整理已有 summary，不增加模型压缩调用。 |
 | LangChain：[Memory overview](https://docs.langchain.com/oss/python/concepts/memory)，页面未标发布日期 | 区分当前交互记录与更早记忆；不引入其框架或存储组件。 |
 
-信息截断、工时、工作与小数份食物等程序错误仍单独登记，整体方案完成后统一修复。
+已确认的来源与去向、进食和指名购买语义，以及截断、工时、工作、小数份食物等程序错误，
+统一收录在主方案的[已确认的交互语义](../PROPOSAL-decision-context.md#已确认的交互语义)与
+[统一修复的程序错误](../PROPOSAL-decision-context.md#统一修复的程序错误)，整体方案完成后统一修复。
