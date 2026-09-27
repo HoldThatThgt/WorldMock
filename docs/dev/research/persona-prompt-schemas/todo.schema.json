@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "todo.schema.json",
+  "title": "待办层",
+  "description": "暂停活动的续做信息与今日计划。暂停活动按 paused_at 从老到新，day_plan 保留计划顺序。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "layer",
+    "paused_activities",
+    "day_plan"
+  ],
+  "properties": {
+    "layer": {
+      "const": "待办层"
+    },
+    "paused_activities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/paused_activity"
+      }
+    },
+    "day_plan": {
+      "$ref": "#/$defs/day_plan"
+    }
+  },
+  "$defs": {
+    "paused_activity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "paused_at",
+        "resume_conditions",
+        "remaining"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "paused_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "resume_conditions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "remaining": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "description",
+            "estimated_duration_seconds"
+          ],
+          "properties": {
+            "description": {
+              "type": "string",
+              "minLength": 1
+            },
+            "estimated_duration_seconds": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "day_plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "date",
+        "goals"
+      ],
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "goals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "intent_kind",
+              "goal",
+              "progressed",
+              "remind_at"
+            ],
+            "properties": {
+              "intent_kind": {
+                "type": "string",
+                "minLength": 1
+              },
+              "goal": {
+                "type": "string",
+                "minLength": 1
+              },
+              "progressed": {
+                "type": "boolean"
+              },
+              "remind_at": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "format": "date-time"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

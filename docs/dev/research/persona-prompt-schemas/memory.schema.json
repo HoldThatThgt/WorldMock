@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "memory.schema.json",
+  "title": "记忆层",
+  "description": "较早日期与今日较早时段的简明摘要，不保存逐 session 档案。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layer", "earlier_days", "earlier_today"],
+  "properties": {
+    "layer": {"const": "记忆层"},
+    "earlier_days": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["date", "summary"],
+        "properties": {
+          "date": {"type": "string", "format": "date"},
+          "summary": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "earlier_today": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["recorded_at", "summary"],
+        "properties": {
+          "recorded_at": {"type": "string", "format": "date-time"},
+          "summary": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

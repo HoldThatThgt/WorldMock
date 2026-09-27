@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "persona.schema.json",
+  "title": "人设层",
+  "description": "人物的身份、已发生背景、性格、习惯、关系和偏好；关系与偏好在原字段更新，不放当日处境。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layer", "identity", "background", "traits", "habits", "relationships", "preferences"],
+  "properties": {
+    "layer": {"const": "人设层"},
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "birth_year"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "birth_year": {"type": "integer", "minimum": 1900, "maximum": 2200}
+      }
+    },
+    "background": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "traits": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "habits": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "pattern"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "pattern": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "relationships": {
+      "description": "当前关系；同一 person 的关系变化直接更新原项。",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["person", "relationship"],
+        "properties": {
+          "person": {"type": "string", "minLength": 1},
+          "relationship": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "preferences": {
+      "description": "当前偏好；同一 subject 的偏好变化直接更新原项。",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "preference"],
+        "properties": {
+          "subject": {"type": "string", "minLength": 1},
+          "preference": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

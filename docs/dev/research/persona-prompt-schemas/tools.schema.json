@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tools.schema.json",
+  "title": "工具层",
+  "description": "工具定义与本轮可选目标。每个目标列出对应的动作、方式、条件和成本。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layer", "definitions", "targets"],
+  "properties": {
+    "layer": {"const": "工具层"},
+    "definitions": {"type": "array", "items": {"$ref": "#/$defs/tool_definition"}},
+    "targets": {"type": "array", "items": {"$ref": "#/$defs/target"}}
+  },
+  "$defs": {
+    "tool_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "function"],
+      "properties": {
+        "type": {"const": "function"},
+        "function": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "description", "parameters", "strict"],
+          "properties": {
+            "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+            "description": {"type": "string", "minLength": 1},
+            "parameters": {
+              "description": "工具参数的字段定义，使用标准 JSON Schema。",
+              "type": "object",
+              "minProperties": 1
+            },
+            "strict": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "kind", "actions"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "kind": {
+          "enum": ["location", "product", "person", "activity", "content", "task", "self", "message"]
+        },
+        "actions": {"type": "array", "items": {"$ref": "#/$defs/target_action"}}
+      }
+    },
+    "target_action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action", "way", "available", "requirements", "price_fen", "available_quantity",
+        "quantity_unit", "estimated_duration_seconds", "unavailable_reason"
+      ],
+      "properties": {
+        "action": {"enum": ["travel", "interact", "obtain", "consume", "sleep"]},
+        "way": {"type": "string", "minLength": 1},
+        "available": {"type": "boolean"},
+        "requirements": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["condition", "satisfied"],
+            "properties": {
+              "condition": {"type": "string", "minLength": 1},
+              "satisfied": {"type": "boolean"}
+            }
+          }
+        },
+        "price_fen": {"type": ["integer", "null"], "minimum": 0},
+        "available_quantity": {"type": ["number", "null"], "minimum": 0},
+        "quantity_unit": {"type": ["string", "null"], "minLength": 1},
+        "estimated_duration_seconds": {"type": ["integer", "null"], "minimum": 0},
+        "unavailable_reason": {"type": ["string", "null"], "minLength": 1}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"available": {"const": true}}},
+          "then": {"properties": {"unavailable_reason": {"type": "null"}}},
+          "else": {"properties": {"unavailable_reason": {"type": "string", "minLength": 1}}}
+        },
+        {
+          "if": {"properties": {"available_quantity": {"type": "number"}}},
+          "then": {"properties": {"quantity_unit": {"type": "string", "minLength": 1}}},
+          "else": {"properties": {"quantity_unit": {"type": "null"}}}
+        }
+      ]
+    }
+  }
+}

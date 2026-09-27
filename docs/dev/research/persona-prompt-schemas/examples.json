@@ -1,0 +1,299 @@
+[
+  {
+    "layer": "系统层",
+    "role": "你是共享世界中的人物执行者，根据当前上下文自主选择行动。",
+    "rules": [
+      "只依据当前可见信息与可用工具行动",
+      "动作登记不代表执行完成",
+      "把公开结算结果作为已经发生事实的依据"
+    ]
+  },
+  {
+    "layer": "工具层",
+    "definitions": [
+      {
+        "type": "function",
+        "function": {
+          "name": "start_activity",
+          "description": "从本轮 targets 中选择对象，并提交对应动作与方式。",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["targets", "actions", "ways"],
+            "properties": {
+              "targets": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"enum": ["模拟午餐出货点出售的牛肉炒面"]}
+              },
+              "actions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"enum": ["obtain"]}
+              },
+              "ways": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"enum": ["远程下单"]}
+              }
+            }
+          },
+          "strict": true
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "pause_activity",
+          "description": "暂停点名的进行中活动，并保存人物写下的进展摘要。",
+          "parameters": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["task", "summary"],
+            "properties": {
+              "task": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"enum": ["会议分析与工作总结"]}
+              },
+              "summary": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"type": "string", "minLength": 1}
+              }
+            }
+          },
+          "strict": true
+        }
+      }
+    ],
+    "targets": [
+      {
+        "name": "模拟午餐出货点出售的牛肉炒面",
+        "kind": "product",
+        "actions": [
+          {
+            "action": "obtain",
+            "way": "远程下单",
+            "available": true,
+            "requirements": [
+              {
+                "condition": "当前办公室属于可配送目的地",
+                "satisfied": true
+              }
+            ],
+            "price_fen": 3200,
+            "available_quantity": 12,
+            "quantity_unit": "份",
+            "estimated_duration_seconds": 720,
+            "unavailable_reason": null
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "layer": "人设层",
+    "identity": {
+      "name": "林悦",
+      "birth_year": 1997
+    },
+    "background": [
+      "接受过软件工程训练"
+    ],
+    "traits": [
+      "做事有条理",
+      "愿意帮助熟悉的同事"
+    ],
+    "habits": [
+      {
+        "name": "工作切换",
+        "pattern": "切换工作前通常会记录已经完成的部分"
+      }
+    ],
+    "relationships": [
+      {
+        "person": "王磊",
+        "relationship": "同事"
+      }
+    ],
+    "preferences": [
+      {
+        "subject": "工作整理方式",
+        "preference": "先记录已确认决定，再补行动项"
+      }
+    ]
+  },
+  {
+    "layer": "记忆层",
+    "earlier_days": [
+      {
+        "date": "2026-09-27",
+        "summary": "完成了前一天的工作安排，并按计划休息。"
+      }
+    ],
+    "earlier_today": [
+      {
+        "recorded_at": "2026-09-28T09:00:00+08:00",
+        "summary": "已从家步行到练秋湖研发中心办公室。"
+      }
+    ]
+  },
+  {
+    "layer": "待办层",
+    "paused_activities": [
+      {
+        "name": "会议分析与工作总结",
+        "paused_at": "2026-09-28T10:30:01+08:00",
+        "resume_conditions": [
+          "从资料室回到练秋湖研发中心办公室"
+        ],
+        "remaining": {
+          "description": "继续整理行动项和未完成的会议决定",
+          "estimated_duration_seconds": 23270
+        }
+      }
+    ],
+    "day_plan": {
+      "date": "2026-09-28",
+      "goals": [
+        {
+          "intent_kind": "工作",
+          "goal": "推进会议分析与工作总结",
+          "progressed": true,
+          "remind_at": "2026-09-28T14:00:00+08:00"
+        },
+        {
+          "intent_kind": "帮助同事",
+          "goal": "给王磊代订午餐",
+          "progressed": true,
+          "remind_at": null
+        }
+      ]
+    }
+  },
+  {
+    "layer": "环境层",
+    "observed_at": "2026-09-28T10:30:01+08:00",
+    "body": {
+      "appetite": "饿",
+      "sleepiness": "清醒",
+      "energy": "尚可"
+    },
+    "location": {
+      "session_kind": "stay",
+      "name": "练秋湖研发中心办公室",
+      "place_type": "办公室",
+      "fixed_rules": []
+    }
+  },
+  {
+    "layer": "进度层",
+    "session_started_at": "2026-09-28T09:00:00+08:00",
+    "events": [
+      {
+        "occurred_at": "2026-09-28T10:20:00+08:00",
+        "type": "message_arrival",
+        "sender": "王磊",
+        "channel": "即时消息",
+        "message": "能帮我订一份牛肉炒面送到办公室吗？"
+      },
+      {
+        "occurred_at": "2026-09-28T10:25:00+08:00",
+        "type": "decision",
+        "decision": "先给王磊代订一份牛肉炒面。"
+      },
+      {
+        "occurred_at": "2026-09-28T10:25:00+08:00",
+        "type": "tool_call",
+        "call_id": "call-order-lunch-1",
+        "tool_name": "start_activity",
+        "arguments": {
+          "targets": ["模拟午餐出货点出售的牛肉炒面"],
+          "actions": ["obtain"],
+          "ways": ["远程下单"]
+        }
+      },
+      {
+        "occurred_at": "2026-09-28T10:25:00+08:00",
+        "type": "registration",
+        "call_id": "call-order-lunch-1",
+        "tool_name": "start_activity",
+        "status": "registered",
+        "message": "下单请求已登记，尚不代表执行完成。"
+      },
+      {
+        "occurred_at": "2026-09-28T10:25:01+08:00",
+        "type": "tool_result",
+        "call_id": "call-order-lunch-1",
+        "tool_name": "start_activity",
+        "result": {
+          "occurred_at": "2026-09-28T10:25:01+08:00",
+          "status": "completed",
+          "error_code": null,
+          "message": "Purchase accepted",
+          "details": {
+            "orders": [
+              {
+                "object": "模拟午餐出货点出售的牛肉炒面",
+                "quantity": 1,
+                "quantity_unit": "份",
+                "recipient": "王磊",
+                "fulfillment": "delivery",
+                "destination": "练秋湖研发中心办公室",
+                "expected_at": "2026-09-28T10:37:01+08:00",
+                "status": "pending",
+                "paid_fen": 3200
+              }
+            ],
+            "total_paid_fen": 3200
+          }
+        }
+      },
+      {
+        "occurred_at": "2026-09-28T10:30:00+08:00",
+        "type": "tool_call",
+        "call_id": "call-pause-work-1",
+        "tool_name": "pause_activity",
+        "arguments": {
+          "task": ["会议分析与工作总结"],
+          "summary": ["已整理部分会议决定"]
+        }
+      },
+      {
+        "occurred_at": "2026-09-28T10:30:00+08:00",
+        "type": "registration",
+        "call_id": "call-pause-work-1",
+        "tool_name": "pause_activity",
+        "status": "registered",
+        "message": "暂停请求已登记，尚不代表执行完成。"
+      },
+      {
+        "occurred_at": "2026-09-28T10:30:01+08:00",
+        "type": "tool_result",
+        "call_id": "call-pause-work-1",
+        "tool_name": "pause_activity",
+        "result": {
+          "occurred_at": "2026-09-28T10:30:01+08:00",
+          "status": "completed",
+          "error_code": null,
+          "message": "Activity paused",
+          "details": {
+            "activities": [
+              {
+                "name": "会议分析与工作总结",
+                "status": "paused",
+                "summary": "已整理部分会议决定"
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+]

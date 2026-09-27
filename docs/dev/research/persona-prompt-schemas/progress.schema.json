@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress.schema.json",
+  "title": "进度层",
+  "description": "当前 session 从开始时刻起按发生顺序保留的公开事件。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["layer", "session_started_at", "events"],
+  "properties": {
+    "layer": {"const": "进度层"},
+    "session_started_at": {"type": "string", "format": "date-time"},
+    "events": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {"$ref": "#/$defs/decision_event"},
+          {"$ref": "#/$defs/tool_call_event"},
+          {"$ref": "#/$defs/registration_event"},
+          {"$ref": "#/$defs/tool_result_event"},
+          {"$ref": "#/$defs/message_arrival_event"},
+          {"$ref": "#/$defs/delivery_event"},
+          {"$ref": "#/$defs/deadline_event"}
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "event_base": {
+      "type": "object",
+      "required": ["occurred_at", "type"],
+      "properties": {
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "type": {
+          "enum": [
+            "decision", "tool_call", "registration", "tool_result", "message_arrival", "delivery", "deadline"
+          ]
+        }
+      }
+    },
+    "public_result": {
+      "description": "完整公开结果；details 只放可读名称、数量、付款、到达等公开事实。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["occurred_at", "status", "error_code", "message", "details"],
+      "properties": {
+        "occurred_at": {"type": "string", "format": "date-time"},
+        "status": {"type": "string", "minLength": 1},
+        "error_code": {"type": ["string", "null"], "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "details": {"type": "object"},
+        "work_review": {"type": "object"}
+      }
+    },
+    "decision_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["decision"], "properties": {
+          "type": {"const": "decision"},
+          "decision": {"type": "string", "minLength": 1}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "tool_call_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["call_id", "tool_name", "arguments"], "properties": {
+          "type": {"const": "tool_call"},
+          "call_id": {"type": "string", "minLength": 1},
+          "tool_name": {"type": "string", "minLength": 1},
+          "arguments": {"type": "object"}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "registration_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["call_id", "tool_name", "status", "message"], "properties": {
+          "type": {"const": "registration"},
+          "call_id": {"type": "string", "minLength": 1},
+          "tool_name": {"type": "string", "minLength": 1},
+          "status": {"const": "registered"},
+          "message": {"type": "string", "minLength": 1}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "tool_result_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["call_id", "tool_name", "result"], "properties": {
+          "type": {"const": "tool_result"},
+          "call_id": {"type": "string", "minLength": 1},
+          "tool_name": {"type": "string", "minLength": 1},
+          "result": {"$ref": "#/$defs/public_result"}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "message_arrival_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["sender", "channel", "message"], "properties": {
+          "type": {"const": "message_arrival"},
+          "sender": {"type": "string", "minLength": 1},
+          "channel": {"type": "string", "minLength": 1},
+          "message": {"type": "string", "minLength": 1}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "delivery_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["order", "recipient", "delivery_status", "message"], "properties": {
+          "type": {"const": "delivery"},
+          "order": {"type": "string", "minLength": 1},
+          "recipient": {"type": "string", "minLength": 1},
+          "delivery_status": {"enum": ["in_transit", "delivered", "failed"]},
+          "message": {"type": "string", "minLength": 1}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "deadline_event": {
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["task", "deadline_at", "deadline_status", "message"], "properties": {
+          "type": {"const": "deadline"},
+          "task": {"type": "string", "minLength": 1},
+          "deadline_at": {"type": "string", "format": "date-time"},
+          "deadline_status": {"enum": ["due_soon", "due", "expired"]},
+          "message": {"type": "string", "minLength": 1}
+        }}
+      ],
+      "unevaluatedProperties": false
+    }
+  }
+}
