@@ -139,6 +139,46 @@ def test_resolves_names_instead_of_identifiers(tmp_path):
     assert "看《测试剧集》" in markdown
 
 
+def test_resolves_names_from_seven_layer_observation_evidence_keys(tmp_path):
+    """第八版观察（无 scene/facts/recent_action_results，带七层原文与私有绑定）仍由保留的证据键建名称索引。"""
+    observation = _observation({
+        "tool_layer": {"layer": "工具层", "targets": [{"name": "地点：公司", "kind": "location", "phase": None,
+                                                    "state": None, "actions": [], "tools": []}]},
+        "todo_layer": {"layer": "待办层", "paused_activities": [], "day_plan": None},
+        "environment_layer": {"layer": "环境层", "observed_at": "2026-01-05T07:00:00+08:00",
+                              "body": {"appetite": "不饿", "sleepiness": "清醒", "entertainment": "平常",
+                                       "social": "平常", "mood": "平静"},
+                              "location": {"session_kind": "stay", "name": "家", "place_type": "住宅",
+                                           "fixed_rules": []}},
+        "memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": []},
+        "persona_views": {"relationships": [], "preferences": []},
+        "progress_event_ids": [], "presented_message_ids": [],
+        "interaction_bindings": [{"object": "地点：公司", "kind": "location", "object_id": "office", "actions": []}],
+        "products": [{"product_id": "noodle-01", "name": "红烧牛肉面", "use_modes": ["eat"]}],
+        "locations": [{"location_id": "office", "name": "公司"}],
+        "messages": [{"message_id": "mail-1", "subject": "Work planning"}],
+        "content_progress": {"drama-0002": {"title": "测试剧集"}},
+    })
+    browsed = EventDraft(event_type="action_result", occurred_at=_at(6, 0), agent_id=1,
+                         data={"status": "completed", "items": [{"activity_id": "yoga", "name": "瑜伽"}]})
+    events = [
+        observation, browsed,
+        _progress("act-go", _snapshot("act-go", "travel", destination_id="office", travel_mode="walking"),
+                  _at(7, 0), _at(7, 5)),
+        _progress("act-mail", _snapshot("act-mail", "read_mail", target_id="mail-1"), _at(8, 0), _at(8, 5)),
+        _progress("act-eat", _snapshot("act-eat", "consume", target_id="noodle-01"), _at(12, 13), _at(12, 28)),
+        _progress("act-watch", _snapshot("act-watch", "watch", target_id="drama-0002"), _at(19, 13), _at(19, 53)),
+        _progress("act-yoga", _snapshot("act-yoga", "lifestyle", target_id="yoga"), _at(20, 0), _at(20, 30)),
+    ]
+    markdown = _render(_build_store(tmp_path, events), 1)
+    assert "去公司" in markdown
+    assert "读邮件「Work planning」" in markdown
+    assert "吃 红烧牛肉面" in markdown
+    assert "看《测试剧集》" in markdown
+    assert "瑜伽" in markdown
+    assert "office" not in markdown and "noodle-01" not in markdown
+
+
 def test_unresolvable_target_uses_readable_short_label(tmp_path):
     """标题缺失时回退可读短标签，不输出裸 hex 标识。"""
     hex_id = "a1b2c3d4" * 4
