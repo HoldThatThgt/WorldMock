@@ -2,59 +2,81 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "persona.schema.json",
   "title": "人设层",
-  "description": "人物的身份、已发生背景、性格、习惯、关系和偏好；关系与偏好在原字段更新，不放当日处境。",
+  "description": "冻结人物卡片现有字段（去掉当下处境 situation）加姓名，以及关系与偏好的当前看法。关系与偏好只在本层出现：同一对象的新看法原地替换旧看法，不再进入记忆层。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["layer", "identity", "background", "traits", "habits", "relationships", "preferences"],
+  "required": ["layer", "identity", "rhythm", "habits", "tastes", "coping", "relationships", "preferences"],
   "properties": {
     "layer": {"const": "人设层"},
     "identity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "birth_year"],
+      "required": ["name", "age", "occupation", "living_arrangement"],
       "properties": {
         "name": {"type": "string", "minLength": 1},
-        "birth_year": {"type": "integer", "minimum": 1900, "maximum": 2200}
+        "age": {"type": "integer", "minimum": 16, "maximum": 100},
+        "occupation": {"type": "string", "minLength": 1, "maxLength": 20},
+        "living_arrangement": {"type": "string", "minLength": 1, "maxLength": 30}
       }
     },
-    "background": {
-      "type": "array",
-      "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
-    },
-    "traits": {
-      "type": "array",
-      "minItems": 1,
-      "uniqueItems": true,
-      "items": {"type": "string", "minLength": 1}
+    "rhythm": {
+      "description": "卡片时间锚点与睡眠习惯的可读窗口，例如「7点到7点半」。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wake", "leave_home", "lunch", "dinner", "bedtime", "sleep_midpoint", "sleep_need"],
+      "properties": {
+        "wake": {"type": "string", "minLength": 1},
+        "leave_home": {"type": "string", "minLength": 1},
+        "lunch": {"type": "string", "minLength": 1},
+        "dinner": {"type": "string", "minLength": 1},
+        "bedtime": {"type": "string", "minLength": 1},
+        "sleep_midpoint": {"type": "string", "minLength": 1},
+        "sleep_need": {"type": "string", "minLength": 1}
+      }
     },
     "habits": {
       "type": "array",
+      "maxItems": 5,
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["name", "pattern"],
+        "required": ["trigger", "response", "time_window"],
         "properties": {
-          "name": {"type": "string", "minLength": 1},
-          "pattern": {"type": "string", "minLength": 1}
+          "trigger": {"type": "string", "minLength": 1, "maxLength": 30},
+          "response": {"type": "string", "minLength": 1, "maxLength": 40},
+          "time_window": {"type": "string", "minLength": 1}
         }
       }
     },
+    "tastes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["content_genres", "food_preferences", "media"],
+      "properties": {
+        "content_genres": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "food_preferences": {"type": "array", "maxItems": 6, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+        "media": {"type": "array", "maxItems": 4, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+      }
+    },
+    "coping": {"type": "string", "minLength": 1, "maxLength": 60},
     "relationships": {
-      "description": "当前关系；同一 person 的关系变化直接更新原项。",
+      "description": "卡片关系与场景联系人按名称合并，每人一项。self_note 是人物最近一次写下的对此人的看法，新看法原地替换，标注未经核验。",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["person", "relationship"],
+        "required": ["person", "role", "closeness", "channels", "self_note"],
         "properties": {
           "person": {"type": "string", "minLength": 1},
-          "relationship": {"type": "string", "minLength": 1}
+          "role": {"type": "string", "minLength": 1},
+          "closeness": {"enum": ["很亲近", "较亲近", "一般", "疏远", null]},
+          "channels": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+          "self_note": {"type": ["string", "null"], "minLength": 1}
         }
       }
     },
     "preferences": {
-      "description": "当前偏好；同一 subject 的偏好变化直接更新原项。",
+      "description": "人物自己写下的偏好，按 subject 原地替换；卡片原有口味只在 tastes。",
       "type": "array",
       "items": {
         "type": "object",

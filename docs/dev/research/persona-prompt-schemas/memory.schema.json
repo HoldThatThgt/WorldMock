@@ -2,35 +2,42 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "memory.schema.json",
   "title": "记忆层",
-  "description": "较早日期与今日较早时段的简明摘要，不保存逐 session 档案。",
+  "description": "昨天及更早、今天更早两部分摘要，不为 session 建档。settled 是系统按结算结果写成的事实；self_notes 是人物自己写下的内容，未经核验。关系与偏好只在人设层，不在这里。",
   "type": "object",
   "additionalProperties": false,
   "required": ["layer", "earlier_days", "earlier_today"],
   "properties": {
     "layer": {"const": "记忆层"},
     "earlier_days": {
+      "description": "按日期从旧到新；只呈现装配窗口内的最近日期，更早的记录保留但不进本层。",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["date", "summary"],
+        "required": ["date", "settled", "self_notes"],
         "properties": {
           "date": {"type": "string", "format": "date"},
-          "summary": {"type": "string", "minLength": 1}
+          "settled": {"$ref": "#/$defs/lines", "description": "当日结束时仍未了结的事实，例如尚未送达的订单。"},
+          "self_notes": {"$ref": "#/$defs/lines", "description": "当晚就寝反思写下的内容。"}
         }
       }
     },
     "earlier_today": {
+      "description": "每次 session 结束时追加一条，按时间从早到晚；没有可保留的内容就不追加。",
       "type": "array",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["recorded_at", "summary"],
+        "required": ["recorded_at", "settled", "self_notes"],
         "properties": {
           "recorded_at": {"type": "string", "format": "date-time"},
-          "summary": {"type": "string", "minLength": 1}
+          "settled": {"$ref": "#/$defs/lines", "description": "成功的世界请求与世界事件，每件一句。"},
+          "self_notes": {"$ref": "#/$defs/lines", "description": "pause/conclude 写下的 summary 与记忆原文。"}
         }
       }
     }
+  },
+  "$defs": {
+    "lines": {"type": "array", "items": {"type": "string", "minLength": 1}}
   }
 }

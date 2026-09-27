@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "system.schema.json",
   "title": "系统层",
-  "description": "人物的固定角色与通用规则。",
+  "description": "人物的执行职责与世界交互规则。每条规则只在这里出现一次，工具 description 只说明用途；人物姓名与身份只在人设层。",
   "type": "object",
   "additionalProperties": false,
   "required": ["layer", "role", "rules"],

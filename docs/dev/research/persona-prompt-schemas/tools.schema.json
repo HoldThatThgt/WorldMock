@@ -2,17 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "tools.schema.json",
   "title": "工具层",
-  "description": "工具定义与本轮可选目标。每个目标列出对应的动作、方式、条件和成本。",
+  "description": "本轮可选目标：每个目标的当前状态、可用动作与工具，以及条件、价格、耗时和数量。工具定义只经模型接口原生 tools 参数发送一次，不写入本层 JSON；$defs.tool_definition 描述其形状。暂停的活动只在待办层。targets 是本轮展示的目标，不是购买资格的上限：环境中存在但因轮转未展示的商品仍可指名购买。",
   "type": "object",
   "additionalProperties": false,
-  "required": ["layer", "definitions", "targets"],
+  "required": ["layer", "targets"],
   "properties": {
     "layer": {"const": "工具层"},
-    "definitions": {"type": "array", "items": {"$ref": "#/$defs/tool_definition"}},
     "targets": {"type": "array", "items": {"$ref": "#/$defs/target"}}
   },
   "$defs": {
     "tool_definition": {
+      "description": "原生 tools 参数中的一项，不进入本层 JSON。",
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "function"],
@@ -25,69 +25,96 @@
           "properties": {
             "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
             "description": {"type": "string", "minLength": 1},
-            "parameters": {
-              "description": "工具参数的字段定义，使用标准 JSON Schema。",
-              "type": "object",
-              "minProperties": 1
-            },
+            "parameters": {"type": "object", "minProperties": 1},
             "strict": {"type": "boolean"}
           }
         }
       }
     },
+    "readable": {
+      "description": "人能读懂的短语，例如「约 12 分钟」「32 元」「0.25 份」；不给原始秒数、分或内部身份。",
+      "type": ["string", "null"],
+      "minLength": 1
+    },
     "target": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "kind", "actions"],
+      "required": ["name", "kind", "state", "actions", "tools"],
       "properties": {
         "name": {"type": "string", "minLength": 1},
-        "kind": {
-          "enum": ["location", "product", "person", "activity", "content", "task", "self", "message"]
+        "kind": {"enum": ["location", "product", "person", "content", "task", "activity", "message", "self"]},
+        "state": {
+          "description": "目标此刻的可读状态：地点营业情况、食物每份热量、在场的人正在做什么、内容全长或剩余、邮件已读与否、进行中或刚结束活动的客观进度。",
+          "$ref": "#/$defs/readable"
         },
-        "actions": {"type": "array", "items": {"$ref": "#/$defs/target_action"}}
-      }
-    },
-    "target_action": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "action", "way", "available", "requirements", "price_fen", "available_quantity",
-        "quantity_unit", "estimated_duration_seconds", "unavailable_reason"
-      ],
-      "properties": {
-        "action": {"enum": ["travel", "interact", "obtain", "consume", "sleep"]},
-        "way": {"type": "string", "minLength": 1},
-        "available": {"type": "boolean"},
-        "requirements": {
+        "contract": {"$ref": "#/$defs/contract"},
+        "actions": {
+          "description": "start_activity 可选的动词与方式；条件未满足的照常列出并说明原因。",
           "type": "array",
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["condition", "satisfied"],
-            "properties": {
-              "condition": {"type": "string", "minLength": 1},
-              "satisfied": {"type": "boolean"}
-            }
-          }
+          "items": {"$ref": "#/$defs/verb_action"}
         },
-        "price_fen": {"type": ["integer", "null"], "minimum": 0},
-        "available_quantity": {"type": ["number", "null"], "minimum": 0},
-        "quantity_unit": {"type": ["string", "null"], "minLength": 1},
-        "estimated_duration_seconds": {"type": ["integer", "null"], "minimum": 0},
-        "unavailable_reason": {"type": ["string", "null"], "minLength": 1}
+        "tools": {
+          "description": "以本目标名称为参数的其他工具及其可用性。",
+          "type": "array",
+          "items": {"$ref": "#/$defs/tool_action"}
+        }
       },
       "allOf": [
         {
-          "if": {"properties": {"available": {"const": true}}},
-          "then": {"properties": {"unavailable_reason": {"type": "null"}}},
-          "else": {"properties": {"unavailable_reason": {"type": "string", "minLength": 1}}}
-        },
-        {
-          "if": {"properties": {"available_quantity": {"type": "number"}}},
-          "then": {"properties": {"quantity_unit": {"type": "string", "minLength": 1}}},
-          "else": {"properties": {"quantity_unit": {"type": "null"}}}
+          "if": {"properties": {"kind": {"const": "task"}}},
+          "then": {"required": ["contract"]},
+          "else": {"not": {"required": ["contract"]}}
         }
       ]
+    },
+    "contract": {
+      "description": "工作合同的唯一呈现位置：截止、剩余要求与能否按时完成。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deadline", "remaining", "outlook"],
+      "properties": {
+        "deadline": {"type": "string", "minLength": 1},
+        "remaining": {"type": "string", "minLength": 1},
+        "outlook": {"$ref": "#/$defs/readable"}
+      }
+    },
+    "availability": {
+      "type": "object",
+      "required": ["available", "reason"],
+      "properties": {
+        "available": {"type": "boolean"},
+        "reason": {"$ref": "#/$defs/readable"}
+      },
+      "if": {"properties": {"available": {"const": true}}},
+      "then": {"properties": {"reason": {"type": "null"}}},
+      "else": {"properties": {"reason": {"type": "string", "minLength": 1}}}
+    },
+    "verb_action": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/availability"}],
+      "required": ["action", "way", "available", "reason", "price", "duration", "quantity", "note"],
+      "properties": {
+        "action": {"enum": ["travel", "interact", "obtain", "consume", "sleep"]},
+        "way": {"type": "string", "minLength": 1},
+        "available": true,
+        "reason": true,
+        "price": {"$ref": "#/$defs/readable"},
+        "duration": {"$ref": "#/$defs/readable"},
+        "quantity": {"$ref": "#/$defs/readable"},
+        "note": {"$ref": "#/$defs/readable"}
+      },
+      "unevaluatedProperties": false
+    },
+    "tool_action": {
+      "type": "object",
+      "allOf": [{"$ref": "#/$defs/availability"}],
+      "required": ["tool", "available", "reason"],
+      "properties": {
+        "tool": {"enum": ["report_status", "pause_activity", "conclude_activity", "submit_work", "send_message"]},
+        "available": true,
+        "reason": true
+      },
+      "unevaluatedProperties": false
     }
   }
 }

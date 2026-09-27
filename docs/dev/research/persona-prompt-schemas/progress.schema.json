@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "progress.schema.json",
   "title": "进度层",
-  "description": "当前 session 从开始时刻起按发生顺序保留的公开事件。",
+  "description": "当前 session 从开始到现在的决策、工具调用及其结果和世界事件，按发生顺序排列，不含 thinking。一次调用与它的结果合为一条记录，不另设登记记录，也不给模型调用编号。",
   "type": "object",
   "additionalProperties": false,
   "required": ["layer", "session_started_at", "events"],
@@ -15,11 +15,10 @@
         "oneOf": [
           {"$ref": "#/$defs/decision_event"},
           {"$ref": "#/$defs/tool_call_event"},
-          {"$ref": "#/$defs/registration_event"},
-          {"$ref": "#/$defs/tool_result_event"},
           {"$ref": "#/$defs/message_arrival_event"},
           {"$ref": "#/$defs/delivery_event"},
-          {"$ref": "#/$defs/deadline_event"}
+          {"$ref": "#/$defs/task_deadline_event"},
+          {"$ref": "#/$defs/plan_reminder_event"}
         ]
       }
     }
@@ -31,14 +30,12 @@
       "properties": {
         "occurred_at": {"type": "string", "format": "date-time"},
         "type": {
-          "enum": [
-            "decision", "tool_call", "registration", "tool_result", "message_arrival", "delivery", "deadline"
-          ]
+          "enum": ["decision", "tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder"]
         }
       }
     },
     "public_result": {
-      "description": "完整公开结果；details 只放可读名称、数量、付款、到达等公开事实。",
+      "description": "公开结算结果；details 只放本次新产生的可读事实，不复述调用参数，不含内部身份。",
       "type": "object",
       "additionalProperties": false,
       "required": ["occurred_at", "status", "error_code", "message", "details"],
@@ -52,86 +49,79 @@
       }
     },
     "decision_event": {
+      "description": "模型在提交请求的同一回复正文中写下的决策；reasoning_content 不进入。",
       "allOf": [
         {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["decision"], "properties": {
+        {"type": "object", "required": ["text"], "properties": {
           "type": {"const": "decision"},
-          "decision": {"type": "string", "minLength": 1}
+          "text": {"type": "string", "minLength": 1}
         }}
       ],
       "unevaluatedProperties": false
     },
     "tool_call_event": {
+      "description": "世界请求或记忆查询，连同其结果。世界请求在批量结算后才有结果，下一次请求构造时总已存在。",
       "allOf": [
         {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["call_id", "tool_name", "arguments"], "properties": {
+        {"type": "object", "required": ["tool", "arguments", "result"], "properties": {
           "type": {"const": "tool_call"},
-          "call_id": {"type": "string", "minLength": 1},
-          "tool_name": {"type": "string", "minLength": 1},
-          "arguments": {"type": "object"}
-        }}
-      ],
-      "unevaluatedProperties": false
-    },
-    "registration_event": {
-      "allOf": [
-        {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["call_id", "tool_name", "status", "message"], "properties": {
-          "type": {"const": "registration"},
-          "call_id": {"type": "string", "minLength": 1},
-          "tool_name": {"type": "string", "minLength": 1},
-          "status": {"const": "registered"},
-          "message": {"type": "string", "minLength": 1}
-        }}
-      ],
-      "unevaluatedProperties": false
-    },
-    "tool_result_event": {
-      "allOf": [
-        {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["call_id", "tool_name", "result"], "properties": {
-          "type": {"const": "tool_result"},
-          "call_id": {"type": "string", "minLength": 1},
-          "tool_name": {"type": "string", "minLength": 1},
+          "tool": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "arguments": {"type": "object"},
           "result": {"$ref": "#/$defs/public_result"}
         }}
       ],
       "unevaluatedProperties": false
     },
     "message_arrival_event": {
+      "description": "直接消息与交谈邀请带全文；邮件只有主题，正文在阅读结果中出现。",
       "allOf": [
         {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["sender", "channel", "message"], "properties": {
+        {"type": "object", "required": ["sender", "kind"], "properties": {
           "type": {"const": "message_arrival"},
           "sender": {"type": "string", "minLength": 1},
-          "channel": {"type": "string", "minLength": 1},
-          "message": {"type": "string", "minLength": 1}
-        }}
+          "kind": {"enum": ["direct", "chat_invite", "mail"]},
+          "subject": {"type": "string", "minLength": 1},
+          "text": {"type": "string", "minLength": 1}
+        }},
+        {
+          "if": {"properties": {"kind": {"const": "mail"}}},
+          "then": {"required": ["subject"], "not": {"required": ["text"]}},
+          "else": {"required": ["text"], "not": {"required": ["subject"]}}
+        }
       ],
       "unevaluatedProperties": false
     },
     "delivery_event": {
       "allOf": [
         {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["order", "recipient", "delivery_status", "message"], "properties": {
+        {"type": "object", "required": ["order", "status", "message"], "properties": {
           "type": {"const": "delivery"},
-          "order": {"type": "string", "minLength": 1},
-          "recipient": {"type": "string", "minLength": 1},
-          "delivery_status": {"enum": ["in_transit", "delivered", "failed"]},
+          "order": {"description": "订单的可读名称。", "type": "string", "minLength": 1},
+          "status": {"enum": ["ready", "delivered", "cancelled"]},
           "message": {"type": "string", "minLength": 1}
         }}
       ],
       "unevaluatedProperties": false
     },
-    "deadline_event": {
+    "task_deadline_event": {
+      "description": "截止时刻本身只在工具层 task 目标的 contract 中。",
       "allOf": [
         {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["task", "deadline_at", "deadline_status", "message"], "properties": {
-          "type": {"const": "deadline"},
+        {"type": "object", "required": ["task", "stage"], "properties": {
+          "type": {"const": "task_deadline"},
           "task": {"type": "string", "minLength": 1},
-          "deadline_at": {"type": "string", "format": "date-time"},
-          "deadline_status": {"enum": ["due_soon", "due", "expired"]},
-          "message": {"type": "string", "minLength": 1}
+          "stage": {"enum": ["due_soon", "expired"]}
+        }}
+      ],
+      "unevaluatedProperties": false
+    },
+    "plan_reminder_event": {
+      "description": "提醒时刻本身只在待办层 day_plan 中。",
+      "allOf": [
+        {"$ref": "#/$defs/event_base"},
+        {"type": "object", "required": ["goal"], "properties": {
+          "type": {"const": "plan_reminder"},
+          "goal": {"type": "string", "minLength": 1}
         }}
       ],
       "unevaluatedProperties": false

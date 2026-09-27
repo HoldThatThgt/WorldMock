@@ -2,78 +2,35 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "environment.schema.json",
   "title": "环境层",
-  "description": "当前观察时刻、身体感受及所在地点或路程的静态属性，不包含目标、消息、活动和历史。",
+  "description": "当前观察时刻、现有五项体感分级及所在地点或路程的静态属性。在场的人、可达地点、商品与消息都在工具层或进度层。",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "layer",
-    "observed_at",
-    "body",
-    "location"
-  ],
+  "required": ["layer", "observed_at", "body", "location"],
   "properties": {
-    "layer": {
-      "const": "环境层"
-    },
-    "observed_at": {
-      "type": "string",
-      "format": "date-time"
-    },
+    "layer": {"const": "环境层"},
+    "observed_at": {"type": "string", "format": "date-time"},
     "body": {
+      "description": "沿用现有体感分级文字，数值不进提示。",
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "appetite",
-        "sleepiness",
-        "energy"
-      ],
+      "required": ["appetite", "sleepiness", "entertainment", "social", "mood"],
       "properties": {
-        "appetite": {
-          "type": "string",
-          "minLength": 1
-        },
-        "sleepiness": {
-          "type": "string",
-          "minLength": 1
-        },
-        "energy": {
-          "type": "string",
-          "minLength": 1
-        }
+        "appetite": {"enum": ["不饿", "有点想吃", "饿", "很饿", "饿得难受", "饿得发慌"]},
+        "sleepiness": {"enum": ["清醒", "有点乏", "困", "很困", "撑不住"]},
+        "entertainment": {"enum": ["不闷", "有点想放松", "很想放松"]},
+        "social": {"enum": ["不想找人", "想和人说说话", "有点孤单"]},
+        "mood": {"enum": ["很烦", "有点烦", "平静", "挺好", "很开心"]}
       }
     },
     "location": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "session_kind",
-        "name",
-        "place_type",
-        "fixed_rules"
-      ],
+      "required": ["session_kind", "name", "place_type", "fixed_rules"],
       "properties": {
-        "session_kind": {
-          "enum": [
-            "stay",
-            "transit"
-          ]
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "place_type": {
-          "type": "string",
-          "minLength": 1
-        },
-        "fixed_rules": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
+        "session_kind": {"enum": ["stay", "transit"]},
+        "name": {"type": "string", "minLength": 1},
+        "place_type": {"type": "string", "minLength": 1},
+        "fixed_rules": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
       }
     }
   }

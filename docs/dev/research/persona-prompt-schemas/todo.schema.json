@@ -2,121 +2,51 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "todo.schema.json",
   "title": "待办层",
-  "description": "暂停活动的续做信息与今日计划。暂停活动按 paused_at 从老到新，day_plan 保留计划顺序。",
+  "description": "暂停的活动与今日计划。暂停活动按 paused_at 从老到新，同刻按事件顺序；day_plan 保留计划顺序。暂停时写下的 summary 与目标的 progress_note 不在这里重复。",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "layer",
-    "paused_activities",
-    "day_plan"
-  ],
+  "required": ["layer", "paused_activities", "day_plan"],
   "properties": {
-    "layer": {
-      "const": "待办层"
-    },
+    "layer": {"const": "待办层"},
     "paused_activities": {
       "type": "array",
       "items": {
-        "$ref": "#/$defs/paused_activity"
-      }
-    },
-    "day_plan": {
-      "$ref": "#/$defs/day_plan"
-    }
-  },
-  "$defs": {
-    "paused_activity": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "paused_at",
-        "resume_conditions",
-        "remaining"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1
-        },
-        "paused_at": {
-          "type": "string",
-          "format": "date-time"
-        },
-        "resume_conditions": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "remaining": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "description",
-            "estimated_duration_seconds"
-          ],
-          "properties": {
-            "description": {
-              "type": "string",
-              "minLength": 1
-            },
-            "estimated_duration_seconds": {
-              "type": [
-                "integer",
-                "null"
-              ],
-              "minimum": 0
-            }
-          }
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "paused_at", "place", "progress"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "paused_at": {"type": "string", "format": "date-time"},
+          "place": {"description": "只能回到这里恢复。", "type": "string", "minLength": 1},
+          "progress": {"description": "客观进度的可读短句。", "type": "string", "minLength": 1}
         }
       }
     },
     "day_plan": {
+      "description": "零点计划生成之前为 null。",
+      "oneOf": [{"type": "null"}, {"$ref": "#/$defs/day_plan"}]
+    }
+  },
+  "$defs": {
+    "day_plan": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "date",
-        "goals"
-      ],
+      "required": ["date", "goals"],
       "properties": {
-        "date": {
-          "type": "string",
-          "format": "date"
-        },
+        "date": {"type": "string", "format": "date"},
         "goals": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": [
-              "intent_kind",
-              "goal",
-              "progressed",
-              "remind_at"
-            ],
+            "required": ["intent_kind", "goal", "progressed", "remind_time"],
             "properties": {
               "intent_kind": {
-                "type": "string",
-                "minLength": 1
+                "enum": ["睡眠", "晨间例程", "通勤", "工作", "用餐", "休息", "娱乐", "社交", "家务", "运动", "外出"]
               },
-              "goal": {
-                "type": "string",
-                "minLength": 1
-              },
-              "progressed": {
-                "type": "boolean"
-              },
-              "remind_at": {
-                "type": [
-                  "string",
-                  "null"
-                ],
-                "format": "date-time"
-              }
+              "goal": {"type": "string", "minLength": 1, "maxLength": 300},
+              "progressed": {"description": "已有实际活动推进，不等于完成。", "type": "boolean"},
+              "remind_time": {"type": ["string", "null"], "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$"}
             }
           }
         }

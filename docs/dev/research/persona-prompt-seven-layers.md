@@ -6,21 +6,22 @@
 ## 七层字段
 
 每层使用 JSON，各自的 JSON Schema 说明字段名称、类型和允许值。
-完整示例见 [examples.json](persona-prompt-schemas/examples.json)。
+完整示例见 [examples.json](persona-prompt-schemas/examples.json)。每项信息只在一层出现，
+归属见主方案的[唯一出现原则](../PROPOSAL-decision-context.md#唯一出现原则)。
 
 | 层与字段说明 | 内容 | 更新方式 |
 | --- | --- | --- |
-| 系统层：[system.schema.json](persona-prompt-schemas/system.schema.json) | 正式、简洁的身份与行为准则，说明怎样与世界交互。 | 固定复用；不混入人物经历、生活建议或对象目录。 |
-| 工具层：[tools.schema.json](persona-prompt-schemas/tools.schema.json) | 工具定义与可选目标，保留对象和动作的对应关系、操作条件及必要成本。 | 按当前可用内容更新。 |
-| 人设层：[persona.schema.json](persona-prompt-schemas/persona.schema.json) | 基础信息、性格习惯、关系和偏好。 | 关系与偏好在原位置更新；不放当日处境。 |
-| 记忆层：[memory.schema.json](persona-prompt-schemas/memory.schema.json) | `earlier_days: [{date, summary}]`；`earlier_today: [{recorded_at, summary}]`。 | 前者放昨天及更早的总结，后者放今天更早的总结；跨日后调整时间归属。 |
+| 系统层：[system.schema.json](persona-prompt-schemas/system.schema.json) | 执行职责与世界交互规则；每条规则只写一次。 | 固定复用；不混入人物经历、生活建议或对象目录。 |
+| 工具层：[tools.schema.json](persona-prompt-schemas/tools.schema.json) | 可选目标及其状态、动作、方式、条件、价格、耗时、数量和其他可用工具；工作合同、进行中与刚结束的活动也在这里。工具定义经原生 `tools` 参数发送。 | 每次观察按冻结菜单重建。 |
+| 人设层：[persona.schema.json](persona-prompt-schemas/persona.schema.json) | 冻结卡片去掉当下处境后的字段与姓名；关系与偏好的当前看法。 | 关系与偏好按对象原地替换；不放当日处境。 |
+| 记忆层：[memory.schema.json](persona-prompt-schemas/memory.schema.json) | `earlier_days: [{date, settled, self_notes}]`；`earlier_today: [{recorded_at, settled, self_notes}]`。 | session 结束时追加一条；跨过零点并入更早日期，只留未了结的事实与就寝反思。 |
 | 待办层：[todo.schema.json](persona-prompt-schemas/todo.schema.json) | 暂停的 activity 与今日 day_plan。 | 暂停项按实际暂停时间从老到新，同刻按事件顺序；计划保留原顺序。恢复或结束后移出暂停部分。 |
-| 环境层：[environment.schema.json](persona-prompt-schemas/environment.schema.json) | 观察时间、身体状况、当前地点或路程的静态信息。 | 随当前观察更新；不放活动经过、消息或可达地点目录。 |
-| 进度层：[progress.schema.json](persona-prompt-schemas/progress.schema.json) | 当前 session 的决策、工具调用与结果，以及新消息、配送送达和截止提醒。 | 按发生时间排列，每件事出现一次，不保存 thinking。 |
+| 环境层：[environment.schema.json](persona-prompt-schemas/environment.schema.json) | 观察时间、现有五项体感分级、当前地点或路程的静态信息。 | 随当前观察更新；不放活动经过、消息或可达地点目录。 |
+| 进度层：[progress.schema.json](persona-prompt-schemas/progress.schema.json) | 当前 session 的决策、调用连同结果，以及新消息、配送、截止与目标提醒。 | 按发生时间排列，每件事出现一次，不保存 thinking。 |
 
-记忆只保存时间和 summary，不另外建立 session 档案。session 结束只是整理当前进度中已有
-pause/conclude summary 的时机，不新增记忆接口或模型总结调用，也不编造没有写过的 summary。
-工具结果使用人物能理解的公开内容；登记成功与实际执行成功分开表达。
+记忆不为 session 建档。session 结束时，系统把成功的世界请求与世界事件各写成一句 `settled`，
+把已有 pause/conclude summary 与记忆原文放进 `self_notes`；不新增记忆接口或模型总结调用，也不编造没有写过的 summary。
+工具结果使用人物能理解的公开内容；登记与实际执行分开表达，登记语义只写在系统层规则里。
 
 ## session 与活动沿用现有规则
 
@@ -43,7 +44,7 @@ pause/conclude 本身不结束 session；session 仍是一段地点停留或路�
 现有实现可直接参照 `src/worldmock/life/sessions.py:56–105`；summary 写入活动的过程见
 `src/worldmock/life/session_actions.py:517–539`。本轮不改变这些活动规则。
 
-## 八个差距的直接依据
+## 九个差距的直接依据
 
 ### 系统层职责与表达混杂
 
@@ -58,12 +59,12 @@ pause/conclude 本身不结束 session；session 仍是一段地点停留或路�
 ### 人物卡片混入可变处境
 
 `src/worldmock/profile/textgen.py:28–43,65–131` 将“本周在忙什么”等处境写入人物卡片。
-人设层去掉当日处境，保留基础信息、性格习惯、关系和偏好；关系和偏好变化时原地更新。
+人设层去掉当日处境，保留卡片其余字段；关系和偏好变化时原地更新。
 
 ### 记忆缺少清晰的时间分区
 
 `custom/agents/life_memory.py:44–85` 当前提供主观条目和归纳，没有本方案的两段时间分区。
-新记忆层只分 `earlier_days` 与 `earlier_today`，每条记录只有时间和 summary。
+新记忆层只分 `earlier_days` 与 `earlier_today`，每条记录只有时间、结算事实和人物自述。
 
 ### 待办没有独立归属
 
@@ -73,21 +74,43 @@ pause/conclude 本身不结束 session；session 仍是一段地点停留或路�
 ### 环境混入动态记录
 
 `src/worldmock/life/projection.py:250–283` 的场景包含活动、消息、目标和可达地点等内容。
-环境层只留身体状况与所在环境的静态信息，动态消息与提醒放入进度层。
+环境层只留体感分级与所在环境的静态信息，动态消息与提醒放入进度层。
 
 ### 进度不是连续决策记录
 
 `vendor/agentsociety2/packages/agentsociety2/agentsociety2/agent/base/agent_runtime.py:639–648`
-每次 decision 清空消息。新进度层保留当前 session 从开始到现在的决策与可见结果。
+每次 decision 清空消息（子模块本次未检出，行号沿用原记录）。新进度层保留当前 session 从开始到现在的决策与可见结果。
 
 ### 格式与命名不统一
 
 `src/worldmock/life/narration.py:447–480` 与 `custom/agents/life_agent.py:450–493` 使用旧的内容块和拼接方式。
 统一为用户指定的七层名称，各层使用 JSON，并用独立 Schema 说明字段。
 
+### 同一信息多处出现
+
+[接口合同「观察投影字段」](../../CONTRACTS.md#观察投影字段)第 556–557 行：`scene` 与 `facts` 同时带当前时刻、
+在场的人、当日计划、体感与持有物；直接消息的前四十字进收件头（`src/worldmock/life/projection.py:621`）。
+同一结果还会经 `just_now` 与 `facts.progress.results` 两处出现。新方案按唯一出现原则让每项信息只在一层。
+
 以上对应的旧合同见[决策上下文规格](../SPEC-decision-context.md)、
 [人物决策与画像规格](../SPEC-life-realism.md)及[LifeEnv 运行时规格](../SPEC-life-runtime.md)。
 它们描述当前实现，不表示本轮设计已经落地。
+
+## 字段取值的依据
+
+七层字段尽量沿用现有合同的取值，避免为提示另造一套口径。
+
+| 字段 | 依据 |
+| --- | --- |
+| 环境层 `body` 五项 | `src/worldmock/life/felt.py:283–295` 进入提示的五项分级；现有提示没有独立的体力分级，低能量已并入饥饿分级 |
+| 人设层字段 | [接口合同「人格与卡片字段」](../../CONTRACTS.md#人格与卡片字段)第 1095–1105 行，以及 `src/worldmock/profile/textgen.py` 的渲染内容；只去掉 `situation` |
+| 待办层 `intent_kind` 与 `remind_time` | 接口合同第 124–169 行的十一种意图与 `revise_day_plan` 参数名 |
+| 进度层 `delivery.status` | 接口合同第 327 行的订单状态；到达事件只会是 `ready`、`delivered` 或 `cancelled` |
+| 进度层 `message_arrival.kind` | 接口合同第 474 行 `direct`、`chat_invite`，以及 `projection.py:609–615` 的邮件行；邮件正文须阅读后可知（[决策上下文规格](../SPEC-decision-context.md)第 138 行） |
+| 记忆层 `settled` | 瞬时动作不是活动，不写 summary（[时间与能量规格](../SPEC-time-and-energy.md)第 802 行），所以下单、发消息只能由系统写成结算事实 |
+| 记忆层 `settled` 与 `self_notes` 分开 | [一日行为规格](../SPEC-dayrun-behavior.md)第 194 行要求已核验经历与人物自述在提示中明确分开 |
+| 可读的价格、时长、数量 | 接口合同第 572、578 行：送达时间与客观进度写成人读短句，不给原始秒数 |
+| 决策正文 | 行动请求开启 thinking、`tool_choice=auto`（接口合同第 929 行），正文可能为空，处理方式列入主方案待定事项 |
 
 ## 参考来源
 
