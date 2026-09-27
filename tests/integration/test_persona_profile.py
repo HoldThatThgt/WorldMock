@@ -19,20 +19,11 @@ SCENARIO = Path(__file__).resolve().parents[2] / 'scenarios/white-collar-12-week
 TRAITS = ('trait_source_kind',)
 
 
-def _wrapped_observation(scenario) -> list[dict]:
-    """构造三段消息合同需要的最小结构化观察（scene + facts 两层投影）。"""
-    current_time = scenario.start_at.isoformat()
-    data = {
-        'scene': {'current_time': current_time, 'location': '办公室'},
-        'facts': {'current_time': current_time, 'location': '办公室',
-                  'people_here': [], 'contacts': [], 'inbox': [], 'tasks': [],
-                  'progress': {'sessions': [], 'results': [], 'alarms': []}},
-    }
-    return [{'turn': 0, 'action': 'observe', 'ok': True, 'data': data}]
+def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
+    """冻结人物以人设层进入 user（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：阶段一只填姓名与场景联系人，
+    卡片渲染文本与画像元字段都不进提示；系统层没有身份前言。"""
+    from tests.integration.test_life_agent_protocol import _observations
 
-
-def test_frozen_persona_traits_reach_the_actual_native_agent_prompt():
-    """冻结画像实质以 persona_card 渲染文本进入三段消息（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。"""
     scenario, _ = load_scenario(SCENARIO)
     specification = _agent_specs(
         scenario, persona_compiler=lambda agent: '画像卡片：陈曦，产品经理。')[0]
@@ -41,18 +32,21 @@ def test_frozen_persona_traits_reach_the_actual_native_agent_prompt():
     agent._name = specification['profile']['name']
     agent._profile = specification['profile']
     agent._enable_memory = False
-    messages = agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, _wrapped_observation(scenario)))
-    system, user = messages[0]['content'], messages[1]['content']
+    request = ReactLoopRequest(0, scenario.start_at, _observations())
+    agent.prepare_react_loop(request)
+    system, user = (item['content'] for item in agent.build_react_messages(request))
     person = scenario.agents[0]
-    # 身份前言以人物为主语；画像编译产出的 persona_card 渲染文本原样进入
-    # user 消息首段，不再有 JSON 画像整包。
-    assert person.name in system and '你不是AI助手' in system
-    assert '画像卡片：陈曦，产品经理。' in user
-    assert '你在办公室' in user and '"location":"办公室"' in user
-    for stale in ('"profile"', '"trait_source_kind"', '"occupation"'):
+    persona = json.loads(user)[1]
+    assert persona['identity'] == {'name': person.name, 'age': None, 'occupation': None,
+                                   'living_arrangement': None}
+    assert [(row['person'], row['role']) for row in persona['relationships']] == [
+        (contact.salutation, contact.relation) for contact in person.contacts]
+    assert all(row['closeness'] is None and row['channels'] == [] for row in persona['relationships'])
+    assert '你不是AI助手' not in system and person.name not in system
+    assert '画像卡片' not in user
+    for stale in ('"profile"', '"trait_source_kind"', '"occupation":"', '"persona_card"'):
         assert stale not in user
-    # 冻结画像特征仍在文档层闭合（提示层只渲染实质文本，不泄元字段）。
+    # 冻结画像特征仍在文档层闭合（提示层不泄元字段）。
     assert person.trait_source_kind == 'experiment_assumption'
 
 

@@ -1,39 +1,9 @@
-"""@brief 观察投影与提示合同：场景渲染、驱动摘要与字段黑名单。
+"""@brief 提示侧渲染与字段黑名单：七层 JSON 的规范序列化，以及过渡期保留的场景渲染。
 
-`docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」：给模型的 user 消息由
-persona_card、scene、facts 三部分组成，
-全部由确定性代码渲染、不调用模型。本模块是纯函数库——只依赖标准库与
-调用方计算好的观察字段字典，不 import 本项目其他模块。
-
-本模块逐条执行的合同要点：
-- scene 为中文自然语言段落，内容覆盖时间与星期、所在地点与在场的人、
-  体感分级、当前（只来自进行中活动）与暂停活动的进度、刚结束待收尾的活动（「刚结束：<活动名>」，
-  docs/dev/SPEC-time-and-energy.md 第七章）、同刻轮次的「刚才」（上一轮本人世界请求的公开结果，每秒首轮为空串，
-  第一章「同一秒内的呈现与「刚才」」）、今天想推进的目标与推进状态、收件箱头、待办
-  一句话、可达地点与营业状态、手边持有物、当地餐食句（饥饿为「饿」及以上时是
-  吃饭途径句，可带一条途径的人读时长或送达时刻），以及同刻上限受限轮的一句说明（不写次数，
-  docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。人物自述不进 scene。整次请求容量由 prompt_capacity 计量。
-- 决策自述生成要求为一至三句第一人称中文；确定性协议仅检查非空和
-  二百汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」表）。
-- 黑名单字段不得进入提示（「不进入提示的字段」）：world_state_version、end_time、
-  affordance_contract、observation_event_id、
-  motivation_hints、profile.motivation、profile.entertainment_preferences、
-  game_catalog 全表、完整活动快照（activity_snapshot/activities；进度层 sessions[].activities 是活动进度行，
-  不是完整快照，允许进入）、内部身份键（agent_id、activity_id、source_event_id、event_seq、product_id、
-  location_id、destination_id、content_id 等）、
-  路线坐标与几何（routes 条目仅保留目的地/方式/分钟/票价/费力/是否可达）。
-- drive_summary 只含体感分级与文字摘要，不含数字权重（「观察投影与提示合同」）。
-
-观察输入字典的键名约定（与 facts 合同字段名同族，引擎侧据此对齐）：
-current_time（ISO 8601 或 datetime）、current_epoch（当前 Unix epoch 秒）、
-location（地点显示名）、people_here
-（在场人物名列表）、felt（维度到体感分级短语）、current_activities（title/progress/verb 列表）、paused_activities（title/progress 列表）、
-just_ended（刚结束待收尾的活动名列表）、day_plan（goals 中的 intent_kind/progressed/可选 reminder）、
-inbox_head（收件箱头字符串列表）、
-inbox_has_older_unread、todos_summary、
-reachable_places（name/opening_status 列表）、inventory、local_food_summary（当地餐食句或吃饭途径句）、
-same_moment_note（受限轮说明句，其余轮次为空串）、just_now（同刻轮次写上一轮本人世界请求的公开结果，
-每秒首轮为空串）。
+七层请求的每一层都是 JSON 对象（docs/dev/SPEC-persona-prompt.md 第一章「通用格式」）；宿主用
+render_layer_json 做唯一的紧凑序列化（键序即构建顺序，不排序，中文不转义），序列化前执行字段黑名单：
+内部身份、哈希、账户、数值身体状态、合同全表与私有绑定、进度层私有证据都不得进入提示。本模块是纯函数库，
+只依赖标准库。
 """
 
 from __future__ import annotations
@@ -44,15 +14,12 @@ from datetime import datetime
 
 #: persona_card 人物卡片汉字上限（「观察投影与提示合同」，合同常数）。
 PERSONA_CARD_HANZI_BUDGET = 600
-#: 决策自述汉字上限（`docs/dev/SPEC-life-realism.md`「两阶段决策」的 200 汉字上限，合同常数）。
-DECISION_STATEMENT_HANZI_BUDGET = 200
-#: 场景文本语言（「观察投影与提示合同」：提示与场景文本使用 language=zh-CN）。
-SCENE_LANGUAGE = "zh-CN"
 
-#: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与
-#: activities 对应"完整活动快照"——观察只允许进度短语，不允许整表。
-#: affordance_contract 和 interaction_menu 是合同全表，禁止进入提示；
-#: interactive_objects 是每对象过滤后的动作枚举与前置条件状态，允许进入提示。
+#: 不得进入提示的字面键（「不进入提示的字段」）。activity_snapshot 与 activities 对应"完整活动快照"；
+#: affordance_contract 和 interaction_menu 是合同全表；*_bindings 是名称到内部身份的私有绑定；
+#: persona_views、progress_meta、progress_event_ids、presented_message_ids 与 continuation 是观察私有证据
+#: （docs/dev/SPEC-persona-prompt.md 第一章、第二章「同秒续接」）。七层字段 activity（记忆层 self_notes 与结果
+#: outcome 的活动名）是可读名称，不在禁键之列。
 FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "world_state_version",
     "end_time",
@@ -65,7 +32,6 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "profile.entertainment_preferences",
     "game_catalog",
     "activity_snapshot",
-    "activity",
     "activities",
     "reference_id",
     "reference_assessments",
@@ -102,10 +68,18 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "location_id",
     "destination_id",
     "content_id",
+    "interaction_bindings",
+    "task_bindings",
+    "goal_bindings",
+    "activity_bindings",
+    "session_bindings",
+    "message_bindings",
+    "persona_views",
+    "progress_meta",
+    "progress_event_ids",
+    "presented_message_ids",
+    "continuation",
 })
-
-#: 嵌套放行：(父键, 子键)。进度层 sessions[].activities 是按会话分组的活动进度行，不是完整活动快照。
-ALLOWED_NESTED_KEYS = frozenset({("sessions", "activities")})
 
 #: 体感分级允许进入提示，同名的数值身体状态禁止进入。
 BODY_VALUE_KEYS = frozenset({
@@ -118,20 +92,6 @@ FORBIDDEN_PROFILE_FIELDS = frozenset({
     ("profile", "entertainment_preferences"),
 })
 
-#: routes 条目白名单：目的地/方式/分钟/票价/费力/是否可达（「观察投影与提示合同」、
-#: 「不进入提示的字段」的路线坐标与几何不得进入提示）。键名与 facts 合同英文口径一致；
-#: effort 是按出行方式 MET 给出的可读费力标签（docs/dev/SPEC-time-and-energy.md「商品热量与路线费力」）。
-ROUTE_ALLOWED_FIELDS = frozenset({
-    "destination",
-    "mode",
-    "minutes",
-    "fare_fen",
-    "effort",
-    "feasible",
-    "status",
-    "reason",
-})
-
 _WEEKDAY_NAMES = (
     "星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日",
 )
@@ -139,10 +99,6 @@ _WEEKDAY_NAMES = (
 
 class RenderBudgetExceededError(ValueError):
     """@brief 人物卡片超出身份段的汉字上限。"""
-
-
-class DecisionStatementValidationError(ValueError):
-    """@brief 决策自述违反协议：为空或超过 200 汉字（两阶段决策合同）。"""
 
 
 class ForbiddenObservationFieldError(ValueError):
@@ -284,23 +240,18 @@ def _just_ended_sentence(observation: dict) -> str:
     return _close_sentence(f"刚结束：{'、'.join(names)}") if names else ""
 
 
-def render_scene(observation: dict, language: str = SCENE_LANGUAGE) -> str:
-    """@brief 渲染中文自然语言场景段落。
+def render_scene(observation: dict) -> str:
+    """@brief 渲染中文自然语言场景段落（旧观察形状的过渡渲染）。
 
     内容依次为时间与星期、所在地点与在场的人、体感分级、当前与暂停活动
     的进度、刚结束待收尾的活动、「刚才」、今天想推进的目标与推进状态、收件箱头、待办一句话、可达地点与营业
     状态、手边持有物、当地餐食句或吃饭途径句，同刻上限的受限轮末尾另加一句说明；
     缺失或为空的字段跳过对应句子，渲染器不虚构事实。
 
-    @param observation 引擎侧计算好的观察字段字典（键名见模块 docstring）
-    @param language 场景语言，合同只支持 zh-CN，其他值抛 ValueError
+    @param observation 引擎侧计算好的旧观察 scene 字段字典
     @return 场景段落文本
-    @exception ValueError language 不是 zh-CN
     @exception ForbiddenObservationFieldError observation 含黑名单字段
     """
-    if language != SCENE_LANGUAGE:
-        logging.error("Scene language is unsupported: %s", language)
-        raise ValueError(f"scene language must be {SCENE_LANGUAGE}, got: {language}")
     enforce_field_blacklist(observation)
     todos = observation.get("todos_summary")
     parts = [
@@ -358,32 +309,8 @@ def render_drive_summary(
     return text
 
 
-def validate_decision_statement(text: str) -> str:
-    """@brief 判定决策自述是否满足两阶段决策协议并原样返回。
-
-    协议（`docs/dev/SPEC-life-realism.md`「两阶段决策」）：一到三句第一人称中文，不超过 200 汉字，不得为空；
-    超长或为空是协议错误。空串与纯空白同样视为为空。
-
-    @param text 决策自述文本
-    @return 通过校验的原文本
-    @exception DecisionStatementValidationError 决策自述为空或超过 200 汉字
-    """
-    if not text or not text.strip():
-        logging.error("Decision statement is empty")
-        raise DecisionStatementValidationError("decision_statement is empty")
-    hanzi = count_hanzi(text)
-    if hanzi > DECISION_STATEMENT_HANZI_BUDGET:
-        logging.error("Decision statement exceeds the Hanzi budget: actual=%s limit=%s",
-                      hanzi, DECISION_STATEMENT_HANZI_BUDGET)
-        raise DecisionStatementValidationError(
-            f"decision_statement exceeds {DECISION_STATEMENT_HANZI_BUDGET} hanzi: {hanzi}")
-    return text
-
-
 def _raise_if_forbidden(key: str, path: str, parent_key: str | None) -> None:
-    """@brief 按字面键集与 (父键, 子键) 嵌套规则检查单个键，违规即抛错；进度层的活动行按嵌套规则放行。"""
-    if (parent_key, key) in ALLOWED_NESTED_KEYS:
-        return
+    """@brief 按字面键集与 (父键, 子键) 嵌套规则检查单个键，违规即抛错。"""
     if key in FORBIDDEN_OBSERVATION_KEYS or key.endswith("_sha256"):
         logging.error("Forbidden observation field rejected: %s", path)
         raise ForbiddenObservationFieldError(
@@ -395,22 +322,8 @@ def _raise_if_forbidden(key: str, path: str, parent_key: str | None) -> None:
             "must not enter the prompt")
 
 
-def _check_route_entries(value: object, path: str) -> None:
-    """@brief 检查 routes 条目只含白名单键（目的地/方式/分钟/票价/费力/是否可达及状态与原因）。"""
-    entries = value if isinstance(value, (list, tuple)) else [value]
-    for index, entry in enumerate(entries):
-        if not isinstance(entry, dict):
-            continue
-        extra = sorted(str(key) for key in set(entry) - ROUTE_ALLOWED_FIELDS)
-        if extra:
-            logging.error("Route entry carries fields outside the public contract: %s", path)
-            raise ForbiddenObservationFieldError(
-                f"route entry {path}[{index}] carries non-contract fields "
-                f"{extra}; allowed fields: {sorted(ROUTE_ALLOWED_FIELDS)}")
-
-
 def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
-    """@brief 深度优先遍历渲染输入，逐键执行黑名单与 routes 白名单检查。"""
+    """@brief 深度优先遍历渲染输入，逐键执行黑名单与数值身体状态检查。"""
     if isinstance(node, dict):
         for key, value in node.items():
             child_key = str(key)
@@ -420,32 +333,28 @@ def _walk_blacklist(node: object, path: str, parent_key: str | None) -> None:
                 logging.error("Numeric body state rejected: %s", child_path)
                 raise ForbiddenObservationFieldError(
                     f"numeric body state {child_path!r} must not enter the prompt")
-            if child_key == "routes":
-                _check_route_entries(value, child_path)
             _walk_blacklist(value, child_path, child_key)
     elif isinstance(node, (list, tuple)):
         for index, item in enumerate(node):
             _walk_blacklist(item, f"{path}[{index}]", parent_key)
 
 
-def enforce_field_blacklist(payload: dict) -> None:
-    """@brief 校验渲染输入字典不含黑名单字段（多层递归，含列表内嵌套）。
+def enforce_field_blacklist(payload: object) -> None:
+    """@brief 校验渲染输入不含黑名单字段（多层递归，含列表内嵌套）。
 
-    覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、
-    end_time、affordance_contract、observation_event_id、
-    motivation_hints、game_catalog、activity_snapshot/activities 即完整活动
-    快照）、工作隐藏参考与答案、哈希、内部账户与数值身体状态、profile
-    嵌套键与点号扁平键、以及 routes 条目只保留目的地/方式/分钟/票价/
-    费力/是否可达（路线坐标与几何不得进入提示）。通过时静默返回。
+    覆盖「不进入提示的字段」的全部禁项：字面键（world_state_version、end_time、affordance_contract、
+    observation_event_id、motivation_hints、game_catalog、activity_snapshot/activities 即完整活动快照）、
+    工作隐藏参考与答案、哈希、内部身份与账户、私有绑定与观察私有证据、数值身体状态、profile 嵌套键与
+    点号扁平键。通过时静默返回。
 
-    @param payload 渲染输入字典（observation 或 facts）
+    @param payload 渲染输入（一层 JSON 对象或层数组）
     @exception ForbiddenObservationFieldError 命中任一禁项，消息含完整路径
     """
     _walk_blacklist(payload, "observation", None)
 
 
 def render_facts(facts: dict) -> str:
-    """@brief 把 facts 字典渲染为确定性紧凑 JSON 文本（键排序、中文不转义）。
+    """@brief 把旧观察的 facts 字典渲染为确定性紧凑 JSON 文本（键排序、中文不转义；过渡保留）。
 
     facts 是工具需要的精简结构（「观察投影与提示合同」的字段表），同一字典必须渲染出同一
     文本；渲染前先执行字段黑名单校验，泄漏字段在此拦截。
@@ -458,23 +367,15 @@ def render_facts(facts: dict) -> str:
     return json.dumps(facts, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
-def compose_user_message(persona_card: str, scene: str, facts: str) -> str:
-    """@brief 按 scene 合同顺序组装 user 消息三段：persona_card、scene、facts。
+def render_layer_json(value: object) -> str:
+    """@brief 七层 JSON 的唯一规范序列化：先执行字段黑名单，再紧凑序列化（键序即构建顺序，中文不转义）。
 
-    段与段之间以空行分隔，空段跳过；组装前执行 persona_card 600 汉字
-    上限；整次请求容量在发送前统一检查。
+    docs/dev/SPEC-persona-prompt.md 第一章「请求组成」：system 为系统层 JSON，user 为六层 JSON 数组，
+    都以紧凑形式发送，键序固定、不排序。
 
-    @param persona_card 人物卡片渲染文本
-    @param scene render_scene 的输出
-    @param facts render_facts 的输出
-    @return user 消息全文
-    @exception RenderBudgetExceededError persona_card 超 600 汉字
+    @param value 一层 JSON 对象或按固定层序排列的层数组
+    @return 紧凑 JSON 文本
+    @exception ForbiddenObservationFieldError value 含黑名单字段
     """
-    hanzi = count_hanzi(persona_card)
-    if hanzi > PERSONA_CARD_HANZI_BUDGET:
-        logging.error("Persona card exceeds the Hanzi budget: actual=%s limit=%s", hanzi, PERSONA_CARD_HANZI_BUDGET)
-        raise RenderBudgetExceededError(
-            f"persona card exceeds {PERSONA_CARD_HANZI_BUDGET} hanzi budget: "
-            f"{hanzi} hanzi")
-    message = "\n\n".join(part for part in (persona_card, scene, facts) if part)
-    return message
+    enforce_field_blacklist(value)
+    return json.dumps(value, ensure_ascii=False, separators=(",", ":"))

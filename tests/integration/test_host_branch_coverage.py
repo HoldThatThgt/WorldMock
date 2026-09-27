@@ -56,7 +56,7 @@ from worldmock.runtime import (
     runtime_code_sha256,
 )
 from worldmock.status import read_status, write_status
-from worldmock.validation import validate_two_stage_model_identity
+from worldmock.validation import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -317,7 +317,8 @@ def test_prepare_new_run_admits_scenario_and_logs_start(tmp_path):
     entry = json.loads(
         sorted((run_dir / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
     assert entry["code"] == "RUN_STARTED" and entry["run_id"] == "identity"
-    assert entry["two_stage_model_identity"]["stages"]["decision_statement"]["thinking"] == "disabled"
+    assert entry["stage_model_identity"]["stages"]["action"]["thinking"] == "enabled"
+    assert "two_stage_model_identity" not in entry
 
 
 def test_prepare_new_run_rejects_identity_mismatch(tmp_path):
@@ -362,12 +363,12 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
 
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
-    from worldmock.runtime import two_stage_model_identity
+    from worldmock.runtime import stage_model_identity
 
     semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
                 "model_identity": _model_identity().model_dump(mode="json"),
-                "two_stage_model_identity": two_stage_model_identity(),
+                "stage_model_identity": stage_model_identity(),
                 "code_sha256": runtime_code_sha256(ROOT),
                 "scenario_sha256": scenario_sha256,
                 **category_identity(semantics)}
@@ -443,7 +444,7 @@ def test_prepare_resume_counterfactual_binds_intervention(tmp_path):
 
 def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatch):
     """父清单模型或代码身份（含实际导入的 AS2）偏离时拒绝恢复；git_commit 与 git_dirty 只记录，不参与比对。"""
-    from worldmock.runtime import two_stage_model_identity
+    from worldmock.runtime import stage_model_identity
 
     parent, _checkpoint = _parent_store(tmp_path)
     parent.close()
@@ -451,7 +452,7 @@ def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatc
     with pytest.raises(IntegrityError, match="model identity differs"):
         _require_runtime_identity(wrong_model, ROOT)
     current = {"model_identity": _model_identity().model_dump(mode="json"),
-               "two_stage_model_identity": two_stage_model_identity()}
+               "stage_model_identity": stage_model_identity()}
     with pytest.raises(IntegrityError, match="code identity differs"):
         _require_runtime_identity({**current, "code_sha256": "0" * 64}, ROOT)
     parent_code = runtime_code_sha256(ROOT)
@@ -1031,23 +1032,19 @@ def test_read_status_decision_boundaries(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_two_stage_identity_rejects_retries_and_reasoning_effort():
-    """两阶段一致性：重试非零与发送 reasoning_effort 均拒绝。"""
-    identity = {"provider": "deepseek", "base_url": "https://api.deepseek.com",
-                "requested_model": "deepseek-flash", "max_retries": 0, "strict": True,
-                "reasoning_effort": None,
-                "stages": {"decision_statement": {}, "action": {}, "work_review": {}}}
-    from worldmock.runtime import two_stage_model_identity
+def test_stage_identity_rejects_retries_and_reasoning_effort():
+    """阶段身份一致性：重试非零与发送 reasoning_effort 均拒绝。"""
+    from worldmock.runtime import stage_model_identity
 
-    actual = two_stage_model_identity()
+    actual = stage_model_identity()
     retries = copy_dict(actual)
     retries["max_retries"] = 2
     with pytest.raises(IntegrityError, match="max_retries"):
-        validate_two_stage_model_identity(retries)
+        validate_stage_model_identity(retries)
     reasoning = copy_dict(actual)
     reasoning["reasoning_effort"] = "high"
     with pytest.raises(IntegrityError, match="reasoning_effort"):
-        validate_two_stage_model_identity(reasoning)
+        validate_stage_model_identity(reasoning)
 
 
 def copy_dict(value):
@@ -1446,7 +1443,7 @@ async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspa
     """生产配置经检查点恢复后，由实际 LifeAgent.restore 读文件得到十六回合预算。"""
     from custom.agents.life_agent import LifeAgent
     from worldmock.life.scenario import load_scenario
-    from worldmock.runtime import _agent_specs, two_stage_model_identity
+    from worldmock.runtime import _agent_specs, stage_model_identity
 
     scenario, _ = load_scenario(SCENARIO)
     spec = _agent_specs(scenario, persona_compiler=lambda _: None)[0]
@@ -1466,7 +1463,7 @@ async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspa
         service = SimpleNamespace(env=SimpleNamespace(), trace=None,
                                   llm=SimpleNamespace(default=SimpleNamespace(model_name="offline-model")))
         agent = await LifeAgent.from_workspace(workspace, service)
-        assert agent._max_react_turns == two_stage_model_identity()["max_react_turns"] == 16
+        assert agent._max_react_turns == stage_model_identity()["max_react_turns"] == 16
         assert agent._config["max_react_turns"] == 16
         assert json.loads((workspace / "config.json").read_text())["max_react_turns"] == 16
     finally:
@@ -1526,11 +1523,11 @@ def test_cli_dispatch_routes_run_command(tmp_path, monkeypatch):
     assert json.loads((output / "status.json").read_text())["status"] == "completed"
 
 
-def test_two_stage_identity_requires_strict_declarations():
-    """两阶段一致性：strict 声明缺失即拒绝。"""
-    from worldmock.runtime import two_stage_model_identity
+def test_stage_identity_requires_strict_declarations():
+    """阶段身份一致性：strict 声明缺失即拒绝。"""
+    from worldmock.runtime import stage_model_identity
 
-    relaxed = copy_dict(two_stage_model_identity())
+    relaxed = copy_dict(stage_model_identity())
     relaxed["strict"] = False
     with pytest.raises(IntegrityError, match="strict=true"):
-        validate_two_stage_model_identity(relaxed)
+        validate_stage_model_identity(relaxed)

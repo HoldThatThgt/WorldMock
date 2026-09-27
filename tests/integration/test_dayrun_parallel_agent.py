@@ -28,13 +28,13 @@ _NEWS = "内容：午间新闻"
 
 
 def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看，说明写全长）。"""
+    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看）。"""
     observed = copy.deepcopy(_observations())
     _add_objects(observed[0]["data"],
                  _visible_object(_PLACE, "location", "office",
                                  _offer("travel", "步行", "travel_to", travel_mode="walking")),
                  _visible_object(_NEWS, "content", "content-visible",
-                                 _offer("interact", "接着看", "watch", "全长约10分钟")))
+                                 _offer("interact", "接着看", "watch")))
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     return person
@@ -53,9 +53,7 @@ def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
     assert set(schema["properties"]) == {"targets", "actions", "ways"}
-    assert {_PLACE, _NEWS} <= set(schema["properties"]["targets"]["items"]["enum"])
-    assert {"travel", "interact"} <= set(schema["properties"]["actions"]["items"]["enum"])
-    assert {"步行", "接着看"} <= set(schema["properties"]["ways"]["items"]["enum"])
+    assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     assert person.validate_react_decisions([
         _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),
     ], False) == ""

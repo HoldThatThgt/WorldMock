@@ -21,7 +21,7 @@ from worldmock.runtime import (
     _model_identity,
     _prepare_resume,
     runtime_code_sha256,
-    two_stage_model_identity,
+    stage_model_identity,
 )
 from tests.integration.as2_fixtures import use_fake_as2
 from tests.life.conftest import advance_next, stage_day_plan, submit_round
@@ -57,7 +57,7 @@ def _create(path, destination):
         start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
         timezone=scenario.timezone, model_identity=_model_identity(), code_sha256=runtime_code_sha256(ROOT),
     )
-    return LifeEngine.create(path, destination, identity, two_stage_identity=two_stage_model_identity())
+    return LifeEngine.create(path, destination, identity, stage_identity=stage_model_identity())
 
 
 def _change_category(directory):

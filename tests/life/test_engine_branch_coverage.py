@@ -42,7 +42,7 @@ from worldmock.life.body import (
     next_body_boundary_seconds,
     settle_body,
 )
-from worldmock.life.decision_start import maybe_decision_statement_start
+from worldmock.life.decision_start import is_action_request, maybe_action_request_start, response_self_note
 from worldmock.life.engine import (
     LifeEngine,
     _activity_progress_phrase,
@@ -89,7 +89,7 @@ from worldmock.life.scenario import (
     parse_scenario_document,
     load_scenario,
 )
-from worldmock.footprints.models import EventDraft, DECISION_STATEMENT_FIELD
+from worldmock.footprints.models import EventDraft
 from worldmock.runtime import settle_pending_day_plans
 
 
@@ -855,52 +855,64 @@ def test_recent_meal_counts_use_actual_settled_consumption() -> None:
 
 
 # ---------------------------------------------------------------------------
-# decision_start.py：决策自述响应判定的拒绝形态
+# decision_start.py：行动请求判定、首个行动请求取出草稿与回复正文
 # ---------------------------------------------------------------------------
 
+#: 一个行动请求：没有 purpose、tools 含 start_activity、thinking 开启。
+_ACTION_REQUEST = {"tools": [{"type": "function", "function": {"name": "memory_recent"}},
+                             {"type": "function", "function": {"name": "start_activity"}}],
+                   "extra_body": {"thinking": {"type": "enabled"}}}
 
-def _exchange(request: dict, content, error=None) -> SimpleNamespace:
+
+def _exchange(request: dict, phase: str = "request") -> SimpleNamespace:
     """构造模型交换证据形态。"""
-    response = None if content is None else {"choices": [{"message": {"content": content}}]}
-    return SimpleNamespace(request=request, response=response, error=error)
+    return SimpleNamespace(request=request, phase=phase, response=None, error=None)
 
 
-def test_maybe_decision_statement_start_rejects_non_decision_statement_sampling() -> None:
-    """非决策自述采样参数（温度/长度不符）不消费延迟草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    exchange = _exchange({"temperature": 0.7, "max_tokens": 400}, "我今天很饿。")
-    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
+@pytest.mark.parametrize("request_shape", [
+    {**_ACTION_REQUEST, "purpose": "plan_day"},
+    {**_ACTION_REQUEST, "purpose": "work_review"},
+    {**_ACTION_REQUEST, "extra_body": {"thinking": {"type": "disabled"}}},
+    {**_ACTION_REQUEST, "extra_body": None},
+    {key: value for key, value in _ACTION_REQUEST.items() if key != "tools"},
+    {**_ACTION_REQUEST, "tools": [{"type": "function", "function": {"name": "finish"}}, "broken"]},
+    None,
+])
+def test_only_action_requests_satisfy_the_predicate(request_shape) -> None:
+    """带 purpose、思考关闭、没有 start_activity 的请求（零点计划、工作验收、只读问答、记忆巩固）都不是行动请求。"""
+    assert is_action_request(_ACTION_REQUEST) is True
+    assert is_action_request({**_ACTION_REQUEST, "purpose": None}) is True
+    assert is_action_request(request_shape) is False
+
+
+def test_first_action_request_pops_the_pending_start_once() -> None:
+    """只有 phase=request 的行动请求取出草稿；响应与非行动请求不消费，第二个行动请求不再产出。"""
+    data = {"round_id": "r", "round_order": 0, "world_state_version": 3, "wake_reasons": []}
+    pending = {1: {"decision_id": "d", "data": data}}
+    assert maybe_action_request_start(pending, 1, 42, _exchange(_ACTION_REQUEST, "response")) is None
+    assert maybe_action_request_start(pending, 1, 42, _exchange({**_ACTION_REQUEST, "purpose": "x"})) is None
     assert 1 in pending
 
+    draft = maybe_action_request_start(pending, 1, 42, _exchange(_ACTION_REQUEST))
 
-def test_maybe_decision_statement_start_swallows_invalid_decision_statement_text() -> None:
-    """空文本/超长决策自述按协议错误返回 None，不抛错不消费草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    request = {"temperature": 1.0, "max_tokens": 8000,
-               "extra_body": {"thinking": {"type": "disabled"}}}
-    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "")) is None
-    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
-    assert 1 in pending
-
-
-def test_maybe_decision_statement_start_rejects_missing_thinking_mode() -> None:
-    """决策自述形状必须关闭思考，缺失该声明不消费草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    exchange = _exchange({"temperature": 1.0, "max_tokens": 8000}, "我现在很饿，想去找点吃的。")
-    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
-    assert 1 in pending
-
-
-def test_maybe_decision_statement_start_accepts_valid_text_and_pops_pending() -> None:
-    """有效决策自述取出草稿并携带 decision_statement 字段。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    draft = maybe_decision_statement_start(pending, 1, 42,
-                                  _exchange({"temperature": 1.0, "max_tokens": 8000,
-                                             "extra_body": {"thinking": {"type": "disabled"}}},
-                                            "我现在很饿，想去找点吃的。"))
     assert pending == {}
     assert draft is not None and draft.event_type == "decision_started"
-    assert draft.data[DECISION_STATEMENT_FIELD] == "我现在很饿，想去找点吃的。"
+    assert (draft.decision_id, draft.occurred_at, draft.observed_at, draft.data) == ("d", 42, 42, data)
+    assert maybe_action_request_start(pending, 1, 43, _exchange(_ACTION_REQUEST)) is None
+
+
+@pytest.mark.parametrize(("response", "note"), [
+    ({"choices": [{"message": {"content": "  先歇一会儿。\n"}}]}, "先歇一会儿。"),
+    ({"choices": [{"message": {"content": "   "}}]}, None),
+    ({"choices": [{"message": {"content": None, "tool_calls": []}}]}, None),
+    ({"choices": [{"message": {}}]}, None),
+    ({"choices": []}, None),
+    ({"choices": ["broken"]}, None),
+    (None, None),
+])
+def test_response_self_note_is_the_stripped_reply_body_or_none(response, note) -> None:
+    """self_note 取回复正文去首尾空白；空、缺失或形状不符时为 None，不代写。"""
+    assert response_self_note(response) == note
 
 
 # ---------------------------------------------------------------------------

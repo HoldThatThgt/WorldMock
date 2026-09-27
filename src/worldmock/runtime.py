@@ -280,7 +280,7 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
     }
     _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
              run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest,
-             two_stage_model_identity=two_stage_model_identity())
+             stage_model_identity=stage_model_identity())
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
         scenario, scenario.start_at, kwargs, "create",
@@ -316,15 +316,15 @@ def _admit_scenario(semantics: ScenarioSemantics) -> None:
 def _model_identity() -> ModelIdentity:
     """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。
 
-    顶层 thinking/tool_choice 取行动阶段参数并直接来自 B2 导出常量
-    （单一事实源）；两阶段完整形状见 two_stage_model_identity()。
+    顶层 thinking/tool_choice 取行动阶段参数并直接来自 LifeAgent 导出常量
+    （单一事实源）；各阶段完整形状见 stage_model_identity()。提示指纹绑定七层系统层与层 Schema。
     """
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
-        life_prompt_sha256,
         life_tool_schema_sha256,
     )
+    from custom.agents.life_prompt import life_prompt_sha256
 
     return ModelIdentity(
         provider="openai_compatible",
@@ -338,19 +338,17 @@ def _model_identity() -> ModelIdentity:
     )
 
 
-def two_stage_model_identity() -> dict[str, Any]:
-    """@brief 两阶段决策与工作验收的完整冻结请求身份（docs/dev/SPEC-life-realism.md「两阶段决策」）。
+def stage_model_identity() -> dict[str, Any]:
+    """@brief 行动与工作验收两个阶段的完整冻结请求身份（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。
 
-    决策自述/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
-    运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
+    行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
+    （以 None 表示该字段不进请求）。
     """
     from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
         ACTION_MAX_TOKENS,
-        DECISION_STATEMENT_MAX_TOKENS,
-        DECISION_STATEMENT_TEMPERATURE,
     )
 
     return {
@@ -363,13 +361,6 @@ def two_stage_model_identity() -> dict[str, Any]:
         "strict": True,
         "reasoning_effort": None,
         "stages": {
-            "decision_statement": {
-                "thinking": "disabled",
-                "temperature": DECISION_STATEMENT_TEMPERATURE,
-                "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
-                "tools": None,
-                "tool_choice": None,
-            },
             "action": {
                 "thinking": ACTION_THINKING["thinking"]["type"],
                 "tool_choice": ACTION_TOOL_CHOICE,
@@ -433,12 +424,17 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
 def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
     """@brief 拒绝用不同代码（含实际导入的 AS2）、端点、模型、提示或工具恢复父运行。
 
-    清单的 git_commit 与 git_dirty 只记录，不参与比对。
+    清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经同一校验函数拒绝退役阶段，再做等值比对。
     """
+    from worldmock.validation import validate_stage_model_identity
+
+    identity = manifest.get("stage_model_identity")
+    if identity is not None:
+        validate_stage_model_identity(identity)
     expected = _model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
-    if manifest.get("two_stage_model_identity") != two_stage_model_identity():
+    if identity != stage_model_identity():
         raise IntegrityError("Checkpoint decision stage identity differs from the current LifeAgent contract")
     if manifest.get("code_sha256") != runtime_code_sha256(project_root):
         raise IntegrityError("Checkpoint code identity differs from the current runtime")

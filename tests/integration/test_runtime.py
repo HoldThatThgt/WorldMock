@@ -54,9 +54,9 @@ from worldmock.runtime import (
     resume_world,
     run_world,
     runtime_code_sha256,
-    two_stage_model_identity,
+    stage_model_identity,
 )
-from worldmock.validation import validate_project, validate_two_stage_model_identity
+from worldmock.validation import validate_project, validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
@@ -87,22 +87,18 @@ def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
     assert identity.tool_choice == ACTION_TOOL_CHOICE
 
 
-def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
-    """两阶段身份：决策自述/行动/工作验收参数与 LifeAgent 常量单一事实源一致。"""
+def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
+    """阶段身份只有行动与工作验收两个阶段，行动参数与 LifeAgent 常量单一事实源一致。"""
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
         ACTION_MAX_TOKENS,
-        DECISION_STATEMENT_MAX_TOKENS,
-        DECISION_STATEMENT_TEMPERATURE,
     )
 
-    identity = two_stage_model_identity()
+    identity = stage_model_identity()
     stages = identity["stages"]
 
-    assert stages["decision_statement"] == {"thinking": "disabled", "temperature": DECISION_STATEMENT_TEMPERATURE,
-                                   "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None,
-                                   "tool_choice": None}
+    assert set(stages) == {"action", "work_review"}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
                                 "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS}
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
@@ -111,27 +107,27 @@ def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
     assert identity["reasoning_effort"] is None
 
 
-def test_two_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
-    """两阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
-    identity = two_stage_model_identity()
+def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
+    """阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
+    identity = stage_model_identity()
 
-    assert two_stage_model_identity() == identity
-    validate_two_stage_model_identity(identity)
+    assert stage_model_identity() == identity
+    validate_stage_model_identity(identity)
 
     tampered = copy.deepcopy(identity)
-    tampered["stages"]["decision_statement"]["temperature"] = 0.7
-    with pytest.raises(IntegrityError, match="decision_statement"):
-        validate_two_stage_model_identity(tampered)
+    tampered["stages"]["action"]["max_tokens"] = 4000
+    with pytest.raises(IntegrityError, match="stage action"):
+        validate_stage_model_identity(tampered)
 
     wrong_endpoint = copy.deepcopy(identity)
     wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
     with pytest.raises(IntegrityError, match="base_url"):
-        validate_two_stage_model_identity(wrong_endpoint)
+        validate_stage_model_identity(wrong_endpoint)
 
     reasoning = copy.deepcopy(identity)
     reasoning["reasoning_effort"] = "high"
     with pytest.raises(IntegrityError, match="reasoning_effort"):
-        validate_two_stage_model_identity(reasoning)
+        validate_stage_model_identity(reasoning)
 
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
@@ -872,7 +868,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         assert order.index("checkpoint_created") < order.index("day_plan_generated")
         assert not {"observation", "decision_started", "memory_updated"} & set(order)
         assert {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces} == before
-        assert set(two_stage_model_identity()["stages"]) == {"decision_statement", "action", "work_review"}
+        assert set(stage_model_identity()["stages"]) == {"action", "work_review"}
         _forbid_plan_day_client(monkeypatch)
         await env.checkpoint(_checkpoint_request(engine, tmp_path, "again"))
     finally:

@@ -24,6 +24,7 @@ from worldmock.delivery.generation import EXPRESSIONS
 from worldmock.delivery.rules import execute_fixture
 from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
+from worldmock.footprints.models import RETIRED_DECISION_STATEMENT
 from worldmock.life.scenario import load_scenario
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL
 from worldmock.profile.coverage import (
@@ -83,7 +84,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     _require_world_categories(catalog, corpus_root, scenario.map_dataset.locations_file.path)
     _require_task_assignees(scenario)
     _configure_process(project_root)
-    identity = validate_two_stage_model_identity()
+    identity = validate_stage_model_identity()
     coverage = validate_persona_coverage(
         scenario_path, persona_compiler=persona_compiler, coverage_out=coverage_out,
         _scenario=scenario, _corpus_root=corpus_root)
@@ -109,21 +110,42 @@ def _require_ray_worker_import() -> None:
         raise IntegrityError("Ray worker cannot import ray in a clean process")
 
 
-def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
-    """@brief 两阶段 model_identity 一致性校验（docs/dev/SPEC-life-realism.md「两阶段决策」，B2 常量单一事实源）。"""
-    from custom.agents.life_agent import (
-        ACTION_MAX_TOKENS,
-        ACTION_THINKING,
-        ACTION_TOOL_CHOICE,
-        DECISION_STATEMENT_MAX_TOKENS,
-        DECISION_STATEMENT_TEMPERATURE,
-    )
-    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
-    from worldmock.runtime import MAX_REACT_TURNS, two_stage_model_identity
+def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
+    """@brief 阶段 model_identity 一致性校验：只有行动与工作验收两个阶段（LifeAgent 常量单一事实源）。
 
-    actual = identity if identity is not None else two_stage_model_identity()
+    新建、打开、恢复、反事实重放与环境校验五个入口共用本函数；含退役的决策自述阶段的清单以英文错误拒绝
+    （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。
+    """
+    from worldmock.runtime import stage_model_identity
+
+    actual = identity if identity is not None else stage_model_identity()
     if not isinstance(actual, dict):
-        raise IntegrityError("Two-stage model identity must be an object")
+        raise IntegrityError("Stage model identity must be an object")
+    problems = _identity_problems(actual)
+    stages = actual.get("stages")
+    if isinstance(stages, dict) and RETIRED_DECISION_STATEMENT in stages:
+        raise IntegrityError(f"Model identity stage {RETIRED_DECISION_STATEMENT} is retired")
+    if not isinstance(stages, dict) or set(stages) != {"action", "work_review"}:
+        raise IntegrityError("Model identity stages must be exactly action, work_review")
+    from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
+
+    expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
+                       "tool_choice": ACTION_TOOL_CHOICE,
+                       "max_tokens": ACTION_MAX_TOKENS}
+    expected_review = {"thinking": "disabled", "tool_choice": "required"}
+    for name, expected in (("action", expected_action), ("work_review", expected_review)):
+        if stages.get(name) != expected:
+            problems.append(f"stage {name} is {stages.get(name)!r}, expected {expected!r}")
+    if problems:
+        raise IntegrityError("Stage model identity is inconsistent: " + "; ".join(problems))
+    return actual
+
+
+def _identity_problems(actual: dict[str, Any]) -> list[str]:
+    """@brief 核对阶段身份的端点、重试、回合预算、严格声明与 reasoning_effort 顶层字段。"""
+    from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
+    from worldmock.runtime import MAX_REACT_TURNS
+
     problems: list[str] = []
     if actual.get("base_url") != DEEPSEEK_BASE_URL:
         problems.append(f"base_url={actual.get('base_url')!r} must be the DeepSeek OpenAI endpoint")
@@ -137,24 +159,7 @@ def validate_two_stage_model_identity(identity: dict[str, Any] | None = None) ->
         problems.append("every function declaration must be strict=true")
     if actual.get("reasoning_effort") is not None:
         problems.append("reasoning_effort must not be sent")
-    stages = actual.get("stages")
-    if not isinstance(stages, dict) or set(stages) != {"decision_statement", "action", "work_review"}:
-        raise IntegrityError("Model identity stages must be exactly decision_statement, action, work_review")
-    expected_decision_statement = {
-        "thinking": "disabled", "temperature": DECISION_STATEMENT_TEMPERATURE,
-        "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None, "tool_choice": None,
-    }
-    expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
-                       "tool_choice": ACTION_TOOL_CHOICE,
-                       "max_tokens": ACTION_MAX_TOKENS}
-    expected_review = {"thinking": "disabled", "tool_choice": "required"}
-    for name, expected in (("decision_statement", expected_decision_statement), ("action", expected_action),
-                           ("work_review", expected_review)):
-        if stages.get(name) != expected:
-            problems.append(f"stage {name} is {stages.get(name)!r}, expected {expected!r}")
-    if problems:
-        raise IntegrityError("Two-stage model identity is inconsistent: " + "; ".join(problems))
-    return actual
+    return problems
 
 
 def validate_persona_coverage(scenario_path: Path, *,

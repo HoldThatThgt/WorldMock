@@ -1,4 +1,4 @@
-"""@brief 人物决策上下文的纯文本组装与提供商正文提取。"""
+"""@brief 人物卡片的纯文本组装（记忆巩固与反思的人物段）。"""
 
 from __future__ import annotations
 
@@ -21,9 +21,3 @@ def persona_card_text(profile: Mapping[str, Any], name: str | None) -> str:
             lines.append(f"{lead}{value.strip()}")
     return "\n".join(lines)
 
-
-def decision_statement_content(response: Any) -> str:
-    """@brief 提取决策自述正文，缺失或空白正文交给协议校验拒绝。"""
-    choices = getattr(response, "choices", None)
-    message = getattr(choices[0], "message", None) if choices else None
-    return str(getattr(message, "content", "") or "").strip()

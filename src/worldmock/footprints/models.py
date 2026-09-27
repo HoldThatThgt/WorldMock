@@ -39,9 +39,10 @@ WAKE_REASON_NAMES = frozenset({
     "progress_report_due", "no_active_activity", "plan_reminder_due",
 })
 
-#: 两阶段决策增量字段（docs/dev/SPEC-life-realism.md「两阶段决策」）：决策自述文本写入 decision_started.data；
-#: 决策自述是人物私有内容，只允许 dreaming 任务读取；引擎直驱路径可不提供该字段。
-DECISION_STATEMENT_FIELD = "decision_statement"
+#: decision_started.data 的闭集（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」、第七章「事件」）。
+DECISION_STARTED_FIELDS = frozenset({"round_id", "round_order", "world_state_version", WAKE_REASONS_FIELD})
+#: 已退役的决策自述名（decision_started 字段与清单阶段键）：带它的事件与清单以英文错误拒绝。
+RETIRED_DECISION_STATEMENT = "decision_statement"
 
 #: 消息送达记录种类（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：message 动作的送达记录为
 #: environment_event kind=message_arrival；交谈邀约以 chat_invite 消息送达（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。
@@ -92,18 +93,19 @@ def validate_decision_rhythm(data: dict[str, Any]) -> None:
                 raise ValueError(f"{WAKE_REASONS_FIELD}[{index}] must be one of the frozen wake reasons")
 
 
-def validate_decision_statement(data: dict[str, Any]) -> None:
-    """@brief 校验 decision_started.data 的决策自述类型；引擎直驱路径可不提供该字段。
-
-    只做类型合同校验；决策自述为空或超长的协议错误由两阶段决策协议在生成侧裁决
-    （docs/dev/SPEC-life-realism.md「两阶段决策」），不属于存储层结构校验。
+def validate_decision_started(data: dict[str, Any]) -> None:
+    """@brief 校验 decision_started.data 恰为闭集 {round_id, round_order, world_state_version, wake_reasons}。
 
     :param data: decision_started 事件的 data 字典。
-    :raises ValueError: decision_statement 存在且不是字符串时 fail-closed。
+    :raises ValueError: 带退役的决策自述字段，或键集与闭集不符时 fail-closed。
     """
-    if DECISION_STATEMENT_FIELD in data and not isinstance(data[DECISION_STATEMENT_FIELD], str):
-        logging.error("Decision statement evidence must be a string")
-        raise ValueError(f"{DECISION_STATEMENT_FIELD} must be a string")
+    if RETIRED_DECISION_STATEMENT in data:
+        logging.error("decision_started data carries the retired field %s", RETIRED_DECISION_STATEMENT)
+        raise ValueError(f"decision_started.data carries the retired field {RETIRED_DECISION_STATEMENT}")
+    if set(data) != DECISION_STARTED_FIELDS:
+        logging.error("decision_started data keys are outside the closed set: %s", sorted(data))
+        raise ValueError("decision_started.data must be exactly round_id, round_order, world_state_version, "
+                         "wake_reasons")
 
 
 EventType = Literal[
@@ -129,9 +131,9 @@ class EventDraft(BaseModel):
     活动/结算事件的 data 可携带 RESOURCE_FLOWS_FIELD 字段登记本次结算的资源
     分录（{resource, owner, direction, amount, cause} 字典列表），写入前可用
     validate_resource_flows 校验；activity_progress 可另携 DECISION_OFFERED_FIELD
-    与 WAKE_REASONS_FIELD（validate_decision_rhythm 校验），decision_started 可携
-    DECISION_STATEMENT_FIELD，由本模型自动执行 validate_decision_statement 校验。
-    引擎直驱决策可不提供自述；其余事件的 data 结构由各自领域自行约定。
+    与 WAKE_REASONS_FIELD（validate_decision_rhythm 校验）；decision_started 的 data 恰为
+    DECISION_STARTED_FIELDS 闭集，由本模型自动执行 validate_decision_started 校验；
+    其余事件的 data 结构由各自领域自行约定。
     """
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -150,10 +152,10 @@ class EventDraft(BaseModel):
     observed_at: int | None = None
 
     @model_validator(mode="after")
-    def validate_decision_statement_evidence(self) -> EventDraft:
-        """@brief 在创建、持久化和读取决策事件时校验自述字段。"""
+    def validate_decision_started_evidence(self) -> EventDraft:
+        """@brief 在创建、持久化和读取决策事件时校验 decision_started 的闭集字段。"""
         if self.event_type == "decision_started":
-            validate_decision_statement(self.data)
+            validate_decision_started(self.data)
         return self
 
 
