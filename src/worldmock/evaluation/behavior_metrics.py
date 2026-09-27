@@ -7,7 +7,7 @@
 当前事件合同已提供共同身体结算的 decision_offered / wake_reasons、主观记忆快照及
 社交请求的 kind / duration_minutes。认证输入若缺少这些指标所需证据，报告以未知值和 notes
 明示，相关协议门禁按不通过处理；不得把缺证据解释成零次事件。
-本版指标不消费 decision_started.data.decision_statement。事件顶层 code_sha256 缺失时
+观察重复门禁按（人物，模拟秒）的续接链计：同一秒内的续接复用链首 user 合法。事件顶层 code_sha256 缺失时
 归入 code_sha256_unreported 组并注明，不猜测代码身份。
 """
 
@@ -187,12 +187,12 @@ def _message_text(message: Mapping[str, Any]) -> str | None:
 
 
 def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[str, Any]:
-    """@brief 统计同一 user 观察文本出现于不同 decision_id 请求中的最大数目；门禁必须为 1。
+    """@brief 统计同一 user 观察文本出现于不同（人物，模拟秒）续接链中的最大数目；门禁必须为 1。
 
-    同一决策的行动循环内重发同一观察只计一次；同刻多轮各有自己的 decision_id，分别计数。
-    带 purpose 的系统请求（工作验收、零点计划）不属于决策请求，不参与统计。
+    同一人物同一模拟秒内的决策构成一条续接链，链内各决策复用链首 user 合法，只计一次；
+    跨秒或跨人物重复仍计为重复。带 purpose 的系统请求（工作验收、零点计划）不参与统计。
     """
-    decisions: dict[str, set[str]] = {}
+    chains: dict[str, set[tuple[Any, Any]]] = {}
     user_messages = 0
     for event in _decision_model_requests(events):
         messages = event.get("data", {}).get("request", {}).get("messages", [])
@@ -200,11 +200,11 @@ def _observation_gate(events: list[dict[str, Any]], notes: list[str]) -> dict[st
             text = _message_text(message) if isinstance(message, Mapping) else None
             if text is not None:
                 user_messages += 1
-                decisions.setdefault(text, set()).add(str(event.get("decision_id")))
-    if not decisions:
+                chains.setdefault(text, set()).add((event.get("agent_id"), event.get("occurred_at")))
+    if not chains:
         notes.append("决策 model_request 无 user 消息，观察重复率无法计算")
         return _gate(None, "==", 1)
-    counts = [len(identities) for identities in decisions.values()]
+    counts = [len(keys) for keys in chains.values()]
     entry = _gate(max(counts), "==", 1)
     entry["duplicated_observation_count"] = sum(1 for count in counts if count > 1)
     entry["user_message_count"] = user_messages
