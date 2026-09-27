@@ -312,7 +312,7 @@ async def test_same_task_competition_pays_only_seeded_first_settlement(engine_fa
     reviewer = AcceptingReviewer()
     engine._work_reviewer = reviewer
     requests = {agent_id: ("submit_work", SubmitWorkActionRequest(
-        task_name=task.title, deliverable=_submission(task).deliverable))
+        task_name=f"工作：{task.title}", deliverable=_submission(task).deliverable))
                 for agent_id in engine.state.agents}
     ready = _shared_round(engine, "shared-submit", requests)
     for agent_id in ready:

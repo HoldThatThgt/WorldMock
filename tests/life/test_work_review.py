@@ -11,13 +11,12 @@ from types import SimpleNamespace
 import pytest
 
 import agentsociety2.config as agentsociety_config
-from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
-from custom.agents.life_agent import LifeAgent
 from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
-                                 stage_day_plan, start_activity, submit_round, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, submit_round, target_actions,
+                                 tool_targets, wake_by_mail)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -38,8 +37,7 @@ from worldmock.life.models import (
     SubmitWorkRequest,
 )
 from worldmock.life.scenario import load_scenario
-from worldmock.life.narration import render_facts, render_scene
-from worldmock.life.result_projection import public_action_result
+from worldmock.life.result_projection import public_result
 from worldmock.life.work import WorkMetrics, WorkSubmission, load_work_input, load_work_oracle
 from worldmock.life.work_review import (
     WorkReviewer,
@@ -158,7 +156,7 @@ def _complete_required_work(engine) -> None:
 
 def _public_submission(engine, request: SubmitWorkRequest) -> SubmitWorkActionRequest:
     """把领域内部合同身份转换为人物可见任务名。"""
-    return SubmitWorkActionRequest(task_name=engine.rules.task(request.task_id).title,
+    return SubmitWorkActionRequest(task_name=f"工作：{engine.rules.task(request.task_id).title}",
                                    deliverable=request.deliverable)
 
 
@@ -221,19 +219,17 @@ async def test_prepared_work_review_is_private_until_round_settlement(engine_fac
     await engine.prepare_pending_work_review(call.action_id)
     assert engine._work_reviewer.calls == 1
     assert engine.state.model_dump(mode="json") == snapshot
-    assert all(row["action_id"] != call.action_id for row in engine._recent_action_results(1))
-    assert all("work_review" not in row for row in initial["facts"]["progress"]["results"])
+    assert all("work_review" not in row["result"] for row in progress_calls(initial))
     assert not any(event.action_id == call.action_id
                    for event in engine.store.read_agent_events("action_result", 1))
     result = engine.commit_decision_round(ctx.round_id)[0]
     observed = engine.observe(context(engine, "review-visible"))
-    public = next(row for row in observed["facts"]["progress"]["results"]
-                  if "work_review" in row)
+    public = next(row["result"] for row in progress_calls(observed, "submit_work") if "work_review" in row["result"])
     assert public["work_review"] == json.loads(json.dumps(result.data["work_review"]))
     assert public["work_review"]["accepted"] is accepted
-    assert "Supported by the transcript." in render_facts(observed["facts"])
+    assert "Supported by the transcript." in json.dumps(observed["progress_layer"], ensure_ascii=False)
     repeated = engine.observe(context(engine, "review-still-pending"))
-    assert repeated["facts"]["progress"]["results"] == observed["facts"]["progress"]["results"]
+    assert progress_calls(repeated) == progress_calls(observed)
 
 
 @pytest.mark.asyncio
@@ -265,19 +261,18 @@ async def test_nested_private_fields_in_real_settlement_do_not_enter_public_resu
     monkeypatch.setattr(engine, "_dispatch", inject_private_fields)
     await _submit_with_review(engine, StaticReviewer(), "private-review")
     observed = engine.observe(context(engine, "private-review-visible"))
-    public = next(row for row in observed["facts"]["progress"]["results"]
-                  if "work_review" in row)
-    assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review"}
+    public = next(row["result"] for row in progress_calls(observed, "submit_work") if "work_review" in row["result"])
+    assert set(public) == {"occurred_at", "status", "error_code", "message", "details", "work_review"}
     assert public["work_review"] == json.loads(json.dumps(expected))
-    assert "PRIVATE_SENTINEL" in json.dumps(observed["recent_action_results"])
-    rendered = render_facts(observed["facts"])
+    assert "PRIVATE_SENTINEL" in json.dumps([event.data for event in engine.store.read_agent_events("action_result", 1)])
+    rendered = json.dumps(observed["progress_layer"], ensure_ascii=False)
     assert "PRIVATE_SENTINEL" not in rendered
     assert "private-account" not in rendered
     assert "resource_changes" not in rendered
 
 
 def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) -> None:
-    """已经开始但仍欠工时的工作暂停后，同时保留活动进度与独立待办提醒。"""
+    """已经开始但仍欠工时的工作暂停后，暂停的活动在待办层（进度不写「还差」），任务目标的 contract 写达标情况。"""
     engine = engine_factory()
     _at_task_start(engine)
     task = engine.scenario.tasks[0]
@@ -296,11 +291,12 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     assert paused[0].status == "completed"
     assert advance_until_ready(engine)
     observed = engine.observe(context(engine, "paused-work-observation"))
-    scene = render_scene(observed["scene"])
-    assert "之前做到一半的" in scene and "还没收尾。" in scene
-    assert observed["scene"]["paused_activities"][0]["progress"] in scene
-    assert "有待办任务" in scene
-    remaining = observed["facts"]["tasks"][0]["remaining_contract_seconds"]
+    paused_item = observed["todo_layer"]["paused_activities"][0]
+    assert paused_item["name"] == activity_name(engine, activity_id)
+    assert paused_item["progress"].startswith("已做") and "还差" not in paused_item["progress"]
+    contract = tool_targets(observed)[f"工作：{task.title}"]["contract"]
+    assert contract["remaining"].startswith("有效工时还差")
+    remaining = observed["tasks"][0]["remaining_contract_seconds"]
     assert 0 < remaining < task.maximum_duration_seconds
 
 
@@ -381,19 +377,12 @@ async def test_negated_or_unsupported_minutes_require_rework_without_payment(eng
 
     ctx = context(engine, "rework-feedback")
     observation = engine.observe(ctx)
-    visible_result = next(
-        item for item in observation["recent_action_results"]
-        if item["action_id"] == "action-rework"
-    )
-    visible = visible_result["result"]["data"]["work_review"]
-    agent = LifeAgent()
-    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
-    request = ReactLoopRequest(0, ctx.observed_at, wrapped)
-    agent.prepare_react_loop(request)
-    messages = json.dumps(agent.build_react_messages(request), ensure_ascii=False)
-    # 完整证据与公开提示共同保留工作反馈；提示不包含内部参考身份与哈希。
+    visible = next(event.data["data"]["work_review"] for event in engine.store.read_agent_events("action_result", 1)
+                   if event.action_id == "action-rework")
+    messages = json.dumps(observation["progress_layer"], ensure_ascii=False)
+    # 完整证据与进度层共同保留工作反馈；进度层不包含内部参考身份与哈希。
     assert visible == json.loads(json.dumps(feedback))
-    summaries = observation["facts"]["progress"]["results"]
+    summaries = [row["result"] for row in progress_calls(observation)]
     public = next(row for row in summaries if row.get("error_code") == "WORK_REQUIRES_REWORK")
     assert set(public) == {"occurred_at", "status", "error_code", "message", "work_review", "details"}
     assert public["work_review"] == visible
@@ -485,12 +474,12 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
         return _work_moment(engine, start + worked, worked, task.required_effective_seconds - 400)
 
     def work_row(observed: dict) -> dict:
-        """本轮交互对象层中这项工作的公开行。"""
-        return next(row for row in observed["facts"]["interactive_objects"] if row["object"] == f"工作：{task.title}")
+        """本轮工具层中这项工作的「工作」动作。"""
+        return target_actions(observed, f"工作：{task.title}")["工作"]
 
     engine.state = moment(60)
-    assert work_row(engine._observation_data(engine.state.agents[1]))["actions"] == [
-        {"action": "interact：工作", "note": None}]
+    assert (work_row(engine._observation_data(engine.state.agents[1]))["available"],
+            work_row(engine._observation_data(engine.state.agents[1]))["reason"]) == (True, None)
     staged = moment(59)
     staged.version += 1
     engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
@@ -500,13 +489,13 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
     ctx = context(engine, f"late-work-{limit}")
     engine.begin_decision_round([ctx])
     row = work_row(engine.observe(ctx))
-    assert row["actions"] == [{"action": "interact：工作", "note": reason}]
+    assert (row["available"], row["reason"]) == (False, reason)
     engine.submit_action(DirectToolCall(ctx, f"action-late-work-{limit}", "start_activity",
-                                        start_activity("工作", row["object"])))
+                                        start_activity("工作", f"工作：{task.title}")))
     result = engine.commit_decision_round(ctx.round_id)[0]
     assert result.status == "rejected" and result.error_code == "ACTIVITY_DURATION_INVALID"
     assert not active_activities(engine.state, 1)
-    public = engine.observe(context(engine, f"late-work-{limit}-feedback"))["facts"]["progress"]["results"][-1]
+    public = progress_calls(engine.observe(context(engine, f"late-work-{limit}-feedback")))[-1]["result"]
     assert public["error_code"] == "ACTIVITY_DURATION_INVALID"
     assert public["details"] == {"reason": reason, "next_step": "提交已完成的部分"}
     assert not any(event.event_type == "run_failed"
@@ -514,8 +503,8 @@ def test_work_start_under_one_minute_stays_listed_and_is_rejected_with_reason_an
 
 
 def test_completion_outlook_appears_only_when_the_time_upper_bound_is_short(engine_factory) -> None:
-    """剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时 facts.tasks[] 才带 completion_outlook「到截止前做不完」，
-    相等或更宽裕时省略该字段（docs/dev/SPEC-time-and-energy.md 第八章「工作」）。"""
+    """剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时任务目标 contract.outlook 才写「到截止前做不完」，
+    相等或更宽裕时为 null（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due, start = int(task.due_at.timestamp()), int(task.available_at.timestamp())
@@ -531,10 +520,9 @@ def test_completion_outlook_appears_only_when_the_time_upper_bound_is_short(engi
     ]
     for now, done, effective, short in cases:
         engine.state = _work_moment(engine, now, done, effective)
-        facts = engine._observation_data(engine.state.agents[1])["facts"]
-        row = next(item for item in facts["tasks"] if item["task_name"] == task.title)
-        assert ("completion_outlook" in row) is short, (now, done, effective)
-        assert row.get("completion_outlook", "到截止前做不完") == "到截止前做不完"
+        observed = engine._observation_data(engine.state.agents[1])
+        contract = tool_targets(observed)[f"工作：{task.title}"]["contract"]
+        assert contract["outlook"] == ("到截止前做不完" if short else None), (now, done, effective)
 
 
 _WAIT =("start_activity", start_activity("等待", "自己"))
@@ -580,7 +568,8 @@ def _working_on_first_task(engine) -> str:
 
 def _submit_action(task) -> tuple[str, SubmitWorkActionRequest]:
     """用本轮可见任务名与公开交付 Schema 构造提交动作。"""
-    return "submit_work", SubmitWorkActionRequest(task_name=task.title, deliverable=_submission(task).deliverable)
+    return "submit_work", SubmitWorkActionRequest(task_name=f"工作：{task.title}",
+                                                  deliverable=_submission(task).deliverable)
 
 
 @pytest.mark.asyncio
@@ -698,13 +687,12 @@ def _replace_rationale(raw: dict, collection: str, text: str) -> None:
 
 
 def _render_public_review_decision(decision, source: str) -> str:
-    """从真实公开评审函数经结果投影进入提示渲染。"""
-    row = {"action_id": "reviewed-work", "occurred_at": 1767542400, "status": "completed",
-           "error_code": None, "message": "Work completed.",
-           "result": {"data": {"work_review": public_work_review(decision, source)}}}
-    projected = public_action_result(row)
-    projected.pop("action_id")
-    return render_facts({"progress": {"sessions": [], "results": [projected], "alarms": []}})
+    """从真实公开评审函数经公开结果投影（进度层 tool_call.result）写成紧凑 JSON。"""
+    result = {"action_id": "reviewed-work", "occurred_at": 1767542400, "status": "completed",
+              "error_code": None, "message": "Work completed.",
+              "data": {"work_review": public_work_review(decision, source)}}
+    scenario = SimpleNamespace(products=(), inventory_items=(), locations=(), timezone="Asia/Shanghai")
+    return json.dumps(public_result(result, scenario, 1767542400), ensure_ascii=False)
 
 
 def _private_rationale_value(prepared, kind: str) -> str:
@@ -764,7 +752,7 @@ def test_full_legal_rationale_survives_parse_projection_and_render(collection, p
     _replace_rationale(raw, collection, rationale)
     decision = parse_work_review(raw, prepared)
     rendered = _render_public_review_decision(decision, prepared.source)
-    review = json.loads(rendered)["progress"]["results"][0]["work_review"]
+    review = json.loads(rendered)["work_review"]
     assert review[public_collection][0]["rationale"] == rationale
 
 
@@ -796,7 +784,7 @@ async def test_private_rationale_retries_preserve_evidence_and_publish_only_corr
     assert any(record.levelno == logging.ERROR for record in caplog.records)
     assert reviewer.private_value not in caplog.text
     observed = engine.observe(context(engine, "corrected-review-visible"))
-    rendered = render_facts(observed["facts"])
+    rendered = json.dumps(observed["progress_layer"], ensure_ascii=False)
     assert "Supported by the transcript." in rendered
     assert reviewer.private_value not in rendered
 

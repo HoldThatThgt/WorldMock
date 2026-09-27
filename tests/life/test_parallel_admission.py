@@ -270,7 +270,7 @@ def test_driving_rejects_messages_remote_orders_and_submissions(engine_factory) 
     assert message.data["reason"] == "开车时不能发消息" and message.data["next_step"].startswith("到达")
     _rejected(engine, "hands-order", _request((order[0], "obtain", "远程下单")), _UNMET)
     minutes = MeetingMinutes(summary="会议纪要", decisions=("按计划推进",), action_items=("整理材料",))
-    submission = SubmitWorkActionRequest(task_name=engine.scenario.tasks[0].title, deliverable=minutes)
+    submission = SubmitWorkActionRequest(task_name=f"工作：{engine.scenario.tasks[0].title}", deliverable=minutes)
     submitted = _rejected(engine, "hands-submit", submission, _UNMET, tool="submit_work")
     assert submitted.data["reason"] == "开车时不能提交成果"
 
