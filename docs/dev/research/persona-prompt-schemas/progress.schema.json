@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "progress.schema.json",
   "title": "进度层",
-  "description": "当前 session 从开始到现在的决策、工具调用及其结果和世界事件，按发生顺序排列，不含 thinking。一次调用与它的结果合为一条记录，不另设登记记录，也不给模型调用编号。",
+  "description": "当前 session 从开始到本秒第一次决策为止的工具调用及其结果和世界事件，按发生顺序排列。决策就是人物选择的动作，即工具调用；一次调用与它的结果合为一条记录，不另设登记记录，也不给模型调用编号。本秒之内的后续决策以原生 assistant/tool 消息续接，不写入本层；时间推进后并入本层。思考不进入本层。",
   "type": "object",
   "additionalProperties": false,
   "required": ["layer", "session_started_at", "events"],
@@ -13,7 +13,6 @@
       "type": "array",
       "items": {
         "oneOf": [
-          {"$ref": "#/$defs/decision_event"},
           {"$ref": "#/$defs/tool_call_event"},
           {"$ref": "#/$defs/message_arrival_event"},
           {"$ref": "#/$defs/delivery_event"},
@@ -30,7 +29,7 @@
       "properties": {
         "occurred_at": {"type": "string", "format": "date-time"},
         "type": {
-          "enum": ["decision", "tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder"]
+          "enum": ["tool_call", "message_arrival", "delivery", "task_deadline", "plan_reminder"]
         }
       }
     },
@@ -48,26 +47,20 @@
         "work_review": {"type": "object"}
       }
     },
-    "decision_event": {
-      "description": "模型在提交请求的同一回复正文中写下的决策；reasoning_content 不进入。",
-      "allOf": [
-        {"$ref": "#/$defs/event_base"},
-        {"type": "object", "required": ["text"], "properties": {
-          "type": {"const": "decision"},
-          "text": {"type": "string", "minLength": 1}
-        }}
-      ],
-      "unevaluatedProperties": false
-    },
     "tool_call_event": {
-      "description": "世界请求或记忆查询，连同其结果。世界请求在批量结算后才有结果，下一次请求构造时总已存在。",
+      "description": "人物的一次决策：世界请求或记忆查询，连同其结果。世界请求在批量结算后才有结果，并入本层时总已存在。",
       "allOf": [
         {"$ref": "#/$defs/event_base"},
         {"type": "object", "required": ["tool", "arguments", "result"], "properties": {
           "type": {"const": "tool_call"},
           "tool": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
           "arguments": {"type": "object"},
-          "result": {"$ref": "#/$defs/public_result"}
+          "result": {"$ref": "#/$defs/public_result"},
+          "self_note": {
+            "description": "该调用所在回复的正文，有才写：人物自己的话，未经核验；不要求、不重问、不代写，只保留到本 session 结束，不进入记忆层。",
+            "type": "string",
+            "minLength": 1
+          }
         }}
       ],
       "unevaluatedProperties": false

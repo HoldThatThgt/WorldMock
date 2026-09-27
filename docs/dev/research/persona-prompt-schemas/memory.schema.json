@@ -32,7 +32,7 @@
         "properties": {
           "recorded_at": {"type": "string", "format": "date-time"},
           "settled": {"$ref": "#/$defs/lines", "description": "成功的世界请求与世界事件，每件一句。"},
-          "self_notes": {"$ref": "#/$defs/lines", "description": "pause/conclude 写下的 summary 与记忆原文。"}
+          "self_notes": {"$ref": "#/$defs/lines", "description": "pause/conclude 写下的 summary 与记忆原文；进度层调用上的 self_note 不进入这里。"}
         }
       }
     }
