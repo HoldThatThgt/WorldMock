@@ -4,7 +4,7 @@
 const ContextView = {};
 {
   const state = {items:null, seq:null, stage:'all', view:'structure', block:null, rule:null};
-  const stages = {all:'全部调用', prelude:'形成自述', action:'选择动作', other:'其他调用'};
+  const stages = {all:'全部调用', action:'选择动作', other:'其他调用'};
   const views = {structure:'结构与填充', growth:'增长与退出', comparison:'前后输入对照'};
   const statusNames = {added:'新增', changed:'内容变化', unchanged:'未变', removed:'退出当前输入'};
 
@@ -74,12 +74,11 @@ const ContextView = {};
       <label>查看内容<select id="ctx-view">${options(Object.entries(views), state.view)}</select></label></div>`;
   }
 
-  /** @brief 显示两阶段顺序；其他调用不套用人物决策阶段。 */
+  /** @brief 显示单一行动阶段的决策顺序；其他调用不套用人物决策阶段。 */
   function flow(stage) {
     if (stage === 'other') return '<div class="cx-meta">其他模型调用按原始消息结构展示。</div>';
     return `<div class="cx-flow" aria-label="人物决策流程"><span>冻结观察</span><span>→</span>
-      <span class="${stage === 'prelude' ? 'active' : ''}">形成自述</span><span>→</span>
-      <span class="${stage === 'action' ? 'active' : ''}">完整事实与自述 → 选择动作</span><span>→</span>
+      <span class="active">系统层与六层输入 → 选择世界请求</span><span>→</span>
       <span>世界执行 → 下一轮重建</span></div>`;
   }
 
@@ -89,7 +88,7 @@ const ContextView = {};
     return '<div class="cx-blocks">' + blocks.map(block =>
       `<button type="button" class="cx-block" data-context-block="${esc(block.id)}"
         aria-pressed="${block.id === state.block}"><span>${esc(block.label)}</span><span>${nf(block.chars)}</span>
-        <small>${esc(block.role)}${block.interpretation === 'template' ? ' · 模板拆分' : ''}</small>
+        <small>${esc(block.role)}${block.interpretation === 'layer' ? ' · 层切片' : ''}</small>
         <small>字符</small><span class="cx-track" aria-hidden="true">
         <span class="cx-bar" style="display:block;width:${block.chars / maximum * 100}%"></span></span></button>`
     ).join('') + '</div>';
@@ -99,26 +98,24 @@ const ContextView = {};
   function blockDetail(block) {
     if (!block) return '<div class="empty">本次请求没有消息或工具定义。</div>';
     const rule = ViewerContext.rules[block.rule];
-    const metadata = rule ? `<dl><dt>模板来源</dt><dd>${esc(rule.source)}</dd>
+    const metadata = rule ? `<dl><dt>构建来源</dt><dd>${esc(rule.source)}</dd>
       <dt>填入</dt><dd>${esc(rule.fill)}</dd></dl>` : '';
-    const provenance = block.interpretation === 'template' ?
-      '<p class="cx-meta">按模板拆分；归档未保存填充来源，本次来源未核验。</p>' : '';
+    const provenance = block.interpretation === 'layer' ?
+      '<p class="cx-meta">按顶层数组无损切片；层内原文未改动，分隔符计入本层。</p>' : '';
+    const drillable = ViewerContext.drillItems(block).length > 0;
     return `<div class="cx-detail card"><h3>${esc(block.label)}</h3>${provenance}${metadata}
-      ${block.key === 'facts' ? '<label>事实字段<select id="ctx-fact"></select></label>' : ''}
+      ${drillable ? '<label>层内条目<select id="ctx-item"></select></label>' : ''}
       <details open><summary>本轮完整原文</summary><pre id="ctx-raw">${esc(block.text)}</pre></details></div>`;
   }
 
-  /** @brief 按请求中的真实字段展开事实；不重构未出现的事实。 */
-  function bindFacts(block) {
-    if (!block || block.key !== 'facts' || state.view !== 'structure') return;
-    const facts = JSON.parse(block.text);
-    const select = $('#ctx-fact');
-    const labels = {progress:'活动与最近结果', inbox:'消息', inventory:'库存', interactive_objects:'可交互对象',
-      products:'商品', experiences:'已核验经历', day_plan:'当日目标', routes:'路线', tasks:'任务'};
-    select.innerHTML = options([['','全部事实'], ...Object.keys(facts).map(key =>
-      [key, Object.hasOwn(labels, key) ? `${labels[key]}（${key}）` : key])], '');
+  /** @brief 按工具层与进度层的真实字段下钻；self_note 条目标明未经核验，不重构未出现的内容。 */
+  function bindLayer(block) {
+    const items = ViewerContext.drillItems(block);
+    if (!items.length || state.view !== 'structure') return;
+    const select = $('#ctx-item');
+    select.innerHTML = options([['','整层原文'], ...items.map((item, index) => [index, item.label])], '');
     select.onchange = () => {
-      $('#ctx-raw').textContent = select.value ? JSON.stringify(facts[select.value], null, 2) : block.text;
+      $('#ctx-raw').textContent = select.value === '' ? block.text : items[Number(select.value)].text;
     };
   }
 
@@ -169,8 +166,8 @@ const ContextView = {};
     const block = blocks.find(row => row.id === state.block);
     const warnings = model.current.warnings.map(text => `<p role="alert">${esc(text)}</p>`).join('');
     const displayed = state.view === 'comparison' ? [...blocks, ...(model.before?.blocks || [])] : blocks;
-    const provenance = displayed.some(block => block.interpretation === 'template') ?
-      '<p class="cx-meta">按当前模板拆分；正文内同名标题可能影响划分，填充来源未核验。</p>' : '';
+    const provenance = displayed.some(block => block.interpretation === 'layer') ?
+      '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；self_note 未经核验。</p>' : '';
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);
     const body = state.view === 'comparison' ? comparison(model) :
       `<div class="cx-layout">${blockList(blocks)}${detail}</div>`;
@@ -200,7 +197,7 @@ const ContextView = {};
     if (state.view === 'growth' && model) {
       $('#ctx-rule').onchange = event => {state.rule = event.target.value; render();};
     }
-    bindFacts(model?.current.blocks.find(block => block.id === state.block));
+    bindLayer(model?.current.blocks.find(block => block.id === state.block));
   }
 
   /** @brief 应用人物与阶段筛选，只读取当前与对照请求全文。 */

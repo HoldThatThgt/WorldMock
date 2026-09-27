@@ -510,8 +510,8 @@ function buildIndex(){
       en:r['$.data.body.values.energy_kcal'], sl:r['$.data.body.values.sleep_deficit_hours'],
       et:r['$.data.body.values.entertainment_need']});
   });
-  typeQuery('action_requested', ['$.data.tool_name','$.data.request'], r=>{
-    S.summaries.set(r.seq,{tool:r['$.data.tool_name'], req:r['$.data.request']});
+  typeQuery('action_requested', ['$.data.tool_name','$.data.request','$.data.self_note'], r=>{
+    S.summaries.set(r.seq,{tool:r['$.data.tool_name'], req:r['$.data.request'], note:r['$.data.self_note']});
   });
   typeQuery('action_accepted', ['$.activity_id','$.data.activity.kind','$.data.activity.planned_duration_seconds',
                                 '$.data.activity.target_id','$.data.activity.destination_id',
@@ -668,7 +668,8 @@ function makeSummary(e){
     case 'model_request':
       return `${s.purpose==='plan_day'?'零点计划模型请求':'模型请求'} ${s.model||''} · 第${s.attempt??'?'}次尝试`;
     case 'model_response': return `模型响应 ${s.model||''} · prompt ${nf(s.pt)} + completion ${nf(s.ct)} = ${nf(s.tt)} tokens`;
-    case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}`;
+    case 'action_requested': return `请求 ${toolLabel(s.tool)} · ${readableReq(s.tool, s.req)}` +
+      (s.note ? ` · self_note（未经核验）：${s.note}` : '');
     case 'action_accepted':
       return `已受理 · ${actTypeLabel(s.kind, s.tg)}${s.tg||s.dest? ' · '+actTargetText(s):''}` +
         ` · 计划 ${fmtDur(s.dur)}`;
