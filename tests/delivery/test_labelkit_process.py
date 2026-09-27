@@ -295,12 +295,13 @@ def _current_record(directory):
     prior_data = {'status': 'completed', 'message': 'Previous activity completed'}
     prior = _event('probe-prior-result', 1, 'action_result', prior_data, 'probe-prior-action')
     prior['decision_id'] = 'probe-prior-decision'
-    summary = {'event_id': prior['event_id'], 'action_id': prior['action_id'],
-               'decision_id': prior['decision_id'], 'occurred_at': prior['occurred_at'],
-               'status': 'completed', 'error_code': None, 'message': prior_data['message'], 'result': prior_data}
     observed = _event('probe-observation', 2, 'observation', {
-        'scene': '现在是22:00。你在家中，感到困倦。',
-        'recent_action_results': [summary],
+        'environment_layer': {'layer': '环境层', 'observed_at': '1970-01-01T08:01:22+08:00',
+                              'body': {'appetite': '不饿', 'sleepiness': '困倦', 'entertainment': '平常',
+                                       'social': '平常', 'mood': '平静'},
+                              'location': {'session_kind': 'stay', 'name': '家', 'place_type': '住宅',
+                                           'fixed_rules': []}},
+        'progress_event_ids': [prior['event_id']],
     })
     prompt = _event('probe-prompt', 3, 'model_request', {'phase': 'request', 'request': {
         'model': 'fixture', 'messages': [{'role': 'system', 'content': '身份'},
