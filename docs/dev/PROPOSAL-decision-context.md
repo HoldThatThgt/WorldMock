@@ -3,6 +3,7 @@
 > 设计审阅稿。先完成七层 Prompt 与交互语义的整体方案，再统一修复已登记的程序错误。
 > 本文是新方案的唯一入口；[设计细节与来源](research/persona-prompt-seven-layers.md)提供依据。
 > 2026-09-20 的决策上下文裁决原文已移至[归档](research/decision-context-proposal-2026-09-20.md)。
+> 收敛后的开发规格草稿见[人物 Prompt 七层与交互修复](SPEC-persona-prompt.md)（未冻结）：本文「尚需定稿的实现选择」与核查中发现的矛盾，在其「裁决记录」#21–#38 中给出推荐，待裁定。
 > [唯一出现原则](#唯一出现原则)｜[决策、回复正文与思考](#决策回复正文与思考)｜[已确认的交互语义](#已确认的交互语义)｜[统一修复的程序错误](#统一修复的程序错误)｜[尚需定稿的实现选择](#尚需定稿的实现选择)｜[需修订的现行条款](#需修订的现行条款)
 > [交互图示 HTML](research/persona-prompt-framework.html)｜[七层字段设计](#七层-json-字段设计)｜[七层 JSON 示例](research/persona-prompt-schemas/examples.json)
 
