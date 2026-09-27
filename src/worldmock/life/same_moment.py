@@ -14,8 +14,8 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
-from worldmock.errors import BusinessRuleError
 from worldmock.life.activity_control import occupies_slot, pending_conclusions
+from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.models import (ActionStatus, ActivityKind, ActivityState, ActivityStatus, AgentState,
                                    SameMomentStage, WorldState, active_activities)
 from worldmock.life.rhythm import read_new_messages
@@ -165,16 +165,28 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
     return "other"
 
 
-def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
-    """@brief 受限轮复核（第一章「实现约定」）：请求类不属于本阶段开放的动作类即业务拒绝。
+def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
+    """@brief 受限轮复核的判定本身：请求类不属于本阶段开放的动作类时返回 SAME_MOMENT_ACTION_RESTRICTED，否则 None。
+
+    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/dev/SPEC-persona-prompt.md「工具层」）。
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、wait（只等待）、
                          conclude（结束占名额的活动）、conclude_pending（一次点名全部待收尾活动）、other
-    :raises BusinessRuleError: SAME_MOMENT_ACTION_RESTRICTED，计入同刻轮数
     """
-    if request_kind not in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
-        raise BusinessRuleError("SAME_MOMENT_ACTION_RESTRICTED")
+    if request_kind in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
+        return None
+    return refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED")
+
+
+def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
+    """@brief 受限轮复核（第一章「实现约定」）：请求类不属于本阶段开放的动作类即业务拒绝。
+
+    :raises PreconditionError: SAME_MOMENT_ACTION_RESTRICTED（stage_refusal 的原因），计入同刻轮数
+    """
+    refusal = stage_refusal(stage, request_kind)
+    if refusal is not None:
+        raise refusal.error()
 
 
 def refusal_pulse_key(error_code: str) -> str | None:

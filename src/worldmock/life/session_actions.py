@@ -12,7 +12,7 @@ import logging
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, sessions
 from worldmock.life.content import restarts_from_beginning
-from worldmock.life.guidance import Refusal, guided
+from worldmock.life.guidance import guided
 from worldmock.life.interaction_menu import activity_phrase, merged_selection, resolve_selection
 from worldmock.life.models import (
     ActionResult,
@@ -169,7 +169,8 @@ class SessionActionMixin:
         travel = next((activities[item] for item in identities if activities[item].kind == ActivityKind.TRAVEL),
                       None)
         if travel is not None:
-            changed = sessions.begin_transit(changed, pending.agent_id, travel.destination_id, self._place_names)
+            changed = sessions.begin_transit(changed, pending.agent_id, travel.destination_id, self._place_names,
+                                             opened_by_action_id=pending.action_id)
         current = sessions.current_session(changed, pending.agent_id)
         changed = sessions.assign(changed, current.session_id, identities)
         return changed, self._refreshed_result(changed, result)
@@ -477,10 +478,8 @@ class SessionActionMixin:
         places = self._place_names
         place = (sessions.place_label(state.sessions[activity.session_ids[-1]], places) if activity.session_ids
                  else places[activity.location_id])
-        required = {task_id: task.required_effective_seconds for task_id, task in self.rules.tasks.items()}
         view = {"name": row["name"], "place": place, "phase": activity_control.activity_phase(activity),
-                "objective_progress": activity_control.objective_progress(
-                    activity, activity_control.remaining_required(state, activity, required))}
+                "objective_progress": activity_control.objective_progress(activity)}
         return {**view, **_self_report(activity.progress_note)}
 
     def _recall_session(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
@@ -547,26 +546,28 @@ class SessionActionMixin:
 
     def _report_status(self, state: WorldState, pending: PendingAction,
                         request: ReportStatusRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。"""
+        """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
+
+        每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，且与进行中
+        活动的占用不冲突），与工具层、待办层的可用性一字不差。
+        """
         selected = self._activities_for_names(state, pending, request.task)
-        if any(item.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED} for item in selected):
-            _LOGGER.error("Reported activity is neither active nor paused")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        names = self._control_names(pending)
         changed = state
         for activity in selected:
-            if activity.status == ActivityStatus.PAUSED:
-                changed = self._resume_at_start_location(changed, pending, activity)
+            current = changed.activities[activity.activity_id]
+            refusal = activity_control.control_refusal(
+                self._admission_context(changed, pending.agent_id, names), "report_status", current)
+            if refusal is not None:
+                raise refusal.error()
+            if current.status == ActivityStatus.PAUSED:
+                changed = self._resume_at_start_location(changed, pending, current)
         changed = self._with_notes(changed, selected, request.summary, anchor=True)
         return changed, self._control_result(state, pending, "Activity status reported", request.task, selected)
 
     def _resume_at_start_location(self, state: WorldState, pending: PendingAction,
                                   activity: ActivityState) -> WorldState:
-        """@brief 暂停的活动只在开始地点恢复（重验地点与占用），并归入那里的当前停留会话。"""
-        if not sessions.at_stay(state, pending.agent_id, activity.location_id):
-            place = self._place_names[activity.location_id]
-            name = self._control_names(pending).get(activity.activity_id, activity.name)
-            raise Refusal("ACTIVITY_PRECONDITION_UNMET", f"{name}要回到{place}才能接着做，在别处可以直接结束",
-                          unmet=("activity_location",), suggested={"travel_to": place}).error()
+        """@brief 在开始地点恢复暂停的活动（地点与占用已由 control_refusal 判定），并归入那里的当前停留会话。"""
         changed, _ = self._change(state, pending, ChangeActivityRequest(
             activity_id=activity.activity_id, operation=ActivityChange.RESUME))
         current = sessions.current_session(changed, pending.agent_id)
@@ -574,15 +575,16 @@ class SessionActionMixin:
 
     def _pause_activity(self, state: WorldState, pending: PendingAction,
                          request: PauseActivityRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 暂停所选进行中活动（仍占名额）并写入自述；路上的活动不能暂停。"""
+        """@brief 暂停所选进行中活动（仍占名额）并写入自述；路上的活动、交谈与通话不能暂停。
+
+        每项先经 activity_control.control_refusal 判定，与工具层的可用性一字不差。
+        """
         selected = self._activities_for_names(state, pending, request.task)
-        if any(item.status != ActivityStatus.ACTIVE for item in selected):
-            _LOGGER.error("Paused activity is not active")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
-        road = [name for name, item in zip(request.task, selected) if sessions.on_road(state, item)]
-        if road:
-            listed = "、".join(road)
-            raise guided("ACTIVITY_PAUSE_UNAVAILABLE", f"路上的{listed}不能暂停", f"可以直接结束{listed}")
+        context = self._admission_context(state, pending.agent_id, self._control_names(pending))
+        for activity in selected:
+            refusal = activity_control.control_refusal(context, "pause_activity", activity)
+            if refusal is not None:
+                raise refusal.error()
         changed = state
         for activity in selected:
             changed, _ = self._change(changed, pending, ChangeActivityRequest(
@@ -618,7 +620,8 @@ class SessionActionMixin:
         changed = self._with_goal_summaries(changed.model_copy(update={"activities": activities}),
                                             list(zip(selected, request.summary, strict=True)))
         if departed:
-            changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names)
+            changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names,
+                                              opened_by_action_id=pending.action_id)
         result = self._control_result(state, pending, "Activities concluded", request.task, selected)
         sources = self._memory_sources(pending, request.task, selected)
         return changed, result.model_copy(update={"data": {**result.data, "memory_sources": sources}})

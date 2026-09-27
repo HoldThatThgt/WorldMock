@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionError
+from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.models import (
     ActivityKind,
     ActivityStatus,
@@ -18,6 +19,7 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
+from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.scenario import RuntimeScenario, WorkTaskConfig
 from worldmock.life.settlement import settle_money_transfer
 
@@ -26,8 +28,10 @@ if TYPE_CHECKING:
 
 #: 开工的最短时长：距截止与剩余合同都不少于 60 秒（docs/dev/SPEC-time-and-energy.md 第八章「工作」）。
 WORK_START_MINIMUM_SECONDS = 60
-#: facts.tasks[].completion_outlook 的唯一取值，只在时长上界不足时出现。
+#: 工具层任务目标 contract.outlook 的取值，只在时长上界不足时出现（docs/dev/SPEC-persona-prompt.md「工具层」）。
 COMPLETION_OUTLOOK_SHORT = "到截止前做不完"
+#: 正在做这项工作时提交的原因：工时达标、活动状态与提交条件分开说明（docs/dev/SPEC-persona-prompt.md 第六章）。
+_IN_PROGRESS_REFUSAL = Refusal("WORK_TASK_IN_PROGRESS", "先结束正在做的工作", "结束或暂停这项工作后再提交")
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +107,25 @@ def completion_outlook(task: WorkTaskConfig, worked_seconds: int, effective_seco
     return COMPLETION_OUTLOOK_SHORT if needed > available else None
 
 
+def contract_view(task: WorkTaskConfig, totals: tuple[int, float], now: int, timezone_name: str) -> dict:
+    """@brief 工具层任务目标的 contract：截止时刻、有效工时的达标情况与到截止前能否做完。
+
+    remaining 例：「有效工时已达标（约 6.4/4 小时）」「有效工时还差约 1.5 小时（约 2.5/4 小时）」；有效工时取一位小数，
+    要求取整数或一位小数（docs/dev/SPEC-persona-prompt.md「工具层」）。
+
+    :param totals: work_totals 的（已做秒数，有效秒数）。
+    """
+    worked, effective = totals
+    required = task.required_effective_seconds
+    hours = f"约 {f'{effective / 3600:.1f}'.removesuffix('.0')}/{required / 3600:g} 小时"
+    if effective >= required:
+        remaining = f"有效工时已达标（{hours}）"
+    else:
+        remaining = f"有效工时还差{duration_phrase(required - effective)}（{hours}）"
+    return {"deadline": iso_time(int(task.due_at.timestamp()), timezone_name), "remaining": remaining,
+            "outlook": completion_outlook(task, worked, effective, now)}
+
+
 def validate_work_duration(state: WorldState, task: WorkTaskConfig, agent_id: int,
                            requested_seconds: int) -> None:
     """@brief 拒绝通过重复启动累计超过合同最大工时。"""
@@ -150,10 +173,10 @@ def prepare_work_submission(state: WorldState, semantics: "ScenarioSemantics", c
     """@brief 校验提交时序、进度、公开身份和付款能力，供一次语义验收。"""
     task = _task(semantics.scenario, request.task_id)
     agent = state.agents[agent_id]
-    _validate_submission_contract(state, agent, task)
+    refusal = submission_refusal(state, agent_id, task)
+    if refusal is not None:
+        raise refusal.error()
     worked, effective = work_totals(state, agent_id, task.task_id)
-    if effective < task.required_effective_seconds:
-        raise BusinessRuleError("WORK_INCOMPLETE")
     semantics.contract_match(task)
     source = load_work_input(corpus_root, task)
     oracle = load_work_oracle(corpus_root, task)
@@ -184,21 +207,24 @@ def load_work_oracle(root: Path, task: WorkTaskConfig) -> dict[str, Any]:
     return value
 
 
-def _validate_submission_contract(
-    state: WorldState,
-    agent: AgentState,
-    task: WorkTaskConfig,
-) -> None:
-    """@brief 拒绝已付款、不可见、迟交或正在做的任务；评审准备与提交共用（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条）。"""
+def submission_refusal(state: WorldState, agent_id: int, task: WorkTaskConfig) -> Refusal | None:
+    """@brief 提交一项工作时第一条不成立的条件：已结算、不可见、已过截止、正在做、有效工时不够；成立时为 None。
+
+    评审准备、受理与工具层 submit_work 的可用性共用这一判定（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条，
+    docs/dev/SPEC-persona-prompt.md 第六章）：正在做时写「先结束正在做的工作」，与达标情况分开说明。
+    """
     if task.task_id in state.paid_task_ids:
-        raise BusinessRuleError("WORK_TASK_ALREADY_PAID")
-    if task.task_id not in agent.visible_task_ids:
-        raise BusinessRuleError("WORK_TASK_NOT_VISIBLE")
+        return refusal_for_code("WORK_TASK_ALREADY_PAID")
+    if task.task_id not in state.agents[agent_id].visible_task_ids:
+        return refusal_for_code("WORK_TASK_NOT_VISIBLE")
     if state.current_time > int(task.due_at.timestamp()):
-        raise BusinessRuleError("WORK_SUBMISSION_LATE")
+        return refusal_for_code("WORK_SUBMISSION_LATE")
     if any(item.kind == ActivityKind.WORK and item.target_id == task.task_id
-           for item in active_activities(state, agent.agent_id)):
-        raise BusinessRuleError("WORK_TASK_IN_PROGRESS")
+           for item in active_activities(state, agent_id)):
+        return _IN_PROGRESS_REFUSAL
+    if work_totals(state, agent_id, task.task_id)[1] < task.required_effective_seconds:
+        return refusal_for_code("WORK_INCOMPLETE")
+    return None
 
 
 def _task(scenario: RuntimeScenario, task_id: str) -> WorkTaskConfig:

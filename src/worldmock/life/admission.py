@@ -7,8 +7,9 @@
 有进行中出行即为「途中」，途中不在任何地点、没有可用的持有物、不与任何人同在一处。互斥只由注册表声明的占用交集判定，
 不另设按动作名的规则；合成一单或一餐的两项（interaction_menu.merged_selection）是同一次动作，只与已有活动比较占用。
 同一对人物已有进行中交谈时，重复发起在目标判定这一步以 CHAT_ALREADY_ACTIVE 返回（第五章「交谈」），先于占用；接受时
-发起方的交谈只剩不足一分钟，同一步以 ACTIVITY_TOO_SHORT 返回。交互对象层用同一套判定为每个列出的动作写一句说明
-（action_note），所以说明与拒绝原因一致。
+发起方的交谈只剩不足一分钟，同一步以 ACTIVITY_TOO_SHORT 返回。工具层的可用性（life.tool_layer.availability）按受理的同一顺序调用这里的判定，
+所以 reason 与拒绝原因一字不差；他处持有物（持有但不在此刻所在地点）在物品状态这一步以 PRODUCT_NOT_HELD 写明
+只能在当地用（docs/dev/SPEC-persona-prompt.md「工具层」）。
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ class Item:
     :param holding: 是否使用手边持有物（食用、使用、制作）。
     :param site: 是否要停在一个地点做（生活活动）：途中与同一请求出发都做不了。
     :param destinations: 远程下单时该供给的可配送目的地（地点身份，保持声明顺序），None 表示不是远程下单。
+    :param held_at: 他处持有物所在的地点身份（持有物不在此刻所在地点），None 表示手边的持有物或不是持有物。
     """
 
     canonical: str
@@ -74,6 +76,7 @@ class Item:
     holding: bool = False
     site: bool = False
     destinations: tuple[str, ...] | None = None
+    held_at: str | None = None
 
 
 def en_route(state: WorldState, agent_id: int) -> bool:
@@ -110,7 +113,8 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
         return replace(item, partner=int(str(object_id).split(":", 1)[1]))
     if canonical == "consume":
         product = facts.items.get(object_id)
-        return replace(item, holding=True, place=getattr(product, "required_location_id", None) or None)
+        return replace(item, holding=True, place=getattr(product, "required_location_id", None) or None,
+                       held_at=row.get("location_id"))
     if canonical == "do":
         return replace(item, site=True)
     return item
@@ -146,25 +150,19 @@ def group_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
     refusal = _claims_refusal(context, items)
     if refusal is not None or not any(item.holding for item in items):
         return refusal
-    return _holding_refusal(present, departs)
+    return _holding_refusal(context, items, present, departs)
 
 
 def require_hands_free(context: Context, what: str) -> None:
     """@brief 驾车时需要手动操作的瞬时动作（发消息、提交成果）以 ACTIVITY_PRECONDITION_UNMET 拒绝；步行途中照常。"""
-    refusal = _driving_refusal(context, what)
+    refusal = hands_free_refusal(context, what)
     if refusal is not None:
         raise refusal.error()
 
 
-def action_note(context: Context, item: Item, names: Mapping[str, str]) -> str | None:
-    """@brief 交互对象层的一句说明：单独选这一项时第一条不成立的准入的原因，全部成立时为 None。
-
-    :param names: 活动身份→本轮可读名称（名额与出发前的原因据此点名活动）。
-    """
-    refusal = activity_control.start_admission_refusal(context.state, context.agent_id,
-                                                       ([item.canonical], [item.way]), dict(names))
-    refusal = refusal or group_refusal(context, [item])
-    return refusal.reason if refusal is not None else None
+def hands_free_refusal(context: Context, what: str) -> Refusal | None:
+    """@brief require_hands_free 的判定本身：正在驾车时不成立（点名到达后再做），否则为 None。"""
+    return _driving_refusal(context, what)
 
 
 def _presence_refusal(context: Context, item: Item, present: str | None, departs: bool) -> Refusal | None:
@@ -262,12 +260,18 @@ def _claims_refusal(context: Context, items: Sequence[Item]) -> Refusal | None:
     return None
 
 
-def _holding_refusal(present: str | None, departs: bool) -> Refusal | None:
-    """@brief 物品状态：持有物只在此刻所在地点可用；途中没有可用的持有物，同一请求出发后手边也没有。"""
+def _holding_refusal(context: Context, items: Sequence[Item], present: str | None,
+                     departs: bool) -> Refusal | None:
+    """@brief 物品状态：持有物只在此刻所在地点可用；途中没有可用的持有物，同一请求出发后手边也没有；
+    他处持有物写明只能在当地用。"""
     if departs:
         return Refusal("PRODUCT_NOT_HELD", "出发后手边没有可用的持有物", "先用完再出发")
     if present is None:
         return Refusal("PRODUCT_NOT_HELD", "路上没有可用的持有物", "到达后再用")
+    elsewhere = next((item.held_at for item in items if item.held_at is not None and item.held_at != present), None)
+    if elsewhere is not None:
+        place = context.place_names.get(elsewhere, "它所在的地方")
+        return Refusal("PRODUCT_NOT_HELD", f"这件东西在{place}，只能在当地用", f"去{place}")
     return None
 
 

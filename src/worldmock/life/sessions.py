@@ -53,14 +53,19 @@ def at_stay(state: WorldState, agent_id: int, location_id: str) -> bool:
             and session.location_id == location_id)
 
 
-def open_stay(state: WorldState, agent_id: int, place_names: dict[str, str]) -> WorldState:
-    """@brief 在人物当前地点开始一段停留；该地点仍暂停的本人活动归入这段新会话。"""
+def open_stay(state: WorldState, agent_id: int, place_names: dict[str, str],
+              opened_by_action_id: str | None = None) -> WorldState:
+    """@brief 在人物当前地点开始一段停留；该地点仍暂停的本人活动归入这段新会话。
+
+    :param opened_by_action_id: 途中结束出行引起的切换记下该动作身份；运行开始与到达为 None。
+    """
     agent = state.agents[agent_id]
     now = state.current_time
     session = SessionState(
         session_id=_next_session_id(state, agent_id), agent_id=agent_id, kind=SessionKind.STAY,
         location_id=agent.location_id, status=SessionStatus.ACTIVE, started_at=now,
-        name=f"{place_names[agent.location_id]}（{moment_label(now, state.timezone)} 起）")
+        name=f"{place_names[agent.location_id]}（{moment_label(now, state.timezone)} 起）",
+        opened_by_action_id=opened_by_action_id)
     paused = [item.activity_id for item in sorted(state.activities.values(), key=_start_order)
               if item.agent_id == agent_id and item.status == ActivityStatus.PAUSED
               and item.location_id == agent.location_id]
@@ -69,21 +74,27 @@ def open_stay(state: WorldState, agent_id: int, place_names: dict[str, str]) -> 
 
 
 def begin_transit(state: WorldState, agent_id: int, destination_id: str,
-                  place_names: dict[str, str]) -> WorldState:
-    """@brief 出发：结束当前停留会话，开始去目的地的路上会话（出发地取人物当前地点）。"""
+                  place_names: dict[str, str], *, opened_by_action_id: str) -> WorldState:
+    """@brief 出发：结束当前停留会话，开始去目的地的路上会话（出发地取人物当前地点）。
+
+    :param opened_by_action_id: 出发请求的动作身份（进度层以其结果的事件序号为下界）。
+    """
     changed = _end_current(state, agent_id)
     now = changed.current_time
     session = SessionState(
         session_id=_next_session_id(changed, agent_id), agent_id=agent_id, kind=SessionKind.TRANSIT,
         origin_id=changed.agents[agent_id].location_id, destination_id=destination_id,
         status=SessionStatus.ACTIVE, started_at=now,
-        name=f"去{place_names[destination_id]}的路上（{moment_label(now, changed.timezone)} 起）")
+        name=f"去{place_names[destination_id]}的路上（{moment_label(now, changed.timezone)} 起）",
+        opened_by_action_id=opened_by_action_id)
     return changed.model_copy(update={"sessions": {**changed.sessions, session.session_id: session}})
 
 
-def end_transit(state: WorldState, agent_id: int, place_names: dict[str, str]) -> tuple[WorldState, list[str]]:
+def end_transit(state: WorldState, agent_id: int, place_names: dict[str, str],
+                opened_by_action_id: str | None = None) -> tuple[WorldState, list[str]]:
     """@brief 到达或途中结束出行：路上仍在进行的活动由世界结束，结束路上会话并在所在地点开始停留会话。
 
+    :param opened_by_action_id: 途中结束出行的动作身份，写进新的停留会话；到达（时钟推进）为 None。
     :returns: (新世界状态, 本次以 route_ended 结束的活动身份)
     """
     session = current_session(state, agent_id)
@@ -95,7 +106,7 @@ def end_transit(state: WorldState, agent_id: int, place_names: dict[str, str]) -
     for activity_id in ended:
         activities[activity_id] = route_ended(activities[activity_id])
     changed = _end_current(state.model_copy(update={"activities": activities}), agent_id)
-    return open_stay(changed, agent_id, place_names), ended
+    return open_stay(changed, agent_id, place_names, opened_by_action_id), ended
 
 
 def route_ended(activity: ActivityState) -> ActivityState:

@@ -20,8 +20,10 @@ from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 #: 世界状态结构版本：版本不符的检查点直接拒绝；版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions；
-#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点，其后新增字段都并入 7。
-WORLD_SCHEMA_VERSION = 7
+#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；版本 8
+#: （docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与 ActivityState.paused_at，
+#: 观察改为七层数据，其后新增字段都并入 8。
+WORLD_SCHEMA_VERSION = 8
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -270,6 +272,8 @@ class SessionState(StrictModel):
     :param status: active 或 ended；ended 必须含 ended_at。
     :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
     :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
+    :param opened_by_action_id: 由决策引起的切换（出发、途中结束出行）记下引起切换的动作身份，进度层以该动作结果的
+        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/dev/SPEC-persona-prompt.md「进度层」）。
     """
 
     session_id: str = Field(min_length=1)
@@ -283,6 +287,7 @@ class SessionState(StrictModel):
     ended_at: int | None = Field(default=None, ge=0)
     activity_ids: list[str] = Field(default_factory=list)
     name: str = Field(pattern=r"\S")
+    opened_by_action_id: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validate_session(self) -> "SessionState":
@@ -416,6 +421,8 @@ class ActivityState(StrictModel):
     # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
     concluded_at: int | None = Field(default=None, ge=0)
     report_anchor_at: int | None = Field(default=None, ge=0)
+    # 暂停时刻（docs/dev/SPEC-persona-prompt.md「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
+    paused_at: int | None = Field(default=None, ge=0)
     session_ids: list[str] = Field(default_factory=list)
     name: str = ""
     # 从原会话移来的任务关联与人物自述：summary 写入 progress_note，前一条推入 note_history。

@@ -4,7 +4,9 @@
 - 每人两个活动名额，进行中、暂停中与待收尾的活动各占一个，只有 conclude_activity 之后才释放；
 - 待收尾是状态为 completed、failed 或 cancelled 且 concluded_at 为空的活动（truncated 不收尾），ActivityStatus 闭集不变；
 - 活动名称是「<做什么><对象>（<M月D日> HH:MM 起）」；同一轮可见的名称重复时追加「（第二次）」这类序号，不抛错；
-- 进度层写活动客观进度的人读时长，自述标「你自己记下的，未经核验」；
+- 工具层活动目标与待办层写活动客观进度的人读短语（docs/dev/SPEC-persona-prompt.md「工具层」「待办层」）：工作不写
+  「还差」，剩余只在任务目标的 contract；刚结束的活动另写终局说法；
+- 控制工具（播报与恢复、暂停、结束）的准入由 control_refusal 判定，受理与工具层可用性共用同一 Refusal；
 - conclude_activity、pause_activity 与 report_status 的恢复每改变一项活动就写一条 environment_event
   （activity_concluded、activity_paused、activity_resumed，带活动快照与含本次请求事件的 caused_by）；
   原始动作的全部子活动都终结时按自然结束的同一路径写一次终态并更新 processed_actions；
@@ -19,16 +21,21 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
-from worldmock.life.guidance import Refusal, guided
+from worldmock.life.activities import at_decision_boundary
+from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
-                                   PendingAction, WorldState)
-from worldmock.life.sessions import at_stay, moment_label
-from worldmock.life.work import work_totals
+                                   PendingAction, WorldState, active_activities)
+from worldmock.life.readable import duration_phrase, portion_phrase
+from worldmock.life.sessions import at_stay, moment_label, on_road
+
+if TYPE_CHECKING:
+    from worldmock.life.admission import Context
 
 #: 每人活动名额（常量，不设场景参数）。
 SLOT_LIMIT = 2
@@ -115,40 +122,36 @@ def object_display_name(binding: dict) -> str:
     return label.split("：", 1)[1] if "：" in label else label
 
 
-def readable_duration(seconds: float) -> str:
-    """@brief 人读时长：不到一分钟、约 N 分钟或约 N 小时（半小时精度）。"""
-    if seconds < 60:
-        return "不到1分钟"
-    if seconds < 3600:
-        return f"约{round(seconds / 60)}分钟"
-    return f"约{round(seconds / 1800) / 2:g}小时"
+def objective_progress(activity: ActivityState) -> str:
+    """@brief 活动客观进度的人读短语：已做时长（食用写已吃与剩下的份数）、工作的有效时长、进行或暂停中的还剩时长。
 
-
-def objective_progress(activity: ActivityState, remaining_required: float | None = None) -> str:
-    """@brief 活动客观进度的人读时长：已做、工作的有效时长与还差、进行或暂停中的还剩。
-
-    :param remaining_required: 工作活动所属任务还差的有效秒数（取 work_totals 累计），非工作活动为 None。
+    工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-persona-prompt.md「工具层」）。
     """
-    parts = [f"已做{readable_duration(activity.elapsed_seconds)}"]
+    if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
+        planned = sum(item["quantity"] for item in activity.data["request"]["items"])
+        eaten = sum(activity.data.get("consumed", {}).values())
+        parts = [f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(max(0.0, planned - eaten))}"]
+    else:
+        parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.kind == ActivityKind.WORK:
-        parts.append(f"有效{readable_duration(activity.effective_work_seconds)}")
-        if remaining_required is not None and remaining_required > 0:
-            parts.append(f"还差{readable_duration(remaining_required)}")
+        parts.append(f"有效{duration_phrase(activity.effective_work_seconds)}")
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-        parts.append(f"还剩{readable_duration(remaining)}")
+        parts.append(f"还剩{duration_phrase(remaining)}")
     return "，".join(parts)
 
 
-def remaining_required(state: WorldState, activity: ActivityState, required: dict[str, float]) -> float | None:
-    """@brief 工作活动所属任务还差的有效秒数：合同要求减去真实结算的有效工时累计（work_totals）。
-
-    :param required: 任务身份→合同要求的有效秒数；非工作活动或未知任务返回 None。
-    """
-    if activity.kind != ActivityKind.WORK or activity.target_id not in required:
-        return None
-    _, effective = work_totals(state, activity.agent_id, activity.target_id)
-    return max(0.0, required[activity.target_id] - effective)
+def ending_phrase(activity: ActivityState) -> str:
+    """@brief 已结束活动的终局说法：到达、按计划结束、提前结束、对方结束或失败（工具层刚结束的状态与 settled 句共用）。"""
+    if activity.status == ActivityStatus.FAILED:
+        return "失败"
+    if activity.boundary_type == "partner_ended":
+        return "对方结束"
+    if activity.kind == ActivityKind.TRAVEL and activity.status == ActivityStatus.COMPLETED:
+        return "到达"
+    if activity.status == ActivityStatus.COMPLETED and activity.boundary_type == "planned_end":
+        return "按计划结束"
+    return "提前结束"
 
 
 def visible_names(state: WorldState, agent_id: int, taken: Iterable[str]) -> dict[str, dict[str, str]]:
@@ -182,10 +185,79 @@ def concluded(activity: ActivityState, summary: str, now: int) -> ActivityState:
     return with_note(activity, summary, now).model_copy(update={"concluded_at": now}, deep=True)
 
 
-def conclusion_required(activities: Iterable[ActivityState], names: dict[str, str]) -> BusinessRuleError:
+def conclusion_refusal(activities: Iterable[ActivityState], names: dict[str, str]) -> Refusal:
     """@brief 有待收尾活动时做别的：ACTIVITY_CONCLUSION_REQUIRED，原因与下一步点名刚结束的活动。"""
     listed = "、".join(names.get(item.activity_id, item.name) for item in activities)
-    return guided("ACTIVITY_CONCLUSION_REQUIRED", f"先给刚结束的{listed}收尾", f"给{listed}收尾")
+    return Refusal("ACTIVITY_CONCLUSION_REQUIRED", f"先给刚结束的{listed}收尾", f"给{listed}收尾")
+
+
+def conclusion_required(activities: Iterable[ActivityState], names: dict[str, str]) -> BusinessRuleError:
+    """@brief conclusion_refusal 换成可抛出的业务拒绝（受理路径）。"""
+    return conclusion_refusal(activities, names).error()
+
+
+def control_refusal(context: Context, tool: str, activity: ActivityState) -> Refusal | None:
+    """@brief 控制工具点名一项活动时第一条不成立的准入，成立时为 None；受理与工具层、待办层的可用性共用它。
+
+    report_status：只接受进行中或暂停的活动；暂停的活动只在开始地点恢复，恢复时与进行中活动的占用不能冲突。
+    pause_activity：只暂停进行中的活动；路上的活动、交谈与通话不能暂停；须在活动的决策边界。
+    conclude_activity：只结束占名额的活动；有别的待收尾活动时先收尾；进行中的活动须在决策边界（交谈与通话随时可挂断）。
+
+    :param context: 准入判定的世界与可读名称（地点名、本轮活动名）。
+    :param tool: report_status、pause_activity 或 conclude_activity。
+    """
+    if tool == "report_status":
+        return _report_refusal(context, activity)
+    if tool == "pause_activity":
+        return _pause_refusal(context, activity)
+    return _conclude_refusal(context, activity)
+
+
+def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None:
+    """@brief 播报与恢复：状态、恢复地点与恢复后的占用。"""
+    if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
+        return refusal_for_code("ACTION_REQUEST_INVALID")
+    if activity.status == ActivityStatus.ACTIVE:
+        return None
+    if not at_stay(context.state, activity.agent_id, activity.location_id):
+        place = context.place_names[activity.location_id]
+        name = context.activity_names.get(activity.activity_id, activity.name)
+        return Refusal("ACTIVITY_PRECONDITION_UNMET", f"{name}要回到{place}才能接着做，在别处可以直接结束",
+                       unmet=("activity_location",), suggested={"travel_to": place})
+    blocking = [item.name for item in active_activities(context.state, activity.agent_id)
+                if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
+    if blocking:
+        listed = "、".join(blocking)
+        return Refusal("RESOURCE_CONFLICT", f"和正在做的{listed}不能同时进行", f"先结束或暂停{listed}",
+                       ("resource_claims",))
+    return None
+
+
+def _pause_refusal(context: Context, activity: ActivityState) -> Refusal | None:
+    """@brief 暂停：进行中、不在路上、不是交谈或通话，并在决策边界。"""
+    if activity.status != ActivityStatus.ACTIVE:
+        return refusal_for_code("ACTION_REQUEST_INVALID")
+    if on_road(context.state, activity):
+        name = context.activity_names.get(activity.activity_id, activity.name)
+        return Refusal("ACTIVITY_PAUSE_UNAVAILABLE", f"路上的{name}不能暂停", f"可以直接结束{name}")
+    if activity.kind in {ActivityKind.CHAT, ActivityKind.CALL}:
+        return refusal_for_code("SOCIAL_ACTIVITY_CANNOT_PAUSE")
+    if not at_decision_boundary(activity, context.state.current_time):
+        return refusal_for_code("ACTIVITY_FEEDBACK_NOT_DUE")
+    return None
+
+
+def _conclude_refusal(context: Context, activity: ActivityState) -> Refusal | None:
+    """@brief 结束：占名额；有别的待收尾活动时先收尾；进行中的非社交活动须在决策边界。"""
+    if not occupies_slot(activity):
+        return refusal_for_code("ACTION_REQUEST_INVALID")
+    waiting = pending_conclusions(context.state, activity.agent_id)
+    if waiting and activity.activity_id not in {item.activity_id for item in waiting}:
+        return conclusion_refusal(waiting, dict(context.activity_names))
+    if (activity.status == ActivityStatus.ACTIVE and activity.kind not in {ActivityKind.CHAT, ActivityKind.CALL}
+            and not at_decision_boundary(activity, context.state.current_time)):
+        return refusal_for_code("ACTIVITY_FEEDBACK_NOT_DUE")
+    return None
 
 
 def require_start_admission(state: WorldState, agent_id: int, request: tuple[list[str], list[str]],
