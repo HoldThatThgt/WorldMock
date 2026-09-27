@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>WorldMock 运行数据查看器</title>
+<link rel="stylesheet" href="run-viewer-context.css">
 <style>
 :root{
   --bg:#0f1115; --bg2:#161a22; --bg3:#1d232e; --line:#2a3140;
@@ -192,15 +193,18 @@ td.num,th.num{text-align:right;font-family:var(--mono)}
       <section class="view" data-view="economy"><h2>经济流水</h2><div id="eco-body"></div></section>
       <section class="view" data-view="memory"><h2>记忆</h2><div id="mem-body"></div></section>
       <section class="view" data-view="reasoning"><h2>思考记录</h2><div id="rs-body"></div></section>
+      <section class="view" data-view="context"><h2>上下文</h2><div id="ctx-body"></div></section>
       <section class="view" data-view="sql"><h2>SQL 查询</h2><div id="sql-body"></div></section>
     </div>
   </div>
 </div>
 
+<script src="run-viewer-context.js"></script>
+<script src="run-viewer-context-view.js"></script>
 <script>
 'use strict';
 /* ================================================================
- * WorldMock 运行数据查看器 —— 纯前端单文件，sql.js 读取 footprints.sqlite
+ * WorldMock 运行数据查看器 —— 纯前端页面，sql.js 读取 footprints.sqlite
  * 两级数据策略：SQL 投影建立轻量索引（json_extract 在 SQLite C 层完成，
  * 不把 140MB+ 的事件 body 拉进 JS），行内全文按 event_seq 懒加载缓存。
  * ================================================================ */
@@ -768,6 +772,7 @@ const VIEWS = [
   {id:'economy', name:'经济流水'},
   {id:'memory', name:'记忆'},
   {id:'reasoning', name:'思考记录'},
+  {id:'context', name:'上下文'},
   {id:'sql', name:'SQL 查询'},
 ];
 function buildNav(){
@@ -786,7 +791,7 @@ function switchView(id){
   $$('.view').forEach(v=>v.classList.toggle('on', v.dataset.view===id));
   ({overview:renderOverview, timeline:renderTimeline, day:renderDay, activities:renderActivities,
     body:renderBodyCurves, economy:renderEconomy, memory:renderMemory,
-    reasoning:renderReasoning, sql:renderSqlConsole}[id])();
+    reasoning:renderReasoning, context:ContextView.render, sql:renderSqlConsole}[id])();
 }
 const agentFilterVal = () => $('#agent-filter').value;
 
@@ -970,6 +975,12 @@ function toggleDetail(row, seq){
   }
   det = document.createElement('div');
   det.className='tl-detail on';
+  if (S.events.find(event => event.seq === seq)?.type === 'model_request') {
+    const button = document.createElement('button');
+    button.type = 'button'; button.textContent = '查看上下文';
+    button.onclick = () => ContextView.select(seq);
+    det.appendChild(button);
+  }
   const pre = document.createElement('pre');
   pre.textContent = prettyBody(seq);
   det.appendChild(pre);
@@ -1607,6 +1618,7 @@ function bindDnd(){
     AT.page=0; AT.sortKey='start'; AT.sortDir=1;
     TL.inited=false; TL.types=new Set(); TL.kw=''; TL.rendered=0;
     RS.loaded=false; RS.items=[]; RS.kw='';
+    ContextView.reset();
     const sqlBody = $('#sql-body'); sqlBody.dataset.inited=''; sqlBody.innerHTML='';
     $('#app').classList.remove('on');
     $('#drop-zone').classList.remove('hidden');

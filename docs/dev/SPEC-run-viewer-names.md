@@ -4,7 +4,8 @@
 
 修复 `tools/run-viewer.html` 中活动表、时间线和经济流水丢失对象名称的问题。
 只使用所选运行数据库内的证据，不修改模拟行为、历史记录或语料，不推测真实剧名。
-沿用现有单文件页面、sql.js 和 SQLite JSON 投影，不增加生产依赖。
+沿用现有前端页面、sql.js 和 SQLite JSON 投影，不增加生产依赖。
+页面与相邻上下文模块一起分发，模块边界见[上下文解析规格](SPEC-run-viewer-context.md)。
 
 名称与内部身份分开处理，采用 [Activity Streams 的对象名称语义](https://www.w3.org/TR/activitystreams-vocabulary/#dfn-name)
 及 [Grafana 的显示名称机制](https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/configure-standard-options/)。

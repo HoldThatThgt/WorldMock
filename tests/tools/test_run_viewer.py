@@ -10,8 +10,9 @@ def test_run_viewer_recorded_names():
     node = shutil.which("node")
     assert node is not None, "Node.js with node:sqlite is required to test the run viewer"
     test_file = Path(__file__).with_name("run_viewer.test.cjs")
+    context_file = Path(__file__).with_name("run_viewer_context.test.cjs")
     result = subprocess.run(
-        [node, "--test", str(test_file)],
+        [node, "--test", str(test_file), str(context_file)],
         cwd=test_file.parents[2],
         capture_output=True,
         text=True,

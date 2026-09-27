@@ -8,7 +8,10 @@ const test = require('node:test');
 const vm = require('node:vm');
 
 const html = readFileSync(path.join(__dirname, '../../tools/run-viewer.html'), 'utf8');
-const scripts = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(match => match[1]);
+const scripts = [...html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/g)].map(match => {
+  const source = /src="([^"]+)"/.exec(match[1]);
+  return source ? readFileSync(path.join(__dirname, '../../tools', source[1]), 'utf8') : match[2];
+});
 const epoch = Date.parse('2026-01-05T06:00:00+08:00') / 1000;
 
 /** @brief 提供渲染所需的最小 DOM，不替换页面业务逻辑。 */
@@ -23,6 +26,7 @@ function element() {
     },
     addEventListener() {}, appendChild(child) { this.children.push(child); },
     querySelector() { return element(); }, click() {},
+    after(child) { this.nextElementSibling = child; },
   };
 }
 
@@ -80,6 +84,7 @@ function viewer(events, world = {}) {
     body() { run('renderBodyCurves()'); return get('#bd-body').innerHTML; },
     economy() { run('renderEconomy()'); return get('#eco-body').innerHTML; },
     memory() { run('renderMemory()'); return get('#mem-body').innerHTML; },
+    context() { run('ContextView.render()'); return get('#ctx-body').innerHTML; },
     summary(sequence) { return state.events.find(event => event.seq === sequence).sum; },
     reload(nextEvents) {
       get('#btn-reload').onclick();
@@ -94,6 +99,149 @@ function viewer(events, world = {}) {
 function event(type, data, extra = {}) {
   return {event_type: type, data, ...extra};
 }
+
+/** @brief 使用归档实际消息与工具的脱敏测试输入，不重写提示结构。 */
+function contextRequest(stage = 'action') {
+  const fixture = JSON.parse(readFileSync(path.join(__dirname, '../fixtures/viewer-context.json'), 'utf8'));
+  return fixture[stage];
+}
+
+/** @brief 构造实际事件形状，并故意复用调用标记以验证因果关联。 */
+function contextEvent(id, request, agent = 1) {
+  return event('model_request', {request, call_id:'reused-call', attempt:1},
+    {event_id:id, agent_id:agent, decision_id:'decision-' + id});
+}
+
+test('context reads real stages, ordered blocks, complete facts and recorded tools', () => {
+  const app = viewer([
+    contextEvent('prelude', contextRequest('prelude')),
+    contextEvent('action', contextRequest()),
+  ]);
+  try {
+    const items = app.run('ContextView.index()');
+    assert.deepEqual(Array.from(items, item => item.stage), ['prelude', 'action']);
+    assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
+    const model = app.run('ContextView.read(2)');
+    assert.ok(model.current.blocks.some(block => block.key === 'facts'));
+    assert.ok(model.current.blocks.some(block => block.key === 'tools'));
+    assert.equal(model.current.warnings.length, 0);
+    const user = model.current.blocks.filter(block => block.role === 'user').map(block => block.text).join('');
+    assert.equal(user, contextRequest().messages[1].content);
+    const html = app.context();
+    assert.ok(html.includes('结构与填充'));
+    assert.ok(html.includes('填充来源未核验'));
+    assert.ok(html.includes('完整请求消息与工具'));
+    assert.equal(app.errors.length, 0, app.errors.join('\n'));
+  } finally { app.close(); }
+});
+
+test('context response matching follows caused_by across interleaved agents and reused call identifiers', () => {
+  const request = contextRequest();
+  const app = viewer([
+    contextEvent('request-one', request), contextEvent('request-two', request, 2),
+    event('model_response', {call_id:'reused-call', response:{choices:[{message:{content:'second'}}]}},
+      {agent_id:2, caused_by:['request-two']}),
+    event('model_response', {call_id:'reused-call', response:{choices:[{message:{content:'first'}}],
+      usage:{prompt_tokens:123}}}, {caused_by:['request-one']}),
+    contextEvent('no-response', request),
+  ]);
+  try {
+    assert.equal(app.run('ContextView.read(1).response.seq'), 4);
+    assert.equal(app.run('ContextView.read(2).response.seq'), 3);
+    assert.equal(app.run('ContextView.read(5).response'), null);
+    app.run('ContextView.select(1)');
+    assert.ok(app.get('#ctx-body').innerHTML.includes('123'));
+    assert.ok(!app.get('#ctx-body').innerHTML.includes('&quot;second&quot;'));
+    app.run('ContextView.select(5)');
+    assert.ok(app.get('#ctx-body').innerHTML.includes('该请求尚无关联响应记录'));
+  } finally { app.close(); }
+});
+
+test('context comparison uses same agent and stage, detects same-length edits and never crosses runs', () => {
+  const original = contextRequest();
+  const changed = contextRequest();
+  changed.messages[1].content = changed.messages[1].content.replace('牛肉', '羊肉');
+  const app = viewer([
+    contextEvent('first', original), contextEvent('other-agent', changed, 2),
+    contextEvent('statement', contextRequest('prelude')), contextEvent('later', changed),
+  ]);
+  try {
+    const model = app.run('ContextView.read(4)');
+    assert.equal(model.previous.seq, 1);
+    assert.ok(model.changes.some(row => row.status === 'changed' && row.delta === 0));
+    app.run('ContextView.select(4)');
+    app.get('#agent-filter').value = '2';
+    const filtered = app.context();
+    assert.ok(filtered.includes('事件 2'));
+    assert.ok(!filtered.includes('事件 4'));
+    app.reload([contextEvent('new-run', contextRequest('prelude'), 2)]);
+    assert.equal(app.run('ContextView.index().length'), 1);
+    assert.equal(app.run('ContextView.read(1).before'), null);
+    assert.ok(!app.context().includes('事件 4'));
+  } finally { app.close(); }
+});
+
+test('context preserves unparsed inputs and escapes recorded HTML including failed responses', () => {
+  const request = {messages:[{role:'user',content:'<img src=x onerror=alert(1)>😀\n\nwhole input'}]};
+  const app = viewer([
+    contextEvent('generic', request),
+    event('model_response', {phase:'failure', error:'Transport failed <script>bad()</script>', response:null},
+      {caused_by:['generic']}),
+  ]);
+  try {
+    const html = app.context();
+    assert.ok(html.includes('&lt;img'));
+    assert.ok(html.includes('whole input'));
+    assert.ok(!html.includes('<img src=x'));
+    assert.ok(html.includes('Transport failed &lt;script&gt;'));
+    assert.ok(html.includes('Unicode'));
+  } finally { app.close(); }
+});
+
+test('context navigation, field drilldown and all rule paths are available through the actual view', () => {
+  const app = viewer([contextEvent('action', contextRequest())]);
+  try {
+    app.run('var contextTimelineRow = document.createElement("div"); toggleDetail(contextTimelineRow, 1)');
+    assert.equal(app.run('contextTimelineRow.nextElementSibling.children[0].textContent'), '查看上下文');
+    app.run('contextTimelineRow.nextElementSibling.children[0].onclick()');
+    assert.equal(app.state.view, 'context');
+    app.get('#ctx-view').onchange({target:{value:'growth'}});
+    const growth = app.get('#ctx-body').innerHTML;
+    assert.ok(growth.includes('ctx-rule'));
+    assert.ok(growth.includes('当前源码规则'));
+    assert.equal(app.get('#ctx-prev').disabled, true);
+    assert.equal(app.get('#ctx-next').disabled, true);
+    app.get('#ctx-stage').onchange({target:{value:'prelude'}});
+    assert.ok(app.get('#ctx-body').innerHTML.includes('没有匹配的模型请求'));
+    assert.equal(app.errors.length, 0, app.errors.join('\n'));
+  } finally { app.close(); }
+});
+
+test('context index respects the actual first message role and tools field type', () => {
+  const wrongRole = contextRequest();
+  wrongRole.messages[0].role = 'user';
+  const nullTools = contextRequest();
+  nullTools.tools = null;
+  const app = viewer([contextEvent('wrong-role', wrongRole),contextEvent('null-tools',nullTools)]);
+  try {
+    assert.deepEqual(Array.from(app.run('ContextView.index()'), item => item.stage), ['other','other']);
+    assert.equal(app.run('ContextView.read(2).current.stage'), 'other');
+  } finally { app.close(); }
+});
+
+test('context comparison keeps provenance warning when only the previous input was template-segmented', () => {
+  const current = contextRequest();
+  current.messages[1].content = current.messages[1].content.replace('主观归纳：\n',
+    '主观归纳：\nambiguous title\n\n主观归纳：\n');
+  const app = viewer([contextEvent('before',contextRequest()),contextEvent('after',current)]);
+  try {
+    app.run('ContextView.select(2)');
+    app.get('#ctx-view').onchange({target:{value:'comparison'}});
+    const html = app.get('#ctx-body').innerHTML;
+    assert.ok(html.includes('退出当前输入'));
+    assert.ok(html.includes('填充来源未核验'));
+  } finally { app.close(); }
+});
 
 /** @brief 构造受理或进展活动，目标名称由测试指定。 */
 function activity(type, id, fields, extra = {}) {
