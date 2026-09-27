@@ -68,6 +68,16 @@ test('the fixture holds a seven-layer action, a continuation-shaped request and 
   assert.equal(Object.hasOwn(fixture.legacy_prelude, 'tools'), false);
 });
 
+test('the viewer life role and the fixture system layer match the host life system layer', () => {
+  const role = /const LIFE_ROLE = '([^']+)';/.exec(source)[1];
+  // 合并 Python 源码中跨行隐式拼接的字符串字面量，再按原文比较。
+  const host = read('custom/agents/life_prompt.py').replace(/(["'])\s*\n\s*\1/g, '');
+  assert.ok(host.includes(role), 'custom/agents/life_prompt.py must define the same life role text');
+  const system = JSON.parse(fixture.action.messages[0].content);
+  assert.equal(system.role, role);
+  for (const rule of system.rules) assert.ok(host.includes(rule), rule);
+});
+
 test('action requests are recognised only by the life system layer JSON and an array of tools', () => {
   const {api, errors} = parser();
   assert.deepEqual(plain(api.classify(request())), {stage: 'action', label: '选择动作'});

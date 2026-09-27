@@ -49,6 +49,18 @@ def test_delivery_rejects_export_whose_final_checkpoint_has_another_world_schema
     assert not (tmp_path / 'out').exists()
 
 
+def test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports(tmp_path, monkeypatch):
+    """交付入口按世界结构版本 8 设门禁：版本 7 的导出在构造窗口前被拒绝（docs/dev/SPEC-persona-prompt.md 第七章）。"""
+    def unexpected(*args): pytest.fail('A version 7 export reached window construction')
+    assert WORLD_SCHEMA_VERSION == 8
+    source = tmp_path / 'source'
+    _write_final_checkpoint(source, 7)
+    monkeypatch.setattr('worldmock.delivery.pipeline.prepare_windows', unexpected)
+    with pytest.raises(IntegrityError, match='world schema version'):
+        deliver(source, tmp_path / 'out', tmp_path)
+    assert not (tmp_path / 'out').exists()
+
+
 def test_delivery_checks_world_schema_before_preparing_windows(tmp_path, monkeypatch):
     def reached(_directory): raise IntegrityError('windows reached')
     source = tmp_path / 'source'
