@@ -450,3 +450,49 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
          "expected_at": "1月6日 00:00"},
     ]
     assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1", "s1"))
+
+
+def test_result_details_keep_only_new_readable_facts() -> None:
+    """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列商品名称，回看、原因、下一步、候选与终局
+    原样；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
+    products = (SimpleNamespace(product_id="p1", name="牛肉面"),)
+    places = (SimpleNamespace(location_id="private-office", name="办公室"),)
+    activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
+                "planned_duration_seconds": 750, "data": {"arrival": {"location_id": "private-office",
+                                                                     "access_status": "denied"}}}
+    started = {**_result({"activity": activity, "browse_result": {"items": [{"product_id": "p1", "supply_id": "s1",
+                                                                              "price_fen": 1200}]},
+                          "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"],
+                          "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}],
+                          "request": {"targets": ["地点：办公室"]}}),
+               "status": "in_progress", "error_code": None}
+    details = public_result(started, _scenario(products, places), _START)["details"]
+    assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
+                       "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["牛肉面"],
+                       "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"],
+                       "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}]}
+    allowed = {**activity, "data": {"arrival": {"location_id": "private-office", "access_status": "allowed"}}}
+    arrived = public_result({**_result({"activity": allowed}), "status": "completed", "error_code": None},
+                            _scenario(products, places), _START)["details"]
+    assert arrived == {"arrival": {"place": "办公室", "access": "进入"}}
+    rejected = public_result(_result({"reason": "钱不够", "next_step": "换一件便宜的", "unmet": ["funds"]}),
+                             _scenario(), _START)["details"]
+    assert rejected == {"reason": "钱不够", "next_step": "换一件便宜的"}
+
+
+def test_work_review_keeps_only_public_fields() -> None:
+    """工作结果的 work_review 只保留公开汇总与两种逐项判断的公开字段，隐藏参考身份与额外字段都去掉。"""
+    item = {"content_category": "decision", "covered": True, "source_supported": True, "contradiction": False,
+            "source_excerpt": "25 euros", "rationale": "stated", "passed": True, "reference_id": "hidden-ref"}
+    delivery = {"delivery_path": "decisions[0]", "source_supported": True, "contradiction": False,
+                "source_excerpt": "25 euros", "rationale": "matches", "passed": True, "oracle": "hidden"}
+    review = {"accepted": True, "required_fact_total": 1, "required_fact_passed": 1, "required_fact_missing": 0,
+              "missing_content_categories": [], "required_fact_assessments": [item],
+              "delivery_assessments": [delivery], "oracle_path": "hidden/path"}
+    public = public_result({**_result({"work_review": review}), "status": "completed", "error_code": None},
+                           _scenario(), _START)
+    assert "hidden" not in json.dumps(public) and public["details"] == {}
+    assert public["work_review"]["required_fact_assessments"] == [
+        {key: value for key, value in item.items() if key != "reference_id"}]
+    assert public["work_review"]["delivery_assessments"] == [
+        {key: value for key, value in delivery.items() if key != "oracle"}]
