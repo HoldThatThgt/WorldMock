@@ -29,6 +29,7 @@ class _ActionHarness(SessionActionMixin):
         event = SimpleNamespace(decision_id="decision", occurred_at=100, data=observation)
         self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
         self.scenario = SimpleNamespace(locations=())  # 控制判定的地点名表；本组用例都在同一停留内
+        self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
     def _purchase(self, state, pending, request):

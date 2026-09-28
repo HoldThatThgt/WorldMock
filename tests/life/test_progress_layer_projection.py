@@ -86,7 +86,7 @@ def _world(activities, sessions=(), *, now: int = _START + 600, plan: DayPlan | 
 
 def _layer_context(state: WorldState) -> LayerContext:
     """只有活动目标的工具层上下文：没有绑定对象，名称由 activity_control.visible_names 分配。"""
-    return LayerContext(state=state, scenario=_PLACES, rules=SimpleNamespace(), semantics=SimpleNamespace(),
+    return LayerContext(state=state, scenario=_PLACES, rules=SimpleNamespace(tasks={}), semantics=SimpleNamespace(),
                         agent_id=1, names=visible_names(state, 1, []), bindings=[],
                         menu=SimpleNamespace(allowed_actions=()))
 
@@ -102,9 +102,10 @@ def _goal_plan() -> DayPlan:
 
 
 class _Controller(SessionActionMixin):
-    """用本轮冻结观察的活动名绑定测试控制动作，不加载场景或语料（地点名取固定切片）。"""
+    """用本轮冻结观察的活动名绑定测试控制动作，不加载场景或语料（地点名取固定切片，没有工作任务）。"""
 
     scenario = _PLACES
+    rules = SimpleNamespace(tasks={})
 
     def __init__(self, state: WorldState, rows: list[dict] | None = None) -> None:
         names = visible_names(state, 1, [])["activities"]

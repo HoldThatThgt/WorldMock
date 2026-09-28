@@ -97,7 +97,7 @@ class SessionActionMixin:
                            names: dict[str, str] | None = None) -> admission.Context:
         """@brief 准入判定的世界与可读名称（地点名、本轮活动名）。"""
         return admission.Context(state=state, agent_id=agent_id, place_names=self._place_names,
-                                 activity_names=names or {})
+                                 activity_names=names or {}, tasks=self.rules.tasks)
 
     def _start_selection(self, pending: PendingAction, request) -> list[dict] | None:
         """@brief start_activity 各项经本轮私有绑定解析的绑定行，菜单判定、受限轮复核与受理共用这一次解析；其他工具为空。
@@ -548,8 +548,8 @@ class SessionActionMixin:
                         request: ReportStatusRequest) -> tuple[WorldState, ActionResult]:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
-        每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，且与进行中
-        活动的占用不冲突），与工具层、待办层的可用性一字不差。
+        每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，工作的恢复距截止与
+        剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。
         """
         selected = self._activities_for_names(state, pending, request.task)
         names = self._control_names(pending)
@@ -580,16 +580,13 @@ class SessionActionMixin:
     def _resume_cap(self, state: WorldState, agent_id: int, activity: ActivityState) -> int | None:
         """@brief 恢复的时长上限：工作取 min(距截止, 合同上限减已累计)，其余活动没有上限（规格第六章）。
 
-        开工与恢复使用同一截止约束：距截止或剩余合同不足 60 秒时以 ACTIVITY_DURATION_INVALID 返回原因与下一步。
+        开工与恢复使用同一截止约束：不足 60 秒的恢复已由 activity_control.control_refusal 以 ACTIVITY_DURATION_INVALID
+        拒绝（与工具层、待办层的可用性同一原因），到这里的上限至少 60 秒。
         """
         if activity.kind != ActivityKind.WORK:
             return None
         task = self.rules.task(activity.target_id)
         worked, _ = work_totals(state, agent_id, task.task_id)
-        blocker = work_start_blocker(task, worked, state.current_time)
-        if blocker is not None:
-            _LOGGER.error("Work resume is closer than one minute to its deadline or contract end")
-            raise guided("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
         return work_resume_cap(task, worked, state.current_time)
 
     def _pause_activity(self, state: WorldState, pending: PendingAction,
