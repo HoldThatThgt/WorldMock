@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tests.life.conftest import activity_name, advance_until_ready, start_activity
+from tests.life.conftest import activity_name, advance_until_ready, last_result, start_activity, target_actions
 from tests.life.test_work_contracts import _shared_round, _stage_shared_work
 from worldmock.life.models import active_activities
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs
@@ -27,15 +27,14 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
     running = next(item for item in active_activities(engine.state, 1))
     name = activity_name(engine, running.activity_id)
     reason = f"工作{task.title}和正在做的{name}不能同时进行"
-    observed = engine._observation_data(engine.state.agents[1])
-    row = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == f"工作：{task.title}")
-    assert row["actions"] == [{"action": "interact：工作", "note": reason}]
-    binding = next(row for row in observed["interaction_bindings"] if row["object_id"] == task.task_id)
-    assert [item["note"] for item in binding["actions"]] == [reason]
-
     assert advance_until_ready(engine)
     ready = engine.scheduling_state().ready_agent_ids
     assert 1 in ready and running.activity_id in {item.activity_id for item in active_activities(engine.state, 1)}
+    observed = engine._observation_data(engine.state.agents[1])
+    listed = target_actions(observed, f"工作：{task.title}")["工作"]
+    assert (listed["available"], listed["reason"]) == (False, reason)
+    binding = next(row for row in observed["interaction_bindings"] if row["object_id"] == task.task_id)
+    assert [item["note"] for item in binding["actions"]] == [reason]
     rounds = engine.state.agents[1].same_moment_rounds
     assert rounds < engine.scenario.max_same_moment_decisions - 1
     now = engine.state.current_time
@@ -49,7 +48,7 @@ def test_active_work_is_listed_with_note_and_conflict_redecides_in_same_second(e
     assert agent.same_moment_rounds == rounds + 1
     assert agent.pending_wake_reasons == ["rejection_feedback"]
     assert [item.activity_id for item in active_activities(engine.state, 1)] == [running.activity_id]
-    details = engine._observation_data(agent)["facts"]["progress"]["results"][-1]["details"]
+    details = last_result(engine._observation_data(agent))["details"]
     assert (details["reason"], details["next_step"]) == (reason, f"先结束或暂停{name}")
 
 

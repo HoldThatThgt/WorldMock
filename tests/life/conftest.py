@@ -287,3 +287,8 @@ def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
     """观察进度层的 tool_call 记录（可按工具名筛选）。"""
     return [row for row in observed["progress_layer"]["events"]
             if row["type"] == "tool_call" and (tool is None or row["tool"] == tool)]
+
+
+def last_result(observed: dict) -> dict:
+    """观察进度层最后一次世界请求（tool_call）的公开结果。"""
+    return progress_calls(observed)[-1]["result"]
