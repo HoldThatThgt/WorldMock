@@ -64,9 +64,18 @@ function viewer(events, world = {}) {
     if (!nodes.has(selector)) nodes.set(selector, element());
     return nodes.get(selector);
   };
+  /** @brief 上下文内容块按钮取自渲染结果中的 data-context-block 属性，其余选择器没有元素。 */
+  const selectAll = selector => {
+    if (selector !== '#ctx-body [data-context-block]') return [];
+    return Array.from(get('#ctx-body').innerHTML.matchAll(/data-context-block="([^"]+)"/g), match => {
+      const button = get(`button:${match[1]}`);
+      button.dataset.contextBlock = match[1];
+      return button;
+    });
+  };
   const context = vm.createContext({
     document: {
-      querySelector: get, querySelectorAll: () => [],
+      querySelector: get, querySelectorAll: selector => selectAll(selector),
       createElement: element, createDocumentFragment: element,
     },
     window: {addEventListener() {}},
@@ -100,10 +109,10 @@ function event(type, data, extra = {}) {
   return {event_type: type, data, ...extra};
 }
 
-/** @brief 使用归档实际消息与工具的脱敏测试输入，不重写提示结构。 */
-function contextRequest(stage = 'action') {
+/** @brief 使用七层行动、续接形状与旧运行两阶段请求的测试输入，不重写提示结构。 */
+function contextRequest(kind = 'action') {
   const fixture = JSON.parse(readFileSync(path.join(__dirname, '../fixtures/viewer-context.json'), 'utf8'));
-  return fixture[stage];
+  return fixture[kind];
 }
 
 /** @brief 构造实际事件形状，并故意复用调用标记以验证因果关联。 */
@@ -112,26 +121,38 @@ function contextEvent(id, request, agent = 1) {
     {event_id:id, agent_id:agent, decision_id:'decision-' + id});
 }
 
-test('context reads real stages, ordered blocks, complete facts and recorded tools', () => {
+test('context reads seven-layer action stages, sliced layers and recorded tools while legacy calls stay other', () => {
   const app = viewer([
-    contextEvent('prelude', contextRequest('prelude')),
+    contextEvent('legacy', contextRequest('legacy_prelude')),
     contextEvent('action', contextRequest()),
+    contextEvent('continuation', contextRequest('continuation')),
   ]);
   try {
     const items = app.run('ContextView.index()');
-    assert.deepEqual(Array.from(items, item => item.stage), ['prelude', 'action']);
+    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
+    assert.equal(items[0].label, '其他调用 · 未解析');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = app.run('ContextView.read(2)');
-    assert.ok(model.current.blocks.some(block => block.key === 'facts'));
+    assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
+      ['tool', 'persona', 'memory', 'todo', 'environment', 'progress']);
     assert.ok(model.current.blocks.some(block => block.key === 'tools'));
     assert.equal(model.current.warnings.length, 0);
     const user = model.current.blocks.filter(block => block.role === 'user').map(block => block.text).join('');
     assert.equal(user, contextRequest().messages[1].content);
-    const html = app.context();
+    app.run('ContextView.select(2)');
+    const html = app.get('#ctx-body').innerHTML;
     assert.ok(html.includes('结构与填充'));
-    assert.ok(html.includes('填充来源未核验'));
+    assert.ok(html.includes('层切片'));
+    assert.ok(html.includes('按顶层数组无损切片'));
+    assert.ok(html.includes('self_note 未经核验'));
     assert.ok(html.includes('完整请求消息与工具'));
-    assert.equal(app.errors.length, 0, app.errors.join('\n'));
+    assert.ok(!html.includes('形成自述'));
+    const continuation = app.run('ContextView.read(3)');
+    assert.deepEqual(Array.from(continuation.current.blocks.filter(block => block.messageIndex > 1),
+      block => block.role), ['assistant', 'tool']);
+    app.run('ContextView.select(1)');
+    assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
+    assert.equal(app.errors.length, 1, app.errors.join('\n'));
   } finally { app.close(); }
 });
 
@@ -163,18 +184,19 @@ test('context comparison uses same agent and stage, detects same-length edits an
   changed.messages[1].content = changed.messages[1].content.replace('牛肉', '羊肉');
   const app = viewer([
     contextEvent('first', original), contextEvent('other-agent', changed, 2),
-    contextEvent('statement', contextRequest('prelude')), contextEvent('later', changed),
+    contextEvent('legacy', contextRequest('legacy_prelude')), contextEvent('later', changed),
   ]);
   try {
     const model = app.run('ContextView.read(4)');
     assert.equal(model.previous.seq, 1);
-    assert.ok(model.changes.some(row => row.status === 'changed' && row.delta === 0));
+    assert.ok(model.changes.some(row => row.key === 'progress' && row.status === 'changed' && row.delta === 0));
+    assert.ok(model.changes.some(row => row.key === 'tool' && row.status === 'unchanged'));
     app.run('ContextView.select(4)');
     app.get('#agent-filter').value = '2';
     const filtered = app.context();
     assert.ok(filtered.includes('事件 2'));
     assert.ok(!filtered.includes('事件 4'));
-    app.reload([contextEvent('new-run', contextRequest('prelude'), 2)]);
+    app.reload([contextEvent('new-run', contextRequest('legacy_prelude'), 2)]);
     assert.equal(app.run('ContextView.index().length'), 1);
     assert.equal(app.run('ContextView.read(1).before'), null);
     assert.ok(!app.context().includes('事件 4'));
@@ -198,21 +220,54 @@ test('context preserves unparsed inputs and escapes recorded HTML including fail
   } finally { app.close(); }
 });
 
-test('context navigation, field drilldown and all rule paths are available through the actual view', () => {
+test('context navigation, stage filter and all rule paths are available through the actual view', () => {
   const app = viewer([contextEvent('action', contextRequest())]);
   try {
     app.run('var contextTimelineRow = document.createElement("div"); toggleDetail(contextTimelineRow, 1)');
     assert.equal(app.run('contextTimelineRow.nextElementSibling.children[0].textContent'), '查看上下文');
     app.run('contextTimelineRow.nextElementSibling.children[0].onclick()');
     assert.equal(app.state.view, 'context');
+    assert.ok(app.get('#ctx-body').innerHTML.includes('系统层与六层输入 → 选择世界请求'));
     app.get('#ctx-view').onchange({target:{value:'growth'}});
     const growth = app.get('#ctx-body').innerHTML;
     assert.ok(growth.includes('ctx-rule'));
     assert.ok(growth.includes('当前源码规则'));
     assert.equal(app.get('#ctx-prev').disabled, true);
     assert.equal(app.get('#ctx-next').disabled, true);
-    app.get('#ctx-stage').onchange({target:{value:'prelude'}});
+    app.get('#ctx-stage').onchange({target:{value:'other'}});
     assert.ok(app.get('#ctx-body').innerHTML.includes('没有匹配的模型请求'));
+    assert.ok(!app.get('#ctx-body').innerHTML.includes('形成自述'));
+    assert.equal(app.errors.length, 0, app.errors.join('\n'));
+  } finally { app.close(); }
+});
+
+test('context drills into tool layer targets and progress records and marks self_note as unverified', () => {
+  const app = viewer([contextEvent('action', contextRequest())]);
+  try {
+    app.run('ContextView.select(1)');
+    app.get('button:message:1:tool').onclick();
+    const toolOptions = app.get('#ctx-item').innerHTML;
+    assert.ok(toolOptions.includes('整层原文'));
+    assert.ok(toolOptions.includes('工作：季度报告 · submit_work · 不可用：先结束正在做的工作'));
+    assert.ok(toolOptions.includes('星巴克出售的拿铁 · obtain：远程下单 · 可用'));
+    const layers = JSON.parse(contextRequest().messages[1].content);
+    app.get('#ctx-item').value = '0';
+    app.get('#ctx-item').onchange();
+    assert.deepEqual(JSON.parse(app.get('#ctx-raw').textContent), layers[0].targets[0]);
+    app.get('#ctx-item').value = '';
+    app.get('#ctx-item').onchange();
+    assert.ok(app.get('#ctx-raw').textContent.startsWith('[{"layer":"工具层"'));
+
+    app.get('button:message:1:progress').onclick();
+    const progressOptions = app.get('#ctx-item').innerHTML;
+    assert.ok(progressOptions.includes('tool_call · start_activity · self_note（未经核验）'));
+    assert.ok(progressOptions.includes('message_arrival · 王磊'));
+    app.get('#ctx-item').value = '2';
+    app.get('#ctx-item').onchange();
+    assert.ok(app.get('#ctx-raw').textContent.startsWith('self_note（未经核验）：先给王磊点上'));
+
+    app.get('button:message:1:persona').onclick();
+    assert.ok(!app.get('#ctx-body').innerHTML.includes('ctx-item'));
     assert.equal(app.errors.length, 0, app.errors.join('\n'));
   } finally { app.close(); }
 });
@@ -229,18 +284,31 @@ test('context index respects the actual first message role and tools field type'
   } finally { app.close(); }
 });
 
-test('context comparison keeps provenance warning when only the previous input was template-segmented', () => {
+test('context comparison keeps the slicing note when only the previous input was sliced into layers', () => {
   const current = contextRequest();
-  current.messages[1].content = current.messages[1].content.replace('主观归纳：\n',
-    '主观归纳：\nambiguous title\n\n主观归纳：\n');
+  current.messages[1].content = current.messages[1].content.replace('"layer":"记忆层"', '"layer":"记忆"');
   const app = viewer([contextEvent('before',contextRequest()),contextEvent('after',current)]);
   try {
     app.run('ContextView.select(2)');
     app.get('#ctx-view').onchange({target:{value:'comparison'}});
     const html = app.get('#ctx-body').innerHTML;
     assert.ok(html.includes('退出当前输入'));
-    assert.ok(html.includes('填充来源未核验'));
+    assert.ok(html.includes('按顶层数组无损切片'));
+    assert.ok(html.includes('未解析'));
   } finally { app.close(); }
+});
+
+test('action request summaries show self_note as unverified only when the reply had text', t => {
+  const view = viewer([
+    event('action_requested', {tool_name: 'start_activity', request: {targets: ['自己'], actions: ['interact'],
+      ways: ['等待']}, request_sha256: 'f'.repeat(64), reused: false, self_note: '先歇一会儿，再去买菜。'}),
+    event('action_requested', {tool_name: 'start_activity', request: {targets: ['自己'], actions: ['sleep'],
+      ways: ['睡觉']}, request_sha256: 'e'.repeat(64), reused: false, self_note: null}),
+  ]);
+  t.after(() => view.close());
+  assert.equal(view.summary(1), '请求 开始活动 · 自己 · 交互：等待 · self_note（未经核验）：先歇一会儿，再去买菜。');
+  assert.equal(view.summary(2), '请求 开始活动 · 自己 · 睡眠：睡觉');
+  assert.deepEqual(view.errors, []);
 });
 
 /** @brief 构造受理或进展活动，目标名称由测试指定。 */

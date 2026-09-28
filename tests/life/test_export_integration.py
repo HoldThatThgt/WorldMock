@@ -89,6 +89,9 @@ def _wait_request(observation: dict) -> StartActivityRequest:
 
 
 _MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"]}
+#: 每轮模型响应的回复正文；引擎把它登记为 action_requested.data.self_note。
+_SELF_NOTE = "先歇一会儿，再看下一步。"
+_OBSERVATION_LAYERS = {"tool_layer", "todo_layer", "environment_layer", "memory_layer"}
 _LIFECYCLE_KINDS = ("activity_concluded", "activity_paused", "activity_resumed")
 
 
@@ -106,7 +109,8 @@ def _recorded_round(engine, round_id: str, tool_name: str, build) -> tuple:
     call_id = f"{round_id}-model-call"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, prompt))
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "response", 1, prompt, response={
-        "choices": [{"message": {"tool_calls": [{"function": {"name": tool_name, "arguments": "{}"}}]}}]}))
+        "choices": [{"message": {"content": f"  {_SELF_NOTE}\n",
+                                 "tool_calls": [{"function": {"name": tool_name, "arguments": "{}"}}]}}]}))
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", tool_name, build(observation)))
     return ctx, observation, prompt
 
@@ -182,6 +186,26 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
         (conclusion.decision_id, ["activity_conclusion"])]
     inputs = json.dumps([item["input"] for item in windows["intent"] + windows["dreaming"]], ensure_ascii=False)
     assert _MEMORY["text"] not in inputs and "memories" not in inputs
+    _assert_seven_layer_windows(engine, windows, action)
+
+
+def _assert_seven_layer_windows(engine, windows: dict, action: dict) -> None:
+    """交付窗口读原样保存的四个环境层与 self_note，按 progress_event_ids 展开先前结果，dreaming 不含 decision_started
+    （docs/dev/SPEC-persona-prompt.md 第七章「交付」）。"""
+    records = windows["action"] + windows["intent"] + windows["dreaming"]
+    rows = [row for record in records for row in record["input"]["events"]]
+    observed = [row for row in rows if row["event_type"] == "observation"]
+    assert observed and all(set(row["data"]) == _OBSERVATION_LAYERS for row in observed)
+    stored = {event.event_id: event.data for event in engine.store.read_agent_events("observation", 1)}
+    assert all(row["data"] == {key: stored[row["event_id"]][key] for key in _OBSERVATION_LAYERS} for row in observed)
+    requested = [row for row in rows if row["event_type"] == "action_requested"]
+    assert requested and all(row["data"]["self_note"] == _SELF_NOTE for row in requested)
+    assert all(row["event_type"] != "decision_started" for record in windows["dreaming"]
+               for row in record["input"]["events"])
+    earlier = {event.event_id for event in engine.store.read_agent_events("action_result", 1)
+               if event.action_id == "action-first-wait"}
+    shown = {row["event_id"] for row in action["input"]["events"]}
+    assert earlier & shown, "the final decision's progress layer must expand an earlier decision's result"
 
 
 def test_export_contains_hash_bound_timeline_projections(engine_factory, tmp_path: Path) -> None:

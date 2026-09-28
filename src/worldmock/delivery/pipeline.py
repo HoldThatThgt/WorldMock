@@ -71,7 +71,7 @@ def deliver(export_dir: Path, destination: Path, project_root: Path, replay_expo
 
 
 def _require_current_world_schema(export_dir: Path) -> None:
-    """@brief 构造窗口前核对导出最终检查点的世界结构版本等于当前代码，旧结构场景不按新渲染解释。"""
+    """@brief 构造窗口前核对导出最终检查点的世界结构版本等于当前代码（8），旧结构观察不按七层原文解释。"""
     try:
         manifest = json.loads((export_dir / "manifest.json").read_bytes())
         schema_version = manifest["checkpoint"]["state"]["schema_version"]
@@ -111,7 +111,7 @@ def _execute_delivery(windows: dict, destination: Path, project_root: Path) -> d
     atomic_write(destination / "training-receipt.json", canonical_json(training_receipt))
     atomic_write(destination / "rule-results.json", canonical_json(rule_results))
     atomic_write(destination / "rule-expressions.json", canonical_json(EXPRESSIONS))
-    return {"schema_version": 1, "committed": True, "run_id": records[0]["provenance"]["run_id"],
+    return {"schema_version": 2, "committed": True, "run_id": records[0]["provenance"]["run_id"],
             "source_group_id": records[0]["provenance"]["source_group_id"], "artifacts": outputs,
             "labelkit": receipts, "training_receipt": training_receipt, "rule_results": rule_results,
             "semantic_review": {"method": "LabelKit separate verify calls", "same_model_bias": True}}
