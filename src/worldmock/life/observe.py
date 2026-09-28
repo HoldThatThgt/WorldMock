@@ -59,7 +59,6 @@ class ObservationMixin:
         data["interaction_bindings"] = context.bindings
         data.update(self._name_bindings(agent, task_rows, context.names))
         data.update(self._layer_data(context, data["body"]["levels"]))
-        data["message_bindings"] = request_linking.message_bindings(context, self.store, data["presented_message_ids"])
         data.update(self._observation_evidence(agent, experiences))
         data.update(self._event_tool_support(agent, rows["window"].presented))
         return data
@@ -77,11 +76,14 @@ class ObservationMixin:
         return with_bindings(context, annotated_bindings(context))
 
     def _layer_data(self, context: LayerContext, levels: dict[str, str]) -> dict:
-        """@brief 环境侧构建的层数据与私有配套：记忆层与看法偏好由已提交事件派生，全文已呈现的消息含进度层与记忆层两处。"""
+        """@brief 环境侧构建的层数据与私有配套：记忆层与看法偏好由已提交事件派生，全文已呈现的消息含进度层与记忆层两处；
+        answering 可关联的直接消息（message_bindings）只含进度层 message_arrival 与记忆层中未回复的，按收到先后。"""
         memory = memory_layer.memory_view(context, self.store)
-        view = progress_layer.progress_view(context, self.store, memory.pauses)
+        view = progress_layer.progress_view(context, self.store, memory.facts)
         presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
-        return {"tool_layer": tool_layer(context), "todo_layer": todo_layer(context),
+        answerable = [*memory.open_message_ids, *view.presented_message_ids]
+        return {"message_bindings": request_linking.message_bindings(context, self.store, answerable),
+                "tool_layer": tool_layer(context), "todo_layer": todo_layer(context, self.store),
                 "environment_layer": environment_layer(context, levels),
                 "memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, self.store),
                 "progress_layer": view.layer, "progress_meta": view.meta,
@@ -156,12 +158,10 @@ class ObservationMixin:
         staged = self.state.same_moment_presentation.get(agent_id)
         if staged is not None:
             return staged.pinned_supply_ids
-        started_at, after = progress_layer.session_bound(self.store, self.state, agent_id)
-        lower = after if after is not None else self.store.last_event_seq_before(started_at)
+        _, lower = progress_layer.session_bound(self.store, self.state, agent_id)
         browsed = [event.data["data"]["browse_result"]
                    for event in self.store.read_agent_events("action_result", agent_id, after=lower)
-                   if event.visibility == "agent" and (after is not None or event.occurred_at >= started_at)
-                   and "browse_result" in (event.data.get("data") or {})]
+                   if event.visibility == "agent" and "browse_result" in (event.data.get("data") or {})]
         if not browsed:
             return ()
         return tuple(dict.fromkeys(item["supply_id"] for item in browsed[-1]["items"] if "supply_id" in item))

@@ -2,9 +2,10 @@
 
 记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、此前决策里成功的记忆查询
 （结果只写条数）、收到的直接消息与交谈邀请（全文）和邮件（主题）、订单送达，以及由截止时刻与提醒写入时刻推导的截止预警
-与目标提醒。session 下界：由决策引起的切换（出发、途中结束出行）取引起切换的那条结果的事件序号；运行开始与到达取 session
-的开始时刻。同一秒内推导记录在前（截止在提醒前），事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：结果在整个
-session 内保留。每条记录另有私有元数据（是否受保护、settled 句），供宿主按预算浓缩。
+与目标提醒。session 下界是开启它的边界提交的末事件序号（session_bounds，与记忆层同一区间口径）：运行开始为 0，到达取到达
+所在的时钟推进提交，由决策引起的切换（出发、途中结束出行）取引起切换的那条结果所在的提交；推导记录按时刻取，决策切换的
+session 不含切换那一秒。同一秒内推导记录在前（截止在提醒前），事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：
+结果在整个 session 内保留。每条记录另有私有元数据（是否受保护、settled 句），供宿主按预算浓缩。
 """
 
 from __future__ import annotations
@@ -17,19 +18,18 @@ from datetime import datetime
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import sessions
+from worldmock.life import schedule, sessions
 from worldmock.life.models import WorldState
 from worldmock.life.readable import iso_time
 from worldmock.life.recipients import agent_identity, person_name
 from worldmock.life.request_linking import order_label
 from worldmock.life.result_projection import public_result
-from worldmock.life.settled_text import PauseIntervals, record_lines
+from worldmock.life.session_bounds import session_lower
+from worldmock.life.settled_text import ActivityFacts, record_lines
 from worldmock.life.tool_layer import LayerContext
 
 #: 记忆查询工具（结果只写条数）。
 MEMORY_TOOLS = frozenset({"memory_recent", "memory_search", "memory_time_range"})
-#: 截止预警提前的秒数（与唤醒同源）。
-DUE_SOON_SECONDS = 1800
 #: 订单仍在途的状态（相关记录受保护）。
 _OPEN_ORDER_STATUSES = frozenset({"pending", "ready"})
 
@@ -56,32 +56,28 @@ class _Record:
     message_id: str | None = None
 
 
-def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tuple[int, int | None]:
-    """@brief 当前 session 的下界：(session 开始时刻, 引起切换的那条结果的事件序号；时间下界的 session 为 None)。"""
+def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tuple[int, int]:
+    """@brief 当前 session 的 (开始时刻, 事件序号下界)：下界是开启它的边界提交的末事件序号（运行开始为 0）。"""
     session = sessions.current_session(state, agent_id)
     if session is None:
         logging.error("Agent has no active session for the progress layer")
         raise IntegrityError("Agent has no active session")
-    if session.opened_by_action_id is None:
-        return session.started_at, None
-    results = [event for event in store.read_agent_events("action_result", agent_id)
-               if event.action_id == session.opened_by_action_id]
-    if not results:
-        logging.error("Session opening action has no committed result")
-        raise IntegrityError("Session opening action has no committed result")
-    return session.started_at, results[0].event_seq
+    return session.started_at, session_lower(store, state, session)
 
 
-def progress_view(context: LayerContext, store: FootprintStore, pauses: PauseIntervals | None = None) -> ProgressView:
+def progress_view(context: LayerContext, store: FootprintStore, facts: ActivityFacts | None = None) -> ProgressView:
     """@brief 进度层 JSON 与私有配套（progress_meta、progress_event_ids、presented_message_ids）。
 
-    :param pauses: 本人活动的暂停区间（settled 句中结束活动的起止含暂停区间，与记忆层同一写法）。
+    :param facts: 本人活动的暂停区间与结束事件（记忆层同一份）；结束活动的调用在 settled 句中只写在本 session 内结束的
+        活动（起止含暂停区间，与记忆层同一写法），更早 session 结束的已在记忆层。
     """
-    started_at, after_seq = session_bound(store, context.state, context.agent_id)
-    records = _session_records(context, store, (started_at, after_seq))
+    started_at, lower = session_bound(store, context.state, context.agent_id)
+    records = _session_records(context, store, (started_at, lower))
     request_seq, request_time = _last_request(store, context.agent_id)
+    here = None if facts is None else ActivityFacts(facts.pauses, {
+        activity_id: event for activity_id, event in facts.endings.items() if event.event_seq > lower})
     meta = [{"protected": _protected(context, item, (request_seq, request_time)),
-             "lines": record_lines(context, item.record, list(item.sources), pauses)} for item in records]
+             "lines": record_lines(context, item.record, list(item.sources), here)} for item in records]
     layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.scenario.timezone),
              "events": [item.record for item in records]}
     return ProgressView(layer=layer, meta=meta,
@@ -102,19 +98,13 @@ def records_after(context: LayerContext, store: FootprintStore, after_seq: int) 
             if item.sources and all(event.event_seq > after_seq for event in item.sources)]
 
 
-def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[int, int | None]) -> list[_Record]:
-    """@brief 当前 session 的全部记录，按发生时刻、推导优先、最小来源序号排序。"""
-    started_at, after_seq = bound
-    lower = after_seq if after_seq is not None else store.last_event_seq_before(started_at)
-
-    def within(event: Event) -> bool:
-        """@brief 事件在 session 区间内：序号下界之后，时间下界的 session 另要求不早于开始时刻。"""
-        return event.event_seq > lower and (after_seq is not None or event.occurred_at >= started_at)
-
-    records = _tool_records(context, store, lower, within)
-    records += _memory_records(context, store, lower, within)
-    records += _world_records(context, store, lower, within)
-    records += _derived_records(context, bound)
+def _session_records(context: LayerContext, store: FootprintStore, bound: tuple[int, int]) -> list[_Record]:
+    """@brief 当前 session 的全部记录（事件序号在下界之后），按发生时刻、推导优先、最小来源序号排序。"""
+    started_at, lower = bound
+    records = _tool_records(context, store, lower)
+    records += _memory_records(context, store, lower)
+    records += _world_records(context, store, lower)
+    records += _derived_records(context, started_at)
     return sorted(records, key=lambda item: item.key)
 
 
@@ -123,14 +113,13 @@ def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
     return (occurred_at, 1, 0, 0, min(event.event_seq for event in sources))
 
 
-def _tool_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:
+def _tool_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
     """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
 
     开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
     结果上（docs/dev/SPEC-persona-prompt.md「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
     """
-    requests = [event for event in store.read_agent_events("action_requested", context.agent_id, after=lower)
-                if within(event)]
+    requests = store.read_agent_events("action_requested", context.agent_id, after=lower)
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
     records = []
     for index, request in enumerate(requests):
@@ -180,12 +169,12 @@ def _order_ids(results: list[Event]) -> tuple[str, ...]:
     return tuple(dict.fromkeys(identities))
 
 
-def _memory_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:
+def _memory_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
     """@brief 此前决策里成功的记忆查询：模型响应中的查询调用配对下一请求中的工具结果，结果只写条数；失败的不记。"""
     agent_id, timezone_name = context.agent_id, context.scenario.timezone
     responses = [event for event in store.read_agent_events("model_response", agent_id, after=lower)
-                 if within(event) and event.data.get("phase") == "response" and event.data.get("error") is None]
-    requests = [event for event in store.read_agent_events("model_request", agent_id, after=lower) if within(event)]
+                 if event.data.get("phase") == "response" and event.data.get("error") is None]
+    requests = store.read_agent_events("model_request", agent_id, after=lower)
     records = []
     for response in responses:
         following = next((event for event in requests if event.decision_id == response.decision_id
@@ -237,12 +226,12 @@ def _memory_record(response: Event, call: dict, count: int, timezone_name: str) 
                        "message": f"Memory query returned {count} episodes", "details": {"episodes": count}}}
 
 
-def _world_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:
+def _world_records(context: LayerContext, store: FootprintStore, lower: int) -> list[_Record]:
     """@brief 本人收到的消息（直接消息与交谈邀请带全文，邮件只有主题）与本人订单的送达。"""
     records = []
     for event in store.read_agent_events("environment_event", context.agent_id, after=lower):
         kind = event.data.get("kind")
-        if not within(event) or kind not in {"message_arrival", "mail_arrival", "delivery_arrival"}:
+        if kind not in {"message_arrival", "mail_arrival", "delivery_arrival"}:
             continue
         if kind == "delivery_arrival":
             records.extend(_delivery_records(context, event))
@@ -294,20 +283,21 @@ def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
     return records
 
 
-def _derived_records(context: LayerContext, bound: tuple[int, int | None]) -> list[_Record]:
-    """@brief 由截止时刻与提醒写入时刻推导的记录：工具层每个任务的截止预警与到期，今日目标的提醒，各只一次。"""
-    started_at, after_seq = bound
+def _derived_records(context: LayerContext, started_at: int) -> list[_Record]:
+    """@brief 由截止时刻与提醒写入时刻推导的记录：工具层每个任务的截止预警（提前量与唤醒同源，
+    schedule.TASK_DUE_SOON_SECONDS）与到期，今日目标的提醒，各只一次。"""
     now, zone = context.state.current_time, context.scenario.timezone
+    decided = sessions.current_session(context.state, context.agent_id).opened_by_action_id is not None
 
     def in_range(moment: int) -> bool:
         """@brief 时刻落在本 session 内且不晚于此刻；决策切换的 session 不含切换那一秒（已在前一 session）。"""
-        return (moment > started_at if after_seq is not None else moment >= started_at) and moment <= now
+        return (moment > started_at if decided else moment >= started_at) and moment <= now
 
     records = []
     tasks = [row for row in context.bindings if row["kind"] == "work_task"]
     for order, row in enumerate(tasks):
         due = int(context.rules.tasks[row["object_id"]].due_at.timestamp())
-        for moment, stage in ((due - DUE_SOON_SECONDS, "due_soon"), (due, "expired")):
+        for moment, stage in ((due - schedule.TASK_DUE_SOON_SECONDS, "due_soon"), (due, "expired")):
             if in_range(moment):
                 record = {"occurred_at": iso_time(moment, zone), "type": "task_deadline", "task": row["object"],
                           "stage": stage}

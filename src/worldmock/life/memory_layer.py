@@ -1,19 +1,20 @@
 """@brief 记忆层与看法偏好：由已提交事件与世界状态在构建提示时派生（docs/dev/SPEC-persona-prompt.md 第一章「记忆层」、
 第三章「进度与记忆的更新」，裁决 #32–#34）。
 
-- session 区间：与进度层同一下界口径（由决策引起的切换取引起切换的那条结果的事件序号，运行开始与到达取开始时刻），一个
-  session 的区间止于下一个 session 的下界。于是出发请求整体归旧 session，到达那一秒的收尾调用归新 session，路程中收到的
-  消息、送达与发出的消息归路程 session；同一事件只在进度层或记忆层之一出现。
+- session 区间：（前一边界提交的末事件序号, 本边界提交的末事件序号]，与进度层同一下界（session_bounds.session_lower），
+  一个 session 的区间止于下一个 session 的下界。于是出发请求整体归旧 session，到达那一秒的收尾调用归新 session，路程中
+  收到的消息、送达与发出的消息归路程 session；同一事件只在进度层或记忆层之一出现。
 - earlier_today：结束时刻落在今天（场景本地日期）的已结束 session 各一条，recorded_at 为结束时刻；settled 取
-  settled_text 的句子，self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（relationship 与
-  preference 只在人设层），按活动名标注，条目内不重名时去掉开始时刻后缀；没有内容的条目不出现。
+  settled_text 的句子，在本 session 结束的活动按结束提交各一句（到达时结束的出行归路程，实验截止截断的活动归最后一段），
+  self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（relationship 与 preference 只在
+  人设层），按活动名标注，条目内不重名时去掉开始时刻后缀；没有内容的条目不出现。
 - earlier_days：今天之前结束的 session 中此刻仍未了结的事项（本人 pending 或 ready 的订单；收到后没有成功 send_message
   回复发件人的直接消息，通话不算回复），按起源日期归入；另加归属该日的就寝反思（睡眠开始时刻前推 6 小时的本地日期）。
 - 窗口：记忆层 JSON 不超过 8000 字符；超出时依次删去最旧日期的反思、再把最旧的今日条目缩成只剩未了结的 settled 句；
   未了结事项与最近一个 session 的条目永不删去，仍超出时写英文日志，交给整次请求的阈值处理。
 - 零点不切断 session，也不需要钩子：按当前时刻的本地日期分区。
 - 不新增持久状态；按 read_agent_events 的 after 增量读取，进程内缓存只作加速（按存储对象区分，恢复后的新存储首次全量读取）。
-全文出现在记忆层的直接消息记为已呈现（presented_message_ids）。
+全文出现在记忆层的直接消息记为已呈现（presented_message_ids）；其中未回复的（open_message_ids）才能被 answering 关联。
 """
 
 from __future__ import annotations
@@ -31,8 +32,9 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
 from worldmock.life.readable import iso_time, local_date
-from worldmock.life.settled_text import (give_sentence, pause_intervals, purchase_sentence, record_lines,
-                                         tool_record, work_line)
+from worldmock.life.session_bounds import session_lower
+from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, give_sentence, pause_intervals,
+                                         purchase_sentence, record_lines, tool_record, work_line)
 from worldmock.life.tool_layer import LayerContext
 
 #: 记忆层 JSON 的字符上限（新常量，docs/dev/SPEC-persona-prompt.md 第三章「窗口」）。
@@ -53,32 +55,36 @@ _START_SUFFIX = re.compile(r"（\d{1,2}月\d{1,2}日 \d{2}:\d{2} 起）")
 @dataclass(frozen=True, slots=True)
 class MemoryView:
     """@brief 一次观察的记忆层与私有配套：layer 为记忆层 JSON，presented_message_ids 为全文在其中的直接消息，
-    pauses 为本人活动的已恢复暂停区间（进度层结束活动的句子共用）。"""
+    open_message_ids 为其中收到后尚未回复的（answering 可关联的记忆层消息），facts 为本人活动的已恢复暂停区间与结束
+    事件（进度层结束活动的句子共用）。"""
 
     layer: dict
     presented_message_ids: list[str]
-    pauses: dict[str, list[tuple[int, int]]]
+    open_message_ids: list[str]
+    facts: ActivityFacts
 
 
 @dataclass(slots=True)
 class _AgentEvents:
-    """@brief 一个人物已读取的事件（进程内加速缓存）：读到的末事件序号、各类型事件及其序号、已算出的 session 下界。"""
+    """@brief 一个人物已读取的事件（进程内加速缓存）：读到的末事件序号、各类型事件及其序号、各活动的结束事件、已算出的
+    session 下界。"""
 
     last_seq: int = 0
     events: dict[str, list[Event]] = field(default_factory=lambda: {name: [] for name in _EVENT_TYPES})
     seqs: dict[str, list[int]] = field(default_factory=lambda: {name: [] for name in _EVENT_TYPES})
+    endings: dict[str, Event] = field(default_factory=dict)
     lowers: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
 class _Build:
-    """@brief 一次派生共用的只读输入：层上下文、本人事件、各动作的即时结果、成功回复与暂停区间。"""
+    """@brief 一次派生共用的只读输入：层上下文、本人事件、各动作的即时结果、成功回复与活动的暂停区间和结束事件。"""
 
     context: LayerContext
     cached: _AgentEvents
     results: dict[str, Event]
     replies: tuple[tuple[int, str], ...]
-    pauses: dict[str, list[tuple[int, int]]]
+    facts: ActivityFacts
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,8 +125,10 @@ def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
     earlier = len(ended) - len(recent)
     days = _day_entries(build, ranges[earlier][1] if earlier < len(ranges) else None, today)
     layer = _fit(days, entries)
-    kept = [line.message_id for entry in (*days, *entries) for line in entry.lines if line.message_id is not None]
-    return MemoryView(layer=layer, presented_message_ids=list(dict.fromkeys(kept)), pauses=build.pauses)
+    kept = [line for entry in (*days, *entries) for line in entry.lines if line.message_id is not None]
+    return MemoryView(layer=layer, presented_message_ids=list(dict.fromkeys(line.message_id for line in kept)),
+                      open_message_ids=list(dict.fromkeys(line.message_id for line in kept if line.open)),
+                      facts=build.facts)
 
 
 def persona_views(context: LayerContext, store: FootprintStore) -> dict:
@@ -157,18 +165,24 @@ def _build(context: LayerContext, store: FootprintStore) -> _Build:
         results.setdefault(event.action_id, event)
     replies = tuple((event.event_seq, results[event.action_id].data["data"]["recipient_id"])
                     for event in _successful(cached, results, "send_message", (0, None)))
-    return _Build(context, cached, results, replies, pause_intervals(cached.events["environment_event"]))
+    facts = ActivityFacts(pause_intervals(cached.events["environment_event"]), cached.endings)
+    return _Build(context, cached, results, replies, facts)
 
 
 def _agent_events(store: FootprintStore, agent_id: int) -> _AgentEvents:
-    """@brief 按 after 增量读取本人事件；缓存只作加速，读到的内容与一次全量读取相同。"""
+    """@brief 按 after 增量读取本人事件与活动的结束事件（activity_progress 只取结束事件，不留存）；缓存只作加速，读到的
+    内容与一次全量读取相同。"""
     cached = _CACHE.setdefault(store, {}).setdefault(agent_id, _AgentEvents())
     last = store.last_event_seq
     if last > cached.last_seq:
+        fresh = {name: store.read_agent_events(name, agent_id, after=cached.last_seq)
+                 for name in (*_EVENT_TYPES, "activity_progress")}
         for name in _EVENT_TYPES:
-            fresh = store.read_agent_events(name, agent_id, after=cached.last_seq)
-            cached.events[name].extend(fresh)
-            cached.seqs[name].extend(event.event_seq for event in fresh)
+            cached.events[name].extend(fresh[name])
+            cached.seqs[name].extend(event.event_seq for event in fresh[name])
+        endings = activity_endings([*fresh["activity_progress"], *fresh["environment_event"], *fresh["action_result"]])
+        for activity_id, event in endings.items():
+            cached.endings.setdefault(activity_id, event)
         cached.last_seq = last
     return cached
 
@@ -178,26 +192,16 @@ def _session_ranges(context: LayerContext, store: FootprintStore,
     """@brief 本人全部 session 按开始顺序及其事件序号区间（下界不含、上界含；当前 session 没有上界）。"""
     ordered = sorted((item for item in context.state.sessions.values() if item.agent_id == context.agent_id),
                      key=lambda item: (item.started_at, item.session_id))
-    lowers = [_lower(store, cached, item) for item in ordered]
+    lowers = [_lower(context, store, cached, item) for item in ordered]
     return [(item, lowers[index], lowers[index + 1] if index + 1 < len(ordered) else None)
             for index, item in enumerate(ordered)]
 
 
-def _lower(store: FootprintStore, cached: _AgentEvents, session: SessionState) -> int:
+def _lower(context: LayerContext, store: FootprintStore, cached: _AgentEvents, session: SessionState) -> int:
     """@brief session 的事件序号下界（与进度层同一口径），计算一次后缓存（已提交的下界不再改变）。"""
-    if session.session_id in cached.lowers:
-        return cached.lowers[session.session_id]
-    if session.opened_by_action_id is None:
-        lower = store.last_event_seq_before(session.started_at)
-    else:
-        seqs = [event.event_seq for event in cached.events["action_result"]
-                if event.action_id == session.opened_by_action_id]
-        if not seqs:
-            logging.error("Session opening action has no committed result")
-            raise IntegrityError("Session opening action has no committed result")
-        lower = seqs[0]
-    cached.lowers[session.session_id] = lower
-    return lower
+    if session.session_id not in cached.lowers:
+        cached.lowers[session.session_id] = session_lower(store, context.state, session)
+    return cached.lowers[session.session_id]
 
 
 def _slice(cached: _AgentEvents, name: str, bounds: tuple[int, int | None]) -> list[Event]:
@@ -240,8 +244,15 @@ def _day_entries(build: _Build, boundary: int | None, today: str) -> list[_Entry
 
 
 def _session_lines(build: _Build, bounds: tuple[int, int | None], open_only: bool) -> list[_Line]:
-    """@brief 区间内的 settled 句（open_only 时只取未了结事项），按发生时刻与事件序号排列。"""
-    lines: list[_Line] = []
+    """@brief 区间内的 settled 句（open_only 时只取未了结事项），按发生时刻与事件序号排列；结束提交在区间内的活动各一句。"""
+    lower, upper = bounds
+
+    def within(event: Event) -> bool:
+        """@brief 活动的结束事件落在区间 (lower, upper] 内（活动在本 session 结束）。"""
+        return event.event_seq > lower and (upper is None or event.event_seq <= upper)
+
+    lines = [] if open_only else [_Line(text, (event.occurred_at, event.event_seq))
+                                  for event, text in ending_lines(build.context, build.facts, within)]
     for request in _slice(build.cached, "action_requested", bounds):
         result = build.results.get(request.action_id)
         if result is not None and not (open_only and not (result.data.get("data") or {}).get("orders")):
@@ -264,8 +275,7 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
         return [*(_Line(purchase_sentence(context, order, data.get("answering")), key,
                         open=deliveries[order["order_id"]].status in _OPEN_ORDER_STATUSES) for order in orders),
                 *(_Line(give_sentence(context, moment, item), key) for item in data.get("given", []))]
-    return [_Line(text, key) for text in record_lines(context, tool_record(context, request), [request, result],
-                                                      build.pauses)]
+    return [_Line(text, key) for text in record_lines(context, tool_record(context, request), [request, result])]
 
 
 def _world_lines(build: _Build, event: Event) -> list[_Line]:

@@ -74,9 +74,9 @@ def _previous_observation(store: FootprintStore, state: WorldState, agent_id: in
 
 
 def _session_changed(store: FootprintStore, state: WorldState, agent_id: int, previous: Event) -> bool:
-    """@brief 上一决策之后当前 session 换过：session 由其后的结果切换（出发、途中结束出行），或开始晚于上一观察。"""
-    started_at, after_seq = session_bound(store, state, agent_id)
-    return started_at > previous.occurred_at or (after_seq is not None and after_seq > previous.event_seq)
+    """@brief 上一决策之后当前 session 换过：开启它的边界提交在上一观察之后（出发、途中结束出行），或开始晚于上一观察。"""
+    started_at, lower = session_bound(store, state, agent_id)
+    return started_at > previous.occurred_at or lower > previous.event_seq
 
 
 def _counterfactual_since(store: FootprintStore, state: WorldState, previous: Event) -> bool:

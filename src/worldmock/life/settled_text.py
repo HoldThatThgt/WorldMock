@@ -3,13 +3,18 @@
 只写人物可见、成功（completed 或 in_progress）且不是重放的世界请求与世界事件：下单（带所回应的消息与收货人）、给予、
 发消息、提交工作各一句，在本段结束的活动每项一句（起止含暂停区间、终局、实际份量或有效工时），收到的直接消息（全文）、
 邮件（主题）、送达与新工作各一句。不写失败的请求、记忆查询、回看、report_status、暂停与恢复、revise_day_plan、提醒、
-截止预警与身体结算。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的 lines 与
-零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。
+截止预警、身体结算与交谈邀请。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的
+lines 与零点计划输入都取这里的句子（同时是零点计划输入里已核验经历句子的唯一写法）。
+
+活动的句子按它结束的提交归属（第三章「归属」）：结束提交是带该活动终态快照的最早事件（activity_progress、生命周期与截断
+environment_event、终态 action_result）所在的提交，到达时结束的出行归路程，实验截止截断的活动归最后一段；之后的
+conclude_activity 本身不写句子，只在进度层浓缩时带出它所结束的、在本 session 内结束的活动（更早结束的已在记忆层）。
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -26,25 +31,38 @@ from worldmock.life.tool_layer import LayerContext
 _SETTLED_STATUSES = frozenset({"completed", "in_progress"})
 #: 活动的暂停区间：活动身份 → [(暂停时刻, 恢复时刻)]（只含已恢复的区间）。
 PauseIntervals = Mapping[str, Sequence[tuple[int, int]]]
+#: 活动的终态（快照 status 的取值）。
+_ENDED_STATUSES = frozenset({"completed", "cancelled", "failed", "truncated"})
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityFacts:
+    """@brief 结束活动的句子所需的事实：已恢复的暂停区间与各活动的结束事件（带其终态快照的最早事件）。"""
+
+    pauses: PauseIntervals
+    endings: Mapping[str, Event]
 
 
 def record_lines(context: LayerContext, record: dict, sources: list[Event],
-                 pauses: PauseIntervals | None = None) -> list[str]:
+                 facts: ActivityFacts | None = None) -> list[str]:
     """@brief 一条进度层记录的 settled 句（没有可写的事实时为 []）。
 
     :param record: 进度层记录（occurred_at 为带时区 ISO）。
     :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）；重放的请求不写。
-    :param pauses: 活动的暂停区间（结束活动的句子写进起止）。
+    :param facts: 进度层浓缩用：conclude_activity 写它所结束的、结束事件在 facts.endings 中的活动（本 session 内结束的）；
+        为 None 时结束活动的调用不写句子（活动句按结束提交另写，见 ending_lines）。
     """
     if any(event.data.get("reused") for event in sources):
         return []
     kind = record["type"]
     if kind == "tool_call":
-        return _tool_lines(context, record, sources, pauses or {})
+        return _tool_lines(context, record, sources, facts)
     if kind == "message_arrival":
         when = _clock(context, record["occurred_at"])
         if record["kind"] == "mail":
             return [f"{when} 收到邮件「{record['subject']}」"]
+        if record["kind"] == "chat_invite":
+            return []
         return [f"{when} 收到{record['sender']}的消息：{record['text']}"]
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
@@ -130,6 +148,31 @@ def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
     return f"{span} {'听了' if podcast else '看了'}《{context.rules.content_titles[fact['content_id']]}》"
 
 
+def activity_endings(events: Iterable[Event]) -> dict[str, Event]:
+    """@brief 本人活动的结束事件：带该活动终态快照（status 为 completed、cancelled、failed 或 truncated）的最早事件；
+    activity_progress、生命周期与截断 environment_event 带 data.activity，终态 action_result 另可带 data.data.activities。"""
+    endings: dict[str, Event] = {}
+    for event in events:
+        payload = event.data.get("data")
+        rows = payload.get("activities", []) if isinstance(payload, dict) else []
+        for snapshot in (event.data.get("activity"), *rows):
+            if not isinstance(snapshot, dict) or snapshot.get("status") not in _ENDED_STATUSES:
+                continue
+            known = endings.get(snapshot["activity_id"])
+            if known is None or event.event_seq < known.event_seq:
+                endings[snapshot["activity_id"]] = event
+    return endings
+
+
+def ending_lines(context: LayerContext, facts: ActivityFacts,
+                 keep: Callable[[Event], bool]) -> list[tuple[Event, str]]:
+    """@brief 结束事件满足 keep 的本人活动各一句（activity_sentence，起止含已恢复的暂停区间），按结束事件的序号排列。"""
+    rows = [(event, activity_sentence(context, context.state.activities[activity_id],
+                                      facts.pauses.get(activity_id, ())))
+            for activity_id, event in facts.endings.items() if keep(event)]
+    return sorted(rows, key=lambda row: row[0].event_seq)
+
+
 def pause_intervals(events: Iterable[Event]) -> dict[str, list[tuple[int, int]]]:
     """@brief 本人 environment_event 中的暂停与恢复（activity_paused、activity_resumed）配成已恢复的暂停区间。"""
     opened: dict[str, int] = {}
@@ -149,8 +192,9 @@ def tool_record(context: LayerContext, request: Event) -> dict:
             "tool": request.data["tool_name"], "arguments": request.data["request"]}
 
 
-def _tool_lines(context: LayerContext, record: dict, sources: list[Event], pauses: PauseIntervals) -> list[str]:
-    """@brief 世界请求的 settled 句：下单、给予、发消息、提交工作与结束活动；失败的请求与其他工具不写。
+def _tool_lines(context: LayerContext, record: dict, sources: list[Event], facts: ActivityFacts | None) -> list[str]:
+    """@brief 世界请求的 settled 句：下单、给予、发消息与提交工作；结束活动只在给了 facts 时写（进度层浓缩）；失败的请求与
+    其他工具不写。
 
     句子取请求的即时结果（sources 中第一个 action_result）：瞬时请求只有这一个结果，开始活动的请求其后的终态结果
     不改变当时下的订单；记忆查询没有 action_result，不写。
@@ -170,8 +214,9 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event], pause
         person = record["arguments"]["recipient_name"].split("：", 1)[-1]
         return [f"{_clock(context, record['occurred_at'])} 给{person}发消息：{record['arguments']['text']}"]
     if tool == "conclude_activity":
-        return [activity_sentence(context, context.state.activities[activity_id], pauses.get(activity_id, ()))
-                for activity_id in payload.get("activity_ids", [])]
+        return [] if facts is None else [
+            activity_sentence(context, context.state.activities[activity_id], facts.pauses.get(activity_id, ()))
+            for activity_id in payload.get("activity_ids", []) if activity_id in facts.endings]
     lines = [purchase_sentence(context, order, payload.get("answering")) for order in payload.get("orders", [])]
     return lines + [give_sentence(context, record["occurred_at"], item) for item in payload.get("given", [])]
 

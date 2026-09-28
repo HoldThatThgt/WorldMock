@@ -1,8 +1,9 @@
 """@brief 代点请求与订单关联（docs/dev/SPEC-persona-prompt.md 第五章「代点请求与订单关联」）。
 
 answering 填一条可见直接消息的规范名称「<发件人> HH:MM 的消息」（不是今天的在 HH:MM 前加「M月D日」），时刻取消息送达
-（进度层 message_arrival 的 occurred_at）；私有绑定 message_bindings 把名称映射到消息与发件人，只收本次观察全文呈现的
-直接消息（presented_message_ids，记忆层的未回复消息随之加入）。同一分钟同一发件人的两条消息名称相同时，名称指后一条。
+（进度层 message_arrival 的 occurred_at）；私有绑定 message_bindings 把名称映射到消息与发件人，只收本次观察可见的
+直接消息：进度层 message_arrival 的与记忆层中未回复的（已回复的旧消息不可关联）。同一分钟同一发件人的两条消息名称相同时，
+名称指后一条。
 已有同一（消息，收货人，商品）的未取消关联订单时再提交，以 REQUEST_ALREADY_HANDLED 业务拒绝，details.linked_orders
 列出已关联订单与预计送达时刻；换了商品、回应新消息或不关联时照常购买。
 """
@@ -24,7 +25,7 @@ _HANDLED_STATUSES = frozenset({"pending", "ready", "delivered"})
 
 
 def message_bindings(context: LayerContext, store: FootprintStore, presented: list[str]) -> list[dict]:
-    """@brief 本次观察可见直接消息的私有绑定 [{"name", "message_id", "sender_id"}]，按呈现顺序，名称唯一。"""
+    """@brief 本次观察可见直接消息的私有绑定 [{"name", "message_id", "sender_id"}]，按给定顺序（收到先后），名称唯一。"""
     agent = context.state.agents[context.agent_id]
     arrivals = {event.data["message_id"]: event.occurred_at
                 for event in store.read_agent_events("environment_event", context.agent_id)

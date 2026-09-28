@@ -112,9 +112,9 @@ def _concluding_wait(engine, round_id: str, summary: str, memories: list) -> str
 
 def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(engine_factory) -> None:
     """出发：同一秒先收尾再出发，收尾与出发都归旧 session；旧 session 的消息、邮件与结束的等待写成 settled，收尾的 summary
-    与记忆写进 self_notes（relationship 记忆不进记忆层，标注去掉开始时刻后缀）。到达：路上收到的邮件归路程 session；到达
-    那一秒的收尾调用归新停留 session（它结束前不在记忆层），结束后以「到达」句与 summary 出现在它的条目里。recorded_at 与
-    WorldState.sessions 的结束时刻逐一对应。"""
+    与记忆写进 self_notes（relationship 记忆不进记忆层，标注去掉开始时刻后缀）。到达：路上收到的邮件与在到达提交里结束的
+    出行（「到达」句）归路程 session；到达那一秒的收尾调用归新停留 session（它结束前不在记忆层），结束后只以 summary 出现在
+    它的条目里（活动句按结束提交归属，不随收尾）。recorded_at 与 WorldState.sessions 的结束时刻逐一对应。"""
     engine = engine_factory()
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
@@ -140,13 +140,14 @@ def test_departure_and_arrival_attribute_same_second_calls_to_the_right_session(
     arrived = engine.state.current_time
     _act(engine, "a-arrive", "conclude_activity", conclude_request(walk_name, summary="到了"))
     after = _memory(engine, "a-arrived")["earlier_today"]
-    assert after == [*home, {"recorded_at": iso_time(arrived, _ZONE), "settled": [_mail_line(engine, mail_at)],
+    trip = engine.state.activities[walk.activity_id]
+    arrival = f"{walk_name}：{_clock(engine, trip.started_at)}–{_clock(engine, arrived)}，到达"
+    assert after == [*home, {"recorded_at": iso_time(arrived, _ZONE), "settled": [_mail_line(engine, mail_at), arrival],
                              "self_notes": []}]
     _walk(engine, "a-back", "home")
     office = _memory(engine, "a-office")["earlier_today"][-1]
-    trip = engine.state.activities[walk.activity_id]
-    assert office["settled"] == [f"{walk_name}：{_clock(engine, trip.started_at)}–{_clock(engine, arrived)}，到达"]
-    assert office["self_notes"] == [{"activity": _short(walk_name), "text": "到了"}]
+    assert office == {"recorded_at": iso_time(engine.state.current_time, _ZONE), "settled": [],
+                      "self_notes": [{"activity": _short(walk_name), "text": "到了"}]}
     ended = _ended_sessions(engine)
     assert [row["recorded_at"] for row in _memory(engine, "a-final")["earlier_today"]] == [
         iso_time(item.ended_at, _ZONE) for item in ended]
@@ -195,7 +196,8 @@ def test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session(engine_
 
 def test_denied_arrival_ends_the_trip_and_the_failed_trip_is_concluded_in_the_new_stay(engine_factory,
                                                                                     monkeypatch) -> None:
-    """到达被拒也结束路程 session：人已在目的地开始停留，失败的出行在新停留里收尾，那段停留结束后写「失败」句与 summary。"""
+    """到达被拒也结束路程 session：出行在到达提交里失败，「失败」句归路程 session（到达后即出现在记忆层）；人已在目的地
+    开始停留，失败的出行在新停留里收尾，那段停留结束后只写它的 summary。"""
     engine = engine_factory()
     stage_day_plan(engine)
     walk = _walk(engine, "g-walk")
@@ -207,11 +209,12 @@ def test_denied_arrival_ends_the_trip_and_the_failed_trip_is_concluded_in_the_ne
     trip = engine.state.activities[walk.activity_id]
     assert trip.status == ActivityStatus.FAILED
     _act(engine, "g-conclude", "conclude_activity", conclude_request(name, summary="进不去"))
-    assert _memory(engine, "g-denied")["earlier_today"] == []
+    road = {"recorded_at": iso_time(trip.ended_at, _ZONE), "self_notes": [],
+            "settled": [f"{name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，失败"]}
+    assert _memory(engine, "g-denied")["earlier_today"] == [road]
     _walk(engine, "g-home", "home")
-    (entry,) = _memory(engine, "g-left")["earlier_today"]
-    assert entry["settled"] == [f"{name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，失败"]
-    assert entry["self_notes"] == [{"activity": _short(name), "text": "进不去"}]
+    (_, entry) = _memory(engine, "g-left")["earlier_today"]
+    assert entry["settled"] == [] and entry["self_notes"] == [{"activity": _short(name), "text": "进不去"}]
 
 
 def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
@@ -234,8 +237,8 @@ def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
 
 
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
-    """实验截止时所有 session 结束：最后一段停留以截止时刻为 recorded_at 进入记忆层；收尾过的等待写成句子，被截断的第二段
-    等待没有收尾，不写句子。"""
+    """实验截止时所有 session 结束：最后一段停留以截止时刻为 recorded_at 进入记忆层；按计划结束的等待与被实验截止截断、
+    没有收尾的睡眠都在这段停留里结束，各写一句（活动句按结束提交归属，不看是否收尾）。"""
     def window(document: dict) -> None:
         document.update(start_at="2026-01-05T22:00:00+08:00", end_at="2026-01-05T22:30:00+08:00", tasks=[],
                         messages=[], bills=[], payrolls=[])
@@ -247,13 +250,17 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
         _act(engine, "c-send", "send_message", SendMessageActionRequest(recipient_name=f"联系人：{friend}",
                                                                        text="我先睡了"))
         _act(engine, "c-wait", "start_activity", start_activity("等待", "自己"))
-        while advance_until_ready(engine):
-            _act(engine, f"c-keep-{engine.state.version}", *_keep_waiting(engine))
+        assert advance_until_ready(engine)
+        _act(engine, "c-conclude", *_keep_waiting(engine))
+        _, slept = _act(engine, "c-sleep", "start_activity", start_activity("睡觉", "自己"))
+        assert not advance_until_ready(engine)
         assert engine.state.current_time == engine.state.end_time
+        assert engine.state.activities[slept.activity_id].status == ActivityStatus.TRUNCATED
         view = memory_view(engine._layer_context(engine.state.agents[1], (), []), engine.store)
         assert view.layer["earlier_today"] == [{
             "recorded_at": "2026-01-05T22:30:00+08:00",
-            "settled": [f"22:00 给{friend}发消息：我先睡了", "等待（1月5日 22:00 起）：22:00–22:15，按计划结束"],
+            "settled": [f"22:00 给{friend}发消息：我先睡了", "等待（1月5日 22:00 起）：22:00–22:15，按计划结束",
+                        f"{activity_name(engine, slept.activity_id)}：22:15–22:30，提前结束"],
             "self_notes": [{"activity": "等待", "text": "收尾。"}]}]
         assert [item.ended_at for item in _ended_sessions(engine)] == [engine.state.end_time]
     finally:
@@ -261,7 +268,8 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
 
 
 def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engine_factory) -> None:
-    """不写：被拒的请求、重放的同一请求、回看、修订计划与记忆查询；没有可保留内容的 session（只走了一段路）结束后没有条目。"""
+    """不写：被拒的请求、重放的同一请求、回看、修订计划与记忆查询；只走了一段路的路程 session 只有到达那一句（出行在
+    到达提交里结束）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
@@ -295,9 +303,13 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert entry["settled"] == [f"{_clock(engine, sent_at)} 给{friend}发消息：只说一次", wait_line]
     assert entry["self_notes"] == [{"activity": "等待", "text": "等完了"}]
     assert advance_until_ready(engine)
-    _act(engine, "d-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
+    walk_name = activity_name(engine, walk.activity_id)
+    _act(engine, "d-arrive", "conclude_activity", conclude_request(walk_name))
     today = _memory(engine, "d-arrived")["earlier_today"]
-    assert today == [entry] and len(_ended_sessions(engine)) == 2
+    trip = engine.state.activities[walk.activity_id]
+    assert today == [entry, {"recorded_at": iso_time(trip.ended_at, _ZONE), "self_notes": [], "settled": [
+        f"{walk_name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，到达"]}]
+    assert len(_ended_sessions(engine)) == 2
 
 
 def _commit(engine, staged, kind: str) -> None:
@@ -354,8 +366,8 @@ def test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when
     _act(engine, "e-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
     context_ = engine._layer_context(engine.state.agents[1], (), [])
     line = purchase_sentence(context_, order, None)
-    (home,) = _memory(engine, "e-today")["earlier_today"]
-    assert home["settled"] == [line]
+    home, road = _memory(engine, "e-today")["earlier_today"]
+    assert home["settled"] == [line] and road["settled"][0].endswith("，到达")
     next_day = _next_morning(placed)
     _jump(engine, next_day)
     stage_day_plan(engine, submitted=True)
@@ -630,7 +642,8 @@ def test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and
 
 def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates(engine_factory, tmp_path) -> None:
     """恢复前后逐字节相同：父运行（缓存已热）与从共同检查点恢复的分支（新存储，首次全量读取）在同一时刻派生同一份记忆
-    层与看法偏好；清掉缓存重算也相同；条目对应 WorldState.sessions 中有内容的已结束 session（空的路程没有条目）。"""
+    层与看法偏好（含按增量读取的活动结束事件）；清掉缓存重算也相同；条目与 WorldState.sessions 中的已结束 session
+    逐一对应（路程有到达句）。"""
     from pathlib import Path
 
     from worldmock.life.engine import LifeEngine
@@ -661,5 +674,6 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
     cold = _observe(engine, "r-cold")
     assert json.dumps([cold["memory_layer"], cold["persona_views"]], ensure_ascii=False) == rendered
     home, trip = _ended_sessions(engine)
-    assert [row["recorded_at"] for row in cold["memory_layer"]["earlier_today"]] == [iso_time(home.ended_at, _ZONE)]
+    assert [row["recorded_at"] for row in cold["memory_layer"]["earlier_today"]] == [
+        iso_time(home.ended_at, _ZONE), iso_time(trip.ended_at, _ZONE)]
     assert trip.kind == "transit" and trip.ended_at == engine.state.current_time
