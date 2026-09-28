@@ -255,3 +255,40 @@ def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
                                         conclude_request(*names)))
     return engine.commit_decision_round(round_id)[0]
+
+
+def tool_targets(observed: dict) -> dict[str, dict]:
+    """观察工具层的目标，按名称索引（名称全局唯一）。"""
+    return {row["name"]: row for row in observed["tool_layer"]["targets"]}
+
+
+def target_actions(observed: dict, name: str) -> dict[str, dict]:
+    """工具层某个目标的动作，按方式索引。"""
+    return {row["way"]: row for row in tool_targets(observed)[name]["actions"]}
+
+
+def target_tools(observed: dict, name: str) -> dict[str, dict]:
+    """工具层某个目标（或待办层某项暂停活动）以其名称为参数的工具，按工具名索引。"""
+    targets = tool_targets(observed)
+    rows = (targets[name]["tools"] if name in targets
+            else next(item["tools"] for item in observed["todo_layer"]["paused_activities"] if item["name"] == name))
+    return {row["tool"]: row for row in rows}
+
+
+def layer_start(observed: dict, name: str, way: str):
+    """按工具层目标名与方式构造 start_activity 请求（动词取该动作的 action）。"""
+    from worldmock.life.models import StartActivityRequest
+
+    action = target_actions(observed, name)[way]
+    return StartActivityRequest(targets=[name], actions=[action["action"]], ways=[way])
+
+
+def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
+    """观察进度层的 tool_call 记录（可按工具名筛选）。"""
+    return [row for row in observed["progress_layer"]["events"]
+            if row["type"] == "tool_call" and (tool is None or row["tool"] == tool)]
+
+
+def last_result(observed: dict) -> dict:
+    """观察进度层最后一次世界请求（tool_call）的公开结果。"""
+    return progress_calls(observed)[-1]["result"]

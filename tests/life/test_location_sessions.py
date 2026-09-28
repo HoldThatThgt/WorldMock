@@ -10,18 +10,17 @@ import json
 from pathlib import Path
 
 import pytest
-from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
-from custom.agents.life_agent import LifeAgent
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, wake_by_mail
+from tests.life.conftest import (advance_next, advance_until_ready, context, progress_calls, stage_day_plan,
+                                 target_actions, target_tools, tool_targets, wake_by_mail)
 from tests.life.test_export_integration import _stage_final_interval
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.narration import render_scene
+from worldmock.life.readable import duration_phrase
 from worldmock.life.models import (
     ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, RecallTaskSummaryRequest, ReportStatusRequest,
     SameMomentStage,
@@ -160,8 +159,9 @@ def test_departure_and_arrival_switch_sessions_and_end_road_activities(engine_fa
     assert engine.state.sessions[road.session_id].ended_at == arrived
     assert {"planned_end", "no_active_activity"} <= set(engine.state.agents[1].pending_wake_reasons)
     observed = _preview(engine, "arrived")
-    assert observed["scene"]["just_ended"] == [travel.name, watch.name]
-    assert f"刚结束：{travel.name}、{watch.name}。" in render_scene(observed["scene"])
+    ended = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "activity"]
+    assert [(row["name"], row["phase"]) for row in ended] == [(travel.name, "刚结束"), (watch.name, "刚结束")]
+    assert ended[0]["state"].startswith("到达，") and ended[1]["state"].startswith("提前结束，")
 
 
 def test_just_ended_requires_conclusion_in_the_same_second(engine_factory) -> None:
@@ -188,9 +188,9 @@ def test_just_ended_requires_conclusion_in_the_same_second(engine_factory) -> No
 
 
 def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_factory) -> None:
-    """当日没有计划时一觉醒来：睡眠待收尾，人物工具面没有 plan_day（当日计划由零点后台任务生成，第四章），
-    conclude_activity 点名这段睡眠并被受理（第七章「活动一结束就要结束它」：收尾之前做别的都以
-    ACTIVITY_CONCLUSION_REQUIRED 拒绝）。"""
+    """当日没有计划时一觉醒来：睡眠是工具层刚结束的活动目标，待办层的今日计划为 null（当日计划由零点后台任务生成，
+    第四章）；结束它可用，别的动作都标「先给刚结束的<睡眠>收尾」，conclude_activity 点名这段睡眠并被受理
+    （第七章「活动一结束就要结束它」）。"""
     engine = engine_factory()
     slept = _start(engine, "no-plan-sleep", ("自己", "sleep", "睡觉"))
     assert advance_until_ready(engine, limit=200)
@@ -201,13 +201,10 @@ def test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion(engine_
     decision = context(engine, "wake-no-plan")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    person = LifeAgent()
-    person.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, [
-        {"turn": 0, "action": "observe", "ok": True, "data": observed}]))
-    functions = {row["function"]["name"]: row["function"] for row in person.build_react_tool_schemas(readonly=False)}
-    assert {"conclude_activity", "start_activity"} <= set(functions)
-    assert "plan_day" not in functions
-    assert functions["conclude_activity"]["parameters"]["properties"]["task"]["items"]["enum"] == [sleep.name]
+    assert observed["todo_layer"]["day_plan"] is None
+    assert tool_targets(observed)[sleep.name]["phase"] == "刚结束"
+    assert target_tools(observed, sleep.name)["conclude_activity"]["available"] is True
+    assert target_actions(observed, "自己")["等待"]["reason"] == f"先给刚结束的{sleep.name}收尾"
     engine.submit_action(DirectToolCall(decision, "action-wake-no-plan", "conclude_activity", ConcludeActivityRequest(
         task=[sleep.name], summary=["睡醒了。"], memories=[[]])))
     assert engine.commit_decision_round("wake-no-plan")[0].status == "completed"
@@ -270,8 +267,8 @@ def test_departure_with_running_activity_is_rejected_naming_it(engine_factory) -
     name = _name(engine, watched.activity_id)
     observed = _preview(engine, "listed-depart")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
-    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == office)
-    assert {"action": "travel：步行", "note": f"需要先结束或暂停手上的事：{name}"} in public["actions"]
+    walk = target_actions(observed, office)["步行"]
+    assert (walk["available"], walk["reason"]) == (False, f"需要先结束或暂停手上的事：{name}")
     rejected = _depart(engine, "blocked-depart")
     assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_PRECONDITION_UNMET"
     assert rejected.data["unmet"] == ["activities_before_departure"]
@@ -447,9 +444,8 @@ def test_travel_with_full_slots_is_rejected_for_slots_before_the_departure_check
     _wake(engine)
     observed = _preview(engine, "listed-full-depart")
     office = _pick(observed, "travel_to", mode="walking", place="office")[0]
-    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == office)
-    walk = next(item for item in public["actions"] if item["action"] == "travel：步行")
-    assert walk["note"].startswith("两件事都在做，先结束一件：") and _name(engine, watched) in walk["note"]
+    walk = target_actions(observed, office)["步行"]
+    assert walk["reason"].startswith("两件事都在做，先结束一件：") and _name(engine, watched) in walk["reason"]
     rejected = _depart(engine, "depart-with-full-slots")
     assert rejected.status == "rejected" and rejected.error_code == "SESSION_LIMIT_EXCEEDED"
     assert "两件事都在做，先结束一件" in rejected.message
@@ -589,8 +585,8 @@ def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -
     names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
     assert names[first.activity_id] == _name(engine, first.activity_id)
     assert names[second.activity_id] == f"{_name(engine, second.activity_id)}（第二次）"
-    rows = [item["name"] for row in observed["facts"]["progress"]["sessions"] for item in row["activities"]]
-    assert rows == [names[first.activity_id], names[second.activity_id]]
+    rows = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "activity"]
+    assert rows == [names[second.activity_id]]
     _wake(engine)
     reported = _round(engine, "report-second", "report_status", ReportStatusRequest(
         task=[names[second.activity_id]], summary=["第二段也在等。"]))[1]
@@ -638,8 +634,9 @@ def test_cross_day_duplicate_session_and_activity_names_get_ordinals(engine_fact
                 if event.event_type == "run_failed"]
 
 
-def test_self_report_stays_out_of_the_scene_and_is_marked_unverified(engine_factory) -> None:
-    """自述不当事实：播报的自述只出现在进度层活动行，标「你自己记下的，未经核验」；场景没有 current_sessions，也不复述自述。"""
+def test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument(engine_factory) -> None:
+    """自述不当事实：播报的 summary 只作为进度层该调用的参数出现，工具层的活动目标只写客观进度，待办层与环境层也不复述
+    （docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "self-report")
@@ -648,28 +645,27 @@ def test_self_report_stays_out_of_the_scene_and_is_marked_unverified(engine_fact
     assert _round(engine, "claim", "report_status", ReportStatusRequest(
         task=[_name(engine, waited.activity_id)], summary=[claim]))[1].status == "completed"
     observed = _preview(engine, "after-claim")
-    assert "current_sessions" not in observed["scene"]
-    assert claim not in json.dumps(observed["scene"], ensure_ascii=False)
-    assert claim not in render_scene(observed["scene"])
-    rows = [item for row in observed["facts"]["progress"]["sessions"] for item in row["activities"]]
-    row = next(item for item in rows if item["name"] == _name(engine, waited.activity_id))
-    assert row["subjective_progress"] == claim and row["subjective_status"] == "你自己记下的，未经核验"
-    assert row["phase"] == "进行中" and row["objective_progress"].startswith("已做")
+    layers = [observed[key] for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer")]
+    assert claim not in json.dumps(layers, ensure_ascii=False)
+    assert progress_calls(observed, "report_status")[-1]["arguments"]["summary"] == [claim]
+    row = tool_targets(observed)[_name(engine, waited.activity_id)]
+    assert row["phase"] == "进行中" and row["state"].startswith("已做")
 
 
 def _recall(engine: LifeEngine, name: str, task_name: str) -> dict:
-    """@brief 回看一个可读名称，返回下一次观察 details.recall 中的公开结果（与私有结果同形、不带身份）。"""
+    """@brief 回看一个可读名称，返回下一次观察进度层该调用结果 details.recall 中的公开结果（与私有结果同形、不带身份）。"""
     _wake(engine)
     result = _round(engine, name, "recall_task_summary", RecallTaskSummaryRequest(task_name=task_name))[1]
     assert result.status == "completed"
-    shown = [row.get("details", {}).get("recall") for row in _preview(engine, f"{name}-shown")[
-        "facts"]["progress"]["results"]]
+    shown = [row["result"]["details"].get("recall")
+             for row in progress_calls(_preview(engine, f"{name}-shown"), "recall_task_summary")]
     assert result.data["recall"] in shown
     return result.data["recall"]
 
 
 def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(engine_factory) -> None:
-    """回看可按任务名、活动名或会话名（目标名见当日目标用例）；结果在下一次观察的 details.recall 中呈现，不带身份。"""
+    """回看可按任务名、活动名或会话名（目标名见当日目标用例）；结果在下一次观察进度层该调用的 details.recall 中呈现，
+    不带身份。"""
     engine = engine_factory()
     stage_day_plan(engine)
     task = next(iter(engine.scenario.tasks))
@@ -677,8 +673,8 @@ def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(
     waited = _wait(engine, "recall-wait")
     name = _name(engine, waited.activity_id)
     stay = sessions.current_session(engine.state, 1)
-    assert _recall(engine, "recall-task", task.title) == {
-        "kind": "task", "name": task.title,
+    assert _recall(engine, "recall-task", f"工作：{task.title}") == {
+        "kind": "task", "name": f"工作：{task.title}",
         "due_at": sessions.moment_label(int(task.due_at.timestamp()), engine.scenario.timezone)}
     before = _recall(engine, "recall-activity", name)
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
@@ -772,17 +768,14 @@ def test_slot_counting_durations_and_session_helpers_are_pure(engine_factory) ->
     assert activity_control.new_activity_count(["consume", "consume"], ["食用", "使用"]) == 2
     assert activity_control.new_activity_count(["travel_to", "purchase"], ["步行", "远程下单"]) == 1
     assert activity_control.new_activity_count(["travel_to", "watch"], ["步行", "接着听"]) == 2
-    assert [activity_control.readable_duration(value) for value in (59, 600, 5400)] == [
-        "不到1分钟", "约10分钟", "约1.5小时"]
+    assert [duration_phrase(value) for value in (59, 600, 5400)] == ["不到 1 分钟", "约 10 分钟", "约 1.5 小时"]
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "helpers")
     activity = engine.state.activities[waited.activity_id]
     work = activity.model_copy(update={"kind": "work", "elapsed_seconds": 7200, "effective_work_seconds": 5400,
                                        "planned_duration_seconds": 7200}, deep=True)
-    assert activity_control.objective_progress(work, 7200) == "已做约2小时，有效约1.5小时，还差约2小时，还剩不到1分钟"
-    assert activity_control.objective_progress(work, 0) == "已做约2小时，有效约1.5小时，还剩不到1分钟"
-    assert activity_control.remaining_required(engine.state, activity, {}) is None
+    assert activity_control.objective_progress(work) == "已做约 2 小时，有效约 1.5 小时，还剩不到 1 分钟"
     stay = sessions.current_session(engine.state, 1)
     assert sessions.end_transit(engine.state, 1, engine._place_names) == (engine.state, [])
     assert not sessions.on_road(engine.state, activity.model_copy(update={"session_ids": []}))

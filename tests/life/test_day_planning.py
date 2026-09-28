@@ -23,7 +23,7 @@ from tests.life.conftest import (StubPlanDayClient, advance_next, advance_until_
 from tests.life.test_scheduling import _custom_engine, _document, _identity, _write_scenario
 from worldmock.errors import ProtocolError
 from worldmock.footprints.checkpoint import snapshot_directory
-from worldmock.life import day_planning, narration, reminders
+from worldmock.life import day_planning, reminders
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.day_plan_inputs import plan_inputs
 from worldmock.life.engine import LifeEngine
@@ -196,9 +196,9 @@ def test_start_path_generates_the_day_plan_once_and_leaves_the_person_untouched(
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     assert "run_start" in observed["wake_reasons"]
-    goals = observed["facts"]["day_plan"]["goals"]
-    assert goals[0]["reminder"] == "提醒 09:30" and "reminder" not in goals[1]
-    assert "工作（未推进，提醒 09:30）、用餐（未推进）" in narration.render_scene(observed["scene"])
+    goals = observed["todo_layer"]["day_plan"]["goals"]
+    assert [(row["intent_kind"], row["progressed"], row["remind_time"]) for row in goals] == [
+        ("工作", False, "09:30"), ("用餐", False, None)]
     assert not [event for event in _events(engine, seq)
                 if event.event_type in {"decision_started", "memory_updated", "action_requested"}]
 
@@ -308,7 +308,7 @@ def test_midnight_settles_the_old_day_then_plans_then_judges_the_second(tmp_path
     client = StubPlanDayClient(goals=goals)
     settle_day_plans(engine, client)
     payload = json.loads(client.calls[0]["messages"][1]["content"])
-    assert payload["已核验经历"] == ["23:45–00:00 等待了约15分钟"]
+    assert payload["已核验经历"] == ["23:45–00:00 等待了约 15 分钟"]
     assert payload["上一天的目标"] == [{"意图": "休息", "目标": "睡前歇一会儿", "推进": "已推进"}]
     after = _events(engine, seq)
     kinds = [event.data.get("kind") or event.event_type for event in after]
@@ -373,17 +373,17 @@ def test_sleep_crosses_midnight_and_the_new_reminder_ends_it_once(tmp_path):
     assert (sleep.status, sleep.ended_at, sleep.boundary_type, sleep.interruption_reason) == (
         "completed", _at(6, 5), "plan_reminder", "plan_reminder")
     assert sleep.elapsed_seconds == _at(6, 5) - sleep.started_at
-    alarm = "到了你给『起床洗漱』定的 05:00"
     observed, _ = _decide(engine, "woken")
     assert {"planned_end", "wake_from_sleep", "no_active_activity", "plan_reminder_due"} <= set(
         observed["wake_reasons"])
-    assert observed["facts"]["progress"]["alarms"] == [alarm]
+    assert _reminders(observed) == ["起床洗漱"]
     assert engine.state.agents[1].day_plan.goals[0].reminded_at == _at(6, 5)
     observed, _ = _decide(engine, "after-conclusion")
-    assert "wake_from_sleep" not in observed["wake_reasons"] and observed["facts"]["progress"]["alarms"] == [alarm]
+    assert "wake_from_sleep" not in observed["wake_reasons"] and _reminders(observed) == ["起床洗漱"]
     assert advance_until_ready(engine) and engine.state.current_time > _at(6, 5)
     observed, _ = _decide(engine, "later")
-    assert observed["facts"]["progress"]["alarms"] == [] and "plan_reminder_due" not in observed["wake_reasons"]
+    # 提醒记录由提醒写入时刻推导，在本段停留内保留且只出现一次；不再唤醒。
+    assert _reminders(observed) == ["起床洗漱"] and "plan_reminder_due" not in observed["wake_reasons"]
     assert reminders.reminder_times(engine.state.agents[1], engine.state.current_time) == ()
 
 
@@ -455,15 +455,20 @@ def test_reminders_wake_once_merge_and_fire_after_the_goal_progressed(engine_fac
     assert agent.day_plan.goals[0].progressed_at is not None
     assert agent.pending_wake_reasons.count("plan_reminder_due") == 1
     observed, result = _decide(engine, "reminded", _revise(("工作", "写周报", "00:00")))
-    assert observed["facts"]["progress"]["alarms"] == ["到了你给『歇一会儿』定的 00:20", "到了你给『起床洗漱』定的 00:20"]
+    assert _reminders(observed) == ["歇一会儿", "起床洗漱"]
     assert result.error_code == "PLAN_REMIND_TIME_INVALID"
     assert [row["phase"] for row in observed["activity_bindings"]].count(PHASE_ACTIVE) == 1
-    # 同一秒的后续同刻轮次：人物仍有进行中的等待，提醒句不再写出。
+    # 同一秒的后续同刻轮次：提醒记录仍各只出现一次，不重复写出。
     observed, result = _decide(engine, "after-rejection")
-    assert observed["facts"]["progress"]["alarms"] == [] and result.status == "completed"
+    assert _reminders(observed) == ["歇一会儿", "起床洗漱"] and result.status == "completed"
     assert [goal.reminded_at for goal in engine.state.agents[1].day_plan.goals] == [remind, remind, None]
     assert advance_until_ready(engine)
     assert "plan_reminder_due" not in engine.state.agents[1].pending_wake_reasons
+
+
+def _reminders(observed: dict) -> list[str]:
+    """进度层的目标提醒记录（只写目标文字，按计划顺序）。"""
+    return [row["goal"] for row in observed["progress_layer"]["events"] if row["type"] == "plan_reminder"]
 
 
 def test_revision_keeps_replaces_and_cancels_reminders(engine_factory):
@@ -522,8 +527,8 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
 
     payload = inputs.payload
     assert (payload["人物"]["名字"], payload["人物"]["背景"]) == (config.name, config.background_story)
-    assert [sentence for sentence, _ in inputs.experiences] == ["00:00–00:15 等待了约15分钟",
-                                                               "00:15–00:30 等待了约15分钟"]
+    assert [sentence for sentence, _ in inputs.experiences] == ["00:00–00:15 等待了约 15 分钟",
+                                                               "00:15–00:30 等待了约 15 分钟"]
     assert payload["动作结果"] == ["00:00 给联系人：沈昊发了消息：周五一起吃饭？"]
     assert payload["收尾记录"][-1] == {"时间": "00:30", "活动": name, "收尾说明": "歇好了，明早七点半起床。",
                                     "想记住的": ["明早七点半起床"], "说明": "你自己记下的，未经核验"}

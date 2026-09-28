@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -9,7 +10,8 @@ import pytest
 from pydantic import ValidationError
 
 from agentsociety2.society import DirectToolCall
-from tests.life.conftest import advance_next, conclude_pending, context, start_activity, submit_round
+from tests.life.conftest import (advance_next, conclude_pending, context, start_activity, submit_round,
+                                 target_actions, tool_targets)
 from tests.life.test_category_runtime import (
     _engine, _formal_fixture, _read_json, _replace_map_file, _save_fixture,
     _scenario_source, _set_pairing_coefficient, _set_pairing_undefined,
@@ -21,6 +23,7 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import purchase_order
 from worldmock.life.map_models import QuoteConfig
 from worldmock.life.models import PurchaseItem, PurchaseOrderRequest, SupplyQuoteState
+from worldmock.life.readable import money_phrase
 
 
 PRODUCT = "food-6923644266066"
@@ -58,8 +61,8 @@ def _offer(engine, identity: str, round_id: str):
         row["object_id"] for row in available if PRODUCT in row["object_id"]
     ]
     binding = next(row for row in available if row["object_id"] == identity)
-    public = next(row for row in observed["facts"]["products"]
-                  if row["object"] == binding["object"])
+    public = tool_targets(observed)[binding["object"]]
+    assert public["kind"] == "product"
     return current, observed, binding, public
 
 
@@ -96,7 +99,7 @@ def test_independent_quotes_use_each_supply_frozen_price_in_real_engine(priced_e
         before_quotes = dict(engine.state.supply_quotes)
         observed, binding, public, result = _buy(engine, identity, f"store-{index}")
         expected = (price + 1) // 2
-        assert public["price_fen"] == expected
+        assert target_actions(observed, public["name"])["远程下单"]["price"] == money_phrase(expected)
         assert binding["quote"]["price_version"] == before_quotes[identity].price_version
         assert result.status.value == "completed"
         assert result.data["total_price_fen"] == expected
@@ -112,8 +115,8 @@ def test_independent_quotes_use_each_supply_frozen_price_in_real_engine(priced_e
             before_accounts[supply.seller_account_id] + expected)
         assert engine.state.supply_stock[identity] == before_stock[identity] - 1
         assert engine.state.supply_quotes == before_quotes
-        assert all("supply_id" not in row and "price_version" not in row
-                   for row in observed["facts"]["products"])
+        text = json.dumps(observed["tool_layer"], ensure_ascii=False)
+        assert '"supply_id"' not in text and '"price_version"' not in text and identity not in text
         seen_sellers.add(supply.seller_account_id)
     assert len(seen_sellers) == 2
 
@@ -145,8 +148,8 @@ def test_defined_zero_coefficient_purchase_has_no_account_transfer(priced_engine
     identity = next(iter(PRICES))
     accounts = dict(engine.state.accounts)
     stock = engine.state.supply_stock[identity]
-    _, _, public, result = _buy(engine, identity, "zero-amount")
-    assert public["price_fen"] == 0
+    observed, _, public, result = _buy(engine, identity, "zero-amount")
+    assert target_actions(observed, public["name"])["远程下单"]["price"] == money_phrase(0)
     assert result.status.value == "completed"
     assert result.data["total_price_fen"] == 0
     assert engine.state.accounts == accounts

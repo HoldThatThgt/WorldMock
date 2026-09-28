@@ -2,7 +2,8 @@
 超长派生时长（docs/dev/SPEC-time-and-energy.md 第五章；裁决 #19、#20、#23）。
 
 全部经真实引擎：观察冻结的私有绑定按「动词＋对象＋方式」解析，整组先按名额、目标在场与实际地点、出行方式、占用、
-物品状态的顺序判定再派发；拒绝写 data.reason 与 data.next_step，并在下一次观察的 facts.progress.results 中呈现。
+物品状态的顺序判定再派发；拒绝写 data.reason 与 data.next_step，并在下一次观察的进度层该调用的结果中呈现；工具层每个
+动作的 available 与 reason 与这套判定同源（docs/dev/SPEC-persona-prompt.md「工具层」）。
 """
 
 from __future__ import annotations
@@ -12,7 +13,8 @@ from datetime import datetime
 import pytest
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import advance_next, context, stage_day_plan, submit_round
+from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
+                                 tool_targets)
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS, menu_allows_action, resolve_interaction_menu
@@ -101,13 +103,13 @@ def _world(engine: LifeEngine, agent_id: int = 1) -> tuple:
 
 
 def _rejected(engine: LifeEngine, name: str, request, code: str, tool: str = "start_activity"):
-    """@brief 断言整组拒绝：错误码、世界不变，原因与下一步随下一次观察进入 facts.progress.results[].details。"""
+    """@brief 断言整组拒绝：错误码、世界不变，原因与下一步随下一次观察进入进度层该调用结果的 details。"""
     before = _world(engine)
     result = _act(engine, name, tool, request)
     assert result.status == "rejected" and result.error_code == code, (result.error_code, result.message)
     assert _world(engine) == before
     assert result.data["reason"] and result.data["next_step"]
-    shown = _observe(engine, f"{name}-shown")["facts"]["progress"]["results"][-1]
+    shown = last_result(_observe(engine, f"{name}-shown"))
     assert shown["error_code"] == code
     assert shown["details"]["reason"] == result.data["reason"]
     assert shown["details"]["next_step"] == result.data["next_step"]
@@ -270,7 +272,7 @@ def test_driving_rejects_messages_remote_orders_and_submissions(engine_factory) 
     assert message.data["reason"] == "开车时不能发消息" and message.data["next_step"].startswith("到达")
     _rejected(engine, "hands-order", _request((order[0], "obtain", "远程下单")), _UNMET)
     minutes = MeetingMinutes(summary="会议纪要", decisions=("按计划推进",), action_items=("整理材料",))
-    submission = SubmitWorkActionRequest(task_name=engine.scenario.tasks[0].title, deliverable=minutes)
+    submission = SubmitWorkActionRequest(task_name=f"工作：{engine.scenario.tasks[0].title}", deliverable=minutes)
     submitted = _rejected(engine, "hands-submit", submission, _UNMET, tool="submit_work")
     assert submitted.data["reason"] == "开车时不能提交成果"
 
@@ -324,8 +326,8 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
 
 
 def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None:
-    """途中不在任何地点：身边没有人、手边没有持有物，出发地的持有物在 facts.inventory 中注明不在手边，生活活动带
-    「路上做不了」说明，办公室工作带「需要在…」说明；菜单仍按出发地解析，路上的持有物食用在占用判定之后才报物品状态
+    """途中不在任何地点：身边没有人、手边没有持有物，出发地的持有物以「持有物：<商品>（<地点>）」列出且食用不可用，
+    生活活动标不可用「路上做不了」；菜单仍按出发地解析，路上的持有物食用在占用判定之后才报物品状态
     （驾车报 RESOURCE_CONFLICT，步行报 PRODUCT_NOT_HELD）。"""
     from worldmock.life import admission
 
@@ -334,15 +336,20 @@ def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None
     before = _observe(engine, "nowhere-before")
     assert any(row["kind"] == "person" for row in before["interaction_bindings"])
     assert any(row["kind"] == "holding" for row in before["interaction_bindings"])
-    assert before["facts"]["inventory"] and not any("note" in row for row in before["facts"]["inventory"])
+    held = [row["object"] for row in before["interaction_bindings"] if row["kind"] == "holding"]
+    assert held and all("（" not in name for name in held)
     _driving(engine, "nowhere")
     during = _observe(engine, "nowhere-during")
-    assert during["facts"]["people_here"] == [] and during["scene"]["inventory"] == []
-    assert not [row for row in during["interaction_bindings"] if row["kind"] in {"person", "holding"}]
-    assert [row["note"] for row in during["facts"]["inventory"]] == [
-        f"不在手边，只能在{row['place']}使用" for row in before["facts"]["inventory"]]
+    assert not [row for row in during["tool_layer"]["targets"] if row["kind"] == "person"
+                and row["name"].startswith("人物：")]
+    away = [row for row in during["interaction_bindings"] if row["kind"] == "holding"]
+    origin_name = next(item.name for item in engine.scenario.locations
+                       if item.location_id == engine.state.agents[1].location_id)
+    assert [row["object"] for row in away] == [f"{name}（{origin_name}）" for name in held]
+    assert all(row["location_id"] == engine.state.agents[1].location_id for row in away)
     lifestyle = [row for row in during["interaction_bindings"] if row["kind"] == "lifestyle"]
     assert lifestyle and all(row["actions"][0]["note"].endswith("要停在一个地方做，路上做不了") for row in lifestyle)
+    assert all(target_actions(during, row["object"])["进行"]["available"] is False for row in lifestyle)
     origin = engine.state.agents[1].location_id
     assert during["interaction_menu"] == resolve_interaction_menu(engine.scenario, 1, origin).model_dump(mode="json")
     context_ = admission.Context(state=engine.state, agent_id=1, place_names={})
@@ -370,14 +377,16 @@ def test_departure_with_a_running_activity_names_it_in_reason_and_next_step(engi
     trip = next(action for row in observed["interaction_bindings"] if row["object_id"] == "office"
                 for action in row["actions"] if action["label"] == "步行")
     assert trip["note"] == f"需要先结束或暂停手上的事：{name}"
+    office = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == "office")
+    assert target_actions(observed, office)["步行"]["reason"] == trip["note"]
     result = _rejected(engine, "busy-go", _request(_choice(observed, "步行", object_id="office")), _UNMET)
     assert result.data["next_step"] == f"先结束或暂停{name}"
 
 
-def test_zero_stock_supply_is_listed_without_actions_and_left_out_of_the_targets_enum(engine_factory) -> None:
-    """呈现的供给库存为 0（按世界事实不能买）时对象照常列出、动作为空列表，宿主不把它放进 targets 枚举；
-    决策照常继续，没有 run_failed（第五章「按世界事实做的过滤保留」、第九章「仍须修复」第 1 条）。"""
-    from custom.agents.life_agent import _bind_start_activity_schema, _visible_interactive_objects
+def test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out(engine_factory) -> None:
+    """呈现的供给库存为 0 时对象照常列出、取得方式照常列出并标不可用「卖完了」（运行内可能满足的条件照常列出并标原因）；
+    提交以 OUT_OF_STOCK 业务拒绝、原因一字不差，决策照常继续，没有 run_failed（docs/dev/SPEC-persona-prompt.md「工具层」、
+    第九章「仍须修复」第 1 条）。"""
     from tests.life.conftest import start_activity
 
     from worldmock.life.models import SameMomentPresentation
@@ -394,14 +403,13 @@ def test_zero_stock_supply_is_listed_without_actions_and_left_out_of_the_targets
     engine.state = staged
     observed = _observe(engine, "sold-out")
     name = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == supply)
-    assert {"object": name, "actions": []} in observed["facts"]["interactive_objects"]
-    objects = _visible_interactive_objects(observed)
-    assert objects[name] == () and "自己" in objects
-    schema = [{"function": {"name": "start_activity", "parameters": {"properties": {
-        key: {"items": {}} for key in ("targets", "actions", "ways")}}}}]
-    _bind_start_activity_schema(schema, objects, frozenset(observed["interaction_menu"]["allowed_actions"]))
-    enums = schema[0]["function"]["parameters"]["properties"]
-    assert name not in enums["targets"]["items"]["enum"] and "自己" in enums["targets"]["items"]["enum"]
+    ways = target_actions(observed, name)
+    assert ways and all((item["available"], item["reason"]) == (False, "卖完了") for item in ways.values())
+    assert "自己" in tool_targets(observed)
+    way = next(iter(ways))
+    refused = _act(engine, "sold-out-buy", "start_activity", StartActivityRequest(
+        targets=[name], actions=["obtain"], ways=[way]))
+    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "OUT_OF_STOCK", "卖完了")
     assert _act(engine, "sold-out-wait", "start_activity", start_activity("等待", "自己")).status == "in_progress"
     assert not engine.store.read_agent_events("run_failed", 1)
 
@@ -412,8 +420,8 @@ def test_listed_actions_are_menu_allowed_and_self_is_always_offered(engine_facto
     engine = _engine(engine_factory, location="office", task=True, market=True)
     observed = _observe(engine, "listed")
     menu = resolve_interaction_menu(engine.scenario, 1, "office")
-    self_row = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == "自己")
-    assert [item["action"] for item in self_row["actions"]] == ["interact：等待", "sleep：睡觉"]
+    assert [(item["action"], item["way"]) for item in tool_targets(observed)["自己"]["actions"]] == [
+        ("interact", "等待"), ("sleep", "睡觉")]
     for row in observed["interaction_bindings"]:
         for action in row["actions"]:
             assert WAYS[action["label"]] == (action["verb"], action["canonical_action"])
@@ -486,9 +494,9 @@ def test_content_beyond_one_day_is_accepted_with_the_86400_second_cap(engine_fac
     result = _act(engine, "long-watch", "start_activity", _request(feed))
     assert result.status == "in_progress", (result.error_code, result.message)
     assert engine.state.activities[result.activity_id].planned_duration_seconds == 86_400
-    shown = _observe(engine, "long-shown")["facts"]["progress"]["results"][-1]
+    shown = last_result(_observe(engine, "long-shown"))
     assert shown["details"]["planned"] == [{"name": engine.state.activities[result.activity_id].name,
-                                             "duration": "约24小时"}]
+                                             "duration": "约 24 小时"}]
 
 
 def _hold(engine: LifeEngine, products: tuple[str, ...], agent_id: int = 1) -> None:
@@ -631,7 +639,7 @@ def test_remote_order_where_it_cannot_be_delivered_is_noted_and_refused_naming_w
     refusal = admission.group_refusal(context_, [item_for(("office", "market"))])
     assert (refusal.code, refusal.reason, refusal.unmet) == (_UNMET, "暂时送不到这里", ("delivery_destination",))
     assert refusal.next_step == f"去{places['office']}或{places['market']}再下单"
-    assert admission.action_note(context_, item_for(("office",)), {}) == "暂时送不到这里"
+    assert admission.group_refusal(context_, [item_for(("office",))]).reason == "暂时送不到这里"
     assert admission.group_refusal(context_, [item_for(("home",))]) is None
 
 
@@ -698,13 +706,14 @@ def test_driving_with_a_remote_order_in_one_request_says_order_first(engine_fact
 
 
 def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_length(engine_factory) -> None:
-    """只能观看的游戏会话与内容对象同一呈现（第八章「呈现」）：方式为「接着看」或「从头再看」，说明写全长或剩余时长；
-    剩余不足 60 秒的给全长并从头派生。"""
-    from worldmock.life.activity_control import readable_duration
+    """只能观看的游戏会话与内容对象同一呈现（第八章「呈现」）：方式为「接着看」或「从头再看」，工具层动作的 duration 写
+    全长或剩余时长；剩余不足 60 秒的给全长并从头派生。"""
     from worldmock.life.models import ContentProgress
+    from worldmock.life.readable import duration_phrase
 
     engine = _engine(engine_factory, location="home")
-    row = next(row for row in _observe(engine, "game-preview")["interaction_bindings"]
+    preview = _observe(engine, "game-preview")
+    row = next(row for row in preview["interaction_bindings"]
                if row["kind"] == "game" and row["actions"][0]["canonical_action"] == "watch")
     item = engine.rules.content(row["object_id"])
 
@@ -718,16 +727,16 @@ def test_game_sessions_to_watch_are_listed_to_resume_or_restart_with_their_lengt
             event_type="environment_event", occurred_at=staged.current_time, visibility="system",
             data={"kind": "test_game_session_progress"})])
         engine.state = staged
-        found = next(found for found in _observe(engine, f"game-{position}")["interaction_bindings"]
-                     if found["object_id"] == item.item_id)
-        return [(action["verb"], action["label"], action["note"]) for action in found["actions"]]
+        seen = _observe(engine, f"game-{position}")
+        return [(action["action"], action["way"], action["duration"])
+                for action in tool_targets(seen)[row["object"]]["actions"]]
 
-    assert [(action["verb"], action["label"], action["note"]) for action in row["actions"]] == [
-        ("interact", "接着看", f"全长{readable_duration(item.duration_seconds)}")]
+    assert [(action["action"], action["way"], action["duration"])
+            for action in tool_targets(preview)[row["object"]]["actions"]] == [
+        ("interact", "接着看", duration_phrase(item.duration_seconds))]
     half = item.duration_seconds // 2
-    assert listed(half) == [("interact", "接着看", f"还剩{readable_duration(item.duration_seconds - half)}")]
-    assert listed(item.duration_seconds - 30) == [
-        ("interact", "从头再看", f"全长{readable_duration(item.duration_seconds)}")]
+    assert listed(half) == [("interact", "接着看", duration_phrase(item.duration_seconds - half))]
+    assert listed(item.duration_seconds - 30) == [("interact", "从头再看", duration_phrase(item.duration_seconds))]
     again = _act(engine, "game-restart", "start_activity", _request((row["object"], "interact", "从头再看")))
     assert again.status == "in_progress", (again.error_code, again.message)
     assert engine.state.activities[again.activity_id].planned_duration_seconds == item.duration_seconds
@@ -743,7 +752,7 @@ def test_malformed_request_gets_the_default_reason_without_the_validation_text(e
     assert "validation" in result.message and "自己" in result.message
     assert result.data["reason"] == "所选的对象或方式不在这一轮列出的范围内"
     assert result.data["next_step"] == "从本轮列出的对象和方式里选"
-    shown = _observe(engine, "malformed-shown")["facts"]["progress"]["results"][-1]["details"]
+    shown = last_result(_observe(engine, "malformed-shown"))["details"]
     assert (shown["reason"], shown["next_step"]) == (result.data["reason"], result.data["next_step"])
 
 

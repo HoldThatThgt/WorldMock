@@ -12,8 +12,8 @@ def test_observation_keeps_category_counts_outside_model_facts(engine_factory) -
     assert summary["drama_series"] == 10
     assert summary["game_session"] == 80 + len(engine.scenario.games)
     assert summary["foods"] == len(engine.scenario.supplies)
-    assert "content_catalog" not in observed["facts"]
-    assert observed["facts"]["interactive_objects"]
+    assert "content_catalog" not in observed["tool_layer"] and "activity_summary" not in observed["tool_layer"]
+    assert observed["tool_layer"]["targets"]
 
 
 def test_presented_content_and_games_use_readable_names(engine_factory) -> None:
@@ -24,5 +24,5 @@ def test_presented_content_and_games_use_readable_names(engine_factory) -> None:
     media = [row for row in bindings if row["kind"] in {"content", "game"}]
     assert media
     assert all(row["object"] != row["object_id"] for row in media)
-    public = {row["object"]: row for row in observed["facts"]["interactive_objects"]}
+    public = {row["name"]: row for row in observed["tool_layer"]["targets"]}
     assert all(row["object"] in public for row in media)

@@ -1,5 +1,5 @@
 """@brief life 领域簇行为测试：补 commerce/basket/social_actions/activities/
-rules/content/work/work_review/game/travel/semantics/motivation/narration/social
+rules/content/work/work_review/game/travel/semantics/motivation/social
 的缺分支与未覆盖公共接口（C4c 覆盖率达标单元）。
 
 只新增测试，不改生产代码。断言对照的规格章节：`docs/CONTRACTS.md`「请求字段与结算检查」、
@@ -90,7 +90,6 @@ from worldmock.life.motivation import (
 )
 from worldmock.life.map_models import DataSource, SupplyConfig
 from worldmock.life.storefront_state import quote_state
-from worldmock.life.narration import render_scene
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
@@ -951,27 +950,6 @@ def test_entertainment_candidates_skip_items_shorter_than_a_minute() -> None:
                   if item.name == "entertainment")
     context = _context(agent=agent, contents=(tiny,), taste_weights={"tiny": 0.8})
     assert _entertainment_candidates(context, _profile(), family) == []
-
-
-# ---------------------------------------------------------------------------
-# narration：观察投影与提示合同（渲染上限/闭集）
-# ---------------------------------------------------------------------------
-
-def test_render_scene_with_empty_observation_is_blank() -> None:
-    """观察字段全部缺席时场景段落为空串（渲染器不虚构事实）。"""
-    assert render_scene({}) == ""
-
-
-def test_render_scene_covers_day_goals_without_duplicate_action_result() -> None:
-    """目标进入场景提示；新动作结果仅经进度事实呈现。"""
-    rendered = render_scene({"day_plan": {"goals": [{"intent_kind": "工作", "progressed": False}]}})
-    assert "工作（未推进）" in rendered
-    assert render_scene({"recent_action_results": "你刚吃完饭"}) == ""
-
-
-def test_field_blacklist_tolerates_non_dict_route_entries() -> None:
-    """routes 白名单检查只作用于字典条目，纯字符串条目跳过。"""
-    assert render_scene({"routes": ["plain-entry"]}) == ""
 
 
 # ---------------------------------------------------------------------------

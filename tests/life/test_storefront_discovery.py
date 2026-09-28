@@ -1,5 +1,6 @@
 """商品窗口、当前报价、库存和可见凭据的合同测试。"""
 
+import json
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -11,7 +12,7 @@ from worldmock.life import discovery, presentation, projection, retrieval
 from worldmock.life.candidates import CandidateEntry, CandidateInputs, LocationView, recall
 from worldmock.life.map_models import DataSource, LocationConfig, RouteConfig, SupplyConfig
 from worldmock.life.models import AgentState, SupplyQuoteState, WorldState
-from worldmock.life.narration import render_facts
+from worldmock.life.readable import money_phrase
 from worldmock.life.presentation import PoolEntry
 from worldmock.life.result_projection import public_supply_row
 
@@ -208,11 +209,17 @@ def test_location_corpus_missing_activity_kinds_is_rejected(tmp_path):
 
 
 def _visible_supply(engine, supply_id):
+    """@brief 本轮观察里该供给的私有绑定与工具层商品目标（到店取得的动作即其价格与份数）。"""
     observed = engine._observation_data(engine.state.agents[1])
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == "supply" and row["object_id"] == supply_id)
-    fact = next(row for row in observed["facts"]["products"] if row["object"] == binding["object"])
-    return observed, binding, fact
+    target = next(row for row in observed["tool_layer"]["targets"] if row["name"] == binding["object"])
+    return observed, binding, target
+
+
+def _price(target) -> str:
+    """@brief 商品目标首个取得动作的可读价格。"""
+    return next(action["price"] for action in target["actions"] if action["action"] == "obtain")
 
 
 def test_real_observation_keeps_complete_current_supply_facts_and_private_quote(engine_factory):
@@ -222,22 +229,22 @@ def test_real_observation_keeps_complete_current_supply_facts_and_private_quote(
     engine = engine_factory()
     stage_day_plan(engine)
     supply_id = _stage_open_single_stock(engine)
-    original, binding, fact = _visible_supply(engine, supply_id)
-    assert fact["current_stock"] == 1
-    assert fact["price_fen"] == binding["quote"]["purchase_price_fen"]
-    assert fact["quote_status"] == "known"
-    assert {"supply_id", "price_version", "changes", "based_on_action_id"}.isdisjoint(fact)
-    assert f'"{supply_id}"' not in render_facts(original["facts"])
+    original, binding, target = _visible_supply(engine, supply_id)
+    assert target["kind"] == "product"
+    assert _price(target) == money_phrase(binding["quote"]["purchase_price_fen"])
+    assert any(action["available"] for action in target["actions"] if action["action"] == "obtain")
+    assert {"supply_id", "price_version", "changes", "based_on_action_id", "current_stock"}.isdisjoint(target)
+    assert supply_id not in json.dumps(original["tool_layer"], ensure_ascii=False)
 
     state = engine.state.model_copy(deep=True)
     quote = state.supply_quotes[supply_id]
     state.supply_quotes[supply_id] = quote.model_copy(update={"price_fen": 999, "price_version": "changed"})
     _commit_test_state(engine, state, "storefront_quote_changed")
-    _, changed_binding, changed_fact = _visible_supply(engine, supply_id)
-    assert changed_fact["price_fen"] == changed_binding["quote"]["purchase_price_fen"]
+    _, changed_binding, changed_target = _visible_supply(engine, supply_id)
+    assert _price(changed_target) == money_phrase(changed_binding["quote"]["purchase_price_fen"])
     assert changed_binding["quote"]["price_fen"] == 999
     assert changed_binding["quote"]["price_version"] == "changed"
-    assert set(changed_fact) == set(fact)
+    assert set(changed_target) == set(target)
 
     state = engine.state.model_copy(deep=True)
     state.supply_quotes[supply_id] = quote.model_copy(update={"effective_to": state.current_time})
@@ -245,9 +252,9 @@ def test_real_observation_keeps_complete_current_supply_facts_and_private_quote(
     _commit_test_state(engine, state, "storefront_quote_expired_and_sold_out")
     expired = engine._observation_data(engine.state.agents[1])
     assert all(row["object_id"] != supply_id for row in expired["interaction_bindings"])
-    assert all(row["object"] != binding["object"] for row in expired["facts"]["products"])
+    assert all(row["name"] != binding["object"] for row in expired["tool_layer"]["targets"])
     private = next(row for row in expired["supplies"] if row["supply_id"] == supply_id)
     assert private["quote_status"] == "unknown"
     assert private["price_fen"] is None and private["current_stock"] == 0
     assert private["purchase_allowed"] is False
-    assert f'"{supply_id}"' not in render_facts(expired["facts"])
+    assert supply_id not in json.dumps(expired["tool_layer"], ensure_ascii=False)

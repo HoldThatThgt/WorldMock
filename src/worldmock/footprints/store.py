@@ -182,15 +182,32 @@ class FootprintStore:
         """, (agent_id, event_type)).fetchone()
         return row[0] if row[0] is not None else 0
 
-    def last_agent_progress_request_seq(self, agent_id: int) -> int:
-        """@brief 找到最近一次实际发给人物模型且包含进度层的请求（带 purpose 的系统请求，如零点计划，不算）。"""
+    def last_agent_action_request_seq(self, agent_id: int) -> int:
+        """@brief 最近一次行动请求的事件序号（没有时为 0）。
+
+        行动请求的唯一判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：不带 purpose、thinking 开启、
+        原生 tools 含 start_activity 的 model_request；零点计划、工作评审与只读问答都不算。不读提示文本。
+        """
         row = self.connection.execute("""
             SELECT max(event_seq) FROM events WHERE json_extract(body,'$.agent_id')=?
             AND json_extract(body,'$.event_type')='model_request'
             AND json_extract(body,'$.data.purpose') IS NULL
-            AND instr(json_extract(body,'$.data.request.messages[1].content'), '"progress":') > 0
+            AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled'
+            AND EXISTS (SELECT 1 FROM json_each(body,'$.data.request.tools')
+                        WHERE json_extract(value,'$.function.name')='start_activity')
         """, (agent_id,)).fetchone()
         return row[0] if row[0] is not None else 0
+
+    def last_event_seq_before(self, occurred_at: int) -> int:
+        """@brief 发生时刻早于 occurred_at 的最后一个事件序号（没有时为 0），供按时间确定区间下界。
+
+        事件按发生时刻单调追加（_build_events 拒绝早于上一事件的时刻），所以从最新事件倒序找到的第一条即是最后一条，
+        只读区间内的事件。
+        """
+        row = self.connection.execute(
+            "SELECT event_seq FROM events WHERE json_extract(body,'$.occurred_at')<? ORDER BY event_seq DESC LIMIT 1",
+            (occurred_at,)).fetchone()
+        return row[0] if row is not None else 0
 
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""

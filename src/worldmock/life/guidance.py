@@ -3,7 +3,8 @@
 拒绝结果的 data.reason（一句中文原因）与 data.next_step（可读的活动名、地点名或做法，不含内部身份）由本模块从拒绝
 确定性生成：引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步（或以可读名称写 suggested），原因记在
 错误的 public_reason 上；其余错误码按码取中文默认原因，从不取链式底层异常的文字（其中可能是请求模型的校验转储）。
-两者经公开结果投影进入 facts.progress.results[].details，并由同刻轮次的 scene.just_now 引用。
+两者经公开结果投影进入进度层 tool_call.result.details（docs/dev/SPEC-persona-prompt.md「进度层」）。工具层的可用性
+说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。
 """
 
 from __future__ import annotations
@@ -21,20 +22,26 @@ _DEFAULT_REASONS = {
     "INTERACTION_MENU_DENIED": "这里不能这样做",
     "ACTIVITY_DURATION_INVALID": "按现在的情况算出的时长不合适，做不了",
     "ROUTE_DURATION_INVALID": "这段路太长，一次走不完",
+    "ACTIVITY_TOO_SHORT": "时长不到一分钟，做不了",
     "PRODUCT_NOT_HELD": "手边没有这件东西",
     "PRODUCT_USE_LOCATION_REQUIRED": "这件东西只能在它所在的地方用",
     "FULFILLMENT_NOT_SUPPORTED": "这件商品不能用这种方式买",
+    "DELIVERY_DESTINATION_NOT_SUPPORTED": "暂时送不到这里",
+    "DELIVERY_ROUTE_NOT_FOUND": "暂时送不到这里",
+    "DELIVERY_ROUTE_UNREACHABLE": "暂时送不到这里",
+    "DELIVERY_ROUTE_INFORMATION_UNKNOWN": "暂时送不到这里",
     "INSUFFICIENT_FUNDS": "钱不够",
     "INSUFFICIENT_TRAVEL_FUNDS": "钱不够付这段路费",
     "OUT_OF_STOCK": "卖完了",
     "MERCHANT_CLOSED": "店没开门",
     "CHAT_PARTNER_NOT_AVAILABLE": "对方现在不方便交谈",
     "CHAT_ALREADY_ACTIVE": "你们已经在交谈了",
+    "SOCIAL_ACTIVITY_CANNOT_PAUSE": "交谈与通话不能暂停",
     "RECIPIENT_NOT_FOUND": "找不到这个收件人",
     "MESSAGE_TEXT_TOO_LONG": "消息太长了",
     "WORK_INCOMPLETE": "这项工作还没做够，不能提交",
     "WORK_REQUIRES_REWORK": "提交的成果还需要返工",
-    "WORK_TASK_IN_PROGRESS": "这项工作正在做，先结束或暂停它再提交",
+    "WORK_TASK_IN_PROGRESS": "先结束正在做的工作",
     "WORK_TASK_ALREADY_PAID": "这项工作已经结算过了",
     "WORK_SUBMISSION_LATE": "已经过了截止时间",
     "ELIGIBILITY_LOCATION_KIND_MISMATCH": "这里不适合做这件事",
@@ -47,6 +54,7 @@ _DEFAULT_NEXT_STEPS = {
     "WORK_INCOMPLETE": "接着做这项工作，做够了再提交",
     "SAME_MOMENT_ACTION_RESTRICTED": "只从这一轮开放的动作里选",
     "ACTION_REQUEST_INVALID": "从本轮列出的对象和方式里选",
+    "SOCIAL_ACTIVITY_CANNOT_PAUSE": "可以直接结束",
 }
 
 
@@ -82,6 +90,14 @@ def guided(code: str, reason: str, next_step: str = "", unmet: Sequence[str] = (
     :param unmet: 未满足条件名称，写进私有 data.unmet。
     """
     return Refusal(code, reason, next_step, tuple(unmet)).error()
+
+
+def refusal_for_code(code: str) -> Refusal:
+    """@brief 只有错误码的业务拒绝对应的 Refusal：原因与下一步取该码的默认说法，与 rejection_guidance 一字不差。
+
+    :param code: 业务错误码（接口合同登记的闭集）。
+    """
+    return Refusal(code, _DEFAULT_REASONS.get(code, GENERIC_REASON), _DEFAULT_NEXT_STEPS.get(code, ""))
 
 
 def rejection_guidance(error: BusinessRuleError) -> dict[str, str]:

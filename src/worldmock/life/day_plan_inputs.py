@@ -4,7 +4,7 @@
 回顾时段里已核验经历的句子（第七章口径）、本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收）、
 回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（标「你自己记下的，未经核验」；被拒与重放的
 请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
-不读身体数值、交互对象、私有绑定、未到期的预排事件、决策自述与人物的主观记忆库，也不含内部身份。
+不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
 
 回顾时段自 day_start 至 now：零点边界上是刚结束的本地日（前一日零点至本次零点），启动路径上是生成时刻所在
 本地日里生成时刻之前的部分（起点恰为零点时为空）。动作结果与收尾按发生时刻取闭区间；经历按结算区间的结束时刻取左开右闭，
@@ -124,7 +124,7 @@ def _experience_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[
     facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=store.last_event_seq)
     inputs = projection.ProjectionInputs(
         state=engine.state, scenario=engine.scenario, agent=engine.state.agents[agent_id],
-        recent_results=(), task_rows=(), extras={"content_titles": engine.rules.content_titles})
+        extras={"content_titles": engine.rules.content_titles})
     facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("product_id", "")))
     return tuple((projection._experience_sentence(inputs, fact), fact["source_event_id"])
                  for fact in facts if window.ends_within(fact["occurred_at"]))
@@ -208,7 +208,7 @@ def _task_rows(engine: Any, agent: Any, window: _Window) -> list[dict[str, Any]]
 def _inbox_rows(engine: Any, agent: Any, window: _Window) -> list[dict[str, Any]]:
     """@brief 收件箱：发件人、摘要、是否已读与时间（与观察同源，不含消息身份）。"""
     inputs = projection.ProjectionInputs(
-        state=engine.state, scenario=engine.scenario, agent=agent, recent_results=(), task_rows=(),
+        state=engine.state, scenario=engine.scenario, agent=agent,
         extras={"scenario_messages": engine.rules.messages})
     rows = projection._public_inbox(inputs, projection._inbox_rows(inputs))
     return [{"发件人": row["sender"], "摘要": row["head"], "已读": row["read"], "时间": window.when(row["created_at"])}

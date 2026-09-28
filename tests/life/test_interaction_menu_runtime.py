@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import context, stage_day_plan
@@ -38,33 +36,32 @@ def _deny_travel_at_home(engine) -> None:
 
 
 def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_factory):
-    """人物所见只有对象与「动词：方式」加说明；没有内部编号、报价版本、路线秒数或 preconditions_met。"""
+    """人物所见只有工具层的目标、动词与方式及其可用性与说明；没有内部编号、报价版本、路线秒数或 preconditions_met。"""
     engine = engine_factory()
     observed = engine.observe(context(engine, "semantic-observation"))
-    rows = observed["facts"]["interactive_objects"]
+    rows = [row for row in observed["tool_layer"]["targets"] if row["kind"] != "activity"]
     assert rows
-    assert all(set(row) == {"object", "actions"} for row in rows)
-    assert all(row["object"] for row in rows)
-    phrase = re.compile(rf"^({'|'.join(LIFE_VERBS)})：(.+)$")
+    assert all(set(row) == {"name", "kind", "phase", "state", "actions", "tools"} or row["kind"] == "task"
+               for row in rows)
+    assert all(row["name"] for row in rows)
     for row in rows:
         for action in row["actions"]:
-            assert set(action) == {"action", "note"}
-            verb, way = phrase.match(action["action"]).groups()
-            assert WAYS[way][0] == verb
-            assert action["note"] is None or isinstance(action["note"], str) and action["note"]
-    assert "preconditions_met" not in str(observed["facts"])
+            assert set(action) == {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
+            assert action["action"] in LIFE_VERBS and WAYS[action["way"]][0] == action["action"]
+            assert action["reason"] is None or isinstance(action["reason"], str) and action["reason"]
+    assert "preconditions_met" not in str(observed["tool_layer"])
     assert all("preconditions_met" not in row for row in observed["interaction_bindings"])
-    assert [row["object"] for row in rows] == [row["object"] for row in observed["interaction_bindings"]]
-    own = next(row for row in rows if row["object"] == "自己")
-    assert {item["action"] for item in own["actions"]} == {"interact：等待", "sleep：睡觉"}
+    assert [row["name"] for row in rows] == [row["object"] for row in observed["interaction_bindings"]]
+    own = next(row for row in rows if row["name"] == "自己")
+    assert {(item["action"], item["way"]) for item in own["actions"]} == {("interact", "等待"), ("sleep", "睡觉")}
     travel = _binding(observed, "location", "travel_to")
     assert {item["label"] for item in travel["actions"]} <= {"步行", "驾车"}
     assert all(set(item) >= {"verb", "label", "canonical_action", "travel_mode", "note"}
                for item in travel["actions"])
-    public = next(row for row in rows if row["object"] == travel["object"])
-    assert {item["action"] for item in public["actions"]} == {
-        f"travel：{item['label']}" for item in travel["actions"]}
-    assert "travel：步行" in {item["action"] for row in rows for item in row["actions"]}
+    public = next(row for row in rows if row["name"] == travel["object"])
+    assert {(item["action"], item["way"]) for item in public["actions"]} == {
+        ("travel", item["label"]) for item in travel["actions"]}
+    assert ("travel", "步行") in {(item["action"], item["way"]) for row in rows for item in row["actions"]}
 
 
 def test_travel_uses_exact_frozen_route_seconds(engine_factory):
@@ -99,8 +96,9 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     _deny_travel_at_home(engine)
     before = engine.state.accounts.copy(), engine.state.activities.copy()
     observed, result = _observed_action(engine, "denied-travel", request)
-    listed = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == location["object"])
+    listed = next(row for row in observed["tool_layer"]["targets"] if row["name"] == location["object"])
     assert listed["actions"] == []
+    assert observed["environment_layer"]["location"]["fixed_rules"] == ["这里不能出发去别处"]
     assert result.error_code == "ACTION_REQUEST_INVALID"
     assert (engine.state.accounts, engine.state.activities) == before
 

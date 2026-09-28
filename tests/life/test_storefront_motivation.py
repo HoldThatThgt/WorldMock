@@ -6,7 +6,6 @@ import pytest
 
 from tests.life.test_motivation import _agent, _context, _food_offer, _location, _profile, _route
 from worldmock.life.motivation import _eat_candidates, _travel_candidate, evaluate_motivation
-from worldmock.life.narration import render_scene
 
 
 def _meal_context():
@@ -114,9 +113,3 @@ def test_lifestyle_candidates_use_current_explicit_location_environments():
         indoors, _profile(), transforms, top_k=30))
     assert not any(item.candidate.family == "lifestyle" for item in evaluate_motivation(
         replace(context, locations={}), _profile(), transforms, top_k=30))
-
-
-def test_scene_distinguishes_unknown_business_hours_from_closed():
-    scene = render_scene({"reachable_places": [{"name": "Unknown store", "opening_status": "unknown"}]})
-    assert "营业信息未知" in scene
-    assert "未营业" not in scene

@@ -142,12 +142,12 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     decision = context(engine, "after-rejection")
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
-    shown = observed["facts"]["progress"]["results"][0]
-    assert shown["error_code"] == "ACTION_REQUEST_INVALID"
+    (call,) = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"]
+    shown = call["result"]
+    assert shown["error_code"] == "ACTION_REQUEST_INVALID" and shown["status"] == "rejected"
     assert shown["details"] == {"reason": "所选的对象或方式不在这一轮列出的范围内",
                                 "next_step": "从本轮列出的对象和方式里选"}
-    assert observed["scene"]["just_now"] == ("刚才的请求没有成功：所选的对象或方式不在这一轮列出的范围内；"
-                                             "下一步：从本轮列出的对象和方式里选。")
+    assert call["arguments"]["targets"] == ["不存在的对象"]
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")
     request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
