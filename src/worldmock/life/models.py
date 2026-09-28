@@ -1089,7 +1089,7 @@ class ConclusionMemory(FrozenModel):
     text: str = Field(pattern=r"\S")
     importance: float = Field(ge=0, le=1)
     keywords: list[Annotated[str, Field(pattern=r"\S")]]
-    subject: Annotated[str, Field(pattern=r"\S")] | None = Field(description="这条记忆关于的人或事物")
+    subject: Annotated[str, Field(pattern=r"\S")] | None = Field(description="这条记忆关于的人或事物。")
 
     @model_validator(mode="after")
     def validate_limits(self) -> "ConclusionMemory":

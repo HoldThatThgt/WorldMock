@@ -211,7 +211,7 @@ def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> Non
     conclude = _function("conclude_activity")["parameters"]
     memory_item = conclude["properties"]["memories"]["items"]["items"]
     assert set(memory_item["properties"]) == {"type", "text", "importance", "keywords", "subject"}
-    assert memory_item["properties"]["subject"]["description"] == "这条记忆关于的人或事物"
+    assert memory_item["properties"]["subject"]["description"] == "这条记忆关于的人或事物。"
     _assert_closed(memory_item)
     payload = {"task": [_WAIT], "summary": ["收尾。"], "memories": [[_memory()]]}
     assert list(Draft202012Validator(conclude).iter_errors(payload)) == []
