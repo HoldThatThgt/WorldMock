@@ -62,8 +62,9 @@ def test_arrived_mail_is_read_through_its_object(engine_factory) -> None:
     assert advance_until_ready(engine)
     observed = engine.observe(context(engine, "mail-see"))
     mail = next(row for row in observed["interaction_bindings"] if row["kind"] == "mail")
-    public = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == mail["object"])
-    assert public["actions"] == [{"action": "interact：阅读", "note": None}]
+    public = next(row for row in observed["tool_layer"]["targets"] if row["name"] == mail["object"])
+    assert (public["kind"], public["state"]) == ("message", "未读")
+    assert [(row["action"], row["way"], row["available"]) for row in public["actions"]] == [("interact", "阅读", True)]
     _, results = submit_round(engine, {1: ("start_activity", start_activity("阅读", mail["object"]))}, "mail-read")
     assert results[0].status == "in_progress"
     reading = engine.state.activities[results[0].activity_id]
@@ -71,7 +72,7 @@ def test_arrived_mail_is_read_through_its_object(engine_factory) -> None:
 
 
 def test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_mail_objects(tmp_path) -> None:
-    """交谈邀请、人物消息与联系人回复只在 facts.inbox 中呈现，不作为阅读对象；只有场景邮件是可阅读的邮件对象
+    """交谈邀请、人物消息与联系人回复以全文进入进度层的 message_arrival，不作为阅读对象；只有场景邮件是可阅读的邮件对象
     （docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。multi-person 场景真实引擎：人物 2 邀请
     人物 1 交谈、再给人物 1 发消息；人物 1 给 template 策略联系人发消息，占位回复在 CONTACT_REPLY_DELAY_SECONDS 后以
     message_arrival 送达，同一秒一封场景邮件也到达。四条都在收件箱，交互对象里只有那封场景邮件可阅读。"""
@@ -96,14 +97,16 @@ def test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_
     friend = engine.state.agents[2].name
     contacts = next(item.contacts for item in engine.scenario.agents if item.agent_id == 1)
     salutation = next(item.salutation for item in contacts if item.reply_policy == "template")
-    social = {("chat_invite", friend, f"{friend}邀请你交谈，对{friend}选择交谈即接受"),
-              ("direct", friend, message.text), ("direct", salutation, TEMPLATE_REPLY_TEXT)}
+    invite = next(item.text for item in engine.state.agents[1].inbox.values() if item.kind == "chat_invite")
+    social = {("chat_invite", friend, invite), ("direct", friend, message.text),
+              ("direct", salutation, TEMPLATE_REPLY_TEXT)}
     mail = engine.scenario.messages[0]
-    inbox = {(row["kind"], row["sender"], row["head"]) for row in observed["facts"]["inbox"]}
-    assert social | {("mail", None, mail.subject)} <= inbox
+    arrivals = {(row["kind"], row["sender"], row.get("text", row.get("subject")))
+                for row in observed["progress_layer"]["events"] if row["type"] == "message_arrival"}
+    assert social | {("mail", None, mail.subject)} <= arrivals
     mails = [row for row in observed["interaction_bindings"] if row["kind"] == "mail"]
     assert [row["object_id"] for row in mails] == [mail.message_id]
-    objects = observed["facts"]["interactive_objects"]
-    readable = [row["object"] for row in objects if any(item["action"] == "interact：阅读" for item in row["actions"])]
+    objects = observed["tool_layer"]["targets"]
+    readable = [row["name"] for row in objects if any(item["way"] == "阅读" for item in row["actions"])]
     assert readable == [mails[0]["object"]]
-    assert not [row["object"] for row in objects for _, _, head in social if head in row["object"]]
+    assert not [row["name"] for row in objects for _, _, text in social if text in row["name"]]

@@ -205,7 +205,7 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
 
 
 def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
-    """按目标名称回看返回目标与推进状态，结果随下一次观察进入 details.recall；未知名称是业务拒绝
+    """按目标名称回看返回目标与推进状态，结果随下一次观察进入进度层该调用的 details.recall；未知名称是业务拒绝
     （时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary）。"""
     engine = engine_factory()
     assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
@@ -215,8 +215,8 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     assert before.status == "completed"
     expected = {"kind": "goal", "goal": "歇一歇", "intent_kind": "休息", "progressed": False}
     assert before.data["recall"] == expected
-    shown = engine.observe(context(engine, "recall-shown"))["facts"]["progress"]["results"]
-    assert {"recall": expected} in [row.get("details") for row in shown]
+    shown = engine.observe(context(engine, "recall-shown"))["progress_layer"]["events"]
+    assert {"recall": expected} in [row["result"]["details"] for row in shown if row["type"] == "tool_call"]
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     act(engine, "recall-rest", "start_activity", start_activity("等待", "自己"))

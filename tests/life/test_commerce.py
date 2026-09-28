@@ -177,7 +177,8 @@ def test_food_progress_persists_partial_quantity_across_pause_and_completion(eng
 
 
 def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) -> None:
-    """人在办公室时，家里的商品不进入本轮可操作对象。"""
+    """人在办公室时，家里的商品以「持有物：<商品>（<地点>）」列出，使用标不可用并写明只能在当地用；提交以
+    PRODUCT_NOT_HELD 拒绝、原因一字不差；不存在的名称仍以 ACTION_REQUEST_INVALID 拒绝，库存不变。"""
     engine = engine_factory()
     product = engine.scenario.products[0]
     staged = engine.state.model_copy(deep=True)
@@ -191,8 +192,15 @@ def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) ->
     engine.state = staged
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "remote-preview"))
-    assert not any(row["kind"] == "holding" and row["object_id"] == product.product_id
-                   for row in observed["interaction_bindings"])
+    (away,) = [row for row in observed["interaction_bindings"]
+               if row["kind"] == "holding" and row["object_id"] == product.product_id]
+    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
+    assert away["location_id"] == "home" and away["object"] == f"持有物：{product.name}（{home}）"
+    way = away["actions"][0]["label"]
+    reason = f"这件东西在{home}，只能在当地用"
+    assert [item["note"] for item in away["actions"]] == [reason] * len(away["actions"])
+    _, refused = _observed_action(engine, "remote-use", "start_activity", start_activity(way, away["object"]))
+    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "PRODUCT_NOT_HELD", reason)
     request = start_activity("食用", "家里的食物")
     _, result = _observed_action(engine, "remote-eat", "start_activity", request)
     assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"

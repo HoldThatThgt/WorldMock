@@ -5,6 +5,8 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import json
+
 import pytest
 
 from agentsociety2.society import DecisionContext, DirectToolCall
@@ -158,11 +160,11 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
     assert observed["activity_summary"]["foods"] == len(engine.scenario.supplies)
-    # 修订合同：game_catalog 全表与完整路线不再进入观察（黑名单/坐标几何）；
-    # 游戏身份经交互对象窗口揭示，地点经 scene 可达集。
-    assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
-    assert "game_catalog" not in observed["scene"]
-    destinations = {item["destination"] for item in observed["facts"]["routes"]}
+    # game_catalog 全表与完整路线不进入任何一层（黑名单/坐标几何）；游戏身份经工具层窗口揭示，地点是工具层的
+    # location 目标（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    assert "game_catalog" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
+    places = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location"]
+    destinations = {row["name"].removeprefix("地点：") for row in places}
     # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
     # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
     location_names = {item.location_id: item.name for item in engine.scenario.locations}
@@ -174,10 +176,9 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
               if route.origin_id == "home"}
     names = {item.name for item in engine.scenario.locations
              if item.location_id in routed}
-    reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
-    assert reachable == names  # scene 用展示名（docs/dev/SPEC-life-runtime.md「观察投影三部分」）
-    assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
-    assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
+    assert destinations == names  # 目标名用展示名
+    assert all(row["state"] in {"开着", "关着", "开放时间不明"} for row in places)
+    assert all(action["duration"] for row in places for action in row["actions"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
     request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))

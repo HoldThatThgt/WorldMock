@@ -1186,7 +1186,8 @@ class TestMarketSummary:
     def test_summary_common_knowledge_without_browse(self, engine_factory):
         engine = engine_factory()
         data = engine.observe(round_context(engine, "r-mkt", agent_id=1))
-        assert data["facts"]["products"] == []
+        assert not [row for row in data["tool_layer"]["targets"] if row["kind"] == "product"
+                    and "出售的" in row["name"]]
         assert data["market_summary"] == {"supply_count": len(engine.scenario.supplies)}
         assert not {"open", "price_range_fen", "price_version"} & data["market_summary"].keys()
 
