@@ -492,6 +492,29 @@ def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engin
     assert activity.elapsed_seconds == _clock("10:43:01") - _clock("09:10:51")
 
 
+def test_resume_plans_the_end_within_the_contract_hours_left_after_other_work_on_the_task(deadline_engine) -> None:
+    """暂停期间同一任务另做一段并收尾后再恢复：上限取 min（距截止, 合同上限减已累计），已累计含另一段的工时。
+    09:10:51 开工、10:43:01 暂停，同秒另开同一任务做到 13:00:00 收尾，同秒恢复：合同只剩 15051 秒、距截止 16200 秒，
+    计划结束是 17:10:51；只按截止封顶是 17:30，旧算法（现在＋剩余）是 19:27:50。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    _stage_office(engine, _clock("09:10:51"))
+    first = _start_work(engine, "first-start")
+    _decide_at(engine, _clock("10:43:01"))
+    assert _pause(engine, "first-pause", first).status == "completed"
+    second = _start_work(engine, "second-start")
+    _decide_at(engine, _clock("13:00:00"))
+    assert _decide(engine, "second-end", "conclude_activity",
+                   lambda observed: conclude_request(*_named(second)(observed))).status == "completed"
+    resumed = _resume(engine, "first-resume", first)
+    assert (resumed.status, resumed.error_code) == ("completed", None)
+    now, activity = engine.state.current_time, engine.state.activities[first]
+    worked = sum(engine.state.activities[item].elapsed_seconds for item in (first, second))
+    assert (now, worked) == (_clock("13:00:00"), _clock("13:00:00") - _clock("09:10:51"))
+    assert activity.planned_end_at - now == task.maximum_duration_seconds - worked < int(task.due_at.timestamp()) - now
+    assert activity.planned_end_at == _clock("17:10:51")
+
+
 @pytest.mark.asyncio
 async def test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_once(deadline_engine) -> None:
     """恢复后的工作在 17:30 截止那一秒结束：同秒先收尾再提交，截止同秒不算迟交，只付款一次。"""
