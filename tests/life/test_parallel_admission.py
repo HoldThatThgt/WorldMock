@@ -327,8 +327,8 @@ def _live_until(engine: LifeEngine, moment: int) -> None:
 
 def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None:
     """途中不在任何地点：身边没有人、手边没有持有物，出发地的持有物以「持有物：<商品>（<地点>）」列出且食用不可用，
-    生活活动标不可用「路上做不了」；菜单仍按出发地解析，路上的持有物食用在占用判定之后才报物品状态
-    （驾车报 RESOURCE_CONFLICT，步行报 PRODUCT_NOT_HELD）。"""
+    生活活动标不可用「路上做不了」；路程中没有场所，菜单不按出发地解析、只取人物声明，路上的持有物食用在占用判定之后才报
+    物品状态（驾车报 RESOURCE_CONFLICT，步行报 PRODUCT_NOT_HELD）。"""
     from worldmock.life import admission
 
     engine = _engine(engine_factory, "multi-person.json")
@@ -350,8 +350,7 @@ def test_en_route_person_is_nowhere_with_nothing_at_hand(engine_factory) -> None
     lifestyle = [row for row in during["interaction_bindings"] if row["kind"] == "lifestyle"]
     assert lifestyle and all(row["actions"][0]["note"].endswith("要停在一个地方做，路上做不了") for row in lifestyle)
     assert all(target_actions(during, row["object"])["进行"]["available"] is False for row in lifestyle)
-    origin = engine.state.agents[1].location_id
-    assert during["interaction_menu"] == resolve_interaction_menu(engine.scenario, 1, origin).model_dump(mode="json")
+    assert during["interaction_menu"] == resolve_interaction_menu(engine.scenario, 1, None).model_dump(mode="json")
     context_ = admission.Context(state=engine.state, agent_id=1, place_names={})
     eat = admission.Item(canonical="consume", way="食用", label="食用牛奶", claims=frozenset({"hands"}), holding=True)
     assert admission.group_refusal(context_, [eat]).code == _CONFLICT

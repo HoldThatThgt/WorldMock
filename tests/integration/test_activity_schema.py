@@ -144,7 +144,8 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
 
 
 def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None:
-    """工作与通讯保留正文生成，身份字段是可读名称：不做 Schema 枚举，由宿主按任务、人物与回看绑定校验。"""
+    """工作与通讯保留正文生成，身份字段是可读名称：不做 Schema 枚举，由宿主按任务、人物与回看绑定校验；会话名不在七层中
+    出现，不是回看名称。"""
     submit = _function("submit_work")["parameters"]
     message = _function("send_message")["parameters"]
     recall = _function("recall_task_summary")["parameters"]
@@ -158,9 +159,10 @@ def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None
     assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
     assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
     assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == "recipient_name is not visible"
-    for name in (_TASK, _WAIT, "自己家（1月4日 18:00 起）"):
+    for name in (_TASK, _WAIT):
         assert _host_error("recall_task_summary", {"task_name": name}) == ""
-    assert _host_error("recall_task_summary", {"task_name": "同事"}) == "task_name is not visible"
+    for name in ("同事", "自己家（1月4日 18:00 起）"):
+        assert _host_error("recall_task_summary", {"task_name": name}) == "task_name is not visible"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
