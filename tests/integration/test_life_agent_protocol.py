@@ -53,6 +53,7 @@ from worldmock.life.models import (
     deepseek_strict_schema,
 )
 from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
+from tests.life.conftest import start_arguments
 
 
 #: 生活决策与只读问答都开放的记忆查询（不开放按步号与秒数取记忆的两个工具）。
@@ -134,7 +135,7 @@ _SELF_OBJECT = _visible_object("自己", "self", "self",
 _TASK_OBJECT = _visible_object(_TASK, "work_task", "task-visible",
                                _offer("interact", "工作", "work", "工作整理会议纪要需要在办公室"))
 #: 对「自己」选择等待：对象、动词与方式三数组逐项对应。
-_WAIT_CHOICE = {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
+_WAIT_CHOICE = start_arguments(["自己"], ["interact"], ["等待"])
 #: 五项体感分级（取值就是 felt 的分级文字）。
 _BODY = {"appetite": "不饿", "sleepiness": "有点乏", "entertainment": "不闷", "social": "不想找人", "mood": "平静"}
 
@@ -296,7 +297,7 @@ def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
     assert "finish" not in functions and not {"memory_step_range", "memory_tick_range"} & set(functions)
     start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
-    assert set(start_fields) == {"targets", "actions", "ways"}
+    assert set(start_fields) == {"targets", "actions", "ways", "from", "to", "answering"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
     assert '"enum"' not in json.dumps({name: functions[name] for name in ("start_activity", "submit_work",
@@ -443,10 +444,9 @@ def test_life_agent_rejects_invalid_or_non_atomic_decisions() -> None:
     memory = ReactDecision("", "memory_recent", {"limit": 1}, "")
     assert "only tool" in agent.validate_react_decisions([memory, valid], False)
     for verb, way in (("interact", "虚构方式"), ("sleep", "等待"), ("虚构动词", "等待")):
-        invalid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": [verb], "ways": [way]}, "")
+        invalid = ReactDecision("", "start_activity", start_arguments(["自己"], [verb], [way]), "")
         assert "not offered" in agent.validate_react_decisions([invalid], False)
-    unlisted = ReactDecision("", "start_activity", {"targets": ["虚构对象"], "actions": ["interact"],
-                                                    "ways": ["等待"]}, "")
+    unlisted = ReactDecision("", "start_activity", start_arguments(["虚构对象"], ["interact"], ["等待"]), "")
     assert agent.validate_react_decisions([unlisted], False) == (
         "start_activity target is not a visible interactive object")
     finish = ReactDecision("", "finish", {"memories": []}, "")
@@ -1106,7 +1106,7 @@ async def test_life_schema_and_target_errors_are_corrected_before_execution() ->
     arguments = dict(_WAIT_CHOICE)
     missing = dict(arguments)
     missing.pop("ways")
-    wrong_pair = {"targets": [_TASK], "actions": ["interact"], "ways": ["等待"]}
+    wrong_pair = start_arguments([_TASK], ["interact"], ["等待"])
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-schema", "start_activity", json.dumps(missing, ensure_ascii=False)),
         _ModelResponse("call-pair", "start_activity", json.dumps(wrong_pair, ensure_ascii=False)),

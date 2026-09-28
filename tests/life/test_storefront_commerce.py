@@ -63,6 +63,7 @@ def replace_location(semantics, location_id, **fields):
 def order_request(state, supplies, fulfillment='delivery', destination='home', quantity=1):
     """形成明确引用当前供给报价的购买请求。"""
     return PurchaseOrderRequest(items=tuple({'supply_id': item.supply_id, 'quantity': quantity,
+                                            'recipient_id': 'agent:1',
                                             'price_version': state.supply_quotes[item.supply_id].price_version}
                                            for item in supplies),
                                 fulfillment=fulfillment, destination_id=destination)

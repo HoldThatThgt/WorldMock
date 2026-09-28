@@ -25,7 +25,7 @@ TARGET_KINDS = ("location", "product", "person", "content", "game", "catalog", "
 VERBS = ("travel", "interact", "obtain", "consume", "sleep")
 #: 方式短语闭集（interaction_menu.WAYS 键的字面副本）。
 WAY_LABELS = ("步行", "驾车", "工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待", "到店", "远程下单",
-              "制作", "食用", "使用", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
+              "制作", "食用", "使用", "给予", "接着看", "从头再看", "接着听", "从头再听", "睡觉")
 #: 以目标名称为参数的其他工具。
 TARGET_TOOLS = ("report_status", "pause_activity", "conclude_activity", "submit_work", "send_message")
 #: 动作状态闭集（models.ActionStatus 值的字面副本）。

@@ -354,9 +354,9 @@ def _consume(engine: LifeEngine, round_id: str, way: str = "制作", action_id: 
     observed = engine.observe(current)
     binding = next(item for item in observed["interaction_bindings"]
                    if item["kind"] == "holding" and item["object_id"] == _INPUT_OBJECT)
-    offered = [(item["verb"], item["label"], item["canonical_action"], item["use_mode"])
+    offered = [(item["verb"], item["label"], item["canonical_action"], item.get("use_mode"))
                for item in binding["actions"]]
-    assert offered == [(WAYS[way][0], way, "consume", "use")]
+    assert offered == [(WAYS[way][0], way, "consume", "use"), ("consume", "给予", "consume", None)]
     request = start_activity(way, binding["object"])
     engine.submit_action(DirectToolCall(current, action_id, "start_activity", request))
     return request, engine.commit_decision_round(round_id)[0]
@@ -425,7 +425,8 @@ def test_recipe_completes_once_after_readable_use(tmp_path: Path) -> None:
     engine = _engine(tmp_path, path, "complete")
     try:
         request, started = _consume(engine, "start")
-        assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"]}
+        assert request.model_dump() == {"targets": ["持有物：sealed-item"], "actions": ["obtain"], "ways": ["制作"],
+                                        "from": [None], "to": ["自己"], "answering": None}
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1.0}
         _advance_to_completion(engine, started.activity_id)

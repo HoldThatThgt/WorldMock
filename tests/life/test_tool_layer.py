@@ -14,14 +14,14 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, submit_round, target_actions, target_tools,
-                                 tool_targets, wake_by_mail)
+                                 tool_targets, wake_by_mail, start_request)
 from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import engine as engine_module
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (PauseActivityRequest, ReportStatusRequest, SameMomentStage,
-                                   SendMessageActionRequest, StartActivityRequest, SubmitWorkActionRequest)
+                                   SendMessageActionRequest, SubmitWorkActionRequest)
 
 
 def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine:
@@ -34,10 +34,13 @@ def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine
         return LifeEngine(engine.semantics, engine.scenario_sha256, engine.corpus_root, FootprintStore(target))
 
 
-def _request(tool: str, name: str, item: dict):
-    """单独提交一项候选的请求：start_activity 按目标、动词与方式，名称工具按目标名。"""
+def _request(tool: str, name: str, item: dict, observed: dict):
+    """单独提交一项候选的请求：start_activity 按目标、动词与方式（给予交给工具层第一个人物目标），名称工具按目标名。"""
+    if tool == "start_activity" and item["way"] == "给予":
+        person = next(row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person")
+        return start_request(targets=[name], actions=[item["action"]], ways=[item["way"]], to=[person])
     if tool == "start_activity":
-        return StartActivityRequest(targets=[name], actions=[item["action"]], ways=[item["way"]])
+        return start_request(targets=[name], actions=[item["action"]], ways=[item["way"]])
     if tool == "report_status":
         return ReportStatusRequest(task=[name], summary=["继续。"])
     if tool == "pause_activity":
@@ -89,7 +92,7 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
             branch.begin_decision_round([decision])
             assert _listed(branch.observe(decision), tool, name, item) == item
             action_id = f"action-{label}-{index}"
-            branch.submit_action(DirectToolCall(decision, action_id, tool, _request(tool, name, item)))
+            branch.submit_action(DirectToolCall(decision, action_id, tool, _request(tool, name, item, observed)))
             if tool == "submit_work" and item["available"]:
                 branch._work_reviewer = StaticReviewer()
                 drive(branch.prepare_pending_work_review(action_id))
@@ -97,7 +100,10 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
         finally:
             branch.close()
         described = (tool, name, item.get("way"), result.error_code, result.data.get("reason"))
-        if item["available"]:
+        if item["available"] and item.get("way") == "给予":
+            # 与谁同处按提交的去向判定（不在逐目标的可用性里）：可用的给予要么成立，要么只差与对方同处。
+            assert result.status != "rejected" or result.data["unmet"] == ["recipient_present"], described
+        elif item["available"]:
             assert result.status != "rejected", described
         else:
             assert result.status == "rejected" and result.data["reason"] == item["reason"], (described, item)

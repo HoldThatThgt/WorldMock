@@ -14,7 +14,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention, RunIdentity, StartActivityRequest
+from worldmock.life.models import CounterfactualIntervention, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import (
     ResumeRequest,
@@ -24,7 +24,7 @@ from worldmock.runtime import (
     stage_model_identity,
 )
 from tests.integration.as2_fixtures import use_fake_as2
-from tests.life.conftest import advance_next, stage_day_plan, submit_round
+from tests.life.conftest import advance_next, stage_day_plan, submit_round, start_request
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -117,7 +117,7 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
-        submit_round(engine, {agent_id: ("start_activity", StartActivityRequest(
+        submit_round(engine, {agent_id: ("start_activity", start_request(
             targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in engine.state.agents}, "wait")
         advance_next(engine)
         cutoff = engine.store.last_event_seq
@@ -190,7 +190,7 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
             assert {key: branch.store.manifest[key] for key in expected} == expected
             for agent_id in branch.state.agents:
                 stage_day_plan(branch, agent_id)
-            submit_round(branch, {agent_id: ("start_activity", StartActivityRequest(
+            submit_round(branch, {agent_id: ("start_activity", start_request(
                 targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in branch.state.agents},
                 "branch-wait")
             advance_next(branch)

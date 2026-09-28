@@ -18,9 +18,10 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.models import Event
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import sessions
-from worldmock.life.interaction_menu import PURCHASE_WAYS
 from worldmock.life.models import WorldState
-from worldmock.life.readable import clock_phrase, iso_time, portion_phrase
+from worldmock.life.readable import iso_time
+from worldmock.life.recipients import agent_identity, person_name
+from worldmock.life.request_linking import order_label
 from worldmock.life.result_projection import public_result
 from worldmock.life.settled_text import record_lines
 from worldmock.life.tool_layer import LayerContext
@@ -263,24 +264,22 @@ def _message_record(context: LayerContext, event: Event) -> _Record:
 
 def _sender(context: LayerContext, sender_id: str) -> str:
     """@brief 发件人的可读名称：同世界人物取姓名，场景联系人取称谓。"""
-    people = {f"agent:{agent.agent_id}": agent.name for agent in context.state.agents.values()}
-    config = next(item for item in context.scenario.agents if item.agent_id == context.agent_id)
-    people.update({item.contact_id: item.salutation for item in config.contacts})
-    return people[sender_id]
+    return person_name(context.state, context.scenario, context.agent_id, sender_id)
 
 
 def _delivery_records(context: LayerContext, event: Event) -> list[_Record]:
-    """@brief 一次送达事件中本人每个订单一条 delivery 记录：订单名称、状态与送达进展。"""
+    """@brief 一次送达事件中本人所下每个订单一条 delivery 记录：订单名称、状态与送达进展（收货人不是自己时写明收货人）。"""
     zone, now = context.scenario.timezone, context.state.current_time
     places = {item.location_id: item.name for item in context.scenario.locations}
+    names = {item_id: item.name for item_id, item in context.rules.items.items()}
     records = []
     for order in event.data.get("orders", []):
         if order["agent_id"] != context.agent_id:
             continue
-        product = context.rules.items[order["product_id"]].name
-        label = (f"{product} {portion_phrase(order['quantity'])}（{clock_phrase(order['created_at'], now, zone)} "
-                 f"{PURCHASE_WAYS[order['fulfillment']]}）")
-        messages = {"delivered": f"已送到{places[order['destination_id']]}", "cancelled": "订单已取消",
+        label = order_label(order, names, (zone, now))
+        receiver = ("" if order["recipient_id"] == agent_identity(context.agent_id) else
+                    f"，收货人{person_name(context.state, context.scenario, context.agent_id, order['recipient_id'])}")
+        messages = {"delivered": f"已送到{places[order['destination_id']]}{receiver}", "cancelled": "订单已取消",
                     "ready": f"可以到{places[order['location_id']]}取了"}
         record = {"occurred_at": iso_time(event.occurred_at, zone), "type": "delivery", "order": label,
                   "status": order["status"], "message": messages[order["status"]]}

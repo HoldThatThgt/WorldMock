@@ -10,9 +10,8 @@ from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_until_ready, conclude_request, context, pending_names, stage_day_plan,
-                                 start_activity, submit_round)
+                                 start_activity, submit_round, start_request)
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import StartActivityRequest
 from worldmock.opslog import OPS_COMPONENTS, OPS_LEVELS, OpsLogger
 
 
@@ -94,7 +93,7 @@ def test_opslog_records_decision_round_and_model_exchange(engine_factory) -> Non
         ctx, call_id, "response", 1, request,
         response={"model": "deepseek-flash", "usage": {"prompt_tokens": 11, "completion_tokens": 7}}))
     engine.observe(ctx)
-    wait = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    wait = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
     engine.submit_action(DirectToolCall(ctx, "ops-wait", "start_activity", wait))
     engine.commit_decision_round("ops")
     records = _records(engine)
@@ -137,7 +136,7 @@ def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
     """业务拒绝产生 warn 级 ACTION_REJECTED 记录并携带稳定错误码。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_activity", StartActivityRequest(
+        engine, {1: ("start_activity", start_request(
             targets=["missing-content"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     records = _records(engine)
@@ -149,7 +148,7 @@ def test_opslog_records_rejection_with_error_code(engine_factory) -> None:
 def test_opslog_records_memory_update(engine_factory) -> None:
     """记忆更新记录带人物与决策关联键及 episode 数量；写入点是同一决策登记的带记忆 conclude_activity（规格第七章）。"""
     engine = engine_factory()
-    wait = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    wait = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
     submit_round(engine, {1: ("start_activity", wait)}, "memory-wait")
     assert advance_until_ready(engine)
     ctx = context(engine, "memory-ops")

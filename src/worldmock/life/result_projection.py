@@ -2,7 +2,8 @@
 
 公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文）与 details（恒写，没有新
 事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、付款、方式、送达地点与
-预计时刻，计划时长，到达，浏览得到的商品名称，回看，拒绝的原因与下一步，近似候选与终局；不复述参数，不含内部身份与资源账户。
+预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长，到达，浏览得到的商品名称，回看，拒绝的原因与下一步，
+近似候选、终局与已关联的订单；不复述参数，不含内部身份与资源账户。
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ DELIVERY_ASSESSMENT_FIELDS = (
 )
 #: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因与下一步由 life.guidance 生成，
 #: 近似候选与终局只含可读名称。
-_PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "candidates", "outcome")
+_PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "candidates", "outcome", "linked_orders")
 
 
 def public_result(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dict[str, Any]:
@@ -55,8 +56,15 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dic
     places = {item.location_id: item.name for item in scenario.locations}
     details: dict[str, Any] = {}
     if payload.get("orders"):
-        details["purchases"] = [_purchase(order, names, places, (scenario.timezone, now))
+        people = _people(scenario)
+        details["purchases"] = [{**_purchase(order, names, places, (scenario.timezone, now)),
+                                 "recipient": people[order["recipient_id"]],
+                                 "request": payload.get("answering") if order["request_message_id"] else None}
                                 for order in payload["orders"]]
+    if payload.get("given"):
+        people = _people(scenario)
+        details["given"] = [{"product": names[item["product_id"]], "quantity": portion_phrase(item["quantity"]),
+                             "recipient": people[item["recipient_id"]]} for item in payload["given"]]
     if result["status"] == "in_progress":
         started = [payload["activity"]] if "activity" in payload else payload.get("activities", [])
         details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
@@ -79,6 +87,13 @@ def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, st
             "paid": money_phrase(order["total_price_fen"]), "way": PURCHASE_WAYS[order["fulfillment"]],
             "destination": places[order["destination_id"]],
             "expected_at": clock_phrase(order["expected_at"], now, timezone_name)}
+
+
+def _people(scenario: RuntimeScenario) -> dict[str, str]:
+    """@brief 人物身份 → 可读名称：同世界人物取姓名，场景联系人取称谓。"""
+    people = {f"agent:{item.agent_id}": item.name for item in scenario.agents}
+    people.update({contact.contact_id: contact.salutation for item in scenario.agents for contact in item.contacts})
+    return people
 
 
 def public_supply_row(row: dict[str, Any]) -> dict[str, Any]:

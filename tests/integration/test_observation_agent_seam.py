@@ -26,8 +26,9 @@ from tests.life.conftest import (  # noqa: E402
     wake_by_mail,
     context,
     engine_factory as _engine_factory,  # noqa: F401
+    start_request,
+    start_arguments,
 )
-from worldmock.life.models import StartActivityRequest  # noqa: E402
 
 #: 引擎事件级活动控制行字段闭集；模型只读取工具层的活动目标。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
@@ -52,7 +53,7 @@ def _observe_active_wait(engine) -> tuple[dict, object]:
     settle_day_plans(engine, StubPlanDayClient(goals=[{"intent_kind": "休息", "goal": "稍作休息", "remind_time": None}]))
     wake_by_mail(engine, offset=300)
     _submit(engine, "seam-wait", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+            start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
     assert advance_until_ready(engine)
     ctx = context(engine, "seam-observe")
     engine.begin_decision_round([ctx])
@@ -132,7 +133,7 @@ def test_observation_nested_content_data_cannot_change_world_progress(_engine_fa
                     if row["kind"] == "content" and row["object_id"] == "sintel-en-subtitles")
     [way] = [item["label"] for item in subtitle["actions"] if item["canonical_action"] == "watch"]
     assert way == "接着看"
-    _submit(engine, "copy-watch", "start_activity", StartActivityRequest(
+    _submit(engine, "copy-watch", "start_activity", start_request(
         targets=[subtitle["object"]], actions=["interact"], ways=[way]))
     assert advance_until_ready(engine)
     ctx = context(engine, "copy-observe")
@@ -184,7 +185,7 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
                 if row["kind"] == "game" and any(item["label"] == "游玩" for item in row["actions"]))
     observation, result, schemas = await _agent_action(
         engine, "game-start", "start_activity",
-        {"targets": [game["object"]], "actions": ["interact"], "ways": ["游玩"]})
+        start_arguments([game["object"]], ["interact"], ["游玩"]))
     assert [target["kind"] for target in observation["tool_layer"]["targets"]
             if target["name"] == game["object"]] == ["game"]
     assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["targets"]["items"]
@@ -233,7 +234,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert engine.state.current_time == submitted_at
     _, started, _ = await _agent_action(
         engine, "goals-wait", "start_activity",
-        {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]})
+        start_arguments(["自己"], ["interact"], ["等待"]))
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     progressed = engine.state.agents[1].day_plan.model_dump(mode="json")

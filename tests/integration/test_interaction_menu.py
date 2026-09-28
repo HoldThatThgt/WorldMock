@@ -29,10 +29,11 @@ from worldmock.life.interaction_menu import (
     resolve_selection,
 )
 from worldmock.life.models import REQUEST_MODELS
+from tests.life.conftest import start_arguments
 
 #: 条件已满足（没有说明）的工作对象：菜单剪裁与条件说明无关。
 _TASK = _visible_object("整理会议纪要", "work_task", "task-visible", _offer("interact", "工作", "work"))
-_WORK_CHOICE = {"targets": ["整理会议纪要"], "actions": ["interact"], "ways": ["工作"]}
+_WORK_CHOICE = start_arguments(["整理会议纪要"], ["interact"], ["工作"])
 
 
 def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
@@ -96,7 +97,7 @@ def test_actual_tool_schema_is_stable_whatever_the_menu() -> None:
     assert functions == _functions(opened)
     assert set(REQUEST_MODELS) <= set(functions) and "plan_day" not in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert set(properties) == {"targets", "actions", "ways"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
     assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "interaction menu" in closed.validate_react_decisions([decision], False)
@@ -113,7 +114,7 @@ async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
     agent._decision_context = _context()
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "interaction menu" in agent.validate_react_decisions([decision], False)
-    two = {"targets": ["自己", "整理会议纪要"], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
+    two = start_arguments(["自己", "整理会议纪要"], ["interact", "interact"], ["等待", "工作"])
     assert "interaction menu" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
                                                                 False)
     with pytest.raises(RuntimeError, match="interaction menu"):

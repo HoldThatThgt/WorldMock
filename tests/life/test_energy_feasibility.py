@@ -12,7 +12,7 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan,
                                start_activity, submit_round, target_actions, tool_targets, travel_quote,
-                               wake_by_mail)
+                               wake_by_mail, start_request)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
@@ -20,7 +20,7 @@ from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, ReportStatusRequest,
-                                   ReviseDayPlanRequest, StartActivityRequest)
+                                   ReviseDayPlanRequest)
 from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -49,7 +49,7 @@ def _observed_action(engine, round_id: str, action: str, object_id: str | None =
                    if object_id is None or row["object_id"] == object_id
                    if any(item["canonical_action"] == action for item in row["actions"]))
     chosen = next(item for item in binding["actions"] if item["canonical_action"] == action)
-    request = StartActivityRequest(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
+    request = start_request(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
 
@@ -180,7 +180,7 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     decision = context(engine, "watch-and-wait")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    request = StartActivityRequest(targets=["内容：Sintel", "自己"], actions=["interact", "interact"],
+    request = start_request(targets=["内容：Sintel", "自己"], actions=["interact", "interact"],
                                    ways=["接着看", "等待"])
     engine.submit_action(DirectToolCall(decision, "action-watch-and-wait", "start_activity", request))
     assert engine.commit_decision_round("watch-and-wait")[0].status == "in_progress"

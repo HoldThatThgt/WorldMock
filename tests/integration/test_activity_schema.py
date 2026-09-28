@@ -24,6 +24,7 @@ from tests.integration.test_life_agent_protocol import (
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import MeetingMinutes, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.work_review import WorkReviewResponse
+from tests.life.conftest import start_arguments
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
@@ -102,19 +103,19 @@ def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> Non
     """模型只填可读对象、动词和方式三个等长数组；Schema 不带逐轮枚举，名称与（动词，方式）配对由宿主按私有绑定校验。"""
     schema = _function("start_activity")["parameters"]
     assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
-    assert set(schema["properties"]) == {"targets", "actions", "ways"}
-    assert schema["required"] == ["targets", "actions", "ways"]
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert schema["required"] == ["targets", "actions", "ways", "from", "to", "answering"]
     assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     assert {"agent_id", "decision_id", "action_id", "target_id", "planned_duration_seconds",
             "price_fen", "price_version", "quantity", "travel_mode", "fulfillment"}.isdisjoint(schema["properties"])
-    valid = {"targets": ["自己", _TASK], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
+    valid = start_arguments(["自己", _TASK], ["interact", "interact"], ["等待", "工作"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
     assert _host_error("start_activity", valid) == ""
-    assert _host_error("start_activity", {"targets": ["internal:task:1"], "actions": ["interact"],
-                                          "ways": ["工作"]}) == "start_activity target is not a visible interactive object"
+    assert _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"])) == (
+        "start_activity target is not a visible interactive object")
     for verb, way in (("等待", "等待"), ("interact", "interact"), ("sleep", "等待")):
-        assert _host_error("start_activity", {"targets": ["自己"], "actions": [verb], "ways": [way]}) == (
+        assert _host_error("start_activity", start_arguments(["自己"], [verb], [way])) == (
             "start_activity verb and way are not offered by the chosen target")
     assert list(Draft202012Validator(schema).iter_errors({"targets": ["自己"], "actions": ["interact"]}))
     with pytest.raises(ValidationError):

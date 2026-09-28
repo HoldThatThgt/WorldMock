@@ -8,6 +8,7 @@ from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError
 from worldmock.life.body import apply_food
 from worldmock.life.category_contract import RuntimeCategoryRule, match_rows, require_runtime_rule
+from worldmock.life.commerce import add_holding
 from worldmock.life.map_models import RouteConfig, SupplyConfig
 from worldmock.life.models import (
     ActivityState,
@@ -50,6 +51,8 @@ class _OrderRow:
     quantity: int
     total_price_fen: int
     category_match: RuntimeCategoryRule
+    recipient_id: str
+    request_message_id: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +66,7 @@ class _Fulfillment:
 
 def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
                    request: PurchaseOrderRequest) -> OrderOutcome:
-    """@brief 逐供给校验后一次付款；任意失败不改变任何世界状态。"""
+    """@brief 逐供给校验后一次付款；任意失败不改变任何世界状态。付款人是 agent_id，送达只入各项收货人的持有。"""
     agent = state.agents[agent_id]
     rows = _order_rows(state, semantics, agent, request)
     fulfillment = _order_fulfillment(state, semantics, request, rows)
@@ -74,13 +77,13 @@ def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: in
     settled = settle_money_transfer(state, agent.balance_account_id,
                                     rows[0].supply.seller_account_id, total, "purchase:order")
     stock = dict(settled.supply_stock)
-    agents = dict(settled.agents)
+    received = settled
     inventory_changes = []
     for order in orders:
         stock[order.supply_id] -= order.quantity
         if order.status == "delivered":
-            agents[agent_id] = _add_inventory(
-                agents[agent_id], order.destination_id, order.product_id, order.quantity)
+            received = add_holding(received, order.recipient_id, order.destination_id,
+                                   (order.product_id, order.quantity))
             inventory_changes.append({"order_id": order.order_id, "supply_id": order.supply_id,
                                       "location_id": order.destination_id, "product_id": order.product_id,
                                       "quantity": order.quantity})
@@ -89,18 +92,18 @@ def purchase_order(state: WorldState, semantics: ScenarioSemantics, agent_id: in
     deliveries.update({order.order_id: order for order in orders})
     pending = sorted([*settled.pending_events, *events],
                      key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
-    changed = settled.model_copy(update={"supply_stock": stock, "deliveries": deliveries,
-                                         "agents": agents, "pending_events": pending}, deep=True)
+    changed = received.model_copy(update={"supply_stock": stock, "deliveries": deliveries,
+                                          "pending_events": pending}, deep=True)
     return OrderOutcome(changed, orders, events, total, tuple(inventory_changes),
                         tuple(match_rows(row.category_match for row in rows)))
 
 
 def _order_rows(state: WorldState, semantics: ScenarioSemantics, agent: AgentState,
                 request: PurchaseOrderRequest) -> tuple[_OrderRow, ...]:
-    """@brief 拒绝重复项与跨店整单，使用世界中的当前报价检查每项供给。"""
+    """@brief 拒绝重复项（去重键为供给与收货人）与跨店整单，使用世界中的当前报价检查每项供给。"""
     if not 1 <= len(request.items) <= 5:
         raise BusinessRuleError("ORDER_ITEM_COUNT_OUT_OF_RANGE")
-    if len({item.supply_id for item in request.items}) != len(request.items):
+    if len({(item.supply_id, item.recipient_id) for item in request.items}) != len(request.items):
         raise BusinessRuleError("ORDER_DUPLICATE_SUPPLY")
     scenario = semantics.scenario
     supplies = {item.supply_id: item for item in scenario.supplies}
@@ -123,7 +126,8 @@ def _order_rows(state: WorldState, semantics: ScenarioSemantics, agent: AgentSta
         match = require_runtime_rule(semantics.catalog,
                                      semantics.catalog.objects[supply.product_id].category_id, Action.PURCHASE)
         amount = semantics.purchase_amount(supply.product_id, quote.price_fen, item.quantity)
-        rows.append(_OrderRow(supply, quote, item.quantity, amount, match))
+        rows.append(_OrderRow(supply, quote, item.quantity, amount, match, item.recipient_id,
+                              item.request_message_id))
     if len({row.supply.seller_account_id for row in rows}) != 1:
         raise BusinessRuleError("ORDER_SELLER_MISMATCH")
     if len({row.supply.location_id for row in rows}) != 1:
@@ -203,7 +207,7 @@ def _delivery_route(scenario: RuntimeScenario, origin: str, destination: str) ->
 
 def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: PurchaseOrderRequest,
                   fulfillment: _Fulfillment, agent_id: int) -> tuple[DeliveryState, ...]:
-    """@brief 每个订单保存实际供给、报价和来源，整单共享交付时刻与路线。"""
+    """@brief 每个订单保存实际供给、报价、来源、收货人与所回应的消息，整单共享交付时刻与路线。"""
     if request.fulfillment == FulfillmentKind.PICKUP:
         origin = rows[0].supply.location_id
         if request.destination_id != origin or state.agents[agent_id].location_id != origin:
@@ -223,7 +227,8 @@ def _build_orders(state: WorldState, rows: tuple[_OrderRow, ...], request: Purch
             quantity=row.quantity, destination_id=request.destination_id, fulfillment=request.fulfillment,
             created_at=fulfillment.created_at, expected_at=fulfillment.expected_at,
             status="delivered" if fulfillment.expected_at == fulfillment.created_at else "pending",
-            total_price_fen=row.total_price_fen))
+            total_price_fen=row.total_price_fen, recipient_id=row.recipient_id,
+            request_message_id=row.request_message_id))
     return tuple(orders)
 
 
@@ -236,15 +241,6 @@ def _delivery_events(state: WorldState, orders: tuple[DeliveryState, ...]) -> tu
         scheduled_id=f"delivery-{orders[0].order_id}", kind=ScheduledKind.DELIVERY_ARRIVAL,
         due_at=orders[0].expected_at, sequence=sequence, agent_id=orders[0].agent_id,
         data={"order_ids": [order.order_id for order in orders]}),)
-
-
-def _add_inventory(agent: AgentState, location_id: str, product_id: str,
-                   quantity: int) -> AgentState:
-    """@brief 在指定地点增加已交付商品数量（与 commerce._add_inventory 同口径）。"""
-    inventory = {key: dict(value) for key, value in agent.inventory.items()}
-    local = inventory.setdefault(location_id, {})
-    local[product_id] = round(local.get(product_id, 0) + quantity, 9)
-    return agent.model_copy(update={"inventory": inventory}, deep=True)
 
 
 def change_inventory(agent: AgentState, product_id: str, delta: float) -> dict:

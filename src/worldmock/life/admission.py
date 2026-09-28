@@ -22,7 +22,7 @@ from worldmock.catalog.affordances import default_affordances
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control
 from worldmock.life.guidance import Refusal
-from worldmock.life.interaction_menu import TRAVEL_WAYS, activity_phrase, merged_selection
+from worldmock.life.interaction_menu import GIVE_WAY, TRAVEL_WAYS, activity_phrase, merged_selection
 from worldmock.life.models import ActivityKind, TravelMode, WorldState, active_activities
 from worldmock.life.social_actions import SOCIAL_RESOURCE_CLAIMS, late_acceptance_refusal, pair_chat
 
@@ -96,7 +96,11 @@ def driving_destination(state: WorldState, agent_id: int) -> str | None:
 
 
 def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: WorldFacts) -> Item:
-    """@brief 把一项私有绑定（对象行与所选动作）换成准入事实：占用、目标在场、手动操作、送达地与持有物。"""
+    """@brief 把一项私有绑定（对象行与所选动作）换成准入事实：占用、目标在场、手动操作、送达地与持有物。
+
+    远程下单只在去向是自己时按本人所在地核对送达地（送给别人的送达地在受理时按收货人核对）；给予只要求手边持有，
+    不占用、不受商品使用地点限制。
+    """
     canonical, object_id = action["canonical_action"], row["object_id"]
     item = Item(canonical=canonical, way=action["label"],
                 label=f"{activity_phrase(action)}{activity_control.object_display_name(row)}",
@@ -108,9 +112,11 @@ def selection_item(row: Mapping[str, Any], action: Mapping[str, Any], facts: Wor
     if canonical == "purchase":
         supply = facts.supplies.get(object_id)
         return replace(item, manual=True, destinations=(
-            tuple(supply.delivery_destination_ids) if supply is not None else None))
+            tuple(supply.delivery_destination_ids) if supply is not None and row.get("to_self", True) else None))
     if canonical == "chat" and str(object_id).startswith("agent:"):
         return replace(item, partner=int(str(object_id).split(":", 1)[1]))
+    if canonical == "consume" and action["label"] == GIVE_WAY:
+        return replace(item, holding=True, held_at=row.get("location_id"))
     if canonical == "consume":
         product = facts.items.get(object_id)
         return replace(item, holding=True, place=getattr(product, "required_location_id", None) or None,
@@ -276,8 +282,8 @@ def _holding_refusal(context: Context, items: Sequence[Item], present: str | Non
 
 
 def _claims(canonical: str, action: Mapping[str, Any], object_id: str, facts: WorldFacts) -> frozenset[str]:
-    """@brief 该项开始后的占用：购买不占，交谈与通话按社交占用，其余按注册表（驾车、观看内容品类的条件占用）。"""
-    if canonical == "purchase":
+    """@brief 该项开始后的占用：购买与给予不占，交谈与通话按社交占用，其余按注册表（驾车、观看内容品类的条件占用）。"""
+    if canonical == "purchase" or action.get("label") == GIVE_WAY:
         return frozenset()
     if canonical in {"chat", "call"}:
         return SOCIAL_RESOURCE_CLAIMS

@@ -17,8 +17,7 @@ from pydantic import ValidationError
 from tests.life.conftest import (
     activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, pending_names,
     progress_calls, settle_day_plans, stage_day_plan, start_activity, submit_round, target_actions, target_tools,
-    wake_by_mail,
-)
+    wake_by_mail, start_request)
 from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
 from tests.life.test_progress_layer_projection import _activity
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -30,7 +29,7 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS
 from worldmock.life.models import (
     ActivityKind, ActivityState, ActivityStatus, AgentState, PauseActivityRequest, PlanGoalInput,
-    ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
+    ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest,
     active_activities,
 )
 from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS, Message
@@ -668,7 +667,7 @@ def _pick(observed: dict, canonical: str, *, kind: str | None = None, place: str
 
 def _start(engine: LifeEngine, name: str, *choices: tuple[str, str]) -> list[str]:
     """@brief 以可读对象与动作短语开始一到两项活动，返回开始的活动身份（按请求顺序）。"""
-    started = _act(engine, name, "start_activity", StartActivityRequest(
+    started = _act(engine, name, "start_activity", start_request(
         targets=[item[0] for item in choices], actions=[WAYS[item[1]][0] for item in choices],
         ways=[item[1] for item in choices]))
     assert started.status == "in_progress", started.error_code
@@ -1120,7 +1119,7 @@ def test_conclusion_only_round_does_not_use_up_message_opportunity(engine_factor
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     target, action = _content(engine, "unread-content")
-    both = StartActivityRequest(targets=["自己", target], actions=["interact", WAYS[action][0]], ways=["等待", action])
+    both = start_request(targets=["自己", target], actions=["interact", WAYS[action][0]], ways=["等待", action])
     submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))},
                  "unread-start")
     watch = next(item for item in active_activities(engine.state, 1) if item.kind == ActivityKind.WATCH)
@@ -1182,7 +1181,7 @@ def test_rejected_paired_start_leaves_no_chat_invite(engine_factory) -> None:
     _act(engine, "paired-end-wait", *_end_wait(engine, 1))
     inbox = dict(engine.state.agents[2].inbox)
     content, way = _content(engine, "paired-content")
-    request = StartActivityRequest(targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"],
+    request = start_request(targets=[_person_name(engine, 1, 2), content], actions=["interact", "interact"],
                                    ways=["交谈", way])
     rejected = _act(engine, "paired-start", "start_activity", request)
     assert rejected.status == "rejected" and rejected.error_code == "RESOURCE_CONFLICT"

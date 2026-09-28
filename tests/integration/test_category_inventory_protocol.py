@@ -16,7 +16,7 @@ from agentsociety2.agent.base import ReactLoopRequest
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _action_schema, _person
 from tests.integration.test_life_agent_protocol import _ModelResponse
-from tests.life.conftest import conclude_pending, context
+from tests.life.conftest import conclude_pending, context, start_arguments
 from tests.life.test_category_runtime import (
     _INPUT_OBJECT, _OUTPUT_CATEGORY, _OUTPUT_OBJECT, _advance_to_completion,
     _engine, _fixture, _read_json, _write_json,
@@ -67,7 +67,8 @@ def _recipe_path(tmp_path, required_location=None):
 
 
 async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
-    """让真实人物按冻结观察中的持有物名称提交它唯一列出的动作（配方为 obtain 的「制作」，否则 consume 的「使用」）。"""
+    """让真实人物按冻结观察中的持有物名称提交它自用的那项动作（配方为 obtain 的「制作」，否则 consume 的「使用」；
+    另一项是给予）。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     environment = LifeEnv()
     environment.engine = engine
@@ -76,8 +77,8 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     observation = await environment.observe(current)
     binding = next(row for row in observation["interaction_bindings"]
                    if row["kind"] == "holding" and row["object_id"] == product_id)
-    [offered] = binding["actions"]
-    choice = {"targets": [binding["object"]], "actions": [offered["verb"]], "ways": [offered["label"]]}
+    [offered] = [item for item in binding["actions"] if item["label"] != "给予"]
+    choice = start_arguments([binding["object"]], [offered["verb"]], [offered["label"]])
     dispatcher = _Dispatcher(choice)
     person = _person(environment, current, dispatcher)
     before = engine.state.model_dump(mode="json")
@@ -88,7 +89,8 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     assert engine.state.model_dump(mode="json") == before
     assert len(dispatcher.requests) == 1
     action_request = dispatcher.requests[0]
-    assert set(_action_schema(action_request)["parameters"]["properties"]) == {"targets", "actions", "ways"}
+    assert set(_action_schema(action_request)["parameters"]["properties"]) == (
+        {"targets", "actions", "ways", "from", "to", "answering"})
     assert binding["object"] in action_request["messages"][1]["content"]
     assert product_id not in action_request["messages"][1]["content"]
     return observation, engine.commit_decision_round(round_id)[0]
@@ -109,14 +111,14 @@ async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
         before, started = await _use_held_item(engine, "recipe-input", _INPUT_OBJECT, monkeypatch)
-        assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None)]
+        assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None), ("consume", "给予", True, None)]
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
         assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
-        assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None)]
+        assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None), ("consume", "给予", True, None)]
         assert all(row["name"] != "持有物：密封工具盒" for row in after["tool_layer"]["targets"])
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
@@ -140,9 +142,9 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == product_id)
-        assert [(action["verb"], action["label"], action["use_mode"]) for action in held["actions"]] == [
-            ("consume", "食用", "eat")]
-        assert _offered(observed, held["object"]) == [("consume", "食用", True, None)]
+        assert [(action["verb"], action["label"], action.get("use_mode")) for action in held["actions"]] == [
+            ("consume", "食用", "eat"), ("consume", "给予", None)]
+        assert _offered(observed, held["object"]) == [("consume", "食用", True, None), ("consume", "给予", True, None)]
     finally:
         engine.close()
 
@@ -159,9 +161,11 @@ def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == _INPUT_OBJECT)
-        assert [(action["verb"], action["label"], action["canonical_action"], action["use_mode"])
-                for action in held["actions"]] == [("obtain", "制作", "consume", "use")]
-        [(verb, way, available, reason)] = _offered(observed, held["object"])
+        assert [(action["verb"], action["label"], action["canonical_action"], action.get("use_mode"))
+                for action in held["actions"]] == [("obtain", "制作", "consume", "use"),
+                                                   ("consume", "给予", "consume", None)]
+        [(verb, way, available, reason), give] = _offered(observed, held["object"])
+        assert give == ("consume", "给予", True, None)
         assert (verb, way) == ("obtain", "制作")
         if required_location == "office":
             office = next(item.name for item in engine.scenario.locations if item.location_id == "office")

@@ -14,14 +14,12 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
     advance_next, advance_until_ready, context, start_activity, stage_day_plan, submit_round, target_actions,
-    target_tools, tool_targets, wake_by_mail,
-)
+    target_tools, tool_targets, wake_by_mail, start_request)
 from worldmock.footprints.models import EventDraft
 from worldmock.life.models import (
     ActivityState,
     ActivityStatus,
     ContentProgress,
-    StartActivityRequest,
 )
 from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -92,7 +90,7 @@ def test_real_observation_schema_purchase_and_sold_out_refresh(engine_factory) -
         (way, row["reason"]) for way, row in ways.items()]
     assert supply["current_stock"] == 1 and "initial_stock" not in supply
     assert observation["available_inventory"][product_id] == 0
-    request = StartActivityRequest(targets=[binding["object"]], actions=["obtain"], ways=["远程下单"])
+    request = start_request(targets=[binding["object"]], actions=["obtain"], ways=["远程下单"])
     engine.submit_action(DirectToolCall(first_context, "action-purchase-grounded", "start_activity", request))
     result = engine.commit_decision_round("purchase-grounded")[0]
     assert result.status == "completed"
@@ -314,7 +312,7 @@ def _start_active_activity(engine, kind: str) -> str:
         binding, action = next((row, action) for row in observed["interaction_bindings"]
                                for action in row["actions"]
                                if row["object_id"] == task_id and action["canonical_action"] == "work")
-        request = StartActivityRequest(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
+        request = start_request(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
     else:
         stage_day_plan(engine)
         request = start_activity("浏览", "商品目录")

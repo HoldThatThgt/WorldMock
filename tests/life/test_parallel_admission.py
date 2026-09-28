@@ -14,7 +14,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
-                                 tool_targets)
+                                 tool_targets, start_request)
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS, menu_allows_action, resolve_interaction_menu
@@ -80,14 +80,14 @@ def _choice(observed: dict, way: str, *, kind: str | None = None, object_id: str
 
 def _request(*choices: tuple[str, str, str]) -> StartActivityRequest:
     """@brief 由（对象，动词，方式）逐项构造 start_activity 请求。"""
-    return StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
+    return start_request(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
                                 ways=[item[2] for item in choices])
 
 
 def _act(engine: LifeEngine, name: str, tool: str, request, agent_id: int = 1):
     """@brief 按真实顺序观察、登记并结算一轮，返回该人物的结果；同一秒就绪的其他人物（多人场景）开始等待。"""
     ready = engine.scheduling_state().ready_agent_ids or (agent_id,)
-    others = {other: ("start_activity", StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+    others = {other: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
               for other in ready if other != agent_id}
     _, results = submit_round(engine, {agent_id: (tool, request), **others}, name)
     return next(item for item in results if item.agent_id == agent_id)
@@ -407,7 +407,7 @@ def test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out(engine_factor
     assert ways and all((item["available"], item["reason"]) == (False, "卖完了") for item in ways.values())
     assert "自己" in tool_targets(observed)
     way = next(iter(ways))
-    refused = _act(engine, "sold-out-buy", "start_activity", StartActivityRequest(
+    refused = _act(engine, "sold-out-buy", "start_activity", start_request(
         targets=[name], actions=["obtain"], ways=[way]))
     assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "OUT_OF_STOCK", "卖完了")
     assert _act(engine, "sold-out-wait", "start_activity", start_activity("等待", "自己")).status == "in_progress"
@@ -443,15 +443,15 @@ def test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwi
     engine = _engine(engine_factory, holding="item-umbrella")
     plain = next(row for row in _observe(engine, "use-plain")["interaction_bindings"]
                  if row["object_id"] == "item-umbrella")
-    assert [(item["verb"], item["label"], item["canonical_action"], item["use_mode"]) for item in plain["actions"]] \
-        == [("consume", "使用", "consume", "use")]
+    assert [(item["verb"], item["label"], item["canonical_action"], item.get("use_mode"))
+            for item in plain["actions"]] == [("consume", "使用", "consume", "use"), ("consume", "给予", "consume", None)]
     assert not is_inventory_recipe(engine.semantics.catalog, engine.rules.items["item-umbrella"])
     monkeypatch.setattr("worldmock.life.observe.is_inventory_recipe",
                         lambda catalog, product: product.product_id == "item-umbrella")
     recipe = next(row for row in _observe(engine, "use-recipe")["interaction_bindings"]
                   if row["object_id"] == "item-umbrella")
-    assert [(item["verb"], item["label"], item["canonical_action"], item["use_mode"]) for item in recipe["actions"]] \
-        == [("obtain", "制作", "consume", "use")]
+    assert [(item["verb"], item["label"], item["canonical_action"], item.get("use_mode"))
+            for item in recipe["actions"]] == [("obtain", "制作", "consume", "use"), ("consume", "给予", "consume", None)]
     made = _act(engine, "use-make", "start_activity", _request((recipe["object"], "obtain", "制作")))
     assert made.status == "in_progress" and engine.state.activities[made.activity_id].kind == ActivityKind.CONSUME
     rule = InventoryTransformRule.model_validate({

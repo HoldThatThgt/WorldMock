@@ -20,8 +20,8 @@ from worldmock.errors import BusinessRuleError, IntegrityError, PreconditionErro
 from worldmock.footprints.models import (DECISION_OFFERED_FIELD, RESOURCE_FLOWS_FIELD,
                                         AssetRef, EventDraft, validate_resource_flows)
 from worldmock.footprints.store import FootprintStore
-from worldmock.life import (activity_control, admission, day_planning, felt, projection, reminders, same_moment,
-                            sessions, social_actions)
+from worldmock.life import (activity_control, admission, contact_exchange, day_planning, felt, projection, reminders,
+                            same_moment, sessions, social_actions)
 from worldmock.life.action_evidence import (
     _activity_terminal_draft, _activity_terminal_result, _origin_terminal_draft,
     _origin_terminal_result,
@@ -1082,10 +1082,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             logging.error("Start activity selection is not offered in this round")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         actions = [row["selected_action"]["canonical_action"] for row in selection]
+        ways = [row["selected_action"]["label"] for row in selection]
         named = (self._activities_for_names(state, pending, request.task)
                  if pending.tool_name in {"report_status", "conclude_activity"} else [])
         waiting = frozenset(item.activity_id for item in activity_control.pending_conclusions(state, pending.agent_id))
-        return same_moment.request_kind(pending.tool_name, actions, named, waiting)
+        return same_moment.request_kind(pending.tool_name, actions, named, waiting, ways)
 
     @property
     def _record_context(self) -> activity_control.RecordContext:
@@ -1338,10 +1339,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     def _register_delivered_message(self, state: WorldState, agent, contacts,
                                     request: SendMessageRequest, sent) -> WorldState:
-        """@brief 送达登记：收件方 inbox、model 联系人回复待办与 message_arrival 事件。
+        """@brief 送达登记：收件方 inbox、发给联系人的消息记入本人 outbox、model 联系人回复待办与 message_arrival 事件。
 
         同世界收件人的 message_arrival 草稿登记其同秒就绪，由 commit_decision_round 在本轮全部动作结算后合并
-        （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。
+        （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）；联系人回复请求带双方往来与对方收到的物品
+        （docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
         """
         drafts: list[EventDraft] = []
         recipient_agent = next((item for item in state.agents.values()
@@ -1353,12 +1355,13 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 update={"inbox": inbox}, deep=True))
         elif any(contact.contact_id == request.recipient_id for contact in contacts):
             contact = next(item for item in contacts if item.contact_id == request.recipient_id)
+            state = contact_exchange.record_outgoing(state, agent.agent_id, sent.message)
             if contact.reply_policy == "model":
+                reply = contact_exchange.reply_request(state, self.store, self.scenario, sent.message, contact)
                 drafts.append(EventDraft(
                     event_type="environment_event", occurred_at=state.current_time,
                     agent_id=agent.agent_id, source_kind="model", visibility="system",
-                    data={"kind": "model_npc_reply_pending",
-                          "request": self._contact_reply_request(sent.message, contact).model_dump(mode="json")}))
+                    data={"kind": "model_npc_reply_pending", "request": reply.model_dump(mode="json")}))
             elif contact.reply_policy == "template":
                 state = social_actions.schedule_template_reply(state, sent.message, contact)
         else:
@@ -1373,15 +1376,6 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         drafts.append(arrival)
         self._pending_event_drafts.extend(drafts)
         return state
-
-    def _contact_reply_request(self, message, contact):
-        """@brief model 策略联系人的回复请求（待宿主执行的外部调用登记）；none 照常送达不回复，template 落占位回复。"""
-        from worldmock.life import social as social_domain
-
-        return social_domain.model_reply_request(social_domain.IncomingMessage(
-            message_id=message.message_id, sender_id=message.sender_id,
-            contact_id=contact.contact_id, text=message.text,
-            received_at=message.created_at))
 
     def _start_social_activity(self, state: WorldState, pending: PendingAction,
                                request: StartSocialActivityRequest) -> tuple[WorldState, ActionResult]:

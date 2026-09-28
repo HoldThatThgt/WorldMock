@@ -13,7 +13,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, advance_until_ready, context, progress_calls, stage_day_plan,
-                                 target_actions, target_tools, tool_targets, wake_by_mail)
+                                 target_actions, target_tools, tool_targets, wake_by_mail, start_request)
 from tests.life.test_export_integration import _stage_final_interval
 from worldmock.errors import BusinessRuleError, ProtocolError
 from worldmock.footprints.export import export_run
@@ -24,7 +24,7 @@ from worldmock.life.readable import duration_phrase
 from worldmock.life.models import (
     ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, RecallTaskSummaryRequest, ReportStatusRequest,
     SameMomentStage,
-    SessionKind, SessionStatus, StartActivityRequest, active_activities,
+    SessionKind, SessionStatus, active_activities,
 )
 
 _FORMAL = Path("scenarios/white-collar-12-weeks.json")
@@ -55,7 +55,7 @@ def _preview(engine: LifeEngine, name: str) -> dict:
 
 def _start(engine: LifeEngine, name: str, *choices: tuple[str, str, str]):
     """@brief 以可读对象、动词与方式开始一到两项活动。"""
-    request = StartActivityRequest(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
+    request = start_request(targets=[item[0] for item in choices], actions=[item[1] for item in choices],
                                    ways=[item[2] for item in choices])
     return _round(engine, name, "start_activity", request)[1]
 
@@ -464,7 +464,7 @@ def test_start_request_shape_errors_are_action_request_invalid(engine_factory, t
     不开始任何活动，运行继续（第五章「并行准入」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
-    request = StartActivityRequest(targets=targets, actions=actions, ways=ways)
+    request = start_request(targets=targets, actions=actions, ways=ways)
     rejected = _round(engine, "shape", "start_activity", request)[1]
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.activities == {}

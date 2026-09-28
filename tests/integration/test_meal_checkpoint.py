@@ -14,8 +14,7 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from tests.life.conftest import (  # noqa: E402
     activity_name, advance_next, advance_until_ready, conclude_pending, conclude_request, context, stage_day_plan,
-    wake_by_mail,
-)
+    wake_by_mail, start_request)
 from tests.life.test_dayrun_restaurants import RESTAURANT, MEAL, SUPPLY  # noqa: E402
 from tests.life.test_scheduling import _custom_engine  # noqa: E402
 from worldmock.footprints.experiences import project_verified_experiences  # noqa: E402
@@ -23,7 +22,7 @@ from worldmock.footprints.export import export_run  # noqa: E402
 from worldmock.life import sessions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import (  # noqa: E402
-    ActivityStatus, PauseActivityRequest, ReportStatusRequest, SessionKind, StartActivityRequest,
+    ActivityStatus, PauseActivityRequest, ReportStatusRequest, SessionKind,
 )
 
 
@@ -46,7 +45,7 @@ def _start(engine, name: str, kind: str, object_id: str | None, way: str):
     binding, verb = next((row, item["verb"]) for row in observed["interaction_bindings"]
                          if row["kind"] == kind and (object_id is None or row["object_id"] == object_id)
                          for item in row["actions"] if item["label"] == way)
-    request = StartActivityRequest(targets=[binding["object"]], actions=[verb], ways=[way])
+    request = start_request(targets=[binding["object"]], actions=[verb], ways=[way])
     engine.submit_action(DirectToolCall(decision, f"action-{name}", "start_activity", request))
     result = engine.commit_decision_round(name)[0]
     assert result.status in {"completed", "in_progress"}, result.error_code

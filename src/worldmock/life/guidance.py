@@ -4,7 +4,8 @@
 确定性生成：引导性拒绝在抛出处用 guided() 或 Refusal.error() 写明原因与下一步（或以可读名称写 suggested），原因记在
 错误的 public_reason 上；其余错误码按码取中文默认原因，从不取链式底层异常的文字（其中可能是请求模型的校验转储）。
 两者经公开结果投影进入进度层 tool_call.result.details（docs/dev/SPEC-persona-prompt.md「进度层」）。工具层的可用性
-说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。
+说明取同一原因：只有错误码的拒绝经 refusal_for_code 取得与拒绝一字不差的 Refusal。拒绝另有可读事实时（已关联的订单）
+由 with_details 挂在错误上，随原因与下一步一起进入结果。
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ _DEFAULT_REASONS = {
     "ELIGIBILITY_LOCATION_KIND_MISMATCH": "这里不适合做这件事",
     "SAME_MOMENT_ACTION_RESTRICTED": "已经想了好几轮，这一轮只能先定下一件事",
     "TASK_NOT_FOUND": "找不到这个名称",
+    "REQUEST_ALREADY_HANDLED": "这条消息要的东西已经下过单了",
 }
 #: 抛出处没有写下一步时按错误码给的做法。
 _DEFAULT_NEXT_STEPS = {
@@ -55,6 +57,7 @@ _DEFAULT_NEXT_STEPS = {
     "SAME_MOMENT_ACTION_RESTRICTED": "只从这一轮开放的动作里选",
     "ACTION_REQUEST_INVALID": "从本轮列出的对象和方式里选",
     "SOCIAL_ACTIVITY_CANNOT_PAUSE": "可以直接结束",
+    "REQUEST_ALREADY_HANDLED": "等已下的订单送到",
 }
 
 
@@ -92,6 +95,12 @@ def guided(code: str, reason: str, next_step: str = "", unmet: Sequence[str] = (
     return Refusal(code, reason, next_step, tuple(unmet)).error()
 
 
+def with_details(error: BusinessRuleError, details: dict) -> BusinessRuleError:
+    """@brief 给业务拒绝挂上公开的可读事实（例如 linked_orders），rejection_guidance 随原因与下一步一起返回。"""
+    error.public_details = dict(details)
+    return error
+
+
 def refusal_for_code(code: str) -> Refusal:
     """@brief 只有错误码的业务拒绝对应的 Refusal：原因与下一步取该码的默认说法，与 rejection_guidance 一字不差。
 
@@ -100,8 +109,8 @@ def refusal_for_code(code: str) -> Refusal:
     return Refusal(code, _DEFAULT_REASONS.get(code, GENERIC_REASON), _DEFAULT_NEXT_STEPS.get(code, ""))
 
 
-def rejection_guidance(error: BusinessRuleError) -> dict[str, str]:
-    """@brief 从一次业务拒绝确定性生成公开的 reason 与 next_step。
+def rejection_guidance(error: BusinessRuleError) -> dict:
+    """@brief 从一次业务拒绝确定性生成公开的 reason 与 next_step，另带 with_details 挂上的可读事实。
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
     suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。
@@ -109,7 +118,8 @@ def rejection_guidance(error: BusinessRuleError) -> dict[str, str]:
     code = str(error)
     reason = getattr(error, "public_reason", None) or _DEFAULT_REASONS.get(code, GENERIC_REASON)
     suggested = getattr(error, "suggested", None) or {}
-    return {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, "")}
+    return {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, ""),
+            **getattr(error, "public_details", {})}
 
 
 def _next_step(suggested: dict) -> str:

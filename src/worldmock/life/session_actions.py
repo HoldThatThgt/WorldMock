@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life import activity_control, admission, sessions
+from worldmock.life import activity_control, admission, giving, order_routing, request_linking, routing, sessions
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.guidance import guided
-from worldmock.life.interaction_menu import activity_phrase, merged_selection, resolve_selection
+from worldmock.life.interaction_menu import GIVE_WAY, activity_phrase, merged_selection, resolve_selection
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -29,8 +29,6 @@ from worldmock.life.models import (
     LIFESTYLE_TYPE_PREFIX,
     PauseActivityRequest,
     PendingAction,
-    PurchaseItem,
-    PurchaseOrderRequest,
     RecallTaskSummaryRequest,
     ReportStatusRequest,
     SendMessageActionRequest,
@@ -79,6 +77,7 @@ class SessionActionMixin:
         admission.require_group(self._admission_context(state, pending.agent_id, names),
                                 [admission.selection_item(row, row["selected_action"], self._world_facts)
                                  for row in selection])
+        routing.require_recipients(selection)
         if merged_selection(actions, labels):
             targets = [item["object_id"] for item in selection]
             changed, result = self._dispatch_start_action(state, pending, actions[0], targets, selection)
@@ -102,18 +101,23 @@ class SessionActionMixin:
     def _start_selection(self, pending: PendingAction, request) -> list[dict] | None:
         """@brief start_activity 各项经本轮私有绑定解析的绑定行，菜单判定、受限轮复核与受理共用这一次解析；其他工具为空。
 
-        目标重复或选择在本轮闭集内解析不出时为 None：不作菜单判定，待收尾要求之后由 start_activity 以
-        ACTION_REQUEST_INVALID 拒绝。
+        来源、去向与 answering 不合法（routing.combination_error，去向写了本轮没有的人物除外）或选择在本轮闭集内解析
+        不出时为 None：不作菜单判定，待收尾要求之后由 start_activity 以 ACTION_REQUEST_INVALID 拒绝。解析出的各行
+        写上去向与关联（routing.routed_selection）。
         """
         return self._offered_selection(pending, request) if pending.tool_name == "start_activity" else []
 
     def _offered_selection(self, pending: PendingAction, request: StartActivityRequest) -> list[dict] | None:
-        """@brief 在本轮冻结观察的私有绑定中逐项解析（对象，动词，方式）；目标重复或不在本轮闭集时为 None。"""
-        if len(set(request.targets)) != len(request.targets):
-            _LOGGER.error("Start activity targets repeat")
+        """@brief 在本轮冻结观察的私有绑定中逐项解析（对象，动词，方式）并写上去向；组合不合法或不在本轮闭集时为 None。"""
+        observation = self._frozen_observation(pending)
+        names = routing.routing_names(observation)
+        error = routing.combination_error(request, names)
+        if error is not None and error[0] != "RECIPIENT_NOT_FOUND":
+            _LOGGER.error("Start activity from, to or answering is invalid: %s", error[1])
             return None
-        return resolve_selection(self._frozen_observation(pending).get("interaction_bindings"),
-                                 request.targets, request.actions, request.ways)
+        rows = resolve_selection(observation.get("interaction_bindings"), request.targets, request.actions,
+                                 request.ways)
+        return routing.routed_selection(rows, request, names) if rows is not None else None
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction, bindings: list[dict]
                                 ) -> tuple[WorldState, ActionResult, list[tuple[str, list[dict]]]]:
@@ -133,7 +137,7 @@ class SessionActionMixin:
                     changed, pending, action, [binding["object_id"]], [binding])
                 if result.activity_id is not None:
                     started.append((result.activity_id, [binding]))
-                elif action != "purchase":
+                elif action != "purchase" and binding["selected_action"]["label"] != GIVE_WAY:
                     _LOGGER.error("Parallel action neither started an activity nor placed an order")
                     raise BusinessRuleError("ACTION_REQUEST_INVALID")
                 results.append(result)
@@ -142,7 +146,8 @@ class SessionActionMixin:
             del self._pending_event_drafts[draft_count:]
             raise
         status = ActionStatus.IN_PROGRESS if started else ActionStatus.COMPLETED
-        message = "Activities started" if started else "Purchases accepted"
+        instant = "Purchases accepted" if all(result.data.get("orders") for result in results) else "Items handed over"
+        message = "Activities started" if started else instant
         return changed, ActionResult(
             action_id=pending.action_id, agent_id=pending.agent_id, status=status, occurred_at=state.current_time,
             message=message, data=_parallel_result_data(results)), started
@@ -254,6 +259,8 @@ class SessionActionMixin:
             return self._start_social_action(state, pending, action, targets[0])
         if action == "purchase":
             return self._start_purchase_action(state, pending, bindings)
+        if action == "consume" and bindings[0]["selected_action"]["label"] == GIVE_WAY:
+            return self._give_action(state, pending, bindings[0])
         if action == "consume":
             return self._start_consume_action(state, pending, targets, bindings)
         _LOGGER.error("Start activity action is unsupported: %s", action)
@@ -354,33 +361,26 @@ class SessionActionMixin:
 
     def _start_purchase_action(self, state: WorldState, pending: PendingAction,
                                 bindings: list[dict]) -> tuple[WorldState, ActionResult]:
-        """@brief 使用各供给冻结报价和人物选择的履约方式，系统确定单件数量。"""
-        agent = state.agents[pending.agent_id]
-        supplies = [self.rules.supplies[item["object_id"]] for item in bindings]
-        modes = {item["selected_action"].get("fulfillment") for item in bindings}
-        if len(modes) != 1 or modes.pop() not in {"pickup", "delivery"}:
-            _LOGGER.error("Purchase fulfillment selection is invalid")
-            raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
-        fulfillment = bindings[0]["selected_action"]["fulfillment"]
-        present = admission.present_location(state, pending.agent_id)
-        valid = all(item.location_id == present and "pickup" in item.fulfillment_modes
-                    for item in supplies) if fulfillment == "pickup" else all(
-                        "delivery" in item.fulfillment_modes
-                        and agent.location_id in item.delivery_destination_ids for item in supplies)
-        if not valid:
-            _LOGGER.error("Selected supplies cannot use the chosen fulfillment")
-            raise BusinessRuleError("FULFILLMENT_NOT_SUPPORTED")
-        items = []
-        for binding in bindings:
-            quote = binding.get("quote")
-            if not isinstance(quote, dict) or not quote.get("price_version"):
-                _LOGGER.error("Frozen supply quote is unavailable")
-                raise BusinessRuleError("SUPPLY_QUOTE_UNKNOWN")
-            items.append(PurchaseItem(supply_id=binding["object_id"], quantity=1,
-                                      price_version=quote["price_version"]))
-        purchase = PurchaseOrderRequest(items=tuple(items), fulfillment=fulfillment,
-                                        destination_id=agent.location_id)
-        return self._purchase(state, pending, purchase)
+        """@brief 使用各供给冻结报价和人物选择的履约方式，系统确定单件数量；按收货地拆成几笔整单依次结算。
+
+        被 answering 关联、且已有同一（消息，收货人，商品）未取消订单的项以 REQUEST_ALREADY_HANDLED 拒绝。
+        """
+        request_linking.require_unhandled(state, self.scenario, self.rules.supplies, bindings)
+        changed, results = state, []
+        for purchase in order_routing.order_requests(state, self.semantics, self.rules.supplies,
+                                                     pending.agent_id, bindings):
+            changed, result = self._purchase(changed, pending, purchase)
+            results.append(result)
+        answering = next((item["answering"] for item in bindings if item.get("answering")), None)
+        return changed, order_routing.merged_result(results, answering)
+
+    def _give_action(self, state: WorldState, pending: PendingAction,
+                     binding: dict) -> tuple[WorldState, ActionResult]:
+        """@brief 瞬时给予：把手边持有物交给去向中的人物，不产生活动、不增加任何人的摄入（life.giving）。"""
+        changed, given = giving.give(state, self.scenario, pending.agent_id, binding)
+        return changed, ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
+                                     status=ActionStatus.COMPLETED, occurred_at=state.current_time,
+                                     message="Item handed over", data={"given": [given]})
 
     def _start_consume_action(self, state: WorldState, pending: PendingAction,
                                targets: list[str], bindings: list[dict]) -> tuple[WorldState, ActionResult]:
@@ -673,7 +673,8 @@ def _capped_duration(duration: int) -> int:
 
 def _parallel_result_data(results: list[ActionResult]) -> dict:
     """@brief 逐项派发的合并结果：开始的活动快照（按请求顺序）与逐项结果（activity_results，与请求逐项对应；瞬时的取得
-    是它的订单结果）；资金变动、品类命中与订单汇总到顶层（驾车票价、货款与另一项同时入账）。"""
+    是它的订单结果，给予是它的给予记录）；资金变动、品类命中、订单、给予与关联消息汇总到顶层（驾车票价、货款与另一项
+    同时入账）。"""
     changes: dict[str, int] = {}
     for result in results:
         for account, amount in result.data.get("resource_changes", {}).items():
@@ -688,4 +689,10 @@ def _parallel_result_data(results: list[ActionResult]) -> dict:
     orders = [order for result in results for order in result.data.get("orders", [])]
     if orders:
         data["orders"] = orders
+    given = [item for result in results for item in result.data.get("given", [])]
+    if given:
+        data["given"] = given
+    answering = next((result.data["answering"] for result in results if "answering" in result.data), None)
+    if answering is not None:
+        data["answering"] = answering
     return data

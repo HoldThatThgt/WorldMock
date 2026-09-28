@@ -18,6 +18,7 @@ from tests.integration.test_life_agent_protocol import (
 )
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.models import REQUEST_MODELS, StartActivityRequest
+from tests.life.conftest import start_arguments
 
 _FILM = "内容：纪录片"
 _PARK = "地点：公园"
@@ -48,7 +49,9 @@ def _functions(agent: LifeAgent, readonly: bool = False) -> dict[str, dict]:
 
 
 def _decision(name: str, **arguments) -> ReactDecision:
-    """构造一次原生工具选择。"""
+    """构造一次原生工具选择（start_activity 未写的来源、去向与 answering 取缺省）。"""
+    if name == "start_activity" and "to" not in arguments:
+        arguments = start_arguments(**arguments)
     return ReactDecision("", name, arguments, "")
 
 
@@ -60,7 +63,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     properties = start["parameters"]["properties"]
     assert start["strict"] is True
     assert start["parameters"]["additionalProperties"] is False
-    assert set(properties) == {"targets", "actions", "ways"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
     assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
     user = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, [
         {"turn": 0, "action": "observe", "ok": True, "data": data}]))[1]["content"]
@@ -76,7 +79,7 @@ def test_start_schema_binds_readable_objects_and_actions_without_internal_id() -
     (["content-hidden"], ["interact"], ["接着看"], "not a visible"),
     ([_FILM, _PARK], ["interact"], ["接着看"], "equal lengths"),
     ([_FILM, _PARK], ["interact", "travel"], ["接着看"], "equal lengths"),
-    ([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"], "unique"),
+    ([_FILM, _FILM], ["interact", "interact"], ["接着看", "接着看"], "repeat only with different to"),
     (["自己", _FILM, _PARK], ["interact", "interact", "travel"], ["等待", "接着看", "步行"], "one or two"),
 ])
 def test_start_rejects_invalid_pairs_before_dispatch(targets, actions, ways, error) -> None:
@@ -168,7 +171,7 @@ async def test_valid_start_dispatches_the_same_typed_request() -> None:
     environment = _Environment()
     agent._env = environment
     agent._decision_context = _context()
-    payload = {"targets": [_PARK, _FILM], "actions": ["travel", "interact"], "ways": ["步行", "接着看"]}
+    payload = start_arguments([_PARK, _FILM], ["travel", "interact"], ["步行", "接着看"])
     assert agent.validate_react_decisions([_decision("start_activity", **payload)], False) == ""
     result = await agent.dispatch_react_tool("start_activity", payload)
     assert result.ok is True

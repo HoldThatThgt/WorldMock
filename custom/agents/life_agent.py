@@ -31,6 +31,7 @@ from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, empty_memory_layer, li
                                        system_message, user_message)
 from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
+from worldmock.life.routing import combination_error, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
 
@@ -488,7 +489,8 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
 
 
 def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称。
+    """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称，以及来源
+    与去向的判定名称（人物、可见直接消息）。
 
     只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。
     """
@@ -505,6 +507,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "activity_names": activities,
         "recall_names": (*tasks, *goals, *activities, *sessions),
         "progressed_intents": _progressed_intents(todo),
+        "routing": routing_names(data),
     }
 
 
@@ -552,7 +555,7 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
     """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
     if action == "start_activity":
-        return _validate_start_activity(request, names["objects"])
+        return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
         if any(name not in names["activity_names"] for name in request.task):
             return f"{action} task names an activity that is not visible"
@@ -566,21 +569,21 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
-def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> str:
-    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作。"""
+def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
+    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作；来源、去向与 answering 的组合合法
+    （worldmock.life.routing，与环境受理同一判定）。"""
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
         return "start_activity accepts one or two targets"
     if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
         return "start_activity targets, actions and ways must have equal lengths"
-    if len(set(request.targets)) != len(request.targets):
-        return "start_activity targets must be unique"
     for target, verb, way in zip(request.targets, request.actions, request.ways):
-        actions = objects.get(target)
+        actions = names["objects"].get(target)
         if actions is None:
             return "start_activity target is not a visible interactive object"
         if not any(item[:2] == (verb, way) for item in actions):
             return "start_activity verb and way are not offered by the chosen target"
-    return ""
+    error = combination_error(request, names["routing"])
+    return error[1] if error is not None else ""
 
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
