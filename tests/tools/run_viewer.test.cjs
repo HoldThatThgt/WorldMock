@@ -126,11 +126,13 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
     contextEvent('legacy', contextRequest('legacy_prelude')),
     contextEvent('action', contextRequest()),
     contextEvent('continuation', contextRequest('continuation')),
+    contextEvent('legacy-action', contextRequest('legacy_action')),
   ]);
   try {
     const items = app.run('ContextView.index()');
-    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
+    assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action', 'legacy']);
     assert.equal(items[0].label, '其他调用·未解析');
+    assert.equal(items[3].label, '选择动作·旧模板');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
@@ -152,6 +154,14 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
       block => `${block.role}:${block.key}`), ['assistant:message', 'assistant:reasoning', 'tool:message']);
     app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
+    const legacy = app.run('ContextView.read(4)');
+    assert.equal(legacy.current.blocks.filter(block => block.role === 'user').map(block => block.text).join(''),
+      contextRequest('legacy_action').messages[1].content);
+    app.run('ContextView.select(4)');
+    const legacyHtml = app.get('#ctx-body').innerHTML;
+    assert.ok(legacyHtml.includes('模板拆分') && legacyHtml.includes('来源未核验'));
+    assert.ok(legacyHtml.includes('人物卡片 · 来源未核验'));
+    assert.ok(legacyHtml.includes('历史运行的旧模板行动请求'));
     assert.equal(app.errors.length, 1, app.errors.join('\n'));
   } finally { app.close(); }
 });
