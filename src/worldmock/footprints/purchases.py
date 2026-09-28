@@ -1,0 +1,83 @@
+"""@brief 从已提交事件投影购买事实：成功购买、尝试下单与应用浏览（docs/dev/SPEC-persona-prompt.md 第七章「导出」）。
+
+成功购买取动作结果顶层 data.orders 与逐项结果 activity_results[*].orders 中的订单，按订单去重，与动作的整体状态
+无关（并行的「吃＋买」整体为 in_progress 时订单同样计入），重放回执带着同一订单，不重复计。尝试下单是方式为
+到店或远程下单的请求，带首个结算结果的状态与错误码；应用浏览是方式为浏览的活动，带最后一次快照的状态。
+"""
+
+from __future__ import annotations
+
+#: 下单的取得方式短语（与 life.interaction_menu.PURCHASE_WAYS 的取值相同）。
+ORDER_WAYS = ("到店", "远程下单")
+#: 方式「浏览」开始的活动类型。
+BROWSE_ACTIVITY_KIND = "browse"
+
+
+def project_purchase_facts(events: list[dict]) -> list[dict]:
+    """@brief 按事件顺序投影 purchase、order_attempt、app_browse 三类事实行（依次排列）。"""
+    return _purchases(events) + _order_attempts(events) + _app_browses(events)
+
+
+def _purchases(events: list[dict]) -> list[dict]:
+    """@brief 动作结果中的订单：顶层与逐项结果都取，按订单身份只记首次出现的那条结果。"""
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for event in events:
+        if event["event_type"] != "action_result":
+            continue
+        for order in _result_orders(event["data"].get("data", {})):
+            if order["order_id"] in seen:
+                continue
+            seen.add(order["order_id"])
+            rows.append({"fact_kind": "purchase", "agent_id": order["agent_id"], "order_id": order["order_id"],
+                         "product_id": order["product_id"], "supply_id": order["supply_id"],
+                         "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
+                         "fulfillment": order["fulfillment"], "recipient_id": order.get("recipient_id"),
+                         "request_message_id": order.get("request_message_id"), "created_at": order["created_at"],
+                         "action_id": event["action_id"], "source_event_id": event["event_id"]})
+    return rows
+
+
+def _result_orders(data: dict) -> list[dict]:
+    """@brief 一次动作结果携带的全部订单：顶层 orders 在前，逐项结果的 orders 在后。"""
+    nested = [order for item in data.get("activity_results", []) for order in item.get("orders", [])]
+    return [*data.get("orders", []), *nested]
+
+
+def _order_attempts(events: list[dict]) -> list[dict]:
+    """@brief 方式为到店或远程下单的请求（重放请求不另计），状态与错误码取该动作首个结算结果，尚无结果时为空。"""
+    results: dict[str, dict] = {}
+    for event in events:
+        if event["event_type"] == "action_result":
+            results.setdefault(event["action_id"], event["data"])
+    rows = []
+    for event in events:
+        way = _order_way(event)
+        if way is None:
+            continue
+        result = results.get(event["action_id"], {})
+        rows.append({"fact_kind": "order_attempt", "agent_id": event["agent_id"], "action_id": event["action_id"],
+                     "request_event_id": event["event_id"], "way": way, "status": result.get("status"),
+                     "error_code": result.get("error_code"), "occurred_at": event["occurred_at"]})
+    return rows
+
+
+def _order_way(event: dict) -> str | None:
+    """@brief 非重放的开始活动请求中第一个下单方式；不是下单请求时为 None。"""
+    data = event["data"]
+    if (event["event_type"] != "action_requested" or data.get("tool_name") != "start_activity"
+            or data.get("reused")):
+        return None
+    return next((way for way in data["request"].get("ways", []) if way in ORDER_WAYS), None)
+
+
+def _app_browses(events: list[dict]) -> list[dict]:
+    """@brief 浏览活动：按首次出现排序，状态与来源取截止前最后一次权威快照。"""
+    latest: dict[str, tuple[dict, str]] = {}
+    for event in events:
+        snapshot = event["data"].get("activity")
+        if snapshot is not None and snapshot["kind"] == BROWSE_ACTIVITY_KIND:
+            latest[snapshot["activity_id"]] = (snapshot, event["event_id"])
+    return [{"fact_kind": "app_browse", "agent_id": snapshot["agent_id"], "activity_id": activity_id,
+             "started_at": snapshot["started_at"], "status": snapshot["status"], "source_event_id": source}
+            for activity_id, (snapshot, source) in latest.items()]

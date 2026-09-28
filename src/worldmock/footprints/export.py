@@ -15,6 +15,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.assets import atomic_write
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.footprints.models import Event, canonical_json
+from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 from worldmock.footprints.store import FootprintStore
 
@@ -56,6 +57,8 @@ def _write_export(store: FootprintStore, events: list[Event], stage: Path) -> di
         "activities": write_jsonl(stage / "activities.jsonl", activities),
         "verified_experiences": write_jsonl(
             stage / "verified-experiences.jsonl", _verified_experience_rows(store.manifest["agent_ids"], events)),
+        "purchases": write_jsonl(
+            stage / "purchases.jsonl", project_purchase_facts([event.model_dump() for event in events])),
     }
     references = {}
     if manifest["experiment_completed"]:
@@ -139,7 +142,7 @@ def _export_identity(run: dict, events: list[Event]) -> dict:
              and events[-1].event_type == "checkpoint_created" and events[-1].event_seq > ended[0].event_seq)
     failed = any(event.event_type == "run_failed" for event in events)
     complete = end.timestamp() == run["window"]["end"] and saved and not failed
-    return {"schema_version": 1, "committed": True, "run_id": run["run_id"],
+    return {"schema_version": 2, "committed": True, "run_id": run["run_id"],
             "source_group_id": run.get("source_group_id", run["run_id"]),
             "source_run_ids": sorted({event.run_id for event in events}),
             "cutoff_event_seq": events[-1].event_seq, "experiment_completed": complete,
