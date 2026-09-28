@@ -1,6 +1,6 @@
 """@brief 进度层：当前 session 的有序记录（docs/dev/SPEC-persona-prompt.md「进度层」）。
 
-记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同最新结果与回复正文（self_note）、此前决策里成功的记忆查询
+记录由已提交事件组装，写到本次观察这一刻：人物的世界请求连同即时结果与回复正文（self_note）、此前决策里成功的记忆查询
 （结果只写条数）、收到的直接消息与交谈邀请（全文）和邮件（主题）、订单送达，以及由截止时刻与提醒写入时刻推导的截止预警
 与目标提醒。session 下界：由决策引起的切换（出发、途中结束出行）取引起切换的那条结果的事件序号；运行开始与到达取 session
 的开始时刻。同一秒内推导记录在前（截止在提醒前），事件记录按最小来源事件序号。结果游标及其文本嗅探已删除：结果在整个
@@ -120,35 +120,34 @@ def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
 
 
 def _tool_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:
-    """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。"""
+    """@brief 本 session 的世界请求：每个 action_requested 连同受理它时结算出的结果与 self_note。
+
+    记录只取请求的即时结果（其后第一条 action_result）：开始活动的请求此后的完成、中断等终态结果不进本记录——进行中与
+    刚结束活动的进度与终态只在工具层活动目标的 state、phase（唯一出现原则），结束由 conclude_activity 自己的结果表达。
+    同一 action_id 的重放以下一次请求为界，各配各的结果。
+    """
     requests = [event for event in store.read_agent_events("action_requested", context.agent_id, after=lower)
                 if within(event)]
     results = store.read_agent_events("action_result", context.agent_id, after=lower)
     records = []
     for index, request in enumerate(requests):
         later = next((item.event_seq for item in requests[index + 1:] if item.action_id == request.action_id), None)
-        own = [event for event in results if event.action_id == request.action_id
-               and event.event_seq > request.event_seq and (later is None or event.event_seq < later)]
-        if not own:
+        settled = next((event for event in results if event.action_id == request.action_id
+                        and event.event_seq > request.event_seq and (later is None or event.event_seq < later)), None)
+        if settled is None:
             continue
-        sources = [request, own[0]] + ([own[-1]] if len(own) > 1 else [])
-        records.append(_Record(_tool_record(context, request, own), tuple(sources),
-                               _event_key(request.occurred_at, sources), _order_ids(own)))
+        sources = [request, settled]
+        records.append(_Record(_tool_record(context, request, settled), tuple(sources),
+                               _event_key(request.occurred_at, sources), _order_ids(settled)))
     return records
 
 
-def _tool_record(context: LayerContext, request: Event, results: list[Event]) -> dict:
-    """@brief tool_call 记录：工具、参数（conclude_activity 略去关系与偏好记忆）、最新结果与可选的 self_note。
-
-    开始活动的请求其后的终态结果不带当时的订单，公开结果的 purchases 取即时结果的订单。
-    """
+def _tool_record(context: LayerContext, request: Event, result: Event) -> dict:
+    """@brief tool_call 记录：工具、参数（conclude_activity 略去关系与偏好记忆）、即时结果与可选的 self_note。"""
     data = request.data
-    result = public_result(results[-1].data, context.scenario, context.state.current_time)
-    first = public_result(results[0].data, context.scenario, context.state.current_time)
-    if "purchases" in first["details"] and "purchases" not in result["details"]:
-        result["details"] = {"purchases": first["details"]["purchases"], **result["details"]}
     record = {"occurred_at": iso_time(request.occurred_at, context.scenario.timezone), "type": "tool_call",
-              "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]), "result": result}
+              "tool": data["tool_name"], "arguments": _arguments(data["tool_name"], data["request"]),
+              "result": public_result(result.data, context.scenario, context.state.current_time)}
     if data.get("self_note"):
         record["self_note"] = data["self_note"]
     return record
@@ -163,13 +162,10 @@ def _arguments(tool: str, request: dict) -> dict:
     return {**request, "memories": memories}
 
 
-def _order_ids(results: list[Event]) -> tuple[str, ...]:
-    """@brief 结果中出现的订单身份（顶层与逐项结果）。"""
-    identities = []
-    for event in results:
-        payload = event.data.get("data") or {}
-        identities.extend(order["order_id"] for order in payload.get("orders", []))
-    return tuple(dict.fromkeys(identities))
+def _order_ids(result: Event) -> tuple[str, ...]:
+    """@brief 即时结果中出现的订单身份（顶层 orders）。"""
+    payload = result.data.get("data") or {}
+    return tuple(dict.fromkeys(order["order_id"] for order in payload.get("orders", [])))
 
 
 def _memory_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:

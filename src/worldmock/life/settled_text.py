@@ -60,8 +60,8 @@ def activity_sentence(context: LayerContext, activity: ActivityState) -> str:
 def _tool_lines(context: LayerContext, record: dict, sources: list[Event]) -> list[str]:
     """@brief 世界请求的 settled 句：下单、发消息、提交工作与结束活动；失败的请求与其他工具不写。
 
-    句子取请求的即时结果（sources 中第一个 action_result）：瞬时请求只有这一个结果，开始活动的请求其后的终态结果
-    不改变当时下的订单；记忆查询没有 action_result，不写。
+    句子取请求的即时结果（sources 中的 action_result，即受理时结算出的那一条；开始活动的请求其后的终态结果不是记录的
+    来源）；记忆查询没有 action_result，不写。
     """
     result = next((event.data for event in sources if event.event_type == "action_result"), None)
     if result is None:

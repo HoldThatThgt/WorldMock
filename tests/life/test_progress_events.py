@@ -93,6 +93,27 @@ def test_run_start_session_is_time_bound_and_keeps_every_result(engine_factory) 
     assert later["progress_layer"]["session_started_at"] == iso_time(start, "Asia/Shanghai")
 
 
+def test_started_activity_record_keeps_the_result_settled_at_admission(engine_factory) -> None:
+    """开始活动的调用记录只带受理时结算出的结果：活动结束后记录仍是 in_progress 与计划时长，终态只在工具层活动目标
+    （phase 为「刚结束」），终态结果不是记录的来源（唯一出现原则）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, waited = _act(engine, "settled-wait", "start_activity", start_activity("等待", "自己"))
+    assert advance_until_ready(engine)
+    name = activity_name(engine, waited.activity_id)
+    results = [event for event in engine.store.read_agent_events("action_result", 1)
+               if event.action_id == "action-settled-wait"]
+    assert [event.data["status"] for event in results] == ["in_progress", "completed"]
+    observed = _observe(engine, "settled-seen")
+    (record,) = progress_calls(observed, "start_activity")
+    assert record["result"]["status"] == "in_progress"
+    assert [row["name"] for row in record["result"]["details"]["planned"]] == [name]
+    ended = next(row for row in observed["tool_layer"]["targets"] if row["name"] == name)
+    assert (ended["kind"], ended["phase"]) == ("activity", "刚结束")
+    assert results[0].event_id in observed["progress_event_ids"]
+    assert results[1].event_id not in observed["progress_event_ids"]
+
+
 def test_same_second_departure_opens_a_session_bounded_by_its_result(engine_factory) -> None:
     """同一秒内先修订目标再出发：出发引起的路上 session 以出发结果的事件序号为下界，修订与出发本身都留在前一个 session。"""
     engine = engine_factory()
