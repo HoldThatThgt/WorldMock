@@ -107,6 +107,49 @@ def test_a_new_message_is_a_new_request(engine_factory) -> None:
     assert again.status == "completed" and again.data["orders"][0]["request_message_id"] == second_id
 
 
+def test_answering_a_cross_day_unreplied_memory_message_links_the_order(engine_factory) -> None:
+    """跨日未回复的消息经记忆层关联：1月5日收到王磊的消息没有回复，出门结束那段停留、到次日 10:30，消息以「1月5日」的写法
+    留在记忆层 earlier_days，私有绑定给出规范名称「王磊 1月5日 HH:MM 的消息」；按名称远程下单送给王磊并以它作 answering，
+    订单写 request_message_id，进度层的 settled 句写「（回应…，收货人王磊）」；同一请求再提交以 REQUEST_ALREADY_HANDLED
+    拒绝；关联不是回复，消息仍留在记忆层（第五章「代点请求与订单关联」、第三章「零点、反思与未了结」）。"""
+    from tests.life.conftest import stage_day_plan
+    from tests.life.routing_fixtures import with_colleague
+    from tests.life.test_memory_layer import _act, _arrive, _contact_message, _jump, _next_morning, _walk
+    from worldmock.life.named_purchase import supply_label
+
+    engine = engine_factory(mutate=with_colleague)
+    stage_day_plan(engine)
+    received_at = engine.state.current_time
+    message_id = _contact_message(engine, COLLEAGUE, "明天中午帮我点份吃的")
+    _arrive(engine, "cross-arrive", _walk(engine, "cross-walk").activity_id)
+    _jump(engine, _next_morning(received_at) + 5400)
+    stage_day_plan(engine, submitted=True)
+    zone = engine.scenario.timezone
+    name = f"王磊 1月5日 {iso_time(received_at, zone)[11:16]} 的消息"
+    seen = observe(engine, "cross-next-day")
+    [day] = seen["memory_layer"]["earlier_days"]
+    assert day["date"] == "2026-01-05" and day["settled"][0].endswith("收到王磊的消息：明天中午帮我点份吃的")
+    assert seen["message_bindings"] == [{"name": name, "message_id": message_id, "sender_id": COLLEAGUE}]
+    supply = next(item for item in engine.scenario.supplies
+                  if "delivery" in item.fulfillment_modes and OFFICE in item.delivery_destination_ids)
+    label = supply_label(engine._layer_context(engine.state.agents[1], (), []), supply)
+    request = routed((label, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name)
+    _, ordered = _act(engine, "cross-order", "start_activity", request)
+    assert ordered.status == "completed", (ordered.error_code, ordered.message)
+    [order] = ordered.data["orders"]
+    assert (order["recipient_id"], order["request_message_id"], order["destination_id"]) == (
+        COLLEAGUE, message_id, OFFICE)
+    observed = observe(engine, "cross-linked")
+    [call] = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"
+              and row["tool"] == "start_activity"]
+    lines = observed["progress_meta"][observed["progress_layer"]["events"].index(call)]["lines"]
+    assert call["arguments"]["answering"] == name and lines == [lines[0]]
+    assert lines[0].endswith(f"送到张江高科技园区办公室（冻结场景锚点）（回应{name}，收货人王磊）")
+    _, repeat = _act(engine, "cross-again", "start_activity", request)
+    assert (repeat.status, repeat.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
+    assert observe(engine, "cross-still")["memory_layer"]["earlier_days"] == [day]
+
+
 def _context(inbox: dict, arrivals: dict, now: int) -> tuple:
     """@brief message_bindings 的最小输入：人物 1 的收件箱、到达事件与此刻（时区 Asia/Shanghai）。"""
     agents = {1: SimpleNamespace(inbox=inbox, name="陈曦"), 2: SimpleNamespace(name="李凡")}

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from types import SimpleNamespace
+from zoneinfo import ZoneInfo
 
 import pytest
 from agentsociety2.society import DirectToolCall
@@ -25,6 +26,7 @@ from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, Repor
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
+from worldmock.scheduling.events import ScheduledKind
 
 _LONG_TEXT = "".join(f"第{index:03d}句话。" for index in range(50))[:300]
 
@@ -289,6 +291,116 @@ def test_task_deadline_records_due_soon_and_expired_once_each(engine_factory) ->
     _stage_task_near_due(engine, 0)
     records = _events(_observe(engine, "due-now"), "task_deadline")
     assert [(row["task"], row["stage"]) for row in records] == [(name, "due_soon"), (name, "expired")]
+
+
+def _reschedule_delivery(engine, order_id: str, due_at: int) -> None:
+    """把一个订单的预排送达移到 due_at（到时仍由真实时钟结算），保持存储版本连续。"""
+    staged = engine.state.model_copy(deep=True)
+    event = next(item for item in staged.pending_events if item.kind == ScheduledKind.DELIVERY_ARRIVAL
+                 and order_id in json.dumps(item.data))
+    sequence = max(item.sequence for item in staged.pending_events) + 1
+    staged.pending_events = sorted(
+        [item for item in staged.pending_events if item.scheduled_id != event.scheduled_id]
+        + [event.model_copy(update={"due_at": due_at, "sequence": sequence})],
+        key=lambda item: (item.due_at, item.sequence, item.scheduled_id))
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_delivery_rescheduled"})])
+    engine.state = staged
+
+
+def _wait_until(engine, moment: int, label: str) -> None:
+    """只经真实时间边界推进到 moment：途中的决策机会先给刚结束的等待收尾，再接着等待。"""
+    from tests.life.test_dayrun_restaurants import _keep_waiting
+
+    for step in range(64):
+        if engine.state.current_time >= moment:
+            return
+        if engine.scheduling_state().ready_agent_ids:
+            _act(engine, f"{label}-{step}", *_keep_waiting(engine))
+        else:
+            advance_next(engine)
+    pytest.fail("The clock did not reach the requested moment")
+
+
+def _evening_at_the_office(engine) -> tuple[str, int]:
+    """18:00 人在办公室、首个任务（20:00 截止）可见；人物写下 19:30 提醒的今日目标，远程下单一份送到这里，并把它的
+    送达（预计更早）推迟到 19:30、再安排一封 19:30 的邮件。返回任务目标名与截止预警时刻（截止前 1800 秒）。"""
+    name = _stage_task_near_due(engine, 7200)
+    stage_day_plan(engine)
+    soon = engine.state.current_time + 5400
+    remind = datetime.fromtimestamp(soon, ZoneInfo(engine.scenario.timezone)).strftime("%H:%M")
+    _act(engine, "evening-plan", "revise_day_plan", ReviseDayPlanRequest(
+        goals=(PlanGoalInput(intent_kind="休息", goal="交稿前喝口水", remind_time=remind),)))
+    order = _order_to_the_office(engine)
+    assert order["expected_at"] < soon
+    _reschedule_delivery(engine, order["order_id"], soon)
+    wake_by_mail(engine, offset=5400)
+    return name, soon
+
+
+def _order_to_the_office(engine) -> dict:
+    """按名称（「<门店>出售的<商品>」）远程下单一份送到办公室：依次试能送到这里的供给，返回第一笔受理的订单。"""
+    from worldmock.life.named_purchase import supply_label
+
+    context_ = engine._layer_context(engine.state.agents[1], (), [])
+    labels = [supply_label(context_, supply) for supply in engine.scenario.supplies
+              if "delivery" in supply.fulfillment_modes and "office" in supply.delivery_destination_ids]
+    for index, label in enumerate(labels):
+        _, bought = _act(engine, f"evening-order-{index}", "start_activity", start_activity("远程下单", label))
+        if bought.status == "completed":
+            return bought.data["orders"][0]
+    pytest.fail("No supply delivers to the office at this hour")
+
+
+def test_same_second_deadline_reminder_arrivals_and_call_keep_a_stable_order(engine_factory) -> None:
+    """同一秒（19:30）的五种记录顺序稳定：真实时钟推进到截止前 1800 秒时推导出 task_deadline（due_soon）与 plan_reminder，
+    推导记录在前（截止在提醒前），同秒结算的邮件到达与送达按来源事件序号，人物当秒的调用最后；再观察一次顺序不变。"""
+    from tests.life.test_dayrun_restaurants import _keep_waiting
+
+    engine = engine_factory()
+    name, soon = _evening_at_the_office(engine)
+    _wait_until(engine, soon, "evening-wait")
+    assert engine.state.current_time == soon
+    woken = _observe(engine, "evening-woken")
+    assert {"task_due_soon", "plan_reminder_due"} <= set(woken["wake_reasons"])
+    assert engine.state.agents[1].day_plan.goals[0].reminded_at == soon
+    _act(engine, "evening-call", *_keep_waiting(engine))
+    moment = iso_time(soon, engine.scenario.timezone)
+    arrivals = sorted((event for event in engine.store.read_agent_events("environment_event", 1)
+                       if event.occurred_at == soon and event.data.get("kind") in {"mail_arrival",
+                                                                                   "delivery_arrival"}),
+                      key=lambda event: event.event_seq)
+    kinds = {"mail_arrival": "message_arrival", "delivery_arrival": "delivery"}
+    expected = ["task_deadline", "plan_reminder", *(kinds[event.data["kind"]] for event in arrivals), "tool_call"]
+    first, again = (_observe(engine, label) for label in ("evening-seen", "evening-again"))
+    same = [row for row in _events(first) if row["occurred_at"] == moment]
+    assert [row["type"] for row in same] == expected and len(arrivals) == 2
+    assert (same[0]["task"], same[0]["stage"], same[1]["goal"]) == (name, "due_soon", "交稿前喝口水")
+    assert [row for row in _events(again) if row["occurred_at"] == moment] == same
+
+
+def test_the_advancing_clock_derives_due_soon_reminder_and_expiry_once_each(engine_factory) -> None:
+    """截止预警、目标提醒与到期都由真实时钟推进得到（不手置时刻）：19:15 的边界上进度层还没有它们；时钟推进到 20:00 截止时
+    19:30 的 due_soon 与提醒各出现一次，截止时刻出现 expired。"""
+    engine = engine_factory()
+    name, soon = _evening_at_the_office(engine)
+    _wait_until(engine, soon - 900, "clock-before")
+    assert engine.state.current_time == soon - 900
+    before = _observe(engine, "clock-before-seen")
+    assert not [row for row in _events(before) if row["type"] in {"task_deadline", "plan_reminder"}]
+    _wait_until(engine, soon, "clock-soon")
+    _wait_until(engine, soon + 1800, "clock-due")
+    assert engine.state.current_time == soon + 1800
+    derived = [(row["type"], row.get("stage") or row.get("goal"), row["occurred_at"])
+               for row in _events(_observe(engine, "clock-due-seen")) if row["type"] in {"task_deadline",
+                                                                                         "plan_reminder"}]
+    zone = engine.scenario.timezone
+    assert derived == [("task_deadline", "due_soon", iso_time(soon, zone)),
+                       ("plan_reminder", "交稿前喝口水", iso_time(soon, zone)),
+                       ("task_deadline", "expired", iso_time(soon + 1800, zone))]
+    assert all(row["task"] == name for row in _events(_observe(engine, "clock-again"), "task_deadline"))
 
 
 def _stage_plan(engine, reminded_at: int | None) -> None:

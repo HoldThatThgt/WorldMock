@@ -195,6 +195,76 @@ def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_
     assert _intake(engine, first.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(1.0)
 
 
+def test_ending_a_paused_meal_discards_the_opened_remainder_without_intake(engine_factory) -> None:
+    """4 份里开吃 1 份，吃到 300/1500 秒时暂停（已吃 0.2），暂停期间另等一刻钟（暂停不结算进食），再结束这项暂停的进食：
+    丢弃 opened 减已吃的 0.8 份并写进活动与收尾结果，状态为提前结束；收尾那一秒不补算摄入（能量与收尾前相同，进度结算
+    只有暂停前的 0.2 份），其他 3 份不动（第五章「进食」：结束进行中或暂停的进食都丢弃剩余）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    food = _food(engine)
+    _stage_holding(engine, food.product_id, 4.0)
+    _, started = _start_eating(engine, food, "held")
+    wake_by_mail(engine, offset=300)
+    advance_next(engine)
+    name = activity_name(engine, started.activity_id)
+    _, paused = _round(engine, "held-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    assert paused.status == "completed"
+    _, waited = _round(engine, "held-wait", "start_activity", start_activity("等待", "自己"))
+    assert advance_until_ready(engine)
+    _round(engine, "held-wait-end", "conclude_activity", conclude_request(activity_name(engine, waited.activity_id)))
+    meal = engine.state.activities[started.activity_id]
+    assert (meal.status, meal.data["consumed"], meal.data["opened"]) == (
+        ActivityStatus.PAUSED, {food.product_id: 0.2}, {food.product_id: 1.0})
+    before = engine.state.agents[1].body.energy_kcal
+    _, ended = _round(engine, "held-end", "conclude_activity", conclude_request(name, summary="吃完了"))
+    assert ended.status == "completed"
+    assert ended.data["outcome"] == [{"activity": name, "outcome": "提前结束",
+                                      "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
+    meal = engine.state.activities[started.activity_id]
+    assert (meal.status, meal.data["consumed"], meal.data["discarded"]) == (
+        ActivityStatus.CANCELLED, {food.product_id: 0.2}, {food.product_id: 0.8})
+    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    assert _intake(engine, meal.activity_id, food.energy_kcal_per_unit)[0] == pytest.approx(0.2)
+    assert _held(engine, food.product_id) == 3.0
+
+
+def _stage_failed(engine, activity_id: str) -> None:
+    """把进行中的进食置为失败结束、待收尾（引擎目前没有让进食失败的结算路径，终态只能预置；收尾走真实路径）。"""
+    staged = engine.state.model_copy(deep=True)
+    now = staged.current_time
+    staged.activities[activity_id] = staged.activities[activity_id].model_copy(update={
+        "status": ActivityStatus.FAILED, "ended_at": now, "last_settled_at": now, "next_interaction_at": None,
+        "boundary_type": "failed", "interruption_reason": "test_failed"}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system",
+        data={"kind": "test_meal_failed"})])
+    engine.state = staged
+
+
+def test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder(engine_factory) -> None:
+    """失败结束、待收尾的进食经真实收尾：结果 details.outcome 写「失败」与已吃 0.2、丢弃 0.8、剩余 3 份，丢弃写进活动数据，
+    不补算摄入，人物写「吃完了」也不改变终局（第五章「进食」收尾结果逐项写终局）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    food = _food(engine)
+    _stage_holding(engine, food.product_id, 4.0)
+    _, started = _start_eating(engine, food, "failed")
+    wake_by_mail(engine, offset=300)
+    advance_next(engine)
+    _stage_failed(engine, started.activity_id)
+    name = activity_name(engine, started.activity_id)
+    before = engine.state.agents[1].body.energy_kcal
+    _, ended = _round(engine, "failed-end", "conclude_activity", conclude_request(name, summary="吃完了"))
+    assert ended.status == "completed"
+    assert ended.data["outcome"] == [{"activity": name, "outcome": "失败",
+                                      "items": _items(food, "0.2 份", "0.8 份", "3 份"), "note": None}]
+    meal = engine.state.activities[started.activity_id]
+    assert (meal.status, meal.data["discarded"]) == (ActivityStatus.FAILED, {food.product_id: 0.8})
+    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    assert last_result(engine.observe(context(engine, "failed-seen")))["details"]["outcome"] == ended.data["outcome"]
+
+
 def test_less_than_one_portion_is_eaten_for_a_scaled_duration_and_energy(engine_factory) -> None:
     """持有 0.25 份时食用可用、受理：工具层的数量 0.25 份与时长 375 秒同一口径，时长为 max(60, round(1500 × 0.25))，
     热量按 0.25 份结算（第六章「不足一份的食物无法消费」的回归：固定一份时该动作不可用并以 PRODUCT_NOT_HELD 拒绝）。"""
