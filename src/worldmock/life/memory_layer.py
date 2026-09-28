@@ -144,16 +144,17 @@ def persona_views(context: LayerContext, store: FootprintStore) -> dict:
             "preferences": list(preferences.values())}
 
 
+def noted_label(layer: dict, name: str, text: str) -> str | None:
+    """@brief 这段人物自述若仍在记忆层 self_notes 中（按活动名标注，标注可去掉开始时刻后缀），返回它所用的活动标注，
+    否则为 None；回看据此不重复正文（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。"""
+    labels = {name, _START_SUFFIX.sub("", name, count=1)}
+    return next((note["activity"] for entry in (*layer["earlier_days"], *layer["earlier_today"])
+                 for note in entry["self_notes"] if note["activity"] in labels and note["text"] == text), None)
+
+
 def reflection_date(sleep_started_at: int, timezone_name: str) -> str:
     """@brief 就寝反思的归属日期：睡眠开始时刻前推 6 小时的本地日期（23:00 与次日 01:00 入睡都归前一晚，14:00 小睡归当日）。"""
     return local_date(sleep_started_at - REFLECTION_SHIFT_SECONDS, timezone_name)
-
-
-def holds_note(layer: dict, activity_name: str, text: str) -> bool:
-    """@brief 记忆层 JSON 的 self_notes 里是否有这项活动写下的这段原文（条目内按全名或去掉开始时刻后缀的短名标注）。"""
-    labels = {activity_name, _START_SUFFIX.sub("", activity_name, count=1)}
-    return any(note["activity"] in labels and note["text"] == text
-               for entry in (*layer["earlier_days"], *layer["earlier_today"]) for note in entry["self_notes"])
 
 
 def _build(context: LayerContext, store: FootprintStore) -> _Build:

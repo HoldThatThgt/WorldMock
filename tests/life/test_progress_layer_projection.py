@@ -226,7 +226,7 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
     人读进度（工作不写「还差」）与自述；截止是带时区的 ISO 时刻，自述照原文、不逐条标注未经核验；会话名不在七层中出现，
     回看会话名以 TASK_NOT_FOUND 拒绝。结果不带内部身份并原样进入进度层该调用结果的 details.recall（第七章，
     docs/dev/SPEC-persona-prompt.md「通用格式」「进度层」）。自述仍在本轮记忆层 self_notes 中时（按活动的全名或去掉开始
-    时刻的短名标注），任务与活动的回看都只写那项活动名与「已在记忆层」（「唯一出现原则」）。"""
+    时刻的短名标注），任务与活动的回看都只写那项活动在记忆层中的名称与「已在记忆层」（「唯一出现原则」）。"""
     task = SimpleNamespace(task_id="internal-task", required_effective_seconds=14400.0,
                            due_at=datetime.fromtimestamp(_START + 64800, timezone.utc))
     work = {"kind": ActivityKind.WORK, "target_id": task.task_id, "task_kind": SessionTaskKind.WORK_TASK,
@@ -283,7 +283,8 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
     assert public["details"] == {"recall": by_activity["recall"]}
     memory["earlier_today"] = [{"recorded_at": "2026-01-05T01:00:00+08:00", "settled": [], "self_notes": [
         {"activity": "工作1月5日项目会议纪要", "text": "先整理提纲"}]}]
-    assert recall(first.name)["recall"] == {"kind": "activity", "activity": first.name, "progress_note": "已在记忆层"}
+    assert recall(first.name)["recall"] == {"kind": "activity", "activity": "工作1月5日项目会议纪要",
+                                            "progress_note": "已在记忆层"}
     assert recall("工作：1月5日项目会议纪要")["recall"]["progress_note"] == "已经核对正文"
     memory["earlier_today"][0]["self_notes"].append({"activity": second.name, "text": "已经核对正文"})
     assert recall("工作：1月5日项目会议纪要")["recall"] == {

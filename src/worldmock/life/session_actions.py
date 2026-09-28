@@ -57,8 +57,8 @@ from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_
 _LOGGER = logging.getLogger(__name__)
 #: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
 DERIVED_DURATION_CAP_SECONDS = 86_400
-#: 回看的自述仍在记忆层时，结果中代替原文的说法（docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。
-IN_MEMORY_LAYER = "已在记忆层"
+#: 回看的自述仍在记忆层时代替正文的说法（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。
+RECALL_IN_MEMORY_LAYER = "已在记忆层"
 
 
 class SessionActionMixin:
@@ -493,8 +493,8 @@ class SessionActionMixin:
         return state, result
 
     def _recall_task(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
-        """@brief 任务回看：名称、截止（带时区 ISO）与最近一条相关活动自述；该自述仍在记忆层时只写那项活动名与
-        「已在记忆层」。"""
+        """@brief 任务回看：名称、截止（带时区 ISO）与最近一条相关活动自述；该自述仍在记忆层时只写那项活动在记忆层中的
+        名称与「已在记忆层」。"""
         task = self.rules.task(row["task_id"])
         notes = [item for item in state.activities.values()
                  if item.agent_id == pending.agent_id and item.task_kind == SessionTaskKind.WORK_TASK
@@ -721,13 +721,13 @@ def _self_report(note: str) -> dict:
 
 
 def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
-    """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写活动名与「已在记忆层」；否则为 None。"""
+    """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写它在记忆层中的活动名与「已在记忆层」，
+    不写其他回看事实；否则为 None（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。"""
     if activity is None or not activity.progress_note:
         return None
-    name = next(row["name"] for row in observed["activity_bindings"] if row["activity_id"] == activity.activity_id)
-    if not memory_layer.holds_note(observed["memory_layer"], name, activity.progress_note):
-        return None
-    return {"activity": name, "progress_note": IN_MEMORY_LAYER}
+    names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
+    label = memory_layer.noted_label(observed["memory_layer"], names[activity.activity_id], activity.progress_note)
+    return None if label is None else {"activity": label, "progress_note": RECALL_IN_MEMORY_LAYER}
 
 
 def _capped_duration(duration: int) -> int:

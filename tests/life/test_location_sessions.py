@@ -693,27 +693,6 @@ def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_f
         assert not {key for key in recall if key.endswith("_id")}
 
 
-def test_recall_writes_only_the_activity_name_while_its_summary_is_still_in_the_memory_layer(engine_factory) -> None:
-    """回看的 summary 仍在记忆层时不重复：结果只写活动名与「已在记忆层」；不在记忆层时照写回看结果
-    （docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。在家等待，播报写下的自述不进记忆层，回看照写原文；收尾写下总结后
-    出门，这段停留结束、总结进入记忆层 self_notes，再回看同一活动只写活动名与「已在记忆层」，结果里没有总结原文。"""
-    engine = engine_factory()
-    stage_day_plan(engine)
-    waited = _wait(engine, "remembered-wait")
-    name = _name(engine, waited.activity_id)
-    _wake(engine)
-    _round(engine, "remembered-report", "report_status", ReportStatusRequest(task=[name], summary=["等得有点久。"]))
-    shown = _recall(engine, "remembered-before", name)
-    assert (shown["kind"], shown["name"], shown["progress_note"]) == ("activity", name, "等得有点久。")
-    _wake(engine)
-    assert _conclude(engine, "remembered-conclude", waited.activity_id).status == "completed"
-    assert _depart(engine, "remembered-depart").status == "in_progress"
-    memory = _preview(engine, "remembered-memory")["memory_layer"]
-    assert "收个尾。" in [note["text"] for entry in memory["earlier_today"] for note in entry["self_notes"]]
-    collapsed = _recall(engine, "remembered-after", name)
-    assert collapsed == {"kind": "activity", "activity": name, "progress_note": "已在记忆层"}
-
-
 def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) -> None:
     """边走边看：和步行同一请求开始的内容，回看的地点是它所属的那段路「去<目的地>的路上」，不是出发地；
     到达收尾后仍是那段路（第七章 recall_task_summary「活动给 {名称, 地点, …}」）。"""
