@@ -1,10 +1,11 @@
 # 特性规格：人物决策与画像
 
 > 状态：FROZEN——条款已裁决。既有测试证据保留原源码身份；正式地点活动环境、供给候选与交易由地图特性完整实现并重新验收，不能沿用历史数字宣称完成。正式十二周、隔离盲评与 LabelKit 完整自然日交付仍待真实运行。
+> 部分条款按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分待实现；修订记录见「版本表」。
 > 日期：2026-09-19
 > 依据：《人物真实性根因分析》（`docs/dev/research/realism-root-cause-2026-09-17.md`）的裁决结果。四个假设不是并列的，而是一条因果链——人物与环境之间的交换规则是主因也是放大器，给模型看的呈现是最便宜的杠杆，数据缺的是品类而不是条数，人物卡片文本本身有效而编译层是死通道
 > 补充依据：《对象模型重分析》的「可达性：池变大后靠什么被看到」「被裁掉的对象怎么办」「曝光轮转」「地点语义粒度该取什么值」四节，见 `.work/object-model-reanalysis/REPORT.md` 与同目录 `LOCATION-GRANULARITY.md`
-> 范围：人物的两阶段决策调用、记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
+> 范围：人物的记忆写入与巩固、动机层的内部仪表与呈现、当日目标、世界素材品类准入、素材可达性与呈现轮转、画像编译、商品数量合同、运行呈现与导出投影
 
 ## 产品行为
 
@@ -13,16 +14,17 @@
 
 人物自己决定怎么过日子。本规格规定其中两件事：每次决策给模型看什么，以及模型说了什么要留下什么。
 
-环境每提供一次决策机会，人物模型先决策自述：用第一人称说出此刻的感受与打算，不带工具。再行动：
-走现有 ReAct 循环，携带事实与原生工具，恰好提交一个世界请求，登记即结束。每次请求都留完整证据；决策自述是人物私有内容，
-只允许 dreaming 任务读取。当日目标由场景本地零点的后台任务 `plan_day` 生成，可带提醒，人物清醒时可修订；
+环境每提供一次决策机会，人物模型只有一个行动阶段：走现有 ReAct 循环，读取七层请求与原生工具，可以先查询自己的记忆，
+再恰好提交一个世界请求，登记即结束；决策就是所选的世界请求。回复正文可有可无，写了就作为该调用的 `self_note`
+保留到本段停留或路程结束，不进入记忆。每次请求都留完整证据。当日目标由场景本地零点的后台任务 `plan_day` 生成，可带提醒，人物清醒时可修订；
 目标是人物意图，环境只根据实际活动证据标记推进，并以环境事件提供决策机会。人物在结束活动时写主观记忆，可以为空；
 写入前按相似度合并，累计到阈值、待巩固条数达到十条或入睡后的第一个边界时归纳主观内容，
 并在就寝后做一次反思。长期记忆的完成事实只由已提交环境事件确定性投影。
 
-人物卡片由背景故事编译而来，确定性渲染成中文文本（不超过 600 汉字）后进入提示；大五分数、九参数与权重都不进提示，
-只驱动世界层动力学。动机评分器计算并落库，候选、名次与概率不进入提示，进提示的是
-由体感分级、当日工作缺口与待办合成的一句话。世界数据按可供性品类而不是条目数量验收，准入检查不满足即拒绝启动。
+人物卡片由背景故事编译而来，结构化字段以人设层 JSON 进入提示（卡片派生部分不超过 600 汉字，当下处境不进提示）；
+大五分数、九参数与权重都不进提示，只驱动世界层动力学。动机评分器计算并落库，候选、名次与概率不进入提示，
+也不再合成一句话进入提示：体感分级、工作合同与待办分别只在环境层、工具层任务目标与待办层出现。
+世界数据按可供性品类而不是条目数量验收，准入检查不满足即拒绝启动。
 
 本规格改变提示词、工具 Schema 与世界状态结构，`prompt_sha256`、`tool_schema_sha256`、`code_sha256` 随之改变；
 世界状态新增结构版本，旧状态没有该字段，加载即拒绝。此前运行的模型请求记录与新运行跨版本不可比，
@@ -31,18 +33,21 @@
 ```mermaid
 flowchart TD
     BS[background_story] --> PC[画像编译产出人物卡片]
-    PC --> TXT[确定性渲染 不超过 600 汉字]
-    TXT --> MONO[决策自述阶段 不带工具]
-    SCENE[场景段落] --> MONO
-    MEM[记忆摘要与长期记忆] --> MONO
-    MONO -->|决策自述文本| ACT[行动阶段 事实与原生工具]
-    ACT -->|恰好一个生活动作| ENV[LifeEnv 结算与唤醒条件]
-    PLAN[今天想推进的目标] --> SCENE
+    PC --> PER[人设层 卡片派生部分不超过 600 汉字]
+    PER --> ACT[行动阶段 七层请求与原生工具]
+    LAYERS[工具层与环境层] --> ACT
+    PLAN[今天想推进的目标] --> TODO[待办层]
+    TODO --> ACT
+    MEM[记忆层 由已提交事件派生] --> ACT
+    ACT -->|恰好一个世界请求| ENV[LifeEnv 结算与唤醒条件]
     ENV -->|结算边界与唤醒原因| FOOT[数字足迹]
+    FOOT -->|本段停留或路程的调用与结果| PROG[进度层]
+    PROG --> ACT
+    FOOT -->|session 结束的 settled 与 self_notes| MEM
+    FOOT -->|关系与偏好| PER
     FOOT --> WRITE[记忆写入与相似合并]
-    WRITE --> MEM
     WRITE --> CONSO[巩固与反思 写入长期记忆]
-    CONSO --> MEM
+    CONSO -->|就寝反思| MEM
     FOOT --> METRIC[行为指标与门禁]
 ```
 
@@ -53,7 +58,8 @@ flowchart TD
 | 内容 | 归属 |
 | --- | --- |
 | 社交行为规则：在场可见、消息、交谈、通话、联系人及其回复策略 | `docs/dev/SPEC-life-runtime.md`「社交最小可行版」 |
-| 观察投影与提示合同：三段投影的内容规则、禁止进入提示的字段、字符预算、商品可见期、材料与字幕增量 | `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」 |
+| 七层请求：各层字段与唯一出现、系统层、同秒续接、提示预算 | [人物 Prompt 规格](SPEC-persona-prompt.md) |
+| 观察投影与提示合同：禁止进入提示的字段、商品可见期、材料与字幕增量 | `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」 |
 | 身体语义：两过程睡眠、睡眠不足账、体感分级、社交需要与情绪的数值和滞回 | `docs/dev/SPEC-life-runtime.md`「身体语义：两过程睡眠、睡眠不足账、体感分级」 |
 | 决策节律：结算边界不等于决策机会、唤醒条件清单、静默边界 | `docs/dev/SPEC-life-runtime.md`「决策节律：结算边界与唤醒条件分离」 |
 | 类型、签名、字段、枚举、上限常量与提示模板 | `docs/CONTRACTS.md` |
@@ -74,41 +80,45 @@ flowchart TD
 | 记忆一半是边界簿记 | 结算边界强制写记忆 | 本规格「记忆合同」 |
 | 就寝 19:53 / 21:44、计划睡 11 小时，李凡三次运行均早于人物卡片声明的凌晨一点 | `sleep_debt_hours` 等于醒着小时数，无饱和无昼夜门控，原值直接进提示 | `docs/dev/SPEC-life-runtime.md`「身体语义：两过程睡眠、睡眠不足账、体感分级」 |
 | 07:00 开车去 08:00 才开门的公司并空等近两小时，21 个代码版本未改善 | ① 家中没有早晨可供性，任务 09:00 才可见<br/>② 模型按动机权重推翻直觉<br/>③ 缺少当日目标，每次决策只对当前状态作贪心反应 | ① 本规格「世界素材品类要求」<br/>② 本规格「动机层」<br/>③ 本规格「当日目标」 |
-| 三次同一碗面 | ① 正餐只有 7 碗方便面<br/>② 首次购买被写成偏好记忆后回灌为稳定偏好 | ① 本规格「世界素材品类要求」<br/>② 本规格「记忆合同」 |
+| 三次同一碗面 | ① 正餐只有 7 碗方便面<br/>② 首次购买被写成偏好记忆后回灌为稳定偏好 | ① 本规格「世界素材品类要求」<br/>② 本规格「记忆合同」；验收覆盖反例：购买本身不写偏好，首次购买后人物只写「明天还想吃」这类非偏好记忆时，人设层 `preferences` 为空（验收矩阵「记忆写入」） |
 | 冰红茶三次放弃 | ① 活动进行中隐藏购买与进食工具<br/>② 一次响应只接受一个生活动作<br/>③ 最廉进食候选恒为西柚汁 | ① `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」<br/>② 本规格「商务与进食」<br/>③ 本规格「动机层」 |
 | 两人同办公室清醒共处 10.86 小时互不可见，Relationships 恒空 | ① 观察没有在场人物字段，也没有通讯工具<br/>② 人物卡片没有关系字段 | ① `docs/dev/SPEC-life-runtime.md`「社交最小可行版」<br/>② 本规格「画像编译」 |
 | 21 项生活活动 40 个运行零命中 | ① 生活活动 relief 为空、成本随时长线性，在评分器里是纯成本，且候选采样自全库而非人物启用集<br/>② 工具描述未列出生活活动 | ① 本规格「动机层」<br/>② `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」 |
 | 每次请求 4.5 万 token，观察被序列化两遍、商品全表常驻 | vendor 观察记录双写，商品无遗忘 | `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」 |
-| 人物卡片只占 0.25%，system prompt 86% 是协议 | ① 人物卡片 JSON 整体注入<br/>② 协议文本替换了身份前言 | ① 本规格「画像编译」<br/>② 本规格「两阶段决策」 |
+| 人物卡片只占 0.25%，system prompt 86% 是协议 | ① 人物卡片 JSON 整体注入<br/>② 协议文本替换了身份前言 | ① 本规格「画像编译」<br/>② 本规格「单一行动阶段」；原「恢复身份前言」已被[人物 Prompt 规格](SPEC-persona-prompt.md)取代：身份前言删除，system 只放系统层交互规则，身份只在人设层 |
 | 两条时间线分不出人格（同代码同人、异人的 JS 距离差 0.02；最近邻 59%，p=0.22） | ① 大五到九参数只作用于无人采纳的 hints，却以 JSON 进提示被当 reward<br/>② 222 个随机偏好浮点与文本反向 | ① 本规格「动机层」<br/>② 本规格「画像编译」 |
 | 李凡的 MEMORY.md 第一条是 “Marketing analyst” | 巩固提示不传人物卡片且带示例身份 | 本规格「记忆合同」 |
 
-## 两阶段决策
+## 单一行动阶段
 
-每一次决策机会都由人物模型先完成决策自述，再运行可多回合的行动循环；所有请求与响应都留完整证据。
-正常无查询无纠错时需要自述、动作两次请求。上下文、动作登记、结果回灌与只读边界
-以 [决策上下文规格](SPEC-decision-context.md) 为准。
+每一次决策机会只有一个行动阶段：人物模型可以先查询自己的记忆，也可能有协议纠错回合，然后恰好提交一个世界请求，
+登记即结束；决策就是所选的世界请求，不另设决策自述阶段。没有记忆查询与纠错时，一次决策恰好一次模型请求；
+所有请求与响应都留完整证据。请求组成、同秒续接与只读问答以[人物 Prompt 规格](SPEC-persona-prompt.md)第一、二章为准；
+动作登记、回执隔离与公开结果字段以 [决策上下文规格](SPEC-decision-context.md) 为准。
 
 | 阶段 | 请求 | 输出 |
 | --- | --- | --- |
-| 决策自述 | system 身份前言与「怎样过一天」、`persona_card`（人物卡片的请求字段名）、`scene` 与记忆摘要；不带 `tools` | 一到三句第一人称中文，说出此刻的感受与打算，不超过 200 汉字 |
-| 行动 | 现有 ReAct：上述内容加 `facts`、承接决策自述的一句话与原生工具 | 恰好一个世界请求，登记即结束；后续请求完整回传 `reasoning_content` |
+| 行动 | 原生 `tools`（整次运行不变）；system 为系统层 JSON；user 为工具层、人设层、记忆层、待办层、环境层、进度层六层 JSON；同一秒接着决策时追加上一决策的原生 assistant 与 tool 消息 | 可选的回复正文与恰好一个世界请求，登记即结束；同秒续接时此前各 assistant 回合原样回传 `reasoning_content` |
 
-三段投影各自的内容规则、上限与禁止进入提示的字段见 `docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」；
-请求组成、逐阶段生成参数（`thinking`、`temperature`、`max_tokens`、`tool_choice`）、模型身份与工具面只在
+七层各自的字段与唯一出现原则见[人物 Prompt 规格](SPEC-persona-prompt.md)第一章，禁止进入提示的字段见
+`docs/dev/SPEC-life-runtime.md`「观察投影与提示合同」；请求组成、生成参数、模型身份与工具面只在
 `docs/CONTRACTS.md`「人物决策提示与生成参数」定义。
 
 **行为规则**：
 
-- 每次决策的决策自述都留下完整证据；决策自述文本的写入字段、事件载体与信息范围见 `docs/CONTRACTS.md`「决策自述证据」
-- 请求显式要求一至三句第一人称中文；确定性协议拒绝超长或空文本，消耗一个回合后重试一次，再失败则本次决策失败
-- 决策自述不是动作，不改变世界
-- 行动阶段的 ReAct 预算与非法响应反馈沿用现有条款；无 `finish`，记忆随 `conclude_activity.memories` 写入，允许空
-- 行动阶段的 `start_activity` 动作先取冻结观察中的有效交互菜单，再由目标和预算收窄；动作不按人物状态隐藏；
-  人物的 `interaction_menu` 是显式场景准入声明，不由人格特征、口味权重或动机评分推导
+- 每次决策的全部模型请求与响应都留下完整证据；`decision_started` 在本次决策的首个行动请求时与该请求同批写入、排在请求之前，
+  `data` 只有 `round_id`、`round_order`、`world_state_version`、`wake_reasons`
+- 回复正文可有可无：提交世界请求那一次回复的非空正文写入 `action_requested.data.self_note`，在本段停留或路程的进度层中随该调用出现，
+  不进入记忆；不要求、不重问、不代写
+- 回复正文与思考都不是动作，不改变世界；思考只在同一秒的连续决策中原样回传，时间推进后丢弃，不进入七层中的任何一层
+- 每次决策至多 16 个回合，全部归行动阶段：为世界请求保留 1 个回合，剩余不少于 2 个时才开放记忆查询
+  （`memory_recent`、`memory_search`、`memory_time_range`）；非法响应反馈沿用现有条款；无 `finish`，
+  记忆随 `conclude_activity.memories` 写入，允许空
+- 行动阶段的 `start_activity` 动作取冻结观察中的有效交互菜单，列在工具层；动作不按人物状态隐藏，此刻不能做的标
+  `available=false` 并写明 `reason`；人物的 `interaction_menu` 是显式场景准入声明，不由人格特征、口味权重或动机评分推导
 
-依据：Tam 等 2024 表明格式约束越严推理越差，而先自然语言再转格式与自由文本几乎无损；DeepSeek 文档规定
-思考模式下采样参数无效、带 `tools` 的后续请求必须回传 `reasoning_content`、一般对话的推荐温度为 1.3；
+依据：DeepSeek 思考模式文档规定请求带 `tools` 时此前每个 assistant 回合的 `reasoning_content` 都须原样回传，
+不在消息中的回合不受此约束，这决定了同秒续接与时间推进后丢弃思考的切分；
 Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入。
 
 ## 记忆合同
@@ -120,19 +130,30 @@ Humanoid Agents 与 Sotopia 都把内部状态或私有目标作为显式输入�
 
 - 每条记忆的 `text` 使用人物语言，不得包含事件标识、请求哈希或任意十六进制身份；无 `refs`，来源由系统登记
 - 人物只写感受、打算、偏好、关系等主观文字；`event`、`observation` 不再是 WorldMock 可写类型，闭集见 `docs/CONTRACTS.md`「记忆字段」
+- relationship、preference 两类记忆必须带 `subject`（写的是谁或什么），其他类型的 `subject` 为 `null`；relationship 的 `subject`
+  须是已知人物（卡片关系名、联系人姓名或称谓、同世界人物名）。`subject` 只在 WorldMock 的请求与事件中，写入 AS2 前去掉
+- 这两类记忆只在人设层出现：成功的 `conclude_activity` 中带 `subject` 的条目按对象取事件顺序最后一条，原地更新人设层关系的 `view`
+  与 `preferences`，存储仍只追加；它们不进记忆层，也从进度层该调用的参数中略去。购买本身不写偏好
 - 写入前按 bigram Jaccard ≥ 0.6 与最近 24 小时的同类型记忆合并；合并只增加计数与最近时刻，不重复追加文本
 
 **主观巩固触发**为三选一：`importance` 自上次巩固起累计到 3.0；待巩固记忆满 10 条；人物入睡后的第一个边界。
 单条 preference 类型记忆不触发主观归纳更新；每步事实视图刷新不重置这些计数。
 
-**主观归纳**传入 `persona_card` 和主观 episode，使用人物语言，不含示例身份或地点编号；
+**主观归纳**（阈值巩固）保留：传入 `persona_card` 和主观 episode，使用人物语言，不含示例身份或地点编号；
 模型只更新单独持久的主观归纳，不能直接改写长期记忆文件的身份和已核验经历区段。
-`MEMORY.md` 每步从冻结画像、当前观察事实窗口和主观归纳确定性装配；当前提示不再混入上轮旧事实窗口。
-完成事实的来源、窗口与恢复见[一日行为规格](SPEC-dayrun-behavior.md#已核验经历与人物自述)。
+`MEMORY.md` 每步从冻结画像、当前观察事实窗口和主观归纳确定性装配；它与归纳摘要都不再进入人物决策提示。
+
+**记忆层**取代提示中的主观归纳、最近条目窗口与已核验经历句子：构建提示时由环境从已提交事件与世界状态派生，
+不新增持久状态，构建结果随观察事件保存。`earlier_today` 为今天已结束的每个 session 一条 `{recorded_at, settled, self_notes}`，
+`earlier_days` 为起源于该日且此刻仍未了结的事项加上归属该日的就寝反思。`settled` 是系统写的确定性句子；
+`self_notes` 取本 session 内成功的 `pause_activity`、`conclude_activity` 写下的 summary 与记忆原文，按活动名标注。
+记忆层 JSON 不超过 8000 字符。句式、零点分区、未了结的判定与窗口删减顺序见[人物 Prompt 规格](SPEC-persona-prompt.md)第三章；
+完成事实的来源与恢复见[一日行为规格](SPEC-dayrun-behavior.md#已核验经历与人物自述)。
 
 **反思**：就寝后的巩固同时执行一次反思，由三个问题引导生成不超过五条 `reflection` 主观洞见，
 每条引用支持它的记忆身份。该引用是记忆运行时后台调用对 AS2 条目身份的内部引用
 （`docs/dev/SPEC-time-and-energy.md`「发给模型的内容不含内部身份」所列例外），不进人物决策提示。
+反思仍只写 `reflection`，不产出关系与偏好；它归属「睡眠开始时刻前推 6 小时」的本地日期，进入记忆层 `earlier_days`。
 这是 Generative Agents 反思机制的直接借用。
 
 **足迹的关系**：沿用 AS2 的主观记忆检索和归纳能力，每条记忆补充来源事件与形成时刻；每次决策实际检索的主观记忆都留存下来，
@@ -153,8 +174,8 @@ dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `
 ## 动机层
 
 动机评分器计算并写入 `observation.data.motivation_internal`，供评估与研究使用；候选、名次与概率不进入提示。
-模型收到的是 `drive_summary` 这一句话（例如
-“你有点饿，今天的工作还差两小时，晚上想放松一下”），不含数字权重；字段面见 `docs/CONTRACTS.md`「体感与动机证据」。
+原先合成的一句话 `drive_summary` 删除：体感只以环境层的五项分级呈现，工作的截止与剩余要求在工具层任务目标的 `contract`，
+待办在待办层，都不含数字权重（[人物 Prompt 规格](SPEC-persona-prompt.md)第一章）；字段面见 `docs/CONTRACTS.md`「体感与动机证据」。
 
 **评分器修正**：
 
@@ -165,7 +186,7 @@ dreaming 的任务取值、每份材料必须携带的字段与分支绑定见 `
 - 近 24 小时内已食用的商品在进食候选中按 `1 / (1 + 次数)` 降权，这是 Rolls 1981 的感官特异性饱足
 
 Dill 的双效用（先按类别排序再在类内加权随机）是评分器修正的结构依据。本规格只修正内部仪表，
-不据此替人物选择：内部仪表落库，人物看到的是那句话。
+不据此替人物选择：内部仪表落库，人物看到的只有环境层的体感分级。
 
 ## 当日目标
 
@@ -317,6 +338,9 @@ flowchart LR
 
 - 每次呈现留若干换新名额给长期未呈现的对象，换新名额数与「长期」的阈值是场景参数，确定性且可断言
 - 轮转必须**非破坏性**：只改呈现顺序与换新名额，不产生目录变更、不产生下架事件、不改任何对象状态
+- 轮转与可见期只管展示与比较，不限制购买：`obtain` 可以按名称指名本轮未展示的商品，按场景供给解析与当前报价结算；
+  不存在时以 `SUPPLY_NOT_FOUND` 拒绝并附至多 3 个近似候选，多店同名且未限定门店时以 `SUPPLY_NAME_AMBIGUOUS` 拒绝，
+  不自动换成别的商品（[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「指名购买」）
 - **最大未呈现间隔必须有界。** 给定池规模 `N` 与每次换新名额 `k`，最坏等待间隔不超过闭式上界
   `⌈N ÷ k⌉ ÷ D`，其中 `D` 是每天决策点数。写测试断言时必须用这个精确形式，
   不使用它的连续松弛 `N ÷ (k × D)`
@@ -338,9 +362,10 @@ flowchart LR
 
 ## 画像编译
 
-画像编译从 `background_story` 产出结构化人物卡片 `PersonaCard`（类型名；提示里的字段名是 `persona_card`，
-两者与中文正文所说的「人物卡片」是同一产物），抽取沿用三次一致性口径；卡片经确定性渲染
-成中文文本（不超过 600 汉字）后进入提示。卡片必须承载：身份（年龄、职业、居住方式）、关系（姓名或称谓、角色、
+画像编译从 `background_story` 产出结构化人物卡片 `PersonaCard`（类型名；主观归纳请求里的字段名是 `persona_card`，
+两者与中文正文所说的「人物卡片」是同一产物），抽取沿用三次一致性口径。新建运行时卡片的结构化字段另存进人物 `profile` 的
+`persona_card_struct`，恢复时校验；宿主用它与人物姓名、场景联系人渲染人设层 JSON 进入提示。卡片编译、三次一致性、
+`render_card` 与冻结恢复不变；600 汉字上限只约束卡片派生的字段；当下处境 `situation` 不进提示。卡片必须承载：身份（年龄、职业、居住方式）、关系（姓名或称谓、角色、
 亲密度、渠道）、当下处境（本周在忙什么、在意什么）、时间锚点（起床、出门、午餐、晚餐、就寝窗口）、
 时型中点 `chronotype_midsleep`、睡眠需要 `sleep_need_hours`、习惯签名（触发—反应—时段三元组）、
 口味（内容题材、饮食喜好、常用媒介）与压力时的应对方式。字段的名称、类型与取值范围只在
@@ -395,7 +420,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 活动环境来自唯一地图地点目录的显式非空声明，按场景选中地点装配；不再依靠缺失声明时的放行路径。
 经营业态、可选品牌和交互菜单地点类不自动生成活动环境。发现动作进入正常单动作协议，
-结果结算后进入下一次观察，未实际呈现供给不能被浏览动作顺带授权。
+结果结算后进入下一次观察；浏览与呈现只管展示与比较，不是购买资格上限，未呈现的商品按指名购买解析。
 现有地点活动环境缺口属于本次完整开发范围，待正式输入上的行为断言通过后再刷新状态。
 
 ## 商务与进食
@@ -405,9 +430,15 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 热量与效果累加；非食品使用仍为单件。家中储备与超市补货按「世界素材品类要求」执行。请求与结果字段见
 `docs/CONTRACTS.md`，动作结算规则见 `docs/dev/SPEC-life-runtime.md`「具体活动结算」。
 
-普通进食与单件使用沿用库存的九位小数份额口径：累计目标、实际扣减与累计消耗使用同一精度，
-身体热量与效果只按实际扣减量结算。相同实际进度分成不同结算边界时，最终库存、累计消耗与热量一致；
-恰好吃完一份后库存为零，保存和恢复不得因舍入误差失败。单次不足不超过 `1e-9` 份时只消耗实际持有量，
+进食按开吃份量结算：开始进食时，每件取 `min(1, 手边持有)` 从库存移入活动数据的 `opened`，摄入只按 `opened` 与实际进度计算，
+进食期间不再扣库存。暂停保留 `opened` 的剩余，别处不能用，恢复时不再核库存；结束进行中或暂停的进食时丢弃 `opened`
+减已吃的部分，写入活动与结果，不补算摄入，其他份数不动；自然吃完丢弃为 0，实验截止截断时不丢弃。
+不足一份也可以吃：份量取实际持有，时长为 `max(60, round(整份时长 × 份量))` 秒，工具层的数量、时长与热量同一口径；
+收尾结果的 `details.outcome` 逐项写终局与已吃、丢弃、剩余份量（[人物 Prompt 规格](SPEC-persona-prompt.md)第五章「进食」）。
+
+普通进食与单件使用沿用库存的九位小数份额口径：累计目标、实际进度与累计消耗使用同一精度，
+身体热量与效果只按实际吃掉或用掉的量结算。相同实际进度分成不同结算边界时，最终库存、累计消耗与热量一致；
+保存和恢复不得因舍入误差失败。单件使用单次不足不超过 `1e-9` 份时只消耗实际持有量，
 超过该容差仍拒绝且不产生状态变化。库存配方沿用品类契约的精确微量口径，不受本段量化规则影响。
 
 ## 呈现与导出
@@ -416,10 +447,11 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 - `export` 增加确定性投影 `timeline/<agent>-<date>.md`，合并静默边界与同一活动、显示名称而非标识，
   由 `scripts/render_day.py` 生成；并行进度交错时仍按活动身份独立合并，重叠活动分别显示
 - `verified-experiences.jsonl` 从已提交事件的固定截止完整前缀导出，摘要绑定并由消费端重算；
-  观察每轮只显示本人最近五条。等待、原因未知的等待、真实内容接触与人物经过时间并集分别报告
+  观察每轮只在私有证据中保存本人最近五条，不再写成句子发给模型。等待、原因未知的等待、真实内容接触与人物经过时间并集分别报告
 - `tools/run-viewer.html` 增加同一投影的“一天”视图
 - 盲评记录为每条活动补上地点与同伴，同伴以匿名引用给出
-- dreaming 任务的窗口输入可包含决策自述与场景（`decision_statement` 与 `scene`）；动作与意图任务的可读面保持不变
+- 动作与意图窗口仍以同人物、同决策、动作前最后一次实际行动请求为 prompt 权威，原样保留其中的 `reasoning_content`；
+  `self_note` 随实际请求进入窗口，并进入 dreaming 输入；dreaming 读 `self_note` 与实际请求中的层 JSON，不再读决策自述与 `scene`
 
 本规格不改变 `docs/CONTRACTS.md` 中 LabelKit 最终数据合同的字段；训练目标是否改为叙事化 completion
 不由本规格决定。
@@ -430,12 +462,12 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 | 条款 | 默认 | 备选（需新规格版本） |
 | --- | --- | --- |
-| 决策自述阶段 | 采纳；正常路径一次短调用，空白或超长最多重试一次 | 只恢复身份前言，不加决策自述 |
+| 决策阶段 | 单一行动阶段：决策就是所选的世界请求，回复正文可有可无；原决策自述阶段被[人物 Prompt 规格](SPEC-persona-prompt.md)取代 | 无；原备选「只恢复身份前言，不加决策自述」同被取代，身份前言删除 |
 | 重估间隔 | 5400 秒 | 3600 或 7200 秒 |
 | 社交需要 | 作为第四项需要进入身体模型 | 不加资源，只靠人物卡片签名与消息驱动 |
 | 联系人回复 | 老友与家人 `reply_policy=model`，同事映射到真实人物 | 全部 `template` |
 | 动机评分器 | 保留为内部仪表并落库 | 整体删除 |
-| 决策自述的信息范围 | 仅 dreaming 可读 | 动作任务也可读（需修改信息范围条款） |
+| 回复正文的信息范围 | `self_note` 随实际请求进入动作与意图窗口，并进入 dreaming 输入；原「决策自述仅 dreaming 可读」随决策自述删除 | 无 |
 | 人物卡片覆盖率阈值 | 80% | 60%（放宽）或 100%（严格） |
 | 提示容量 | 每次实际请求连同预留输出计入模型上下文窗口；达到百分之八十五时仅压缩进度层派生投影 | 更换模型窗口须重新验证同一比例与结果保真 |
 
@@ -445,20 +477,20 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 | 模块与文件 | 必须完成的变化 |
 | --- | --- |
-| `custom/agents/life_agent.py` | 决策自述阶段调用与 `reasoning_content` 完整回传；身份前言；生活活动工具描述与 Schema 一致；商家或可配送时开放购买与进食；日程工具请求模型；记忆列表允许为空 |
+| `custom/agents/life_agent.py` | 单一行动阶段（删除决策自述阶段与身份前言，system 为系统层）与同秒续接中 `reasoning_content` 原样回传；工具描述只写用途；商家或可配送时开放购买与进食；日程工具请求模型；记忆列表允许为空 |
 | `custom/envs/life_env.py` | 注册日程与多件商务动作 |
 | `src/worldmock/life/models.py`、`scenario.py` | 日程与人物卡片相关 Schema、多件购买与多件进食请求、品类与人物卡片覆盖率准入检查 |
-| `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、`drive_summary` 渲染、结果写入 `motivation_internal` |
-| `src/worldmock/life/engine.py` | 目标实际推进与目标投影；`drive_summary` 与 `motivation_internal` 字段；多件商务结算 |
+| `src/worldmock/life/motivation.py`、`catalog/rules/motivation.toml`、`catalog/affordances.toml` | 单位时间成本、价格单计、正餐门槛、家族上限、只从人物启用集采样、relief 通道、按感官特异性饱足降权、结果写入 `motivation_internal`（`drive_summary` 删除） |
+| `src/worldmock/life/engine.py` | 目标实际推进与目标投影；`motivation_internal` 字段；多件商务结算 |
 | `src/worldmock/life/commerce.py`、`activities.py` | 多件购买与整单拒绝、家中储备补货 |
 | `src/worldmock/profile/extractor.py`、`mapper.py`、`textgen.py`、`models.py`、`taste.py`、`catalog/rules/persona-mapping.toml` | 卡片抽取、大五到世界层动力学映射、卡片渲染、覆盖率校验、`taste_weights` 降级为纯排序权重（零权重不出局） |
-| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data.decision_statement`、时间线投影、指标接入 |
-| `src/worldmock/delivery/windows.py` | dreaming 窗口可含决策自述与场景 |
+| `src/worldmock/footprints/models.py`、`quality.py`、`export.py` | `decision_started.data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带 `decision_statement` 即拒绝；时间线投影、指标接入 |
+| `src/worldmock/delivery/windows.py` | dreaming 窗口读 `self_note` 与实际请求中的层 JSON，不再重新渲染 `scene` |
 | `src/worldmock/evaluation/review.py`、`public_evidence.py` | 盲评记录的地点与同伴列 |
 | `scripts/inspect_run.py`、`scripts/render_day.py`、`tools/run-viewer.html` | `tool_name` 修正、时间线投影生成、“一天”视图 |
 | `catalog/resources.jsonl`、`objects.jsonl`、`manifest.json`、`scripts/build_catalog.py`、`scripts/build_lifestyle_corpus.py`、`src/worldmock/corpora/fetch.py`、`corpora/` | 正餐、地点、内容元数据、生活活动 Schema、联系人、工作材料；替换 `drama` 语料 |
 | `scenarios/multi-person.json`、`white-collar-12-weeks.json` | 按新 Schema 重新生成：人物卡片、联系人、地点、正餐、内容元数据、合同分配、日历补发薪与房租日 |
-| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | 决策自述钩子与 `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并 |
+| AS2 分支 `agent/person.py`、`agent_runtime.py`、`base/agent.py`、`memory_runtime.py`、`memory.py` | `reasoning_content` 回传；空记忆、巩固触发、巩固提示、相似合并（LifeAgent 删除对决策自述钩子的覆写，锁定的 AS2 不改） |
 | `src/worldmock/life/motivation.py`、`observe.py`、`activities.py`、`projection.py` | 娱乐与生活活动候选的入选条件去掉「偏好权重为正」；地点类交集门与稳定原因码；候选上限与下推游标；被挡项带原因码而非静默消失 |
 | `src/worldmock/profile/taste.py` | 零权重语义改为「排最后」而非「不可选」 |
 | `src/worldmock/catalog/admission.py`、`affordances.py` | 地点与内容品类的 `location_kinds` 声明完整性校验；分区键齐备与分区可达性校验（准入期阻断） |
@@ -470,7 +502,7 @@ Roenneberg 的 MCTQ 以自由日睡眠中点度量时型。
 
 ```mermaid
 flowchart LR
-    A[提示与投影 两阶段决策与记忆合同] --> B[引擎与状态 当日目标与商务进食]
+    A[提示与投影 单一行动阶段与记忆合同] --> B[引擎与状态 当日目标与商务进食]
     B --> C[场景与语料 画像编译与世界素材品类]
     C --> D[指标与门禁 接入质量报告与评估]
 ```
@@ -481,21 +513,21 @@ flowchart LR
 
 下表给出每条条款的观察、证据位置与状态；实际门禁结果与收据见 `docs/dev/implementation-status.md`。
 确定性测试与门禁已通过的记 `代码层已验证`；必须等正式模型运行或真实盲评才能判定的记
-`待真实运行`；已有合同尚未贯通正式输入的记 `既有实现缺口`。
+`待真实运行`；已有合同尚未贯通正式输入的记 `既有实现缺口`；按人物 Prompt 规格修订、尚未重新验收的记 `离线验收待执行`。
 
 | 要求 | 必须通过的观察 | 证据位置 | 状态 |
 | --- | --- | --- | --- |
-| 两阶段决策 | 每次提供决策机会先产生决策自述，再进入行动循环；决策自述写入 `decision_started` 并作为请求响应证据保存；超长或为空时保留一次重试并最终记为决策失败 | `tests/integration/test_life_agent_protocol.py` | 代码层已验证 |
-| 决策自述信息范围 | 决策自述只出现在 dreaming 任务的可读输入，动作与意图任务读不到它 | `tests/delivery/test_windows.py` | 代码层已验证 |
-| 记忆写入 | `conclude_activity.memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、一日行为端到端验收 | 代码层已验证 |
-| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节 | AS2 分支记忆测试、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、一日行为端到端验收 | 代码层已验证 |
+| 单一行动阶段 | 没有记忆查询的决策恰好一次模型请求，不产生自述请求；`decision_started` 与首个行动请求同批且在前，`data` 为闭集；回复正文有则写入 `action_requested.data.self_note` 并在本 session 的进度层出现，没有时不重问、不代写 | `tests/integration/test_life_agent_protocol.py`；[人物 Prompt 规格](SPEC-persona-prompt.md)验收台账「单一行动阶段」「回复正文」 | 离线验收待执行 |
+| 回复正文与交付窗口 | `self_note` 随实际请求进入动作与意图窗口并进入 dreaming 输入；实际请求中的 `reasoning_content` 原样保留；交付不重新渲染 `scene` | `tests/delivery/test_windows.py` | 离线验收待执行 |
+| 记忆写入 | `conclude_activity.memories` 空数组合法；自由文字和检索结果固定为主观；WorldMock 输入删除 `event`、`observation`；相似合并只增加计数与最近时刻；relationship、preference 带 `subject`，同一对象后写的看法替换先写的，事件中两条都保留；反例：首次购买后只写「明天还想吃」时人设层 `preferences` 为空 | AS2 分支记忆测试、`tests/life/test_revision_contract.py`、`tests/integration/test_conclude_memories.py`、一日行为端到端验收 | 离线验收待执行 |
+| 记忆巩固 | 三种主观触发条件各自生效，事实视图刷新不重置计数；待巩固条数与重要度累计只计 `conclude_activity` 写入的条目，就寝反思不计；模型只归纳主观内容；就寝反思保留身份且不进入完成事实章节；巩固摘要不进入人物决策提示；反思按睡眠开始时刻前推 6 小时的本地日期归属（23:00、01:00 入睡与 14:00 小睡） | AS2 分支记忆测试、`tests/integration/test_conclude_memories.py` 的 `test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection`、一日行为端到端验收 | 离线验收待执行 |
 | 记忆质量门禁 | 记忆重复率与示例身份残留两项，判定对象与阈值按 `docs/VERIFICATION.md`「协议门禁」执行；长期记忆文件里不出现示例身份与示例编号 | `tests/evaluation/test_behavior_metrics.py` | 代码层已验证 |
-| 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重；`drive_summary` 为一句中文；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 代码层已验证 |
+| 动机层不外泄 | 提示中不出现候选、名次、概率与数字权重，也没有 `drive_summary`；体感只以环境层五项分级出现；内部评分保留在 `motivation_internal` | `tests/life/test_motivation.py`、`tests/life/test_grounded_observation.py` | 离线验收待执行 |
 | 当日目标 | 清单、生命周期、修订、证据推进、威胁唤醒与三层度量按专属规格逐项验证 | [当日目标规格](SPEC-day-plan-goals.md)验收台账 | 本特性确定性验收通过 |
 | 世界素材品类 | 地点、家的可供性、办公室可供性、正餐、内容、工作、生活活动与联系人逐条满足；不满足即拒绝启动 | `tests/catalog/`、`tests/corpora/`；正式地点能力由地图准入与实际活动测试验证 | 独立地图分支及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
-| 画像编译 | 卡片字段完整并经确定性渲染进入提示；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` | 代码层已验证 |
+| 画像编译 | 卡片字段完整；结构化字段存入 `persona_card_struct` 并渲染为人设层 JSON，不含 `situation`，卡片关系与场景联系人按名称合并，刻钟时刻写对；大五分数与权重不进提示；四个模板字段与随机浮点已删除 | `tests/profile/`、`tests/integration/test_persona_profile.py`、`tests/life/test_persona_upgrade.py` | 离线验收待执行 |
 | 人物卡片覆盖率 | 可执行比例低于 80% 时校验失败并列出缺失项 | `validate` 输出的 `persona_coverage.json` | 代码层已验证 |
-| 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加 | `tests/life/test_commerce.py` | 代码层已验证 |
+| 商务与进食 | 多件购买任一件不可购时整单拒绝且不自动删件；多件进食用餐时长取最长者、热量与效果累加；4 份里拿 1 份，吃到 300/1500 秒时结束：摄入 0.2、丢弃 0.8、库存 3；暂停保留剩余并可恢复；持有 0.25 份时受理、时长 375 秒、热量按 0.25 份；收尾结果写终局与份量 | `tests/life/test_commerce.py` | 离线验收待执行 |
 | 口味权重是排序信号 | 卡片未声明题材的条目仍在候选集里，只是排在非零权重之后；娱乐候选的入选条件不含偏好权重为正这一支 | `tests/life/test_motivation.py`（`TestScorerContract::test_zero_taste_weights_keep_entertainment_ranked_last`、`test_unstated_genre_items_stay_in_candidate_pool`）、`tests/life/test_candidates.py`（`TestSoftPreferenceOnlyReorders`）、`tests/profile/` | 代码层已验证 |
 | 素材可达性 | 每个条目至少属于一个可检索分区且分区可达；分区键缺省或分区在场景里恒不可行的条目被逐条列出并阻断启动 | `tests/catalog/test_reachability_admission.py`（准入侧两个错误码 `CATEGORY_PARTITION_KEY_MISSING`、`CATEGORY_PARTITION_LOCATION_INFEASIBLE` 与阻断启动）、`tests/life/test_retrieval.py`（`reachability_report`）、`scripts/check_reachability.py`（静态守卫） | 历史证据保留；[当前组合守卫](research/map-and-storefront-main-verification.md)确认 7384 条素材、142 个分区全部可达 |
 | 候选与呈现 | 同一（世界状态、人物、场景）两次投影逐字节相同；软偏好不出局；被排除项带原因码；单次呈现不超上限；全量遍历等于一次全量的有序子序列；轮转不改目录、不改对象状态、不产生下架事件；最坏未展示间隔不超过 `⌈N ÷ k⌉ ÷ D` | `tests/life/test_candidate_wiring.py`、`tests/life/test_candidates.py`、`tests/life/test_rotation.py`；门禁 `scripts/coverage_gate.py` | 代码层已验证 |
@@ -572,3 +604,5 @@ flowchart LR
 | `2026-09-24-time-and-energy` | 2026-09-24 | 按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 16 行修订：一轮决策为自述与动作两次请求，恰好一个世界请求，登记即结束，无 `finish`；system 含「怎样过一天」；动作不按人物状态隐藏，删日首计划；记忆随 `conclude_activity.memories` 写入，允许空，无 `refs`，来源由系统登记，播报与暂停不带记忆；就寝反思的条目身份引用注明为内部例外；待巩固计数只计结束活动写入的条目；当日目标由零点计划 `plan_day` 生成，可带提醒；地点不可行与资源冲突仍是两个原因码（裁决 #23 按推荐，「`location_kinds` 的运行期强制语义」不改）；验收矩阵记忆写入与巩固两行改待重验 |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对（RL1–RL3、RL5–RL8 已落地）：「当日目标」首句改为目标由零点计划生成、人物可修订；「画像编译」的「人物自己生成的当日计划」改为「零点计划生成的当日目标」；「候选确定性」的排除条件删「身体条件不允许」，补「能量不构成排除」（代码已删 `ELIGIBILITY_ENERGY_INSUFFICIENT`，见时间与能量规格第三章） |
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后（阶段 9）：验收矩阵中由 RL7 记「待重验」的记忆写入与记忆巩固两行在最终源码 `ef13dc5` 通过门禁后改记 `代码层已验证`，证据补 `tests/integration/test_conclude_memories.py`（收尾记忆由系统登记来源；阈值巩固只计收尾写入的条目，就寝反思不计）；逐条证据见时间与能量验收记录 |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 3、11、14、15、23–25 行修订（人物 Prompt 台账 RL1–RL3、RL5、RL6），修订部分待实现：删决策自述阶段，「两阶段决策」改为「单一行动阶段」：决策就是所选的世界请求，回复正文可有可无、有则作为该调用的 `self_note`，`decision_started` 在首个行动请求时写入且不带自述，16 个回合全部归行动阶段，删对接口合同「决策自述证据」的引用；范围删「两阶段决策调用」；人物卡片以人设层 JSON 进入提示，`situation` 不进提示，600 汉字上限只约束卡片派生字段；删 `drive_summary`；轮转与可见期只管展示与比较，`obtain` 可以指名购买；进食按开吃份量，暂停保留、结束丢弃、不补算摄入，不足一份也可以吃；已核验经历不再写成句子发给模型；dreaming 读 `self_note` 与实际请求中的层 JSON；设计裁决表「三次同一碗面」的验收覆盖「购买本身不写偏好」的反例，「恢复身份前言」注明被取代；默认裁决表两行、文件修改清单与验收矩阵相应改写，改写的验收行记「离线验收待执行」；文件头注明修订待实现 |
+| `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 12 行修订（人物 Prompt 台账 RL4，随阶段 3 代码），修订部分待实现：「记忆合同」中 relationship、preference 记忆带 `subject`，只在人设层按对象原地更新，不进记忆层；记忆层取代提示中的主观归纳、最近条目窗口与已核验经历句子，8000 字符窗口；阈值巩固保留，摘要与 `MEMORY.md` 不进人物决策提示；就寝反思仍只写 `reflection`，归属睡眠开始时刻前推 6 小时的本地日期；验收矩阵记忆写入与记忆巩固两行相应改写 |

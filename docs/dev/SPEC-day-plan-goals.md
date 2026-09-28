@@ -2,6 +2,7 @@
 
 > 状态：已实现并通过本特性确定性验收；行为合同已冻结，证据见文末台账。日期：2026-09-21。
 > 生成方式、提醒与部分节律由[时间与能量规格](SPEC-time-and-energy.md)修订；修订条款已实现并通过离线验收，台账中被修订两行的证据见[时间与能量验收记录](research/time-and-energy-verification.md)。
+> 「人物可见内容与工具」按[人物 Prompt 规格](SPEC-persona-prompt.md)修订，修订部分待实现；修订记录见「版本表」。
 > 来源：[语义改造提案](PROPOSAL-day-plan-goals.md)。本规格取代原「日程骨架」行为；
 > 字段与错误码由 [接口合同](../CONTRACTS.md) 承载，设计职责由既有设计文档承载。
 
@@ -96,11 +97,13 @@ flowchart LR
 
 ## 人物可见内容与工具
 
-- 观察 `day_plan` 披露有序目标、提醒时刻及是否已推进；空清单仍以对象表示，跨日后才为 null。
-- 场景叙述按顺序只显示意图、已推进状态与提醒时刻，完整目标文字和环境证据在 facts 保留；遵守既有场景预算。
-  不出现当前计划段、不暗示全文目标已完成。
+- 人物看到的当日计划只在待办层 `day_plan`：零点计划生成前或当日结束后为 `null`，之后为 `{date, goals}`；
+  `goals` 至多八条，保持计划顺序，每条写 `intent_kind`、`goal`、`progressed`、`remind_time`（`HH:MM` 或 `null`）；空清单仍以对象表示。
+- 不再有场景叙述：目标文字、推进状态与提醒时刻只在待办层出现，提醒到时进度层的 `plan_reminder` 只写目标名；
+  登记时刻与推进活动等环境证据不进提示。`progressed` 为真只表示目标得到推进，不等于完成；目标行不显示人物自述，
+  `progress_note` 照存，不进提示。不出现当前计划段。
 - 移除只为计划换算而存在的 `day_start_epoch`、`day_end_epoch`、`bedtime_epoch` 提示锚点；
-  `current_epoch` 保留给现有时间合同，人物卡片的作息与环境营业时刻继续保留。
+  提示中也不再有 `current_epoch`，此刻由环境层 `observed_at` 表示；人物卡片的作息与环境营业时刻继续保留。
 - 实际模型工具 Schema、工具说明、本地校验、环境请求模型和冻结观察必须完全一致。
   人物工具只有 `revise_day_plan`，有清单即开放，可改提醒，允许空清单后追加目标。
 - 零点计划与 LifeAgent 修订各自到 LifeEngine、SQLite、下一次观察、检查点恢复必须有完整路径测试；
@@ -223,3 +226,4 @@ flowchart LR
 | `2026-09-24-time-and-energy` | 2026-09-24 | 新增版本表。按[时间与能量规格](SPEC-time-and-energy.md)「冻结条款修订」第 22 行修订：当日计划由零点后台任务 `plan_day` 生成，同一人物同一本地日一次，允许空清单；目标可带 `remind_time`，提醒与推进无关，到期以 `plan_reminder_due` 唤醒并可结束睡眠；人物工具只有 `revise_day_plan`；进行中的等待不算在手承诺；`activity_infeasible` 当前无来源，删活动不可行签名；外部约束闭集删 `PICKUP_LOCATION_REQUIRED` 与 `WORK_LOCATION_REQUIRED`（代码中为 `ACTIVITY_PRECONDITION_UNMET`，属既有漂移），引导性拒绝归 `other_rejections`；台账两行改待重验 |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对（DP1–DP9 已落地）：「人物可见内容与工具」的场景叙述补提醒时刻，与代码及接口合同「场景段落与事实清单」一致；「事件驱动的决策节律」的「提交清单」改为「零点计划」 |
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后（阶段 9）：「验收台账」中被该规格修订、由 DP8 记「待重验」的两行（零点计划生成、同日一次、跨日、修订与提醒；威胁精确边界、双间隔、睡眠与游戏不回归）在最终源码 `ef13dc5` 通过门禁后改记「通过」，证据指向时间与能量验收记录；文件头去掉「修订条款验收前，台账对应行只代表旧行为」 |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 28 行修订（人物 Prompt 台账 DP1），修订部分待实现：「人物可见内容与工具」删场景叙述与 facts 中的目标文字；当日计划只在待办层 `day_plan{date, goals[{intent_kind, goal, progressed, remind_time}]}`，生成前或当日结束后为 `null`；提醒到时进度层 `plan_reminder` 只写目标名；`progressed` 不等于完成，`progress_note` 照存不进提示；提示中不再有 `current_epoch`；文件头注明修订待实现 |
