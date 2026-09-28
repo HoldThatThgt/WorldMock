@@ -1,23 +1,27 @@
 """给予与收货人（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」，验收台账「来源与去向」）。
 
 真实 LifeEngine 与 SQLite：给予瞬时、不占名额、不增加任何人的摄入，每件移出 min(1, 持有) 记入对方持有，要求同处；
-收件人不存在、手边没有、不同处各有拒绝码；订单只有一个收货人，送达只入收货人的持有（同世界人物的库存或联系人的
-contact_holdings），付款人仍是下单的人；同一请求里同一商品可以分给两人，订单按（方式，收货地）拆分；自己收货后再
-给予只转移一次。
+收件人不存在、手边没有、不同处各有拒绝码，身边没有任何能给的人时工具层的给予动作标不可用、原因与拒绝一字不差；同世界
+人物不在身边也是去向（给予被拒、配送送到其所在地点）；订单只有一个收货人，送达只入收货人的持有（同世界人物的库存或
+联系人的 contact_holdings），付款人仍是下单的人；同一请求里同一商品可以分给两人，订单按（方式，收货地）拆分；自己收货
+后再给予只转移一次；与同世界人物同名的场景联系人没有收货地点。
 """
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from tests.life.conftest import start_request, submit_round
-from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, HOME, MARKET, OFFICE, PERSON_TARGET, act,
-                                         food_product, holding_name, observe, open_world, place, routed, run_until,
-                                         stage, supply_target)
+from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, DUPLICATE_CONTACT, DUPLICATE_TARGET, HOME, MARKET,
+                                         OFFICE, PERSON_TARGET, act, food_product, holding_name, observe, open_world,
+                                         place, routed, run_until, stage, supply_target)
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, same_moment
 from worldmock.life.interaction_menu import GIVE_WAY, merged_selection
 from worldmock.life.routing import require_recipients
+from worldmock.life.scenario import load_scenario
 
 _UNMET = "ACTIVITY_PRECONDITION_UNMET"
 
@@ -66,8 +70,8 @@ def test_giving_to_a_colocated_person_moves_one_portion_and_nobody_eats(engine_f
 
 
 def test_giving_to_a_person_who_left_is_refused_as_not_together(engine_factory) -> None:
-    """观察时同处、同一轮里对方先出发了：给予以 ACTIVITY_PRECONDITION_UNMET（unmet=recipient_present）拒绝，原因
-    「要和<人>在同一个地方才能给他」，对方在路上时下一步是等在一起再给；世界不变。"""
+    """观察时同处、同一轮里对方先出发了：身边再没有能给的人，给予以 ACTIVITY_PRECONDITION_UNMET
+    （unmet=recipient_present）拒绝，原因「要和对方在同一个地方才能给」，下一步是等和要给的人在一起再给；世界不变。"""
     engine = open_world(engine_factory)
     food = food_product(engine)
     place(engine, 2, HOME, {food: 1.0})
@@ -79,9 +83,55 @@ def test_giving_to_a_person_who_left_is_refused_as_not_together(engine_factory) 
                                        2: ("start_activity", _give(engine, food, "人物：陈曦"))}, "leave-and-give")
     refused = next(item for item in results if item.agent_id == 2)
     assert (refused.status, refused.error_code) == ("rejected", _UNMET)
-    assert refused.data["reason"] == "要和陈曦在同一个地方才能给他"
-    assert refused.data["next_step"] == "等和陈曦在一起时再给" and refused.data["unmet"] == ["recipient_present"]
+    assert refused.data["reason"] == "要和对方在同一个地方才能给"
+    assert refused.data["next_step"] == "等和要给的人在一起时再给" and refused.data["unmet"] == ["recipient_present"]
     assert engine.state.agents[2].inventory == before
+
+
+def test_giving_to_a_same_world_person_elsewhere_is_refused_as_not_together(engine_factory) -> None:
+    """同世界人物不在身边（不在工具层，只在私有绑定 person_bindings）也是去向：本人在王磊的收货地点、身边有能给的人时，
+    给不在身边的李凡以 ACTIVITY_PRECONDITION_UNMET（unmet=recipient_present）拒绝，原因指名「要和李凡在同一个地方才能
+    给他」，下一步去李凡所在的地点；世界不变（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。"""
+    engine = open_world(engine_factory)
+    food = food_product(engine)
+    place(engine, 1, OFFICE, {food: 1.0})
+    place(engine, 2, HOME)
+    observed = observe(engine, "elsewhere")
+    assert PERSON_TARGET not in {row["name"] for row in observed["tool_layer"]["targets"]}
+    assert {"name": PERSON_TARGET, "person_id": "agent:2"} in observed["person_bindings"]
+    before = _world(engine)
+    refused = act(engine, "give-elsewhere", _give(engine, food, PERSON_TARGET))
+    assert (refused.status, refused.error_code, refused.data["unmet"]) == ("rejected", _UNMET, ["recipient_present"])
+    assert refused.data["reason"] == "要和李凡在同一个地方才能给他"
+    assert refused.data["next_step"] == "去张江居所（冻结场景锚点）"
+    assert _world(engine)[:4] == before[:4]
+
+
+def _give_action(engine, name: str, product: str) -> dict:
+    """@brief 本轮工具层里手边持有物的给予动作。"""
+    targets = {row["name"]: row for row in observe(engine, name)["tool_layer"]["targets"]}
+    return next(item for item in targets[holding_name(engine, product)]["actions"] if item["way"] == GIVE_WAY)
+
+
+def test_give_is_listed_available_only_with_someone_to_hand_to(engine_factory) -> None:
+    """给予动作的可用性与受理同一判定：手边有东西而身边没有任何能给的人（李凡在办公室，本人不在任何联系人的收货地点）
+    时标不可用，原因与受理的拒绝一字不差；本人到了有李凡、也是王磊收货地点的办公室后标可用，给李凡即成立。"""
+    engine = open_world(engine_factory)
+    food = food_product(engine)
+    place(engine, 1, HOME, {food: 2.0})
+    place(engine, 2, OFFICE)
+    alone = _give_action(engine, "alone", food)
+    assert (alone["available"], alone["reason"]) == (False, "要和对方在同一个地方才能给")
+    refused = act(engine, "give-alone", _give(engine, food, PERSON_TARGET))
+    assert (refused.error_code, refused.data["reason"], refused.data["unmet"]) == (
+        _UNMET, alone["reason"], ["recipient_present"])
+    assert refused.data["next_step"] == "等和要给的人在一起时再给"
+    place(engine, 1, OFFICE, {food: 2.0})
+    together = _give_action(engine, "together", food)
+    assert (together["available"], together["reason"]) == (True, None)
+    given = act(engine, "give-together", _give(engine, food, PERSON_TARGET))
+    assert given.status == "completed", (given.error_code, given.message)
+    assert engine.state.agents[2].inventory[OFFICE][food] == 1.0
 
 
 @pytest.mark.parametrize("contact,target,step", [
@@ -219,7 +269,46 @@ def test_direct_delivery_to_a_contact_goes_to_their_receive_location(engine_fact
     assert engine.state.contact_holdings == {COLLEAGUE: {food: 1.0}}
     assert all(food not in holdings for holdings in engine.state.agents[1].inventory.values())
     records = [row for row in observe(engine, "delivered")["progress_layer"]["events"] if row["type"] == "delivery"]
-    assert records[-1]["message"] == "已送到张江高科技园区办公室（冻结场景锚点），收货人李凡"
+    assert records[-1]["message"] == "已送到张江高科技园区办公室（冻结场景锚点），收货人王磊"
+
+
+def test_direct_delivery_to_a_same_world_person_elsewhere_goes_to_where_they_are(engine_factory) -> None:
+    """远程下单送给不在身边（不在工具层）的同世界人物：收货地点是其所在地点，送达只入对方在那里的库存；付款人是下单的
+    人，两人都没有摄入（没有吃的活动、能量没有增加）。"""
+    engine = open_world(engine_factory)
+    place(engine, 2, OFFICE)
+    supplies = {item.supply_id: item for item in engine.scenario.supplies}
+    row = next(row for row in observe(engine, "supply-elsewhere")["interaction_bindings"] if row["kind"] == "supply"
+               and any(action["label"] == "远程下单" for action in row["actions"])
+               and OFFICE in supplies[row["object_id"]].delivery_destination_ids)
+    food = supplies[row["object_id"]].product_id
+    balance, energy = engine.state.accounts["agent:1"], _energy(engine)
+    result = _order_and_wait(engine, "order-for-li-elsewhere",
+                             (row["object"], "obtain", "远程下单", None, PERSON_TARGET))
+    [order] = result.data["orders"]
+    assert (order["agent_id"], order["recipient_id"], order["destination_id"]) == (1, "agent:2", OFFICE)
+    assert engine.state.accounts["agent:1"] == balance - order["total_price_fen"]
+    run_until(engine, lambda current: current.state.deliveries[order["order_id"]].status == "delivered")
+    assert engine.state.agents[2].inventory[OFFICE][food] == 1.0
+    assert all(food not in holdings for holdings in engine.state.agents[1].inventory.values())
+    assert not [item for item in engine.state.activities.values() if item.kind.value == "consume"]
+    assert all(_energy(engine)[key] <= energy[key] for key in energy)
+
+
+def test_scenario_contacts_that_are_same_world_persons_do_not_receive(engine_factory) -> None:
+    """两份多人场景里与同世界人物同名的场景联系人没有收货地点（同世界人物按人物身份收货）：直接配送给通讯录里的
+    「李凡」以「暂时送不到李凡那里」拒绝，世界不变，没有记入联系人持有。"""
+    for name in ("multi-person.json", "multi-person-half-day.json"):
+        scenario, _ = load_scenario(Path("scenarios") / name)
+        people = {item.name for item in scenario.agents}
+        duplicates = [contact for item in scenario.agents for contact in item.contacts if contact.salutation in people]
+        assert len(duplicates) == 2 and all(contact.receive_location_id is None for contact in duplicates)
+    engine = open_world(engine_factory)
+    target, _ = supply_target(observe(engine, "supply"))
+    before = _world(engine)
+    refused = act(engine, "order-for-duplicate", routed((target, "obtain", "远程下单", None, DUPLICATE_TARGET)))
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到李凡那里")
+    assert _world(engine)[:4] == before[:4] and DUPLICATE_CONTACT not in engine.state.contact_holdings
 
 
 def test_direct_delivery_to_a_contact_who_cannot_receive_is_refused(engine_factory) -> None:
@@ -275,7 +364,7 @@ def test_pickup_for_someone_else_needs_them_at_the_store(engine_factory) -> None
     assert engine.state.agents[2].inventory[MARKET][food] == 1.0
     assert food not in engine.state.agents[1].inventory.get(MARKET, {})
     refused = act(engine, "pickup-for-colleague", routed((row["object"], "obtain", "到店", None, COLLEAGUE_TARGET)))
-    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到李凡那里")
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到王磊那里")
 
 
 def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None:

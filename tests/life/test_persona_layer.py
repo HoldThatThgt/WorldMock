@@ -67,7 +67,7 @@ def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() 
     assert layer["identity"] == {"name": "陈曦", "age": 32, "occupation": "产品经理",
                                  "living_arrangement": "与伴侣合租两居室"}
     assert layer["rhythm"] == {"wake": "7点到7点半", "leave_home": "8点到8点半", "lunch": "12点到13点",
-                               "dinner": "18点半到19点半", "bedtime": "23点到24点", "sleep_midpoint": "3点一刻",
+                               "dinner": "18点半到19点半", "bedtime": "23点到0点", "sleep_midpoint": "3点一刻",
                                "sleep_need": "7.5 小时"}
     assert layer["habits"] == [{"trigger": "下班到家", "response": "公园慢跑半小时", "time_window": "19点到20点"},
                                {"trigger": "睡前", "response": "读几页小说", "time_window": "22点半到23点"}]
@@ -93,7 +93,7 @@ def test_quarter_hour_times_are_written_as_quarters() -> None:
 
 def test_no_card_person_keeps_the_name_only_path_and_view_only_people_get_an_item() -> None:
     """没有结构化卡片：只填姓名，作息、口味、应对为 null，习惯为空；关系按场景联系人逐项（亲密度 null、渠道为空）；
-    看法对象不在联系人中的已知人物另占一项。"""
+    看法对象不在联系人中的已知人物另占一项，角色、亲密度为 null、渠道为空（不填编造的值），过人设层 Schema。"""
     views = {"relationships": [{"person": "李凡", "view": "新同事"}], "preferences": []}
     layer = persona_layer(_profile(), "陈曦", views)
     validate_layer(layer)
@@ -103,7 +103,7 @@ def test_no_card_person_keeps_the_name_only_path_and_view_only_people_get_an_ite
                      "relationships": [
                          {"person": "老周", "role": "朋友", "closeness": None, "channels": [], "view": None},
                          {"person": "沈昊", "role": "老友", "closeness": None, "channels": [], "view": None},
-                         {"person": "李凡", "role": "认识的人", "closeness": None, "channels": [], "view": "新同事"}],
+                         {"person": "李凡", "role": None, "closeness": None, "channels": [], "view": "新同事"}],
                      "preferences": []}
     assert card_struct(_profile()) is None
 

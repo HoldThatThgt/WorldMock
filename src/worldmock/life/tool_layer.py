@@ -303,8 +303,10 @@ def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusa
 
 
 def _give_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 给予：手边要持有这件东西（与谁同处按受理时的去向判定，不在逐目标的可用性里）。"""
-    return giving.held_refusal(context.state, context.agent_id, binding["object_id"])
+    """@brief 给予：手边要持有这件东西，且身边至少有一个能给的人（与受理同一判定 giving.handover_refusal）；去向是否
+    就是身边的人按受理时的去向判定。"""
+    return (giving.held_refusal(context.state, context.agent_id, binding["object_id"])
+            or giving.handover_refusal(context.state, context.scenario, context.agent_id))
 
 
 #: 内部标准动作 → 对象自身条件的判定。

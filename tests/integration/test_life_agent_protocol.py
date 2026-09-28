@@ -203,6 +203,7 @@ def _observations(*progress_event_ids: str) -> list[dict]:
         "activity_bindings": [],
         "session_bindings": [{"name": _HOME_SESSION, "session_id": "session-7-0001"}],
         "goal_bindings": [],
+        "person_bindings": [],
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
         "paused_activities": [],

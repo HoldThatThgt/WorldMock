@@ -29,6 +29,9 @@ from tests.life.conftest import (  # noqa: E402
     start_request,
     start_arguments,
 )
+from tests.life.routing_fixtures import (  # noqa: E402
+    DUPLICATE_CONTACT, OFFICE, PERSON_TARGET, act, observe, open_world, place,
+)
 
 #: 引擎事件级活动控制行字段闭集；模型只读取工具层的活动目标。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
@@ -121,6 +124,42 @@ def test_life_agent_checks_activity_names_against_private_bindings(_engine_facto
     damaged.pop("activity_bindings")
     with pytest.raises(RuntimeError, match="activity_bindings are invalid"):
         LifeAgent().prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(damaged)))
+
+
+def _without_same_name_colleague(document: dict) -> None:
+    """场景副本里去掉陈曦通讯录中与同世界人物李凡同名的同事联系人（李凡只作为同世界人物为陈曦所知）。"""
+    agent = next(item for item in document["agents"] if item["agent_id"] == 1)
+    agent["contacts"] = [item for item in agent["contacts"] if item["contact_id"] != DUPLICATE_CONTACT]
+
+
+def test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere(_engine_factory) -> None:
+    """relationship 记忆的对象可以是不在身边的同世界人物（docs/dev/SPEC-persona-prompt.md「人设层」：已知人物含同世界
+    人物名）：李凡在办公室、陈曦在家，陈曦的通讯录里没有李凡，本轮工具层也没有他，只有私有绑定 person_bindings 认得他；
+    宿主接受写李凡的 relationship 记忆，不认识的名字照常按协议错误纠正。"""
+    engine = open_world(_engine_factory, mutate=_without_same_name_colleague)
+    place(engine, 2, OFFICE)
+    act(engine, "relationship-wait", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
+    observation = observe(engine, "relationship")
+    assert PERSON_TARGET not in {row["name"] for row in observation["tool_layer"]["targets"]}
+    assert [row["name"] for row in observation["person_bindings"]] == [PERSON_TARGET]
+    config = next(item for item in engine.scenario.agents if item.agent_id == 1)
+    assert "李凡" not in {contact.salutation for contact in config.contacts}
+    agent = LifeAgent()
+    agent._name, agent._profile = config.name, {**config.model_dump(mode="json"), "id": 1}
+    agent.prepare_react_loop(ReactLoopRequest(0, context(engine, "relationship").observed_at,
+                                              _observation_records(observation)))
+    [waiting] = [row["name"] for row in observation["activity_bindings"]]
+
+    def conclude(subject: str) -> ReactDecision:
+        """收尾等待并写一条关于 subject 的 relationship 记忆。"""
+        memory = {"type": "relationship", "text": "他最近在办公室很忙。", "importance": 0.5, "keywords": ["同事"],
+                  "subject": subject}
+        return ReactDecision("", "conclude_activity", {"task": [waiting], "summary": ["先收个尾。"],
+                                                       "memories": [[memory]]}, "")
+
+    assert agent.validate_react_decisions([conclude("李凡")], False) == ""
+    assert agent.validate_react_decisions([conclude("陌生人")], False) == (
+        "conclude_activity relationship subject is not a known person: 陌生人")
 
 
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:

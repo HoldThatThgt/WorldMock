@@ -6,7 +6,8 @@
   各占一项；只来自场景联系人的项亲密度为 null、渠道为空（联系人的亲密度与渠道不进提示）。600 汉字上限只约束卡片派生的字段。
 - 没有结构化卡片的人物只填姓名，作息、口味、应对为 null，习惯为空列表，关系按场景联系人逐项列出。
 - 看法与偏好只来自环境下发的 persona_views（成功的 conclude_activity 写下的 relationship 与 preference 记忆，同一对象
-  取最后一条）；看法写到对应人物的关系项上，不在卡片与联系人中的已知人物另占一项。
+  取最后一条）；看法写到对应人物的关系项上，不在卡片与联系人中的已知人物（同世界人物）另占一项，角色、亲密度为 null、
+  渠道为空（不填编造的值）。
 - 只读问答取最近一次生活决策保存在人物工作区的人设层与记忆层快照（裁决 #38）；尚无决策时用卡片与空看法构建人设层，
   记忆层两个列表为空。
 """
@@ -26,8 +27,6 @@ from worldmock.profile.textgen import hour_text, intimacy_text, window_text
 
 #: 只读问答快照在人物工作区中的文件名（每次生活决策构建请求后写入）。
 PROMPT_SNAPSHOT_FILE = "life_prompt_snapshot.json"
-#: 只凭看法出现、既不在卡片也不在场景联系人中的已知人物的角色说法。
-_ACQUAINTANCE_ROLE = "认识的人"
 
 
 def persona_layer(profile: Mapping[str, Any], name: str | None, views: Mapping[str, Any]) -> dict[str, Any]:
@@ -65,7 +64,7 @@ def card_struct(profile: Mapping[str, Any]) -> PersonaCardStruct | None:
 
 
 def known_persons(profile: Mapping[str, Any], people: list[str]) -> frozenset[str]:
-    """@brief relationship 记忆可写的对象：卡片关系名、场景联系人称谓与观察中列出的同世界人物姓名。"""
+    """@brief relationship 记忆可写的对象：卡片关系名、场景联系人称谓与同世界人物姓名（不论是否同处）。"""
     card = card_struct(profile)
     names = {item.name_or_appellation for item in card.relationships} if card is not None else set()
     names.update(contact["salutation"] for contact in profile.get("contacts") or ())
@@ -113,7 +112,8 @@ def _card_fields(card: PersonaCardStruct | None) -> dict[str, Any]:
 
 
 def _relationships(card_items: list[dict], contacts: Any, latest: dict[str, str]) -> list[dict[str, Any]]:
-    """@brief 卡片关系在前（卡片顺序），场景联系人中对不上的随后（场景顺序），只有看法的已知人物最后；各带最新看法。"""
+    """@brief 卡片关系在前（卡片顺序），场景联系人中对不上的随后（场景顺序），只有看法的已知人物最后（角色为 null）；
+    各带最新看法。"""
     items = [dict(item) for item in card_items]
     listed = {item["person"] for item in items}
     for contact in contacts:
@@ -121,6 +121,6 @@ def _relationships(card_items: list[dict], contacts: Any, latest: dict[str, str]
             items.append({"person": contact["salutation"], "role": contact["relation"], "closeness": None,
                           "channels": []})
             listed.add(contact["salutation"])
-    items.extend({"person": person, "role": _ACQUAINTANCE_ROLE, "closeness": None, "channels": []}
+    items.extend({"person": person, "role": None, "closeness": None, "channels": []}
                  for person in latest if person not in listed)
     return [{**item, "view": latest.get(item["person"])} for item in items]

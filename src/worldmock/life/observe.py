@@ -20,6 +20,7 @@ from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.inventory_recipe import is_inventory_recipe
+from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import task_listed, work_totals
@@ -88,9 +89,9 @@ class ObservationMixin:
                 "progress_event_ids": view.event_ids, "presented_message_ids": presented}
 
     def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]]) -> dict:
-        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动与会话。
+        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动、会话与同世界其他人物。
 
-        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复。
+        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复。人物绑定不论是否同处（recipients.person_bindings）。
         """
         goals = [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}", "intent_kind": goal.intent_kind}
                  for goal in agent.day_plan.goals] if agent.day_plan is not None else []
@@ -104,6 +105,7 @@ class ObservationMixin:
                                   for activity_id, name in names["activities"].items()],
             "session_bindings": [{"name": name, "session_id": session_id}
                                  for session_id, name in names["sessions"].items()],
+            "person_bindings": person_bindings(self.state, agent.agent_id),
         }
 
     def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:

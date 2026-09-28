@@ -990,17 +990,19 @@ class SubmitWorkRequest(FrozenModel):
 SESSION_SUMMARY_MAX_CHARS = 500
 
 class StartActivityRequest(FrozenModel):
-    """@brief 逐项选择至多两个可见对象、动词与方式；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md 第五章）。
+    """@brief 逐项选择至多两个可见对象、动词、方式、来源与去向；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md
+    第五章，docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
 
-    三个数组等长、一至二项，逐项对应；私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝
-    ACTION_REQUEST_INVALID。
+    targets、actions、ways、from、to 五个数组等长、一至二项，逐项对应，另有请求级 answering；私有绑定把（对象，动词，
+    方式）映射为内部标准动作，来源与去向按动词的合法组合判定（worldmock.life.routing），不合法时业务拒绝
+    ACTION_REQUEST_INVALID，去向不是任何人物时 RECIPIENT_NOT_FOUND。
 
-    :param targets: 本次活动的可见对象名称，至多两项。
+    :param targets: 本次活动的可见对象名称，至多两项（obtain 可写未列出的名称，指名购买）。
     :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
     :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。
-    :param from_: 与对象逐项对应的来源（字段名 from）。
-    :param to: 与对象逐项对应的去向。
-    :param answering: 所回应的消息名称。
+    :param from_: 与对象逐项对应的来源（字段名 from，str|null）：obtain 为门店名或 null，consume 为「自己」，其他为 null。
+    :param to: 与对象逐项对应的去向（str|null）：obtain、consume 为「自己」或人物名，其他为 null。
+    :param answering: 所回应的可见直接消息的规范名称，不回应时为 null。
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True, validate_by_name=True, validate_by_alias=True,

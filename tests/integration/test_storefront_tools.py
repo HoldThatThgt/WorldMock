@@ -126,11 +126,14 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
 
 def test_host_checks_from_to_and_answering_against_private_bindings():
     """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-persona-prompt.md 第五章）：去向是
-    「自己」或本轮的人物，answering 是本轮可见的直接消息且至少一项送给发件人；不合法时返回英文协议错误原文。"""
+    「自己」、本轮的人物或不在身边的同世界人物（私有绑定 person_bindings），answering 是本轮可见的直接消息且至少一项送给
+    发件人；不合法时返回英文协议错误原文。去向不是任何人物是拒绝码 RECIPIENT_NOT_FOUND：宿主放行，由环境业务拒绝。"""
     observed = _observed_offer()
     data = observed[0]["data"]
     _add_objects(data, _visible_object("联系人：王磊", "contact", "contact-wanglei", _offer("interact", "通话", "call")))
-    data["message_bindings"] = [{"name": "王磊 10:35 的消息", "message_id": "reply-1", "sender_id": "contact-wanglei"}]
+    data["person_bindings"] = [{"name": "人物：李凡", "person_id": "agent:2"}]
+    data["message_bindings"] = [{"name": "王磊 10:35 的消息", "message_id": "reply-1", "sender_id": "contact-wanglei"},
+                                {"name": "李凡 10:40 的消息", "message_id": "direct-2", "sender_id": "agent:2"}]
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
 
@@ -139,7 +142,8 @@ def test_host_checks_from_to_and_answering_against_private_bindings():
         return person.validate_react_decisions([_obtain(_OFFER, "远程下单", **fields)], False)
 
     assert error() == "" and error(to=["联系人：王磊"], answering="王磊 10:35 的消息") == ""
-    assert error(to=["联系人：陌生人"]) == "start_activity to is not a visible person"
+    assert error(to=["人物：李凡"], answering="李凡 10:40 的消息") == ""
+    assert error(to=["联系人：陌生人"]) == ""
     assert error(answering="王磊 10:35 的消息") == (
         "start_activity answering needs an item whose to is the message sender")
     assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == "start_activity answering is not a visible message"

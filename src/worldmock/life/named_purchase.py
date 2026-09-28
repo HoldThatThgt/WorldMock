@@ -1,10 +1,11 @@
 """@brief 指名购买：obtain 的目标不在本轮列出时按名称解析门店供给（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
 
-环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。解析先精确匹配标签「<门店>出售的<商品>」，再按商品名找满足所选
-方式的供给：到店是人物所在地点的门店，远程下单是配送到收货地的门店；source 可限定门店。零个匹配以 SUPPLY_NOT_FOUND
-拒绝，details.candidates 给至多 3 个确定性的近似标签（词项相似度，不用向量检索与近似最近邻）；多店同名且未限定门店以
-SUPPLY_NAME_AMBIGUOUS 拒绝并列出门店；恰好一个时返回该供给按当前报价的绑定行，价格、余额、营业与库存由整单结算照常
-检查。从不自动换成别的商品。解析出的绑定行带 named 标记，购买时不查可见凭据（storefront_runtime）。
+环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。解析先精确匹配标签「<门店>出售的<商品>」（目标已写明门店，source
+须为 null，否则与列出的标签一样以 ACTION_REQUEST_INVALID 拒绝），再按商品名找满足所选方式的供给：到店是人物所在地点的
+门店，远程下单是配送到收货地的门店；source 可限定门店。零个匹配以 SUPPLY_NOT_FOUND 拒绝，details.candidates 给至多 3 个
+确定性的近似标签（词项相似度，不用向量检索与近似最近邻）；多店同名且未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部
+门店；恰好一个时返回该供给按当前报价的绑定行，价格、余额、营业与库存由整单结算照常检查。从不自动换成别的商品。解析出的
+绑定行带 named 标记，购买时不查可见凭据（storefront_runtime）。
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from worldmock.errors import PreconditionError
+from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
 from worldmock.life.guidance import Refusal, refusal_for_code
 from worldmock.life.interaction_menu import PURCHASE_WAYS, binding_action
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
 
 _LOGGER = logging.getLogger(__name__)
-#: 拒绝结果里至多列出的近似标签或门店数。
+#: SUPPLY_NOT_FOUND 至多列出的近似标签数（SUPPLY_NAME_AMBIGUOUS 列出全部门店）。
 MAX_CANDIDATES = 3
 
 
@@ -33,12 +34,16 @@ def resolve_named_supply(context: LayerContext, name: str, way: str, source: str
     :param way: 取得方式「到店」或「远程下单」。
     :param source: 限定的门店名，没有时为 None。
     :param destination_id: 收货地（远程下单按它筛选能配送到的门店）。
-    :raises PreconditionError: SUPPLY_NOT_FOUND（带近似候选）、SUPPLY_NAME_AMBIGUOUS（带门店）、
+    :raises PreconditionError: SUPPLY_NOT_FOUND（带近似候选）、SUPPLY_NAME_AMBIGUOUS（带全部门店）、
         FULFILLMENT_NOT_SUPPORTED（按标签找到的供给不支持所选方式）。
+    :raises BusinessRuleError: ACTION_REQUEST_INVALID（名称是完整标签却又写了 source）。
     """
     fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
     supplies = context.scenario.supplies
     matches = [supply for supply in supplies if supply_label(context, supply) == name]
+    if matches and source is not None:
+        _LOGGER.error("Named purchase gives a store for a label that already names its store")
+        raise BusinessRuleError("ACTION_REQUEST_INVALID")
     if not matches:
         matches = [supply for supply in supplies if _product_name(context, supply) == name
                    and _serves(context, supply, fulfillment, destination_id)
@@ -49,7 +54,7 @@ def resolve_named_supply(context: LayerContext, name: str, way: str, source: str
     if len(matches) > 1:
         _LOGGER.error("Named purchase matches supplies of several stores")
         stores = sorted(dict.fromkeys(_store_name(context, supply) for supply in matches))
-        raise _refusal("SUPPLY_NAME_AMBIGUOUS", stores[:MAX_CANDIDATES])
+        raise _refusal("SUPPLY_NAME_AMBIGUOUS", stores)
     supply = matches[0]
     if fulfillment not in supply.fulfillment_modes:
         _LOGGER.error("Named supply does not support the chosen fulfillment")

@@ -136,6 +136,7 @@ def _misaligned_meta(data: dict) -> None:
     (lambda data: data["task_bindings"][0].pop("task_name"), "task_bindings are invalid"),
     (lambda data: data.update(goal_bindings=None), "goal_bindings are invalid"),
     (lambda data: data.update(session_bindings=[{"session_id": "s"}]), "session_bindings are invalid"),
+    (lambda data: data.pop("person_bindings"), "person_bindings are invalid"),
     (lambda data: data.update(interaction_menu={"allowed_actions": ["wait"]}), "interaction menu"),
     (lambda data: data.update(wake_reasons=[""]), "wake reasons are invalid"),
 ])

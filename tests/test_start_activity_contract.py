@@ -203,12 +203,14 @@ def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
 
 
 _SUPPLY, _NOODLES, _FLOUR, _PERSON, _COLLEAGUE = "集市出售的牛肉面", "持有物：牛肉面", "持有物：面粉", "人物：李凡", "联系人：王磊"
+#: 不在身边的同世界人物：只在私有绑定 person_bindings 里，不是本轮的交互对象。
+_ELSEWHERE = "人物：赵敏"
 _MESSAGE = "王磊 10:35 的消息"
 
 
 def _routing_observation() -> dict:
     """@brief 本轮私有绑定：一件供给、两件手边持有物（可吃的与可制作的）、办公室、同处的人、同事联系人、「自己」，
-    以及王磊的一条可见直接消息。"""
+    同世界全部其他人物（同处的李凡与不在身边的赵敏），以及王磊的一条可见直接消息。"""
     rows = [
         {"object": _SUPPLY, "object_id": "supply-noodles", "kind": "supply",
          "actions": [binding_action("远程下单", "purchase", fulfillment="delivery")]},
@@ -221,6 +223,7 @@ def _routing_observation() -> dict:
         {"object": _COLLEAGUE, "object_id": "contact-wanglei", "kind": "contact",
          "actions": [binding_action("通话", "call")]}]
     return {"interaction_bindings": rows,
+            "person_bindings": [{"name": _PERSON, "person_id": "agent:2"}, {"name": _ELSEWHERE, "person_id": "agent:3"}],
             "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}]}
 
 
@@ -242,11 +245,14 @@ def _items(*items, answering=None):
      [("agent:1", True, None, None), ("contact-wanglei", False, None, None)]),
     ([(_FLOUR, "obtain", "制作", None, "自己")], None, [("agent:1", True, None, None)]),
     ([("城西办公室", "travel", "步行", None, None)], None, [(None, False, None, None)]),
+    ([(_SUPPLY, "obtain", "远程下单", None, _ELSEWHERE)], None, [("agent:3", False, None, None)]),
+    ([(_NOODLES, "consume", "给予", "自己", _ELSEWHERE)], None, [("agent:3", False, None, None)]),
 ], ids=["obtain-self", "obtain-contact-answering", "same-supply-two-recipients", "obtain-person", "eat-self",
-        "give-person", "eat-and-give", "make-self", "travel-null"])
+        "give-person", "eat-and-give", "make-self", "travel-null", "obtain-person-elsewhere",
+        "give-person-elsewhere"])
 def test_legal_from_to_answering_combinations_route_each_item(request_items, answering, routed):
     """合法组合（第五章「来源与去向」表）：宿主不报错，环境逐项写上收货人、是否自己、关联的消息与 answering；
-    answering 只关联 to 等于发件人的项。"""
+    answering 只关联 to 等于发件人的项。不在身边的同世界人物也是人物（同处与否由给予、配送各自判定）。"""
     request = _items(*request_items, answering=answering)
     observation = _routing_observation()
     assert combination_error(request, routing_names(observation)) is None
@@ -303,12 +309,13 @@ def _assert_invalid(request, message: str) -> None:
 
 
 def test_unknown_recipient_is_recipient_not_found_before_admission():
-    """去向写了本轮没有的人物：宿主报「to is not a visible person」；环境照常解析出选择（收货人为空），在整组准入之前以
-    RECIPIENT_NOT_FOUND 拒绝；同一请求另有不合法组合时先报 ACTION_REQUEST_INVALID。"""
+    """去向不是任何人物（不是本轮的人物、联系人，也不是同世界人物）：共用判定给 RECIPIENT_NOT_FOUND，这是拒绝码，宿主
+    放行（tests/integration/test_storefront_tools.py）；环境照常解析出选择（收货人为空），在整组准入之前以
+    RECIPIENT_NOT_FOUND 业务拒绝；同一请求另有不合法组合时先报 ACTION_REQUEST_INVALID。"""
     observation = _routing_observation()
     unknown = _items((_NOODLES, "consume", "给予", "自己", "人物：陌生人"))
     assert combination_error(unknown, routing_names(observation)) == (
-        "RECIPIENT_NOT_FOUND", "start_activity to is not a visible person")
+        "RECIPIENT_NOT_FOUND", "start_activity to is not a known person")
     selection = _ActionHarness(observation)._start_selection(_pending(), unknown)
     assert [(row["to"], row["recipient_id"]) for row in selection] == [("人物：陌生人", None)]
     with pytest.raises(BusinessRuleError, match="RECIPIENT_NOT_FOUND"):

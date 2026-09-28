@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,11 +22,13 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 
 @pytest.fixture
 def engine_factory(tmp_path: Path):
-    """建立绑定正式内容但隔离存储的 LifeEngine。"""
+    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本。"""
     created = []
 
-    def create(scenario_name: str = "white-collar-12-weeks.json") -> LifeEngine:
+    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None) -> LifeEngine:
         scenario_path = Path("scenarios") / scenario_name
+        if mutate is not None:
+            scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
         scenario, _ = load_scenario(scenario_path)
         run_id = f"test-{len(created)}-{scenario.scenario_id}"
         identity = RunIdentity(
@@ -56,6 +60,18 @@ def engine_factory(tmp_path: Path):
             engine.close()
         except Exception:
             pass
+
+
+def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
+    """把正式场景文档的副本交给 mutate(document) 改写，连同冻结目录写到 root 下（语料根改为正式语料的绝对路径）。"""
+    document = json.loads(source.read_text(encoding="utf-8"))
+    mutate(document)
+    document["corpus_root"] = str((source.parent / document["corpus_root"]).resolve())
+    (root / "scenarios").mkdir(parents=True)
+    shutil.copytree(Path("catalog"), root / "catalog")
+    path = root / "scenarios" / source.name
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    return path
 
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:

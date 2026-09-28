@@ -24,6 +24,9 @@ from tests.life.test_category_runtime import (
 from worldmock.categories import refresh_manifest_identity
 from worldmock.life import prompt_capacity
 
+#: 单人隔离场景里身边没有能给的人：给予动作标不可用，原因与受理的拒绝一字不差（worldmock.life.giving.handover_refusal）。
+_NOBODY_GIVE = ("consume", "给予", False, "要和对方在同一个地方才能给")
+
 
 class _Dispatcher:
     """只替换模型传输，保持人物、环境和事件结算真实；世界请求登记即结束本轮，没有 finish。"""
@@ -111,14 +114,14 @@ async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
         before, started = await _use_held_item(engine, "recipe-input", _INPUT_OBJECT, monkeypatch)
-        assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None), ("consume", "给予", True, None)]
+        assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None), _NOBODY_GIVE]
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
         assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
-        assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None), ("consume", "给予", True, None)]
+        assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None), _NOBODY_GIVE]
         assert all(row["name"] != "持有物：密封工具盒" for row in after["tool_layer"]["targets"])
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
@@ -144,7 +147,7 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
                     if row["kind"] == "holding" and row["object_id"] == product_id)
         assert [(action["verb"], action["label"], action.get("use_mode")) for action in held["actions"]] == [
             ("consume", "食用", "eat"), ("consume", "给予", None)]
-        assert _offered(observed, held["object"]) == [("consume", "食用", True, None), ("consume", "给予", True, None)]
+        assert _offered(observed, held["object"]) == [("consume", "食用", True, None), _NOBODY_GIVE]
     finally:
         engine.close()
 
@@ -165,7 +168,7 @@ def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
                 for action in held["actions"]] == [("obtain", "制作", "consume", "use"),
                                                    ("consume", "给予", "consume", None)]
         [(verb, way, available, reason), give] = _offered(observed, held["object"])
-        assert give == ("consume", "给予", True, None)
+        assert give == _NOBODY_GIVE
         assert (verb, way) == ("obtain", "制作")
         if required_location == "office":
             office = next(item.name for item in engine.scenario.locations if item.location_id == "office")

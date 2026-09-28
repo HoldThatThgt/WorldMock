@@ -252,7 +252,7 @@
             "workplace-IM"
           ],
           "reply_policy": "none",
-          "receive_location_id": "office"
+          "receive_location_id": null
         },
         {
           "contact_id": "contact-chenxi-oldfriend",
@@ -371,7 +371,7 @@
             "workplace-IM"
           ],
           "reply_policy": "none",
-          "receive_location_id": "office"
+          "receive_location_id": null
         },
         {
           "contact_id": "contact-lifan-oldfriend",

@@ -21,7 +21,7 @@ from worldmock.life.narration import (
 
 #: 观察私有证据与私有绑定：只给宿主与读者，绝不渲染进提示。
 _PRIVATE_KEYS = ("interaction_bindings", "task_bindings", "goal_bindings", "activity_bindings", "session_bindings",
-                 "message_bindings", "persona_views", "progress_meta", "progress_event_ids", "presented_message_ids",
+                 "message_bindings", "person_bindings", "persona_views", "progress_meta", "progress_event_ids", "presented_message_ids",
                  "continuation")
 
 
