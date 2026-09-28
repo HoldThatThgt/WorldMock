@@ -449,7 +449,8 @@ def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatc
 
     parent, _checkpoint = _parent_store(tmp_path)
     parent.close()
-    wrong_model = {"model_identity": {"provider": "other"}, "code_sha256": "0" * 64}
+    wrong_model = {"model_identity": {"provider": "other"}, "stage_model_identity": stage_model_identity(),
+                   "code_sha256": "0" * 64}
     with pytest.raises(IntegrityError, match="model identity differs"):
         _require_runtime_identity(wrong_model, ROOT)
     current = {"model_identity": _model_identity().model_dump(mode="json"),
