@@ -62,6 +62,30 @@ def _window_text(window: TimeWindow) -> str:
     return f"{_hour_text(window.start_hour)}到{_hour_text(end)}"
 
 
+#: 整点后的分钟数 → 中文说法（刻钟与半点；睡眠中点在 0.25 小时格点上，docs/dev/SPEC-persona-prompt.md「人设层」）。
+_MINUTE_WORDS = {0: "", 15: "一刻", 30: "半", 45: "三刻"}
+
+
+def hour_text(hour: float) -> str:
+    """@brief 人设层用的小时数 → 中文时刻：7.0→"7点"、7.25→"7点一刻"、7.5→"7点半"、7.75→"7点三刻"，其余分钟写「N分」
+    （render_card 仍用 _hour_text，卡片文本不变）。"""
+    minutes = round(hour * 60)
+    whole, minute = divmod(minutes, 60)
+    word = _MINUTE_WORDS.get(minute, f"{minute}分")
+    return f"{whole}点{word}"
+
+
+def window_text(window: TimeWindow) -> str:
+    """@brief 人设层用的窗口 → "7点到7点半"；两端都按钟面表述：到达或越过午夜（≥24）的一端按次日小时写
+    （25→"1点"、24→"0点"；render_card 仍用 _window_text，卡片文本不变）。"""
+    return f"{hour_text(_clock_hour(window.start_hour))}到{hour_text(_clock_hour(window.end_hour))}"
+
+
+def _clock_hour(hour: float) -> float:
+    """@brief 自午夜起的小时数 → 钟面小时：≥24 的减去 24（窗口上限 30 小时，至多跨一次午夜）。"""
+    return hour - 24.0 if hour >= 24.0 else hour
+
+
 def _identity_line(card: PersonaCard) -> str:
     """@brief 身份行：职业、年龄、居住方式。"""
     identity = card.identity
@@ -73,7 +97,7 @@ def _situation_line(card: PersonaCard) -> str:
     return f"本周在忙{card.situation.busy_this_week}；在意{card.situation.cares_about}。"
 
 
-def _intimacy_text(intimacy: int) -> str:
+def intimacy_text(intimacy: int) -> str:
     """@brief 亲密度 0-30 → 四档中文（≥22 很亲近 / ≥14 较亲近 / ≥7 一般 / 疏远）。"""
     if intimacy >= 22:
         return "很亲近"
@@ -88,7 +112,7 @@ def _relationship_item(relationship: Relationship) -> str:
     """@brief 单条关系：称谓（角色，亲密度档，渠道）。"""
     channels = "、".join(relationship.channels)
     return (f"{relationship.name_or_appellation}（{relationship.role}，"
-            f"{_intimacy_text(relationship.intimacy)}，{channels}联系）")
+            f"{intimacy_text(relationship.intimacy)}，{channels}联系）")
 
 
 def _relationship_line(card: PersonaCard) -> str:

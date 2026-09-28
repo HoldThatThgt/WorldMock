@@ -15,14 +15,17 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _action_schema, _person
-from tests.integration.test_life_agent_protocol import _DecisionStatementResponse, _ModelResponse
-from tests.life.conftest import conclude_pending, context
+from tests.integration.test_life_agent_protocol import _ModelResponse
+from tests.life.conftest import conclude_pending, context, start_arguments
 from tests.life.test_category_runtime import (
     _INPUT_OBJECT, _OUTPUT_CATEGORY, _OUTPUT_OBJECT, _advance_to_completion,
     _engine, _fixture, _read_json, _write_json,
 )
 from worldmock.categories import refresh_manifest_identity
 from worldmock.life import prompt_capacity
+
+#: 单人隔离场景里身边没有能给的人：给予动作标不可用，原因与受理的拒绝一字不差（worldmock.life.giving.handover_refusal）。
+_NOBODY_GIVE = ("consume", "给予", False, "要和对方在同一个地方才能给")
 
 
 class _Dispatcher:
@@ -33,7 +36,6 @@ class _Dispatcher:
     def __init__(self, arguments: dict) -> None:
         self.requests: list[dict] = []
         self.responses = [
-            _DecisionStatementResponse("我使用眼前的物品。"),
             _ModelResponse("provider-action", "start_activity", json.dumps(arguments, ensure_ascii=False)),
         ]
 
@@ -68,7 +70,8 @@ def _recipe_path(tmp_path, required_location=None):
 
 
 async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
-    """让真实人物按冻结观察中的持有物名称提交它唯一列出的动作（配方为 obtain 的「制作」，否则 consume 的「使用」）。"""
+    """让真实人物按冻结观察中的持有物名称提交它自用的那项动作（配方为 obtain 的「制作」，否则 consume 的「使用」；
+    另一项是给予）。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     environment = LifeEnv()
     environment.engine = engine
@@ -77,8 +80,8 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     observation = await environment.observe(current)
     binding = next(row for row in observation["interaction_bindings"]
                    if row["kind"] == "holding" and row["object_id"] == product_id)
-    [offered] = binding["actions"]
-    choice = {"targets": [binding["object"]], "actions": [offered["verb"]], "ways": [offered["label"]]}
+    [offered] = [item for item in binding["actions"] if item["label"] != "给予"]
+    choice = start_arguments([binding["object"]], [offered["verb"]], [offered["label"]])
     dispatcher = _Dispatcher(choice)
     person = _person(environment, current, dispatcher)
     before = engine.state.model_dump(mode="json")
@@ -87,12 +90,20 @@ async def _use_held_item(engine, round_id: str, product_id: str, monkeypatch):
     ])
     await person.run_react_loop(request)
     assert engine.state.model_dump(mode="json") == before
-    assert len(dispatcher.requests) == 2
-    action_request = dispatcher.requests[1]
-    assert set(_action_schema(action_request)["parameters"]["properties"]) == {"targets", "actions", "ways"}
+    assert len(dispatcher.requests) == 1
+    action_request = dispatcher.requests[0]
+    assert set(_action_schema(action_request)["parameters"]["properties"]) == (
+        {"targets", "actions", "ways", "from", "to", "answering"})
     assert binding["object"] in action_request["messages"][1]["content"]
     assert product_id not in action_request["messages"][1]["content"]
     return observation, engine.commit_decision_round(round_id)[0]
+
+
+def _offered(observation: dict, name: str) -> list[tuple]:
+    """工具层中该持有物目标列出的（动词，方式，可用，原因）；目标名称唯一。"""
+    [target] = [row for row in observation["tool_layer"]["targets"] if row["name"] == name]
+    assert target["kind"] == "product"
+    return [(item["action"], item["way"], item["available"], item["reason"]) for item in target["actions"]]
 
 
 @pytest.mark.asyncio
@@ -103,18 +114,15 @@ async def test_held_durable_recipe_survives_real_model_and_engine_roundtrip(tmp_
     engine = _engine(tmp_path, path, "readable-recipe")
     try:
         before, started = await _use_held_item(engine, "recipe-input", _INPUT_OBJECT, monkeypatch)
-        assert before["scene"]["inventory"] == ["密封工具盒"]
-        assert {"object": "持有物：密封工具盒", "actions": [{"action": "obtain：制作", "note": None}]} \
-            in before["facts"]["interactive_objects"]
+        assert _offered(before, "持有物：密封工具盒") == [("obtain", "制作", True, None), _NOBODY_GIVE]
         assert started.status.value == "in_progress"
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 1}
         _advance_to_completion(engine, started.activity_id)
         assert engine.state.agents[1].inventory["home"] == {_INPUT_OBJECT: 0, _OUTPUT_OBJECT: 1}
         assert conclude_pending(engine, "recipe-input-conclude").status.value == "completed"
         after, next_started = await _use_held_item(engine, "recipe-output", _OUTPUT_OBJECT, monkeypatch)
-        assert after["scene"]["inventory"] == ["拆封工具盒"]
-        assert {"object": "持有物：拆封工具盒", "actions": [{"action": "consume：使用", "note": None}]} \
-            in after["facts"]["interactive_objects"]
+        assert _offered(after, "持有物：拆封工具盒") == [("consume", "使用", True, None), _NOBODY_GIVE]
+        assert all(row["name"] != "持有物：密封工具盒" for row in after["tool_layer"]["targets"])
         assert next_started.status.value == "in_progress"
         _advance_to_completion(engine, next_started.activity_id)
         assert "package_opened" in engine.state.agents[1].active_effects
@@ -137,19 +145,17 @@ def test_held_food_is_offered_for_eating_without_a_purchase_quote(tmp_path):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == product_id)
-        assert [(action["verb"], action["label"], action["use_mode"]) for action in held["actions"]] == [
-            ("consume", "食用", "eat")]
-        assert {"object": held["object"], "actions": [{"action": "consume：食用", "note": None}]} \
-            in observed["facts"]["interactive_objects"]
-        assert all(row["object"] != held["object"] for row in observed["facts"]["products"])
+        assert [(action["verb"], action["label"], action.get("use_mode")) for action in held["actions"]] == [
+            ("consume", "食用", "eat"), ("consume", "给予", None)]
+        assert _offered(observed, held["object"]) == [("consume", "食用", True, None), _NOBODY_GIVE]
     finally:
         engine.close()
 
 
 @pytest.mark.parametrize("required_location", [None, "home", "office"])
 def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
-    """地点条件仍由领域结算判断：只能在别处用的持有物照常列出「制作」，带一句点名地点名称的说明；模型看到的动作
-    不承载地点编号（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。"""
+    """地点条件仍由领域结算判断：只能在别处用的持有物照常列出「制作」，标不可用并写明点名地点名称的原因（与私有
+    绑定的 note 同一文本）；工具层不承载地点编号（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
     path = _recipe_path(tmp_path, required_location=required_location)
     engine = _engine(tmp_path, path, f"location-{required_location}")
     try:
@@ -158,18 +164,20 @@ def test_held_durable_preserves_location_use_rule(tmp_path, required_location):
         observed = engine.observe(current)
         held = next(row for row in observed["interaction_bindings"]
                     if row["kind"] == "holding" and row["object_id"] == _INPUT_OBJECT)
-        assert [(action["verb"], action["label"], action["canonical_action"], action["use_mode"])
-                for action in held["actions"]] == [("obtain", "制作", "consume", "use")]
-        [row] = [row for row in observed["facts"]["interactive_objects"] if row["object"] == held["object"]]
-        [action] = row["actions"]
-        assert action["action"] == "obtain：制作"
+        assert [(action["verb"], action["label"], action["canonical_action"], action.get("use_mode"))
+                for action in held["actions"]] == [("obtain", "制作", "consume", "use"),
+                                                   ("consume", "给予", "consume", None)]
+        [(verb, way, available, reason), give] = _offered(observed, held["object"])
+        assert give == _NOBODY_GIVE
+        assert (verb, way) == ("obtain", "制作")
         if required_location == "office":
             office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
-            assert action["note"] is not None and office in action["note"]
+            assert available is False and office in reason
+            assert held["actions"][0]["note"] == reason
         else:
-            assert action["note"] is None
-        assert all("product_id" not in row for row in observed["facts"]["inventory"])
-        assert all("required_location_id" not in row for row in observed["facts"]["interactive_objects"])
-        assert "office" not in json.dumps(observed["facts"]["interactive_objects"], ensure_ascii=False)
+            assert (available, reason) == (True, None)
+        tool_layer = json.dumps(observed["tool_layer"], ensure_ascii=False)
+        assert "product_id" not in tool_layer and "required_location_id" not in tool_layer
+        assert "office" not in tool_layer
     finally:
         engine.close()

@@ -103,9 +103,14 @@ def lifestyle_relief_rates(activity_id: str) -> tuple[float, float, float]:
             effects.get("health", 0.0) * LIFESTYLE_HEALTH_MOOD_PER_HOUR)
 
 
+def location_kinds_allow(place_location_kinds: frozenset[str], needed: frozenset[str]) -> bool:
+    """@brief 活动环境资格：地点有显式环境、活动有声明且两者相容（受理与工具层可用性共用）。"""
+    return bool(place_location_kinds and needed and feasible_kinds(place_location_kinds, needed))
+
+
 def require_location_kinds(place_location_kinds: frozenset[str], needed: frozenset[str]) -> None:
     """@brief 仅使用当前冻结地图和活动的显式声明判断活动环境资格。"""
-    if place_location_kinds and needed and feasible_kinds(place_location_kinds, needed):
+    if location_kinds_allow(place_location_kinds, needed):
         return
     logging.getLogger(__name__).error("Activity location kinds do not satisfy the declared requirement")
     raise BusinessRuleError("ELIGIBILITY_LOCATION_KIND_MISMATCH")
@@ -149,9 +154,9 @@ def change_activity(agent: AgentState, activity: ActivityState, request: ChangeA
         raise BusinessRuleError("ACTIVITY_NOT_OWNED")
     if request.operation == ActivityChange.PAUSE:
         _require_decision_boundary(agent, activity, now)
-        return _pause(agent, activity)
+        return _pause(agent, activity, now)
     if request.operation == ActivityChange.RESUME:
-        resumed_agent, resumed = _resume(agent, activity, now)
+        resumed_agent, resumed = _resume(agent, activity, now, request.resume_cap_seconds)
         return resumed_agent, schedule_feedback(resumed, now, feedback_seconds)
     if request.operation == ActivityChange.CANCEL:
         if activity.status == ActivityStatus.ACTIVE:
@@ -368,24 +373,33 @@ def _advanced_activity(activity: ActivityState, stop: int, elapsed: int,
     return activity.model_copy(update=updates, deep=True)
 
 
-def _pause(agent: AgentState, activity: ActivityState) -> tuple[AgentState, ActivityState]:
-    """@brief 暂停指定活动并释放其显式资源。"""
+def _pause(agent: AgentState, activity: ActivityState, now: int) -> tuple[AgentState, ActivityState]:
+    """@brief 暂停指定活动并释放其显式资源；写入暂停时刻 paused_at（待办层按它排序）。"""
     if activity.status != ActivityStatus.ACTIVE:
         raise BusinessRuleError("ACTIVITY_NOT_ACTIVE")
     return (agent.model_copy(deep=True),
             activity.model_copy(update={"status": ActivityStatus.PAUSED,
                                         "boundary_type": "paused",
-                                        "next_interaction_at": None}, deep=True))
+                                        "next_interaction_at": None,
+                                        "paused_at": now}, deep=True))
 
 
-def _resume(agent: AgentState, activity: ActivityState, now: int) -> tuple[AgentState, ActivityState]:
-    """@brief 从保留进度恢复活动并形成新的结束边界；恢复即重置播报锚点。"""
+def _resume(agent: AgentState, activity: ActivityState, now: int,
+            cap: int | None) -> tuple[AgentState, ActivityState]:
+    """@brief 从保留进度恢复活动并形成新的结束边界；恢复即重置播报锚点并清空暂停时刻。
+
+    有上限时剩余时长截到上限（工作不越过合同截止）。
+    """
     if activity.status != ActivityStatus.PAUSED:
         raise BusinessRuleError("ACTIVITY_NOT_PAUSED")
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
+    if cap is not None:
+        remaining = min(remaining, cap)
     changed = activity.model_copy(update={"status": ActivityStatus.ACTIVE, "last_settled_at": now,
+                                          "planned_duration_seconds": activity.elapsed_seconds + remaining,
                                           "planned_end_at": now + remaining,
-                                          "boundary_type": None, "report_anchor_at": now}, deep=True)
+                                          "boundary_type": None, "report_anchor_at": now,
+                                          "paused_at": None}, deep=True)
     return agent.model_copy(deep=True), changed
 
 
@@ -401,21 +415,21 @@ def _cancel(agent: AgentState, activity: ActivityState) -> tuple[AgentState, Act
     return agent.model_copy(deep=True), changed
 
 
-def _require_feedback_boundary(agent: AgentState, activity: ActivityState, now: int) -> None:
-    """@brief 要求活动属于人物且当前正处于显式反馈边界。"""
-    if activity.agent_id != agent.agent_id:
-        raise BusinessRuleError("ACTIVITY_NOT_OWNED")
-    if (activity.status != ActivityStatus.ACTIVE or activity.kind not in FEEDBACK_ACTIVITY_KINDS
-            or now < activity.last_settled_at):
-        raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
+def at_decision_boundary(activity: ActivityState, now: int) -> bool:
+    """@brief 进行中的活动此刻能否暂停或结束：游戏须在交互边界，其余须是支持反馈的活动且已结算到此刻之前。
+
+    工具层的暂停与结束可用性与 _require_decision_boundary 共用这一判定（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    """
+    if activity.status != ActivityStatus.ACTIVE:
+        return False
+    if activity.kind == ActivityKind.PLAY_GAME:
+        return activity.next_interaction_at == now and activity.boundary_type == "game_feedback"
+    return activity.kind in FEEDBACK_ACTIVITY_KINDS and now >= activity.last_settled_at
 
 
 def _require_decision_boundary(agent: AgentState, activity: ActivityState, now: int) -> None:
     """@brief 要求活动正处于通用反馈或游戏交互边界。"""
-    if activity.kind == ActivityKind.PLAY_GAME:
-        if (activity.agent_id != agent.agent_id
-                or activity.status != ActivityStatus.ACTIVE or activity.next_interaction_at != now
-                or activity.boundary_type != "game_feedback"):
-            raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")
-        return
-    _require_feedback_boundary(agent, activity, now)
+    if activity.agent_id != agent.agent_id:
+        raise BusinessRuleError("ACTIVITY_NOT_OWNED")
+    if not at_decision_boundary(activity, now):
+        raise BusinessRuleError("ACTIVITY_FEEDBACK_NOT_DUE")

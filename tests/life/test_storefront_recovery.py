@@ -13,7 +13,8 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from pydantic import ValidationError
 
-from tests.life.conftest import advance_next, advance_until_ready, conclude_request, context, stage_day_plan
+from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, stage_day_plan,
+                                 start_request)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
@@ -21,7 +22,7 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life.engine import LifeEngine
 from worldmock.life.map_models import QuoteConfig
 from worldmock.life.models import (
-    ReportStatusRequest, StartActivityRequest,
+    ReportStatusRequest,
 )
 from worldmock.life.projection import visible_supplies
 from worldmock.life.scenario import PriceChangeConfig
@@ -89,7 +90,7 @@ def _action(engine, name, tool, request):
 
 def _choice(observation, action, object_id=None, mode=None):
     """@brief 从本轮冻结观察中取可读对象及其明确的动词与方式（按内部标准动作与出行、履约方式选定）。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
+    return next(start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observation["interaction_bindings"]
                 if object_id is None or row["object_id"] == object_id
                 for offered in row["actions"] if offered["canonical_action"] == action

@@ -1,4 +1,4 @@
-"""交互菜单按私有绑定映射后的内部动作剪裁可读对象动作，工具仍由各自业务条件开放。"""
+"""交互菜单按私有绑定映射后的内部动作判定所选各项；原生工具整次运行不变，菜单外的动作在本地按协议错误纠正。"""
 
 from __future__ import annotations
 
@@ -29,10 +29,11 @@ from worldmock.life.interaction_menu import (
     resolve_selection,
 )
 from worldmock.life.models import REQUEST_MODELS
+from tests.life.conftest import start_arguments
 
 #: 条件已满足（没有说明）的工作对象：菜单剪裁与条件说明无关。
 _TASK = _visible_object("整理会议纪要", "work_task", "task-visible", _offer("interact", "工作", "work"))
-_WORK_CHOICE = {"targets": ["整理会议纪要"], "actions": ["interact"], "ways": ["工作"]}
+_WORK_CHOICE = start_arguments(["整理会议纪要"], ["interact"], ["工作"])
 
 
 def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
@@ -40,7 +41,7 @@ def _observed_menu(allowed_actions: tuple[str, ...]) -> list[dict]:
     observations = copy.deepcopy(_observations())
     data = observations[0]["data"]
     data["interaction_menu"] = {"allowed_actions": sorted(allowed_actions)}
-    data["facts"]["interactive_objects"] = []
+    data["tool_layer"]["targets"] = []
     data["interaction_bindings"] = []
     _add_objects(data, _SELF_OBJECT, _TASK)
     return observations
@@ -88,26 +89,20 @@ def test_effective_menu_intersects_location_and_person_actions() -> None:
     assert effective.allowed_actions == ("sleep", "wait")
 
 
-def test_actual_tool_schema_limits_action_phrases_without_removing_other_tools() -> None:
-    """地点菜单只剪裁 start_activity 的对象、动词与方式枚举（没有菜单内动作的对象不进枚举），工作提交与修订当日目标等
-    工具保持条件可见；plan_day 是零点后台任务，不在人物工具面（时间与能量规格第四章）。"""
-    observations = _observed_menu(("sleep", "wait"))
-    observations[0]["data"]["facts"]["day_plan"] = {"goals": []}
-    agent = LifeAgent()
-    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
-    functions = _functions(agent)
-    assert {"start_activity", "submit_work", "recall_task_summary", "revise_day_plan"} <= set(functions)
-    assert "plan_day" not in functions
+def test_actual_tool_schema_is_stable_whatever_the_menu() -> None:
+    """地点菜单不剪裁原生工具：不同菜单下的工具逐字节相同、没有逐轮枚举，plan_day 不在人物工具面（第四章）；
+    菜单外的动作由本地校验按协议错误纠正，菜单内的通过。"""
+    closed, opened = _prepared_agent(("sleep", "wait")), _prepared_agent(("sleep", "wait", "work"))
+    functions = _functions(closed)
+    assert functions == _functions(opened)
+    assert set(REQUEST_MODELS) <= set(functions) and "plan_day" not in functions
     properties = functions["start_activity"]["parameters"]["properties"]
-    assert set(properties) == {"targets", "actions", "ways"}
-    assert properties["targets"]["items"]["enum"] == ["自己"]
-    assert properties["actions"]["items"]["enum"] == ["interact", "sleep"]
-    ways = properties["ways"]["items"]["enum"]
-    assert set(ways) == {"等待", "睡觉"}
-    assert all(WAYS[way][1] in {"sleep", "wait"} for way in ways)
-    opened = _functions(_prepared_agent(("sleep", "wait", "work")))["start_activity"]["parameters"]["properties"]
-    assert opened["targets"]["items"]["enum"] == ["整理会议纪要", "自己"]
-    assert set(opened["ways"]["items"]["enum"]) == {"等待", "睡觉", "工作"}
+    assert set(properties) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert all("enum" not in properties[name]["items"] for name in ("targets", "actions", "ways"))
+    decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
+    assert "interaction menu" in closed.validate_react_decisions([decision], False)
+    assert opened.validate_react_decisions([decision], False) == ""
+    assert all(WAYS[way][1] in {"sleep", "wait"} for way in ("等待", "睡觉"))
 
 
 @pytest.mark.asyncio
@@ -119,7 +114,7 @@ async def test_denied_readable_action_fails_local_and_direct_dispatch() -> None:
     agent._decision_context = _context()
     decision = ReactDecision("", "start_activity", _WORK_CHOICE, "")
     assert "interaction menu" in agent.validate_react_decisions([decision], False)
-    two = {"targets": ["自己", "整理会议纪要"], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
+    two = start_arguments(["自己", "整理会议纪要"], ["interact", "interact"], ["等待", "工作"])
     assert "interaction menu" in agent.validate_react_decisions([ReactDecision("", "start_activity", two, "")],
                                                                 False)
     with pytest.raises(RuntimeError, match="interaction menu"):
@@ -179,7 +174,7 @@ async def test_readonly_and_post_action_phases_do_not_reopen_business_tools() ->
     result = await agent.run_react_loop(ReactLoopRequest(
         0, _context().observed_at, _observed_menu(("sleep", "wait"))))
     assert result == "start_activity registered"
-    assert len(dispatcher.requests) == 2
+    assert len(dispatcher.requests) == 1
     assert len(environment.calls) == 1
     assert "already submitted" in agent.validate_react_decisions([
         ReactDecision("", "start_activity", wait, "")], False)

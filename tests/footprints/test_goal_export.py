@@ -5,14 +5,14 @@ import json
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from tests.life.conftest import StubPlanDayClient, advance_next, context, engine_factory, settle_day_plans
+from tests.life.conftest import (StubPlanDayClient, advance_next, context, engine_factory, settle_day_plans,
+                                 start_request)
 
 from agentsociety2.society import DirectToolCall
 from worldmock.cli import main
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import StartActivityRequest
 
 CODE = "a" * 64
 
@@ -87,7 +87,7 @@ def test_real_engine_midnight_settlement_exports_old_day_goal_progress(engine_fa
     assert settle_day_plans(engine, client)[0]["goals"] == 1
     registered = engine.store.read_agent_events("environment_event", 1)[-1]
     assert registered.data["kind"] == "day_plan_generated"
-    started = _submit(engine, "start_activity", StartActivityRequest(
+    started = _submit(engine, "start_activity", start_request(
         targets=["自己"], actions=["interact"], ways=["等待"]), "midnight-rest")
     assert started.status == "in_progress"
     advance_next(engine)

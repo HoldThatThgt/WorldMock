@@ -335,7 +335,7 @@ def _scheduled_source() -> dict:
 
 def _supply_request(engine, supply) -> PurchaseOrderRequest:
     """购买引用供给身份及当前世界报价。"""
-    return PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1,
+    return PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1, "recipient_id": "agent:1",
                                         "price_version": engine.state.supply_quotes[supply.supply_id].price_version},),
                                 fulfillment="delivery", destination_id="home")
 

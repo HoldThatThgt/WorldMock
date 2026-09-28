@@ -5,14 +5,15 @@ from __future__ import annotations
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+import json
+
 import pytest
 
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, advance_until_ready, context, start_activity, submit_round
+from tests.life.conftest import advance_next, advance_until_ready, context, start_activity, submit_round, start_request
 from worldmock.errors import ProtocolError
-from worldmock.life.models import StartActivityRequest
 
 
 def test_real_wait_round_advances_and_records_complete_activity(engine_factory) -> None:
@@ -42,7 +43,7 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     """业务拒绝仍进入同轮结果，但不建立活动。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_activity", StartActivityRequest(
+        engine, {1: ("start_activity", start_request(
             targets=["不存在的内容"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     assert results[0].error_code == "ACTION_REQUEST_INVALID"
@@ -158,11 +159,11 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
     assert observed["activity_summary"]["subtitle_experience"] == 1
     assert observed["activity_summary"]["feature_film"] == 90
     assert observed["activity_summary"]["foods"] == len(engine.scenario.supplies)
-    # 修订合同：game_catalog 全表与完整路线不再进入观察（黑名单/坐标几何）；
-    # 游戏身份经交互对象窗口揭示，地点经 scene 可达集。
-    assert "game_catalog" not in observed["facts"]  # 全表只留在事件级工具支持，不进提示
-    assert "game_catalog" not in observed["scene"]
-    destinations = {item["destination"] for item in observed["facts"]["routes"]}
+    # game_catalog 全表与完整路线不进入任何一层（黑名单/坐标几何）；游戏身份经工具层窗口揭示，地点是工具层的
+    # location 目标（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    assert "game_catalog" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
+    places = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "location"]
+    destinations = {row["name"].removeprefix("地点：") for row in places}
     # C23 POI 路由扩容后，观察报价的路线集合改按冻结路线推导（原硬编码三点
     # 快照失效——home 起点的 8 个 POI 目的地已随 OSRM 冻结路由进入报价）。
     location_names = {item.location_id: item.name for item in engine.scenario.locations}
@@ -174,10 +175,9 @@ def test_first_observation_exposes_every_action_target(engine_factory) -> None:
               if route.origin_id == "home"}
     names = {item.name for item in engine.scenario.locations
              if item.location_id in routed}
-    reachable = {item["name"] for item in observed["scene"]["reachable_places"]}
-    assert reachable == names  # scene 用展示名（docs/dev/SPEC-life-runtime.md「观察投影三部分」）
-    assert all(set(item) == {"name", "opening_status"} for item in observed["scene"]["reachable_places"])
-    assert all(item["minutes"] > 0 for item in observed["facts"]["routes"])
+    assert destinations == names  # 目标名用展示名
+    assert all(row["state"] in {"开着", "关着", "开放时间不明"} for row in places)
+    assert all(action["duration"] for row in places for action in row["actions"])
     assert all(item["duration_seconds"] > 0 for item in observed["routes"])
     request = start_activity("等待", "自己")
     engine.submit_action(DirectToolCall(ctx, "discover-wait", "start_activity", request))
@@ -205,7 +205,7 @@ def test_first_round_accepts_discovered_content_game_and_route(
                if row["kind"] == kind and any((item["verb"], item["label"]) == (verb, way) for item in row["actions"])]
     assert matches
     target = matches[0]
-    action_request = StartActivityRequest(targets=[target["object"]], actions=[verb], ways=[way])
+    action_request = start_request(targets=[target["object"]], actions=[verb], ways=[way])
     call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]

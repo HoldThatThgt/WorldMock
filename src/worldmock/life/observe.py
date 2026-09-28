@@ -1,9 +1,8 @@
 """@brief LifeEngine 的观察投影与浏览/动机上下文装配（Mixin 层）。
 
-本模块从 engine.py 下沉（生产文件 ≤2000 行规范）：包含两层观察组装
-（scene + facts + 事件级工具支持行）、活动品类摘要、呈现窗口、
-内部动机仪表上下文与决策参照快照。engine 侧以 Mixin 继承接线，
-`self` 即 LifeEngine；行为合同与注释见修订合同观察投影一节（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。
+本模块从 engine.py 下沉（生产文件 ≤2000 行规范）：观察的七层数据（工具层、待办层、环境层、进度层、记忆层与看法偏好，
+docs/dev/SPEC-persona-prompt.md 第一章）、私有绑定与证据、事件级工具支持行、活动品类摘要、呈现窗口、内部动机仪表上下文
+与决策参照快照。engine 侧以 Mixin 继承接线，`self` 即 LifeEngine。
 """
 
 from __future__ import annotations
@@ -14,36 +13,35 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import activity_control, discovery, felt, presentation, projection
+from worldmock.life import (activity_control, discovery, felt, memory_layer, presentation, progress_layer, projection,
+                            request_linking)
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
-from worldmock.life.basket import delivery_expected_at
-from worldmock.life.models import ActivityKind, active_activities, paused_activities
+from worldmock.life.models import active_activities
 from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.inventory_recipe import is_inventory_recipe
+from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
-from worldmock.life.work import work_totals
-from worldmock.life.result_projection import public_supply_row
-from worldmock.life.dining import local_meal_sentence
-
+from worldmock.life.work import task_listed, work_totals
+from worldmock.life.result_projection import browse_results, public_supply_row
+from worldmock.life.environment_layer import environment_layer
+from worldmock.life.todo_layer import todo_layer, visible_goals
+from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 
 class ObservationMixin:
     """@brief 观察投影、浏览与动机仪表的引擎装配方法（self 为 LifeEngine）。"""
 
     def _observation_data(self, agent) -> dict:
-        """@brief 两层观察投影：scene 场景输入 + facts 精简结构 + body 数值证据。
+        """@brief 一次观察：七层数据（工具层、待办层、环境层、进度层、记忆层）、私有绑定（含可见直接消息的 message_bindings）、
+        证据与事件级工具支持行。
 
-        黑名单字段不进 scene/facts 提示路径；事件级工具支持行（完整任务/路线/
-        商品、可供性合同、游戏目录）供宿主工具 Schema 使用。商品
-        事实清单经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，
-        同一秒各轮沿用该秒首轮的呈现窗口与置顶的浏览结果（docs/dev/SPEC-time-and-energy.md 第一章
-        「同一秒内的呈现与「刚才」」）。
+        商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
+        呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-persona-prompt.md「进度层」）。
         """
         config = self._agent_config(agent.agent_id)
         meal_windows = felt.MealWindows(lunch=config.lunch_window, dinner=config.dinner_window)
-        recent = self._recent_action_results(agent.agent_id)
-        pinned = self._pinned_supply_ids(agent.agent_id, recent)
+        pinned = self._pinned_supply_ids(agent.agent_id)
         rows = self._window_rows(agent, pinned)
         menu = self._menu_windows(agent)
         presented = rows["window"].presented + tuple(
@@ -51,60 +49,79 @@ class ObservationMixin:
         self._pending_presentation[agent.agent_id] = SameMomentPresentation(
             stamps=_presentation_stamps(self.state, presented), pinned_supply_ids=pinned)
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
-        task_rows = tuple(self._visible_task_rows(agent))
-        bindings = self._name_bindings(agent, task_rows)
+        # 技能够不上的任务永久不能开工，不列目标也不绑定名称（docs/dev/SPEC-persona-prompt.md「工具层」）。
+        task_rows = tuple(row for row in self._visible_task_rows(agent)
+                          if agent.skill_levels.get(row["required_skill"], 0) >= row["minimum_skill"])
         experiences = recent_verified_experiences(self.store, agent.agent_id, self.store.last_event_seq)
-        context = {"visible_names": bindings.pop("names"), "verified_experiences": experiences,
-                   "previous_request_result": self._previous_request_result(agent, recent)}
         inputs = projection.ProjectionInputs(
-            state=self.state, scenario=self.scenario, agent=agent,
-            recent_results=tuple(recent),
-            task_rows=task_rows,
-            meal_windows=meal_windows,
+            state=self.state, scenario=self.scenario, agent=agent, task_rows=task_rows, meal_windows=meal_windows,
             motivation_internal=self._motivation_internal(agent),
-            extras=self._projection_extras(agent, rows["products"], menu, context))
+            extras=self._projection_extras(agent, rows["products"], menu))
         data = projection.build_observation(inputs)
-        data.update(bindings)
+        context = self._layer_context(agent, task_rows, data["interaction_bindings"])
+        data["interaction_bindings"] = context.bindings
+        memory = memory_layer.memory_view(context, self.store)
+        data.update(self._name_bindings(agent, task_rows, context.names, memory.note_labels))
+        data.update(self._layer_data(context, data["body"]["levels"], memory))
         data.update(self._observation_evidence(agent, experiences))
-        data.update(self._event_tool_support(agent, recent, rows["window"].presented))
+        data.update(self._event_tool_support(agent, rows["window"].presented))
         return data
 
-    def _name_bindings(self, agent, task_rows: tuple[dict, ...]) -> dict:
-        """@brief 本轮可读名称到内部身份的私有绑定：任务、当日目标、活动与会话（活动与会话名重名时追加序号）。
+    def _layer_context(self, agent, task_rows: tuple[dict, ...], bindings: list[dict]) -> LayerContext:
+        """@brief 本次观察各层共用的只读上下文：活动名避开任务名、目标名（待办层的目标文字）与对象名，绑定动作的 note 取
+        可用性原因。"""
+        goals = [goal.goal for goal in visible_goals(self.state, agent.agent_id) or ()]
+        taken = [f"工作：{row['title']}" for row in task_rows] + goals + [row["object"] for row in bindings]
+        context = LayerContext(
+            state=self.state, scenario=self.scenario, rules=self.rules, semantics=self.semantics,
+            agent_id=agent.agent_id, names=activity_control.visible_names(self.state, agent.agent_id, taken),
+            bindings=bindings, menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
+            lifestyle_items=self.lifestyle_items)
+        return with_bindings(context, annotated_bindings(context))
 
-        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复（受限轮的恢复枚举只列这些活动）。
+    def _layer_data(self, context: LayerContext, levels: dict[str, str], memory: memory_layer.MemoryView) -> dict:
+        """@brief 环境侧构建的层数据与私有配套：记忆层（memory，由已提交事件派生）与看法偏好，全文已呈现的消息含进度层与
+        记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层 message_arrival 与记忆层中未回复的，按收到先后。"""
+        view = progress_layer.progress_view(context, self.store, memory.facts)
+        presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
+        answerable = [*memory.open_message_ids, *view.presented_message_ids]
+        return {"message_bindings": request_linking.message_bindings(context, self.store, answerable),
+                "tool_layer": tool_layer(context), "todo_layer": todo_layer(context, self.store),
+                "environment_layer": environment_layer(context, levels),
+                "memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, self.store),
+                "progress_layer": view.layer, "progress_meta": view.meta,
+                "progress_event_ids": view.event_ids, "presented_message_ids": presented}
+
+    def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]],
+                       note_labels: dict[str, tuple[str, ...]]) -> dict:
+        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标（名称就是待办层写出的目标文字，
+        不另拼前缀；两个目标文字相同时回看按重名处理）、活动与同世界其他人物（会话名不在七层中出现，不绑定）。
+
+        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复；note_labels：记忆层 self_notes 中这项活动去掉
+        开始时刻后缀的标注（只作回看名称，两个条目的同一标注指不同活动时两项都带，回看按重名处理）。人物绑定不论是否同处
+        （recipients.person_bindings）。
         """
-        goals = [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}", "intent_kind": goal.intent_kind}
-                 for goal in agent.day_plan.goals] if agent.day_plan is not None else []
-        names = activity_control.visible_names(
-            self.state, agent.agent_id, [row["title"] for row in task_rows] + [row["task_name"] for row in goals])
+        goals = [{"task_name": goal.goal, "intent_kind": goal.intent_kind}
+                 for goal in visible_goals(self.state, agent.agent_id) or ()]
         activities = self.state.activities
+        labels = {full: [label for label, fulls in note_labels.items() if full in fulls]
+                  for full in names["activities"].values()}
         return {
-            "names": names,
-            "task_bindings": [{"task_name": row["title"], "task_id": row["task_id"],
-                               "submission_ready": row["submission_ready"]} for row in task_rows],
+            "task_bindings": [{"task_name": f"工作：{row['title']}", "task_id": row["task_id"]} for row in task_rows],
             "goal_bindings": goals,
             "activity_bindings": [{"name": name, "activity_id": activity_id,
                                    "phase": activity_control.activity_phase(activities[activity_id]),
-                                   "resumable": activity_control.resumable_here(self.state, activities[activity_id])}
+                                   "resumable": activity_control.resumable_here(self.state, activities[activity_id]),
+                                   "note_labels": labels[name]}
                                   for activity_id, name in names["activities"].items()],
-            "session_bindings": [{"name": name, "session_id": session_id}
-                                 for session_id, name in names["sessions"].items()],
+            "person_bindings": person_bindings(self.state, agent.agent_id),
         }
 
-    def _projection_extras(self, agent, product_rows: list[dict],
-                           menu: dict[str, PresentationWindow], context: dict) -> dict:
-        """@brief 装配两层投影的只读辅助输入（交互对象层与场景句的行来源；context 为可见名称与已核验经历）。
-
-        吃饭途径句要等投影得出饥饿分级后才生成，这里只备好它引用的本轮事实：原当地餐食句、
-        配送预计送达时刻与浏览是否在有效菜单内（docs/dev/SPEC-time-and-energy.md「让人物趁早吃」）。
-        交互对象层另取有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）与同刻轮次
-        上一轮本人世界请求的结果（「刚才」）。
-        """
-        interaction_menu = resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id)
+    def _projection_extras(self, agent, product_rows: list[dict], menu: dict[str, PresentationWindow]) -> dict:
+        """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）、
+        路线、可达地点、本轮呈现的商品、内容、游戏与生活活动，以及活动控制行。"""
         return {
-            **context,
-            "interaction_menu": interaction_menu,
+            "interaction_menu": resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
             "recipe_product_ids": self._recipe_product_ids(agent),
             "content_titles": self.rules.content_titles,
             "scenario_messages": self.rules.messages,
@@ -112,13 +129,9 @@ class ObservationMixin:
             "reachable_places": self._reachable_places(agent),
             "product_rows": product_rows,
             "activity_rows": self._activity_rows(agent),
-            "local_meal_sentence": local_meal_sentence(self._discovery_context(agent)),
-            "delivery_expected_at": self._delivery_expected_at(agent, product_rows),
-            "browse_allowed": "browse" in interaction_menu.allowed_actions,
             "content_rows": list(menu["content"].items),
             "game_rows": list(menu["game"].items),
             "lifestyle_rows": list(menu["lifestyle"].items),
-            "lifestyle_location_kinds": self.rules.activity_location_kinds,
             "browse_targets": BROWSE_TARGETS,
         }
 
@@ -129,32 +142,11 @@ class ObservationMixin:
         return frozenset(product_id for product_id in held
                          if is_inventory_recipe(self.semantics.catalog, self.rules.items[product_id]))
 
-    def _previous_request_result(self, agent, recent: list[dict]) -> dict | None:
-        """@brief 同刻轮次上一轮本人世界请求的结算结果（「刚才」的来源）；每秒首轮或本秒没有请求时为 None。"""
-        if agent.same_moment_rounds == 0:
-            return None
-        cutoff = self.store.last_agent_progress_request_seq(agent.agent_id)
-        requests = [event for event in self.store.read_agent_events("action_requested", agent.agent_id, after=cutoff)
-                    if event.occurred_at == self.state.current_time]
-        if not requests:
-            return None
-        last = requests[-1]
-        return next((row for row in recent
-                     if row["action_id"] == last.action_id and row["decision_id"] == last.decision_id), None)
-
-    def _delivery_expected_at(self, agent, product_rows: list[dict]) -> dict[str, int | None]:
-        """@brief 本轮呈现的可配送供给送到本人所在地点的预计送达时刻（与购买结算同一算法，送不到为 None）。"""
-        supplies = {item.supply_id: item for item in self.scenario.supplies}
-        return {row["supply_id"]: delivery_expected_at(self.semantics, supplies[row["supply_id"]],
-                                                       agent.location_id, self.state.current_time)
-                for row in product_rows if "delivery" in row["fulfillment_modes"]}
-
     def _observation_evidence(self, agent, experiences: list[dict]) -> dict:
         """@brief 观察的数值与身份证据段（不进提示，供事件、唤醒与宿主使用）。
 
-        same_moment_stage 是同刻上限受限轮的阶段（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」），
-        宿主据此收窄世界请求工具与名称枚举；它不进 scene 与 facts。verified_experiences 是已核验经历的结构行，
-        仍是私有证据；模型只见 facts.experiences 中由同一窗口写成的句子。
+        same_moment_stage 是同刻上限受限轮的阶段（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」），受限只由
+        工具层的 available 与 reason 表达；verified_experiences 是已核验经历的结构行，只作私有证据（记忆写入证据依赖它）。
         """
         return {
             "paused_activities": [
@@ -170,12 +162,18 @@ class ObservationMixin:
             "hour_of_day": projection.hour_of_day(self.state.current_time, self.scenario.timezone),
         }
 
-    def _pinned_supply_ids(self, agent_id: int, recent: list[dict]) -> tuple[str, ...]:
-        """@brief 本秒置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存，首轮取本次回灌的供给身份。"""
+    def _pinned_supply_ids(self, agent_id: int) -> tuple[str, ...]:
+        """@brief 置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存；首轮取本 session 最近一次浏览结果中的供给身份（单项浏览
+        的终态，或同一请求多项活动全部结束后聚合终态中的浏览活动，result_projection.browse_results）。"""
         staged = self.state.same_moment_presentation.get(agent_id)
         if staged is not None:
             return staged.pinned_supply_ids
-        return tuple(dict.fromkeys(row["supply_id"] for row in _reported_supply_rows(recent)))
+        _, lower = progress_layer.session_bound(self.store, self.state, agent_id)
+        browsed = [revealed for event in self.store.read_agent_events("action_result", agent_id, after=lower)
+                   if event.visibility == "agent" for revealed in browse_results(event.data.get("data") or {})]
+        if not browsed:
+            return ()
+        return tuple(dict.fromkeys(item["supply_id"] for item in browsed[-1]["items"] if "supply_id" in item))
 
     def _window_rows(self, agent, pinned: tuple[str, ...]) -> dict:
         """@brief 观察侧的商品呈现窗口与 facts 行（同一窗口，只算一次）；pinned 为本秒置顶的浏览结果。"""
@@ -211,9 +209,9 @@ class ObservationMixin:
             windows[kind] = presentation.present(entries, inputs, kind, None)
         return windows
 
-    def _event_tool_support(self, agent, recent: list, presented: tuple[str, ...]) -> dict:
-        """@brief 事件级工具支持与既有目录投影（不进 scene/facts 提示路径）。"""
-        # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
+    def _event_tool_support(self, agent, presented: tuple[str, ...]) -> dict:
+        """@brief 事件级工具支持与既有目录投影（私有证据，不进任何一层）。"""
+        # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「不进入提示的字段」）。
         data: dict[str, Any] = {}
         data["interaction_menu"] = resolve_interaction_menu(
             self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
@@ -235,7 +233,6 @@ class ObservationMixin:
         market_summary = self._market_summary()
         if market_summary is not None:
             data["market_summary"] = market_summary
-        data["recent_action_results"] = list(recent)
         data["activity_summary"] = self._activity_summary(agent)
         data["pending_deliveries"] = [
             item.model_dump(mode="json") for item in self.state.deliveries.values()
@@ -245,9 +242,7 @@ class ObservationMixin:
         data["inventory_items"] = self._inventory_item_contracts(agent)
         data["tasks"] = [self._visible_task(item, agent.agent_id)
                          for item in sorted(agent.visible_task_ids)
-                         if item not in self.state.paid_task_ids
-                         and self.state.current_time <= int(
-                             self.rules.tasks[item].due_at.timestamp())]
+                         if item not in self.state.paid_task_ids and self._task_listed(item)]
         data["routes"] = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
         data["game_catalog"] = _game_catalog(self.scenario)
         data["browse_targets"] = list(BROWSE_TARGETS)
@@ -260,7 +255,7 @@ class ObservationMixin:
         return next(item for item in self.scenario.agents if item.agent_id == agent_id)
 
     def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（docs/CONTRACTS.md「场景段落与事实清单」）。"""
+        """@brief 工作目录：已投入/有效/合同剩余工时（私有证据；呈现只在工具层任务目标的 contract，docs/CONTRACTS.md「七层字段」）。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
@@ -273,23 +268,25 @@ class ObservationMixin:
                              0, task.maximum_duration_seconds - worked)})
         return rows
 
+    def _task_listed(self, task_id: str) -> bool:
+        """@brief 未付款任务是否仍列出：截止前，或截止当日的本地日结束前（work.task_listed）。"""
+        return task_listed(self.rules.tasks[task_id], self.state.current_time, self.scenario.timezone)
+
     def _visible_task_rows(self, agent) -> list[dict]:
-        """@brief 可见任务的 facts 行：task_id/标题/截止/剩余合同工时及五项前置条件字段。"""
+        """@brief 可见、未结清且仍列出（截止前或截止当日内）的任务行：task_id、标题、截止、剩余合同工时与前置条件字段。
+
+        未付款的逾期任务保留到截止当日的本地日结束（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+        """
         rows = []
-        running = {activity.target_id for activity in active_activities(self.state, agent.agent_id)
-                   if activity.kind == ActivityKind.WORK}
         for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.state.paid_task_ids:
+            if task_id in self.state.paid_task_ids or not self._task_listed(task_id):
                 continue
             task = self.rules.tasks[task_id]
             due = int(task.due_at.timestamp())
-            if self.state.current_time > due:
-                continue
-            worked, effective = work_totals(self.state, agent.agent_id, task_id)
+            worked, _ = work_totals(self.state, agent.agent_id, task_id)
             rows.append({
                 "task_id": task_id, "title": task.title, "due_at": due,
                 "remaining_contract_seconds": max(0, task.maximum_duration_seconds - worked),
-                "submission_ready": effective >= task.required_effective_seconds and task_id not in running,
                 "required_location_id": task.required_location_id,
                 "required_skill": task.required_skill,
                 "minimum_skill": task.minimum_skill,
@@ -299,14 +296,10 @@ class ObservationMixin:
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief 路线事实保留未知与不可达，只有已核实路线计算时长；可达即 feasible，费力按出行方式给出。"""
+        """@brief 地点目标的出行方式来源：当前地点出发的每条冻结路线的目的地、方式与状态（只有可达路线列出行动作；
+        路费、时长与费力由工具层按同一路线写进动作）。"""
         rows = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
-        met = self.semantics.body.activity_met
-        return [{"destination": row["destination_id"], "mode": row["mode"],
-                 "minutes": round(row["duration_seconds"] / 60) if row["status"] == "reachable" else None,
-                 "fare": row["fare_fen"], "feasible": row["status"] == "reachable",
-                 "effort": projection.route_effort(met[f"travel:{row['mode']}"]),
-                 "status": row["status"], "reason": row["reason"]} for row in rows]
+        return [{"destination": row["destination_id"], "mode": row["mode"], "status": row["status"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
         """@brief 场景句只列实际可达地点，营业未知保持为未知；含 location_id 供交互对象层使用。"""
@@ -318,30 +311,16 @@ class ObservationMixin:
         return [{"location_id": row["location_id"], "name": row["name"],
                  "opening_status": row["opening_status"]} for row in rows]
 
-    def _product_rows(self, agent) -> list[dict]:
-        """@brief facts 供给行与下钻共用实际呈现窗口，保留商品引用及完整购买比较事实。"""
-        return self._window_rows(agent, self._recent_action_results(agent.agent_id))["products"]
-
     def _activity_rows(self, agent) -> dict:
-        """@brief 按共同活动集合生成独立场景进度与完整控制行；待收尾活动另列一组控制行（只接受收尾）。"""
-        current = []
-        for item in active_activities(self.state, agent.agent_id):
-            label = "听取" if (item.kind == ActivityKind.WATCH
-                               and self.rules.content(item.target_id).kind == "podcast_episode") else "进行"
-            current.append({"title": self._activity_title(item) or item.kind.value,
-                            "progress": _activity_progress_phrase(item), "verb": label})
-        return {"current": current,
-                "control": [self._control_row(item) for item in active_activities(self.state, agent.agent_id)],
+        """@brief 活动控制行：进行中活动与待收尾活动各一组（观察证据 active_activities 与 pending_conclusions）。"""
+        return {"control": [self._control_row(item) for item in active_activities(self.state, agent.agent_id)],
                 "pending": [self._control_row(item)
-                            for item in activity_control.pending_conclusions(self.state, agent.agent_id)],
-                "paused": [{"title": self._activity_title(item) or item.kind.value,
-                            "progress": _activity_progress_phrase(item)}
-                           for item in paused_activities(self.state, agent.agent_id)]}
+                            for item in activity_control.pending_conclusions(self.state, agent.agent_id)]}
 
     def _control_row(self, item) -> dict:
-        """@brief 一项活动的八键控制行：身份、种类、实际状态、标题、进度短语、已做与计划秒数、数据深拷贝。"""
+        """@brief 一项活动的八键控制行：身份、种类、实际状态、标题、客观进度、已做与计划秒数、数据深拷贝。"""
         return {"activity_id": item.activity_id, "kind": item.kind.value, "status": item.status.value,
-                "title": self._activity_title(item), "progress": _activity_progress_phrase(item),
+                "title": self._activity_title(item), "progress": activity_control.objective_progress(item),
                 "elapsed_seconds": item.elapsed_seconds, "planned_duration_seconds": item.planned_duration_seconds,
                 "data": deepcopy(item.data)}
 
@@ -391,18 +370,6 @@ class ObservationMixin:
                 data["title"] = title
             result[item_id] = data
         return result
-
-    def _recent_action_results(self, agent_id: int) -> list[dict]:
-        """@brief 返回上次实际发送进度提示后产生的动作结算事实。"""
-        cutoff = self.store.last_agent_progress_request_seq(agent_id)
-        events = self.store.read_agent_events("action_result", agent_id, after=cutoff)
-        results = [event for event in events if event.action_id is not None
-                   and event.visibility == "agent"]
-        return [{"event_id": event.event_id, "action_id": event.action_id,
-                 "decision_id": event.decision_id, "occurred_at": event.occurred_at,
-                 "status": event.data.get("status"), "error_code": event.data.get("error_code"),
-                 "message": event.data.get("message"), "result": event.data}
-                for event in results]
 
     def _motivation_internal(self, agent) -> dict | None:
         """@brief 计算内部动机仪表（observation.data.motivation_internal，不进提示）。
@@ -615,13 +582,10 @@ class ObservationMixin:
         return (*games, *sessions)
 
     def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 工作池：本人可见、未结清且未过截止的合同。"""
+        """@brief 工作池：本人可见、未结清且仍列出（截止前或截止当日内）的合同。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.state.paid_task_ids:
-                continue
-            due = int(self.rules.tasks[task_id].due_at.timestamp())
-            if self.state.current_time > due:
+            if task_id in self.state.paid_task_ids or not self._task_listed(task_id):
                 continue
             rows.append(PoolEntry(object_id=task_id, kind="task", bucket=task_id,
                                   minimum_seconds=60,
@@ -649,12 +613,6 @@ class ObservationMixin:
                 "people_at_last_decision": people,
                 "known_task_ids": set(agent.visible_task_ids)}, deep=True)
         return staged.model_copy(update={"agents": agents}, deep=True)
-
-
-def _activity_progress_phrase(activity) -> str:
-    """@brief 活动进度短语（不含完整快照，观察合同禁完整活动快照）。"""
-    remaining = max(0, activity.planned_duration_seconds - activity.elapsed_seconds)
-    return f"还剩约{round(remaining / 60)}分钟"
 
 
 def _mail_headers(agent, messages) -> list[dict]:
@@ -803,16 +761,6 @@ BROWSE_TARGETS = ("product_catalog",)
 _BROWSE_NOTE = (
     "compare supply_id and current price_version; "
     "purchase rechecks stock, access, opening and fulfillment")
-
-
-def _reported_supply_rows(recent: list[dict]) -> list[dict]:
-    """@brief 读取本次浏览回灌真正包含的供给行，不枚举未呈现目录。"""
-    reported = []
-    for result in recent:
-        data = result["result"]["data"]
-        if "browse_result" in data:
-            reported.extend(item for item in data["browse_result"]["items"] if "supply_id" in item)
-    return reported
 
 
 def _shared_supply_window(context: discovery.DiscoveryContext, window: PresentationWindow,

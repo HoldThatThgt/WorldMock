@@ -205,18 +205,20 @@ def test_minimal_engine_registration_progress_checkpoint_path(engine_factory):
 
 
 def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
-    """按目标名称回看返回目标与推进状态，结果随下一次观察进入 details.recall；未知名称是业务拒绝
-    （时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary）。"""
+    """按待办层写出的目标文字回看，返回目标与推进状态，结果随下一次观察进入进度层该调用的 details.recall；未知名称是业务
+    拒绝（时间与能量规格「仍须修复」第 3 条、第七章 recall_task_summary；docs/dev/SPEC-persona-prompt.md 系统层规则 12）。"""
     engine = engine_factory()
     assert settle_day_plans(engine, planned("休息", "歇一歇"))[0]["goals"] == 1
     assert advance_until_ready(engine)
-    recall = RecallTaskSummaryRequest(task_name="目标：休息：歇一歇")
+    shown = engine.observe(context(engine, "recall-plan"))["todo_layer"]["day_plan"]["goals"][0]["goal"]
+    assert shown == "歇一歇"
+    recall = RecallTaskSummaryRequest(task_name=shown)
     before = act(engine, "recall-before", "recall_task_summary", recall)
     assert before.status == "completed"
     expected = {"kind": "goal", "goal": "歇一歇", "intent_kind": "休息", "progressed": False}
     assert before.data["recall"] == expected
-    shown = engine.observe(context(engine, "recall-shown"))["facts"]["progress"]["results"]
-    assert {"recall": expected} in [row.get("details") for row in shown]
+    shown = engine.observe(context(engine, "recall-shown"))["progress_layer"]["events"]
+    assert {"recall": expected} in [row["result"]["details"] for row in shown if row["type"] == "tool_call"]
     assert engine.state.agents[1].day_plan.goals[0].progressed_at is None
     assert advance_until_ready(engine)
     act(engine, "recall-rest", "start_activity", start_activity("等待", "自己"))
@@ -229,7 +231,7 @@ def test_recall_task_summary_by_goal_name_round_trips(engine_factory):
     assert after.data["recall"] == {**expected, "progressed": True}
     assert advance_until_ready(engine)
     unknown = act(engine, "recall-unknown", "recall_task_summary",
-                  RecallTaskSummaryRequest(task_name="目标：休息：睡个午觉"))
+                  RecallTaskSummaryRequest(task_name="睡个午觉"))
     assert unknown.status == "rejected" and unknown.error_code == "TASK_NOT_FOUND"
 
 

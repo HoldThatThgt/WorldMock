@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import date
 from enum import StrEnum
+from collections.abc import Callable
 from typing import Annotated, Any, Literal
 
 from pydantic import (BaseModel, ConfigDict, Field, StrictBool, WithJsonSchema, field_serializer,
@@ -20,8 +21,10 @@ from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 #: 世界状态结构版本：版本不符的检查点直接拒绝；版本 6 引入三级结构（Task→Session→Activity）与 WorldState.sessions；
-#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点，其后新增字段都并入 7。
-WORLD_SCHEMA_VERSION = 7
+#: 版本 7（docs/dev/SPEC-time-and-energy.md「仍须修复」）起活动快照 location_id 固定为开始地点；版本 8
+#: （docs/dev/SPEC-persona-prompt.md 第七章「版本」）新增 SessionState.opened_by_action_id 与 ActivityState.paused_at，
+#: 观察改为七层数据，其后新增字段都并入 8。
+WORLD_SCHEMA_VERSION = 8
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,6 +39,22 @@ class FrozenModel(BaseModel):
     """@brief 拒绝未知字段且不可变的领域模型基类。"""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+def purpose_only_schema(purpose: str | None = None) -> Callable[[dict[str, Any]], None]:
+    """@brief 模型可见参数 Schema 的 description 只写用途（docs/dev/SPEC-persona-prompt.md 第二章「删除与去重」）。
+
+    去掉类 docstring 派生的开发说明（规则只在系统层写一次，数量上限由 Schema 与本地校验执行），purpose 非空时写这一句；
+    工具参数对象本身不写说明，用途只在工具的 description。用作 ConfigDict 的 json_schema_extra。
+    """
+
+    def apply(schema: dict[str, Any]) -> None:
+        """@brief 就地替换一个对象 Schema 的 description。"""
+        schema.pop("description", None)
+        if purpose is not None:
+            schema["description"] = purpose
+
+    return apply
 
 
 class ModelIdentity(FrozenModel):
@@ -270,6 +289,8 @@ class SessionState(StrictModel):
     :param status: active 或 ended；ended 必须含 ended_at。
     :param activity_ids: 归入本会话的活动（暂停的活动回到开始地点时归入那里的新会话）。
     :param name: 人物可读名称，停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（…起）」；结束后不改名。
+    :param opened_by_action_id: 由决策引起的切换（出发、途中结束出行）记下引起切换的动作身份，进度层以该动作结果的
+        事件序号为下界；运行开始与到达为 None，下界取开始时刻（docs/dev/SPEC-persona-prompt.md「进度层」）。
     """
 
     session_id: str = Field(min_length=1)
@@ -283,6 +304,7 @@ class SessionState(StrictModel):
     ended_at: int | None = Field(default=None, ge=0)
     activity_ids: list[str] = Field(default_factory=list)
     name: str = Field(pattern=r"\S")
+    opened_by_action_id: str | None = Field(default=None, min_length=1)
 
     @model_validator(mode="after")
     def validate_session(self) -> "SessionState":
@@ -303,6 +325,7 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-time-and-energy.md 第一章「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
+    只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）。
     """
 
     OPEN = "open"
@@ -310,7 +333,6 @@ class SameMomentStage(StrEnum):
     START_OR_RESUME = "start_or_resume"
     RESUME_OR_CONCLUDE = "resume_or_conclude"
     CONCLUDE_ONLY = "conclude_only"
-    WAIT_ONLY = "wait_only"
 
 
 class AgentState(StrictModel):
@@ -353,6 +375,8 @@ class AgentState(StrictModel):
     # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)
+    # 发给场景联系人的消息（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」），联系人回复请求的往来由它与收件箱组成。
+    outbox: dict[str, Message] = Field(default_factory=dict)
     # 情绪与不适脉冲簿记（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
@@ -416,6 +440,8 @@ class ActivityState(StrictModel):
     # report_anchor_at 为播报锚点（开始、恢复与对该活动播报时写入）；session_ids 为先后所属的地点会话。
     concluded_at: int | None = Field(default=None, ge=0)
     report_anchor_at: int | None = Field(default=None, ge=0)
+    # 暂停时刻（docs/dev/SPEC-persona-prompt.md「待办层」）：暂停时写入、恢复时清空，待办层按它排序。
+    paused_at: int | None = Field(default=None, ge=0)
     session_ids: list[str] = Field(default_factory=list)
     name: str = ""
     # 从原会话移来的任务关联与人物自述：summary 写入 progress_note，前一条推入 note_history。
@@ -487,6 +513,10 @@ class DeliveryState(StrictModel):
     expected_at: int = Field(gt=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
     total_price_fen: int = Field(ge=0)
+    # 收货人（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
+    # 付款人仍是 agent_id。request_message_id 为 answering 关联的直接消息。
+    recipient_id: str = Field(min_length=1)
+    request_message_id: str | None = None
 
 
 class StoredAction(StrictModel):
@@ -585,6 +615,8 @@ class WorldState(StrictModel):
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
+    #: 场景联系人实际收到的物品（联系人身份 → 商品 → 份数）：直接配送与当面给予都记在这里。
+    contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     paid_task_ids: set[str] = Field(default_factory=set)
@@ -794,6 +826,11 @@ class ChangeActivityRequest(FrozenModel):
         le=2,
         description="Required only when operation is change_speed.",
     )
+    resume_cap_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        description="Resume only: the longest remaining run from now (work deadline and contract limit).",
+    )
 
     @model_validator(mode="after")
     def validate_speed(self) -> "ChangeActivityRequest":
@@ -805,11 +842,13 @@ class ChangeActivityRequest(FrozenModel):
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中明确选定的门店供给与数量。"""
+    """@brief 一笔订单中明确选定的门店供给、数量、收货人与所回应的消息（没有时为 None）。"""
 
     supply_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
     price_version: str = Field(pattern=r"\S")
+    recipient_id: str = Field(pattern=r"\S")
+    request_message_id: str | None = None
 
 
 class PurchaseOrderRequest(FrozenModel):
@@ -863,6 +902,7 @@ class ConsumeRequest(FrozenModel):
 class PlanGoalInput(FrozenModel):
     """@brief 当日目标条目：意图、目标文字与必填可空的 remind_time（场景本地 HH:MM，要在那一刻被提醒时填写，否则为 null）。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema("今日计划的一个目标：意图、目标文字与提醒时刻。"))
     intent_kind: IntentKind
     goal: str = Field(pattern=r"\S")
     remind_time: Annotated[str, Field(pattern=r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")] | None
@@ -900,6 +940,8 @@ class PlanDayRequest(FrozenModel):
 class ReviseDayPlanRequest(PlanDayRequest):
     """@brief 用请求中的目标替换全部未推进条目，已推进条目由环境保留。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
+
 
 class SendMessageRequest(FrozenModel):
     """@brief 向同世界人物或场景联系人发送瞬时消息（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
@@ -920,6 +962,7 @@ class StartSocialActivityRequest(FrozenModel):
 class MeetingMinutes(FrozenModel):
     """@brief AMI 会议整理任务公开要求的结构化成果。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema("会议纪要的摘要、决定与行动项。"))
     summary: str = Field(pattern=r"\S")
     decisions: tuple[Annotated[str, Field(pattern=r"\S")], ...]
     action_items: tuple[Annotated[str, Field(pattern=r"\S")], ...]
@@ -947,24 +990,36 @@ class SubmitWorkRequest(FrozenModel):
 SESSION_SUMMARY_MAX_CHARS = 500
 
 class StartActivityRequest(FrozenModel):
-    """@brief 逐项选择至多两个可见对象、动词与方式；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md 第五章）。
+    """@brief 逐项选择至多两个可见对象、动词、方式、来源与去向；执行参数由引擎确定（docs/dev/SPEC-time-and-energy.md
+    第五章，docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。
 
-    三个数组等长、一至二项，逐项对应；私有绑定把（对象，动词，方式）映射为内部标准动作，不合法时业务拒绝
-    ACTION_REQUEST_INVALID。
+    targets、actions、ways、from、to 五个数组等长、一至二项，逐项对应，另有请求级 answering；私有绑定把（对象，动词，
+    方式）映射为内部标准动作，来源与去向按动词的合法组合判定（worldmock.life.routing），不合法时业务拒绝
+    ACTION_REQUEST_INVALID，去向不是任何人物时 RECIPIENT_NOT_FOUND。
 
-    :param targets: 本次活动的可见对象名称，至多两项。
+    :param targets: 本次活动的可见对象名称，至多两项（obtain 可写未列出的名称，指名购买）。
     :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
     :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。
+    :param from_: 与对象逐项对应的来源（字段名 from，str|null）：obtain 为门店名或 null，consume 为「自己」，其他为 null。
+    :param to: 与对象逐项对应的去向（str|null）：obtain、consume 为「自己」或人物名，其他为 null。
+    :param answering: 所回应的可见直接消息的规范名称，不回应时为 null。
     """
 
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_by_name=True, validate_by_alias=True,
+                              serialize_by_alias=True, json_schema_extra=purpose_only_schema())
     targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     actions: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     ways: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    from_: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})] = (
+        Field(alias="from"))
+    to: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})]
+    answering: str | None
 
 
 class SubmitWorkActionRequest(FrozenModel):
     """@brief 按人物可读任务名称提交工作成果。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task_name: str = Field(pattern=r"\S")
     deliverable: Annotated[MeetingMinutes, WithJsonSchema(MeetingMinutes.model_json_schema(mode="validation"))]
 
@@ -972,13 +1027,15 @@ class SubmitWorkActionRequest(FrozenModel):
 class SendMessageActionRequest(FrozenModel):
     """@brief 按人物可读收件人名称发送人物撰写的消息。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     recipient_name: str = Field(pattern=r"\S")
     text: str
 
 
 class RecallTaskSummaryRequest(FrozenModel):
-    """@brief 按本轮可见的任务、当日目标、活动或会话名称只读回看进展。"""
+    """@brief 按本轮可见的任务、当日目标或活动名称只读回看进展（会话名不在七层中出现，不可回看）。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task_name: str = Field(pattern=r"\S")
 
 
@@ -989,6 +1046,7 @@ class ReportStatusRequest(FrozenModel):
     :param summary: 与 task 按顺序对应的活动进展自述。
     """
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
@@ -1014,6 +1072,7 @@ class PauseActivityRequest(FrozenModel):
     :param summary: 与 task 按顺序对应的活动进展自述。
     """
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
 
@@ -1044,15 +1103,21 @@ _MEMORY_HEX_IDENTITY = re.compile(r"[0-9a-fA-F]{8,}")
 class ConclusionMemory(FrozenModel):
     """@brief 结束活动时写下的一条人物记忆；来源与认知状态（subjective）由系统固定，模型不填任何身份。"""
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema("一条想记住的事：类型、文字、重要程度与关键词。"))
     type: Literal["commitment", "relationship", "preference", "goal", "conflict",
                   "resolution", "identity", "routine", "reflection"]
     text: str = Field(pattern=r"\S")
     importance: float = Field(ge=0, le=1)
     keywords: list[Annotated[str, Field(pattern=r"\S")]]
+    subject: Annotated[str, Field(pattern=r"\S")] | None = Field(description="这条记忆关于的人或事物。")
 
     @model_validator(mode="after")
     def validate_limits(self) -> "ConclusionMemory":
-        """@brief 文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
+        """@brief 文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个；relationship 与 preference 必须写对象，
+        其他类型的对象为 null（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）。"""
+        if (self.subject is None) == (self.type in {"relationship", "preference"}):
+            _LOGGER.error("Conclusion memory subject disagrees with its type")
+            raise ValueError("memory subject is required exactly for relationship and preference")
         if len(self.text) > MEMORY_TEXT_MAX_CHARS:
             _LOGGER.error("Conclusion memory text exceeds its character limit")
             raise ValueError("memory text exceeds 1000 characters")
@@ -1073,6 +1138,7 @@ class ConcludeActivityRequest(FrozenModel):
     :param memories: 与 task 等长；memories[i] 是关于 task[i] 的零至多条记忆，合计不超过八条。
     """
 
+    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     summary: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     memories: Annotated[
@@ -1134,7 +1200,7 @@ class ActionResult(FrozenModel):
 def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝原因文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
-    拒绝消息经 recent_action_results 摘要进入 facts/scene（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），模型据此
+    拒绝消息随公开结果进入进度层 tool_call.result（docs/dev/SPEC-persona-prompt.md「进度层」），模型据此
     修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
     等），不含任何十六进制事件/请求身份。
     """

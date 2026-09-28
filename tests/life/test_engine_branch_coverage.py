@@ -27,8 +27,7 @@ from agentsociety2.society import DecisionContext, DirectToolCall
 
 from tests.life.conftest import (
     StubPlanDayClient, activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
-    settle_day_plans, submit_round, wake_by_mail,
-)
+    settle_day_plans, stage_day_plan, submit_round, wake_by_mail, start_request)
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
 from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
@@ -42,7 +41,7 @@ from worldmock.life.body import (
     next_body_boundary_seconds,
     settle_body,
 )
-from worldmock.life.decision_start import maybe_decision_statement_start
+from worldmock.life.decision_start import is_action_request, maybe_action_request_start, response_self_note
 from worldmock.life.engine import (
     LifeEngine,
     _activity_progress_phrase,
@@ -76,7 +75,6 @@ from worldmock.life.models import (
     RunIdentity,
     SameMomentStage,
     SendMessageActionRequest,
-    StartActivityRequest,
     SubmitWorkActionRequest,
     WorldState,
     active_activities,
@@ -89,7 +87,7 @@ from worldmock.life.scenario import (
     parse_scenario_document,
     load_scenario,
 )
-from worldmock.footprints.models import EventDraft, DECISION_STATEMENT_FIELD
+from worldmock.footprints.models import EventDraft
 from worldmock.runtime import settle_pending_day_plans
 
 
@@ -132,7 +130,7 @@ def _advance_until_agent_ready(engine, agent_id: int = 1, limit: int = 96) -> No
             advance_next(engine)
             continue
         submit_round(engine, {rid: ("start_activity",
-                                    StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+                                    start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
                               for rid in ready}, f"filler-{index}")
 
 
@@ -143,7 +141,7 @@ def _act_ready(engine, round_id: str, tool_name: str, request, agent_id: int = 1
     for rid in ready:
         requests[rid] = (tool_name, request) if rid == agent_id else (
             "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+            start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
     _, results = submit_round(engine, requests, round_id)
     return next(item for item in results if item.agent_id == agent_id)
 
@@ -426,7 +424,7 @@ def test_world_state_rejects_activity_with_unknown_owner(engine_factory) -> None
     """活动集合中人物归属未知时世界状态拒绝恢复。"""
     engine = engine_factory()
     started = _act(engine, "owner-wait", "start_activity",
-                   StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+                   start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
     staged = engine.state.model_copy(deep=True)
     staged.activities[started.activity_id] = staged.activities[started.activity_id].model_copy(
         update={"agent_id": 999}, deep=True)
@@ -792,36 +790,34 @@ def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory
 # ---------------------------------------------------------------------------
 
 
-def test_task_due_soon_ignores_missing_due_and_hits_window() -> None:
-    """待办提示跳过无截止行，命中 2 小时窗口返回真。"""
-    now = 10_000
-    assert projection._task_due_soon(({"due_at": None},), now) is False
-    assert projection._task_due_soon(({"due_at": None}, {"due_at": now + 3600}), now) is True
-
-
 def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> None:
     """收件箱头跳过无场景邮件配置的可见身份。"""
     engine = engine_factory()
     agent = engine.state.agents[1].model_copy(
         update={"visible_message_ids": {"ghost-mail"}}, deep=True)
     inputs = projection.ProjectionInputs(state=engine.state, scenario=engine.scenario,
-                                         agent=agent, recent_results=(), task_rows=())
+                                         agent=agent, task_rows=())
     assert projection._inbox_rows(inputs) == []
 
 
-def test_visible_task_rows_hide_overdue_tasks(engine_factory) -> None:
-    """过期任务不再进入可见任务行。"""
+def test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day(engine_factory) -> None:
+    """未付款的逾期任务保留在可见任务行与工作池中，直到截止当日的本地日结束；次日零点起不再列出
+    （docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。"""
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
+    next_day = int((task.due_at.replace(hour=0, minute=0, second=0) + timedelta(days=1)).timestamp())
     _stage_agent(engine, visible_task_ids={task.task_id})
     rows = engine._visible_task_rows(engine.state.agents[1])
     assert [row["task_id"] for row in rows] == [task.task_id]
-    staged = engine.state.model_copy(deep=True)
-    staged.current_time = due + 60
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > due + 60]
-    _commit_staged(engine, staged)
-    assert engine._visible_task_rows(engine.state.agents[1]) == []
+    for moment, listed in ((due + 60, [task.task_id]), (next_day - 1, [task.task_id]), (next_day, [])):
+        staged = engine.state.model_copy(deep=True)
+        staged.current_time = moment
+        staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
+        _commit_staged(engine, staged)
+        agent = engine.state.agents[1]
+        assert [row["task_id"] for row in engine._visible_task_rows(agent)] == listed
+        assert [entry.object_id for entry in engine._task_pool(agent)] == listed
 
 
 def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:
@@ -855,52 +851,64 @@ def test_recent_meal_counts_use_actual_settled_consumption() -> None:
 
 
 # ---------------------------------------------------------------------------
-# decision_start.py：决策自述响应判定的拒绝形态
+# decision_start.py：行动请求判定、首个行动请求取出草稿与回复正文
 # ---------------------------------------------------------------------------
 
+#: 一个行动请求：没有 purpose、tools 含 start_activity、thinking 开启。
+_ACTION_REQUEST = {"tools": [{"type": "function", "function": {"name": "memory_recent"}},
+                             {"type": "function", "function": {"name": "start_activity"}}],
+                   "extra_body": {"thinking": {"type": "enabled"}}}
 
-def _exchange(request: dict, content, error=None) -> SimpleNamespace:
+
+def _exchange(request: dict, phase: str = "request") -> SimpleNamespace:
     """构造模型交换证据形态。"""
-    response = None if content is None else {"choices": [{"message": {"content": content}}]}
-    return SimpleNamespace(request=request, response=response, error=error)
+    return SimpleNamespace(request=request, phase=phase, response=None, error=None)
 
 
-def test_maybe_decision_statement_start_rejects_non_decision_statement_sampling() -> None:
-    """非决策自述采样参数（温度/长度不符）不消费延迟草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    exchange = _exchange({"temperature": 0.7, "max_tokens": 400}, "我今天很饿。")
-    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
+@pytest.mark.parametrize("request_shape", [
+    {**_ACTION_REQUEST, "purpose": "plan_day"},
+    {**_ACTION_REQUEST, "purpose": "work_review"},
+    {**_ACTION_REQUEST, "extra_body": {"thinking": {"type": "disabled"}}},
+    {**_ACTION_REQUEST, "extra_body": None},
+    {key: value for key, value in _ACTION_REQUEST.items() if key != "tools"},
+    {**_ACTION_REQUEST, "tools": [{"type": "function", "function": {"name": "finish"}}, "broken"]},
+    None,
+])
+def test_only_action_requests_satisfy_the_predicate(request_shape) -> None:
+    """带 purpose、思考关闭、没有 start_activity 的请求（零点计划、工作验收、只读问答、记忆巩固）都不是行动请求。"""
+    assert is_action_request(_ACTION_REQUEST) is True
+    assert is_action_request({**_ACTION_REQUEST, "purpose": None}) is True
+    assert is_action_request(request_shape) is False
+
+
+def test_first_action_request_pops_the_pending_start_once() -> None:
+    """只有 phase=request 的行动请求取出草稿；响应与非行动请求不消费，第二个行动请求不再产出。"""
+    data = {"round_id": "r", "round_order": 0, "world_state_version": 3, "wake_reasons": []}
+    pending = {1: {"decision_id": "d", "data": data}}
+    assert maybe_action_request_start(pending, 1, 42, _exchange(_ACTION_REQUEST, "response")) is None
+    assert maybe_action_request_start(pending, 1, 42, _exchange({**_ACTION_REQUEST, "purpose": "x"})) is None
     assert 1 in pending
 
+    draft = maybe_action_request_start(pending, 1, 42, _exchange(_ACTION_REQUEST))
 
-def test_maybe_decision_statement_start_swallows_invalid_decision_statement_text() -> None:
-    """空文本/超长决策自述按协议错误返回 None，不抛错不消费草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    request = {"temperature": 1.0, "max_tokens": 8000,
-               "extra_body": {"thinking": {"type": "disabled"}}}
-    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "")) is None
-    assert maybe_decision_statement_start(pending, 1, 0, _exchange(request, "饿" * 201)) is None
-    assert 1 in pending
-
-
-def test_maybe_decision_statement_start_rejects_missing_thinking_mode() -> None:
-    """决策自述形状必须关闭思考，缺失该声明不消费草稿。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    exchange = _exchange({"temperature": 1.0, "max_tokens": 8000}, "我现在很饿，想去找点吃的。")
-    assert maybe_decision_statement_start(pending, 1, 0, exchange) is None
-    assert 1 in pending
-
-
-def test_maybe_decision_statement_start_accepts_valid_text_and_pops_pending() -> None:
-    """有效决策自述取出草稿并携带 decision_statement 字段。"""
-    pending = {1: {"decision_id": "d", "data": {"round_id": "r"}}}
-    draft = maybe_decision_statement_start(pending, 1, 42,
-                                  _exchange({"temperature": 1.0, "max_tokens": 8000,
-                                             "extra_body": {"thinking": {"type": "disabled"}}},
-                                            "我现在很饿，想去找点吃的。"))
     assert pending == {}
     assert draft is not None and draft.event_type == "decision_started"
-    assert draft.data[DECISION_STATEMENT_FIELD] == "我现在很饿，想去找点吃的。"
+    assert (draft.decision_id, draft.occurred_at, draft.observed_at, draft.data) == ("d", 42, 42, data)
+    assert maybe_action_request_start(pending, 1, 43, _exchange(_ACTION_REQUEST)) is None
+
+
+@pytest.mark.parametrize(("response", "note"), [
+    ({"choices": [{"message": {"content": "  先歇一会儿。\n"}}]}, "先歇一会儿。"),
+    ({"choices": [{"message": {"content": "   "}}]}, None),
+    ({"choices": [{"message": {"content": None, "tool_calls": []}}]}, None),
+    ({"choices": [{"message": {}}]}, None),
+    ({"choices": []}, None),
+    ({"choices": ["broken"]}, None),
+    (None, None),
+])
+def test_response_self_note_is_the_stripped_reply_body_or_none(response, note) -> None:
+    """self_note 取回复正文去首尾空白；空、缺失或形状不符时为 None，不代写。"""
+    assert response_self_note(response) == note
 
 
 # ---------------------------------------------------------------------------
@@ -915,7 +923,7 @@ def test_begin_decision_round_rejects_double_open_and_bad_contexts(engine_factor
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
         ctx, "action-one", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="cannot be started"):
         engine.begin_decision_round([ctx])
     with pytest.raises(ProtocolError, match="cannot be started"):
@@ -936,13 +944,13 @@ def test_same_round_resubmit_is_idempotent_and_parameter_conflict_fails(engine_f
     engine = engine_factory()
     ctx = context(engine, "replay-round")
     engine.begin_decision_round([ctx])
-    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
     call = DirectToolCall(ctx, "same-action", "start_activity", request)
     first = engine.submit_action(call)
     second = engine.submit_action(call)
     assert second == first
     assert len(engine._round.pending_actions) == 1
-    changed = StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"])
+    changed = start_request(targets=["自己"], actions=["sleep"], ways=["睡觉"])
     with pytest.raises(ProtocolError, match="different parameters"):
         engine.submit_action(DirectToolCall(ctx, "same-action", "start_activity", changed))
 
@@ -954,7 +962,7 @@ async def test_prepare_pending_work_review_rejects_missing_action(engine_factory
     engine.begin_decision_round([ctx])
     engine.submit_action(DirectToolCall(
         ctx, "action-review-missing", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="does not exist"):
         await engine.prepare_pending_work_review("ghost-action")
     # 非工作提交的挂起动作不进入评审（静默返回，不记录评审）。
@@ -975,13 +983,13 @@ async def test_prepare_pending_work_review_during_independent_wait(engine_factor
         _at_task_start(engine)
         stage_day_plan(engine)
     if kind == "wait":
-        request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+        request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
         tool = "start_activity"
     else:
         task_id = engine.scenario.tasks[0].task_id
         row = next(item for item in engine._visible_task_rows(engine.state.agents[1])
                    if item["task_id"] == task_id)
-        request = StartActivityRequest(
+        request = start_request(
             targets=[f"工作：{row['title']}"], actions=["interact"], ways=["工作"])
         tool = "start_activity"
     started = _act(engine, "busy-work-or-wait", tool, request)
@@ -1015,7 +1023,7 @@ async def test_prepare_pending_work_review_while_the_wait_awaits_conclusion(engi
     engine.abort_decision_round("cover-submit", "busy-agent teardown")
     advance_until_ready(engine)
     started = _act(engine, "wait-before-submit", "start_activity",
-                   StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))
+                   start_request(targets=["自己"], actions=["interact"], ways=["等待"]))
     assert started.status == "in_progress"
     wake_by_mail(engine, offset=900)
     for step in range(16):
@@ -1052,7 +1060,7 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
     engine.begin_decision_round(contexts)
     engine.submit_action(DirectToolCall(
         contexts[0], "action-partial", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     with pytest.raises(ProtocolError, match="every expected agent"):
         engine.commit_decision_round("partial")
 
@@ -1060,7 +1068,7 @@ def test_commit_decision_round_requires_every_expected_agent(engine_factory) -> 
 def test_abort_decision_round_skips_memory_for_reused_action(engine_factory) -> None:
     """中止轮对重放动作不重复写入幂等记忆。"""
     engine = engine_factory()
-    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
     _act(engine, "abort-first", "start_activity", request)
     advance_until_ready(engine)
     ctx = context(engine, "abort-replay")
@@ -1119,7 +1127,7 @@ def test_advance_guards_open_round_due_decision_and_boundary(engine_factory) -> 
     engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-advance-guard", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("advance-guard")
     with pytest.raises(ProtocolError, match="next scheduling boundary"):
         engine.advance(601, datetime.fromtimestamp(engine.state.current_time + 600, zone))
@@ -1141,7 +1149,7 @@ def test_advance_rejects_tick_consistent_jump_past_next_scheduling_boundary(engi
     engine.observe(ctx)
     engine.submit_action(DirectToolCall(
         ctx, "action-boundary-jump", "start_activity",
-        StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+        start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
     engine.commit_decision_round("boundary-jump")
     now = engine.state.current_time
     next_epoch = engine._next_epoch()
@@ -1255,7 +1263,7 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
         engine.begin_decision_round([versioned])
 
     ctx = context(engine, "call-guards")
-    request = StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    request = start_request(targets=["自己"], actions=["interact"], ways=["等待"])
     with pytest.raises(ProtocolError, match="requires an open decision round"):
         engine.submit_action(DirectToolCall(ctx, "a-1", "start_activity", request))
     engine.begin_decision_round([ctx])
@@ -1270,7 +1278,8 @@ def test_context_and_call_guards_reject_each_invalid_shape(engine_factory) -> No
         engine.submit_action(DirectToolCall(ctx, "a-3", "start_activity",
                                             PurchaseOrderRequest(
                                                 items=(PurchaseItem(supply_id="food-6923644266066",
-                                                                   quantity=1, price_version="v1"),),
+                                                                   quantity=1, price_version="v1",
+                                                                   recipient_id="agent:1"),),
                                                 fulfillment="delivery", destination_id="home")))
     engine.submit_action(DirectToolCall(ctx, "a-4", "start_activity", request))
     with pytest.raises(ProtocolError, match="already submitted"):
@@ -1351,8 +1360,8 @@ def test_boundary_action_requires_owned_current_activity(engine_factory) -> None
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     _, results = submit_round(engine, {
-        1: ("start_activity", StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])),
-        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))}, "own-start")
+        1: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"])),
+        2: ("start_activity", start_request(targets=["自己"], actions=["sleep"], ways=["睡觉"]))}, "own-start")
     assert {item.agent_id: item.status.value for item in results} == {1: "in_progress", 2: "in_progress"}
     other = next(item.activity_id for item in results if item.agent_id == 2)
     wake_by_mail(engine, agent_id=1, offset=60)
@@ -1380,8 +1389,9 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
-    """不存在和真实存在但未呈现的供给均不能靠名称绕过冻结观察。"""
+def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing) -> None:
+    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
+    世界不变；真实存在但未呈现、没有可见凭据的供给按标签到店购买，按当前报价结算，库存与持有各变一份。"""
     from tests.life.conftest import stage_day_plan
     from tests.life.test_commerce import _stage_open
     from worldmock.life.discovery import supply_row
@@ -1415,11 +1425,19 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
                      if item.location_id == supply.location_id)
         object_name, way = f"{place.name}出售的{product.name}", "到店"
     before = engine.state.model_copy(deep=True)
-    request = StartActivityRequest(targets=[object_name], actions=["obtain"], ways=[way])
+    request = start_request(targets=[object_name], actions=["obtain"], ways=[way])
     engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
     result = engine.commit_decision_round("buy-invisible")[0]
-    assert result.status.value == "rejected"
-    assert result.error_code == "ACTION_REQUEST_INVALID"
+    if existing:
+        assert (result.status.value, result.error_code) == ("completed", None)
+        [order] = result.data["orders"]
+        assert (order["supply_id"], order["total_price_fen"]) == (supply.supply_id, hidden[0]["purchase_price_fen"])
+        assert engine.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
+        assert engine.state.agents[1].inventory["market"][supply.product_id] == (
+            before.agents[1].inventory.get("market", {}).get(supply.product_id, 0) + 1)
+        assert engine.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
+        return
+    assert (result.status.value, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     assert engine.state.accounts == before.accounts
     assert engine.state.supply_stock == before.supply_stock
     assert engine.state.agents[1].inventory == before.agents[1].inventory
@@ -1503,7 +1521,7 @@ def test_call_rejects_unknown_contact(engine_factory) -> None:
     """未声明联系人的通话被拒绝。"""
     engine = engine_factory()
     result = _act(engine, "call-ghost", "start_activity",
-                  StartActivityRequest(targets=["联系人：不存在的人"], actions=["interact"], ways=["通话"]))
+                  start_request(targets=["联系人：不存在的人"], actions=["interact"], ways=["通话"]))
     assert result.status.value == "rejected"
     assert result.error_code == "ACTION_REQUEST_INVALID"
 
@@ -1547,9 +1565,9 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     engine = engine_factory("multi-person.json")
     stage_day_plan(engine, 1)
     stage_day_plan(engine, 2)
-    requests = {1: ("start_activity", StartActivityRequest(targets=["人物：李凡"], actions=["interact"],
+    requests = {1: ("start_activity", start_request(targets=["人物：李凡"], actions=["interact"],
                                                            ways=["交谈"])),
-        2: ("start_activity", StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"]))}
+        2: ("start_activity", start_request(targets=["自己"], actions=["interact"], ways=["等待"]))}
     _, results = submit_round(engine, requests, "chat-start")
     chat = next(item for item in results if item.agent_id == 1)
     assert chat.status.value == "in_progress"
@@ -1564,3 +1582,45 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     assert activity.boundary_type == "cancelled" and activity.interruption_reason == "agent_cancelled"
     assert activity.concluded_at == engine.state.current_time
     assert not active_activities(engine.state, 1)
+
+
+# ---------------------------------------------------------------------------
+# engine._presented_messages：已读 = 本决策观察中全文已呈现的消息
+# ---------------------------------------------------------------------------
+
+
+def _observed_with_presented(engine, monkeypatch, round_id: str, presented: list[str]):
+    """开启单人决策轮并观察；观察数据只带给定的 presented_message_ids（其余观察键与本判定无关）。"""
+    stage_day_plan(engine)
+    monkeypatch.setattr(engine, "_observation_data",
+                        lambda agent: {"agent_id": agent.agent_id, "presented_message_ids": list(presented)})
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    return decision
+
+
+def _pending_for(decision, observed_at: int) -> SimpleNamespace:
+    """与观察配对所需的待结算动作字段。"""
+    return SimpleNamespace(agent_id=decision.agent_id, decision_id=decision.decision_id, observed_at=observed_at)
+
+
+def test_presented_messages_come_from_the_decision_observation(engine_factory, monkeypatch) -> None:
+    """已读只取本决策、本秒观察的 presented_message_ids；没有观察（引擎直驱）时什么也没呈现。"""
+    engine = engine_factory()
+    decision = _observed_with_presented(engine, monkeypatch, "presented", ["message-1", "message-2"])
+    now = engine.state.current_time
+    assert engine._presented_messages(_pending_for(decision, now)) == frozenset({"message-1", "message-2"})
+    other = SimpleNamespace(agent_id=decision.agent_id, decision_id="decision-without-observation", observed_at=now)
+    assert engine._presented_messages(other) == frozenset()
+    assert engine._presented_messages(_pending_for(decision, now + 1)) == frozenset()
+
+
+def test_ambiguous_decision_observation_is_a_protocol_error(engine_factory, monkeypatch) -> None:
+    """同一决策同一秒有两条观察时无法判定呈现了什么，按协议错误拒绝。"""
+    engine = engine_factory()
+    decision = _observed_with_presented(engine, monkeypatch, "ambiguous", ["message-1"])
+    engine.observe(decision)
+    with pytest.raises(ProtocolError, match="Decision observation is ambiguous"):
+        engine._presented_messages(_pending_for(decision, engine.state.current_time))
+

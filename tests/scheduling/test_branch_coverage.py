@@ -92,7 +92,7 @@ def test_delivery_arrival_projects_order_and_inventory(engine):
     engine.state = staged
     supply = next(item for item in engine.scenario.supplies
                   if item.location_id == "market" and item.product_id == product_id)
-    request = PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1,
+    request = PurchaseOrderRequest(items=({"supply_id": supply.supply_id, "quantity": 1, "recipient_id": "agent:1",
                                            "price_version": engine.state.supply_quotes[supply.supply_id].price_version},),
                                     fulfillment="delivery", destination_id="home")
     outcome = purchase_order(engine.state, engine.semantics, 1, request)

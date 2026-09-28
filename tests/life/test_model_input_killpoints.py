@@ -40,6 +40,7 @@ class _MessageHarness(SessionActionMixin):
     def __init__(self, bindings: list[dict]) -> None:
         self.bindings = bindings
         self.scenario = SimpleNamespace(locations=())
+        self.rules = SimpleNamespace(tasks={})
         self.state = SimpleNamespace(agents={1: SimpleNamespace(agent_id=1),
                                              2: SimpleNamespace(agent_id=2)}, activities={}, current_time=100)
 

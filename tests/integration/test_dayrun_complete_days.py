@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,17 +16,22 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
 from agentsociety2.society import SocietyCheckpointRequest
-from custom.agents.life_agent import LifeAgent
+from custom.agents.life_agent import _MEMORY_TOOL_MODELS, LifeAgent, _tool_schema
+from custom.agents.life_prompt import LIFE_SYSTEM_LAYER
 from custom.envs.life_env import LifeEnv
-from tests.integration.test_life_agent_protocol import _ModelResponse, _DecisionStatementResponse
-from tests.life.conftest import StubPlanDayClient, context
+from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
+from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
+from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
+from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ActivityStatus
-from worldmock.runtime import two_stage_model_identity
+from worldmock.life.models import REQUEST_MODELS, ActivityStatus
+from worldmock.life.narration import render_layer_json
+from worldmock.life.prompt_schemas import USER_LAYER_NAMES, validate_layer
+from worldmock.runtime import stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
 #: 零点计划桩生成的当日目标（时间与能量规格第四章：计划由运行时后台任务生成，不是人物工具）。
@@ -49,7 +55,7 @@ def _fixed_context_window(monkeypatch):
 
 
 class DayModel:
-    """只从当前人物可见合同选脚本行动；模型响应仍经过真实原生协议校验。
+    """只从实际请求的六层 user（工具层与待办层）选脚本行动；模型响应仍经过真实原生协议校验。
 
     生活决策没有 finish（时间与能量规格第七章「finish 并入 conclude_activity」）：一轮决策恰好登记一个世界请求，
     登记即结束本轮。刚结束的活动当秒用 conclude_activity 收尾（第七章「活动一结束就要结束它」），唯一一条主观记忆
@@ -70,19 +76,21 @@ class DayModel:
         self.subjective_written = False
         self.requests = 0
         self.actions = []
+        self.layers = []
 
     async def call(self, **request):
         self.requests += 1
         if "tools" not in request:
             return self._text(request)
         functions = {item["function"]["name"]: item["function"] for item in request["tools"]}
+        self.layers = json.loads(request["messages"][1]["content"])
         if not self.invalid_action_sent:
             self.invalid_action_sent = True
             return self._response("invented_wait_tool", {})
         if self.phase == "trip" and "start_activity" in functions and not self.invalid_parallel_sent:
             self.invalid_parallel_sent = True
             watch = self._watch()
-            way = self._way(watch, "watch")
+            way = self._watch_way(watch)
             return self._response(*self._start((watch, "interact", way), (watch, "interact", way)))
         action, payload = self._choose(functions)
         self.actions.append((action, payload))
@@ -97,47 +105,56 @@ class DayModel:
         if "memory_reflection_input" in user:
             payload = json.loads(user.split("<memory_reflection_input>")[1].split("</memory_reflection_input>")[0])
             response = [{"insight": "我希望继续留意自己的感受。", "refs": [payload["episodes"][0]["id"]]}]
-            return _DecisionStatementResponse(json.dumps(response, ensure_ascii=False))
+            return _TextResponse(json.dumps(response, ensure_ascii=False))
         if "current_subjective_summary" in user:
-            return _DecisionStatementResponse("我希望把想法与实际经历分开。")
-        return _DecisionStatementResponse("我按眼前的情况决定接下来做什么。")
+            return _TextResponse("我希望把想法与实际经历分开。")
+        return _TextResponse("我按眼前的情况决定接下来做什么。")
 
     def _choose(self, functions):
         now = self.agent.require_decision_context().observed_at
         hour = now.hour + now.minute / 60 + now.second / 3600
-        pending = self._contracts()["pending_names"]
+        pending = self._activities("刚结束")
         if pending:
             return self._conclude(pending)
         if hour < 11:
             return self._before_lunch(hour)
         return getattr(self, "_" + self.phase)(functions, hour)
 
-    def _contracts(self):
-        return self.agent._life_action_contracts
+    def _activities(self, phase):
+        """工具层里处于给定阶段（进行中、刚结束）的活动目标名。"""
+        return [target["name"] for target in self.layers[0]["targets"]
+                if target["kind"] == "activity" and target["phase"] == phase]
 
     def _running(self):
-        return self._contracts()["pausable_names"]
+        return self._activities("进行中")
+
+    def _paused(self, resumable_only=False):
+        """待办层的暂停活动名；resumable_only 时只取此处可以恢复（report_status 可用）的。"""
+        return [item["name"] for item in self.layers[3]["paused_activities"]
+                if not resumable_only or any(tool["tool"] == "report_status" and tool["available"]
+                                             for tool in item["tools"])]
 
     def _objects(self):
-        """本轮冻结的交互对象层：可读名称 → （动词，方式，内部标准动作）。"""
-        return self.agent._life_visible_objects
+        """本次请求工具层的非活动目标：可读名称 → （动词，方式，是否可用）。"""
+        return {target["name"]: tuple((item["action"], item["way"], item["available"]) for item in target["actions"])
+                for target in self.layers[0]["targets"] if target["kind"] != "activity"}
 
-    def _way(self, name, canonical):
-        """对象列出的、映射为给定内部动作的方式短语（内容按进度是「接着看」「从头再看」等）。"""
-        return next(way for _, way, action in self._objects()[name] if action == canonical)
+    def _watch_way(self, name):
+        """内容目标列出的观看方式（按进度是「接着看」「从头再看」等）。"""
+        return next(way for verb, way, _ in self._objects()[name] if verb == "interact")
 
     @staticmethod
     def _start(*items):
         """由（对象，动词，方式）逐项构造 start_activity 参数。"""
-        return "start_activity", {"targets": [item[0] for item in items], "actions": [item[1] for item in items],
-                                  "ways": [item[2] for item in items]}
+        return "start_activity", start_arguments([item[0] for item in items], [item[1] for item in items],
+                                                 [item[2] for item in items])
 
     def _watch(self):
         return next(name for name in self._objects() if "Space Habitat" in name)
 
     def _content(self):
         return next(name for name, actions in self._objects().items()
-                    if name.startswith("内容：") and any(action == "watch" for _, _, action in actions))
+                    if name.startswith("内容：") and any(verb == "interact" for verb, _, _ in actions))
 
     def _place(self, label):
         return next(name for name in self._objects() if name.startswith("地点：") and label in name)
@@ -150,7 +167,7 @@ class DayModel:
         memories = [[] for _ in names]
         if not self.subjective_written:
             memories[0] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
-                            "text": "我以为自己已经吃过一顿饭。"}]
+                            "text": "我以为自己已经吃过一顿饭。", "subject": None}]
             self.subjective_written = True
         return "conclude_activity", {"task": list(names), "summary": ["这件事先到这里。"] * len(names),
                                      "memories": memories}
@@ -172,11 +189,11 @@ class DayModel:
             return self._conclude(running) if self.meals else self._control("pause_activity", running)
         target = self._place(_RESTAURANTS[(self.agent_id + self.seed + self.meals) % len(_RESTAURANTS)])
         self.phase = "walk"
-        if self._contracts()["reportable_names"]:
+        if self._paused():
             # 暂停的等待仍占一个名额，只步行前往。
             return self._start((target, "travel", "步行"))
         content = self._content()
-        return self._start((target, "travel", "步行"), (content, "interact", self._way(content, "watch")))
+        return self._start((target, "travel", "步行"), (content, "interact", self._watch_way(content)))
 
     def _walk(self, functions, hour):
         running = self._running()
@@ -184,13 +201,13 @@ class DayModel:
             return self._control("report_status", running)
         self.phase = "consume"
         supply = next(name for name, actions in self._objects().items()
-                      if any(way == "到店" for _, way, _ in actions))
+                      if any(way == "到店" and available for _, way, available in actions))
         return self._start((supply, "obtain", "到店"))
 
     def _consume(self, functions, hour):
         self.phase = "eat"
         item = next(name for name, actions in self._objects().items()
-                    if name.startswith("持有物：") and any(way == "食用" for _, way, _ in actions))
+                    if name.startswith("持有物：") and any(way == "食用" and available for _, way, available in actions))
         return self._start((item, "consume", "食用"))
 
     def _eat(self, functions, hour):
@@ -208,7 +225,7 @@ class DayModel:
         running = self._running()
         if running:
             return self._control("report_status", running)
-        resumable = self._contracts()["resumable_names"]
+        resumable = self._paused(resumable_only=True)
         if resumable:
             # 回到家，在开始地点恢复出门前暂停的等待（report_status 点名暂停的活动即恢复它）。
             return self._control("report_status", resumable)
@@ -251,7 +268,7 @@ async def test_complete_two_person_day_uses_real_tools_memory_and_restoration(tm
     scenario_path = _write_scenario(document, tmp_path)
     environment = LifeEnv()
     environment.engine = engine = LifeEngine.create(scenario_path, tmp_path / "run",
-                                                    _identity(document, f"day-{seed}"), two_stage_model_identity())
+                                                    _identity(document, f"day-{seed}"), stage_model_identity())
     models = {agent_id: DayModel(seed, agent_id) for agent_id in (1, 2)}
     people_root = tmp_path / "people"
     people = await _people(environment, people_root, models)
@@ -335,7 +352,61 @@ def _assert_day(engine, models, start, exported, tmp_path):
                            for row in event.data["episodes"])
     assert any(event.event_type == "model_response" and event.data.get("error") for event in events)
     assert exported["experiment_completed"]
-    assert (tmp_path / "export" / "quality.json").is_file()
+    quality = json.loads((tmp_path / "export" / "quality.json").read_text(encoding="utf-8"))
+    assert quality["schema_version"] == 2
+    assert [item for item in quality["memory_references"]["problems"]
+            if item["code"] == "invalid_observed_result_reference"] == []
+    _assert_decision_events(events, _identities(engine))
+
+
+def _assert_decision_events(events, identities):
+    """第二章：每次决策的 decision_started 与首个行动请求同批提交且排在它之前，data 为闭集；没有决策自述请求；
+    世界请求都带 self_note 键（脚本回复正文为空时为 null）；观察事件不存进度层快照，只存来源引用；第七章：真实请求上
+    的观察重复门禁为 1（同一 user 文本只出现在一条（人物，秒）续接链中）；第一章：每个行动请求的系统层、原生工具与六层
+    user 见 _assert_action_requests。"""
+    by_seq = {event.event_seq: event for event in events}
+    for start in (event for event in events if event.event_type == "decision_started"):
+        assert set(start.data) == {"round_id", "round_order", "world_state_version", "wake_reasons"}
+        request = by_seq[start.event_seq + 1]
+        assert (request.event_type, request.decision_id) == ("model_request", start.decision_id)
+        assert request.data["request"]["extra_body"] == {"thinking": {"type": "enabled"}}
+    requests = [event for event in events if event.event_type == "model_request" and not event.data.get("purpose")
+                and event.data["request"].get("tools")]
+    assert all(json.loads(event.data["request"]["messages"][0]["content"])["layer"] == "系统层" for event in requests)
+    assert all(event.data["self_note"] is None for event in events if event.event_type == "action_requested")
+    observations = [event for event in events if event.event_type == "observation"]
+    assert all("progress_event_ids" in event.data and "progress_layer" not in event.data for event in observations)
+    reports = behavior_metrics_report([event.model_dump(mode="json") for event in events])
+    gates = [report["gates"]["observation_repetition"] for report in reports.values()]
+    assert gates and all(gate["value"] == 1 and gate["pass"] for gate in gates), gates
+    _assert_action_requests(requests, identities)
+
+
+#: 人物配置的每次决策回合上限（_people 创建工作区时写入）；只剩最后一个回合时去掉记忆查询。
+_MAX_REACT_TURNS = 16
+
+
+def _assert_action_requests(requests, identities):
+    """第一章「请求组成」与验收台账「七层请求」「系统层与工具」：整次真实日运行（两人、跨检查点恢复）的每个行动请求——
+    system 逐字节相同，就是生活决策系统层的紧凑序列化；原生 tools 等于八个人物工具加三个记忆查询的全量定义（事件按规范
+    JSON 存储，键序不保留，按对象比较），只有本次决策最后一个回合的请求等于去掉记忆查询的前八项；链首 user 是按固定
+    层序排列的六层 JSON 数组，每一层通过 prompt_schemas 校验。验收台账「唯一出现」：同一批请求（含同秒续接）逐个满足 test_unique_presence_run 的唯一出现
+    与人读写法检查（暂停活动进度、任务合同与门店商品目标各恰好一处；没有 _seconds、_fen、身份键、裸数值与内部身份）。"""
+    models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS}
+    full = [_tool_schema(name, model) for name, model in models.items()]
+    assert requests and {event.data["request"]["messages"][0]["content"] for event in requests} == {
+        render_layer_json(LIFE_SYSTEM_LAYER)}
+    for event in requests:
+        request = event.data["request"]
+        turn = int(re.search(r":model:(\d{4}):attempt:", event.data["call_id"]).group(1))
+        expected = full[:len(REQUEST_MODELS)] if turn == _MAX_REACT_TURNS else full
+        assert request["tools"] == expected, turn
+        layers = json.loads(request["messages"][1]["content"])
+        assert [layer["layer"] for layer in layers] == list(USER_LAYER_NAMES)
+        for layer in layers:
+            validate_layer(layer)
+        _assert_once_each(request)
+        _assert_readable(request, identities)
 
 
 def _assert_start_day_plans(events, start):

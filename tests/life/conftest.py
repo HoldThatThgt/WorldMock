@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -20,11 +22,13 @@ from worldmock.life.scenario import load_scenario  # noqa: E402
 
 @pytest.fixture
 def engine_factory(tmp_path: Path):
-    """建立绑定正式内容但隔离存储的 LifeEngine。"""
+    """建立绑定正式内容但隔离存储的 LifeEngine；给出 mutate(document) 时先改写场景文档的副本。"""
     created = []
 
-    def create(scenario_name: str = "white-collar-12-weeks.json") -> LifeEngine:
+    def create(scenario_name: str = "white-collar-12-weeks.json", mutate=None) -> LifeEngine:
         scenario_path = Path("scenarios") / scenario_name
+        if mutate is not None:
+            scenario_path = _mutated_scenario(scenario_path, mutate, tmp_path / f"scenario-{len(created)}")
         scenario, _ = load_scenario(scenario_path)
         run_id = f"test-{len(created)}-{scenario.scenario_id}"
         identity = RunIdentity(
@@ -56,6 +60,18 @@ def engine_factory(tmp_path: Path):
             engine.close()
         except Exception:
             pass
+
+
+def _mutated_scenario(source: Path, mutate, root: Path) -> Path:
+    """把正式场景文档的副本交给 mutate(document) 改写，连同冻结目录写到 root 下（语料根改为正式语料的绝对路径）。"""
+    document = json.loads(source.read_text(encoding="utf-8"))
+    mutate(document)
+    document["corpus_root"] = str((source.parent / document["corpus_root"]).resolve())
+    (root / "scenarios").mkdir(parents=True)
+    shutil.copytree(Path("catalog"), root / "catalog")
+    path = root / "scenarios" / source.name
+    path.write_text(json.dumps(document, ensure_ascii=False), encoding="utf-8")
+    return path
 
 
 def context(engine: LifeEngine, round_id: str, agent_id: int = 1) -> DecisionContext:
@@ -213,14 +229,38 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     return at
 
 
+def routing_defaults(actions: list[str]) -> dict:
+    """@brief 缺省的来源、去向与 answering（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：obtain 送给自己，
+    consume 从自己手边给自己用（给予要显式写人物），其余动词都为 null，不回应消息。"""
+    return {"from_": ["自己" if verb == "consume" else None for verb in actions],
+            "to": ["自己" if verb in {"obtain", "consume"} else None for verb in actions], "answering": None}
+
+
+def start_arguments(targets, actions, ways, **fields) -> dict:
+    """@brief start_activity 的模型参数（JSON 形状，来源的字段名是 from），未写的来源、去向与 answering 取缺省。"""
+    defaults = routing_defaults(list(actions))
+    return {"targets": list(targets), "actions": list(actions), "ways": list(ways), "from": defaults["from_"],
+            "to": defaults["to"], "answering": None, **fields}
+
+
+def start_request(**fields):
+    """@brief 按对象、动词与方式三个数组构造启动请求，未写的来源、去向与 answering 取 routing_defaults（来源可按字段名
+    from_ 或 JSON 名 from 给出）。"""
+    from worldmock.life.models import StartActivityRequest
+
+    defaults = routing_defaults(list(fields.get("actions", [])))
+    if "from" in fields:
+        del defaults["from_"]
+    return StartActivityRequest(**{**defaults, **fields})
+
+
 def start_activity(way: str, *targets: str, **fields):
     """@brief 按「动词＋对象＋方式」构造启动请求：每个对象取同一方式短语，动词由方式唯一确定（第五章）。"""
     from worldmock.life.interaction_menu import WAYS
-    from worldmock.life.models import StartActivityRequest
 
     payload = {"targets": list(targets), "actions": [WAYS[way][0] for _ in targets], "ways": [way for _ in targets]}
     payload.update(fields)
-    return StartActivityRequest(**payload)
+    return start_request(**payload)
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
@@ -255,3 +295,38 @@ def conclude_pending(engine: LifeEngine, round_id: str, agent_id: int = 1):
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "conclude_activity",
                                         conclude_request(*names)))
     return engine.commit_decision_round(round_id)[0]
+
+
+def tool_targets(observed: dict) -> dict[str, dict]:
+    """观察工具层的目标，按名称索引（名称全局唯一）。"""
+    return {row["name"]: row for row in observed["tool_layer"]["targets"]}
+
+
+def target_actions(observed: dict, name: str) -> dict[str, dict]:
+    """工具层某个目标的动作，按方式索引。"""
+    return {row["way"]: row for row in tool_targets(observed)[name]["actions"]}
+
+
+def target_tools(observed: dict, name: str) -> dict[str, dict]:
+    """工具层某个目标（或待办层某项暂停活动）以其名称为参数的工具，按工具名索引。"""
+    targets = tool_targets(observed)
+    rows = (targets[name]["tools"] if name in targets
+            else next(item["tools"] for item in observed["todo_layer"]["paused_activities"] if item["name"] == name))
+    return {row["tool"]: row for row in rows}
+
+
+def layer_start(observed: dict, name: str, way: str):
+    """按工具层目标名与方式构造 start_activity 请求（动词取该动作的 action）。"""
+    action = target_actions(observed, name)[way]
+    return start_request(targets=[name], actions=[action["action"]], ways=[way])
+
+
+def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:
+    """观察进度层的 tool_call 记录（可按工具名筛选）。"""
+    return [row for row in observed["progress_layer"]["events"]
+            if row["type"] == "tool_call" and (tool is None or row["tool"] == tool)]
+
+
+def last_result(observed: dict) -> dict:
+    """观察进度层最后一次世界请求（tool_call）的公开结果。"""
+    return progress_calls(observed)[-1]["result"]

@@ -152,7 +152,7 @@ def _report(events: list[dict[str, Any]], **kwargs: Any) -> dict[str, Any]:
 
 
 def test_observation_repetition_gate_pass_and_fail() -> None:
-    """@brief 门禁按 decision_id 计：同一 user 观察文本出现在两个决策的请求中必须失败，各决策文本不同时通过。"""
+    """@brief 门禁按（人物，模拟秒）计：同一 user 文本出现在两个不同秒的决策中必须失败，文本各不相同时通过。"""
     distinct = [
         _model_request(1, "d1", ["观察 A：天气晴朗"]),
         _model_request(2, "d2", ["观察 B：收到邮件"]),
@@ -166,30 +166,66 @@ def test_observation_repetition_gate_pass_and_fail() -> None:
         _model_request(1, "call-1", ["观察 A：天气晴朗"], decision_id="d1"),
         _model_request(2, "call-2", ["观察 A：天气晴朗"], decision_id="d2"),
     ]
+    assert duplicated[0]["occurred_at"] != duplicated[1]["occurred_at"]
     gate = _report(duplicated)["gates"]["observation_repetition"]
     assert gate["value"] == 2 and gate["pass"] is False
     assert gate["duplicated_observation_count"] == 1
 
 
+def _same_second(events: list[dict[str, Any]], second: int) -> list[dict[str, Any]]:
+    """@brief 把请求夹具放到同一模拟秒（同一决策或同秒续接链内的请求共享世界时刻）。"""
+    for event in events:
+        event["occurred_at"] = second
+    return events
+
+
 def test_observation_gate_counts_action_loop_resend_once() -> None:
     """@brief 同一决策的行动循环内重发同一观察只计一次（E7-1、VF2）。"""
-    events = [_model_request(seq, f"call-{seq}", ["观察 A：天气晴朗"], decision_id="d1")
-              for seq in (1, 2, 3)]
+    events = _same_second([_model_request(seq, f"call-{seq}", ["观察 A：天气晴朗"], decision_id="d1")
+                           for seq in (1, 2, 3)], _clock(0, 8))
     gate = _report(events)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
     assert gate["duplicated_observation_count"] == 0
     assert gate["user_message_count"] == 3
 
 
+def test_observation_gate_allows_same_second_continuation_chain_reuse() -> None:
+    """@brief 同一人物同一秒的相邻决策续接复用链首 user：多个 decision_id 共享一个链键，门禁通过。"""
+    head = '[{"layer":"工具层"},{"layer":"进度层","events":[]}]'
+    chain = _same_second([
+        _model_request(1, "call-1", [head], decision_id="round-1"),
+        _model_request(2, "call-2", [head], decision_id="round-2"),
+        _model_request(3, "call-3", [head], decision_id="round-3"),
+    ], _clock(0, 8))
+    gate = _report(chain)["gates"]["observation_repetition"]
+    assert gate["value"] == 1 and gate["pass"] is True
+    assert gate["duplicated_observation_count"] == 0
+    assert gate["user_message_count"] == 3
+
+
+def test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate() -> None:
+    """@brief 同一 user 文本跨秒（时间推进后）或跨人物重复出现仍失败。"""
+    text = '[{"layer":"环境层"}]'
+    cross_second = _same_second([_model_request(1, "call-1", [text], decision_id="d1")], _clock(0, 8))
+    cross_second += _same_second([_model_request(2, "call-2", [text], decision_id="d2")], _clock(0, 8) + 1)
+    gate = _report(cross_second)["gates"]["observation_repetition"]
+    assert gate["value"] == 2 and gate["pass"] is False
+    assert gate["duplicated_observation_count"] == 1
+
+    cross_agent = _same_second([
+        _model_request(1, "call-1", [text], decision_id="d1", agent_id=1),
+        _model_request(2, "call-2", [text], decision_id="d2", agent_id=2),
+    ], _clock(0, 8))
+    gate = _report(cross_agent)["gates"]["observation_repetition"]
+    assert gate["value"] == 2 and gate["pass"] is False
+
+
 def test_observation_gate_same_moment_rounds_are_separate_decisions() -> None:
     """@brief 同一秒的两轮决策各有 decision_id，观察文本不同时门禁通过。"""
-    second = _clock(0, 8)
-    rounds = [
+    rounds = _same_second([
         _model_request(1, "call-1", ["观察：刚醒，还没有进行中的活动"], decision_id="round-1"),
         _model_request(2, "call-2", ["观察：上一轮开始被拒，仍没有进行中的活动"], decision_id="round-2"),
-    ]
-    for event in rounds:
-        event["occurred_at"] = second
+    ], _clock(0, 8))
     gate = _report(rounds)["gates"]["observation_repetition"]
     assert gate["value"] == 1 and gate["pass"] is True
     assert gate["duplicated_observation_count"] == 0

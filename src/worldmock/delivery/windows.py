@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime
@@ -12,12 +13,16 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
-from worldmock.life.narration import render_scene
+from worldmock.life.prompt_schemas import USER_LAYER_NAMES
 
-#: 动作/意图窗口永不进入的私有事件：决策自述仅 dreaming 任务可读（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。
+#: 任何窗口输入都不进入的私有事件（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
-#: dreaming 专属可读的私有载体：当日 decision_started.data.decision_statement 与观察 scene。
-DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS - {"decision_started"}
+#: dreaming 私有事件集等于私有事件集：dreaming 读 self_note 与实际请求中的层 JSON，请求本身不作窗口事件。
+DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS
+#: 观察事件中环境构建、人物可见的层原文；私有绑定、看法偏好与证据键不进入窗口输入。
+OBSERVATION_LAYER_KEYS = ("tool_layer", "todo_layer", "environment_layer", "memory_layer")
+#: 观察进度层来源中可作为窗口证据展开的人物可见事件类型；其余来源（动作请求与私有事件）不展开。
+PROGRESS_EVIDENCE_EVENTS = {"action_result", "environment_event"}
 
 
 def prepare_windows(export_dir: Path) -> dict[str, list[dict]]:
@@ -98,6 +103,47 @@ def _attach_decision_prompt(record: dict, source: dict) -> None:
     record["provenance"]["decision_prompt_sha256"] = hashlib.sha256(canonical_json(request)).hexdigest()
 
 
+def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
+    """@brief 按决策身份分组事件（含私有的模型请求），供窗口选取实际行动请求。"""
+    groups = defaultdict(list)
+    for event in events:
+        if event["decision_id"]:
+            groups[event["decision_id"]].append(event)
+    return groups
+
+
+def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> None:
+    """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
+
+    窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口同一 prompt 权威），把其首个 user
+    的六层 JSON 连同所属动作请求写入输入；请求事件身份与层 JSON 的 canonical 摘要写入来源。须在 _attach_evidence 之前调用。
+    """
+    layers, sources = [], []
+    for row in rows:
+        if row["event_type"] != "action_requested":
+            continue
+        source = _decision_prompt_source(row, decisions.get(row["decision_id"], []))
+        value = _request_layers(source["data"]["request"])
+        layers.append({"action_event_id": row["event_id"], "layers": value})
+        sources.append({"event_id": source["event_id"], "sha256": hashlib.sha256(canonical_json(value)).hexdigest()})
+    record["input"]["decision_layers"] = layers
+    record["provenance"]["decision_layer_sources"] = sources
+
+
+def _request_layers(request: dict) -> list[dict]:
+    """@brief 实际行动请求首个 user 的六层 JSON：顶层数组，层序为工具层、人设层、记忆层、待办层、环境层、进度层。"""
+    user = next((message for message in request["messages"] if message.get("role") == "user"), None)
+    content = user.get("content") if user is not None else None
+    try:
+        value = json.loads(content) if isinstance(content, str) else None
+    except json.JSONDecodeError:
+        value = None
+    names = tuple(layer.get("layer") for layer in value if isinstance(layer, dict)) if isinstance(value, list) else ()
+    if names != USER_LAYER_NAMES or len(value) != len(USER_LAYER_NAMES):
+        _invalid_action_group("Dreaming requires the six-layer JSON of the recorded action request")
+    return value
+
+
 def _validated_action_groups(event: dict, actions: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
     """@brief 拒绝跨人物复用动作或决策身份形成的证据分组。"""
     agent_id = event["agent_id"]
@@ -163,21 +209,16 @@ def _visible_event(event: dict, directory: Path) -> dict:
 def _public_event_data(event: dict) -> dict:
     """@brief 证据行仅提供人物可见语义，私有状态保留在认证导出。
 
+    观察只提供原样保存的工具层、待办层、环境层与记忆层，不重新渲染；动作请求带人物回复正文 self_note。
     conclude_activity.memories 属于记忆写入：意图与 dreaming 窗口输入中的动作请求裁去 request.memories，
     只保留 task 与 summary；动作窗口的目标仍保留完整请求（docs/dev/SPEC-time-and-energy.md 第九章）。
     """
     data = event["data"]
     kind = event["event_type"]
     if kind == "observation":
-        scene = data.get("scene")
-        if isinstance(scene, dict):
-            scene = render_scene(scene)
-        return {"scene": scene} if isinstance(scene, str) else {}
-    if kind == "decision_started":
-        statement = data.get("decision_statement")
-        return {"decision_statement": statement} if isinstance(statement, str) else {}
+        return {key: data[key] for key in OBSERVATION_LAYER_KEYS if key in data}
     if kind == "action_requested":
-        public = {key: data[key] for key in ("tool_name", "request") if key in data}
+        public = {key: data[key] for key in ("tool_name", "request", "self_note") if key in data}
         if data.get("tool_name") == "conclude_activity" and isinstance(public.get("request"), dict):
             public["request"] = {key: value for key, value in public["request"].items() if key != "memories"}
         return public
@@ -202,8 +243,9 @@ def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory:
     )
     record["input"]["activity_boundaries"] = _activity_boundaries(expanded)
     prompt_event_id = record["provenance"].get("decision_prompt_event_id")
-    sources = allowed + ([prompt_event_id] if prompt_event_id else [])
-    record["provenance"]["source_event_ids"] = sources
+    layer_event_ids = [item["event_id"] for item in record["provenance"].get("decision_layer_sources", [])]
+    sources = allowed + ([prompt_event_id] if prompt_event_id else []) + layer_event_ids
+    record["provenance"]["source_event_ids"] = list(dict.fromkeys(sources))
     record["provenance"]["window_id"] = _window_identity(record["task"], record["input"])
 
 
@@ -213,43 +255,38 @@ def _window_identity(task: str, input_data: dict) -> str:
 
 
 def _expand_observed_results(events: list[dict], indexed: dict, cutoff: int) -> list[dict]:
-    """@brief 只解析当前可见观察明示暴露的先前动作结果。"""
+    """@brief 按观察 progress_event_ids 引用展开进度层呈现过的先前结果与环境事件。"""
     expanded = {event["event_id"]: event for event in events}
     for observation in events:
         if observation["event_type"] != "observation":
             continue
-        references = observation["data"].get("recent_action_results", [])
+        references = observation["data"].get("progress_event_ids", [])
         if not isinstance(references, list):
-            _invalid_observed_result("Observed action result references must be a list")
+            _invalid_observed_result("Observed progress event references must be a list")
         for reference in references:
             source = _validated_observed_result(observation, reference, indexed, cutoff)
-            expanded[source["event_id"]] = source
+            if source is not None:
+                expanded[source["event_id"]] = source
     return sorted(expanded.values(), key=lambda event: event["event_seq"])
 
 
-def _validated_observed_result(observation: dict, reference: object, indexed: dict, cutoff: int) -> dict:
-    """@brief 核对观察摘要与截止前同人物可见的权威结果。"""
+def _validated_observed_result(observation: dict, reference: object, indexed: dict, cutoff: int) -> dict | None:
+    """@brief 核对进度来源为截止前同人物可见的结果或环境事件；动作请求与私有来源不展开，返回 None。"""
     if observation["visibility"] != "agent" or observation["agent_id"] is None:
-        _invalid_observed_result("Observed action result source must be an agent-visible observation")
-    if not isinstance(reference, dict) or not isinstance(reference.get("event_id"), str):
-        _invalid_observed_result("Observed action result reference has no event identity")
-    source = indexed.get(reference["event_id"])
-    if (source is None or source["event_type"] != "action_result" or source["visibility"] != "agent"
+        _invalid_observed_result("Observed progress source must be an agent-visible observation")
+    if not isinstance(reference, str):
+        _invalid_observed_result("Observed progress reference has no event identity")
+    source = indexed.get(reference)
+    if source is None:
+        _invalid_observed_result("Observed progress reference does not resolve to an exported event")
+    if source["event_type"] in PRIVATE_EVENTS | {"action_requested"}:
+        return None
+    if (source["event_type"] not in PROGRESS_EVIDENCE_EVENTS or source["visibility"] != "agent"
             or source["agent_id"] != observation["agent_id"]):
-        _invalid_observed_result("Observed action result does not resolve to a visible same-agent result")
+        _invalid_observed_result("Observed progress source is not a visible same-agent result or event")
     if source["event_seq"] >= observation["event_seq"] or source["event_seq"] > cutoff:
-        _invalid_observed_result("Observed action result is outside the current knowledge cutoff")
-    if reference != _result_summary(source):
-        _invalid_observed_result("Observed action result summary disagrees with its canonical event")
+        _invalid_observed_result("Observed progress source is outside the current knowledge cutoff")
     return source
-
-
-def _result_summary(event: dict) -> dict:
-    """@brief 从权威动作结果重建人物观察中的精确摘要。"""
-    return {"event_id": event["event_id"], "action_id": event["action_id"],
-            "decision_id": event["decision_id"], "occurred_at": event["occurred_at"],
-            "status": event["data"].get("status"), "error_code": event["data"].get("error_code"),
-            "message": event["data"].get("message"), "result": event["data"]}
 
 
 def _invalid_observed_result(message: str) -> None:
@@ -261,12 +298,12 @@ def _invalid_observed_result(message: str) -> None:
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
     """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。
 
-    决策自述载体例外进入：dreaming 窗口可含当日 decision_started.data.
-    decision_statement 与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）；model_request/
-    model_response/memory_updated 仍排除，动作与意图窗口输入不变。
+    dreaming 输入读动作请求的 self_note 与实际行动请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）；
+    私有事件（含 decision_started、model_request、model_response、memory_updated）不作窗口事件。
     """
     zone = ZoneInfo(manifest["window"]["timezone"])
     days = defaultdict(list)
+    decisions = _decision_groups(events)
     for event in events:
         if (event["visibility"] == "agent" and event["agent_id"] is not None
                 and event["event_type"] not in DREAMING_PRIVATE_EVENTS):
@@ -281,6 +318,7 @@ def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed:
             result["input"].update(person_id=key[0], date=key[1])
             if mode == "counterfactual":
                 result["input"]["counterfactual"] = {"world_kind": "observed", "environment_replay": None}
+            _attach_decision_layers(result, rows, decisions)
             _attach_evidence(result, rows, indexed, directory)
             records.append(result)
     return records

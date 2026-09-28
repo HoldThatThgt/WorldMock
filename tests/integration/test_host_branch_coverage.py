@@ -56,7 +56,7 @@ from worldmock.runtime import (
     runtime_code_sha256,
 )
 from worldmock.status import read_status, write_status
-from worldmock.validation import validate_two_stage_model_identity
+from worldmock.validation import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2, write_project
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -317,7 +317,8 @@ def test_prepare_new_run_admits_scenario_and_logs_start(tmp_path):
     entry = json.loads(
         sorted((run_dir / "logs").glob("ops-*.jsonl"))[0].read_text().splitlines()[0])
     assert entry["code"] == "RUN_STARTED" and entry["run_id"] == "identity"
-    assert entry["two_stage_model_identity"]["stages"]["decision_statement"]["thinking"] == "disabled"
+    assert entry["stage_model_identity"]["stages"]["action"]["thinking"] == "enabled"
+    assert "two_stage_model_identity" not in entry
 
 
 def test_prepare_new_run_rejects_identity_mismatch(tmp_path):
@@ -349,7 +350,8 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
     workspace.mkdir()
     agent = agent_document if agent_document is not None else {
         "schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1,
-        "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None}
+        "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None,
+        "profile": {"id": 1, "same_second_continuation": True}}
     config = config_document if config_document is not None else {"enable_memory": True, "max_react_turns": 16}
     if "AGENT.json" not in missing:
         (workspace / "AGENT.json").write_text(
@@ -362,12 +364,12 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
 
 def _parent_store(tmp_path, workspace_builder=None, snapshots_override=None):
     """建立带可恢复检查点的父运行（当前模型/代码身份）。"""
-    from worldmock.runtime import two_stage_model_identity
+    from worldmock.runtime import stage_model_identity
 
     semantics, scenario_sha256 = load_runtime_scenario(SCENARIO)
     manifest = {"schema_version": 1, "run_id": "parent", "agent_ids": [1],
                 "model_identity": _model_identity().model_dump(mode="json"),
-                "two_stage_model_identity": two_stage_model_identity(),
+                "stage_model_identity": stage_model_identity(),
                 "code_sha256": runtime_code_sha256(ROOT),
                 "scenario_sha256": scenario_sha256,
                 **category_identity(semantics)}
@@ -443,15 +445,16 @@ def test_prepare_resume_counterfactual_binds_intervention(tmp_path):
 
 def test_require_runtime_identity_rejects_diverged_manifest(tmp_path, monkeypatch):
     """父清单模型或代码身份（含实际导入的 AS2）偏离时拒绝恢复；git_commit 与 git_dirty 只记录，不参与比对。"""
-    from worldmock.runtime import two_stage_model_identity
+    from worldmock.runtime import stage_model_identity
 
     parent, _checkpoint = _parent_store(tmp_path)
     parent.close()
-    wrong_model = {"model_identity": {"provider": "other"}, "code_sha256": "0" * 64}
+    wrong_model = {"model_identity": {"provider": "other"}, "stage_model_identity": stage_model_identity(),
+                   "code_sha256": "0" * 64}
     with pytest.raises(IntegrityError, match="model identity differs"):
         _require_runtime_identity(wrong_model, ROOT)
     current = {"model_identity": _model_identity().model_dump(mode="json"),
-               "two_stage_model_identity": two_stage_model_identity()}
+               "stage_model_identity": stage_model_identity()}
     with pytest.raises(IntegrityError, match="code identity differs"):
         _require_runtime_identity({**current, "code_sha256": "0" * 64}, ROOT)
     parent_code = runtime_code_sha256(ROOT)
@@ -605,16 +608,20 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     monkeypatch.setattr(
         direct_env_actor, "get_direct_env_actor_class",
         lambda: Namespace(remote=lambda spec: (captured.__setitem__("spec", spec), "actor")[1]))
-    card = Namespace(tastes=Namespace(content_genres=("剧情",)))
-    monkeypatch.setattr(runtime, "_persona_payload", lambda agent: ("卡片文本", card))
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+
+    card = make_card(tastes=Tastes(content_genres=("剧情",), food_preferences=(), media=()))
+    monkeypatch.setattr(runtime, "_compile_persona", lambda agent: card)
 
     actor, society = _build_society(SimpleNamespace(
-        project_root=ROOT, run_dir=tmp_path / "run", run_id="identity", env_kwargs={},
+        project_root=ROOT, run_dir=tmp_path / "run", run_id="identity",
+        env_kwargs={"create_options": {"same_second_continuation": True}},
         scenario_path=SCENARIO, scenario=scenario, workspace_mode="create",
-        start_time=scenario.start_at))
+        start_time=scenario.start_at, same_second_continuation=True))
     assert actor == "actor"
     assert society is not None
-    weights = captured["spec"].env_kwargs["LifeEnv"]["agent_taste_weights"]
+    weights = captured["spec"].env_kwargs["LifeEnv"]["create_options"]["agent_taste_weights"]
     assert set(weights) == {agent.agent_id for agent in scenario.agents}
     for row in weights.values():
         assert row and set(row) == {item.item_id for item in scenario.contents}
@@ -636,20 +643,20 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
     monkeypatch.setattr("agentsociety2.registry.scan_and_register_custom_modules", original)
 
 
-def test_persona_payload_skips_and_renders(tmp_path, monkeypatch):
-    """无背景故事返回空；有故事经编译与渲染产出卡片文本。"""
+def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
+    """无背景故事不编译；有故事经编译得到卡片，渲染文本取自同一张卡片。"""
     from worldmock.profile import compile as compile_module
     from worldmock.profile import textgen as textgen_module
     import worldmock.runtime as runtime
 
     quiet = SimpleNamespace(background_story=None)
-    assert runtime._persona_payload(quiet) == (None, None)
     assert runtime._compile_persona(quiet) is None
     card = SimpleNamespace()
     monkeypatch.setattr(compile_module, "compile_persona", lambda story: SimpleNamespace(card=card))
     monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
-    assert runtime._persona_payload(story_agent) == ("rendered-card", card)
+    assert runtime._compile_persona(story_agent) is card
+    assert runtime._render_card(card) == "rendered-card"
 
 
 # ---------------------------------------------------------------------------
@@ -729,9 +736,13 @@ def test_parse_contact_reply_accepts_single_choice_text_only():
 
 
 def test_prepare_contact_reply_builds_disabled_thinking_request():
-    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限。"""
+    """联系人回复请求独立成调用：thinking 关闭、无工具、无重试、reasoning 上限；载荷带双方往来与对方收到的物品。"""
+    from worldmock.life.social import ReceivedItem, ReplyHistoryEntry
+
+    history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
+    received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="11:05"),)
     request = SimpleNamespace(contact_id="contact-1", incoming_text="周五晚上一起吃饭？",
-                              max_chars=200)
+                              max_chars=200, history=history, received=received)
     payload = prepare_contact_reply(request, None, "deepseek-flash")
     assert payload["model"] == "deepseek-flash"
     assert payload["extra_body"] == {"thinking": {"type": "disabled"}}
@@ -741,6 +752,8 @@ def test_prepare_contact_reply_builds_disabled_thinking_request():
     body = json.loads(payload["messages"][1]["content"])
     assert body["contact"] == {"contact_id": "contact-1"}
     assert body["incoming_message"] == "周五晚上一起吃饭？"
+    assert body["history"] == [{"speaker": "陈曦", "time": "10:00", "text": "在吗"}]
+    assert body["received"] == [{"item": "牛肉炒面", "quantity": "1 份", "time": "11:05"}]
     assert body["reply_char_limit"] == 200
     profile = {"contact_id": "contact-1", "salutation": "老陈", "relation": "old_friend",
                "closeness": 0.8, "channels": ["wechat"]}
@@ -772,7 +785,7 @@ class _ReplyEvent:
 def test_pending_reply_requests_deduplicate_settled_replies():
     """pending 扫描只保留尚未回复的请求（幂等去重）。"""
     request = {"contact_id": "contact-1", "reply_to_message_id": "message-1",
-               "recipient_id": "agent:1", "incoming_text": "在吗？"}
+               "recipient_id": "agent:1", "incoming_text": "在吗？", "history": [], "received": []}
     second = dict(request, reply_to_message_id="message-2")
     events = [
         _ReplyEvent("model_npc_reply_pending", {"request": request}),
@@ -1031,23 +1044,19 @@ def test_read_status_decision_boundaries(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_two_stage_identity_rejects_retries_and_reasoning_effort():
-    """两阶段一致性：重试非零与发送 reasoning_effort 均拒绝。"""
-    identity = {"provider": "deepseek", "base_url": "https://api.deepseek.com",
-                "requested_model": "deepseek-flash", "max_retries": 0, "strict": True,
-                "reasoning_effort": None,
-                "stages": {"decision_statement": {}, "action": {}, "work_review": {}}}
-    from worldmock.runtime import two_stage_model_identity
+def test_stage_identity_rejects_retries_and_reasoning_effort():
+    """阶段身份一致性：重试非零与发送 reasoning_effort 均拒绝。"""
+    from worldmock.runtime import stage_model_identity
 
-    actual = two_stage_model_identity()
+    actual = stage_model_identity()
     retries = copy_dict(actual)
     retries["max_retries"] = 2
     with pytest.raises(IntegrityError, match="max_retries"):
-        validate_two_stage_model_identity(retries)
+        validate_stage_model_identity(retries)
     reasoning = copy_dict(actual)
     reasoning["reasoning_effort"] = "high"
     with pytest.raises(IntegrityError, match="reasoning_effort"):
-        validate_two_stage_model_identity(reasoning)
+        validate_stage_model_identity(reasoning)
 
 
 def copy_dict(value):
@@ -1446,7 +1455,7 @@ async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspa
     """生产配置经检查点恢复后，由实际 LifeAgent.restore 读文件得到十六回合预算。"""
     from custom.agents.life_agent import LifeAgent
     from worldmock.life.scenario import load_scenario
-    from worldmock.runtime import _agent_specs, two_stage_model_identity
+    from worldmock.runtime import _agent_specs, stage_model_identity
 
     scenario, _ = load_scenario(SCENARIO)
     spec = _agent_specs(scenario, persona_compiler=lambda _: None)[0]
@@ -1466,7 +1475,7 @@ async def test_restored_life_agent_reads_the_frozen_budget_from_its_real_workspa
         service = SimpleNamespace(env=SimpleNamespace(), trace=None,
                                   llm=SimpleNamespace(default=SimpleNamespace(model_name="offline-model")))
         agent = await LifeAgent.from_workspace(workspace, service)
-        assert agent._max_react_turns == two_stage_model_identity()["max_react_turns"] == 16
+        assert agent._max_react_turns == stage_model_identity()["max_react_turns"] == 16
         assert agent._config["max_react_turns"] == 16
         assert json.loads((workspace / "config.json").read_text())["max_react_turns"] == 16
     finally:
@@ -1526,11 +1535,11 @@ def test_cli_dispatch_routes_run_command(tmp_path, monkeypatch):
     assert json.loads((output / "status.json").read_text())["status"] == "completed"
 
 
-def test_two_stage_identity_requires_strict_declarations():
-    """两阶段一致性：strict 声明缺失即拒绝。"""
-    from worldmock.runtime import two_stage_model_identity
+def test_stage_identity_requires_strict_declarations():
+    """阶段身份一致性：strict 声明缺失即拒绝。"""
+    from worldmock.runtime import stage_model_identity
 
-    relaxed = copy_dict(two_stage_model_identity())
+    relaxed = copy_dict(stage_model_identity())
     relaxed["strict"] = False
     with pytest.raises(IntegrityError, match="strict=true"):
-        validate_two_stage_model_identity(relaxed)
+        validate_stage_model_identity(relaxed)

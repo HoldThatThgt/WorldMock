@@ -69,3 +69,39 @@ python -m pytest -q tests/tools/test_run_viewer.py
 最终审查基线和恢复后测试均为 51 项通过；调用工作树和审查工作树均位于 `0c79d17`，
 差异及完整状态为空。两轮完整审查报告与浏览器证据保存在本地
 `.work/verification/viewer-context/`，此目录不进入版本控制。
+
+## 人物 Prompt 七层实现后复验
+
+[查看器上下文规格](SPEC-run-viewer-context.md)按[人物 Prompt 规格](SPEC-persona-prompt.md)「冻结条款修订」第 28 行修订后（人物 Prompt 台账 RV1），
+查看器随该特性改写（`tools/run-viewer-context.js`、`tools/run-viewer-context-view.js`、`tools/run-viewer.html`），本节是实施台账 RV3 的复验记录。
+被测源码为特性最终代码 `f798ea7`（与 `da0d393` 的查看器与测试文件逐字节相同）；逐条证据与全量门禁见
+[人物 Prompt 验收记录](persona-prompt-verification.md)。
+
+本机没有安装 Node.js：以 VS Code 自带的 Electron 作 Node 运行（`ELECTRON_RUN_AS_NODE=1`，版本 v24.20.0，含 `node:sqlite`），
+经一个 `node.cmd` 垫片放进 `PATH`。命令与结果：
+
+| 命令 | 结果 |
+| --- | --- |
+| `node --test tests/tools/run_viewer.test.cjs` | 36 项全部通过 |
+| `node --test tests/tools/run_viewer_context.test.cjs` | 22 项全部通过 |
+| `python -m pytest -q tests/tools/test_run_viewer.py` | 1 passed（包装门禁执行同样的真实 JavaScript 与 SQLite 测试） |
+
+特性全量测试（4258 个不重复用例 passed、0 failed）同样经这一垫片运行查看器回归。`run_viewer_context.test.cjs` 读取源文件时把 `\r\n` 归一为 `\n`，本机 `core.autocrlf=true` 的工作副本不再因行尾导致模板抽取失败（实施前基线上查看器回归因缺 Node 与行尾失败）。
+
+复验覆盖的行为（夹具 `tests/fixtures/viewer-context.json` 含一份七层行动请求、一份续接形状的请求与旧运行的自述、行动请求各一份）：
+
+- 行动请求只按「system 为 JSON 且 `layer` 为系统层、另有工具数组」识别；查看器的生活系统层与宿主 `LIFE_SYSTEM_LAYER`、夹具中的系统层逐字相同。
+- 首个 user 按顶层数组无损切片为工具层、人设层、记忆层、待办层、环境层、进度层；字符串中的括号、逗号与转义引号不产生额外切片；
+  层序错误、缺层、切片不可解析、首尾有多余空白，或首个 user 是结构化内容、消息带多余字段时显示为未解析并保留完整原文；语义解析定位首个 user，
+  不假定它在第二条消息。
+- 工具层逐目标列出动作与工具及其可用性；进度层按真实记录字段下钻，`self_note` 标「未经核验」。
+- 首个请求多于两条消息时判为续接：六层照常切片，追加的消息整块显示；带来源的首个请求列出来源决策与回传的思考，各只一次；
+  续接前缀中由更早决策写下的回复正文同样标「未经核验」。
+- 旧运行的决策自述请求保持「其他调用·未解析」；旧行动请求按原模板识别并以「来源未核验」的推断分段，正文恰好含模板标题时仍是推断或退回未解析。
+- 显式空工具保留，缺省工具不补占位；Unicode 字符合计每条消息只计一次；请求外壳畸形时保留归档原文、不捏造消息；
+  同长异文的层变化与新增、退出按稳定身份区分并保留前后完整版本；每条解析规则都存在，增长视图保留明确来源与步骤。
+
+未复验的部分：规格「验证与边界」要求的真实日运行七层请求核对与桌面、窄屏浏览器检查没有执行——本特性的真实复验（实施计划阶段 7）
+需要用户的模型账号，本机没有七层真实运行的数据库；查看器改写后的 Uncle Bob 语义变异审查也没有另行执行（人物 Prompt 特性的独立突变审查
+针对环境、宿主与导出，见验收记录）。上文「实际运行验证」与「Uncle Bob 语义变异审查」两节描述的是修订前的查看器与 `2026-09-28-c9a4fc1-day-r3`
+的两阶段请求，保留原身份。

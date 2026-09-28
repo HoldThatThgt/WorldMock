@@ -33,7 +33,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention, StartActivityRequest
+from worldmock.life.models import CounterfactualIntervention
 from worldmock.runtime import (
     AS2_LOCKED_SOURCE_SHA256,
     CounterfactualRequest,
@@ -54,9 +54,9 @@ from worldmock.runtime import (
     resume_world,
     run_world,
     runtime_code_sha256,
-    two_stage_model_identity,
+    stage_model_identity,
 )
-from worldmock.validation import validate_project, validate_two_stage_model_identity
+from worldmock.validation import validate_project, validate_stage_model_identity
 
 ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
@@ -87,71 +87,74 @@ def test_model_identity_top_level_tracks_life_agent_action_constants() -> None:
     assert identity.tool_choice == ACTION_TOOL_CHOICE
 
 
-def test_two_stage_model_identity_shape_matches_life_agent_constants() -> None:
-    """两阶段身份：决策自述/行动/工作验收参数与 LifeAgent 常量单一事实源一致。"""
+def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
+    """阶段身份只有行动与工作验收两个阶段，行动参数与 LifeAgent 常量单一事实源一致。"""
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
         ACTION_MAX_TOKENS,
-        DECISION_STATEMENT_MAX_TOKENS,
-        DECISION_STATEMENT_TEMPERATURE,
     )
 
-    identity = two_stage_model_identity()
+    identity = stage_model_identity()
     stages = identity["stages"]
 
-    assert stages["decision_statement"] == {"thinking": "disabled", "temperature": DECISION_STATEMENT_TEMPERATURE,
-                                   "max_tokens": DECISION_STATEMENT_MAX_TOKENS, "tools": None,
-                                   "tool_choice": None}
+    assert set(stages) == {"action", "work_review"}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
-                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS}
+                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS,
+                                "same_second_continuation": True}
+    assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
     assert identity["base_url"] == "https://api.deepseek.com"
     assert identity["max_retries"] == 0 and identity["strict"] is True
     assert identity["reasoning_effort"] is None
 
 
-def test_two_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
-    """两阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
-    identity = two_stage_model_identity()
+def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
+    """阶段身份运行中不变更；任何篡改被一致性校验拒绝。"""
+    identity = stage_model_identity()
 
-    assert two_stage_model_identity() == identity
-    validate_two_stage_model_identity(identity)
+    assert stage_model_identity() == identity
+    validate_stage_model_identity(identity)
 
     tampered = copy.deepcopy(identity)
-    tampered["stages"]["decision_statement"]["temperature"] = 0.7
-    with pytest.raises(IntegrityError, match="decision_statement"):
-        validate_two_stage_model_identity(tampered)
+    tampered["stages"]["action"]["max_tokens"] = 4000
+    with pytest.raises(IntegrityError, match="stage action"):
+        validate_stage_model_identity(tampered)
 
     wrong_endpoint = copy.deepcopy(identity)
     wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
     with pytest.raises(IntegrityError, match="base_url"):
-        validate_two_stage_model_identity(wrong_endpoint)
+        validate_stage_model_identity(wrong_endpoint)
 
     reasoning = copy.deepcopy(identity)
     reasoning["reasoning_effort"] = "high"
     with pytest.raises(IntegrityError, match="reasoning_effort"):
-        validate_two_stage_model_identity(reasoning)
+        validate_stage_model_identity(reasoning)
 
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
-    """新建运行注入 PersonaCard 渲染文本；恢复模式不重新编译。"""
+    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境）；恢复模式不重新编译。"""
+    from tests.profile.conftest import make_card
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.models import persona_card_struct
+    from worldmock.profile.textgen import render_card
 
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
     compiled: list[int] = []
+    card = make_card()
 
     def fake_compiler(agent):
         compiled.append(agent.agent_id)
-        return "卡片文本" if agent.background_story else None
+        return card if agent.background_story else None
 
     specs = _agent_specs(scenario, persona_compiler=fake_compiler)
 
-    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert specs[0]["profile"]["persona_card"] == render_card(card)
+    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(card)
     assert specs[0]["config"]["max_react_turns"] == 16
     assert compiled == [1]
     restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
-    assert "persona_card" not in restored[0]["profile"]
+    assert "persona_card" not in restored[0]["profile"] and "persona_card_struct" not in restored[0]["profile"]
     assert restored[0]["config"]["max_react_turns"] == 16
 
 
@@ -163,6 +166,7 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
         "agent_class": "LifeAgent",
         "agent_id": 1,
         "initialized_at": "2026-01-01T00:00:00+00:00" if initialized else None,
+        "profile": {"id": 1, "same_second_continuation": True},
     }
     (workspace / "AGENT.json").write_text(json.dumps(agent))
     (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
@@ -679,7 +683,8 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
     scenario, _ = load_scenario(scenario_path)
     prepared = SimpleNamespace(project_root=tmp_path, run_dir=tmp_path / "run", env_kwargs={},
                                scenario_path=scenario_path, scenario=scenario,
-                               workspace_mode="restore", start_time=scenario.start_at)
+                               workspace_mode="restore", start_time=scenario.start_at,
+                               same_second_continuation=True)
 
     with pytest.raises(RuntimeError, match="router construction failed"):
         _build_society(prepared)
@@ -706,7 +711,7 @@ class _StubContactReplyClient:
 def _npc_delivery_engine(tmp_path: Path):
     """建立隔离运行的 LifeEngine 与裸 LifeEnv 包装（采纳点=commit 后结算）。"""
     from agentsociety2.society import DecisionContext, DirectToolCall
-    from tests.life.conftest import context
+    from tests.life.conftest import context, start_request
     from worldmock.life.engine import LifeEngine
 
     scenario_path = Path("scenarios/white-collar-12-weeks.json")
@@ -776,6 +781,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
     engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
     try:
         from custom.envs.life_env import LifeEnv
+        from tests.life.conftest import start_request
 
         env = LifeEnv()
         env.engine = engine
@@ -784,7 +790,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         await env.observe(ctx)
         await env.submit_action(DirectToolCall(
             ctx, "action-npc-noop", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+            start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
 
         import worldmock.runtime as runtime_module
 
@@ -872,7 +878,7 @@ async def test_life_env_checkpoint_plans_the_start_day_after_the_initial_checkpo
         assert order.index("checkpoint_created") < order.index("day_plan_generated")
         assert not {"observation", "decision_started", "memory_updated"} & set(order)
         assert {path: (Path(path) / "AGENT.json").read_bytes() for _, path in request.agent_workspaces} == before
-        assert set(two_stage_model_identity()["stages"]) == {"decision_statement", "action", "work_review"}
+        assert set(stage_model_identity()["stages"]) == {"action", "work_review"}
         _forbid_plan_day_client(monkeypatch)
         await env.checkpoint(_checkpoint_request(engine, tmp_path, "again"))
     finally:
@@ -1121,15 +1127,19 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     from worldmock.life.scenario import load_scenario
     from worldmock.profile.taste import compute_taste_weights
 
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+    from worldmock.profile.textgen import render_card
+
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
-    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=("剧情", "科幻")))
+    card = make_card(tastes=Tastes(content_genres=("剧情", "科幻"), food_preferences=(), media=()))
     compiled: list[int] = []
 
-    def fake_payload(agent):
+    def fake_compile(agent):
         compiled.append(agent.agent_id)
-        return "卡片文本", card
+        return card
 
-    monkeypatch.setattr(runtime_module, "_persona_payload", fake_payload)
+    monkeypatch.setattr(runtime_module, "_compile_persona", fake_compile)
     genres = {item.item_id: ("剧情",) for item in scenario.contents}
     full, half, empty = (item.item_id for item in scenario.contents[:3])
     genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
@@ -1142,7 +1152,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
          for item in scenario.contents])
     assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert specs[0]["profile"]["persona_card"] == render_card(card)
     assert weights == expected
     assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
 
@@ -1152,9 +1162,12 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
 
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
-    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=()))
-    monkeypatch.setattr(runtime_module, "_persona_payload", lambda agent: ("卡片文本", card))
+    card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
+    monkeypatch.setattr(runtime_module, "_compile_persona", lambda agent: card)
 
     specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
                                                    for item in scenario.contents})
@@ -1172,12 +1185,13 @@ def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
     def forbidden(agent):
         raise AssertionError("restore path must not compile personas or tastes")
 
-    monkeypatch.setattr(runtime_module, "_persona_payload", forbidden)
+    monkeypatch.setattr(runtime_module, "_compile_persona", forbidden)
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
 
     assert "persona_card" not in specs[0]["profile"]
+    assert "persona_card_struct" not in specs[0]["profile"]
     assert "taste_weights" not in specs[0]["profile"]
 
 

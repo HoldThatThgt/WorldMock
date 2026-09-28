@@ -1,4 +1,5 @@
-"""社交最小可行版纯函数域的独立测试（docs/dev/SPEC-life-runtime.md「社交最小可行版」）。"""
+"""社交最小可行版纯函数域的独立测试（docs/dev/SPEC-life-runtime.md「社交最小可行版」），以及人物目标在真实观察
+工具层中的列法与环境按私有绑定解析名称（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
 
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ from worldmock.life.social import (
     can_talk,
     finalize_model_reply,
     model_reply_request,
+    ReceivedItem,
+    ReplyHistoryEntry,
     needs_reply,
     people_here,
     send_message,
@@ -178,8 +181,11 @@ def test_template_reply_is_placeholder_with_model_npc_source() -> None:
 
 
 def test_model_reply_request_and_finalize_validate_200_chars() -> None:
-    """model 策略产出独立调用请求；回复文本 200 汉字边界并标记 model_npc。"""
-    request = model_reply_request(_incoming())
+    """model 策略产出独立调用请求（带双方往来与对方收到的物品）；回复文本 200 汉字边界并标记 model_npc。"""
+    history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
+    received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="10:40"),)
+    request = model_reply_request(_incoming(), history, received)
+    assert (request.history, request.received) == (history, received)
     assert request.thinking == "disabled"
     assert request.max_chars == 200
     assert request.reply_to_message_id == "m-9"
@@ -192,58 +198,55 @@ def test_model_reply_request_and_finalize_validate_200_chars() -> None:
         finalize_model_reply(request, "好" * 201, "r-3", 1600)
 
 
-def _identity_bindings() -> dict:
-    """构造本轮人名与联系人名称的公开对象行与私有身份绑定；本轮没有活动，活动绑定为空（规格第七章「私有绑定」）。
+def _people_seen(engine_factory):
+    """双人场景运行开始时人物 1 的真实观察：同处一地的同伴与通讯录联系人都是工具层 person 目标。"""
+    from tests.life.conftest import context, stage_day_plan
 
-    同场人物只列交谈、通话只对通讯录联系人开放（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）；
-    公开行为 {object, actions: [{action: 「动词：方式」, note}]}，私有绑定逐项记动词、方式与内部标准动作。
-    """
-    people = (("李凡", "person", "agent:2", "交谈", "chat"), ("妈妈", "contact", "contact-mother", "通话", "call"))
-    return {
-        "facts": {"day_plan": None, "progress": {"sessions": [], "results": [], "alarms": []},
-                  "interactive_objects": [{"object": name, "actions": [{"action": f"interact：{way}", "note": None}]}
-                                          for name, _, _, way, _ in people]},
-        "interaction_bindings": [
-            {"object": name, "kind": kind, "object_id": identity,
-             "actions": [{"verb": "interact", "label": way, "canonical_action": canonical,
-                          "travel_mode": None, "note": None}]}
-            for name, kind, identity, way, canonical in people
-        ],
-        "task_bindings": [], "session_bindings": [], "goal_bindings": [], "activity_bindings": [],
-    }
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    observed = engine.observe(context(engine, "people-seen"))
+    people = [row for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
+    return engine, observed, people
 
 
-def test_message_recipients_come_from_current_observation_identities() -> None:
-    """send_message 只接受本轮可见人物与联系人名称。"""
-    from custom.agents.life_agent import _validate_prepared_action, _visible_action_contracts
+def test_message_recipients_come_from_current_observation_identities(engine_factory) -> None:
+    """send_message 的对象是本轮工具层的人物目标：同处的同伴（「人物：」）与通讯录联系人（「联系人：」）各带可用的
+    send_message；环境按本轮私有绑定解析名称，列出的名称送达，未列出的以 RECIPIENT_NOT_FOUND 业务拒绝。同伴在第一轮
+    开始睡觉，此后只有人物 1 在同一秒继续决策。"""
+    from tests.life.conftest import start_activity, submit_round
     from worldmock.life.models import SendMessageActionRequest
 
-    contracts = _visible_action_contracts(_identity_bindings())
-    assert contracts["recipient_names"] == ("李凡", "妈妈")
-    for name in contracts["recipient_names"]:
-        request = SendMessageActionRequest(recipient_name=name, text="周末见面吗")
-        assert _validate_prepared_action("send_message", request, {}, contracts) == ""
-    ghost = SendMessageActionRequest(recipient_name="陌生人", text="在吗")
-    assert _validate_prepared_action("send_message", ghost, {}, contracts) != ""
-    empty = _identity_bindings()
-    empty["interaction_bindings"] = []
-    assert _visible_action_contracts(empty)["recipient_names"] == ()
+    engine, observed, people = _people_seen(engine_factory)
+    friend = next(item.name for item in engine.state.agents.values() if item.agent_id != 1)
+    salutations = [item.salutation for item in engine.scenario.agents[0].contacts]
+    assert [row["name"] for row in people] == [f"人物：{friend}", *(f"联系人：{name}" for name in salutations)]
+    assert all(row["tools"] == [{"tool": "send_message", "available": True, "reason": None}] for row in people)
+    kinds = {row["object"]: row["kind"] for row in observed["interaction_bindings"]}
+    assert [kinds[row["name"]] for row in people] == ["person", *("contact" for _ in salutations)]
+    for index, name in enumerate([people[0]["name"], people[-1]["name"], "人物：陌生人"]):
+        requests = {1: ("send_message", SendMessageActionRequest(recipient_name=name, text="周末见面吗"))}
+        if index == 0:
+            requests[2] = ("start_activity", start_activity("睡觉", "自己"))
+        _, results = submit_round(engine, requests, f"recipient-{index}")
+        result = next(item for item in results if item.agent_id == 1)
+        expected = ("rejected", "RECIPIENT_NOT_FOUND") if name == "人物：陌生人" else ("completed", None)
+        assert (result.status, result.error_code) == expected, name
 
 
-def test_social_partners_pair_kind_with_identity_source() -> None:
-    """交谈与通话由对象本轮动作闭集配对，不能交换对象的方式；动词须与方式一致（第五章「请求形状与菜单」）。"""
-    from custom.agents.life_agent import (_validate_prepared_action, _visible_action_contracts,
-                                          _visible_interactive_objects)
-    from worldmock.life.models import StartActivityRequest
+def test_social_partners_pair_kind_with_identity_source(engine_factory) -> None:
+    """交谈与通话由对象本轮动作闭集配对：同伴只列 interact:交谈，联系人只列 interact:通话；环境按私有绑定解析选择，
+    交换方式、未列出的对象或与方式不符的动词都解析不出（受理以 ACTION_REQUEST_INVALID 拒绝，第五章「请求形状与菜单」）。"""
+    from worldmock.life.interaction_menu import resolve_selection
 
-    data = _identity_bindings()
-    contracts = _visible_action_contracts(data)
-    objects = _visible_interactive_objects(data)
-    assert objects == {"李凡": (("interact", "交谈", "chat"),), "妈妈": (("interact", "通话", "call"),)}
-    for target, way in (("李凡", "交谈"), ("妈妈", "通话")):
-        request = StartActivityRequest(targets=[target], actions=["interact"], ways=[way])
-        assert _validate_prepared_action("start_activity", request, objects, contracts) == ""
-    for target, verb, way in (("妈妈", "interact", "交谈"), ("李凡", "interact", "通话"),
-                              ("陌生人", "interact", "交谈"), ("李凡", "obtain", "交谈")):
-        request = StartActivityRequest(targets=[target], actions=[verb], ways=[way])
-        assert _validate_prepared_action("start_activity", request, objects, contracts) != ""
+    _, observed, people = _people_seen(engine_factory)
+    person, contact = people[0]["name"], people[-1]["name"]
+    offered = {row["name"]: [(item["action"], item["way"]) for item in row["actions"]] for row in people}
+    assert offered[person] == [("interact", "交谈")] and offered[contact] == [("interact", "通话")]
+    bindings = observed["interaction_bindings"]
+    for target, way, canonical in ((person, "交谈", "chat"), (contact, "通话", "call")):
+        (row,) = resolve_selection(bindings, [target], ["interact"], [way])
+        assert row["selected_action"]["canonical_action"] == canonical
+    for target, verb, way in ((contact, "interact", "交谈"), (person, "interact", "通话"),
+                              ("人物：陌生人", "interact", "交谈"), (person, "obtain", "交谈")):
+        assert resolve_selection(bindings, [target], [verb], [way]) is None

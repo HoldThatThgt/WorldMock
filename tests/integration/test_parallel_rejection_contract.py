@@ -16,10 +16,10 @@ from custom.agents.life_menu import menu_action_error
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _decide
 from tests.integration.test_life_agent_protocol import _WAIT_CHOICE, _offer, _visible_object
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan  # noqa: F401
+from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
+                                 start_arguments)  # noqa: F401
 from worldmock.life import prompt_capacity
 from worldmock.life.interaction_menu import InteractionMenu, resolve_selection
-from worldmock.life.models import StartActivityRequest
 
 _MILK = "便利店出售的牛奶"
 #: 本轮私有绑定：游戏的游玩与观看、内容的接着看、供给的远程下单都在只含等待与睡觉的菜单之外。
@@ -27,7 +27,7 @@ _BINDINGS = [binding for _, binding in (
     _visible_object("自己", "self", "self", _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep")),
     _visible_object("游戏：象棋", "game", "game-1", _offer("interact", "游玩", "play")),
     _visible_object("游戏：象棋直播", "game", "stream-1", _offer("interact", "观看", "watch")),
-    _visible_object("内容：纪录片", "content", "content-1", _offer("interact", "接着看", "watch", "全长约1小时")),
+    _visible_object("内容：纪录片", "content", "content-1", _offer("interact", "接着看", "watch")),
     _visible_object(_MILK, "supply", "supply-1", _offer("obtain", "远程下单", "purchase", fulfillment="delivery")),
 )]
 _MENU = InteractionMenu(allowed_actions=("sleep", "wait"))
@@ -36,7 +36,7 @@ _DENIED = "interaction menu denies start_activity"
 
 def _menu_error(targets: list[str], actions: list[str], ways: list[str]) -> str:
     """按本轮私有绑定解析所选各项的内部动作，再由冻结的地点菜单判定整组。"""
-    request = StartActivityRequest(targets=targets, actions=actions, ways=ways)
+    request = start_request(targets=targets, actions=actions, ways=ways)
     selected = resolve_selection(_BINDINGS, request.targets, request.actions, request.ways)
     assert selected is not None
     return menu_action_error(_MENU, "start_activity",
@@ -77,8 +77,8 @@ def _world(engine) -> tuple:
 async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_person(
         _engine_factory, monkeypatch, drive_first: bool) -> None:  # noqa: F811
     """@brief 人物经真实工具面同时选驾车去办公室与游玩（都占眼和手）：整组以 RESOURCE_CONFLICT 拒绝，与组内先后
-    无关，两项都不开始，位置、余额、库存不变；同一秒的下一轮观察在进度层与「刚才」写明原因与下一步，并进入发给
-    人物模型的内容（原因与下一步不含内部身份）。"""
+    无关，两项都不开始，位置、余额、库存不变；同一秒的下一轮观察在进度层该调用的结果里写明原因与下一步，并进入
+    发给人物模型的内容（原因与下一步不含内部身份）。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -94,7 +94,7 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     targets, actions, ways = (list(column) for column in zip(*(pair if drive_first else pair[::-1])))
     before = _world(engine)
     await _decide(environment, first, observed, "start_activity",
-                  {"targets": targets, "actions": actions, "ways": ways})
+                  start_arguments(targets, actions, ways))
     [result] = engine.commit_decision_round(first.round_id)
 
     assert (result.status.value, result.error_code) == ("rejected", "RESOURCE_CONFLICT")
@@ -107,10 +107,11 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     second = context(engine, "conflict-explained")
     engine.begin_decision_round([second])
     shown = await environment.observe(second)
-    latest = shown["facts"]["progress"]["results"][-1]
-    assert latest["error_code"] == "RESOURCE_CONFLICT"
-    assert (latest["details"]["reason"], latest["details"]["next_step"]) == (reason, next_step)
-    assert shown["scene"]["just_now"] == f"刚才的请求没有成功：{reason}；下一步：{next_step}。"
+    latest = [event for event in shown["progress_layer"]["events"] if event["type"] == "tool_call"][-1]
+    assert (latest["tool"], latest["arguments"]) == ("start_activity",
+                                                     start_arguments(targets, actions, ways))
+    assert (latest["result"]["status"], latest["result"]["error_code"]) == ("rejected", "RESOURCE_CONFLICT")
+    assert (latest["result"]["details"]["reason"], latest["result"]["details"]["next_step"]) == (reason, next_step)
     requests = await _decide(environment, second, shown, "start_activity", _WAIT_CHOICE)
-    assert reason in requests[1]["messages"][1]["content"]
-    assert next_step in requests[1]["messages"][1]["content"]
+    assert reason in requests[0]["messages"][1]["content"]
+    assert next_step in requests[0]["messages"][1]["content"]

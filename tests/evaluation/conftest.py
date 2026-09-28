@@ -265,8 +265,10 @@ def _write_canonical(root: Path, scenario: dict[str, Any], run_id: str, hour: in
     if run_id == "human-run":
         manifest_path = root / "manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        manifest["artifacts"].pop("verified_experiences")
-        (root / "verified-experiences.jsonl").unlink()
+        manifest["schema_version"] = 1
+        for name, path in (("verified_experiences", "verified-experiences.jsonl"), ("purchases", "purchases.jsonl")):
+            manifest["artifacts"].pop(name)
+            (root / path).unlink()
         manifest_path.write_text(json.dumps(manifest))
     store.close()
 

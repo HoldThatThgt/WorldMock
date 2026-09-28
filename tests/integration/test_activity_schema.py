@@ -19,11 +19,12 @@ from pydantic import ValidationError
 
 from custom.agents.life_agent import LifeAgent, MemorySearchRequest
 from tests.integration.test_life_agent_protocol import (
-    _OBSERVED_AT, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
+    _OBSERVED_AT, _TASK, _WAIT, _add_objects, _memory, _observations, _offer, _visible_object, _with_activities,
 )
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.models import MeetingMinutes, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.work_review import WorkReviewResponse
+from tests.life.conftest import start_arguments
 
 
 _UNSUPPORTED_KEYS = {"oneOf", "minLength", "maxLength", "minItems", "maxItems", "default"}
@@ -41,7 +42,7 @@ def _prepared_agent(revise: bool = False) -> LifeAgent:
     _add_objects(data, _visible_object("同事", "person", "agent:9", _offer("interact", "交谈", "chat")))
     _with_activities(data, (_WAIT, PHASE_ACTIVE))
     if revise:
-        data["facts"]["day_plan"] = {"goals": []}
+        data["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
     agent = LifeAgent()
     agent.prepare_react_loop(ReactLoopRequest(0, _OBSERVED_AT, observations))
     return agent
@@ -93,39 +94,48 @@ def test_all_action_tools_use_closed_strict_schemas_from_one_model() -> None:
         assert schema["required"] == base["required"]
 
 
+def _host_error(tool: str, arguments: dict) -> str:
+    """宿主按本轮私有绑定对名称的本地校验结果（空串即通过）。"""
+    return _prepared_agent().validate_react_decisions([ReactDecision("", tool, arguments, "")], False)
+
+
 def test_start_activity_uses_readable_frozen_objects_and_paired_actions() -> None:
-    """模型只选择公开对象、动词和方式；并列动作逐项配对，动词取五个生活动词，方式取对象列出的短语（第五章）。"""
+    """模型只填可读对象、动词和方式三个等长数组；Schema 不带逐轮枚举，名称与（动词，方式）配对由宿主按私有绑定校验。"""
     schema = _function("start_activity")["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions", "ways"}
-    assert schema["required"] == ["targets", "actions", "ways"]
-    assert schema["properties"]["targets"]["items"]["enum"] == ["同事", "整理会议纪要", "自己"]
-    assert schema["properties"]["actions"]["items"]["enum"] == ["interact", "sleep"]
-    assert schema["properties"]["ways"]["items"]["enum"] == sorted(["交谈", "工作", "睡觉", "等待"])
+    assert schema == deepseek_strict_schema(REQUEST_MODELS["start_activity"])
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert schema["required"] == ["targets", "actions", "ways", "from", "to", "answering"]
+    assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     assert {"agent_id", "decision_id", "action_id", "target_id", "planned_duration_seconds",
             "price_fen", "price_version", "quantity", "travel_mode", "fulfillment"}.isdisjoint(schema["properties"])
-    valid = {"targets": ["自己", "整理会议纪要"], "actions": ["interact", "interact"], "ways": ["等待", "工作"]}
+    valid = start_arguments(["自己", _TASK], ["interact", "interact"], ["等待", "工作"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS["start_activity"].model_validate(valid)
-    for invalid in ({"targets": ["internal:task:1"], "actions": ["interact"], "ways": ["工作"]},
-                    {"targets": ["自己"], "actions": ["等待"], "ways": ["等待"]},
-                    {"targets": ["自己"], "actions": ["interact"], "ways": ["interact"]},
-                    {"targets": ["自己"], "actions": ["interact"]}):
-        assert list(Draft202012Validator(schema).iter_errors(invalid))
+    assert _host_error("start_activity", valid) == ""
+    assert _host_error("start_activity", start_arguments(["internal:task:1"], ["interact"], ["工作"])) == (
+        "start_activity target is not a visible interactive object")
+    for verb, way in (("等待", "等待"), ("interact", "interact"), ("sleep", "等待")):
+        assert _host_error("start_activity", start_arguments(["自己"], [verb], [way])) == (
+            "start_activity verb and way are not offered by the chosen target")
+    assert list(Draft202012Validator(schema).iter_errors({"targets": ["自己"], "actions": ["interact"]}))
     with pytest.raises(ValidationError):
         REQUEST_MODELS["start_activity"].model_validate({"targets": ["自己"], "actions": ["interact"]})
 
 
 @pytest.mark.parametrize("name", ["report_status", "pause_activity", "conclude_activity"])
 def test_activity_control_schemas_use_paired_readable_activity_and_summary(name: str) -> None:
-    """三条活动控制工具均逐项点名可读活动并写人物自述；只有结束工具另带逐项记忆（第七章）。"""
+    """三条活动控制工具均逐项点名可读活动并写人物自述；只有结束工具另带逐项记忆；活动名不做 Schema 枚举。"""
     schema = _function(name)["parameters"]
     expected = {"task", "summary", "memories"} if name == "conclude_activity" else {"task", "summary"}
     assert set(schema["properties"]) == expected
-    assert schema["properties"]["task"]["items"]["enum"] == [_WAIT]
+    assert "enum" not in schema["properties"]["task"]["items"]
     assert schema["properties"]["summary"]["items"]["type"] == "string"
     valid = _control_payload(name, [_WAIT], ["我还想等一会儿。"])
     assert list(Draft202012Validator(schema).iter_errors(valid)) == []
     REQUEST_MODELS[name].model_validate(valid)
+    assert _host_error(name, valid) == ""
+    assert _host_error(name, _control_payload(name, ["别的活动"], ["继续。"])) == (
+        f"{name} task names an activity that is not visible")
     for invalid in (_control_payload(name, [_WAIT], []),
                     _control_payload(name, [_WAIT, _WAIT], ["a", "b"]),
                     _control_payload(name, [_WAIT], [" "])):
@@ -134,17 +144,25 @@ def test_activity_control_schemas_use_paired_readable_activity_and_summary(name:
 
 
 def test_named_content_tools_bind_visible_names_and_inline_deliverable() -> None:
-    """工作与通讯保留正文生成，但身份字段采用可读名称。"""
+    """工作与通讯保留正文生成，身份字段是可读名称：不做 Schema 枚举，由宿主按任务、人物与回看绑定校验；会话名不在七层中
+    出现，不是回看名称。"""
     submit = _function("submit_work")["parameters"]
     message = _function("send_message")["parameters"]
     recall = _function("recall_task_summary")["parameters"]
     assert set(submit["properties"]) == {"task_name", "deliverable"}
-    assert submit["properties"]["task_name"]["enum"] == ["整理会议纪要"]
+    assert "enum" not in submit["properties"]["task_name"]
     assert submit["properties"]["deliverable"] == MeetingMinutes.model_json_schema(mode="validation")
     assert set(message["properties"]) == {"recipient_name", "text"}
-    assert message["properties"]["recipient_name"]["enum"] == ["同事"]
+    assert "enum" not in message["properties"]["recipient_name"]
     assert set(recall["properties"]) == {"task_name"}
-    assert {"整理会议纪要", _WAIT} <= set(recall["properties"]["task_name"]["enum"])
+    deliverable = {"summary": "要点。", "decisions": ["推进。"], "action_items": ["复盘。"]}
+    assert _host_error("submit_work", {"task_name": _TASK, "deliverable": deliverable}) == ""
+    assert _host_error("send_message", {"recipient_name": "同事", "text": "在吗"}) == ""
+    assert _host_error("send_message", {"recipient_name": "自己", "text": "在吗"}) == "recipient_name is not visible"
+    for name in (_TASK, _WAIT):
+        assert _host_error("recall_task_summary", {"task_name": name}) == ""
+    for name in ("同事", "自己家（1月4日 18:00 起）"):
+        assert _host_error("recall_task_summary", {"task_name": name}) == "task_name is not visible"
 
 
 def test_revise_day_plan_schema_inlines_goal_with_required_nullable_remind_time() -> None:
@@ -195,7 +213,8 @@ def test_conclusion_memory_and_work_review_nested_schemas_remain_strict() -> Non
     """收尾记忆与工作评审的嵌套数据仍由原生严格 Schema 内联约束，没有引用与未知字段。"""
     conclude = _function("conclude_activity")["parameters"]
     memory_item = conclude["properties"]["memories"]["items"]["items"]
-    assert set(memory_item["properties"]) == {"type", "text", "importance", "keywords"}
+    assert set(memory_item["properties"]) == {"type", "text", "importance", "keywords", "subject"}
+    assert memory_item["properties"]["subject"]["description"] == "这条记忆关于的人或事物。"
     _assert_closed(memory_item)
     payload = {"task": [_WAIT], "summary": ["收尾。"], "memories": [[_memory()]]}
     assert list(Draft202012Validator(conclude).iter_errors(payload)) == []

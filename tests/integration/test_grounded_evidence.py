@@ -23,19 +23,10 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.runtime import runtime_code_sha256
 from tests.integration.as2_fixtures import use_fake_as2
 
-_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
-
-
 @pytest.fixture(autouse=True)
 def _fixed_context_window(monkeypatch):
     """用固定供应商窗口测试请求持久化，不依赖远程元数据服务。"""
     monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
-
-
-def _request_budget(request: dict[str, Any]) -> dict[str, Any]:
-    """读取已持久化模型请求的权威回合预算。"""
-    content = request["messages"][0]["content"]
-    return json.loads(content.split(_BUDGET_MARKER, 1)[1])
 
 
 class _PersistentResponse:
@@ -99,7 +90,7 @@ def _prepared_tools(data, observed_at):
 
 
 def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: F811
-    """真实环境观察生成的完整工具请求经关闭重开数据库后保持原值。"""
+    """真实环境观察生成的完整工具请求经关闭重开数据库后保持原值；工具不带逐轮枚举，消息不附加预算文字。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     ctx = context(engine, "grounded-wire")
@@ -111,10 +102,9 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
     expected = canonical_json(wire)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
     fields = start["function"]["parameters"]["properties"]
-    assert set(fields) == {"targets", "actions", "ways"}
+    assert set(fields) == {"targets", "actions", "ways", "from", "to", "answering"}
     for field in ("targets", "actions", "ways"):
-        assert "enum" in fields[field]["items"]
-    assert set(fields["actions"]["items"]["enum"]) <= {"travel", "interact", "obtain", "consume", "sleep"}
+        assert "enum" not in fields[field]["items"]
     engine.record_model_exchange(ModelCallEvidence(ctx, "grounded-call", "request", 1, wire))
     cutoff = engine.store.last_event_seq
     directory = engine.store.run_dir
@@ -126,7 +116,7 @@ def test_model_request_persists_exact_grounded_tools(_engine_factory):  # noqa: 
         assert len(requests) == 1
         assert canonical_json(requests[0].data["request"]) == expected
         assert requests[0].data["request"]["tools"] == tools
-        assert _request_budget(requests[0].data["request"])["phase"] == "before_action"
+        assert requests[0].data["request"]["messages"] == [{"role": "user", "content": "Choose a visible activity."}]
     finally:
         reopened.close()
 
@@ -180,8 +170,10 @@ def test_protocol_feedback_is_persisted_in_next_model_request(_engine_factory): 
         second_names = {item["function"]["name"] for item in events[2].data["request"]["tools"]}
         assert "memory_recent" in first_names
         assert second_names == {"finish"}
-        assert [_request_budget(event.data["request"])["remaining_model_turns_including_current"]
-                for event in (events[0], events[2])] == [2, 1]
+        assert all("Authoritative" not in event.data["request"]["messages"][0]["content"]
+                   for event in (events[0], events[2]))
+        assert [event for event in reopened.read_events(reopened.last_event_seq)
+                if event.event_type == "decision_started"] == []
     finally:
         reopened.close()
 
@@ -202,7 +194,7 @@ def test_runtime_code_identity_includes_life_agent_content(tmp_path: Path, monke
 
 
 def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_factory):  # noqa: F811
-    """本轮交互对象名称唯一，工具枚举只列有动作的对象（动作为空的对象照常列出但不可选），不泄露内部对象身份。"""
+    """本轮工具层的目标名称唯一且与私有绑定一一对应，原生工具不带名称枚举，也不泄露内部对象身份。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     ctx = context(engine, "cross-catalog-id")
@@ -210,11 +202,11 @@ def test_grounded_tool_uses_unique_readable_names_without_internal_ids(_engine_f
     observation = engine.observe(ctx)
     _, tools = _prepared_tools(observation, ctx.observed_at)
     start = next(item for item in tools if item["function"]["name"] == "start_activity")
-    names = start["function"]["parameters"]["properties"]["targets"]["items"]["enum"]
-    rows = observation["facts"]["interactive_objects"]
-    public = [row["object"] for row in rows]
+    assert "enum" not in start["function"]["parameters"]["properties"]["targets"]["items"]
+    public = [row["name"] for row in observation["tool_layer"]["targets"]]
     private = [row["object_id"] for row in observation["interaction_bindings"]]
 
     assert len(public) == len(set(public))
-    assert names == sorted(row["object"] for row in rows if row["actions"])
-    assert not set(private) & set(names)
+    assert {row["object"] for row in observation["interaction_bindings"]} <= set(public)
+    assert not set(private) & set(public)
+    assert not any(identity in str(tools) for identity in private if len(identity) > 3)

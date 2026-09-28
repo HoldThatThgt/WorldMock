@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.ledger import validate_account_history
 from worldmock.footprints.models import AssetRef, Checkpoint, Event, canonical_json
+from worldmock.footprints.purchases import project_purchase_facts
 from worldmock.footprints.quality import build_quality_report
 
 
@@ -23,6 +24,7 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
     activities = _read_artifact(root, manifest["artifacts"]["activities"], "activities.jsonl")
     experiences = _read_artifact(
         root, manifest["artifacts"]["verified_experiences"], "verified-experiences.jsonl")
+    purchases = _read_artifact(root, manifest["artifacts"]["purchases"], "purchases.jsonl")
     indexed = _read_artifact(root, manifest["asset_index"], "asset-index.jsonl")
     records = [Event.model_validate(row, strict=True) for row in events]
     checkpoint = _validate_checkpoint(manifest, records)
@@ -35,6 +37,8 @@ def validate_export(directory: Path) -> tuple[dict, list[dict], list[dict]]:
         raise IntegrityError("Export activities disagree with their authoritative events")
     if _verified_experience_rows(manifest["frozen_run_manifest"]["agent_ids"], records) != experiences:
         raise IntegrityError("Export verified experiences disagree with committed events")
+    if project_purchase_facts(events) != purchases:
+        raise IntegrityError("Export purchase facts disagree with committed events")
     _validate_quality(root, manifest, records, activities)
     return manifest, events, activities
 
@@ -56,7 +60,7 @@ def _validate_quality(root: Path, manifest: dict, events: list[Event], activitie
 
 def _validate_identity(manifest: dict) -> None:
     """@brief 冻结运行、覆盖范围和提交状态必须与正式清单相符。"""
-    if manifest.get("schema_version") != 1 or manifest.get("committed") is not True:
+    if manifest.get("schema_version") != 2 or manifest.get("committed") is not True:
         raise IntegrityError("Export manifest is not a committed supported version")
     if manifest.get("experiment_completed") is not True:
         raise IntegrityError("Production delivery requires a completed experiment")
@@ -76,7 +80,7 @@ def _validate_identity(manifest: dict) -> None:
         cursor = datetime.combine(cursor.date() + timedelta(days=1), datetime.min.time(), zone)
     if manifest["daily_coverage"] != days:
         raise IntegrityError("Export day coverage is inconsistent")
-    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences"}:
+    if set(manifest["artifacts"]) != {"events", "activities", "verified_experiences", "purchases"}:
         raise IntegrityError("Export artifact set is invalid")
 
 

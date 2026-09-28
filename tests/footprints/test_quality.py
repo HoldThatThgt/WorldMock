@@ -5,7 +5,6 @@ import pytest
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
-    DECISION_STATEMENT_FIELD,
     WAKE_REASONS_FIELD,
     Event,
 )
@@ -74,6 +73,11 @@ def _concluded(sequence, decision_id, *memories, action_id=None):
     return _event(sequence, "action_requested", agent_id=1, decision_id=decision_id,
                   action_id=action_id or f"action-{decision_id}",
                   data={"tool_name": "conclude_activity", "request": _conclusion(*memories)})
+
+
+def _started(reasons=()):
+    """decision_started.data 的闭集四个字段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。"""
+    return {"round_id": "round", "round_order": 0, "world_state_version": 1, WAKE_REASONS_FIELD: list(reasons)}
 
 
 def _activity(identity, kind, elapsed, status="completed", **fields):
@@ -416,19 +420,30 @@ def test_valid_looking_observed_fact_must_equal_its_committed_source():
     assert [item['code'] for item in quality['problems']] == ['invalid_verified_experience_source']
 
 
-@pytest.mark.parametrize('source_agent,visibility', [(2, 'agent'), (1, 'system')])
-def test_observed_result_must_be_this_persons_visible_prior_result(source_agent, visibility):
-    """观察回灌的上轮结果须是本人可见、更早提交的动作结果；记忆不再带引用，只报观察一侧的问题。"""
-    events = [_event(1, 'action_result', agent_id=source_agent, visibility=visibility),
-              _event(2, 'observation', agent_id=1, decision_id='current',
-                     data={'recent_action_results': [{'event_id': 'event-1'}], 'verified_experiences': []}),
-              _event(3, 'model_response', agent_id=1, decision_id='current',
-                     data=_tool_response('call', _usage()))]
+@pytest.mark.parametrize('source,valid', [
+    ({'sequence': 1, 'agent_id': 1, 'visibility': 'agent', 'event_type': 'action_result'}, True),
+    ({'sequence': 1, 'agent_id': 1, 'visibility': 'system', 'event_type': 'model_response'}, True),
+    ({'sequence': 1, 'agent_id': 2, 'visibility': 'agent', 'event_type': 'action_result'}, False),
+    ({'sequence': 3, 'agent_id': 1, 'visibility': 'agent', 'event_type': 'action_result'}, False),
+    (None, False),
+])
+def test_progress_sources_must_be_this_persons_prior_events(source, valid):
+    """观察的 progress_event_ids 每个都须解析到本人更早提交的事件；否则记 invalid_observed_result_reference。"""
+    events = [_event(2, 'observation', agent_id=1, decision_id='current',
+                     data={'progress_event_ids': ['event-1' if source is None or source['sequence'] == 1
+                                                  else 'event-3'], 'verified_experiences': []})]
+    if source is not None:
+        sequence = source['sequence']
+        fields = {key: value for key, value in source.items() if key not in {'sequence', 'event_type'}}
+        events.insert(0 if sequence == 1 else 1, _event(sequence, source['event_type'], **fields))
+    events.append(_event(4, 'model_response', agent_id=1, decision_id='current',
+                         data=_tool_response('call', _usage())))
     memory = build_quality_report(events, [], _manifest())['memory_references']
-    assert [item['code'] for item in memory['problems']] == ['invalid_observed_result_reference']
+    assert [item['code'] for item in memory['problems']] == ([] if valid else ['invalid_observed_result_reference'])
 
 
-def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_statements():
+def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
+    """决策节律只透传边界与唤醒原因计数；自述两项计数已删除，报告版本为 2。"""
     events = [
         _event(1, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: False,
                                              WAKE_REASONS_FIELD: []}),
@@ -437,15 +452,19 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_stat
         _event(3, "environment_event", data={"kind": "body_settlement", DECISION_OFFERED_FIELD: True,
                                              WAKE_REASONS_FIELD: ["planned_end", "mystery"]}),
         _event(4, "environment_event", data={"kind": "body_settlement"}),
-        _event(5, "decision_started", agent_id=1, decision_id="decision-1",
-               data={DECISION_STATEMENT_FIELD: "今天想早点到办公室。"}),
-        _event(6, "decision_started", agent_id=1, decision_id="decision-2",
-               data={"phase": "decision_statement"}),
-        _event(7, "run_ended", occurred_at=1100),
+        _event(5, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
+        _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["run_start"])),
+        _event(7, "environment_event", agent_id=1, data={"kind": "decision_budget_exhausted",
+                                                         "error_code": "ACTION_REQUEST_INVALID",
+                                                         "next_decision_at": 1000}),
+        _event(8, "run_ended", occurred_at=1100),
     ]
 
-    rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
+    report = build_quality_report(events, [], _manifest())
+    rhythm = report["decision_rhythm"]
 
+    assert report["schema_version"] == 2
+    assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
     assert rhythm["boundaries_missing_decision_field"] == 1
@@ -455,8 +474,8 @@ def test_decision_rhythm_counts_silent_boundaries_wake_reasons_and_decision_stat
     assert rhythm["wake_reason_counts"] == {"person_arrived": 1, "planned_end": 2}
     assert rhythm["unrecognized_wake_reason_counts"] == {"mystery": 1}
     assert rhythm["decision_started_events"] == 2
-    assert rhythm["decision_started_with_decision_statement"] == 1
-    assert rhythm["decision_started_missing_decision_statement"] == 1
+    assert not {"decision_started_with_decision_statement", "decision_started_missing_decision_statement"} & set(
+        rhythm)
 
 
 def test_decision_rhythm_counts_same_moment_rounds():
@@ -465,7 +484,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
 
     def started(sequence, agent_id, occurred_at, reasons):
         return _event(sequence, "decision_started", occurred_at=occurred_at, agent_id=agent_id,
-                      decision_id=f"decision-{sequence}", data={WAKE_REASONS_FIELD: reasons})
+                      decision_id=f"decision-{sequence}", data=_started(reasons))
 
     events = [
         started(1, 1, first, ["run_start"]),
@@ -497,7 +516,7 @@ def test_decision_rhythm_counts_same_moment_rounds():
 
 def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     events = [_event(1, "environment_event", data={"kind": "body_settlement"}),
-              _event(2, "decision_started", agent_id=1, decision_id="decision-1", data={}),
+              _event(2, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
               _event(3, "run_ended", occurred_at=1100)]
 
     rhythm = build_quality_report(events, [], _manifest())["decision_rhythm"]
@@ -509,8 +528,7 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     assert rhythm["wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["decision_started_events"] == 1
-    assert rhythm["decision_started_with_decision_statement"] == 0
-    assert rhythm["decision_started_missing_decision_statement"] == 1
+    assert rhythm["decision_budget_exhausted_events"] == 0
 
 
 def test_acceleration_sums_observed_wall_time_across_restore_branches():
@@ -545,3 +563,16 @@ def test_quality_report_is_deterministic_for_the_same_authenticated_input():
 
     assert first == second
     json.dumps(first, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+@pytest.mark.parametrize("source,codes", [("reflection", []), ("activity_conclusion", ["invalid_memory_update"])])
+def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
+    """醒来那一轮登记的就寝反思快照可另带 source=reflection（宿主标注，记忆层据此找归属日期）；其他来源值仍是无效登记。"""
+    update = {**_memory_update("r1", "event-1", "decision", trigger=("reflection",)),
+              "episodes": [{"id": "r1", "type": "reflection", "text": "睡前想了想", "epistemic_status": "subjective",
+                            "source": source}]}
+    events = [_event(1, "observation", agent_id=1, decision_id="decision",
+                     data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep"]}),
+              _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert [item["code"] for item in memory["problems"]] == codes

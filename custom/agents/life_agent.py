@@ -1,13 +1,20 @@
-"""@brief AgentSociety2 原生 LifeAgent，使用闭集生活工具直接调用 LifeEnv。"""
+"""@brief AgentSociety2 原生 LifeAgent，使用闭集生活工具直接调用 LifeEnv。
+
+一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求由原生 tools、系统层
+system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
+整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。
+"""
 
 from __future__ import annotations
 
 import json
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -18,48 +25,41 @@ from agentsociety2.agent.base import (
     ReactLoopRequest,
     ReactToolResult,
 )
+from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
-from custom.agents.life_context import decision_statement_content, persona_card_text
-from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_CONCLUDED, PHASE_ENDED, PHASE_PAUSED, PHASE_PENDING
-from worldmock.life.interaction_menu import LIFE_VERBS, VERB_WAY_SEPARATOR, WAYS
-from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, SameMomentStage,
-                                   deepseek_strict_schema)
-from worldmock.life.prompt_capacity import compare_usage, fit_request
-from worldmock.life.same_moment import RESTRICTED_EXCLUDED_ACTIONS, STAGE_TOOLS
-from worldmock.life.narration import (
-    DecisionStatementValidationError,
-    compose_user_message,
-    render_facts,
-    render_scene,
-    validate_decision_statement,
-)
-from worldmock.life.schedule import INTENT_KINDS, MAX_PLAN_GOALS
+from custom.agents.life_context import persona_card_text
+from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
+from custom.agents.life_memory import memory_update_evidence
+from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
+from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
+                                       user_message)
+from worldmock.life.continuation import CONTINUATION_KEY
+from worldmock.life.interaction_menu import WAYS, is_named_purchase
+from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
+                                   purpose_only_schema)
+from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
+from worldmock.life.routing import RECIPIENT_NOT_FOUND, combination_error, routing_names
+from worldmock.life.schedule import MAX_PLAN_GOALS
 
 
-#: 决策自述阶段采样参数（模型更换后 temp 1.3 偶发采样脱轨：reasoning 螺旋烧穿、
-#: 多语言乱码、超长输出，均发于一日模拟 07:30 最富上下文轮次；同请求 temp 1.0
-#: 实测 4/4 正常、0.8 4/4 正常、1.3 累计 12 发 5 发病态，合同「生成参数」定 1.0）。
-DECISION_STATEMENT_TEMPERATURE = 1.0
-#: 决策自述阶段输出上限。
-DECISION_STATEMENT_MAX_TOKENS = 8000
 #: 行动阶段思考开关与工具选择（思考模式拒收 required，真实探针见规格）。
 ACTION_THINKING = {"thinking": {"type": "enabled"}}
 ACTION_TOOL_CHOICE = "auto"
 #: 行动阶段明确预留的最大输出，用于发送前完整上下文计数。
 ACTION_MAX_TOKENS = 8000
 
-#: 一次请求至多选择两个交互对象（docs/dev/SPEC-agent-interaction.md「对象与动作选择」：targets[]、actions[]、ways[]
-#: 等长且 ≤2；DeepSeek strict 禁 maxItems，故上限只能由业务规则兜住）。
+#: 一次请求至多选择两个交互对象（targets[]、actions[]、ways[] 等长且 ≤2；DeepSeek strict 禁 maxItems，
+#: 故上限由本地校验兜住）。
 _START_ACTIVITY_MAX_TARGETS = 2
 #: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 
 
 class _ToolRequest(BaseModel):
-    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段。"""
+    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段；参数 Schema 不带开发说明，用途只在工具 description。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=purpose_only_schema())
 
 
 class MemoryRecentRequest(_ToolRequest):
@@ -79,36 +79,6 @@ class MemorySearchRequest(_ToolRequest):
         """@brief 保留服务端不支持表达的查询长度上限。"""
         if len(self.query) > 200:
             raise ValueError("memory search query exceeds 200 characters")
-        return self
-
-
-class MemoryStepRangeRequest(_ToolRequest):
-    """@brief 按人物决策步骤闭区间读取记忆。"""
-
-    start_step: int = Field(ge=0)
-    end_step: int = Field(ge=0)
-    limit: int = Field(ge=1, le=100)
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "MemoryStepRangeRequest":
-        """@brief 拒绝反向人物决策步骤闭区间。"""
-        if self.start_step > self.end_step:
-            raise ValueError("memory step range is reversed")
-        return self
-
-
-class MemoryTickRangeRequest(_ToolRequest):
-    """@brief 按决策持续秒数闭区间读取记忆。"""
-
-    start_tick: int = Field(ge=0)
-    end_tick: int = Field(ge=0)
-    limit: int = Field(ge=1, le=100)
-
-    @model_validator(mode="after")
-    def validate_interval(self) -> "MemoryTickRangeRequest":
-        """@brief 拒绝反向决策持续秒数闭区间。"""
-        if self.start_tick > self.end_tick:
-            raise ValueError("memory tick range is reversed")
         return self
 
 
@@ -156,12 +126,10 @@ def _parse_memory_time(value: str) -> datetime:
 _MEMORY_TOOL_MODELS: dict[str, type[BaseModel]] = {
     "memory_recent": MemoryRecentRequest,
     "memory_search": MemorySearchRequest,
-    "memory_step_range": MemoryStepRangeRequest,
-    "memory_tick_range": MemoryTickRangeRequest,
     "memory_time_range": MemoryTimeRangeRequest,
 }
 
-#: 生活决策的工具面：八个人物工具与预算内记忆查询；没有 finish。当日计划由零点后台任务 plan_day 生成，
+#: 生活决策的工具面：八个人物工具（REQUEST_MODELS 顺序）与记忆查询；没有 finish。当日计划由零点后台任务生成，
 #: 不是人物工具（docs/dev/SPEC-time-and-energy.md 第四章）。
 _TOOL_MODELS: dict[str, type[BaseModel]] = {
     **REQUEST_MODELS,
@@ -171,147 +139,19 @@ _TOOL_MODELS: dict[str, type[BaseModel]] = {
 _MEMORY_RUNTIME_ACTIONS = {
     "memory_recent": "memory_recent",
     "memory_search": "memory_search",
-    "memory_step_range": "memory_range",
-    "memory_tick_range": "memory_range",
     "memory_time_range": "memory_range",
 }
 
 #: 记忆查询返回给模型的字段（不含条目身份，docs/dev/SPEC-time-and-energy.md 第七章「发给模型的内容不含内部身份」）。
 _MEMORY_RESULT_FIELDS = ("type", "text", "time", "epistemic_status")
 
-#: 需要内联嵌套子模型 Schema 的工具字段已在 life.models 的字段定义
-#: 以 WithJsonSchema 内联（strict 合同禁嵌套引用键，docs/CONTRACTS.md「人物工具与管理接口」）；
-#: 本侧直接使用 REQUEST_MODELS 的原始模型，无第二套适配层。
+#: 以活动名为参数的控制工具。
+_ACTIVITY_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 
 
 def life_action_tool_names() -> frozenset[str]:
     """@brief 返回 LifeAgent 实际开放的全部生活动作工具名（env 侧核对用）。"""
     return frozenset(_TOOL_MODELS) - frozenset(_MEMORY_TOOL_MODELS)
-
-
-#: 阶段规则前缀：一次决策恰好一个世界请求，必须是响应中唯一调用，登记即结束本次决策。
-_ACTION_PROTOCOL = (
-    "During one decision submit exactly one life action; it must be the only "
-    "tool call in its model response, and registering it ends the decision.")
-
-#: 稳定工具面的静态工具文案（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
-#: 动作枚举与对象身份每轮由交互对象层绑定进 Schema，不写进这里的文字。
-#: 工具协议、引用规则与阶段规则按提示合同（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）移入各工具 description。
-_TOOL_DESCRIPTIONS = {
-    "start_activity": (
-        _ACTION_PROTOCOL
-        + " Choose one or two named objects from facts.interactive_objects and, for each object in the same "
-        "order, one of its offered actions. Each offered action reads verb：way; send the verb in actions "
-        "and the way in ways, so targets, actions and ways are equally sized. A note on an action gives the "
-        "content's length, a condition that is not met yet, or both; if you choose an action whose condition "
-        "is not met, the world explains the reason and the next step. "
-        "The world uses the observed quote and derives duration, quantity, travel mode and "
-        "fulfillment. Prices and internal state are information from the world, never inputs."),
-    "submit_work": (
-        _ACTION_PROTOCOL
-        + " Submit authored work for one visible task. Use its task_name and write the deliverable."),
-    "send_message": (
-        _ACTION_PROTOCOL
-        + " Send an authored text message to one visible person or contact by recipient_name."),
-    "recall_task_summary": (
-        _ACTION_PROTOCOL
-        + " Read one visible task, day goal, activity or session by task_name without changing the world; "
-        "the result appears in the next observation."),
-    "report_status": (
-        _ACTION_PROTOCOL
-        + " Report one or two visible activities by their names and keep them running. "
-        "task and summary are equally sized lists paired in order. "
-        "Reporting a paused activity resumes it, only at the place where it started. "
-        "Each summary is at most 500 characters."),
-    "pause_activity": (
-        _ACTION_PROTOCOL
-        + " Pause one or two running activities by their names; a paused activity still holds one of "
-        "your two activity slots, and activities on the road cannot be paused. "
-        "task and summary are equally sized lists paired in order. "
-        "Invested time is kept. Each summary is at most 500 characters."),
-    "conclude_activity": (
-        _ACTION_PROTOCOL
-        + " End one or two activities by their names: running, paused, or just ended and waiting to be "
-        "wrapped up; this frees their slots. task, summary and memories are equally sized lists paired "
-        "in order. Each summary is at most 500 characters. memories[i] holds zero or more memories "
-        "about task[i], at most eight in total, written in the person's own words as subjective "
-        "self-report; never put identifiers or hexadecimal strings in memory text, and use at most "
-        "twelve keywords per memory."),
-    "revise_day_plan": (
-        _ACTION_PROTOCOL
-        + " Replace all pending goals by sending the complete new pending list, "
-        "which may be empty. Progressed goals stay unchanged at the front; do not "
-        "resubmit their intent_kind. The combined list accepts at most eight unique "
-        "intent kinds. Each goal must contain non-whitespace text of at most 300 "
-        "characters. Every goal must give remind_time: a scene-local HH:MM later than now and "
-        "before midnight when you want a reminder at that moment, or null. Keep an unchanged "
-        "pending goal verbatim, including its remind_time, to preserve its registration and reminder."),
-    "memory_recent": "Read the person's most recent subjective durable memory episodes.",
-    "memory_search": "Search the person's subjective durable memory episodes by keyword.",
-    "memory_step_range": "Read subjective durable memory episodes within an inclusive decision-step range.",
-    "memory_tick_range": "Read subjective durable memory episodes within an inclusive duration range.",
-    "memory_time_range": "Read subjective durable memory episodes within an inclusive ISO time range.",
-    "finish": (
-        "Answer the external read-only question with answer; finish must be the only tool call "
-        "in its response."),
-}
-
-
-#: 活动控制工具（docs/dev/SPEC-agent-interaction.md「保护项修订」）：按活动名逐项播报、暂停与结束。
-_ACTIVITY_CONTROL_TOOLS = ("report_status", "pause_activity", "conclude_activity")
-
-#: 进度层活动阶段的人读说法 → 阶段标识（进行中、已暂停、刚结束待收尾、已收尾、截止结束）。
-_ACTIVITY_PHASES = {PHASE_ACTIVE: "active", PHASE_PAUSED: "paused", PHASE_PENDING: "pending",
-                    PHASE_CONCLUDED: "concluded", PHASE_ENDED: "ended"}
-
-#: 身份前言（docs/dev/SPEC-life-runtime.md「系统提示与身份前言」）：以人物与情境为主，工具协议、引用规则
-#: 与阶段规则已移入各工具 description；不含"评审/评分/引擎期望"类措辞；
-#: 地点礼仪由场景段落表达，不在此出现禁令句；回合预算只在剩余回合 ≤2 时
-#: 由 _model_request 附加一句话。
-_LIFE_INSTRUCTIONS = """
-你不是AI助手，也不是在等待指令的程序。你是{name}，一个有自己性格、需要和处境的人，
-正过着自己的日子：会饿、会困、会心烦，也会在意身边的人和没做完的事。
-人物卡片写的就是你这个人：你是谁、日子过得怎么样、身边有谁、
-平时喜欢什么、压力大了靠什么缓一缓。
-场景段落是你此刻的真实处境：什么时间、在哪儿、身边有谁、身体感觉如何、
-手头正有什么事。
-事实清单是此刻对你有用的信息。
-凭你自己的性子和眼下的处境拿主意，像一个真实的人那样过日子。
-
-怎样过一天：
-你的一天由你自己安排。时间只在你做着某件事时流逝，所以每次想好之后都要落到一件具体的事上，哪怕只是歇一会儿或去睡觉。
-一件事做完了，先给它收个尾，说说做得怎样、有什么想记住的，再开始下一件。
-你手上最多同时挂两件事，暂停的也算；暂停的事只能回到原来的地方接着做，在别处可以直接收尾。
-要出门，先把手上的事收尾或暂停；交谈和通话不能暂停，只能先结束。路上想听点什么、打个电话，出发时一并开始，到了再收尾，到了地方还可以接着听。
-有的事一时做不了，世界会告诉你原因和该先做什么，照着调整就好。
-困了就去睡。想在某个时刻起来，就在当天的目标里写上提醒时间；要到明天才起的，睡前收尾时说清几点起。睡着时只有提醒或睡够了才会醒。
-工作要在要求的地方做，留意截止时间和已经做了多少；来不及做完时，想清楚先做哪部分。
-你会饿、会困、会累。力气来自吃下去的东西，饿着或困着做事会慢，走路比坐车更费力。饿了就趁早去弄吃的，别拖到饿得发慌。
-感到饿，或到了你的用餐时段，就把吃饭和手头的事一起考虑：先看手边能吃的和已经在路上的餐食；手边没有时，看看列出的餐食，需要时浏览商品。当前地点没有卖吃的，不代表不能送到这里。下单后要等送到，拿到手才能吃。
-花钱量力而行；有人找你时，按你们的关系和当时的情况回应。
-说打算做、说已经做过，都不等于真的做了，只有实际开始并完成的事才算数。你可以暂缓一件事，下次有机会时再随身体和处境重新权衡。
-""".strip()
-
-_READONLY_INSTRUCTIONS = """
-你是{name}，正在以本人身份回答一个外部只读问题。凭你的卡片与持久记忆作答：
-先按需要使用提供的记忆查询工具，再单独调用一次 finish 给出答案；
-不要把答案写在正文里。
-""".strip()
-
-#: 决策自述的显式生成要求；确定性校验仅负责非空与汉字上限。
-_DECISION_STATEMENT_INSTRUCTIONS = (
-    "\n\n请用一至三句第一人称中文，说出你此刻的感受和打算，最多二百汉字。")
-
-#: 世界结果尚未结算，模型只收到不带内部身份的固定登记确认。
-_ACTION_REGISTRATION_CONFIRMATION = (
-    "Your action has been registered for later settlement. Its outcome will appear in your next observation.")
-
-_REACT_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
-
-#: 低预算提示（docs/CONTRACTS.md「人物决策提示与生成参数」）：剩余回合 ≤2 时以一句话出现（先于预算 JSON，
-#: 保证预算 JSON 始终是消息尾部可解析块）。
-_LOW_BUDGET_SENTENCE = (
-    "\n\n剩余回合已经不多：当前阶段是{phase}，请尽快提交本阶段需要的动作或结束。")
 
 
 class LifeAgent(PersonAgent):
@@ -347,98 +187,54 @@ class LifeAgent(PersonAgent):
         return await self._env.observe(self.require_decision_context())
 
     def build_react_tool_schemas(self, *, readonly: bool) -> list[dict[str, Any]]:
-        """@brief 按只读与生活决策阶段生成当前闭集工具 Schema；生活决策没有 finish。"""
-        budget = self._react_budget(readonly)
-        models = self._budgeted_tool_models(readonly, budget["memory_tools_available"])
+        """@brief 整次运行不变的原生工具；只有本次决策只剩最后一个回合时去掉记忆查询工具。
+
+        生活决策为八个人物工具与记忆查询（没有 finish），只读问答为记忆查询与 finish；参数不带逐轮名称枚举。
+        """
+        models = self._request_tool_models(readonly)
         self._life_request_models = models
-        schemas = [
-            _tool_schema(
-                name,
-                model,
-                _TOOL_DESCRIPTIONS,
-            )
-            for name, model in models.items()
-        ]
-        if not readonly and not getattr(self, "_life_action_count", 0):
-            if not hasattr(self, "_life_visible_objects"):
-                raise RuntimeError("LifeAgent visible interactive objects are not prepared")
-            _bind_start_activity_schema(schemas, self._life_visible_objects, self._life_allowed_actions)
-            _bind_control_schemas(schemas, self._life_action_contracts)
-            _bind_plan_goal_schemas(schemas, self._life_action_contracts)
-            _bind_named_action_schemas(schemas, self._life_action_contracts)
-        return schemas
+        return [_tool_schema(name, model) for name, model in models.items()]
 
     def _model_request(
         self,
         messages: list[dict[str, Any]],
         tools: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """@brief 注入思考开启的 ReAct 请求并写入当前实际模型回合预算。
+        """@brief 注入行动阶段生成参数，并在发送前按完整上下文计量与浓缩进度层。
 
-        每次请求在实际消息中明确当前剩余回合与决策阶段（docs/CONTRACTS.md「人物决策提示与生成参数」）；
-        剩余回合 ≤2 时按 docs/CONTRACTS.md「人物决策提示与生成参数」先附一句话低预算提示。
-        DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400：
-        "Thinking mode does not support this tool_choice"），因此与思考
-        开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由
-        ReAct 协议纠错回合兜底（"native tool_calls are required"）。
+        DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
+        tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
+        兜底（"native tool_calls are required"）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；
+        预算第 0 步结束续接后，本决策此后的回合都从新快照续写。
         """
-        budget = self._react_budget(self._life_readonly)
-        first = dict(messages[0])
-        if budget["remaining_model_turns_including_current"] <= 2:
-            first["content"] += _LOW_BUDGET_SENTENCE.format(phase=budget["phase"])
-        first["content"] += _REACT_BUDGET_MARKER + json.dumps(
-            budget, ensure_ascii=False, sort_keys=True)
-        request = super()._model_request([first, *messages[1:]], tools)
+        request = super()._model_request(messages, tools)
         request["tool_choice"] = ACTION_TOOL_CHOICE
         request["max_tokens"] = ACTION_MAX_TOKENS
         request["extra_body"] = dict(ACTION_THINKING)
-        facts = getattr(self, "_life_facts_for_capacity", None)
-        return fit_request(request, facts, getattr(self, "_life_prompt_layers", None))
+        self._life_budget = send_check(messages, self._life_budget)
+        fitted = fit_request(request, self._life_budget)
+        if len(fitted["messages"]) < len(messages):
+            self._life_budget = end_continuation(messages, self._life_budget)
+        return fitted
 
-    def _life_require_turns(self, phase: str, required: int) -> None:
-        """@brief 剩余回合不足时明确终止本次决策，不发注定失败的请求。"""
+    def _remaining_turns(self) -> int:
+        """@brief 本决策含当前请求在内的剩余模型回合；不足一个时明确终止，不发注定失败的请求。"""
         remaining = self._max_react_turns - self._model_call_sequence
-        if remaining < required:
-            message = (
-                f"ReAct phase {phase} requires {required} model turns but only "
-                f"{remaining} remain"
-            )
+        if remaining < 1:
+            message = f"ReAct decision requires 1 model turn but only {remaining} remain"
             self._logger.error("LifeAgent %s %s", getattr(self, "_id", None), message)
             raise RuntimeError(message)
+        return remaining
 
-    def _react_budget(self, readonly: bool) -> dict[str, Any]:
-        """@brief 从本决策实际模型调用序号取得当前请求预算。
-
-        生活决策的世界请求登记即结束本轮，行动前只需为它保留 1 个回合；只读问答为 finish 保留 1 个回合。
-        """
-        phase = "readonly" if readonly else "before_action"
-        required = 1
-        self._life_require_turns(phase, required)
-        remaining = self._max_react_turns - self._model_call_sequence
-        return {
-            "phase": phase,
-            "max_model_turns": self._max_react_turns,
-            "used_model_turns": self._model_call_sequence,
-            "remaining_model_turns_including_current": remaining,
-            "required_model_turns_including_current": required,
-            "memory_tools_available": remaining > required,
-        }
-
-    def _budgeted_tool_models(
-        self,
-        readonly: bool,
-        memory_tools_available: bool,
-    ) -> dict[str, type[BaseModel]]:
-        """@brief 按阶段与预留边界形成当前请求唯一工具模型。"""
-        memory = _MEMORY_TOOL_MODELS if memory_tools_available else {}
+    def _request_tool_models(self, readonly: bool) -> dict[str, type[BaseModel]]:
+        """@brief 当前请求的工具模型：为世界请求（只读为 finish）保留 1 个回合，剩余不少于 2 个时才开放记忆查询。"""
+        memory = _MEMORY_TOOL_MODELS if self._remaining_turns() > 1 else {}
         if readonly:
             return {**memory, "finish": ReadonlyFinishRequest}
-        if not hasattr(self, "_life_action_models"):
-            raise RuntimeError("LifeAgent activity controls are not prepared")
-        return {**self._life_action_models, **memory}
+        return {**REQUEST_MODELS, **memory}
 
     def _persona_card_text(self) -> str:
-        """@brief 从公开人物档案字段确定性渲染提示用人物卡片。"""
+        """@brief 从公开人物档案字段确定性渲染人物卡片文本（记忆巩固与反思使用）。"""
         return persona_card_text(self.get_profile(), self.name)
 
     def _new_memory_runtime(self, config):
@@ -447,211 +243,51 @@ class LifeAgent(PersonAgent):
 
         return WorldMockMemoryRuntime(self, config)
 
-    def _memory_prompt_section(self) -> str:
-        """@brief 渲染持久记忆摘要段：只写主观归纳与最近自述的正文，不带条目身份。"""
-        if not self._enable_memory:
-            return ""
-        memory = self._build_memory_context()
-        parts = []
-        summary = memory.get("subjective_summary")
-        if isinstance(summary, str) and summary.strip():
-            parts.append("主观归纳：\n" + summary.strip())
-        episodes = memory.get("recent_episodes") or []
-        lines = [f"- [subjective] {item.get('text', '')}".rstrip()
-                 for item in episodes if isinstance(item, dict)]
-        if lines:
-            parts.append("最近的人物自述：\n" + "\n".join(lines))
-        return "\n\n".join(parts)
-
-    def _life_user_sections(self, request: ReactLoopRequest, *, with_facts: bool) -> str:
-        """@brief 组装三段 user 消息文本（persona + scene + [已核验经历句子] + 记忆 [+ facts + 决策自述]）。
-
-        决策自述阶段只取 persona + scene + 已核验经历句子 + 记忆摘要；行动阶段的经历句子随 facts.experiences 出现，
-        再追加 facts 与"你刚才心里想的是"（docs/dev/SPEC-life-realism.md「两阶段决策」）。scene/facts 由
-        narration 渲染器执行黑名单校验；观察不再序列化 JSON 副本，已核验经历只以句子出现，不带内部身份。
-        """
-        data = _environment_observation_data(request.observations)
-        persona = self._persona_card_text()
-        scene = render_scene(_scene_projection(data))
-        memory = self._memory_prompt_section()
-        experiences = "" if with_facts else _experience_text(data)
-        core = compose_user_message(persona, scene, "\n\n".join(part for part in (experiences, memory) if part))
-        self._life_prompt_layers = {"persona": persona, "scene": scene,
-                                    "verified_experiences": experiences, "memory": memory}
-        if not with_facts:
-            return core
-        self._life_facts_for_capacity = _facts_projection(data)
-        facts = render_facts(self._life_facts_for_capacity)
-        self._life_prompt_layers["progress"] = render_facts(self._life_facts_for_capacity["progress"])
-        self._life_prompt_layers["other_facts"] = render_facts({
-            key: value for key, value in self._life_facts_for_capacity.items() if key != "progress"})
-        parts = [core, facts]
-        decision_statement = getattr(self, "_life_decision_statement", None)
-        if decision_statement:
-            parts.append(f"你刚才心里想的是：{decision_statement}")
-        user = "\n\n".join(parts)
-        return user
-
     def build_react_messages(self, request: ReactLoopRequest) -> list[dict[str, Any]]:
-        """@brief 构造只描述实际闭集工具的生活人物提示（三段消息）。"""
-        template = _READONLY_INSTRUCTIONS if request.readonly else _LIFE_INSTRUCTIONS
-        system = template.format(name=self.name or "this person")
+        """@brief 生活决策为系统层与六层 user；只读问答为只读系统层、人设层与记忆层以及外部问题。"""
         if request.readonly:
-            sections = [compose_user_message(
-                self._persona_card_text(), "", self._memory_prompt_section())]
-            if request.question is not None:
-                sections.append(f"外部只读问题：{request.question}")
-            user = "\n\n".join(section for section in sections if section)
-            self._life_prompt_layers = {"persona_and_memory": sections[0],
-                                        "question": request.question or ""}
-        else:
-            user = self._life_user_sections(request, with_facts=True)
-        return [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user},
-        ]
-
-    def prelude_decision_statement_request(self, request: ReactLoopRequest) -> dict[str, Any] | None:
-        """@brief 两阶段决策的决策自述请求参数；只读决策不启用决策自述。
-
-        决策自述 = system 身份前言 + persona_card + scene + 记忆摘要，不带
-        tools；thinking=disabled、temperature=1.0、max_tokens=8000。
-        """
-        if request.readonly:
-            return None
-        if self._model_name is None:
-            self._logger.error("Decision statement model is not initialized")
-            raise RuntimeError("LLM is not initialized")
-        system = (_LIFE_INSTRUCTIONS.format(name=self.name or "this person")
-                  + _DECISION_STATEMENT_INSTRUCTIONS)
-        user = self._life_user_sections(request, with_facts=False)
-        params = {
-            "model": self._model_name,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-            "stream": False,
-            "temperature": DECISION_STATEMENT_TEMPERATURE,
-            "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
-            "max_retries": 0,
-            "extra_body": {"thinking": {"type": "disabled"}},
-        }
-        return fit_request(params, layers=getattr(self, "_life_prompt_layers", None))
-
-    def receive_prelude_decision_statement(self, request: ReactLoopRequest, decision_statement: str) -> None:
-        """@brief 接收已通过协议校验的决策自述文本，供行动阶段消息引用。"""
-        del request
-        self._life_decision_statement = decision_statement
-
-    async def _run_prelude_decision_statement(self, request: ReactLoopRequest) -> None:
-        """@brief 执行单次无工具决策自述；超长或空消耗一个回合后重试一次。
-
-        两次失败即本次决策失败（docs/dev/SPEC-life-realism.md「两阶段决策」）。决策自述经完整
-        model_request/model_response 证据路径保存；传输异常立即传播。
-        """
-        params = self.prelude_decision_statement_request(request)
-        if not params:
-            return
-        if "tools" in params:
-            self._logger.error("Decision statement request must not expose tools")
-            raise RuntimeError("Prelude decision_statement request must not expose tools")
-        last_error: DecisionStatementValidationError | None = None
-        for _attempt in (1, 2):
-            self._life_require_turns("decision_statement", 2)
-            decision_statement, last_error = await self._decision_statement_once(params)
-            if decision_statement is not None:
-                self.receive_prelude_decision_statement(request, decision_statement)
-                return
-        message = f"Prelude decision_statement failed the protocol twice: {last_error}"
-        self._logger.error("%s", message)
-        raise RuntimeError(message)
-
-    async def _decision_statement_once(
-        self, params: dict[str, Any]) -> tuple[str | None, DecisionStatementValidationError | None]:
-        """@brief 调用一次决策自述模型并保存带校验结果的完整证据。
-
-        :returns: (通过校验的决策自述文本或空值, 协议错误或空值)。
-        """
-        if self._dispatcher is None:
-            self._logger.error("Decision statement dispatcher is not initialized")
-            raise RuntimeError("LLM is not initialized")
-        context = getattr(self, "_decision_context", None)
-        call_id = self._next_model_call_id(1)
-        await self._record_model_evidence(
-            ModelCallEvidence(context, call_id, "request", 1, params))
-        try:
-            response = await self._dispatcher.call(**params)
-        except Exception as exc:
-            self._logger.error("Decision statement transport failed: %s", exc)
-            await self._record_model_evidence(
-                ModelCallEvidence(context, call_id, "failure", 1, params, error=repr(exc)))
-            raise
-        text = decision_statement_content(response)
-        try:
-            decision_statement = validate_decision_statement(text)
-        except DecisionStatementValidationError as error:
-            self._logger.error("Decision statement protocol validation failed: %s", error)
-            decision_statement, validated_error = None, error
-        else:
-            validated_error = None
-        await self._record_model_evidence(
-            ModelCallEvidence(
-                context, call_id, "response", 1, params,
-                response=self._serialize_model_response(response),
-                error=None if validated_error is None else str(validated_error),
-            )
-        )
-        return decision_statement, validated_error
+            persona, memory = self._life_budget.layers
+            return readonly_messages(persona, memory, request.question)
+        return [system_message(False), user_message(self._life_budget.layers)]
 
     def memory_sleep_boundary(self) -> bool:
         """@brief 报告本步骤是否为人物进入睡眠后的第一个边界。
 
-        引擎在观察 data.wake_reasons 提供唤醒原因（B1）；就寝后第一个
-        边界以 wake_from_sleep 标记，驱动就寝后的记忆巩固与反思。
+        引擎在观察 data.wake_reasons 提供唤醒原因；就寝后第一个边界以 wake_from_sleep 标记，驱动就寝后的记忆巩固与反思。
         """
         return "wake_from_sleep" in getattr(self, "_life_wake_reasons", frozenset())
 
     def prepare_react_loop(self, request: ReactLoopRequest) -> None:
-        """@brief 重置当前决策动作计数并冻结本轮观察给出的对象、活动与工具面。"""
+        """@brief 重置当前决策动作计数，并冻结本轮观察给出的层、私有绑定与工具面。"""
         super().prepare_react_loop(request)
         self._life_action_count = 0
         self._life_readonly = request.readonly
-        self._life_request_models = None
-        self._life_decision_statement = None
-        self._life_facts_for_capacity = None
-        self._life_prompt_layers = {}
         if request.readonly:
-            self._life_interaction_menu = None
-            self._life_visible_objects = {}
-            self._life_allowed_actions = frozenset()
-            self._life_action_contracts = {}
-            self._life_action_models = {}
+            self._life_budget = ProgressBudget(readonly_layers(self._workspace_root, self.get_profile(), self.name), ())
+            self._life_names = {}
             self._life_wake_reasons = frozenset()
-            budget = self._react_budget(True)
-            self._life_request_models = self._budgeted_tool_models(
-                True, budget["memory_tools_available"])
-            return
-        data = _environment_observation_data(request.observations)
-        self._prepare_life_action_state(data)
-        budget = self._react_budget(False)
-        self._life_request_models = self._budgeted_tool_models(
-            False, budget["memory_tools_available"])
+        else:
+            data = _environment_observation_data(request.observations)
+            self._prepare_life_action_state(data)
+        self._life_request_models = self._request_tool_models(request.readonly)
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装菜单、交互对象层、活动名称和稳定工具面。
-
-        同刻上限的受限轮按观察私有证据 same_moment_stage 收窄世界请求工具、交互对象与活动名称，
-        Schema 枚举、本地校验与引擎复核因此按同一阶段判定（docs/dev/SPEC-time-and-energy.md 第一章「实现约定」）。
-        """
+        """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
-        stage = _visible_same_moment_stage(data)
-        self._life_visible_objects = _same_moment_objects(stage, _visible_interactive_objects(data))
-        self._life_allowed_actions = frozenset(self._life_interaction_menu.allowed_actions)
-        self._life_action_contracts = _same_moment_contracts(stage, _visible_action_contracts(data))
-        self._life_action_models = _available_action_models(self._life_action_contracts, STAGE_TOOLS[stage])
+        persona = persona_layer(self.get_profile(), self.name, _persona_views(data))
+        layers = life_user_layers(data, persona)
+        self._life_budget = ProgressBudget(tuple(layers), tuple(_progress_meta(data, layers[-1])))
+        names = _visible_names(data, layers[3])
+        self._life_names = {**names, "known_persons": known_persons(self.get_profile(), list(names["people"]))}
+        if self._workspace_root is not None:
+            write_prompt_snapshot(self._workspace_root, persona, layers[2])
+        continued = continuation_messages(data.get(CONTINUATION_KEY), layers)
+        if continued is not None:
+            self._react_messages = continued
+            self._life_budget = replace(self._life_budget, fresh_messages=(system_message(False), user_message(layers)),
+                                        chain_length=len(continued))
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
         """@brief 冻结本轮本人事件事实窗口与观察身份（本步记忆更新的来源截止），模型和记忆不能写入该窗口。
@@ -669,17 +305,28 @@ class LifeAgent(PersonAgent):
             raise RuntimeError("LifeAgent observation event identity is invalid")
         self._life_observation_event_id = observation_event_id
 
+    async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
+        """@brief 登记本步已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：就寝反思的快照条目另带来源 reflection，
+        环境据此给反思找归属日期（docs/dev/SPEC-persona-prompt.md 第三章「零点、反思与未了结」）。"""
+        context = getattr(self, "_decision_context", None)
+        store = self._memory_runtime.store
+        if context is None or store is None:
+            return
+        if self._env is None:
+            raise RuntimeError("Environment is not initialized")
+        evidence = memory_update_evidence(context, store, outcome)
+        if evidence is not None:
+            await self._env.record_memory_update(evidence)
+
     def validate_react_decisions(
         self,
         decisions: list[ReactDecision],
         readonly: bool,
     ) -> str:
-        """@brief 在执行任何工具前验证闭集参数和原子动作数量。"""
+        """@brief 在执行任何工具前验证闭集参数、原子动作数量与名称（名称只按私有绑定核对，不查可用性）。"""
         if readonly != self._life_readonly:
             raise RuntimeError("LifeAgent readonly decision state is inconsistent")
         models = self._life_request_models
-        if models is None:
-            raise RuntimeError("LifeAgent request tool schemas are not prepared")
         business = [item for item in decisions if item.action in REQUEST_MODELS]
         if len(business) > 1:
             return "one model response cannot contain multiple life actions"
@@ -690,24 +337,25 @@ class LifeAgent(PersonAgent):
         for decision in decisions:
             model = models.get(decision.action)
             if model is None:
-                if decision.action in REQUEST_MODELS:
-                    return f"{decision.action} is not available in the current activity state"
                 return f"unknown LifeAgent tool: {decision.action}"
             try:
                 validated = _validate_request(model, decision.args)
-                error = _validate_prepared_action(
-                    decision.action, validated, self._life_visible_objects, self._life_action_contracts)
-                if error:
-                    return error
-                if decision.action in REQUEST_MODELS:
-                    error = life_menu.menu_action_error(
-                        self._life_interaction_menu, decision.action,
-                        _selected_actions(decision.action, validated, self._life_visible_objects))
-                    if error:
-                        return error
+                error = self._prepared_action_error(decision.action, validated)
             except Exception as exc:
                 return f"invalid {decision.action} arguments: {exc}"
+            if error:
+                return error
         return ""
+
+    def _prepared_action_error(self, action: str, request: BaseModel) -> str:
+        """@brief 用同一冻结观察核对名称与菜单；非生活动作（记忆查询、finish）不核对名称。"""
+        if action not in REQUEST_MODELS:
+            return ""
+        error = _validate_prepared_action(action, request, self._life_names)
+        if error:
+            return error
+        return life_menu.menu_action_error(
+            self._life_interaction_menu, action, _selected_actions(action, request, self._life_names["objects"]))
 
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
@@ -740,7 +388,7 @@ class LifeAgent(PersonAgent):
             if readonly:
                 raise RuntimeError("Life actions are disabled in readonly mode")
             return await self._submit_life_action(action, args)
-        if action.startswith("memory_"):
+        if action in _MEMORY_TOOL_MODELS:
             return self._dispatch_strict_memory(action, args)
         raise RuntimeError(f"Unsupported LifeAgent tool dispatch: {action}")
 
@@ -752,16 +400,9 @@ class LifeAgent(PersonAgent):
         """@brief 注入宿主身份并向 LifeEnv 提交一个有类型请求。"""
         if self._life_action_count:
             raise RuntimeError("Life action was already submitted")
-        if action not in self._life_action_models:
-            self._logger.error("Life action is unavailable in the prepared activity state")
-            raise RuntimeError("Life action is unavailable in the prepared activity state")
         request = _validate_request(REQUEST_MODELS[action], args)
         context = self.require_decision_context()
-        error = _validate_prepared_action(action, request, self._life_visible_objects, self._life_action_contracts)
-        if error:
-            raise RuntimeError(error)
-        error = life_menu.menu_action_error(self._life_interaction_menu, action,
-                                            _selected_actions(action, request, self._life_visible_objects))
+        error = self._prepared_action_error(action, request)
         if error:
             raise RuntimeError(error)
         action_id = f"{context.decision_id}:action:0001"
@@ -776,10 +417,18 @@ class LifeAgent(PersonAgent):
         return ReactToolResult(True, json.dumps(data, ensure_ascii=False), data)
 
     def _append_react_tool_result(self, decision: ReactDecision, result: ReactToolResult) -> None:
-        """@brief 模型只见生活动作登记语义，宿主仍保留完整回执与记忆查询结果。"""
+        """@brief 世界请求登记后不追加任何 tool 消息；记忆查询的结果只序列化一次写进 tool 消息。
+
+        宿主仍完整保留回执（审计与幂等）；失败的记忆查询以 {"error": 原因} 反馈给模型重试。
+        """
         if decision.action in REQUEST_MODELS:
-            result = ReactToolResult(True, _ACTION_REGISTRATION_CONFIRMATION, {})
-        super()._append_react_tool_result(decision, result)
+            return
+        if not decision.tool_call_id:
+            logging.error("Native tool call id is unavailable")
+            raise RuntimeError("Native tool call id is unavailable")
+        payload = result.data if result.ok else {"error": result.observation}
+        self._react_messages.append({"role": "tool", "tool_call_id": decision.tool_call_id,
+                                     "content": json.dumps(payload, ensure_ascii=False, separators=(",", ":"))})
 
     def _dispatch_strict_memory(
         self,
@@ -817,22 +466,6 @@ def _environment_observation_data(observations: list[dict[str, Any]]) -> dict[st
     return data
 
 
-def _scene_projection(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 严格读取两层观察投影的 scene 段（提示渲染输入）。"""
-    scene = data.get("scene")
-    if not isinstance(scene, dict):
-        raise RuntimeError("LifeAgent environment observation scene projection is unavailable")
-    return scene
-
-
-def _facts_projection(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 严格读取两层观察投影的 facts 段（提示与工具身份来源）。"""
-    facts = data.get("facts")
-    if not isinstance(facts, dict):
-        raise RuntimeError("LifeAgent environment observation facts projection is unavailable")
-    return facts
-
-
 def _observation_now(data: dict[str, Any]) -> int:
     """@brief 校验观察顶层的模拟时钟（UTC epoch 秒）。"""
     now = data.get("current_time")
@@ -851,12 +484,26 @@ def _visible_wake_reasons(data: dict[str, Any]) -> tuple[str, ...]:
     return tuple(reasons)
 
 
-def _experience_text(data: dict[str, Any]) -> str:
-    """@brief 已核验经历的句子段（取 facts.experiences，不含任何内部身份）；没有经历时为空串。"""
-    sentences = _facts_projection(data).get("experiences")
-    if not isinstance(sentences, list) or any(not isinstance(item, str) for item in sentences):
-        raise RuntimeError("LifeAgent verified experience sentences are invalid")
-    return "已核验经历：\n" + "\n".join(sentences) if sentences else ""
+def _persona_views(data: dict[str, Any]) -> dict[str, Any]:
+    """@brief 读取环境下发的看法与偏好（观察私有证据 persona_views）。"""
+    views = data.get("persona_views")
+    if (not isinstance(views, dict) or not isinstance(views.get("relationships"), list)
+            or not isinstance(views.get("preferences"), list)):
+        logging.error("LifeAgent persona views are invalid")
+        raise RuntimeError("LifeAgent persona views are invalid")
+    return views
+
+
+def _progress_meta(data: dict[str, Any], progress: dict[str, Any]) -> list[dict[str, Any]]:
+    """@brief 读取与进度层记录逐条对齐的私有元数据（受保护标记与 settled 句）。"""
+    meta = data.get("progress_meta")
+    events = progress.get("events")
+    if (not isinstance(meta, list) or not isinstance(events, list) or len(meta) != len(events)
+            or any(not isinstance(item, dict) or not isinstance(item.get("protected"), bool)
+                   or not isinstance(item.get("lines"), list) for item in meta)):
+        logging.error("LifeAgent progress metadata is invalid")
+        raise RuntimeError("LifeAgent progress metadata is invalid")
+    return meta
 
 
 def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, Any]]:
@@ -867,325 +514,154 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
     if action != "conclude_activity":
         return []
     request = _validate_request(ConcludeActivityRequest, args)
-    return [{**memory.model_dump(mode="json"), "source": _CONCLUSION_MEMORY_SOURCE,
+    return [{**memory.model_dump(mode="json", exclude={"subject"}), "source": _CONCLUSION_MEMORY_SOURCE,
              "epistemic_status": "subjective"}
             for group in request.memories for memory in group]
 
 
-def _visible_interactive_objects(data: dict[str, Any]) -> dict[str, tuple[tuple[str, str, str], ...]]:
-    """@brief 冻结本轮交互对象层：可读名称 -> 该对象自己的（动词，方式，内部标准动作）。
+def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
+    """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称，以及来源
+    与去向的判定名称（人物、可见直接消息）。
 
-    公开行为 {object, actions: [{action, note}]}，action 是「动词：方式」（docs/dev/SPEC-time-and-energy.md
-    第五章「动作照常列出，做错了再说明」）；内部标准动作取本轮私有绑定，用于菜单与受限轮收窄。按世界事实过滤后
-    没有动作的对象以空列表列出，不进 start_activity 的 targets 枚举。空对象层是合法状态（「仍须修复」第 1 条），
-    start_activity 照常可见；缺失、非列表或与私有绑定不符的对象层是损坏的宿主观察。
+    只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。people 是同世界其他人物的姓名（不论是否同处，
+    私有绑定 person_bindings），供 relationship 记忆的对象校验。回看名称是任务名、待办层写出的目标文字、活动名与
+    记忆层 self_notes 所写的活动名（活动绑定的 note_labels）。
     """
-    rows = _facts_projection(data).get("interactive_objects")
-    bindings = data.get("interaction_bindings")
-    if not isinstance(rows, list) or not isinstance(bindings, list):
-        raise RuntimeError("LifeAgent interactive objects layer must be a list")
-    canonical = {(row.get("object"), action.get("verb"), action.get("label")): action.get("canonical_action")
-                 for row in bindings if isinstance(row, dict) for action in row.get("actions", [])}
-    objects: dict[str, tuple[tuple[str, str, str], ...]] = {}
-    for row in rows:
-        if not isinstance(row, dict):
-            raise RuntimeError("LifeAgent interactive object must be an object")
-        name, actions = row.get("object"), row.get("actions")
-        if not isinstance(name, str) or not name.strip() or name in objects or not isinstance(actions, list):
-            raise RuntimeError("LifeAgent interactive object identity is invalid")
-        objects[name] = tuple(sorted(_visible_action(name, item, canonical) for item in actions))
-    return objects
-
-
-def _visible_action(name: str, item: Any, canonical: dict[tuple, Any]) -> tuple[str, str, str]:
-    """@brief 解析一个公开动作「动词：方式」与说明，并取私有绑定的内部标准动作。"""
-    if (not isinstance(item, dict) or set(item) != {"action", "note"}
-            or not isinstance(item["action"], str) or not (item["note"] is None or isinstance(item["note"], str))):
-        raise RuntimeError("LifeAgent interactive object actions are invalid")
-    verb, _, way = item["action"].partition(VERB_WAY_SEPARATOR)
-    bound = canonical.get((name, verb, way))
-    if verb not in LIFE_VERBS or WAYS.get(way, ("",))[0] != verb or not isinstance(bound, str):
-        raise RuntimeError("LifeAgent interactive object action is not bound")
-    return verb, way, bound
-
-
-def _visible_progress(data: dict[str, Any]) -> tuple[tuple[str, ...], dict[str, str]]:
-    """@brief 冻结本轮进度层（facts.progress.sessions）：会话名称与各活动的名称和阶段。
-
-    :returns: (会话名称, 活动名称→阶段标识)；阶段标识取 active、paused、pending、concluded、ended。
-    """
-    progress = _facts_projection(data).get("progress")
-    rows = progress.get("sessions") if isinstance(progress, dict) else None
-    if not isinstance(rows, list):
-        raise RuntimeError("LifeAgent sessions layer must be a list")
-    sessions: list[str] = []
-    activities: dict[str, str] = {}
-    for row in rows:
-        name = row.get("name") if isinstance(row, dict) else None
-        items = row.get("activities") if isinstance(row, dict) else None
-        if not isinstance(name, str) or not name.strip() or name in sessions or not isinstance(items, list):
-            raise RuntimeError("LifeAgent session identity is invalid")
-        sessions.append(name)
-        for item in items:
-            label = item.get("name") if isinstance(item, dict) else None
-            phase = item.get("phase") if isinstance(item, dict) else None
-            if not isinstance(label, str) or not label.strip() or label in activities:
-                raise RuntimeError("LifeAgent activity identity is invalid")
-            if phase not in _ACTIVITY_PHASES:
-                raise RuntimeError("LifeAgent activity phase is invalid")
-            activities[label] = _ACTIVITY_PHASES[phase]
-    return tuple(sessions), activities
-
-
-def _visible_resumable(data: dict[str, Any], paused: tuple[str, ...]) -> tuple[str, ...]:
-    """@brief 此刻能在开始地点恢复的暂停活动名（私有活动绑定的 resumable 标记；受限轮的恢复枚举只列这些）。"""
-    rows = data.get("activity_bindings")
-    if not isinstance(rows, list) or any(
-            not isinstance(row, dict) or not isinstance(row.get("name"), str)
-            or not isinstance(row.get("resumable"), bool) for row in rows):
-        raise RuntimeError("LifeAgent activity bindings are invalid")
-    here = {row["name"] for row in rows if row["resumable"]}
-    return tuple(name for name in paused if name in here)
-
-
-def _visible_action_contracts(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结当日目标合同、活动控制名称及内容、回看工具的可见名称。"""
-    bindings = data["interaction_bindings"]
-    tasks = data["task_bindings"]
-    goals = data["goal_bindings"]
-    sessions, activities = _visible_progress(data)
-    by_phase = {phase: tuple(name for name, value in activities.items() if value == phase)
-                for phase in ("active", "paused", "pending")}
+    objects = _binding_objects(data.get("interaction_bindings"))
+    tasks = _binding_names(data, "task_bindings", "task_name")
+    goals = _binding_names(data, "goal_bindings", "task_name")
+    activities = _binding_names(data, "activity_bindings", "name")
+    labels = _note_labels(data["activity_bindings"])
+    kinds = {row["object"]: row["kind"] for row in data["interaction_bindings"]}
     return {
-        "revise_day_plan": _visible_revise_plan_contract(data),
-        "task_names": tuple(row["task_name"] for row in tasks),
-        "recipient_names": tuple(row["object"] for row in bindings
-                                 if row["kind"] in {"person", "contact"}),
-        "recall_names": tuple([*(row["task_name"] for row in tasks), *(row["task_name"] for row in goals),
-                               *activities, *sessions]),
-        "reportable_names": by_phase["active"] + by_phase["paused"],
-        "resumable_names": _visible_resumable(data, by_phase["paused"]),
-        "pausable_names": by_phase["active"],
-        "concludable_names": by_phase["active"] + by_phase["paused"] + by_phase["pending"],
-        "pending_names": by_phase["pending"],
-        "conclude_all_pending": False,
+        "objects": objects,
+        "task_names": tasks,
+        "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
+        "people": tuple(name.split("：", 1)[-1] for name in _binding_names(data, "person_bindings", "name")),
+        "activity_names": activities,
+        "recall_names": (*tasks, *goals, *activities, *labels),
+        "progressed_intents": _progressed_intents(todo),
+        "routing": routing_names(data),
     }
 
 
-def _visible_same_moment_stage(data: dict[str, Any]) -> SameMomentStage:
-    """@brief 读取观察私有证据中的同刻受限轮阶段；闭集之外的取值是损坏的宿主观察。"""
-    stage = data.get("same_moment_stage")
-    if not isinstance(stage, str) or stage not in {item.value for item in SameMomentStage}:
-        logging.error("LifeAgent same-moment stage is invalid: %r", stage)
-        raise RuntimeError("LifeAgent same-moment stage is invalid")
-    return SameMomentStage(stage)
+def _binding_objects(rows: Any) -> dict[str, tuple[tuple[str, str, str], ...]]:
+    """@brief 交互对象私有绑定：可读名称 -> 该对象列出的（动词，方式，内部标准动作）。"""
+    if not isinstance(rows, list):
+        raise RuntimeError("LifeAgent interaction bindings must be a list")
+    objects: dict[str, tuple[tuple[str, str, str], ...]] = {}
+    for row in rows:
+        name = row.get("object") if isinstance(row, dict) else None
+        actions = row.get("actions") if isinstance(row, dict) else None
+        if (not isinstance(name, str) or not name.strip() or name in objects or not isinstance(actions, list)
+                or not isinstance(row.get("kind"), str)):
+            raise RuntimeError("LifeAgent interaction binding identity is invalid")
+        objects[name] = tuple(_binding_action(item) for item in actions)
+    return objects
 
 
-def _same_moment_objects(stage: SameMomentStage, objects: dict[str, tuple[tuple[str, str, str], ...]]
-                         ) -> dict[str, tuple[tuple[str, str, str], ...]]:
-    """@brief 按受限轮阶段收窄交互对象层：start_or_resume 去掉受限轮排除的动作（到店与远程下单），
-    wait_only 只留等待，不开放 start_activity 的阶段不列对象。
-
-    动作到内部标准动作的对应取本轮私有绑定；收窄后没有动作的对象不再列出。
-    """
-    if stage == SameMomentStage.OPEN:
-        return objects
-    filters = {SameMomentStage.START_OR_RESUME: lambda action: action not in RESTRICTED_EXCLUDED_ACTIONS,
-               SameMomentStage.WAIT_ONLY: lambda action: action == "wait"}
-    wanted = filters.get(stage)
-    if wanted is None:
-        return {}
-    narrowed = {name: tuple(item for item in actions if wanted(item[2])) for name, actions in objects.items()}
-    return {name: actions for name, actions in narrowed.items() if actions}
+def _binding_action(item: Any) -> tuple[str, str, str]:
+    """@brief 私有绑定的一项动作：（动词，方式，内部标准动作）。"""
+    fields = tuple(item.get(key) if isinstance(item, dict) else None
+                   for key in ("verb", "label", "canonical_action"))
+    if not all(isinstance(value, str) and value for value in fields):
+        raise RuntimeError("LifeAgent interaction binding action is invalid")
+    return fields
 
 
-def _same_moment_contracts(stage: SameMomentStage, contracts: dict[str, Any]) -> dict[str, Any]:
-    """@brief 受限轮的活动名称枚举（docs/dev/SPEC-time-and-energy.md 第一章规则 3）。
-
-    conclude_pending 只列待收尾活动且须一次点名全部；start_or_resume 只可恢复此刻在开始地点的暂停活动；
-    resume_or_conclude 可恢复这些活动或结束占名额的活动；conclude_only 只可结束占名额的活动；wait_only 不开放活动控制。
-    名称枚举只列当下可执行的活动（第一章规则 3）。
-    """
-    if stage == SameMomentStage.OPEN:
-        return contracts
-    slots = contracts["reportable_names"] + contracts["pending_names"]
-    names = {"reportable_names": (), "pausable_names": (), "concludable_names": (), "conclude_all_pending": False}
-    if stage == SameMomentStage.CONCLUDE_PENDING:
-        names.update(concludable_names=contracts["pending_names"], conclude_all_pending=True)
-    elif stage == SameMomentStage.START_OR_RESUME:
-        names.update(reportable_names=contracts["resumable_names"])
-    elif stage == SameMomentStage.RESUME_OR_CONCLUDE:
-        names.update(reportable_names=contracts["resumable_names"], concludable_names=slots)
-    elif stage == SameMomentStage.CONCLUDE_ONLY:
-        names.update(concludable_names=slots)
-    return {**contracts, **names}
+def _binding_names(data: dict[str, Any], key: str, field: str) -> tuple[str, ...]:
+    """@brief 一类私有绑定的可读名称（任务、目标、活动或会话）。"""
+    rows = data.get(key)
+    if not isinstance(rows, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get(field), str) for row in rows):
+        raise RuntimeError(f"LifeAgent {key} are invalid")
+    return tuple(row[field] for row in rows)
 
 
-def _visible_revise_plan_contract(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 任何已提交清单都可修订未推进部分，空清单也允许追加目标。"""
-    plan = _facts_projection(data).get("day_plan")
+def _note_labels(rows: list[dict[str, Any]]) -> tuple[str, ...]:
+    """@brief 活动绑定的 note_labels：记忆层 self_notes 中去掉开始时刻后缀的活动名（只作回看名称）。"""
+    if any(not isinstance(row.get("note_labels"), list)
+           or any(not isinstance(label, str) for label in row["note_labels"]) for row in rows):
+        raise RuntimeError("LifeAgent activity_bindings are invalid")
+    return tuple(dict.fromkeys(label for row in rows for label in row["note_labels"]))
+
+
+def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
+    """@brief 今日计划中已推进目标的意图（没有计划时为空，修订不受约束）。"""
+    plan = todo.get("day_plan")
     if plan is None:
-        return {}
-    return {"progressed_intents": tuple(goal["intent_kind"] for goal in plan["goals"]
-                                        if goal["progressed"])}
+        return ()
+    return tuple(goal["intent_kind"] for goal in plan["goals"] if goal["progressed"])
 
 
-def _available_action_models(
-    contracts: dict[str, Any],
-    allowed_tools: frozenset[str] | None,
-) -> dict[str, type[BaseModel]]:
-    """@brief 稳定工具面的可见性规则（docs/dev/SPEC-agent-interaction.md「稳定工具面」工具表）。
-
-    start_activity 与 recall_task_summary 永恒可见；播报在有进行中或暂停的活动时可见，暂停在有进行中活动时
-    可见，结束在有进行中、暂停或待收尾的活动时可见；修订当日目标在当日已有计划（含空清单）时开放。同刻上限的
-    受限轮另与该阶段开放的工具求交（allowed_tools 为 None 表示不收窄）。
-    """
-    names = {"start_activity", "recall_task_summary"}
-    if contracts["task_names"]:
-        names.add("submit_work")
-    if contracts["recipient_names"]:
-        names.add("send_message")
-    if contracts["reportable_names"]:
-        names.add("report_status")
-    if contracts["pausable_names"]:
-        names.add("pause_activity")
-    if contracts["concludable_names"]:
-        names.add("conclude_activity")
-    if contracts["revise_day_plan"]:
-        names.add("revise_day_plan")
-    if allowed_tools is not None:
-        names &= allowed_tools
-    return {name: _TOOL_MODELS[name] for name in _TOOL_MODELS if name in names}
-
-
-#: 活动控制工具 → 其名称枚举所在的合同键。
-_CONTROL_NAME_KEYS = {"report_status": "reportable_names", "pause_activity": "pausable_names",
-                      "conclude_activity": "concludable_names"}
-
-
-def _validate_prepared_action(
-    action: str,
-    request: BaseModel,
-    objects: dict[str, tuple[str, ...]],
-    contracts: dict[str, Any],
-) -> str:
-    """@brief 用同一冻结观察核对模型校验与实际分派边界。"""
+def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
+    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。"""
     if action == "start_activity":
-        return _validate_start_activity(request, objects)
+        return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
-        if not 1 <= len(request.task) <= 2 or len(set(request.task)) != len(request.task):
-            return f"{action} accepts one or two distinct activity names"
-        if any(name not in contracts[_CONTROL_NAME_KEYS[action]] for name in request.task):
-            return f"{action} task contains an unavailable activity"
-        if (action == "conclude_activity" and contracts["conclude_all_pending"]
-                and set(request.task) != set(contracts["pending_names"])):
-            return "conclude_activity must name every activity that just ended"
-        return ""
+        if any(name not in names["activity_names"] for name in request.task):
+            return f"{action} task names an activity that is not visible"
+        return _memory_subject_error(request, names["known_persons"]) if action == "conclude_activity" else ""
     if action == "recall_task_summary":
-        return "" if request.task_name in contracts["recall_names"] else "task_name is not visible"
+        return "" if request.task_name in names["recall_names"] else "task_name is not visible"
     if action == "submit_work":
-        return "" if request.task_name in contracts["task_names"] else "task_name is not visible"
+        return "" if request.task_name in names["task_names"] else "task_name is not visible"
     if action == "send_message":
-        return "" if request.recipient_name in contracts["recipient_names"] else "recipient_name is not visible"
-    if action == "revise_day_plan":
-        return _validate_plan_goals(request.goals, contracts[action]["progressed_intents"])
-    return ""
+        return "" if request.recipient_name in names["recipient_names"] else "recipient_name is not visible"
+    return _validate_plan_goals(request.goals, names["progressed_intents"])
 
 
-def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> str:
-    """@brief 对象、动词与方式逐项对应，并取自本轮可见交互对象列出的动作。"""
+def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
+    """@brief relationship 记忆的对象须是已知人物：卡片关系名、场景联系人称谓或同世界人物姓名（规格第一章「人设层」）。"""
+    unknown = [memory.subject for group in request.memories for memory in group
+               if memory.type == "relationship" and memory.subject not in known]
+    return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
+
+
+def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
+    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作；来源、去向与 answering 的组合合法
+    （worldmock.life.routing，与环境受理同一判定）。
+
+    obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
+    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。去向不是任何人物
+    （RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（第五章「来源与去向」）。
+    """
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
         return "start_activity accepts one or two targets"
     if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
         return "start_activity targets, actions and ways must have equal lengths"
-    if len(set(request.targets)) != len(request.targets):
-        return "start_activity targets must be unique"
     for target, verb, way in zip(request.targets, request.actions, request.ways):
-        actions = objects.get(target)
+        actions = names["objects"].get(target)
+        if actions is None and is_named_purchase(verb, way):
+            continue
         if actions is None:
             return "start_activity target is not a visible interactive object"
         if not any(item[:2] == (verb, way) for item in actions):
             return "start_activity verb and way are not offered by the chosen target"
-    return ""
+    error = combination_error(request, names["routing"])
+    return error[1] if error is not None and error[0] != RECIPIENT_NOT_FOUND else ""
 
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
                       ) -> list[str]:
-    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入）。"""
+    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入，指名购买计为购买）。"""
     if action != "start_activity":
         return []
-    return [item[2] for target, verb, way in zip(request.targets, request.actions, request.ways)
-            for item in objects.get(target, ()) if item[:2] == (verb, way)]
+    selected = []
+    for target, verb, way in zip(request.targets, request.actions, request.ways):
+        if target not in objects and is_named_purchase(verb, way):
+            selected.append(WAYS[way][1])
+        selected.extend(item[2] for item in objects.get(target, ()) if item[:2] == (verb, way))
+    return selected
 
 
-def _bind_start_activity_schema(
-    schemas: list[dict[str, Any]],
-    objects: dict[str, tuple[tuple[str, str, str], ...]],
-    allowed_actions: frozenset[str],
-) -> None:
-    """@brief 把本轮交互对象身份、动词与方式绑定到 start_activity Schema。
-
-    地点菜单按映射后的内部动作判定（docs/dev/SPEC-agent-interaction.md「保护项修订」），绑定值只取内部动作落在
-    菜单内的动作；没有这样动作的对象不进 targets 枚举。对象层为空（或交集为空）时省略对应的 enum 键，不绑定空枚举；
-    所填名称不在本轮对象中时由本地校验按协议错误在本轮重试（docs/dev/SPEC-time-and-energy.md「仍须修复」第 1 条）。
-    """
-    start = next((item for item in schemas if item["function"]["name"] == "start_activity"), None)
-    if start is None:
-        return
-    offered = {name: [item for item in actions if item[2] in allowed_actions] for name, actions in objects.items()}
-    properties = start["function"]["parameters"]["properties"]
-    targets = sorted(name for name, actions in offered.items() if actions)
-    verbs = sorted({item[0] for actions in offered.values() for item in actions})
-    ways = sorted({item[1] for actions in offered.values() for item in actions})
-    for key, values in (("targets", targets), ("actions", verbs), ("ways", ways)):
-        if values:
-            properties[key]["items"]["enum"] = values
-
-
-def _bind_control_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 将本轮可控制的活动名分别绑定到播报、暂停与结束工具的名称枚举。"""
-    for item in schemas:
-        name = item["function"]["name"]
-        if name in _ACTIVITY_CONTROL_TOOLS:
-            properties = item["function"]["parameters"]["properties"]
-            properties["task"]["items"]["enum"] = sorted(contracts[_CONTROL_NAME_KEYS[name]])
-
-
-def _bind_named_action_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 给工作提交、通讯和回看工具绑定本轮可见的可读名称。"""
-    fields = {"submit_work": ("task_name", "task_names"),
-              "send_message": ("recipient_name", "recipient_names"),
-              "recall_task_summary": ("task_name", "recall_names")}
-    for item in schemas:
-        name = item["function"]["name"]
-        if name in fields and contracts[fields[name][1]]:
-            field = fields[name][0]
-            item["function"]["parameters"]["properties"][field]["enum"] = sorted(contracts[fields[name][1]])
-
-
-def _bind_plan_goal_schemas(schemas: list[dict[str, Any]], contracts: dict[str, Any]) -> None:
-    """@brief 把尚未推进的意图闭集绑定到修订当日目标工具的目标 Schema。"""
-    for item in schemas:
-        name = item["function"]["name"]
-        if name not in contracts or not contracts[name]:
-            continue
-        properties = item["function"]["parameters"]["properties"]
-        progressed = contracts[name]["progressed_intents"]
-        properties["goals"]["items"]["properties"]["intent_kind"]["enum"] = [
-            kind for kind in INTENT_KINDS if kind not in progressed]
-
-
-def _tool_schema(
-    name: str,
-    model: type[BaseModel],
-    descriptions: Mapping[str, str],
-) -> dict[str, Any]:
-    """@brief 从唯一请求模型与合同拼装描述形成 OpenAI 原生 function Schema。"""
+def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
+    """@brief 从唯一请求模型与用途说明形成 OpenAI 原生 function Schema。"""
     return {
         "type": "function",
         "function": {
             "name": name,
-            "description": descriptions[name],
+            "description": TOOL_DESCRIPTIONS[name],
             "parameters": deepseek_strict_schema(model),
             "strict": True,
         },
@@ -1203,17 +679,6 @@ def _validate_plan_goals(goals: Any, progressed_intents: tuple[str, ...]) -> str
     return ""
 
 
-def life_prompt_sha256() -> str:
-    """@brief 将身份、自述要求及只读指令全部绑定为稳定模板身份。"""
-    templates = {
-        "life": _LIFE_INSTRUCTIONS,
-        "decision_statement": _DECISION_STATEMENT_INSTRUCTIONS,
-        "readonly": _READONLY_INSTRUCTIONS,
-    }
-    encoded = json.dumps(templates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(encoded.encode()).hexdigest()
-
-
 def affordance_registry_sha256() -> str:
     """@brief 返回仓库默认可供性注册表文件的 SHA-256（工具面审计指纹输入）。"""
     from worldmock.catalog.affordances import AFFORDANCES_FILE
@@ -1226,11 +691,9 @@ def affordance_registry_sha256() -> str:
 def life_tool_schema_sha256() -> str:
     """@brief 返回正式生活决策闭集工具 Schema + 注册表摘要的稳定 SHA-256。
 
-    稳定工具面的描述是静态的（每轮绑定的对象身份与动作枚举不进指纹），
-    指纹另绑定 affordances.toml 字节摘要，确保内容目录与工具面一起留证。
+    原生工具整次运行不变（不绑定逐轮枚举），指纹另绑定 affordances.toml 字节摘要，确保内容目录与工具面一起留证。
     """
-    schemas = [_tool_schema(name, _TOOL_MODELS[name], _TOOL_DESCRIPTIONS)
-               for name in _TOOL_MODELS]
+    schemas = [_tool_schema(name, _TOOL_MODELS[name]) for name in _TOOL_MODELS]
     encoded = json.dumps(
         {"tool_schemas": schemas,
          "affordance_registry_sha256": affordance_registry_sha256()},

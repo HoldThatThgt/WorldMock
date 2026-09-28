@@ -17,10 +17,11 @@ from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import (
     _add_objects, _context, _observations, _offer, _visible_object,
 )
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
+from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
+                                 start_arguments)
 from worldmock.life import sessions
 from worldmock.life.activity_control import object_display_name
-from worldmock.life.models import SessionKind, SessionStatus, StartActivityRequest
+from worldmock.life.models import SessionKind, SessionStatus
 from worldmock.life.sessions import moment_label
 
 _PLACE = "地点：办公室"
@@ -28,13 +29,13 @@ _NEWS = "内容：午间新闻"
 
 
 def _prepared() -> LifeAgent:
-    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看，说明写全长）。"""
+    """在正式观察结构中增加可读地点（步行）与内容对象（从没看过：接着看）。"""
     observed = copy.deepcopy(_observations())
     _add_objects(observed[0]["data"],
                  _visible_object(_PLACE, "location", "office",
                                  _offer("travel", "步行", "travel_to", travel_mode="walking")),
                  _visible_object(_NEWS, "content", "content-visible",
-                                 _offer("interact", "接着看", "watch", "全长约10分钟")))
+                                 _offer("interact", "接着看", "watch")))
     person = LifeAgent()
     person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
     return person
@@ -42,7 +43,7 @@ def _prepared() -> LifeAgent:
 
 def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactDecision:
     """构造一次真实 ReAct 工具决定：对象、动词与方式三个数组。"""
-    return ReactDecision("", "start_activity", {"targets": targets, "actions": actions, "ways": ways}, "")
+    return ReactDecision("", "start_activity", start_arguments(targets, actions, ways), "")
 
 
 def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
@@ -52,10 +53,8 @@ def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
                  for row in person.build_react_tool_schemas(readonly=False)}
     assert "start_parallel_activities" not in functions
     schema = functions["start_activity"]["parameters"]
-    assert set(schema["properties"]) == {"targets", "actions", "ways"}
-    assert {_PLACE, _NEWS} <= set(schema["properties"]["targets"]["items"]["enum"])
-    assert {"travel", "interact"} <= set(schema["properties"]["actions"]["items"]["enum"])
-    assert {"步行", "接着看"} <= set(schema["properties"]["ways"]["items"]["enum"])
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
+    assert all("enum" not in schema["properties"][name]["items"] for name in ("targets", "actions", "ways"))
     assert person.validate_react_decisions([
         _decision([_PLACE, _NEWS], ["travel", "interact"], ["步行", "接着看"]),
     ], False) == ""
@@ -67,7 +66,7 @@ def test_parallel_schema_and_local_pairing_use_readable_arrays() -> None:
         assert "not offered" in person.validate_react_decisions([
             _decision([_PLACE, _NEWS], actions, ways),
         ], False)
-    assert "unique" in person.validate_react_decisions([
+    assert "repeat only with different to" in person.validate_react_decisions([
         _decision([_PLACE, _PLACE], ["travel", "travel"], ["步行", "步行"]),
     ], False)
 
@@ -90,7 +89,7 @@ def test_parallel_start_is_atomic_in_real_engine(_engine_factory) -> None:
                   if action.get("travel_mode") == "walking")
     watch = next(action["label"] for action in content["actions"] if action["canonical_action"] == "watch")
     assert travel == "步行" and watch in {"接着看", "接着听"}
-    request = StartActivityRequest(
+    request = start_request(
         targets=[place["object"], content["object"]], actions=["travel", "interact"], ways=[travel, watch])
     before = engine.state.model_dump(mode="json")
     engine.submit_action(DirectToolCall(current, "parallel-readable", "start_activity", request))

@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from dotenv import dotenv_values
+from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import restore_directory
@@ -33,8 +34,10 @@ from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.state_commit import commit_state
 from worldmock.life.semantics import ScenarioSemantics, load_runtime_scenario
 from worldmock.life.run_identity import require_category_identity
+from worldmock.life.continuation import continuation_enabled
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
+from worldmock.profile.models import PersonaCardStruct, persona_card_struct
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +72,8 @@ class RunRequest:
     :param run_dir: 必须尚不存在的新运行目录。
     :param run_id: 调用方分配的稳定运行身份。
     :param source_group_id: 首次运行的来源组身份，必须等于 run_id。
+    :param same_second_continuation: 同秒续接开关（缺省开），冻结进清单 stages.action 与人物配置；
+        恢复与重放继承父清单的值（docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
     """
 
     project_root: Path
@@ -76,6 +81,7 @@ class RunRequest:
     run_dir: Path
     run_id: str
     source_group_id: str
+    same_second_continuation: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +153,7 @@ class _PreparedRun:
     workspace_mode: str
     intervention: CounterfactualIntervention | None = None
     intervention_sha256: str | None = None
+    same_second_continuation: bool = True
 
 
 async def run_world(request: RunRequest) -> RunResult:
@@ -277,13 +284,15 @@ def _prepare_new_run(request: RunRequest) -> _PreparedRun:
         "run_dir": str(run_dir),
         "run_identity": identity.model_dump(mode="json"),
         "open_existing": False,
+        "create_options": {"same_second_continuation": request.same_second_continuation},
     }
     _ops_log(run_dir, scenario.timezone, scenario.start_at, "RUN_STARTED", "Run started",
              run_id=request.run_id, code_sha256=identity.code_sha256, scenario_sha256=digest,
-             two_stage_model_identity=two_stage_model_identity())
+             stage_model_identity=stage_model_identity(request.same_second_continuation))
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, run_dir, request.run_id,
         scenario, scenario.start_at, kwargs, "create",
+        same_second_continuation=request.same_second_continuation,
     )
 
 
@@ -316,15 +325,15 @@ def _admit_scenario(semantics: ScenarioSemantics) -> None:
 def _model_identity() -> ModelIdentity:
     """@brief 形成不含凭据的显式 DeepSeek、提示和工具身份。
 
-    顶层 thinking/tool_choice 取行动阶段参数并直接来自 B2 导出常量
-    （单一事实源）；两阶段完整形状见 two_stage_model_identity()。
+    顶层 thinking/tool_choice 取行动阶段参数并直接来自 LifeAgent 导出常量
+    （单一事实源）；各阶段完整形状见 stage_model_identity()。提示指纹绑定七层系统层与层 Schema。
     """
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
-        life_prompt_sha256,
         life_tool_schema_sha256,
     )
+    from custom.agents.life_prompt import life_prompt_sha256
 
     return ModelIdentity(
         provider="openai_compatible",
@@ -338,19 +347,17 @@ def _model_identity() -> ModelIdentity:
     )
 
 
-def two_stage_model_identity() -> dict[str, Any]:
-    """@brief 两阶段决策与工作验收的完整冻结请求身份（docs/dev/SPEC-life-realism.md「两阶段决策」）。
+def stage_model_identity(same_second_continuation: bool = True) -> dict[str, Any]:
+    """@brief 行动与工作验收两个阶段的完整冻结请求身份（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。
 
-    决策自述/行动阶段参数取自 LifeAgent 导出常量（B2 设计决定 8 的单一事实源）；
-    运行中不变更。不发送 reasoning_effort（以 None 表示该字段不进请求）。
+    行动阶段参数取自 LifeAgent 导出常量（单一事实源）；运行中不变更。不发送 reasoning_effort
+    （以 None 表示该字段不进请求）。行动阶段另记运行开关 same_second_continuation（第二章「同秒续接」，缺省开）。
     """
     from agentsociety2.config.llm_dispatcher import TRANSPORT_MAX_RETRIES
     from custom.agents.life_agent import (
         ACTION_THINKING,
         ACTION_TOOL_CHOICE,
         ACTION_MAX_TOKENS,
-        DECISION_STATEMENT_MAX_TOKENS,
-        DECISION_STATEMENT_TEMPERATURE,
     )
 
     return {
@@ -363,17 +370,11 @@ def two_stage_model_identity() -> dict[str, Any]:
         "strict": True,
         "reasoning_effort": None,
         "stages": {
-            "decision_statement": {
-                "thinking": "disabled",
-                "temperature": DECISION_STATEMENT_TEMPERATURE,
-                "max_tokens": DECISION_STATEMENT_MAX_TOKENS,
-                "tools": None,
-                "tool_choice": None,
-            },
             "action": {
                 "thinking": ACTION_THINKING["thinking"]["type"],
                 "tool_choice": ACTION_TOOL_CHOICE,
                 "max_tokens": ACTION_MAX_TOKENS,
+                "same_second_continuation": same_second_continuation,
             },
             "work_review": {
                 "thinking": _WORK_REVIEW_THINKING,
@@ -410,6 +411,7 @@ def _prepare_resume(
         manifest, state = _restore_branch(parent, checkpoint, destination, metadata)
     finally:
         parent.close()
+    continuation = continuation_enabled(manifest)
     start = datetime.fromtimestamp(state["current_time"], ZoneInfo(scenario.timezone))
     kwargs = {"scenario_path": str(scenario_path), "run_dir": str(destination), "open_existing": True}
     _ops_log(destination, scenario.timezone, start, "RUN_RESUMED", "Run resumed from checkpoint",
@@ -417,7 +419,7 @@ def _prepare_resume(
              scenario_sha256=manifest.get("scenario_sha256"), checkpoint_id=request.checkpoint_id)
     return _PreparedRun(
         Path(request.project_root).resolve(), scenario_path, destination, manifest["run_id"],
-        scenario, start, kwargs, "restored", intervention, digest,
+        scenario, start, kwargs, "restored", intervention, digest, continuation,
     )
 
 
@@ -433,12 +435,16 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
 def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
     """@brief 拒绝用不同代码（含实际导入的 AS2）、端点、模型、提示或工具恢复父运行。
 
-    清单的 git_commit 与 git_dirty 只记录，不参与比对。
+    清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经五个入口共用的清单校验函数拒绝退役阶段与旧键，
+    再做等值比对；同秒续接开关继承父清单的值（按父清单的开关构造期望身份），恢复与重放不能覆盖。
     """
+    from worldmock.validation import validate_manifest_stage_identity
+
+    identity = validate_manifest_stage_identity(manifest)
     expected = _model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")
-    if manifest.get("two_stage_model_identity") != two_stage_model_identity():
+    if identity != stage_model_identity(continuation_enabled(manifest)):
         raise IntegrityError("Checkpoint decision stage identity differs from the current LifeAgent contract")
     if manifest.get("code_sha256") != runtime_code_sha256(project_root):
         raise IntegrityError("Checkpoint code identity differs from the current runtime")
@@ -606,7 +612,7 @@ def _transfer_status_shell(destination: Path, staged_run: Path) -> None:
 
 
 def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path) -> None:
-    """@brief 从同一权威检查点恢复清单中的全部人物工作区。"""
+    """@brief 从同一权威检查点恢复清单中的全部人物工作区；人物配置的续接开关须与清单一致。"""
     agent_ids = tuple(sorted(int(item) for item in child.manifest["agent_ids"]))
     for agent_id in agent_ids:
         reference = checkpoint.snapshots.get(f"agent:{agent_id}")
@@ -614,11 +620,11 @@ def _restore_agents(checkpoint: Any, child: FootprintStore, run_dir: Path) -> No
             raise IntegrityError("Checkpoint is missing an agent workspace snapshot")
         destination = run_dir / "as2" / "agents" / f"agent_{agent_id:04d}"
         restore_directory(reference, child.assets, destination)
-        _validate_agent_workspace(destination, agent_id)
+        _validate_agent_workspace(destination, agent_id, continuation_enabled(child.manifest))
 
 
-def _validate_agent_workspace(workspace: Path, agent_id: int) -> None:
-    """@brief 发布恢复分支前严格验证人物身份、配置和已用记忆。"""
+def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool) -> None:
+    """@brief 发布恢复分支前严格验证人物身份、配置、冻结的续接开关（与父清单相同）和已用记忆。"""
     from agentsociety2.agent.memory import AgentMemoryStore
 
     agent_path = workspace / "AGENT.json"
@@ -635,8 +641,13 @@ def _validate_agent_workspace(workspace: Path, agent_id: int) -> None:
             or agent.get("schema_version") != 1 or agent.get("agent_class") != "LifeAgent"
             or type(agent.get("agent_id")) is not int or agent["agent_id"] != agent_id):
         raise IntegrityError("Restored agent identity does not match the manifest")
+    profile = agent.get("profile")
+    if not isinstance(profile, dict) or profile.get("same_second_continuation") is not continuation:
+        logger.error("Restored LifeAgent same_second_continuation differs from the parent manifest")
+        raise IntegrityError("Restored agent same_second_continuation must match the parent manifest")
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
+    _validate_persona_card_struct(agent.get("profile"))
     if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != MAX_REACT_TURNS:
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
         raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
@@ -647,6 +658,18 @@ def _validate_agent_workspace(workspace: Path, agent_id: int) -> None:
             store.validate_existing()
         except (OSError, UnicodeError, ValueError) as exc:
             raise IntegrityError("Restored agent memory is invalid") from exc
+
+
+def _validate_persona_card_struct(profile: Any) -> None:
+    """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。"""
+    struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
+    if struct is None:
+        return
+    try:
+        PersonaCardStruct.model_validate(struct)
+    except ValidationError as exc:
+        logger.error("Restored persona card structure is invalid")
+        raise IntegrityError("Restored persona card structure is invalid") from exc
 
 
 async def _execute(prepared: _PreparedRun) -> RunResult:
@@ -733,9 +756,10 @@ def _build_society(prepared: _PreparedRun) -> tuple[Any, Any]:
         persona_compiler=(None if create_mode else _no_persona_compilation),
         content_genres=(_content_genre_catalog(prepared.scenario_path, prepared.scenario)
                         if create_mode else None),
+        same_second_continuation=prepared.same_second_continuation,
     )
     if create_mode:
-        prepared.env_kwargs["agent_taste_weights"] = {
+        prepared.env_kwargs["create_options"]["agent_taste_weights"] = {
             spec_id: profile.get("taste_weights", {})
             for spec_id, profile in ((item["id"], item["profile"]) for item in specs)}
     spec = DirectEnvActorSpec(
@@ -807,10 +831,12 @@ class ContactReplyClient:
 
 def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
                           model_name: str) -> dict[str, Any]:
-    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试）。"""
+    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试），带双方往来与对方实际收到的物品。"""
     payload = {"contact": contact if contact is not None
                else {"contact_id": request.contact_id},
                "incoming_message": request.incoming_text,
+               "history": [item.model_dump(mode="json") for item in request.history],
+               "received": [item.model_dump(mode="json") for item in request.received],
                "reply_char_limit": request.max_chars}
     messages = [
         {"role": "system", "content": _CONTACT_REPLY_PROMPT},
@@ -1041,18 +1067,18 @@ def _require_custom_modules(project_root: Path) -> None:
         raise RuntimeError("LifeAgent or LifeEnv custom module registration failed")
 
 
-def _agent_specs(scenario: RuntimeScenario, *,
-                 persona_compiler=None, content_genres=None) -> tuple[dict[str, Any], ...]:
-    """@brief 从冻结生活人物形成原生 runner 工作区输入。
+def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_genres=None,
+                 same_second_continuation: bool = True) -> tuple[dict[str, Any], ...]:
+    """@brief 从冻结生活人物形成原生 runner 工作区输入；同秒续接开关冻结进人物配置 profile["same_second_continuation"]。
 
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
-    （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]），
+    （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
+    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-persona-prompt.md「人设层」），
     并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
     docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
     匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler/content_genres 供测试注入确定性桩（注入文本桩时只影响
-    卡片文本，不触发真实模型调用与口味计算）。
+    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 PersonaCard 或 None，不触发真实模型调用）。
     """
     contents = tuple({"item_id": item.item_id,
                       "genre": tuple((content_genres or {}).get(item.item_id) or ())}
@@ -1061,13 +1087,11 @@ def _agent_specs(scenario: RuntimeScenario, *,
     for agent in sorted(scenario.agents, key=lambda item: item.agent_id):
         profile = agent.model_dump(mode="json")
         profile["id"] = agent.agent_id
-        if persona_compiler is not None:
-            card_text, card = persona_compiler(agent), None
-        else:
-            card_text, card = _persona_payload(agent)
-        if card_text is not None:
-            profile["persona_card"] = card_text
+        profile["same_second_continuation"] = same_second_continuation
+        card = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
         if card is not None:
+            profile["persona_card"] = _render_card(card)
+            profile["persona_card_struct"] = persona_card_struct(card)
             profile["taste_weights"] = _card_taste_weights(card, contents)
         config = {
             "enable_memory": True,
@@ -1080,18 +1104,11 @@ def _agent_specs(scenario: RuntimeScenario, *,
     return tuple(specs)
 
 
-def _persona_payload(agent: Any) -> tuple[str | None, Any]:
-    """@brief 一次 background_story 编译同时产出渲染文本与结构化卡片。
-
-    @param agent 场景人物配置（无 background_story 声明时返回 (None, None)）
-    @return (PersonaCard 渲染文本, 结构化 PersonaCard) 二元组
-    """
-    card = _compile_persona(agent)
-    if card is None:
-        return None, None
+def _render_card(card: Any) -> str:
+    """@brief 编译卡片的渲染文本（记忆巩固与反思的人物段）。"""
     from worldmock.profile.textgen import render_card
 
-    return render_card(card), card
+    return render_card(card)
 
 
 def _compile_persona(agent: Any) -> Any:

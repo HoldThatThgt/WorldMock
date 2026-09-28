@@ -1,4 +1,4 @@
-"""真实场景观察的人物可见信息与私有动作绑定合同。"""
+"""真实场景观察的工具层与私有动作绑定合同（docs/dev/SPEC-persona-prompt.md「工具层」）。"""
 
 from __future__ import annotations
 
@@ -6,56 +6,54 @@ import json
 
 import pytest
 
+from tests.life.conftest import target_actions, tool_targets
 from worldmock.life import projection
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
-from worldmock.life.narration import render_facts, render_scene
+from worldmock.life.tool_layer import BINDING_KINDS
+
+#: 发给人物模型的环境侧层。
+_LAYERS = ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer")
 
 
 @pytest.mark.parametrize("scenario_name", [
     "white-collar-12-weeks.json", "multi-person.json", "multi-person-half-day.json",
 ])
 def test_real_observation_uses_readable_objects_and_private_bindings(engine_factory, scenario_name: str) -> None:
-    """@brief 人物只见语义名称；引擎在同一观察里保留独立的身份绑定。
+    """@brief 人物只见工具层的可读目标；引擎在同一观察里保留独立的身份绑定。
 
-    公开行为 {object, actions: [{action, note}]}：action 是「动词：方式」，note 是未满足条件的一句说明（没有时为
-    null），不再有 preconditions_met；私有绑定逐项记同一动词与方式及其内部标准动作（docs/dev/SPEC-time-and-energy.md
-    第五章「请求形状与菜单」「动作照常列出，做错了再说明」）。「自己」恒列等待与睡觉。
+    工具层目标与私有绑定按顺序一一对应（之后是活动目标）：目标名等于绑定的对象名，类别按绑定类别映射；每个动作的 action 与
+    way 就是绑定动作的动词与方式，reason 与绑定动作的 note 同源（available 为 true 时都为 null）。「自己」恒列等待与睡觉；
+    内部身份不进工具层。
     """
     engine = engine_factory(scenario_name)
     agent_id = engine.scenario.agents[0].agent_id
     observed = engine._observation_data(engine.state.agents[agent_id])
-    facts = observed["facts"]
-    public = facts["interactive_objects"]
+    targets = observed["tool_layer"]["targets"]
     bindings = observed["interaction_bindings"]
-
-    assert public
-    assert len(public) == len(bindings)
-    assert [row["object"] for row in public] == [row["object"] for row in bindings]
-    assert len({row["object"] for row in public}) == len(public)
-    assert all(set(row) == {"object", "actions"} for row in public)
+    assert bindings and targets[:len(bindings)] and all(row["kind"] == "activity" for row in targets[len(bindings):])
+    assert [row["name"] for row in targets[:len(bindings)]] == [row["object"] for row in bindings]
+    assert len({row["name"] for row in targets}) == len(targets)
     assert all("object_id" in row for row in bindings)
-    for row, binding in zip(public, bindings):
-        assert row["actions"] == [{"action": f"{item['verb']}：{item['label']}", "note": item["note"]}
-                                  for item in binding["actions"]]
+    for target, binding in zip(targets, bindings):
+        assert target["kind"] == BINDING_KINDS[binding["kind"]]
+        assert [(item["action"], item["way"], item["reason"]) for item in target["actions"]] == [
+            (item["verb"], item["label"], item["note"]) for item in binding["actions"]]
+        for item in target["actions"]:
+            assert item["action"] in LIFE_VERBS
+            assert (item["reason"] is None) == item["available"]
         for item in binding["actions"]:
-            assert item["verb"] in LIFE_VERBS
             assert WAYS[item["label"]] == (item["verb"], item["canonical_action"])
-            assert item["note"] is None or isinstance(item["note"], str) and item["note"]
-    own = next(row for row in public if row["object"] == "自己")
-    assert {"interact：等待", "sleep：睡觉"} <= {item["action"] for item in own["actions"]}
+    assert {"等待", "睡觉"} <= set(target_actions(observed, "自己"))
     ways = {"person": {"交谈"}, "contact": {"通话"}}  # 同场人物只列交谈，通话只对通讯录联系人开放
     for binding in bindings:
         assert {item["label"] for item in binding["actions"]} <= ways.get(binding["kind"], set(WAYS))
-    assert set(facts["progress"]) == {"sessions", "results", "alarms"}
-
-    text = render_facts(facts)
-    encoded = json.loads(text)
-    assert encoded == facts
+    text = json.dumps([observed[key] for key in _LAYERS], ensure_ascii=False)
     for hidden in ("object_id", "session_id", "task_id", "product_id", "supply_id",
                    "price_version", "recent_action_results", "preconditions_met", "canonical_action"):
         assert f'"{hidden}"' not in text
     for task in engine.scenario.tasks:
         assert task.task_id not in text
+    assert "scene" not in observed and "facts" not in observed and "recent_action_results" not in observed
 
 
 def test_food_energy_label_rounds_half_up_to_ten_kcal() -> None:
@@ -77,7 +75,7 @@ def test_route_effort_bands_follow_travel_met(met: float, effort: str) -> None:
 
 
 def _staged_at_market(engine, energy: float = 1600.0):
-    """@brief 把人物放到门店所在地，手边与家里各有持有物，用于读取本轮公开事实。"""
+    """@brief 把人物放到门店所在地，手边与家里各有持有物，用于读取本轮工具层。"""
     products = {item.product_id: item for item in engine.scenario.products}
     food = next(item for item in engine.scenario.supplies
                 if item.location_id == "market" and "eat" in products[item.product_id].use_modes)
@@ -94,48 +92,47 @@ def _staged_at_market(engine, energy: float = 1600.0):
 
 
 def test_products_and_inventory_show_food_energy_and_elsewhere_holdings(engine_factory) -> None:
-    """@brief 食品行带每份热量、非食品不带；持有物按地点列出，他处持有物注明只能在当地使用。"""
+    """@brief 食品的商品与持有物目标状态带每份热量、非食品不带；持有物写持有份数；他处持有物名称带地点，食用标不可用。"""
     engine = engine_factory()
     products, food, gadget = _staged_at_market(engine)
-    facts = engine._observation_data(engine.state.agents[1])["facts"]
-    assert facts["products"]
-    for row in facts["products"]:
-        product = next(item for item in products.values() if item.name == row["product"])
+    observed = engine._observation_data(engine.state.agents[1])
+    targets = tool_targets(observed)
+    offered = [row for row in observed["interaction_bindings"] if row["kind"] == "supply"]
+    assert offered
+    for row in offered:
+        product = products[engine.rules.supplies[row["object_id"]].product_id]
+        state = targets[row["object"]]["state"]
         if "eat" in product.use_modes:
-            assert row["energy"] == projection.food_energy_label(product.energy_kcal_per_unit)
+            assert state == projection.food_energy_label(product.energy_kcal_per_unit)
         else:
-            assert "energy" not in row
-        assert "delivery_delay_seconds" not in row
+            assert state is None
     places = {item.location_id: item.name for item in engine.scenario.locations}
-    rows = {(row["place"], row["product"]): row for row in facts["inventory"]}
-    here = rows[(places["market"], products[food.product_id].name)]
-    elsewhere = rows[(places["home"], products[food.product_id].name)]
-    gadget_row = rows[(places["market"], products[gadget.product_id].name)]
-    assert here["energy"] == elsewhere["energy"] == projection.food_energy_label(
-        products[food.product_id].energy_kcal_per_unit)
-    assert "note" not in here and "energy" not in gadget_row
-    assert elsewhere["note"] == f"不在手边，只能在{places['home']}使用"
-    assert here["quantity"] == 2.0 and elsewhere["quantity"] == 1.0
-    render_facts(facts)
+    label = projection.food_energy_label(products[food.product_id].energy_kcal_per_unit)
+    here = targets[f"持有物：{products[food.product_id].name}"]
+    elsewhere = targets[f"持有物：{products[food.product_id].name}（{places['home']}）"]
+    gadget_row = targets[f"持有物：{products[gadget.product_id].name}"]
+    assert here["state"] == f"持有 2 份，{label}" and elsewhere["state"] == f"持有 1 份，{label}"
+    assert gadget_row["state"] == "持有 1 份"
+    assert target_actions(observed, here["name"])["食用"]["available"] is True
+    assert target_actions(observed, elsewhere["name"])["食用"]["reason"] == f"这件东西在{places['home']}，只能在当地用"
 
 
 def test_low_energy_prompt_carries_levels_and_labels_but_no_body_numbers(engine_factory) -> None:
-    """@brief 低能量时提示只含饥饿分级与可读标签；身体数值只留在不进提示的 body.values。"""
+    """@brief 低能量时环境层只含饥饿分级，工具层只含可读标签；身体数值只留在不进提示的 body.values。"""
     engine = engine_factory()
     _staged_at_market(engine, energy=60.0)
     observed = engine._observation_data(engine.state.agents[1])
-    facts_text = render_facts(observed["facts"])
-    scene_text = render_scene(observed["scene"])
-    assert observed["facts"]["felt"]["appetite"] == "饿得发慌"
-    assert "饿得发慌" in scene_text and "饿得发慌" in facts_text
+    text = json.dumps([observed[key] for key in _LAYERS], ensure_ascii=False)
+    assert observed["environment_layer"]["body"]["appetite"] == "饿得发慌"
     assert observed["body"]["values"]["energy_kcal"] == 60.0
     for key in ("energy_kcal", "sleep_pressure", "sleep_deficit_hours", "emergency_threshold_kcal", "appetite\":0"):
-        assert key not in facts_text
-    assert "千卡" in facts_text
+        assert key not in text
+    assert "千卡" in text
 
 
-def test_routes_carry_effort_and_feasible_means_reachable_at_zero_energy(engine_factory) -> None:
-    """@brief 路线带费力标签（驾车轻松、步行费力，未核实的路线也给）；feasible 只看可达，零能量时仍为真。"""
+def test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy(engine_factory) -> None:
+    """@brief 出行动作的 note 写费力程度（驾车轻松、步行费力）；只有可达的路线列出为动作，未核实的路线不列；零能量时照常
+    可用（能量不拦人）。"""
     engine = engine_factory()
     _staged_at_market(engine, energy=0.0)
     unknown = next(item for item in engine.scenario.routes if item.origin_id == "market")
@@ -143,10 +140,12 @@ def test_routes_carry_effort_and_feasible_means_reachable_at_zero_energy(engine_
                                          "fare_fen": None, "reason": "no_route_record"})
     engine.scenario = engine.scenario.model_copy(update={"routes": tuple(
         blocked if item.route_id == unknown.route_id else item for item in engine.scenario.routes)})
-    routes = engine._observation_data(engine.state.agents[1])["facts"]["routes"]
-    assert routes
-    for route in routes:
-        assert route["feasible"] == (route["status"] == "reachable")
-        assert route["effort"] == {"driving": "轻松", "walking": "费力"}[route["mode"]]
-    assert any(route["status"] == "unknown" and route["effort"] for route in routes)
-    assert any(route["feasible"] for route in routes)
+    observed = engine._observation_data(engine.state.agents[1])
+    places = [row for row in observed["interaction_bindings"] if row["kind"] == "location"]
+    assert places
+    trips = [(row, item) for row in places for item in tool_targets(observed)[row["object"]]["actions"]]
+    assert trips and all(item["note"] == {"驾车": "费力程度：轻松", "步行": "费力程度：费力"}[item["way"]]
+                         for _, item in trips)
+    blocked_way = {"driving": "驾车", "walking": "步行"}[blocked.mode.value]
+    assert all(not (row["object_id"] == blocked.destination_id and item["way"] == blocked_way) for row, item in trips)
+    assert any(item["available"] for _, item in trips)

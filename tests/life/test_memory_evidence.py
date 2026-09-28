@@ -18,13 +18,15 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
     advance_next, conclude_pending, conclude_request, context, pending_names, stage_day_plan, start_activity,
     submit_round, wake_by_mail,
+    start_arguments,
 )
 from worldmock.errors import ProtocolError
 from worldmock.life.activity_control import PHASE_CONCLUDED
 from worldmock.life.memory_evidence import MEMORY_WRITE_POINTS, memory_write_points
 from worldmock.life.models import ActivityStatus, ReportStatusRequest
 
-_MEMORY = {"type": "reflection", "text": "等得有点久，下次先带本书。", "importance": 0.3, "keywords": ["等待"]}
+_MEMORY = {"type": "reflection", "text": "等得有点久，下次先带本书。", "importance": 0.3, "keywords": ["等待"],
+           "subject": None}
 
 
 @pytest.mark.parametrize("wrong_observation", [False, True])
@@ -52,7 +54,7 @@ def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_obs
 def _requested(decision_id: str, tool_name: str = "conclude_activity", memories: tuple = (_MEMORY,)):
     """@brief 本人已持久化的 action_requested 事件（只含写入点推导读取的字段）。"""
     request = ({"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
-               if tool_name == "conclude_activity" else {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]})
+               if tool_name == "conclude_activity" else start_arguments(["自己"], ["interact"], ["等待"]))
     return SimpleNamespace(decision_id=decision_id, data={"tool_name": tool_name, "request": request})
 
 
@@ -194,3 +196,36 @@ def test_other_decisions_have_no_write_point_and_cannot_write_episodes(engine_fa
     engine.record_memory_update(_evidence(decision, observed, ()))
     assert engine.commit_decision_round("plain-conclusion")[0].status == "completed"
     assert _written(engine) == [(decision.decision_id, [], decision.decision_id)]
+
+
+def test_reflection_snapshots_carry_their_source_and_both_checks_accept_it(tmp_path) -> None:
+    """宿主覆写记忆快照登记（AS2 不改）：就寝反思的快照条目另带 source=reflection，其余条目仍是四个基本键；引擎的证据校验
+    与质量报告都接受这一来源键，别的来源值被拒；本步没有写入也没有视图变化时不登记。"""
+    import dataclasses
+    import hashlib
+
+    from agentsociety2.agent.memory import AgentMemoryStore
+    from agentsociety2.agent.memory_runtime import MemoryStepOutcome
+
+    from custom.agents.life_memory import memory_update_evidence
+    from worldmock.footprints.quality import _valid_subjective_snapshots
+    from worldmock.life.memory_evidence import _memory_evidence_data
+
+    store = AgentMemoryStore(tmp_path, agent_id=1)
+    store.ensure()
+    written = ({"id": "c1", "type": "goal", "text": "明天早起", "epistemic_status": "subjective",
+                "source": "activity_conclusion", "importance": 0.4},
+               {"id": "r1", "type": "reflection", "text": "睡前想了想", "epistemic_status": "subjective",
+                "source": "reflection", "importance": 0.8})
+    evidence = memory_update_evidence("context", store, MemoryStepOutcome(written, (), "a" * 64, True, "observation"))
+    assert evidence.episodes == ({"id": "c1", "type": "goal", "text": "明天早起", "epistemic_status": "subjective"},
+                                 {"id": "r1", "type": "reflection", "text": "睡前想了想",
+                                  "epistemic_status": "subjective", "source": "reflection"})
+    assert _memory_evidence_data(evidence)["episodes"] == list(evidence.episodes)
+    assert _valid_subjective_snapshots(list(evidence.episodes), ["c1", "r1"])
+    forged = (evidence.episodes[0], {**evidence.episodes[1], "source": "activity_conclusion"})
+    assert not _valid_subjective_snapshots(list(forged), ["c1", "r1"])
+    with pytest.raises(ProtocolError, match="payload is invalid"):
+        _memory_evidence_data(dataclasses.replace(evidence, episodes=forged))
+    unchanged = hashlib.sha256(store.memory_md_path.read_bytes()).hexdigest()
+    assert memory_update_evidence("context", store, MemoryStepOutcome((), (), unchanged)) is None

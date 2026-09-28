@@ -1,7 +1,8 @@
 """LifeAgent 闭集 Schema、宿主身份注入与原生 ReAct 链测试。
 
-生活决策没有 finish：世界请求登记即结束本轮，记忆查询是观察、不结束本轮；人物记忆只经 conclude_activity.memories
-写入，来源由系统登记（docs/dev/SPEC-time-and-energy.md 第七章「finish 并入 conclude_activity」）。只读问答保留 finish。
+一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求为原生 tools、系统层 system
+与六层 user；生活决策没有 finish，世界请求登记即结束本轮且不追加 tool 消息，记忆查询是观察、不结束本轮；人物记忆
+只经 conclude_activity.memories 写入，来源由系统登记。只读问答保留 finish。
 """
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from __future__ import annotations
 import copy
 import os
 import json
-import re
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -36,14 +36,11 @@ from agentsociety2.society import (
 )
 from custom.agents.life_agent import (
     LifeAgent,
-    DECISION_STATEMENT_MAX_TOKENS,
-    DECISION_STATEMENT_TEMPERATURE,
-    _ACTION_REGISTRATION_CONFIRMATION,
     _conclusion_memories,
     life_action_tool_names,
-    life_prompt_sha256,
     life_tool_schema_sha256,
 )
+from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, life_prompt_sha256
 from worldmock.catalog.affordances import default_affordances
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING
 from worldmock.life.engine import affordance_contract
@@ -53,70 +50,94 @@ from worldmock.life.models import (
     REQUEST_MODELS,
     START_ACTIVITY_ACTIONS,
     StartActivityRequest,
+    deepseek_strict_schema,
 )
+from worldmock.life.narration import ForbiddenObservationFieldError, render_layer_json
+from tests.life.conftest import start_arguments
 
 
-#: 生活决策与只读问答都开放的记忆查询（按条目身份读取的 memory_read 已删除）。
+#: 生活决策与只读问答都开放的记忆查询（不开放按步号与秒数取记忆的两个工具）。
 _MEMORY_TOOL_NAMES = {
     "memory_recent",
     "memory_search",
-    "memory_step_range",
-    "memory_tick_range",
     "memory_time_range",
 }
 
-_BASE_ACTION_NAMES = {
-    "start_activity",
-    "recall_task_summary",
-    "submit_work",
-}
-
-_BUDGET_MARKER = "\n\nAuthoritative ReAct model-turn budget:\n"
+#: 生活决策整次运行都开放的八个人物工具。
+_BASE_ACTION_NAMES = set(REQUEST_MODELS)
 
 #: 真实注册表构造的观察合同冻结块（与引擎 observe 输出同一来源）。
 _AFFORDANCE_CONTRACT = affordance_contract(default_affordances())
 
 _OBSERVED_AT = datetime(2026, 1, 5, tzinfo=timezone.utc)
 _NOW_EPOCH = int(_OBSERVED_AT.timestamp())
+_NOW_ISO = "2026-01-05T00:00:00+00:00"
 
-#: 当前停留会话与活动的可读名称（docs/dev/SPEC-time-and-energy.md 第七章「会话与活动的字段」的名称格式）。
+#: 当前停留会话、活动与任务的可读名称。
 _HOME_SESSION = "自己家（1月4日 18:00 起）"
 _WAIT = "等待（1月4日 23:45 起）"
 _WORK = "工作整理会议纪要（1月4日 21:00 起）"
 _NEWS = "接着看晚间新闻（1月4日 20:00 起）"
+_TASK = "工作：整理会议纪要"
+
+#: 私有绑定种类 → 工具层目标种类（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。
+_TARGET_KINDS = {"work_task": "task", "location": "location", "supply": "product", "holding": "product",
+                 "catalog": "catalog", "content": "content", "game": "game", "lifestyle": "lifestyle",
+                 "person": "person", "contact": "person", "mail": "message", "self": "self"}
+#: 以目标名称为参数的其他工具。
+_TARGET_TOOLS = {"task": ("submit_work",), "person": ("send_message",),
+                 "activity": ("report_status", "pause_activity", "conclude_activity")}
 
 
 def _offer(verb: str, way: str, canonical: str, note: str | None = None, **execution) -> dict:
-    """私有绑定的一项动作，与引擎投影同形：动词、方式（label）、内部标准动作、出行方式、说明与执行参数。"""
+    """私有绑定的一项动作，与引擎投影同形：动词、方式（label）、内部标准动作、出行方式、说明与执行参数。
+
+    note 即该动作不可用的原因（可用时为 None），与工具层动作的 reason 同一文本。
+    """
     return {"verb": verb, "label": way, "canonical_action": canonical,
             "travel_mode": execution.pop("travel_mode", None), "note": note, **execution}
 
 
-def _visible_object(name: str, kind: str, object_id: str, *offers: dict, **binding) -> tuple[dict, dict]:
-    """同一可见对象的公开行与私有绑定（docs/dev/SPEC-time-and-energy.md 第五章「动作照常列出，做错了再说明」）。
+def _tool_entries(kind: str) -> list[dict]:
+    """工具层目标的 tools[]：以目标名称为参数的其他工具，均可用。"""
+    return [{"tool": tool, "available": True, "reason": None} for tool in _TARGET_TOOLS.get(kind, ())]
 
-    公开行只有 {object, actions: [{action: "动词：方式", note}]}；私有绑定另带对象种类、内部身份与 binding 附加项。
+
+def _visible_object(name: str, kind: str, object_id: str, *offers: dict, **binding) -> tuple[dict, dict]:
+    """同一可见对象的工具层目标与私有绑定（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）。
+
+    工具层目标只有可读名称、种类、状态与动作；私有绑定另带绑定种类、内部身份与 binding 附加项。
     """
-    public = {"object": name, "actions": [{"action": f"{item['verb']}：{item['label']}", "note": item["note"]}
-                                          for item in offers]}
-    return public, {"object": name, "kind": kind, "object_id": object_id, "actions": list(offers), **binding}
+    target_kind = _TARGET_KINDS[kind]
+    actions = [{"action": item["verb"], "way": item["label"], "available": item["note"] is None,
+                "reason": item["note"], "price": None, "duration": None, "quantity": None, "note": None}
+               for item in offers]
+    target = {"name": name, "kind": target_kind, "phase": None, "state": None, "actions": actions,
+              "tools": _tool_entries(target_kind)}
+    if target_kind == "task":
+        target = {**target, "contract": {"deadline": "2026-01-06T00:00:00+00:00",
+                                         "remaining": "有效工时还差约 1 小时（约 0/1 小时）", "outlook": None}}
+        target = {key: target[key] for key in ("name", "kind", "phase", "state", "contract", "actions", "tools")}
+    return target, {"object": name, "kind": kind, "object_id": object_id, "actions": list(offers), **binding}
 
 
 def _add_objects(data: dict, *objects: tuple[dict, dict]) -> dict:
-    """把可见对象的公开行与私有绑定分别追加到观察的交互对象层与 interaction_bindings。"""
-    for public, binding in objects:
-        data["facts"]["interactive_objects"].append(copy.deepcopy(public))
+    """把可见对象的工具层目标与私有绑定分别追加到观察的工具层与 interaction_bindings。"""
+    for target, binding in objects:
+        data["tool_layer"]["targets"].append(copy.deepcopy(target))
         data["interaction_bindings"].append(copy.deepcopy(binding))
     return data
 
 
-#: 「自己」恒在对象层（等待、睡觉）；在家时办公室工作照常列出，带未满足条件的一句说明（第五章）。
+#: 「自己」恒在工具层（等待、睡觉）；在家时办公室工作照常列出，标不可用并写原因。
 _SELF_OBJECT = _visible_object("自己", "self", "self",
                                _offer("interact", "等待", "wait"), _offer("sleep", "睡觉", "sleep"))
-_TASK_OBJECT = _visible_object("整理会议纪要", "work_task", "task-visible",
+_TASK_OBJECT = _visible_object(_TASK, "work_task", "task-visible",
                                _offer("interact", "工作", "work", "工作整理会议纪要需要在办公室"))
-#: 对「自己」选择等待：对象、动词与方式三数组逐项对应（第五章「请求形状与菜单」）。
-_WAIT_CHOICE = {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
+#: 对「自己」选择等待：对象、动词与方式三数组逐项对应。
+_WAIT_CHOICE = start_arguments(["自己"], ["interact"], ["等待"])
+#: 五项体感分级（取值就是 felt 的分级文字）。
+_BODY = {"appetite": "不饿", "sleepiness": "有点乏", "entertainment": "不闷", "social": "不想找人", "mood": "平静"}
 
 
 @pytest.fixture(autouse=True)
@@ -125,45 +146,6 @@ def _fixed_context_window(monkeypatch) -> None:
     from worldmock.life import prompt_capacity
 
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_048_576)
-
-#: 两层观察投影的 scene 段（narration.render_scene 的输入合同）。
-_SCENE = {
-    "current_time": "2026-01-05T00:00:00+00:00",
-    "location": "自己家",
-    "people_here": [],
-    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "current_activities": [],
-    "paused_activities": [],
-    "just_ended": [],
-    "day_plan": None,
-    "inbox_head": [],
-    "todos_summary": "",
-    "reachable_places": [],
-    "inventory": [],
-}
-
-#: 两层观察投影的 facts 段（routes 行只含白名单键：目的地、方式、分钟、票价、费力与是否可达；进度层按会话分组列活动，经历只写成句子）。
-_FACTS = {
-    "current_time": "2026-01-05T00:00:00+00:00",
-    "location": "自己家",
-    "people_here": [],
-    "contacts": [],
-    "inbox": [],
-    "tasks": [
-        {"task_name": "整理会议纪要", "due_at": _NOW_EPOCH + 86400,
-         "remaining_contract_seconds": 3600, "new_material_ranges": []},
-    ],
-    "progress": {"sessions": [{"name": _HOME_SESSION, "activities": []}], "results": [], "alarms": []},
-    "interactive_objects": [_SELF_OBJECT[0], _TASK_OBJECT[0]],
-    "routes": [{"destination": "办公室", "mode": "driving", "minutes": 4,
-                "fare_fen": 800, "effort": "轻松", "feasible": True, "status": "reachable", "reason": None}],
-    "products": [],
-    "inventory": [],
-    "day_plan": None,
-    "felt": {"appetite": "不饿", "sleepiness": "有点困"},
-    "drive_summary": "你有点困。",
-    "experiences": [],
-}
 
 
 def _context() -> DecisionContext:
@@ -174,9 +156,10 @@ def _context() -> DecisionContext:
 
 
 def _memory(text: str = "我歇了一会儿，心里踏实了些。", *, kind: str = "routine", importance: float = 0.5,
-            keywords: tuple[str, ...] = ("休息",)) -> dict:
-    """一条收尾记忆 {type, text, importance, keywords}；来源与认知状态由系统填写，模型不填任何身份。"""
-    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
+            keywords: tuple[str, ...] = ("休息",), subject: str | None = None) -> dict:
+    """一条收尾记忆 {type, text, importance, keywords, subject}（relationship 与 preference 带对象，其余为 null）；
+    来源与认知状态由系统填写，模型不填任何身份。"""
+    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords), "subject": subject}
 
 
 def _conclude_args(*names: str, memories: list[list[dict]] | None = None) -> dict:
@@ -190,28 +173,36 @@ def _stored_memories(args: dict) -> list[dict]:
     return _conclusion_memories("conclude_activity", args)
 
 
-def _request_budget(request: dict) -> dict:
-    """读取实际模型请求携带的权威回合预算。"""
-    system = request["messages"][0]["content"]
-    return json.loads(system.split(_BUDGET_MARKER, 1)[1])
+def _layers() -> dict:
+    """环境构建的五层与看法偏好：在家停留，暂无活动与计划，本段停留尚无记录。"""
+    return {
+        "tool_layer": {"layer": "工具层", "targets": copy.deepcopy([_SELF_OBJECT[0], _TASK_OBJECT[0]])},
+        "todo_layer": {"layer": "待办层", "paused_activities": [], "day_plan": None},
+        "environment_layer": {"layer": "环境层", "observed_at": _NOW_ISO, "body": dict(_BODY),
+                              "location": {"session_kind": "stay", "name": "自己家", "place_type": "住宅",
+                                           "fixed_rules": []}},
+        "memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": []},
+        "persona_views": {"relationships": [], "preferences": []},
+        "progress_layer": {"layer": "进度层", "session_started_at": "2026-01-04T18:00:00+00:00", "events": []},
+        "progress_meta": [],
+    }
 
 
-def _observations(*result_ids: str) -> list[dict]:
-    """构造含人物可见来源事件的真实结构化观察记录：人物在当前停留会话里，暂无活动。"""
+def _observations(*progress_event_ids: str) -> list[dict]:
+    """构造 docs/dev/SPEC-persona-prompt.md 第七章形状的结构化观察记录：人物在当前停留会话里，暂无活动。"""
     data = {
         "observation_event_id": "observation-current",
         "current_time": _NOW_EPOCH,
         "wake_reasons": [],  # 唤醒原因只进私有证据，不改变工具面
-        "same_moment_stage": "open",  # 未达同刻上限：不收窄世界请求
-        "scene": copy.deepcopy(_SCENE),
-        "facts": copy.deepcopy(_FACTS),
+        "same_moment_stage": "open",
+        **_layers(),
+        "progress_event_ids": list(progress_event_ids),
+        "presented_message_ids": [],
         "interaction_bindings": copy.deepcopy([_SELF_OBJECT[1], _TASK_OBJECT[1]]),
-        "task_bindings": [{"task_name": "整理会议纪要", "task_id": "task-visible",
-                           "submission_ready": True}],
+        "task_bindings": [{"task_name": _TASK, "task_id": "task-visible"}],
         "activity_bindings": [],
-        "session_bindings": [{"name": _HOME_SESSION, "session_id": "session-7-0001"}],
         "goal_bindings": [],
-        "recent_action_results": [{"event_id": item} for item in result_ids],
+        "person_bindings": [],
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
         "paused_activities": [],
@@ -244,27 +235,38 @@ def _observations(*result_ids: str) -> list[dict]:
     return [{"turn": 0, "action": "observe", "ok": True, "data": data}]
 
 
-def _with_activities(data: dict, *activities: tuple[str, str], elsewhere: tuple[str, ...] = ()) -> dict:
-    """在当前停留会话下加入活动（名称, 阶段说法），同步写入进度层活动行、私有活动绑定、场景句与控制行。
+def _activity_target(name: str, phase: str) -> dict:
+    """进行中或刚结束活动的工具层目标：没有动作，控制工具以活动名为参数。"""
+    return {"name": name, "kind": "activity", "phase": "进行中" if phase == PHASE_ACTIVE else "刚结束",
+            "state": "已做约 15 分钟", "actions": [], "tools": _tool_entries("activity")}
 
-    暂停的活动默认停在开始地点、此刻可以恢复（绑定 resumable 为真）；elsewhere 列出开始地点在别处的暂停活动。
+
+def _with_activities(data: dict, *activities: tuple[str, str], elsewhere: tuple[str, ...] = ()) -> dict:
+    """在当前停留会话下加入活动（名称, 阶段说法），同步写入工具层或待办层、私有活动绑定与活动证据。
+
+    进行中与刚结束的活动是工具层的活动目标；暂停的活动只在待办层，elsewhere 列出开始地点在别处的暂停活动
+    （其恢复标不可用并写明地点）。
     """
-    session = data["facts"]["progress"]["sessions"][-1]
     for name, phase in activities:
         identity = f"activity-private-{len(data['activity_bindings']) + 1}"
-        session["activities"].append({"name": name, "phase": phase, "objective_progress": "已做约15分钟"})
         data["activity_bindings"].append({"name": name, "activity_id": identity, "phase": phase,
-                                          "resumable": phase == PHASE_PAUSED and name not in elsewhere})
+                                          "resumable": phase == PHASE_PAUSED and name not in elsewhere,
+                                          "note_labels": []})
         control = {"activity_id": identity, "kind": "wait", "title": name, "progress": "已做约15分钟",
                    "elapsed_seconds": 900, "planned_duration_seconds": 1800, "data": {}}
-        if phase == PHASE_ACTIVE:
-            data["scene"]["current_activities"].append({"title": name, "progress": "已做约15分钟", "verb": "做"})
-            data["active_activities"].append({**control, "status": "active"})
-        elif phase == PHASE_PAUSED:
-            data["scene"]["paused_activities"].append({"title": name, "progress": "已做约15分钟"})
+        if phase == PHASE_PAUSED:
+            resume = ({"tool": "report_status", "available": False, "reason": "要回到办公室才能接着做"}
+                      if name in elsewhere else {"tool": "report_status", "available": True, "reason": None})
+            data["todo_layer"]["paused_activities"].append({
+                "name": name, "paused_at": "2026-01-04T23:50:00+00:00", "place": "办公室" if name in elsewhere
+                else "自己家", "progress": "已做约 15 分钟",
+                "tools": [resume, {"tool": "conclude_activity", "available": True, "reason": None}]})
             data["paused_activities"].append({**control, "status": "paused"})
+            continue
+        data["tool_layer"]["targets"].append(_activity_target(name, phase))
+        if phase == PHASE_ACTIVE:
+            data["active_activities"].append({**control, "status": "active"})
         elif phase == PHASE_PENDING:
-            data["scene"]["just_ended"].append(name)
             data["pending_conclusions"].append({**control, "status": "completed"})
     return data
 
@@ -274,43 +276,64 @@ def _step_observation() -> dict:
     return _with_activities(_observations()[0]["data"], (_WAIT, PHASE_ACTIVE))
 
 
-def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
-    """正式决策的 Schema 只含本轮可构造的业务动作和五个记忆查询，没有 finish。"""
+def _functions(agent: LifeAgent) -> dict[str, dict]:
+    """本次请求实际开放的原生工具（名称 → function 定义）。"""
+    return {item["function"]["name"]: item["function"] for item in agent.build_react_tool_schemas(readonly=False)}
+
+
+def _prepared(observations: list[dict] | None = None) -> LifeAgent:
+    """按一次冻结观察准备好的生活人物。"""
     agent = LifeAgent()
-    agent.prepare_react_loop(
-        ReactLoopRequest(0, _context().observed_at, _observations())
-    )
-    schemas = agent.build_react_tool_schemas(readonly=False)
-    functions = {item["function"]["name"]: item["function"] for item in schemas}
+    agent._name = "Alice"
+    agent._profile = {"id": 7, "name": "Alice"}
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations or _observations()))
+    return agent
+
+
+def test_life_agent_schema_is_closed_and_host_fields_are_hidden() -> None:
+    """正式决策的 Schema 是八个人物工具与三个记忆查询，没有 finish、没有宿主身份字段、没有逐轮名称枚举。"""
+    functions = _functions(_prepared())
 
     assert set(functions) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
-    assert "finish" not in functions
+    assert list(functions)[:8] == list(REQUEST_MODELS)
+    assert "finish" not in functions and not {"memory_step_range", "memory_tick_range"} & set(functions)
     start_fields = functions["start_activity"]["parameters"]["properties"]
     assert {"agent_id", "decision_id", "action_id"}.isdisjoint(start_fields)
-    assert set(start_fields) == {"targets", "actions", "ways"}
+    assert set(start_fields) == {"targets", "actions", "ways", "from", "to", "answering"}
     assert functions["start_activity"]["parameters"]["additionalProperties"] is False
     assert all(function["strict"] is True for function in functions.values())
+    assert '"enum"' not in json.dumps({name: functions[name] for name in ("start_activity", "submit_work",
+                                                                           "send_message", "report_status")})
     assert len(life_prompt_sha256()) == 64
     assert life_tool_schema_sha256() == life_tool_schema_sha256()
 
 
 def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
-    """合同有效工时未完成的可见未付款任务仍可提交；环境以 WORK_INCOMPLETE 业务拒绝说明原因。
-
-    任务名枚举不按 submission_ready 剪裁（docs/dev/SPEC-time-and-energy.md「仍须修复」第 4 条）。
-    """
+    """工具层标为不可用的提交照样可以提交：宿主只核对任务名，环境以同一原因业务拒绝。"""
     observations = _observations()
-    observations[0]["data"]["task_bindings"][0]["submission_ready"] = False
-    agent = LifeAgent()
-    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
-    functions = {item["function"]["name"]: item["function"]
-                 for item in agent.build_react_tool_schemas(readonly=False)}
-    assert {"recall_task_summary", "start_activity", "submit_work"} <= set(functions)
-    task_name = functions["submit_work"]["parameters"]["properties"]["task_name"]
-    assert task_name["enum"] == ["整理会议纪要"]
+    task = observations[0]["data"]["tool_layer"]["targets"][1]
+    task["tools"] = [{"tool": "submit_work", "available": False, "reason": "有效工时还没达到要求"}]
+    agent = _prepared(observations)
+    functions = _functions(agent)
+    assert "enum" not in functions["submit_work"]["parameters"]["properties"]["task_name"]
     deliverable = {"summary": "整理了会议要点。", "decisions": ["按计划推进。"], "action_items": ["下周复盘。"]}
-    submit = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
+    submit = ReactDecision("", "submit_work", {"task_name": _TASK, "deliverable": deliverable}, "")
     assert agent.validate_react_decisions([submit], False) == ""
+    unknown = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
+    assert agent.validate_react_decisions([unknown], False) == "task_name is not visible"
+
+
+def test_session_names_are_not_recall_names() -> None:
+    """会话名不在七层中出现，不是回看名称：观察不绑定会话名，宿主本地校验把它当作不可见的名称（回看的名称只取七层中出现的
+    任务、目标与活动名，docs/dev/SPEC-persona-prompt.md 第八章）。"""
+    agent = _prepared(_observations())
+
+    def recall(name: str) -> ReactDecision:
+        """按名称回看的一次决策。"""
+        return ReactDecision("", "recall_task_summary", {"task_name": name}, "")
+
+    assert agent.validate_react_decisions([recall(_TASK)], False) == ""
+    assert agent.validate_react_decisions([recall(_HOME_SESSION)], False) == "task_name is not visible"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
@@ -325,32 +348,24 @@ def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:
 
 
 def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
-    """当日计划由零点后台任务生成，人物工具面没有 plan_day，醒来与运行开始也不收窄工具面；
-    当日已有计划（含空清单）时开放修订，条目必须给出可为 null 的 remind_time（第四章「计划与提醒」）。"""
-    def build_functions(observations: list[dict]) -> dict[str, dict]:
-        agent = LifeAgent()
-        agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
-        return {item["function"]["name"]: item["function"]
-                for item in agent.build_react_tool_schemas(readonly=False)}
-
+    """当日计划由零点后台任务生成，人物工具面没有 plan_day；修订工具整次运行都在，条目必须给出可为 null 的 remind_time。"""
     from custom.envs.life_env import _STABLE_TOOL_SURFACE
 
     assert len(_STABLE_TOOL_SURFACE) == 8 and "plan_day" not in _STABLE_TOOL_SURFACE
     assert life_action_tool_names() == frozenset(REQUEST_MODELS) == _STABLE_TOOL_SURFACE
     waking = _observations()
     waking[0]["data"]["wake_reasons"] = ["run_start", "wake_from_sleep"]
-    assert set(build_functions(waking)) == _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES
-    observations = _observations()
-    observations[0]["data"]["facts"]["day_plan"] = {"goals": []}
-    revising = build_functions(observations)
-    assert "plan_day" not in revising and "revise_day_plan" in revising
-    tool = revising["revise_day_plan"]
-    assert "at most 300 characters" in tool["description"]
-    assert "Progressed goals stay unchanged" in tool["description"]
-    assert "remind_time" in tool["description"] and "Do not provide times or durations" not in tool["description"]
+    planned = _observations()
+    planned[0]["data"]["todo_layer"]["day_plan"] = {"date": "2026-01-05", "goals": []}
+    without_plan, with_plan = _functions(_prepared(waking)), _functions(_prepared(planned))
+    assert without_plan == with_plan
+    assert "plan_day" not in with_plan and "revise_day_plan" in with_plan
+    tool = with_plan["revise_day_plan"]
+    assert tool["description"] == "用完整的新清单替换今日计划中尚未推进的目标。"
     assert set(tool["parameters"]["properties"]) == {"goals"}
     fields = tool["parameters"]["properties"]["goals"]["items"]["properties"]
     assert set(fields) == {"intent_kind", "goal", "remind_time"}
+    assert tool["parameters"] == deepseek_strict_schema(REQUEST_MODELS["revise_day_plan"])
     assert fields["goal"]["pattern"] == r"\S"
     assert fields["remind_time"]["anyOf"] == [{"pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$", "type": "string"},
                                               {"type": "null"}]
@@ -358,81 +373,63 @@ def test_plan_day_is_no_person_tool_and_revision_carries_remind_time() -> None:
 
 
 def test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages() -> None:
-    """第六章：决策自述与动作两阶段的 system 含同一节「怎样过一天」；只读问答不含该节；过时的供给差异句已删。"""
-    agent = LifeAgent()
-    agent._id = 7
-    agent._name = "Alice"
-    agent._profile = {"id": 7, "name": "Alice"}
-    agent._enable_memory = False
-    agent._model_name = "deepseek-flash"
+    """起居规则只在系统层 rules 写一次：生活决策的每个请求都带同一份系统层；只读问答用自己的系统层；「怎样过一天」已删。"""
+    agent = _prepared()
     request = ReactLoopRequest(0, _context().observed_at, _observations())
     agent.prepare_react_loop(request)
     action_system = agent.build_react_messages(request)[0]["content"]
-    statement_system = agent.prelude_decision_statement_request(request)["messages"][0]["content"]
     readonly = ReactLoopRequest(0, _context().observed_at, [], "How was today?", True)
+    agent.prepare_react_loop(readonly)
     readonly_system = agent.build_react_messages(readonly)[0]["content"]
 
-    sections = [re.search(r"怎样过一天：\n.*?重新权衡。", system, re.S) for system in (action_system, statement_system)]
-    assert all(sections) and sections[0].group(0) == sections[1].group(0)
-    section = sections[0].group(0)
-    for sentence in ("你的一天由你自己安排。", "你手上最多同时挂两件事，暂停的也算",
-                     "睡着时只有提醒或睡够了才会醒。", "当前地点没有卖吃的，不代表不能送到这里。",
-                     "只有实际开始并完成的事才算数。"):
-        assert sentence in section
-    assert len(section.splitlines()) == 12
-    assert "怎样过一天" not in readonly_system
-    for system in (action_system, statement_system):
-        assert "based_on_action_id" not in system and "supply_id" not in system
-        for banned in ("评审", "评分", "引擎期望", "tool", "finish", "回合", "budget"):
+    assert action_system == render_layer_json(LIFE_SYSTEM_LAYER)
+    assert readonly_system == render_layer_json(READONLY_SYSTEM_LAYER)
+    rules = json.loads(action_system)["rules"]
+    assert len(rules) == 17
+    for sentence in ("你最多同时有两项活动", "睡着时只有提醒或睡够了才会醒。", "能送到这里的都算",
+                     "说打算做或说已经做过，都不等于做了。"):
+        assert sum(sentence in rule for rule in rules) == 1
+    for system in (action_system, readonly_system):
+        assert "怎样过一天" not in system and "你不是AI助手" not in system
+        for banned in ("评审", "评分", "引擎期望", "budget", "based_on_action_id", "supply_id"):
             assert banned not in system
+    assert "能送到这里的都算" not in readonly_system
 
 
 def test_location_norm_is_removed_from_static_tool_and_system_text() -> None:
-    """地点行为改由菜单声明，静态工具描述和系统指令均不保留办公室散文。"""
-    agent = LifeAgent()
-    agent.prepare_react_loop(
-        ReactLoopRequest(0, _context().observed_at, _observations())
-    )
-    schemas = {
-        item["function"]["name"]: item["function"]["description"]
-        for item in agent.build_react_tool_schemas(readonly=False)
-    }
-    system_prompt = next(
-        message["content"] for message in agent.build_react_messages(
-            ReactLoopRequest(0, _context().observed_at, _observations()))
-        if message.get("role") == "system")
+    """地点行为改由菜单声明，静态工具描述和系统层均不保留办公室散文。"""
+    agent = _prepared()
+    schemas = {name: function["description"] for name, function in _functions(agent).items()}
+    system_prompt = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, _observations()))[0]
 
     assert "at the office, prefer brief phone-friendly content" not in schemas["start_activity"]
     assert "save movies and long drama episodes" not in schemas["start_activity"]
-    flattened = " ".join(system_prompt.split())
+    flattened = " ".join(system_prompt["content"].split())
     assert "watching long entertainment openly at the office" not in flattened
     assert "inappropriate" not in flattened
 
 
-def test_action_schema_requires_prepared_environment_catalogs() -> None:
-    """非只读动作工具在首观察目录冻结前必须明确失败。"""
-    with pytest.raises(RuntimeError, match="activity controls are not prepared"):
-        LifeAgent().build_react_tool_schemas(readonly=False)
-
-
 def test_feedback_boundary_exposes_readable_activity_controls() -> None:
-    """进行中活动开放三个逐项控制工具，Schema 只展示可读活动名；只有结束工具带逐项记忆。"""
-    agent = LifeAgent()
+    """三个控制工具整次运行都在，参数只列可读活动名字段；名称按私有活动绑定核对，不查阶段与可用性。"""
     observations = _observations()
-    _with_activities(observations[0]["data"], (_WORK, PHASE_ACTIVE))
-    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observations))
-    schemas = agent.build_react_tool_schemas(readonly=False)
-    functions = {item["function"]["name"]: item["function"] for item in schemas}
+    _with_activities(observations[0]["data"], (_WORK, PHASE_ACTIVE), (_NEWS, PHASE_PAUSED))
+    agent = _prepared(observations)
+    functions = _functions(agent)
 
-    controls = {"report_status", "pause_activity", "conclude_activity"}
-    assert set(functions) == _BASE_ACTION_NAMES | controls | _MEMORY_TOOL_NAMES
-    for name in controls:
+    for name in ("report_status", "pause_activity", "conclude_activity"):
         fields = functions[name]["parameters"]["properties"]
         with_memories = name == "conclude_activity"
         assert set(fields) == ({"task", "summary", "memories"} if with_memories else {"task", "summary"})
-        assert fields["task"]["items"]["enum"] == [_WORK]
-        arguments = {"task": [_WORK], "summary": ["写完提纲"], **({"memories": [[]]} if with_memories else {})}
-        assert agent.validate_react_decisions([ReactDecision("", name, arguments, "")], False) == ""
+        assert "enum" not in fields["task"]["items"]
+        for activity in (_WORK, _NEWS):
+            arguments = {"task": [activity], "summary": ["写完提纲"], **({"memories": [[]]} if with_memories else {})}
+            assert agent.validate_react_decisions([ReactDecision("", name, arguments, "")], False) == ""
+        unknown = {"task": ["虚构活动"], "summary": ["写完提纲"], **({"memories": [[]]} if with_memories else {})}
+        assert agent.validate_react_decisions([ReactDecision("", name, unknown, "")], False) == (
+            f"{name} task names an activity that is not visible")
+        repeated = {"task": [_WORK, _WORK], "summary": ["a", "b"], **({"memories": [[], []]} if with_memories else {})}
+        assert "task names must be distinct" in agent.validate_react_decisions(
+            [ReactDecision("", name, repeated, "")], False)
     assert "activity-private-1" not in json.dumps(functions, ensure_ascii=False)
 
 
@@ -450,21 +447,23 @@ def test_readonly_schema_uses_its_independent_finish_contract() -> None:
     assert set(functions) == _MEMORY_TOOL_NAMES | {"finish"}
     assert set(REQUEST_MODELS).isdisjoint(functions)
     assert set(functions["finish"]["parameters"]["properties"]) == {"answer"}
+    assert functions["finish"]["description"] == "给出外部问题的回答。"
 
 
 def test_life_agent_rejects_invalid_or_non_atomic_decisions() -> None:
     """参数错误、多动作与生活决策中的 finish 都在执行前失败（生活决策没有 finish）。"""
-    agent = LifeAgent()
-    request = ReactLoopRequest(0, _context().observed_at, _observations())
-    agent.prepare_react_loop(request)
+    agent = _prepared()
     valid = ReactDecision("", "start_activity", _WAIT_CHOICE, "")
 
     assert "multiple" in agent.validate_react_decisions([valid, valid], False)
     memory = ReactDecision("", "memory_recent", {"limit": 1}, "")
     assert "only tool" in agent.validate_react_decisions([memory, valid], False)
     for verb, way in (("interact", "虚构方式"), ("sleep", "等待"), ("虚构动词", "等待")):
-        invalid = ReactDecision("", "start_activity", {"targets": ["自己"], "actions": [verb], "ways": [way]}, "")
+        invalid = ReactDecision("", "start_activity", start_arguments(["自己"], [verb], [way]), "")
         assert "not offered" in agent.validate_react_decisions([invalid], False)
+    unlisted = ReactDecision("", "start_activity", start_arguments(["虚构对象"], ["interact"], ["等待"]), "")
+    assert agent.validate_react_decisions([unlisted], False) == (
+        "start_activity target is not a visible interactive object")
     finish = ReactDecision("", "finish", {"memories": []}, "")
     assert "unknown LifeAgent tool: finish" == agent.validate_react_decisions([finish], False)
 
@@ -478,140 +477,93 @@ _PRIOR_PROJECTION = {"type": "routine", "text": "I waited yesterday.", "time": "
                      "epistemic_status": "subjective"}
 
 
-def test_memory_prompt_section_shows_text_without_episode_identities() -> None:
-    """记忆摘要段在自述与行动两阶段只写主观归纳与自述正文，不带条目身份（第七章「发给模型的内容不含内部身份」）。"""
+def test_react_messages_are_system_layer_and_six_layer_user() -> None:
+    """消息为系统层 system 与六层 user；user 按固定层序由观察各层与宿主人设层渲染，同一观察只写一次。"""
     agent = LifeAgent()
-    agent._id = 7
     agent._name = "Alice"
-    agent._profile = {"id": 7, "name": "Alice"}
-    agent._enable_memory = True
-    agent._build_memory_context = lambda: {  # type: ignore[method-assign]
-        "subjective_summary": "# Subjective", "recent_episodes": [dict(_PRIOR_EPISODE)]}
-    request = ReactLoopRequest(0, _context().observed_at, _observations("result-prior"))
+    agent._profile = {"id": 7, "name": "Alice", "background_story": "在上海张江做工程师，工作认真。"}
+    observations = _observations("result-prior")
+    request = ReactLoopRequest(0, _context().observed_at, observations)
     agent.prepare_react_loop(request)
 
-    action_user = agent.build_react_messages(request)[1]["content"]
-    statement_user = agent._life_user_sections(request, with_facts=False)
-
-    for user in (action_user, statement_user):
-        assert "主观归纳：\n# Subjective" in user
-        assert "最近的人物自述：\n- [subjective] I waited yesterday." in user
-        for identity in (_PRIOR_EPISODE["id"], "result-prior", "observation-current", "session-7-0001"):
-            assert identity not in user
-    assert "已核验经历：\n# Subjective" not in action_user
-
-
-def test_react_messages_are_three_parts_and_observation_written_once() -> None:
-    """user 消息由卡片+场景+事实三段组成，同一观察只写一次。"""
-    from worldmock.life.narration import render_facts
-
-    agent = LifeAgent()
-    agent._id = 7
-    agent._name = "Alice"
-    agent._profile = {"id": 7, "name": "Alice",
-                      "background_story": "在上海张江做工程师，工作认真。"}
-    agent._enable_memory = False
-    agent._life_decision_statement = "先喝口水，再回消息。"
-    request = ReactLoopRequest(0, _context().observed_at, _observations())
-
     messages = agent.build_react_messages(request)
-    user = messages[1]["content"]
-    facts_text = render_facts(copy.deepcopy(_FACTS))
+    layers = json.loads(messages[1]["content"])
 
     assert [item["role"] for item in messages] == ["system", "user"]
-    assert user.count("你是Alice。") == 1
-    assert user.count("你在自己家") == 1
-    assert user.count(facts_text) == 1
-    assert user.count("你刚才心里想的是：先喝口水，再回消息。") == 1
-    assert "observation-current" not in user
-    assert "game-visible" not in user
-    raw_copy = json.dumps(_observations()[0]["data"], ensure_ascii=False,
-                          sort_keys=True, default=str)
-    assert raw_copy not in user
-
-
-def test_system_prompt_is_identity_first_with_word_share() -> None:
-    """系统指令以身份前言为主，人物与情境词占比不低于一半。"""
-    agent = LifeAgent()
-    agent._id = 7
-    agent._name = "Alice"
-    agent._profile = {"id": 7, "name": "Alice"}
-    agent._enable_memory = False
-    request = ReactLoopRequest(0, _context().observed_at, _observations())
-
-    system = agent.build_react_messages(request)[0]["content"]
-
-    assert "你不是AI助手" in system
-    assert "Alice" in system
-    for banned in ("评审", "评分", "引擎期望", "tool", "finish", "回合", "budget"):
-        assert banned not in system
-    sentences = [item for item in re.split(r"[。！？\n]", system) if item.strip()]
-    words = [len(item) for item in sentences]
-    identity_words = sum(count for item, count in zip(sentences, words)
-                         if not re.search(r"[A-Za-z]{4,}", item))
-    assert identity_words / sum(words) >= 0.5
+    assert [layer["layer"] for layer in layers] == ["工具层", "人设层", "记忆层", "待办层", "环境层", "进度层"]
+    data = observations[0]["data"]
+    for layer, key in zip(layers, ("tool_layer", None, "memory_layer", "todo_layer", "environment_layer",
+                                   "progress_layer")):
+        if key is not None:
+            assert layer == data[key]
+    assert layers[1]["identity"] == {"name": "Alice", "age": None, "occupation": None, "living_arrangement": None}
+    user = messages[1]["content"]
+    assert user == render_layer_json(layers)
+    for leaked in ("observation-current", "result-prior", "game-visible", "session-7-0001", "task-visible",
+                   "在上海张江做工程师"):
+        assert leaked not in user
 
 
 def test_blacklisted_observation_fields_never_enter_messages() -> None:
-    """黑名单字段（动机内部仪表、完整目录、事件身份、私有活动与会话绑定）不进入任何消息。"""
-    agent = LifeAgent()
-    agent._id = 7
-    agent._name = "Alice"
-    agent._profile = {"id": 7, "name": "Alice"}
-    agent._enable_memory = False
+    """黑名单字段（动机内部仪表、完整目录、事件身份、私有活动与会话绑定）不进入任何消息；层中混入禁键即失败。"""
     observations = _observations()
     data = _with_activities(observations[0]["data"], (_WORK, PHASE_ACTIVE), (_WAIT, PHASE_PENDING))
     data["motivation_internal"] = {"candidates": [{"kind": "eat", "score": 0.9}]}
     data["world_state_version"] = 42
     data["end_time"] = _NOW_EPOCH + 86_400
+    agent = _prepared(observations)
 
-    messages = agent.build_react_messages(
-        ReactLoopRequest(0, _context().observed_at, observations))
+    messages = agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, observations))
     text = "\n".join(item["content"] for item in messages)
 
     for banned in ("motivation_internal", "motivation_hints", "world_state_version",
-                   "end_time", "affordance_contract",
+                   "end_time", "affordance_contract", "interaction_bindings",
                    "observation_event_id", "game_catalog", "activity_bindings", "session_bindings",
-                   "pending_conclusions", "activity-private-1", "session-7-0001"):
+                   "pending_conclusions", "activity-private-1", "session-7-0001", "progress_meta"):
         assert banned not in text
-    assert f"刚结束：{_WAIT}。" in text
+    assert f'"name":"{_WAIT}","kind":"activity","phase":"刚结束"' in text
+    leaking = _observations()
+    leaking[0]["data"]["tool_layer"]["targets"][0]["activity_id"] = "activity-private-9"
+    agent = _prepared(leaking)
+    with pytest.raises(ForbiddenObservationFieldError, match="activity_id"):
+        agent.build_react_messages(ReactLoopRequest(0, _context().observed_at, leaking))
 
 
 class _ModelResponse:
-    """提供原生工具属性及可持久化响应。"""
+    """提供原生工具属性及可持久化响应；content 是回复正文（缺省为空）。"""
 
     def __init__(self, call_id: str, name: str, arguments: str,
-                 reasoning_content: str | None = None) -> None:
+                 reasoning_content: str | None = None, content: str = "") -> None:
         function = SimpleNamespace(name=name, arguments=arguments)
         tool_call = SimpleNamespace(id=call_id, type="function", function=function)
         message = SimpleNamespace(
-            tool_calls=[tool_call], content="", reasoning_content=reasoning_content)
+            tool_calls=[tool_call], content=content, reasoning_content=reasoning_content)
         self.choices = [SimpleNamespace(message=message)]
         self._call_id = call_id
         self._name = name
         self._arguments = arguments
         self._reasoning_content = reasoning_content
+        self._content = content
 
     def model_dump(self, *, mode: str) -> dict:
         """返回最小 JSON 模型响应（reasoning_content 恒在，缺省为 None）。"""
         assert mode == "json"
-        return {"choices": [{"message": {"tool_calls": [{
+        return {"choices": [{"message": {"content": self._content, "tool_calls": [{
             "id": self._call_id,
             "type": "function",
             "function": {"name": self._name, "arguments": self._arguments},
         }], "reasoning_content": self._reasoning_content}}]}
 
 
-class _DecisionStatementResponse:
-    """提供两阶段决策决策自述阶段的无工具纯文本响应。"""
+class _TextResponse:
+    """记忆运行时（反思、巩固）请求的纯文本模型响应（没有工具调用）。"""
 
     def __init__(self, content: str) -> None:
-        self.choices = [SimpleNamespace(message=SimpleNamespace(
-            tool_calls=[], content=content))]
+        self.choices = [SimpleNamespace(message=SimpleNamespace(tool_calls=[], content=content))]
         self._content = content
 
     def model_dump(self, *, mode: str) -> dict:
-        """返回决策自述响应的最小 JSON 序列化。"""
+        """返回纯文本响应的最小 JSON 序列化。"""
         assert mode == "json"
         return {"choices": [{"message": {"content": self._content, "tool_calls": []}}]}
 
@@ -647,18 +599,18 @@ class _MultipleModelResponse:
         return {"choices": [{"message": {"tool_calls": tool_calls}}]}
 
 
-def _assert_decision_statement_wire(request: dict) -> None:
-    """核对决策自述请求的 wire 形状：无工具、1.0 温度、8000 上限、思考关闭。"""
-    assert "tools" not in request
-    assert "tool_choice" not in request
-    assert request["temperature"] == DECISION_STATEMENT_TEMPERATURE
-    assert request["max_tokens"] == DECISION_STATEMENT_MAX_TOKENS
+def _assert_action_wire(request: dict) -> None:
+    """核对行动请求的生成参数：思考开启、tool_choice=auto、8000 上限、不重试、不发 reasoning_effort、全部严格。"""
+    assert request["tool_choice"] == "auto"
+    assert request["max_tokens"] == 8000
     assert request["max_retries"] == 0
-    assert request["extra_body"] == {"thinking": {"type": "disabled"}}
+    assert "reasoning_effort" not in request and "temperature" not in request
+    assert request["extra_body"] == {"thinking": {"type": "enabled"}}
+    assert all(item["function"]["strict"] is True for item in request["tools"])
 
 
 class _Dispatcher:
-    """按顺序返回决策自述、登记前的一次记忆查询与唯一的生活动作；世界请求登记即结束本轮。"""
+    """按顺序返回登记前的一次记忆查询与唯一的生活动作；世界请求登记即结束本轮。"""
 
     model_name = "deepseek-flash"
 
@@ -673,21 +625,14 @@ class _Dispatcher:
                 "start_activity",
                 json.dumps(_WAIT_CHOICE, ensure_ascii=False),
                 reasoning_content="Tired person needs a short rest before work.",
+                content="  先歇一分钟。  ",
             ),
         ]
-        self.decision_statements = [_DecisionStatementResponse("有点累，先歇一分钟再干活。")]
 
     async def call(self, **request):
-        """返回决策自述或下一个原生工具响应。"""
+        """返回下一个原生工具响应。"""
         self.requests.append(request)
-        if "tools" not in request:
-            _assert_decision_statement_wire(request)
-            return self.decision_statements.pop(0)
-        assert request["tool_choice"] == "auto"
-        assert request["max_retries"] == 0
-        assert "reasoning_effort" not in request
-        assert request["extra_body"] == {"thinking": {"type": "enabled"}}
-        assert all(item["function"]["strict"] is True for item in request["tools"])
+        _assert_action_wire(request)
         return self.responses.pop(0)
 
 
@@ -740,7 +685,7 @@ class _Environment:
 
 
 class _StepDispatcher:
-    """返回决策自述与一次带记忆结束等待的 conclude_activity（登记即结束本轮，没有 finish）。"""
+    """返回一次带记忆结束等待的 conclude_activity（登记即结束本轮，没有 finish）。"""
 
     model_name = "deepseek-flash"
 
@@ -750,13 +695,10 @@ class _StepDispatcher:
             _ModelResponse("call-action", "conclude_activity",
                            json.dumps(_conclude_args(_WAIT), ensure_ascii=False)),
         ]
-        self.decision_statements = [_DecisionStatementResponse("先把手头的事做完。")]
 
     async def call(self, **request):
-        """返回决策自述或下一个严格工具响应。"""
+        """返回下一个严格工具响应。"""
         self.requests.append(request)
-        if "tools" not in request:
-            return self.decision_statements.pop(0)
         return self.responses.pop(0)
 
 
@@ -765,8 +707,7 @@ class _GroundedCorrectionDispatcher:
 
     model_name = "deepseek-flash"
 
-    def __init__(self, responses: list[_ModelResponse] | None = None,
-                 decision_statements: list[_DecisionStatementResponse] | None = None) -> None:
+    def __init__(self, responses: list[_ModelResponse] | None = None) -> None:
         self.requests = []
         defaults = [
             _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
@@ -782,14 +723,10 @@ class _GroundedCorrectionDispatcher:
             ),
         ]
         self.responses = list(responses) if responses is not None else defaults
-        self.decision_statements = decision_statements if decision_statements is not None else [
-            _DecisionStatementResponse("先查查昨天做了什么。")]
 
     async def call(self, **request):
-        """记录真实 wire 并返回决策自述或下一个协议响应。"""
+        """记录真实 wire 并返回下一个协议响应。"""
         self.requests.append(request)
-        if "tools" not in request:
-            return self.decision_statements.pop(0)
         return self.responses.pop(0)
 
 
@@ -891,13 +828,13 @@ def _wire_agent(agent: LifeAgent, environment: _Environment, dispatcher,
 
 
 def _react_tool_names(requests: list[dict]) -> list[set[str]]:
-    """逐个带工具的模型请求读取实际开放的工具名。"""
-    return [{item["function"]["name"] for item in request["tools"]} for request in requests if "tools" in request]
+    """逐个模型请求读取实际开放的工具名。"""
+    return [{item["function"]["name"] for item in request["tools"]} for request in requests]
 
 
 @pytest.mark.asyncio
 async def test_native_react_submits_one_host_bound_life_action() -> None:
-    """原生 ReAct 完成决策自述、登记前的记忆查询与唯一动作；世界请求登记即结束本轮，不再请求模型。"""
+    """登记前的一次记忆查询与唯一动作共两次请求；记忆结果只序列化一次，世界请求登记后不追加 tool 消息。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _Dispatcher()
@@ -913,101 +850,30 @@ async def test_native_react_submits_one_host_bound_life_action() -> None:
     assert call.context == _context()
     assert call.action_id == "decision:action:0001"
     assert isinstance(call.request, StartActivityRequest)
-    assert [item.phase for item in environment.evidence] == ["request", "response"] * 3
-    assert len(dispatcher.requests) == 3
-    first, second = dispatcher.requests[1:]
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * 2
+    assert len(dispatcher.requests) == 2
+    first, second = dispatcher.requests
     assert [item["role"] for item in first["messages"]] == ["system", "user"]
     assert [item["role"] for item in second["messages"]] == ["system", "user", "assistant", "tool"]
+    assert first["messages"][0] == second["messages"][0] == {"role": "system",
+                                                            "content": render_layer_json(LIFE_SYSTEM_LAYER)}
     memory = second["messages"][-1]
     assert memory["tool_call_id"] == "call-memory"
-    assert json.loads(memory["content"])["data"] == {
-        "epistemic_status": "subjective", "episodes": [_PRIOR_PROJECTION]}
+    assert memory["content"] == json.dumps({"epistemic_status": "subjective", "episodes": [_PRIOR_PROJECTION]},
+                                           ensure_ascii=False, separators=(",", ":"))
     assert _PRIOR_EPISODE["id"] not in memory["content"]
     assert second["messages"][1] == first["messages"][1]
-    assert "你在自己家" in first["messages"][1]["content"]
-    assert "observation-current" not in first["messages"][1]["content"]
+    assert json.dumps(first["tools"]) == json.dumps(second["tools"])
     assert _react_tool_names([first, second]) == [_BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES] * 2
-    start = next(
-        item["function"]["parameters"]["properties"]
-        for item in first["tools"]
-        if item["function"]["name"] == "start_activity"
-    )
-    assert start["targets"]["items"]["enum"] == ["整理会议纪要", "自己"]
-    assert start["actions"]["items"]["enum"] == ["interact", "sleep"]
-    assert start["ways"]["items"]["enum"] == sorted(["工作", "等待", "睡觉"])
-    assert [_request_budget(item)["remaining_model_turns_including_current"]
-            for item in (first, second)] == [3, 2]
-    assert [_request_budget(item)["phase"] for item in (first, second)] == ["before_action", "before_action"]
-    # 回合预算句只在剩余回合 ≤2 时出现（docs/CONTRACTS.md「人物决策提示与生成参数」），
-    # 且预算 JSON 保持尾部可解析。
-    assert "剩余回合已经不多" not in first["messages"][0]["content"]
-    assert "剩余回合已经不多" in second["messages"][0]["content"]
-    registration = agent._react_messages[-1]
-    assert registration["tool_call_id"] == "call-action"
-    assert json.loads(registration["content"]) == {
-        "ok": True, "observation": _ACTION_REGISTRATION_CONFIRMATION, "data": {}}
+    assert all("Authoritative" not in item["messages"][0]["content"] for item in (first, second))
+    assert agent._react_messages[-1]["role"] == "assistant"
+    assert agent._react_messages[-1]["tool_calls"][0]["id"] == "call-action"
     assert agent._last_finish_memories == []
 
 
 @pytest.mark.asyncio
-async def test_two_stage_decision_statement_evidence_and_single_retry() -> None:
-    """决策自述空文本消耗一个回合重试一次，第二次成功进入行动消息。"""
-    agent = LifeAgent()
-    environment = _Environment()
-    dispatcher = _GroundedCorrectionDispatcher(
-        responses=[
-            _ModelResponse(
-                "call-action",
-                "start_activity",
-                json.dumps(_WAIT_CHOICE, ensure_ascii=False),
-            ),
-        ],
-        decision_statements=[
-            _DecisionStatementResponse(""),
-            _DecisionStatementResponse("有点累，先歇一分钟再干活。"),
-        ],
-    )
-    _wire_agent(agent, environment, dispatcher, 4)
-
-    await agent.run_react_loop(
-        ReactLoopRequest(0, _context().observed_at, _observations()))
-
-    decision_statement_requests = [item for item in dispatcher.requests if "tools" not in item]
-    assert len(decision_statement_requests) == 2
-    assert [item.phase for item in environment.evidence] == ["request", "response"] * 3
-    assert environment.evidence[1].error is not None
-    assert "empty" in environment.evidence[1].error
-    assert environment.evidence[3].error is None
-    assert environment.evidence[0].request["messages"][1]["content"] == (
-        environment.evidence[2].request["messages"][1]["content"])
-    assert "你刚才心里想的是：有点累，先歇一分钟再干活。" in (
-        dispatcher.requests[2]["messages"][1]["content"])
-    assert agent._life_decision_statement == "有点累，先歇一分钟再干活。"
-
-
-@pytest.mark.asyncio
-async def test_decision_statement_failing_twice_fails_the_whole_decision() -> None:
-    """决策自述连续两次协议失败即本次决策失败，不再进入行动阶段。"""
-    agent = LifeAgent()
-    environment = _Environment()
-    dispatcher = _GroundedCorrectionDispatcher(
-        decision_statements=[_DecisionStatementResponse(""), _DecisionStatementResponse("")])
-    _wire_agent(agent, environment, dispatcher, 4)
-
-    with pytest.raises(RuntimeError, match="failed the protocol twice"):
-        await agent.run_react_loop(
-            ReactLoopRequest(0, _context().observed_at, _observations()))
-
-    assert len(dispatcher.requests) == 2
-    assert environment.calls == []
-    assert [item.phase for item in environment.evidence] == [
-        "request", "response", "request", "response"]
-    assert all(item.error is not None for item in environment.evidence[1::2])
-
-
-@pytest.mark.asyncio
 async def test_reasoning_content_is_persisted_in_model_response_evidence() -> None:
-    """思考开启后模型推理随现有序列化进入 model_response 足迹证据。"""
+    """思考开启后模型推理与回复正文随现有序列化进入 model_response 足迹证据。"""
     agent = LifeAgent()
     environment = _Environment()
     dispatcher = _Dispatcher()
@@ -1019,28 +885,24 @@ async def test_reasoning_content_is_persisted_in_model_response_evidence() -> No
 
     requests = [item for item in environment.evidence if item.phase == "request"]
     responses = [item for item in environment.evidence if item.phase == "response"]
-    # 决策自述请求关闭思考；行动阶段请求开启思考并采用兼容的工具选择。
-    assert requests[0].request["extra_body"] == {"thinking": {"type": "disabled"}}
-    for item in requests[1:]:
-        assert item.request["extra_body"] == {"thinking": {"type": "enabled"}}
-        assert item.request["tool_choice"] == "auto"
-    # 决策自述响应是纯文本；反例：不带推理的记忆查询响应序列化后 reasoning_content 为 None，不伪造内容。
-    assert responses[0].response["choices"][0]["message"]["content"] == (
-        "有点累，先歇一分钟再干活。")
-    memory_message = responses[1].response["choices"][0]["message"]
+    for item in requests:
+        _assert_action_wire(item.request)
+    # 反例：不带推理的记忆查询响应序列化后 reasoning_content 为 None，不伪造内容。
+    memory_message = responses[0].response["choices"][0]["message"]
     assert memory_message["tool_calls"][0]["function"]["name"] == "memory_recent"
     assert memory_message["reasoning_content"] is None
-    # 正例：带 reasoning_content 的动作响应按原样进入足迹事件。
-    action_message = responses[2].response["choices"][0]["message"]
+    # 正例：带 reasoning_content 的动作响应按原样进入足迹事件，回复正文一并保留。
+    action_message = responses[1].response["choices"][0]["message"]
     assert action_message["reasoning_content"] == (
         "Tired person needs a short rest before work."
     )
+    assert action_message["content"] == "  先歇一分钟。  "
     assert action_message["tool_calls"][0]["function"]["name"] == "start_activity"
 
 
 @pytest.mark.asyncio
 async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
-    """有限记忆读取在只剩世界请求回合时撤下，保留一个自主生活动作回合；登记即结束本轮。"""
+    """记忆查询在只剩世界请求回合时撤下，保留一个自主生活动作回合；登记即结束本轮。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-memory-1", "memory_recent", '{"limit":1}'),
         _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
@@ -1053,7 +915,7 @@ async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
     ])
     environment = _Environment()
     agent = LifeAgent()
-    _wire_agent(agent, environment, dispatcher, 5)
+    _wire_agent(agent, environment, dispatcher, 4)
 
     result = await agent.run_react_loop(
         ReactLoopRequest(0, _context().observed_at, _observations())
@@ -1061,22 +923,19 @@ async def test_budgeted_memory_search_preserves_the_action_turn() -> None:
 
     assert result == "start_activity registered"
     assert len(environment.calls) == 1
-    react_requests = [item for item in dispatcher.requests if "tools" in item]
-    assert _react_tool_names(react_requests) == [
+    assert _react_tool_names(dispatcher.requests) == [
         _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES,
         _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES,
         _BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES,
         _BASE_ACTION_NAMES,
     ]
-    assert [_request_budget(item)["remaining_model_turns_including_current"]
-            for item in react_requests] == [4, 3, 2, 1]
     assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
-            for item in environment.evidence[::2]] == ["0001", "0002", "0003", "0004", "0005"]
+            for item in environment.evidence[::2]] == ["0001", "0002", "0003", "0004"]
 
 
 @pytest.mark.asyncio
 async def test_multiple_memory_calls_share_one_model_turn() -> None:
-    """同一响应的多个记忆调用只消耗一个模型回合，余下的回合仍够登记世界请求。"""
+    """同一响应的多个记忆调用只消耗一个模型回合，各得一条 tool 消息，余下的回合仍够登记世界请求。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _MultipleModelResponse([
             ("call-memory-1", "memory_recent", '{"limit":1}'),
@@ -1090,7 +949,7 @@ async def test_multiple_memory_calls_share_one_model_turn() -> None:
     ])
     environment = _Environment()
     agent = LifeAgent()
-    _wire_agent(agent, environment, dispatcher, 3)
+    _wire_agent(agent, environment, dispatcher, 2)
 
     result = await agent.run_react_loop(
         ReactLoopRequest(0, _context().observed_at, _observations())
@@ -1099,36 +958,34 @@ async def test_multiple_memory_calls_share_one_model_turn() -> None:
     assert result == "start_activity registered"
     assert len(environment.calls) == 1
     assert len(agent._memory_runtime.calls) == 2
-    react_requests = [item for item in dispatcher.requests if "tools" in item]
-    assert _react_tool_names(react_requests) == [_BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES, _BASE_ACTION_NAMES]
-    assert [_request_budget(item)["remaining_model_turns_including_current"]
-            for item in react_requests] == [2, 1]
+    assert _react_tool_names(dispatcher.requests) == [_BASE_ACTION_NAMES | _MEMORY_TOOL_NAMES, _BASE_ACTION_NAMES]
+    assert [item["tool_call_id"] for item in dispatcher.requests[1]["messages"][3:]] == [
+        "call-memory-1", "call-memory-2"]
     assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
-            for item in environment.evidence[::2]] == ["0001", "0002", "0003"]
+            for item in environment.evidence[::2]] == ["0001", "0002"]
 
 
 @pytest.mark.asyncio
 async def test_reserved_action_boundary_rejects_memory_without_extra_request() -> None:
-    """只剩世界请求回合时非法记忆调用零执行，预算耗尽后在下次请求前失败（行动前须剩 1 个回合）。"""
+    """只剩世界请求回合时非法记忆调用零执行；回合用完仍没有世界请求即本次决策失败。"""
     dispatcher = _GroundedCorrectionDispatcher(responses=[
-        _ModelResponse("call-memory", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-memory-1", "memory_recent", '{"limit":1}'),
+        _ModelResponse("call-memory-2", "memory_recent", '{"limit":1}'),
     ])
     environment = _Environment()
     agent = LifeAgent()
     _wire_agent(agent, environment, dispatcher, 2)
 
-    with pytest.raises(RuntimeError, match="before_action requires 1 model turns but only 0 remain"):
+    with pytest.raises(RuntimeError, match="ReAct decision budget exhausted"):
         await agent.run_react_loop(
             ReactLoopRequest(0, _context().observed_at, _observations())
         )
 
     assert len(dispatcher.requests) == 2
-    react_request = dispatcher.requests[1]
-    assert {item["function"]["name"] for item in react_request["tools"]} == _BASE_ACTION_NAMES
+    assert {item["function"]["name"] for item in dispatcher.requests[1]["tools"]} == _BASE_ACTION_NAMES
     assert environment.calls == []
-    assert agent._memory_runtime.calls == []
-    assert [item.phase for item in environment.evidence] == [
-        "request", "response", "request", "response"]
+    assert len(agent._memory_runtime.calls) == 1
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * 2
     assert "unknown native tool calls: ['memory_recent']" == environment.evidence[-1].error
 
 
@@ -1149,17 +1006,12 @@ async def test_readonly_budget_reserves_finish_and_resets_between_loops() -> Non
     assert await agent.run_react_loop(request) == "first"
     assert await agent.run_react_loop(request) == "second"
 
-    names = [
-        {item["function"]["name"] for item in current["tools"]}
-        for current in dispatcher.requests
-    ]
-    assert names == [
+    assert _react_tool_names(dispatcher.requests) == [
         _MEMORY_TOOL_NAMES | {"finish"}, {"finish"},
         _MEMORY_TOOL_NAMES | {"finish"}, {"finish"},
     ]
-    assert [_request_budget(item)["remaining_model_turns_including_current"]
-            for item in dispatcher.requests] == [2, 1, 2, 1]
-    assert [_request_budget(item)["phase"] for item in dispatcher.requests] == ["readonly"] * 4
+    assert all(item["messages"][0]["content"] == render_layer_json(READONLY_SYSTEM_LAYER)
+               for item in dispatcher.requests)
     assert [item.call_id.rsplit(":model:", 1)[1].split(":", 1)[0]
             for item in environment.evidence[::2]] == ["0001", "0002", "0001", "0002"]
 
@@ -1176,7 +1028,7 @@ async def test_second_world_request_in_one_decision_is_refused() -> None:
     receipt = await agent.dispatch_react_tool("start_activity", _WAIT_CHOICE)
 
     assert receipt.ok is True
-    recall = {"task_name": "整理会议纪要"}
+    recall = {"task_name": _TASK}
     assert agent.validate_react_decisions([ReactDecision("", "recall_task_summary", recall, "")], False) == (
         "this decision already submitted its life action")
     with pytest.raises(RuntimeError, match="already submitted"):
@@ -1185,14 +1037,14 @@ async def test_second_world_request_in_one_decision_is_refused() -> None:
 
 
 @pytest.mark.asyncio
-async def test_native_react_rejects_impossible_one_turn_life_decision() -> None:
-    """决策自述前不足自述加世界请求两个回合时不发送注定失败的请求。"""
+async def test_native_react_rejects_a_decision_without_any_model_turn() -> None:
+    """没有可用回合时在发出任何请求前明确失败。"""
     agent = LifeAgent()
     environment = _Environment()
-    dispatcher = _GroundedCorrectionDispatcher(responses=[], decision_statements=[])
-    _wire_agent(agent, environment, dispatcher, 1, memory=False)
+    dispatcher = _GroundedCorrectionDispatcher(responses=[])
+    _wire_agent(agent, environment, dispatcher, 0, memory=False)
 
-    with pytest.raises(RuntimeError, match="decision_statement requires 2 model turns but only 1 remain"):
+    with pytest.raises(RuntimeError, match="requires 1 model turn but only 0 remain"):
         await agent.run_react_loop(
             ReactLoopRequest(0, _context().observed_at, _observations())
         )
@@ -1218,10 +1070,10 @@ async def test_grounded_unknown_game_tool_is_corrected_without_alias() -> None:
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
     assert environment.calls[0].request.model_dump() == _WAIT_CHOICE
-    assert [item.phase for item in environment.evidence] == ["request", "response"] * 4
-    assert "unknown native tool calls" in environment.evidence[5].error
-    assert len(dispatcher.requests) == 4
-    correction = dispatcher.requests[3]
+    assert [item.phase for item in environment.evidence] == ["request", "response"] * 3
+    assert "unknown native tool calls" in environment.evidence[3].error
+    assert len(dispatcher.requests) == 3
+    correction = dispatcher.requests[2]
     assert correction["messages"][-1]["tool_call_id"] == "call-invalid"
     feedback = json.loads(correction["messages"][-1]["content"])
     assert feedback["executed"] is False
@@ -1249,7 +1101,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
     _wire_agent(agent, environment, dispatcher, config["max_react_turns"])
     result = await agent.run_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
     assert result == "start_activity registered"
-    assert len(dispatcher.requests) == 14
+    assert len(dispatcher.requests) == 13
     assert len(environment.calls) == 1
     assert isinstance(environment.calls[0].request, StartActivityRequest)
     assert sum(item.error is not None for item in environment.evidence if item.phase == "response") == 12
@@ -1257,9 +1109,7 @@ async def test_runtime_budget_handles_twelve_bad_responses_then_submits_once() -
 
 def test_readonly_state_mismatch_is_an_internal_failure() -> None:
     """宿主只读状态不一致必须抛出，不能作为模型可纠正错误。"""
-    agent = LifeAgent()
-    request = ReactLoopRequest(0, _context().observed_at, _observations())
-    agent.prepare_react_loop(request)
+    agent = _prepared()
 
     with pytest.raises(RuntimeError, match="readonly decision state is inconsistent"):
         agent.validate_react_decisions([], True)
@@ -1271,7 +1121,7 @@ async def test_life_schema_and_target_errors_are_corrected_before_execution() ->
     arguments = dict(_WAIT_CHOICE)
     missing = dict(arguments)
     missing.pop("ways")
-    wrong_pair = {"targets": ["整理会议纪要"], "actions": ["interact"], "ways": ["等待"]}
+    wrong_pair = start_arguments([_TASK], ["interact"], ["等待"])
     dispatcher = _GroundedCorrectionDispatcher(responses=[
         _ModelResponse("call-schema", "start_activity", json.dumps(missing, ensure_ascii=False)),
         _ModelResponse("call-pair", "start_activity", json.dumps(wrong_pair, ensure_ascii=False)),
@@ -1285,13 +1135,12 @@ async def test_life_schema_and_target_errors_are_corrected_before_execution() ->
 
     assert len(environment.calls) == 1
     assert environment.calls[0].request == StartActivityRequest(**arguments)
-    assert "invalid start_activity arguments" in environment.evidence[3].error
-    assert "ways" in environment.evidence[3].error
-    assert "verb and way are not offered by the chosen target" in environment.evidence[5].error
-    react_requests = [item for item in dispatcher.requests if "tools" in item]
-    assert len(react_requests) == 3
+    assert "invalid start_activity arguments" in environment.evidence[1].error
+    assert "ways" in environment.evidence[1].error
+    assert "verb and way are not offered by the chosen target" in environment.evidence[3].error
+    assert len(dispatcher.requests) == 3
     assert all(json.loads(request["messages"][-1]["content"])["executed"] is False
-               for request in react_requests[1:3])
+               for request in dispatcher.requests[1:3])
 
 
 @pytest.mark.asyncio
@@ -1312,13 +1161,12 @@ async def test_invalid_conclusion_memories_are_corrected_before_registration() -
     assert result == "conclude_activity registered"
     assert [call.request for call in environment.calls] == [
         ConcludeActivityRequest.model_validate(_conclude_args(_WAIT))]
-    assert "hexadecimal identifier" in environment.evidence[3].error
-    react_requests = [item for item in dispatcher.requests if "tools" in item]
-    assert len(react_requests) == 2
-    feedback = json.loads(react_requests[1]["messages"][-1]["content"])
+    assert "hexadecimal identifier" in environment.evidence[1].error
+    assert len(dispatcher.requests) == 2
+    feedback = json.loads(dispatcher.requests[1]["messages"][-1]["content"])
     assert feedback["executed"] is False
     assert "invalid conclude_activity arguments" in feedback["error"]
-    names = _react_tool_names(react_requests)
+    names = _react_tool_names(dispatcher.requests)
     assert names[0] == names[1]
     assert "conclude_activity" in names[0] and "finish" not in names[0]
     assert agent._last_finish_memories == _stored_memories(_conclude_args(_WAIT))
@@ -1440,15 +1288,13 @@ async def test_native_memory_update_records_real_subjective_merge_without_duplic
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("decision_path", ["normal", "decision_statement_retry", "action_correction"])
+@pytest.mark.parametrize("decision_path", ["normal", "action_correction"])
 async def test_person_step_records_conclusion_memory_update(tmp_path, decision_path: str) -> None:
-    """真实人物步骤每次仅观察一次；自述重试或行动纠错后，conclude_activity 的记忆经原生 after_step 落盘并登记。"""
+    """真实人物步骤每次仅观察一次；行动纠错后，conclude_activity 的记忆经原生 after_step 落盘并登记。"""
     workspace = tmp_path / "agent_0007"
     environment = _StepEnvironment()
     dispatcher = _StepDispatcher()
-    if decision_path == "decision_statement_retry":
-        dispatcher.decision_statements.insert(0, _DecisionStatementResponse(""))
-    elif decision_path == "action_correction":
+    if decision_path == "action_correction":
         dispatcher.responses.insert(0, _ModelResponse("call-invalid", "invented_action", "{}"))
     _create_step_workspace(workspace)
     agent = await LifeAgent.from_workspace(
@@ -1463,11 +1309,10 @@ async def test_person_step_records_conclusion_memory_update(tmp_path, decision_p
     assert environment.observed_contexts == [_context()]
     assert [call.request for call in environment.calls] == [
         ConcludeActivityRequest.model_validate(_conclude_args(_WAIT))]
-    expected_calls = 2 if decision_path == "normal" else 3
+    expected_calls = 1 if decision_path == "normal" else 2
     assert [item.phase for item in environment.evidence] == ["request", "response"] * expected_calls
     errors = [item.error for item in environment.evidence if item.error]
-    expected_error = {"normal": [], "decision_statement_retry": ["decision_statement is empty"],
-                      "action_correction": ["unknown native tool calls: ['invented_action']"]}
+    expected_error = {"normal": [], "action_correction": ["unknown native tool calls: ['invented_action']"]}
     assert errors == expected_error[decision_path]
     assert len(environment.memory_updates) == 1
     evidence = environment.memory_updates[0]
@@ -1540,7 +1385,7 @@ async def test_memory_persistence_failure_aborts_society_before_commit(
 
     expected = marker if failure_mode == "exception" else "did not persist finish memories"
     assert len(environment.calls) == 1
-    assert [item.phase for item in environment.evidence] == ["request", "response"] * 2
+    assert [item.phase for item in environment.evidence] == ["request", "response"]
     assert environment.memory_updates == []
     assert environment.commits == []
     assert environment.checkpoints == []

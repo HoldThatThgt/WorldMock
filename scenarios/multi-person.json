@@ -251,7 +251,8 @@
           "channels": [
             "workplace-IM"
           ],
-          "reply_policy": "none"
+          "reply_policy": "none",
+          "receive_location_id": null
         },
         {
           "contact_id": "contact-chenxi-oldfriend",
@@ -379,7 +380,8 @@
           "channels": [
             "workplace-IM"
           ],
-          "reply_policy": "none"
+          "reply_policy": "none",
+          "receive_location_id": null
         },
         {
           "contact_id": "contact-lifan-oldfriend",

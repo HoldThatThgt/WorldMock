@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 输入输出格式
 
-> **状态**：DRAFT  
-> **日期**：2026-09-26  
-> **版本**：v1.11
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
+> **日期**：2026-09-28  
+> **版本**：v1.14
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -73,7 +73,7 @@ flowchart TB
 
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `schema_version` | Literal[7] | 是 | 世界结构版本；版本不符的旧状态（含版本 6）直接拒绝 |
+| `schema_version` | Literal[8] | 是 | 世界结构版本；版本不符的旧状态（含版本 7）直接拒绝 |
 | `version` | int | 是 | 状态版本号，ge=0 |
 | `current_time` | int | 是 | 当前模拟时间，UTC 纪元秒 |
 | `end_time` | int | 是 | 实验结束时间 |
@@ -88,7 +88,8 @@ flowchart TB
 | `opening_exceptions` | 地点到日期区间映射 | 是 | 世界营业覆盖；空日期区间明确闭店 |
 | `activities` | dict[str, ActivityState] | 是 | 活动状态映射 |
 | `sessions` | dict[str, SessionState] | 是 | 地点会话映射：一段地点停留或一段路（`kind` 取 `stay`、`transit`），由系统随出发与到达开始和结束；每人至多一个进行中会话 |
-| `deliveries` | dict[str, DeliveryState] | 是 | 订单状态映射 |
+| `deliveries` | dict[str, DeliveryState] | 是 | 订单状态映射；`DeliveryState` 带唯一收货人 `recipient_id`（`agent:<id>` 或联系人身份，送达只入其持有；付款人仍是下单人物）与所回应的直接消息 `request_message_id`（`str \| None`），随世界结构版本 8 |
+| `contact_holdings` | dict[str, dict[str, float]] | 是 | 场景联系人持有（联系人→商品→数量），缺省为空；送达联系人的订单与给联系人的物品记入这里；随世界结构版本 8 |
 | `pending_events` | list[ScheduledEvent] | 是 | 预排事件列表 |
 | `processed_actions` | dict[str, StoredAction] | 是 | 已处理动作映射 |
 | `paid_task_ids` | set[str] | 是 | 已结算任务集合（JSON 编码为排序列表） |
@@ -111,6 +112,7 @@ flowchart TB
 | `ended_at` | int \| None | 否 | 结束时刻，不早于开始时刻 |
 | `activity_ids` | list[str] | 是 | 归入本会话的活动：这段停留或路上开始的活动，以及回到该地点时归入的暂停活动 |
 | `name` | str | 是 | 可读名称，结束后不改：停留「<地点>（<M月D日> HH:MM 起）」，路上「去<目的地>的路上（<M月D日> HH:MM 起）」（格式见[时间与能量规格](../dev/SPEC-time-and-energy.md)第七章「会话与活动的字段」） |
+| `opened_by_action_id` | str \| None | 否 | 引起本会话开始的动作（出发、途中结束出行）；运行开始与到达开始的会话为空。进度层的下界据此取该动作结果所在提交的末事件序号，为空时取会话开始时刻首个事件所在提交的末事件序号（运行开始为 0）；随世界结构版本 8 |
 
 运行开始时每人按初始地点开始首个停留会话；出发时结束停留、开始路上；到达（含到达被拒）或途中结束出行时结束路上、在人物所在地点开始停留；实验截止时所有会话结束。会话的开始与结束只写入世界状态，不写事件。
 
@@ -122,15 +124,19 @@ flowchart TB
 `SupplyQuoteState` 保存 `price_fen`、`price_version`、UTC 秒制的半开 `effective_from/effective_to` 与 `source`。
 来源按 `DataSource` 全字段校验，不能用空字典代替真实资料或场景假设声明。
 `opening_exceptions` 的日期键保存不重叠的分钟区间并保留声明顺序，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
-公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；模型提示 `facts.products` 仍是实际呈现的供给行，按可读商品与门店名称公开：
-食品带每份热量 `energy`（按 5 进位取整到 10 千卡的中文短语），配送写人读送达时刻 `delivery_eta`，不给原始配送秒数。
-供给行公开原始 `price_fen/price_version/quote`、`purchase_pairing_state`、`purchase_coefficient` 和一份的 `purchase_price_fen`；
+公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；实际呈现的供给在模型请求中是工具层的商品目标，
+名称为「<门店>出售的<商品>」：目标的 `state` 写每份热量等可读状态，各动作的 `price`、`duration`、`quantity`、`note` 写人读的价格、
+时长、数量与配送送达时刻，不给原始配送秒数或以分为单位的整数；第一个动作的 `note` 另写供给声明的来源标记
+（类型、来源引用与事实截止日），每个目标一次。
+`data.supplies` 的供给行保存原始 `price_fen/price_version/quote`、`purchase_pairing_state`、`purchase_coefficient` 和一份的 `purchase_price_fen`；
 非定义配对保留原始报价，系数及实际金额为空且不允许购买；报价未知时价格字段也保留 `null`。订单行 `total_price_fen` 按原价、数量、系数的整行乘积取整，整单同名字段保存各行合计，
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
 已持有但未上架的物品仍可按使用合同消费或转换，不要求补造供给。
-同次发现或浏览结果优先占用共同呈现窗口；提示不用增量引用：当前供给行与同次结果一致时不重复，
-有变化时一律写完整行，不用 `based_on_action_id/changes` 引用结果，系统提示也不再说明这种格式。
-这种公开格式不裁剪原始观察、动作和结算中的完整证据；窗口外身份也不会因此获得可见凭据。
+展示不是购买资格上限：工具层的商品目标只是本轮展示的供给，`obtain` 可以按名称购买本轮未展示但存在的商品，按当前报价结算，
+不存在时返回至多 3 个近似候选且不替换。
+同次发现或浏览结果优先占用共同呈现窗口；浏览得到的供给只作为工具层商品目标出现一次，浏览调用的结果只列商品名称，
+不用 `based_on_action_id/changes` 引用结果。
+这种公开格式不裁剪原始观察、动作和结算中的完整证据；窗口外身份也不会因此获得可见凭据，可见凭据只管展示与比较。
 
 ### 3.2 AgentState（人物状态）
 
@@ -143,14 +149,14 @@ flowchart TB
 | `skill_levels` | dict[str, float] | 是 | 技能等级 |
 | `taste_weights` | dict[str, float] | 是 | 口味权重 |
 | `body` | BodyState | 是 | 身体状态 |
-| `inventory` | dict[str, dict[str, float]] | 是 | 库存 |
+| `inventory` | dict[str, dict[str, float]] | 是 | 库存；开始进食时每件取 min(1, 手边持有) 移入该活动数据的 `opened`，此后不再从库存扣减；给予从本人手边移出、记入对方持有 |
 | `active_effects` | set[str] | 是 | 活跃效果（JSON 编码为排序列表） |
 | `body_settled_at` | int | 是 | 本人身体已结算到的共同世界时刻 |
 | `delivered_warning_signatures` | set[str] | 是 | 当前持续威胁中已实际交付的签名 |
 | `next_decision_at` | int | 是 | 下次决策时间；等于当前时刻即同一秒再决策 |
 | `consecutive_rejections` | int | 是 | 连续业务拒绝次数，受理即归零；只作动机层挫败感的输入，不参与唤醒与冷却 |
 | `same_moment_rounds` | int | 是 | 本秒已进行的决策轮数，ge=0；受理、业务拒绝与重放各加一，时钟推进归零 |
-| `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`、`wait_only`；时钟推进复位为 `open` |
+| `same_moment_stage` | str | 是 | 受限轮阶段：`open`、`conclude_pending`、`start_or_resume`、`resume_or_conclude`、`conclude_only`（世界结构版本 8 删去 `wait_only`；开始或恢复被拒后留在原阶段，现行阶梯不再进入 `conclude_only`，它只留在闭集中）；时钟推进复位为 `open` |
 | `pending_wake_reasons` | list[str] | 是 | 本轮唤醒原因，成员属唤醒闭集；同刻轮次替换为本轮原因：没有进行中活动记 `no_active_activity`，业务拒绝之后记 `rejection_feedback`，二者同时成立按枚举顺序记两项；交谈对方同秒结束且本人仍有其他进行中活动时记 `planned_end`；人物消息送达而获得同刻机会时记 `message_arrival`；上一轮原因不带入 |
 | `content_progress` | dict[str, ContentProgress] | 是 | 内容进度 |
 | `read_message_ids` | set[str] | 是 | 已读消息 ID 集合 |
@@ -160,8 +166,9 @@ flowchart TB
 | `visible_supply_ids` | set[str] | 是 | 实际呈现所授予的供给身份；使用时再按逐供给时刻与地点判定有效性 |
 | `supply_browsed_at` | 供给到时刻映射 | 是 | 各供给实际呈现时刻 |
 | `supply_browsed_location` | 供给到地点映射 | 是 | 各供给实际呈现地点 |
-| `inbox` | dict[str, Message] | 是 | 收件箱 |
-| `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`，由零点计划生成，人物可修订；空清单仍为已提交，条目含环境推进证据与提醒 `remind_at`、`reminded_at`（`int \| None`：提醒的当日绝对时刻与触发时刻，只触发一次），旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
+| `inbox` | dict[str, Message] | 是 | 收件箱；直接消息与交谈邀请以全文进入进度层（不截断，交谈邀请另接回应方式「，对<发起人>选择交谈即接受」），全文已呈现（在进度层或记忆层）即在决策轮提交时记为已读；受限轮与轮前有待收尾活动的轮次、重放的动作不记已读；邮件正文须阅读后才可知 |
+| `outbox` | dict[str, Message] | 是 | 发给场景联系人的消息，按消息身份存放，缺省为空；联系人回复请求据此与收件箱组装双方往来；随世界结构版本 8 |
+| `day_plan` | DayPlan \| None | 否 | 当日目标 `{day_end, goals}`，由零点计划生成，人物可修订；空清单仍为已提交，条目含环境推进证据与提醒 `remind_at`、`reminded_at`（`int \| None`：提醒的当日绝对时刻与触发时刻，只触发一次），人物写下的 `progress_note` 照存但不呈现，旧段形状拒绝；详见 [目标请求](../CONTRACTS.md#当日目标请求) |
 | `plan_submitted_dates` | set[str] | 是 | 已生成当日计划的场景本地日期（ISO 日期，JSON 编码为排序列表）；零点计划 `plan_day` 的幂等键，既有字段；恢复、重放与反事实分支据此不重复生成 |
 
 可见身份集合与两份逐供给记录的键完全一致；呈现时间不得晚于世界当前时刻，呈现地点必须是场景中的合法地点。
@@ -169,8 +176,8 @@ flowchart TB
 观察 `active_activities` 是按开始时间和身份排序的完整 ACTIVE 控制行集合，`pending_conclusions` 是待收尾活动的控制行；
 每项独立控制。`occupied_resources` 是这些活动显式资源声明的排序并集，仅为观察派生量；占用名按[时间与能量规格](../dev/SPEC-time-and-energy.md)
 第五章「并行准入」重列为 `idle`、`travel`、`eyes`、`ears`、`hands`、`voice`、`work`。
-事实窗口 `verified_experiences` 由截止前已提交事件确定；记录格式与共同身体结算引用由
-[记录引擎](05-recording-engine.md)定义，人物自述不得写入该事实窗口。
+私有证据窗口 `verified_experiences` 由截止前已提交事件确定，只用于记忆来源核对，不进人物提示；记录格式与共同身体结算引用由
+[记录引擎](05-recording-engine.md)定义，人物自述不得写入该窗口。记忆层的 `settled` 另有来源：由已提交结果与世界事件生成的确定性句子。
 超过 1800 秒或人物位置改变则该凭据不可用；呈现另一供给不续期。直接下钻与有时长浏览均以实际返回窗口更新，
 后者使用完成时的世界时刻。恢复和分支保留这些字段以及 `presentation_state`，不能重建为全目录可见。
 
@@ -227,15 +234,16 @@ flowchart TB
 | `boundary_type` | str \| None | 否 | 边界类型：`planned_end`、`feedback`、`game_feedback`、`paused`、`cancelled`、`experiment_end`、`counterfactual_replay`、`route_ended`、`partner_ended`、`plan_reminder`（当日目标提醒结束睡眠；与计划结束同秒时记 `planned_end`） |
 | `interruption_reason` | str \| None | 否 | 中断原因：`agent_cancelled`、`experiment_end`、`LOCATION_ACCESS_DENIED`、`route_ended`、`partner_ended`（交谈对方结束，本人交谈同秒结束）、`plan_reminder` |
 | `next_interaction_at` | int \| None | 否 | 下一次交互边界（游戏回合与社交活动使用） |
-| `data` | dict | 是 | 活动数据 |
+| `data` | dict | 是 | 活动数据；进食（使用方式为食用）另带开吃份量 `opened`（dict[str, float]，商品→开吃份数），摄入只按它与实际进度计算，暂停保留剩余，结束时写 `discarded`（开吃份量减已吃，商品→丢弃份数）且不补算摄入；随世界结构版本 8 |
 | `concluded_at` | int \| None | 否 | 收尾时刻：只属于 `completed`、`failed`、`cancelled`，不早于 `ended_at`；终态而为空即待收尾，`truncated` 不收尾 |
 | `report_anchor_at` | int \| None | 否 | 播报锚点：开始、恢复以及对该活动播报时写入当前时刻 |
+| `paused_at` | int \| None | 否 | 暂停时刻：暂停时写入，恢复时清空；待办层的暂停活动按它从老到新排列；随世界结构版本 8 |
 | `session_ids` | list[str] | 是 | 先后所属的地点会话 |
 | `name` | str | 是 | 可读名称「<做什么><对象>（<M月D日> HH:MM 起）」，结束后不改 |
 | `task_kind`、`task_ref`、`plan_goal_intent_kind` | str、str \| None、str \| None | 是 | 从原会话移来：活动服务的任务（`goal`、`work_task` 或 `none`）及引用，`goal` 时意图等于引用 |
-| `progress_note`、`note_updated_at`、`note_history` | str、int \| None、list | 是 | 从原会话移来的人物自述：`report_status`、`pause_activity`、`conclude_activity` 的 `summary` 写入 `progress_note`（至多 500 字符），前一条推入 `note_history` |
+| `progress_note`、`note_updated_at`、`note_history` | str、int \| None、list | 是 | 从原会话移来的人物自述：`report_status`、`pause_activity`、`conclude_activity` 的 `summary` 写入 `progress_note`（至多 500 字符），前一条推入 `note_history`；提示中的 summary 在本 session 内是进度层对应调用的参数，session 结束后是记忆层的 `self_notes`（只取 pause、conclude） |
 
-`elapsed_seconds`、`effective_work_seconds`、`media_position_seconds` 等进度随每次结算累加；进度层的客观进度从这些字段与任务累计读取。
+`elapsed_seconds`、`effective_work_seconds`、`media_position_seconds` 等进度随每次结算累加；工具层活动目标的 `state` 写的客观进度从这些字段与任务累计读取。
 
 ## LabelKit 交付格式
 
@@ -318,3 +326,6 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.9 | 2026-09-25 | 按时间与能量规格阶段 4：AgentState 的 `location_id` 注明出行中仍为出发地、现场资格按途中判定；`occupied_resources` 与 ActivityState 的 `resource_claims` 取第五章重列的占用名（观看按内容品类）；`boundary_type`、`interruption_reason` 加 `partner_ended` |
 | v1.10 | 2026-09-25 | 按时间与能量规格阶段 5：AgentState 的 `day_plan` 注明由零点计划生成，目标带提醒 `remind_at`、`reminded_at`，增 `plan_submitted_dates` 行（零点计划的幂等键，既有字段）；ActivityState 的 `boundary_type`、`interruption_reason` 加 `plan_reminder`；供给行改为提示不用增量引用，有变化时写完整行 |
 | v1.11 | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对：AgentState 名额说明中的待收尾限定为 `completed`、`failed`、`cancelled` 且未收尾，`truncated` 不收尾、不占名额 |
+| v1.12 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E9-1–E9-7，E9-3 为阶段 1、4，E9-4 为阶段 4 同批作业）：文件头注明修订部分待实现；`facts.products` 改为工具层的商品目标，展示不是购买资格上限，浏览结果只列名称；世界结构版本 8：SessionState 增 `opened_by_action_id`，`DeliveryState` 带收货人 `recipient_id` 与请求关联 `request_message_id`，WorldState 增 `contact_holdings`，AgentState 增 `outbox`，ActivityState 增 `paused_at`，进食活动数据带开吃份量 `opened`，受限轮阶段删 `wait_only`；直接消息全文进入进度层，全文已呈现即记为已读；目标的 `progress_note` 照存不呈现；`verified_experiences` 只作私有证据、不进提示，`settled` 另有来源；summary 在本 session 内是进度层调用参数、之后是记忆层 `self_notes`；客观进度改为工具层活动目标的 `state` |
+| v1.13 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：按最终代码核对，`same_moment_stage` 注明 `conclude_only` 只留在闭集中，`inbox` 写明已读的范围（进度层或记忆层全文呈现、受限轮与待收尾轮次和重放不记已读）与交谈邀请的回应方式，活动 `data` 写明 `opened` 只在食用时出现、结束写 `discarded`；文件头注明修订部分已实现 |
+| v1.14 | 2026-09-28 | 人物 Prompt 七层规格最后一批代码与规格出入的修复（见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md#代码与规格的出入)）：门店商品目标第一个动作的 `note` 另写供给声明的来源标记（类型、来源引用与事实截止日），每个目标一次 |

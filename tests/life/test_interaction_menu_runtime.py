@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import re
-
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import context, stage_day_plan
+from tests.life.conftest import context, stage_day_plan, start_request
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.models import StartActivityRequest
 
@@ -38,33 +36,32 @@ def _deny_travel_at_home(engine) -> None:
 
 
 def test_observation_exposes_semantic_choices_and_keeps_bindings_private(engine_factory):
-    """人物所见只有对象与「动词：方式」加说明；没有内部编号、报价版本、路线秒数或 preconditions_met。"""
+    """人物所见只有工具层的目标、动词与方式及其可用性与说明；没有内部编号、报价版本、路线秒数或 preconditions_met。"""
     engine = engine_factory()
     observed = engine.observe(context(engine, "semantic-observation"))
-    rows = observed["facts"]["interactive_objects"]
+    rows = [row for row in observed["tool_layer"]["targets"] if row["kind"] != "activity"]
     assert rows
-    assert all(set(row) == {"object", "actions"} for row in rows)
-    assert all(row["object"] for row in rows)
-    phrase = re.compile(rf"^({'|'.join(LIFE_VERBS)})：(.+)$")
+    assert all(set(row) == {"name", "kind", "phase", "state", "actions", "tools"} or row["kind"] == "task"
+               for row in rows)
+    assert all(row["name"] for row in rows)
     for row in rows:
         for action in row["actions"]:
-            assert set(action) == {"action", "note"}
-            verb, way = phrase.match(action["action"]).groups()
-            assert WAYS[way][0] == verb
-            assert action["note"] is None or isinstance(action["note"], str) and action["note"]
-    assert "preconditions_met" not in str(observed["facts"])
+            assert set(action) == {"action", "way", "available", "reason", "price", "duration", "quantity", "note"}
+            assert action["action"] in LIFE_VERBS and WAYS[action["way"]][0] == action["action"]
+            assert action["reason"] is None or isinstance(action["reason"], str) and action["reason"]
+    assert "preconditions_met" not in str(observed["tool_layer"])
     assert all("preconditions_met" not in row for row in observed["interaction_bindings"])
-    assert [row["object"] for row in rows] == [row["object"] for row in observed["interaction_bindings"]]
-    own = next(row for row in rows if row["object"] == "自己")
-    assert {item["action"] for item in own["actions"]} == {"interact：等待", "sleep：睡觉"}
+    assert [row["name"] for row in rows] == [row["object"] for row in observed["interaction_bindings"]]
+    own = next(row for row in rows if row["name"] == "自己")
+    assert {(item["action"], item["way"]) for item in own["actions"]} == {("interact", "等待"), ("sleep", "睡觉")}
     travel = _binding(observed, "location", "travel_to")
     assert {item["label"] for item in travel["actions"]} <= {"步行", "驾车"}
     assert all(set(item) >= {"verb", "label", "canonical_action", "travel_mode", "note"}
                for item in travel["actions"])
-    public = next(row for row in rows if row["object"] == travel["object"])
-    assert {item["action"] for item in public["actions"]} == {
-        f"travel：{item['label']}" for item in travel["actions"]}
-    assert "travel：步行" in {item["action"] for row in rows for item in row["actions"]}
+    public = next(row for row in rows if row["name"] == travel["object"])
+    assert {(item["action"], item["way"]) for item in public["actions"]} == {
+        ("travel", item["label"]) for item in travel["actions"]}
+    assert ("travel", "步行") in {(item["action"], item["way"]) for row in rows for item in row["actions"]}
 
 
 def test_travel_uses_exact_frozen_route_seconds(engine_factory):
@@ -75,7 +72,7 @@ def test_travel_uses_exact_frozen_route_seconds(engine_factory):
     location = _binding(preview, "location", "travel_to")
     choice = next(item for item in location["actions"] if item["travel_mode"] == "walking")
     assert choice["label"] == "步行" and choice["verb"] == "travel"
-    request = StartActivityRequest(targets=[location["object"]], actions=["travel"], ways=[choice["label"]])
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=[choice["label"]])
     _, result = _observed_action(engine, "travel-exact", request)
     assert result.status == "in_progress", result.error_code
     activity = engine.state.activities[result.activity_id]
@@ -95,12 +92,13 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     stage_day_plan(engine)
     preview = engine.observe(context(engine, "denied-preview"))
     location = _binding(preview, "location", "travel_to")
-    request = StartActivityRequest(targets=[location["object"]], actions=["travel"], ways=["步行"])
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])
     _deny_travel_at_home(engine)
     before = engine.state.accounts.copy(), engine.state.activities.copy()
     observed, result = _observed_action(engine, "denied-travel", request)
-    listed = next(row for row in observed["facts"]["interactive_objects"] if row["object"] == location["object"])
+    listed = next(row for row in observed["tool_layer"]["targets"] if row["name"] == location["object"])
     assert listed["actions"] == []
+    assert observed["environment_layer"]["location"]["fixed_rules"] == ["这里不能出发去别处"]
     assert result.error_code == "ACTION_REQUEST_INVALID"
     assert (engine.state.accounts, engine.state.activities) == before
 
@@ -117,3 +115,23 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     result = late.commit_decision_round("late-menu")[0]
     assert result.error_code == "INTERACTION_MENU_DENIED"
     assert (late.state.accounts, late.state.activities) == before
+
+
+def test_availability_judges_the_menu_first_with_the_admission_reason(engine_factory):
+    """可用性与受理同序、菜单在先（docs/dev/SPEC-persona-prompt.md「工具层」）：观察之后菜单收窄，按本轮冻结绑定重算的
+    可用性把被收窄的前往标为不可用，原因与共同结算以 INTERACTION_MENU_DENIED 拒绝时的原因一字不差。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    decision = context(engine, "menu-first")
+    engine.begin_decision_round([decision])
+    offered = engine.observe(decision)
+    location = _binding(offered, "location", "travel_to")
+    _deny_travel_at_home(engine)
+    recomputed = engine._layer_context(engine.state.agents[1], (), offered["interaction_bindings"])
+    note = next(action["note"] for row in recomputed.bindings if row["object"] == location["object"]
+                for action in row["actions"] if action["label"] == "步行")
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])
+    engine.submit_action(DirectToolCall(decision, "action-menu-first", "start_activity", request))
+    result = engine.commit_decision_round("menu-first")[0]
+    assert result.error_code == "INTERACTION_MENU_DENIED"
+    assert note == result.data["reason"] == "这里不能这样做"

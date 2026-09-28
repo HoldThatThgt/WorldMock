@@ -1,7 +1,7 @@
 # WorldMock 产品设计说明书 — 记录引擎
 
-> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出  
-> **日期**：2026-09-26  
+> **状态**：已整合；原已冻结的接口与行为约束继续有效，待实现设计单独列出；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
+> **日期**：2026-09-28  
 > **版本**：v1.2  
 > **范围**：记录生活全过程、保存与关联证据、一致性保存与校验、保存共同检查点、恢复与反事实分支、固定截止导出、运行查询与诊断
 
@@ -111,11 +111,11 @@ flowchart TB
 | 生活过程 | 必须可追溯的证据 |
 | --- | --- |
 | 观察交付 | 数字人实际收到的正文、可见字段、内容片段范围、观察版本，以及宿主实际使用的有效交互菜单 |
-| 人物决策 | 决策身份、同一秒内的轮序、实际上下文、模型请求与响应、已输出的决策自述和动作选择 |
+| 人物决策 | 决策身份、同一秒内的轮序、实际上下文、模型请求（同秒续接时含本秒前序决策的 assistant 与 tool 消息）与响应（含可选正文与 `reasoning_content`）和所选的世界请求 |
 | 后台任务 | 零点计划 `plan_day` 的请求与响应（`purpose="plan_day"`）、生成的计划与提醒及其来源；须能与人物决策区分 |
 | 动作执行 | 工具名、参数、返回、接受或拒绝、实际进度、中断与最终结果 |
 | 状态变化 | 变化前后的状态版本、发生原因、资金变化、身体结算与环境自主事件 |
-| 记忆更新 | 实际写入的记忆、记忆版本、来源事件与工作区快照 |
+| 记忆更新 | 实际写入的记忆、记忆版本、来源事件与工作区快照；提示中的记忆层条目是构建提示时从已提交事件与世界状态派生的视图，不新增持久状态；构建结果随观察事件保存（`memory_layer`），并写进人物工作区的只读问答快照 `life_prompt_snapshot.json` |
 | 故障与结束 | 异常类型、英文错误、关联事件、运行终态与最终共同检查点 |
 
 凭据不写入证据。模型完整请求保留必要的任务上下文，脱敏规则带版本与处理记录。
@@ -139,13 +139,16 @@ flowchart TB
 | 来源与可见性 | `source_kind` 取闭集 `environment`、`model`、`scenario`、`external`（默认 `environment`）；`visibility` 取闭集 `agent`、`evaluation`、`system`（默认 `agent`） |
 | 素材引用 | `artifact_refs`：`AssetRef` 列表，每项含 `sha256`、`size_bytes`、`media_type` 与 `source` |
 
-`observation` 事件的 `data` 即实际交付的结构化观察投影，不另写入 JSON 字符串副本。
+`observation` 事件的 `data` 保存环境构建的层数据原文（`tool_layer`、`todo_layer`、`environment_layer`、`memory_layer`）
+与看法偏好 `persona_views`，以及私有绑定与证据；进度层只存来源事件引用 `progress_event_ids`（按记录顺序；调用记录的来源是
+`action_requested` 与 `action_result`，记忆查询记录的来源是私有的 `model_response` 与其后的 `model_request`，交付展开证据时跳过私有来源），
+完整进度层 JSON 由实际请求的 `model_request` 保存；不另写入 JSON 字符串副本。
 其中事件级工具支持字段 `interaction_menu` 保存本轮按地点类与人物声明求得的有效菜单，供核对实际
-模型 Schema、本地校验和环境派发；它不进入人物 user 消息，也不保存其他人物或全部地点的原始声明。
+模型请求、本地校验和环境派发；它不进入人物 user 消息，也不保存其他人物或全部地点的原始声明。
 地点变化后的新菜单由下一次观察另行记录，既有观察不回写。
-观察私有证据另记 `same_moment_stage`（本轮开放的动作类，同刻上限的受限轮阶段），同样用于核对实际模型 Schema、
-本地校验和环境派发；它不进入 `scene` 与 `facts`。
-人物提示如何包装观察见[人物决策提示合同](../CONTRACTS.md#请求组成)。
+观察私有证据另记 `same_moment_stage`（本轮开放的动作类，同刻上限的受限轮阶段），同样用于核对工具层的可用性标注、
+本地校验和环境派发；它不进入七层。
+人物请求如何由七层组成见[人物决策提示合同](../CONTRACTS.md#请求组成)。
 
 请求同一动作的重试沿用动作标识；真实重复观看或再次购买必须产生新动作标识。完整原始事件保存世界事实、自述和推断三者的来源区别，既不删除重复行为，也不把相同素材的哈希当作事件标识；环境准确值、人物表达的感受与设备可见痕迹并不等价。
 
@@ -170,7 +173,8 @@ flowchart TB
 记录引擎校验引用身份、人物、区间与事件顺序；具体身体演化和唤醒条件仍由模拟引擎计算。
 静默边界也写共同身体证据，不能因没有人物决策而漏记身体时间。
 同刻轮次（同一模拟秒内的再决策轮）没有区间，不写共同身体结算；其唤醒原因只记于
-`decision_started.data.wake_reasons` 与观察。边界兜底的 `no_active_activity` 属于边界判定，照常写入结算。
+`decision_started.data.wake_reasons` 与观察。同秒续接的各轮仍逐轮写观察与 `decision_started`。
+边界兜底的 `no_active_activity` 属于边界判定，照常写入结算。
 唤醒原因闭集、睡眠允许的原因与触发条件统一见
 [生活运行时规格的决策节律](../dev/SPEC-life-runtime.md#决策节律结算边界与唤醒条件分离)。
 
@@ -195,8 +199,9 @@ EventType = Literal[
 ]
 ```
 
-闭集不变。活动的结束、暂停、恢复与实验截止的截断，以及零点计划的计划登记，都复用 `environment_event`，以 `data.kind` 区分
-（`activity_concluded`、`activity_paused`、`activity_resumed`、`activity_truncated`、`day_plan_generated`，登记在下表 `environment_event` 行）；
+闭集不变。活动的结束、暂停、恢复与实验截止的截断，零点计划的计划登记，以及跨决策预算耗尽，都复用 `environment_event`，以 `data.kind` 区分
+（`activity_concluded`、`activity_paused`、`activity_resumed`、`activity_truncated`、`day_plan_generated`、`decision_budget_exhausted`，
+登记在下表 `environment_event` 行）；
 零点计划的模型请求与响应复用 `model_request`、`model_response`，以 `data.purpose` 区分。
 
 #### 事件正文与资源证据
@@ -206,15 +211,15 @@ EventType = Literal[
 
 | 事件 | 正文用途与约束 |
 | --- | --- |
-| `observation` | `data` 就是结构化观察投影，不额外保存一份 JSON 字符串副本 |
-| `decision_started` | 保留当时实际产生的决策信息：`data` 含 `round_id`、`round_order`、`world_state_version`、本轮唤醒原因 `wake_reasons` 与决策自述 `decision_statement`（引擎直驱路径可缺）；决策自述属于模型自述。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
-| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
-| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查 |
+| `observation` | `data` 是环境构建的层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`；不额外保存一份 JSON 字符串副本 |
+| `decision_started` | 保留当时实际产生的决策信息：`data` 为闭集 `{round_id, round_order, world_state_version, wake_reasons}`，带退役字段 `decision_statement` 或其他键即以英文错误拒绝；在本次决策的首个行动请求（`phase=request`、带生活工具、thinking 开启、无 `purpose`）与该请求同批提交，排在请求之前，引擎直驱路径的兜底写入保留。同一人物的同刻轮数按同一模拟秒内的 `decision_started` 计 |
+| `model_request`、`model_response` | 关联实际请求、响应素材、模型身份与可测量的调用用量；未得到可靠结果时不能记为成功。同秒续接的请求原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，响应保存可选正文与 `reasoning_content`；`reasoning_content` 的统计只取响应 `message` 中的一份，续接请求中回传的副本不重复计。零点计划 `plan_day` 的请求与响应带 `data.purpose="plan_day"`，与人物决策请求区分：`visibility=system`、`source_kind=model`，`agent_id` 为该人物，不带 `decision_id` 与 `action_id`；`data.call_id` 为 `plan-day:<agent_id>:<本地日期>:attempt:<n>`，`data.attempt` 为尝试序号，`data.phase` 取 `request`、`response` 或 `failure`（传输或配置失败），响应另带 `usage` 与本地校验错误 `error`（合法时为空）；附回重试的请求以 `caused_by` 回链前次响应 |
+| `action_requested` | 记录实际工具请求与动作身份，不代表已通过可行性检查；`data` 为 `tool_name`、`request`、`request_sha256`、`reused` 与 `self_note`：提交该世界请求那次回复的非空正文（去掉首尾空白），没有时为 null，属于人物自述、未经核验；relationship、preference 记忆的 `subject` 只随请求原文保存在这里，不写入 AS2 记忆条目 |
 | `action_accepted`、`action_rejected` | 记录环境的受理或业务拒绝；交互菜单拒绝保留 `INTERACTION_MENU_DENIED`；同刻上限受限轮的越界请求保留 `SAME_MOMENT_ACTION_RESTRICTED`，计入同刻轮数；受理时不重复声明最终支付 |
 | `activity_progress` | 自身实际区间、活动进度、效率、消费和内容接触，引用共同身体结算事件；人物以 `conclude_activity` 结束、暂停与恢复活动不写本事件，逐活动另写一条带活动快照的 `environment_event`；暂停不是终态 |
-| `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
-| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`，`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested` |
-| `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；写盘失败不宣称完成 |
+| `action_result` | 实际结果及发生结算时的 `resource_changes`，作为支付的唯一事实；订单记收货人 `recipient_id` 与请求关联 `request_message_id`，被 `answering` 关联的下单结果另带顶层 `answering`；给予写 `data.given`（`[{product_id, quantity, recipient_id, location_id}]`）；结束进食时活动数据增 `discarded`（开吃份量减已吃），收尾结果写 `data.outcome`（`[{activity, outcome, items[{product, eaten, discarded, remaining}], note}]`，剩余为进食地点仍持有的份数；未完成的浏览 `note` 为「未取得浏览结果」）；主动结束使原始动作的全部子活动终结时，按自然结束的同一路径写一次终态，并更新 `processed_actions`；同源两项的聚合终态不带快照 |
+| `environment_event` | 实际自主事件与唯一共同身体结算；初始注资也需完整资金证据；会话切换只进世界状态，不写事件；提醒到期不另写事件，记于唤醒原因。人物以 `conclude_activity`、`pause_activity` 与 `report_status` 的恢复改变活动时，每改变一项活动写一条：`data.kind` 取 `activity_concluded`、`activity_paused` 或 `activity_resumed`，事件顶层与 `data.activity_id` 为该活动，`data.activity` 为变更后的活动快照，`caused_by` 含本次请求事件；一条事件只对应一项活动。实验截止时，每项被截断的活动（进行中或暂停）写一条 `data.kind` 为 `activity_truncated` 的记录：事件顶层与 `data.activity_id` 为该活动，`data.activity` 为截断后的活动快照，`caused_by` 为开始该活动的请求事件。零点计划为人物登记当日计划时写一条 `data.kind="day_plan_generated"`：`visibility=system`、`source_kind=model`；`data.day_plan` 与 `revise_day_plan` 的修订结果同形（`day_end` 与各目标的 `intent_kind`、`goal`、`registered_at`、`progressed_at`、`progress_activity_id`、`progress_note`、`remind_at`、`reminded_at`，`registered_at` 为该事件时刻）；`data.source_event_ids` 为输入来源事件（已核验经历、动作结果与配送送达、收尾请求与上一天计划快照），`caused_by` 为本次最后一条模型响应；它经引擎的系统登记入口与本次模型证据、世界状态中的计划和 `plan_submitted_dates` 同一次提交，不写 `action_requested`。受限轮用完仍没有进行中活动或仍有待收尾活动时写一条 `data.kind="decision_budget_exhausted"`：`visibility=system`、`source_kind=environment`，事件顶层 `agent_id` 为该人物，`data` 为 `kind`、本秒最近的拒绝码 `error_code`（本秒没有拒绝时为 `null`）与下次决策时刻 `next_decision_at` |
+| `memory_updated` | 实际记忆写入或视图刷新、写入点 `trigger`、来源截止与文件哈希；就寝反思的快照条目带来源标记，引擎据此识别反思并确定其归属日期；写盘失败不宣称完成 |
 | `checkpoint_created` | 对应数据库中已提交的共同检查点 |
 | `run_ended`、`run_failed` | 正常结束或运行故障，仍需结合最终检查点判定可交付性 |
 
@@ -223,30 +228,32 @@ EventType = Literal[
 | 证据 | 保存内容与可见性 |
 | --- | --- |
 | 地图身份 | 运行使用的集合身份、版本、摘要及逐来源许可与通知；运行清单和导出清单一并保留 |
-| 发现请求 | `start_activity` 的可读发现对象与动作、私有绑定中的实际筛选、分页游标、宿主绑定动作身份与观察版本；登记确认不包含未结算结果 |
+| 发现请求 | `start_activity` 的可读发现对象与动作、私有绑定中的实际筛选、分页游标、宿主绑定动作身份与观察版本；登记不回显，不包含未结算结果 |
 | 发现结果 | 实际返回的有序地点与供给、道路状态、路线身份/分时耗时/费用、营业与资格、原始报价和版本、购买系数及一份实际金额、库存、履约、来源及假设标记 |
 | 比较与选择 | 观察实际呈现的可读供给与公开事实；模型请求使用可读名称，内部事件经冻结绑定保留当时可见的 `supply_id`、`product_id` |
-| 购买与交付 | 供给、商品、地点、卖方、实际报价版本、数量、行 `total_price_fen` 与整单合计、履约目的地、准备/运输依据及来源；付款和交付分别记录 |
+| 购买与交付 | 供给、商品、地点、卖方、实际报价版本、数量、行 `total_price_fen` 与整单合计、收货人与所回应的消息、履约目的地（收货人的收货地点）、准备/运输依据及来源；付款人是执行人物，送达只入收货人的持有；付款和交付分别记录 |
 | 世界变化 | 按供给的库存与报价、营业例外、交付队列、人物可见供给与轮转随状态提交，拒绝不写购买副作用 |
 
 发现沿用 `action_requested`、`action_accepted`/`action_rejected` 和 `action_result` 事件，
 不新增同步世界查询通道。返回结果保存当时快照，导出不得用当前目录重建历史。
 只能公开实际返回供给的库存，不能把全量 `WorldState` 库存、未接触供给或未来报价注入人物窗口。
-已取得物品按商品合并，记录仍保留取得来源，不把购买或到达视为已经消费。
+指名购买按场景供给解析并按当前报价结算，不查可见凭据；它不因此把未呈现供给的库存或报价写进人物窗口，人物只见该次购买的公开结果。
+已取得物品按商品合并，记录仍保留取得来源，不把购买或到达视为已经消费；给予只转移持有，不计任何人的摄入。
 
 同地点、零处理时长的配送即时交付，仍记录 `fulfillment=delivery`、`status=delivered` 和实际 `inventory_changes`，
 不安排虚构延迟。其他整单配送使用同一次到期事件携带 `order_ids`；重复事件不得再次增加库存或伪造库存变化。
 订单来源保留供给、实际报价和路线的来源组合，当前报价状态的 `source` 也必须通过 `DataSource` 严格校验。
-观察中的 `data.products` 是商品使用定义，`data.supplies` 是人物已知供给；提示的 `facts.products` 是实际呈现供给行。
-供给行的 `price_fen/price_version/quote` 保留原始声明，`purchase_pairing_state` 保留购买配对状态，
+观察中的 `data.products` 是商品使用定义，`data.supplies` 是人物已知供给；工具层的商品目标是实际呈现的供给，价格、时长与数量写成人读短语。
+`data.supplies` 的供给行以 `price_fen/price_version/quote` 保留原始声明，`purchase_pairing_state` 保留购买配对状态，
 `purchase_coefficient` 和 `purchase_price_fen` 分别记录已定义配对系数与购买一份的算子金额。
 非定义配对的系数及金额为空，不能购买；未知报价的金额也保留 `null`。已定义零系数的零额履约照常留证。
 行付款按原价、实际数量和系数求值，
 不能用一份金额乘数量重建。品类身份与供给报价身份一起保存，历史证据不随当前规则重算。
-只有实际进入提示的供给行才能更新可见凭据和呈现时刻，已知供给集不能替代实际呈现集。
+只有实际作为工具层商品目标呈现的供给才能更新可见凭据和呈现时刻，已知供给集不能替代实际呈现集；
+可见凭据只管展示与比较，指名购买不依赖它。
 
 发现或浏览回灌与当前供给事实共用一个身份窗口：回灌优先，其他候选只填剩余名额。
-当前行与同次结果一致时不重复；有变化时提示中一律写完整行，不用 `based_on_action_id/changes` 引用结果。
+浏览得到的供给只作为工具层商品目标出现一次，浏览调用的结果只列商品名称，不用 `based_on_action_id/changes` 引用结果。
 原始观察和结算证据不采用这种省略。
 公开 `excluded` 按全部非身份属性分组为 `object_ids`，完整事件仍逐项保存，不损失任何排除事实。
 到达访问失败的终态结果包含 `error_code=LOCATION_ACCESS_DENIED`；公开 `arrival` 保存实际地点、
@@ -280,8 +287,11 @@ EventType = Literal[
 `kind`、`agent_id`、`activity_id`、`source_event_id`、`event_seq`、`occurred_at` 和类型载荷。
 等待只证明正时长区间；实际食用取 eat 的区间增量；到达取路线真实终态；播放取媒体位置正向区间。
 请求、受理、购买、人物文字、反思和零点计划均不能产生这些事实。畸形结算拒绝投影并记录英文错误日志。
-完整事件前缀用于固定截止离线导出；每次观察只交付该观察事件前本人最近五条，按事件序号正序。
-模型只见由这些经历生成的确定性句子，结构行与来源身份保留在私有观察和原事件库；零点计划读当日已核验经历的句子。
+完整事件前缀用于固定截止离线导出；每次观察在私有证据 `verified_experiences` 中保存该观察事件前本人最近五条，按事件序号正序，
+供记忆写入的来源核对；这五条及由它们生成的句子都不进人物提示，结构行与来源身份保留在私有观察和原事件库；零点计划读当日已核验经历的句子。
+记忆层的 `settled` 另有来源：由共享句式从人物可见、状态为 `completed` 或 `in_progress` 且不是重放的已提交结果与世界事件生成的
+确定性句子（金额按元，份数至多两位小数，时长用人读短语）；失败的请求、记忆查询、回看、`report_status`、暂停与恢复、
+`revise_day_plan`、提醒、截止预警与身体结算都不写入；规则见[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#三进度与记忆的更新)第三章。
 重复读取、检查点恢复与分支重放不额外累加或改写源事件。
 导出另写哈希绑定的 `verified-experiences.jsonl`，按固定截止前缀重建全部人物事实；消费端从
 `events.jsonl` 独立重算并逐行核对，不将观察五条窗口误作完整历史。
@@ -289,8 +299,8 @@ EventType = Literal[
 记忆写入点为 `conclude_activity` 与就寝反思两处，阈值巩固不变；写入的条目是 `epistemic_status=subjective`
 的自述。`memory_*` 查询结果仍是 `subjective` 自述，只读返回，不是写入点。记忆来源由系统登记，模型不填身份。
 `MEMORY.md` 由冻结身份、当轮已核验经历和单独
-持久的主观归纳确定性装配；模型不能整篇重写完成事实章节。人物当前提示只采用当轮观察的事实窗口，
-不重复加入上轮长期记忆视图中的旧窗口。记忆更新记录本轮观察身份、实际渲染的事实来源、新增与
+持久的主观归纳确定性装配；模型不能整篇重写完成事实章节。`MEMORY.md`、主观归纳与五条经历窗口都不再装配进人物提示：
+提示中的记忆只在记忆层，阈值巩固保留，其摘要不进提示。记忆更新记录本轮观察身份、该轮观察私有证据窗口的事实来源、新增与
 相似合并的 episode 身份、对应的 `{id,type,text,epistemic_status}` 主观条目快照、
 三个文件的写入后哈希及 `MEMORY.md` 写入前哈希和
 主观巩固标志；快照只用于自述重复率与导出，不进入客观经历或身体指标。视图刷新不重置主观巩固计数。
@@ -303,9 +313,9 @@ EventType = Literal[
 | --- | --- |
 | `operation` | `append_episodes` 或 `refresh_summary`；追加时有新建或合并身份，纯视图刷新时无身份且文件内容确有变化 |
 | `created_episode_ids`、`merged_episode_ids` | 本次新建及相似合并的稳定身份；两组互斥且各自不重复 |
-| `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective` |
+| `episodes` | 与上述身份集合恰好对应的 `{id,type,text,epistemic_status}` 快照；每项固定 `subjective`；就寝反思条目另带来源标记 |
 | `observation_event_id` | 本轮观察：本次决策中实际交付给该人物的观察身份 |
-| `verified_event_ids` | 系统登记的来源：本轮事实窗口的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
+| `verified_event_ids` | 系统登记的来源：该轮观察私有证据窗口 `verified_experiences` 的 `source_event_id`，按首次出现顺序去重；同一结算事件可投影多件食品，但来源身份只记一次 |
 | `trigger` | 本步实际发生的写入点，有序列表，顺序为 `activity_conclusion`、`reflection`：同一决策已登记（`action_requested`）带非空 `memories` 的 `conclude_activity` 时含 `activity_conclusion`（登记后结算被拒时记忆照写），绑定观察的唤醒原因含 `wake_from_sleep` 时含 `reflection`；醒来那一轮的收尾记忆与就寝反思可同在一步，两项都列。AS2 的 `MemoryUpdateEvidence` 不带写入点，由引擎推导；写入了条目却没有任何写入点按协议违约拒绝 |
 | `decision_id` | 本步所属决策，与事件顶层一致 |
 | `memory_before_sha256`、`memory_sha256` | 写入前和写入后 `MEMORY.md` 的内容身份 |
@@ -313,14 +323,15 @@ EventType = Literal[
 | `consolidated` | 该步是否实际执行主观巩固，不代表已核验事实发生变化 |
 
 结束活动的来源另记于该 `conclude_activity` 的 `action_result.data.memory_sources`（`[{task, activity_id, session_id, verified_event_ids}]`，私有，不进提示）。
-记录入口与质量重算均要求来源身份集合与该观察可见的事实窗口严格相等，并按 `trigger` 中的每个写入点分别核对来源：`activity_conclusion` 对应同一决策已登记的 `conclude_activity`，`reflection` 对应醒来那一轮的观察。
+记录入口与质量重算均要求来源身份集合与该轮观察的私有证据窗口严格相等，并按 `trigger` 中的每个写入点分别核对来源：`activity_conclusion` 对应同一决策已登记的 `conclude_activity`，`reflection` 对应醒来那一轮的观察。
 来源身份重复、越窗、跨人物或把人物自述快照写成客观状态均不能作为合法记忆更新导出。
 
 事件全序与状态关联的验收见[一致性保存与校验的验收](#一致性保存与校验的验收)，原始素材留证见[保存与关联证据的验收](#保存与关联证据的验收)。
 
 ### 记录生活全过程的实现差距
 
-本主题当前没有未闭合的实现差距：时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)。
+时间与能量规格登记的同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四项已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)。
+人物 Prompt 七层规格登记的八项差距（观察保存层数据与 `progress_event_ids`、单一行动阶段与闭集 `decision_started`、`action_requested.data.self_note`、同秒续接的原生消息、记忆层派生与 `subject`、订单收货人与进食份量、`decision_budget_exhausted`、世界结构版本 8）已随该规格实现闭合，验收见[记录生活全过程的验收](#记录生活全过程的验收)与[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)。本主题当前没有未闭合的实现差距。
 
 ### 记录生活全过程的验收
 
@@ -329,7 +340,10 @@ EventType = Literal[
 | 同刻决策证据 | 同刻轮次逐轮写 `decision_started`，唤醒原因只含本轮原因，写入时经唤醒闭集校验；同刻轮数按同一模拟秒内的 `decision_started` 计 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「同刻决策」「唤醒词表」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
 | 零点计划留证 | 零点计划的模型请求与响应按 `purpose` 与人物决策区分；计划、提醒、来源与模型证据同一次提交；同一人物同一本地日只生成一次，恢复与分支不重复生成 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「零点计划与提醒」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
 | 记忆来源 | 人物决策中的记忆只经 `conclude_activity` 写入，此外只有就寝反思与阈值巩固；来源由系统登记，模型不填身份 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
-| 经历句子 | 发给模型的已核验经历是不含内部身份的确定性句子，私有观察仍保存结构行 | [时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)的「会话、活动与记忆」行 | 已实现，证据见[时间与能量验收记录](../dev/research/time-and-energy-verification.md) |
+| 记忆层 `settled` | 发给模型的已结算事实只在记忆层 `settled` 与进度层：`settled` 是由共享句式从人物可见、成功且不是重放的结果与世界事件生成的确定性句子，不含内部身份；私有观察仍保存 `verified_experiences` 结构行，它与由它生成的句子都不进提示 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「记忆层」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
+| 续接证据 | 同秒续接的各轮仍逐轮写观察与 `decision_started`；续接请求的 `model_request` 原样保存本秒前序决策的原生 assistant（含 `reasoning_content`）与 tool 消息，续接缓冲由环境从这些模型证据重建、不另存；观察重复门禁对链内复用链首 user 合法、跨秒重复仍失败 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「同秒续接」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
+| 记忆层 | 记忆层按 session 由已提交事件与世界状态派生，构建结果随观察事件保存，导出的就是模型所见；四种 session 结束方式与同秒归属（按边界提交）、零点分区、未了结事项、反思归属日期与 8000 字符窗口正确；检查点恢复前后逐字节相同 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「记忆层」「人设层」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
+| 订单收货人 | 订单记唯一收货人 `recipient_id` 与所回应消息 `request_message_id`，送达只入收货人的持有（同世界人物入其库存，联系人入 `contact_holdings`）；`purchases.jsonl` 的 `purchase` 行带收货人与关联消息，按订单去重、不看整体状态 | [人物 Prompt 规格「验收台账」](../dev/SPEC-persona-prompt.md#验收台账)的「来源与去向」「代点关联」「下游」行 | 已实现，证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md) |
 
 ## 保存与关联证据
 
@@ -570,7 +584,10 @@ flowchart TD
 
 检查点事件与检查点记录同事务提交，世界状态必须等于当前已提交状态，不增加世界版本。
 
-世界结构版本为 `7`（`WorldState.schema_version`）；版本不符的旧状态（含版本 6）直接拒绝，不迁移。
+世界结构版本为 `8`（`WorldState.schema_version`）；版本不符的旧状态（含版本 7）直接拒绝，不迁移。
+检查点封存版本 8 的新字段：地点会话的 `opened_by_action_id`、活动的 `paused_at` 与进食活动数据中的开吃份量 `opened`、
+订单的 `recipient_id` 与 `request_message_id`、联系人持有 `contact_holdings` 与人物发给场景联系人的 `outbox`；受限轮阶段不再有 `wait_only`。
+同秒续接的缓冲不另存：恢复后由环境从已提交的模型证据重建，普通恢复可以继续续接，反事实分支在分支起点一律断链。
 检查点封存的世界状态必须包含每个人物的同刻计数 `same_moment_rounds` 与受限轮阶段 `same_moment_stage`：
 受限轮阶段依赖上一受限轮的结果，从检查点恢复后在同一秒按原阶段继续；还须包含按人物暂存的本秒呈现留痕
 （`same_moment_presentation`），同一秒恢复后沿用该秒首轮的呈现窗口与置顶的浏览结果。
@@ -704,7 +721,9 @@ flowchart TD
 | --- | --- |
 | `events.jsonl` | 截止范围内的持久事件，按原始身份和序号排列 |
 | `activities.jsonl` | 从截止事件重建活动与实际区间，暂停时长不计作活动；主动结束、暂停、恢复与实验截止的截断也逐活动写活动快照（同源两项的聚合终态不带快照，不据它重建），导出的活动与最终检查点逐项一致 |
+| `verified-experiences.jsonl` | 按固定截止前缀重建的全部人物已核验经历（见「已核验经历与主观记忆」），消费端从 `events.jsonl` 独立重算并逐行核对 |
 | `asset-index.jsonl`、`assets/<sha256>` | 事件及完整最终检查点引用的素材索引与原始字节 |
+| `purchases.jsonl` | 从截止事件投影的购买事实，每行首键 `fact_kind`，依次为全部 `purchase`、全部 `order_attempt`、全部 `app_browse`：`purchase` 取结果顶层与各活动结果的订单，按订单去重，与整体状态无关，重放回执不重复计，字段 `agent_id`、`order_id`、`product_id`、`supply_id`、`quantity`、`total_price_fen`、`fulfillment`、`recipient_id`、`request_message_id`、`created_at`、`action_id`、`source_event_id`；`order_attempt` 为方式是到店或远程下单的非重放请求，字段 `agent_id`、`action_id`、`request_event_id`、`way`（请求中第一个下单方式）、`status`、`error_code`（取该动作首个结算结果，尚无结果为 `null`）、`occurred_at`；`app_browse` 为方式是浏览的活动，字段 `agent_id`、`activity_id`、`started_at`、`status`、`source_event_id`（取截止前最后一次快照）。属于导出工件闭集，消费端从 `events.jsonl` 独立重算并逐行核对 |
 | `quality.json` | 从同批冻结事件和活动确定性计算的质量报告 |
 | `timeline/<agent>-<date>.md` | 按人物和日期呈现的时间线；当前截止与消费端认证缺口见「固定截止导出的实现差距」 |
 | `manifest.json` | 运行身份、截止、来源、覆盖、完成状态、各文件摘要与冻结运行清单 |
@@ -714,11 +733,11 @@ flowchart TD
 
 | 导出清单字段 | 含义 |
 | --- | --- |
-| `schema_version`、`committed`、`run_id` | 格式版本、已发布标志与所属运行 |
+| `schema_version`、`committed`、`run_id` | 格式版本（为 2，随 `purchases.jsonl` 升版）、已发布标志与所属运行 |
 | `source_group_id`、`source_run_ids` | 同源组与截止事件实际涉及的来源运行 |
 | `cutoff_event_seq`、`window`、`daily_coverage` | 截止序号、实际覆盖时间窗与日期 |
 | `experiment_completed` | 是否达到完整实验终态；发布成功与实验完成分别判定 |
-| `artifacts.events`、`artifacts.activities`、`asset_index` | JSONL 的 `path`、`rows` 与 `sha256` |
+| `artifacts.events`、`artifacts.activities`、`artifacts.verified_experiences`、`artifacts.purchases`、`asset_index` | JSONL 的 `path`、`rows` 与 `sha256`；`artifacts` 恰好是这四个键，多出或缺少都被校验拒绝 |
 | `quality_report` | 报告的 `path`、`size_bytes` 与 `sha256` |
 | `timeline` | 每个投影的 `agent_id`、`date`、`path`、`size_bytes` 与 `sha256` |
 | `frozen_run_manifest` | 原始冻结运行清单，包含地图集合版本、摘要、逐来源许可及通知 |
@@ -764,6 +783,8 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 （`same_moment_round_counts`，键为同一人物同一秒的轮数，值为出现次数），并按 `decision_started.data.wake_reasons`
 统计轮次原因（`decision_started_wake_reason_counts`，闭集外成员计入
 `unrecognized_decision_started_wake_reason_counts`）；食品与工作效率读取对应活动自身进度。
+报告 `schema_version` 为 2：`decision_rhythm` 不再统计决策自述（删去 `decision_started_with_decision_statement` 与
+`decision_started_missing_decision_statement`），另以 `decision_budget_exhausted_events` 计 `decision_budget_exhausted` 事件数。
 进食多样性也只取 `consume` 的 eat 正实际增量，按活动身份去重；购买请求、动作登记和未吃下的
 商品不计入进食次数或偏好证据。
 记录引擎不重算身体或资源效果，不推断人物意图，不设置行为真实性或训练样本合格阈值；
@@ -777,7 +798,8 @@ JSONL 每行是独立完整 JSON 对象；规范编码使用 UTF-8、键排序�
 `conclude_activity`，`reflection` 对应醒来那一轮的观察。问题码按写入点：`conclusion_without_memory_update` 指带非空
 `memories` 的 `conclude_activity` 请求（`action_requested`；登记后结算被拒时记忆照写）在同一 `decision_id` 下没有
 `trigger` 含 `activity_conclusion` 的 `memory_updated`；`memory_update_without_source` 指 `memory_updated` 的某个写入点
-找不到对应登记（写入了条目却没有写入点同样计入）。记忆不再带模型填写的引用，不核对条目身份引用。
+找不到对应登记（写入了条目却没有写入点同样计入）；观察的进度层来源 `progress_event_ids` 中任一身份不能解析到本人更早提交的事件时记
+`invalid_observed_result_reference`。记忆不再带模型填写的引用，不核对条目身份引用。
 消费端先核对报告字节摘要，再从同批事件独立重算；报告存在或摘要正确本身不足以证明统计正确。
 性能分析使用可测量的模型用量、墙钟耗时、模拟时长、事件和素材统计，不把假设阈值当成实测结果。
 
@@ -837,6 +859,7 @@ python3 scripts/inspect_run.py runs/white-collar money
 python3 scripts/inspect_run.py runs/white-collar body --agent 0
 python3 scripts/inspect_run.py runs/white-collar flows --tail 20
 python3 scripts/inspect_run.py runs/white-collar rerun
+python3 scripts/inspect_run.py runs/white-collar continuation --topic 咖啡 --baseline runs/white-collar-off
 python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --date 2026-01-05 --out runs/white-collar
 ```
 
@@ -846,6 +869,17 @@ python3 scripts/render_day.py runs/white-collar/footprints.sqlite --agent 0 --da
 `rerun` 只读计算[时间与能量规格「验收台账」](../dev/SPEC-time-and-energy.md#验收台账)「真实复验」行的八项指标
 （无进行中活动总时长、同刻轮数分布、播报唤醒占比、最低饥饿分级、首次进食前最低能量、进食次数、步行占比、
 零点计划是否含早于 08:30 的提醒），逐项打印中文报告，缺少可计算记录的项标「不适用」；只报告，不作门禁。
+`continuation [--topic 话题 ...] [--baseline <run_dir>]` 只读给出[人物 Prompt 规格](../dev/SPEC-persona-prompt.md#七下游)第七章
+「续接对比」的指标，以 JSON 打印 `{run_id, same_second_continuation, decisions, summary}`：`decisions` 逐决策（按首个行动请求的事件序号）
+给 `decision_id`、`agent_id`、`occurred_at`、`same_second_follow_up`、`chain_position`（链首为 0，断链为 `null`）、`chain_intact`、
+`tools_same_as_head`、`requests`、`reasoning_tokens` 与 `reasoning_chars`（每个响应都报告思考 token 时给 token 数，否则只给思考原文字符数，
+两者不混算）、`protocol_errors`、`transport_failures`、`bad_request_400`（400 单列，不计入传输失败）、`cache_hit_tokens`、`prompt_tokens`、
+`cost_usd`（与质量报告同一冻结价目）、`unpriced_responses`、`topics`（话题是否出现在思考中，缺省话题为「咖啡」）与 `repeat_orders`
+（按订单去重后同一人物同一本地日再次购买同一商品的订单数）；`summary` 给链与跟进计数、同秒跟进与其余决策分列的思考量、错误、缓存、
+已计价成本、话题命中、工具与链首相同的续接数与重复下单合计。行动请求按「不带 `purpose`、thinking 开启、`tools` 含 `start_activity`」识别。
+开关取清单 `stage_model_identity.stages.action.same_second_continuation`；清单没有阶段身份（特性之前的运行）时为 `null`，不能作任何一臂。
+`--baseline` 先核对两份清单：去掉运行身份键（`run_id`、`source_group_id`、`source_run_ids`）与续接开关后必须完全相同，且两臂开关不同，
+否则以英文错误拒绝比较；可比时打印 `{arm, baseline}` 两份报告。只报告，不作门禁。
 日程工具读取已发生事件，`--out DIR` 将投影写入 `DIR/timeline/<agent>-<date>.md`，不把输出目录再写成 `DIR/timeline`。
 中文时间线用于阅读，英文日志用于故障定位，投影不能充当人物当时的观察。
 
@@ -902,3 +936,10 @@ flowchart LR
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「持久化结构」写明运行清单冻结的 `code_sha256` 覆盖实际导入的 AS2，AS2 缺失、为空或与锁定源码摘要不符即拒绝启动；清单另记 `git_commit` 与 `git_dirty`，非 Git 检出时为 null，二者不参与恢复比对 |
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格文档一致性核对：「质量报告」中零点计划、修订结果与结算事件保存的目标清单写明提醒字段 `remind_at` 与 `reminded_at`（原写请求参数名 `remind_time`，与已保存的 `day_plan` 不符）（E5-16） |
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后文档（阶段 9）：按最终代码与测试核对差距已闭合后，删去本规格的实现差距行：「固定截止导出的实现差距」中冻结时补的结束与暂停无快照、结算改写出行 `location_id` 两行，「记录生活全过程的实现差距」中同刻决策证据、零点计划后台任务与系统登记入口、记忆来源、经历句子四行，该节改为一句「本主题当前没有未闭合的实现差距」；「记录生活全过程的验收」四行与「固定截止导出的验收」的「活动快照与开始地点」行由「待实现」改为「已实现」并链接时间与能量验收记录（E5-19）；「调试工具」写明 `body --agent <id>` 显示观察事件中的 `body.values` 与 `body.levels`（能量、睡眠不足与饥饿、困意分级），补示例与只读子命令 `rerun`（计算时间与能量规格验收台账「真实复验」行的八项指标，只报告，不作门禁），删「运行查询与诊断的实现差距」中已兑现的身体浏览行，该节同样改为一句（E5-20） |
+| `2026-09-27-persona-prompt` | 2026-09-27 | 对齐人物 Prompt 七层规格（人物 Prompt 台账 E5-1、E5-2、E5-8、E5-9、E5-13 的冻结部分）：文件头注明修订部分待实现；必须保存的内容中人物决策改为续接时含本秒前序 assistant 与 tool 消息的请求、含可选正文与 `reasoning_content` 的响应和所选的世界请求，记忆层条目是派生视图；地图与门店供给证据中「登记确认」改为登记不回显，订单记收货人与所回应的消息、送达只入收货人持有，指名购买不查可见凭据且不把未呈现供给写进人物窗口，给予只转移不计摄入，实际呈现的供给改为工具层商品目标，浏览结果只列名称；已核验经历的五条窗口只作私有证据、不进提示，记忆层 `settled` 另有来源（已提交结果与世界事件的确定性句子），`MEMORY.md` 与主观归纳不再装配进提示，巩固摘要不进提示；「记录生活全过程的实现差距」登记本规格的差距 |
+| `2026-09-27-persona-prompt-stage-1` | 2026-09-27 | 人物 Prompt 规格阶段 1 同批作业：观察事件保存层数据、看法偏好与私有证据，进度层只存 `progress_event_ids`，完整进度层 JSON 在实际请求中，`same_moment_stage` 不进七层（E5-3）；`decision_started.data` 为闭集，带 `decision_statement` 即拒绝，在首个行动请求时同批写入；`action_requested.data` 增 `self_note`（E5-5）；续接请求与响应正文的留证，`reasoning_content` 只取响应 `message` 中的一份统计（E5-6）；世界结构版本 8，封存会话 `opened_by_action_id` 与活动 `paused_at`（E5-11）；质量报告 `schema_version` 为 2，删两项决策自述计数（E5-12） |
+| `2026-09-27-persona-prompt-stage-2` | 2026-09-27 | 人物 Prompt 规格阶段 2 同批作业：同秒续接的各轮仍逐轮写观察与 `decision_started`（E5-4）；续接缓冲不另存，恢复后从模型证据重建，普通恢复续接、反事实断链（E5-11） |
+| `2026-09-27-persona-prompt-stage-3` | 2026-09-27 | 人物 Prompt 规格阶段 3 同批作业：就寝反思的快照条目带来源标记，relationship、preference 的 `subject` 只随请求原文保存在 `action_requested`（E5-7）；`memory_updated` 的来源核对改为等于该轮观察的私有证据窗口 `verified_experiences`（E5-10） |
+| `2026-09-27-persona-prompt-stage-4` | 2026-09-27 | 人物 Prompt 规格阶段 4 同批作业：`action_result` 的订单记 `recipient_id` 与 `request_message_id`，结束进食写已吃、丢弃与剩余份量（E5-7）；检查点封存进食活动数据的 `opened`、订单的收货人与请求关联、`contact_holdings` 与 `outbox`（E5-11） |
+| `2026-09-27-persona-prompt-stage-5` | 2026-09-27 | 人物 Prompt 规格阶段 5 同批作业：`environment_event` 增 `data.kind="decision_budget_exhausted"`（`visibility=system`，`data` 为 `kind`、`error_code`、`next_decision_at`）（E5-7）；受限轮阶段不再有 `wait_only`（E5-11）；导出新增 `purchases.jsonl`，导出清单 `schema_version` 为 2，质量报告增 `decision_budget_exhausted_events`（E5-12） |
+| `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 规格实现后文档（人物 Prompt 台账 E5-13、E5-14 与阶段 8 核对）：文件头注明修订部分已实现；「记录生活全过程的实现差距」删去冻结时登记的本规格八项差距，改为已闭合；「记录生活全过程的验收」的「经历句子」行改为记忆层 `settled`，增续接证据、记忆层、订单收货人三行，证据指向人物 Prompt 验收记录；按最终代码核对：必须保存的内容写明记忆层构建结果随观察事件与只读问答快照保存，`progress_event_ids` 写明两类来源，`action_result` 补给予 `data.given`、下单的 `answering`、进食的 `discarded` 与收尾 `data.outcome`，`decision_budget_exhausted` 补待收尾情形与可为 null 的 `error_code`，导出文件表补 `verified-experiences.jsonl`、`purchases.jsonl` 的逐行字段，导出清单 `artifacts` 恰好四键，质量报告补 `invalid_observed_result_reference`，调试工具补只读子命令 `continuation` 及其输出字段；版本号不变 |

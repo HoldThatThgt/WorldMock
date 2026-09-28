@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import ActivityState, AgentState, BodyState, WorldState
+from worldmock.life.models import WORLD_SCHEMA_VERSION, ActivityState, AgentState, BodyState, WorldState
 
 
 def _world_state() -> WorldState:
@@ -48,7 +48,7 @@ def _world_state() -> WorldState:
         origin_request_event_id="request-1",
     )
     return WorldState(
-        schema_version=7,
+        schema_version=WORLD_SCHEMA_VERSION,
         version=1,
         current_time=1,
         end_time=10,

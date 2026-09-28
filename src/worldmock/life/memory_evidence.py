@@ -83,6 +83,15 @@ def _memory_evidence_data(evidence: Any) -> dict[str, Any]:
             "verified_event_ids": list(verified)}
 
 
+#: 主观快照的键集：四个基本键；就寝反思另带来源 source=reflection（宿主标注，记忆层据此找归属日期）。
+_SNAPSHOT_KEYS = frozenset({"id", "type", "text", "epistemic_status"})
+
+
+def _snapshot_keys_valid(item: dict) -> bool:
+    """@brief 快照键集是四个基本键，或另加 source 且来源为就寝反思。"""
+    return set(item) == _SNAPSHOT_KEYS or (set(item) == _SNAPSHOT_KEYS | {"source"} and item["source"] == "reflection")
+
+
 def _valid_memory_snapshots(episodes: tuple[dict, ...], identities: tuple[str, ...]) -> bool:
     """@brief 主观快照逐条对应本次新增或合并的稳定身份。"""
     allowed = {"commitment", "relationship", "preference", "goal", "conflict",
@@ -91,7 +100,7 @@ def _valid_memory_snapshots(episodes: tuple[dict, ...], identities: tuple[str, .
         return False
     for item in episodes:
         if (not isinstance(item, dict)
-                or set(item) != {"id", "type", "text", "epistemic_status"}
+                or not _snapshot_keys_valid(item)
                 or item.get("id") not in identities or item.get("type") not in allowed
                 or not isinstance(item.get("text"), str) or not item["text"]
                 or item.get("epistemic_status") != "subjective"):

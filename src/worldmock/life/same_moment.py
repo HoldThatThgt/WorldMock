@@ -1,21 +1,25 @@
-"""@brief 同刻决策：同一模拟秒内的轮数、受限轮阶梯、本轮唤醒原因、受限轮复核、拒绝脉冲与消息机会。
+"""@brief 同刻决策：同一模拟秒内的轮数、受限轮阶梯、跨决策预算、本轮唤醒原因、受限轮复核、拒绝脉冲与消息机会。
 
 依据 docs/dev/SPEC-time-and-energy.md 第一章「规则」与「实现约定」：决策不消耗模拟时间；没有进行中活动或有待收尾活动
-的人物在同一秒再决策（规则 2）；同一人物同一秒的决策轮数由场景 max_same_moment_decisions 封顶，达到上限后每个受限轮
-只开放一类动作（规则 3：有待收尾只开放收尾；否则有空名额开始或恢复；名额被暂停活动占满时恢复或结束；上一受限轮的开始
-或恢复被拒后，名额满先只开放结束、此后只开放等待，名额未满直接只开放等待）；有进行中活动且没有待收尾活动时瞬时动作
-成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的唤醒原因按本轮替换（规则 6）；受理、
-业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且未达上限的收件人在同一秒获得机会，
-决策轮观察展示过的消息随本轮提交记为已读（「人物之间的消息」）。引擎只接线，计数与阶梯都在本模块。
+的人物在同一秒再决策（规则 2）；同一人物同一秒的决策轮数由场景 max_same_moment_decisions 封顶，达到上限后至多再给
+三个受限轮，每个受限轮只开放一类动作（规则 3：有待收尾只开放收尾；否则有空名额开始或恢复；名额被暂停活动占满时恢复
+或结束；开始或恢复被拒后留在原阶段）；受限轮用完仍要同一秒再决策时，环境不替人物造活动，写 decision_budget_exhausted
+并把下一次决策排在一个结算间隔之后（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）；
+有进行中活动且没有待收尾活动时瞬时动作成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的
+唤醒原因按本轮替换（规则 6）；受理、业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且
+未达上限的收件人在同一秒获得机会，决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；
+docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。引擎只接线，计数、阶梯与预算判定都在本模块。
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
-from worldmock.errors import BusinessRuleError
+from worldmock.footprints.models import EventDraft
 from worldmock.life.activity_control import occupies_slot, pending_conclusions
+from worldmock.life.guidance import Refusal, refusal_for_code
+from worldmock.life.interaction_menu import GIVE_WAY
 from worldmock.life.models import (ActionStatus, ActivityKind, ActivityState, ActivityStatus, AgentState,
                                    SameMomentStage, WorldState, active_activities)
 from worldmock.life.rhythm import read_new_messages
@@ -27,48 +31,39 @@ SERVICE_REFUSED = "service_refused"
 _REWORK_CODE = "WORK_REQUIRES_REWORK"
 _NO_PULSE_CODES = frozenset({"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UNDEFINED"})
 
-#: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）。
+#: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）；方式为给予的
+#: consume 同样瞬时（request_kind 按方式识别）。
 RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
 
-#: 各阶段开放的世界请求工具（宿主据此收窄工具面，引擎按 _STAGE_REQUEST_KINDS 复核）；None 表示 open 不收窄。
-#: 记忆查询是观察，不在此列、照常开放。
-STAGE_TOOLS: dict[SameMomentStage, frozenset[str] | None] = {
-    SameMomentStage.OPEN: None,
-    SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_activity"}),
-    SameMomentStage.START_OR_RESUME: frozenset({"start_activity", "report_status"}),
-    SameMomentStage.RESUME_OR_CONCLUDE: frozenset({"report_status", "conclude_activity"}),
-    SameMomentStage.CONCLUDE_ONLY: frozenset({"conclude_activity"}),
-    SameMomentStage.WAIT_ONLY: frozenset({"start_activity"}),
-}
-
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
-#: conclude 指结束占名额的活动，conclude_pending 指一次点名全部待收尾活动（待收尾活动也占名额，所以开放结束的
-#: 阶段同样接受它），受限轮的收尾与结束因此都不会被业务拒绝。
+#: conclude 指结束占名额的活动，conclude_pending 指只点名待收尾活动（全部或其中几项；待收尾活动也占名额，所以开放
+#: 结束的阶段同样接受它），受限轮的收尾与结束因此都不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。
 _STAGE_REQUEST_KINDS = {
     SameMomentStage.OPEN: frozenset({"start", "resume", "wait", "conclude", "conclude_pending", "other"}),
     SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_pending"}),
     SameMomentStage.START_OR_RESUME: frozenset({"start", "resume", "wait"}),
     SameMomentStage.RESUME_OR_CONCLUDE: frozenset({"resume", "conclude", "conclude_pending"}),
     SameMomentStage.CONCLUDE_ONLY: frozenset({"conclude", "conclude_pending"}),
-    SameMomentStage.WAIT_ONLY: frozenset({"wait"}),
 }
 
 #: 达到上限、本轮后没有进行中活动也没有待收尾活动时的下一阶段：键为（本轮阶段, 名额是否被占满）。
-#: 进入受限轮或收尾之后按名额分流；开始或恢复被拒后名额满先只开放结束，否则只开放等待；结束之后只开放等待。
+#: 进入受限轮或收尾之后按名额分流：有空名额开始或恢复，名额满恢复或结束；开始或恢复被拒后名额不变，留在原阶段。
 _LADDER = {
     (SameMomentStage.OPEN, False): SameMomentStage.START_OR_RESUME,
     (SameMomentStage.OPEN, True): SameMomentStage.RESUME_OR_CONCLUDE,
     (SameMomentStage.CONCLUDE_PENDING, False): SameMomentStage.START_OR_RESUME,
     (SameMomentStage.CONCLUDE_PENDING, True): SameMomentStage.RESUME_OR_CONCLUDE,
-    (SameMomentStage.START_OR_RESUME, False): SameMomentStage.WAIT_ONLY,
-    (SameMomentStage.START_OR_RESUME, True): SameMomentStage.CONCLUDE_ONLY,
+    (SameMomentStage.START_OR_RESUME, False): SameMomentStage.START_OR_RESUME,
+    (SameMomentStage.START_OR_RESUME, True): SameMomentStage.RESUME_OR_CONCLUDE,
     (SameMomentStage.RESUME_OR_CONCLUDE, False): SameMomentStage.START_OR_RESUME,
-    (SameMomentStage.RESUME_OR_CONCLUDE, True): SameMomentStage.CONCLUDE_ONLY,
-    (SameMomentStage.CONCLUDE_ONLY, False): SameMomentStage.WAIT_ONLY,
+    (SameMomentStage.RESUME_OR_CONCLUDE, True): SameMomentStage.RESUME_OR_CONCLUDE,
+    (SameMomentStage.CONCLUDE_ONLY, False): SameMomentStage.START_OR_RESUME,
     (SameMomentStage.CONCLUDE_ONLY, True): SameMomentStage.CONCLUDE_ONLY,
-    (SameMomentStage.WAIT_ONLY, False): SameMomentStage.WAIT_ONLY,
-    (SameMomentStage.WAIT_ONLY, True): SameMomentStage.CONCLUDE_ONLY,
 }
+#: 达到同刻上限后至多再给的受限轮数（规则 3）；用完仍要同一秒再决策即跨决策预算耗尽。
+RESTRICTED_ROUNDS = 3
+#: 跨决策预算耗尽时写入的 environment_event 种类（docs/dev/SPEC-persona-prompt.md 第五章，裁决 #25）。
+BUDGET_EXHAUSTED_KIND = "decision_budget_exhausted"
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,40 +136,80 @@ def schedule_after_round(outcome: RoundOutcome,
     return rhythm_next(), [], stage
 
 
+def budget_exhausted(outcome: RoundOutcome) -> bool:
+    """@brief 跨决策预算是否耗尽：本秒轮数已达上限加三（受限轮用完），本轮之后仍没有进行中活动或仍有待收尾活动。
+
+    单次决策的回合预算（宿主的 ReAct 回合）与此分开计（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）。
+    """
+    used_up = outcome.agent.same_moment_rounds >= outcome.limit + RESTRICTED_ROUNDS
+    return used_up and (not outcome.active or outcome.pending)
+
+
+def exhausted_schedule(outcome: RoundOutcome, feedback_seconds: int,
+                       error_code: str | None) -> tuple[tuple[int, list[str], SameMomentStage], EventDraft]:
+    """@brief 跨决策预算耗尽时的排期与事件（裁决 #25）：环境不替人物造活动，下一次决策排在 now + 结算间隔。
+
+    时钟因此可以推进（技术停顿，身体按静息结算），不记成人物主动等待；原因清空，阶段照阶梯，推进时复位。
+    environment_event 只供系统（visibility=system），data 带最近的拒绝码与下一次决策时刻。
+
+    :param feedback_seconds: 场景 activity_feedback_seconds。
+    :param error_code: 本人在本秒最近一次业务拒绝的错误码；本秒没有拒绝时为 None。
+    :returns: ((next_decision_at, pending_wake_reasons, same_moment_stage), 事件草稿)
+    """
+    next_at = outcome.now + feedback_seconds
+    draft = EventDraft(event_type="environment_event", occurred_at=outcome.now, agent_id=outcome.agent.agent_id,
+                       visibility="system", source_kind="environment",
+                       data={"kind": BUDGET_EXHAUSTED_KIND, "error_code": error_code, "next_decision_at": next_at})
+    return (next_at, [], next_stage(outcome)), draft
+
+
 def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequence[ActivityState],
-                 pending_ids: frozenset[str]) -> str:
+                 pending_ids: frozenset[str], ways: Sequence[str] = ()) -> str:
     """@brief 受限轮复核的请求类（引擎解析名称与对象后传入，宿主收窄与引擎复核用同一口径）。
 
     :param tool_name: 世界请求工具名。
     :param canonical_actions: start_activity 各项的内部标准动作（其他工具为空）。
     :param named: report_status、conclude_activity 点名的权威活动（其他工具为空）。
     :param pending_ids: 人物当前全部待收尾活动身份。
+    :param ways: start_activity 各项的方式（给予是瞬时的，与受限轮排除的动作同样归入 other）。
     :returns: wait（只等待）、start（开始持续活动，不含受限轮排除的动作）、resume（只恢复暂停活动）、
-              conclude_pending（一次点名全部待收尾活动）、conclude（只结束占名额的活动）或 other。
+              conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束占名额的活动）或 other。
     """
     if tool_name == "start_activity":
         if list(canonical_actions) == ["wait"]:
             return "wait"
-        return "other" if RESTRICTED_EXCLUDED_ACTIONS & set(canonical_actions) else "start"
+        return "other" if RESTRICTED_EXCLUDED_ACTIONS & set(canonical_actions) or GIVE_WAY in ways else "start"
     if tool_name == "report_status":
         return "resume" if named and all(item.status == ActivityStatus.PAUSED for item in named) else "other"
     if tool_name == "conclude_activity":
-        if pending_ids and {item.activity_id for item in named} == pending_ids:
+        if named and {item.activity_id for item in named} <= pending_ids:
             return "conclude_pending"
         return "conclude" if named and all(occupies_slot(item) for item in named) else "other"
     return "other"
 
 
-def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
-    """@brief 受限轮复核（第一章「实现约定」）：请求类不属于本阶段开放的动作类即业务拒绝。
+def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
+    """@brief 受限轮复核的判定本身：请求类不属于本阶段开放的动作类时返回 SAME_MOMENT_ACTION_RESTRICTED，否则 None。
+
+    工具层的可用性说明与受理共用这一判定，所以说明与拒绝原因一字不差（docs/dev/SPEC-persona-prompt.md「工具层」）。
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、wait（只等待）、
-                         conclude（结束占名额的活动）、conclude_pending（一次点名全部待收尾活动）、other
-    :raises BusinessRuleError: SAME_MOMENT_ACTION_RESTRICTED，计入同刻轮数
+                         conclude（结束占名额的活动）、conclude_pending（只点名待收尾活动）、other
     """
-    if request_kind not in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
-        raise BusinessRuleError("SAME_MOMENT_ACTION_RESTRICTED")
+    if request_kind in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
+        return None
+    return refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED")
+
+
+def require_stage_action(stage: SameMomentStage, request_kind: str) -> None:
+    """@brief 受限轮复核（第一章「实现约定」）：请求类不属于本阶段开放的动作类即业务拒绝。
+
+    :raises PreconditionError: SAME_MOMENT_ACTION_RESTRICTED（stage_refusal 的原因），计入同刻轮数
+    """
+    refusal = stage_refusal(stage, request_kind)
+    if refusal is not None:
+        raise refusal.error()
 
 
 def refusal_pulse_key(error_code: str) -> str | None:
@@ -184,6 +219,16 @@ def refusal_pulse_key(error_code: str) -> str | None:
     if error_code in _NO_PULSE_CODES:
         return None
     return SERVICE_REFUSED
+
+
+def latest_rejection_code(state: WorldState, agent_id: int) -> str | None:
+    """@brief 本人在当前模拟秒最近一次业务拒绝的错误码（依据已存的动作结果，按结算先后），没有时为 None。"""
+    codes = [stored.result.get("error_code") for stored in state.processed_actions.values()
+             if stored.result is not None
+             and stored.result.get("agent_id") == agent_id
+             and stored.result.get("occurred_at") == state.current_time
+             and stored.result.get("status") == ActionStatus.REJECTED.value]
+    return codes[-1] if codes else None
 
 
 def refusal_pulse_applied(state: WorldState, agent_id: int) -> bool:
@@ -208,24 +253,26 @@ def reset_same_moment(state: WorldState) -> WorldState:
     return state.model_copy(update={"agents": agents}, deep=True)
 
 
-def read_observed_messages(state: WorldState, observed: WorldState, agent_ids: Iterable[int]) -> WorldState:
-    """@brief 决策轮提交时，把本轮观察展示过的消息记为已读（第一章「人物之间的消息」）。
+def read_observed_messages(state: WorldState, observed: WorldState,
+                           presented: Mapping[int, frozenset[str]]) -> WorldState:
+    """@brief 决策轮提交时，把本轮观察以全文呈现过的消息记为已读（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
 
-    本轮观察取自轮前状态 observed：只读其中已在收件箱的消息，看过的消息不在其后的边界再以 message_arrival 唤醒；
-    本轮内送达的消息仍未读，由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）
-    与轮前有待收尾活动的轮次（只接受收尾，第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
+    「已读」即全文已呈现：只读 presented[人物]（该人物本轮观察的 presented_message_ids）中已在轮前收件箱里的消息，
+    看过的消息不在其后的边界再以 message_arrival 唤醒；没有出现在本 session 进度层的消息保持未读。本轮内送达的消息仍未读，
+    由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）与轮前有待收尾活动的轮次
+    （只接受收尾，docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
     照常在其后的轮次或下一边界获得消息机会。
 
     :param state: 本轮全部动作结算后的世界副本
     :param observed: 本轮观察所用的轮前世界状态
-    :param agent_ids: 本轮的全部人物
+    :param presented: 本轮各人物的观察中全文已呈现的收件箱消息身份（人物 → 消息身份集合）
     """
     read = {}
-    for agent_id in agent_ids:
+    for agent_id, message_ids in presented.items():
         before = observed.agents[agent_id]
         if before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id):
             continue
-        agent = read_new_messages(state.agents[agent_id], only=set(before.inbox))
+        agent = read_new_messages(state.agents[agent_id], only=set(message_ids) & set(before.inbox))
         if agent is not state.agents[agent_id]:
             read[agent_id] = agent
     if not read:

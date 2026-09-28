@@ -9,8 +9,11 @@
   python3 scripts/inspect_run.py <run_dir> body [--agent N]
   python3 scripts/inspect_run.py <run_dir> flows [--tail K]
   python3 scripts/inspect_run.py <run_dir> rerun
+  python3 scripts/inspect_run.py <run_dir> continuation [--topic 话题 ...] [--baseline <run_dir>]
 
 rerun 只读计算 docs/dev/SPEC-time-and-energy.md 验收台账「真实复验」行的八项指标，只报告，不作门禁。
+continuation 只读给出 docs/dev/SPEC-persona-prompt.md 第七章「续接对比」的逐决策指标与合计（JSON）；--baseline 先核对
+两份清单（同一提交、同一场景文件、同一模型身份，只有 same_second_continuation 不同），不可比即拒绝比较。
 """
 from __future__ import annotations
 
@@ -404,6 +407,260 @@ def cmd_rerun(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
     print("\n".join(rerun_lines(rerun_metrics(conn))))
 
 
+#: 续接对比的缺省话题（docs/dev/SPEC-persona-prompt.md 第七章「续接对比」的例子：思考里反复推敲的咖啡）。
+DEFAULT_TOPICS = ("咖啡",)
+#: 两臂清单比较时允许不同的运行身份键；其余键（去掉续接开关）必须相同。
+RUN_IDENTITY_KEYS = frozenset({"run_id", "source_group_id", "source_run_ids"})
+#: 行动请求的 SQL 判定（与 footprints.store 的行动请求谓词同义）。
+_ACTION_REQUEST = ("json_extract(body,'$.event_type')='model_request' AND json_extract(body,'$.data.purpose') IS NULL "
+                   "AND json_extract(body,'$.data.request.extra_body.thinking.type')='enabled' AND EXISTS "
+                   "(SELECT 1 FROM json_each(body,'$.data.request.tools') "
+                   "WHERE json_extract(value,'$.function.name')='start_activity')")
+
+
+def _message(response: dict | None) -> dict:
+    """@brief 提供商响应第一条选择的 assistant 消息（缺失时为空字典）。"""
+    choices = (response or {}).get("choices")
+    first = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
+    return first.get("message") if isinstance(first.get("message"), dict) else {}
+
+
+def _terminal_counts(terminals: list[dict]) -> dict:
+    """@brief 协议错误（响应带 error）、传输失败（phase=failure）与其中的 400（单列，不计入传输失败）。"""
+    failures = [row["data"].get("error") or "" for row in terminals if row["data"].get("phase") == "failure"]
+    bad = sum("400" in text or "BadRequestError" in text for text in failures)
+    return {"protocol_errors": sum(bool(row["data"].get("error")) for row in terminals
+                                   if row["data"].get("phase") == "response"),
+            "transport_failures": len(failures) - bad, "bad_request_400": bad}
+
+
+def _reasoning(responses: list[dict]) -> dict:
+    """@brief 思考量：每个响应都报告 reasoning_tokens 时给 token 数，否则只给思考原文字符数，两者不混算。"""
+    tokens = [((row.get("usage") or {}).get("completion_tokens_details") or {}).get("reasoning_tokens")
+              for row in responses]
+    if responses and all(isinstance(value, int) for value in tokens):
+        return {"reasoning_tokens": sum(tokens), "reasoning_chars": None}
+    texts = [_message(row).get("reasoning_content") or "" for row in responses]
+    return {"reasoning_tokens": None, "reasoning_chars": sum(len(text) for text in texts)}
+
+
+def _usage(pairs: list[tuple[dict, dict]]) -> dict:
+    """@brief 缓存命中、输入 token 与计价成本（与质量报告同一冻结价目）；任一响应缺字段时对应合计为 None。"""
+    from worldmock.footprints.quality import _estimate_cost
+
+    usages = [(request, response["data"]["response"]) for request, response in pairs]
+    hits = [(body.get("usage") or {}).get("prompt_cache_hit_tokens") for _, body in usages]
+    prompts = [(body.get("usage") or {}).get("prompt_tokens") for _, body in usages]
+    costs = [_estimate_cost(body.get("model"), body.get("usage"), request.get("recorded_at"))[0]
+             for request, body in usages]
+    priced = [cost for cost in costs if cost is not None]
+    return {"cache_hit_tokens": sum(hits) if usages and all(isinstance(value, int) for value in hits) else None,
+            "prompt_tokens": sum(prompts) if usages and all(isinstance(value, int) for value in prompts) else None,
+            "cost_usd": round(sum(priced), 12) if priced else None, "unpriced_responses": len(costs) - len(priced)}
+
+
+def _decisions(conn: sqlite3.Connection) -> list[dict]:
+    """@brief 逐决策收集行动请求与其终态（按 caused_by 严格关联），按首个请求的事件序号排列。"""
+    terminals: dict[str, dict] = {}
+    for row in _rows(conn, "json_extract(body,'$.event_type')='model_response'"):
+        for cause in row.get("caused_by") or []:
+            terminals.setdefault(cause, row)
+    decisions: dict[str, dict] = {}
+    for request in _rows(conn, _ACTION_REQUEST):
+        entry = decisions.setdefault(request["decision_id"], {
+            "decision_id": request["decision_id"], "agent_id": request["agent_id"],
+            "occurred_at": request["occurred_at"], "calls": []})
+        entry["calls"].append((request, terminals.get(request["event_id"])))
+    return list(decisions.values())
+
+
+def _decision_metrics(decision: dict, topics: tuple[str, ...]) -> dict:
+    """@brief 一次决策的请求数、思考量、错误分类、缓存与成本、话题命中。"""
+    terminals = [terminal for _, terminal in decision["calls"] if terminal is not None]
+    pairs = [(request, terminal) for request, terminal in decision["calls"] if terminal is not None
+             and terminal["data"].get("phase") == "response" and isinstance(terminal["data"].get("response"), dict)]
+    responses = [terminal["data"]["response"] for _, terminal in pairs]
+    reasoning = "\n".join(_message(row).get("reasoning_content") or "" for row in responses)
+    return {"requests": len(decision["calls"]), **_reasoning(responses), **_terminal_counts(terminals),
+            **_usage(pairs), "topics": {topic: topic in reasoning for topic in topics}}
+
+
+def _assistant_matches(message: dict, response: dict | None) -> bool:
+    """@brief 续接中的 assistant 与上一决策最终响应的思考、正文和工具调用相同。"""
+    final = _message(response)
+    calls = [(call.get("id"), (call.get("function") or {}).get("name"), (call.get("function") or {}).get("arguments"))
+             for call in final.get("tool_calls") or []]
+    sent = [(call.get("id"), call["function"]["name"], call["function"]["arguments"])
+            for call in message.get("tool_calls") or []]
+    return (message.get("reasoning_content") == final.get("reasoning_content") and bool(final.get("reasoning_content"))
+            and message.get("content") == final.get("content") and sent == calls and len(sent) == 1)
+
+
+def _chain_intact(previous: dict, decision: dict) -> bool:
+    """@brief 链完整：同人物同秒；首个请求 = 上一决策末次请求的全部消息 + 其最终 assistant + 一条同调用身份的 tool 消息；
+    其中每个 assistant 都带思考。"""
+    last_request, last_terminal = previous["calls"][-1]
+    before = last_request["data"]["request"]["messages"]
+    first = decision["calls"][0][0]["data"]["request"]["messages"]
+    size = len(before)
+    if len(first) != size + 2 or first[:size] != before or previous["occurred_at"] != decision["occurred_at"]:
+        return False
+    if not _assistant_matches(first[size], (last_terminal or {}).get("data", {}).get("response")):
+        return False
+    tool = first[size + 1]
+    return (tool.get("role") == "tool" and tool.get("tool_call_id") == first[size]["tool_calls"][0]["id"]
+            and all(item.get("reasoning_content") for item in first if item.get("role") == "assistant"))
+
+
+def _chain_rows(decisions: list[dict]) -> list[dict]:
+    """@brief 逐人物按决策顺序标出同秒跟进、链位置（链首为 0，断链为 None）、链完整性与工具是否与链首相同。"""
+    rows, last, heads = [], {}, {}
+    for decision in decisions:
+        agent, first = decision["agent_id"], decision["calls"][0][0]["data"]["request"]
+        previous = last.get(agent)
+        row = {"same_second_follow_up": previous is not None and previous["occurred_at"] == decision["occurred_at"],
+               "chain_position": 0, "chain_intact": None, "tools_same_as_head": None}
+        if len(first["messages"]) > 2:
+            intact = previous is not None and _chain_intact(previous, decision)
+            row.update(chain_intact=intact, chain_position=previous["position"] + 1 if intact else None)
+            head = heads.get(agent) if intact else None
+            row["tools_same_as_head"] = head is not None and first.get("tools") == head.get("tools")
+        else:
+            heads[agent] = first
+        decision["position"] = row["chain_position"] if row["chain_position"] is not None else 0
+        last[agent] = decision
+        rows.append(row)
+    return rows
+
+
+def _repeat_orders(conn: sqlite3.Connection, zone: ZoneInfo) -> dict[str, int]:
+    """@brief 按订单去重后的重复下单：同一人物同一本地日再次购买同一商品的订单数，按下单决策计。"""
+    from worldmock.footprints.purchases import project_purchase_facts
+
+    events = _rows(conn, "json_extract(body,'$.event_type') IN ('action_result','action_requested')")
+    decisions = {row["action_id"]: row["decision_id"] for row in events if row["event_type"] == "action_requested"}
+    seen: set[tuple] = set()
+    repeats: Counter = Counter()
+    for fact in project_purchase_facts(events):
+        if fact["fact_kind"] != "purchase":
+            continue
+        key = (fact["agent_id"], fact["product_id"], _local_date(fact["created_at"], zone))
+        if key in seen:
+            repeats[decisions.get(fact["action_id"])] += 1
+        seen.add(key)
+    return dict(repeats)
+
+
+def continuation_report(conn: sqlite3.Connection, topics: tuple[str, ...] = DEFAULT_TOPICS) -> dict:
+    """@brief 续接对比（只报告）：逐决策的链位置、请求数、思考量、错误分类、缓存与成本、话题、工具与链首、重复下单与链完整性。"""
+    zone = ZoneInfo(json.loads(conn.execute("SELECT body FROM world_state").fetchone()[0])["timezone"])
+    decisions = _decisions(conn)
+    repeats = _repeat_orders(conn, zone)
+    rows = []
+    for decision, chain in zip(decisions, _chain_rows(decisions)):
+        rows.append({"decision_id": decision["decision_id"], "agent_id": decision["agent_id"],
+                     "occurred_at": decision["occurred_at"], **chain, **_decision_metrics(decision, topics),
+                     "repeat_orders": repeats.get(decision["decision_id"], 0)})
+    return {"decisions": rows, "summary": _summary(rows, topics)}
+
+
+def _reasoning_total(rows: list[dict]) -> dict:
+    """@brief 一组决策的思考量合计：token 与字符分列，各自只合计报告了该口径的决策。"""
+    tokens = [row["reasoning_tokens"] for row in rows if row["reasoning_tokens"] is not None]
+    chars = [row["reasoning_chars"] for row in rows if row["reasoning_chars"] is not None]
+    return {"reasoning_tokens": sum(tokens), "decisions_with_tokens": len(tokens),
+            "reasoning_chars": sum(chars), "decisions_with_chars": len(chars)}
+
+
+def _summary(rows: list[dict], topics: tuple[str, ...]) -> dict:
+    """@brief 全运行合计：链长、同秒跟进与其余决策的思考量（分列）、错误、缓存、成本、话题、工具一致与重复下单。"""
+    continued = [row for row in rows if row["chain_position"]]
+    known = [row["cost_usd"] for row in rows if row["cost_usd"] is not None]
+    return {
+        "decisions": len(rows), "continued": len(continued),
+        "broken_chains": sum(row["chain_intact"] is False for row in rows),
+        "longest_chain": max((row["chain_position"] or 0 for row in rows), default=-1) + 1,
+        "same_second_follow_ups": sum(row["same_second_follow_up"] for row in rows),
+        "requests": sum(row["requests"] for row in rows),
+        "follow_up_reasoning": _reasoning_total([row for row in rows if row["same_second_follow_up"]]),
+        "other_reasoning": _reasoning_total([row for row in rows if not row["same_second_follow_up"]]),
+        **{key: sum(row[key] for row in rows) for key in ("protocol_errors", "transport_failures", "bad_request_400")},
+        "cache_hit_tokens": sum(row["cache_hit_tokens"] or 0 for row in rows),
+        "known_cost_usd": round(sum(known), 12) if known else None,
+        "unpriced_responses": sum(row["unpriced_responses"] for row in rows),
+        "topic_hits": {topic: sum(row["topics"][topic] for row in rows) for topic in topics},
+        "tools_same_as_head": sum(row["tools_same_as_head"] is True for row in continued),
+        "repeat_orders": sum(row["repeat_orders"] for row in rows),
+    }
+
+
+def _switch(manifest: dict) -> bool | None:
+    """@brief 清单冻结的同秒续接开关（与引擎同一读法）；清单没有阶段身份（特性之前的运行、引擎直驱）时为 None。
+
+    特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/dev/SPEC-persona-prompt.md 第七章「续接对比」）。
+    """
+    from worldmock.life.continuation import continuation_enabled
+
+    if not isinstance(manifest.get("stage_model_identity"), dict):
+        return None
+    return continuation_enabled(manifest)
+
+
+def _comparable_view(manifest: dict) -> dict:
+    """@brief 清单去掉运行身份键与续接开关后的比较视图。"""
+    view = {key: value for key, value in manifest.items() if key not in RUN_IDENTITY_KEYS}
+    identity = view.get("stage_model_identity")
+    if isinstance(identity, dict):
+        identity = json.loads(json.dumps(identity))
+        identity["stages"]["action"].pop("same_second_continuation", None)
+        view["stage_model_identity"] = identity
+    return view
+
+
+def comparison_problems(arm: dict, baseline: dict) -> list[str]:
+    """@brief 两臂可比：同一提交、同一场景文件、同一模型身份，只有续接开关不同；返回拒绝比较的原因（空表示可比）。
+
+    没有冻结开关的运行（特性之前的运行）不能作任何一臂。
+    """
+    switches = (_switch(arm), _switch(baseline))
+    if None in switches:
+        problems = ["a run without a frozen same_second_continuation (pre-feature manifest) cannot be an arm"]
+    else:
+        problems = [] if switches[0] != switches[1] else ["same_second_continuation is the same in both runs"]
+    left, right = _comparable_view(arm), _comparable_view(baseline)
+    problems += [f"manifest field {key} differs" for key in sorted(set(left) | set(right))
+                 if left.get(key) != right.get(key)]
+    return problems
+
+
+def _manifest(run_dir: Path) -> dict:
+    """@brief 读取运行清单。"""
+    return json.loads((run_dir / "manifest.json").read_text(encoding="utf-8"))
+
+
+def _arm(run_dir: Path, conn: sqlite3.Connection, topics: tuple[str, ...]) -> dict:
+    """@brief 一臂的运行身份、开关与续接对比报告。"""
+    manifest = _manifest(run_dir)
+    return {"run_id": manifest.get("run_id"), "same_second_continuation": _switch(manifest),
+            **continuation_report(conn, topics)}
+
+
+def cmd_continuation(conn: sqlite3.Connection, a: argparse.Namespace) -> None:
+    """@brief 打印续接对比（JSON，只报告）；--baseline 先核对两份清单，不可比即以英文错误拒绝比较。"""
+    topics = tuple(a.topic or DEFAULT_TOPICS)
+    report = _arm(a.run_dir, conn, topics)
+    if a.baseline is not None:
+        problems = comparison_problems(_manifest(a.run_dir), _manifest(a.baseline))
+        if problems:
+            raise SystemExit("Runs are not comparable: " + "; ".join(problems))
+        other = _connect(a.baseline)
+        try:
+            report = {"arm": report, "baseline": _arm(a.baseline, other, topics)}
+        finally:
+            other.close()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="只读浏览运行足迹")
     parser.add_argument("run_dir", type=Path)
@@ -421,7 +678,10 @@ if __name__ == "__main__":
     pf = sub.add_parser("flows")
     pf.add_argument("--tail", type=int)
     sub.add_parser("rerun")
+    pc = sub.add_parser("continuation")
+    pc.add_argument("--topic", action="append")
+    pc.add_argument("--baseline", type=Path)
     args = parser.parse_args()
     conn = _connect(args.run_dir)
-    {"summary": cmd_summary, "events": cmd_events, "event": cmd_event,
-     "money": cmd_money, "body": cmd_body, "flows": cmd_flows, "rerun": cmd_rerun}[args.cmd](conn, args)
+    {"summary": cmd_summary, "events": cmd_events, "event": cmd_event, "money": cmd_money, "body": cmd_body,
+     "flows": cmd_flows, "rerun": cmd_rerun, "continuation": cmd_continuation}[args.cmd](conn, args)

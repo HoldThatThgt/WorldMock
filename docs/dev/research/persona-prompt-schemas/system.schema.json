@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "system.schema.json",
+  "$comment": "提案快照：本 Schema 是人物 Prompt 七层方案提案阶段的快照，冻结时保留原样；与定稿不一致处以 docs/dev/SPEC-persona-prompt.md 为准，定稿 Schema 以 src/worldmock/life/prompt_schemas.py 与接口合同为准。",
   "title": "系统层",
   "description": "人物的执行职责与世界交互规则。每条规则只在这里出现一次，工具 description 只说明用途；人物姓名与身份只在人设层。",
   "type": "object",

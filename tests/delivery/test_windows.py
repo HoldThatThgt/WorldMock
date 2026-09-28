@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from worldmock.delivery.windows import (
@@ -7,6 +9,7 @@ from worldmock.delivery.windows import (
     _window_identity,
     prepare_windows,
 )
+from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
@@ -20,13 +23,6 @@ def event(identity, sequence, kind, data, visibility='agent'):
             'data': data, 'visibility': visibility, 'artifact_refs': []}
 
 
-def result_summary(source):
-    return {'event_id': source['event_id'], 'action_id': source['action_id'],
-            'decision_id': source['decision_id'], 'occurred_at': source['occurred_at'],
-            'status': source['data'].get('status'), 'error_code': source['data'].get('error_code'),
-            'message': source['data'].get('message'), 'result': source['data']}
-
-
 def decision_prompt(requested, rows):
     for row in rows:
         if row['event_seq'] >= requested['event_seq']:
@@ -37,8 +33,7 @@ def decision_prompt(requested, rows):
     prompt = event('prompt-' + requested['event_id'], requested['event_seq'] - 1,
                    'model_request', {'phase': 'request', 'request': {
                        'model': 'fixture',
-                       'messages': [{'role': 'system', 'content': '人物身份'},
-                                    {'role': 'user', 'content': '实际场景和记忆'}],
+                       'messages': [{'role': 'system', 'content': '人物身份'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': tool_name, 'parameters': parameters}}],
                    }}, visibility='system')
@@ -75,7 +70,7 @@ def test_action_history_never_sees_future_answer_and_intent_cutoff_is_explicit(t
 
 
 def test_latest_action_prompt_must_match_tool_instead_of_using_older_request(tmp_path):
-    observed = event('visible', 1, 'observation', {'scene': 'At home'})
+    observed = _layered_observation('visible', 1)
     requested = event('target', 4, 'action_requested', {'tool_name': 'start_activity'})
     requested['action_id'] = 'action'
     older = decision_prompt(requested, (observed, requested))
@@ -93,10 +88,13 @@ def test_latest_action_prompt_must_match_tool_instead_of_using_older_request(tmp
 
 
 def test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cutoff(tmp_path):
+    """观察 progress_event_ids 引用的先前结果并入输入；同一记录的动作请求来源不展开，也不移动知识截止。"""
+    prior_request = event('prior-request', 0, 'action_requested', {'tool_name': 'submit_work'})
+    prior_request.update(action_id='prior-action', decision_id='prior-decision')
     prior = event('prior-result', 1, 'action_result',
                   {'status': 'rejected', 'error_code': 'WORK_TASK_NOT_FOUND', 'message': 'Missing task'})
     prior.update(action_id='prior-action', decision_id='prior-decision')
-    observed = event('visible', 2, 'observation', {'recent_action_results': [result_summary(prior)]})
+    observed = event('visible', 2, 'observation', {'progress_event_ids': ['prior-request', 'prior-result']})
     requested = event('target', 3, 'action_requested', {
         'tool_name': 'start_activity',
         'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}})
@@ -104,7 +102,7 @@ def test_visible_prior_result_is_hydrated_as_direct_evidence_without_moving_cuto
     completed = event('current-result', 4, 'action_result', {'status': 'completed'})
     completed['action_id'] = 'current-action'
     prompt = decision_prompt(requested, (prior, observed, requested, completed))
-    rows = (prior, observed, prompt, requested, completed)
+    rows = (prior_request, prior, observed, prompt, requested, completed)
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 4,
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
     action, intent = _action_windows(requested, {'current-action': [requested, completed]},
@@ -220,7 +218,7 @@ def _agent_action_drafts(agent_id, decision_id, action_id):
                    data={'location_id': f'location-{agent_id}'}),
         EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id, decision_id=decision_id,
                    visibility='agent', data={'phase': 'request', 'request': {
-                       'messages': [{'role': 'system', 'content': 'Persona and scene'}],
+                       'messages': [{'role': 'system', 'content': 'Persona and scene'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': 'start_activity',
                            'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -233,8 +231,9 @@ def _agent_action_drafts(agent_id, decision_id, action_id):
     ]
 
 
-@pytest.mark.parametrize('invalid', ['missing', 'future', 'other_agent', 'private', 'wrong_type', 'mismatch'])
+@pytest.mark.parametrize('invalid', ['missing', 'future', 'other_agent', 'private', 'wrong_type'])
 def test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event(invalid):
+    """progress_event_ids 中无法解析、越过截止、他人、非人物可见或类型不符的结果与环境事件都拒绝。"""
     source = event('prior-result', 1, 'action_result', {'status': 'completed', 'message': 'Done'})
     source.update(action_id='prior-action', decision_id='prior-decision')
     if invalid == 'future':
@@ -244,22 +243,35 @@ def test_observed_result_must_resolve_to_exact_visible_same_agent_prior_event(in
     if invalid == 'private':
         source['visibility'] = 'system'
     if invalid == 'wrong_type':
-        source['event_type'] = 'model_response'
-    reference = result_summary(source)
-    if invalid == 'mismatch':
-        reference['message'] = 'Changed'
-    observed = event('visible', 2, 'observation', {'recent_action_results': [reference]})
+        source['event_type'] = 'activity_progress'
+    observed = event('visible', 2, 'observation', {'progress_event_ids': [source['event_id']]})
     indexed = {} if invalid == 'missing' else {source['event_id']: source}
 
     with pytest.raises(IntegrityError):
         _expand_observed_results([observed], indexed, cutoff=2)
 
 
+def test_progress_sources_expand_visible_environment_events_and_skip_requests_and_private_evidence():
+    """进度层来源按事件引用展开：消息送达等人物可见环境事件并入；动作请求与记忆查询的模型证据只跳过、不拒绝。"""
+    arrival = event('arrival', 1, 'environment_event', {'kind': 'message_arrival', 'message_id': 'm1'})
+    requested = event('prior-request', 2, 'action_requested', {'tool_name': 'send_message'})
+    result = event('prior-result', 3, 'action_result', {'status': 'completed', 'message': 'Message sent'})
+    response = event('memory-response', 4, 'model_response', {'phase': 'response'}, visibility='system')
+    follow_up = event('memory-request', 5, 'model_request', {'phase': 'request'}, visibility='system')
+    observed = event('visible', 6, 'observation', {'progress_event_ids': [
+        'arrival', 'prior-request', 'prior-result', 'memory-response', 'memory-request']})
+    indexed = {row['event_id']: row for row in (arrival, requested, result, response, follow_up, observed)}
+
+    expanded = _expand_observed_results([observed], indexed, cutoff=6)
+
+    assert [row['event_id'] for row in expanded] == ['arrival', 'prior-result', 'visible']
+
+
 @pytest.mark.parametrize('ordering', ['after', 'equal'])
 def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itself(ordering):
     """引用排序守卫（docs/dev/SPEC-labelkit-delivery.md「信息范围与标签」「来源关联」）：未来事件不得进入引用集合。
 
-    观察的 recent_action_results 引用的结果事件序号 >= 观察自身序号时，
+    观察的 progress_event_ids 引用的结果事件序号 >= 观察自身序号时，
     导出管道必须经 `source["event_seq"] >= observation["event_seq"]` 拒绝。
     本用例把 knowledge cutoff 放宽到引用之后（cutoff=5 > 引用序号），
     确保拒绝只来自排序半句——同行的 `> cutoff` 半句是窗口成员资格已蕴含
@@ -268,7 +280,7 @@ def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itse
     sequence = 3 if ordering == 'after' else 2
     source = event('forward-result', sequence, 'action_result', {'status': 'completed', 'message': 'Done'})
     source.update(action_id='forward-action', decision_id='forward-decision')
-    observed = event('visible', 2, 'observation', {'recent_action_results': [result_summary(source)]})
+    observed = event('visible', 2, 'observation', {'progress_event_ids': [source['event_id']]})
     indexed = {row['event_id']: row for row in (source, observed)}
 
     with pytest.raises(IntegrityError, match='knowledge cutoff'):
@@ -276,8 +288,7 @@ def test_observed_result_reference_may_not_reach_at_or_past_the_observation_itse
 
     prior = event('prior-result', 1, 'action_result', {'status': 'completed', 'message': 'Done'})
     prior.update(action_id='prior-action', decision_id='prior-decision')
-    earlier_observed = event('visible', 2, 'observation',
-                             {'recent_action_results': [result_summary(prior)]})
+    earlier_observed = event('visible', 2, 'observation', {'progress_event_ids': [prior['event_id']]})
     expanded = _expand_observed_results(
         [earlier_observed], {row['event_id']: row for row in (prior, earlier_observed)}, cutoff=2)
     assert [row['event_id'] for row in expanded] == ['prior-result', 'visible']
@@ -310,29 +321,117 @@ def test_midnight_experiment_end_does_not_create_an_extra_training_day(tmp_path)
     assert counterfactual["target"]["environment_replay"] is None
 
 
-def test_dreaming_window_reads_decision_statement_and_scene(tmp_path):
-    """dreaming 窗口可含当日 decision_started 决策自述与观察 scene（docs/dev/SPEC-life-realism.md「两阶段决策」「呈现与导出」）。"""
-    observed = event('observed', 1, 'observation', {'scene': '清晨在家，阳光很好。', 'balance_fen': 800})
-    decision_statement = event('decision_statement-start', 2, 'decision_started',
-                      {'decision_statement': '今天想先把报告写完，再去买菜。', 'phase': 'decision_statement'})
-    requested = event('request-3', 3, 'action_requested', {'tool_name': 'plan_day'})
-    requested.update(action_id='action-1')
-    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 3,
+def _layered_observation(identity, sequence, **extra):
+    """构造按第八版世界结构保存的观察：四个环境构建层原文，加上私有绑定、看法偏好与证据键。
+
+    另带一个旧结构的 scene 字典：旧交付代码会把它重新渲染进窗口，新代码必须既不渲染也不暴露它。
+    """
+    data = {
+        'tool_layer': {'layer': '工具层', 'targets': [{'name': '自己', 'kind': 'self', 'phase': None, 'state': None,
+                                                       'actions': [], 'tools': []}]},
+        'todo_layer': {'layer': '待办层', 'paused_activities': [], 'day_plan': None},
+        'environment_layer': {'layer': '环境层', 'observed_at': '2026-01-05T07:30:00+08:00',
+                              'body': {'appetite': '不饿', 'sleepiness': '清醒', 'entertainment': '平常',
+                                       'social': '平常', 'mood': '平静'},
+                              'location': {'session_kind': 'stay', 'name': '家', 'place_type': '住宅',
+                                           'fixed_rules': []}},
+        'memory_layer': {'layer': '记忆层', 'earlier_days': [], 'earlier_today': []},
+        'persona_views': {'relationships': [], 'preferences': []},
+        'interaction_bindings': [{'object': '自己', 'kind': 'self', 'object_id': 'agent:1', 'actions': []}],
+        'progress_event_ids': [], 'presented_message_ids': [], 'balance_fen': 800,
+        'scene': {'location': '家'},
+    }
+    data.update(extra)
+    return event(identity, sequence, 'observation', data)
+
+
+_LAYER_KEYS = ('tool_layer', 'todo_layer', 'environment_layer', 'memory_layer')
+
+
+def _action_prompt(identity, sequence, layers, tool_name='start_activity', purpose=None):
+    """同一决策中的一次行动请求（或带 purpose 的其他调用）：system 加六层 user。"""
+    data = {'phase': 'request', 'request': {
+        'model': 'fixture', 'messages': [{'role': 'system', 'content': '系统层'}, layered_user(layers)],
+        'tools': [{'type': 'function', 'function': {'name': tool_name, 'parameters': {}}}]}}
+    if purpose:
+        data['purpose'] = purpose
+    return event(identity, sequence, 'model_request', data, visibility='system')
+
+
+def _dreaming_day(*rows):
+    """一个自然日的 dreaming 输入：按事件构造三种模式的窗口。"""
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': rows[-1]['event_seq'],
                 'window': {'start': '2026-01-05T00:00:00+08:00', 'end': '2026-01-06T00:00:00+08:00',
                            'timezone': 'Asia/Shanghai'},
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-    indexed = {row['event_id']: row for row in (observed, decision_statement, requested)}
+    return _dream_windows(list(rows), manifest, Path('.'), {row['event_id']: row for row in rows})
 
-    records = _dream_windows([observed, decision_statement, requested], manifest, tmp_path, indexed)
+
+def test_dreaming_window_reads_self_note_and_the_actual_request_layer_json(monkeypatch):
+    """dreaming 读 self_note 与实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）：每个动作请求取
+    同决策动作前最后一次实际行动请求的首个 user 六层，请求事件身份与层 JSON 摘要写入来源；零点计划与动作之后的请求不取。
+    decision_started 与 model_request 是私有事件，不作窗口事件；交付从不调用场景渲染器。"""
+    import hashlib
+
+    import worldmock.delivery.windows as windows
+    import worldmock.life.narration as narration
+    from worldmock.footprints.models import canonical_json
+
+    def never(*_args, **_kwargs):
+        raise AssertionError('delivery must not re-render the observation')
+
+    monkeypatch.setattr(narration, 'render_scene', never, raising=False)
+    assert windows.DREAMING_PRIVATE_EVENTS == windows.PRIVATE_EVENTS
+    assert not hasattr(windows, 'render_scene')
+    head, recalled = six_layers(), six_layers([{'type': 'message_arrival', 'sender': '王磊', 'text': '帮我带杯咖啡'}])
+    observed = _layered_observation('observed', 1)
+    started = event('decision-start', 2, 'decision_started',
+                    {'round_id': 'r1', 'round_order': 0, 'world_state_version': 3, 'wake_reasons': []})
+    first, latest = _action_prompt('prompt-first', 3, head), _action_prompt('prompt-latest', 4, recalled)
+    planned = _action_prompt('plan-day', 5, six_layers(), purpose='plan_day')
+    requested = event('request-3', 6, 'action_requested', {
+        'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
+        'request_sha256': 'f' * 64, 'reused': False, 'self_note': '先歇一会儿，再去买菜。'})
+    requested.update(action_id='action-1')
+    after = _action_prompt('prompt-after', 7, six_layers())
+
+    records = _dreaming_day(observed, started, first, latest, planned, requested, after)
 
     assert len(records) == 3
+    digest = hashlib.sha256(canonical_json(recalled)).hexdigest()
     for record in records:
-        rows = record['input']['events']
-        decision_statement_rows = [row for row in rows if row['event_type'] == 'decision_started']
-        assert [row['data'].get('decision_statement') for row in decision_statement_rows] == \
-            ['今天想先把报告写完，再去买菜。']
-        assert any(row['event_type'] == 'observation'
-                   and '清晨在家' in str(row['data'].get('scene')) for row in rows)
+        rows = {row['event_id']: row for row in record['input']['events']}
+        assert set(rows) == {'observed', 'request-3'}
+        assert rows['observed']['data'] == {key: observed['data'][key] for key in _LAYER_KEYS}
+        assert rows['request-3']['data'] == {'tool_name': 'start_activity',
+                                             'request': requested['data']['request'],
+                                             'self_note': '先歇一会儿，再去买菜。'}
+        assert record['input']['decision_layers'] == [{'action_event_id': 'request-3', 'layers': recalled}]
+        assert record['provenance']['decision_layer_sources'] == [{'event_id': 'prompt-latest', 'sha256': digest}]
+        assert 'prompt-latest' in record['provenance']['source_event_ids']
+        assert 'prompt-latest' not in record['input']['allowed_evidence_event_ids']
+        assert record['provenance']['window_id'] == _window_identity('dreaming', record['input'])
+
+
+@pytest.mark.parametrize('broken', ['missing', 'no_user', 'plain_text', 'wrong_order', 'extra_item'])
+def test_dreaming_rejects_an_action_without_the_recorded_layer_json(broken):
+    """动作请求没有实际行动请求、请求没有 user、user 不是六层 JSON 或层序不符时拒绝，不从观察猜测层 JSON。"""
+    layers = six_layers()
+    if broken == 'wrong_order':
+        layers[0], layers[1] = layers[1], layers[0]
+    if broken == 'extra_item':
+        layers.append('多余')
+    prompt = _action_prompt('prompt', 2, layers)
+    messages = prompt['data']['request']['messages']
+    if broken == 'no_user':
+        del messages[1]
+    if broken == 'plain_text':
+        messages[1]['content'] = '人物卡：安。场景：办公室。'
+    requested = event('request', 3, 'action_requested', {'tool_name': 'start_activity', 'self_note': None})
+    rows = [_layered_observation('observed', 1)] + ([] if broken == 'missing' else [prompt]) + [requested]
+
+    with pytest.raises(IntegrityError, match='no recorded decision prompt' if broken == 'missing' else 'six-layer'):
+        _dreaming_day(*rows)
 
 
 def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
@@ -344,7 +443,7 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
     secret = '其实我一直在想辞职的事。'
     request = {'task': ['工作写会议纪要（1月5日 09:00 起）'], 'summary': ['纪要写完了。'],
                'memories': [[{'type': 'reflection', 'text': secret, 'importance': 0.6, 'keywords': ['辞职']}]]}
-    observed = event('visible', 1, 'observation', {'scene': '办公室里很安静。'})
+    observed = _layered_observation('visible', 1)
     requested = event('target', 2, 'action_requested', {'tool_name': 'conclude_activity', 'request': request})
     requested['action_id'] = 'conclude'
     written = event('memory', 3, 'memory_updated', {
@@ -363,7 +462,7 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
 
     action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
                                      (manifest, tmp_path, indexed))
-    dreams = _dream_windows([observed, requested, written, completed], manifest, tmp_path, indexed)
+    dreams = _dream_windows(list(rows), manifest, tmp_path, indexed)
 
     assert action['target']['request'] == requested
     assert action['target']['request']['data']['request']['memories'][0][0]['text'] == secret
@@ -377,39 +476,46 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
         assert secret not in str(record['input'])
 
 
-def test_action_and_intent_windows_still_exclude_the_decision_statement_carrier(tmp_path):
-    """信息范围合同：决策自述仅 dreaming 可读，动作/意图可见输入仍排除（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
+def test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started(tmp_path):
+    """动作与意图窗口：观察只给四个环境构建层原文，意图输入中的动作请求带 self_note，私有的 decision_started 不进入。"""
     from worldmock.delivery.windows import PRIVATE_EVENTS
 
     assert 'decision_started' in PRIVATE_EVENTS
-    observed = event('visible', 1, 'observation', {'balance': 800})
-    decision_statement = event('decision_statement-start', 2, 'decision_started',
-                      {'decision_statement': '今天想先把报告写完，再去买菜。', 'phase': 'decision_statement'})
-    requested = event('target', 3, 'action_requested', {'tool_name': 'purchase'})
-    requested['action_id'] = 'purchase'
-    completed = event('completed', 4, 'action_result', {'status': 'completed', 'balance': 750})
-    completed['action_id'] = 'purchase'
-    prompt = decision_prompt(requested, (observed, decision_statement, requested, completed))
+    observed = _layered_observation('visible', 1)
+    started = event('decision-start', 2, 'decision_started',
+                    {'round_id': 'r1', 'round_order': 0, 'world_state_version': 3, 'wake_reasons': []})
+    requested = event('target', 3, 'action_requested', {
+        'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
+        'request_sha256': 'f' * 64, 'reused': False, 'self_note': '有点累，先歇一会儿。'})
+    requested['action_id'] = 'wait'
+    completed = event('completed', 4, 'action_result', {'status': 'completed', 'message': 'Done'})
+    completed['action_id'] = 'wait'
+    prompt = decision_prompt(requested, (observed, started, requested, completed))
     manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 4,
                 'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-    indexed = {row['event_id']: row for row in (observed, decision_statement, prompt, requested, completed)}
+    indexed = {row['event_id']: row for row in (observed, started, prompt, requested, completed)}
 
-    action, intent = _action_windows(requested, {'purchase': [requested, completed]},
-                                     {'decision': [observed, decision_statement, prompt, requested, completed]},
+    action, intent = _action_windows(requested, {'wait': [requested, completed]},
+                                     {'decision': [observed, started, prompt, requested, completed]},
                                      (manifest, tmp_path, indexed))
 
     for record in (action, intent):
-        rows = record['input']['events']
-        assert all(row['event_type'] != 'decision_started' for row in rows)
-        assert all('decision_statement' not in str(row['data']) for row in rows)
+        rows = {row['event_id']: row for row in record['input']['events']}
+        assert 'decision-start' not in rows
+        assert rows['visible']['data'] == {key: observed['data'][key] for key in _LAYER_KEYS}
+        serialized = str(record['input']['events'])
+        for private in ('interaction_bindings', 'persona_views', 'progress_event_ids', 'scene', 'balance_fen'):
+            assert private not in serialized
+    assert rows['target']['data']['self_note'] == '有点累，先歇一会儿。'
+    assert action['target']['request']['data']['self_note'] == '有点累，先歇一会儿。'
 
 
 def test_actual_decision_prompt_is_authoritative_and_private_review_never_becomes_target(tmp_path):
-    observed = event('observed', 1, 'observation', {
-        'scene': '办公室里还有半小时空闲。', 'affordance_contract': {'secret': 'catalog'},
-        'energy_feasibility': {'secret': 'energy'}, 'game_catalog': ['hidden-game'],
-        'interaction_menu': {'secret': 'menu'}, 'body': {'values': {'energy_kcal': 900}},
-    })
+    observed = _layered_observation(
+        'observed', 1, affordance_contract={'secret': 'catalog'},
+        energy_feasibility={'secret': 'energy'}, game_catalog=['hidden-game'],
+        interaction_menu={'secret': 'menu'}, body={'values': {'energy_kcal': 900}},
+    )
     requested = event('requested', 3, 'action_requested', {'tool_name': 'start_activity'})
     requested['action_id'] = 'selected-action'
     prompt = decision_prompt(requested, (observed, requested))
@@ -462,9 +568,53 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
         _model_source('action', 1, encode_model_record(tampered))
 
 
+def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_windows(tmp_path):
+    """同秒续接的实际请求：链首 system 与 user 之后是上一决策的 assistant 消息（带 reasoning_content 与世界请求调用）和
+    对应的 tool 消息；动作与意图窗口原样保留这份实际请求，不重建、不删减（docs/dev/SPEC-persona-prompt.md 验收台账「下游」）。"""
+    import copy
+    import hashlib
+    import json
+
+    from worldmock.footprints.models import canonical_json
+
+    observed = _layered_observation('observed', 1)
+    requested = event('requested', 3, 'action_requested', {
+        'tool_name': 'conclude_activity', 'request': {'task': ['等待（1月5日 07:30 起）'], 'summary': ['歇好了。'],
+                                                      'memories': [[]]},
+        'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
+    requested['action_id'] = 'conclude'
+    prompt = decision_prompt(requested, (observed, requested))
+    wait = {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}
+    earlier = {'role': 'assistant', 'content': '先歇一会儿。', 'reasoning_content': '同一秒里先开始等待。',
+               'tool_calls': [{'id': 'call-wait', 'type': 'function', 'function': {
+                   'name': 'start_activity', 'arguments': json.dumps(wait, ensure_ascii=False)}}]}
+    result = {'occurred_at': '2026-01-05T07:30:00+08:00', 'status': 'in_progress', 'error_code': None,
+              'message': 'Activity started', 'details': {'planned': [{'name': '等待（1月5日 07:30 起）',
+                                                                      'duration': '约 12 分钟'}]}}
+    feedback = {'role': 'tool', 'tool_call_id': 'call-wait', 'content': json.dumps(
+        {'result': result, 'changes': {'targets': {'updated': [], 'removed': ['自己']}}},
+        ensure_ascii=False, separators=(',', ':'))}
+    prompt['data']['request']['messages'].extend([earlier, feedback])
+    sent = copy.deepcopy(prompt['data']['request'])
+    completed = event('completed', 5, 'action_result', {'status': 'completed', 'message': 'Done'})
+    completed['action_id'] = 'conclude'
+    rows = (observed, prompt, requested, completed)
+    manifest = {'run_id': 'run', 'source_group_id': 'run',
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
+                                     (manifest, tmp_path, {row['event_id']: row for row in rows}))
+
+    digest = hashlib.sha256(canonical_json(sent)).hexdigest()
+    for record in (action, intent):
+        assert record['input']['decision_prompt'] == sent
+        assert record['input']['decision_prompt']['messages'][2:] == [earlier, feedback]
+        assert record['provenance']['decision_prompt_sha256'] == digest
+
+
 def test_plan_day_request_never_becomes_a_decision_prompt_or_window_input(tmp_path):
     """零点计划 plan_day 的请求带 purpose，即便晚于人物行动请求也不作窗口 prompt；其证据与计划登记是系统事件，不进窗口。"""
-    observed = event('observed', 1, 'observation', {'scene': '办公室里还有半小时空闲。'})
+    observed = _layered_observation('observed', 1)
     requested = event('requested', 5, 'action_requested', {'tool_name': 'start_activity'})
     requested['action_id'] = 'selected-action'
     prompt = decision_prompt(requested, ())

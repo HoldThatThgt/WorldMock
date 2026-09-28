@@ -115,8 +115,9 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
     assert formal.agents[0].motivation == multi.agents[0].motivation
 
 
-def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
-    """新画像字段以 persona_card 渲染文本进入三段 ReAct 用户消息（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。"""
+def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt() -> None:
+    """人设层（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：有编译卡片的人物取卡片的身份、作息与关系，场景联系人
+    随后；没有卡片的人物只填姓名；卡片渲染文本、当下处境与经历、健康习惯、社交风格等画像字段都不进提示。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
@@ -124,33 +125,81 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
     from worldmock.runtime import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
-    # 卡片路径：编译产出 persona_card 渲染文本原样进入消息首段。
-    specification = _agent_specs(
-        scenario, persona_compiler=lambda agent: "画像卡片：立体人格文本。")[0]
-    agent = LifeAgent()
-    agent._id = specification["id"]
-    agent._name = specification["profile"]["name"]
-    agent._profile = specification["profile"]
-    agent._enable_memory = False
-    observation = copy.deepcopy(_observations()[0]["data"])
-    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
-    messages = agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, wrapped))
-    user = messages[1]["content"]
-    assert "画像卡片：立体人格文本。" in user
-    # 无卡片回退路径：background_story/健康习惯/社交风格以安全字段组装。
-    plain = _agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"]
-    fallback_agent = LifeAgent()
-    fallback_agent._id = specification["id"]
-    fallback_agent._name = specification["profile"]["name"]
-    fallback_agent._profile = plain
-    fallback_agent._enable_memory = False
-    fallback = fallback_agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, wrapped))[1]["content"]
+
+    def persona(profile: dict) -> tuple[dict, str]:
+        agent = LifeAgent()
+        agent._id = profile["id"]
+        agent._name = profile["name"]
+        agent._profile = profile
+        agent._enable_memory = False
+        request = ReactLoopRequest(0, scenario.start_at, copy.deepcopy(_observations()))
+        agent.prepare_react_loop(request)
+        user = agent.build_react_messages(request)[1]["content"]
+        return json.loads(user)[1], user
+
+    from tests.profile.conftest import make_card
+    from worldmock.profile.textgen import render_card
+
+    card = make_card()
+    carded, carded_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: card)[0]["profile"])
+    plain, plain_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"])
+    assert carded["identity"] == {"name": scenario.agents[0].name, "age": 32, "occupation": "产品经理",
+                                  "living_arrangement": "与伴侣合租两居室"}
+    assert carded["rhythm"]["wake"] == "7点到7点半" and plain["rhythm"] is None
+    assert plain["identity"] == {"name": scenario.agents[0].name, "age": None, "occupation": None,
+                                 "living_arrangement": None}
+    contacts = [contact.salutation for contact in scenario.agents[0].contacts]
+    assert [row["person"] for row in carded["relationships"]] == ["母亲", "老周", *contacts]
+    assert [row["person"] for row in plain["relationships"]] == contacts
+    assert render_card(card) not in carded_user and card.situation.cares_about not in carded_user
     for field in _NEW_PERSONA_FIELDS:
-        assert getattr(scenario.agents[0], field) in fallback
-    assert "你的经历：" in fallback and "你的健康习惯：" in fallback and "你的社交风格：" in fallback
-    assert '"profile"' not in user and '"profile"' not in fallback
+        assert getattr(scenario.agents[0], field) not in plain_user
+    assert '"profile"' not in carded_user and '"profile"' not in plain_user
+
+
+@pytest.mark.asyncio
+async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields(tmp_path) -> None:
+    """记忆巩固与反思读取的人物段（工作区 MEMORY.md 的「身份」）：新建运行编译出卡片的人物取卡片渲染文本；没有卡片的人物
+    由姓名与场景声明的经历、健康习惯、社交风格逐行组装。两者都经真实 LifeAgent 与 WorldMock 记忆运行时写出。"""
+    from agentsociety2.agent.base import ReactLoopRequest
+    from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
+
+    from custom.agents.life_agent import LifeAgent
+    from tests.integration.test_life_agent_protocol import _observations
+    from tests.profile.conftest import make_card
+    from worldmock.profile.textgen import render_card
+    from worldmock.runtime import _agent_specs
+
+    scenario, _ = load_scenario(_FORMAL)
+
+    async def identity(profile: dict, workspace: Path) -> str:
+        """按一份人物档案走一次观察准备与记忆步，读回 MEMORY.md「身份」区段。"""
+        agent = LifeAgent()
+        agent._id = profile["id"]
+        agent._name = profile["name"]
+        agent._profile = profile
+        agent._enable_memory = False
+        agent.prepare_react_loop(ReactLoopRequest(0, scenario.start_at, copy.deepcopy(_observations())))
+        runtime = agent._new_memory_runtime(MemoryRuntimeConfig())
+        runtime.ensure_store(workspace)
+        await runtime.after_step(tick=0, t=scenario.start_at, step_count=1, finish_memories=[])
+        view = runtime.store.memory_md_path.read_text(encoding="utf-8")
+        return view.split("## 身份\n", 1)[1].split("\n\n## 已核验经历", 1)[0]
+
+    def quoted(text: str) -> str:
+        """视图把人物段逐行封入 Markdown 引用。"""
+        return "\n".join("> " + line for line in text.splitlines())
+
+    card = make_card()
+    carded = await identity(_agent_specs(scenario, persona_compiler=lambda agent: card)[0]["profile"],
+                            tmp_path / "carded")
+    plain = await identity(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"],
+                           tmp_path / "plain")
+    person = scenario.agents[0]
+    assert carded == quoted(render_card(card).strip())
+    assert plain == quoted("\n".join((f"你是{person.name}。", f"你的经历：{person.background_story.strip()}",
+                                      f"你的健康习惯：{person.health_habits.strip()}",
+                                      f"你的社交风格：{person.social_style.strip()}")))
 
 
 # ---------------------------------------------------------------------------

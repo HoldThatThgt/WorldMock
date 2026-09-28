@@ -5,10 +5,10 @@ from __future__ import annotations
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
-                                 start_activity)
+                                 start_activity, start_request)
 from worldmock.life.activity_control import PHASE_ACTIVE
 from worldmock.life.interaction_menu import CONTENT_WAYS
-from worldmock.life.models import ReportStatusRequest, StartActivityRequest
+from worldmock.life.models import ReportStatusRequest
 
 #: 播客的续听方式：只占耳朵，本文件的「观看」只取占眼睛和耳朵的内容（第五章占用表）。
 _LISTEN_WAYS = frozenset({CONTENT_WAYS[(True, False)], CONTENT_WAYS[(True, True)]})
@@ -34,7 +34,7 @@ def _start_pair_with_choices(engine, first: str, second: str, round_id: str):
     engine.begin_decision_round([decision])
     observed = engine.observe(decision)
     choices = [_choice(observed, action) for action in (first, second)]
-    request = StartActivityRequest(targets=[row["object"] for row, _ in choices],
+    request = start_request(targets=[row["object"] for row, _ in choices],
                                    actions=[choice["verb"] for _, choice in choices],
                                    ways=[choice["label"] for _, choice in choices])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))

@@ -28,7 +28,7 @@ WAYS: dict[str, tuple[str, str]] = {
     "交谈": ("interact", "chat"), "通话": ("interact", "call"), "阅读": ("interact", "read"),
     "浏览": ("interact", "browse"), "进行": ("interact", "do"), "等待": ("interact", "wait"),
     "到店": ("obtain", "purchase"), "远程下单": ("obtain", "purchase"), "制作": ("obtain", "consume"),
-    "食用": ("consume", "consume"), "使用": ("consume", "consume"),
+    "食用": ("consume", "consume"), "使用": ("consume", "consume"), "给予": ("consume", "consume"),
     "接着看": ("interact", "watch"), "从头再看": ("interact", "watch"),
     "接着听": ("interact", "watch"), "从头再听": ("interact", "watch"),
     "睡觉": ("sleep", "sleep"),
@@ -41,6 +41,9 @@ ACTION_WAYS = {
 TRAVEL_WAYS = {"walking": "步行", "driving": "驾车"}
 PURCHASE_WAYS = {"pickup": "到店", "delivery": "远程下单"}
 USE_WAYS = {"eat": "食用", "use": "使用"}
+#: 把手边的持有物交给人物的方式（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：内部标准动作仍是 consume，
+#: 瞬时、不占名额、不增加任何人的摄入；菜单、可供性目录与品类配对不变。
+GIVE_WAY = "给予"
 #: 内容续看方式：（播客？，从头？）→ 方式短语。
 CONTENT_WAYS = {(False, False): "接着看", (False, True): "从头再看", (True, False): "接着听", (True, True): "从头再听"}
 #: 公开动作短语中动词与方式的分隔符：「travel：驾车」。
@@ -48,6 +51,8 @@ VERB_WAY_SEPARATOR = "："
 
 #: 稳定工具面里唯一受菜单剪裁的工具：其对象的动作按映射后的内部动作由菜单判定。
 MENU_SCOPED_TOOL = "start_activity"
+#: 指名购买的占位绑定类别：obtain 的目标不在本轮列出时，受理前由环境按名称解析为门店供给。
+NAMED_SUPPLY_KIND = "named_supply"
 
 
 class InteractionMenu(FrozenModel):
@@ -127,6 +132,9 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
 def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
     """@brief 按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作；映射不唯一或不在本轮闭集时返回 None。
 
+    obtain 以到店或远程下单指名本轮没有列出的名称时是指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）：
+    该项为 NAMED_SUPPLY_KIND 的占位行（所选动作已映射为购买），由环境在受理时按名称解析为门店供给。
+
     :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
     """
     if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
@@ -136,6 +144,9 @@ def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> l
     selected = []
     for name, verb, way in zip(targets, actions, ways):
         rows = [row for row in bindings if isinstance(row, dict) and row.get("object") == name]
+        if not rows and is_named_purchase(verb, way):
+            selected.append(named_supply_row(name, way))
+            continue
         choices = [item for item in rows[0].get("actions", []) if item.get("verb") == verb
                    and item.get("label") == way] if len(rows) == 1 else []
         if len(choices) != 1:
@@ -144,18 +155,32 @@ def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> l
     return selected
 
 
+def is_named_purchase(verb: Any, way: Any) -> bool:
+    """@brief 动词与方式是否构成指名购买：obtain 配到店或远程下单（制作只对手边的持有物）。"""
+    return verb == "obtain" and way in PURCHASE_WAYS.values()
+
+
+def named_supply_row(name: str, way: str) -> dict[str, Any]:
+    """@brief 指名购买的占位绑定行：人物所写的名称与映射为购买的所选动作，供给由环境按名称解析后替换。"""
+    fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
+    action = binding_action(way, "purchase", fulfillment=fulfillment)
+    return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
+            "selected_action": action}
+
+
 def activity_phrase(action: dict[str, Any]) -> str:
     """@brief 活动名称里的「做什么」：出行写「步行前往」「驾车前往」，其余取所选方式短语。"""
     return f"{action['label']}前往" if action["canonical_action"] == "travel_to" else action["label"]
 
 
 def merged_selection(canonical: Sequence[str], ways: Sequence[str]) -> bool:
-    """@brief 两项是否合成一次动作（沿用同短语合并）：同为方式相同的取得（都到店或都远程下单）合成一单，同为方式相同的
-    食用或使用合成一餐；「制作」按一份库存转换配方执行，一次只做一件，不合并；其余两项各自受理。"""
+    """@brief 两项是否合成一次动作（沿用同短语合并）：同为方式相同的取得（都到店或都远程下单）合成一单（再按收货地拆单），
+    同为方式相同的食用或使用合成一餐（各项去向都是自己）；「制作」按一份库存转换配方执行，一次只做一件，「给予」逐项
+    瞬时转移，都不合并；其余两项各自受理。"""
     if len(canonical) == 1:
         return True
     same = canonical[0] == canonical[1] and ways[0] == ways[1]
-    return same and canonical[0] in {"purchase", "consume"} and ways[0] != "制作"
+    return same and canonical[0] in {"purchase", "consume"} and ways[0] not in {"制作", GIVE_WAY}
 
 
 def _validate_names(values: tuple[str, ...], allowed: frozenset[str], label: str) -> None:

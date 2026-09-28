@@ -81,7 +81,7 @@ flowchart TB
 | `activity_feedback_seconds` | 秒，60–86400 | 结算间隔，也是等待、浏览、交谈的计划时长；不是保证每隔这些秒都会重新决策 |
 | `reconsideration_interval_seconds` | 秒，默认 5400，范围 1–86400 | 清醒且有在手承诺时的常规重估间隔（进行中的等待不算在手承诺）；其他更早事件仍能触发决策 |
 | `idle_reconsideration_interval_seconds` | 秒，默认 10800，范围 1–86400，不能短于常规间隔 | 人物只在等待、且没有其他在手承诺时的空闲重估间隔；调大常规间隔时也要检查此值 |
-| `max_same_moment_decisions` | 正整数，缺省 3 | 同一秒内的决策轮数上限；达到上限后有刚结束的活动时只开放收尾，否则只开放开始或恢复（等待始终可选），名额被暂停活动占满时只开放恢复或结束；开始或恢复被拒后，名额满时先只开放结束、再只开放等待，名额未满时只开放等待；不标失败 |
+| `max_same_moment_decisions` | 正整数，缺省 3 | 同一秒内的决策轮数上限；达到上限后另有至多三轮受限轮：有刚结束的活动时只开放收尾，否则只开放开始或恢复（等待始终可选），名额被暂停活动占满时只开放恢复或结束，其余动作在工具层标为不可用并写明原因；开始或恢复被拒后留在原阶段；受限轮用完仍没有进行中活动或仍有待收尾活动时，环境不替人物造活动，写一条预算耗尽事件，`activity_feedback_seconds` 之后再给决策；不标失败 |
 | `progress_report_interval_seconds` | 秒，缺省 1800 | 进行中活动的播报间隔 |
 | `candidate_presentation_limit` | 默认 20，范围 1–1000 | 单次候选呈现上限 |
 | `candidate_pool_limit` | 默认 1000，范围 1–100000 | 候选池上限 |
@@ -183,7 +183,7 @@ flowchart LR
 | --- | --- |
 | `task_id`、`assignee_agent_id` | 任务标识唯一；受理人写 `agent:1` 或 `1`，必须存在于人物数组 |
 | `contract_kind` | `hourly`、`piece` 或 `package`，各自结算规则来自目录 |
-| `available_at`、`due_at` | 带时区；开始 ≤ 开放 < 截止 ≤ 结束 |
+| `available_at`、`due_at` | 带时区；开始 ≤ 开放 < 截止 ≤ 结束；开工与恢复都不越过截止，距截止不足 60 秒的恢复被拒绝；未付款的逾期任务保留到截止当日结束，逾期提交以 `WORK_SUBMISSION_LATE` 业务拒绝 |
 | `maximum_duration_seconds` | 正整数秒，任务允许的最大执行时长 |
 | `pay_fen` | 正整数分，具体付款语义由合同类型与交换规则决定 |
 | `employer_account_id`、`required_location_id` | 已声明的雇主账户和地点 |
@@ -213,6 +213,10 @@ flowchart LR
 `sent_at` 必须早于场景结束且偏移匹配时区，可以早于场景开始；这样的消息在开始时已可见。
 无关联任务时 `related_task_id` 可写 `null`，无附件时 `attachment_sha256` 可写 `null`。
 任务被删除后，不要留下指向它的消息。
+场景消息按邮件呈现：到达时人物只看到主题，正文通过阅读取得；人物之间与联系人发来的直接消息则以全文呈现给人物。
+
+场景联系人可以填可空的 `receive_location_id`（地点标识）：直接配送给联系人或当面交给联系人的实物，以它为收货地点；
+为空时联系人不能收实物。联系人的其余字段见[人物画像](personas.md)。
 
 ## 配置日历和预排事件
 

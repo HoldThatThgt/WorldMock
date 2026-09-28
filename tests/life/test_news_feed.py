@@ -9,10 +9,10 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 stage_day_plan, wake_by_mail)
+                                 stage_day_plan, wake_by_mail, start_request)
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
-from worldmock.life.activity_control import readable_duration
+from worldmock.life.readable import duration_phrase
 from worldmock.life.content import load_subtitles
 from worldmock.life.observe import _content_catalog
 from worldmock.life.models import (
@@ -20,7 +20,6 @@ from worldmock.life.models import (
     ContentProgress,
     PauseActivityRequest,
     ReportStatusRequest,
-    StartActivityRequest,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -46,7 +45,7 @@ def _act(engine, round_id: str, tool_name: str, request):
                       for action in row["actions"]
                       if row["object_id"] == target_id
                       and action["canonical_action"] == canonical_action)
-        request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+        request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                        ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", tool_name, request))
     return engine.commit_decision_round(round_id)[0]
@@ -304,16 +303,15 @@ def _stage_content_progress(engine, progress: dict[str, tuple[tuple[str, int], i
 
 
 def _start_listed_content(engine, round_id: str, item_id: str) -> tuple[str, list[dict], object]:
-    """真实决策轮：按本轮列出的唯一方式开始观看一条内容，返回（对象名，公开动作行，受理结果）。"""
+    """真实决策轮：按本轮列出的唯一方式开始观看一条内容，返回（对象名，工具层动作行，受理结果）。"""
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     observed = engine.observe(ctx)
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == "content" and row["object_id"] == item_id)
-    listed = next(row["actions"] for row in observed["facts"]["interactive_objects"]
-                  if row["object"] == binding["object"])
+    listed = next(row["actions"] for row in observed["tool_layer"]["targets"] if row["name"] == binding["object"])
     (action,) = binding["actions"]
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
+    request = start_request(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", "start_activity", request))
     return binding["object"], listed, engine.commit_decision_round(round_id)[0]
 
@@ -328,9 +326,9 @@ def _start_listed_content(engine, round_id: str, item_id: str) -> tuple[str, lis
 ], ids=["never-watched", "unfinished", "finished", "under-a-minute-left", "podcast-unfinished", "podcast-tail"])
 def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_position(
         engine_factory, item_id: str, mark: tuple[str, int] | None, way: str, restart: bool) -> None:
-    """内容对象的方式随进度（第八章「呈现」）：没看完的（含从没看过）为「接着看」，说明写剩余时长（从没看过写全长），
-    受理时长为剩余、从上次位置接着放；看完或剩余不足 60 秒的为「从头再看」，说明写全长，受理时长为全长、从 0 起放
-    并记 repeat；播客对应「接着听」「从头再听」，只占耳朵。"""
+    """内容对象的方式随进度（第八章「呈现」）：没看完的（含从没看过）为「接着看」，工具层动作的 duration 写剩余时长
+    （从没看过为全长），受理时长为剩余、从上次位置接着放；看完或剩余不足 60 秒的为「从头再看」，duration 写全长，受理
+    时长为全长、从 0 起放并记 repeat；播客对应「接着听」「从头再听」，只占耳朵。"""
     engine = engine_factory()
     stage_day_plan(engine)
     item = next(entry for entry in engine.scenario.contents if entry.item_id == item_id)
@@ -338,10 +336,9 @@ def test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_pos
         _stage_content_progress(engine, {item_id: (mark, 1)})
     position = 0 if mark is None or restart else _position(engine, item_id, mark)
     remaining = item.duration_seconds - position
-    note = (f"全长{readable_duration(item.duration_seconds)}" if mark is None or restart
-            else f"还剩{readable_duration(remaining)}")
     label, listed, result = _start_listed_content(engine, f"content-{item_id}", item_id)
-    assert listed == [{"action": f"interact：{way}", "note": note}]
+    assert [(row["action"], row["way"], row["available"], row["duration"]) for row in listed] == [
+        ("interact", way, True, duration_phrase(remaining))]
     assert result.status == "in_progress", result.error_code
     activity = engine.state.activities[result.activity_id]
     assert activity.name.startswith(f"{way}{label.removeprefix('内容：')}（")
@@ -368,7 +365,7 @@ def test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one
         _stage_content_progress(engine, {item_id: progress})
     _, listed, result = _start_listed_content(engine, f"exposure-{way}", item_id)
     assert result.status == "in_progress", result.error_code
-    assert listed[0]["action"] == f"interact：{way}"
+    assert listed[0]["way"] == way
     assert engine.state.activities[result.activity_id].data["exposure_count"] == settled[1]
     started = engine.state.current_time
     wake_by_mail(engine, offset=120)
@@ -381,13 +378,14 @@ def test_resuming_keeps_the_exposure_count_while_first_watch_and_restart_add_one
 @pytest.mark.parametrize("item_id", ["jokes-feed", "weibo-feed", "novel-0003"])
 def test_content_longer_than_a_day_is_accepted_for_one_day(engine_factory, item_id: str) -> None:
     """观看的派生时长超过 86400 秒时按 86400 秒受理（第五章「派生时长上限」，裁决 #19）：正式场景的段子流
-    （138264 秒）、微博流与 novel-0003 从头开始不再以 ACTIVITY_DURATION_INVALID 拒绝，说明照写全长。"""
+    （138264 秒）、微博流与 novel-0003 从头开始不再以 ACTIVITY_DURATION_INVALID 拒绝，动作时长写受理的一天。"""
     engine = engine_factory()
     stage_day_plan(engine)
     item = next(entry for entry in engine.scenario.contents if entry.item_id == item_id)
     assert item.duration_seconds > 86_400
     _, listed, result = _start_listed_content(engine, f"long-{item_id}", item_id)
-    assert listed == [{"action": "interact：接着看", "note": f"全长{readable_duration(item.duration_seconds)}"}]
+    assert [(row["way"], row["available"], row["duration"]) for row in listed] == [
+        ("接着看", True, duration_phrase(86_400))]
     assert result.status == "in_progress", result.error_code
     activity = engine.state.activities[result.activity_id]
     assert activity.planned_duration_seconds == 86_400

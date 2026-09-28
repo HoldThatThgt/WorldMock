@@ -18,8 +18,8 @@ def test_public_window_has_only_currently_bound_objects(engine_factory) -> None:
     """@brief 人物动作对象与引擎私有身份绑定逐项对应。"""
     engine = engine_factory()
     observed = engine._observation_data(engine.state.agents[1])
-    public = observed["facts"]["interactive_objects"]
+    public = [row for row in observed["tool_layer"]["targets"] if row["kind"] != "activity"]
     bindings = observed["interaction_bindings"]
-    assert [row["object"] for row in public] == [row["object"] for row in bindings]
+    assert [row["name"] for row in public] == [row["object"] for row in bindings]
     assert all("object_id" not in row for row in public)
     assert all("object_id" in row for row in bindings)

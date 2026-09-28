@@ -8,6 +8,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.life.activities import (
     ActivityOrigin,
     advance_activity,
+    at_decision_boundary,
     change_activity,
     schedule_feedback,
     start_activity,
@@ -61,6 +62,24 @@ def test_activity_pause_resume_cancel_preserves_actual_progress() -> None:
         ChangeActivityRequest(activity_id="activity-a", operation=ActivityChange.CANCEL), 2200, feedback)
     assert activity.elapsed_seconds == 1800 and activity.ended_at == 2200
     assert activity.status == ActivityStatus.CANCELLED
+
+
+def test_pausing_a_paused_activity_is_refused_and_keeps_it_paused() -> None:
+    """决策边界只对进行中的活动成立：已暂停的活动即使已结算到此刻也不在边界，再次暂停以 ACTIVITY_FEEDBACK_NOT_DUE
+    拒绝，暂停状态与已结算进度不变。"""
+    scenario = load_scenario("scenarios/white-collar-12-weeks.json")[0]
+    feedback = scenario.activity_feedback_seconds
+    person, activity = start_activity(
+        agent(), ActivityStartParams(activity_type=ActivityKind.WAIT,
+                                      planned_duration_seconds=2700), 100, origin("a"), scenario.body)
+    advanced = advance_activity(schedule_feedback(activity, 100, feedback), person, 1000, scenario.body)
+    pause = ChangeActivityRequest(activity_id="activity-a", operation=ActivityChange.PAUSE)
+    assert at_decision_boundary(advanced.activity, 1000)
+    person, paused = change_activity(advanced.agent, advanced.activity, pause, 1000, feedback)
+    assert not at_decision_boundary(paused, 1300)
+    with pytest.raises(BusinessRuleError, match="ACTIVITY_FEEDBACK_NOT_DUE"):
+        change_activity(person, paused, pause, 1300, feedback)
+    assert paused.status == ActivityStatus.PAUSED and paused.elapsed_seconds == 900
 
 
 def test_direct_start_rejects_short_request_and_defers_shared_gates_to_engine() -> None:

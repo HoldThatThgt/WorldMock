@@ -1,26 +1,47 @@
-"""@brief 在发送模型请求前计量完整上下文，并仅浓缩进度层历史投影。
+"""@brief 发送模型请求前计量完整上下文，超过阈值时先结束本秒续接，再结构化浓缩 user 中的进度层（docs/dev/SPEC-persona-prompt.md 第四章）。
 
-浓缩单位是会话（地点停留或一段路）中已收尾的活动（docs/dev/SPEC-time-and-energy.md 第七章「会话与活动的字段」）：
-超过窗口 85% 时先按会话合并较旧会话里已收尾的活动，仍超限再合并全部已收尾活动；进行中、暂停中与待收尾的活动、
-当前结果与提醒完整保留。
+计量覆盖原生 tools、系统层、六层 JSON、续接消息（含回传的 reasoning_content）、此后的原生消息与预留输出。达到上下文 85% 时依次：
+0. 提前结束本秒续接：链前缀换成新快照（系统层与此刻的六层），思考不再出现；
+1. 从旧到新逐条去掉未受保护记录的 self_note；
+2. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
+每步之后重新计数。受保护记录从不改变；工具层、人设层、记忆层、待办层与环境层不浓缩。仍超限时按层记录 token 用量
+并以容量故障停止，不静默删减。
 """
 
 from __future__ import annotations
 
 import copy
 import logging
+from dataclasses import dataclass
 from typing import Any
 
 from litellm import token_counter
 
-from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, SELF_REPORT_MARK
-from worldmock.life.narration import render_facts
+from worldmock.life.narration import render_layer_json
 from worldmock.model_endpoint import DEEPSEEK_CONTEXT_LENGTH, DEEPSEEK_MODEL
 
 
 CONTEXT_THRESHOLD = 0.85
 MODEL_ALIAS = DEEPSEEK_MODEL
 TOKENIZER_MODEL = f"deepseek/{DEEPSEEK_MODEL}"
+#: 进度层的层名与折叠记录的类型。
+_PROGRESS_LAYER = "进度层"
+_CONDENSED = "condensed"
+
+
+@dataclass(frozen=True, slots=True)
+class ProgressBudget:
+    """@brief 可浓缩的请求部分：user 消息中的层数组与进度层记录的私有元数据（受保护标记与 settled 句）。
+
+    续接的请求另带 fresh_messages（不带续接的新快照 system 与 user，layers 即其中的层）与 chain_length（请求开头属于
+    续接链的消息条数），供第 0 步把链前缀换成新快照；不续接时两者为 None 与 0。
+    """
+
+    layers: tuple[dict, ...]
+    meta: tuple[dict, ...]
+    user_index: int = 1
+    fresh_messages: tuple[dict, ...] | None = None
+    chain_length: int = 0
 
 
 def model_context_length(model: str) -> int:
@@ -50,101 +71,90 @@ def request_token_count(request: dict[str, Any]) -> int:
     return prompt_token_count(request) + reserve
 
 
-#: 浓缩时完整保留的活动阶段：进行中、已暂停与刚结束（待收尾）；只合并已收尾（或截止结束）的活动。
-LIVE_PHASES = frozenset({PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING})
-
-
-def _split_activities(rows: list[dict[str, Any]]) -> tuple[list[dict], list[dict]]:
-    """@brief 分开完整保留的进行中、暂停与待收尾活动行，以及可浓缩的已收尾活动行（含上一阶段的摘要行）。"""
-    live, done = [], []
-    for row in rows:
-        (live if row["phase"] in LIVE_PHASES else done).append(row)
-    return live, done
-
-
-def _history_row(done: list[dict[str, Any]]) -> dict[str, Any]:
-    """@brief 把已收尾的活动行合并为一行摘要：保留条数与最近一条的客观进度及注明来源的自述。"""
-    latest = done[-1]
-    count = sum(row.get("activity_count", 1) for row in done)
-    row = {"name": f"较早收尾的{count}项活动", "phase": "历史摘要", "activity_count": count,
-           "latest_objective_progress": latest.get("objective_progress", latest.get("latest_objective_progress"))}
-    note = latest.get("subjective_progress", latest.get("latest_subjective_progress"))
-    if note:
-        row.update(latest_subjective_progress=note, subjective_status=SELF_REPORT_MARK)
-    return row
-
-
-def compact_by_session(progress: dict[str, Any]) -> dict[str, Any]:
-    """@brief 第一阶段：较旧会话（最近一段之外）里已收尾的活动按会话合并为一行摘要，原样保留当前结果和提醒。"""
-    compacted = copy.deepcopy(progress)
-    for row in compacted["sessions"][:-1]:
-        live, done = _split_activities(row["activities"])
-        row["activities"] = live + ([_history_row(done)] if done else [])
-    return compacted
-
-
-def compact_all_history(progress: dict[str, Any]) -> dict[str, Any]:
-    """@brief 第二阶段：全部已收尾活动合并为一行「历史活动」；进行中、暂停与待收尾的活动和最近一段会话保留。"""
-    compacted = copy.deepcopy(progress)
-    sessions, done = [], []
-    for index, row in enumerate(compacted["sessions"]):
-        live, finished = _split_activities(row["activities"])
-        done.extend(finished)
-        if live or index == len(compacted["sessions"]) - 1:
-            sessions.append({**row, "activities": live})
-    if done:
-        sessions.insert(0, {"name": "历史活动", "activities": [_history_row(done)]})
-    compacted["sessions"] = sessions
-    return compacted
-
-
-def _replace_progress(request: dict[str, Any], facts: dict[str, Any],
-                      progress: dict[str, Any]) -> dict[str, Any]:
-    """@brief 仅替换本轮 user 消息中的进度层，不改观察事件或其他消息。"""
-    original = render_facts(facts)
-    updated_facts = {**facts, "progress": progress}
-    replacement = render_facts(updated_facts)
-    candidate = copy.deepcopy(request)
-    for message in candidate["messages"]:
-        if message["role"] == "user" and original in message.get("content", ""):
-            message["content"] = message["content"].replace(original, replacement, 1)
-            return candidate
-    logging.error("Current facts are absent from the model request")
-    raise RuntimeError("current facts are absent from the model request")
-
-
-def _layer_counts(layers: dict[str, str], request: dict[str, Any]) -> dict[str, int]:
-    """@brief 给容量故障日志提供各提示层的 token 诊断值。"""
-    counts = {name: token_counter(model=TOKENIZER_MODEL, text=value)
-              for name, value in layers.items()}
-    counts["system"] = token_counter(model=TOKENIZER_MODEL, messages=request["messages"][:1])
-    counts["conversation_history"] = token_counter(
-        model=TOKENIZER_MODEL, messages=request["messages"][2:])
-    counts["tools"] = token_counter(model=TOKENIZER_MODEL, messages=[], tools=request.get("tools"))
-    counts["reserved_output"] = request["max_tokens"]
-    return counts
-
-
-def fit_request(request: dict[str, Any], facts: dict[str, Any] | None = None,
-                layers: dict[str, str] | None = None) -> dict[str, Any]:
-    """@brief 超过窗口 85% 时仅浓缩历史进度，并在每阶段重计完整请求。"""
-    context = model_context_length(request["model"])
+def fit_request(request: dict[str, Any], budget: ProgressBudget | None = None) -> dict[str, Any]:
+    """@brief 请求低于阈值时原样返回；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。"""
+    limit = model_context_length(request["model"]) * CONTEXT_THRESHOLD
     measured = request_token_count(request)
-    if measured < context * CONTEXT_THRESHOLD:
+    if measured < limit:
         return request
-    if facts is not None:
-        original_request = request
-        progress = facts["progress"]
-        for compact in (compact_by_session, compact_all_history):
-            progress = compact(progress)
-            request = _replace_progress(original_request, facts, progress)
+    if budget is not None and budget.fresh_messages is not None:
+        request = {**request, "messages": [*budget.fresh_messages, *request["messages"][budget.chain_length:]]}
+        measured = request_token_count(request)
+        if measured < limit:
+            return request
+    layers = list(budget.layers) if budget is not None else []
+    index = next((i for i, layer in enumerate(layers) if layer.get("layer") == _PROGRESS_LAYER), None)
+    if index is not None:
+        records, meta = _progress_records(layers[index], budget.meta)
+        for records, meta in _condensation_steps(records, meta):
+            layers[index] = {**layers[index], "events": records}
+            request = _with_user_layers(request, layers, budget.user_index)
             measured = request_token_count(request)
-            if measured < context * CONTEXT_THRESHOLD:
+            if measured < limit:
                 return request
-    breakdown = _layer_counts(layers or {}, request)
-    logging.error("Model request capacity exceeded: total=%s context=%s layers=%s",
-                  measured, context, breakdown)
+    _log_capacity_failure(request, layers, measured, limit)
     raise RuntimeError("model request capacity exceeded")
+
+
+def _progress_records(layer: dict[str, Any], meta: tuple[dict, ...]) -> tuple[list[dict], list[dict]]:
+    """@brief 复制进度层记录与逐条对齐的私有元数据；两者条数不一致是损坏的宿主观察。"""
+    records = copy.deepcopy(layer["events"])
+    if len(records) != len(meta):
+        logging.error("Progress metadata does not align with progress records")
+        raise RuntimeError("progress metadata does not align with progress records")
+    return records, [dict(item) for item in meta]
+
+
+def _condensation_steps(records: list[dict], meta: list[dict]):
+    """@brief 逐步产出浓缩后的（记录, 元数据）：先从旧到新逐条去 self_note，再逐段折叠为 condensed 记录。"""
+    for position, record in enumerate(records):
+        if not meta[position]["protected"] and "self_note" in record:
+            del record["self_note"]
+            yield records, meta
+    while (run := _oldest_foldable_run(records, meta)) is not None:
+        start, end = run
+        folded = records[start:end]
+        lines = [line for item in meta[start:end] for line in item["lines"]]
+        condensed = {"occurred_at": folded[0]["occurred_at"], "type": _CONDENSED,
+                     "until_at": folded[-1]["occurred_at"], "lines": lines}
+        records = [*records[:start], condensed, *records[end:]]
+        meta = [*meta[:start], {"protected": False, "lines": lines}, *meta[end:]]
+        yield records, meta
+
+
+def _oldest_foldable_run(records: list[dict], meta: list[dict]) -> tuple[int, int] | None:
+    """@brief 最旧一段连续的未受保护、非 condensed 记录的区间 [start, end)，紧邻其前的 condensed 记录并入；没有时为 None。"""
+    for start, record in enumerate(records):
+        if meta[start]["protected"] or record["type"] == _CONDENSED:
+            continue
+        end = start
+        while end < len(records) and not meta[end]["protected"] and records[end]["type"] != _CONDENSED:
+            end += 1
+        if start > 0 and records[start - 1]["type"] == _CONDENSED:
+            start -= 1
+        return start, end
+    return None
+
+
+def _with_user_layers(request: dict[str, Any], layers: list[dict], user_index: int) -> dict[str, Any]:
+    """@brief 只替换 user 消息中的层数组，不改其他消息与观察事件。"""
+    candidate = copy.deepcopy(request)
+    candidate["messages"][user_index] = {**candidate["messages"][user_index],
+                                         "content": render_layer_json(layers)}
+    return candidate
+
+
+def _log_capacity_failure(request: dict[str, Any], layers: list[dict], measured: int, limit: float) -> None:
+    """@brief 按系统层、工具定义、各 user 层、此后的原生消息与预留输出分层记录 token 用量。"""
+    counts: dict[str, int] = {
+        "system": token_counter(model=TOKENIZER_MODEL, messages=request["messages"][:1]),
+        "tools": token_counter(model=TOKENIZER_MODEL, messages=[], tools=request.get("tools")),
+    }
+    for layer in layers:
+        counts[str(layer.get("layer"))] = token_counter(model=TOKENIZER_MODEL, text=render_layer_json(layer))
+    counts["continuation_messages"] = token_counter(model=TOKENIZER_MODEL, messages=request["messages"][2:])
+    counts["reserved_output"] = request["max_tokens"]
+    logging.error("Model request capacity exceeded: total=%s threshold=%s parts=%s", measured, limit, counts)
 
 
 def compare_usage(request: dict[str, Any], response: dict[str, Any] | None) -> None:

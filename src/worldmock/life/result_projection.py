@@ -1,13 +1,20 @@
-"""@brief 将完整结算证据投影为人物下一次决策可见的公开结果。"""
+"""@brief 将完整结算证据投影为人物可见的公开结果（进度层 tool_call.result，docs/dev/SPEC-persona-prompt.md「进度层」）。
+
+公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文）与 details（恒写，没有新
+事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、付款、送达地点与
+预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长（开始与恢复），到达，浏览得到的商品名称，
+读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现），回看，拒绝的原因与下一步（没有下一步时为 null），近似候选、
+终局与已关联的订单；不复述参数（购买的方式就是请求的 ways[i]，不写），不含内部身份与资源账户。时刻字段（*_at）是带时区的
+ISO 8601。
+"""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
+from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
+from worldmock.life.scenario import RuntimeScenario
 
-#: 共同公开结果字段；结算身份用于关联已经发生的事实。
-ACTION_RESULT_FIELDS = ("action_id", "occurred_at", "status", "error_code", "message")
 #: 工作公开评审的汇总字段，禁止带入隐藏参考、答案或完整结果树。
 WORK_REVIEW_SUMMARY_FIELDS = (
     "accepted", "required_fact_total", "required_fact_passed", "required_fact_missing",
@@ -22,73 +29,99 @@ REFERENCE_ASSESSMENT_FIELDS = (
 DELIVERY_ASSESSMENT_FIELDS = (
     "delivery_path", "source_supported", "contradiction", "source_excerpt", "rationale", "passed",
 )
-
-#: 订单公开实际选定供给、报价和履约证据，不暴露账户余额或内部流水。
-ORDER_FIELDS = (
-    "order_id", "product_id", "supply_id", "location_id", "seller_account_id", "quantity",
-    "price_version", "destination_id", "fulfillment", "created_at", "expected_at", "status",
-    "total_price_fen", "route_id", "source",
-)
+#: 原样进入 details 的已公开键：回看由处理器以名称与人读时长写成，拒绝原因与下一步由 life.guidance 生成，
+#: 近似候选与终局只含可读名称。
+_PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "candidates", "outcome", "linked_orders")
 
 
-def public_action_result(row: dict[str, Any]) -> dict[str, Any]:
-    """@brief 严格选择共同字段与可选工作评审，不复制原始结算数据树。
+def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
+    """@brief 一条 action_result 事件正文（ActionResult 的 JSON）的公开结果。
 
-    @param row 事件存储返回的完整动作结果证据行
-    @return 可进入事实清单的公开结果
+    :param result: action_result 事件的 data（含 status、error_code、message、occurred_at 与领域 data）。
+    :param scenario: 场景（商品名、地点名与时区）。
     """
-    result = {key: row[key] for key in ACTION_RESULT_FIELDS}
-    data = row["result"]["data"]
-    if "work_review" in data:
-        result["work_review"] = _public_review(data["work_review"])
-    if "orders" in data:
-        result["orders"] = [{key: order[key] for key in ORDER_FIELDS if key in order}
-                            for order in data["orders"]]
-    if "browse_result" in data:
-        result["browse_result"] = _public_browse(data["browse_result"])
-    if "activity" in data and "data" in data["activity"] and "arrival" in data["activity"]["data"]:
-        result["arrival"] = _public_arrival(data["activity"]["data"]["arrival"])
-    if "recall" in data:
-        # 回看结果由处理器以名称与人读时长写成，不含内部身份，原样进入下一次观察的 details.recall。
-        result["recall"] = data["recall"]
-    for key in ("reason", "next_step"):
-        # 业务拒绝的公开原因与下一步由 life.guidance 确定性生成，只含可读名称。
-        if key in data:
-            result[key] = data[key]
-    if row["status"] == "in_progress":
-        started = [data["activity"]] if "activity" in data else data.get("activities", [])
-        result["planned"] = [{"name": item.get("name"), "planned_seconds": item["planned_duration_seconds"]}
-                             for item in started]
-    return result
+    payload = result.get("data") or {}
+    public = {"occurred_at": iso_time(result["occurred_at"], scenario.timezone), "status": result["status"],
+              "error_code": result.get("error_code"), "message": result["message"],
+              "details": _details(result, scenario)}
+    if "work_review" in payload:
+        public["work_review"] = _public_review(payload["work_review"])
+    return public
 
 
-def _public_arrival(arrival: dict[str, Any]) -> dict[str, Any]:
-    """@brief 到达无论访问成功或拒绝均保留实际位置、资格原因及紧凑来源。"""
-    result = {key: arrival[key] for key in ("location_id", "access_status", "missing_qualifications")}
-    result["source"] = _source_reference(arrival["source"])
-    return result
+def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
+    """@brief details：本次新产生的可读事实，按闭集键逐项给出，没有的键不写。"""
+    payload = result.get("data") or {}
+    names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
+    places = {item.location_id: item.name for item in scenario.locations}
+    details: dict[str, Any] = {}
+    if payload.get("orders"):
+        people = _people(scenario)
+        details["purchases"] = [{**_purchase(order, names, places, scenario.timezone),
+                                 "recipient": people[order["recipient_id"]],
+                                 "request": payload.get("answering") if order["request_message_id"] else None}
+                                for order in payload["orders"]]
+    if payload.get("given"):
+        people = _people(scenario)
+        details["given"] = [{"product": names[item["product_id"]], "quantity": portion_phrase(item["quantity"]),
+                             "recipient": people[item["recipient_id"]]} for item in payload["given"]]
+    if result["status"] == "in_progress":
+        details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
+                              for item in _activity_rows(payload)]
+    if payload.get("resumed"):
+        details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
+                              for item in payload["resumed"]]
+    arrival = (payload.get("activity") or {}).get("data", {}).get("arrival")
+    if arrival is not None:
+        details["arrival"] = {"place": places[arrival["location_id"]],
+                              "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
+    browsed = browse_results(payload)
+    if browsed:
+        details["browse_items"] = [names[item["product_id"]]
+                                   for revealed in browsed for item in revealed.get("items", [])]
+    mail = _read_mail(payload)
+    if mail is not None:
+        details["mail"] = mail
+    details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
+    return details
 
 
-def _public_browse(data: dict[str, Any]) -> dict[str, Any]:
-    """@brief 有时长浏览完成的公开结果，保留实际供给购买凭据。"""
-    result = {key: data[key] for key in ("action", "category", "returned", "total", "next_cursor", "note")
-              if key in data}
-    result["items"] = [public_supply_row(item) if "supply_id" in item else dict(item) for item in data["items"]]
-    if "excluded" in data:
-        result["excluded"] = _group_exclusions(data["excluded"])
-    return result
+def _activity_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """@brief 结果中的活动快照：单项结果的 activity；同一请求的多项活动为 activities（开始时的快照，或全部子活动结束后
+    聚合终态中的各活动终态快照）。"""
+    return [payload["activity"]] if "activity" in payload else payload.get("activities", [])
 
 
-def _group_exclusions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """@brief 按全部非身份属性合并排除行，逐项身份及其排除事实仍能无损还原。"""
-    groups = {}
-    for row in rows:
-        facts = {key: value for key, value in row.items() if key != "object_id"}
-        key = json.dumps(facts, sort_keys=True, separators=(",", ":"))
-        if key not in groups:
-            groups[key] = {**facts, "object_ids": []}
-        groups[key]["object_ids"].append(row["object_id"])
-    return list(groups.values())
+def browse_results(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """@brief 结果中浏览得到的结果：单项浏览的终态在顶层 browse_result；同一请求的多项活动全部结束后，聚合终态只带各活动
+    快照，浏览结果取其中浏览活动快照完成时揭示的 revealed（进度层的 browse_items 与工具层置顶共用，每项活动只取一次）。"""
+    if "browse_result" in payload:
+        return [payload["browse_result"]]
+    return [row["data"]["revealed"] for row in payload.get("activities", [])
+            if row.get("kind") == "browse" and "revealed" in (row.get("data") or {})]
+
+
+def _read_mail(payload: dict[str, Any]) -> dict[str, str] | None:
+    """@brief 读完的邮件 {subject, body}：阅读活动完成时揭示的主题与正文；没有读完的阅读时为 None。"""
+    rows = _activity_rows(payload)
+    revealed = next((row["data"]["revealed"] for row in rows
+                     if row.get("kind") == "read_mail" and "revealed" in (row.get("data") or {})), None)
+    return None if revealed is None else {"subject": revealed["subject"], "body": revealed["body"]}
+
+
+def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],
+              timezone_name: str) -> dict[str, Any]:
+    """@brief 一个订单的公开事实：商品、份数、付款、送达地点与预计时刻（带时区 ISO）；方式是请求参数，不复述。"""
+    return {"product": names[order["product_id"]], "quantity": portion_phrase(order["quantity"]),
+            "paid": money_phrase(order["total_price_fen"]), "destination": places[order["destination_id"]],
+            "expected_at": iso_time(order["expected_at"], timezone_name)}
+
+
+def _people(scenario: RuntimeScenario) -> dict[str, str]:
+    """@brief 人物身份 → 可读名称：同世界人物取姓名，场景联系人取称谓。"""
+    people = {f"agent:{item.agent_id}": item.name for item in scenario.agents}
+    people.update({contact.contact_id: contact.salutation for item in scenario.agents for contact in item.contacts})
+    return people
 
 
 def public_supply_row(row: dict[str, Any]) -> dict[str, Any]:

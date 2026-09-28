@@ -4,24 +4,33 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import activity_name, advance_next, conclude_request, context, start_activity
+from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
+                                 pending_names, progress_calls, start_activity, target_tools, tool_targets,
+                                 wake_by_mail)
+from tests.life.routing_fixtures import stage
+from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
+from worldmock.life import sessions
 from worldmock.life.models import (
     ActivityState,
     MeetingMinutes,
+    PauseActivityRequest,
     ReportStatusRequest,
     SubmitWorkActionRequest,
     SubmitWorkRequest,
+    active_activities,
 )
 from worldmock.life.scenario import load_scenario
+from worldmock.life.readable import duration_phrase
+from worldmock.life.schedule import WakeReason
 from worldmock.life.work import (
     load_work_input,
     load_work_oracle,
@@ -312,7 +321,7 @@ async def test_same_task_competition_pays_only_seeded_first_settlement(engine_fa
     reviewer = AcceptingReviewer()
     engine._work_reviewer = reviewer
     requests = {agent_id: ("submit_work", SubmitWorkActionRequest(
-        task_name=task.title, deliverable=_submission(task).deliverable))
+        task_name=f"工作：{task.title}", deliverable=_submission(task).deliverable))
                 for agent_id in engine.state.agents}
     ready = _shared_round(engine, "shared-submit", requests)
     for agent_id in ready:
@@ -331,3 +340,359 @@ async def test_same_task_competition_pays_only_seeded_first_settlement(engine_fa
              if event.event_type == "action_result" and event.data.get("resource_changes")]
     assert len(money) == 1 and money[0].agent_id == winner
     assert reviewer.calls == 2
+
+
+# --- 恢复不越过合同截止（docs/dev/SPEC-persona-prompt.md 第六章「恢复工作越过合同截止」） ---
+
+#: 根因研究白领全天的合同截止：首个任务在 1 月 5 日 17:30 截止，其余与正式场景相同。
+_DEADLINE = "2026-01-05T17:30:00+08:00"
+
+
+@pytest.fixture
+def deadline_engine(tmp_path):
+    """首个任务截止改为 17:30 的白领场景隔离运行，用完关闭。"""
+    def mutate(document: dict) -> None:
+        document["tasks"][0]["due_at"] = _DEADLINE
+
+    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "resume-deadline")
+    yield engine
+    engine.close()
+
+
+def _clock(text: str) -> int:
+    """1 月 5 日当地钟点（HH:MM:SS）的时间戳。"""
+    return int(datetime.fromisoformat(f"2026-01-05T{text}+08:00").timestamp())
+
+
+def _stage_office(engine, now: int) -> None:
+    """把世界直接置于 now：人在办公室停留、首个任务可见且当秒可以决策。"""
+    task = engine.scenario.tasks[0]
+    staged = engine.state.model_copy(deep=True)
+    staged.current_time = now
+    staged.pending_events = [item for item in staged.pending_events if item.due_at > now]
+    agent = staged.agents[1]
+    staged.agents[1] = agent.model_copy(
+        update={"location_id": task.required_location_id,
+                "visible_task_ids": set(agent.visible_task_ids) | {task.task_id},
+                "next_decision_at": now, "body_settled_at": now}, deep=True)
+    staged = sessions.open_stay(sessions.end_all(staged), 1, engine._place_names)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=now, visibility="system",
+        source_kind="scenario", data={"kind": "test_office_staged"})])
+    engine.state = staged
+
+
+def _decide(engine, name: str, tool: str, request) -> object:
+    """单人物按真实顺序观察、登记并结算一轮；request 可以是按本轮观察构造请求的函数。"""
+    decision = context(engine, name)
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    if callable(request):
+        request = request(observed)
+    engine.submit_action(DirectToolCall(decision, f"action-{name}", tool, request))
+    return engine.commit_decision_round(name)[0]
+
+
+def _keep_going(engine, observed: dict) -> tuple[str, object]:
+    """途中的决策机会：有待收尾先收尾，没有进行中的活动就等待，否则播报继续进行中的活动。"""
+    pending = pending_names(observed)
+    if pending:
+        return "conclude_activity", conclude_request(*pending)
+    running = active_activities(engine.state, 1)
+    if not running:
+        return "start_activity", start_activity("等待", "自己")
+    names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
+    return "report_status", ReportStatusRequest(task=[names[item.activity_id] for item in running],
+                                                summary=["继续。"] * len(running))
+
+
+def _drive(engine, name: str, done) -> None:
+    """推进并按 _keep_going 处理途中的决策机会，直到 done() 成立。"""
+    for step in range(400):
+        if done():
+            return
+        if not engine.scheduling_state().ready_agent_ids:
+            advance_next(engine)
+            continue
+        decision = context(engine, f"{name}-{step}")
+        engine.begin_decision_round([decision])
+        tool, request = _keep_going(engine, engine.observe(decision))
+        engine.submit_action(DirectToolCall(decision, f"action-{name}-{step}", tool, request))
+        assert engine.commit_decision_round(f"{name}-{step}")[0].status != "rejected"
+    pytest.fail(f"{name} did not reach its condition")
+
+
+def _decide_at(engine, at: int) -> None:
+    """推进到 at 并让人物在那一秒可以决策（那一秒到达一封邮件）。"""
+    wake_by_mail(engine, offset=at - engine.state.current_time)
+    _drive(engine, f"until-{at}", lambda: engine.state.current_time == at
+           and bool(engine.scheduling_state().ready_agent_ids))
+
+
+def _named(activity_id: str):
+    """按本轮观察里活动的可读名称构造控制请求的名称列表。"""
+    return lambda observed: [next(row["name"] for row in observed["activity_bindings"]
+                                  if row["activity_id"] == activity_id)]
+
+
+def _start_work(engine, name: str) -> str:
+    """经本轮冻结观察的任务绑定开始首个任务，返回活动身份。"""
+    task = engine.scenario.tasks[0]
+
+    def request(observed):
+        binding = next(row for row in observed["interaction_bindings"]
+                       if row["kind"] == "work_task" and row["object_id"] == task.task_id)
+        return start_activity("工作", binding["object"])
+
+    result = _decide(engine, name, "start_activity", request)
+    assert result.status == "in_progress"
+    return result.activity_id
+
+
+def _pause(engine, name: str, activity_id: str):
+    """暂停点名的工作。"""
+    names = _named(activity_id)
+    return _decide(engine, name, "pause_activity",
+                   lambda observed: PauseActivityRequest(task=names(observed), summary=["先停一下。"]))
+
+
+def _resume(engine, name: str, activity_id: str):
+    """播报点名的暂停工作，即在开始地点恢复它。"""
+    names = _named(activity_id)
+    return _decide(engine, name, "report_status",
+                   lambda observed: ReportStatusRequest(task=names(observed), summary=["接着做。"]))
+
+
+def _resumed_work(engine) -> tuple[str, object]:
+    """根因研究的时刻：09:10:51 开工（原计划 17:10:51 结束），10:43:01 暂停，11:16:31 恢复；返回（活动身份, 恢复结果）。
+
+    暂停期间人物在等待；等待与工作同占 idle，恢复前同秒先结束正在进行的等待。
+    """
+    _stage_office(engine, _clock("09:10:51"))
+    work_id = _start_work(engine, "work-start")
+    assert engine.state.activities[work_id].planned_end_at == _clock("17:10:51")
+    _decide_at(engine, _clock("10:43:01"))
+    assert _pause(engine, "work-pause", work_id).status == "completed"
+    _decide_at(engine, _clock("11:16:31"))
+    waiting = [item.activity_id for item in active_activities(engine.state, 1)]
+    assert _decide(engine, "stop-waiting", "conclude_activity", lambda observed: conclude_request(
+        *[_named(item)(observed)[0] for item in waiting])).status == "completed"
+    return work_id, _resume(engine, "work-resume", work_id)
+
+
+def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engine) -> None:
+    """11:16:31 恢复的计划结束取 min(距截止, 合同上限减已累计)，落在 17:30 截止；旧算法（现在＋剩余）是 17:44:21。
+    恢复结果写恢复后的计划时长（details.planned，与开始活动同一写法）：截到截止的约 6 小时，不是剩余合同的约 6.5 小时
+    （docs/dev/SPEC-persona-prompt.md 第六章「恢复工作越过合同截止」的七层呈现）。"""
+    engine = deadline_engine
+    due = int(engine.scenario.tasks[0].due_at.timestamp())
+    work_id, resumed = _resumed_work(engine)
+    assert resumed.status == "completed"
+    activity = engine.state.activities[work_id]
+    now = engine.state.current_time
+    assert activity.status == "active" and now == _clock("11:16:31")
+    assert activity.planned_end_at == due == _clock("17:30:00")
+    assert activity.planned_duration_seconds - activity.elapsed_seconds == due - now
+    assert activity.elapsed_seconds == _clock("10:43:01") - _clock("09:10:51")
+    observed = engine.observe(context(engine, "resumed-shown"))
+    name = _named(work_id)(observed)[0]
+    assert progress_calls(observed, "report_status")[-1]["result"]["details"] == {
+        "planned": [{"name": name, "duration": duration_phrase(due - now)}]}
+    assert duration_phrase(due - now) == "约 6 小时"
+
+
+def test_resume_plans_the_end_within_the_contract_hours_left_after_other_work_on_the_task(deadline_engine) -> None:
+    """暂停期间同一任务另做一段并收尾后再恢复：上限取 min（距截止, 合同上限减已累计），已累计含另一段的工时。
+    09:10:51 开工、10:43:01 暂停，同秒另开同一任务做到 13:00:00 收尾，同秒恢复：合同只剩 15051 秒、距截止 16200 秒，
+    计划结束是 17:10:51；只按截止封顶是 17:30，旧算法（现在＋剩余）是 19:27:50。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    _stage_office(engine, _clock("09:10:51"))
+    first = _start_work(engine, "first-start")
+    _decide_at(engine, _clock("10:43:01"))
+    assert _pause(engine, "first-pause", first).status == "completed"
+    second = _start_work(engine, "second-start")
+    _decide_at(engine, _clock("13:00:00"))
+    assert _decide(engine, "second-end", "conclude_activity",
+                   lambda observed: conclude_request(*_named(second)(observed))).status == "completed"
+    resumed = _resume(engine, "first-resume", first)
+    assert (resumed.status, resumed.error_code) == ("completed", None)
+    now, activity = engine.state.current_time, engine.state.activities[first]
+    worked = sum(engine.state.activities[item].elapsed_seconds for item in (first, second))
+    assert (now, worked) == (_clock("13:00:00"), _clock("13:00:00") - _clock("09:10:51"))
+    assert activity.planned_end_at - now == task.maximum_duration_seconds - worked < int(task.due_at.timestamp()) - now
+    assert activity.planned_end_at == _clock("17:10:51")
+
+
+@pytest.mark.asyncio
+async def test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_once(deadline_engine) -> None:
+    """恢复后的工作在 17:30 截止那一秒结束：同秒先收尾再提交，截止同秒不算迟交，只付款一次。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    due = int(task.due_at.timestamp())
+    work_id, _ = _resumed_work(engine)
+    _drive(engine, "work-rest", lambda: engine.state.activities[work_id].status != "active")
+    activity = engine.state.activities[work_id]
+    assert engine.state.current_time == due and activity.status == "completed" and activity.ended_at == due
+    assert conclude_pending(engine, "work-conclude").status == "completed"
+    reviewer = AcceptingReviewer()
+    engine._work_reviewer = reviewer
+    balance = engine.state.agents[1].balance_account_id
+    before = dict(engine.state.accounts)
+    decision = context(engine, "submit-at-deadline")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    [task_name] = [row["task_name"] for row in observed["task_bindings"] if row["task_id"] == task.task_id]
+    engine.submit_action(DirectToolCall(decision, "action-submit-at-deadline", "submit_work", SubmitWorkActionRequest(
+        task_name=task_name, deliverable=_submission(task).deliverable)))
+    await engine.prepare_pending_work_review("action-submit-at-deadline")
+    submitted = engine.commit_decision_round("submit-at-deadline")[0]
+    assert engine.state.current_time == due
+    assert submitted.status == "completed" and submitted.data["payment_fen"] == task.pay_fen
+    assert engine.state.accounts[balance] == before[balance] + task.pay_fen
+    assert engine.state.paid_task_ids == {task.task_id} and reviewer.calls == 1
+    payments = [event for event in engine.store.read_events(engine.store.last_event_seq)
+                if event.event_type == "action_result" and event.data.get("data", {}).get("payment_fen")]
+    assert [event.action_id for event in payments] == ["action-submit-at-deadline"]
+
+
+def test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection(deadline_engine) -> None:
+    """17:29:01 暂停后同秒恢复：距截止不足 60 秒，以 ACTIVITY_DURATION_INVALID 业务拒绝（与开工同一约束），不是协议错误。"""
+    engine = deadline_engine
+    _stage_office(engine, _clock("17:20:00"))
+    work_id = _start_work(engine, "late-start")
+    _decide_at(engine, _clock("17:29:01"))
+    assert _pause(engine, "late-pause", work_id).status == "completed"
+    rejected = _resume(engine, "late-resume", work_id)
+    assert rejected.status == "rejected" and rejected.error_code == "ACTIVITY_DURATION_INVALID"
+    assert (rejected.data["reason"], rejected.data["next_step"]) == ("离截止不到一分钟，来不及开始", "提交已完成的部分")
+    assert engine.state.current_time == _clock("17:29:01")
+    assert engine.state.activities[work_id].status == "paused"
+    assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
+                if event.event_type == "run_failed"]
+
+
+# --- 逾期工作保留与达标、提交分开说明（docs/dev/SPEC-persona-prompt.md 第六章） ---
+
+#: 唤醒原因闭集：达标不是唤醒原因（第六章「工时达标与提交状态不一致」不新增唤醒原因）。
+_WAKE_REASONS = (
+    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available", "task_due_soon",
+    "work_review_result", "commitment_threatened", "reconsideration_interval", "location_hours_change",
+    "person_arrived", "person_left", "activity_infeasible", "rejection_feedback", "discovery_result",
+    "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity", "plan_reminder_due")
+
+
+def _observe_at(engine, name: str, at: int, *, open_round: bool = False) -> tuple[object, dict]:
+    """把世界置于 at（人在办公室、任务可见）并观察；open_round 时先开一轮以便提交，返回（决策上下文，观察）。"""
+    _stage_office(engine, at)
+    decision = context(engine, name)
+    if open_round:
+        engine.begin_decision_round([decision])
+    return decision, engine.observe(decision)
+
+
+def test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_business_rejection(
+        deadline_engine) -> None:
+    """17:30 截止后未付款的任务仍是工具层 task 目标（contract.outlook 为「已过截止」，不列开工，submit_work 标不可用并写原因），
+    名称仍在提交绑定中，所以宿主受理、提交以 WORK_SUBMISSION_LATE 业务拒绝，没有 ProtocolError、没有 run_failed，也不写成
+    提交失败；截止当日 23:59:59 仍在，次日零点起不再列出。改回「跳过已过截止的任务」时任务目标消失、提交变成 WORK_TASK_NOT_FOUND。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    decision, observed = _observe_at(engine, "overdue-submit", _clock("17:30:01"), open_round=True)
+    target = tool_targets(observed)[name]
+    assert target["kind"] == "task" and target["actions"] == []
+    assert target["contract"]["deadline"] == _DEADLINE and target["contract"]["outlook"] == "已过截止"
+    assert target["tools"] == [{"tool": "submit_work", "available": False, "reason": "已经过了截止时间"}]
+    assert "失败" not in json.dumps(target, ensure_ascii=False)
+    assert {"task_name": name, "task_id": task.task_id} in observed["task_bindings"]
+    engine.submit_action(DirectToolCall(decision, "action-overdue-submit", "submit_work", SubmitWorkActionRequest(
+        task_name=name, deliverable=_submission(task).deliverable)))
+    rejected = engine.commit_decision_round("overdue-submit")[0]
+    assert (rejected.status, rejected.error_code) == ("rejected", "WORK_SUBMISSION_LATE")
+    assert (rejected.data["reason"], rejected.data["next_step"]) == ("已经过了截止时间", "这项工作不再提交，改做别的事")
+    assert task.task_id not in engine.state.paid_task_ids
+    assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
+                if event.event_type == "run_failed"]
+    _, late = _observe_at(engine, "overdue-late", _clock("23:59:59"))
+    assert tool_targets(late)[name]["contract"]["outlook"] == "已过截止"
+    _, next_day = _observe_at(engine, "overdue-next-day", _clock("23:59:59") + 1)
+    assert name not in tool_targets(next_day)
+    assert all(row["task_id"] != task.task_id for row in next_day["task_bindings"])
+
+
+def test_a_one_minute_requirement_is_written_as_a_readable_phrase(engine_factory) -> None:
+    """合同的剩余要求写成人读短语（docs/dev/SPEC-persona-prompt.md「通用格式」「工具层」）：双人场景的计时与计件任务要求
+    60 秒有效工时，10:00 在办公室看到时写「有效工时还差约 1 分钟（约 0/0.02 小时）」，要求至多两位小数；4 小时的包件任务
+    仍写「约 0/4 小时」。改回按 :g 输出要求时写成「0.0166667 小时」而失败。"""
+    engine = engine_factory("multi-person.json")
+    shown = [item for item in engine.scenario.tasks
+             if item.task_id in {"task-2026-01-05", "hourly-2026-01-05", "piece-2026-01-05"}]
+    now = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
+
+    def change(state) -> None:
+        """@brief 推到 10:00，人物 1 在办公室、看得到三项当日任务。"""
+        state.current_time = now
+        state.pending_events = [event for event in state.pending_events if event.due_at > now]
+        state.agents[1].location_id = "office"
+        state.agents[1].visible_task_ids = {item.task_id for item in shown}
+        for agent in state.agents.values():
+            agent.body_settled_at = agent.next_decision_at = now
+    stage(engine, change)
+    observed = engine.observe(context(engine, "one-minute"))
+    remaining = {name: target["contract"]["remaining"] for name, target in tool_targets(observed).items()
+                 if target["kind"] == "task"}
+    assert remaining == {f"工作：{item.title}": "有效工时还差约 1 分钟（约 0/0.02 小时）"
+                         if item.required_effective_seconds == 60 else "有效工时还差约 4 小时（约 0/4 小时）"
+                         for item in shown}
+
+
+def test_a_task_beyond_the_persons_skill_is_not_listed(deadline_engine) -> None:
+    """技能不够的任务永久不能开工，不列：工具层没有它的任务目标，私有的对象绑定与任务名绑定里都没有它，提交与回看都不认
+    这个名称（docs/dev/SPEC-persona-prompt.md「工具层」「永久不能满足的（没有路线、技能不够）不列」）。技能够得上时同一
+    任务照常列出并可开工。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    _, skilled = _observe_at(engine, "skilled", _clock("10:00:00"))
+    assert [row["way"] for row in tool_targets(skilled)[name]["actions"]] == ["工作"]
+    assert {"task_name": name, "task_id": task.task_id} in skilled["task_bindings"]
+    stage(engine, lambda state: state.agents[1].skill_levels.update({task.required_skill: task.minimum_skill - 0.1}))
+    _, unskilled = _observe_at(engine, "unskilled", _clock("10:00:01"))
+    assert name not in tool_targets(unskilled)
+    assert all(row["object_id"] != task.task_id for row in unskilled["interaction_bindings"])
+    assert all(row["task_id"] != task.task_id for row in unskilled["task_bindings"])
+    assert task.title not in json.dumps(unskilled["tool_layer"], ensure_ascii=False)
+
+
+def test_target_met_while_still_working_states_the_three_facts_separately(deadline_engine) -> None:
+    """根因形状：09:30 开工一直做到截止前一分钟（17:29），有效工时约 6.4/4 小时、工作仍在进行。三件事各说各的：
+    task 目标 contract.remaining 写「有效工时已达标」，工作的活动目标 phase 为进行中，submit_work 标不可用并写「先结束
+    正在做的工作」；提交绑定没有合成的就绪布尔，提交以 WORK_TASK_IN_PROGRESS 业务拒绝，工作继续；不新增唤醒原因。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    _stage_office(engine, _clock("09:30:00"))
+    work_id = _start_work(engine, "met-start")
+    assert engine.state.activities[work_id].planned_end_at == _clock("17:30:00")
+    _decide_at(engine, _clock("17:29:00"))
+    decision = context(engine, "met-observe")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    target = tool_targets(observed)[name]
+    assert target["contract"]["remaining"] == "有效工时已达标（约 6.4/4 小时）"
+    assert target["contract"]["outlook"] is None
+    working = tool_targets(observed)[_named(work_id)(observed)[0]]
+    assert (working["kind"], working["phase"]) == ("activity", "进行中")
+    assert "达标" not in working["state"] and "提交" not in working["state"]
+    assert target_tools(observed, name)["submit_work"] == {
+        "tool": "submit_work", "available": False, "reason": "先结束正在做的工作"}
+    assert observed["task_bindings"] == [{"task_name": name, "task_id": task.task_id}]
+    engine.submit_action(DirectToolCall(decision, "action-met-submit", "submit_work", SubmitWorkActionRequest(
+        task_name=name, deliverable=_submission(task).deliverable)))
+    rejected = engine.commit_decision_round("met-observe")[0]
+    assert (rejected.status, rejected.error_code) == ("rejected", "WORK_TASK_IN_PROGRESS")
+    assert rejected.data["reason"] == "先结束正在做的工作"
+    assert engine.state.activities[work_id].status == "active"
+    assert tuple(reason.value for reason in WakeReason) == _WAKE_REASONS

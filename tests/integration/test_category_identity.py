@@ -14,17 +14,17 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import CounterfactualIntervention, RunIdentity, StartActivityRequest
+from worldmock.life.models import CounterfactualIntervention, RunIdentity
 from worldmock.life.semantics import load_runtime_scenario
 from worldmock.runtime import (
     ResumeRequest,
     _model_identity,
     _prepare_resume,
     runtime_code_sha256,
-    two_stage_model_identity,
+    stage_model_identity,
 )
 from tests.integration.as2_fixtures import use_fake_as2
-from tests.life.conftest import advance_next, stage_day_plan, submit_round
+from tests.life.conftest import advance_next, stage_day_plan, submit_round, start_request
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -57,7 +57,7 @@ def _create(path, destination):
         start_at=scenario.start_at.isoformat(), end_at=scenario.end_at.isoformat(),
         timezone=scenario.timezone, model_identity=_model_identity(), code_sha256=runtime_code_sha256(ROOT),
     )
-    return LifeEngine.create(path, destination, identity, two_stage_identity=two_stage_model_identity())
+    return LifeEngine.create(path, destination, identity, stage_identity=stage_model_identity())
 
 
 def _change_category(directory):
@@ -94,7 +94,7 @@ def _checkpoint(engine, tmp_path):
         workspace.mkdir()
         (workspace / "AGENT.json").write_text(json.dumps({
             "schema_version": 1, "agent_class": "LifeAgent", "agent_id": agent.agent_id,
-            "initialized_at": None,
+            "initialized_at": None, "profile": {"id": agent.agent_id, "same_second_continuation": True},
         }), encoding="utf-8")
         (workspace / "config.json").write_text(json.dumps({
             "enable_memory": True, "max_react_turns": 16,
@@ -117,7 +117,7 @@ def test_running_semantics_and_export_keep_original_category_identity(tmp_path):
         names = {key: item.name for key, item in engine.semantics.catalog.category_contract.categories.items()}
         for agent_id in engine.state.agents:
             stage_day_plan(engine, agent_id)
-        submit_round(engine, {agent_id: ("start_activity", StartActivityRequest(
+        submit_round(engine, {agent_id: ("start_activity", start_request(
             targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in engine.state.agents}, "wait")
         advance_next(engine)
         cutoff = engine.store.last_event_seq
@@ -190,7 +190,7 @@ def test_resume_and_replay_bind_original_identity_before_publishing_branch(tmp_p
             assert {key: branch.store.manifest[key] for key in expected} == expected
             for agent_id in branch.state.agents:
                 stage_day_plan(branch, agent_id)
-            submit_round(branch, {agent_id: ("start_activity", StartActivityRequest(
+            submit_round(branch, {agent_id: ("start_activity", start_request(
                 targets=["自己"], actions=["interact"], ways=["等待"])) for agent_id in branch.state.agents},
                 "branch-wait")
             advance_next(branch)

@@ -10,7 +10,7 @@
 新增特性各有独立完整台账，仍不得把历史比例当作当前全规格覆盖率。
 
 > 状态：分析文档，不拥有规范权威——本文件只回答「每条规格要求是否有测试覆盖、缺口在哪」，不定义、不裁决规格；条款的内容与判定以现行文档树为准
-> 日期：2026-09-26（增量修订；原基线 2026-09-18）
+> 日期：2026-09-28（增量修订；原基线 2026-09-18）
 > 审计：本轮只读审计；终态：独立复核
 > 范围：`tests/`（九个子目录 + 根）与 `vendor/agentsociety2/packages/agentsociety2/tests/`（含 worldmock hooks）的测试函数与现行文档树条款的映射
 
@@ -31,6 +31,48 @@
 与品类契约主线组合后的源码身份和全仓门禁见
 [交互菜单主线合并验收](research/interaction-menu-main-verification.md)，各独立审查保留原快照边界。
 
+
+## 人物 Prompt 七层增量映射
+
+[人物 Prompt 七层特性规格](SPEC-persona-prompt.md)（FROZEN）的行为已在实施阶段 1–6 全部实现，逐条判据见其
+[验收台账](SPEC-persona-prompt.md#验收台账)；台账各行、第六章两张表各行与「裁决记录」#21–#38 的证据测试登记在
+`tests/persona_prompt_acceptance.py`（279 个不重复节点），由 `tests/test_persona_prompt_acceptance.py` 逐行判定（节点须解析到会被收集、
+未被跳过的测试函数，本特性文件没有延期标记与空壳函数）。源码身份、全量门禁、覆盖率、独立语义突变审查与文档一致性的结果统一见
+[本特性验收记录](persona-prompt-verification.md)。新增范围包括七层请求与唯一出现、单一行动阶段、同秒续接、进度层与记忆层、人设层、
+`from`、`to` 与给予、代点关联、联系人收货与往来、进食开吃份量与小数份、指名购买、恢复不越截止与逾期任务保留、跨决策预算耗尽、
+购买事实导出与查看器七层解析。
+
+固定被测提交 `f798ea7` 的覆盖率门禁全量运行为 4258 个不重复用例 passed、8 项既有平台跳过；分支 94.84%，未覆盖公共接口为零。
+四组独立 Uncle Bob 源码语义突变（共 46 个）覆盖规格 VF3 所列十项检验点及记忆层、收货人与反思归属，除一个等价突变外全部被测试杀死
+（12 个初次存活，补测后以原补丁复验杀死）。白领全天、双人半日与续接开关对比的真实复验只报告、不作门禁，本次未执行（需要用户的模型账号）。
+
+该规格经「冻结条款修订」改写了下表各行依据的条款：这些行的条款表述、测试映射与 `covered` 判定只代表当时的审计快照，
+不再代表现行条款，其中引用的部分测试（如 `test_prelude_decision_statement_hook_runs_one_toolless_call`、
+`test_react_messages_are_three_parts_and_observation_written_once`、`test_system_prompt_is_identity_first_with_word_share`、
+`test_dreaming_window_reads_decision_statement_and_scene`）已随旧行为删除。历史行原样保留、不改；现行条款以规格正文为准，
+现行证据以规格「验收台账」、`tests/persona_prompt_acceptance.py` 与本特性验收记录为准，新条款不混入本文旧统计分母。
+表中「第 X 章」指规格正文章节，「修订 N」指规格「冻结条款修订」第 N 行。
+
+| 历史行 | 当时的条款（简述） | 取代它的现行条款 |
+| --- | --- | --- |
+| A13 | 决策前决策自述钩子（单次无工具）；后续请求保留 `reasoning_content` | 第二章「单一行动阶段」「同秒续接」：删除自述钩子覆写，一次决策只有一个行动阶段；`reasoning_content` 只在同一秒的续接链内回传，时间推进后丢弃；修订 3、5、17 |
+| RC16 | user 消息三部分（`persona_card`、`scene`、`facts`）与内容清单 | 第一章「请求组成」「唯一出现原则」：system 为系统层，user 为工具、人设、记忆、待办、环境、进度六层 JSON 数组；修订 6、8 |
+| RC18 | 观察不重复序列化 | 第二章「同秒续接」、第七章「质量与指标」：观察仍每次决策一次、单写，观察重复门禁按（人物，模拟秒）的续接链计；修订 17 |
+| RC19 | 门店供给超过 1800 秒或离开呈现地点失效，呈现其他供给不续期 | 第五章「指名购买」：可见期只管展示与比较，`obtain` 可指名未展示的商品，按当前报价结算；修订 14、24 |
+| RC22 | `recent_action_results` 保留全部新结果、状态、错误原因与工作公开反馈 | 第一章「进度层」：结果在本 session 内留在进度层 `tool_call.result`，session 结束后写成记忆层 `settled`，同一秒续接时随 tool 消息返回；修订 4、22 |
+| RC23 | 系统提示身份为主不少于 50% 词数；协议移入工具 description；回合预算一句；禁用评价性措辞 | 第一章「系统层」：身份前言与「怎样过一天」删除，规则只在系统层写一次，description 只写用途，50% 比例及其测试废止，预算不再追加到 system；禁用评价性措辞保留；修订 3、9 |
+| RC24 | user 不超过 40000、system 不超过 3000 字符，超限运行故障不截断 | 第四章「预算」：按整次请求 token 计数与 85% 阈值，先提前结束续接、再去 `self_note`、再折叠为 `condensed`，仍超限按容量故障停止；记忆层自带 8000 字符窗口；修订 7 |
+| RC26 | 两阶段参数（决策自述与行动各一行） | 第二章「单一行动阶段」、第七章「清单」：生成参数只剩行动行，清单阶段键为 `action`、`work_review`，`two_stage_model_identity` 改名 `stage_model_identity`；修订 3 |
+| RC27 | 决策自述写 `decision_started.data.decision_statement` 与模型证据；超长或空重试一次 | 第二章「单一行动阶段」、第七章「事件」：`decision_started.data` 为闭集、不带自述，在首个行动请求时写入；修订 3 |
+| RC29 | 决策自述仅 dreaming 可读；dreaming 窗口含 `decision_statement` 与 `scene` | 第七章「交付」：dreaming 读 `self_note` 与实际请求中的层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集；修订 18 |
+| RC30 | 记忆零至八条，引用放 `refs`，九种主观类型 | 第三章与第一章「人设层」：relationship、preference 记忆带必填可空的 `subject`，只在人设层按对象原地更新，不进记忆层与进度层参数；修订 12 |
+| RC32 | 巩固触发三选一；巩固提示与当前事实章节 | 第三章「窗口」：阈值巩固保留、摘要不进提示；记忆层取代主观归纳与最近条目窗口；修订 12 |
+| RC35 | `drive_summary` 一句中文、不含数字权重 | 第二章「删除与去重」：`drive_summary` 删除；修订 25 |
+| RC41 | `send_message` 瞬时、至多 300 字、收件箱送达 | 第六章「直接消息截断」：直接消息以全文进入收件人的进度层 `message_arrival`，全文呈现才记为已读，之后写成记忆层 `settled`；修订 22 |
+| RC62 | `consume` 一至三件持有食品、同地点一次进食、时长取最长、热量累加 | 第五章「进食」「来源与去向」：每件开吃 `min(1, 持有)`，暂停保留、结束丢弃，不足一份可吃；合成一餐只在各项 `to` 都是自己时发生，`to` 为人物是给予；修订 13、15 |
+| RC67 | dreaming 窗口输入可含 `decision_statement` 与 `scene` | 第七章「交付」：同 RC29；修订 18 |
+| EX-7 | 双人 24 小时三次同代码协议门禁（含 `MEMORY.md` 身份残留为零） | 第七章「质量与指标」：观察重复率按续接链计；`MEMORY.md` 不再进提示，身份残留门禁改为检查记忆层 JSON（验收标准「协议门禁」，人物 Prompt 台账 VF1、VF2） |
+| 「抽样自验（20/20）」第 17 条 | RC23 抽样：「你不是AI助手」、禁词与身份词占比 | 同 RC23：身份前言与占比测试废止；修订 9 |
 
 ## 时间与能量增量映射
 
@@ -1020,6 +1062,7 @@ felt、observe、projection、rhythm、scenario、schedule 六个文件共 9 处
 | 新增章复判 | 2026-09-19 | 该章整章落地后逐行复判 44 行：`CC16`、`CC22`、`CC30`、`CC33`、`CC36`、`CC39`、`CC41`、`CC42` 由 `gap` 改判 `covered`（运行期装配 `src/worldmock/life/presentation.py`、检索与可达性 `src/worldmock/life/retrieval.py`、准入侧分区校验 `src/worldmock/catalog/admission.py`、地点类运行期强制 `src/worldmock/life/activities.py`、持久化 `WorldState.presentation_state` 与 `WORLD_SCHEMA_VERSION = 3`），`CC34` 映射扩容到运行期强制侧；仍余 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）；`CC43` 与 `CC44` 经复判由 `gap` 改判 `covered`，逐条原因见该章。条款总数 435 不变，covered 由 404 重算为 **414**，gap 由 17 收窄为 **7**，覆盖率由 96.1% 重算为 **98.4%**（428/435 = covered 414 + exempt 14）。复判证据：八个测试文件合计 `165 passed`（`test_candidates.py` 49、`test_rotation.py` 20、`test_candidate_constants.py` 32、`test_candidate_wiring.py` 9、`test_retrieval.py` 31、`test_reachability_admission.py` 9、`test_activity_location_kinds.py` 9、`test_documentation_gate.py` 6）；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：`CC32` 原映射引用 `ELIGIBILITY_RETIRED`，该常量在 `src/worldmock/life/candidates.py` 的 `EXCLUSION_REASONS` 闭集内并不存在，属名实不符，已据实改述并保留 `gap`；另如实记录一项与本矩阵无关的独立缺陷：`scripts/check_reachability.py --scenario` 对正式场景退出码 1（86 条场景内容条目落不进分区），未解决 |
 | 缺口清零 | 2026-09-19 | 为「候选契约与呈现规则」章余下的 7 行 `gap`（`CC7`、`CC17`、`CC18`、`CC29`、`CC32`、`CC35`、`CC40`）逐行补入真实性测试并改判 `covered`，**未改动任何生产代码**。新增与加固共 19 个测试函数：新建 `tests/life/test_candidate_contract_boundaries.py`（9 测，经生产接口建普通分支比对候选集、呈现上限不取 `MAX_CANDIDATES`、下推两层与游标载荷形状），`tests/life/test_candidates.py` 增 2 测（`anywhere` 三形区分、墓碑目录里下架条目出局且仍可读 + 无删除条目的通路扫描），`tests/life/test_retrieval.py` 增 2 测并加固 1 测（禁止 ANN 库与浮点距离的常驻断言），`tests/life/test_rotation.py` 增 6 测（`D` 取实测区间而非单一估计值，不硬编码天数）。条款总数 435 不变，covered 由 414 重算为 **421**，gap 由 7 收窄为 **0**，覆盖率由 98.4% 重算为 **100.0%**（435/435 = covered 421 + exempt 14）。实测证据：全量 `2747 passed`；相关八个测试文件 `180 passed`；`coverage_gate.py` 分支覆盖 98.83%、未覆盖公共接口 0、`gate verdict: PASSED`；`test_style_gate.py` 1 passed；`documentation_gate.py` 扫描 25 份文档、0 处断链、`gate verdict: PASSED`。**行内修订**：正文原写「复判后仍余九行 `gap`」，与矩阵表的去重终态（8 行，`CC34` 已改判）不符，已按表改正。**如实记录的边界**：`CC29` 断言核对的是「缺省值落在实测区间内」与「上界随 `D` 精确变化」，不钉死某个特定缺省数值；`CC40` 的依赖侧断言范围是本项目自己的依赖声明，vendored 上游 `vendor/agentsociety2` 自带的 `faiss-cpu`（只由上游未使用的 `env/router_codegen.py` 导入）作为已知上游事实写明，本项目运行路径不经它检索 |
 | 时间与能量增量映射 | 2026-09-26 | 时间与能量规格阶段 9（AN1）：新增「时间与能量增量映射」节，列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 26 行（A5、A14、E3、E14、E16、E18、E24、R6、R8、C7、C8、T4、T7、X9、DEV38、DEV39、DEV43、DEV48、DEV49、RC1、RC3、RC11、RC17、RC28、RC30、CC10）与「抽样自验（20/20）」第 4 条，逐行注明取代它的规格章节与修订编号；历史行原样保留，新条款不混入旧统计分母；现行证据指向规格「验收台账」与本特性验收记录；文件头日期改写 |
+| 人物 Prompt 七层增量映射 | 2026-09-28 | 人物 Prompt 规格阶段 8（AN1）：新增「人物 Prompt 七层增量映射」节，列出被该规格「冻结条款修订」改写、历史映射不再代表现行条款的 17 行（A13、RC16、RC18、RC19、RC22、RC23、RC24、RC26、RC27、RC29、RC30、RC32、RC35、RC41、RC62、RC67、EX-7）与「抽样自验（20/20）」第 17 条，逐行注明取代它的规格章节与修订编号；历史行原样保留，新条款不混入旧统计分母；现行证据指向规格「验收台账」、`tests/persona_prompt_acceptance.py` 与本特性验收记录；文件头日期改写 |
 
 ## 当日目标特性追溯
 

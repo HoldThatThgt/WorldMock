@@ -16,10 +16,13 @@ from pydantic import ValidationError
 from tests.life.conftest import stage_day_plan, start_activity, submit_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
+from worldmock.life.activities import change_activity
 from worldmock.life.models import (
     WORLD_SCHEMA_VERSION,
     ActivityState,
     ActivityStatus,
+    AgentState,
+    ChangeActivityRequest,
     SessionKind,
     SessionState,
     SessionStatus,
@@ -96,9 +99,33 @@ def _ended_activity(status: str, **overrides) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_world_schema_version_is_7():
-    """WORLD_SCHEMA_VERSION 必须为 7（时间与能量规格第九章「仍须修复」：世界结构版本 7）。"""
-    assert WORLD_SCHEMA_VERSION == 7
+def test_world_schema_version_is_8():
+    """WORLD_SCHEMA_VERSION 必须为 8（docs/dev/SPEC-persona-prompt.md 第七章「版本」：世界结构版本 8，只升一次）。"""
+    assert WORLD_SCHEMA_VERSION == 8
+
+
+def test_session_opened_by_action_id_is_optional_and_nonblank():
+    """SessionState.opened_by_action_id 缺省为 None（运行开始与到达）；由决策引起的切换记下非空的动作身份。"""
+    stay = {"session_id": "session-1-0001", "agent_id": 1, "kind": "stay", "location_id": "home",
+            "status": "active", "started_at": 1000, "name": "家（1月5日 00:00 起）"}
+    assert SessionState.model_validate(stay).opened_by_action_id is None
+    assert SessionState.model_validate({**stay, "opened_by_action_id": "action-9"}).opened_by_action_id == "action-9"
+    with pytest.raises(ValidationError, match="opened_by_action_id"):
+        SessionState.model_validate({**stay, "opened_by_action_id": ""})
+
+
+def test_activity_paused_at_is_written_on_pause_and_cleared_on_resume():
+    """ActivityState.paused_at 缺省为 None；暂停写入当前时刻，恢复清空（待办层按它排序）。"""
+    active = ActivityState.model_validate(_activity())
+    assert active.paused_at is None
+    agent = AgentState.model_construct(agent_id=1)
+    decision = active.model_copy(update={"kind": "wait", "next_interaction_at": 1300})
+    _, paused = change_activity(agent, decision, ChangeActivityRequest(
+        activity_id=active.activity_id, operation="pause"), 1300, 900)
+    assert (paused.status, paused.paused_at) == ("paused", 1300)
+    _, resumed = change_activity(agent, paused, ChangeActivityRequest(
+        activity_id=active.activity_id, operation="resume"), 1600, 900)
+    assert (resumed.status, resumed.paused_at) == ("active", None)
 
 
 # ---------------------------------------------------------------------------
@@ -378,14 +405,14 @@ def test_concluded_at_before_ended_at_is_rejected():
 
 
 # ---------------------------------------------------------------------------
-# WorldState.sessions 字段与 schema_version=7
+# WorldState.sessions 字段与 schema_version=8
 # ---------------------------------------------------------------------------
 
 
 def _minimal_world_state_dict(**overrides) -> dict:
     """构造最小合法 WorldState 字典（无代理、无库存）。"""
     base: dict = {
-        "schema_version": 7,
+        "schema_version": 8,
         "version": 0,
         "current_time": 1000,
         "end_time": 2000,
@@ -405,14 +432,14 @@ def _minimal_world_state_dict(**overrides) -> dict:
     return base
 
 
-def test_world_state_schema_version_7_is_valid():
-    """schema_version=7 的 WorldState 通过验证。"""
+def test_world_state_schema_version_8_is_valid():
+    """schema_version=8 的 WorldState 通过验证。"""
     ws = WorldState.model_validate(_minimal_world_state_dict())
-    assert ws.schema_version == 7
+    assert ws.schema_version == 8
 
 
-#: 时间与能量规格之前的世界结构版本；其检查点必须以版本不符拒绝。
-_VERSION_6_WORLD_SCHEMA = 6
+#: 人物提示七层之前的世界结构版本；其检查点必须以版本不符拒绝。
+_VERSION_7_WORLD_SCHEMA = 7
 
 
 def _assert_only_schema_version_mismatch(error: ValidationError) -> None:
@@ -421,22 +448,22 @@ def _assert_only_schema_version_mismatch(error: ValidationError) -> None:
         (("schema_version",), "literal_error")]
 
 
-def test_world_state_schema_version_6_is_rejected():
-    """版本 6 的旧世界状态以版本不符直接拒绝，不迁移不降级。"""
+def test_world_state_schema_version_7_is_rejected():
+    """版本 7 的旧世界状态以版本不符直接拒绝，不迁移不降级。"""
     with pytest.raises(ValidationError) as caught:
-        WorldState.model_validate(_minimal_world_state_dict(schema_version=_VERSION_6_WORLD_SCHEMA))
+        WorldState.model_validate(_minimal_world_state_dict(schema_version=_VERSION_7_WORLD_SCHEMA))
     _assert_only_schema_version_mismatch(caught.value)
 
 
-def test_run_with_version_6_world_state_is_rejected_on_open(engine_factory):
-    """已落盘的版本 6 世界状态在重新打开运行时以版本不符拒绝，不迁移（时间与能量规格第九章）。"""
+def test_run_with_version_7_world_state_is_rejected_on_open(engine_factory):
+    """已落盘的版本 7 世界状态在重新打开运行时以版本不符拒绝，不迁移（docs/dev/SPEC-persona-prompt.md 第七章「版本」）。"""
     engine = engine_factory()
     payload = engine.state.model_dump(mode="json")
-    payload["schema_version"] = _VERSION_6_WORLD_SCHEMA
+    payload["schema_version"] = _VERSION_7_WORLD_SCHEMA
     payload["version"] += 1
     engine.store.commit(payload, [EventDraft(
         event_type="environment_event", occurred_at=payload["current_time"],
-        visibility="system", data={"kind": "test_version_6_world_state"})])
+        visibility="system", data={"kind": "test_version_7_world_state"})])
     run_dir = engine.store.run_dir
     engine.close()
     with pytest.raises(ValidationError, match="schema_version") as caught:

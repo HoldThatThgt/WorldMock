@@ -18,6 +18,7 @@ from worldmock.profile.textgen import (
     RenderBudgetExceededError,
     count_hanzi,
     render_card,
+    window_text,
 )
 from tests.profile.conftest import make_card, make_window
 
@@ -95,6 +96,59 @@ def test_cross_midnight_bedtime_renders_as_next_day():
             lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
             bedtime=make_window(23.5, 25.0)))
     assert "23点半到1点" in render_card(card)
+
+
+_IDENTITY = ("产品经理，32岁，与伴侣合租两居室。\n本周在忙新版上线收尾；在意父母的体检结果。\n"
+             "亲近的人：母亲（家人，很亲近，电话、微信联系）、老周（老友，较亲近，微信、见面联系）。\n")
+_TAIL = "口味：爱看悬疑、纪录片；喜欢吃川菜、面食；常用长视频、短视频。\n压力时拼高达模型。"
+#: c3b24da 的 render_card 对三类卡片的输出（由 `git show c3b24da:src/worldmock/profile/textgen.py` 算出后写死）：
+#: 刻钟睡眠中点仍写整点、半点窗口、午夜后开始的窗口仍写「24点半」「25点」。
+_C3B24DA_RENDERS = {
+    "quarter_hour": _IDENTITY + (
+        "约7点到7点半起床、8点到8点半出门；午餐12点到13点、晚餐18点半到19点半；就寝23点到24点，睡眠中点约3点，"
+        "需睡7.5小时。\n习惯：午饭后→散步一刻钟（12点半到13点）。\n") + _TAIL,
+    "half_hour": _IDENTITY + (
+        "约6点半到7点半起床、8点半到9点出门；午餐11点半到12点半、晚餐18点半到19点半；就寝22点半到23点半，"
+        "睡眠中点约3点半，需睡7.5小时。\n"
+        "习惯：下班到家→公园慢跑半小时（19点到20点）；睡前→读几页小说（22点半到23点）。\n") + _TAIL,
+    "after_midnight": _IDENTITY + (
+        "约8点到8点半起床、9点到9点半出门；午餐12点到13点、晚餐19点到20点；就寝24点半到1点半，睡眠中点约5点，"
+        "需睡7.5小时。\n习惯：睡不着→刷短视频（25点到2点）；睡前→读几页小说（23点半到24点）。\n") + _TAIL,
+}
+
+
+def _golden_card(kind: str):
+    """@brief 金标卡片：刻钟睡眠中点、半点窗口、午夜后开始的就寝与习惯窗口。"""
+    if kind == "quarter_hour":
+        return make_card(chronotype_midsleep=3.75, habits=(
+            HabitSignature(trigger="午饭后", response="散步一刻钟", time_window=make_window(12.5, 13.0)),))
+    if kind == "half_hour":
+        return make_card(chronotype_midsleep=3.5, time_anchors=TimeAnchors(
+            wake=make_window(6.5, 7.5), leave_home=make_window(8.5, 9.0), lunch=make_window(11.5, 12.5),
+            dinner=make_window(18.5, 19.5), bedtime=make_window(22.5, 23.5)))
+    return make_card(chronotype_midsleep=5.25, time_anchors=TimeAnchors(
+        wake=make_window(8.0, 8.5), leave_home=make_window(9.0, 9.5), lunch=make_window(12.0, 13.0),
+        dinner=make_window(19.0, 20.0), bedtime=make_window(24.5, 25.5)), habits=(
+        HabitSignature(trigger="睡不着", response="刷短视频", time_window=make_window(25.0, 26.0)),
+        HabitSignature(trigger="睡前", response="读几页小说", time_window=make_window(23.5, 24.0))))
+
+
+@pytest.mark.parametrize("kind", sorted(_C3B24DA_RENDERS))
+def test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer(kind):
+    """@brief render_card 不动（docs/dev/research/persona-prompt-implementation-plan.md「人设层」）：刻钟、半点与
+    午夜后开始的窗口渲染出的卡片文本与 c3b24da 逐字节相同；刻钟与钟面写法只属于人设层的 hour_text / window_text。"""
+    card = _golden_card(kind)
+    assert render_card(card) == _C3B24DA_RENDERS[kind]
+
+
+def test_window_ends_at_or_after_midnight_render_as_clock_hours():
+    """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
+    （docs/dev/SPEC-persona-prompt.md「人设层」：作息为可读短语）。"""
+    assert window_text(make_window(25.0, 26.0)) == "1点到2点"
+    assert window_text(make_window(24.0, 25.5)) == "0点到1点半"
+    assert window_text(make_window(22.0, 24.0)) == "22点到0点"
+    assert window_text(make_window(23.5, 24.5)) == "23点半到0点半"
+    assert window_text(make_window(7.0, 7.5)) == "7点到7点半"
 
 
 def test_intimacy_bands_render():

@@ -1,5 +1,5 @@
 """@brief life 领域簇行为测试：补 commerce/basket/social_actions/activities/
-rules/content/work/work_review/game/travel/semantics/motivation/narration/social
+rules/content/work/work_review/game/travel/semantics/motivation/social
 的缺分支与未覆盖公共接口（C4c 覆盖率达标单元）。
 
 只新增测试，不改生产代码。断言对照的规格章节：`docs/CONTRACTS.md`「请求字段与结算检查」、
@@ -90,7 +90,6 @@ from worldmock.life.motivation import (
 )
 from worldmock.life.map_models import DataSource, SupplyConfig
 from worldmock.life.storefront_state import quote_state
-from worldmock.life.narration import render_scene
 from worldmock.life.scenario import (
     BodyConfig,
     ContentItemConfig,
@@ -385,7 +384,8 @@ def test_basket_meal_food_rate_is_zero_for_non_eating_use() -> None:
 
 
 def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
-    """多件路径镜像 commerce 口径：耐用品完成全额、暂停不推进、超持拒绝。"""
+    """使用路径镜像 commerce 口径：耐用品完成全额、暂停不推进、完成时手边不够一件的消耗品拒绝（食用只按开吃份量结算，
+    不在这里扣库存，见 test_dayrun_inventory_regressions）。"""
     durable = _product(product_id="item-dry", use_modes=("use",), consumable=False,
                        effect="dry", kcal=0)
     products = {"item-dry": durable}
@@ -399,10 +399,12 @@ def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
     fresh_paused = _use_activity(request, status=ActivityStatus.PAUSED)
     apply_meal_progress(agent, products, fresh_paused, _body())
     assert fresh_paused.data["consumed"]["item-dry"] == pytest.approx(0.0)
-    starved = _use_activity(_consume(), elapsed_seconds=450)
+    wipes = _product(product_id="item-wipe", use_modes=("use",), consumable=True, effect="clean", kcal=0)
+    starved = _use_activity(_consume(product_id="item-wipe", use_mode="use"), status=ActivityStatus.COMPLETED,
+                            ended_at=900, elapsed_seconds=900, last_settled_at=900)
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_HELD"):
-        apply_meal_progress(_agent(inventory={"home": {"food-1": 0.1}}),
-                            {"food-1": _product()}, starved, _body())
+        apply_meal_progress(_agent(inventory={"home": {"item-wipe": 0.1}}),
+                            {"item-wipe": wipes}, starved, _body())
 
 
 # ---------------------------------------------------------------------------
@@ -951,27 +953,6 @@ def test_entertainment_candidates_skip_items_shorter_than_a_minute() -> None:
                   if item.name == "entertainment")
     context = _context(agent=agent, contents=(tiny,), taste_weights={"tiny": 0.8})
     assert _entertainment_candidates(context, _profile(), family) == []
-
-
-# ---------------------------------------------------------------------------
-# narration：观察投影与提示合同（渲染上限/闭集）
-# ---------------------------------------------------------------------------
-
-def test_render_scene_with_empty_observation_is_blank() -> None:
-    """观察字段全部缺席时场景段落为空串（渲染器不虚构事实）。"""
-    assert render_scene({}) == ""
-
-
-def test_render_scene_covers_day_goals_without_duplicate_action_result() -> None:
-    """目标进入场景提示；新动作结果仅经进度事实呈现。"""
-    rendered = render_scene({"day_plan": {"goals": [{"intent_kind": "工作", "progressed": False}]}})
-    assert "工作（未推进）" in rendered
-    assert render_scene({"recent_action_results": "你刚吃完饭"}) == ""
-
-
-def test_field_blacklist_tolerates_non_dict_route_entries() -> None:
-    """routes 白名单检查只作用于字典条目，纯字符串条目跳过。"""
-    assert render_scene({"routes": ["plain-entry"]}) == ""
 
 
 # ---------------------------------------------------------------------------

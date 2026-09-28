@@ -63,9 +63,12 @@ def test_choosing_chat_with_the_inviter_accepts_without_a_new_invite(engine_fact
     engine = engine_factory("multi-person.json")
     _people(engine)
     submit_round(engine, {1: _chat(engine, 1, 2), 2: _wait()}, "invite")
-    inbox = engine.observe(context(engine, "invite-inbox", 2))["facts"]["inbox"]
+    events = engine.observe(context(engine, "invite-inbox", 2))["progress_layer"]["events"]
+    arrivals = [row for row in events if row["type"] == "message_arrival"]
     inviter = engine.state.agents[1].name
-    assert inbox[-1]["kind"] == "chat_invite" and inbox[-1]["head"] == f"{inviter}邀请你交谈，对{inviter}选择交谈即接受"
+    assert (arrivals[-1]["kind"], arrivals[-1]["sender"]) == ("chat_invite", inviter)
+    invite = next(item.text for item in engine.state.agents[2].inbox.values() if item.kind == "chat_invite")
+    assert arrivals[-1]["text"] == f"{invite}，对{inviter}选择交谈即接受"
     submit_round(engine, {2: _chat(engine, 2, 1)}, "accept")
     chats = _chats(engine)
     assert chats[2].planned_end_at == chats[1].planned_end_at and chats[2].started_at == chats[1].started_at
@@ -176,7 +179,8 @@ def test_people_on_the_road_are_not_present_and_cannot_be_invited(engine_factory
     submit_round(engine, {1: _wait(), 2: ("start_activity", start_activity(trip[1], trip[0]))}, "leave")
     assert _person(engine, 1, 2) is None and _person(engine, 2, 1) is None
     watcher = engine.observe(context(engine, "road-left", 1))
-    assert engine.state.agents[2].name not in [row["name"] for row in watcher["facts"]["people_here"]]
+    present = [row["name"] for row in watcher["tool_layer"]["targets"] if row["name"].startswith("人物：")]
+    assert f"人物：{engine.state.agents[2].name}" not in present
 
 
 def test_awake_partner_gets_the_invite_in_the_same_second_and_a_sleeper_is_not_woken(engine_factory) -> None:

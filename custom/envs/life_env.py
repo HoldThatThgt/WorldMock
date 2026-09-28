@@ -27,14 +27,18 @@ class LifeEnv(EnvBase):
 
     def __init__(self, scenario_path: str | None = None, run_dir: str | None = None,
                  run_identity: dict | None = None, open_existing: bool = False,
-                 agent_taste_weights: dict | None = None):
-        """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。"""
+                 create_options: dict | None = None):
+        """@brief 注册扫描可无参数构造；实际 init 必须具有完整路径。
+
+        create_options 是新建运行的附加输入：agent_taste_weights（人物口味权重）与 same_second_continuation
+        （同秒续接开关，缺省开，冻结进清单 stages.action；docs/dev/SPEC-persona-prompt.md 第二章「同秒续接」）。
+        """
         super().__init__()
         self.scenario_path = Path(scenario_path).resolve() if scenario_path else None
         self.run_dir = Path(run_dir).resolve() if run_dir else None
         self.run_identity = RunIdentity.model_validate(run_identity) if run_identity else None
         self.open_existing = open_existing
-        self.agent_taste_weights = agent_taste_weights
+        self.create_options = dict(create_options or {})
         self.engine: LifeEngine | None = None
 
     @classmethod
@@ -61,9 +65,10 @@ class LifeEnv(EnvBase):
         else:
             if self.run_identity is None:
                 raise ProtocolError("New LifeEnv run requires explicit run_identity")
-            from worldmock.runtime import two_stage_model_identity
+            from worldmock.runtime import stage_model_identity
+            identity = stage_model_identity(self.create_options.get("same_second_continuation", True))
             self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity,
-                                            two_stage_model_identity(), self.agent_taste_weights)
+                                            identity, self.create_options.get("agent_taste_weights"))
         if int(start_datetime.timestamp()) != self.engine.state.current_time:
             self.engine.close()
             self.engine = None

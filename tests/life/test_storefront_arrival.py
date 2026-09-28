@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.life.conftest import advance_next, advance_until_ready, context, stage_day_plan, travel_quote, wake_by_mail
+from tests.life.conftest import (advance_next, advance_until_ready, context, stage_day_plan, travel_quote,
+                                 wake_by_mail, start_request)
 from tests.life.test_commerce import _observed_action
 from tests.life.test_scheduling import _custom_engine, _document, _identity
 from worldmock.footprints.models import EventDraft
@@ -146,7 +147,7 @@ def _travel(engine, destination, name):
                  if item.origin_id == origin and item.destination_id == destination and item.mode == "driving")
     before = dict(engine.state.accounts)
     # Updated to use StartActivityRequest with action="travel_to"
-    _, started = _observed_action(engine, name, "start_activity", StartActivityRequest(
+    _, started = _observed_action(engine, name, "start_activity", start_request(
         targets=[], action="travel_to", planned_duration_seconds=travel_quote(engine, "driving", route.duration_seconds),
         destination_id=destination, travel_mode="driving",
         text=None, quantity=None, price_version=None, deliverable=None, summary=None))

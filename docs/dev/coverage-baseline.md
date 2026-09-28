@@ -1,12 +1,14 @@
 # 覆盖率门禁口径与基线
 
-> 状态：时间与能量特性（阶段 0–7）合入后的最终代码已通过离线工程门禁；此前各特性及主线数字保留历史身份，不与当前结果相加
-> 日期：2026-09-26
+> 状态：人物 Prompt 七层特性（阶段 1–6）合入后的最终代码已通过离线工程门禁；此前各特性及主线数字保留历史身份，不与当前结果相加
+> 日期：2026-09-28
 > 范围：覆盖率门禁的判定口径、测量与排除范围、失败关闭约定、使用命令与基线记录；功能 spec 测试用例覆盖率矩阵的维护见 `docs/dev/ANALYSIS-spec-coverage.md`
 
 门禁是 `scripts/coverage_gate.py` 一件事：跑全量测试，用 coverage 的分支数据与生产源码的公共接口清单做两项机器判定，把结果写进 `docs/dev/coverage-report.json`，用退出码 0 或 1 表态。本文描述该脚本当前的实际行为。
 
-时间与能量特性的最终代码提交 `ef13dc58770af52000a1c2e81883561e85a0c904` 已通过门禁：3978 passed、8 个既有平台或产物条件跳过，分支覆盖率 94.57%，未覆盖公共接口为零；数字见「基线记录」首节，完整证据见 [时间与能量验收记录](research/time-and-energy-verification.md)。
+人物 Prompt 七层特性的最终代码提交 `e80404099946187a9def070c9e9ae05c45c14621` 已通过门禁：4,295 passed、0 failed、8 个既有平台或产物条件跳过，分支覆盖率 94.88%，未覆盖公共接口为零；数字见「基线记录」首节，完整证据见 [人物 Prompt 验收记录](persona-prompt-verification.md)。
+
+时间与能量特性的最终代码提交 `ef13dc58770af52000a1c2e81883561e85a0c904` 的门禁结果（3978 passed、8 个既有跳过，分支 94.57%，未覆盖公共接口为零）保留为历史基线，见「基线记录」第二节与 [时间与能量验收记录](research/time-and-energy-verification.md)。
 
 地图与门店供给独立分支的最终验收提交 `017d49c4a246c0c524e541571220e1a07b16ce87` 已通过门禁：
 3240 passed、4 个历史运行锚定用例因原产物缺失而 skipped，分支覆盖率 98.49%，未覆盖公共接口为零。
@@ -68,7 +70,28 @@ uv run coverage html            # HTML 明细
 
 ## 基线记录
 
-### 当前：时间与能量特性合入后
+### 当前：人物 Prompt 七层特性合入后
+
+完整门禁的被测源码提交为 `e80404099946187a9def070c9e9ae05c45c14621`（`e804040`，人物 Prompt 七层阶段 1–6、评审修复、两路测试加固与规格符合性修复全部合入后的最终代码），
+`docs/dev/coverage-report.json` 生成时间为 `2026-09-28T15:39:41+00:00`，其 `source_identity` 与该提交一致，`snapshot_id` 为
+`ce9092b7-c81e-45fe-9046-395d20212185`，`manifest_hash` 为 `350dcc52460e04fccdcb5d41a39bfe6163646cd8a3bf6498864642309a379a0a`；报告随 `95a4447` 提交（只含该报告）。
+它取代同一特性在 `f798ea7` 上的报告（随 `da0d393` 提交：4258 个不重复用例 passed、8 skipped，分支 94.84%，covered=7451、total=7856，未覆盖公共接口 0）。
+
+| 指标 | 人物 Prompt 七层特性合入后的完整门禁 |
+| --- | --- |
+| 全量 pytest | 4,295 passed、0 failed、8 skipped：一次调用 `python -m pytest tests`，25 warnings（与实施前基线的警告数相同），用时 1:04:15；覆盖率下八个分片合计相同。跳过都是既有的平台或产物条件跳过：TextWorld 在项目锁定文件中没有 Windows wheel 1 项、Windows 账户没有符号链接权限 3 项、资金锚定运行产物不在本机 4 项；本特性新增用例无跳过 |
+| 整体分支覆盖率 | 94.88%（covered=7467，missing=403，total=7870；阈值 85.00） |
+| 未覆盖公共接口数 | 0 |
+| 顶层判定 `passed` | true（通过） |
+
+本机 `uv run` 不可用（AS2 子模块 `vendor/agentsociety2` 未检出，`uv` 找不到可编辑依赖），门禁按同一判定逻辑分片执行：
+在主工作区以虚拟环境解释器分八个分片（至多三个并行）执行 `python -m coverage run -p -m pytest`，覆盖全部测试目录，分片合计 4,295 passed、
+8 skipped、0 failed，与一次调用相同；查看器回归经 Node 24 运行；随后 `coverage combine`，再调用 `scripts/coverage_gate.py` 的 `main()`，
+以分片的测试退出码（0）代替其内部的全量测试，以虚拟环境解释器的 `python -m coverage json` 代替 `uv run coverage json`，
+判定逻辑、阈值与报告格式不变。报告中的 `command` 字段仍是脚本常量 `uv run coverage run -m pytest -q`。
+逐阶段评审、独立语义突变审查与门禁明细见[人物 Prompt 验收记录](persona-prompt-verification.md)。
+
+### 时间与能量特性合入后的历史基线
 
 完整门禁的被测源码提交为 `ef13dc58770af52000a1c2e81883561e85a0c904`（`ef13dc5`，时间与能量阶段 0–7 全部合入后的最终代码），
 `docs/dev/coverage-report.json` 生成时间为 `2026-09-26T16:30:56+00:00`，其 `source_identity` 与该提交一致；报告随 `82e1698` 提交。
@@ -136,3 +159,5 @@ uv run coverage html            # HTML 明细
 | `2026-09-20-map-main-merge` | 2026-09-20 | 单列地图与品类主线组合的 70af9a7 完整门禁，以及生产源码不变的 6fe3ab7 测试加固与独立复验；保留旧统计身份。 |
 | `2026-09-20-map-path` | 2026-09-20 | 地图分支曾将输出路径记录为 `docs/coverage-report.json`；当前组合以 main 脚本实际 `docs/dev/coverage-report.json` 为准；历史基线保留原始路径、数值与源码身份。 |
 | `2026-09-26-time-and-energy` | 2026-09-26 | 基线记录按时间与能量特性合入后 `ef13dc5` 重新生成的报告改写（CB1）：3978 passed、8 skipped、分支 94.57%、未覆盖公共接口 0，取代 2026-09-22 的中断运行报告；原「当前地图与品类主线组合」一节改为历史基线，数值与源码身份不变。 |
+| `2026-09-28-persona-prompt` | 2026-09-28 | 基线记录按人物 Prompt 七层特性合入后 `f798ea7` 重新生成的报告改写（人物 Prompt 台账 CB1）：4258 个不重复用例 passed、0 failed、8 skipped，分支 94.84%（7451/7856），未覆盖公共接口 0；写明本机 `uv run` 不可用，门禁以八个覆盖率分片执行后合并，再以同一判定逻辑运行 `scripts/coverage_gate.py`；原「当前：时间与能量特性合入后」一节改为历史基线，数值与源码身份不变；文件头状态与日期改写 |
+| `2026-09-28-persona-prompt-final` | 2026-09-28 | 基线记录按最终代码 `e804040`（两路测试加固与规格符合性修复合入后）重新生成的报告改写（人物 Prompt 台账 CB1）：4,295 passed、0 failed、8 skipped（一次调用与八个覆盖率分片相同），分支 94.88%（7467/7870），未覆盖公共接口 0，报告随 `95a4447` 提交；取代 `f798ea7` 的报告（`da0d393`），其数字在「基线记录」首节留一句；分片说明删去完整性守卫重复计入的去重口径 |

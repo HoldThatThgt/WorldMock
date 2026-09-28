@@ -3,16 +3,16 @@
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
 
 import pytest
-from agentsociety2.agent.base import ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 
-from custom.agents.life_agent import LifeAgent
 from tests.life.conftest import (activity_name, advance_next, context, settle_day_plans, stage_day_plan,
-                               start_activity, submit_round, travel_quote, wake_by_mail)
+                               start_activity, submit_round, target_actions, tool_targets, travel_quote,
+                               wake_by_mail, start_request)
 from tests.life.test_work_review import _at_task_start
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
@@ -20,7 +20,7 @@ from worldmock.life import felt
 from worldmock.life.body import minimum_energy_cost
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, ReportStatusRequest,
-                                   ReviseDayPlanRequest, StartActivityRequest)
+                                   ReviseDayPlanRequest)
 from worldmock.life.social_actions import CALL_MET, CHAT_MET
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -49,7 +49,7 @@ def _observed_action(engine, round_id: str, action: str, object_id: str | None =
                    if object_id is None or row["object_id"] == object_id
                    if any(item["canonical_action"] == action for item in row["actions"]))
     chosen = next(item for item in binding["actions"] if item["canonical_action"] == action)
-    request = StartActivityRequest(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
+    request = start_request(targets=[binding["object"]], actions=[chosen["verb"]], ways=[chosen["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
 
@@ -85,23 +85,19 @@ def test_zero_energy_wait_settles_after_instant_action(engine_factory) -> None:
 
 
 def test_zero_energy_observation_offers_every_action_without_energy_projection(engine_factory) -> None:
-    """零能量时工具与动作照常列出：观察不带能量可行性，观看、浏览与自身动作都在，合同不带能量投影。"""
+    """零能量时工具与动作照常列出：观察不带能量可行性，观看、浏览与自身动作都在且可用，合同不带能量投影。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _set_energy(engine, 0)
     decision = context(engine, "zero-energy-observation")
     observed = engine.observe(decision)
-    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observed}]
-    agent = LifeAgent()
-    agent.prepare_react_loop(ReactLoopRequest(0, decision.observed_at, wrapped))
-    tool_names = {item["function"]["name"] for item in agent.build_react_tool_schemas(readonly=False)}
-    assert "start_activity" in tool_names
-    objects = {item["object"]: {row["action"]: row["note"] for row in item["actions"]}
-               for item in observed["facts"]["interactive_objects"]}
-    # 能量不是准入事实，也就不写进说明：自身动作与浏览没有说明，内容只写时长（「全长…」）。
-    assert objects["自己"] == {"interact：等待": None, "sleep：睡觉": None}
-    assert objects["商品目录"] == {"interact：浏览": None}
-    assert objects["内容：Sintel"]["interact：接着看"].startswith("全长")
+    # 能量不是准入事实：自身动作、浏览与观看都可用，reason 为 null；内容动作只写时长。
+    assert {way: (row["available"], row["reason"]) for way, row in target_actions(observed, "自己").items()} == {
+        "等待": (True, None), "睡觉": (True, None)}
+    assert target_actions(observed, "商品目录")["浏览"]["available"] is True
+    watch = target_actions(observed, "内容：Sintel")["接着看"]
+    assert watch["available"] is True and watch["duration"].startswith("约")
+    assert "energy" not in json.dumps(observed["tool_layer"], ensure_ascii=False)
     assert "energy_feasibility" not in observed
     assert all("energy_projection" not in entry for entry in observed["affordance_contract"].values())
     assert observed["body"]["levels"]["appetite"] == "饿得发慌"
@@ -123,9 +119,10 @@ def test_routes_are_feasible_by_reachability_not_energy(engine_factory) -> None:
     assert event_rows and all("energy_feasible" not in item and "minimum_energy_cost_kcal" not in item
                               for item in event_rows)
     office = next(item.name for item in engine.scenario.locations if item.location_id == "office")
-    public = {item["mode"]: item for item in observed["facts"]["routes"] if item["destination"] == office}
-    assert public["driving"]["feasible"] is True and public["walking"]["feasible"] is True
-    assert (public["driving"]["effort"], public["walking"]["effort"]) == ("轻松", "费力")
+    public = target_actions(observed, f"地点：{office}")
+    assert public["驾车"]["available"] is True and public["步行"]["available"] is True
+    assert (public["驾车"]["note"], public["步行"]["note"]) == ("费力程度：轻松", "费力程度：费力")
+    assert f"地点：{office}" in tool_targets(observed)
 
 
 @pytest.mark.parametrize("action", ["wait", "sleep", "watch", "browse"])
@@ -183,7 +180,7 @@ def test_zero_energy_resume_is_accepted(engine_factory) -> None:
     decision = context(engine, "watch-and-wait")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    request = StartActivityRequest(targets=["内容：Sintel", "自己"], actions=["interact", "interact"],
+    request = start_request(targets=["内容：Sintel", "自己"], actions=["interact", "interact"],
                                    ways=["接着看", "等待"])
     engine.submit_action(DirectToolCall(decision, "action-watch-and-wait", "start_activity", request))
     assert engine.commit_decision_round("watch-and-wait")[0].status == "in_progress"

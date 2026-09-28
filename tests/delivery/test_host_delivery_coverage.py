@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.delivery.prompt_fixtures import layered_user
 from worldmock.life.models import WORLD_SCHEMA_VERSION, StartActivityRequest
 
 from worldmock.delivery.evidence_encoding import (
@@ -99,7 +100,7 @@ def _single_agent_export(tmp_path):
         EventDraft(event_id='fixture-prompt-1', event_type='model_request', occurred_at=100,
                    agent_id=1, decision_id='decision', visibility='agent', data={
                        'phase': 'request', 'request': {
-                           'messages': [{'role': 'system', 'content': 'Actual prompt'}],
+                           'messages': [{'role': 'system', 'content': 'Actual prompt'}, layered_user()],
                            'tools': [{'type': 'function', 'function': {
                                'name': 'start_activity',
                                'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -132,7 +133,7 @@ def _replay_export_pair(tmp_path):
                    data={'balance_fen': 800}),
         EventDraft(event_type='model_request', occurred_at=100, agent_id=1, decision_id='decision',
                    visibility='agent', data={'phase': 'request', 'request': {
-                       'messages': [{'role': 'system', 'content': 'Parent prompt'}],
+                       'messages': [{'role': 'system', 'content': 'Parent prompt'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': 'start_activity',
                            'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -162,9 +163,16 @@ def _replay_export_pair(tmp_path):
                                              'intervention_sha256': digest,
                                              'before_balance_fen': 800, 'after_balance_fen': 50})])
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          data={'balance_fen': 50}),
+                                          decision_id='branch-decision', data={'balance_fen': 50}),
+                               EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
+                                          decision_id='branch-decision', visibility='system', data={
+                                              'phase': 'request', 'request': {
+                                                  'messages': [{'role': 'system', 'content': 'Branch prompt'},
+                                                               layered_user()],
+                                                  'tools': [{'type': 'function', 'function': {
+                                                      'name': 'start_activity', 'parameters': {}}}]}}),
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
-                                          action_id='wait', data={
+                                          decision_id='branch-decision', action_id='wait', data={
                                               'tool_name': 'start_activity',
                                               'request': {'targets': ['自己'], 'actions': ['interact'],
                                                           'ways': ['等待']}})])
@@ -322,7 +330,7 @@ def test_deliver_success_path_publishes_full_manifest(tmp_path, monkeypatch):
     manifest = deliver(_single_agent_export(tmp_path), destination, ROOT)
 
     assert calls == ['action', 'intent', 'dreaming', 'rules']
-    assert manifest['schema_version'] == 1 and manifest['committed'] is True
+    assert manifest['schema_version'] == 2 and manifest['committed'] is True
     assert manifest['run_id'] == 'run' and manifest['source_group_id'] == 'run'
     assert manifest['map_dataset'] == map_provenance(
         load_runtime_scenario(ROOT / 'scenarios/multi-person.json')[0].scenario)
@@ -986,7 +994,7 @@ def test_action_groups_reject_requests_without_agent(tmp_path):
 
 def test_visible_event_expands_text_and_binary_materials(tmp_path):
     """文本素材展开内容、二进制素材保留模态引用、摘要不符拒绝。"""
-    payload = {'scene': '清晨在家'}
+    payload = {'note': '清晨在家'}
     raw = json.dumps(payload).encode()
     digest = hashlib.sha256(raw).hexdigest()
     assets = tmp_path / 'assets'
@@ -1014,17 +1022,16 @@ def test_visible_event_expands_text_and_binary_materials(tmp_path):
 
 
 def test_expand_observed_results_rejects_non_list_and_invisible_references():
-    """观察摘要引用必须为列表且来自人物可见观察。"""
-    observed = event('visible', 2, 'observation', {'recent_action_results': 'not-a-list'})
+    """观察进度来源引用必须为事件身份字符串列表，且来自人物可见观察。"""
+    observed = event('visible', 2, 'observation', {'progress_event_ids': 'not-a-list'})
     with pytest.raises(IntegrityError, match='must be a list'):
         _expand_observed_results([observed], {}, cutoff=2)
-    hidden = event('hidden', 2, 'observation',
-                   {'recent_action_results': [{'event_id': 'x'}]}, visibility='system')
+    hidden = event('hidden', 2, 'observation', {'progress_event_ids': ['x']}, visibility='system')
     with pytest.raises(IntegrityError, match='agent-visible observation'):
         _expand_observed_results([hidden], {'x': {}}, cutoff=2)
-    string_reference = event('visible', 2, 'observation', {'recent_action_results': ['str']})
+    object_reference = event('visible', 2, 'observation', {'progress_event_ids': [{'event_id': 'x'}]})
     with pytest.raises(IntegrityError, match='no event identity'):
-        _expand_observed_results([string_reference], {}, cutoff=2)
+        _expand_observed_results([object_reference], {}, cutoff=2)
 
 
 def test_attach_evidence_skips_absent_prerequisite_identity(tmp_path):

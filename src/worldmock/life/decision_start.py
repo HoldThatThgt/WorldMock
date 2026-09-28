@@ -1,28 +1,19 @@
-"""@brief 两阶段决策的 decision_started 证据装配（docs/dev/SPEC-life-realism.md「两阶段决策」）。
+"""@brief decision_started 证据装配与行动请求判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。
 
-decision_started 事件不可变（events_no_update 触发器），而决策自述在决策轮
-开启之后才由人物模型产生——因此引擎延迟落库：人物决策自述可得时才写
-decision_started（data 含 decision_statement，occurred_at=决策提供时刻），
-事件一次写完整、从不更新。纯函数装配在本模块，落库时序由 engine 接线：
-决策自述响应写入完整事件；引擎直驱路径在首个动作登记、结算或中止时写入不含自述的事件。
+decision_started 事件不可变（events_no_update 触发器），决策轮开启时只冻结轮次字段；引擎在本次决策的首个
+行动请求（phase=request、带生活工具、thinking 开启、无 purpose）与该请求同批提交 decision_started，排在请求之前。
+引擎直驱路径（没有模型证据）在首个动作登记、结算或中止时写入。data 恒为闭集
+{round_id, round_order, world_state_version, wake_reasons}。纯函数装配在本模块，落库时序由 engine 接线。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from worldmock.footprints.models import (
-    DECISION_STATEMENT_FIELD,
-    WAKE_REASONS_FIELD,
-    EventDraft,
-    validate_decision_rhythm,
-)
-from worldmock.life.narration import DecisionStatementValidationError, validate_decision_statement
+from worldmock.footprints.models import WAKE_REASONS_FIELD, EventDraft, validate_decision_rhythm
 
-#: 决策自述阶段采样参数，与人物请求保持同值。
-#: 与 custom/agents/life_agent.py 的同名常数同值（agent 层不可被 src 反向导入）。
-_DECISION_STATEMENT_TEMPERATURE = 1.0
-_DECISION_STATEMENT_MAX_TOKENS = 8000
+#: 行动请求才开放的世界请求工具；只读问答、记忆巩固与反思的请求都不带它。
+_ACTION_TOOL = "start_activity"
 
 
 def defer_decision_starts(contexts: list[Any], round_id: str,
@@ -47,55 +38,57 @@ def defer_decision_starts(contexts: list[Any], round_id: str,
     return starts
 
 
-def pop_decision_start(pending: dict[int, dict], agent_id: int, occurred_at: int,
-                       decision_statement: str | None = None) -> EventDraft | None:
+def pop_decision_start(pending: dict[int, dict], agent_id: int, occurred_at: int) -> EventDraft | None:
     """@brief 取出并移除一个人物的延迟 decision_started 草稿（无待写返回 None）。"""
     start = pending.pop(agent_id, None)
     if start is None:
         return None
-    payload = dict(start["data"])
-    if decision_statement is not None:
-        payload[DECISION_STATEMENT_FIELD] = decision_statement
     return EventDraft(event_type="decision_started", occurred_at=occurred_at,
                       agent_id=agent_id, decision_id=start["decision_id"],
-                      observed_at=occurred_at, data=payload)
+                      observed_at=occurred_at, data=dict(start["data"]))
 
 
 def flush_decision_starts(pending: dict[int, dict], occurred_at: int) -> list[EventDraft]:
-    """@brief 取出引擎直驱路径的全部剩余延迟草稿，不制造决策自述。"""
+    """@brief 取出引擎直驱路径的全部剩余延迟草稿。"""
     return [draft for draft in (pop_decision_start(pending, agent_id, occurred_at)
                                 for agent_id in sorted(pending)) if draft is not None]
 
 
-def maybe_decision_statement_start(pending: dict[int, dict], agent_id: int, occurred_at: int,
-                          exchange: Any) -> EventDraft | None:
-    """@brief 模型交换是有效决策自述响应时取出该人物的 decision_started 草稿。
+def is_action_request(request: Any) -> bool:
+    """@brief 行动请求的唯一判定：没有 purpose、tools 含 start_activity 且 thinking 开启。
 
-    决策自述响应判定（与 agent 层 prelude_decision_statement_request 的形状一致）：
-    请求不带 tools、temperature=1.0、max_tokens=8000 且禁用思考——记忆巩固/反思的
-    LLM 调用不带这些参数，行动阶段 ReAct 请求必带 tools，均被排除。
-    响应带协议错误（超长/空）或文本不满足决策自述协议时返回 None（等待重试
-    或引擎终止本次决策），不抛错。
+    与存储侧 SQL 谓词同义（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）；工作验收与零点计划带 purpose，
+    只读问答、记忆巩固与反思不带 start_activity。
     """
-    request = getattr(exchange, "request", None)
-    if not isinstance(request, dict) or "tools" in request:
-        return None
-    if (request.get("temperature") != _DECISION_STATEMENT_TEMPERATURE
-            or request.get("max_tokens") != _DECISION_STATEMENT_MAX_TOKENS):
-        return None
+    if not isinstance(request, dict) or request.get("purpose") is not None:
+        return False
     extra_body = request.get("extra_body")
-    if not isinstance(extra_body, dict) or extra_body.get("thinking") != {"type": "disabled"}:
+    if not isinstance(extra_body, dict) or extra_body.get("thinking") != {"type": "enabled"}:
+        return False
+    tools = request.get("tools")
+    if not isinstance(tools, list):
+        return False
+    return any(isinstance(item, dict) and isinstance(item.get("function"), dict)
+               and item["function"].get("name") == _ACTION_TOOL for item in tools)
+
+
+def maybe_action_request_start(pending: dict[int, dict], agent_id: int, occurred_at: int,
+                               exchange: Any) -> EventDraft | None:
+    """@brief 模型交换是本次决策的行动请求时取出该人物的 decision_started 草稿。
+
+    只认 phase=request 的交换；响应、失败与非行动请求返回 None。已取出过的人物再次命中时返回 None，
+    因此只有首个行动请求带出 decision_started。
+    """
+    if getattr(exchange, "phase", None) != "request" or not is_action_request(getattr(exchange, "request", None)):
         return None
-    if getattr(exchange, "error", None) is not None:
-        return None
-    response = getattr(exchange, "response", None)
-    if not isinstance(response, dict):
-        return None
-    choices = response.get("choices")
-    message = choices[0].get("message") if isinstance(choices, list) and choices else None
+    return pop_decision_start(pending, agent_id, occurred_at)
+
+
+def response_self_note(response: Any) -> str | None:
+    """@brief 提交世界请求那一次回复的正文：去掉首尾空白后的 choices[0].message.content，空或缺失时为 None。"""
+    choices = response.get("choices") if isinstance(response, dict) else None
+    first = choices[0] if isinstance(choices, list) and choices else None
+    message = first.get("message") if isinstance(first, dict) else None
     content = message.get("content") if isinstance(message, dict) else None
-    try:
-        decision_statement = validate_decision_statement(str(content or "").strip())
-    except DecisionStatementValidationError:
-        return None
-    return pop_decision_start(pending, agent_id, occurred_at, decision_statement)
+    text = content.strip() if isinstance(content, str) else ""
+    return text or None

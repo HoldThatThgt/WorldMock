@@ -231,8 +231,9 @@ def read_new_messages(agent: AgentState, only: set[str] | None = None) -> AgentS
     """@brief 新收件箱消息计为已读：社交需要 −0.05/条 + 情绪 +0.1/条（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
 
     边界在唤醒判定之后调用，使未读消息先成立 message_arrival
-    （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察展示过的
-    消息（轮前收件箱）：看过的消息不在其后的边界再次唤醒，本轮内送达的消息仍未读。
+    （docs/dev/SPEC-time-and-energy.md 第一章「人物之间的消息」）。决策轮提交时以 only 限定为本轮观察全文已呈现的
+    消息（观察的 presented_message_ids 与轮前收件箱的交集，docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：
+    全文看过的消息不在其后的边界再次唤醒，没有全文呈现的与本轮内送达的消息仍未读。
 
     :param agent: 人物状态
     :param only: 只读这些消息身份；None 表示全部未读消息

@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 数据交付
 
-> **状态**：DRAFT  
-> **日期**：2026-09-26  
-> **版本**：v1.5
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
+> **日期**：2026-09-28  
+> **版本**：v1.7
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -59,7 +59,8 @@ flowchart TB
 记录引擎负责固定截止、事件与素材导出、共同检查点和导出完整性认证，
 格式与发布流程统一见[记录引擎的固定截止导出](05-recording-engine.md#固定截止导出)。
 交付模块只消费认证快照；不完整导出用于诊断，不能进入正式交付。
-交付先核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`，不符即拒绝，不构造窗口：交付时用当前代码的场景渲染重建已存观察，旧结构的场景不能按新渲染解释。
+交付先核对导出最终检查点的 `state.schema_version` 等于当前 `WORLD_SCHEMA_VERSION`（8），不符即拒绝，不构造窗口。
+交付不再重新渲染已存观察：窗口按观察事件中保存的层数据与实际请求投影，旧结构的观察不能按新形状解释。交付清单 `schema_version` 为 2。
 交付从下面的证据窗口开始，训练记录和规则夹具属于 LabelKit 加工产物。
 
 ## 3. 证据窗口
@@ -93,7 +94,8 @@ flowchart TB
 ### 3.3 动作窗口提取规则
 
 动作窗口读取目标动作前实际发送给该人物模型的行动请求作为 prompt，
-包含当时的 system、user、工具定义与消息历史；不能从结构化观察推测人物卡片或记忆。
+包含当时的 system、user、工具定义与消息历史；同秒续接的请求另含本秒前序决策的原生 assistant 与 tool 消息。
+不能从结构化观察推测人设层或记忆层。
 意图窗口沿用这一真实请求，并可包含截止前已经发生且实际可见的动作与结果。
 原请求事件身份和 canonical 摘要进入来源索引；请求缺失、跨人物、跨决策或与目标动作不匹配时失败。
 同一窗口的事件必须归属同一数字人，并满足知识截止。私有事件与字段的边界遵循
@@ -110,10 +112,10 @@ flowchart LR
 
 | 检查层次 | 规则 |
 | --- | --- |
-| 事件可见性 | 动作与意图输入排除模型请求、模型响应、记忆更新与决策自述；dreaming 对决策自述的读取遵循其专用合同；`conclude_activity.memories` 属记忆写入，意图与 `dreaming` 输入裁去该参数 |
+| 事件可见性 | 动作与意图输入排除私有事件集（模型请求、模型响应、记忆更新与 `decision_started`，`PRIVATE_EVENTS`）；回复正文 `self_note` 作为实际请求的一部分进入动作与意图输入，并进入 dreaming 输入；`conclude_activity.memories` 属记忆写入，意图与 `dreaming` 输入中动作请求事件的投影裁去该参数（实际请求原文照原样保留，见 3.4 节） |
 | 身体字段可见性 | 同一观察中，体感分级可供数字人理解处境；`body.values` 和 `motivation_internal` 只保留在内部证据中 |
 | 结算字段可见性 | `body_settlement` 等内部身体变化不能因所在事件标为 `agent` 就整体复制到输入；只提供当时实际呈现的结果 |
-| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
+| 实际 prompt | 只从本人行动阶段的 `model_request` 提取模型可见消息与工具；同秒续接中本秒前序 assistant 的 `reasoning_content` 作为实际请求的一部分原样保留（[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)），窗口的其他事件与目标不额外混入；私有工作评审请求、响应及 reasoning 不进输入或目标；零点计划的请求带 `purpose="plan_day"`，不作窗口 prompt |
 | 前置状态 | 当观察已经出现在窗口事件中，只保留前置观察引用，不复制整份 `events[0].data` |
 | 目标结果 | 只收该动作公开结算事实；私有 `model_request`、`model_response` 和记忆更新不得成为 `target.outcomes`；动作窗口的目标保留完整请求（含 `conclude_activity.memories`），记忆更新事件仍不进 `target.outcomes` |
 | 来源关联 | 裁剪后的输入保留原事件引用，完整事实与内部数值仍可用于审计；不得据此向模型补充隐藏状态 |
@@ -123,7 +125,7 @@ flowchart LR
 
 窗口构造以公开字段投影和实际 prompt 来源双重核验：结构化观察中即使保存了菜单、
 内部身份（旧导出另含已删除的能量可行性）或可供性合同，也不能把原始 `data` 整棵复制进训练输入。
-测试必须证明禁用字段、重复前置状态和私有工作评审请求均不泄漏，且人物卡片、记忆与场景与所选实际请求一致。
+测试必须证明禁用字段、重复前置状态和私有工作评审请求均不泄漏，且人设层、记忆层、环境层与所选实际请求一致。
 
 ### 地图与门店供给的证据窗口
 
@@ -138,7 +140,14 @@ flowchart LR
 
 离线 Dreaming 由数据交付负责：从认证导出构造经历窗口，通过 LabelKit 生成经历归纳、反思或假设推演。
 材料按场景时区与人物自然日组织，保留来源事件和知识截止，不混入未来经历；
-私有材料遵循 Dreaming 专用合同，不能因此进入动作或意图任务。生成结果默认不写回运行中的人物。
+dreaming 读回复正文 `self_note` 与实际请求中的层 JSON，不再读决策自述与 `scene`；排除的私有事件与动作、意图任务相同
+（`DREAMING_PRIVATE_EVENTS` 等于私有事件集）。窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口
+同一 prompt 权威），把其首个 user 的六层 JSON 连同该动作请求的事件身份写入 `input.decision_layers`（`[{action_event_id, layers}]`），
+请求事件身份与层 JSON 的 canonical SHA-256 写入 `provenance.decision_layer_sources`（`[{event_id, sha256}]`），请求事件也进入
+`provenance.source_event_ids`；实际请求缺失或首个 user 不是层序正确的六层 JSON 时明确失败（字段见
+[接口合同「窗口声明与字段字典编码」](../CONTRACTS.md#窗口声明与字段字典编码)）。窗口事件中的动作请求裁去 `conclude_activity.memories`；
+`decision_layers` 是模型实际收到的原文，照原样保留，其中可以含有进度层参数或记忆层 `self_notes` 里的常规收尾记忆原文。
+重演分支的 dreaming 窗口按同一规则附上层 JSON。生成结果默认不写回运行中的人物。
 零点计划的模型交换与 `day_plan_generated` 登记（系统可见）不进任何窗口；零点及其后的事件归入新一日。
 
 | 结果 | 证据与标记 |
@@ -157,9 +166,9 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
     """按人物自然日构造 dreaming 窗口
     
     每个窗口包含：
-    - 当日全部可见事件（含部分私有事件）
-    - decision_started 中的 decision_statement
-    - 观察事件的 scene 描述
+    - 当日全部人物可见事件（DREAMING_PRIVATE_EVENTS 等于私有事件集）
+    - action_requested 中的 self_note（人物自述，未经核验）
+    - 实际行动请求中的层 JSON：input.decision_layers，来源写 provenance.decision_layer_sources
     """
     by_agent_day = defaultdict(list)
     for event in events:
@@ -183,7 +192,7 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 
 ### 4.1 编码目标
 
-重复出现的证据字段值（如素材文本、观察场景）占用大量字节，字段字典编码通过 RFC 6901 JSON Pointer 实现无损压缩。
+重复出现的证据字段值（如同一窗口内多次观察中没有变化的记忆层、待办层）占用大量字节，字段字典编码通过 RFC 6901 JSON Pointer 实现无损压缩。
 
 **编码原则**：
 - 只在单个窗口内共享字段值
@@ -193,12 +202,17 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 
 ### 4.2 编码示例
 
-**原始输入**（重复 scene 字段）：
+候选只取窗口内 `observation` 事件 `data` 的顶层字段（观察只提供原样保存的工具层、待办层、环境层与记忆层，见 3.3 节）；
+同字段同完整值出现两次以上、且按 canonical JSON 字节计算有收益时才进字典。下例是同一窗口内两次观察的记忆层没有变化：
+
+**原始输入**（两次观察的 `memory_layer` 相同）：
 ```json
 {
   "events": [
-    {"event_id": "e1", "data": {"scene": "你在家中客厅，时间是上午9点..."}},
-    {"event_id": "e2", "data": {"scene": "你在家中客厅，时间是上午9点..."}}
+    {"event_id": "e1", "event_type": "observation",
+     "data": {"memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": [{"recorded_at": "2026-01-05T08:40:00+08:00", "settled": ["07:30 收到王磊的消息：帮我带份早饭"], "self_notes": []}]}}},
+    {"event_id": "e4", "event_type": "observation",
+     "data": {"memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": [{"recorded_at": "2026-01-05T08:40:00+08:00", "settled": ["07:30 收到王磊的消息：帮我带份早饭"], "self_notes": []}]}}}
   ]
 }
 ```
@@ -206,25 +220,30 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 **编码后**：
 ```json
 {
+  "events": [
+    {"event_id": "e1", "event_type": "observation",
+     "data": {"memory_layer": {"value_pointer": "/observation_value_dictionary/0/value"}}},
+    {"event_id": "e4", "event_type": "observation",
+     "data": {"memory_layer": {"value_pointer": "/observation_value_dictionary/0/value"}}}
+  ],
   "observation_value_encoding": {
     "kind": "rfc6901_field_dictionary",
-    "version": 1,
-    "rule": "Each observation data field whose value is an object containing only value_pointer...",
+    "schema_version": 1,
+    "standard": "RFC 6901",
+    "rule": "Each observation data field whose value is an object containing only value_pointer is replaced by the complete value at that RFC 6901 pointer in this input.",
     "decoded_input_sha256": "abc123..."
   },
   "observation_value_dictionary": [
     {
-      "field_name": "scene",
-      "value_sha256": "def456...",
-      "value": "你在家中客厅，时间是上午9点..."
+      "field": "memory_layer",
+      "sha256": "def456...",
+      "value": {"layer": "记忆层", "earlier_days": [], "earlier_today": [{"recorded_at": "2026-01-05T08:40:00+08:00", "settled": ["07:30 收到王磊的消息：帮我带份早饭"], "self_notes": []}]}
     }
-  ],
-  "events": [
-    {"event_id": "e1", "data": {"scene": {"value_pointer": "/observation_value_dictionary/0/value"}}},
-    {"event_id": "e2", "data": {"scene": {"value_pointer": "/observation_value_dictionary/0/value"}}}
   ]
 }
 ```
+
+字典项的 `sha256` 是 `[field, value]` 的 canonical 摘要；没有可共享的值时编码声明照写、字典为空数组，字段保留原值。
 
 ### 4.3 编码算法
 
@@ -232,7 +251,7 @@ def _dream_windows(events: list[dict], manifest: dict) -> list[dict]:
 def encode_model_input(input_data: dict) -> dict:
     """为一个完整逻辑窗口生成确定性模型输入表示
     
-    1. 收集候选：遍历 events[].data 的字段值
+    1. 收集候选：遍历 observation 事件 data 的顶层字段值
     2. 计算收益：重复值总字节 vs 字典项 + 指针总字节
     3. 选择有利：只共享收益为正的字段值
     4. 渲染编码：替换为 value_pointer
@@ -242,9 +261,10 @@ def encode_model_input(input_data: dict) -> dict:
     selected = _select_profitable_candidates(candidates)
     encoded = _render_encoding(input_data, candidates, selected)
     
-    # 收益不足时保留原值
-    if len(canonical_json(encoded)) >= len(canonical_json(input_data)):
-        return input_data  # 不编码
+    # 收益不足时保留原值：编码声明照写，字典为空数组，字段不替换
+    literal = _render_encoding(input_data, candidates, ())
+    if len(canonical_json(encoded)) >= len(canonical_json(literal)):
+        encoded = literal
     
     # 验证往返
     decoded = decode_model_input(encoded)
@@ -629,7 +649,7 @@ flowchart TB
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "committed": true,
   "run_id": "run_20260920_001",
   "source_group_id": "group_001",
@@ -941,6 +961,8 @@ flowchart TB
 | v1.3 | 2026-09-24 | 按时间与能量规格：意图与 dreaming 输入裁去 `conclude_activity.memories`，动作目标保留完整请求；零点计划的请求与登记不进窗口，零点起归入新一日；观察中不得整棵复制的内容由能量可行性改为内部身份（旧导出另含能量可行性） |
 | v1.4 | 2026-09-25 | 按时间与能量规格第九章：交付先核对导出最终检查点的世界结构版本，不符即拒绝，不构造窗口 |
 | v1.5 | 2026-09-26 | 按时间与能量规格阶段 7 文档一致性核对：dreaming 窗口示意代码补人物可见性过滤，与零点计划登记等系统可见事件不进窗口一致 |
+| v1.6 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E6-1–E6-7，E6-2、E6-7 为阶段 1 同批作业）：文件头注明修订部分待实现；交付不再用当前代码的场景渲染重建已存观察，按层数据与实际请求投影，世界结构版本门禁为 8，交付清单 `schema_version` 为 2（7.3 示例同步）；动作窗口的续接请求含本秒前序决策的消息；事件可见性删决策自述，`self_note` 随实际请求进入动作与意图输入并进入 dreaming 输入；实际 prompt 行写明续接 assistant 的 `reasoning_content` 原样保留、其他事件与目标不额外混入；「人物卡片、记忆与场景」改为人设层、记忆层、环境层；dreaming 读 `self_note` 与层 JSON，`DREAMING_PRIVATE_EVENTS` 等于私有事件集 |
+| v1.7 | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账 E6-8 与阶段 8 核对）：「4.2 编码示例」改用现存的观察字段（两次观察相同的 `memory_layer`），编码声明与字典项的键按代码（`schema_version`、`standard`、`field`、`sha256`），4.1 与 4.3 随之改（收益不足时照写声明、字典为空）；dreaming 窗口写明 `input.decision_layers` 与 `provenance.decision_layer_sources`、缺少层 JSON 时失败、重演分支同样附层 JSON，裁去记忆只作用于动作请求事件的投影；事件可见性写明私有事件集含 `decision_started`；文件头注明修订部分已实现 |
 
 ---
 

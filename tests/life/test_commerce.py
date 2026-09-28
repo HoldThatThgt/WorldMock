@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, advance_until_ready, conclude_pending, context, stage_day_plan,
-                                 start_activity)
+                                 start_activity, start_request)
 from tests.life.test_money_settlement import _conclude_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import deliver_order
@@ -58,7 +58,7 @@ def _observed_action(engine, round_id: str, tool_name: str, request, action_id: 
 def _choice(observation: dict, action: str, object_id: str | None = None,
             mode: str | None = None) -> StartActivityRequest:
     """@brief 只从本轮冻结观察取可读对象、动词与方式（按私有绑定的内部动作与履约方式挑选）。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
+    return next(start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observation["interaction_bindings"]
                 if object_id is None or row["object_id"] == object_id
                 for offered in row["actions"]
@@ -94,7 +94,8 @@ def _delivery_request(engine, product_id: str) -> PurchaseOrderRequest:
     supply = _selected_supply(engine, product_id)
     quote = engine.state.supply_quotes[supply.supply_id]
     return PurchaseOrderRequest(
-        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version),),
+        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version,
+                            recipient_id="agent:1"),),
         fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
 
 
@@ -146,28 +147,31 @@ def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> No
 
 
 def test_food_progress_persists_partial_quantity_across_pause_and_completion(engine_factory) -> None:
-    """进食按实际进度扣份量和加热量，暂停重复结算不抹去或重复已吃部分。"""
+    """持有 2 份开吃 1 份（库存 1，opened 1）：进食按实际进度累加已吃份量和热量，不再扣库存；暂停重复结算不抹去或重复
+    已吃部分（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。"""
     engine = engine_factory()
     product = engine.scenario.products[0]
-    agent = engine.state.agents[1].model_copy(
-        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True)
     request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
                              duration_seconds=product.use_duration_seconds)
+    from worldmock.life.basket import apply_meal_progress, open_meal
+
+    agent, opened = open_meal(engine.state.agents[1].model_copy(
+        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True), request)
+    assert agent.inventory["home"][product.product_id] == pytest.approx(1)
     activity = ActivityState(
         activity_id="food-progress", agent_id=1, location_id=agent.location_id,
         kind="consume", status=ActivityStatus.ACTIVE,
         started_at=0, planned_end_at=900, last_settled_at=450, elapsed_seconds=450,
         planned_duration_seconds=900, target_id=product.product_id,
         origin_action_id="eat", origin_decision_id="eat-decision",
-        origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json")})
-    from worldmock.life.basket import apply_meal_progress
+        origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json"), "opened": opened})
 
     first = apply_meal_progress(agent, engine.rules.products, activity, engine.scenario.body)
     assert activity.data["consumed"][product.product_id] == pytest.approx(0.5)
-    assert first.inventory["home"][product.product_id] == pytest.approx(1.5)
+    assert first.inventory["home"][product.product_id] == pytest.approx(1)
     paused = activity.model_copy(update={"status": ActivityStatus.PAUSED}, deep=True)
     repeated = apply_meal_progress(first, engine.rules.products, paused, engine.scenario.body)
-    assert repeated.inventory["home"][product.product_id] == first.inventory["home"][product.product_id]
+    assert repeated == first
     assert paused.data["consumed"][product.product_id] == pytest.approx(0.5)
     completed = paused.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 900,
                                           "last_settled_at": 900, "elapsed_seconds": 900}, deep=True)
@@ -177,7 +181,8 @@ def test_food_progress_persists_partial_quantity_across_pause_and_completion(eng
 
 
 def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) -> None:
-    """人在办公室时，家里的商品不进入本轮可操作对象。"""
+    """人在办公室时，家里的商品以「持有物：<商品>（<地点>）」列出，使用标不可用并写明只能在当地用；提交以
+    PRODUCT_NOT_HELD 拒绝、原因一字不差；不存在的名称仍以 ACTION_REQUEST_INVALID 拒绝，库存不变。"""
     engine = engine_factory()
     product = engine.scenario.products[0]
     staged = engine.state.model_copy(deep=True)
@@ -191,8 +196,15 @@ def test_remote_inventory_is_not_a_current_interactive_object(engine_factory) ->
     engine.state = staged
     stage_day_plan(engine)
     observed = engine.observe(context(engine, "remote-preview"))
-    assert not any(row["kind"] == "holding" and row["object_id"] == product.product_id
-                   for row in observed["interaction_bindings"])
+    (away,) = [row for row in observed["interaction_bindings"]
+               if row["kind"] == "holding" and row["object_id"] == product.product_id]
+    home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
+    assert away["location_id"] == "home" and away["object"] == f"持有物：{product.name}（{home}）"
+    way = away["actions"][0]["label"]
+    reason = f"这件东西在{home}，只能在当地用"
+    assert [item["note"] for item in away["actions"]] == [reason] * len(away["actions"])
+    _, refused = _observed_action(engine, "remote-use", "start_activity", start_activity(way, away["object"]))
+    assert (refused.status, refused.error_code, refused.data["reason"]) == ("rejected", "PRODUCT_NOT_HELD", reason)
     request = start_activity("食用", "家里的食物")
     _, result = _observed_action(engine, "remote-eat", "start_activity", request)
     assert result.status == "rejected" and result.error_code == "ACTION_REQUEST_INVALID"

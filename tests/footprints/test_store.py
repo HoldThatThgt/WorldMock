@@ -56,19 +56,53 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
     assert any('events_agent_type' in row[-1] for row in plan)
 
 
-def test_progress_request_cutoff_skips_system_requests_with_a_purpose(store):
-    """回灌截止点只取实际发给人物模型、含进度层的请求；带 purpose 的零点计划请求即便含进度层也不算。"""
-    def request(content: str, **data) -> EventDraft:
-        messages = [{'role': 'system', 'content': '身份'}, {'role': 'user', 'content': content}]
-        return EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
-                          data={'phase': 'request', 'request': {'messages': messages}, **data})
+def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools(store):
+    """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_activity；零点计划、没有工具或未开思考的
+    请求都不算，提示文本不参与判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。"""
+    def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_activity',), **data) -> EventDraft:
+        body = {'messages': [{'role': 'user', 'content': '{"progress_layer": {}}'}],
+                'extra_body': {'thinking': {'type': thinking}},
+                'tools': [{'type': 'function', 'function': {'name': name}} for name in tools]}
+        return EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id,
+                          data={'phase': 'request', 'request': body, **data})
 
-    store.commit(store.state, [request('{"progress": {"results": []}}'),
-                               request('{"facts": {}}'),
-                               request('{"progress": {"results": []}}', purpose='plan_day', call_id='plan-day')])
+    store.commit(store.state, [request(),
+                               request(purpose='plan_day', call_id='plan-day'),
+                               request(thinking='disabled'),
+                               request(tools=('answer_question',)),
+                               request(2, tools=('observe', 'start_activity'))])
 
-    assert store.last_agent_progress_request_seq(1) == 1
-    assert store.last_agent_progress_request_seq(2) == 0
+    assert store.last_agent_action_request_seq(1) == 1
+    assert store.last_agent_action_request_seq(2) == 5
+    assert store.last_agent_action_request_seq(3) == 0
+
+
+def test_last_event_seq_before_bounds_by_occurrence_time(store):
+    """按时间取区间下界：发生时刻严格早于给定时刻的最后一个事件序号，没有时为 0。"""
+    drafts = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
+              for moment in (100, 100, 120)]
+    store.commit({'version': 1, 'current_time': 120, 'balance': 50}, drafts)
+
+    assert store.last_event_seq_before(100) == 0
+    assert store.last_event_seq_before(101) == 2
+    assert store.last_event_seq_before(120) == 2
+    assert store.last_event_seq_before(121) == 3
+
+
+def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends(store):
+    """一次提交的末事件序号（docs/dev/SPEC-persona-prompt.md 第三章「归属」）：推进版本的提交的每个事件都指向该提交的末事件；
+    其后同版本追加的观察与下一次提交不算在内；最后一次提交止于当前末事件；不存在的参照事件是完整性错误。"""
+    probe = {'kind': 'probe'}
+    store.commit({'version': 1, 'current_time': 110, 'balance': 50},
+                 [EventDraft(event_type='environment_event', occurred_at=110, data=probe) for _ in range(3)])
+    store.commit(store.state, [EventDraft(event_type='observation', occurred_at=110, data=probe)])
+    store.commit({'version': 2, 'current_time': 120, 'balance': 50},
+                 [EventDraft(event_type='environment_event', occurred_at=120, data=probe) for _ in range(2)])
+
+    assert [store.commit_last_seq(seq) for seq in (1, 2, 3)] == [3, 3, 3]
+    assert [store.commit_last_seq(seq) for seq in (5, 6)] == [6, 6]
+    with pytest.raises(IntegrityError, match='Commit reference event does not exist'):
+        store.commit_last_seq(7)
 
 
 def test_world_change_without_any_event_cannot_be_committed(store):
