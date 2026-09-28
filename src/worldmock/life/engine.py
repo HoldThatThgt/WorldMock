@@ -432,8 +432,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
 
         人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
-        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察展示过的消息记为已读，
-        其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages）。
+        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察已全文呈现的消息记为已读，
+        其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages，
+        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
         """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
@@ -452,7 +453,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 staged = _remember_action(staged, pending, result)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
-        staged = same_moment.read_observed_messages(staged, self.state, current.expected_agent_ids)
+        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions}
+        staged = same_moment.read_observed_messages(staged, self.state, presented)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = same_moment.merge_partner_endings(self.state, staged, self.scenario.max_same_moment_decisions)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
@@ -464,6 +466,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._round = None
         self._ops_committed(round_id, results, events)
         return results
+
+    def _presented_messages(self, pending: PendingAction) -> frozenset[str]:
+        """@brief 本决策观察中已全文呈现的消息身份（观察事件的 presented_message_ids）。
+
+        没有观察的引擎直驱提交什么也没呈现，返回空集；同一决策同一秒有多条观察是协议错误。
+        """
+        matches = [event for event in self.store.read_agent_events("observation", pending.agent_id)
+                   if event.decision_id == pending.decision_id and event.occurred_at == pending.observed_at]
+        if len(matches) > 1:
+            raise ProtocolError("Decision observation is ambiguous")
+        return frozenset(matches[0].data["presented_message_ids"]) if matches else frozenset()
 
     def _ops_committed(self, round_id: str, results: list[ActionResult], events: list) -> None:
         """@brief 写决策轮结算操作日志，事件区间用于与足迹库互相跳转。"""

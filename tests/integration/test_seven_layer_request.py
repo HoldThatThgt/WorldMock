@@ -346,3 +346,36 @@ def test_observe_stores_the_body_without_the_host_only_progress_keys(_engine_fac
     assert not {"progress_layer", "progress_meta", "observation_event_id"} & set(stored.data)
     assert stored.data["progress_event_ids"] == []
     assert set(returned) - set(stored.data) == {"progress_layer", "progress_meta", "observation_event_id"}
+
+
+def test_system_layers_interim_persona_memory_and_tools_validate_against_the_layer_schemas() -> None:
+    """两份系统层、阶段一人设层（含场景联系人与看法偏好）、空记忆层与每个原生工具定义都通过七层 Schema。"""
+    from jsonschema import Draft202012Validator
+
+    from custom.agents.life_persona import persona_layer
+    from custom.agents.life_prompt import READONLY_SYSTEM_LAYER, empty_memory_layer
+    from worldmock.life.prompt_schemas import TOOL_DEFINITION_SCHEMA, validate_layer
+
+    views = {"relationships": [{"person": "王磊", "view": "做事靠谱"}],
+             "preferences": [{"subject": "午饭", "preference": "爱吃面", "noted_on": "2026-01-04"}]}
+    for layer in (LIFE_SYSTEM_LAYER, READONLY_SYSTEM_LAYER, empty_memory_layer(),
+                  persona_layer({"contacts": _CONTACTS}, "Alice", views),
+                  persona_layer({}, "Alice", {"relationships": [], "preferences": []})):
+        validate_layer(layer)
+    agent, _ = _agent(_GroundedCorrectionDispatcher(responses=[]))
+    agent.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, _observations()))
+    validator = Draft202012Validator(TOOL_DEFINITION_SCHEMA)
+    for tool in agent.build_react_tool_schemas(readonly=False):
+        validator.validate(tool)
+
+
+def test_prompt_fingerprint_binds_the_layer_schemas(monkeypatch) -> None:
+    """提示指纹绑定七层 Schema：任何一层的 Schema 改动都改变运行指纹。"""
+    from custom.agents.life_prompt import life_prompt_sha256
+    from worldmock.life import prompt_schemas
+
+    original = life_prompt_sha256()
+    changed = {**prompt_schemas.LAYER_SCHEMAS, "人设层": {**prompt_schemas.LAYER_SCHEMAS["人设层"], "title": "改"}}
+    monkeypatch.setattr(prompt_schemas, "LAYER_SCHEMAS", changed)
+    assert life_prompt_sha256() != original
+

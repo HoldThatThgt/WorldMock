@@ -27,7 +27,7 @@ from agentsociety2.society import DecisionContext, DirectToolCall
 
 from tests.life.conftest import (
     StubPlanDayClient, activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
-    settle_day_plans, submit_round, wake_by_mail,
+    settle_day_plans, stage_day_plan, submit_round, wake_by_mail,
 )
 from tests.life.test_scenario import _assert_invalid, _payload, _replace
 from tests.life.test_work_review import _at_task_start, _complete_required_work, _paraphrased_submission
@@ -1576,3 +1576,45 @@ def test_change_on_social_activity_uses_social_domain(engine_factory) -> None:
     assert activity.boundary_type == "cancelled" and activity.interruption_reason == "agent_cancelled"
     assert activity.concluded_at == engine.state.current_time
     assert not active_activities(engine.state, 1)
+
+
+# ---------------------------------------------------------------------------
+# engine._presented_messages：已读 = 本决策观察中全文已呈现的消息
+# ---------------------------------------------------------------------------
+
+
+def _observed_with_presented(engine, monkeypatch, round_id: str, presented: list[str]):
+    """开启单人决策轮并观察；观察数据只带给定的 presented_message_ids（其余观察键与本判定无关）。"""
+    stage_day_plan(engine)
+    monkeypatch.setattr(engine, "_observation_data",
+                        lambda agent: {"agent_id": agent.agent_id, "presented_message_ids": list(presented)})
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    return decision
+
+
+def _pending_for(decision, observed_at: int) -> SimpleNamespace:
+    """与观察配对所需的待结算动作字段。"""
+    return SimpleNamespace(agent_id=decision.agent_id, decision_id=decision.decision_id, observed_at=observed_at)
+
+
+def test_presented_messages_come_from_the_decision_observation(engine_factory, monkeypatch) -> None:
+    """已读只取本决策、本秒观察的 presented_message_ids；没有观察（引擎直驱）时什么也没呈现。"""
+    engine = engine_factory()
+    decision = _observed_with_presented(engine, monkeypatch, "presented", ["message-1", "message-2"])
+    now = engine.state.current_time
+    assert engine._presented_messages(_pending_for(decision, now)) == frozenset({"message-1", "message-2"})
+    other = SimpleNamespace(agent_id=decision.agent_id, decision_id="decision-without-observation", observed_at=now)
+    assert engine._presented_messages(other) == frozenset()
+    assert engine._presented_messages(_pending_for(decision, now + 1)) == frozenset()
+
+
+def test_ambiguous_decision_observation_is_a_protocol_error(engine_factory, monkeypatch) -> None:
+    """同一决策同一秒有两条观察时无法判定呈现了什么，按协议错误拒绝。"""
+    engine = engine_factory()
+    decision = _observed_with_presented(engine, monkeypatch, "ambiguous", ["message-1"])
+    engine.observe(decision)
+    with pytest.raises(ProtocolError, match="Decision observation is ambiguous"):
+        engine._presented_messages(_pending_for(decision, engine.state.current_time))
+

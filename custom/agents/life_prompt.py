@@ -126,7 +126,9 @@ def readonly_messages(persona: dict[str, Any], memory: dict[str, Any], question:
 
 
 def life_prompt_sha256() -> str:
-    """@brief 提示指纹：绑定生活与只读两份系统层。"""
-    templates = {"life": LIFE_SYSTEM_LAYER, "readonly": READONLY_SYSTEM_LAYER}
+    """@brief 提示指纹：绑定生活与只读两份系统层以及七层 Schema（prompt_schemas.LAYER_SCHEMAS）。"""
+    from worldmock.life.prompt_schemas import LAYER_SCHEMAS
+
+    templates = {"life": LIFE_SYSTEM_LAYER, "readonly": READONLY_SYSTEM_LAYER, "layer_schemas": LAYER_SCHEMAS}
     encoded = json.dumps(templates, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(encoded.encode()).hexdigest()
