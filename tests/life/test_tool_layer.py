@@ -3,8 +3,8 @@
 性质测试：在真实引擎状态上，工具层（与待办层）列出的每个动作与工具单独提交时——available 为 false 的由环境以同一原因业务
 拒绝（action_result.data.reason 与 reason 一字不差），available 为 true 的被受理。候选按（目标类别，工具，方式，可用性，
 原因）分成等价类，每类在同一份已提交状态的独立副本上单独提交，互不影响。覆盖运行开始、待收尾、同刻受限轮、路上、他处持有物与别处暂停的活动、工作进行中、
-距截止不足一分钟暂停的工作七种状态；另验证名称唯一、他处持有物的名称带地点、路上的活动不能暂停、正在做的工作提交写
-「先结束正在做的工作」、截止前一分钟内不能恢复工作。
+距截止不足一分钟暂停的工作、驾车途中八种状态；另验证名称唯一、他处持有物的名称带地点、路上的活动不能暂停、正在做的工作
+提交写「先结束正在做的工作」、截止前一分钟内不能恢复工作、驾车时发消息与提交成果写「开车时不能…」。
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, submit_round, target_actions, target_tools,
                                  tool_targets, wake_by_mail, start_request)
+from tests.life import test_parallel_admission as parallel_admission
 from tests.life import test_work_contracts as work_contracts
 from tests.life.test_scheduling import _custom_engine
 from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
@@ -270,6 +271,25 @@ def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_pat
     assert tool_targets(observed)[target]["contract"]["remaining"].startswith("有效工时还差")
     assert any(row["kind"] == "activity" and row["phase"] == "进行中" for row in observed["tool_layer"]["targets"])
     _assert_admission_matches(engine, tmp_path, monkeypatch, "busy")
+
+
+def test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason(engine_factory, tmp_path,
+                                                                                   monkeypatch) -> None:
+    """驾车途中：人物目标的 send_message 与任务目标的 submit_work 标不可用，原因取受理拒绝的原文「开车时不能发消息」
+    「开车时不能提交成果」；车上的全部候选单独提交，可用性与受理一致（docs/dev/SPEC-persona-prompt.md「工具层」
+    可用性只有一个来源）。"""
+    engine = parallel_admission._engine(engine_factory, location="office", task=True, market=True)
+    parallel_admission._driving(engine, "drive")
+    observed = engine.observe(context(engine, "drive-seen"))
+    assert observed["environment_layer"]["location"]["place_type"] == "驾车"
+    task = f"工作：{engine.scenario.tasks[0].title}"
+    assert target_tools(observed, task)["submit_work"] == {
+        "tool": "submit_work", "available": False, "reason": "开车时不能提交成果"}
+    people = [row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person"]
+    assert people and all(target_tools(observed, name)["send_message"] == {
+        "tool": "send_message", "available": False, "reason": "开车时不能发消息"} for name in people)
+    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "driving")
+    assert {"开车时不能发消息", "开车时不能提交成果"} <= {item["reason"] for item in checked}
 
 
 def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason(tmp_path,

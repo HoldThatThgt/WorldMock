@@ -3,7 +3,7 @@
 工具层、待办层、环境层、进度层与记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
 体感分级、方式、动词、动作状态、意图与目标类别是源头闭集的字面副本，由本文件锁定一致。唯一出现性质（「唯一出现原则」）：
 直接消息全文只在进度层；暂停活动的进度只在待办层，它不是工具层目标；工作合同的截止与剩余只在任务目标的 contract，
-工作活动的状态不写「还差」；浏览得到的供给只在工具层，浏览结果只列名称。系统层、人设层、user 消息与原生 tools 由宿主侧
+工作活动的状态不写「还差」，暂停的工作在待办层也不重复合同；浏览得到的供给只在工具层，浏览结果只列名称。系统层、人设层、user 消息与原生 tools 由宿主侧
 tests/integration/test_seven_layer_request.py 覆盖。
 """
 
@@ -193,6 +193,28 @@ def test_work_contract_appears_only_in_the_task_target(engine_factory) -> None:
     for key in ("todo_layer", "progress_layer", "environment_layer"):
         text = json.dumps(observed[key], ensure_ascii=False)
         assert contract["deadline"] not in text and contract["remaining"] not in text
+
+
+def test_paused_work_does_not_repeat_the_contract_in_the_todo_layer(engine_factory) -> None:
+    """工作暂停后：暂停的工作在待办层只有名称、暂停时刻、地点、客观进度与两个工具（通过 Schema），不写截止与工时要求；
+    截止时刻与有效工时的剩余要求仍只在任务目标的 contract 出现一次。"""
+    engine = engine_factory()
+    _at_task_start(engine)
+    stage_day_plan(engine)
+    task = f"工作：{engine.scenario.tasks[0].title}"
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("工作", task))}, "paused-contract-work")
+    wake_by_mail(engine, offset=600)
+    advance_next(engine)
+    name = activity_name(engine, results[0].activity_id)
+    _act(engine, "paused-contract-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    observed = _checked(engine, "paused-contract-seen")
+    (item,) = observed["todo_layer"]["paused_activities"]
+    assert item["name"] == name and name not in tool_targets(observed)
+    contract = tool_targets(observed)[task]["contract"]
+    rendered = _rendered(observed)
+    assert rendered.count(contract["deadline"]) == 1 and rendered.count(contract["remaining"]) == 1
+    todo = json.dumps(observed["todo_layer"], ensure_ascii=False)
+    assert not any(text in todo for text in (contract["deadline"], contract["remaining"], "截止", "工时"))
 
 
 def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(engine_factory) -> None:
