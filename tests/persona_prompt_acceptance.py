@@ -51,6 +51,7 @@ _PURCHASES = "tests/footprints/test_purchases.py::"
 _EVENTS = "tests/footprints/test_event_fields.py::"
 _QUALITY = "tests/footprints/test_quality.py::"
 _WINDOWS = "tests/delivery/test_windows.py::"
+_ATTRIBUTION = "tests/life/test_session_attribution.py::"
 _BEHAVIOR = "tests/evaluation/test_behavior_metrics.py::"
 _DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
 _ZERO_RECENT = "tests/integration/test_verified_memory.py::test_zero_recent_memory_limit_returns_no_recent_entries"
@@ -67,6 +68,7 @@ PROGRAM_ERRORS: dict[str, list[str]] = {
     ],
     "恢复工作越过合同截止": [
         _WORK + "test_resume_plans_the_end_no_later_than_the_contract_deadline",
+        _WORK + "test_resume_plans_the_end_within_the_contract_hours_left_after_other_work_on_the_task",
         _WORK + "test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_once",
         _WORK + "test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection",
         _TOOL + "test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason",
@@ -144,11 +146,16 @@ LEDGER: dict[str, list[str]] = {
         _READABLE + "test_iso_time_and_local_date_use_the_scene_timezone_with_offset",
         _READABLE + "test_duration_phrase_rounds_minutes_then_half_hours",
         _READABLE + "test_money_and_portion_phrases_keep_at_most_two_decimals",
+        _AGENT + "test_session_names_are_not_recall_names",
+        "tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities",
+        _LOCATION + "test_recall_by_task_and_activity_names_reaches_the_next_observation",
+        "tests/life/test_todo_layer.py::test_same_second_pauses_from_two_decisions_follow_the_pause_event_order",
     ],
     "唯一出现": [
         _LAYERS + "test_direct_message_and_invite_text_appear_only_in_the_progress_layer",
         _LAYERS + "test_paused_activity_progress_appears_only_in_the_todo_layer",
         _LAYERS + "test_work_contract_appears_only_in_the_task_target",
+        _LAYERS + "test_paused_work_does_not_repeat_the_contract_in_the_todo_layer",
         _LAYERS + "test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only",
         _LAYERS + "test_just_ended_browse_target_states_the_end_reason_without_the_browse_result",
         _PROGRESS + "test_conclude_arguments_omit_relationship_and_preference_memories",
@@ -193,12 +200,14 @@ LEDGER: dict[str, list[str]] = {
         "tests/integration/test_decision_context_roundtrip.py::"
         "test_real_context_roundtrip_preserves_evidence_and_delays_results",
         _MEMORY + "test_reply_body_stays_in_its_session_progress_and_never_enters_the_memory_layer",
+        _MEMORY + "test_reply_bodies_stay_in_their_session_and_never_reach_the_memory_layer",
     ],
     "同秒续接": [
         _CONTINUATION + name for name in (
             "test_the_continued_request_starts_with_the_previous_request_byte_for_byte",
             "test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change_once",
             "test_another_persons_same_second_message_appears_once_in_the_whole_request",
+            "test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_later_tool_message",
             "test_after_time_advances_the_request_has_no_native_turns_or_earlier_thinking",
             "test_a_same_second_departure_breaks_the_chain",
             "test_a_counterfactual_branch_breaks_the_chain",
@@ -225,6 +234,11 @@ LEDGER: dict[str, list[str]] = {
         _AGENT + "test_incomplete_work_stays_submittable_for_business_rejection",
         _WORK + "test_a_task_beyond_the_persons_skill_is_not_listed",
         "tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_with_nothing_at_hand",
+        _TOOL + "test_driving_marks_messages_and_submission_unavailable_with_the_admission_reason",
+        _TOOL + "test_give_availability_follows_whether_someone_can_be_handed_to",
+        _GIVING + "test_give_is_listed_available_only_with_someone_to_hand_to",
+        "tests/life/test_interaction_menu_runtime.py::"
+        "test_availability_judges_the_menu_first_with_the_admission_reason",
     ],
     "进度层": [
         _PROGRESS + name for name in (
@@ -244,6 +258,11 @@ LEDGER: dict[str, list[str]] = {
         _SAME_MOMENT + "test_same_second_results_stay_in_the_progress_layer",
         "tests/footprints/test_store.py::"
         "test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools",
+        "tests/footprints/test_store.py::"
+        "test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends",
+        _ATTRIBUTION + "test_departure_commit_belongs_wholly_to_the_old_session",
+        _ATTRIBUTION + "test_arrival_commit_belongs_wholly_to_the_transit_session",
+        _ATTRIBUTION + "test_due_soon_record_uses_the_wake_lead_time",
     ],
     "记忆层": [
         _MEMORY + name for name in (
@@ -264,6 +283,10 @@ LEDGER: dict[str, list[str]] = {
             "test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions",
             "test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates",
         )
+    ] + [
+        _ATTRIBUTION + "test_departure_commit_belongs_wholly_to_the_old_session",
+        _ATTRIBUTION + "test_arrival_commit_belongs_wholly_to_the_transit_session",
+        _ATTRIBUTION + "test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences",
     ],
     "人设层": [
         _PERSONA + name for name in (
@@ -281,6 +304,10 @@ LEDGER: dict[str, list[str]] = {
         "test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer",
         "tests/life/test_persona_upgrade.py::"
         "test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt",
+        "tests/integration/test_observation_agent_seam.py::"
+        "test_relationship_memory_may_name_a_same_world_person_who_is_elsewhere",
+        "tests/profile/test_textgen.py::test_window_ends_at_or_after_midnight_render_as_clock_hours",
+        "tests/profile/test_textgen.py::test_render_card_is_byte_identical_to_the_pre_persona_layer_renderer",
     ],
     "预算": [
         _BUDGET + name for name in (
@@ -297,6 +324,8 @@ LEDGER: dict[str, list[str]] = {
         _CONTINUATION + "test_budget_step_zero_ends_the_continuation_before_any_condensation",
         _CONTINUATION + "test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_every_turn",
         _MEMORY + "test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions",
+        _ATTRIBUTION + "test_chat_invitation_writes_no_settled_line_for_condensation",
+        _ATTRIBUTION + "test_open_order_record_stays_uncondensed_while_older_records_fold",
     ],
     "来源与去向": [
         _START + "test_legal_from_to_answering_combinations_route_each_item",
@@ -310,6 +339,10 @@ LEDGER: dict[str, list[str]] = {
         _GIVING + "test_two_gives_in_one_request_hand_over_real_holdings_only",
         _GIVING + "test_giving_to_a_colocated_person_moves_one_portion_and_nobody_eats",
         _GIVING + "test_giving_to_a_person_who_left_is_refused_as_not_together",
+        _GIVING + "test_giving_to_a_same_world_person_elsewhere_is_refused_as_not_together",
+        _GIVING + "test_direct_delivery_to_a_same_world_person_elsewhere_goes_to_where_they_are",
+        _GIVING + "test_scenario_contacts_that_are_same_world_persons_do_not_receive",
+        _NAMED + "test_full_label_with_a_store_in_from_is_an_invalid_request",
     ],
     "进食": [
         _MEAL + name for name in (
@@ -325,12 +358,15 @@ LEDGER: dict[str, list[str]] = {
     ] + [
         _INVENTORY + "test_meal_partitions_reach_zero_without_losing_quantity_or_energy",
         _INVENTORY + "test_eating_progress_ignores_stock_taken_while_the_meal_was_paused",
+        _MEAL + "test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion",
+        "tests/life/test_todo_layer.py::test_paused_meal_progress_is_only_the_eaten_and_left_portions",
     ],
     "指名购买": [
         _NAMED + name for name in (
             "test_rotation_hidden_supply_is_bought_by_name_at_the_current_quote",
             "test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substituted",
             "test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named",
+            "test_ambiguous_name_lists_every_store_not_just_three",
             "test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids",
             "test_near_candidates_are_deterministic_term_similarity",
             "test_unlisted_obtain_selection_is_a_named_placeholder_other_verbs_are_not",
@@ -345,6 +381,7 @@ LEDGER: dict[str, list[str]] = {
         _LINKING + "test_resubmitting_the_same_request_is_rejected_and_points_to_the_order",
         _LINKING + "test_a_new_message_is_a_new_request",
         _LINKING + "test_message_bindings_name_visible_direct_messages_by_sender_and_arrival",
+        _ATTRIBUTION + "test_answering_binds_progress_messages_and_only_unreplied_memory_messages",
     ],
     "最小完整路径": [
         "tests/integration/test_minimum_complete_path.py::"
@@ -370,7 +407,8 @@ LEDGER: dict[str, list[str]] = {
         _QUALITY + "test_decision_rhythm_counts_silent_boundaries_and_wake_reasons",
         _BEHAVIOR + "test_observation_gate_allows_same_second_continuation_chain_reuse",
         _BEHAVIOR + "test_observation_gate_fails_on_cross_second_or_cross_agent_duplicate",
-        _WINDOWS + "test_dreaming_window_reads_self_note_and_layer_json_without_decision_started",
+        _WINDOWS + "test_dreaming_window_reads_self_note_and_the_actual_request_layer_json",
+        _WINDOWS + "test_dreaming_rejects_an_action_without_the_recorded_layer_json",
         _WINDOWS + "test_action_and_intent_windows_show_layers_and_self_note_but_never_decision_started",
         _WINDOWS + "test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_windows",
         "tests/delivery/test_publication.py::"
@@ -388,6 +426,8 @@ LEDGER: dict[str, list[str]] = {
         _IDENTITY + "test_new_run_rejects_a_retired_stage_identity",
         _IDENTITY + "test_resume_and_replay_identity_rejects_a_retired_stage_before_comparing",
         _IDENTITY + "test_environment_validation_rejects_a_retired_stage",
+        _IDENTITY + "test_create_open_resume_and_replay_call_the_one_manifest_validator",
+        _METRICS + "test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm",
         "tests/footprints/test_render_day.py::test_resolves_names_from_seven_layer_observation_evidence_keys",
     ],
     "真实复验（只报告）": [
@@ -395,6 +435,7 @@ LEDGER: dict[str, list[str]] = {
         _METRICS + "test_the_subcommand_opens_the_run_read_only",
         _METRICS + "test_errors_are_classified_with_400_separate_and_partial_tokens_fall_back_to_chars",
         _METRICS + "test_the_baseline_comparison_refuses_runs_that_are_not_comparable",
+        _METRICS + "test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm",
     ],
     "文档一致性": [_DOC_GATE],
     "工程门禁": [
@@ -532,6 +573,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "scripts/inspect_run.py",
     "src/worldmock/cli.py",
     "src/worldmock/delivery/pipeline.py",
+    "src/worldmock/delivery/replay.py",
     "src/worldmock/delivery/windows.py",
     "src/worldmock/evaluation/behavior_metrics.py",
     "src/worldmock/evaluation/validation.py",
@@ -558,7 +600,6 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/interaction_menu.py",
     "src/worldmock/life/memory_evidence.py",
     "src/worldmock/life/memory_layer.py",
-    "src/worldmock/life/menu_execution.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/named_purchase.py",
     "src/worldmock/life/narration.py",
@@ -570,6 +611,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/prompt_schemas.py",
     "src/worldmock/life/readable.py",
     "src/worldmock/life/recipients.py",
+    "src/worldmock/life/reminders.py",
     "src/worldmock/life/request_linking.py",
     "src/worldmock/life/result_projection.py",
     "src/worldmock/life/rhythm.py",
@@ -577,6 +619,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/same_moment.py",
     "src/worldmock/life/scenario.py",
     "src/worldmock/life/session_actions.py",
+    "src/worldmock/life/session_bounds.py",
     "src/worldmock/life/sessions.py",
     "src/worldmock/life/settled_text.py",
     "src/worldmock/life/social.py",
@@ -595,6 +638,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 
 #: 本特性新增的测试文件（`git diff --name-only --diff-filter=A c3b24da -- tests`）与本守卫自身。
 FEATURE_TEST_FILES: tuple[str, ...] = (
+    "tests/delivery/prompt_fixtures.py",
     "tests/footprints/test_purchases.py",
     "tests/integration/test_mail_read_result.py",
     "tests/integration/test_minimum_complete_path.py",
@@ -614,6 +658,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/life/test_prompt_layers.py",
     "tests/life/test_readable.py",
     "tests/life/test_request_linking.py",
+    "tests/life/test_session_attribution.py",
     "tests/life/test_todo_layer.py",
     "tests/life/test_tool_layer.py",
     "tests/persona_prompt_acceptance.py",
