@@ -98,6 +98,7 @@ def test_chat_invites_person_messages_and_contact_replies_stay_in_the_inbox_not_
     contacts = next(item.contacts for item in engine.scenario.agents if item.agent_id == 1)
     salutation = next(item.salutation for item in contacts if item.reply_policy == "template")
     invite = next(item.text for item in engine.state.agents[1].inbox.values() if item.kind == "chat_invite")
+    invite = f"{invite}，对{friend}选择交谈即接受"
     social = {("chat_invite", friend, invite), ("direct", friend, message.text),
               ("direct", salutation, TEMPLATE_REPLY_TEXT)}
     mail = engine.scenario.messages[0]

@@ -244,7 +244,8 @@ def _world_records(context: LayerContext, store: FootprintStore, lower: int, wit
 
 
 def _message_record(context: LayerContext, event: Event) -> _Record:
-    """@brief message_arrival 记录：直接消息与交谈邀请取收件箱全文与发件人；邮件取场景主题，发件人为 null。"""
+    """@brief message_arrival 记录：直接消息与交谈邀请取收件箱全文与发件人，交谈邀请另写回应方式「对<发起人>选择交谈
+    即接受」（docs/dev/SPEC-time-and-energy.md 第五章「交谈」）；邮件取场景主题，发件人为 null。"""
     moment = iso_time(event.occurred_at, context.scenario.timezone)
     message_id = event.data["message_id"]
     if event.data["kind"] == "mail_arrival":
@@ -253,8 +254,10 @@ def _message_record(context: LayerContext, event: Event) -> _Record:
                   "subject": subject}
         return _Record(record, (event,), _event_key(event.occurred_at, [event]))
     message = context.state.agents[context.agent_id].inbox[message_id]
-    record = {"occurred_at": moment, "type": "message_arrival", "sender": _sender(context, message.sender_id),
-              "kind": message.kind, "text": message.text}
+    sender = _sender(context, message.sender_id)
+    text = message.text if message.kind != "chat_invite" else f"{message.text}，对{sender}选择交谈即接受"
+    record = {"occurred_at": moment, "type": "message_arrival", "sender": sender, "kind": message.kind,
+              "text": text}
     return _Record(record, (event,), _event_key(event.occurred_at, [event]), message_id=message_id)
 
 
