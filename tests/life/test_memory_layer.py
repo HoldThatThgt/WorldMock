@@ -194,6 +194,46 @@ def test_en_route_conclusion_keeps_the_conclusion_in_the_transit_session(engine_
     assert _ended_sessions(engine)[-1].ended_at == mail_at
 
 
+def test_denied_arrival_ends_the_trip_and_the_failed_trip_is_concluded_in_the_new_stay(engine_factory,
+                                                                                    monkeypatch) -> None:
+    """到达被拒也结束路程 session：人已在目的地开始停留，失败的出行在新停留里收尾，那段停留结束后写「失败」句与 summary。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    walk = _walk(engine, "g-walk")
+    guarded = tuple(item.model_copy(update={"required_qualifications": ("门禁卡",)})
+                    if item.location_id == "office" else item for item in engine.scenario.locations)
+    monkeypatch.setattr(engine, "scenario", engine.scenario.model_copy(update={"locations": guarded}))
+    assert advance_until_ready(engine)
+    name = activity_name(engine, walk.activity_id)
+    trip = engine.state.activities[walk.activity_id]
+    assert trip.status == ActivityStatus.FAILED
+    _act(engine, "g-conclude", "conclude_activity", conclude_request(name, summary="进不去"))
+    assert _memory(engine, "g-denied")["earlier_today"] == []
+    _walk(engine, "g-home", "home")
+    (entry,) = _memory(engine, "g-left")["earlier_today"]
+    assert entry["settled"] == [f"{name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，失败"]
+    assert entry["self_notes"] == [{"activity": _short(name), "text": "进不去"}]
+
+
+def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
+    """购买句只由订单生成：提前结束的浏览只留活动句（「提前结束」），没有下单或付款的句子。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    observed = _observe(engine, "h-preview")
+    catalog = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "catalog")
+    _, browsed = _act(engine, "h-browse", "start_activity", start_activity("浏览", catalog))
+    assert browsed.status == "in_progress"
+    wake_by_mail(engine, offset=60)
+    advance_next(engine)
+    name = activity_name(engine, browsed.activity_id)
+    _act(engine, "h-stop", "conclude_activity", conclude_request(name))
+    _walk(engine, "h-walk")
+    (entry,) = _memory(engine, "h-road")["earlier_today"]
+    assert [line for line in entry["settled"] if line.startswith(name)] == [
+        line for line in entry["settled"] if "提前结束" in line]
+    assert all("下单" not in line and "付 " not in line for line in entry["settled"])
+
+
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
     """实验截止时所有 session 结束：最后一段停留以截止时刻为 recorded_at 进入记忆层；收尾过的等待写成句子，被截断的第二段
     等待没有收尾，不写句子。"""

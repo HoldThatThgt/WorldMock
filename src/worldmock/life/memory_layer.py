@@ -316,18 +316,18 @@ def _reflections(build: _Build) -> list[tuple[str, str]]:
     """@brief 就寝反思及其归属日期：含 wake_from_sleep 的那一轮写入的来源为 reflection 的快照条目，由那一刻刚结束的
     睡眠的开始时刻推出日期（宿主为反思条目标注来源）。"""
     context, rows = build.context, []
+    sleeps = sorted(((item.ended_at, item.started_at) for item in context.state.activities.values()
+                     if item.agent_id == context.agent_id and item.kind == ActivityKind.SLEEP
+                     and item.ended_at is not None))
     for event in build.cached.events["memory_updated"]:
         entries = [item for item in event.data.get("episodes", []) if item.get("source") == "reflection"]
         if not entries or "reflection" not in event.data.get("trigger", []):
             continue
-        sleeps = [item for item in context.state.activities.values()
-                  if item.agent_id == context.agent_id and item.kind == ActivityKind.SLEEP
-                  and item.ended_at is not None and item.ended_at <= event.occurred_at]
-        if not sleeps:
+        index = bisect_right(sleeps, (event.occurred_at, float("inf"))) - 1
+        if index < 0:
             logging.error("Bedtime reflection has no ended sleep")
             raise IntegrityError("Bedtime reflection has no ended sleep")
-        started = max(sleeps, key=lambda item: (item.ended_at, item.started_at)).started_at
-        rows.extend((reflection_date(started, context.scenario.timezone), item["text"]) for item in entries)
+        rows.extend((reflection_date(sleeps[index][1], context.scenario.timezone), item["text"]) for item in entries)
     return rows
 
 
