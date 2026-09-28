@@ -157,6 +157,51 @@ def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt()
     assert '"profile"' not in carded_user and '"profile"' not in plain_user
 
 
+@pytest.mark.asyncio
+async def test_memory_view_identity_uses_the_card_text_or_the_scenario_persona_fields(tmp_path) -> None:
+    """记忆巩固与反思读取的人物段（工作区 MEMORY.md 的「身份」）：新建运行编译出卡片的人物取卡片渲染文本；没有卡片的人物
+    由姓名与场景声明的经历、健康习惯、社交风格逐行组装。两者都经真实 LifeAgent 与 WorldMock 记忆运行时写出。"""
+    from agentsociety2.agent.base import ReactLoopRequest
+    from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig
+
+    from custom.agents.life_agent import LifeAgent
+    from tests.integration.test_life_agent_protocol import _observations
+    from tests.profile.conftest import make_card
+    from worldmock.profile.textgen import render_card
+    from worldmock.runtime import _agent_specs
+
+    scenario, _ = load_scenario(_FORMAL)
+
+    async def identity(profile: dict, workspace: Path) -> str:
+        """按一份人物档案走一次观察准备与记忆步，读回 MEMORY.md「身份」区段。"""
+        agent = LifeAgent()
+        agent._id = profile["id"]
+        agent._name = profile["name"]
+        agent._profile = profile
+        agent._enable_memory = False
+        agent.prepare_react_loop(ReactLoopRequest(0, scenario.start_at, copy.deepcopy(_observations())))
+        runtime = agent._new_memory_runtime(MemoryRuntimeConfig())
+        runtime.ensure_store(workspace)
+        await runtime.after_step(tick=0, t=scenario.start_at, step_count=1, finish_memories=[])
+        view = runtime.store.memory_md_path.read_text(encoding="utf-8")
+        return view.split("## 身份\n", 1)[1].split("\n\n## 已核验经历", 1)[0]
+
+    def quoted(text: str) -> str:
+        """视图把人物段逐行封入 Markdown 引用。"""
+        return "\n".join("> " + line for line in text.splitlines())
+
+    card = make_card()
+    carded = await identity(_agent_specs(scenario, persona_compiler=lambda agent: card)[0]["profile"],
+                            tmp_path / "carded")
+    plain = await identity(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"],
+                           tmp_path / "plain")
+    person = scenario.agents[0]
+    assert carded == quoted(render_card(card).strip())
+    assert plain == quoted("\n".join((f"你是{person.name}。", f"你的经历：{person.background_story.strip()}",
+                                      f"你的健康习惯：{person.health_habits.strip()}",
+                                      f"你的社交风格：{person.social_style.strip()}")))
+
+
 # ---------------------------------------------------------------------------
 # 画像编译 v2（PersonaCard 合同，docs/dev/SPEC-life-realism.md「画像编译」）：以下用例自包含（打桩提取层，
 # 直接读场景 JSON 取 background_story，不经 load_scenario 的语料清单完整性门禁）。

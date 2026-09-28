@@ -9,7 +9,10 @@ tests/integration/test_seven_layer_request.py 覆盖。
 
 from __future__ import annotations
 
+import copy
 import json
+
+import pytest
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls,
                                  stage_day_plan, start_activity, submit_round, tool_targets, wake_by_mail)
@@ -108,6 +111,23 @@ def test_env_layers_validate_through_purchase_rejection_pause_travel_and_arrival
     assert tool_targets(arrived)[activity_name(engine, walking.activity_id)]["phase"] == "刚结束"
     _act(engine, "layers-conclude", "conclude_activity", conclude_request(activity_name(engine, walking.activity_id)))
     _checked(engine, "layers-concluded")
+
+
+def test_schema_validation_rejects_unknown_layers_extra_keys_and_unexplained_refusals(engine_factory) -> None:
+    """逐层校验不是空转：未知层名、真实观察的一层多出一个键、不可用的动作没有写原因时，都以 ValueError 指明层名与位置。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    observed = _checked(engine, "schema-negative")
+    with pytest.raises(ValueError, match="Unknown prompt layer: '场景层'"):
+        validate_layer({**observed["environment_layer"], "layer": "场景层"})
+    with pytest.raises(ValueError, match=r"Prompt layer 待办层 violates its schema at \[\]: .*'scene'"):
+        validate_layer({**observed["todo_layer"], "scene": "你在家里。"})
+    tools = copy.deepcopy(observed["tool_layer"])
+    index = next(position for position, target in enumerate(tools["targets"]) if target["actions"])
+    tools["targets"][index]["actions"][0].update(available=False, reason=None)
+    with pytest.raises(ValueError, match=rf"Prompt layer 工具层 violates its schema at "
+                                         rf"\['targets', {index}, 'actions', 0, 'reason'\]"):
+        validate_layer(tools)
 
 
 def test_direct_message_and_invite_text_appear_only_in_the_progress_layer(engine_factory) -> None:

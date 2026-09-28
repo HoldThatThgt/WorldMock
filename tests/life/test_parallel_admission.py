@@ -15,11 +15,14 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, context, last_result, stage_day_plan, submit_round, target_actions,
                                  tool_targets, start_request)
+from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
+from worldmock.life import order_routing
 from worldmock.life.engine import LifeEngine
 from worldmock.life.interaction_menu import WAYS, menu_allows_action, resolve_interaction_menu
 from worldmock.life.models import (ActivityKind, ActivityStatus, MeetingMinutes, SendMessageActionRequest,
                                    StartActivityRequest, SubmitWorkActionRequest, active_activities)
+from worldmock.life.recipients import agent_identity
 
 _OPEN = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
 _UNMET, _CONFLICT = "ACTIVITY_PRECONDITION_UNMET", "RESOURCE_CONFLICT"
@@ -556,6 +559,28 @@ def test_two_foods_are_one_meal_and_only_same_way_obtains_are_one_order(engine_f
     activity = engine.state.activities[eaten.activity_id]
     assert activity.kind == ActivityKind.CONSUME
     assert [item["product_id"] for item in activity.data["request"]["items"]] == list(foods)
+
+
+def test_order_routing_accepts_only_items_that_share_one_way(engine_factory) -> None:
+    """拆单只接受方式相同的各项（start_activity 只把方式相同的两项取得合成一次派发）：同为远程下单的两项按收货地成一单；
+    一项到店、一项远程下单交给拆单时以 FULFILLMENT_NOT_SUPPORTED 拒绝，不形成任何整单。"""
+    engine = _engine(engine_factory, location="market", market=True)
+    observed = _observe(engine, "routing-preview")
+    rows = [row for row in observed["interaction_bindings"] if row["kind"] == "supply"
+            and engine.rules.supplies[row["object_id"]].location_id == "market"][:2]
+
+    def obtained(row: dict, fulfillment: str) -> dict:
+        """一项取得的路由行：本轮绑定、所选方式与收货人（自己）。"""
+        action = next(item for item in row["actions"] if item.get("fulfillment") == fulfillment)
+        return {**row, "selected_action": action, "recipient_id": agent_identity(1)}
+
+    same = order_routing.order_requests(engine.state, engine.semantics, engine.rules.supplies, 1,
+                                        [obtained(row, "delivery") for row in rows])
+    assert [(order.fulfillment, [item.supply_id for item in order.items]) for order in same] == [
+        ("delivery", [row["object_id"] for row in rows])]
+    with pytest.raises(BusinessRuleError, match="FULFILLMENT_NOT_SUPPORTED"):
+        order_routing.order_requests(engine.state, engine.semantics, engine.rules.supplies, 1,
+                                     [obtained(rows[0], "pickup"), obtained(rows[1], "delivery")])
 
 
 def test_two_makes_are_not_merged_and_two_uses_are_refused_with_a_reason(engine_factory, monkeypatch) -> None:

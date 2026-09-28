@@ -10,7 +10,9 @@
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
 
+import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
@@ -19,12 +21,14 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
 from tests.life import test_work_contracts as work_contracts
 from tests.life.test_scheduling import _custom_engine
 from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
+from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import engine as engine_module
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (PauseActivityRequest, ReportStatusRequest, SameMomentStage,
                                    SendMessageActionRequest, SubmitWorkActionRequest)
+from worldmock.life.tool_layer import tool_layer
 
 
 def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine:
@@ -216,6 +220,37 @@ def test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons(engine_fact
     assert (resume["available"], resume["reason"]) == (False, f"{name}要回到{home}才能接着做，在别处可以直接结束")
     assert target_tools(observed, name)["conclude_activity"]["available"] is True
     _assert_admission_matches(engine, tmp_path, monkeypatch, "away")
+
+
+def test_repeated_readable_object_names_fail_closed_before_any_binding(tmp_path) -> None:
+    """名称唯一：场景只要求身份唯一，两款游戏同名时观察投影在给出任何绑定之前以 ValueError 失败关闭，不让人物用一个名称
+    指向两个对象。"""
+    def mutate(document: dict) -> None:
+        """第二款游戏改用第一款的名称。"""
+        document["games"][1]["title"] = document["games"][0]["title"]
+
+    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "repeated-names")
+    try:
+        stage_day_plan(engine)
+        with pytest.raises(ValueError, match="interactive object labels must be unique"):
+            engine.observe(context(engine, "repeated-names"))
+    finally:
+        engine.close()
+
+
+def test_tool_layer_fails_closed_when_an_activity_takes_a_target_name(engine_factory) -> None:
+    """名称全局唯一：活动名由 visible_names 避开绑定目标名；名称表若把进行中的活动叫成某个绑定目标的名称，工具层以
+    IntegrityError 失败关闭，不输出无法唯一解析的目标。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, results = submit_round(engine, {1: ("start_activity", start_activity("等待", "自己"))}, "clash-wait")
+    waiting = results[0].activity_id
+    observed = engine.observe(context(engine, "clash-seen"))
+    layer_context = engine._layer_context(engine.state.agents[1], (), observed["interaction_bindings"])
+    assert activity_name(engine, waiting) in tool_targets(observed)
+    clashing = {**layer_context.names, "activities": {**layer_context.names["activities"], waiting: "自己"}}
+    with pytest.raises(IntegrityError, match="Tool layer target names must be unique"):
+        tool_layer(replace(layer_context, names=clashing))
 
 
 def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_path, monkeypatch) -> None:

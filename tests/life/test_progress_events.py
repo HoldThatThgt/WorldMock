@@ -12,14 +12,16 @@ import json
 from datetime import datetime
 from types import SimpleNamespace
 
+import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail)
+from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
 from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, ReportStatusRequest,
-                                   ReviseDayPlanRequest, SendMessageActionRequest)
+                                   ReviseDayPlanRequest, SendMessageActionRequest, SessionStatus)
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -161,6 +163,24 @@ def test_en_route_conclusion_opens_a_session_bounded_by_the_conclusion_result(en
     assert (session.kind, session.opened_by_action_id) == ("stay", "action-stop-conclude")
     observed = _observe(engine, "stop-after")
     assert progress_calls(observed) == [] and _events(observed) == []
+
+
+def test_session_bound_fails_closed_without_an_active_session_or_the_opening_result(engine_factory) -> None:
+    """session 下界只读已提交的世界与足迹：人物没有进行中的 session，或引起切换的动作在足迹中没有已提交结果时，以
+    IntegrityError 失败关闭，不退回别的下界。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _walk_to_office(engine, "bound-walk")
+    session = next(item for item in engine.state.sessions.values() if item.status == "active")
+    assert session.opened_by_action_id == "action-bound-walk"
+    closed = {key: item.model_copy(update={"status": SessionStatus.ENDED, "ended_at": engine.state.current_time})
+              if key == session.session_id else item for key, item in engine.state.sessions.items()}
+    with pytest.raises(IntegrityError, match="Agent has no active session"):
+        progress_layer.session_bound(engine.store, engine.state.model_copy(update={"sessions": closed}), 1)
+    orphan = {**engine.state.sessions,
+              session.session_id: session.model_copy(update={"opened_by_action_id": "action-never-committed"})}
+    with pytest.raises(IntegrityError, match="Session opening action has no committed result"):
+        progress_layer.session_bound(engine.store, engine.state.model_copy(update={"sessions": orphan}), 1)
 
 
 def test_direct_message_is_presented_in_full_and_marked_presented(engine_factory) -> None:

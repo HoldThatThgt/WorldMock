@@ -115,3 +115,23 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     result = late.commit_decision_round("late-menu")[0]
     assert result.error_code == "INTERACTION_MENU_DENIED"
     assert (late.state.accounts, late.state.activities) == before
+
+
+def test_availability_judges_the_menu_first_with_the_admission_reason(engine_factory):
+    """可用性与受理同序、菜单在先（docs/dev/SPEC-persona-prompt.md「工具层」）：观察之后菜单收窄，按本轮冻结绑定重算的
+    可用性把被收窄的前往标为不可用，原因与共同结算以 INTERACTION_MENU_DENIED 拒绝时的原因一字不差。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    decision = context(engine, "menu-first")
+    engine.begin_decision_round([decision])
+    offered = engine.observe(decision)
+    location = _binding(offered, "location", "travel_to")
+    _deny_travel_at_home(engine)
+    recomputed = engine._layer_context(engine.state.agents[1], (), offered["interaction_bindings"])
+    note = next(action["note"] for row in recomputed.bindings if row["object"] == location["object"]
+                for action in row["actions"] if action["label"] == "步行")
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])
+    engine.submit_action(DirectToolCall(decision, "action-menu-first", "start_activity", request))
+    result = engine.commit_decision_round("menu-first")[0]
+    assert result.error_code == "INTERACTION_MENU_DENIED"
+    assert note == result.data["reason"] == "这里不能这样做"
