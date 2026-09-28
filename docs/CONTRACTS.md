@@ -721,7 +721,7 @@ flowchart LR
 | --- | --- |
 | `observed_at` | 当前观察时刻 |
 | `body` | 五项体感分级 `{appetite, sleepiness, entertainment, social, mood}`，取值就是 `body.levels` 的分级文字（见「体感与动机证据」）；数值不进提示 |
-| `location` | `{session_kind, name, place_type, fixed_rules}`：`session_kind` 取 `stay`、`transit`；`name` 停留时为地点名，路程中为路段标签（「去<目的地>的路上」）；`place_type` 停留时为场所类型的中文标签，路程中为出行方式（「步行」「驾车」）；`fixed_rules` 为场所的固定规则，停留时取菜单排除的动作的可读说法，菜单全开时为 `[]`；路程中没有场所，为 `[]` |
+| `location` | `{session_kind, name, place_type, fixed_rules}`：`session_kind` 取 `stay`、`transit`；`name` 停留时为地点名，路程中为路段标签（「去<目的地>的路上」）；`place_type` 停留时为场所类型的中文标签，路程中为出行方式（「步行」「驾车」）；`fixed_rules` 为场所的固定规则，取菜单排除的动作的可读说法，菜单全开时为 `[]` |
 
 **进度层** `{layer, session_started_at, events}`：`session_started_at` 为当前 session 的开始时刻；`events` 是本 session 的有序记录，
 按 `occurred_at` 排列，同一时刻按事件序号。JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首决策时构造，此后同秒发生的事

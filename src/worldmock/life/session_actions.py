@@ -17,8 +17,7 @@ from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.guidance import guided
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
-                                             merged_selection, resolve_selection)
-from worldmock.life.menu_execution import current_menu
+                                             merged_selection, resolve_interaction_menu, resolve_selection)
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -145,7 +144,7 @@ class SessionActionMixin:
             state=state, scenario=self.scenario, rules=self.rules, semantics=self.semantics, agent_id=agent.agent_id,
             names={"sessions": {}, "activities": self._control_names(pending)},
             bindings=self._frozen_observation(pending)["interaction_bindings"],
-            menu=current_menu(self.scenario, state, agent.agent_id),
+            menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
             lifestyle_items=self.lifestyle_items)
         return [self._resolved_named(context, row) if row["kind"] == NAMED_SUPPLY_KIND else row for row in selection]
 

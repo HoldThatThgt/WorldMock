@@ -61,7 +61,7 @@ flowchart TB
 [配置设计](08-configuration.md#32-交互菜单声明)及[接口合同](../CONTRACTS.md#交互菜单声明与有效菜单)
 定义。每个生活 `observation` 事件的 `data.interaction_menu` 保存排序后的 `allowed_actions`，
 表示该人物在该冻结观察中可选的内部标准动作名；人物所选（对象，动词，方式）映射为内部动作后按它判定，
-途中没有场所，只取人物菜单，再由出行方式的准入收窄。它是事件级工具支持
+途中按出发地菜单解析，再由出行方式的准入收窄。它是事件级工具支持
 证据，不新增 `WorldState` 或 `AgentState` 字段，也不在 user 消息中复制。菜单声明本身由
 `scenario_sha256` 绑定，运行时有效值由观察事件留证。
 
@@ -143,7 +143,7 @@ flowchart TB
 | --- | --- | --- | --- |
 | `agent_id` | int | 是 | 人物 ID，gt=0 |
 | `name` | str | 是 | 姓名 |
-| `location_id` | str | 是 | 当前位置 ID；出行中仍为出发地（路线身份用），菜单与现场资格按进行中的出行判定为途中 |
+| `location_id` | str | 是 | 当前位置 ID；出行中仍为出发地（路线身份与菜单解析用），现场资格按进行中的出行判定为途中 |
 | `balance_account_id` | str | 是 | 账户 ID |
 | `skill_levels` | dict[str, float] | 是 | 技能等级 |
 | `taste_weights` | dict[str, float] | 是 | 口味权重 |

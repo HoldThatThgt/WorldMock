@@ -224,7 +224,7 @@ LEDGER: dict[str, list[str]] = {
         _BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
         _AGENT + "test_incomplete_work_stays_submittable_for_business_rejection",
         _WORK + "test_a_task_beyond_the_persons_skill_is_not_listed",
-        "tests/life/test_environment_layer.py::test_transit_has_no_place_rules_and_leaves_the_origin_menu_behind",
+        "tests/life/test_parallel_admission.py::test_en_route_person_is_nowhere_with_nothing_at_hand",
     ],
     "进度层": [
         _PROGRESS + name for name in (

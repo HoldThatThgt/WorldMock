@@ -70,27 +70,15 @@ class InteractionMenu(FrozenModel):
         return self
 
 
-def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str | None) -> InteractionMenu:
+def resolve_interaction_menu(scenario: Any, agent_id: int, location_id: str) -> InteractionMenu:
     """@brief 按权威地点类与人物声明求交集并返回确定性排序的有效菜单。
 
     @param scenario 已通过场景准入的 LifeScenario 或 RuntimeScenario。
     @param agent_id 当前人物身份。
-    @param location_id 当前权威地点身份；路程中为 None：没有场所，不按任何地点类收窄，只取人物声明。
+    @param location_id 当前权威地点身份。
     @return 本轮有效交互菜单。
     """
     agent = _unique_item(scenario.agents, "agent_id", agent_id, "agent")
-    actions = set(START_ACTIVITY_ACTIONS if location_id is None
-                  else _location_menu(scenario, location_id).allowed_actions)
-    agent_menu = getattr(agent, "interaction_menu", ...)
-    if agent_menu is ... or agent_menu is not None and not isinstance(agent_menu, InteractionMenu):
-        _integrity_error("Interaction menu agent declaration is invalid")
-    if agent_menu is not None:
-        actions.intersection_update(agent_menu.allowed_actions)
-    return InteractionMenu(allowed_actions=tuple(sorted(actions)))
-
-
-def _location_menu(scenario: Any, location_id: str) -> InteractionMenu:
-    """@brief 地点所属地点类的声明菜单；映射缺失或该类没有菜单时失败关闭。"""
     location = _unique_item(scenario.locations, "location_id", location_id, "location")
     menus = getattr(scenario, "interaction_menus_by_location_kind", None)
     if not isinstance(menus, dict):
@@ -98,7 +86,13 @@ def _location_menu(scenario: Any, location_id: str) -> InteractionMenu:
     location_menu = menus.get(location.kind)
     if not isinstance(location_menu, InteractionMenu):
         _integrity_error("Interaction menu for the current location kind is unavailable")
-    return location_menu
+    actions = set(location_menu.allowed_actions)
+    agent_menu = getattr(agent, "interaction_menu", ...)
+    if agent_menu is ... or agent_menu is not None and not isinstance(agent_menu, InteractionMenu):
+        _integrity_error("Interaction menu agent declaration is invalid")
+    if agent_menu is not None:
+        actions.intersection_update(agent_menu.allowed_actions)
+    return InteractionMenu(allowed_actions=tuple(sorted(actions)))
 
 
 def menu_allows_action(menu: InteractionMenu, tool_name: str, canonical_actions: Sequence[str]) -> bool:
