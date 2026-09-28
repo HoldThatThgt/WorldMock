@@ -53,11 +53,13 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/SPEC-life-runtime.md` | LifeEnv 的状态归属与生命周期、共享时钟与并发活动、身体语义与体感分级、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版 | FROZEN |
 | [查看器对象名称](dev/SPEC-run-viewer-names.md) | 地点、活动及内容名称的运行内关联、缺失提示与验证 | FROZEN |
 | [查看器名称验收](dev/run-viewer-names-verification.md) | 真实运行、回归测试与独立语义变异闭合 | 验收记录 |
+| [查看器上下文解析](dev/SPEC-run-viewer-context.md) | 模型请求的选择与关联、输入结构与原文、相邻调用对比与验证边界；按 `layer` 分段与续接识别由人物 Prompt 七层规格修订，修订条款待实现 | FROZEN |
+| [查看器上下文验收](dev/run-viewer-context-verification.md) | 要求到证据、实际运行验证、测试命令与语义变异审查 | 验收记录 |
 | [一日运行行为设计](dev/PROPOSAL-dayrun-behavior.md) | 等待、通勤、进食、记忆和持续活动的事实核查与采纳依据 | 已裁决 |
 | [一日行为特性规格](dev/SPEC-dayrun-behavior.md) | 并行生命周期、共同身体区间、餐食、音频、已核验经历与主观记忆、预警交付 | FROZEN |
 | [一日行为实施台账](dev/research/dayrun-behavior/verification.md) | 文件修改责任、逐条生产与测试映射、完整自然日及独立审查证据 | 实施台账 |
 | [一日运行修复核查与验收](dev/research/dayrun-reconciliation/verification.md) | dayrun 清单到主线修复、回归与独立突变证据 | 验收记录 |
-| `docs/dev/SPEC-life-realism.md` | 人物的两阶段决策调用、记忆写入与巩固、动机层、当日目标、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影 | FROZEN |
+| `docs/dev/SPEC-life-realism.md` | 人物的两阶段决策调用、记忆写入与巩固、动机层、当日目标、世界素材品类准入、素材可达性与呈现轮转、候选与呈现、画像编译、商品数量合同、运行呈现与导出投影；两阶段决策改为单一行动阶段，卡片与记忆的提示呈现改为人设层与记忆层，由人物 Prompt 七层规格修订，修订条款待实现 | FROZEN |
 | `docs/dev/SPEC-day-plan-goals.md` | 当日目标、实际推进证据、修订、环境威胁、三层质量报告与完整验收；生成方式、提醒与部分节律由时间与能量规格修订 | FROZEN |
 | `docs/dev/PROPOSAL-day-plan-goals.md` | 目标与时间职责分离的裁决依据，现行行为引用最终规格 | 已裁决 |
 | `docs/dev/research/day-plan-semantics.md` | 当日目标学科调研与核实限制 | 调研证据 |
@@ -67,18 +69,18 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | `docs/dev/research/day-plan-goals-bob-interface.md` | 当日目标工具、观察与叙述的独立源码突变证据 | 审查记录 |
 | `docs/dev/research/day-plan-goals-bob-metrics.md` | 三层统计及导出首次审查，保留三个初次存活结论 | 审查记录 |
 | `docs/dev/research/day-plan-goals-bob-metrics-recheck.md` | 三个存活补丁在新增行为断言后的原样复验 | 审查记录 |
-| `docs/dev/SPEC-decision-context.md` | 决策自述、冻结上下文、动作登记与结果通道、场景信息、预算、修改清单与验收台账 | FROZEN |
+| `docs/dev/SPEC-decision-context.md` | 决策自述、冻结上下文、动作登记与结果通道、场景信息、预算、修改清单与验收台账；决策自述与场景信息由人物 Prompt 七层规格取代（决策就是所选世界请求，场景信息改为七层归属），冻结上下文、预算、修改清单与验收台账由其修订，登记与结果通道约束保留，修订条款待实现 | FROZEN |
 | `docs/dev/SPEC-interaction-menu.md` | 地点类与人物交互菜单、工具和活动类型准入、冻结观察、模型与环境共同门控、运行身份及验收台账 | FROZEN |
 | `docs/dev/SPEC-labelkit-delivery.md` | 数字足迹接入 LabelKit 的输入范围与加工责任、证据窗口与来源关联、交付产物与发布边界、长序列与数据划分、真实调用的生产与验证步骤 | FROZEN |
 | `docs/dev/PROPOSAL-agent-interaction.md` | **已裁决并冻结**：数字人交互的原始问题、心智模型逐条对账与取舍记录；行为定义已由 `SPEC-agent-interaction.md` 承载 | FROZEN |
-| `docs/dev/SPEC-agent-interaction.md` | **FROZEN**：三级结构（当日目标、地点会话、活动）、七层上下文与进度层、稳定工具面、决策轮循环与播报节律、前置条件前置、活动名额、午夜浓缩；显式修订七条既有冻结条款并随冻结生效；工具面、会话与记忆写入点由时间与能量规格修订 | FROZEN |
+| `docs/dev/SPEC-agent-interaction.md` | **FROZEN**：三级结构（当日目标、地点会话、活动）、七层上下文与进度层、稳定工具面、决策轮循环与播报节律、前置条件前置、活动名额、午夜浓缩；显式修订七条既有冻结条款并随冻结生效；工具面、会话与记忆写入点由时间与能量规格修订；七层上下文与进度层由人物 Prompt 七层规格取代（进度层只含当前 session），修订条款待实现 | FROZEN |
 | `docs/dev/research/agent-interaction-document-impact.md` | 文档影响与文件修改清单：爆炸半径实测、五处词表同步点、导出重建约束、冻结规格与设计文档修订清单 | 调研证据 |
-| `docs/dev/SPEC-time-and-energy.md` | 时间与能量特性规格：决策不耗时与同刻再决策、饥饿低能量显示与商品热量及路线费力、能量不阻断而让人物趁早吃、零点计划与计划提醒、五个动词与并行准入、动作照常列出并带条件说明、派生时长上限、常驻「怎样过一天」提示、地点会话与两个活动名额、`finish` 并入 `conclude_activity`、提示不含内部身份、本机运行修复与 issue #1 复核；列出对既有冻结条款的修订，随冻结生效 | FROZEN |
+| `docs/dev/SPEC-time-and-energy.md` | 时间与能量特性规格：决策不耗时与同刻再决策、饥饿低能量显示与商品热量及路线费力、能量不阻断而让人物趁早吃、零点计划与计划提醒、五个动词与并行准入、动作照常列出并带条件说明、派生时长上限、常驻「怎样过一天」提示、地点会话与两个活动名额、`finish` 并入 `conclude_activity`、提示不含内部身份、本机运行修复与 issue #1 复核；列出对既有冻结条款的修订，随冻结生效；常驻「怎样过一天」提示与吃饭途径句由人物 Prompt 七层规格的系统层与工具层取代，修订条款待实现 | FROZEN |
 | `docs/dev/research/time-and-energy-implementation-plan.md` | 时间与能量实施计划：实施阶段与门禁、逐文档逐条款的文档同步作业、文件修改清单与工程约束；随规格冻结后作为实施台账维护 | 实施台账 |
 | `docs/dev/research/time-and-energy-verification.md` | 时间与能量验收记录：源码身份与各阶段评审修复、验收台账逐行登记、全量门禁与覆盖率、VF4 语义突变、无新增故障、文档一致性与锚点核对；真实复验（阶段 8）本机未执行，记录执行步骤与对照基线 | 验收记录 |
-| `docs/dev/PROPOSAL-decision-context.md` | 人物 Prompt 七层与交互修复方案：七层 JSON 与唯一出现原则、已确认的交互语义、统一修复的程序错误、需修订的现行条款；未裁决，现行行为仍以 `SPEC-decision-context.md` 等冻结规格为准；收敛后的开发规格草稿为 `docs/dev/SPEC-persona-prompt.md` | 未冻结提案 |
-| `docs/dev/SPEC-persona-prompt.md` | 人物 Prompt 七层与交互修复特性规格：七层请求与唯一出现、单一行动阶段与同秒续接、进度层与记忆层、预算、来源与去向、指名购买与代点关联、统一修复的程序错误、下游、冻结条款修订、实施计划与验收台账；「裁决记录」#21–#38 待裁定后冻结，冻结前现行行为仍以各冻结规格为准 | 未冻结提案 |
-| `docs/dev/research/persona-prompt-implementation-plan.md` | 人物 Prompt 七层实施计划：实施阶段与门禁、逐文档逐条款的文档同步作业、文件修改清单与工程约束；随规格冻结改为实施台账 | 未冻结提案 |
+| `docs/dev/PROPOSAL-decision-context.md` | 人物 Prompt 七层与交互修复方案：七层 JSON 与唯一出现原则、已确认的交互语义、统一修复的程序错误、需修订的现行条款；已收敛为冻结规格 `docs/dev/SPEC-persona-prompt.md`，本文只保留设计背景与取舍依据 | 已裁决 |
+| `docs/dev/SPEC-persona-prompt.md` | 人物 Prompt 七层与交互修复特性规格：七层请求与唯一出现、单一行动阶段与同秒续接、进度层与记忆层、预算、来源与去向、指名购买与代点关联、统一修复的程序错误、下游、冻结条款修订、实施计划与验收台账；2026-09-27 冻结，「裁决记录」#21–#38 按推荐定稿，修订条款待实现 | FROZEN |
+| `docs/dev/research/persona-prompt-implementation-plan.md` | 人物 Prompt 七层实施计划：实施阶段与门禁、逐文档逐条款的文档同步作业、文件修改清单与工程约束；规格冻结后作为实施台账维护 | 实施台账 |
 | `docs/dev/research/persona-prompt-seven-layers.md` | 七层字段、差距的代码依据与字段取值依据；配套七份 Schema、完整示例与交互图示 | 调研证据 |
 | `docs/dev/research/white-collar-dayrun-root-cause-2026-09-28.md` | 白领全天模拟重复下单、给予、进食与强制等待的运行证据与根因分析 | 调研证据 |
 | `docs/dev/research/decision-context-proposal-2026-09-20.md` | 决策上下文 2026-09-20 已裁决的心智模型与取舍记录原文；行为与开发验收由 `SPEC-decision-context.md` 承载 | 归档 |
@@ -160,8 +162,8 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 | 查历史调研、审计与根因结论 | `docs/dev/research/` | 对应 SPEC 看结论如何落地为条款 |
 | 了解数字人交互的设计依据与取舍 | `docs/dev/PROPOSAL-agent-interaction.md` | 已裁决：行为定义看 `docs/dev/SPEC-agent-interaction.md`；差距审计引用 `docs/CONTRACTS.md` 与各 SPEC 取证 |
 | 审查时间与能量（已实现）：同刻决策、能量不阻断、零点计划与提醒、五个动词、地点会话与活动名额 | `docs/dev/SPEC-time-and-energy.md` | 「冻结条款修订」取被改写的既有冻结条款，`docs/dev/research/time-and-energy-implementation-plan.md` 取实施阶段、文档同步作业与文件修改清单，`docs/dev/research/time-and-energy-verification.md` 取验收证据 |
-| 实现或审查数字人交互（会话、上下文分层、稳定工具面） | `docs/dev/SPEC-agent-interaction.md` | `docs/dev/research/agent-interaction-document-impact.md` 取文件清单与爆炸半径，`docs/CONTRACTS.md` 取字段与 Schema |
-| 审查人物 Prompt 七层方案（未冻结）：七层请求、同秒续接、记忆层、来源与去向、指名购买 | `docs/dev/SPEC-persona-prompt.md` | 「裁决记录」取待裁定事项，「冻结条款修订」取被改写的冻结条款，`docs/dev/research/persona-prompt-implementation-plan.md` 取阶段、文档同步作业与文件修改清单；设计依据见 `docs/dev/PROPOSAL-decision-context.md` |
+| 实现或审查数字人交互（会话、上下文分层、稳定工具面） | `docs/dev/SPEC-agent-interaction.md` | `docs/dev/research/agent-interaction-document-impact.md` 取文件清单与爆炸半径，`docs/CONTRACTS.md` 取字段与 Schema；「上下文分层」已被人物 Prompt 七层规格取代，见 `docs/dev/SPEC-persona-prompt.md` |
+| 实现或审查人物 Prompt 七层（已冻结，实施中）：七层请求、同秒续接、记忆层、来源与去向、指名购买 | `docs/dev/SPEC-persona-prompt.md` | 「裁决记录」取已定裁决，「冻结条款修订」取被改写的冻结条款，`docs/dev/research/persona-prompt-implementation-plan.md`（实施台账）取阶段、文档同步作业与文件修改清单，`docs/VERIFICATION.md`「人物 Prompt 七层特性门禁」取门禁；设计依据见已裁决的 `docs/dev/PROPOSAL-decision-context.md` |
 | 设计突发事件类世界事件（事故、疾病、升迁、丧亲） | `docs/dev/research/exogenous-incidents.md` | `docs/dev/SPEC-life-realism.md` 取现有行为边界，`docs/design/05-recording-engine.md` 取事件闭集，`docs/dev/SPEC-life-runtime.md` 取唤醒闭集 |
 | 查看资源、内容与语料的统一设计 | `docs/design/03-resource-engine.md` | 资源定义、来源、版本、内容提供与实现差距 |
 | 查看模拟引擎如何组织并推进实际运行 | `docs/design/04-simulation-engine.md` | 初始化、观察与动作受理、时钟与活动、结算、唤醒和恢复编排 |
@@ -182,7 +184,7 @@ WorldMock 用 AgentSociety 2（下称 AS2）驱动数字人的日常生活，把
 - **验收**（什么算通过、门禁键、测试矩阵、证据层级、report-only 边界）看 `docs/VERIFICATION.md`。
 - **实现状态**（现在到哪一步、已有哪些证据、还剩哪些阻塞）看 `docs/dev/implementation-status.md`；它只写现状，变更过程由 Git 承载。
 - **覆盖率口径与基线**看 `docs/dev/coverage-baseline.md` 与它写出的 `docs/dev/coverage-report.json`。
-- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`、草稿规格及其实施计划。它们在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的交互菜单、品类契约及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格；已裁决的决策上下文提案原文归档于 `docs/dev/research/decision-context-proposal-2026-09-20.md`，同名提案路径现为未裁决的人物 Prompt 七层方案，其草稿规格为 `docs/dev/SPEC-persona-prompt.md`。
+- **未裁决方向**看状态仍为未冻结提案的 `docs/dev/PROPOSAL-*.md`、草稿规格及其实施计划。它们在被单独裁决为冻结以前，任何 `CONTRACTS`、代码、测试与验收结论不得依赖其未冻结内容。已裁决的交互菜单、品类契约及地图与门店供给提案仅保留设计记录，实施依据为对应冻结规格；已裁决的决策上下文提案原文归档于 `docs/dev/research/decision-context-proposal-2026-09-20.md`，同名提案路径现为人物 Prompt 七层方案：已裁决，实施依据为冻结规格 `docs/dev/SPEC-persona-prompt.md`。
 - **历史证据**看 `docs/dev/research/`。这些文件是当时快照下的依据，不构成当前规范。
 
 ```mermaid
@@ -315,3 +317,4 @@ flowchart TB
 | `2026-09-24-time-and-energy-freeze` | 2026-09-24 | 冻结时间与能量特性规格：用户指示按规格实现，裁决 #19–#23、#25 按推荐定稿，规格状态改 `FROZEN`，实施计划改 `实施台账`；数字人交互规格一行不写工具个数，改为修订七条冻结条款、三级结构与活动名额，并注明由时间与能量规格修订；当日目标规格一行注明生成方式、提醒与部分节律被修订、待实现；文档地图中词表外的状态值改为词表取值（`FROZEN`、`验收记录`、`审查记录`）；突发事件阅读入口的事件闭集改指记录引擎设计，唤醒闭集改指 life-runtime 规格 |
 | `2026-09-26-time-and-energy-verification` | 2026-09-26 | 时间与能量实现后文档（IX5）：文档地图登记本特性验收记录（`验收记录`）；「按任务读」时间与能量一行改为已实现并补验收记录入口；当日目标规格一行删去冻结时加入的「，修订条款待实现」 |
 | `2026-09-27-persona-prompt-spec` | 2026-09-27 | 登记人物 Prompt 七层特性规格与实施计划（均为未冻结提案）并补审查阅读路径；提案一行的状态由词表外的「审阅稿」改为 `未冻结提案`，并指向草稿规格；「权威层级」注明草稿规格路径 |
+| `2026-09-27-persona-prompt-freeze` | 2026-09-27 | 冻结人物 Prompt 七层特性规格：用户指示实施本方案、不延后任何待实现项，裁决 #21–#38 按推荐定稿，规格状态改 `FROZEN`，实施计划改 `实施台账`，提案改 `已裁决`；`SPEC-life-realism.md`、`SPEC-decision-context.md`、`SPEC-agent-interaction.md` 与 `SPEC-time-and-energy.md` 各行注明被该规格取代或修订的部分、修订条款待实现；「按任务读」数字人交互一行注明「上下文分层」被取代，人物 Prompt 一行改为实现与审查入口并指向实施台账与验收门禁；「权威层级」改为提案已裁决、实施依据为该规格；补登既有漂移：查看器上下文解析规格（`FROZEN`）及其验收记录（`验收记录`） |

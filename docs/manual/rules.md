@@ -74,6 +74,7 @@ flowchart LR
 不能只检查某一个新商品是否能解析。数值限制同样需要在顶层 `sources` 中有准确覆盖。
 
 配对动作是闭集：`purchase`、`consume:eat`、`consume:use`、`work:settle`、`travel:walking`、`travel:driving`。
+把手边物品交给别人（给予）沿用内部动作 `consume`，只转移持有、不增加任何人的摄入，不新增配对动作，这个闭集不变。
 下面是一条完整配对：
 
 ```json
