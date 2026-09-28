@@ -761,7 +761,7 @@ def _aggregate_tokens(all_usage: list[dict], reported: list[dict], missing_calls
 
 def _aggregate_cost(all_usage: list[dict], estimated: list[dict], missing_responses: int,
                     pending: list[str]) -> dict:
-    """@brief 报告可计价覆盖；无响应、待定或缺计价字段时不声称总成本。"""
+    """@brief 报告可计价覆盖；无响应、调用尚未结束或缺计价字段时不声称总成本。"""
     known = round(sum(item["estimated_cost_usd"] for item in estimated), 12) if estimated else None
     complete = bool(all_usage) and len(estimated) == len(all_usage) and missing_responses == 0 and not pending
     reasons = Counter(item["cost_unavailable_reason"] for item in all_usage

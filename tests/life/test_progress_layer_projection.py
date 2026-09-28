@@ -255,7 +255,8 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
                                            "phase": activity_phase(state.activities[key])}
                                           for key, name in names["activities"].items()],
                     "session_bindings": [{"name": name, "session_id": key}
-                                         for key, name in names["sessions"].items()]}
+                                         for key, name in names["sessions"].items()],
+                    "memory_layer": {"layer": "记忆层", "earlier_days": [], "earlier_today": []}}
 
     controller = RecallController()
 
