@@ -2,7 +2,7 @@
 
 只测 Router 构造（无网络）：deployment 数、model_name 分组、openai/ 前缀、
 api_base 透传与空段剔除。模型身份记录 openai_compatible 的覆盖在
-test_runtime.py（_model_identity / two_stage_model_identity）。
+test_runtime.py（_model_identity / stage_model_identity）。
 """
 
 from __future__ import annotations

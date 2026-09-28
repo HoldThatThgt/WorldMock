@@ -115,8 +115,9 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
     assert formal.agents[0].motivation == multi.agents[0].motivation
 
 
-def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
-    """新画像字段以 persona_card 渲染文本进入三段 ReAct 用户消息（docs/dev/SPEC-life-runtime.md「观察投影与提示合同」）。"""
+def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt() -> None:
+    """阶段一人设层取人物姓名与场景联系人（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）；卡片渲染文本与经历、
+    健康习惯、社交风格等画像字段在阶段三的卡片路径之前都不进提示，有无编译卡片得到同一人设层。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
@@ -124,33 +125,29 @@ def test_rich_persona_fields_reach_the_native_llm_prompt() -> None:
     from worldmock.runtime import _agent_specs
 
     scenario, _ = load_scenario(_FORMAL)
-    # 卡片路径：编译产出 persona_card 渲染文本原样进入消息首段。
-    specification = _agent_specs(
-        scenario, persona_compiler=lambda agent: "画像卡片：立体人格文本。")[0]
-    agent = LifeAgent()
-    agent._id = specification["id"]
-    agent._name = specification["profile"]["name"]
-    agent._profile = specification["profile"]
-    agent._enable_memory = False
-    observation = copy.deepcopy(_observations()[0]["data"])
-    wrapped = [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
-    messages = agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, wrapped))
-    user = messages[1]["content"]
-    assert "画像卡片：立体人格文本。" in user
-    # 无卡片回退路径：background_story/健康习惯/社交风格以安全字段组装。
-    plain = _agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"]
-    fallback_agent = LifeAgent()
-    fallback_agent._id = specification["id"]
-    fallback_agent._name = specification["profile"]["name"]
-    fallback_agent._profile = plain
-    fallback_agent._enable_memory = False
-    fallback = fallback_agent.build_react_messages(
-        ReactLoopRequest(0, scenario.start_at, wrapped))[1]["content"]
+
+    def persona(profile: dict) -> tuple[dict, str]:
+        agent = LifeAgent()
+        agent._id = profile["id"]
+        agent._name = profile["name"]
+        agent._profile = profile
+        agent._enable_memory = False
+        request = ReactLoopRequest(0, scenario.start_at, copy.deepcopy(_observations()))
+        agent.prepare_react_loop(request)
+        user = agent.build_react_messages(request)[1]["content"]
+        return json.loads(user)[1], user
+
+    carded, carded_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: "画像卡片：立体人格文本。")[0][
+        "profile"])
+    plain, plain_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"])
+    assert carded == plain
+    assert carded["identity"]["name"] == scenario.agents[0].name
+    assert [row["person"] for row in carded["relationships"]] == [
+        contact.salutation for contact in scenario.agents[0].contacts]
+    assert "画像卡片" not in carded_user
     for field in _NEW_PERSONA_FIELDS:
-        assert getattr(scenario.agents[0], field) in fallback
-    assert "你的经历：" in fallback and "你的健康习惯：" in fallback and "你的社交风格：" in fallback
-    assert '"profile"' not in user and '"profile"' not in fallback
+        assert getattr(scenario.agents[0], field) not in plain_user
+    assert '"profile"' not in carded_user and '"profile"' not in plain_user
 
 
 # ---------------------------------------------------------------------------

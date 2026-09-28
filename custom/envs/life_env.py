@@ -61,9 +61,9 @@ class LifeEnv(EnvBase):
         else:
             if self.run_identity is None:
                 raise ProtocolError("New LifeEnv run requires explicit run_identity")
-            from worldmock.runtime import two_stage_model_identity
+            from worldmock.runtime import stage_model_identity
             self.engine = LifeEngine.create(self.scenario_path, self.run_dir, self.run_identity,
-                                            two_stage_model_identity(), self.agent_taste_weights)
+                                            stage_model_identity(), self.agent_taste_weights)
         if int(start_datetime.timestamp()) != self.engine.state.current_time:
             self.engine.close()
             self.engine = None

@@ -1,4 +1,4 @@
-"""运行 manifest 两阶段 model_identity 冻结与防篡改测试（C1 接缝三收口）。"""
+"""运行 manifest 阶段 model_identity（stage_model_identity：action 与 work_review）冻结与防篡改测试。"""
 
 from __future__ import annotations
 
@@ -19,8 +19,8 @@ from worldmock.errors import IntegrityError
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ModelIdentity, RunIdentity
 from worldmock.life.scenario import load_scenario
-from worldmock.runtime import _model_identity, _require_runtime_identity, runtime_code_sha256, two_stage_model_identity
-from worldmock.validation import validate_two_stage_model_identity
+from worldmock.runtime import _model_identity, _require_runtime_identity, runtime_code_sha256, stage_model_identity
+from worldmock.validation import validate_stage_model_identity
 from tests.integration.as2_fixtures import use_fake_as2
 
 _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
@@ -30,15 +30,15 @@ _SCENARIO = Path("scenarios/white-collar-12-weeks.json")
 @pytest.mark.parametrize("change", ["missing", "incremented", "float", "string"])
 def test_run_budgets_are_frozen_and_missing_or_changed_values_rejected(field, expected, change) -> None:
     """真实运行身份冻结纠错预算，旧身份缺字段或篡改时拒绝，不生成缺省值。"""
-    identity = two_stage_model_identity()
+    identity = stage_model_identity()
     assert identity[field] == expected
-    assert validate_two_stage_model_identity(identity) == identity
+    assert validate_stage_model_identity(identity) == identity
     if change == "missing":
         del identity[field]
     else:
         identity[field] = {"incremented": expected + 1, "float": float(expected), "string": str(expected)}[change]
     with pytest.raises(IntegrityError, match=field):
-        validate_two_stage_model_identity(identity)
+        validate_stage_model_identity(identity)
 
 
 def _run_identity(scenario) -> RunIdentity:
@@ -65,8 +65,8 @@ def _run_identity(scenario) -> RunIdentity:
     )
 
 
-async def test_life_env_init_freezes_two_stage_identity_into_manifest(tmp_path) -> None:
-    """生产接线：LifeEnv 新建运行把两阶段身份冻结进运行 manifest。"""
+async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> None:
+    """生产接线：LifeEnv 新建运行把 action 与 work_review 两个阶段的身份冻结进运行 manifest。"""
     from custom.envs.life_env import LifeEnv
 
     scenario, _ = load_scenario(_SCENARIO)
@@ -79,60 +79,64 @@ async def test_life_env_init_freezes_two_stage_identity_into_manifest(tmp_path) 
     finally:
         await env.close()
 
-    identity = manifest["two_stage_model_identity"]
-    assert set(identity["stages"]) == {"decision_statement", "action", "work_review"}
-    # 与 runtime 单一事实源逐字节一致（B5 设计决定 1 的对齐目标）。
-    assert identity == two_stage_model_identity()
-    validate_two_stage_model_identity(identity)
-    # 单阶段 model_identity 块保持恢复门可比形状（runtime._require_runtime_identity）。
+    identity = manifest["stage_model_identity"]
+    assert "two_stage_model_identity" not in manifest
+    assert identity["stages"] == {"action": {"thinking": "enabled", "tool_choice": "auto", "max_tokens": 8000},
+                                  "work_review": {"thinking": "disabled", "tool_choice": "required"}}
+    # 与 runtime 单一事实源逐字节一致。
+    assert identity == stage_model_identity()
+    validate_stage_model_identity(identity)
+    # model_identity 块保持恢复门可比形状（runtime._require_runtime_identity）。
     assert set(manifest["model_identity"]) == {
         "provider", "base_url", "requested_model", "thinking", "tool_choice",
         "max_retries", "prompt_sha256", "tool_schema_sha256"}
 
 
-def test_manifest_two_stage_identity_tampering_is_rejected(tmp_path) -> None:
+def test_manifest_stage_identity_tampering_is_rejected(tmp_path) -> None:
     """篡改拒绝：manifest 冻结值的任何阶段篡改被一致性校验拒绝。"""
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario),
-                               two_stage_model_identity())
+                               stage_model_identity())
     try:
-        frozen = copy.deepcopy(engine.store.manifest["two_stage_model_identity"])
+        frozen = copy.deepcopy(engine.store.manifest["stage_model_identity"])
     finally:
         engine.close()
 
-    validate_two_stage_model_identity(frozen)
+    validate_stage_model_identity(frozen)
     tampered = copy.deepcopy(frozen)
-    tampered["stages"]["decision_statement"]["temperature"] = 0.7
-    with pytest.raises(IntegrityError, match="decision_statement"):
-        validate_two_stage_model_identity(tampered)
+    tampered["stages"]["action"]["tool_choice"] = "required"
+    with pytest.raises(IntegrityError, match="stage action"):
+        validate_stage_model_identity(tampered)
     wrong_endpoint = copy.deepcopy(frozen)
     wrong_endpoint["base_url"] = "https://elsewhere.example/v1"
     with pytest.raises(IntegrityError, match="base_url"):
-        validate_two_stage_model_identity(wrong_endpoint)
+        validate_stage_model_identity(wrong_endpoint)
 
 
 @pytest.mark.parametrize("keep_current", [False, True])
 def test_retired_stage_is_rejected_even_beside_the_current_stage(keep_current, caplog) -> None:
-    """阶段名精确闭集；旧名称替换或混入当前清单均拒绝。"""
-    identity = two_stage_model_identity()
-    identity["stages"]["monologue"] = copy.deepcopy(identity["stages"]["decision_statement"])
+    """阶段名精确闭集：退役的 decision_statement 替换或混入当前清单都以退役错误拒绝；其他陌生阶段按闭集拒绝。"""
+    identity = stage_model_identity()
+    identity["stages"]["decision_statement"] = {"thinking": "disabled", "temperature": 1.0}
     if not keep_current:
-        del identity["stages"]["decision_statement"]
+        del identity["stages"]["action"]
 
-    with pytest.raises(IntegrityError, match="stages must be exactly decision_statement"):
-        validate_two_stage_model_identity(identity)
-
-    assert "Model identity stages must be exactly" in caplog.text
+    with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
+        validate_stage_model_identity(identity)
+    unknown = stage_model_identity()
+    unknown["stages"]["monologue"] = unknown["stages"].pop("action")
+    with pytest.raises(IntegrityError, match="stages must be exactly action, work_review"):
+        validate_stage_model_identity(unknown)
 
 
 def test_engine_create_rejects_retired_stage_before_writing_run_artifacts(tmp_path) -> None:
-    """真实新建入口拒绝旧阶段；独立校验通过不能替代持久化前校验。"""
+    """真实新建入口拒绝退役阶段；独立校验通过不能替代持久化前校验。"""
     scenario, _ = load_scenario(_SCENARIO)
-    identity = two_stage_model_identity()
-    identity["stages"]["monologue"] = identity["stages"].pop("decision_statement")
+    identity = stage_model_identity()
+    identity["stages"]["decision_statement"] = {"thinking": "disabled"}
     run_dir = tmp_path / "old-stage"
 
-    with pytest.raises(IntegrityError, match="stages must be exactly decision_statement"):
+    with pytest.raises(IntegrityError, match="stage decision_statement is retired"):
         LifeEngine.create(_SCENARIO, run_dir, _run_identity(scenario), identity)
 
     assert not (run_dir / "manifest.json").exists()
@@ -143,13 +147,17 @@ def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches(m
     """恢复入口独立验证阶段身份，不能只依赖源码哈希间接拒绝旧清单（AS2 取锁定的临时包）。"""
     use_fake_as2(monkeypatch, tmp_path_factory.mktemp("as2-site"))
     root = Path(__file__).resolve().parents[2]
-    stages = two_stage_model_identity()
-    stages["stages"]["monologue"] = stages["stages"].pop("decision_statement")
+    stages = stage_model_identity()
+    stages["stages"]["decision_statement"] = {"thinking": "disabled"}
     manifest = {"model_identity": _model_identity().model_dump(mode="json"),
-                "two_stage_model_identity": stages, "code_sha256": runtime_code_sha256(root)}
+                "stage_model_identity": stages, "code_sha256": runtime_code_sha256(root)}
 
-    with pytest.raises(IntegrityError, match="decision stage identity differs"):
+    with pytest.raises(IntegrityError, match="stage decision_statement is retired"):
         _require_runtime_identity(manifest, root)
+    old = {key: value for key, value in manifest.items() if key != "stage_model_identity"}
+    old["two_stage_model_identity"] = stages
+    with pytest.raises(IntegrityError, match="decision stage identity differs"):
+        _require_runtime_identity(old, root)
 
 
 def test_run_identity_records_git_state_as_a_pair() -> None:
@@ -165,11 +173,11 @@ def test_run_identity_records_git_state_as_a_pair() -> None:
             RunIdentity.model_validate({**base, **fields})
 
 
-def test_engine_created_without_two_stage_identity_keeps_null_slot(tmp_path) -> None:
-    """反例：未传两阶段身份时 manifest 槽位为 null（既有测试工厂口径不变）。"""
+def test_engine_created_without_stage_identity_keeps_null_slot(tmp_path) -> None:
+    """反例：未传阶段身份时 manifest 槽位为 null（既有测试工厂口径不变）。"""
     scenario, _ = load_scenario(_SCENARIO)
     engine = LifeEngine.create(_SCENARIO, tmp_path / "run", _run_identity(scenario))
     try:
-        assert engine.store.manifest["two_stage_model_identity"] is None
+        assert engine.store.manifest["stage_model_identity"] is None
     finally:
         engine.close()

@@ -14,7 +14,6 @@ from worldmock.evaluation.goal_metrics import day_plan_metrics
 from worldmock.footprints.experiences import project_verified_experiences, validate_verified_experiences
 from worldmock.footprints.models import (
     DECISION_OFFERED_FIELD,
-    DECISION_STATEMENT_FIELD,
     WAKE_REASON_NAMES,
     WAKE_REASONS_FIELD,
     Event,
@@ -30,7 +29,7 @@ _SUBJECTIVE_TYPES = frozenset({"commitment", "relationship", "preference", "goal
                               "resolution", "identity", "routine", "reflection"})
 #: 记忆写入点闭集（memory_updated.data.trigger 的取值与顺序）：结束活动与就寝反思。
 _WRITE_POINTS = ("activity_conclusion", "reflection")
-#: 模型用量按用途分列时，无 purpose 的请求（人物决策的自述与动作）的分组名。
+#: 模型用量按用途分列时，无 purpose 的请求（人物决策的行动请求与记忆巩固、反思）的分组名。
 _DECISION_PURPOSE = "decision"
 _PRICING = {
     "source": "https://api-docs.deepseek.com/quick_start/pricing/",
@@ -56,7 +55,7 @@ def build_quality_report(events: list[Event], activities: list[dict], manifest: 
     """
     _validate_inputs(events, activities, manifest)
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": manifest["run_id"],
         "source_group_id": manifest.get("source_group_id", manifest["run_id"]),
         "event_range": {
@@ -354,7 +353,7 @@ def _weighted_efficiency(samples: list[tuple[float, float]], missing: int, empty
 
 
 def _decision_rhythm_quality(events: list[Event]) -> dict:
-    """@brief 统计静默边界、唤醒原因分布、同刻轮次与决策自述存在情况，只透传原始计数。
+    """@brief 统计静默边界、唤醒原因分布与同刻轮次，只透传原始计数。
 
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。边界的唤醒原因取共同身体结算，
@@ -365,7 +364,6 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
     silent = sum(event.data.get(DECISION_OFFERED_FIELD) is False for event in boundaries)
     known_reasons, unrecognized_reasons, reason_events = _wake_reason_distribution(boundaries)
     started = [event for event in events if event.event_type == "decision_started"]
-    with_decision_statement = sum(isinstance(event.data.get(DECISION_STATEMENT_FIELD), str) for event in started)
     started_known, started_unrecognized, _ = _wake_reason_distribution(started)
     return {
         "body_settlement_events": len(boundaries),
@@ -377,8 +375,6 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "wake_reason_counts": dict(sorted(known_reasons.items())),
         "unrecognized_wake_reason_counts": dict(sorted(unrecognized_reasons.items())),
         "decision_started_events": len(started),
-        "decision_started_with_decision_statement": with_decision_statement,
-        "decision_started_missing_decision_statement": len(started) - with_decision_statement,
         "same_moment_round_counts": _same_moment_round_counts(started),
         "decision_started_wake_reason_counts": dict(sorted(started_known.items())),
         "unrecognized_decision_started_wake_reason_counts": dict(sorted(started_unrecognized.items())),
@@ -473,7 +469,10 @@ def _inspect_memory_response(event: Event, state: dict) -> None:
 
 
 def _inspect_memory_observation(event: Event, state: dict) -> None:
-    """@brief 观察中的事实窗口与上轮结果必须真实可见且已经发生；记下本决策的窗口与是否醒来（就寝反思来源）。"""
+    """@brief 观察中的事实窗口与进度层来源必须真实存在且已经发生；记下本决策的窗口与是否醒来（就寝反思来源）。
+
+    进度层来源 progress_event_ids 的每个身份都须解析到本人更早提交的事件，否则记 invalid_observed_result_reference。
+    """
     if event.visibility != "agent" or event.agent_id is None:
         return
     try:
@@ -487,11 +486,9 @@ def _inspect_memory_observation(event: Event, state: dict) -> None:
         if not _verified_source_matches(source, fact, event):
             _add_memory_problem(state, "invalid_verified_experience_source", event.event_id,
                                 event.agent_id, [fact["source_event_id"]])
-    for result in event.data.get("recent_action_results", []):
-        identity = result.get("event_id") if isinstance(result, dict) else None
-        source = state["events"].get(identity)
-        if (source is None or source.event_type != "action_result" or source.agent_id != event.agent_id
-                or source.visibility != "agent" or source.event_seq >= event.event_seq):
+    for identity in event.data.get("progress_event_ids", []):
+        source = state["events"].get(identity) if isinstance(identity, str) else None
+        if source is None or source.agent_id != event.agent_id or source.event_seq >= event.event_seq:
             _add_memory_problem(state, "invalid_observed_result_reference", event.event_id, event.agent_id,
                                 [identity] if isinstance(identity, str) else [])
     key = (event.agent_id, event.decision_id)

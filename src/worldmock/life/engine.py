@@ -39,7 +39,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
                                               record_material_reveal as _record_material_reveal)
 from worldmock.life.activity_validation import validate_activity_targets
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
-                                            maybe_decision_statement_start, pop_decision_start)
+                                            maybe_action_request_start, pop_decision_start, response_self_note)
 from worldmock.life.activities import (
     ActivityAdvance,
     ActivityOrigin,
@@ -171,6 +171,9 @@ if TYPE_CHECKING:
 #: 会话动作的 action 取值到操作日志组件的映射，未列出的动作归属 engine。
 _OPS_COMPONENTS = {"purchase": "commerce", "travel_to": "travel", "submit_work": "review"}
 
+#: 只交给宿主、不存进观察事件的观察键：进度层快照与其私有元数据（docs/dev/SPEC-persona-prompt.md 第七章「事件」）。
+_HOST_ONLY_OBSERVATION_KEYS = ("progress_layer", "progress_meta")
+
 #: 观察合同条目的五键闭集（LifeAgent 侧严格校验同一形状）；能量不参与受理，合同不带能量投影键。
 AFFORDANCE_CONTRACT_KEYS = frozenset({
     "action", "target_discovery", "target_field", "feedback_eligible", "game_boundary"})
@@ -236,7 +239,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
     @classmethod
     def create(cls, scenario_path: Path, run_dir: Path, run_identity: RunIdentity,
-               two_stage_identity: dict | None = None, agent_taste_weights: dict | None = None) -> "LifeEngine":
+               stage_identity: dict | None = None, agent_taste_weights: dict | None = None) -> "LifeEngine":
         """@brief 从严格场景新建唯一运行，拒绝覆盖已有工件；口味权重按注入值入态。"""
         semantics, digest = load_runtime_scenario(scenario_path)
         scenario = semantics.scenario
@@ -244,7 +247,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         load_manifest(corpus_root, scenario.corpus_manifest_sha256)
         _validate_run_identity(scenario, run_identity)
         state = _initial_state(semantics, digest, run_identity.run_id, agent_taste_weights or {})
-        manifest = _run_manifest(semantics, digest, run_identity, two_stage_identity)
+        manifest = _run_manifest(semantics, digest, run_identity, stage_identity)
         store = FootprintStore.create(Path(run_dir), manifest, validated_payload(state))
         changes = {f"account:{key}": value for key, value in state.accounts.items()}
         changes["account:external:scenario"] = -sum(state.accounts.values())
@@ -265,17 +268,22 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                    open_category_validated_store(Path(run_dir), semantics))
 
     def observe(self, context: "DecisionContext") -> dict:
-        """@brief 返回人物当下可见事实，并以同版本追加观察事件。"""
+        """@brief 返回人物当下可见事实，并以同版本追加观察事件。
+
+        进度层快照与其私有元数据只交给宿主，不存进观察事件（完整进度层 JSON 由实际 model_request 保存，
+        观察事件只存来源引用 progress_event_ids，docs/dev/SPEC-persona-prompt.md 第七章「事件」）。
+        """
         self._validate_context(context)
         data = self._observation_data(self.state.agents[context.agent_id])
+        stored = {key: value for key, value in data.items() if key not in _HOST_ONLY_OBSERVATION_KEYS}
         draft = EventDraft(event_type="observation", occurred_at=self.state.current_time,
                            agent_id=context.agent_id, decision_id=context.decision_id,
-                           observed_at=self.state.current_time, data=data)
+                           observed_at=self.state.current_time, data=stored)
         data["observation_event_id"] = commit_state(self.store, self.state, [draft])[0].event_id
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
-        """@brief 持久化观察顺序；decision_started 延迟到决策自述可得时写（docs/dev/SPEC-life-realism.md「两阶段决策」）。"""
+        """@brief 持久化观察顺序；decision_started 延迟到首个行动请求时写（docs/dev/SPEC-persona-prompt.md 第二章）。"""
         if self._round is not None or not contexts:
             raise ProtocolError("Decision round cannot be started")
         for context in contexts:
@@ -395,7 +403,10 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return decision, error, event.event_id
 
     def _queue_action(self, call: "DirectToolCall", request_sha: str, reused: bool) -> ActionReceipt:
-        """@brief 追加请求证据并加入当前轮，重放动作仍不再次执行。"""
+        """@brief 追加请求证据并加入当前轮，重放动作仍不再次执行。
+
+        action_requested.data.self_note 取本决策最近一次已落库模型响应的正文（去空白；空或缺失为 null）。
+        """
         receipt = ActionReceipt(action_id=call.action_id, round_id=call.context.round_id,
                                 decision_id=call.context.decision_id, request_sha256=request_sha)
         start = pop_decision_start(self._pending_decision_starts, call.context.agent_id, self.state.current_time)
@@ -403,7 +414,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                            agent_id=call.context.agent_id, decision_id=call.context.decision_id,
                            action_id=call.action_id, source_kind="model",
                            data={"tool_name": call.tool_name, "request": call.request.model_dump(mode="json"),
-                                 "request_sha256": request_sha, "reused": reused})
+                                 "request_sha256": request_sha, "reused": reused,
+                                 "self_note": self._decision_self_note(call.context)})
         event = commit_state(self.store, self.state, [
             item for item in (start, draft) if item is not None])[-1]
         pending = PendingAction(run_id=call.context.run_id, round_id=call.context.round_id,
@@ -420,8 +432,9 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 按冻结顺序结算完整决策轮并一次提交所有状态与结果。
 
         人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
-        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察展示过的消息记为已读，
-        其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages）。
+        第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察已全文呈现的消息记为已读，
+        其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages，
+        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
         """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
@@ -440,7 +453,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 staged = _remember_action(staged, pending, result)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
-        staged = same_moment.read_observed_messages(staged, self.state, current.expected_agent_ids)
+        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions}
+        staged = same_moment.read_observed_messages(staged, self.state, presented)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = same_moment.merge_partner_endings(self.state, staged, self.scenario.max_same_moment_decisions)
         staged = self._snapshot_decision_references(staged, list(current.expected_agent_ids))
@@ -452,6 +466,17 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         self._round = None
         self._ops_committed(round_id, results, events)
         return results
+
+    def _presented_messages(self, pending: PendingAction) -> frozenset[str]:
+        """@brief 本决策观察中已全文呈现的消息身份（观察事件的 presented_message_ids）。
+
+        没有观察的引擎直驱提交什么也没呈现，返回空集；同一决策同一秒有多条观察是协议错误。
+        """
+        matches = [event for event in self.store.read_agent_events("observation", pending.agent_id)
+                   if event.decision_id == pending.decision_id and event.occurred_at == pending.observed_at]
+        if len(matches) > 1:
+            raise ProtocolError("Decision observation is ambiguous")
+        return frozenset(matches[0].data["presented_message_ids"]) if matches else frozenset()
 
     def _ops_committed(self, round_id: str, results: list[ActionResult], events: list) -> None:
         """@brief 写决策轮结算操作日志，事件区间用于与足迹库互相跳转。"""
@@ -530,7 +555,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         return tuple(ready)
 
     def record_model_exchange(self, exchange: Any) -> None:
-        """@brief 保存实际模型请求、响应或失败，并保持生活状态不变。"""
+        """@brief 保存实际模型请求、响应或失败，并保持生活状态不变。
+
+        本次决策的首个行动请求与其 decision_started 同批提交，decision_started 在前
+        （docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。
+        """
         context = exchange.context
         self._validate_context(context)
         if (exchange.phase not in {"request", "response", "failure"} or exchange.attempt < 1
@@ -551,16 +580,24 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                            occurred_at=self.state.current_time, agent_id=context.agent_id,
                            decision_id=context.decision_id, caused_by=cause, visibility="system",
                            source_kind="model", data=data)
-        event = commit_state(self.store, self.state, [draft])[0]
+        start = maybe_action_request_start(self._pending_decision_starts, context.agent_id,
+                                           self.state.current_time, exchange)
+        event = commit_state(self.store, self.state, [item for item in (start, draft) if item is not None])[-1]
         if exchange.phase == "request":
             self._model_request_events[key] = event.event_id
         else:
             self._model_request_events.pop(key)
         self._ops_exchange(context, exchange)
-        start = maybe_decision_statement_start(self._pending_decision_starts, context.agent_id,
-                                      self.state.current_time, exchange)
-        if start is not None:
-            commit_state(self.store, self.state, [start])
+
+    def _decision_self_note(self, context: "DecisionContext") -> str | None:
+        """@brief 本决策最近一次已落库模型响应（phase=response）的正文，作为世界请求的 self_note；没有则为 None。
+
+        从持久化模型证据读取（本人最近一次观察之后、同一决策身份），恢复后重放登记同样得到一致结果。
+        """
+        after = self.store.last_agent_event_seq("observation", context.agent_id)
+        responses = [event for event in self.store.read_agent_events("model_response", context.agent_id, after)
+                     if event.decision_id == context.decision_id and event.data.get("phase") == "response"]
+        return response_self_note(responses[-1].data.get("response")) if responses else None
 
     def _ops_exchange(self, context: "DecisionContext", exchange: Any) -> None:
         """@brief 写模型交换操作日志，带响应中可用的模型名与 token 用量。"""
@@ -784,12 +821,12 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             raise IntegrityError("Runtime corpus identity mismatch")
         if self.state.run_id != self.store.manifest["run_id"]:
             raise IntegrityError("Runtime run identity mismatch")
-        if "two_stage_model_identity" not in self.store.manifest:
+        if "stage_model_identity" not in self.store.manifest:
             raise IntegrityError("Runtime decision stage identity is missing")
-        identity = self.store.manifest["two_stage_model_identity"]
+        identity = self.store.manifest["stage_model_identity"]
         if identity is not None:
-            from worldmock.validation import validate_two_stage_model_identity
-            validate_two_stage_model_identity(identity)
+            from worldmock.validation import validate_stage_model_identity
+            validate_stage_model_identity(identity)
         require_category_identity(self.store.manifest, self.semantics)
         validate_activity_targets(self.state, self.rules, self.scenario)
         validate_storefront_state(self.state, self.scenario, self.store.manifest)
@@ -1690,11 +1727,11 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 
 
 def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
-                  two_stage_identity: dict | None = None) -> dict:
-    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与两阶段请求形状。"""
-    if two_stage_identity is not None:
-        from worldmock.validation import validate_two_stage_model_identity
-        validate_two_stage_model_identity(two_stage_identity)
+                  stage_identity: dict | None = None) -> dict:
+    """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与各阶段请求形状。"""
+    if stage_identity is not None:
+        from worldmock.validation import validate_stage_model_identity
+        validate_stage_model_identity(stage_identity)
     scenario = semantics.scenario
     category_fields = category_identity(semantics)
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,
@@ -1703,7 +1740,7 @@ def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: 
             "agent_ids": list(identity.agent_ids), "code_sha256": identity.code_sha256,
             "git_commit": identity.git_commit, "git_dirty": identity.git_dirty,
             "model_identity": identity.model_identity.model_dump(mode="json"),
-            "two_stage_model_identity": two_stage_identity,
+            "stage_model_identity": stage_identity,
             "window": {"start": int(scenario.start_at.timestamp()), "end": int(scenario.end_at.timestamp()),
                        "timezone": scenario.timezone}, **category_fields}
 

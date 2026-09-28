@@ -1,4 +1,4 @@
-"""真实引擎观察与 LifeAgent 的可读会话、活动和目标接缝（进度层按会话分组列活动，控制工具点名活动）。"""
+"""真实引擎观察与 LifeAgent 的接缝：工具层的活动目标、待办层的今日计划、私有绑定核对名称、观察事件与返回体分工。"""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from tests.life.conftest import (  # noqa: E402
 )
 from worldmock.life.models import StartActivityRequest  # noqa: E402
 
-#: 引擎事件级活动控制行字段闭集，模型只读取 facts.progress 按会话分组的可读活动行。
+#: 引擎事件级活动控制行字段闭集；模型只读取工具层的活动目标。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
     "activity_id", "kind", "status", "title", "progress",
     "elapsed_seconds", "planned_duration_seconds", "data",
@@ -64,8 +64,14 @@ def _observation_records(observation: dict) -> list[dict]:
     return [{"turn": 0, "action": "observe", "ok": True, "data": observation}]
 
 
+def _functions(agent: LifeAgent) -> dict[str, dict]:
+    """人物本次请求的原生工具。"""
+    return {item["function"]["name"]: item["function"] for item in agent.build_react_tool_schemas(readonly=False)}
+
+
 def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> None:
-    """真实活动投影形成可读活动名，人物的活动控制工具只读取进度层活动行，不见内部身份。"""
+    """真实活动投影成工具层的「进行中」活动目标；控制工具以它的可读名为参数，宿主按私有活动绑定核对，不见内部身份；
+    观察返回体带进度层交给宿主，观察事件只存来源引用。"""
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
 
@@ -78,36 +84,42 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
     agent = LifeAgent()
     agent.prepare_react_loop(
         ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
-    schemas = {item["function"]["name"]: item["function"]
-               for item in agent.build_react_tool_schemas(readonly=False)}
-    assert {"report_status", "pause_activity", "conclude_activity"} <= set(schemas)
-    [session] = observation["facts"]["progress"]["sessions"]
-    [activity] = session["activities"]
-    assert activity["phase"] == "进行中"
+    schemas = _functions(agent)
+    [activity] = [target for target in observation["tool_layer"]["targets"] if target["kind"] == "activity"]
+    assert (activity["phase"], activity["actions"]) == ("进行中", [])
     assert activity["name"] == activity_name(engine, control["activity_id"])
-    for tool in ("report_status", "pause_activity", "conclude_activity"):
-        assert schemas[tool]["parameters"]["properties"]["task"]["items"]["enum"] == [activity["name"]]
-    assert control["activity_id"] not in str(schemas)
-    assert observation["session_bindings"][0]["session_id"] not in str(schemas)
+    assert [item["tool"] for item in activity["tools"]] == ["report_status", "pause_activity", "conclude_activity"]
+    for tool in ("report_status", "pause_activity"):
+        assert "enum" not in schemas[tool]["parameters"]["properties"]["task"]["items"]
+        decision = ReactDecision("", tool, {"task": [activity["name"]], "summary": ["继续。"]}, "")
+        assert agent.validate_react_decisions([decision], False) == ""
+    user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
+    for private in (control["activity_id"], observation["session_bindings"][0]["session_id"]):
+        assert private not in str(schemas) and private not in user["content"]
+    [stored] = [event for event in engine.store.read_agent_events("observation", 1)
+                if event.event_id == observation["observation_event_id"]]
+    assert "progress_layer" in observation and "progress_meta" in observation
+    assert not {"progress_layer", "progress_meta"} & set(stored.data)
+    assert stored.data["tool_layer"] == observation["tool_layer"]
     control["data"]["observer_write"] = "must stay outside the world"
     assert "observer_write" not in engine.state.activities[control["activity_id"]].data
 
 
-def test_life_agent_rejects_activity_without_valid_phase(
-    _engine_factory,
-) -> None:
-    """模型可见活动阶段缺失或非法时，人物工具构建失败关闭。"""
+def test_life_agent_checks_activity_names_against_private_bindings(_engine_factory) -> None:
+    """活动名只按私有活动绑定核对：不在绑定里的名称按协议错误纠正，绑定缺失是损坏的宿主观察。"""
     engine = _engine_factory()
     observation, ctx = _observe_active_wait(engine)
-    assert observation["facts"]["progress"]["sessions"][0]["activities"][0]["phase"] == "进行中"
+    agent = LifeAgent()
+    agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
+    decision = ReactDecision("", "conclude_activity", {"task": ["不存在的活动"], "summary": ["收尾。"],
+                                                       "memories": [[]]}, "")
+    assert agent.validate_react_decisions([decision], False) == (
+        "conclude_activity task names an activity that is not visible")
 
-    for invalid in (None, "未知阶段"):
-        damaged = copy.deepcopy(observation)
-        damaged["facts"]["progress"]["sessions"][0]["activities"][0]["phase"] = invalid
-        agent = LifeAgent()
-        with pytest.raises(RuntimeError, match="activity phase is invalid"):
-            agent.prepare_react_loop(ReactLoopRequest(
-                0, ctx.observed_at, _observation_records(damaged)))
+    damaged = copy.deepcopy(observation)
+    damaged.pop("activity_bindings")
+    with pytest.raises(RuntimeError, match="activity_bindings are invalid"):
+        LifeAgent().prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(damaged)))
 
 
 def test_observation_nested_content_data_cannot_change_world_progress(_engine_factory) -> None:
@@ -173,8 +185,9 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
     observation, result, schemas = await _agent_action(
         engine, "game-start", "start_activity",
         {"targets": [game["object"]], "actions": ["interact"], "ways": ["游玩"]})
-    assert game["object"] in schemas["start_activity"]["parameters"]["properties"][
-        "targets"]["items"]["enum"]
+    assert [target["kind"] for target in observation["tool_layer"]["targets"]
+            if target["name"] == game["object"]] == ["game"]
+    assert "enum" not in schemas["start_activity"]["parameters"]["properties"]["targets"]["items"]
     assert game["object_id"] not in str(schemas["start_activity"])
     activity = engine.state.activities[result.activity_id]
     assert activity.target_id == game["object_id"]
@@ -188,9 +201,8 @@ async def test_real_game_observation_starts_visible_game_and_restores_activity(_
     try:
         assert restored.state.activities[activity.activity_id].target_id == game["object_id"]
         visible = restored._observation_data(restored.state.agents[1])
-        rows = visible["facts"]["progress"]["sessions"]
-        assert all(row["name"] for row in rows)
-        assert activity.name in [item["name"] for row in rows for item in row["activities"]]
+        names = [target["name"] for target in visible["tool_layer"]["targets"] if target["kind"] == "activity"]
+        assert activity.name in names
     finally:
         restored.close()
 
@@ -216,8 +228,7 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
     assert "run_start" in before_revision["wake_reasons"]
     assert "plan_day" not in tools and {"start_activity", "revise_day_plan"} <= set(tools)
     assert set(tools["revise_day_plan"]["parameters"]["properties"]) == {"goals"}
-    assert before_revision["facts"]["day_plan"]["goals"] == []
-    assert before_revision["scene"]["day_plan"] == {"goals": []}
+    assert before_revision["todo_layer"]["day_plan"]["goals"] == []
     assert revision.data["day_plan"] == engine.state.agents[1].day_plan.model_dump(mode="json")
     assert engine.state.current_time == submitted_at
     _, started, _ = await _agent_action(
@@ -248,11 +259,9 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
         assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
         observation, _, restored_tools = await _agent_action(
             restored, "goals-preserve", "revise_day_plan", {"goals": []})
-        public_goal = observation["facts"]["day_plan"]["goals"][0]
-        assert public_goal["task_name"] == "目标：休息：缓一缓"
-        assert public_goal["progressed"] is True
-        assert "progress_activity_id" not in public_goal
-        assert observation["scene"]["day_plan"] == {"goals": [{"intent_kind": "休息", "progressed": True}]}
+        assert observation["todo_layer"]["day_plan"]["goals"] == [
+            {"intent_kind": "休息", "goal": "缓一缓", "progressed": True, "remind_time": None}]
+        assert [row["task_name"] for row in observation["goal_bindings"]] == ["目标：休息：缓一缓"]
         assert "plan_day" not in restored_tools
         assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
     finally:

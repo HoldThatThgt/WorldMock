@@ -17,7 +17,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ReactLoopRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
-from tests.integration.test_life_agent_protocol import _DecisionStatementResponse, _ModelResponse
+from tests.integration.test_life_agent_protocol import _ModelResponse
 from tests.life.conftest import (
     advance_next,
     advance_until_ready,
@@ -38,7 +38,6 @@ class _Dispatcher:
     def __init__(self, tool_name: str, arguments: dict) -> None:
         self.requests: list[dict] = []
         self.responses = [
-            _DecisionStatementResponse("我照着眼前能做的事往前走。"),
             _ModelResponse("provider-action", tool_name, json.dumps(arguments, ensure_ascii=False)),
         ]
 
@@ -66,7 +65,7 @@ def _person(environment: LifeEnv, decision, dispatcher: _Dispatcher) -> LifeAgen
 
 async def _decide(environment: LifeEnv, decision, observation: dict,
                   tool_name: str, arguments: dict) -> list[dict]:
-    """让人物从已提交观察作一次真实模型动作（自述与世界请求各一次请求），保留发送的请求。"""
+    """让人物从已提交观察作一次真实模型动作（没有记忆查询时恰好一次请求），保留发送的请求。"""
     dispatcher = _Dispatcher(tool_name, arguments)
     person = _person(environment, decision, dispatcher)
     before = environment.engine.state.model_dump(mode="json")
@@ -75,7 +74,7 @@ async def _decide(environment: LifeEnv, decision, observation: dict,
     ])
     await person.run_react_loop(request)
     assert environment.engine.state.model_dump(mode="json") == before
-    assert len(dispatcher.requests) == 2
+    assert len(dispatcher.requests) == 1
     return dispatcher.requests
 
 
@@ -85,11 +84,16 @@ def _action_schema(request: dict) -> dict:
                 if item["function"]["name"] == "start_activity")
 
 
+def _ways(observation: dict) -> list[str]:
+    """工具层各目标列出的全部方式。"""
+    return [item["way"] for target in observation["tool_layer"]["targets"] for item in target["actions"]]
+
+
 @pytest.mark.asyncio
 async def test_location_menu_changes_model_choices_and_preserves_result_evidence(
     _engine_factory, monkeypatch,
 ) -> None:
-    """人物按可读地点行动，抵达后菜单收窄；到达的出行当秒收尾，结果经事件提交才进下一轮进度层。"""
+    """人物按可读地点行动，抵达后工具层按菜单收窄；到达的出行当秒成为刚结束的活动目标，请求与结果经事件提交。"""
     monkeypatch.setattr(prompt_capacity, "model_context_length", lambda model: 1_000_000)
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -112,8 +116,8 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     walk = {"targets": [office_binding["object"]], "actions": ["travel"], "ways": ["步行"]}
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
-    assert set(_action_schema(home_requests[1])["parameters"]["properties"]) == {"targets", "actions", "ways"}
-    assert home["facts"]["progress"]["results"] == []
+    assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == {"targets", "actions", "ways"}
+    assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"
     for _ in range(16):
@@ -128,20 +132,20 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     arrived = await environment.observe(second)
     assert "work" in home["interaction_menu"]["allowed_actions"]
     assert "work" not in arrived["interaction_menu"]["allowed_actions"]
-    assert arrived["facts"]["progress"]["results"]
     [walked] = pending_names(arrived)
+    ended = next(target for target in arrived["tool_layer"]["targets"] if target["name"] == walked)
+    assert (ended["kind"], ended["phase"]) == ("activity", "刚结束")
+    assert "conclude_activity" in [item["tool"] for item in ended["tools"]]
+    assert "工作" in _ways(home) and "工作" not in _ways(arrived) and "等待" in _ways(arrived)
+    assert arrived["environment_layer"]["fixed_rules"]
     conclusion = {"task": [walked], "summary": ["到公司了。"], "memories": [[]]}
     office_requests = await _decide(environment, second, arrived, "conclude_activity", conclusion)
-    office_schema = _action_schema(office_requests[1])
-    choices = office_schema["parameters"]["properties"]["ways"]["items"]["enum"]
-    assert "工作" not in choices
-    assert "等待" in choices
-    listed = [item["action"] for row in arrived["facts"]["interactive_objects"] for item in row["actions"]]
-    assert "interact：工作" not in listed and "interact：等待" in listed
-    user = office_requests[1]["messages"][1]["content"]
-    assert "progress" in user
-    assert f"刚结束：{walked}。" in user
-    assert "action_id" not in user
+    office_schema = _action_schema(office_requests[0])
+    assert office_schema == _action_schema(home_requests[0])
+    assert "enum" not in office_schema["parameters"]["properties"]["ways"]["items"]
+    layers = json.loads(office_requests[0]["messages"][1]["content"])
+    assert layers[0] == arrived["tool_layer"] and layers[4] == arrived["environment_layer"]
+    assert "action_id" not in office_requests[0]["messages"][1]["content"]
     assert engine.commit_decision_round(second.round_id)[0].status.value == "completed"
 
     events = engine.store.read_events(engine.store.last_event_seq)
@@ -149,3 +153,4 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     assert len(requests) == 2
     assert requests[0].data["request"] == walk
     assert requests[1].data["request"] == conclusion
+    assert [item.data["self_note"] for item in requests] == [None, None]

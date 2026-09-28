@@ -133,7 +133,7 @@ def test_quality_report_requires_bytes_and_actual_event_recomputation(complete_e
 
 @_REQUIRES_LABELKIT
 def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypatch):
-    """validate 全链路通过：品类准入+任务受理+两阶段身份+persona_coverage.json。"""
+    """validate 全链路通过：品类准入+任务受理+阶段身份+persona_coverage.json。"""
     monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
     coverage_out = tmp_path / "persona_coverage.json"
     result = validate_project(PROJECT_ROOT, SCENARIO,
@@ -141,7 +141,7 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypat
                               coverage_out=coverage_out)
 
     assert result["valid"] is True
-    assert result["model_identity"] == {"stages": ["action", "decision_statement", "work_review"],
+    assert result["model_identity"] == {"stages": ["action", "work_review"],
                                         "consistent": True}
     report = result["persona_coverage"][0]
     assert report["agent_id"] == 1 and report["passed"] is True
