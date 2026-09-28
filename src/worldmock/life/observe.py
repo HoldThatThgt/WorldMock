@@ -284,14 +284,10 @@ class ObservationMixin:
         return rows
 
     def _route_rows(self, agent) -> list[dict]:
-        """@brief 路线事实保留未知与不可达，只有已核实路线计算时长；可达即 feasible，费力按出行方式给出。"""
+        """@brief 地点目标的出行方式来源：当前地点出发的每条冻结路线的目的地、方式与状态（只有可达路线列出行动作；
+        路费、时长与费力由工具层按同一路线写进动作）。"""
         rows = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
-        met = self.semantics.body.activity_met
-        return [{"destination": row["destination_id"], "mode": row["mode"],
-                 "minutes": round(row["duration_seconds"] / 60) if row["status"] == "reachable" else None,
-                 "fare": row["fare_fen"], "feasible": row["status"] == "reachable",
-                 "effort": projection.route_effort(met[f"travel:{row['mode']}"]),
-                 "status": row["status"], "reason": row["reason"]} for row in rows]
+        return [{"destination": row["destination_id"], "mode": row["mode"], "status": row["status"]} for row in rows]
 
     def _reachable_places(self, agent) -> list[dict]:
         """@brief 场景句只列实际可达地点，营业未知保持为未知；含 location_id 供交互对象层使用。"""

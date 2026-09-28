@@ -25,12 +25,11 @@ _GREEN_BASELINE_TESTS = [
     "test_meal_partitions_reach_zero_without_losing_quantity_or_energy",
     "tests/integration/test_dayrun_complete_days.py::"
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
-    "tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_binds_no_empty_enum",
     "tests/integration/test_agent_branch_coverage.py::test_empty_interactive_layer_decision_continues_without_failure",
     "tests/life/test_grounded_observation.py::test_real_observation_during_active_activity_keeps_decision_open",
-    "tests/life/test_session_state.py::test_world_schema_version_is_7",
-    "tests/life/test_session_state.py::test_world_state_schema_version_6_is_rejected",
-    "tests/life/test_session_state.py::test_run_with_version_6_world_state_is_rejected_on_open",
+    "tests/life/test_session_state.py::test_world_schema_version_is_8",
+    "tests/life/test_session_state.py::test_world_state_schema_version_7_is_rejected",
+    "tests/life/test_session_state.py::test_run_with_version_7_world_state_is_rejected_on_open",
     "tests/footprints/test_verified_experiences.py::test_arrival_snapshot_at_origin_still_projects_arrived",
     "tests/life/test_travel_time.py::test_travel_progress_snapshot_keeps_origin_and_arrival_is_verified",
     "tests/life/test_day_plan.py::test_recall_task_summary_by_goal_name_round_trips",
@@ -69,7 +68,7 @@ _SAME_MOMENT_TESTS = [
         "test_motivation_internal_survives_parameter_swap",
         "test_scenario_with_max_consecutive_rejections_is_rejected",
         "test_restricted_stage_check_and_ladder_units",
-        "test_restricted_observation_carries_stage_and_scene_note",
+        "test_restricted_observation_marks_closed_actions_unavailable",
         "test_start_or_resume_schema_matches_engine_dispatch",
         "test_awake_recipient_gets_same_second_opportunity",
         "test_recipient_in_same_round_is_not_overwritten_by_its_own_success",
@@ -88,8 +87,7 @@ _SAME_MOMENT_TESTS = [
     "tests/life/test_engine_branch_coverage.py::test_rework_rejection_at_limit_keeps_review_feedback",
     "tests/life/test_motivation.py::TestEmotion::test_frustration_lifts_comfort_candidates",
     "tests/integration/test_agent_branch_coverage.py::test_corrupt_observation_fails_before_any_model_tool",
-    "tests/integration/test_agent_branch_coverage.py::test_start_or_resume_stage_narrows_tools_and_enums",
-    "tests/integration/test_agent_branch_coverage.py::test_wait_only_stage_offers_only_wait",
+    "tests/life/test_tool_layer.py::test_restricted_round_marks_closed_items_with_the_same_moment_reason",
     "tests/life/test_export_integration.py::test_model_npc_reply_loop_delivers_to_inbox_with_evidence",
     "tests/life/test_export_integration.py::test_model_npc_reply_at_most_once_per_message",
     "tests/integration/test_runtime.py::test_life_env_commit_settles_model_reply_into_inbox",
@@ -187,7 +185,7 @@ _STAGE2_ENERGY_PERCEPTION_TESTS = [
     "tests/life/test_public_observation_contract.py::test_products_and_inventory_show_food_energy_and_elsewhere_holdings",
     "tests/life/test_public_observation_contract.py::test_route_effort_bands_follow_travel_met",
     "tests/life/test_public_observation_contract.py::"
-    "test_routes_carry_effort_and_feasible_means_reachable_at_zero_energy",
+    "test_routes_carry_effort_and_only_reachable_routes_are_listed_at_zero_energy",
     "tests/life/test_energy_feasibility.py::test_routes_are_feasible_by_reachability_not_energy",
 ]
 
@@ -203,12 +201,7 @@ _STAGE2_ENERGY_NEVER_BLOCKS_TESTS = [
     "tests/life/test_energy_feasibility.py::test_energy_gate_symbols_are_gone_from_production_code",
     "tests/life/test_energy_feasibility.py::test_motivation_internal_still_weighs_energy",
     "tests/life/test_body.py::test_every_activity_truncates_at_zero",
-    "tests/life/test_dayrun_restaurants.py::test_food_path_takes_the_first_path_that_holds",
-    "tests/life/test_dayrun_restaurants.py::test_late_delivery_adds_the_first_nearer_alternative",
-    "tests/life/test_dayrun_restaurants.py::test_below_hungry_keeps_the_local_meal_sentence",
-    "tests/life/test_dayrun_restaurants.py::test_scene_food_path_quotes_only_this_observation",
-    "tests/life/test_dayrun_restaurants.py::test_scene_food_path_names_the_fastest_delivery_to_here",
-    "tests/life/test_dayrun_restaurants.py::test_scene_food_path_names_the_nearest_store_when_nothing_delivers_here",
+    "tests/life/test_dayrun_restaurants.py::test_food_paths_are_discoverable_as_tool_layer_targets",
     "tests/life/test_affordance_contract.py::test_contract_shape_matches_registry_one_to_one",
 ]
 
@@ -226,7 +219,7 @@ _STAGE2_LOCAL_RUN_FIX_TESTS = [
 #: 阶段 2 对「无新增故障」行（阶段 7 收尾）的预先登记：能量为 0 与路线费力键渲染。
 _STAGE2_NO_NEW_FAULT_TESTS = [
     "tests/life/test_energy_feasibility.py::test_zero_energy_observation_offers_every_action_without_energy_projection",
-    "tests/life/test_narration.py::TestFieldBlacklist::test_route_whitelist_includes_effort_label",
+    "tests/life/test_revision_contract.py::test_public_observation_excludes_private_fields_and_supply_expires",
 ]
 
 _LOCATION = "tests/life/test_location_sessions.py::"
@@ -240,10 +233,9 @@ _SAME_MOMENT_TESTS += [
     _LOCATION + "test_just_ended_requires_conclusion_in_the_same_second",
     _LOCATION + "test_two_slots_full_block_new_activities_until_conclusion",
     _LOCATION + "test_both_paused_redecide_same_second_until_one_resumes",
-    _AGENT_BRANCHES + "test_conclude_pending_stage_requires_concluding_every_just_ended_activity",
-    _AGENT_BRANCHES + "test_resume_or_conclude_stage_offers_resume_or_conclusion_only",
-    _AGENT_BRANCHES + "test_conclude_only_stage_offers_only_conclusion_of_slot_activities",
-    _AGENT_BRANCHES + "test_paused_activity_elsewhere_is_not_resumable_in_restricted_rounds",
+    "tests/life/test_tool_layer.py::test_pending_conclusion_marks_everything_but_conclusion_unavailable",
+    "tests/life/test_tool_layer.py::test_held_elsewhere_and_paused_elsewhere_are_listed_with_reasons",
+    "tests/life/test_todo_layer.py::test_resume_elsewhere_is_unavailable_and_names_the_place",
 ] + [
     _SAME_MOMENT + name for name in (
         "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",
@@ -298,7 +290,7 @@ _SESSIONS_AND_MEMORY_TESTS = [
         "test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime_reflection",
     )
 ] + [
-    "tests/life/test_experience_sentences.py::test_observation_experience_sentences_follow_the_private_window",
+    "tests/life/test_experience_sentences.py::test_observation_keeps_experiences_private_and_out_of_the_layers",
     "tests/life/test_experience_sentences.py::test_every_experience_kind_is_written_as_a_sentence_without_identities",
     "tests/life/test_memory_evidence.py::test_write_points_follow_the_registered_conclusion_and_the_wake_from_sleep_round",
     "tests/life/test_memory_evidence.py::test_episodes_written_without_any_write_point_are_a_protocol_violation",
@@ -317,9 +309,9 @@ _SESSIONS_AND_MEMORY_TESTS = [
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
     _PROGRESS_LAYER + "test_recall_reads_task_activity_and_session_without_identities",
     _PROGRESS_LAYER + "test_conclude_marks_named_just_ended_activities_and_keeps_their_status",
-    _PROGRESS_LAYER + "test_sessions_are_ordered_by_start_and_group_activities_under_their_latest_session",
-    "tests/life/test_narration.py::TestFieldBlacklist::test_progress_layer_activity_rows_render",
-    "tests/life/test_narration.py::TestFieldBlacklist::test_activities_outside_progress_sessions_are_still_rejected",
+    _PROGRESS_LAYER + "test_activity_targets_carry_only_readable_objective_progress",
+    "tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure",
+    "tests/life/test_todo_layer.py::test_paused_activities_are_ordered_by_pause_time_not_start_time",
     "tests/life/test_engine_feedback.py::test_pause_report_resume_and_conclude_name_the_activity",
     "tests/life/test_engine_branch_coverage.py::test_prepare_pending_work_review_while_the_wait_awaits_conclusion",
 ]
@@ -334,8 +326,8 @@ _LOCAL_RUN_FIX_TESTS = [
     _WAKE + "test_sleeping_person_gets_no_progress_report_wakeups",
     _PROGRESS + "test_progress_rows_follow_pause_resume_end_and_conclusion",
     _PROGRESS + "test_work_objective_progress_grows_with_settlement",
-    "tests/life/test_narration.py::TestRenderScene::test_scene_never_renders_session_rows_or_self_reports",
-    _LOCATION + "test_self_report_stays_out_of_the_scene_and_is_marked_unverified",
+    "tests/life/test_prompt_layers.py::test_paused_activity_progress_appears_only_in_the_todo_layer",
+    _LOCATION + "test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument",
     _LOCATION + "test_lifecycle_records_and_export_match_the_final_checkpoint",
     "tests/life/test_export_integration.py::test_lifecycle_records_and_export_match_the_final_checkpoint",
     _LOCATION + "test_experiment_end_export_matches_the_final_checkpoint_for_every_truncated_activity",
@@ -365,12 +357,12 @@ _NEWS_FEED = "tests/life/test_news_feed.py::"
 _WORK_REVIEW = "tests/life/test_work_review.py::"
 _PARALLEL_REJECTION = "tests/integration/test_parallel_rejection_contract.py::"
 
-#: 阶段 4 完成同刻决策行：「刚才」写上一轮本人世界请求的公开结果；交谈对方同秒结束时，本人仍有其他进行中活动则原因为
+#: 阶段 4 完成同刻决策行：本人世界请求的公开结果留在进度层（同秒各轮都在）；交谈对方同秒结束时，本人仍有其他进行中活动则原因为
 #: planned_end，已达上限则按规则 3 的阶梯从收尾一支重新开始、每次至多另加三轮；业务拒绝后同秒再决策并带说明。
 _SAME_MOMENT_TESTS += [
     _SAME_MOMENT + name for name in (
-        "test_just_now_writes_the_previous_own_request_result_and_is_empty_in_first_rounds",
-        "test_just_now_names_the_order_after_a_purchase",
+        "test_same_second_results_stay_in_the_progress_layer",
+        "test_purchase_result_names_the_order_in_the_progress_layer",
         "test_partner_ended_chat_redecides_same_second_with_planned_end",
         "test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion",
     )
@@ -414,7 +406,7 @@ _FIVE_VERBS_TESTS = [
         "test_walking_accepts_messages_and_remote_orders_delivered_to_the_origin",
         "test_en_route_person_is_nowhere_with_nothing_at_hand",
         "test_departure_with_a_running_activity_names_it_in_reason_and_next_step",
-        "test_zero_stock_supply_is_listed_without_actions_and_left_out_of_the_targets_enum",
+        "test_zero_stock_supply_is_listed_with_its_ways_marked_sold_out",
         "test_listed_actions_are_menu_allowed_and_self_is_always_offered",
         "test_holding_lists_obtain_make_for_inventory_recipes_and_consume_use_otherwise",
         "test_content_beyond_one_day_is_accepted_with_the_86400_second_cap",
@@ -466,7 +458,7 @@ _FIVE_VERBS_TESTS = [
     _AGENT_BRANCHES + "test_empty_interactive_layer_decision_continues_without_failure",
     _AGENT_BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
     "tests/integration/test_storefront_tools.py::test_closed_supply_remains_a_fact_without_a_purchase_action",
-    "tests/integration/test_decision_context_protocol.py::test_start_activity_schema_uses_readable_target_and_action",
+    "tests/life/test_tool_layer.py::test_every_listed_item_matches_admission_at_run_start",
     "tests/life/test_interaction_menu_runtime.py::"
     "test_observation_exposes_semantic_choices_and_keeps_bindings_private",
     "tests/life/test_interaction_menu_runtime.py::test_menu_rejects_unoffered_semantic_action_before_travel",
@@ -583,7 +575,7 @@ _DAY_PLANNING_TESTS = [
     _HOST_BRANCHES + "test_plan_day_client_serializes_model_responses",
     _HOST_BRANCHES + "test_settle_pending_day_plans_builds_client_from_manifest_only_when_needed",
     "tests/integration/test_life_agent_protocol.py::test_plan_day_is_no_person_tool_and_revision_carries_remind_time",
-    "tests/footprints/test_store.py::test_progress_request_cutoff_skips_system_requests_with_a_purpose",
+    "tests/footprints/test_store.py::test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools",
     "tests/evaluation/test_behavior_metrics.py::test_plan_day_requests_are_not_decision_requests",
     "tests/footprints/test_quality.py::test_model_usage_counts_plan_day_and_lists_it_by_purpose",
     "tests/footprints/test_quality.py::test_plan_day_response_naming_memories_is_no_memory_problem",
@@ -599,12 +591,11 @@ _DAY_PLANNING_TESTS = [
     "tests/integration/test_env_lifecycle_coverage.py::test_full_round_drives_engine_interfaces",
 ]
 
-#: 阶段 5 完成的「常驻提示」行（第六章验收）：两阶段同一节「怎样过一天」、只读不含、禁用词与中文句子占比照旧；
+#: 阶段 5 完成的「常驻提示」行（第六章验收）：两阶段同一节「怎样过一天」、只读不含；
 #: 「路径可发现、选择有据」在阶段 8 的真实复验中观察。
 _RESIDENT_PROMPT_TESTS = [
     "tests/integration/test_life_agent_protocol.py::"
     "test_how_to_live_a_day_is_one_resident_section_of_both_decision_stages",
-    "tests/integration/test_life_agent_protocol.py::test_system_prompt_is_identity_first_with_word_share",
 ]
 
 #: 阶段 5 预先登记：提醒与活动结束同秒、零点计划与决策同秒、终点为零点时无 run_failed。
@@ -839,7 +830,7 @@ REMOVED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
 #: 阶段 → 完成后必须在每个列出路径中出现的符号（正则, 路径或目录列表）。
 REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
     "0": [
-        (r"WORLD_SCHEMA_VERSION = 7\b", [_MODELS]),
+        (r"WORLD_SCHEMA_VERSION = 8\b", [_MODELS]),
         (r"WORK_TASK_IN_PROGRESS", ["src/worldmock/life/work.py", _CONTRACTS]),
         (r"#### 活动受理拒绝码", [_CONTRACTS]),
         (r"WORLD_SCHEMA_VERSION", ["src/worldmock/delivery/pipeline.py"]),
@@ -860,7 +851,7 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r'"plan_reminder_due"', [_FOOTPRINT_MODELS]),
         (r"SAME_MOMENT_ACTION_RESTRICTED", ["src/worldmock/life/same_moment.py", _CONTRACTS]),
         (r"same_moment_rounds", [_MODELS, _CONTRACTS, _IO_FORMATS, _RECORDING]),
-        (r"same_moment_stage", [_MODELS, "src/worldmock/life/observe.py", _AGENT, _CONTRACTS]),
+        (r"same_moment_stage", [_MODELS, "src/worldmock/life/observe.py", _CONTRACTS]),
         (r"same_moment_presentation", [_MODELS, "src/worldmock/life/state_commit.py", _IO_FORMATS]),
         (r"validate_decision_rhythm", ["src/worldmock/life/decision_start.py", "src/worldmock/life/rhythm.py"]),
         (r"CONTACT_REPLY_DELAY_SECONDS", ["src/worldmock/life/social.py", "src/worldmock/runtime.py", _CONTRACTS]),
@@ -876,11 +867,9 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"def _meal_window_boundaries", [_BODY]),
         (r"wake_hour = \(chronotype_midsleep \+ sleep_need_hours / 2\) % 24", [_BODY]),
         (r"def route_effort|def food_energy_label", [_PROJECTION]),
-        (r'"delivery_eta"', [_PROJECTION]),
-        (r'"effort"', ["src/worldmock/life/narration.py", _PROJECTION]),
+        (r"预计 \{when\} 送到", ["src/worldmock/life/tool_layer.py"]),
+        (r"费力程度：", ["src/worldmock/life/tool_layer.py"]),
         (r"def plan_delivery", ["src/worldmock/life/basket.py"]),
-        (r"def local_food_summary\(hunger: str, facts: FoodPathFacts\)", ["src/worldmock/life/dining.py"]),
-        (r"LATE_DELIVERY_SECONDS = 3600", ["src/worldmock/life/dining.py"]),
         (r"def shared_activity_factors", ["src/worldmock/life/activities.py"]),
         (r"delivery_eta", [_CONTRACTS, "docs/design/09-io-formats.md"]),
         (r"`effort`", [_CONTRACTS]),
@@ -893,7 +882,7 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
     "3": [
         (r"SLOT_LIMIT = 2\b", ["src/worldmock/life/activity_control.py"]),
         (r"ACTIVITY_CONCLUSION_REQUIRED", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
-        (r"ACTIVITY_PAUSE_UNAVAILABLE", [_SESSION_ACTIONS, _CONTRACTS]),
+        (r"ACTIVITY_PAUSE_UNAVAILABLE", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
         (r"SESSION_LIMIT_EXCEEDED", ["src/worldmock/life/activity_control.py", _CONTRACTS]),
         (r"class SessionKind", [_MODELS]),
         (r"ROUTE_ENDED = \"route_ended\"", ["src/worldmock/life/sessions.py"]),
@@ -913,10 +902,7 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"async def _run_react_turn", [_AGENT]),
         (r"_consolidation_due", ["custom/agents/life_memory.py"]),
         (r"pending_conclusions", ["src/worldmock/life/projection.py", _CONTRACTS]),
-        (r"just_ended", ["src/worldmock/life/projection.py", "src/worldmock/life/narration.py", _CONTRACTS]),
-        (r"ALLOWED_NESTED_KEYS", ["src/worldmock/life/narration.py"]),
         (r"def request_kind", ["src/worldmock/life/same_moment.py"]),
-        (r"STAGE_TOOLS", ["src/worldmock/life/same_moment.py", _AGENT]),
         (r'!= "memories"', ["src/worldmock/delivery/windows.py"]),
         (r"\| `sessions` \| dict\[str, SessionState\]", [_IO_FORMATS]),
         (r"\| 地点会话 \| `sessions`", [_CONTRACTS]),
@@ -940,11 +926,10 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"CALL_DURATION_BOUNDS = \(600, 3600\)", [_SOCIAL_ACTIONS]),
         (r"def shared_chat_seconds|def end_partner_chats|def pair_chat", [_SOCIAL_ACTIONS]),
         (r"partner_ended", [_SOCIAL_ACTIONS, "src/worldmock/life/same_moment.py", _CONTRACTS, _IO_FORMATS]),
-        (r"just_now", [_PROJECTION, "src/worldmock/life/narration.py", _CONTRACTS]),
         (r"DERIVED_DURATION_CAP_SECONDS = 86_400", [_SESSION_ACTIONS]),
         (r"WORK_START_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/work.py"]),
         (r'COMPLETION_OUTLOOK_SHORT = "到截止前做不完"', ["src/worldmock/life/work.py"]),
-        (r"completion_outlook", ["src/worldmock/life/work.py", _PROJECTION, _CONTRACTS]),
+        (r"completion_outlook", ["src/worldmock/life/work.py", _CONTRACTS]),
         (r"CONTENT_RESUME_MINIMUM_SECONDS = 60\b", ["src/worldmock/life/content.py"]),
         (r"def restarts_from_beginning", ["src/worldmock/life/content.py"]),
         (r'"version_major": 4,\s*"version_minor": 1\b', ["catalog/manifest.json"]),
@@ -955,7 +940,7 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"2026-09-25-time-and-energy-stage-4", [_CONTRACTS, _EXPERIMENT]),
         (r"def test_", ["tests/life/test_parallel_admission.py", "tests/life/test_social_rounds.py"]),
         # 评审修复：送达地判定、迟到的接受、显式公开原因、游戏会话的观看行与合入提交的台账行。
-        (r"暂时送不到这里", [_ADMISSION_MODULE, _PROJECTION, _CONTRACTS]),
+        (r"暂时送不到这里", [_ADMISSION_MODULE, _CONTRACTS]),
         (r"def late_acceptance_refusal", [_SOCIAL_ACTIONS]),
         (r"对方的交谈快结束了", [_SOCIAL_ACTIONS, _CONTRACTS]),
         (r"public_reason", ["src/worldmock/life/guidance.py", "src/worldmock/errors.py"]),
@@ -981,7 +966,6 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"plan_reminder_times", [_SCHEDULE, _RHYTHM]),
         (r'"plan_reminder"', ["src/worldmock/life/activities.py"]),
         (r"def boundary_candidates|def defers_rhythm|def alarm_goals", ["src/worldmock/life/reminders.py"]),
-        (r"怎样过一天：", [_AGENT]),
         (r"\$\.data\.purpose'\) IS NULL", ["src/worldmock/footprints/store.py"]),
         (r'not event\.get\("data", \{\}\)\.get\("purpose"\)', ["src/worldmock/evaluation/behavior_metrics.py"]),
         (r'"by_purpose"', ["src/worldmock/footprints/quality.py"]),
