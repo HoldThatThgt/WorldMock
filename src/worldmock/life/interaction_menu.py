@@ -48,6 +48,8 @@ VERB_WAY_SEPARATOR = "："
 
 #: 稳定工具面里唯一受菜单剪裁的工具：其对象的动作按映射后的内部动作由菜单判定。
 MENU_SCOPED_TOOL = "start_activity"
+#: 指名购买的占位绑定类别：obtain 的目标不在本轮列出时，受理前由环境按名称解析为门店供给。
+NAMED_SUPPLY_KIND = "named_supply"
 
 
 class InteractionMenu(FrozenModel):
@@ -127,6 +129,9 @@ def public_action(action: dict[str, Any]) -> dict[str, Any]:
 def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> list[dict[str, Any]] | None:
     """@brief 按本轮私有绑定把（对象，动词，方式）逐项映射为绑定动作；映射不唯一或不在本轮闭集时返回 None。
 
+    obtain 以到店或远程下单指名本轮没有列出的名称时是指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）：
+    该项为 NAMED_SUPPLY_KIND 的占位行（所选动作已映射为购买），由环境在受理时按名称解析为门店供给。
+
     :returns: 与 targets 逐项对应的绑定行副本，selected_action 为所选动作。
     """
     if not isinstance(bindings, list) or not all(isinstance(item, list) for item in (targets, actions, ways)):
@@ -136,12 +141,28 @@ def resolve_selection(bindings: Any, targets: Any, actions: Any, ways: Any) -> l
     selected = []
     for name, verb, way in zip(targets, actions, ways):
         rows = [row for row in bindings if isinstance(row, dict) and row.get("object") == name]
+        if not rows and is_named_purchase(verb, way):
+            selected.append(named_supply_row(name, way))
+            continue
         choices = [item for item in rows[0].get("actions", []) if item.get("verb") == verb
                    and item.get("label") == way] if len(rows) == 1 else []
         if len(choices) != 1:
             return None
         selected.append({**rows[0], "selected_action": choices[0]})
     return selected
+
+
+def is_named_purchase(verb: Any, way: Any) -> bool:
+    """@brief 动词与方式是否构成指名购买：obtain 配到店或远程下单（制作只对手边的持有物）。"""
+    return verb == "obtain" and way in PURCHASE_WAYS.values()
+
+
+def named_supply_row(name: str, way: str) -> dict[str, Any]:
+    """@brief 指名购买的占位绑定行：人物所写的名称与映射为购买的所选动作，供给由环境按名称解析后替换。"""
+    fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
+    action = binding_action(way, "purchase", fulfillment=fulfillment)
+    return {"object": name, "kind": NAMED_SUPPLY_KIND, "object_id": None, "actions": [action],
+            "selected_action": action}
 
 
 def activity_phrase(action: dict[str, Any]) -> str:

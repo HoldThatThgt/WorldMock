@@ -454,13 +454,17 @@ def test_decision_rhythm_counts_silent_boundaries_and_wake_reasons():
         _event(4, "environment_event", data={"kind": "body_settlement"}),
         _event(5, "decision_started", agent_id=1, decision_id="decision-1", data=_started()),
         _event(6, "decision_started", agent_id=1, decision_id="decision-2", data=_started(["run_start"])),
-        _event(7, "run_ended", occurred_at=1100),
+        _event(7, "environment_event", agent_id=1, data={"kind": "decision_budget_exhausted",
+                                                         "error_code": "ACTION_REQUEST_INVALID",
+                                                         "next_decision_at": 1000}),
+        _event(8, "run_ended", occurred_at=1100),
     ]
 
     report = build_quality_report(events, [], _manifest())
     rhythm = report["decision_rhythm"]
 
     assert report["schema_version"] == 2
+    assert rhythm["decision_budget_exhausted_events"] == 1
     assert rhythm["body_settlement_events"] == 4
     assert rhythm["boundaries_with_decision_field"] == 3
     assert rhythm["boundaries_missing_decision_field"] == 1
@@ -524,6 +528,7 @@ def test_decision_rhythm_reports_zero_coverage_for_legacy_event_sets():
     assert rhythm["wake_reason_counts"] == {}
     assert rhythm["unrecognized_wake_reason_counts"] == {}
     assert rhythm["decision_started_events"] == 1
+    assert rhythm["decision_budget_exhausted_events"] == 0
 
 
 def test_acceleration_sums_observed_wall_time_across_restore_branches():

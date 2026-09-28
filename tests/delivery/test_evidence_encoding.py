@@ -36,7 +36,7 @@ def logical_input():
               'result': {'status': 'completed', 'value': 0.3}}
     events = [
         observation('event-1', {'catalog': catalog, 'same_value_other_field': catalog,
-                                'recent_action_results': [result], 'nullable': None}),
+                                'prior_results': [result], 'nullable': None}),
         observation('event-2', {'catalog': catalog, 'missing_is_preserved': ['一', '二'], 'nullable': None}),
         observation('event-3', {'catalog': catalog, 'missing_is_preserved': ['二', '一'], 'nullable': None}),
     ]
@@ -57,7 +57,7 @@ def test_profitable_dictionary_round_trip_preserves_every_logical_value():
     assert decode_model_input(encoded) == source
     assert canonical_json(decode_model_input(encoded)) == canonical_json(source)
     assert encoded['events'][0]['materials'] == source['events'][0]['materials']
-    assert encoded['events'][0]['data']['recent_action_results'] == source['events'][0]['data']['recent_action_results']
+    assert encoded['events'][0]['data']['prior_results'] == source['events'][0]['data']['prior_results']
 
 
 def test_empty_dictionary_uses_the_same_versioned_envelope_for_short_values():

@@ -130,7 +130,7 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
   try {
     const items = app.run('ContextView.index()');
     assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
-    assert.equal(items[0].label, '其他调用 · 未解析');
+    assert.equal(items[0].label, '其他调用·未解析');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),
@@ -149,10 +149,42 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
     assert.ok(!html.includes('形成自述'));
     const continuation = app.run('ContextView.read(3)');
     assert.deepEqual(Array.from(continuation.current.blocks.filter(block => block.messageIndex > 1),
-      block => block.role), ['assistant', 'tool']);
+      block => `${block.role}:${block.key}`), ['assistant:message', 'assistant:reasoning', 'tool:message']);
     app.run('ContextView.select(1)');
     assert.ok(app.get('#ctx-body').innerHTML.includes('未解析'));
     assert.equal(app.errors.length, 1, app.errors.join('\n'));
+  } finally { app.close(); }
+});
+
+test('a decision first request with extra messages is a continuation matched to its source decision', () => {
+  const continued = contextRequest('continuation');
+  const response = {choices: [{message: {content: '', reasoning_content: '上一决策的思考。',
+    tool_calls: continued.messages[2].tool_calls}}],
+  usage: {prompt_tokens: 900, prompt_cache_hit_tokens: 640, prompt_cache_miss_tokens: 260, completion_tokens: 80,
+    completion_tokens_details: {reasoning_tokens: 55}}};
+  const app = viewer([
+    contextEvent('head', contextRequest()),
+    event('model_response', {call_id: 'reused-call', response}, {caused_by: ['head'], decision_id: 'decision-head'}),
+    contextEvent('next', continued),
+    event('model_request', {request: continued, call_id: 'second', attempt: 1},
+      {event_id: 'later', decision_id: 'decision-next'}),
+  ]);
+  try {
+    const model = app.run('ContextView.read(3)');
+    assert.equal(model.current.continuation, true);
+    const reasoning = model.current.blocks.find(block => block.key === 'reasoning');
+    assert.equal(reasoning.text, continued.messages[2].reasoning_content);
+    assert.ok(reasoning.label.endsWith(' · decision-head'), reasoning.label);
+    assert.equal(app.run('ContextView.read(4)').current.continuation, false, 'only a first request continues');
+    app.run('ContextView.select(3)');
+    assert.ok(app.get('#ctx-body').innerHTML.includes('同秒续接：本决策首个请求多于两条消息'));
+    assert.ok(app.get('#ctx-body').innerHTML.includes('续接 · assistant · 来源决策'));
+    app.run('ContextView.select(1)');
+    const output = app.get('#ctx-body').innerHTML;
+    assert.ok(output.includes('本次思考原文') && output.includes('上一决策的思考。'));
+    assert.ok(output.includes('&quot;cache_hit_tokens&quot;: 640'));
+    assert.ok(output.includes('&quot;reasoning_tokens&quot;: 55'));
+    assert.equal(app.errors.length, 0, app.errors.join('\n'));
   } finally { app.close(); }
 });
 

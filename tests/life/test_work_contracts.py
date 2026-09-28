@@ -12,7 +12,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 pending_names, start_activity, wake_by_mail)
+                                 pending_names, start_activity, target_tools, tool_targets, wake_by_mail)
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
@@ -27,6 +27,7 @@ from worldmock.life.models import (
     active_activities,
 )
 from worldmock.life.scenario import load_scenario
+from worldmock.life.schedule import WakeReason
 from worldmock.life.work import (
     load_work_input,
     load_work_oracle,
@@ -508,9 +509,10 @@ async def test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_
     before = dict(engine.state.accounts)
     decision = context(engine, "submit-at-deadline")
     engine.begin_decision_round([decision])
-    engine.observe(decision)
+    observed = engine.observe(decision)
+    [task_name] = [row["task_name"] for row in observed["task_bindings"] if row["task_id"] == task.task_id]
     engine.submit_action(DirectToolCall(decision, "action-submit-at-deadline", "submit_work", SubmitWorkActionRequest(
-        task_name=task.title, deliverable=_submission(task).deliverable)))
+        task_name=task_name, deliverable=_submission(task).deliverable)))
     await engine.prepare_pending_work_review("action-submit-at-deadline")
     submitted = engine.commit_decision_round("submit-at-deadline")[0]
     assert engine.state.current_time == due
@@ -536,3 +538,84 @@ def test_resume_with_less_than_a_minute_to_the_deadline_is_a_business_rejection(
     assert engine.state.activities[work_id].status == "paused"
     assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
                 if event.event_type == "run_failed"]
+
+
+# --- 逾期工作保留与达标、提交分开说明（docs/dev/SPEC-persona-prompt.md 第六章） ---
+
+#: 唤醒原因闭集：达标不是唤醒原因（第六章「工时达标与提交状态不一致」不新增唤醒原因）。
+_WAKE_REASONS = (
+    "planned_end", "felt_band_change", "message_arrival", "delivery_arrival", "task_available", "task_due_soon",
+    "work_review_result", "commitment_threatened", "reconsideration_interval", "location_hours_change",
+    "person_arrived", "person_left", "activity_infeasible", "rejection_feedback", "discovery_result",
+    "wake_from_sleep", "run_start", "progress_report_due", "no_active_activity", "plan_reminder_due")
+
+
+def _observe_at(engine, name: str, at: int, *, open_round: bool = False) -> tuple[object, dict]:
+    """把世界置于 at（人在办公室、任务可见）并观察；open_round 时先开一轮以便提交，返回（决策上下文，观察）。"""
+    _stage_office(engine, at)
+    decision = context(engine, name)
+    if open_round:
+        engine.begin_decision_round([decision])
+    return decision, engine.observe(decision)
+
+
+def test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_business_rejection(
+        deadline_engine) -> None:
+    """17:30 截止后未付款的任务仍是工具层 task 目标（contract.outlook 为「已过截止」，不列开工，submit_work 标不可用并写原因），
+    名称仍在提交绑定中，所以宿主受理、提交以 WORK_SUBMISSION_LATE 业务拒绝，没有 ProtocolError、没有 run_failed，也不写成
+    提交失败；截止当日 23:59:59 仍在，次日零点起不再列出。改回「跳过已过截止的任务」时任务目标消失、提交变成 WORK_TASK_NOT_FOUND。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    decision, observed = _observe_at(engine, "overdue-submit", _clock("17:30:01"), open_round=True)
+    target = tool_targets(observed)[name]
+    assert target["kind"] == "task" and target["actions"] == []
+    assert target["contract"]["deadline"] == _DEADLINE and target["contract"]["outlook"] == "已过截止"
+    assert target["tools"] == [{"tool": "submit_work", "available": False, "reason": "已经过了截止时间"}]
+    assert "失败" not in json.dumps(target, ensure_ascii=False)
+    assert {"task_name": name, "task_id": task.task_id} in observed["task_bindings"]
+    engine.submit_action(DirectToolCall(decision, "action-overdue-submit", "submit_work", SubmitWorkActionRequest(
+        task_name=name, deliverable=_submission(task).deliverable)))
+    rejected = engine.commit_decision_round("overdue-submit")[0]
+    assert (rejected.status, rejected.error_code) == ("rejected", "WORK_SUBMISSION_LATE")
+    assert (rejected.data["reason"], rejected.data["next_step"]) == ("已经过了截止时间", "这项工作不再提交，改做别的事")
+    assert task.task_id not in engine.state.paid_task_ids
+    assert not [event for event in engine.store.read_events(engine.store.last_event_seq)
+                if event.event_type == "run_failed"]
+    _, late = _observe_at(engine, "overdue-late", _clock("23:59:59"))
+    assert tool_targets(late)[name]["contract"]["outlook"] == "已过截止"
+    _, next_day = _observe_at(engine, "overdue-next-day", _clock("23:59:59") + 1)
+    assert name not in tool_targets(next_day)
+    assert all(row["task_id"] != task.task_id for row in next_day["task_bindings"])
+
+
+def test_target_met_while_still_working_states_the_three_facts_separately(deadline_engine) -> None:
+    """根因形状：09:30 开工一直做到截止前一分钟（17:29），有效工时约 6.4/4 小时、工作仍在进行。三件事各说各的：
+    task 目标 contract.remaining 写「有效工时已达标」，工作的活动目标 phase 为进行中，submit_work 标不可用并写「先结束
+    正在做的工作」；提交绑定没有合成的就绪布尔，提交以 WORK_TASK_IN_PROGRESS 业务拒绝，工作继续；不新增唤醒原因。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    _stage_office(engine, _clock("09:30:00"))
+    work_id = _start_work(engine, "met-start")
+    assert engine.state.activities[work_id].planned_end_at == _clock("17:30:00")
+    _decide_at(engine, _clock("17:29:00"))
+    decision = context(engine, "met-observe")
+    engine.begin_decision_round([decision])
+    observed = engine.observe(decision)
+    target = tool_targets(observed)[name]
+    assert target["contract"]["remaining"] == "有效工时已达标（约 6.4/4 小时）"
+    assert target["contract"]["outlook"] is None
+    working = tool_targets(observed)[_named(work_id)(observed)[0]]
+    assert (working["kind"], working["phase"]) == ("activity", "进行中")
+    assert "达标" not in working["state"] and "提交" not in working["state"]
+    assert target_tools(observed, name)["submit_work"] == {
+        "tool": "submit_work", "available": False, "reason": "先结束正在做的工作"}
+    assert observed["task_bindings"] == [{"task_name": name, "task_id": task.task_id}]
+    engine.submit_action(DirectToolCall(decision, "action-met-submit", "submit_work", SubmitWorkActionRequest(
+        task_name=name, deliverable=_submission(task).deliverable)))
+    rejected = engine.commit_decision_round("met-observe")[0]
+    assert (rejected.status, rejected.error_code) == ("rejected", "WORK_TASK_IN_PROGRESS")
+    assert rejected.data["reason"] == "先结束正在做的工作"
+    assert engine.state.activities[work_id].status == "active"
+    assert tuple(reason.value for reason in WakeReason) == _WAKE_REASONS

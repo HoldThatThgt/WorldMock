@@ -2,7 +2,8 @@
 
 一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
-整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。
+整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -27,11 +29,15 @@ from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import persona_card_text
+from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
 from custom.agents.life_memory import memory_update_evidence
 from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
                                        user_message)
-from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.continuation import CONTINUATION_KEY
+from worldmock.life.interaction_menu import WAYS, is_named_purchase
+from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
+                                   purpose_only_schema)
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
@@ -50,9 +56,9 @@ _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
 
 
 class _ToolRequest(BaseModel):
-    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段。"""
+    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段；参数 Schema 不带开发说明，用途只在工具 description。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=purpose_only_schema())
 
 
 class MemoryRecentRequest(_ToolRequest):
@@ -197,13 +203,18 @@ class LifeAgent(PersonAgent):
 
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
-        兜底（"native tool_calls are required"）。system 不附加任何预算文字。
+        兜底（"native tool_calls are required"）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；
+        预算第 0 步结束续接后，本决策此后的回合都从新快照续写。
         """
         request = super()._model_request(messages, tools)
         request["tool_choice"] = ACTION_TOOL_CHOICE
         request["max_tokens"] = ACTION_MAX_TOKENS
         request["extra_body"] = dict(ACTION_THINKING)
-        return fit_request(request, self._life_budget)
+        self._life_budget = send_check(messages, self._life_budget)
+        fitted = fit_request(request, self._life_budget)
+        if len(fitted["messages"]) < len(messages):
+            self._life_budget = end_continuation(messages, self._life_budget)
+        return fitted
 
     def _remaining_turns(self) -> int:
         """@brief 本决策含当前请求在内的剩余模型回合；不足一个时明确终止，不发注定失败的请求。"""
@@ -260,7 +271,7 @@ class LifeAgent(PersonAgent):
         self._life_request_models = self._request_tool_models(request.readonly)
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称。"""
+        """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
@@ -271,6 +282,11 @@ class LifeAgent(PersonAgent):
         self._life_names = {**names, "known_persons": known_persons(self.get_profile(), list(names["people"]))}
         if self._workspace_root is not None:
             write_prompt_snapshot(self._workspace_root, persona, layers[2])
+        continued = continuation_messages(data.get(CONTINUATION_KEY), layers)
+        if continued is not None:
+            self._react_messages = continued
+            self._life_budget = replace(self._life_budget, fresh_messages=(system_message(False), user_message(layers)),
+                                        chain_length=len(continued))
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
         """@brief 冻结本轮本人事件事实窗口与观察身份（本步记忆更新的来源截止），模型和记忆不能写入该窗口。
@@ -590,7 +606,11 @@ def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
 
 
 def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> str:
-    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作。"""
+    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作。
+
+    obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
+    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
+    """
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
         return "start_activity accepts one or two targets"
     if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
@@ -599,6 +619,8 @@ def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[
         return "start_activity targets must be unique"
     for target, verb, way in zip(request.targets, request.actions, request.ways):
         actions = objects.get(target)
+        if actions is None and is_named_purchase(verb, way):
+            continue
         if actions is None:
             return "start_activity target is not a visible interactive object"
         if not any(item[:2] == (verb, way) for item in actions):
@@ -608,11 +630,15 @@ def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
                       ) -> list[str]:
-    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入）。"""
+    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入，指名购买计为购买）。"""
     if action != "start_activity":
         return []
-    return [item[2] for target, verb, way in zip(request.targets, request.actions, request.ways)
-            for item in objects.get(target, ()) if item[:2] == (verb, way)]
+    selected = []
+    for target, verb, way in zip(request.targets, request.actions, request.ways):
+        if target not in objects and is_named_purchase(verb, way):
+            selected.append(WAYS[way][1])
+        selected.extend(item[2] for item in objects.get(target, ()) if item[:2] == (verb, way))
+    return selected
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:

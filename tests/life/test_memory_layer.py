@@ -485,10 +485,11 @@ def test_sentences_write_portions_money_and_cross_day_clocks(engine_factory) -> 
                          planned_end_at=now + 3600, last_settled_at=now + 1800, elapsed_seconds=1500,
                          planned_duration_seconds=3600, origin_action_id="a", origin_decision_id="d",
                          origin_request_event_id="e", boundary_type="cancelled", name="吃饭（1月5日 00:00 起）",
-                         data={"request": {"use_mode": "eat"}, "consumed": {product.product_id: 1 / 3}})
+                         data={"request": {"use_mode": "eat"}, "consumed": {product.product_id: 1 / 3},
+                               "opened": {product.product_id: 1.0}, "discarded": {product.product_id: 2 / 3}})
     assert activity_sentence(context_, meal, [(now + 600, now + 900)]) == (
         f"吃饭（1月5日 00:00 起）：{_clock(engine, now)}–{_clock(engine, now + 1800)}"
-        f"（暂停 {_clock(engine, now + 600)}–{_clock(engine, now + 900)}），提前结束，吃了 0.33 份")
+        f"（暂停 {_clock(engine, now + 600)}–{_clock(engine, now + 900)}），提前结束，吃了 0.33 份，丢弃 0.67 份")
 
 
 def test_paused_interval_appears_in_the_concluded_activity_sentence(engine_factory) -> None:

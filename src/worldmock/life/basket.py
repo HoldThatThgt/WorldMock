@@ -264,14 +264,45 @@ def held_quantity(agent: AgentState, product_id: str) -> float:
     return commerce_held(agent, product_id)
 
 
+def portion_duration(full_seconds: int, portion: float) -> int:
+    """@brief 按份量折算的进食时长：max(60, round(整份时长 × 份量)) 秒（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。"""
+    return max(60, round(full_seconds * portion))
+
+
+def meal_portion(product: InventoryItemConfig, use_mode: str, held: float) -> tuple[float, int]:
+    """@brief 一件持有物本次的份量与时长：食用取 min(1, 持有) 并按份量折算时长，使用为一份与目录时长。
+
+    受理、工具层的数量与时长共用这一口径；持有为零时食用份量为 0（由调用方以 PRODUCT_NOT_HELD 拒绝）。
+
+    :param held: 该物品在所用地点的持有份量。
+    """
+    if use_mode != "eat":
+        return 1.0, product.use_duration_seconds
+    portion = round(min(1.0, max(0.0, held)), 9)
+    return portion, portion_duration(product.use_duration_seconds, portion)
+
+
+def open_meal(agent: AgentState, request: ConsumeRequest) -> tuple[AgentState, dict[str, float]]:
+    """@brief 开吃：食用的每件把本次份量从手边库存移入活动的 opened（其他份数不动）；使用不开封，返回空。"""
+    if request.use_mode != "eat":
+        return agent, {}
+    opened: dict[str, float] = {}
+    for item in request.items:
+        agent = agent.model_copy(update={"inventory": change_inventory(agent, item.product_id, -item.quantity)},
+                                 deep=True)
+        opened[item.product_id] = round(item.quantity, 9)
+    return agent, opened
+
+
 def meal_duration(products: dict[str, InventoryItemConfig], request: ConsumeRequest) -> int:
-    """@brief 多件进食时长取最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md「商务与进食」）。"""
+    """@brief 多件进食时长取各件按份量折算后的最长者；非食品单件必须等于目录时长（docs/dev/SPEC-life-realism.md「商务与进食」）。"""
     durations = []
     for item in request.items:
         product = products.get(item.product_id)
         if product is None:
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        durations.append(product.use_duration_seconds)
+        durations.append(portion_duration(product.use_duration_seconds, item.quantity)
+                         if request.use_mode == "eat" else product.use_duration_seconds)
         if request.use_mode == "use" and request.duration_seconds != product.use_duration_seconds:
             raise BusinessRuleError("PRODUCT_USE_DURATION_MISMATCH")
     if request.use_mode == "eat" and request.duration_seconds != max(durations):
@@ -314,35 +345,44 @@ def meal_food_rate(products: dict[str, InventoryItemConfig], request: ConsumeReq
 
 def apply_meal_progress(agent: AgentState, products: dict[str, InventoryItemConfig],
                         activity: ActivityState, config: BodyConfig) -> AgentState:
-    """@brief 按实际进食进度逐件扣份量、累加热量与效果（镜像 commerce 口径）。"""
+    """@brief 按实际进度逐件累加已用份量、热量与效果。
+
+    食用只按开吃时移入的 opened 与实际进度结算，不再扣库存（docs/dev/SPEC-persona-prompt.md 第五章「进食」），所以暂停
+    期间别处吃掉同一商品不影响恢复；使用在完成时按持有扣一件（镜像 commerce 口径）。
+    """
     request = ConsumeRequest.model_validate(activity.data["request"])
     previous = dict(activity.data.get("consumed", {}))
+    eating = request.use_mode == "eat"
     for item in request.items:
         product = products[item.product_id]
-        if request.use_mode == "eat":
-            target = item.quantity * activity.elapsed_seconds / activity.planned_duration_seconds
-        elif activity.status == ActivityStatus.COMPLETED:
-            target = item.quantity
-        else:
-            target = previous.get(item.product_id, 0.0)
         # 库存既有九位份量精度必须同时用于累计目标和差额，避免分段舍入累积成缺货。
-        target = round(target, 9)
+        target = round(_meal_target(activity, item.product_id, item.quantity, previous), 9)
         delta = round(max(0.0, target - previous.get(item.product_id, 0.0)), 9)
-        held = held_quantity(agent, product.product_id)
-        if held + 1e-9 < delta:
-            raise BusinessRuleError("PRODUCT_NOT_HELD")
-        delta = min(delta, held)
-        agent = _apply_item_delta(agent, product, delta, config)
+        if not eating:
+            held = held_quantity(agent, product.product_id)
+            if held + 1e-9 < delta:
+                raise BusinessRuleError("PRODUCT_NOT_HELD")
+            delta = min(delta, held)
+        agent = _apply_item_delta(agent, product, delta, config, from_stock=not eating)
         activity.data.setdefault("consumed", {})[item.product_id] = round(
             previous.get(item.product_id, 0.0) + delta, 9)
     return agent
 
 
+def _meal_target(activity: ActivityState, product_id: str, quantity: float, previous: dict[str, float]) -> float:
+    """@brief 一件物品此刻应累计的已用份量：食用为 opened × 实际进度，使用在完成时为一件，否则不变。"""
+    if activity.data["request"]["use_mode"] == "eat":
+        return activity.data["opened"][product_id] * activity.elapsed_seconds / activity.planned_duration_seconds
+    if activity.status == ActivityStatus.COMPLETED:
+        return quantity
+    return previous.get(product_id, 0.0)
+
+
 def _apply_item_delta(agent: AgentState, product: InventoryItemConfig, quantity: float,
-                      config: BodyConfig) -> AgentState:
-    """@brief 原子投影单件商品份量、效果和食品热量（效果与热量累加）。"""
+                      config: BodyConfig, from_stock: bool = True) -> AgentState:
+    """@brief 原子投影单件商品份量、效果和食品热量（效果与热量累加）；食用的份量已在开吃时移出库存（from_stock 为假）。"""
     inventory = (change_inventory(agent, product.product_id, -quantity)
-                 if product.consumable else agent.inventory)
+                 if product.consumable and from_stock else agent.inventory)
     body = agent.body
     if product.energy_kcal_per_unit and quantity > 0:
         settlement = apply_food(body, product.energy_kcal_per_unit * quantity, config)

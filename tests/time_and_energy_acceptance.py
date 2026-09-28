@@ -56,7 +56,7 @@ _SAME_MOMENT_TESTS = [
         "test_activity_end_boundary_offers_no_active_activity_and_redecides",
         "test_business_rejection_redecides_in_same_second_with_rejection_feedback",
         "test_rejection_with_active_activity_retries_until_limit_then_follows_rhythm",
-        "test_restricted_rounds_open_start_then_wait_only",
+        "test_rejected_start_stays_in_start_or_resume_and_marks_the_option",
         "test_out_of_bounds_request_is_rejected_and_counted",
         "test_start_or_resume_accepts_start_and_resume_but_not_other_reports",
         "test_replay_round_counts_toward_same_moment_rounds",
@@ -241,8 +241,8 @@ _SAME_MOMENT_TESTS += [
         "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",
         "test_conclude_pending_stage_accepts_only_concluding_every_pending_activity",
         "test_both_slots_paused_open_resume_or_conclude",
-        "test_other_request_in_resume_or_conclude_narrows_to_conclude_only_then_wait_only",
-        "test_rejected_resume_with_full_slots_opens_conclude_only_then_wait_only",
+        "test_other_request_in_resume_or_conclude_stays_in_the_stage",
+        "test_rejected_resume_with_full_slots_stays_in_resume_or_conclude",
         "test_restricted_conclusions_endings_and_waits_pass_the_stage_check",
         "test_conclusion_and_slot_branches_of_the_ladder",
         "test_conclusion_only_round_does_not_use_up_message_opportunity",
@@ -384,6 +384,17 @@ _SAME_MOMENT_TESTS += [
     _SAME_MOMENT + "test_pending_conclusion_beside_a_running_activity_holds_the_clock_past_the_limit",
 ]
 
+#: 人物 Prompt 阶段 5，同刻决策：删 wait_only 及其升级，受限轮用完仍无进行中活动（或仍待收尾）时写
+#: decision_budget_exhausted、不造等待活动、时钟推进、无 run_failed，质量报告计数（人物 Prompt 规格裁决 #25）。
+_SAME_MOMENT_TESTS += [
+    "tests/life/test_decision_budget.py::" + name for name in (
+        "test_restricted_rounds_used_up_without_an_activity_pause_technically",
+        "test_a_successful_last_restricted_round_carries_the_latest_rejection_code",
+        "test_a_replayed_rejection_in_the_last_restricted_round_exhausts_the_budget",
+        "test_budget_exhausted_with_a_pending_conclusion_beside_a_running_activity",
+    )
+]
+
 #: 阶段 4 完成能量不拦人行：可供性注册表删 energy_projection，观察合同键为五个。
 _STAGE4_ENERGY_NEVER_BLOCKS_TESTS = [
     _SHADOW + "test_energy_projection_is_gone_from_registry_and_observation_contract",
@@ -523,6 +534,14 @@ _STAGE4_LOCAL_RUN_FIX_TESTS = [
     _WORK_REVIEW + "test_completion_outlook_appears_only_when_the_time_upper_bound_is_short",
     _NEWS_FEED + "test_content_is_listed_to_resume_or_restart_and_starts_from_the_matching_position",
     "tests/life/test_grounded_observation.py::test_real_observation_lists_tail_media_as_restart_and_tail_work_with_note",
+]
+
+#: 人物 Prompt 阶段 5 对「本机运行修复」行的登记：未付款的逾期任务保留到截止当日结束、「已过截止」、提交以
+#: WORK_SUBMISSION_LATE 业务拒绝且无 ProtocolError；工时达标、正在工作与能否提交分开说明。
+_STAGE4_LOCAL_RUN_FIX_TESTS += [
+    "tests/life/test_work_contracts.py::"
+    "test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_business_rejection",
+    "tests/life/test_work_contracts.py::test_target_met_while_still_working_states_the_three_facts_separately",
 ]
 
 #: 阶段 4 对「无新增故障」行（阶段 7 收尾）的预先登记：交谈对方结束与反馈间隔为 60 秒时无 run_failed。
@@ -836,9 +855,9 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"WORLD_SCHEMA_VERSION", ["src/worldmock/delivery/pipeline.py"]),
         # 目标回看按意图解析；阶段 3 把回看改写为按任务、目标、活动与会话分派后，判定仍按 intent_kind。
         (r'item\.intent_kind == row\["intent_kind"\]', [_SESSION_ACTIONS]),
-        (r"Literal\[7\]", ["docs/design/09-io-formats.md"]),
+        (r"Literal\[8\]", ["docs/design/09-io-formats.md"]),
         (r"state\.schema_version", ["docs/design/06-delivery.md"]),
-        (r"世界结构版本为 `7`", [_CONTRACTS, _RECORDING]),
+        (r"世界结构版本为 `8`", [_CONTRACTS, _RECORDING]),
     ],
     "1": [
         (r"max_same_moment_decisions", ["src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",

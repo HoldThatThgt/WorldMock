@@ -15,10 +15,14 @@ _LOGGER = logging.getLogger(__name__)
 class StorefrontRuntimeMixin:
     """@brief 门店动作的引擎接线，领域结算继续使用统一整单购买入口。"""
 
-    def _purchase(self, state, pending, request):
-        """@brief 仅购买人物实际接触过的供给，逐项校验后一次付款。"""
+    def _purchase(self, state, pending, request, named: frozenset[str] = frozenset()):
+        """@brief 购买人物实际接触过的供给或指名购买解析出的供给，逐项校验后一次付款。
+
+        :param named: 指名购买按名称解析出的供给身份：指名路径不查可见凭据，浏览与轮转本身不变
+            （docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
+        """
         agent = state.agents[pending.agent_id]
-        effective = set(projection.visible_supplies(state, agent, self.scenario))
+        effective = set(projection.visible_supplies(state, agent, self.scenario)) | named
         if any(item.supply_id not in effective for item in request.items):
             _LOGGER.error("Purchase references a supply that was not visible to the agent")
             raise BusinessRuleError("SUPPLY_NOT_VISIBLE")

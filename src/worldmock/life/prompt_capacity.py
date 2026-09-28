@@ -1,6 +1,7 @@
-"""@brief 发送模型请求前计量完整上下文，超过阈值时只结构化浓缩 user 中的进度层（docs/dev/SPEC-persona-prompt.md 第四章）。
+"""@brief 发送模型请求前计量完整上下文，超过阈值时先结束本秒续接，再结构化浓缩 user 中的进度层（docs/dev/SPEC-persona-prompt.md 第四章）。
 
-计量覆盖原生 tools、系统层、六层 JSON、此后的原生消息与预留输出。达到上下文 85% 时依次：
+计量覆盖原生 tools、系统层、六层 JSON、续接消息（含回传的 reasoning_content）、此后的原生消息与预留输出。达到上下文 85% 时依次：
+0. 提前结束本秒续接：链前缀换成新快照（系统层与此刻的六层），思考不再出现；
 1. 从旧到新逐条去掉未受保护记录的 self_note；
 2. 把最旧一段连续的未受保护记录（紧邻其前的 condensed 记录并入）折成一条 condensed 记录，重复到阈值以下或无可折叠；
 每步之后重新计数。受保护记录从不改变；工具层、人设层、记忆层、待办层与环境层不浓缩。仍超限时按层记录 token 用量
@@ -30,11 +31,17 @@ _CONDENSED = "condensed"
 
 @dataclass(frozen=True, slots=True)
 class ProgressBudget:
-    """@brief 可浓缩的请求部分：user 消息中的层数组与进度层记录的私有元数据（受保护标记与 settled 句）。"""
+    """@brief 可浓缩的请求部分：user 消息中的层数组与进度层记录的私有元数据（受保护标记与 settled 句）。
+
+    续接的请求另带 fresh_messages（不带续接的新快照 system 与 user，layers 即其中的层）与 chain_length（请求开头属于
+    续接链的消息条数），供第 0 步把链前缀换成新快照；不续接时两者为 None 与 0。
+    """
 
     layers: tuple[dict, ...]
     meta: tuple[dict, ...]
     user_index: int = 1
+    fresh_messages: tuple[dict, ...] | None = None
+    chain_length: int = 0
 
 
 def model_context_length(model: str) -> int:
@@ -65,11 +72,16 @@ def request_token_count(request: dict[str, Any]) -> int:
 
 
 def fit_request(request: dict[str, Any], budget: ProgressBudget | None = None) -> dict[str, Any]:
-    """@brief 请求低于阈值时原样返回；否则按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。"""
+    """@brief 请求低于阈值时原样返回；否则先结束本秒续接，再按第四章步骤浓缩进度层，每步重计，仍超限即容量故障。"""
     limit = model_context_length(request["model"]) * CONTEXT_THRESHOLD
     measured = request_token_count(request)
     if measured < limit:
         return request
+    if budget is not None and budget.fresh_messages is not None:
+        request = {**request, "messages": [*budget.fresh_messages, *request["messages"][budget.chain_length:]]}
+        measured = request_token_count(request)
+        if measured < limit:
+            return request
     layers = list(budget.layers) if budget is not None else []
     index = next((i for i, layer in enumerate(layers) if layer.get("layer") == _PROGRESS_LAYER), None)
     if index is not None:

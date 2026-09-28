@@ -33,6 +33,7 @@ from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, 
                                    PendingAction, WorldState, active_activities)
 from worldmock.life.readable import duration_phrase, portion_phrase
 from worldmock.life.sessions import at_stay, moment_label, on_road
+from worldmock.life.work import work_start_blocker, work_totals
 
 if TYPE_CHECKING:
     from worldmock.life.admission import Context
@@ -199,7 +200,8 @@ def conclusion_required(activities: Iterable[ActivityState], names: dict[str, st
 def control_refusal(context: Context, tool: str, activity: ActivityState) -> Refusal | None:
     """@brief 控制工具点名一项活动时第一条不成立的准入，成立时为 None；受理与工具层、待办层的可用性共用它。
 
-    report_status：只接受进行中或暂停的活动；暂停的活动只在开始地点恢复，恢复时与进行中活动的占用不能冲突。
+    report_status：只接受进行中或暂停的活动；暂停的活动只在开始地点恢复，工作的恢复与开工同一截止约束（距截止与剩余
+    合同都不少于 60 秒），恢复时与进行中活动的占用不能冲突。
     pause_activity：只暂停进行中的活动；路上的活动、交谈与通话不能暂停；须在活动的决策边界。
     conclude_activity：只结束占名额的活动；有别的待收尾活动时先收尾；进行中的活动须在决策边界（交谈与通话随时可挂断）。
 
@@ -214,7 +216,7 @@ def control_refusal(context: Context, tool: str, activity: ActivityState) -> Ref
 
 
 def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None:
-    """@brief 播报与恢复：状态、恢复地点与恢复后的占用。"""
+    """@brief 播报与恢复：状态、恢复地点、工作的截止约束与恢复后的占用（按这个顺序）。"""
     if activity.status not in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:
         return refusal_for_code("ACTION_REQUEST_INVALID")
     if activity.status == ActivityStatus.ACTIVE:
@@ -224,6 +226,11 @@ def _report_refusal(context: Context, activity: ActivityState) -> Refusal | None
         name = context.activity_names.get(activity.activity_id, activity.name)
         return Refusal("ACTIVITY_PRECONDITION_UNMET", f"{name}要回到{place}才能接着做，在别处可以直接结束",
                        unmet=("activity_location",), suggested={"travel_to": place})
+    if activity.kind == ActivityKind.WORK:
+        worked, _ = work_totals(context.state, activity.agent_id, activity.target_id)
+        blocker = work_start_blocker(context.tasks[activity.target_id], worked, context.state.current_time)
+        if blocker is not None:
+            return Refusal("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
     blocking = [item.name for item in active_activities(context.state, activity.agent_id)
                 if item.activity_id != activity.activity_id and item.resource_claims & activity.resource_claims]
     if blocking:

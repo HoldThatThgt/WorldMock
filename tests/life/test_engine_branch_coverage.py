@@ -792,36 +792,34 @@ def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory
 # ---------------------------------------------------------------------------
 
 
-def test_task_due_soon_ignores_missing_due_and_hits_window() -> None:
-    """待办提示跳过无截止行，命中 2 小时窗口返回真。"""
-    now = 10_000
-    assert projection._task_due_soon(({"due_at": None},), now) is False
-    assert projection._task_due_soon(({"due_at": None}, {"due_at": now + 3600}), now) is True
-
-
 def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> None:
     """收件箱头跳过无场景邮件配置的可见身份。"""
     engine = engine_factory()
     agent = engine.state.agents[1].model_copy(
         update={"visible_message_ids": {"ghost-mail"}}, deep=True)
     inputs = projection.ProjectionInputs(state=engine.state, scenario=engine.scenario,
-                                         agent=agent, recent_results=(), task_rows=())
+                                         agent=agent, task_rows=())
     assert projection._inbox_rows(inputs) == []
 
 
-def test_visible_task_rows_hide_overdue_tasks(engine_factory) -> None:
-    """过期任务不再进入可见任务行。"""
+def test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day(engine_factory) -> None:
+    """未付款的逾期任务保留在可见任务行与工作池中，直到截止当日的本地日结束；次日零点起不再列出
+    （docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。"""
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
+    next_day = int((task.due_at.replace(hour=0, minute=0, second=0) + timedelta(days=1)).timestamp())
     _stage_agent(engine, visible_task_ids={task.task_id})
     rows = engine._visible_task_rows(engine.state.agents[1])
     assert [row["task_id"] for row in rows] == [task.task_id]
-    staged = engine.state.model_copy(deep=True)
-    staged.current_time = due + 60
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > due + 60]
-    _commit_staged(engine, staged)
-    assert engine._visible_task_rows(engine.state.agents[1]) == []
+    for moment, listed in ((due + 60, [task.task_id]), (next_day - 1, [task.task_id]), (next_day, [])):
+        staged = engine.state.model_copy(deep=True)
+        staged.current_time = moment
+        staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
+        _commit_staged(engine, staged)
+        agent = engine.state.agents[1]
+        assert [row["task_id"] for row in engine._visible_task_rows(agent)] == listed
+        assert [entry.object_id for entry in engine._task_pool(agent)] == listed
 
 
 def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:
@@ -1392,8 +1390,9 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
-    """不存在和真实存在但未呈现的供给均不能靠名称绕过冻结观察。"""
+def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing) -> None:
+    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
+    世界不变；真实存在但未呈现、没有可见凭据的供给按标签到店购买，按当前报价结算，库存与持有各变一份。"""
     from tests.life.conftest import stage_day_plan
     from tests.life.test_commerce import _stage_open
     from worldmock.life.discovery import supply_row
@@ -1430,8 +1429,16 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
     request = StartActivityRequest(targets=[object_name], actions=["obtain"], ways=[way])
     engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
     result = engine.commit_decision_round("buy-invisible")[0]
-    assert result.status.value == "rejected"
-    assert result.error_code == "ACTION_REQUEST_INVALID"
+    if existing:
+        assert (result.status.value, result.error_code) == ("completed", None)
+        [order] = result.data["orders"]
+        assert (order["supply_id"], order["total_price_fen"]) == (supply.supply_id, hidden[0]["purchase_price_fen"])
+        assert engine.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
+        assert engine.state.agents[1].inventory["market"][supply.product_id] == (
+            before.agents[1].inventory.get("market", {}).get(supply.product_id, 0) + 1)
+        assert engine.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
+        return
+    assert (result.status.value, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     assert engine.state.accounts == before.accounts
     assert engine.state.supply_stock == before.supply_stock
     assert engine.state.agents[1].inventory == before.agents[1].inventory

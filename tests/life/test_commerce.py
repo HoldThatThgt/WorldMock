@@ -146,28 +146,31 @@ def test_browse_purchase_replay_uses_one_canonical_payment(engine_factory) -> No
 
 
 def test_food_progress_persists_partial_quantity_across_pause_and_completion(engine_factory) -> None:
-    """进食按实际进度扣份量和加热量，暂停重复结算不抹去或重复已吃部分。"""
+    """持有 2 份开吃 1 份（库存 1，opened 1）：进食按实际进度累加已吃份量和热量，不再扣库存；暂停重复结算不抹去或重复
+    已吃部分（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。"""
     engine = engine_factory()
     product = engine.scenario.products[0]
-    agent = engine.state.agents[1].model_copy(
-        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True)
     request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode="eat",
                              duration_seconds=product.use_duration_seconds)
+    from worldmock.life.basket import apply_meal_progress, open_meal
+
+    agent, opened = open_meal(engine.state.agents[1].model_copy(
+        update={"inventory": {"home": {product.product_id: 2.0}}}, deep=True), request)
+    assert agent.inventory["home"][product.product_id] == pytest.approx(1)
     activity = ActivityState(
         activity_id="food-progress", agent_id=1, location_id=agent.location_id,
         kind="consume", status=ActivityStatus.ACTIVE,
         started_at=0, planned_end_at=900, last_settled_at=450, elapsed_seconds=450,
         planned_duration_seconds=900, target_id=product.product_id,
         origin_action_id="eat", origin_decision_id="eat-decision",
-        origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json")})
-    from worldmock.life.basket import apply_meal_progress
+        origin_request_event_id="eat-request", data={"request": request.model_dump(mode="json"), "opened": opened})
 
     first = apply_meal_progress(agent, engine.rules.products, activity, engine.scenario.body)
     assert activity.data["consumed"][product.product_id] == pytest.approx(0.5)
-    assert first.inventory["home"][product.product_id] == pytest.approx(1.5)
+    assert first.inventory["home"][product.product_id] == pytest.approx(1)
     paused = activity.model_copy(update={"status": ActivityStatus.PAUSED}, deep=True)
     repeated = apply_meal_progress(first, engine.rules.products, paused, engine.scenario.body)
-    assert repeated.inventory["home"][product.product_id] == first.inventory["home"][product.product_id]
+    assert repeated == first
     assert paused.data["consumed"][product.product_id] == pytest.approx(0.5)
     completed = paused.model_copy(update={"status": ActivityStatus.COMPLETED, "ended_at": 900,
                                           "last_settled_at": 900, "elapsed_seconds": 900}, deep=True)

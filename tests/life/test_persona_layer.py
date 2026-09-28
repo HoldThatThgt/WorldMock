@@ -136,7 +136,7 @@ def test_persona_card_struct_is_saved_on_new_runs_and_validated_on_restore(tmp_p
     assert "persona_card_struct" not in _agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"]
     broken = {**persona_card_struct(card), "situation": {"busy_this_week": "赶工", "cares_about": "体检"}}
     agent = {"schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1, "initialized_at": None,
-             "profile": {"persona_card_struct": broken}}
+             "profile": {"id": 1, "same_second_continuation": True, "persona_card_struct": broken}}
     parent, checkpoint = _parent_store(tmp_path, workspace_builder=lambda path: _agent_workspace(
         path, agent_document=agent))
     try:

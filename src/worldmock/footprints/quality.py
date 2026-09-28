@@ -357,7 +357,8 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
 
     占比与存在率指标由 evaluation/behavior_metrics 从这些计数推导；旧事件
     （缺省增量字段）计入缺失分母，不被当作任何一种边界。边界的唤醒原因取共同身体结算，
-    决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。
+    决策轮的唤醒原因取 decision_started（同刻轮次不写共同身体结算），两份分列。跨决策预算耗尽的技术停顿
+    （environment_event 种类 decision_budget_exhausted，docs/dev/SPEC-persona-prompt.md 第五章）单独计数。
     """
     boundaries = _body_settlement_events(events)
     offered = sum(event.data.get(DECISION_OFFERED_FIELD) is True for event in boundaries)
@@ -378,6 +379,9 @@ def _decision_rhythm_quality(events: list[Event]) -> dict:
         "same_moment_round_counts": _same_moment_round_counts(started),
         "decision_started_wake_reason_counts": dict(sorted(started_known.items())),
         "unrecognized_decision_started_wake_reason_counts": dict(sorted(started_unrecognized.items())),
+        "decision_budget_exhausted_events": sum(
+            event.event_type == "environment_event" and event.data.get("kind") == "decision_budget_exhausted"
+            for event in events),
         "method": "Raw counts from shared body settlement and decision started events",
     }
 

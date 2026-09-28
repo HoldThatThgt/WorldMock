@@ -386,8 +386,9 @@ def test_person_conclusion_keeps_memories_in_request_and_registers_private_sourc
     assert [event.data["status"] for event in terminal] == ["cancelled"]
     assert requested[0].event_id in terminal[0].caused_by
     assert engine.state.processed_actions["action-wait"].result["status"] == "cancelled"
-    facts = json.dumps(observed["arrive"]["facts"], ensure_ascii=False)
-    assert "memory_sources" not in facts and ids["wait"] not in facts
+    layers = json.dumps([observed["arrive"][key] for key in (
+        "tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer")], ensure_ascii=False)
+    assert "memory_sources" not in layers and ids["wait"] not in layers
 
 
 def test_lifecycle_records_and_export_match_the_final_checkpoint(engine_factory, tmp_path: Path) -> None:

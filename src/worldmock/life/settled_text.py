@@ -15,6 +15,7 @@ from typing import Any
 
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
+from worldmock.life.activity_evidence import is_eating
 from worldmock.life.interaction_menu import PURCHASE_WAYS
 from worldmock.life.models import ActivityKind, ActivityState, TravelMode
 from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
@@ -53,7 +54,8 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
 
 def activity_sentence(context: LayerContext, activity: ActivityState,
                       pauses: Sequence[tuple[int, int]] = ()) -> str:
-    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，工作另写有效工时，食用另写吃掉的份数。
+    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，工作另写有效工时，进食另写吃掉与丢弃的份数
+    （与收尾结果 details.outcome 同一结算事实）。
 
     例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束，有效工时约 2 小时」。
     """
@@ -65,8 +67,10 @@ def activity_sentence(context: LayerContext, activity: ActivityState,
     sentence = f"{name}：{start}–{end}{f'（暂停 {paused}）' if paused else ''}，{activity_control.ending_phrase(activity)}"
     if activity.kind == ActivityKind.WORK:
         sentence += f"，有效工时{duration_phrase(activity.effective_work_seconds)}"
-    if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
+    if is_eating(activity):
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
+        discarded = sum(activity.data.get("discarded", {}).values())
+        sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
     return sentence
 
 

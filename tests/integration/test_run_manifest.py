@@ -81,7 +81,8 @@ async def test_life_env_init_freezes_stage_identity_into_manifest(tmp_path) -> N
 
     identity = manifest["stage_model_identity"]
     assert "two_stage_model_identity" not in manifest
-    assert identity["stages"] == {"action": {"thinking": "enabled", "tool_choice": "auto", "max_tokens": 8000},
+    assert identity["stages"] == {"action": {"thinking": "enabled", "tool_choice": "auto", "max_tokens": 8000,
+                                             "same_second_continuation": True},
                                   "work_review": {"thinking": "disabled", "tool_choice": "required"}}
     # 与 runtime 单一事实源逐字节一致。
     assert identity == stage_model_identity()

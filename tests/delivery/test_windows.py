@@ -517,6 +517,50 @@ def test_actual_decision_prompt_is_authoritative_and_private_review_never_become
         _model_source('action', 1, encode_model_record(tampered))
 
 
+def test_continued_same_second_request_is_kept_verbatim_in_action_and_intent_windows(tmp_path):
+    """同秒续接的实际请求：链首 system 与 user 之后是上一决策的 assistant 消息（带 reasoning_content 与世界请求调用）和
+    对应的 tool 消息；动作与意图窗口原样保留这份实际请求，不重建、不删减（docs/dev/SPEC-persona-prompt.md 验收台账「下游」）。"""
+    import copy
+    import hashlib
+    import json
+
+    from worldmock.footprints.models import canonical_json
+
+    observed = _layered_observation('observed', 1)
+    requested = event('requested', 3, 'action_requested', {
+        'tool_name': 'conclude_activity', 'request': {'task': ['等待（1月5日 07:30 起）'], 'summary': ['歇好了。'],
+                                                      'memories': [[]]},
+        'request_sha256': 'e' * 64, 'reused': False, 'self_note': None})
+    requested['action_id'] = 'conclude'
+    prompt = decision_prompt(requested, (observed, requested))
+    wait = {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']}
+    earlier = {'role': 'assistant', 'content': '先歇一会儿。', 'reasoning_content': '同一秒里先开始等待。',
+               'tool_calls': [{'id': 'call-wait', 'type': 'function', 'function': {
+                   'name': 'start_activity', 'arguments': json.dumps(wait, ensure_ascii=False)}}]}
+    result = {'occurred_at': '2026-01-05T07:30:00+08:00', 'status': 'in_progress', 'error_code': None,
+              'message': 'Activity started', 'details': {'planned': [{'name': '等待（1月5日 07:30 起）',
+                                                                      'duration': '约 12 分钟'}]}}
+    feedback = {'role': 'tool', 'tool_call_id': 'call-wait', 'content': json.dumps(
+        {'result': result, 'changes': {'targets': {'updated': [], 'removed': ['自己']}}},
+        ensure_ascii=False, separators=(',', ':'))}
+    prompt['data']['request']['messages'].extend([earlier, feedback])
+    sent = copy.deepcopy(prompt['data']['request'])
+    completed = event('completed', 5, 'action_result', {'status': 'completed', 'message': 'Done'})
+    completed['action_id'] = 'conclude'
+    rows = (observed, prompt, requested, completed)
+    manifest = {'run_id': 'run', 'source_group_id': 'run',
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+
+    action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
+                                     (manifest, tmp_path, {row['event_id']: row for row in rows}))
+
+    digest = hashlib.sha256(canonical_json(sent)).hexdigest()
+    for record in (action, intent):
+        assert record['input']['decision_prompt'] == sent
+        assert record['input']['decision_prompt']['messages'][2:] == [earlier, feedback]
+        assert record['provenance']['decision_prompt_sha256'] == digest
+
+
 def test_plan_day_request_never_becomes_a_decision_prompt_or_window_input(tmp_path):
     """零点计划 plan_day 的请求带 purpose，即便晚于人物行动请求也不作窗口 prompt；其证据与计划登记是系统事件，不进窗口。"""
     observed = _layered_observation('observed', 1)

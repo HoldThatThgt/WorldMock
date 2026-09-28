@@ -384,7 +384,8 @@ def test_basket_meal_food_rate_is_zero_for_non_eating_use() -> None:
 
 
 def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
-    """多件路径镜像 commerce 口径：耐用品完成全额、暂停不推进、超持拒绝。"""
+    """使用路径镜像 commerce 口径：耐用品完成全额、暂停不推进、完成时手边不够一件的消耗品拒绝（食用只按开吃份量结算，
+    不在这里扣库存，见 test_dayrun_inventory_regressions）。"""
     durable = _product(product_id="item-dry", use_modes=("use",), consumable=False,
                        effect="dry", kcal=0)
     products = {"item-dry": durable}
@@ -398,10 +399,12 @@ def test_basket_apply_meal_progress_durable_completion_and_paused() -> None:
     fresh_paused = _use_activity(request, status=ActivityStatus.PAUSED)
     apply_meal_progress(agent, products, fresh_paused, _body())
     assert fresh_paused.data["consumed"]["item-dry"] == pytest.approx(0.0)
-    starved = _use_activity(_consume(), elapsed_seconds=450)
+    wipes = _product(product_id="item-wipe", use_modes=("use",), consumable=True, effect="clean", kcal=0)
+    starved = _use_activity(_consume(product_id="item-wipe", use_mode="use"), status=ActivityStatus.COMPLETED,
+                            ended_at=900, elapsed_seconds=900, last_settled_at=900)
     with pytest.raises(BusinessRuleError, match="PRODUCT_NOT_HELD"):
-        apply_meal_progress(_agent(inventory={"home": {"food-1": 0.1}}),
-                            {"food-1": _product()}, starved, _body())
+        apply_meal_progress(_agent(inventory={"home": {"item-wipe": 0.1}}),
+                            {"item-wipe": wipes}, starved, _body())
 
 
 # ---------------------------------------------------------------------------

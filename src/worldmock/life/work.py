@@ -19,7 +19,7 @@ from worldmock.life.models import (
     WorldState,
     active_activities,
 )
-from worldmock.life.readable import duration_phrase, iso_time
+from worldmock.life.readable import duration_phrase, iso_time, local_date
 from worldmock.life.scenario import RuntimeScenario, WorkTaskConfig
 from worldmock.life.settlement import settle_money_transfer
 
@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 WORK_START_MINIMUM_SECONDS = 60
 #: 工具层任务目标 contract.outlook 的取值，只在时长上界不足时出现（docs/dev/SPEC-persona-prompt.md「工具层」）。
 COMPLETION_OUTLOOK_SHORT = "到截止前做不完"
+#: 过了截止仍列出的未付款任务的 contract.outlook（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+COMPLETION_OUTLOOK_LATE = "已过截止"
 #: 正在做这项工作时提交的原因：工时达标、活动状态与提交条件分开说明（docs/dev/SPEC-persona-prompt.md 第六章）。
 _IN_PROGRESS_REFUSAL = Refusal("WORK_TASK_IN_PROGRESS", "先结束正在做的工作", "结束或暂停这项工作后再提交")
 
@@ -103,13 +105,26 @@ def work_resume_cap(task: WorkTaskConfig, worked_seconds: int, now: int) -> int:
 
 
 def completion_outlook(task: WorkTaskConfig, worked_seconds: int, effective_seconds: float, now: int) -> str | None:
-    """@brief 「到截止前做不完」：剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时给出，否则为 None。
+    """@brief 过了截止为「已过截止」；否则剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时为「到截止前做不完」，
+    其余为 None。
 
-    按时长上界判定（有效秒数不超过实际做的秒数），不暴露效率。
+    按时长上界判定（有效秒数不超过实际做的秒数），不暴露效率；截止同秒不算过了截止。
     """
+    if now > int(task.due_at.timestamp()):
+        return COMPLETION_OUTLOOK_LATE
     needed = task.required_effective_seconds - effective_seconds
     available = min(int(task.due_at.timestamp()) - now, task.maximum_duration_seconds - worked_seconds)
     return COMPLETION_OUTLOOK_SHORT if needed > available else None
+
+
+def task_listed(task: WorkTaskConfig, now: int, timezone_name: str) -> bool:
+    """@brief 可见的未付款任务是否仍在观察与工具层中：截止前，或截止当日的本地日结束前（截止当天过了截止仍保留）。
+
+    逾期保留只为说明原因：contract.outlook 写「已过截止」，submit_work 标不可用，提交以 WORK_SUBMISSION_LATE 业务拒绝；
+    不新增迟交规则（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+    """
+    due = int(task.due_at.timestamp())
+    return now <= due or local_date(now, timezone_name) == local_date(due, timezone_name)
 
 
 def contract_view(task: WorkTaskConfig, totals: tuple[int, float], now: int, timezone_name: str) -> dict:
