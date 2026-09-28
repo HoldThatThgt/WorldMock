@@ -914,7 +914,7 @@ def _rehash_checkpoint(manifest: dict) -> None:
     "mutate, match",
     [
         (lambda m: m.update(committed=False), "manifest is not committed"),
-        (lambda m: m.update(schema_version=2), "schema_version must be 1"),
+        (lambda m: m.update(schema_version=1), "schema_version must be 2"),
         (lambda m: m.update(experiment_completed=False), "experiment_completed"),
         (lambda m: m.update(checkpoint="x"), "checkpoint is missing"),
         (lambda m: m.update(asset_index="x"), "asset_index is missing"),

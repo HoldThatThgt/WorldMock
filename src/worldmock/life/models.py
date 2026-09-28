@@ -801,6 +801,11 @@ class ChangeActivityRequest(FrozenModel):
         le=2,
         description="Required only when operation is change_speed.",
     )
+    resume_cap_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        description="Resume only: the longest remaining run from now (work deadline and contract limit).",
+    )
 
     @model_validator(mode="after")
     def validate_speed(self) -> "ChangeActivityRequest":
