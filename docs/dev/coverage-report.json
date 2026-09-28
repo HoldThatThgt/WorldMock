@@ -1,27 +1,27 @@
 {
-  "generated_at": "2026-09-28T11:09:26+00:00",
+  "generated_at": "2026-09-28T15:39:41+00:00",
   "command": "uv run coverage run -m pytest -q",
   "evidence_manifest": {
-    "snapshot_id": "0c47eaee-06f9-4db8-84b4-c52ac25acb9e",
-    "manifest_hash": "6918be967e164b09d262fd27335d714b9d391621ee3d84a018541c9d2ccc6b62",
-    "source_identity": "f798ea7a028f9b3fe289e0b8725d774ed8e9af0d"
+    "snapshot_id": "ce9092b7-c81e-45fe-9046-395d20212185",
+    "manifest_hash": "350dcc52460e04fccdcb5d41a39bfe6163646cd8a3bf6498864642309a379a0a",
+    "source_identity": "e80404099946187a9def070c9e9ae05c45c14621"
   },
   "thresholds": {
     "branch_coverage_percent_min": 85.0
   },
   "branch_coverage": {
-    "covered_branches": 7451,
-    "missing_branches": 405,
-    "total_branches": 7856,
-    "percent": 94.84,
+    "covered_branches": 7467,
+    "missing_branches": 403,
+    "total_branches": 7870,
+    "percent": 94.88,
     "passed": true
   },
   "per_file_branch": [
     {
       "file": "custom/agents/life_agent.py",
-      "covered_branches": 128,
+      "covered_branches": 130,
       "missing_branches": 8,
-      "percent": 94.12
+      "percent": 94.2
     },
     {
       "file": "custom/agents/life_context.py",
@@ -643,9 +643,9 @@
     },
     {
       "file": "src/worldmock/life/memory_layer.py",
-      "covered_branches": 63,
+      "covered_branches": 69,
       "missing_branches": 1,
-      "percent": 98.44
+      "percent": 98.57
     },
     {
       "file": "src/worldmock/life/menu_execution.py",
@@ -751,7 +751,7 @@
     },
     {
       "file": "src/worldmock/life/result_projection.py",
-      "covered_branches": 18,
+      "covered_branches": 20,
       "missing_branches": 0,
       "percent": 100.0
     },
@@ -883,15 +883,15 @@
     },
     {
       "file": "src/worldmock/life/todo_layer.py",
-      "covered_branches": 4,
+      "covered_branches": 6,
       "missing_branches": 0,
       "percent": 100.0
     },
     {
       "file": "src/worldmock/life/tool_layer.py",
-      "covered_branches": 104,
-      "missing_branches": 16,
-      "percent": 86.67
+      "covered_branches": 108,
+      "missing_branches": 14,
+      "percent": 88.52
     },
     {
       "file": "src/worldmock/life/travel.py",
