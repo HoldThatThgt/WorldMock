@@ -186,7 +186,8 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
     _finish(engine, browse.activity_id, "browse")
     revealed = [row["supply_id"] for row in engine.state.activities[browse.activity_id].data["revealed"]["items"]]
     observed = _checked(engine, "browse-seen")
-    (record,) = [row for row in progress_calls(observed, "start_activity") if "browse_items" in row["result"]["details"]]
+    (record,) = [row for row in progress_calls(observed, "start_activity")
+                 if "browse_items" in row["result"]["details"]]
     items = record["result"]["details"]["browse_items"]
     assert items and all(isinstance(name, str) for name in items)
     assert not {"price", "supply_id", "stock", "price_fen"} & set(json.dumps(record, ensure_ascii=False).split('"'))

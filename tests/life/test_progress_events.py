@@ -9,6 +9,8 @@ session 下界：运行开始与到达取 session 开始时刻，出发与途中
 from __future__ import annotations
 
 import json
+from datetime import datetime
+from types import SimpleNamespace
 
 from agentsociety2.society import DirectToolCall
 
@@ -18,7 +20,8 @@ from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
 from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, ReviseDayPlanRequest,
                                    SendMessageActionRequest)
-from worldmock.life.readable import iso_time
+from worldmock.life.readable import clock_phrase, iso_time, money_phrase
+from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
 
 _LONG_TEXT = "".join(f"第{index:03d}句话。" for index in range(50))[:300]
@@ -54,6 +57,16 @@ def _walk_to_office(engine, round_id: str):
     observed = _observe(engine, f"{round_id}-preview")
     target = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == "office")
     return _act(engine, round_id, "start_activity", start_activity("步行", target))
+
+
+def _lines(observed: dict, record: dict) -> list[str]:
+    """一条进度层记录在 progress_meta 中的 settled 句。"""
+    return observed["progress_meta"][observed["progress_layer"]["events"].index(record)]["lines"]
+
+
+def _clock(record: dict) -> str:
+    """记录发生时刻的本地 HH:MM（与观察同一天）。"""
+    return datetime.fromisoformat(record["occurred_at"]).strftime("%H:%M")
 
 
 def _append(engine, drafts: list[EventDraft]) -> list:
@@ -151,6 +164,7 @@ def test_direct_message_is_presented_in_full_and_marked_presented(engine_factory
     rendered = json.dumps({key: observed[key] for key in ("tool_layer", "todo_layer", "environment_layer",
                                                           "memory_layer", "progress_layer")}, ensure_ascii=False)
     assert rendered.count(_LONG_TEXT) == 1
+    assert _lines(observed, arrival) == [f"{_clock(arrival)} 收到{sender.name}的消息：{_LONG_TEXT}"]
 
 
 def test_mail_arrival_names_only_the_subject(engine_factory) -> None:
@@ -160,10 +174,12 @@ def test_mail_arrival_names_only_the_subject(engine_factory) -> None:
     _act(engine, "mail-wait", "start_activity", start_activity("等待", "自己"))
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    (mail,) = _events(_observe(engine, "mail-seen"), "message_arrival")
+    observed = _observe(engine, "mail-seen")
+    (mail,) = _events(observed, "message_arrival")
     message = engine.scenario.messages[0]
     assert mail == {"occurred_at": mail["occurred_at"], "type": "message_arrival", "sender": None, "kind": "mail",
                     "subject": message.subject}
+    assert _lines(observed, mail) == [f"{_clock(mail)} 收到邮件「{message.subject}」"]
 
 
 def test_delivery_appears_once_with_order_label_and_message(engine_factory) -> None:
@@ -194,6 +210,14 @@ def test_delivery_appears_once_with_order_label_and_message(engine_factory) -> N
     assert delivery["order"].startswith(f"{product} 1 份（") and delivery["order"].endswith("远程下单）")
     assert (delivery["status"], delivery["message"]) == ("delivered", f"已送到{place}")
     assert len(_events(_observe(engine, "order-again"), "delivery")) == 1
+    zone = engine.scenario.timezone
+    (purchase,) = [row for row in progress_calls(delivered, "start_activity")
+                   if row["result"]["details"].get("purchases")]
+    assert _lines(delivered, purchase) == [
+        f"{clock_phrase(order['created_at'], engine.state.current_time, zone)} 远程下单{product} 1 份，"
+        f"付 {money_phrase(order['total_price_fen'])}，"
+        f"预计 {clock_phrase(order['expected_at'], engine.state.current_time, zone)} 送到{place}"]
+    assert _lines(delivered, delivery) == [f"{_clock(delivery)} {delivery['order']}：已送到{place}"]
 
 
 def _stage_task_near_due(engine, before_due: int) -> str:
@@ -318,9 +342,13 @@ def test_conclude_arguments_omit_relationship_and_preference_memories(engine_fac
                  {"type": "routine", "text": "每天等一会儿", "importance": 0.4, "keywords": ["等待"]}]]
     _act(engine, "memo-conclude", "conclude_activity", ConcludeActivityRequest(
         task=[name], summary=["等完了"], memories=memories))
-    (record,) = progress_calls(_observe(engine, "memo-seen"), "conclude_activity")
+    seen = _observe(engine, "memo-seen")
+    (record,) = progress_calls(seen, "conclude_activity")
     assert record["arguments"]["summary"] == ["等完了"]
     assert [item["type"] for item in record["arguments"]["memories"][0]] == ["routine"]
+    ended, zone, now = engine.state.activities[waited.activity_id], engine.scenario.timezone, engine.state.current_time
+    span = f"{clock_phrase(ended.started_at, now, zone)}–{clock_phrase(ended.ended_at, now, zone)}"
+    assert _lines(seen, record) == [f"{name}：{span}，提前结束"]
 
 
 def _hand_request(engine, action_id: str, self_note: str | None) -> None:
@@ -400,3 +428,30 @@ def test_records_after_and_result_object_share_the_progress_projection(engine_fa
     result_event = next(event for event in engine.store.read_agent_events("action_result", 1)
                         if event.action_id == "action-after-second")
     assert progress_layer.result_object(context_, result_event) == progress_calls(observed)[-1]["result"]
+
+
+def test_submission_lines_say_passed_or_rework_and_other_failures_write_nothing(engine_factory) -> None:
+    """提交工作的 settled 句：通过写「HH:MM 提交「<任务>」，通过」，需要返工写「未通过」，其他被拒的提交不写；
+    修订目标、回看这类调用即使成功也不写。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    from worldmock.life.tool_layer import LayerContext
+    context_ = LayerContext(state=engine.state, scenario=engine.scenario, rules=engine.rules,
+                            semantics=engine.semantics, agent_id=1, names={"sessions": {}, "activities": {}},
+                            bindings=[], menu=None, lifestyle_items=engine.lifestyle_items)
+    moment = iso_time(engine.state.current_time, engine.scenario.timezone)
+    clock = moment[11:16]
+
+    def lines(tool: str, arguments: dict, status: str, error_code: str | None = None) -> list[str]:
+        """一条手工 tool_call 记录与其即时结果的 settled 句。"""
+        record = {"occurred_at": moment, "type": "tool_call", "tool": tool, "arguments": arguments}
+        result = SimpleNamespace(event_type="action_result",
+                                 data={"status": status, "error_code": error_code, "data": {}})
+        return record_lines(context_, record, [SimpleNamespace(event_type="action_requested", data={}), result])
+
+    submission = {"task_name": "工作：会议纪要"}
+    assert lines("submit_work", submission, "completed") == [f"{clock} 提交「会议纪要」，通过"]
+    assert lines("submit_work", submission, "rejected", "WORK_REQUIRES_REWORK") == [f"{clock} 提交「会议纪要」，未通过"]
+    assert lines("submit_work", submission, "rejected", "WORK_SUBMISSION_LATE") == []
+    assert lines("revise_day_plan", {"goals": []}, "completed") == []
+    assert lines("recall_task_summary", {"task_name": "工作：会议纪要"}, "completed") == []
