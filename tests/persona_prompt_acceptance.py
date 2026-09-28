@@ -237,7 +237,7 @@ LEDGER: dict[str, list[str]] = {
             "test_delivery_appears_once_with_order_label_and_message",
             "test_task_deadline_records_due_soon_and_expired_once_each",
             "test_plan_reminder_appears_once_and_precedes_same_second_events",
-            "test_records_after_and_result_object_share_the_progress_projection",
+            "test_records_after_gives_the_progress_records_whose_sources_follow_the_bound",
         )
     ] + [
         _CONTINUATION + "test_another_persons_same_second_message_appears_once_in_the_whole_request",

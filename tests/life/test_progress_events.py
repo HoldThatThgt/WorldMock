@@ -452,8 +452,9 @@ def test_meta_marks_records_after_the_last_action_request_as_protected_and_write
     assert first["progress_meta"] == [] and all(row["protected"] for row in observed["progress_meta"])
 
 
-def test_records_after_and_result_object_share_the_progress_projection(engine_factory) -> None:
-    """records_after 只给来源序号都在界之后的事件记录；result_object 与 tool_call.result 同一投影。"""
+def test_records_after_gives_the_progress_records_whose_sources_follow_the_bound(engine_factory) -> None:
+    """records_after 只给来源序号都在界之后的事件记录，记录与进度层中的同一条 tool_call 逐字段相同（续接的 tool 消息
+    与进度层同一投影）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     _revise(engine, "after-first")
@@ -467,9 +468,7 @@ def test_records_after_and_result_object_share_the_progress_projection(engine_fa
                             lifestyle_items=engine.lifestyle_items)
     after = progress_layer.records_after(context_, engine.store, boundary)
     assert [record["tool"] for record, _ in after] == ["start_activity"]
-    result_event = next(event for event in engine.store.read_agent_events("action_result", 1)
-                        if event.action_id == "action-after-second")
-    assert progress_layer.result_object(context_, result_event) == progress_calls(observed)[-1]["result"]
+    assert after[0][0] == progress_calls(observed)[-1]
 
 
 def test_submission_lines_say_passed_or_rework_and_other_failures_write_nothing(engine_factory) -> None:

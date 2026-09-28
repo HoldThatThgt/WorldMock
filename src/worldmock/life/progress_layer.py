@@ -89,11 +89,6 @@ def progress_view(context: LayerContext, store: FootprintStore, pauses: PauseInt
                         presented_message_ids=[item.message_id for item in records if item.message_id is not None])
 
 
-def result_object(context: LayerContext, result_event: Event) -> dict:
-    """@brief 一条 action_result 事件的公开结果（与进度层 tool_call.result 同一投影）。"""
-    return public_result(result_event.data, context.scenario)
-
-
 def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
     """@brief 当前 session 中来源事件序号都大于 after_seq 的事件记录及其来源身份（推导记录没有来源，不在其中）。"""
     bound = session_bound(store, context.state, context.agent_id)

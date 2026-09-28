@@ -263,7 +263,7 @@ _SESSIONS_AND_MEMORY_TESTS = [
         "test_arrival_denied_fails_travel_and_starts_stay_at_destination",
         "test_experiment_end_ends_every_session_without_conclusion",
         "test_same_named_activities_get_ordinals_instead_of_failing",
-        "test_recall_by_task_activity_and_session_names_reaches_the_next_observation",
+        "test_recall_by_task_and_activity_names_reaches_the_next_observation",
         "test_lifecycle_records_and_export_match_the_final_checkpoint",
         "test_slot_counting_durations_and_session_helpers_are_pure",
         "test_waking_with_the_sleep_awaiting_conclusion_offers_its_conclusion",
@@ -307,7 +307,7 @@ _SESSIONS_AND_MEMORY_TESTS = [
     "tests/test_start_activity_contract.py::test_conclude_naming_none_of_the_just_ended_activities_is_rejected",
     "tests/integration/test_dayrun_complete_days.py::"
     "test_complete_two_person_day_uses_real_tools_memory_and_restoration",
-    _PROGRESS_LAYER + "test_recall_reads_task_activity_and_session_without_identities",
+    _PROGRESS_LAYER + "test_recall_reads_task_and_activity_without_identities",
     _PROGRESS_LAYER + "test_conclude_marks_named_just_ended_activities_and_keeps_their_status",
     _PROGRESS_LAYER + "test_activity_targets_carry_only_readable_objective_progress",
     "tests/life/test_progress_events.py::test_arrival_session_is_time_bound_and_excludes_the_departure",
@@ -341,7 +341,7 @@ _DELIVERY_TESTS += [
 
 #: 阶段 3 预先登记：同轮可见名称重复、到达被拒、途中结束出行与检查点恢复下无 run_failed。
 _NO_NEW_FAULT_TESTS += [
-    _LOCATION + "test_cross_day_duplicate_session_and_activity_names_get_ordinals",
+    _LOCATION + "test_cross_day_duplicate_activity_names_get_ordinals",
     _LOCATION + "test_arrival_denied_fails_travel_and_starts_stay_at_destination",
     _LOCATION + "test_ending_travel_midway_ends_road_activities_and_stays_at_origin",
     _LOCATION + "test_sessions_and_pending_conclusion_survive_reopen",
@@ -984,7 +984,7 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"remind_time: Annotated\[str, Field\(pattern=", [_MODELS]),
         (r"plan_reminder_times", [_SCHEDULE, _RHYTHM]),
         (r'"plan_reminder"', ["src/worldmock/life/activities.py"]),
-        (r"def boundary_candidates|def defers_rhythm|def alarm_goals", ["src/worldmock/life/reminders.py"]),
+        (r"def boundary_candidates|def defers_rhythm", ["src/worldmock/life/reminders.py"]),
         (r"\$\.data\.purpose'\) IS NULL", ["src/worldmock/footprints/store.py"]),
         (r'not event\.get\("data", \{\}\)\.get\("purpose"\)', ["src/worldmock/evaluation/behavior_metrics.py"]),
         (r'"by_purpose"', ["src/worldmock/footprints/quality.py"]),
