@@ -563,3 +563,16 @@ def test_quality_report_is_deterministic_for_the_same_authenticated_input():
 
     assert first == second
     json.dumps(first, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+@pytest.mark.parametrize("source,codes", [("reflection", []), ("activity_conclusion", ["invalid_memory_update"])])
+def test_bedtime_reflection_snapshot_may_carry_its_source(source, codes):
+    """醒来那一轮登记的就寝反思快照可另带 source=reflection（宿主标注，记忆层据此找归属日期）；其他来源值仍是无效登记。"""
+    update = {**_memory_update("r1", "event-1", "decision", trigger=("reflection",)),
+              "episodes": [{"id": "r1", "type": "reflection", "text": "睡前想了想", "epistemic_status": "subjective",
+                            "source": source}]}
+    events = [_event(1, "observation", agent_id=1, decision_id="decision",
+                     data={"verified_experiences": [], "wake_reasons": ["wake_from_sleep"]}),
+              _event(2, "memory_updated", agent_id=1, decision_id="decision", data=update)]
+    memory = build_quality_report(events, [], _manifest())["memory_references"]
+    assert [item["code"] for item in memory["problems"]] == codes

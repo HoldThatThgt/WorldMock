@@ -357,6 +357,10 @@ test('all parsed block rules exist and every growth view retains explicit source
   }
   assert.match(api.rules.progress.steps.map(step => step[1]).join(''), /self_note.*未经核验/);
   assert.match(api.rules.capacity.fill, /不是 token/);
+  assert.equal(api.rules.memory.source, 'src/worldmock/life/memory_layer.py · memory_view');
+  assert.match(api.rules.memory.steps.map(step => step[1]).join(''), /8000 字符/);
+  assert.match(api.rules.persona.steps.map(step => step[1]).join(''), /按名称合并/);
+  assert.equal(/当前阶段|尚未派生/.test(JSON.stringify(plain([api.rules.memory, api.rules.persona]))), false);
   const retired = /自述|scene|facts|decision_statement|render_scene|两阶段/;
   assert.equal(retired.test(JSON.stringify(plain(api.rules))), false);
 });

@@ -1,8 +1,8 @@
 """已核验经历只作私有证据，不写成提示句（docs/dev/SPEC-persona-prompt.md 第二章「删除与去重」）。
 
 观察的私有证据 data.verified_experiences 保留结构行与来源身份（记忆写入证据依赖它），七层中没有经历句子；零点计划
-输入仍用场景的地点、商品与内容名称把经历写成句子（例如「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」），
-出行方式取自所属出行活动。
+输入仍用场景的地点、商品与内容名称把经历写成句子（settled_text 的共享写法，例如「14:17 开车到了张江办公室」
+「13:57–14:17 吃了番茄炒蛋」），出行方式取自所属出行活动。
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ from types import SimpleNamespace
 from tests.life.conftest import conclude_pending, stage_day_plan
 from tests.life.test_location_sessions import _depart, _preview, _started_ids, _until_ended, _wait
 from worldmock.life import projection
+from worldmock.life.readable import clock_phrase
+from worldmock.life.settled_text import experience_sentence
 from worldmock.life.models import ActivityStatus, TravelMode
 
 _PODCAST = "podcast-nasa-space-habitat-excerpt"
@@ -42,9 +44,8 @@ def test_observation_keeps_experiences_private_and_out_of_the_layers(engine_fact
     _until_ended(engine, travel_id, "sentence-walk")
     observed = _preview(engine, "sentences")
     rows = observed["verified_experiences"]
-    inputs = SimpleNamespace(scenario=engine.scenario, state=engine.state,
-                             extras={"content_titles": engine.rules.content_titles})
-    sentences = [projection._experience_sentence(inputs, row) for row in rows]
+    inputs = SimpleNamespace(scenario=engine.scenario, state=engine.state, rules=engine.rules)
+    sentences = [experience_sentence(inputs, row) for row in rows]
     assert [row["kind"] for row in rows] == ["waited", "arrived"]
     assert len(sentences) == len(rows)
     wait_row, arrival_row = rows
@@ -62,7 +63,8 @@ def test_observation_keeps_experiences_private_and_out_of_the_layers(engine_fact
 
 
 def test_every_experience_kind_is_written_as_a_sentence_without_identities(engine_factory) -> None:
-    """四种经历的句式：等待与食用、播放写起止时刻，播客写「听了」、其余内容写「看了」，开车与到达被拒写明。"""
+    """四种经历的句式：等待与食用、播放写起止时刻（跨日加「M月D日」），播客写「听了」、其余内容写「看了」，开车与到达
+    被拒写明。"""
     engine = engine_factory()
     stage_day_plan(engine)
     travel_id = _started_ids(_depart(engine, "kinds-walk"))[0]
@@ -86,14 +88,18 @@ def test_every_experience_kind_is_written_as_a_sentence_without_identities(engin
         {**common, "kind": "arrived", "activity_id": travel_id, "location_id": "office", "access_status": "denied"},
     ]
     titles = engine.rules.content_titles
-    inputs = SimpleNamespace(scenario=engine.scenario, state=state, extras={"content_titles": titles})
-    span = f"{_clock(engine, now - 600)}–{_clock(engine, now)}"
+    inputs = SimpleNamespace(scenario=engine.scenario, state=state, rules=engine.rules)
+    def clock(epoch: int) -> str:
+        """@brief 共享句式里的钟点：与此刻不在同一本地日期时带「M月D日」。"""
+        return clock_phrase(epoch, now, engine.scenario.timezone)
+
+    span = f"{clock(now - 600)}–{clock(now)}"
     office = _place(engine, "office")
-    assert [projection._experience_sentence(inputs, fact) for fact in facts] == [
+    assert [experience_sentence(inputs, fact) for fact in facts] == [
         f"{span} 等待了约 10 分钟",
-        f"{_clock(engine, now - 1200)}–{_clock(engine, now)} 吃了{product.name}",
-        f"{_clock(engine, now - 60)}–{_clock(engine, now)} 听了《{titles[_PODCAST]}》",
-        f"{_clock(engine, now - 60)}–{_clock(engine, now)} 看了《{titles[film.item_id]}》",
-        f"{_clock(engine, now)} 开车到了{office}",
-        f"{_clock(engine, now)} 走路到了{office}，但没能进去",
+        f"{clock(now - 1200)}–{clock(now)} 吃了{product.name}",
+        f"{clock(now - 60)}–{clock(now)} 听了《{titles[_PODCAST]}》",
+        f"{clock(now - 60)}–{clock(now)} 看了《{titles[film.item_id]}》",
+        f"{clock(now)} 开车到了{office}",
+        f"{clock(now)} 走路到了{office}，但没能进去",
     ]

@@ -4,7 +4,8 @@
 同事王磊是场景联系人（收货地点办公室）。人物在办公室邀他一起点外卖，王磊回复要一份；人物远程下单直接送给王磊并用
 answering 回应那条消息：订单只有一个收货人、带 request_message_id，送达只入王磊的持有，人物的库存与摄入都不变；
 其后的决策在进度层看到这笔订单（收货人与所回应的消息）与送达记录，再次为同一条消息下同一商品以 REQUEST_ALREADY_HANDLED
-拒绝并指向原订单；再给王磊发消息时，联系人回复请求带双方往来与他实际收到的物品。
+拒绝并指向原订单；再给王磊发消息时，联系人回复请求带双方往来与他实际收到的物品；人物离开办公室（这段停留结束）后，
+之后的决策在记忆层的 settled 句里看到这笔订单（所回应的消息与收货人）与它的送达。
 """
 
 from __future__ import annotations
@@ -30,7 +31,8 @@ from tests.life.routing_fixtures import run_until, stage  # noqa: E402
 from tests.life.test_scheduling import _document, _identity, _write_scenario  # noqa: E402
 from worldmock.life.activity_control import pending_conclusions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
-from worldmock.life.readable import clock_phrase  # noqa: E402
+from worldmock.life.models import active_activities  # noqa: E402
+from worldmock.life.readable import clock_phrase, money_phrase  # noqa: E402
 from worldmock.runtime import settle_pending_model_replies  # noqa: E402
 
 _WANGLEI = {"contact_id": "contact-wanglei", "salutation": "王磊", "relation": "同事", "closeness": 16,
@@ -217,3 +219,32 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
         ("陈曦", "中午一起点外卖吗？"), ("王磊", "好啊，帮我点一份，少辣，谢谢！")]
     assert payload["received"] == [{"item": name, "quantity": "1 份", "time": expected}]
     assert payload["incoming_message"] == "外卖送到了吗？"
+
+    run_until(engine, _idle)
+    await _decide(environment, "leave", _walk_home)
+    run_until(engine, lambda current: current.state.agents[1].location_id == "home" and _idle(current))
+    home, requests, _ = await _decide(environment, "home", lambda _: ("start_activity", {
+        "targets": ["自己"], "actions": ["interact"], "ways": ["等待"], "from": [None], "to": [None],
+        "answering": None}))
+    assert not _events(home, "delivery") and not [row for row in _events(home, "tool_call")
+                                                  if row["arguments"].get("answering")]
+    settled_lines = [line for entry in home["memory_layer"]["earlier_today"] for line in entry["settled"]]
+    placed = (f"10:35 远程下单{name} 1 份，付 {money_phrase(order['total_price_fen'])}，预计 {expected} "
+              f"送到{_OFFICE_NAME}（回应{chosen['answering']}，收货人王磊）")
+    assert placed in settled_lines
+    assert f"{expected} {name} 1 份（10:35 远程下单）：已送到{_OFFICE_NAME}，收货人王磊" in settled_lines
+    assert json.loads(requests[0]["messages"][1]["content"])[2] == home["memory_layer"]
+    assert len(engine.state.deliveries) == 1
+
+
+def _idle(engine: LifeEngine) -> bool:
+    """人物可以决策，且没有进行中或待收尾的活动（可以出发）。"""
+    return _ready(engine) and not active_activities(engine.state, 1)
+
+
+def _walk_home(observation: dict) -> tuple[str, dict]:
+    """步行回住处（离开办公室，这段停留随出发结束）。"""
+    home = next(row["name"] for row in observation["tool_layer"]["targets"] if row["kind"] == "location"
+                and "张江居所" in row["name"])
+    return "start_activity", {"targets": [home], "actions": ["travel"], "ways": ["步行"], "from": [None],
+                              "to": [None], "answering": None}

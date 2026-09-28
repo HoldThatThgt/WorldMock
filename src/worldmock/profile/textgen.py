@@ -50,16 +50,22 @@ def render_card(card: PersonaCard) -> str:
     return text
 
 
-def _hour_text(hour: float) -> str:
-    """@brief 小时数 → 中文时刻：7.0→"7点"、7.5→"7点半"（0.5 格点保证确定性）。"""
-    whole = int(hour)
-    return f"{whole}点半" if abs(hour - whole - 0.5) < 1e-9 else f"{whole}点"
+#: 整点后的分钟数 → 中文说法（刻钟与半点；睡眠中点在 0.25 小时格点上，docs/dev/SPEC-persona-prompt.md「人设层」）。
+_MINUTE_WORDS = {0: "", 15: "一刻", 30: "半", 45: "三刻"}
 
 
-def _window_text(window: TimeWindow) -> str:
+def hour_text(hour: float) -> str:
+    """@brief 小时数 → 中文时刻：7.0→"7点"、7.25→"7点一刻"、7.5→"7点半"、7.75→"7点三刻"，其余分钟写「N分」。"""
+    minutes = round(hour * 60)
+    whole, minute = divmod(minutes, 60)
+    word = _MINUTE_WORDS.get(minute, f"{minute}分")
+    return f"{whole}点{word}"
+
+
+def window_text(window: TimeWindow) -> str:
     """@brief 窗口 → "7点到7点半"；跨午夜终点（>24）按次日小时表述。"""
     end = window.end_hour - 24.0 if window.end_hour > 24.0 else window.end_hour
-    return f"{_hour_text(window.start_hour)}到{_hour_text(end)}"
+    return f"{hour_text(window.start_hour)}到{hour_text(end)}"
 
 
 def _identity_line(card: PersonaCard) -> str:
@@ -73,7 +79,7 @@ def _situation_line(card: PersonaCard) -> str:
     return f"本周在忙{card.situation.busy_this_week}；在意{card.situation.cares_about}。"
 
 
-def _intimacy_text(intimacy: int) -> str:
+def intimacy_text(intimacy: int) -> str:
     """@brief 亲密度 0-30 → 四档中文（≥22 很亲近 / ≥14 较亲近 / ≥7 一般 / 疏远）。"""
     if intimacy >= 22:
         return "很亲近"
@@ -88,7 +94,7 @@ def _relationship_item(relationship: Relationship) -> str:
     """@brief 单条关系：称谓（角色，亲密度档，渠道）。"""
     channels = "、".join(relationship.channels)
     return (f"{relationship.name_or_appellation}（{relationship.role}，"
-            f"{_intimacy_text(relationship.intimacy)}，{channels}联系）")
+            f"{intimacy_text(relationship.intimacy)}，{channels}联系）")
 
 
 def _relationship_line(card: PersonaCard) -> str:
@@ -100,15 +106,15 @@ def _relationship_line(card: PersonaCard) -> str:
 def _rhythm_line(card: PersonaCard) -> str:
     """@brief 作息行：时间锚点、睡眠中点与睡眠需要。"""
     anchors = card.time_anchors
-    return (f"约{_window_text(anchors.wake)}起床、{_window_text(anchors.leave_home)}出门；"
-            f"午餐{_window_text(anchors.lunch)}、晚餐{_window_text(anchors.dinner)}；"
-            f"就寝{_window_text(anchors.bedtime)}，睡眠中点约{_hour_text(card.chronotype_midsleep)}，"
+    return (f"约{window_text(anchors.wake)}起床、{window_text(anchors.leave_home)}出门；"
+            f"午餐{window_text(anchors.lunch)}、晚餐{window_text(anchors.dinner)}；"
+            f"就寝{window_text(anchors.bedtime)}，睡眠中点约{hour_text(card.chronotype_midsleep)}，"
             f"需睡{card.sleep_need_hours:g}小时。")
 
 
 def _habit_item(habit: HabitSignature) -> str:
     """@brief 单条习惯签名：trigger→response（窗口）。"""
-    return f"{habit.trigger}→{habit.response}（{_window_text(habit.time_window)}）"
+    return f"{habit.trigger}→{habit.response}（{window_text(habit.time_window)}）"
 
 
 def _habit_line(card: PersonaCard) -> str:

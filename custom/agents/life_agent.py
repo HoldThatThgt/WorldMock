@@ -25,13 +25,15 @@ from agentsociety2.agent.base import (
     ReactLoopRequest,
     ReactToolResult,
 )
+from agentsociety2.agent.memory_runtime import MemoryStepOutcome
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import persona_card_text
 from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
-from custom.agents.life_persona import persona_layer
-from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, empty_memory_layer, life_user_layers, readonly_messages,
-                                       system_message, user_message)
+from custom.agents.life_memory import memory_update_evidence
+from custom.agents.life_persona import known_persons, persona_layer, readonly_layers, write_prompt_snapshot
+from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, readonly_messages, system_message,
+                                       user_message)
 from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.interaction_menu import WAYS, is_named_purchase
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
@@ -52,8 +54,6 @@ ACTION_MAX_TOKENS = 8000
 _START_ACTIVITY_MAX_TARGETS = 2
 #: 结束活动时写入的记忆来源（系统按写入点固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_MEMORY_SOURCE = "activity_conclusion"
-#: 没有观察的只读问答所用的看法与偏好（阶段一环境只下发空列表）。
-_NO_VIEWS = {"relationships": [], "preferences": []}
 
 
 class _ToolRequest(BaseModel):
@@ -263,8 +263,7 @@ class LifeAgent(PersonAgent):
         self._life_action_count = 0
         self._life_readonly = request.readonly
         if request.readonly:
-            persona = persona_layer(self.get_profile(), self.name, _NO_VIEWS)
-            self._life_budget = ProgressBudget((persona, empty_memory_layer()), ())
+            self._life_budget = ProgressBudget(readonly_layers(self._workspace_root, self.get_profile(), self.name), ())
             self._life_names = {}
             self._life_wake_reasons = frozenset()
         else:
@@ -280,7 +279,10 @@ class LifeAgent(PersonAgent):
         persona = persona_layer(self.get_profile(), self.name, _persona_views(data))
         layers = life_user_layers(data, persona)
         self._life_budget = ProgressBudget(tuple(layers), tuple(_progress_meta(data, layers[-1])))
-        self._life_names = _visible_names(data, layers[3])
+        names = _visible_names(data, layers[3])
+        self._life_names = {**names, "known_persons": known_persons(self.get_profile(), list(names["people"]))}
+        if self._workspace_root is not None:
+            write_prompt_snapshot(self._workspace_root, persona, layers[2])
         continued = continuation_messages(data.get(CONTINUATION_KEY), layers)
         if continued is not None:
             self._react_messages = continued
@@ -302,6 +304,19 @@ class LifeAgent(PersonAgent):
             logging.error("LifeAgent observation event identity is invalid")
             raise RuntimeError("LifeAgent observation event identity is invalid")
         self._life_observation_event_id = observation_event_id
+
+    async def _record_memory_update(self, outcome: MemoryStepOutcome) -> None:
+        """@brief 登记本步已落盘的记忆（覆写 AS2 同名方法，锁定提交不改）：就寝反思的快照条目另带来源 reflection，
+        环境据此给反思找归属日期（docs/dev/SPEC-persona-prompt.md 第三章「零点、反思与未了结」）。"""
+        context = getattr(self, "_decision_context", None)
+        store = self._memory_runtime.store
+        if context is None or store is None:
+            return
+        if self._env is None:
+            raise RuntimeError("Environment is not initialized")
+        evidence = memory_update_evidence(context, store, outcome)
+        if evidence is not None:
+            await self._env.record_memory_update(evidence)
 
     def validate_react_decisions(
         self,
@@ -499,7 +514,7 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
     if action != "conclude_activity":
         return []
     request = _validate_request(ConcludeActivityRequest, args)
-    return [{**memory.model_dump(mode="json"), "source": _CONCLUSION_MEMORY_SOURCE,
+    return [{**memory.model_dump(mode="json", exclude={"subject"}), "source": _CONCLUSION_MEMORY_SOURCE,
              "epistemic_status": "subjective"}
             for group in request.memories for memory in group]
 
@@ -520,6 +535,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "objects": objects,
         "task_names": tasks,
         "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
+        "people": tuple(name.split("：", 1)[-1] for name in objects if kinds[name] == "person"),
         "activity_names": activities,
         "recall_names": (*tasks, *goals, *activities, *sessions),
         "progressed_intents": _progressed_intents(todo),
@@ -575,7 +591,7 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action in _ACTIVITY_CONTROL_TOOLS:
         if any(name not in names["activity_names"] for name in request.task):
             return f"{action} task names an activity that is not visible"
-        return ""
+        return _memory_subject_error(request, names["known_persons"]) if action == "conclude_activity" else ""
     if action == "recall_task_summary":
         return "" if request.task_name in names["recall_names"] else "task_name is not visible"
     if action == "submit_work":
@@ -583,6 +599,13 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
     if action == "send_message":
         return "" if request.recipient_name in names["recipient_names"] else "recipient_name is not visible"
     return _validate_plan_goals(request.goals, names["progressed_intents"])
+
+
+def _memory_subject_error(request: BaseModel, known: frozenset[str]) -> str:
+    """@brief relationship 记忆的对象须是已知人物：卡片关系名、场景联系人称谓或同世界人物姓名（规格第一章「人设层」）。"""
+    unknown = [memory.subject for group in request.memories for memory in group
+               if memory.type == "relationship" and memory.subject not in known]
+    return f"conclude_activity relationship subject is not a known person: {unknown[0]}" if unknown else ""
 
 
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:

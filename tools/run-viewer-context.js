@@ -29,19 +29,19 @@ const ViewerContext = {};
     },
     persona: {
       label: '人设层', source: 'custom/agents/life_persona.py · persona_layer',
-      fill: '宿主从人物档案与观察中的看法偏好构建身份、关系与偏好；当前阶段只有姓名与场景联系人。',
+      fill: '宿主从人物卡片的结构化字段、姓名、场景联系人与观察中的看法偏好构建身份、作息、习惯、口味、关系与偏好。',
       steps: [
-        ['无卡片路径', '年龄、作息、口味等未知字段为 null，不补造。'],
-        ['关系', '每位场景联系人一项，按场景顺序列出。'],
-        ['看法偏好', '人物自己写下的看法与偏好未经核验。'],
+        ['卡片来源', '新建运行时保存卡片的结构化字段，不含当下处境；没有卡片的人物只有姓名，其余为 null 或空列表。'],
+        ['关系合并', '卡片关系与场景联系人按名称合并；只来自联系人的项亲密度为 null、渠道为空。'],
+        ['看法偏好', '取自结束活动时写下的关系与偏好记忆，同一对象以最后一条为准，未经核验。'],
       ],
     },
     memory: {
-      label: '记忆层', source: 'src/worldmock/life/observe.py · memory_layer',
-      fill: '当前阶段为空结构：earlier_days 与 earlier_today 都是空列表。',
+      label: '记忆层', source: 'src/worldmock/life/memory_layer.py · memory_view',
+      fill: '环境从已提交事件派生：今天结束的各段停留与路程各一条，更早日期只留仍未了结的事项与就寝反思。',
       steps: [
-        ['当前阶段', '记忆层尚未派生条目，保持空列表而不是省略。'],
-        ['记忆工具', '需要旧事时通过 memory_recent、memory_search、memory_time_range 查询。'],
+        ['段落迁入', '一段停留或路程结束后，它的结果与世界事件写成 settled 句，写下的总结与记忆进入 self_notes。'],
+        ['零点与窗口', '按场景本地日期分区；超过 8000 字符时先删最旧日期的反思，再缩减最旧的今日条目。'],
         ['核验区分', 'settled 是环境核验的事实，self_notes 是人物自己写下的内容。'],
       ],
     },

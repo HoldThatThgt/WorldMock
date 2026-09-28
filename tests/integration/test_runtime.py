@@ -133,23 +133,28 @@ def test_stage_model_identity_is_frozen_and_tamper_rejected() -> None:
 
 
 def test_agent_specs_inject_compiled_persona_card_text() -> None:
-    """新建运行注入 PersonaCard 渲染文本；恢复模式不重新编译。"""
+    """新建运行注入 PersonaCard 渲染文本与结构化字段（去掉当下处境）；恢复模式不重新编译。"""
+    from tests.profile.conftest import make_card
     from worldmock.life.scenario import load_scenario
+    from worldmock.profile.models import persona_card_struct
+    from worldmock.profile.textgen import render_card
 
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
     compiled: list[int] = []
+    card = make_card()
 
     def fake_compiler(agent):
         compiled.append(agent.agent_id)
-        return "卡片文本" if agent.background_story else None
+        return card if agent.background_story else None
 
     specs = _agent_specs(scenario, persona_compiler=fake_compiler)
 
-    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert specs[0]["profile"]["persona_card"] == render_card(card)
+    assert specs[0]["profile"]["persona_card_struct"] == persona_card_struct(card)
     assert specs[0]["config"]["max_react_turns"] == 16
     assert compiled == [1]
     restored = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
-    assert "persona_card" not in restored[0]["profile"]
+    assert "persona_card" not in restored[0]["profile"] and "persona_card_struct" not in restored[0]["profile"]
     assert restored[0]["config"]["max_react_turns"] == 16
 
 
@@ -1122,15 +1127,19 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
     from worldmock.life.scenario import load_scenario
     from worldmock.profile.taste import compute_taste_weights
 
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+    from worldmock.profile.textgen import render_card
+
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
-    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=("剧情", "科幻")))
+    card = make_card(tastes=Tastes(content_genres=("剧情", "科幻"), food_preferences=(), media=()))
     compiled: list[int] = []
 
-    def fake_payload(agent):
+    def fake_compile(agent):
         compiled.append(agent.agent_id)
-        return "卡片文本", card
+        return card
 
-    monkeypatch.setattr(runtime_module, "_persona_payload", fake_payload)
+    monkeypatch.setattr(runtime_module, "_compile_persona", fake_compile)
     genres = {item.item_id: ("剧情",) for item in scenario.contents}
     full, half, empty = (item.item_id for item in scenario.contents[:3])
     genres[full], genres[half], genres[empty] = ("剧情", "科幻"), ("剧情", "历史"), ()
@@ -1143,7 +1152,7 @@ def test_agent_specs_computes_taste_weights_from_the_compiled_card(monkeypatch) 
         [{"item_id": item.item_id, "genre": genres[item.item_id]}
          for item in scenario.contents])
     assert compiled == [1]
-    assert specs[0]["profile"]["persona_card"] == "卡片文本"
+    assert specs[0]["profile"]["persona_card"] == render_card(card)
     assert weights == expected
     assert weights[full] == 1.0 and weights[half] == 0.5 and weights[empty] == 0.0
 
@@ -1153,9 +1162,12 @@ def test_agent_specs_card_without_tastes_yields_all_zero_weights(monkeypatch) ->
     import worldmock.runtime as runtime_module
     from worldmock.life.scenario import load_scenario
 
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
-    card = SimpleNamespace(tastes=SimpleNamespace(content_genres=()))
-    monkeypatch.setattr(runtime_module, "_persona_payload", lambda agent: ("卡片文本", card))
+    card = make_card(tastes=Tastes(content_genres=(), food_preferences=(), media=()))
+    monkeypatch.setattr(runtime_module, "_compile_persona", lambda agent: card)
 
     specs = _agent_specs(scenario, content_genres={item.item_id: ("剧情",)
                                                    for item in scenario.contents})
@@ -1173,12 +1185,13 @@ def test_agent_specs_restore_mode_never_recompiles_tastes(monkeypatch) -> None:
     def forbidden(agent):
         raise AssertionError("restore path must not compile personas or tastes")
 
-    monkeypatch.setattr(runtime_module, "_persona_payload", forbidden)
+    monkeypatch.setattr(runtime_module, "_compile_persona", forbidden)
     scenario = load_scenario(Path("scenarios/white-collar-12-weeks.json"))[0]
 
     specs = _agent_specs(scenario, persona_compiler=_no_persona_compilation)
 
     assert "persona_card" not in specs[0]["profile"]
+    assert "persona_card_struct" not in specs[0]["profile"]
     assert "taste_weights" not in specs[0]["profile"]
 
 

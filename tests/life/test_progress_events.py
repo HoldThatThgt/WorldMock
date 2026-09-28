@@ -358,9 +358,10 @@ def test_conclude_arguments_omit_relationship_and_preference_memories(engine_fac
     name = activity_name(engine, waited.activity_id)
     wake_by_mail(engine, offset=300)
     advance_next(engine)
-    memories = [[{"type": "relationship", "text": "和同事处得不错", "importance": 0.5, "keywords": ["同事"]},
-                 {"type": "preference", "text": "喜欢安静", "importance": 0.5, "keywords": ["安静"]},
-                 {"type": "routine", "text": "每天等一会儿", "importance": 0.4, "keywords": ["等待"]}]]
+    memories = [[{"type": "relationship", "text": "和同事处得不错", "importance": 0.5, "keywords": ["同事"],
+                  "subject": "沈昊"},
+                 {"type": "preference", "text": "喜欢安静", "importance": 0.5, "keywords": ["安静"], "subject": "环境"},
+                 {"type": "routine", "text": "每天等一会儿", "importance": 0.4, "keywords": ["等待"], "subject": None}]]
     _act(engine, "memo-conclude", "conclude_activity", ConcludeActivityRequest(
         task=[name], summary=["等完了"], memories=memories))
     seen = _observe(engine, "memo-seen")
@@ -479,11 +480,12 @@ def test_submission_lines_say_passed_or_rework_and_other_failures_write_nothing(
 
 
 def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> None:
-    """轮次提交时「已读」即全文已呈现（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：留在出发前 session 的消息
-    没有出现在路上 session 的进度层，提交后仍未读；本 session 进度层呈现过全文的消息提交后记为已读。
+    """轮次提交时「已读」即全文已呈现（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：本 session 进度层呈现过全文
+    的消息提交后记为已读；留在出发前 session 的消息不在路上 session 的进度层，出发前的 session 结束后它以全文进入记忆层，
+    记忆层的全文同样算呈现，路上那一轮提交后记为已读。
 
     人物 1 先发第一条；人物 2 在同一秒看到它（呈现）并出发，同一轮人物 1 先结算、再发第二条，它的送达排在出发结果之前，
-    留在出发前的 session；人物 2 随后在路上决策时看不到第二条（seam：需要引擎按观察的 presented_message_ids 记已读）。
+    留在出发前的 session；人物 2 出发前的观察看不到第二条，提交后仍未读。
     """
     engine = engine_factory("multi-person.json")
     for agent_id in engine.state.agents:
@@ -501,6 +503,7 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     hidden = next(item.data["message_id"] for item in second if item.agent_id == 1)
     presented = engine.store.read_agent_events("observation", 2)[-1].data["presented_message_ids"]
     assert presented == [shown] and shown in engine.state.agents[2].read_inbox_ids
+    assert hidden in engine.state.agents[2].inbox and hidden not in engine.state.agents[2].read_inbox_ids
     walking = next(item.activity_id for item in second if item.agent_id == 2)
     report = ReportStatusRequest(task=[activity_name(engine, walking)], summary=["路上看看消息。"])
     submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
@@ -508,5 +511,7 @@ def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> N
     road = engine.store.read_agent_events("observation", 2)[-1].data
     arrival = next(event.event_id for event in engine.store.read_agent_events("environment_event", 2)
                    if event.data.get("message_id") == hidden)
-    assert road["presented_message_ids"] == [] and arrival not in road["progress_event_ids"]
-    assert hidden in engine.state.agents[2].inbox and hidden not in engine.state.agents[2].read_inbox_ids
+    assert arrival not in road["progress_event_ids"]
+    (entry,) = road["memory_layer"]["earlier_today"]
+    assert [line.split("：", 1)[1] for line in entry["settled"] if "的消息：" in line] == ["第一条", "第二条"]
+    assert road["presented_message_ids"] == [shown, hidden] and hidden in engine.state.agents[2].read_inbox_ids

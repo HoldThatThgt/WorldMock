@@ -154,7 +154,7 @@ def test_opslog_records_memory_update(engine_factory) -> None:
     ctx = context(engine, "memory-ops")
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    memory = {"type": "routine", "text": "记得今天的事", "importance": 0.3, "keywords": ["等待"]}
+    memory = {"type": "routine", "text": "记得今天的事", "importance": 0.3, "keywords": ["等待"], "subject": None}
     engine.submit_action(DirectToolCall(ctx, "action-memory-ops", "conclude_activity",
                                         conclude_request(*pending_names(observation), memories=[[memory]])))
     evidence = MemoryUpdateEvidence(

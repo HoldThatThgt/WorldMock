@@ -18,6 +18,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from dotenv import dotenv_values
+from pydantic import ValidationError
 
 from worldmock.errors import IntegrityError, ProtocolError
 from worldmock.footprints.checkpoint import restore_directory
@@ -36,6 +37,7 @@ from worldmock.life.run_identity import require_category_identity
 from worldmock.life.continuation import continuation_enabled
 from worldmock.model_endpoint import DEEPSEEK_BASE_URL, DEEPSEEK_MODEL
 from worldmock.opslog import OpsLogger
+from worldmock.profile.models import PersonaCardStruct, persona_card_struct
 
 logger = logging.getLogger(__name__)
 
@@ -647,6 +649,7 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
         raise IntegrityError("Restored agent same_second_continuation must match the parent manifest")
     if not bool(config.get("enable_memory", True)):
         raise IntegrityError("Restored LifeAgent must keep memory enabled")
+    _validate_persona_card_struct(agent.get("profile"))
     if type(config.get("max_react_turns")) is not int or config["max_react_turns"] != MAX_REACT_TURNS:
         logger.error("Restored LifeAgent ReAct budget differs from the frozen runtime budget")
         raise IntegrityError("Restored LifeAgent max_react_turns must match the frozen runtime budget")
@@ -657,6 +660,18 @@ def _validate_agent_workspace(workspace: Path, agent_id: int, continuation: bool
             store.validate_existing()
         except (OSError, UnicodeError, ValueError) as exc:
             raise IntegrityError("Restored agent memory is invalid") from exc
+
+
+def _validate_persona_card_struct(profile: Any) -> None:
+    """@brief 恢复时校验人物 profile 中的结构化卡片（persona_card_struct；没有卡片的人物不带该键）。"""
+    struct = profile.get("persona_card_struct") if isinstance(profile, dict) else None
+    if struct is None:
+        return
+    try:
+        PersonaCardStruct.model_validate(struct)
+    except ValidationError as exc:
+        logger.error("Restored persona card structure is invalid")
+        raise IntegrityError("Restored persona card structure is invalid") from exc
 
 
 async def _execute(prepared: _PreparedRun) -> RunResult:
@@ -1059,13 +1074,13 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
     """@brief 从冻结生活人物形成原生 runner 工作区输入；同秒续接开关冻结进人物配置 profile["same_second_continuation"]。
 
     新建运行时为声明 background_story 的人物注入 PersonaCard 渲染文本
-    （A9 compile_persona -> render_card，B2 LifeAgent 读取 profile["persona_card"]），
+    （A9 compile_persona -> render_card，记忆巩固与反思读取 profile["persona_card"]）与卡片的结构化字段
+    profile["persona_card_struct"]（去掉当下处境，宿主据此渲染人设层，docs/dev/SPEC-persona-prompt.md「人设层」），
     并由同一次编译产出确定性口味权重 profile["taste_weights"]（修订合同
     docs/dev/SPEC-life-realism.md「画像编译」：card.tastes.content_genres x 场景内容目录，经 compute_taste_weights
     匹配；写入工作区档案随检查点原样携带）。恢复运行不重新编译也不重算——
     人物 profile 由检查点工作区原样恢复，分支人物身份与父运行保持一致。
-    persona_compiler/content_genres 供测试注入确定性桩（注入文本桩时只影响
-    卡片文本，不触发真实模型调用与口味计算）。
+    persona_compiler/content_genres 供测试注入确定性桩（persona_compiler 返回 PersonaCard 或 None，不触发真实模型调用）。
     """
     contents = tuple({"item_id": item.item_id,
                       "genre": tuple((content_genres or {}).get(item.item_id) or ())}
@@ -1075,13 +1090,10 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
         profile = agent.model_dump(mode="json")
         profile["id"] = agent.agent_id
         profile["same_second_continuation"] = same_second_continuation
-        if persona_compiler is not None:
-            card_text, card = persona_compiler(agent), None
-        else:
-            card_text, card = _persona_payload(agent)
-        if card_text is not None:
-            profile["persona_card"] = card_text
+        card = persona_compiler(agent) if persona_compiler is not None else _compile_persona(agent)
         if card is not None:
+            profile["persona_card"] = _render_card(card)
+            profile["persona_card_struct"] = persona_card_struct(card)
             profile["taste_weights"] = _card_taste_weights(card, contents)
         config = {
             "enable_memory": True,
@@ -1094,18 +1106,11 @@ def _agent_specs(scenario: RuntimeScenario, *, persona_compiler=None, content_ge
     return tuple(specs)
 
 
-def _persona_payload(agent: Any) -> tuple[str | None, Any]:
-    """@brief 一次 background_story 编译同时产出渲染文本与结构化卡片。
-
-    @param agent 场景人物配置（无 background_story 声明时返回 (None, None)）
-    @return (PersonaCard 渲染文本, 结构化 PersonaCard) 二元组
-    """
-    card = _compile_persona(agent)
-    if card is None:
-        return None, None
+def _render_card(card: Any) -> str:
+    """@brief 编译卡片的渲染文本（记忆巩固与反思的人物段）。"""
     from worldmock.profile.textgen import render_card
 
-    return render_card(card), card
+    return render_card(card)
 
 
 def _compile_persona(agent: Any) -> Any:

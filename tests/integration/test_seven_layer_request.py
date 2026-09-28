@@ -57,7 +57,7 @@ def _fixed_context_window(monkeypatch) -> None:
 
 
 def _agent(dispatcher, max_turns: int = 4) -> tuple[LifeAgent, _Environment]:
-    """装配带场景联系人与人物卡片文本的生活人物（阶段一人设层不读卡片文本）。"""
+    """装配带场景联系人与人物卡片文本、没有结构化卡片的生活人物（人设层不读卡片文本）。"""
     agent, environment = LifeAgent(), _Environment()
     _wire_agent(agent, environment, dispatcher, max_turns, memory=True)
     agent._profile = {"id": 7, "name": "Alice", "contacts": copy.deepcopy(_CONTACTS),
@@ -130,8 +130,8 @@ async def test_user_content_is_one_json_array_in_the_fixed_layer_order() -> None
         assert retired not in text
 
 
-def test_interim_persona_layer_is_the_no_card_path_with_scene_contacts() -> None:
-    """阶段一人设层：只填姓名，其余身份字段、作息、口味、应对为 null，习惯为空；关系逐项来自场景联系人（亲密度 null、
+def test_no_card_persona_layer_keeps_the_name_and_scene_contacts() -> None:
+    """没有结构化卡片的人设层：只填姓名，其余身份字段、作息、口味、应对为 null，习惯为空；关系逐项来自场景联系人（亲密度 null、
     渠道为空），看法与偏好取自环境下发的 persona_views。"""
     observations = _observations()
     data = observations[0]["data"]
@@ -350,8 +350,8 @@ def test_observe_stores_the_body_without_the_host_only_progress_keys(_engine_fac
                                                 "continuation"}
 
 
-def test_system_layers_interim_persona_memory_and_tools_validate_against_the_layer_schemas() -> None:
-    """两份系统层、阶段一人设层（含场景联系人与看法偏好）、空记忆层与每个原生工具定义都通过七层 Schema。"""
+def test_system_layers_persona_memory_and_tools_validate_against_the_layer_schemas() -> None:
+    """两份系统层、没有卡片的人设层（含场景联系人与看法偏好）、空记忆层与每个原生工具定义都通过七层 Schema。"""
     from jsonschema import Draft202012Validator
 
     from custom.agents.life_persona import persona_layer

@@ -88,7 +88,8 @@ def _wait_request(observation: dict) -> StartActivityRequest:
     return start_request(targets=[own["object"]], actions=[action["verb"]], ways=[action["label"]])
 
 
-_MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"]}
+_MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"],
+           "subject": None}
 #: 每轮模型响应的回复正文；引擎把它登记为 action_requested.data.self_note。
 _SELF_NOTE = "先歇一会儿，再看下一步。"
 _OBSERVATION_LAYERS = {"tool_layer", "todo_layer", "environment_layer", "memory_layer"}

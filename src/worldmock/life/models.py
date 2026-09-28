@@ -1107,10 +1107,15 @@ class ConclusionMemory(FrozenModel):
     text: str = Field(pattern=r"\S")
     importance: float = Field(ge=0, le=1)
     keywords: list[Annotated[str, Field(pattern=r"\S")]]
+    subject: Annotated[str, Field(pattern=r"\S")] | None = Field(description="这条记忆关于的人或事物。")
 
     @model_validator(mode="after")
     def validate_limits(self) -> "ConclusionMemory":
-        """@brief 文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个。"""
+        """@brief 文字不超过 1000 字符且不含十六进制身份，关键词不超过 12 个；relationship 与 preference 必须写对象，
+        其他类型的对象为 null（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）。"""
+        if (self.subject is None) == (self.type in {"relationship", "preference"}):
+            _LOGGER.error("Conclusion memory subject disagrees with its type")
+            raise ValueError("memory subject is required exactly for relationship and preference")
         if len(self.text) > MEMORY_TEXT_MAX_CHARS:
             _LOGGER.error("Conclusion memory text exceeds its character limit")
             raise ValueError("memory text exceeds 1000 characters")

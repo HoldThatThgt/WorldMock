@@ -23,7 +23,7 @@ from worldmock.life.readable import iso_time
 from worldmock.life.recipients import agent_identity, person_name
 from worldmock.life.request_linking import order_label
 from worldmock.life.result_projection import public_result
-from worldmock.life.settled_text import record_lines
+from worldmock.life.settled_text import PauseIntervals, record_lines
 from worldmock.life.tool_layer import LayerContext
 
 #: 记忆查询工具（结果只写条数）。
@@ -72,13 +72,16 @@ def session_bound(store: FootprintStore, state: WorldState, agent_id: int) -> tu
     return session.started_at, results[0].event_seq
 
 
-def progress_view(context: LayerContext, store: FootprintStore) -> ProgressView:
-    """@brief 进度层 JSON 与私有配套（progress_meta、progress_event_ids、presented_message_ids）。"""
+def progress_view(context: LayerContext, store: FootprintStore, pauses: PauseIntervals | None = None) -> ProgressView:
+    """@brief 进度层 JSON 与私有配套（progress_meta、progress_event_ids、presented_message_ids）。
+
+    :param pauses: 本人活动的暂停区间（settled 句中结束活动的起止含暂停区间，与记忆层同一写法）。
+    """
     started_at, after_seq = session_bound(store, context.state, context.agent_id)
     records = _session_records(context, store, (started_at, after_seq))
     request_seq, request_time = _last_request(store, context.agent_id)
     meta = [{"protected": _protected(context, item, (request_seq, request_time)),
-             "lines": record_lines(context, item.record, list(item.sources))} for item in records]
+             "lines": record_lines(context, item.record, list(item.sources), pauses)} for item in records]
     layer = {"layer": "进度层", "session_started_at": iso_time(started_at, context.scenario.timezone),
              "events": [item.record for item in records]}
     return ProgressView(layer=layer, meta=meta,
