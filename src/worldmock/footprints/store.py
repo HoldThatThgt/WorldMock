@@ -199,10 +199,15 @@ class FootprintStore:
         return row[0] if row[0] is not None else 0
 
     def last_event_seq_before(self, occurred_at: int) -> int:
-        """@brief 发生时刻早于 occurred_at 的最后一个事件序号（没有时为 0），供按时间确定区间下界。"""
+        """@brief 发生时刻早于 occurred_at 的最后一个事件序号（没有时为 0），供按时间确定区间下界。
+
+        事件按发生时刻单调追加（_build_events 拒绝早于上一事件的时刻），所以从最新事件倒序找到的第一条即是最后一条，
+        只读区间内的事件。
+        """
         row = self.connection.execute(
-            "SELECT max(event_seq) FROM events WHERE json_extract(body,'$.occurred_at')<?", (occurred_at,)).fetchone()
-        return row[0] if row[0] is not None else 0
+            "SELECT event_seq FROM events WHERE json_extract(body,'$.occurred_at')<? ORDER BY event_seq DESC LIMIT 1",
+            (occurred_at,)).fetchone()
+        return row[0] if row is not None else 0
 
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
