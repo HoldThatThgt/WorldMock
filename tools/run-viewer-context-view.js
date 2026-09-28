@@ -39,15 +39,32 @@ const ContextView = {};
     return {seq:rows[0].seq, event:JSON.parse(fetchBody(rows[0].seq))};
   }
 
-  /** @brief 读取选中请求及同人物同阶段的前一次输入。 */
+  /** @brief 一次决策的首个请求才可能是续接：前序 assistant 的每个 tool_call 身份在本人更早的模型响应中找来源决策。 */
+  function continuationFor(item, event) {
+    if (index().some(row => row.decision === item.decision && row.seq < item.seq)) return null;
+    const sources = {};
+    for (const id of ViewerContext.prefixCallIds(event?.data?.request)) {
+      const rows = q(`SELECT json_extract(events.body,'$.decision_id') AS decision,
+        json_extract(events.body,'$.occurred_at') AS t FROM events,
+        json_each(events.body,'$.data.response.choices[0].message.tool_calls') AS call
+        WHERE json_extract(events.body,'$.event_type')='model_response' AND json_extract(call.value,'$.id')=?
+        AND json_extract(events.body,'$.agent_id')=? AND events.event_seq<?
+        ORDER BY events.event_seq DESC LIMIT 1`, [id, item.agent, item.seq]);
+      if (rows.length) sources[id] = `${fmtT(rows[0].t)} · ${rows[0].decision}`;
+    }
+    return {sources};
+  }
+
+  /** @brief 读取选中请求及同人物同阶段的前一次输入；决策首个请求多于两条消息时按续接解析。 */
   function read(seq) {
     const item = index().find(row => row.seq === seq);
     if (!item) throw new Error('Model request is not present in the loaded run');
     const previous = index().filter(row => row.seq < seq && row.agent === item.agent &&
       row.stage === item.stage).at(-1);
     const event = JSON.parse(fetchBody(seq));
-    const current = ViewerContext.parseRequest(event);
-    const before = previous ? ViewerContext.parseRequest(JSON.parse(fetchBody(previous.seq))) : null;
+    const current = ViewerContext.parseRequest(event, continuationFor(item, event));
+    const prior = previous ? JSON.parse(fetchBody(previous.seq)) : null;
+    const before = prior ? ViewerContext.parseRequest(prior, continuationFor(previous, prior)) : null;
     return {item, event, current, previous, before, response:responseFor(item),
       changes:before ? ViewerContext.compare(current.blocks, before.blocks) : []};
   }
@@ -146,16 +163,21 @@ const ContextView = {};
       <th>内容块</th><th>变化</th><th>字符</th><th>增减</th></tr></thead><tbody>${rows}</tbody></table>${detail}`;
   }
 
-  /** @brief 展示严格关联的外显响应、工具调用和归档 token 用量。 */
+  /** @brief 展示严格关联的外显响应、工具调用、思考原文、缓存命中与 reasoning_tokens 等归档 token 用量。 */
   function output(model) {
     if (!model.response) return '<div class="cx-meta">该请求尚无关联响应记录。</div>';
     const data = model.response.event.data;
     const response = data.response;
+    const usage = response?.usage ?? null;
     const visible = {choices:(response?.choices || []).map(choice => ({index:choice.index,
       content:choice.message?.content, tool_calls:choice.message?.tool_calls, finish_reason:choice.finish_reason})),
-      usage:response?.usage ?? null, error:data.error ?? null};
+      usage, cache_hit_tokens:usage?.prompt_cache_hit_tokens ?? null,
+      reasoning_tokens:usage?.completion_tokens_details?.reasoning_tokens ?? null, error:data.error ?? null};
+    const reasoning = (response?.choices || []).map(choice => choice.message?.reasoning_content)
+      .filter(text => typeof text === 'string' && text).join('\n\n');
     return `<div class="cx-output">${data.error ? `<p role="alert">${esc(data.error)}</p>` : ''}
-      ${disclosure(`本次响应与用量 · 事件 ${model.response.seq}`, JSON.stringify(visible,null,2))}</div>`;
+      ${disclosure(`本次响应与用量 · 事件 ${model.response.seq}`, JSON.stringify(visible,null,2))}
+      ${reasoning ? disclosure('本次思考原文', reasoning) : ''}</div>`;
   }
 
   /** @brief 展示当前请求结构、规则或前后对照。 */
@@ -166,8 +188,10 @@ const ContextView = {};
     const block = blocks.find(row => row.id === state.block);
     const warnings = model.current.warnings.map(text => `<p role="alert">${esc(text)}</p>`).join('');
     const displayed = state.view === 'comparison' ? [...blocks, ...(model.before?.blocks || [])] : blocks;
-    const provenance = displayed.some(block => block.interpretation === 'layer') ?
-      '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；self_note 未经核验。</p>' : '';
+    const provenance = (displayed.some(block => block.interpretation === 'layer') ?
+      '<p class="cx-meta">首个 user 按顶层数组无损切片，每片可解析且层序符合七层合同；self_note 未经核验。</p>' : '') +
+      (model.current.continuation ? '<p class="cx-meta">同秒续接：本决策首个请求多于两条消息；前序 assistant 按 ' +
+        'tool_call 身份匹配来源决策，回传思考单列，不另计字符。</p>' : '');
     const detail = state.view === 'growth' ? growth(block) : blockDetail(block);
     const body = state.view === 'comparison' ? comparison(model) :
       `<div class="cx-layout">${blockList(blocks)}${detail}</div>`;

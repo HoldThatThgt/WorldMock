@@ -91,6 +91,16 @@ const ViewerContext = {};
         ['未知格式', '不符合七层合同的消息不做分段，完整正文仍可查看。'],
       ],
     },
+    continuation: {
+      label: '同秒续接',
+      source: 'src/worldmock/life/continuation.py · same_second_chain；custom/agents/life_continuation.py · continuation_messages',
+      fill: '同一秒的后续决策原样续接上一决策末次请求的全部消息，再追加上一决策的 assistant 与一条 tool 消息 {result, changes, events}。',
+      steps: [
+        ['识别', '一次决策的首个请求多于两条消息即判为续接。'],
+        ['来源决策', '前序 assistant 按 tool_call 身份匹配到产生它的决策。'],
+        ['回传思考', '前序 assistant 的 reasoning_content 单列显示；时间推进后请求不再带它。'],
+      ],
+    },
     reflection: {
       label: '睡醒反思', source: 'custom/agents/life_memory.py · after_step；agentsociety2/agent/memory_runtime.py',
       fill: '睡眠完成后的睡醒边界触发，输入当前时刻与最近三十条记忆，不含人物卡片。',
@@ -225,8 +235,31 @@ const ViewerContext = {};
     return block;
   }
 
-  /** @brief 行动请求的首个 user 按六层切片；其他调用或不符合合同的输入整条保留为未解析。 */
+  /** @brief 续接前缀中的一条消息：整条保留，assistant 按 tool_call 身份标出来源决策，回传的思考另列一块（不重复计量）。 */
+  function continuationMessage(message, index, sources) {
+    const role = message?.role;
+    const calls = Array.isArray(message?.tool_calls) ? message.tool_calls : [];
+    const origin = calls.map(call => sources[call?.id]).find(Boolean) ?? '未匹配';
+    const label = role === 'assistant' ? `续接 · assistant · 来源决策 ${origin}` : `续接 · ${role || '未知角色'} · 完整消息`;
+    const block = {...makeBlock('message', messageText(message), index, role, label), rule: 'continuation'};
+    const reasoning = role === 'assistant' && typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+    if (!reasoning) return [block];
+    return [block, {...makeBlock('reasoning', reasoning, index, role, `回传思考 · 来源决策 ${origin}`),
+      rule: 'continuation', interpretation: 'reasoning'}];
+  }
+
+  /** @brief 续接前缀中 assistant 的全部 tool_call 身份（首个 user 之后的消息），供查看器匹配来源决策。 */
+  function prefixCallIds(request) {
+    const messages = Array.isArray(request?.messages) ? request.messages : [];
+    const firstUser = messages.findIndex(message => message?.role === 'user');
+    return messages.slice(firstUser + 1).filter(message => message?.role === 'assistant')
+      .flatMap(message => (Array.isArray(message.tool_calls) ? message.tool_calls : []).map(call => call?.id))
+      .filter(id => typeof id === 'string');
+  }
+
+  /** @brief 行动请求的首个 user 按六层切片；其他调用或不符合合同的输入整条保留为未解析；续接前缀按来源决策标注。 */
   function parseMessage(message, index, context) {
+    if (context.sources && index > context.firstUser) return continuationMessage(message, index, context.sources);
     if (index !== context.firstUser) return [wholeMessage(message, index, context.stage)];
     if (context.stage === 'other') {
       const blocks = unparsed(message, index, context.warnings, '不属于七层行动请求');
@@ -243,19 +276,25 @@ const ViewerContext = {};
       interpretation: 'layer', value: layer.value}));
   }
 
-  /** @brief 解析一个原始 model_request 事件；缺少请求消息时保留可见归档载荷。 */
-  function parseRequest(event) {
+  /** @brief 解析一个原始 model_request 事件；缺少请求消息时保留可见归档载荷。
+   *
+   * continuation 为 {sources: {tool_call 身份: 来源决策}} 时表示它是一次决策的首个请求：行动请求多于两条消息即判为续接，
+   * 前序消息按来源决策标注、回传思考单列；回传思考块是 assistant 消息的一部分，不另计字符。 */
+  function parseRequest(event, continuation = null) {
     const request = event?.data?.request;
     const classification = classify(request, event?.data?.purpose);
     const warnings = [];
     const blocks = [];
+    let sources = null;
     if (!Array.isArray(request?.messages)) {
       warnings.push('请求没有有效的 messages 数组，归档载荷按原始 JSON 展示。');
       console.error('Context request messages are missing or invalid.');
       blocks.push(makeBlock('message', JSON.stringify(event), -1, 'request', '未解析 · 请求载荷'));
     } else {
       const firstUser = request.messages.findIndex(message => message?.role === 'user');
-      const context = {firstUser, stage: classification.stage, warnings};
+      const continued = classification.stage === 'action' && continuation && request.messages.length > 2;
+      sources = continued ? continuation.sources : null;
+      const context = {firstUser, stage: classification.stage, warnings, sources};
       request.messages.forEach((message, index) => blocks.push(...parseMessage(message, index, context)));
     }
     if (request && Object.prototype.hasOwnProperty.call(request, 'tools')) {
@@ -263,9 +302,11 @@ const ViewerContext = {};
       if (classification.stage === 'other') block.rule = null;
       blocks.push(block);
     }
-    const messageChars = blocks.filter(block => block.key !== 'tools').reduce((sum, block) => sum + block.chars, 0);
+    const messageChars = blocks.filter(block => block.key !== 'tools' && block.key !== 'reasoning')
+      .reduce((sum, block) => sum + block.chars, 0);
     const toolChars = blocks.filter(block => block.key === 'tools').reduce((sum, block) => sum + block.chars, 0);
-    return {stage: classification.stage, stageLabel: classification.label, blocks, messageChars, toolChars, warnings};
+    return {stage: classification.stage, stageLabel: classification.label, blocks, messageChars, toolChars, warnings,
+      continuation: sources !== null};
   }
 
   /** @brief 可用性短语：可用，或「不可用：」加环境给出的原因原文。 */
@@ -328,5 +369,5 @@ const ViewerContext = {};
     return changes;
   }
 
-  Object.assign(ViewerContext, {parseRequest, classify, compare, drillItems, rules});
+  Object.assign(ViewerContext, {parseRequest, prefixCallIds, classify, compare, drillItems, rules});
 }

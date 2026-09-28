@@ -57,7 +57,7 @@ async def test_life_env_init_injects_taste_weights_into_agent_state(tmp_path) ->
     weights = _weights(scenario)
     env = LifeEnv(scenario_path=str(_SCENARIO), run_dir=str(tmp_path / "run"),
                   run_identity=_run_identity(scenario, "taste-seam-new").model_dump(mode="json"),
-                  agent_taste_weights={1: weights})
+                  create_options={"agent_taste_weights": {1: weights}})
     await env.init(datetime.fromtimestamp(
         scenario.start_at.timestamp(), ZoneInfo(scenario.timezone)))
     try:
