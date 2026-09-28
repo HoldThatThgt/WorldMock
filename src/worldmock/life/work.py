@@ -130,14 +130,15 @@ def task_listed(task: WorkTaskConfig, now: int, timezone_name: str) -> bool:
 def contract_view(task: WorkTaskConfig, totals: tuple[int, float], now: int, timezone_name: str) -> dict:
     """@brief 工具层任务目标的 contract：截止时刻、有效工时的达标情况与到截止前能否做完。
 
-    remaining 例：「有效工时已达标（约 6.4/4 小时）」「有效工时还差约 1.5 小时（约 2.5/4 小时）」；有效工时取一位小数，
-    要求取整数或一位小数（docs/dev/SPEC-persona-prompt.md「工具层」）。
+    remaining 例：「有效工时已达标（约 6.4/4 小时）」「有效工时还差约 1.5 小时（约 2.5/4 小时）」「有效工时还差约 1 分钟
+    （约 0/0.02 小时）」；有效工时取一位小数，要求至多两位小数（docs/dev/SPEC-persona-prompt.md「工具层」与「通用格式」：
+    时长写成人读短语，与 readable 的小数口径一致）。
 
     :param totals: work_totals 的（已做秒数，有效秒数）。
     """
     worked, effective = totals
     required = task.required_effective_seconds
-    hours = f"约 {f'{effective / 3600:.1f}'.removesuffix('.0')}/{required / 3600:g} 小时"
+    hours = f"约 {f'{effective / 3600:.1f}'.removesuffix('.0')}/{round(required / 3600, 2):g} 小时"
     if effective >= required:
         remaining = f"有效工时已达标（{hours}）"
     else:
