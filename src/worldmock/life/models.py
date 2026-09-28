@@ -1141,7 +1141,7 @@ class ActionResult(FrozenModel):
 def rejection_reason_text(error: Exception) -> str:
     """@brief 拒绝原因文本：业务错误码加完整链式底层原因，只清除十六进制身份。
 
-    拒绝消息经 recent_action_results 摘要进入 facts/scene（docs/dev/SPEC-life-runtime.md「观察投影行为规则」），模型据此
+    拒绝消息随公开结果进入进度层 tool_call.result（docs/dev/SPEC-persona-prompt.md「进度层」），模型据此
     修正重试；原因文本来自 BusinessRuleError 抛点的链式底层异常（骨架校验
     等），不含任何十六进制事件/请求身份。
     """
