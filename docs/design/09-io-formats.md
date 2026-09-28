@@ -2,7 +2,7 @@
 
 > **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
 > **日期**：2026-09-28  
-> **版本**：v1.13
+> **版本**：v1.14
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -126,7 +126,8 @@ flowchart TB
 `opening_exceptions` 的日期键保存不重叠的分钟区间并保留声明顺序，空列表是明确闭店；恢复不能丢弃这些世界覆盖。
 公开观察的 `data.products` 保存商品使用定义，`data.supplies` 保存已知供给；实际呈现的供给在模型请求中是工具层的商品目标，
 名称为「<门店>出售的<商品>」：目标的 `state` 写每份热量等可读状态，各动作的 `price`、`duration`、`quantity`、`note` 写人读的价格、
-时长、数量与配送送达时刻，不给原始配送秒数或以分为单位的整数。
+时长、数量与配送送达时刻，不给原始配送秒数或以分为单位的整数；第一个动作的 `note` 另写供给声明的来源标记
+（类型、来源引用与事实截止日），每个目标一次。
 `data.supplies` 的供给行保存原始 `price_fen/price_version/quote`、`purchase_pairing_state`、`purchase_coefficient` 和一份的 `purchase_price_fen`；
 非定义配对保留原始报价，系数及实际金额为空且不允许购买；报价未知时价格字段也保留 `null`。订单行 `total_price_fen` 按原价、数量、系数的整行乘积取整，整单同名字段保存各行合计，
 不能由已取整的一份金额乘数量。商品的使用定义继承 `InventoryItemConfig`，保留 `category_id/inventory_unit`，
@@ -327,3 +328,4 @@ def serialize_agent_sets(self, value: set[str]) -> list[str]:
 | v1.11 | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对：AgentState 名额说明中的待收尾限定为 `completed`、`failed`、`cancelled` 且未收尾，`truncated` 不收尾、不占名额 |
 | v1.12 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E9-1–E9-7，E9-3 为阶段 1、4，E9-4 为阶段 4 同批作业）：文件头注明修订部分待实现；`facts.products` 改为工具层的商品目标，展示不是购买资格上限，浏览结果只列名称；世界结构版本 8：SessionState 增 `opened_by_action_id`，`DeliveryState` 带收货人 `recipient_id` 与请求关联 `request_message_id`，WorldState 增 `contact_holdings`，AgentState 增 `outbox`，ActivityState 增 `paused_at`，进食活动数据带开吃份量 `opened`，受限轮阶段删 `wait_only`；直接消息全文进入进度层，全文已呈现即记为已读；目标的 `progress_note` 照存不呈现；`verified_experiences` 只作私有证据、不进提示，`settled` 另有来源；summary 在本 session 内是进度层调用参数、之后是记忆层 `self_notes`；客观进度改为工具层活动目标的 `state` |
 | v1.13 | 2026-09-28 | 人物 Prompt 七层规格实现后文档：按最终代码核对，`same_moment_stage` 注明 `conclude_only` 只留在闭集中，`inbox` 写明已读的范围（进度层或记忆层全文呈现、受限轮与待收尾轮次和重放不记已读）与交谈邀请的回应方式，活动 `data` 写明 `opened` 只在食用时出现、结束写 `discarded`；文件头注明修订部分已实现 |
+| v1.14 | 2026-09-28 | 人物 Prompt 七层规格最后一批代码与规格出入的修复（见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md#代码与规格的出入)）：门店商品目标第一个动作的 `note` 另写供给声明的来源标记（类型、来源引用与事实截止日），每个目标一次 |

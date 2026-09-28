@@ -177,18 +177,20 @@ VS Code 自带的 Electron 以 Node 24 运行；随后 `coverage combine`，再�
 
 ## 代码与规格的出入
 
-以下各项是按规格逐条核对最终代码时发现的出入。代码未改（本次只改文档），交编排方裁决；相关文档仍按规格写，或在所列位置如实注明现状。
+以下各项是按规格逐条核对最终代码时发现的出入。除「回看与修订计划的可用性」（规格内部的缺口，代码未改）外，都已按规格修复
+（接口合同与各规格版本表的 `2026-09-28-persona-prompt-spec-fixes` 行）；「处理」列写修复与回归用例，每个用例在把修复改回旧代码时失败。
+受限轮收尾一项按编排方裁决：受限轮的收尾阶段收尾任意几项待收尾活动都受理，阶段持续到没有待收尾活动，每项的 `conclude_activity` 都标可用。
 
-| 项 | 规格 | 代码现状 |
-| --- | --- | --- |
-| 当日目标的回看名称 | 系统层规则 12「名称照工具层、待办层中的写法填写」；回看的名称只取七层中出现的名称 | 目标的私有绑定名是「目标：<意图>：<目标文字>」（`observe.py` 的 `_name_bindings`），待办层只给 `intent_kind` 与 `goal` 两个字段，七层中不出现这个名称；模型要自己拼出它才能回看目标 |
-| 按记忆层的活动名回看 | 第三章「窗口」：更早的 summary 可按活动名用 `recall_task_summary` 回看 | 记忆层 `self_notes` 的活动名在条目内不重名时去掉开始时刻后缀，回看只接受完整的活动绑定名（宿主本地校验「task_name is not visible」），按记忆层所见的名称回看不成立；完整名称只出现在今天各 session 的 `settled` 活动句中 |
-| 受限轮收尾阶段的可用性 | 第一章「工具层」：受限轮与待收尾期间「其余动作」标不可用，列出即可提交 | 达到同刻上限后的 `conclude_pending` 受限轮要求一次点名全部待收尾活动；有两项待收尾时，工具层逐项判定，把每项活动的 `conclude_activity` 都标为不可用（同刻限制原文），而一次点名两项的请求会被受理 |
-| 回看与修订计划的可用性 | 第一章「请求组成」：八个人物工具始终都在，此刻不能用的由工具层 `available`、`reason` 说明 | 工具层 Schema 没有放 `recall_task_summary`、`revise_day_plan` 可用性的位置（`tools[]` 只列以目标名称为参数的五个工具）；受限轮、待收尾与没有当日计划时它们被业务拒绝，事前没有标注。这是规格内部的缺口 |
-| 拒绝的下一步为空 | 通用格式：允许为空的写 `null`，不填编造的值 | 业务拒绝没有可读下一步时 `details.next_step` 写空串 `""`（`guidance.rejection_guidance`） |
-| 购买结果复述方式 | 进度层：`details` 不复述参数 | `details.purchases[].way` 与请求的 `ways[i]` 相同（`recipient`、`request` 是解析后的可读名称，另有依据） |
-| 门店来源标记 | 地图与门店规格「地点发现与候选呈现」（人物 Prompt 规格未修订这一句）：模型中的来源使用类型、来源引用与事实截止日 | 七层工具层的商品目标不带来源标记，动作 `note` 只写送达估计；来源行只在私有绑定输入与事件证据中。冻结时文档同步把它写成「写在动作 `note`」，本次已改为如实记录 |
-| 两项同时结束的结果 | 唯一出现：浏览调用的结果只列名称，浏览得到的供给在工具层 | 两项请求在全部子活动结束后才写一条聚合终态，结果只带各活动快照；`details.browse_items`、`details.arrival` 与浏览结果的置顶都只读单项结果顶层，所以浏览与另一项同时请求时这两个键不出现、浏览结果不置顶。本次未核实这种组合在准入上是否可达 |
+| 项 | 规格 | 原先的代码 | 处理 |
+| --- | --- | --- | --- |
+| 当日目标的回看名称 | 系统层规则 12「名称照工具层、待办层中的写法填写」；回看的名称只取七层中出现的名称 | 目标的私有绑定名是「目标：<意图>：<目标文字>」（`observe.py` 的 `_name_bindings`），待办层只给 `intent_kind` 与 `goal` 两个字段，七层中不出现这个名称；模型要自己拼出它才能回看目标 | 已修复：目标绑定名就是待办层写出的目标文字（`todo_layer.visible_goals` 是待办层与绑定的同一来源，计划过期时两处都没有目标）；两个目标文字相同时回看以 `TASK_NOT_FOUND` 拒绝。`tests/integration/test_observation_agent_seam.py::test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer`、`tests/life/test_day_plan.py::test_recall_task_summary_by_goal_name_round_trips` |
+| 按记忆层的活动名回看 | 第三章「窗口」：更早的 summary 可按活动名用 `recall_task_summary` 回看 | 记忆层 `self_notes` 的活动名在条目内不重名时去掉开始时刻后缀，回看只接受完整的活动绑定名（宿主本地校验「task_name is not visible」），按记忆层所见的名称回看不成立 | 已修复：记忆层派生时记下各短名所指的完整活动名，活动绑定另带 `note_labels`，宿主与环境都按它解析；两个条目的同一短名指不同活动时回看以 `TASK_NOT_FOUND` 拒绝。`tests/integration/test_observation_agent_seam.py::test_recall_accepts_the_activity_name_as_written_in_self_notes` |
+| 受限轮收尾阶段的可用性 | 第一章「工具层」：受限轮与待收尾期间「其余动作」标不可用，列出即可提交 | 达到同刻上限后的 `conclude_pending` 受限轮要求一次点名全部待收尾活动；有两项待收尾时，工具层逐项判定，把每项活动的 `conclude_activity` 都标为不可用（同刻限制原文），而一次点名两项的请求会被受理 | 已修复（按裁决）：`same_moment.request_kind` 把只点名待收尾活动（全部或其中几项）的收尾都记为 `conclude_pending`，工具层与受理同一判定。`tests/life/test_tool_layer.py::test_conclude_pending_stage_with_two_pending_opens_each_conclusion`、`tests/life/test_same_moment_decisions.py::test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three`、`tests/life/test_same_moment_decisions.py::test_restricted_conclusions_endings_and_waits_pass_the_stage_check` |
+| 回看与修订计划的可用性 | 第一章「请求组成」：八个人物工具始终都在，此刻不能用的由工具层 `available`、`reason` 说明 | 工具层 Schema 没有放 `recall_task_summary`、`revise_day_plan` 可用性的位置（`tools[]` 只列以目标名称为参数的五个工具）；受限轮、待收尾与没有当日计划时它们被业务拒绝，事前没有标注 | 未改：这是规格内部的缺口，本批不在修复范围 |
+| 拒绝的下一步为空 | 通用格式：允许为空的写 `null`，不填编造的值 | 业务拒绝没有可读下一步时 `details.next_step` 写空串 `""`（`guidance.rejection_guidance`） | 已修复：写 `null`。`tests/life/test_progress_events.py::test_a_rejection_without_a_next_step_writes_null` |
+| 购买结果复述方式 | 进度层：`details` 不复述参数 | `details.purchases[].way` 与请求的 `ways[i]` 相同 | 已修复：删去 `way`，收货人与所回应的消息照写。`tests/life/test_same_moment_decisions.py::test_purchase_result_names_the_order_in_the_progress_layer` |
+| 门店来源标记 | 地图与门店规格「地点发现与候选呈现」：模型中的来源使用类型、来源引用与事实截止日；人物 Prompt 规格修订 24 的 MS1：来源标记落在工具层商品目标的 `note` | 七层工具层的商品目标不带来源标记，动作 `note` 只写送达估计 | 已修复：门店商品目标第一个动作的 `note` 写「来源：<事实或场景假设>（<来源引用>），事实截止 <日期>」，每个目标一次，不含内部身份。`tests/life/test_tool_layer.py::test_each_store_product_target_carries_its_source_marker_once` |
+| 两项同时结束的结果 | 唯一出现：浏览调用的结果只列名称，浏览得到的供给在工具层 | 两项请求在全部子活动结束后才写一条聚合终态，结果只带各活动快照；`details.browse_items` 与浏览结果的置顶只读单项结果顶层 | 浏览一侧可达且有误，已修复：`result_projection.browse_results` 也从聚合终态的浏览活动快照取浏览结果，`browse_items` 与置顶共用它，各一次。`tests/life/test_prompt_layers.py::test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once`。`details.arrival` 一侧不可达：出行的终态结果（单项或聚合）落在到达那次提交，归路程 session，出发请求整体归原停留 session，任何进度层都没有这条调用，到达只以记忆层路程条目的 settled 句出现；`tests/life/test_prompt_layers.py::test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer` 记下这一点，代码未改 |
 
 规格没有写明、代码按裁决或既有冻结条款实现、文档已按代码写明的细节（不算出入）：
 
@@ -200,6 +202,10 @@ VS Code 自带的 Electron 以 Node 24 运行；随后 `coverage combine`，再�
 - **反事实断链。** 反事实分支在分支起点一律断链；分支内此后同一秒的相邻决策之间没有干预，照常成链（成链条件）。
 - **路程中的菜单。** 途中仍按出发地解析菜单（冻结的时间与能量规格第五章，人物 Prompt 规格未修订），环境层 `fixed_rules` 取同一菜单。
 - **字幕。** 规格没有给字幕正文分配层；代码中字幕正文不进七层，内容目标的 `state` 只写观看进度。
+- **重名的回看名称。** 规格要求名称唯一可读，但没有写两个当日目标文字相同、或两个记忆条目的同一 `self_notes` 活动名指不同活动时怎么办；
+  目标文字是人物自己写的，不能像活动名那样追加序号，代码让这类名称照常通过宿主校验，由环境按找不到一样以 `TASK_NOT_FOUND` 拒绝，不猜是哪一个。
+- **浏览先于同一请求的另一项结束。** 聚合终态在同一请求的全部子活动结束后才写（时间与能量规格），浏览若先结束，`browse_items` 与置顶要等另一项结束后
+  随那条结果出现；两项同时结束时当场出现。
 - **只读问答的生成参数。** 与行动相同（thinking 开启、`tool_choice=auto`、`max_tokens=8000`），经 LifeAgent 同一个请求入口发送。
 - **协议门禁 `memory_md_identity_residue`。** 仍检查调用方传入的 `MEMORY.md` 文本；冻结时文档把它改写为「检查记忆层 JSON」，与代码不符，本次改回（规格没有修订这一门禁）。
 
