@@ -100,7 +100,9 @@ def test_stage_model_identity_shape_matches_life_agent_constants() -> None:
 
     assert set(stages) == {"action", "work_review"}
     assert stages["action"] == {"thinking": ACTION_THINKING["thinking"]["type"],
-                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS}
+                                "tool_choice": ACTION_TOOL_CHOICE, "max_tokens": ACTION_MAX_TOKENS,
+                                "same_second_continuation": True}
+    assert stage_model_identity(False)["stages"]["action"]["same_second_continuation"] is False
     assert stages["work_review"] == {"thinking": "disabled", "tool_choice": "required"}
     assert identity["base_url"] == "https://api.deepseek.com"
     assert identity["max_retries"] == 0 and identity["strict"] is True
@@ -159,6 +161,7 @@ def _write_agent_workspace(workspace: Path, *, initialized: bool = False) -> Non
         "agent_class": "LifeAgent",
         "agent_id": 1,
         "initialized_at": "2026-01-01T00:00:00+00:00" if initialized else None,
+        "profile": {"id": 1, "same_second_continuation": True},
     }
     (workspace / "AGENT.json").write_text(json.dumps(agent))
     (workspace / "config.json").write_text(json.dumps({"enable_memory": True, "max_react_turns": 16}))
@@ -675,7 +678,8 @@ def test_society_build_failure_terminates_created_actor(monkeypatch, tmp_path) -
     scenario, _ = load_scenario(scenario_path)
     prepared = SimpleNamespace(project_root=tmp_path, run_dir=tmp_path / "run", env_kwargs={},
                                scenario_path=scenario_path, scenario=scenario,
-                               workspace_mode="restore", start_time=scenario.start_at)
+                               workspace_mode="restore", start_time=scenario.start_at,
+                               same_second_continuation=True)
 
     with pytest.raises(RuntimeError, match="router construction failed"):
         _build_society(prepared)

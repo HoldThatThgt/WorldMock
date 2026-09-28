@@ -41,12 +41,16 @@ class WorldFacts:
 
 @dataclass(frozen=True, slots=True)
 class Context:
-    """@brief 一次准入判定的世界与可读名称：地点身份→地点名，活动身份→本轮活动名。"""
+    """@brief 一次准入判定的世界与可读名称：地点身份→地点名，活动身份→本轮活动名。
+
+    :param tasks: 冻结工作任务目录（任务身份→配置）；恢复暂停的工作时核对截止与合同余量。
+    """
 
     state: WorldState
     agent_id: int
     place_names: Mapping[str, str]
     activity_names: Mapping[str, str] = field(default_factory=dict)
+    tasks: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

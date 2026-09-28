@@ -13,7 +13,7 @@ import logging
 from typing import Any
 
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.guidance import guided, with_details
+from worldmock.life.guidance import Refusal
 from worldmock.life.interaction_menu import PURCHASE_WAYS
 from worldmock.life.readable import clock_phrase, portion_phrase
 from worldmock.life.recipients import person_name
@@ -75,4 +75,5 @@ def require_unhandled(state: Any, scenario: Any, supplies: dict, bindings: list[
                      "expected_at": clock_phrase(order.expected_at, state.current_time, scenario.timezone)}
                     for order in linked]
             reason = f"{binding['answering']}要的{names[product]}已经下过单了"
-            raise with_details(guided("REQUEST_ALREADY_HANDLED", reason, "等已下的订单送到"), {"linked_orders": rows})
+            raise Refusal("REQUEST_ALREADY_HANDLED", reason,
+                          suggested={"next_step": "等已下的订单送到", "linked_orders": rows}).error()

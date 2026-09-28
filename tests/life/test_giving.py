@@ -136,7 +136,7 @@ def test_giving_needs_the_item_at_hand_and_the_tool_layer_says_why(engine_factor
 
 
 def test_recipient_that_is_not_visible_is_rejected_by_the_environment(engine_factory) -> None:
-    """绕过宿主提交的去向写了本轮没有的人物：环境在整组准入之后以 RECIPIENT_NOT_FOUND 业务拒绝，世界不变。"""
+    """绕过宿主提交的去向写了本轮没有的人物：环境（在整组准入之前）以 RECIPIENT_NOT_FOUND 业务拒绝，世界不变。"""
     engine = open_world(engine_factory)
     food = food_product(engine)
     place(engine, 1, HOME, {food: 1.0})
@@ -299,3 +299,23 @@ def test_self_receipt_then_giving_transfers_exactly_once(engine_factory) -> None
     again = act(engine, "give-again", _give(engine, food, PERSON_TARGET))
     assert again.error_code == "ACTION_REQUEST_INVALID"  # 手边已经没有这件东西，不再是本轮的目标
     assert engine.state.agents[2].inventory[HOME][food] == 1.0
+
+
+def test_named_purchase_takes_from_as_the_store_and_the_recipient_place_as_destination(engine_factory) -> None:
+    """指名购买（本轮没有列出的名称）按收货人的收货地点找能送到的门店、from 限定门店：送给联系人时多店同名先报歧义，
+    写上门店名后解析为那家店、订单收货人是联系人、送到其收货地点；收货人没有收货地点时「暂时送不到<人>那里」。"""
+    engine = open_world(engine_factory)
+    milk = [item for item in engine.scenario.supplies if engine.rules.items[item.product_id].name == "纯牛奶"
+            and OFFICE in item.delivery_destination_ids]
+    stores = {item.supply_id: next(place.name for place in engine.scenario.locations
+                                   if place.location_id == item.location_id) for item in milk}
+    assert len(set(stores.values())) >= 2
+    ambiguous = act(engine, "milk-ambiguous", routed(("纯牛奶", "obtain", "远程下单", None, COLLEAGUE_TARGET)))
+    assert ambiguous.error_code == "SUPPLY_NAME_AMBIGUOUS"
+    supply_id, store = next(iter(stores.items()))
+    named = act(engine, "milk-from-store", routed(("纯牛奶", "obtain", "远程下单", store, COLLEAGUE_TARGET)))
+    assert named.status == "completed", (named.error_code, named.message)
+    [order] = named.data["orders"]
+    assert (order["supply_id"], order["recipient_id"], order["destination_id"]) == (supply_id, COLLEAGUE, OFFICE)
+    refused = act(engine, "milk-to-friend", routed(("纯牛奶", "obtain", "远程下单", store, "联系人：沈昊")))
+    assert (refused.error_code, refused.data["reason"]) == (_UNMET, "暂时送不到沈昊那里")

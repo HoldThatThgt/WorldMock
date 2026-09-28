@@ -111,11 +111,16 @@ def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
 
 
 @pytest.mark.parametrize("label", ["未知商店出售的牛奶", "supply-private"])
-def test_unoffered_or_internal_supply_name_cannot_be_selected(label):
-    """模型不能猜未呈现供给，也不能用私有编号绕过可读对象闭集。"""
+def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label):
+    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章）：obtain 以到店或远程下单写本轮未列出的名称时宿主不按闭集拦截，
+    交给环境按标签或商品名解析（私有编号既不是标签也不是商品名，环境以 SUPPLY_NOT_FOUND 拒绝，见
+    tests/life/test_named_purchase.py）；其余动词写未列出的名称仍按协议错误纠正。"""
     person = _prepared_offer()
     _functions(person)
-    error = person.validate_react_decisions([_obtain(label)], False)
+    for way in ("到店", "远程下单"):
+        assert person.validate_react_decisions([_obtain(label, way)], False) == ""
+    error = person.validate_react_decisions([
+        ReactDecision("", "start_activity", start_arguments([label], ["consume"], ["食用"]), "")], False)
     assert "visible interactive object" in error
 
 
@@ -175,9 +180,10 @@ def test_each_selected_supply_keeps_its_own_frozen_quote():
             })
             self.scenario = self.semantics = SimpleNamespace()
             self.request = None
+            self.named = None
 
-        def _purchase(self, state, pending, request):
-            self.request = request
+        def _purchase(self, state, pending, request, named=frozenset()):
+            self.request, self.named = request, named
             return state, ActionResult(action_id="a", agent_id=1, status="completed", occurred_at=0,
                                        message="Purchase accepted", data={"orders": []})
 
@@ -193,6 +199,7 @@ def test_each_selected_supply_keeps_its_own_frozen_quote():
     assert [(item.supply_id, item.quantity, item.price_version) for item in runtime.request.items] == [
         ("supply-a", 1, "quote-a"), ("supply-b", 1, "quote-b"),
     ]
+    assert runtime.named == frozenset()
 
 
 def test_real_storefront_purchase_uses_observation_quote(_engine_factory):

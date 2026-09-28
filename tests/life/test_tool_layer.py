@@ -2,8 +2,9 @@
 
 性质测试：在真实引擎状态上，工具层（与待办层）列出的每个动作与工具单独提交时——available 为 false 的由环境以同一原因业务
 拒绝（action_result.data.reason 与 reason 一字不差），available 为 true 的被受理。候选按（目标类别，工具，方式，可用性，
-原因）分成等价类，每类在同一份已提交状态的独立副本上单独提交，互不影响。覆盖运行开始、待收尾、同刻受限轮、路上、他处持有物与别处暂停的活动、工作进行中六种状态；另验证名称唯一、
-他处持有物的名称带地点、路上的活动不能暂停、正在做的工作提交写「先结束正在做的工作」。
+原因）分成等价类，每类在同一份已提交状态的独立副本上单独提交，互不影响。覆盖运行开始、待收尾、同刻受限轮、路上、他处持有物与别处暂停的活动、工作进行中、
+距截止不足一分钟暂停的工作七种状态；另验证名称唯一、他处持有物的名称带地点、路上的活动不能暂停、正在做的工作提交写
+「先结束正在做的工作」、截止前一分钟内不能恢复工作。
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context, drive,
                                  stage_day_plan, start_activity, submit_round, target_actions, target_tools,
                                  tool_targets, wake_by_mail, start_request)
+from tests.life import test_work_contracts as work_contracts
+from tests.life.test_scheduling import _custom_engine
 from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
 from worldmock.footprints.models import EventDraft
 from worldmock.footprints.store import FootprintStore
@@ -232,3 +235,31 @@ def test_submit_while_working_says_finish_the_work_first(engine_factory, tmp_pat
     assert tool_targets(observed)[target]["contract"]["remaining"].startswith("有效工时还差")
     assert any(row["kind"] == "activity" and row["phase"] == "进行中" for row in observed["tool_layer"]["targets"])
     _assert_admission_matches(engine, tmp_path, monkeypatch, "busy")
+
+
+def test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason(tmp_path,
+                                                                                         monkeypatch) -> None:
+    """17:29:01 同秒暂停的工作距截止不足 60 秒：待办层恢复（report_status）标不可用，原因与开工同一截止约束
+    「离截止不到一分钟，来不及开始」，结束照常可用；在开始地点、占用无冲突时截止先于占用判定；全部候选与受理一致
+    （docs/dev/SPEC-persona-prompt.md 第六章「开工与恢复使用同一截止约束」）。"""
+
+    def mutate(document: dict) -> None:
+        """首个任务的截止改为 17:30。"""
+        document["tasks"][0]["due_at"] = work_contracts._DEADLINE
+
+    engine = _custom_engine("white-collar-12-weeks.json", mutate, tmp_path, "late-resume")
+    try:
+        work_contracts._stage_office(engine, work_contracts._clock("17:20:00"))
+        work_id = work_contracts._start_work(engine, "late-start")
+        work_contracts._decide_at(engine, work_contracts._clock("17:29:01"))
+        assert work_contracts._pause(engine, "late-pause", work_id).status == "completed"
+        observed = engine.observe(context(engine, "late-seen"))
+        [paused] = observed["todo_layer"]["paused_activities"]
+        tools = {item["tool"]: item for item in paused["tools"]}
+        assert tools["report_status"] == {"tool": "report_status", "available": False,
+                                          "reason": "离截止不到一分钟，来不及开始"}
+        assert tools["conclude_activity"]["available"] is True
+        checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "late")
+        assert tools["report_status"] in checked
+    finally:
+        engine.close()

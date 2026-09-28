@@ -121,7 +121,11 @@ def _event_key(occurred_at: int, sources: list[Event]) -> tuple:
 
 
 def _tool_records(context: LayerContext, store: FootprintStore, lower: int, within) -> list[_Record]:
-    """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。"""
+    """@brief 本 session 的世界请求：每个 action_requested 连同其最新结果（即时结果另作来源）与 self_note。
+
+    开始活动的请求在活动结束后带终态结果：浏览得到的商品名、到达等事实只在终态结果里，唯一出现原则要求它们写在该调用的
+    结果上（docs/dev/SPEC-persona-prompt.md「唯一出现原则」「进度层」）；活动目标的 state 只写终局说法与客观进度。
+    """
     requests = [event for event in store.read_agent_events("action_requested", context.agent_id, after=lower)
                 if within(event)]
     results = store.read_agent_events("action_result", context.agent_id, after=lower)

@@ -38,6 +38,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
 from worldmock.life.activity_validation import validate_activity_targets
+from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_action_request_start, pop_decision_start, response_self_note)
 from worldmock.life.activities import (
@@ -57,6 +58,7 @@ from worldmock.life.basket import (
     change_inventory,
     meal_duration,
     meal_food_rate,
+    open_meal,
     validate_meal_inventory, validate_meal_use,
 )
 from worldmock.life.body import (
@@ -271,7 +273,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 返回人物当下可见事实，并以同版本追加观察事件。
 
         进度层快照与其私有元数据只交给宿主，不存进观察事件（完整进度层 JSON 由实际 model_request 保存，
-        观察事件只存来源引用 progress_event_ids，docs/dev/SPEC-persona-prompt.md 第七章「事件」）。
+        观察事件只存来源引用 progress_event_ids，docs/dev/SPEC-persona-prompt.md 第七章「事件」）。同秒续接链在观察事件
+        提交之后挂到私有键 continuation 上，不另存（第二章「同秒续接」）。
         """
         self._validate_context(context)
         data = self._observation_data(self.state.agents[context.agent_id])
@@ -280,6 +283,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                            agent_id=context.agent_id, decision_id=context.decision_id,
                            observed_at=self.state.current_time, data=stored)
         data["observation_event_id"] = commit_state(self.store, self.state, [draft])[0].event_id
+        data[CONTINUATION_KEY] = same_second_chain(self, context.agent_id, data["observation_event_id"])
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
@@ -434,7 +438,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
         第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察已全文呈现的消息记为已读，
         其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages，
-        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
+        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。重放的动作（reused，沿用同一轮次身份的存档结果）
+        不参与记已读：它的决策身份与时刻可对应多条观察，且重放不重做领域动作。
         """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
@@ -453,7 +458,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 staged = _remember_action(staged, pending, result)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
-        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions}
+        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions
+                     if not item.reused}
         staged = same_moment.read_observed_messages(staged, self.state, presented)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = same_moment.merge_partner_endings(self.state, staged, self.scenario.max_same_moment_decisions)
@@ -939,16 +945,22 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：有交互边界时
         # 到期即提供决策；没有交互边界时按决策节律（规则 7），游戏的计划结束已在节律候选之中。
         game_turn = (lambda: game.next_interaction_at) if game is not None else None
-        next_at, reasons, stage = self._round_schedule(state, agent, False, game_turn)
+        next_at, reasons, stage = self._round_schedule(state, agent, None, game_turn)
         changed = agent.model_copy(update={"next_decision_at": next_at,
                                            "consecutive_rejections": 0,
                                            "pending_wake_reasons": reasons,
                                            "same_moment_stage": stage}, deep=True)
         return _put_agent(state, changed)
 
-    def _round_schedule(self, state: WorldState, agent, rejected: bool,
+    def _round_schedule(self, state: WorldState, agent, rejection: str | None,
                         rhythm_next=None) -> tuple[int, list[str], SameMomentStage]:
-        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。"""
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。
+
+        受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/dev/SPEC-persona-prompt.md
+        第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交。
+
+        :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
+        """
         now = state.current_time
 
         def by_rhythm() -> int:
@@ -959,16 +971,21 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
         outcome = same_moment.RoundOutcome(
             now=now, agent=agent, active=bool(active_activities(state, agent.agent_id)),
-            rejected=rejected, limit=self.scenario.max_same_moment_decisions,
+            rejected=rejection is not None, limit=self.scenario.max_same_moment_decisions,
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
             slots_full=activity_control.free_slots(state, agent.agent_id) == 0)
+        if same_moment.budget_exhausted(outcome):
+            code = rejection or same_moment.latest_rejection_code(state, agent.agent_id)
+            schedule, draft = same_moment.exhausted_schedule(outcome, self.scenario.activity_feedback_seconds, code)
+            self._pending_event_drafts.append(draft)
+            return schedule
         return same_moment.schedule_after_round(outcome, rhythm_next or by_rhythm)
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
         """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。"""
         agent = same_moment.count_round(state.agents[pending.agent_id])
-        next_decision_at, reasons, stage = self._round_schedule(state, agent, True)
+        next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error))
         pulse_key = same_moment.refusal_pulse_key(str(error))
         if pulse_key == same_moment.SERVICE_REFUSED and same_moment.refusal_pulse_applied(state, agent.agent_id):
             pulse_key = None
@@ -1024,11 +1041,12 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                             action_id=pending.action_id, activity_id=result.activity_id,
                             caused_by=[pending.requested_event_id], data=data)
         agent = same_moment.count_round(state.agents[pending.agent_id])
-        next_at, reasons, stage = self._round_schedule(state, agent, result.status == ActionStatus.REJECTED)
+        rejection = result.error_code if result.status == ActionStatus.REJECTED else None
+        next_at, reasons, stage = self._round_schedule(state, agent, rejection)
         agent = agent.model_copy(update={"next_decision_at": next_at, "pending_wake_reasons": reasons,
                                          "same_moment_stage": stage}, deep=True)
         changed = _put_agent_and_defer_game_turn(state, agent)
-        return changed, result, [first, second]
+        return changed, result, [first, second, *self._drain_pending_drafts()]
 
     def _dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
         """@brief 依据闭集工具名进入对应领域转换。"""
@@ -1216,7 +1234,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。
 
-        占用先于物品状态核对（第五章「并行准入」的判定顺序）；途中没有可用的持有物。
+        占用先于物品状态核对（第五章「并行准入」的判定顺序）；途中没有可用的持有物。食用在开始时把本次份量从库存
+        移入活动数据 opened（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。
         """
         agent = state.agents[pending.agent_id]
         products = self.rules.items
@@ -1237,6 +1256,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             request, matches[0])
         if recipe is None:
             validate_meal_inventory(agent, request)
+        agent, opened = open_meal(agent, request)
         origin = _activity_origin(state, pending)
         agent, activity = start_activity(agent, start, state.current_time, origin,
                                          self.semantics.body)
@@ -1248,6 +1268,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                              food_energy_kcal_per_hour=food_rate)
         if recipe is not None:
             activity.data["inventory_recipe"] = recipe.payload()
+        if opened:
+            activity.data["opened"] = opened
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,

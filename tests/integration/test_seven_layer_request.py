@@ -326,7 +326,8 @@ def test_self_note_ignores_other_decisions_and_failed_calls(_engine_factory):
 
 
 def test_observe_stores_the_body_without_the_host_only_progress_keys(_engine_factory, monkeypatch):
-    """观察返回体带进度层快照与私有元数据交给宿主；观察事件存其余全部键，不存这两个键。"""
+    """观察返回体带进度层快照与私有元数据交给宿主；观察事件存其余全部键，不存这两个键（提交后挂上的观察身份与续接链
+    同样不存）。"""
     engine = _engine_factory()
     stage_day_plan(engine)
     original = engine._observation_data
@@ -343,9 +344,10 @@ def test_observe_stores_the_body_without_the_host_only_progress_keys(_engine_fac
     [stored] = _events(engine, "observation")
     assert returned["progress_layer"] == progress and returned["progress_meta"] == []
     assert returned["observation_event_id"] == stored.event_id
-    assert not {"progress_layer", "progress_meta", "observation_event_id"} & set(stored.data)
+    assert not {"progress_layer", "progress_meta", "observation_event_id", "continuation"} & set(stored.data)
     assert stored.data["progress_event_ids"] == []
-    assert set(returned) - set(stored.data) == {"progress_layer", "progress_meta", "observation_event_id"}
+    assert set(returned) - set(stored.data) == {"progress_layer", "progress_meta", "observation_event_id",
+                                                "continuation"}
 
 
 def test_system_layers_interim_persona_memory_and_tools_validate_against_the_layer_schemas() -> None:

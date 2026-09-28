@@ -99,8 +99,8 @@ def _tool_calls(observation: dict) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_engine_factory, monkeypatch):
-    """登记留宿主、结算后调用与结果进入本段停留的进度层（带回复正文），刚结束的活动当秒收尾；decision_started
-    与首个行动请求同批提交，观察事件只存进度层来源引用。"""
+    """登记留宿主、结算后调用与结果进入本段停留的进度层（带回复正文；结果取该请求的最新结果，活动结束后是终态），
+    刚结束的活动当秒收尾；decision_started 与首个行动请求同批提交，观察事件只存进度层来源引用（即时与终态结果）。"""
     monkeypatch.setattr("worldmock.life.prompt_capacity.model_context_length", lambda _model: 131072)
     engine = _engine_factory()
     stage_day_plan(engine)
@@ -119,7 +119,7 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     feedback, second_requests = await _decide(environment, second, _conclude_just_ended)
     [waited_call] = _tool_calls(feedback)
     assert (waited_call["tool"], waited_call["arguments"]) == _wait(initial)
-    assert waited_call["result"]["status"] == "in_progress" and waited_call["self_note"] == _REPLY
+    assert waited_call["result"]["status"] == "completed" and waited_call["self_note"] == _REPLY
     assert "action_id" not in json.dumps(waited_call, ensure_ascii=False)
     [waited] = pending_names(feedback)
     user = second_requests[0]["messages"][1]["content"]
@@ -148,6 +148,8 @@ async def test_real_context_roundtrip_preserves_evidence_and_delays_results(_eng
     observed = [event for event in events if event.event_type == "observation"]
     assert len(observed) == 2
     assert all(not {"progress_layer", "progress_meta"} & set(event.data) for event in observed)
-    first_result = next(event for event in events if event.event_type == "action_result"
-                        and event.action_id == actions[0].action_id)
-    assert {actions[0].event_id, first_result.event_id} <= set(observed[1].data["progress_event_ids"])
+    waited_results = [event for event in events if event.event_type == "action_result"
+                      and event.action_id == actions[0].action_id]
+    assert [event.data["status"] for event in waited_results] == ["in_progress", "completed"]
+    assert {actions[0].event_id, *(event.event_id for event in waited_results)} <= set(
+        observed[1].data["progress_event_ids"])

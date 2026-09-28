@@ -114,7 +114,8 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
     """@brief 阶段 model_identity 一致性校验：只有行动与工作验收两个阶段（LifeAgent 常量单一事实源）。
 
     新建、打开、恢复、反事实重放与环境校验五个入口共用本函数；含退役的决策自述阶段的清单以英文错误拒绝
-    （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。
+    （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。行动阶段的运行开关 same_second_continuation 须为布尔值
+    （第二章「同秒续接」），开与关都合法。
     """
     from worldmock.runtime import stage_model_identity
 
@@ -129,9 +130,14 @@ def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dic
         raise IntegrityError("Model identity stages must be exactly action, work_review")
     from custom.agents.life_agent import ACTION_MAX_TOKENS, ACTION_THINKING, ACTION_TOOL_CHOICE
 
+    action = stages.get("action")
+    switch = action.get("same_second_continuation") if isinstance(action, dict) else None
+    if not isinstance(switch, bool):
+        problems.append(f"stage action same_second_continuation is {switch!r}, expected a boolean")
     expected_action = {"thinking": ACTION_THINKING["thinking"]["type"],
                        "tool_choice": ACTION_TOOL_CHOICE,
-                       "max_tokens": ACTION_MAX_TOKENS}
+                       "max_tokens": ACTION_MAX_TOKENS,
+                       "same_second_continuation": switch}
     expected_review = {"thinking": "disabled", "tool_choice": "required"}
     for name, expected in (("action", expected_action), ("work_review", expected_review)):
         if stages.get(name) != expected:

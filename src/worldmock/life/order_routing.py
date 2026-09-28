@@ -11,13 +11,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from worldmock.errors import BusinessRuleError
+from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.life.admission import present_location
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.guidance import guided
 from worldmock.life.map_models import SupplyConfig
 from worldmock.life.models import ActionResult, PurchaseItem, PurchaseOrderRequest, WorldState
 from worldmock.life.recipients import agent_identity, person_name, recipient_location
+from worldmock.life.scenario import RuntimeScenario
 from worldmock.life.semantics import ScenarioSemantics
 
 _LOGGER = logging.getLogger(__name__)
@@ -83,10 +84,15 @@ def _destination(state: WorldState, semantics: ScenarioSemantics, agent_id: int,
         place is not None and delivery_expected_at(semantics, supply, place, state.current_time) is not None)
     if not reachable:
         _LOGGER.error("Purchase recipient cannot receive goods from the selected supply")
-        name = person_name(state, semantics.scenario, agent_id, recipient)
-        raise guided("ACTIVITY_PRECONDITION_UNMET", f"暂时送不到{name}那里", "先送到自己这里，再当面给",
-                     ("delivery_destination",))
+        raise undeliverable(state, semantics.scenario, agent_id, recipient)
     return place
+
+
+def undeliverable(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient_id: str) -> PreconditionError:
+    """@brief 送不到别的收货人那里：ACTIVITY_PRECONDITION_UNMET「暂时送不到<名>那里」，下一步先送到自己这里再当面给。"""
+    name = person_name(state, scenario, agent_id, recipient_id)
+    return guided("ACTIVITY_PRECONDITION_UNMET", f"暂时送不到{name}那里", "先送到自己这里，再当面给",
+                  ("delivery_destination",))
 
 
 def _item(binding: dict) -> PurchaseItem:

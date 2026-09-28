@@ -16,7 +16,7 @@ from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
 from worldmock.life.activities import location_kinds_allow
-from worldmock.life.basket import (delivery_expected_at, held_quantity, plan_delivery, purchase_order,
+from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_portion, plan_delivery, purchase_order,
                                   validate_meal_use)
 from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
@@ -134,7 +134,7 @@ def _admission_context(context: LayerContext) -> admission.Context:
     """@brief 准入判定的世界与可读名称（地点名、本轮活动名），与受理一致。"""
     return admission.Context(state=context.state, agent_id=context.agent_id,
                              place_names={item.location_id: item.name for item in context.scenario.locations},
-                             activity_names=context.names["activities"])
+                             activity_names=context.names["activities"], tasks=context.rules.tasks)
 
 
 def _world_facts(context: LayerContext) -> admission.WorldFacts:
@@ -276,24 +276,28 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
 
 
 def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
-    """@brief 食用、使用与制作：时长、使用方式、品类规则与地点，再核对手边是否持有一份（配方另核输入）。"""
+    """@brief 食用、使用与制作：按份量折算的时长、使用方式、品类规则与地点，再核对手边是否持有（食用有就行，不足一份
+    也可以吃；使用要一件；配方另核输入）。份量与时长和受理共用 basket.meal_portion。"""
     agent, products = context.state.agents[context.agent_id], context.rules.items
     product = products.get(binding["object_id"])
     if product is None:
         return refusal_for_code("PRODUCT_NOT_FOUND")
-    if not 60 <= product.use_duration_seconds <= 14_400:
-        return refusal_for_code("ACTIVITY_DURATION_INVALID")
     mode = action["use_mode"]
+    portion, seconds = meal_portion(product, mode, held_quantity(agent, product.product_id))
+    if not 60 <= seconds <= 14_400:
+        return refusal_for_code("ACTIVITY_DURATION_INVALID")
     if mode not in product.use_modes:
         return refusal_for_code("ACTION_REQUEST_INVALID")
-    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=1),), use_mode=mode,
-                             duration_seconds=product.use_duration_seconds)
+    if portion <= 0:
+        return refusal_for_code("PRODUCT_NOT_HELD")
+    request = ConsumeRequest(items=(ConsumeItem(product_id=product.product_id, quantity=portion),), use_mode=mode,
+                             duration_seconds=seconds)
     matches = require_item_rules(context.semantics.catalog, products, [product.product_id], Action(f"consume:{mode}"))
     validate_meal_use(agent, products, request)
     recipe = prepare_inventory_recipe(agent, RecipeContext(context.semantics.catalog, products,
                                                            context.scenario.recipe_output_bindings),
                                       request, matches[0])
-    if recipe is None and held_quantity(agent, product.product_id) + 1e-9 < 1:
+    if recipe is None and held_quantity(agent, product.product_id) + 1e-9 < portion:
         return refusal_for_code("PRODUCT_NOT_HELD")
     return None
 
@@ -390,7 +394,10 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
         return {**facts, "quantity": portion_phrase(giving.give_quantity(_held_at_row(context, row)))}
     if canonical == "consume":
         product = context.rules.items[row["object_id"]]
-        return {**facts, "duration": duration_phrase(product.use_duration_seconds), "quantity": portion_phrase(1)}
+        agent = context.state.agents[context.agent_id]
+        held = agent.inventory.get(row.get("location_id") or agent.location_id, {}).get(product.product_id, 0)
+        portion, seconds = meal_portion(product, action["use_mode"], held)
+        return {**facts, "duration": duration_phrase(seconds), "quantity": portion_phrase(portion)}
     seconds = _facts_seconds(context, row, action)
     return {**facts, "duration": duration_phrase(seconds) if seconds is not None and seconds >= 60 else None}
 

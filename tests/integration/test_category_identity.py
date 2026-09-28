@@ -94,7 +94,7 @@ def _checkpoint(engine, tmp_path):
         workspace.mkdir()
         (workspace / "AGENT.json").write_text(json.dumps({
             "schema_version": 1, "agent_class": "LifeAgent", "agent_id": agent.agent_id,
-            "initialized_at": None,
+            "initialized_at": None, "profile": {"id": agent.agent_id, "same_second_continuation": True},
         }), encoding="utf-8")
         (workspace / "config.json").write_text(json.dumps({
             "enable_memory": True, "max_react_turns": 16,

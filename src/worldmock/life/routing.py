@@ -29,6 +29,8 @@ _NOT_FOUND = "RECIPIENT_NOT_FOUND"
 _ROUTED_VERBS = frozenset({"obtain", "consume"})
 #: 可以作为去向的私有绑定类别：同场人物、场景联系人与「自己」。
 _PERSON_KINDS = frozenset({"person", "contact", "self"})
+#: routed_selection 写在绑定行上的来源、去向与关联键（指名购买解析出供给后保留这些键）。
+ROUTE_KEYS = ("from", "to", "recipient_id", "to_self", "request_message_id", "answering")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,14 +71,14 @@ def combination_error(request: Any, names: RoutingNames) -> tuple[str, str] | No
 
 
 def routed_selection(rows: list[dict], request: Any, names: RoutingNames) -> list[dict]:
-    """@brief 给解析好的绑定行逐项写上去向：to、recipient_id（本轮没有的人物为 None）、to_self，以及被 answering
-    关联时的 request_message_id 与 answering（未关联为 None）。"""
+    """@brief 给解析好的绑定行逐项写上来源与去向：from、to、recipient_id（本轮没有的人物为 None）、to_self，以及被
+    answering 关联时的 request_message_id 与 answering（未关联为 None）。"""
     linked = names.messages.get(request.answering) if request.answering is not None else None
     routed = []
-    for row, destination in zip(rows, request.to):
+    for row, source, destination in zip(rows, request.from_, request.to):
         recipient = names.people.get(destination) if destination is not None else None
         answered = linked is not None and recipient is not None and recipient == linked[1]
-        routed.append({**row, "to": destination, "recipient_id": recipient,
+        routed.append({**row, "from": source, "to": destination, "recipient_id": recipient,
                        "to_self": recipient is not None and recipient == names.people.get(SELF_NAME),
                        "request_message_id": linked[0] if answered else None,
                        "answering": request.answering if answered else None})
@@ -84,7 +86,7 @@ def routed_selection(rows: list[dict], request: Any, names: RoutingNames) -> lis
 
 
 def require_recipients(selection: list[dict]) -> None:
-    """@brief 去向写了本轮没有的人物时以 RECIPIENT_NOT_FOUND 拒绝（对象自身条件，排在整组准入之后）。"""
+    """@brief 去向写了本轮没有的人物时以 RECIPIENT_NOT_FOUND 拒绝（在按收货地解析指名购买与整组准入之前）。"""
     if any(row.get("to") is not None and row.get("recipient_id") is None for row in selection):
         logging.error("Start activity names a recipient that is not visible")
         raise BusinessRuleError(_NOT_FOUND)

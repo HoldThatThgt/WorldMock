@@ -11,9 +11,12 @@ import logging
 
 from worldmock.errors import BusinessRuleError
 from worldmock.life import activity_control, admission, giving, order_routing, request_linking, routing, sessions
+from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
+from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.guidance import guided
-from worldmock.life.interaction_menu import GIVE_WAY, activity_phrase, merged_selection, resolve_selection
+from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
+                                             merged_selection, resolve_interaction_menu, resolve_selection)
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -40,7 +43,10 @@ from worldmock.life.models import (
     SubmitWorkActionRequest,
     WorldState,
 )
+from worldmock.life.named_purchase import resolve_named_supply
+from worldmock.life.recipients import recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
+from worldmock.life.tool_layer import LayerContext
 from worldmock.life.travel import route_for
 from worldmock.life.social_actions import social_duration_seconds
 from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_seconds, work_totals
@@ -70,6 +76,8 @@ class SessionActionMixin:
         if selection is None:
             _LOGGER.error("Start activity selection is not offered in this round")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
+        routing.require_recipients(selection)
+        selection = self._named_selection(state, pending, selection)
         actions = [row["selected_action"]["canonical_action"] for row in selection]
         labels = [row["selected_action"]["label"] for row in selection]
         names = self._control_names(pending)
@@ -77,7 +85,6 @@ class SessionActionMixin:
         admission.require_group(self._admission_context(state, pending.agent_id, names),
                                 [admission.selection_item(row, row["selected_action"], self._world_facts)
                                  for row in selection])
-        routing.require_recipients(selection)
         if merged_selection(actions, labels):
             targets = [item["object_id"] for item in selection]
             changed, result = self._dispatch_start_action(state, pending, actions[0], targets, selection)
@@ -96,7 +103,7 @@ class SessionActionMixin:
                            names: dict[str, str] | None = None) -> admission.Context:
         """@brief 准入判定的世界与可读名称（地点名、本轮活动名）。"""
         return admission.Context(state=state, agent_id=agent_id, place_names=self._place_names,
-                                 activity_names=names or {})
+                                 activity_names=names or {}, tasks=self.rules.tasks)
 
     def _start_selection(self, pending: PendingAction, request) -> list[dict] | None:
         """@brief start_activity 各项经本轮私有绑定解析的绑定行，菜单判定、受限轮复核与受理共用这一次解析；其他工具为空。
@@ -118,6 +125,34 @@ class SessionActionMixin:
         rows = resolve_selection(observation.get("interaction_bindings"), request.targets, request.actions,
                                  request.ways)
         return routing.routed_selection(rows, request, names) if rows is not None else None
+
+    def _named_selection(self, state: WorldState, pending: PendingAction, selection: list[dict]) -> list[dict]:
+        """@brief 指名购买的占位项按名称解析为门店供给的绑定行，其余项原样：来源（from）限定门店，收货地取该项收货人的
+        收货地点（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」），解析出的绑定行保留来源、去向与关联。
+
+        解析不出或同名多店时以 SUPPLY_NOT_FOUND、SUPPLY_NAME_AMBIGUOUS 业务拒绝（第五章「指名购买」）；远程下单而收货人
+        没有收货地点时以「暂时送不到<名>那里」拒绝；按当前报价解析，价格、余额、营业与库存由整单结算照常检查。
+        """
+        if all(row["kind"] != NAMED_SUPPLY_KIND for row in selection):
+            return selection
+        agent = state.agents[pending.agent_id]
+        context = LayerContext(
+            state=state, scenario=self.scenario, rules=self.rules, semantics=self.semantics, agent_id=agent.agent_id,
+            names={"sessions": {}, "activities": self._control_names(pending)},
+            bindings=self._frozen_observation(pending)["interaction_bindings"],
+            menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
+            lifestyle_items=self.lifestyle_items)
+        return [self._resolved_named(context, row) if row["kind"] == NAMED_SUPPLY_KIND else row for row in selection]
+
+    def _resolved_named(self, context: LayerContext, row: dict) -> dict:
+        """@brief 一项指名购买按名称、来源与收货人的收货地点解析出的供给绑定行（带该项的来源、去向与关联）。"""
+        way = row["selected_action"]["label"]
+        destination = recipient_location(context.state, self.scenario, context.agent_id, row["recipient_id"])
+        if destination is None and way == PURCHASE_WAYS["delivery"]:
+            _LOGGER.error("Named purchase recipient has no receiving place")
+            raise order_routing.undeliverable(context.state, self.scenario, context.agent_id, row["recipient_id"])
+        resolved = resolve_named_supply(context, row["object"], way, row["from"], destination)
+        return {**resolved, **{key: row[key] for key in routing.ROUTE_KEYS}}
 
     def _start_parallel_actions(self, state: WorldState, pending: PendingAction, bindings: list[dict]
                                 ) -> tuple[WorldState, ActionResult, list[tuple[str, list[dict]]]]:
@@ -366,10 +401,11 @@ class SessionActionMixin:
         被 answering 关联、且已有同一（消息，收货人，商品）未取消订单的项以 REQUEST_ALREADY_HANDLED 拒绝。
         """
         request_linking.require_unhandled(state, self.scenario, self.rules.supplies, bindings)
+        named = frozenset(item["object_id"] for item in bindings if item.get("named"))
         changed, results = state, []
         for purchase in order_routing.order_requests(state, self.semantics, self.rules.supplies,
                                                      pending.agent_id, bindings):
-            changed, result = self._purchase(changed, pending, purchase)
+            changed, result = self._purchase(changed, pending, purchase, named)
             results.append(result)
         answering = next((item["answering"] for item in bindings if item.get("answering")), None)
         return changed, order_routing.merged_result(results, answering)
@@ -384,24 +420,32 @@ class SessionActionMixin:
 
     def _start_consume_action(self, state: WorldState, pending: PendingAction,
                                targets: list[str], bindings: list[dict]) -> tuple[WorldState, ActionResult]:
-        """@brief 从冻结商品目录推导食品进食或单件耐用品使用的数量和时长。"""
+        """@brief 从冻结商品目录推导食品进食或单件耐用品使用的数量和时长。
+
+        食用每件取 min(1, 手边持有)，时长按份量折算（不少于 60 秒）后取最长；使用为一件与目录时长（basket.meal_portion，
+        工具层同一口径，docs/dev/SPEC-persona-prompt.md 第五章「进食」）。手边一点都没有时以 PRODUCT_NOT_HELD 拒绝。
+        """
         products = self.rules.items
-        durations = [products[item].use_duration_seconds for item in targets if item in products]
-        if len(durations) != len(targets):
+        if any(item not in products for item in targets):
             _LOGGER.error("Selected food product was not found")
             raise BusinessRuleError("PRODUCT_NOT_FOUND")
-        if not 60 <= max(durations) <= 14_400:
+        mode = bindings[0]["selected_action"]["use_mode"]
+        agent = state.agents[pending.agent_id]
+        portions = [meal_portion(products[item], mode, held_quantity(agent, item)) for item in targets]
+        if not 60 <= max(seconds for _, seconds in portions) <= 14_400:
             _LOGGER.error("Derived food consumption duration is outside domain bounds")
             raise BusinessRuleError("ACTIVITY_DURATION_INVALID")
-        mode = bindings[0]["selected_action"]["use_mode"]
         if any(mode not in products[item].use_modes for item in targets):
             _LOGGER.error("Selected objects cannot share a consumption mode")
             raise BusinessRuleError("ACTION_REQUEST_INVALID")
         if mode == "use" and len(targets) != 1:
             _LOGGER.error("Only one held item can be used at a time")
             raise guided("ACTION_REQUEST_INVALID", "一次只能使用一件东西", "一次只选其中一件")
-        items = tuple(ConsumeItem(product_id=item, quantity=1) for item in targets)
-        consume = ConsumeRequest(items=items, use_mode=mode, duration_seconds=max(durations))
+        if any(portion <= 0 for portion, _ in portions):
+            _LOGGER.error("Selected food is not held at hand")
+            raise BusinessRuleError("PRODUCT_NOT_HELD")
+        items = tuple(ConsumeItem(product_id=item, quantity=portion) for item, (portion, _) in zip(targets, portions))
+        consume = ConsumeRequest(items=items, use_mode=mode, duration_seconds=max(seconds for _, seconds in portions))
         return self._consume(state, pending, consume)
 
     def _plan_goal_for_activity(self, state: WorldState, agent_id: int,
@@ -548,8 +592,8 @@ class SessionActionMixin:
                         request: ReportStatusRequest) -> tuple[WorldState, ActionResult]:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
-        每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，且与进行中
-        活动的占用不冲突），与工具层、待办层的可用性一字不差。
+        每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，工作的恢复距截止与
+        剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。
         """
         selected = self._activities_for_names(state, pending, request.task)
         names = self._control_names(pending)
@@ -580,16 +624,13 @@ class SessionActionMixin:
     def _resume_cap(self, state: WorldState, agent_id: int, activity: ActivityState) -> int | None:
         """@brief 恢复的时长上限：工作取 min(距截止, 合同上限减已累计)，其余活动没有上限（规格第六章）。
 
-        开工与恢复使用同一截止约束：距截止或剩余合同不足 60 秒时以 ACTIVITY_DURATION_INVALID 返回原因与下一步。
+        开工与恢复使用同一截止约束：不足 60 秒的恢复已由 activity_control.control_refusal 以 ACTIVITY_DURATION_INVALID
+        拒绝（与工具层、待办层的可用性同一原因），到这里的上限至少 60 秒。
         """
         if activity.kind != ActivityKind.WORK:
             return None
         task = self.rules.task(activity.target_id)
         worked, _ = work_totals(state, agent_id, task.task_id)
-        blocker = work_start_blocker(task, worked, state.current_time)
-        if blocker is not None:
-            _LOGGER.error("Work resume is closer than one minute to its deadline or contract end")
-            raise guided("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
         return work_resume_cap(task, worked, state.current_time)
 
     def _pause_activity(self, state: WorldState, pending: PendingAction,
@@ -617,7 +658,8 @@ class SessionActionMixin:
 
         进行中或暂停的活动先取消（agent_cancelled）再收尾；待收尾活动不改终态，只写总结并置 concluded_at。
         有待收尾活动而本次没有点名任何一项时以 ACTIVITY_CONCLUSION_REQUIRED 拒绝。记忆由宿主写入，环境只校验形状，
-        并在结果中登记私有来源 memory_sources。
+        并在结果中登记私有来源 memory_sources。进食收尾时丢弃开吃份量中没吃的部分，结果的 outcome 逐项写终局与份量，
+        未完成的浏览写未取得浏览结果（docs/dev/SPEC-persona-prompt.md 第五章「进食」、第六章）。
         """
         selected = self._activities_for_names(state, pending, request.task)
         if not all(activity_control.occupies_slot(item) for item in selected):
@@ -635,15 +677,29 @@ class SessionActionMixin:
         activities = dict(changed.activities)
         for activity, summary in zip(selected, request.summary, strict=True):
             activities[activity.activity_id] = activity_control.concluded(
-                activities[activity.activity_id], summary, state.current_time)
+                discard_opened(activities[activity.activity_id]), summary, state.current_time)
         changed = self._with_goal_summaries(changed.model_copy(update={"activities": activities}),
                                             list(zip(selected, request.summary, strict=True)))
         if departed:
             changed, _ = sessions.end_transit(changed, pending.agent_id, self._place_names,
                                               opened_by_action_id=pending.action_id)
         result = self._control_result(state, pending, "Activities concluded", request.task, selected)
-        sources = self._memory_sources(pending, request.task, selected)
-        return changed, result.model_copy(update={"data": {**result.data, "memory_sources": sources}})
+        data = {**result.data, "memory_sources": self._memory_sources(pending, request.task, selected)}
+        outcome = self._conclusion_outcome(changed, pending.agent_id, request.task, selected)
+        if outcome:
+            data["outcome"] = outcome
+        return changed, result.model_copy(update={"data": data})
+
+    def _conclusion_outcome(self, state: WorldState, agent_id: int, names: list[str],
+                            selected: list[ActivityState]) -> list[dict]:
+        """@brief 收尾结果 details.outcome：点名的进食与未完成浏览逐项写终局（按结算状态，不看人物写的总结）。"""
+        ended = [state.activities[activity.activity_id] for activity in selected]
+        if not any(is_eating(item) or item.kind == ActivityKind.BROWSE for item in ended):
+            return []
+        product_names = {item.product_id: item.name for item in self.rules.items.values()}
+        rows = (conclusion_outcome(activity, name, product_names, state.agents[agent_id])
+                for name, activity in zip(names, ended, strict=True))
+        return [row for row in rows if row is not None]
 
     def _memory_sources(self, pending: PendingAction, names: list[str],
                         selected: list[ActivityState]) -> list[dict]:

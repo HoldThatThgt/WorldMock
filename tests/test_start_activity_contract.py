@@ -31,10 +31,12 @@ class _ActionHarness(SessionActionMixin):
         self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
         self.scenario = SimpleNamespace(locations=())  # 控制判定的地点名表；本组用例都在同一停留内
         self.semantics = SimpleNamespace(scenario=self.scenario)
+        self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
-    def _purchase(self, state, pending, request):
-        """@brief 捕获生成的整单请求，返回只含订单数的最小结果。"""
+    def _purchase(self, state, pending, request, named=frozenset()):
+        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份），返回只含订单数的最小结果。"""
+        assert named == frozenset()
         self.calls.append(request)
         return state, ActionResult(action_id="action", agent_id=1, status="completed", occurred_at=100,
                                    message="Purchase accepted", data={"orders": [], "count": len(request.items)})
@@ -58,9 +60,11 @@ class _ActionHarness(SessionActionMixin):
 
 
 class _Agent:
-    """仅提供身份与当日计划的可复制人物。"""
+    """仅提供身份、所在地点、（空的）持有物与当日计划的可复制人物。"""
 
     agent_id = 1
+    location_id = "home"
+    inventory: dict = {}
 
     def __init__(self, day_plan=None):
         """@brief 保存人物明确登记的目标。"""
@@ -298,8 +302,8 @@ def _assert_invalid(request, message: str) -> None:
         harness._start_activity(None, _pending(), None)
 
 
-def test_unknown_recipient_is_recipient_not_found_after_admission():
-    """去向写了本轮没有的人物：宿主报「to is not a visible person」；环境照常解析出选择（收货人为空），在整组准入之后以
+def test_unknown_recipient_is_recipient_not_found_before_admission():
+    """去向写了本轮没有的人物：宿主报「to is not a visible person」；环境照常解析出选择（收货人为空），在整组准入之前以
     RECIPIENT_NOT_FOUND 拒绝；同一请求另有不合法组合时先报 ACTION_REQUEST_INVALID。"""
     observation = _routing_observation()
     unknown = _items((_NOODLES, "consume", "给予", "自己", "人物：陌生人"))

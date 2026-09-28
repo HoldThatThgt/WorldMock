@@ -20,6 +20,7 @@ from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
+from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
@@ -355,7 +356,8 @@ def _assert_day(engine, models, start, exported, tmp_path):
 
 def _assert_decision_events(events):
     """第二章：每次决策的 decision_started 与首个行动请求同批提交且排在它之前，data 为闭集；没有决策自述请求；
-    世界请求都带 self_note 键（脚本回复正文为空时为 null）；观察事件不存进度层快照，只存来源引用。"""
+    世界请求都带 self_note 键（脚本回复正文为空时为 null）；观察事件不存进度层快照，只存来源引用；第七章：真实请求上
+    的观察重复门禁为 1（同一 user 文本只出现在一条（人物，秒）续接链中）。"""
     by_seq = {event.event_seq: event for event in events}
     for start in (event for event in events if event.event_type == "decision_started"):
         assert set(start.data) == {"round_id", "round_order", "world_state_version", "wake_reasons"}
@@ -368,6 +370,9 @@ def _assert_decision_events(events):
     assert all(event.data["self_note"] is None for event in events if event.event_type == "action_requested")
     observations = [event for event in events if event.event_type == "observation"]
     assert all("progress_event_ids" in event.data and "progress_layer" not in event.data for event in observations)
+    reports = behavior_metrics_report([event.model_dump(mode="json") for event in events])
+    gates = [report["gates"]["observation_repetition"] for report in reports.values()]
+    assert gates and all(gate["value"] == 1 and gate["pass"] for gate in gates), gates
 
 
 def _assert_start_day_plans(events, start):
