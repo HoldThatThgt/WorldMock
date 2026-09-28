@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from agentsociety2.agent.base import ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
@@ -36,6 +37,11 @@ from worldmock.life.settled_text import activity_sentence, purchase_sentence
 from worldmock.scheduling.events import ScheduledEvent, ScheduledKind
 
 _ZONE = "Asia/Shanghai"
+#: 观察中由环境构建的五层（人设层由宿主构建）。
+_FIVE_LAYERS = ("tool_layer", "memory_layer", "todo_layer", "environment_layer", "progress_layer")
+#: 一次行动请求的 wire 形状（没有 purpose、原生 tools 含 start_activity、思考开启），供记下模型证据。
+_ACTION_REQUEST = {"model": "deepseek-flash", "messages": [], "extra_body": {"thinking": {"type": "enabled"}},
+                   "tools": [{"type": "function", "function": {"name": "start_activity"}}]}
 
 
 def _act(engine, round_id: str, tool: str, request, agent_id: int = 1):
@@ -45,6 +51,21 @@ def _act(engine, round_id: str, tool: str, request, agent_id: int = 1):
     observed = engine.observe(decision)
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
     return observed, engine.commit_decision_round(round_id)[0]
+
+
+def _replied(engine, round_id: str, tool: str, request, body: str):
+    """像真实宿主那样先记下本决策的模型请求与带回复正文的响应，再登记世界请求并结算一轮，返回结果。"""
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    call_id = f"{decision.decision_id}:model:0001:attempt:1"
+    response = {"choices": [{"message": {"content": body, "tool_calls": [
+        {"id": "call", "type": "function", "function": {"name": tool, "arguments": "{}"}}]}}]}
+    engine.record_model_exchange(ModelCallEvidence(decision, call_id, "request", 1, _ACTION_REQUEST))
+    engine.record_model_exchange(ModelCallEvidence(decision, call_id, "response", 1, _ACTION_REQUEST,
+                                                   response=response))
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
+    return engine.commit_decision_round(round_id)[0]
 
 
 def _observe(engine, round_id: str, agent_id: int = 1) -> dict:
@@ -663,3 +684,51 @@ def test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_acceler
     home, trip = _ended_sessions(engine)
     assert [row["recorded_at"] for row in cold["memory_layer"]["earlier_today"]] == [iso_time(home.ended_at, _ZONE)]
     assert trip.kind == "transit" and trip.ended_at == engine.state.current_time
+
+
+def test_reply_body_stays_in_its_session_progress_and_never_enters_the_memory_layer(engine_factory) -> None:
+    """回复正文只是本 session 进度层中该调用的 self_note（docs/dev/SPEC-persona-prompt.md 第二章「回复正文」）：发消息那次
+    回复的正文（去首尾空白）随调用出现在本段停留的进度层；出发结束这段停留后，记忆层写这次发消息的 settled 句，回复正文
+    却不在记忆层，也不在路上的任何一层。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    friend = engine.scenario.agents[0].contacts[0].salutation
+    body = "先跟朋友说一声再出门。"
+    start = engine.state.current_time
+    sent = _replied(engine, "n-send", "send_message",
+                    SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="晚上见"), f"  {body} ")
+    assert sent.status == "completed"
+    (call,) = progress_calls(_observe(engine, "n-stay"), "send_message")
+    assert call["self_note"] == body
+    _walk(engine, "n-walk")
+    road = _observe(engine, "n-road")
+    assert road["memory_layer"]["earlier_today"] == [{
+        "recorded_at": iso_time(start, _ZONE), "settled": [f"{_clock(engine, start)} 给{friend}发消息：晚上见"],
+        "self_notes": []}]
+    assert body not in json.dumps([road[key] for key in _FIVE_LAYERS], ensure_ascii=False)
+
+
+def test_recalled_summary_still_in_the_memory_layer_is_not_repeated(engine_factory) -> None:
+    """回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）：
+    同一段停留里回看刚结束的等待，summary 还不在记忆层，结果照常写正文与「未经核验」标注；出发后这段停留进入记忆层，在路上
+    再回看，details.recall 不重复正文，只写「已在记忆层」与它在记忆层中的活动名，summary 在五层中只出现一次。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    summary = "歇好了，精神回来了。"
+    name = _concluding_wait(engine, "s", summary, [])
+    _act(engine, "s-home", "recall_task_summary", RecallTaskSummaryRequest(task_name=name))
+    (home,) = progress_calls(_observe(engine, "s-home-seen"), "recall_task_summary")
+    at_home = home["result"]["details"]["recall"]
+    assert (at_home["progress_note"], at_home["subjective_status"]) == (summary, activity_control.SELF_REPORT_MARK)
+    _walk(engine, "s-walk")
+    wake_by_mail(engine, offset=120)
+    advance_next(engine)
+    _act(engine, "s-road", "recall_task_summary", RecallTaskSummaryRequest(task_name=name))
+    road = _observe(engine, "s-road-seen")
+    (call,) = progress_calls(road, "recall_task_summary")
+    recall = call["result"]["details"]["recall"]
+    assert (recall["kind"], recall["name"], recall["progress_note"], recall["activity"]) == (
+        "activity", name, "已在记忆层", _short(name))
+    assert "subjective_status" not in recall
+    assert {"activity": _short(name), "text": summary} in road["memory_layer"]["earlier_today"][0]["self_notes"]
+    assert json.dumps([road[key] for key in _FIVE_LAYERS], ensure_ascii=False).count(summary) == 1

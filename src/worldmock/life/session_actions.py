@@ -10,7 +10,8 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life import activity_control, admission, giving, order_routing, request_linking, routing, sessions
+from worldmock.life import (activity_control, admission, giving, memory_layer, order_routing, request_linking, routing,
+                            sessions)
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
 from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
@@ -54,6 +55,8 @@ from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_
 _LOGGER = logging.getLogger(__name__)
 #: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
 DERIVED_DURATION_CAP_SECONDS = 86_400
+#: 回看的自述仍在记忆层时代替正文的说法（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。
+RECALL_IN_MEMORY_LAYER = "已在记忆层"
 
 
 class SessionActionMixin:
@@ -490,7 +493,6 @@ class SessionActionMixin:
 
     def _recall_task(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
         """@brief 任务回看：名称、截止与最近一条相关活动自述。"""
-        del observed
         task = self.rules.task(row["task_id"])
         notes = [item for item in state.activities.values()
                  if item.agent_id == pending.agent_id and item.task_kind == SessionTaskKind.WORK_TASK
@@ -499,7 +501,7 @@ class SessionActionMixin:
                      default=None)
         view = {"name": row["task_name"],
                 "due_at": sessions.moment_label(int(task.due_at.timestamp()), self.scenario.timezone)}
-        return {**view, **_self_report(latest.progress_note if latest else "")}
+        return {**view, **_self_report(latest, observed)}
 
     def _recall_goal(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
         """@brief 目标回看：目标文字、意图与是否已推进。"""
@@ -517,14 +519,14 @@ class SessionActionMixin:
         地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
         未归入会话的活动取开始地点。
         """
-        del pending, observed
+        del pending
         activity = state.activities[row["activity_id"]]
         places = self._place_names
         place = (sessions.place_label(state.sessions[activity.session_ids[-1]], places) if activity.session_ids
                  else places[activity.location_id])
         view = {"name": row["name"], "place": place, "phase": activity_control.activity_phase(activity),
                 "objective_progress": activity_control.objective_progress(activity)}
-        return {**view, **_self_report(activity.progress_note)}
+        return {**view, **_self_report(activity, observed)}
 
     def _recall_session(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
         """@brief 会话回看：地点、起止与本段里的活动名。"""
@@ -712,11 +714,16 @@ class SessionActionMixin:
                 for name, activity in zip(names, selected, strict=True)]
 
 
-def _self_report(note: str) -> dict:
-    """@brief 回看中的人物自述：有自述时带「你自己记下的，未经核验」标注。"""
-    if not note:
+def _self_report(activity: ActivityState | None, observed: dict) -> dict:
+    """@brief 回看中的人物自述：有自述时带「你自己记下的，未经核验」标注；这段自述仍在本次观察的记忆层时不重复正文，
+    只写「已在记忆层」与它在记忆层中的活动名（docs/dev/SPEC-persona-prompt.md 第一章「唯一出现原则」）。"""
+    if activity is None or not activity.progress_note:
         return {}
-    return {"progress_note": note, "subjective_status": activity_control.SELF_REPORT_MARK}
+    names = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
+    label = memory_layer.noted_label(observed["memory_layer"], names[activity.activity_id], activity.progress_note)
+    if label is not None:
+        return {"progress_note": RECALL_IN_MEMORY_LAYER, "activity": label}
+    return {"progress_note": activity.progress_note, "subjective_status": activity_control.SELF_REPORT_MARK}
 
 
 def _capped_duration(duration: int) -> int:

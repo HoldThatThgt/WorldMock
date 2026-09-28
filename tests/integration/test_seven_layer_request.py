@@ -11,6 +11,8 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
+from pathlib import Path
 
 import pytest
 
@@ -21,7 +23,8 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 from agentsociety2.agent.base import ModelCallEvidence, ReactLoopRequest
 from agentsociety2.society import DirectToolCall
 from custom.agents.life_agent import _MEMORY_TOOL_MODELS, LifeAgent
-from custom.agents.life_prompt import LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_user_layers, user_message
+from custom.agents.life_prompt import (LIFE_SYSTEM_LAYER, TOOL_DESCRIPTIONS, life_user_layers, system_message,
+                                       user_message)
 from tests.integration.test_life_agent_protocol import (
     _Environment,
     _GroundedCorrectionDispatcher,
@@ -48,6 +51,7 @@ _CONTACTS = [{"contact_id": "contact-wang", "salutation": "王磊", "relation": 
              {"contact_id": "contact-mom", "salutation": "妈妈", "relation": "母亲", "closeness": 0.9,
               "channels": ["phone"]}]
 _LAYER_ORDER = ["工具层", "人设层", "记忆层", "待办层", "环境层", "进度层"]
+_REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 @pytest.fixture(autouse=True)
@@ -104,6 +108,41 @@ async def test_system_layer_is_byte_identical_across_turns_and_decisions() -> No
     assert len({json.dumps(item["tools"], ensure_ascii=False) for item in requests}) == 1
     assert first.requests[0]["messages"][1] == first.requests[1]["messages"][1]
     assert first.requests[0]["messages"][1] != second.requests[0]["messages"][1]
+
+
+def _contract_system_layers() -> list[dict]:
+    """接口合同「请求组成」逐字登记的系统层全文：生活决策在前，只读问答在后。"""
+    text = (_REPO_ROOT / "docs" / "CONTRACTS.md").read_text(encoding="utf-8")
+    blocks = re.findall(r"```json\n(\{\n  \"layer\": \"系统层\",.*?\n\})\n```", text, flags=re.DOTALL)
+    return [json.loads(block) for block in blocks]
+
+
+def _spec_life_system_layer() -> tuple[str, list[str]]:
+    """本规格第一章「系统层」定稿的生活决策 role 与逐条 rules。"""
+    text = (_REPO_ROOT / "docs" / "dev" / "SPEC-persona-prompt.md").read_text(encoding="utf-8")
+    section = text.split("\n### 系统层\n", 1)[1].split("\n### 工具层\n", 1)[0]
+    role = re.search(r"^`role`：(.+)$", section, flags=re.MULTILINE)
+    assert role is not None
+    return role.group(1), re.findall(r"^\d+\. (.+)$", section, flags=re.MULTILINE)
+
+
+@pytest.mark.asyncio
+async def test_system_layers_are_the_contract_registration_verbatim() -> None:
+    """系统层文案与接口合同「请求组成」的登记逐字相同（docs/dev/SPEC-persona-prompt.md 验收台账「系统层与工具」）：真实生活
+    决策请求的 system、只读问答的 system 各是合同登记全文的紧凑序列化，键依次为 layer、role、rules；生活决策的 role 与
+    十七条 rules 也与本规格第一章定稿逐字相同。"""
+    life, readonly = _contract_system_layers()
+    dispatcher = _GroundedCorrectionDispatcher(responses=[
+        _ModelResponse("action", "start_activity", json.dumps(_WAIT_CHOICE, ensure_ascii=False))])
+    agent, _ = _agent(dispatcher)
+    await _run(agent, _observations())
+
+    [request] = dispatcher.requests
+    assert request["messages"][0]["content"] == render_layer_json(life)
+    assert system_message(True)["content"] == render_layer_json(readonly)
+    assert list(life) == list(readonly) == ["layer", "role", "rules"]
+    role, rules = _spec_life_system_layer()
+    assert (life["role"], life["rules"]) == (role, rules) and len(rules) == 17
 
 
 @pytest.mark.asyncio
