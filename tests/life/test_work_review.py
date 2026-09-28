@@ -16,7 +16,7 @@ from worldmock.catalog.affordances import default_affordances
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_pending, context,
                                  progress_calls, stage_day_plan, start_activity, submit_round, target_actions,
-                                 tool_targets, wake_by_mail)
+                                 tool_targets, wake_by_mail, start_request)
 from tests.life.test_work_contracts import (
     AcceptingReviewer,
     _completed_work_state,
@@ -32,7 +32,6 @@ from worldmock.life.models import (
     MeetingMinutes,
     PauseActivityRequest,
     ReportStatusRequest,
-    StartActivityRequest,
     SubmitWorkActionRequest,
     SubmitWorkRequest,
 )
@@ -138,7 +137,7 @@ def _complete_required_work(engine) -> None:
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"]
                   if row["object_id"] == task.task_id and action["canonical_action"] == "work")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+    request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                    ways=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "work-time")
     activity_id = results[0].activity_id
@@ -281,7 +280,7 @@ def test_paused_work_keeps_progress_and_has_an_independent_todo(engine_factory) 
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"]
                   if row["object_id"] == task.task_id and action["canonical_action"] == "work")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+    request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                    ways=[choice[1]["label"]])
     _, results = submit_round(engine, {1: ("start_activity", request)}, "pause-work-start")
     activity_id = results[0].activity_id

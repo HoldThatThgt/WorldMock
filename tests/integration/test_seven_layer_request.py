@@ -36,10 +36,10 @@ from tests.integration.test_life_agent_protocol import (
     _wire_agent,
     _with_activities,
 )
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan  # noqa: F401
+from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan, start_request  # noqa: F401
 from worldmock.life import prompt_capacity
 from worldmock.life.activity_control import PHASE_ACTIVE, PHASE_PENDING
-from worldmock.life.models import REQUEST_MODELS, StartActivityRequest, deepseek_strict_schema
+from worldmock.life.models import REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.narration import render_layer_json
 
 #: 人物档案中的两位场景联系人（称谓与关系）；亲密度与渠道不进提示。
@@ -243,7 +243,7 @@ def test_decision_started_is_committed_with_and_before_the_first_action_request(
         call_id = f"{decision.decision_id}:model:{index // 2 + 1:04d}:attempt:1"
         engine.record_model_exchange(ModelCallEvidence(decision, call_id, phase, 1, _action_request(),
                                                        response=payload))
-    engine.submit_action(DirectToolCall(decision, "action-first", "start_activity", StartActivityRequest(
+    engine.submit_action(DirectToolCall(decision, "action-first", "start_activity", start_request(
         **_WAIT_CHOICE)))
 
     assert batches == [["decision_started", "model_request"], ["model_response"], ["model_request"],
@@ -271,7 +271,7 @@ def test_non_action_requests_leave_the_start_to_the_engine_driven_fallback(_engi
     engine.record_model_exchange(ModelCallEvidence(decision, f"{decision.decision_id}:model:0001:attempt:1",
                                                    "request", 1, request_shape))
     engine.submit_action(DirectToolCall(decision, "action-fallback", "start_activity",
-                                        StartActivityRequest(**_WAIT_CHOICE)))
+                                        start_request(**_WAIT_CHOICE)))
 
     assert batches == [["model_request"], ["decision_started", "action_requested"]]
 
@@ -305,7 +305,7 @@ def test_self_note_is_the_latest_reply_body_of_the_decision(_engine_factory, con
         engine.record_model_exchange(ModelCallEvidence(decision, call_id, "response", 1, _action_request(),
                                                        response=_reply(content)))
     engine.submit_action(DirectToolCall(decision, "action-reply", "start_activity",
-                                        StartActivityRequest(**_WAIT_CHOICE)))
+                                        start_request(**_WAIT_CHOICE)))
 
     [requested] = _events(engine, "action_requested")
     assert "self_note" in requested.data and requested.data["self_note"] == note
@@ -320,7 +320,7 @@ def test_self_note_ignores_other_decisions_and_failed_calls(_engine_factory):
     engine.record_model_exchange(ModelCallEvidence(decision, call_id, "failure", 1, _action_request(),
                                                    error="TimeoutError()"))
     engine.submit_action(DirectToolCall(decision, "action-isolated", "start_activity",
-                                        StartActivityRequest(**_WAIT_CHOICE)))
+                                        start_request(**_WAIT_CHOICE)))
     [requested] = _events(engine, "action_requested")
     assert requested.data["self_note"] is None
 

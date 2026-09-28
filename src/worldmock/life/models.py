@@ -375,6 +375,8 @@ class AgentState(StrictModel):
     # 社交最小可行版（docs/dev/SPEC-life-runtime.md「社交最小可行版」）：收件箱与已读消息。
     inbox: dict[str, Message] = Field(default_factory=dict)
     read_inbox_ids: set[str] = Field(default_factory=set)
+    # 发给场景联系人的消息（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」），联系人回复请求的往来由它与收件箱组成。
+    outbox: dict[str, Message] = Field(default_factory=dict)
     # 情绪与不适脉冲簿记（docs/dev/SPEC-life-runtime.md「其他体感分级」）。
     mood_updated_at: int | None = Field(default=None, ge=0)
     discomfort_started_at: int | None = Field(default=None, ge=0)
@@ -511,6 +513,10 @@ class DeliveryState(StrictModel):
     expected_at: int = Field(gt=0)
     status: Literal["pending", "ready", "delivered", "cancelled"]
     total_price_fen: int = Field(ge=0)
+    # 收货人（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：同世界人物为 agent:<id>，联系人为联系人身份；
+    # 付款人仍是 agent_id。request_message_id 为 answering 关联的直接消息。
+    recipient_id: str = Field(min_length=1)
+    request_message_id: str | None = None
 
 
 class StoredAction(StrictModel):
@@ -609,6 +615,8 @@ class WorldState(StrictModel):
     activities: dict[str, ActivityState] = Field(default_factory=dict)
     sessions: dict[str, SessionState] = Field(default_factory=dict)
     deliveries: dict[str, DeliveryState] = Field(default_factory=dict)
+    #: 场景联系人实际收到的物品（联系人身份 → 商品 → 份数）：直接配送与当面给予都记在这里。
+    contact_holdings: dict[str, dict[str, float]] = Field(default_factory=dict)
     pending_events: list[ScheduledEvent] = Field(default_factory=list)
     processed_actions: dict[str, StoredAction] = Field(default_factory=dict)
     paid_task_ids: set[str] = Field(default_factory=set)
@@ -834,11 +842,13 @@ class ChangeActivityRequest(FrozenModel):
 
 
 class PurchaseItem(FrozenModel):
-    """@brief 一笔订单中明确选定的门店供给与数量。"""
+    """@brief 一笔订单中明确选定的门店供给、数量、收货人与所回应的消息（没有时为 None）。"""
 
     supply_id: str = Field(pattern=r"\S")
     quantity: int = Field(gt=0, le=100)
     price_version: str = Field(pattern=r"\S")
+    recipient_id: str = Field(pattern=r"\S")
+    request_message_id: str | None = None
 
 
 class PurchaseOrderRequest(FrozenModel):
@@ -988,12 +998,20 @@ class StartActivityRequest(FrozenModel):
     :param targets: 本次活动的可见对象名称，至多两项。
     :param actions: 与对象逐项对应的动词（travel、interact、obtain、consume、sleep）。
     :param ways: 与对象逐项对应的方式短语，取该对象本轮列出的方式；只有一种方式也要照填。
+    :param from_: 与对象逐项对应的来源（字段名 from）。
+    :param to: 与对象逐项对应的去向。
+    :param answering: 所回应的消息名称。
     """
 
-    model_config = ConfigDict(json_schema_extra=purpose_only_schema())
+    model_config = ConfigDict(extra="forbid", frozen=True, validate_by_name=True, validate_by_alias=True,
+                              serialize_by_alias=True, json_schema_extra=purpose_only_schema())
     targets: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     actions: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
     ways: Annotated[list[str], WithJsonSchema({"type": "array", "items": {"type": "string"}})]
+    from_: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})] = (
+        Field(alias="from"))
+    to: Annotated[list[str | None], WithJsonSchema({"type": "array", "items": {"type": ["string", "null"]}})]
+    answering: str | None
 
 
 class SubmitWorkActionRequest(FrozenModel):

@@ -9,7 +9,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 stage_day_plan, wake_by_mail)
+                                 stage_day_plan, wake_by_mail, start_request)
 from worldmock.corpora import load_manifest
 from worldmock.footprints.models import EventDraft
 from worldmock.life.readable import duration_phrase
@@ -20,7 +20,6 @@ from worldmock.life.models import (
     ContentProgress,
     PauseActivityRequest,
     ReportStatusRequest,
-    StartActivityRequest,
 )
 from worldmock.life.scenario import load_scenario
 
@@ -46,7 +45,7 @@ def _act(engine, round_id: str, tool_name: str, request):
                       for action in row["actions"]
                       if row["object_id"] == target_id
                       and action["canonical_action"] == canonical_action)
-        request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+        request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                        ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", tool_name, request))
     return engine.commit_decision_round(round_id)[0]
@@ -312,7 +311,7 @@ def _start_listed_content(engine, round_id: str, item_id: str) -> tuple[str, lis
                    if row["kind"] == "content" and row["object_id"] == item_id)
     listed = next(row["actions"] for row in observed["tool_layer"]["targets"] if row["name"] == binding["object"])
     (action,) = binding["actions"]
-    request = StartActivityRequest(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
+    request = start_request(targets=[binding["object"]], actions=[action["verb"]], ways=[action["label"]])
     engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", "start_activity", request))
     return binding["object"], listed, engine.commit_decision_round(round_id)[0]
 

@@ -187,7 +187,7 @@ def _order(order_id: str, product_id: str, created_at: int) -> dict:
         location_id="shop", seller_account_id="seller:shop", price_version="v1", route_id=None,
         source={"kind": "fixture"}, quantity=1, destination_id="office", fulfillment="delivery",
         created_at=created_at, expected_at=created_at + 900, status="pending",
-        total_price_fen=2800).model_dump(mode="json")
+        total_price_fen=2800, recipient_id="agent:1").model_dump(mode="json")
 
 
 def _purchase(at: int, decision: str, action: str, orders: list[dict]) -> list[EventDraft]:

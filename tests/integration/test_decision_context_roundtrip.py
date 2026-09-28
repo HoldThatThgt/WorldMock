@@ -15,6 +15,7 @@ from tests.life.conftest import (
     engine_factory as _engine_factory,
     pending_names,
     stage_day_plan,
+    start_arguments,
 )
 from tests.integration.test_life_agent_protocol import _ModelResponse
 from agentsociety2.agent.base import ReactLoopRequest
@@ -80,7 +81,7 @@ async def _decide(environment, ctx, choose):
 
 def _wait(observation: dict) -> tuple[str, dict]:
     """对「自己」选择 interact：等待，开始一段等待。"""
-    return "start_activity", {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
+    return "start_activity", start_arguments(["自己"], ["interact"], ["等待"])
 
 
 def _conclude_just_ended(observation: dict) -> tuple[str, dict]:

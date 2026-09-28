@@ -16,10 +16,10 @@ from custom.agents.life_menu import menu_action_error
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_interaction_menu_roundtrip import _decide
 from tests.integration.test_life_agent_protocol import _WAIT_CHOICE, _offer, _visible_object
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan  # noqa: F401
+from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_request,
+                                 start_arguments)  # noqa: F401
 from worldmock.life import prompt_capacity
 from worldmock.life.interaction_menu import InteractionMenu, resolve_selection
-from worldmock.life.models import StartActivityRequest
 
 _MILK = "便利店出售的牛奶"
 #: 本轮私有绑定：游戏的游玩与观看、内容的接着看、供给的远程下单都在只含等待与睡觉的菜单之外。
@@ -36,7 +36,7 @@ _DENIED = "interaction menu denies start_activity"
 
 def _menu_error(targets: list[str], actions: list[str], ways: list[str]) -> str:
     """按本轮私有绑定解析所选各项的内部动作，再由冻结的地点菜单判定整组。"""
-    request = StartActivityRequest(targets=targets, actions=actions, ways=ways)
+    request = start_request(targets=targets, actions=actions, ways=ways)
     selected = resolve_selection(_BINDINGS, request.targets, request.actions, request.ways)
     assert selected is not None
     return menu_action_error(_MENU, "start_activity",
@@ -94,7 +94,7 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     targets, actions, ways = (list(column) for column in zip(*(pair if drive_first else pair[::-1])))
     before = _world(engine)
     await _decide(environment, first, observed, "start_activity",
-                  {"targets": targets, "actions": actions, "ways": ways})
+                  start_arguments(targets, actions, ways))
     [result] = engine.commit_decision_round(first.round_id)
 
     assert (result.status.value, result.error_code) == ("rejected", "RESOURCE_CONFLICT")
@@ -109,7 +109,7 @@ async def test_conflicting_pair_is_rejected_as_a_whole_and_explained_to_the_pers
     shown = await environment.observe(second)
     latest = [event for event in shown["progress_layer"]["events"] if event["type"] == "tool_call"][-1]
     assert (latest["tool"], latest["arguments"]) == ("start_activity",
-                                                     {"targets": targets, "actions": actions, "ways": ways})
+                                                     start_arguments(targets, actions, ways))
     assert (latest["result"]["status"], latest["result"]["error_code"]) == ("rejected", "RESOURCE_CONFLICT")
     assert (latest["result"]["details"]["reason"], latest["result"]["details"]["next_step"]) == (reason, next_step)
     requests = await _decide(environment, second, shown, "start_activity", _WAIT_CHOICE)

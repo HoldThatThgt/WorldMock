@@ -11,13 +11,13 @@ from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (
     activity_name, advance_next, advance_until_ready, conclude_request, context, stage_day_plan, wake_by_mail,
-)
+    start_request)
 from worldmock.errors import ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (
     ActivityStatus, PauseActivityRequest,
-    ReportStatusRequest, StartActivityRequest,
+    ReportStatusRequest,
 )
 
 
@@ -37,7 +37,7 @@ def _start_visible_action(engine, round_id: str, canonical_action: str):
     observed = engine.observe(decision)
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == canonical_action)
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+    request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                    ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, f"action-{round_id}", "start_activity", request))
     return observed, engine.commit_decision_round(round_id)[0]
@@ -134,7 +134,7 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     before = engine.state.current_time
     _, rejected = _observed_action(
         engine, "unknown-object", "start_activity",
-        StartActivityRequest(targets=["不存在的对象"], actions=["interact"], ways=["观看"]))
+        start_request(targets=["不存在的对象"], actions=["interact"], ways=["观看"]))
     assert rejected.status == "rejected" and rejected.error_code == "ACTION_REQUEST_INVALID"
     assert engine.state.current_time == before
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
@@ -150,7 +150,7 @@ def test_business_rejection_is_reported_in_progress_and_run_continues(engine_fac
     assert call["arguments"]["targets"] == ["不存在的对象"]
     choice = next((row, action) for row in observed["interaction_bindings"]
                   for action in row["actions"] if action["canonical_action"] == "wait")
-    request = StartActivityRequest(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
+    request = start_request(targets=[choice[0]["object"]], actions=[choice[1]["verb"]],
                                    ways=[choice[1]["label"]])
     engine.submit_action(DirectToolCall(decision, "action-recovered", "start_activity", request))
     assert engine.commit_decision_round("after-rejection")[0].status == "in_progress"

@@ -30,7 +30,7 @@ from custom.agents.life_continuation import layer_changes, send_check  # noqa: E
 from custom.envs.life_env import LifeEnv  # noqa: E402
 from tests.integration.test_life_agent_protocol import _ModelResponse  # noqa: E402
 from tests.life.conftest import (advance_until_ready, context, engine_factory as _engine_factory,  # noqa: E402,F401
-                                 pending_names, stage_day_plan, start_activity)
+                                 pending_names, stage_day_plan, start_activity, start_arguments)
 from worldmock.errors import IntegrityError  # noqa: E402
 from worldmock.life import prompt_capacity  # noqa: E402
 from worldmock.life.continuation import _session_changed  # noqa: E402
@@ -44,7 +44,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCENARIO = ROOT / "scenarios" / "white-collar-12-weeks.json"
 #: 上一决策修订今日计划（瞬时请求，人物同一秒再决策）；思考里提到咖啡。
 _PLAN = {"goals": [{"intent_kind": "休息", "goal": "下午喝杯咖啡", "remind_time": None}]}
-_WAIT = {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]}
+_WAIT = start_arguments(["自己"], ["interact"], ["等待"])
 _THINK_PLAN = "上午有点困，先把下午喝咖啡写进计划。"
 _THINK_WAIT = "计划写好了，先歇一会儿。"
 _NOTE = "先把计划写上。"
@@ -280,8 +280,8 @@ async def test_a_same_second_departure_breaks_the_chain(_engine_factory) -> None
     def leave(observation: dict) -> list:
         target, way = next((row["object"], action["label"]) for row in observation["interaction_bindings"]
                            if row["kind"] == "location" for action in row["actions"] if action["label"] == "步行")
-        return [_reply("call-leave", "start_activity", {"targets": [target], "actions": [WAYS[way][0]],
-                                                         "ways": [way]}, "出门去。")]
+        return [_reply("call-leave", "start_activity", start_arguments([target], [WAYS[way][0]], [way]),
+                       "出门去。")]
 
     scripts = {1: leave, 2: lambda observation: [_reply("call-2", "send_message", {
         "recipient_name": _person_name(observation, 1), "text": "路上小心。"}, "提醒她。")]}
@@ -483,8 +483,8 @@ async def test_a_rejected_request_continues_with_the_rejection_reason(_engine_fa
         row = next(row for row in observation["tool_layer"]["targets"] for action in row["actions"]
                    if not action["available"])
         action = next(action for action in row["actions"] if not action["available"])
-        return [_reply("call-refused", "start_activity", {"targets": [row["name"]], "actions": [action["action"]],
-                                                           "ways": [action["way"]]}, "试试看。")]
+        return [_reply("call-refused", "start_activity",
+                       start_arguments([row["name"]], [action["action"]], [action["way"]]), "试试看。")]
 
     await _single(environment, "refused", unavailable)
     observation, [request], _ = await _single(environment, "wait", _wait_reply())
@@ -503,8 +503,7 @@ async def test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking
     await _single(environment, "plan", _plan_reply())
     ctx = context(engine, "wait")
     engine.begin_decision_round([ctx])
-    bad = _reply("call-bad", "start_activity", {"targets": ["不存在的对象"], "actions": ["interact"],
-                                                 "ways": ["等待"]}, None)
+    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"]), None)
     with pytest.raises(RuntimeError, match="current decision is missing reasoning_content"):
         await _decide(environment, ctx, [bad, *_wait_reply()])
 
@@ -585,8 +584,8 @@ async def test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_ev
         return original(request)
 
     monkeypatch.setattr(prompt_capacity, "request_token_count", count)
-    bad = _reply("call-bad", "start_activity", {"targets": ["不存在的对象"], "actions": ["interact"],
-                                                 "ways": ["等待"]}, "先试一个。")
+    bad = _reply("call-bad", "start_activity", start_arguments(["不存在的对象"], ["interact"], ["等待"]),
+                 "先试一个。")
     observation, requests, _ = await _single(environment, "wait", [bad, *_wait_reply()])
     assert observation["continuation"] is not None and len(requests) == 2
     for request in requests:

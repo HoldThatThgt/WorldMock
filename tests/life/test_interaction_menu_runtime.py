@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agentsociety2.society import DirectToolCall
 
-from tests.life.conftest import context, stage_day_plan
+from tests.life.conftest import context, stage_day_plan, start_request
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.models import StartActivityRequest
 
@@ -72,7 +72,7 @@ def test_travel_uses_exact_frozen_route_seconds(engine_factory):
     location = _binding(preview, "location", "travel_to")
     choice = next(item for item in location["actions"] if item["travel_mode"] == "walking")
     assert choice["label"] == "步行" and choice["verb"] == "travel"
-    request = StartActivityRequest(targets=[location["object"]], actions=["travel"], ways=[choice["label"]])
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=[choice["label"]])
     _, result = _observed_action(engine, "travel-exact", request)
     assert result.status == "in_progress", result.error_code
     activity = engine.state.activities[result.activity_id]
@@ -92,7 +92,7 @@ def test_menu_rejects_unoffered_semantic_action_before_travel(engine_factory):
     stage_day_plan(engine)
     preview = engine.observe(context(engine, "denied-preview"))
     location = _binding(preview, "location", "travel_to")
-    request = StartActivityRequest(targets=[location["object"]], actions=["travel"], ways=["步行"])
+    request = start_request(targets=[location["object"]], actions=["travel"], ways=["步行"])
     _deny_travel_at_home(engine)
     before = engine.state.accounts.copy(), engine.state.activities.copy()
     observed, result = _observed_action(engine, "denied-travel", request)

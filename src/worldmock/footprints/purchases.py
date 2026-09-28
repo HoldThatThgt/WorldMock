@@ -32,8 +32,8 @@ def _purchases(events: list[dict]) -> list[dict]:
             rows.append({"fact_kind": "purchase", "agent_id": order["agent_id"], "order_id": order["order_id"],
                          "product_id": order["product_id"], "supply_id": order["supply_id"],
                          "quantity": order["quantity"], "total_price_fen": order["total_price_fen"],
-                         "fulfillment": order["fulfillment"], "recipient_id": order.get("recipient_id"),
-                         "request_message_id": order.get("request_message_id"), "created_at": order["created_at"],
+                         "fulfillment": order["fulfillment"], "recipient_id": order["recipient_id"],
+                         "request_message_id": order["request_message_id"], "created_at": order["created_at"],
                          "action_id": event["action_id"], "source_event_id": event["event_id"]})
     return rows
 

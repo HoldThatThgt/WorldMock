@@ -14,7 +14,7 @@ from typing import Any
 
 from worldmock.categories import Action
 from worldmock.errors import BusinessRuleError, IntegrityError
-from worldmock.life import activity_control, admission, same_moment, social, social_actions
+from worldmock.life import activity_control, admission, giving, same_moment, social, social_actions
 from worldmock.life.activities import location_kinds_allow
 from worldmock.life.basket import (delivery_expected_at, held_quantity, meal_portion, plan_delivery, purchase_order,
                                   validate_meal_use)
@@ -22,7 +22,7 @@ from worldmock.life.category_contract import require_item_rules
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.discovery import DiscoveryContext, place_row
 from worldmock.life.guidance import Refusal, refusal_for_code, rejection_guidance
-from worldmock.life.interaction_menu import InteractionMenu
+from worldmock.life.interaction_menu import GIVE_WAY, InteractionMenu
 from worldmock.life.inventory_recipe import RecipeContext, prepare_inventory_recipe
 from worldmock.life.models import (ActivityKind, ActivityStartParams, ActivityStatus, ConsumeItem, ConsumeRequest,
                                    PurchaseItem, PurchaseOrderRequest, SameMomentStage, WorldState,
@@ -124,9 +124,10 @@ def _stage_refusal(context: LayerContext, candidate: Candidate) -> Refusal | Non
     waiting = frozenset(item.activity_id for item in activity_control.pending_conclusions(context.state,
                                                                                           context.agent_id))
     actions = [candidate.action["canonical_action"]] if candidate.tool == "start_activity" else []
+    ways = [candidate.action["label"]] if candidate.tool == "start_activity" else []
     named = ([context.state.activities[candidate.activity_id]]
              if candidate.tool in {"report_status", "conclude_activity"} else [])
-    return same_moment.stage_refusal(stage, same_moment.request_kind(candidate.tool, actions, named, waiting))
+    return same_moment.stage_refusal(stage, same_moment.request_kind(candidate.tool, actions, named, waiting, ways))
 
 
 def _admission_context(context: LayerContext) -> admission.Context:
@@ -154,8 +155,9 @@ def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusa
     refusal = admission.group_refusal(_admission_context(context), [item])
     if refusal is not None:
         return refusal
+    check = _give_check if action["label"] == GIVE_WAY else _OBJECT_CHECKS[action["canonical_action"]]
     try:
-        return _OBJECT_CHECKS[action["canonical_action"]](context, binding, action)
+        return check(context, binding, action)
     except BusinessRuleError as error:
         guidance = rejection_guidance(error)
         return Refusal(str(error), guidance["reason"], guidance["next_step"])
@@ -266,7 +268,8 @@ def _purchase_check(context: LayerContext, binding: dict, action: dict) -> Refus
     amount = context.semantics.purchase_amount(supply.product_id, quote.price_fen, 1)
     if state.accounts[agent.balance_account_id] < amount:
         return refusal_for_code("INSUFFICIENT_FUNDS")
-    item = PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=binding["quote"]["price_version"])
+    item = PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=binding["quote"]["price_version"],
+                        recipient_id=f"agent:{context.agent_id}")
     purchase_order(state, context.semantics, context.agent_id, PurchaseOrderRequest(
         items=(item,), fulfillment=fulfillment, destination_id=agent.location_id))
     return None
@@ -297,6 +300,11 @@ def _consume_check(context: LayerContext, binding: dict, action: dict) -> Refusa
     if recipe is None and held_quantity(agent, product.product_id) + 1e-9 < portion:
         return refusal_for_code("PRODUCT_NOT_HELD")
     return None
+
+
+def _give_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
+    """@brief 给予：手边要持有这件东西（与谁同处按受理时的去向判定，不在逐目标的可用性里）。"""
+    return giving.held_refusal(context.state, context.agent_id, binding["object_id"])
 
 
 #: 内部标准动作 → 对象自身条件的判定。
@@ -382,6 +390,8 @@ def _action_facts(context: LayerContext, row: dict, action: dict) -> dict:
         return {**facts, **_travel_facts(context, row, action)}
     if canonical == "purchase":
         return {**facts, **_purchase_facts(context, row, action)}
+    if action["label"] == GIVE_WAY:
+        return {**facts, "quantity": portion_phrase(giving.give_quantity(_held_at_row(context, row)))}
     if canonical == "consume":
         product = context.rules.items[row["object_id"]]
         agent = context.state.agents[context.agent_id]
@@ -451,16 +461,20 @@ def _state(context: LayerContext, row: dict) -> str | None:
     return None
 
 
+def _held_at_row(context: LayerContext, row: dict) -> float:
+    """@brief 持有物目标所在地点（他处持有物取其地点，否则取此刻所在地点）的持有份数。"""
+    place = row.get("location_id") or admission.present_location(context.state, context.agent_id)
+    return context.state.agents[context.agent_id].inventory.get(place, {}).get(row["object_id"], 0)
+
+
 def _product_state(context: LayerContext, row: dict) -> str | None:
     """@brief 商品目标的状态：持有物写持有份数，食品另写每份热量。"""
-    agent = context.state.agents[context.agent_id]
     if row["kind"] == "supply":
         product = context.rules.items[context.rules.supplies[row["object_id"]].product_id]
         parts = []
     else:
         product = context.rules.items[row["object_id"]]
-        place = row.get("location_id") or admission.present_location(context.state, context.agent_id)
-        parts = [f"持有 {portion_phrase(agent.inventory.get(place, {}).get(product.product_id, 0))}"]
+        parts = [f"持有 {portion_phrase(_held_at_row(context, row))}"]
     if "eat" in product.use_modes:
         parts.append(food_energy_label(product.energy_kcal_per_unit))
     return "，".join(parts) or None

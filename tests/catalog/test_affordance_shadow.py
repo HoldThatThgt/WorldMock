@@ -78,6 +78,7 @@ EXPECTED_HABIT_ROUTES = [
     ("consume", "制作", "eat"),
     ("consume", "食用", "eat"),
     ("consume", "使用", "eat"),
+    ("consume", "给予", "eat"),
     ("travel_to", "步行", "travel"),
     ("travel_to", "驾车", "travel"),
     ("watch", "观看", "entertainment"),

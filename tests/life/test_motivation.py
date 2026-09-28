@@ -10,7 +10,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import pytest
-from tests.life.conftest import advance_next
+from tests.life.conftest import advance_next, start_request
 from tests.life.conftest import context as round_context
 from tests.life.conftest import submit_round
 
@@ -22,7 +22,6 @@ from worldmock.life.models import (
     AgentState,
     BodyState,
     ContentProgress,
-    StartActivityRequest,
 )
 from worldmock.life.map_models import SupplyConfig
 from worldmock.life.content import load_lifestyle_items
@@ -1142,7 +1141,7 @@ class TestEngineInjection:
     def test_hints_do_not_enter_settlement(self, engine_factory):
         """@brief 有无提示的两个同源运行走同一决策轮，结果与终态逐字节一致。"""
         plain, hinted = engine_factory(), _profiled_engine(engine_factory)
-        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
+        request = ("start_activity", start_request(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
         results = []
         states = []
         for engine in (plain, hinted):
@@ -1193,7 +1192,7 @@ class TestMarketSummary:
 
     def test_summary_stays_public_when_market_opens(self, engine_factory):
         engine = engine_factory()
-        request = ("start_activity", StartActivityRequest(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
+        request = ("start_activity", start_request(targets=["自己"], actions=["sleep"], ways=["睡觉"]))
         submit_round(engine, {1: request}, "r-mkt-open")
         advance_next(engine)
         data = engine.observe(round_context(engine, "r-mkt-open2", agent_id=1))

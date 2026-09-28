@@ -13,7 +13,7 @@ from agentsociety2.society import DirectToolCall
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
-                                 start_activity, submit_round, wake_by_mail)
+                                 start_activity, submit_round, wake_by_mail, start_request)
 from worldmock.delivery.windows import prepare_windows
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
@@ -85,7 +85,7 @@ def _wait_request(observation: dict) -> StartActivityRequest:
     own = next(row for row in observation["interaction_bindings"] if row["kind"] == "self")
     action = next(row for row in own["actions"] if row["canonical_action"] == "wait")
     assert (action["verb"], action["label"]) == ("interact", "等待")
-    return StartActivityRequest(targets=[own["object"]], actions=[action["verb"]], ways=[action["label"]])
+    return start_request(targets=[own["object"]], actions=[action["verb"]], ways=[action["label"]])
 
 
 _MEMORY = {"type": "routine", "text": "等了一会儿，还是先去忙别的。", "importance": 0.4, "keywords": ["等待"],
@@ -299,7 +299,7 @@ def _named(observed: dict, activity_id: str) -> str:
 
 def _offered(observed: dict, action: str, mode: str | None = None) -> StartActivityRequest:
     """@brief 从冻结观察选一个提供该动作的对象，照填其动词与方式（出行按方式筛选）。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
+    return next(start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observed["interaction_bindings"] for offered in row["actions"]
                 if offered["canonical_action"] == action and (mode is None or offered.get("travel_mode") == mode))
 

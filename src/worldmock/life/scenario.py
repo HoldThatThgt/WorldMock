@@ -791,10 +791,12 @@ class RuntimeScenario(FrozenModel):
 
 
 def _check_location_references(agents, routes, supply_locations, tasks, locations) -> None:
-    """@brief 确保住处、路线、供给与任务地点引用已声明地点。"""
+    """@brief 确保住处、联系人收货地点、路线、供给与任务地点引用已声明地点。"""
     known = {item.location_id for item in locations}
     if any(agent.home_location_id not in known for agent in agents):
         raise ValueError("agent home is not a declared location")
+    if any(contact.receive_location_id not in {None, *known} for agent in agents for contact in agent.contacts):
+        raise ValueError("contact receive location is not a declared location")
     if any(route.origin_id not in known or route.destination_id not in known for route in routes):
         raise ValueError("route references an unknown location")
     if any(location_id not in known for location_id in supply_locations):

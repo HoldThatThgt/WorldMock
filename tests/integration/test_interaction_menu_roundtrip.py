@@ -25,6 +25,7 @@ from tests.life.conftest import (
     engine_factory as _engine_factory,
     pending_names,
     stage_day_plan,
+    start_arguments,
 )
 from worldmock.life.interaction_menu import WAYS
 from worldmock.life import prompt_capacity
@@ -113,10 +114,11 @@ async def test_location_menu_changes_model_choices_and_preserves_result_evidence
     travel = next(item for item in office_binding["actions"] if item.get("travel_mode") == "walking")
     assert (travel["verb"], travel["label"], travel["canonical_action"]) == ("travel", "步行", "travel_to")
     assert WAYS[travel["label"]] == ("travel", travel["canonical_action"])
-    walk = {"targets": [office_binding["object"]], "actions": ["travel"], "ways": ["步行"]}
+    walk = start_arguments([office_binding["object"]], ["travel"], ["步行"])
     home_requests = await _decide(environment, first, home, "start_activity", walk)
     assert travel["canonical_action"] in home["interaction_menu"]["allowed_actions"]
-    assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == {"targets", "actions", "ways"}
+    assert set(_action_schema(home_requests[0])["parameters"]["properties"]) == (
+        {"targets", "actions", "ways", "from", "to", "answering"})
     assert [event for event in home["progress_layer"]["events"] if event["type"] == "tool_call"] == []
     started = engine.commit_decision_round(first.round_id)[0]
     assert started.status.value == "in_progress"

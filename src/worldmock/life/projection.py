@@ -20,8 +20,8 @@ from zoneinfo import ZoneInfo
 
 from worldmock.life import admission, felt, social
 from worldmock.life.content import restarts_from_beginning
-from worldmock.life.interaction_menu import (ACTION_WAYS, CONTENT_WAYS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS,
-                                             binding_action)
+from worldmock.life.interaction_menu import (ACTION_WAYS, CONTENT_WAYS, GIVE_WAY, PURCHASE_WAYS, TRAVEL_WAYS,
+                                             USE_WAYS, binding_action)
 from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
@@ -281,7 +281,7 @@ def _interaction_object_label(inputs: ProjectionInputs, row: dict[str, Any]) -> 
 
 
 def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[dict[str, Any]]:
-    """@brief 将内部动作映射为动词与方式：路线按目的地冻结可用方式，供给按履约方式，持有物按使用方式与配方。
+    """@brief 将内部动作映射为动词与方式：路线按目的地冻结可用方式，供给按履约方式，持有物按使用方式与配方，另列给予。
 
     按世界事实过滤（不可达或未核实的路线、没有购买规则或资格的供给）的动作不列出；其余照常列出。
     """
@@ -293,8 +293,8 @@ def _interaction_actions(inputs: ProjectionInputs, row: dict[str, Any]) -> list[
         product = next(item for item in (*inputs.scenario.products, *inputs.scenario.inventory_items)
                        if item.product_id == row["object_id"])
         recipes = inputs.extras.get("recipe_product_ids", frozenset())
-        return [binding_action(_use_way(mode, product.product_id in recipes), "consume", use_mode=mode)
-                for mode in product.use_modes]
+        return [*(binding_action(_use_way(mode, product.product_id in recipes), "consume", use_mode=mode)
+                  for mode in product.use_modes), binding_action(GIVE_WAY, "consume")]
     if row["kind"] == "supply":
         return _supply_actions(inputs, row)
     if row.get("way") is not None:

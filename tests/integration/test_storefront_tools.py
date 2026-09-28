@@ -20,9 +20,10 @@ from custom.agents.life_agent import LifeAgent
 from tests.integration.test_life_agent_protocol import (
     _add_objects, _context, _observations, _offer, _visible_object,
 )
-from tests.life.conftest import context, engine_factory as _engine_factory, stage_day_plan
-from worldmock.life.models import StartActivityRequest
+from tests.life.conftest import (context, engine_factory as _engine_factory, stage_day_plan, start_arguments,
+                                 start_request)
 from worldmock.footprints.models import EventDraft
+from worldmock.life.models import ActionResult
 from worldmock.life.session_actions import SessionActionMixin
 
 
@@ -81,7 +82,7 @@ def _functions(person: LifeAgent) -> dict[str, dict]:
 
 def _obtain(target: str, way: str = "到店", **extra) -> ReactDecision:
     """对一个对象选择取得（obtain）及其方式的 start_activity 决定。"""
-    return ReactDecision("", "start_activity", {"targets": [target], "actions": ["obtain"], "ways": [way], **extra}, "")
+    return ReactDecision("", "start_activity", start_arguments([target], ["obtain"], [way], **extra), "")
 
 
 def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
@@ -92,7 +93,7 @@ def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
     tools = _functions(person)
     assert "purchase" not in tools and "discover_places" not in tools
     action = tools["start_activity"]["parameters"]
-    assert set(action["properties"]) == {"targets", "actions", "ways"}
+    assert set(action["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
     user = person.build_react_messages(ReactLoopRequest(0, _context().observed_at, observed))[1]["content"]
     [target] = [row for row in json.loads(user)[0]["targets"] if row["name"] == _OFFER]
     assert target["kind"] == "product"
@@ -102,7 +103,7 @@ def test_model_chooses_named_offer_and_fulfillment_without_echoing_quote():
     for way in ("到店", "远程下单"):
         assert person.validate_react_decisions([_obtain(_OFFER, way)], False) == ""
     assert "not offered" in person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [_OFFER], "actions": ["consume"], "ways": ["到店"]}, ""),
+        ReactDecision("", "start_activity", start_arguments([_OFFER], ["consume"], ["到店"]), ""),
     ], False)
     assert "invalid start_activity arguments" in person.validate_react_decisions([
         _obtain(_OFFER, price_version="guessed"),
@@ -119,8 +120,31 @@ def test_unoffered_supply_name_is_resolved_by_the_environment_not_the_host(label
     for way in ("到店", "远程下单"):
         assert person.validate_react_decisions([_obtain(label, way)], False) == ""
     error = person.validate_react_decisions([
-        ReactDecision("", "start_activity", {"targets": [label], "actions": ["consume"], "ways": ["食用"]}, "")], False)
+        ReactDecision("", "start_activity", start_arguments([label], ["consume"], ["食用"]), "")], False)
     assert "visible interactive object" in error
+
+
+def test_host_checks_from_to_and_answering_against_private_bindings():
+    """宿主按私有绑定本地校验来源、去向与 answering（与环境同一判定，docs/dev/SPEC-persona-prompt.md 第五章）：去向是
+    「自己」或本轮的人物，answering 是本轮可见的直接消息且至少一项送给发件人；不合法时返回英文协议错误原文。"""
+    observed = _observed_offer()
+    data = observed[0]["data"]
+    _add_objects(data, _visible_object("联系人：王磊", "contact", "contact-wanglei", _offer("interact", "通话", "call")))
+    data["message_bindings"] = [{"name": "王磊 10:35 的消息", "message_id": "reply-1", "sender_id": "contact-wanglei"}]
+    person = LifeAgent()
+    person.prepare_react_loop(ReactLoopRequest(0, _context().observed_at, observed))
+
+    def error(**fields) -> str:
+        """一次远程下单的本地校验结果（空串即通过）。"""
+        return person.validate_react_decisions([_obtain(_OFFER, "远程下单", **fields)], False)
+
+    assert error() == "" and error(to=["联系人：王磊"], answering="王磊 10:35 的消息") == ""
+    assert error(to=["联系人：陌生人"]) == "start_activity to is not a visible person"
+    assert error(answering="王磊 10:35 的消息") == (
+        "start_activity answering needs an item whose to is the message sender")
+    assert error(to=["联系人：王磊"], answering="王磊 9:00 的消息") == "start_activity answering is not a visible message"
+    assert error(**{"from": ["家门口便利店"]}) == "start_activity from is null when the target already names its store"
+    assert error(to=[None]) == "start_activity obtain and consume need to"
 
 
 def test_supply_fulfillment_is_bound_per_visible_object():
@@ -154,18 +178,20 @@ def test_each_selected_supply_keeps_its_own_frozen_quote():
                 "supply-a": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
                 "supply-b": SimpleNamespace(location_id="home", fulfillment_modes=("pickup",)),
             })
+            self.scenario = self.semantics = SimpleNamespace()
             self.request = None
             self.named = None
 
         def _purchase(self, state, pending, request, named=frozenset()):
             self.request, self.named = request, named
-            return state, SimpleNamespace(status="completed")
+            return state, ActionResult(action_id="a", agent_id=1, status="completed", occurred_at=0,
+                                       message="Purchase accepted", data={"orders": []})
 
     runtime = CapturePurchase()
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     pending = SimpleNamespace(agent_id=1)
     bindings = [
-        {"object_id": identity, "selected_action": {"fulfillment": "pickup"},
+        {"object_id": identity, "selected_action": {"fulfillment": "pickup"}, "recipient_id": "agent:1",
          "quote": {"price_version": version, "price_fen": price}}
         for identity, version, price in (("supply-a", "quote-a", 1000), ("supply-b", "quote-b", 1600))
     ]
@@ -188,8 +214,8 @@ def test_real_storefront_purchase_uses_observation_quote(_engine_factory):
                          if row["kind"] == "supply" for action in row["actions"] if action["note"] is None)
     assert (action["verb"], action["canonical_action"]) == ("obtain", "purchase")
     assert action["label"] in {"到店", "远程下单"}
-    request = StartActivityRequest(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
-    assert set(request.model_dump()) == {"targets", "actions", "ways"}
+    request = start_request(targets=[offer["object"]], actions=["obtain"], ways=[action["label"]])
+    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering"}
     before_stock = engine.state.supply_stock[offer["object_id"]]
     account = engine.state.agents[current.agent_id].balance_account_id
     before_balance = engine.state.accounts[account]

@@ -79,7 +79,7 @@ def _buy(engine, identity: str, round_id: str):
 def _internal_order(engine, identity: str) -> PurchaseOrderRequest:
     """领域层复查继续接受三件内部订单，模型入口只允许单件。"""
     return PurchaseOrderRequest(items=(PurchaseItem(
-        supply_id=identity, quantity=3,
+        supply_id=identity, quantity=3, recipient_id="agent:1",
         price_version=engine.state.supply_quotes[identity].price_version),),
         fulfillment="delivery", destination_id="home")
 

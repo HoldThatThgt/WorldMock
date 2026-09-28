@@ -33,7 +33,7 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.store import FootprintStore
-from worldmock.life.models import CounterfactualIntervention, StartActivityRequest
+from worldmock.life.models import CounterfactualIntervention
 from worldmock.runtime import (
     AS2_LOCKED_SOURCE_SHA256,
     CounterfactualRequest,
@@ -711,7 +711,7 @@ class _StubContactReplyClient:
 def _npc_delivery_engine(tmp_path: Path):
     """建立隔离运行的 LifeEngine 与裸 LifeEnv 包装（采纳点=commit 后结算）。"""
     from agentsociety2.society import DecisionContext, DirectToolCall
-    from tests.life.conftest import context
+    from tests.life.conftest import context, start_request
     from worldmock.life.engine import LifeEngine
 
     scenario_path = Path("scenarios/white-collar-12-weeks.json")
@@ -781,6 +781,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
     engine, context, _DecisionContext, DirectToolCall = _npc_delivery_engine(tmp_path)
     try:
         from custom.envs.life_env import LifeEnv
+        from tests.life.conftest import start_request
 
         env = LifeEnv()
         env.engine = engine
@@ -789,7 +790,7 @@ async def test_life_env_commit_without_pending_never_builds_reply_client(
         await env.observe(ctx)
         await env.submit_action(DirectToolCall(
             ctx, "action-npc-noop", "start_activity",
-            StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])))
+            start_request(targets=["自己"], actions=["interact"], ways=["等待"])))
 
         import worldmock.runtime as runtime_module
 

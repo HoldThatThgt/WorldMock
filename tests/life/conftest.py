@@ -213,14 +213,38 @@ def wake_by_mail(engine: LifeEngine, agent_id: int = 1, offset: int = 900) -> in
     return at
 
 
+def routing_defaults(actions: list[str]) -> dict:
+    """@brief 缺省的来源、去向与 answering（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：obtain 送给自己，
+    consume 从自己手边给自己用（给予要显式写人物），其余动词都为 null，不回应消息。"""
+    return {"from_": ["自己" if verb == "consume" else None for verb in actions],
+            "to": ["自己" if verb in {"obtain", "consume"} else None for verb in actions], "answering": None}
+
+
+def start_arguments(targets, actions, ways, **fields) -> dict:
+    """@brief start_activity 的模型参数（JSON 形状，来源的字段名是 from），未写的来源、去向与 answering 取缺省。"""
+    defaults = routing_defaults(list(actions))
+    return {"targets": list(targets), "actions": list(actions), "ways": list(ways), "from": defaults["from_"],
+            "to": defaults["to"], "answering": None, **fields}
+
+
+def start_request(**fields):
+    """@brief 按对象、动词与方式三个数组构造启动请求，未写的来源、去向与 answering 取 routing_defaults（来源可按字段名
+    from_ 或 JSON 名 from 给出）。"""
+    from worldmock.life.models import StartActivityRequest
+
+    defaults = routing_defaults(list(fields.get("actions", [])))
+    if "from" in fields:
+        del defaults["from_"]
+    return StartActivityRequest(**{**defaults, **fields})
+
+
 def start_activity(way: str, *targets: str, **fields):
     """@brief 按「动词＋对象＋方式」构造启动请求：每个对象取同一方式短语，动词由方式唯一确定（第五章）。"""
     from worldmock.life.interaction_menu import WAYS
-    from worldmock.life.models import StartActivityRequest
 
     payload = {"targets": list(targets), "actions": [WAYS[way][0] for _ in targets], "ways": [way for _ in targets]}
     payload.update(fields)
-    return StartActivityRequest(**payload)
+    return start_request(**payload)
 
 
 def activity_name(engine: LifeEngine, activity_id: str) -> str:
@@ -277,10 +301,8 @@ def target_tools(observed: dict, name: str) -> dict[str, dict]:
 
 def layer_start(observed: dict, name: str, way: str):
     """按工具层目标名与方式构造 start_activity 请求（动词取该动作的 action）。"""
-    from worldmock.life.models import StartActivityRequest
-
     action = target_actions(observed, name)[way]
-    return StartActivityRequest(targets=[name], actions=[action["action"]], ways=[way])
+    return start_request(targets=[name], actions=[action["action"]], ways=[way])
 
 
 def progress_calls(observed: dict, tool: str | None = None) -> list[dict]:

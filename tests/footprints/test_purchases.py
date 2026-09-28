@@ -26,7 +26,8 @@ _ORDER = DeliveryState(
     order_id="order-beef-noodles", agent_id=1, product_id="beef-noodles", supply_id="supply-beef-noodles",
     location_id="noodle-shop", seller_account_id="seller:noodle-shop", price_version="price-v1", route_id=None,
     source={"kind": "fixture"}, quantity=1, destination_id="office", fulfillment="delivery", created_at=110,
-    expected_at=1900, status="pending", total_price_fen=2800).model_dump(mode="json")
+    expected_at=1900, status="pending", total_price_fen=2800, recipient_id="contact-wanglei",
+    request_message_id="reply-message-1").model_dump(mode="json")
 
 
 def _mixed_eat_and_buy_result() -> dict:
@@ -122,7 +123,8 @@ def test_mixed_eat_and_buy_in_progress_result_counts_its_order_once(purchase_sto
     assert purchases == [{
         "fact_kind": "purchase", "agent_id": 1, "order_id": "order-beef-noodles", "product_id": "beef-noodles",
         "supply_id": "supply-beef-noodles", "quantity": 1, "total_price_fen": 2800, "fulfillment": "delivery",
-        "recipient_id": None, "request_message_id": None, "created_at": 110, "action_id": "eat-and-buy",
+        "recipient_id": "contact-wanglei", "request_message_id": "reply-message-1", "created_at": 110,
+        "action_id": "eat-and-buy",
         "source_event_id": _ids(events, "action_result", "eat-and-buy")[0]}]
 
 

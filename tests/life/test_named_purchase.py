@@ -20,7 +20,7 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
-from tests.life.conftest import context, last_result, stage_day_plan  # noqa: E402
+from tests.life.conftest import context, last_result, stage_day_plan, start_arguments, start_request  # noqa: E402
 from tests.life.test_commerce import _browse, _stage_open  # noqa: E402
 from worldmock.errors import BusinessRuleError  # noqa: E402
 from worldmock.life import projection  # noqa: E402
@@ -44,7 +44,7 @@ def _layer_context(engine) -> LayerContext:
 
 def _obtain(target: str, way: str = "远程下单") -> StartActivityRequest:
     """对一个名称选择取得（obtain）及其方式的请求。"""
-    return StartActivityRequest(targets=[target], actions=["obtain"], ways=[way])
+    return start_request(targets=[target], actions=["obtain"], ways=[way])
 
 
 def _round(engine, name: str, request):
@@ -244,7 +244,7 @@ def _host(menu: tuple[str, ...] | None = None) -> LifeAgent:
 
 def _decision(targets: list[str], actions: list[str], ways: list[str]) -> ReactDecision:
     """一次 start_activity 决定。"""
-    return ReactDecision("", "start_activity", {"targets": targets, "actions": actions, "ways": ways}, "")
+    return ReactDecision("", "start_activity", start_arguments(targets, actions, ways), "")
 
 
 def test_host_lets_unlisted_obtain_names_through_and_corrects_other_verbs() -> None:

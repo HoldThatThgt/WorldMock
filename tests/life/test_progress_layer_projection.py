@@ -412,7 +412,9 @@ def test_work_objective_progress_grows_with_settlement(engine_factory) -> None:
 
 def _scenario(products: tuple = (), locations: tuple = ()) -> SimpleNamespace:
     """公开结果投影所需的场景切片：商品名、地点名与时区。"""
-    return SimpleNamespace(products=products, inventory_items=(), locations=locations, timezone=_ZONE)
+    agents = (SimpleNamespace(agent_id=1, name="林悦",
+                              contacts=(SimpleNamespace(contact_id="contact-wanglei", salutation="王磊"),)),)
+    return SimpleNamespace(products=products, inventory_items=(), locations=locations, timezone=_ZONE, agents=agents)
 
 
 def _result(data: dict | None = None) -> dict:
@@ -430,27 +432,30 @@ def test_fresh_result_preserves_feedback_without_action_id() -> None:
 
 
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
-    """多商品结果各自写商品名、份数、付款、方式、送达地点与预计时刻，删除报价版本、订单与供给身份。"""
+    """多商品结果各自写商品名、份数、付款、方式、送达地点、预计时刻、收货人与所回应的消息（没有关联时为 null），删除
+    报价版本、订单、供给、收货人与消息身份。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),
                 SimpleNamespace(product_id="p2", name="豆浆"))
     places = (SimpleNamespace(location_id="private-office", name="办公室"),)
     orders = [
         {"order_id": "order-1", "product_id": "p1", "supply_id": "s1", "quantity": 1, "fulfillment": "delivery",
          "destination_id": "private-office", "expected_at": _START + 900, "price_version": "private-v1",
-         "total_price_fen": 2800},
+         "total_price_fen": 2800, "recipient_id": "contact-wanglei", "request_message_id": "reply-private"},
         {"order_id": "order-2", "product_id": "p2", "supply_id": "s2", "quantity": 1, "fulfillment": "pickup",
          "destination_id": "private-office", "expected_at": _START + 86_400, "price_version": "private-v2",
-         "total_price_fen": 550},
+         "total_price_fen": 550, "recipient_id": "agent:1", "request_message_id": None},
     ]
-    public = public_result({**_result({"orders": orders}), "status": "completed", "error_code": None},
+    payload = {"orders": orders, "answering": "王磊 00:00 的消息"}
+    public = public_result({**_result(payload), "status": "completed", "error_code": None},
                            _scenario(products, places), _START)
     assert public["details"]["purchases"] == [
         {"product": "牛肉面", "quantity": "1 份", "paid": "28 元", "way": "远程下单", "destination": "办公室",
-         "expected_at": "00:15"},
+         "expected_at": "00:15", "recipient": "王磊", "request": "王磊 00:00 的消息"},
         {"product": "豆浆", "quantity": "1 份", "paid": "5.5 元", "way": "到店", "destination": "办公室",
-         "expected_at": "1月6日 00:00"},
+         "expected_at": "1月6日 00:00", "recipient": "林悦", "request": None},
     ]
-    assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1", "s1"))
+    assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1", "s1", "contact-wanglei",
+                                                   "reply-private", "agent:1"))
 
 
 def test_result_details_keep_only_new_readable_facts() -> None:

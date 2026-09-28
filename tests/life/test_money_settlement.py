@@ -16,7 +16,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, advance_until_ready, conclude_request, context, pending_names,
-                                 stage_day_plan, submit_round)
+                                 stage_day_plan, submit_round, start_request)
 from worldmock.footprints.models import (
     RESOURCE_FLOWS_FIELD,
     EventDraft,
@@ -52,7 +52,7 @@ def _stage_open(engine) -> None:
 
 def _wait() -> StartActivityRequest:
     """@brief 等待时长由场景反馈间隔派生。"""
-    return StartActivityRequest(targets=["自己"], actions=["interact"], ways=["等待"])
+    return start_request(targets=["自己"], actions=["interact"], ways=["等待"])
 
 
 def _choice(observation: dict, action: str, object_id: str | None = None,
@@ -66,7 +66,7 @@ def _choice(observation: dict, action: str, object_id: str | None = None,
                 continue
             if mode is not None and (offered.get("travel_mode") or offered.get("fulfillment")) != mode:
                 continue
-            return StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
+            return start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
     raise AssertionError(f"No observed choice for {action}: {object_id}")
 
 

@@ -31,7 +31,8 @@ from worldmock.footprints.store import FootprintStore
 from worldmock.life import progress_layer
 from worldmock.life.models import ActivityKind, SessionState, SessionStatus
 from worldmock.life.readable import iso_time, local_date
-from worldmock.life.settled_text import pause_intervals, purchase_sentence, record_lines, tool_record, work_line
+from worldmock.life.settled_text import (give_sentence, pause_intervals, purchase_sentence, record_lines,
+                                         tool_record, work_line)
 from worldmock.life.tool_layer import LayerContext
 
 #: 记忆层 JSON 的字符上限（新常量，docs/dev/SPEC-persona-prompt.md 第三章「窗口」）。
@@ -258,8 +259,11 @@ def _request_lines(build: _Build, request: Event, result: Event) -> list[_Line]:
     if (request.data["tool_name"] == "start_activity" and orders and result.data.get("status") in _SETTLED_STATUSES
             and not request.data.get("reused")):
         deliveries = context.state.deliveries
-        return [_Line(purchase_sentence(context, order), key,
-                      open=deliveries[order["order_id"]].status in _OPEN_ORDER_STATUSES) for order in orders]
+        data = result.data.get("data") or {}
+        moment = tool_record(context, request)["occurred_at"]
+        return [*(_Line(purchase_sentence(context, order, data.get("answering")), key,
+                        open=deliveries[order["order_id"]].status in _OPEN_ORDER_STATUSES) for order in orders),
+                *(_Line(give_sentence(context, moment, item), key) for item in data.get("given", []))]
     return [_Line(text, key) for text in record_lines(context, tool_record(context, request), [request, result],
                                                       build.pauses)]
 

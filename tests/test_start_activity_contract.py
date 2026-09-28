@@ -14,9 +14,10 @@ from worldmock.life.interaction_menu import (
     LIFE_VERBS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS, WAYS, binding_action,
 )
 from worldmock.life.models import (
-    ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
+    ActionResult, ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest, PauseActivityRequest,
     ReportStatusRequest, SessionTaskKind, StartActivityRequest,
 )
+from worldmock.life.routing import combination_error, require_recipients, routing_names
 from worldmock.life.schedule import DayPlan, PlanGoal
 from worldmock.life.session_actions import SessionActionMixin
 
@@ -29,14 +30,16 @@ class _ActionHarness(SessionActionMixin):
         event = SimpleNamespace(decision_id="decision", occurred_at=100, data=observation)
         self.store = SimpleNamespace(read_agent_events=lambda *_: [event])
         self.scenario = SimpleNamespace(locations=())  # 控制判定的地点名表；本组用例都在同一停留内
+        self.semantics = SimpleNamespace(scenario=self.scenario)
         self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
     def _purchase(self, state, pending, request, named=frozenset()):
-        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份）。"""
+        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份），返回只含订单数的最小结果。"""
         assert named == frozenset()
         self.calls.append(request)
-        return state, None
+        return state, ActionResult(action_id="action", agent_id=1, status="completed", occurred_at=100,
+                                   message="Purchase accepted", data={"orders": [], "count": len(request.items)})
 
     def _consume(self, state, pending, request):
         """@brief 捕获生成的商品使用请求。"""
@@ -115,7 +118,7 @@ SPEC_WAYS_BY_VERB = {
     "interact": {"工作", "观看", "游玩", "交谈", "通话", "阅读", "浏览", "进行", "等待",
                  "接着看", "从头再看", "接着听", "从头再听"},
     "obtain": {"到店", "远程下单", "制作"},
-    "consume": {"食用", "使用"},
+    "consume": {"食用", "使用", "给予"},
     "sleep": {"睡觉"},
 }
 
@@ -128,16 +131,30 @@ def _office_and_self_bindings() -> list[dict]:
              "actions": [binding_action("等待", "wait")]}]
 
 
+def _request(targets, actions, ways, **fields):
+    """@brief 三个数组之外的来源、去向与 answering 缺省为 null（非 obtain、consume 动词的合法值）。"""
+    payload = {"targets": targets, "actions": actions, "ways": ways, "from": [None] * len(targets),
+               "to": [None] * len(targets), "answering": None}
+    return StartActivityRequest.model_validate({**payload, **fields})
+
+
 def test_start_activity_schema_rejects_model_supplied_calculation():
-    """人物只提交对象、动词与方式三个数组；方式必填，不能回填金额、版本、精确时长或内部目的地。"""
-    request = StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"])
-    assert set(request.model_dump()) == {"targets", "actions", "ways"}
-    with pytest.raises(ValidationError):
-        StartActivityRequest(targets=["城西办公室"], actions=["travel"])
+    """人物提交对象、动词、方式、来源、去向五个等长数组与 answering（都必填，来源、去向、answering 可空）；不能回填
+    金额、版本、精确时长或内部目的地。来源的字段名是 from（Python 属性 from_），序列化也写 from。"""
+    request = _request(["城西办公室"], ["travel"], ["步行"])
+    assert list(request.model_dump()) == ["targets", "actions", "ways", "from", "to", "answering"]
+    assert request.from_ == [None] and request.to == [None] and request.answering is None
+    assert StartActivityRequest(targets=["x"], actions=["obtain"], ways=["到店"], from_=[None], to=["自己"],
+                                answering=None).model_dump()["from"] == [None]
+    for missing in ("ways", "from", "to", "answering"):
+        payload = _request(["城西办公室"], ["travel"], ["步行"]).model_dump()
+        del payload[missing]
+        with pytest.raises(ValidationError):
+            StartActivityRequest.model_validate(payload)
     for field, value in {"price_version": "v1", "planned_duration_seconds": 600,
                          "destination_id": "office", "quantity": 2}.items():
         with pytest.raises(ValidationError):
-            StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"], **{field: value})
+            _request(["城西办公室"], ["travel"], ["步行"], **{field: value})
 
 
 def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
@@ -150,6 +167,7 @@ def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
     assert {WAYS[way] for way in PURCHASE_WAYS.values()} == {("obtain", "purchase")}
     assert {WAYS[way] for way in USE_WAYS.values()} == {("consume", "consume")}
     assert WAYS["制作"] == ("obtain", "consume")
+    assert WAYS["给予"] == ("consume", "consume")
 
 
 @pytest.mark.parametrize("targets,actions,ways", [
@@ -168,7 +186,7 @@ def test_ways_vocabulary_maps_each_way_to_exactly_one_life_verb():
 def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions, ways):
     """三数组不等长、目标重复、项数不在一至二、对象未列出或（动词，方式）不在本轮闭集，都报 ACTION_REQUEST_INVALID。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
-    selection = harness._start_selection(_pending(), StartActivityRequest(targets=targets, actions=actions, ways=ways))
+    selection = harness._start_selection(_pending(), _request(targets, actions, ways))
     assert selection is None
     with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
         harness._start_activity(None, _pending(), selection)
@@ -177,11 +195,126 @@ def test_unresolvable_selection_is_rejected_as_invalid_request(targets, actions,
 def test_two_offered_selections_resolve_item_by_item_to_internal_actions():
     """两项逐项映射到各自的绑定行与内部标准动作，顺序与请求一致。"""
     harness = _ActionHarness({"interaction_bindings": _office_and_self_bindings()})
-    selected = harness._start_selection(_pending(), StartActivityRequest(
-        targets=["自己", "城西办公室"], actions=["interact", "travel"], ways=["等待", "步行"]))
+    selected = harness._start_selection(_pending(), _request(["自己", "城西办公室"], ["interact", "travel"],
+                                                             ["等待", "步行"]))
     assert [(row["object_id"], row["selected_action"]["verb"], row["selected_action"]["label"],
              row["selected_action"]["canonical_action"]) for row in selected] == [
         ("agent:1", "interact", "等待", "wait"), ("office", "travel", "步行", "travel_to")]
+
+
+_SUPPLY, _NOODLES, _FLOUR, _PERSON, _COLLEAGUE = "集市出售的牛肉面", "持有物：牛肉面", "持有物：面粉", "人物：李凡", "联系人：王磊"
+_MESSAGE = "王磊 10:35 的消息"
+
+
+def _routing_observation() -> dict:
+    """@brief 本轮私有绑定：一件供给、两件手边持有物（可吃的与可制作的）、办公室、同处的人、同事联系人、「自己」，
+    以及王磊的一条可见直接消息。"""
+    rows = [
+        {"object": _SUPPLY, "object_id": "supply-noodles", "kind": "supply",
+         "actions": [binding_action("远程下单", "purchase", fulfillment="delivery")]},
+        {"object": _NOODLES, "object_id": "noodles", "kind": "holding",
+         "actions": [binding_action("食用", "consume", use_mode="eat"), binding_action("给予", "consume")]},
+        {"object": _FLOUR, "object_id": "flour", "kind": "holding",
+         "actions": [binding_action("制作", "consume", use_mode="use"), binding_action("给予", "consume")]},
+        *_office_and_self_bindings(),
+        {"object": _PERSON, "object_id": "agent:2", "kind": "person", "actions": [binding_action("交谈", "chat")]},
+        {"object": _COLLEAGUE, "object_id": "contact-wanglei", "kind": "contact",
+         "actions": [binding_action("通话", "call")]}]
+    return {"interaction_bindings": rows,
+            "message_bindings": [{"name": _MESSAGE, "message_id": "reply-1", "sender_id": "contact-wanglei"}]}
+
+
+def _items(*items, answering=None):
+    """@brief 由逐项（对象，动词，方式，来源，去向）构造请求。"""
+    return _request([item[0] for item in items], [item[1] for item in items], [item[2] for item in items],
+                    **{"from": [item[3] for item in items], "to": [item[4] for item in items], "answering": answering})
+
+
+@pytest.mark.parametrize("request_items,answering,routed", [
+    ([(_SUPPLY, "obtain", "远程下单", None, "自己")], None, [("agent:1", True, None, None)]),
+    ([(_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], _MESSAGE, [("contact-wanglei", False, "reply-1", _MESSAGE)]),
+    ([(_SUPPLY, "obtain", "远程下单", None, "自己"), (_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], _MESSAGE,
+     [("agent:1", True, None, None), ("contact-wanglei", False, "reply-1", _MESSAGE)]),
+    ([(_SUPPLY, "obtain", "远程下单", None, _PERSON)], None, [("agent:2", False, None, None)]),
+    ([(_NOODLES, "consume", "食用", "自己", "自己")], None, [("agent:1", True, None, None)]),
+    ([(_NOODLES, "consume", "给予", "自己", _PERSON)], None, [("agent:2", False, None, None)]),
+    ([(_NOODLES, "consume", "食用", "自己", "自己"), (_NOODLES, "consume", "给予", "自己", _COLLEAGUE)], None,
+     [("agent:1", True, None, None), ("contact-wanglei", False, None, None)]),
+    ([(_FLOUR, "obtain", "制作", None, "自己")], None, [("agent:1", True, None, None)]),
+    ([("城西办公室", "travel", "步行", None, None)], None, [(None, False, None, None)]),
+], ids=["obtain-self", "obtain-contact-answering", "same-supply-two-recipients", "obtain-person", "eat-self",
+        "give-person", "eat-and-give", "make-self", "travel-null"])
+def test_legal_from_to_answering_combinations_route_each_item(request_items, answering, routed):
+    """合法组合（第五章「来源与去向」表）：宿主不报错，环境逐项写上收货人、是否自己、关联的消息与 answering；
+    answering 只关联 to 等于发件人的项。"""
+    request = _items(*request_items, answering=answering)
+    observation = _routing_observation()
+    assert combination_error(request, routing_names(observation)) is None
+    selection = _ActionHarness(observation)._start_selection(_pending(), request)
+    assert [(row["recipient_id"], row["to_self"], row["request_message_id"], row["answering"])
+            for row in selection] == routed
+    require_recipients(selection)
+
+
+@pytest.mark.parametrize("request_items,answering,message", [
+    ([(_SUPPLY, "obtain", "远程下单", None, "自己"), (_SUPPLY, "obtain", "远程下单", None, "自己")], None,
+     "start_activity targets repeat only with different to"),
+    ([("城西办公室", "travel", "步行", None, "自己")], None, "start_activity from and to are null for this verb"),
+    ([("城西办公室", "travel", "步行", "自己", None)], None, "start_activity from and to are null for this verb"),
+    ([(_NOODLES, "consume", "食用", None, "自己")], None, "start_activity consume takes from 自己"),
+    ([(_NOODLES, "consume", "食用", "自己", _PERSON)], None, "start_activity 食用 and 使用 take to 自己"),
+    ([(_NOODLES, "consume", "给予", "自己", "自己")], None, "start_activity 给予 takes a person in to"),
+    ([(_NOODLES, "consume", "给予", "自己", None)], None, "start_activity obtain and consume need to"),
+    ([(_FLOUR, "obtain", "制作", None, _PERSON)], None, "start_activity 制作 takes from null and to 自己"),
+    ([(_FLOUR, "obtain", "制作", "自己", "自己")], None, "start_activity 制作 takes from null and to 自己"),
+    ([(_SUPPLY, "obtain", "远程下单", "集市", "自己")], None,
+     "start_activity from is null when the target already names its store"),
+    ([(_SUPPLY, "obtain", "远程下单", None, None)], None, "start_activity obtain and consume need to"),
+    ([(_SUPPLY, "obtain", "远程下单", None, _COLLEAGUE)], "王磊 9:00 的消息",
+     "start_activity answering is not a visible message"),
+    ([(_SUPPLY, "obtain", "远程下单", None, "自己")], _MESSAGE,
+     "start_activity answering needs an item whose to is the message sender"),
+    ([("城西办公室", "travel", "步行", None, None)], _MESSAGE,
+     "start_activity answering needs an item whose to is the message sender"),
+], ids=["repeat-same-to", "to-on-travel", "from-on-travel", "consume-from-null", "eat-to-person",
+        "give-to-self", "give-to-null", "make-to-person", "make-from-self", "from-with-store-label", "obtain-to-null",
+        "answering-unknown", "answering-no-sender-item", "answering-on-travel"])
+def test_illegal_combinations_are_protocol_errors_and_invalid_requests(request_items, answering, message):
+    """非法组合：宿主得到英文协议错误原文；绕过宿主时环境解析不出选择，以 ACTION_REQUEST_INVALID 业务拒绝。"""
+    _assert_invalid(_items(*request_items, answering=answering), message)
+
+
+def test_from_and_to_need_one_item_per_target():
+    """来源、去向与对象逐项对应：长度不等是非法组合。"""
+    _assert_invalid(_request([_SUPPLY], ["obtain"], ["远程下单"], **{"from": [None, None], "to": ["自己"]}),
+                    "start_activity from and to must have one item per target")
+    _assert_invalid(_request([_SUPPLY], ["obtain"], ["远程下单"], **{"from": [None], "to": []}),
+                    "start_activity from and to must have one item per target")
+
+
+def _assert_invalid(request, message: str) -> None:
+    """@brief 宿主与环境共用的判定给出这条英文原文；环境解析不出选择，以 ACTION_REQUEST_INVALID 拒绝。"""
+    observation = _routing_observation()
+    assert combination_error(request, routing_names(observation)) == ("ACTION_REQUEST_INVALID", message)
+    harness = _ActionHarness(observation)
+    assert harness._start_selection(_pending(), request) is None
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        harness._start_activity(None, _pending(), None)
+
+
+def test_unknown_recipient_is_recipient_not_found_before_admission():
+    """去向写了本轮没有的人物：宿主报「to is not a visible person」；环境照常解析出选择（收货人为空），在整组准入之前以
+    RECIPIENT_NOT_FOUND 拒绝；同一请求另有不合法组合时先报 ACTION_REQUEST_INVALID。"""
+    observation = _routing_observation()
+    unknown = _items((_NOODLES, "consume", "给予", "自己", "人物：陌生人"))
+    assert combination_error(unknown, routing_names(observation)) == (
+        "RECIPIENT_NOT_FOUND", "start_activity to is not a visible person")
+    selection = _ActionHarness(observation)._start_selection(_pending(), unknown)
+    assert [(row["to"], row["recipient_id"]) for row in selection] == [("人物：陌生人", None)]
+    with pytest.raises(BusinessRuleError, match="RECIPIENT_NOT_FOUND"):
+        require_recipients(selection)
+    both = _items((_NOODLES, "consume", "给予", "自己", "人物：陌生人"), ("城西办公室", "travel", "步行", None, "自己"))
+    assert combination_error(both, routing_names(observation))[0] == "ACTION_REQUEST_INVALID"
 
 
 def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatch):
@@ -194,8 +327,7 @@ def test_route_choice_preserves_mode_but_engine_derives_exact_seconds(monkeypatc
     harness.semantics = SimpleNamespace(travel_planned_seconds=lambda *_: 673)
     monkeypatch.setattr("worldmock.life.session_actions.route_for", lambda *_: SimpleNamespace(duration_seconds=610))
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, current_time=100)
-    selected = harness._start_selection(
-        _pending(), StartActivityRequest(targets=["城西办公室"], actions=["travel"], ways=["步行"]))
+    selected = harness._start_selection(_pending(), _request(["城西办公室"], ["travel"], ["步行"]))
     assert selected[0]["selected_action"]["canonical_action"] == "travel_to"
     harness._start_travel_action(state, _pending(), selected[0]["object_id"], selected[0])
     assert harness.calls[0].planned_duration_seconds == 673
@@ -212,14 +344,15 @@ def test_purchase_uses_each_observed_quote_and_single_unit():
     harness.rules = SimpleNamespace(supplies={"first": supply, "second": supply})
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     selected = binding_action(PURCHASE_WAYS["delivery"], "purchase", fulfillment="delivery")
-    bindings = [{"object_id": "first", "selected_action": selected,
+    bindings = [{"object_id": "first", "selected_action": selected, "recipient_id": "agent:1",
                  "quote": {"price_version": "first-v2", "price_fen": 200}},
-                {"object_id": "second", "selected_action": selected,
+                {"object_id": "second", "selected_action": selected, "recipient_id": "agent:1",
                  "quote": {"price_version": "second-v7", "price_fen": 500}}]
-    harness._start_purchase_action(state, _pending(), bindings)
+    _, result = harness._start_purchase_action(state, _pending(), bindings)
     request = harness.calls[0]
-    assert [(item.supply_id, item.quantity, item.price_version) for item in request.items] == [
-        ("first", 1, "first-v2"), ("second", 1, "second-v7")]
+    assert len(harness.calls) == 1 and result.data == {"orders": [], "count": 2}
+    assert [(item.supply_id, item.quantity, item.price_version, item.recipient_id) for item in request.items] == [
+        ("first", 1, "first-v2", "agent:1"), ("second", 1, "second-v7", "agent:1")]
     assert request.fulfillment == "delivery"
     assert request.destination_id == "home"
     assert selected["label"] == "远程下单" and selected["verb"] == "obtain"
@@ -233,7 +366,7 @@ def test_purchase_preserves_chosen_pickup_when_delivery_is_also_available():
     harness.rules = SimpleNamespace(supplies={"offer": supply})
     state = SimpleNamespace(agents={1: SimpleNamespace(location_id="home")}, activities={})
     binding = {"object_id": "offer", "selected_action": binding_action("到店", "purchase", fulfillment="pickup"),
-               "quote": {"price_version": "current-v3", "price_fen": 350}}
+               "recipient_id": "agent:1", "quote": {"price_version": "current-v3", "price_fen": 350}}
     harness._start_purchase_action(state, _pending(), [binding])
     assert harness.calls[0].fulfillment == "pickup"
     assert harness.calls[0].items[0].price_version == "current-v3"

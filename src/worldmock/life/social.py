@@ -40,6 +40,8 @@ TEMPLATE_REPLY_TEXT = "（模板自动回复）"
 #: experiment_assumption：联系人回复生成后到送达收件人的延迟（秒，实验常量；docs/dev/SPEC-time-and-energy.md
 #: 第一章「人物之间的消息」，裁决 #21）。回复登记为预排送达事件，到期写入收件箱并以 message_arrival 唤醒。
 CONTACT_REPLY_DELAY_SECONDS = 300
+#: 联系人回复请求中双方往来的条数上限（docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
+HISTORY_LIMIT = 20
 
 
 class _SocialModel(BaseModel):
@@ -52,7 +54,8 @@ class Contact(_SocialModel):
     """@brief 场景联系人：按人物声明（「社交最小可行版」与 `docs/dev/SPEC-life-realism.md`「世界素材品类要求」）。
 
     亲密度沿用 Humanoid Agents 的 closeness 0-30 口径；channels 为可用
-    联系渠道（如电话、短信），由场景声明，引擎据此约束可达性。
+    联系渠道（如电话、短信），由场景声明，引擎据此约束可达性。receive_location_id 是联系人收实物的地点
+    （docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）：为空时不能收实物，人物在这个地点即与联系人同处。
     """
 
     contact_id: str
@@ -61,6 +64,7 @@ class Contact(_SocialModel):
     closeness: int = Field(ge=0, le=30)
     channels: tuple[str, ...]
     reply_policy: ReplyPolicy
+    receive_location_id: str | None = None
 
 
 class AgentPresence(_SocialModel):
@@ -168,13 +172,35 @@ class IncomingMessage(_SocialModel):
     received_at: int
 
 
+class ReplyHistoryEntry(_SocialModel):
+    """@brief 联系人回复请求中的一条往来消息：说话人、可读时刻与全文。"""
+
+    speaker: str
+    time: str
+    text: str
+
+
+class ReceivedItem(_SocialModel):
+    """@brief 联系人回复请求中对方实际收到的一件物品：商品名、份数短语与可读时刻。"""
+
+    item: str
+    quantity: str
+    time: str
+
+
 class ModelReplyRequest(_SocialModel):
-    """@brief model 策略回复请求：引擎据此发起独立 DeepSeek 调用并存档。"""
+    """@brief model 策略回复请求：引擎据此发起独立 DeepSeek 调用并存档。
+
+    history 是双方此前的消息（按时间排序，至多 HISTORY_LIMIT 条），received 是联系人实际收到的物品
+    （docs/dev/SPEC-persona-prompt.md 第五章「联系人往来」）。
+    """
 
     contact_id: str
     reply_to_message_id: str
     recipient_id: str
     incoming_text: str
+    history: tuple[ReplyHistoryEntry, ...]
+    received: tuple[ReceivedItem, ...]
     thinking: Literal["disabled"] = "disabled"
     max_chars: int = MODEL_REPLY_MAX_CHARS
 
@@ -299,13 +325,16 @@ def needs_reply(policy: ReplyPolicy, message_id: str,
     return message_id not in replied_message_ids
 
 
-def model_reply_request(incoming: IncomingMessage) -> ModelReplyRequest:
-    """@brief 产出 model 策略的独立模型调用请求（实际调用由引擎层负责）。"""
+def model_reply_request(incoming: IncomingMessage, history: tuple[ReplyHistoryEntry, ...],
+                        received: tuple[ReceivedItem, ...]) -> ModelReplyRequest:
+    """@brief 产出 model 策略的独立模型调用请求（实际调用由引擎层负责），带双方往来与对方收到的物品。"""
     return ModelReplyRequest(
         contact_id=incoming.contact_id,
         reply_to_message_id=incoming.message_id,
         recipient_id=incoming.sender_id,
         incoming_text=incoming.text,
+        history=history,
+        received=received,
     )
 
 

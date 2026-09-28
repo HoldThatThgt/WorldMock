@@ -18,6 +18,7 @@ from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
     advance_next, conclude_pending, conclude_request, context, pending_names, stage_day_plan, start_activity,
     submit_round, wake_by_mail,
+    start_arguments,
 )
 from worldmock.errors import ProtocolError
 from worldmock.life.activity_control import PHASE_CONCLUDED
@@ -53,7 +54,7 @@ def test_memory_update_rejects_omitted_observed_source(engine_factory, wrong_obs
 def _requested(decision_id: str, tool_name: str = "conclude_activity", memories: tuple = (_MEMORY,)):
     """@brief 本人已持久化的 action_requested 事件（只含写入点推导读取的字段）。"""
     request = ({"task": ["等待（1月5日 00:00 起）"], "summary": ["等完了。"], "memories": [list(memories)]}
-               if tool_name == "conclude_activity" else {"targets": ["自己"], "actions": ["interact"], "ways": ["等待"]})
+               if tool_name == "conclude_activity" else start_arguments(["自己"], ["interact"], ["等待"]))
     return SimpleNamespace(decision_id=decision_id, data={"tool_name": tool_name, "request": request})
 
 

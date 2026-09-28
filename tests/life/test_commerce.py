@@ -10,7 +10,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (advance_next, advance_until_ready, conclude_pending, context, stage_day_plan,
-                                 start_activity)
+                                 start_activity, start_request)
 from tests.life.test_money_settlement import _conclude_round
 from worldmock.footprints.models import EventDraft
 from worldmock.life.commerce import deliver_order
@@ -58,7 +58,7 @@ def _observed_action(engine, round_id: str, tool_name: str, request, action_id: 
 def _choice(observation: dict, action: str, object_id: str | None = None,
             mode: str | None = None) -> StartActivityRequest:
     """@brief 只从本轮冻结观察取可读对象、动词与方式（按私有绑定的内部动作与履约方式挑选）。"""
-    return next(StartActivityRequest(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
+    return next(start_request(targets=[row["object"]], actions=[offered["verb"]], ways=[offered["label"]])
                 for row in observation["interaction_bindings"]
                 if object_id is None or row["object_id"] == object_id
                 for offered in row["actions"]
@@ -94,7 +94,8 @@ def _delivery_request(engine, product_id: str) -> PurchaseOrderRequest:
     supply = _selected_supply(engine, product_id)
     quote = engine.state.supply_quotes[supply.supply_id]
     return PurchaseOrderRequest(
-        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version),),
+        items=(PurchaseItem(supply_id=supply.supply_id, quantity=1, price_version=quote.price_version,
+                            recipient_id="agent:1"),),
         fulfillment=FulfillmentKind.DELIVERY, destination_id="home")
 
 

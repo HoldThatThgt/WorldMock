@@ -22,7 +22,7 @@ from worldmock.life.models import (
 )
 from worldmock.life.scenario import AgentConfig, load_scenario
 
-from tests.life.conftest import advance_next, context, stage_day_plan
+from tests.life.conftest import advance_next, context, stage_day_plan, start_request
 from tests.life.test_parallel_activities import _advance_with_decisions
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -79,14 +79,13 @@ def test_catalog_activity_met_carries_lifestyle_keys() -> None:
 
 
 def test_lifestyle_model_request_only_selects_readable_object_and_action() -> None:
-    """人物只写可读活动名称、动词与方式，内部子类型与时长不可回填。"""
-    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
-    assert set(request.model_dump()) == {"targets", "actions", "ways"}
+    """人物只写可读活动名称、动词、方式与来源去向（进行活动时为 null），内部子类型与时长不可回填。"""
+    request = start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
+    assert set(request.model_dump()) == {"targets", "actions", "ways", "from", "to", "answering"}
     with pytest.raises(ValidationError):
-        StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"],
-                             planned_duration_seconds=120)
+        start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"], planned_duration_seconds=120)
     schema = deepseek_strict_schema(StartActivityRequest)
-    assert set(schema["properties"]) == {"targets", "actions", "ways"}
+    assert set(schema["properties"]) == {"targets", "actions", "ways", "from", "to", "answering"}
 
 
 def test_start_activity_requires_target_for_lifestyle() -> None:
@@ -95,7 +94,7 @@ def test_start_activity_requires_target_for_lifestyle() -> None:
         StartActivityRequest(actions=["interact"], ways=["进行"])
     with pytest.raises(ValidationError):
         StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"])
-    request = StartActivityRequest(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
+    request = start_request(targets=["活动：瑜伽"], actions=["interact"], ways=["进行"])
     assert request.targets == ["活动：瑜伽"]
 
 
@@ -110,7 +109,7 @@ def test_engine_accepts_and_settles_lifestyle_met(engine_factory) -> None:
     binding = next(row for row in observed["interaction_bindings"]
                    if row["kind"] == "lifestyle" and row["actions"][0]["note"] is None)
     item = next(row for row in _items() if row["activity_id"] == binding["object_id"])
-    request = StartActivityRequest(targets=[binding["object"]], actions=["interact"], ways=["进行"])
+    request = start_request(targets=[binding["object"]], actions=["interact"], ways=["进行"])
     engine.submit_action(DirectToolCall(decision, "action-lifestyle-visible", "start_activity", request))
     result = engine.commit_decision_round("lifestyle-visible")[0]
     assert result.activity_id
@@ -138,7 +137,7 @@ def test_engine_rejects_unknown_lifestyle_id(engine_factory) -> None:
     decision = context(engine, "lifestyle-bad")
     engine.begin_decision_round([decision])
     engine.observe(decision)
-    request = StartActivityRequest(targets=["活动：不存在的项目"], actions=["interact"], ways=["进行"])
+    request = start_request(targets=["活动：不存在的项目"], actions=["interact"], ways=["进行"])
     engine.submit_action(DirectToolCall(decision, "action-lifestyle-bad", "start_activity", request))
     result = engine.commit_decision_round("lifestyle-bad")[0]
     assert result.status.value == "rejected"

@@ -12,9 +12,8 @@ import pytest
 from agentsociety2.society import DecisionContext, DirectToolCall
 from agentsociety2.agent.base import ModelCallEvidence
 
-from tests.life.conftest import advance_next, advance_until_ready, context, start_activity, submit_round
+from tests.life.conftest import advance_next, advance_until_ready, context, start_activity, submit_round, start_request
 from worldmock.errors import ProtocolError
-from worldmock.life.models import StartActivityRequest
 
 
 def test_real_wait_round_advances_and_records_complete_activity(engine_factory) -> None:
@@ -44,7 +43,7 @@ def test_business_rejection_is_evidence_and_not_activity(engine_factory) -> None
     """业务拒绝仍进入同轮结果，但不建立活动。"""
     engine = engine_factory()
     _, results = submit_round(
-        engine, {1: ("start_activity", StartActivityRequest(
+        engine, {1: ("start_activity", start_request(
             targets=["不存在的内容"], actions=["interact"], ways=["观看"]))}, "missing-content")
     assert results[0].status == "rejected"
     assert results[0].error_code == "ACTION_REQUEST_INVALID"
@@ -206,7 +205,7 @@ def test_first_round_accepts_discovered_content_game_and_route(
                if row["kind"] == kind and any((item["verb"], item["label"]) == (verb, way) for item in row["actions"])]
     assert matches
     target = matches[0]
-    action_request = StartActivityRequest(targets=[target["object"]], actions=[verb], ways=[way])
+    action_request = start_request(targets=[target["object"]], actions=[verb], ways=[way])
     call = DirectToolCall(ctx, f"first-{label}", "start_activity", action_request)
     engine.submit_action(call)
     result = engine.commit_decision_round(f"first-{label}")[0]

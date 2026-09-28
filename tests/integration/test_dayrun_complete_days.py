@@ -18,7 +18,7 @@ from agentsociety2.society import SocietyCheckpointRequest
 from custom.agents.life_agent import LifeAgent
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
-from tests.life.conftest import StubPlanDayClient, context
+from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
 from worldmock.footprints.checkpoint import snapshot_directory
@@ -141,8 +141,8 @@ class DayModel:
     @staticmethod
     def _start(*items):
         """由（对象，动词，方式）逐项构造 start_activity 参数。"""
-        return "start_activity", {"targets": [item[0] for item in items], "actions": [item[1] for item in items],
-                                  "ways": [item[2] for item in items]}
+        return "start_activity", start_arguments([item[0] for item in items], [item[1] for item in items],
+                                                 [item[2] for item in items])
 
     def _watch(self):
         return next(name for name in self._objects() if "Space Habitat" in name)

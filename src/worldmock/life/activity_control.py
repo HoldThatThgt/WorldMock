@@ -27,6 +27,7 @@ from worldmock.errors import BusinessRuleError
 from worldmock.footprints.models import EventDraft
 from worldmock.life.activities import at_decision_boundary
 from worldmock.life.guidance import Refusal, refusal_for_code
+from worldmock.life.interaction_menu import GIVE_WAY
 from worldmock.life.action_evidence import (_origin_terminal_draft, _origin_terminal_result,
                                             _terminal_action_records)
 from worldmock.life.models import (CONCLUDABLE_TERMINAL_STATUSES, ActivityKind, ActivityState, ActivityStatus,
@@ -88,10 +89,10 @@ def free_slots(state: WorldState, agent_id: int) -> int:
 
 
 def new_activity_count(actions: list[str], labels: list[str]) -> int:
-    """@brief 一个 start_activity 请求将占用的名额：到店购买与远程下单不占，同短语的两份食用合成一餐。"""
-    if len(set(labels)) == 1 and actions[0] in {"purchase", "consume"}:
+    """@brief 一个 start_activity 请求将占用的名额：到店购买、远程下单与给予是瞬时的，不占；同短语的两份食用合成一餐。"""
+    if len(set(labels)) == 1 and actions[0] in {"purchase", "consume"} and labels[0] != GIVE_WAY:
         return 0 if actions[0] == "purchase" else 1
-    return len(actions) - actions.count("purchase")
+    return sum(1 for action, label in zip(actions, labels) if action != "purchase" and label != GIVE_WAY)
 
 
 def resumable_here(state: WorldState, activity: ActivityState) -> bool:

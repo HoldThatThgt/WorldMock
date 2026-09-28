@@ -46,6 +46,7 @@ from worldmock.life.models import (
     REQUEST_MODELS,
     RecallTaskSummaryRequest,
 )
+from tests.life.conftest import start_arguments
 
 
 def _prepared(data: dict | None = None, *, readonly: bool = False) -> LifeAgent:
@@ -203,7 +204,7 @@ def _restricted_data(stage: str) -> dict:
 
 def _choice(target: str, verb: str, way: str) -> dict:
     """对一个对象选择一项「动词：方式」的 start_activity 参数。"""
-    return {"targets": [target], "actions": [verb], "ways": [way]}
+    return start_arguments([target], [verb], [way])
 
 
 def _conclusion(*names: str) -> dict:

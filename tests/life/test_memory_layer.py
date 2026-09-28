@@ -18,7 +18,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 progress_calls, stage_day_plan, start_activity, wake_by_mail)
+                                 progress_calls, stage_day_plan, start_activity, start_request, wake_by_mail)
 from tests.life.test_day_planning import _late_engine
 from tests.life.test_dayrun_restaurants import _keep_waiting, _stage
 from tests.life.test_progress_events import _model_pair
@@ -29,8 +29,7 @@ from worldmock.life.memory_layer import MEMORY_WINDOW_CHARS, _Entry, _fit, _Line
 from worldmock.life.interaction_menu import WAYS
 from worldmock.life.models import (ActivityKind, ActivityState, ActivityStatus, ConcludeActivityRequest,
                                    PauseActivityRequest, PlanGoalInput, RecallTaskSummaryRequest,
-                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest,
-                                   StartActivityRequest)
+                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest)
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.settled_text import activity_sentence, purchase_sentence
@@ -163,15 +162,15 @@ def test_departure_request_belongs_wholly_to_the_old_session(engine_factory) -> 
                          if row["kind"] == "supply" for action in row["actions"]
                          if action["label"] == "远程下单" and action["note"] is None)
     office = next(row["object"] for row in observed["interaction_bindings"] if row["object_id"] == "office")
-    request = StartActivityRequest(targets=[supply, office], actions=[WAYS[label][0], WAYS["步行"][0]],
-                                   ways=[label, "步行"])
+    request = start_request(targets=[supply, office], actions=[WAYS[label][0], WAYS["步行"][0]],
+                            ways=[label, "步行"])
     _, started = _act(engine, "f-go", "start_activity", request)
     (order,) = started.data["orders"]
     road = _observe(engine, "f-road")
     assert progress_calls(road) == []
     context_ = engine._layer_context(engine.state.agents[1], (), [])
     assert road["memory_layer"]["earlier_today"] == [{"recorded_at": iso_time(order["created_at"], _ZONE),
-                                                      "settled": [purchase_sentence(context_, order)],
+                                                      "settled": [purchase_sentence(context_, order, None)],
                                                       "self_notes": []}]
 
 
@@ -354,7 +353,7 @@ def test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when
     assert advance_until_ready(engine)
     _act(engine, "e-arrive", "conclude_activity", conclude_request(activity_name(engine, walk.activity_id)))
     context_ = engine._layer_context(engine.state.agents[1], (), [])
-    line = purchase_sentence(context_, order)
+    line = purchase_sentence(context_, order, None)
     (home,) = _memory(engine, "e-today")["earlier_today"]
     assert home["settled"] == [line]
     next_day = _next_morning(placed)
@@ -362,7 +361,7 @@ def test_unresolved_order_crosses_midnight_into_earlier_days_and_disappears_when
     stage_day_plan(engine, submitted=True)
     day = local_date(placed, _ZONE)
     later = _memory(engine, "e-next-day")
-    carried = purchase_sentence(engine._layer_context(engine.state.agents[1], (), []), order)
+    carried = purchase_sentence(engine._layer_context(engine.state.agents[1], (), []), order, None)
     assert carried.startswith(f"{int(day[5:7])}月{int(day[8:])}日 ")
     assert later == {"layer": "记忆层", "earlier_days": [{"date": day, "settled": [carried], "self_notes": []}],
                      "earlier_today": []}
@@ -474,10 +473,11 @@ def test_sentences_write_portions_money_and_cross_day_clocks(engine_factory) -> 
     product = engine.scenario.products[0]
     place = next(item for item in engine.scenario.locations if item.location_id == "office")
     order = {"created_at": now - 86400 + 600, "fulfillment": "delivery", "product_id": product.product_id,
-             "quantity": 1, "total_price_fen": 3250, "destination_id": "office", "expected_at": now - 86400 + 1500}
+             "quantity": 1, "total_price_fen": 3250, "destination_id": "office", "expected_at": now - 86400 + 1500,
+             "recipient_id": "agent:1", "request_message_id": None}
     day = local_date(now - 86400, _ZONE)
     prefix = f"{int(day[5:7])}月{int(day[8:])}日 "
-    assert purchase_sentence(context_, order) == (
+    assert purchase_sentence(context_, order, None) == (
         f"{prefix}{_clock(engine, order['created_at'])} 远程下单{product.name} 1 份，付 32.5 元，"
         f"预计 {prefix}{_clock(engine, order['expected_at'])} 送到{place.name}")
     meal = ActivityState(activity_id="meal", agent_id=1, location_id="home", kind=ActivityKind.CONSUME,

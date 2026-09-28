@@ -833,10 +833,12 @@ class ContactReplyClient:
 
 def prepare_contact_reply(request: Any, contact: dict[str, Any] | None,
                           model_name: str) -> dict[str, Any]:
-    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试）。"""
+    """@brief 形成联系人回复的独立请求（thinking=disabled、无工具、无重试），带双方往来与对方实际收到的物品。"""
     payload = {"contact": contact if contact is not None
                else {"contact_id": request.contact_id},
                "incoming_message": request.incoming_text,
+               "history": [item.model_dump(mode="json") for item in request.history],
+               "received": [item.model_dump(mode="json") for item in request.received],
                "reply_char_limit": request.max_chars}
     messages = [
         {"role": "system", "content": _CONTACT_REPLY_PROMPT},

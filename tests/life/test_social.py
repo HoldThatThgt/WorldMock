@@ -17,6 +17,8 @@ from worldmock.life.social import (
     can_talk,
     finalize_model_reply,
     model_reply_request,
+    ReceivedItem,
+    ReplyHistoryEntry,
     needs_reply,
     people_here,
     send_message,
@@ -179,8 +181,11 @@ def test_template_reply_is_placeholder_with_model_npc_source() -> None:
 
 
 def test_model_reply_request_and_finalize_validate_200_chars() -> None:
-    """model 策略产出独立调用请求；回复文本 200 汉字边界并标记 model_npc。"""
-    request = model_reply_request(_incoming())
+    """model 策略产出独立调用请求（带双方往来与对方收到的物品）；回复文本 200 汉字边界并标记 model_npc。"""
+    history = (ReplyHistoryEntry(speaker="陈曦", time="10:00", text="在吗"),)
+    received = (ReceivedItem(item="牛肉炒面", quantity="1 份", time="10:40"),)
+    request = model_reply_request(_incoming(), history, received)
+    assert (request.history, request.received) == (history, received)
     assert request.thinking == "disabled"
     assert request.max_chars == 200
     assert request.reply_to_message_id == "m-9"
