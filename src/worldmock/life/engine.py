@@ -941,16 +941,22 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         # 游戏保持逐回合反馈（docs/dev/SPEC-life-runtime.md「决策节律：结算边界与唤醒条件分离」）：有交互边界时
         # 到期即提供决策；没有交互边界时按决策节律（规则 7），游戏的计划结束已在节律候选之中。
         game_turn = (lambda: game.next_interaction_at) if game is not None else None
-        next_at, reasons, stage = self._round_schedule(state, agent, False, game_turn)
+        next_at, reasons, stage = self._round_schedule(state, agent, None, game_turn)
         changed = agent.model_copy(update={"next_decision_at": next_at,
                                            "consecutive_rejections": 0,
                                            "pending_wake_reasons": reasons,
                                            "same_moment_stage": stage}, deep=True)
         return _put_agent(state, changed)
 
-    def _round_schedule(self, state: WorldState, agent, rejected: bool,
+    def _round_schedule(self, state: WorldState, agent, rejection: str | None,
                         rhythm_next=None) -> tuple[int, list[str], SameMomentStage]:
-        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。"""
+        """@brief 按同刻阶梯安排本轮之后的下一次决策（docs/dev/SPEC-time-and-energy.md 第一章规则 2–4、7）。
+
+        受限轮用完仍要同一秒再决策时，暂存 decision_budget_exhausted 事件并技术停顿（docs/dev/SPEC-persona-prompt.md
+        第五章「失败后强制等待与跨决策预算」），随本动作的结果一起提交。
+
+        :param rejection: 本轮业务拒绝的错误码（重放按存档结果），受理时为 None。
+        """
         now = state.current_time
 
         def by_rhythm() -> int:
@@ -961,16 +967,21 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
 
         outcome = same_moment.RoundOutcome(
             now=now, agent=agent, active=bool(active_activities(state, agent.agent_id)),
-            rejected=rejected, limit=self.scenario.max_same_moment_decisions,
+            rejected=rejection is not None, limit=self.scenario.max_same_moment_decisions,
             pending=bool(activity_control.pending_conclusions(state, agent.agent_id)),
             slots_full=activity_control.free_slots(state, agent.agent_id) == 0)
+        if same_moment.budget_exhausted(outcome):
+            code = rejection or same_moment.latest_rejection_code(state, agent.agent_id)
+            schedule, draft = same_moment.exhausted_schedule(outcome, self.scenario.activity_feedback_seconds, code)
+            self._pending_event_drafts.append(draft)
+            return schedule
         return same_moment.schedule_after_round(outcome, rhythm_next or by_rhythm)
 
     def _after_rejection(self, state: WorldState, pending: PendingAction,
                          error: BusinessRuleError) -> tuple[WorldState, ActionResult]:
         """@brief 业务拒绝计入同刻轮数与连续拒绝；未达上限同一秒再决策，服务拒绝脉冲每人每秒至多一次。"""
         agent = same_moment.count_round(state.agents[pending.agent_id])
-        next_decision_at, reasons, stage = self._round_schedule(state, agent, True)
+        next_decision_at, reasons, stage = self._round_schedule(state, agent, str(error))
         pulse_key = same_moment.refusal_pulse_key(str(error))
         if pulse_key == same_moment.SERVICE_REFUSED and same_moment.refusal_pulse_applied(state, agent.agent_id):
             pulse_key = None
@@ -1026,11 +1037,12 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                             action_id=pending.action_id, activity_id=result.activity_id,
                             caused_by=[pending.requested_event_id], data=data)
         agent = same_moment.count_round(state.agents[pending.agent_id])
-        next_at, reasons, stage = self._round_schedule(state, agent, result.status == ActionStatus.REJECTED)
+        rejection = result.error_code if result.status == ActionStatus.REJECTED else None
+        next_at, reasons, stage = self._round_schedule(state, agent, rejection)
         agent = agent.model_copy(update={"next_decision_at": next_at, "pending_wake_reasons": reasons,
                                          "same_moment_stage": stage}, deep=True)
         changed = _put_agent_and_defer_game_turn(state, agent)
-        return changed, result, [first, second]
+        return changed, result, [first, second, *self._drain_pending_drafts()]
 
     def _dispatch(self, state: WorldState, pending: PendingAction) -> tuple[WorldState, ActionResult]:
         """@brief 依据闭集工具名进入对应领域转换。"""

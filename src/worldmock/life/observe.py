@@ -21,7 +21,7 @@ from worldmock.life.interaction_menu import resolve_interaction_menu
 from worldmock.life.inventory_recipe import is_inventory_recipe
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
-from worldmock.life.work import work_totals
+from worldmock.life.work import task_listed, work_totals
 from worldmock.life.result_projection import public_supply_row
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.todo_layer import todo_layer
@@ -233,9 +233,7 @@ class ObservationMixin:
         data["inventory_items"] = self._inventory_item_contracts(agent)
         data["tasks"] = [self._visible_task(item, agent.agent_id)
                          for item in sorted(agent.visible_task_ids)
-                         if item not in self.state.paid_task_ids
-                         and self.state.current_time <= int(
-                             self.rules.tasks[item].due_at.timestamp())]
+                         if item not in self.state.paid_task_ids and self._task_listed(item)]
         data["routes"] = _route_catalog(self.scenario.routes, self.state, agent.agent_id, self.semantics)
         data["game_catalog"] = _game_catalog(self.scenario)
         data["browse_targets"] = list(BROWSE_TARGETS)
@@ -261,16 +259,21 @@ class ObservationMixin:
                              0, task.maximum_duration_seconds - worked)})
         return rows
 
+    def _task_listed(self, task_id: str) -> bool:
+        """@brief 未付款任务是否仍列出：截止前，或截止当日的本地日结束前（work.task_listed）。"""
+        return task_listed(self.rules.tasks[task_id], self.state.current_time, self.scenario.timezone)
+
     def _visible_task_rows(self, agent) -> list[dict]:
-        """@brief 可见、未结清且未过截止的任务行：task_id、标题、截止、剩余合同工时与前置条件字段。"""
+        """@brief 可见、未结清且仍列出（截止前或截止当日内）的任务行：task_id、标题、截止、剩余合同工时与前置条件字段。
+
+        未付款的逾期任务保留到截止当日的本地日结束（docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。
+        """
         rows = []
         for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.state.paid_task_ids:
+            if task_id in self.state.paid_task_ids or not self._task_listed(task_id):
                 continue
             task = self.rules.tasks[task_id]
             due = int(task.due_at.timestamp())
-            if self.state.current_time > due:
-                continue
             worked, _ = work_totals(self.state, agent.agent_id, task_id)
             rows.append({
                 "task_id": task_id, "title": task.title, "due_at": due,
@@ -570,13 +573,10 @@ class ObservationMixin:
         return (*games, *sessions)
 
     def _task_pool(self, agent) -> tuple[PoolEntry, ...]:
-        """@brief 工作池：本人可见、未结清且未过截止的合同。"""
+        """@brief 工作池：本人可见、未结清且仍列出（截止前或截止当日内）的合同。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
-            if task_id in self.state.paid_task_ids:
-                continue
-            due = int(self.rules.tasks[task_id].due_at.timestamp())
-            if self.state.current_time > due:
+            if task_id in self.state.paid_task_ids or not self._task_listed(task_id):
                 continue
             rows.append(PoolEntry(object_id=task_id, kind="task", bucket=task_id,
                                   minimum_seconds=60,

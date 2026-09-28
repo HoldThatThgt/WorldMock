@@ -325,6 +325,7 @@ class SameMomentStage(StrEnum):
     """@brief 同刻受限轮阶段闭集（docs/dev/SPEC-time-and-energy.md 第一章「规则」3 与「实现约定」）。
 
     未达同刻上限时为 open；达到上限后每个受限轮只开放一类动作，阶段依赖上一受限轮的结果，时钟推进复位为 open。
+    只开放等待的阶段随世界结构版本 8 删除（docs/dev/SPEC-persona-prompt.md 第五章「失败后强制等待与跨决策预算」）。
     """
 
     OPEN = "open"
@@ -332,7 +333,6 @@ class SameMomentStage(StrEnum):
     START_OR_RESUME = "start_or_resume"
     RESUME_OR_CONCLUDE = "resume_or_conclude"
     CONCLUDE_ONLY = "conclude_only"
-    WAIT_ONLY = "wait_only"
 
 
 class AgentState(StrictModel):
