@@ -4,6 +4,7 @@ import json
 
 import pytest
 
+from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.delivery.evidence_encoding import decode_model_record
 from worldmock.delivery.pipeline import write_model_inputs
 from worldmock.delivery.replay import replay_windows
@@ -12,6 +13,10 @@ from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft, canonical_json
 from worldmock.footprints.store import FootprintStore
+
+
+#: 分支中实际行动请求的六层 JSON（进度层带余额被改后的一条结果，便于核对来源）。
+BRANCH_LAYERS = six_layers([{'type': 'tool_call', 'tool': 'start_activity', 'result': {'status': 'completed'}}])
 
 
 def finish_export(store, directory):
@@ -44,9 +49,16 @@ def pair(tmp_path):
                                            'intervention_sha256': digest, 'before_balance_fen': 800,
                                            'after_balance_fen': 50})])
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          data={'balance_fen': 50}),
+                                          decision_id='branch-decision', data={'balance_fen': 50}),
+                               EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
+                                          decision_id='branch-decision', visibility='system', data={
+                                              'phase': 'request', 'request': {
+                                                  'messages': [{'role': 'system', 'content': '系统层'},
+                                                               layered_user(BRANCH_LAYERS)],
+                                                  'tools': [{'type': 'function', 'function': {
+                                                      'name': 'start_activity', 'parameters': {}}}]}}),
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
-                                          action_id='wait', data={
+                                          decision_id='branch-decision', action_id='wait', data={
                                               'tool_name': 'start_activity',
                                               'request': {'targets': ['自己'], 'actions': ['interact'],
                                                           'ways': ['等待']}})])
@@ -78,6 +90,13 @@ def test_completed_actual_branch_binds_hypothesis_checkpoint_and_results(pair):
     assert record['input']['allowed_evidence_event_ids'] == expected
     assert set(expected) <= set(record['provenance']['source_event_ids'])
     assert binding['run_id'] != binding['parent_run_id']
+    requested = next(row for row in record['input']['events'] if row['event_type'] == 'action_requested')
+    assert record['input']['decision_layers'] == [{'action_event_id': requested['event_id'], 'layers': BRANCH_LAYERS}]
+    prompt_id = record['provenance']['decision_layer_sources'][0]['event_id']
+    assert record['provenance']['decision_layer_sources'] == [
+        {'event_id': prompt_id, 'sha256': hashlib.sha256(canonical_json(BRANCH_LAYERS)).hexdigest()}]
+    assert prompt_id in record['provenance']['source_event_ids']
+    assert prompt_id not in record['input']['allowed_evidence_event_ids']
     assert record['provenance']['window_id'] == _window_identity(record['task'], record['input'])
     changed = copy.deepcopy(record['input'])
     changed['counterfactual']['hypothesis'] = 'A different visible counterfactual condition.'

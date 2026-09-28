@@ -827,12 +827,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             raise IntegrityError("Runtime corpus identity mismatch")
         if self.state.run_id != self.store.manifest["run_id"]:
             raise IntegrityError("Runtime run identity mismatch")
-        if "stage_model_identity" not in self.store.manifest:
-            raise IntegrityError("Runtime decision stage identity is missing")
-        identity = self.store.manifest["stage_model_identity"]
-        if identity is not None:
-            from worldmock.validation import validate_stage_model_identity
-            validate_stage_model_identity(identity)
+        from worldmock.validation import validate_manifest_stage_identity
+        validate_manifest_stage_identity(self.store.manifest)
         require_category_identity(self.store.manifest, self.semantics)
         validate_activity_targets(self.state, self.rules, self.scenario)
         validate_storefront_state(self.state, self.scenario, self.store.manifest)
@@ -1745,9 +1741,8 @@ def _initial_agent(config, scenario: RuntimeScenario, account_id: str, start: in
 def _run_manifest(semantics: ScenarioSemantics, scenario_sha256: str, identity: RunIdentity,
                   stage_identity: dict | None = None) -> dict:
     """@brief 绑定新运行的场景、内容、人物身份、代码身份（另记 Git 提交与未提交标志）与各阶段请求形状。"""
-    if stage_identity is not None:
-        from worldmock.validation import validate_stage_model_identity
-        validate_stage_model_identity(stage_identity)
+    from worldmock.validation import validate_manifest_stage_identity
+    validate_manifest_stage_identity({"stage_model_identity": stage_identity})
     scenario = semantics.scenario
     category_fields = category_identity(semantics)
     return {"schema_version": 1, "run_id": identity.run_id, "source_group_id": identity.source_group_id,

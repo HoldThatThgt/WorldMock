@@ -102,24 +102,67 @@ test('action requests are recognised only by the life system layer JSON and an a
   assert.equal(errors.length, 0);
 });
 
-test('legacy prelude and legacy action requests are other calls shown as unparsed', () => {
+test('legacy decision statement requests stay other calls shown as unparsed', () => {
   const {api, errors} = parser();
   assert.deepEqual(plain(api.classify(request('legacy_prelude'))), {stage: 'other', label: '其他调用·未解析'});
-  assert.deepEqual(plain(api.classify(request('legacy_action'))), {stage: 'other', label: '其他调用·未解析'});
   assert.match(api.classify(request('legacy_prelude'), 'memory_consolidation').label, /其他调用·memory_consolidation/);
-  for (const kind of ['legacy_prelude', 'legacy_action']) {
-    const input = event(request(kind));
-    const parsed = api.parseRequest(input);
-    assert.equal(parsed.stage, 'other');
-    assert.equal(parsed.stageLabel, '其他调用·未解析');
-    assert.equal(messageBlocks(parsed).length, 1);
-    assert.equal(messageBlocks(parsed)[0].text, input.data.request.messages[1].content);
-    assert.match(messageBlocks(parsed)[0].label, /未解析/);
-    assert.ok(parsed.blocks.every(block => block.rule === null));
-    assert.ok(parsed.blocks.every(block => block.interpretation === 'recorded'));
-    assert.equal(parsed.blocks.some(block => LAYER_KEYS.includes(block.key)), false);
-  }
-  assert.equal(errors.length, 2);
+  const input = event(request('legacy_prelude'));
+  const parsed = api.parseRequest(input);
+  assert.equal(parsed.stage, 'other');
+  assert.equal(parsed.stageLabel, '其他调用·未解析');
+  assert.equal(messageBlocks(parsed).length, 1);
+  assert.equal(messageBlocks(parsed)[0].text, input.data.request.messages[1].content);
+  assert.match(messageBlocks(parsed)[0].label, /未解析/);
+  assert.ok(parsed.blocks.every(block => block.rule === null));
+  assert.ok(parsed.blocks.every(block => block.interpretation === 'recorded'));
+  assert.equal(parsed.blocks.some(block => LAYER_KEYS.includes(block.key)), false);
+  assert.equal(errors.length, 1);
+});
+
+test('legacy action requests are recognised by the old template and segmented as unverified inferences', () => {
+  const {api, errors} = parser();
+  assert.deepEqual(plain(api.classify(request('legacy_action'))), {stage: 'legacy', label: '选择动作·旧模板'});
+  const input = event(request('legacy_action'));
+  const parsed = api.parseRequest(input);
+  assert.equal(parsed.stage, 'legacy');
+  assert.equal(parsed.continuation, false);
+  const user = messageBlocks(parsed);
+  assert.deepEqual(plain(user.map(block => block.key)),
+    ['persona', 'scene', 'subjective_summary', 'recent_subjective_episodes', 'facts', 'decision_statement']);
+  assert.equal(user.map(block => block.text).join(''), input.data.request.messages[1].content);
+  assert.ok(user.every(block => block.interpretation === 'template' && block.label.endsWith(' · 来源未核验')));
+  assert.equal(user[0].label, '人物卡片 · 来源未核验');
+  const system = parsed.blocks.find(block => block.messageIndex === 0);
+  assert.equal(system.label, '身份规则');
+  assert.equal(system.text, input.data.request.messages[0].content);
+  assert.ok(parsed.blocks.every(block => block.rule === null), 'current source rules do not describe old templates');
+  assert.equal(parsed.blocks.find(block => block.key === 'tools').text, JSON.stringify(input.data.request.tools));
+  assert.equal(errors.length, 0);
+});
+
+test('a legacy action body that happens to contain a template heading stays an inference or falls back to unparsed', () => {
+  const {api, errors} = parser();
+  const once = request('legacy_action');
+  const [persona, ...rest] = once.messages[1].content.split('\n\n');
+  const scene = rest.shift();
+  once.messages[1].content = [persona, scene, '主观归纳：\n正文里恰好写了这个标题。', ...rest.slice(2)].join('\n\n');
+  const inferred = messageBlocks(api.parseRequest(event(once)));
+  const summary = inferred.find(block => block.key === 'subjective_summary');
+  assert.equal(summary.label, '主观归纳 · 来源未核验');
+  assert.equal(summary.interpretation, 'template');
+  assert.equal(inferred.map(block => block.text).join(''), once.messages[1].content);
+  const twice = request('legacy_action');
+  twice.messages[1].content = twice.messages[1].content.replace('\n\n最近的人物自述：\n', '\n\n主观归纳：\n再次出现。\n\n最近的人物自述：\n');
+  const parsed = api.parseRequest(event(twice));
+  assert.equal(parsed.stage, 'legacy');
+  assert.equal(messageBlocks(parsed).length, 1);
+  assert.equal(messageBlocks(parsed)[0].text, twice.messages[1].content);
+  assert.match(messageBlocks(parsed)[0].label, /未解析/);
+  assert.equal(parsed.warnings.length, 1);
+  const budgetless = request('legacy_action');
+  budgetless.messages[0].content = budgetless.messages[0].content.split('\n\nAuthoritative ReAct')[0];
+  assert.equal(api.classify(budgetless).stage, 'other');
+  assert.equal(errors.length, 1);
 });
 
 test('the first user message is sliced losslessly into the six top-level layers in contract order', () => {
@@ -270,6 +313,21 @@ test('a decision first request with sources is a continuation: source decisions 
   assert.equal(errors.length, 0);
 });
 
+test('a continuation prefix reply body written by an earlier decision is labelled unverified', () => {
+  const {api} = parser();
+  const input = event(request('continuation'));
+  const sources = {sources: {call_7f2c: '10:43:00 · decision-k'}};
+  const silent = api.parseRequest(input, sources).blocks.find(block => block.messageIndex === 2 && block.key === 'message');
+  assert.equal(silent.label.includes('未经核验'), false, 'no reply body, no label');
+  input.data.request.messages[2].content = '先把王磊的面点上，报告回头再核对。';
+  const replied = api.parseRequest(input, sources).blocks.find(block => block.messageIndex === 2 && block.key === 'message');
+  assert.equal(replied.label, '续接 · assistant · 来源决策 10:43:00 · decision-k · 回复正文（未经核验）');
+  assert.equal(replied.text, JSON.stringify(input.data.request.messages[2]), 'the recorded message stays verbatim');
+  input.data.request.messages[2].content = '   ';
+  const blank = api.parseRequest(input, sources).blocks.find(block => block.messageIndex === 2 && block.key === 'message');
+  assert.equal(blank.label.includes('未经核验'), false);
+});
+
 test('semantic parsing locates the first user rather than assuming message index one', () => {
   const {api} = parser();
   const input = event();
@@ -357,6 +415,10 @@ test('all parsed block rules exist and every growth view retains explicit source
   }
   assert.match(api.rules.progress.steps.map(step => step[1]).join(''), /self_note.*未经核验/);
   assert.match(api.rules.capacity.fill, /不是 token/);
+  const capacity = api.rules.capacity.steps.map(step => step[1]);
+  const endChain = capacity.findIndex(text => text.includes('先提前结束本秒续接'));
+  assert.ok(endChain >= 0, 'budget step 0 ends the same-second continuation first');
+  assert.ok(endChain < capacity.findIndex(text => text.includes('condensed')), 'step 0 precedes progress condensing');
   assert.equal(api.rules.memory.source, 'src/worldmock/life/memory_layer.py · memory_view');
   assert.match(api.rules.memory.steps.map(step => step[1]).join(''), /8000 字符/);
   assert.match(api.rules.persona.steps.map(step => step[1]).join(''), /按名称合并/);

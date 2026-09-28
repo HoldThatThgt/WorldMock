@@ -287,3 +287,36 @@ def test_the_baseline_comparison_refuses_runs_that_are_not_comparable(tmp_path) 
                              text=True, encoding="utf-8", env=_UTF8)
     assert refused.returncode != 0 and refused.stdout == ""
     assert "Runs are not comparable: manifest field code_sha256 differs" in refused.stderr
+
+
+def _pre_feature_manifest() -> dict:
+    """@brief 特性之前的运行清单：阶段身份在旧键 two_stage_model_identity 下，带决策自述阶段，没有续接开关。"""
+    manifest = _manifest(True, run_id="2026-09-28-c9a4fc1-day-r3", source_group_id="2026-09-28-c9a4fc1-day-r3")
+    identity = manifest.pop("stage_model_identity")
+    del identity["stages"]["action"]["same_second_continuation"]
+    identity["stages"]["decision_statement"] = {"thinking": "disabled", "temperature": 1.0}
+    manifest["two_stage_model_identity"] = identity
+    return manifest
+
+
+def test_a_pre_feature_run_has_no_switch_and_cannot_be_an_arm(tmp_path) -> None:
+    """特性之前的运行（带自述阶段）与引擎直驱运行的开关报告为 null，不按缺省开处理；这样的运行不能作关闭臂或任何一臂
+    （docs/dev/SPEC-persona-prompt.md 第七章「续接对比」）。"""
+    module = _script()
+    old = _pre_feature_manifest()
+    assert module._switch(old) is None
+    assert module._switch(_manifest(True, stage_model_identity=None)) is None
+    assert (module._switch(_manifest(True)), module._switch(_manifest(False))) == (True, False)
+    refusal = "a run without a frozen same_second_continuation (pre-feature manifest) cannot be an arm"
+    assert module.comparison_problems(_manifest(True), old)[0] == refusal
+    assert module.comparison_problems(old, _manifest(False))[0] == refusal
+    arm, baseline = _synthetic_run(tmp_path / "on", _manifest(True)), _synthetic_run(tmp_path / "old", old)
+    script = [sys.executable, str(REPO_ROOT / "scripts" / "inspect_run.py")]
+    alone = subprocess.run([*script, str(baseline), "continuation"], cwd=REPO_ROOT, capture_output=True,
+                           text=True, encoding="utf-8", env=_UTF8)
+    assert alone.returncode == 0, alone.stderr
+    assert json.loads(alone.stdout)["same_second_continuation"] is None
+    refused = subprocess.run([*script, str(arm), "continuation", "--baseline", str(baseline)], cwd=REPO_ROOT,
+                             capture_output=True, text=True, encoding="utf-8", env=_UTF8)
+    assert refused.returncode != 0 and refused.stdout == ""
+    assert f"Runs are not comparable: {refusal}" in refused.stderr

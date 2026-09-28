@@ -12,6 +12,7 @@ import pytest
 from agentsociety2.society import DirectToolCall
 from agentsociety2.agent.base import MemoryUpdateEvidence, ModelCallEvidence
 
+from custom.agents.life_prompt import life_user_layers, system_message, user_message
 from tests.life.conftest import (advance_next, conclude_request, context, pending_names, stage_day_plan,
                                  start_activity, submit_round, wake_by_mail, start_request)
 from worldmock.delivery.windows import prepare_windows
@@ -104,8 +105,8 @@ def _recorded_round(engine, round_id: str, tool_name: str, build) -> tuple:
     ctx = context(engine, round_id)
     engine.begin_decision_round([ctx])
     observation = engine.observe(ctx)
-    prompt = {"model": "fixture",
-              "messages": [{"role": "system", "content": "人物身份"}, {"role": "user", "content": "实际场景与记忆"}],
+    layers = life_user_layers(observation, {"layer": "人设层", "name": engine.state.agents[1].name})
+    prompt = {"model": "fixture", "messages": [system_message(False), user_message(layers)],
               "tools": [{"type": "function", "function": {"name": tool_name, "parameters": {}}}]}
     call_id = f"{round_id}-model-call"
     engine.record_model_exchange(ModelCallEvidence(ctx, call_id, "request", 1, prompt))
@@ -129,7 +130,8 @@ def _conclusion_memory_evidence(ctx, observation: dict) -> MemoryUpdateEvidence:
 
 def test_completed_activity_exports_terminal_outcome_and_training_windows(engine_factory, tmp_path: Path) -> None:
     """真实活动终态回链原动作，并通过 export、认证和三类训练窗口消费；链上有一次带记忆的收尾：动作窗口目标保留
-    完整请求，意图与 dreaming 窗口输入不含记忆正文（规格第七章「finish 并入 conclude_activity」、第九章交付链）。"""
+    完整请求，意图与 dreaming 窗口中的动作请求投影不含记忆正文（规格第七章「finish 并入 conclude_activity」、第九章交付链）；
+    行动请求按真实七层记录，dreaming 读其中的层 JSON。"""
     engine = engine_factory()
     duration = engine.scenario.activity_feedback_seconds
     _stage_final_interval(engine, 2 * duration)
@@ -185,8 +187,11 @@ def test_completed_activity_exports_terminal_outcome_and_training_windows(engine
     updated = [event for event in events if event["event_type"] == "memory_updated"]
     assert [(event["decision_id"], event["data"]["trigger"]) for event in updated] == [
         (conclusion.decision_id, ["activity_conclusion"])]
-    inputs = json.dumps([item["input"] for item in windows["intent"] + windows["dreaming"]], ensure_ascii=False)
+    projected = [row for item in windows["intent"] + windows["dreaming"] for row in item["input"]["events"]]
+    inputs = json.dumps(projected, ensure_ascii=False)
     assert _MEMORY["text"] not in inputs and "memories" not in inputs
+    # 实际请求原样保留：此后决策的进度层按第一章把这次收尾的参数（routine 记忆不略去）写进请求，这是模型所见，不裁剪。
+    assert _MEMORY["text"] in recorded_prompt["messages"][1]["content"]
     _assert_seven_layer_windows(engine, windows, action)
 
 
@@ -203,7 +208,14 @@ def _assert_seven_layer_windows(engine, windows: dict, action: dict) -> None:
     assert requested and all(row["data"]["self_note"] == _SELF_NOTE for row in requested)
     assert all(row["event_type"] != "decision_started" for record in windows["dreaming"]
                for row in record["input"]["events"])
-    earlier = {event.event_id for event in engine.store.read_agent_events("action_result", 1)
+    sent = {event.event_id: json.loads(event.data["request"]["messages"][1]["content"])
+            for event in engine.store.read_agent_events("model_request", 1) if not event.data.get("purpose")}
+    for record in windows["dreaming"]:
+        acted = [row["event_id"] for row in record["input"]["events"] if row["event_type"] == "action_requested"]
+        assert acted and [item["action_event_id"] for item in record["input"]["decision_layers"]] == acted
+        assert all(item["layers"] == sent[source["event_id"]] for item, source in
+                   zip(record["input"]["decision_layers"], record["provenance"]["decision_layer_sources"]))
+    earlier ={event.event_id for event in engine.store.read_agent_events("action_result", 1)
                if event.action_id == "action-first-wait"}
     shown = {row["event_id"] for row in action["input"]["events"]}
     assert earlier & shown, "the final decision's progress layer must expand an earlier decision's result"

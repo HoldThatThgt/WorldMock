@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,8 @@ from worldmock.profile.coverage import (
 )
 from worldmock.profile.coverage_apps import verified_app_names
 
+#: 改名为 stage_model_identity 之前的清单键（带决策自述阶段的旧运行）。
+RETIRED_STAGE_IDENTITY_KEY = "two_stage_model_identity"
 #: 媒介品类闭集映射：世界内容目录 kind -> 中文媒介词（与 render_day 标签同口径）。
 _MEDIA_KIND_LABELS = {
     "feature_film": "电影",
@@ -51,8 +54,8 @@ def validate_project(project_root: Path, scenario_path: Path, *,
                      persona_compiler=None, coverage_out: Path | None = None) -> dict:
     """@brief 全量来源校验、实际规则执行与 Schema 检查失败时阻止新运行。
 
-    新增（修订合同）：世界素材品类准入、任务受理人校验、两阶段
-    model_identity 一致性与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
+    新增（修订合同）：世界素材品类准入、任务受理人校验、清单阶段身份
+    一致性（validate_manifest_stage_identity）与 persona_coverage.json 覆盖率门禁（<80% 拒绝）。
     先核对实际导入的 AS2：包目录为空、导入失败或与锁定源码摘要不符即以 IntegrityError 拒绝
     （docs/dev/SPEC-time-and-energy.md「运行身份」）。
     """
@@ -84,7 +87,7 @@ def validate_project(project_root: Path, scenario_path: Path, *,
     _require_world_categories(catalog, corpus_root, scenario.map_dataset.locations_file.path)
     _require_task_assignees(scenario)
     _configure_process(project_root)
-    identity = validate_stage_model_identity()
+    identity = validate_manifest_stage_identity()
     coverage = validate_persona_coverage(
         scenario_path, persona_compiler=persona_compiler, coverage_out=coverage_out,
         _scenario=scenario, _corpus_root=corpus_root)
@@ -110,10 +113,32 @@ def _require_ray_worker_import() -> None:
         raise IntegrityError("Ray worker cannot import ray in a clean process")
 
 
+def validate_manifest_stage_identity(manifest: Mapping[str, Any] | None = None) -> dict[str, Any] | None:
+    """@brief 五个入口共用的清单阶段身份校验（docs/dev/SPEC-persona-prompt.md 第七章「清单」）。
+
+    新建（写清单之前）、打开既有运行（含从工作区加载）、普通恢复与反事实重放（父清单）、环境校验（manifest 为 None，
+    即新运行将冻结的清单）都只调用本函数。旧键 two_stage_model_identity 下的身份先经阶段校验，含退役的决策自述阶段即以
+    英文错误拒绝；旧键本身不提供别名或迁移。缺少 stage_model_identity 拒绝；显式为 null 的引擎直驱身份返回 None。
+    """
+    if manifest is None:
+        from worldmock.runtime import stage_model_identity
+
+        manifest = {"stage_model_identity": stage_model_identity()}
+    if RETIRED_STAGE_IDENTITY_KEY in manifest:
+        retired = manifest[RETIRED_STAGE_IDENTITY_KEY]
+        if isinstance(retired, dict):
+            validate_stage_model_identity(retired)
+        raise IntegrityError(f"Run manifest key {RETIRED_STAGE_IDENTITY_KEY} is retired")
+    if "stage_model_identity" not in manifest:
+        raise IntegrityError("Run manifest decision stage identity is missing")
+    identity = manifest["stage_model_identity"]
+    return None if identity is None else validate_stage_model_identity(identity)
+
+
 def validate_stage_model_identity(identity: dict[str, Any] | None = None) -> dict[str, Any]:
     """@brief 阶段 model_identity 一致性校验：只有行动与工作验收两个阶段（LifeAgent 常量单一事实源）。
 
-    新建、打开、恢复、反事实重放与环境校验五个入口共用本函数；含退役的决策自述阶段的清单以英文错误拒绝
+    五个入口经 validate_manifest_stage_identity 调用本函数；含退役的决策自述阶段的身份以英文错误拒绝
     （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。行动阶段的运行开关 same_second_continuation 须为布尔值
     （第二章「同秒续接」），开与关都合法。
     """

@@ -594,10 +594,15 @@ def _summary(rows: list[dict], topics: tuple[str, ...]) -> dict:
     }
 
 
-def _switch(manifest: dict) -> bool:
-    """@brief 清单冻结的同秒续接开关（与引擎同一读法）。"""
+def _switch(manifest: dict) -> bool | None:
+    """@brief 清单冻结的同秒续接开关（与引擎同一读法）；清单没有阶段身份（特性之前的运行、引擎直驱）时为 None。
+
+    特性之前的运行带决策自述阶段，既不是开臂也不是关臂（docs/dev/SPEC-persona-prompt.md 第七章「续接对比」）。
+    """
     from worldmock.life.continuation import continuation_enabled
 
+    if not isinstance(manifest.get("stage_model_identity"), dict):
+        return None
     return continuation_enabled(manifest)
 
 
@@ -613,8 +618,15 @@ def _comparable_view(manifest: dict) -> dict:
 
 
 def comparison_problems(arm: dict, baseline: dict) -> list[str]:
-    """@brief 两臂可比：同一提交、同一场景文件、同一模型身份，只有续接开关不同；返回拒绝比较的原因（空表示可比）。"""
-    problems = [] if _switch(arm) != _switch(baseline) else ["same_second_continuation is the same in both runs"]
+    """@brief 两臂可比：同一提交、同一场景文件、同一模型身份，只有续接开关不同；返回拒绝比较的原因（空表示可比）。
+
+    没有冻结开关的运行（特性之前的运行）不能作任何一臂。
+    """
+    switches = (_switch(arm), _switch(baseline))
+    if None in switches:
+        problems = ["a run without a frozen same_second_continuation (pre-feature manifest) cannot be an arm"]
+    else:
+        problems = [] if switches[0] != switches[1] else ["same_second_continuation is the same in both runs"]
     left, right = _comparable_view(arm), _comparable_view(baseline)
     problems += [f"manifest field {key} differs" for key in sorted(set(left) | set(right))
                  if left.get(key) != right.get(key)]

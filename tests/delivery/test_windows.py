@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from worldmock.delivery.windows import (
@@ -7,6 +9,7 @@ from worldmock.delivery.windows import (
     _window_identity,
     prepare_windows,
 )
+from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
@@ -30,8 +33,7 @@ def decision_prompt(requested, rows):
     prompt = event('prompt-' + requested['event_id'], requested['event_seq'] - 1,
                    'model_request', {'phase': 'request', 'request': {
                        'model': 'fixture',
-                       'messages': [{'role': 'system', 'content': '人物身份'},
-                                    {'role': 'user', 'content': '实际场景和记忆'}],
+                       'messages': [{'role': 'system', 'content': '人物身份'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': tool_name, 'parameters': parameters}}],
                    }}, visibility='system')
@@ -216,7 +218,7 @@ def _agent_action_drafts(agent_id, decision_id, action_id):
                    data={'location_id': f'location-{agent_id}'}),
         EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id, decision_id=decision_id,
                    visibility='agent', data={'phase': 'request', 'request': {
-                       'messages': [{'role': 'system', 'content': 'Persona and scene'}],
+                       'messages': [{'role': 'system', 'content': 'Persona and scene'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': 'start_activity',
                            'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -346,11 +348,34 @@ def _layered_observation(identity, sequence, **extra):
 _LAYER_KEYS = ('tool_layer', 'todo_layer', 'environment_layer', 'memory_layer')
 
 
-def test_dreaming_window_reads_self_note_and_layer_json_without_decision_started(tmp_path, monkeypatch):
-    """dreaming 读 self_note 与观察中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）；
-    decision_started 是私有事件，dreaming 私有集等于私有集；交付从不调用场景渲染器。"""
+def _action_prompt(identity, sequence, layers, tool_name='start_activity', purpose=None):
+    """同一决策中的一次行动请求（或带 purpose 的其他调用）：system 加六层 user。"""
+    data = {'phase': 'request', 'request': {
+        'model': 'fixture', 'messages': [{'role': 'system', 'content': '系统层'}, layered_user(layers)],
+        'tools': [{'type': 'function', 'function': {'name': tool_name, 'parameters': {}}}]}}
+    if purpose:
+        data['purpose'] = purpose
+    return event(identity, sequence, 'model_request', data, visibility='system')
+
+
+def _dreaming_day(*rows):
+    """一个自然日的 dreaming 输入：按事件构造三种模式的窗口。"""
+    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': rows[-1]['event_seq'],
+                'window': {'start': '2026-01-05T00:00:00+08:00', 'end': '2026-01-06T00:00:00+08:00',
+                           'timezone': 'Asia/Shanghai'},
+                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
+    return _dream_windows(list(rows), manifest, Path('.'), {row['event_id']: row for row in rows})
+
+
+def test_dreaming_window_reads_self_note_and_the_actual_request_layer_json(monkeypatch):
+    """dreaming 读 self_note 与实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）：每个动作请求取
+    同决策动作前最后一次实际行动请求的首个 user 六层，请求事件身份与层 JSON 摘要写入来源；零点计划与动作之后的请求不取。
+    decision_started 与 model_request 是私有事件，不作窗口事件；交付从不调用场景渲染器。"""
+    import hashlib
+
     import worldmock.delivery.windows as windows
     import worldmock.life.narration as narration
+    from worldmock.footprints.models import canonical_json
 
     def never(*_args, **_kwargs):
         raise AssertionError('delivery must not re-render the observation')
@@ -358,22 +383,22 @@ def test_dreaming_window_reads_self_note_and_layer_json_without_decision_started
     monkeypatch.setattr(narration, 'render_scene', never, raising=False)
     assert windows.DREAMING_PRIVATE_EVENTS == windows.PRIVATE_EVENTS
     assert not hasattr(windows, 'render_scene')
+    head, recalled = six_layers(), six_layers([{'type': 'message_arrival', 'sender': '王磊', 'text': '帮我带杯咖啡'}])
     observed = _layered_observation('observed', 1)
     started = event('decision-start', 2, 'decision_started',
                     {'round_id': 'r1', 'round_order': 0, 'world_state_version': 3, 'wake_reasons': []})
-    requested = event('request-3', 3, 'action_requested', {
+    first, latest = _action_prompt('prompt-first', 3, head), _action_prompt('prompt-latest', 4, recalled)
+    planned = _action_prompt('plan-day', 5, six_layers(), purpose='plan_day')
+    requested = event('request-3', 6, 'action_requested', {
         'tool_name': 'start_activity', 'request': {'targets': ['自己'], 'actions': ['interact'], 'ways': ['等待']},
         'request_sha256': 'f' * 64, 'reused': False, 'self_note': '先歇一会儿，再去买菜。'})
     requested.update(action_id='action-1')
-    manifest = {'run_id': 'run', 'source_group_id': 'run', 'cutoff_event_seq': 3,
-                'window': {'start': '2026-01-05T00:00:00+08:00', 'end': '2026-01-06T00:00:00+08:00',
-                           'timezone': 'Asia/Shanghai'},
-                'frozen_run_manifest': {'model_identity': {'name': 'fixture'}}}
-    indexed = {row['event_id']: row for row in (observed, started, requested)}
+    after = _action_prompt('prompt-after', 7, six_layers())
 
-    records = _dream_windows([observed, started, requested], manifest, tmp_path, indexed)
+    records = _dreaming_day(observed, started, first, latest, planned, requested, after)
 
     assert len(records) == 3
+    digest = hashlib.sha256(canonical_json(recalled)).hexdigest()
     for record in records:
         rows = {row['event_id']: row for row in record['input']['events']}
         assert set(rows) == {'observed', 'request-3'}
@@ -381,6 +406,32 @@ def test_dreaming_window_reads_self_note_and_layer_json_without_decision_started
         assert rows['request-3']['data'] == {'tool_name': 'start_activity',
                                              'request': requested['data']['request'],
                                              'self_note': '先歇一会儿，再去买菜。'}
+        assert record['input']['decision_layers'] == [{'action_event_id': 'request-3', 'layers': recalled}]
+        assert record['provenance']['decision_layer_sources'] == [{'event_id': 'prompt-latest', 'sha256': digest}]
+        assert 'prompt-latest' in record['provenance']['source_event_ids']
+        assert 'prompt-latest' not in record['input']['allowed_evidence_event_ids']
+        assert record['provenance']['window_id'] == _window_identity('dreaming', record['input'])
+
+
+@pytest.mark.parametrize('broken', ['missing', 'no_user', 'plain_text', 'wrong_order', 'extra_item'])
+def test_dreaming_rejects_an_action_without_the_recorded_layer_json(broken):
+    """动作请求没有实际行动请求、请求没有 user、user 不是六层 JSON 或层序不符时拒绝，不从观察猜测层 JSON。"""
+    layers = six_layers()
+    if broken == 'wrong_order':
+        layers[0], layers[1] = layers[1], layers[0]
+    if broken == 'extra_item':
+        layers.append('多余')
+    prompt = _action_prompt('prompt', 2, layers)
+    messages = prompt['data']['request']['messages']
+    if broken == 'no_user':
+        del messages[1]
+    if broken == 'plain_text':
+        messages[1]['content'] = '人物卡：安。场景：办公室。'
+    requested = event('request', 3, 'action_requested', {'tool_name': 'start_activity', 'self_note': None})
+    rows = [_layered_observation('observed', 1)] + ([] if broken == 'missing' else [prompt]) + [requested]
+
+    with pytest.raises(IntegrityError, match='no recorded decision prompt' if broken == 'missing' else 'six-layer'):
+        _dreaming_day(*rows)
 
 
 def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
@@ -411,7 +462,7 @@ def test_conclude_activity_with_memories_does_not_leak_memory_text(tmp_path):
 
     action, intent = _action_windows(requested, {'conclude': [requested, completed]}, {'decision': list(rows)},
                                      (manifest, tmp_path, indexed))
-    dreams = _dream_windows([observed, requested, written, completed], manifest, tmp_path, indexed)
+    dreams = _dream_windows(list(rows), manifest, tmp_path, indexed)
 
     assert action['target']['request'] == requested
     assert action['target']['request']['data']['request']['memories'][0][0]['text'] == secret
