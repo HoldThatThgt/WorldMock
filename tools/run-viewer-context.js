@@ -146,7 +146,7 @@ const ViewerContext = {};
   /** @brief 只按系统层 JSON 与工具字段区分行动请求；旧运行的两阶段请求归入其他调用并显示未解析。 */
   function classify(request, purpose) {
     if (lifeSystem(request) && Array.isArray(request.tools)) return {stage: 'action', label: '选择动作'};
-    return {stage: 'other', label: purpose ? `其他调用 · ${purpose}` : '其他调用 · 未解析'};
+    return {stage: 'other', label: purpose ? `其他调用·${purpose}` : '其他调用·未解析'};
   }
 
   /** @brief 统一按 Unicode 码点统计字符，不把代理对拆成两个字符。 */

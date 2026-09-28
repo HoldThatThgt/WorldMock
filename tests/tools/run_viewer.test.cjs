@@ -130,7 +130,7 @@ test('context reads seven-layer action stages, sliced layers and recorded tools 
   try {
     const items = app.run('ContextView.index()');
     assert.deepEqual(Array.from(items, item => item.stage), ['other', 'action', 'action']);
-    assert.equal(items[0].label, '其他调用 · 未解析');
+    assert.equal(items[0].label, '其他调用·未解析');
     assert.equal(app.state.bodyCache.size, 0, 'Index must not load complete requests');
     const model = app.run('ContextView.read(2)');
     assert.deepEqual(Array.from(model.current.blocks.filter(block => block.role === 'user'), block => block.key),

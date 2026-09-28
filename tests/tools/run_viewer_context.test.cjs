@@ -104,14 +104,14 @@ test('action requests are recognised only by the life system layer JSON and an a
 
 test('legacy prelude and legacy action requests are other calls shown as unparsed', () => {
   const {api, errors} = parser();
-  assert.deepEqual(plain(api.classify(request('legacy_prelude'))), {stage: 'other', label: '其他调用 · 未解析'});
-  assert.deepEqual(plain(api.classify(request('legacy_action'))), {stage: 'other', label: '其他调用 · 未解析'});
-  assert.match(api.classify(request('legacy_prelude'), 'memory_consolidation').label, /其他调用 · memory_consolidation/);
+  assert.deepEqual(plain(api.classify(request('legacy_prelude'))), {stage: 'other', label: '其他调用·未解析'});
+  assert.deepEqual(plain(api.classify(request('legacy_action'))), {stage: 'other', label: '其他调用·未解析'});
+  assert.match(api.classify(request('legacy_prelude'), 'memory_consolidation').label, /其他调用·memory_consolidation/);
   for (const kind of ['legacy_prelude', 'legacy_action']) {
     const input = event(request(kind));
     const parsed = api.parseRequest(input);
     assert.equal(parsed.stage, 'other');
-    assert.equal(parsed.stageLabel, '其他调用 · 未解析');
+    assert.equal(parsed.stageLabel, '其他调用·未解析');
     assert.equal(messageBlocks(parsed).length, 1);
     assert.equal(messageBlocks(parsed)[0].text, input.data.request.messages[1].content);
     assert.match(messageBlocks(parsed)[0].label, /未解析/);
