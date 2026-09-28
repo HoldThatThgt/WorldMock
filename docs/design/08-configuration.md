@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 配置规格
 
-> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分待实现  
-> **日期**：2026-09-27\
-> **版本**：v1.11\
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分已实现（证据见[人物 Prompt 验收记录](../dev/persona-prompt-verification.md)）  
+> **日期**：2026-09-28\
+> **版本**：v1.12\
 > **目标读者**：算法工程师、开发工程师、实验设计者
 
 配置文件的编写步骤和可复制示例见[用户配置手册](../manual/README.md)。本文维护配置职责与设计边界。
@@ -23,6 +23,7 @@
 | v1.9 | 2026-09-25 | Claude | 按时间与能量规格阶段 3：世界状态保存地点会话与活动的收尾、播报锚点和会话归属 |
 | v1.10 | 2026-09-25 | Claude | 按时间与能量规格阶段 5：目标条目只接收必填可空的 `remind_time`（场景本地 `HH:MM`），不接收时长或其他调度参数，当日目标由零点计划生成；世界状态保存当日计划与提醒（`remind_at`、`reminded_at`）及已生成计划的日期 `plan_submitted_dates` |
 | v1.11 | 2026-09-27 | Claude | 按人物 Prompt 七层规格（人物 Prompt 台账 E8-1–E8-3，E8-2 为阶段 1、4 同批作业）：文件头注明修订部分待实现；世界状态结构版本改为 8，旧检查点（含版本 7）以版本不符拒绝，另存会话 `opened_by_action_id`、活动 `paused_at` 与开吃份量、订单收货人与请求关联、联系人持有与发件箱；场景联系人可填可空的 `receive_location_id`；「7.2 格式与加载边界」的凭据链接改指接口合同「模型身份」 |
+| v1.12 | 2026-09-28 | Claude | 人物 Prompt 七层规格实现后文档：文件头注明修订部分已实现；联系人 `receive_location_id` 须为场景声明的地点，与同世界人物重复的联系人为 `null`；写明同秒续接开关是运行参数（`worldmock run --same-second-continuation on\|off`）而不是场景字段 |
 
 ## 1. 模块概述
 
@@ -130,7 +131,10 @@ flowchart LR
 同刻决策上限 `max_same_moment_decisions` 为正整数，缺省 3；`activity_feedback_seconds` 取 60–86400 秒，下限 60
 保证等待（计划时长取它）能被受理。含旧键 `max_consecutive_rejections` 的场景按未知字段拒绝。
 场景联系人可填 `receive_location_id`（可空）：联系人在该地点收实物，送给联系人的直接配送送到这里，当面给予要求本人位于这里；
-为空时联系人不能收实物。`Contact` 拒绝未知字段，补填会改变场景摘要。
+为空时联系人不能收实物；填写的地点须是场景声明的地点，否则场景校验拒绝。`Contact` 拒绝未知字段，补填会改变场景摘要。
+与同世界人物重复的场景联系人（仓库双人场景中的李凡、陈曦）显式为 `null`，同世界人物按其所在地点收货。
+同秒续接开关不是场景字段，是运行参数：新建运行由 `worldmock run --same-second-continuation on|off`（缺省 `on`）给出，
+冻结进运行清单 `stage_model_identity.stages.action` 与人物配置，恢复与重放继承父清单的值（见[接口合同「思考回传」](../CONTRACTS.md#思考回传)）。
 目标条目只接收 `remind_time`（必填、可为 null，场景本地 `HH:MM`），不接收时长或其他调度参数；
 当日目标由零点计划生成，人物以 `revise_day_plan` 修订，规则见[当日目标请求](../CONTRACTS.md#当日目标请求)。
 

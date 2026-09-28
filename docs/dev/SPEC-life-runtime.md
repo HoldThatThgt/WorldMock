@@ -6,7 +6,7 @@
 > 其余既有条款的历史代码层证据保留原身份。真实 DeepSeek 完整实验仍待正式运行。
 > 按[人物 Prompt 规格](SPEC-persona-prompt.md#冻结条款修订)修订 7–9、14–16、22、24、28 改写（人物 Prompt 台账 LR1–LR6）：
 > 观察投影改为七层请求，系统层取代身份前言与「怎样过一天」，上下文容量按其第四章，指名购买、给予、进食开吃份量与联系人收货和往来随之改写；
-> 按人物 Prompt 规格修订，修订部分待实现，验收矩阵中改动的行记「本次离线验收待执行」。
+> 按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](persona-prompt-verification.md)），验收矩阵中改动的行已改记「代码层已验证」。
 > 日期：2026-09-27
 > 实施基线：`9b7fbc8`
 > 范围：LifeEnv 的状态归属与生命周期、共享时钟与并发活动、消费生产与需求模型、语料准入与内容提供、场景与身体规则、观察投影与提示合同、候选契约与呈现规则、社交最小可行版
@@ -711,7 +711,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 
 ### 不进入提示的字段
 
-不得进入提示的字面键清单见 `docs/CONTRACTS.md`「禁止进入提示的字段」；该清单覆盖七层、原生 `tools` 与续接消息。
+不得进入提示的字面键清单见 `docs/CONTRACTS.md`「禁止进入提示的字段」；宿主渲染七层 JSON 与续接 tool 消息时逐键校验，原生 `tools` 是整次运行不变的常量，由测试校验。
 
 两条由本规格判定的行为边界：`game_catalog` 只在人物在家且询问娱乐时以名称列表出现，不整表下发；能量数值与能量可行性不约束工具 Schema。
 
@@ -732,7 +732,7 @@ appetite = clamp((appetite_anchor_kcal − energy_kcal) / (appetite_anchor_kcal 
 **工作材料增量**：现行提示从不含材料正文，只给新揭示材料的字数，与接口合同的「揭示」不符；七层删去该字数字段，
 材料正文进入哪一层另立规格（人物 Prompt 规格「范围外登记」）。完整材料进度仍由结算记录。
 
-**字幕与内容片段**：只交付本次结算新跨过的区间，写在工具层对应内容目标的 `state`；横跨边界的同一条字幕不重复交付。
+**字幕与内容片段**：结算只揭示本次新跨过的区间，横跨边界的同一条字幕不重复揭示；字幕正文不进入七层，工具层内容目标的 `state` 只写没看过、看过一部分或看完了。
 
 **动作结果回灌**：本会话内的世界请求连同公开结果是进度层的 `tool_call` 记录，在整个会话内保留；同一秒续接时，
 上一决策的结果随 tool 消息返回；会话结束后由系统派生为记忆层的 `settled` 句子。活动的客观进度在工具层活动目标的 `state`，
@@ -1000,12 +1000,12 @@ flowchart LR
 | 运行观测 | 只读查询使用已确认状态且不修改任何运行文件 | `tests/footprints/test_status.py` | 代码层已验证 |
 | 身体语义 | 两过程睡眠阈值与演化逐点符合公式；睡眠不足账与效率曲线的钳制与插值；饥饿、娱乐、社交需要的分级阈值；能量低于 400 kcal 时至少“饿得难受”，低于 100 kcal 为“饿得发慌”；初始睡眠压力按惯常起床时刻反推 | `tests/life/test_sleep_two_process.py`、`tests/life/test_felt_states.py`、`tests/life/test_body.py` | 代码层已验证 |
 | 资源结算 | 能量与娱乐分录分开结算；能量对所有活动集合以 0 截断、不报错；精确总成本经多次反馈结算不变 | `tests/life/test_body.py` | 代码层已验证 |
-| 具体活动结算 | 暂停、恢复与取消保留实际进度；完成与实验截断设置结束时刻；字幕只揭示实际播放区间；主动结束、暂停与恢复逐活动各写一条 `environment_event`；投入与有效秒数随结算累加；进食按开吃份量结算：4 份里拿 1 份、吃到 300/1500 秒时结束，摄入 0.2、丢弃 0.8、库存 3，暂停保留剩余并可恢复，持有 0.25 份时受理且时长 375 秒，收尾结果写终局与份量；给予只转移持有、要求同处，任何人的摄入都不变 | `tests/life/test_activities.py`、`tests/life/test_content_game.py`；新增 `tests/life/test_meal_outcome.py`、`tests/life/test_giving.py` | 本次离线验收待执行 |
+| 具体活动结算 | 暂停、恢复与取消保留实际进度；完成与实验截断设置结束时刻；字幕只揭示实际播放区间；主动结束、暂停与恢复逐活动各写一条 `environment_event`；投入与有效秒数随结算累加；进食按开吃份量结算：4 份里拿 1 份、吃到 300/1500 秒时结束，摄入 0.2、丢弃 0.8、库存 3，暂停保留剩余并可恢复，持有 0.25 份时受理且时长 375 秒，收尾结果写终局与份量；给予只转移持有、要求同处，任何人的摄入都不变 | `tests/life/test_activities.py`、`tests/life/test_content_game.py`；新增 `tests/life/test_meal_outcome.py`、`tests/life/test_giving.py` | 代码层已验证 |
 | 工作与验收 | 计时与计件合同按实际合格工时与冻结件数结算；过期、重复与无资金在语义付款前停止；评审协议纠正、耗尽与零重试 | `tests/life/test_work_contracts.py`、`tests/life/test_work_review.py`、`tests/life/test_work_review_protocol.py` | 代码层已验证 |
 | 语料准入 | 场景目录逐条通过引用完整性、单位与守恒检查；正式清单逐文件校验与选定条数；AMI 输入与隐藏参考分离；TextWorld 使用真实重置与步进 | `tests/catalog/test_admission.py`、`tests/corpora/test_corpora.py` | 代码层已验证 |
 | 导航与配送 | 路线报价一次预付且不可负担时不改动任何账户；walking 记录零车费不虚构付款；定位轨迹确定且不构成人物决策；交通时间因子随日期时段变化 | `tests/life/test_travel_cost.py`、`tests/life/test_travel_trajectory.py`、`tests/life/test_travel_time.py` | 代码层已验证 |
 | 场景与身体规则 | 正式与多人场景校验通过；身体实例与拒绝范围强制；账户身份唯一，经营角色允许多个卖方账户；出行报价符合目录闭集规则；日历、账单与工资按规则结算 | `tests/life/test_scenario.py`、`tests/life/test_scheduling.py` | 代码层已验证 |
-| 观察投影 | 生活决策请求只有原生 `tools`、系统层 system 与六层 user（续接时另加原生消息），各层通过 `src/worldmock/life/prompt_schemas.py` 校验，user 数组层序固定；禁止键不进入七层、原生 `tools` 与续接消息；发给人物模型的内容无内部身份；每项信息在请求中只出现一次；门店供给可见期按实际呈现身份和地点判断，超过 1800 秒失效；被轮转隐藏但存在的商品按名称可买，不存在时给至多 3 个近似候选且不替换，多店同名时报歧义，其余动词的未列名称按协议纠错；七层不含新揭示材料的字数；跨边界字幕不重复；不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py`、`tests/life/test_storefront_discovery.py`；新增 `tests/life/test_prompt_layers.py`、`tests/life/test_tool_layer.py`、`tests/life/test_named_purchase.py` | 本次离线验收待执行 |
+| 观察投影 | 生活决策请求只有原生 `tools`、系统层 system 与六层 user（续接时另加原生消息），各层通过 `src/worldmock/life/prompt_schemas.py` 校验，user 数组层序固定；禁止键不进入七层、原生 `tools` 与续接消息；发给人物模型的内容无内部身份；每项信息在请求中只出现一次；门店供给可见期按实际呈现身份和地点判断，超过 1800 秒失效；被轮转隐藏但存在的商品按名称可买，不存在时给至多 3 个近似候选且不替换，多店同名时报歧义，其余动词的未列名称按协议纠错；七层不含新揭示材料的字数；跨边界字幕不重复；不输出数字权重 | `tests/life/test_revision_contract.py`、`tests/life/test_narration.py`、`tests/life/test_storefront_discovery.py`；新增 `tests/life/test_prompt_layers.py`、`tests/life/test_tool_layer.py`、`tests/life/test_named_purchase.py` | 代码层已验证 |
 | 交互菜单 | 有效菜单随观察冻结；模型、本地与宿主使用同一资格；环境重验不可绕过；拒绝无领域副作用；候选、事实与排除统计不变 | [交互菜单验收记录](research/interaction-menu-verification.md)所列对应测试 | 独立特性及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 统一候选契约 | 五类对象的候选区分生成、资格与排序三段且返回体形状一致；同输入两次取候选逐字节相同；候选不依赖时间戳、缓存或模型输出 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 两条排除纪律 | 画像未声明的题材其条目仍在候选内且排序靠后；每个被排除项带闭集内的原因码；保留项计数与排除项计数之和等于候选全集规模 | `tests/life/test_candidates.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
@@ -1015,9 +1015,9 @@ flowchart LR
 | 禁止永久退役 | 轮转、裁剪与淘汰统计都不改变对象层条目数；无运行期通路按互动统计移出条目 | `tests/life/test_rotation.py`、`tests/life/test_candidate_wiring.py` | 代码层已验证 |
 | 地点语义与检索分区 | 地点类交集决定可行性且原因码可区分；`anywhere` 恒可行；地点类词表逐值一致；分区键取条目属性而非地点 | 显式地点集合的单元证据见 `tests/life/test_candidates.py`、`tests/life/test_activity_location_kinds.py`、`tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py`；正式地图声明与场景引用由地图特性重新验收 | 独立特性及[当前主线组合](research/map-and-storefront-main-verification.md)均已通过 |
 | 检索与反塌缩 | 同一查询在同一（冻结目录、世界状态版本）下返回同一有序结果；静态可达性检查对任意对象给出至少一条到达路径；索引不含浮点距离或随机初始化 | `tests/life/test_retrieval.py`、`tests/catalog/test_reachability_admission.py` | 代码层已验证 |
-| 随身持有与远程订购 | 他处持有物在工具层作为名称带所在地点的目标列出，食用与使用标不可用并写明只能在当地用，不呈现为手边可用；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分；订单只入收货人（`to`）的持有，直接配送给场景联系人时送到其 `receive_location_id`，自己收货后再给予只转移一次 | `tests/life/test_storefront_commerce.py` 的 `test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`；`tests/life/test_commerce.py::test_remote_inventory_is_not_a_current_interactive_object`；`tests/life/test_public_observation_contract.py::test_products_and_inventory_show_food_energy_and_elsewhere_holdings`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py` | 本次离线验收待执行 |
-| 完整请求容量 | 实际请求连同预留输出达到窗口 85% 时先提前结束本秒续接，再依次去掉未受保护记录的 `self_note`、把最旧一段已有结果的记录折成 `condensed`；工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录与上次请求之后的新记录完整保留；仍达阈值或超过输入额度则报容量故障，并留分层 token 用量；记忆层按自身 8000 字符窗口截取 | `tests/integration/test_life_agent_protocol.py` 的跨轮容量场景；新增 `tests/integration/test_same_second_continuation.py`、`tests/life/test_memory_layer.py` | 本次离线验收待执行 |
-| 社交 | 在场可见字段闭合，途中人物不算在场；交谈要求双方同处一地且对方清醒、不在主动游戏，对方对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，同一对人物重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒的收件人在同一秒获得决策机会，睡眠中不唤醒；消息汉字上限边界；交谈与通话的费率与派生时长边界，不因派生值拒绝；联系人策略为闭集且回复至多一次，给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落一条占位回复，联系人回复预排送达、睡眠中过滤；直接消息以全文进入收件人的进度层；发给场景联系人的消息记入发送人的 `outbox`，联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；`receive_location_id` 为空的联系人不能收实物，给予联系人要求本人位于其收货地点 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py` | 本次离线验收待执行 |
+| 随身持有与远程订购 | 他处持有物在工具层作为名称带所在地点的目标列出，食用与使用标不可用并写明只能在当地用，不呈现为手边可用；配送不受在场约束而取货受在场约束，两者的拒绝原因码可区分；订单只入收货人（`to`）的持有，直接配送给场景联系人时送到其 `receive_location_id`，自己收货后再给予只转移一次 | `tests/life/test_storefront_commerce.py` 的 `test_pickup_is_instant_and_never_needs_delivery_route` 与 `test_fulfillment_rejections_are_atomic`；`tests/life/test_commerce.py::test_remote_inventory_is_not_a_current_interactive_object`；`tests/life/test_public_observation_contract.py::test_products_and_inventory_show_food_energy_and_elsewhere_holdings`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py` | 代码层已验证 |
+| 完整请求容量 | 实际请求连同预留输出达到窗口 85% 时先提前结束本秒续接，再依次去掉未受保护记录的 `self_note`、把最旧一段已有结果的记录折成 `condensed`；工具层的进行中与刚结束活动、待办层的暂停活动、未了结订单相关的记录与上次请求之后的新记录完整保留；仍达阈值或超过输入额度则报容量故障，并留分层 token 用量；记忆层按自身 8000 字符窗口截取 | `tests/life/test_decision_context_projection.py`（阈值、去 `self_note`、折叠与容量故障）；新增 `tests/integration/test_same_second_continuation.py`（预算第 0 步）、`tests/life/test_memory_layer.py`（记忆层窗口） | 代码层已验证 |
+| 社交 | 在场可见字段闭合，途中人物不算在场；交谈要求双方同处一地且对方清醒、不在主动游戏，对方对发起人选择交谈即接受、不再发邀请，一方结束时对方同秒结束，同一对人物重复发起以 `CHAT_ALREADY_ACTIVE` 拒绝；清醒的收件人在同一秒获得决策机会，睡眠中不唤醒；消息汉字上限边界；交谈与通话的费率与派生时长边界，不因派生值拒绝；联系人策略为闭集且回复至多一次，给 `none` 策略联系人的消息照常送达、不回复，`template` 策略落一条占位回复，联系人回复预排送达、睡眠中过滤；直接消息以全文进入收件人的进度层；发给场景联系人的消息记入发送人的 `outbox`，联系人回复请求带双方往来（至多 20 条）与对方实际收到的物品；`receive_location_id` 为空的联系人不能收实物，给予联系人要求本人位于其收货地点 | `tests/life/test_social.py`、`tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；新增 `tests/life/test_giving.py`、`tests/integration/test_minimum_complete_path.py` | 代码层已验证 |
 | 真实端点集成 | 真实 DeepSeek 端点与完整活动结算的集成测试通过 | 正式运行记录见 `docs/dev/implementation-status.md` | 待真实运行 |
 
 「候选契约与呈现规则」历史基线的复判说明（保留当时证据，不描述地图特性整合后状态）：
@@ -1080,3 +1080,4 @@ flowchart LR
 | `2026-09-26-time-and-energy-stage-7` | 2026-09-26 | 时间与能量规格阶段 7 文档一致性核对（LR1–LR32 对照最终代码）：「决策节律：结算边界与唤醒条件分离」的静默边界与「结算间隔与续行」改为按人物已开始的活动续行（时长由引擎派生，人物不提交计划时长），该节结算口径的「退出」改「提前结束」；「验收矩阵」「随身持有与远程订购」行改引现有测试 `test_remote_inventory_is_not_a_current_interactive_object` 与 `test_products_and_inventory_show_food_energy_and_elsewhere_holdings`，删去已不存在的 `test_consume_rejects_inventory_held_at_another_location` |
 | `2026-09-26-time-and-energy-stage-9` | 2026-09-26 | 时间与能量规格实现后（阶段 9）：最终源码 `ef13dc5` 通过全量、覆盖率、风格与文档门禁，验收矩阵中按 LR31 记「本次离线验收待执行」的八行（决策节律、同刻决策、身体语义、资源结算、具体活动结算、观察投影、随身持有与远程订购、完整请求容量）改记「代码层已验证」；「社交」行按 LR30 改写后的社交行为补观察（途中人物不算在场、对发起人选择交谈即接受、一方结束时对方同秒结束、重复发起被拒、清醒收件人同秒获得机会、派生时长不因派生值拒绝、`none` 与 `template` 策略、联系人回复预排送达）与证据 `tests/life/test_social_rounds.py`、`tests/life/test_same_moment_decisions.py`；状态头改为受影响条款已重新验收，链接时间与能量验收记录 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 规格](SPEC-persona-prompt.md#冻结条款修订)修订 7–9、14–16、22、24、28 改写（人物 Prompt 台账 LR1–LR6），修订部分待实现：状态归属的人物资产加送达只入收货人与给予；核心原则与「数值与分级的分离」的场景段落、事实清单改为七层；「具体活动结算」的进食改为开吃份量（暂停保留、结束丢弃、不补算摄入、不足一份按份量折算时长），购物写明一单一个收货人，新增给予行；「观察投影三部分」改为「七层请求」，禁止键清单覆盖七层、原生 `tools` 与续接消息；「观察投影行为规则」的不重复序列化并入唯一出现，可见期只管展示与比较并加指名购买，工作材料按人物 Prompt 规格「范围外登记」删去字数字段，字幕落在内容目标 `state`，结果回灌改为进度层 `tool_call` 与会话结束后的记忆层，目标行不显示自述，收件头、吃饭途径句与场景句删除，链接改指决策上下文规格「七层归属」；交互菜单只经工具层与环境层 `fixed_rules` 呈现，原生工具不按菜单收窄；「系统提示与身份前言」改为「系统层」，身份前言、「怎样过一天」与 50% 比例废止；「上下文容量」按人物 Prompt 规格第四章（先提前结束续接，再去 `self_note`、折叠为 `condensed`）；随身持有的通过判据改为工具层目标，配送不校验在场改由系统层规则或动作 `note` 说明，远程订购写明收货人与联系人收货地点；社交写明消息全文进入进度层、联系人 `outbox`、收货地点与联系人持有、回复请求的双方往来与对方收到的物品；验收矩阵具体活动结算、观察投影、随身持有与远程订购、完整请求容量、社交五行改写并记「本次离线验收待执行」 |
+| `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；验收矩阵中记「本次离线验收待执行」的五行改为「代码层已验证」，「完整请求容量」的证据改指实际守卫的测试（原引的跨轮容量场景不存在）；禁止键校验的覆盖范围按代码写明；「字幕与内容片段」改为字幕正文不进入七层，内容目标的 `state` 只写观看进度 |

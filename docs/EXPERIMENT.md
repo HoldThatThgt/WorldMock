@@ -1,6 +1,6 @@
 # WorldMock 实验设置
 
-> 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分待实现。
+> 状态：FROZEN。本文件是实验身份、时间窗、依赖、场景参数、内容语料、样本划分与外部参照的冻结口径。按人物 Prompt 规格修订，修订部分已实现并通过离线验收（证据见[人物 Prompt 验收记录](dev/persona-prompt-verification.md)）。
 > 日期：2026-09-27
 > 范围：单人物 84 天正式实验，上海张江白领，时区 Asia/Shanghai。
 > 接口签名、字段与目录结构见 `docs/CONTRACTS.md`；行为规则见 `docs/dev/SPEC-*.md`；验收门禁见 `docs/VERIFICATION.md`。
@@ -47,7 +47,7 @@ timeline
 | 组件 | 版本或端点 | 冻结要求 |
 | --- | --- | --- |
 | 人物生成模型 | DeepSeek 官方 OpenAI-compatible 端点，`deepseek-flash` | 保存实际返回模型名、fingerprint、请求参数和 token 使用 |
-| 模型冻结 | - | 固定端点、角色、提示（系统层与七层模板）、Pydantic 基础工具合同和模型参数；原生工具定义整次运行不变，不逐轮绑定名称枚举，本轮可选的目标与动作只在工具层列出；运行中不切换模型或代选行动 |
+| 模型冻结 | - | 固定端点、角色、提示（系统层与七层模板）、Pydantic 基础工具合同和模型参数；原生工具定义整次运行不变（只剩最后一个回合时去掉记忆查询工具），不逐轮绑定名称枚举，本轮可选的目标与动作只在工具层列出；运行中不切换模型或代选行动 |
 
 ### 交互菜单与运行身份
 
@@ -68,8 +68,9 @@ timeline
 （非 Git 检出时为 null），二者只记录，不参与恢复比对。提示或工具面变化会改变 `prompt_sha256`、
 `tool_schema_sha256`，这样的运行与旧运行不可合并比较：七层模板、只写用途的工具 description 与 `start_activity` 新增的
 `from`、`to`、`answering` 都改变这两个指纹。运行清单的阶段身份 `stage_model_identity` 只有 `action` 与 `work_review` 两个阶段键，
-含 `decision_statement` 的旧清单被拒绝；同秒续接开关 `same_second_continuation` 冻结进 `stages.action`，
-恢复与重放继承父清单的值，不能覆盖。
+含 `decision_statement` 的旧清单被拒绝；同秒续接开关 `same_second_continuation`（`worldmock run --same-second-continuation on|off`，
+缺省 `on`）冻结进 `stages.action` 与人物配置，恢复与重放继承父清单的值，不能覆盖，恢复时人物配置与父清单不符即拒绝。
+开与关两臂的对比用只读子命令 `scripts/inspect_run.py continuation --baseline`，两份清单除运行身份与该开关外必须相同。
 
 ### AS2 基线与框架依赖
 
@@ -318,7 +319,7 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md`「LabelK
 - 思考只在同一秒的连续决策之间回传，时间推进后丢弃。
 - 记忆层 JSON 至多 8000 字符的窗口。
 - 本人位于联系人的收货地点即视为与该联系人同处（给予的同处条件）。
-- 受限轮用完仍无进行中活动时的技术停顿，身体按静息结算。
+- 受限轮用完仍无进行中活动或仍有待收尾活动时的技术停顿，身体按静息结算。
 
 ## 验收范围与外部参照
 
@@ -342,3 +343,4 @@ LabelKit 侧的两种处理模式与调用参数以 `docs/CONTRACTS.md`「LabelK
 | `2026-09-25-time-and-energy-stage-4` | 2026-09-25 | 时间与能量规格阶段 4（裁决 #25）：可供性注册表修改后目录升为 `4.1`，「地图与门店供给的实验身份」的当前目录版本同步；三份仓库场景与数据集场景的 `catalog_version` 随之同步 |
 | `2026-09-25-time-and-energy-stage-6` | 2026-09-25 | 时间与能量规格阶段 6（运行身份）：「交互菜单与运行身份」写明代码身份覆盖实际导入的 AS2，AS2 缺失、为空或与源码摘要不符即拒绝启动，运行清单另记 Git 提交与未提交标志且不参与恢复比对，提示或工具面变化的运行不可与旧运行合并比较；「AS2 基线与框架依赖」位置列补锁定提交 `8768e14`（子模块指针），新增「AS2 源码摘要」行，值与代码常量 `AS2_LOCKED_SOURCE_SHA256` 逐字相同 |
 | `2026-09-27-persona-prompt` | 2026-09-27 | 按[人物 Prompt 七层规格](dev/SPEC-persona-prompt.md)「冻结条款修订」第 29 行修订，修订部分待实现：「交互菜单与运行身份」写明七层模板、只写用途的工具 description 与 `start_activity` 新增的 `from`、`to`、`answering` 改变两个指纹，阶段身份 `stage_model_identity` 只有 `action` 与 `work_review`，含 `decision_statement` 的旧清单被拒绝，同秒续接开关冻结进 `stages.action` 且恢复与重放继承；原生工具定义整次运行不变，「模型冻结」行与动态 Schema 一句随之改写（裁决 #26）；「决策点节奏」的 `D` 按首个行动请求写入的 `decision_started` 逐次计，同秒续接的各次各计一次；「地图与门店供给的实验身份」的世界结构改为 8；「实验假设声明」删吃饭途径句的 3600 秒，登记思考只在同一秒内回传、记忆层 8000 字符窗口、联系人在其收货地点即视为同处、预算耗尽的技术停顿按静息结算；「AS2 基线与框架依赖」经核对不改（锁定 `8768e14` 不变）；文件头状态句补修订说明，日期改写 |
+| `2026-09-28-persona-prompt-implemented` | 2026-09-28 | 人物 Prompt 七层规格实现后文档（人物 Prompt 台账阶段 8，按最终代码 `f798ea7` 核对）：状态头改为修订部分已实现并通过离线验收；「模型冻结」行注明原生工具只在本次决策剩最后一个回合时去掉记忆查询工具；「交互菜单与运行身份」补同秒续接开关的命令行参数、冻结进人物配置与恢复核对，以及两臂对比用 `scripts/inspect_run.py continuation --baseline`；「实验假设声明」的技术停顿补「或仍有待收尾活动」 |
