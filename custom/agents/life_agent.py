@@ -29,7 +29,8 @@ from custom.agents.life_context import persona_card_text
 from custom.agents.life_persona import persona_layer
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, empty_memory_layer, life_user_layers, readonly_messages,
                                        system_message, user_message)
-from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema
+from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
+                                   purpose_only_schema)
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
@@ -50,9 +51,9 @@ _NO_VIEWS = {"relationships": [], "preferences": []}
 
 
 class _ToolRequest(BaseModel):
-    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段。"""
+    """@brief 所有 LifeAgent 专用工具请求都拒绝未知字段；参数 Schema 不带开发说明，用途只在工具 description。"""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    model_config = ConfigDict(extra="forbid", frozen=True, json_schema_extra=purpose_only_schema())
 
 
 class MemoryRecentRequest(_ToolRequest):
