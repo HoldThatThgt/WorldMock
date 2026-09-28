@@ -15,11 +15,13 @@ import json
 import pytest
 
 from tests.life.conftest import (activity_name, advance_next, conclude_request, context, progress_calls,
-                                 stage_day_plan, start_activity, submit_round, tool_targets, wake_by_mail)
+                                 stage_day_plan, start_activity, start_request, submit_round, tool_targets,
+                                 wake_by_mail)
 from tests.life.test_commerce import _choice, _stage_open
 from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
 from tests.life.test_work_review import _at_task_start
+from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, felt, schedule
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.models import (ActionStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
@@ -240,6 +242,81 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
     assert shown and all(targets[name]["kind"] == "product" for name in shown)
     assert all(action["price"] is not None for name in shown for action in targets[name]["actions"]
                if action["action"] == "obtain")
+
+
+def test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once(engine_factory) -> None:
+    """同一请求开始浏览与播客，两项在同一边界结束：原动作只写一条聚合终态（各活动快照，没有顶层浏览结果）；进度层该调用
+    的结果仍写 browse_items，恰好一次，浏览得到的供给置顶进工具层商品目标（docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    engine = engine_factory()
+    _stage_open(engine)
+    stage_day_plan(engine)
+    preview = engine.observe(context(engine, "pair-browse-preview"))
+    picks = [next((row["object"], action["verb"], action["label"]) for row in preview["interaction_bindings"]
+                  for action in row["actions"] if wanted(action)) for wanted in (
+        lambda action: action["canonical_action"] == "browse", lambda action: action["label"] == "接着听")]
+    started = _act(engine, "pair-browse-start", "start_activity", start_request(
+        targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
+    assert started.status == "in_progress", (started.error_code, started.message)
+    browse_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
+    staged = engine.state.model_copy(deep=True)
+    end = staged.activities[browse_id].planned_end_at
+    podcast = staged.activities[podcast_id]
+    staged.activities[podcast_id] = podcast.model_copy(
+        update={"planned_end_at": end, "planned_duration_seconds": end - podcast.started_at}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_browse_and_podcast_end_together"})])
+    engine.state = staged
+    _finish(engine, browse_id, "pair-browse")
+    assert engine.state.activities[podcast_id].ended_at == engine.state.activities[browse_id].ended_at
+    revealed = engine.state.activities[browse_id].data["revealed"]["items"]
+    observed = _checked(engine, "pair-browse-seen")
+    (record,) = progress_calls(observed, "start_activity")
+    assert record["result"]["message"] == "Activities finished"
+    names = {item.product_id: item.name for item in engine.scenario.products}
+    assert record["result"]["details"]["browse_items"] == [names[item["product_id"]] for item in revealed]
+    assert _rendered(observed).count('"browse_items"') == 1
+    pinned = tuple(dict.fromkeys(item["supply_id"] for item in revealed))
+    assert pinned and engine._pending_presentation[1].pinned_supply_ids == pinned
+    shown = {row["object_id"]: row["object"] for row in observed["interaction_bindings"] if row["kind"] == "supply"}
+    assert all(tool_targets(observed)[shown[supply]]["kind"] == "product" for supply in pinned)
+
+
+def test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer(engine_factory) -> None:
+    """步行与播客同一请求，两项在到达时一起结束：原动作的聚合终态落在到达那次提交，归路程 session，出发请求整体归原停留
+    session，所以到达之后的进度层没有这条调用，任何进度层都不出现 details.arrival（单项出行同样如此）；到达只以记忆层
+    路程条目的 settled 句出现一次（docs/dev/SPEC-persona-prompt.md 第三章「session 与记忆条目」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    preview = engine.observe(context(engine, "pair-trip-preview"))
+    picks = [next((row["object"], action["verb"], action["label"]) for row in preview["interaction_bindings"]
+                  for action in row["actions"] if wanted(row, action)) for wanted in (
+        lambda row, action: row["object_id"] == "office" and action["label"] == "步行",
+        lambda row, action: action["label"] == "接着听")]
+    started = _act(engine, "pair-trip-start", "start_activity", start_request(
+        targets=[pick[0] for pick in picks], actions=[pick[1] for pick in picks], ways=[pick[2] for pick in picks]))
+    assert started.status == "in_progress", (started.error_code, started.message)
+    travel_id, podcast_id = (row["activity_id"] for row in started.data["activities"])
+    staged = engine.state.model_copy(deep=True)
+    podcast, longer = staged.activities[podcast_id], staged.activities[travel_id].planned_end_at + 600
+    staged.activities[podcast_id] = podcast.model_copy(
+        update={"planned_end_at": longer, "planned_duration_seconds": longer - podcast.started_at}, deep=True)
+    staged.version += 1
+    engine.store.commit(staged.model_dump(mode="json"), [EventDraft(
+        event_type="environment_event", occurred_at=staged.current_time, visibility="system",
+        data={"kind": "test_podcast_outlasts_the_trip"})])
+    engine.state = staged
+    _finish(engine, travel_id, "pair-trip")
+    assert engine.state.activities[podcast_id].ended_at == engine.state.activities[travel_id].ended_at
+    assert [event.data["message"] for event in engine.store.read_agent_events("action_result", 1)
+            if event.action_id == started.action_id][-1] == "Activities finished"
+    observed = _checked(engine, "pair-trip-seen")
+    assert progress_calls(observed, "start_activity") == [] and '"arrival"' not in _rendered(observed)
+    trip = activity_name(engine, travel_id)
+    lines = [line for entry in observed["memory_layer"]["earlier_today"] for line in entry["settled"]]
+    (arrived,) = [line for line in lines if line.startswith(f"{trip}：")]
+    assert arrived.endswith("，到达")
 
 
 def test_just_ended_browse_target_states_the_end_reason_without_the_browse_result(engine_factory) -> None:

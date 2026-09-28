@@ -255,7 +255,7 @@ def test_recall_reads_task_and_activity_without_identities() -> None:
             return {"task_bindings": [{"task_name": "工作：1月5日项目会议纪要", "task_id": task.task_id}],
                     "goal_bindings": [], "memory_layer": memory,
                     "activity_bindings": [{"name": name, "activity_id": key,
-                                           "phase": activity_phase(state.activities[key])}
+                                           "phase": activity_phase(state.activities[key]), "note_labels": []}
                                           for key, name in names["activities"].items()]}
 
     controller = RecallController()
@@ -439,8 +439,8 @@ def test_fresh_result_preserves_feedback_without_action_id() -> None:
 
 
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
-    """多商品结果各自写商品名、份数、付款、方式、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-persona-prompt.md
-    「通用格式」）、收货人与所回应的消息（没有关联时为 null），删除报价版本、订单、供给、收货人与消息身份。"""
+    """多商品结果各自写商品名、份数、付款、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-persona-prompt.md「通用格式」）、
+    收货人与所回应的消息（没有关联时为 null），不复述请求的方式，删除报价版本、订单、供给、收货人与消息身份。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),
                 SimpleNamespace(product_id="p2", name="豆浆"))
     places = (SimpleNamespace(location_id="private-office", name="办公室"),)
@@ -456,9 +456,9 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
     public = public_result({**_result(payload), "status": "completed", "error_code": None},
                            _scenario(products, places))
     assert public["details"]["purchases"] == [
-        {"product": "牛肉面", "quantity": "1 份", "paid": "28 元", "way": "远程下单", "destination": "办公室",
+        {"product": "牛肉面", "quantity": "1 份", "paid": "28 元", "destination": "办公室",
          "expected_at": "2026-01-05T00:15:00+08:00", "recipient": "王磊", "request": "王磊 00:00 的消息"},
-        {"product": "豆浆", "quantity": "1 份", "paid": "5.5 元", "way": "到店", "destination": "办公室",
+        {"product": "豆浆", "quantity": "1 份", "paid": "5.5 元", "destination": "办公室",
          "expected_at": "2026-01-06T00:00:00+08:00", "recipient": "林悦", "request": None},
     ]
     assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1", "s1", "contact-wanglei",

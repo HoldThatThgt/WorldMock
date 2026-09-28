@@ -23,15 +23,18 @@ from tests.life.conftest import (  # noqa: E402
     advance_until_ready,
     conclude_pending,
     settle_day_plans,
+    stage_day_plan,
     wake_by_mail,
     context,
     engine_factory as _engine_factory,  # noqa: F401
     start_request,
     start_arguments,
 )
+from tests.life import test_memory_layer as memory_tests  # noqa: E402
 from tests.life.routing_fixtures import (  # noqa: E402
     DUPLICATE_CONTACT, OFFICE, PERSON_TARGET, act, observe, open_world, place,
 )
+from worldmock.life.models import RecallTaskSummaryRequest  # noqa: E402
 
 #: 引擎事件级活动控制行字段闭集；模型只读取工具层的活动目标。
 _ACTIVE_ACTIVITY_CONTROL_KEYS = {
@@ -302,8 +305,68 @@ async def test_native_goal_tools_persist_empty_revision_progress_and_restore(_en
             restored, "goals-preserve", "revise_day_plan", {"goals": []})
         assert observation["todo_layer"]["day_plan"]["goals"] == [
             {"intent_kind": "休息", "goal": "缓一缓", "progressed": True, "remind_time": None}]
-        assert [row["task_name"] for row in observation["goal_bindings"]] == ["目标：休息：缓一缓"]
+        assert [row["task_name"] for row in observation["goal_bindings"]] == ["缓一缓"]
         assert "plan_day" not in restored_tools
         assert restored.state.agents[1].day_plan.model_dump(mode="json") == expected
     finally:
         restored.close()
+
+
+def _recall_round(engine, round_id: str, name: str) -> tuple[str, object]:
+    """冻结一次本人观察，宿主（按这次观察准备的 LifeAgent）本地校验按名称回看，再把同一请求交给环境结算；返回（宿主
+    校验结果，环境结果）。"""
+    ctx = context(engine, round_id)
+    engine.begin_decision_round([ctx])
+    observation = engine.observe(ctx)
+    agent = LifeAgent()
+    agent.prepare_react_loop(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))
+    checked = agent.validate_react_decisions(
+        [ReactDecision("", "recall_task_summary", {"task_name": name}, "")], False)
+    engine.submit_action(DirectToolCall(ctx, f"action-{round_id}", "recall_task_summary",
+                                        RecallTaskSummaryRequest(task_name=name)))
+    return checked, engine.commit_decision_round(round_id)[0]
+
+
+def test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer(_engine_factory) -> None:
+    """当日目标的回看名称就是待办层写出的目标文字（系统层规则 12「名称照工具层、待办层中的写法填写」，回看的名称只取
+    七层中出现的名称）：私有目标绑定与待办层逐字相同；宿主放行照抄的目标文字，旧拼法「目标：<意图>：<文字>」不在七层中，
+    按不可见的名称纠正；环境按目标文字回看到那个目标。两个目标文字相同时名称不唯一，环境以 TASK_NOT_FOUND 业务拒绝，
+    不猜是哪一个。"""
+    engine = _engine_factory()
+    settle_day_plans(engine, StubPlanDayClient(goals=[
+        {"intent_kind": "用餐", "goal": "好好吃顿午饭", "remind_time": None},
+        {"intent_kind": "休息", "goal": "歇一歇", "remind_time": None},
+        {"intent_kind": "娱乐", "goal": "歇一歇", "remind_time": None}]))
+    assert advance_until_ready(engine)
+    observation = engine.observe(context(engine, "goal-names-preview"))
+    shown = [goal["goal"] for goal in observation["todo_layer"]["day_plan"]["goals"]]
+    assert [row["task_name"] for row in observation["goal_bindings"]] == shown == ["好好吃顿午饭", "歇一歇", "歇一歇"]
+    old, _ = _recall_round(engine, "goal-names-old", "目标：用餐：好好吃顿午饭")
+    assert old == "task_name is not visible"
+    checked, found = _recall_round(engine, "goal-names-shown", "好好吃顿午饭")
+    assert checked == "" and found.status == "completed", (found.error_code, found.message)
+    assert found.data["recall"] == {"kind": "goal", "goal": "好好吃顿午饭", "intent_kind": "用餐", "progressed": False}
+    checked, shared = _recall_round(engine, "goal-names-shared", "歇一歇")
+    assert checked == "" and (shared.status, shared.error_code) == ("rejected", "TASK_NOT_FOUND")
+
+
+def test_recall_accepts_the_activity_name_as_written_in_self_notes(_engine_factory) -> None:
+    """更早的 summary 可按记忆层 self_notes 所写的活动名回看（docs/dev/SPEC-persona-prompt.md 第三章「窗口」）：条目内不重名时
+    活动名去掉了开始时刻后缀，宿主放行这个名称，环境把它解析为那项活动，结果写它在记忆层中的活动名与「已在记忆层」；
+    之后另一个条目里又有一项同名的活动，这个名称就指两项活动，环境以 TASK_NOT_FOUND 业务拒绝。"""
+    engine = _engine_factory()
+    stage_day_plan(engine)
+    home = memory_tests._concluding_wait(engine, "label-home", "在家歇好了。", [])
+    memory_tests._arrive(engine, "label-office", memory_tests._walk(engine, "label-walk").activity_id)
+    label = memory_tests._short(home)
+    notes = [note for entry in engine.observe(context(engine, "label-seen"))["memory_layer"]["earlier_today"]
+             for note in entry["self_notes"]]
+    assert label != home and {"activity": label, "text": "在家歇好了。"} in notes
+    checked, recalled = _recall_round(engine, "label-recall", label)
+    assert checked == "" and recalled.status == "completed", (recalled.error_code, recalled.message)
+    assert recalled.data["recall"] == {"kind": "activity", "activity": label, "progress_note": "已在记忆层"}
+    office = memory_tests._concluding_wait(engine, "label-again", "在公司也歇了。", [])
+    memory_tests._arrive(engine, "label-back", memory_tests._walk(engine, "label-return", "home").activity_id)
+    assert memory_tests._short(office) == label and office != home
+    checked, shared = _recall_round(engine, "label-shared", label)
+    assert checked == "" and (shared.status, shared.error_code) == ("rejected", "TASK_NOT_FOUND")

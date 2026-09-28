@@ -711,8 +711,9 @@ def _other_requests() -> tuple[tuple[str, object], ...]:
 
 def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three(engine_factory) -> None:
     """到达当秒出行与路上的观看都刚结束：做别的屡次以 ACTIVITY_CONCLUSION_REQUIRED 拒绝并点名，收尾前时钟不推进；
-    达到上限后只开放收尾（conclude_pending），只点名一部分待收尾活动以 SAME_MOMENT_ACTION_RESTRICTED 拒绝；
-    按受限轮开放的动作走完，同一秒的轮数不超过上限加三（第一章规则 1–3，第七章「活动一结束就要结束它」）。"""
+    达到上限后只开放收尾（conclude_pending）：工具层把两项活动的 conclude_activity 都标可用、其余标同刻限制，只点名其中
+    一项即受理，阶段留在收尾直到没有待收尾活动，再收尾另一项；按受限轮开放的动作走完，同一秒的轮数不超过上限加三
+    （第一章规则 1–3，第七章「活动一结束就要结束它」；docs/dev/SPEC-persona-prompt.md「工具层」「列出即可提交」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     travel_id, watch_id = _depart(engine, "pending-depart", _content(engine, "pending-depart"))
@@ -732,11 +733,18 @@ def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
     assert engine.observe(context(engine, "pending-stage"))["same_moment_stage"] == "conclude_pending"
     assert same_moment.stage_refusal(SameMomentStage.CONCLUDE_PENDING, "conclude_pending") is None
+    staged = engine.observe(context(engine, "pending-marked"))
+    for name in names:
+        tools = target_tools(staged, name)
+        assert tools["conclude_activity"] == {"tool": "conclude_activity", "available": True, "reason": None}
+        assert (tools["report_status"]["available"], tools["report_status"]["reason"]) == (False, _RESTRICTED_REASON)
     partial = _act(engine, "pending-partial", "conclude_activity", conclude_request(names[0]))
-    assert partial.status == "rejected" and partial.error_code == _RESTRICTED
+    assert partial.status == "completed", (partial.error_code, partial.message)
     assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
-    assert [item.activity_id for item in pending_conclusions(engine.state, 1)] == [travel_id, watch_id]
-    assert _act(engine, "pending-all", "conclude_activity", conclude_request(*names)).status == "completed"
+    assert [item.activity_id for item in pending_conclusions(engine.state, 1)] == [watch_id]
+    rest = target_tools(engine.observe(context(engine, "pending-rest-marked")), names[1])["conclude_activity"]
+    assert (rest["available"], rest["reason"]) == (True, None)
+    assert _act(engine, "pending-rest", "conclude_activity", conclude_request(names[1])).status == "completed"
     assert all(engine.state.activities[key].concluded_at == arrived for key in (travel_id, watch_id))
     agent = engine.state.agents[1]
     assert agent.same_moment_stage == SameMomentStage.START_OR_RESUME and agent.next_decision_at == arrived
@@ -749,7 +757,7 @@ def test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_
 
 
 def test_conclude_pending_stage_accepts_only_concluding_every_pending_activity(engine_factory) -> None:
-    """conclude_pending 只接受一次点名全部待收尾活动的 conclude_activity：开始、播报与修订计划都以
+    """conclude_pending 只接受点名待收尾活动的 conclude_activity：开始、播报与修订计划都以
     SAME_MOMENT_ACTION_RESTRICTED 拒绝（受限轮复核先于收尾要求），计入同刻轮数，阶段不变，时钟不推进（第一章规则 3）；
     收尾用掉最后一个受限轮后仍没有进行中活动，按跨决策预算技术停顿（docs/dev/SPEC-persona-prompt.md 第五章）。"""
     engine = engine_factory()
@@ -939,7 +947,7 @@ def _unit_activity(key: str, status: ActivityStatus, *, concluded: bool = False)
         origin_decision_id="decision", origin_request_event_id="event", concluded_at=1900 if concluded else None)
 
 
-#: 受限轮各阶段开放的请求类（第一章规则 3）：收尾一支只收一次点名全部待收尾活动的结束，名额满只开放恢复或结束，
+#: 受限轮各阶段开放的请求类（第一章规则 3）：收尾一支只收点名待收尾活动（全部或其中几项）的结束，名额满只开放恢复或结束，
 #: conclude_only 只开放结束，有空名额开始或恢复（等待始终可选）。
 _STAGE_OPENS = {
     SameMomentStage.CONCLUDE_PENDING: {"conclude_pending"},
@@ -950,15 +958,16 @@ _STAGE_OPENS = {
 
 
 def test_restricted_conclusions_endings_and_waits_pass_the_stage_check() -> None:
-    """受限轮复核的收尾与名额分支：一次点名全部待收尾活动记 conclude_pending，结束占名额的活动（含只点名一部分待收尾
-    活动）记 conclude；resume_or_conclude 与 conclude_only 都接受二者，conclude_pending 只接受前者，所以受限轮的收尾、
-    结束与等待不会被业务拒绝（第一章规则 3）。"""
+    """受限轮复核的收尾与名额分支：只点名待收尾活动（全部或其中一项）记 conclude_pending，结束占名额的活动（含待收尾与
+    进行中的活动一起点名）记 conclude；resume_or_conclude 与 conclude_only 都接受二者，conclude_pending 只接受前者，所以
+    受限轮的收尾、结束与等待不会被业务拒绝（第一章规则 3；逐项收尾与工具层逐项标注同一判定）。"""
     just_ended, road = _unit_activity("a", ActivityStatus.COMPLETED), _unit_activity("b", ActivityStatus.CANCELLED)
     paused, running = _unit_activity("p", ActivityStatus.PAUSED), _unit_activity("x", ActivityStatus.ACTIVE)
     done, pending, none = _unit_activity("d", ActivityStatus.COMPLETED, concluded=True), frozenset("ab"), frozenset()
     cases = [
         (("conclude_activity", [], [just_ended, road], pending), "conclude_pending"),
-        (("conclude_activity", [], [just_ended], pending), "conclude"),
+        (("conclude_activity", [], [just_ended], pending), "conclude_pending"),
+        (("conclude_activity", [], [just_ended, running], pending), "conclude"),
         (("conclude_activity", [], [paused, running], none), "conclude"),
         (("conclude_activity", [], [done], none), "other"),
         (("report_status", [], [paused], none), "resume"),
@@ -1393,7 +1402,9 @@ def test_same_second_results_stay_in_the_progress_layer(engine_factory) -> None:
 
 
 def test_purchase_result_names_the_order_in_the_progress_layer(engine_factory) -> None:
-    """购买是瞬时动作：同一秒的下一轮进度层里该调用的 details.purchases 写商品名、份数、付款与方式，不含供给或订单身份。"""
+    """购买是瞬时动作：同一秒的下一轮进度层里该调用的 details.purchases 写商品名、份数、付款、送达地点与时刻、收货人与
+    所回应的消息，不含供给或订单身份；方式是请求参数，只在该调用的 arguments.ways 中，结果不复述（docs/dev/SPEC-persona-prompt.md
+    「进度层」：details 不复述参数）。"""
     from tests.life.test_category_runtime import _stage_open_market
 
     engine = engine_factory()
@@ -1408,9 +1419,12 @@ def test_purchase_result_names_the_order_in_the_progress_layer(engine_factory) -
     after = engine.observe(context(engine, "order-after"))
     product = next(item.name for item in engine.scenario.products
                    if item.product_id == engine.rules.supplies[row["object_id"]].product_id)
-    (purchase,) = progress_calls(after)[-1]["result"]["details"]["purchases"]
-    assert (purchase["product"], purchase["quantity"], purchase["way"]) == (product, "1 份", action["label"])
-    assert purchase["paid"].endswith(" 元")
+    record = progress_calls(after)[-1]
+    (purchase,) = record["result"]["details"]["purchases"]
+    assert set(purchase) == {"product", "quantity", "paid", "destination", "expected_at", "recipient", "request"}
+    assert (purchase["product"], purchase["quantity"]) == (product, "1 份") and purchase["paid"].endswith(" 元")
+    assert record["arguments"]["ways"] == [action["label"]]
+    assert action["label"] not in json.dumps(record["result"], ensure_ascii=False)
     assert "supply" not in json.dumps(after["progress_layer"], ensure_ascii=False)
 
 

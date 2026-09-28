@@ -21,8 +21,8 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
-from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, ReportStatusRequest,
-                                   ReviseDayPlanRequest, SendMessageActionRequest, SessionStatus)
+from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, RecallTaskSummaryRequest,
+                                   ReportStatusRequest, ReviseDayPlanRequest, SendMessageActionRequest, SessionStatus)
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -503,6 +503,20 @@ def test_conclude_arguments_omit_relationship_and_preference_memories(engine_fac
     ended, zone, now = engine.state.activities[waited.activity_id], engine.scenario.timezone, engine.state.current_time
     span = f"{clock_phrase(ended.started_at, now, zone)}–{clock_phrase(ended.ended_at, now, zone)}"
     assert _lines(seen, record) == [f"{name}：{span}，提前结束"]
+
+
+def test_a_rejection_without_a_next_step_writes_null(engine_factory) -> None:
+    """业务拒绝没有可读的下一步时，结果与进度层该调用的 details.next_step 写 null，不写空串（docs/dev/SPEC-persona-prompt.md
+    「通用格式」：允许为空的写 null，不填编造的值）；有下一步的拒绝照常写那一句。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    _, unknown = _act(engine, "null-step", "recall_task_summary", RecallTaskSummaryRequest(task_name="不存在的名称"))
+    assert (unknown.status, unknown.error_code) == ("rejected", "TASK_NOT_FOUND")
+    assert "next_step" in unknown.data and unknown.data["next_step"] is None
+    (record,) = progress_calls(_observe(engine, "null-step-seen"), "recall_task_summary")
+    assert record["result"]["details"] == {"reason": "找不到这个名称", "next_step": None}
+    _, invalid = _act(engine, "null-step-invalid", "start_activity", start_activity("观看", "不存在的对象"))
+    assert invalid.data["next_step"] == "从本轮列出的对象和方式里选"
 
 
 def _hand_request(engine, action_id: str, self_note: str | None) -> None:

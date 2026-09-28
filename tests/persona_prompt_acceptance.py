@@ -58,6 +58,7 @@ _UNIQUE = "tests/integration/test_unique_presence_run.py::"
 _DAYRUN = ("tests/integration/test_dayrun_complete_days.py::"
            "test_complete_two_person_day_uses_real_tools_memory_and_restoration")
 _ZERO_RECENT = "tests/integration/test_verified_memory.py::test_zero_recent_memory_limit_returns_no_recent_entries"
+_SEAM = "tests/integration/test_observation_agent_seam.py::"
 
 #: 第六章「程序错误」表逐行：每行的回归用例（把修复改回旧代码时用例失败）。
 PROGRAM_ERRORS: dict[str, list[str]] = {
@@ -113,6 +114,7 @@ GAPS: dict[str, list[str]] = {
         _TOOL + "test_every_listed_item_matches_admission_at_run_start",
         _TOOL + "test_restricted_round_marks_closed_items_with_the_same_moment_reason",
         _TOOL + "test_pending_conclusion_marks_everything_but_conclusion_unavailable",
+        _TOOL + "test_conclude_pending_stage_with_two_pending_opens_each_conclusion",
         _BRANCHES + "test_restricted_rounds_do_not_narrow_the_host_tool_surface",
         _SAME_MOMENT + "test_start_or_resume_schema_matches_engine_dispatch",
     ],
@@ -161,6 +163,8 @@ LEDGER: dict[str, list[str]] = {
         _UNIQUE + "test_the_presence_and_readability_checks_have_teeth",
         _DAYRUN,
         _WORK + "test_a_one_minute_requirement_is_written_as_a_readable_phrase",
+        _SEAM + "test_goal_recall_names_are_the_goal_texts_written_in_the_todo_layer",
+        _TOOL + "test_each_store_product_target_carries_its_source_marker_once",
     ],
     "唯一出现": [
         _LAYERS + "test_direct_message_and_invite_text_appear_only_in_the_progress_layer",
@@ -169,6 +173,8 @@ LEDGER: dict[str, list[str]] = {
         _LAYERS + "test_paused_work_does_not_repeat_the_contract_in_the_todo_layer",
         _LAYERS + "test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only",
         _LAYERS + "test_just_ended_browse_target_states_the_end_reason_without_the_browse_result",
+        _LAYERS + "test_a_browse_ending_with_the_other_activity_of_its_request_is_listed_and_pinned_once",
+        _LAYERS + "test_a_trip_ending_with_its_companion_leaves_the_arrival_to_the_memory_layer",
         _PROGRESS + "test_conclude_arguments_omit_relationship_and_preference_memories",
         _PROGRESS + "test_successful_memory_query_is_recorded_with_its_count_and_failures_are_not",
         _CONCLUDE + "test_memory_queries_and_the_reply_body_reach_the_next_progress_layer",
@@ -264,6 +270,8 @@ LEDGER: dict[str, list[str]] = {
         _TOOL + "test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason",
         _TOOL + "test_resume_or_conclude_stage_opens_only_resuming_and_ending",
         _TOOL + "test_conclude_pending_stage_opens_only_the_conclusion",
+        _TOOL + "test_conclude_pending_stage_with_two_pending_opens_each_conclusion",
+        _SAME_MOMENT + "test_pending_conclusion_rejects_other_requests_until_concluded_within_limit_plus_three",
         _TOOL + "test_closed_sold_out_and_unaffordable_supplies_are_listed_and_refused_alike",
         _TOOL + "test_a_co_present_person_asleep_can_be_messaged_but_not_talked_to",
         _TOOL + "test_overdue_task_stays_listed_and_its_submission_is_refused_alike",
@@ -287,6 +295,8 @@ LEDGER: dict[str, list[str]] = {
     ] + [
         _CONTINUATION + "test_another_persons_same_second_message_appears_once_in_the_whole_request",
         _SAME_MOMENT + "test_same_second_results_stay_in_the_progress_layer",
+        _PROGRESS + "test_a_rejection_without_a_next_step_writes_null",
+        _SAME_MOMENT + "test_purchase_result_names_the_order_in_the_progress_layer",
         "tests/footprints/test_store.py::"
         "test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools",
         "tests/footprints/test_store.py::"
@@ -324,6 +334,7 @@ LEDGER: dict[str, list[str]] = {
         _ATTRIBUTION + "test_departure_commit_belongs_wholly_to_the_old_session",
         _ATTRIBUTION + "test_arrival_commit_belongs_wholly_to_the_transit_session",
         _ATTRIBUTION + "test_plan_inputs_keep_resumed_pause_intervals_in_ended_activity_sentences",
+        _SEAM + "test_recall_accepts_the_activity_name_as_written_in_self_notes",
     ],
     "人设层": [
         _PERSONA + name for name in (

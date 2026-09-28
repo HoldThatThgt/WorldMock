@@ -36,8 +36,8 @@ _NO_PULSE_CODES = frozenset({"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UND
 RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
 
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
-#: conclude 指结束占名额的活动，conclude_pending 指一次点名全部待收尾活动（待收尾活动也占名额，所以开放结束的
-#: 阶段同样接受它），受限轮的收尾与结束因此都不会被业务拒绝。
+#: conclude 指结束占名额的活动，conclude_pending 指只点名待收尾活动（全部或其中几项；待收尾活动也占名额，所以开放
+#: 结束的阶段同样接受它），受限轮的收尾与结束因此都不会被业务拒绝；收尾阶段一直持续到没有待收尾活动。
 _STAGE_REQUEST_KINDS = {
     SameMomentStage.OPEN: frozenset({"start", "resume", "wait", "conclude", "conclude_pending", "other"}),
     SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_pending"}),
@@ -173,7 +173,7 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
     :param pending_ids: 人物当前全部待收尾活动身份。
     :param ways: start_activity 各项的方式（给予是瞬时的，与受限轮排除的动作同样归入 other）。
     :returns: wait（只等待）、start（开始持续活动，不含受限轮排除的动作）、resume（只恢复暂停活动）、
-              conclude_pending（一次点名全部待收尾活动）、conclude（只结束占名额的活动）或 other。
+              conclude_pending（只点名待收尾活动，全部或其中几项）、conclude（只结束占名额的活动）或 other。
     """
     if tool_name == "start_activity":
         if list(canonical_actions) == ["wait"]:
@@ -182,7 +182,7 @@ def request_kind(tool_name: str, canonical_actions: Sequence[str], named: Sequen
     if tool_name == "report_status":
         return "resume" if named and all(item.status == ActivityStatus.PAUSED for item in named) else "other"
     if tool_name == "conclude_activity":
-        if pending_ids and {item.activity_id for item in named} == pending_ids:
+        if named and {item.activity_id for item in named} <= pending_ids:
             return "conclude_pending"
         return "conclude" if named and all(occupies_slot(item) for item in named) else "other"
     return "other"
@@ -195,7 +195,7 @@ def stage_refusal(stage: SameMomentStage, request_kind: str) -> Refusal | None:
 
     :param stage: 人物当前的受限轮阶段
     :param request_kind: 引擎派生的请求类：start（开始持续活动）、resume（恢复暂停活动）、wait（只等待）、
-                         conclude（结束占名额的活动）、conclude_pending（一次点名全部待收尾活动）、other
+                         conclude（结束占名额的活动）、conclude_pending（只点名待收尾活动）、other
     """
     if request_kind in _STAGE_REQUEST_KINDS.get(stage, frozenset()):
         return None

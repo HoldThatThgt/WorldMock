@@ -7,7 +7,8 @@
 - earlier_today：结束时刻落在今天（场景本地日期）的已结束 session 各一条，recorded_at 为结束时刻；settled 取
   settled_text 的句子，在本 session 结束的活动按结束提交各一句（到达时结束的出行归路程，实验截止截断的活动归最后一段），
   self_notes 取成功的 pause_activity、conclude_activity 写下的 summary 与记忆原文（relationship 与 preference 只在
-  人设层），按活动名标注，条目内不重名时去掉开始时刻后缀；没有内容的条目不出现。
+  人设层），按活动名标注，条目内不重名时去掉开始时刻后缀（note_labels 记下这类短名对应的完整活动名，回看按记忆层所见的
+  名称解析）；没有内容的条目不出现。
 - earlier_days：今天之前结束的 session 中此刻仍未了结的事项（本人 pending 或 ready 的订单；收到后没有成功 send_message
   回复发件人的直接消息，通话不算回复），按起源日期归入；另加归属该日的就寝反思（睡眠开始时刻前推 6 小时的本地日期）。
 - 窗口：记忆层 JSON 不超过 8000 字符；超出时依次删去最旧日期的反思、再把最旧的今日条目缩成只剩未了结的 settled 句；
@@ -56,12 +57,14 @@ _START_SUFFIX = re.compile(r"（\d{1,2}月\d{1,2}日 \d{2}:\d{2} 起）")
 class MemoryView:
     """@brief 一次观察的记忆层与私有配套：layer 为记忆层 JSON，presented_message_ids 为全文在其中的直接消息，
     open_message_ids 为其中收到后尚未回复的（answering 可关联的记忆层消息），facts 为本人活动的已恢复暂停区间与结束
-    事件（进度层结束活动的句子共用）。"""
+    事件（进度层结束活动的句子共用），note_labels 为按窗口截取后 self_notes 中去掉了开始时刻后缀的活动名 → 它在各条目中
+    所指的完整活动名（两个条目的同一短名指不同活动时有多项）。"""
 
     layer: dict
     presented_message_ids: list[str]
     open_message_ids: list[str]
     facts: ActivityFacts
+    note_labels: dict[str, tuple[str, ...]]
 
 
 @dataclass(slots=True)
@@ -99,12 +102,14 @@ class _Line:
 
 @dataclass(slots=True)
 class _Entry:
-    """@brief 组装中的一条记忆条目：日期或结束时刻、settled 句与 self_notes；exempt 为最近一个 session 的条目。"""
+    """@brief 组装中的一条记忆条目：日期或结束时刻、settled 句与 self_notes；exempt 为最近一个 session 的条目，labels 为
+    self_notes 中的活动标注 → 完整活动名。"""
 
     head: dict
     lines: list[_Line]
     notes: list[dict]
     exempt: bool = False
+    labels: dict[str, str] = field(default_factory=dict)
 
 
 #: 存储对象 → 人物 → 已读事件；换成恢复后的新存储对象时从头读取。
@@ -128,7 +133,18 @@ def memory_view(context: LayerContext, store: FootprintStore) -> MemoryView:
     kept = [line for entry in (*days, *entries) for line in entry.lines if line.message_id is not None]
     return MemoryView(layer=layer, presented_message_ids=list(dict.fromkeys(line.message_id for line in kept)),
                       open_message_ids=list(dict.fromkeys(line.message_id for line in kept if line.open)),
-                      facts=build.facts)
+                      facts=build.facts, note_labels=_note_labels(entries))
+
+
+def _note_labels(entries: list[_Entry]) -> dict[str, tuple[str, ...]]:
+    """@brief 按窗口截取后仍在 self_notes 中、去掉了开始时刻后缀的活动标注 → 所指的完整活动名（按条目先后去重）。"""
+    labels: dict[str, list[str]] = {}
+    for entry in entries:
+        for note in entry.notes:
+            full = entry.labels[note["activity"]]
+            if full != note["activity"] and full not in labels.setdefault(note["activity"], []):
+                labels[note["activity"]].append(full)
+    return {label: tuple(names) for label, names in labels.items()}
 
 
 def persona_views(context: LayerContext, store: FootprintStore) -> dict:
@@ -233,7 +249,8 @@ def _today_entry(build: _Build, item: tuple[SessionState, int, int | None]) -> _
     session, lower, upper = item
     lines = _session_lines(build, (lower, upper), open_only=False)
     head = {"recorded_at": iso_time(session.ended_at, build.context.scenario.timezone)}
-    return _Entry(head=head, lines=lines, notes=_self_notes(build, (lower, upper)))
+    notes, labels = _self_notes(build, (lower, upper))
+    return _Entry(head=head, lines=lines, notes=notes, labels=labels)
 
 
 def _day_entries(build: _Build, boundary: int | None, today: str) -> list[_Entry]:
@@ -309,8 +326,9 @@ def _world_lines(build: _Build, event: Event) -> list[_Line]:
     return [_Line(text, key, open=not answered, message_id=item.message_id)]
 
 
-def _self_notes(build: _Build, bounds: tuple[int, int | None]) -> list[dict]:
-    """@brief 区间内成功的 pause_activity 与 conclude_activity 写下的 summary 与记忆原文，按活动名标注。"""
+def _self_notes(build: _Build, bounds: tuple[int, int | None]) -> tuple[list[dict], dict[str, str]]:
+    """@brief 区间内成功的 pause_activity 与 conclude_activity 写下的 summary 与记忆原文，按活动名标注；另返回各标注 →
+    完整活动名。"""
     requests = sorted(_successful(build.cached, build.results, "pause_activity", bounds)
                       + _successful(build.cached, build.results, "conclude_activity", bounds),
                       key=lambda event: event.event_seq)
@@ -324,7 +342,8 @@ def _self_notes(build: _Build, bounds: tuple[int, int | None]) -> list[dict]:
                                                if item.get("type") not in VIEW_MEMORY_TYPES)]
             notes.extend((task, text) for text in texts if text.strip())
     labels = _labels([task for task, _ in notes])
-    return [{"activity": labels[task], "text": text} for task, text in notes]
+    return [{"activity": labels[task], "text": text} for task, text in notes], {
+        label: task for task, label in labels.items()}
 
 
 def _labels(names: list[str]) -> dict[str, str]:

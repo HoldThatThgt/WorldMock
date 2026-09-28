@@ -24,9 +24,9 @@ from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
 from worldmock.life.candidates import Exclusion
 from worldmock.life.work import task_listed, work_totals
-from worldmock.life.result_projection import public_supply_row
+from worldmock.life.result_projection import browse_results, public_supply_row
 from worldmock.life.environment_layer import environment_layer
-from worldmock.life.todo_layer import todo_layer
+from worldmock.life.todo_layer import todo_layer, visible_goals
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
 
 class ObservationMixin:
@@ -60,16 +60,17 @@ class ObservationMixin:
         data = projection.build_observation(inputs)
         context = self._layer_context(agent, task_rows, data["interaction_bindings"])
         data["interaction_bindings"] = context.bindings
-        data.update(self._name_bindings(agent, task_rows, context.names))
-        data.update(self._layer_data(context, data["body"]["levels"]))
+        memory = memory_layer.memory_view(context, self.store)
+        data.update(self._name_bindings(agent, task_rows, context.names, memory.note_labels))
+        data.update(self._layer_data(context, data["body"]["levels"], memory))
         data.update(self._observation_evidence(agent, experiences))
         data.update(self._event_tool_support(agent, rows["window"].presented))
         return data
 
     def _layer_context(self, agent, task_rows: tuple[dict, ...], bindings: list[dict]) -> LayerContext:
-        """@brief 本次观察各层共用的只读上下文：活动名避开任务名、目标名与对象名，绑定动作的 note 取可用性原因。"""
-        goals = [f"目标：{goal.intent_kind}：{goal.goal}"
-                 for goal in agent.day_plan.goals] if agent.day_plan is not None else []
+        """@brief 本次观察各层共用的只读上下文：活动名避开任务名、目标名（待办层的目标文字）与对象名，绑定动作的 note 取
+        可用性原因。"""
+        goals = [goal.goal for goal in visible_goals(self.state, agent.agent_id) or ()]
         taken = [f"工作：{row['title']}" for row in task_rows] + goals + [row["object"] for row in bindings]
         context = LayerContext(
             state=self.state, scenario=self.scenario, rules=self.rules, semantics=self.semantics,
@@ -78,10 +79,9 @@ class ObservationMixin:
             lifestyle_items=self.lifestyle_items)
         return with_bindings(context, annotated_bindings(context))
 
-    def _layer_data(self, context: LayerContext, levels: dict[str, str]) -> dict:
-        """@brief 环境侧构建的层数据与私有配套：记忆层与看法偏好由已提交事件派生，全文已呈现的消息含进度层与记忆层两处；
-        answering 可关联的直接消息（message_bindings）只含进度层 message_arrival 与记忆层中未回复的，按收到先后。"""
-        memory = memory_layer.memory_view(context, self.store)
+    def _layer_data(self, context: LayerContext, levels: dict[str, str], memory: memory_layer.MemoryView) -> dict:
+        """@brief 环境侧构建的层数据与私有配套：记忆层（memory，由已提交事件派生）与看法偏好，全文已呈现的消息含进度层与
+        记忆层两处；answering 可关联的直接消息（message_bindings）只含进度层 message_arrival 与记忆层中未回复的，按收到先后。"""
         view = progress_layer.progress_view(context, self.store, memory.facts)
         presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
         answerable = [*memory.open_message_ids, *view.presented_message_ids]
@@ -92,21 +92,27 @@ class ObservationMixin:
                 "progress_layer": view.layer, "progress_meta": view.meta,
                 "progress_event_ids": view.event_ids, "presented_message_ids": presented}
 
-    def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]]) -> dict:
-        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动与同世界其他人物
-        （会话名不在七层中出现，不绑定）。
+    def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]],
+                       note_labels: dict[str, tuple[str, ...]]) -> dict:
+        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标（名称就是待办层写出的目标文字，
+        不另拼前缀；两个目标文字相同时回看按重名处理）、活动与同世界其他人物（会话名不在七层中出现，不绑定）。
 
-        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复。人物绑定不论是否同处（recipients.person_bindings）。
+        活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复；note_labels：记忆层 self_notes 中这项活动去掉
+        开始时刻后缀的标注（只作回看名称，两个条目的同一标注指不同活动时两项都带，回看按重名处理）。人物绑定不论是否同处
+        （recipients.person_bindings）。
         """
-        goals = [{"task_name": f"目标：{goal.intent_kind}：{goal.goal}", "intent_kind": goal.intent_kind}
-                 for goal in agent.day_plan.goals] if agent.day_plan is not None else []
+        goals = [{"task_name": goal.goal, "intent_kind": goal.intent_kind}
+                 for goal in visible_goals(self.state, agent.agent_id) or ()]
         activities = self.state.activities
+        labels = {full: [label for label, fulls in note_labels.items() if full in fulls]
+                  for full in names["activities"].values()}
         return {
             "task_bindings": [{"task_name": f"工作：{row['title']}", "task_id": row["task_id"]} for row in task_rows],
             "goal_bindings": goals,
             "activity_bindings": [{"name": name, "activity_id": activity_id,
                                    "phase": activity_control.activity_phase(activities[activity_id]),
-                                   "resumable": activity_control.resumable_here(self.state, activities[activity_id])}
+                                   "resumable": activity_control.resumable_here(self.state, activities[activity_id]),
+                                   "note_labels": labels[name]}
                                   for activity_id, name in names["activities"].items()],
             "person_bindings": person_bindings(self.state, agent.agent_id),
         }
@@ -157,14 +163,14 @@ class ObservationMixin:
         }
 
     def _pinned_supply_ids(self, agent_id: int) -> tuple[str, ...]:
-        """@brief 置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存；首轮取本 session 最近一次浏览结果中的供给身份。"""
+        """@brief 置顶的浏览结果：同一秒后续各轮取该秒首轮的暂存；首轮取本 session 最近一次浏览结果中的供给身份（单项浏览
+        的终态，或同一请求多项活动全部结束后聚合终态中的浏览活动，result_projection.browse_results）。"""
         staged = self.state.same_moment_presentation.get(agent_id)
         if staged is not None:
             return staged.pinned_supply_ids
         _, lower = progress_layer.session_bound(self.store, self.state, agent_id)
-        browsed = [event.data["data"]["browse_result"]
-                   for event in self.store.read_agent_events("action_result", agent_id, after=lower)
-                   if event.visibility == "agent" and "browse_result" in (event.data.get("data") or {})]
+        browsed = [revealed for event in self.store.read_agent_events("action_result", agent_id, after=lower)
+                   if event.visibility == "agent" for revealed in browse_results(event.data.get("data") or {})]
         if not browsed:
             return ()
         return tuple(dict.fromkeys(item["supply_id"] for item in browsed[-1]["items"] if "supply_id" in item))

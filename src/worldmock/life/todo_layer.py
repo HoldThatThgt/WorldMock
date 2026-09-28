@@ -4,16 +4,17 @@
 只能回去恢复的地点、客观进度与两个控制工具（report_status 表示恢复，conclude_activity 表示结束）的可用性；人在别处时
 恢复不可用，原因点名地点。
 今日计划在零点计划生成之前或当日结束之后为 null，之后按计划顺序列出至多八个目标的意图、文字、是否已推进与提醒时刻；
-目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。
+目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。目标的回看名称就是这里写出的目标文字（visible_goals 是
+待办层与私有目标绑定的同一来源，docs/dev/SPEC-persona-prompt.md 系统层规则 12）。
 """
 
 from __future__ import annotations
 
 from worldmock.footprints.store import FootprintStore
 from worldmock.life import activity_control
-from worldmock.life.models import ActivityState, ActivityStatus
+from worldmock.life.models import ActivityState, ActivityStatus, WorldState
 from worldmock.life.readable import iso_time, local_date
-from worldmock.life.schedule import remind_clock
+from worldmock.life.schedule import PlanGoal, remind_clock
 from worldmock.life.tool_layer import Candidate, LayerContext, availability
 
 
@@ -48,13 +49,21 @@ def _paused_item(context: LayerContext, activity: ActivityState) -> dict:
             "progress": activity_control.objective_progress(activity), "tools": tools}
 
 
+def visible_goals(state: WorldState, agent_id: int) -> tuple[PlanGoal, ...] | None:
+    """@brief 待办层列出的今日目标（按计划顺序）；零点计划生成之前或当日结束之后没有今日计划，为 None。"""
+    plan = state.agents[agent_id].day_plan
+    if plan is None or plan.day_end <= state.current_time:
+        return None
+    return plan.goals
+
+
 def _day_plan(context: LayerContext) -> dict | None:
     """@brief 今日计划：计划日期与各目标的意图、文字、是否已推进、提醒时刻（HH:MM 或 null）；没有或已过期时为 null。"""
-    plan = context.state.agents[context.agent_id].day_plan
-    if plan is None or plan.day_end <= context.state.current_time:
+    goals = visible_goals(context.state, context.agent_id)
+    if goals is None:
         return None
-    zone = context.scenario.timezone
-    goals = [{"intent_kind": goal.intent_kind, "goal": goal.goal, "progressed": goal.progressed_at is not None,
-              "remind_time": remind_clock(goal.remind_at, zone) if goal.remind_at is not None else None}
-             for goal in plan.goals]
-    return {"date": local_date(plan.day_end - 1, zone), "goals": goals}
+    plan, zone = context.state.agents[context.agent_id].day_plan, context.scenario.timezone
+    rows = [{"intent_kind": goal.intent_kind, "goal": goal.goal, "progressed": goal.progressed_at is not None,
+             "remind_time": remind_clock(goal.remind_at, zone) if goal.remind_at is not None else None}
+            for goal in goals]
+    return {"date": local_date(plan.day_end - 1, zone), "goals": rows}
