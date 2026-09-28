@@ -32,8 +32,9 @@ class _ActionHarness(SessionActionMixin):
         self.rules = SimpleNamespace(tasks={})  # 控制判定的工作任务目录；本组用例没有工作
         self.calls = []
 
-    def _purchase(self, state, pending, request):
-        """@brief 捕获生成的整单请求。"""
+    def _purchase(self, state, pending, request, named=frozenset()):
+        """@brief 捕获生成的整单请求（列出的供给没有指名购买解析出的身份）。"""
+        assert named == frozenset()
         self.calls.append(request)
         return state, None
 
@@ -56,9 +57,11 @@ class _ActionHarness(SessionActionMixin):
 
 
 class _Agent:
-    """仅提供身份与当日计划的可复制人物。"""
+    """仅提供身份、所在地点、（空的）持有物与当日计划的可复制人物。"""
 
     agent_id = 1
+    location_id = "home"
+    inventory: dict = {}
 
     def __init__(self, day_plan=None):
         """@brief 保存人物明确登记的目标。"""

@@ -47,6 +47,8 @@ _DEFAULT_REASONS = {
     "ELIGIBILITY_LOCATION_KIND_MISMATCH": "这里不适合做这件事",
     "SAME_MOMENT_ACTION_RESTRICTED": "已经想了好几轮，这一轮只能先定下一件事",
     "TASK_NOT_FOUND": "找不到这个名称",
+    "SUPPLY_NOT_FOUND": "没有找到这个名字的商品",
+    "SUPPLY_NAME_AMBIGUOUS": "好几家店都卖这个名字的商品",
 }
 #: 抛出处没有写下一步时按错误码给的做法。
 _DEFAULT_NEXT_STEPS = {
@@ -56,6 +58,8 @@ _DEFAULT_NEXT_STEPS = {
     "SAME_MOMENT_ACTION_RESTRICTED": "只从这一轮开放的动作里选",
     "ACTION_REQUEST_INVALID": "从本轮列出的对象和方式里选",
     "SOCIAL_ACTIVITY_CANNOT_PAUSE": "可以直接结束",
+    "SUPPLY_NOT_FOUND": "从候选或本轮列出的商品里选",
+    "SUPPLY_NAME_AMBIGUOUS": "写明是哪家店出售的",
 }
 
 
@@ -101,16 +105,20 @@ def refusal_for_code(code: str) -> Refusal:
     return Refusal(code, _DEFAULT_REASONS.get(code, GENERIC_REASON), _DEFAULT_NEXT_STEPS.get(code, ""))
 
 
-def rejection_guidance(error: BusinessRuleError) -> dict[str, str]:
-    """@brief 从一次业务拒绝确定性生成公开的 reason 与 next_step。
+def rejection_guidance(error: BusinessRuleError) -> dict:
+    """@brief 从一次业务拒绝确定性生成公开的 reason 与 next_step（指名购买的拒绝另带 candidates）。
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
-    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。
+    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。suggested 带可读
+    候选（至多 3 个近似标签或门店名，docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）时原样写成 candidates。
     """
     code = str(error)
     reason = getattr(error, "public_reason", None) or _DEFAULT_REASONS.get(code, GENERIC_REASON)
     suggested = getattr(error, "suggested", None) or {}
-    return {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, "")}
+    guidance = {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, "")}
+    if "candidates" in suggested:
+        guidance["candidates"] = list(suggested["candidates"])
+    return guidance
 
 
 def _next_step(suggested: dict) -> str:

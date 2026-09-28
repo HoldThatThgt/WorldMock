@@ -1390,8 +1390,9 @@ def test_unknown_activity_controls_reject_when_idle(engine_factory) -> None:
 
 
 @pytest.mark.parametrize("existing", [False, True])
-def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
-    """不存在和真实存在但未呈现的供给均不能靠名称绕过冻结观察。"""
+def test_purchase_by_unlisted_name_resolves_only_existing_supplies(engine_factory, existing) -> None:
+    """指名购买（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」，裁决 #19）：不存在的名称以 SUPPLY_NOT_FOUND 拒绝，
+    世界不变；真实存在但未呈现、没有可见凭据的供给按标签到店购买，按当前报价结算，库存与持有各变一份。"""
     from tests.life.conftest import stage_day_plan
     from tests.life.test_commerce import _stage_open
     from worldmock.life.discovery import supply_row
@@ -1428,8 +1429,16 @@ def test_purchase_rejects_invisible_product(engine_factory, existing) -> None:
     request = StartActivityRequest(targets=[object_name], actions=["obtain"], ways=[way])
     engine.submit_action(DirectToolCall(ctx, "action-buy-invisible", "start_activity", request))
     result = engine.commit_decision_round("buy-invisible")[0]
-    assert result.status.value == "rejected"
-    assert result.error_code == "ACTION_REQUEST_INVALID"
+    if existing:
+        assert (result.status.value, result.error_code) == ("completed", None)
+        [order] = result.data["orders"]
+        assert (order["supply_id"], order["total_price_fen"]) == (supply.supply_id, hidden[0]["purchase_price_fen"])
+        assert engine.state.supply_stock[supply.supply_id] == before.supply_stock[supply.supply_id] - 1
+        assert engine.state.agents[1].inventory["market"][supply.product_id] == (
+            before.agents[1].inventory.get("market", {}).get(supply.product_id, 0) + 1)
+        assert engine.state.accounts["agent:1"] == before.accounts["agent:1"] - hidden[0]["purchase_price_fen"]
+        return
+    assert (result.status.value, result.error_code) == ("rejected", "SUPPLY_NOT_FOUND")
     assert engine.state.accounts == before.accounts
     assert engine.state.supply_stock == before.supply_stock
     assert engine.state.agents[1].inventory == before.agents[1].inventory

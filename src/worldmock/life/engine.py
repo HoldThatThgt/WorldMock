@@ -58,6 +58,7 @@ from worldmock.life.basket import (
     change_inventory,
     meal_duration,
     meal_food_rate,
+    open_meal,
     validate_meal_inventory, validate_meal_use,
 )
 from worldmock.life.body import (
@@ -1232,7 +1233,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                  request: ConsumeRequest) -> tuple[WorldState, ActionResult]:
         """@brief 启动一次多件进食或单件使用活动（docs/dev/SPEC-life-realism.md「商务与进食」：时长取最长、效果累加）。
 
-        占用先于物品状态核对（第五章「并行准入」的判定顺序）；途中没有可用的持有物。
+        占用先于物品状态核对（第五章「并行准入」的判定顺序）；途中没有可用的持有物。食用在开始时把本次份量从库存
+        移入活动数据 opened（docs/dev/SPEC-persona-prompt.md 第五章「进食」）。
         """
         agent = state.agents[pending.agent_id]
         products = self.rules.items
@@ -1253,6 +1255,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
             request, matches[0])
         if recipe is None:
             validate_meal_inventory(agent, request)
+        agent, opened = open_meal(agent, request)
         origin = _activity_origin(state, pending)
         agent, activity = start_activity(agent, start, state.current_time, origin,
                                          self.semantics.body)
@@ -1264,6 +1267,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                              food_energy_kcal_per_hour=food_rate)
         if recipe is not None:
             activity.data["inventory_recipe"] = recipe.payload()
+        if opened:
+            activity.data["opened"] = opened
         changed = _put_activity(state, agent, activity)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.IN_PROGRESS, occurred_at=state.current_time,
