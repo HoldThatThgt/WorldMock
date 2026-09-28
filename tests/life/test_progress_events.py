@@ -77,11 +77,11 @@ def _append(engine, drafts: list[EventDraft]) -> list:
 
 
 def test_run_start_session_is_time_bound_and_keeps_every_result(engine_factory) -> None:
-    """运行开始的 session 以开始时刻为下界；本 session 的每个世界请求连同结果都保留，时间推进后仍在。"""
+    """运行开始的 session 事件序号下界为 0；本 session 的每个世界请求连同结果都保留，时间推进后仍在。"""
     engine = engine_factory()
     stage_day_plan(engine)
     start = engine.state.current_time
-    assert progress_layer.session_bound(engine.store, engine.state, 1) == (start, None)
+    assert progress_layer.session_bound(engine.store, engine.state, 1) == (start, 0)
     first = _observe(engine, "start-first")
     assert first["progress_layer"] == {"layer": "进度层", "session_started_at": iso_time(start, "Asia/Shanghai"),
                                        "events": []}

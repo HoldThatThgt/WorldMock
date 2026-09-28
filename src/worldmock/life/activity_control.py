@@ -123,16 +123,16 @@ def object_display_name(binding: dict) -> str:
 
 
 def objective_progress(activity: ActivityState) -> str:
-    """@brief 活动客观进度的人读短语：已做时长（食用写已吃与剩下的份数）、工作的有效时长、进行或暂停中的还剩时长。
+    """@brief 活动客观进度的人读短语：已做时长、工作的有效时长、进行或暂停中的还剩时长；食用只写「已吃 X 份，剩 Y 份」
+    （docs/dev/SPEC-persona-prompt.md「待办层」，不另写还剩时长）。
 
     工作不写「还差」：合同剩余只在工具层任务目标的 contract（docs/dev/SPEC-persona-prompt.md「工具层」）。
     """
     if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
         planned = sum(item["quantity"] for item in activity.data["request"]["items"])
         eaten = sum(activity.data.get("consumed", {}).values())
-        parts = [f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(max(0.0, planned - eaten))}"]
-    else:
-        parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
+        return f"已吃 {portion_phrase(eaten)}，剩 {portion_phrase(max(0.0, planned - eaten))}"
+    parts = [f"已做{duration_phrase(activity.elapsed_seconds)}"]
     if activity.kind == ActivityKind.WORK:
         parts.append(f"有效{duration_phrase(activity.effective_work_seconds)}")
     if activity.status in {ActivityStatus.ACTIVE, ActivityStatus.PAUSED}:

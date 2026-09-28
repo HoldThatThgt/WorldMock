@@ -22,7 +22,8 @@ from zoneinfo import ZoneInfo
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life import progress_layer, projection
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
-from worldmock.life.settled_text import experience_sentence, record_lines, tool_record
+from worldmock.life.settled_text import (ActivityFacts, activity_endings, ending_lines, experience_sentence,
+                                         pause_intervals, record_lines, tool_record)
 
 #: 中文星期名。
 _WEEKDAYS = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
@@ -132,11 +133,13 @@ def _experience_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[
 
 def _result_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
     """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、提交工作、
-    结束活动与送达；失败、重放的请求与其余工具不写。"""
+    送达，以及在回顾时段内结束的活动（按结束事件，起止含已恢复的暂停区间）；失败、重放的请求与其余工具不写。"""
     store = engine.store
     context = engine._layer_context(engine.state.agents[agent_id], (), [])
+    outcomes = store.read_agent_events("action_result", agent_id)
+    environment = store.read_agent_events("environment_event", agent_id)
     results: dict[str, Any] = {}
-    for event in store.read_agent_events("action_result", agent_id):
+    for event in outcomes:
         results.setdefault(event.action_id, event)
     rows: list[tuple[int, str, str]] = []
     for request in store.read_agent_events("action_requested", agent_id):
@@ -145,10 +148,14 @@ def _result_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[list
             continue
         rows.extend((result.event_seq, text, result.event_id)
                     for text in record_lines(context, tool_record(context, request), [request, result]))
-    for event in store.read_agent_events("environment_event", agent_id):
+    for event in environment:
         if event.data.get("kind") == "delivery_arrival" and window.covers(event.occurred_at):
             rows.extend((event.event_seq, line, event.event_id) for item in progress_layer._delivery_records(
                 context, event) for line in record_lines(context, item.record, [event]))
+    endings = activity_endings([*store.read_agent_events("activity_progress", agent_id), *environment, *outcomes])
+    facts = ActivityFacts(pause_intervals(environment), endings)
+    rows.extend((event.event_seq, text, event.event_id)
+                for event, text in ending_lines(context, facts, lambda event: window.covers(event.occurred_at)))
     rows.sort(key=lambda item: item[0])
     return [text for _, text, _ in rows], [source for _, _, source in rows]
 

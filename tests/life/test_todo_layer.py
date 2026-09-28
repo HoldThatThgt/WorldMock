@@ -1,18 +1,21 @@
 """待办层：暂停的活动与今日计划（docs/dev/SPEC-persona-prompt.md「待办层」）。
 
-暂停的活动按暂停时刻从老到新排列（先开始、后暂停的排在后面），带暂停时刻、只能回去恢复的地点、客观进度与恢复、结束两个
-工具；人在别处时恢复不可用，原因点名地点。今日计划在零点计划生成前与当日结束后为 null，之后按计划顺序列出至多八个目标的
+暂停的活动按暂停时刻从老到新排列（先开始、后暂停的排在后面；同一秒两次决策先后暂停的按暂停事件顺序），带暂停时刻、只能
+回去恢复的地点、客观进度（进食只写「已吃 X 份，剩 Y 份」）与恢复、结束两个工具；人在别处时恢复不可用，原因点名地点。今日计划在零点计划生成前与当日结束后为 null，之后按计划顺序列出至多八个目标的
 意图、文字、是否已推进与提醒时刻，目标行不显示人物自述。
 """
 
 from __future__ import annotations
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
-                                 stage_day_plan, start_activity, submit_round, target_tools, tool_targets,
-                                 wake_by_mail)
+                                 stage_day_plan, start_activity, start_request, submit_round, target_tools,
+                                 tool_targets, wake_by_mail)
+from tests.life.test_meal_outcome import _food, _round, _stage_holding, _start_eating
 from tests.life.test_same_moment_decisions import _act, _content, _start
 from worldmock.footprints.models import EventDraft
-from worldmock.life.models import ActivityStatus, PauseActivityRequest, paused_activities
+from worldmock.life.interaction_menu import WAYS
+from worldmock.life.models import (ActivityKind, ActivityStatus, PauseActivityRequest, SendMessageActionRequest,
+                                   paused_activities)
 from worldmock.life.prompt_schemas import validate_layer
 from worldmock.life.readable import iso_time, local_date
 from worldmock.life.schedule import INTENT_KINDS, DayPlan, PlanGoal, day_end_seconds
@@ -58,6 +61,52 @@ def test_paused_activities_are_ordered_by_pause_time_not_start_time(engine_facto
         assert item["tools"] == [{"tool": "report_status", "available": True, "reason": None},
                                  {"tool": "conclude_activity", "available": True, "reason": None}]
     assert not set(names) & set(tool_targets(observed))
+
+
+def test_same_second_pauses_from_two_decisions_follow_the_pause_event_order(engine_factory) -> None:
+    """同一秒两次决策先后暂停两项活动（暂停时刻相同）：待办层按暂停事件顺序列出，先暂停的在前，而不是按活动身份。
+
+    人物 1 一次开始收听与等待（等待的活动身份排在后面），人物 2 在等；两人同一秒被邮件叫醒：人物 1 先暂停等待，人物 2 同一轮
+    给人物 1 发消息，人物 1 因此同一秒再获得一次决策，暂停收听。"""
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    podcast = "内容：Space Habitat (English interview excerpt)"
+    both = start_request(targets=[podcast, "自己"], actions=[WAYS["接着听"][0], WAYS["等待"][0]], ways=["接着听", "等待"])
+    submit_round(engine, {1: ("start_activity", both), 2: ("start_activity", start_activity("等待", "自己"))}, "tie")
+    ids = sorted(item.activity_id for item in engine.state.activities.values() if item.agent_id == 1)
+    kinds = {engine.state.activities[activity_id].kind: activity_id for activity_id in ids}
+    listen, wait = kinds[ActivityKind.WATCH], kinds[ActivityKind.WAIT]
+    assert ids == [listen, wait]
+    wake_by_mail(engine, 1, offset=120)
+    wake_by_mail(engine, 2, offset=120)
+    advance_next(engine)
+    pause = PauseActivityRequest(task=[activity_name(engine, wait)], summary=["先停一下。"])
+    message = SendMessageActionRequest(recipient_name=f"人物：{engine.state.agents[1].name}", text="在吗")
+    submit_round(engine, {1: ("pause_activity", pause), 2: ("send_message", message)}, "tie-first")
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    pause = PauseActivityRequest(task=[activity_name(engine, listen)], summary=["也停一下。"])
+    submit_round(engine, {1: ("pause_activity", pause)}, "tie-second")
+    moments = {engine.state.activities[activity_id].paused_at for activity_id in ids}
+    assert moments == {engine.state.current_time}
+    todo = engine.observe(context(engine, "tie-seen"))["todo_layer"]
+    assert [item["name"] for item in todo["paused_activities"]] == [activity_name(engine, wait),
+                                                                    activity_name(engine, listen)]
+
+
+def test_paused_meal_progress_is_only_the_eaten_and_left_portions(engine_factory) -> None:
+    """暂停的进食在待办层的客观进度只写「已吃 X 份，剩 Y 份」，不另写还剩时长。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    food = _food(engine)
+    _stage_holding(engine, food.product_id, 1.0)
+    _, started = _start_eating(engine, food, "todo-meal")
+    wake_by_mail(engine, offset=750)
+    advance_next(engine)
+    name = activity_name(engine, started.activity_id)
+    _round(engine, "todo-meal-pause", "pause_activity", PauseActivityRequest(task=[name], summary=["先停一下。"]))
+    (item,) = engine.observe(context(engine, "todo-meal-seen"))["todo_layer"]["paused_activities"]
+    assert (item["name"], item["progress"]) == (name, "已吃 0.5 份，剩 0.5 份")
 
 
 def test_resume_elsewhere_is_unavailable_and_names_the_place(engine_factory) -> None:

@@ -89,6 +89,22 @@ def test_last_event_seq_before_bounds_by_occurrence_time(store):
     assert store.last_event_seq_before(121) == 3
 
 
+def test_commit_last_seq_groups_one_versioned_commit_without_later_same_version_appends(store):
+    """一次提交的末事件序号（docs/dev/SPEC-persona-prompt.md 第三章「归属」）：推进版本的提交的每个事件都指向该提交的末事件；
+    其后同版本追加的观察与下一次提交不算在内；最后一次提交止于当前末事件；不存在的参照事件是完整性错误。"""
+    probe = {'kind': 'probe'}
+    store.commit({'version': 1, 'current_time': 110, 'balance': 50},
+                 [EventDraft(event_type='environment_event', occurred_at=110, data=probe) for _ in range(3)])
+    store.commit(store.state, [EventDraft(event_type='observation', occurred_at=110, data=probe)])
+    store.commit({'version': 2, 'current_time': 120, 'balance': 50},
+                 [EventDraft(event_type='environment_event', occurred_at=120, data=probe) for _ in range(2)])
+
+    assert [store.commit_last_seq(seq) for seq in (1, 2, 3)] == [3, 3, 3]
+    assert [store.commit_last_seq(seq) for seq in (5, 6)] == [6, 6]
+    with pytest.raises(IntegrityError, match='Commit reference event does not exist'):
+        store.commit_last_seq(7)
+
+
 def test_world_change_without_any_event_cannot_be_committed(store):
     with pytest.raises(IntegrityError):
         store.commit({'version': 1, 'current_time': 200, 'balance': 900}, [])

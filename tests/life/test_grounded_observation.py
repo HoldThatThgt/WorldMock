@@ -155,16 +155,16 @@ def test_goal_projection_survives_bedtime_and_expires_at_local_midnight(engine_f
     day_end = day_end_seconds(now, zone)
     agent = engine.state.agents[1]
     agent.day_plan = DayPlan(day_end=day_end, goals=())
-    assert todo_layer(_todo_context(agent, day_end - 1, zone))["day_plan"] == {
+    assert todo_layer(_todo_context(agent, day_end - 1, zone), engine.store)["day_plan"] == {
         "date": datetime.fromtimestamp(day_end - 1, ZoneInfo(zone)).date().isoformat(), "goals": []}
-    assert todo_layer(_todo_context(agent, day_end, zone))["day_plan"] is None
+    assert todo_layer(_todo_context(agent, day_end, zone), engine.store)["day_plan"] is None
     agent.day_plan = DayPlan(day_end=day_end, goals=(
         PlanGoal(intent_kind="睡眠", goal="十一点前睡下", registered_at=now, remind_at=day_end - 3600),
         PlanGoal(intent_kind="休息", goal="睡前歇一会儿", registered_at=now)))
-    goals = todo_layer(_todo_context(agent, day_end - 1, zone))["day_plan"]["goals"]
+    goals = todo_layer(_todo_context(agent, day_end - 1, zone), engine.store)["day_plan"]["goals"]
     assert [(row["intent_kind"], row["remind_time"]) for row in goals] == [("睡眠", "23:00"), ("休息", None)]
     agent.day_plan = None
-    assert todo_layer(_todo_context(agent, day_end - 1, zone))["day_plan"] is None
+    assert todo_layer(_todo_context(agent, day_end - 1, zone), engine.store)["day_plan"] is None
 
 
 def _stage_progress_limits(engine, tail: str = "contract") -> None:

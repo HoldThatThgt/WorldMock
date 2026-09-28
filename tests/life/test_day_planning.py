@@ -30,6 +30,7 @@ from worldmock.life.engine import LifeEngine
 from worldmock.life.models import (PlanDayRequest, PlanGoalInput, ReportStatusRequest, ReviseDayPlanRequest,
                                    SendMessageActionRequest)
 from worldmock.life.schedule import NextDecisionQuery, PlanGoal, next_decision_time
+from worldmock.life.settled_text import activity_endings
 from worldmock.runtime import settle_pending_day_plans
 
 SCENARIO = "white-collar-12-weeks.json"
@@ -508,7 +509,8 @@ def test_revision_keeps_replaces_and_cancels_reminders(engine_factory):
 def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(engine_factory, monkeypatch):
     """输入含人物档案与背景原文、当日已核验经历句子、公开动作结果（与记忆层同一 settled 写法：发消息、结束的活动）、收尾
     的 summary 与 memories（标未经核验），不含身体数值与内部身份；达到窗口 85% 时先裁掉较早的经历句子，登记的来源随之只含
-    保留的经历。
+    保留的经历与其余输入的来源：被裁掉的首段等待经历，其来源事件同时是那段等待的结束事件，只作为「动作结果」里结束句的
+    来源留下。
     """
     engine = engine_factory()
     stage_day_plan(engine)
@@ -543,9 +545,11 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
         json.loads(request["messages"][1]["content"])["已核验经历"]))
     settle_day_plans(engine, StubPlanDayClient())
     registered = _plan_events(engine)[-1]
-    kept = {source for _, source in inputs.experiences[1:]}
+    kept = [source for _, source in inputs.experiences[1:]]
     dropped = inputs.experiences[0][1]
-    assert kept <= set(registered.data["source_event_ids"]) and dropped not in registered.data["source_event_ids"]
+    assert registered.data["source_event_ids"] == list(dict.fromkeys([*kept, *inputs.sources]))
+    assert dropped not in kept and dropped == activity_endings(engine.store.read_agent_events(
+        "activity_progress", 1))[first].event_id and dropped in inputs.sources
     monkeypatch.setattr(day_planning, "request_token_count", lambda request: 10_000)
     with pytest.raises(RuntimeError, match="capacity exceeded"):
         day_planning.fit_plan_day({"x": "y"}, ["a"], "deepseek-flash")

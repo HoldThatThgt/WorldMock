@@ -209,6 +209,24 @@ class FootprintStore:
             (occurred_at,)).fetchone()
         return row[0] if row is not None else 0
 
+    def commit_last_seq(self, event_seq: int) -> int:
+        """@brief event_seq 所在提交的末事件序号（docs/dev/SPEC-persona-prompt.md 第三章「归属」）。
+
+        一次提交的事件在同一事务内连续分配序号，共享 state_version_before 与 state_version_after；推进版本的提交之后
+        同版本追加的观察与模型证据版本对不同（before 等于 after），不属于该提交。只从 event_seq 向后读到提交结束。
+        """
+        row = self.connection.execute(
+            "SELECT json_extract(body,'$.state_version_before'),json_extract(body,'$.state_version_after') "
+            "FROM events WHERE event_seq=?", (event_seq,)).fetchone()
+        if row is None:
+            logging.error("Commit reference event %d does not exist", event_seq)
+            raise IntegrityError("Commit reference event does not exist")
+        following = self.connection.execute(
+            "SELECT event_seq FROM events WHERE event_seq>? AND (json_extract(body,'$.state_version_before')!=? "
+            "OR json_extract(body,'$.state_version_after')!=?) ORDER BY event_seq LIMIT 1",
+            (event_seq, *row)).fetchone()
+        return following[0] - 1 if following is not None else self.last_event_seq
+
     def read_agent_events(self, event_type: EventType, agent_id: int, after: int = 0) -> list[Event]:
         """@brief 只读取指定人物在已知边界之后的同类事件，避免反复解码原始模型调用。"""
         if after < 0 or after > self.last_event_seq:

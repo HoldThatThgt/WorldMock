@@ -1,13 +1,15 @@
 """@brief 待办层：暂停的活动与今日计划（docs/dev/SPEC-persona-prompt.md「待办层」）。
 
-暂停的活动按暂停时刻从老到新（同刻按活动身份，即同一次暂停写活动事件的顺序），带暂停时刻、只能回去恢复的地点、客观进度
-与两个控制工具（report_status 表示恢复，conclude_activity 表示结束）的可用性；人在别处时恢复不可用，原因点名地点。
+暂停的活动按暂停时刻从老到新（同刻按 activity_paused 事件顺序：同一秒两次决策先后暂停的，先暂停的在前），带暂停时刻、
+只能回去恢复的地点、客观进度与两个控制工具（report_status 表示恢复，conclude_activity 表示结束）的可用性；人在别处时
+恢复不可用，原因点名地点。
 今日计划在零点计划生成之前或当日结束之后为 null，之后按计划顺序列出至多八个目标的意图、文字、是否已推进与提醒时刻；
 目标行不显示人物自述（PlanGoal.progress_note 照存，不进提示）。
 """
 
 from __future__ import annotations
 
+from worldmock.footprints.store import FootprintStore
 from worldmock.life import activity_control
 from worldmock.life.models import ActivityState, ActivityStatus
 from worldmock.life.readable import iso_time, local_date
@@ -15,13 +17,25 @@ from worldmock.life.schedule import remind_clock
 from worldmock.life.tool_layer import Candidate, LayerContext, availability
 
 
-def todo_layer(context: LayerContext) -> dict:
+def todo_layer(context: LayerContext, store: FootprintStore) -> dict:
     """@brief 待办层 JSON：暂停的活动与今日计划。"""
-    paused = sorted((item for item in context.state.activities.values()
-                     if item.agent_id == context.agent_id and item.status == ActivityStatus.PAUSED),
-                    key=lambda item: (item.paused_at, item.activity_id))
+    paused = [item for item in context.state.activities.values()
+              if item.agent_id == context.agent_id and item.status == ActivityStatus.PAUSED]
+    order = _pause_order(store, context.agent_id, [item.paused_at for item in paused])
+    paused.sort(key=lambda item: (item.paused_at, order.get(item.activity_id, 0)))
     return {"layer": "待办层", "paused_activities": [_paused_item(context, item) for item in paused],
             "day_plan": _day_plan(context)}
+
+
+def _pause_order(store: FootprintStore, agent_id: int, moments: list[int]) -> dict[str, int]:
+    """@brief 同刻暂停的活动的事件顺序：活动 → 其最近一次 activity_paused 事件的序号；没有同刻暂停时不读事件。"""
+    tied = [moment for moment in moments if moments.count(moment) > 1]
+    if not tied:
+        return {}
+    after = store.last_event_seq_before(min(tied))
+    return {event.data["activity_id"]: event.event_seq
+            for event in store.read_agent_events("environment_event", agent_id, after=after)
+            if event.data.get("kind") == "activity_paused"}
 
 
 def _paused_item(context: LayerContext, activity: ActivityState) -> dict:
