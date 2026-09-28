@@ -232,6 +232,35 @@ async def test_another_persons_same_second_message_appears_once_in_the_whole_req
     assert [(row["type"], row["kind"], row["text"]) for row in events] == [("message_arrival", "direct", text)]
 
 
+@pytest.mark.asyncio
+async def test_a_message_already_returned_in_the_chain_is_not_repeated_by_a_later_tool_message(
+        _engine_factory) -> None:
+    """同一秒三次决策：他人的消息在第一次决策之后到达，由第二次决策的 tool 消息交还；第三次决策的 tool 消息只写第二次
+    观察之后同秒发生的事，不再重复它，消息全文在整个请求中仍只出现一次（「唯一出现原则」、tool 消息 events）。"""
+    engine = _engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    environment = _environment(engine)
+    text = "我在楼下，给你带了杯咖啡。"
+    await _round(environment, "meet", {1: lambda observation: _plan_reply(),
+                                       2: lambda observation: [_reply("call-2", "send_message", {
+                                           "recipient_name": _person_name(observation, 1), "text": text},
+                                           "告诉她咖啡到了。")]})
+
+    def recall(observation: dict) -> list:
+        session = observation["session_bindings"][0]["name"]
+        return [_reply("call-recall", "recall_task_summary", {"task_name": session}, "回看一下这段停留。")]
+
+    await _round(environment, "recall", {1: recall, 2: lambda observation: _wait_reply("call-2b")})
+    assert engine.scheduling_state().ready_agent_ids == (1,)
+    requests = await _round(environment, "wait", {1: lambda observation: _wait_reply("call-1c")})
+    [request] = requests[1]
+    assert json.dumps(request["messages"], ensure_ascii=False).count(text) == 1
+    returned = json.loads(request["messages"][3]["content"])
+    assert [(row["type"], row["text"]) for row in returned["events"]] == [("message_arrival", text)]
+    assert "events" not in json.loads(request["messages"][-1]["content"])
+
+
 async def _round(environment: LifeEnv, round_id: str, scripts: dict) -> dict[int, list[dict]]:
     """多人决策轮：按调度顺序逐人观察与决策，结算后返回各人实际发送的请求。"""
     engine = environment.engine
