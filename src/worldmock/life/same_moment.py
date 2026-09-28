@@ -6,12 +6,13 @@
 或恢复被拒后，名额满先只开放结束、此后只开放等待，名额未满直接只开放等待）；有进行中活动且没有待收尾活动时瞬时动作
 成功后按决策节律，业务拒绝后未达上限在同一秒再给一次机会（规则 4）；同刻轮次的唤醒原因按本轮替换（规则 6）；受理、
 业务拒绝与重放各计一轮（规则 9），时钟推进时轮数与阶段归零；人物消息送达时清醒且未达上限的收件人在同一秒获得机会，
-决策轮观察展示过的消息随本轮提交记为已读（「人物之间的消息」）。引擎只接线，计数与阶梯都在本模块。
+决策轮观察以全文呈现过的消息随本轮提交记为已读（「人物之间的消息」；
+docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。引擎只接线，计数与阶梯都在本模块。
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 
 from worldmock.life.activity_control import occupies_slot, pending_conclusions
@@ -29,17 +30,6 @@ _NO_PULSE_CODES = frozenset({"CATEGORY_PAIRING_NO_EFFECT", "CATEGORY_PAIRING_UND
 
 #: 受限轮不开放的内部标准动作：到店购买与远程下单是瞬时的生活动作，不产生进行中活动（规则 3）。
 RESTRICTED_EXCLUDED_ACTIONS = frozenset({"purchase"})
-
-#: 各阶段开放的世界请求工具（宿主据此收窄工具面，引擎按 _STAGE_REQUEST_KINDS 复核）；None 表示 open 不收窄。
-#: 记忆查询是观察，不在此列、照常开放。
-STAGE_TOOLS: dict[SameMomentStage, frozenset[str] | None] = {
-    SameMomentStage.OPEN: None,
-    SameMomentStage.CONCLUDE_PENDING: frozenset({"conclude_activity"}),
-    SameMomentStage.START_OR_RESUME: frozenset({"start_activity", "report_status"}),
-    SameMomentStage.RESUME_OR_CONCLUDE: frozenset({"report_status", "conclude_activity"}),
-    SameMomentStage.CONCLUDE_ONLY: frozenset({"conclude_activity"}),
-    SameMomentStage.WAIT_ONLY: frozenset({"start_activity"}),
-}
 
 #: 各阶段接受的请求类（引擎按请求派生 start、resume、wait、conclude、conclude_pending、other）：
 #: conclude 指结束占名额的活动，conclude_pending 指一次点名全部待收尾活动（待收尾活动也占名额，所以开放结束的
@@ -220,24 +210,26 @@ def reset_same_moment(state: WorldState) -> WorldState:
     return state.model_copy(update={"agents": agents}, deep=True)
 
 
-def read_observed_messages(state: WorldState, observed: WorldState, agent_ids: Iterable[int]) -> WorldState:
-    """@brief 决策轮提交时，把本轮观察展示过的消息记为已读（第一章「人物之间的消息」）。
+def read_observed_messages(state: WorldState, observed: WorldState,
+                           presented: Mapping[int, frozenset[str]]) -> WorldState:
+    """@brief 决策轮提交时，把本轮观察以全文呈现过的消息记为已读（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
 
-    本轮观察取自轮前状态 observed：只读其中已在收件箱的消息，看过的消息不在其后的边界再以 message_arrival 唤醒；
-    本轮内送达的消息仍未读，由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）
-    与轮前有待收尾活动的轮次（只接受收尾，第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
+    「已读」即全文已呈现：只读 presented[人物]（该人物本轮观察的 presented_message_ids）中已在轮前收件箱里的消息，
+    看过的消息不在其后的边界再以 message_arrival 唤醒；没有出现在本 session 进度层的消息保持未读。本轮内送达的消息仍未读，
+    由 merge_message_readiness 给同秒机会，或在下一边界提供。受限轮（轮前阶段不是 open）与轮前有待收尾活动的轮次
+    （只接受收尾，docs/dev/SPEC-time-and-energy.md 第七章「活动一结束就要结束它」）回应不了消息，不记已读：这些收件人
     照常在其后的轮次或下一边界获得消息机会。
 
     :param state: 本轮全部动作结算后的世界副本
     :param observed: 本轮观察所用的轮前世界状态
-    :param agent_ids: 本轮的全部人物
+    :param presented: 本轮各人物的观察中全文已呈现的收件箱消息身份（人物 → 消息身份集合）
     """
     read = {}
-    for agent_id in agent_ids:
+    for agent_id, message_ids in presented.items():
         before = observed.agents[agent_id]
         if before.same_moment_stage != SameMomentStage.OPEN or pending_conclusions(observed, agent_id):
             continue
-        agent = read_new_messages(state.agents[agent_id], only=set(before.inbox))
+        agent = read_new_messages(state.agents[agent_id], only=set(message_ids) & set(before.inbox))
         if agent is not state.agents[agent_id]:
             read[agent_id] = agent
     if not read:

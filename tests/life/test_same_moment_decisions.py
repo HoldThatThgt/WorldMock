@@ -20,6 +20,7 @@ from tests.life.conftest import (
     wake_by_mail,
 )
 from tests.life.test_scheduling import _custom_engine, _document, _write_scenario
+from tests.life.test_progress_layer_projection import _activity
 from worldmock.errors import BusinessRuleError, IntegrityError, ProtocolError
 from worldmock.footprints.models import EventDraft
 from worldmock.life import same_moment
@@ -32,7 +33,7 @@ from worldmock.life.models import (
     ReportStatusRequest, ReviseDayPlanRequest, SameMomentStage, SendMessageActionRequest, StartActivityRequest,
     active_activities,
 )
-from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS
+from worldmock.life.social import CONTACT_REPLY_DELAY_SECONDS, Message
 from worldmock.life.rhythm import apply_decision_rhythm, engine_rhythm_inputs, next_decision_candidates
 from worldmock.life.scenario import LifeScenario, load_scenario
 from worldmock.life.schedule import WakeSnapshot, evaluate_wake_reasons
@@ -1444,3 +1445,34 @@ def test_partner_ended_at_the_limit_restarts_the_ladder_from_conclusion(engine_f
     assert all(result.status in {"completed", "in_progress"} for result in results)
     assert not pending_conclusions(engine.state, 2) and 2 not in engine.scheduling_state().ready_agent_ids
     assert engine.state.agents[2].same_moment_rounds <= limit + 3
+
+
+def _with_inbox(state, agent_id: int, *message_ids: str):
+    """@brief 给人物收件箱加入几条直接消息（不提交，只用于纯函数判定）。"""
+    agent = state.agents[agent_id]
+    added = {item: Message(message_id=item, kind="direct", sender_id="agent:9", recipient_id=f"agent:{agent_id}",
+                           text=f"消息{item}", created_at=state.current_time) for item in message_ids}
+    agents = {**state.agents, agent_id: agent.model_copy(update={"inbox": {**agent.inbox, **added}}, deep=True)}
+    return state.model_copy(update={"agents": agents}, deep=True)
+
+
+def test_read_observed_messages_marks_only_presented_messages_of_open_rounds(engine_factory) -> None:
+    """「已读」即全文已呈现（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：只把本轮观察呈现过全文、且已在
+    轮前收件箱里的消息记为已读；没有呈现的、本轮内才送达的保持未读，映射中没有的人物不变；轮前处于受限轮或有待收尾活动
+    的人物回应不了消息，不记已读。"""
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    observed = _with_inbox(_with_inbox(engine.state, 1, "m1", "m2"), 2, "n1")
+    settled = _with_inbox(observed, 1, "m3")
+    read = same_moment.read_observed_messages(settled, observed, {1: frozenset({"m1", "m3"})})
+    assert read.agents[1].read_inbox_ids == {"m1"}
+    assert read.agents[1].body != settled.agents[1].body and read.agents[2] == settled.agents[2]
+    assert same_moment.read_observed_messages(settled, observed, {1: frozenset(), 2: frozenset()}) == settled
+    restricted = observed.model_copy(deep=True)
+    restricted.agents[1].same_moment_stage = SameMomentStage.START_OR_RESUME
+    assert same_moment.read_observed_messages(settled, restricted, {1: frozenset({"m1"})}) == settled
+    ended = _activity("ended-wait", "等待", status=ActivityStatus.COMPLETED, elapsed=60)
+    pending = observed.model_copy(update={"activities": {**observed.activities, ended.activity_id: ended}})
+    assert pending_conclusions(pending, 1)
+    assert same_moment.read_observed_messages(settled, pending, {1: frozenset({"m1"})}) == settled

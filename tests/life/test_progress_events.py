@@ -18,8 +18,8 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  progress_calls, stage_day_plan, start_activity, submit_round, wake_by_mail)
 from worldmock.footprints.models import EventDraft
 from worldmock.life import progress_layer
-from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, ReviseDayPlanRequest,
-                                   SendMessageActionRequest)
+from worldmock.life.models import (ConcludeActivityRequest, PlanGoalInput, ReportStatusRequest,
+                                   ReviseDayPlanRequest, SendMessageActionRequest)
 from worldmock.life.readable import clock_phrase, iso_time, money_phrase
 from worldmock.life.settled_text import record_lines
 from worldmock.life.schedule import DayPlan, PlanGoal, day_end_seconds
@@ -455,3 +455,37 @@ def test_submission_lines_say_passed_or_rework_and_other_failures_write_nothing(
     assert lines("submit_work", submission, "rejected", "WORK_SUBMISSION_LATE") == []
     assert lines("revise_day_plan", {"goals": []}, "completed") == []
     assert lines("recall_task_summary", {"task_name": "工作：会议纪要"}, "completed") == []
+
+
+def test_round_commit_reads_only_messages_presented_in_full(engine_factory) -> None:
+    """轮次提交时「已读」即全文已呈现（docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）：留在出发前 session 的消息
+    没有出现在路上 session 的进度层，提交后仍未读；本 session 进度层呈现过全文的消息提交后记为已读。
+
+    人物 1 先发第一条；人物 2 在同一秒看到它（呈现）并出发，同一轮人物 1 先结算、再发第二条，它的送达排在出发结果之前，
+    留在出发前的 session；人物 2 随后在路上决策时看不到第二条（seam：需要引擎按观察的 presented_message_ids 记已读）。
+    """
+    engine = engine_factory("multi-person.json")
+    for agent_id in engine.state.agents:
+        stage_day_plan(engine, agent_id)
+    friend = f"人物：{engine.state.agents[2].name}"
+    preview = _observe(engine, "read-preview", 2)
+    office = next(row["object"] for row in preview["interaction_bindings"] if row["object_id"] == "office")
+    revise = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),))
+    _, first = submit_round(engine, {1: ("send_message", SendMessageActionRequest(recipient_name=friend, text="第一条")),
+                                     2: ("revise_day_plan", revise)}, "read-first")
+    shown = next(item.data["message_id"] for item in first if item.agent_id == 1)
+    _, second = submit_round(engine, {
+        1: ("send_message", SendMessageActionRequest(recipient_name=friend, text="第二条")),
+        2: ("start_activity", start_activity("步行", office))}, "read-second")
+    hidden = next(item.data["message_id"] for item in second if item.agent_id == 1)
+    presented = engine.store.read_agent_events("observation", 2)[-1].data["presented_message_ids"]
+    assert presented == [shown] and shown in engine.state.agents[2].read_inbox_ids
+    walking = next(item.activity_id for item in second if item.agent_id == 2)
+    report = ReportStatusRequest(task=[activity_name(engine, walking)], summary=["路上看看消息。"])
+    submit_round(engine, {1: ("start_activity", start_activity("等待", "自己")), 2: ("report_status", report)},
+                 "read-road")
+    road = engine.store.read_agent_events("observation", 2)[-1].data
+    arrival = next(event.event_id for event in engine.store.read_agent_events("environment_event", 2)
+                   if event.data.get("message_id") == hidden)
+    assert road["presented_message_ids"] == [] and arrival not in road["progress_event_ids"]
+    assert hidden in engine.state.agents[2].inbox and hidden not in engine.state.agents[2].read_inbox_ids
