@@ -93,6 +93,11 @@ def work_start_blocker(task: WorkTaskConfig, worked_seconds: int, now: int) -> s
     return None
 
 
+def work_resume_cap(task: WorkTaskConfig, worked_seconds: int, now: int) -> int:
+    """@brief 恢复工作的时长上限：min(距截止秒数, 合同上限减已累计秒数)，恢复不越过合同截止（规格第六章）。"""
+    return min(int(task.due_at.timestamp()) - now, task.maximum_duration_seconds - worked_seconds)
+
+
 def completion_outlook(task: WorkTaskConfig, worked_seconds: int, effective_seconds: float, now: int) -> str | None:
     """@brief 「到截止前做不完」：剩余要求的有效秒数大于 min(距截止秒数, 剩余合同秒数) 时给出，否则为 None。
 

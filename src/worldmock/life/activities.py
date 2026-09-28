@@ -151,7 +151,7 @@ def change_activity(agent: AgentState, activity: ActivityState, request: ChangeA
         _require_decision_boundary(agent, activity, now)
         return _pause(agent, activity)
     if request.operation == ActivityChange.RESUME:
-        resumed_agent, resumed = _resume(agent, activity, now)
+        resumed_agent, resumed = _resume(agent, activity, now, request.resume_cap_seconds)
         return resumed_agent, schedule_feedback(resumed, now, feedback_seconds)
     if request.operation == ActivityChange.CANCEL:
         if activity.status == ActivityStatus.ACTIVE:
@@ -378,12 +378,16 @@ def _pause(agent: AgentState, activity: ActivityState) -> tuple[AgentState, Acti
                                         "next_interaction_at": None}, deep=True))
 
 
-def _resume(agent: AgentState, activity: ActivityState, now: int) -> tuple[AgentState, ActivityState]:
-    """@brief 从保留进度恢复活动并形成新的结束边界；恢复即重置播报锚点。"""
+def _resume(agent: AgentState, activity: ActivityState, now: int,
+            cap: int | None) -> tuple[AgentState, ActivityState]:
+    """@brief 从保留进度恢复活动并形成新的结束边界；有上限时剩余时长截到上限（工作不越过合同截止）；恢复即重置播报锚点。"""
     if activity.status != ActivityStatus.PAUSED:
         raise BusinessRuleError("ACTIVITY_NOT_PAUSED")
     remaining = activity.planned_duration_seconds - activity.elapsed_seconds
+    if cap is not None:
+        remaining = min(remaining, cap)
     changed = activity.model_copy(update={"status": ActivityStatus.ACTIVE, "last_settled_at": now,
+                                          "planned_duration_seconds": activity.elapsed_seconds + remaining,
                                           "planned_end_at": now + remaining,
                                           "boundary_type": None, "report_anchor_at": now}, deep=True)
     return agent.model_copy(deep=True), changed

@@ -45,7 +45,7 @@ from worldmock.life.models import (
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
 from worldmock.life.travel import route_for
 from worldmock.life.social_actions import social_duration_seconds
-from worldmock.life.work import work_start_blocker, work_start_seconds, work_totals
+from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_seconds, work_totals
 
 _LOGGER = logging.getLogger(__name__)
 #: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
@@ -561,16 +561,32 @@ class SessionActionMixin:
 
     def _resume_at_start_location(self, state: WorldState, pending: PendingAction,
                                   activity: ActivityState) -> WorldState:
-        """@brief 暂停的活动只在开始地点恢复（重验地点与占用），并归入那里的当前停留会话。"""
+        """@brief 暂停的活动只在开始地点恢复（重验地点与占用），并归入那里的当前停留会话；工作恢复不越过合同截止。"""
         if not sessions.at_stay(state, pending.agent_id, activity.location_id):
             place = self._place_names[activity.location_id]
             name = self._control_names(pending).get(activity.activity_id, activity.name)
             raise Refusal("ACTIVITY_PRECONDITION_UNMET", f"{name}要回到{place}才能接着做，在别处可以直接结束",
                           unmet=("activity_location",), suggested={"travel_to": place}).error()
         changed, _ = self._change(state, pending, ChangeActivityRequest(
-            activity_id=activity.activity_id, operation=ActivityChange.RESUME))
+            activity_id=activity.activity_id, operation=ActivityChange.RESUME,
+            resume_cap_seconds=self._resume_cap(state, pending.agent_id, activity)))
         current = sessions.current_session(changed, pending.agent_id)
         return sessions.assign(changed, current.session_id, [activity.activity_id])
+
+    def _resume_cap(self, state: WorldState, agent_id: int, activity: ActivityState) -> int | None:
+        """@brief 恢复的时长上限：工作取 min(距截止, 合同上限减已累计)，其余活动没有上限（规格第六章）。
+
+        开工与恢复使用同一截止约束：距截止或剩余合同不足 60 秒时以 ACTIVITY_DURATION_INVALID 返回原因与下一步。
+        """
+        if activity.kind != ActivityKind.WORK:
+            return None
+        task = self.rules.task(activity.target_id)
+        worked, _ = work_totals(state, agent_id, task.task_id)
+        blocker = work_start_blocker(task, worked, state.current_time)
+        if blocker is not None:
+            _LOGGER.error("Work resume is closer than one minute to its deadline or contract end")
+            raise guided("ACTIVITY_DURATION_INVALID", blocker, "提交已完成的部分")
+        return work_resume_cap(task, worked, state.current_time)
 
     def _pause_activity(self, state: WorldState, pending: PendingAction,
                          request: PauseActivityRequest) -> tuple[WorldState, ActionResult]:
