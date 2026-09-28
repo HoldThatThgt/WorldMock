@@ -46,7 +46,7 @@ from worldmock.life.models import (
     WorldState,
 )
 from worldmock.life.named_purchase import resolve_named_supply
-from worldmock.life.readable import duration_phrase, iso_time
+from worldmock.life.readable import iso_time
 from worldmock.life.recipients import recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
 from worldmock.life.tool_layer import LayerContext
