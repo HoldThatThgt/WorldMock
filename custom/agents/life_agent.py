@@ -29,6 +29,7 @@ from custom.agents.life_context import persona_card_text
 from custom.agents.life_persona import persona_layer
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, empty_memory_layer, life_user_layers, readonly_messages,
                                        system_message, user_message)
+from worldmock.life.interaction_menu import WAYS, is_named_purchase
 from worldmock.life.models import ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
 from worldmock.life.schedule import MAX_PLAN_GOALS
@@ -567,7 +568,11 @@ def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, 
 
 
 def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> str:
-    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作。"""
+    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作。
+
+    obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
+    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
+    """
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
         return "start_activity accepts one or two targets"
     if len(request.targets) != len(request.actions) or len(request.actions) != len(request.ways):
@@ -576,6 +581,8 @@ def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[
         return "start_activity targets must be unique"
     for target, verb, way in zip(request.targets, request.actions, request.ways):
         actions = objects.get(target)
+        if actions is None and is_named_purchase(verb, way):
+            continue
         if actions is None:
             return "start_activity target is not a visible interactive object"
         if not any(item[:2] == (verb, way) for item in actions):
@@ -585,11 +592,15 @@ def _validate_start_activity(request: BaseModel, objects: dict[str, tuple[tuple[
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
                       ) -> list[str]:
-    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入）。"""
+    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入，指名购买计为购买）。"""
     if action != "start_activity":
         return []
-    return [item[2] for target, verb, way in zip(request.targets, request.actions, request.ways)
-            for item in objects.get(target, ()) if item[:2] == (verb, way)]
+    selected = []
+    for target, verb, way in zip(request.targets, request.actions, request.ways):
+        if target not in objects and is_named_purchase(verb, way):
+            selected.append(WAYS[way][1])
+        selected.extend(item[2] for item in objects.get(target, ()) if item[:2] == (verb, way))
+    return selected
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:
