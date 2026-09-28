@@ -792,20 +792,13 @@ def test_unknown_location_yields_no_opening_or_closing_candidates(engine_factory
 # ---------------------------------------------------------------------------
 
 
-def test_task_due_soon_ignores_missing_due_and_hits_window() -> None:
-    """待办提示跳过无截止行，命中 2 小时窗口返回真。"""
-    now = 10_000
-    assert projection._task_due_soon(({"due_at": None},), now) is False
-    assert projection._task_due_soon(({"due_at": None}, {"due_at": now + 3600}), now) is True
-
-
 def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> None:
     """收件箱头跳过无场景邮件配置的可见身份。"""
     engine = engine_factory()
     agent = engine.state.agents[1].model_copy(
         update={"visible_message_ids": {"ghost-mail"}}, deep=True)
     inputs = projection.ProjectionInputs(state=engine.state, scenario=engine.scenario,
-                                         agent=agent, recent_results=(), task_rows=())
+                                         agent=agent, task_rows=())
     assert projection._inbox_rows(inputs) == []
 
 

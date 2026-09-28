@@ -836,9 +836,9 @@ REQUIRED_SYMBOLS: dict[str, list[tuple[str, list[str]]]] = {
         (r"WORLD_SCHEMA_VERSION", ["src/worldmock/delivery/pipeline.py"]),
         # 目标回看按意图解析；阶段 3 把回看改写为按任务、目标、活动与会话分派后，判定仍按 intent_kind。
         (r'item\.intent_kind == row\["intent_kind"\]', [_SESSION_ACTIONS]),
-        (r"Literal\[7\]", ["docs/design/09-io-formats.md"]),
+        (r"Literal\[8\]", ["docs/design/09-io-formats.md"]),
         (r"state\.schema_version", ["docs/design/06-delivery.md"]),
-        (r"世界结构版本为 `7`", [_CONTRACTS, _RECORDING]),
+        (r"世界结构版本为 `8`", [_CONTRACTS, _RECORDING]),
     ],
     "1": [
         (r"max_same_moment_decisions", ["src/worldmock/life/scenario.py", "src/worldmock/life/semantics.py",

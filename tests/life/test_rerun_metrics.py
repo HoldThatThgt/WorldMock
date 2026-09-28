@@ -144,6 +144,12 @@ def _event(event_type: str, occurred_at: int, agent: int = 1, **data) -> EventDr
     return EventDraft(event_type=event_type, occurred_at=occurred_at, agent_id=agent, data=data)
 
 
+def _started(occurred_at: int, agent: int = 1, order: int = 0) -> EventDraft:
+    """@brief decision_started：数据是闭集四键（轮次身份、轮内顺序、世界版本与唤醒原因）。"""
+    return _event("decision_started", occurred_at, agent, round_id=f"round-{occurred_at}-{order}", round_order=0,
+                  world_state_version=1, wake_reasons=[])
+
+
 def _store(run_dir: Path, events: list[EventDraft]) -> Path:
     """@brief 用存储写入一次合成运行（事件按发生时刻排序，世界状态带场景时区）。"""
     ordered = sorted(events, key=lambda item: item.occurred_at)
@@ -192,9 +198,9 @@ def test_rerun_metrics_on_a_stored_run_with_gaps_driving_only_and_missed_meals(t
         _progress(1, "lotion", (_at(4, 10), _at(4, 20)), kind="consume", **_eating(1, "use")),
         _progress(1, "late-snack", (_at(0, 10, day=1), _at(0, 20, day=1)), kind="consume", **_eating(1)),
         _progress(2, "work", (_at(0), _at(2)), kind="work"),
-        *(_event("decision_started", _at(1), wake_reasons=[]) for _ in range(3)),
-        _event("decision_started", _at(1), 2, wake_reasons=[]),
-        _event("decision_started", _at(2), wake_reasons=[]),
+        *(_started(_at(1), order=order) for order in range(3)),
+        _started(_at(1), 2),
+        _started(_at(2)),
         _observation(_at(0), "有点想吃", "driving"),
         _observation(_at(2), "饿得发慌", "driving"),
         _observation(_at(3), "很饿", "driving"),

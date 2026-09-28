@@ -986,7 +986,7 @@ def test_action_groups_reject_requests_without_agent(tmp_path):
 
 def test_visible_event_expands_text_and_binary_materials(tmp_path):
     """文本素材展开内容、二进制素材保留模态引用、摘要不符拒绝。"""
-    payload = {'scene': '清晨在家'}
+    payload = {'note': '清晨在家'}
     raw = json.dumps(payload).encode()
     digest = hashlib.sha256(raw).hexdigest()
     assets = tmp_path / 'assets'

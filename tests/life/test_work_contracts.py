@@ -508,9 +508,10 @@ async def test_work_ending_at_the_deadline_is_concluded_then_submitted_and_paid_
     before = dict(engine.state.accounts)
     decision = context(engine, "submit-at-deadline")
     engine.begin_decision_round([decision])
-    engine.observe(decision)
+    observed = engine.observe(decision)
+    [task_name] = [row["task_name"] for row in observed["task_bindings"] if row["task_id"] == task.task_id]
     engine.submit_action(DirectToolCall(decision, "action-submit-at-deadline", "submit_work", SubmitWorkActionRequest(
-        task_name=task.title, deliverable=_submission(task).deliverable)))
+        task_name=task_name, deliverable=_submission(task).deliverable)))
     await engine.prepare_pending_work_review("action-submit-at-deadline")
     submitted = engine.commit_decision_round("submit-at-deadline")[0]
     assert engine.state.current_time == due
