@@ -127,6 +127,47 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
                        "candidates": candidates}
 
 
+def _home_supply(engine):
+    """一条能送到家的场景供给（按名称购买的对象，不必出现在本轮）。"""
+    return next(supply for supply in engine.scenario.supplies
+                if "delivery" in supply.fulfillment_modes and "home" in supply.delivery_destination_ids)
+
+
+def test_named_purchase_at_a_closed_store_is_a_business_rejection_and_nothing_is_substituted(engine_factory) -> None:
+    """凌晨门店打烊时按标签指名远程下单：名称照常解析到这条供给，结算照常检查营业，以 MERCHANT_CLOSED 业务拒绝；不换成
+    别的商品或别的门店，余额、库存与订单都不变，拒绝原因进入下一次观察的公开结果（第五章「指名购买」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    supply = _home_supply(engine)
+    label = supply_label(_layer_context(engine), supply)
+    assert label not in {row["object"] for row in engine.observe(context(engine, "closed-listed"))[
+        "interaction_bindings"]}
+    before = _world(engine)
+    _, result = _round(engine, "closed", _obtain(label))
+    assert (result.status, result.error_code) == ("rejected", "MERCHANT_CLOSED")
+    assert "orders" not in result.data and _world(engine) == before
+    details = last_result(engine.observe(context(engine, "closed-seen")))["details"]
+    assert details["reason"] and "candidates" not in details
+
+
+def test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_is_substituted(engine_factory) -> None:
+    """营业时段按标签指名远程下单、余额不够这一份：以 INSUFFICIENT_FUNDS 业务拒绝，不换成更便宜的商品，余额、库存与订单
+    都不变（第五章「指名购买」：价格、余额、营业与库存照常检查，不自动换成别的商品）。"""
+    engine = engine_factory(mutate=lambda document: document["agents"][0].update(initial_balance_fen=100))
+    _stage_open(engine)
+    stage_day_plan(engine)
+    supply = _home_supply(engine)
+    price = engine.semantics.purchase_amount(supply.product_id,
+                                             current_quote(engine.state, supply.supply_id).price_fen, 1)
+    assert price > engine.state.accounts["agent:1"] == 100
+    before = _world(engine)
+    _, result = _round(engine, "broke", _obtain(supply_label(_layer_context(engine), supply)))
+    assert (result.status, result.error_code) == ("rejected", "INSUFFICIENT_FUNDS")
+    assert "orders" not in result.data and _world(engine) == before
+    details = last_result(engine.observe(context(engine, "broke-seen")))["details"]
+    assert details["reason"] and "candidates" not in details
+
+
 def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_factory) -> None:
     """多家店都能送到家的同名商品（纯牛奶）：未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部门店（按名称排序）；
     写成标签或限定门店时解析为那家店的供给。"""

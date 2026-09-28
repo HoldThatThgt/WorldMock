@@ -93,6 +93,7 @@ PROGRAM_ERRORS: dict[str, list[str]] = {
         _PURCHASES + "test_replayed_receipt_is_not_counted_again",
         _PURCHASES + "test_export_writes_purchase_facts_under_manifest_version_two",
         _PURCHASES + "test_validation_recomputes_purchase_facts_and_rejects_tampering",
+        _PURCHASES + "test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay",
     ],
     "零条最近记忆失效": [_ZERO_RECENT],
 }
@@ -102,6 +103,8 @@ GAPS: dict[str, list[str]] = {
     "进食提前结束只显示「已收尾」": [
         _MEAL + "test_ending_a_meal_at_300_of_1500_seconds_eats_0_2_discards_0_8_and_keeps_3",
         _MEAL + "test_conclusion_outcome_names_failure_and_skips_other_activities",
+        _MEAL + "test_ending_a_paused_meal_discards_the_opened_remainder_without_intake",
+        _MEAL + "test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder",
     ],
     "提示菜单与受限工具不一致": [
         _TOOL + "test_every_listed_item_matches_admission_at_run_start",
@@ -125,6 +128,7 @@ GAPS: dict[str, list[str]] = {
         _PURCHASES + "test_browse_only_counts_as_app_browse",
         _PURCHASES + "test_rejected_order_counts_as_order_attempt",
         _PURCHASES + "test_mixed_eat_and_buy_in_progress_result_counts_its_order_once",
+        _PURCHASES + "test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay",
     ],
 }
 
@@ -220,6 +224,12 @@ LEDGER: dict[str, list[str]] = {
             "test_resume_inherits_the_parent_switch_and_rejects_a_diverged_profile",
             "test_the_pre_send_check_fails_when_the_current_decision_lacks_thinking",
             "test_the_pre_send_check_breaks_a_chain_whose_assistant_lacks_thinking",
+            "test_a_decision_with_memory_and_correction_turns_is_continued_byte_for_byte",
+            "test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them",
+            "test_real_pause_and_body_changes_reach_the_next_tool_message_once",
+            "test_a_recorded_request_without_its_response_breaks_the_chain",
+            "test_replay_with_an_intervention_inherits_the_parent_switch",
+            "test_a_real_continuation_run_passes_delivery_windows_and_the_observation_gate",
         )
     ],
     "可用性": [
@@ -252,6 +262,8 @@ LEDGER: dict[str, list[str]] = {
             "test_task_deadline_records_due_soon_and_expired_once_each",
             "test_plan_reminder_appears_once_and_precedes_same_second_events",
             "test_records_after_gives_the_progress_records_whose_sources_follow_the_bound",
+            "test_same_second_deadline_reminder_arrivals_and_call_keep_a_stable_order",
+            "test_the_advancing_clock_derives_due_soon_reminder_and_expiry_once_each",
         )
     ] + [
         _CONTINUATION + "test_another_persons_same_second_message_appears_once_in_the_whole_request",
@@ -282,6 +294,12 @@ LEDGER: dict[str, list[str]] = {
             "test_nap_reflection_stays_out_until_the_next_day",
             "test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions",
             "test_memory_layer_is_byte_identical_after_restore_and_the_cache_only_accelerates",
+            "test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry",
+            "test_a_stay_spanning_midnight_is_one_entry_of_the_day_it_ended_with_dated_clocks",
+            "test_meal_and_decimal_price_order_sentences_come_from_real_settlements",
+            "test_work_hours_and_submission_verdicts_are_settled_sentences",
+            "test_a_chat_ended_by_the_partner_is_settled_as_partner_ended",
+            "test_messages_sent_and_deliveries_received_on_the_road_land_in_the_transit_entry",
         )
     ] + [
         _ATTRIBUTION + "test_departure_commit_belongs_wholly_to_the_old_session",
@@ -324,6 +342,7 @@ LEDGER: dict[str, list[str]] = {
         _CONTINUATION + "test_budget_step_zero_ends_the_continuation_before_any_condensation",
         _CONTINUATION + "test_budget_step_zero_starts_the_decision_from_a_fresh_snapshot_for_every_turn",
         _MEMORY + "test_window_deletes_oldest_reflections_then_shrinks_oldest_today_entries_and_keeps_exemptions",
+        _MEMORY + "test_a_real_memory_layer_over_the_window_drops_reflections_then_shrinks_the_oldest_entry",
         _ATTRIBUTION + "test_chat_invitation_writes_no_settled_line_for_condensation",
         _ATTRIBUTION + "test_open_order_record_stays_uncondensed_while_older_records_fold",
     ],
@@ -359,6 +378,8 @@ LEDGER: dict[str, list[str]] = {
         _INVENTORY + "test_meal_partitions_reach_zero_without_losing_quantity_or_energy",
         _INVENTORY + "test_eating_progress_ignores_stock_taken_while_the_meal_was_paused",
         _MEAL + "test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion",
+        _MEAL + "test_ending_a_paused_meal_discards_the_opened_remainder_without_intake",
+        _MEAL + "test_concluding_a_failed_meal_names_the_failure_and_discards_the_remainder",
         "tests/life/test_todo_layer.py::test_paused_meal_progress_is_only_the_eaten_and_left_portions",
     ],
     "指名购买": [
@@ -371,6 +392,8 @@ LEDGER: dict[str, list[str]] = {
             "test_near_candidates_are_deterministic_term_similarity",
             "test_unlisted_obtain_selection_is_a_named_placeholder_other_verbs_are_not",
             "test_host_lets_unlisted_obtain_names_through_and_corrects_other_verbs",
+            "test_named_purchase_at_a_closed_store_is_a_business_rejection_and_nothing_is_substituted",
+            "test_named_purchase_beyond_the_balance_is_a_business_rejection_and_nothing_is_substituted",
         )
     ] + [
         _ENGINE + "test_purchase_by_unlisted_name_resolves_only_existing_supplies",
@@ -382,6 +405,7 @@ LEDGER: dict[str, list[str]] = {
         _LINKING + "test_a_new_message_is_a_new_request",
         _LINKING + "test_message_bindings_name_visible_direct_messages_by_sender_and_arrival",
         _ATTRIBUTION + "test_answering_binds_progress_messages_and_only_unreplied_memory_messages",
+        _LINKING + "test_answering_a_cross_day_unreplied_memory_message_links_the_order",
     ],
     "最小完整路径": [
         "tests/integration/test_minimum_complete_path.py::"
@@ -415,6 +439,8 @@ LEDGER: dict[str, list[str]] = {
         "test_delivery_gate_is_world_schema_eight_and_rejects_version_seven_exports",
         _PURCHASES + "test_export_writes_purchase_facts_under_manifest_version_two",
         _PURCHASES + "test_validation_recomputes_purchase_facts_and_rejects_tampering",
+        _PURCHASES + "test_real_run_export_counts_eat_and_remote_order_once_despite_a_replay",
+        _CONTINUATION + "test_a_real_continuation_run_passes_delivery_windows_and_the_observation_gate",
         "tests/tools/test_run_viewer.py::test_run_viewer_recorded_names",
         _METRICS + "test_the_subcommand_opens_the_run_read_only",
         _METRICS + "test_the_baseline_comparison_refuses_runs_that_are_not_comparable",
@@ -471,6 +497,7 @@ RULINGS: dict[int, list[str]] = {
         _LINKING + "test_answering_links_only_items_sent_to_the_sender_and_shows_the_link",
         _LINKING + "test_resubmitting_the_same_request_is_rejected_and_points_to_the_order",
         _LINKING + "test_a_new_message_is_a_new_request",
+        _LINKING + "test_answering_a_cross_day_unreplied_memory_message_links_the_order",
     ],
     24: [
         _GIVING + "test_giving_to_a_contact_needs_being_at_their_receive_location",
@@ -499,6 +526,9 @@ RULINGS: dict[int, list[str]] = {
             "test_layer_changes_overlay_earlier_changes_and_keep_the_latest",
             "test_continuation_messages_read_earlier_changes_and_skip_memory_and_feedback_tool_messages",
             "test_a_rejected_request_continues_with_the_rejection_reason",
+            "test_a_decision_with_memory_and_correction_turns_is_continued_byte_for_byte",
+            "test_changes_overlay_relationships_and_preferences_so_later_tool_messages_do_not_repeat_them",
+            "test_real_pause_and_body_changes_reach_the_next_tool_message_once",
         )
     ],
     28: [
@@ -507,6 +537,7 @@ RULINGS: dict[int, list[str]] = {
         _CONTINUATION + "test_recorded_evidence_decides_whether_the_chain_holds",
         _CONTINUATION + "test_missing_model_evidence_breaks_the_chain",
         _CONTINUATION + "test_a_missing_result_of_the_previous_request_breaks_the_chain",
+        _CONTINUATION + "test_a_recorded_request_without_its_response_breaks_the_chain",
     ],
     29: [
         _CONTINUATION + "test_a_plain_resume_from_a_mid_second_checkpoint_sends_the_same_request",
@@ -524,6 +555,7 @@ RULINGS: dict[int, list[str]] = {
             "test_resume_and_replay_cannot_override_the_switch",
             "test_resume_inherits_the_parent_switch_and_rejects_a_diverged_profile",
             "test_switch_off_every_decisions_first_request_has_exactly_two_messages",
+            "test_replay_with_an_intervention_inherits_the_parent_switch",
         )
     ],
     32: [
