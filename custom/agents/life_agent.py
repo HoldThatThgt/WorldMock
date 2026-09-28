@@ -524,12 +524,14 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     与去向的判定名称（人物、可见直接消息）。
 
     只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。people 是同世界其他人物的姓名（不论是否同处，
-    私有绑定 person_bindings），供 relationship 记忆的对象校验。
+    私有绑定 person_bindings），供 relationship 记忆的对象校验。回看名称是任务名、待办层写出的目标文字、活动名与
+    记忆层 self_notes 所写的活动名（活动绑定的 note_labels）。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
     tasks = _binding_names(data, "task_bindings", "task_name")
     goals = _binding_names(data, "goal_bindings", "task_name")
     activities = _binding_names(data, "activity_bindings", "name")
+    labels = _note_labels(data["activity_bindings"])
     kinds = {row["object"]: row["kind"] for row in data["interaction_bindings"]}
     return {
         "objects": objects,
@@ -537,7 +539,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
         "people": tuple(name.split("：", 1)[-1] for name in _binding_names(data, "person_bindings", "name")),
         "activity_names": activities,
-        "recall_names": (*tasks, *goals, *activities),
+        "recall_names": (*tasks, *goals, *activities, *labels),
         "progressed_intents": _progressed_intents(todo),
         "routing": routing_names(data),
     }
@@ -574,6 +576,14 @@ def _binding_names(data: dict[str, Any], key: str, field: str) -> tuple[str, ...
             not isinstance(row, dict) or not isinstance(row.get(field), str) for row in rows):
         raise RuntimeError(f"LifeAgent {key} are invalid")
     return tuple(row[field] for row in rows)
+
+
+def _note_labels(rows: list[dict[str, Any]]) -> tuple[str, ...]:
+    """@brief 活动绑定的 note_labels：记忆层 self_notes 中去掉开始时刻后缀的活动名（只作回看名称）。"""
+    if any(not isinstance(row.get("note_labels"), list)
+           or any(not isinstance(label, str) for label in row["note_labels"]) for row in rows):
+        raise RuntimeError("LifeAgent activity_bindings are invalid")
+    return tuple(dict.fromkeys(label for row in rows for label in row["note_labels"]))
 
 
 def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:

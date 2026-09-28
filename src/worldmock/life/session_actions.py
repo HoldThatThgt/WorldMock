@@ -474,12 +474,17 @@ class SessionActionMixin:
     def _recall_task_summary(self, state: WorldState, pending: PendingAction,
                               request: RecallTaskSummaryRequest) -> tuple[WorldState, ActionResult]:
         """@brief 只读回看任务、当日目标或活动（名称只取七层中出现的，会话名不在其中）；结果随下一次观察进入
-        details.recall，不带身份。"""
+        details.recall，不带身份。
+
+        当日目标按待办层写出的目标文字，活动按本轮活动名或记忆层 self_notes 所写的活动名（note_labels）；名称对应不止
+        一项（两个目标文字相同、两个条目的同一标注指不同活动）时与找不到一样以 TASK_NOT_FOUND 拒绝。
+        """
         observed = self._frozen_observation(pending)
         name = request.task_name
         candidates = ([("task", row) for row in observed["task_bindings"] if row["task_name"] == name]
                       + [("goal", row) for row in observed["goal_bindings"] if row["task_name"] == name]
-                      + [("activity", row) for row in observed["activity_bindings"] if row["name"] == name])
+                      + [("activity", row) for row in observed["activity_bindings"]
+                         if name == row["name"] or name in row["note_labels"]])
         if len(candidates) != 1:
             _LOGGER.error("Recalled task name is unavailable or ambiguous")
             raise BusinessRuleError("TASK_NOT_FOUND")

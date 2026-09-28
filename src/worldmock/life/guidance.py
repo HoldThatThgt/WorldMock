@@ -114,14 +114,15 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
     linked_orders）。
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
-    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。suggested 带可读
+    suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为 None（公开结果写 null，
+    docs/dev/SPEC-persona-prompt.md「通用格式」：允许为空的写 null，不填编造的值）。suggested 带可读
     候选（至多 3 个近似标签，或同名的全部门店名，docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）或已关联的订单（「代点请求与
     订单关联」）时原样写成 candidates、linked_orders。
     """
     code = str(error)
     reason = getattr(error, "public_reason", None) or _DEFAULT_REASONS.get(code, GENERIC_REASON)
     suggested = getattr(error, "suggested", None) or {}
-    guidance = {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code, "")}
+    guidance = {"reason": reason, "next_step": _next_step(suggested) or _DEFAULT_NEXT_STEPS.get(code) or None}
     guidance.update({key: list(suggested[key]) for key in _PUBLIC_SUGGESTIONS if key in suggested})
     return guidance
 

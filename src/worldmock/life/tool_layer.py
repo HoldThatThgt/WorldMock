@@ -47,6 +47,8 @@ ACTIVITY_TOOLS = ("report_status", "pause_activity", "conclude_activity")
 _DURATION_CAP_SECONDS = 86_400
 #: 地点开放情况的说法。
 _OPENING_STATES = {"open": "开着", "closed": "关着", "unknown": "开放时间不明"}
+#: 供给来源类型的说法（DataSource.kind：事实或场景假设）。
+_SOURCE_KINDS = {"fact": "事实", "scenario": "场景假设"}
 #: 在场的人正在做的事的说法（活动种类 → 短语）。
 _DOING = {"wait": "等待", "sleep": "睡觉", "work": "工作", "watch": "看内容", "play_game": "玩游戏", "travel": "赶路",
           "read_mail": "看邮件", "browse": "浏览商品", "consume": "吃东西或用东西", "lifestyle": "做生活活动",
@@ -160,7 +162,7 @@ def _start_refusal(context: LayerContext, binding: dict, action: dict) -> Refusa
         return check(context, binding, action)
     except BusinessRuleError as error:
         guidance = rejection_guidance(error)
-        return Refusal(str(error), guidance["reason"], guidance["next_step"])
+        return Refusal(str(error), guidance["reason"], guidance["next_step"] or "")
 
 
 def _travel_check(context: LayerContext, binding: dict, action: dict) -> Refusal | None:
@@ -363,6 +365,9 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
         target["contract"] = contract_view(task, work_totals(context.state, context.agent_id, task.task_id),
                                            context.state.current_time, context.scenario.timezone)
     target["actions"] = [_verb_action(context, row, action) for action in row["actions"]]
+    if row["kind"] == "supply" and target["actions"]:
+        first = target["actions"][0]
+        first["note"] = "；".join(filter(None, (first["note"], _source_note(context, row["object_id"]))))
     if kind == "task":
         target["tools"] = [_tool_action(context, Candidate("submit_work", task_id=row["object_id"]))]
     elif kind == "person":
@@ -370,6 +375,13 @@ def _binding_target(context: LayerContext, row: dict) -> dict:
     else:
         target["tools"] = []
     return target
+
+
+def _source_note(context: LayerContext, supply_id: str) -> str:
+    """@brief 门店商品目标的来源标记：类型、来源引用与事实截止日，取供给声明的来源（地图与门店规格「地点发现与候选
+    呈现」；docs/dev/SPEC-persona-prompt.md 冻结条款修订 #24：落在工具层商品目标动作的 note，每个目标只写一次）。"""
+    source = context.rules.supplies[supply_id].source
+    return f"来源：{_SOURCE_KINDS[source.kind]}（{source.url}），事实截止 {source.fact_cutoff.isoformat()}"
 
 
 def _tool_action(context: LayerContext, candidate: Candidate) -> dict:

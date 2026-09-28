@@ -104,7 +104,7 @@ def test_rotation_hidden_supply_is_bought_by_name_at_the_current_quote(engine_fa
     assert engine.state.accounts["agent:1"] == balance - price
     assert engine.state.supply_stock[supply.supply_id] == stock - 1
     [shown] = last_result(engine.observe(context(engine, f"named-{by}-seen")))["details"]["purchases"]
-    assert (shown["product"], shown["paid"], shown["way"]) == (product.name, money_phrase(price), "远程下单")
+    assert (shown["product"], shown["paid"]) == (product.name, money_phrase(price)) and "way" not in shown
 
 
 def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substituted(engine_factory) -> None:

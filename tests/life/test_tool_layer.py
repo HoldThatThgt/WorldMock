@@ -4,9 +4,9 @@
 副本上单独提交一次，互不影响：宿主（绑定真实 LifeEnv 的 LifeAgent，按该副本本轮观察冻结六层与私有绑定）对每一项的本地校验
 validate_react_decisions 都返回空串（列出即可提交），并经宿主的真实派发路径交给环境；available 为 false 的由环境以同一原因
 业务拒绝（action_result.data.reason 与 reason 一字不差），available 为 true 的被环境受理。副本的本轮观察与列出时的可用性
-逐项相同。覆盖运行开始、待收尾、同刻受限轮的三种阶段（开始或恢复、恢复或结束、只收尾）、路上、他处持有物与别处暂停的
-活动、工作进行中、距截止不足一分钟暂停的工作、驾车途中、门店没开门/卖完了/余额不够、身边有人（对方睡着）、逾期任务、
-给予有无对象等状态；另验证永久不能满足的动作（没有路线、技能不够）不列出且宿主按协议纠错，名称唯一、他处持有物的名称带
+逐项相同。覆盖运行开始、待收尾、同刻受限轮的三种阶段（开始或恢复、恢复或结束、只收尾，只收尾另有两项待收尾各自可收尾的一例）、
+路上、他处持有物与别处暂停的活动、工作进行中、距截止不足一分钟暂停的工作、驾车途中、门店没开门/卖完了/余额不够、
+身边有人（对方睡着）、逾期任务、给予有无对象等状态；另验证永久不能满足的动作（没有路线、技能不够）不列出且宿主按协议纠错，名称唯一、他处持有物的名称带
 地点、路上的活动不能暂停、正在做的工作提交写「先结束正在做的工作」、截止前一分钟内不能恢复工作、驾车时发消息与提交成果写
 「开车时不能…」。
 """
@@ -26,6 +26,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  stage_day_plan, start_activity, start_arguments, submit_round, target_actions,
                                  target_tools, tool_targets, wake_by_mail)
 from tests.life import test_parallel_admission as parallel_admission
+from tests.life import test_same_moment_decisions as same_moment_decisions
 from tests.life import test_work_contracts as work_contracts
 from tests.life.routing_fixtures import HOME, MARKET, OFFICE, PERSON_TARGET, food_product, open_world, place, stage
 from tests.life.test_scheduling import _custom_engine
@@ -434,6 +435,50 @@ def test_conclude_pending_stage_opens_only_the_conclusion(engine_factory, tmp_pa
     assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity"]
     assert {item["reason"] for item in checked if not item["available"]} == {
         refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason}
+
+
+def test_conclude_pending_stage_with_two_pending_opens_each_conclusion(engine_factory, tmp_path, monkeypatch) -> None:
+    """同刻受限轮「只收尾」有两项待收尾（真实到达：出行与路上的观看一起结束）：两项活动的 conclude_activity 都标可用，
+    单独收尾其中一项也被受理（收尾阶段持续到没有待收尾活动），其余每一项都标同刻限制原因；逐项提交与受理一致（「列出即可
+    提交」，docs/dev/SPEC-persona-prompt.md「工具层」）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    travel_id, watch_id = same_moment_decisions._depart(
+        engine, "two-depart", same_moment_decisions._content(engine, "two-depart"))
+    same_moment_decisions._finish(engine, travel_id, "two-walk")
+    names = [activity_name(engine, travel_id), activity_name(engine, watch_id)]
+    refused = _refuse(engine, "two-refused", engine.scenario.max_same_moment_decisions)
+    assert {item.error_code for item in refused} == {"ACTIVITY_CONCLUSION_REQUIRED"}
+    assert engine.state.agents[1].same_moment_stage == SameMomentStage.CONCLUDE_PENDING
+    observed = engine.observe(context(engine, "two-preview"))
+    assert [target_tools(observed, name)["conclude_activity"]["available"] for name in names] == [True, True]
+    checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "two")
+    assert [item["tool"] for item in checked if item["available"]] == ["conclude_activity", "conclude_activity"]
+    assert {item["reason"] for item in checked if not item["available"]} == {
+        refusal_for_code("SAME_MOMENT_ACTION_RESTRICTED").reason}
+
+
+def test_each_store_product_target_carries_its_source_marker_once(engine_factory) -> None:
+    """门店商品目标的来源标记（类型、来源引用与事实截止日，取供给声明的来源）写在该目标第一个动作的 note 中，每个目标
+    恰好一次，不含内部身份；远程下单的送达估计照写在它自己的 note；持有物与其他目标没有来源标记（地图与门店规格「地点
+    发现与候选呈现」，docs/dev/SPEC-persona-prompt.md 冻结条款修订 #24「来源标记落在工具层商品目标的 note」）。"""
+    engine = parallel_admission._engine(engine_factory, location="market", market=True)
+    observed = engine.observe(context(engine, "source-marker"))
+    supplies = {row["object"]: engine.rules.supplies[row["object_id"]] for row in observed["interaction_bindings"]
+                if row["kind"] == "supply"}
+    targets = tool_targets(observed)
+    assert supplies and any("delivery" in supply.fulfillment_modes for supply in supplies.values())
+    kinds = {"fact": "事实", "scenario": "场景假设"}
+    for name, supply in supplies.items():
+        source = supply.source
+        marker = f"来源：{kinds[source.kind]}（{source.url}），事实截止 {source.fact_cutoff.isoformat()}"
+        notes = [action["note"] or "" for action in targets[name]["actions"]]
+        assert marker in notes[0] and sum(note.count("来源：") for note in notes) == 1, (name, notes)
+        assert supply.supply_id not in json.dumps(targets[name], ensure_ascii=False)
+        assert all(action["note"].startswith("预计 ") for action in targets[name]["actions"]
+                   if action["way"] == "远程下单" and action["available"])
+    assert not any("来源：" in (action["note"] or "") for target in targets.values() if target["name"] not in supplies
+                   for action in target["actions"])
 
 
 def _stage_store(engine: LifeEngine) -> dict[str, str]:

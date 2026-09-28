@@ -250,7 +250,8 @@ def _with_activities(data: dict, *activities: tuple[str, str], elsewhere: tuple[
     for name, phase in activities:
         identity = f"activity-private-{len(data['activity_bindings']) + 1}"
         data["activity_bindings"].append({"name": name, "activity_id": identity, "phase": phase,
-                                          "resumable": phase == PHASE_PAUSED and name not in elsewhere})
+                                          "resumable": phase == PHASE_PAUSED and name not in elsewhere,
+                                          "note_labels": []})
         control = {"activity_id": identity, "kind": "wait", "title": name, "progress": "已做约15分钟",
                    "elapsed_seconds": 900, "planned_duration_seconds": 1800, "data": {}}
         if phase == PHASE_PAUSED:
