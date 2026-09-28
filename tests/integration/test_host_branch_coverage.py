@@ -607,8 +607,11 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     monkeypatch.setattr(
         direct_env_actor, "get_direct_env_actor_class",
         lambda: Namespace(remote=lambda spec: (captured.__setitem__("spec", spec), "actor")[1]))
-    card = Namespace(tastes=Namespace(content_genres=("剧情",)))
-    monkeypatch.setattr(runtime, "_persona_payload", lambda agent: ("卡片文本", card))
+    from tests.profile.conftest import make_card
+    from worldmock.profile.models import Tastes
+
+    card = make_card(tastes=Tastes(content_genres=("剧情",), food_preferences=(), media=()))
+    monkeypatch.setattr(runtime, "_compile_persona", lambda agent: card)
 
     actor, society = _build_society(SimpleNamespace(
         project_root=ROOT, run_dir=tmp_path / "run", run_id="identity",
@@ -639,20 +642,20 @@ def test_require_custom_modules_accepts_registered_life_modules(monkeypatch):
     monkeypatch.setattr("agentsociety2.registry.scan_and_register_custom_modules", original)
 
 
-def test_persona_payload_skips_and_renders(tmp_path, monkeypatch):
-    """无背景故事返回空；有故事经编译与渲染产出卡片文本。"""
+def test_persona_compile_skips_and_renders(tmp_path, monkeypatch):
+    """无背景故事不编译；有故事经编译得到卡片，渲染文本取自同一张卡片。"""
     from worldmock.profile import compile as compile_module
     from worldmock.profile import textgen as textgen_module
     import worldmock.runtime as runtime
 
     quiet = SimpleNamespace(background_story=None)
-    assert runtime._persona_payload(quiet) == (None, None)
     assert runtime._compile_persona(quiet) is None
     card = SimpleNamespace()
     monkeypatch.setattr(compile_module, "compile_persona", lambda story: SimpleNamespace(card=card))
     monkeypatch.setattr(textgen_module, "render_card", lambda value: "rendered-card")
     story_agent = SimpleNamespace(background_story="陈曦，产品经理。")
-    assert runtime._persona_payload(story_agent) == ("rendered-card", card)
+    assert runtime._compile_persona(story_agent) is card
+    assert runtime._render_card(card) == "rendered-card"
 
 
 # ---------------------------------------------------------------------------

@@ -1,7 +1,8 @@
 """@brief 零点计划 plan_day 的只读输入装配（docs/dev/SPEC-time-and-energy.md 第四章「输入、调用、失败与记录」）。
 
 输入全部来自世界状态与足迹记录，不读人物工作区与记忆运行时：人物档案与场景背景原文（background_story）、
-回顾时段里已核验经历的句子（第七章口径）、本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收）、
+回顾时段里已核验经历的句子与本人已结算的公开动作结果（消息送达、订单受理与交付、工作验收、结束的活动），二者都取
+settled_text 的共享句式（docs/dev/SPEC-persona-prompt.md 第三章「settled 的写法」）、
 回顾时段里已受理的 conclude_activity 请求记下的 summary 与 memories（标「你自己记下的，未经核验」；被拒与重放的
 请求不列），以及此刻可见的事实子集：可见任务、收件箱、在途订单及预计送达、联系人、上一天目标的推进情况。
 不读身体数值、交互对象、私有绑定、未到期的预排事件与人物的主观记忆库，也不含内部身份。
@@ -19,8 +20,9 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from worldmock.footprints.experiences import project_verified_experiences
-from worldmock.life import projection
+from worldmock.life import progress_layer, projection
 from worldmock.life.day_planning import SELF_REPORT_NOTE, plan_date
+from worldmock.life.settled_text import experience_sentence, record_lines, tool_record
 
 #: 中文星期名。
 _WEEKDAYS = ("星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日")
@@ -118,58 +120,37 @@ def _hours(window: tuple[float, float] | None) -> str | None:
 
 
 def _experience_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[tuple[str, str], ...]:
-    """@brief 回顾时段里已核验经历的确定性句子（与观察同一写法），按时间顺序，带来源事件身份。"""
+    """@brief 回顾时段里已核验经历的确定性句子（settled_text 的共享写法），按时间顺序，带来源事件身份。"""
     store = engine.store
     events = store.read_agent_events("activity_progress", agent_id)
     facts = project_verified_experiences(events, agent_id=agent_id, cutoff_seq=store.last_event_seq)
-    inputs = projection.ProjectionInputs(
-        state=engine.state, scenario=engine.scenario, agent=engine.state.agents[agent_id],
-        extras={"content_titles": engine.rules.content_titles})
+    context = engine._layer_context(engine.state.agents[agent_id], (), [])
     facts.sort(key=lambda item: (item["event_seq"], item["kind"], item.get("product_id", "")))
-    return tuple((projection._experience_sentence(inputs, fact), fact["source_event_id"])
+    return tuple((experience_sentence(context, fact), fact["source_event_id"])
                  for fact in facts if window.ends_within(fact["occurred_at"]))
 
 
 def _result_sentences(engine: Any, agent_id: int, window: _Window) -> tuple[list[str], list[str]]:
-    """@brief 本人已结算的公开动作结果：消息送达、订单受理、配送交付与工作验收，写成不含身份的句子。"""
+    """@brief 本人已结算的公开动作结果与送达，写成 settled 句（与记忆层同一共享句式，不含身份）：发消息、下单、提交工作、
+    结束活动与送达；失败、重放的请求与其余工具不写。"""
     store = engine.store
-    requests = {event.action_id: event.data for event in store.read_agent_events("action_requested", agent_id)}
-    rows: list[tuple[int, str, str]] = []
+    context = engine._layer_context(engine.state.agents[agent_id], (), [])
+    results: dict[str, Any] = {}
     for event in store.read_agent_events("action_result", agent_id):
-        request = requests.get(event.action_id)
-        if event.visibility != "agent" or request is None or not window.covers(event.occurred_at):
+        results.setdefault(event.action_id, event)
+    rows: list[tuple[int, str, str]] = []
+    for request in store.read_agent_events("action_requested", agent_id):
+        result = results.get(request.action_id)
+        if result is None or result.visibility != "agent" or not window.covers(result.occurred_at):
             continue
-        rows.extend((event.event_seq, text, event.event_id)
-                    for text in _result_texts(engine, window, request, event))
+        rows.extend((result.event_seq, text, result.event_id)
+                    for text in record_lines(context, tool_record(context, request), [request, result]))
     for event in store.read_agent_events("environment_event", agent_id):
         if event.data.get("kind") == "delivery_arrival" and window.covers(event.occurred_at):
-            rows.extend((event.event_seq, f"{window.clock(event.occurred_at)} {_order_text(engine, order)}送到了"
-                         f"{_place(engine, order['destination_id'])}", event.event_id)
-                        for order in event.data.get("orders", []))
+            rows.extend((event.event_seq, line, event.event_id) for item in progress_layer._delivery_records(
+                context, event) for line in record_lines(context, item.record, [event]))
     rows.sort(key=lambda item: item[0])
     return [text for _, text, _ in rows], [source for _, _, source in rows]
-
-
-def _result_texts(engine: Any, window: _Window, request: dict[str, Any], event: Any) -> list[str]:
-    """@brief 单个动作结果的公开句子（其余工具与被拒的请求不列）。"""
-    clock, data, body = window.clock(event.occurred_at), event.data, request["request"]
-    if data.get("reused"):
-        return []
-    if request["tool_name"] == "send_message" and data.get("status") == "completed":
-        return [f"{clock} 给{body['recipient_name']}发了消息：{body['text']}"]
-    review = data.get("data", {}).get("work_review")
-    if request["tool_name"] == "submit_work" and isinstance(review, dict):
-        return [f"{clock} 提交了「{body['task_name']}」，{'通过了验收' if review.get('accepted') else '没有通过验收'}"]
-    orders = data.get("data", {}).get("orders", []) if data.get("status") != "rejected" else []
-    return [f"{clock} 下单了{_order_text(engine, order)}，预计{window.when(order['expected_at'])}"
-            + (f"送到{_place(engine, order['destination_id'])}" if order.get("fulfillment") == "delivery"
-               else f"可在{_place(engine, order['destination_id'])}取")
-            for order in orders]
-
-
-def _order_text(engine: Any, order: dict[str, Any]) -> str:
-    """@brief 订单商品与份数。"""
-    return f"{engine.rules.products[order['product_id']].name}×{order['quantity']}"
 
 
 def _place(engine: Any, location_id: str) -> str:

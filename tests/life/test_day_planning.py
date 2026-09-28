@@ -35,7 +35,7 @@ from worldmock.runtime import settle_pending_day_plans
 SCENARIO = "white-collar-12-weeks.json"
 ZONE = ZoneInfo("Asia/Shanghai")
 #: 睡前在收尾里写下的一条记忆（人物自述）。
-_MEMORY = {"type": "commitment", "text": "明早七点半起床", "importance": 0.6, "keywords": ["起床"]}
+_MEMORY = {"type": "commitment", "text": "明早七点半起床", "importance": 0.6, "keywords": ["起床"], "subject": None}
 
 
 def _at(day: int, hour: int, minute: int = 0) -> int:
@@ -308,7 +308,7 @@ def test_midnight_settles_the_old_day_then_plans_then_judges_the_second(tmp_path
     client = StubPlanDayClient(goals=goals)
     settle_day_plans(engine, client)
     payload = json.loads(client.calls[0]["messages"][1]["content"])
-    assert payload["已核验经历"] == ["23:45–00:00 等待了约 15 分钟"]
+    assert payload["已核验经历"] == ["1月5日 23:45–00:00 等待了约 15 分钟"]
     assert payload["上一天的目标"] == [{"意图": "休息", "目标": "睡前歇一会儿", "推进": "已推进"}]
     after = _events(engine, seq)
     kinds = [event.data.get("kind") or event.event_type for event in after]
@@ -506,8 +506,9 @@ def test_revision_keeps_replaces_and_cancels_reminders(engine_factory):
 
 
 def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(engine_factory, monkeypatch):
-    """输入含人物档案与背景原文、当日已核验经历句子、公开动作结果、收尾的 summary 与 memories（标未经核验），
-    不含身体数值与内部身份；达到窗口 85% 时先裁掉较早的经历句子，登记的来源随之只含保留的经历。
+    """输入含人物档案与背景原文、当日已核验经历句子、公开动作结果（与记忆层同一 settled 写法：发消息、结束的活动）、收尾
+    的 summary 与 memories（标未经核验），不含身体数值与内部身份；达到窗口 85% 时先裁掉较早的经历句子，登记的来源随之只含
+    保留的经历。
     """
     engine = engine_factory()
     stage_day_plan(engine)
@@ -529,7 +530,8 @@ def test_plan_inputs_read_world_facts_and_self_reports_but_not_the_persons_mind(
     assert (payload["人物"]["名字"], payload["人物"]["背景"]) == (config.name, config.background_story)
     assert [sentence for sentence, _ in inputs.experiences] == ["00:00–00:15 等待了约 15 分钟",
                                                                "00:15–00:30 等待了约 15 分钟"]
-    assert payload["动作结果"] == ["00:00 给联系人：沈昊发了消息：周五一起吃饭？"]
+    assert payload["动作结果"][0] == "00:00 给沈昊发消息：周五一起吃饭？"
+    assert payload["动作结果"][1:] == [line for line in payload["动作结果"][1:] if "等待（" in line]
     assert payload["收尾记录"][-1] == {"时间": "00:30", "活动": name, "收尾说明": "歇好了，明早七点半起床。",
                                     "想记住的": ["明早七点半起床"], "说明": "你自己记下的，未经核验"}
     assert payload["联系人"] == [{"称呼": item.salutation, "关系": item.relation} for item in config.contacts]

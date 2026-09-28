@@ -163,7 +163,8 @@ async def test_conclusion_memories_flatten_by_task_with_system_source() -> None:
         assert await agent.run_react_loop(request) == f"{tool} registered"
         written.append(agent._last_finish_memories)
 
-    assert written[0] == [{**item, "source": "activity_conclusion", "epistemic_status": "subjective"}
+    assert written[0] == [{**{key: value for key, value in item.items() if key != "subject"},
+                           "source": "activity_conclusion", "epistemic_status": "subjective"}
                           for item in (first, second, third)]
     assert written[1] == []
 
@@ -357,7 +358,8 @@ def _engine_with_paused_watch_and_pending_wait(engine_factory) -> tuple[Any, Lif
 
 async def _person(environment: LifeEnv, workspace: Path, model: _ScriptedModel) -> LifeAgent:
     """从全新工作区装配启用记忆的真实 LifeAgent（巩固阈值取默认值），绑定真实环境。"""
-    LifeAgent.create(workspace, {"id": 1, "name": "陈曦", "occupation": "engineer"},
+    contacts = [{"salutation": "沈昊", "relation": "老友"}, {"salutation": "陈母", "relation": "家人"}]
+    LifeAgent.create(workspace, {"id": 1, "name": "陈曦", "occupation": "engineer", "contacts": contacts},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 8})
     service = SimpleNamespace(env=environment, llm=SimpleNamespace(default=model), trace=None)
     return await LifeAgent.from_workspace(workspace, service)
@@ -385,7 +387,7 @@ async def test_conclusion_sources_are_registered_by_the_system(_engine_factory, 
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     memories = [_memory("等了一刻钟，心里平静了。", importance=0.3),
-                _memory("想起还没回妈妈的消息。", kind="relationship", importance=0.4)]
+                _memory("想起还没回妈妈的消息。", kind="relationship", importance=0.4, subject="陈母")]
     conclusion = {"task": [name], "summary": ["等完了。"], "memories": [memories]}
     model = _ScriptedModel([_ModelResponse("call-conclude", "conclude_activity",
                                            json.dumps(conclusion, ensure_ascii=False))])
@@ -499,7 +501,7 @@ async def test_nothing_sent_to_the_person_model_carries_an_internal_identity(_en
     ])
     person = await _person(environment, tmp_path / "agent_0001", model)
     store = person._memory_runtime.store
-    earlier = [_memory("晚饭后在小区里散步很舒服。", kind="preference", importance=0.2),
+    earlier = [_memory("晚饭后在小区里散步很舒服。", kind="preference", importance=0.2, subject="散步"),
                _memory("答应周末陪朋友去散步。", kind="commitment", importance=0.2)]
     store.append_episodes(_stored_memories(_conclude_args("散步（1月4日 19:00 起）", memories=[earlier])),
                           tick=0, t=_OBSERVED_AT - timedelta(hours=10), step_count=0)
@@ -537,7 +539,7 @@ async def test_memory_queries_and_the_reply_body_reach_the_next_progress_layer(_
     engine, environment, wait_id = _engine_with_pending_wait(_engine_factory)
     name = activity_name(engine, wait_id)
     memories = [_memory("等完这一刻钟，心里踏实了。", importance=0.2),
-                _memory("想给老朋友打个电话。", kind="relationship", importance=0.3)]
+                _memory("想给老朋友打个电话。", kind="relationship", importance=0.3, subject="沈昊")]
     conclusion = {"task": [name], "summary": ["等完了。"], "memories": [memories]}
     model = _ScriptedModel([
         _ModelResponse("call-recent", "memory_recent", '{"limit":5}'),
@@ -651,6 +653,8 @@ _CONCLUSION_MEMORIES = (
     ("relationship", "楼下的邻居送了我一袋橘子。"),
     ("preference", "下雨天最适合窝在沙发上听播客。"),
 )
+#: relationship 与 preference 记忆写下的对象（relationship 的对象是档案里的场景联系人）。
+_SUBJECTS = {"relationship": "陈母", "preference": "吃饭"}
 #: 就寝反思的五条洞见（AS2 固定重要度 0.8，合计 4.0，已超过重要度阈值）。
 _INSIGHTS = ("我其实很在意家里整不整洁。", "和家人的联系让我踏实。", "工作上的承诺我都记在心里。",
              "独处的时候我最放松。", "我想让日子过得更有规律。")
@@ -705,7 +709,8 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     巩固载荷每条只有 {type, text, time}，不带条目身份（第七章「finish 并入 conclude_activity」「发给模型的内容不含内部身份」）。
     """
     workspace = tmp_path / "agent_0007"
-    LifeAgent.create(workspace, {"id": 7, "name": "Alice", "occupation": "engineer"},
+    LifeAgent.create(workspace, {"id": 7, "name": "Alice", "occupation": "engineer",
+                                 "contacts": [{"salutation": "陈母", "relation": "家人"}]},
                      {"enable_memory": True, "enable_todo_list": False, "max_react_turns": 4})
     environment, model = _DayEnvironment(), _DayModel()
     agent = await LifeAgent.from_workspace(workspace, _service(environment, model))
@@ -715,7 +720,8 @@ async def test_threshold_consolidation_counts_conclusion_entries_but_not_bedtime
     unconsolidated_after_step = []
     for index, (wake, groups) in enumerate(days, start=1):
         environment.wake_reasons = wake
-        memories = [[_memory(text, kind=kind, importance=0.2) for kind, text in islice(texts, count)]
+        memories = [[_memory(text, kind=kind, importance=0.2, subject=_SUBJECTS.get(kind))
+                     for kind, text in islice(texts, count)]
                     for _, count in groups]
         model.conclusions.append(_conclude_args(*(name for name, _ in groups), memories=memories))
         agent.bind_decision_context(DecisionContext("run", f"round-{index}", f"decision-{index}", 7, _OBSERVED_AT, 3))

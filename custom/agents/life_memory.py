@@ -9,6 +9,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from agentsociety2.agent.base.react import MemoryUpdateEvidence
 from agentsociety2.agent.memory_runtime import MemoryRuntimeConfig, MemoryStepOutcome, PersonMemoryRuntime
 
 if TYPE_CHECKING:
@@ -18,8 +19,11 @@ _SUBJECTIVE_TYPES = frozenset({
     "commitment", "relationship", "preference", "goal", "conflict",
     "resolution", "identity", "routine", "reflection",
 })
-#: 结束活动写入点的记忆来源（系统固定，与 memory_updated.data.trigger 同一组取值）。
+#: 结束活动写入点与就寝反思的记忆来源（系统固定，与 memory_updated.data.trigger 同一组取值）。
 _CONCLUSION_SOURCE = "activity_conclusion"
+_REFLECTION_SOURCE = "reflection"
+#: 记忆更新快照的基本字段（与 AS2 PersonAgent._record_memory_update 同一组）。
+_SNAPSHOT_FIELDS = ("id", "type", "text", "epistemic_status")
 _SUBJECTIVE_PROMPT = (
     "Summarize only this person's subjective feelings, intentions, relationships and preferences in Chinese. "
     "The output is a subjective self-report, even when the person believes a concrete event occurred. "
@@ -42,15 +46,17 @@ class WorldMockMemoryRuntime(PersonMemoryRuntime):
         self._owner = owner
 
     def build_context(self) -> dict[str, Any]:
-        """@brief 当前提示只给冻结身份与主观摘要，不回灌上一轮事实窗口。"""
+        """@brief 记忆上下文只给最近条目窗口与文件路径，不给主观归纳；生活决策提示由七层组成，不读这里的条目与摘要
+        （记忆层由环境派生，阈值巩固的摘要不进提示，裁决 #36）。
+
+        recent_limit 为 0 时返回空列表：AS2 存储会把 0 改回 8 条（docs/dev/SPEC-persona-prompt.md 第六章「零条最近记忆失效」）。
+        """
         store = self.store
         if store is None:
             return {}
-        summary = store.read_subjective_summary()
+        limit = self.config.recent_limit
         return {
-            "memory_md": _prompt_memory(self._owner._persona_card_text(), summary),
-            "subjective_summary": summary,
-            "recent_episodes": store.recent(limit=self.config.recent_limit),
+            "recent_episodes": store.recent(limit=limit) if limit > 0 else [],
             "files": {"summary": "MEMORY.md", "episodes": "memory/episodes.jsonl"},
         }
 
@@ -181,11 +187,6 @@ def render_memory_view(identity: str, facts: list[dict[str, Any]], summary: str)
     return header + subjective[:3999 - len(header)].rstrip() + "\n"
 
 
-def _prompt_memory(identity: str, summary: str) -> str:
-    """@brief 当前提示不复用前一轮视图中的事实窗口。"""
-    return "## 身份\n" + _quote(identity) + "\n\n## 人物自述（未经核验）\n" + _quote(summary or "暂无人物自述。")
-
-
 def _quote(text: str) -> str:
     """@brief 将自由文字封入 Markdown 引用，不能跳成顶层事实标题。"""
     return "\n".join("> " + line for line in text.splitlines())
@@ -222,3 +223,37 @@ def _classify_episodes(
     created = tuple(item for identity, item in by_id.items() if identity not in known)
     merged = tuple(item for identity, item in by_id.items() if identity in known)
     return created, merged
+
+
+def memory_update_evidence(context: Any, store: Any, outcome: MemoryStepOutcome) -> MemoryUpdateEvidence | None:
+    """@brief 本步已落盘记忆的证据（与 AS2 PersonAgent._record_memory_update 同一组字段）；就寝反思的快照条目另带
+    source=reflection，引擎据此给反思找归属日期（docs/dev/SPEC-persona-prompt.md 第三章「零点、反思与未了结」）。
+
+    本步既没有新增或合并条目、视图也没有变化时返回 None（不登记）。
+    """
+    memory_sha256 = _file_sha256(store.memory_md_path)
+    created = tuple(str(item["id"]) for item in outcome.created_episodes)
+    merged = tuple(str(item["id"]) for item in outcome.merged_episodes)
+    if not created and not merged and outcome.memory_before_sha256 == memory_sha256:
+        return None
+    snapshots = tuple(_episode_snapshot(item) for item in outcome.created_episodes + outcome.merged_episodes)
+    return MemoryUpdateEvidence(
+        context=context, operation="append_episodes" if created or merged else "refresh_summary",
+        created_episode_ids=created, merged_episode_ids=merged, episodes=snapshots,
+        memory_before_sha256=outcome.memory_before_sha256 or "", memory_sha256=memory_sha256,
+        episodes_sha256=_file_sha256(store.episodes_path), state_sha256=_file_sha256(store.state_path),
+        consolidated=outcome.consolidated, observation_event_id=outcome.observation_event_id,
+        verified_event_ids=outcome.verified_event_ids)
+
+
+def _episode_snapshot(item: dict[str, Any]) -> dict[str, str]:
+    """@brief 一条主观条目的最小快照：四个基本字段，就寝反思另带来源。"""
+    snapshot = {key: str(item[key]) for key in _SNAPSHOT_FIELDS}
+    if item.get("source") == _REFLECTION_SOURCE:
+        snapshot["source"] = _REFLECTION_SOURCE
+    return snapshot
+
+
+def _file_sha256(path: Any) -> str:
+    """@brief 文件内容的 SHA-256。"""
+    return hashlib.sha256(path.read_bytes()).hexdigest()

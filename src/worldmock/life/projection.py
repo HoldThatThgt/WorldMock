@@ -6,7 +6,7 @@
 （docs/dev/SPEC-life-runtime.md「数值与分级的分离」）。
 
 供给可见期：仅实际呈现的供给具有购买凭据，位置未变且呈现后未超 1800 秒；供给身份与商品身份分别保留。
-零点计划输入（life.day_plan_inputs）另取本模块的联系人、收件箱与已核验经历句子。
+零点计划输入（life.day_plan_inputs）另取本模块的联系人与收件箱。
 """
 
 from __future__ import annotations
@@ -22,8 +22,7 @@ from worldmock.life import admission, felt, social
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.interaction_menu import (ACTION_WAYS, CONTENT_WAYS, PURCHASE_WAYS, TRAVEL_WAYS, USE_WAYS,
                                              binding_action)
-from worldmock.life.models import ActivityKind, AgentState, TravelMode, WorldState, active_activities
-from worldmock.life.readable import duration_phrase
+from worldmock.life.models import ActivityKind, AgentState, WorldState, active_activities
 from worldmock.life.scenario import BodyConfig, RuntimeScenario
 from worldmock.life.sleep import SLEEPINESS_CLIP_MAX, sleepiness
 
@@ -164,34 +163,6 @@ def build_observation(inputs: ProjectionInputs) -> dict[str, Any]:
     if inputs.motivation_internal is not None:
         data["motivation_internal"] = inputs.motivation_internal
     return data
-
-
-def _experience_sentence(inputs: ProjectionInputs, fact: dict[str, Any]) -> str:
-    """@brief 一条已核验经历的确定性句子（零点计划输入）：等待、食用、播放带起止时刻，到达带到达时刻与方式。
-
-    例：「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」；地点、商品与内容取场景名称，出行方式取自所属出行活动。
-    """
-    zone = inputs.scenario.timezone
-    if fact["kind"] == "arrived":
-        travel = inputs.state.activities[fact["activity_id"]]
-        mode = "走路" if travel.travel_mode == TravelMode.WALKING else "开车"
-        place = _location_index(inputs.scenario)[fact["location_id"]].name
-        denied = "，但没能进去" if fact["access_status"] == "denied" else ""
-        return f"{_clock(fact['occurred_at'], zone)} {mode}到了{place}{denied}"
-    span = f"{_clock(fact['interval_start'], zone)}–{_clock(fact['interval_end'], zone)}"
-    if fact["kind"] == "waited":
-        return f"{span} 等待了{duration_phrase(fact['duration_seconds'])}"
-    if fact["kind"] == "consumed":
-        return f"{span} 吃了{_product_names(inputs.scenario)[fact['product_id']]}"
-    podcast = any(item.item_id == fact["content_id"] and item.kind == "podcast_episode"
-                  for item in inputs.scenario.contents)
-    title = inputs.extras["content_titles"][fact["content_id"]]
-    return f"{span} {'听了' if podcast else '看了'}《{title}》"
-
-
-def _clock(epoch: int, timezone_name: str) -> str:
-    """@brief 场景时区的本地时刻 HH:MM。"""
-    return f"{local_datetime(epoch, timezone_name):%H:%M}"
 
 
 def _location_index(scenario: RuntimeScenario) -> dict[str, Any]:

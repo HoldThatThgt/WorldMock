@@ -1,36 +1,45 @@
 """@brief settled 写法的确定性句子（docs/dev/SPEC-persona-prompt.md 第三章「settled 的写法」）。
 
-只写人物可见、成功的世界请求与世界事件：下单、发消息、提交工作各一句，在本段结束的活动每项一句（起止、终局、实际份量或
-有效工时），收到的直接消息（全文）、邮件（主题）与送达各一句。不写失败的请求、记忆查询、回看、report_status、暂停与恢复、
-revise_day_plan、提醒、截止预警与身体结算。金额按元，份数至多两位小数，时长用人读短语，跨日加「M月D日」。
-进度层按预算浓缩时，被折叠记录的 lines 取这里的句子。
+只写人物可见、成功（completed 或 in_progress）且不是重放的世界请求与世界事件：下单、发消息、提交工作各一句，在本段结束的
+活动每项一句（起止含暂停区间、终局、实际份量或有效工时），收到的直接消息（全文）、邮件（主题）、送达与新工作各一句。
+不写失败的请求、记忆查询、回看、report_status、暂停与恢复、revise_day_plan、提醒、截止预警与身体结算。金额按元，
+份数至多两位小数，时长用人读短语，跨日加「M月D日」。记忆层、进度层按预算浓缩的 lines 与零点计划输入都取这里的句子
+（同时是零点计划输入里已核验经历句子的唯一写法）。
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
 from worldmock.footprints.models import Event
 from worldmock.life import activity_control
+from worldmock.life.activity_evidence import is_eating
 from worldmock.life.interaction_menu import PURCHASE_WAYS
-from worldmock.life.models import ActivityKind, ActivityState
-from worldmock.life.readable import clock_phrase, duration_phrase, money_phrase, portion_phrase
+from worldmock.life.models import ActivityKind, ActivityState, TravelMode
+from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.tool_layer import LayerContext
 
 #: 成功的结果状态：只有这些结果写 settled 句。
 _SETTLED_STATUSES = frozenset({"completed", "in_progress"})
+#: 活动的暂停区间：活动身份 → [(暂停时刻, 恢复时刻)]（只含已恢复的区间）。
+PauseIntervals = Mapping[str, Sequence[tuple[int, int]]]
 
 
-def record_lines(context: LayerContext, record: dict, sources: list[Event]) -> list[str]:
+def record_lines(context: LayerContext, record: dict, sources: list[Event],
+                 pauses: PauseIntervals | None = None) -> list[str]:
     """@brief 一条进度层记录的 settled 句（没有可写的事实时为 []）。
 
     :param record: 进度层记录（occurred_at 为带时区 ISO）。
-    :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）。
+    :param sources: 记录的来源事件（tool_call 为 action_requested 与 action_result；派生记录为空）；重放的请求不写。
+    :param pauses: 活动的暂停区间（结束活动的句子写进起止）。
     """
+    if any(event.data.get("reused") for event in sources):
+        return []
     kind = record["type"]
     if kind == "tool_call":
-        return _tool_lines(context, record, sources)
+        return _tool_lines(context, record, sources, pauses or {})
     if kind == "message_arrival":
         when = _clock(context, record["occurred_at"])
         if record["kind"] == "mail":
@@ -43,21 +52,89 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event]) -> l
     return []
 
 
-def activity_sentence(context: LayerContext, activity: ActivityState) -> str:
-    """@brief 一项已结束活动的句子：名称、起止、终局，工作另写有效工时，食用另写吃掉的份数。"""
+def activity_sentence(context: LayerContext, activity: ActivityState,
+                      pauses: Sequence[tuple[int, int]] = ()) -> str:
+    """@brief 一项已结束活动的句子：名称、起止（含暂停区间）、终局，工作另写有效工时，进食另写吃掉与丢弃的份数
+    （与收尾结果 details.outcome 同一结算事实）。
+
+    例：「工作：会议纪要（1月5日 09:10 起）：09:10–11:50（暂停 10:43–11:16），提前结束，有效工时约 2 小时」。
+    """
+    now, zone = context.state.current_time, context.scenario.timezone
     name = context.names["activities"].get(activity.activity_id, activity.name)
-    start = clock_phrase(activity.started_at, context.state.current_time, context.scenario.timezone)
-    end = clock_phrase(activity.ended_at or activity.last_settled_at, context.state.current_time,
-                       context.scenario.timezone)
-    sentence = f"{name}：{start}–{end}，{activity_control.ending_phrase(activity)}"
+    start = clock_phrase(activity.started_at, now, zone)
+    end = clock_phrase(activity.ended_at or activity.last_settled_at, now, zone)
+    paused = "、".join(f"{clock_phrase(begin, now, zone)}–{clock_phrase(until, now, zone)}" for begin, until in pauses)
+    sentence = f"{name}：{start}–{end}{f'（暂停 {paused}）' if paused else ''}，{activity_control.ending_phrase(activity)}"
     if activity.kind == ActivityKind.WORK:
         sentence += f"，有效工时{duration_phrase(activity.effective_work_seconds)}"
-    if activity.kind == ActivityKind.CONSUME and activity.data.get("request", {}).get("use_mode") == "eat":
+    if is_eating(activity):
         sentence += f"，吃了 {portion_phrase(sum(activity.data.get('consumed', {}).values()))}"
+        discarded = sum(activity.data.get("discarded", {}).values())
+        sentence += f"，丢弃 {portion_phrase(discarded)}" if discarded > 0 else ""
     return sentence
 
 
-def _tool_lines(context: LayerContext, record: dict, sources: list[Event]) -> list[str]:
+def purchase_sentence(context: LayerContext, order: dict[str, Any]) -> str:
+    """@brief 一个订单的句子：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>」，到店不写送达。"""
+    now, zone = context.state.current_time, context.scenario.timezone
+    product = context.rules.items[order["product_id"]].name
+    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {PURCHASE_WAYS[order['fulfillment']]}"
+                f"{'买' if order['fulfillment'] == 'pickup' else ''}{product} {portion_phrase(order['quantity'])}，"
+                f"付 {money_phrase(order['total_price_fen'])}")
+    if order["fulfillment"] == "delivery":
+        place = next(item.name for item in context.scenario.locations if item.location_id == order["destination_id"])
+        sentence += f"，预计 {clock_phrase(order['expected_at'], now, zone)} 送到{place}"
+    return sentence
+
+
+def work_line(context: LayerContext, event: Event) -> str:
+    """@brief 新工作到来（environment_event 的 work_available）的句子：「09:00 收到新工作「<任务>」」。"""
+    moment = clock_phrase(event.occurred_at, context.state.current_time, context.scenario.timezone)
+    return f"{moment} 收到新工作「{context.rules.tasks[event.data['task_id']].title}」"
+
+
+def experience_sentence(context: LayerContext, fact: dict[str, Any]) -> str:
+    """@brief 一条已核验经历的句子（零点计划输入）：等待、食用、播放带起止时刻，到达带到达时刻与方式。
+
+    例：「14:17 开车到了张江办公室」「13:57–14:17 吃了番茄炒蛋」；地点、商品与内容取场景名称，出行方式取自所属出行活动。
+    """
+    now, zone, scenario = context.state.current_time, context.scenario.timezone, context.scenario
+    if fact["kind"] == "arrived":
+        travel = context.state.activities[fact["activity_id"]]
+        mode = "走路" if travel.travel_mode == TravelMode.WALKING else "开车"
+        place = next(item.name for item in scenario.locations if item.location_id == fact["location_id"])
+        denied = "，但没能进去" if fact["access_status"] == "denied" else ""
+        return f"{clock_phrase(fact['occurred_at'], now, zone)} {mode}到了{place}{denied}"
+    span = f"{clock_phrase(fact['interval_start'], now, zone)}–{clock_phrase(fact['interval_end'], now, zone)}"
+    if fact["kind"] == "waited":
+        return f"{span} 等待了{duration_phrase(fact['duration_seconds'])}"
+    if fact["kind"] == "consumed":
+        names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
+        return f"{span} 吃了{names[fact['product_id']]}"
+    podcast = any(item.item_id == fact["content_id"] and item.kind == "podcast_episode" for item in scenario.contents)
+    return f"{span} {'听了' if podcast else '看了'}《{context.rules.content_titles[fact['content_id']]}》"
+
+
+def pause_intervals(events: Iterable[Event]) -> dict[str, list[tuple[int, int]]]:
+    """@brief 本人 environment_event 中的暂停与恢复（activity_paused、activity_resumed）配成已恢复的暂停区间。"""
+    opened: dict[str, int] = {}
+    intervals: dict[str, list[tuple[int, int]]] = {}
+    for event in events:
+        kind, activity_id = event.data.get("kind"), event.data.get("activity_id")
+        if kind == "activity_paused":
+            opened[activity_id] = event.occurred_at
+        elif kind == "activity_resumed" and activity_id in opened:
+            intervals.setdefault(activity_id, []).append((opened.pop(activity_id), event.occurred_at))
+    return intervals
+
+
+def tool_record(context: LayerContext, request: Event) -> dict:
+    """@brief 由 action_requested 事件得到 record_lines 所读的 tool_call 记录字段（发生时刻、工具与参数原文）。"""
+    return {"occurred_at": iso_time(request.occurred_at, context.scenario.timezone), "type": "tool_call",
+            "tool": request.data["tool_name"], "arguments": request.data["request"]}
+
+
+def _tool_lines(context: LayerContext, record: dict, sources: list[Event], pauses: PauseIntervals) -> list[str]:
     """@brief 世界请求的 settled 句：下单、发消息、提交工作与结束活动；失败的请求与其他工具不写。
 
     句子取请求的即时结果（sources 中第一个 action_result）：瞬时请求只有这一个结果，开始活动的请求其后的终态结果
@@ -78,22 +155,9 @@ def _tool_lines(context: LayerContext, record: dict, sources: list[Event]) -> li
         person = record["arguments"]["recipient_name"].split("：", 1)[-1]
         return [f"{_clock(context, record['occurred_at'])} 给{person}发消息：{record['arguments']['text']}"]
     if tool == "conclude_activity":
-        return [activity_sentence(context, context.state.activities[activity_id])
+        return [activity_sentence(context, context.state.activities[activity_id], pauses.get(activity_id, ()))
                 for activity_id in payload.get("activity_ids", [])]
-    return [_purchase_sentence(context, order) for order in payload.get("orders", [])]
-
-
-def _purchase_sentence(context: LayerContext, order: dict[str, Any]) -> str:
-    """@brief 一个订单的句子：「10:20 远程下单牛肉炒面 1 份，付 32 元，预计 10:35 送到<地点>」，到店不写送达。"""
-    now, zone = context.state.current_time, context.scenario.timezone
-    product = context.rules.items[order["product_id"]].name
-    sentence = (f"{clock_phrase(order['created_at'], now, zone)} {PURCHASE_WAYS[order['fulfillment']]}"
-                f"{'买' if order['fulfillment'] == 'pickup' else ''}{product} {portion_phrase(order['quantity'])}，"
-                f"付 {money_phrase(order['total_price_fen'])}")
-    if order["fulfillment"] == "delivery":
-        place = next(item.name for item in context.scenario.locations if item.location_id == order["destination_id"])
-        sentence += f"，预计 {clock_phrase(order['expected_at'], now, zone)} 送到{place}"
-    return sentence
+    return [purchase_sentence(context, order) for order in payload.get("orders", [])]
 
 
 def _clock(context: LayerContext, moment: str) -> str:
