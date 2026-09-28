@@ -504,7 +504,7 @@ class TestInitialBodyFromUsualWake:
             engine.begin_decision_round([decision])
             observed = engine.observe(decision)
             assert observed["body"]["levels"]["sleepiness"] in {"困", "很困", "撑不住"}
-            assert observed["facts"]["felt"]["sleepiness"] == observed["body"]["levels"]["sleepiness"]
+            assert observed["environment_layer"]["body"]["sleepiness"] == observed["body"]["levels"]["sleepiness"]
             config = engine.scenario.agents[0]
             start = int(engine.scenario.start_at.timestamp())
             other = config.model_copy(update={"bedtime_window": (21.0, 22.0)})

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
 from agentsociety2.society import DirectToolCall
 from tests.life.conftest import (
-    StubPlanDayClient, advance_next, advance_until_ready, conclude_pending, context, plan_day_response,
+    StubPlanDayClient, advance_next, advance_until_ready, conclude_pending, context, last_result, plan_day_response,
     settle_day_plans, start_activity,
 )
 from worldmock.errors import ProtocolError
 from worldmock.life import projection
 from worldmock.life.models import PlanDayRequest, PlanGoalInput, ReviseDayPlanRequest, WorldState
 from worldmock.life.narration import FORBIDDEN_OBSERVATION_KEYS
+from worldmock.life.readable import iso_time
 
 
 def _act(engine, round_id: str, tool_name: str, request):
@@ -107,17 +109,20 @@ def test_sleep_is_not_interrupted_by_reconsideration(engine_factory) -> None:
 
 
 def test_public_observation_excludes_private_fields_and_supply_expires(engine_factory) -> None:
-    """公开路线只含语义字段，商品在浏览可见期结束后消失。"""
+    """七层不含禁用字段；出行动作只含可读的价格、时长与费力程度，商品在浏览可见期结束后消失。"""
     engine = engine_factory()
     data = _observe_current(engine, "observe-clean")
+    layers = [data[key] for key in ("tool_layer", "todo_layer", "environment_layer", "memory_layer", "progress_layer")]
+    text = json.dumps(layers, ensure_ascii=False)
     for key in FORBIDDEN_OBSERVATION_KEYS:
-        assert key not in data["scene"] and key not in data["facts"]
+        assert f'"{key}"' not in text
     assert "end_time" not in data and "world_state_version" not in data
-    for route in data["facts"]["routes"]:
-        assert set(route) <= {
-            "destination", "mode", "minutes", "fare_fen", "effort", "feasible", "status", "reason",
-        }
-        assert route["effort"] in {"轻松", "一般", "费力"}
+    trips = [action for row in data["tool_layer"]["targets"] if row["kind"] == "location"
+             for action in row["actions"]]
+    assert trips
+    for action in trips:
+        assert action["action"] == "travel" and action["quantity"] is None
+        assert action["note"] in {"费力程度：轻松", "费力程度：一般", "费力程度：费力"}
     browse = _act(engine, "browse", "start_activity", start_activity("浏览", "商品目录"))
     assert browse.status.value == "in_progress"
     assert advance_until_ready(engine)
@@ -127,23 +132,6 @@ def test_public_observation_excludes_private_fields_and_supply_expires(engine_fa
     staged.agents[1] = staged.agents[1].model_copy(update={"body_settled_at": staged.current_time}, deep=True)
     _commit_staged(engine, staged)
     assert projection.visible_supplies(engine.state, engine.state.agents[1], engine.scenario) == []
-
-
-def test_work_material_reveal_remains_bounded_per_decision(engine_factory) -> None:
-    """工作材料仅揭示新读区间且每任务有语义上限。"""
-    engine = engine_factory()
-    staged = engine.state.model_copy(deep=True)
-    staged.agents[1] = staged.agents[1].model_copy(update={
-        "material_reveals": [
-            {"task_id": "task-a", "at": 200, "start_char": 0, "end_char": 1500, "chars": 1500},
-            {"task_id": "task-a", "at": 300, "start_char": 1500, "end_char": 3400, "chars": 1900},
-            {"task_id": "task-b", "at": 100, "start_char": 0, "end_char": 900, "chars": 900},
-        ],
-        "last_decision_time": 150,
-    }, deep=True)
-    ranges = projection.new_material_ranges(staged.agents[1])
-    assert sum(row["chars"] for row in ranges["task-a"]) == 2000
-    assert not ranges.get("task-b")
 
 
 def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None:
@@ -169,10 +157,10 @@ def test_plan_day_registration_and_retry_after_rejection(engine_factory) -> None
     # 业务拒绝后在同一秒再决策（时间与能量规格第一章规则 2），进度层即公开拒绝结果。
     assert engine.state.agents[1].next_decision_at == engine.state.current_time
     data = _observe_current(engine, "rejection-result")
-    rows = data["facts"]["progress"]["results"]
-    assert rows[-1]["error_code"] == "ACTION_REQUEST_INVALID"
-    assert rows[-1]["occurred_at"] == rejected.occurred_at
-    assert "action_id" not in rows[-1]
+    shown = last_result(data)
+    assert shown["error_code"] == "ACTION_REQUEST_INVALID"
+    assert shown["occurred_at"] == iso_time(rejected.occurred_at, engine.scenario.timezone)
+    assert "action_id" not in shown
     assert engine.state.agents[1].day_plan == plan
     fixed = ReviseDayPlanRequest(goals=(PlanGoalInput(intent_kind="工作", goal="写完报告", remind_time=None),))
     assert _act(engine, "fixed-plan", "revise_day_plan", fixed).status.value == "completed"

@@ -56,19 +56,37 @@ def test_agent_event_queries_respect_type_person_and_exclusive_boundary(store):
     assert any('events_agent_type' in row[-1] for row in plan)
 
 
-def test_progress_request_cutoff_skips_system_requests_with_a_purpose(store):
-    """回灌截止点只取实际发给人物模型、含进度层的请求；带 purpose 的零点计划请求即便含进度层也不算。"""
-    def request(content: str, **data) -> EventDraft:
-        messages = [{'role': 'system', 'content': '身份'}, {'role': 'user', 'content': content}]
-        return EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
-                          data={'phase': 'request', 'request': {'messages': messages}, **data})
+def test_action_request_cutoff_counts_only_thinking_requests_with_the_action_tools(store):
+    """行动请求只看结构：不带 purpose、thinking 开启、原生 tools 含 start_activity；零点计划、没有工具或未开思考的
+    请求都不算，提示文本不参与判定（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）。"""
+    def request(agent_id: int = 1, *, thinking: str = 'enabled', tools=('start_activity',), **data) -> EventDraft:
+        body = {'messages': [{'role': 'user', 'content': '{"progress_layer": {}}'}],
+                'extra_body': {'thinking': {'type': thinking}},
+                'tools': [{'type': 'function', 'function': {'name': name}} for name in tools]}
+        return EventDraft(event_type='model_request', occurred_at=100, agent_id=agent_id,
+                          data={'phase': 'request', 'request': body, **data})
 
-    store.commit(store.state, [request('{"progress": {"results": []}}'),
-                               request('{"facts": {}}'),
-                               request('{"progress": {"results": []}}', purpose='plan_day', call_id='plan-day')])
+    store.commit(store.state, [request(),
+                               request(purpose='plan_day', call_id='plan-day'),
+                               request(thinking='disabled'),
+                               request(tools=('answer_question',)),
+                               request(2, tools=('observe', 'start_activity'))])
 
-    assert store.last_agent_progress_request_seq(1) == 1
-    assert store.last_agent_progress_request_seq(2) == 0
+    assert store.last_agent_action_request_seq(1) == 1
+    assert store.last_agent_action_request_seq(2) == 5
+    assert store.last_agent_action_request_seq(3) == 0
+
+
+def test_last_event_seq_before_bounds_by_occurrence_time(store):
+    """按时间取区间下界：发生时刻严格早于给定时刻的最后一个事件序号，没有时为 0。"""
+    drafts = [EventDraft(event_type='environment_event', occurred_at=moment, data={'kind': 'probe'})
+              for moment in (100, 100, 120)]
+    store.commit({'version': 1, 'current_time': 120, 'balance': 50}, drafts)
+
+    assert store.last_event_seq_before(100) == 0
+    assert store.last_event_seq_before(101) == 2
+    assert store.last_event_seq_before(120) == 2
+    assert store.last_event_seq_before(121) == 3
 
 
 def test_world_change_without_any_event_cannot_be_committed(store):
