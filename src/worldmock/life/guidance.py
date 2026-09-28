@@ -52,6 +52,7 @@ _DEFAULT_REASONS = {
 _DEFAULT_NEXT_STEPS = {
     "WORK_REQUIRES_REWORK": "按评审意见修改后再提交",
     "WORK_INCOMPLETE": "接着做这项工作，做够了再提交",
+    "WORK_SUBMISSION_LATE": "这项工作不再提交，改做别的事",
     "SAME_MOMENT_ACTION_RESTRICTED": "只从这一轮开放的动作里选",
     "ACTION_REQUEST_INVALID": "从本轮列出的对象和方式里选",
     "SOCIAL_ACTIVITY_CANNOT_PAUSE": "可以直接结束",

@@ -809,19 +809,24 @@ def test_inbox_rows_skip_visible_ids_without_scenario_config(engine_factory) -> 
     assert projection._inbox_rows(inputs) == []
 
 
-def test_visible_task_rows_hide_overdue_tasks(engine_factory) -> None:
-    """过期任务不再进入可见任务行。"""
+def test_visible_task_rows_keep_overdue_tasks_until_the_end_of_their_day(engine_factory) -> None:
+    """未付款的逾期任务保留在可见任务行与工作池中，直到截止当日的本地日结束；次日零点起不再列出
+    （docs/dev/SPEC-persona-prompt.md 第六章「逾期工作从观察和工具中消失」）。"""
     engine = engine_factory()
     task = engine.scenario.tasks[0]
     due = int(task.due_at.timestamp())
+    next_day = int((task.due_at.replace(hour=0, minute=0, second=0) + timedelta(days=1)).timestamp())
     _stage_agent(engine, visible_task_ids={task.task_id})
     rows = engine._visible_task_rows(engine.state.agents[1])
     assert [row["task_id"] for row in rows] == [task.task_id]
-    staged = engine.state.model_copy(deep=True)
-    staged.current_time = due + 60
-    staged.pending_events = [item for item in staged.pending_events if item.due_at > due + 60]
-    _commit_staged(engine, staged)
-    assert engine._visible_task_rows(engine.state.agents[1]) == []
+    for moment, listed in ((due + 60, [task.task_id]), (next_day - 1, [task.task_id]), (next_day, [])):
+        staged = engine.state.model_copy(deep=True)
+        staged.current_time = moment
+        staged.pending_events = [item for item in staged.pending_events if item.due_at > moment]
+        _commit_staged(engine, staged)
+        agent = engine.state.agents[1]
+        assert [row["task_id"] for row in engine._visible_task_rows(agent)] == listed
+        assert [entry.object_id for entry in engine._task_pool(agent)] == listed
 
 
 def test_motivation_internal_returns_none_when_no_candidates(engine_factory, monkeypatch) -> None:

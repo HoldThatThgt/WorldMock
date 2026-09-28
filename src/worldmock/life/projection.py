@@ -46,7 +46,7 @@ class ProjectionInputs:
     state: WorldState
     scenario: RuntimeScenario
     agent: AgentState
-    #: 可见未结清且未过截止的任务行（engine._visible_task_rows）。
+    #: 可见未结清且仍列出（截止前或截止当日内）的任务行（engine._visible_task_rows）。
     task_rows: tuple[dict[str, Any], ...] = ()
     #: 人物档案餐时窗口（felt.MealWindows）。
     meal_windows: felt.MealWindows | None = None
@@ -373,11 +373,11 @@ def _interactive_objects_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
 
 
 def _task_object_rows(inputs: ProjectionInputs) -> list[dict[str, Any]]:
-    """@brief 工作任务对象：开工动作照常列出；技能不够的任务不列开工动作（技能是人物不变的事实）。"""
+    """@brief 工作任务对象：开工动作照常列出；技能不够的任务与过了截止仍列出的任务不列开工动作（永久不能满足）。"""
     agent = inputs.agent
     return [{"object_id": row["task_id"], "kind": "work_task", "name": row["title"],
              "actions": ["work"] if agent.skill_levels.get(row.get("required_skill"), 0)
-             >= (row.get("minimum_skill") or 0.0) else []}
+             >= (row.get("minimum_skill") or 0.0) and inputs.state.current_time <= row["due_at"] else []}
             for row in inputs.task_rows]
 
 
