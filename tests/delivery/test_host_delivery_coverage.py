@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.delivery.prompt_fixtures import layered_user
 from worldmock.life.models import WORLD_SCHEMA_VERSION, StartActivityRequest
 
 from worldmock.delivery.evidence_encoding import (
@@ -99,7 +100,7 @@ def _single_agent_export(tmp_path):
         EventDraft(event_id='fixture-prompt-1', event_type='model_request', occurred_at=100,
                    agent_id=1, decision_id='decision', visibility='agent', data={
                        'phase': 'request', 'request': {
-                           'messages': [{'role': 'system', 'content': 'Actual prompt'}],
+                           'messages': [{'role': 'system', 'content': 'Actual prompt'}, layered_user()],
                            'tools': [{'type': 'function', 'function': {
                                'name': 'start_activity',
                                'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -132,7 +133,7 @@ def _replay_export_pair(tmp_path):
                    data={'balance_fen': 800}),
         EventDraft(event_type='model_request', occurred_at=100, agent_id=1, decision_id='decision',
                    visibility='agent', data={'phase': 'request', 'request': {
-                       'messages': [{'role': 'system', 'content': 'Parent prompt'}],
+                       'messages': [{'role': 'system', 'content': 'Parent prompt'}, layered_user()],
                        'tools': [{'type': 'function', 'function': {
                            'name': 'start_activity',
                            'parameters': StartActivityRequest.model_json_schema(mode='validation')}}]}}),
@@ -162,9 +163,16 @@ def _replay_export_pair(tmp_path):
                                              'intervention_sha256': digest,
                                              'before_balance_fen': 800, 'after_balance_fen': 50})])
     child.commit(child.state, [EventDraft(event_type='observation', occurred_at=100, agent_id=1,
-                                          data={'balance_fen': 50}),
+                                          decision_id='branch-decision', data={'balance_fen': 50}),
+                               EventDraft(event_type='model_request', occurred_at=100, agent_id=1,
+                                          decision_id='branch-decision', visibility='system', data={
+                                              'phase': 'request', 'request': {
+                                                  'messages': [{'role': 'system', 'content': 'Branch prompt'},
+                                                               layered_user()],
+                                                  'tools': [{'type': 'function', 'function': {
+                                                      'name': 'start_activity', 'parameters': {}}}]}}),
                                EventDraft(event_type='action_requested', occurred_at=100, agent_id=1,
-                                          action_id='wait', data={
+                                          decision_id='branch-decision', action_id='wait', data={
                                               'tool_name': 'start_activity',
                                               'request': {'targets': ['自己'], 'actions': ['interact'],
                                                           'ways': ['等待']}})])

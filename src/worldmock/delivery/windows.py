@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from collections import defaultdict
 from datetime import datetime
@@ -12,10 +13,11 @@ from zoneinfo import ZoneInfo
 from worldmock.errors import IntegrityError
 from worldmock.footprints.models import canonical_json
 from worldmock.footprints.validation import validate_export
+from worldmock.life.prompt_schemas import USER_LAYER_NAMES
 
 #: 任何窗口输入都不进入的私有事件（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
 PRIVATE_EVENTS = {"model_request", "model_response", "memory_updated", "decision_started"}
-#: dreaming 私有事件集等于私有事件集：dreaming 读 self_note 与观察中的层 JSON，不再有例外载体。
+#: dreaming 私有事件集等于私有事件集：dreaming 读 self_note 与实际请求中的层 JSON，请求本身不作窗口事件。
 DREAMING_PRIVATE_EVENTS = PRIVATE_EVENTS
 #: 观察事件中环境构建、人物可见的层原文；私有绑定、看法偏好与证据键不进入窗口输入。
 OBSERVATION_LAYER_KEYS = ("tool_layer", "todo_layer", "environment_layer", "memory_layer")
@@ -99,6 +101,47 @@ def _attach_decision_prompt(record: dict, source: dict) -> None:
     record["input"]["decision_prompt"] = request
     record["provenance"]["decision_prompt_event_id"] = source["event_id"]
     record["provenance"]["decision_prompt_sha256"] = hashlib.sha256(canonical_json(request)).hexdigest()
+
+
+def _decision_groups(events: list[dict]) -> dict[str, list[dict]]:
+    """@brief 按决策身份分组事件（含私有的模型请求），供窗口选取实际行动请求。"""
+    groups = defaultdict(list)
+    for event in events:
+        if event["decision_id"]:
+            groups[event["decision_id"]].append(event)
+    return groups
+
+
+def _attach_decision_layers(record: dict, rows: list[dict], decisions: dict) -> None:
+    """@brief dreaming 读实际请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）。
+
+    窗口内每个动作请求取同人物、同决策、动作前最后一次实际行动请求（与动作窗口同一 prompt 权威），把其首个 user
+    的六层 JSON 连同所属动作请求写入输入；请求事件身份与层 JSON 的 canonical 摘要写入来源。须在 _attach_evidence 之前调用。
+    """
+    layers, sources = [], []
+    for row in rows:
+        if row["event_type"] != "action_requested":
+            continue
+        source = _decision_prompt_source(row, decisions.get(row["decision_id"], []))
+        value = _request_layers(source["data"]["request"])
+        layers.append({"action_event_id": row["event_id"], "layers": value})
+        sources.append({"event_id": source["event_id"], "sha256": hashlib.sha256(canonical_json(value)).hexdigest()})
+    record["input"]["decision_layers"] = layers
+    record["provenance"]["decision_layer_sources"] = sources
+
+
+def _request_layers(request: dict) -> list[dict]:
+    """@brief 实际行动请求首个 user 的六层 JSON：顶层数组，层序为工具层、人设层、记忆层、待办层、环境层、进度层。"""
+    user = next((message for message in request["messages"] if message.get("role") == "user"), None)
+    content = user.get("content") if user is not None else None
+    try:
+        value = json.loads(content) if isinstance(content, str) else None
+    except json.JSONDecodeError:
+        value = None
+    names = tuple(layer.get("layer") for layer in value if isinstance(layer, dict)) if isinstance(value, list) else ()
+    if names != USER_LAYER_NAMES or len(value) != len(USER_LAYER_NAMES):
+        _invalid_action_group("Dreaming requires the six-layer JSON of the recorded action request")
+    return value
 
 
 def _validated_action_groups(event: dict, actions: dict, decisions: dict) -> tuple[list[dict], list[dict]]:
@@ -200,8 +243,9 @@ def _attach_evidence(record: dict, events: list[dict], indexed: dict, directory:
     )
     record["input"]["activity_boundaries"] = _activity_boundaries(expanded)
     prompt_event_id = record["provenance"].get("decision_prompt_event_id")
-    sources = allowed + ([prompt_event_id] if prompt_event_id else [])
-    record["provenance"]["source_event_ids"] = sources
+    layer_event_ids = [item["event_id"] for item in record["provenance"].get("decision_layer_sources", [])]
+    sources = allowed + ([prompt_event_id] if prompt_event_id else []) + layer_event_ids
+    record["provenance"]["source_event_ids"] = list(dict.fromkeys(sources))
     record["provenance"]["window_id"] = _window_identity(record["task"], record["input"])
 
 
@@ -254,11 +298,12 @@ def _invalid_observed_result(message: str) -> None:
 def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed: dict) -> list[dict]:
     """@brief 每个人物自然日都覆盖归纳、反思和显式假设，不接触未来事实。
 
-    dreaming 输入读动作请求的 self_note 与观察中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）；
-    私有事件（含 decision_started、model_request、model_response、memory_updated）全部排除。
+    dreaming 输入读动作请求的 self_note 与实际行动请求中的层 JSON（docs/dev/SPEC-persona-prompt.md 第七章「交付」）；
+    私有事件（含 decision_started、model_request、model_response、memory_updated）不作窗口事件。
     """
     zone = ZoneInfo(manifest["window"]["timezone"])
     days = defaultdict(list)
+    decisions = _decision_groups(events)
     for event in events:
         if (event["visibility"] == "agent" and event["agent_id"] is not None
                 and event["event_type"] not in DREAMING_PRIVATE_EVENTS):
@@ -273,6 +318,7 @@ def _dream_windows(events: list[dict], manifest: dict, directory: Path, indexed:
             result["input"].update(person_id=key[0], date=key[1])
             if mode == "counterfactual":
                 result["input"]["counterfactual"] = {"world_kind": "observed", "environment_replay": None}
+            _attach_decision_layers(result, rows, decisions)
             _attach_evidence(result, rows, indexed, directory)
             records.append(result)
     return records
