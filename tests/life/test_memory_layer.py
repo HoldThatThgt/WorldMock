@@ -15,6 +15,7 @@ from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
+from agentsociety2.agent.base import ModelCallEvidence
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, advance_until_ready, conclude_request, context,
@@ -218,22 +219,24 @@ def test_denied_arrival_ends_the_trip_and_the_failed_trip_is_concluded_in_the_ne
 
 
 def test_unfinished_browse_writes_no_purchase_sentence(engine_factory) -> None:
-    """购买句只由订单生成：提前结束的浏览只留活动句（「提前结束」），没有下单或付款的句子。"""
+    """购买句只由订单生成：提前结束的浏览只留活动句（「提前结束」），summary 写了「挑好了、买了」也不推断出购买；
+    settled 恰好是路上唤醒的邮件与这一句，没有任何下单、付款或买到的句子。"""
     engine = engine_factory()
     stage_day_plan(engine)
     observed = _observe(engine, "h-preview")
     catalog = next(row["object"] for row in observed["interaction_bindings"] if row["kind"] == "catalog")
     _, browsed = _act(engine, "h-browse", "start_activity", start_activity("浏览", catalog))
     assert browsed.status == "in_progress"
-    wake_by_mail(engine, offset=60)
+    mail_at = wake_by_mail(engine, offset=60)
     advance_next(engine)
     name = activity_name(engine, browsed.activity_id)
-    _act(engine, "h-stop", "conclude_activity", conclude_request(name))
+    _act(engine, "h-stop", "conclude_activity", conclude_request(name, summary="番茄和上海青挑好了，买了。"))
     _walk(engine, "h-walk")
     (entry,) = _memory(engine, "h-road")["earlier_today"]
-    assert [line for line in entry["settled"] if line.startswith(name)] == [
-        line for line in entry["settled"] if "提前结束" in line]
-    assert all("下单" not in line and "付 " not in line for line in entry["settled"])
+    ended = engine.state.activities[browsed.activity_id]
+    assert entry["settled"] == [_mail_line(engine, mail_at),
+                                f"{name}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束"]
+    assert entry["self_notes"] == [{"activity": _short(name), "text": "番茄和上海青挑好了，买了。"}]
 
 
 def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) -> None:
@@ -268,13 +271,16 @@ def test_experiment_end_closes_the_last_session_into_the_memory_layer(tmp_path) 
 
 
 def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engine_factory) -> None:
-    """不写：被拒的请求、重放的同一请求、回看、修订计划与记忆查询；只走了一段路的路程 session 只有到达那一句（出行在
-    到达提交里结束）。"""
+    """不写：被拒的请求（开始活动、发给不存在的人的消息、点错活动的收尾所写的 summary 与记忆）、重放的同一请求、回看、
+    修订计划与记忆查询；只走了一段路的路程 session 只有到达那一句（出行在到达提交里结束）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     friend = engine.scenario.agents[0].contacts[0].salutation
     rejected = _act(engine, "d-reject", "start_activity", start_activity("观看", "不存在的对象"))[1]
     assert rejected.status == "rejected"
+    refused = _act(engine, "d-refused", "send_message",
+                   SendMessageActionRequest(recipient_name="联系人：不认识的人", text="这条发不出去"))[1]
+    assert (refused.status, refused.error_code) == ("rejected", "RECIPIENT_NOT_FOUND")
     request = SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="只说一次")
     sent_at = engine.state.current_time
     _act(engine, "d-send", "send_message", request)
@@ -286,6 +292,9 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     _, waited = _act(engine, "d-wait", "start_activity", start_activity("等待", "自己"))
     assert advance_until_ready(engine)
     wait = activity_name(engine, waited.activity_id)
+    missed = _act(engine, "d-missed", "conclude_activity", conclude_request(
+        "不存在的活动", summary="收错了", memories=[[_memo("routine", "这条记忆不该出现")]]))[1]
+    assert missed.status == "rejected"
     _act(engine, "d-conclude", "conclude_activity", conclude_request(wait, summary="等完了"))
     session = next(iter(engine.state.sessions.values())).name
     assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=session))[1].status \
@@ -310,6 +319,54 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert today == [entry, {"recorded_at": iso_time(trip.ended_at, _ZONE), "self_notes": [], "settled": [
         f"{walk_name}：{_clock(engine, trip.started_at)}–{_clock(engine, trip.ended_at)}，到达"]}]
     assert len(_ended_sessions(engine)) == 2
+
+
+def _replied(engine, round_id: str, tool: str, request, reply: str):
+    """一次带回复正文的决策：真实登记模型请求与响应（响应正文为 reply、带一个 tool 调用），再提交世界请求并结算，
+    返回结果（宿主据此把正文写成 action_requested.data.self_note）。"""
+    decision = context(engine, round_id)
+    engine.begin_decision_round([decision])
+    engine.observe(decision)
+    wire = {"model": "deepseek-flash", "messages": [], "tools": [{"type": "function", "function": {"name": tool}}],
+            "extra_body": {"thinking": {"type": "enabled"}}}
+    response = {"choices": [{"message": {"content": reply, "tool_calls": [
+        {"id": f"call-{round_id}", "type": "function", "function": {"name": tool, "arguments": "{}"}}]}}]}
+    call_id = f"{decision.decision_id}:model:0001:attempt:1"
+    engine.record_model_exchange(ModelCallEvidence(decision, call_id, "request", 1, wire))
+    engine.record_model_exchange(ModelCallEvidence(decision, call_id, "response", 1, wire, response=response))
+    engine.submit_action(DirectToolCall(decision, f"action-{round_id}", tool, request))
+    return engine.commit_decision_round(round_id)[0]
+
+
+def test_reply_bodies_stay_in_their_session_and_never_reach_the_memory_layer(engine_factory) -> None:
+    """回复正文只到本 session 结束：发消息与收尾两次决策的回复正文写成各自调用的 self_note，出现在本段停留的进度层；
+    出发结束这段停留后，记忆层条目的 settled 只有消息、邮件与结束活动的句子，self_notes 只有收尾写下的 summary，
+    两段回复正文都不出现。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    friend = engine.scenario.agents[0].contacts[0].salutation
+    sent_at = engine.state.current_time
+    message = SendMessageActionRequest(recipient_name=f"联系人：{friend}", text="晚上见")
+    assert _replied(engine, "e-send", "send_message", message, "先跟他打个招呼。").status == "completed"
+    _, waited = _act(engine, "e-wait", "start_activity", start_activity("等待", "自己"))
+    mail_at = wake_by_mail(engine, offset=300)
+    advance_next(engine)
+    wait = activity_name(engine, waited.activity_id)
+    concluded = _replied(engine, "e-conclude", "conclude_activity", conclude_request(wait, summary="歇好了"),
+                         "歇够了，该出门了。")
+    assert concluded.status == "completed"
+    calls = progress_calls(_observe(engine, "e-seen"))
+    assert [(row["tool"], row.get("self_note")) for row in calls] == [
+        ("send_message", "先跟他打个招呼。"), ("start_activity", None), ("conclude_activity", "歇够了，该出门了。")]
+    departed = engine.state.current_time
+    _walk(engine, "e-walk")
+    layer = _memory(engine, "e-road")
+    ended = engine.state.activities[waited.activity_id]
+    assert layer["earlier_today"] == [{
+        "recorded_at": iso_time(departed, _ZONE),
+        "settled": [f"{_clock(engine, sent_at)} 给{friend}发消息：晚上见", _mail_line(engine, mail_at),
+                    f"{wait}：{_clock(engine, ended.started_at)}–{_clock(engine, ended.ended_at)}，提前结束"],
+        "self_notes": [{"activity": "等待", "text": "歇好了"}]}]
 
 
 def _commit(engine, staged, kind: str) -> None:
