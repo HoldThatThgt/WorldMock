@@ -121,7 +121,7 @@ PERSONA_LAYER_SCHEMA: dict[str, Any] = {
         "tastes": {"oneOf": [{"type": "null"}, _TASTES]},
         "coping": _NULLABLE_TEXT,
         "relationships": {"type": "array", "items": _object({
-            "person": _TEXT, "role": _TEXT, "closeness": {"enum": ["很亲近", "较亲近", "一般", "疏远", None]},
+            "person": _TEXT, "role": _NULLABLE_TEXT, "closeness": {"enum": ["很亲近", "较亲近", "一般", "疏远", None]},
             "channels": {"type": "array", "items": _TEXT}, "view": _NULLABLE_TEXT})},
         "preferences": {"type": "array", "items": _object({"subject": _TEXT, "preference": _TEXT,
                                                            "noted_on": _DATE})},

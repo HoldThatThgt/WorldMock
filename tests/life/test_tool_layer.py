@@ -20,6 +20,7 @@ from tests.life.conftest import (activity_name, advance_next, advance_until_read
                                  tool_targets, wake_by_mail, start_request)
 from tests.life import test_parallel_admission as parallel_admission
 from tests.life import test_work_contracts as work_contracts
+from tests.life.routing_fixtures import HOME, OFFICE, food_product, open_world, place, stage
 from tests.life.test_scheduling import _custom_engine
 from tests.life.test_work_review import StaticReviewer, _at_task_start, _paraphrased_submission
 from worldmock.errors import IntegrityError
@@ -42,11 +43,21 @@ def _branch(engine: LifeEngine, tmp_path, monkeypatch, label: str) -> LifeEngine
         return LifeEngine(engine.semantics, engine.scenario_sha256, engine.corpus_root, FootprintStore(target))
 
 
-def _request(tool: str, name: str, item: dict, observed: dict):
-    """单独提交一项候选的请求：start_activity 按目标、动词与方式（给予交给工具层第一个人物目标），名称工具按目标名。"""
+def _give_recipient(engine: LifeEngine, observed: dict) -> str | None:
+    """给予的去向：工具层里此刻能给的人物目标（同处的同世界人物，或收货地点就是人物所在地点的联系人），没有时取第一个
+    人物目标（身边没有能给的人，给予标不可用）。"""
+    config = next(item for item in engine.scenario.agents if item.agent_id == 1)
+    places = {item.contact_id: item.receive_location_id for item in config.contacts}
+    rows = [row for row in observed["interaction_bindings"] if row["kind"] in {"person", "contact"}]
+    here = [row["object"] for row in rows
+            if row["kind"] == "person" or places[row["object_id"]] == engine.state.agents[1].location_id]
+    return next(iter([*here, *(row["object"] for row in rows)]), None)
+
+
+def _request(tool: str, name: str, item: dict, recipient: str | None):
+    """单独提交一项候选的请求：start_activity 按目标、动词与方式（给予交给 recipient），名称工具按目标名。"""
     if tool == "start_activity" and item["way"] == "给予":
-        person = next(row["name"] for row in observed["tool_layer"]["targets"] if row["kind"] == "person")
-        return start_request(targets=[name], actions=[item["action"]], ways=[item["way"]], to=[person])
+        return start_request(targets=[name], actions=[item["action"]], ways=[item["way"]], to=[recipient])
     if tool == "start_activity":
         return start_request(targets=[name], actions=[item["action"]], ways=[item["way"]])
     if tool == "report_status":
@@ -92,6 +103,7 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
     observed = engine.observe(context(engine, f"{label}-listing"))
     names = [row["name"] for row in observed["tool_layer"]["targets"]]
     assert len(names) == len(set(names))
+    recipient = _give_recipient(engine, observed)
     checked = []
     for index, (tool, name, item) in enumerate(_classes(observed)):
         branch = _branch(engine, tmp_path, monkeypatch, f"{label}-{index}")
@@ -100,7 +112,7 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
             branch.begin_decision_round([decision])
             assert _listed(branch.observe(decision), tool, name, item) == item
             action_id = f"action-{label}-{index}"
-            branch.submit_action(DirectToolCall(decision, action_id, tool, _request(tool, name, item, observed)))
+            branch.submit_action(DirectToolCall(decision, action_id, tool, _request(tool, name, item, recipient)))
             if tool == "submit_work" and item["available"]:
                 branch._work_reviewer = StaticReviewer()
                 drive(branch.prepare_pending_work_review(action_id))
@@ -108,10 +120,7 @@ def _assert_admission_matches(engine: LifeEngine, tmp_path, monkeypatch, label: 
         finally:
             branch.close()
         described = (tool, name, item.get("way"), result.error_code, result.data.get("reason"))
-        if item["available"] and item.get("way") == "给予":
-            # 与谁同处按提交的去向判定（不在逐目标的可用性里）：可用的给予要么成立，要么只差与对方同处。
-            assert result.status != "rejected" or result.data["unmet"] == ["recipient_present"], described
-        elif item["available"]:
+        if item["available"]:
             assert result.status != "rejected", described
         else:
             assert result.status == "rejected" and result.data["reason"] == item["reason"], (described, item)
@@ -125,6 +134,22 @@ def test_every_listed_item_matches_admission_at_run_start(engine_factory, tmp_pa
     stage_day_plan(engine)
     checked = _assert_admission_matches(engine, tmp_path, monkeypatch, "start")
     assert any(item["available"] for item in checked) and any(not item["available"] for item in checked)
+
+
+def test_give_availability_follows_whether_someone_can_be_handed_to(engine_factory, tmp_path, monkeypatch) -> None:
+    """多人场景白天、人物 1 在家手边有吃的：李凡在办公室时身边没有能给的人，给予动作标不可用并以同一原因被拒；李凡回家
+    后给予动作标可用、交给身边的人被受理；两种状态下全部候选与受理一致。"""
+    engine = open_world(engine_factory)
+    place(engine, 1, HOME, {food_product(engine): 1.0})
+    place(engine, 2, OFFICE)
+    stage(engine, lambda state: setattr(state.agents[2], "next_decision_at", state.current_time + 3600))
+    alone = [item for item in _assert_admission_matches(engine, tmp_path, monkeypatch, "alone")
+             if item.get("way") == "给予"]
+    assert alone and not any(item["available"] for item in alone)
+    place(engine, 2, HOME)
+    together = [item for item in _assert_admission_matches(engine, tmp_path, monkeypatch, "together")
+                if item.get("way") == "给予"]
+    assert together and all(item["available"] for item in together)
 
 
 def test_pending_conclusion_marks_everything_but_conclusion_unavailable(engine_factory, tmp_path,

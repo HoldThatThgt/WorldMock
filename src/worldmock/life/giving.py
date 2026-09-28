@@ -3,7 +3,9 @@
 给予是瞬时动作，不占名额，任何人都不增加摄入：从本人手边移出每件 min(1, 持有)，记入对方持有（同世界人物入其同一地点的
 库存，场景联系人入 contact_holdings）。要求同处：同世界人物与本人在同一地点，联系人则本人位于其收货地点。内部标准动作
 仍是 consume（方式「给予」），菜单、可供性目录与品类配对不变。拒绝：手边没有用 PRODUCT_NOT_HELD；不同处用
-ACTIVITY_PRECONDITION_UNMET（unmet=recipient_present）；收件人不存在的 RECIPIENT_NOT_FOUND 由 routing 在此之前判定。
+ACTIVITY_PRECONDITION_UNMET（unmet=recipient_present）：身边没有任何能给的人时原因不指名（handover_refusal，工具层给予
+动作的可用性取同一判定，原因一字不差），有能给的人而去向不在身边时原因指名；收件人不存在的 RECIPIENT_NOT_FOUND 由 routing
+在此之前判定。
 """
 
 from __future__ import annotations
@@ -40,7 +42,8 @@ def give(state: WorldState, scenario: RuntimeScenario, agent_id: int, binding: d
     :raises PreconditionError: PRODUCT_NOT_HELD 或 ACTIVITY_PRECONDITION_UNMET（不同处）。
     """
     product_id, recipient = binding["object_id"], binding["recipient_id"]
-    refusal = held_refusal(state, agent_id, product_id) or _presence_refusal(state, scenario, agent_id, recipient)
+    refusal = (held_refusal(state, agent_id, product_id) or handover_refusal(state, scenario, agent_id)
+               or _presence_refusal(state, scenario, agent_id, recipient))
     if refusal is not None:
         logging.error("Giving was refused: %s", refusal.code)
         raise refusal.error()
@@ -54,6 +57,20 @@ def give(state: WorldState, scenario: RuntimeScenario, agent_id: int, binding: d
     changed = add_holding(changed, recipient, present, (product_id, quantity))
     return changed, {"product_id": product_id, "quantity": quantity, "recipient_id": recipient,
                      "location_id": present}
+
+
+def handover_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int) -> Refusal | None:
+    """@brief 此刻身边没有任何能给的人时的拒绝，否则为 None。
+
+    能给的人：与本人同在一个地点的同世界人物，或收货地点就是本人此刻所在地点的联系人；本人在途中时身边没有人。
+    """
+    here = present_location(state, agent_id)
+    config = next(item for item in scenario.agents if item.agent_id == agent_id)
+    together = here is not None and (
+        any(present_location(state, other) == here for other in state.agents if other != agent_id)
+        or any(contact.receive_location_id == here for contact in config.contacts))
+    return None if together else Refusal("ACTIVITY_PRECONDITION_UNMET", "要和对方在同一个地方才能给",
+                                         "等和要给的人在一起时再给", ("recipient_present",))
 
 
 def _presence_refusal(state: WorldState, scenario: RuntimeScenario, agent_id: int, recipient: str) -> Refusal | None:

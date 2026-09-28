@@ -63,9 +63,13 @@ def hour_text(hour: float) -> str:
 
 
 def window_text(window: TimeWindow) -> str:
-    """@brief 窗口 → "7点到7点半"；跨午夜终点（>24）按次日小时表述。"""
-    end = window.end_hour - 24.0 if window.end_hour > 24.0 else window.end_hour
-    return f"{hour_text(window.start_hour)}到{hour_text(end)}"
+    """@brief 窗口 → "7点到7点半"；两端都按钟面表述：到达或越过午夜（≥24）的一端按次日小时写（25→"1点"、24→"0点"）。"""
+    return f"{hour_text(_clock_hour(window.start_hour))}到{hour_text(_clock_hour(window.end_hour))}"
+
+
+def _clock_hour(hour: float) -> float:
+    """@brief 自午夜起的小时数 → 钟面小时：≥24 的减去 24（窗口上限 30 小时，至多跨一次午夜）。"""
+    return hour - 24.0 if hour >= 24.0 else hour
 
 
 def _identity_line(card: PersonaCard) -> str:

@@ -73,6 +73,7 @@ FORBIDDEN_OBSERVATION_KEYS = frozenset({
     "activity_bindings",
     "session_bindings",
     "message_bindings",
+    "person_bindings",
     "persona_views",
     "progress_meta",
     "progress_event_ids",

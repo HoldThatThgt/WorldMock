@@ -53,11 +53,11 @@ def test_answering_links_only_items_sent_to_the_sender_and_shows_the_link(engine
     [call] = [row for row in observed["progress_layer"]["events"] if row["type"] == "tool_call"
               and row["arguments"].get("answering") == name]
     purchases = call["result"]["details"]["purchases"]
-    assert [(item["recipient"], item["request"]) for item in purchases] == [("陈曦", None), ("李凡", name)]
+    assert [(item["recipient"], item["request"]) for item in purchases] == [("陈曦", None), ("王磊", name)]
     lines = observed["progress_meta"][observed["progress_layer"]["events"].index(call)]["lines"]
     product = engine.rules.items[food].name
     assert lines[0].startswith(f"10:01 远程下单{product} 1 份") and lines[0].endswith("送到张江居所（冻结场景锚点）")
-    assert lines[1].endswith(f"送到张江高科技园区办公室（冻结场景锚点）（回应{name}，收货人李凡）")
+    assert lines[1].endswith(f"送到张江高科技园区办公室（冻结场景锚点）（回应{name}，收货人王磊）")
 
 
 def test_resubmitting_the_same_request_is_rejected_and_points_to_the_order(engine_factory) -> None:

@@ -39,7 +39,7 @@ from worldmock.life.interaction_menu import WAYS, is_named_purchase
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
-from worldmock.life.routing import combination_error, routing_names
+from worldmock.life.routing import RECIPIENT_NOT_FOUND, combination_error, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
 
@@ -523,7 +523,8 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称，以及来源
     与去向的判定名称（人物、可见直接消息）。
 
-    只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。
+    只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。people 是同世界其他人物的姓名（不论是否同处，
+    私有绑定 person_bindings），供 relationship 记忆的对象校验。
     """
     objects = _binding_objects(data.get("interaction_bindings"))
     tasks = _binding_names(data, "task_bindings", "task_name")
@@ -535,7 +536,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "objects": objects,
         "task_names": tasks,
         "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
-        "people": tuple(name.split("：", 1)[-1] for name in objects if kinds[name] == "person"),
+        "people": tuple(name.split("：", 1)[-1] for name in _binding_names(data, "person_bindings", "name")),
         "activity_names": activities,
         "recall_names": (*tasks, *goals, *activities, *sessions),
         "progressed_intents": _progressed_intents(todo),
@@ -613,7 +614,8 @@ def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
     （worldmock.life.routing，与环境受理同一判定）。
 
     obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
-    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
+    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。去向不是任何人物
+    （RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（第五章「来源与去向」）。
     """
     if not 1 <= len(request.targets) <= _START_ACTIVITY_MAX_TARGETS:
         return "start_activity accepts one or two targets"
@@ -628,7 +630,7 @@ def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
         if not any(item[:2] == (verb, way) for item in actions):
             return "start_activity verb and way are not offered by the chosen target"
     error = combination_error(request, names["routing"])
-    return error[1] if error is not None else ""
+    return error[1] if error is not None and error[0] != RECIPIENT_NOT_FOUND else ""
 
 
 def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]

@@ -1,7 +1,8 @@
 """来源与去向、给予与代点关联测试共用的真实运行夹具（docs/dev/SPEC-persona-prompt.md 第五章）。
 
-multi-person 场景：陈曦（人物 1）与李凡（人物 2）是同世界人物，开场都在住处；陈曦的通讯录里另有同事「李凡」
-（contact-chenxi-colleague，收货地点是办公室）。夹具经存储提交改写后的世界（版本连续），只替换测试要控制的事实。
+multi-person 场景：陈曦（人物 1）与李凡（人物 2）是同世界人物，开场都在住处；陈曦的通讯录里与李凡同名的同事联系人
+（contact-chenxi-colleague）没有收货地点（同世界人物经人物身份收货）。夹具在场景副本里给陈曦加一位不是同世界人物的
+同事联系人王磊（收货地点是办公室），经存储提交改写后的世界（版本连续），只替换测试要控制的事实。
 """
 
 from __future__ import annotations
@@ -16,17 +17,26 @@ from worldmock.life.activity_control import PHASE_ACTIVE, pending_conclusions
 from worldmock.life.engine import LifeEngine
 from worldmock.life.models import ReportStatusRequest
 
-#: 陈曦的同事联系人：称谓与同世界人物 2 同名，收货地点是办公室。
-COLLEAGUE = "contact-chenxi-colleague"
-COLLEAGUE_TARGET = "联系人：李凡"
+#: 夹具加给陈曦的同事联系人王磊：不是同世界人物，收货地点是办公室。
+COLLEAGUE = "contact-chenxi-wanglei"
+COLLEAGUE_TARGET = "联系人：王磊"
+#: 陈曦通讯录里与同世界人物 2 同名的同事联系人：没有收货地点。
+DUPLICATE_CONTACT, DUPLICATE_TARGET = "contact-chenxi-colleague", "联系人：李凡"
 PERSON_TARGET = "人物：李凡"
 OFFICE, HOME, MARKET = "office", "home", "market"
 
 
-def open_world(engine_factory, scenario: str = "multi-person.json") -> LifeEngine:
-    """@brief 两人都登记空计划，时间移到 1 月 5 日 10:00（门店营业），人物 1 刚看过集市的三件食品（它们每轮都在
-    工具层里，不受轮转影响）。"""
-    engine = engine_factory(scenario)
+def with_colleague(document: dict) -> None:
+    """@brief 场景副本里给陈曦加同事联系人王磊（收货地点是办公室）。"""
+    agent = next(item for item in document["agents"] if item["agent_id"] == 1)
+    agent["contacts"].append({"contact_id": COLLEAGUE, "salutation": "王磊", "relation": "同事", "closeness": 16,
+                              "channels": ["workplace-IM"], "reply_policy": "none", "receive_location_id": OFFICE})
+
+
+def open_world(engine_factory, mutate=with_colleague) -> LifeEngine:
+    """@brief 在 mutate 改写的 multi-person 场景副本上，两人都登记空计划，时间移到 1 月 5 日 10:00（门店营业），人物 1
+    刚看过集市的三件食品（它们每轮都在工具层里，不受轮转影响）。"""
+    engine = engine_factory("multi-person.json", mutate=mutate)
     for agent_id in engine.state.agents:
         stage_day_plan(engine, agent_id)
     zone = ZoneInfo(engine.scenario.timezone)

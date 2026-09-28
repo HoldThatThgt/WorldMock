@@ -2,13 +2,14 @@
 订单关联」）。
 
 合法组合由 combination_error 判定，宿主本地校验按协议纠错、环境受理以业务拒绝兜底，两处共用：
-- obtain：to 为「自己」或本轮列出的人物（收货人）；目标是本轮列出的「<门店>出售的<商品>」或方式为制作时 from 为 null；
-  制作只配 to=自己；
+- obtain：to 为「自己」或人物（收货人）；目标是本轮列出的「<门店>出售的<商品>」或方式为制作时 from 为 null（未列出的完整
+  标签由指名购买解析时同样要求，named_purchase）；制作只配 to=自己；
 - consume：from 为「自己」（手边的持有物）；食用、使用只配 to=自己，给予只配人物；
 - 其他动词：from、to 都为 null。
+人物是本轮列出的人物与联系人，以及不论是否同处的同世界人物（私有绑定 person_bindings；不同处由给予与配送各自拒绝）。
 同一请求中只有 to 不同时才允许重复目标。answering 为 null，或是本轮可见直接消息的规范名称（私有绑定 message_bindings），
-且至少一项的 to 是它的发件人；它只关联 to 等于该发件人的那几项。to 写了本轮没有的人物名时为 RECIPIENT_NOT_FOUND，
-其余不合法都是 ACTION_REQUEST_INVALID。
+且至少一项的 to 是它的发件人；它只关联 to 等于该发件人的那几项。to 写的名称不是任何人物时为 RECIPIENT_NOT_FOUND
+（业务拒绝，宿主不纠正），其余不合法都是 ACTION_REQUEST_INVALID。
 """
 
 from __future__ import annotations
@@ -24,7 +25,8 @@ from worldmock.life.interaction_menu import GIVE_WAY
 #: 「自己」目标的名称（去向为自己、来源为手边的持有物）。
 SELF_NAME = "自己"
 _INVALID = "ACTION_REQUEST_INVALID"
-_NOT_FOUND = "RECIPIENT_NOT_FOUND"
+#: 去向不是任何人物的拒绝码（业务拒绝：宿主本地校验放行，由环境受理拒绝）。
+RECIPIENT_NOT_FOUND = "RECIPIENT_NOT_FOUND"
 #: 带来源与去向的两个动词。
 _ROUTED_VERBS = frozenset({"obtain", "consume"})
 #: 可以作为去向的私有绑定类别：同场人物、场景联系人与「自己」。
@@ -44,11 +46,16 @@ class RoutingNames:
 
 
 def routing_names(observation: Mapping[str, Any]) -> RoutingNames:
-    """@brief 从观察的私有绑定（interaction_bindings、message_bindings）取判定所需的名称。"""
+    """@brief 从观察的私有绑定（interaction_bindings、person_bindings、message_bindings）取判定所需的名称。
+
+    人物名包括不论是否同处的同世界人物；与本轮列出的对象同名时以列出的为准。
+    """
     rows = observation.get("interaction_bindings") or []
+    people = {row["name"]: row["person_id"] for row in observation.get("person_bindings") or []}
+    people.update({row["object"]: row["object_id"] for row in rows if row["kind"] in _PERSON_KINDS})
     return RoutingNames(
         kinds={row["object"]: row["kind"] for row in rows},
-        people={row["object"]: row["object_id"] for row in rows if row["kind"] in _PERSON_KINDS},
+        people=people,
         messages={row["name"]: (row["message_id"], row["sender_id"])
                   for row in observation.get("message_bindings") or []})
 
@@ -71,7 +78,7 @@ def combination_error(request: Any, names: RoutingNames) -> tuple[str, str] | No
 
 
 def routed_selection(rows: list[dict], request: Any, names: RoutingNames) -> list[dict]:
-    """@brief 给解析好的绑定行逐项写上来源与去向：from、to、recipient_id（本轮没有的人物为 None）、to_self，以及被
+    """@brief 给解析好的绑定行逐项写上来源与去向：from、to、recipient_id（不是任何人物时为 None）、to_self，以及被
     answering 关联时的 request_message_id 与 answering（未关联为 None）。"""
     linked = names.messages.get(request.answering) if request.answering is not None else None
     routed = []
@@ -86,10 +93,10 @@ def routed_selection(rows: list[dict], request: Any, names: RoutingNames) -> lis
 
 
 def require_recipients(selection: list[dict]) -> None:
-    """@brief 去向写了本轮没有的人物时以 RECIPIENT_NOT_FOUND 拒绝（在按收货地解析指名购买与整组准入之前）。"""
+    """@brief 去向写的名称不是任何人物时以 RECIPIENT_NOT_FOUND 拒绝（在按收货地解析指名购买与整组准入之前）。"""
     if any(row.get("to") is not None and row.get("recipient_id") is None for row in selection):
-        logging.error("Start activity names a recipient that is not visible")
-        raise BusinessRuleError(_NOT_FOUND)
+        logging.error("Start activity names a recipient that is not a known person")
+        raise BusinessRuleError(RECIPIENT_NOT_FOUND)
 
 
 def _item_error(item: tuple, names: RoutingNames) -> tuple[str, str] | None:
@@ -115,13 +122,13 @@ def _item_error(item: tuple, names: RoutingNames) -> tuple[str, str] | None:
 
 
 def _person_error(destination: str | None, names: RoutingNames, allow_self: bool) -> tuple[str, str] | None:
-    """@brief 去向要是本轮列出的人物（allow_self 时也可以是「自己」）。"""
+    """@brief 去向要是人物：本轮列出的人物与联系人或同世界人物（allow_self 时也可以是「自己」）。"""
     if destination is None:
         return _INVALID, "start_activity obtain and consume need to"
     if destination == SELF_NAME and not allow_self:
         return _INVALID, "start_activity 给予 takes a person in to"
     if destination not in names.people:
-        return _NOT_FOUND, "start_activity to is not a visible person"
+        return RECIPIENT_NOT_FOUND, "start_activity to is not a known person"
     return None
 
 

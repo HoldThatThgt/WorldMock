@@ -18,6 +18,7 @@ from worldmock.profile.textgen import (
     RenderBudgetExceededError,
     count_hanzi,
     render_card,
+    window_text,
 )
 from tests.profile.conftest import make_card, make_window
 
@@ -70,7 +71,7 @@ def test_render_carries_card_content():
     text = render_card(card)
     assert "产品经理" in text and "32岁" in text
     assert "母亲" in text and "很亲近" in text
-    assert "7点" in text and "12点到13点" in text and "23点到24点" in text
+    assert "7点" in text and "12点到13点" in text and "23点到0点" in text
     assert "下班到家→公园慢跑半小时" in text
     assert "悬疑" in text and "川菜" in text
     assert "压力时拼高达模型" in text
@@ -95,6 +96,16 @@ def test_cross_midnight_bedtime_renders_as_next_day():
             lunch=make_window(12.0, 13.0), dinner=make_window(18.5, 19.5),
             bedtime=make_window(23.5, 25.0)))
     assert "23点半到1点" in render_card(card)
+
+
+def test_window_ends_at_or_after_midnight_render_as_clock_hours():
+    """@brief 两端都按钟面写：到达或越过午夜（≥24）的一端按次日小时写，午夜后才开始的窗口也不写成「25点」
+    （docs/dev/SPEC-persona-prompt.md「人设层」：作息为可读短语）。"""
+    assert window_text(make_window(25.0, 26.0)) == "1点到2点"
+    assert window_text(make_window(24.0, 25.5)) == "0点到1点半"
+    assert window_text(make_window(22.0, 24.0)) == "22点到0点"
+    assert window_text(make_window(23.5, 24.5)) == "23点半到0点半"
+    assert window_text(make_window(7.0, 7.5)) == "7点到7点半"
 
 
 def test_intimacy_bands_render():

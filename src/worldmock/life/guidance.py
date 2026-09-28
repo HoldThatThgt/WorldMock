@@ -115,7 +115,7 @@ def rejection_guidance(error: BusinessRuleError) -> dict:
 
     原因只取 guided() 或 Refusal.error() 写明的 public_reason，否则按错误码取默认原因（不读链式底层异常）；下一步取
     suggested 中的可读下一步、要去的地点或要先处理的活动名，否则按错误码取默认做法，没有则为空串。suggested 带可读
-    候选（至多 3 个近似标签或门店名，docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）或已关联的订单（「代点请求与
+    候选（至多 3 个近似标签，或同名的全部门店名，docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）或已关联的订单（「代点请求与
     订单关联」）时原样写成 candidates、linked_orders。
     """
     code = str(error)

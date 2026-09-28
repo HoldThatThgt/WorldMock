@@ -266,7 +266,7 @@ flowchart LR
 | `WORK_SUBMISSION_LATE` | `submit_work` 晚于任务截止提交（截止同秒仍按「晚于截止才算迟交」）；未付款的逾期任务保留在工具层到截止当日的本地日结束，`contract.outlook` 写「已过截止」，`submit_work` 标不可用并写原因；不新增迟交规则，不把没有提交说成提交失败 |
 | `SAME_MOMENT_ACTION_RESTRICTED` | 达到同刻上限后的受限轮中，请求不属于本轮开放的动作类；工具层已把这些动作与工具标为 `available=false` 并写同一原因；计入同刻轮数 |
 | `SESSION_LIMIT_EXCEEDED` | 名额超限：进行中、暂停中与待收尾的活动已占满两个名额（或本次开始的活动放不下），原因中点名占名额的活动并提示先结束一项：占满时说两件事都在做、先结束一件，只剩一个名额却要同时开始两项时说明只剩一个名额、不能同时开始两项；两个名额都被暂停活动占满时选择出行同样以此拒绝 |
-| `ACTIVITY_PRECONDITION_UNMET` | 前置条件未满足，附 `unmet` 与 `suggested`（可读名称，不含身份）：需要在某地（办公室工作、到店取得、当面交谈、限地点使用；途中与同一请求出发都不算在场）；出发前仍有进行中活动（点名要先结束或暂停的活动）；暂停的活动在开始地点以外恢复（点名该地点，人在别处可以直接结束它）；驾车时需要手动操作的瞬时动作（发消息、远程下单、提交成果）；远程下单的送达地不在该供给的可配送目的地（原因「暂时送不到这里」，下一步点名能送达的地点）；生活活动要停在一个地点做：出行途中或与出行同一请求时不成立（途中下一步「到达后再做」，同一请求下一步「先做完再出发」）；给予要求同处，不同处时 `unmet=recipient_present`（原因如「要和王磊在同一个地方才能给他」）；直接配送到联系人却送不到（原因如「暂时送不到王磊那里」） |
+| `ACTIVITY_PRECONDITION_UNMET` | 前置条件未满足，附 `unmet` 与 `suggested`（可读名称，不含身份）：需要在某地（办公室工作、到店取得、当面交谈、限地点使用；途中与同一请求出发都不算在场）；出发前仍有进行中活动（点名要先结束或暂停的活动）；暂停的活动在开始地点以外恢复（点名该地点，人在别处可以直接结束它）；驾车时需要手动操作的瞬时动作（发消息、远程下单、提交成果）；远程下单的送达地不在该供给的可配送目的地（原因「暂时送不到这里」，下一步点名能送达的地点）；生活活动要停在一个地点做：出行途中或与出行同一请求时不成立（途中下一步「到达后再做」，同一请求下一步「先做完再出发」）；给予要求同处，不同处时 `unmet=recipient_present`（原因如「要和王磊在同一个地方才能给他」；身边没有任何能给的人——没有同处的同世界人物，本人也不在任何联系人的收货地点——时原因不指名「要和对方在同一个地方才能给」，工具层的给予动作以同一原因标不可用）；直接配送到联系人却送不到（原因如「暂时送不到王磊那里」） |
 | `ACTIVITY_CONCLUSION_REQUIRED` | 有刚结束、待收尾的活动时做别的事（包括只结束其他活动）；原因为「先给刚结束的某事收尾」，点名待收尾活动 |
 | `ACTIVITY_PAUSE_UNAVAILABLE` | 暂停路上的活动（回不到那段路）；可以直接结束。交谈、通话沿用 `SOCIAL_ACTIVITY_CANNOT_PAUSE` |
 | `PRODUCT_NOT_HELD` | 食用、使用、给予或制作的持有物此刻不在手边（此刻所在地点没有这件东西，即可消费量为零；食用不足一份时按实际持有份量受理）；途中没有可用的持有物（原因「路上没有可用的持有物」，下一步「到达后再用」）；与出行同一请求时出发后手边也没有（原因「出发后手边没有可用的持有物」，下一步「先用完再出发」），与组内先后无关 |
@@ -696,7 +696,7 @@ flowchart LR
 | `habits` | 至多五条 `{trigger, response, time_window}` |
 | `tastes` | `{content_genres, food_preferences, media}` 或 `null` |
 | `coping` | 压力时的应对方式，或 `null` |
-| `relationships[]` | `{person, role, closeness, channels, view}`：`closeness` 取「很亲近」「较亲近」「一般」「疏远」或 `null`；`view` 是人物对此人的最新看法，没有时为 `null` |
+| `relationships[]` | `{person, role, closeness, channels, view}`：`role` 是关系说法，只凭看法出现的已知人物为 `null`；`closeness` 取「很亲近」「较亲近」「一般」「疏远」或 `null`；`view` 是人物对此人的最新看法，没有时为 `null` |
 | `preferences[]` | 人物写下的偏好 `{subject, preference, noted_on}`，`noted_on` 为写下的本地日期 |
 
 **记忆层**（环境派生；写法、零点与窗口见「记忆字段」）：
@@ -1026,6 +1026,7 @@ LocationKind = Literal["home", "office", "outdoor", "fitness", "venue", "anywher
 观察字典中不得进入提示的字面键：`world_state_version`、`end_time`、`affordance_contract`、
 `interaction_menu`、`interaction_menus_by_location_kind`、`observation_event_id`、
 `interaction_bindings`、`task_bindings`、`goal_bindings`、`activity_bindings`、`session_bindings`、`message_bindings`、
+`person_bindings`（同世界全部其他人物「人物：<名>」到人物身份，不论是否同处，供去向与 relationship 记忆的对象识别）、
 `persona_views`、`progress_meta`、`progress_event_ids`、`presented_message_ids`、续接私有键 `continuation`、
 `motivation_hints`、`game_catalog`、
 完整活动快照（`activity_snapshot`、`activities`），内部身份键 `agent_id`、`activity_id`、`source_event_id`、`event_seq`、`product_id`、
@@ -1430,7 +1431,8 @@ LiteLLM Router 自身不重试，不启用备用模型；全部尝试保留同�
 人设层（字段见「七层字段」）由宿主用 `persona_card_struct`、人物姓名与场景联系人渲染，环境只下发由事件派生的看法与偏好
 （观察私有键 `persona_views`）。卡片编译、三次一致性、`render_card`、卡片结构版本 2 与冻结恢复不变。没有结构化卡片的人物只填姓名，
 其余为 `null` 或 `[]`。卡片关系与场景联系人按名称精确合并（卡片 `name_or_appellation` 等于联系人姓名或称谓），对不上的各占一项；
-只来自场景联系人的项 `closeness` 为 `null`、`channels` 为 `[]`，场景联系人的亲密度与渠道仍不进提示。`view` 与 `preferences`
+只来自场景联系人的项 `closeness` 为 `null`、`channels` 为 `[]`，场景联系人的亲密度与渠道仍不进提示；只凭看法出现的已知人物
+（不在卡片与场景联系人中的同世界人物）另占一项，`role`、`closeness` 为 `null`、`channels` 为 `[]`，不填编造的值。`view` 与 `preferences`
 只来自成功的 `conclude_activity.memories` 中 `type` 为 relationship、preference 且带 `subject` 的条目，同一对象按事件顺序取最后一条，
 存储仍只追加；这两类条目只在人设层出现，不进记忆层，也从进度层该调用的参数中略去。购买本身不写偏好。
 

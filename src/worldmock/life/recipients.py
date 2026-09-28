@@ -2,7 +2,8 @@
 
 收货人身份：同世界人物为 agent:<id>（付款人自己也是），场景联系人为联系人身份。收货地点不作参数：自己是当前地点
 （途中为出发地，与远程下单的送达地同一口径），同世界人物是其所在地点（途中没有），联系人取
-Contact.receive_location_id（为空时不能收实物）。
+Contact.receive_location_id（为空时不能收实物）。同世界的其他人物不论在哪里都有私有绑定 person_bindings
+（名称「人物：<名>」→ agent:<id>，不渲染进提示），去向与 relationship 记忆的对象按它识别；工具层仍只列同处的人物。
 """
 
 from __future__ import annotations
@@ -16,6 +17,12 @@ from worldmock.life.social import Contact
 def agent_identity(agent_id: int) -> str:
     """@brief 同世界人物的收货人身份 agent:<id>。"""
     return f"agent:{agent_id}"
+
+
+def person_bindings(state: WorldState, agent_id: int) -> list[dict[str, str]]:
+    """@brief 同世界全部其他人物的私有绑定（不论是否同处）：名称「人物：<名>」与工具层人物目标同一写法 → agent:<id>。"""
+    return [{"name": f"人物：{other.name}", "person_id": agent_identity(other.agent_id)}
+            for other in state.agents.values() if other.agent_id != agent_id]
 
 
 def person_name(state: WorldState, scenario: RuntimeScenario, agent_id: int, identity: str) -> str:

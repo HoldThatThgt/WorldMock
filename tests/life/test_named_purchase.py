@@ -2,7 +2,7 @@
 
 真实 LifeEngine 与 SQLite 上：被轮转隐藏但存在的商品按标签或唯一商品名可买，按当前报价在同一秒结算，不查可见凭据；
 不存在的名称以 SUPPLY_NOT_FOUND 拒绝，details.candidates 给至多 3 个确定性的近似标签，不换成别的商品；多店同名且未限定
-门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出门店。宿主本地校验只对 obtain（到店、远程下单）放行未列出的名称，其余动词的
+门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部门店；完整标签又写了门店（from）以 ACTION_REQUEST_INVALID 拒绝。宿主本地校验只对 obtain（到店、远程下单）放行未列出的名称，其余动词的
 未列名称仍是协议错误，在本轮纠正。
 """
 
@@ -128,7 +128,7 @@ def test_unknown_name_is_rejected_with_near_candidates_and_nothing_is_substitute
 
 
 def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_factory) -> None:
-    """多家店都能送到家的同名商品（纯牛奶）：未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出门店（至多 3 个，按名称排序）；
+    """多家店都能送到家的同名商品（纯牛奶）：未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝并列出全部门店（按名称排序）；
     写成标签或限定门店时解析为那家店的供给。"""
     engine = engine_factory()
     _browsed(engine)
@@ -140,7 +140,7 @@ def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_
     before = _world(engine)
     _, result = _round(engine, "ambiguous", _obtain(_MILK))
     assert (result.status, result.error_code, result.data["candidates"]) == (
-        "rejected", "SUPPLY_NAME_AMBIGUOUS", stores[:3])
+        "rejected", "SUPPLY_NAME_AMBIGUOUS", stores)
     assert result.data["reason"] == "好几家店都卖这个名字的商品"
     assert _world(engine) == before
     for supply in milk:
@@ -148,6 +148,24 @@ def test_same_name_in_several_stores_is_ambiguous_until_a_store_is_named(engine_
         assert resolve_named_supply(layer, _MILK, "远程下单", store, "home")["object_id"] == supply.supply_id
         assert resolve_named_supply(layer, supply_label(layer, supply), "远程下单", None, "home")["object_id"] == (
             supply.supply_id)
+
+
+def test_full_label_with_a_store_in_from_is_an_invalid_request(engine_factory) -> None:
+    """目标已是完整标签「<门店>出售的<商品>」时 from 须为 null：本轮没有列出的标签又写了门店，与列出的标签一样以
+    ACTION_REQUEST_INVALID 拒绝，不下单、不扣款（docs/dev/SPEC-persona-prompt.md 第五章「来源与去向」）。"""
+    engine = engine_factory()
+    listed = _browsed(engine)
+    supply = _hidden(engine, listed, unique_name=False)
+    layer = _layer_context(engine)
+    label = supply_label(layer, supply)
+    store = label.removesuffix(f"出售的{engine.rules.items[supply.product_id].name}")
+    before = _world(engine)
+    _, result = _round(engine, "label-with-from", start_request(
+        targets=[label], actions=["obtain"], ways=["远程下单"], from_=[store], to=["自己"]))
+    assert (result.status, result.error_code) == ("rejected", "ACTION_REQUEST_INVALID")
+    assert _world(engine) == before
+    with pytest.raises(BusinessRuleError, match="ACTION_REQUEST_INVALID"):
+        resolve_named_supply(layer, label, "远程下单", store, "home")
 
 
 def test_named_resolution_follows_the_chosen_way_and_never_matches_internal_ids(engine_factory) -> None:
@@ -184,11 +202,24 @@ def test_near_candidates_are_deterministic_term_similarity() -> None:
     assert near_candidates(layer, "汤面") == ["菜饭骨头汤出售的鸡汤面"]
 
 
-class _Supply:
-    """近似候选只读的供给字段。"""
+def test_ambiguous_name_lists_every_store_not_just_three() -> None:
+    """多店同名且 from 为空：SUPPLY_NAME_AMBIGUOUS 列出全部门店（按名称排序），不像近似候选那样截到 3 个。"""
+    stores = {"s1": "好德", "s2": "集市", "s3": "农工商超市", "s4": "盒马"}
+    supplies = [_Supply(store, "p1", fulfillment_modes=("delivery",), delivery_destination_ids=("home",))
+                for store in stores]
+    layer = _Layer(_Scenario(supplies, stores, {"p1": _MILK}))
+    with pytest.raises(BusinessRuleError, match="SUPPLY_NAME_AMBIGUOUS") as ambiguous:
+        resolve_named_supply(layer, _MILK, "远程下单", None, "home")
+    assert ambiguous.value.suggested["candidates"] == sorted(stores.values())
 
-    def __init__(self, location_id: str, product_id: str):
+
+class _Supply:
+    """近似候选与指名解析只读的供给字段。"""
+
+    def __init__(self, location_id: str, product_id: str, fulfillment_modes: tuple = (),
+                 delivery_destination_ids: tuple = ()):
         self.location_id, self.product_id = location_id, product_id
+        self.fulfillment_modes, self.delivery_destination_ids = fulfillment_modes, delivery_destination_ids
 
 
 class _Named:
