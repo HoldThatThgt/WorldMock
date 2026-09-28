@@ -157,7 +157,7 @@ def test_runtime_restore_rejects_retired_stage_even_when_code_identity_matches(m
         _require_runtime_identity(manifest, root)
     old = {key: value for key, value in manifest.items() if key != "stage_model_identity"}
     old["two_stage_model_identity"] = stages
-    with pytest.raises(IntegrityError, match="decision stage identity differs"):
+    with pytest.raises(IntegrityError, match="stage decision_statement is retired"):
         _require_runtime_identity(old, root)
 
 

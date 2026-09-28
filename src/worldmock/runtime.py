@@ -435,14 +435,12 @@ def _intervention_sha256(intervention: CounterfactualIntervention) -> str:
 def _require_runtime_identity(manifest: dict[str, Any], project_root: Path) -> None:
     """@brief 拒绝用不同代码（含实际导入的 AS2）、端点、模型、提示或工具恢复父运行。
 
-    清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经同一校验函数拒绝退役阶段，再做等值比对；
-    同秒续接开关继承父清单的值（按父清单的开关构造期望身份），恢复与重放不能覆盖。
+    清单的 git_commit 与 git_dirty 只记录，不参与比对。阶段身份先经五个入口共用的清单校验函数拒绝退役阶段与旧键，
+    再做等值比对；同秒续接开关继承父清单的值（按父清单的开关构造期望身份），恢复与重放不能覆盖。
     """
-    from worldmock.validation import validate_stage_model_identity
+    from worldmock.validation import validate_manifest_stage_identity
 
-    identity = manifest.get("stage_model_identity")
-    if identity is not None:
-        validate_stage_model_identity(identity)
+    identity = validate_manifest_stage_identity(manifest)
     expected = _model_identity().model_dump(mode="json")
     if manifest.get("model_identity") != expected:
         raise IntegrityError("Checkpoint model identity differs from the current LifeAgent contract")

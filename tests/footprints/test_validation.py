@@ -13,6 +13,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 from tests.integration.as2_fixtures import use_fake_as2
 from tests.profile.conftest import make_card, make_window
+from tests.delivery.prompt_fixtures import layered_user, six_layers
 from worldmock.delivery.windows import prepare_windows
 from worldmock.errors import IntegrityError
 from worldmock.footprints.export import export_run
@@ -64,8 +65,7 @@ def complete_export(tmp_path):
                                decision_id='decision', visibility='system', data={
                                    'phase': 'request', 'request': {
                                        'model': 'fixture',
-                                       'messages': [{'role': 'system', 'content': '身份'},
-                                                    {'role': 'user', 'content': '实际场景与人物记忆'}],
+                                       'messages': [{'role': 'system', 'content': '身份'}, layered_user()],
                                        'tools': [{'type': 'function', 'function': {
                                            'name': 'start_activity',
                                            'parameters': StartActivityRequest.model_json_schema(
@@ -90,8 +90,8 @@ def test_production_windows_require_and_accept_complete_authenticated_export(com
     assert len(events) == 5 and activities == []
     windows = prepare_windows(complete_export)
     assert {task: len(rows) for task, rows in windows.items()} == {'action': 1, 'intent': 1, 'dreaming': 3}
-    assert windows['action'][0]['input']['decision_prompt']['messages'][1]['content'] == \
-        '实际场景与人物记忆'
+    assert windows['action'][0]['input']['decision_prompt']['messages'][1] == layered_user()
+    assert all(record['input']['decision_layers'][0]['layers'] == six_layers() for record in windows['dreaming'])
     assert windows['action'][0]['provenance']['decision_prompt_event_id'] == events[1]['event_id']
 
 
@@ -149,6 +149,28 @@ def test_validate_project_passes_and_writes_persona_coverage(tmp_path, monkeypat
     document = json.loads(coverage_out.read_text(encoding="utf-8"))
     assert document["schema_version"] == 1 and document["threshold"] == 0.8
     assert document["agents"][0]["covered_items"] == report["covered_items"]
+
+
+@_REQUIRES_LABELKIT
+def test_validate_project_rejects_a_retired_stage_through_the_manifest_validator(tmp_path, monkeypatch):
+    """校验入口与新建、打开、恢复同用 validate_manifest_stage_identity：新运行将冻结的阶段身份含退役的决策自述阶段即拒绝
+    （docs/dev/SPEC-persona-prompt.md 第七章「清单」）。"""
+    import worldmock.runtime as runtime
+    import worldmock.validation as validation_module
+
+    monkeypatch.setattr("worldmock.runtime._configure_process", lambda _root: None)
+    retired = runtime.stage_model_identity()
+    retired["stages"]["decision_statement"] = {"thinking": "disabled"}
+    monkeypatch.setattr(runtime, "stage_model_identity", lambda *_args: retired)
+    seen = []
+    original = validation_module.validate_manifest_stage_identity
+    monkeypatch.setattr(validation_module, "validate_manifest_stage_identity",
+                        lambda manifest=None: seen.append(manifest) or original(manifest))
+
+    with pytest.raises(IntegrityError, match="Model identity stage decision_statement is retired"):
+        validate_project(PROJECT_ROOT, SCENARIO, persona_compiler=_compiler(_covered_card()),
+                         coverage_out=tmp_path / "persona_coverage.json")
+    assert seen == [None]
 
 
 @_REQUIRES_LABELKIT
