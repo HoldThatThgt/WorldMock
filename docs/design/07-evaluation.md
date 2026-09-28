@@ -1,8 +1,8 @@
 # WorldMock 产品设计说明书 — 行为评估
 
-> **状态**：DRAFT  
-> **日期**：2026-09-25  
-> **版本**：v1.4\
+> **状态**：DRAFT；按人物 Prompt 规格修订，修订部分待实现  
+> **日期**：2026-09-27  
+> **版本**：v1.5\
 > **目标读者**：算法工程师、开发工程师
 
 ## 1. 模块概述
@@ -80,10 +80,10 @@ flowchart TB
 
 | 门禁键 | 判定对象 | 比较 | 阈值 | 失败含义 |
 | --- | --- | --- | --- | --- |
-| `observation_repetition` | 同一 user 观察文本出现于不同 `decision_id` 请求中的最大数目（同一决策内重发只计一次；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"`） | `==` | 1 | 观察被重复序列化 |
+| `observation_repetition` | 同一 user 观察文本出现于不同续接链请求中的最大数目：续接链按（人物，模拟秒）划分，链内复用链首 user（含同一决策内重发）只计一次，跨秒重复仍计为重复；排除带 `purpose` 的系统请求，即 `purpose="work_review"` 与 `purpose="plan_day"` | `==` | 1 | 观察被重复序列化 |
 | `silent_boundary_ratio` | 每人唯一共同身体结算的清醒边界中 `decision_offered=false` 的占比；同刻轮次不写共同身体结算，不进分母 | `>=` | 0.5 | 人物决策机会不足 |
 | `memory_repetition_ratio` | 同类型记忆两两 bigram Jaccard ≥ 0.6 的对数占比 | `<=` | 0.2 | 记忆内容重复 |
-| `memory_md_identity_residue` | MEMORY.md 命中示例身份的人物数 | `==` | 0 | 示例身份残留 |
+| `memory_md_identity_residue` | 记忆层 JSON 命中示例身份的人物数 | `==` | 0 | 示例身份残留 |
 
 **背书**：门禁阈值来自 `docs/VERIFICATION.md` §协议门禁，源码为唯一依据。
 
@@ -95,7 +95,7 @@ flowchart TB
 
 | 报告项键 | 说明 | 目标参照 |
 | --- | --- | --- |
-| `decision_prompt_token_median` | 决策 prompt token 中位数；排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求 | 15000（对照值） |
+| `decision_prompt_token_median` | 决策 prompt token 中位数，按单次行动请求计（含同秒续接的请求）；排除 `purpose="work_review"` 与 `purpose="plan_day"` 的请求 | 15000（对照值） |
 | `effective_autonomous_decision_rate` | 最终动作非 continue/等待的占比；continue 与等待算被动，等待按结果活动 `kind=wait` 判定；只做结束、暂停或修订的控制轮单列 | 无固定阈值 |
 | `wake_reason_distribution` | 各唤醒原因计数，分两份：边界取共同身体结算，决策轮取 `decision_started` | 覆盖所有唤醒类型 |
 | `wait_minutes` | 本人真实等待活动的实际区间累计分钟 | 只报告，不设占比上限 |
@@ -110,6 +110,9 @@ flowchart TB
 | `habitual_consistency` | 同人物地点与本地小时的活动家族一致率 | 只报告情境重复性，不识别心理习惯 |
 | `deliberate_goals` | 曾登记目标中的家族实际推进率，保留丢弃条目；登记来源为零点计划的 `day_plan_generated` 与修订结果 | 只报告，外部参照未接入时为 null |
 | `external_constraints` | 去重后的外部约束受阻与动作接受率；引导性拒绝码 `ACTIVITY_PRECONDITION_UNMET`、`ACTIVITY_CONCLUSION_REQUIRED`、`SESSION_LIMIT_EXCEEDED` 计入 `other_rejections`；外部约束闭集不含 `PICKUP_LOCATION_REQUIRED` 与工作地点、技能不符 | 受阻次数为零是运行质量门禁，正确拒绝不等于引擎缺陷 |
+
+同秒续接轮的思考 token（`reasoning_tokens`，缺失时报字符数，两者不混算）与缓存命中由 `scripts/inspect_run.py continuation`
+逐决策报告（链位置、请求数、协议错误与 400、计价成本），只报告，不参与放行。
 
 **2018 年全国时间利用调查参照**（城镇/工作日口径，居民均值）：
 
@@ -660,10 +663,10 @@ $$
 
 ## 4. 量化指标对比
 ### 4.1 协议门禁
-- observation_repetition: 左 pass, 右 pass
+- observation_repetition（按续接链计）: 左 pass, 右 pass
 - silent_boundary_ratio: 左 0.62 (pass), 右 0.48 (fail)
 - memory_repetition_ratio: 左 0.08 (pass), 右 0.15 (pass)
-- memory_md_identity_residue: 左 0 (pass), 右 0 (pass)
+- memory_md_identity_residue（检查记忆层）: 左 0 (pass), 右 0 (pass)
 
 ### 4.2 活动分布
 - JS 距离（vs 参照）：左 0.245, 右 0.198
@@ -769,3 +772,4 @@ plt.savefig('review-preference-heatmap.png')
 | v1.2 | 2026-09-24 | 按时间与能量规格：决策统计排除零点计划请求，被动轮与控制轮分列，唤醒原因分边界与决策轮两份；目标登记来源改为零点计划与修订；引导性拒绝计入 `other_rejections`；consume 用餐口径对齐源码；「活动会话」改称「活动」并删未实现字段；适配器按动词与方式配对、控制工具逐活动投影 |
 | v1.3 | 2026-09-25 | 按时间与能量规格阶段 1：观察重复门禁改按 `decision_id` 计，同一决策内重发只计一次；静默边界占比注明同刻轮次不写共同身体结算、不进分母 |
 | v1.4 | 2026-09-25 | 按时间与能量规格阶段 5：观察重复门禁排除带 `purpose` 的系统请求，除工作验收外也排除零点计划 `purpose="plan_day"` 的请求 |
+| v1.5 | 2026-09-27 | 按人物 Prompt 七层规格（人物 Prompt 台账 E7-1–E7-5，E7-2 为阶段 1、E7-4 为阶段 2、E7-3 与 E7-5 为阶段 3 同批作业）：文件头注明修订部分待实现；观察重复门禁按（人物，模拟秒）的续接链计，链内复用链首 user 合法，跨秒重复仍失败；示例身份残留改为检查记忆层 JSON；决策 prompt token 中位数按单次行动请求（含续接）计，续接轮的思考 token 与缓存命中由 `inspect_run continuation` 只报告；报告结构示例随之标注 |
