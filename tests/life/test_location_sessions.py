@@ -20,7 +20,7 @@ from worldmock.footprints.export import export_run
 from worldmock.footprints.models import EventDraft
 from worldmock.life import activity_control, sessions
 from worldmock.life.engine import LifeEngine
-from worldmock.life.readable import duration_phrase
+from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.models import (
     ActivityStatus, ConcludeActivityRequest, PauseActivityRequest, RecallTaskSummaryRequest, ReportStatusRequest,
     SameMomentStage,
@@ -594,8 +594,9 @@ def test_same_named_activities_get_ordinals_instead_of_failing(engine_factory) -
     assert engine.state.activities[second.activity_id].progress_note == "第二段也在等。"
 
 
-def test_cross_day_duplicate_session_and_activity_names_get_ordinals(engine_factory) -> None:
-    """跨日重名的会话与活动不抛错：名称用绝对日期；仍然重名时（例如跨年同日）同轮追加序号，回看与播报都能唯一解析。"""
+def test_cross_day_duplicate_activity_names_get_ordinals(engine_factory) -> None:
+    """跨日重名的活动不抛错：名称用绝对日期；仍然重名时（例如跨年同日）同轮追加序号，回看与播报都能唯一解析。会话名不在
+    七层中出现，观察不绑定会话名（回看的名称只取七层中出现的名称）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     waited = _wait(engine, "today")
@@ -615,16 +616,15 @@ def test_cross_day_duplicate_session_and_activity_names_get_ordinals(engine_fact
 
     _stage(engine, last_year)
     observed = _preview(engine, "duplicates")
-    sessions_by_id = {row["session_id"]: row["name"] for row in observed["session_bindings"]}
     activities_by_id = {row["activity_id"]: row["name"] for row in observed["activity_bindings"]}
-    assert sessions_by_id["session-last-year"] == stay.name
-    assert sessions_by_id[stay.session_id] == f"{stay.name}（第二次）"
+    assert "session_bindings" not in observed
     assert activities_by_id["activity-last-year"] == _name(engine, waited.activity_id)
     assert activities_by_id[waited.activity_id] == f"{_name(engine, waited.activity_id)}（第二次）"
     _wake(engine)
     recalled = _round(engine, "recall-duplicate", "recall_task_summary",
-                      RecallTaskSummaryRequest(task_name=sessions_by_id[stay.session_id]))[1]
-    assert recalled.status == "completed" and recalled.data["recall"]["kind"] == "session"
+                      RecallTaskSummaryRequest(task_name=activities_by_id[waited.activity_id]))[1]
+    assert recalled.status == "completed"
+    assert (recalled.data["recall"]["kind"], recalled.data["recall"]["phase"]) == ("activity", "进行中")
     _wake(engine)
     reported = _round(engine, "report-duplicate", "report_status", ReportStatusRequest(
         task=[activities_by_id[waited.activity_id]], summary=["今天的这段还在等。"]))[1]
@@ -663,9 +663,10 @@ def _recall(engine: LifeEngine, name: str, task_name: str) -> dict:
     return result.data["recall"]
 
 
-def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(engine_factory) -> None:
-    """回看可按任务名、活动名或会话名（目标名见当日目标用例）；结果在下一次观察进度层该调用的 details.recall 中呈现，
-    不带身份。"""
+def test_recall_by_task_and_activity_names_reaches_the_next_observation(engine_factory) -> None:
+    """回看可按任务名或活动名（目标名见当日目标用例）；结果在下一次观察进度层该调用的 details.recall 中呈现，不带身份；
+    截止是带时区的 ISO 时刻，自述照原文写、不逐条标注未经核验（系统层规则统一说明）。会话名不在七层中出现，回看会话名以
+    TASK_NOT_FOUND 业务拒绝（docs/dev/SPEC-persona-prompt.md「通用格式」、第八章「回看的名称只取七层中出现的名称」）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     task = next(iter(engine.scenario.tasks))
@@ -675,7 +676,7 @@ def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(
     stay = sessions.current_session(engine.state, 1)
     assert _recall(engine, "recall-task", f"工作：{task.title}") == {
         "kind": "task", "name": f"工作：{task.title}",
-        "due_at": sessions.moment_label(int(task.due_at.timestamp()), engine.scenario.timezone)}
+        "due_at": iso_time(int(task.due_at.timestamp()), engine.scenario.timezone)}
     before = _recall(engine, "recall-activity", name)
     home = next(item.name for item in engine.scenario.locations if item.location_id == "home")
     assert {key: before[key] for key in ("kind", "name", "place", "phase")} == {
@@ -684,12 +685,33 @@ def test_recall_by_task_activity_and_session_names_reaches_the_next_observation(
     _wake(engine)
     _round(engine, "recall-note", "report_status", ReportStatusRequest(task=[name], summary=["等得有点久。"]))
     after = _recall(engine, "recall-activity-again", name)
-    assert (after["progress_note"], after["subjective_status"]) == ("等得有点久。", "你自己记下的，未经核验")
-    assert _recall(engine, "recall-session", stay.name) == {
-        "kind": "session", "place": home, "started_at": sessions.moment_label(stay.started_at, "Asia/Shanghai"),
-        "ended_at": None, "activity_names": [name]}
+    assert after["progress_note"] == "等得有点久。" and "subjective_status" not in after
+    _wake(engine)
+    rejected = _round(engine, "recall-session", "recall_task_summary", RecallTaskSummaryRequest(task_name=stay.name))[1]
+    assert (rejected.status, rejected.error_code) == ("rejected", "TASK_NOT_FOUND")
     for recall in (before, after):
         assert not {key for key in recall if key.endswith("_id")}
+
+
+def test_recall_writes_only_the_activity_name_while_its_summary_is_still_in_the_memory_layer(engine_factory) -> None:
+    """回看的 summary 仍在记忆层时不重复：结果只写活动名与「已在记忆层」；不在记忆层时照写回看结果
+    （docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。在家等待，播报写下的自述不进记忆层，回看照写原文；收尾写下总结后
+    出门，这段停留结束、总结进入记忆层 self_notes，再回看同一活动只写活动名与「已在记忆层」，结果里没有总结原文。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    waited = _wait(engine, "remembered-wait")
+    name = _name(engine, waited.activity_id)
+    _wake(engine)
+    _round(engine, "remembered-report", "report_status", ReportStatusRequest(task=[name], summary=["等得有点久。"]))
+    shown = _recall(engine, "remembered-before", name)
+    assert (shown["kind"], shown["name"], shown["progress_note"]) == ("activity", name, "等得有点久。")
+    _wake(engine)
+    assert _conclude(engine, "remembered-conclude", waited.activity_id).status == "completed"
+    assert _depart(engine, "remembered-depart").status == "in_progress"
+    memory = _preview(engine, "remembered-memory")["memory_layer"]
+    assert "收个尾。" in [note["text"] for entry in memory["earlier_today"] for note in entry["self_notes"]]
+    collapsed = _recall(engine, "remembered-after", name)
+    assert collapsed == {"kind": "activity", "activity": name, "progress_note": "已在记忆层"}
 
 
 def test_recall_of_content_started_with_a_walk_names_the_road(engine_factory) -> None:

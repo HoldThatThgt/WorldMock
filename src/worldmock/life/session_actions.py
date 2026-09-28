@@ -10,13 +10,15 @@ from __future__ import annotations
 import logging
 
 from worldmock.errors import BusinessRuleError
-from worldmock.life import activity_control, admission, giving, order_routing, request_linking, routing, sessions
+from worldmock.life import (activity_control, admission, giving, memory_layer, order_routing, request_linking, routing,
+                            sessions)
 from worldmock.life.activity_evidence import conclusion_outcome, discard_opened, is_eating
 from worldmock.life.basket import held_quantity, meal_portion
 from worldmock.life.content import restarts_from_beginning
 from worldmock.life.guidance import guided
 from worldmock.life.interaction_menu import (GIVE_WAY, NAMED_SUPPLY_KIND, PURCHASE_WAYS, activity_phrase,
-                                             merged_selection, resolve_interaction_menu, resolve_selection)
+                                             merged_selection, resolve_selection)
+from worldmock.life.menu_execution import current_menu
 from worldmock.life.models import (
     ActionResult,
     ActionStatus,
@@ -44,6 +46,7 @@ from worldmock.life.models import (
     WorldState,
 )
 from worldmock.life.named_purchase import resolve_named_supply
+from worldmock.life.readable import duration_phrase, iso_time
 from worldmock.life.recipients import recipient_location
 from worldmock.life.schedule import INTENT_ACTIVITY_FAMILIES
 from worldmock.life.tool_layer import LayerContext
@@ -54,6 +57,8 @@ from worldmock.life.work import work_resume_cap, work_start_blocker, work_start_
 _LOGGER = logging.getLogger(__name__)
 #: 观看、游戏内容与生活活动派生时长的上限：超过时按此受理并在结果写明计划时长（裁决 #19）。
 DERIVED_DURATION_CAP_SECONDS = 86_400
+#: 回看的自述仍在记忆层时，结果中代替原文的说法（docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。
+IN_MEMORY_LAYER = "已在记忆层"
 
 
 class SessionActionMixin:
@@ -140,7 +145,7 @@ class SessionActionMixin:
             state=state, scenario=self.scenario, rules=self.rules, semantics=self.semantics, agent_id=agent.agent_id,
             names={"sessions": {}, "activities": self._control_names(pending)},
             bindings=self._frozen_observation(pending)["interaction_bindings"],
-            menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
+            menu=current_menu(self.scenario, state, agent.agent_id),
             lifestyle_items=self.lifestyle_items)
         return [self._resolved_named(context, row) if row["kind"] == NAMED_SUPPLY_KIND else row for row in selection]
 
@@ -469,19 +474,18 @@ class SessionActionMixin:
 
     def _recall_task_summary(self, state: WorldState, pending: PendingAction,
                               request: RecallTaskSummaryRequest) -> tuple[WorldState, ActionResult]:
-        """@brief 只读回看任务、当日目标、活动或会话；结果随下一次观察进入 details.recall，不带身份。"""
+        """@brief 只读回看任务、当日目标或活动（名称只取七层中出现的，会话名不在其中）；结果随下一次观察进入
+        details.recall，不带身份。"""
         observed = self._frozen_observation(pending)
         name = request.task_name
         candidates = ([("task", row) for row in observed["task_bindings"] if row["task_name"] == name]
                       + [("goal", row) for row in observed["goal_bindings"] if row["task_name"] == name]
-                      + [("activity", row) for row in observed["activity_bindings"] if row["name"] == name]
-                      + [("session", row) for row in observed["session_bindings"] if row["name"] == name])
+                      + [("activity", row) for row in observed["activity_bindings"] if row["name"] == name])
         if len(candidates) != 1:
             _LOGGER.error("Recalled task name is unavailable or ambiguous")
             raise BusinessRuleError("TASK_NOT_FOUND")
         kind, row = candidates[0]
-        views = {"task": self._recall_task, "goal": self._recall_goal,
-                 "activity": self._recall_activity, "session": self._recall_session}
+        views = {"task": self._recall_task, "goal": self._recall_goal, "activity": self._recall_activity}
         recall = views[kind](state, pending, row, observed)
         result = ActionResult(action_id=pending.action_id, agent_id=pending.agent_id,
                               status=ActionStatus.COMPLETED, occurred_at=state.current_time,
@@ -489,16 +493,18 @@ class SessionActionMixin:
         return state, result
 
     def _recall_task(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
-        """@brief 任务回看：名称、截止与最近一条相关活动自述。"""
-        del observed
+        """@brief 任务回看：名称、截止（带时区 ISO）与最近一条相关活动自述；该自述仍在记忆层时只写那项活动名与
+        「已在记忆层」。"""
         task = self.rules.task(row["task_id"])
         notes = [item for item in state.activities.values()
                  if item.agent_id == pending.agent_id and item.task_kind == SessionTaskKind.WORK_TASK
                  and item.task_ref == task.task_id and item.progress_note]
         latest = max(notes, key=lambda item: (item.note_updated_at or item.started_at, item.started_at),
                      default=None)
-        view = {"name": row["task_name"],
-                "due_at": sessions.moment_label(int(task.due_at.timestamp()), self.scenario.timezone)}
+        remembered = _remembered(observed, latest)
+        if remembered is not None:
+            return remembered
+        view = {"name": row["task_name"], "due_at": iso_time(int(task.due_at.timestamp()), self.scenario.timezone)}
         return {**view, **_self_report(latest.progress_note if latest else "")}
 
     def _recall_goal(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
@@ -515,28 +521,19 @@ class SessionActionMixin:
         """@brief 活动回看：名称、地点、已做与有效时长、阶段与自述。
 
         地点取活动最近所属会话的说法：路上开始的活动（含出行本身）为「去<目的地>的路上」，停留中的为该地点；
-        未归入会话的活动取开始地点。
+        未归入会话的活动取开始地点。自述仍在记忆层时只写活动名与「已在记忆层」。
         """
-        del pending, observed
+        del pending
         activity = state.activities[row["activity_id"]]
+        remembered = _remembered(observed, activity)
+        if remembered is not None:
+            return remembered
         places = self._place_names
         place = (sessions.place_label(state.sessions[activity.session_ids[-1]], places) if activity.session_ids
                  else places[activity.location_id])
         view = {"name": row["name"], "place": place, "phase": activity_control.activity_phase(activity),
                 "objective_progress": activity_control.objective_progress(activity)}
         return {**view, **_self_report(activity.progress_note)}
-
-    def _recall_session(self, state: WorldState, pending: PendingAction, row: dict, observed: dict) -> dict:
-        """@brief 会话回看：地点、起止与本段里的活动名。"""
-        del pending
-        session = state.sessions[row["session_id"]]
-        names = {item["activity_id"]: item["name"] for item in observed["activity_bindings"]}
-        timezone = self.scenario.timezone
-        return {"place": sessions.place_label(session, self._place_names),
-                "started_at": sessions.moment_label(session.started_at, timezone),
-                "ended_at": (sessions.moment_label(session.ended_at, timezone)
-                             if session.ended_at is not None else None),
-                "activity_names": [names.get(item, state.activities[item].name) for item in session.activity_ids]}
 
     def _control_names(self, pending: PendingAction) -> dict[str, str]:
         """@brief 本轮冻结观察中人物所见的活动名（活动身份→名称），用于点名要先处理的活动。"""
@@ -593,12 +590,13 @@ class SessionActionMixin:
         """@brief 逐项播报进行中活动并重置其播报锚点；点名暂停的活动即在其开始地点恢复它。
 
         每项先经 activity_control.control_refusal 判定（只接受进行中或暂停的活动；恢复只在开始地点，工作的恢复距截止与
-        剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。
+        剩余合同都不少于 60 秒，且与进行中活动的占用不冲突），与工具层、待办层的可用性一字不差。恢复的活动在结果中登记
+        resumed：活动名与恢复后的计划时长（秒，公开结果写成 details.planned）。
         """
         selected = self._activities_for_names(state, pending, request.task)
         names = self._control_names(pending)
-        changed = state
-        for activity in selected:
+        changed, resumed = state, []
+        for name, activity in zip(request.task, selected, strict=True):
             current = changed.activities[activity.activity_id]
             refusal = activity_control.control_refusal(
                 self._admission_context(changed, pending.agent_id, names), "report_status", current)
@@ -606,8 +604,13 @@ class SessionActionMixin:
                 raise refusal.error()
             if current.status == ActivityStatus.PAUSED:
                 changed = self._resume_at_start_location(changed, pending, current)
+                planned = changed.activities[activity.activity_id].planned_end_at - changed.current_time
+                resumed.append({"name": name, "planned_duration_seconds": planned})
         changed = self._with_notes(changed, selected, request.summary, anchor=True)
-        return changed, self._control_result(state, pending, "Activity status reported", request.task, selected)
+        result = self._control_result(state, pending, "Activity status reported", request.task, selected)
+        if resumed:
+            result = result.model_copy(update={"data": {**result.data, "resumed": resumed}})
+        return changed, result
 
     def _resume_at_start_location(self, state: WorldState, pending: PendingAction,
                                   activity: ActivityState) -> WorldState:
@@ -713,10 +716,18 @@ class SessionActionMixin:
 
 
 def _self_report(note: str) -> dict:
-    """@brief 回看中的人物自述：有自述时带「你自己记下的，未经核验」标注。"""
-    if not note:
-        return {}
-    return {"progress_note": note, "subjective_status": activity_control.SELF_REPORT_MARK}
+    """@brief 回看中的人物自述原文（是否经核验由系统层规则统一说明，不逐条标注）；没有自述时为空。"""
+    return {"progress_note": note} if note else {}
+
+
+def _remembered(observed: dict, activity: ActivityState | None) -> dict | None:
+    """@brief 活动的最新自述仍在本轮记忆层 self_notes 中时的回看结果：只写活动名与「已在记忆层」；否则为 None。"""
+    if activity is None or not activity.progress_note:
+        return None
+    name = next(row["name"] for row in observed["activity_bindings"] if row["activity_id"] == activity.activity_id)
+    if not memory_layer.holds_note(observed["memory_layer"], name, activity.progress_note):
+        return None
+    return {"activity": name, "progress_note": IN_MEMORY_LAYER}
 
 
 def _capped_duration(duration: int) -> int:

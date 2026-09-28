@@ -201,7 +201,6 @@ def _observations(*progress_event_ids: str) -> list[dict]:
         "interaction_bindings": copy.deepcopy([_SELF_OBJECT[1], _TASK_OBJECT[1]]),
         "task_bindings": [{"task_name": _TASK, "task_id": "task-visible"}],
         "activity_bindings": [],
-        "session_bindings": [{"name": _HOME_SESSION, "session_id": "session-7-0001"}],
         "goal_bindings": [],
         "agent_id": 7, "verified_experiences": [], "occupied_resources": [],
         "active_activities": [],
@@ -320,6 +319,19 @@ def test_incomplete_work_stays_submittable_for_business_rejection() -> None:
     assert agent.validate_react_decisions([submit], False) == ""
     unknown = ReactDecision("", "submit_work", {"task_name": "整理会议纪要", "deliverable": deliverable}, "")
     assert agent.validate_react_decisions([unknown], False) == "task_name is not visible"
+
+
+def test_session_names_are_not_recall_names() -> None:
+    """会话名不在七层中出现，不是回看名称：观察不绑定会话名，宿主本地校验把它当作不可见的名称（回看的名称只取七层中出现的
+    任务、目标与活动名，docs/dev/SPEC-persona-prompt.md 第八章）。"""
+    agent = _prepared(_observations())
+
+    def recall(name: str) -> ReactDecision:
+        """按名称回看的一次决策。"""
+        return ReactDecision("", "recall_task_summary", {"task_name": name}, "")
+
+    assert agent.validate_react_decisions([recall(_TASK)], False) == ""
+    assert agent.validate_react_decisions([recall(_HOME_SESSION)], False) == "task_name is not visible"
 
 
 def test_life_tool_schema_fingerprint_pins_registry_digest(monkeypatch) -> None:

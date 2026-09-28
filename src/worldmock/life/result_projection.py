@@ -2,8 +2,9 @@
 
 公开结果含 occurred_at（带时区 ISO）、status、error_code（恒写，没有时为 null）、message（原文）与 details（恒写，没有新
 事实时为 {}），工作结果另带公开 work_review。details 只放本次新产生的可读事实：购买的商品、份数、付款、方式、送达地点与
-预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长，到达，浏览得到的商品名称，回看，拒绝的原因与下一步，
-近似候选、终局与已关联的订单；不复述参数，不含内部身份与资源账户。
+预计时刻、收货人与所回应的消息，给予的商品、份数与收件人，计划时长（开始与恢复），到达，浏览得到的商品名称，读完的邮件主题与正文（邮件
+正文只在阅读动作的结果中出现），回看，拒绝的原因与下一步，近似候选、终局与已关联的订单；不复述参数，不含内部身份与资源
+账户。时刻字段（*_at）是带时区的 ISO 8601。
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from worldmock.life.interaction_menu import PURCHASE_WAYS
-from worldmock.life.readable import clock_phrase, duration_phrase, iso_time, money_phrase, portion_phrase
+from worldmock.life.readable import duration_phrase, iso_time, money_phrase, portion_phrase
 from worldmock.life.scenario import RuntimeScenario
 
 #: 工作公开评审的汇总字段，禁止带入隐藏参考、答案或完整结果树。
@@ -33,23 +34,22 @@ DELIVERY_ASSESSMENT_FIELDS = (
 _PASSTHROUGH_DETAILS = ("recall", "reason", "next_step", "candidates", "outcome", "linked_orders")
 
 
-def public_result(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dict[str, Any]:
+def public_result(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
     """@brief 一条 action_result 事件正文（ActionResult 的 JSON）的公开结果。
 
     :param result: action_result 事件的 data（含 status、error_code、message、occurred_at 与领域 data）。
     :param scenario: 场景（商品名、地点名与时区）。
-    :param now: 本次观察时刻（短语里的时刻与它不在同一本地日期时带「M月D日」）。
     """
     payload = result.get("data") or {}
     public = {"occurred_at": iso_time(result["occurred_at"], scenario.timezone), "status": result["status"],
               "error_code": result.get("error_code"), "message": result["message"],
-              "details": _details(result, scenario, now)}
+              "details": _details(result, scenario)}
     if "work_review" in payload:
         public["work_review"] = _public_review(payload["work_review"])
     return public
 
 
-def _details(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dict[str, Any]:
+def _details(result: dict[str, Any], scenario: RuntimeScenario) -> dict[str, Any]:
     """@brief details：本次新产生的可读事实，按闭集键逐项给出，没有的键不写。"""
     payload = result.get("data") or {}
     names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
@@ -57,7 +57,7 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dic
     details: dict[str, Any] = {}
     if payload.get("orders"):
         people = _people(scenario)
-        details["purchases"] = [{**_purchase(order, names, places, (scenario.timezone, now)),
+        details["purchases"] = [{**_purchase(order, names, places, scenario.timezone),
                                  "recipient": people[order["recipient_id"]],
                                  "request": payload.get("answering") if order["request_message_id"] else None}
                                 for order in payload["orders"]]
@@ -69,24 +69,37 @@ def _details(result: dict[str, Any], scenario: RuntimeScenario, now: int) -> dic
         started = [payload["activity"]] if "activity" in payload else payload.get("activities", [])
         details["planned"] = [{"name": item.get("name"), "duration": duration_phrase(item["planned_duration_seconds"])}
                               for item in started]
+    if payload.get("resumed"):
+        details["planned"] = [{"name": item["name"], "duration": duration_phrase(item["planned_duration_seconds"])}
+                              for item in payload["resumed"]]
     arrival = (payload.get("activity") or {}).get("data", {}).get("arrival")
     if arrival is not None:
         details["arrival"] = {"place": places[arrival["location_id"]],
                               "access": "进入" if arrival["access_status"] == "allowed" else "没能进去"}
     if "browse_result" in payload:
         details["browse_items"] = [names[item["product_id"]] for item in payload["browse_result"].get("items", [])]
+    mail = _read_mail(payload)
+    if mail is not None:
+        details["mail"] = mail
     details.update({key: payload[key] for key in _PASSTHROUGH_DETAILS if key in payload})
     return details
 
 
+def _read_mail(payload: dict[str, Any]) -> dict[str, str] | None:
+    """@brief 读完的邮件 {subject, body}：阅读活动完成时揭示的主题与正文；没有读完的阅读时为 None。"""
+    rows = [payload["activity"]] if "activity" in payload else payload.get("activities", [])
+    revealed = next((row["data"]["revealed"] for row in rows
+                     if row.get("kind") == "read_mail" and "revealed" in (row.get("data") or {})), None)
+    return None if revealed is None else {"subject": revealed["subject"], "body": revealed["body"]}
+
+
 def _purchase(order: dict[str, Any], names: dict[str, str], places: dict[str, str],
-              clock: tuple[str, int]) -> dict[str, Any]:
-    """@brief 一个订单的公开事实：商品、份数、付款、方式、送达地点与预计时刻（clock 为时区与观察时刻）。"""
-    timezone_name, now = clock
+              timezone_name: str) -> dict[str, Any]:
+    """@brief 一个订单的公开事实：商品、份数、付款、方式、送达地点与预计时刻（带时区 ISO）。"""
     return {"product": names[order["product_id"]], "quantity": portion_phrase(order["quantity"]),
             "paid": money_phrase(order["total_price_fen"]), "way": PURCHASE_WAYS[order["fulfillment"]],
             "destination": places[order["destination_id"]],
-            "expected_at": clock_phrase(order["expected_at"], now, timezone_name)}
+            "expected_at": iso_time(order["expected_at"], timezone_name)}
 
 
 def _people(scenario: RuntimeScenario) -> dict[str, str]:

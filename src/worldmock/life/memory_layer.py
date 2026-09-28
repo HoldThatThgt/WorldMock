@@ -149,6 +149,13 @@ def reflection_date(sleep_started_at: int, timezone_name: str) -> str:
     return local_date(sleep_started_at - REFLECTION_SHIFT_SECONDS, timezone_name)
 
 
+def holds_note(layer: dict, activity_name: str, text: str) -> bool:
+    """@brief 记忆层 JSON 的 self_notes 里是否有这项活动写下的这段原文（条目内按全名或去掉开始时刻后缀的短名标注）。"""
+    labels = {activity_name, _START_SUFFIX.sub("", activity_name, count=1)}
+    return any(note["activity"] in labels and note["text"] == text
+               for entry in (*layer["earlier_days"], *layer["earlier_today"]) for note in entry["self_notes"])
+
+
 def _build(context: LayerContext, store: FootprintStore) -> _Build:
     """@brief 读取本人事件并整理一次派生共用的即时结果、成功回复与暂停区间。"""
     cached = _agent_events(store, context.agent_id)

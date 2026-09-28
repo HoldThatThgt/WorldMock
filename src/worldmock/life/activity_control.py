@@ -41,8 +41,6 @@ if TYPE_CHECKING:
 
 #: 每人活动名额（常量，不设场景参数）。
 SLOT_LIMIT = 2
-#: 人物自述在提示中的标注。
-SELF_REPORT_MARK = "你自己记下的，未经核验"
 #: 活动阶段的人读说法：进行中、已暂停、刚结束（待收尾）、已收尾、已结束（实验截止截断）。
 PHASE_ACTIVE, PHASE_PAUSED, PHASE_PENDING, PHASE_CONCLUDED, PHASE_ENDED = (
     "进行中", "已暂停", "刚结束", "已收尾", "已结束")

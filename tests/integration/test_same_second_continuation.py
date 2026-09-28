@@ -195,8 +195,8 @@ async def test_a_three_decision_chain_keeps_every_prefix_and_reports_each_change
     await _single(environment, "plan", _plan_reply())
 
     def recall(observation: dict) -> list:
-        session = observation["session_bindings"][0]["name"]
-        return [_reply("call-recall", "recall_task_summary", {"task_name": session}, "回看一下这段停留。")]
+        goal = observation["goal_bindings"][0]["task_name"]
+        return [_reply("call-recall", "recall_task_summary", {"task_name": goal}, "回看一下这段停留。")]
 
     _, recalled, _ = await _single(environment, "recall", recall)
     observation, [third], _ = await _single(environment, "wait", _wait_reply())

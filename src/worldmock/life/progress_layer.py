@@ -91,7 +91,7 @@ def progress_view(context: LayerContext, store: FootprintStore, pauses: PauseInt
 
 def result_object(context: LayerContext, result_event: Event) -> dict:
     """@brief 一条 action_result 事件的公开结果（与进度层 tool_call.result 同一投影）。"""
-    return public_result(result_event.data, context.scenario, context.state.current_time)
+    return public_result(result_event.data, context.scenario)
 
 
 def records_after(context: LayerContext, store: FootprintStore, after_seq: int) -> list[tuple[dict, list[str]]]:
@@ -151,8 +151,8 @@ def _tool_record(context: LayerContext, request: Event, results: list[Event]) ->
     开始活动的请求其后的终态结果不带当时的订单，公开结果的 purchases 取即时结果的订单。
     """
     data = request.data
-    result = public_result(results[-1].data, context.scenario, context.state.current_time)
-    first = public_result(results[0].data, context.scenario, context.state.current_time)
+    result = public_result(results[-1].data, context.scenario)
+    first = public_result(results[0].data, context.scenario)
     if "purchases" in first["details"] and "purchases" not in result["details"]:
         result["details"] = {"purchases": first["details"]["purchases"], **result["details"]}
     record = {"occurred_at": iso_time(request.occurred_at, context.scenario.timezone), "type": "tool_call",

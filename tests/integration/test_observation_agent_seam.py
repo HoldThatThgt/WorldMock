@@ -95,7 +95,8 @@ def test_engine_active_activity_control_feeds_life_agent(_engine_factory) -> Non
         decision = ReactDecision("", tool, {"task": [activity["name"]], "summary": ["继续。"]}, "")
         assert agent.validate_react_decisions([decision], False) == ""
     user = agent.build_react_messages(ReactLoopRequest(0, ctx.observed_at, _observation_records(observation)))[1]
-    for private in (control["activity_id"], observation["session_bindings"][0]["session_id"]):
+    session_id = next(iter(engine.state.sessions))
+    for private in (control["activity_id"], session_id):
         assert private not in str(schemas) and private not in user["content"]
     [stored] = [event for event in engine.store.read_agent_events("observation", 1)
                 if event.event_id == observation["observation_event_id"]]

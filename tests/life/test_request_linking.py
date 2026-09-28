@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 from tests.life.routing_fixtures import (COLLEAGUE, COLLEAGUE_TARGET, HOME, OFFICE, act, contact_message, later,
                                          observe, open_world, routed, stage, supply_target)
-from worldmock.life.readable import clock_phrase
+from worldmock.life.readable import iso_time
 from worldmock.life.request_linking import message_bindings
 
 
@@ -72,7 +72,7 @@ def test_resubmitting_the_same_request_is_rejected_and_points_to_the_order(engin
     balance = engine.state.accounts["agent:1"]
     repeat = act(engine, "linked-again", routed((first, "obtain", "远程下单", None, COLLEAGUE_TARGET), answering=name))
     product = engine.rules.items[food].name
-    expected = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
+    expected = iso_time(order["expected_at"], engine.scenario.timezone)
     assert (repeat.status, repeat.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
     assert repeat.data["reason"] == f"{name}要的{product}已经下过单了" and repeat.data["next_step"] == "等已下的订单送到"
     assert repeat.data["linked_orders"] == [{"order": f"{product} 1 份（10:01 远程下单）", "expected_at": expected}]

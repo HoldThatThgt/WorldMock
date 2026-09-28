@@ -691,7 +691,7 @@ def _render_public_review_decision(decision, source: str) -> str:
               "error_code": None, "message": "Work completed.",
               "data": {"work_review": public_work_review(decision, source)}}
     scenario = SimpleNamespace(products=(), inventory_items=(), locations=(), timezone="Asia/Shanghai")
-    return json.dumps(public_result(result, scenario, 1767542400), ensure_ascii=False)
+    return json.dumps(public_result(result, scenario), ensure_ascii=False)
 
 
 def _private_rationale_value(prepared, kind: str) -> str:
