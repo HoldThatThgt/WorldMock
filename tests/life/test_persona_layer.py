@@ -84,11 +84,12 @@ def test_card_path_renders_card_fields_and_merges_relationships_by_exact_name() 
 
 
 def test_quarter_hour_times_are_written_as_quarters() -> None:
-    """刻钟写对：睡眠中点 3.25 与 3.75 写「3点一刻」「3点三刻」（旧写法只认半点，会写成「3点」）；卡片渲染同一口径。"""
+    """刻钟写对：睡眠中点 3.25 与 3.75 写「3点一刻」「3点三刻」（旧写法只认半点，会写成「3点」）；render_card 不动，
+    卡片文本仍是旧写法「3点」（刻钟写法只属于人设层）。"""
     assert [hour_text(value) for value in (7.0, 7.25, 7.5, 7.75)] == ["7点", "7点一刻", "7点半", "7点三刻"]
     card = make_card(chronotype_midsleep=3.75)
     assert persona_layer(_profile(card), "陈曦", _NO_VIEWS)["rhythm"]["sleep_midpoint"] == "3点三刻"
-    assert "睡眠中点约3点三刻" in render_card(card)
+    assert "睡眠中点约3点，" in render_card(card)
 
 
 def test_no_card_person_keeps_the_name_only_path_and_view_only_people_get_an_item() -> None:
