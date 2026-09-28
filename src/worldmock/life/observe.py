@@ -13,7 +13,7 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import activity_control, discovery, felt, presentation, progress_layer, projection
+from worldmock.life import activity_control, discovery, felt, memory_layer, presentation, progress_layer, projection
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
@@ -26,11 +26,6 @@ from worldmock.life.result_projection import public_supply_row
 from worldmock.life.environment_layer import environment_layer
 from worldmock.life.todo_layer import todo_layer
 from worldmock.life.tool_layer import LayerContext, annotated_bindings, tool_layer, with_bindings
-
-#: 记忆层（阶段 1 的常量内容：两个列表都为空）与看法偏好（都为空）。
-EMPTY_MEMORY_LAYER = {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
-EMPTY_PERSONA_VIEWS = {"relationships": [], "preferences": []}
-
 
 class ObservationMixin:
     """@brief 观察投影、浏览与动机仪表的引擎装配方法（self 为 LifeEngine）。"""
@@ -79,13 +74,15 @@ class ObservationMixin:
         return with_bindings(context, annotated_bindings(context))
 
     def _layer_data(self, context: LayerContext, levels: dict[str, str]) -> dict:
-        """@brief 环境侧构建的层数据与进度层私有配套（记忆层与看法偏好为阶段 1 的空内容）。"""
-        view = progress_layer.progress_view(context, self.store)
+        """@brief 环境侧构建的层数据与私有配套：记忆层与看法偏好由已提交事件派生，全文已呈现的消息含进度层与记忆层两处。"""
+        memory = memory_layer.memory_view(context, self.store)
+        view = progress_layer.progress_view(context, self.store, memory.pauses)
+        presented = list(dict.fromkeys([*view.presented_message_ids, *memory.presented_message_ids]))
         return {"tool_layer": tool_layer(context), "todo_layer": todo_layer(context),
                 "environment_layer": environment_layer(context, levels),
-                "memory_layer": deepcopy(EMPTY_MEMORY_LAYER), "persona_views": deepcopy(EMPTY_PERSONA_VIEWS),
+                "memory_layer": memory.layer, "persona_views": memory_layer.persona_views(context, self.store),
                 "progress_layer": view.layer, "progress_meta": view.meta,
-                "progress_event_ids": view.event_ids, "presented_message_ids": view.presented_message_ids}
+                "progress_event_ids": view.event_ids, "presented_message_ids": presented}
 
     def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]]) -> dict:
         """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动与会话。

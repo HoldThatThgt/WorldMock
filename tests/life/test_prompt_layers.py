@@ -1,6 +1,6 @@
 """环境构建的提示层：Schema 校验、枚举闭集与唯一出现原则（docs/dev/SPEC-persona-prompt.md 第一章）。
 
-工具层、待办层、环境层、进度层与阶段 1 的空记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
+工具层、待办层、环境层、进度层与记忆层在真实引擎的各种状态下逐一通过 prompt_schemas 校验；Schema 中的
 体感分级、方式、动词、动作状态、意图与目标类别是源头闭集的字面副本，由本文件锁定一致。唯一出现性质（「唯一出现原则」）：
 直接消息全文只在进度层；暂停活动的进度只在待办层，它不是工具层目标；工作合同的截止与剩余只在任务目标的 contract，
 工作活动的状态不写「还差」；浏览得到的供给只在工具层，浏览结果只列名称。系统层、人设层、user 消息与原生 tools 由宿主侧
@@ -64,8 +64,9 @@ def test_schema_enums_are_literal_copies_of_the_source_closed_sets() -> None:
     assert set(LAYER_SCHEMAS) == {"系统层", *USER_LAYER_NAMES} and len(USER_LAYER_NAMES) == 6
 
 
-def test_memory_layer_and_persona_views_are_the_stage_one_empty_constants(engine_factory) -> None:
-    """阶段 1 的记忆层两个列表都为空并通过 Schema；看法与偏好都为空；运行开始的五层都通过 Schema。"""
+def test_memory_layer_and_persona_views_are_empty_at_run_start(engine_factory) -> None:
+    """运行开始时还没有结束的 session 与写下的看法：记忆层两个列表都为空并通过 Schema，看法与偏好都为空；运行开始的五层
+    都通过 Schema（派生内容见 test_memory_layer.py 与 test_persona_layer.py）。"""
     engine = engine_factory()
     stage_day_plan(engine)
     observed = _checked(engine, "memory")

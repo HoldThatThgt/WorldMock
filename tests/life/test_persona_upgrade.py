@@ -116,8 +116,8 @@ def test_same_persona_compiles_to_the_same_profile_across_scenarios() -> None:
 
 
 def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt() -> None:
-    """阶段一人设层取人物姓名与场景联系人（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）；卡片渲染文本与经历、
-    健康习惯、社交风格等画像字段在阶段三的卡片路径之前都不进提示，有无编译卡片得到同一人设层。"""
+    """人设层（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：有编译卡片的人物取卡片的身份、作息与关系，场景联系人
+    随后；没有卡片的人物只填姓名；卡片渲染文本、当下处境与经历、健康习惯、社交风格等画像字段都不进提示。"""
     from agentsociety2.agent.base import ReactLoopRequest
 
     from custom.agents.life_agent import LifeAgent
@@ -137,14 +137,21 @@ def test_persona_layer_from_the_scenario_profile_reaches_the_native_llm_prompt()
         user = agent.build_react_messages(request)[1]["content"]
         return json.loads(user)[1], user
 
-    carded, carded_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: "画像卡片：立体人格文本。")[0][
-        "profile"])
+    from tests.profile.conftest import make_card
+    from worldmock.profile.textgen import render_card
+
+    card = make_card()
+    carded, carded_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: card)[0]["profile"])
     plain, plain_user = persona(_agent_specs(scenario, persona_compiler=lambda agent: None)[0]["profile"])
-    assert carded == plain
-    assert carded["identity"]["name"] == scenario.agents[0].name
-    assert [row["person"] for row in carded["relationships"]] == [
-        contact.salutation for contact in scenario.agents[0].contacts]
-    assert "画像卡片" not in carded_user
+    assert carded["identity"] == {"name": scenario.agents[0].name, "age": 32, "occupation": "产品经理",
+                                  "living_arrangement": "与伴侣合租两居室"}
+    assert carded["rhythm"]["wake"] == "7点到7点半" and plain["rhythm"] is None
+    assert plain["identity"] == {"name": scenario.agents[0].name, "age": None, "occupation": None,
+                                 "living_arrangement": None}
+    contacts = [contact.salutation for contact in scenario.agents[0].contacts]
+    assert [row["person"] for row in carded["relationships"]] == ["母亲", "老周", *contacts]
+    assert [row["person"] for row in plain["relationships"]] == contacts
+    assert render_card(card) not in carded_user and card.situation.cares_about not in carded_user
     for field in _NEW_PERSONA_FIELDS:
         assert getattr(scenario.agents[0], field) not in plain_user
     assert '"profile"' not in carded_user and '"profile"' not in plain_user

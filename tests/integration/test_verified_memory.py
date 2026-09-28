@@ -31,7 +31,7 @@ def _response(content):
     return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
 
 
-def _runtime(tmp_path, dispatch=None):
+def _runtime(tmp_path, dispatch=None, config=None):
     async def no_call(**_):
         pytest.fail("subjective consolidation was not due")
 
@@ -41,15 +41,15 @@ def _runtime(tmp_path, dispatch=None):
         trace_span=None, _persona_card_text=lambda: "人物画像里的身份",
         _life_verified_experiences=[], _life_observation_event_id="observation-1",
     )
-    runtime = WorldMockMemoryRuntime(owner, MemoryRuntimeConfig())
+    runtime = WorldMockMemoryRuntime(owner, config or MemoryRuntimeConfig())
     runtime.ensure_store(tmp_path)
     return runtime, owner
 
 
 def _concluded(text: str, kind: str = "goal", importance: float = 0.5,
-               keywords: tuple[str, ...] = ()) -> list[dict]:
-    """结束一项活动时写下的一条记忆，经宿主按 task 展平（来源 activity_conclusion，认知状态 subjective）。"""
-    memory = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
+               keywords: tuple[str, ...] = (), subject: str | None = None) -> list[dict]:
+    """结束一项活动时写下的一条记忆，经宿主按 task 展平（来源 activity_conclusion，认知状态 subjective，subject 去掉）。"""
+    memory = {"type": kind, "text": text, "importance": importance, "keywords": list(keywords), "subject": subject}
     return _conclusion_memories("conclude_activity", {
         "task": ["等待（9月21日 16:00 起）"], "summary": ["收尾。"], "memories": [[memory]]})
 
@@ -91,7 +91,9 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
     assert identity == "> 人物画像里的身份"
     facts = view.split("## 已核验经历\n", 1)[1].split("## 人物自述", 1)[0]
     assert "progress-1" in facts and "吃完三顿饭" not in facts
-    assert runtime.build_context()["recent_episodes"][0]["epistemic_status"] == "subjective"
+    context = runtime.build_context()
+    assert set(context) == {"recent_episodes", "files"}
+    assert context["recent_episodes"][0]["epistemic_status"] == "subjective"
     owner._life_verified_experiences = [_wait_fact("progress-2", 2)]
     owner._life_observation_event_id = "observation-2"
     second = await runtime.after_step(tick=60, t=_TIME, step_count=2, finish_memories=[])
@@ -99,7 +101,7 @@ async def test_fact_view_only_uses_current_observation_and_does_not_reset_subjec
     assert second.verified_event_ids == ("progress-2",)
     assert runtime.store.read_state()["pending_episode_count"] == 1
     assert "progress-2" in runtime.store.memory_md_path.read_text(encoding='utf-8')
-    assert "progress-1" not in runtime.build_context()["memory_md"]
+    assert "progress-1" not in json.dumps(runtime.build_context(), ensure_ascii=False)
     third = await runtime.after_step(tick=60, t=_TIME, step_count=3, finish_memories=[])
     assert third.created_episodes == () and third.merged_episodes == ()
     assert third.memory_before_sha256 is not None
@@ -166,7 +168,7 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
     runtime, owner = _runtime(tmp_path, dispatch)
     holder["runtime"] = runtime
     outcome = await runtime.after_step(
-        tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6),
+        tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想多联系朋友", "relationship", 0.6, subject="朋友"),
         sleep_boundary=True)
     assert holder["calls"] == 2
     assert len(outcome.created_episodes) == 2
@@ -177,6 +179,19 @@ async def test_sleep_reflection_is_subjective_and_its_id_is_reported(tmp_path):
     assert conclusion["source"] == "activity_conclusion"
     assert outcome.consolidated is True
     assert runtime.store.read_subjective_summary() == "我想和朋友保持联系。"
+    assert "subject" not in conclusion and "我想和朋友保持联系" not in json.dumps(runtime.build_context(), ensure_ascii=False)
+
+
+@pytest.mark.asyncio
+async def test_zero_recent_memory_limit_returns_no_recent_entries(tmp_path):
+    """recent_memory_limit 为 0 时最近条目为空列表（docs/dev/SPEC-persona-prompt.md 第六章「零条最近记忆失效」回归：
+    AS2 存储会把 0 改回 8 条，去掉守卫即失败）；大于 0 时照常返回。"""
+    runtime, _ = _runtime(tmp_path, config=MemoryRuntimeConfig(recent_limit=0))
+    await runtime.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想休息"))
+    assert runtime.store.iter_episodes() and runtime.build_context()["recent_episodes"] == []
+    capped, _ = _runtime(tmp_path / "capped", config=MemoryRuntimeConfig(recent_limit=1))
+    await capped.after_step(tick=60, t=_TIME, step_count=1, finish_memories=_concluded("想休息"))
+    assert [item["text"] for item in capped.build_context()["recent_episodes"]] == ["想休息"]
 
 
 def test_memory_tool_returns_explicit_subjective_label_even_when_empty(tmp_path):

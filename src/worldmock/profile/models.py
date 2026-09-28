@@ -295,6 +295,21 @@ class PersonaCard(_Frozen):
         return value
 
 
+class PersonaCardStruct(PersonaCard):
+    """@brief 人物 profile 中的结构化卡片 persona_card_struct：PersonaCard 去掉当下处境（situation 不进提示）。
+
+    新建运行时由编译卡片导出（persona_card_struct），恢复时按本模型校验；其余字段与校验沿用 PersonaCard
+    （docs/dev/SPEC-persona-prompt.md 第一章「人设层」）。
+    """
+
+    situation: None = Field(default=None, exclude=True)
+
+
+def persona_card_struct(card: PersonaCard) -> dict:
+    """@brief 编译卡片 → profile 保存的结构化字段（JSON 形状，去掉 situation）。"""
+    return card.model_dump(mode="json", exclude={"situation"})
+
+
 class WorldDynamics(_Frozen):
     """@brief 大五 → 世界层动力学参数（只供引擎内部使用，不进提示，docs/dev/SPEC-life-realism.md「画像编译」）。
 

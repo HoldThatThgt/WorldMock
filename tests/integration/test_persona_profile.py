@@ -20,13 +20,15 @@ TRAITS = ('trait_source_kind',)
 
 
 def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_layer():
-    """冻结人物以人设层进入 user（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：阶段一只填姓名与场景联系人，
-    卡片渲染文本与画像元字段都不进提示；系统层没有身份前言。"""
+    """冻结人物以人设层进入 user（docs/dev/SPEC-persona-prompt.md 第一章「人设层」）：身份取自结构化卡片，卡片关系在前、
+    对不上的场景联系人随后（亲密度 null、渠道为空）；卡片渲染文本、当下处境与画像元字段都不进提示；系统层没有身份前言。"""
     from tests.integration.test_life_agent_protocol import _observations
+    from tests.profile.conftest import make_card
+    from worldmock.profile.textgen import render_card
 
     scenario, _ = load_scenario(SCENARIO)
-    specification = _agent_specs(
-        scenario, persona_compiler=lambda agent: '画像卡片：陈曦，产品经理。')[0]
+    card = make_card()
+    specification = _agent_specs(scenario, persona_compiler=lambda agent: card)[0]
     agent = LifeAgent()
     agent._id = specification['id']
     agent._name = specification['profile']['name']
@@ -37,14 +39,14 @@ def test_frozen_persona_identity_reaches_the_native_agent_prompt_as_the_persona_
     system, user = (item['content'] for item in agent.build_react_messages(request))
     person = scenario.agents[0]
     persona = json.loads(user)[1]
-    assert persona['identity'] == {'name': person.name, 'age': None, 'occupation': None,
-                                   'living_arrangement': None}
+    assert persona['identity'] == {'name': person.name, 'age': 32, 'occupation': '产品经理',
+                                   'living_arrangement': '与伴侣合租两居室'}
     assert [(row['person'], row['role']) for row in persona['relationships']] == [
-        (contact.salutation, contact.relation) for contact in person.contacts]
-    assert all(row['closeness'] is None and row['channels'] == [] for row in persona['relationships'])
+        ('母亲', '家人'), ('老周', '老友'), *((contact.salutation, contact.relation) for contact in person.contacts)]
+    assert all(row['closeness'] is None and row['channels'] == [] for row in persona['relationships'][2:])
     assert '你不是AI助手' not in system and person.name not in system
-    assert '画像卡片' not in user
-    for stale in ('"profile"', '"trait_source_kind"', '"occupation":"', '"persona_card"'):
+    assert render_card(card) not in user and card.situation.busy_this_week not in user
+    for stale in ('"profile"', '"trait_source_kind"', '"persona_card"', '"persona_card_struct"', '"situation"'):
         assert stale not in user
     # 冻结画像特征仍在文档层闭合（提示层不泄元字段）。
     assert person.trait_source_kind == 'experiment_assumption'

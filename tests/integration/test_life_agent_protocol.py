@@ -155,9 +155,10 @@ def _context() -> DecisionContext:
 
 
 def _memory(text: str = "我歇了一会儿，心里踏实了些。", *, kind: str = "routine", importance: float = 0.5,
-            keywords: tuple[str, ...] = ("休息",)) -> dict:
-    """一条收尾记忆 {type, text, importance, keywords}；来源与认知状态由系统填写，模型不填任何身份。"""
-    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords)}
+            keywords: tuple[str, ...] = ("休息",), subject: str | None = None) -> dict:
+    """一条收尾记忆 {type, text, importance, keywords, subject}（relationship 与 preference 带对象，其余为 null）；
+    来源与认知状态由系统填写，模型不填任何身份。"""
+    return {"type": kind, "text": text, "importance": importance, "keywords": list(keywords), "subject": subject}
 
 
 def _conclude_args(*names: str, memories: list[list[dict]] | None = None) -> dict:

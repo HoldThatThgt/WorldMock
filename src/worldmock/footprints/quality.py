@@ -593,12 +593,18 @@ def _valid_memory_update_payload(data: dict) -> bool:
     return _valid_subjective_snapshots(episodes, identities)
 
 
+def _snapshot_keys_valid(item: dict) -> bool:
+    """@brief 快照键集：四个基本键，或另加 source 且来源为就寝反思（宿主为反思条目标注来源）。"""
+    base = {"id", "type", "text", "epistemic_status"}
+    return set(item) == base or (set(item) == base | {"source"} and item["source"] == "reflection")
+
+
 def _valid_subjective_snapshots(episodes: list, identities: list[str]) -> bool:
     """@brief 主观快照与本次实际持久身份一一对应。"""
     if len(episodes) != len(identities):
         return False
     for item in episodes:
-        if (not isinstance(item, dict) or set(item) != {"id", "type", "text", "epistemic_status"}
+        if (not isinstance(item, dict) or not _snapshot_keys_valid(item)
                 or item.get("id") not in identities or item.get("type") not in _SUBJECTIVE_TYPES
                 or not isinstance(item.get("text"), str)
                 or not item["text"] or item.get("epistemic_status") != "subjective"):

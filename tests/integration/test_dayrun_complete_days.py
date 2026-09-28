@@ -161,7 +161,7 @@ class DayModel:
         memories = [[] for _ in names]
         if not self.subjective_written:
             memories[0] = [{"type": "reflection", "importance": 0.2, "keywords": ["猜想"],
-                            "text": "我以为自己已经吃过一顿饭。"}]
+                            "text": "我以为自己已经吃过一顿饭。", "subject": None}]
             self.subjective_written = True
         return "conclude_activity", {"task": list(names), "summary": ["这件事先到这里。"] * len(names),
                                      "memories": memories}
