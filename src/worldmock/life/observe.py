@@ -202,7 +202,7 @@ class ObservationMixin:
 
     def _event_tool_support(self, agent, presented: tuple[str, ...]) -> dict:
         """@brief 事件级工具支持与既有目录投影（私有证据，不进任何一层）。"""
-        # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「系统提示与身份前言」）。
+        # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「不进入提示的字段」）。
         data: dict[str, Any] = {}
         data["interaction_menu"] = resolve_interaction_menu(
             self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
@@ -248,7 +248,7 @@ class ObservationMixin:
         return next(item for item in self.scenario.agents if item.agent_id == agent_id)
 
     def _work_progress_rows(self, agent) -> list[dict]:
-        """@brief 工作目录：已投入/有效/合同剩余工时（docs/CONTRACTS.md「场景段落与事实清单」）。"""
+        """@brief 工作目录：已投入/有效/合同剩余工时（私有证据；呈现只在工具层任务目标的 contract，docs/CONTRACTS.md「七层字段」）。"""
         rows = []
         for task_id in sorted(agent.visible_task_ids):
             if task_id in self.state.paid_task_ids:
