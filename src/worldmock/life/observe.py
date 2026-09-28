@@ -18,7 +18,7 @@ from worldmock.life import (activity_control, discovery, felt, memory_layer, pre
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
-from worldmock.life.interaction_menu import resolve_interaction_menu
+from worldmock.life.menu_execution import current_menu
 from worldmock.life.inventory_recipe import is_inventory_recipe
 from worldmock.life.recipients import person_bindings
 from worldmock.life.presentation import PoolEntry, PresentationContext, PresentationWindow
@@ -49,7 +49,9 @@ class ObservationMixin:
         self._pending_presentation[agent.agent_id] = SameMomentPresentation(
             stamps=_presentation_stamps(self.state, presented), pinned_supply_ids=pinned)
         self._pending_visible_supplies[agent.agent_id] = set(rows["window"].presented)
-        task_rows = tuple(self._visible_task_rows(agent))
+        # 技能够不上的任务永久不能开工，不列目标也不绑定名称（docs/dev/SPEC-persona-prompt.md「工具层」）。
+        task_rows = tuple(row for row in self._visible_task_rows(agent)
+                          if agent.skill_levels.get(row["required_skill"], 0) >= row["minimum_skill"])
         experiences = recent_verified_experiences(self.store, agent.agent_id, self.store.last_event_seq)
         inputs = projection.ProjectionInputs(
             state=self.state, scenario=self.scenario, agent=agent, task_rows=task_rows, meal_windows=meal_windows,
@@ -73,7 +75,7 @@ class ObservationMixin:
         context = LayerContext(
             state=self.state, scenario=self.scenario, rules=self.rules, semantics=self.semantics,
             agent_id=agent.agent_id, names=activity_control.visible_names(self.state, agent.agent_id, taken),
-            bindings=bindings, menu=resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
+            bindings=bindings, menu=current_menu(self.scenario, self.state, agent.agent_id),
             lifestyle_items=self.lifestyle_items)
         return with_bindings(context, annotated_bindings(context))
 
@@ -89,7 +91,8 @@ class ObservationMixin:
                 "progress_event_ids": view.event_ids, "presented_message_ids": presented}
 
     def _name_bindings(self, agent, task_rows: tuple[dict, ...], names: dict[str, dict[str, str]]) -> dict:
-        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动、会话与同世界其他人物。
+        """@brief 本轮可读名称到内部身份的私有绑定：任务（名称同工具层任务目标）、当日目标、活动与同世界其他人物
+        （会话名不在七层中出现，不绑定）。
 
         活动绑定另带 resumable：暂停的活动此刻停留在其开始地点、可以恢复。人物绑定不论是否同处（recipients.person_bindings）。
         """
@@ -103,8 +106,6 @@ class ObservationMixin:
                                    "phase": activity_control.activity_phase(activities[activity_id]),
                                    "resumable": activity_control.resumable_here(self.state, activities[activity_id])}
                                   for activity_id, name in names["activities"].items()],
-            "session_bindings": [{"name": name, "session_id": session_id}
-                                 for session_id, name in names["sessions"].items()],
             "person_bindings": person_bindings(self.state, agent.agent_id),
         }
 
@@ -112,7 +113,7 @@ class ObservationMixin:
         """@brief 装配私有绑定的只读辅助输入：有效菜单（菜单外的能力不列出）、手边持有物中的库存转换配方（列「制作」）、
         路线、可达地点、本轮呈现的商品、内容、游戏与生活活动，以及活动控制行。"""
         return {
-            "interaction_menu": resolve_interaction_menu(self.scenario, agent.agent_id, agent.location_id),
+            "interaction_menu": current_menu(self.scenario, self.state, agent.agent_id),
             "recipe_product_ids": self._recipe_product_ids(agent),
             "content_titles": self.rules.content_titles,
             "scenario_messages": self.rules.messages,
@@ -206,8 +207,7 @@ class ObservationMixin:
         """@brief 事件级工具支持与既有目录投影（私有证据，不进任何一层）。"""
         # 完整任务/路线/商品、可供性合同、游戏目录（docs/dev/SPEC-life-runtime.md「活动组合政策」「不进入提示的字段」）。
         data: dict[str, Any] = {}
-        data["interaction_menu"] = resolve_interaction_menu(
-            self.scenario, agent.agent_id, agent.location_id).model_dump(mode="json")
+        data["interaction_menu"] = current_menu(self.scenario, self.state, agent.agent_id).model_dump(mode="json")
         data["content_progress"] = self._content_progress(agent)
         data["work_progress"] = self._work_progress_rows(agent)
         data["messages"] = _mail_headers(agent, self.rules.messages)

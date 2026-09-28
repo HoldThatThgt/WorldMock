@@ -4,7 +4,7 @@ answering 填一条可见直接消息的规范名称「<发件人> HH:MM 的消�
 （进度层 message_arrival 的 occurred_at）；私有绑定 message_bindings 把名称映射到消息与发件人，只收本次观察全文呈现的
 直接消息（presented_message_ids，记忆层的未回复消息随之加入）。同一分钟同一发件人的两条消息名称相同时，名称指后一条。
 已有同一（消息，收货人，商品）的未取消关联订单时再提交，以 REQUEST_ALREADY_HANDLED 业务拒绝，details.linked_orders
-列出已关联订单与预计送达时刻；换了商品、回应新消息或不关联时照常购买。
+列出已关联订单与预计送达时刻（带时区 ISO）；换了商品、回应新消息或不关联时照常购买。
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from typing import Any
 from worldmock.footprints.store import FootprintStore
 from worldmock.life.guidance import Refusal
 from worldmock.life.interaction_menu import PURCHASE_WAYS
-from worldmock.life.readable import clock_phrase, portion_phrase
+from worldmock.life.readable import clock_phrase, iso_time, portion_phrase
 from worldmock.life.recipients import person_name
 from worldmock.life.tool_layer import LayerContext
 
@@ -72,7 +72,7 @@ def require_unhandled(state: Any, scenario: Any, supplies: dict, bindings: list[
             names = {item.product_id: item.name for item in (*scenario.products, *scenario.inventory_items)}
             clock = (scenario.timezone, state.current_time)
             rows = [{"order": order_label(order.model_dump(mode="json"), names, clock),
-                     "expected_at": clock_phrase(order.expected_at, state.current_time, scenario.timezone)}
+                     "expected_at": iso_time(order.expected_at, scenario.timezone)}
                     for order in linked]
             reason = f"{binding['answering']}要的{names[product]}已经下过单了"
             raise Refusal("REQUEST_ALREADY_HANDLED", reason,

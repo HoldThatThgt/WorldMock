@@ -18,7 +18,7 @@ from worldmock.life.activity_control import pending_conclusions
 from worldmock.life.basket import delivery_expected_at
 from worldmock.life.models import ReportStatusRequest, active_activities
 from worldmock.life.projection import visible_supplies
-from worldmock.life.readable import clock_phrase
+from worldmock.life.readable import clock_phrase, iso_time
 
 SCENARIO = "white-collar-12-weeks.json"
 RESTAURANT = "poi-3538660453"
@@ -248,7 +248,7 @@ def test_delivery_eta_is_readable_and_matches_actual_delivery(engine_factory) ->
     assert engine.state.deliveries[order["order_id"]].expected_at == order["expected_at"]
     after = engine._observation_data(engine.state.agents[1])
     (purchase,) = progress_calls(after, "start_activity")[-1]["result"]["details"]["purchases"]
-    assert purchase["expected_at"] == clock_phrase(order["expected_at"], now, ZONE)
+    assert purchase["expected_at"] == iso_time(order["expected_at"], ZONE)
     # 实际送达：沿真实边界推进（人物其间只等待），订单在预计送达的那一秒转为已送达。
     assert order["expected_at"] > now and engine.state.deliveries[order["order_id"]].status == "pending"
     for step in range(64):

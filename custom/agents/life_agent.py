@@ -530,7 +530,6 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
     tasks = _binding_names(data, "task_bindings", "task_name")
     goals = _binding_names(data, "goal_bindings", "task_name")
     activities = _binding_names(data, "activity_bindings", "name")
-    sessions = _binding_names(data, "session_bindings", "name")
     kinds = {row["object"]: row["kind"] for row in data["interaction_bindings"]}
     return {
         "objects": objects,
@@ -538,7 +537,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "recipient_names": tuple(name for name in objects if kinds[name] in {"person", "contact"}),
         "people": tuple(name.split("：", 1)[-1] for name in _binding_names(data, "person_bindings", "name")),
         "activity_names": activities,
-        "recall_names": (*tasks, *goals, *activities, *sessions),
+        "recall_names": (*tasks, *goals, *activities),
         "progressed_intents": _progressed_intents(todo),
         "routing": routing_names(data),
     }

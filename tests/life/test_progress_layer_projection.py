@@ -1,7 +1,7 @@
 """活动控制与公开结果合同：活动目标的人读客观进度、播报暂停与结束的控制、回看、公开结果投影与内部身份隔离。
 
 docs/dev/SPEC-persona-prompt.md「工具层」「待办层」「进度层」：进行中与刚结束的活动是工具层的活动目标（名称、阶段、
-客观进度与三个控制工具），暂停的活动只在待办层；播报、暂停与结束逐项点名活动；回看可按任务、当日目标、活动或会话名，
+客观进度与三个控制工具），暂停的活动只在待办层；播报、暂停与结束逐项点名活动；回看可按任务、当日目标或活动名，
 结果不带身份并进入进度层该调用的结果。第八章「活动」：客观进度从活动累计读取，写成人读短语并随结算增长，工作不写「还差」。
 """
 
@@ -19,7 +19,7 @@ from tests.life.conftest import (
     start_activity, submit_round, wake_by_mail,
 )
 from worldmock.errors import BusinessRuleError
-from worldmock.life.activity_control import SELF_REPORT_MARK, activity_phase, objective_progress, visible_names
+from worldmock.life.activity_control import activity_phase, objective_progress, visible_names
 from worldmock.life.models import (
     ActivityKind,
     ActivityState,
@@ -221,10 +221,12 @@ def test_conclude_marks_named_just_ended_activities_and_keeps_their_status() -> 
         _Controller(both)._conclude_activity(both, _pending(), conclude_request(work.name))
 
 
-def test_recall_reads_task_activity_and_session_without_identities() -> None:
+def test_recall_reads_task_and_activity_without_identities() -> None:
     """回看工作任务取最近一条相关活动自述；回看活动给地点（最近所属会话的地点，未归入会话的取开始地点）、阶段、
-    人读进度（工作不写「还差」）与自述；回看会话给地点、起止与活动名；自述标「你自己记下的，未经核验」，结果不带内部身份并
-    原样进入进度层该调用结果的 details.recall（第七章，docs/dev/SPEC-persona-prompt.md「进度层」）。"""
+    人读进度（工作不写「还差」）与自述；截止是带时区的 ISO 时刻，自述照原文、不逐条标注未经核验；会话名不在七层中出现，
+    回看会话名以 TASK_NOT_FOUND 拒绝。结果不带内部身份并原样进入进度层该调用结果的 details.recall（第七章，
+    docs/dev/SPEC-persona-prompt.md「通用格式」「进度层」）。自述仍在本轮记忆层 self_notes 中时（按活动的全名或去掉开始
+    时刻的短名标注），任务与活动的回看都只写那项活动在记忆层中的名称与「已在记忆层」（「唯一出现原则」）。"""
     task = SimpleNamespace(task_id="internal-task", required_effective_seconds=14400.0,
                            due_at=datetime.fromtimestamp(_START + 64800, timezone.utc))
     work = {"kind": ActivityKind.WORK, "target_id": task.task_id, "task_kind": SessionTaskKind.WORK_TASK,
@@ -239,9 +241,10 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
     afternoon = _session("afternoon", (second,), started_at=_START + 7200)
     unassigned = _activity("unassigned", "等待", started_at=_START + 60, sessions=())
     state = _world([first, second, unassigned], [morning, afternoon], now=_START + 10200)
+    memory = {"layer": "记忆层", "earlier_days": [], "earlier_today": []}
 
     class RecallController(SessionActionMixin):
-        """只提供回看需要的冻结绑定、任务目录与地点名。"""
+        """只提供回看需要的冻结绑定、记忆层、任务目录与地点名。"""
 
         rules = SimpleNamespace(task=lambda _identity: task, tasks={task.task_id: task})
         scenario = SimpleNamespace(timezone=_ZONE, locations=(
@@ -250,12 +253,10 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
         def _frozen_observation(self, _pending: PendingAction) -> dict:
             names = visible_names(state, 1, ["工作：1月5日项目会议纪要"])
             return {"task_bindings": [{"task_name": "工作：1月5日项目会议纪要", "task_id": task.task_id}],
-                    "goal_bindings": [],
+                    "goal_bindings": [], "memory_layer": memory,
                     "activity_bindings": [{"name": name, "activity_id": key,
                                            "phase": activity_phase(state.activities[key])}
-                                          for key, name in names["activities"].items()],
-                    "session_bindings": [{"name": name, "session_id": key}
-                                         for key, name in names["sessions"].items()]}
+                                          for key, name in names["activities"].items()]}
 
     controller = RecallController()
 
@@ -265,23 +266,29 @@ def test_recall_reads_task_activity_and_session_without_identities() -> None:
         assert unchanged is state
         return result.data
 
-    by_task, by_activity, by_session = recall("工作：1月5日项目会议纪要"), recall(first.name), recall(afternoon.name)
-    assert by_task["recall"] == {"kind": "task", "name": "工作：1月5日项目会议纪要", "due_at": "1月5日 18:00",
-                                 "progress_note": "已经核对正文", "subjective_status": SELF_REPORT_MARK}
+    by_task, by_activity = recall("工作：1月5日项目会议纪要"), recall(first.name)
+    assert by_task["recall"] == {"kind": "task", "name": "工作：1月5日项目会议纪要",
+                                 "due_at": "2026-01-05T18:00:00+08:00", "progress_note": "已经核对正文"}
     assert by_activity["recall"] == {
         "kind": "activity", "name": first.name, "place": "办公室", "phase": "已收尾",
-        "objective_progress": "已做约 1 小时，有效约 45 分钟",
-        "progress_note": "先整理提纲", "subjective_status": SELF_REPORT_MARK}
-    assert by_session["recall"] == {"kind": "session", "place": "办公室", "started_at": "1月5日 02:00",
-                                    "ended_at": None, "activity_names": [second.name]}
+        "objective_progress": "已做约 1 小时，有效约 45 分钟", "progress_note": "先整理提纲"}
     assert recall(unassigned.name)["recall"]["place"] == "办公室"
-    with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
-        recall("不存在的名称")
-    assert "internal-" not in str([by_task, by_activity, by_session])
+    for missing in ("不存在的名称", afternoon.name):
+        with pytest.raises(BusinessRuleError, match="TASK_NOT_FOUND"):
+            recall(missing)
+    assert "internal-" not in str([by_task, by_activity])
     event = {"action_id": "internal-action-9", "occurred_at": _START + 10200, "status": "completed",
              "error_code": None, "message": "Task summary retrieved", "data": by_activity}
-    public = public_result(event, _scenario(), _START + 10200)
+    public = public_result(event, _scenario())
     assert public["details"] == {"recall": by_activity["recall"]}
+    memory["earlier_today"] = [{"recorded_at": "2026-01-05T01:00:00+08:00", "settled": [], "self_notes": [
+        {"activity": "工作1月5日项目会议纪要", "text": "先整理提纲"}]}]
+    assert recall(first.name)["recall"] == {"kind": "activity", "activity": "工作1月5日项目会议纪要",
+                                            "progress_note": "已在记忆层"}
+    assert recall("工作：1月5日项目会议纪要")["recall"]["progress_note"] == "已经核对正文"
+    memory["earlier_today"][0]["self_notes"].append({"activity": second.name, "text": "已经核对正文"})
+    assert recall("工作：1月5日项目会议纪要")["recall"] == {
+        "kind": "task", "activity": second.name, "progress_note": "已在记忆层"}
 
 
 def test_activity_targets_carry_only_readable_objective_progress() -> None:
@@ -425,15 +432,15 @@ def _result(data: dict | None = None) -> dict:
 
 def test_fresh_result_preserves_feedback_without_action_id() -> None:
     """公开结果写带时区的时刻、状态、错误码、原文说明与 details（没有新事实时为 {}），不暴露事件或动作定位字段。"""
-    public = public_result(_result(), _scenario(), _START + 120)
+    public = public_result(_result(), _scenario())
     assert public == {"occurred_at": "2026-01-05T00:02:00+08:00", "status": "rejected",
                       "error_code": "WORK_REQUIRES_REWORK", "message": "这份工作需要补充结论。", "details": {}}
     assert "internal-action-42" not in str(public)
 
 
 def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
-    """多商品结果各自写商品名、份数、付款、方式、送达地点、预计时刻、收货人与所回应的消息（没有关联时为 null），删除
-    报价版本、订单、供给、收货人与消息身份。"""
+    """多商品结果各自写商品名、份数、付款、方式、送达地点、预计时刻（带时区 ISO，docs/dev/SPEC-persona-prompt.md
+    「通用格式」）、收货人与所回应的消息（没有关联时为 null），删除报价版本、订单、供给、收货人与消息身份。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),
                 SimpleNamespace(product_id="p2", name="豆浆"))
     places = (SimpleNamespace(location_id="private-office", name="办公室"),)
@@ -447,12 +454,12 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
     ]
     payload = {"orders": orders, "answering": "王磊 00:00 的消息"}
     public = public_result({**_result(payload), "status": "completed", "error_code": None},
-                           _scenario(products, places), _START)
+                           _scenario(products, places))
     assert public["details"]["purchases"] == [
         {"product": "牛肉面", "quantity": "1 份", "paid": "28 元", "way": "远程下单", "destination": "办公室",
-         "expected_at": "00:15", "recipient": "王磊", "request": "王磊 00:00 的消息"},
+         "expected_at": "2026-01-05T00:15:00+08:00", "recipient": "王磊", "request": "王磊 00:00 的消息"},
         {"product": "豆浆", "quantity": "1 份", "paid": "5.5 元", "way": "到店", "destination": "办公室",
-         "expected_at": "1月6日 00:00", "recipient": "林悦", "request": None},
+         "expected_at": "2026-01-06T00:00:00+08:00", "recipient": "林悦", "request": None},
     ]
     assert all(key not in str(public) for key in ("order-1", "supply_id", "private-v1", "s1", "contact-wanglei",
                                                    "reply-private", "agent:1"))
@@ -460,7 +467,8 @@ def test_purchase_result_replaces_product_and_supply_ids_with_names() -> None:
 
 def test_result_details_keep_only_new_readable_facts() -> None:
     """details 的闭集键：开始活动写计划时长，到达写地点与能否进入，浏览只列商品名称，回看、原因、下一步、候选与终局
-    原样；不复述参数、不含内部身份；工作结果另带只含公开字段的 work_review。"""
+    原样；读完的邮件写主题与正文（正文只在阅读动作的结果中），恢复的活动写恢复后的计划时长；不复述参数、不含内部身份；
+    工作结果另带只含公开字段的 work_review。"""
     products = (SimpleNamespace(product_id="p1", name="牛肉面"),)
     places = (SimpleNamespace(location_id="private-office", name="办公室"),)
     activity = {"activity_id": "internal-activity-1", "name": "步行前往办公室（1月5日 00:00 起）",
@@ -472,18 +480,32 @@ def test_result_details_keep_only_new_readable_facts() -> None:
                           "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}],
                           "request": {"targets": ["地点：办公室"]}}),
                "status": "in_progress", "error_code": None}
-    details = public_result(started, _scenario(products, places), _START)["details"]
+    details = public_result(started, _scenario(products, places))["details"]
     assert details == {"planned": [{"name": activity["name"], "duration": "约 12 分钟"}],
                        "arrival": {"place": "办公室", "access": "没能进去"}, "browse_items": ["牛肉面"],
                        "recall": {"name": "工作：会议纪要"}, "candidates": ["办公室出售的牛肉面"],
                        "outcome": [{"activity": "吃牛肉面", "outcome": "完成", "items": [], "note": None}]}
     allowed = {**activity, "data": {"arrival": {"location_id": "private-office", "access_status": "allowed"}}}
     arrived = public_result({**_result({"activity": allowed}), "status": "completed", "error_code": None},
-                            _scenario(products, places), _START)["details"]
+                            _scenario(products, places))["details"]
     assert arrived == {"arrival": {"place": "办公室", "access": "进入"}}
     rejected = public_result(_result({"reason": "钱不够", "next_step": "换一件便宜的", "unmet": ["funds"]}),
-                             _scenario(), _START)["details"]
+                             _scenario())["details"]
     assert rejected == {"reason": "钱不够", "next_step": "换一件便宜的"}
+    reading = {"activity_id": "internal-activity-2", "kind": "read_mail", "name": "阅读邮件工作安排（1月5日 00:00 起）",
+               "planned_duration_seconds": 300, "data": {"revealed": {
+                   "message_id": "internal-mail", "thread_id": "internal-thread", "subject": "工作安排",
+                   "body": "周一上午交会议纪要。", "related_task_id": "internal-task", "attachment_sha256": None}}}
+    read = public_result({**_result({"activity": reading}), "status": "completed", "error_code": None},
+                         _scenario())["details"]
+    assert read == {"mail": {"subject": "工作安排", "body": "周一上午交会议纪要。"}}
+    unread = {**reading, "data": {}}
+    assert public_result({**_result({"activity": unread}), "status": "in_progress", "error_code": None},
+                         _scenario())["details"] == {"planned": [{"name": reading["name"], "duration": "约 5 分钟"}]}
+    resumed = {"task": ["工作会议纪要（1月5日 00:00 起）"], "activity_ids": ["internal-activity-3"],
+               "resumed": [{"name": "工作会议纪要（1月5日 00:00 起）", "planned_duration_seconds": 22_409}]}
+    assert public_result({**_result(resumed), "status": "completed", "error_code": None}, _scenario())["details"] == {
+        "planned": [{"name": "工作会议纪要（1月5日 00:00 起）", "duration": "约 6 小时"}]}
 
 
 def test_work_review_keeps_only_public_fields() -> None:
@@ -496,7 +518,7 @@ def test_work_review_keeps_only_public_fields() -> None:
               "missing_content_categories": [], "required_fact_assessments": [item],
               "delivery_assessments": [delivery], "oracle_path": "hidden/path"}
     public = public_result({**_result({"work_review": review}), "status": "completed", "error_code": None},
-                           _scenario(), _START)
+                           _scenario())
     assert "hidden" not in json.dumps(public) and public["details"] == {}
     assert public["work_review"]["required_fact_assessments"] == [
         {key: value for key, value in item.items() if key != "reference_id"}]

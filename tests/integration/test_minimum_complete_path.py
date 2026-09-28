@@ -32,7 +32,7 @@ from tests.life.test_scheduling import _document, _identity, _write_scenario  # 
 from worldmock.life.activity_control import pending_conclusions  # noqa: E402
 from worldmock.life.engine import LifeEngine  # noqa: E402
 from worldmock.life.models import active_activities  # noqa: E402
-from worldmock.life.readable import clock_phrase, money_phrase  # noqa: E402
+from worldmock.life.readable import clock_phrase, iso_time, money_phrase  # noqa: E402
 from worldmock.runtime import settle_pending_model_replies  # noqa: E402
 
 _WANGLEI = {"contact_id": "contact-wanglei", "salutation": "王磊", "relation": "同事", "closeness": 16,
@@ -204,8 +204,9 @@ async def test_requested_order_goes_to_the_colleague_and_is_not_placed_twice(tmp
     assert delivered["message"] == f"已送到{_OFFICE_NAME}，收货人王磊" and delivered["status"] == "delivered"
     assert json.loads(requests[0]["messages"][1]["content"])[5] == later["progress_layer"]
     assert (repeated.status, repeated.error_code) == ("rejected", "REQUEST_ALREADY_HANDLED")
+    linked_at = iso_time(order["expected_at"], engine.scenario.timezone)
+    assert repeated.data["linked_orders"] == [{"order": f"{name} 1 份（10:35 远程下单）", "expected_at": linked_at}]
     expected = clock_phrase(order["expected_at"], engine.state.current_time, engine.scenario.timezone)
-    assert repeated.data["linked_orders"] == [{"order": f"{name} 1 份（10:35 远程下单）", "expected_at": expected}]
     assert len(engine.state.deliveries) == 1 and engine.state.contact_holdings["contact-wanglei"] == {product: 1.0}
 
     run_until(engine, _ready)

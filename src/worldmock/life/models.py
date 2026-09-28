@@ -1033,7 +1033,7 @@ class SendMessageActionRequest(FrozenModel):
 
 
 class RecallTaskSummaryRequest(FrozenModel):
-    """@brief 按本轮可见的任务、当日目标、活动或会话名称只读回看进展。"""
+    """@brief 按本轮可见的任务、当日目标或活动名称只读回看进展（会话名不在七层中出现，不可回看）。"""
 
     model_config = ConfigDict(json_schema_extra=purpose_only_schema())
     task_name: str = Field(pattern=r"\S")
