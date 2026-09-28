@@ -434,7 +434,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         人物消息与交谈邀请的收件人在本轮全部动作结算之后合并同秒机会（docs/dev/SPEC-time-and-energy.md
         第一章「人物之间的消息」），不被收件人本轮自己的受理排期覆盖；合并前先把本轮观察已全文呈现的消息记为已读，
         其后的边界不再以 message_arrival 重复唤醒（same_moment.read_observed_messages，
-        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。
+        docs/dev/SPEC-persona-prompt.md 第六章「直接消息截断」）。重放的动作（reused，沿用同一轮次身份的存档结果）
+        不参与记已读：它的决策身份与时刻可对应多条观察，且重放不重做领域动作。
         """
         current = self._require_round(round_id)
         submitted = {item.agent_id for item in current.pending_actions}
@@ -453,7 +454,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                 staged = _remember_action(staged, pending, result)
         recipients = {draft.agent_id for draft in drafts if draft.event_type == "environment_event"
                       and draft.data.get("kind") == "message_arrival" and draft.agent_id is not None}
-        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions}
+        presented = {item.agent_id: self._presented_messages(item) for item in current.pending_actions
+                     if not item.reused}
         staged = same_moment.read_observed_messages(staged, self.state, presented)
         staged = same_moment.merge_message_readiness(staged, recipients, self.scenario.max_same_moment_decisions)
         staged = same_moment.merge_partner_endings(self.state, staged, self.scenario.max_same_moment_decisions)
