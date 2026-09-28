@@ -181,7 +181,7 @@ stateDiagram-v2
 | 工具 | 可用条件 | 收 | 语义 |
 | --- | --- | --- | --- |
 | `start_activity` | 始终可用（同刻上限的受限轮除外，见「保护项修订」） | `targets: list[str]`、`actions: list[str]`、`ways: list[str]`、`from: list[str\|null]`、`to: list[str\|null]`（等长 1–2 项；`actions[i]` 取五个动词，`ways[i]` 取对象列出的方式）与 `answering: str\|null` | 逐项启动活动，持续活动每项占一个名额，给予是瞬时动作、不占名额；整组原子受理，不接收内部身份、时长、价格、数量、正文或成果 |
-| `recall_task_summary` | 始终可用（同刻上限的受限轮除外，见「保护项修订」） | `task_name: str` | 只读回看可读的任务、当日目标、活动或会话名称；结果写进进度层该调用的 `result.details.recall`，同秒续接时随 tool 消息返回；回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名；不改变世界 |
+| `recall_task_summary` | 始终可用（同刻上限的受限轮除外，见「保护项修订」） | `task_name: str` | 只读回看可读的任务、当日目标或活动名称（会话名不在七层中出现，不可回看）；结果写进进度层该调用的 `result.details.recall`，同秒续接时随 tool 消息返回；回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名；不改变世界 |
 | `report_status` | 有进行中或暂停的活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项活动；播报进行中活动；点名暂停的活动即恢复它，恢复只在开始地点 |
 | `pause_activity` | 有进行中活动时 | `task: list[str]`、`summary: list[str]`（等长，1–2 项） | 各摘要对应一项进行中活动；暂停所选活动，暂停仍占名额；路上的活动不能暂停 |
 | `conclude_activity` | 有进行中、暂停或待收尾的活动时 | `task: list[str]`、`summary: list[str]`、`memories: list[list[Memory]]`（三数组等长，1–2 项；记忆合计不超过八条） | 各项对应一项活动；结束所选活动并写总结与记忆，释放名额；未选活动保持原状 |
@@ -195,8 +195,8 @@ stateDiagram-v2
 `task_name`、`task[]` 中每项与 `recipient_name` 都只能取本轮七层中出现的唯一可读名称。
 同名对象由类型、地点或自然语言开始时间消歧，不能用内部编号、哈希、奇怪字符或索引后缀。
 三个活动控制工具的 `task[]` 只取活动名（「做什么＋对象＋开始时刻」，开始时刻用绝对日期；同一轮可见的名称重复时
-追加「（第二次）」这类序号）；`recall_task_summary.task_name` 取任务、当日目标、活动或会话名（会话名为地点或路段
-加开始时刻）；`submit_work.task_name` 仍取任务名；各类名称共享同一唯一性检查，冲突时不设隐含优先级。
+追加「（第二次）」这类序号）；`recall_task_summary.task_name` 取任务、当日目标或活动名（名称只取七层中出现的，会话名
+不在其中）；`submit_work.task_name` 仍取任务名；各类名称共享同一唯一性检查，冲突时不设隐含优先级。
 名称至内部身份的映射只存于私有观察绑定，提交时按原观察解析；名称不存在或不唯一则
 业务拒绝并指出可选名称，绝不任选一个。数组顺序一一对应，长度均为一至二且活动不重复。
 `summary` 和 `deliverable` 是人物原创内容，
@@ -243,8 +243,8 @@ flowchart LR
 标准动作、路线方式、履约方式、`use_mode` 及该对象的冻结报价。`obtain` 的目标不在本轮列出时按场景供给指名解析：
 不存在报 `SUPPLY_NOT_FOUND` 并在 `details.candidates` 给至多 3 个近似候选，多店同名且 `from` 为空报 `SUPPLY_NAME_AMBIGUOUS`，
 不自动替换；其余动词的目标仍须是本轮列出的名称，不是时由宿主按协议错误在本轮纠正。该绑定不进入模型提示或工具返回。
-私有 `activity_bindings` 与 `session_bindings` 把本轮可读的活动名与会话名映射到内部身份（活动绑定另带阶段，
-同一轮重名时追加「（第二次）」这类序号）；模型只见七层中出现的会话名与活动名。
+私有 `activity_bindings` 把本轮可读的活动名映射到内部身份（活动绑定另带阶段，同一轮重名时追加「（第二次）」这类
+序号）；会话名不在七层中出现，不绑定。
 活动绑定另带 `resumable`：暂停的活动此刻能否恢复（人物正停留在它的开始地点）；人在别处时待办层把恢复标为不可用并点名开始地点，
 提交时以 `ACTIVITY_PRECONDITION_UNMET` 业务拒绝，原因与待办层所写一字不差。
 对同一个对象的多个合法动作逐一展示；`targets[i]`、`actions[i]`、`ways[i]`、`from[i]` 与 `to[i]` 逐项对应，

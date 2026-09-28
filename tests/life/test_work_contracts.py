@@ -12,7 +12,9 @@ import pytest
 from agentsociety2.society import DirectToolCall
 
 from tests.life.conftest import (activity_name, advance_next, conclude_pending, conclude_request, context,
-                                 pending_names, start_activity, target_tools, tool_targets, wake_by_mail)
+                                 pending_names, progress_calls, start_activity, target_tools, tool_targets,
+                                 wake_by_mail)
+from tests.life.routing_fixtures import stage
 from tests.life.test_scheduling import _custom_engine
 from worldmock.errors import BusinessRuleError, IntegrityError
 from worldmock.footprints.models import EventDraft
@@ -27,6 +29,7 @@ from worldmock.life.models import (
     active_activities,
 )
 from worldmock.life.scenario import load_scenario
+from worldmock.life.readable import duration_phrase
 from worldmock.life.schedule import WakeReason
 from worldmock.life.work import (
     load_work_input,
@@ -479,7 +482,9 @@ def _resumed_work(engine) -> tuple[str, object]:
 
 
 def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engine) -> None:
-    """11:16:31 恢复的计划结束取 min(距截止, 合同上限减已累计)，落在 17:30 截止；旧算法（现在＋剩余）是 17:44:21。"""
+    """11:16:31 恢复的计划结束取 min(距截止, 合同上限减已累计)，落在 17:30 截止；旧算法（现在＋剩余）是 17:44:21。
+    恢复结果写恢复后的计划时长（details.planned，与开始活动同一写法）：截到截止的约 6 小时，不是剩余合同的约 6.5 小时
+    （docs/dev/SPEC-persona-prompt.md 第六章「恢复工作越过合同截止」的七层呈现）。"""
     engine = deadline_engine
     due = int(engine.scenario.tasks[0].due_at.timestamp())
     work_id, resumed = _resumed_work(engine)
@@ -490,6 +495,11 @@ def test_resume_plans_the_end_no_later_than_the_contract_deadline(deadline_engin
     assert activity.planned_end_at == due == _clock("17:30:00")
     assert activity.planned_duration_seconds - activity.elapsed_seconds == due - now
     assert activity.elapsed_seconds == _clock("10:43:01") - _clock("09:10:51")
+    observed = engine.observe(context(engine, "resumed-shown"))
+    name = _named(work_id)(observed)[0]
+    assert progress_calls(observed, "report_status")[-1]["result"]["details"] == {
+        "planned": [{"name": name, "duration": duration_phrase(due - now)}]}
+    assert duration_phrase(due - now) == "约 6 小时"
 
 
 @pytest.mark.asyncio
@@ -587,6 +597,24 @@ def test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_
     _, next_day = _observe_at(engine, "overdue-next-day", _clock("23:59:59") + 1)
     assert name not in tool_targets(next_day)
     assert all(row["task_id"] != task.task_id for row in next_day["task_bindings"])
+
+
+def test_a_task_beyond_the_persons_skill_is_not_listed(deadline_engine) -> None:
+    """技能不够的任务永久不能开工，不列：工具层没有它的任务目标，私有的对象绑定与任务名绑定里都没有它，提交与回看都不认
+    这个名称（docs/dev/SPEC-persona-prompt.md「工具层」「永久不能满足的（没有路线、技能不够）不列」）。技能够得上时同一
+    任务照常列出并可开工。"""
+    engine = deadline_engine
+    task = engine.scenario.tasks[0]
+    name = f"工作：{task.title}"
+    _, skilled = _observe_at(engine, "skilled", _clock("10:00:00"))
+    assert [row["way"] for row in tool_targets(skilled)[name]["actions"]] == ["工作"]
+    assert {"task_name": name, "task_id": task.task_id} in skilled["task_bindings"]
+    stage(engine, lambda state: state.agents[1].skill_levels.update({task.required_skill: task.minimum_skill - 0.1}))
+    _, unskilled = _observe_at(engine, "unskilled", _clock("10:00:01"))
+    assert name not in tool_targets(unskilled)
+    assert all(row["object_id"] != task.task_id for row in unskilled["interaction_bindings"])
+    assert all(row["task_id"] != task.task_id for row in unskilled["task_bindings"])
+    assert task.title not in json.dumps(unskilled["tool_layer"], ensure_ascii=False)
 
 
 def test_target_met_while_still_working_states_the_three_facts_separately(deadline_engine) -> None:

@@ -61,7 +61,7 @@ LifeEnv 不为每个模型工具另建同名 RPC 方法。
 | --- | --- | --- |
 | `observe` | `context` (宿主只读 RPC) | 当前可见状态、已到达通知和已完成的内容接触结果 |
 | `start_activity` | `targets: list[str]`、`actions: list[str]`、`ways: list[str]`、`from: list[str \| null]`、`to: list[str \| null]`（五个数组等长一至二项，逐项对应；`actions[i]` 取 `travel`、`interact`、`obtain`、`consume`、`sleep`，`ways[i]` 取 `targets[i]` 本轮列出的方式短语，`from[i]`、`to[i]` 按动词取值，见「请求模型的闭集与字面边界」）与请求级 `answering: str \| null`；`from[i]`、`to[i]`、`answering` 在严格模式下必填可空 | 一次登记逐项启动活动；系统按冻结绑定把（对象，动词，方式）映射为内部标准动作与结算参数，整组按第五章准入原子受理；给予是瞬时动作，不产生活动 |
-| `recall_task_summary` | `task_name`（可读任务、当日目标、活动或会话名；会话名为地点加开始时刻） | 只读回看本人进度，不修改世界；结果写进进度层该调用的 `result.details.recall`，同一秒接着决策时随续接的 tool 消息返回；回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名，不重复正文 |
+| `recall_task_summary` | `task_name`（可读任务、当日目标或活动名；名称只取七层中出现的，会话名不在其中） | 只读回看本人进度，不修改世界；结果写进进度层该调用的 `result.details.recall`，同一秒接着决策时随续接的 tool 消息返回；回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名，不重复正文 |
 | `report_status` | `task: list[str]`, `summary: list[str]`（等长一至两项，逐项点名活动） | 逐项播报进行中活动的进展；点名暂停的活动即恢复它（只在其开始地点）；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示） |
 | `pause_activity` | `task: list[str]`, `summary: list[str]`（等长一至两项，逐项点名进行中活动） | 逐项写自述并暂停所选进行中活动；暂停仍占名额，路上的活动不能暂停；关联当日目标同步记录各自自述（`PlanGoal.progress_note` 照存，不进提示） |
 | `conclude_activity` | `task: list[str]`, `summary: list[str]`, `memories: list[list[Memory]]`（三数组等长一至两项；`memories[i]` 是关于 `task[i]` 的零至多条记忆 `{type, text, importance, keywords, subject}`，合计不超过八条） | 逐项写总结与记忆并结束所选活动：进行中、暂停中或刚结束待收尾的活动；结束后释放名额，未选中活动保持原状 |
@@ -224,7 +224,7 @@ flowchart LR
 | 模型请求 | 结算时的关键检查 |
 | --- | --- |
 | `start_activity` | 对象名称、动词与方式必须在同一冻结观察中唯一匹配（`obtain` 的目标不在本轮列出时按下文「指名购买」解析）；按绑定解析内部身份、标准动作、方式与报价，依次检查当前菜单（按映射后的内部动作）、名额（进行中、暂停中与待收尾的活动各占一个，常量 2）、目标在场与实际地点、出行方式、注册表占用、物品状态及其余领域条件，能量不参与；多条不成立时报第一条，结果与组内先后无关；多目标整体接受或拒绝；两项同为 `obtain` 时订单按（方式，收货地）拆分：方式同为「到店」或同为「远程下单」且收货地相同时合成一单，同一请求中只有 `to` 不同时才允许重复目标，去重键为（供给，收货人）；同为 `consume`、方式相同且各项 `to` 都是自己时合成一餐（「使用」一次只用一件，两件以 `ACTION_REQUEST_INVALID` 拒绝并说明「一次只能使用一件东西」），「制作」不合并（一次请求只做一份配方），其余两项各自受理；`consume` 的 `to` 为人物名时是给予（见下文「来源与去向」）；瞬时的取得（到店、远程下单）可与持续活动同一请求：当场成单、活动照常开始，二者按同一套准入整组判定（例如驾车与远程下单同一请求以 `ACTIVITY_PRECONDITION_UNMET` 拒绝，下一步「先下单，再出发」）；与出发同一请求使用持有物以 `PRODUCT_NOT_HELD` 拒绝，下一步「先用完再出发」 |
-| `recall_task_summary` | 名称唯一对应本人可回看的任务、当日目标、活动或会话（会话名为地点加开始时刻）；只读，不修改世界 |
+| `recall_task_summary` | 名称唯一对应本人可回看的任务、当日目标或活动（会话名不在七层中出现，不可回看）；只读，不修改世界 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task[]` 中每个名称唯一对应本人进行中、暂停中或待收尾的活动（活动名为「做什么＋对象＋开始时刻」），数组等长且一至两项（`conclude_activity` 的 `task`、`summary`、`memories` 三数组等长）；所有状态转换先验证再原子更新，自述另标未经核验 |
 | `submit_work` | 任务名称唯一且可见，归属、进度、截止、素材与重复结算校验通过后单独评审；被提交的任务本身不在进行中（否则 `WORK_TASK_IN_PROGRESS`）；晚于截止提交报 `WORK_SUBMISSION_LATE`，截止同秒不算迟交 |
 | `send_message` | 收件人名称唯一且可见，渠道与文本符合规则 |
@@ -296,7 +296,7 @@ flowchart LR
 | `start_activity` | `from` | 与 `targets` 等长，元素为 `str \| null`；取值按下表 |
 | `start_activity` | `to` | 与 `targets` 等长，元素为 `str \| null`；取值按下表；人物名的候选是本轮工具层的人物目标 |
 | `start_activity` | `answering` | `null` 或一条可见直接消息的规范名称「<发件人> HH:MM 的消息」（不是今天的消息在 HH:MM 前加「M月D日」）；可见指出现在进度层 `message_arrival` 或记忆层的未回复消息 |
-| `recall_task_summary` | `task_name` | 当前冻结观察中唯一的可读任务、当日目标、活动或会话名称 |
+| `recall_task_summary` | `task_name` | 当前冻结观察中唯一的可读任务、当日目标或活动名称 |
 | `submit_work` | `task_name` | 当前冻结观察中唯一的可读任务名称 |
 | `report_status`、`pause_activity`、`conclude_activity` | `task` | 一至两个唯一的可读活动名称，不重复；活动名为「做什么＋对象＋开始时刻」（开始时刻用绝对日期），同一轮可见的名称重复时追加「（第二次）」这类序号 |
 | `report_status`、`pause_activity`、`conclude_activity` | `summary` | 与 `task` 等长的逐项非空白模型自述；关联目标同步写对应进度（`PlanGoal.progress_note` 照存，不进提示） |
@@ -721,7 +721,7 @@ flowchart LR
 | --- | --- |
 | `observed_at` | 当前观察时刻 |
 | `body` | 五项体感分级 `{appetite, sleepiness, entertainment, social, mood}`，取值就是 `body.levels` 的分级文字（见「体感与动机证据」）；数值不进提示 |
-| `location` | `{session_kind, name, place_type, fixed_rules}`：`session_kind` 取 `stay`、`transit`；`name` 停留时为地点名，路程中为路段标签（「去<目的地>的路上」）；`place_type` 停留时为场所类型的中文标签，路程中为出行方式（「步行」「驾车」）；`fixed_rules` 为场所的固定规则，取菜单排除的动作的可读说法，菜单全开时为 `[]` |
+| `location` | `{session_kind, name, place_type, fixed_rules}`：`session_kind` 取 `stay`、`transit`；`name` 停留时为地点名，路程中为路段标签（「去<目的地>的路上」）；`place_type` 停留时为场所类型的中文标签，路程中为出行方式（「步行」「驾车」）；`fixed_rules` 为场所的固定规则，停留时取菜单排除的动作的可读说法，菜单全开时为 `[]`；路程中没有场所，为 `[]` |
 
 **进度层** `{layer, session_started_at, events}`：`session_started_at` 为当前 session 的开始时刻；`events` 是本 session 的有序记录，
 按 `occurred_at` 排列，同一时刻按事件序号。JSON 部分写到构造本请求快照的那一刻：续接链的快照在链首决策时构造，此后同秒发生的事
@@ -749,19 +749,21 @@ flowchart LR
 
 | 键 | 形状 |
 | --- | --- |
-| `purchases` | `[{product, quantity, paid, way, destination, expected_at, recipient, request}]`：商品、份数、实际付款、方式（「到店」「远程下单」）、送达地点与预计时刻、收货人与关联消息名（不关联为 `null`） |
-| `planned` | `[{name, duration}]`：受理的计划时长，活动名与人读时长 |
+| `purchases` | `[{product, quantity, paid, way, destination, expected_at, recipient, request}]`：商品、份数、实际付款、方式（「到店」「远程下单」）、送达地点与预计时刻（`expected_at` 为带时区 ISO 8601）、收货人与关联消息名（不关联为 `null`） |
+| `planned` | `[{name, duration}]`：受理的计划时长，活动名与人读时长；`report_status` 恢复暂停的活动时为恢复后的计划时长 |
 | `arrival` | `{place, access}`：到达地点与「进入」或「没能进去」 |
 | `browse_items` | 浏览得到的商品名称 |
+| `mail` | `{subject, body}`：读完的邮件主题与正文（邮件正文只在阅读动作的结果中出现） |
 | `recall` | 回看结果（见下文） |
 | `reason`、`next_step` | 业务拒绝的一句中文原因与可读的下一步（要先处理的活动名、要去的地点名或做法） |
 | `candidates` | 指名购买的近似候选（至多 3 个标签）或同名门店 |
 | `outcome` | `[{activity, outcome, items, note}]`：收尾结果逐项写终局（「完成」「提前结束」「失败」），进食的 `items[{product, eaten, discarded, remaining}]` 写已吃、丢弃、剩余份量，未完成的浏览 `note` 为「未取得浏览结果」；人物写「吃完了」不能覆盖结算结果 |
-| `linked_orders` | `[{order, expected_at}]`：`REQUEST_ALREADY_HANDLED` 时已关联的订单与预计送达时刻 |
+| `linked_orders` | `[{order, expected_at}]`：`REQUEST_ALREADY_HANDLED` 时已关联的订单与预计送达时刻（带时区 ISO 8601） |
 
-`recall` 按回看对象分四种：任务给 {名称, 截止, 最近自述}；目标给 {目标, 意图, 是否已推进}；活动给
-{名称, 地点, 已做与有效时长, 状态, 自述}；会话给 {地点, 起止, 活动名列表}；自述都标「你自己记下的，未经核验」。
-回看的 summary 仍在记忆层时结果只写「已在记忆层」与活动名。
+`recall` 按回看对象分三种：任务给 {名称, 截止（`due_at`，带时区 ISO 8601）, 最近自述}；目标给 {目标, 意图, 是否已推进}；
+活动给 {名称, 地点, 已做与有效时长, 状态, 自述}；自述照原文，是否经核验由系统层规则统一说明，不逐条标注。
+回看的 summary 仍在记忆层时结果只写 {`activity`：它在记忆层 `self_notes` 中的活动名, `progress_note`：「已在记忆层」}，
+不写其他回看事实。
 动作、事件、订单、商品、供给、会话、活动、路线、报价版本和账户身份不进入模型结果。
 
 原始观察与结算证据保留完整供给身份、版本及比较行。模型投影中同一供给的当前事实与

@@ -300,8 +300,7 @@ def test_failures_replays_recalls_queries_and_empty_sessions_leave_no_entry(engi
     assert advance_until_ready(engine)
     wait = activity_name(engine, waited.activity_id)
     _act(engine, "d-conclude", "conclude_activity", conclude_request(wait, summary="等完了"))
-    session = next(iter(engine.state.sessions.values())).name
-    assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=session))[1].status \
+    assert _act(engine, "d-recall", "recall_task_summary", RecallTaskSummaryRequest(task_name=wait))[1].status \
         == "completed"
     _act(engine, "d-revise", "revise_day_plan", ReviseDayPlanRequest(goals=(
         PlanGoalInput(intent_kind="休息", goal="歇一歇", remind_time=None),)))

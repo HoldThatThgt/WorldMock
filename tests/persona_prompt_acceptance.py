@@ -157,6 +157,8 @@ LEDGER: dict[str, list[str]] = {
         _MEMORY + "test_departure_and_arrival_attribute_same_second_calls_to_the_right_session",
         _LOCATION + "test_self_report_stays_out_of_the_tool_layer_and_is_only_a_call_argument",
         _MEMORY + "test_recalled_summary_still_in_the_memory_layer_is_not_repeated",
+        "tests/integration/test_mail_read_result.py::"
+        "test_the_mail_body_appears_once_in_the_request_as_the_read_result",
     ],
     "系统层与工具": [
         _SEVEN + "test_system_layer_is_byte_identical_across_turns_and_decisions",
@@ -221,6 +223,8 @@ LEDGER: dict[str, list[str]] = {
         _BRANCHES + "test_restricted_rounds_do_not_narrow_the_host_tool_surface",
         _BRANCHES + "test_visible_objects_freeze_verb_way_and_bound_internal_action",
         _AGENT + "test_incomplete_work_stays_submittable_for_business_rejection",
+        _WORK + "test_a_task_beyond_the_persons_skill_is_not_listed",
+        "tests/life/test_environment_layer.py::test_transit_has_no_place_rules_and_leaves_the_origin_menu_behind",
     ],
     "进度层": [
         _PROGRESS + name for name in (
@@ -554,6 +558,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
     "src/worldmock/life/interaction_menu.py",
     "src/worldmock/life/memory_evidence.py",
     "src/worldmock/life/memory_layer.py",
+    "src/worldmock/life/menu_execution.py",
     "src/worldmock/life/models.py",
     "src/worldmock/life/named_purchase.py",
     "src/worldmock/life/narration.py",
@@ -591,6 +596,7 @@ FEATURE_PRODUCTION_FILES: tuple[str, ...] = (
 #: 本特性新增的测试文件（`git diff --name-only --diff-filter=A c3b24da -- tests`）与本守卫自身。
 FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/footprints/test_purchases.py",
+    "tests/integration/test_mail_read_result.py",
     "tests/integration/test_minimum_complete_path.py",
     "tests/integration/test_same_second_continuation.py",
     "tests/integration/test_seven_layer_request.py",
