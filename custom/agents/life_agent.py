@@ -2,7 +2,8 @@
 
 一次决策只有一个行动阶段（docs/dev/SPEC-persona-prompt.md 第二章「单一行动阶段」）：请求由原生 tools、系统层
 system 与六层 user 组成；可以先做记忆查询，世界请求登记即结束本次决策，登记后不追加任何 tool 消息。原生工具
-整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。
+整次运行不变，不按轮绑定名称枚举；名称只按观察私有绑定做本地校验，可用性由环境受理判定。同一秒的后续决策
+在准备阶段之后注入环境交来的续接链（第二章「同秒续接」，custom/agents/life_continuation.py）。
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -26,9 +28,11 @@ from agentsociety2.agent.base import (
 from agentsociety2.society import DirectToolCall
 from custom.agents import life_menu
 from custom.agents.life_context import persona_card_text
+from custom.agents.life_continuation import continuation_messages, end_continuation, send_check
 from custom.agents.life_persona import persona_layer
 from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, empty_memory_layer, life_user_layers, readonly_messages,
                                        system_message, user_message)
+from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
@@ -198,13 +202,18 @@ class LifeAgent(PersonAgent):
 
         DeepSeek thinking 模式拒绝 tool_choice=required（真实探针 400："Thinking mode does not support this
         tool_choice"），因此与思考开启同时把 tool_choice 放宽为 auto；模型不产出工具调用时由 ReAct 协议纠错回合
-        兜底（"native tool_calls are required"）。system 不附加任何预算文字。
+        兜底（"native tool_calls are required"）。system 不附加任何预算文字。带续接链的请求先做发送前协议自检；
+        预算第 0 步结束续接后，本决策此后的回合都从新快照续写。
         """
         request = super()._model_request(messages, tools)
         request["tool_choice"] = ACTION_TOOL_CHOICE
         request["max_tokens"] = ACTION_MAX_TOKENS
         request["extra_body"] = dict(ACTION_THINKING)
-        return fit_request(request, self._life_budget)
+        self._life_budget = send_check(messages, self._life_budget)
+        fitted = fit_request(request, self._life_budget)
+        if len(fitted["messages"]) < len(messages):
+            self._life_budget = end_continuation(messages, self._life_budget)
+        return fitted
 
     def _remaining_turns(self) -> int:
         """@brief 本决策含当前请求在内的剩余模型回合；不足一个时明确终止，不发注定失败的请求。"""
@@ -262,7 +271,7 @@ class LifeAgent(PersonAgent):
         self._life_request_models = self._request_tool_models(request.readonly)
 
     def _prepare_life_action_state(self, data: dict[str, Any]) -> None:
-        """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称。"""
+        """@brief 从一次冻结观察组装六层、菜单与本地校验所用的私有绑定名称；有续接链时注入本次决策的起始消息。"""
         self._prepare_verified_experiences(data)
         self._life_interaction_menu = life_menu.parse_interaction_menu(data)
         self._life_wake_reasons = frozenset(_visible_wake_reasons(data))
@@ -270,6 +279,11 @@ class LifeAgent(PersonAgent):
         layers = life_user_layers(data, persona)
         self._life_budget = ProgressBudget(tuple(layers), tuple(_progress_meta(data, layers[-1])))
         self._life_names = _visible_names(data, layers[3])
+        continued = continuation_messages(data.get(CONTINUATION_KEY), layers)
+        if continued is not None:
+            self._react_messages = continued
+            self._life_budget = replace(self._life_budget, fresh_messages=(system_message(False), user_message(layers)),
+                                        chain_length=len(continued))
 
     def _prepare_verified_experiences(self, data: dict[str, Any]) -> None:
         """@brief 冻结本轮本人事件事实窗口与观察身份（本步记忆更新的来源截止），模型和记忆不能写入该窗口。

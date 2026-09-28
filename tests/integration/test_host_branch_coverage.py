@@ -350,7 +350,8 @@ def _agent_workspace(tmp_path, *, agent_document=None, config_document=None,
     workspace.mkdir()
     agent = agent_document if agent_document is not None else {
         "schema_version": 1, "agent_class": "LifeAgent", "agent_id": 1,
-        "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None}
+        "initialized_at": "2026-01-01T00:00:00+00:00" if agent_initialized else None,
+        "profile": {"id": 1, "same_second_continuation": True}}
     config = config_document if config_document is not None else {"enable_memory": True, "max_react_turns": 16}
     if "AGENT.json" not in missing:
         (workspace / "AGENT.json").write_text(
@@ -610,12 +611,13 @@ def test_build_society_create_mode_injects_taste_weights(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "_persona_payload", lambda agent: ("卡片文本", card))
 
     actor, society = _build_society(SimpleNamespace(
-        project_root=ROOT, run_dir=tmp_path / "run", run_id="identity", env_kwargs={},
+        project_root=ROOT, run_dir=tmp_path / "run", run_id="identity",
+        env_kwargs={"create_options": {"same_second_continuation": True}},
         scenario_path=SCENARIO, scenario=scenario, workspace_mode="create",
-        start_time=scenario.start_at))
+        start_time=scenario.start_at, same_second_continuation=True))
     assert actor == "actor"
     assert society is not None
-    weights = captured["spec"].env_kwargs["LifeEnv"]["agent_taste_weights"]
+    weights = captured["spec"].env_kwargs["LifeEnv"]["create_options"]["agent_taste_weights"]
     assert set(weights) == {agent.agent_id for agent in scenario.agents}
     for row in weights.values():
         assert row and set(row) == {item.item_id for item in scenario.contents}

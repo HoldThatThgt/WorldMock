@@ -242,6 +242,34 @@ test('a continuation-shaped first request keeps its six layers and shows the ext
   assert.equal(errors.length, 0);
 });
 
+test('a decision first request with sources is a continuation: source decisions and returned thinking listed once', () => {
+  const {api, errors} = parser();
+  const input = event(request('continuation'));
+  const [assistantMessage] = input.data.request.messages.slice(2);
+  const parsed = api.parseRequest(input, {sources: {call_7f2c: '10:43:00 · decision-k'}});
+  assert.equal(parsed.continuation, true);
+  assert.deepEqual(plain(messageBlocks(parsed).map(block => block.key)), LAYER_KEYS);
+  const assistant = parsed.blocks.find(block => block.messageIndex === 2 && block.key === 'message');
+  assert.equal(assistant.label, '续接 · assistant · 来源决策 10:43:00 · decision-k');
+  assert.equal(assistant.rule, 'continuation');
+  assert.equal(assistant.text, JSON.stringify(assistantMessage));
+  const reasoning = parsed.blocks.find(block => block.key === 'reasoning');
+  assert.equal(reasoning.text, assistantMessage.reasoning_content);
+  assert.equal(reasoning.label, '回传思考 · 来源决策 10:43:00 · decision-k');
+  assert.equal(reasoning.interpretation, 'reasoning');
+  assert.equal(parsed.blocks.find(block => block.messageIndex === 3).label, '续接 · tool · 完整消息');
+  assert.equal(parsed.messageChars, api.parseRequest(input).messageChars, 'returned thinking is not counted twice');
+  assert.equal(new Set(parsed.blocks.map(block => block.id)).size, parsed.blocks.length);
+  assert.ok(parsed.blocks.every(block => api.rules[block.rule]));
+  const unmatched = api.parseRequest(input, {sources: {}});
+  assert.equal(unmatched.blocks.find(block => block.key === 'reasoning').label, '回传思考 · 来源决策 未匹配');
+  assert.equal(api.parseRequest(event(), {sources: {}}).continuation, false);
+  assert.equal(api.parseRequest(input).continuation, false);
+  assert.deepEqual(plain(api.prefixCallIds(input.data.request)), ['call_7f2c']);
+  assert.deepEqual(plain(api.prefixCallIds(request())), []);
+  assert.equal(errors.length, 0);
+});
+
 test('semantic parsing locates the first user rather than assuming message index one', () => {
   const {api} = parser();
   const input = event();

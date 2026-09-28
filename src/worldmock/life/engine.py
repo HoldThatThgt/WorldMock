@@ -38,6 +38,7 @@ from worldmock.life.activity_evidence import (dedupe_revealed_cues as _dedupe_re
                                               meal_consumption_data as _meal_consumption_data,
                                               record_material_reveal as _record_material_reveal)
 from worldmock.life.activity_validation import validate_activity_targets
+from worldmock.life.continuation import CONTINUATION_KEY, same_second_chain
 from worldmock.life.decision_start import (defer_decision_starts, flush_decision_starts,
                                             maybe_action_request_start, pop_decision_start, response_self_note)
 from worldmock.life.activities import (
@@ -271,7 +272,8 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
         """@brief 返回人物当下可见事实，并以同版本追加观察事件。
 
         进度层快照与其私有元数据只交给宿主，不存进观察事件（完整进度层 JSON 由实际 model_request 保存，
-        观察事件只存来源引用 progress_event_ids，docs/dev/SPEC-persona-prompt.md 第七章「事件」）。
+        观察事件只存来源引用 progress_event_ids，docs/dev/SPEC-persona-prompt.md 第七章「事件」）。同秒续接链在观察事件
+        提交之后挂到私有键 continuation 上，不另存（第二章「同秒续接」）。
         """
         self._validate_context(context)
         data = self._observation_data(self.state.agents[context.agent_id])
@@ -280,6 +282,7 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                            agent_id=context.agent_id, decision_id=context.decision_id,
                            observed_at=self.state.current_time, data=stored)
         data["observation_event_id"] = commit_state(self.store, self.state, [draft])[0].event_id
+        data[CONTINUATION_KEY] = same_second_chain(self, context.agent_id, data["observation_event_id"])
         return data
 
     def begin_decision_round(self, contexts: list["DecisionContext"]) -> None:
