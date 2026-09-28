@@ -17,7 +17,7 @@ from tests.life.test_commerce import _choice, _stage_open
 from tests.life.test_dayrun_restaurants import _stage
 from tests.life.test_same_moment_decisions import _act, _finish, _observed_act
 from tests.life.test_work_review import _at_task_start
-from worldmock.life import felt, schedule
+from worldmock.life import activity_control, felt, schedule
 from worldmock.life.interaction_menu import LIFE_VERBS, WAYS
 from worldmock.life.models import (ActionStatus, PauseActivityRequest, PlanGoalInput, ReportStatusRequest,
                                    ReviseDayPlanRequest, SendMessageActionRequest)
@@ -197,3 +197,24 @@ def test_browse_supplies_live_in_the_tool_layer_and_the_result_lists_names_only(
     assert shown and all(targets[name]["kind"] == "product" for name in shown)
     assert all(action["price"] is not None for name in shown for action in targets[name]["actions"]
                if action["action"] == "obtain")
+
+
+def test_just_ended_browse_target_states_the_end_reason_without_the_browse_result(engine_factory) -> None:
+    """浏览结束后：工具层刚结束的浏览活动目标只写终局说法与客观进度，不复述进度层该调用结果里的商品名称（结果取该请求的
+    最新结果，浏览得到的名称只在那里，docs/dev/SPEC-persona-prompt.md「唯一出现原则」）。"""
+    engine = engine_factory()
+    _stage_open(engine)
+    stage_day_plan(engine)
+    _, browse = _observed_act(engine, "ended-browse-start", "start_activity",
+                              _choice(engine.observe(context(engine, "ended-browse-preview")), "browse"))
+    _finish(engine, browse.activity_id, "ended-browse")
+    observed = _checked(engine, "ended-browse-seen")
+    (record,) = [row for row in progress_calls(observed, "start_activity")
+                 if "browse_items" in row["result"]["details"]]
+    activity = engine.state.activities[browse.activity_id]
+    target = tool_targets(observed)[activity_name(engine, browse.activity_id)]
+    assert target["phase"] == "刚结束"
+    assert target["state"] == (f"{activity_control.ending_phrase(activity)}，"
+                               f"{activity_control.objective_progress(activity)}")
+    assert record["result"]["details"]["browse_items"]
+    assert not any(name in target["state"] for name in record["result"]["details"]["browse_items"])
