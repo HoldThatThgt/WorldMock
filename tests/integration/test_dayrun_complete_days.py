@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,9 +16,11 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import worldmock.runtime as runtime_module
 from agentsociety2.society import SocietyCheckpointRequest
-from custom.agents.life_agent import LifeAgent
+from custom.agents.life_agent import _MEMORY_TOOL_MODELS, LifeAgent, _tool_schema
+from custom.agents.life_prompt import LIFE_SYSTEM_LAYER
 from custom.envs.life_env import LifeEnv
 from tests.integration.test_life_agent_protocol import _ModelResponse, _TextResponse
+from tests.integration.test_unique_presence_run import _assert_once_each, _assert_readable, _identities
 from tests.life.conftest import StubPlanDayClient, context, start_arguments
 from tests.life.test_scheduling import _document, _write_scenario, _identity
 from worldmock.evaluation.behavior_metrics import behavior_metrics_report
@@ -25,7 +28,9 @@ from worldmock.footprints.checkpoint import snapshot_directory
 from worldmock.footprints.export import export_run
 from worldmock.footprints.experiences import project_verified_experiences
 from worldmock.life.engine import LifeEngine
-from worldmock.life.models import ActivityStatus
+from worldmock.life.models import REQUEST_MODELS, ActivityStatus
+from worldmock.life.narration import render_layer_json
+from worldmock.life.prompt_schemas import USER_LAYER_NAMES, validate_layer
 from worldmock.runtime import stage_model_identity
 
 _RESTAURANTS = ("菜饭骨头汤", "三十六道金牌煲仔饭")
@@ -351,13 +356,14 @@ def _assert_day(engine, models, start, exported, tmp_path):
     assert quality["schema_version"] == 2
     assert [item for item in quality["memory_references"]["problems"]
             if item["code"] == "invalid_observed_result_reference"] == []
-    _assert_decision_events(events)
+    _assert_decision_events(events, _identities(engine))
 
 
-def _assert_decision_events(events):
+def _assert_decision_events(events, identities):
     """第二章：每次决策的 decision_started 与首个行动请求同批提交且排在它之前，data 为闭集；没有决策自述请求；
     世界请求都带 self_note 键（脚本回复正文为空时为 null）；观察事件不存进度层快照，只存来源引用；第七章：真实请求上
-    的观察重复门禁为 1（同一 user 文本只出现在一条（人物，秒）续接链中）。"""
+    的观察重复门禁为 1（同一 user 文本只出现在一条（人物，秒）续接链中）；第一章：每个行动请求的系统层、原生工具与六层
+    user 见 _assert_action_requests。"""
     by_seq = {event.event_seq: event for event in events}
     for start in (event for event in events if event.event_type == "decision_started"):
         assert set(start.data) == {"round_id", "round_order", "world_state_version", "wake_reasons"}
@@ -373,6 +379,34 @@ def _assert_decision_events(events):
     reports = behavior_metrics_report([event.model_dump(mode="json") for event in events])
     gates = [report["gates"]["observation_repetition"] for report in reports.values()]
     assert gates and all(gate["value"] == 1 and gate["pass"] for gate in gates), gates
+    _assert_action_requests(requests, identities)
+
+
+#: 人物配置的每次决策回合上限（_people 创建工作区时写入）；只剩最后一个回合时去掉记忆查询。
+_MAX_REACT_TURNS = 16
+
+
+def _assert_action_requests(requests, identities):
+    """第一章「请求组成」与验收台账「七层请求」「系统层与工具」：整次真实日运行（两人、跨检查点恢复）的每个行动请求——
+    system 逐字节相同，就是生活决策系统层的紧凑序列化；原生 tools 等于八个人物工具加三个记忆查询的全量定义（事件按规范
+    JSON 存储，键序不保留，按对象比较），只有本次决策最后一个回合的请求等于去掉记忆查询的前八项；链首 user 是按固定
+    层序排列的六层 JSON 数组，每一层通过 prompt_schemas 校验。验收台账「唯一出现」：同一批请求（含同秒续接）逐个满足 test_unique_presence_run 的唯一出现
+    与人读写法检查（暂停活动进度、任务合同与门店商品目标各恰好一处；没有 _seconds、_fen、身份键、裸数值与内部身份）。"""
+    models = {**REQUEST_MODELS, **_MEMORY_TOOL_MODELS}
+    full = [_tool_schema(name, model) for name, model in models.items()]
+    assert requests and {event.data["request"]["messages"][0]["content"] for event in requests} == {
+        render_layer_json(LIFE_SYSTEM_LAYER)}
+    for event in requests:
+        request = event.data["request"]
+        turn = int(re.search(r":model:(\d{4}):attempt:", event.data["call_id"]).group(1))
+        expected = full[:len(REQUEST_MODELS)] if turn == _MAX_REACT_TURNS else full
+        assert request["tools"] == expected, turn
+        layers = json.loads(request["messages"][1]["content"])
+        assert [layer["layer"] for layer in layers] == list(USER_LAYER_NAMES)
+        for layer in layers:
+            validate_layer(layer)
+        _assert_once_each(request)
+        _assert_readable(request, identities)
 
 
 def _assert_start_day_plans(events, start):

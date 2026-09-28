@@ -622,6 +622,32 @@ def test_overdue_task_stays_listed_until_the_end_of_its_day_and_submission_is_a_
     assert all(row["task_id"] != task.task_id for row in next_day["task_bindings"])
 
 
+def test_a_one_minute_requirement_is_written_as_a_readable_phrase(engine_factory) -> None:
+    """合同的剩余要求写成人读短语（docs/dev/SPEC-persona-prompt.md「通用格式」「工具层」）：双人场景的计时与计件任务要求
+    60 秒有效工时，10:00 在办公室看到时写「有效工时还差约 1 分钟（约 0/0.02 小时）」，要求至多两位小数；4 小时的包件任务
+    仍写「约 0/4 小时」。改回按 :g 输出要求时写成「0.0166667 小时」而失败。"""
+    engine = engine_factory("multi-person.json")
+    shown = [item for item in engine.scenario.tasks
+             if item.task_id in {"task-2026-01-05", "hourly-2026-01-05", "piece-2026-01-05"}]
+    now = int(datetime.fromisoformat("2026-01-05T10:00:00+08:00").timestamp())
+
+    def change(state) -> None:
+        """@brief 推到 10:00，人物 1 在办公室、看得到三项当日任务。"""
+        state.current_time = now
+        state.pending_events = [event for event in state.pending_events if event.due_at > now]
+        state.agents[1].location_id = "office"
+        state.agents[1].visible_task_ids = {item.task_id for item in shown}
+        for agent in state.agents.values():
+            agent.body_settled_at = agent.next_decision_at = now
+    stage(engine, change)
+    observed = engine.observe(context(engine, "one-minute"))
+    remaining = {name: target["contract"]["remaining"] for name, target in tool_targets(observed).items()
+                 if target["kind"] == "task"}
+    assert remaining == {f"工作：{item.title}": "有效工时还差约 1 分钟（约 0/0.02 小时）"
+                         if item.required_effective_seconds == 60 else "有效工时还差约 4 小时（约 0/4 小时）"
+                         for item in shown}
+
+
 def test_a_task_beyond_the_persons_skill_is_not_listed(deadline_engine) -> None:
     """技能不够的任务永久不能开工，不列：工具层没有它的任务目标，私有的对象绑定与任务名绑定里都没有它，提交与回看都不认
     这个名称（docs/dev/SPEC-persona-prompt.md「工具层」「永久不能满足的（没有路线、技能不够）不列」）。技能够得上时同一

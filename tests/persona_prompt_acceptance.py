@@ -54,6 +54,9 @@ _WINDOWS = "tests/delivery/test_windows.py::"
 _ATTRIBUTION = "tests/life/test_session_attribution.py::"
 _BEHAVIOR = "tests/evaluation/test_behavior_metrics.py::"
 _DOC_GATE = "tests/test_documentation_gate.py::test_real_repository_documentation_links_resolve"
+_UNIQUE = "tests/integration/test_unique_presence_run.py::"
+_DAYRUN = ("tests/integration/test_dayrun_complete_days.py::"
+           "test_complete_two_person_day_uses_real_tools_memory_and_restoration")
 _ZERO_RECENT = "tests/integration/test_verified_memory.py::test_zero_recent_memory_limit_returns_no_recent_entries"
 
 #: 第六章「程序错误」表逐行：每行的回归用例（把修复改回旧代码时用例失败）。
@@ -150,6 +153,10 @@ LEDGER: dict[str, list[str]] = {
         "tests/life/test_progress_layer_projection.py::test_recall_reads_task_and_activity_without_identities",
         _LOCATION + "test_recall_by_task_and_activity_names_reaches_the_next_observation",
         "tests/life/test_todo_layer.py::test_same_second_pauses_from_two_decisions_follow_the_pause_event_order",
+        _UNIQUE + "test_every_request_of_a_multi_state_run_presents_each_item_once",
+        _UNIQUE + "test_the_presence_and_readability_checks_have_teeth",
+        _DAYRUN,
+        _WORK + "test_a_one_minute_requirement_is_written_as_a_readable_phrase",
     ],
     "唯一出现": [
         _LAYERS + "test_direct_message_and_invite_text_appear_only_in_the_progress_layer",
@@ -166,6 +173,9 @@ LEDGER: dict[str, list[str]] = {
         _MEMORY + "test_recalled_summary_still_in_the_memory_layer_is_not_repeated",
         "tests/integration/test_mail_read_result.py::"
         "test_the_mail_body_appears_once_in_the_request_as_the_read_result",
+        _UNIQUE + "test_every_request_of_a_multi_state_run_presents_each_item_once",
+        _UNIQUE + "test_the_presence_and_readability_checks_have_teeth",
+        _DAYRUN,
     ],
     "系统层与工具": [
         _SEVEN + "test_system_layer_is_byte_identical_across_turns_and_decisions",
@@ -178,6 +188,7 @@ LEDGER: dict[str, list[str]] = {
         _DESCRIPTIONS + "test_interaction_rules_live_only_in_the_system_layer",
         _DESCRIPTIONS + "test_description_scan_has_teeth",
         _DESCRIPTIONS + "test_parameter_descriptions_are_purpose_only",
+        _DAYRUN,
     ],
     "单一行动阶段": [
         _SEVEN + "test_a_decision_without_memory_queries_sends_exactly_one_request_and_no_prelude",
@@ -239,6 +250,14 @@ LEDGER: dict[str, list[str]] = {
         _GIVING + "test_give_is_listed_available_only_with_someone_to_hand_to",
         "tests/life/test_interaction_menu_runtime.py::"
         "test_availability_judges_the_menu_first_with_the_admission_reason",
+        _TOOL + "test_submit_while_working_says_finish_the_work_first",
+        _TOOL + "test_resume_within_a_minute_of_the_deadline_is_unavailable_with_the_admission_reason",
+        _TOOL + "test_resume_or_conclude_stage_opens_only_resuming_and_ending",
+        _TOOL + "test_conclude_pending_stage_opens_only_the_conclusion",
+        _TOOL + "test_closed_sold_out_and_unaffordable_supplies_are_listed_and_refused_alike",
+        _TOOL + "test_a_co_present_person_asleep_can_be_messaged_but_not_talked_to",
+        _TOOL + "test_overdue_task_stays_listed_and_its_submission_is_refused_alike",
+        _TOOL + "test_permanently_impossible_actions_are_not_listed_and_the_host_corrects_them",
     ],
     "进度层": [
         _PROGRESS + name for name in (
@@ -644,6 +663,7 @@ FEATURE_TEST_FILES: tuple[str, ...] = (
     "tests/integration/test_minimum_complete_path.py",
     "tests/integration/test_same_second_continuation.py",
     "tests/integration/test_seven_layer_request.py",
+    "tests/integration/test_unique_presence_run.py",
     "tests/life/routing_fixtures.py",
     "tests/life/test_contact_exchange.py",
     "tests/life/test_continuation_metrics.py",
