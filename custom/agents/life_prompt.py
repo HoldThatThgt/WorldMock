@@ -106,9 +106,6 @@ def life_user_layers(observation: Mapping[str, Any], persona: dict[str, Any]) ->
             logging.error("LifeAgent observation layer %s is unavailable", key)
             raise RuntimeError(f"LifeAgent observation layer {key} is unavailable")
         layers[name] = layer
-    if persona.get("layer") != "人设层":
-        logging.error("LifeAgent persona layer is invalid")
-        raise RuntimeError("LifeAgent persona layer is invalid")
     return [layers["工具层"], persona, layers["记忆层"], layers["待办层"], layers["环境层"], layers["进度层"]]
 
 

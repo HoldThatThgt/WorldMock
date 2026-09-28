@@ -48,8 +48,6 @@ def record_lines(context: LayerContext, record: dict, sources: list[Event],
         return [f"{when} 收到{record['sender']}的消息：{record['text']}"]
     if kind == "delivery":
         return [f"{_clock(context, record['occurred_at'])} {record['order']}：{record['message']}"]
-    if kind == "condensed":
-        return list(record["lines"])
     return []
 
 
