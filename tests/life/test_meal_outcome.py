@@ -131,6 +131,27 @@ def test_ending_a_meal_at_300_of_1500_seconds_eats_0_2_discards_0_8_and_keeps_3(
     assert last_result(engine.observe(context(engine, "meal-seen")))["details"]["outcome"] == outcome
 
 
+def test_ending_a_meal_early_adds_no_energy_for_the_discarded_portion(engine_factory) -> None:
+    """吃到 300/1500 秒时结束：同一秒的收尾只丢弃开吃份量的剩余 0.8 份，不补算摄入，人物能量与收尾前相同；
+    能量只来自进度结算里已吃的 0.2 份（第五章「进食」：结束丢弃 opened 减已吃的部分，不补算摄入）。"""
+    engine = engine_factory()
+    stage_day_plan(engine)
+    food = _food(engine)
+    _stage_holding(engine, food.product_id, 4.0)
+    _, started = _start_eating(engine, food, "early")
+    wake_by_mail(engine, offset=300)
+    advance_next(engine)
+    before = engine.state.agents[1].body.energy_kcal
+    name = activity_name(engine, started.activity_id)
+    _, ended = _round(engine, "early-end", "conclude_activity", conclude_request(name))
+    assert ended.status == "completed"
+    meal = engine.state.activities[started.activity_id]
+    assert (meal.data["consumed"], meal.data["discarded"]) == ({food.product_id: 0.2}, {food.product_id: 0.8})
+    assert engine.state.agents[1].body.energy_kcal == pytest.approx(before)
+    eaten, expected, gained = _intake(engine, meal.activity_id, food.energy_kcal_per_unit)
+    assert eaten == pytest.approx(0.2) and gained == pytest.approx(expected)
+
+
 def test_pause_keeps_the_opened_remainder_and_resume_eats_it_after_another_meal_took_the_stock(
         engine_factory) -> None:
     """持有 1.5 份：开吃 A 取 1 份（库存 0.5），吃到一半暂停，剩余 0.5 份留在 A 里别处不能用；再开吃 B 只能取手边的 0.5 份
