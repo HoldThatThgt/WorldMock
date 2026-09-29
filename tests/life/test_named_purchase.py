@@ -24,7 +24,7 @@ from agentsociety2.society import DirectToolCall  # noqa: E402
 from custom.agents.life_agent import LifeAgent  # noqa: E402
 from tests.integration.test_life_agent_protocol import _context, _observations  # noqa: E402
 from tests.life.conftest import context, last_result, stage_day_plan, start_arguments, start_request  # noqa: E402
-from tests.life.routing_fixtures import place  # noqa: E402
+from tests.life.routing_fixtures import place, stage  # noqa: E402
 from tests.life.test_browse_and_hints import _retarget  # noqa: E402
 from tests.life.test_commerce import _browse, _stage_open  # noqa: E402
 from worldmock.errors import BusinessRuleError  # noqa: E402
@@ -245,6 +245,25 @@ def test_several_servable_matches_follow_prefer_and_never_report_ambiguity(engin
     assert note.endswith(f"送到，到手价 {price}）")
     assert "按最快选了" in quick.data["notes"][0] and "到手价" not in quick.data["notes"][0]
     assert {cheap.error_code, quick.error_code} == {None}
+
+
+def test_a_store_whose_price_is_unknown_is_never_the_cheapest(engine_factory) -> None:
+    """按最便宜选定时到手价未知的排在最后（3.5「收敛」第 5 条，purchase_offers.order_key）：几家都能送到家的纯牛奶里，最便宜
+    那家的报价此刻失效（到手价未知），prefer=cheapest 选报价已知的里最便宜的一家并照常成交，不选报价未知的那家。"""
+    engine = engine_factory()
+    _stage_open(engine)
+    stage_day_plan(engine)
+    layer = _layer_context(engine)
+    ranked = sorted(_milk(engine), key=lambda supply: (landed_price(layer, supply), supply.location_id))
+
+    def expire(state) -> None:
+        """@brief 最便宜那家的报价在此刻失效。"""
+        state.supply_quotes[ranked[0].supply_id].effective_to = state.current_time
+    stage(engine, expire)
+    assert landed_price(_layer_context(engine), ranked[0]) is None
+    _, result = _round(engine, "cheapest-known", _obtain(_MILK, prefer="cheapest"))
+    assert (result.status, result.error_code) == ("completed", None)
+    assert [order["supply_id"] for order in result.data["orders"]] == [ranked[1].supply_id]
 
 
 def test_full_label_with_another_store_in_from_is_a_source_mismatch(engine_factory) -> None:
