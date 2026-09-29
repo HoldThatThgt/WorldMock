@@ -89,12 +89,18 @@ flowchart TB
 | `rotation_stale_seconds` | 必填，范围 1–31536000 秒 | 多久未出现的对象进入长期未呈现判定 |
 | `retrieval_index_threshold` | 默认 1000，范围 1–100000 | 切换检索索引策略的规模阈值 |
 
+呈现窗口只决定人物本轮看到哪些对象，不是资格上限：没有列出的生活活动、内容和商品，人物写出名称也能调用，受理照常核验。
+窗口内先按口味权重乘注意力排序，再按相关度：生活活动的时间窗覆盖此刻 +2，对应当日计划里尚未推进的目标 +2，
+条目名或品类出现在人物卡片的习惯里 +1；仍同分时按含日期的哈希决胜，所以顺序随日期变化，也不是名称的字母序。
+生活活动窗口只列当前地点环境合适的活动；环境不合适的不列出，按名写它时以「这里不适合做这件事」拒绝。
+
 不要把反馈间隔当作“人物每十五分钟行动一次”。决策本身不耗时：没有进行中活动的人物在同一秒接着决策，
 只有人人都有事在做时，时间才根据活动完成、消息、任务、身体变化和其他事件推进。
 在手承诺包括尚未推进的当日目标、可见的未完成工作任务、暂停的活动与进行中的活动（等待除外）。
 当日目标由零点计划生成：运行开始时和每个场景本地零点（运行恰在零点结束时除外），系统为每个人物调用模型生成当天的
-有序目标，同一人物同一天只生成一次；人物醒着时可以修订。目标不填写时间段，只有 `remind_time`（场景本地 `HH:MM`，
-可为空）会在那一刻提醒人物，每条提醒只触发一次，能叫醒睡着的人；睡眠中除了提醒，只有睡够等专用唤醒条件才会结束睡眠。
+有序目标，同一人物同一天只生成一次；人物醒着时可以修订。目标不填写时间段，每条带模型写的大致时刻 `around_time`
+（场景本地 `HH:MM`，可为空）：写了时，只有进行时段与它前后 90 分钟有交集的同类活动才算推进这条目标。
+只有 `remind_time`（场景本地 `HH:MM`，可为空）会在那一刻提醒人物，每条提醒只触发一次，能叫醒睡着的人；睡眠中除了提醒，只有睡够等专用唤醒条件才会结束睡眠。
 规则见[当日目标规格](../dev/SPEC-day-plan-goals.md)与[时间与能量规格](../dev/SPEC-time-and-energy.md)第四章。
 
 ## 修改人物、身体与账户
@@ -119,6 +125,9 @@ flowchart TB
 体重为大于 0 且不超过 300 的千克数；能量为非负千卡，且不超过目录能量上界；
 睡眠不足初值为非负小时数。`initial_entertainment_need` 接受 0–1，
 但当前运行初始化仍固定为 0，非零设置尚未生效。不要用它构造不同娱乐需要的实验。
+`body` 还可写 `entertainment_relief_preference_floor`：娱乐缓解的下限偏好 f，缺省 0.5，严格在 0 与 1 之间，越界加载拒绝。
+观看与玩游戏的实际缓解乘有效偏好 f + (1 − f) × 口味权重：口味对不上（权重 0）的内容也按 f 缓解，权重 1 的不变；
+候选排序仍按原始口味权重。取值是实验假设（敏感区间 0.3–0.7），见[实验设置](../EXPERIMENT.md#实验假设声明)。
 饥饿与困意由身体和时刻计算，没有可直接设置的“饥饿值”或“疲劳值”。
 起点困意也不另设：系统按人物作息反推起点的睡眠压力（假定自最近一次惯常起床时刻起一直清醒），
 公式与起点落在惯常睡眠时段时的效果见[人物画像](personas.md#在场景中填写人物)。
@@ -169,6 +178,8 @@ flowchart LR
 `wait` 和 `sleep` 是每份菜单必须保留的自身动作。数组必须非空、无重复，名称只能来自动作闭集。
 菜单只剪裁 `start_activity` 的可选动作；动作不因人物状态隐藏，条件未满足的照常列出并带说明，只有阶段与
 同刻上限的受限轮照常收窄；其他工具由工具层按当前阶段与活动状态开放。
+名称写错或找不到而被拒（名称类拒绝，例如 `SUPPLY_NOT_FOUND`、`TASK_NOT_FOUND`）时，每人每秒的前两次不计同刻轮数、
+不影响情绪，也就不会用掉受限轮；第三次起与其他拒绝一样计轮。
 一次最多选择两个交互对象，`targets[]`、`actions[]` 与 `ways[]` 按顺序一一对应，所选动作都须在有效菜单中；
 每人两个名额，进行中、暂停与刚结束待收尾的活动各占一个，结束活动后才释放；
 引擎按注册表占用与准入事实（目标在场与实际地点、出行方式、物品状态）整体核验，能量不参与。
@@ -266,6 +277,9 @@ flowchart LR
 
 先按[入门流程](README.md#创建自己的第一个场景)调用 `load_scenario` 做离线检查，
 再用 `worldmock validate` 核对依赖、语料与人物卡片覆盖率。完整校验会调用模型。
+`validate` 还逐条打印运行输入警告 `Input warning <警告码> (agent <编号>): <说明>`，同一组警告列在结果的 `input_warnings` 中，
+新建运行时冻结进运行清单。警告不让校验或新建运行失败（覆盖率低于 80% 时 `validate` 照旧失败），
+警告码见[接口合同](../CONTRACTS.md#运行输入警告)。
 
 | 错误或现象 | 处理方法 |
 | --- | --- |
@@ -273,8 +287,17 @@ flowchart LR
 | `Scenario corpus manifest identity is invalid` | 核对 `corpus_root` 与清单真实哈希；不要只改哈希掩盖素材损坏 |
 | `work task is outside the scenario interval` | 同步调整任务开放和截止时间，或移除窗口外任务和有关消息 |
 | `interaction menu location kinds must exactly match declared location kinds` | 根据已选地点的实际 `kind` 补齐或删除菜单键 |
+| `Selected locations use kinds that are not place types` | 地点 `kind` 只能是 `home`、`office`、`merchant`、`restaurant`、`convenience_store`、`supermarket`、`wet_market`、`fitness`、`park` 之一；在地图中改正并同步菜单键，见[世界素材](resources.md#编写地点与营业时间) |
+| `Selected locations share display names` | 同名地点在地图中写互不相同的 `branch_label` |
+| `Agent <编号> would see non-unique object labels` | 同一人物会同时看到两个相同的名称，例如两项工作同名、两位联系人同称谓；改掉其中一个 |
 | `candidate_presentation_limit and rotation_quota_ratio leave no rotation quota` | 调整二者，保证乘积向下取整至少为 1 |
 | 旧场景含 `max_consecutive_rejections` 被拒（未知字段） | 删掉该键（同刻上限取缺省 3），或改写为 `max_same_moment_decisions` |
+| 警告 `TASTE_GENRES_UNMATCHED`、`CONTENT_WEIGHTS_ALL_ZERO` | 卡片口味题材与内容 `genre` 按字面精确匹配，平台名不是题材；改画像正文的口味写法，或给内容补同一套题材词；没写 `background_story` 的人物没有口味权重，也报后者 |
+| 警告 `CONTENT_EMPTY_WITH_MEDIA_TASTES` | 场景没有内容，卡片却有口味题材，或媒介、习惯里有看、刷、听；补 `contents`，或确认人物本就没有可看的内容 |
+| 警告 `GAMES_WITHOUT_TASTE_WEIGHTS` | 场景有游戏，人物却没有口味权重（没写 `background_story`）；游戏缓解按下限偏好计 |
+| 警告 `COVERAGE_BELOW_THRESHOLD`、`PERSONA_AGREEMENT_LOW` | 卡片的世界覆盖率低于 80%，或画像编译的三次一致性偏低；见[人物画像](personas.md#预览与校验) |
+| 警告 `CARD_FIELD_OVERRIDDEN`、`CARD_FIELD_CONFLICT` | 场景显式写的作息字段覆盖了卡片抽取值，有意为之即可；冲突时保留卡片值，让场景窗口与卡片其余时刻按起床、出门、午餐、晚餐、就寝排序 |
+| 警告 `DELIVERY_ROUTE_UNAVAILABLE`、`LOCATION_NAME_SUSPICIOUS` | 配送门店到声明目的地没有可达驾车路线，或地点显示名带坐标、标识形态；见[世界素材](resources.md#验证修改) |
 | 修改配置后不能恢复旧运行 | 用新目录新建运行；恢复不是应用新配置的入口 |
 
 字段的最终边界见[场景加载器](../../src/worldmock/life/scenario.py)、

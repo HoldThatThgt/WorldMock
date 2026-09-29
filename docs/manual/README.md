@@ -96,6 +96,10 @@ uv run worldmock validate \
   --coverage-out /tmp/my-persona-day-coverage.json
 ```
 
+校验会把运行输入警告逐条写到标准错误流（`Input warning <警告码> (agent <人物编号>): <说明>`），并列在输出 JSON 的
+`input_warnings` 里，例如口味题材与场景内容对不上、场景作息覆盖了正文抽取的作息。警告不阻止校验和运行，
+含义与改法见[人物画像](personas.md#常见错误)；人物卡片的世界可执行覆盖率低于 80% 时校验失败。
+
 校验通过后，使用新的输出目录开始运行：
 
 ```bash
