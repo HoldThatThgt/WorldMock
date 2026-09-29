@@ -41,11 +41,12 @@ from custom.agents.life_prompt import (TOOL_DESCRIPTIONS, life_user_layers, read
 from worldmock.life.continuation import CONTINUATION_KEY
 from worldmock.life.control_items import control_items
 from worldmock.life.error_contract import HOST_NAME_CODES, Candidate, ErrorItem, host_report, numbered
-from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR, WAYS, is_named_purchase
+from worldmock.life.interaction_menu import VERB_WAY_SEPARATOR
 from worldmock.life.models import (ActionReceipt, ConcludeActivityRequest, REQUEST_MODELS, deepseek_strict_schema,
                                    purpose_only_schema)
+from worldmock.life.name_resolution import StartOutcome, name_book, near_names, resolve_name, resolve_start
 from worldmock.life.prompt_capacity import ProgressBudget, compare_usage, fit_request
-from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, fill_route, routing_names
+from worldmock.life.routing import RECIPIENT_NOT_FOUND, RouteIssue, combination_issues, routing_names
 from worldmock.life.schedule import MAX_PLAN_GOALS
 
 
@@ -367,16 +368,17 @@ class LifeAgent(PersonAgent):
             return host_feedback(host_report("ARGUMENTS_INVALID"), f"invalid {decision.action} arguments: {exc}")
 
     def _prepared_action_error(self, action: str, request: BaseModel) -> str:
-        """@brief 用同一冻结观察核对名称与菜单；非生活动作（记忆查询、finish）不核对名称。"""
+        """@brief 用同一冻结观察核对名称与菜单；非生活动作（记忆查询、finish）不核对名称，菜单只剪裁 start_activity 各项经
+        统一名称解析选中的内部标准动作（未列出的指名购买计为购买）。"""
         if action not in REQUEST_MODELS:
             return ""
         error = _validate_prepared_action(action, request, self._life_names)
-        if error:
+        if error or action != "start_activity":
             return error
-        objects = self._life_names["objects"]
-        denied = life_menu.menu_action_error(
-            self._life_interaction_menu, action, _selected_actions(action, request, objects))
-        return _menu_feedback(denied, request, objects, self._life_interaction_menu.allowed_actions) if denied else ""
+        outcome = resolve_start(self._life_names["book"], request)
+        denied = life_menu.menu_action_error(self._life_interaction_menu, action,
+                                             [row["selected_action"]["canonical_action"] for row in outcome.rows])
+        return _menu_feedback(denied, request, outcome, self._life_interaction_menu.allowed_actions) if denied else ""
 
     async def _run_react_turn(self, request: ReactLoopRequest, turn: int) -> str | None:
         """@brief 生活决策的一个模型回合：世界请求登记即结束本轮（取消 finish，AS2 锁定提交不改）。
@@ -543,8 +545,9 @@ def _conclusion_memories(action: str, args: dict[str, Any]) -> list[dict[str, An
 
 
 def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]:
-    """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称，以及来源
-    与去向的判定名称（人物、可见直接消息）。
+    """@brief 冻结本轮本地校验所用的名称：交互对象的（动词，方式，内部标准动作）、任务、人物、活动与回看名称，来源
+    与去向的判定名称（人物、可见直接消息），以及 start_activity 统一名称解析的对象全集（book：列出的对象、目录绑定与
+    冻结地点表，worldmock.life.name_resolution.name_book，环境受理读同一冻结观察）。
 
     只读观察私有绑定与待办层；缺失或形状不符的绑定是损坏的宿主观察。people 是同世界其他人物的姓名（不论是否同处，
     私有绑定 person_bindings），供 relationship 记忆的对象校验。回看名称是任务名、待办层写出的目标文字、活动名与
@@ -565,6 +568,7 @@ def _visible_names(data: dict[str, Any], todo: dict[str, Any]) -> dict[str, Any]
         "recall_names": (*tasks, *goals, *activities, *labels),
         "progressed_intents": _progressed_intents(todo),
         "routing": routing_names(data),
+        "book": name_book(data),
     }
 
 
@@ -618,8 +622,9 @@ def _progressed_intents(todo: dict[str, Any]) -> tuple[str, ...]:
 
 
 def _validate_prepared_action(action: str, request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）；
-    不成立的名称逐项写成 NAME_NOT_FOUND（docs/dev/SPEC-dayrun-fidelity.md 第四章）。"""
+    """@brief 用同一冻结观察的私有绑定核对工具参数中的名称（docs/dev/SPEC-persona-prompt.md 第一章「工具层」）：精确或
+    无损归一后唯一即受理（docs/dev/SPEC-dayrun-fidelity.md 3.1，worldmock.life.name_resolution），找不到的逐项写成
+    NAME_NOT_FOUND、归一后不止一个的写成 NAME_AMBIGUOUS（第四章）。"""
     if action == "start_activity":
         return _validate_start_activity(request, names)
     if action in _ACTIVITY_CONTROL_TOOLS:
@@ -668,17 +673,36 @@ def _batch_error(decisions: list[ReactDecision], submitted: int) -> str:
 
 
 def _unknown_names(field: tuple[str, str], written: list[str], visible, detail: str) -> str:
-    """@brief 名称类参数逐项核对：不在本轮可见名称中的逐项写成 NAME_NOT_FOUND 明细，全部报出；都在时为空串。
+    """@brief 名称类参数逐项解析（精确或无损归一后唯一即受理，worldmock.life.name_resolution.resolve_name，环境受理用同一
+    函数）：找不到的写成 NAME_NOT_FOUND（原因列出最接近的几个名称），归一后不止一个的写成 NAME_AMBIGUOUS（原因列出它们），
+    逐项全部报出；都成立时为空串。
 
-    :param field: （参数名，名称所指的东西），如 ("task", "活动")。
-    :param detail: 英文说明（证据用）。
+    :param field: （参数名，名称所指的东西），如 ("activity_name", "活动")。
+    :param detail: 找不到时的英文说明（证据用）。
     """
-    total = len(written)
-    issues = [HostIssue(ErrorItem(index, field[0], name, "NAME_NOT_FOUND"),
-                        f"{numbered(index, total)}「{name}」不是本轮列出的{field[1]}", detail)
-              for index, name in enumerate(written) if name not in visible]
+    total, issues = len(written), []
+    for index, name in enumerate(written):
+        match = resolve_name(name, visible)
+        if match.name is not None:
+            continue
+        lead = f"{numbered(index, total)}「{name}」"
+        if match.matches:
+            issues.append(HostIssue(ErrorItem(index, field[0], name, "NAME_AMBIGUOUS"),
+                                    f"{lead}对应不止一个{field[1]}：{_quoted(match.matches)}",
+                                    f"{field[0]} matches several visible names"))
+            continue
+        near = near_names(name, visible)
+        issues.append(HostIssue(ErrorItem(index, field[0], name, "NAME_NOT_FOUND"),
+                                f"{lead}不是本轮列出的{field[1]}" + (f"，最接近的是{_quoted(near)}" if near else ""),
+                                detail))
     fix = "照工具层、待办层或记忆层中的写法填写名称" + ("，或者去掉这一项" if total > 1 else "")
-    return merged_feedback(issues, total, {"NAME_NOT_FOUND": fix}) if issues else ""
+    fixes = {"NAME_NOT_FOUND": fix, "NAME_AMBIGUOUS": "改写成原因里列出的某一个完整名称"}
+    return merged_feedback(issues, total, fixes) if issues else ""
+
+
+def _quoted(names) -> str:
+    """@brief 几个名称的说法「A」、「B」。"""
+    return "、".join(f"「{name}」" for name in names)
 
 
 def _subject_feedback(request: BaseModel, error: str) -> str:
@@ -708,14 +732,14 @@ def _subject_location(arguments: dict[str, Any], name: str) -> tuple[str, int] |
 
 
 def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
-    """@brief 对象、动词与方式逐项对应，并取自本轮交互对象私有绑定列出的动作；来源、去向与 answering 的组合合法
-    （worldmock.life.routing，与环境受理同一判定）。
+    """@brief 对象、动词与方式逐项经统一名称解析（worldmock.life.name_resolution.resolve_start，与环境受理同一冻结观察、
+    同一函数）；来源、去向与 answering 按归一后的请求判定组合（worldmock.life.routing，与环境受理同一判定）。
 
-    obtain 以到店或远程下单写本轮未列出的名称时放行（指名购买，由环境按名称解析）；其余动词的目标仍须是本轮列出的
-    名称，否则按协议错误在本轮纠正（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。名称类错误（对象不在本轮、
-    对象没有列出所写的动词与方式、目标已写明门店却写了 from）逐项报全部，其余条件报第一条
-    （docs/dev/SPEC-dayrun-fidelity.md 3.1 第 5 条、第四章）。去向不是任何人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主
-    放行，由环境以业务拒绝回给模型（第五章「来源与去向」）。
+    本轮列出的对象、目录绑定（没有列出的生活活动、内容与游戏）与冻结地点表中的名称精确或无损归一后唯一即受理，存在
+    但没有列出的由环境受理时判定资格与准入；obtain 以到店或远程下单（含同义写法）写出的其余名称放行，由环境按指名购买
+    解析商品（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 4 条）。名称类错误（找不到、有歧义、对象没有列出所写的动词与方式、
+    目标已写明门店却写了另一家的 from）逐项报全部，候选可以照填，其余条件报第一条（3.1 第 5 条、第四章）。去向不是任何
+    人物（RECIPIENT_NOT_FOUND）是拒绝码，宿主放行，由环境以业务拒绝回给模型（人物 Prompt 规格第五章「来源与去向」）。
     """
     count = len(request.targets)
     if not 1 <= count <= _START_ACTIVITY_MAX_TARGETS:
@@ -727,39 +751,28 @@ def _validate_start_activity(request: BaseModel, names: dict[str, Any]) -> str:
             "ARGUMENTS_INVALID", f"targets、actions、ways 要逐项对应、一样长，这次分别有 {count}、"
             f"{len(request.actions)}、{len(request.ways)} 项", "每个目标各写一个动词和一个方式"),
             "start_activity targets, actions and ways must have equal lengths")
-    route = combination_issues(request, names["routing"])
-    issues = [*_target_issues(request, names["objects"]), *_source_issues(request, route)]
+    outcome = resolve_start(names["book"], request)
+    route = combination_issues(outcome.request, names["routing"])
+    issues = [*(HostIssue(failure.item, failure.sentence, failure.detail) for failure in outcome.failures),
+              *_source_issues(outcome.request, route)]
     if issues:
-        return merged_feedback(issues, count)
+        return merged_feedback(issues, count, _START_NAME_FIXES)
     first = next((issue for issue in route if issue.code != RECIPIENT_NOT_FOUND), None)
     return _route_feedback(first, count) if first is not None else ""
 
 
-def _target_issues(request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]) -> list[HostIssue]:
-    """@brief start_activity 逐项核对对象与（动词，方式）：对象不在本轮列出（指名购买除外）为 NAME_NOT_FOUND，对象没有
-    列出所写的动词与方式为 WAY_NOT_OFFERED（候选为该对象列出的动词与方式，照填 from 与 to）。"""
-    total, issues = len(request.targets), []
-    for index, (target, verb, way) in enumerate(zip(request.targets, request.actions, request.ways)):
-        listed = objects.get(target)
-        if listed is None and not is_named_purchase(verb, way):
-            issues.append(HostIssue(ErrorItem(index, "targets", target, "NAME_NOT_FOUND"),
-                                    f"{numbered(index, total)}「{target}」不是本轮列出的对象",
-                                    f"start_activity target is not a visible interactive object (targets[{index}])"))
-        elif listed is not None and not any(item[:2] == (verb, way) for item in listed):
-            written_to = request.to[index] if index < len(request.to) else None
-            offered = tuple(dict.fromkeys(item[:2] for item in listed))[:3]
-            candidates = tuple(Candidate(target, pair[0], pair[1], *fill_route(pair[0], pair[1], written_to))
-                               for pair in offered)
-            issues.append(HostIssue(
-                ErrorItem(index, "ways", way, "WAY_NOT_OFFERED", candidates),
-                f"{numbered(index, total)}「{target}」没有列出「{verb}{VERB_WAY_SEPARATOR}{way}」这种做法",
-                f"start_activity verb and way are not offered by the chosen target (targets[{index}])"))
-    return issues
+#: start_activity 名称类纠错的改法：找不到与有歧义时都有可以照填的候选（docs/dev/SPEC-dayrun-fidelity.md 3.1 第 3 条）。
+_START_NAME_FIXES = {"NAME_NOT_FOUND": "改用候选里的请求，或者照工具层、待办层中的写法重写这一项，或者去掉这一项",
+                     "NAME_AMBIGUOUS": "改用候选里写完整名称的请求"}
 
 
-def _source_issues(request: BaseModel, route: list[RouteIssue]) -> list[HostIssue]:
-    """@brief 来源与去向中的名称类问题（目标已写明门店却写了 from，SUPPLY_SOURCE_MISMATCH）逐项写成明细，候选为同一项
-    改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报第一条。"""
+def _source_issues(request, route: list[RouteIssue]) -> list[HostIssue]:
+    """@brief 来源与去向中的名称类问题（目标已写明门店、from 却是另一家，SUPPLY_SOURCE_MISMATCH；写的正是这家店时已在
+    名称解析中按冗余受理）逐项写成明细，候选为同一项改 from 为 null；其余问题（ROUTE_FIELDS_INVALID）不在此列，只报
+    第一条。
+
+    :param request: 归一后的 start_activity 请求（name_resolution.StartRequest）。
+    """
     total, issues = len(request.targets), []
     for issue in route:
         if issue.host_code not in HOST_NAME_CODES:
@@ -781,34 +794,18 @@ def _route_feedback(issue: RouteIssue, total: int) -> HostFeedback:
     return host_feedback(host_report(issue.host_code, reason, issue.fix, items), issue.detail)
 
 
-def _menu_feedback(denied: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]],
-                   allowed: tuple[str, ...]) -> HostFeedback:
-    """@brief 本地交互菜单不允许的项包成 WAY_NOT_OFFERED：逐项写出这里不能那样做的项（映射后的内部动作不在菜单里）。"""
+def _menu_feedback(denied: str, request: BaseModel, outcome: StartOutcome, allowed: tuple[str, ...]) -> HostFeedback:
+    """@brief 本地交互菜单不允许的项包成 WAY_NOT_OFFERED：逐项写出这里不能那样做的项（经名称解析选中的内部动作不在菜单里，
+    未列出的指名购买计为购买）。"""
     total, issues = len(request.targets), []
-    for index, (target, verb, way) in enumerate(zip(request.targets, request.actions, request.ways)):
-        actions = _item_actions((target, verb, way), objects)
-        if not actions or any(action not in allowed for action in actions):
-            issues.append(HostIssue(ErrorItem(index, "ways", way, "WAY_NOT_OFFERED"),
-                                    f"{numbered(index, total)}「{target}」在这里不能「{verb}{VERB_WAY_SEPARATOR}{way}」",
+    for index, row in enumerate(outcome.rows):
+        action = row["selected_action"]
+        if action["canonical_action"] not in allowed:
+            doing = f"{action['verb']}{VERB_WAY_SEPARATOR}{action['label']}"
+            issues.append(HostIssue(ErrorItem(index, "ways", request.ways[index], "WAY_NOT_OFFERED"),
+                                    f"{numbered(index, total)}「{row['object']}」在这里不能「{doing}」",
                                     f"{denied} (targets[{index}])"))
     return merged_feedback(issues, total, {"WAY_NOT_OFFERED": "改选这里能做的事，或者先去能这样做的地方"})
-
-
-def _item_actions(item: tuple[str, str, str], objects: dict[str, tuple[tuple[str, str, str], ...]]) -> list[str]:
-    """@brief 一项（对象，动词，方式）经本轮私有绑定映射后的内部标准动作；未列出的指名购买计为购买。"""
-    target, verb, way = item
-    if target not in objects and is_named_purchase(verb, way):
-        return [WAYS[way][1]]
-    return [action[2] for action in objects.get(target, ()) if action[:2] == (verb, way)]
-
-
-def _selected_actions(action: str, request: BaseModel, objects: dict[str, tuple[tuple[str, str, str], ...]]
-                      ) -> list[str]:
-    """@brief start_activity 各项经本轮私有绑定映射后的内部标准动作（其他工具为空；未列出的项不计入，指名购买计为购买）。"""
-    if action != "start_activity":
-        return []
-    return [name for item in zip(request.targets, request.actions, request.ways)
-            for name in _item_actions(item, objects)]
 
 
 def _tool_schema(name: str, model: type[BaseModel]) -> dict[str, Any]:

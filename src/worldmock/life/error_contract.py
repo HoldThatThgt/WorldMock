@@ -38,7 +38,7 @@ _HOST_DEFAULTS: dict[str, tuple[str, str]] = {
     "ARGUMENTS_INVALID": ("参数不符合这个工具的参数定义", "按 reason 逐项改正参数，其余保持不变"),
     "TOOL_CALL_REQUIRED": ("这次回复没有可以执行的工具调用", "从这次提供的工具里只调用一个，提交这次的决定"),
     "TOO_MANY_TARGETS": ("一次最多选两个目标", "只保留一至两个目标，其余的下一次再做"),
-    "NAME_NOT_FOUND": ("写的名称不是本轮列出的对象", "照工具层、待办层中的写法填写名称，或者去掉这一项"),
+    "NAME_NOT_FOUND": ("写的名称不是可以操作的对象", "改用候选里的名称，或者照工具层、待办层中的写法填写，或者去掉这一项"),
     "NAME_AMBIGUOUS": ("写的名称对应不止一个对象", "改用候选中的完整名称"),
     "WAY_NOT_OFFERED": ("这个对象没有列出这种动词与方式", "改用该对象列出的动词与方式（见候选），或者去掉这一项"),
     "ROUTE_FIELDS_INVALID": ("from、to 或 answering 与动词、方式不相配", "按动词与方式重填 from、to 与 answering"),
@@ -51,6 +51,13 @@ HOST_ERROR_CODES: tuple[str, ...] = tuple(_HOST_DEFAULTS)
 #: 宿主的名称类纠错码：多项请求逐项报全部，其余条件仍报第一条（第三章 3.1 第 5 条、3.4）。
 HOST_NAME_CODES = frozenset({"NAME_NOT_FOUND", "NAME_AMBIGUOUS", "WAY_NOT_OFFERED", "SUPPLY_SOURCE_MISMATCH",
                              "SUBJECT_NOT_KNOWN"})
+#: 环境的名称类拒绝码（3.4）：指名购买找不到商品、那家店不卖、不支持所写方式、同名多店、来源不是门店或渠道，以及回看
+#: 找不到名称。
+ENVIRONMENT_NAME_CODES = frozenset({"SUPPLY_NOT_FOUND", "SUPPLY_NOT_AT_STORE", "SUPPLY_NAME_AMBIGUOUS",
+                                    "FULFILLMENT_NOT_SUPPORTED", "SOURCE_NOT_FOUND", "TASK_NOT_FOUND"})
+#: 名称类拒绝码闭集（宿主与环境同一口径，3.4）：宿主的只耗本次决策的回合、不进引擎；环境的每人每秒至多 2 次不计同刻
+#: 轮数、不施加情绪脉冲（worldmock.life.same_moment），第 3 次起照常；质量报告 name_rejections 按它分列。
+NAME_REJECTION_CODES = HOST_NAME_CODES | ENVIRONMENT_NAME_CODES
 
 
 @dataclass(frozen=True, slots=True)

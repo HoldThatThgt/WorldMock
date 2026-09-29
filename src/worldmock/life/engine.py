@@ -1097,11 +1097,11 @@ class LifeEngine(ObservationMixin, StorefrontRuntimeMixin, SessionActionMixin):
                                   selection: list[dict] | None) -> str:
         """@brief 按已解析的对象与点名活动，交给 same_moment.request_kind 判定受限轮请求类。
 
-        start_activity 的选择解析不出时以 ACTION_REQUEST_INVALID 拒绝（与受理同一判定）。
+        start_activity 的选择解析不出时以 ACTION_REQUEST_INVALID 拒绝（与受理同一判定，名称类失败逐项写进 items）。
         """
         if selection is None:
             logging.error("Start activity selection is not offered in this round")
-            raise BusinessRuleError("ACTION_REQUEST_INVALID")
+            raise self._unresolved_start(pending)
         actions = [row["selected_action"]["canonical_action"] for row in selection]
         ways = [row["selected_action"]["label"] for row in selection]
         named = (self._activities_for_names(state, pending, [item.activity_name for item in control_items(

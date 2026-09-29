@@ -13,8 +13,8 @@ from dataclasses import replace
 from typing import Any
 
 from worldmock.footprints.experiences import recent_verified_experiences
-from worldmock.life import (activity_control, discovery, felt, memory_layer, presentation, progress_layer, projection,
-                            request_linking)
+from worldmock.life import (activity_control, discovery, felt, memory_layer, named_catalog, presentation,
+                            progress_layer, projection, request_linking)
 from worldmock.life.models import ActivityStatus, ContentProgress, SameMomentPresentation
 from worldmock.life.motivation import MotivationContext, evaluate_motivation
 from worldmock.life.models import active_activities
@@ -33,8 +33,8 @@ class ObservationMixin:
     """@brief 观察投影、浏览与动机仪表的引擎装配方法（self 为 LifeEngine）。"""
 
     def _observation_data(self, agent) -> dict:
-        """@brief 一次观察：七层数据（工具层、待办层、环境层、进度层、记忆层）、私有绑定（含可见直接消息的 message_bindings）、
-        证据与事件级工具支持行。
+        """@brief 一次观察：七层数据（工具层、待办层、环境层、进度层、记忆层）、私有绑定（含可见直接消息的 message_bindings，
+        以及按名调用的目录绑定与住处，named_catalog）、证据与事件级工具支持行。
 
         商品呈现经统一候选契约产出，呈现后由 `_presentation_stamps` 留痕轮转判据；留痕按人物暂存，同一秒各轮沿用该秒首轮的
         呈现窗口与置顶的浏览结果。进度层、progress_meta 只供宿主当次使用（docs/dev/SPEC-persona-prompt.md「进度层」）。
@@ -60,6 +60,7 @@ class ObservationMixin:
         data = projection.build_observation(inputs)
         context = self._layer_context(agent, task_rows, data["interaction_bindings"])
         data["interaction_bindings"] = context.bindings
+        data.update(named_catalog.name_bindings(context, self._enabled_lifestyle_items(agent), config.home_location_id))
         memory = memory_layer.memory_view(context, self.store)
         data.update(self._name_bindings(agent, task_rows, context.names, memory.note_labels))
         data.update(self._layer_data(context, data["body"]["levels"], memory))

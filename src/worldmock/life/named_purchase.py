@@ -1,11 +1,13 @@
 """@brief 指名购买：obtain 的目标不在本轮列出时按名称解析门店供给（docs/dev/SPEC-persona-prompt.md 第五章「指名购买」）。
 
-环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。解析先精确匹配标签「<门店>出售的<商品>」（目标已写明门店，source
-须为 null，否则与列出的标签一样以 ACTION_REQUEST_INVALID 拒绝），再按商品名找满足所选方式的供给：到店是人物所在地点的
-门店，远程下单是配送到收货地的门店；source 可限定门店。零个匹配以 SUPPLY_NOT_FOUND 拒绝，候选为至多 3 个确定性的近似
-标签（词项相似度，不用向量检索与近似最近邻）；多店同名且未限定门店以 SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出全部门店，候选为
-各店的完整标签；恰好一个时返回该供给按当前报价的绑定行，价格、余额、营业与库存由整单结算照常检查。从不自动换成别的商品。
-解析出的绑定行带 named 标记，购买时不查可见凭据（storefront_runtime）。
+环境中存在的商品不因轮转未展示而禁止购买（裁决 #19）。名称按统一名称解析的逐级归一比对（docs/dev/SPEC-dayrun-fidelity.md
+3.1，worldmock.life.name_resolution：精确，再按全半角、括号、空白与「（模拟）」归一，第一级有匹配就停）：先匹配标签
+「<门店>出售的<商品>」（目标已写明门店，source 须为 null——与标签同一家店的 source 已在名称解析中按冗余换成 null——否则
+与列出的标签一样以 ACTION_REQUEST_INVALID 拒绝），再按商品名找满足所选方式的供给：到店是人物所在地点的门店，远程下单是
+配送到收货地的门店；source 可限定门店。零个匹配以 SUPPLY_NOT_FOUND 拒绝，候选为至多 3 个确定性的近似标签（name_resolution
+.rank：此刻能按所选方式送到的在前，再按单字加二字的 Dice 系数，不用向量检索与近似最近邻）；多店同名且未限定门店以
+SUPPLY_NAME_AMBIGUOUS 拒绝，原因列出全部门店，候选为各店的完整标签；恰好一个时返回该供给按当前报价的绑定行，价格、余额、
+营业与库存由整单结算照常检查。从不自动换成别的商品。解析出的绑定行带 named 标记，购买时不查可见凭据（storefront_runtime）。
 
 一个请求中的几项指名购买逐项解析（resolve_named_rows）：名称类拒绝逐项收集，合并成一次拒绝，逐项明细 items[] 的候选写成
 可以照填的请求 {target, action, way, from, to}（docs/dev/SPEC-dayrun-fidelity.md 第四章「错误合同」）；其余拒绝报第一条。
@@ -19,9 +21,10 @@ from typing import TYPE_CHECKING
 
 from worldmock.errors import BusinessRuleError, PreconditionError
 from worldmock.life.discovery import DiscoveryContext, supply_row
-from worldmock.life.error_contract import Candidate, ErrorItem
+from worldmock.life.error_contract import ENVIRONMENT_NAME_CODES, Candidate, ErrorItem
 from worldmock.life.guidance import Refusal, default_reason, items_refusal, refusal_for_code
 from worldmock.life.interaction_menu import NAMED_SUPPLY_KIND, PURCHASE_WAYS, binding_action
+from worldmock.life.name_resolution import fold, rank, resolve_name
 
 if TYPE_CHECKING:
     from worldmock.life.tool_layer import LayerContext
@@ -29,8 +32,8 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 #: SUPPLY_NOT_FOUND 至多列出的近似标签数，也是逐项明细中至多给出的候选数。
 MAX_CANDIDATES = 3
-#: 指名解析中逐项收集、合并报告的名称类拒绝码（docs/dev/SPEC-dayrun-fidelity.md 3.4 的环境一侧）。
-NAMED_ITEM_CODES = frozenset({"SUPPLY_NOT_FOUND", "SUPPLY_NAME_AMBIGUOUS", "FULFILLMENT_NOT_SUPPORTED"})
+#: 指名解析中逐项收集、合并报告的名称类拒绝码：环境的名称类拒绝码中属于商品的（docs/dev/SPEC-dayrun-fidelity.md 3.4）。
+NAMED_ITEM_CODES = ENVIRONMENT_NAME_CODES - {"TASK_NOT_FOUND"}
 
 
 def resolve_named_supply(context: LayerContext, name: str, way: str, source: str | None,
@@ -47,17 +50,17 @@ def resolve_named_supply(context: LayerContext, name: str, way: str, source: str
     """
     fulfillment = next(mode for mode, label in PURCHASE_WAYS.items() if label == way)
     supplies = context.scenario.supplies
-    matches = [supply for supply in supplies if supply_label(context, supply) == name]
+    matches = _named(name, supplies, lambda supply: supply_label(context, supply))
     if matches and source is not None:
         _LOGGER.error("Named purchase gives a store for a label that already names its store")
         raise BusinessRuleError("ACTION_REQUEST_INVALID")
     if not matches:
-        matches = [supply for supply in supplies if _product_name(context, supply) == name
-                   and _serves(context, supply, fulfillment, destination_id)
-                   and (source is None or _store_name(context, supply) == source)]
+        matches = _named(name, [supply for supply in supplies if _serves(context, supply, fulfillment, destination_id)
+                                and (source is None or fold(_store_name(context, supply)) == fold(source))],
+                         lambda supply: _product_name(context, supply))
     if not matches:
         _LOGGER.error("Named purchase matches no supply")
-        raise _refusal("SUPPLY_NOT_FOUND", near_candidates(context, name))
+        raise _refusal("SUPPLY_NOT_FOUND", near_labels(context, name, fulfillment, destination_id))
     if len(matches) > 1:
         _LOGGER.error("Named purchase matches supplies of several stores")
         ordered = sorted(matches, key=lambda supply: (_store_name(context, supply), supply_label(context, supply)))
@@ -104,20 +107,21 @@ def resolve_named_rows(context: LayerContext, selection: list[dict], resolve: Ca
     return rows
 
 
-def near_candidates(context: LayerContext, name: str) -> list[str]:
-    """@brief 至多 3 个与名称最相近的供给标签：按词项相似度降序、标签升序，相似度为 0 的不列。
+def near_labels(context: LayerContext, name: str, fulfillment: str, destination_id: str | None) -> list[str]:
+    """@brief 至多 3 个与名称最相近的供给标签（name_resolution.rank，跨全部供给）：此刻能按所选方式送到的在前（到店要人在
+    那家店，远程下单要能配送到收货地），其次按名称与标签、商品名两者 Dice 系数的较大者降序、标签升序；相似度为 0 的不列。
+    确定性，不用向量检索与近似最近邻，从不自动替换。"""
+    chosen = rank(name, context.scenario.supplies,
+                  lambda supply: (supply_label(context, supply), _product_name(context, supply)),
+                  lambda supply: _serves(context, supply, fulfillment, destination_id))
+    return [supply_label(context, supply) for supply in chosen]
 
-    词项是去掉空白并统一大小写后的单字与相邻二字；相似度取名称与标签、名称与商品名两者 Dice 系数的较大者，确定性，
-    不用向量检索与近似最近邻。
-    """
-    query = _terms(name)
-    scored = []
-    for supply in context.scenario.supplies:
-        label = supply_label(context, supply)
-        score = max(_dice(query, _terms(label)), _dice(query, _terms(_product_name(context, supply))))
-        if score > 0:
-            scored.append((-score, label))
-    return [label for _, label in sorted(set(scored))[:MAX_CANDIDATES]]
+
+def _named(name: str, supplies, naming) -> list:
+    """@brief 名称按统一名称解析的逐级归一比对（第一级有匹配就停）后匹配到的供给；naming 取一件供给的比对名称。"""
+    names = [naming(supply) for supply in supplies]
+    match = resolve_name(name, names)
+    return [supply for supply, value in zip(supplies, names) if value in match.matches]
 
 
 def supply_label(context: LayerContext, supply) -> str:
@@ -181,15 +185,3 @@ def _candidate(supply, label: str, way: str, recipient: str | None) -> Candidate
     chosen = way if way in offered or not offered else offered[0]
     return Candidate(label, "obtain", chosen, None, recipient)
 
-
-def _terms(text: str) -> frozenset[str]:
-    """@brief 名称的词项：去掉空白、统一大小写后的单字与相邻二字。"""
-    compact = "".join(text.split()).casefold()
-    return frozenset(compact) | frozenset(compact[index:index + 2] for index in range(len(compact) - 1))
-
-
-def _dice(left: frozenset[str], right: frozenset[str]) -> float:
-    """@brief 两组词项的 Dice 系数：2|A∩B| / (|A|+|B|)，任一为空时为 0。"""
-    if not left or not right:
-        return 0.0
-    return 2 * len(left & right) / (len(left) + len(right))
